@@ -1,0 +1,451 @@
+// --- M1 VOXEL ENGINE STABLE CONTEXT ---
+// Generated: 7/9/2026 3:53:40 PM
+
+// ==========================================
+// FILE: Assets/CoreEngine/Compute/RaymarchFeature.cs
+// ==========================================
+using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.RenderGraphModule;
+using UnityEngine.Rendering.Universal;
+using CoreEngine.Memory;
+
+namespace CoreEngine.Compute
+{
+    public class RaymarchFeature : ScriptableRendererFeature
+    {
+        class RaymarchPass : ScriptableRenderPass
+        {
+            public ComputeShader raymarchShader;
+
+            // Data container for the Render Graph's Unsafe Pass
+            private class PassData
+            {
+                public ComputeShader computeShader;
+                public VRAMAllocator vramAllocator;
+                public MaterialRegistry materialRegistry;
+                public Camera camera;
+                public TextureHandle computeOutput;
+                public TextureHandle cameraColorTarget;
+                public int dispatchWidth, dispatchHeight;
+            }
+
+            public RaymarchPass(ComputeShader shader)
+            {
+                this.raymarchShader = shader;
+                this.renderPassEvent = RenderPassEvent.AfterRenderingTransparents;
+            }
+
+            public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
+            {
+                if (raymarchShader == null) return;
+
+                UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
+                UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
+
+                // --- THE SCENE VIEW FIX ---
+                // Allow both the Game View AND the Scene View to render the voxels.
+                // We only abort for tiny preview windows or reflection probes.
+                if (cameraData.cameraType == CameraType.Preview || cameraData.cameraType == CameraType.Reflection) return;
+
+                int width = cameraData.cameraTargetDescriptor.width;
+                int height = cameraData.cameraTargetDescriptor.height;
+
+                // 1. Describe the Texture for the Render Graph
+                TextureDesc texDesc = new TextureDesc(width, height);
+                texDesc.format = UnityEngine.Experimental.Rendering.GraphicsFormat.R16G16B16A16_SFloat; // Metal loves SFloat
+                texDesc.enableRandomWrite = true;
+                texDesc.name = "VoxelRaymarchOutput";
+
+                // 2. Allocate the Texture via the Graph
+                TextureHandle computeOutput = renderGraph.CreateTexture(texDesc);
+
+                // 3. Build the Unsafe Pass
+                using (var builder = renderGraph.AddUnsafePass<PassData>("Voxel Raymarch Pass", out var passData))
+                {
+                    passData.computeShader = raymarchShader;
+                    passData.camera = cameraData.camera;
+                    passData.computeOutput = computeOutput;
+                    passData.cameraColorTarget = resourceData.activeColorTexture;
+                    passData.dispatchWidth = width;
+                    passData.dispatchHeight = height;
+
+                    // Locate our static memory pools (In a full production engine, we'd pass these via dependency injection)
+                    passData.vramAllocator = Object.FindFirstObjectByType<VRAMAllocator>();
+                    passData.materialRegistry = Object.FindFirstObjectByType<MaterialRegistry>();
+
+                    // Inform the Render Graph that we intend to WRITE to both of these textures
+                    builder.UseTexture(computeOutput, AccessFlags.Write);
+                    builder.UseTexture(passData.cameraColorTarget, AccessFlags.Write);
+
+                    // 4. The actual Execution function
+                    builder.SetRenderFunc((PassData data, UnsafeGraphContext context) =>
+                    {
+                        if (data.vramAllocator == null || data.vramAllocator.StaticBrickPool == null ||
+                            data.materialRegistry == null || data.materialRegistry.MaterialPaletteBuffer == null) return;
+
+                        CommandBuffer cmd = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+                        int kernel = data.computeShader.FindKernel("CSRaymarch");
+
+                        // Bind Matrices
+                        cmd.SetComputeMatrixParam(data.computeShader, "_CameraInverseProjection", data.camera.projectionMatrix.inverse);
+                        cmd.SetComputeMatrixParam(data.computeShader, "_CameraInverseView", data.camera.cameraToWorldMatrix);
+                        cmd.SetComputeVectorParam(data.computeShader, "_CameraPosition", data.camera.transform.position);
+                        cmd.SetComputeVectorParam(data.computeShader, "_ScreenResolution", new Vector2(data.dispatchWidth, data.dispatchHeight));
+
+                        // Bind Data Pools & Output Texture
+                        cmd.SetComputeBufferParam(data.computeShader, kernel, "StaticBrickPool", data.vramAllocator.StaticBrickPool);
+                        cmd.SetComputeBufferParam(data.computeShader, kernel, "MaterialPalette", data.materialRegistry.MaterialPaletteBuffer);
+                        cmd.SetComputeTextureParam(data.computeShader, kernel, "Result", data.computeOutput);
+
+                        // Dispatch Compute
+                        cmd.DispatchCompute(data.computeShader, kernel, Mathf.CeilToInt(data.dispatchWidth / 8.0f), Mathf.CeilToInt(data.dispatchHeight / 8.0f), 1);
+
+                        // Blit directly to the camera target using the modern Blitter API
+                        Blitter.BlitCameraTexture(cmd, data.computeOutput, data.cameraColorTarget);
+                    });
+                }
+            }
+        }
+
+        [Header("Compute References")]
+        public ComputeShader RaymarchShader;
+        private RaymarchPass raymarchPass;
+
+        public override void Create()
+        {
+            raymarchPass = new RaymarchPass(RaymarchShader);
+        }
+
+        public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
+        {
+            renderer.EnqueuePass(raymarchPass);
+        }
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Compute/Raymarcher.compute
+// ==========================================
+#pragma kernel CSRaymarch
+
+// --- GLOBAL DEFINES ---
+#define VOXEL_SIZE 0.1f
+#define BRICK_SIZE_VOXELS 10
+#define BRICK_SIZE_METERS 1.0f
+
+// --- BUFFERS ---
+// Raw byte buffer for extreme M1 bandwidth optimization
+ByteAddressBuffer StaticBrickPool;
+
+struct MaterialData {
+    uint AlbedoRGBA;
+    float Roughness;
+    float Emissivity;
+    int Viscosity;
+    int Flammability;
+};
+StructuredBuffer<MaterialData> MaterialPalette;
+
+// Output screen texture
+RWTexture2D<float4> Result;
+
+// --- CAMERA MATRICES ---
+float4x4 _CameraInverseProjection;
+float4x4 _CameraInverseView;
+float3 _CameraPosition;
+float2 _ScreenResolution;
+
+// --- DDA TRAVERSAL (PHASE 2) ---
+// For Phase 1, we are hardcoding a bounding box check against a single 1m³ brick at origin (0,0,0).
+float2 IntersectAABB(float3 rayOrigin, float3 rayDir, float3 boxMin, float3 boxMax) {
+    float3 tMin = (boxMin - rayOrigin) / rayDir;
+    float3 tMax = (boxMax - rayOrigin) / rayDir;
+    float3 t1 = min(tMin, tMax);
+    float3 t2 = max(tMin, tMax);
+    float tNear = max(max(t1.x, t1.y), t1.z);
+    float tFar = min(min(t2.x, t2.y), t2.z);
+    return float2(tNear, tFar);
+}
+
+// Unpacks the 32-bit uint color back into a float4 float color
+float4 UnpackColor(uint packedColor) {
+    return float4(
+        (packedColor & 0x000000FF) / 255.0f,
+        ((packedColor & 0x0000FF00) >> 8) / 255.0f,
+        ((packedColor & 0x00FF0000) >> 16) / 255.0f,
+        ((packedColor & 0xFF000000) >> 24) / 255.0f
+    );
+}
+
+[numthreads(8, 8, 1)]
+void CSRaymarch (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_ScreenResolution.x || id.y >= (uint)_ScreenResolution.y) return;
+
+    // 1. RAY INITIATION
+    float2 uv = float2((id.x + 0.5f) / _ScreenResolution.x, (id.y + 0.5f) / _ScreenResolution.y);
+    float2 clipPos = uv * 2.0f - 1.0f;
+    clipPos.y = -clipPos.y; // Unity UVs are inverted vertically in compute
+    
+    float4 viewPos = mul(_CameraInverseProjection, float4(clipPos, 0.0f, 1.0f));
+    viewPos /= viewPos.w;
+    float3 rayDir = normalize(mul(_CameraInverseView, float4(viewPos.xyz, 0.0f)).xyz);
+    float3 rayOrigin = _CameraPosition;
+
+    // Default Sky Color
+    float4 finalColor = float4(0.1f, 0.2f, 0.3f, 1.0f);
+
+    // 2. BOUNDING BOX CHECK (Test Brick at Origin 0,0,0 to 1,1,1)
+    float2 hit = IntersectAABB(rayOrigin, rayDir, float3(0,0,0), float3(1,1,1));
+    
+    if (hit.x < hit.y && hit.y > 0) {
+        
+        // 3. PHASE 2: MICRO-STEPPING DDA setup
+        float t = max(hit.x, 0.0f) + 0.001f; 
+        float3 currentPos = rayOrigin + rayDir * t;
+        
+        // Convert to 3D integer voxel coordinates (0 to 9)
+        int3 voxelCoord = floor(currentPos / VOXEL_SIZE);
+        
+        // DDA Step variables
+        int3 step = sign(rayDir);
+        float3 tDelta = abs(VOXEL_SIZE / rayDir);
+        float3 tMax = (voxelCoord * VOXEL_SIZE - rayOrigin) / rayDir;
+        if (step.x > 0) tMax.x += tDelta.x;
+        if (step.y > 0) tMax.y += tDelta.y;
+        if (step.z > 0) tMax.z += tDelta.z;
+
+        // Traverse up to 20 steps (max distance through a 10x10x10 grid)
+        for (int i = 0; i < 20; i++) {
+            
+            // Bounds check for the 10x10x10 brick
+            if (any(voxelCoord < 0) || any(voxelCoord > 9)) break;
+
+            // Calculate 1D Byte Address Index
+            uint index = voxelCoord.x + (voxelCoord.y * 10) + (voxelCoord.z * 100);
+            
+            // The M1 O(1) Fetch: Read exactly 4 bytes, extract the 1 byte we care about
+            uint byteBlock = StaticBrickPool.Load(index & ~3);
+            uint bitShift = (index & 3) * 8;
+            uint materialID = (byteBlock >> bitShift) & 0xFF;
+
+            if (materialID > 0) {
+                // Intersected a solid voxel! Fetch albedo from Palette.
+                MaterialData mat = MaterialPalette[materialID];
+                finalColor = UnpackColor(mat.AlbedoRGBA);
+                
+                // Simple directional lighting for depth perception
+                float3 normal = float3(0,0,0);
+                if (tMax.x < tMax.y && tMax.x < tMax.z) normal.x = -step.x;
+                else if (tMax.y < tMax.z) normal.y = -step.y;
+                else normal.z = -step.z;
+                
+                float lightDot = saturate(dot(normal, normalize(float3(0.5, 1.0, -0.3))));
+                finalColor.rgb *= 0.5f + (0.5f * lightDot); // Ambient + Diffuse
+                break;
+            }
+
+            // DDA Step
+            if (tMax.x < tMax.y) {
+                if (tMax.x < tMax.z) { voxelCoord.x += step.x; tMax.x += tDelta.x; }
+                else                 { voxelCoord.z += step.z; tMax.z += tDelta.z; }
+            } else {
+                if (tMax.y < tMax.z) { voxelCoord.y += step.y; tMax.y += tDelta.y; }
+                else                 { voxelCoord.z += step.z; tMax.z += tDelta.z; }
+            }
+        }
+    }
+
+    Result[id.xy] = finalColor;
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Memory/MaterialRegistry.cs
+// ==========================================
+using UnityEngine;
+using System.Runtime.InteropServices;
+using System.Linq;
+
+namespace CoreEngine.Memory
+{
+    public class MaterialRegistry : MonoBehaviour
+    {
+        // Must match the exact byte-layout of our HLSL struct
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MaterialData
+        {
+            public uint AlbedoRGBA;   // Packed 32-bit color
+            public float Roughness;
+            public float Emissivity;
+            public int Viscosity;
+            public int Flammability;
+        }
+
+        public ComputeBuffer MaterialPaletteBuffer { get; private set; }
+        private const int MAX_MATERIALS = 256;
+
+        private void Awake()
+        {
+            InitializeRegistry();
+        }
+
+        private void InitializeRegistry()
+        {
+            // Allocate the 256-element palette
+            MaterialPaletteBuffer = new ComputeBuffer(MAX_MATERIALS, Marshal.SizeOf(typeof(MaterialData)), ComputeBufferType.Structured);
+
+            // Load all VoxelMaterial ScriptableObjects from the Resources folder (or via direct reference)
+            // Note: In production, AssetReference/Addressables is better, but this gets us moving.
+            VoxelMaterial[] allMaterials = Resources.LoadAll<VoxelMaterial>("Materials");
+
+            MaterialData[] paletteArray = new MaterialData[MAX_MATERIALS];
+
+            foreach (var mat in allMaterials)
+            {
+                if (mat.MaterialID == 255)
+                {
+                    Debug.LogError("Material ID 255 is strictly reserved for the Dynamic VRAM Pointer. Skipping.");
+                    continue;
+                }
+
+                // Pack the Unity Color32 into a uint for HLSL
+                uint packedColor = (uint)((mat.Albedo.a << 24) | (mat.Albedo.b << 16) | (mat.Albedo.g << 8) | mat.Albedo.r);
+
+                paletteArray[mat.MaterialID] = new MaterialData
+                {
+                    AlbedoRGBA = packedColor,
+                    Roughness = mat.Roughness,
+                    Emissivity = mat.Emissivity,
+                    Viscosity = mat.Viscosity,
+                    Flammability = mat.Flammability
+                };
+            }
+
+            // Ship the registry to the GPU
+            MaterialPaletteBuffer.SetData(paletteArray);
+            Debug.Log($"<color=#00FFFF>Material Registry Compiled.</color> Loaded {allMaterials.Length} definitions into VRAM.");
+        }
+
+        private void OnDestroy()
+        {
+            MaterialPaletteBuffer?.Release();
+        }
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Memory/VRAMAllocator.cs
+// ==========================================
+using UnityEngine;
+using System.Runtime.InteropServices;
+
+namespace CoreEngine.Memory
+{
+    public class VRAMAllocator : MonoBehaviour
+    {
+        [Header("Global Memory Pools")]
+        public ComputeBuffer StaticBrickPool;
+        public ComputeBuffer DynamicFluidPoolA;
+        public ComputeBuffer DynamicFluidPoolB;
+        public ComputeBuffer SpatialHashTable;
+
+        // Static Pool: 1.5 million bricks. 1m³ each (1,000 voxels). 1-Byte payload per voxel.
+        // Total VRAM: ~1.5 GB
+        private const int STATIC_BRICK_COUNT = 1500000;
+        private const int BYTES_PER_STATIC_BRICK = 1000;
+
+        // Dynamic Pool (Double Buffered): Total 400 MB capacity split into A and B.
+        // Each buffer holds 200 MB (approx 25,000 bricks if 8-byte payload per voxel).
+        private const int DYNAMIC_BRICK_COUNT_PER_BUFFER = 25000;
+        private const int BYTES_PER_DYNAMIC_BRICK = 8000; 
+
+        // Spatial Hash: 2 million buckets, 32-bit uint pointers (4 bytes).
+        // Total VRAM: ~8 MB
+        private const int SPATIAL_HASH_BUCKETS = 2000000;
+
+        private void Awake()
+        {
+            InitializeMemoryPools();
+        }
+
+        private void InitializeMemoryPools()
+        {
+            // 1. Allocate the Static Brickmap Pool
+            StaticBrickPool = new ComputeBuffer(STATIC_BRICK_COUNT, BYTES_PER_STATIC_BRICK, ComputeBufferType.Raw);
+            
+            // 2. Allocate the Double-Buffered Dynamic Fluid Pools (Ping-Pong buffers for lock-free physics)
+            DynamicFluidPoolA = new ComputeBuffer(DYNAMIC_BRICK_COUNT_PER_BUFFER, BYTES_PER_DYNAMIC_BRICK, ComputeBufferType.Raw);
+            DynamicFluidPoolB = new ComputeBuffer(DYNAMIC_BRICK_COUNT_PER_BUFFER, BYTES_PER_DYNAMIC_BRICK, ComputeBufferType.Raw);
+
+            // 3. Allocate the Indirection Grid
+            SpatialHashTable = new ComputeBuffer(SPATIAL_HASH_BUCKETS, sizeof(uint), ComputeBufferType.Raw);
+
+            Debug.Log("<color=#00FF00>VRAM Pools Successfully Seized.</color> Static: 1.5GB | Dynamic: 400MB");
+            
+            // --- NEW: Phase 1 Test Injection ---
+            InjectDevCheckerboard();
+        
+        }
+
+        private void InjectDevCheckerboard()
+        {
+            // A 1m³ brick is 10x10x10 voxels (1,000 bytes)
+            byte[] mockBrick = new byte[1000];
+
+            for (int x = 0; x < 10; x++)
+            {
+                for (int y = 0; y < 10; y++)
+                {
+                    for (int z = 0; z < 10; z++)
+                    {
+                        // 1D Array Flattening
+                        int index = x + (y * 10) + (z * 100);
+                        
+                        // 3D Parity Check (Alternates between 1 and 2)
+                        mockBrick[index] = (byte)(((x + y + z) % 2 == 0) ? 1 : 2);
+                    }
+                }
+            }
+
+            // Upload directly to the GPU's ByteAddressBuffer
+            StaticBrickPool.SetData(mockBrick, 0, 0, 1000);
+            Debug.Log("<color=#FFA500>Dev Checkerboard injected into VRAM Brick 0.</color>");
+        }
+
+        private void OnDestroy()
+        {
+            // NEVER forget to release ComputeBuffers, or you will leak memory into macOS.
+            StaticBrickPool?.Release();
+            DynamicFluidPoolA?.Release();
+            DynamicFluidPoolB?.Release();
+            SpatialHashTable?.Release();
+        }
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Memory/VoxelMaterial.cs
+// ==========================================
+using UnityEngine;
+
+namespace CoreEngine.Memory
+{
+    [CreateAssetMenu(fileName = "NewVoxelMaterial", menuName = "Voxel Engine/Material")]
+    public class VoxelMaterial : ScriptableObject
+    {
+        [Header("Identity (0 = Air, 255 = Dynamic Pointer)")]
+        [Range(0, 255)]
+        public byte MaterialID;
+
+        [Header("Rendering Properties")]
+        public Color32 Albedo;
+        [Range(0f, 1f)] public float Roughness;
+        [Range(0f, 10f)] public float Emissivity; // For glowing materials like Lava/Torches
+
+        [Header("Simulation Rules")]
+        [Range(0, 100)] public int Viscosity;     // E.g., Water = 1, Honey = 30
+        [Range(0, 100)] public int Flammability;
+    }
+}
+

@@ -1,0 +1,132 @@
+#pragma kernel CSRaymarch
+
+// --- GLOBAL DEFINES ---
+#define VOXEL_SIZE 0.1f
+#define BRICK_SIZE_VOXELS 10
+#define BRICK_SIZE_METERS 1.0f
+
+// --- BUFFERS ---
+// Raw byte buffer for extreme M1 bandwidth optimization
+ByteAddressBuffer StaticBrickPool;
+
+struct MaterialData {
+    uint AlbedoRGBA;
+    float Roughness;
+    float Emissivity;
+    int Viscosity;
+    int Flammability;
+};
+StructuredBuffer<MaterialData> MaterialPalette;
+
+// Output screen texture
+RWTexture2D<float4> Result;
+
+// --- CAMERA MATRICES ---
+float4x4 _CameraInverseProjection;
+float4x4 _CameraInverseView;
+float3 _CameraPosition;
+float2 _ScreenResolution;
+
+// --- DDA TRAVERSAL (PHASE 2) ---
+// For Phase 1, we are hardcoding a bounding box check against a single 1m³ brick at origin (0,0,0).
+float2 IntersectAABB(float3 rayOrigin, float3 rayDir, float3 boxMin, float3 boxMax) {
+    float3 tMin = (boxMin - rayOrigin) / rayDir;
+    float3 tMax = (boxMax - rayOrigin) / rayDir;
+    float3 t1 = min(tMin, tMax);
+    float3 t2 = max(tMin, tMax);
+    float tNear = max(max(t1.x, t1.y), t1.z);
+    float tFar = min(min(t2.x, t2.y), t2.z);
+    return float2(tNear, tFar);
+}
+
+// Unpacks the 32-bit uint color back into a float4 float color
+float4 UnpackColor(uint packedColor) {
+    return float4(
+        (packedColor & 0x000000FF) / 255.0f,
+        ((packedColor & 0x0000FF00) >> 8) / 255.0f,
+        ((packedColor & 0x00FF0000) >> 16) / 255.0f,
+        ((packedColor & 0xFF000000) >> 24) / 255.0f
+    );
+}
+
+[numthreads(8, 8, 1)]
+void CSRaymarch (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_ScreenResolution.x || id.y >= (uint)_ScreenResolution.y) return;
+
+    // 1. RAY INITIATION
+    float2 uv = float2((id.x + 0.5f) / _ScreenResolution.x, (id.y + 0.5f) / _ScreenResolution.y);
+    float2 clipPos = uv * 2.0f - 1.0f;
+    clipPos.y = -clipPos.y; // Unity UVs are inverted vertically in compute
+    
+    float4 viewPos = mul(_CameraInverseProjection, float4(clipPos, 0.0f, 1.0f));
+    viewPos /= viewPos.w;
+    float3 rayDir = normalize(mul(_CameraInverseView, float4(viewPos.xyz, 0.0f)).xyz);
+    float3 rayOrigin = _CameraPosition;
+
+    // Default Sky Color
+    float4 finalColor = float4(0.1f, 0.2f, 0.3f, 1.0f);
+
+    // 2. BOUNDING BOX CHECK (Test Brick at Origin 0,0,0 to 1,1,1)
+    float2 hit = IntersectAABB(rayOrigin, rayDir, float3(0,0,0), float3(1,1,1));
+    
+    if (hit.x < hit.y && hit.y > 0) {
+        
+        // 3. PHASE 2: MICRO-STEPPING DDA setup
+        float t = max(hit.x, 0.0f) + 0.001f; 
+        float3 currentPos = rayOrigin + rayDir * t;
+        
+        // Convert to 3D integer voxel coordinates (0 to 9)
+        int3 voxelCoord = floor(currentPos / VOXEL_SIZE);
+        
+        // DDA Step variables
+        int3 step = sign(rayDir);
+        float3 tDelta = abs(VOXEL_SIZE / rayDir);
+        float3 tMax = (voxelCoord * VOXEL_SIZE - rayOrigin) / rayDir;
+        if (step.x > 0) tMax.x += tDelta.x;
+        if (step.y > 0) tMax.y += tDelta.y;
+        if (step.z > 0) tMax.z += tDelta.z;
+
+        // Traverse up to 20 steps (max distance through a 10x10x10 grid)
+        for (int i = 0; i < 20; i++) {
+            
+            // Bounds check for the 10x10x10 brick
+            if (any(voxelCoord < 0) || any(voxelCoord > 9)) break;
+
+            // Calculate 1D Byte Address Index
+            uint index = voxelCoord.x + (voxelCoord.y * 10) + (voxelCoord.z * 100);
+            
+            // The M1 O(1) Fetch: Read exactly 4 bytes, extract the 1 byte we care about
+            uint byteBlock = StaticBrickPool.Load(index & ~3);
+            uint bitShift = (index & 3) * 8;
+            uint materialID = (byteBlock >> bitShift) & 0xFF;
+
+            if (materialID > 0) {
+                // Intersected a solid voxel! Fetch albedo from Palette.
+                MaterialData mat = MaterialPalette[materialID];
+                finalColor = UnpackColor(mat.AlbedoRGBA);
+                
+                // Simple directional lighting for depth perception
+                float3 normal = float3(0,0,0);
+                if (tMax.x < tMax.y && tMax.x < tMax.z) normal.x = -step.x;
+                else if (tMax.y < tMax.z) normal.y = -step.y;
+                else normal.z = -step.z;
+                
+                float lightDot = saturate(dot(normal, normalize(float3(0.5, 1.0, -0.3))));
+                finalColor.rgb *= 0.5f + (0.5f * lightDot); // Ambient + Diffuse
+                break;
+            }
+
+            // DDA Step
+            if (tMax.x < tMax.y) {
+                if (tMax.x < tMax.z) { voxelCoord.x += step.x; tMax.x += tDelta.x; }
+                else                 { voxelCoord.z += step.z; tMax.z += tDelta.z; }
+            } else {
+                if (tMax.y < tMax.z) { voxelCoord.y += step.y; tMax.y += tDelta.y; }
+                else                 { voxelCoord.z += step.z; tMax.z += tDelta.z; }
+            }
+        }
+    }
+
+    Result[id.xy] = finalColor;
+}
