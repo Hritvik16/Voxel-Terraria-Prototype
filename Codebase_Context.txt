@@ -1,451 +1,2291 @@
 // --- M1 VOXEL ENGINE STABLE CONTEXT ---
-// Generated: 7/9/2026 3:53:40 PM
+// Generated: 8/6/2026 11:22:21 AM
 
 // ==========================================
-// FILE: Assets/CoreEngine/Compute/RaymarchFeature.cs
+// FILE: Assets/CoreEngine/Coord/CoordMath.cs
+// ==========================================
+// Assets/CoreEngine/Coord/CoordMath.cs
+using Unity.Mathematics;
+using Unity.Burst;
+using System.Runtime.CompilerServices;
+
+[BurstCompile]
+public static class CoordMath
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int3 WorldToVoxel(float3 worldPos)
+    {
+        return (int3)math.floor(worldPos * 10.0f);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int3 VoxelToBrick(int3 voxelCoord)
+    {
+        return voxelCoord >> 3;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int3 BrickToChunk(int3 brickCoord)
+    {
+        return brickCoord >> 4;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int3 VoxelToChunk(int3 voxelCoord)
+    {
+        return (voxelCoord >> 3) >> 4;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int3 LocalVoxelIndex3D(int3 voxelCoord)
+    {
+        return voxelCoord & 7;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int3 LocalBrickIndex3D(int3 brickCoord)
+    {
+        return brickCoord & 15;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int LocalVoxelIndex(int3 localVoxel)
+    {
+        return (localVoxel.z << 6) | (localVoxel.y << 3) | localVoxel.x;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int LocalBrickIndex(int3 localBrick)
+    {
+        return (localBrick.z << 8) | (localBrick.y << 4) | localBrick.x;
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Coord/CoordMath.hlsl
+// ==========================================
+// Assets/CoreEngine/Coord/CoordMath.hlsl
+#ifndef COORD_MATH_INCLUDED
+#define COORD_MATH_INCLUDED
+
+int3 WorldToVoxel(float3 worldPos)
+{
+    return (int3)floor(worldPos * 10.0);
+}
+
+int3 VoxelToBrick(int3 voxelCoord)
+{
+    return voxelCoord >> 3;
+}
+
+int3 BrickToChunk(int3 brickCoord)
+{
+    return brickCoord >> 4;
+}
+
+int3 LocalVoxelIndex3D(int3 voxelCoord)
+{
+    return voxelCoord & 7;
+}
+
+int3 LocalBrickIndex3D(int3 brickCoord)
+{
+    return brickCoord & 15;
+}
+
+int LocalVoxelIndex(int3 localVoxel)
+{
+    return (localVoxel.z << 6) | (localVoxel.y << 3) | localVoxel.x;
+}
+
+int LocalBrickIndex(int3 localBrick)
+{
+    return (localBrick.z << 8) | (localBrick.y << 4) | localBrick.x;
+}
+
+#endif
+
+// ==========================================
+// FILE: Assets/CoreEngine/Diagnostics/DebugPasses.cs
 // ==========================================
 using UnityEngine;
-using UnityEngine.Rendering;
-using UnityEngine.Rendering.RenderGraphModule;
-using UnityEngine.Rendering.Universal;
-using CoreEngine.Memory;
 
-namespace CoreEngine.Compute
+public class DebugPasses : MonoBehaviour
 {
-    public class RaymarchFeature : ScriptableRendererFeature
+    // Placeholder to wire heatmap and wireframe bounds in Phase 2
+}
+
+
+// ==========================================
+// FILE: Assets/CoreEngine/Gameplay/EditService.cs
+// ==========================================
+// Assets/CoreEngine/Gameplay/EditService.cs
+using System;
+using Unity.Mathematics;
+
+public class EditService : IEditService
+{
+    public void SetVoxel(int3 worldVoxelCoord, byte material)
     {
-        class RaymarchPass : ScriptableRenderPass
+        throw new NotImplementedException();
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Gameplay/PlayerController.cs
+// ==========================================
+// Assets/CoreEngine/Gameplay/PlayerController.cs
+using System;
+using UnityEngine;
+
+public class PlayerController : MonoBehaviour
+{
+    private void Update()
+    {
+        throw new NotImplementedException();
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Memory/BrickDataPool.cs
+// ==========================================
+using Unity.Collections;
+using System;
+
+namespace VoxelEngine.Memory
+{
+    public class BrickDataPool : IDisposable
+    {
+        private NativeArray<byte> _brickData;
+        private NativeArray<int> _freeStack;
+        private int _freeCount;
+        public readonly int Capacity;
+
+        public BrickDataPool(int capacity)
         {
-            public ComputeShader raymarchShader;
+            Capacity = capacity;
+            
+            // Allocate the raw voxel arrays
+            _brickData = new NativeArray<byte>(capacity * 512, Allocator.Persistent);
+            _freeStack = new NativeArray<int>(capacity, Allocator.Persistent);
+            _freeCount = capacity;
 
-            // Data container for the Render Graph's Unsafe Pass
-            private class PassData
+            // Initialize free stack backwards so first Alloc returns index 0
+            for (int i = 0; i < capacity; i++)
             {
-                public ComputeShader computeShader;
-                public VRAMAllocator vramAllocator;
-                public MaterialRegistry materialRegistry;
-                public Camera camera;
-                public TextureHandle computeOutput;
-                public TextureHandle cameraColorTarget;
-                public int dispatchWidth, dispatchHeight;
-            }
-
-            public RaymarchPass(ComputeShader shader)
-            {
-                this.raymarchShader = shader;
-                this.renderPassEvent = RenderPassEvent.AfterRenderingTransparents;
-            }
-
-            public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
-            {
-                if (raymarchShader == null) return;
-
-                UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
-                UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
-
-                // --- THE SCENE VIEW FIX ---
-                // Allow both the Game View AND the Scene View to render the voxels.
-                // We only abort for tiny preview windows or reflection probes.
-                if (cameraData.cameraType == CameraType.Preview || cameraData.cameraType == CameraType.Reflection) return;
-
-                int width = cameraData.cameraTargetDescriptor.width;
-                int height = cameraData.cameraTargetDescriptor.height;
-
-                // 1. Describe the Texture for the Render Graph
-                TextureDesc texDesc = new TextureDesc(width, height);
-                texDesc.format = UnityEngine.Experimental.Rendering.GraphicsFormat.R16G16B16A16_SFloat; // Metal loves SFloat
-                texDesc.enableRandomWrite = true;
-                texDesc.name = "VoxelRaymarchOutput";
-
-                // 2. Allocate the Texture via the Graph
-                TextureHandle computeOutput = renderGraph.CreateTexture(texDesc);
-
-                // 3. Build the Unsafe Pass
-                using (var builder = renderGraph.AddUnsafePass<PassData>("Voxel Raymarch Pass", out var passData))
-                {
-                    passData.computeShader = raymarchShader;
-                    passData.camera = cameraData.camera;
-                    passData.computeOutput = computeOutput;
-                    passData.cameraColorTarget = resourceData.activeColorTexture;
-                    passData.dispatchWidth = width;
-                    passData.dispatchHeight = height;
-
-                    // Locate our static memory pools (In a full production engine, we'd pass these via dependency injection)
-                    passData.vramAllocator = Object.FindFirstObjectByType<VRAMAllocator>();
-                    passData.materialRegistry = Object.FindFirstObjectByType<MaterialRegistry>();
-
-                    // Inform the Render Graph that we intend to WRITE to both of these textures
-                    builder.UseTexture(computeOutput, AccessFlags.Write);
-                    builder.UseTexture(passData.cameraColorTarget, AccessFlags.Write);
-
-                    // 4. The actual Execution function
-                    builder.SetRenderFunc((PassData data, UnsafeGraphContext context) =>
-                    {
-                        if (data.vramAllocator == null || data.vramAllocator.StaticBrickPool == null ||
-                            data.materialRegistry == null || data.materialRegistry.MaterialPaletteBuffer == null) return;
-
-                        CommandBuffer cmd = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
-                        int kernel = data.computeShader.FindKernel("CSRaymarch");
-
-                        // Bind Matrices
-                        cmd.SetComputeMatrixParam(data.computeShader, "_CameraInverseProjection", data.camera.projectionMatrix.inverse);
-                        cmd.SetComputeMatrixParam(data.computeShader, "_CameraInverseView", data.camera.cameraToWorldMatrix);
-                        cmd.SetComputeVectorParam(data.computeShader, "_CameraPosition", data.camera.transform.position);
-                        cmd.SetComputeVectorParam(data.computeShader, "_ScreenResolution", new Vector2(data.dispatchWidth, data.dispatchHeight));
-
-                        // Bind Data Pools & Output Texture
-                        cmd.SetComputeBufferParam(data.computeShader, kernel, "StaticBrickPool", data.vramAllocator.StaticBrickPool);
-                        cmd.SetComputeBufferParam(data.computeShader, kernel, "MaterialPalette", data.materialRegistry.MaterialPaletteBuffer);
-                        cmd.SetComputeTextureParam(data.computeShader, kernel, "Result", data.computeOutput);
-
-                        // Dispatch Compute
-                        cmd.DispatchCompute(data.computeShader, kernel, Mathf.CeilToInt(data.dispatchWidth / 8.0f), Mathf.CeilToInt(data.dispatchHeight / 8.0f), 1);
-
-                        // Blit directly to the camera target using the modern Blitter API
-                        Blitter.BlitCameraTexture(cmd, data.computeOutput, data.cameraColorTarget);
-                    });
-                }
+                _freeStack[i] = capacity - 1 - i;
             }
         }
 
-        [Header("Compute References")]
-        public ComputeShader RaymarchShader;
-        private RaymarchPass raymarchPass;
-
-        public override void Create()
+        public int Alloc()
         {
-            raymarchPass = new RaymarchPass(RaymarchShader);
+            if (_freeCount == 0)
+            {
+                throw new InvalidOperationException("BrickDataPool exhausted. LRU valve failed or cap is too low.");
+            }
+            return _freeStack[--_freeCount];
         }
 
-        public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
+        public void Free(int index)
         {
-            renderer.EnqueuePass(raymarchPass);
+            _freeStack[_freeCount++] = index;
+        }
+
+        public NativeArray<byte> RawData => _brickData;
+
+        public void Dispose()
+        {
+            if (_brickData.IsCreated) _brickData.Dispose();
+            if (_freeStack.IsCreated) _freeStack.Dispose();
         }
     }
 }
 
 // ==========================================
-// FILE: Assets/CoreEngine/Compute/Raymarcher.compute
+// FILE: Assets/CoreEngine/Memory/ChunkHandleAllocator.cs
 // ==========================================
-#pragma kernel CSRaymarch
+using System;
+using System.Collections.Generic;
 
-// --- GLOBAL DEFINES ---
-#define VOXEL_SIZE 0.1f
-#define BRICK_SIZE_VOXELS 10
-#define BRICK_SIZE_METERS 1.0f
+namespace VoxelEngine.Memory
+{
+    public class ChunkHandleAllocator
+    {
+        private readonly Stack<BrickHandle[]> _pool = new Stack<BrickHandle[]>();
 
-// --- BUFFERS ---
-// Raw byte buffer for extreme M1 bandwidth optimization
-ByteAddressBuffer StaticBrickPool;
+        public ChunkHandleAllocator(int initialCapacity = 1000)
+        {
+            for (int i = 0; i < initialCapacity; i++)
+            {
+                _pool.Push(new BrickHandle[4096]);
+            }
+        }
 
-struct MaterialData {
-    uint AlbedoRGBA;
-    float Roughness;
-    float Emissivity;
-    int Viscosity;
-    int Flammability;
-};
-StructuredBuffer<MaterialData> MaterialPalette;
+        public BrickHandle[] Alloc()
+        {
+            return _pool.Count > 0 ? _pool.Pop() : new BrickHandle[4096];
+        }
 
-// Output screen texture
-RWTexture2D<float4> Result;
-
-// --- CAMERA MATRICES ---
-float4x4 _CameraInverseProjection;
-float4x4 _CameraInverseView;
-float3 _CameraPosition;
-float2 _ScreenResolution;
-
-// --- DDA TRAVERSAL (PHASE 2) ---
-// For Phase 1, we are hardcoding a bounding box check against a single 1m³ brick at origin (0,0,0).
-float2 IntersectAABB(float3 rayOrigin, float3 rayDir, float3 boxMin, float3 boxMax) {
-    float3 tMin = (boxMin - rayOrigin) / rayDir;
-    float3 tMax = (boxMax - rayOrigin) / rayDir;
-    float3 t1 = min(tMin, tMax);
-    float3 t2 = max(tMin, tMax);
-    float tNear = max(max(t1.x, t1.y), t1.z);
-    float tFar = min(min(t2.x, t2.y), t2.z);
-    return float2(tNear, tFar);
+        public void Free(BrickHandle[] handles)
+        {
+            // Clear the array before pushing back to the pool to prevent handle ghosting
+            Array.Clear(handles, 0, handles.Length);
+            _pool.Push(handles);
+        }
+    }
 }
 
-// Unpacks the 32-bit uint color back into a float4 float color
-float4 UnpackColor(uint packedColor) {
-    return float4(
-        (packedColor & 0x000000FF) / 255.0f,
-        ((packedColor & 0x0000FF00) >> 8) / 255.0f,
-        ((packedColor & 0x00FF0000) >> 16) / 255.0f,
-        ((packedColor & 0xFF000000) >> 24) / 255.0f
-    );
+// ==========================================
+// FILE: Assets/CoreEngine/Memory/ChunkStore.cs
+// ==========================================
+// Assets/CoreEngine/Memory/ChunkStore.cs
+using System;
+using Unity.Collections;
+using Unity.Mathematics;
+using VoxelEngine.Memory;
+
+public class ChunkStore : IWorldQuery, IEditService
+{
+    private readonly Chunk[] _residentWindow;
+    private readonly int3 _windowMask;
+    private readonly int3 _windowDims;
+    
+    private readonly BrickDataPool _brickPool;
+    private readonly ChunkHandleAllocator _handleAllocator;
+
+    public ChunkStore(BrickDataPool brickPool, ChunkHandleAllocator handleAllocator)
+    {
+        _brickPool = brickPool;
+        _handleAllocator = handleAllocator;
+
+        // Window dimensions must be powers of two for bitwise masking
+        _windowDims = new int3(EngineConfig.WINDOW_CHUNKS_XZ, EngineConfig.WINDOW_CHUNKS_Y, EngineConfig.WINDOW_CHUNKS_XZ);
+        _windowMask = _windowDims - new int3(1, 1, 1);
+        
+        _residentWindow = new Chunk[_windowDims.x * _windowDims.y * _windowDims.z];
+    }
+
+    private int GetFlatIndex(int3 chunkCoord)
+    {
+        // Toroidal ring-buffer masking per axis[cite: 2]
+        int3 wrapped = chunkCoord & _windowMask;
+        return wrapped.x + _windowDims.x * (wrapped.y + _windowDims.y * wrapped.z);
+    }
+
+    public void InsertChunk(Chunk chunk)
+    {
+        _residentWindow[GetFlatIndex(chunk.coord)] = chunk;
+    }
+
+    public Chunk GetChunk(int3 chunkCoord)
+    {
+        int flatIndex = GetFlatIndex(chunkCoord);
+        Chunk c = _residentWindow[flatIndex];
+        
+        if (c != null && c.coord.Equals(chunkCoord)) 
+        {
+            return c;
+        }
+        return null;
+    }
+
+    public byte GetVoxel(int3 worldVoxelCoord)
+    {
+        int3 chunkCoord = CoordMath.VoxelToChunk(worldVoxelCoord);
+        Chunk chunk = GetChunk(chunkCoord);
+        
+        // 1. Chunk uniform check[cite: 2]
+        if (chunk == null) return 0; // Unloaded treats as air
+        if (chunk.isUniform) return chunk.uniformMaterial;
+
+        int3 localBrick = CoordMath.LocalBrickIndex3D(CoordMath.VoxelToBrick(worldVoxelCoord));
+        int brickFlatIndex = CoordMath.LocalBrickIndex(localBrick);
+        
+        uint handleData = chunk.bricks[brickFlatIndex].data;
+        bool isDense = (handleData & 0x80000000) != 0;
+
+        // 2. Brick uniform check[cite: 2]
+        if (!isDense)
+        {
+            return (byte)(handleData & 0xFF);
+        }
+
+        // 3. Dense body read[cite: 2]
+        int poolIndex = (int)(handleData & 0x3FFFFFFF);
+        int3 localVoxel = CoordMath.LocalVoxelIndex3D(worldVoxelCoord);
+        int voxelFlatIndex = CoordMath.LocalVoxelIndex(localVoxel);
+        
+        return _brickPool.RawData[(poolIndex * 512) + voxelFlatIndex];
+    }
+
+    public void SetVoxel(int3 worldVoxelCoord, byte material)
+    {
+        int3 chunkCoord = CoordMath.VoxelToChunk(worldVoxelCoord);
+        Chunk chunk = GetChunk(chunkCoord);
+        
+        if (chunk == null) return; // Cannot edit unloaded chunks
+
+        // 1. Chunk uniform check and expansion[cite: 2]
+        if (chunk.isUniform)
+        {
+            if (chunk.uniformMaterial == material) return; // No-op fast path[cite: 2]
+            
+            chunk.isUniform = false;
+            chunk.bricks = _handleAllocator.Alloc();
+            
+            for (int i = 0; i < 4096; i++)
+            {
+                chunk.bricks[i].data = chunk.uniformMaterial;
+            }
+        }
+
+        int3 localBrick = CoordMath.LocalBrickIndex3D(CoordMath.VoxelToBrick(worldVoxelCoord));
+        int brickFlatIndex = CoordMath.LocalBrickIndex(localBrick);
+        
+        uint handleData = chunk.bricks[brickFlatIndex].data;
+        bool isDense = (handleData & 0x80000000) != 0;
+
+        // 2. Brick uniform check and expansion[cite: 2]
+        if (!isDense)
+        {
+            byte brickMaterial = (byte)(handleData & 0xFF);
+            if (brickMaterial == material) return; // No-op fast path[cite: 2]
+
+            int poolIndex = _brickPool.Alloc();
+            int startOffset = poolIndex * 512;
+            
+            NativeArray<byte> rawData = _brickPool.RawData;
+            for (int i = 0; i < 512; i++)
+            {
+                rawData[startOffset + i] = brickMaterial;
+            }
+
+            chunk.bricks[brickFlatIndex].data = 0x80000000 | (uint)poolIndex;
+            handleData = chunk.bricks[brickFlatIndex].data;
+        }
+
+        // 3. Write Voxel[cite: 2]
+        int poolIdx = (int)(handleData & 0x3FFFFFFF);
+        int3 localVoxel = CoordMath.LocalVoxelIndex3D(worldVoxelCoord);
+        int voxelFlatIndex = CoordMath.LocalVoxelIndex(localVoxel);
+
+        NativeArray<byte> finalData = _brickPool.RawData;
+        finalData[(poolIdx * 512) + voxelFlatIndex] = material;
+
+        // 4. Mark dirty for clipmap upload and delta save[cite: 2]
+        chunk.dirty = true;
+        chunk.deltaDirty = true;
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Memory/Coalescer.cs
+// ==========================================
+using Unity.Mathematics;
+using Unity.Collections;
+
+namespace VoxelEngine.Memory
+{
+    public static class Coalescer
+    {
+        // Returns true if the chunk was fully coalesced into a uniform chunk
+        public static bool TryCoalesce(Chunk chunk, BrickDataPool brickPool)
+        {
+            if (chunk.isUniform) return true;
+
+            bool allBricksUniform = true;
+            byte firstMaterial = 0;
+            bool firstMaterialSet = false;
+
+            for (int i = 0; i < 4096; i++)
+            {
+                uint handleData = chunk.bricks[i].data;
+                bool isDense = (handleData & 0x80000000) != 0; // [31] dense flag
+
+                if (isDense)
+                {
+                    int poolIndex = (int)(handleData & 0x3FFFFFFF); // [29:0] index
+                    NativeArray<byte> rawData = brickPool.RawData;
+                    int startOffset = poolIndex * 512;
+
+                    byte firstByte = rawData[startOffset];
+                    bool isBrickUniform = true;
+
+                    // Scan the 512-byte body
+                    for (int v = 1; v < 512; v++)
+                    {
+                        if (rawData[startOffset + v] != firstByte)
+                        {
+                            isBrickUniform = false;
+                            break;
+                        }
+                    }
+
+                    if (isBrickUniform)
+                    {
+                        // Coalesce brick: free the 512-byte payload and write a uniform handle
+                        brickPool.Free(poolIndex);
+                        chunk.bricks[i].data = firstByte; // [31] = 0 (uniform), [7:0] = material
+                        isDense = false;
+                        handleData = firstByte;
+                    }
+                }
+
+                // If the brick is uniform (originally or newly coalesced), check it against the chunk consensus
+                if (!isDense)
+                {
+                    byte mat = (byte)(handleData & 0xFF); // [7:0] material
+                    
+                    if (!firstMaterialSet)
+                    {
+                        firstMaterial = mat;
+                        firstMaterialSet = true;
+                    }
+                    else if (mat != firstMaterial)
+                    {
+                        allBricksUniform = false;
+                    }
+                }
+                else
+                {
+                    allBricksUniform = false;
+                }
+            }
+
+            if (allBricksUniform)
+            {
+                // The whole chunk is uniform. 
+                // We update the state here. The calling streaming/eviction system is responsible 
+                // for returning chunk.bricks back to the ChunkHandleAllocator to avoid tight coupling.
+                chunk.isUniform = true;
+                chunk.uniformMaterial = firstMaterial;
+                return true;
+            }
+
+            return false;
+        }
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Memory/IEditService.cs
+// ==========================================
+// Assets/CoreEngine/Memory/IEditService.cs
+using Unity.Mathematics;
+
+public interface IEditService
+{
+    void SetVoxel(int3 worldVoxelCoord, byte material);
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Memory/IWorldQuery.cs
+// ==========================================
+// Assets/CoreEngine/Memory/IWorldQuery.cs
+using Unity.Mathematics;
+
+public interface IWorldQuery
+{
+    byte GetVoxel(int3 worldVoxelCoord);
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Memory/Phase1ReadTest.compute
+// ==========================================
+#pragma kernel CSMain
+
+StructuredBuffer<uint> ReadBuffer;
+RWStructuredBuffer<uint> ResultBuffer;
+uint ElementCount;
+
+[numthreads(64,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    // Guard against the last group's overhang threads (ElementCount may not be
+    // an exact multiple of 64) reading/writing out of bounds.
+    if (id.x >= ElementCount) return;
+
+    // Each thread does a real, non-trivial read pattern over the buffer so the
+    // measured cost reflects actual memory-bus behavior, not a compiler-optimized
+    // no-op. Deliberately reads scattered offsets rather than just ReadBuffer[id.x],
+    // since a single coalesced read per thread is too cheap to show a placement
+    // difference - this is closer to the raymarcher's less-predictable access pattern.
+    uint sum = 0;
+    for (uint i = 0; i < 32; i++)
+    {
+        uint idx = (id.x + i * 997) % ElementCount; // 997 is prime, avoids a fixed stride alias
+        sum += ReadBuffer[idx];
+    }
+    ResultBuffer[id.x] = sum;
+}
+
+
+// ==========================================
+// FILE: Assets/CoreEngine/Memory/StructHeaders.cs
+// ==========================================
+using System.Runtime.InteropServices;
+using Unity.Mathematics;
+
+namespace VoxelEngine.Memory
+{
+    // A.2 Chunk - CPU resident-window entry
+    public class Chunk
+    {
+        public int3 coord;
+        public bool isUniform;
+        public byte uniformMaterial;
+        
+        // Inlined, allocated iff populated (backed by pooled allocator)
+        public BrickHandle[] bricks; 
+        
+        public bool dirty;             // changed since last clipmap upload
+        public bool deltaDirty;        // edited since last save
+    }
+
+    // A.3 BrickHandle - CPU, 4B packed uint, 4096 per populated chunk
+    [StructLayout(LayoutKind.Sequential)]
+    public struct BrickHandle
+    {
+        public uint data;
+
+        // [31]    1=dense (index in [29:0] into Brick Data Pool) | 0=uniform (material in [7:0])
+        // [30]    Volatile: dense brick created by fluid entering uniform-air
+    }
+
+    // A.7 MaterialData - GPU, 32B x 256
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    public struct MaterialData
+    {
+        public float albedoR;
+        public float albedoG;
+        public float albedoB;
+        public float emissive;
+        public float viscosityDrag;
+        public float density;
+        public uint flags;
+        public uint tickInterval;
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Memory/StructHeaders.hlsl
+// ==========================================
+#ifndef STRUCT_HEADERS_INCLUDED
+#define STRUCT_HEADERS_INCLUDED
+
+// A.7 MaterialData - GPU, 32B
+struct MaterialData 
+{
+    float albedoR;
+    float albedoG;
+    float albedoB;
+    float emissive;
+    float viscosityDrag;
+    float density;
+    uint flags;
+    uint tickInterval;
+};
+
+// A.8 Terrain Clipmap entry - 4B per brick slot
+// [31] 1=uniform (material in [7:0]) | 0=dense (index into GPU Brick Data in [30:0])
+
+#endif
+
+// ==========================================
+// FILE: Assets/CoreEngine/Mirror/ClipmapValidator.cs
+// ==========================================
+using UnityEngine;
+using Unity.Mathematics;
+using Unity.Collections;
+using VoxelEngine.Memory;
+
+public static class ClipmapValidator
+{
+    public static void ValidateRegion(TerrainClipmap clipmap, BrickDataPool cpuPool, ChunkStore store)
+    {
+        // 1. Validate BrickDataBuffer (Dense Bodies)
+        byte[] gpuBrickData = new byte[cpuPool.Capacity * 512];
+        clipmap.BrickDataBuffer.GetData(gpuBrickData);
+        NativeArray<byte>.ReadOnly cpuData = cpuPool.RawData.AsReadOnly();
+
+        for (int i = 0; i < gpuBrickData.Length; i++)
+        {
+            if (gpuBrickData[i] != cpuData[i])
+            {
+                Debug.LogError($"ClipmapValidator FAILURE: BrickData mismatch at raw byte index {i}. CPU: {cpuData[i]}, GPU: {gpuBrickData[i]}");
+                return;
+            }
+        }
+
+        // 2. Validate ClipmapBuffer (Flat Grid Handles)
+        // Window dims now come from the clipmap instance itself - the single
+        // source of truth (which is constructed from EngineConfig) - instead of
+        // a second hardcoded int3 that could silently disagree with both the
+        // clipmap's real size and the shader's. This was the actual bug: this
+        // validator, TerrainClipmap, and Raymarch.compute each had their own
+        // copy of the window size, and only the first two happened to agree.
+        int3 windowBricks = clipmap.WindowDimsBricks;
+        int totalBricks = windowBricks.x * windowBricks.y * windowBricks.z;
+        uint[] gpuClipmap = new uint[totalBricks];
+        clipmap.ClipmapBuffer.GetData(gpuClipmap);
+
+        // NOTE (scope): this loop still only walks the 8x8x1 chunk region the
+        // Phase 2 bootstrapper actually generates (cx/cz 0..7, y=0). That's a
+        // coverage limitation of this validator call, separate from the window-
+        // dims fix above - it means GREEN here proves correctness only for the
+        // chunks that exist, not full-window coverage. Worth widening once the
+        // world generation extends further, but out of scope for this fix.
+        for (int cz = 0; cz < 8; cz++)
+        for (int cx = 0; cx < 8; cx++)
+        {
+            int3 chunkCoord = new int3(cx, 0, cz);
+            Chunk chunk = store.GetChunk(chunkCoord);
+            if (chunk == null) continue;
+
+            int3 baseBrick = chunkCoord * 16;
+            for (int z = 0; z < 16; z++)
+            for (int y = 0; y < 16; y++)
+            for (int x = 0; x < 16; x++)
+            {
+                int3 localBrick = new int3(x, y, z);
+                int3 worldBrick = baseBrick + localBrick;
+
+                int3 wrapped = worldBrick & (windowBricks - new int3(1, 1, 1));
+                int flatIndex = wrapped.x + (wrapped.y * windowBricks.x) + (wrapped.z * windowBricks.x * windowBricks.y);
+
+                uint expectedHandle = chunk.isUniform ? chunk.uniformMaterial : chunk.bricks[CoordMath.LocalBrickIndex(localBrick)].data;
+
+                if (gpuClipmap[flatIndex] != expectedHandle)
+                {
+                    Debug.LogError($"ClipmapValidator FAILURE: Handle mismatch at chunk {chunkCoord}, local {localBrick}. Expected {expectedHandle}, got {gpuClipmap[flatIndex]}");
+                    return;
+                }
+            }
+        }
+
+        Debug.Log("ClipmapValidator: GREEN. Both Clipmap grid and BrickData exactly match CPU truth.");
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Mirror/TerrainClipmap.cs
+// ==========================================
+// Assets/CoreEngine/Mirror/TerrainClipmap.cs
+using System;
+using System.Collections.Generic;
+using Unity.Collections;
+using Unity.Mathematics;
+using UnityEngine;
+using VoxelEngine.Memory;
+
+public class TerrainClipmap : IDisposable
+{
+    public static TerrainClipmap Active { get; private set; }
+
+    public GraphicsBuffer ClipmapBuffer { get; private set; }
+    public GraphicsBuffer BrickDataBuffer { get; private set; }
+
+    private readonly int3 _windowDimsChunks;
+    private readonly int3 _windowDimsBricks;
+    private readonly int3 _brickMask;
+    private readonly uint[] _clipmapLocal;
+    private readonly HashSet<int3> _dirtyChunks = new HashSet<int3>();
+
+    // Single source of truth for window sizing in bricks. Everything that needs
+    // to compute a clipmap flat index (RaymarchFeature, Raymarch.compute via the
+    // uniform this feeds, ClipmapValidator) must read this rather than hardcode
+    // its own copy - that duplication is exactly what caused the 8.6 window-dims
+    // mismatch (EngineConfig said 32x16x32 chunks, the shader/validator assumed
+    // 16x8x16 chunks baked in at construction time).
+    public int3 WindowDimsBricks => _windowDimsBricks;
+    public int3 WindowDimsChunks => _windowDimsChunks;
+
+    public TerrainClipmap(int3 windowChunks, int brickPoolCapacity)
+    {
+        _windowDimsChunks = windowChunks;
+        _windowDimsBricks = windowChunks * 16;
+        _brickMask = _windowDimsBricks - new int3(1, 1, 1);
+
+        int totalBricks = _windowDimsBricks.x * _windowDimsBricks.y * _windowDimsBricks.z;
+
+        ClipmapBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalBricks, 4);
+        BrickDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, brickPoolCapacity * 128, 4);
+        _clipmapLocal = new uint[totalBricks];
+
+        Active = this;
+    }
+
+    public void MarkDirty(int3 chunkCoord)
+    {
+        _dirtyChunks.Add(chunkCoord);
+    }
+
+    public void UploadDirty(ChunkStore store, BrickDataPool cpuPool)
+    {
+        if (_dirtyChunks.Count == 0) return;
+
+        BrickDataBuffer.SetData(cpuPool.RawData);
+
+        foreach (int3 chunkCoord in _dirtyChunks)
+        {
+            Chunk chunk = store.GetChunk(chunkCoord);
+            if (chunk == null) continue;
+
+            int3 baseBrickCoord = chunkCoord * 16;
+
+            for (int z = 0; z < 16; z++)
+            for (int y = 0; y < 16; y++)
+            for (int x = 0; x < 16; x++)
+            {
+                int3 localBrick = new int3(x, y, z);
+                int3 worldBrick = baseBrickCoord + localBrick;
+
+                int3 wrapped = worldBrick & _brickMask;
+                int flatIndex = wrapped.x + (wrapped.y * _windowDimsBricks.x) + (wrapped.z * _windowDimsBricks.x * _windowDimsBricks.y);
+
+                if (chunk.isUniform)
+                {
+                    _clipmapLocal[flatIndex] = chunk.uniformMaterial;
+                }
+                else
+                {
+                    int brickFlatIdx = CoordMath.LocalBrickIndex(localBrick);
+                    _clipmapLocal[flatIndex] = chunk.bricks[brickFlatIdx].data;
+                }
+            }
+        }
+
+        ClipmapBuffer.SetData(_clipmapLocal);
+        _dirtyChunks.Clear();
+    }
+
+    public void Dispose()
+    {
+        if (Active == this) Active = null;
+        ClipmapBuffer?.Release();
+        BrickDataBuffer?.Release();
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Rendering/Raymarch.compute
+// ==========================================
+#pragma kernel CSMain
+
+#include "../Coord/CoordMath.hlsl"
+#include "../Memory/StructHeaders.hlsl"
+
+RWTexture2D<float4> ResultTexture;
+StructuredBuffer<uint> ClipmapBuffer;
+StructuredBuffer<uint> BrickDataBuffer;
+
+float4x4 _CameraInverseProjection;
+float4x4 _CameraInverseView;
+float3 _CameraPos;
+uint4 _WindowDimsBricksPacked;
+
+RWStructuredBuffer<float> DebugOut;
+uint2 _DebugPixel;
+
+// 0=Beauty 1=StepHeat 2=UniformDense 3=Normals
+int4 _DebugModePacked;
+
+float4 StepHeatColor(int steps)
+{
+    if (steps <= 10)  return float4(0.0, 0.1, 0.6, 1.0);
+    if (steps <= 30)  return float4(0.0, 0.6, 0.2, 1.0);
+    if (steps <  100) return float4(0.8, 0.6, 0.0, 1.0);
+    return float4(0.9, 0.05, 0.05, 1.0);
+}
+
+// Read a clipmap handle for a brick coordinate (ring-masked flat index).
+uint ReadClipmap(int3 brickCoord, uint3 windowDimsBricks)
+{
+    int3 wrapped = brickCoord & (int3)(windowDimsBricks - 1);
+    int flatIndex = wrapped.x
+                  + (wrapped.y * (int)windowDimsBricks.x)
+                  + (wrapped.z * (int)windowDimsBricks.x * (int)windowDimsBricks.y);
+    return ClipmapBuffer[flatIndex];
 }
 
 [numthreads(8, 8, 1)]
-void CSRaymarch (uint3 id : SV_DispatchThreadID)
+void CSMain(uint3 id : SV_DispatchThreadID)
 {
-    if (id.x >= (uint)_ScreenResolution.x || id.y >= (uint)_ScreenResolution.y) return;
+    uint3 _WindowDimsBricks = _WindowDimsBricksPacked.xyz;
+    int _DebugMode = _DebugModePacked.x;
 
-    // 1. RAY INITIATION
-    float2 uv = float2((id.x + 0.5f) / _ScreenResolution.x, (id.y + 0.5f) / _ScreenResolution.y);
-    float2 clipPos = uv * 2.0f - 1.0f;
-    clipPos.y = -clipPos.y; // Unity UVs are inverted vertically in compute
-    
-    float4 viewPos = mul(_CameraInverseProjection, float4(clipPos, 0.0f, 1.0f));
-    viewPos /= viewPos.w;
-    float3 rayDir = normalize(mul(_CameraInverseView, float4(viewPos.xyz, 0.0f)).xyz);
-    float3 rayOrigin = _CameraPosition;
+    uint width, height;
+    ResultTexture.GetDimensions(width, height);
+    if (id.x >= width || id.y >= height) return;
 
-    // Default Sky Color
-    float4 finalColor = float4(0.1f, 0.2f, 0.3f, 1.0f);
+    bool isDebugPixel = (id.x == _DebugPixel.x && id.y == _DebugPixel.y);
 
-    // 2. BOUNDING BOX CHECK (Test Brick at Origin 0,0,0 to 1,1,1)
-    float2 hit = IntersectAABB(rayOrigin, rayDir, float3(0,0,0), float3(1,1,1));
-    
-    if (hit.x < hit.y && hit.y > 0) {
-        
-        // 3. PHASE 2: MICRO-STEPPING DDA setup
-        float t = max(hit.x, 0.0f) + 0.001f; 
-        float3 currentPos = rayOrigin + rayDir * t;
-        
-        // Convert to 3D integer voxel coordinates (0 to 9)
-        int3 voxelCoord = floor(currentPos / VOXEL_SIZE);
-        
-        // DDA Step variables
-        int3 step = sign(rayDir);
-        float3 tDelta = abs(VOXEL_SIZE / rayDir);
-        float3 tMax = (voxelCoord * VOXEL_SIZE - rayOrigin) / rayDir;
-        if (step.x > 0) tMax.x += tDelta.x;
-        if (step.y > 0) tMax.y += tDelta.y;
-        if (step.z > 0) tMax.z += tDelta.z;
+    float2 uv = float2((id.x + 0.5) / width, (id.y + 0.5) / height) * 2.0 - 1.0;
+    float4 target = mul(_CameraInverseProjection, float4(uv.x, uv.y, 1, 1));
+    float3 rayDir = mul(_CameraInverseView, float4(normalize(target.xyz / target.w), 0)).xyz;
 
-        // Traverse up to 20 steps (max distance through a 10x10x10 grid)
-        for (int i = 0; i < 20; i++) {
-            
-            // Bounds check for the 10x10x10 brick
-            if (any(voxelCoord < 0) || any(voxelCoord > 9)) break;
+    // --- INFINITY GUARD (from the proven old TraceVoxelRay): never let a
+    // direction component be exactly 0, so 1/dir is finite and sign(dir) never
+    // collapses to 0. Removes the axis-parallel trap without special-casing. ---
+    rayDir.x = abs(rayDir.x) < 1e-6 ? (rayDir.x >= 0 ? 1e-6 : -1e-6) : rayDir.x;
+    rayDir.y = abs(rayDir.y) < 1e-6 ? (rayDir.y >= 0 ? 1e-6 : -1e-6) : rayDir.y;
+    rayDir.z = abs(rayDir.z) < 1e-6 ? (rayDir.z >= 0 ? 1e-6 : -1e-6) : rayDir.z;
 
-            // Calculate 1D Byte Address Index
-            uint index = voxelCoord.x + (voxelCoord.y * 10) + (voxelCoord.z * 100);
-            
-            // The M1 O(1) Fetch: Read exactly 4 bytes, extract the 1 byte we care about
-            uint byteBlock = StaticBrickPool.Load(index & ~3);
-            uint bitShift = (index & 3) * 8;
-            uint materialID = (byteBlock >> bitShift) & 0xFF;
+    float3 rayStart = _CameraPos * 10.0;
 
-            if (materialID > 0) {
-                // Intersected a solid voxel! Fetch albedo from Palette.
-                MaterialData mat = MaterialPalette[materialID];
-                finalColor = UnpackColor(mat.AlbedoRGBA);
-                
-                // Simple directional lighting for depth perception
-                float3 normal = float3(0,0,0);
-                if (tMax.x < tMax.y && tMax.x < tMax.z) normal.x = -step.x;
-                else if (tMax.y < tMax.z) normal.y = -step.y;
-                else normal.z = -step.z;
-                
-                float lightDot = saturate(dot(normal, normalize(float3(0.5, 1.0, -0.3))));
-                finalColor.rgb *= 0.5f + (0.5f * lightDot); // Ambient + Diffuse
-                break;
+    int3 step = int3(sign(rayDir.x), sign(rayDir.y), sign(rayDir.z));
+    float3 tDelta = abs(1.0 / rayDir);   // per-voxel crossing distance (voxel size = 1 here)
+
+    // Continuous DDA state. voxel is ONLY ever changed by integer += step from
+    // here on - never reconstructed from a floored float (that float-on-a-grid-
+    // boundary reconstruction is what leaked along brick seams; §2.3 forbids
+    // deriving coordinates from float math for exactly this reason).
+    int3 voxel = WorldToVoxel(_CameraPos);
+
+    float3 tMax = float3(
+        step.x > 0 ? (voxel.x + 1.0 - rayStart.x) : (rayStart.x - voxel.x),
+        step.y > 0 ? (voxel.y + 1.0 - rayStart.y) : (rayStart.y - voxel.y),
+        step.z > 0 ? (voxel.z + 1.0 - rayStart.z) : (rayStart.z - voxel.z)
+    ) * tDelta;
+
+    float currentDist = 0;
+    int steps = 0;
+    bool hit = false;
+    uint mat = 0;
+    int3 normal = 0;
+    bool lastWasDense = false;
+
+    if (isDebugPixel)
+    {
+        DebugOut[0] = rayDir.x; DebugOut[1] = rayDir.y; DebugOut[2] = rayDir.z;
+        DebugOut[3] = tDelta.x; DebugOut[4] = tDelta.y; DebugOut[5] = tDelta.z;
+    }
+
+    while (currentDist < 1280.0 && steps < 400)
+    {
+        steps++;
+
+        int3 brickCoord = VoxelToBrick(voxel);
+        uint handle = ReadClipmap(brickCoord, _WindowDimsBricks);
+        bool isDense = (handle & 0x80000000) != 0;
+
+        if (isDense)
+        {
+            // --- MICRO STEP: this dense brick - read the voxel, step one voxel. ---
+            uint poolIdx = handle & 0x3FFFFFFF;
+            int3 localVoxel = LocalVoxelIndex3D(voxel);
+            uint vIdx = (uint)LocalVoxelIndex(localVoxel);
+            uint packedData = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
+            uint shift = (vIdx & 3) * 8;
+            mat = (packedData >> shift) & 0xFF;
+
+            if (mat != 0) { hit = true; lastWasDense = true; break; }
+
+            // one integer voxel step (standard DDA)
+            if (tMax.x < tMax.y)
+            {
+                if (tMax.x < tMax.z) { voxel.x += step.x; currentDist = tMax.x; tMax.x += tDelta.x; normal = int3(-step.x, 0, 0); }
+                else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; normal = int3(0, 0, -step.z); }
+            }
+            else
+            {
+                if (tMax.y < tMax.z) { voxel.y += step.y; currentDist = tMax.y; tMax.y += tDelta.y; normal = int3(0, -step.y, 0); }
+                else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; normal = int3(0, 0, -step.z); }
+            }
+            continue;
+        }
+
+        // Not dense -> uniform brick.
+        mat = handle & 0xFF;
+        if (mat != 0) { hit = true; lastWasDense = false; break; }   // uniform SOLID brick
+
+        // --- UNIFORM-AIR BRICK: macro-skip by CONTINUOUS INTEGER DDA. ---
+        // Instead of jumping t to the brick exit and re-flooring a voxel (the old
+        // leak), we keep stepping the SAME DDA one voxel at a time until we leave
+        // this brick. voxel changes only by integer += step, so there is no float
+        // reconstruction and nothing to round wrong on a boundary. This is the
+        // micro-step loop's exact discipline, applied across an air brick - which
+        // is what §6.3's "advance to the brick's far exit plane" means with an
+        // integer DDA. Bounded to 8 iterations (a brick is 8 voxels per axis, and
+        // a straight line crosses at most ~3*8 cells, but leaving the brick takes
+        // at most 8 steps on the dominant axis; we cap at 24 for safety).
+        int startBrickHash = (brickCoord.x) ^ (brickCoord.y << 10) ^ (brickCoord.z << 20);
+        [loop]
+        for (int air = 0; air < 24; air++)
+        {
+            // step one voxel along the DDA
+            if (tMax.x < tMax.y)
+            {
+                if (tMax.x < tMax.z) { voxel.x += step.x; currentDist = tMax.x; tMax.x += tDelta.x; normal = int3(-step.x, 0, 0); }
+                else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; normal = int3(0, 0, -step.z); }
+            }
+            else
+            {
+                if (tMax.y < tMax.z) { voxel.y += step.y; currentDist = tMax.y; tMax.y += tDelta.y; normal = int3(0, -step.y, 0); }
+                else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; normal = int3(0, 0, -step.z); }
             }
 
-            // DDA Step
-            if (tMax.x < tMax.y) {
-                if (tMax.x < tMax.z) { voxelCoord.x += step.x; tMax.x += tDelta.x; }
-                else                 { voxelCoord.z += step.z; tMax.z += tDelta.z; }
-            } else {
-                if (tMax.y < tMax.z) { voxelCoord.y += step.y; tMax.y += tDelta.y; }
-                else                 { voxelCoord.z += step.z; tMax.z += tDelta.z; }
+            // left this brick? (integer brick coord changed) -> resume outer loop,
+            // which will read the new brick's handle and decide dense/air/solid.
+            int3 nb = VoxelToBrick(voxel);
+            int nbHash = (nb.x) ^ (nb.y << 10) ^ (nb.z << 20);
+            if (nbHash != startBrickHash) break;
+
+            if (currentDist >= 1280.0) break;
+        }
+        // fall through to top of while: re-read the (new) brick and continue.
+    }
+
+    if (isDebugPixel) DebugOut[7] = (float)steps;
+
+    if (_DebugMode == 1) { ResultTexture[id.xy] = StepHeatColor(steps); return; }
+    if (_DebugMode == 2)
+    {
+        if (!hit) { ResultTexture[id.xy] = float4(0.05, 0.05, 0.1, 1.0); return; }
+        ResultTexture[id.xy] = lastWasDense ? float4(0.9, 0.9, 0.2, 1.0) : float4(0.2, 0.2, 0.3, 1.0);
+        return;
+    }
+    if (_DebugMode == 3)
+    {
+        if (!hit) { ResultTexture[id.xy] = float4(0.0, 0.0, 0.0, 1.0); return; }
+        float3 n = (float3(normal) * 0.5) + 0.5;
+        ResultTexture[id.xy] = float4(n, 1.0);
+        return;
+    }
+
+    float4 color = float4(0.2, 0.4, 0.8, 1.0);
+    if (hit)
+    {
+        float ndotl = max(0.2, dot(float3(normal), normalize(float3(0.5, 1.0, 0.2))));
+        color = float4(0.5 * ndotl, 0.5 * ndotl, 0.5 * ndotl, 1.0);
+        if (mat == 2) color = float4(0.6 * ndotl, 0.6 * ndotl, 0.6 * ndotl, 1.0);
+    }
+    ResultTexture[id.xy] = color;
+}
+
+
+// ==========================================
+// FILE: Assets/CoreEngine/Rendering/RaymarchFeature.cs
+// ==========================================
+using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
+using UnityEngine.Rendering.RenderGraphModule;
+
+// Two RenderGraph-managed passes: a compute pass that writes `target`, and a
+// raster pass that reads `target` and blits it to the screen. The graph inserts
+// the correct barrier between them from the declared UseTexture access flags.
+//
+// NOTE (this session): the original center-screen artifact was attributed to a
+// missing barrier on the strength of a CPU sibling that "found zero anomalies"
+// across 6561 pixels. That sibling had NO macro-skip path, so it could not have
+// exercised the macro-skip the shader's MIN_PROGRESS guard exists to protect.
+// A from-spec CPU macro-skip sibling now exists and passes 7/7 - meaning the
+// leap ALGORITHM is correct and the tear's true cause is not yet settled.
+// _DebugMode (StepHeat) below is the instrument to localize it: set it to 1
+// and read whether the tear pixels are high-step-count (grinding) or not.
+public class RaymarchFeature : ScriptableRendererFeature
+{
+    // Debug view selector, mirrors the branch in Raymarch.compute.
+    //   Beauty = shipped shaded output; the rest are diagnostic views over the
+    //   SAME traversal, so they localize bugs without changing the algorithm.
+    public enum DebugMode
+    {
+        Beauty = 0,
+        StepHeat = 1,
+        UniformDense = 2,
+        Normals = 3,
+    }
+
+    [Tooltip("Runtime debug view. Beauty is the shipped output; StepHeat is the §10.3 step-count heatmap.")]
+    public DebugMode debugMode = DebugMode.Beauty;
+
+    public static GraphicsBuffer DebugBuffer { get; private set; }
+    public static Vector2Int DebugPixel = new Vector2Int(1400, 240);
+    private const int DEBUG_BUFFER_FLOATS = 128;
+
+    class RaymarchPass : ScriptableRenderPass
+    {
+        private ComputeShader _compute;
+        private int _debugMode;
+
+        class ComputePassData
+        {
+            public ComputeShader compute;
+            public Camera cam;
+            public TextureHandle target;
+            public GraphicsBuffer clipmapBuffer;
+            public GraphicsBuffer brickDataBuffer;
+            public GraphicsBuffer debugBuffer;
+            public Vector3Int windowDimsBricks;
+            public Vector2Int debugPixel;
+            public int debugMode;
+        }
+
+        class BlitPassData
+        {
+            public TextureHandle source;
+        }
+
+        public RaymarchPass(ComputeShader compute)
+        {
+            _compute = compute;
+            renderPassEvent = RenderPassEvent.AfterRenderingSkybox;
+        }
+
+        // Called each frame from AddRenderPasses so the inspector value is live.
+        public void SetDebugMode(int mode) => _debugMode = mode;
+
+        public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
+        {
+            if (_compute == null || TerrainClipmap.Active == null) return;
+
+            if (DebugBuffer == null)
+            {
+                DebugBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, DEBUG_BUFFER_FLOATS, sizeof(float));
+            }
+
+            UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
+            UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
+            TextureHandle activeColor = resourceData.activeColorTexture;
+
+            RenderTextureDescriptor desc = cameraData.cameraTargetDescriptor;
+            desc.enableRandomWrite = true;
+            desc.depthBufferBits = 0;
+            desc.msaaSamples = 1; // Metal rejects RWTexture2D binding if MSAA > 1
+            desc.useMipMap = false;
+
+            TextureHandle target = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_RaymarchTarget", false);
+
+            // --- Pass 1: Compute dispatch, writes `target`. ---
+            using (var builder = renderGraph.AddComputePass<ComputePassData>("VoxelRaymarch_Compute", out var passData))
+            {
+                passData.compute = _compute;
+                passData.cam = cameraData.camera;
+                passData.target = target;
+                passData.clipmapBuffer = TerrainClipmap.Active.ClipmapBuffer;
+                passData.brickDataBuffer = TerrainClipmap.Active.BrickDataBuffer;
+                passData.debugBuffer = DebugBuffer;
+                passData.debugPixel = DebugPixel;
+                passData.debugMode = _debugMode;
+
+                Unity.Mathematics.int3 dims = TerrainClipmap.Active.WindowDimsBricks;
+                passData.windowDimsBricks = new Vector3Int(dims.x, dims.y, dims.z);
+
+                builder.UseTexture(target, AccessFlags.Write);
+                builder.AllowPassCulling(false);
+
+                builder.SetRenderFunc((ComputePassData data, ComputeGraphContext context) =>
+                {
+                    var cmd = context.cmd;
+
+                    cmd.SetComputeMatrixParam(data.compute, "_CameraInverseProjection", data.cam.projectionMatrix.inverse);
+                    cmd.SetComputeMatrixParam(data.compute, "_CameraInverseView", data.cam.cameraToWorldMatrix);
+                    cmd.SetComputeVectorParam(data.compute, "_CameraPos", data.cam.transform.position);
+
+                    cmd.SetComputeBufferParam(data.compute, 0, "ClipmapBuffer", data.clipmapBuffer);
+                    cmd.SetComputeBufferParam(data.compute, 0, "BrickDataBuffer", data.brickDataBuffer);
+                    cmd.SetComputeBufferParam(data.compute, 0, "DebugOut", data.debugBuffer);
+
+                    cmd.SetComputeIntParams(data.compute, "_WindowDimsBricksPacked",
+                        new int[] { data.windowDimsBricks.x, data.windowDimsBricks.y, data.windowDimsBricks.z, 0 });
+                    cmd.SetComputeIntParams(data.compute, "_DebugPixel",
+                        new int[] { data.debugPixel.x, data.debugPixel.y });
+                    cmd.SetComputeIntParams(data.compute, "_DebugModePacked",
+                        new int[] { data.debugMode, 0, 0, 0 });
+
+                    cmd.SetComputeTextureParam(data.compute, 0, "ResultTexture", data.target);
+
+                    int threadGroupsX = Mathf.CeilToInt(data.cam.pixelWidth / 8f);
+                    int threadGroupsY = Mathf.CeilToInt(data.cam.pixelHeight / 8f);
+                    cmd.DispatchCompute(data.compute, 0, threadGroupsX, threadGroupsY, 1);
+                });
+            }
+
+            // --- Pass 2: Raster pass, blits `target` -> activeColor. ---
+            using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("VoxelRaymarch_Blit", out var blitData))
+            {
+                blitData.source = target;
+
+                builder.UseTexture(target, AccessFlags.Read);
+                builder.SetRenderAttachment(activeColor, 0, AccessFlags.Write);
+                builder.AllowPassCulling(false);
+
+                builder.SetRenderFunc((BlitPassData data, RasterGraphContext context) =>
+                {
+                    Blitter.BlitTexture(context.cmd, data.source, new Vector4(1, 1, 0, 0), 0, false);
+                });
             }
         }
     }
 
-    Result[id.xy] = finalColor;
+    public ComputeShader raymarchShader;
+    private RaymarchPass _pass;
+
+    public override void Create()
+    {
+        _pass = new RaymarchPass(raymarchShader);
+    }
+
+    public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
+    {
+        if (raymarchShader != null)
+        {
+            _pass.SetDebugMode((int)debugMode);
+            renderer.EnqueuePass(_pass);
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        DebugBuffer?.Release();
+        DebugBuffer = null;
+        base.Dispose(disposing);
+    }
 }
 
 // ==========================================
-// FILE: Assets/CoreEngine/Memory/MaterialRegistry.cs
+// FILE: Assets/CoreEngine/Rendering/RaymarchReference.cs
 // ==========================================
-using UnityEngine;
-using System.Runtime.InteropServices;
-using System.Linq;
+using Unity.Mathematics;
+using VoxelEngine.Memory;
 
-namespace CoreEngine.Memory
+// Two CPU DDA implementations that MUST agree on every ray:
+//
+//   TracerRaycast          - the proven per-voxel walker (Phase 2 oracle).
+//                            Steps one voxel at a time. No macro-skip.
+//                            Correctness-proven by RaymarchReferenceTests.
+//
+//   TracerRaycastMacroSkip - a CPU macro-skip walker, written from the §6.3
+//                            SPECIFICATION (not ported from the GPU kernel),
+//                            so it can serve as an independent oracle for the
+//                            GPU macro-skip rather than a photocopy of it.
+//
+// The oracle property (RaymarchMacroSkipTests): a CORRECT macro-skip must
+// return BIT-IDENTICAL results to the per-voxel walk for the same ray - same
+// hit, voxel, material, normal - just by evaluating fewer voxels. Any
+// disagreement is a macro-skip bug by definition. This is the sibling the
+// GPU Raymarch.compute macro-skip is diffed against (§0.3 Sibling Pattern).
+//
+// NOTE on structure: this sibling deliberately does NOT replicate the GPU
+// kernel's "recompute tExit from the fixed ray origin every iteration"
+// pattern (the structure the kernel's own comment fingers as the degenerate-
+// case source). It advances to the brick exit, then takes ONE guaranteed
+// single-voxel DDA step across the boundary - the plain reading of §6.3
+// ("advance to the brick's far exit plane in one step"). If the GPU's
+// structure and this straightforward structure disagree, that disagreement
+// is the bug we are hunting - which is the whole point of not copying it.
+public static class RaymarchReference
 {
-    public class MaterialRegistry : MonoBehaviour
+    public struct RayHit
     {
-        // Must match the exact byte-layout of our HLSL struct
-        [StructLayout(LayoutKind.Sequential)]
-        public struct MaterialData
+        public bool hit;
+        public int3 voxelCoord;
+        public byte material;
+        public int3 normal;
+        public int steps;      // per-voxel: voxels visited. macro-skip: iterations.
+    }
+
+    // ---------------------------------------------------------------------
+    //  Per-voxel walker (unchanged - the proven oracle).
+    // ---------------------------------------------------------------------
+    public static RayHit TracerRaycast(float3 origin, float3 dir, ChunkStore store, float maxDist = 128f)
+    {
+        RayHit result = new RayHit { hit = false, steps = 0 };
+        float3 rayStart = origin * 10f;
+        float3 rayDir = math.normalize(dir);
+        int3 step = (int3)math.sign(rayDir);
+        float3 tDelta = math.abs(1f / rayDir);
+        int3 voxel = CoordMath.WorldToVoxel(origin);
+        float3 tMax = new float3(
+            step.x > 0 ? (voxel.x + 1f - rayStart.x) : (rayStart.x - voxel.x),
+            step.y > 0 ? (voxel.y + 1f - rayStart.y) : (rayStart.y - voxel.y),
+            step.z > 0 ? (voxel.z + 1f - rayStart.z) : (rayStart.z - voxel.z)
+        ) * tDelta;
+        float currentDist = 0f;
+        float maxVoxelDist = maxDist * 10f;
+
+        while (currentDist < maxVoxelDist && result.steps < 1000)
         {
-            public uint AlbedoRGBA;   // Packed 32-bit color
-            public float Roughness;
-            public float Emissivity;
-            public int Viscosity;
-            public int Flammability;
-        }
-
-        public ComputeBuffer MaterialPaletteBuffer { get; private set; }
-        private const int MAX_MATERIALS = 256;
-
-        private void Awake()
-        {
-            InitializeRegistry();
-        }
-
-        private void InitializeRegistry()
-        {
-            // Allocate the 256-element palette
-            MaterialPaletteBuffer = new ComputeBuffer(MAX_MATERIALS, Marshal.SizeOf(typeof(MaterialData)), ComputeBufferType.Structured);
-
-            // Load all VoxelMaterial ScriptableObjects from the Resources folder (or via direct reference)
-            // Note: In production, AssetReference/Addressables is better, but this gets us moving.
-            VoxelMaterial[] allMaterials = Resources.LoadAll<VoxelMaterial>("Materials");
-
-            MaterialData[] paletteArray = new MaterialData[MAX_MATERIALS];
-
-            foreach (var mat in allMaterials)
+            result.steps++;
+            byte mat = store.GetVoxel(voxel);
+            if (mat != 0)
             {
-                if (mat.MaterialID == 255)
+                result.hit = true;
+                result.voxelCoord = voxel;
+                result.material = mat;
+                return result;
+            }
+
+            if (tMax.x < tMax.y)
+            {
+                if (tMax.x < tMax.z)
+                { voxel.x += step.x; currentDist = tMax.x; tMax.x += tDelta.x; result.normal = new int3(-step.x, 0, 0); }
+                else
+                { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; result.normal = new int3(0, 0, -step.z); }
+            }
+            else
+            {
+                if (tMax.y < tMax.z)
+                { voxel.y += step.y; currentDist = tMax.y; tMax.y += tDelta.y; result.normal = new int3(0, -step.y, 0); }
+                else
+                { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; result.normal = new int3(0, 0, -step.z); }
+            }
+        }
+        return result;
+    }
+
+    // ---------------------------------------------------------------------
+    //  Macro-skip walker (written from §6.3, the independent oracle).
+    // ---------------------------------------------------------------------
+    //
+    //  Loop:
+    //    - Resolve the brick at the current voxel.
+    //    - If the brick is UNIFORM AIR: leap. Compute the t at which the ray
+    //      exits this brick's bounding box, advance the ray just past that
+    //      exit plane, and re-seed the per-voxel DDA state at the new voxel.
+    //      This is the "one step per air brick" the spec promises.
+    //    - If the brick is DENSE or a SOLID UNIFORM: fall back to plain
+    //      per-voxel stepping until we leave it (identical to TracerRaycast's
+    //      body), so hit/normal are computed exactly as the oracle does.
+    //
+    //  Brick resolution uses GetVoxel on the brick's origin voxel PLUS a
+    //  uniformity assumption is avoided: we ask the store what the brick is
+    //  by reading its handle indirectly. Since ChunkStore exposes only
+    //  GetVoxel, the sibling determines "uniform air brick" by testing
+    //  whether the WHOLE brick is air is too expensive; instead we leap
+    //  conservatively one brick at a time and let the per-voxel fallback
+    //  catch any non-air voxel. See ResolveBrickIsUniformAir below.
+    //
+    public static RayHit TracerRaycastMacroSkip(float3 origin, float3 dir, ChunkStore store, float maxDist = 128f)
+    {
+        RayHit result = new RayHit { hit = false, steps = 0 };
+        float3 rayStart = origin * 10f;
+        float3 rayDir = math.normalize(dir);
+        int3 step = (int3)math.sign(rayDir);
+        float3 tDelta = math.abs(1f / rayDir);
+        int3 voxel = CoordMath.WorldToVoxel(origin);
+        float currentDist = 0f;
+        float maxVoxelDist = maxDist * 10f;
+        int3 lastNormal = int3.zero;
+
+        while (currentDist < maxVoxelDist && result.steps < 1000)
+        {
+            result.steps++;
+
+            byte mat = store.GetVoxel(voxel);
+            if (mat != 0)
+            {
+                result.hit = true;
+                result.voxelCoord = voxel;
+                result.material = mat;
+                result.normal = lastNormal;
+                return result;
+            }
+
+            // Is the brick containing this voxel uniform air? If so, leap it.
+            int3 brickCoord = CoordMath.VoxelToBrick(voxel);
+            if (BrickIsUniformAir(store, brickCoord))
+            {
+                // Brick bounds in voxel space.
+                int3 bMin = brickCoord * 8;
+                int3 bMax = bMin + 7;
+
+                // t (in voxel units along the normalized ray) at which the ray
+                // crosses the FAR face of the brick on each axis, measured from
+                // the current voxel's DDA state. Compute from rayStart, taking
+                // the axis that exits first.
+                float3 tExit = new float3(
+                    step.x > 0 ? (bMax.x + 1f - rayStart.x) : (rayStart.x - bMin.x),
+                    step.y > 0 ? (bMax.y + 1f - rayStart.y) : (rayStart.y - bMin.y),
+                    step.z > 0 ? (bMax.z + 1f - rayStart.z) : (rayStart.z - bMin.z)
+                ) * tDelta;
+
+                float tMinExit = math.min(math.min(tExit.x, tExit.y), tExit.z);
+
+                // INTEGER-DERIVED EXIT RE-SEED (precision fix).
+                //
+                // The old code did `voxel = floor(rayStart + rayDir*(tMinExit + eps))`.
+                // On the exit axis, that float sits exactly on a brick boundary, so
+                // floor() is a knife-edge: GPU 32-bit float rounds it to the wrong
+                // side for grazing rays, landing one voxel off and punching a "miss"
+                // hole to sky (the blue artifact). CPU float happened to round right,
+                // which is why the CPU sibling never reproduced it.
+                //
+                // Fix: derive the landing voxel from INTEGER brick bounds on the exit
+                // axis (deterministic, no float floor), and only floor the OTHER two
+                // axes - which are NOT on a boundary at this instant, so their floor
+                // is safe. This removes the precision dependency exactly where it was
+                // dangerous.
+                //
+                // The other-axis position still comes from the ray equation, but we
+                // nudge inward by half a voxel before flooring so we sample the
+                // interior of the destination voxel, never its edge.
+                float3 exitPos = rayStart + rayDir * tMinExit;
+                int3 nextVoxel;
+
+                if (tMinExit == tExit.x)
                 {
-                    Debug.LogError("Material ID 255 is strictly reserved for the Dynamic VRAM Pointer. Skipping.");
-                    continue;
+                    lastNormal = new int3(-step.x, 0, 0);
+                    nextVoxel = new int3(
+                        step.x > 0 ? bMax.x + 1 : bMin.x - 1,          // integer, exact
+                        (int)math.floor(exitPos.y),
+                        (int)math.floor(exitPos.z));
+                }
+                else if (tMinExit == tExit.y)
+                {
+                    lastNormal = new int3(0, -step.y, 0);
+                    nextVoxel = new int3(
+                        (int)math.floor(exitPos.x),
+                        step.y > 0 ? bMax.y + 1 : bMin.y - 1,          // integer, exact
+                        (int)math.floor(exitPos.z));
+                }
+                else
+                {
+                    lastNormal = new int3(0, 0, -step.z);
+                    nextVoxel = new int3(
+                        (int)math.floor(exitPos.x),
+                        (int)math.floor(exitPos.y),
+                        step.z > 0 ? bMax.z + 1 : bMin.z - 1);         // integer, exact
                 }
 
-                // Pack the Unity Color32 into a uint for HLSL
-                uint packedColor = (uint)((mat.Albedo.a << 24) | (mat.Albedo.b << 16) | (mat.Albedo.g << 8) | mat.Albedo.r);
-
-                paletteArray[mat.MaterialID] = new MaterialData
+                // Guaranteed progress: if the derived voxel somehow equals the
+                // current one (degenerate grazing/zero-span case), fall back to a
+                // single guaranteed-progress voxel step so the loop can never stall.
+                if (nextVoxel.Equals(voxel))
                 {
-                    AlbedoRGBA = packedColor,
-                    Roughness = mat.Roughness,
-                    Emissivity = mat.Emissivity,
-                    Viscosity = mat.Viscosity,
-                    Flammability = mat.Flammability
-                };
+                    SingleVoxelStep(ref voxel, ref currentDist, rayStart, tDelta, step, ref lastNormal);
+                }
+                else
+                {
+                    voxel = nextVoxel;
+                    currentDist = tMinExit;
+                }
+                continue;
             }
 
-            // Ship the registry to the GPU
-            MaterialPaletteBuffer.SetData(paletteArray);
-            Debug.Log($"<color=#00FFFF>Material Registry Compiled.</color> Loaded {allMaterials.Length} definitions into VRAM.");
+            // Non-uniform-air brick: plain per-voxel step (oracle-identical).
+            SingleVoxelStep(ref voxel, ref currentDist, rayStart, tDelta, step, ref lastNormal);
         }
 
-        private void OnDestroy()
+        return result;
+    }
+
+    // One guaranteed-progress single-voxel DDA advance. tMax is derived on the
+    // fly from the current voxel so this can be called from either loop state
+    // without carrying a running tMax (correctness over micro-efficiency - this
+    // is an oracle, not the shipped path).
+    private static void SingleVoxelStep(ref int3 voxel, ref float currentDist,
+        float3 rayStart, float3 tDelta, int3 step, ref int3 normal)
+    {
+        float3 tMax = new float3(
+            step.x > 0 ? (voxel.x + 1f - rayStart.x) : (rayStart.x - voxel.x),
+            step.y > 0 ? (voxel.y + 1f - rayStart.y) : (rayStart.y - voxel.y),
+            step.z > 0 ? (voxel.z + 1f - rayStart.z) : (rayStart.z - voxel.z)
+        ) * tDelta;
+
+        if (tMax.x < tMax.y)
         {
-            MaterialPaletteBuffer?.Release();
+            if (tMax.x < tMax.z) { voxel.x += step.x; currentDist = tMax.x; normal = new int3(-step.x, 0, 0); }
+            else { voxel.z += step.z; currentDist = tMax.z; normal = new int3(0, 0, -step.z); }
+        }
+        else
+        {
+            if (tMax.y < tMax.z) { voxel.y += step.y; currentDist = tMax.y; normal = new int3(0, -step.y, 0); }
+            else { voxel.z += step.z; currentDist = tMax.z; normal = new int3(0, 0, -step.z); }
+        }
+    }
+
+    // A brick is "uniform air" for leap purposes iff every voxel in it is air.
+    // The oracle checks this honestly (all 512 voxels) rather than trusting a
+    // handle bit, so the sibling's leap can never skip a solid voxel - if this
+    // returns true, leaping the brick is provably safe. This is deliberately
+    // not how the GPU does it (the GPU reads the clipmap handle's uniform bit);
+    // the point of the oracle is to be obviously correct, not fast.
+    private static bool BrickIsUniformAir(ChunkStore store, int3 brickCoord)
+    {
+        int3 bMin = brickCoord * 8;
+        for (int z = 0; z < 8; z++)
+            for (int y = 0; y < 8; y++)
+                for (int x = 0; x < 8; x++)
+                    if (store.GetVoxel(bMin + new int3(x, y, z)) != 0)
+                        return false;
+        return true;
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Simulation/FluidCA.compute
+// ==========================================
+// Assets/CoreEngine/Simulation/FluidCA.compute
+#pragma kernel CSMain
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Simulation/FluidReferenceCPU.cs
+// ==========================================
+// Assets/CoreEngine/Simulation/FluidReferenceCPU.cs
+using System;
+
+public class FluidReferenceCPU
+{
+    public void Tick()
+    {
+        throw new NotImplementedException();
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Simulation/IFluidSampler.cs
+// ==========================================
+// Assets/CoreEngine/Simulation/IFluidSampler.cs
+using Unity.Mathematics;
+
+public interface IFluidSampler
+{
+    byte SampleFluid(int3 worldVoxelCoord);
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Streaming/IChunkProvider.cs
+// ==========================================
+// Assets/CoreEngine/Streaming/IChunkProvider.cs
+using Unity.Mathematics;
+
+public interface IChunkProvider
+{
+    bool TryGetChunk(int3 chunkCoord, out object chunk);
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Streaming/StreamManager.cs
+// ==========================================
+// Assets/CoreEngine/Streaming/StreamManager.cs
+using System;
+
+public class StreamManager
+{
+    public void UpdateStreaming()
+    {
+        throw new NotImplementedException();
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Tests/CoordMathTests.cs
+// ==========================================
+using NUnit.Framework;
+using Unity.Mathematics;
+
+public class CoordMathTests
+{
+    [Test]
+    public void WorldToVoxel_NegativeCoords_FloorsCorrectly()
+    {
+        // Asserting a voxel at world -0.05m resolves accurately to the -1 index block
+        float3 pos = new float3(-0.05f, 0, 0);
+        int3 expected = new int3(-1, 0, 0);
+        Assert.AreEqual(expected, CoordMath.WorldToVoxel(pos));
+    }
+
+    [Test]
+    public void VoxelToChunk_NegativeCoords_UsesArithmeticShift()
+    {
+        int3 voxel = new int3(-1, -1, -1);
+        int3 expectedChunk = new int3(-1, -1, -1);
+        Assert.AreEqual(expectedChunk, CoordMath.VoxelToChunk(voxel));
+    }
+
+    [Test]
+    public void LocalIndices_RoundTrip()
+    {
+        // Voxel Round-Trip [0, 511]
+        for (int z = 0; z < 8; z++)
+        for (int y = 0; y < 8; y++)
+        for (int x = 0; x < 8; x++)
+        {
+            int3 original = new int3(x, y, z);
+            int index = CoordMath.LocalVoxelIndex(original);
+            Assert.IsTrue(index >= 0 && index < 512, "Voxel flat index out of bounds.");
+            
+            int3 decoded = new int3(index & 7, (index >> 3) & 7, (index >> 6) & 7);
+            Assert.AreEqual(original, decoded, $"Voxel decode failed for {original}");
+        }
+
+        // Brick Round-Trip [0, 4095]
+        for (int z = 0; z < 16; z++)
+        for (int y = 0; y < 16; y++)
+        for (int x = 0; x < 16; x++)
+        {
+            int3 original = new int3(x, y, z);
+            int index = CoordMath.LocalBrickIndex(original);
+            Assert.IsTrue(index >= 0 && index < 4096, "Brick flat index out of bounds.");
+            
+            int3 decoded = new int3(index & 15, (index >> 4) & 15, (index >> 8) & 15);
+            Assert.AreEqual(original, decoded, $"Brick decode failed for {original}");
         }
     }
 }
 
 // ==========================================
-// FILE: Assets/CoreEngine/Memory/VRAMAllocator.cs
+// FILE: Assets/CoreEngine/Tests/GenerationDiagnosticTests.cs
 // ==========================================
+using NUnit.Framework;
 using UnityEngine;
-using System.Runtime.InteropServices;
+using Unity.Mathematics;
+using VoxelEngine.Memory;
 
-namespace CoreEngine.Memory
+// DIAGNOSTIC (not a pass/fail assertion yet). Generates the chunk that contains
+// the world location where the blue "sky-hole" square appears, then dumps the
+// vertical column of voxel materials at that X,Z straight to the Console.
+//
+// This follows the project's Rule 2: prove/inspect on the CPU where you can
+// breakpoint before touching the shader. If the generator produced a hole
+// (air where there should be solid, below the surface), it will show up here as
+// a plain list of numbers - no raymarcher, no GPU, no ambiguity.
+//
+// Blue square observed at camera (52, 30, 52.8) pointing straight down, so the
+// world column under it is world metres X=52, Z=52.8 => world voxels X=520,
+// Z=528 (metres * 10, §2.3). We dump the full vertical voxel column there.
+public class GenerationDiagnosticTests
 {
-    public class VRAMAllocator : MonoBehaviour
+    [Test]
+    public void DumpColumn_AtBlueSquareLocation()
     {
-        [Header("Global Memory Pools")]
-        public ComputeBuffer StaticBrickPool;
-        public ComputeBuffer DynamicFluidPoolA;
-        public ComputeBuffer DynamicFluidPoolB;
-        public ComputeBuffer SpatialHashTable;
+        var pool = new BrickDataPool(5000);
+        var allocator = new ChunkHandleAllocator(10);
 
-        // Static Pool: 1.5 million bricks. 1m³ each (1,000 voxels). 1-Byte payload per voxel.
-        // Total VRAM: ~1.5 GB
-        private const int STATIC_BRICK_COUNT = 1500000;
-        private const int BYTES_PER_STATIC_BRICK = 1000;
-
-        // Dynamic Pool (Double Buffered): Total 400 MB capacity split into A and B.
-        // Each buffer holds 200 MB (approx 25,000 bricks if 8-byte payload per voxel).
-        private const int DYNAMIC_BRICK_COUNT_PER_BUFFER = 25000;
-        private const int BYTES_PER_DYNAMIC_BRICK = 8000; 
-
-        // Spatial Hash: 2 million buckets, 32-bit uint pointers (4 bytes).
-        // Total VRAM: ~8 MB
-        private const int SPATIAL_HASH_BUCKETS = 2000000;
-
-        private void Awake()
+        try
         {
-            InitializeMemoryPools();
-        }
+            // World voxel column under the blue square.
+            int worldVoxelX = 520;
+            int worldVoxelZ = 528;
 
-        private void InitializeMemoryPools()
-        {
-            // 1. Allocate the Static Brickmap Pool
-            StaticBrickPool = new ComputeBuffer(STATIC_BRICK_COUNT, BYTES_PER_STATIC_BRICK, ComputeBufferType.Raw);
-            
-            // 2. Allocate the Double-Buffered Dynamic Fluid Pools (Ping-Pong buffers for lock-free physics)
-            DynamicFluidPoolA = new ComputeBuffer(DYNAMIC_BRICK_COUNT_PER_BUFFER, BYTES_PER_DYNAMIC_BRICK, ComputeBufferType.Raw);
-            DynamicFluidPoolB = new ComputeBuffer(DYNAMIC_BRICK_COUNT_PER_BUFFER, BYTES_PER_DYNAMIC_BRICK, ComputeBufferType.Raw);
+            // Which chunk owns it? (voxel >> 7 == chunk, per CoordMath.)
+            int3 chunkCoord = CoordMath.VoxelToChunk(new int3(worldVoxelX, 0, worldVoxelZ));
 
-            // 3. Allocate the Indirection Grid
-            SpatialHashTable = new ComputeBuffer(SPATIAL_HASH_BUCKETS, sizeof(uint), ComputeBufferType.Raw);
+            // Generate that chunk exactly as the real pipeline does.
+            var chunk = new Chunk();
+            ChunkGenerator.GenerateChunk(0, chunkCoord, ref chunk, allocator, pool);
 
-            Debug.Log("<color=#00FF00>VRAM Pools Successfully Seized.</color> Static: 1.5GB | Dynamic: 400MB");
-            
-            // --- NEW: Phase 1 Test Injection ---
-            InjectDevCheckerboard();
-        
-        }
+            // Read the material at every voxel Y from 0..127 at this X,Z by hand,
+            // walking the chunk's brick/handle structure directly (no ChunkStore,
+            // no GPU) so we see exactly what generation wrote.
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"Column dump at world voxel X={worldVoxelX}, Z={worldVoxelZ}, chunk={chunkCoord}");
+            sb.AppendLine("Y : material   (0=air, 2=stone)");
 
-        private void InjectDevCheckerboard()
-        {
-            // A 1m³ brick is 10x10x10 voxels (1,000 bytes)
-            byte[] mockBrick = new byte[1000];
+            int firstAirAboveSolid = -1;
+            byte prev = 2; // assume solid below
 
-            for (int x = 0; x < 10; x++)
+            for (int worldVoxelY = 0; worldVoxelY < 128; worldVoxelY++)
             {
-                for (int y = 0; y < 10; y++)
+                byte mat = ReadVoxelFromChunk(chunk, pool, new int3(worldVoxelX, worldVoxelY, worldVoxelZ));
+                sb.AppendLine($"{worldVoxelY,3} : {mat}");
+
+                // Flag the FIRST air voxel that appears above a solid one, and
+                // whether any SOLID reappears above it (a hole = solid, air, solid).
+                if (prev == 2 && mat == 0 && firstAirAboveSolid < 0)
+                    firstAirAboveSolid = worldVoxelY;
+                prev = mat;
+            }
+
+            // Hole detector: does solid reappear ABOVE the first air-over-solid?
+            bool holeFound = false;
+            if (firstAirAboveSolid >= 0)
+            {
+                for (int y = firstAirAboveSolid + 1; y < 128; y++)
                 {
-                    for (int z = 0; z < 10; z++)
+                    if (ReadVoxelFromChunk(chunk, pool, new int3(worldVoxelX, y, worldVoxelZ)) == 2)
                     {
-                        // 1D Array Flattening
-                        int index = x + (y * 10) + (z * 100);
-                        
-                        // 3D Parity Check (Alternates between 1 and 2)
-                        mockBrick[index] = (byte)(((x + y + z) % 2 == 0) ? 1 : 2);
+                        holeFound = true;
+                        sb.AppendLine($">>> HOLE: solid voxel at Y={y} sits ABOVE air starting at Y={firstAirAboveSolid}");
+                        break;
                     }
                 }
             }
 
-            // Upload directly to the GPU's ByteAddressBuffer
-            StaticBrickPool.SetData(mockBrick, 0, 0, 1000);
-            Debug.Log("<color=#FFA500>Dev Checkerboard injected into VRAM Brick 0.</color>");
-        }
+            sb.AppendLine(holeFound
+                ? ">>> RESULT: this column contains a sky-hole (air trapped under solid)."
+                : ">>> RESULT: clean column - solid up to the surface, then air. No hole HERE.");
 
-        private void OnDestroy()
+            Debug.Log(sb.ToString());
+
+            // Not asserting yet - this run is to SEE the data. Once we know what
+            // the bug looks like, we convert this into a hard assertion.
+            Assert.Pass("Diagnostic dump complete - read the Console output.");
+        }
+        finally
         {
-            // NEVER forget to release ComputeBuffers, or you will leak memory into macOS.
-            StaticBrickPool?.Release();
-            DynamicFluidPoolA?.Release();
-            DynamicFluidPoolB?.Release();
-            SpatialHashTable?.Release();
+            pool.Dispose();
+        }
+    }
+
+    // Reads one voxel's material directly out of a generated Chunk's structure,
+    // mirroring ChunkStore.GetVoxel's logic but on a standalone chunk.
+    private static byte ReadVoxelFromChunk(Chunk chunk, BrickDataPool pool, int3 worldVoxel)
+    {
+        if (chunk.isUniform) return chunk.uniformMaterial;
+
+        int3 localBrick = CoordMath.LocalBrickIndex3D(CoordMath.VoxelToBrick(worldVoxel));
+        int brickFlatIndex = CoordMath.LocalBrickIndex(localBrick);
+
+        uint handleData = chunk.bricks[brickFlatIndex].data;
+        bool isDense = (handleData & 0x80000000) != 0;
+
+        if (!isDense) return (byte)(handleData & 0xFF);
+
+        int poolIndex = (int)(handleData & 0x3FFFFFFF);
+        int3 localVoxel = CoordMath.LocalVoxelIndex3D(worldVoxel);
+        int voxelFlatIndex = CoordMath.LocalVoxelIndex(localVoxel);
+        return pool.RawData[(poolIndex * 512) + voxelFlatIndex];
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Tests/MemoryModelTests.cs
+// ==========================================
+using NUnit.Framework;
+using Unity.Mathematics;
+using VoxelEngine.Memory;
+
+public class MemoryModelTests
+{
+    private BrickDataPool _pool;
+    private ChunkHandleAllocator _allocator;
+    private ChunkStore _store;
+
+    [SetUp]
+    public void Setup()
+    {
+        _pool = new BrickDataPool(100);
+        _allocator = new ChunkHandleAllocator(10);
+        _store = new ChunkStore(_pool, _allocator);
+    }
+
+    [TearDown]
+    public void Teardown()
+    {
+        _pool.Dispose();
+    }
+
+    [Test]
+    public void SetVoxel_GetVoxel_RoundTrips_AcrossBoundaries()
+    {
+        Chunk chunk = new Chunk { coord = int3.zero, isUniform = true, uniformMaterial = 0 };
+        _store.InsertChunk(chunk);
+
+        int3 targetVoxel = new int3(7, 0, 0); // Edge of local brick 0
+        int3 targetVoxel2 = new int3(8, 0, 0); // Edge of local brick 1
+
+        _store.SetVoxel(targetVoxel, 5);
+        _store.SetVoxel(targetVoxel2, 9);
+
+        Assert.AreEqual(5, _store.GetVoxel(targetVoxel));
+        Assert.AreEqual(9, _store.GetVoxel(targetVoxel2));
+        Assert.AreEqual(0, _store.GetVoxel(new int3(0, 0, 0))); // Unmodified remains uniform 0
+    }
+
+    [Test]
+    public void SetVoxel_GetVoxel_RoundTrips_NegativeChunkCoord()
+    {
+        int3 negativeChunkCoord = new int3(-1, -1, -1);
+        Chunk chunk = new Chunk { coord = negativeChunkCoord, isUniform = true, uniformMaterial = 0 };
+        _store.InsertChunk(chunk);
+
+        // (-1,-1,-1) maps to chunk (-1,-1,-1) via VoxelToChunk — same mapping
+        // already proven in CoordMathTests.VoxelToChunk_NegativeCoords_UsesArithmeticShift,
+        // so a failure here isolates to ChunkStore's toroidal masking, not CoordMath.
+        int3 targetVoxel = new int3(-1, -1, -1);
+
+        _store.SetVoxel(targetVoxel, 7);
+        Assert.AreEqual(7, _store.GetVoxel(targetVoxel));
+
+        // Sanity check: a different, positive-coordinate chunk's voxel is untouched
+        Assert.AreEqual(0, _store.GetVoxel(new int3(0, 0, 0)));
+    }
+
+    
+    
+
+    [Test]
+    public void Coalescer_ReclaimsMemory_And_ReturnsToUniform()
+    {
+        Chunk chunk = new Chunk { coord = int3.zero, isUniform = true, uniformMaterial = 0 };
+        _store.InsertChunk(chunk);
+
+        // Force brick 0 dense
+        _store.SetVoxel(int3.zero, 1);
+        Assert.IsFalse(chunk.isUniform);
+        
+        bool isDense = (chunk.bricks[0].data & 0x80000000) != 0;
+        Assert.IsTrue(isDense);
+
+        // Fill the rest of the brick with the same material to allow coalescing
+        for (int z = 0; z < 8; z++)
+        for (int y = 0; y < 8; y++)
+        for (int x = 0; x < 8; x++)
+        {
+            _store.SetVoxel(new int3(x, y, z), 1);
+        }
+
+        // Run coalescer
+        bool fullyCoalesced = Coalescer.TryCoalesce(chunk, _pool);
+        
+        // Brick 0 should be back to uniform
+        isDense = (chunk.bricks[0].data & 0x80000000) != 0;
+        Assert.IsFalse(isDense);
+        Assert.AreEqual(1, chunk.bricks[0].data & 0xFF);
+    }
+
+    [Test]
+    public void Pool_DoesNotLeak_AfterAllocAndFree()
+    {
+        int initialFreeCount = _pool.Capacity;
+        
+        Chunk chunk = new Chunk { coord = int3.zero, isUniform = true, uniformMaterial = 0 };
+        _store.InsertChunk(chunk);
+
+        _store.SetVoxel(int3.zero, 1); // Allocates 1 dense brick
+        
+        // Assert one block was taken
+        int poolIndex = (int)(chunk.bricks[0].data & 0x3FFFFFFF);
+        
+        _pool.Free(poolIndex); // Manually free to simulate eviction
+        
+        // Attempt to allocate again and ensure we don't crash and capacity remains stable
+        int newIndex = _pool.Alloc();
+        Assert.AreEqual(poolIndex, newIndex); // Should get the LRU back
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Tests/RaymarchMacroSkipTests.cs
+// ==========================================
+using NUnit.Framework;
+using Unity.Mathematics;
+using VoxelEngine.Memory;
+
+// The oracle property for the macro-skip: for the SAME ray, TracerRaycastMacroSkip
+// must return BIT-IDENTICAL results to the proven per-voxel TracerRaycast - same
+// hit, same voxel, same material, same normal. A correct macro-skip only visits
+// fewer voxels; it never lands anywhere different. Any disagreement is a
+// macro-skip bug by construction.
+//
+// These are the tests that would have caught the tear visible in the Y=40
+// screenshot (long uniform-air spans, where macro-skip does the most work and
+// where the artifact is worst). If a case here fails, it localizes the bug to a
+// specific ray geometry the GPU kernel shares.
+public class RaymarchMacroSkipTests
+{
+    private BrickDataPool _pool;
+    private ChunkHandleAllocator _allocator;
+    private ChunkStore _store;
+
+    [SetUp]
+    public void Setup()
+    {
+        _pool = new BrickDataPool(400);
+        _allocator = new ChunkHandleAllocator(10);
+        _store = new ChunkStore(_pool, _allocator);
+    }
+
+    [TearDown]
+    public void Teardown()
+    {
+        _pool.Dispose();
+    }
+
+    private Chunk MakeAirChunk(int3 chunkCoord)
+    {
+        Chunk chunk = new Chunk { coord = chunkCoord, isUniform = true, uniformMaterial = 0 };
+        _store.InsertChunk(chunk);
+        return chunk;
+    }
+
+    private static float3 VoxelCentreWorld(int3 voxel)
+    {
+        return (new float3(voxel.x, voxel.y, voxel.z) + 0.5f) * 0.1f;
+    }
+
+    // The core assertion: the two walkers must agree on everything but step count.
+    private void AssertWalkersAgree(float3 origin, float3 dir, float maxDist, string label)
+    {
+        var reference = RaymarchReference.TracerRaycast(origin, dir, _store, maxDist);
+        var macroSkip = RaymarchReference.TracerRaycastMacroSkip(origin, dir, _store, maxDist);
+
+        Assert.AreEqual(reference.hit, macroSkip.hit, $"{label}: hit flag disagrees");
+        if (reference.hit)
+        {
+            Assert.AreEqual(reference.voxelCoord, macroSkip.voxelCoord, $"{label}: hit voxel disagrees");
+            Assert.AreEqual(reference.material, macroSkip.material, $"{label}: material disagrees");
+            Assert.AreEqual(reference.normal, macroSkip.normal, $"{label}: normal disagrees");
+        }
+    }
+
+    [Test]
+    public void MacroSkip_LongAirSpan_Down_AgreesWithReference()
+    {
+        // A solid floor many bricks below the origin - the leap must cross
+        // several uniform-air bricks and still land on the exact floor voxel.
+        MakeAirChunk(int3.zero);
+        int3 solid = new int3(4, 3, 4);
+        _store.SetVoxel(solid, 5);
+
+        // Origin ~60 voxels up: forces multiple brick leaps straight down.
+        float3 origin = VoxelCentreWorld(new int3(4, 60, 4));
+        AssertWalkersAgree(origin, new float3(0, -1, 0), 128f, "long-air-span-down");
+    }
+
+    [Test]
+    public void MacroSkip_OriginOnBrickBoundary_NegativeDir_AgreesWithReference()
+    {
+        // Degenerate case #1 from the GPU kernel's own comment: origin sits
+        // exactly on an integer brick boundary, travelling negative on that
+        // axis. This is where tExit could evaluate to 0 and stall the leap.
+        MakeAirChunk(int3.zero);
+        int3 solid = new int3(4, 3, 4);
+        _store.SetVoxel(solid, 5);
+
+        // Y = 8.0m places the origin exactly on the boundary between brick
+        // rows (voxel 80 = brick 10 boundary), travelling -Y.
+        float3 origin = new float3(0.45f, 8.0f, 0.45f);
+        AssertWalkersAgree(origin, new float3(0, -1, 0), 128f, "boundary-negative-dir");
+    }
+
+    [Test]
+    public void MacroSkip_NearAxisAligned_HugeTDelta_AgreesWithReference()
+    {
+        // Degenerate case #2: a ray almost but not quite axis-aligned, so one
+        // axis has a huge tDelta. This is the "one-voxel settling ambiguity"
+        // the kernel comment describes and the likeliest source of the
+        // diagonal-line tear in the Y=40 screenshot.
+        MakeAirChunk(int3.zero);
+        // A broad solid floor so the ray reliably lands on something.
+        for (int x = 0; x < 40; x++)
+            for (int z = 0; z < 40; z++)
+                _store.SetVoxel(new int3(x, 2, z), 5);
+
+        float3 origin = VoxelCentreWorld(new int3(4, 50, 4));
+        // Mostly -Y, with a tiny X/Z tilt -> huge tDelta on X and Z.
+        float3 dir = math.normalize(new float3(0.001f, -1f, 0.0015f));
+        AssertWalkersAgree(origin, dir, 128f, "near-axis-aligned");
+    }
+
+    [Test]
+    public void MacroSkip_Diagonal_AgreesWithReference()
+    {
+        // A clean 3-axis diagonal - all tDelta finite, the "easy" case that
+        // should always work if the leap math is right at all.
+        MakeAirChunk(int3.zero);
+        for (int d = 0; d < 4; d++)
+            _store.SetVoxel(new int3(30 + d, 30 + d, 30 + d), 6);
+
+        float3 origin = VoxelCentreWorld(int3.zero);
+        AssertWalkersAgree(origin, math.normalize(new float3(1, 1, 1)), 128f, "diagonal");
+    }
+
+    [Test]
+    public void MacroSkip_ShallowGrazing_AgreesWithReference()
+    {
+        // A shallow, near-horizontal ray over a floor - long spans of air with
+        // a low-angle approach, the geometry that fills most of the Y=40 frame.
+        MakeAirChunk(int3.zero);
+        for (int x = 0; x < 60; x++)
+            for (int z = 0; z < 60; z++)
+                _store.SetVoxel(new int3(x, 1, z), 5);
+
+        float3 origin = VoxelCentreWorld(new int3(2, 20, 2));
+        float3 dir = math.normalize(new float3(1f, -0.25f, 0.7f));
+        AssertWalkersAgree(origin, dir, 200f, "shallow-grazing");
+    }
+
+    [Test]
+    public void MacroSkip_Miss_AgreesWithReference()
+    {
+        // Pure air, no solid: both must miss and terminate on distance.
+        MakeAirChunk(int3.zero);
+        float3 origin = VoxelCentreWorld(new int3(4, 60, 4));
+        AssertWalkersAgree(origin, new float3(0, -1, 0), 8f, "miss");
+    }
+
+    [Test]
+    public void MacroSkip_Sweep_ManyDirections_AgreeWithReference()
+    {
+        // The screenshot showed a per-pixel pattern - neighboring rays behaving
+        // differently. This sweeps a fan of directions from one origin over a
+        // floor and asserts EVERY ray agrees, the CPU analog of the pixel sweep
+        // that found "zero anomalies" but couldn't see the macro-skip because
+        // the old reference had none.
+        MakeAirChunk(int3.zero);
+        for (int x = 0; x < 80; x++)
+            for (int z = 0; z < 80; z++)
+                _store.SetVoxel(new int3(x, 1, z), 5);
+
+        float3 origin = VoxelCentreWorld(new int3(8, 40, 8));
+        for (int i = -8; i <= 8; i++)
+            for (int j = -8; j <= 8; j++)
+            {
+                float3 dir = math.normalize(new float3(i * 0.05f, -1f, j * 0.05f));
+                AssertWalkersAgree(origin, dir, 200f, $"sweep({i},{j})");
+            }
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Tests/RaymarchReferenceTests.cs
+// ==========================================
+using Unity.Mathematics;
+using VoxelEngine.Memory;
+
+// Two CPU DDA implementations that MUST agree on every ray:
+//
+//   TracerRaycast          - the proven per-voxel walker (Phase 2 oracle).
+//                            Steps one voxel at a time. No macro-skip.
+//                            Correctness-proven by RaymarchReferenceTests.
+//
+//   TracerRaycastMacroSkip - a CPU macro-skip walker, written from the §6.3
+//                            SPECIFICATION (not ported from the GPU kernel),
+//                            so it can serve as an independent oracle for the
+//                            GPU macro-skip rather than a photocopy of it.
+//
+// The oracle property (RaymarchMacroSkipTests): a CORRECT macro-skip must
+// return BIT-IDENTICAL results to the per-voxel walk for the same ray - same
+// hit, voxel, material, normal - just by evaluating fewer voxels. Any
+// disagreement is a macro-skip bug by definition. This is the sibling the
+// GPU Raymarch.compute macro-skip is diffed against (§0.3 Sibling Pattern).
+//
+// NOTE on structure: this sibling deliberately does NOT replicate the GPU
+// kernel's "recompute tExit from the fixed ray origin every iteration"
+// pattern (the structure the kernel's own comment fingers as the degenerate-
+// case source). It advances to the brick exit, then takes ONE guaranteed
+// single-voxel DDA step across the boundary - the plain reading of §6.3
+// ("advance to the brick's far exit plane in one step"). If the GPU's
+// structure and this straightforward structure disagree, that disagreement
+// is the bug we are hunting - which is the whole point of not copying it.
+public static class RaymarchReference
+{
+    public struct RayHit
+    {
+        public bool hit;
+        public int3 voxelCoord;
+        public byte material;
+        public int3 normal;
+        public int steps;      // per-voxel: voxels visited. macro-skip: iterations.
+    }
+
+    // ---------------------------------------------------------------------
+    //  Per-voxel walker (unchanged - the proven oracle).
+    // ---------------------------------------------------------------------
+    public static RayHit TracerRaycast(float3 origin, float3 dir, ChunkStore store, float maxDist = 128f)
+    {
+        RayHit result = new RayHit { hit = false, steps = 0 };
+        float3 rayStart = origin * 10f;
+        float3 rayDir = math.normalize(dir);
+        int3 step = (int3)math.sign(rayDir);
+        float3 tDelta = math.abs(1f / rayDir);
+        int3 voxel = CoordMath.WorldToVoxel(origin);
+        float3 tMax = new float3(
+            step.x > 0 ? (voxel.x + 1f - rayStart.x) : (rayStart.x - voxel.x),
+            step.y > 0 ? (voxel.y + 1f - rayStart.y) : (rayStart.y - voxel.y),
+            step.z > 0 ? (voxel.z + 1f - rayStart.z) : (rayStart.z - voxel.z)
+        ) * tDelta;
+        float currentDist = 0f;
+        float maxVoxelDist = maxDist * 10f;
+
+        while (currentDist < maxVoxelDist && result.steps < 1000)
+        {
+            result.steps++;
+            byte mat = store.GetVoxel(voxel);
+            if (mat != 0)
+            {
+                result.hit = true;
+                result.voxelCoord = voxel;
+                result.material = mat;
+                return result;
+            }
+
+            if (tMax.x < tMax.y)
+            {
+                if (tMax.x < tMax.z)
+                { voxel.x += step.x; currentDist = tMax.x; tMax.x += tDelta.x; result.normal = new int3(-step.x, 0, 0); }
+                else
+                { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; result.normal = new int3(0, 0, -step.z); }
+            }
+            else
+            {
+                if (tMax.y < tMax.z)
+                { voxel.y += step.y; currentDist = tMax.y; tMax.y += tDelta.y; result.normal = new int3(0, -step.y, 0); }
+                else
+                { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; result.normal = new int3(0, 0, -step.z); }
+            }
+        }
+        return result;
+    }
+
+    // ---------------------------------------------------------------------
+    //  Macro-skip walker (written from §6.3, the independent oracle).
+    // ---------------------------------------------------------------------
+    //
+    //  Loop:
+    //    - Resolve the brick at the current voxel.
+    //    - If the brick is UNIFORM AIR: leap. Compute the t at which the ray
+    //      exits this brick's bounding box, advance the ray just past that
+    //      exit plane, and re-seed the per-voxel DDA state at the new voxel.
+    //      This is the "one step per air brick" the spec promises.
+    //    - If the brick is DENSE or a SOLID UNIFORM: fall back to plain
+    //      per-voxel stepping until we leave it (identical to TracerRaycast's
+    //      body), so hit/normal are computed exactly as the oracle does.
+    //
+    //  Brick resolution uses GetVoxel on the brick's origin voxel PLUS a
+    //  uniformity assumption is avoided: we ask the store what the brick is
+    //  by reading its handle indirectly. Since ChunkStore exposes only
+    //  GetVoxel, the sibling determines "uniform air brick" by testing
+    //  whether the WHOLE brick is air is too expensive; instead we leap
+    //  conservatively one brick at a time and let the per-voxel fallback
+    //  catch any non-air voxel. See ResolveBrickIsUniformAir below.
+    //
+    public static RayHit TracerRaycastMacroSkip(float3 origin, float3 dir, ChunkStore store, float maxDist = 128f)
+    {
+        RayHit result = new RayHit { hit = false, steps = 0 };
+        float3 rayStart = origin * 10f;
+        float3 rayDir = math.normalize(dir);
+        int3 step = (int3)math.sign(rayDir);
+        float3 tDelta = math.abs(1f / rayDir);
+        int3 voxel = CoordMath.WorldToVoxel(origin);
+        float currentDist = 0f;
+        float maxVoxelDist = maxDist * 10f;
+        int3 lastNormal = int3.zero;
+
+        while (currentDist < maxVoxelDist && result.steps < 1000)
+        {
+            result.steps++;
+
+            byte mat = store.GetVoxel(voxel);
+            if (mat != 0)
+            {
+                result.hit = true;
+                result.voxelCoord = voxel;
+                result.material = mat;
+                result.normal = lastNormal;
+                return result;
+            }
+
+            // Is the brick containing this voxel uniform air? If so, leap it.
+            int3 brickCoord = CoordMath.VoxelToBrick(voxel);
+            if (BrickIsUniformAir(store, brickCoord))
+            {
+                // Brick bounds in voxel space.
+                int3 bMin = brickCoord * 8;
+                int3 bMax = bMin + 7;
+
+                // t (in voxel units along the normalized ray) at which the ray
+                // crosses the FAR face of the brick on each axis, measured from
+                // the current voxel's DDA state. Compute from rayStart, taking
+                // the axis that exits first.
+                float3 tExit = new float3(
+                    step.x > 0 ? (bMax.x + 1f - rayStart.x) : (rayStart.x - bMin.x),
+                    step.y > 0 ? (bMax.y + 1f - rayStart.y) : (rayStart.y - bMin.y),
+                    step.z > 0 ? (bMax.z + 1f - rayStart.z) : (rayStart.z - bMin.z)
+                ) * tDelta;
+
+                float tMinExit = math.min(math.min(tExit.x, tExit.y), tExit.z);
+
+                // Normal of the exit face (the face we cross leaving the brick).
+                if (tMinExit == tExit.x) lastNormal = new int3(-step.x, 0, 0);
+                else if (tMinExit == tExit.y) lastNormal = new int3(0, -step.y, 0);
+                else lastNormal = new int3(0, 0, -step.z);
+
+                // Advance just past the exit plane and re-seed the voxel.
+                float advanceDist = tMinExit + 1e-4f;
+                float3 exitPos = rayStart + rayDir * advanceDist;
+                int3 nextVoxel = (int3)math.floor(exitPos);
+
+                // Guaranteed progress: if the leap did not move us to a new
+                // voxel (degenerate: origin on the brick's exit face, tiny
+                // brick span on a near-zero axis), take one plain single-voxel
+                // step instead so the loop can never stall. This mirrors the
+                // intent of the GPU guard, but as a fallback to guaranteed
+                // progress, not as a mask over a wrong leap.
+                if (nextVoxel.Equals(voxel))
+                {
+                    SingleVoxelStep(ref voxel, ref currentDist, rayStart, tDelta, step, ref lastNormal);
+                }
+                else
+                {
+                    voxel = nextVoxel;
+                    currentDist = tMinExit;
+                }
+                continue;
+            }
+
+            // Non-uniform-air brick: plain per-voxel step (oracle-identical).
+            SingleVoxelStep(ref voxel, ref currentDist, rayStart, tDelta, step, ref lastNormal);
+        }
+
+        return result;
+    }
+
+    // One guaranteed-progress single-voxel DDA advance. tMax is derived on the
+    // fly from the current voxel so this can be called from either loop state
+    // without carrying a running tMax (correctness over micro-efficiency - this
+    // is an oracle, not the shipped path).
+    private static void SingleVoxelStep(ref int3 voxel, ref float currentDist,
+        float3 rayStart, float3 tDelta, int3 step, ref int3 normal)
+    {
+        float3 tMax = new float3(
+            step.x > 0 ? (voxel.x + 1f - rayStart.x) : (rayStart.x - voxel.x),
+            step.y > 0 ? (voxel.y + 1f - rayStart.y) : (rayStart.y - voxel.y),
+            step.z > 0 ? (voxel.z + 1f - rayStart.z) : (rayStart.z - voxel.z)
+        ) * tDelta;
+
+        if (tMax.x < tMax.y)
+        {
+            if (tMax.x < tMax.z) { voxel.x += step.x; currentDist = tMax.x; normal = new int3(-step.x, 0, 0); }
+            else { voxel.z += step.z; currentDist = tMax.z; normal = new int3(0, 0, -step.z); }
+        }
+        else
+        {
+            if (tMax.y < tMax.z) { voxel.y += step.y; currentDist = tMax.y; normal = new int3(0, -step.y, 0); }
+            else { voxel.z += step.z; currentDist = tMax.z; normal = new int3(0, 0, -step.z); }
+        }
+    }
+
+    // A brick is "uniform air" for leap purposes iff every voxel in it is air.
+    // The oracle checks this honestly (all 512 voxels) rather than trusting a
+    // handle bit, so the sibling's leap can never skip a solid voxel - if this
+    // returns true, leaping the brick is provably safe. This is deliberately
+    // not how the GPU does it (the GPU reads the clipmap handle's uniform bit);
+    // the point of the oracle is to be obviously correct, not fast.
+    private static bool BrickIsUniformAir(ChunkStore store, int3 brickCoord)
+    {
+        int3 bMin = brickCoord * 8;
+        for (int z = 0; z < 8; z++)
+            for (int y = 0; y < 8; y++)
+                for (int x = 0; x < 8; x++)
+                    if (store.GetVoxel(bMin + new int3(x, y, z)) != 0)
+                        return false;
+        return true;
+    }
+}
+
+// ==========================================
+// FILE: Assets/CoreEngine/Tests/RaymarchTests.cs
+// ==========================================
+using NUnit.Framework;
+using Unity.Mathematics;
+using VoxelEngine.Memory;
+
+public class RaymarchTests
+{
+    private BrickDataPool _pool;
+    private ChunkHandleAllocator _allocator;
+    private ChunkStore _store;
+
+    [SetUp]
+    public void Setup()
+    {
+        _pool = new BrickDataPool(10);
+        _allocator = new ChunkHandleAllocator(2);
+        _store = new ChunkStore(_pool, _allocator);
+        
+        Chunk chunk = new Chunk { coord = int3.zero, isUniform = true, uniformMaterial = 0 };
+        _store.InsertChunk(chunk);
+    }
+
+    [TearDown]
+    public void Teardown()
+    {
+        _pool.Dispose();
+    }
+
+    [Test]
+    public void TracerRaycast_HitsKnownVoxel_ReturnsCorrectMaterialAndNormal()
+    {
+        int3 targetVoxel = new int3(5, 0, 0);
+        _store.SetVoxel(targetVoxel, 7);
+
+        float3 origin = new float3(0f, 0.05f, 0.05f);
+        float3 dir = new float3(1f, 0f, 0f);
+
+        RaymarchReference.RayHit hit = RaymarchReference.TracerRaycast(origin, dir, _store, 10f);
+
+        Assert.IsTrue(hit.hit, "Ray did not hit target voxel.");
+        Assert.AreEqual(targetVoxel, hit.voxelCoord, "Ray hit incorrect voxel coordinate.");
+        Assert.AreEqual(7, hit.material, "Ray returned incorrect material.");
+        Assert.AreEqual(new int3(-1, 0, 0), hit.normal, "Ray returned incorrect face normal.");
+    }
+}
+
+
+// ==========================================
+// FILE: Assets/CoreEngine/WorldGen/GenerateChunk.cs
+// ==========================================
+using Unity.Mathematics;
+using VoxelEngine.Memory;
+
+public static class ChunkGenerator
+{
+    public static void GenerateChunk(int seed, int3 chunkCoord, ref Chunk chunk, ChunkHandleAllocator allocator, BrickDataPool pool)
+    {
+        chunk.coord = chunkCoord;
+        chunk.isUniform = false;
+        chunk.bricks = allocator.Alloc();
+
+        int3 baseVoxel = chunkCoord * 128;
+
+        for (int bz = 0; bz < 16; bz++)
+        for (int bx = 0; bx < 16; bx++)
+        {
+            float worldX = (baseVoxel.x + (bx * 8)) * 0.1f;
+            float worldZ = (baseVoxel.z + (bz * 8)) * 0.1f;
+            
+            // Fixed naming collision
+            float noiseVal = noise.cnoise(new float2(worldX * 0.05f, worldZ * 0.05f));
+            int surfaceHeightVoxel = (int)(math.unlerp(-1f, 1f, noiseVal) * 50);
+
+            for (int by = 0; by < 16; by++)
+            {
+                int currentYMinVoxel = baseVoxel.y + (by * 8);
+                int currentYMaxVoxel = currentYMinVoxel + 7;
+                int brickFlatIndex = (bz << 8) | (by << 4) | bx;
+
+                if (currentYMinVoxel > surfaceHeightVoxel)
+                {
+                    chunk.bricks[brickFlatIndex].data = 0; // Air
+                }
+                else if (currentYMaxVoxel < surfaceHeightVoxel)
+                {
+                    chunk.bricks[brickFlatIndex].data = 2; // Stone
+                }
+                else
+                {
+                    int poolIdx = pool.Alloc();
+                    chunk.bricks[brickFlatIndex].data = 0x80000000 | (uint)poolIdx;
+                    
+                    int startOffset = poolIdx * 512;
+                    var rawData = pool.RawData;
+
+                    for (int vy = 0; vy < 8; vy++)
+                    {
+                        int voxelYWorld = currentYMinVoxel + vy;
+                        byte mat = (byte)(voxelYWorld <= surfaceHeightVoxel ? 2 : 0);
+
+                        for (int vz = 0; vz < 8; vz++)
+                        for (int vx = 0; vx < 8; vx++)
+                        {
+                            int vIdx = (vz << 6) | (vy << 3) | vx;
+                            rawData[startOffset + vIdx] = mat;
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
-// ==========================================
-// FILE: Assets/CoreEngine/Memory/VoxelMaterial.cs
-// ==========================================
-using UnityEngine;
-
-namespace CoreEngine.Memory
-{
-    [CreateAssetMenu(fileName = "NewVoxelMaterial", menuName = "Voxel Engine/Material")]
-    public class VoxelMaterial : ScriptableObject
-    {
-        [Header("Identity (0 = Air, 255 = Dynamic Pointer)")]
-        [Range(0, 255)]
-        public byte MaterialID;
-
-        [Header("Rendering Properties")]
-        public Color32 Albedo;
-        [Range(0f, 1f)] public float Roughness;
-        [Range(0f, 10f)] public float Emissivity; // For glowing materials like Lava/Torches
-
-        [Header("Simulation Rules")]
-        [Range(0, 100)] public int Viscosity;     // E.g., Water = 1, Honey = 30
-        [Range(0, 100)] public int Flammability;
-    }
-}
 

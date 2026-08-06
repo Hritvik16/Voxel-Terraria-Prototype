@@ -9,11 +9,12 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e4a02ef7219f84670a05ab94e843c686, type: 3}
+  m_Script: {fileID: 11500000, guid: bd2c5f684e66b49b5b79f4db29e463db, type: 3}
   m_Name: RaymarchFeature
   m_EditorClassIdentifier: Assembly-CSharp::CoreEngine.Compute.RaymarchFeature
   m_Active: 1
-  RaymarchShader: {fileID: 7200000, guid: f26a20970d4374ac7a8bdc945f00424e, type: 3}
+  debugMode: 0
+  raymarchShader: {fileID: 7200000, guid: 6569064dcf54b4eac927ed6bfe00d25c, type: 3}
 --- !u!114 &11400000
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -40,8 +41,8 @@ MonoBehaviour:
     probeVolumeBlendStatesCS: {fileID: 7200000, guid: b9a23f869c4fd45f19c5ada54dd82176, type: 3}
   m_RendererFeatures:
   - {fileID: 7833122117494664109}
-  - {fileID: -8529851329108335029}
-  m_RendererFeatureMap: ad6b866f10d7b46c4ba69ac568e19f89
+  - {fileID: 7157143109636474798}
+  m_RendererFeatureMap: ad6b866f10d7b46cae4784f0bc475363
   m_UseNativeRenderPass: 1
   xrSystemData: {fileID: 0}
   postProcessData: {fileID: 11400000, guid: 41439944d30ece34e96484bdb6645b55, type: 2}
@@ -70,6 +71,21 @@ MonoBehaviour:
   m_DepthTextureFormat: 0
   m_AccurateGbufferNormals: 0
   m_IntermediateTextureMode: 0
+--- !u!114 &7157143109636474798
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bd2c5f684e66b49b5b79f4db29e463db, type: 3}
+  m_Name: RaymarchFeature
+  m_EditorClassIdentifier: CoreEngine::RaymarchFeature
+  m_Active: 1
+  debugMode: 0
+  raymarchShader: {fileID: 7200000, guid: 6569064dcf54b4eac927ed6bfe00d25c, type: 3}
 --- !u!114 &7833122117494664109
 MonoBehaviour:
   m_ObjectHideFlags: 0

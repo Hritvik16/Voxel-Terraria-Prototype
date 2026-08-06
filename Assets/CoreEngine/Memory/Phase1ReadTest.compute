@@ -1,0 +1,26 @@
+#pragma kernel CSMain
+
+StructuredBuffer<uint> ReadBuffer;
+RWStructuredBuffer<uint> ResultBuffer;
+uint ElementCount;
+
+[numthreads(64,1,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    // Guard against the last group's overhang threads (ElementCount may not be
+    // an exact multiple of 64) reading/writing out of bounds.
+    if (id.x >= ElementCount) return;
+
+    // Each thread does a real, non-trivial read pattern over the buffer so the
+    // measured cost reflects actual memory-bus behavior, not a compiler-optimized
+    // no-op. Deliberately reads scattered offsets rather than just ReadBuffer[id.x],
+    // since a single coalesced read per thread is too cheap to show a placement
+    // difference - this is closer to the raymarcher's less-predictable access pattern.
+    uint sum = 0;
+    for (uint i = 0; i < 32; i++)
+    {
+        uint idx = (id.x + i * 997) % ElementCount; // 997 is prime, avoids a fixed stride alias
+        sum += ReadBuffer[idx];
+    }
+    ResultBuffer[id.x] = sum;
+}
