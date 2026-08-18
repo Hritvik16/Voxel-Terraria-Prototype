@@ -133,6 +133,8 @@ GameObject:
   - component: {fileID: 330585547}
   - component: {fileID: 330585548}
   - component: {fileID: 330585549}
+  - component: {fileID: 330585550}
+  - component: {fileID: 330585551}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -283,13 +285,43 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 330585543}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 041d93246ceb94a128da1f2cd0389b6c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RaymarchGpuDebugReadback
-  pixelX: 960
-  pixelY: 540
+  pixelX: 480
+  pixelY: 270
+--- !u!114 &330585550
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 330585543}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c42931d8445e743f38a019aa1ae72ed2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RaymarchDebugControls
+  _toggleMipKey: 109
+  _cycleViewKey: 104
+  _cycleTraversalModeKey: 116
+  _cycleIterCapKey: 111
+  _force1080pWindowOnStart: 0
+--- !u!114 &330585551
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 330585543}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 43ffc29a7039b4d37b37b428b005da2f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RaymarchTraversalModeToggleDebug
+  toggleKey: 114
 --- !u!1 &410087039
 GameObject:
   m_ObjectHideFlags: 0
@@ -475,6 +507,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 54cdf8d438cfd457a8d6c3e215d8a5d8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Phase2Bootstrapper
+  _overrideCameraOnStart: 1
+  _cameraSpawnPosition: {x: 52, y: 84, z: 52}
+  _cameraSpawnEuler: {x: 90, y: 0, z: 0}
 --- !u!1 &832575517
 GameObject:
   m_ObjectHideFlags: 0

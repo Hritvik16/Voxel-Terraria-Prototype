@@ -1,0 +1,217 @@
+#pragma kernel CSMain
+
+#include "../Coord/CoordMath.hlsl"
+#include "../Memory/StructHeaders.hlsl"
+
+// [DIAGNOSTIC] Register-pressure A/B sibling of Raymarch.compute. Mode 1
+// (Reseed) only, Beauty output only. No debug buffer, no debug pixel, no
+// traversal-mode branch, no debug-view branch, no iteration-cap uniform.
+// Every kept line is copied verbatim from Raymarch.compute's mode-1 path -
+// nothing here is re-derived, only omitted. If this kernel is meaningfully
+// faster than the full one at identical dispatch/pose, the full kernel's
+// always-compiled debug/mode branches are causing register spillage; if not,
+// this hypothesis is ruled out too.
+
+RWTexture2D<float4> ResultTexture;
+StructuredBuffer<uint> ClipmapBuffer;
+StructuredBuffer<uint> BrickDataBuffer;
+
+StructuredBuffer<uint> AirMip1;
+StructuredBuffer<uint> AirMip2;
+StructuredBuffer<uint> AirMip3;
+StructuredBuffer<uint> AirMip4;
+uint4 _AirMipDims0;
+uint4 _AirMipDims1;
+uint4 _AirMipDims2;
+uint4 _AirMipDims3;
+uint  _AirMipLevelCount;
+
+float4x4 _CameraInverseProjection;
+float4x4 _CameraInverseView;
+float3 _CameraPos;
+uint4 _WindowDimsBricksPacked;
+
+uint ReadClipmap(int3 brickCoord, uint3 windowDimsBricks)
+{
+    int3 wrapped = brickCoord & (int3)(windowDimsBricks - 1);
+    int flatIndex = wrapped.x
+                  + (wrapped.y * (int)windowDimsBricks.x)
+                  + (wrapped.z * (int)windowDimsBricks.x * (int)windowDimsBricks.y);
+    return ClipmapBuffer[flatIndex];
+}
+
+int AirMipFlatIndex(int3 cell, uint3 dims)
+{
+    int3 wrapped = cell & (int3)(dims - 1);
+    return wrapped.x
+         + wrapped.y * (int)dims.x
+         + wrapped.z * (int)dims.x * (int)dims.y;
+}
+
+uint ReadAirMip(int level, int3 cell)
+{
+    if (level == 1) return AirMip1[AirMipFlatIndex(cell, _AirMipDims0.xyz)];
+    if (level == 2) return AirMip2[AirMipFlatIndex(cell, _AirMipDims1.xyz)];
+    if (level == 3) return AirMip3[AirMipFlatIndex(cell, _AirMipDims2.xyz)];
+    return AirMip4[AirMipFlatIndex(cell, _AirMipDims3.xyz)];
+}
+
+float ReseedTMaxAxis(int voxelAxis, float rayStartAxis, float tDeltaAxis, int stepAxis)
+{
+    return (stepAxis > 0 ? (voxelAxis + 1.0 - rayStartAxis) : (rayStartAxis - voxelAxis)) * tDeltaAxis;
+}
+
+void LeapSpanReseed(inout int3 voxel, inout float3 tMax, inout float currentDist,
+                     float3 tDelta, int3 step, float3 rayStart, int3 spanMin, int spanVoxels,
+                     inout int3 normal)
+{
+    int3 exitCount = int3(
+        step.x > 0 ? (spanMin.x + spanVoxels - voxel.x) : (voxel.x - (spanMin.x - 1)),
+        step.y > 0 ? (spanMin.y + spanVoxels - voxel.y) : (voxel.y - (spanMin.y - 1)),
+        step.z > 0 ? (spanMin.z + spanVoxels - voxel.z) : (voxel.z - (spanMin.z - 1)));
+
+    precise float tExitX = tMax.x + (exitCount.x - 1) * tDelta.x;
+    precise float tExitY = tMax.y + (exitCount.y - 1) * tDelta.y;
+    precise float tExitZ = tMax.z + (exitCount.z - 1) * tDelta.z;
+
+    int axis;
+    if (tExitX <= tExitY) axis = (tExitX <= tExitZ) ? 0 : 2;
+    else                  axis = (tExitY <= tExitZ) ? 1 : 2;
+
+    float tHit = (axis == 0) ? tExitX : ((axis == 1) ? tExitY : tExitZ);
+
+    const float eps = 1e-4;
+    int nonExitGuard = spanVoxels + 1;
+    int guardX = min(exitCount.x, nonExitGuard);
+    int guardY = min(exitCount.y, nonExitGuard);
+    int guardZ = min(exitCount.z, nonExitGuard);
+
+    if (axis == 0)
+    {
+        voxel.x += step.x * exitCount.x;
+        tMax.x = ReseedTMaxAxis(voxel.x, rayStart.x, tDelta.x, step.x);
+    }
+    if (axis == 1)
+    {
+        voxel.y += step.y * exitCount.y;
+        tMax.y = ReseedTMaxAxis(voxel.y, rayStart.y, tDelta.y, step.y);
+    }
+    if (axis == 2)
+    {
+        voxel.z += step.z * exitCount.z;
+        tMax.z = ReseedTMaxAxis(voxel.z, rayStart.z, tDelta.z, step.z);
+    }
+
+    if (axis != 0) { int g = 0; [loop] while (tMax.x <= tHit + eps && g < guardX) { voxel.x += step.x; tMax.x += tDelta.x; g++; } }
+    if (axis != 1) { int g = 0; [loop] while (tMax.y <= tHit + eps && g < guardY) { voxel.y += step.y; tMax.y += tDelta.y; g++; } }
+    if (axis != 2) { int g = 0; [loop] while (tMax.z <= tHit + eps && g < guardZ) { voxel.z += step.z; tMax.z += tDelta.z; g++; } }
+
+    currentDist = tHit;
+    normal = (axis == 0) ? int3(-step.x, 0, 0)
+           : ((axis == 1) ? int3(0, -step.y, 0)
+                          : int3(0, 0, -step.z));
+}
+
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    uint3 _WindowDimsBricks = _WindowDimsBricksPacked.xyz;
+
+    uint width, height;
+    ResultTexture.GetDimensions(width, height);
+    if (id.x >= width || id.y >= height) return;
+
+    float2 uv = float2((id.x + 0.5) / width, (id.y + 0.5) / height) * 2.0 - 1.0;
+    float4 target = mul(_CameraInverseProjection, float4(uv.x, uv.y, 1, 1));
+    float3 rayDir = mul(_CameraInverseView, float4(normalize(target.xyz / target.w), 0)).xyz;
+
+    rayDir.x = abs(rayDir.x) < 1e-6 ? (rayDir.x >= 0 ? 1e-6 : -1e-6) : rayDir.x;
+    rayDir.y = abs(rayDir.y) < 1e-6 ? (rayDir.y >= 0 ? 1e-6 : -1e-6) : rayDir.y;
+    rayDir.z = abs(rayDir.z) < 1e-6 ? (rayDir.z >= 0 ? 1e-6 : -1e-6) : rayDir.z;
+
+    float3 rayStart = _CameraPos * 10.0;
+
+    int3 step = int3(sign(rayDir.x), sign(rayDir.y), sign(rayDir.z));
+    float3 tDelta = abs(1.0 / rayDir);
+
+    int3 voxel = WorldToVoxel(_CameraPos);
+
+    float3 tMax = float3(
+        step.x > 0 ? (voxel.x + 1.0 - rayStart.x) : (rayStart.x - voxel.x),
+        step.y > 0 ? (voxel.y + 1.0 - rayStart.y) : (rayStart.y - voxel.y),
+        step.z > 0 ? (voxel.z + 1.0 - rayStart.z) : (rayStart.z - voxel.z)
+    ) * tDelta;
+
+    float currentDist = 0;
+    int steps = 0;
+    bool hit = false;
+    uint mat = 0;
+    int3 normal = 0;
+
+    while (currentDist < 1280.0 && steps < 400)
+    {
+        steps++;
+
+        bool leapt = false;
+        [loop]
+        for (int k = (int)_AirMipLevelCount; k >= 1; k--)
+        {
+            int shift = 3 + k;
+            int3 cell = voxel >> shift;
+            if (ReadAirMip(k, cell) == 0u)
+            {
+                int spanVoxels = 8 << k;
+                int3 spanMin = cell << shift;
+                LeapSpanReseed(voxel, tMax, currentDist, tDelta, step, rayStart, spanMin, spanVoxels, normal);
+                leapt = true;
+                break;
+            }
+        }
+        if (leapt) continue;
+
+        int3 brickCoord = VoxelToBrick(voxel);
+        uint handle = ReadClipmap(brickCoord, _WindowDimsBricks);
+        bool isDense = (handle & 0x80000000) != 0;
+
+        if (isDense)
+        {
+            uint poolIdx = handle & 0x3FFFFFFF;
+            int3 localVoxel = LocalVoxelIndex3D(voxel);
+            uint vIdx = (uint)LocalVoxelIndex(localVoxel);
+            uint packedData = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
+            uint shift = (vIdx & 3) * 8;
+            mat = (packedData >> shift) & 0xFF;
+
+            if (mat != 0) { hit = true; break; }
+
+            if (tMax.x < tMax.y)
+            {
+                if (tMax.x < tMax.z) { voxel.x += step.x; currentDist = tMax.x; tMax.x += tDelta.x; normal = int3(-step.x, 0, 0); }
+                else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; normal = int3(0, 0, -step.z); }
+            }
+            else
+            {
+                if (tMax.y < tMax.z) { voxel.y += step.y; currentDist = tMax.y; tMax.y += tDelta.y; normal = int3(0, -step.y, 0); }
+                else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; normal = int3(0, 0, -step.z); }
+            }
+            continue;
+        }
+
+        mat = handle & 0xFF;
+        if (mat != 0) { hit = true; break; }
+
+        {
+            int3 bMin = brickCoord * 8;
+            LeapSpanReseed(voxel, tMax, currentDist, tDelta, step, rayStart, bMin, 8, normal);
+        }
+    }
+
+    float4 color = float4(0.2, 0.4, 0.8, 1.0);
+    if (hit)
+    {
+        float ndotl = max(0.2, dot(float3(normal), normalize(float3(0.5, 1.0, 0.2))));
+        color = float4(0.5 * ndotl, 0.5 * ndotl, 0.5 * ndotl, 1.0);
+        if (mat == 2) color = float4(0.6 * ndotl, 0.6 * ndotl, 0.6 * ndotl, 1.0);
+    }
+    ResultTexture[id.xy] = color;
+}

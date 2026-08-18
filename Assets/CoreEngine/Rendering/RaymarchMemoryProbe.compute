@@ -1,0 +1,119 @@
+#pragma kernel CSMain
+
+#include "../Coord/CoordMath.hlsl"
+#include "../Memory/StructHeaders.hlsl"
+
+// [DIAGNOSTIC] Memory-latency isolation probe. Does the SAME dependent-read
+// shape as Raymarch.compute's outer loop (4 chained AirMip reads + 1
+// ClipmapBuffer read per iteration) but NO traversal math - no tMax, no
+// exit-axis logic, no branching on hit/leap. Reads are made genuinely
+// dependent (each address depends on the previous read's VALUE, not just
+// its own fixed position) specifically so the compiler/GPU cannot hoist,
+// reorder, or prefetch around the chain - this is what forces the real
+// latency of a dependent 4-deep read chain to actually show up, rather than
+// being hidden by instruction-level parallelism across independent reads.
+//
+// All buffer accesses go through the existing toroidal wrap-mask (& dims-1),
+// so mutating voxel by arbitrary read values can never produce an
+// out-of-bounds access - safe by construction, no bounds-checking needed here.
+//
+// If GPU frame time here is close to the real kernel's, the bottleneck is
+// memory latency and no amount of traversal cleverness fixes it. If it's
+// dramatically faster, the cost is in the traversal math itself.
+
+RWTexture2D<float4> ResultTexture;
+StructuredBuffer<uint> ClipmapBuffer;
+
+StructuredBuffer<uint> AirMip1;
+StructuredBuffer<uint> AirMip2;
+StructuredBuffer<uint> AirMip3;
+StructuredBuffer<uint> AirMip4;
+uint4 _AirMipDims0;
+uint4 _AirMipDims1;
+uint4 _AirMipDims2;
+uint4 _AirMipDims3;
+
+float4x4 _CameraInverseProjection;
+float4x4 _CameraInverseView;
+float3 _CameraPos;
+uint4 _WindowDimsBricksPacked;
+int _ProbeIterations;
+
+uint ReadClipmap(int3 brickCoord, uint3 windowDimsBricks)
+{
+    int3 wrapped = brickCoord & (int3)(windowDimsBricks - 1);
+    int flatIndex = wrapped.x
+                  + (wrapped.y * (int)windowDimsBricks.x)
+                  + (wrapped.z * (int)windowDimsBricks.x * (int)windowDimsBricks.y);
+    return ClipmapBuffer[flatIndex];
+}
+
+int AirMipFlatIndex(int3 cell, uint3 dims)
+{
+    int3 wrapped = cell & (int3)(dims - 1);
+    return wrapped.x
+         + wrapped.y * (int)dims.x
+         + wrapped.z * (int)dims.x * (int)dims.y;
+}
+
+uint ReadAirMip(int level, int3 cell)
+{
+    if (level == 1) return AirMip1[AirMipFlatIndex(cell, _AirMipDims0.xyz)];
+    if (level == 2) return AirMip2[AirMipFlatIndex(cell, _AirMipDims1.xyz)];
+    if (level == 3) return AirMip3[AirMipFlatIndex(cell, _AirMipDims2.xyz)];
+    return AirMip4[AirMipFlatIndex(cell, _AirMipDims3.xyz)];
+}
+
+[numthreads(8, 8, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    uint3 _WindowDimsBricks = _WindowDimsBricksPacked.xyz;
+
+    uint width, height;
+    ResultTexture.GetDimensions(width, height);
+    if (id.x >= width || id.y >= height) return;
+
+    // Per-thread starting position, same derivation as the real kernel, so
+    // every thread's read addresses are genuinely spread across the buffers
+    // (not all threads hammering the same cache line - that would understate
+    // real-world cost).
+    float2 uv = float2((id.x + 0.5) / width, (id.y + 0.5) / height) * 2.0 - 1.0;
+    float4 target = mul(_CameraInverseProjection, float4(uv.x, uv.y, 1, 1));
+    float3 rayDir = mul(_CameraInverseView, float4(normalize(target.xyz / target.w), 0)).xyz;
+    int3 voxel = WorldToVoxel(_CameraPos) + int3(rayDir * 100.0);
+
+    uint accum = 0;
+    int iters = max(1, _ProbeIterations);
+
+    [loop]
+    for (int i = 0; i < iters; i++)
+    {
+        // 4 chained AirMip reads, coarsest to finest - identical shape to the
+        // real kernel's top-down probe loop.
+        [unroll]
+        for (int k = 4; k >= 1; k--)
+        {
+            int shift = 3 + k;
+            int3 cell = voxel >> shift;
+            uint val = ReadAirMip(k, cell);
+            accum += val;
+            // Force genuine dependency: next read's address depends on this
+            // read's VALUE. This is what a real profiler-invisible latency
+            // chain requires - without this, the compiler could issue all 4
+            // reads independently and overlap their latency.
+            voxel += int3((int)(val & 7), (int)((val >> 3) & 7), (int)((val >> 6) & 7));
+        }
+
+        // One clipmap-style read per iteration too, same dependency trick.
+        int3 brickCoord = VoxelToBrick(voxel);
+        uint handle = ReadClipmap(brickCoord, _WindowDimsBricks);
+        accum += handle;
+        voxel += int3((int)(handle & 3), 0, (int)((handle >> 2) & 3));
+    }
+
+    // Write accum-derived color so the whole chain is provably load-bearing -
+    // the compiler cannot eliminate any read as dead code, since every read
+    // measurably affects the final pixel.
+    float shade = (float)(accum & 0xFF) / 255.0;
+    ResultTexture[id.xy] = float4(shade, shade, shade, 1.0);
+}

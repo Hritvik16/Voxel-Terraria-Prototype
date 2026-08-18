@@ -12,6 +12,21 @@ public class Phase2Bootstrapper : MonoBehaviour
     // §0.1/§0.3's Sibling Pattern. Not a behavioral change to Phase 2 itself.
     public static ChunkStore Store { get; private set; }
 
+    [Header("Camera spawn (for benchmarking / captures)")]
+    [Tooltip("If true, the camera is moved to the pose below on play. " +
+             "Untick to keep whatever position the camera has in the scene " +
+             "(e.g. one you set by hand for a specific GPU capture).")]
+    [SerializeField] private bool _overrideCameraOnStart = true;
+
+    [Tooltip("World-space camera position applied on play when the override " +
+             "is enabled. For the air-walk worst-case StepHeat capture, set a " +
+             "high top-down position (e.g. 52, 84, 52).")]
+    [SerializeField] private Vector3 _cameraSpawnPosition = new Vector3(52.0f, 84.0f, 52.0f);
+
+    [Tooltip("Euler angles (degrees) applied on play when the override is " +
+             "enabled. (90, 0, 0) looks straight down; (0,0,0) looks forward.")]
+    [SerializeField] private Vector3 _cameraSpawnEuler = new Vector3(90.0f, 0.0f, 0.0f);
+
     private BrickDataPool _pool;
     private ChunkHandleAllocator _allocator;
     private ChunkStore _store;
@@ -31,14 +46,14 @@ public class Phase2Bootstrapper : MonoBehaviour
         Clipmap = new TerrainClipmap(windowChunks, _pool.Capacity);
 
         for (int cz = 0; cz < 8; cz++)
-        for (int cx = 0; cx < 8; cx++)
-        {
-            int3 coord = new int3(cx, 0, cz);
-            Chunk chunk = new Chunk();
-            ChunkGenerator.GenerateChunk(42, coord, ref chunk, _allocator, _pool);
-            _store.InsertChunk(chunk);
-            Clipmap.MarkDirty(coord);
-        }
+            for (int cx = 0; cx < 8; cx++)
+            {
+                int3 coord = new int3(cx, 0, cz);
+                Chunk chunk = new Chunk();
+                ChunkGenerator.GenerateChunk(42, coord, ref chunk, _allocator, _pool);
+                _store.InsertChunk(chunk);
+                Clipmap.MarkDirty(coord);
+            }
 
         Clipmap.UploadDirty(_store, _pool);
 
@@ -56,16 +71,25 @@ public class Phase2Bootstrapper : MonoBehaviour
 
         ClipmapValidator.ValidateRegion(Clipmap, _pool, _store);
 
-        // NOTE: left unchanged from the original (52.0, 1.0, 50.0) - out of scope
-        // for this fix. Known issue carried forward: this position is 2m in Z
-        // from the only carved air at this height (the pocket is at Z=52), so
-        // the camera spawns embedded in solid stone here unless manually moved,
-        // as seen earlier in testing. Not touched here since the requested fix
-        // was window-dims only; flagging so it isn't mistaken for resolved.
-        if (Camera.main != null)
+        // Amendment 8.7 Step 3: verify the GPU air-mip pyramid exactly matches a
+        // fresh CPU rebuild. Full-buffer compare (every cell, every level), so a
+        // toroidal-wrap or level-dim bug shows here. Nothing on the GPU READS the
+        // mip yet (shader unchanged until Step 4), so Beauty must be unchanged;
+        // this line only certifies the buffers are correct before Step 4 trusts
+        // them.
+        AirMipValidator.ValidateAll(Clipmap, _store);
+
+        // Camera spawn is now Inspector-driven (see fields above) instead of a
+        // hardcoded (52,1,50). The old position placed the camera at Y=1,
+        // embedded in solid stone AND at the cheapest possible raymarch view
+        // (almost no air to traverse) - useless for the air-walk cost capture,
+        // which needs a HIGH top-down view where air-brick traversal dominates.
+        // Default is now (52,84,52) looking down; untick _overrideCameraOnStart
+        // to keep a hand-placed camera for a specific capture.
+        if (_overrideCameraOnStart && Camera.main != null)
         {
-            Camera.main.transform.position = new Vector3(52.0f, 1.0f, 50.0f);
-            Camera.main.transform.rotation = Quaternion.identity;
+            Camera.main.transform.position = _cameraSpawnPosition;
+            Camera.main.transform.rotation = Quaternion.Euler(_cameraSpawnEuler);
         }
     }
 
