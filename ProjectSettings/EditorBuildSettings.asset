@@ -12,7 +12,7 @@ EditorBuildSettings:
     path: Assets/Scenes/Phase 2 Benchmark Minimal.unity
     guid: f6765d414a96c4f939d85f431540ba07
   - enabled: 1
-    path: Assets/Scenes/Phase 3 Island.unity
+    path: Assets/Scenes/Phase 4 Streaming.unity
     guid: 0d9ab2ddd38884219ba82b77e8d9a935
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}

@@ -1,4 +1,13 @@
+// ==========================================
 // Assets/CoreEngine/Rendering/RaymarchFeature.cs
+//
+// PHASE 4 REVISION. Additive only -- no traversal behaviour changes. New
+// bindings for the sliding window and the chunk-major clipmap layout:
+//   _WindowDimsChunksPacked   window size in chunks (chunk-major indexing)
+//   _WindowOriginBricksPacked window minimum corner in bricks (bounds guard)
+//   _ContentCeilingVoxelY     replaces the hardcoded 128 early-exit
+//   _CascadeTierInfo1/2       coarse-brick geometry per cascade tier
+// See PATCH_phase4_shaders.md for the matching shader edits.
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -15,7 +24,7 @@ public class RaymarchFeature : ScriptableRendererFeature
         Normals = 3,
         NonExitHeat = 4,
         VoxelGrain = 5,
-        LODTier = 6, // NEW: visualizes which cascade tier resolved each pixel's hit
+        LODTier = 6,
     }
 
     public enum GateResMode { UseInspector, Native, Forced960x540, ForcedCustom }
@@ -32,67 +41,27 @@ public class RaymarchFeature : ScriptableRendererFeature
 
     public static bool AirMipEnabled = true;
 
-    // CERTIFIED DEFAULT: mode 4 (DenseSkip). Was 0 (LeapSpan), which
-    // measured 76.66ms vs mode 4's 27.06ms in the same sweep - 2.8x SLOWER,
-    // and the slowest of all five modes. Nothing was wrong with the
-    // benchmarks; they explicitly set mode 4 before measuring. But anything
-    // that did NOT set it - normal Play, and any future scene or tool - got
-    // the worst path silently. Amendment 8.9 already recorded mode 4 as
-    // "real, CPU-proven via fuzz testing, and consistently the fastest mode
-    // measured. Keep it." - this line makes the code agree with that.
-    //
-    // Mode 3 (ReseedClosedForm, 26.30ms) measured statistically TIED with
-    // mode 4 at the pose in that sweep. Mode 4 is chosen anyway because its
-    // advantage is specifically the dense-brick path, which dominates
-    // close-range/grazing views, and because it is the mode with an existing
-    // CPU oracle fuzz proof (RaymarchDenseSkipTests). If a future sweep
-    // shows mode 3 genuinely ahead across multiple poses, that's a real
-    // finding - but it needs to beat mode 4 by more than run-to-run drift
-    // (~24% between runs on this fanless machine) to count.
+    // CERTIFIED DEFAULT: mode 4 (DenseSkip). Amendment 8.9 recorded it as the
+    // fastest measured mode and the one with a CPU oracle fuzz proof.
     public static int TraversalMode = 4;
+
+    // Phase 3 PATCH_iteration_cap: 400 -> 1024. The .compute clamp that pinned
+    // the effective cap at 400 was removed in the same patch.
     public static int MaxOuterIterations = 1024;
+
     public static bool UseStrippedKernel = false;
     public static bool UseMemoryProbeKernel = false;
     public static int ProbeIterations = 14;
 
-    // --- Optimization-pass toggles ---
-    // Packed+merged air-mip reads: one buffer, 1 bit per cell (~1.2 MB) instead
-    // of four buffers at 4 bytes per cell (~38 MB), and no 4-way branch.
-    // CERTIFIED DEFAULT: on. Was false. Amendment 8.9 §6 already recorded
-    // the packed/merged air-mip buffer as "real, free, ~2.9% win. Keep it."
-    // - but the code default never actually changed to match, so the win was
-    // only ever realised in sweeps that explicitly enabled it.
     public static bool UsePackedMips = true;
-    // Max ray travel in VOXELS. 1280 = 128 m (the original LOD0 radius).
-    // Lowering this is the LOD0 trim. With LOD1 unimplemented, distant terrain
-    // vanishes rather than dropping to a coarser level - measurement only.
-    // NOTE: ignored when UseLODCascade is true - see effective max-distance
-    // computation in RecordRenderGraph below.
     public static float MaxRayDistance = 1280f;
-
-    // --- LOD Cascade (Amendment 8.9 / §6.4) ---
-    // Default OFF. Every previously-measured number in Amendment 8.9 was
-    // captured with this false - flipping it true is an explicit, deliberate
-    // opt-in for a NEW benchmark run, not a silent behavior change.
-    // CERTIFIED DEFAULT: on. Was false, correctly, while the cascade was
-    // unproven - Amendment 8.9's numbers all predated it and flipping it on
-    // silently would have invalidated them. That reason has now expired:
-    // measured overhead at GroundHorizon is 11.81ms (off) vs 11.95ms (on),
-    // a 1.2% difference sitting inside the 1.2% driftcheck spread - i.e.
-    // free, reproduced across three separate runs.
-    //
-    // It is also not merely free, it is REQUIRED for correct distant
-    // terrain: with cascade off, RaymarchFeature caps ray travel at the old
-    // MaxRayDistance (1280 raw voxels = 128m); with it on, rays reach tier
-    // 2's outer bound (2900 = 290m). Off means terrain beyond 128m simply
-    // does not render - fine for an A/B measurement, not a shippable view.
     public static bool UseLODCascade = true;
-
-    // NEW: developer material colors + per-voxel grain for the default
-    // Beauty view. Defaults ON. Purely cosmetic - doesn't touch traversal,
-    // doesn't affect any ms figure. Set false to get the original flat-gray
-    // Beauty shading back exactly, for comparison against old screenshots.
     public static bool UseDevColors = true;
+
+    /// Highest world voxel Y that generation can produce content for, +1.
+    /// Set by the bootstrapper from StreamManager.MAX_GENERATED_CHUNK_Y.
+    /// Kept tighter than the window's Y extent on purpose -- see the shader.
+    public static int ContentCeilingVoxelY = 128;
 
     public static DebugMode DebugViewOverride = DebugMode.Beauty;
     public static bool UseDebugViewOverride = false;
@@ -107,6 +76,7 @@ public class RaymarchFeature : ScriptableRendererFeature
     {
         private ComputeShader _compute;
         private ComputeShader _computeStripped;
+        private ComputeShader _computeMemoryProbe;
         private int _debugMode;
         private bool _forceRes;
         private int _gateW, _gateH;
@@ -122,6 +92,9 @@ public class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer brickDataBuffer;
             public GraphicsBuffer debugBuffer;
             public Vector3Int windowDimsBricks;
+            public Vector3Int windowDimsChunks;
+            public Vector3Int windowOriginBricks;
+            public int contentCeilingVoxelY;
             public Vector2Int debugPixel;
             public int debugMode;
             public int traversalMode;
@@ -146,23 +119,19 @@ public class RaymarchFeature : ScriptableRendererFeature
             public int usePackedMips;
             public float maxRayDistance;
 
-            // --- LOD Cascade additions ---
             public GraphicsBuffer clipmapTier1;
             public GraphicsBuffer brickDataTier1;
             public Vector3Int windowDimsCoarseTier1;
+            public Vector4 cascadeTierInfo1;
             public GraphicsBuffer clipmapTier2;
             public GraphicsBuffer brickDataTier2;
             public Vector3Int windowDimsCoarseTier2;
+            public Vector4 cascadeTierInfo2;
             public Vector4 tierOuterRangeVoxels;
             public int useLODCascade;
         }
 
-        class BlitPassData
-        {
-            public TextureHandle source;
-        }
-
-        private ComputeShader _computeMemoryProbe;
+        class BlitPassData { public TextureHandle source; }
 
         public RaymarchPass(ComputeShader compute, ComputeShader computeStripped, ComputeShader computeMemoryProbe)
         {
@@ -175,6 +144,9 @@ public class RaymarchFeature : ScriptableRendererFeature
         public void SetDebugMode(int mode) => _debugMode = mode;
         public void SetGateResolution(bool force, int w, int h) { _forceRes = force; _gateW = w; _gateH = h; }
 
+        /// log2 for the small power-of-two edge sizes the cascade uses.
+        private static int Log2Int(int v) { int n = 0; while ((1 << n) < v) n++; return n; }
+
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
             bool useMemoryProbe = RaymarchFeature.UseMemoryProbeKernel && _computeMemoryProbe != null;
@@ -183,9 +155,7 @@ public class RaymarchFeature : ScriptableRendererFeature
             if (activeCompute == null || TerrainClipmap.Active == null) return;
 
             if (DebugBuffer == null)
-            {
                 DebugBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, DEBUG_BUFFER_FLOATS, sizeof(float));
-            }
 
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
             UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
@@ -227,9 +197,19 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.useDevColors = UseDevColors ? 1 : 0;
                 passData.maxOuterIterations = MaxOuterIterations;
                 passData.usePackedMips = UsePackedMips ? 1 : 0;
+                passData.contentCeilingVoxelY = ContentCeilingVoxelY;
 
                 Unity.Mathematics.int3 dims = clip.WindowDimsBricks;
                 passData.windowDimsBricks = new Vector3Int(dims.x, dims.y, dims.z);
+
+                Unity.Mathematics.int3 dimsC = clip.WindowDimsChunks;
+                passData.windowDimsChunks = new Vector3Int(dimsC.x, dimsC.y, dimsC.z);
+
+                // The window's minimum corner, in bricks. Every frame: this is
+                // what turns the Phase 3 bounds guard from "assumes origin
+                // (0,0,0)" into a correct test under a moving window.
+                Unity.Mathematics.int3 originB = clip.WindowOriginBricks;
+                passData.windowOriginBricks = new Vector3Int(originB.x, originB.y, originB.z);
 
                 int levelCount = AirMipEnabled ? clip.AirMipLevelCount : 0;
                 passData.airMipLevelCount = levelCount;
@@ -250,7 +230,6 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.airMipDims2 = new Vector3Int(g2.x, g2.y, g2.z);
                 passData.airMipDims3 = new Vector3Int(g3.x, g3.y, g3.z);
 
-                // Packed: one buffer + (dimX, dimY, dimZ, wordOffset) per level.
                 passData.airMipPacked = clip.AirMipPackedBuffer;
                 var packed = clip.Packed;
                 var info = new Vector4[4];
@@ -261,25 +240,10 @@ public class RaymarchFeature : ScriptableRendererFeature
                         Unity.Mathematics.int3 d = packed.LevelDims[k];
                         info[k] = new Vector4(d.x, d.y, d.z, packed.WordOffsets[k]);
                     }
-                    else
-                    {
-                        info[k] = new Vector4(1, 1, 1, 0);
-                    }
+                    else info[k] = new Vector4(1, 1, 1, 0);
                 }
                 passData.mipInfo = info;
 
-                // --- LOD Cascade wiring ---
-                // LODCascadeManager.Active is null until something constructs
-                // one (Phase2Bootstrapper, once wired). Even when UseLODCascade
-                // is false OR the manager doesn't exist yet, we still need to
-                // bind SOMETHING to the Tier1/Tier2 buffer slots the shader
-                // declares, or Unity errors on an unbound StructuredBuffer.
-                // Falls back to tier-0's own clipmap/brick buffers as a
-                // harmless dummy bind - same pattern already used above for
-                // AirMip2-4 when fewer than 4 levels exist (b1 reused as
-                // filler). The shader never actually reads these dummy binds
-                // unless _UseLODCascade is also 1, which RecordRenderGraph
-                // only sets when the manager is genuinely present (see below).
                 var cascadeManager = LODCascadeManager.Active;
                 bool cascadeAvailable = UseLODCascade && cascadeManager != null;
                 passData.useLODCascade = cascadeAvailable ? 1 : 0;
@@ -293,40 +257,37 @@ public class RaymarchFeature : ScriptableRendererFeature
                     passData.brickDataTier1 = tier1.BrickDataBuffer;
                     Unity.Mathematics.int3 d1 = tier1.WindowDimsCoarseBricks;
                     passData.windowDimsCoarseTier1 = new Vector3Int(d1.x, d1.y, d1.z);
+                    passData.cascadeTierInfo1 = new Vector4(
+                        tier1.CoarseBricksPerChunkEdge,
+                        Log2Int(tier1.CoarseBricksPerChunkEdge),
+                        tier1.EntriesPerChunk, 0f);
 
                     passData.clipmapTier2 = tier2.ClipmapBuffer;
                     passData.brickDataTier2 = tier2.BrickDataBuffer;
                     Unity.Mathematics.int3 d2 = tier2.WindowDimsCoarseBricks;
                     passData.windowDimsCoarseTier2 = new Vector3Int(d2.x, d2.y, d2.z);
+                    passData.cascadeTierInfo2 = new Vector4(
+                        tier2.CoarseBricksPerChunkEdge,
+                        Log2Int(tier2.CoarseBricksPerChunkEdge),
+                        tier2.EntriesPerChunk, 0f);
 
-                    // Meters -> raw voxel units (x10), matching currentDist's
-                    // units in the shader. Tier 0's own outer bound is
-                    // TIER_OUTER_RANGE_M[0]; the true overall travel cap is
-                    // the LAST tier's outer bound, TIER_OUTER_RANGE_M[TIER_COUNT-1].
                     float tier0Outer = LODConfig.TIER_OUTER_RANGE_M[0] * 10f;
                     float tier1Outer = LODConfig.TIER_OUTER_RANGE_M[1] * 10f;
                     float tier2Outer = LODConfig.TIER_OUTER_RANGE_M[2] * 10f;
                     passData.tierOuterRangeVoxels = new Vector4(tier0Outer, tier1Outer, tier2Outer, 0f);
-
-                    // Cascade active: the true visibility limit is the last
-                    // tier's outer bound, not the old pre-LOD MaxRayDistance
-                    // placeholder (which §3/§5 of Amendment 8.9 note was never
-                    // a real ceiling, just a convenience trim for measurement
-                    // before LOD existed).
                     passData.maxRayDistance = tier2Outer;
                 }
                 else
                 {
-                    // Dummy binds - never read by the shader while useLODCascade==0.
                     passData.clipmapTier1 = clip.ClipmapBuffer;
                     passData.brickDataTier1 = clip.BrickDataBuffer;
                     passData.windowDimsCoarseTier1 = passData.windowDimsBricks;
+                    passData.cascadeTierInfo1 = new Vector4(8, 3, 512, 0);
                     passData.clipmapTier2 = clip.ClipmapBuffer;
                     passData.brickDataTier2 = clip.BrickDataBuffer;
                     passData.windowDimsCoarseTier2 = passData.windowDimsBricks;
+                    passData.cascadeTierInfo2 = new Vector4(4, 2, 64, 0);
                     passData.tierOuterRangeVoxels = Vector4.zero;
-
-                    // Cascade inactive: behave exactly as before this file existed.
                     passData.maxRayDistance = MaxRayDistance;
                 }
 
@@ -367,10 +328,15 @@ public class RaymarchFeature : ScriptableRendererFeature
                     cmd.SetComputeIntParams(data.compute, "_WindowDimsBricksPacked",
                         new int[] { data.windowDimsBricks.x, data.windowDimsBricks.y, data.windowDimsBricks.z, 0 });
 
-                    // --- LOD Cascade param binding ---
-                    // Bound unconditionally (dummy values when inactive, see
-                    // above) so the shader's declared buffers are never left
-                    // unset regardless of debugMode/useMemoryProbe/useStripped.
+                    // --- PHASE 4 window bindings. Set for EVERY kernel,
+                    // including stripped/probe, because all three now index the
+                    // clipmap chunk-major and would read garbage without them.
+                    cmd.SetComputeIntParams(data.compute, "_WindowDimsChunksPacked",
+                        new int[] { data.windowDimsChunks.x, data.windowDimsChunks.y, data.windowDimsChunks.z, 0 });
+                    cmd.SetComputeIntParams(data.compute, "_WindowOriginBricksPacked",
+                        new int[] { data.windowOriginBricks.x, data.windowOriginBricks.y, data.windowOriginBricks.z, 0 });
+                    cmd.SetComputeIntParam(data.compute, "_ContentCeilingVoxelY", data.contentCeilingVoxelY);
+
                     cmd.SetComputeBufferParam(data.compute, 0, "ClipmapBufferTier1", data.clipmapTier1);
                     cmd.SetComputeBufferParam(data.compute, 0, "BrickDataBufferTier1", data.brickDataTier1);
                     cmd.SetComputeBufferParam(data.compute, 0, "ClipmapBufferTier2", data.clipmapTier2);
@@ -379,6 +345,10 @@ public class RaymarchFeature : ScriptableRendererFeature
                         new int[] { data.windowDimsCoarseTier1.x, data.windowDimsCoarseTier1.y, data.windowDimsCoarseTier1.z, 0 });
                     cmd.SetComputeIntParams(data.compute, "_WindowDimsCoarseBricksTier2",
                         new int[] { data.windowDimsCoarseTier2.x, data.windowDimsCoarseTier2.y, data.windowDimsCoarseTier2.z, 0 });
+                    cmd.SetComputeIntParams(data.compute, "_CascadeTierInfo1",
+                        new int[] { (int)data.cascadeTierInfo1.x, (int)data.cascadeTierInfo1.y, (int)data.cascadeTierInfo1.z, 0 });
+                    cmd.SetComputeIntParams(data.compute, "_CascadeTierInfo2",
+                        new int[] { (int)data.cascadeTierInfo2.x, (int)data.cascadeTierInfo2.y, (int)data.cascadeTierInfo2.z, 0 });
                     cmd.SetComputeVectorParam(data.compute, "_TierOuterRangeVoxels", data.tierOuterRangeVoxels);
                     cmd.SetComputeIntParam(data.compute, "_UseLODCascade", data.useLODCascade);
 
@@ -411,11 +381,9 @@ public class RaymarchFeature : ScriptableRendererFeature
             using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("VoxelRaymarch_Blit", out var blitData))
             {
                 blitData.source = target;
-
                 builder.UseTexture(target, AccessFlags.Read);
                 builder.SetRenderAttachment(activeColor, 0, AccessFlags.Write);
                 builder.AllowPassCulling(false);
-
                 builder.SetRenderFunc((BlitPassData data, RasterGraphContext context) =>
                 {
                     Blitter.BlitTexture(context.cmd, data.source, new Vector4(1, 1, 0, 0), 0, false);
@@ -445,18 +413,10 @@ public class RaymarchFeature : ScriptableRendererFeature
             bool forceRes; int gw, gh;
             switch (GateModeOverride)
             {
-                case GateResMode.Native:
-                    forceRes = false; gw = 0; gh = 0;
-                    break;
-                case GateResMode.Forced960x540:
-                    forceRes = true; gw = 960; gh = 540;
-                    break;
-                case GateResMode.ForcedCustom:
-                    forceRes = true; gw = CustomGateResolution.x; gh = CustomGateResolution.y;
-                    break;
-                default:
-                    forceRes = _forceGateResolution; gw = _gateWidth; gh = _gateHeight;
-                    break;
+                case GateResMode.Native: forceRes = false; gw = 0; gh = 0; break;
+                case GateResMode.Forced960x540: forceRes = true; gw = 960; gh = 540; break;
+                case GateResMode.ForcedCustom: forceRes = true; gw = CustomGateResolution.x; gh = CustomGateResolution.y; break;
+                default: forceRes = _forceGateResolution; gw = _gateWidth; gh = _gateHeight; break;
             }
             _pass.SetGateResolution(forceRes, gw, gh);
 

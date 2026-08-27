@@ -90,6 +90,33 @@ float4x4 _CameraInverseView;
 float3 _CameraPos;
 uint4 _WindowDimsBricksPacked;
 
+// --- PHASE 4: sliding window ---
+// The clipmap is now CHUNK-MAJOR: flat = chunkSlot*4096 + localBrickIndex.
+// See TerrainClipmap.cs's header for the derivation (brick-linear made a
+// boundary-crossing slab ~16,000 scattered upload ranges; chunk-major makes it
+// 64 contiguous ones).
+uint4 _WindowDimsChunksPacked;   // .xyz = window size in CHUNKS
+
+// Minimum corner of the resident window, in BRICKS. Was implicitly (0,0,0)
+// while the window was static; the Phase 3 XZ bounds guard said so in its own
+// PHASE 4 NOTE. Now supplied by RaymarchFeature every frame.
+int4 _WindowOriginBricksPacked;
+
+// Highest world voxel Y that generation can produce content for, +1. Replaces
+// the hardcoded 128 in the early-exit below.
+//
+// DELIBERATELY NOT the window's Y extent. The window reaches 256 voxels at
+// WINDOW_CHUNKS_Y=2 but nothing generates above 128, and §6.1 showed grazing
+// and sky rays are exactly where the iteration budget goes -- terminating them
+// at the CONTENT ceiling rather than the WINDOW ceiling halves their travel.
+// Folding this into the window bounds test would be a silent perf regression.
+int _ContentCeilingVoxelY;
+
+// Cascade tier geometry: .x = coarse bricks per chunk edge, .y = log2 of that,
+// .z = coarse-brick entries per chunk. Tier 1 = (8,3,512), tier 2 = (4,2,64).
+uint4 _CascadeTierInfo1;
+uint4 _CascadeTierInfo2;
+
 RWStructuredBuffer<float> DebugOut;
 uint2 _DebugPixel;
 
@@ -158,13 +185,23 @@ float3 DevMaterialColor(uint mat)
     return kDevPalette[idx];
 }
 
+// CHUNK-MAJOR (Phase 4). Ring-masking the CHUNK coord rather than the brick
+// coord is what makes a chunk's 4096 entries contiguous. Masking stays
+// origin-independent: under a power-of-two mask, subtracting the origin only
+// rotates the ring, so the origin is needed for the BOUNDS TEST (in CSMain,
+// once per iteration) and not here.
 uint ReadClipmap(int3 brickCoord, uint3 windowDimsBricks)
 {
-    int3 wrapped = brickCoord & (int3)(windowDimsBricks - 1);
-    int flatIndex = wrapped.x
-                  + (wrapped.y * (int)windowDimsBricks.x)
-                  + (wrapped.z * (int)windowDimsBricks.x * (int)windowDimsBricks.y);
-    return ClipmapBuffer[flatIndex];
+    int3 chunkCoord   = brickCoord >> 4;
+    int3 wrappedChunk = chunkCoord & (int3)(_WindowDimsChunksPacked.xyz - 1);
+    int  chunkSlot    = wrappedChunk.x
+                      + (wrappedChunk.y * (int)_WindowDimsChunksPacked.x)
+                      + (wrappedChunk.z * (int)_WindowDimsChunksPacked.x * (int)_WindowDimsChunksPacked.y);
+
+    int3 localBrick = brickCoord & 15;
+    int  local      = LocalBrickIndex(localBrick);   // C.1, CoordMath.hlsl
+
+    return ClipmapBuffer[(chunkSlot * 4096) + local];
 }
 
 // Generalized clipmap read for cascade tiers 1/2. tierCoarseBrickCoord is in
@@ -173,22 +210,27 @@ uint ReadClipmap(int3 brickCoord, uint3 windowDimsBricks)
 // tier 0. Branches on tier to pick the buffer/dims; tier is derived from
 // currentDist so it's coherent across most of a thread group's rays (same
 // coherent-branch argument already used for the dense/uniform branch above).
+// CHUNK-MAJOR, matching CascadeTierPool. A chunk contributes
+// entriesPerChunk contiguous coarse-brick entries (512 at tier 1, 64 at
+// tier 2), indexed chunkSlot*entriesPerChunk + local, local x-fastest.
 uint ReadClipmapTier(int tier, int3 tierCoarseBrickCoord)
 {
-    if (tier == 1)
-    {
-        uint3 dims = _WindowDimsCoarseBricksTier1.xyz;
-        int3 wrapped = tierCoarseBrickCoord & (int3)(dims - 1);
-        int flatIndex = wrapped.x + (wrapped.y * (int)dims.x) + (wrapped.z * (int)dims.x * (int)dims.y);
-        return ClipmapBufferTier1[flatIndex];
-    }
-    else
-    {
-        uint3 dims = _WindowDimsCoarseBricksTier2.xyz;
-        int3 wrapped = tierCoarseBrickCoord & (int3)(dims - 1);
-        int flatIndex = wrapped.x + (wrapped.y * (int)dims.x) + (wrapped.z * (int)dims.x * (int)dims.y);
-        return ClipmapBufferTier2[flatIndex];
-    }
+    uint4 info = (tier == 1) ? _CascadeTierInfo1 : _CascadeTierInfo2;
+    int edge           = (int)info.x;   // coarse bricks per chunk edge
+    int edgeShift      = (int)info.y;   // log2(edge)
+    int entriesPerChunk= (int)info.z;
+
+    int3 chunkCoord   = tierCoarseBrickCoord >> edgeShift;
+    int3 wrappedChunk = chunkCoord & (int3)(_WindowDimsChunksPacked.xyz - 1);
+    int  chunkSlot    = wrappedChunk.x
+                      + (wrappedChunk.y * (int)_WindowDimsChunksPacked.x)
+                      + (wrappedChunk.z * (int)_WindowDimsChunksPacked.x * (int)_WindowDimsChunksPacked.y);
+
+    int3 localCoarse = tierCoarseBrickCoord & (edge - 1);
+    int  local       = localCoarse.x + edge * (localCoarse.y + edge * localCoarse.z);
+
+    int flatIndex = (chunkSlot * entriesPerChunk) + local;
+    return (tier == 1) ? ClipmapBufferTier1[flatIndex] : ClipmapBufferTier2[flatIndex];
 }
 
 uint ReadBrickDataTier(int tier, uint poolIdx, uint wordIdx)
@@ -497,30 +539,41 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         // ASSUMPTION, FLAGGED: breaks if Phase2Bootstrapper ever generates
         // more than cy=0 - the 128 below would need to become the true
         // loaded ceiling instead of this one hardcoded layer's height.
-        if ((voxel.y >= 128 && step.y > 0) || (voxel.y < 0 && step.y < 0))
+                // ---- CONTENT-CEILING EARLY EXIT (Phase 3, now config-driven) ----
+        // Unchanged in behaviour; the hardcoded 128 is now _ContentCeilingVoxelY,
+        // set from (MAX_GENERATED_CHUNK_Y+1)*128. Its own Phase 3 comment
+        // flagged the constant as an assumption that breaks the moment anything
+        // outside cy=0 generates. It stays SEPARATE from, and tighter than, the
+        // window bounds test below -- see _ContentCeilingVoxelY's declaration.
+        if ((voxel.y >= _ContentCeilingVoxelY && step.y > 0) || (voxel.y < 0 && step.y < 0))
         {
             hit = false;
             break;
         }
- 
-        // v8.11 - XZ WINDOW BOUNDS. ReadClipmap wraps brick coords toroidally
-        // with no bounds check (correct addressing for a sliding window, but
-        // it silently aliases anything OUTSIDE the window back inside). With
-        // only the Y guard above, a shallow upward ray could outrun the
-        // window's XZ extent, wrap, and hit real terrain at a bogus location -
-        // drawn as a detached slab of water hanging in the sky. Leaving the
-        // resident window means "no data", which must terminate the ray, not
-        // alias into it.
+
+        // ---- RESIDENT WINDOW BOUNDS (Phase 4: origin-relative, 3 axes) ----
+        // ReadClipmap/ReadClipmapTier mask toroidally with no bounds check, so
+        // anything outside the window aliases silently back inside -- the
+        // phantom-terrain bug of PHASE_3_COMPLETION.md §6.2. Leaving the window
+        // means "no data", which must TERMINATE the ray, never alias into it.
         //
-        // PHASE 4 NOTE: this assumes the window origin is brick (0,0,0), which
-        // holds while the window is static. Once StreamManager slides the
-        // window, this must become
-        //     int3 rel = bXZ - _WindowOriginBricks;
-        // against the same extents. Flagged here so it is not missed.
+        // ONE guard covers all three tiers. Tiers 1 and 2 cover the same
+        // spatial volume as tier 0, sampled coarser, so a voxel inside the
+        // tier-0 window is inside theirs by construction. No per-tier origin
+        // uniforms are needed and there is deliberately only one bounds site.
+        //
+        // Placement matters: this must stay the FIRST thing in the loop body,
+        // ahead of every clipmap and air-mip read. The tier-1/2 chain loop
+        // further down re-reads ReadClipmapTier up to MAX_CHAIN_LEAPS times
+        // without re-testing bounds; that is safe ONLY because every exit from
+        // that loop returns here before anything is drawn, and because the loop
+        // breaks on both dense and uniform-solid handles without setting `hit`.
         {
-            int3 bXZ = VoxelToBrick(voxel);
-            if (bXZ.x < 0 || bXZ.z < 0 ||
-                bXZ.x >= (int)_WindowDimsBricks.x || bXZ.z >= (int)_WindowDimsBricks.z)
+            int3 rel = VoxelToBrick(voxel) - _WindowOriginBricksPacked.xyz;
+            if (rel.x < 0 || rel.y < 0 || rel.z < 0 ||
+                rel.x >= (int)_WindowDimsBricks.x ||
+                rel.y >= (int)_WindowDimsBricks.y ||
+                rel.z >= (int)_WindowDimsBricks.z)
             {
                 hit = false;
                 break;

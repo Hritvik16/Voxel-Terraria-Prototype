@@ -1,22 +1,25 @@
+// ==========================================
 // Assets/CoreEngine/Mirror/CascadeTierPool.cs
 //
-// §6.4: "LOD1-2 populated by majority-vote downsampling into flat cascade
-// pools at chunk load." This is one cascade pool, for ONE non-zero tier.
-// Structurally this is TerrainClipmap's own pattern (a flat toroidal clipmap
-// of brick handles + a BrickDataPool of dense bodies), just re-parameterized:
-// a "brick" here is 8x8x8 voxels of THIS TIER's (coarser) voxel size, not
-// tier 0's. BrickDataPool itself needed zero changes to be reused - it's
-// already just "N slots x 512 bytes," with no assumption baked in about what
-// a byte represents.
+// PHASE 4 REVISION. Same two changes as TerrainClipmap, for the same reasons,
+// applied to the coarse tiers:
 //
-// MEMORY STATUS: brickPoolCapacity is a caller-supplied placeholder, NOT a
-// measured number. ARCHITECTURE_v8.6.md §11.3 lists "LOD Cascade Pools (3
-// tiers, not 5)" as "[Phase 2 gate]" - explicitly an open measurement, not a
-// derived budget line. Per §11.3's own stated philosophy ("sized aggressively
-// low first, raised only if measurement allows"), whoever constructs this
-// should start low and raise only with real data. This file does not choose
-// that number - see LODCascadeManager for where the current placeholder is
-// set, flagged the same way.
+//   1. CHUNK-MAJOR coarse clipmap. One chunk contributes
+//      coarseBricksPerChunkEdge^3 contiguous entries (512 at tier 1, 64 at
+//      tier 2), so a dirty chunk is ONE SetData per tier instead of a scatter.
+//      Shader side: ReadClipmapTier in Raymarch.compute matches this.
+//
+//   2. INCREMENTAL upload. Phase 3 called BrickDataBuffer.SetData(RawData)
+//      (96 MB per tier) plus a full coarse-clipmap upload on every flush.
+//      PHASE_3_COMPLETION.md §4 measured Cascades.UploadDirty at 3,033 ms and
+//      called it "the dominant term". Worth being precise about WHY, because
+//      the phase doc's diagnosis was incomplete: cascades moved roughly a
+//      THIRD of tier 0's bytes yet took nearly SEVEN TIMES as long, so bus
+//      traffic was never the main cost. It was
+//      LODDownsampler.DownsampleChunkToTier running over all 484 chunks x 2
+//      tiers on every flush -- CPU work, not upload.
+//      Streaming fixes that for free (only entering chunks are dirty), and
+//      the incremental upload below fixes the remaining third.
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -33,27 +36,25 @@ namespace VoxelEngine.Mirror
         public GraphicsBuffer BrickDataBuffer { get; private set; }
         public int3 WindowDimsCoarseBricks => _windowDimsCoarseBricks;
         public int CoarseBricksPerChunkEdge => _coarseBricksPerChunkEdge;
+        /// Entries this tier contributes per chunk. The shader needs it to
+        /// compute chunkSlot * entriesPerChunk + local.
+        public int EntriesPerChunk => _entriesPerChunk;
 
         private readonly int3 _windowDimsChunks;
+        private readonly int3 _chunkMask;
         private readonly int _coarseBricksPerChunkEdge;
+        private readonly int _entriesPerChunk;
         private readonly int3 _windowDimsCoarseBricks;
-        private readonly int3 _coarseBrickMask;
         private readonly uint[] _clipmapLocal;
-
-        // Which BrickDataPool slot (if any) currently backs each clipmap cell.
-        // -1 = cell is uniform, no pool slot in use. Tracked so re-downsampling
-        // a dirty chunk frees its OLD dense allocation before writing the new
-        // one - without this, every re-dirty of a previously-dense cell leaks
-        // a pool slot permanently (the same eviction-spiral shape as the bug
-        // documented in ARCHITECTURE_v8.6.md's "What Changed in 8.2" §1, just
-        // for cascade pools instead of fluid).
+        private readonly uint[] _chunkStaging;
         private readonly int[] _clipmapCellPoolIndex;
 
         private readonly BrickDataPool _brickPool;
         private readonly HashSet<int3> _dirtyChunks = new HashSet<int3>();
+        private readonly List<int> _dirtyBrickSlots = new List<int>();
 
-        private const int TIER0_BRICK_EDGE_VOXELS = 8;   // matches CoordMath's brick shape, all tiers
-        private const int CHUNK_EDGE_BRICKS_TIER0 = 16;   // Chunk = 16x16x16 tier-0 bricks (§2.3)
+        private const int TIER0_BRICK_EDGE_VOXELS = 8;
+        private const int CHUNK_EDGE_BRICKS_TIER0 = 16;
         private const int CHUNK_EDGE_VOXELS_TIER0 = CHUNK_EDGE_BRICKS_TIER0 * TIER0_BRICK_EDGE_VOXELS; // 128
 
         public CascadeTierPool(int tier, int3 windowDimsChunks, int brickPoolCapacity)
@@ -64,21 +65,20 @@ namespace VoxelEngine.Mirror
 
             Tier = tier;
             _windowDimsChunks = windowDimsChunks;
+            _chunkMask = windowDimsChunks - new int3(1, 1, 1);
 
             int factor = LODConfig.DownsampleFactor(tier);
-            // Coarse bricks per chunk edge = (downsampled chunk edge in this
-            // tier's voxels) / 8. E.g. tier1 (factor 2): 128/2/8 = 8. tier2
-            // (factor 4): 128/4/8 = 4.
             _coarseBricksPerChunkEdge = CHUNK_EDGE_VOXELS_TIER0 / factor / TIER0_BRICK_EDGE_VOXELS;
             if (_coarseBricksPerChunkEdge <= 0)
                 throw new ArgumentException(
-                    $"Tier {tier} downsample factor {factor} leaves fewer than 1 coarse brick per chunk edge - tier voxel size too large for a 12.8m chunk.");
+                    $"Tier {tier} downsample factor {factor} leaves fewer than 1 coarse brick per chunk edge.");
 
+            _entriesPerChunk = _coarseBricksPerChunkEdge * _coarseBricksPerChunkEdge * _coarseBricksPerChunkEdge;
             _windowDimsCoarseBricks = windowDimsChunks * _coarseBricksPerChunkEdge;
-            _coarseBrickMask = _windowDimsCoarseBricks - new int3(1, 1, 1);
 
             int totalCoarseBricks = _windowDimsCoarseBricks.x * _windowDimsCoarseBricks.y * _windowDimsCoarseBricks.z;
-            _clipmapLocal = new uint[totalCoarseBricks]; // default 0 = uniform, material 0 (air) - matches window-not-yet-loaded state
+            _clipmapLocal = new uint[totalCoarseBricks];
+            _chunkStaging = new uint[_entriesPerChunk];
             _clipmapCellPoolIndex = new int[totalCoarseBricks];
             for (int i = 0; i < totalCoarseBricks; i++) _clipmapCellPoolIndex[i] = -1;
 
@@ -86,47 +86,64 @@ namespace VoxelEngine.Mirror
 
             ClipmapBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalCoarseBricks, 4);
             BrickDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, brickPoolCapacity * 128, 4);
-
             ClipmapBuffer.SetData(_clipmapLocal);
         }
 
         public void MarkDirty(int3 chunkCoord) => _dirtyChunks.Add(chunkCoord);
 
+        private int ChunkSlot(int3 chunkCoord)
+        {
+            int3 w = chunkCoord & _chunkMask;
+            return w.x + _windowDimsChunks.x * (w.y + _windowDimsChunks.y * w.z);
+        }
+
+        /// Local index of a coarse brick within its chunk, x fastest -- the
+        /// coarse analogue of CoordMath.LocalBrickIndex, and the shader
+        /// reproduces exactly this.
+        private int LocalCoarseIndex(int bx, int by, int bz)
+            => bx + _coarseBricksPerChunkEdge * (by + _coarseBricksPerChunkEdge * bz);
+
         public void UploadDirty(ChunkStore store, BrickDataPool pool)
         {
             if (_dirtyChunks.Count == 0) return;
 
-            bool poolChanged = false;
             int downsampledEdge = CHUNK_EDGE_VOXELS_TIER0 / LODConfig.DownsampleFactor(Tier);
-            int coarseBrickEdge = TIER0_BRICK_EDGE_VOXELS;
+            const int coarseBrickEdge = TIER0_BRICK_EDGE_VOXELS;
+
+            _dirtyBrickSlots.Clear();
 
             foreach (int3 chunkCoord in _dirtyChunks)
             {
+                if (store.GetChunk(chunkCoord) == null) continue;
+
                 byte[] downsampled = LODDownsampler.DownsampleChunkToTier(store, pool, chunkCoord, Tier);
-                int3 baseCoarseBrick = chunkCoord * _coarseBricksPerChunkEdge;
+                int slotBase = ChunkSlot(chunkCoord) * _entriesPerChunk;
 
                 for (int bz = 0; bz < _coarseBricksPerChunkEdge; bz++)
                 for (int by = 0; by < _coarseBricksPerChunkEdge; by++)
                 for (int bx = 0; bx < _coarseBricksPerChunkEdge; bx++)
                 {
-                    byte[] brickVoxels = ExtractBrick(downsampled, downsampledEdge, bx * coarseBrickEdge, by * coarseBrickEdge, bz * coarseBrickEdge, coarseBrickEdge);
+                    byte[] brickVoxels = ExtractBrick(downsampled, downsampledEdge,
+                        bx * coarseBrickEdge, by * coarseBrickEdge, bz * coarseBrickEdge, coarseBrickEdge);
                     bool uniform = IsUniform(brickVoxels);
 
-                    int3 worldCoarseBrick = baseCoarseBrick + new int3(bx, by, bz);
-                    int3 wrapped = worldCoarseBrick & _coarseBrickMask;
-                    int flatIndex = wrapped.x + _windowDimsCoarseBricks.x * (wrapped.y + _windowDimsCoarseBricks.y * wrapped.z);
+                    int local = LocalCoarseIndex(bx, by, bz);
+                    int flatIndex = slotBase + local;
 
+                    // Free the slot this cell previously held. Missing this
+                    // leaks a pool slot on every re-dirty -- the same
+                    // eviction-spiral shape §3.10 documents for fluid.
                     int staleIndex = _clipmapCellPoolIndex[flatIndex];
                     if (staleIndex >= 0)
                     {
                         _brickPool.Free(staleIndex);
                         _clipmapCellPoolIndex[flatIndex] = -1;
-                        poolChanged = true;
                     }
 
+                    uint handle;
                     if (uniform)
                     {
-                        _clipmapLocal[flatIndex] = brickVoxels[0]; // bit31 = 0 (uniform), material in low byte
+                        handle = brickVoxels[0];
                     }
                     else
                     {
@@ -135,22 +152,44 @@ namespace VoxelEngine.Mirror
                         int offset = poolIndex * 512;
                         for (int i = 0; i < 512; i++) raw[offset + i] = brickVoxels[i];
 
-                        _clipmapLocal[flatIndex] = 0x80000000u | (uint)poolIndex;
+                        handle = 0x80000000u | (uint)poolIndex;
                         _clipmapCellPoolIndex[flatIndex] = poolIndex;
-                        poolChanged = true;
+                        _dirtyBrickSlots.Add(poolIndex);
                     }
+
+                    _clipmapLocal[flatIndex] = handle;
+                    _chunkStaging[local] = handle;
                 }
+
+                ClipmapBuffer.SetData(_chunkStaging, 0, slotBase, _entriesPerChunk);
             }
 
-            ClipmapBuffer.SetData(_clipmapLocal);
-            // Full re-upload on any change, matching TerrainClipmap.UploadDirty's
-            // own documented tradeoff (§ comment there): Phase 2's world is
-            // static, so this is rare; incremental (dirty-slot-only) upload is
-            // the obvious later optimization if edit-heavy frames ever profile
-            // hot here.
-            if (poolChanged) BrickDataBuffer.SetData(_brickPool.RawData);
-
+            UploadDirtyBrickBodies();
             _dirtyChunks.Clear();
+        }
+
+        private void UploadDirtyBrickBodies()
+        {
+            if (_dirtyBrickSlots.Count == 0) return;
+            _dirtyBrickSlots.Sort();
+
+            NativeArray<uint> asUints = _brickPool.RawData.Reinterpret<uint>(sizeof(byte));
+
+            int i = 0;
+            while (i < _dirtyBrickSlots.Count)
+            {
+                int runStart = _dirtyBrickSlots[i];
+                int runEnd = runStart;
+                i++;
+                while (i < _dirtyBrickSlots.Count &&
+                       (_dirtyBrickSlots[i] == runEnd || _dirtyBrickSlots[i] == runEnd + 1))
+                { runEnd = _dirtyBrickSlots[i]; i++; }
+
+                int firstUint = runStart * 128;
+                int countUints = (runEnd - runStart + 1) * 128;
+                BrickDataBuffer.SetData(asUints, firstUint, firstUint, countUints);
+            }
+            _dirtyBrickSlots.Clear();
         }
 
         private static byte[] ExtractBrick(byte[] source, int sourceEdge, int originX, int originY, int originZ, int brickEdge)

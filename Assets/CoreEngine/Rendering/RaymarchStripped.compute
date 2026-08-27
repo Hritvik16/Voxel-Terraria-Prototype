@@ -31,13 +31,18 @@ float4x4 _CameraInverseView;
 float3 _CameraPos;
 uint4 _WindowDimsBricksPacked;
 
+uint4 _WindowDimsChunksPacked;
+
 uint ReadClipmap(int3 brickCoord, uint3 windowDimsBricks)
 {
-    int3 wrapped = brickCoord & (int3)(windowDimsBricks - 1);
-    int flatIndex = wrapped.x
-                  + (wrapped.y * (int)windowDimsBricks.x)
-                  + (wrapped.z * (int)windowDimsBricks.x * (int)windowDimsBricks.y);
-    return ClipmapBuffer[flatIndex];
+    int3 chunkCoord   = brickCoord >> 4;
+    int3 wrappedChunk = chunkCoord & (int3)(_WindowDimsChunksPacked.xyz - 1);
+    int  chunkSlot    = wrappedChunk.x
+                      + (wrappedChunk.y * (int)_WindowDimsChunksPacked.x)
+                      + (wrappedChunk.z * (int)_WindowDimsChunksPacked.x * (int)_WindowDimsChunksPacked.y);
+    int3 localBrick = brickCoord & 15;
+    int  local      = LocalBrickIndex(localBrick);
+    return ClipmapBuffer[(chunkSlot * 4096) + local];
 }
 
 int AirMipFlatIndex(int3 cell, uint3 dims)
