@@ -1,22 +1,10 @@
+// Assets/CoreEngine/Rendering/RaymarchFeature.cs
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.Rendering.RenderGraphModule;
+using VoxelEngine.Mirror;
 
-// Two RenderGraph-managed passes: a compute pass that writes `target` at a FIXED
-// gate resolution, and a raster pass that upscales-blits it to the screen.
-//
-// Amendment 8.7/8.8 measurement infrastructure:
-//  (1) RESOLUTION CLAMP: the compute target is forced to a fixed
-//      _GateWidth x _GateHeight so the dispatch does exactly gateW*gateH
-//      rays, not the Retina backing store's pixel count.
-//  (2) The air-mip A/B toggle (AirMipEnabled).
-//  (3) TraversalMode (0/1/2) - three-way A/B/C between the original LeapSpan,
-//      LeapSpanReseed (Amendment 8.7 attempt #3), and LeapSpanReseed +
-//      same-level chaining (Amendment 8.8 Phase B/C). Replaces the earlier
-//      boolean UseReseedLeap now that there are three traversal variants to
-//      compare, not two. Default 0 (original, unchanged behavior) so nothing
-//      changes until explicitly flipped.
 public class RaymarchFeature : ScriptableRendererFeature
 {
     public enum DebugMode
@@ -26,56 +14,89 @@ public class RaymarchFeature : ScriptableRendererFeature
         UniformDense = 2,
         Normals = 3,
         NonExitHeat = 4,
+        VoxelGrain = 5,
+        LODTier = 6, // NEW: visualizes which cascade tier resolved each pixel's hit
     }
 
-    [Tooltip("Runtime debug view. Beauty is the shipped output; StepHeat is the §10.3 step-count heatmap.")]
+    public enum GateResMode { UseInspector, Native, Forced960x540, ForcedCustom }
+    public static GateResMode GateModeOverride = GateResMode.UseInspector;
+    public static Vector2Int CustomGateResolution = new Vector2Int(960, 540);
+
+    [Tooltip("Runtime debug view. Beauty is the shipped output.")]
     public DebugMode debugMode = DebugMode.Beauty;
 
     [Header("Gate measurement resolution")]
-    [Tooltip("Force the compute dispatch to this exact ray resolution, independent " +
-             "of the display's Retina backing store. The Phase 2 gate is defined at " +
-             "1920x1080 ACTUAL rays. Untick to render at native camera resolution.")]
     [SerializeField] private bool _forceGateResolution = true;
-    [SerializeField] private int _gateWidth = 960; //1920;
-    [SerializeField] private int _gateHeight = 540;//1080;
+    [SerializeField] private int _gateWidth = 960;
+    [SerializeField] private int _gateHeight = 540;
 
     public static bool AirMipEnabled = true;
 
-    // --- Amendment 8.7/8.8 traversal A/B/C toggle ---
-    // 0 (default): original proven LeapSpan. Unchanged behavior from the
-    //   correctness-complete state - nothing changes until this is flipped.
-    // 1: LeapSpanReseed (Amendment 8.7 attempt #3). CPU-proven, GPU-confirmed
-    //   (53.11ms -> 35.12ms cold, controlled A/B, Y=84 pose, half-res).
-    // 2: LeapSpanReseed + same-level chaining (Amendment 8.8 Phase B/C).
-    //   CPU-proven (RaymarchOccupancyTests, 11/11 green). NOT yet proven on
-    //   Metal - this is how that gets measured.
-    public static int TraversalMode = 0;
-
-    // Diagnostic only (iteration-cap sweep). 400 = uncapped, matches the
-    // shader's own hardcoded ceiling - default here changes nothing until
-    // explicitly lowered by RaymarchDebugControls.
-    public static int MaxOuterIterations = 400;
-
-    // Diagnostic only (register-pressure A/B). When true and a stripped
-    // kernel is assigned, dispatches RaymarchStripped.compute - mode-1-only,
-    // Beauty-only, no debug branches - instead of the full Raymarch.compute.
-    // Purpose: isolate whether the full kernel's always-compiled traversal-
-    // mode and debug-view branches cause register spilling that shows up as
-    // flat per-iteration cost regardless of which branch actually executes.
-    // Default false - unchanged behavior until explicitly flipped AND a
-    // stripped shader is assigned on the RaymarchFeature asset.
+    // CERTIFIED DEFAULT: mode 4 (DenseSkip). Was 0 (LeapSpan), which
+    // measured 76.66ms vs mode 4's 27.06ms in the same sweep - 2.8x SLOWER,
+    // and the slowest of all five modes. Nothing was wrong with the
+    // benchmarks; they explicitly set mode 4 before measuring. But anything
+    // that did NOT set it - normal Play, and any future scene or tool - got
+    // the worst path silently. Amendment 8.9 already recorded mode 4 as
+    // "real, CPU-proven via fuzz testing, and consistently the fastest mode
+    // measured. Keep it." - this line makes the code agree with that.
+    //
+    // Mode 3 (ReseedClosedForm, 26.30ms) measured statistically TIED with
+    // mode 4 at the pose in that sweep. Mode 4 is chosen anyway because its
+    // advantage is specifically the dense-brick path, which dominates
+    // close-range/grazing views, and because it is the mode with an existing
+    // CPU oracle fuzz proof (RaymarchDenseSkipTests). If a future sweep
+    // shows mode 3 genuinely ahead across multiple poses, that's a real
+    // finding - but it needs to beat mode 4 by more than run-to-run drift
+    // (~24% between runs on this fanless machine) to count.
+    public static int TraversalMode = 4;
+    public static int MaxOuterIterations = 1024;
     public static bool UseStrippedKernel = false;
-
-    // Diagnostic only (memory-latency isolation). Same priority note as
-    // above: requires a shader assigned in the new slot below. Takes
-    // priority over UseStrippedKernel if both are somehow true.
     public static bool UseMemoryProbeKernel = false;
-    public static int ProbeIterations = 14; // matches the ~12-16 real converged iteration count measured this session
+    public static int ProbeIterations = 14;
+
+    // --- Optimization-pass toggles ---
+    // Packed+merged air-mip reads: one buffer, 1 bit per cell (~1.2 MB) instead
+    // of four buffers at 4 bytes per cell (~38 MB), and no 4-way branch.
+    // CERTIFIED DEFAULT: on. Was false. Amendment 8.9 §6 already recorded
+    // the packed/merged air-mip buffer as "real, free, ~2.9% win. Keep it."
+    // - but the code default never actually changed to match, so the win was
+    // only ever realised in sweeps that explicitly enabled it.
+    public static bool UsePackedMips = true;
+    // Max ray travel in VOXELS. 1280 = 128 m (the original LOD0 radius).
+    // Lowering this is the LOD0 trim. With LOD1 unimplemented, distant terrain
+    // vanishes rather than dropping to a coarser level - measurement only.
+    // NOTE: ignored when UseLODCascade is true - see effective max-distance
+    // computation in RecordRenderGraph below.
+    public static float MaxRayDistance = 1280f;
+
+    // --- LOD Cascade (Amendment 8.9 / §6.4) ---
+    // Default OFF. Every previously-measured number in Amendment 8.9 was
+    // captured with this false - flipping it true is an explicit, deliberate
+    // opt-in for a NEW benchmark run, not a silent behavior change.
+    // CERTIFIED DEFAULT: on. Was false, correctly, while the cascade was
+    // unproven - Amendment 8.9's numbers all predated it and flipping it on
+    // silently would have invalidated them. That reason has now expired:
+    // measured overhead at GroundHorizon is 11.81ms (off) vs 11.95ms (on),
+    // a 1.2% difference sitting inside the 1.2% driftcheck spread - i.e.
+    // free, reproduced across three separate runs.
+    //
+    // It is also not merely free, it is REQUIRED for correct distant
+    // terrain: with cascade off, RaymarchFeature caps ray travel at the old
+    // MaxRayDistance (1280 raw voxels = 128m); with it on, rays reach tier
+    // 2's outer bound (2900 = 290m). Off means terrain beyond 128m simply
+    // does not render - fine for an A/B measurement, not a shippable view.
+    public static bool UseLODCascade = true;
+
+    // NEW: developer material colors + per-voxel grain for the default
+    // Beauty view. Defaults ON. Purely cosmetic - doesn't touch traversal,
+    // doesn't affect any ms figure. Set false to get the original flat-gray
+    // Beauty shading back exactly, for comparison against old screenshots.
+    public static bool UseDevColors = true;
 
     public static DebugMode DebugViewOverride = DebugMode.Beauty;
     public static bool UseDebugViewOverride = false;
 
-    // Actual ray resolution the compute dispatched at this frame (for the overlay).
     public static Vector2Int LastDispatchResolution = new Vector2Int(0, 0);
 
     public static GraphicsBuffer DebugBuffer { get; private set; }
@@ -104,6 +125,7 @@ public class RaymarchFeature : ScriptableRendererFeature
             public Vector2Int debugPixel;
             public int debugMode;
             public int traversalMode;
+            public int useDevColors;
             public int maxOuterIterations;
             public bool useStripped;
             public bool useMemoryProbe;
@@ -118,6 +140,21 @@ public class RaymarchFeature : ScriptableRendererFeature
             public Vector3Int airMipDims2;
             public Vector3Int airMipDims3;
             public int airMipLevelCount;
+
+            public GraphicsBuffer airMipPacked;
+            public Vector4[] mipInfo;
+            public int usePackedMips;
+            public float maxRayDistance;
+
+            // --- LOD Cascade additions ---
+            public GraphicsBuffer clipmapTier1;
+            public GraphicsBuffer brickDataTier1;
+            public Vector3Int windowDimsCoarseTier1;
+            public GraphicsBuffer clipmapTier2;
+            public GraphicsBuffer brickDataTier2;
+            public Vector3Int windowDimsCoarseTier2;
+            public Vector4 tierOuterRangeVoxels;
+            public int useLODCascade;
         }
 
         class BlitPassData
@@ -187,7 +224,9 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.debugPixel = DebugPixel;
                 passData.debugMode = _debugMode;
                 passData.traversalMode = TraversalMode;
+                passData.useDevColors = UseDevColors ? 1 : 0;
                 passData.maxOuterIterations = MaxOuterIterations;
+                passData.usePackedMips = UsePackedMips ? 1 : 0;
 
                 Unity.Mathematics.int3 dims = clip.WindowDimsBricks;
                 passData.windowDimsBricks = new Vector3Int(dims.x, dims.y, dims.z);
@@ -210,6 +249,86 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.airMipDims1 = new Vector3Int(g1.x, g1.y, g1.z);
                 passData.airMipDims2 = new Vector3Int(g2.x, g2.y, g2.z);
                 passData.airMipDims3 = new Vector3Int(g3.x, g3.y, g3.z);
+
+                // Packed: one buffer + (dimX, dimY, dimZ, wordOffset) per level.
+                passData.airMipPacked = clip.AirMipPackedBuffer;
+                var packed = clip.Packed;
+                var info = new Vector4[4];
+                for (int k = 0; k < 4; k++)
+                {
+                    if (packed != null && k < packed.NumLevels)
+                    {
+                        Unity.Mathematics.int3 d = packed.LevelDims[k];
+                        info[k] = new Vector4(d.x, d.y, d.z, packed.WordOffsets[k]);
+                    }
+                    else
+                    {
+                        info[k] = new Vector4(1, 1, 1, 0);
+                    }
+                }
+                passData.mipInfo = info;
+
+                // --- LOD Cascade wiring ---
+                // LODCascadeManager.Active is null until something constructs
+                // one (Phase2Bootstrapper, once wired). Even when UseLODCascade
+                // is false OR the manager doesn't exist yet, we still need to
+                // bind SOMETHING to the Tier1/Tier2 buffer slots the shader
+                // declares, or Unity errors on an unbound StructuredBuffer.
+                // Falls back to tier-0's own clipmap/brick buffers as a
+                // harmless dummy bind - same pattern already used above for
+                // AirMip2-4 when fewer than 4 levels exist (b1 reused as
+                // filler). The shader never actually reads these dummy binds
+                // unless _UseLODCascade is also 1, which RecordRenderGraph
+                // only sets when the manager is genuinely present (see below).
+                var cascadeManager = LODCascadeManager.Active;
+                bool cascadeAvailable = UseLODCascade && cascadeManager != null;
+                passData.useLODCascade = cascadeAvailable ? 1 : 0;
+
+                if (cascadeAvailable)
+                {
+                    var tier1 = cascadeManager.TierPool(1);
+                    var tier2 = cascadeManager.TierPool(2);
+
+                    passData.clipmapTier1 = tier1.ClipmapBuffer;
+                    passData.brickDataTier1 = tier1.BrickDataBuffer;
+                    Unity.Mathematics.int3 d1 = tier1.WindowDimsCoarseBricks;
+                    passData.windowDimsCoarseTier1 = new Vector3Int(d1.x, d1.y, d1.z);
+
+                    passData.clipmapTier2 = tier2.ClipmapBuffer;
+                    passData.brickDataTier2 = tier2.BrickDataBuffer;
+                    Unity.Mathematics.int3 d2 = tier2.WindowDimsCoarseBricks;
+                    passData.windowDimsCoarseTier2 = new Vector3Int(d2.x, d2.y, d2.z);
+
+                    // Meters -> raw voxel units (x10), matching currentDist's
+                    // units in the shader. Tier 0's own outer bound is
+                    // TIER_OUTER_RANGE_M[0]; the true overall travel cap is
+                    // the LAST tier's outer bound, TIER_OUTER_RANGE_M[TIER_COUNT-1].
+                    float tier0Outer = LODConfig.TIER_OUTER_RANGE_M[0] * 10f;
+                    float tier1Outer = LODConfig.TIER_OUTER_RANGE_M[1] * 10f;
+                    float tier2Outer = LODConfig.TIER_OUTER_RANGE_M[2] * 10f;
+                    passData.tierOuterRangeVoxels = new Vector4(tier0Outer, tier1Outer, tier2Outer, 0f);
+
+                    // Cascade active: the true visibility limit is the last
+                    // tier's outer bound, not the old pre-LOD MaxRayDistance
+                    // placeholder (which §3/§5 of Amendment 8.9 note was never
+                    // a real ceiling, just a convenience trim for measurement
+                    // before LOD existed).
+                    passData.maxRayDistance = tier2Outer;
+                }
+                else
+                {
+                    // Dummy binds - never read by the shader while useLODCascade==0.
+                    passData.clipmapTier1 = clip.ClipmapBuffer;
+                    passData.brickDataTier1 = clip.BrickDataBuffer;
+                    passData.windowDimsCoarseTier1 = passData.windowDimsBricks;
+                    passData.clipmapTier2 = clip.ClipmapBuffer;
+                    passData.brickDataTier2 = clip.BrickDataBuffer;
+                    passData.windowDimsCoarseTier2 = passData.windowDimsBricks;
+                    passData.tierOuterRangeVoxels = Vector4.zero;
+
+                    // Cascade inactive: behave exactly as before this file existed.
+                    passData.maxRayDistance = MaxRayDistance;
+                }
 
                 builder.UseTexture(target, AccessFlags.Write);
                 builder.AllowPassCulling(false);
@@ -239,13 +358,30 @@ public class RaymarchFeature : ScriptableRendererFeature
                         new int[] { data.airMipDims3.x, data.airMipDims3.y, data.airMipDims3.z, 0 });
                     cmd.SetComputeIntParam(data.compute, "_AirMipLevelCount", data.airMipLevelCount);
 
+                    if (data.airMipPacked != null)
+                        cmd.SetComputeBufferParam(data.compute, 0, "AirMipPacked", data.airMipPacked);
+                    cmd.SetComputeVectorArrayParam(data.compute, "_MipInfo", data.mipInfo);
+                    cmd.SetComputeIntParam(data.compute, "_UsePackedMips", data.usePackedMips);
+                    cmd.SetComputeFloatParam(data.compute, "_MaxRayDistance", data.maxRayDistance);
+
                     cmd.SetComputeIntParams(data.compute, "_WindowDimsBricksPacked",
                         new int[] { data.windowDimsBricks.x, data.windowDimsBricks.y, data.windowDimsBricks.z, 0 });
 
-                    // Debug-only / mode-only uniforms - neither sibling kernel
-                    // declares these resources, so they must never be set on
-                    // them (Unity errors if you name a resource the active
-                    // kernel doesn't have).
+                    // --- LOD Cascade param binding ---
+                    // Bound unconditionally (dummy values when inactive, see
+                    // above) so the shader's declared buffers are never left
+                    // unset regardless of debugMode/useMemoryProbe/useStripped.
+                    cmd.SetComputeBufferParam(data.compute, 0, "ClipmapBufferTier1", data.clipmapTier1);
+                    cmd.SetComputeBufferParam(data.compute, 0, "BrickDataBufferTier1", data.brickDataTier1);
+                    cmd.SetComputeBufferParam(data.compute, 0, "ClipmapBufferTier2", data.clipmapTier2);
+                    cmd.SetComputeBufferParam(data.compute, 0, "BrickDataBufferTier2", data.brickDataTier2);
+                    cmd.SetComputeIntParams(data.compute, "_WindowDimsCoarseBricksTier1",
+                        new int[] { data.windowDimsCoarseTier1.x, data.windowDimsCoarseTier1.y, data.windowDimsCoarseTier1.z, 0 });
+                    cmd.SetComputeIntParams(data.compute, "_WindowDimsCoarseBricksTier2",
+                        new int[] { data.windowDimsCoarseTier2.x, data.windowDimsCoarseTier2.y, data.windowDimsCoarseTier2.z, 0 });
+                    cmd.SetComputeVectorParam(data.compute, "_TierOuterRangeVoxels", data.tierOuterRangeVoxels);
+                    cmd.SetComputeIntParam(data.compute, "_UseLODCascade", data.useLODCascade);
+
                     if (!data.useStripped && !data.useMemoryProbe)
                     {
                         cmd.SetComputeBufferParam(data.compute, 0, "DebugOut", data.debugBuffer);
@@ -255,10 +391,9 @@ public class RaymarchFeature : ScriptableRendererFeature
                             new int[] { data.debugMode, 0, 0, 0 });
                         cmd.SetComputeIntParam(data.compute, "_TraversalMode", data.traversalMode);
                         cmd.SetComputeIntParam(data.compute, "_MaxOuterIterations", data.maxOuterIterations);
+                        cmd.SetComputeIntParam(data.compute, "_UseDevColors", data.useDevColors);
                     }
 
-                    // BrickDataBuffer isn't declared by the memory probe (it only
-                    // exercises AirMip + Clipmap reads).
                     if (!data.useMemoryProbe)
                         cmd.SetComputeBufferParam(data.compute, 0, "BrickDataBuffer", data.brickDataBuffer);
 
@@ -290,14 +425,7 @@ public class RaymarchFeature : ScriptableRendererFeature
     }
 
     public ComputeShader raymarchShader;
-
-    [Tooltip("Diagnostic only: register-pressure A/B sibling kernel (mode-1-only, " +
-             "Beauty-only). Assign RaymarchStripped.compute here to enable the " +
-             "UseStrippedKernel toggle; leave unassigned to disable it entirely.")]
     public ComputeShader raymarchShaderStripped;
-
-    [Tooltip("Diagnostic only: memory-latency isolation probe (same dependent-read " +
-             "shape, no traversal math). Assign RaymarchMemoryProbe.compute here.")]
     public ComputeShader raymarchShaderMemoryProbe;
 
     private RaymarchPass _pass;
@@ -313,7 +441,25 @@ public class RaymarchFeature : ScriptableRendererFeature
         {
             int mode = UseDebugViewOverride ? (int)DebugViewOverride : (int)debugMode;
             _pass.SetDebugMode(mode);
-            _pass.SetGateResolution(_forceGateResolution, _gateWidth, _gateHeight);
+
+            bool forceRes; int gw, gh;
+            switch (GateModeOverride)
+            {
+                case GateResMode.Native:
+                    forceRes = false; gw = 0; gh = 0;
+                    break;
+                case GateResMode.Forced960x540:
+                    forceRes = true; gw = 960; gh = 540;
+                    break;
+                case GateResMode.ForcedCustom:
+                    forceRes = true; gw = CustomGateResolution.x; gh = CustomGateResolution.y;
+                    break;
+                default:
+                    forceRes = _forceGateResolution; gw = _gateWidth; gh = _gateHeight;
+                    break;
+            }
+            _pass.SetGateResolution(forceRes, gw, gh);
+
             renderer.EnqueuePass(_pass);
         }
     }

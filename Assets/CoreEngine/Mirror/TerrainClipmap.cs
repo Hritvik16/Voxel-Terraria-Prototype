@@ -19,36 +19,24 @@ public class TerrainClipmap : IDisposable
     private readonly uint[] _clipmapLocal;
     private readonly HashSet<int3> _dirtyChunks = new HashSet<int3>();
 
-    // ---- AIR-MIP (Amendment 8.7, Step 3) -----------------------------------
-    // The pyramid is a pure function of _clipmapLocal (the CPU-side L0 handle
-    // array). It is built once, then RebuildRegion'd per dirty chunk in the same
-    // UploadDirty call that writes the clipmap - so the GPU mip and GPU clipmap
-    // always reach the GPU together and consistently. One GraphicsBuffer per
-    // level. Nothing READS these on the GPU until Step 4 wires the shader; Step 3
-    // only builds + uploads + validates them, so Beauty must be pixel-identical.
-    // Diagnostic toggle (this session): swap the air-mip buffers' upload
-    // mechanism between SetData and LockBufferForWrite, mirroring the
-    // §3.7 clipmap benchmark PHASE_1_COMPLETION never got to run cleanly
-    // (empty-scene, isolated dispatch). The air-mip buffers are read
-    // dependently, 4x per outer iteration, on every ray - if either buffer
-    // ends up CPU-visible instead of device-local, this is where it would
-    // show. Default false (SetData) - current behavior unchanged until an
-    // explicit A/B flips it.
     public static bool UseLockBufferForAirMip = false;
 
     public const int NUM_AIR_MIP_LEVELS = 4;
-    private AirMipData _mips;                       // CPU-side pyramid over _clipmapLocal
-    private GraphicsBuffer[] _airMipBuffers;        // one per level, L1.._mips.NumLevels
+    private AirMipData _mips;
+    private GraphicsBuffer[] _airMipBuffers;        // legacy: one 4-byte-per-cell buffer per level
     public AirMipData Mips => _mips;
     public GraphicsBuffer AirMipBuffer(int oneBasedLevel) => _airMipBuffers[oneBasedLevel - 1];
     public int AirMipLevelCount => _mips != null ? _mips.NumLevels : 0;
 
-    // Single source of truth for window sizing in bricks. Everything that needs
-    // to compute a clipmap flat index (RaymarchFeature, Raymarch.compute via the
-    // uniform this feeds, ClipmapValidator) must read this rather than hardcode
-    // its own copy - that duplication is exactly what caused the 8.6 window-dims
-    // mismatch (EngineConfig said 32x16x32 chunks, the shader/validator assumed
-    // 16x8x16 chunks baked in at construction time).
+    // --- PACKED + MERGED AIR-MIP (optimization pass) ---
+    // One buffer, all levels, 1 bit per cell. ~1.2 MB total vs ~38 MB for the
+    // legacy four-buffer form, which puts the whole pyramid inside the M1's
+    // 8 MB system-level cache. Kept ALONGSIDE the legacy buffers so the two
+    // can be A/B'd in the same build - the extra 1.2 MB is negligible.
+    private AirMip.PackedMips _packed;
+    public GraphicsBuffer AirMipPackedBuffer { get; private set; }
+    public AirMip.PackedMips Packed => _packed;
+
     public int3 WindowDimsBricks => _windowDimsBricks;
     public int3 WindowDimsChunks => _windowDimsChunks;
 
@@ -64,18 +52,16 @@ public class TerrainClipmap : IDisposable
         BrickDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, brickPoolCapacity * 128, 4);
         _clipmapLocal = new uint[totalBricks];
 
-        // --- Air-mip: allocate an all-air pyramid (zero-init) and its GPU
-        // buffers. _clipmapLocal is currently all-zero (air), so an empty build
-        // is the correct starting state; UploadDirty's RebuildRegion fills in the
-        // non-air cells as chunks are written. ---
         _mips = AirMip.Build(_clipmapLocal, _windowDimsBricks, NUM_AIR_MIP_LEVELS);
         _airMipBuffers = new GraphicsBuffer[_mips.NumLevels];
         for (int k = 0; k < _mips.NumLevels; k++)
         {
             int count = _mips.Levels[k].Length;
             _airMipBuffers[k] = new GraphicsBuffer(GraphicsBuffer.Target.Structured, count, 4);
-            UploadAirMipLevel(k); // upload the all-air starting state
+            UploadAirMipLevel(k);
         }
+
+        RebuildAndUploadPacked();
 
         Active = this;
     }
@@ -119,30 +105,37 @@ public class TerrainClipmap : IDisposable
                 }
             }
 
-            // --- Air-mip maintenance: now that this chunk's L0 handles are
-            // written into _clipmapLocal, recompute the mip cells overlapping
-            // this chunk's brick region, bottom-up. Same code path edits will use
-            // (§8.7 maintenance rule). Uses the toroidally-masked FlatIndex, so it
-            // is correct even when the chunk sits at the window wrap edge. ---
-            int3 regionMin = baseBrickCoord;                 // inclusive brick bounds
+            int3 regionMin = baseBrickCoord;
             int3 regionMax = baseBrickCoord + new int3(15, 15, 15);
             AirMip.RebuildRegion(_clipmapLocal, _mips, regionMin, regionMax);
         }
 
         ClipmapBuffer.SetData(_clipmapLocal);
 
-        // Upload the (now-updated) mip levels. At Phase 2 this is a full re-upload
-        // per level; the level buffers are small relative to the clipmap and this
-        // fires only on dirty frames. Sub-range upload is a later optimization if
-        // ever needed (the dirty set is small).
         for (int k = 0; k < _mips.NumLevels; k++)
             UploadAirMipLevel(k);
+
+        // Full re-pack on every dirty upload. At Phase 2 the world is static so
+        // this fires rarely; incremental packing (only the words covering dirty
+        // cells) is a straightforward later optimization if edit-heavy frames
+        // ever make it show up in a profile.
+        RebuildAndUploadPacked();
 
         _dirtyChunks.Clear();
     }
 
-    // Single upload chokepoint for both call sites above, so the A/B toggle
-    // can never drift between constructor-time and UploadDirty-time behavior.
+    private void RebuildAndUploadPacked()
+    {
+        _packed = AirMip.Pack(_mips);
+
+        if (AirMipPackedBuffer == null || AirMipPackedBuffer.count != _packed.Words.Length)
+        {
+            AirMipPackedBuffer?.Release();
+            AirMipPackedBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, _packed.Words.Length, 4);
+        }
+        AirMipPackedBuffer.SetData(_packed.Words);
+    }
+
     private void UploadAirMipLevel(int k)
     {
         uint[] level = _mips.Levels[k];
@@ -163,6 +156,8 @@ public class TerrainClipmap : IDisposable
         if (Active == this) Active = null;
         ClipmapBuffer?.Release();
         BrickDataBuffer?.Release();
+        AirMipPackedBuffer?.Release();
+        AirMipPackedBuffer = null;
         if (_airMipBuffers != null)
         {
             for (int k = 0; k < _airMipBuffers.Length; k++)

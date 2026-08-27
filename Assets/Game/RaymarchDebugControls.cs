@@ -3,28 +3,18 @@
 // Amendment 8.7 - runtime debug controls + GPU timing overlay, usable in a BUILT
 // player. Drop on any GameObject in the Phase 2 scene.
 //
+// v3 (this session): T now cycles 0..4 (was 0..2, silently skipping the
+// already-shipped closed-form mode 3 and the new dense-skip mode 4). Mode
+// names extended to match. No other behavior change.
+//
 // KEYS (legacy Input Manager):
 //   M : toggle the air-mip pyramid ON/OFF (OFF = pure L0 path).
 //   H : cycle debug view (Beauty -> StepHeat -> UniformDense -> Normals).
+//   T : cycle traversal mode 0 -> 1 -> 2 -> 3 -> 4 -> 0.
 //
-// OVERLAY shows: air-mip state, debug view, the ACTUAL dispatch resolution
-// (so you can confirm the gate 1920x1080 is really what's being rendered, not
-// the Retina backing store), and a GPU frame time read from Unity's
-// FrameTimingManager - a real DRIVER GPU timestamp, available in standalone
-// builds, NOT the Editor stats panel. Since the raymarch compute dominates this
-// scene's GPU work (dispatch + a cheap upscale blit), GPU frame time is
-// effectively the raymarch cost and is the right number to compare against the
-// 8 ms Phase 2 budget.
-//
-// WHY THIS IS GATE-VALID (not the thing the doc says to distrust): the doc
-// distrusts Unity's EDITOR performance readouts because they carry editor
-// overhead. FrameTimingManager.gpuFrameTime is the GPU's own hardware timer,
-// surfaced in a standalone build without the Instruments capture layer that was
-// inflating the earlier numbers. Cross-check it against ONE Instruments GPU
-// capture to confirm agreement, then trust it for fast A/B iteration.
-//
-// FrameTimingManager needs enabling and has a few-frames latency; if it returns
-// 0 the overlay says "GPU timing unavailable" and you fall back to Instruments.
+// OVERLAY shows: air-mip state, debug view, the ACTUAL dispatch resolution,
+// and a GPU frame time read from Unity's FrameTimingManager - a real DRIVER
+// GPU timestamp, available in standalone builds, NOT the Editor stats panel.
 
 using UnityEngine;
 
@@ -37,10 +27,10 @@ public class RaymarchDebugControls : MonoBehaviour
     [SerializeField] private KeyCode _toggleAirMipUploadModeKey = KeyCode.L;
     [SerializeField] private KeyCode _toggleStrippedKernelKey = KeyCode.K;
 
-    // Sweep values for the iteration-cap diagnostic. 400 = uncapped (matches
-    // the shader's own default), so cycling wraps back to "off" cleanly.
     private static readonly int[] _iterCapSweep = { 1, 2, 4, 8, 16, 32, 64, 128, 400 };
-    private int _iterCapIndex = _iterCapSweep.Length - 1; // start uncapped
+    private int _iterCapIndex = _iterCapSweep.Length - 1;
+
+    private const int TRAVERSAL_MODE_COUNT = 5; // 0..4
 
     [Tooltip("Force 1920x1080 window on start. NOTE: the actual RAY resolution is " +
              "clamped separately in RaymarchFeature (_forceGateResolution); this " +
@@ -69,7 +59,7 @@ public class RaymarchDebugControls : MonoBehaviour
         }
 
         if (Input.GetKeyDown(_cycleTraversalModeKey))
-            RaymarchFeature.TraversalMode = (RaymarchFeature.TraversalMode + 1) % 3;
+            RaymarchFeature.TraversalMode = (RaymarchFeature.TraversalMode + 1) % TRAVERSAL_MODE_COUNT;
 
         if (Input.GetKeyDown(_cycleIterCapKey))
         {
@@ -83,13 +73,11 @@ public class RaymarchDebugControls : MonoBehaviour
         if (Input.GetKeyDown(_toggleStrippedKernelKey))
             RaymarchFeature.UseStrippedKernel = !RaymarchFeature.UseStrippedKernel;
 
-        // Pull the latest GPU frame time from the driver. Must call
-        // CaptureFrameTimings each frame; GetLatestTimings returns recent frames.
         FrameTimingManager.CaptureFrameTimings();
         uint got = FrameTimingManager.GetLatestTimings(1, _timings);
         if (got > 0)
         {
-            float gpuMs = (float)_timings[0].gpuFrameTime; // milliseconds
+            float gpuMs = (float)_timings[0].gpuFrameTime;
             if (gpuMs > 0f)
                 _smoothedGpuMs = _smoothedGpuMs <= 0f ? gpuMs : Mathf.Lerp(_smoothedGpuMs, gpuMs, 0.1f);
         }
@@ -129,7 +117,6 @@ public class RaymarchDebugControls : MonoBehaviour
         GUI.Label(new Rect(18, 180, 480, 28),
             $"KERNEL: {(RaymarchFeature.UseStrippedKernel ? "STRIPPED (mode1/Beauty only)" : "FULL")}   [{_toggleStrippedKernelKey}]", style);
 
-       // GPU line in a distinct colour - THIS is the gate-relevant number.
         GUIStyle gpuStyle = new GUIStyle(style)
         { normal = { textColor = _smoothedGpuMs > 0f ? new Color(0.5f, 1f, 0.5f) : new Color(1f, 0.6f, 0.3f) } };
         GUI.Label(new Rect(18, 208, 480, 28), gpuLine, gpuStyle);
@@ -146,6 +133,8 @@ public class RaymarchDebugControls : MonoBehaviour
             case 0: return "0-LeapSpan";
             case 1: return "1-Reseed";
             case 2: return "2-OccupancyChain";
+            case 3: return "3-ReseedClosedForm";
+            case 4: return "4-DenseSkip";
             default: return mode.ToString();
         }
     }

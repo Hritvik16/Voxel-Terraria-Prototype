@@ -1,3 +1,42 @@
+// Assets/CoreEngine/Rendering/Raymarch.compute
+//
+// AMENDMENT 8.9 / §6.4 LOD CASCADE ADDITION:
+// New buffers/params for cascade tiers 1-2, and a new coarse-tier traversal
+// branch, ALL gated behind _UseLODCascade (default 0 from C#). When that flag
+// is 0, "tier" is forced to 0 every iteration and the ENTIRE original tier-0
+// code path below runs completely unchanged - same buffers, same branches,
+// same math, byte-for-byte identical to the pre-LOD file. This is deliberate:
+// every number in Amendment 8.9 was measured against the old code path, and
+// none of that measurement is invalidated by this file until _UseLODCascade
+// is explicitly turned on for a new benchmark run.
+//
+// Coarse-tier design: the ray's DDA state (voxel, tMax, tDelta, step) stays
+// in RAW TIER-0 VOXEL UNITS for the whole ray, always. Tiers 1/2 don't get
+// their own coordinate space - they just read coarser clipmap/brick buffers
+// and treat one coarse brick's span as (8 << tierShift) raw voxels instead of
+// 8. This means LeapSpanReseedClosedForm (unchanged, already CPU-fuzz-proven
+// per Amendment 8.9 §6) is reused AS-IS for tier 1/2 empty-brick leaps - no
+// new DDA math, just a bigger span passed to proven code.
+//
+// KNOWN LIMITATION, FIXED THIS PASS (was open, now resolved - see chat): the
+// coarse-tier dense-brick path used to step ONE RAW VOXEL at a time even
+// though a tier-2 coarse voxel is 4 raw voxels wide, costing up to 4
+// iterations per coarse voxel crossed instead of 1. A real benchmark
+// (Mode4-DenseSkip, cascade ON vs OFF, same pose) measured this costing
+// ~83% - nearly 2x - before the fix, confirming the file's own earlier
+// prediction. Fixed by leaping the full raw-voxel span of an air coarse
+// voxel via the same already-proven LeapSpanReseedClosedForm the empty-
+// brick case already used, just with a one-coarse-voxel-sized span instead
+// of a whole-brick-sized one. See the tier>0 dense branch below for the
+// exact change. NOT yet re-measured after this fix - that's the next
+// verification step, not something to assume from the reasoning alone.
+//
+// STILL OPEN, NOT ADDRESSED THIS PASS: tiers 1/2 still have no air-mip
+// pyramid equivalent - empty coarse BRICKS are still skipped one brick at a
+// time (see the empty-brick leap below), with no multi-level hierarchy to
+// leap across many bricks at once the way tier 0's pyramid does. If the fix
+// above isn't enough on its own to close the gap with cascade-off, this is
+// the next thing to build, not a smaller tweak to the fix above.
 #pragma kernel CSMain
 
 #include "../Coord/CoordMath.hlsl"
@@ -7,16 +46,44 @@ RWTexture2D<float4> ResultTexture;
 StructuredBuffer<uint> ClipmapBuffer;
 StructuredBuffer<uint> BrickDataBuffer;
 
-// --- AIR-MIP (Amendment 8.7, Step 4) ---
+// --- LOD CASCADE: tier 1 (0.2m) and tier 2 (0.4m) clipmap + brick data ---
+// Bound even when _UseLODCascade==0 (RaymarchFeature falls back to binding
+// the tier-0 buffers as harmless dummies in that case, same pattern already
+// used for AirMip2-4 when fewer levels are built) so the shader never reads
+// an unset buffer.
+StructuredBuffer<uint> ClipmapBufferTier1;
+StructuredBuffer<uint> BrickDataBufferTier1;
+StructuredBuffer<uint> ClipmapBufferTier2;
+StructuredBuffer<uint> BrickDataBufferTier2;
+uint4 _WindowDimsCoarseBricksTier1; // .xyz = coarse-brick dims, .w unused
+uint4 _WindowDimsCoarseBricksTier2;
+
+// .x = tier0 outer bound, .y = tier1 outer bound, .z = tier2 outer bound (the
+// true ray-travel cap when cascade is active), .w unused. All in RAW VOXEL
+// UNITS (meters * 10), matching currentDist's units. Set from
+// LODConfig.TIER_OUTER_RANGE_M by RaymarchFeature - this shader has no
+// knowledge of the meter values itself, only the voxel-unit conversion.
+float4 _TierOuterRangeVoxels;
+int _UseLODCascade;
+
+// --- AIR-MIP: legacy four-buffer form (modes 0-4) ---
 StructuredBuffer<uint> AirMip1;
 StructuredBuffer<uint> AirMip2;
 StructuredBuffer<uint> AirMip3;
 StructuredBuffer<uint> AirMip4;
-uint4 _AirMipDims0; // L1 dims (xyz)
-uint4 _AirMipDims1; // L2
-uint4 _AirMipDims2; // L3
-uint4 _AirMipDims3; // L4
+uint4 _AirMipDims0;
+uint4 _AirMipDims1;
+uint4 _AirMipDims2;
+uint4 _AirMipDims3;
 uint  _AirMipLevelCount;
+
+// --- AIR-MIP: packed + merged form (optimization pass) ---
+// One buffer, all levels, 1 bit per cell. _MipInfo[k-1] = (dimX, dimY, dimZ,
+// wordOffset) for level k. Removes the 4-way dynamic branch over four separate
+// buffers AND shrinks the pyramid from ~38 MB to ~1.2 MB so it fits in cache.
+StructuredBuffer<uint> AirMipPacked;
+float4 _MipInfo[4];
+int _UsePackedMips;
 
 float4x4 _CameraInverseProjection;
 float4x4 _CameraInverseView;
@@ -26,44 +93,69 @@ uint4 _WindowDimsBricksPacked;
 RWStructuredBuffer<float> DebugOut;
 uint2 _DebugPixel;
 
-// 0=Beauty 1=StepHeat 2=UniformDense 3=Normals
+// 0=Beauty 1=StepHeat 2=UniformDense 3=Normals 4=NonExitHeat 5=VoxelGrain 6=LODTier
 int4 _DebugModePacked;
 
-// --- ITERATION CAP (diagnostic only) ---
-// Caps the outer while-loop's trip count directly. 400 (or any value >=400)
-// behaves identically to the uncapped default - this only ever LOWERS the
-// cap for the sweep, never raises it above the original hardcoded ceiling.
 int _MaxOuterIterations;
 
-// --- TRAVERSAL MODE (Amendment 8.7/8.8 three-way A/B) ---
-// 0 = original proven LeapSpan (loop-accumulated exit axis). Unchanged
-//     behavior from the correctness-complete state - the baseline every
-//     other mode is measured against.
-// 1 = LeapSpanReseed (Amendment 8.7 attempt #3): exit axis reseeded in O(1)
-//     instead of looped. CPU-proven, GPU-confirmed (53.11ms -> 35.12ms cold,
-//     controlled A/B at the Y=84 pose, half-res).
-// 2 = LeapSpanReseed + same-level chaining (Amendment 8.8 Phase B/C): after
-//     each air-mip-cell leap, re-derive the cell the ray is now actually in
-//     and, if it's also air at the same level, leap through it too, bounded,
-//     within the SAME outer iteration - reducing outer-iteration-count
-//     variance across a warp, the mechanism reseed alone didn't touch.
-//     CPU-proven (RaymarchOccupancyTests, 11/11 green incl. 5000-ray fuzz).
-//     NOT yet proven on Metal - this mode is how that gets measured.
-// Runtime uniform, not a shader variant, so all three paths live in the same
-// compiled kernel and can be A/B/C'd without recompiling.
+// Max ray travel in VOXELS (128 m = 1280 voxels). Lowering this is the LOD0
+// radius trim: the 128 m figure was derived for a 1080p pixel-footprint match,
+// so at 960x540 the matched distance is roughly half that. NOTE: with LOD1
+// unimplemented (Phase 4), trimming this makes distant terrain vanish rather
+// than drop to a coarser level - it measures the cost saving honestly but is
+// not a shippable configuration on its own.
+// (LOD cascade is now implemented behind _UseLODCascade - when that's on,
+// RaymarchFeature overrides the effective max distance to
+// _TierOuterRangeVoxels.z instead of using this constant. This field/comment
+// is otherwise unchanged so the pre-cascade A/B measurements stay meaningful.)
+float _MaxRayDistance;
+
 int _TraversalMode;
 
-// Bound on additional same-level leaps chained within one outer iteration,
-// mode 2 only. Matches RaymarchOccupancyReference.cs's MaxChainLeaps exactly
-// - keep these in sync if either changes.
+// NEW: developer material color palette + per-voxel grain toggle for the
+// default Beauty output (DebugMode 0 only - diagnostic views are untouched).
+// Defaults ON. Set to 0 to reproduce the original flat-gray Beauty shading
+// exactly, byte-for-byte, for any comparison against pre-existing screenshots.
+int _UseDevColors;
+
 #define MAX_CHAIN_LEAPS 7
 
 float4 StepHeatColor(int steps)
 {
-    if (steps <= 24)  return float4(0.0, 0.1, 0.6, 1.0);   // blue  : pyramid working well
-    if (steps <= 48)  return float4(0.0, 0.6, 0.2, 1.0);   // green : still fine
-    if (steps <  96)  return float4(0.8, 0.6, 0.0, 1.0);   // amber : more than expected
-    return float4(0.9, 0.05, 0.05, 1.0);                    // red   : pyramid not engaging
+    if (steps <= 24)  return float4(0.0, 0.1, 0.6, 1.0);
+    if (steps <= 48)  return float4(0.0, 0.6, 0.2, 1.0);
+    if (steps <  96)  return float4(0.8, 0.6, 0.0, 1.0);
+    return float4(0.9, 0.05, 0.05, 1.0);
+}
+
+float VoxelHash(int3 v)
+{
+    uint3 uv = (uint3)(v + int3(1 << 20, 1 << 20, 1 << 20));
+    uint h = uv.x * 73856093u ^ uv.y * 19349663u ^ uv.z * 83492791u;
+    h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
+    return (float)(h & 0xFFFFFFu) / (float)0xFFFFFF;
+}
+
+// NEW: developer material palette. 8 hand-picked, well-separated colors,
+// cycled by material id (mat-1, since 0 is always air/no-hit and never
+// reaches this function). Explicitly a DEBUG palette, not final art -
+// picked for maximum distinguishability at low resolution, not for how the
+// game should actually look. Swap freely once real material art exists;
+// nothing else in the traversal depends on these specific values.
+float3 DevMaterialColor(uint mat)
+{
+    static const float3 kDevPalette[8] = {
+        float3(0.85, 0.35, 0.25), // 0: terracotta
+        float3(0.35, 0.65, 0.85), // 1: sky blue
+        float3(0.45, 0.75, 0.35), // 2: green
+        float3(0.85, 0.65, 0.25), // 3: amber
+        float3(0.65, 0.35, 0.75), // 4: purple
+        float3(0.30, 0.80, 0.75), // 5: teal
+        float3(0.80, 0.45, 0.65), // 6: pink
+        float3(0.55, 0.55, 0.30), // 7: olive
+    };
+    uint idx = (mat - 1u) % 8u; // mat is always >=1 here (0/air never hits)
+    return kDevPalette[idx];
 }
 
 uint ReadClipmap(int3 brickCoord, uint3 windowDimsBricks)
@@ -75,6 +167,47 @@ uint ReadClipmap(int3 brickCoord, uint3 windowDimsBricks)
     return ClipmapBuffer[flatIndex];
 }
 
+// Generalized clipmap read for cascade tiers 1/2. tierCoarseBrickCoord is in
+// THAT TIER's own coarse-brick coordinate space (i.e. already divided down
+// to "brick index," not raw voxels) - same convention ReadClipmap uses for
+// tier 0. Branches on tier to pick the buffer/dims; tier is derived from
+// currentDist so it's coherent across most of a thread group's rays (same
+// coherent-branch argument already used for the dense/uniform branch above).
+uint ReadClipmapTier(int tier, int3 tierCoarseBrickCoord)
+{
+    if (tier == 1)
+    {
+        uint3 dims = _WindowDimsCoarseBricksTier1.xyz;
+        int3 wrapped = tierCoarseBrickCoord & (int3)(dims - 1);
+        int flatIndex = wrapped.x + (wrapped.y * (int)dims.x) + (wrapped.z * (int)dims.x * (int)dims.y);
+        return ClipmapBufferTier1[flatIndex];
+    }
+    else
+    {
+        uint3 dims = _WindowDimsCoarseBricksTier2.xyz;
+        int3 wrapped = tierCoarseBrickCoord & (int3)(dims - 1);
+        int flatIndex = wrapped.x + (wrapped.y * (int)dims.x) + (wrapped.z * (int)dims.x * (int)dims.y);
+        return ClipmapBufferTier2[flatIndex];
+    }
+}
+
+uint ReadBrickDataTier(int tier, uint poolIdx, uint wordIdx)
+{
+    if (tier == 1) return BrickDataBufferTier1[(poolIdx * 128) + wordIdx];
+    return BrickDataBufferTier2[(poolIdx * 128) + wordIdx];
+}
+
+// Tier shift: log2(downsample factor). Tier 1 -> factor 2 -> shift 1.
+// Tier 2 -> factor 4 -> shift 2. Matches LODConfig.DownsampleFactor exactly;
+// if LODConfig's tier voxel sizes ever change, this must change with it -
+// there is deliberately no runtime derivation here (would cost a log2 per
+// iteration for a value that's only ever 1 or 2), so this is the one place
+// a LODConfig edit requires a matching shader edit.
+int TierShift(int tier)
+{
+    return (tier == 1) ? 1 : 2;
+}
+
 int AirMipFlatIndex(int3 cell, uint3 dims)
 {
     int3 wrapped = cell & (int3)(dims - 1);
@@ -83,7 +216,7 @@ int AirMipFlatIndex(int3 cell, uint3 dims)
          + wrapped.z * (int)dims.x * (int)dims.y;
 }
 
-uint ReadAirMip(int level, int3 cell)
+uint ReadAirMipLegacy(int level, int3 cell)
 {
     if (level == 1) return AirMip1[AirMipFlatIndex(cell, _AirMipDims0.xyz)];
     if (level == 2) return AirMip2[AirMipFlatIndex(cell, _AirMipDims1.xyz)];
@@ -91,9 +224,33 @@ uint ReadAirMip(int level, int3 cell)
     return AirMip4[AirMipFlatIndex(cell, _AirMipDims3.xyz)];
 }
 
+// Packed + merged read. One indexed load from one buffer plus a shift/mask -
+// no branch over which buffer to hit, and the whole pyramid is small enough
+// to stay resident in cache.
+uint ReadAirMipPacked(int level, int3 cell)
+{
+    float4 info = _MipInfo[level - 1];
+    uint3 dims = uint3((uint)info.x, (uint)info.y, (uint)info.z);
+    int3 wrapped = cell & (int3)(dims - 1);
+    int flat = wrapped.x
+             + wrapped.y * (int)dims.x
+             + wrapped.z * (int)dims.x * (int)dims.y;
+    uint wordIdx = (uint)info.w + ((uint)flat >> 5);
+    return (AirMipPacked[wordIdx] >> ((uint)flat & 31u)) & 1u;
+}
+
+// Dispatches on a UNIFORM, so the branch is scalar and coherent across every
+// thread in the dispatch - cheap on Apple GPUs. Note this means the A/B very
+// slightly understates the packed path's true benefit, since a dedicated
+// packed-only kernel would not carry the dead legacy code at all.
+uint ReadAirMip(int level, int3 cell)
+{
+    if (_UsePackedMips != 0) return ReadAirMipPacked(level, cell);
+    return ReadAirMipLegacy(level, cell);
+}
+
 // ---------------------------------------------------------------------------
-//  ORIGINAL SHARED HLSL LEAP BODY (UNCHANGED) - mode 0. Token-for-token
-//  mirror of the C# RaymarchReference.LeapSpan.
+//  mode 0 leap (unchanged)
 // ---------------------------------------------------------------------------
 void LeapSpan(inout int3 voxel, inout float3 tMax, inout float currentDist,
               float3 tDelta, int3 step, int3 spanMin, int spanVoxels, inout int3 normal,
@@ -134,11 +291,6 @@ void LeapSpan(inout int3 voxel, inout float3 tMax, inout float currentDist,
                           : int3(0, 0, -step.z));
 }
 
-// ---------------------------------------------------------------------------
-//  LeapSpanReseed - modes 1 and 2. Token-for-token mirror of the C#
-//  RaymarchReference.LeapSpanReseed. Exit axis reseeded in O(1); non-exit
-//  axes unchanged (still the proven tight-guard loop).
-// ---------------------------------------------------------------------------
 float ReseedTMaxAxis(int voxelAxis, float rayStartAxis, float tDeltaAxis, int stepAxis)
 {
     return (stepAxis > 0 ? (voxelAxis + 1.0 - rayStartAxis) : (rayStartAxis - voxelAxis)) * tDeltaAxis;
@@ -196,18 +348,6 @@ void LeapSpanReseed(inout int3 voxel, inout float3 tMax, inout float currentDist
                           : int3(0, 0, -step.z));
 }
 
-// ---------------------------------------------------------------------------
-//  LeapSpanReseedClosedForm - mode 3 (Amendment 8.8/8.9, Variant A). Token-
-//  for-token mirror of RaymarchReference.LeapSpanReseedClosedForm. Exit axis
-//  unchanged from LeapSpanReseed. Non-exit axes: the O(spanVoxels) tight-
-//  guard while loop is replaced by an O(1) closed-form count, then reseeded
-//  via the same ReseedTMaxAxis used everywhere else in this file.
-//
-//  nonExitIters here counts the CLOSED-FORM n (the geometric crossing
-//  count), NOT loop iterations - keeps the mode-4 debug heatmap reading the
-//  same underlying quantity across modes 0/1/3. It is NOT a proxy for mode
-//  3's actual GPU cost, which is O(1) per axis regardless of n.
-// ---------------------------------------------------------------------------
 void LeapSpanReseedClosedForm(inout int3 voxel, inout float3 tMax, inout float currentDist,
                      float3 tDelta, int3 step, float3 rayStart, int3 spanMin, int spanVoxels,
                      inout int3 normal, inout int exitLeaps, inout int nonExitIters)
@@ -312,11 +452,13 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     uint mat = 0;
     int3 normal = 0;
     bool lastWasDense = false;
+    int tierAtHit = 0;
 
     int exitIters = 0;
     int nonExitIters = 0;
-    int chainLeapsTotal = 0; // [DIAGNOSTIC] mode 2 only: total chained leaps across the whole ray
-    int denseMicroSteps = 0; // [DIAGNOSTIC] outer iterations spent doing per-voxel DDA inside a dense brick
+    int chainLeapsTotal = 0;
+    int denseMicroSteps = 0;
+    int mipProbeCalls = 0;
 
     if (isDebugPixel)
     {
@@ -324,99 +466,311 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         DebugOut[3] = tDelta.x; DebugOut[4] = tDelta.y; DebugOut[5] = tDelta.z;
     }
 
-    int _iterCap = (_MaxOuterIterations > 0 && _MaxOuterIterations < 400) ? _MaxOuterIterations : 400;
-    while (currentDist < 1280.0 && steps < _iterCap)
+    // With cascade OFF (default), _TierOuterRangeVoxels is irrelevant and
+    // maxDist behaves exactly as before. With cascade ON, RaymarchFeature
+    // sets _MaxRayDistance to _TierOuterRangeVoxels.z itself (the tier-2
+    // outer bound), so this line doesn't need its own branch - it already
+    // picks up the cascade's true travel limit via the same field.
+    float maxDist = (_MaxRayDistance > 0.0) ? _MaxRayDistance : 1280.0;
+    int _iterCap = (_MaxOuterIterations > 0) ? _MaxOuterIterations : 400;
+
+    while (currentDist < maxDist && steps < _iterCap)
     {
-        steps++;
-
-        bool leapt = false;
-        [loop]
-        for (int k = (int)_AirMipLevelCount; k >= 1; k--)
+        // EARLY-EXIT (new, added after real diagnostic data - see chat).
+        // Phase2Bootstrapper only EVER generates chunks at cy=0 (world Y in
+        // [0, 12.8m) = raw voxel Y in [0, 128)). If the ray is already
+        // outside that range and moving FURTHER away (not toward it), every
+        // remaining voxel it could ever reach is guaranteed unloaded -
+        // ChunkStore.GetVoxel treats a null chunk as air unconditionally.
+        // This is not a probabilistic/height-derived bound (which would risk
+        // being wrong the way guessed constants have been elsewhere this
+        // session) - it's the hard, structural fact of what chunks could
+        // possibly exist, so this can never skip a real hit, only a
+        // guaranteed miss. StepHeat/LODTierView/UniformDenseView at
+        // GroundHorizon showed the cascade's actual dominant added cost is
+        // exactly this case: no-hit sky rays now walking to the tier-2 outer
+        // bound (290m) instead of the old 128m constant, with nothing to
+        // make that walk cheap. This fixes the ROOT case, tier-independent -
+        // it fires before tier selection even runs, so it benefits cascade
+        // on AND off alike (proportionally far more when cascade is on,
+        // given the much longer old maxDist).
+        // ASSUMPTION, FLAGGED: breaks if Phase2Bootstrapper ever generates
+        // more than cy=0 - the 128 below would need to become the true
+        // loaded ceiling instead of this one hardcoded layer's height.
+        if ((voxel.y >= 128 && step.y > 0) || (voxel.y < 0 && step.y < 0))
         {
-            int shift = 3 + k;
-            int3 cell = voxel >> shift;
-            if (ReadAirMip(k, cell) == 0u)
+            hit = false;
+            break;
+        }
+ 
+        // v8.11 - XZ WINDOW BOUNDS. ReadClipmap wraps brick coords toroidally
+        // with no bounds check (correct addressing for a sliding window, but
+        // it silently aliases anything OUTSIDE the window back inside). With
+        // only the Y guard above, a shallow upward ray could outrun the
+        // window's XZ extent, wrap, and hit real terrain at a bogus location -
+        // drawn as a detached slab of water hanging in the sky. Leaving the
+        // resident window means "no data", which must terminate the ray, not
+        // alias into it.
+        //
+        // PHASE 4 NOTE: this assumes the window origin is brick (0,0,0), which
+        // holds while the window is static. Once StreamManager slides the
+        // window, this must become
+        //     int3 rel = bXZ - _WindowOriginBricks;
+        // against the same extents. Flagged here so it is not missed.
+        {
+            int3 bXZ = VoxelToBrick(voxel);
+            if (bXZ.x < 0 || bXZ.z < 0 ||
+                bXZ.x >= (int)_WindowDimsBricks.x || bXZ.z >= (int)_WindowDimsBricks.z)
             {
-                int spanVoxels = 8 << k;
-                int3 spanMin = cell << shift;
-
-                if (_TraversalMode == 0)
-                    LeapSpan(voxel, tMax, currentDist, tDelta, step, spanMin, spanVoxels, normal, exitIters, nonExitIters);
-                else if (_TraversalMode == 3)
-                    LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart, spanMin, spanVoxels, normal, exitIters, nonExitIters);
-                else
-                    LeapSpanReseed(voxel, tMax, currentDist, tDelta, step, rayStart, spanMin, spanVoxels, normal, exitIters, nonExitIters);
-
-                // --- Mode 2 only: chain additional same-level leaps by
-                // re-deriving the cell the ray is ACTUALLY now in after each
-                // leap and checking THAT cell's own air status. No
-                // hypothetical neighbor, no axis restriction - mirrors
-                // RaymarchOccupancyReference.cs's TracerRaycastOccupancy
-                // exactly (including the bug found and fixed there: never
-                // assume a neighbor cell's bounds without the ray actually
-                // being positioned there). ---
-                if (_TraversalMode == 2)
-                {
-                    int chainCount = 0;
-                    [loop]
-                    while (chainCount < MAX_CHAIN_LEAPS)
-                    {
-                        int3 newCell = voxel >> shift;
-                        if (ReadAirMip(k, newCell) != 0u) break; // not air - stop
-
-                        int3 newSpanMin = newCell << shift;
-                        LeapSpanReseed(voxel, tMax, currentDist, tDelta, step, rayStart, newSpanMin, spanVoxels, normal, exitIters, nonExitIters);
-                        chainCount++;
-                        chainLeapsTotal++;
-                    }
-                }
-
-                leapt = true;
+                hit = false;
                 break;
             }
         }
-        if (leapt) continue;
 
-        int3 brickCoord = VoxelToBrick(voxel);
-        uint handle = ReadClipmap(brickCoord, _WindowDimsBricks);
-        bool isDense = (handle & 0x80000000) != 0;
+        steps++;
+        mipProbeCalls++;
 
-        if (isDense)
+        // Tier selection: 0 unless cascade is on AND currentDist has passed
+        // that tier's own outer bound. Forced to 0 whenever _UseLODCascade==0,
+        // so every line inside "if (tier == 0)" below is reached exactly as
+        // it always was - this is the one and only new branch point tier-0
+        // rays pass through, and it's a single cheap comparison.
+        int tier = 0;
+        if (_UseLODCascade != 0)
         {
-            uint poolIdx = handle & 0x3FFFFFFF;
-            int3 localVoxel = LocalVoxelIndex3D(voxel);
-            uint vIdx = (uint)LocalVoxelIndex(localVoxel);
-            uint packedData = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
-            uint shift = (vIdx & 3) * 8;
-            mat = (packedData >> shift) & 0xFF;
-
-            if (mat != 0) { hit = true; lastWasDense = true; break; }
-
-            denseMicroSteps++;
-            if (tMax.x < tMax.y)
-            {
-                if (tMax.x < tMax.z) { voxel.x += step.x; currentDist = tMax.x; tMax.x += tDelta.x; normal = int3(-step.x, 0, 0); }
-                else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; normal = int3(0, 0, -step.z); }
-            }
-            else
-            {
-                if (tMax.y < tMax.z) { voxel.y += step.y; currentDist = tMax.y; tMax.y += tDelta.y; normal = int3(0, -step.y, 0); }
-                else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; normal = int3(0, 0, -step.z); }
-            }
-            continue;
+            if (currentDist >= _TierOuterRangeVoxels.y) tier = 2;
+            else if (currentDist >= _TierOuterRangeVoxels.x) tier = 1;
         }
 
-        mat = handle & 0xFF;
-        if (mat != 0) { hit = true; lastWasDense = false; break; }
-
+        if (tier == 0)
         {
-            int3 bMin = brickCoord * 8;
-            if (_TraversalMode == 0)
-                LeapSpan(voxel, tMax, currentDist, tDelta, step, bMin, 8, normal, exitIters, nonExitIters);
-            else if (_TraversalMode == 3)
-                LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart, bMin, 8, normal, exitIters, nonExitIters);
-            else
-                LeapSpanReseed(voxel, tMax, currentDist, tDelta, step, rayStart, bMin, 8, normal, exitIters, nonExitIters);
+            // ===================================================================
+            // TIER 0 PATH - UNCHANGED from the pre-cascade file. Nothing in this
+            // block was touched; it's reproduced verbatim so tier-0-only rays
+            // (or any ray when _UseLODCascade==0) get byte-identical behavior.
+            // ===================================================================
+            bool leapt = false;
+            [loop]
+            for (int k = (int)_AirMipLevelCount; k >= 1; k--)
+            {
+                int shift = 3 + k;
+                int3 cell = voxel >> shift;
+                if (ReadAirMip(k, cell) == 0u)
+                {
+                    int spanVoxels = 8 << k;
+                    int3 spanMin = cell << shift;
+
+                    if (_TraversalMode == 0)
+                        LeapSpan(voxel, tMax, currentDist, tDelta, step, spanMin, spanVoxels, normal, exitIters, nonExitIters);
+                    else if (_TraversalMode == 3 || _TraversalMode == 4)
+                        LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart, spanMin, spanVoxels, normal, exitIters, nonExitIters);
+                    else
+                        LeapSpanReseed(voxel, tMax, currentDist, tDelta, step, rayStart, spanMin, spanVoxels, normal, exitIters, nonExitIters);
+
+                    if (_TraversalMode == 2)
+                    {
+                        int chainCount = 0;
+                        [loop]
+                        while (chainCount < MAX_CHAIN_LEAPS)
+                        {
+                            int3 newCell = voxel >> shift;
+                            if (ReadAirMip(k, newCell) != 0u) break;
+
+                            int3 newSpanMin = newCell << shift;
+                            LeapSpanReseed(voxel, tMax, currentDist, tDelta, step, rayStart, newSpanMin, spanVoxels, normal, exitIters, nonExitIters);
+                            chainCount++;
+                            chainLeapsTotal++;
+                        }
+                    }
+
+                    leapt = true;
+                    break;
+                }
+            }
+            if (leapt) continue;
+
+            int3 brickCoord = VoxelToBrick(voxel);
+            uint handle = ReadClipmap(brickCoord, _WindowDimsBricks);
+            bool isDense = (handle & 0x80000000) != 0;
+
+            if (isDense)
+            {
+                uint poolIdx = handle & 0x3FFFFFFF;
+
+                if (_TraversalMode == 4)
+                {
+                    [loop]
+                    while (currentDist < maxDist && steps < _iterCap)
+                    {
+                        int3 localVoxel = LocalVoxelIndex3D(voxel);
+                        uint vIdx = (uint)LocalVoxelIndex(localVoxel);
+                        uint packedData = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
+                        uint pShift = (vIdx & 3) * 8;
+                        mat = (packedData >> pShift) & 0xFF;
+
+                        if (mat != 0) { hit = true; lastWasDense = true; break; }
+
+                        denseMicroSteps++;
+                        steps++;
+
+                        if (tMax.x < tMax.y)
+                        {
+                            if (tMax.x < tMax.z) { voxel.x += step.x; currentDist = tMax.x; tMax.x += tDelta.x; normal = int3(-step.x, 0, 0); }
+                            else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; normal = int3(0, 0, -step.z); }
+                        }
+                        else
+                        {
+                            if (tMax.y < tMax.z) { voxel.y += step.y; currentDist = tMax.y; tMax.y += tDelta.y; normal = int3(0, -step.y, 0); }
+                            else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; normal = int3(0, 0, -step.z); }
+                        }
+
+                        if (!all(VoxelToBrick(voxel) == brickCoord)) break;
+                    }
+                    if (hit) { tierAtHit = 0; break; }
+                    continue;
+                }
+
+                int3 localVoxel2 = LocalVoxelIndex3D(voxel);
+                uint vIdx2 = (uint)LocalVoxelIndex(localVoxel2);
+                uint packedData2 = BrickDataBuffer[(poolIdx * 128) + (vIdx2 >> 2)];
+                uint shift2 = (vIdx2 & 3) * 8;
+                mat = (packedData2 >> shift2) & 0xFF;
+
+                if (mat != 0) { hit = true; lastWasDense = true; tierAtHit = 0; break; }
+
+                denseMicroSteps++;
+                if (tMax.x < tMax.y)
+                {
+                    if (tMax.x < tMax.z) { voxel.x += step.x; currentDist = tMax.x; tMax.x += tDelta.x; normal = int3(-step.x, 0, 0); }
+                    else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; normal = int3(0, 0, -step.z); }
+                }
+                else
+                {
+                    if (tMax.y < tMax.z) { voxel.y += step.y; currentDist = tMax.y; tMax.y += tDelta.y; normal = int3(0, -step.y, 0); }
+                    else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; normal = int3(0, 0, -step.z); }
+                }
+                continue;
+            }
+
+            mat = handle & 0xFF;
+            if (mat != 0) { hit = true; lastWasDense = false; tierAtHit = 0; break; }
+
+            {
+                int3 bMin = brickCoord * 8;
+                if (_TraversalMode == 0)
+                    LeapSpan(voxel, tMax, currentDist, tDelta, step, bMin, 8, normal, exitIters, nonExitIters);
+                else if (_TraversalMode == 3 || _TraversalMode == 4)
+                    LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart, bMin, 8, normal, exitIters, nonExitIters);
+                else
+                    LeapSpanReseed(voxel, tMax, currentDist, tDelta, step, rayStart, bMin, 8, normal, exitIters, nonExitIters);
+            }
+        }
+        else
+        {
+            // ===================================================================
+            // TIER 1 / TIER 2 PATH - new. Only reached when _UseLODCascade!=0
+            // AND currentDist has already passed tier 0's (and possibly tier
+            // 1's) outer bound. No air-mip pyramid exists for these tiers yet
+            // (deliberate scope cut for this pass - flagged in the file header
+            // and in chat) - empty coarse bricks are skipped one brick at a
+            // time via LeapSpanReseedClosedForm instead, same as tier 0's own
+            // non-air-mip brick-skip fallback below.
+            // ===================================================================
+            int tierShift = TierShift(tier); // 1 for tier1, 2 for tier2
+
+            int3 tierVoxel = voxel >> tierShift;
+            int3 tierBrickCoord = tierVoxel >> 3;
+
+            uint handle = ReadClipmapTier(tier, tierBrickCoord);
+            bool isDense = (handle & 0x80000000) != 0;
+
+            if (isDense)
+            {
+                uint poolIdx = handle & 0x3FFFFFFF;
+                int3 localTierVoxel = tierVoxel & 7;
+                uint vIdx = (uint)LocalVoxelIndex(localTierVoxel);
+                uint packedData = ReadBrickDataTier(tier, poolIdx, vIdx >> 2);
+                uint pShift = (vIdx & 3) * 8;
+                mat = (packedData >> pShift) & 0xFF;
+
+                if (mat != 0) { hit = true; lastWasDense = true; tierAtHit = tier; break; }
+
+                // FIX (measured, not guessed): this used to single-step one RAW
+                // voxel at a time even though a coarse voxel here spans `factor`
+                // (1<<tierShift) raw voxels, all sharing this SAME sampled byte -
+                // exactly the "up to 4 iterations, not 1" cost the file header
+                // already predicted, now confirmed by a real benchmark (cascade
+                // ON measured ~83% SLOWER than cascade OFF at the same pose -
+                // see chat). Since every raw voxel within this one coarse voxel
+                // is provably the same material (that's what "dense body, one
+                // byte per coarse voxel" means), an air coarse voxel (mat==0,
+                // this branch) can be leapt in full using the SAME proven
+                // LeapSpanReseedClosedForm the empty-brick case below already
+                // uses - just with a span of ONE coarse voxel (`factor` raw
+                // voxels) instead of one whole brick (8 coarse voxels). No new
+                // math, same reused primitive, smaller span.
+                {
+                    int3 coarseVoxelMinRaw = tierVoxel << tierShift;
+                    int coarseVoxelSpanRaw = 1 << tierShift; // = factor: 2 (tier1) or 4 (tier2)
+                    LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart, coarseVoxelMinRaw, coarseVoxelSpanRaw, normal, exitIters, nonExitIters);
+                    denseMicroSteps++;
+                }
+                continue;
+            }
+
+            mat = handle & 0xFF;
+            if (mat != 0) { hit = true; lastWasDense = false; tierAtHit = tier; break; }
+
+            // Empty coarse brick: leap its full span using the SAME, UNCHANGED
+            // LeapSpanReseedClosedForm tier-0 already uses - just with the span
+            // converted back to raw voxel units (8 coarse voxels * factor raw
+            // voxels each).
+            {
+                int3 bMinRaw = (tierBrickCoord * 8) << tierShift;
+                int spanVoxelsRaw = 8 << tierShift;
+                LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart, bMinRaw, spanVoxelsRaw, normal, exitIters, nonExitIters);
+
+                // FIX (measured, not guessed - see chat): the prior fix to the
+                // dense-voxel-stepping cost barely moved the cascade's overall
+                // slowdown (+82.7% -> +77.9%), which means it wasn't the
+                // dominant cost at this pose. This is: tiers 1/2 still have no
+                // air-mip-equivalent pyramid, so a long empty run gets crossed
+                // one brick at a time, each requiring the outer loop to fully
+                // re-derive `tier` and re-probe from scratch. Chains ADDITIONAL
+                // same-tier empty-brick leaps within this one outer iteration
+                // instead - the exact same pattern tier 0's own _TraversalMode
+                // == 2 chaining already uses above (MAX_CHAIN_LEAPS), applied
+                // here for the first time. Every chained leap re-reads and
+                // re-verifies the next brick's handle before leaping it - this
+                // is not assuming consecutive bricks are empty, it's confirming
+                // each one exactly as the single-leap path already did, just
+                // without returning to the outer while loop between them.
+                int tierChainCount = 0;
+                [loop]
+                while (tierChainCount < MAX_CHAIN_LEAPS)
+                {
+                    // Stop chaining the moment the ray leaves THIS tier's own
+                    // distance range - let the outer loop's tier-selection
+                    // logic run fresh rather than reading this tier's buffers
+                    // past where they're valid.
+                    bool stillInThisTier = (tier == 1)
+                        ? (currentDist < _TierOuterRangeVoxels.y)
+                        : (currentDist < _TierOuterRangeVoxels.z);
+                    if (!stillInThisTier) break;
+
+                    int3 nextTierVoxel = voxel >> tierShift;
+                    int3 nextTierBrickCoord = nextTierVoxel >> 3;
+                    uint nextHandle = ReadClipmapTier(tier, nextTierBrickCoord);
+
+                    if ((nextHandle & 0x80000000) != 0) break; // dense - let the outer loop handle it
+                    if ((nextHandle & 0xFF) != 0) break;        // uniform solid - let the outer loop resolve the hit
+
+                    int3 nextBMinRaw = (nextTierBrickCoord * 8) << tierShift;
+                    LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart, nextBMinRaw, spanVoxelsRaw, normal, exitIters, nonExitIters);
+                    tierChainCount++;
+                    chainLeapsTotal++;
+                }
+            }
         }
     }
 
@@ -427,8 +781,20 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         DebugOut[9] = (float)exitIters;
         DebugOut[10] = (float)nonExitIters;
         DebugOut[11] = (float)_TraversalMode;
-        DebugOut[12] = (float)chainLeapsTotal; // [DIAGNOSTIC] mode 2 only
-        DebugOut[13] = (float)denseMicroSteps; // [DIAGNOSTIC] outer iterations spent in dense-brick per-voxel DDA
+        DebugOut[12] = (float)chainLeapsTotal;
+        DebugOut[13] = (float)denseMicroSteps;
+        DebugOut[14] = (float)mipProbeCalls;
+        DebugOut[15] = (float)_UsePackedMips;
+        DebugOut[16] = maxDist;
+        DebugOut[17] = (float)tierAtHit;
+        DebugOut[18] = (float)_UseLODCascade;
+        // NEW: currentDist at the point the loop exited (hit or maxDist),
+        // in RAW VOXEL units (meters * 10) - same units as maxDist/tier
+        // boundaries elsewhere in this file. Added specifically to answer
+        // "how far away is the pixel that spiked in the diagnostic scan" -
+        // see chat - without it, distance had to be estimated from camera
+        // geometry instead of measured directly.
+        DebugOut[19] = currentDist;
     }
 
     if (_DebugMode == 1) { ResultTexture[id.xy] = StepHeatColor(steps); return; }
@@ -446,13 +812,59 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         return;
     }
     if (_DebugMode == 4) { ResultTexture[id.xy] = StepHeatColor(nonExitIters >> 3); return; }
+    if (_DebugMode == 5)
+    {
+        if (!hit) { ResultTexture[id.xy] = float4(0.2, 0.4, 0.8, 1.0); return; }
+        float ndotlV = max(0.25, dot(float3(normal), normalize(float3(0.5, 1.0, 0.2))));
+        float baseV = (mat == 2) ? 0.60 : 0.50;
+        float variation = (VoxelHash(voxel) - 0.5) * 0.28;
+        float shadeV = saturate(baseV + variation) * ndotlV;
+        ResultTexture[id.xy] = float4(shadeV, shadeV, shadeV, 1.0);
+        return;
+    }
+    if (_DebugMode == 6)
+    {
+        // LOD tier visualization: NEW. Not hit -> background. Tier 0 -> blue,
+        // tier 1 -> green, tier 2 -> red. Purely diagnostic - lets a human
+        // eyeball whether tier boundaries land where expected and whether the
+        // 0->1->2 transitions are visually reasonable, BEFORE trusting this
+        // path for a benchmark run. This is the capture to send back first.
+        if (!hit) { ResultTexture[id.xy] = float4(0.05, 0.05, 0.05, 1.0); return; }
+        float4 tierColor = float4(0.1, 0.3, 0.9, 1.0); // tier 0 = blue
+        if (tierAtHit == 1) tierColor = float4(0.15, 0.85, 0.2, 1.0); // tier 1 = green
+        if (tierAtHit == 2) tierColor = float4(0.9, 0.15, 0.15, 1.0); // tier 2 = red
+        ResultTexture[id.xy] = tierColor;
+        return;
+    }
 
     float4 color = float4(0.2, 0.4, 0.8, 1.0);
     if (hit)
     {
         float ndotl = max(0.2, dot(float3(normal), normalize(float3(0.5, 1.0, 0.2))));
-        color = float4(0.5 * ndotl, 0.5 * ndotl, 0.5 * ndotl, 1.0);
-        if (mat == 2) color = float4(0.6 * ndotl, 0.6 * ndotl, 0.6 * ndotl, 1.0);
+        if (_UseDevColors != 0)
+        {
+            // NEW: developer material colors + per-voxel grain. Not final art -
+            // a cheap, explicitly-flagged debug palette so individual voxels
+            // are distinguishable at 960x540, which flat single-shade gray
+            // wasn't. Reuses VoxelHash (already existed, was previously only
+            // wired into DebugMode 5/VoxelGrain) as the per-voxel noise source -
+            // same idea the person asked for ("take the voxel position, apply
+            // noise, shift the color slightly"), just extended from grayscale-
+            // only to also picking a base hue per material id.
+            float3 baseColor = DevMaterialColor(mat);
+            float grain = (VoxelHash(voxel) - 0.5) * 0.35; // +/-17.5% per-voxel brightness jitter
+            float3 shaded = saturate(baseColor * (1.0 + grain)) * ndotl;
+            color = float4(shaded, 1.0);
+        }
+        else
+        {
+            // Original flat shading, preserved byte-for-byte behind the
+            // toggle - _UseDevColors defaults ON, but flipping it off
+            // reproduces every pre-existing Beauty screenshot exactly, for
+            // any future A/B comparison that needs the old look specifically.
+            color = float4(0.5 * ndotl, 0.5 * ndotl, 0.5 * ndotl, 1.0);
+            if (mat == 2) color = float4(0.6 * ndotl, 0.6 * ndotl, 0.6 * ndotl, 1.0);
+        }
     }
     ResultTexture[id.xy] = color;
 }

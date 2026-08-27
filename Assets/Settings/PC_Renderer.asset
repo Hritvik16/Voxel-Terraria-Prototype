@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: RaymarchFeature
   m_EditorClassIdentifier: CoreEngine::RaymarchFeature
   m_Active: 1
-  debugMode: 4
+  debugMode: 0
   _forceGateResolution: 1
   _gateWidth: 960
   _gateHeight: 540

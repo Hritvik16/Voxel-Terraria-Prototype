@@ -39,8 +39,9 @@ public static class ClipmapValidator
         // dims fix above - it means GREEN here proves correctness only for the
         // chunks that exist, not full-window coverage. Worth widening once the
         // world generation extends further, but out of scope for this fix.
-        for (int cz = 0; cz < 8; cz++)
-        for (int cx = 0; cx < 8; cx++)
+        int3 windowChunksXZ = windowBricks / 16;
+        for (int cz = 0; cz < windowChunksXZ.z; cz++)
+        for (int cx = 0; cx < windowChunksXZ.x; cx++)
         {
             int3 chunkCoord = new int3(cx, 0, cz);
             Chunk chunk = store.GetChunk(chunkCoord);

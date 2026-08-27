@@ -135,6 +135,7 @@ GameObject:
   - component: {fileID: 330585550}
   - component: {fileID: 330585552}
   - component: {fileID: 330585553}
+  - component: {fileID: 330585554}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -267,7 +268,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 330585543}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 041d93246ceb94a128da1f2cd0389b6c, type: 3}
   m_Name: 
@@ -300,7 +301,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 330585543}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1fc74cb9e128b4738a4db8bdf3ac5060, type: 3}
   m_Name: 
@@ -358,6 +359,21 @@ MonoBehaviour:
   _copyPlayerLogWhenDone: 1
   _runOnStart: 1
   _quitWhenDone: 1
+--- !u!114 &330585554
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 330585543}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1409396bd44434c06a074cac276f7479, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SimpleFlyCamera
+  _moveSpeed: 12
+  _fastMultiplier: 5
+  _lookSensitivity: 2.2
 --- !u!1 &517432286
 GameObject:
   m_ObjectHideFlags: 0
@@ -367,9 +383,11 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 517432288}
+  - component: {fileID: 517432291}
+  - component: {fileID: 517432290}
   - component: {fileID: 517432289}
   m_Layer: 0
-  m_Name: Phase2Bootstrapper
+  m_Name: Phase3Bootstrapper
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -397,11 +415,49 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 517432286}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1fc74cb9e128b4738a4db8bdf3ac5060, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RaymarchAutoBenchmark
+  _outputRootFolderName: RaymarchBenchmarks
+  _zipWhenDone: 1
+  _revealInFinderWhenDone: 1
+  _copyPlayerLogWhenDone: 1
+  _runOnStart: 1
+  _quitWhenDone: 1
+--- !u!114 &517432290
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 517432286}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 54cdf8d438cfd457a8d6c3e215d8a5d8, type: 3}
+  m_Script: {fileID: 11500000, guid: b87f2f8615851427da5c93949933a7ef, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Phase2Bootstrapper
+  m_EditorClassIdentifier: Assembly-CSharp::Phase3AcceptanceRig
+  _runOnStart: 1
+  _columnSamples: 2000
+  _outputRootFolderName: Phase3Acceptance
+  _zipWhenDone: 1
+  _revealInFinderWhenDone: 1
+  _copyPlayerLogWhenDone: 1
+  _benchmark: {fileID: 0}
+  _flyCamera: {fileID: 0}
+--- !u!114 &517432291
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 517432286}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b8c960188823448a5b721a940b0a7360, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Phase3Bootstrapper
   _overrideCameraOnStart: 1
   _cameraSpawnPosition: {x: 52, y: 84, z: 52}
   _cameraSpawnEuler: {x: 90, y: 0, z: 0}

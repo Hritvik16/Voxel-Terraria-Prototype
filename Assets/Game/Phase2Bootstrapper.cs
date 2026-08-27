@@ -1,7 +1,8 @@
 using UnityEngine;
 using Unity.Mathematics;
 using VoxelEngine.Memory;
-
+using VoxelEngine.Mirror;
+using System.Diagnostics;
 public class Phase2Bootstrapper : MonoBehaviour
 {
     public static TerrainClipmap Clipmap { get; private set; }
@@ -11,6 +12,15 @@ public class Phase2Bootstrapper : MonoBehaviour
     // shader is reading via the clipmap - the CPU sibling comparison per
     // §0.1/§0.3's Sibling Pattern. Not a behavioral change to Phase 2 itself.
     public static ChunkStore Store { get; private set; }
+
+    // Exposed for the same reason as Store above: diagnostic/capture rigs
+    // (UpscaleDetailTestRig, UpscaleQualityCapture) need to call
+    // TerrainClipmap.UploadDirty(store, pool) after SetVoxel edits, and
+    // UploadDirty's signature requires the BrickDataPool instance - not
+    // reachable any other way without reflecting into private state.
+    public static VoxelEngine.Memory.BrickDataPool Pool { get; private set; }
+
+    public static LODCascadeManager Cascades { get; private set; }
 
     [Header("Camera spawn (for benchmarking / captures)")]
     [Tooltip("If true, the camera is moved to the pose below on play. " +
@@ -31,31 +41,41 @@ public class Phase2Bootstrapper : MonoBehaviour
     private ChunkHandleAllocator _allocator;
     private ChunkStore _store;
 
-    void Start()
+    private const int GENERATED_CHUNKS_XZ = 22; // 22 * 12.8m = 281.6m span - gives real margin past the 128m tier1->2 boundary (see chat: 8x8/102.4m was too small for any pose to ever reach tier 2)
+
+
+        void Start()
     {
-        // Both the pool capacity and the clipmap's window size now come from
-        // EngineConfig - the single source of truth per §0.2/§4.3 - instead of
-        // separate literals here that could (and did) silently disagree with
-        // what ChunkStore itself uses.
         _pool = new BrickDataPool(EngineConfig.BRICK_POOL_CAP);
         _allocator = new ChunkHandleAllocator(100);
         _store = new ChunkStore(_pool, _allocator);
         Store = _store;
+        Pool = _pool;
 
         int3 windowChunks = new int3(EngineConfig.WINDOW_CHUNKS_XZ, EngineConfig.WINDOW_CHUNKS_Y, EngineConfig.WINDOW_CHUNKS_XZ);
         Clipmap = new TerrainClipmap(windowChunks, _pool.Capacity);
+        Cascades = new LODCascadeManager(windowChunks, tier => LODCascadeManager.DefaultTierPoolCapacity(EngineConfig.BRICK_POOL_CAP));
 
-        for (int cz = 0; cz < 8; cz++)
-            for (int cx = 0; cx < 8; cx++)
+        var sw = Stopwatch.StartNew();
+        for (int cz = 0; cz < GENERATED_CHUNKS_XZ; cz++)
+            for (int cx = 0; cx < GENERATED_CHUNKS_XZ; cx++)
             {
                 int3 coord = new int3(cx, 0, cz);
                 Chunk chunk = new Chunk();
                 ChunkGenerator.GenerateChunk(42, coord, ref chunk, _allocator, _pool);
                 _store.InsertChunk(chunk);
                 Clipmap.MarkDirty(coord);
+                Cascades.MarkDirty(coord);
             }
+        UnityEngine.Debug.Log($"[Phase2Bootstrapper] Worldgen loop: {sw.ElapsedMilliseconds}ms");
 
+        sw.Restart();
         Clipmap.UploadDirty(_store, _pool);
+        UnityEngine.Debug.Log($"[Phase2Bootstrapper] Clipmap.UploadDirty: {sw.ElapsedMilliseconds}ms");
+
+        sw.Restart();
+        Cascades.UploadDirty(_store, _pool);
+        UnityEngine.Debug.Log($"[Phase2Bootstrapper] Cascades.UploadDirty: {sw.ElapsedMilliseconds}ms");
 
         // Phase 2 Acceptance: Carve a 3x3x3 pocket securely underground
         // int3 pocketCenter = new int3(520, 10, 520); // World position (52.0, 1.0, 52.0)
@@ -96,6 +116,7 @@ public class Phase2Bootstrapper : MonoBehaviour
     void OnDestroy()
     {
         Clipmap?.Dispose();
+        Cascades?.Dispose();
         _pool?.Dispose();
     }
 }
