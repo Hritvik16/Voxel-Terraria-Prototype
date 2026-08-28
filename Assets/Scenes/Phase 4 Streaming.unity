@@ -457,10 +457,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Phase4AcceptanceRig
   _runOnStart: 1
-  _haltOnFirstRedGate: 1
+  _haltOnFirstRedGate: 0
   _flySpeed: 60
   _traverseMeters: 400
   _soakSeconds: 60
+  _maxRunSeconds: 400
   _outputRootFolderName: Phase4Acceptance
   _zipWhenDone: 1
   _revealInFinderWhenDone: 1
