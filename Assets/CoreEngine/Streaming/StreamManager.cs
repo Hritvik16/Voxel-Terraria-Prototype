@@ -20,6 +20,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
 using VoxelEngine.Memory;
@@ -58,6 +59,32 @@ namespace VoxelEngine.Streaming
 
         private readonly CancellationTokenSource _cancel = new CancellationTokenSource();
 
+        // DEDICATED WORKER THREADS, not Task.Run.
+        //
+        // Measured on the run that forced this: PrimeWindow generated 722 chunks
+        // in 20,854ms of wall time -- 28.9ms/chunk when the per-chunk CPU cost is
+        // ~30ms, i.e. effective parallelism of 1.07 from Parallel.For over
+        // 8-item waves. Steady state was the same shape: supply ~34 chunks/s
+        // against the ~152/s that 60 m/s demands, which is why residency
+        // collapsed to 174 during the outbound leg and terrain visibly loaded
+        // slower than the camera moved.
+        //
+        // Cause: Unity's Mono ThreadPool starts nearly empty and injects worker
+        // threads slowly. Phase 3's one long Parallel.For (1.8s over 484 chunks)
+        // ramped the pool up; 92 short bursts never did, and Task.Run rides the
+        // same starved pool. Dedicated threads make the parallelism a property
+        // of the code instead of a property of the pool's mood. SetMinThreads in
+        // the ctor additionally primes the pool for PrimeWindow's Parallel.For.
+        private System.Collections.Concurrent.BlockingCollection<WorkItem> _jobs;
+        private Thread[] _workerThreads;
+
+        private struct WorkItem
+        {
+            public int3 coord;
+            public ushort generation;
+            public ScratchContext scratch;
+        }
+
         // ---- Tunables read from EngineConfig (§0.1 inv. 8) ----
         private readonly int3 _windowDims;
         private readonly int _loadRadiusChunks;
@@ -75,7 +102,52 @@ namespace VoxelEngine.Streaming
         public double LastDrainMs { get; private set; }
         public double LastUploadMs { get; private set; }
         public int LastUploadBytes { get; private set; }
+        public double LastCascadeMs { get; private set; }
+        public TerrainClipmap.UploadStats LastUploadStats { get; private set; }
+        public int ClipmapDirtyRemaining => LastUploadStats.dirtyRemaining;
+
+        // PrimeWindow breakdown. Startup measured 30,489ms last run and the
+        // report could only say "startup". Generation and the main-thread
+        // transfer need separating before either is optimised.
+        public double PrimeGenerateMs { get; private set; }
+        public double PrimeTransferMs { get; private set; }
+        public int PrimeWaves { get; private set; }
+        public int PrimeChunks { get; private set; }
         public readonly List<string> RejectLog = new List<string>();
+
+        /// How many chunks SHOULD be resident right now, given the load radius
+        /// and the generated Y range. The first run had no such number in the
+        /// report, so "380 chunks resident" read as normal when it was 52% of
+        /// what had been asked for. Any census without an expected value is not
+        /// a census.
+        public int ExpectedResidentChunks
+        {
+            get
+            {
+                int side = _loadRadiusChunks * 2 + 1;
+                return side * side * (MAX_GENERATED_CHUNK_Y + 1);
+            }
+        }
+
+        public int LoadRadiusChunks => _loadRadiusChunks;
+        public int EvictRadiusChunks => _evictRadiusChunks;
+        public int GenerationErrors { get; private set; }
+
+        /// Coords inside the load square with no resident chunk. Bounded so a
+        /// badly broken run cannot produce a megabyte of log.
+        public List<int3> MissingChunks(int max = 32)
+        {
+            var missing = new List<int3>();
+            int r = _loadRadiusChunks;
+            for (int cy = 0; cy <= MAX_GENERATED_CHUNK_Y && missing.Count < max; cy++)
+            for (int dz = -r; dz <= r && missing.Count < max; dz++)
+            for (int dx = -r; dx <= r && missing.Count < max; dx++)
+            {
+                var c = new int3(_lastCameraChunk.x + dx, cy, _lastCameraChunk.z + dz);
+                if (!_store.IsResident(c)) missing.Add(c);
+            }
+            return missing;
+        }
 
         private readonly List<int3> _pending = new List<int3>();
         private readonly HashSet<int3> _pendingSet = new HashSet<int3>();
@@ -84,16 +156,55 @@ namespace VoxelEngine.Streaming
         private float3 _lastCameraPos;
         private float3 _velocity;
 
-        // Highest chunk-Y that generation can produce content for. Drives the
-        // shader's content-ceiling early exit; asserted below so the hardcoded
-        // assumption in Raymarch.compute cannot silently go stale.
+        // Highest chunk-Y that generation can produce content for.
+        //
+        // Two distinct jobs, both load-bearing:
+        //   1. Drives the shader's content-ceiling early exit
+        //      (RaymarchFeature.ContentCeilingVoxelY), replacing the hardcoded
+        //      128 that Raymarch.compute flagged as an assumption.
+        //   2. Bounds the streaming workload independently of the window's
+        //      height -- see RebuildPendingSet.
+        // Both go stale together the moment generation grows vertically, which
+        // is why they read one constant instead of two.
         public const int MAX_GENERATED_CHUNK_Y = 0;
+
+        // =====================================================================
+        // Radius derivation. THE EVICT RADIUS IS WHAT MUST FIT, NOT THE LOAD
+        // RADIUS -- eviction always sits HYSTERESIS_RING_CHUNKS further out.
+        // =====================================================================
+
+        /// Largest Chebyshev radius (in chunks, around the camera chunk) that is
+        /// guaranteed to lie fully inside the window.
+        ///
+        /// The window is NOT symmetric about the camera. SlideWindow sets
+        /// origin = camChunk - dims/2, so a 32-chunk window spans
+        /// camChunk-16 .. camChunk+15. The positive side is the binding one, so
+        /// the answer is (dims/2 - 1) = 15, not dims/2 = 16.
+        ///
+        /// Getting this off by one does not crash. It leaves chunks exactly one
+        /// step outside the window still classified as non-evictable, so they
+        /// keep a ring slot that an incoming chunk then aliases onto -- phantom
+        /// terrain on the +X/+Z edge only, intermittent, and far harder to find
+        /// than a startup exception. Hence the assert in the constructor.
+        public static int MaxEvictRadiusChunks(int3 windowDims)
+            => (math.min(windowDims.x, windowDims.z) / 2) - 1;
+
+        /// The load radius that leaves exactly enough room for the hysteresis
+        /// ring. Callers should derive from this rather than picking a number
+        /// that can silently disagree with WINDOW_CHUNKS_XZ later.
+        public static int MaxLoadRadiusChunks(int3 windowDims)
+            => MaxEvictRadiusChunks(windowDims) - EngineConfig.HYSTERESIS_RING_CHUNKS;
 
         private sealed class ScratchContext
         {
             public BrickDataPool pool;
             public ChunkHandleAllocator allocator;
             public byte[] scratchBody = new byte[EngineConfig.BRICK_BODY_BYTES];
+
+            // Reusable downsample buffers, one set per worker. Sized once; every
+            // chunk this worker handles reuses them instead of allocating a
+            // fresh 2 MB tier-0 extraction plus per-step arrays per tier.
+            public LODDownsampler.DownsampleScratch downsample = new LODDownsampler.DownsampleScratch();
         }
 
         private struct LoadCompletion
@@ -101,6 +212,7 @@ namespace VoxelEngine.Streaming
             public int3 coord;
             public ushort generation;
             public Chunk chunk;              // built in scratch storage
+            public byte[][] cascadeData;     // [tier-1] = downsampled voxels, computed ON THE WORKER
             public ScratchContext scratch;
             public bool deltaApplied;
             public DeltaRejectReason rejectReason;
@@ -126,15 +238,41 @@ namespace VoxelEngine.Streaming
             _loadRadiusChunks = loadRadiusChunks;
             _evictRadiusChunks = loadRadiusChunks + EngineConfig.HYSTERESIS_RING_CHUNKS;
 
-            int halfWindow = math.min(_windowDims.x, _windowDims.z) / 2;
-            if (_evictRadiusChunks > halfWindow)
+            int maxEvict = MaxEvictRadiusChunks(_windowDims);
+            if (_evictRadiusChunks > maxEvict)
                 throw new InvalidOperationException(
-                    $"[StreamManager] evict radius {_evictRadiusChunks} chunks exceeds half the window " +
-                    $"({halfWindow}). A chunk outside the window still occupies a ring slot that a NEW " +
-                    "chunk will alias onto, so the window must strictly contain the eviction radius.");
+                    $"[StreamManager] evict radius {_evictRadiusChunks} chunks (load {loadRadiusChunks} + " +
+                    $"hysteresis {EngineConfig.HYSTERESIS_RING_CHUNKS}) exceeds the maximum {maxEvict} for a " +
+                    $"{_windowDims.x}x{_windowDims.z} window. Use MaxLoadRadiusChunks() to derive the load " +
+                    "radius instead of hard-coding it. A chunk outside the window still occupies a ring slot " +
+                    "that a NEW chunk will alias onto, so the window must strictly contain the eviction radius.");
 
             _maxConcurrentLoads = math.max(2, Environment.ProcessorCount - 1);
+
+            // Prime the ThreadPool so PrimeWindow's Parallel.For gets real
+            // threads immediately instead of after seconds of slow injection.
+            ThreadPool.GetMinThreads(out _, out int minIo);
+            ThreadPool.SetMinThreads(Environment.ProcessorCount * 2, minIo);
+
+            _jobs = new System.Collections.Concurrent.BlockingCollection<WorkItem>();
+            _workerThreads = new Thread[_maxConcurrentLoads];
             for (int i = 0; i < _maxConcurrentLoads; i++)
+            {
+                _workerThreads[i] = new Thread(WorkerLoop)
+                {
+                    IsBackground = true,
+                    Name = $"ChunkGen{i}",
+                };
+                _workerThreads[i].Start();
+            }
+            // TWO scratch contexts per worker, not one. Dispatch runs once per
+            // frame; with a single context per worker, a worker that finishes
+            // mid-frame sits idle until the next Update hands it a scratch.
+            // Double-buffering keeps a queued job ready per worker: measured
+            // flight-time supply was ~44 chunks/s against 7 workers that manage
+            // 88/s when pumped continuously, i.e. roughly half the pipeline was
+            // idle time between dispatches.
+            for (int i = 0; i < _maxConcurrentLoads * 2; i++)
             {
                 _scratchPool.Add(new ScratchContext
                 {
@@ -162,26 +300,61 @@ namespace VoxelEngine.Streaming
             int3 camChunk = CoordMath.VoxelToChunk(CoordMath.WorldToVoxel(camPos));
             camChunk.y = 0; // Y pinned this phase -- see EngineConfig header
 
-            if (allowSlide && !camChunk.Equals(_lastCameraChunk))
+            bool cameraMoved = !camChunk.Equals(_lastCameraChunk);
+            if (allowSlide && cameraMoved)
             {
                 _lastCameraChunk = camChunk;
                 SlideWindow(camChunk);
                 RebuildPendingSet(camChunk);
                 EvictOutOfRange(camChunk);
             }
+            else if (_pending.Count == 0 && _inFlight == 0 && _completions.Count == 0)
+            {
+                // Re-sweep whenever the queue drains, not only when the camera
+                // crosses a boundary. Admission has several legitimate skip
+                // paths (chunk already resident, record mid-Loading, worker
+                // slots exhausted), and any of them can leave a coord unloaded
+                // with nothing scheduled to notice. Without this sweep the world
+                // stays permanently incomplete and looks exactly like a
+                // generation bug.
+                //
+                // Cheap: 27x27 dictionary probes over the load square, and only
+                // on frames where nothing is in flight.
+                RebuildPendingSet(camChunk);
+            }
 
             DispatchLoads(camChunk);
             DrainCompletions();
             ApplyPoolPressureValve(camChunk);
+
+            // EDIT PROPAGATION. SetVoxel sets chunk.dirty and nothing else --
+            // through every run so far, no code path carried an in-place edit
+            // to the mirrors' dirty sets, so an edit only became visible after
+            // its chunk was evicted and reloaded. Gate D passed regardless
+            // because its checks are CPU-side, which is exactly the kind of
+            // blind spot the visual captures exist to catch. Edited chunks DO
+            // need the main-thread cascade path (content changed, so the
+            // worker-computed downsample is stale), which is what the budgeted
+            // UploadDirty remains for.
+            foreach (var chunk in _store.ResidentChunks())
+            {
+                if (!chunk.dirty) continue;
+                chunk.dirty = false;
+                _clipmap.MarkDirty(chunk.coord);
+                _cascades.MarkDirty(chunk.coord);
+            }
 
             LastDrainMs = sw.Elapsed.TotalMilliseconds;
 
             sw.Restart();
             var stats = _clipmap.UploadDirty(_store, _pool, EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME,
                                              camChunk, EngineConfig.UPLOAD_EXEMPT_RADIUS_CHUNKS);
+            double clipDone = sw.Elapsed.TotalMilliseconds;
             _cascades.UploadDirty(_store, _pool);
             LastUploadMs = sw.Elapsed.TotalMilliseconds;
+            LastCascadeMs = LastUploadMs - clipDone;
             LastUploadBytes = stats.bytesUploaded;
+            LastUploadStats = stats;
         }
 
         private void SlideWindow(int3 camChunk)
@@ -207,7 +380,31 @@ namespace VoxelEngine.Streaming
             _pendingSet.Clear();
 
             int r = _loadRadiusChunks;
-            for (int cy = 0; cy < _windowDims.y; cy++)
+
+            // CONTENT LAYERS ONLY, not the full window height.
+            //
+            // WINDOW_CHUNKS_Y is 16 (see EngineConfig's header for why it could
+            // not be 2), but WorldGenConstants clamps terrain to y in [1,120],
+            // entirely inside cy=0. Iterating the whole window here would queue
+            // 31x31x16 = 15,376 chunks at startup instead of 961, and make every
+            // slab crossing 8.0 MB of clipmap instead of 0.5 MB -- 15 of every 16
+            // chunks being a guaranteed-empty air layer that costs a generate, a
+            // table entry, an upload and an eviction each.
+            //
+            // So the window's HEIGHT is address space; this loop is workload.
+            // Keeping them separate is what makes Y=16 cost memory only.
+            //
+            // Raise MAX_GENERATED_CHUNK_Y the moment generation produces
+            // anything outside cy=0. It is a correctness dependency, not a
+            // preference: chunks outside this range are never admitted, so they
+            // would render as air no matter what the generator produced. The
+            // assert below fails loudly rather than leaving that silent.
+            if (MAX_GENERATED_CHUNK_Y >= _windowDims.y)
+                throw new InvalidOperationException(
+                    $"[StreamManager] MAX_GENERATED_CHUNK_Y={MAX_GENERATED_CHUNK_Y} does not fit in a " +
+                    $"{_windowDims.y}-chunk-tall window. Raise EngineConfig.WINDOW_CHUNKS_Y.");
+
+            for (int cy = 0; cy <= MAX_GENERATED_CHUNK_Y; cy++)
             for (int dz = -r; dz <= r; dz++)
             for (int dx = -r; dx <= r; dx++)
             {
@@ -240,7 +437,7 @@ namespace VoxelEngine.Streaming
 
         private void DispatchLoads(int3 camChunk)
         {
-            while (_pending.Count > 0 && _inFlight < _maxConcurrentLoads)
+            while (_pending.Count > 0 && _inFlight < _maxConcurrentLoads * 2)
             {
                 int3 coord = _pending[0];
                 _pending.RemoveAt(0);
@@ -251,7 +448,23 @@ namespace VoxelEngine.Streaming
                 var rec = GetOrCreateRecord(coord);
                 if (rec.state != ChunkState.Unloaded) continue;
 
-                if (!_scratchPool.TryTake(out ScratchContext scratch)) break;
+                if (!_scratchPool.TryTake(out ScratchContext scratch))
+                {
+                    // PUT IT BACK. This line used to be a bare `break`, which
+                    // silently discarded a chunk that had ALREADY been dequeued
+                    // two statements earlier -- and since its record stays
+                    // Unloaded and RebuildPendingSet only runs on a camera-chunk
+                    // change, it was never retried.
+                    //
+                    // Measured cost of that bug: the first acceptance run
+                    // reported "380 chunks resident" where load radius 13 asks
+                    // for 27x27 = 729. Every frame in which all worker slots
+                    // were busy lost one chunk, which is what produced the holes
+                    // and the ragged window edge.
+                    _pending.Insert(0, coord);
+                    _pendingSet.Add(coord);
+                    break;
+                }
 
                 // Unloaded -> Loading. Condition: "free residency slot exists".
                 // The slot is free iff nothing resident currently occupies this
@@ -260,9 +473,18 @@ namespace VoxelEngine.Streaming
                 ChunkLifecycle.Transition(rec, ChunkState.Loading, conditionMet: true, context: "DispatchLoads");
 
                 Interlocked.Increment(ref _inFlight);
-                ushort gen = rec.generation;
-                Task.Run(() => GenerateOnWorker(coord, gen, scratch), _cancel.Token);
+                _jobs.Add(new WorkItem { coord = coord, generation = rec.generation, scratch = scratch });
             }
+        }
+
+        private void WorkerLoop()
+        {
+            try
+            {
+                foreach (WorkItem item in _jobs.GetConsumingEnumerable(_cancel.Token))
+                    GenerateOnWorker(item.coord, item.generation, item.scratch);
+            }
+            catch (OperationCanceledException) { /* shutdown */ }
         }
 
         // ---- WORKER THREAD. Touches only `scratch` and pure functions. ----
@@ -292,6 +514,31 @@ namespace VoxelEngine.Streaming
                 {
                     completion.hadDeltaFile = true;
                     completion.rejectReason = readReason;
+                }
+
+                // Downsample HERE, on the worker, while it exclusively owns the
+                // chunk and its scratch pool (§3.2 holds: no shared state read).
+                // Measured cost being moved off the main thread: ~11ms per
+                // chunk-tier in the Editor -- the entirety of the 22ms/frame
+                // p50 the cascade pass was charging every frame.
+                //
+                // The downsample now runs into this worker's REUSABLE buffers,
+                // and only the finished result is copied into the completion.
+                // That copy is deliberate and is the single allocation kept
+                // here: the completion crosses to the main thread through the
+                // queue, so ownership genuinely transfers at exactly this point
+                // and the scratch buffer is free to be overwritten by the next
+                // chunk. Handing the scratch array itself to the queue would
+                // alias -- the next chunk on this worker would rewrite voxels
+                // the main thread has not consumed yet.
+                completion.cascadeData = new byte[LODConfig.TIER_COUNT - 1][];
+                for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+                {
+                    byte[] scratchResult =
+                        LODDownsampler.DownsampleChunkToTier(chunk, scratch.pool, tier, scratch.downsample);
+                    var owned = new byte[scratchResult.Length];
+                    Array.Copy(scratchResult, owned, scratchResult.Length);
+                    completion.cascadeData[tier - 1] = owned;
                 }
 
                 completion.chunk = chunk;
@@ -327,6 +574,7 @@ namespace VoxelEngine.Streaming
 
                     if (c.error != null)
                     {
+                        GenerationErrors++;
                         Debug.LogError($"[StreamManager] Generation failed for {c.coord}: {c.error}");
                         // §4.4 forbids Loading->Unloaded. Fail EXPLICITLY into
                         // Resident as a uniform-air chunk rather than abandoning
@@ -366,7 +614,11 @@ namespace VoxelEngine.Streaming
                     rec.lastTouchedFrame = _frame;
 
                     _clipmap.MarkDirty(c.coord);
-                    _cascades.MarkDirty(c.coord);
+                    if (c.cascadeData != null)
+                        for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+                            _cascades.TierPool(tier).SubmitPrecomputed(c.coord, c.cascadeData[tier - 1]);
+                    else
+                        _cascades.MarkDirty(c.coord); // fallback: main-thread path
 
                     ChunksAdmittedTotal++;
                     admitted++;
@@ -394,8 +646,19 @@ namespace VoxelEngine.Streaming
 
                 int srcIdx = (int)(data & 0x3FFFFFFFu);
                 int dstIdx = _pool.Alloc();
-                int s = srcIdx * body, d = dstIdx * body;
-                for (int v = 0; v < body; v++) dst[d + v] = src[s + v];
+
+                // Bulk copy, not a 512-iteration indexer loop. The indexer is
+                // bounds-checked in the Editor, so the old loop cost ~150,000
+                // checked accesses per chunk on the MAIN thread -- a large part
+                // of why the first run measured 40ms/chunk against Phase 3's
+                // 3.8ms.
+                NativeArray<byte>.Copy(src, srcIdx * body, dst, dstIdx * body, body);
+
+                // Return the scratch slot immediately. ResetScratch used to
+                // Dispose and reallocate a 2 MB BrickDataPool per completed
+                // chunk instead; freeing the slots the chunk actually used
+                // restores the scratch pool exactly and allocates nothing.
+                scratch.pool.Free(srcIdx);
 
                 chunk.bricks[i].data = 0x80000000u | (uint)dstIdx;
             }
@@ -407,15 +670,13 @@ namespace VoxelEngine.Streaming
             chunk.bricks = real;
         }
 
-        private static void ResetScratch(ScratchContext scratch)
-        {
-            if (scratch == null) return;
-            // Rebuild the free list wholesale rather than tracking which slots
-            // were used: a scratch pool is only 4096 slots and this is O(n)
-            // with no bookkeeping to get wrong.
-            scratch.pool.Dispose();
-            scratch.pool = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
-        }
+        /// Scratch slots are returned in TransferToSharedPool as each dense
+        /// brick is copied out, so by the time we get here the pool should
+        /// already be empty. This is now a no-op that exists as a seam: if a
+        /// future generator path allocates a slot it does not hand back via
+        /// chunk.bricks, the scratch pool would slowly fill and eventually throw
+        /// from Alloc. ScratchExhaustionWarnings counts that, loudly.
+        private static void ResetScratch(ScratchContext scratch) { }
 
         // =====================================================================
         // Eviction (§4.5)
@@ -475,6 +736,18 @@ namespace VoxelEngine.Streaming
 
             _store.EvictChunk(coord);
             rec.residentSlot = ChunkRecord.NONE;
+
+            // Mark the mirrors dirty AFTER the store drops the chunk, so their
+            // GetChunk returns null and they take the CLEAR path.
+            //
+            // Without this the GPU keeps describing terrain that no longer
+            // exists, pointing at pool slots already reissued to other chunks
+            // -- the holes and garbage geometry seen on the first run. The
+            // ordering matters: mark before the evict and they would happily
+            // re-upload the chunk they were meant to erase.
+            _clipmap.MarkDirty(coord);
+            _cascades.MarkDirty(coord);
+
             ChunksEvictedTotal++;
             return saved;
         }
@@ -588,6 +861,81 @@ namespace VoxelEngine.Streaming
             return n;
         }
 
+        /// Bulk-generates the whole load square in parallel, on the main thread's
+        /// timeline, for STARTUP ONLY.
+        ///
+        /// WHY THIS EXISTS INSTEAD OF JUST CALLING WaitForIdle:
+        /// WaitForIdle drives the normal streaming pipeline, which caps itself at
+        /// _maxConcurrentLoads in-flight Tasks and hands results back one drain
+        /// at a time. Measured on the acceptance run that produced this method:
+        /// 399 chunks in 16,239ms, i.e. ~40ms per chunk of WALL time. Phase 3
+        /// generated 484 chunks in 1,840ms with Parallel.For over the SAME
+        /// generator -- ~3.8ms per chunk. Per-chunk CPU cost is therefore ~30ms
+        /// and Phase 3 was getting ~8x parallelism where the Task pipeline was
+        /// getting roughly 1x.
+        ///
+        /// Rather than debug the Task scheduling under a startup burst, priming
+        /// uses the mechanism that was already measured fast, restricted to the
+        /// one case that needs bulk throughput. The steady-state streaming path
+        /// is untouched: it is latency-bound (a handful of chunks per frame) and
+        /// the Task pipeline is the right shape for it.
+        ///
+        /// WAVES, not one big Parallel.For: a worker cannot generate a second
+        /// chunk until the main thread has transferred the first out of its
+        /// scratch pool (that is what frees the scratch slots, and it is
+        /// single-writer main-thread work per §3.2). So each wave generates one
+        /// chunk per worker in parallel, then the main thread drains all of them.
+        /// Bounded memory: workers x 2 MB of scratch, nothing else.
+        /// Fills the initial load square by pumping the SAME dedicated-thread
+        /// pipeline the steady state uses, as fast as the main thread can drain
+        /// it -- no frame pacing, no Parallel.For.
+        ///
+        /// History, since this method has now been rewritten twice on evidence:
+        /// the Task.Run pipeline measured ~40ms/chunk wall; Parallel.For waves
+        /// measured 28.9-33ms/chunk and SetMinThreads did NOT improve it,
+        /// which falsified the ThreadPool-starvation theory for Parallel.For;
+        /// the dedicated threads measured 11.3ms/chunk during Gate C's refill
+        /// (6.2s for ~550 chunks) -- the best observed by 2.5x. So startup now
+        /// uses the dedicated threads too. Whether 11.3ms/chunk is itself
+        /// thread-limited or work-limited is answered by the rig's new
+        /// generation micro-benchmark, not guessed at here.
+        public void PrimeWindow(Vector3 cameraWorldPos)
+        {
+            var primeSw = System.Diagnostics.Stopwatch.StartNew();
+
+            float3 camPos = new float3(cameraWorldPos.x, cameraWorldPos.y, cameraWorldPos.z);
+            _lastCameraPos = camPos;
+            int3 camChunk = CoordMath.VoxelToChunk(CoordMath.WorldToVoxel(camPos));
+            camChunk.y = 0;
+            _lastCameraChunk = camChunk;
+            SlideWindow(camChunk);
+            RebuildPendingSet(camChunk);
+
+            int before = ChunksAdmittedTotal;
+            while ((_pending.Count > 0 || _inFlight > 0 || _completions.Count > 0)
+                   && primeSw.Elapsed.TotalSeconds < 90)
+            {
+                DispatchLoads(camChunk);
+                DrainCompletionsUnbounded();
+                if (_inFlight > 0 && _completions.Count == 0) Thread.Sleep(1);
+            }
+
+            PrimeChunks = ChunksAdmittedTotal - before;
+            PrimeGenerateMs = primeSw.Elapsed.TotalMilliseconds;
+            PrimeTransferMs = 0; // folded into the pipeline drain; see micro-benchmark
+            PrimeWaves = 0;
+            Debug.Log($"[StreamManager] PrimeWindow: {PrimeChunks} chunks in {PrimeGenerateMs:F0}ms via the " +
+                      $"worker pipeline ({(PrimeChunks > 0 ? PrimeGenerateMs / PrimeChunks : 0):F1}ms/chunk wall)");
+        }
+
+        /// Drain without the per-frame admission cap -- startup and refill-wait
+        /// only, where there is no frame budget to protect.
+        private void DrainCompletionsUnbounded()
+        {
+            int guard = 0;
+            while (_completions.Count > 0 && guard++ < 100000) DrainCompletions();
+        }
+
         /// Blocks until every in-flight load has landed. Startup only -- never
         /// call this per-frame; it exists so the rig can begin from a known
         /// fully-populated window instead of racing the prefetcher.
@@ -602,9 +950,28 @@ namespace VoxelEngine.Streaming
             }
         }
 
+        /// Chunk coords inside the load square that are NOT resident right now.
+        /// This is the number the player experiences as "terrain loading slower
+        /// than I move": zero means the visible world is complete, and its decay
+        /// after a teleport is the refill rate. The rig samples it every frame.
+        public int LoadDeficit()
+        {
+            int deficit = 0;
+            int r = _loadRadiusChunks;
+            for (int cy = 0; cy <= MAX_GENERATED_CHUNK_Y; cy++)
+            for (int dz = -r; dz <= r; dz++)
+            for (int dx = -r; dx <= r; dx++)
+                if (!_store.IsResident(new int3(_lastCameraChunk.x + dx, cy, _lastCameraChunk.z + dz)))
+                    deficit++;
+            return deficit;
+        }
+
         public void Dispose()
         {
             _cancel.Cancel();
+            _jobs?.CompleteAdding();
+            if (_workerThreads != null)
+                foreach (var t in _workerThreads) t?.Join(100);
             while (_scratchPool.TryTake(out var s)) s.pool?.Dispose();
             _cancel.Dispose();
         }

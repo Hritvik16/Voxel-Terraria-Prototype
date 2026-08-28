@@ -1,3 +1,4 @@
+// ==========================================
 // Assets/CoreEngine/Mirror/LODDownsampler.cs
 //
 // Amendment 8.9 / ARCHITECTURE_v8.6.md §6.4: "LOD1-2 populated by majority-vote
@@ -29,6 +30,13 @@ using VoxelEngine.Memory;
 
 namespace VoxelEngine.Mirror
 {
+    // PHASE 4 NOTE: DownsampleChunkToTier now has a store-free (Chunk, pool)
+    // form so worker threads can downsample freshly generated chunks they
+    // exclusively own (§3.2: workers never read the store). The store-based
+    // form delegates to it -- one implementation, two entry points. This file
+    // is otherwise byte-identical to its Phase 3 state; it is shipped COMPLETE
+    // because two successive anchored patches to it were mis-merged and the
+    // resulting hybrid produced duplicate-definition errors.
     public static class LODDownsampler
     {
         /// <summary>
@@ -129,7 +137,16 @@ namespace VoxelEngine.Mirror
 
             int destEdge = sourceEdgeVoxels / 2;
             byte[] dest = new byte[destEdge * destEdge * destEdge];
+            DownsampleOnceInto(sourceMaterials, sourceEdgeVoxels, dest);
+            return dest;
+        }
 
+        /// Fill-into-caller-buffer form of DownsampleOnce. Identical math, no
+        /// allocation. Every destination cell is written unconditionally, so a
+        /// reused buffer needs no clearing here.
+        public static void DownsampleOnceInto(byte[] sourceMaterials, int sourceEdgeVoxels, byte[] dest)
+        {
+            int destEdge = sourceEdgeVoxels / 2;
             int srcStride = sourceEdgeVoxels;
             int srcSlice = sourceEdgeVoxels * sourceEdgeVoxels;
 
@@ -155,8 +172,6 @@ namespace VoxelEngine.Mirror
                 int destIndex = dx + destEdge * (dy + destEdge * dz);
                 dest[destIndex] = voted;
             }
-
-            return dest;
         }
 
         /// <summary>
@@ -168,6 +183,102 @@ namespace VoxelEngine.Mirror
         /// likewise generic over tier, not one hand-written pass per tier.
         /// </summary>
         public static byte[] DownsampleChunkToTier(ChunkStore store, BrickDataPool pool, int3 chunkCoord, int targetTier)
+        {
+            // The store's only job here is the lookup; everything downstream is
+            // (chunk, pool). Delegating keeps ONE downsample implementation for
+            // both callers, so the two cannot drift.
+            return DownsampleChunkToTier(store.GetChunk(chunkCoord), pool, targetTier);
+        }
+
+        /// Per-worker reusable buffers for the whole downsample chain, sized
+        /// once and reused for every chunk that worker handles.
+        ///
+        /// WHY: the allocating path below builds a fresh 128^3 tier-0 extraction
+        /// (2 MB) plus one array per halving step, PER CHUNK PER TIER. At the
+        /// ~1620 chunks a single traversal admits that is multiple GB of
+        /// garbage, all of it concentrated in the re-admission bursts on return
+        /// legs -- which is precisely where the rig measured 5-8 gen-0
+        /// collections inside ONE frame and frames of 1.0-2.6 SECONDS
+        /// (2026-08-28_151418, gc+N column), while every main-thread phase timer
+        /// stayed under a millisecond. §0.1 invariant 3 -- "no hidden
+        /// allocations on the hot path" -- is what this restores.
+        public sealed class DownsampleScratch
+        {
+            public readonly byte[] Tier0;
+            public readonly byte[][] Steps;   // Steps[i] holds edge 128 >> (i+1)
+
+            public DownsampleScratch()
+            {
+                const int chunkEdgeVoxels = 128;
+                Tier0 = new byte[chunkEdgeVoxels * chunkEdgeVoxels * chunkEdgeVoxels];
+
+                int maxFactor = 1;
+                for (int t = 1; t < LODConfig.TIER_COUNT; t++)
+                    maxFactor = Math.Max(maxFactor, LODConfig.DownsampleFactor(t));
+
+                int maxSteps = IntegerLog2(maxFactor);
+                Steps = new byte[maxSteps][];
+                int edge = chunkEdgeVoxels;
+                for (int i = 0; i < maxSteps; i++)
+                {
+                    edge /= 2;
+                    Steps[i] = new byte[edge * edge * edge];
+                }
+            }
+        }
+
+        /// Allocation-free form.
+        ///
+        /// THE RETURNED ARRAY IS SCRATCH, NOT A GIFT. It is one of the caller's
+        /// own reusable buffers and is valid only until this worker's next call.
+        /// Anything that outlives the call -- notably a LoadCompletion queued for
+        /// the main thread -- must COPY it. That copy is the one place ownership
+        /// genuinely transfers, and the one place an allocation is warranted.
+        public static byte[] DownsampleChunkToTier(Chunk chunk, BrickDataPool pool, int targetTier,
+                                                   DownsampleScratch scratch)
+        {
+            if (scratch == null) return DownsampleChunkToTier(chunk, pool, targetTier);
+            if (targetTier <= 0 || targetTier >= LODConfig.TIER_COUNT)
+                throw new ArgumentOutOfRangeException(nameof(targetTier),
+                    $"targetTier must be in [1, {LODConfig.TIER_COUNT - 1}], got {targetTier}.");
+
+            const int chunkEdgeVoxels = 128;
+            int factor = LODConfig.DownsampleFactor(targetTier);
+            int steps = IntegerLog2(factor);
+            byte[] result = scratch.Steps[steps - 1];
+
+            // Same two fast paths as the allocating form, but a reused buffer
+            // must be written in full -- it still holds the previous chunk.
+            if (chunk == null)
+            {
+                Array.Clear(result, 0, result.Length);
+                return result;
+            }
+            if (chunk.isUniform)
+            {
+                if (chunk.uniformMaterial == 0) Array.Clear(result, 0, result.Length);
+                else Array.Fill(result, chunk.uniformMaterial);
+                return result;
+            }
+
+            ExtractChunkTier0MaterialsInto(chunk, pool, chunkEdgeVoxels, scratch.Tier0);
+
+            byte[] current = scratch.Tier0;
+            int currentEdge = chunkEdgeVoxels;
+            for (int i = 0; i < steps; i++)
+            {
+                DownsampleOnceInto(current, currentEdge, scratch.Steps[i]);
+                current = scratch.Steps[i];
+                currentEdge /= 2;
+            }
+            return current;
+        }
+
+        /// Store-free form for worker threads (§3.2: workers never read the
+        /// store). The chunk and pool must be exclusively owned by the caller:
+        /// a freshly generated chunk in its scratch pool qualifies; a RESIDENT
+        /// chunk does not unless called from the main thread.
+        public static byte[] DownsampleChunkToTier(Chunk chunk, BrickDataPool pool, int targetTier)
         {
             if (targetTier <= 0 || targetTier >= LODConfig.TIER_COUNT)
                 throw new ArgumentOutOfRangeException(nameof(targetTier),
@@ -188,7 +299,6 @@ namespace VoxelEngine.Mirror
             // full pipeline (the existing UniformSolidChunk/UniformAirChunk
             // tests already prove this input/output shape, so this fast path
             // makes no behavior change, only skips redundant computation).
-            Chunk chunk = store.GetChunk(chunkCoord);
             if (chunk == null)
                 return new byte[outputEdge * outputEdge * outputEdge]; // air - array already zero-filled
             if (chunk.isUniform)
@@ -199,7 +309,7 @@ namespace VoxelEngine.Mirror
                 return uniformResult;
             }
 
-            byte[] tier0 = ExtractChunkTier0Materials(store, pool, chunkCoord, chunkEdgeVoxels);
+            byte[] tier0 = ExtractChunkTier0Materials(chunk, pool, chunkEdgeVoxels);
 
             int steps = IntegerLog2(factor);
             byte[] current = tier0;
@@ -234,24 +344,35 @@ namespace VoxelEngine.Mirror
         /// internal layout changes) for the ~2-3 orders of magnitude speedup
         /// that made the old approach viable at all at this chunk count.
         /// </summary>
-        private static byte[] ExtractChunkTier0Materials(ChunkStore store, BrickDataPool pool, int3 chunkCoord, int chunkEdgeVoxels)
+        private static byte[] ExtractChunkTier0Materials(Chunk chunk, BrickDataPool pool, int chunkEdgeVoxels)
         {
             byte[] result = new byte[chunkEdgeVoxels * chunkEdgeVoxels * chunkEdgeVoxels];
-            Chunk chunk = store.GetChunk(chunkCoord);
+            ExtractChunkTier0MaterialsInto(chunk, pool, chunkEdgeVoxels, result);
+            return result;
+        }
+
+        /// Fill-into-caller-buffer form. CLEARS FIRST: the allocating form above
+        /// leaned on `new byte[]` being zero-filled for air regions (see the
+        /// air/uniform branches and FillBrickRegion's m != 0 skip), and a REUSED
+        /// buffer still holds the previous chunk's voxels.
+        private static void ExtractChunkTier0MaterialsInto(Chunk chunk, BrickDataPool pool,
+                                                           int chunkEdgeVoxels, byte[] result)
+        {
+            Array.Clear(result, 0, chunkEdgeVoxels * chunkEdgeVoxels * chunkEdgeVoxels);
 
             if (chunk == null)
             {
                 // Unloaded chunk = air throughout, matching ChunkStore.GetVoxel's
-                // own "chunk == null -> 0" rule. result[] is already all-zero
-                // from `new byte[...]` - nothing further to do.
-                return result;
+                // own "chunk == null -> 0" rule. result[] was cleared above -
+                // nothing further to do.
+                return;
             }
 
             if (chunk.isUniform)
             {
                 if (chunk.uniformMaterial != 0)
                     Array.Fill(result, chunk.uniformMaterial);
-                return result;
+                return;
             }
 
             const int bricksPerChunkEdge = 16; // Chunk = 16x16x16 tier-0 bricks (§2.3)
@@ -283,8 +404,6 @@ namespace VoxelEngine.Mirror
                     CopyBrickRegion(result, stride, slice, originX, originY, originZ, brickEdgeVoxels, pool.RawData, poolIndex * 512);
                 }
             }
-
-            return result;
         }
 
         private static void FillBrickRegion(byte[] dest, int stride, int slice, int ox, int oy, int oz, int edge, byte value)
@@ -331,3 +450,5 @@ namespace VoxelEngine.Mirror
         }
     }
 }
+
+// ==========================================
