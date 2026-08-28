@@ -110,6 +110,45 @@ public static class WorldGenConstants
         out float centerXVoxels, out float centerZVoxels,
         out float coastRadiusVoxels, out float coastFalloffVoxels)
     {
+        // sizeClass 1 = §2.4's "Small (default)" preset: 2,560m x 2,560m,
+        // 200x200 chunks. ADDITIVE per D.2 -- sizeClass 0 below is untouched,
+        // because every content hash on record was produced against it and
+        // mutating it would invalidate all of them.
+        //
+        // WHY THIS EXISTS: sizeClass 0 is a 281.6m dev region with a 105m
+        // island, while the streaming window alone is 27x27 chunks (~345m
+        // across, 166m load radius). The window was wider than the world, so
+        // traversal spent most of its time over open ocean -- visible in every
+        // Traverse_* still as ~85% water.
+        //
+        // Geometry is scaled PROPORTIONALLY from sizeClass 0 (x 25600/2816 =
+        // 9.0909) so the island keeps its shape and coast character and only
+        // its size changes:
+        //     coast radius   1050 -> 9545 voxels  (105m -> 954.5m)
+        //     coast falloff   320 -> 2909 voxels  ( 32m -> 290.9m)
+        // which leaves the same ~25% ocean ring between the coast and the
+        // world edge that sizeClass 0 has.
+        //
+        // ANCHOR COUNTS ARE DELIBERATELY NOT SCALED. AnchorPlanner's counts
+        // (2 mountains / 2 craters / 3 caves) are shared across size classes,
+        // and GenerateChunk.SampleHeightInternal loops EVERY height anchor per
+        // voxel column -- 16,384 columns per chunk. Scaling counts with area
+        // (x82) would take per-chunk generation from ~5.6ms to hundreds of ms,
+        // which would wreck streaming throughput and invalidate every frame-time
+        // comparison against earlier runs. The base fBm still varies the terrain,
+        // so this is a larger island with sparser landmarks, not a flat plain.
+        // Making density scale properly needs spatial anchor culling in
+        // SampleHeightInternal first; that is its own change.
+        if (sizeClass == 1)
+        {
+            const float spanVoxels1 = 200f * 128f; // 25600 voxels = 2560m (§2.4 Small)
+            centerXVoxels = spanVoxels1 * 0.5f;    // 12800 voxels = 1280m
+            centerZVoxels = spanVoxels1 * 0.5f;
+            coastRadiusVoxels = 9545f;
+            coastFalloffVoxels = 2909f;
+            return;
+        }
+
         // Only sizeClass 0 exists in v1-Phase3. Additive later, per D.2.
         float spanVoxels = 22f * 128f; // 2816 voxels = 281.6m
         centerXVoxels = spanVoxels * 0.5f;
