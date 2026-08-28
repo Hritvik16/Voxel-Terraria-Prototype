@@ -62,6 +62,7 @@ namespace VoxelEngine.Mirror
         private readonly HashSet<int3> _dirtyChunks = new HashSet<int3>();
         private readonly List<int> _dirtyBrickSlots = new List<int>();
         private readonly List<int3> _batch = new List<int3>();
+        private readonly List<int3> _evictedScratch = new List<int3>();
 
         // Reused per-brick scratch. ExtractBrick used to allocate a fresh
         // byte[512] for every coarse brick: 512 at tier 1 + 64 at tier 2 = 576
@@ -171,6 +172,36 @@ namespace VoxelEngine.Mirror
             // Leftovers stay dirty and are picked up next frame. The visible
             // effect is distant terrain resolving a few frames late, which is
             // exactly the trade §3.7 makes for the tier-0 clipmap already.
+            // PASS 1 -- EVICTED CHUNKS, UNBUDGETED.
+            //
+            // A clear is a memset of _entriesPerChunk plus one SetData. It does
+            // NOT pay the ~5ms DownsampleChunkToTier that the budget below
+            // exists to bound (see the comment on it) -- so throttling clears
+            // behind admissions spends the frame budget on the expensive work
+            // and starves the cheap work that maintains a correctness
+            // invariant.
+            //
+            // Measured consequence, CascadeValidator's evicted-slot sweep at
+            // Gate D: 63 non-resident chunks still held coarse entries pointing
+            // at live pool slots -- 8064 stale entries on tier 1, 1008 on tier
+            // 2 -- i.e. dense geometry hanging in the window where a chunk used
+            // to be. That is the distant phantom geometry the eviction branch
+            // below was already written to prevent; it simply never got a turn.
+            //
+            // Correctness work that is O(memset) does not belong behind a
+            // budget sized for O(downsample) work.
+            _evictedScratch.Clear();
+            foreach (int3 c in _dirtyChunks)
+                if (store.GetChunk(c) == null) _evictedScratch.Add(c);
+
+            foreach (int3 c in _evictedScratch)
+            {
+                _dirtyChunks.Remove(c);
+                ClearChunkEntries(c);
+                LastChunksProcessed++;
+            }
+
+            // PASS 2 -- resident chunks, budgeted as before.
             _batch.Clear();
             foreach (int3 c in _dirtyChunks)
             {
