@@ -576,6 +576,24 @@ public class Phase4AcceptanceRig : MonoBehaviour
     // 44.9ms median with no way to attribute it, AND left ~1,000ms/frame of
     // render-thread time completely unmeasured.
     private readonly List<double> _frameMs = new List<double>();
+    // Where each frame sample was taken. frame total is Time.unscaledDeltaTime,
+    // so it absorbs ANY main-thread block -- including work this rig does
+    // between legs (WaitForIdle, screenshot encodes, validator GetData storms,
+    // RunFullPass). Without knowing WHERE an outlier landed, a 1000ms p99
+    // cannot be told apart from a measurement artifact at a leg boundary.
+    private readonly List<string> _frameLabel = new List<string>();
+    private string _legLabel = "pre-leg";
+    // Camera chunk per frame sample. The worst frames turned out to sit in a
+    // contiguous MID-LEG band, not at leg boundaries, so the next question is
+    // purely positional: where is the camera when the frame collapses?
+    private readonly List<int3> _frameCamChunk = new List<int3>();
+    // GC collections seen at each sample. Main-thread phase timers stayed
+    // tiny during 1-2.6s frames, so the cost is something they do not
+    // measure. A Mono collection over a multi-GB heap is exactly that
+    // shape, and LODDownsampler.DownsampleChunkToTier allocates a fresh
+    // byte[] per chunk PER TIER (256KB + 32KB) on every admission.
+    private readonly List<int> _frameGcCount = new List<int>();
+    private int _legOrdinal, _legFrameIdx;
     private readonly List<double> _stagingMs = new List<double>();
     private readonly List<double> _clipSetMs = new List<double>();
     private readonly List<double> _mipMs = new List<double>();
@@ -596,6 +614,15 @@ public class Phase4AcceptanceRig : MonoBehaviour
         var st = Phase4Bootstrapper.Streamer;
         var u = st.LastUploadStats;
         _frameMs.Add(Time.unscaledDeltaTime * 1000.0);
+        _frameLabel.Add($"{_legLabel}#{_legFrameIdx++}");
+        _frameGcCount.Add(System.GC.CollectionCount(0));
+        {
+            Camera mc = Camera.main;
+            _frameCamChunk.Add(mc != null
+                ? CoordMath.VoxelToChunk(CoordMath.WorldToVoxel(
+                    new float3(mc.transform.position.x, mc.transform.position.y, mc.transform.position.z)))
+                : new int3(-999, -999, -999));
+        }
         _stagingMs.Add(u.stagingMs);
         _clipSetMs.Add(u.clipmapSetMs);
         _mipMs.Add(u.mipRebuildMs);
@@ -631,6 +658,7 @@ public class Phase4AcceptanceRig : MonoBehaviour
     {
         float travelled = 0f;
         var streamer = Phase4Bootstrapper.Streamer;
+        _legOrdinal++; _legFrameIdx = 0; _legLabel = $"leg{_legOrdinal}";
         while (travelled < meters)
         {
             float dt = Mathf.Min(Time.deltaTime, 1f / 30f);
@@ -788,6 +816,27 @@ public class Phase4AcceptanceRig : MonoBehaviour
             $"steady-state terrain upload p99 {p99:F3}ms <= 1.0ms (§4.3 'terrain upload <=1.0ms/frame CPU')");
         _report.AppendLine($"  upload phase breakdown (p50 / p99 ms over {_frameMs.Count} sampled frames):");
         _report.AppendLine($"    frame total     {Pct(_frameMs, 0.5f),8:F2} / {Pct(_frameMs, 0.99f),8:F2}");
+        {
+            // The 10 worst frames, WITH where they happened. p99 over ~700
+            // samples is just the top ~7 frames, so if those all sit at #0/#1 of
+            // a leg they are the rig's own between-leg work being charged to the
+            // first frame after it -- not a streaming stutter.
+            var idx = new List<int>();
+            for (int i = 0; i < _frameMs.Count; i++) idx.Add(i);
+            idx.Sort((a, b) => _frameMs[b].CompareTo(_frameMs[a]));
+            var sb = new StringBuilder("    worst frames: ");
+            for (int i = 0; i < Math.Min(10, idx.Count); i++)
+            {
+                int j = idx[i];
+                sb.Append($"{_frameMs[j]:F0}ms@{(j < _frameLabel.Count ? _frameLabel[j] : "?")}");
+                if (j < _frameCamChunk.Count) sb.Append($" cam{_frameCamChunk[j]}");
+                if (j < _loadDeficit.Count) sb.Append($" deficit={_loadDeficit[j]}");
+                if (j > 0 && j < _frameGcCount.Count)
+                    sb.Append($" gc+{_frameGcCount[j] - _frameGcCount[j - 1]}");
+                if (i < Math.Min(10, idx.Count) - 1) sb.Append(", ");
+            }
+            _report.AppendLine(sb.ToString());
+        }
         _report.AppendLine($"    staging         {Pct(_stagingMs, 0.5f),8:F2} / {Pct(_stagingMs, 0.99f),8:F2}");
         _report.AppendLine($"    clipmap write   {Pct(_clipSetMs, 0.5f),8:F2} / {Pct(_clipSetMs, 0.99f),8:F2}");
         _report.AppendLine($"    mip rebuild     {Pct(_mipMs, 0.5f),8:F2} / {Pct(_mipMs, 0.99f),8:F2}");
@@ -826,28 +875,89 @@ public class Phase4AcceptanceRig : MonoBehaviour
         var startPos = cam.transform.position;
 
         // ---- Dig a tunnel + build a structure (§13's exact assertion). ----
+        //
+        // Both assertions in this block used to fail, and neither was an engine
+        // fault. The probe output below is permanent: "0 voxels dug" with no
+        // coordinates printed cost a whole run to interpret, which is exactly
+        // the failure mode §10.4 wants validators to avoid.
         int3 camVox = CoordMath.WorldToVoxel(new float3(startPos.x, startPos.y, startPos.z));
-        int3 editChunk = CoordMath.VoxelToChunk(camVox);
         int digs = 0, builds = 0;
+        var editedChunks = new HashSet<int3>();
+
+        // HARNESS BUG 1: the dig line was camVox.y - 4 -- 0.4m below the
+        // CAMERA, not below the ground. The camera spawns at y=12m and
+        // generated terrain tops out near there (WorldGenConstants
+        // MAX_TERRAIN_HEIGHT=120 voxels), so the line ran through open air and
+        // correctly removed nothing. Find the real surface in this column
+        // instead of assuming the camera is standing on it.
+        int surfaceY = int.MinValue;
+        for (int y = camVox.y; y >= 0; y--)
+            if (store.GetVoxel(new int3(camVox.x, y, camVox.z)) != Materials.Air) { surfaceY = y; break; }
+
+        int digY = surfaceY > int.MinValue ? surfaceY - 2 : camVox.y - 4;
+        Line($"  dig probe: camVox {camVox} (camera y={startPos.y:F1}m), " +
+             $"surface at y={surfaceY} ({(surfaceY > int.MinValue ? surfaceY * 0.1f : -1f):F1}m), digging at y={digY}");
+        Line($"  GetVoxel down the camera column: " +
+             $"y={camVox.y} -> {store.GetVoxel(new int3(camVox.x, camVox.y, camVox.z))}, " +
+             $"y={camVox.y - 4} (the OLD dig line) -> {store.GetVoxel(new int3(camVox.x, camVox.y - 4, camVox.z))}, " +
+             $"y={digY} (the NEW dig line) -> {store.GetVoxel(new int3(camVox.x, digY, camVox.z))}");
 
         for (int i = 0; i < 200; i++)
         {
-            var v = new int3(camVox.x + i, camVox.y - 4, camVox.z);
-            if (store.GetVoxel(v) != Materials.Air) { store.SetVoxel(v, Materials.Air); digs++; }
+            var v = new int3(camVox.x + i, digY, camVox.z);
+            if (store.GetVoxel(v) != Materials.Air)
+            {
+                store.SetVoxel(v, Materials.Air);
+                digs++;
+                editedChunks.Add(CoordMath.VoxelToChunk(v));
+            }
         }
+
+        // HARNESS BUG 2: the structure was placed at camVox.x - 10, and
+        // camVox.x is 1408 = 11 * 128 -- exactly a chunk boundary. Every placed
+        // voxel therefore landed in chunk (10,0,11) while the assertion below
+        // read chunk (11,0,11), which the (failed) dig had left untouched. The
+        // engine was marking deltaDirty on the chunk it was actually told to
+        // edit; the test interrogated its neighbour. The corrupt-delta step
+        // later in this gate names 10_0_11.delta -- the same fact from the
+        // other end. Build inside the dug chunk, and assert on what was
+        // actually edited rather than on a coordinate guess.
+        int buildBaseY = surfaceY > int.MinValue ? surfaceY + 1 : camVox.y;
         for (int y = 0; y < 8; y++)
         for (int x = 0; x < 4; x++)
         for (int z = 0; z < 4; z++)
         {
-            store.SetVoxel(new int3(camVox.x - 10 + x, camVox.y + y, camVox.z + z), Materials.Stone);
+            var v = new int3(camVox.x + 4 + x, buildBaseY + y, camVox.z + z);
+            store.SetVoxel(v, Materials.Stone);
             builds++;
+            editedChunks.Add(CoordMath.VoxelToChunk(v));
         }
-        Line($"edited: {digs} voxels dug, {builds} placed, around chunk {editChunk}");
+
+        int3 editChunk = CoordMath.VoxelToChunk(new int3(camVox.x, digY, camVox.z));
+        Line($"edited: {digs} voxels dug, {builds} placed; chunks touched: " +
+             $"{string.Join(", ", editedChunks)}; round-trip assertions use {editChunk}");
         Check(digs > 0, "the dig actually removed solid voxels (edit landed on real terrain)");
 
         var edited = store.GetChunk(editChunk);
         uint editedHash = edited != null ? ChunkContentHash.Hash(edited, pool) : 0u;
-        Check(edited != null && edited.deltaDirty, "the edited chunk is marked deltaDirty");
+
+        // A save cannot have consumed the flag at this point: everything above
+        // runs synchronously in one frame, before the first yield, so
+        // StreamManager has not ticked and no eviction/save could have run. If
+        // this goes red again it is a genuine SetVoxel/deltaDirty fault, not a
+        // timing artifact -- which is why it now names the offending chunks.
+        int notDirty = 0;
+        foreach (int3 c in editedChunks)
+        {
+            var ch = store.GetChunk(c);
+            if (ch == null || !ch.deltaDirty)
+            {
+                notDirty++;
+                Line($"  NOT deltaDirty: chunk {c} (resident={ch != null})");
+            }
+        }
+        Check(editedChunks.Count > 0 && notDirty == 0,
+            $"every edited chunk is marked deltaDirty ({editedChunks.Count} touched, {notDirty} missing the flag)");
 
         yield return null;
 
@@ -874,7 +984,7 @@ public class Phase4AcceptanceRig : MonoBehaviour
         // ---- Refill the tunnel, coalesce, confirm it returns to uniform. ----
         int denseBefore = store.DenseBricksHeld;
         for (int i = 0; i < 200; i++)
-            store.SetVoxel(new int3(camVox.x + i, camVox.y - 4, camVox.z), Materials.Stone);
+            store.SetVoxel(new int3(camVox.x + i, digY, camVox.z), Materials.Stone);
         Phase4Bootstrapper.Coalescer.RunFullPass();
         int denseAfter = store.DenseBricksHeld;
         Line($"refill + coalesce: dense bricks {denseBefore} -> {denseAfter} " +
@@ -884,6 +994,27 @@ public class Phase4AcceptanceRig : MonoBehaviour
             "coalescing after refilling the tunnel did not increase dense-brick count (§4.5 only ever frees)");
 
         // ---- Hex-corrupt a real .delta on disk (§13's exact assertion). ----
+        //
+        // ORDER IS LOad-BEARING: fly OUT first, THEN corrupt, THEN fly back.
+        //
+        // The original order (corrupt -> fly out -> fly back) silently defeated
+        // itself. The refill step just above re-dirties the same chunks whose
+        // deltas are on disk, so the outbound leg's eviction SAVED those chunks
+        // again and overwrote the corrupted bytes with a valid CRC before
+        // anything could read them. The assertion then found rejections 0 -> 0
+        // and called it a failure of §4.2, when in fact nothing corrupt had
+        // survived to be rejected.
+        //
+        // It passed before this was noticed only by luck: the edit site used to
+        // land in a neighbouring chunk (a separate harness bug, see BUG 2
+        // above), so the corrupted file happened to belong to a chunk the
+        // refill never touched.
+        //
+        // Corrupting while the chunk is NON-RESIDENT makes the file final:
+        // nothing can rewrite it, and the return leg is forced to read it.
+        yield return StartCoroutine(FlyLeg(cam, new Vector3(0, 0, 1), _persistenceRoundTripMeters, uploadMs, uploadBytes, drainMs));
+        streamer.WaitForIdle();
+
         string[] deltas = Directory.GetFiles(Phase4Bootstrapper.DeltaDirectory, "*.delta");
         if (deltas.Length == 0) Check(false, "at least one .delta exists on disk to corrupt");
         else
@@ -892,10 +1023,9 @@ public class Phase4AcceptanceRig : MonoBehaviour
             byte[] raw = File.ReadAllBytes(victimPath);
             raw[raw.Length / 2] ^= 0xFF;
             File.WriteAllBytes(victimPath, raw);
-            Line($"corrupted {Path.GetFileName(victimPath)} (flipped a byte mid-file)");
+            Line($"corrupted {Path.GetFileName(victimPath)} (flipped a byte mid-file, chunk evicted so the file is final)");
 
             int rejectedBefore = streamer.DeltasRejectedTotal;
-            yield return StartCoroutine(FlyLeg(cam, new Vector3(0, 0, 1), _persistenceRoundTripMeters, uploadMs, uploadBytes, drainMs));
             yield return StartCoroutine(FlyLeg(cam, new Vector3(0, 0, -1), _persistenceRoundTripMeters, uploadMs, uploadBytes, drainMs));
             cam.transform.position = startPos;
             for (int i = 0; i < 10; i++) yield return null;
