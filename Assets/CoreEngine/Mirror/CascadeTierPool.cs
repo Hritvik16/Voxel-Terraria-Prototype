@@ -32,6 +32,15 @@ namespace VoxelEngine.Mirror
     public class CascadeTierPool : IDisposable
     {
         public int Tier { get; }
+
+        // Per-call timing, split so the rig can attribute cascade cost instead
+        // of reporting one opaque number. Downsampling and GPU writes have
+        // different fixes; a merged figure hides which one is binding.
+        public double LastDownsampleMs { get; private set; }
+        public double LastGpuWriteMs { get; private set; }
+        public int LastChunksProcessed { get; private set; }
+        public int LastWriteCalls { get; private set; }
+        public int DirtyRemaining => _dirtyChunks.Count;
         public GraphicsBuffer ClipmapBuffer { get; private set; }
         public GraphicsBuffer BrickDataBuffer { get; private set; }
         public int3 WindowDimsCoarseBricks => _windowDimsCoarseBricks;
@@ -52,6 +61,15 @@ namespace VoxelEngine.Mirror
         private readonly BrickDataPool _brickPool;
         private readonly HashSet<int3> _dirtyChunks = new HashSet<int3>();
         private readonly List<int> _dirtyBrickSlots = new List<int>();
+        private readonly List<int3> _batch = new List<int3>();
+
+        // Reused per-brick scratch. ExtractBrick used to allocate a fresh
+        // byte[512] for every coarse brick: 512 at tier 1 + 64 at tier 2 = 576
+        // allocations PER CHUNK, ~4.7 MB of garbage per streaming frame at 16
+        // admissions, and ~420,000 allocations during the initial window fill.
+        // That GC churn, not the downsampling, was the larger share of the
+        // first run's stall.
+        private readonly byte[] _brickScratch = new byte[512];
 
         private const int TIER0_BRICK_EDGE_VOXELS = 8;
         private const int CHUNK_EDGE_BRICKS_TIER0 = 16;
@@ -91,6 +109,38 @@ namespace VoxelEngine.Mirror
 
         public void MarkDirty(int3 chunkCoord) => _dirtyChunks.Add(chunkCoord);
 
+        /// Flat index of one coarse brick in ClipmapBuffer. The coarse analogue
+        /// of TerrainClipmap.GpuIndexOf, exposed for the same reason: a debug
+        /// validator cannot address this buffer without reproducing ChunkSlot
+        /// and LocalCoarseIndex, and a validator that reimplements the layout it
+        /// is checking validates nothing. Passing (coord, 0,0,0) yields the
+        /// chunk's slotBase, which is what a per-chunk partial readback needs.
+        public int GpuIndexOf(int3 chunkCoord, int bx, int by, int bz)
+            => ChunkSlot(chunkCoord) * _entriesPerChunk + LocalCoarseIndex(bx, by, bz);
+
+        /// Whether this chunk is still queued for a cascade upload. Mirrors
+        /// TerrainClipmap.IsDirty, and exists for the same diagnostic reason:
+        /// it is what separates upload LAG (write queued, budget delayed it)
+        /// from a LOST UPDATE (nothing queued, GPU silently stale). Only the
+        /// second is a bug.
+        public bool IsDirty(int3 chunkCoord) => _dirtyChunks.Contains(chunkCoord);
+
+        /// Accepts a downsampled chunk COMPUTED ON A WORKER THREAD and does only
+        /// the cheap remainder here: brick split, pool slot management, GPU
+        /// writes -- measured at ~0.3ms against the ~11ms the downsample itself
+        /// costs. This is how admission stops paying the downsample on the main
+        /// thread at all; the budgeted UploadDirty path remains for evictions
+        /// (clear, no downsample) and edits (rare, re-downsampled here).
+        private bool _batchlessSubmit;
+        public void SubmitPrecomputed(int3 chunkCoord, byte[] downsampled)
+        {
+            _dirtyChunks.Remove(chunkCoord); // superseded by fresher data
+            int downsampledEdge = 128 / LODConfig.DownsampleFactor(Tier);
+            _batchlessSubmit = true;
+            try { WriteChunkFromDownsampled(chunkCoord, downsampled, downsampledEdge); }
+            finally { _batchlessSubmit = false; }
+        }
+
         private int ChunkSlot(int3 chunkCoord)
         {
             int3 w = chunkCoord & _chunkMask;
@@ -108,23 +158,81 @@ namespace VoxelEngine.Mirror
             if (_dirtyChunks.Count == 0) return;
 
             int downsampledEdge = CHUNK_EDGE_VOXELS_TIER0 / LODConfig.DownsampleFactor(Tier);
-            const int coarseBrickEdge = TIER0_BRICK_EDGE_VOXELS;
+            // const int coarseBrickEdge = TIER0_BRICK_EDGE_VOXELS;
 
             _dirtyBrickSlots.Clear();
 
-            foreach (int3 chunkCoord in _dirtyChunks)
+            // BUDGETED. Phase 3 measured DownsampleChunkToTier at ~3ms per
+            // chunk-tier (3,033ms / 484 chunks / 2 tiers), so flushing a
+            // streaming frame's admissions unthrottled costs tens of ms before
+            // any GPU work happens -- and the initial window fill (729 chunks x
+            // 2 tiers) cost seconds in a single call.
+            //
+            // Leftovers stay dirty and are picked up next frame. The visible
+            // effect is distant terrain resolving a few frames late, which is
+            // exactly the trade §3.7 makes for the tier-0 clipmap already.
+            _batch.Clear();
+            foreach (int3 c in _dirtyChunks)
             {
-                if (store.GetChunk(chunkCoord) == null) continue;
+                if (_batch.Count >= EngineConfig.MAX_CASCADE_CHUNKS_PER_FRAME) break;
+                _batch.Add(c);
+            }
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            LastDownsampleMs = 0; LastGpuWriteMs = 0; LastChunksProcessed = 0; LastWriteCalls = 0;
+            double phase = 0;
+
+            foreach (int3 chunkCoord in _batch)
+            {
+                // Wall-clock guard on top of the chunk cap. At least one chunk
+                // always processes (LastChunksProcessed check) so the queue
+                // cannot stall; beyond that, a frame that is already spent stops
+                // paying.
+                if (LastChunksProcessed > 0 &&
+                    sw.Elapsed.TotalMilliseconds > EngineConfig.MAX_CASCADE_MS_PER_TIER)
+                    break;
+
+                _dirtyChunks.Remove(chunkCoord);
+                LastChunksProcessed++;
+
+                // Evicted chunk: CLEAR its coarse entries rather than skipping.
+                // Same bug as the tier-0 clipmap -- a skipped evicted chunk
+                // leaves the GPU describing terrain that no longer exists, and
+                // at cascade range that shows up as distant phantom geometry.
+                if (store.GetChunk(chunkCoord) == null)
+                {
+                    ClearChunkEntries(chunkCoord);
+                    continue;
+                }
+
+                phase = sw.Elapsed.TotalMilliseconds;
                 byte[] downsampled = LODDownsampler.DownsampleChunkToTier(store, pool, chunkCoord, Tier);
-                int slotBase = ChunkSlot(chunkCoord) * _entriesPerChunk;
+                LastDownsampleMs += sw.Elapsed.TotalMilliseconds - phase;
 
+                phase = sw.Elapsed.TotalMilliseconds;
+                WriteChunkFromDownsampled(chunkCoord, downsampled, downsampledEdge);
+                LastWriteCalls++;
+                LastGpuWriteMs += sw.Elapsed.TotalMilliseconds - phase;
+            }
+
+            phase = sw.Elapsed.TotalMilliseconds;
+            UploadDirtyBrickBodies();
+            LastGpuWriteMs += sw.Elapsed.TotalMilliseconds - phase;
+        }
+
+        private void WriteChunkFromDownsampled(int3 chunkCoord, byte[] downsampled, int downsampledEdge)
+        {
+            const int coarseBrickEdge = TIER0_BRICK_EDGE_VOXELS;
+            int slotBase = ChunkSlot(chunkCoord) * _entriesPerChunk;
+
+            {
                 for (int bz = 0; bz < _coarseBricksPerChunkEdge; bz++)
                 for (int by = 0; by < _coarseBricksPerChunkEdge; by++)
                 for (int bx = 0; bx < _coarseBricksPerChunkEdge; bx++)
                 {
                     byte[] brickVoxels = ExtractBrick(downsampled, downsampledEdge,
-                        bx * coarseBrickEdge, by * coarseBrickEdge, bz * coarseBrickEdge, coarseBrickEdge);
+                        bx * coarseBrickEdge, by * coarseBrickEdge, bz * coarseBrickEdge,
+                        coarseBrickEdge, _brickScratch);
                     bool uniform = IsUniform(brickVoxels);
 
                     int local = LocalCoarseIndex(bx, by, bz);
@@ -163,9 +271,33 @@ namespace VoxelEngine.Mirror
 
                 ClipmapBuffer.SetData(_chunkStaging, 0, slotBase, _entriesPerChunk);
             }
+            // brick bodies for this chunk ride the shared dirty-slot list and
+            // are flushed by the caller's UploadDirtyBrickBodies pass (UploadDirty)
+            // or immediately below (SubmitPrecomputed).
+            if (_dirtyBrickSlots.Count > 0 && _batchlessSubmit) UploadDirtyBrickBodies();
+            // NOTE: _dirtyChunks is NOT cleared here -- entries are removed as
+            // they are processed above, so anything left over is genuinely
+            // still pending and must survive to the next frame.
+        }
 
-            UploadDirtyBrickBodies();
-            _dirtyChunks.Clear();
+        /// Writes uniform air over a chunk's coarse entries and frees the pool
+        /// slots they held. Used when a dirty chunk turns out to be evicted.
+        private void ClearChunkEntries(int3 chunkCoord)
+        {
+            int slotBase = ChunkSlot(chunkCoord) * _entriesPerChunk;
+            for (int i = 0; i < _entriesPerChunk; i++)
+            {
+                int flatIndex = slotBase + i;
+                int stale = _clipmapCellPoolIndex[flatIndex];
+                if (stale >= 0)
+                {
+                    _brickPool.Free(stale);
+                    _clipmapCellPoolIndex[flatIndex] = -1;
+                }
+                _clipmapLocal[flatIndex] = 0u;
+                _chunkStaging[i] = 0u;
+            }
+            ClipmapBuffer.SetData(_chunkStaging, 0, slotBase, _entriesPerChunk);
         }
 
         private void UploadDirtyBrickBodies()
@@ -188,13 +320,14 @@ namespace VoxelEngine.Mirror
                 int firstUint = runStart * 128;
                 int countUints = (runEnd - runStart + 1) * 128;
                 BrickDataBuffer.SetData(asUints, firstUint, firstUint, countUints);
+                LastWriteCalls++;
             }
             _dirtyBrickSlots.Clear();
         }
 
-        private static byte[] ExtractBrick(byte[] source, int sourceEdge, int originX, int originY, int originZ, int brickEdge)
+        private static byte[] ExtractBrick(byte[] source, int sourceEdge, int originX, int originY, int originZ,
+                                           int brickEdge, byte[] result)
         {
-            byte[] result = new byte[brickEdge * brickEdge * brickEdge];
             int stride = sourceEdge;
             int slice = sourceEdge * sourceEdge;
             int idx = 0;

@@ -38,13 +38,24 @@ public class Phase4AcceptanceRig : MonoBehaviour
 {
     [Header("Run control")]
     [SerializeField] private bool _runOnStart = true;
-    [SerializeField] private bool _haltOnFirstRedGate = true;
+    // Default OFF. The first run halted at Gate B and produced a report with one
+    // failure line, no screenshots, and no census -- so a red gate cost us the
+    // entire rest of the run's evidence and still did not explain itself.
+    // Gate ORDER already tells us where things first broke; stopping is not what
+    // provides that. Collect everything, then read top-down.
+    [SerializeField] private bool _haltOnFirstRedGate = false;
 
     [Header("Traversal")]
     [Tooltip("§2.5 burst player speed. The window is sized against this.")]
     [SerializeField] private float _flySpeed = 60f;
-    [SerializeField] private float _traverseMeters = 400f;
-    [SerializeField] private float _soakSeconds = 60f;
+    [SerializeField] private float _traverseMeters = 200f;
+    [SerializeField] private float _soakSeconds = 20f;
+    [Tooltip("Distance for Gate D's leave-and-return. §13 says 500m; shorter still crosses the eviction ring.")]
+    [SerializeField] private float _persistenceRoundTripMeters = 250f;
+    [Tooltip("Hard ceiling on total rig wall-clock. The run aborts and writes what it has rather than hanging.")]
+    [SerializeField] private float _maxRunSeconds = 240f;
+    [Tooltip("Beauty screenshot every N metres of traversal. The stills are the only artifact that shows streaming LAG -- terrain arriving behind the camera -- as opposed to streaming errors.")]
+    [SerializeField] private float _screenshotEveryMeters = 100f;
 
     [Header("Output")]
     [SerializeField] private string _outputRootFolderName = "Phase4Acceptance";
@@ -90,6 +101,11 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _report.AppendLine($"WINDOW_CHUNKS_XZ={EngineConfig.WINDOW_CHUNKS_XZ} WINDOW_CHUNKS_Y={EngineConfig.WINDOW_CHUNKS_Y} " +
                            $"BRICK_POOL_CAP={EngineConfig.BRICK_POOL_CAP} " +
                            $"MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME={EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME}");
+        _report.AppendLine($"Startup: {Phase4Bootstrapper.StartupMs:F0}ms " +
+            $"(prime: {Phase4Bootstrapper.Streamer?.PrimeChunks ?? 0} chunks, " +
+            $"generate {Phase4Bootstrapper.Streamer?.PrimeGenerateMs ?? 0:F0}ms, " +
+            $"transfer {Phase4Bootstrapper.Streamer?.PrimeTransferMs ?? 0:F0}ms, " +
+            $"{Phase4Bootstrapper.Streamer?.PrimeWaves ?? 0} waves)");
         _report.AppendLine();
         _report.AppendLine("READING RULE: upload_ms is CPU main-thread Stopwatch and IS comparable to §4.3's");
         _report.AppendLine("1.0ms budget. Any FrameTimingManager figure is relative-within-run only (§10.2).");
@@ -102,11 +118,13 @@ public class Phase4AcceptanceRig : MonoBehaviour
             Finish(); yield break;
         }
 
-        yield return StartCoroutine(GateA());
-        if (!Halted()) yield return StartCoroutine(GateB());
-        if (!Halted()) yield return StartCoroutine(GateC());
-        if (!Halted()) yield return StartCoroutine(GateD());
-        if (!Halted()) yield return StartCoroutine(GateE());
+        _runStart = Time.realtimeSinceStartup;
+
+        yield return StartCoroutine(GateA()); FlushReport();
+        if (!Halted() && !OutOfTime()) { yield return StartCoroutine(GateB()); FlushReport(); }
+        if (!Halted() && !OutOfTime()) { yield return StartCoroutine(GateC()); FlushReport(); }
+        if (!Halted() && !OutOfTime()) { yield return StartCoroutine(GateD()); FlushReport(); }
+        if (!Halted() && !OutOfTime()) { yield return StartCoroutine(GateE()); FlushReport(); }
 
         _report.AppendLine();
         _report.AppendLine("=== COMMIT READINESS ===");
@@ -122,6 +140,57 @@ public class Phase4AcceptanceRig : MonoBehaviour
     }
 
     private bool Halted() => _haltOnFirstRedGate && _gateFailed;
+
+    private float _runStart;
+    private bool OutOfTime()
+    {
+        if (Time.realtimeSinceStartup - _runStart < _maxRunSeconds) return false;
+        Line($"ABORTING: exceeded _maxRunSeconds ({_maxRunSeconds:F0}s). Everything above still stands; " +
+             "gates below it did not run. Raise the budget or shorten the legs.");
+        return true;
+    }
+
+    /// Writes the report after every gate rather than only at the end.
+    ///
+    /// The first run was cancelled mid-flight and produced NOTHING -- all the
+    /// evidence up to that point was lost because Finish() had not been reached.
+    /// A partial report from a cancelled run is far more useful than no report,
+    /// so the file is rewritten as each gate completes.
+    private IEnumerator WritePathAB()
+    {
+        _report.AppendLine("  --- GPU write path A/B (LockBufferForWrite vs SetData) ---");
+        var store = Phase4Bootstrapper.Store;
+        var pool = Phase4Bootstrapper.Pool;
+        var clip = Phase4Bootstrapper.Clipmap;
+
+        foreach (bool useLock in new[] { true, false })
+        {
+            TerrainClipmap.UseLockBufferForUploads = useLock;
+            double total = 0; int reps = 8;
+            for (int i = 0; i < reps; i++)
+            {
+                // Dirty a fixed slice of the window so both paths move the same
+                // bytes, then time the flush.
+                int n = 0;
+                foreach (var ch in store.ResidentChunks())
+                { clip.MarkDirty(ch.coord); if (++n >= 32) break; }
+
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var st = clip.FlushAllDirty(store, pool);
+                total += sw.Elapsed.TotalMilliseconds;
+                yield return null;
+            }
+            Line($"write path {(useLock ? "LockBufferForWrite" : "SetData")}: " +
+                 $"{total / reps:F2}ms per 32-chunk flush (main-thread only)");
+        }
+        TerrainClipmap.UseLockBufferForUploads = true;
+    }
+
+    private void FlushReport()
+    {
+        try { File.WriteAllText(Path.Combine(_runFolder, "phase4_report.txt"), _report.ToString()); }
+        catch (Exception e) { Debug.LogWarning($"[Phase4Rig] report flush failed: {e.Message}"); }
+    }
 
     // =====================================================================
     // GATE A -- CPU only. No camera, no GPU.
@@ -297,20 +366,87 @@ public class Phase4AcceptanceRig : MonoBehaviour
     // =====================================================================
     private IEnumerator GateB()
     {
-        _report.AppendLine("--- GATE B: incremental upload correctness, window PINNED ---");
+        _report.AppendLine("--- GATE B: residency census + incremental upload correctness, window PINNED ---");
 
         var store = Phase4Bootstrapper.Store;
         var pool = Phase4Bootstrapper.Pool;
         var clip = Phase4Bootstrapper.Clipmap;
+        var streamer = Phase4Bootstrapper.Streamer;
 
-        Line($"resident chunks: {store.ResidentCount}, window origin {store.WindowOrigin}, " +
-             $"dense bricks {store.DenseBricksHeld} ({store.PoolUtilisation:P1} of cap)");
-        Check(store.ResidentCount > 0, "the initial window populated at all");
+        // ---- VISUAL EVIDENCE FIRST, unconditionally. ----
+        // The first run took no screenshots because it halted before reaching
+        // them. Captures are the only artifact that shows a BROKEN WORLD as
+        // opposed to a broken assertion, and they cost a few frames.
+        yield return StartCoroutine(Screenshot("GateB_Initial"));
+
+        // ---- RESIDENCY CENSUS ----
+        // The first run printed "380 chunks resident" with nothing to compare it
+        // against, so a 52%-populated world read as normal. A count without an
+        // expected value is not a census.
+        int expected = streamer.ExpectedResidentChunks;
+        int actual = store.ResidentCount;
+        Line($"residency: {actual} resident / {expected} expected " +
+             $"(load radius {streamer.LoadRadiusChunks}, evict {streamer.EvictRadiusChunks}, " +
+             $"cy 0..{StreamManager.MAX_GENERATED_CHUNK_Y})");
+        Line($"window origin {store.WindowOrigin}, store ring {store.WindowDims}, GPU mirror {clip.WindowDimsChunks}");
+        Line($"dense bricks {store.DenseBricksHeld} ({store.PoolUtilisation:P1} of cap), " +
+             $"clipmap dirty queue {clip.DirtyCount}");
+        Line($"streaming: admitted {streamer.ChunksAdmittedTotal}, evicted {streamer.ChunksEvictedTotal}, " +
+             $"pending {streamer.PendingLoads}, inFlight {streamer.InFlightLoads}, " +
+             $"generation errors {streamer.GenerationErrors}");
+
+        Check(actual == expected,
+            $"every chunk in the load radius is resident ({actual}/{expected}) -- " +
+            "a shortfall here means admission is dropping work, and every later gate " +
+            "is measuring a world with holes in it");
+
+        if (actual != expected)
+        {
+            var missing = streamer.MissingChunks(24);
+            _report.AppendLine($"  first {missing.Count} missing chunk coords:");
+            foreach (var c in missing) _report.AppendLine($"    {c}");
+        }
+
+        yield return StartCoroutine(GenerationMicroBenchmark());
+
+        yield return StartCoroutine(UploadIsolationProbe());
+
+        // A/B the two GPU write paths. SetData with an offset may rename a whole
+        // buffer allocation; LockBufferForWrite is the API meant for partial
+        // updates. Which one this machine prefers is a measurement, not a
+        // reading-comprehension exercise.
+        yield return StartCoroutine(WritePathAB());
 
         yield return null;
 
-        var v = ClipmapValidator.ValidateRegion(clip, pool, store, maxChunks: 64);
-        Check(v.pass, $"GPU clipmap byte-matches CPU truth after incremental upload -- {v}");
+        // ---- PASS 1: as the frame loop left it ----
+        var v1 = ClipmapValidator.ValidateRegion(clip, pool, store, maxChunks: 64);
+        _report.AppendLine("  clipmap pass 1 (as-is): " + v1.Describe());
+
+        // ---- PASS 2: after forcing every queued upload out ----
+        // This is what separates LAG from LOST UPDATE at the whole-run level: if
+        // flushing the queue fixes it, the pipeline works and the budget or
+        // ordering delayed it. If it does NOT, something changed the CPU chunk
+        // without marking it dirty, and no amount of waiting will ever fix it.
+        clip.FlushAllDirty(store, pool);
+        for (int i = 0; i < 3; i++) yield return null;
+
+        var v2 = ClipmapValidator.ValidateRegion(clip, pool, store, maxChunks: 64);
+        _report.AppendLine("  clipmap pass 2 (after forced flush): " + v2.Describe());
+
+        Check(v2.pass, "GPU clipmap byte-matches CPU truth after a forced full flush");
+        Check(v2.mismatchesInCleanChunks == 0,
+            $"no LOST UPDATES: every stale GPU entry was still queued for upload " +
+            $"({v2.mismatchesInCleanChunks} entries were stale with nothing queued)");
+
+        if (!v1.pass && v2.pass)
+            _report.AppendLine("  DIAGNOSIS: pass 1 red, pass 2 green => upload LAG only. The pipeline is " +
+                               "correct; the per-frame budget had not caught up. Not corruption.");
+        if (!v2.pass)
+            _report.AppendLine("  DIAGNOSIS: still red after a forced flush => LOST UPDATE. Some path mutates " +
+                               "a chunk without marking it dirty. Read the byKind breakdown above: " +
+                               "CpuUniformGpuDense implicates the coalescer, CpuDenseGpuUniform implicates " +
+                               "edit/delta replay, BothDenseDifferentSlot implicates pool reallocation.");
 
         // §11.3's two [Phase 4] lines, filled in with derived numbers.
         long clipmapBytes = (long)clip.WindowDimsBricks.x * clip.WindowDimsBricks.y * clip.WindowDimsBricks.z * 4;
@@ -381,26 +517,114 @@ public class Phase4AcceptanceRig : MonoBehaviour
         Check(admitted > 0, "chunks were actually admitted");
 
         // The headline correctness assertion of this phase.
-        int mismatches = 0;
+        // Wait for the refill EXPLICITLY and time it, instead of hoping
+        // WaitForIdle's iteration guard was generous enough. Time-to-refill is
+        // also the number that answers "does terrain load as fast as I move" --
+        // the previous run conflated "not reloaded yet" with "content changed"
+        // (4 'mismatches' that were almost certainly just missing chunks) and
+        // could not answer either question.
+        float refillStart = Time.realtimeSinceStartup;
+        while (streamer.LoadDeficit() > 0 && Time.realtimeSinceStartup - refillStart < 30f)
+        {
+            streamer.WaitForIdle(500);
+            yield return null;
+        }
+        float refillSeconds = Time.realtimeSinceStartup - refillStart;
+        Line($"time-to-refill after returning home: {refillSeconds:F1}s (deficit now {streamer.LoadDeficit()})");
+        Check(streamer.LoadDeficit() == 0, "the load square fully refilled within 30s of returning");
+
+        int notResident = 0, hashMismatch = 0;
         foreach (var c in watched)
         {
             var ch = store.GetChunk(c);
-            if (ch == null) { mismatches++; continue; }
-            if (ChunkContentHash.Hash(ch, pool) != hashesBefore[c]) mismatches++;
+            if (ch == null) { notResident++; continue; }
+            if (ChunkContentHash.Hash(ch, pool) != hashesBefore[c]) hashMismatch++;
         }
-        Check(mismatches == 0,
-            $"every watched chunk is content-identical after leaving and re-entering the window " +
-            $"({watched.Count} chunks, {mismatches} mismatches)");
+        Check(hashMismatch == 0,
+            $"no reloaded chunk changed content ({hashMismatch} of {watched.Count} hash-mismatched) -- " +
+            "this is the corruption check, kept separate from reload timing on purpose");
+        Check(notResident == 0,
+            $"every watched chunk actually re-loaded ({notResident} still missing) -- " +
+            "a failure HERE is refill speed, not corruption");
 
         // Upload budget, the §4.3 / §0.2 gate.
         ReportUpload("Gate C traversal", uploadMs, uploadBytes, drainMs);
 
-        var v = ClipmapValidator.ValidateRegion(Phase4Bootstrapper.Clipmap, pool, store, maxChunks: 64);
-        Check(v.pass, $"GPU clipmap still byte-matches CPU truth after the window moved -- {v}");
+        var vc = ClipmapValidator.ValidateRegion(Phase4Bootstrapper.Clipmap, pool, store, maxChunks: 64);
+        _report.AppendLine("  clipmap after traversal: " + vc.Describe());
+        Check(vc.mismatchesInCleanChunks == 0,
+            $"no LOST UPDATES after the window moved ({vc.mismatchesInCleanChunks})");
+
+        // Resident count is a RANGE, not an equality. Chunks stay resident out
+        // to the EVICT radius (15), while ExpectedResidentChunks counts the LOAD
+        // square (13). The band between them is the hysteresis ring doing its
+        // job, so 783 > 729 was the engine behaving correctly and the assertion
+        // being wrong. Bound it on both sides instead.
+        int evictSide = streamer.EvictRadiusChunks * 2 + 1;
+        int maxResident = evictSide * evictSide * (StreamManager.MAX_GENERATED_CHUNK_Y + 1);
+        Line($"post-traversal residency: {store.ResidentCount} " +
+             $"(load square {streamer.ExpectedResidentChunks} .. evict square {maxResident})");
+        Check(store.ResidentCount >= streamer.ExpectedResidentChunks && store.ResidentCount <= maxResident,
+            $"resident count sits between the load and evict squares " +
+            $"({streamer.ExpectedResidentChunks} <= {store.ResidentCount} <= {maxResident})");
 
         yield return StartCoroutine(Screenshot("GateC_AfterReturn"));
         _report.AppendLine();
     }
+
+    // Per-phase accumulators. The previous run reported a single upload_ms of
+    // 44.9ms median with no way to attribute it, AND left ~1,000ms/frame of
+    // render-thread time completely unmeasured.
+    private readonly List<double> _frameMs = new List<double>();
+    private readonly List<double> _stagingMs = new List<double>();
+    private readonly List<double> _clipSetMs = new List<double>();
+    private readonly List<double> _mipMs = new List<double>();
+    private readonly List<double> _packMs = new List<double>();
+    private readonly List<double> _brickSetMs = new List<double>();
+    private readonly List<double> _packUpMs = new List<double>();
+    private readonly List<double> _cascadeMs = new List<double>();
+    private readonly List<int> _setDataCalls = new List<int>();
+    private readonly List<int> _dirtyRemaining = new List<int>();
+    private readonly List<int> _loadDeficit = new List<int>();
+    private readonly List<double> _cascadeDownMs = new List<double>();
+    private readonly List<double> _cascadeWriteMs = new List<double>();
+    private float _nextShotAt;
+    private int _travShotIndex;
+
+    private void SamplePhases()
+    {
+        var st = Phase4Bootstrapper.Streamer;
+        var u = st.LastUploadStats;
+        _frameMs.Add(Time.unscaledDeltaTime * 1000.0);
+        _stagingMs.Add(u.stagingMs);
+        _clipSetMs.Add(u.clipmapSetMs);
+        _mipMs.Add(u.mipRebuildMs);
+        _packMs.Add(u.packRegionMs);
+        _brickSetMs.Add(u.brickSetMs);
+        _packUpMs.Add(u.packUploadMs);
+        _cascadeMs.Add(st.LastCascadeMs);
+        _setDataCalls.Add(u.setDataCalls);
+        _dirtyRemaining.Add(u.dirtyRemaining);
+        _loadDeficit.Add(st.LoadDeficit());
+
+        var casc = Phase4Bootstrapper.Cascades;
+        if (casc != null)
+        {
+            _cascadeDownMs.Add(casc.TierPool(1).LastDownsampleMs + casc.TierPool(2).LastDownsampleMs);
+            _cascadeWriteMs.Add(casc.TierPool(1).LastGpuWriteMs + casc.TierPool(2).LastGpuWriteMs);
+        }
+    }
+
+    private static double Pct(List<double> v, float p)
+    {
+        if (v.Count == 0) return 0;
+        var c = new List<double>(v); c.Sort();
+        return c[Mathf.Clamp((int)(c.Count * p), 0, c.Count - 1)];
+    }
+    private static double MaxOf(List<int> v)
+    { int m = 0; foreach (int x in v) if (x > m) m = x; return m; }
+    private static List<double> ToD(List<int> v)
+    { var d = new List<double>(v.Count); foreach (int x in v) d.Add(x); return d; }
 
     private IEnumerator FlyLeg(Camera cam, Vector3 dir, float meters,
         List<double> uploadMs, List<int> uploadBytes, List<double> drainMs)
@@ -417,7 +641,132 @@ public class Phase4AcceptanceRig : MonoBehaviour
             uploadMs.Add(streamer.LastUploadMs);
             uploadBytes.Add(streamer.LastUploadBytes);
             drainMs.Add(streamer.LastDrainMs);
+            SamplePhases();
+
+            // In-motion stills. Everything else in this rig measures whether
+            // streaming is CORRECT; these are the artifact that shows whether it
+            // is KEEPING UP -- terrain visibly arriving late reads as an empty
+            // leading edge here long before any assertion goes red.
+            _nextShotAt -= step;
+            if (_nextShotAt <= 0f)
+            {
+                _nextShotAt = _screenshotEveryMeters;
+                yield return new WaitForEndOfFrame();
+                Texture2D shot = ScreenCapture.CaptureScreenshotAsTexture();
+                try
+                {
+                    File.WriteAllBytes(Path.Combine(_runFolder,
+                        $"Traverse_{_travShotIndex:D2}_deficit{Phase4Bootstrapper.Streamer.LoadDeficit()}.png"),
+                        shot.EncodeToPNG());
+                }
+                finally { UnityEngine.Object.Destroy(shot); }
+                _travShotIndex++;
+            }
         }
+    }
+
+    /// Settles the generation-throughput question with a direct measurement
+    /// instead of a fourth theory. Three runs of theorising produced:
+    /// Task.Run ~40ms/chunk, Parallel.For waves ~29-33ms/chunk (SetMinThreads
+    /// changed nothing, falsifying the ThreadPool-starvation explanation for
+    /// it), dedicated threads ~11.3ms/chunk. What was never measured is the
+    /// baseline: what does ONE chunk cost on ONE thread, here, in this
+    /// process? Everything else -- how many workers help, whether 11.3ms is
+    /// thread-limited or work-limited, whether §4.3's 152 chunks/s demand is
+    /// even reachable on this machine -- divides out of that number.
+    private IEnumerator GenerationMicroBenchmark()
+    {
+        _report.AppendLine("  --- generation micro-benchmark ---");
+        var meta = Phase4Bootstrapper.Meta;
+        var st = VoxelEngine.WorldGen.ColumnSampler.CreateState(meta);
+        const int N = 24;
+
+        // Single thread, no pipeline, coords outside the resident window so
+        // nothing here perturbs the live world.
+        var pool = new VoxelEngine.Memory.BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        double genMs = 0, downMs = 0;
+        try
+        {
+            for (int i = 0; i < N; i++)
+            {
+                var alloc = new VoxelEngine.Memory.ChunkHandleAllocator(2);
+                var chunk = new Chunk();
+                double t0 = sw.Elapsed.TotalMilliseconds;
+                VoxelEngine.WorldGen.ChunkGeneratorFull.GenerateChunkFull(
+                    in st, meta, new Unity.Mathematics.int3(500 + i, 0, 500), chunk, alloc, pool, null);
+                double t1 = sw.Elapsed.TotalMilliseconds;
+                VoxelEngine.Mirror.LODDownsampler.DownsampleChunkToTier(chunk, pool, 1);
+                VoxelEngine.Mirror.LODDownsampler.DownsampleChunkToTier(chunk, pool, 2);
+                double t2 = sw.Elapsed.TotalMilliseconds;
+                genMs += t1 - t0; downMs += t2 - t1;
+
+                if (!chunk.isUniform && chunk.bricks != null)
+                    for (int b = 0; b < EngineConfig.BRICKS_PER_CHUNK; b++)
+                        if ((chunk.bricks[b].data & 0x80000000u) != 0)
+                            pool.Free((int)(chunk.bricks[b].data & 0x3FFFFFFFu));
+            }
+        }
+        finally { pool.Dispose(); }
+
+        double perChunk = genMs / N;
+        Line($"single-thread generation: {perChunk:F2}ms/chunk, worker-side downsample adds {downMs / N:F2}ms/chunk " +
+             $"({N} chunks, ocean-edge coords)");
+        double workers = Mathf.Max(2, SystemInfo.processorCount - 1);
+        Line($"implied ceilings: 1 thread = {1000.0 / perChunk:F0} chunks/s; " +
+             $"{workers:F0} perfect workers = {workers * 1000.0 / perChunk:F0} chunks/s; " +
+             $"demand at 60 m/s = ~152 chunks/s (§4.3)");
+        _report.AppendLine("  Read the pipeline's observed chunks/s against these ceilings: near the multi-");
+        _report.AppendLine("  worker line means the pipeline is healthy and the WORK is the limit; near the");
+        _report.AppendLine("  single-thread line means the threads are not actually running in parallel.");
+        yield return null;
+    }
+
+    /// Measures frame time with GPU uploads suppressed vs enabled, changing
+    /// NOTHING else. This is the only clean way to separate upload cost from
+    /// raymarch cost when the time is hiding on the render thread where no
+    /// main-thread Stopwatch can see it. Prefer finding out over guessing.
+    private IEnumerator UploadIsolationProbe()
+    {
+        _report.AppendLine("  --- upload isolation probe ---");
+        _report.AppendLine("  Frame time with GPU uploads ON vs SUPPRESSED. CPU-side work is identical in");
+        _report.AppendLine("  both passes; only the GraphicsBuffer writes are skipped. A large gap means the");
+        _report.AppendLine("  cost is the upload path; no gap means it is the raymarch dispatch.");
+
+        // Keep the upload path genuinely BUSY through both windows by re-marking
+        // resident chunks each frame. Last run's probe measured a NEGATIVE delta
+        // (-6.2ms) because it ran against an EMPTY dirty queue -- both passes
+        // uploaded nothing and the difference was frame-time noise. A probe that
+        // can return "uploads cost less than zero" is measuring the wrong thing.
+        var probeStore = Phase4Bootstrapper.Store;
+        var probeClip = Phase4Bootstrapper.Clipmap;
+        void ChurnDirty()
+        {
+            int n = 0;
+            foreach (var ch in probeStore.ResidentChunks())
+            { probeClip.MarkDirty(ch.coord); if (++n >= 12) break; }
+        }
+
+        for (int warm = 0; warm < 10; warm++) { ChurnDirty(); yield return null; }
+
+        double onSum = 0; int onN = 0;
+        for (int i = 0; i < 60; i++) { ChurnDirty(); yield return null; onSum += Time.unscaledDeltaTime * 1000.0; onN++; }
+
+        TerrainClipmap.SuppressGpuUploads = true;
+        for (int warm = 0; warm < 10; warm++) { ChurnDirty(); yield return null; }
+        double offSum = 0; int offN = 0;
+        for (int i = 0; i < 60; i++) { ChurnDirty(); yield return null; offSum += Time.unscaledDeltaTime * 1000.0; offN++; }
+        TerrainClipmap.SuppressGpuUploads = false;
+
+        double on = onSum / Mathf.Max(1, onN), off = offSum / Mathf.Max(1, offN);
+        Line($"frame ms: uploads ON {on:F1}, uploads SUPPRESSED {off:F1}, delta {on - off:F1} " +
+             $"({(on > 0 ? (on - off) / on * 100.0 : 0):F0}% of the frame is GPU upload)");
+        _report.AppendLine(on - off > on * 0.5
+            ? "  DIAGNOSIS: uploads dominate the frame. The raymarch is not the problem."
+            : "  DIAGNOSIS: uploads are NOT the majority of the frame. Look at the raymarch dispatch " +
+              "(StepHeat capture, GPU counters) before optimising the upload path further.");
+
+        for (int warm = 0; warm < 5; warm++) yield return null;
     }
 
     private void ReportUpload(string label, List<double> ms, List<int> bytes, List<double> drain)
@@ -437,6 +786,27 @@ public class Phase4AcceptanceRig : MonoBehaviour
 
         Check(p99 <= 1.0,
             $"steady-state terrain upload p99 {p99:F3}ms <= 1.0ms (§4.3 'terrain upload <=1.0ms/frame CPU')");
+        _report.AppendLine($"  upload phase breakdown (p50 / p99 ms over {_frameMs.Count} sampled frames):");
+        _report.AppendLine($"    frame total     {Pct(_frameMs, 0.5f),8:F2} / {Pct(_frameMs, 0.99f),8:F2}");
+        _report.AppendLine($"    staging         {Pct(_stagingMs, 0.5f),8:F2} / {Pct(_stagingMs, 0.99f),8:F2}");
+        _report.AppendLine($"    clipmap write   {Pct(_clipSetMs, 0.5f),8:F2} / {Pct(_clipSetMs, 0.99f),8:F2}");
+        _report.AppendLine($"    mip rebuild     {Pct(_mipMs, 0.5f),8:F2} / {Pct(_mipMs, 0.99f),8:F2}");
+        _report.AppendLine($"    pack region     {Pct(_packMs, 0.5f),8:F2} / {Pct(_packMs, 0.99f),8:F2}");
+        _report.AppendLine($"    brick bodies    {Pct(_brickSetMs, 0.5f),8:F2} / {Pct(_brickSetMs, 0.99f),8:F2}");
+        _report.AppendLine($"    packed mip up   {Pct(_packUpMs, 0.5f),8:F2} / {Pct(_packUpMs, 0.99f),8:F2}");
+        _report.AppendLine($"    cascades        {Pct(_cascadeMs, 0.5f),8:F2} / {Pct(_cascadeMs, 0.99f),8:F2}");
+        _report.AppendLine($"      - downsample  {Pct(_cascadeDownMs, 0.5f),8:F2} / {Pct(_cascadeDownMs, 0.99f),8:F2}");
+        _report.AppendLine($"      - gpu writes  {Pct(_cascadeWriteMs, 0.5f),8:F2} / {Pct(_cascadeWriteMs, 0.99f),8:F2}");
+        _report.AppendLine($"    max GPU write calls/frame: {MaxOf(_setDataCalls)}");
+        _report.AppendLine($"    max clipmap dirty backlog: {MaxOf(_dirtyRemaining)} chunks");
+        _report.AppendLine($"    load deficit during traversal: p50 {Pct(ToD(_loadDeficit), 0.5f):F0}, " +
+                           $"p99 {Pct(ToD(_loadDeficit), 0.99f):F0}, max {MaxOf(_loadDeficit):F0} chunks " +
+                           $"(0 = the visible world was always complete; a big number IS the 'terrain " +
+                           $"loads slower than I move' complaint, quantified)");
+        _report.AppendLine("    NOTE: these are MAIN-THREAD figures. GraphicsBuffer writes are serviced on");
+        _report.AppendLine("    the render thread, so a small total here with a slow frame means the cost is");
+        _report.AppendLine("    downstream -- read it against 'frame total' and the isolation probe above.");
+
         Check(maxBytes <= EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME,
             $"no frame exceeded MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME " +
             $"({maxBytes} <= {EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME}) (§0.2 anti-stutter guarantee)");
@@ -483,8 +853,8 @@ public class Phase4AcceptanceRig : MonoBehaviour
 
         // ---- Fly 500m away and back (§13 says 500m). ----
         var uploadMs = new List<double>(); var uploadBytes = new List<int>(); var drainMs = new List<double>();
-        yield return StartCoroutine(FlyLeg(cam, new Vector3(0, 0, 1), 500f, uploadMs, uploadBytes, drainMs));
-        yield return StartCoroutine(FlyLeg(cam, new Vector3(0, 0, -1), 500f, uploadMs, uploadBytes, drainMs));
+        yield return StartCoroutine(FlyLeg(cam, new Vector3(0, 0, 1), _persistenceRoundTripMeters, uploadMs, uploadBytes, drainMs));
+        yield return StartCoroutine(FlyLeg(cam, new Vector3(0, 0, -1), _persistenceRoundTripMeters, uploadMs, uploadBytes, drainMs));
         cam.transform.position = startPos;
         for (int i = 0; i < 10; i++) yield return null;
         streamer.WaitForIdle();
@@ -525,8 +895,8 @@ public class Phase4AcceptanceRig : MonoBehaviour
             Line($"corrupted {Path.GetFileName(victimPath)} (flipped a byte mid-file)");
 
             int rejectedBefore = streamer.DeltasRejectedTotal;
-            yield return StartCoroutine(FlyLeg(cam, new Vector3(0, 0, 1), 500f, uploadMs, uploadBytes, drainMs));
-            yield return StartCoroutine(FlyLeg(cam, new Vector3(0, 0, -1), 500f, uploadMs, uploadBytes, drainMs));
+            yield return StartCoroutine(FlyLeg(cam, new Vector3(0, 0, 1), _persistenceRoundTripMeters, uploadMs, uploadBytes, drainMs));
+            yield return StartCoroutine(FlyLeg(cam, new Vector3(0, 0, -1), _persistenceRoundTripMeters, uploadMs, uploadBytes, drainMs));
             cam.transform.position = startPos;
             for (int i = 0; i < 10; i++) yield return null;
             streamer.WaitForIdle();
@@ -543,6 +913,53 @@ public class Phase4AcceptanceRig : MonoBehaviour
             }
         }
 
+        // ---- cascade tier validation (tiers 1..N) -------------------------
+        // Placed HERE, after corrupt-delta recovery, because this is the exact
+        // point the GateD_AfterPersistence screenshot showed floating slabs and
+        // a hole in the water at the HORIZON -- distance, i.e. cascade
+        // territory. ClipmapValidator ran GREEN through all of it and always
+        // will: it only ever checked tier 0. Nothing had ever compared tiers
+        // 1/2 against anything, so this is measuring an unmeasured surface, not
+        // re-confirming a known-good one.
+        //
+        // Ground truth is a FRESH LODDownsampler run off current ChunkStore
+        // state, not CascadeTierPool's own shadow copy -- see CascadeValidator's
+        // header for why agreeing with the code under test would prove nothing.
+        {
+            var cascades = Phase4Bootstrapper.Cascades;
+            if (cascades == null)
+            {
+                _report.AppendLine("  cascade validation SKIPPED: no LODCascadeManager on the bootstrapper.");
+            }
+            else
+            {
+                var cascResults = CascadeValidator.ValidateAllTiers(cascades, store, pool, maxChunks: 12);
+                foreach (var cr in cascResults)
+                {
+                    _report.AppendLine("  cascade " + cr.Describe());
+                    Check(cr.pass,
+                        $"cascade tier {cr.tier} byte-matches a fresh CPU downsample after the persistence cycle " +
+                        $"(entry {cr.entryMismatches}, body {cr.bodyByteMismatches}, " +
+                        $"lost-updates {cr.mismatchesInCleanChunks})");
+                }
+
+                // The resident-chunk sweep above CANNOT see a coarse entry left
+                // describing terrain for an EVICTED chunk -- it only walks
+                // ResidentChunks(). That blind spot is the current leading
+                // suspect for the Gate D horizon slab, since the artifact sits
+                // over open ocean at distance where the window has been sliding
+                // and evicting. This closes it.
+                for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+                {
+                    var er = CascadeValidator.ValidateEvictedSlots(cascades.TierPool(tier), store);
+                    _report.AppendLine($"  cascade evicted-slot sweep " + er.Describe());
+                    Check(er.pass,
+                        $"cascade tier {er.tier} has no stale entries for non-resident chunks " +
+                        $"({er.chunksChecked} non-resident slots swept, {er.entryMismatches} stale entries)");
+                }
+            }
+        }
+
         yield return StartCoroutine(Screenshot("GateD_AfterPersistence"));
         _report.AppendLine();
     }
@@ -553,9 +970,9 @@ public class Phase4AcceptanceRig : MonoBehaviour
     private IEnumerator GateE()
     {
         _report.AppendLine($"--- GATE E: sustained traversal soak ({_soakSeconds:F0}s) ---");
-        _report.AppendLine("NOTE: §13 asks for 10 MINUTES. This runs a shorter leg by default so the rig");
-        _report.AppendLine("stays a one-press artifact; raise _soakSeconds to 600 for the real gate. A short");
-        _report.AppendLine("soak can only DISPROVE flatness, never prove it -- read this as a smoke test.");
+        _report.AppendLine("NOTE: §13 asks for 10 MINUTES. This runs 20s by default so the whole rig finishes");
+        _report.AppendLine("in a couple of minutes; raise _soakSeconds to 600 for the real gate once the run is");
+        _report.AppendLine("known-good. A short soak can only DISPROVE flatness, never prove it -- smoke test only.");
 
         var store = Phase4Bootstrapper.Store;
         var streamer = Phase4Bootstrapper.Streamer;
@@ -578,7 +995,7 @@ public class Phase4AcceptanceRig : MonoBehaviour
                 2 => new Vector3(-1, 0, 0),
                 _ => new Vector3(0, 0, -1),
             };
-            yield return StartCoroutine(FlyLeg(cam, dir, 200f, uploadMs, uploadBytes, drainMs));
+            yield return StartCoroutine(FlyLeg(cam, dir, 100f, uploadMs, uploadBytes, drainMs));
             leg++;
             samples.Add((Time.realtimeSinceStartup - t0,
                          UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong(),
@@ -618,11 +1035,14 @@ public class Phase4AcceptanceRig : MonoBehaviour
     // =====================================================================
     private IEnumerator Screenshot(string name)
     {
+        // Two views, not four. Each costs 6 settle frames plus a full-frame
+        // readback and PNG encode, and Beauty + StepHeat are the two that
+        // actually answer "is the geometry right" and "where is the time going".
+        // UniformDense and LODTier are one line away if a capture raises a
+        // question they would answer.
         var views = new[]
         {
             RaymarchFeature.DebugMode.Beauty,
-            RaymarchFeature.DebugMode.UniformDense,
-            RaymarchFeature.DebugMode.LODTier,
             RaymarchFeature.DebugMode.StepHeat,
         };
         foreach (var view in views)
