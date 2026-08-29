@@ -86,6 +86,61 @@ namespace VoxelEngine.Diagnostics
             return Mathf.Max(1, PerformanceCores - reserved);
         }
 
+        /// macOS QoS classes. These are the values from <sys/qos.h>; they are
+        /// what actually influences whether a thread lands on a performance or
+        /// an efficiency core. Thread PRIORITY does not: ThreadPriority
+        /// .BelowNormal was measured on this codebase and changed nothing,
+        /// because Mono does not map it on macOS.
+        public const int QOS_CLASS_USER_INTERACTIVE = 0x21;
+        public const int QOS_CLASS_USER_INITIATED   = 0x19;
+        public const int QOS_CLASS_DEFAULT          = 0x15;
+        public const int QOS_CLASS_UTILITY          = 0x11;
+        public const int QOS_CLASS_BACKGROUND       = 0x09;
+
+        /// Sets the QoS class of the CALLING thread. Must be called from the
+        /// thread itself -- there is no API to set another thread's class.
+        ///
+        /// UTILITY is the useful setting for chunk generation: macOS biases
+        /// those threads onto efficiency cores but will still use performance
+        /// cores when they are idle, so throughput is not given away the way a
+        /// smaller thread count gives it away. BACKGROUND is stronger and also
+        /// throttles I/O, which is not wanted here.
+        ///
+        /// Returns false if the call is unavailable; never throws into the
+        /// worker loop.
+        ///
+        /// MEASURED AND INEFFECTIVE ON THIS WORKLOAD -- kept so the next person
+        /// does not spend a run rediscovering that. Applying UTILITY to all
+        /// seven chunk-generation workers, with the call confirmed succeeding
+        /// ("worker QoS UTILITY set: True", run 2026-08-29_121624):
+        ///
+        ///     7 workers            p50 21.76   p99 860.57   deficit p50 0
+        ///     7 workers + UTILITY  p50 23.11   p99 918.41   deficit p50 0
+        ///
+        /// No movement; p99 marginally worse, inside this machine's noise.
+        /// macOS accepted the hint and scheduled much the same way. Together
+        /// with ThreadPriority.BelowNormal (also no effect) and bounding the
+        /// count to the performance-core count (selects a point on the existing
+        /// trade curve, does not move it), the conclusion is that thread COUNT
+        /// is the only lever with measurable authority here.
+        public static bool TrySetCurrentThreadQos(int qosClass)
+        {
+#if UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
+            try
+            {
+                return pthread_set_qos_class_self_np(qosClass, 0) == 0;
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[CpuTopology] pthread_set_qos_class_self_np unavailable: " +
+                                 $"{e.GetType().Name} {e.Message}");
+                return false;
+            }
+#else
+            return false;
+#endif
+        }
+
         public static string Describe()
         {
             EnsureQueried();
@@ -98,6 +153,9 @@ namespace VoxelEngine.Diagnostics
         [DllImport("libc", SetLastError = true)]
         private static extern int sysctlbyname(string name, IntPtr oldp, ref IntPtr oldlenp,
                                                IntPtr newp, IntPtr newlen);
+
+        [DllImport("libc", SetLastError = true)]
+        private static extern int pthread_set_qos_class_self_np(int qosClass, int relativePriority);
 
         private static bool TryReadInt(string name, out int value)
         {
