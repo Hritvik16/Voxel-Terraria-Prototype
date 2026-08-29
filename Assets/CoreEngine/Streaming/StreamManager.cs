@@ -247,7 +247,11 @@ namespace VoxelEngine.Streaming
                     "radius instead of hard-coding it. A chunk outside the window still occupies a ring slot " +
                     "that a NEW chunk will alias onto, so the window must strictly contain the eviction radius.");
 
-            _maxConcurrentLoads = math.max(2, Environment.ProcessorCount - 1);
+            // §0.1 invariant 8: the limit lives in EngineConfig, not here.
+            // 0 preserves the historical derivation exactly.
+            _maxConcurrentLoads = EngineConfig.CHUNK_GEN_WORKER_THREADS > 0
+                ? EngineConfig.CHUNK_GEN_WORKER_THREADS
+                : math.max(2, Environment.ProcessorCount - 1);
 
             // Prime the ThreadPool so PrimeWindow's Parallel.For gets real
             // threads immediately instead of after seconds of slow injection.
