@@ -248,10 +248,38 @@ namespace VoxelEngine.Streaming
                     "that a NEW chunk will alias onto, so the window must strictly contain the eviction radius.");
 
             // §0.1 invariant 8: the limit lives in EngineConfig, not here.
-            // 0 preserves the historical derivation exactly.
+            // 0 = derive from CPU topology.
+            //
+            // DERIVED FROM PERFORMANCE CORES, NOT ProcessorCount. This is a
+            // 4P+4E machine and ProcessorCount reports 8, so the old
+            // ProcessorCount-1 = 7 oversubscribed the four cores that can
+            // actually run generation quickly -- and those are the same cores
+            // Unity's main and render threads need. The four efficiency cores
+            // it was also counting cannot help the main thread at all.
+            //
+            // CpuTopology reports Available=false rather than inventing a number
+            // when the sysctl keys are missing (Intel Mac, non-macOS), in which
+            // case this falls back to the historical derivation unchanged.
+            // MEASURED: deriving from performance cores (= 4 here) is NOT better.
+            // It selects a point on the same trade-off curve rather than moving
+            // it, because a thread COUNT does not pin threads to cores -- macOS
+            // schedules them wherever it likes either way:
+            //
+            //     workers  Gate C p50   Gate C p99   deficit p50
+            //        7       21.76        860           0
+            //        4       95.49        647          15
+            //        2       51.61        326         202
+            //
+            // p99 improves at 4 but p50 is 4x worse and the world stops keeping
+            // up. Default therefore stays on the historical derivation; the
+            // topology is queried and logged because it is genuinely useful
+            // diagnostic context, not because it should pick this number.
             _maxConcurrentLoads = EngineConfig.CHUNK_GEN_WORKER_THREADS > 0
                 ? EngineConfig.CHUNK_GEN_WORKER_THREADS
                 : math.max(2, Environment.ProcessorCount - 1);
+
+            Debug.Log($"[StreamManager] chunk-gen workers: {_maxConcurrentLoads}  " +
+                      $"(cpu topology: {VoxelEngine.Diagnostics.CpuTopology.Describe()})");
 
             // Prime the ThreadPool so PrimeWindow's Parallel.For gets real
             // threads immediately instead of after seconds of slow injection.
