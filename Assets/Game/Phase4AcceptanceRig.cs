@@ -593,6 +593,31 @@ public class Phase4AcceptanceRig : MonoBehaviour
     // shape, and LODDownsampler.DownsampleChunkToTier allocates a fresh
     // byte[] per chunk PER TIER (256KB + 32KB) on every admission.
     private readonly List<int> _frameGcCount = new List<int>();
+
+    // GPU-side timing per frame. Five CPU-side hypotheses for the 1-2.6s
+    // frames were each measured and each disproven (screenshots, leg
+    // boundaries, worker priority, GC, LockBufferForWrite), while every
+    // main-thread phase timer stayed under a millisecond throughout. The
+    // cost is downstream of everything the CPU can see, so the CPU cannot
+    // be the instrument any more.
+    //
+    // FrameTimingManager, same mechanics Phase3AcceptanceRig already uses.
+    // TWO THINGS ARE NOT TRUSTED HERE:
+    //   1. That it populates at all. Mac Metal players return nothing in
+    //      some Unity versions, so _ftValid/_ftAttempts is reported and any
+    //      conclusion drawn from a zero-valid run is worthless.
+    //   2. Absolute magnitude. Amendment 8.10 measured gpuFrameTime running
+    //      ~2.6x inflated -- a frame's GPU time cannot exceed its wall
+    //      clock, and it consistently did. Used here ONLY as a relative
+    //      signal: does GPU time spike WITH the stutter or stay flat?
+    //   3. Exact frame alignment. GetLatestTimings lags the pipeline by a
+    //      few frames, so the dump prints the value at the sample AND the
+    //      max across +/-3 samples rather than pretending to be exact.
+    private readonly List<double> _gpuMs = new List<double>();
+    private readonly List<double> _rtMs = new List<double>();
+    private readonly List<double> _pwMs = new List<double>();
+    private readonly FrameTiming[] _ftBuf = new FrameTiming[1];
+    private int _ftValid, _ftAttempts;
     private int _legOrdinal, _legFrameIdx;
     private readonly List<double> _stagingMs = new List<double>();
     private readonly List<double> _clipSetMs = new List<double>();
@@ -616,6 +641,18 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _frameMs.Add(Time.unscaledDeltaTime * 1000.0);
         _frameLabel.Add($"{_legLabel}#{_legFrameIdx++}");
         _frameGcCount.Add(System.GC.CollectionCount(0));
+
+        FrameTimingManager.CaptureFrameTimings();
+        uint ftGot = FrameTimingManager.GetLatestTimings(1, _ftBuf);
+        _ftAttempts++;
+        if (ftGot > 0 && _ftBuf[0].gpuFrameTime > 0)
+        {
+            _ftValid++;
+            _gpuMs.Add(_ftBuf[0].gpuFrameTime);
+            _rtMs.Add(_ftBuf[0].cpuRenderThreadFrameTime);
+            _pwMs.Add(_ftBuf[0].cpuMainThreadPresentWaitTime);
+        }
+        else { _gpuMs.Add(-1); _rtMs.Add(-1); _pwMs.Add(-1); }
         {
             Camera mc = Camera.main;
             _frameCamChunk.Add(mc != null
@@ -824,6 +861,10 @@ public class Phase4AcceptanceRig : MonoBehaviour
             var idx = new List<int>();
             for (int i = 0; i < _frameMs.Count; i++) idx.Add(i);
             idx.Sort((a, b) => _frameMs[b].CompareTo(_frameMs[a]));
+            _report.AppendLine($"    FrameTimingManager: {_ftValid}/{_ftAttempts} samples valid" +
+                (_ftValid == 0
+                    ? "  <-- API RETURNED NOTHING; gpu/rt/pw columns below are meaningless"
+                    : "  (gpu is a RELATIVE signal only, ~2.6x inflated per Amendment 8.10)"));
             var sb = new StringBuilder("    worst frames: ");
             for (int i = 0; i < Math.Min(10, idx.Count); i++)
             {
@@ -833,6 +874,19 @@ public class Phase4AcceptanceRig : MonoBehaviour
                 if (j < _loadDeficit.Count) sb.Append($" deficit={_loadDeficit[j]}");
                 if (j > 0 && j < _frameGcCount.Count)
                     sb.Append($" gc+{_frameGcCount[j] - _frameGcCount[j - 1]}");
+                if (j < _gpuMs.Count)
+                {
+                    // +/-3 window: GetLatestTimings lags the pipeline.
+                    double gpuNear = -1, pwNear = -1, rtNear = -1;
+                    for (int k = Math.Max(0, j - 3); k <= Math.Min(_gpuMs.Count - 1, j + 3); k++)
+                    {
+                        if (_gpuMs[k] > gpuNear) gpuNear = _gpuMs[k];
+                        if (k < _pwMs.Count && _pwMs[k] > pwNear) pwNear = _pwMs[k];
+                        if (k < _rtMs.Count && _rtMs[k] > rtNear) rtNear = _rtMs[k];
+                    }
+                    sb.Append($" gpu={_gpuMs[j]:F1}/max{gpuNear:F1}");
+                    sb.Append($" rt={rtNear:F1} pw={pwNear:F1}");
+                }
                 if (i < Math.Min(10, idx.Count) - 1) sb.Append(", ");
             }
             _report.AppendLine(sb.ToString());
