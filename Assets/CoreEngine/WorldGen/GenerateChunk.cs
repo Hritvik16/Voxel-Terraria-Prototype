@@ -277,7 +277,11 @@ namespace VoxelEngine.WorldGen
         public static byte SampleBiome(in State st, float vx, float vz)
         {
             var seeds = st.biomeSeeds;
-            if (seeds == null || seeds.Length == 0) return Biomes.ForestId;
+            // IsCreated, not == null: NativeArray is a struct, so `== null`
+            // binds to C#'s LIFTED operator== and is always false -- it compiled
+            // silently after the native port and checked nothing. Unallocated is
+            // IsCreated == false.
+            if (!seeds.IsCreated || seeds.Length == 0) return Biomes.ForestId;
             int best = 0;
             float bestD = float.MaxValue;
             for (int i = 0; i < seeds.Length; i++)

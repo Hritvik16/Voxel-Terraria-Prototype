@@ -28,6 +28,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using VoxelEngine.Memory;
@@ -780,6 +781,63 @@ public class Phase4AcceptanceRig : MonoBehaviour
         double perChunk = genMs / N;
         Line($"single-thread generation: {perChunk:F2}ms/chunk, worker-side downsample adds {downMs / N:F2}ms/chunk " +
              $"({N} chunks, ocean-edge coords)");
+
+        // ---- Burst vs Mono on the SAME column-sampling math ----
+        // The phase split below says how much of generation this math is; this
+        // says what Burst does to it. Both paths call ColumnSampler.SampleColumn
+        // -- one compiled by Mono, one by Burst via ColumnSampleJob.Run() -- so
+        // there is one implementation and no chance of the two drifting.
+        //
+        // Output equality is ASSERTED, not assumed. Generation determinism is on
+        // §0.3's review list: if Burst and Mono disagree in even one column,
+        // saved worlds would stop matching regenerated baselines, and that must
+        // surface as a red gate rather than a faster number.
+        {
+            const int EDGE = 128;
+            const int COLS = EDGE * EDGE;
+            var hMono = new int[COLS];
+            var bMono = new byte[COLS];
+            int bx = 500 * 128, bz = 500 * 128;
+
+            var swb = System.Diagnostics.Stopwatch.StartNew();
+            for (int lz = 0; lz < EDGE; lz++)
+            for (int lx = 0; lx < EDGE; lx++)
+            {
+                VoxelEngine.WorldGen.ColumnSampler.SampleColumn(in st, bx + lx, bz + lz,
+                    out int h, out byte b);
+                int idx = lz * EDGE + lx;
+                hMono[idx] = h; bMono[idx] = b;
+            }
+            double monoMs = swb.Elapsed.TotalMilliseconds;
+
+            var hJob = new Unity.Collections.NativeArray<int>(COLS, Unity.Collections.Allocator.Persistent);
+            var bJob = new Unity.Collections.NativeArray<byte>(COLS, Unity.Collections.Allocator.Persistent);
+            double burstMs;
+            int mismatches = 0;
+            try
+            {
+                var job = new VoxelEngine.WorldGen.ColumnSampleJob
+                {
+                    st = st, baseVoxelX = bx, baseVoxelZ = bz, edge = EDGE,
+                    heights = hJob, biomes = bJob,
+                };
+                job.Run();                    // warm: forces Burst compilation
+                swb.Restart();
+                job.Run();
+                burstMs = swb.Elapsed.TotalMilliseconds;
+
+                for (int i = 0; i < COLS; i++)
+                    if (hJob[i] != hMono[i] || bJob[i] != bMono[i]) mismatches++;
+            }
+            finally { hJob.Dispose(); bJob.Dispose(); }
+
+            Line($"  column sampling, same math both paths, {COLS} columns: " +
+                 $"Mono {monoMs:F2}ms vs Burst {burstMs:F2}ms " +
+                 $"= {(burstMs > 0 ? monoMs / burstMs : -1):F1}x");
+            Check(mismatches == 0,
+                $"Burst and Mono column sampling agree exactly ({mismatches} of {COLS} columns differ) " +
+                $"-- generation determinism (§5.3, §0.3 review list)");
+        }
 
         // How much of generation is the Burst-able math (ColumnSampler ->
         // FeatureCarve) versus the voxel fill that writes Chunk/BrickDataPool?
