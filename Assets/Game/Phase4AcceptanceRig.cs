@@ -753,6 +753,7 @@ public class Phase4AcceptanceRig : MonoBehaviour
         var pool = new VoxelEngine.Memory.BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
         var sw = System.Diagnostics.Stopwatch.StartNew();
         double genMs = 0, downMs = 0;
+        VoxelEngine.WorldGen.ChunkGeneratorFull.ResetPhaseCounters();
         try
         {
             for (int i = 0; i < N; i++)
@@ -779,6 +780,21 @@ public class Phase4AcceptanceRig : MonoBehaviour
         double perChunk = genMs / N;
         Line($"single-thread generation: {perChunk:F2}ms/chunk, worker-side downsample adds {downMs / N:F2}ms/chunk " +
              $"({N} chunks, ocean-edge coords)");
+
+        // How much of generation is the Burst-able math (ColumnSampler ->
+        // FeatureCarve) versus the voxel fill that writes Chunk/BrickDataPool?
+        // The second half cannot be Burst-compiled without the protected
+        // layout changes on §0.3's review list, so this ratio is the ceiling on
+        // what Bursting those two alone can ever return.
+        {
+            double freq = System.Diagnostics.Stopwatch.Frequency;
+            double colMs = VoxelEngine.WorldGen.ChunkGeneratorFull.ColumnPhaseTicks * 1000.0 / freq;
+            double totMs = VoxelEngine.WorldGen.ChunkGeneratorFull.TotalPhaseTicks * 1000.0 / freq;
+            double pct = totMs > 0 ? 100.0 * colMs / totMs : -1;
+            Line($"  generation phase split: column sampling (ColumnSampler+FeatureCarve) " +
+                 $"{colMs / N:F2}ms/chunk of {totMs / N:F2}ms/chunk = {pct:F1}% " +
+                 $"-- the rest is voxel fill into Chunk/BrickDataPool");
+        }
         double workers = Mathf.Max(2, SystemInfo.processorCount - 1);
         Line($"implied ceilings: 1 thread = {1000.0 / perChunk:F0} chunks/s; " +
              $"{workers:F0} perfect workers = {workers * 1000.0 / perChunk:F0} chunks/s; " +

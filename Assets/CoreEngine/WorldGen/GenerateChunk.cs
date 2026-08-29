@@ -269,6 +269,16 @@ namespace VoxelEngine.WorldGen
     // repeated calls and visit orders by GenerationTests.
     public static class ChunkGeneratorFull
     {
+        // Phase split for the generation micro-benchmark. Answers "how much of
+        // per-chunk generation is ColumnSampler/FeatureCarve (the Burst-able
+        // part) versus the voxel fill that writes into Chunk and BrickDataPool
+        // (the part that would need protected layout changes to Burst)".
+        // Ticks, not ms, so the per-brick reads stay cheap; the caller converts.
+        public static long ColumnPhaseTicks;
+        public static long TotalPhaseTicks;
+
+        public static void ResetPhaseCounters() { ColumnPhaseTicks = 0; TotalPhaseTicks = 0; }
+
         public static void GenerateChunkFull(WorldMetaData meta, int3 chunkCoord, Chunk chunk,
             ChunkHandleAllocator allocator, BrickDataPool pool, object allocLock = null)
         {
@@ -285,6 +295,8 @@ namespace VoxelEngine.WorldGen
             int3 chunkCoord, Chunk chunk, ChunkHandleAllocator allocator, BrickDataPool pool,
             object allocLock = null)
         {
+            long _tCallStart = System.Diagnostics.Stopwatch.GetTimestamp();
+
             chunk.coord = chunkCoord;
             chunk.isUniform = false;
             if (allocLock != null) { lock (allocLock) { chunk.bricks = allocator.Alloc(); } }
@@ -311,6 +323,7 @@ namespace VoxelEngine.WorldGen
                 // ---- Step 1: per-column heightfield + biome, cached per footprint ----
                 int minH = int.MaxValue, maxH = int.MinValue;
                 bool biomesUniform = true;
+                long _tColStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 for (int lz = 0; lz < 8; lz++)
                 for (int lx = 0; lx < 8; lx++)
                 {
@@ -323,6 +336,8 @@ namespace VoxelEngine.WorldGen
                     if (h > maxH) maxH = h;
                     if (biome != biomeCache[0]) biomesUniform = false;
                 }
+                ColumnPhaseTicks += System.Diagnostics.Stopwatch.GetTimestamp() - _tColStart;
+
                 var footprintBiome = Biomes.Get(biomeCache[0]);
 
                 for (int by = 0; by < 16; by++)
@@ -384,6 +399,8 @@ namespace VoxelEngine.WorldGen
                     }
                 }
             }
+
+            TotalPhaseTicks += System.Diagnostics.Stopwatch.GetTimestamp() - _tCallStart;
         }
 
         // ---- Steps 3+4: per-voxel fill with biome strata materials ----
@@ -489,28 +506,41 @@ namespace VoxelEngine.WorldGen
     // the "hash of the output" the §13 Phase 3 determinism assertion calls for.
     public static class ChunkContentHash
     {
+        /// CONTENT-canonical: hashes the effective voxel bytes and nothing
+        /// else, so representation (chunk-uniform vs brick-uniform vs dense)
+        /// never affects the result. The previous form mixed per-brick
+        /// dense/uniform flags, which made the hash change when the coalescer
+        /// (legally, §4.5) collapsed a dense brick -- Gate C's leave/return
+        /// identity check then failed nondeterministically depending on how far
+        /// the coalescer's round-robin cursor had gotten before the hash was
+        /// taken. Not corruption; a representation-sensitive oracle.
+        ///
+        /// For a uniform run of the same byte, FNV-1a folding is a pure
+        /// function of (h, b, count), so the per-brick uniform case uses a
+        /// small fold loop of the SAME operation the dense case applies --
+        /// identical math, just without needing a body to read.
         public static uint Hash(Chunk chunk, BrickDataPool pool)
         {
             uint h = 2166136261u;
             void Mix(byte b) { h ^= b; h *= 16777619u; }
+            void MixRepeated(byte b, int count) { for (int n = 0; n < count; n++) { h ^= b; h *= 16777619u; } }
 
-            Mix(chunk.isUniform ? (byte)1 : (byte)0);
-            Mix(chunk.uniformMaterial);
-            if (chunk.isUniform || chunk.bricks == null) return h;
+            if (chunk.isUniform || chunk.bricks == null)
+            {
+                MixRepeated(chunk.uniformMaterial, 4096 * 512);
+                return h;
+            }
 
             var raw = pool.RawData;
             for (int i = 0; i < 4096; i++)
             {
                 uint data = chunk.bricks[i].data;
-                bool dense = (data & 0x80000000) != 0;
-                if (!dense)
+                if ((data & 0x80000000) == 0)
                 {
-                    Mix(0);
-                    Mix((byte)(data & 0xFF));
+                    MixRepeated((byte)(data & 0xFF), 512);
                 }
                 else
                 {
-                    Mix(1);
                     int start = (int)(data & 0x3FFFFFFF) * 512;
                     for (int v = 0; v < 512; v++) Mix(raw[start + v]);
                 }
