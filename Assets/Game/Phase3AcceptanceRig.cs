@@ -409,7 +409,7 @@ public class Phase3AcceptanceRig : MonoBehaviour
     // =========================================================
     private void RunColumnOracle(WorldMetaData meta, ChunkStore store, BrickDataPool pool)
     {
-        var st = ColumnSampler.CreateState(meta);
+        using var st = ColumnSampler.CreateState(meta);
         var caves = new List<FeatureAnchor>();
         foreach (var a in meta.anchors) if (a.kind == FeatureKind.Cave) caves.Add(a);
 
@@ -610,7 +610,7 @@ public class Phase3AcceptanceRig : MonoBehaviour
         }
 
         // One auto-framed pose per anchor.
-        var samplerState = ColumnSampler.CreateState(meta);
+        using var samplerState = ColumnSampler.CreateState(meta);
         int mountainIdx = 0, craterIdx = 0, caveIdx = 0;
         foreach (var a in meta.anchors)
         {

@@ -1005,6 +1005,7 @@ namespace VoxelEngine.Streaming
 
         public void Dispose()
         {
+            _samplerState.Dispose();   // owns NativeArrays since the Burst port
             _cancel.Cancel();
             _jobs?.CompleteAdding();
             if (_workerThreads != null)

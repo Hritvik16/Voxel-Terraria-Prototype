@@ -240,7 +240,7 @@ public class Phase4AcceptanceRig : MonoBehaviour
     {
         var meta = Phase4Bootstrapper.Meta;
         var coord = new int3(11, 0, 11);
-        var st = ColumnSampler.CreateState(meta);
+        using var st = ColumnSampler.CreateState(meta);
 
         var poolA = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
         var poolB = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
@@ -745,7 +745,7 @@ public class Phase4AcceptanceRig : MonoBehaviour
     {
         _report.AppendLine("  --- generation micro-benchmark ---");
         var meta = Phase4Bootstrapper.Meta;
-        var st = VoxelEngine.WorldGen.ColumnSampler.CreateState(meta);
+        using var st = VoxelEngine.WorldGen.ColumnSampler.CreateState(meta);
         const int N = 24;
 
         // Single thread, no pipeline, coords outside the resident window so

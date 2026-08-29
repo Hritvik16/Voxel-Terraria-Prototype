@@ -22,6 +22,8 @@
 // and doing the Burst move now would confound the Phase-3 re-benchmark that
 // PHASE_2_COMPLETION.md §7 mandates. Schedule the Burst wrapper with Phase 4
 // streaming, where generation cost actually starts to matter per-frame.
+using System;
+using Unity.Collections;
 using Unity.Mathematics;
 using VoxelEngine.Memory;
 using VoxelEngine.WorldGen;
@@ -150,12 +152,30 @@ namespace VoxelEngine.WorldGen
     {
         // Precomputed, immutable per-world state so per-column sampling
         // doesn't rebuild seed offsets or re-derive geometry 16K times/chunk.
-        public struct State
+        /// Blittable except for the two containers, which are now NATIVE.
+        ///
+        /// WHY: this struct is the entire input to the column-sampling math, and
+        /// that math is 92.6% of per-chunk generation cost (5.16ms of 5.58ms,
+        /// measured). Burst cannot compile a function that touches a managed
+        /// array, so the managed FeatureAnchor[]/BiomeSeed[] were the one thing
+        /// standing between the hot half of generation and Burst.
+        ///
+        /// OWNERSHIP: CreateState allocates; the caller MUST Dispose. Length-0
+        /// containers are left default (never allocated), which keeps
+        /// SampleBaseHeight -- called thousands of times during world planning
+        /// with no anchors at all -- from allocating per call.
+        public struct State : IDisposable
         {
             public float centerX, centerZ, coastRadius, coastFalloff;
             public float2 offHills, offCoast, offFloor;
-            public FeatureAnchor[] heightAnchors; // Mountain/Crater only
-            public BiomeSeed[] biomeSeeds;
+            public NativeArray<FeatureAnchor> heightAnchors; // Mountain/Crater only
+            public NativeArray<BiomeSeed> biomeSeeds;
+
+            public void Dispose()
+            {
+                if (heightAnchors.IsCreated) heightAnchors.Dispose();
+                if (biomeSeeds.IsCreated) biomeSeeds.Dispose();
+            }
         }
 
         public static State CreateState(WorldMetaData meta)
@@ -173,12 +193,23 @@ namespace VoxelEngine.WorldGen
             int heightCount = 0;
             foreach (var a in meta.anchors)
                 if (a.kind != FeatureKind.Cave) heightCount++;
-            st.heightAnchors = new FeatureAnchor[heightCount];
-            int w = 0;
-            foreach (var a in meta.anchors)
-                if (a.kind != FeatureKind.Cave) st.heightAnchors[w++] = a;
 
-            st.biomeSeeds = meta.biomeSeeds;
+            // Length 0 stays default/unallocated -- see the ownership note on
+            // State. SampleBaseHeight builds a State per call during planning.
+            if (heightCount > 0)
+            {
+                st.heightAnchors = new NativeArray<FeatureAnchor>(heightCount, Allocator.Persistent);
+                int w = 0;
+                foreach (var a in meta.anchors)
+                    if (a.kind != FeatureKind.Cave) st.heightAnchors[w++] = a;
+            }
+
+            if (meta.biomeSeeds != null && meta.biomeSeeds.Length > 0)
+            {
+                st.biomeSeeds = new NativeArray<BiomeSeed>(meta.biomeSeeds.Length, Allocator.Persistent);
+                for (int i = 0; i < meta.biomeSeeds.Length; i++) st.biomeSeeds[i] = meta.biomeSeeds[i];
+            }
+
             return st;
         }
 
@@ -197,7 +228,7 @@ namespace VoxelEngine.WorldGen
         public static int SampleBaseHeight(uint seed, byte sizeClass, int worldVoxelX, int worldVoxelZ)
         {
             var meta = new WorldMetaData { seed = seed, sizeClass = sizeClass };
-            var st = CreateState(meta);
+            using var st = CreateState(meta);
             return SampleHeightInternal(in st, worldVoxelX + 0.5f, worldVoxelZ + 0.5f, includeAnchors: false);
         }
 
@@ -226,11 +257,16 @@ namespace VoxelEngine.WorldGen
                 var anchors = st.heightAnchors;
                 for (int i = 0; i < anchors.Length; i++)
                 {
-                    // Cheap reject before the kernel: outside radius = zero delta.
-                    float adx = vx - anchors[i].cx, adz = vz - anchors[i].cz;
-                    float rr = anchors[i].radius;
+                    // One local copy, then read fields off it. A NativeArray
+                    // indexer returns BY VALUE (so it cannot bind to an `in`
+                    // parameter at all) and each index carries a bounds check,
+                    // so hoisting is both required and cheaper than the three
+                    // separate indexes this used to do.
+                    FeatureAnchor a = anchors[i];
+                    float adx = vx - a.cx, adz = vz - a.cz;
+                    float rr = a.radius;
                     if (adx * adx + adz * adz >= rr * rr) continue;
-                    h += FeatureCarve.HeightDelta(in anchors[i], vx, vz);
+                    h += FeatureCarve.HeightDelta(in a, vx, vz);
                 }
             }
 
@@ -282,7 +318,7 @@ namespace VoxelEngine.WorldGen
         public static void GenerateChunkFull(WorldMetaData meta, int3 chunkCoord, Chunk chunk,
             ChunkHandleAllocator allocator, BrickDataPool pool, object allocLock = null)
         {
-            var st = ColumnSampler.CreateState(meta);
+            using var st = ColumnSampler.CreateState(meta);
             GenerateChunkFull(in st, meta, chunkCoord, chunk, allocator, pool, allocLock);
         }
 

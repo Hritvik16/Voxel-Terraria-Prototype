@@ -141,7 +141,7 @@ public class GenerationTests
     public void FullChunk_MatchesPerVoxelOracle()
     {
         var meta = AnchorPlanner.Plan(SEED, SIZE_CLASS);
-        var st = ColumnSampler.CreateState(meta);
+        using var st = ColumnSampler.CreateState(meta);
         var caves = CavesOf(meta);
 
         foreach (var coord in SampleCoords)
@@ -225,7 +225,7 @@ public class GenerationTests
                 anchors = Array.Empty<FeatureAnchor>(),
                 biomeSeeds = new[] { new BiomeSeed { x = 1408f, z = 1408f, biomeId = biome.id } },
             };
-            var st = ColumnSampler.CreateState(meta);
+            using var st = ColumnSampler.CreateState(meta);
 
             var pool = new BrickDataPool(20000);
             try
@@ -386,7 +386,7 @@ public class GenerationTests
             anchors = Array.Empty<FeatureAnchor>(),
             biomeSeeds = new[] { new BiomeSeed { x = 1408f, z = 1408f, biomeId = Biomes.ForestId } },
         };
-        var stBase = ColumnSampler.CreateState(baseMeta);
+        using var stBase = ColumnSampler.CreateState(baseMeta);
         ColumnSampler.SampleColumn(in stBase, 1408, 1408, out int baseH, out _);
 
         var mountain = new FeatureAnchor { kind = FeatureKind.Mountain, cx = 1408f, cz = 1408f, radius = 300f, magnitude = 45f };
@@ -396,7 +396,7 @@ public class GenerationTests
             contentVersionHash = baseMeta.contentVersionHash,
             anchors = new[] { mountain }, biomeSeeds = baseMeta.biomeSeeds,
         };
-        var stM = ColumnSampler.CreateState(mMeta);
+        using var stM = ColumnSampler.CreateState(mMeta);
         // Sample the MAX over a grid spanning the peak region, not the single
         // centre column. With ridged noise (FeatureCarve WARP_AMPLITUDE=0.55)
         // a gully can legitimately run across dead centre — the meaningful
@@ -421,9 +421,27 @@ public class GenerationTests
             contentVersionHash = baseMeta.contentVersionHash,
             anchors = new[] { crater }, biomeSeeds = baseMeta.biomeSeeds,
         };
-        var stC = ColumnSampler.CreateState(cMeta);
-        ColumnSampler.SampleColumn(in stC, 1408, 1408, out int cH, out _);
-        Assert.Less(cH, baseH - 8, "Crater anchor did not meaningfully lower the column at its center.");
+        using var stC = ColumnSampler.CreateState(cMeta);
+        // Sample the MIN over a grid spanning the crater bowl, mirroring the
+        // grid MAX used for the mountain above. Same reason, same noise: with
+        // FeatureCarve WARP_AMPLITUDE=0.55 a ridge can run across dead centre
+        // of a crater exactly as a gully can run across a mountain peak, so a
+        // single-column sample tests where the warp happened to land rather
+        // than whether the feature works.
+        //
+        // This was caught by a real failure, not anticipated: at radius=120
+        // mag=16 the centre column came back at exactly baseH-8, one short of
+        // the strict `< baseH - 8` bound. The grid spacing is 20 voxels over
+        // +/-60, well inside the 120-voxel radius, so every sample is in the
+        // bowl and the min is a genuine crater-floor reading.
+        int cH = int.MaxValue;
+        for (int dz = -60; dz <= 60; dz += 20)
+        for (int dx = -60; dx <= 60; dx += 20)
+        {
+            ColumnSampler.SampleColumn(in stC, 1408 + dx, 1408 + dz, out int h, out _);
+            if (h < cH) cH = h;
+        }
+        Assert.Less(cH, baseH - 8, "Crater anchor did not meaningfully lower terrain anywhere near its centre.");
     }
 
     // ---------- AnchorPlanner ----------

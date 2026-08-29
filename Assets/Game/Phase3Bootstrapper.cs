@@ -145,7 +145,7 @@ public class Phase3Bootstrapper : MonoBehaviour
         // fresh-regeneration check compares content. Verified by that check
         // continuing to pass, not assumed.
         sw.Restart();
-        var samplerState = ColumnSampler.CreateState(Meta);
+        using var samplerState = ColumnSampler.CreateState(Meta);
         int totalChunks = GENERATED_CHUNKS_XZ * GENERATED_CHUNKS_XZ;
         var generated = new Chunk[totalChunks];
         object allocLock = new object();
