@@ -227,6 +227,55 @@ namespace VoxelEngine.Mirror
             }
         }
 
+        /// Extracts a chunk's tier-0 materials into the scratch ONCE, so a
+        /// caller that wants several tiers pays the 128^3 (2 MB) gather a single
+        /// time instead of once per tier.
+        ///
+        /// Returns false when the chunk needs no gather at all (null or
+        /// uniform); the caller then uses DownsampleTierFromScratch's fast path,
+        /// which fills the tier buffer directly.
+        public static bool PrepareTier0(Chunk chunk, BrickDataPool pool, DownsampleScratch scratch)
+        {
+            if (chunk == null || chunk.isUniform) return false;
+            ExtractChunkTier0MaterialsInto(chunk, pool, 128, scratch.Tier0);
+            return true;
+        }
+
+        /// Downsamples to one tier from an already-prepared scratch.Tier0.
+        /// Same "returned array is scratch, copy before queueing" contract as
+        /// DownsampleChunkToTier below.
+        public static byte[] DownsampleTierFromScratch(Chunk chunk, int targetTier,
+                                                       DownsampleScratch scratch, bool tier0Prepared)
+        {
+            if (targetTier <= 0 || targetTier >= LODConfig.TIER_COUNT)
+                throw new ArgumentOutOfRangeException(nameof(targetTier),
+                    $"targetTier must be in [1, {LODConfig.TIER_COUNT - 1}], got {targetTier}.");
+
+            int steps = IntegerLog2(LODConfig.DownsampleFactor(targetTier));
+            byte[] result = scratch.Steps[steps - 1];
+
+            if (!tier0Prepared)
+            {
+                // null chunk -> air; uniform chunk -> that material. Same two
+                // fast paths as DownsampleChunkToTier, and a reused buffer must
+                // be written in full.
+                byte fill = (chunk == null) ? (byte)0 : chunk.uniformMaterial;
+                if (fill == 0) Array.Clear(result, 0, result.Length);
+                else Array.Fill(result, fill);
+                return result;
+            }
+
+            byte[] current = scratch.Tier0;
+            int currentEdge = 128;
+            for (int i = 0; i < steps; i++)
+            {
+                DownsampleOnceInto(current, currentEdge, scratch.Steps[i]);
+                current = scratch.Steps[i];
+                currentEdge /= 2;
+            }
+            return current;
+        }
+
         /// Allocation-free form.
         ///
         /// THE RETURNED ARRAY IS SCRATCH, NOT A GIFT. It is one of the caller's

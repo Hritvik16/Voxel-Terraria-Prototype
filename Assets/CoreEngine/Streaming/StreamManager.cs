@@ -532,10 +532,15 @@ namespace VoxelEngine.Streaming
                 // alias -- the next chunk on this worker would rewrite voxels
                 // the main thread has not consumed yet.
                 completion.cascadeData = new byte[LODConfig.TIER_COUNT - 1][];
+                // Gather tier-0 ONCE for all tiers. It is a 128^3 (2 MB) walk and
+                // it was being redone per tier, so every chunk paid it twice --
+                // pure duplicated worker CPU, on the threads whose contention
+                // with the main thread is what starves frames in the first place.
+                bool tier0Ready = LODDownsampler.PrepareTier0(chunk, scratch.pool, scratch.downsample);
                 for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
                 {
                     byte[] scratchResult =
-                        LODDownsampler.DownsampleChunkToTier(chunk, scratch.pool, tier, scratch.downsample);
+                        LODDownsampler.DownsampleTierFromScratch(chunk, tier, scratch.downsample, tier0Ready);
                     var owned = new byte[scratchResult.Length];
                     Array.Copy(scratchResult, owned, scratchResult.Length);
                     completion.cascadeData[tier - 1] = owned;
