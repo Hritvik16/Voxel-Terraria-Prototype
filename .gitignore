@@ -105,3 +105,12 @@ InitTestScene*.unity*
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
 .DS_Store
+
+# Verification-harness run artifacts (regenerated every run, never source)
+/TestResults.xml
+/unity_test.log
+/build.log
+/em.log
+/rig_run.log
+/rig_done.marker
+/activate.log
