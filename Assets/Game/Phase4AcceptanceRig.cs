@@ -849,9 +849,18 @@ public class Phase4AcceptanceRig : MonoBehaviour
             double colMs = VoxelEngine.WorldGen.ChunkGeneratorFull.ColumnPhaseTicks * 1000.0 / freq;
             double totMs = VoxelEngine.WorldGen.ChunkGeneratorFull.TotalPhaseTicks * 1000.0 / freq;
             double pct = totMs > 0 ? 100.0 * colMs / totMs : -1;
-            Line($"  generation phase split: column sampling (ColumnSampler+FeatureCarve) " +
+            // NOTE ON WHAT THIS NOW MEASURES. Before the Burst port this timer
+            // wrapped the per-column SampleColumn calls and read 92.6%. Column
+            // sampling now happens in ColumnSampleJob BEFORE this loop, so the
+            // timer wraps only the buffer READ that replaced it -- which is why
+            // it now reads a fraction of a percent. That collapse IS the win,
+            // not a measurement error, but the label has to say so or the next
+            // reader will draw the opposite conclusion.
+            Line($"  generation phase split: per-column buffer read " +
                  $"{colMs / N:F2}ms/chunk of {totMs / N:F2}ms/chunk = {pct:F1}% " +
-                 $"-- the rest is voxel fill into Chunk/BrickDataPool");
+                 $"(was 92.6% when this was Mono SampleColumn calls; the sampling " +
+                 $"itself is now Burst-compiled in ColumnSampleJob ahead of the loop). " +
+                 $"The remainder is voxel fill into Chunk/BrickDataPool.");
         }
         double workers = Mathf.Max(2, SystemInfo.processorCount - 1);
         Line($"implied ceilings: 1 thread = {1000.0 / perChunk:F0} chunks/s; " +
