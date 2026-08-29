@@ -616,6 +616,7 @@ public class Phase4AcceptanceRig : MonoBehaviour
     private readonly List<double> _gpuMs = new List<double>();
     private readonly List<double> _rtMs = new List<double>();
     private readonly List<double> _pwMs = new List<double>();
+    private readonly List<double> _mtMs = new List<double>();   // cpuMainThreadFrameTime
     private readonly FrameTiming[] _ftBuf = new FrameTiming[1];
     private int _ftValid, _ftAttempts;
     private int _legOrdinal, _legFrameIdx;
@@ -651,8 +652,9 @@ public class Phase4AcceptanceRig : MonoBehaviour
             _gpuMs.Add(_ftBuf[0].gpuFrameTime);
             _rtMs.Add(_ftBuf[0].cpuRenderThreadFrameTime);
             _pwMs.Add(_ftBuf[0].cpuMainThreadPresentWaitTime);
+            _mtMs.Add(_ftBuf[0].cpuMainThreadFrameTime);
         }
-        else { _gpuMs.Add(-1); _rtMs.Add(-1); _pwMs.Add(-1); }
+        else { _gpuMs.Add(-1); _rtMs.Add(-1); _pwMs.Add(-1); _mtMs.Add(-1); }
         {
             Camera mc = Camera.main;
             _frameCamChunk.Add(mc != null
@@ -876,16 +878,23 @@ public class Phase4AcceptanceRig : MonoBehaviour
                     sb.Append($" gc+{_frameGcCount[j] - _frameGcCount[j - 1]}");
                 if (j < _gpuMs.Count)
                 {
-                    // +/-3 window: GetLatestTimings lags the pipeline.
-                    double gpuNear = -1, pwNear = -1, rtNear = -1;
+                    // POINT values for every column. An earlier version reported
+                    // rt/pw as the max across +/-3 samples while gpu showed its
+                    // point value, which biased rt/pw upward and let a
+                    // neighbouring frame's spike be read as this frame's cost --
+                    // with FrameTimingManager only ~62% valid, that is a real
+                    // misattribution risk, not a theoretical one. The window max
+                    // is still printed, but separately and labelled, because
+                    // GetLatestTimings genuinely does lag the pipeline.
+                    double gpuNear = -1;
                     for (int k = Math.Max(0, j - 3); k <= Math.Min(_gpuMs.Count - 1, j + 3); k++)
-                    {
                         if (_gpuMs[k] > gpuNear) gpuNear = _gpuMs[k];
-                        if (k < _pwMs.Count && _pwMs[k] > pwNear) pwNear = _pwMs[k];
-                        if (k < _rtMs.Count && _rtMs[k] > rtNear) rtNear = _rtMs[k];
-                    }
-                    sb.Append($" gpu={_gpuMs[j]:F1}/max{gpuNear:F1}");
-                    sb.Append($" rt={rtNear:F1} pw={pwNear:F1}");
+
+                    sb.Append($" mt={(j < _mtMs.Count ? _mtMs[j] : -1):F1}");
+                    sb.Append($" gpu={_gpuMs[j]:F1}");
+                    sb.Append($" rt={(j < _rtMs.Count ? _rtMs[j] : -1):F1}");
+                    sb.Append($" pw={_pwMs[j]:F1}");
+                    sb.Append($" (gpuWin{gpuNear:F1})");
                 }
                 if (i < Math.Min(10, idx.Count) - 1) sb.Append(", ");
             }
