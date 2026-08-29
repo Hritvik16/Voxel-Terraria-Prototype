@@ -102,6 +102,21 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _report.AppendLine($"WINDOW_CHUNKS_XZ={EngineConfig.WINDOW_CHUNKS_XZ} WINDOW_CHUNKS_Y={EngineConfig.WINDOW_CHUNKS_Y} " +
                            $"BRICK_POOL_CAP={EngineConfig.BRICK_POOL_CAP} " +
                            $"MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME={EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME}");
+        {
+            var m = Phase4Bootstrapper.Meta;
+            int mt = 0, cr = 0, cv = 0;
+            if (m != null && m.anchors != null)
+                foreach (var a in m.anchors)
+                {
+                    if (a.kind == VoxelEngine.WorldGen.FeatureKind.Mountain) mt++;
+                    else if (a.kind == VoxelEngine.WorldGen.FeatureKind.Crater) cr++;
+                    else cv++;
+                }
+            _report.AppendLine($"World content: {mt} mountains, {cr} craters, {cv} caves, " +
+                               $"{(m?.biomeSeeds?.Length ?? 0)} biome seeds " +
+                               $"(sizeClass {m?.sizeClass}). Counts are REQUESTED vs PLACED -- " +
+                               $"rejection sampling emits fewer than asked if the disc is too packed.");
+        }
         _report.AppendLine($"Startup: {Phase4Bootstrapper.StartupMs:F0}ms " +
             $"(prime: {Phase4Bootstrapper.Streamer?.PrimeChunks ?? 0} chunks, " +
             $"generate {Phase4Bootstrapper.Streamer?.PrimeGenerateMs ?? 0:F0}ms, " +

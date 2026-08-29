@@ -218,6 +218,92 @@ namespace VoxelEngine.WorldGen
             return st;
         }
 
+        /// Builds a chunk-local State holding only the anchors and biome seeds
+        /// that can affect this chunk. The caller owns the result and MUST
+        /// Dispose it.
+        ///
+        /// WHY THIS IS A PREREQUISITE FOR SCALING ANCHOR COUNTS: without it,
+        /// SampleHeightInternal loops EVERY height anchor and SampleBiome loops
+        /// EVERY biome seed, for all 16,384 columns of every chunk. Cost is
+        /// O(anchors x columns x chunks), so raising anchor counts to populate a
+        /// 2,560m world would multiply generation cost by the same factor.
+        /// With culling the loops see only what is locally relevant, and a
+        /// mountain of radius 240 voxels reaches barely past its own chunk.
+        ///
+        /// BOTH TESTS ARE CONSERVATIVE AND EXACT, not heuristics:
+        ///
+        ///   Height anchors: HeightDelta is exactly zero beyond a.radius, so an
+        ///   anchor can matter only if its influence circle reaches the chunk:
+        ///   |centre - a| <= a.radius + halfDiagonal.
+        ///
+        ///   Biome seeds: Voronoi needs the true nearest seed, so distance alone
+        ///   is not enough. For any point p in the chunk and the seed n nearest
+        ///   to the CENTRE, |p-n| <= |c-n| + halfDiag, and for any other seed s,
+        ///   |p-s| >= |c-s| - halfDiag. So s can only beat n somewhere in the
+        ///   chunk if |c-s| < |c-n| + 2*halfDiag. Keeping everything within that
+        ///   bound cannot change any column's winner.
+        public static State CullForChunk(in State world, int3 baseVoxel, int edgeVoxels,
+                                         Allocator alloc)
+        {
+            float half = edgeVoxels * 0.5f;
+            float cx = baseVoxel.x + half;
+            float cz = baseVoxel.z + half;
+            float halfDiag = half * 1.41421356f;
+
+            var culled = world;   // copies the scalar fields
+
+            int keep = 0;
+            for (int i = 0; i < world.heightAnchors.Length; i++)
+            {
+                FeatureAnchor a = world.heightAnchors[i];
+                float dx = cx - a.cx, dz = cz - a.cz;
+                float reach = a.radius + halfDiag;
+                if (dx * dx + dz * dz <= reach * reach) keep++;
+            }
+            culled.heightAnchors = new NativeArray<FeatureAnchor>(keep, alloc);
+            int w = 0;
+            for (int i = 0; i < world.heightAnchors.Length; i++)
+            {
+                FeatureAnchor a = world.heightAnchors[i];
+                float dx = cx - a.cx, dz = cz - a.cz;
+                float reach = a.radius + halfDiag;
+                if (dx * dx + dz * dz <= reach * reach) culled.heightAnchors[w++] = a;
+            }
+
+            int seedCount = world.biomeSeeds.Length;
+            if (seedCount == 0)
+            {
+                culled.biomeSeeds = new NativeArray<BiomeSeed>(0, alloc);
+                return culled;
+            }
+
+            float nearest = float.MaxValue;
+            for (int i = 0; i < seedCount; i++)
+            {
+                float dx = cx - world.biomeSeeds[i].x, dz = cz - world.biomeSeeds[i].z;
+                float d = math.sqrt(dx * dx + dz * dz);
+                if (d < nearest) nearest = d;
+            }
+            float bound = nearest + 2f * halfDiag;
+            float boundSq = bound * bound;
+
+            int keepS = 0;
+            for (int i = 0; i < seedCount; i++)
+            {
+                float dx = cx - world.biomeSeeds[i].x, dz = cz - world.biomeSeeds[i].z;
+                if (dx * dx + dz * dz <= boundSq) keepS++;
+            }
+            culled.biomeSeeds = new NativeArray<BiomeSeed>(keepS, alloc);
+            int ws = 0;
+            for (int i = 0; i < seedCount; i++)
+            {
+                float dx = cx - world.biomeSeeds[i].x, dz = cz - world.biomeSeeds[i].z;
+                if (dx * dx + dz * dz <= boundSq) culled.biomeSeeds[ws++] = world.biomeSeeds[i];
+            }
+
+            return culled;
+        }
+
         public static void SampleColumn(in State st, int worldVoxelX, int worldVoxelZ,
             out int height, out byte biomeId)
         {
@@ -373,11 +459,16 @@ namespace VoxelEngine.WorldGen
             const int CHUNK_COLS = CHUNK_EDGE * CHUNK_EDGE;
             var colHeights = new NativeArray<int>(CHUNK_COLS, Allocator.Persistent);
             var colBiomes = new NativeArray<byte>(CHUNK_COLS, Allocator.Persistent);
+
+            // Only the anchors and seeds that can reach this chunk. Both tests
+            // are exact (see CullForChunk), so this changes cost, never output.
+            var localSt = ColumnSampler.CullForChunk(in st, baseVoxel, CHUNK_EDGE,
+                                                     Allocator.Persistent);
             try
             {
                 new ColumnSampleJob
                 {
-                    st = st,
+                    st = localSt,
                     baseVoxelX = baseVoxel.x,
                     baseVoxelZ = baseVoxel.z,
                     edge = CHUNK_EDGE,
@@ -474,7 +565,7 @@ namespace VoxelEngine.WorldGen
                 }
             }
             }
-            finally { colHeights.Dispose(); colBiomes.Dispose(); }
+            finally { colHeights.Dispose(); colBiomes.Dispose(); localSt.Dispose(); }
 
             TotalPhaseTicks += System.Diagnostics.Stopwatch.GetTimestamp() - _tCallStart;
         }

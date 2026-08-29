@@ -19,11 +19,61 @@ namespace VoxelEngine.WorldGen
 {
     public static class AnchorPlanner
     {
-        // v1 counts for the sizeClass-0 dev region. All voxel units.
+        // BASE counts, tuned for the sizeClass-0 dev region. All voxel units.
+        // Scaled per size class by DeriveCounts below -- these are no longer used
+        // directly except as the sizeClass-0 values they were tuned to be.
         private const int MOUNTAIN_COUNT = 2;
         private const int CRATER_COUNT = 2;
         private const int CAVE_COUNT = 3;
         private const int BIOME_SEED_COUNT = 6;
+
+        /// sizeClass 0's coast radius. The density reference: counts scale with
+        /// island AREA relative to this, so a bigger world is populated at the
+        /// same feature density rather than being the same handful of features
+        /// spread thinner.
+        private const float SIZECLASS0_COAST_R = 1050f;
+
+        /// Feature counts for a size class, scaled from the sizeClass-0 density.
+        ///
+        /// SEEDS SCALE FULLY, HEIGHT ANCHORS DO NOT, and the difference is
+        /// geometric rather than aesthetic:
+        ///
+        ///   Biome seeds have no placement constraint (RandomInDisc), so
+        ///   preserving density is free and is what actually fixes the problem --
+        ///   6 seeds over a 1,910m island gives Voronoi cells ~800m across, so
+        ///   the whole 345m streaming window sat inside ONE cell and the world
+        ///   read as a single flat biome.
+        ///
+        ///   Mountains are placed by rejection sampling against a separation
+        ///   margin, and sizeClass 0 already sits near 54% circle packing on its
+        ///   placement disc. Random sequential placement jams around 54.7%, so
+        ///   scaling mountains by the full 82x area ratio would ask for a packing
+        ///   the sampler cannot reach: it would quietly emit fewer anchors than
+        ///   requested after burning 800 attempts each. The cap keeps requested
+        ///   density inside ~25% packing, where placement succeeds as the common
+        ///   case -- the same reasoning the RADIUS CHOICES note below records for
+        ///   the original radii.
+        ///
+        /// Craters and caves scale fully: their circles are far smaller relative
+        /// to their placement discs (crater packing lands near 11%).
+        private static void DeriveCounts(float coastR,
+            out int mountains, out int craters, out int caves, out int biomeSeeds)
+        {
+            float ratio = coastR / SIZECLASS0_COAST_R;
+            float areaScale = ratio * ratio;
+
+            craters    = math.max(CRATER_COUNT,     (int)math.round(CRATER_COUNT     * areaScale));
+            caves      = math.max(CAVE_COUNT,       (int)math.round(CAVE_COUNT       * areaScale));
+            biomeSeeds = math.max(BIOME_SEED_COUNT, (int)math.round(BIOME_SEED_COUNT * areaScale));
+
+            // Packing cap: 25% of the mountain placement disc, in units of the
+            // mountain bounding circle (max radius + separation margin).
+            float discR = coastR * 0.55f;
+            float circleR = 240f + SEPARATION_MARGIN;
+            int packingCap = math.max(MOUNTAIN_COUNT,
+                                      (int)(0.25f * (discR * discR) / (circleR * circleR)));
+            mountains = math.min((int)math.round(MOUNTAIN_COUNT * areaScale), packingCap);
+        }
 
         private const float SEPARATION_MARGIN = 60f; // between anchor bounding circles
         private const int MAX_ATTEMPTS = 800;
@@ -41,19 +91,22 @@ namespace VoxelEngine.WorldGen
             WorldGenConstants.DeriveIslandGeometry(sizeClass,
                 out float cx, out float cz, out float coastR, out _);
 
+            DeriveCounts(coastR, out int mountainCount, out int craterCount,
+                         out int caveCount, out int biomeSeedCount);
+
             // Random(0) is invalid for Unity.Mathematics.Random — guard.
             var rng = new Unity.Mathematics.Random(seed == 0 ? 0x9E3779B9u : seed * 2654435761u + 1u);
 
             var anchors = new List<FeatureAnchor>();
 
             // ---- Mountains: height-add features, well inside the coastline ----
-            PlaceHeightAnchors(ref rng, anchors, FeatureKind.Mountain, MOUNTAIN_COUNT,
+            PlaceHeightAnchors(ref rng, anchors, FeatureKind.Mountain, mountainCount,
                 cx, cz, placementRadius: coastR * 0.55f,
                 radiusMin: 150f, radiusMax: 240f, magMin: 35f, magMax: 55f);
 
             // ---- Craters: height-subtract bowls; floors can dip below sea level
             //      and pool water (§5.5 "a feature holds a pool") ----
-            PlaceHeightAnchors(ref rng, anchors, FeatureKind.Crater, CRATER_COUNT,
+            PlaceHeightAnchors(ref rng, anchors, FeatureKind.Crater, craterCount,
                 cx, cz, placementRadius: coastR * 0.70f,
                 radiusMin: 70f, radiusMax: 110f, magMin: 14f, magMax: 20f);
 
@@ -63,7 +116,7 @@ namespace VoxelEngine.WorldGen
             //      and BELOW the local base terrain (so they're underground,
             //      breaching the surface only where hills dip = natural mouths).
             int cavesPlaced = 0;
-            for (int i = 0; i < CAVE_COUNT; i++)
+            for (int i = 0; i < caveCount; i++)
             {
                 bool placed = false;
                 for (int attempt = 0; attempt < MAX_ATTEMPTS && !placed; attempt++)
@@ -105,7 +158,7 @@ namespace VoxelEngine.WorldGen
             // ---- Voronoi biome seeds: guarantee all four §5.5 biomes appear
             //      by round-robin assignment (i % 4), positions Poisson-ish ----
             var seeds = new List<BiomeSeed>();
-            for (int i = 0; i < BIOME_SEED_COUNT; i++)
+            for (int i = 0; i < biomeSeedCount; i++)
             {
                 float2 pos = RandomInDisc(ref rng, cx, cz, coastR * 0.90f);
                 seeds.Add(new BiomeSeed { x = pos.x, z = pos.y, biomeId = (byte)(i % Biomes.Table.Length) });

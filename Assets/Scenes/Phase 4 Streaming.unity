@@ -461,7 +461,7 @@ MonoBehaviour:
   _flySpeed: 60
   _traverseMeters: 400
   _soakSeconds: 60
-  _maxRunSeconds: 400
+  _maxRunSeconds: 700
   _outputRootFolderName: Phase4Acceptance
   _zipWhenDone: 1
   _revealInFinderWhenDone: 1
