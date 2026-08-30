@@ -144,6 +144,14 @@ public class GenerationTests
         using var st = ColumnSampler.CreateState(meta);
         var caves = CavesOf(meta);
 
+        // The oracle now calls the SAME Burst-safe implementation the fill job
+        // uses, so there is one per-voxel rule rather than a managed copy that
+        // could drift from the compiled one.
+        var nativeCaves = new Unity.Collections.NativeArray<FeatureAnchor>(
+            caves.Length, Unity.Collections.Allocator.Temp);
+        for (int i = 0; i < caves.Length; i++) nativeCaves[i] = caves[i];
+        var biomeTable = ChunkGeneratorFull.BuildBiomeTable(Unity.Collections.Allocator.Temp);
+
         foreach (var coord in SampleCoords)
         {
             var pool = new BrickDataPool(20000);
@@ -162,7 +170,7 @@ public class GenerationTests
                     for (int ly = 0; ly < 128; ly++)
                     {
                         int wy = baseVoxel.y + ly;
-                        byte expected = ChunkGeneratorFull.VoxelMaterial(wx, wy, wz, h, biome, caves, testCaves: true);
+                        byte expected = ChunkFillJob.VoxelMaterial(wx, wy, wz, h, biome, nativeCaves, true, biomeTable);
                         byte actual = ReadVoxel(chunk, pool, new int3(wx, wy, wz));
                         if (expected != actual)
                         {

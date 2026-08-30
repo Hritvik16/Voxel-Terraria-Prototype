@@ -438,8 +438,10 @@ public class Phase3AcceptanceRig : MonoBehaviour
 
             byte atSurface = store.GetVoxel(new int3(wx, h, wz));
             byte aboveSurface = store.GetVoxel(new int3(wx, h + 1, wz));
-            byte expectedAt = ChunkGeneratorFull.VoxelMaterial(wx, h, wz, h, biome, Array.Empty<FeatureAnchor>(), false);
-            byte expectedAbove = ChunkGeneratorFull.VoxelMaterial(wx, h + 1, wz, h, biome, Array.Empty<FeatureAnchor>(), false);
+            var noCaves = new Unity.Collections.NativeArray<FeatureAnchor>(0, Unity.Collections.Allocator.Temp);
+            var biomeTable = ChunkGeneratorFull.BuildBiomeTable(Unity.Collections.Allocator.Temp);
+            byte expectedAt = ChunkFillJob.VoxelMaterial(wx, h, wz, h, biome, noCaves, false, biomeTable);
+            byte expectedAbove = ChunkFillJob.VoxelMaterial(wx, h + 1, wz, h, biome, noCaves, false, biomeTable);
 
             if (atSurface != expectedAt || aboveSurface != expectedAbove)
             {

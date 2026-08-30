@@ -441,37 +441,18 @@ namespace VoxelEngine.WorldGen
 
             int3 baseVoxel = chunkCoord * 128;
 
-            // Caves whose conservative AABB touches this chunk. Almost always empty.
-            var chunkCaves = CavesIntersectingChunk(meta, baseVoxel);
-
-            const int SEA = WorldGenConstants.SEA_LEVEL_VOXEL_Y;
-            const int DEEP = WorldGenConstants.DEEP_STRATUM_TOP_Y;
-            const int SURF = WorldGenConstants.SURFACE_STRATUM_THICKNESS;
-
-            int[] heightCache = new int[64];
-            byte[] biomeCache = new byte[64];
-
-            // ---- Step 1a: every column for the chunk, Burst-compiled ----
-            // 92.6% of this method's cost was ColumnSampler.SampleColumn called
-            // 16,384 times (256 bricks x 64 columns) from Mono. Sampling the
-            // whole 128x128 footprint once through ColumnSampleJob.Run() gets
-            // that same math Burst-compiled -- measured 2.6x on identical
-            // output -- while leaving the brick loop below, Chunk.bricks and
-            // BrickDataPool untouched.
-            //
-            // Run() executes on THIS thread, so generation workers need no
-            // scheduling change and the completion queue is unaffected.
             const int CHUNK_EDGE = 128;
             const int CHUNK_COLS = CHUNK_EDGE * CHUNK_EDGE;
+
             var colHeights = new NativeArray<int>(CHUNK_COLS, Allocator.Persistent);
             var colBiomes = new NativeArray<byte>(CHUNK_COLS, Allocator.Persistent);
-
-            // Only the anchors and seeds that can reach this chunk. Both tests
-            // are exact (see CullForChunk), so this changes cost, never output.
-            var localSt = ColumnSampler.CullForChunk(in st, baseVoxel, CHUNK_EDGE,
-                                                     Allocator.Persistent);
+            var localSt = ColumnSampler.CullForChunk(in st, baseVoxel, CHUNK_EDGE, Allocator.Persistent);
+            var caves = CavesIntersectingChunk(meta, baseVoxel, Allocator.Persistent);
+            var biomeTable = BuildBiomeTable(Allocator.Persistent);
+            var denseOut = new NativeArray<int>(1, Allocator.Persistent);
             try
             {
+                // Step 1: every column, Burst-compiled (Stage 4 of the Burst work).
                 new ColumnSampleJob
                 {
                     st = localSt,
@@ -482,96 +463,29 @@ namespace VoxelEngine.WorldGen
                     biomes = colBiomes,
                 }.Run();
 
-            for (int bz = 0; bz < 16; bz++)
-            for (int bx = 0; bx < 16; bx++)
+                // Steps 2-4: brick classification and dense fill, also Burst.
+                // .Run() executes on THIS thread, so the existing generation
+                // workers and the completion queue are untouched -- scheduling
+                // is Stage 5 and deliberately not attempted here.
+                new ChunkFillJob
+                {
+                    colHeights = colHeights,
+                    colBiomes = colBiomes,
+                    caves = caves,
+                    biomes = biomeTable,
+                    baseVoxel = baseVoxel,
+                    handles = gen.handles,
+                    bodies = gen.bodies,
+                    denseCount = denseOut,
+                }.Run();
+
+                gen.denseCount = denseOut[0];
+            }
+            finally
             {
-                int baseVoxelX = baseVoxel.x + (bx * 8);
-                int baseVoxelZ = baseVoxel.z + (bz * 8);
-
-                // ---- Step 1: per-column heightfield + biome, cached per footprint ----
-                int minH = int.MaxValue, maxH = int.MinValue;
-                bool biomesUniform = true;
-                long _tColStart = System.Diagnostics.Stopwatch.GetTimestamp();
-                for (int lz = 0; lz < 8; lz++)
-                for (int lx = 0; lx < 8; lx++)
-                {
-                    // Precomputed above by the Burst job, in chunk-local
-                    // coordinates: (bz*8 + lz) rows of CHUNK_EDGE columns.
-                    int g = ((bz << 3) + lz) * CHUNK_EDGE + ((bx << 3) + lx);
-                    int h = colHeights[g];
-                    byte biome = colBiomes[g];
-                    int idx = (lz << 3) | lx;
-                    heightCache[idx] = h;
-                    biomeCache[idx] = biome;
-                    if (h < minH) minH = h;
-                    if (h > maxH) maxH = h;
-                    if (biome != biomeCache[0]) biomesUniform = false;
-                }
-                ColumnPhaseTicks += System.Diagnostics.Stopwatch.GetTimestamp() - _tColStart;
-
-                var footprintBiome = Biomes.Get(biomeCache[0]);
-
-                for (int by = 0; by < 16; by++)
-                {
-                    int y0 = baseVoxel.y + (by * 8);
-                    int y7 = y0 + 7;
-                    int brickFlatIndex = (bz << 8) | (by << 4) | bx;
-
-                    bool caveHit = chunkCaves.Length > 0 && BrickIntersectsAnyCave(
-                        chunkCaves, baseVoxelX, y0, baseVoxelZ);
-
-                    // ---- Step 2: uniform fill (the sticky-note economy) ----
-                    if (y0 > maxH)
-                    {
-                        // No solid anywhere in this brick. Caves carve solid only,
-                        // so caveHit is irrelevant here by construction.
-                        if (y0 > SEA)
-                            gen.handles[brickFlatIndex] = Materials.Air;           // uniform air
-                        else if (y7 <= SEA)
-                            gen.handles[brickFlatIndex] = Materials.Water;         // uniform water
-                        else
-                            FillDenseNative(ref gen, brickFlatIndex, baseVoxelX, y0, baseVoxelZ,
-                                heightCache, biomeCache, chunkCaves, caveHit);       // air/water straddle (only if SEA ever misaligns)
-                    }
-                    else if (y7 <= minH && !caveHit)
-                    {
-                        // Fully solid, no carve possible.
-                        if (y7 < DEEP)
-                        {
-                            // Entirely in the deep stratum. Deep material is
-                            // biome-independent in the v1 tables, but gate on
-                            // biomesUniform anyway so a future per-biome deep
-                            // material can't silently break this fast path.
-                            if (biomesUniform)
-                                gen.handles[brickFlatIndex] = footprintBiome.deepMaterial;
-                            else
-                                FillDenseNative(ref gen, brickFlatIndex, baseVoxelX, y0, baseVoxelZ,
-                                    heightCache, biomeCache, chunkCaves, false);
-                        }
-                        else if (y0 >= DEEP && (minH - y7) >= SURF && biomesUniform)
-                        {
-                            // Entirely in the bulk stratum of one biome.
-                            gen.handles[brickFlatIndex] = footprintBiome.bulkMaterial;
-                        }
-                        else
-                        {
-                            // Strata boundary (deep/bulk or bulk/surface) or a
-                            // biome border crosses the footprint.
-                            FillDenseNative(ref gen, brickFlatIndex, baseVoxelX, y0, baseVoxelZ,
-                                heightCache, biomeCache, chunkCaves, false);
-                        }
-                    }
-                    else
-                    {
-                        // ---- Step 3: dense — surface skin, water/terrain
-                        //      interface, or feature intersection ----
-                        FillDenseNative(ref gen, brickFlatIndex, baseVoxelX, y0, baseVoxelZ,
-                            heightCache, biomeCache, chunkCaves, caveHit);
-                    }
-                }
+                colHeights.Dispose(); colBiomes.Dispose(); localSt.Dispose();
+                caves.Dispose(); biomeTable.Dispose(); denseOut.Dispose();
             }
-            }
-            finally { colHeights.Dispose(); colBiomes.Dispose(); localSt.Dispose(); }
 
             // Materialise into the managed Chunk. This is the only place the
             // shared pool and handle allocator are touched (§0.1.5).
@@ -590,80 +504,40 @@ namespace VoxelEngine.WorldGen
             TotalPhaseTicks += System.Diagnostics.Stopwatch.GetTimestamp() - _tCallStart;
         }
 
-        // ---- Steps 3+4: per-voxel fill with biome strata materials ----
-        /// Writes one dense brick into the GeneratedChunk's inline body region.
-        /// No pool, no lock, no managed Chunk -- the body index is just the next
-        /// slot in discovery order, which is what lets this become job code.
-        private static void FillDenseNative(ref GeneratedChunk gen, int brickFlatIndex,
-            int baseVoxelX, int y0, int baseVoxelZ,
-            int[] heightCache, byte[] biomeCache, FeatureAnchor[] caves, bool testCaves)
-        {
-            int bodyIndex = gen.denseCount++;
-            gen.handles[brickFlatIndex] = GeneratedChunk.DENSE_BIT | (uint)bodyIndex;
-            int startOffset = bodyIndex * 512;
-            var rawData = gen.bodies;
 
-            for (int vy = 0; vy < 8; vy++)
-            {
-                int wy = y0 + vy;
-                for (int vz = 0; vz < 8; vz++)
-                for (int vx = 0; vx < 8; vx++)
-                {
-                    int idx = (vz << 3) | vx;
-                    byte mat = VoxelMaterial(
-                        baseVoxelX + vx, wy, baseVoxelZ + vz,
-                        heightCache[idx], biomeCache[idx],
-                        caves, testCaves);
-                    rawData[startOffset + ((vz << 6) | (vy << 3) | vx)] = mat;
-                }
-            }
-        }
 
-        // THE per-voxel material rule. The uniform-classification predicates in
-        // GenerateChunkFull are written to be exactly conservative w.r.t. this
-        // function — if you change one, re-derive the other (GenerationTests'
-        // determinism + strata tests are the tripwire).
-        public static byte VoxelMaterial(int wx, int wy, int wz, int colHeight, byte biomeId,
-            FeatureAnchor[] caves, bool testCaves)
-        {
-            const int SEA = WorldGenConstants.SEA_LEVEL_VOXEL_Y;
-
-            if (wy <= colHeight)
-            {
-                if (testCaves && caves.Length > 0)
-                {
-                    var p = new float3(wx + 0.5f, wy + 0.5f, wz + 0.5f);
-                    for (int i = 0; i < caves.Length; i++)
-                    {
-                        if (FeatureCarve.CaveContains(in caves[i], p))
-                            // Planner guarantees caves sit above sea level, but the
-                            // rule stays total: a carved voxel below sea would flood.
-                            return wy <= SEA ? Materials.Water : Materials.Air;
-                    }
-                }
-
-                var biome = Biomes.Get(biomeId);
-                if (wy < WorldGenConstants.DEEP_STRATUM_TOP_Y) return biome.deepMaterial;
-                if (colHeight - wy < WorldGenConstants.SURFACE_STRATUM_THICKNESS) return biome.surfaceMaterial;
-                return biome.bulkMaterial;
-            }
-
-            // §5.5: static dormant water — air at/below sea level becomes water.
-            return wy <= SEA ? Materials.Water : Materials.Air;
-        }
-
-        private static FeatureAnchor[] CavesIntersectingChunk(WorldMetaData meta, int3 baseVoxel)
+        /// Caves whose conservative AABB touches this chunk, in a NativeArray so
+        /// the fill job can read them. Almost always empty. Caller disposes.
+        private static NativeArray<FeatureAnchor> CavesIntersectingChunk(
+            WorldMetaData meta, int3 baseVoxel, Allocator alloc)
         {
             int count = 0;
             foreach (var a in meta.anchors)
                 if (a.kind == FeatureKind.Cave && CaveTouchesChunk(in a, baseVoxel)) count++;
-            if (count == 0) return System.Array.Empty<FeatureAnchor>();
 
-            var result = new FeatureAnchor[count];
+            var result = new NativeArray<FeatureAnchor>(count, alloc);
             int w = 0;
             foreach (var a in meta.anchors)
                 if (a.kind == FeatureKind.Cave && CaveTouchesChunk(in a, baseVoxel)) result[w++] = a;
             return result;
+        }
+
+        /// The material-only slice of Biomes.Table, blittable so the fill job can
+        /// index it. BiomeDefinition itself carries a string name. Caller disposes.
+        public static NativeArray<BiomeMaterials> BuildBiomeTable(Allocator alloc)
+        {
+            var table = new NativeArray<BiomeMaterials>(Biomes.Table.Length, alloc);
+            for (int i = 0; i < Biomes.Table.Length; i++)
+            {
+                var b = Biomes.Table[i];
+                table[i] = new BiomeMaterials
+                {
+                    surfaceMaterial = b.surfaceMaterial,
+                    bulkMaterial = b.bulkMaterial,
+                    deepMaterial = b.deepMaterial,
+                };
+            }
+            return table;
         }
 
         private static bool CaveTouchesChunk(in FeatureAnchor a, int3 baseVoxel)
@@ -674,17 +548,6 @@ namespace VoxelEngine.WorldGen
                 && mx.z > baseVoxel.z && mn.z < baseVoxel.z + 128;
         }
 
-        private static bool BrickIntersectsAnyCave(FeatureAnchor[] caves, int bx0, int by0, int bz0)
-        {
-            for (int i = 0; i < caves.Length; i++)
-            {
-                FeatureCarve.CaveAabb(in caves[i], out float3 mn, out float3 mx);
-                if (mx.x > bx0 && mn.x < bx0 + 8
-                 && mx.y > by0 && mn.y < by0 + 8
-                 && mx.z > bz0 && mn.z < bz0 + 8) return true;
-            }
-            return false;
-        }
     }
 
     // Logical-content hasher: FNV-1a over what the voxels ARE (uniform flag +
