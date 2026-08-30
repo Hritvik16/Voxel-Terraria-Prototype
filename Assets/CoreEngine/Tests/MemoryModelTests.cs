@@ -110,4 +110,47 @@ public class MemoryModelTests
         int newIndex = _pool.Alloc();
         Assert.AreEqual(poolIndex, newIndex); // Should get the LRU back
     }
+
+    // ---- Stage 1 of the Job System conversion: non-throwing allocation ----
+
+    [Test]
+    public void TryAlloc_ReturnsSameSlotsAsAlloc_UntilExhausted()
+    {
+        const int CAP = 8;
+        using var pool = new BrickDataPool(CAP);
+
+        var seen = new System.Collections.Generic.HashSet<int>();
+        for (int i = 0; i < CAP; i++)
+        {
+            Assert.IsTrue(pool.TryAlloc(out int idx), $"TryAlloc failed with {pool.FreeCount} free");
+            Assert.IsTrue(idx >= 0 && idx < CAP, $"slot {idx} out of range");
+            Assert.IsTrue(seen.Add(idx), $"slot {idx} handed out twice");
+        }
+
+        Assert.AreEqual(0, pool.FreeCount);
+        Assert.IsFalse(pool.TryAlloc(out int none), "TryAlloc must report exhaustion, not throw");
+        Assert.AreEqual(-1, none);
+    }
+
+    [Test]
+    public void Alloc_StillThrowsOnExhaustion()
+    {
+        // The throwing contract is deliberate (§3.6's LRU valve makes exhaustion
+        // a bug, not a condition). Stage 1 must not weaken it.
+        using var pool = new BrickDataPool(2);
+        pool.Alloc(); pool.Alloc();
+        Assert.Throws<System.InvalidOperationException>(() => pool.Alloc());
+    }
+
+    [Test]
+    public void TryAlloc_AndFree_RoundTrip()
+    {
+        using var pool = new BrickDataPool(4);
+        Assert.IsTrue(pool.TryAlloc(out int a));
+        Assert.AreEqual(3, pool.FreeCount);
+        pool.Free(a);
+        Assert.AreEqual(4, pool.FreeCount);
+        Assert.IsTrue(pool.TryAlloc(out int b));
+        Assert.AreEqual(a, b, "a freed slot should be reissued");
+    }
 }
