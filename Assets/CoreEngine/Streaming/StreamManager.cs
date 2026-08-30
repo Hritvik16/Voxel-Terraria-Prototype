@@ -571,10 +571,10 @@ namespace VoxelEngine.Streaming
                 bool tier0Ready = LODDownsampler.PrepareTier0(chunk, scratch.pool, scratch.downsample);
                 for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
                 {
-                    byte[] scratchResult =
+                    var scratchResult =
                         LODDownsampler.DownsampleTierFromScratch(chunk, tier, scratch.downsample, tier0Ready);
                     var owned = new byte[scratchResult.Length];
-                    Array.Copy(scratchResult, owned, scratchResult.Length);
+                    scratchResult.CopyTo(owned);
                     completion.cascadeData[tier - 1] = owned;
                 }
 
@@ -1006,6 +1006,8 @@ namespace VoxelEngine.Streaming
         public void Dispose()
         {
             _samplerState.Dispose();   // owns NativeArrays since the Burst port
+            if (_scratchPool != null)
+                foreach (var sc in _scratchPool) sc.downsample?.Dispose();
             _cancel.Cancel();
             _jobs?.CompleteAdding();
             if (_workerThreads != null)

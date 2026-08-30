@@ -137,14 +137,21 @@ namespace VoxelEngine.Mirror
 
             int destEdge = sourceEdgeVoxels / 2;
             byte[] dest = new byte[destEdge * destEdge * destEdge];
-            DownsampleOnceInto(sourceMaterials, sourceEdgeVoxels, dest);
+            var src = new NativeArray<byte>(sourceMaterials, Allocator.Temp);
+            var dst = new NativeArray<byte>(dest.Length, Allocator.Temp);
+            try
+            {
+                DownsampleOnceInto(src, sourceEdgeVoxels, dst);
+                dst.CopyTo(dest);
+            }
+            finally { src.Dispose(); dst.Dispose(); }
             return dest;
         }
 
         /// Fill-into-caller-buffer form of DownsampleOnce. Identical math, no
         /// allocation. Every destination cell is written unconditionally, so a
         /// reused buffer needs no clearing here.
-        public static void DownsampleOnceInto(byte[] sourceMaterials, int sourceEdgeVoxels, byte[] dest)
+        public static void DownsampleOnceInto(NativeArray<byte> sourceMaterials, int sourceEdgeVoxels, NativeArray<byte> dest)
         {
             int destEdge = sourceEdgeVoxels / 2;
             int srcStride = sourceEdgeVoxels;
@@ -202,28 +209,43 @@ namespace VoxelEngine.Mirror
         /// (2026-08-28_151418, gc+N column), while every main-thread phase timer
         /// stayed under a millisecond. §0.1 invariant 3 -- "no hidden
         /// allocations on the hot path" -- is what this restores.
-        public sealed class DownsampleScratch
+        /// NATIVE since the downsample port. The buffers were managed byte[],
+        /// which is what kept this half of worker cost off Burst: generation is
+        /// now 2.19 ms/chunk while the downsample is 5.02 ms, so this is the
+        /// larger share of what the generation threads actually do.
+        ///
+        /// Owner disposes. One set per worker, sized once, reused per chunk.
+        public sealed class DownsampleScratch : IDisposable
         {
-            public readonly byte[] Tier0;
-            public readonly byte[][] Steps;   // Steps[i] holds edge 128 >> (i+1)
+            public NativeArray<byte> Tier0;
+            public readonly NativeArray<byte>[] Steps;   // Steps[i] holds edge 128 >> (i+1)
 
             public DownsampleScratch()
             {
                 const int chunkEdgeVoxels = 128;
-                Tier0 = new byte[chunkEdgeVoxels * chunkEdgeVoxels * chunkEdgeVoxels];
+                Tier0 = new NativeArray<byte>(
+                    chunkEdgeVoxels * chunkEdgeVoxels * chunkEdgeVoxels, Allocator.Persistent);
 
                 int maxFactor = 1;
                 for (int t = 1; t < LODConfig.TIER_COUNT; t++)
                     maxFactor = Math.Max(maxFactor, LODConfig.DownsampleFactor(t));
 
                 int maxSteps = IntegerLog2(maxFactor);
-                Steps = new byte[maxSteps][];
+                Steps = new NativeArray<byte>[maxSteps];
                 int edge = chunkEdgeVoxels;
                 for (int i = 0; i < maxSteps; i++)
                 {
                     edge /= 2;
-                    Steps[i] = new byte[edge * edge * edge];
+                    Steps[i] = new NativeArray<byte>(edge * edge * edge, Allocator.Persistent);
                 }
+            }
+
+            public void Dispose()
+            {
+                if (Tier0.IsCreated) Tier0.Dispose();
+                if (Steps != null)
+                    for (int i = 0; i < Steps.Length; i++)
+                        if (Steps[i].IsCreated) Steps[i].Dispose();
             }
         }
 
@@ -244,7 +266,7 @@ namespace VoxelEngine.Mirror
         /// Downsamples to one tier from an already-prepared scratch.Tier0.
         /// Same "returned array is scratch, copy before queueing" contract as
         /// DownsampleChunkToTier below.
-        public static byte[] DownsampleTierFromScratch(Chunk chunk, int targetTier,
+        public static NativeArray<byte> DownsampleTierFromScratch(Chunk chunk, int targetTier,
                                                        DownsampleScratch scratch, bool tier0Prepared)
         {
             if (targetTier <= 0 || targetTier >= LODConfig.TIER_COUNT)
@@ -252,7 +274,7 @@ namespace VoxelEngine.Mirror
                     $"targetTier must be in [1, {LODConfig.TIER_COUNT - 1}], got {targetTier}.");
 
             int steps = IntegerLog2(LODConfig.DownsampleFactor(targetTier));
-            byte[] result = scratch.Steps[steps - 1];
+            NativeArray<byte> result = scratch.Steps[steps - 1];
 
             if (!tier0Prepared)
             {
@@ -260,12 +282,11 @@ namespace VoxelEngine.Mirror
                 // fast paths as DownsampleChunkToTier, and a reused buffer must
                 // be written in full.
                 byte fill = (chunk == null) ? (byte)0 : chunk.uniformMaterial;
-                if (fill == 0) Array.Clear(result, 0, result.Length);
-                else Array.Fill(result, fill);
+                for (int i = 0; i < result.Length; i++) result[i] = fill;
                 return result;
             }
 
-            byte[] current = scratch.Tier0;
+            NativeArray<byte> current = scratch.Tier0;
             int currentEdge = 128;
             for (int i = 0; i < steps; i++)
             {
@@ -283,10 +304,13 @@ namespace VoxelEngine.Mirror
         /// Anything that outlives the call -- notably a LoadCompletion queued for
         /// the main thread -- must COPY it. That copy is the one place ownership
         /// genuinely transfers, and the one place an allocation is warranted.
-        public static byte[] DownsampleChunkToTier(Chunk chunk, BrickDataPool pool, int targetTier,
+        public static NativeArray<byte> DownsampleChunkToTier(Chunk chunk, BrickDataPool pool, int targetTier,
                                                    DownsampleScratch scratch)
         {
-            if (scratch == null) return DownsampleChunkToTier(chunk, pool, targetTier);
+            if (scratch == null)
+                throw new ArgumentNullException(nameof(scratch),
+                    "This overload returns a NativeArray view into the scratch; " +
+                    "call the allocating overload if you have no scratch.");
             if (targetTier <= 0 || targetTier >= LODConfig.TIER_COUNT)
                 throw new ArgumentOutOfRangeException(nameof(targetTier),
                     $"targetTier must be in [1, {LODConfig.TIER_COUNT - 1}], got {targetTier}.");
@@ -294,25 +318,25 @@ namespace VoxelEngine.Mirror
             const int chunkEdgeVoxels = 128;
             int factor = LODConfig.DownsampleFactor(targetTier);
             int steps = IntegerLog2(factor);
-            byte[] result = scratch.Steps[steps - 1];
+            NativeArray<byte> result = scratch.Steps[steps - 1];
 
             // Same two fast paths as the allocating form, but a reused buffer
             // must be written in full -- it still holds the previous chunk.
             if (chunk == null)
             {
-                Array.Clear(result, 0, result.Length);
+                for (int i = 0; i < result.Length; i++) result[i] = 0;
                 return result;
             }
             if (chunk.isUniform)
             {
-                if (chunk.uniformMaterial == 0) Array.Clear(result, 0, result.Length);
-                else Array.Fill(result, chunk.uniformMaterial);
+                byte fill = chunk.uniformMaterial;
+                for (int i = 0; i < result.Length; i++) result[i] = fill;
                 return result;
             }
 
             ExtractChunkTier0MaterialsInto(chunk, pool, chunkEdgeVoxels, scratch.Tier0);
 
-            byte[] current = scratch.Tier0;
+            NativeArray<byte> current = scratch.Tier0;
             int currentEdge = chunkEdgeVoxels;
             for (int i = 0; i < steps; i++)
             {
@@ -396,7 +420,13 @@ namespace VoxelEngine.Mirror
         private static byte[] ExtractChunkTier0Materials(Chunk chunk, BrickDataPool pool, int chunkEdgeVoxels)
         {
             byte[] result = new byte[chunkEdgeVoxels * chunkEdgeVoxels * chunkEdgeVoxels];
-            ExtractChunkTier0MaterialsInto(chunk, pool, chunkEdgeVoxels, result);
+            var tmp = new NativeArray<byte>(result.Length, Allocator.Temp);
+            try
+            {
+                ExtractChunkTier0MaterialsInto(chunk, pool, chunkEdgeVoxels, tmp);
+                tmp.CopyTo(result);
+            }
+            finally { tmp.Dispose(); }
             return result;
         }
 
@@ -405,9 +435,9 @@ namespace VoxelEngine.Mirror
         /// air/uniform branches and FillBrickRegion's m != 0 skip), and a REUSED
         /// buffer still holds the previous chunk's voxels.
         private static void ExtractChunkTier0MaterialsInto(Chunk chunk, BrickDataPool pool,
-                                                           int chunkEdgeVoxels, byte[] result)
+                                                           int chunkEdgeVoxels, NativeArray<byte> result)
         {
-            Array.Clear(result, 0, chunkEdgeVoxels * chunkEdgeVoxels * chunkEdgeVoxels);
+            for (int i = 0; i < result.Length; i++) result[i] = 0;
 
             if (chunk == null)
             {
@@ -420,7 +450,7 @@ namespace VoxelEngine.Mirror
             if (chunk.isUniform)
             {
                 if (chunk.uniformMaterial != 0)
-                    Array.Fill(result, chunk.uniformMaterial);
+                    for (int i = 0; i < result.Length; i++) result[i] = chunk.uniformMaterial;
                 return;
             }
 
@@ -455,7 +485,7 @@ namespace VoxelEngine.Mirror
             }
         }
 
-        private static void FillBrickRegion(byte[] dest, int stride, int slice, int ox, int oy, int oz, int edge, byte value)
+        private static void FillBrickRegion(NativeArray<byte> dest, int stride, int slice, int ox, int oy, int oz, int edge, byte value)
         {
             for (int z = 0; z < edge; z++)
             for (int y = 0; y < edge; y++)
@@ -466,7 +496,7 @@ namespace VoxelEngine.Mirror
             }
         }
 
-        private static void CopyBrickRegion(byte[] dest, int stride, int slice, int ox, int oy, int oz, int edge, NativeArray<byte> src, int srcOffset)
+        private static void CopyBrickRegion(NativeArray<byte> dest, int stride, int slice, int ox, int oy, int oz, int edge, NativeArray<byte> src, int srcOffset)
         {
             int srcIdx = 0;
             for (int z = 0; z < edge; z++)
@@ -478,7 +508,7 @@ namespace VoxelEngine.Mirror
             }
         }
 
-        private static byte SampleFlat(byte[] data, int x, int y, int z, int stride, int slice)
+        private static byte SampleFlat(NativeArray<byte> data, int x, int y, int z, int stride, int slice)
         {
             return data[x + stride * y + slice * z];
         }
