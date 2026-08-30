@@ -428,10 +428,16 @@ namespace VoxelEngine.WorldGen
         {
             long _tCallStart = System.Diagnostics.Stopwatch.GetTimestamp();
 
-            chunk.coord = chunkCoord;
-            chunk.isUniform = false;
-            if (allocLock != null) { lock (allocLock) { chunk.bricks = allocator.Alloc(); } }
-            else chunk.bricks = allocator.Alloc();
+            // STAGE 3: generation fills a blittable GeneratedChunk; the managed
+            // Chunk is materialised from it at the end. The brick loop below no
+            // longer touches Chunk.bricks or BrickDataPool at all, which is what
+            // makes it eligible to become a job in Stage 4.
+            //
+            // The allocLock now covers only the transfer, not the whole fill --
+            // the fill has no shared state left to protect.
+            var gen = GeneratedChunk.Create(Allocator.Persistent);
+            try
+            {
 
             int3 baseVoxel = chunkCoord * 128;
 
@@ -520,12 +526,12 @@ namespace VoxelEngine.WorldGen
                         // No solid anywhere in this brick. Caves carve solid only,
                         // so caveHit is irrelevant here by construction.
                         if (y0 > SEA)
-                            chunk.bricks[brickFlatIndex].data = Materials.Air;      // uniform air
+                            gen.handles[brickFlatIndex] = Materials.Air;           // uniform air
                         else if (y7 <= SEA)
-                            chunk.bricks[brickFlatIndex].data = Materials.Water;    // uniform water
+                            gen.handles[brickFlatIndex] = Materials.Water;         // uniform water
                         else
-                            FillDense(chunk, pool, brickFlatIndex, baseVoxelX, y0, baseVoxelZ,
-                                heightCache, biomeCache, chunkCaves, caveHit, allocLock);       // air/water straddle (only if SEA ever misaligns)
+                            FillDenseNative(ref gen, brickFlatIndex, baseVoxelX, y0, baseVoxelZ,
+                                heightCache, biomeCache, chunkCaves, caveHit);       // air/water straddle (only if SEA ever misaligns)
                     }
                     else if (y7 <= minH && !caveHit)
                     {
@@ -537,51 +543,65 @@ namespace VoxelEngine.WorldGen
                             // biomesUniform anyway so a future per-biome deep
                             // material can't silently break this fast path.
                             if (biomesUniform)
-                                chunk.bricks[brickFlatIndex].data = footprintBiome.deepMaterial;
+                                gen.handles[brickFlatIndex] = footprintBiome.deepMaterial;
                             else
-                                FillDense(chunk, pool, brickFlatIndex, baseVoxelX, y0, baseVoxelZ,
-                                    heightCache, biomeCache, chunkCaves, false, allocLock);
+                                FillDenseNative(ref gen, brickFlatIndex, baseVoxelX, y0, baseVoxelZ,
+                                    heightCache, biomeCache, chunkCaves, false);
                         }
                         else if (y0 >= DEEP && (minH - y7) >= SURF && biomesUniform)
                         {
                             // Entirely in the bulk stratum of one biome.
-                            chunk.bricks[brickFlatIndex].data = footprintBiome.bulkMaterial;
+                            gen.handles[brickFlatIndex] = footprintBiome.bulkMaterial;
                         }
                         else
                         {
                             // Strata boundary (deep/bulk or bulk/surface) or a
                             // biome border crosses the footprint.
-                            FillDense(chunk, pool, brickFlatIndex, baseVoxelX, y0, baseVoxelZ,
-                                heightCache, biomeCache, chunkCaves, false, allocLock);
+                            FillDenseNative(ref gen, brickFlatIndex, baseVoxelX, y0, baseVoxelZ,
+                                heightCache, biomeCache, chunkCaves, false);
                         }
                     }
                     else
                     {
                         // ---- Step 3: dense — surface skin, water/terrain
                         //      interface, or feature intersection ----
-                        FillDense(chunk, pool, brickFlatIndex, baseVoxelX, y0, baseVoxelZ,
-                            heightCache, biomeCache, chunkCaves, caveHit, allocLock);
+                        FillDenseNative(ref gen, brickFlatIndex, baseVoxelX, y0, baseVoxelZ,
+                            heightCache, biomeCache, chunkCaves, caveHit);
                     }
                 }
             }
             }
             finally { colHeights.Dispose(); colBiomes.Dispose(); localSt.Dispose(); }
 
+            // Materialise into the managed Chunk. This is the only place the
+            // shared pool and handle allocator are touched (§0.1.5).
+            bool ok;
+            if (allocLock != null) { lock (allocLock) { ok = GeneratedChunkConverter.TryToChunk(in gen, chunkCoord, chunk, allocator, pool); } }
+            else ok = GeneratedChunkConverter.TryToChunk(in gen, chunkCoord, chunk, allocator, pool);
+
+            if (!ok)
+                throw new InvalidOperationException(
+                    $"BrickDataPool could not fit chunk {chunkCoord}: needs {gen.denseCount} " +
+                    $"dense bricks, {pool.FreeCount} free. Same condition Alloc() threw on " +
+                    $"before Stage 3, refused up front instead of part-way through.");
+            }
+            finally { gen.Dispose(); }
+
             TotalPhaseTicks += System.Diagnostics.Stopwatch.GetTimestamp() - _tCallStart;
         }
 
         // ---- Steps 3+4: per-voxel fill with biome strata materials ----
-        private static void FillDense(Chunk chunk, BrickDataPool pool, int brickFlatIndex,
+        /// Writes one dense brick into the GeneratedChunk's inline body region.
+        /// No pool, no lock, no managed Chunk -- the body index is just the next
+        /// slot in discovery order, which is what lets this become job code.
+        private static void FillDenseNative(ref GeneratedChunk gen, int brickFlatIndex,
             int baseVoxelX, int y0, int baseVoxelZ,
-            int[] heightCache, byte[] biomeCache, FeatureAnchor[] caves, bool testCaves,
-            object allocLock)
+            int[] heightCache, byte[] biomeCache, FeatureAnchor[] caves, bool testCaves)
         {
-            int poolIdx;
-            if (allocLock != null) { lock (allocLock) { poolIdx = pool.Alloc(); } }
-            else poolIdx = pool.Alloc();
-            chunk.bricks[brickFlatIndex].data = 0x80000000 | (uint)poolIdx;
-            int startOffset = poolIdx * 512;
-            var rawData = pool.RawData;
+            int bodyIndex = gen.denseCount++;
+            gen.handles[brickFlatIndex] = GeneratedChunk.DENSE_BIT | (uint)bodyIndex;
+            int startOffset = bodyIndex * 512;
+            var rawData = gen.bodies;
 
             for (int vy = 0; vy < 8; vy++)
             {
