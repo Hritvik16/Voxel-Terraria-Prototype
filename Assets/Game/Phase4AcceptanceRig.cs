@@ -770,6 +770,8 @@ public class Phase4AcceptanceRig : MonoBehaviour
         var sw = System.Diagnostics.Stopwatch.StartNew();
         double genMs = 0, downMs = 0;
         VoxelEngine.WorldGen.ChunkGeneratorFull.ResetPhaseCounters();
+        VoxelEngine.Mirror.LODDownsampler.ResetPhaseCounters();
+        using var dsScratch = new VoxelEngine.Mirror.LODDownsampler.DownsampleScratch();
         try
         {
             for (int i = 0; i < N; i++)
@@ -780,8 +782,19 @@ public class Phase4AcceptanceRig : MonoBehaviour
                 VoxelEngine.WorldGen.ChunkGeneratorFull.GenerateChunkFull(
                     in st, meta, new Unity.Mathematics.int3(500 + i, 0, 500), chunk, alloc, pool, null);
                 double t1 = sw.Elapsed.TotalMilliseconds;
-                VoxelEngine.Mirror.LODDownsampler.DownsampleChunkToTier(chunk, pool, 1);
-                VoxelEngine.Mirror.LODDownsampler.DownsampleChunkToTier(chunk, pool, 2);
+                // MIRRORS StreamManager EXACTLY: PrepareTier0 once, then one
+                // DownsampleTierFromScratch per tier, against a reused scratch.
+                //
+                // This used to call the ALLOCATING DownsampleChunkToTier
+                // overload, which no worker uses -- so the "worker-side
+                // downsample" figure this line produces was measuring a
+                // different code path than the workers run, and every
+                // conclusion drawn from it about worker cost was measuring the
+                // wrong thing.
+                bool tier0Ready = VoxelEngine.Mirror.LODDownsampler.PrepareTier0(chunk, pool, dsScratch);
+                for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+                    VoxelEngine.Mirror.LODDownsampler.DownsampleTierFromScratch(
+                        chunk, tier, dsScratch, tier0Ready);
                 double t2 = sw.Elapsed.TotalMilliseconds;
                 genMs += t1 - t0; downMs += t2 - t1;
 
@@ -796,6 +809,16 @@ public class Phase4AcceptanceRig : MonoBehaviour
         double perChunk = genMs / N;
         Line($"single-thread generation: {perChunk:F2}ms/chunk, worker-side downsample adds {downMs / N:F2}ms/chunk " +
              $"({N} chunks, ocean-edge coords)");
+
+        {
+            // Which half of the downsample costs what: the 128^3 tier-0 gather
+            // (still managed, it reads chunk.bricks) or the halving chain (Burst).
+            double f = System.Diagnostics.Stopwatch.Frequency;
+            double ex = VoxelEngine.Mirror.LODDownsampler.ExtractTicks * 1000.0 / f;
+            double ch = VoxelEngine.Mirror.LODDownsampler.ChainTicks * 1000.0 / f;
+            Line($"  downsample split: tier-0 gather {ex / N:F2}ms/chunk (managed, reads chunk.bricks) " +
+                 $"+ halving chain {ch / N:F2}ms/chunk (Burst)");
+        }
 
         // ---- Burst vs Mono on the SAME column-sampling math ----
         // The phase split below says how much of generation this math is; this

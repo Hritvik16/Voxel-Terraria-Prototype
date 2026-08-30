@@ -25,6 +25,7 @@
 //     pass says otherwise - this is a design choice, not a measured fact.
 using System;
 using Unity.Collections;
+using Unity.Jobs;
 using Unity.Mathematics;
 using VoxelEngine.Memory;
 
@@ -249,6 +250,35 @@ namespace VoxelEngine.Mirror
             }
         }
 
+        /// One halving step, Burst-compiled.
+        ///
+        /// Wraps DownsampleOnceInto rather than reimplementing it, so there is a
+        /// single majority-vote implementation and the Mono and Burst paths
+        /// cannot drift. Run() executes on the calling thread, so the existing
+        /// generation workers are untouched -- consistent with every other stage
+        /// on this branch, and leaving scheduling to Stage 5.
+        ///
+        /// One step per Run rather than the whole chain in one job: the chain is
+        /// 1 step for tier 1 and 2 for tier 2, so at most two invocations, and a
+        /// fixed-shape job avoids carrying a variable-length step list into job
+        /// memory for no measurable gain.
+        [Unity.Burst.BurstCompile]
+        public struct DownsampleStepJob : Unity.Jobs.IJob
+        {
+            [ReadOnly] public NativeArray<byte> src;
+            public NativeArray<byte> dst;
+            public int srcEdge;
+
+            public void Execute() => DownsampleOnceInto(src, srcEdge, dst);
+        }
+
+        /// Split so the rig can say which half of the downsample costs what:
+        /// the 128^3 tier-0 gather (still managed -- it reads chunk.bricks) or
+        /// the halving chain (now Burst). Ticks; the caller converts.
+        public static long ExtractTicks;
+        public static long ChainTicks;
+        public static void ResetPhaseCounters() { ExtractTicks = 0; ChainTicks = 0; }
+
         /// Extracts a chunk's tier-0 materials into the scratch ONCE, so a
         /// caller that wants several tiers pays the 128^3 (2 MB) gather a single
         /// time instead of once per tier.
@@ -259,7 +289,9 @@ namespace VoxelEngine.Mirror
         public static bool PrepareTier0(Chunk chunk, BrickDataPool pool, DownsampleScratch scratch)
         {
             if (chunk == null || chunk.isUniform) return false;
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             ExtractChunkTier0MaterialsInto(chunk, pool, 128, scratch.Tier0);
+            ExtractTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
             return true;
         }
 
@@ -286,14 +318,19 @@ namespace VoxelEngine.Mirror
                 return result;
             }
 
+            long tc = System.Diagnostics.Stopwatch.GetTimestamp();
             NativeArray<byte> current = scratch.Tier0;
             int currentEdge = 128;
             for (int i = 0; i < steps; i++)
             {
-                DownsampleOnceInto(current, currentEdge, scratch.Steps[i]);
+                new DownsampleStepJob
+                {
+                    src = current, dst = scratch.Steps[i], srcEdge = currentEdge,
+                }.Run();
                 current = scratch.Steps[i];
                 currentEdge /= 2;
             }
+            ChainTicks += System.Diagnostics.Stopwatch.GetTimestamp() - tc;
             return current;
         }
 
