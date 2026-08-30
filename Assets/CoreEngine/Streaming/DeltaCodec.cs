@@ -369,6 +369,30 @@ namespace VoxelEngine.Streaming
         public static string PathFor(string deltaDirectory, int3 chunkCoord) =>
             Path.Combine(deltaDirectory, FileName(chunkCoord));
 
+        /// Inverse of FileName. Lets the delta directory be enumerated ONCE at
+        /// startup into an in-memory presence set, so the streaming dispatch can
+        /// ask "does this chunk have a delta?" without a per-chunk stat call.
+        ///
+        /// Strict on purpose: anything that is not exactly `{x}_{y}_{z}.delta`
+        /// with three parseable ints is rejected rather than guessed at, so a
+        /// stray file cannot silently register as a real chunk's delta.
+        public static bool TryParseFileName(string fileName, out int3 chunkCoord)
+        {
+            chunkCoord = default;
+            if (string.IsNullOrEmpty(fileName) || !fileName.EndsWith(".delta")) return false;
+
+            string stem = fileName.Substring(0, fileName.Length - ".delta".Length);
+            string[] parts = stem.Split('_');
+            if (parts.Length != 3) return false;
+
+            if (!int.TryParse(parts[0], out int x)) return false;
+            if (!int.TryParse(parts[1], out int y)) return false;
+            if (!int.TryParse(parts[2], out int z)) return false;
+
+            chunkCoord = new int3(x, y, z);
+            return true;
+        }
+
         /// Writes atomically: full write to `.tmp`, flush to disk, then rename.
         /// A force-quit therefore leaves EITHER the old file or the new one,
         /// never a half-written one -- §13 Phase 4's force-quit acceptance test

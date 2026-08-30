@@ -39,6 +39,24 @@ namespace VoxelEngine.Streaming
         private readonly LODCascadeManager _cascades;
         private readonly WorldMetaData _meta;
         private readonly string _deltaDir;
+
+        /// Coords that have a .delta file on disk RIGHT NOW.
+        ///
+        /// Exists so the streaming dispatch can ask "does this chunk have a
+        /// delta?" without a filesystem stat. That question has to be answered
+        /// per dispatched chunk, on the main thread, and a stat there is exactly
+        /// the kind of main-thread I/O the async load path exists to avoid.
+        ///
+        /// MAIN THREAD ONLY (§0.1.5). Seeded by one directory enumeration in
+        /// Start, then maintained at the only two sites where a delta file is
+        /// created or destroyed -- both inside SaveDelta, both already main
+        /// thread. §4.1 makes file ABSENCE meaningful, so this set mirrors
+        /// presence exactly rather than approximating it.
+        ///
+        /// This assumes the engine is the sole writer of _deltaDir. A file
+        /// dropped in from outside MID-RUN would be missed; files present at
+        /// startup are picked up by the enumeration.
+        private readonly HashSet<int3> _deltaOnDisk = new HashSet<int3>();
         private readonly ColumnSampler.State _samplerState;
 
         // §3.2 Sparse Chunk Table: "every chunk ever generated/edited".
@@ -315,6 +333,7 @@ namespace VoxelEngine.Streaming
             }
 
             System.IO.Directory.CreateDirectory(_deltaDir);
+            ScanDeltaDirectory();
         }
 
         // =====================================================================
@@ -789,6 +808,37 @@ namespace VoxelEngine.Streaming
             return saved;
         }
 
+        /// One enumeration of _deltaDir at startup. O(files on disk), paid once,
+        /// replacing what would otherwise be one stat per chunk dispatch for the
+        /// lifetime of the run.
+        private void ScanDeltaDirectory()
+        {
+            _deltaOnDisk.Clear();
+            foreach (string full in System.IO.Directory.EnumerateFiles(_deltaDir, "*.delta"))
+            {
+                if (DeltaCodec.TryParseFileName(System.IO.Path.GetFileName(full), out int3 c))
+                    _deltaOnDisk.Add(c);
+            }
+        }
+
+        /// Whether this chunk has edits on disk that a load must replay (§4.2).
+        /// MAIN THREAD.
+        public bool HasDeltaOnDisk(int3 coord) => _deltaOnDisk.Contains(coord);
+
+        /// Test/diagnostic hook: does the in-memory set actually agree with the
+        /// filesystem? The set is only sound while the engine is the directory's
+        /// sole writer, and that claim deserves to be checkable rather than
+        /// merely asserted in a comment.
+        public bool DeltaSetMatchesDisk()
+        {
+            var onDisk = new HashSet<int3>();
+            foreach (string full in System.IO.Directory.EnumerateFiles(_deltaDir, "*.delta"))
+                if (DeltaCodec.TryParseFileName(System.IO.Path.GetFileName(full), out int3 c))
+                    onDisk.Add(c);
+            return onDisk.SetEquals(_deltaOnDisk);
+        }
+
+
         private bool SaveDelta(int3 coord, Chunk live)
         {
             // §4.2: "each populated chunk's bricks are compared against a fresh
@@ -816,11 +866,13 @@ namespace VoxelEngine.Streaming
                     // Coalesced back to baseline. §4.1 makes ABSENCE meaningful,
                     // so the stale file must go, not linger as a lie.
                     DeltaCodec.DeleteIfPresent(path);
+                    _deltaOnDisk.Remove(coord);
                     if (_table.TryGetValue(coord, out var r0)) r0.deltaByteLength = 0;
                     return true;
                 }
 
                 DeltaCodec.WriteAtomic(path, bytes);
+                _deltaOnDisk.Add(coord);
                 if (_table.TryGetValue(coord, out var r)) { r.deltaByteLength = (uint)bytes.Length; }
                 return true;
             }
