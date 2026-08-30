@@ -136,4 +136,84 @@ public class GenerationOracleTests
                 $"0x{a:X8} then 0x{b:X8}.");
         }
     }
+
+    // ---- Stage 2: the native representation must be lossless ----
+    //
+    // Round-trips real generated chunks through GeneratedChunk and back, and
+    // asserts the CONTENT HASH is preserved. This is what earns the right to
+    // point the generator at the native form in Stage 3: if the representation
+    // could lose or reorder anything, it shows up here rather than as changed
+    // terrain later.
+
+    [Test]
+    public void GeneratedChunk_RoundTripPreservesContentHash()
+    {
+        foreach (var s in Samples)
+        {
+            WorldMetaData meta = AnchorPlanner.Plan(SEED, s.sizeClass);
+
+            var poolA = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
+            var poolB = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
+            try
+            {
+                var original = new Chunk();
+                ChunkGeneratorFull.GenerateChunkFull(
+                    meta, s.coord, original, new ChunkHandleAllocator(2), poolA);
+                uint before = ChunkContentHash.Hash(original, poolA);
+
+                var native = GeneratedChunkConverter.FromChunk(
+                    original, poolA, Unity.Collections.Allocator.Temp);
+                try
+                {
+                    var rebuilt = new Chunk();
+                    Assert.IsTrue(
+                        GeneratedChunkConverter.TryToChunk(
+                            in native, s.coord, rebuilt, new ChunkHandleAllocator(2), poolB),
+                        $"TryToChunk refused a chunk the pool should fit ({s.note})");
+
+                    uint after = ChunkContentHash.Hash(rebuilt, poolB);
+                    Assert.AreEqual(before, after,
+                        $"GeneratedChunk round trip changed content for {s.note} " +
+                        $"{s.coord}: 0x{before:X8} -> 0x{after:X8}");
+                }
+                finally { native.Dispose(); }
+            }
+            finally { poolA.Dispose(); poolB.Dispose(); }
+        }
+    }
+
+    [Test]
+    public void TryToChunk_RefusesRatherThanHalfBuilding_WhenPoolTooSmall()
+    {
+        // A chunk with dense bricks, converted against a pool that cannot hold
+        // them. The point is that it refuses up front: a half-built chunk with
+        // some bricks pointing at real slots and others silently left as air is
+        // worse than a refusal, and is what an exception thrown mid-loop leaves.
+        var meta = AnchorPlanner.Plan(SEED, 0);
+        var pool = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
+        var tiny = new BrickDataPool(1);
+        try
+        {
+            var original = new Chunk();
+            ChunkGeneratorFull.GenerateChunkFull(
+                meta, new int3(11, 0, 11), original, new ChunkHandleAllocator(2), pool);
+
+            var native = GeneratedChunkConverter.FromChunk(
+                original, pool, Unity.Collections.Allocator.Temp);
+            try
+            {
+                Assume.That(native.denseCount, Is.GreaterThan(1),
+                    "sample chunk must contain dense bricks for this test to mean anything");
+
+                var rebuilt = new Chunk();
+                Assert.IsFalse(
+                    GeneratedChunkConverter.TryToChunk(
+                        in native, new int3(11, 0, 11), rebuilt, new ChunkHandleAllocator(2), tiny),
+                    "TryToChunk must refuse when the pool cannot fit the whole chunk");
+                Assert.AreEqual(1, tiny.FreeCount, "a refused conversion must not consume slots");
+            }
+            finally { native.Dispose(); }
+        }
+        finally { pool.Dispose(); tiny.Dispose(); }
+    }
 }
