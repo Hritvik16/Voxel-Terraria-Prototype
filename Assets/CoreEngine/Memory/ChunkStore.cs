@@ -1,15 +1,14 @@
 // ==========================================
 // Assets/CoreEngine/Memory/ChunkStore.cs
 //
-// PHASE 4 REVISION of the Phase-1 store. §12's freeze commitment applies:
-// "when a phase passes, its public interface freezes -- IWorldQuery.GetVoxel,
-// IEditService.SetVoxel ... Bug fixes and additive hooks to a passed system's
-// internals are normal and expected -- the rule forbids REDESIGN, not
-// EDITING."
+// PHASE 4 REVISION. §12's freeze commitment applies: "when a phase passes, its
+// public interface freezes -- IWorldQuery.GetVoxel, IEditService.SetVoxel ...
+// Bug fixes and additive hooks to a passed system's internals are normal and
+// expected -- the rule forbids REDESIGN, not EDITING."
 //
-// Accordingly, GetVoxel and SetVoxel below are UNCHANGED in signature and in
-// behaviour, byte for byte in their hot paths. Everything Phase 4 needs is
-// additive: a window origin, residency queries, and an eviction path.
+// GetVoxel and SetVoxel below are UNCHANGED in signature and behaviour, byte
+// for byte in their hot paths. Everything Phase 4 needs is additive: a window
+// origin, a configurable window size, residency queries, and an eviction path.
 //
 // ---------------------------------------------------------------------------
 // WHY THE INDEX MATH DID NOT NEED TO CHANGE (the important part)
@@ -18,35 +17,39 @@
 // become origin-relative. It does not, and understanding why matters because
 // the SHADER's equivalent read genuinely DOES need the origin.
 //
-// §3.3 indexes the ring by `(ChunkCoord - windowOrigin) & windowMask` per
-// axis. For power-of-two window dims the subtraction is a no-op under the
-// mask -- (c - o) & m and c & m differ only by a constant rotation of the ring,
-// and both map each world coord to exactly one slot. So the raw `coord & mask`
-// this file already used is a valid ring index for ANY origin.
+// §3.3 indexes the ring by `(ChunkCoord - windowOrigin) & windowMask` per axis.
+// For power-of-two window dims the subtraction is a no-op under the mask --
+// (c - o) & m and c & m differ only by a constant rotation of the ring, and
+// both map each world coord to exactly one slot. So the raw `coord & mask` this
+// file already used is a valid ring index for ANY origin.
 //
-// What the origin is actually needed for is deciding whether a coord is
-// INSIDE the window at all, because masking alone silently aliases everything
-// outside it back in. On the CPU that aliasing is already caught: GetChunk
-// verifies `c.coord.Equals(chunkCoord)` before returning, so a coord outside
-// the window lands on some other chunk's slot, fails identity, and returns
-// null. The GPU has no such identity check -- a clipmap entry is 4 bytes with
-// no coord in it -- which is exactly why PHASE_3_COMPLETION.md §6.2's phantom
-// terrain existed, and why the shader needs `_WindowOriginBricks` while this
-// file does not.
+// What the origin is actually needed for is deciding whether a coord is INSIDE
+// the window at all, because masking alone silently aliases everything outside
+// it back in. On the CPU that aliasing is already caught: GetChunk verifies
+// `c.coord.Equals(chunkCoord)` before returning. The GPU has no such identity
+// check -- a clipmap entry is 4 bytes with no coord in it -- which is exactly
+// why PHASE_3_COMPLETION.md §6.2's phantom terrain existed, and why the shader
+// needs `_WindowOriginBricks` while this file does not.
 //
 // Recording that asymmetry explicitly, because "the CPU didn't need the fix so
 // the GPU probably doesn't either" is a very easy and very expensive wrong
 // conclusion to reach here.
 //
 // ---------------------------------------------------------------------------
-// WHAT EVICTION HAD TO ADD (§4.5)
+// ConfigureWindow (NEW) -- fixing a latent coupling the Phase 4 run exposed
 // ---------------------------------------------------------------------------
-// Nothing in Phase 1-3 ever removed a chunk, so no code path existed to return
-// its memory. §4.5: eviction must "free the chunk's inlined BrickHandle[4096]
-// array and return its dense bricks to the Brick Data free-list". §13 Phase 4
-// names the failure signature: "Memory creep -> a pool free path missed on
-// eviction". EvictChunk below is that path, and it is the ONLY place a chunk
-// leaves residency.
+// This store used to take its ring dimensions from EngineConfig unconditionally.
+// That made every caller's window size implicitly global, including callers
+// that declare their own -- the raymarch oracle tests build synthetic worlds up
+// to 64x256x64 bricks (16 chunks tall) and simply assumed the global was at
+// least that big. It always was, so nothing ever failed, until
+// WINDOW_CHUNKS_Y was lowered to 2 and 53 tests died at once on
+// `Insert of chunk int3(0,2,0) would overwrite live chunk int3(0,0,0)`.
+//
+// That is the same shape as the bug ClipmapValidator's own header records:
+// several files each holding a private copy of the window size and only
+// accidentally agreeing. ConfigureWindow lets a caller state its window
+// explicitly instead of inheriting one.
 using System;
 using System.Collections.Generic;
 using Unity.Collections;
@@ -55,9 +58,9 @@ using VoxelEngine.Memory;
 
 public class ChunkStore : IWorldQuery, IEditService
 {
-    private readonly Chunk[] _residentWindow;
-    private readonly int3 _windowMask;
-    private readonly int3 _windowDims;
+    private Chunk[] _residentWindow;
+    private int3 _windowMask;
+    private int3 _windowDims;
 
     private readonly BrickDataPool _brickPool;
     private readonly ChunkHandleAllocator _handleAllocator;
@@ -68,15 +71,15 @@ public class ChunkStore : IWorldQuery, IEditService
     private int3 _windowOrigin;
 
     // Live count of resident chunks. Maintained incrementally rather than by
-    // scanning 16K slots, since the pool-pressure valve (§3.6) and the rig's
+    // scanning every slot, since the pool-pressure valve (§3.6) and the rig's
     // per-frame reporting both want it every frame.
     private int _residentCount;
 
     // Dense bricks currently held by resident chunks. Tracked here rather than
-    // derived from BrickDataPool because the pool's free-stack depth also
-    // counts bricks held by the cascade pools and by scratch pools used for
-    // baseline regeneration -- mixing those would make the §3.6 high-water
-    // test fire against the wrong number.
+    // derived from BrickDataPool because the pool's free-stack depth also counts
+    // bricks held by cascade pools and by scratch pools used for baseline
+    // regeneration -- mixing those would make the §3.6 high-water test fire
+    // against the wrong number.
     private int _denseBricksHeld;
 
     public int3 WindowOrigin => _windowOrigin;
@@ -89,30 +92,58 @@ public class ChunkStore : IWorldQuery, IEditService
     public int3 WindowMaxChunkExclusive => _windowOrigin + _windowDims;
 
     public ChunkStore(BrickDataPool brickPool, ChunkHandleAllocator handleAllocator)
+        : this(brickPool, handleAllocator,
+               new int3(EngineConfig.WINDOW_CHUNKS_XZ, EngineConfig.WINDOW_CHUNKS_Y, EngineConfig.WINDOW_CHUNKS_XZ))
+    { }
+
+    public ChunkStore(BrickDataPool brickPool, ChunkHandleAllocator handleAllocator, int3 windowChunks)
     {
         _brickPool = brickPool;
         _handleAllocator = handleAllocator;
-
-        // Window dimensions must be powers of two for bitwise masking (§3.3,
-        // §4.3). Asserted rather than assumed: a non-power-of-two does not
-        // fail loudly, it aliases silently, and silent aliasing in the ring is
-        // the same failure shape as §6.2's phantom terrain.
-        _windowDims = new int3(EngineConfig.WINDOW_CHUNKS_XZ, EngineConfig.WINDOW_CHUNKS_Y, EngineConfig.WINDOW_CHUNKS_XZ);
-        RequirePowerOfTwo(_windowDims.x, nameof(EngineConfig.WINDOW_CHUNKS_XZ));
-        RequirePowerOfTwo(_windowDims.y, nameof(EngineConfig.WINDOW_CHUNKS_Y));
-        RequirePowerOfTwo(_windowDims.z, nameof(EngineConfig.WINDOW_CHUNKS_XZ));
-
-        _windowMask = _windowDims - new int3(1, 1, 1);
+        AllocateWindow(windowChunks);
         _windowOrigin = int3.zero;
+    }
 
-        _residentWindow = new Chunk[_windowDims.x * _windowDims.y * _windowDims.z];
+    /// Resize the ring. Legal only while the store is EMPTY -- resizing with
+    /// chunks resident would silently re-map every occupied slot, which is the
+    /// aliasing failure this class exists to prevent.
+    ///
+    /// Intended for callers that declare their own window (the raymarch oracle
+    /// tests' synthetic worlds, chiefly) so they stop inheriting
+    /// EngineConfig's. Production code should pass the window to the
+    /// constructor instead.
+    public void ConfigureWindow(int3 windowChunks)
+    {
+        if (_residentCount != 0)
+            throw new InvalidOperationException(
+                $"[ChunkStore] ConfigureWindow called with {_residentCount} chunks resident. " +
+                "Resizing the ring re-maps every occupied slot; configure the window before inserting.");
+
+        AllocateWindow(windowChunks);
+    }
+
+    private void AllocateWindow(int3 windowChunks)
+    {
+        // Window dimensions must be powers of two for bitwise masking (§3.3,
+        // §4.3). Asserted rather than assumed: a non-power-of-two does not fail
+        // loudly, it aliases silently, and silent aliasing in the ring is the
+        // same failure shape as §6.2's phantom terrain.
+        RequirePowerOfTwo(windowChunks.x, "windowChunks.x");
+        RequirePowerOfTwo(windowChunks.y, "windowChunks.y");
+        RequirePowerOfTwo(windowChunks.z, "windowChunks.z");
+
+        _windowDims = windowChunks;
+        _windowMask = windowChunks - new int3(1, 1, 1);
+        _residentWindow = new Chunk[windowChunks.x * windowChunks.y * windowChunks.z];
+        _residentCount = 0;
+        _denseBricksHeld = 0;
     }
 
     private static void RequirePowerOfTwo(int value, string name)
     {
         if (value <= 0 || (value & (value - 1)) != 0)
             throw new InvalidOperationException(
-                $"EngineConfig.{name} = {value} is not a power of two. §3.3/§4.3 require power-of-two " +
+                $"[ChunkStore] {name} = {value} is not a power of two. §3.3/§4.3 require power-of-two " +
                 "window dimensions: the resident ring is addressed by (coord & (dim-1)) per axis, and a " +
                 "non-power-of-two makes that mask alias coords onto wrong slots silently rather than failing.");
     }
@@ -145,12 +176,12 @@ public class ChunkStore : IWorldQuery, IEditService
     public bool IsResident(int3 chunkCoord) => GetChunk(chunkCoord) != null;
 
     /// StreamManager only (§3.2). Moving the origin does not touch any slot:
-    /// chunks now outside the box keep occupying their ring slots until they
-    /// are explicitly evicted, and GetChunk's identity check keeps them
-    /// unreachable from any coord that isn't theirs in the meantime. That is
-    /// intentional -- it lets StreamManager slide the window first and then
-    /// drain evictions across several frames under MAX_CHUNK_SAVES_PER_FRAME,
-    /// rather than being forced to do all the freeing in the crossing frame.
+    /// chunks now outside the box keep occupying their ring slots until they are
+    /// explicitly evicted, and GetChunk's identity check keeps them unreachable
+    /// from any coord that isn't theirs in the meantime. That is intentional --
+    /// it lets StreamManager slide the window first and then drain evictions
+    /// across several frames under MAX_CHUNK_SAVES_PER_FRAME, rather than being
+    /// forced to do all the freeing in the crossing frame.
     public void SetWindowOrigin(int3 newOrigin) => _windowOrigin = newOrigin;
 
     // =========================================================================
@@ -161,15 +192,18 @@ public class ChunkStore : IWorldQuery, IEditService
     {
         int flat = GetFlatIndex(chunk.coord);
 
-        // A slot occupied by a DIFFERENT chunk means someone is inserting over
-        // a live chunk without evicting it -- the memory-creep failure
-        // signature §13 Phase 4 names. Caught here rather than leaking.
+        // A slot occupied by a DIFFERENT chunk means either an insert over a
+        // live chunk without evicting it (the memory-creep failure signature
+        // §13 Phase 4 names), or a window too small for the caller's world.
+        // Both are silent data corruption if allowed through.
         Chunk existing = _residentWindow[flat];
         if (existing != null && !existing.coord.Equals(chunk.coord))
             throw new InvalidOperationException(
                 $"[ChunkStore] Insert of chunk {chunk.coord} would overwrite live chunk {existing.coord} " +
-                $"in ring slot {flat} without eviction. Every chunk leaving residency must go through " +
-                "EvictChunk so its handle array and dense bricks are returned (§4.5).");
+                $"in ring slot {flat} (window {_windowDims}). Either a chunk left residency without going " +
+                "through EvictChunk (§4.5), or this store's window is smaller than the world being " +
+                "inserted -- if the caller has its own window size, pass it to the constructor or " +
+                "ConfigureWindow instead of inheriting EngineConfig's.");
 
         if (existing == null) _residentCount++;
         else _denseBricksHeld -= CountDenseBricks(existing); // same coord: re-insert, old accounting drops
@@ -196,13 +230,13 @@ public class ChunkStore : IWorldQuery, IEditService
     /// §4.5 eviction: free the inlined BrickHandle[4096] array and return the
     /// chunk's dense bricks to the Brick Data free-list.
     ///
-    /// Returns the number of dense bricks reclaimed, so StreamManager can
-    /// report it and the rig can assert the pool returns to its pre-traversal
-    /// level ("memory flat over 10 minutes -- any creep is a leak", §13).
+    /// Returns the number of dense bricks reclaimed, so StreamManager can report
+    /// it and the rig can assert the pool returns to its pre-traversal level
+    /// ("memory flat over 10 minutes -- any creep is a leak", §13).
     ///
-    /// Does NOT save the delta. Saving is a separate, earlier step in the
-    /// state machine (Resident->Saving->Unloaded), and folding it in here
-    /// would let a caller skip it by calling the wrong method.
+    /// Does NOT save the delta. Saving is a separate, earlier step in the state
+    /// machine (Resident->Saving->Unloaded); folding it in here would let a
+    /// caller skip it by calling the wrong method.
     public int EvictChunk(int3 chunkCoord)
     {
         Chunk chunk = GetChunk(chunkCoord);
@@ -222,9 +256,9 @@ public class ChunkStore : IWorldQuery, IEditService
                 }
             }
 
-            // Handle array goes back to the pooled allocator, which clears it
-            // on return (guarding against the handle-ghosting §3.3 warns about
-            // when arrays are recycled).
+            // Handle array goes back to the pooled allocator, which clears it on
+            // return (guarding against the handle-ghosting §3.3 warns about when
+            // arrays are recycled).
             _handleAllocator.Free(chunk.bricks);
             chunk.bricks = null;
         }
@@ -237,7 +271,7 @@ public class ChunkStore : IWorldQuery, IEditService
 
     /// Iterates every resident chunk. Used by the coalesce scheduler, the LRU
     /// scan, and the rig's census. Yields slots in ring order, which is NOT
-    /// spatial order -- callers that need distance ordering must sort.
+    /// spatial order -- callers needing distance ordering must sort.
     public IEnumerable<Chunk> ResidentChunks()
     {
         for (int i = 0; i < _residentWindow.Length; i++)
@@ -281,9 +315,9 @@ public class ChunkStore : IWorldQuery, IEditService
 
         // 1. Chunk uniform check
         //
-        // A null chunk returns air, and that is DELIBERATELY ambiguous with
-        // real air: the raymarcher, the CPU oracle and physics all want "there
-        // is nothing solid here", and an unloaded chunk satisfies that. Callers
+        // A null chunk returns air, and that is DELIBERATELY ambiguous with real
+        // air: the raymarcher, the CPU oracle and physics all want "there is
+        // nothing solid here", and an unloaded chunk satisfies that. Callers
         // that must distinguish "unloaded" from "air" -- the acceptance rig's
         // false-miss hunt, chiefly, which would otherwise score every
         // out-of-window ray as a defect -- ask IsResident/IsInWindow instead.
@@ -374,16 +408,15 @@ public class ChunkStore : IWorldQuery, IEditService
         chunk.deltaDirty = true;
     }
 
-    /// Coalescing (§4.5) frees dense bricks outside SetVoxel, so it reports
-    /// back here rather than letting the valve's accounting drift. Called by
-    /// CoalesceScheduler after Coalescer.TryCoalesce returns.
+    /// Coalescing (§4.5) frees dense bricks outside SetVoxel, so it reports back
+    /// here rather than letting the valve's accounting drift.
     public void NotifyDenseBricksFreed(int count) => _denseBricksHeld -= count;
 
-    /// A chunk that coalesced all the way to uniform hands its handle array
-    /// back here. Coalescer deliberately does not do this itself -- its own
-    /// comment says "the calling streaming/eviction system is responsible for
-    /// returning chunk.bricks back to the ChunkHandleAllocator to avoid tight
-    /// coupling", and this is that caller.
+    /// A chunk that coalesced all the way to uniform hands its handle array back
+    /// here. Coalescer deliberately does not do this itself -- its own comment
+    /// says "the calling streaming/eviction system is responsible for returning
+    /// chunk.bricks back to the ChunkHandleAllocator to avoid tight coupling",
+    /// and this is that caller.
     public void ReleaseHandleArray(Chunk chunk)
     {
         if (chunk.bricks == null) return;
