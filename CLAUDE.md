@@ -100,11 +100,17 @@ current numbers before reasoning about what's slow.
 
 ## Known landmines in this specific repo
 
-- Everything under `Assets/CoreEngine/Mirror/` except `CascadeTierPool.cs`
-  and `LODCascadeManager.cs` is namespace `VoxelEngine.Memory`, not
-  `VoxelEngine.Mirror`, despite the folder name. `AirMip`, `AirMipData`,
-  `PackedMips` all live in `VoxelEngine.Memory`. Check the actual
-  `namespace` line, never infer it from the directory.
+- `Assets/CoreEngine/Mirror/` is split across two namespaces and the folder
+  name tells you nothing. Verified 2026-08-29 by reading every `namespace`
+  line in the folder:
+    - `VoxelEngine.Memory`: `AirMip.cs`, `AirMip.Packed.cs`,
+      `AirMip.PackRegion.cs`, `AirMip.FromStore.cs`, `OccupancyMask.cs`
+      (so `AirMip`, `AirMipData`, `PackedMips` are all `VoxelEngine.Memory`).
+    - `VoxelEngine.Mirror`: `CascadeTierPool.cs`, `LODCascadeManager.cs`,
+      `LODDownsampler.cs`, `Tier0ExtractJob.cs`.
+  This bullet previously claimed LODDownsampler was `VoxelEngine.Memory`,
+  which was wrong. Check the actual `namespace` line, never infer it from
+  the directory OR from this list.
 - `WINDOW_CHUNKS_Y` (the CPU `ChunkStore` ring height, currently 16) and
   `MIRROR_CHUNKS_Y` (the GPU mirror height, currently 4) are intentionally
   different. Several oracle test files (`RaymarchOccupancyTests`,
