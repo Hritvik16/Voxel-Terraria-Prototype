@@ -179,6 +179,15 @@ public class Phase4AcceptanceRig : MonoBehaviour
         var pool = Phase4Bootstrapper.Pool;
         var clip = Phase4Bootstrapper.Clipmap;
 
+        // Restore whatever TerrainClipmap declares as its default, NOT a
+        // hardcoded true. This probe runs inside Gate B, so a hardcoded restore
+        // silently decides the write path for Gates C/D/E -- every gate whose
+        // upload numbers actually get reported -- regardless of the default the
+        // engine ships. That is how LockBufferForWrite came to be in force for
+        // the measured part of a run while PHASE_1_COMPLETION.md §4's standing
+        // decision was SetData.
+        bool writePathDefault = TerrainClipmap.UseLockBufferForUploads;
+
         foreach (bool useLock in new[] { true, false })
         {
             TerrainClipmap.UseLockBufferForUploads = useLock;
@@ -199,7 +208,10 @@ public class Phase4AcceptanceRig : MonoBehaviour
             Line($"write path {(useLock ? "LockBufferForWrite" : "SetData")}: " +
                  $"{total / reps:F2}ms per 32-chunk flush (main-thread only)");
         }
-        TerrainClipmap.UseLockBufferForUploads = true;
+        TerrainClipmap.UseLockBufferForUploads = writePathDefault;
+        Line($"write path restored to engine default: " +
+             $"{(writePathDefault ? "LockBufferForWrite" : "SetData")} " +
+             $"(this is what Gates C/D/E below were measured under)");
     }
 
     private void FlushReport()
