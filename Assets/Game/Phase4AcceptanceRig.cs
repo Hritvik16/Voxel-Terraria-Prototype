@@ -715,6 +715,8 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _packUpMs.Add(u.packUploadMs);
         _cascadeMs.Add(st.LastCascadeMs);
         _setDataCalls.Add(u.setDataCalls);
+        FrameGapProbe.LastSetDataCalls = u.setDataCalls;
+        FrameGapProbe.LastUploadBytes = u.bytesUploaded;
         _dirtyRemaining.Add(u.dirtyRemaining);
         _loadDeficit.Add(st.LoadDeficit());
 

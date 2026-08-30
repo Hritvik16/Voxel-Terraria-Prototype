@@ -65,6 +65,14 @@ public class FrameGapProbe : MonoBehaviour
     private readonly List<int>    _gc1        = new List<int>(CAPACITY);
     private readonly List<int>    _gc2        = new List<int>(CAPACITY);
     private readonly List<double> _heapMb     = new List<double>(CAPACITY);
+    private readonly List<double> _setDataCalls = new List<double>(CAPACITY);
+    private readonly List<double> _uploadBytes  = new List<double>(CAPACITY);
+
+    /// Published by the rig once per frame from LastUploadStats. Read at
+    /// end-of-frame so it lands on the same frame the intervals describe --
+    /// the alignment the frame-duration off-by-one already taught us to check.
+    public static int LastSetDataCalls;
+    public static int LastUploadBytes;
 
     private readonly Stopwatch _sw = Stopwatch.StartNew();
     private double _tEofPrev = -1, _tUpdate, _tLate;
@@ -104,6 +112,8 @@ public class FrameGapProbe : MonoBehaviour
                 _gc1.Add(GC.CollectionCount(1));
                 _gc2.Add(GC.CollectionCount(2));
                 _heapMb.Add(GC.GetTotalMemory(false) / 1048576.0);
+                _setDataCalls.Add(LastSetDataCalls);
+                _uploadBytes.Add(LastUploadBytes);
             }
             _tEofPrev = tEof;
             _armed = false;
@@ -116,6 +126,28 @@ public class FrameGapProbe : MonoBehaviour
     {
         _frameMs.Clear(); _unscaledMs.Clear(); _preUpdate.Clear(); _update.Clear(); _postLate.Clear();
         _gc0.Clear(); _gc1.Clear(); _gc2.Clear(); _heapMb.Clear();
+        _setDataCalls.Clear(); _uploadBytes.Clear();
+    }
+
+    private static string Fmt(double r) => double.IsNaN(r) ? "n/a" : r.ToString("+0.000;-0.000");
+    private static double Mean(List<double> v)
+    { if (v.Count == 0) return 0; double s = 0; foreach (double x in v) s += x; return s / v.Count; }
+
+    private static double Pearson(List<double> xs, List<double> ys)
+    {
+        int n = Math.Min(xs.Count, ys.Count);
+        if (n < 3) return double.NaN;
+        double mx = 0, my = 0;
+        for (int i = 0; i < n; i++) { mx += xs[i]; my += ys[i]; }
+        mx /= n; my /= n;
+        double num = 0, dx = 0, dy = 0;
+        for (int i = 0; i < n; i++)
+        {
+            double a = xs[i] - mx, b = ys[i] - my;
+            num += a * b; dx += a * a; dy += b * b;
+        }
+        if (dx <= 0 || dy <= 0) return double.NaN;
+        return num / Math.Sqrt(dx * dy);
     }
 
     private static double Pct(List<double> v, float p)
@@ -183,5 +215,20 @@ public class FrameGapProbe : MonoBehaviour
         }
         sb.AppendLine($"      managed heap: first {_heapMb[0]:F1}MB  last {_heapMb[_heapMb.Count-1]:F1}MB  " +
                       $"max {Pct(_heapMb,1.0f):F1}MB");
+
+        // H7: does the number of GPU write calls issued this frame predict the
+        // postLate stall? 98%+ of stutter wall clock is in render submission,
+        // and UploadDirtyBrickBodies coalesces only STRICTLY consecutive pool
+        // slots, so a fragmented dirty set turns into ~1200 SetData calls in a
+        // single frame against a 366MB shared buffer.
+        double rCalls = Pearson(_setDataCalls, _postLate);
+        double rBytes = Pearson(_uploadBytes, _postLate);
+        sb.AppendLine($"      r(setDataCalls, postLate) = {Fmt(rCalls)}   " +
+                      $"r(uploadBytes, postLate) = {Fmt(rBytes)}");
+        var sCalls = new List<double>(); var nCalls = new List<double>();
+        for (int i = 0; i < _frameMs.Count; i++)
+            (_frameMs[i] >= stutterMs ? sCalls : nCalls).Add(_setDataCalls[i]);
+        sb.AppendLine($"      GPU write calls/frame: stutter mean {Mean(sCalls),8:F1}   " +
+                      $"normal mean {Mean(nCalls),8:F1}   max {Pct(_setDataCalls,1.0f):F0}");
     }
 }
