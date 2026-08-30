@@ -47,7 +47,17 @@ public class FrameGapProbe : MonoBehaviour
 {
     private const int CAPACITY = 20000;
 
+    // EOF(N-1) -> EOF(N). THE authoritative frame duration for this probe:
+    // it is the exact sum of the three intervals below, by construction, so
+    // attribution can never silently fail to close.
+    //
+    // Time.unscaledDeltaTime CANNOT be used for this. Read during frame N it
+    // reports the duration of frame N-1, while the intervals describe frame N
+    // -- an off-by-one that made the first run's worst frames look like a
+    // 1410ms frame with 68ms of accounted work. It is kept as _unscaledMs
+    // purely as a cross-check column.
     private readonly List<double> _frameMs    = new List<double>(CAPACITY);
+    private readonly List<double> _unscaledMs = new List<double>(CAPACITY);
     private readonly List<double> _preUpdate  = new List<double>(CAPACITY);
     private readonly List<double> _update     = new List<double>(CAPACITY);
     private readonly List<double> _postLate   = new List<double>(CAPACITY);
@@ -85,7 +95,8 @@ public class FrameGapProbe : MonoBehaviour
             double tEof = Now;
             if (_armed && _frameMs.Count < CAPACITY)
             {
-                _frameMs.Add(Time.unscaledDeltaTime * 1000.0);
+                _frameMs.Add(tEof - _tEofPrev);
+                _unscaledMs.Add(Time.unscaledDeltaTime * 1000.0);
                 _preUpdate.Add(_tUpdate - _tEofPrev);
                 _update.Add(_tLate - _tUpdate);
                 _postLate.Add(tEof - _tLate);
@@ -103,7 +114,7 @@ public class FrameGapProbe : MonoBehaviour
     /// a blend of Gate C's traversal and Gate E's soak.
     public void Reset()
     {
-        _frameMs.Clear(); _preUpdate.Clear(); _update.Clear(); _postLate.Clear();
+        _frameMs.Clear(); _unscaledMs.Clear(); _preUpdate.Clear(); _update.Clear(); _postLate.Clear();
         _gc0.Clear(); _gc1.Clear(); _gc2.Clear(); _heapMb.Clear();
     }
 
@@ -127,7 +138,8 @@ public class FrameGapProbe : MonoBehaviour
         sb.AppendLine($"      {"",-14}{"p50",9}{"p99",9}{"max",9}");
         void Row(string n, List<double> v) =>
             sb.AppendLine($"      {n,-14}{Pct(v,0.5f),9:F2}{Pct(v,0.99f),9:F2}{Pct(v,1.0f),9:F2}");
-        Row("frame total", _frameMs);
+        Row("frame (EOF-EOF)", _frameMs);
+        Row("unscaledDelta", _unscaledMs);
         Row("preUpdate", _preUpdate);
         Row("update", _update);
         Row("postLate", _postLate);
@@ -144,6 +156,10 @@ public class FrameGapProbe : MonoBehaviour
                           $"update {sUpd / sTot * 100,5:F1}%   postLate {sPost / sTot * 100,5:F1}%");
             sb.AppendLine($"      stutter means (ms):           preUpdate {sPre / stut.Count,8:F1}   " +
                           $"update {sUpd / stut.Count,8:F1}   postLate {sPost / stut.Count,8:F1}");
+            double resid = sTot - (sPre + sUpd + sPost);
+            sb.AppendLine($"      UNACCOUNTED residual: {resid / sTot * 100,5:F2}% of stutter wall clock " +
+                          $"({resid / stut.Count,8:F2} ms/frame). Must be ~0: the three intervals are");
+            sb.AppendLine("      EOF(N-1)->Update->LateUpdate->EOF(N), which tile the frame exactly.");
 
             int gc0 = 0, gc1 = 0, gc2 = 0;
             foreach (int i in stut)
