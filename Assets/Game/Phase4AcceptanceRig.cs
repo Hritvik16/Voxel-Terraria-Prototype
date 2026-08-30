@@ -76,7 +76,17 @@ public class Phase4AcceptanceRig : MonoBehaviour
         if (fly != null) fly.enabled = false; // the rig drives the camera
     }
 
-    void Start() { if (_runOnStart) StartCoroutine(RunAll()); }
+    /// Frame wall-clock attribution. Added because every existing instrument
+    /// measures a span of our own work, and all of them stay sub-millisecond
+    /// while the frame takes 1000ms+ -- so the time is in the gaps between
+    /// them, which nothing has ever timed.
+    private FrameGapProbe _gapProbe;
+
+    void Start()
+    {
+        _gapProbe = gameObject.AddComponent<FrameGapProbe>();
+        if (_runOnStart) StartCoroutine(RunAll());
+    }
 
     private void Line(string s) { _report.AppendLine(s); Debug.Log("[Phase4Rig] " + s); }
     private void Check(bool ok, string what)
@@ -496,6 +506,7 @@ public class Phase4AcceptanceRig : MonoBehaviour
     private IEnumerator GateC()
     {
         _report.AppendLine("--- GATE C: sliding window, eviction, re-admission ---");
+        if (_gapProbe != null) { _gapProbe.Reset(); _gapProbe.Recording = true; }
 
         var store = Phase4Bootstrapper.Store;
         var pool = Phase4Bootstrapper.Pool;
@@ -660,6 +671,12 @@ public class Phase4AcceptanceRig : MonoBehaviour
     private readonly List<int> _loadDeficit = new List<int>();
     private readonly List<double> _cascadeDownMs = new List<double>();
     private readonly List<double> _cascadeWriteMs = new List<double>();
+
+    /// Per-frame LOD cascade ACTIVITY, as opposed to its main-thread cost.
+    /// The cost columns already read ~0.00ms, which says nothing about how much
+    /// tier-1/tier-2 work the GPU was handed -- that is what these count.
+    private readonly List<int> _cascadeChunks = new List<int>();
+    private readonly List<int> _cascadeWrites = new List<int>();
     private float _nextShotAt;
     private int _travShotIndex;
 
@@ -706,6 +723,129 @@ public class Phase4AcceptanceRig : MonoBehaviour
         {
             _cascadeDownMs.Add(casc.TierPool(1).LastDownsampleMs + casc.TierPool(2).LastDownsampleMs);
             _cascadeWriteMs.Add(casc.TierPool(1).LastGpuWriteMs + casc.TierPool(2).LastGpuWriteMs);
+            _cascadeChunks.Add(casc.TierPool(1).LastChunksProcessed + casc.TierPool(2).LastChunksProcessed);
+            _cascadeWrites.Add(casc.TierPool(1).LastWriteCalls + casc.TierPool(2).LastWriteCalls);
+        }
+        else { _cascadeChunks.Add(0); _cascadeWrites.Add(0); }
+    }
+
+    /// GPU-vs-stutter correlation.
+    ///
+    /// MEASUREMENT ONLY. The question it exists to answer is narrow: when a
+    /// frame takes a second, is the GPU busy, or is it idle while something
+    /// else blocks? Every previous investigation this session read CPU-side
+    /// signals, so this reads the one signal that has never been correlated --
+    /// gpuFrameTime -- against frame time, camera position, and how much
+    /// tier-1/tier-2 cascade work was in flight.
+    ///
+    /// CAVEATS STATED, NOT BURIED:
+    ///   - gpuFrameTime is a RELATIVE signal here (~2.6x inflated, Amendment
+    ///     8.10). Ratios within this run are meaningful; absolute ms are not.
+    ///   - FrameTimingManager validity runs ~50%. Invalid samples are EXCLUDED,
+    ///     not treated as zero, and both counts are printed so a split that
+    ///     rests on a handful of samples is visible as such.
+    private void AppendGpuCorrelation()
+    {
+        const double STUTTER_MS = 100.0;
+
+        var slowG = new List<double>();
+        var fastG = new List<double>();
+        var allG  = new List<double>();
+        int slowTotal = 0, fastTotal = 0;
+        int slowCascChunks = 0, fastCascChunks = 0;
+        int slowCascFrames = 0, fastCascFrames = 0;
+
+        // Pearson r over frames where BOTH figures are real.
+        double n = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+
+        for (int i = 0; i < _frameMs.Count; i++)
+        {
+            bool slow = _frameMs[i] >= STUTTER_MS;
+            if (slow) slowTotal++; else fastTotal++;
+
+            if (i < _cascadeChunks.Count)
+            {
+                if (slow) { slowCascChunks += _cascadeChunks[i]; slowCascFrames++; }
+                else      { fastCascChunks += _cascadeChunks[i]; fastCascFrames++; }
+            }
+
+            if (i >= _gpuMs.Count || _gpuMs[i] < 0) continue;   // invalid sample
+            double g = _gpuMs[i];
+            allG.Add(g);
+            if (slow) slowG.Add(g); else fastG.Add(g);
+
+            double x = _frameMs[i];
+            n++; sx += x; sy += g; sxx += x * x; syy += g * g; sxy += x * g;
+        }
+
+        _report.AppendLine("    --- GPU correlation (measurement only; gpu is relative-within-run) ---");
+
+        if (allG.Count == 0)
+        {
+            _report.AppendLine("      NO VALID gpuFrameTime SAMPLES -- this block proves nothing either way.");
+            return;
+        }
+
+        _report.AppendLine(
+            $"      gpu ms, all valid frames ({allG.Count}): " +
+            $"p50 {Pct(allG, 0.5f):F2}  p90 {Pct(allG, 0.9f):F2}  " +
+            $"p99 {Pct(allG, 0.99f):F2}  max {Pct(allG, 1.0f):F2}");
+
+        _report.AppendLine(
+            $"      stutter frames (>= {STUTTER_MS:F0}ms): {slowTotal} total, {slowG.Count} with valid gpu" +
+            (slowG.Count == 0 ? "  <-- none valid, no comparison possible"
+                              : $"  ->  gpu p50 {Pct(slowG, 0.5f):F2}  max {Pct(slowG, 1.0f):F2}"));
+        _report.AppendLine(
+            $"      normal  frames (<  {STUTTER_MS:F0}ms): {fastTotal} total, {fastG.Count} with valid gpu" +
+            (fastG.Count == 0 ? ""
+                              : $"  ->  gpu p50 {Pct(fastG, 0.5f):F2}  max {Pct(fastG, 1.0f):F2}"));
+
+        if (slowG.Count > 0 && fastG.Count > 0)
+        {
+            double ratio = Pct(fastG, 0.5f) > 0 ? Pct(slowG, 0.5f) / Pct(fastG, 0.5f) : -1;
+            _report.AppendLine(
+                $"      gpu p50 ratio stutter/normal: {ratio:F2}x   " +
+                $"(frame time ratio is {(Pct(_frameMs, 0.99f) / Math.Max(0.001, Pct(_frameMs, 0.5f))):F0}x). " +
+                "A GPU-bound stutter would show these two ratios in the same ballpark.");
+        }
+
+        if (n > 2)
+        {
+            double num = n * sxy - sx * sy;
+            double den = Math.Sqrt(Math.Max(0, n * sxx - sx * sx)) * Math.Sqrt(Math.Max(0, n * syy - sy * sy));
+            _report.AppendLine(
+                $"      Pearson r(frame_ms, gpu_ms) = {(den > 0 ? num / den : 0):F3} over {n:F0} frames " +
+                "(~0 = gpu flat while frames vary; ~1 = gpu tracks the stutter)");
+        }
+
+        _report.AppendLine(
+            $"      cascade chunks/frame: stutter mean {(slowCascFrames > 0 ? (double)slowCascChunks / slowCascFrames : 0):F2}, " +
+            $"normal mean {(fastCascFrames > 0 ? (double)fastCascChunks / fastCascFrames : 0):F2} " +
+            "(tier-1 + tier-2 entries rebuilt that frame -- the LOD-boundary activity proxy)");
+
+        // Where the stutters happen, as a camera-chunk histogram. If they
+        // cluster on specific chunks rather than spreading over the leg, the
+        // scene content at those chunks is worth looking at.
+        var hist = new Dictionary<int3, int>();
+        for (int i = 0; i < _frameMs.Count && i < _frameCamChunk.Count; i++)
+            if (_frameMs[i] >= STUTTER_MS)
+            {
+                int3 c = _frameCamChunk[i];
+                hist.TryGetValue(c, out int v);
+                hist[c] = v + 1;
+            }
+        if (hist.Count > 0)
+        {
+            var top = new List<KeyValuePair<int3, int>>(hist);
+            top.Sort((a, b) => b.Value.CompareTo(a.Value));
+            var hb = new StringBuilder("      stutter camera chunks (top 8): ");
+            for (int i = 0; i < Math.Min(8, top.Count); i++)
+            {
+                hb.Append($"{top[i].Key}x{top[i].Value}");
+                if (i < Math.Min(8, top.Count) - 1) hb.Append(", ");
+            }
+            hb.Append($"   [{hist.Count} distinct chunks over {slowTotal} stutter frames]");
+            _report.AppendLine(hb.ToString());
         }
     }
 
@@ -948,6 +1088,7 @@ public class Phase4AcceptanceRig : MonoBehaviour
 
     private void ReportUpload(string label, List<double> ms, List<int> bytes, List<double> drain)
     {
+        if (_gapProbe != null) _gapProbe.Recording = false;
         if (ms.Count == 0) { Line($"{label}: no frames sampled"); return; }
 
         ms.Sort();
@@ -1010,6 +1151,8 @@ public class Phase4AcceptanceRig : MonoBehaviour
             }
             _report.AppendLine(sb.ToString());
         }
+        AppendGpuCorrelation();
+        if (_gapProbe != null) _gapProbe.AppendReport(_report);
         _report.AppendLine($"    staging         {Pct(_stagingMs, 0.5f),8:F2} / {Pct(_stagingMs, 0.99f),8:F2}");
         _report.AppendLine($"    clipmap write   {Pct(_clipSetMs, 0.5f),8:F2} / {Pct(_clipSetMs, 0.99f),8:F2}");
         _report.AppendLine($"    mip rebuild     {Pct(_mipMs, 0.5f),8:F2} / {Pct(_mipMs, 0.99f),8:F2}");
@@ -1272,6 +1415,7 @@ public class Phase4AcceptanceRig : MonoBehaviour
     // =====================================================================
     private IEnumerator GateE()
     {
+        if (_gapProbe != null) { _gapProbe.Reset(); _gapProbe.Recording = true; }
         _report.AppendLine($"--- GATE E: sustained traversal soak ({_soakSeconds:F0}s) ---");
         _report.AppendLine("NOTE: §13 asks for 10 MINUTES. This runs 20s by default so the whole rig finishes");
         _report.AppendLine("in a couple of minutes; raise _soakSeconds to 600 for the real gate once the run is");
