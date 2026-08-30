@@ -221,6 +221,16 @@ namespace VoxelEngine.Mirror
             public NativeArray<byte> Tier0;
             public readonly NativeArray<byte>[] Steps;   // Steps[i] holds edge 128 >> (i+1)
 
+            /// TierOut[t-1] holds tier t's finished result, for t in [1, TIER_COUNT).
+            ///
+            /// The .Run() path does not need these: it produces one tier, the
+            /// caller copies it out, and only then does the next tier reuse the
+            /// Steps buffers. The SCHEDULED path has no such pause -- the whole
+            /// chain is in flight at once, and tier 2's steps overwrite the very
+            /// buffer holding tier 1's result. So each tier's result is copied
+            /// aside as it is produced, inside the chain.
+            public readonly NativeArray<byte>[] TierOut;
+
             public DownsampleScratch()
             {
                 const int chunkEdgeVoxels = 128;
@@ -239,6 +249,13 @@ namespace VoxelEngine.Mirror
                     edge /= 2;
                     Steps[i] = new NativeArray<byte>(edge * edge * edge, Allocator.Persistent);
                 }
+
+                TierOut = new NativeArray<byte>[LODConfig.TIER_COUNT - 1];
+                for (int t = 1; t < LODConfig.TIER_COUNT; t++)
+                {
+                    int e = chunkEdgeVoxels / LODConfig.DownsampleFactor(t);
+                    TierOut[t - 1] = new NativeArray<byte>(e * e * e, Allocator.Persistent);
+                }
             }
 
             public void Dispose()
@@ -247,6 +264,9 @@ namespace VoxelEngine.Mirror
                 if (Steps != null)
                     for (int i = 0; i < Steps.Length; i++)
                         if (Steps[i].IsCreated) Steps[i].Dispose();
+                if (TierOut != null)
+                    for (int i = 0; i < TierOut.Length; i++)
+                        if (TierOut[i].IsCreated) TierOut[i].Dispose();
             }
         }
 
@@ -293,6 +313,94 @@ namespace VoxelEngine.Mirror
             ExtractChunkTier0MaterialsInto(chunk, pool, 128, scratch.Tier0);
             ExtractTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
             return true;
+        }
+
+        [Unity.Burst.BurstCompile]
+        public struct CopyBufferJob : Unity.Jobs.IJob
+        {
+            [ReadOnly] public NativeArray<byte> src;
+            public NativeArray<byte> dst;
+            public void Execute() { for (int i = 0; i < src.Length; i++) dst[i] = src[i]; }
+        }
+
+        /// Schedules the ENTIRE downsample -- tier-0 gather plus every tier's
+        /// halving chain -- behind `dep`, and returns without waiting.
+        ///
+        /// MAIN THREAD (Unity schedules only from there). Reads the native
+        /// GeneratedChunk rather than a managed Chunk, which is the whole reason
+        /// Tier0ExtractJob exists: the managed chunk does not exist yet at the
+        /// point this is scheduled.
+        ///
+        /// Results land in scratch.TierOut[t-1] and are valid once the returned
+        /// handle completes. Same "this is scratch, not a gift" contract as
+        /// everything else here -- copy before queueing anything across threads.
+        ///
+        /// BIT-IDENTICAL TO THE .Run() PATH BY CONSTRUCTION: tier t's result is
+        /// still `steps(t)` applications of the same majority-vote step to the
+        /// same tier-0 gather. The chain continues from the previous tier's
+        /// buffer instead of restarting at Tier0, which is the same sequence of
+        /// halvings, just without recomputing the shared prefix.
+        public static JobHandle ScheduleAllTiersFromNative(in VoxelEngine.WorldGen.GeneratedChunk gen,
+                                                           DownsampleScratch scratch, JobHandle dep)
+        {
+            if (gen.isUniform)
+            {
+                // Cannot currently happen -- generation never collapses a chunk
+                // to uniform -- but a reused buffer must be written in full if
+                // it ever does, exactly as the !tier0Prepared path does.
+                for (int t = 1; t < LODConfig.TIER_COUNT; t++)
+                {
+                    var buf = scratch.TierOut[t - 1];
+                    for (int i = 0; i < buf.Length; i++) buf[i] = gen.uniformMaterial;
+                }
+                return dep;
+            }
+
+            JobHandle h = new Tier0ExtractJob
+            {
+                handles = gen.handles,
+                bodies = gen.bodies,
+                result = scratch.Tier0,
+                chunkEdgeVoxels = 128,
+            }.Schedule(dep);
+
+            // Deepest tier drives the chain; shallower tiers copy out of it on
+            // the way down. Tiers are ordered by increasing step count, so a
+            // single descending chain produces all of them.
+            int maxSteps = 0;
+            for (int t = 1; t < LODConfig.TIER_COUNT; t++)
+                maxSteps = Math.Max(maxSteps, IntegerLog2(LODConfig.DownsampleFactor(t)));
+
+            var tail = new NativeList<JobHandle>(LODConfig.TIER_COUNT, Allocator.Temp);
+            try
+            {
+                NativeArray<byte> current = scratch.Tier0;
+                int currentEdge = 128;
+                for (int i = 0; i < maxSteps; i++)
+                {
+                    h = new DownsampleStepJob
+                    {
+                        src = current, dst = scratch.Steps[i], srcEdge = currentEdge,
+                    }.Schedule(h);
+                    current = scratch.Steps[i];
+                    currentEdge /= 2;
+
+                    for (int t = 1; t < LODConfig.TIER_COUNT; t++)
+                    {
+                        if (IntegerLog2(LODConfig.DownsampleFactor(t)) != i + 1) continue;
+                        tail.Add(new CopyBufferJob
+                        {
+                            src = scratch.Steps[i], dst = scratch.TierOut[t - 1],
+                        }.Schedule(h));
+                    }
+                }
+
+                for (int i = 0; i < tail.Length; i++)
+                    h = JobHandle.CombineDependencies(h, tail[i]);
+            }
+            finally { tail.Dispose(); }
+
+            return h;
         }
 
         /// Downsamples to one tier from an already-prepared scratch.Tier0.

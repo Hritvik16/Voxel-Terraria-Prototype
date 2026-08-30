@@ -425,57 +425,109 @@ namespace VoxelEngine.WorldGen
 
         /// The fill itself: column sampling then brick classification, both
         /// Burst jobs. Writes only into `gen`.
+        /// The inputs both execution paths feed to the two generation jobs.
+        ///
+        /// SHARED ON PURPOSE. The worker path must use .Run() (Unity forbids
+        /// scheduling off the main thread) while the job path uses .Schedule(),
+        /// so there are two call sites. Building their inputs in ONE place is
+        /// what keeps them from drifting: if the two paths ever disagreed about
+        /// a culled cave set or a biome table, they would silently generate
+        /// different terrain for the same coord depending on whether the chunk
+        /// happened to have a delta file.
+        ///
+        /// Caller disposes, and must not do so before the jobs complete.
+        public struct GenJobResources : IDisposable
+        {
+            public NativeArray<int> colHeights;
+            public NativeArray<byte> colBiomes;
+            public ColumnSampler.State localSt;
+            public NativeArray<FeatureAnchor> caves;
+            public NativeArray<BiomeMaterials> biomeTable;
+            public NativeArray<int> denseOut;
+
+            public void Dispose()
+            {
+                if (colHeights.IsCreated) colHeights.Dispose();
+                if (colBiomes.IsCreated) colBiomes.Dispose();
+                localSt.Dispose();
+                if (caves.IsCreated) caves.Dispose();
+                if (biomeTable.IsCreated) biomeTable.Dispose();
+                if (denseOut.IsCreated) denseOut.Dispose();
+            }
+        }
+
+        private const int CHUNK_EDGE_VOXELS = 128;
+        private const int CHUNK_COLUMNS = CHUNK_EDGE_VOXELS * CHUNK_EDGE_VOXELS;
+
+        private static GenJobResources BuildResources(in ColumnSampler.State st,
+                                                      WorldMetaData meta, int3 baseVoxel)
+        {
+            return new GenJobResources
+            {
+                colHeights = new NativeArray<int>(CHUNK_COLUMNS, Allocator.Persistent),
+                colBiomes  = new NativeArray<byte>(CHUNK_COLUMNS, Allocator.Persistent),
+                localSt    = ColumnSampler.CullForChunk(in st, baseVoxel, CHUNK_EDGE_VOXELS, Allocator.Persistent),
+                caves      = CavesIntersectingChunk(meta, baseVoxel, Allocator.Persistent),
+                biomeTable = BuildBiomeTable(Allocator.Persistent),
+                denseOut   = new NativeArray<int>(1, Allocator.Persistent),
+            };
+        }
+
+        private static ColumnSampleJob MakeColumnJob(in GenJobResources r, int3 baseVoxel) =>
+            new ColumnSampleJob
+            {
+                st = r.localSt,
+                baseVoxelX = baseVoxel.x,
+                baseVoxelZ = baseVoxel.z,
+                edge = CHUNK_EDGE_VOXELS,
+                heights = r.colHeights,
+                biomes = r.colBiomes,
+            };
+
+        private static ChunkFillJob MakeFillJob(in GenJobResources r, int3 baseVoxel,
+                                                in GeneratedChunk gen) =>
+            new ChunkFillJob
+            {
+                colHeights = r.colHeights,
+                colBiomes = r.colBiomes,
+                caves = r.caves,
+                biomes = r.biomeTable,
+                baseVoxel = baseVoxel,
+                handles = gen.handles,
+                bodies = gen.bodies,
+                denseCount = r.denseOut,
+            };
+
+        /// WORKER-THREAD path. .Run() executes the Burst code on the calling
+        /// thread, which is the only option off the main thread.
         private static void FillNative(in ColumnSampler.State st, WorldMetaData meta,
                                        int3 chunkCoord, ref GeneratedChunk gen)
         {
-
-            int3 baseVoxel = chunkCoord * 128;
-
-            const int CHUNK_EDGE = 128;
-            const int CHUNK_COLS = CHUNK_EDGE * CHUNK_EDGE;
-
-            var colHeights = new NativeArray<int>(CHUNK_COLS, Allocator.Persistent);
-            var colBiomes = new NativeArray<byte>(CHUNK_COLS, Allocator.Persistent);
-            var localSt = ColumnSampler.CullForChunk(in st, baseVoxel, CHUNK_EDGE, Allocator.Persistent);
-            var caves = CavesIntersectingChunk(meta, baseVoxel, Allocator.Persistent);
-            var biomeTable = BuildBiomeTable(Allocator.Persistent);
-            var denseOut = new NativeArray<int>(1, Allocator.Persistent);
+            int3 baseVoxel = chunkCoord * CHUNK_EDGE_VOXELS;
+            GenJobResources r = BuildResources(in st, meta, baseVoxel);
             try
             {
-                // Step 1: every column, Burst-compiled (Stage 4 of the Burst work).
-                new ColumnSampleJob
-                {
-                    st = localSt,
-                    baseVoxelX = baseVoxel.x,
-                    baseVoxelZ = baseVoxel.z,
-                    edge = CHUNK_EDGE,
-                    heights = colHeights,
-                    biomes = colBiomes,
-                }.Run();
-
-                // Steps 2-4: brick classification and dense fill, also Burst.
-                // .Run() executes on THIS thread, so the existing generation
-                // workers and the completion queue are untouched -- scheduling
-                // is Stage 5 and deliberately not attempted here.
-                new ChunkFillJob
-                {
-                    colHeights = colHeights,
-                    colBiomes = colBiomes,
-                    caves = caves,
-                    biomes = biomeTable,
-                    baseVoxel = baseVoxel,
-                    handles = gen.handles,
-                    bodies = gen.bodies,
-                    denseCount = denseOut,
-                }.Run();
-
-                gen.denseCount = denseOut[0];
+                MakeColumnJob(in r, baseVoxel).Run();
+                MakeFillJob(in r, baseVoxel, in gen).Run();
+                gen.denseCount = r.denseOut[0];
             }
-            finally
-            {
-                colHeights.Dispose(); colBiomes.Dispose(); localSt.Dispose();
-                caves.Dispose(); biomeTable.Dispose(); denseOut.Dispose();
-            }
+            finally { r.Dispose(); }
+        }
+
+        /// MAIN-THREAD path. Schedules the same two jobs, in the same order,
+        /// against the same inputs, and returns without waiting.
+        ///
+        /// The caller owns `res` and must Dispose it AFTER completing the
+        /// returned handle, and must read gen.denseCount from res.denseOut[0]
+        /// at that point -- a job cannot write it back into the struct.
+        public static JobHandle ScheduleChunkNative(in ColumnSampler.State st, WorldMetaData meta,
+                                                    int3 chunkCoord, ref GeneratedChunk gen,
+                                                    out GenJobResources res)
+        {
+            int3 baseVoxel = chunkCoord * CHUNK_EDGE_VOXELS;
+            res = BuildResources(in st, meta, baseVoxel);
+            JobHandle h = MakeColumnJob(in res, baseVoxel).Schedule();
+            return MakeFillJob(in res, baseVoxel, in gen).Schedule(h);
         }
 
         /// Fills a GeneratedChunk and stops there -- no managed Chunk, no pool.

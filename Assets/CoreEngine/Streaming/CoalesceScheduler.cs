@@ -129,14 +129,24 @@ namespace VoxelEngine.Streaming
 
             if (freed > 0 || collapsed)
             {
-                // The GPU still holds the pre-coalesce handles. Not re-marking
-                // dirty here leaves the clipmap pointing at pool slots that
-                // have been freed and may already be reissued to another chunk
-                // -- i.e. exactly the silent CPU/GPU drift §3.7's validator
-                // exists to catch.
-                chunk.dirty = true;
+                // The tier-0 clipmap MUST re-upload: its handles point at pool
+                // slots the coalesce just freed, which may already be reissued
+                // -- the silent CPU/GPU drift §3.7's validator exists to catch.
                 _clipmap.MarkDirty(chunk.coord);
-                _cascades.MarkDirty(chunk.coord);
+
+                // The CASCADES deliberately do NOT re-mark. Coalescing is
+                // content-preserving by definition (§4.5: it detects that all
+                // voxels are already identical and changes only the
+                // representation), and the cascade tiers are derived from voxel
+                // CONTENT -- so the existing downsampled data is still exactly
+                // right. Re-marking here was queueing an ~11ms main-thread
+                // downsample per coalesced chunk to recompute bytes that could
+                // not have changed.
+                //
+                // chunk.dirty is likewise NOT set: that flag now feeds
+                // StreamManager's edit-propagation sweep, which marks BOTH
+                // mirrors -- using it here would re-queue the cascade work this
+                // branch exists to avoid.
             }
         }
 
