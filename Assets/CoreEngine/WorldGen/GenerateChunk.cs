@@ -422,22 +422,12 @@ namespace VoxelEngine.WorldGen
         // allocLock: when non-null, guards the (not thread-safe) brick pool and
         // handle allocator so this function can be called concurrently from
         // Parallel.For. Null = single-threaded caller, no locking cost.
-        public static void GenerateChunkFull(in ColumnSampler.State st, WorldMetaData meta,
-            int3 chunkCoord, Chunk chunk, ChunkHandleAllocator allocator, BrickDataPool pool,
-            object allocLock = null)
-        {
-            long _tCallStart = System.Diagnostics.Stopwatch.GetTimestamp();
 
-            // STAGE 3: generation fills a blittable GeneratedChunk; the managed
-            // Chunk is materialised from it at the end. The brick loop below no
-            // longer touches Chunk.bricks or BrickDataPool at all, which is what
-            // makes it eligible to become a job in Stage 4.
-            //
-            // The allocLock now covers only the transfer, not the whole fill --
-            // the fill has no shared state left to protect.
-            var gen = GeneratedChunk.Create(Allocator.Persistent);
-            try
-            {
+        /// The fill itself: column sampling then brick classification, both
+        /// Burst jobs. Writes only into `gen`.
+        private static void FillNative(in ColumnSampler.State st, WorldMetaData meta,
+                                       int3 chunkCoord, ref GeneratedChunk gen)
+        {
 
             int3 baseVoxel = chunkCoord * 128;
 
@@ -486,7 +476,42 @@ namespace VoxelEngine.WorldGen
                 colHeights.Dispose(); colBiomes.Dispose(); localSt.Dispose();
                 caves.Dispose(); biomeTable.Dispose(); denseOut.Dispose();
             }
+        }
 
+        /// Fills a GeneratedChunk and stops there -- no managed Chunk, no pool.
+        ///
+        /// STAGE 5a: the downsample's tier-0 gather needs the chunk in NATIVE
+        /// form so it can be chained behind the fill job as a JobHandle
+        /// dependency. Previously the only way to get a chunk out of here was
+        /// already-converted and managed, which is why the design doc's claim
+        /// that "DownsampleStepJob follows trivially" was wrong.
+        ///
+        /// Caller owns `gen` and disposes it.
+        public static void GenerateChunkNative(in ColumnSampler.State st, WorldMetaData meta,
+            int3 chunkCoord, ref GeneratedChunk gen)
+        {
+            long _tCallStart = System.Diagnostics.Stopwatch.GetTimestamp();
+            FillNative(in st, meta, chunkCoord, ref gen);
+            TotalPhaseTicks += System.Diagnostics.Stopwatch.GetTimestamp() - _tCallStart;
+        }
+
+        public static void GenerateChunkFull(in ColumnSampler.State st, WorldMetaData meta,
+            int3 chunkCoord, Chunk chunk, ChunkHandleAllocator allocator, BrickDataPool pool,
+            object allocLock = null)
+        {
+            long _tCallStart = System.Diagnostics.Stopwatch.GetTimestamp();
+
+            // STAGE 3: generation fills a blittable GeneratedChunk; the managed
+            // Chunk is materialised from it at the end. The brick loop below no
+            // longer touches Chunk.bricks or BrickDataPool at all, which is what
+            // makes it eligible to become a job in Stage 4.
+            //
+            // The allocLock now covers only the transfer, not the whole fill --
+            // the fill has no shared state left to protect.
+            var gen = GeneratedChunk.Create(Allocator.Persistent);
+            try
+            {
+                FillNative(in st, meta, chunkCoord, ref gen);
             // Materialise into the managed Chunk. This is the only place the
             // shared pool and handle allocator are touched (§0.1.5).
             bool ok;
