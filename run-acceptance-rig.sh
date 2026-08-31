@@ -42,7 +42,10 @@ fi
 echo "== Running (this blocks until the rig quits itself — expect several minutes) =="
 # -n forces a fresh instance rather than waiting on one already running.
 # -W blocks this script until the app process exits.
-open -n -W "$APP_PATH"
+# -cleardeltas: the player default is now FALSE (saves persist, §10.1 says the
+# auto-cleaner is an Editor tool, not a shipped player behaviour). The rig wants
+# a pristine world every run so gate results stay comparable, so it asks for one.
+open -n -W "$APP_PATH" --args -cleardeltas
 
 echo "== Locating the run this just produced =="
 LATEST=$(ls -td "$RIG_OUTPUT_DIR"/*/ 2>/dev/null | head -n 1)
