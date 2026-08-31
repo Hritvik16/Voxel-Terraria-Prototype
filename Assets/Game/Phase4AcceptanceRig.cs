@@ -786,6 +786,8 @@ public class Phase4AcceptanceRig : MonoBehaviour
     private readonly List<double> _packUpMs = new List<double>();
     private readonly List<double> _cascadeMs = new List<double>();
     private readonly List<int> _setDataCalls = new List<int>();
+    private readonly List<int> _brickSlots = new List<int>();
+    private readonly List<int> _brickRuns = new List<int>();
     private readonly List<int> _dirtyRemaining = new List<int>();
     private readonly List<int> _loadDeficit = new List<int>();
     /// §13's criterion is "no pop-in inside 128m"; _loadDeficit is a 166m
@@ -838,6 +840,8 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _packUpMs.Add(u.packUploadMs);
         _cascadeMs.Add(st.LastCascadeMs);
         _setDataCalls.Add(u.setDataCalls);
+        _brickSlots.Add(u.brickSlots);
+        _brickRuns.Add(u.brickRuns);
         FrameGapProbe.LastSetDataCalls = u.setDataCalls;
         FrameGapProbe.LastUploadBytes = u.bytesUploaded;
         _dirtyRemaining.Add(u.dirtyRemaining);
@@ -1316,6 +1320,11 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _report.AppendLine($"      - downsample  {Pct(_cascadeDownMs, 0.5f),8:F2} / {Pct(_cascadeDownMs, 0.99f),8:F2}");
         _report.AppendLine($"      - gpu writes  {Pct(_cascadeWriteMs, 0.5f),8:F2} / {Pct(_cascadeWriteMs, 0.99f),8:F2}");
         _report.AppendLine($"    max GPU write calls/frame: {MaxOf(_setDataCalls)}");
+        _report.AppendLine($"    dense-body FRAGMENTATION: slots p99 {Pct(ToD(_brickSlots),0.99f):F0} " +
+                           $"max {MaxOf(_brickSlots):F0}; runs p99 {Pct(ToD(_brickRuns),0.99f):F0} " +
+                           $"max {MaxOf(_brickRuns):F0}; runs/slots at max = " +
+                           $"{(MaxOf(_brickSlots) > 0 ? MaxOf(_brickRuns) / MaxOf(_brickSlots) : 0):F3} " +
+                           $"(1.000 = every slot its own SetData call)");
         _report.AppendLine($"    max clipmap dirty backlog: {MaxOf(_dirtyRemaining)} chunks");
         _report.AppendLine($"    load deficit INSIDE 128m (§13's actual criterion): " +
                            $"p50 {Pct(ToD(_deficitIn128), 0.5f):F0}, p99 {Pct(ToD(_deficitIn128), 0.99f):F0}, " +
