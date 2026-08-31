@@ -125,7 +125,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         int3 storeWindowChunks = _store.WindowDims;
         int3 mirrorChunks = new int3(EngineConfig.WINDOW_CHUNKS_XZ, EngineConfig.MIRROR_CHUNKS_Y, EngineConfig.WINDOW_CHUNKS_XZ);
         Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity);
-        Cascades = new LODCascadeManager(mirrorChunks, tier => LODCascadeManager.DefaultTierPoolCapacity(EngineConfig.BRICK_POOL_CAP));
+        Cascades = new LODCascadeManager(mirrorChunks, tier => EngineConfig.CascadeTierPoolCap(tier));
 
         UnityEngine.Debug.Log($"[Phase4Bootstrapper] store ring {storeWindowChunks}, GPU mirror {mirrorChunks} " +
                               $"(camera altitude ceiling {EngineConfig.MIRROR_CEILING_METRES:F1}m -- see EngineConfig)");
