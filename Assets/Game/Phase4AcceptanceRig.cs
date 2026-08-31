@@ -788,6 +788,10 @@ public class Phase4AcceptanceRig : MonoBehaviour
     private readonly List<int> _setDataCalls = new List<int>();
     private readonly List<int> _dirtyRemaining = new List<int>();
     private readonly List<int> _loadDeficit = new List<int>();
+    /// §13's criterion is "no pop-in inside 128m"; _loadDeficit is a 166m
+    /// Chebyshev square. Split so the assertion can actually be settled.
+    private readonly List<int> _deficitIn128 = new List<int>();
+    private readonly List<int> _deficitOut128 = new List<int>();
     private readonly List<double> _cascadeDownMs = new List<double>();
     private readonly List<double> _cascadeWriteMs = new List<double>();
 
@@ -837,7 +841,10 @@ public class Phase4AcceptanceRig : MonoBehaviour
         FrameGapProbe.LastSetDataCalls = u.setDataCalls;
         FrameGapProbe.LastUploadBytes = u.bytesUploaded;
         _dirtyRemaining.Add(u.dirtyRemaining);
-        _loadDeficit.Add(st.LoadDeficit());
+        st.LoadDeficitSplit(out int din, out int dout);
+        _loadDeficit.Add(din + dout);
+        _deficitIn128.Add(din);
+        _deficitOut128.Add(dout);
 
         var casc = Phase4Bootstrapper.Cascades;
         if (casc != null)
@@ -1310,6 +1317,15 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _report.AppendLine($"      - gpu writes  {Pct(_cascadeWriteMs, 0.5f),8:F2} / {Pct(_cascadeWriteMs, 0.99f),8:F2}");
         _report.AppendLine($"    max GPU write calls/frame: {MaxOf(_setDataCalls)}");
         _report.AppendLine($"    max clipmap dirty backlog: {MaxOf(_dirtyRemaining)} chunks");
+        _report.AppendLine($"    load deficit INSIDE 128m (§13's actual criterion): " +
+                           $"p50 {Pct(ToD(_deficitIn128), 0.5f):F0}, p99 {Pct(ToD(_deficitIn128), 0.99f):F0}, " +
+                           $"max {MaxOf(_deficitIn128):F0} chunks");
+        _report.AppendLine($"    load deficit 128m..166m (OUTSIDE the criterion): " +
+                           $"p50 {Pct(ToD(_deficitOut128), 0.5f):F0}, p99 {Pct(ToD(_deficitOut128), 0.99f):F0}, " +
+                           $"max {MaxOf(_deficitOut128):F0} chunks");
+        Check(MaxOf(_deficitIn128) == 0,
+            $"§13 'no pop-in inside 128m': max {MaxOf(_deficitIn128):F0} chunks missing inside the " +
+            $"128m radius at any sampled frame");
         _report.AppendLine($"    load deficit during traversal: p50 {Pct(ToD(_loadDeficit), 0.5f):F0}, " +
                            $"p99 {Pct(ToD(_loadDeficit), 0.99f):F0}, max {MaxOf(_loadDeficit):F0} chunks " +
                            $"(0 = the visible world was always complete; a big number IS the 'terrain " +

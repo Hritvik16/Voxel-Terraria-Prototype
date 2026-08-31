@@ -991,6 +991,41 @@ namespace VoxelEngine.Streaming
         /// This is the number the player experiences as "terrain loading slower
         /// than I move": zero means the visible world is complete, and its decay
         /// after a teleport is the refill rate. The rig samples it every frame.
+        /// §13 Phase 4 asserts "no pop-in inside 128m". LoadDeficit() below
+        /// counts a CHEBYSHEV SQUARE of _loadRadiusChunks (13 chunks = 166m on
+        /// the axis, 235m to the corner), which is a DIFFERENT claim -- it
+        /// includes chunks up to 235m away that §13 says nothing about. The
+        /// 600s soak measured deficit p99 89 / max 226 against that square and
+        /// the criterion could not be settled either way, because a deficit at
+        /// 200m is not a violation of "inside 128m".
+        ///
+        /// This splits the same sweep by true Euclidean XZ distance. A chunk
+        /// counts as INSIDE 128m when its NEAREST point is within 128m, not its
+        /// centre -- the strict reading, since any missing voxel inside the
+        /// radius is pop-in inside the radius. Nearest point of chunk (dx,dz) is
+        /// (max(0,|dx|-0.5), max(0,|dz|-0.5)) chunks away, in 12.8m units.
+        ///
+        /// 128m is §4.3's LOD0 radius, the figure §13's assertion refers to.
+        public const float POPIN_CRITERION_METRES = 128f;
+
+        public void LoadDeficitSplit(out int inside128, out int outside128)
+        {
+            inside128 = 0; outside128 = 0;
+            int r = _loadRadiusChunks;
+            const float CH = 12.8f;
+            float limitSq = POPIN_CRITERION_METRES * POPIN_CRITERION_METRES;
+            for (int cy = 0; cy <= MAX_GENERATED_CHUNK_Y; cy++)
+            for (int dz = -r; dz <= r; dz++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                if (_store.IsResident(new int3(_lastCameraChunk.x + dx, cy, _lastCameraChunk.z + dz)))
+                    continue;
+                float nx = Math.Max(0f, Math.Abs(dx) - 0.5f) * CH;
+                float nz = Math.Max(0f, Math.Abs(dz) - 0.5f) * CH;
+                if (nx * nx + nz * nz <= limitSq) inside128++; else outside128++;
+            }
+        }
+
         public int LoadDeficit()
         {
             int deficit = 0;
