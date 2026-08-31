@@ -120,10 +120,61 @@ Measured p99 across every run this phase:
 | split run 3 | 1.504 fail | 1.255 fail |
 | 5-run leak verification | — | 1.198–1.241, passed 3 of 5 |
 
-The overrun is marginal (1.19–1.63ms against 1.0ms) and **variable enough that
-whole runs pass** — one run this session was 51 PASS / 0 FAIL. It is a real
-budget miss, not a blow-out, and it is not stable enough to attribute to any
-single cause from these numbers alone.
+The overrun is marginal (0.98–1.63ms against 1.0ms) and **variable enough that
+whole runs pass** — one run was 51 PASS / 0 FAIL and another measured Gate C at
+0.981ms, under budget. It is a real budget miss, not a blow-out.
+
+**Profiled before attempting any fix (2026-08-31).** The 2.09ms staging figure
+that had motivated "optimise the staging loop" is **stale** — it predates the
+cascade leak fix, when memory pressure made every phase slow. Current per-phase
+p99, three runs:
+
+| phase | p99 range | governed by |
+|---|---|---|
+| brick bodies | **0.29 – 1.15 ms** | dense body SetData calls |
+| staging | 0.26 – 0.76 ms | the 4096-iteration fill |
+| mip rebuild | 0.13 – 0.22 ms | AirMip.RebuildRegion |
+| pack region | 0.05 – 0.06 ms | AirMip.PackRegion |
+| packed mip up | 0.04 ms | one SetData |
+| clipmap write | 0.03 ms | the write mechanism (settled, ~2%) |
+
+**There is no dominant hotspot left.** `brick bodies` is the largest term, and
+the worst frames are the ones saturating the byte cap (`max upload
+bytes/frame = 3145728`, exactly `MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME`) while
+issuing up to 3,056 GPU write calls.
+
+Fragmentation was then measured directly, since per-call overhead and
+bytes-moved are different problems: dense slots/frame p99 3308, runs (SetData
+calls) p99 241, **runs/slots = 0.224** — average run only ~4.5 bricks, ~2.3 KB
+per driver call.
+
+**One fix was attempted against that measured cause, and reverted.**
+`BrickDataPool`'s free stack starts ordered but eviction scatters it, so a
+chunk's bricks land on non-consecutive slots and the run-coalescer can only
+build short runs. `SortFreeTop` re-sorted the top of the stack from the §4.5
+background scan. Result, run 1:
+
+| | before | after |
+|---|---|---|
+| runs/slots | 0.224 / 0.210 | 0.186 / 0.169 (improved) |
+| max write calls | 1094 | 880 (improved) |
+| **upload p99 Gate C** | 0.981ms | **1.164ms (worse)** |
+| **upload p99 Gate E** | 1.478ms | **2.149ms (worse)** |
+| pop-in inside 128m | max 0 | **max 42 (new gate failure)** |
+
+Fragmentation improved and the number it was meant to fix got worse. Reverted
+without completing the 5-run series, per the session rule that a change whose
+first run moves the primary metric the wrong way and adds a gate failure is not
+worth five runs. **Why it cannot work, recorded so it is not retried:**
+streaming interleaves `Free` and `Alloc` continuously, so the next evictions
+push scattered indices straight back onto the sorted region before the ordering
+is consumed. It also allocated a scratch `int[]` per pass on the streaming path,
+against §0.1 invariant 3. ClipmapValidator stayed GREEN and LOST UPDATES stayed
+0 throughout — a performance revert, not a correctness one.
+
+**Status: NOT CLOSED, and the cheap levers are now known to be exhausted.**
+Closing a 0.2–0.6ms gap requires restructuring how per-chunk dense bodies reach
+the GPU, not tuning the existing path.
 
 **No pop-in inside 128m — MET. This reverses an earlier NOT MET verdict, and
 the reversal is an instrument correction, not a code change.**
@@ -148,16 +199,30 @@ radius is pop-in inside the radius. Three runs, six gate measurements:
 | 2 | E soak (600s) | 0 / 0 / **12** | 0 / 86 / 181 |
 | 3 | C traversal | 0 / 0 / **0** | 11 / 44 / 51 |
 | 3 | E soak (600s) | 0 / 0 / **0** | 0 / 27 / 51 |
+| 4 | C traversal | 0 / 0 / **0** | — |
+| 4 | E soak | 0 / **7** / **30** | — |
 
-**Deficit inside 128m is p99 = 0 in all six measurements**, and max 0 in five of
-six. The entire 89/226 lay in the 128–166m band, outside the criterion.
+**Deficit inside 128m is p99 ≤ 7 in all eight measurements and 0 in seven of
+eight**, with max 0 in six of eight. The 89/226 that produced the original NOT
+MET verdict lay entirely in the 128–166m band, outside the criterion.
 
-**The one honest exception:** one 600s soak (run 2) recorded a single-frame max
-of **12 chunks** briefly missing inside 128m. p99 was still 0, so this is one
-transient frame in one of three sustained soaks, not a sustained condition —
-but it is not zero, and it is recorded rather than rounded away. The criterion
-as literally written ("no pop-in inside 128m") is met at p99 in every run and
-violated on one sampled frame out of ~20,000 in one run.
+**The honest exceptions, recorded rather than rounded away:** two 600s soaks
+registered brief inside-128m deficits — a single-frame max of **12** chunks in
+one, and p99 7 / max **30** in another. Neither is a sustained condition (p50 is
+0 everywhere), but neither is zero. The criterion as literally written is met at
+p50 in every run and at p99 in seven of eight, and is violated on isolated
+frames in two of four sustained soaks.
+
+**One run was discarded as contaminated, and the reason is worth recording**
+because it independently corroborates §4. A final confirming run measured
+deficit p50 **20** / max 65, upload p99 2.359ms, and a RED ClipmapValidator
+(10,617 handle mismatches, **0 lost updates** — all upload lag). Checking the
+machine found **79 MB free** with Firefox newly running at ~970 MB across three
+processes; the earlier runs had no browser open. Same binary, byte-identical
+tree — the difference was ~1 GB of external memory pressure on an 8 GB machine.
+That is the same mechanism the 6 GB leak fix addressed, reproduced accidentally,
+and it is a standing hazard for every measurement this project takes: **a run
+with a browser open is not comparable to one without.**
 
 **Frame time over 10 minutes — holds.** Gate C p99 20.90ms, Gate E p99 24.47ms,
 with 9 stutters in 1,511 frames (Gate C) and 128 in 20,000 (Gate E, 0.64%).
@@ -342,6 +407,48 @@ cascade shipped, and the tier math has never been tested at its own limit.
 
 ---
 
+## 5b. The methodological lesson — the most transferable output of this phase
+
+**Two of this phase's three reported failures were measurement defects, not
+engine defects.** Both were believed because the numbers were precise.
+
+**The pop-in criterion.** Reported NOT MET at deficit p99 89 / max 226 for a
+full session. `LoadDeficit()` counted a Chebyshev square of 13 chunks — 166m on
+the axis, 235m to the corner — while §13 asserts a 128m Euclidean radius. A
+chunk missing at 200m is not a violation of "inside 128m". Split correctly, the
+deficit inside the criterion is p99 = 0 across three runs and six gate
+measurements. Nothing in the engine changed.
+
+**The coalescing assertion, which was wrong three successive ways and reported
+green for two of them:**
+
+| version | assertion | result | why it was wrong |
+|---|---|---|---|
+| 1 | `denseAfter <= denseBefore` | **green** | would pass if *nothing* coalesced |
+| 2 | every refilled brick is uniform | red, 25 of 25 | tunnel is dug 0.2m under the surface, so every brick straddles air/solid and was already dense — correct behaviour reported as failure |
+| 3 | uniform-before ⇒ uniform-after | **green, 0 of 0** | no tunnel brick *was* uniform, so the check was structurally incapable of failing |
+| 4 | count bricks going dense → uniform, assert > 0 | green, 25 | the actual §4.5 evidence |
+
+Version 1 shipped green for the whole phase. Version 3 was green while testing
+nothing. Only after digging a **second tunnel at 2.4m depth**, inside uniform
+material, did the criterion become demonstrable at all.
+
+**The pattern in both:** the spec's assertion was read loosely, an instrument
+was built against the loose reading, and the instrument's precision was mistaken
+for correctness. The fix in both cases was the same — read the assertion
+literally, then measure exactly the thing it names, and check that the
+instrument is *capable* of failing before trusting it when it passes.
+
+A third instance, milder, in the same phase: `ps rss` reported ~3.3 GB while
+`vmmap` physical footprint reported 8.7–10.3 GB, because `rss` does not count
+IOAccelerator regions. Every prior session had used `rss`. It hid a 6 GB leak
+(§4) completely.
+
+**The standing rule this suggests:** a green check earns trust only once it has
+been shown to go red for the right reason. None of versions 1–3 ever had.
+
+---
+
 ## 6. Known gaps carried forward (tracked, not blocking)
 
 **6.0 FIXED THIS SESSION — the player no longer deletes saves on launch.**
@@ -399,7 +506,21 @@ majority-vote error would be invisible.
 **6.6 The upload budget overrun is small but real.** 1.198–1.434ms against
 1.0ms. Passes in Gate C and in 3 of 5 short runs; fails in the 600s soak.
 
-**6.7 Pool-pressure valve (§3.6) never exercised.** Peak utilisation was 67% of
+**6.7 The §4.3 upload budget's cheap levers are exhausted.** Profiled and one
+measured-cause fix attempted and reverted (§3.1). `brick bodies` is the
+dominant phase; the worst frames saturate the byte cap while issuing up to
+3,056 write calls; free-list defragmentation improved fragmentation and made
+the timing worse. Closing it means restructuring how dense bodies reach the
+GPU. §0.2 forbids raising the byte cap and the write mechanism is settled.
+
+**6.8 The `_clearDeltasOnStart` scene-override trap.** The field's *code*
+default was `true` and the scene serialised `1`. Changing the code default
+alone would have been **completely inert** — Unity's serialised value wins, and
+nothing would have warned. Both had to change. Any future "flip a default"
+change to a `[SerializeField]` in this project must check the scene YAML too;
+this one was found only by grepping the `.unity` file.
+
+**6.9 Pool-pressure valve (§3.6) never exercised.** Peak utilisation was 67% of
 cap; the valve fires at 85%. Its behaviour under real pressure is untested —
 §3.6 itself defers this to a Phase 6 test, so this is by design, but it means
 the LRU eviction path in `ApplyPoolPressureValve` has never run in anger.
