@@ -133,7 +133,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         }
 
         // ---- Pools / store / mirrors ----
-        _pool = new BrickDataPool(EngineConfig.BRICK_POOL_CAP);
+        _pool = new BrickDataPool(EngineConfig.BRICK_POOL_CAP, rangeAware: true);
         _allocator = new ChunkHandleAllocator(1024);
         _store = new ChunkStore(_pool, _allocator);
         Store = _store; Pool = _pool;

@@ -46,14 +46,34 @@ namespace VoxelEngine.Memory
         public int PeakUsed { get; private set; }
         public int InUse => Capacity - _freeCount;
 
-        public BrickDataPool(int capacity)
+        /// Only the tier-0 pool needs contiguous ranges. Cascade tier pools and
+        /// per-worker scratch pools do many single-slot Alloc/Free per frame and
+        /// never call TryAllocRange -- and the run list's Insert is O(runs)
+        /// where the old flat stack was O(1). Making them pay for ranges they
+        /// do not use cost a MEASURED 0.15-0.18ms -> 0.66-0.70ms on the cascade
+        /// phase. They keep the flat stack.
+        private readonly bool _rangeAware;
+        private NativeArray<int> _freeStack;   // flat path only
+
+        public BrickDataPool(int capacity) : this(capacity, false) { }
+
+        public BrickDataPool(int capacity, bool rangeAware)
         {
+            _rangeAware = rangeAware;
             Capacity = capacity;
             
             // Allocate the raw voxel arrays
             _brickData = new NativeArray<byte>(capacity * 512, Allocator.Persistent);
             _freeCount = capacity;
-            if (capacity > 0) _free.Add(new Run(0, capacity));
+            if (_rangeAware)
+            {
+                if (capacity > 0) _free.Add(new Run(0, capacity));
+            }
+            else
+            {
+                _freeStack = new NativeArray<int>(capacity, Allocator.Persistent);
+                for (int i = 0; i < capacity; i++) _freeStack[i] = capacity - 1 - i;
+            }
         }
 
         /// Index of the run containing `slot`, or the bitwise complement of the
@@ -124,6 +144,13 @@ namespace VoxelEngine.Memory
             if (_freeCount == 0)
                 throw new InvalidOperationException(
                     "BrickDataPool exhausted. LRU valve failed or cap is too low.");
+            if (!_rangeAware)
+            {
+                int flat = _freeStack[--_freeCount];
+                int u = Capacity - _freeCount;
+                if (u > PeakUsed) PeakUsed = u;
+                return flat;
+            }
             return TakeFront(0, 1);
         }
 
@@ -143,6 +170,7 @@ namespace VoxelEngine.Memory
         /// own range, where the hole it left almost always still is.
         public int AllocNear(int hint)
         {
+            if (!_rangeAware) return Alloc();
             if (_freeCount == 0)
                 throw new InvalidOperationException(
                     "BrickDataPool exhausted. LRU valve failed or cap is too low.");
@@ -197,7 +225,7 @@ namespace VoxelEngine.Memory
         public bool TryAllocRange(int n, out int baseIndex)
         {
             baseIndex = -1;
-            if (n <= 0 || _freeCount < n) return false;
+            if (!_rangeAware || n <= 0 || _freeCount < n) return false;
 
             int best = -1, bestLen = int.MaxValue;
             for (int i = 0; i < _free.Count; i++)
@@ -214,6 +242,7 @@ namespace VoxelEngine.Memory
         {
             if (index < 0 || index >= Capacity)
                 throw new ArgumentOutOfRangeException(nameof(index));
+            if (!_rangeAware) { _freeStack[_freeCount++] = index; return; }
             Insert(index, 1);
         }
 
@@ -225,6 +254,7 @@ namespace VoxelEngine.Memory
             if (n <= 0) return;
             if (baseIndex < 0 || baseIndex + n > Capacity)
                 throw new ArgumentOutOfRangeException(nameof(baseIndex));
+            if (!_rangeAware) { for (int i = 0; i < n; i++) _freeStack[_freeCount++] = baseIndex + i; return; }
             Insert(baseIndex, n);
         }
 
@@ -237,6 +267,7 @@ namespace VoxelEngine.Memory
         public void Dispose()
         {
             if (_brickData.IsCreated) _brickData.Dispose();
+            if (_freeStack.IsCreated) _freeStack.Dispose();
         }
     }
 }

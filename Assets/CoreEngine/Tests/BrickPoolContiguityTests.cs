@@ -31,7 +31,7 @@ public class BrickPoolContiguityTests
     [Test]
     public void TryAllocRange_ReturnsConsecutiveSlots()
     {
-        using var pool = new BrickDataPool(1024);
+        using var pool = new BrickDataPool(1024, true);
         Assert.IsTrue(pool.TryAllocRange(300, out int b));
         for (int i = 0; i < 300; i++)
             Assert.AreEqual(b + i, b + i, "range must be consecutive by construction");
@@ -41,7 +41,7 @@ public class BrickPoolContiguityTests
     [Test]
     public void TryAllocRange_FailsRatherThanOverlapping_WhenNoRunFits()
     {
-        using var pool = new BrickDataPool(100);
+        using var pool = new BrickDataPool(100, true);
         Assert.IsTrue(pool.TryAllocRange(60, out _));
         Assert.IsFalse(pool.TryAllocRange(60, out _), "must refuse, not overlap");
         Assert.IsTrue(pool.TryAllocRange(40, out _), "the remaining 40 still fit");
@@ -51,7 +51,7 @@ public class BrickPoolContiguityTests
     [Test]
     public void FreeRange_RoundTripsToFullCapacity()
     {
-        using var pool = new BrickDataPool(4096);
+        using var pool = new BrickDataPool(4096, true);
         Assert.IsTrue(pool.TryAllocRange(1000, out int b));
         pool.FreeRange(b, 1000);
         Assert.AreEqual(0, pool.InUse);
@@ -61,7 +61,7 @@ public class BrickPoolContiguityTests
     [Test]
     public void AdjacentFrees_MergeIntoOneRun()
     {
-        using var pool = new BrickDataPool(64);
+        using var pool = new BrickDataPool(64, true);
         var got = new List<int>();
         for (int i = 0; i < 10; i++) got.Add(pool.Alloc());
         foreach (int i in got) pool.Free(i);
@@ -72,7 +72,7 @@ public class BrickPoolContiguityTests
     [Test]
     public void DoubleFree_Throws_RatherThanCorruptingSilently()
     {
-        using var pool = new BrickDataPool(32);
+        using var pool = new BrickDataPool(32, true);
         int a = pool.Alloc();
         pool.Free(a);
         Assert.Throws<System.InvalidOperationException>(() => pool.Free(a),
@@ -82,7 +82,7 @@ public class BrickPoolContiguityTests
     [Test]
     public void AllocNear_ReturnsTheHintWhenItIsFree()
     {
-        using var pool = new BrickDataPool(1024);
+        using var pool = new BrickDataPool(1024, true);
         Assert.IsTrue(pool.TryAllocRange(500, out int b));
         int hole = b + 137;
         pool.Free(hole);
@@ -97,7 +97,7 @@ public class BrickPoolContiguityTests
     public void ResidentEditChurn_KeepsContiguity()
     {
         const int CHUNKS = 24, BRICKS = 460, CYCLES = 4000, HOLES_OUTSTANDING = 200;
-        using var pool = new BrickDataPool(60000);
+        using var pool = new BrickDataPool(60000, true);
         var live = new List<List<int>>();
 
         for (int c = 0; c < CHUNKS; c++)
@@ -190,7 +190,7 @@ public class BrickPoolContiguityTests
     public void ResidentEditChurn_WithoutHint_DegradesMeasurably()
     {
         const int CHUNKS = 24, BRICKS = 460, CYCLES = 4000, HOLES_OUTSTANDING = 200;
-        using var pool = new BrickDataPool(60000);
+        using var pool = new BrickDataPool(60000, true);
         var live = new List<List<int>>();
         for (int c = 0; c < CHUNKS; c++)
         {
@@ -239,7 +239,7 @@ public class BrickPoolContiguityTests
     [Test]
     public void FragmentationFuzz_NeverLeaksOrDoubleIssues()
     {
-        using var pool = new BrickDataPool(8192);
+        using var pool = new BrickDataPool(8192, true);
         var rng = new System.Random(4242);
         var held = new List<(int b, int n)>();
         for (int step = 0; step < 20000; step++)
