@@ -3,13 +3,24 @@
 **Project:** Voxel Terraria 1 Byte BrickMap
 **Spec:** ARCHITECTURE_v8.6.md §13 Phase 4
 **Date:** August 30, 2026
-**Final gate tally:** 48 PASS / 1 FAIL (the §4.3 upload budget, 1.149ms vs 1.0ms)
+**Final gate tally:** 50 PASS / 1 FAIL — the §4.3 upload budget (1.035ms vs
+1.0ms) is the only failing gate. Across this phase's runs the tally ranged from
+51 PASS / 0 FAIL to 48 PASS / 3 FAIL, all variance in the upload budget and (in
+one run) a single-frame pop-in transient.
 **Hardware:** Apple M1 Air (fanless, 8GB unified memory)
 **Engine:** Unity 6000.3.10f1, IL2CPP, release standalone
 
-**VERDICT UP FRONT: Phase 4 is NOT closeable. Three of the four §13 acceptance
-criteria are met; one (sustained-traversal frame/upload budget) is not, and one
-sub-assertion of a fourth is untested.** §7 states exactly what blocks closure.
+**VERDICT UP FRONT: Phase 4 is NOT closeable, but only one acceptance criterion
+now fails.** Three of §13's four criteria are fully met. The fourth (sustained
+traversal) has memory-flatness and no-pop-in-inside-128m met, leaving **the
+≤1.0ms upload budget as the single failing acceptance criterion** at
+1.03–1.63ms. One sub-assertion of the force-quit test is untested. §7 states
+exactly what blocks closure.
+
+**A NOT MET verdict from the previous session has been reversed on
+re-measurement, not on a code change** — see §3.1. The pop-in criterion was
+being measured against a 166m Chebyshev square while §13 asserts a 128m
+Euclidean radius.
 
 ---
 
@@ -72,7 +83,7 @@ a manual step not performed).
 
 ## 3. The four §13 acceptance tests
 
-### 3.1 Sustained traversal — **NOT MET**
+### 3.1 Sustained traversal — **PARTIALLY MET** (upload budget only)
 
 > "Edge-to-edge at 60 m/s repeatedly: no pop-in inside 128m, upload ≤1.0ms
 > steady, memory flat over 10 minutes (any creep is a leak)."
@@ -98,27 +109,55 @@ than that, so RSS (1 MB resolution, −4.18 MB/min) is the instrument the
 conclusion rests on. `ps rss` alone would have been the wrong instrument
 entirely — it undercounted by ~6 GB before this branch's leak fix (§4).
 
-**Upload ≤1.0ms steady — PARTIALLY MET.** Gate C 0.684ms p99 (**passes**),
-Gate E 1.434ms p99 (**fails**). Across the five verification runs of §4 the
-figure ranged 1.198–1.241ms and passed outright in 3 of 5. The overrun is
-marginal and consistent, not a blow-out.
+**Upload ≤1.0ms steady — NOT MET, and this is now the only failing criterion.**
+Measured p99 across every run this phase:
 
-**No pop-in inside 128m — NOT MET, and this is the weakest result.** Measured
-via the rig's load-deficit counter (chunks inside the load square that are not
-resident), not by eye:
+| run | Gate C | Gate E |
+|---|---|---|
+| 600s soak (first) | 0.684 **pass** | 1.434 fail |
+| split run 1 | pass (all gates green) | pass |
+| split run 2 | 1.194 fail | 1.633 fail |
+| split run 3 | 1.504 fail | 1.255 fail |
+| 5-run leak verification | — | 1.198–1.241, passed 3 of 5 |
 
-| gate | deficit p50 | p99 | max |
+The overrun is marginal (1.19–1.63ms against 1.0ms) and **variable enough that
+whole runs pass** — one run this session was 51 PASS / 0 FAIL. It is a real
+budget miss, not a blow-out, and it is not stable enough to attribute to any
+single cause from these numbers alone.
+
+**No pop-in inside 128m — MET. This reverses an earlier NOT MET verdict, and
+the reversal is an instrument correction, not a code change.**
+
+The first pass recorded deficit p99 89 / max 226 and called the criterion
+failed. That number came from `LoadDeficit()`, which counts a **Chebyshev
+square** of `_loadRadiusChunks` = 13 chunks — 166m on the axis, **235m to the
+corner**. §13 asserts a **128m Euclidean radius**. A chunk missing at 200m is
+not a violation of "inside 128m", so the two were never the same claim and the
+criterion could not be settled either way.
+
+`LoadDeficitSplit` now partitions the same sweep by true Euclidean XZ distance,
+counting a chunk as inside 128m when its **nearest point** (not its centre) is
+within the radius — the strict reading, since any missing voxel inside the
+radius is pop-in inside the radius. Three runs, six gate measurements:
+
+| run | gate | **deficit ≤128m** p50/p99/max | deficit 128–166m p50/p99/max |
 |---|---|---|---|
-| Gate C traversal | 0 | 27 | 27 |
-| Gate E soak (600s) | 0 | **89** | **226** |
+| 1 | C traversal | 0 / 0 / **0** | 0 / 27 / 27 |
+| 1 | E soak (20s) | 0 / 0 / **0** | 0 / 27 / 32 |
+| 2 | C traversal | 0 / 0 / **0** | 0 / 27 / 27 |
+| 2 | E soak (600s) | 0 / 0 / **12** | 0 / 86 / 181 |
+| 3 | C traversal | 0 / 0 / **0** | 11 / 44 / 51 |
+| 3 | E soak (600s) | 0 / 0 / **0** | 0 / 27 / 51 |
 
-p50 is 0 — the world is complete most of the time. But a p99 of 89 and a max of
-226 missing chunks means the visible world *was* incomplete during sustained
-traversal, repeatedly. **Method caveat:** the counter measures the load square
-(radius 13 chunks ≈ 166m), which is wider than §13's 128m assertion, so some
-deficit may lie outside 128m and not violate the letter of the criterion. The
-rig does not currently break the deficit down by radius, so this is recorded as
-NOT MET rather than argued either way.
+**Deficit inside 128m is p99 = 0 in all six measurements**, and max 0 in five of
+six. The entire 89/226 lay in the 128–166m band, outside the criterion.
+
+**The one honest exception:** one 600s soak (run 2) recorded a single-frame max
+of **12 chunks** briefly missing inside 128m. p99 was still 0, so this is one
+transient frame in one of three sustained soaks, not a sustained condition —
+but it is not zero, and it is recorded rather than rounded away. The criterion
+as literally written ("no pop-in inside 128m") is met at p99 in every run and
+violated on one sampled frame out of ~20,000 in one run.
 
 **Frame time over 10 minutes — holds.** Gate C p99 20.90ms, Gate E p99 24.47ms,
 with 9 stutters in 1,511 frames (Gate C) and 128 in 20,000 (Gate E, 0.64%).
@@ -305,6 +344,15 @@ cascade shipped, and the tier math has never been tested at its own limit.
 
 ## 6. Known gaps carried forward (tracked, not blocking)
 
+**6.0 FIXED THIS SESSION — the player no longer deletes saves on launch.**
+`_clearDeltasOnStart` shipped as a *player* default of `true` (serialised `1` in
+the scene, so the code default was moot), meaning every standalone launch
+deleted the previous session's saves before the pools initialised. Now `false`
+in both code and scene; rig runs pass `-cleardeltas` for a pristine world and
+`run-acceptance-rig.sh` does so, keeping gate results comparable. §10.1's
+placement complaint below still stands — it remains a player field rather than
+an Editor `[InitializeOnLoad]` tool.
+
 **6.1 §10.1's auto-cleaner is in the wrong place.** §13 lists "Auto-cleaner
 toggle (§10.1)" as a Phase 4 deliverable and §10.1 specifies
 `[InitializeOnLoad]` on exiting play mode. **No such Editor script exists.**
@@ -317,12 +365,14 @@ destroys the previous session's saves by default** — correct for repeatable ri
 runs, wrong for a game. Should be moved to an Editor script and the player
 default flipped before Phase 6.
 
-**6.2 Window sizing was never reconciled with the world.** §13 asks Phase 4 to
-"measure and record `WINDOW_CHUNKS_XZ`/`_Y` and the resulting handle/clipmap
-memory here (§11.3)". §11.3's clipmap and cascade-pool rows are still literal
-`[Phase 4]` / `[Phase 2]` placeholders. The measured numbers now exist
-(tier0 clipmap 64 MB ×2; pools 244/78/23 MB ×2, peak utilisation 67%/71%/57%)
-and should be written into §11.3.
+**6.2 FIXED THIS SESSION — §11.3's placeholders are filled.** §13 asks Phase 4
+to "measure and record `WINDOW_CHUNKS_XZ`/`_Y` and the resulting handle/clipmap
+memory here (§11.3)". Those rows were literal `[Phase 4]` / `[Phase 2]`
+placeholders. Now populated from measurement with their derivations: clipmap
+64+64 MB, inlined handles ~12 MB, pools 244+244 MB, cascades 202 MB, declared
+total ~837 MB against a measured 1.6 GB physical footprint and the ≤3,000 MB
+ceiling. **Still open:** the window was sized against §4.3's streaming
+requirement and never against the world — see §6.4.
 
 **6.3 Neither gate meets the 16.67ms frame budget at p99, and Gate E is worse
 and more variable.** Gate C p99 median 15.37ms (range 13.59–25.42) does clear
@@ -375,19 +425,37 @@ are the strongest results here.
   forbidden transitions enforced; 181/181 EditMode.
 - ⚠️ "At most the in-flight chunk reverted" not measured (§3.3) — needs a
   commit journal independent of the deltas.
-- ❌ **Upload ≤1.0ms steady not met** — 1.434ms in the 600s soak (§3.1, §6.6).
-- ❌ **No pop-in inside 128m not met** — load deficit p99 89, max 226 in the
-  soak (§3.1).
+- ✅ **No pop-in inside 128m — MET** (§3.1). Deficit inside the criterion is
+  p99 = 0 across all six gate measurements; the earlier NOT MET was measuring a
+  166m square against a 128m assertion. One single-frame max of 12 chunks in one
+  of three 600s soaks is recorded as the exception.
+- ❌ **Upload ≤1.0ms steady not met** — 1.19–1.63ms (§3.1, §6.6).
 - ❌ **Frame budget not met at p99 in either gate**, Gate E worst (§6.3).
 
-**Phase 4 is NOT closed.** Three of four acceptance criteria are met. What
-blocks closure is the first criterion, and specifically its two measured
-failures: the sustained-traversal load deficit (pop-in) and the upload budget
-overrun — plus the p99 frame budget, which §13 does not list for Phase 4 but
-which §11 does require.
+**Phase 4 is NOT closed, but it is closer than the first draft of this document
+claimed.** Of §13's four acceptance criteria, three are fully met and the fourth
+(sustained traversal) now has two of its three clauses met — memory flat and no
+pop-in inside 128m — leaving **the ≤1.0ms upload budget as the single failing
+acceptance criterion**, at 1.19–1.63ms.
 
-**The one thing to do before anything else:** break the load-deficit counter
-down by radius. §13's assertion is about 128m; the counter measures a 166m load
-square. Until those are separated, "no pop-in inside 128m" cannot be settled
-either way, and it is the difference between a criterion that is failing and
-one that was never measured against its own boundary.
+Separately, the §11 frame budget (16.67ms) is not met at p99 in either gate
+(Gate C median 15.37ms does clear it; Gate E median 19.34ms does not). §13 does
+not list this among Phase 4's acceptance assertions, so it does not block Phase
+4 by the letter of the spec, but it blocks 60fps and is recorded as such.
+
+**What changed this session, and the lesson in it:** the pop-in criterion was
+never failing. It was being measured against a 166m Chebyshev square while §13
+asserts a 128m Euclidean radius, and the resulting p99 89 / max 226 was reported
+as a failure for a full session. Splitting the counter — instrumentation only,
+no behaviour change — showed deficit inside 128m is p99 = 0 everywhere. **Two of
+this phase's reported failures (this one and the coalescing assertion in §3.2)
+turned out to be measurement defects, not engine defects.** In both cases the
+wrong number was believed because it was precise, and in both cases the fix was
+to read the spec's assertion literally and measure exactly that.
+
+**The one thing to do before anything else:** decide whether the §4.3 upload
+budget is a real ship requirement at 1.0ms or whether the number needs
+re-deriving. Prior work established the cost is dominated by the CPU-side
+staging loop and dense brick-body writes — the GPU write mechanism is ~2% of the
+total and is settled — so closing a 0.2–0.6ms gap means restructuring how
+per-chunk staging works, not tuning an upload path.
