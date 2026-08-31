@@ -63,8 +63,31 @@ namespace VoxelEngine.Streaming
             _store = store; _pool = pool; _clipmap = clipmap; _cascades = cascades;
         }
 
+        /// How many free-stack entries to re-sort per defrag pass, and how often.
+        /// 4096 = one fully-dense chunk's worth of bricks, so a pass restores
+        /// locality for roughly the next chunk-sized burst of allocations.
+        /// Every 60th Update keeps the cost off the per-frame path -- an
+        /// Array.Sort of 4096 ints is tens of microseconds, once a second.
+        private const int DefragEntries = 4096;
+        private const int DefragEveryNUpdates = 60;
+        private int _defragTick;
+
         public void Update()
         {
+            // FREE-LIST DEFRAGMENTATION. Eviction returns slots in whatever
+            // order chunks die, so a later chunk's dense bodies land on
+            // scattered indices and TerrainClipmap's run-coalescer can only
+            // merge short runs -- measured runs/slots = 0.224, ~4.5 bricks per
+            // SetData, ~1084 driver calls in the worst frame. Re-sorting the top
+            // of the free stack makes the next allocations consecutive again.
+            // Lives here because §4.5 already defines this as the low-priority
+            // background scan; it is not on the streaming hot path.
+            if (++_defragTick >= DefragEveryNUpdates)
+            {
+                _defragTick = 0;
+                _pool.SortFreeTop(DefragEntries);
+            }
+
             int budget = _store.IsUnderPoolPressure ? ChunksPerFrameUnderPressure : ChunksPerFrame;
 
             for (int n = 0; n < budget; n++)
