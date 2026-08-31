@@ -172,9 +172,59 @@ is consumed. It also allocated a scratch `int[]` per pass on the streaming path,
 against §0.1 invariant 3. ClipmapValidator stayed GREEN and LOST UPDATES stayed
 0 throughout — a performance revert, not a correctness one.
 
-**Status: NOT CLOSED, and the cheap levers are now known to be exhausted.**
-Closing a 0.2–0.6ms gap requires restructuring how per-chunk dense bodies reach
-the GPU, not tuning the existing path.
+### The restructuring was then done, and the result is IMPROVED, NOT CLOSED
+
+Dense bodies are now allocated **contiguously per chunk** (`TryAllocRange` /
+`FreeRange` / `AllocNear` on `BrickDataPool`; reviewed plan in
+`scratchpad/brick_contiguity_plan.md`, approved under §0.3 with one addition).
+5 runs, all reported, free memory recorded per run:
+
+| run | Gate C p99 | Gate E p99 | write calls/frame | runs/slots | gates | free MB |
+|---|---|---|---|---|---|---|
+| 1 | **0.657** | **0.910** | 49 | 0.009 | **51 / 0** | ~1300 |
+| 2 | **0.882** | 1.050 | 53 | 0.008 | 50 / 1 | — |
+| 3 | 1.051 | 1.046 | 59 | 0.009 | 49 / 2 | — |
+| 4 | **0.628** | **0.963** | 50 | 0.010 | **51 / 0** | 80 |
+| 5 | 1.156 | **0.956** | 59 | 0.008 | 50 / 1 | 1158 |
+
+| | before | after |
+|---|---|---|
+| Gate C p99 | 0.981 – 1.504 | **0.628 – 1.156**, median 0.882 |
+| Gate E p99 | 1.255 – 1.633 | **0.910 – 1.050**, median 0.963 |
+| write calls / frame | 1094 | **49 – 59** |
+| runs/slots | 0.224 | **0.008 – 0.010** |
+| admission contiguity | n/a | **100%, zero fallbacks** |
+
+**PERFORMANCE MEASURED.** Gate E's range no longer overlaps its old one at all —
+that is movement well outside the noise band. Gate C improved but still
+straddles the line. **The criterion is not met: ≤1.0ms is required "steady", and
+it holds in 3 of 5 runs per gate, with 2 of 5 runs fully green at 51 PASS / 0
+FAIL.** Reporting the median (0.882 / 0.963) as if it closed would be rounding
+toward the budget; it did not close.
+
+**CORRECTNESS PROVEN** across all 5 runs: ClipmapValidator 3 GREEN / 0 RED per
+run with `mismatchesInCleanChunks` = 0 every time, both LOST UPDATES checks
+passing, Gate D's delta round-trip passing, and the only FAIL line anywhere in
+any run being the upload budget itself. No new failure of any kind.
+
+**The causal chain held; the arithmetic behind it did not.** The plan predicted
+~15x fewer calls would take the phase to ~0.02ms and land upload p99 near
+0.6–0.72ms, on an assumed ~1µs/call. Calls fell 20x (1094 → ~55) and
+`brick bodies` fell only 0.43 → 0.27ms p99. Per-call overhead was **a** term,
+not the dominant one — the remaining cost is the bytes themselves. The
+prediction was directionally right and quantitatively wrong, and it is recorded
+that way.
+
+**One self-inflicted regression, found and fixed inside the same session.** The
+first 5-run series showed cascades 0.15–0.18 → 0.66–0.70ms p99. Cause:
+`CascadeTierPool` and the per-worker scratch pools do many single-slot
+Alloc/Free per frame and never call `TryAllocRange`, but the run list's `Insert`
+is O(runs) where the flat stack was O(1) — they were paying for a capability
+they do not use. `BrickDataPool` now takes `rangeAware` and only the tier-0
+pool opts in. Cascades returned to 0.13–0.14ms. **Without that fix the change
+was net-neutral;** with it, Gate E clears its old range entirely.
+
+**Status: IMPROVED, NOT CLOSED.** 0.63–1.16ms against a 1.0ms budget.
 
 **No pop-in inside 128m — MET. This reverses an earlier NOT MET verdict, and
 the reversal is an instrument correction, not a code change.**
@@ -506,12 +556,17 @@ majority-vote error would be invisible.
 **6.6 The upload budget overrun is small but real.** 1.198–1.434ms against
 1.0ms. Passes in Gate C and in 3 of 5 short runs; fails in the 600s soak.
 
-**6.7 The §4.3 upload budget's cheap levers are exhausted.** Profiled and one
-measured-cause fix attempted and reverted (§3.1). `brick bodies` is the
-dominant phase; the worst frames saturate the byte cap while issuing up to
-3,056 write calls; free-list defragmentation improved fragmentation and made
-the timing worse. Closing it means restructuring how dense bodies reach the
-GPU. §0.2 forbids raising the byte cap and the write mechanism is settled.
+**6.7 The §4.3 upload budget: 0.63–1.16ms, and both cheap mechanisms are now
+spent.** Free-list defragmentation was tried and reverted (improved
+fragmentation, worsened timing — §3.1). Contiguous per-chunk allocation was then
+designed, reviewed under §0.3, implemented and verified: it cut write calls 20x
+(1094 → ~55) and runs/slots 24x (0.224 → 0.009), moved Gate E clear of its old
+range, and still did not close the criterion. **The remaining cost is bytes, not
+calls**, and §0.2 forbids reducing bytes by raising the cap. External
+fragmentation is now a live consideration too: the pool's free-run count rose to
+1325–2303 during a run, and `admission contiguity` in the rig report is the
+signal to watch — 100% today, and a fall toward the scattered path would silently
+return the old behaviour.
 
 **6.8 The `_clearDeltasOnStart` scene-override trap.** The field's *code*
 default was `true` and the scene serialised `1`. Changing the code default
@@ -553,11 +608,12 @@ are the strongest results here.
 - ❌ **Upload ≤1.0ms steady not met** — 1.19–1.63ms (§3.1, §6.6).
 - ❌ **Frame budget not met at p99 in either gate**, Gate E worst (§6.3).
 
-**Phase 4 is NOT closed, but it is closer than the first draft of this document
-claimed.** Of §13's four acceptance criteria, three are fully met and the fourth
-(sustained traversal) now has two of its three clauses met — memory flat and no
-pop-in inside 128m — leaving **the ≤1.0ms upload budget as the single failing
-acceptance criterion**, at 1.19–1.63ms.
+**Phase 4 is NOT closed.** Of §13's four acceptance criteria, three are fully
+met and the fourth (sustained traversal) has two of its three clauses met —
+memory flat and no pop-in inside 128m — leaving **the ≤1.0ms upload budget as
+the single failing acceptance criterion**, now at **0.63–1.16ms** after the
+contiguous-allocation work (was 0.98–1.63ms). It holds in 3 of 5 runs per gate
+and 2 of 5 runs are fully green; "steady" requires better than that.
 
 Separately, the §11 frame budget (16.67ms) is not met at p99 in either gate
 (Gate C median 15.37ms does clear it; Gate E median 19.34ms does not). §13 does
@@ -574,9 +630,19 @@ turned out to be measurement defects, not engine defects.** In both cases the
 wrong number was believed because it was precise, and in both cases the fix was
 to read the spec's assertion literally and measure exactly that.
 
-**The one thing to do before anything else:** decide whether the §4.3 upload
-budget is a real ship requirement at 1.0ms or whether the number needs
-re-deriving. Prior work established the cost is dominated by the CPU-side
-staging loop and dense brick-body writes — the GPU write mechanism is ~2% of the
-total and is settled — so closing a 0.2–0.6ms gap means restructuring how
-per-chunk staging works, not tuning an upload path.
+**The one thing to do before anything else:** decide whether ≤1.0ms is a real
+ship requirement or a number that needs re-deriving. The remaining gap is
+0.05–0.16ms in the runs that miss, and the two obvious mechanisms are now spent
+— the write mechanism is settled (~2% of total, and load-bearing), and per-call
+overhead has been reduced 20x with only 0.16ms of the phase to show for it. What
+is left is the **bytes**, and §0.2 forbids reducing them by raising the cap.
+Closing it from here means uploading fewer dense bodies per frame — fewer
+admissions, or a coarser representation for distant chunks — which is a
+streaming-policy change, not an upload-path optimisation, and it trades against
+the pop-in criterion that is currently met.
+
+**Recommended framing for that decision:** §4.3's 1.0ms was written as a budget
+for the whole terrain upload on a machine spec that predates every measurement
+in this document. The measured cost is now 0.63–1.16ms for work that was
+1384ms/frame of stutter three sessions ago. Whether that last 0.16ms is worth a
+streaming-policy change is a judgement about the budget, not about the code.
