@@ -1516,7 +1516,7 @@ public class Phase4AcceptanceRig : MonoBehaviour
         // uniform/dense STATE of the bricks the refill touched, read from
         // chunk.bricks directly rather than from the debug overlay.
         {
-            int wasUniform = 0, regressed = 0, straddling = 0, total = 0;
+            int wasUniform = 0, regressed = 0, straddling = 0, coalesced = 0, total = 0;
             var seen = new HashSet<(int3, int)>();
             var probes = new List<int3>();
             for (int i = 0; i < 200; i++) probes.Add(new int3(camVox.x + i, digY, camVox.z));
@@ -1533,16 +1533,20 @@ public class Phase4AcceptanceRig : MonoBehaviour
                 bool uniformNow = ch.isUniform || (ch.bricks[bi].data & 0x80000000u) == 0;
                 bool wasU = preDigUniform.TryGetValue((cc, bi), out bool b) && b;
                 if (wasU) { wasUniform++; if (!uniformNow) regressed++; }
-                else if (!uniformNow) straddling++;
+                else if (uniformNow) coalesced++;   // dense before -> uniform after: §4.5 working
+                else straddling++;
             }
-            Line($"  tunnel bricks: {total} distinct; {wasUniform} were uniform before the dig, " +
-                 $"{regressed} of those failed to coalesce back; {straddling} were ALREADY dense " +
-                 $"pre-dig (they straddle the air/solid surface 0.2m above, so all-512-bytes-equal " +
-                 $"can never hold -- correct behaviour, not a coalescer defect)");
+            Line($"  tunnel bricks: {total} distinct; {coalesced} went DENSE -> UNIFORM after the " +
+                 $"refill (§4.5 coalescing, the deep tunnel); {wasUniform} were uniform pre-dig with " +
+                 $"{regressed} regressions; {straddling} stayed dense because they straddle the " +
+                 $"air/solid surface (all-512-bytes-equal can never hold there -- correct)");
             Check(total > 0, "the refill actually touched bricks that could be inspected");
             Check(regressed == 0,
-                $"every brick UNIFORM before the dig coalesced back to uniform after the refill " +
-                $"({regressed} of {wasUniform} regressed) (§4.5, §13's assertion read precisely)");
+                $"no brick that was UNIFORM before the dig failed to coalesce back " +
+                $"({regressed} of {wasUniform}) (§4.5)");
+            Check(coalesced > 0,
+                $"the refilled tunnel COALESCED BACK TO UNIFORM: {coalesced} bricks went dense -> " +
+                $"uniform (§13's assertion, demonstrated on the deep tunnel where it can hold)");
         }
 
         // ---- Hex-corrupt a real .delta on disk (§13's exact assertion). ----
