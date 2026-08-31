@@ -101,8 +101,98 @@ public class Phase4AcceptanceRig : MonoBehaviour
     /// them, which nothing has ever timed.
     private FrameGapProbe _gapProbe;
 
+    /// Launch-flag plumbing for the §13 Phase 4 acceptance tests. A flag rather
+    /// than scene edits so ONE build runs every test and nothing silently
+    /// diverges between what is measured and what ships.
+    private static bool HasFlag(string name)
+    {
+        foreach (string a in Environment.GetCommandLineArgs()) if (a == name) return true;
+        return false;
+    }
+    private static float FlagValue(string name, float fallback)
+    {
+        string[] args = Environment.GetCommandLineArgs();
+        for (int i = 0; i < args.Length - 1; i++)
+            if (args[i] == name && float.TryParse(args[i + 1], out float v)) return v;
+        return fallback;
+    }
+
+    /// §13 TEST 3 -- force-quit mid-save. Drives continuous edits so deltas are
+    /// being written when an external SIGKILL lands. Never exits on its own.
+    private IEnumerator EditSoak()
+    {
+        var store = Phase4Bootstrapper.Store;
+        var streamer = Phase4Bootstrapper.Streamer;
+        Camera cam = Camera.main;
+        Debug.Log("[Phase4Rig] -editsoak: rapid editing for force-quit testing. " +
+                  "Deltas are being written continuously; kill -9 at will.");
+        int edits = 0, frame = 0;
+        var rng = new System.Random(12345);
+        while (true)
+        {
+            // Edit near the camera so the chunks are resident, then move so the
+            // edited ones evict and SAVE. A kill during that save is the test.
+            int3 camVox = CoordMath.WorldToVoxel(new float3(
+                cam.transform.position.x, cam.transform.position.y, cam.transform.position.z));
+            for (int i = 0; i < 40; i++)
+            {
+                var v = new int3(camVox.x + rng.Next(-60, 60), camVox.y - 2 - rng.Next(0, 6),
+                                 camVox.z + rng.Next(-60, 60));
+                store.SetVoxel(v, (byte)(rng.Next(2) == 0 ? 0 : Materials.Stone));
+                edits++;
+            }
+            cam.transform.position += new Vector3(1f, 0f, 0f) * (60f * Time.deltaTime);
+            if (++frame % 60 == 0)
+                Debug.Log($"[Phase4Rig] editsoak: {edits} edits, saved {streamer.ChunksSavedTotal}, " +
+                          $"resident {store.ResidentCount}, deltas on disk " +
+                          $"{Directory.GetFiles(Phase4Bootstrapper.DeltaDirectory, "*.delta").Length}");
+            yield return null;
+        }
+    }
+
+    /// §13 TEST 3 verification -- relaunch after the kill. Loads the world
+    /// through the REAL streaming path (not a bespoke reader) so the numbers
+    /// mean what the game would actually do, then reports and quits.
+    private IEnumerator VerifyLoad()
+    {
+        var store = Phase4Bootstrapper.Store;
+        var streamer = Phase4Bootstrapper.Streamer;
+        string dir = Phase4Bootstrapper.DeltaDirectory;
+        for (int i = 0; i < 120; i++) yield return null;
+        streamer.WaitForIdle();
+
+        string[] deltas = Directory.GetFiles(dir, "*.delta");
+        string[] tmps = Directory.GetFiles(dir, "*.delta.tmp");
+        var sb = new StringBuilder();
+        sb.AppendLine("=== FORCE-QUIT RELAUNCH VERIFICATION (§13 Phase 4 test 3) ===");
+        sb.AppendLine($"deltas on disk        : {deltas.Length}");
+        sb.AppendLine($"orphaned .delta.tmp   : {tmps.Length}   (atomic rename means a kill leaves");
+        sb.AppendLine($"                        EITHER the old file or the new one, never a half-written one)");
+        sb.AppendLine($"deltas LOADED         : {streamer.DeltasLoadedTotal}");
+        sb.AppendLine($"deltas REJECTED (CRC) : {streamer.DeltasRejectedTotal}");
+        sb.AppendLine($"resident chunks       : {store.ResidentCount}");
+        foreach (string s2 in streamer.RejectLog) sb.AppendLine("  reject: " + s2);
+        sb.AppendLine("NO CRASH: this line printing at all is the no-crash assertion.");
+        Debug.Log(sb.ToString());
+        try
+        {
+            string outDir = Path.Combine(Application.persistentDataPath, _outputRootFolderName);
+            Directory.CreateDirectory(outDir);
+            File.AppendAllText(Path.Combine(outDir, "forcequit_verify.txt"),
+                DateTime.Now + "\n" + sb + "\n");
+        }
+        catch (Exception e) { Debug.LogWarning("verify write failed: " + e.Message); }
+        yield return new WaitForSeconds(1f);
+        Application.Quit();
+    }
+
     void Start()
     {
+        if (HasFlag("-editsoak")) { StartCoroutine(EditSoak()); return; }
+        if (HasFlag("-verifyload")) { StartCoroutine(VerifyLoad()); return; }
+        _soakSeconds = FlagValue("-soak", _soakSeconds);
+        _maxRunSeconds = FlagValue("-maxrun", _maxRunSeconds);
+
         if (FreeFlyRequested)
         {
             var fly = Camera.main != null ? Camera.main.GetComponent<SimpleFlyCamera>() : null;
@@ -1364,6 +1454,33 @@ public class Phase4AcceptanceRig : MonoBehaviour
              $"{Phase4Bootstrapper.Coalescer.ChunksCollapsedTotal} chunks collapsed to uniform)");
         Check(denseAfter <= denseBefore,
             "coalescing after refilling the tunnel did not increase dense-brick count (§4.5 only ever frees)");
+
+        // §13 asks specifically that "the refilled part of the tunnel coalesced
+        // back to uniform". The count check above is necessary but far too weak
+        // to show that: it would pass if NOTHING coalesced. Assert the actual
+        // uniform/dense STATE of the bricks the refill touched, read from
+        // chunk.bricks directly rather than from the debug overlay.
+        {
+            int stillDense = 0, checkedBricks = 0, uniformNow = 0;
+            var seen = new HashSet<int>();
+            for (int i = 0; i < 200; i++)
+            {
+                var v = new int3(camVox.x + i, digY, camVox.z);
+                int3 cc = CoordMath.VoxelToChunk(v);
+                Chunk ch = store.GetChunk(cc);
+                if (ch == null || ch.isUniform) { uniformNow++; continue; }
+                int bi = CoordMath.LocalBrickIndex(CoordMath.VoxelToBrick(v) & 15);
+                if (!seen.Add((cc.x * 73856093) ^ (cc.z * 19349663) ^ bi)) continue;
+                checkedBricks++;
+                if ((ch.bricks[bi].data & 0x80000000u) != 0) stillDense++; else uniformNow++;
+            }
+            Line($"  refilled-brick state: {checkedBricks} distinct bricks inspected, " +
+                 $"{stillDense} still dense, {uniformNow} uniform " +
+                 $"(§13: 'the refilled part of the tunnel coalesced back to uniform')");
+            Check(checkedBricks > 0, "the refill actually touched bricks that could be inspected");
+            Check(stillDense == 0,
+                $"every refilled brick coalesced back to UNIFORM ({stillDense} still dense) (§4.5)");
+        }
 
         // ---- Hex-corrupt a real .delta on disk (§13's exact assertion). ----
         //

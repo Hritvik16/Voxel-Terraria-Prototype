@@ -16,6 +16,7 @@
 //      acceptance rig starts from a known-populated state instead of racing
 //      the prefetcher.
 using System.Diagnostics;
+using System;
 using System.IO;
 using Unity.Mathematics;
 using UnityEngine;
@@ -99,7 +100,20 @@ public class Phase4Bootstrapper : MonoBehaviour
         // ---- Delta directory ----
         DeltaDirectory = Path.Combine(worldDir, "deltas");
         Directory.CreateDirectory(DeltaDirectory);
-        if (_clearDeltasOnStart)
+        // §10.1: "Toggle off for persistence testing (Phase 4)." The scene ships
+        // this ON, which is right for repeatable rig runs (every run starts from
+        // a pristine world) and fatal for the force-quit acceptance test, which
+        // must survive a process restart WITH its deltas intact.
+        // -keepdeltas is that toggle, as a launch flag so the same build serves
+        // both without a scene edit.
+        bool keepDeltas = false;
+        foreach (string arg in Environment.GetCommandLineArgs())
+            if (arg == "-keepdeltas") keepDeltas = true;
+        if (keepDeltas)
+            UnityEngine.Debug.Log("[Phase4Bootstrapper] -keepdeltas: §10.1 auto-clean DISABLED, " +
+                                  "existing deltas retained.");
+
+        if (_clearDeltasOnStart && !keepDeltas)
         {
             foreach (string f in Directory.GetFiles(DeltaDirectory, "*.delta")) File.Delete(f);
             foreach (string f in Directory.GetFiles(DeltaDirectory, "*.delta.tmp")) File.Delete(f);
