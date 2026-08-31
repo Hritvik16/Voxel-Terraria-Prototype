@@ -1393,6 +1393,40 @@ public class Phase4AcceptanceRig : MonoBehaviour
             }
         }
 
+        // DEEP TUNNEL, added so §13's coalescing assertion actually tests
+        // something. The shallow tunnel above is dug 0.2m under the surface, so
+        // every brick it crosses straddles air/solid and was ALREADY dense --
+        // measured 25 of 25, which made the uniform-before/uniform-after check
+        // pass VACUOUSLY at "0 of 0". A brick can only demonstrate coalescing if
+        // it was uniform to begin with, which means digging well inside solid
+        // material. surfaceY-24 is 2.4m down, below the dirt/stone transition.
+        int deepY = surfaceY > int.MinValue ? surfaceY - 24 : camVox.y - 40;
+        int deepDigs = 0;
+        if (deepY > 0)
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                var v = new int3(camVox.x + i, deepY, camVox.z);
+                {
+                    int3 cc0 = CoordMath.VoxelToChunk(v);
+                    Chunk ch0 = store.GetChunk(cc0);
+                    int bi0 = CoordMath.LocalBrickIndex(CoordMath.VoxelToBrick(v) & 15);
+                    if (ch0 != null)
+                        preDigUniform[(cc0, bi0)] =
+                            ch0.isUniform || (ch0.bricks[bi0].data & 0x80000000u) == 0;
+                }
+                if (store.GetVoxel(v) != Materials.Air)
+                {
+                    store.SetVoxel(v, Materials.Air);
+                    deepDigs++;
+                    editedChunks.Add(CoordMath.VoxelToChunk(v));
+                }
+            }
+        }
+        Line($"  deep tunnel: {deepDigs} voxels dug at y={deepY} " +
+             $"({(deepY > 0 ? deepY * 0.1f : -1f):F1}m, {(surfaceY - deepY) * 0.1f:F1}m below surface) " +
+             $"-- this is the one that can actually coalesce back to uniform");
+
         // HARNESS BUG 2: the structure was placed at camVox.x - 10, and
         // camVox.x is 1408 = 11 * 128 -- exactly a chunk boundary. Every placed
         // voxel therefore landed in chunk (10,0,11) while the assertion below
@@ -1465,6 +1499,9 @@ public class Phase4AcceptanceRig : MonoBehaviour
         int denseBefore = store.DenseBricksHeld;
         for (int i = 0; i < 200; i++)
             store.SetVoxel(new int3(camVox.x + i, digY, camVox.z), Materials.Stone);
+        if (deepY > 0)
+            for (int i = 0; i < 200; i++)
+                store.SetVoxel(new int3(camVox.x + i, deepY, camVox.z), Materials.Stone);
         Phase4Bootstrapper.Coalescer.RunFullPass();
         int denseAfter = store.DenseBricksHeld;
         Line($"refill + coalesce: dense bricks {denseBefore} -> {denseAfter} " +
@@ -1481,9 +1518,12 @@ public class Phase4AcceptanceRig : MonoBehaviour
         {
             int wasUniform = 0, regressed = 0, straddling = 0, total = 0;
             var seen = new HashSet<(int3, int)>();
-            for (int i = 0; i < 200; i++)
+            var probes = new List<int3>();
+            for (int i = 0; i < 200; i++) probes.Add(new int3(camVox.x + i, digY, camVox.z));
+            if (deepY > 0)
+                for (int i = 0; i < 200; i++) probes.Add(new int3(camVox.x + i, deepY, camVox.z));
+            foreach (int3 v in probes)
             {
-                var v = new int3(camVox.x + i, digY, camVox.z);
                 int3 cc = CoordMath.VoxelToChunk(v);
                 Chunk ch = store.GetChunk(cc);
                 if (ch == null) continue;
