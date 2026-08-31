@@ -1088,6 +1088,30 @@ public class Phase4AcceptanceRig : MonoBehaviour
         for (int warm = 0; warm < 5; warm++) yield return null;
     }
 
+    /// FOOTPRINT CENSUS. Every BrickDataPool is sized by a constant that was
+    /// never checked against its own peak, and each unit of capacity is paid
+    /// TWICE -- 512 B of CPU array plus 512 B of GPU mirror buffer. The player
+    /// was measured at 3.3-3.9 GB RSS on an 8 GB machine running at 14-57 MB
+    /// free, so these are the numbers that decide what can safely be cut.
+    private void ReportPoolCensus()
+    {
+        var pool = Phase4Bootstrapper.Pool;
+        var casc = Phase4Bootstrapper.Cascades;
+        _report.AppendLine("  --- POOL FOOTPRINT CENSUS (peak used vs capacity; MB is CPU+GPU) ---");
+        void Row(string name, VoxelEngine.Memory.BrickDataPool p)
+        {
+            if (p == null) return;
+            double mb = p.Capacity * 512.0 / 1048576.0;
+            _report.AppendLine($"    {name,-16} peak {p.PeakUsed,8} / cap {p.Capacity,8} = " +
+                               $"{(p.Capacity > 0 ? 100.0 * p.PeakUsed / p.Capacity : 0),5:F1}%   " +
+                               $"{mb,7:F1} MB CPU + {mb,6:F1} MB GPU");
+        }
+        Row("tier0 (main)", pool);
+        if (casc != null)
+            for (int t = 1; t < LODConfig.TIER_COUNT; t++)
+                Row($"cascade tier {t}", casc.TierPool(t)?.BrickPool);
+    }
+
     private void ReportUpload(string label, List<double> ms, List<int> bytes, List<double> drain)
     {
         if (_gapProbe != null) _gapProbe.Recording = false;
@@ -1154,6 +1178,7 @@ public class Phase4AcceptanceRig : MonoBehaviour
             _report.AppendLine(sb.ToString());
         }
         AppendGpuCorrelation();
+        ReportPoolCensus();
         if (_gapProbe != null) _gapProbe.AppendReport(_report);
         _report.AppendLine($"    staging         {Pct(_stagingMs, 0.5f),8:F2} / {Pct(_stagingMs, 0.99f),8:F2}");
         _report.AppendLine($"    clipmap write   {Pct(_clipSetMs, 0.5f),8:F2} / {Pct(_clipSetMs, 0.99f),8:F2}");

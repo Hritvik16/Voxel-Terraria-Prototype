@@ -59,6 +59,10 @@ namespace VoxelEngine.Mirror
         private readonly int[] _clipmapCellPoolIndex;
 
         private readonly BrickDataPool _brickPool;
+        /// Read-only view for footprint reporting. Each tier pool is sized by
+        /// DefaultTierPoolCapacity, whose own comment admits "/4 is STILL a
+        /// guess" -- this is how that guess gets checked against reality.
+        public BrickDataPool BrickPool => _brickPool;
         private readonly HashSet<int3> _dirtyChunks = new HashSet<int3>();
         private readonly List<int> _dirtyBrickSlots = new List<int>();
         private readonly List<int3> _batch = new List<int3>();

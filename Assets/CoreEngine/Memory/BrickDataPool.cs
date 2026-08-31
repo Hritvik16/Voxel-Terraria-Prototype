@@ -10,6 +10,19 @@ namespace VoxelEngine.Memory
         private int _freeCount;
         public readonly int Capacity;
 
+        /// High-water mark of simultaneously-allocated bricks.
+        ///
+        /// Every BrickDataPool instance is sized by a CONSTANT that was never
+        /// measured against its own peak: the tier-0 pool by
+        /// EngineConfig.BRICK_POOL_CAP, and each cascade tier pool by
+        /// LODCascadeManager.DefaultTierPoolCapacity, whose own comment says
+        /// "/4 is STILL a guess, not a measured number". Each unit of capacity
+        /// costs 512 B of CPU array here plus 512 B of GPU buffer in the
+        /// matching mirror, so a guess that is 2x too large is paid twice.
+        /// This is the number to size against.
+        public int PeakUsed { get; private set; }
+        public int InUse => Capacity - _freeCount;
+
         public BrickDataPool(int capacity)
         {
             Capacity = capacity;
@@ -32,7 +45,10 @@ namespace VoxelEngine.Memory
             {
                 throw new InvalidOperationException("BrickDataPool exhausted. LRU valve failed or cap is too low.");
             }
-            return _freeStack[--_freeCount];
+            int idx = _freeStack[--_freeCount];
+            int used = Capacity - _freeCount;
+            if (used > PeakUsed) PeakUsed = used;
+            return idx;
         }
 
         public void Free(int index)
