@@ -67,12 +67,18 @@ public class FrameGapProbe : MonoBehaviour
     private readonly List<double> _heapMb     = new List<double>(CAPACITY);
     private readonly List<double> _setDataCalls = new List<double>(CAPACITY);
     private readonly List<double> _uploadBytes  = new List<double>(CAPACITY);
+    private readonly List<double> _streamerMs   = new List<double>(CAPACITY);
 
     /// Published by the rig once per frame from LastUploadStats. Read at
     /// end-of-frame so it lands on the same frame the intervals describe --
     /// the alignment the frame-duration off-by-one already taught us to check.
     public static int LastSetDataCalls;
     public static int LastUploadBytes;
+    /// Streamer.Update()/Coalescer.Update() cost, published by Phase4Bootstrapper.
+    /// Both run in LateUpdate, i.e. potentially INSIDE this probe's postLate
+    /// interval depending on script execution order.
+    public static double LastStreamerMs;
+    public static double LastCoalescerMs;
 
     private readonly Stopwatch _sw = Stopwatch.StartNew();
     private double _tEofPrev = -1, _tUpdate, _tLate;
@@ -114,6 +120,7 @@ public class FrameGapProbe : MonoBehaviour
                 _heapMb.Add(GC.GetTotalMemory(false) / 1048576.0);
                 _setDataCalls.Add(LastSetDataCalls);
                 _uploadBytes.Add(LastUploadBytes);
+                _streamerMs.Add(LastStreamerMs + LastCoalescerMs);
             }
             _tEofPrev = tEof;
             _armed = false;
@@ -126,7 +133,7 @@ public class FrameGapProbe : MonoBehaviour
     {
         _frameMs.Clear(); _unscaledMs.Clear(); _preUpdate.Clear(); _update.Clear(); _postLate.Clear();
         _gc0.Clear(); _gc1.Clear(); _gc2.Clear(); _heapMb.Clear();
-        _setDataCalls.Clear(); _uploadBytes.Clear();
+        _setDataCalls.Clear(); _uploadBytes.Clear(); _streamerMs.Clear();
     }
 
     private static string Fmt(double r) => double.IsNaN(r) ? "n/a" : r.ToString("+0.000;-0.000");
@@ -175,6 +182,7 @@ public class FrameGapProbe : MonoBehaviour
         Row("preUpdate", _preUpdate);
         Row("update", _update);
         Row("postLate", _postLate);
+        Row("  of which:", _streamerMs);
 
         var stut = new List<int>();
         for (int i = 0; i < _frameMs.Count; i++) if (_frameMs[i] >= stutterMs) stut.Add(i);
@@ -223,6 +231,14 @@ public class FrameGapProbe : MonoBehaviour
         // single frame against a 366MB shared buffer.
         double rCalls = Pearson(_setDataCalls, _postLate);
         double rBytes = Pearson(_uploadBytes, _postLate);
+        // THE decisive split: is postLate render submission, or is it
+        // Streamer.Update() running in LateUpdate inside the same interval?
+        double sStream = 0, sPostL = 0;
+        for (int i = 0; i < _frameMs.Count; i++)
+            if (_frameMs[i] >= stutterMs) { sStream += _streamerMs[i]; sPostL += _postLate[i]; }
+        sb.AppendLine($"      STREAMER SHARE OF postLate ON STUTTER FRAMES: " +
+                      $"{(sPostL > 0 ? sStream / sPostL * 100 : 0),5:F1}%  " +
+                      $"(streamer {sStream / Math.Max(1, _frameMs.Count),8:F1} ms/frame summed over stutters)");
         sb.AppendLine($"      r(setDataCalls, postLate) = {Fmt(rCalls)}   " +
                       $"r(uploadBytes, postLate) = {Fmt(rBytes)}");
         var sCalls = new List<double>(); var nCalls = new List<double>();

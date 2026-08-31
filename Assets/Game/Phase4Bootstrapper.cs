@@ -213,8 +213,22 @@ public class Phase4Bootstrapper : MonoBehaviour
     {
         if (Streamer == null) return;
         Vector3 camPos = Camera.main != null ? Camera.main.transform.position : transform.position;
+
+        // TIMED, because the whole streaming system runs HERE, in LateUpdate.
+        // FrameGapProbe splits the frame at its own LateUpdate, and Unity's
+        // execution order between the two components is arbitrary -- so without
+        // this number there is no way to tell "the stall is in render
+        // submission" from "the stall is in Streamer.Update", and the probe was
+        // reporting 98% of stutter wall clock in that interval either way.
+        // TransferToSharedPool in particular is covered by NO existing phase
+        // timer and copies up to MAX_CHUNK_LOADS_PER_FRAME x 4096 dense bodies
+        // into the 366 MB shared pool every frame.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         Streamer.Update(camPos);
+        double streamMs = sw.Elapsed.TotalMilliseconds;
         Coalescer.Update();
+        FrameGapProbe.LastStreamerMs = streamMs;
+        FrameGapProbe.LastCoalescerMs = sw.Elapsed.TotalMilliseconds - streamMs;
     }
 
     void OnApplicationQuit()
