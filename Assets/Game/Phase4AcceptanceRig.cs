@@ -1320,6 +1320,15 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _report.AppendLine($"      - downsample  {Pct(_cascadeDownMs, 0.5f),8:F2} / {Pct(_cascadeDownMs, 0.99f),8:F2}");
         _report.AppendLine($"      - gpu writes  {Pct(_cascadeWriteMs, 0.5f),8:F2} / {Pct(_cascadeWriteMs, 0.99f),8:F2}");
         _report.AppendLine($"    max GPU write calls/frame: {MaxOf(_setDataCalls)}");
+        {
+            var st2 = Phase4Bootstrapper.Streamer;
+            int cont = st2.ContiguousAdmissions, scat = st2.ScatteredAdmissions;
+            _report.AppendLine($"    admission contiguity: {cont} chunks got a contiguous range, " +
+                               $"{scat} fell back to scattered " +
+                               $"({(cont + scat > 0 ? 100.0 * cont / (cont + scat) : 0):F1}% contiguous); " +
+                               $"pool free runs {Phase4Bootstrapper.Pool.FreeRunCount} " +
+                               $"(rising = external fragmentation)");
+        }
         _report.AppendLine($"    dense-body FRAGMENTATION: slots p99 {Pct(ToD(_brickSlots),0.99f):F0} " +
                            $"max {MaxOf(_brickSlots):F0}; runs p99 {Pct(ToD(_brickRuns),0.99f):F0} " +
                            $"max {MaxOf(_brickRuns):F0}; runs/slots at max = " +

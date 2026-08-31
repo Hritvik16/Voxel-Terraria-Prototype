@@ -668,6 +668,12 @@ namespace VoxelEngine.Streaming
             }
         }
 
+        /// Admission contiguity counters, so the rig can report whether the
+        /// range allocator is actually getting ranges rather than silently
+        /// falling back to the old scattered path every time.
+        public int ContiguousAdmissions { get; private set; }
+        public int ScatteredAdmissions { get; private set; }
+
         private void TransferToSharedPool(Chunk chunk, ScratchContext scratch)
         {
             if (chunk.isUniform || chunk.bricks == null) return;
@@ -676,13 +682,34 @@ namespace VoxelEngine.Streaming
             var dst = _pool.RawData;
             int body = EngineConfig.BRICK_BODY_BYTES;
 
+            // CONTIGUOUS ADMISSION. Count this chunk's dense bricks, then ask
+            // for one run of exactly that size. TerrainClipmap's upload merges
+            // only CONSECUTIVE pool slots into a single SetData, so a chunk
+            // allocated as one run uploads as ONE call instead of the ~15 that
+            // scattered slots produced (measured runs/slots 0.224, ~241 calls
+            // per frame at p99, with per-call overhead dominating the 1.0ms
+            // §4.3 budget).
+            //
+            // A false return is NORMAL under fragmentation, not an error: the
+            // per-slot path below is exactly what shipped before, so the worst
+            // case is today's behaviour and never a failed admission. §3.6's
+            // "the triggering edit always succeeds" is untouched.
+            int denseCount = 0;
+            for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++)
+                if ((chunk.bricks[i].data & 0x80000000u) != 0) denseCount++;
+
+            int runBase = 0;
+            bool contiguous = denseCount > 0 && _pool.TryAllocRange(denseCount, out runBase);
+            int runOffset = 0;
+            if (contiguous) ContiguousAdmissions++; else if (denseCount > 0) ScatteredAdmissions++;
+
             for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++)
             {
                 uint data = chunk.bricks[i].data;
                 if ((data & 0x80000000u) == 0) continue;
 
                 int srcIdx = (int)(data & 0x3FFFFFFFu);
-                int dstIdx = _pool.Alloc();
+                int dstIdx = contiguous ? runBase + runOffset++ : _pool.Alloc();
 
                 // Bulk copy, not a 512-iteration indexer loop. The indexer is
                 // bounds-checked in the Editor, so the old loop cost ~150,000

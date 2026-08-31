@@ -58,6 +58,11 @@ using VoxelEngine.Memory;
 
 public class ChunkStore : IWorldQuery, IEditService
 {
+    /// Preallocated so eviction's run-detection allocates nothing on the
+    /// streaming path (§0.1 invariant 3).
+    private readonly System.Collections.Generic.List<int> _evictScratch =
+        new System.Collections.Generic.List<int>(EngineConfig.BRICKS_PER_CHUNK);
+
     private Chunk[] _residentWindow;
     private int3 _windowMask;
     private int3 _windowDims;
@@ -246,14 +251,28 @@ public class ChunkStore : IWorldQuery, IEditService
 
         if (!chunk.isUniform && chunk.bricks != null)
         {
+            // FREE AS RUNS, not ~460 single-slot inserts. A chunk admitted as
+            // one contiguous range must come back as one, or the run structure
+            // this design depends on is shredded on the first eviction. Collect,
+            // sort, emit maximal consecutive spans.
+            _evictScratch.Clear();
             for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++)
             {
                 uint data = chunk.bricks[i].data;
-                if ((data & 0x80000000u) != 0)
+                if ((data & 0x80000000u) != 0) _evictScratch.Add((int)(data & 0x3FFFFFFFu));
+            }
+            freed = _evictScratch.Count;
+            if (freed > 0)
+            {
+                _evictScratch.Sort();
+                int runStart = _evictScratch[0], runLen = 1;
+                for (int i = 1; i < _evictScratch.Count; i++)
                 {
-                    _brickPool.Free((int)(data & 0x3FFFFFFFu));
-                    freed++;
+                    if (_evictScratch[i] == runStart + runLen) { runLen++; continue; }
+                    _brickPool.FreeRange(runStart, runLen);
+                    runStart = _evictScratch[i]; runLen = 1;
                 }
+                _brickPool.FreeRange(runStart, runLen);
             }
 
             // Handle array goes back to the pooled allocator, which clears it on
@@ -378,7 +397,33 @@ public class ChunkStore : IWorldQuery, IEditService
             byte brickMaterial = (byte)(handleData & 0xFF);
             if (brickMaterial == material) return; // No-op fast path
 
-            int poolIndex = _brickPool.Alloc();
+            // ALLOCATE NEAR THIS CHUNK'S OWN BRICKS.
+            //
+            // This is the path §0.3 review identified as the hole in the
+            // contiguity argument: a brick that coalesced to uniform (§4.5)
+            // while its chunk stayed resident is re-densified HERE by an
+            // ordinary dig, and a plain Alloc() would hand back a slot from the
+            // bottom of the pool, nowhere near the rest of this chunk. Measured
+            // over 4000 resident-edit cycles, unhinted allocation degrades
+            // contiguity to runs/slots 0.4899 -- worse than the 0.224 that
+            // shipped before any of this work. Hinting from a neighbouring
+            // dense brick of the SAME chunk holds it at 0.0205.
+            //
+            // The scan is bounded and cheap: it walks outward from this brick
+            // and stops at the first dense neighbour, which in a populated
+            // chunk is almost always within a few steps. Falls back to plain
+            // Alloc() when the chunk has no dense brick yet (nothing to be near).
+            int hint = -1;
+            for (int d = 1; d <= 64 && hint < 0; d++)
+            {
+                int lo = brickFlatIndex - d, hi = brickFlatIndex + d;
+                if (lo >= 0 && (chunk.bricks[lo].data & 0x80000000u) != 0)
+                    hint = (int)(chunk.bricks[lo].data & 0x3FFFFFFFu);
+                else if (hi < EngineConfig.BRICKS_PER_CHUNK &&
+                         (chunk.bricks[hi].data & 0x80000000u) != 0)
+                    hint = (int)(chunk.bricks[hi].data & 0x3FFFFFFFu);
+            }
+            int poolIndex = hint >= 0 ? _brickPool.AllocNear(hint) : _brickPool.Alloc();
             int startOffset = poolIndex * 512;
 
             NativeArray<byte> rawData = _brickPool.RawData;
