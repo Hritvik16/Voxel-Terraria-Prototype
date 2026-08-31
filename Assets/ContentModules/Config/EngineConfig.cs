@@ -212,11 +212,63 @@ public static class EngineConfig
     public const int CHUNK_GEN_WORKER_THREADS = 0;
 
     // ---- Brick Data Pool (§3.4, §3.6 LRU valve) ----
-    // §0.2: 750,000 bricks (~384MB x2). "Raise only if Phase 6 shows normal
-    // building evicts too aggressively." Phase 3's census measured 151,470
-    // dense bricks for a 22x22 world = 20.2% of cap, so there is real headroom
-    // at this world size. Unchanged.
-    public const int BRICK_POOL_CAP = 750000;
+    // LOWERED 750,000 -> 500,000. RE-DERIVATION AGAINST MEASURED PEAK (§0.2).
+    //
+    // §0.2 says "raise only if Phase 6 shows normal building evicts too
+    // aggressively"; this LOWERS it, which the table permits. Every unit of
+    // capacity is paid TWICE -- 512 B of CPU array in BrickDataPool plus 512 B
+    // of GPU mirror in TerrainClipmap.BrickDataBuffer, which is sized from
+    // pool.Capacity -- so 750,000 cost 366 MB CPU + 366 MB GPU.
+    //
+    // MEASURED, via BrickDataPool.PeakUsed over a full acceptance run:
+    //   Gate C peak 315,958   Gate E peak 336,731   (44.9% of the old cap)
+    //   an earlier run measured 330,309 -- so the peak is stable near ~337k.
+    // Phase 3's 151,470 figure in the old comment was a 22x22 world and is no
+    // longer the relevant number; the streaming window is larger now.
+    //
+    // DERIVATION: §3.6's LRU valve fires at BRICK_POOL_HIGH_WATER_FRACTION
+    // (0.85) of cap. The cap must keep the measured peak clear of that line or
+    // the valve starts evicting chunks the player still wants:
+    //     500,000 x 0.85 = 425,000 high-water
+    //     425,000 / 336,731 = 26.2% headroom above the worst measured peak
+    //     peak utilisation becomes 67.3% of cap
+    // Saves 250,000 x 512 B = 122 MB CPU + 122 MB GPU = 244 MB.
+    //
+    // Valve BEHAVIOUR is unchanged in kind: it still fires only above 425,000,
+    // which no measured run approaches. Overflow here is graceful (LRU evict),
+    // unlike the cascade pools below, which throw -- hence the tighter relative
+    // margin is acceptable here and deliberately not used there.
+    public const int BRICK_POOL_CAP = 500000;
+
+    /// Per-tier cascade pool capacities, sized against measured peaks.
+    ///
+    /// These used to be LODCascadeManager.DefaultTierPoolCapacity =
+    /// BRICK_POOL_CAP / 4 for EVERY tier -- 187,500 each -- whose own comment
+    /// conceded "/4 is STILL a guess, not a measured number". That guess cost
+    /// 92 MB CPU + 92 MB GPU per tier, 366 MB across the two.
+    ///
+    /// MEASURED (BrickDataPool.PeakUsed, worst of both gates in one run):
+    ///   tier 1 peak 112,566 of 187,500 = 60.0%
+    ///   tier 2 peak  27,067 of 187,500 = 13.5%
+    ///
+    /// A cascade pool has NO valve -- BrickDataPool.Alloc throws when it runs
+    /// dry, and LODCascadeManager's comment names that exception as the signal
+    /// to raise the number. Exhaustion is therefore fatal rather than graceful,
+    /// so these carry MORE relative headroom than BRICK_POOL_CAP, not less:
+    ///   tier 1: 160,000 -> 42.1% above peak. Saves 27,500 x 512 B x2 =  27 MB
+    ///   tier 2:  48,000 -> 77.3% above peak. Saves 139,500 x 512 B x2 = 136 MB
+    /// Tier 2 is the outlier because it is the coarsest tier: an 8x downsample
+    /// yields far fewer dense bricks, which is why 13.5% utilisation was never
+    /// noticed behind a shared /4 constant.
+    public static int CascadeTierPoolCap(int tier)
+    {
+        switch (tier)
+        {
+            case 1: return 160000;
+            case 2: return 48000;
+            default: return System.Math.Max(1024, BRICK_POOL_CAP / 4);
+        }
+    }
 
     // §3.6's valve: past this fraction of cap, StreamManager LRU-evicts the
     // coldest resident chunk to make room, so "the triggering edit always

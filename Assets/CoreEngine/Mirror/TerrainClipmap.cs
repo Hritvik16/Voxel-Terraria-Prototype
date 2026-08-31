@@ -143,7 +143,20 @@ public class TerrainClipmap : IDisposable
     /// Leaving it switchable so the acceptance rig can A/B it and MEASURE the
     /// difference rather than shipping a fix on a hypothesis. The same pattern
     /// already exists in this file for air-mips (UseLockBufferForAirMip).
-    public static bool UseLockBufferForUploads = true;
+    ///
+    /// DEFAULT IS false (SetData) BECAUSE THAT IS THE STANDING §3.7 DECISION.
+    /// PHASE_1_COMPLETION.md §4 already ran this exact comparison and selected
+    /// SetData -- not on a demonstrated win (the ranges overlapped almost
+    /// entirely: SetData 16.2-32.9ms, LockBufferForWrite 5.7-32.9ms) but
+    /// because the harness was confounded by concurrent render-encoder work
+    /// and the result was inconclusive in both directions. That document is
+    /// explicit that re-opening the choice requires a properly isolated
+    /// re-test, not a flip on a hunch, and the comment above says as much
+    /// itself -- LockBufferForWrite is called "a plausible but UNPROVEN
+    /// suspect". Shipping true as the default was exactly the flip §4 warned
+    /// against. The toggle stays so the rig can still A/B it; the DEFAULT
+    /// tracks the decision on record until a measurement overturns it.
+    public static bool UseLockBufferForUploads = false;
 
     /// Skips all GPU writes while leaving every CPU-side structure updated.
     /// Diagnostic only -- lets the rig measure frame time with uploads removed

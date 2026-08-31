@@ -44,6 +44,10 @@ namespace VoxelEngine.Mirror
         // before, just less likely to immediately throw. If
         // BrickDataPool's exhaustion exception fires again, that remains
         // the correct signal to raise this further, not a bug to silence.
+        /// DEPRECATED SIZING, kept only for the Phase 2/3 bootstrappers.
+        /// "/4" was never measured; EngineConfig.CascadeTierPoolCap(tier) now
+        /// carries per-tier caps derived from BrickDataPool.PeakUsed. Phase 4
+        /// uses that instead.
         public static int DefaultTierPoolCapacity(int brickPoolCapTier0) => Math.Max(1024, brickPoolCapTier0 / 4);
 
         public LODCascadeManager(int3 windowDimsChunks, Func<int, int> tierPoolCapacity)

@@ -59,6 +59,10 @@ namespace VoxelEngine.Mirror
         private readonly int[] _clipmapCellPoolIndex;
 
         private readonly BrickDataPool _brickPool;
+        /// Read-only view for footprint reporting. Each tier pool is sized by
+        /// DefaultTierPoolCapacity, whose own comment admits "/4 is STILL a
+        /// guess" -- this is how that guess gets checked against reality.
+        public BrickDataPool BrickPool => _brickPool;
         private readonly HashSet<int3> _dirtyChunks = new HashSet<int3>();
         private readonly List<int> _dirtyBrickSlots = new List<int>();
         private readonly List<int3> _batch = new List<int3>();
@@ -103,8 +107,30 @@ namespace VoxelEngine.Mirror
 
             _brickPool = new BrickDataPool(brickPoolCapacity);
 
-            ClipmapBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, totalCoarseBricks, 4);
-            BrickDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, brickPoolCapacity * 128, 4);
+            // USAGE FLAG IS LOAD-BEARING -- these buffers are written by PARTIAL
+            // SetData every frame a chunk goes dirty (below), and without
+            // LockBufferForWrite usage the driver places them device-private.
+            // A partial write into a device-private buffer the GPU may still be
+            // reading is serviced by RENAMING it: Unity orphans the old backing
+            // store and allocates a fresh one, every write.
+            //
+            // MEASURED with vmmap on a live acceptance run, BEFORE this flag:
+            //     IOAccelerator (graphics)  8.4G virtual  7.8G resident
+            //                               4.7G swapped  5131 regions
+            //     of which 78 regions x 78.1 MB = 6.09 GB
+            // 78.1 MB is exactly this tier's BrickDataBuffer (160,000 x 512 B),
+            // i.e. SEVENTY-EIGHT live copies of one buffer. The whole CPU malloc
+            // zone was 123 MB by comparison -- the footprint is entirely GPU.
+            //
+            // TerrainClipmap already passes this flag and shows ONE live region
+            // for its 244 MB buffer under the same write pattern. Removing it
+            // there was measured at 16,690 ms/frame of upload (~2000x), so the
+            // flag is the difference between an in-place CPU-visible write and
+            // a staged copy or a rename. Match the configuration that works.
+            ClipmapBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                GraphicsBuffer.UsageFlags.LockBufferForWrite, totalCoarseBricks, 4);
+            BrickDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
+                GraphicsBuffer.UsageFlags.LockBufferForWrite, brickPoolCapacity * 128, 4);
             ClipmapBuffer.SetData(_clipmapLocal);
         }
 
