@@ -70,8 +70,27 @@ public class Phase4AcceptanceRig : MonoBehaviour
     private int _pass, _fail;
     private bool _gateFailed;
 
+    /// FREE-FLY MODE. Launch the player with -play and the rig stands down:
+    ///     open -n Builds/Phase4Acceptance.app --args -play
+    /// Everything else (Phase4Bootstrapper, streaming, the clipmap, cascades)
+    /// starts exactly as it does for an acceptance run -- this only stops the
+    /// rig from seizing the camera and quitting the process when it finishes.
+    /// A command-line flag rather than a scene edit so the SAME build serves
+    /// both a rig run and a manual tour, and no serialized field drifts.
+    public static bool FreeFlyRequested
+    {
+        get
+        {
+            string[] args = Environment.GetCommandLineArgs();
+            for (int i = 0; i < args.Length; i++)
+                if (args[i] == "-play" || args[i] == "-freefly") return true;
+            return false;
+        }
+    }
+
     void Awake()
     {
+        if (FreeFlyRequested) return;   // leave the fly camera enabled
         var fly = Camera.main != null ? Camera.main.GetComponent<SimpleFlyCamera>() : null;
         if (fly != null) fly.enabled = false; // the rig drives the camera
     }
@@ -84,6 +103,16 @@ public class Phase4AcceptanceRig : MonoBehaviour
 
     void Start()
     {
+        if (FreeFlyRequested)
+        {
+            var fly = Camera.main != null ? Camera.main.GetComponent<SimpleFlyCamera>() : null;
+            if (fly != null) fly.enabled = true;
+            Debug.Log("[Phase4Rig] -play: rig disabled, free-fly camera active. " +
+                      "WASD move, Q/E down/up, hold RIGHT MOUSE to look, Shift for 5x (60 m/s). " +
+                      $"Stay below {EngineConfig.MIRROR_CEILING_METRES:F0}m -- above the GPU mirror " +
+                      "the screen goes black (EngineConfig.MIRROR_CHUNKS_Y).");
+            return;
+        }
         _gapProbe = gameObject.AddComponent<FrameGapProbe>();
         if (_runOnStart) StartCoroutine(RunAll());
     }
