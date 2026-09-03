@@ -44,6 +44,16 @@ public static class Materials
     public const byte Sandstone   = 8;
     public const byte JungleGrass = 9;
     public const byte Deepstone   = 10;
+
+    // ---- Phase 5a simulation materials (ADDITIVE; nothing above renumbered) ----
+    // §7.4 names Water / Lava / Honey as the three viscosity tiers and §7.6 names
+    // Water+Lava -> Obsidian as the v1 reaction, so the CPU fluid reference cannot
+    // be written without ids for them. World generation never places any of these
+    // three (§5.5 places static Water only), which is why they are deliberately
+    // ABSENT from ContentVersionHash() below -- see the note there.
+    public const byte Lava        = 11;
+    public const byte Honey       = 12;
+    public const byte Obsidian    = 13;
 }
 
 public struct BiomeDefinition
@@ -160,6 +170,14 @@ public static class WorldGenConstants
     // contentVersionHash for world.meta (D.2's reserved v1.5 migration slot).
     // FNV-1a over a canonical dump of the tables above, so any content-table
     // edit changes the hash and old world.meta files are detectably stale.
+    //
+    // DELIBERATELY NOT UPDATED for Lava/Honey/Obsidian (Phase 5a). This hash
+    // exists to detect a stale world.meta, i.e. a content edit that changes what
+    // GENERATION PRODUCES. Those three ids are unreachable from the generator
+    // (§5.5's roster is unchanged; GenerateChunk never emits them), so folding
+    // them in would invalidate every existing world.meta for a change that
+    // cannot alter a single generated voxel. Add them here if and only if
+    // generation ever starts placing them.
     public static uint ContentVersionHash()
     {
         var sb = new StringBuilder();

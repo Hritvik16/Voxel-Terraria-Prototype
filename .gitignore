@@ -114,3 +114,7 @@ InitTestScene*.unity*
 /rig_run.log
 /rig_done.marker
 /activate.log
+
+# Phase 5a manual/rig output (screenshots + logs, regenerated on demand)
+/Phase5aManualRun/
+/Phase5aRigOutput/

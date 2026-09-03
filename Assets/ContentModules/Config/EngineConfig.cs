@@ -280,6 +280,37 @@ public static class EngineConfig
     // is explicitly on loan until then.
     public const float BRICK_POOL_HIGH_WATER_FRACTION = 0.85f;
 
+    // ---- Fluid simulation (§7, Phase 5a) ----
+    // §0.2 lists MAX_ACTIVE_FLUID at "~500,000 near-player (pool hard cap
+    // higher)" and it had never been transcribed into this file. It is here now
+    // because FluidReferenceCPU is the first code that needs it. SPEC-MANDATED,
+    // not measured -- §0.2's own "raise only if" reads "Phase 5 shows near-player
+    // scope insufficient", so a Phase 5b measurement is the thing allowed to
+    // move it, not a Phase 5a convenience.
+    public const int MAX_ACTIVE_FLUID = 500000;
+
+    // §7.4's near-player active radius, in VOXELS (0.1 m each) => 128 m, chosen
+    // to match C.5's LOD0 boundary so simulated fluid and full-resolution
+    // terrain have the same reach. A slot whose home leaves this radius is
+    // force-demoted (§7.7) -- freed, byte left in place, indistinguishable from
+    // natural sleep.
+    // ASSUMPTION, NOT MEASURED. Phase 5b's GPU-lane cost measurement is the
+    // gate that has any business tuning it.
+    public const int FLUID_ACTIVE_RADIUS_VOXELS = 1280;
+
+    // §7.6 sleep: consecutive ticks a slot may fail to move before its slot is
+    // freed. The byte stays (§3.10 -- material truth is the terrain byte), so
+    // this frees simulation cost, never mass.
+    //
+    // ASSUMPTION, NOT MEASURED. It is safe to keep small ONLY because an
+    // applied move wakes its neighbourhood (§7.6 "any adjacent edit
+    // re-promotes"): a drop stalled above a draining column is re-promoted the
+    // tick the cell under it vacates, so the counter measures "genuinely
+    // settled", not "waiting its turn". Raising it costs sim time on settled
+    // pools; lowering it below ~4 starts freezing fluid that is merely
+    // contended, which reads as fluid sticking to walls.
+    public const int FLUID_SLEEP_TICKS = 8;
+
     // ---- Derived helpers (single source of truth; never re-derive inline) ----
     public const int CHUNK_EDGE_VOXELS = CHUNK_EDGE_BRICKS * BRICK_EDGE;   // 128
     public const int BRICKS_PER_CHUNK = CHUNK_EDGE_BRICKS * CHUNK_EDGE_BRICKS * CHUNK_EDGE_BRICKS; // 4096
