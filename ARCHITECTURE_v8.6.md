@@ -829,17 +829,30 @@ Decimal MB. **Derived** or **[Phase N gate]**. No line copied from v7. On the sh
 
 | Buffer | Formula / Source | MB |
 |---|---|---|
-| Brick Data Pool (CPU) | cap × 512B; **start at 750K bricks, not 1.5M** | ~384 |
-| GPU Brick Data (clipmap dense mirror) | same cap × 512B | ~384 |
-| Terrain Clipmap (flat window grid) | windowChunks × 4096 bricks × 4B | [Phase 4] |
-| Inlined brick handles (CPU) | populated-chunk cap × 4096 × 4B | [Phase 4] |
+| Brick Data Pool (CPU) | cap × 512B; **cap now 500K, re-derived vs measured peak 336,731 (2026-08-30)** | 244 |
+| GPU Brick Data (clipmap dense mirror) | same cap × 512B | 244 |
+| Terrain Clipmap (flat window grid) | mirrorChunks(32×4×32) × 4096 bricks × 4B, CPU mirror + GPU buffer | 64 + 64 |
+| Inlined brick handles (CPU) | resident populated chunks × 4096 × 4B; 729 resident at load radius 13 × 16KB | ~12 |
 | Fluid Slot Pool (GPU, §3.5) | near-player target × slot size (far below v7's 25M worldwide pool) | [Phase 5b] |
 | Fluid claim cells + write-op list (GPU) | claim cells for active regions + `MAX_FLUID_OPLIST_BYTES_PER_FRAME` (§0.2) | [Phase 5b] |
 | Light source buffer | small (sparse point lights) | ~1 |
 | Material Registry + misc | 256×32B + slack | ~1 |
-| LOD Cascade Pools (3 tiers, not 5) | **[Phase 2 gate]** | [Phase 2] |
+| LOD Cascade Pools (3 tiers, not 5) | tier1 cap 160K × 512B + tier2 cap 48K × 512B, each CPU + GPU; caps re-derived 2026-08-30 vs measured peaks 112,566 / 27,067 | 202 |
 | Unity runtime, Metal driver, framebuffers, managed heap | **[Phase 1 baseline — measure fresh]** | [Phase 1] |
 | **Total** | must land ≤ **3,000** | ≤3,000 |
+
+**Phase 4 measurement (2026-08-30), filling the rows above.** Every figure is
+from `BrickDataPool.PeakUsed` and `vmmap` on a release standalone build, not
+derivation: tier-0 pool peak 336,731 of a 750K cap (44.9%) → cap re-derived to
+500K, keeping the §3.6 valve (0.85 × cap = 425K) 26.2% clear of the peak;
+cascade tier-1 peak 112,566 → cap 160K; tier-2 peak 27,067 → cap 48K. Cascade
+pools have no valve (`Alloc` throws), so they carry MORE relative headroom than
+tier 0, not less. Declared total across all rows above is ~837 MB; **measured
+physical footprint is 1.6 GB** including Unity/Metal/framebuffers, against the
+≤3,000 MB ceiling. The gap between 837 MB declared and 1.6 GB measured is
+runtime and driver overhead, and it is why `ps rss` is not a sufficient
+instrument here — before the 2026-08-30 cascade buffer fix it under-reported a
+6 GB GPU buffer leak entirely (see PHASE_4_COMPLETION.md §4).
 
 **Starting the brick pool at 750K (not v8's 1.5M) halves the two largest lines (~768MB → ~384MB, saving ~768MB)** — the highest-leverage budget lever, adopted directly from review. If Phase 6's checkerboard test shows 750K evicts too aggressively under *normal* building, raise it then, with data. The 3-tier LOD (vs 5) also removes two cascade pools' worth of memory, downsampling, and validation.
 

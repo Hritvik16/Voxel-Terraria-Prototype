@@ -440,7 +440,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Phase4Bootstrapper
   _loadRadiusChunks: 15
   _fillWindowOnStart: 1
-  _clearDeltasOnStart: 1
+  _clearDeltasOnStart: 0
   _overrideCameraOnStart: 1
   _cameraSpawnPosition: {x: 1280, y: 12, z: 1280}
   _cameraSpawnEuler: {x: 10, y: 0, z: 0}

@@ -172,32 +172,35 @@ frame time — see Measurement discipline above.
 
 ## Known open issues (act on these, don't rediscover them)
 
-- **The world is still Phase 3's original island.** `AnchorPlanner`'s island
-  geometry hardcodes a ~22-chunk span for `sizeClass 0`, and no larger
-  `sizeClass` was ever added, despite the streaming window (27x27 chunks,
-  166m load radius) being sized for something bigger. The window is wider
-  than the island, which is why traversal spends most of its time over open
-  water. A frame-budget fix will not touch this. The correct fix is a new,
-  larger `sizeClass` (additive, per §D.2) — do not mutate `sizeClass 0` in
-  place, doing so invalidates every content hash already recorded against it.
-- **Gate C is red on two related upload-budget checks**: steady-state upload
-  p99 (measured ~3.4ms against a 1.0ms budget, §4.3) and peak bytes/frame
-  (measured ~3.28MB against a 3.145MB cap, §0.2 — roughly a 4% overrun).
-  CAUSE VERIFIED 2026-08-27, read the code before re-theorising: it is NOT
-  the upload-exempt radius. In `TerrainClipmap.UploadDirty` only the clipmap
-  ENTRY bytes are tested against `byteBudget` (line ~286), and that portion
-  is bounded far below the cap by `MAX_CLIPMAP_CHUNKS_PER_FRAME` (16 chunks
-  x 16KB = 256KB) anyway. The two larger payloads are added to
-  `stats.bytesUploaded` AFTER the throttle loop has already made every
-  decision, so neither is budgeted at all: `UploadDirtyBrickBodies` (dense
-  512B bodies, the dominant term — megabytes when freshly-admitted chunks
-  are dense) and the packed air-mip `SetData` (~300KB whenever
-  chunksUploaded > 0). Exempt chunks do skip the budget test, but the dirty
-  list is sorted nearest-first so they are processed while `bytes` is still
-  near zero — they never push the total over. This is the
-  natural first fix target once the world-size issue above is scheduled
-  separately from it — they are unrelated causes and shouldn't be fixed in
-  the same change.
+- **The world/render-range mismatch REVERSED, and is now the opposite problem.**
+  This entry used to read "the world is still Phase 3's original island... no
+  larger sizeClass was ever added". That is STALE: `Content.cs` added
+  `sizeClass 1` (additive per §D.2, sizeClass 0 untouched) scaling the island
+  9.09x to a **954.5m coast radius, ~1909m across**. The window is no longer
+  wider than the island — the island is now **6.6x wider than the renderer can
+  draw**, because max render distance is 290m (`LODConfig.TIER_OUTER_RANGE_M`,
+  itself derived from the window's corner half-diagonal). Flying up to see the
+  island end-to-end shows a hard flat cutoff against sky. This is NOT a
+  streaming or pool bug and not fixable by adding LOD tiers: the cascade is not
+  a clipmap cascade — tiers 1/2 cover the SAME extent as tier 0, sampled
+  coarser (`CascadeTierPool.cs:83-103`, and `Raymarch.compute:562-565` says so
+  in a comment). Full analysis and four costed options in
+  `AMENDMENT_8_11_RENDER_RANGE.md` (draft, not adopted).
+- **Gate C is red on ONE upload-budget check: steady-state p99 (§4.3).**
+  Measured 0.98-1.63ms against the 1.0ms budget, variable enough that whole
+  runs pass (one run measured Gate C at 0.981ms and 51 PASS / 0 FAIL).
+  **The peak-bytes/frame half of this is GREEN and has been since 2c0b999** --
+  the byte-projection fix charges dense bodies and the packed air-mip to the
+  budget before admitting a chunk, and every run since measures 2.74-3.00 MB
+  against the 3.145 MB cap. Do not go looking for a peak-bytes failure.
+  PROFILED 2026-08-31, read PHASE_4_COMPLETION.md §3.1 before touching this:
+  the 2.09ms staging figure that used to motivate "optimise staging" is STALE
+  (it predates the cascade leak fix). Current per-phase p99 is brick bodies
+  0.29-1.15, staging 0.26-0.76, everything else under 0.25, and there is no
+  dominant hotspot. Free-list defragmentation was tried against the measured
+  fragmentation (runs/slots 0.224) and made the timing WORSE while improving
+  fragmentation -- reverted, do not retry it. The write mechanism is settled
+  and load-bearing; §0.2 forbids raising MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME.
 
 ## The build-run-review loop
 

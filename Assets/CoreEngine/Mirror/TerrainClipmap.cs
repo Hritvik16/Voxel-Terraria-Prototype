@@ -113,6 +113,14 @@ public class TerrainClipmap : IDisposable
         public int chunksUploaded;
         public int chunksDeferred;
         public int brickRuns;
+        /// Dense body SLOTS uploaded this frame, before run-coalescing.
+        /// brickRuns/brickSlots is the fragmentation ratio: 1.0 means every
+        /// slot became its own SetData call (the free-list is fully scattered),
+        /// near 0 means slots are consecutive and collapse into few runs.
+        /// Reported because "brick bodies" is the dominant upload phase and
+        /// per-call overhead vs bytes-moved are different problems with
+        /// different fixes.
+        public int brickSlots;
         public int bytesUploaded;
         public int dirtyRemaining;
 
@@ -493,6 +501,7 @@ public class TerrainClipmap : IDisposable
         if (_dirtyBrickSlots.Count == 0) return 0;
 
         _dirtyBrickSlots.Sort();
+        stats.brickSlots = _dirtyBrickSlots.Count;
 
         // Reinterpret the byte pool as uints so source and destination strides
         // agree with the buffer's 4-byte element size. 512 bytes = 128 uints.

@@ -668,6 +668,12 @@ namespace VoxelEngine.Streaming
             }
         }
 
+        /// Admission contiguity counters, so the rig can report whether the
+        /// range allocator is actually getting ranges rather than silently
+        /// falling back to the old scattered path every time.
+        public int ContiguousAdmissions { get; private set; }
+        public int ScatteredAdmissions { get; private set; }
+
         private void TransferToSharedPool(Chunk chunk, ScratchContext scratch)
         {
             if (chunk.isUniform || chunk.bricks == null) return;
@@ -676,13 +682,34 @@ namespace VoxelEngine.Streaming
             var dst = _pool.RawData;
             int body = EngineConfig.BRICK_BODY_BYTES;
 
+            // CONTIGUOUS ADMISSION. Count this chunk's dense bricks, then ask
+            // for one run of exactly that size. TerrainClipmap's upload merges
+            // only CONSECUTIVE pool slots into a single SetData, so a chunk
+            // allocated as one run uploads as ONE call instead of the ~15 that
+            // scattered slots produced (measured runs/slots 0.224, ~241 calls
+            // per frame at p99, with per-call overhead dominating the 1.0ms
+            // §4.3 budget).
+            //
+            // A false return is NORMAL under fragmentation, not an error: the
+            // per-slot path below is exactly what shipped before, so the worst
+            // case is today's behaviour and never a failed admission. §3.6's
+            // "the triggering edit always succeeds" is untouched.
+            int denseCount = 0;
+            for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++)
+                if ((chunk.bricks[i].data & 0x80000000u) != 0) denseCount++;
+
+            int runBase = 0;
+            bool contiguous = denseCount > 0 && _pool.TryAllocRange(denseCount, out runBase);
+            int runOffset = 0;
+            if (contiguous) ContiguousAdmissions++; else if (denseCount > 0) ScatteredAdmissions++;
+
             for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++)
             {
                 uint data = chunk.bricks[i].data;
                 if ((data & 0x80000000u) == 0) continue;
 
                 int srcIdx = (int)(data & 0x3FFFFFFFu);
-                int dstIdx = _pool.Alloc();
+                int dstIdx = contiguous ? runBase + runOffset++ : _pool.Alloc();
 
                 // Bulk copy, not a 512-iteration indexer loop. The indexer is
                 // bounds-checked in the Editor, so the old loop cost ~150,000
@@ -991,6 +1018,41 @@ namespace VoxelEngine.Streaming
         /// This is the number the player experiences as "terrain loading slower
         /// than I move": zero means the visible world is complete, and its decay
         /// after a teleport is the refill rate. The rig samples it every frame.
+        /// §13 Phase 4 asserts "no pop-in inside 128m". LoadDeficit() below
+        /// counts a CHEBYSHEV SQUARE of _loadRadiusChunks (13 chunks = 166m on
+        /// the axis, 235m to the corner), which is a DIFFERENT claim -- it
+        /// includes chunks up to 235m away that §13 says nothing about. The
+        /// 600s soak measured deficit p99 89 / max 226 against that square and
+        /// the criterion could not be settled either way, because a deficit at
+        /// 200m is not a violation of "inside 128m".
+        ///
+        /// This splits the same sweep by true Euclidean XZ distance. A chunk
+        /// counts as INSIDE 128m when its NEAREST point is within 128m, not its
+        /// centre -- the strict reading, since any missing voxel inside the
+        /// radius is pop-in inside the radius. Nearest point of chunk (dx,dz) is
+        /// (max(0,|dx|-0.5), max(0,|dz|-0.5)) chunks away, in 12.8m units.
+        ///
+        /// 128m is §4.3's LOD0 radius, the figure §13's assertion refers to.
+        public const float POPIN_CRITERION_METRES = 128f;
+
+        public void LoadDeficitSplit(out int inside128, out int outside128)
+        {
+            inside128 = 0; outside128 = 0;
+            int r = _loadRadiusChunks;
+            const float CH = 12.8f;
+            float limitSq = POPIN_CRITERION_METRES * POPIN_CRITERION_METRES;
+            for (int cy = 0; cy <= MAX_GENERATED_CHUNK_Y; cy++)
+            for (int dz = -r; dz <= r; dz++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                if (_store.IsResident(new int3(_lastCameraChunk.x + dx, cy, _lastCameraChunk.z + dz)))
+                    continue;
+                float nx = Math.Max(0f, Math.Abs(dx) - 0.5f) * CH;
+                float nz = Math.Max(0f, Math.Abs(dz) - 0.5f) * CH;
+                if (nx * nx + nz * nz <= limitSq) inside128++; else outside128++;
+            }
+        }
+
         public int LoadDeficit()
         {
             int deficit = 0;

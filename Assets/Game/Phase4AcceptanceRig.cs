@@ -101,8 +101,98 @@ public class Phase4AcceptanceRig : MonoBehaviour
     /// them, which nothing has ever timed.
     private FrameGapProbe _gapProbe;
 
+    /// Launch-flag plumbing for the §13 Phase 4 acceptance tests. A flag rather
+    /// than scene edits so ONE build runs every test and nothing silently
+    /// diverges between what is measured and what ships.
+    private static bool HasFlag(string name)
+    {
+        foreach (string a in Environment.GetCommandLineArgs()) if (a == name) return true;
+        return false;
+    }
+    private static float FlagValue(string name, float fallback)
+    {
+        string[] args = Environment.GetCommandLineArgs();
+        for (int i = 0; i < args.Length - 1; i++)
+            if (args[i] == name && float.TryParse(args[i + 1], out float v)) return v;
+        return fallback;
+    }
+
+    /// §13 TEST 3 -- force-quit mid-save. Drives continuous edits so deltas are
+    /// being written when an external SIGKILL lands. Never exits on its own.
+    private IEnumerator EditSoak()
+    {
+        var store = Phase4Bootstrapper.Store;
+        var streamer = Phase4Bootstrapper.Streamer;
+        Camera cam = Camera.main;
+        Debug.Log("[Phase4Rig] -editsoak: rapid editing for force-quit testing. " +
+                  "Deltas are being written continuously; kill -9 at will.");
+        int edits = 0, frame = 0;
+        var rng = new System.Random(12345);
+        while (true)
+        {
+            // Edit near the camera so the chunks are resident, then move so the
+            // edited ones evict and SAVE. A kill during that save is the test.
+            int3 camVox = CoordMath.WorldToVoxel(new float3(
+                cam.transform.position.x, cam.transform.position.y, cam.transform.position.z));
+            for (int i = 0; i < 40; i++)
+            {
+                var v = new int3(camVox.x + rng.Next(-60, 60), camVox.y - 2 - rng.Next(0, 6),
+                                 camVox.z + rng.Next(-60, 60));
+                store.SetVoxel(v, (byte)(rng.Next(2) == 0 ? 0 : Materials.Stone));
+                edits++;
+            }
+            cam.transform.position += new Vector3(1f, 0f, 0f) * (60f * Time.deltaTime);
+            if (++frame % 60 == 0)
+                Debug.Log($"[Phase4Rig] editsoak: {edits} edits, saved {streamer.ChunksSavedTotal}, " +
+                          $"resident {store.ResidentCount}, deltas on disk " +
+                          $"{Directory.GetFiles(Phase4Bootstrapper.DeltaDirectory, "*.delta").Length}");
+            yield return null;
+        }
+    }
+
+    /// §13 TEST 3 verification -- relaunch after the kill. Loads the world
+    /// through the REAL streaming path (not a bespoke reader) so the numbers
+    /// mean what the game would actually do, then reports and quits.
+    private IEnumerator VerifyLoad()
+    {
+        var store = Phase4Bootstrapper.Store;
+        var streamer = Phase4Bootstrapper.Streamer;
+        string dir = Phase4Bootstrapper.DeltaDirectory;
+        for (int i = 0; i < 120; i++) yield return null;
+        streamer.WaitForIdle();
+
+        string[] deltas = Directory.GetFiles(dir, "*.delta");
+        string[] tmps = Directory.GetFiles(dir, "*.delta.tmp");
+        var sb = new StringBuilder();
+        sb.AppendLine("=== FORCE-QUIT RELAUNCH VERIFICATION (§13 Phase 4 test 3) ===");
+        sb.AppendLine($"deltas on disk        : {deltas.Length}");
+        sb.AppendLine($"orphaned .delta.tmp   : {tmps.Length}   (atomic rename means a kill leaves");
+        sb.AppendLine($"                        EITHER the old file or the new one, never a half-written one)");
+        sb.AppendLine($"deltas LOADED         : {streamer.DeltasLoadedTotal}");
+        sb.AppendLine($"deltas REJECTED (CRC) : {streamer.DeltasRejectedTotal}");
+        sb.AppendLine($"resident chunks       : {store.ResidentCount}");
+        foreach (string s2 in streamer.RejectLog) sb.AppendLine("  reject: " + s2);
+        sb.AppendLine("NO CRASH: this line printing at all is the no-crash assertion.");
+        Debug.Log(sb.ToString());
+        try
+        {
+            string outDir = Path.Combine(Application.persistentDataPath, _outputRootFolderName);
+            Directory.CreateDirectory(outDir);
+            File.AppendAllText(Path.Combine(outDir, "forcequit_verify.txt"),
+                DateTime.Now + "\n" + sb + "\n");
+        }
+        catch (Exception e) { Debug.LogWarning("verify write failed: " + e.Message); }
+        yield return new WaitForSeconds(1f);
+        Application.Quit();
+    }
+
     void Start()
     {
+        if (HasFlag("-editsoak")) { StartCoroutine(EditSoak()); return; }
+        if (HasFlag("-verifyload")) { StartCoroutine(VerifyLoad()); return; }
+        _soakSeconds = FlagValue("-soak", _soakSeconds);
+        _maxRunSeconds = FlagValue("-maxrun", _maxRunSeconds);
+
         if (FreeFlyRequested)
         {
             var fly = Camera.main != null ? Camera.main.GetComponent<SimpleFlyCamera>() : null;
@@ -696,8 +786,14 @@ public class Phase4AcceptanceRig : MonoBehaviour
     private readonly List<double> _packUpMs = new List<double>();
     private readonly List<double> _cascadeMs = new List<double>();
     private readonly List<int> _setDataCalls = new List<int>();
+    private readonly List<int> _brickSlots = new List<int>();
+    private readonly List<int> _brickRuns = new List<int>();
     private readonly List<int> _dirtyRemaining = new List<int>();
     private readonly List<int> _loadDeficit = new List<int>();
+    /// §13's criterion is "no pop-in inside 128m"; _loadDeficit is a 166m
+    /// Chebyshev square. Split so the assertion can actually be settled.
+    private readonly List<int> _deficitIn128 = new List<int>();
+    private readonly List<int> _deficitOut128 = new List<int>();
     private readonly List<double> _cascadeDownMs = new List<double>();
     private readonly List<double> _cascadeWriteMs = new List<double>();
 
@@ -744,10 +840,15 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _packUpMs.Add(u.packUploadMs);
         _cascadeMs.Add(st.LastCascadeMs);
         _setDataCalls.Add(u.setDataCalls);
+        _brickSlots.Add(u.brickSlots);
+        _brickRuns.Add(u.brickRuns);
         FrameGapProbe.LastSetDataCalls = u.setDataCalls;
         FrameGapProbe.LastUploadBytes = u.bytesUploaded;
         _dirtyRemaining.Add(u.dirtyRemaining);
-        _loadDeficit.Add(st.LoadDeficit());
+        st.LoadDeficitSplit(out int din, out int dout);
+        _loadDeficit.Add(din + dout);
+        _deficitIn128.Add(din);
+        _deficitOut128.Add(dout);
 
         var casc = Phase4Bootstrapper.Cascades;
         if (casc != null)
@@ -1219,7 +1320,30 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _report.AppendLine($"      - downsample  {Pct(_cascadeDownMs, 0.5f),8:F2} / {Pct(_cascadeDownMs, 0.99f),8:F2}");
         _report.AppendLine($"      - gpu writes  {Pct(_cascadeWriteMs, 0.5f),8:F2} / {Pct(_cascadeWriteMs, 0.99f),8:F2}");
         _report.AppendLine($"    max GPU write calls/frame: {MaxOf(_setDataCalls)}");
+        {
+            var st2 = Phase4Bootstrapper.Streamer;
+            int cont = st2.ContiguousAdmissions, scat = st2.ScatteredAdmissions;
+            _report.AppendLine($"    admission contiguity: {cont} chunks got a contiguous range, " +
+                               $"{scat} fell back to scattered " +
+                               $"({(cont + scat > 0 ? 100.0 * cont / (cont + scat) : 0):F1}% contiguous); " +
+                               $"pool free runs {Phase4Bootstrapper.Pool.FreeRunCount} " +
+                               $"(rising = external fragmentation)");
+        }
+        _report.AppendLine($"    dense-body FRAGMENTATION: slots p99 {Pct(ToD(_brickSlots),0.99f):F0} " +
+                           $"max {MaxOf(_brickSlots):F0}; runs p99 {Pct(ToD(_brickRuns),0.99f):F0} " +
+                           $"max {MaxOf(_brickRuns):F0}; runs/slots at max = " +
+                           $"{(MaxOf(_brickSlots) > 0 ? MaxOf(_brickRuns) / MaxOf(_brickSlots) : 0):F3} " +
+                           $"(1.000 = every slot its own SetData call)");
         _report.AppendLine($"    max clipmap dirty backlog: {MaxOf(_dirtyRemaining)} chunks");
+        _report.AppendLine($"    load deficit INSIDE 128m (§13's actual criterion): " +
+                           $"p50 {Pct(ToD(_deficitIn128), 0.5f):F0}, p99 {Pct(ToD(_deficitIn128), 0.99f):F0}, " +
+                           $"max {MaxOf(_deficitIn128):F0} chunks");
+        _report.AppendLine($"    load deficit 128m..166m (OUTSIDE the criterion): " +
+                           $"p50 {Pct(ToD(_deficitOut128), 0.5f):F0}, p99 {Pct(ToD(_deficitOut128), 0.99f):F0}, " +
+                           $"max {MaxOf(_deficitOut128):F0} chunks");
+        Check(MaxOf(_deficitIn128) == 0,
+            $"§13 'no pop-in inside 128m': max {MaxOf(_deficitIn128):F0} chunks missing inside the " +
+            $"128m radius at any sampled frame");
         _report.AppendLine($"    load deficit during traversal: p50 {Pct(ToD(_loadDeficit), 0.5f):F0}, " +
                            $"p99 {Pct(ToD(_loadDeficit), 0.99f):F0}, max {MaxOf(_loadDeficit):F0} chunks " +
                            $"(0 = the visible world was always complete; a big number IS the 'terrain " +
@@ -1254,6 +1378,16 @@ public class Phase4AcceptanceRig : MonoBehaviour
         // the failure mode §10.4 wants validators to avoid.
         int3 camVox = CoordMath.WorldToVoxel(new float3(startPos.x, startPos.y, startPos.z));
         int digs = 0, builds = 0;
+        // PRE-DIG brick state, for the §4.5 coalescing assertion further down.
+        // §13 says "the refilled part of the tunnel coalesced back to uniform",
+        // but a brick only coalesces when all 512 bytes match, and the tunnel is
+        // dug 0.2m under the surface -- so most bricks it crosses straddle the
+        // air/solid boundary and were ALREADY dense before the dig. Asserting
+        // "all refilled bricks are uniform" fails on terrain shape, not on a
+        // coalescer defect (measured 2026-08-30: 25 of 25 tunnel bricks).
+        // The precise claim is: a brick that was UNIFORM before the dig must be
+        // uniform again after the refill. That is what gets asserted.
+        var preDigUniform = new Dictionary<(int3, int), bool>();
         var editedChunks = new HashSet<int3>();
 
         // HARNESS BUG 1: the dig line was camVox.y - 4 -- 0.4m below the
@@ -1277,6 +1411,14 @@ public class Phase4AcceptanceRig : MonoBehaviour
         for (int i = 0; i < 200; i++)
         {
             var v = new int3(camVox.x + i, digY, camVox.z);
+            {
+                int3 cc0 = CoordMath.VoxelToChunk(v);
+                Chunk ch0 = store.GetChunk(cc0);
+                int bi0 = CoordMath.LocalBrickIndex(CoordMath.VoxelToBrick(v) & 15);
+                if (ch0 != null)
+                    preDigUniform[(cc0, bi0)] =
+                        ch0.isUniform || (ch0.bricks[bi0].data & 0x80000000u) == 0;
+            }
             if (store.GetVoxel(v) != Materials.Air)
             {
                 store.SetVoxel(v, Materials.Air);
@@ -1284,6 +1426,40 @@ public class Phase4AcceptanceRig : MonoBehaviour
                 editedChunks.Add(CoordMath.VoxelToChunk(v));
             }
         }
+
+        // DEEP TUNNEL, added so §13's coalescing assertion actually tests
+        // something. The shallow tunnel above is dug 0.2m under the surface, so
+        // every brick it crosses straddles air/solid and was ALREADY dense --
+        // measured 25 of 25, which made the uniform-before/uniform-after check
+        // pass VACUOUSLY at "0 of 0". A brick can only demonstrate coalescing if
+        // it was uniform to begin with, which means digging well inside solid
+        // material. surfaceY-24 is 2.4m down, below the dirt/stone transition.
+        int deepY = surfaceY > int.MinValue ? surfaceY - 24 : camVox.y - 40;
+        int deepDigs = 0;
+        if (deepY > 0)
+        {
+            for (int i = 0; i < 200; i++)
+            {
+                var v = new int3(camVox.x + i, deepY, camVox.z);
+                {
+                    int3 cc0 = CoordMath.VoxelToChunk(v);
+                    Chunk ch0 = store.GetChunk(cc0);
+                    int bi0 = CoordMath.LocalBrickIndex(CoordMath.VoxelToBrick(v) & 15);
+                    if (ch0 != null)
+                        preDigUniform[(cc0, bi0)] =
+                            ch0.isUniform || (ch0.bricks[bi0].data & 0x80000000u) == 0;
+                }
+                if (store.GetVoxel(v) != Materials.Air)
+                {
+                    store.SetVoxel(v, Materials.Air);
+                    deepDigs++;
+                    editedChunks.Add(CoordMath.VoxelToChunk(v));
+                }
+            }
+        }
+        Line($"  deep tunnel: {deepDigs} voxels dug at y={deepY} " +
+             $"({(deepY > 0 ? deepY * 0.1f : -1f):F1}m, {(surfaceY - deepY) * 0.1f:F1}m below surface) " +
+             $"-- this is the one that can actually coalesce back to uniform");
 
         // HARNESS BUG 2: the structure was placed at camVox.x - 10, and
         // camVox.x is 1408 = 11 * 128 -- exactly a chunk boundary. Every placed
@@ -1357,6 +1533,9 @@ public class Phase4AcceptanceRig : MonoBehaviour
         int denseBefore = store.DenseBricksHeld;
         for (int i = 0; i < 200; i++)
             store.SetVoxel(new int3(camVox.x + i, digY, camVox.z), Materials.Stone);
+        if (deepY > 0)
+            for (int i = 0; i < 200; i++)
+                store.SetVoxel(new int3(camVox.x + i, deepY, camVox.z), Materials.Stone);
         Phase4Bootstrapper.Coalescer.RunFullPass();
         int denseAfter = store.DenseBricksHeld;
         Line($"refill + coalesce: dense bricks {denseBefore} -> {denseAfter} " +
@@ -1364,6 +1543,45 @@ public class Phase4AcceptanceRig : MonoBehaviour
              $"{Phase4Bootstrapper.Coalescer.ChunksCollapsedTotal} chunks collapsed to uniform)");
         Check(denseAfter <= denseBefore,
             "coalescing after refilling the tunnel did not increase dense-brick count (§4.5 only ever frees)");
+
+        // §13 asks specifically that "the refilled part of the tunnel coalesced
+        // back to uniform". The count check above is necessary but far too weak
+        // to show that: it would pass if NOTHING coalesced. Assert the actual
+        // uniform/dense STATE of the bricks the refill touched, read from
+        // chunk.bricks directly rather than from the debug overlay.
+        {
+            int wasUniform = 0, regressed = 0, straddling = 0, coalesced = 0, total = 0;
+            var seen = new HashSet<(int3, int)>();
+            var probes = new List<int3>();
+            for (int i = 0; i < 200; i++) probes.Add(new int3(camVox.x + i, digY, camVox.z));
+            if (deepY > 0)
+                for (int i = 0; i < 200; i++) probes.Add(new int3(camVox.x + i, deepY, camVox.z));
+            foreach (int3 v in probes)
+            {
+                int3 cc = CoordMath.VoxelToChunk(v);
+                Chunk ch = store.GetChunk(cc);
+                if (ch == null) continue;
+                int bi = CoordMath.LocalBrickIndex(CoordMath.VoxelToBrick(v) & 15);
+                if (!seen.Add((cc, bi))) continue;
+                total++;
+                bool uniformNow = ch.isUniform || (ch.bricks[bi].data & 0x80000000u) == 0;
+                bool wasU = preDigUniform.TryGetValue((cc, bi), out bool b) && b;
+                if (wasU) { wasUniform++; if (!uniformNow) regressed++; }
+                else if (uniformNow) coalesced++;   // dense before -> uniform after: §4.5 working
+                else straddling++;
+            }
+            Line($"  tunnel bricks: {total} distinct; {coalesced} went DENSE -> UNIFORM after the " +
+                 $"refill (§4.5 coalescing, the deep tunnel); {wasUniform} were uniform pre-dig with " +
+                 $"{regressed} regressions; {straddling} stayed dense because they straddle the " +
+                 $"air/solid surface (all-512-bytes-equal can never hold there -- correct)");
+            Check(total > 0, "the refill actually touched bricks that could be inspected");
+            Check(regressed == 0,
+                $"no brick that was UNIFORM before the dig failed to coalesce back " +
+                $"({regressed} of {wasUniform}) (§4.5)");
+            Check(coalesced > 0,
+                $"the refilled tunnel COALESCED BACK TO UNIFORM: {coalesced} bricks went dense -> " +
+                $"uniform (§13's assertion, demonstrated on the deep tunnel where it can hold)");
+        }
 
         // ---- Hex-corrupt a real .delta on disk (§13's exact assertion). ----
         //

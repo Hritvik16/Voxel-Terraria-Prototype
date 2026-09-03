@@ -16,6 +16,7 @@
 //      acceptance rig starts from a known-populated state instead of racing
 //      the prefetcher.
 using System.Diagnostics;
+using System;
 using System.IO;
 using Unity.Mathematics;
 using UnityEngine;
@@ -47,7 +48,17 @@ public class Phase4Bootstrapper : MonoBehaviour
     [Tooltip("Block on Start until the initial window is fully resident. Off = watch it stream in.")]
     [SerializeField] private bool _fillWindowOnStart = true;
     [Tooltip("Wipe the delta directory on boot. ON for repeatable acceptance runs; OFF to test persistence across launches.")]
-    [SerializeField] private bool _clearDeltasOnStart = true;
+    /// §10.1 specifies the auto-cleaner as an EDITOR tool ("[InitializeOnLoad]
+    /// on exiting play mode"), toggled off for persistence testing -- not a
+    /// shipped player default. It shipped as a player default of TRUE, which
+    /// meant every standalone launch deleted the previous session's saves
+    /// before the pools initialised. For a game that is data loss on startup.
+    ///
+    /// Default is now FALSE (saves persist, which is the shippable behaviour).
+    /// Rig runs that need a pristine world pass -cleardeltas;
+    /// run-acceptance-rig.sh does exactly that, so gate results are unchanged.
+    /// -keepdeltas still force-disables cleaning even if this is set true.
+    [SerializeField] private bool _clearDeltasOnStart = false;
 
     [Header("Camera spawn")]
     [SerializeField] private bool _overrideCameraOnStart = true;
@@ -99,14 +110,30 @@ public class Phase4Bootstrapper : MonoBehaviour
         // ---- Delta directory ----
         DeltaDirectory = Path.Combine(worldDir, "deltas");
         Directory.CreateDirectory(DeltaDirectory);
-        if (_clearDeltasOnStart)
+        // §10.1: "Toggle off for persistence testing (Phase 4)." The scene ships
+        // this ON, which is right for repeatable rig runs (every run starts from
+        // a pristine world) and fatal for the force-quit acceptance test, which
+        // must survive a process restart WITH its deltas intact.
+        // -keepdeltas is that toggle, as a launch flag so the same build serves
+        // both without a scene edit.
+        bool keepDeltas = false, forceClear = false;
+        foreach (string arg in Environment.GetCommandLineArgs())
+        {
+            if (arg == "-keepdeltas") keepDeltas = true;
+            if (arg == "-cleardeltas") forceClear = true;
+        }
+        if (keepDeltas)
+            UnityEngine.Debug.Log("[Phase4Bootstrapper] -keepdeltas: §10.1 auto-clean DISABLED, " +
+                                  "existing deltas retained.");
+
+        if ((_clearDeltasOnStart || forceClear) && !keepDeltas)
         {
             foreach (string f in Directory.GetFiles(DeltaDirectory, "*.delta")) File.Delete(f);
             foreach (string f in Directory.GetFiles(DeltaDirectory, "*.delta.tmp")) File.Delete(f);
         }
 
         // ---- Pools / store / mirrors ----
-        _pool = new BrickDataPool(EngineConfig.BRICK_POOL_CAP);
+        _pool = new BrickDataPool(EngineConfig.BRICK_POOL_CAP, rangeAware: true);
         _allocator = new ChunkHandleAllocator(1024);
         _store = new ChunkStore(_pool, _allocator);
         Store = _store; Pool = _pool;
