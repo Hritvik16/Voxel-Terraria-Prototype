@@ -578,9 +578,6 @@ which proves the upload path but not the *downsampling rule* itself. Tier-0
 traversal has `RaymarchReference`; tiers 1/2 have no equivalent, so a
 majority-vote error would be invisible.
 
-**6.6 The upload budget overrun is small but real.** 1.198–1.434ms against
-1.0ms. Passes in Gate C and in 3 of 5 short runs; fails in the 600s soak.
-
 **6.7 §4.3's ≤1.0ms upload budget — AN UNMET REQUIREMENT, CARRIED FORWARD
 DELIBERATELY RATHER THAN FUDGED.** Same standing as PHASE_1_COMPLETION.md §6's
 buffer-benchmark confound and PHASE_2_COMPLETION.md §6.1's cascade-pool ceiling.
