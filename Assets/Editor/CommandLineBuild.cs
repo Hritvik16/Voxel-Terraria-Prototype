@@ -27,6 +27,36 @@ public static class CommandLineBuild
     private const string SCENE_PATH = "Assets/Scenes/Phase 4 Streaming.unity";
     private const string OUTPUT_PATH = "Builds/Phase4Acceptance.app";
 
+    private const string PHASE5A_SCENE_PATH = "Assets/Scenes/Phase 5a Basin.unity";
+    private const string PHASE5A_OUTPUT_PATH = "Builds/Phase5aAcceptance.app";
+
+    /// Phase 5a's basin acceptance rig, same shape as BuildPhase4Standalone.
+    /// RELEASE, not Development, for the same reason stated at the top of this
+    /// file -- and additionally so Debug.isDebugBuild reads false in the rig's
+    /// own report, where it is printed as evidence of which build produced the
+    /// screenshots.
+    public static void BuildPhase5aStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE5A_SCENE_PATH },
+            locationPathName = PHASE5A_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        var summary = report.summary;
+        Debug.Log($"[CommandLineBuild] phase5a result={summary.result} " +
+                  $"errors={summary.totalErrors} warnings={summary.totalWarnings} " +
+                  $"outputPath={summary.outputPath} sizeBytes={summary.totalSize}");
+
+        if (summary.result != BuildResult.Succeeded)
+            EditorApplication.Exit(1);
+
+        DisableAppNap(PHASE5A_OUTPUT_PATH);
+    }
+
     public static void BuildPhase4Standalone()
     {
         var options = new BuildPlayerOptions

@@ -42,6 +42,12 @@ public static class Phase5aSceneBuilder
         var rigGo = new GameObject("Phase5aBasin");
         rigGo.AddComponent<Phase5aBasin>();
 
+        // The acceptance rig lives in the same scene but stays dormant unless
+        // launched with -phase5arig (or in batchmode), so opening this scene in
+        // the Editor still gives a human the plain clickable basin.
+        var acceptanceGo = new GameObject("Phase5aAcceptanceRig");
+        acceptanceGo.AddComponent<Phase5aAcceptanceRig>();
+
         Directory.CreateDirectory(Path.GetDirectoryName(ScenePath));
         bool ok = EditorSceneManager.SaveScene(scene, ScenePath);
         Debug.Log(ok

@@ -118,3 +118,7 @@ InitTestScene*.unity*
 # Phase 5a manual/rig output (screenshots + logs, regenerated on demand)
 /Phase5aManualRun/
 /Phase5aRigOutput/
+
+# Phase 5a rig build + logs
+/Builds/Phase5aAcceptance.app/
+/phase5a_build.log

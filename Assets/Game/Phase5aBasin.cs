@@ -40,6 +40,58 @@ public class Phase5aBasin : MonoBehaviour
     [Tooltip("Drops a continuous source emits before it shuts itself off.")]
     [SerializeField] private int _sourceBudget = 250;
 
+    /// One basin scenario: the label its button shows and the action that
+    /// button runs. THIS IS THE SINGLE BINDING -- OnGUI renders a button per
+    /// entry and Phase5aAcceptanceRig invokes the same entry's Run. There is no
+    /// second copy of the mapping for the two to disagree about, which is the
+    /// point: if the rig could name its own methods, a mis-wired button would
+    /// stay invisible to the rig, which is exactly the bug this scene exists to
+    /// catch.
+    public readonly struct BasinScenario
+    {
+        public readonly string Id;
+        public readonly string Label;
+        public readonly System.Action Run;
+        public BasinScenario(string id, string label, System.Action run)
+        {
+            Id = id; Label = label; Run = run;
+        }
+    }
+
+    private BasinScenario[] _scenarios;
+
+    /// §13's five scenarios, in the order the buttons appear.
+    public BasinScenario[] Scenarios => _scenarios ??= new[]
+    {
+        new BasinScenario("pour_water",   "Pour water",              PourWater),
+        new BasinScenario("sand_column",  "Drop sand column",        DropSandColumn),
+        new BasinScenario("lava_vent",    "Lava vent",               LavaVent),
+        new BasinScenario("place_block",  "Place block into stream", PlaceBlockIntoStream),
+        new BasinScenario("mine_drop",    "Mine a falling drop",     MineAFallingDrop),
+    };
+
+    // ---- Surface the acceptance rig drives. Everything here is a view onto
+    // ---- state the overlay already shows; the rig adds no simulation of its own.
+    public FluidReferenceCPU Sim => _sim;
+    public string LastAction => _lastAction;
+    /// Tick the conservation ledger first went out of balance, or -1.
+    public int BrokenAtTick => _brokenAtTick;
+    public string BrokenMessage => _brokenMessage;
+    public bool Paused { get => _paused; set => _paused = value; }
+    public int SliceZ { get => _sliceZ; set => _sliceZ = value; }
+    public int SliceY { get => _sliceY; set => _sliceY = value; }
+
+    /// Rebuild the basin from scratch. The rig calls this between scenarios so
+    /// each one starts from the same state a freshly-launched scene would have.
+    public void Rebuild() => BuildBasin();
+
+    /// Advance one CA tick, emitting from any open source first -- exactly what
+    /// the unpaused Update loop does per tick. Public so the rig can drive the
+    /// cadence deterministically instead of depending on frame timing (§7.8:
+    /// the reference is deterministic given a fixed tick order, and a rig that
+    /// ticked off Time.deltaTime would throw that away).
+    public void Step() => StepOnce();
+
     private FluidReferenceCPU _sim;
     private Texture2D _sideView;     // XY cross-section at _sliceZ
     private Texture2D _topView;      // XZ cross-section at _sliceY
@@ -318,11 +370,8 @@ public class Phase5aBasin : MonoBehaviour
 
         GUILayout.Space(6);
         GUILayout.Label("<b>Scenarios (§13)</b>", new GUIStyle(GUI.skin.label) { richText = true });
-        if (GUILayout.Button("Pour water")) PourWater();
-        if (GUILayout.Button("Drop sand column")) DropSandColumn();
-        if (GUILayout.Button("Lava vent")) LavaVent();
-        if (GUILayout.Button("Place block into stream")) PlaceBlockIntoStream();
-        if (GUILayout.Button("Mine a falling drop")) MineAFallingDrop();
+        foreach (var scenario in Scenarios)
+            if (GUILayout.Button(scenario.Label)) scenario.Run();
 
         GUILayout.Space(6);
         GUILayout.BeginHorizontal();
