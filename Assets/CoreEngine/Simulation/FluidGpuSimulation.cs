@@ -1,0 +1,338 @@
+// ==========================================
+// Assets/CoreEngine/Simulation/FluidGpuSimulation.cs
+//
+// Phase 5b: buffer ownership and per-tick dispatch for FluidCA.compute.
+//
+// §13 lists two files for this phase (FluidCA.compute, FluidOpListReadback.cs);
+// this is the seam between them. It owns the GPU-resident fluid state (§3.5's
+// slot pool, the claim plane, the wake list, the op-list) and issues the
+// Clear -> Promote -> React -> Intent+Claim -> Commit -> Sweep sequence.
+// FluidOpListReadback owns the GPU->CPU half.
+//
+// -------------------------------------------------------------------------
+// WHAT THIS CLASS IS NOT ALLOWED TO DO
+// -------------------------------------------------------------------------
+// It never writes terrain, on either side. The GPU decides where fluid moves;
+// the decision reaches terrain only as an op-list the CPU applies through
+// ChunkStore.SetVoxel (§7.2, §0.1 invariant 1). If you find yourself wanting to
+// SetData terrain from here, the design has been misread.
+//
+// -------------------------------------------------------------------------
+// PROMOTION IS CPU-DRIVEN, MOTION IS GPU-DRIVEN
+// -------------------------------------------------------------------------
+// §7.6: "the edit path scans the edit's neighbourhood for fluid/falling
+// materials and wakes GPU slots -- this wake signal is a small CPU->GPU upload
+// (§3.9), not a readback, so it is immediate." Wake requests are therefore
+// uploaded, never read back. The only GPU->CPU traffic is the bounded op-list
+// and the bounded descending-move wake list, both of which are appends sized to
+// CHANGED cells rather than to active-slot count (§13's named failure signature
+// if that is ever untrue -- FluidOpListReadback instruments it).
+
+using System;
+using System.Runtime.InteropServices;
+using Unity.Mathematics;
+using UnityEngine;
+using VoxelEngine.Mirror;
+
+namespace VoxelEngine.Simulation
+{
+    /// A.5 FluidSlot, CPU mirror of the HLSL struct in FluidCA.compute.
+    /// MUST stay byte-identical to that struct. 24 bytes.
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FluidSlotGpu
+    {
+        public int brickDataIndex;
+        public uint localVoxelOffset;
+        public uint materialID;
+        public uint sleepCounter;
+        public uint viscosityPhase;
+        public uint stateFlags;
+        public const int SizeBytes = 24;
+    }
+
+    /// A.9 FluidWriteOp. MUST stay byte-identical to the HLSL struct. 16 bytes.
+    [StructLayout(LayoutKind.Sequential)]
+    public struct FluidWriteOp
+    {
+        public int x, y, z;
+        public uint newMaterial;
+        public const int SizeBytes = 16;
+        public int3 Voxel => new int3(x, y, z);
+    }
+
+    public sealed class FluidGpuSimulation : IDisposable
+    {
+        // Kernel indices, resolved once in the constructor.
+        private readonly int _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep;
+        private readonly ComputeShader _cs;
+
+        private readonly int3 _regionDims;
+        private readonly int _regionCellCount;
+        private readonly int _shiftX, _shiftY;
+        private readonly int _slotCapacity;
+
+        private GraphicsBuffer _slots;
+        private GraphicsBuffer _claim;
+        private GraphicsBuffer _slotAt;
+        private GraphicsBuffer _reacted;
+        private GraphicsBuffer _counters;
+        private GraphicsBuffer _opList;
+        private GraphicsBuffer _wakeRequests;
+        private GraphicsBuffer _wakeOut;
+        private GraphicsBuffer _materialFlags;
+        private GraphicsBuffer _materialTick;
+        private GraphicsBuffer _reactSelf;
+        private GraphicsBuffer _reactOther;
+
+        private readonly int[] _wakeScratch;
+        private int _wakeCount;
+
+        public int3 RegionOriginVoxels { get; set; }
+        public int3 PlayerVoxel { get; set; }
+        public int ActiveRadiusVoxels { get; set; } = EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS;
+        public int TickCount { get; private set; }
+
+        public int3 RegionDims => _regionDims;
+        public int RegionCellCount => _regionCellCount;
+        public int SlotCapacity => _slotCapacity;
+        public int MaxOpsPerFrame { get; }
+
+        public GraphicsBuffer OpListBuffer => _opList;
+        public GraphicsBuffer WakeOutBuffer => _wakeOut;
+
+        /// <param name="regionDims">Active-region size in voxels. EVERY component
+        /// must be a power of two: FluidCA.compute addresses the region with
+        /// shifts and masks (§0.1 invariant 2), and a non-power-of-two does not
+        /// fail loudly, it aliases silently -- the §6.2 phantom-terrain bug
+        /// class. Asserted, not trusted.</param>
+        public FluidGpuSimulation(ComputeShader fluidCA, int3 regionDims,
+                                  int slotCapacity, int maxOpsPerFrame)
+        {
+            _cs = fluidCA != null ? fluidCA
+                : throw new ArgumentNullException(nameof(fluidCA), "FluidCA.compute not assigned");
+
+            RequirePow2(regionDims.x, "regionDims.x");
+            RequirePow2(regionDims.y, "regionDims.y");
+            RequirePow2(regionDims.z, "regionDims.z");
+
+            _regionDims = regionDims;
+            _regionCellCount = regionDims.x * regionDims.y * regionDims.z;
+            _shiftX = Log2(regionDims.x);
+            _shiftY = Log2(regionDims.y);
+            _slotCapacity = Math.Min(slotCapacity, EngineConfig.MAX_ACTIVE_FLUID);
+            MaxOpsPerFrame = maxOpsPerFrame;
+
+            _kClear   = _cs.FindKernel("CSClear");
+            _kPromote = _cs.FindKernel("CSPromote");
+            _kReact   = _cs.FindKernel("CSReact");
+            _kIntent  = _cs.FindKernel("CSIntent");
+            _kCommit  = _cs.FindKernel("CSCommit");
+            _kSweep   = _cs.FindKernel("CSSweep");
+
+            _slots   = New(GraphicsBuffer.Target.Structured, _slotCapacity, FluidSlotGpu.SizeBytes);
+            _claim   = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
+            _slotAt  = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
+            _reacted = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
+            _counters = New(GraphicsBuffer.Target.Structured, 4, 4);
+            _opList  = New(GraphicsBuffer.Target.Append, maxOpsPerFrame, FluidWriteOp.SizeBytes);
+            _wakeOut = New(GraphicsBuffer.Target.Append, maxOpsPerFrame, 4);
+            _wakeRequests = New(GraphicsBuffer.Target.Structured, maxOpsPerFrame, 4);
+            _wakeScratch = new int[maxOpsPerFrame];
+
+            // §3.7's lesson, applied here too: a fresh GraphicsBuffer contains
+            // whatever was in GPU memory. SlotAt in particular MUST start at
+            // NONE or CSPromote will believe every cell already owns a slot and
+            // silently promote nothing.
+            var noneFill = new int[_regionCellCount];
+            for (int i = 0; i < _regionCellCount; i++) noneFill[i] = -1;
+            _slotAt.SetData(noneFill);
+            _claim.SetData(noneFill);
+            _reacted.SetData(new int[_regionCellCount]);
+            _counters.SetData(new uint[4]);
+            _slots.SetData(new FluidSlotGpu[_slotCapacity]);
+
+            UploadMaterialRegistry();
+        }
+
+        private static GraphicsBuffer New(GraphicsBuffer.Target target, int count, int stride) =>
+            new GraphicsBuffer(target, Math.Max(1, count), stride);
+
+        /// §3.9's CPU->GPU registry upload, restricted to what the CA reads:
+        /// A.7 flags, §7.4 tick intervals, and §7.6's reaction pairs flattened to
+        /// a 256x256 lookup so the shader needs no loop over a pair table.
+        private void UploadMaterialRegistry()
+        {
+            var flags = new uint[256];
+            var interval = new uint[256];
+            var reactSelf = new uint[256 * 256];
+            var reactOther = new uint[256 * 256];
+            for (int i = 0; i < reactSelf.Length; i++) reactSelf[i] = 0xFFFFFFFFu;
+
+            for (int m = 0; m < 256; m++)
+            {
+                flags[m] = MaterialRules.Flags((byte)m);
+                interval[m] = MaterialRules.TickInterval((byte)m);
+                for (int o = 0; o < 256; o++)
+                {
+                    if (!MaterialRules.TryGetReaction((byte)m, (byte)o,
+                            out byte sp, out byte op)) continue;
+                    reactSelf[m * 256 + o] = sp;
+                    reactOther[m * 256 + o] = op;
+                }
+            }
+
+            _materialFlags = New(GraphicsBuffer.Target.Structured, 256, 4);
+            _materialTick  = New(GraphicsBuffer.Target.Structured, 256, 4);
+            _reactSelf     = New(GraphicsBuffer.Target.Structured, 256 * 256, 4);
+            _reactOther    = New(GraphicsBuffer.Target.Structured, 256 * 256, 4);
+            _materialFlags.SetData(flags);
+            _materialTick.SetData(interval);
+            _reactSelf.SetData(reactSelf);
+            _reactOther.SetData(reactOther);
+        }
+
+        // =====================================================================
+        // Wake requests (§7.6) -- uploaded, never read back
+        // =====================================================================
+
+        public void ClearWakeRequests() => _wakeCount = 0;
+
+        /// Queue a world voxel to be considered for promotion next dispatch.
+        /// Silently drops out-of-region coordinates and overflow, both of which
+        /// are "this cell does not move this tick", never a lost byte.
+        public void RequestWake(int3 worldVoxel)
+        {
+            if (_wakeCount >= _wakeScratch.Length) return;
+            if (!InRegion(worldVoxel)) return;
+            _wakeScratch[_wakeCount++] = RegionIndex(worldVoxel);
+        }
+
+        /// §8.3's "scan 26-neighborhood for fluid/falling materials -> wake slots".
+        public void RequestWakeNeighbourhood(int3 worldVoxel)
+        {
+            for (int dz = -1; dz <= 1; dz++)
+            for (int dy = -1; dy <= 1; dy++)
+            for (int dx = -1; dx <= 1; dx++)
+                RequestWake(worldVoxel + new int3(dx, dy, dz));
+        }
+
+        public void RequestWakeRegionCell(int regionCell)
+        {
+            if (_wakeCount >= _wakeScratch.Length) return;
+            if (regionCell < 0 || regionCell >= _regionCellCount) return;
+            _wakeScratch[_wakeCount++] = regionCell;
+        }
+
+        public bool InRegion(int3 v)
+        {
+            int3 r = v - RegionOriginVoxels;
+            return r.x >= 0 && r.y >= 0 && r.z >= 0 &&
+                   r.x < _regionDims.x && r.y < _regionDims.y && r.z < _regionDims.z;
+        }
+
+        public int RegionIndex(int3 v)
+        {
+            int3 r = v - RegionOriginVoxels;
+            return r.x | (r.y << _shiftX) | (r.z << (_shiftX + _shiftY));
+        }
+
+        public int3 RegionVoxel(int index)
+        {
+            int mx = _regionDims.x - 1, my = _regionDims.y - 1;
+            return new int3(index & mx, (index >> _shiftX) & my,
+                            index >> (_shiftX + _shiftY)) + RegionOriginVoxels;
+        }
+
+        // =====================================================================
+        // The tick
+        // =====================================================================
+
+        /// One CA tick: Clear -> Promote -> React -> Intent+Claim -> Commit -> Sweep.
+        /// Each stage is its own dispatch, which is what puts a barrier between
+        /// them -- CSReact in particular RELIES on that barrier (see its header).
+        public void Tick(TerrainClipmap clipmap)
+        {
+            if (clipmap == null) throw new ArgumentNullException(nameof(clipmap));
+            TickCount++;
+
+            _opList.SetCounterValue(0);
+            _wakeOut.SetCounterValue(0);
+            if (_wakeCount > 0) _wakeRequests.SetData(_wakeScratch, 0, 0, _wakeCount);
+
+            BindGlobals(clipmap);
+
+            Dispatch(_kClear, _regionCellCount);
+            if (_wakeCount > 0) Dispatch(_kPromote, _wakeCount);
+            Dispatch(_kReact, _slotCapacity);
+            Dispatch(_kIntent, _slotCapacity);
+            Dispatch(_kCommit, _regionCellCount);
+            Dispatch(_kSweep, _slotCapacity);
+
+            _wakeCount = 0;
+        }
+
+        private void BindGlobals(TerrainClipmap clipmap)
+        {
+            _cs.SetInts("_RegionOriginVoxels", RegionOriginVoxels.x, RegionOriginVoxels.y, RegionOriginVoxels.z, 0);
+            _cs.SetInts("_RegionDimsVoxels", _regionDims.x, _regionDims.y, _regionDims.z, 0);
+            _cs.SetInts("_RegionShifts", _shiftX, _shiftY, 0, 0);
+            _cs.SetInts("_PlayerVoxel", PlayerVoxel.x, PlayerVoxel.y, PlayerVoxel.z, 0);
+            _cs.SetInt("_ActiveRadiusVoxels", ActiveRadiusVoxels);
+            _cs.SetInt("_Tick", TickCount);
+            _cs.SetInt("_SlotCapacity", _slotCapacity);
+            _cs.SetInt("_RegionCellCount", _regionCellCount);
+            _cs.SetInt("_WakeRequestCount", _wakeCount);
+            _cs.SetInt("_MaxOpsPerFrame", MaxOpsPerFrame);
+            _cs.SetInt("_SleepTicks", EngineConfig.FLUID_SLEEP_TICKS);
+
+            int3 wdc = clipmap.WindowDimsChunks, wdb = clipmap.WindowDimsBricks, wob = clipmap.WindowOriginBricks;
+            _cs.SetInts("_WindowDimsChunksPacked", wdc.x, wdc.y, wdc.z, 0);
+            _cs.SetInts("_WindowDimsBricksPacked", wdb.x, wdb.y, wdb.z, 0);
+            _cs.SetInts("_WindowOriginBricksPacked", wob.x, wob.y, wob.z, 0);
+
+            foreach (int k in new[] { _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep })
+            {
+                _cs.SetBuffer(k, "ClipmapBuffer", clipmap.ClipmapBuffer);
+                _cs.SetBuffer(k, "BrickDataBuffer", clipmap.BrickDataBuffer);
+                _cs.SetBuffer(k, "FluidSlots", _slots);
+                _cs.SetBuffer(k, "ClaimBuffer", _claim);
+                _cs.SetBuffer(k, "SlotAtBuffer", _slotAt);
+                _cs.SetBuffer(k, "ReactedBuffer", _reacted);
+                _cs.SetBuffer(k, "Counters", _counters);
+                _cs.SetBuffer(k, "OpList", _opList);
+                _cs.SetBuffer(k, "WakeRequests", _wakeRequests);
+                _cs.SetBuffer(k, "WakeOut", _wakeOut);
+                _cs.SetBuffer(k, "MaterialFlags", _materialFlags);
+                _cs.SetBuffer(k, "MaterialTickInterval", _materialTick);
+                _cs.SetBuffer(k, "ReactionSelfProduct", _reactSelf);
+                _cs.SetBuffer(k, "ReactionOtherProduct", _reactOther);
+            }
+        }
+
+        private void Dispatch(int kernel, int threads)
+        {
+            if (threads <= 0) return;
+            _cs.Dispatch(kernel, (threads + 63) / 64, 1, 1);
+        }
+
+        // =====================================================================
+
+        private static void RequirePow2(int v, string name)
+        {
+            if (v <= 0 || (v & (v - 1)) != 0)
+                throw new ArgumentException($"{name} must be a positive power of two (got {v}).", name);
+        }
+
+        private static int Log2(int p) { int n = 0; while ((p >> n) > 1) n++; return n; }
+
+        public void Dispose()
+        {
+            _slots?.Dispose(); _claim?.Dispose(); _slotAt?.Dispose(); _reacted?.Dispose();
+            _counters?.Dispose(); _opList?.Dispose(); _wakeRequests?.Dispose(); _wakeOut?.Dispose();
+            _materialFlags?.Dispose(); _materialTick?.Dispose();
+            _reactSelf?.Dispose(); _reactOther?.Dispose();
+            _slots = _claim = _slotAt = _reacted = _counters = _opList = null;
+            _wakeRequests = _wakeOut = _materialFlags = _materialTick = _reactSelf = _reactOther = null;
+        }
+    }
+}

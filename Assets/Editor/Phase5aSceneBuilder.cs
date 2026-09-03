@@ -24,6 +24,47 @@ public static class Phase5aSceneBuilder
 {
     public const string ScenePath = "Assets/Scenes/Phase 5a Basin.unity";
 
+
+    public const string ClaimStressScenePath = "Assets/Scenes/Phase 5b ClaimStress.unity";
+
+    /// §7.3's Metal claim verification scene. Deliberately trivial: a camera and
+    /// one component. It touches no terrain, so a failure in it can only be the
+    /// contended plain store itself.
+    [MenuItem("Voxel Engine/Phase 5b/Generate Claim Stress Scene")]
+    public static void GenerateClaimStress()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.06f, 0.06f, 0.08f, 1f);
+        cam.orthographic = true;
+        camGo.transform.position = new Vector3(0f, 0f, -10f);
+
+        var go = new GameObject("Phase5bClaimStress");
+        var comp = go.AddComponent<Phase5bClaimStress>();
+
+        // Same lesson as the basin scene: never rely on AddComponent picking up
+        // C# field initializers under -executeMethod. Set everything explicitly.
+        var so = new SerializedObject(comp);
+        so.FindProperty("_destCount").intValue = 4096;
+        so.FindProperty("_sourcesPerDest").intValue = 512;
+        so.FindProperty("_passes").intValue = 200;
+        var shader = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidClaimStress.compute");
+        if (shader == null) throw new InvalidOperationException("FluidClaimStress.compute not found");
+        so.FindProperty("_stress").objectReferenceValue = shader;
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(ClaimStressScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, ClaimStressScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {ClaimStressScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {ClaimStressScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
+
     /// Writes serialized values through SerializedObject rather than through the
     /// managed fields, so it works even when the managed type is stale (see the
     /// note at the call site). Throws on an unknown name so a renamed field

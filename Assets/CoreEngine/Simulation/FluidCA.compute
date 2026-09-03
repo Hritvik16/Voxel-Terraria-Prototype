@@ -1,7 +1,612 @@
 // Assets/CoreEngine/Simulation/FluidCA.compute
-#pragma kernel CSMain
+//
+// Phase 5b, file 1 of §13's ordered list: FluidReferenceCPU's Clear / Intent+Claim
+// / Commit ported to HLSL.
+//
+// §13: "Port FluidReferenceCPU's logic to HLSL line-by-line, exactly as Phase 2
+// ported the raymarch DDA -- with a working CPU reference already in hand, this
+// is a translation exercise, not a design exercise." Every kernel below names
+// the FluidReferenceCPU method it is a translation of. If you change behaviour
+// here, change it there first and re-run the EditMode suite, or the oracle stops
+// being an oracle (§7.2).
+//
+// -------------------------------------------------------------------------
+// NO ATOMICS IN THE CLAIM PATH (§7.3, 8.4)
+// -------------------------------------------------------------------------
+// The claim is an ORDINARY STORE, not InterlockedMin. §7.3: "a single aligned
+// word store cannot tear on any real GPU, so the slot ends up holding exactly
+// one of the candidate values, never a corrupted mix. Which one survives is
+// arbitrary -- and that's fine, because §7.8 already establishes correctness
+// requires only conservation and steady-state behavior, never a specific
+// deterministic winner."
+//
+// There is exactly one InterlockedAdd in this file, in AllocSlot, and it is NOT
+// in the claim path -- it is a free-list bump for slot allocation. 8.4's rule is
+// specifically about the claim contention hotspot at convergence points (the
+// base of a waterfall); a promotion counter has no such hotspot. Do not "tidy"
+// the claim into an atomic.
+//
+// THE PLAIN-WRITE SAFETY CLAIM IS NOT VERIFIED ON METAL BY THIS FILE. §7.3
+// says to "verify on Metal specifically in Phase 5b" with a flood test. That
+// test is FluidClaimStress.compute + the Phase5b_ClaimStress scene, and it has
+// to be run by a human on the target Mac. Nothing here should be read as
+// evidence that the plain write is safe on this toolchain.
+//
+// -------------------------------------------------------------------------
+// WHAT THIS SHADER MAY AND MAY NOT WRITE (§0.1 invariant 1, §7.2)
+// -------------------------------------------------------------------------
+// It reads terrain from the clipmap and NEVER writes it. Motion decisions leave
+// this shader only as an append to OpList, which the CPU reads back and applies
+// through ChunkStore.SetVoxel. The CPU remains the sole terrain writer with zero
+// exception.
+//
+// -------------------------------------------------------------------------
+// TWO BEHAVIOURS PORTED FROM PHASE 5a AS BEHAVIOUR, NOT AS SPEC SENTENCES
+// -------------------------------------------------------------------------
+// PHASE_5A_COMPLETION.md §5 and §9 flag these explicitly. Both are load-bearing
+// for reaching rest at all; porting §7.6's literal wording instead reproduces
+// the non-convergence 5a measured (5-7 lateral moves/tick still at tick 2000).
+//   1. The sleep counter resets ONLY on a move that DESCENDED. A lateral move
+//      ages it. See CSSweep.
+//   2. Only a DESCENDING move requests a neighbourhood wake. A lateral shuffle
+//      changes no fluid level, and waking from it re-promotes sleeping
+//      neighbours with a fresh budget, sustaining the shuffle forever.
+//      See CSCommit.
 
-[numthreads(8,8,1)]
-void CSMain (uint3 id : SV_DispatchThreadID)
+#pragma kernel CSClear
+#pragma kernel CSPromote
+#pragma kernel CSReact
+#pragma kernel CSIntent
+#pragma kernel CSCommit
+#pragma kernel CSSweep
+
+#include "../Coord/CoordMath.hlsl"
+
+// =========================================================================
+// A.5 FluidSlot -- CPU mirror is FluidSlotGpu in FluidGpuSimulation.cs and the
+// two MUST stay byte-identical. Fields are A.5's; the widths are not (A.5 packs
+// ushort/byte, this uses uint) because a structured buffer wants 4-byte lanes
+// and §0.1 invariant 9 says take the dumb version. 24 bytes.
+// =========================================================================
+struct FluidSlot
 {
+    int  brickDataIndex;    // home brick; next-free index when the slot is free
+    uint localVoxelOffset;  // 0..511 within the home brick (C.1)
+    uint materialID;        // cached; validated against the home byte (§7.3)
+    uint sleepCounter;
+    uint viscosityPhase;
+    uint stateFlags;        // Appendix B
+};
+
+// A.9 FluidWriteOp -- the bounded command-list record (§7.2, §3.9).
+struct FluidWriteOp
+{
+    int3 voxel;         // world voxel coordinate
+    uint newMaterial;
+};
+
+// ---- Appendix B stateFlags ----
+#define FLAG_AWAKE        (1u << 0)
+#define FLAG_BID_PLACED   (1u << 1)
+#define FLAG_WON_CLAIM    (1u << 2)
+#define FLAG_FORCE_DEMOTE (1u << 3)
+#define FLAG_EVALUATED    (1u << 4)   // reserved [7:4], same use as the CPU reference
+#define FLAG_DESCENDED    (1u << 5)
+
+#define NONE (-1)
+#define AIR  (0u)
+
+// ---- Terrain, read-only (same buffers and same addressing the raymarcher uses) ----
+StructuredBuffer<uint> ClipmapBuffer;
+StructuredBuffer<uint> BrickDataBuffer;
+uint4 _WindowDimsChunksPacked;   // .xyz = resident window size in CHUNKS (pow2)
+int4  _WindowOriginBricksPacked; // .xyz = window origin in bricks
+uint4 _WindowDimsBricksPacked;   // .xyz = window size in bricks
+
+// ---- Fluid state ----
+RWStructuredBuffer<FluidSlot> FluidSlots;
+RWStructuredBuffer<int>       ClaimBuffer;    // cell -> winning slot, or NONE
+RWStructuredBuffer<int>       SlotAtBuffer;   // cell -> owning slot, or NONE
+RWStructuredBuffer<int>       ReactedBuffer;  // cell -> 1 if a reaction spoke for it
+RWStructuredBuffer<uint>      Counters;       // [0]=slotHighWater [1]=freeCursor [2]=opCount(dbg) [3]=wakeCount
+AppendStructuredBuffer<FluidWriteOp> OpList;
+RWStructuredBuffer<int>       WakeRequests;   // cells the CPU asked to wake (§7.6)
+// Cells this tick's DESCENDING commits want woken next tick. An APPEND buffer,
+// not a per-cell array: a per-cell array would be region-sized (4 MB at the
+// default 128x64x128) and would have to be read back every frame to be useful,
+// which is exactly the full-state readback §7.2 removed. Bounded, like the
+// op-list itself.
+AppendStructuredBuffer<int>   WakeOut;
+
+// ---- Material registry (A.7 flags + §7.4 tick intervals), 256 entries ----
+StructuredBuffer<uint>  MaterialFlags;
+StructuredBuffer<uint>  MaterialTickInterval;
+StructuredBuffer<uint>  ReactionSelfProduct;   // [self*256 + other], 0xFFFFFFFF = no reaction
+StructuredBuffer<uint>  ReactionOtherProduct;
+
+#define FLAG_IS_FLUID         (1u << 0)
+#define FLAG_IS_FALLING_SOLID (1u << 1)
+#define FLAG_IS_MOBILE_MASK   (FLAG_IS_FLUID | FLAG_IS_FALLING_SOLID)
+
+// ---- Active region (§7.4 near-player scope). Power-of-two dims, bitwise only. ----
+int4  _RegionOriginVoxels;   // .xyz
+uint4 _RegionDimsVoxels;     // .xyz, each a power of two
+uint4 _RegionShifts;         // .x = log2(dims.x), .y = log2(dims.y)
+int4  _PlayerVoxel;
+int   _ActiveRadiusVoxels;
+int   _Tick;
+uint  _SlotCapacity;
+uint  _RegionCellCount;
+uint  _WakeRequestCount;
+uint  _MaxOpsPerFrame;
+uint  _SleepTicks;        // EngineConfig.FLUID_SLEEP_TICKS
+
+// =========================================================================
+// Region addressing -- bitwise only (§0.1 invariant 2)
+// =========================================================================
+bool InRegion(int3 v)
+{
+    int3 r = v - _RegionOriginVoxels.xyz;
+    return r.x >= 0 && r.y >= 0 && r.z >= 0
+        && r.x < (int)_RegionDimsVoxels.x
+        && r.y < (int)_RegionDimsVoxels.y
+        && r.z < (int)_RegionDimsVoxels.z;
+}
+
+int RegionIndex(int3 v)
+{
+    int3 r = v - _RegionOriginVoxels.xyz;
+    return r.x | (r.y << _RegionShifts.x) | (r.z << (_RegionShifts.x + _RegionShifts.y));
+}
+
+int3 RegionVoxel(int index)
+{
+    int sx = (int)_RegionShifts.x, sy = (int)_RegionShifts.y;
+    int mx = (int)_RegionDimsVoxels.x - 1, my = (int)_RegionDimsVoxels.y - 1;
+    int3 r = int3(index & mx, (index >> sx) & my, index >> (sx + sy));
+    return r + _RegionOriginVoxels.xyz;
+}
+
+// =========================================================================
+// Terrain read -- the SAME lookup Raymarch.compute uses (ReadClipmap + dense
+// body unpack). Kept structurally identical on purpose: if the raymarcher and
+// the CA ever disagree about what material is in a cell, the bug is here.
+// =========================================================================
+uint ReadClipmapHandle(int3 brickCoord)
+{
+    int3 chunkCoord   = brickCoord >> 4;
+    int3 wrappedChunk = chunkCoord & (int3)(_WindowDimsChunksPacked.xyz - 1);
+    int  chunkSlot    = wrappedChunk.x
+                      + (wrappedChunk.y * (int)_WindowDimsChunksPacked.x)
+                      + (wrappedChunk.z * (int)_WindowDimsChunksPacked.x * (int)_WindowDimsChunksPacked.y);
+    int3 localBrick = brickCoord & 15;
+    int  local      = LocalBrickIndex(localBrick);
+    return ClipmapBuffer[(chunkSlot * 4096) + local];
+}
+
+/// Material at a world voxel. Returns AIR outside the resident window, which
+/// matches ChunkStore.GetVoxel's documented behaviour for an unloaded chunk.
+uint SampleVoxel(int3 voxel)
+{
+    int3 brickCoord = VoxelToBrick(voxel);
+    int3 rel = brickCoord - _WindowOriginBricksPacked.xyz;
+    if (rel.x < 0 || rel.y < 0 || rel.z < 0 ||
+        rel.x >= (int)_WindowDimsBricksPacked.x ||
+        rel.y >= (int)_WindowDimsBricksPacked.y ||
+        rel.z >= (int)_WindowDimsBricksPacked.z)
+        return AIR;
+
+    uint handle = ReadClipmapHandle(brickCoord);
+    if ((handle & 0x80000000u) == 0u) return handle & 0xFFu;   // uniform brick
+
+    uint poolIdx = handle & 0x3FFFFFFFu;
+    uint vIdx    = (uint)LocalVoxelIndex(LocalVoxelIndex3D(voxel));
+    uint packed  = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
+    return (packed >> ((vIdx & 3u) * 8u)) & 0xFFu;
+}
+
+bool IsMobile(uint material)      { return (MaterialFlags[material] & FLAG_IS_MOBILE_MASK) != 0u; }
+bool IsFluidMaterial(uint material){ return (MaterialFlags[material] & FLAG_IS_FLUID) != 0u; }
+uint TickIntervalOf(uint material)
+{
+    uint t = MaterialTickInterval[material];
+    return t == 0u ? 1u : t;
+}
+
+int  HomeIndexOf(FluidSlot s)  { return (s.brickDataIndex << 9) | (int)s.localVoxelOffset; }
+
+/// The home address is stored A.5-style (brick + local offset) over the REGION's
+/// own cell indexing, not the world brick pool -- the region is the CA's address
+/// space, exactly as the sandbox was for the CPU reference.
+void SetHome(inout FluidSlot s, int regionCellIndex)
+{
+    s.brickDataIndex   = regionCellIndex >> 9;
+    s.localVoxelOffset = (uint)(regionCellIndex & 511);
+}
+
+bool WithinActiveRadius(int3 v)
+{
+    int3 d = v - _PlayerVoxel.xyz;
+    return (d.x * d.x + d.y * d.y + d.z * d.z) <= (_ActiveRadiusVoxels * _ActiveRadiusVoxels);
+}
+
+// C.7 tie-variety hash. Identical constants and mixing to
+// FluidReferenceCPU.Hash so the two implementations shuffle the same way; §7.8
+// does not require frame-exact agreement, but a translation should not gratuitously
+// differ where matching is free.
+uint HashCell(int x, int y, int z, int tick, int salt)
+{
+    uint h = 2166136261u;
+    h = (h ^ (uint)x) * 16777619u;
+    h = (h ^ (uint)y) * 16777619u;
+    h = (h ^ (uint)z) * 16777619u;
+    h = (h ^ (uint)tick) * 16777619u;
+    h = (h ^ (uint)salt) * 16777619u;
+    h ^= h >> 15; h *= 2246822519u; h ^= h >> 13;
+    return h;
+}
+
+/// Four lateral directions in a hash-derived order. Same three-bit scheme as
+/// FluidReferenceCPU.BuildLateralOrder: each direction is tried FIRST with
+/// probability exactly 1/4, which is what §13's "water drifts one direction
+/// consistently -> parity/tie-break bias" failure signature is about.
+void LateralOrder(int3 c, int salt, out int2 dirs[4])
+{
+    uint h = HashCell(c.x, c.y, c.z, _Tick, salt);
+    bool zFirst = (h & 1u) != 0u;
+    int px0 = (h & 2u) != 0u ? -1 : 1;
+    int pz0 = (h & 4u) != 0u ? -1 : 1;
+    if (zFirst)
+    {
+        dirs[0] = int2(0, pz0);  dirs[1] = int2(0, -pz0);
+        dirs[2] = int2(px0, 0);  dirs[3] = int2(-px0, 0);
+    }
+    else
+    {
+        dirs[0] = int2(px0, 0);  dirs[1] = int2(-px0, 0);
+        dirs[2] = int2(0, pz0);  dirs[3] = int2(0, -pz0);
+    }
+}
+
+// =========================================================================
+// CSClear -- FluidReferenceCPU.ClearPass
+// §7.3: "reset claim cells for active regions to a NONE sentinel."
+// Dispatched over the region rather than over a touched-list: on the GPU the
+// whole-region reset is one coherent write per cell and needs no bookkeeping,
+// which is the cheaper AND simpler shape here even though the CPU reference
+// keeps a touched-list.
+// =========================================================================
+[numthreads(64, 1, 1)]
+void CSClear(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= _RegionCellCount) return;
+    ClaimBuffer[i] = NONE;
+    ReactedBuffer[i] = 0;
+}
+
+// =========================================================================
+// CSPromote -- FluidReferenceCPU.TryPromote, driven by the CPU's wake scan.
+// §7.6: "Any adjacent edit re-promotes: the edit path scans the edit's
+// neighbourhood for fluid/falling materials and wakes GPU slots -- this wake
+// signal is a small CPU->GPU upload, not a readback, so it is immediate."
+// =========================================================================
+uint AllocSlot()
+{
+    // NOT the claim path. See the header note on 8.4.
+    uint idx;
+    InterlockedAdd(Counters[1], 1u, idx);
+    return idx;
+}
+
+[numthreads(64, 1, 1)]
+void CSPromote(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= _WakeRequestCount) return;
+
+    int cell = WakeRequests[i];
+    if (cell < 0 || (uint)cell >= _RegionCellCount) return;
+    if (SlotAtBuffer[cell] != NONE) return;              // already has a slot
+
+    int3 v = RegionVoxel(cell);
+    uint m = SampleVoxel(v);
+    if (!IsMobile(m)) return;
+    if (!WithinActiveRadius(v)) return;
+
+    uint s = AllocSlot();
+    if (s >= _SlotCapacity)
+    {
+        // §7.7: "Underflow on promotion is a guarded no-op -- retry next tick.
+        // No invalid write, ever." The byte stays in terrain, so nothing is lost.
+        return;
+    }
+
+    FluidSlot slot;
+    slot.brickDataIndex   = 0;
+    slot.localVoxelOffset = 0;
+    SetHome(slot, cell);
+    slot.materialID    = m;
+    slot.sleepCounter  = 0;
+    slot.viscosityPhase = 0;
+    slot.stateFlags    = FLAG_AWAKE;
+    FluidSlots[s] = slot;
+    SlotAtBuffer[cell] = (int)s;
+
+    // Grow the high-water mark so CSIntent/CSSweep know how far to scan.
+    uint prev;
+    InterlockedMax(Counters[0], s + 1, prev);
+}
+
+/// Face neighbours for the reaction scan (§7.6 scans face-adjacent cells).
+int3 FaceOffset(int f)
+{
+    if (f == 0) return int3( 1, 0, 0);
+    if (f == 1) return int3(-1, 0, 0);
+    if (f == 2) return int3( 0, 1, 0);
+    if (f == 3) return int3( 0,-1, 0);
+    if (f == 4) return int3( 0, 0, 1);
+    return int3(0, 0, -1);
+}
+
+// =========================================================================
+// CSReact -- FluidReferenceCPU.TryReact, lifted into its OWN PASS.
+//
+// THE ONE STRUCTURAL DEVIATION FROM THE CPU REFERENCE, AND WHY. On the CPU,
+// reactions run inside the Intent loop and reserve their cells before any later
+// slot evaluates, because the loop is sequential. On the GPU, Intent threads run
+// concurrently, so a reaction reserving a cell and another thread claiming that
+// same cell would race with no ordering to resolve it -- and unlike the claim
+// race (§7.3), THAT race is not safe: a move and a reaction both landing on one
+// cell breaks conservation, which is the one thing §7.3's Air-Only rule exists
+// to guarantee.
+//
+// Splitting reactions into a separate dispatch puts a barrier between "cells are
+// reserved" and "cells are claimed", so Intent reads a fully-settled
+// ReactedBuffer. This changes WHEN a reaction resolves relative to a move by at
+// most one pass; §7.8 permits that (steady-state invariants, never frame-exact
+// positions) and conservation is preserved exactly.
+// =========================================================================
+[numthreads(64, 1, 1)]
+void CSReact(uint3 id : SV_DispatchThreadID)
+{
+    uint s = id.x;
+    if (s >= Counters[0] || s >= _SlotCapacity) return;
+
+    FluidSlot slot = FluidSlots[s];
+    if ((slot.stateFlags & FLAG_AWAKE) == 0u) return;
+
+    int home = HomeIndexOf(slot);
+    if (home < 0 || (uint)home >= _RegionCellCount) return;
+    int3 c = RegionVoxel(home);
+    if (SampleVoxel(c) != slot.materialID) return;   // orphan; CSIntent frees it
+
+    [unroll]
+    for (int f = 0; f < 6; f++)
+    {
+        int3 n = c + FaceOffset(f);
+        if (!InRegion(n)) continue;
+        uint other = SampleVoxel(n);
+        uint selfProduct = ReactionSelfProduct[slot.materialID * 256u + other];
+        if (selfProduct == 0xFFFFFFFFu) continue;
+        uint otherProduct = ReactionOtherProduct[slot.materialID * 256u + other];
+
+        // Plain writes. If the counterpart slot reacts too it writes the same
+        // products to the same two cells -- an identical-value race, harmless.
+        ReactedBuffer[home] = 1;
+        ReactedBuffer[RegionIndex(n)] = 1;
+
+        FluidWriteOp opSelf;  opSelf.voxel = c;  opSelf.newMaterial = selfProduct;
+        FluidWriteOp opOther; opOther.voxel = n; opOther.newMaterial = otherProduct;
+        OpList.Append(opSelf);
+        OpList.Append(opOther);
+
+        // This slot is gone. Its counterpart self-frees on its next Intent via
+        // the orphan check once the CPU applies the op (§7.3's mechanism).
+        slot.stateFlags = 0;
+        FluidSlots[s] = slot;
+        if (SlotAtBuffer[home] == (int)s) SlotAtBuffer[home] = NONE;
+        return;
+    }
+}
+
+// =========================================================================
+// CSIntent -- FluidReferenceCPU.IntentPass, including the plain-write claim.
+// =========================================================================
+bool TryClaim(uint s, inout FluidSlot slot, int3 dst)
+{
+    if (!InRegion(dst)) return false;
+    int d = RegionIndex(dst);
+
+    // THE conservation rule (§7.3): "a legal destination must have been Air at
+    // tick-start." Nothing in Clear, React or Intent writes terrain, so the
+    // clipmap still holds tick-start state here -- which is exactly why
+    // reactions defer their writes to the op-list instead of touching terrain.
+    if (SampleVoxel(dst) != AIR) return false;
+    if (ReactedBuffer[d] != 0) return false;
+
+    // §7.3, 8.4: PLAIN STORE. Not InterlockedMin. If two sources target this
+    // cell both write the same aligned word; one of the two values survives and
+    // neither is torn. Which one is arbitrary and that is explicitly fine.
+    ClaimBuffer[d] = (int)s;
+    slot.stateFlags |= FLAG_BID_PLACED;
+    return true;
+}
+
+[numthreads(64, 1, 1)]
+void CSIntent(uint3 id : SV_DispatchThreadID)
+{
+    uint s = id.x;
+    if (s >= Counters[0] || s >= _SlotCapacity) return;
+
+    FluidSlot slot = FluidSlots[s];
+    if ((slot.stateFlags & FLAG_AWAKE) == 0u) return;
+
+    slot.stateFlags &= ~(FLAG_BID_PLACED | FLAG_WON_CLAIM | FLAG_EVALUATED | FLAG_DESCENDED);
+
+    int home = HomeIndexOf(slot);
+    if (home < 0 || (uint)home >= _RegionCellCount) { FluidSlots[s] = slot; return; }
+    int3 c = RegionVoxel(home);
+
+    // ---- Orphan self-free (§7.3), BEFORE any movement ----
+    if (SampleVoxel(c) != slot.materialID)
+    {
+        slot.stateFlags = 0;
+        FluidSlots[s] = slot;
+        if (SlotAtBuffer[home] == (int)s) SlotAtBuffer[home] = NONE;
+        return;
+    }
+
+    // Ownership guard. PHASE_5A_COMPLETION.md §6 proved this unreachable in the
+    // single-threaded CPU reference and retained it as defence-in-depth for
+    // exactly this port -- here the ordering freedom that makes it reachable
+    // genuinely exists, so on the GPU it is doing real work, not standing by.
+    if (SlotAtBuffer[home] != (int)s)
+    {
+        slot.stateFlags = 0;
+        FluidSlots[s] = slot;
+        return;
+    }
+
+    if (ReactedBuffer[home] != 0)
+    {
+        slot.stateFlags = 0;
+        FluidSlots[s] = slot;
+        if (SlotAtBuffer[home] == (int)s) SlotAtBuffer[home] = NONE;
+        return;
+    }
+
+    // ---- §7.4 near-player scope / §7.7 forced demotion ----
+    if (!WithinActiveRadius(c))
+    {
+        slot.stateFlags = FLAG_FORCE_DEMOTE;   // clears AWAKE
+        FluidSlots[s] = slot;
+        if (SlotAtBuffer[home] == (int)s) SlotAtBuffer[home] = NONE;
+        return;
+    }
+
+    // ---- §7.4 viscosity gate (A.5's per-slot phase counter, no modulo) ----
+    uint interval = TickIntervalOf(slot.materialID);
+    slot.viscosityPhase++;
+    if (slot.viscosityPhase < interval) { FluidSlots[s] = slot; return; }
+    slot.viscosityPhase = 0;
+
+    slot.stateFlags |= FLAG_EVALUATED;
+
+    // ---- §7.4's Intent hierarchy, in order. First legal destination wins, and
+    // ---- a slot bids EXACTLY ONCE, which is what makes Commit single-writer.
+    bool bid = TryClaim(s, slot, int3(c.x, c.y - 1, c.z));
+
+    int2 dirs[4];
+    if (!bid)
+    {
+        LateralOrder(c, 0, dirs);
+        for (int k = 0; k < 4 && !bid; k++)
+            bid = TryClaim(s, slot, int3(c.x + dirs[k].x, c.y - 1, c.z + dirs[k].y));
+    }
+    if (!bid && IsFluidMaterial(slot.materialID))
+    {
+        // §7.5 limits falling solids to down + down-diagonals; that restriction
+        // is what gives sand an angle of repose instead of spreading flat.
+        LateralOrder(c, 1, dirs);
+        for (int k = 0; k < 4 && !bid; k++)
+            bid = TryClaim(s, slot, int3(c.x + dirs[k].x, c.y, c.z + dirs[k].y));
+    }
+
+    FluidSlots[s] = slot;
+}
+
+// =========================================================================
+// CSCommit -- FluidReferenceCPU.CommitPass. §7.3: "a second pass dispatches over
+// Air destination cells (not sources). Each destination reads its own claim
+// slot... that destination is the ONLY thread in the entire dispatch that will
+// ever write to that cell or to the winning source's vacated home cell."
+// =========================================================================
+[numthreads(64, 1, 1)]
+void CSCommit(uint3 id : SV_DispatchThreadID)
+{
+    uint d = id.x;
+    if (d >= _RegionCellCount) return;
+
+    int s = ClaimBuffer[d];
+    if (s == NONE) return;
+    if ((uint)s >= _SlotCapacity) return;
+
+    FluidSlot slot = FluidSlots[s];
+    if ((slot.stateFlags & FLAG_AWAKE) == 0u) return;   // freed by a reaction after bidding
+
+    int home = HomeIndexOf(slot);
+    if (home < 0 || (uint)home >= _RegionCellCount) return;
+    int3 hv = RegionVoxel(home);
+    int3 dv = RegionVoxel((int)d);
+
+    if (SampleVoxel(hv) != slot.materialID) return;     // orphaned between Intent and Commit
+    if (SlotAtBuffer[home] != s) return;
+    if (SampleVoxel(dv) != AIR) return;                 // must still be the Air it claimed
+    if (ReactedBuffer[d] != 0 || ReactedBuffer[home] != 0) return;
+
+    bool descended = dv.y < hv.y;
+
+    // The two ops that ARE the move. Terrain is not touched here; the CPU
+    // applies both through ChunkStore.SetVoxel (§7.2, §0.1 invariant 1).
+    FluidWriteOp opDst; opDst.voxel = dv; opDst.newMaterial = slot.materialID;
+    FluidWriteOp opSrc; opSrc.voxel = hv; opSrc.newMaterial = AIR;
+    OpList.Append(opDst);
+    OpList.Append(opSrc);
+
+    SlotAtBuffer[home] = NONE;
+    SlotAtBuffer[d]    = s;
+    SetHome(slot, (int)d);
+    slot.stateFlags |= FLAG_WON_CLAIM;
+    if (descended) slot.stateFlags |= FLAG_DESCENDED;
+    FluidSlots[s] = slot;
+
+    // ONLY A DESCENDING MOVE WAKES -- ported as BEHAVIOUR from 5a, see the
+    // header. WakeOut is consumed by the CPU next tick and folded into the wake
+    // request list, which keeps promotion CPU-driven per §7.6.
+    if (descended)
+    {
+        WakeOut.Append(home);
+        WakeOut.Append((int)d);
+    }
+}
+
+// =========================================================================
+// CSSweep -- FluidReferenceCPU.PostCommitSweep. §7.6 sleep, with 5a's reading:
+// the counter resets only on a move that made progress DOWNWARD.
+// =========================================================================
+[numthreads(64, 1, 1)]
+void CSSweep(uint3 id : SV_DispatchThreadID)
+{
+    uint s = id.x;
+    if (s >= Counters[0] || s >= _SlotCapacity) return;
+
+    FluidSlot slot = FluidSlots[s];
+    if ((slot.stateFlags & FLAG_AWAKE) == 0u) return;
+
+    // Viscosity-gated this tick: it never got a turn, so it must not age --
+    // without this, honey (interval 30) would be freed by the sleep threshold
+    // before ever taking a turn and would be immobile rather than slow.
+    if ((slot.stateFlags & FLAG_EVALUATED) == 0u) return;
+
+    if ((slot.stateFlags & (FLAG_WON_CLAIM | FLAG_DESCENDED)) == (FLAG_WON_CLAIM | FLAG_DESCENDED))
+    {
+        slot.sleepCounter = 0;
+        FluidSlots[s] = slot;
+        return;
+    }
+
+    if (slot.sleepCounter < 255u) slot.sleepCounter++;
+    if (slot.sleepCounter >= _SleepTicks)
+    {
+        // §7.6: "nothing to write back, the byte already holds the material."
+        // Freeing a slot costs simulation, never mass.
+        int home = HomeIndexOf(slot);
+        slot.stateFlags = 0;
+        FluidSlots[s] = slot;
+        if (home >= 0 && (uint)home < _RegionCellCount && SlotAtBuffer[home] == (int)s)
+            SlotAtBuffer[home] = NONE;
+        return;
+    }
+    FluidSlots[s] = slot;
 }
