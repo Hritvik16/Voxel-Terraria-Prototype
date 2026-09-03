@@ -117,6 +117,11 @@ public class Phase5aAcceptanceRig : MonoBehaviour
         Head($"run          {ts}");
         Head($"build        {(Debug.isDebugBuild ? "DEVELOPMENT" : "release")} standalone, {Application.platform}");
         Head($"screen       {Screen.width}x{Screen.height}");
+        // On the record rather than inferred: the first attempt at the slice
+        // colour fix gated on this being Linear and silently did nothing.
+        Color32 airTexel = Phase5aBasin.DebugTexel(Materials.Air);
+        Head($"colour space {QualitySettings.activeColorSpace} " +
+             $"(Air palette 18,18,24 -> stored texel {airTexel.r},{airTexel.g},{airTexel.b})");
         Head($"rest rule    {_quietTicksForRest} consecutive ticks with 0 changed cells " +
              $"(cap {_maxTicksPerScenario})");
         Head($"scenarios    driven via Phase5aBasin.Scenarios[i].Run — the same delegate the buttons use");
@@ -129,14 +134,30 @@ public class Phase5aAcceptanceRig : MonoBehaviour
         for (int i = 0; i < scenarios.Length; i++)
             yield return StartCoroutine(RunScenario(scenarios[i]));
 
+        // EXPECTED-EVIDENCE CHECK. Without this the rig reported
+        //     "RESULT: every captured frame balanced, zero duplicate ownership"
+        // after a run in which every scenario threw and ZERO frames were
+        // captured -- a vacuous pass, because "no frame failed" is trivially
+        // true of no frames. A rig that can report success on an absence of
+        // evidence is worse than no rig, so the count is now an assertion.
+        int expectedFrames = scenarios.Length * 4;
+        bool enoughEvidence = _framesCaptured == expectedFrames;
+        bool invariantsHeld = _framesWithLedgerBroken == 0 && _framesWithDuplicateOwnership == 0;
+
         Head("");
         Head("================ SUMMARY ================");
-        Head($"frames captured                 {_framesCaptured}");
+        Head($"scenarios driven                {scenarios.Length}");
+        Head($"frames captured                 {_framesCaptured} (expected {expectedFrames})");
         Head($"frames with ledger NOT balanced {_framesWithLedgerBroken}");
         Head($"frames with duplicate ownership {_framesWithDuplicateOwnership}");
-        Head(_framesWithLedgerBroken == 0 && _framesWithDuplicateOwnership == 0
-            ? "RESULT: every captured frame balanced, zero duplicate ownership."
-            : "RESULT: SEE ABOVE — at least one captured frame failed an invariant.");
+        if (!enoughEvidence)
+            Head($"RESULT: FAILED — captured {_framesCaptured} of {expectedFrames} expected frames. " +
+                 "Something aborted before capturing; check player_log.txt for an exception. " +
+                 "The invariant counts below are NOT evidence of anything.");
+        else
+            Head(invariantsHeld
+                ? "RESULT: every captured frame balanced, zero duplicate ownership."
+                : "RESULT: FAILED — at least one captured frame failed an invariant.");
 
         File.WriteAllText(Path.Combine(_runFolder, "phase5a_report.txt"), _report.ToString());
         try
@@ -149,7 +170,7 @@ public class Phase5aAcceptanceRig : MonoBehaviour
 
         Debug.Log("[Phase5aRig] complete\n" + _report);
         yield return null;
-        Application.Quit(0);
+        Application.Quit(enoughEvidence && invariantsHeld ? 0 : 1);
     }
 
     private IEnumerator RunScenario(Phase5aBasin.BasinScenario scenario)

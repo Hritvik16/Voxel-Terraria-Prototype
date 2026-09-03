@@ -68,6 +68,15 @@ echo
 echo "=================== phase5a_report.txt ==================="
 cat "${LATEST}phase5a_report.txt"
 echo "==========================================================="
+# A run that captured nothing must not read as a pass -- see the
+# expected-evidence check in Phase5aAcceptanceRig.
+if grep -q "RESULT: FAILED" "${LATEST}phase5a_report.txt"; then
+  echo
+  echo "!! RIG FAILED — see the RESULT line above and player_log.txt in the run folder."
+  open "$LATEST"
+  exit 1
+fi
+
 echo
 echo "Per-scenario CSVs:"
 ls "${LATEST}"*.csv 2>/dev/null

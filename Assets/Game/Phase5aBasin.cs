@@ -154,9 +154,98 @@ public class Phase5aBasin : MonoBehaviour
         _lastCheck = _sim.CheckConservation();
     }
 
+    /// The value actually stored in the slice texture for a material.
+    ///
+    /// THE BUG THIS FIXES. ColorOf returns the intended sRGB palette entry, but
+    /// IMGUI's DrawTexture path does not sRGB-sample these runtime textures, so
+    /// the bytes went to the framebuffer as if they were already linear and the
+    /// player's linear->sRGB output conversion brightened every one of them
+    /// exactly once. Measured off the acceptance screenshots:
+    ///     Air   (18,18,24)   rendered as (75,75,86)
+    ///     Stone (104,104,112) rendered as (171,171,177)
+    ///     Water (48,122,224)  rendered as (120,184,241)
+    /// and linearToSRGB() of each intended value reproduces the measured value
+    /// exactly, which is what identified the mechanism rather than guessing at
+    /// it. Air arriving as mid-grey is why the basin interior read as solid
+    /// stone in the first capture.
+    ///
+    /// THE MEASURED MODEL. Writing this down because it took three rig runs to
+    /// pin and the answer is not guessable from the code:
+    ///
+    ///   The IMGUI draw + ScreenCapture path applies linearToSRGB TWICE to
+    ///   whatever this texture holds. An sRGB-FLAGGED texture cancels one of
+    ///   them in the hardware sample; a LINEAR texture cancels neither.
+    ///
+    /// That single model reproduces every measurement taken, exactly:
+    ///   RGBA32 (sRGB), storing the palette      -> net 1x -> Air (75,75,86)
+    ///   RGBAFloat (linear), storing sRGBToLinear-> net 2x -> Air (75,75,86)
+    /// -- which is also why those two runs produced BIT-IDENTICAL screenshots
+    /// and why the first fix looked like it had done nothing: f(f(f-1(p)))
+    /// is just f(p). Stone, Water and Sand all fit the same model to the byte.
+    ///
+    /// So the texture stays RGBA32 and sRGB-FLAGGED -- which cancels one of the
+    /// two conversions in hardware -- and stores the SINGLE inverse of the
+    /// palette. Net: screen == palette.
+    ///
+    /// WHY NOT A LINEAR FLOAT TEXTURE AND THE DOUBLE INVERSE. That was tried
+    /// and is exact on paper, but measured WORSE: the path quantises to 8 bits
+    /// after the first conversion, so the doubly-inverted darks fall under the
+    /// quantisation floor and crush to zero. Measured on that build:
+    ///     Stone (104,104,112) EXACT and Sand (206,184,126) EXACT,
+    ///     but Air rendered (0,0,0) and Lava's blue 24 rendered 0.
+    /// Extra source precision cannot fix that, because the crush happens
+    /// downstream of this texture.
+    ///
+    /// FINAL MEASURED RESULT of the single inverse, sampled from the shipped
+    /// rig screenshots -- NOT the predicted result, which was optimistic about
+    /// the dark end:
+    ///     Stone (104,104,112) -> (104,104,112)  EXACT
+    ///     Sand  (206,184,126) -> (206,184,126)  EXACT
+    ///     Water (48,122,224)  -> (49,123,224)   1/255
+    ///     Lava  (226,88,24)   -> (226,88,0)     blue clamps
+    ///     Air   (18,18,24)    -> (0,0,0)        clamps
+    /// Everything mid and bright is exact or within 1/255. The two DARKEST
+    /// channel values still clamp to zero: the path carries an 8-bit LINEAR
+    /// intermediate, and a stored byte of 2 (which is what 18 and 24 invert to)
+    /// falls under half a unit once linearised, so it floors. Predicting 22 for
+    /// those, as an earlier version of this comment did, was wrong.
+    ///
+    /// LEFT AS IS. The reported defect was the palette washing OUT -- Air
+    /// arriving as mid-grey (75,75,86) and reading as solid stone. That is
+    /// fixed and verified. What remains is Air rendering as pure black rather
+    /// than near-black, which is the intended reading of "empty space" and is
+    /// darker than the page background behind it, so the panel edge stays
+    /// legible. Chasing 18 instead of 0 on the empty-space colour would mean
+    /// hand-tuning stored bytes against an unexplained transfer curve, which is
+    /// worse than the 18/255 it would buy.
+    ///
+    /// Uses the exact sRGB piecewise curve, NOT Mathf.GammaToLinearSpace, whose
+    /// approximation does not invert the hardware curve cleanly.
+    private static Color32 Texel(byte material)
+    {
+        Color c = ColorOf(material);
+        return new Color32(Inv(c.r), Inv(c.g), Inv(c.b), 255);
+    }
+
+    private static byte Inv(float srgb) =>
+        (byte)Mathf.Clamp(Mathf.RoundToInt(SrgbToLinear(srgb) * 255f), 0, 255);
+
+    /// Exact sRGB -> linear, the inverse of what the draw path applies.
+    private static float SrgbToLinear(float c) =>
+        c <= 0.04045f ? c / 12.92f : Mathf.Pow((c + 0.055f) / 1.055f, 2.4f);
+
+    /// Diagnostic only: what Texel actually stores, so the rig can print it
+    /// beside the measured pixel instead of anyone inferring it.
+    public static Color32 DebugTexel(byte material) => Texel(material);
+
+    /// RGBA32, sRGB-flagged. The `linear: false` is passed EXPLICITLY even
+    /// though it is the default, because it is load-bearing here: it is the
+    /// hardware sRGB sample that cancels one of the two conversions the draw
+    /// path applies (see Texel). Flipping it to true silently washes the whole
+    /// palette out again.
     private static Texture2D NewTex(int w, int h, ref Color32[] buf)
     {
-        var t = new Texture2D(w, h, TextureFormat.RGBA32, false)
+        var t = new Texture2D(w, h, TextureFormat.RGBA32, false, linear: false)
         {
             filterMode = FilterMode.Point,
             wrapMode = TextureWrapMode.Clamp,
@@ -315,15 +404,18 @@ public class Phase5aBasin : MonoBehaviour
         _sliceZ = Mathf.Clamp(_sliceZ, 0, sz - 1);
         _sliceY = Mathf.Clamp(_sliceY, 0, sy - 1);
 
+        // Row 0 is the BOTTOM of the texture (SetPixels is bottom-up), so world
+        // y=0 lands on the bottom row and DrawTexture presents it upright with
+        // no further correction. See DrawSlice.
         for (int y = 0; y < sy; y++)
         for (int x = 0; x < sx; x++)
-            _sidePixels[y * sx + x] = ColorOf(_sim.GetVoxel(x, y, _sliceZ));
+            _sidePixels[y * sx + x] = Texel(_sim.GetVoxel(x, y, _sliceZ));
         _sideView.SetPixels32(_sidePixels);
         _sideView.Apply(false);
 
         for (int z = 0; z < sz; z++)
         for (int x = 0; x < sx; x++)
-            _topPixels[z * sx + x] = ColorOf(_sim.GetVoxel(x, _sliceY, z));
+            _topPixels[z * sx + x] = Texel(_sim.GetVoxel(x, _sliceY, z));
         _topView.SetPixels32(_topPixels);
         _topView.Apply(false);
     }
@@ -401,16 +493,27 @@ public class Phase5aBasin : MonoBehaviour
         DrawSlice(new Rect(left, 30, viewW, viewW), _sideView,
                   $"side (XY) at Z={_sliceZ} — up is +Y");
         DrawSlice(new Rect(left + viewW + 16, 30, viewW, viewW), _topView,
-                  $"top (XZ) at Y={_sliceY}");
+                  $"top (XZ) at Y={_sliceY} — up is +Z");
     }
 
     private static void DrawSlice(Rect r, Texture2D tex, string caption)
     {
         GUI.Label(new Rect(r.x, r.y - 20, r.width, 20), caption);
-        // Textures are bottom-up and the GUI is top-down, so flip vertically to
-        // put +Y at the top of the side view where a person expects it.
-        GUIUtility.ScaleAroundPivot(new Vector2(1, -1), r.center);
+
+        // NO MANUAL FLIP. There used to be a GUIUtility.ScaleAroundPivot(1,-1)
+        // pair around this call, justified as "textures are bottom-up and the
+        // GUI is top-down". The premise is true about raw memory layout and
+        // IRRELEVANT here, because GUI.DrawTexture already does that mapping:
+        // it draws the texture's TOP row at the rect's TOP edge.
+        //
+        // So the pixel indexing was never wrong -- SetPixels is bottom-up, so
+        // row 0 holds world y=0 and the last row holds the top of the basin,
+        // which DrawTexture then presents the right way up on its own. The
+        // manual flip was a SECOND correction applied to an already-correct
+        // image, i.e. double compensation, and it inverted the result: the
+        // stone floor drew along the top edge and a settled sand pile hung from
+        // it apex-down while the caption still claimed "up is +Y".
+        // Deleting the flip is the whole fix; the indexing above is untouched.
         GUI.DrawTexture(r, tex, ScaleMode.ScaleToFit);
-        GUIUtility.ScaleAroundPivot(new Vector2(1, -1), r.center);
     }
 }
