@@ -81,6 +81,15 @@ public static class Phase5aSceneBuilder
         po.FindProperty("_outputRootFolderName").stringValue = "PlaygroundShots";
         po.ApplyModifiedPropertiesWithoutUndo();
 
+        // Live debug readout. Its own object so the dogfood scene keeps the
+        // perf overlay separable from the gameplay toys.
+        var hudGo = new GameObject("PlaygroundHud");
+        var hud = hudGo.AddComponent<PlaygroundHud>();
+        var ho = new SerializedObject(hud);
+        var visProp = ho.FindProperty("_visible");
+        if (visProp != null) visProp.boolValue = true;
+        ho.ApplyModifiedPropertiesWithoutUndo();
+
         var capGo = new GameObject("PlaygroundCapture");
         var cap = capGo.AddComponent<PlaygroundCapture>();
         var co = new SerializedObject(cap);

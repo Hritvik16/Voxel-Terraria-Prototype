@@ -1,0 +1,118 @@
+// ==========================================
+// Assets/Game/PlaygroundHud.cs
+//
+// Live debug readout for the Playground dogfood scene.
+//
+// =========================================================================
+// NONE OF THESE NUMBERS ARE EVIDENCE. READ THIS BEFORE QUOTING ANY OF THEM.
+// =========================================================================
+// This is a feel HUD. It exists so a human flying around can notice "that got
+// choppy when I did X", not so anyone can cite a millisecond figure.
+//
+//   - WALL is Time.unscaledDeltaTime. It is the only figure here with a
+//     defensible relationship to reality, and even it is not a benchmark:
+//     CLAUDE.md's measurement discipline says the only trusted frame-time
+//     source is ./run-acceptance-rig.sh's own printed report, from a release
+//     standalone launched outside the Editor. This is a live overlay in a
+//     scene with a GUI on top of it.
+//
+//   - GPU is FrameTimingManager.gpuFrameTime, and AMENDMENT 8.10 MEASURED IT
+//     INFLATED BY A NEAR-CONSTANT ~2.6-2.7x ON THIS HARDWARE ("a frame's GPU
+//     time cannot exceed that frame's wall clock"). An earlier session used it
+//     to produce a result that had to be retracted. It is shown because it is
+//     still useful as a RELATIVE signal -- watch it move, do not read its
+//     value -- and it is labelled inline so it cannot be quoted innocently.
+//
+//   - CPU MAIN is cpuMainThreadFrameTime: main-thread WORK, not wall time. On
+//     this machine those diverge badly under worker oversubscription --
+//     EngineConfig's CHUNK_GEN_WORKER_THREADS note records Unity reporting a
+//     healthy ~21 ms while unscaledDeltaTime recorded 1000 ms+, because the
+//     main thread was descheduled rather than busy. If WALL and CPU MAIN
+//     disagree wildly, that gap IS the finding.
+//
+// If a number here looks alarming, go reproduce it in the phase rig that owns
+// it before treating it as real.
+
+using System.Text;
+using UnityEngine;
+using UnityEngine.Rendering;
+using VoxelEngine.Memory;
+
+public class PlaygroundHud : MonoBehaviour
+{
+    [SerializeField] private bool _visible = true;
+    [SerializeField] private KeyCode _toggleKey = KeyCode.F1;
+
+    private FrameTiming[] _timings = new FrameTiming[1];
+
+    // Smoothed for readability, plus a rolling worst so a single hitch does not
+    // vanish before you can read it.
+    private double _wallSmoothed, _gpuSmoothed, _cpuMainSmoothed;
+    private double _wallWorst;
+    private float _worstResetTimer;
+    private int _frames;
+
+    void Update()
+    {
+        if (Input.GetKeyDown(_toggleKey)) _visible = !_visible;
+
+        double wall = Time.unscaledDeltaTime * 1000.0;
+        _wallSmoothed = _frames == 0 ? wall : _wallSmoothed + (wall - _wallSmoothed) * 0.06;
+        if (wall > _wallWorst) _wallWorst = wall;
+        _frames++;
+
+        // Rolling 3-second worst, so the number reflects "recently" rather than
+        // "at any point since launch".
+        _worstResetTimer += Time.unscaledDeltaTime;
+        if (_worstResetTimer > 3f) { _worstResetTimer = 0f; _wallWorst = wall; }
+
+        FrameTimingManager.CaptureFrameTimings();
+        if (FrameTimingManager.GetLatestTimings(1, _timings) > 0)
+        {
+            if (_timings[0].gpuFrameTime > 0)
+                _gpuSmoothed += (_timings[0].gpuFrameTime - _gpuSmoothed) * 0.06;
+            if (_timings[0].cpuMainThreadFrameTime > 0)
+                _cpuMainSmoothed += (_timings[0].cpuMainThreadFrameTime - _cpuMainSmoothed) * 0.06;
+        }
+    }
+
+    void OnGUI()
+    {
+        if (!_visible)
+        {
+            GUI.Label(new Rect(Screen.width - 150, 8, 140, 20), $"F1 — debug HUD");
+            return;
+        }
+
+        var sb = new StringBuilder();
+        double fps = _wallSmoothed > 0.0001 ? 1000.0 / _wallSmoothed : 0.0;
+
+        sb.AppendLine("<b>PERF — FEEL ONLY, NOT A MEASUREMENT (F1 to hide)</b>");
+        sb.AppendLine($"FPS        {fps,7:F1}");
+        sb.AppendLine($"WALL       {_wallSmoothed,7:F2} ms   worst/3s {_wallWorst,6:F2}   <- the only honest one here");
+        sb.AppendLine($"GPU        {_gpuSmoothed,7:F2} ms   *** INFLATED ~2.6-2.7x on this Mac (Amdt 8.10) — relative signal only ***");
+        sb.AppendLine($"CPU MAIN   {_cpuMainSmoothed,7:F2} ms   main-thread WORK, not wall time");
+        sb.AppendLine($"render     {RaymarchFeature.LastDispatchResolution.x}x{RaymarchFeature.LastDispatchResolution.y}" +
+                      $"   window {Screen.width}x{Screen.height}");
+
+        ChunkStore store = Phase4Bootstrapper.Store;
+        BrickDataPool pool = Phase4Bootstrapper.Pool;
+        if (store != null && pool != null)
+        {
+            sb.AppendLine($"chunks     {store.ResidentCount} resident   dense bricks {store.DenseBricksHeld}");
+            sb.AppendLine($"brick pool {pool.InUse} / {pool.Capacity}  peak {pool.PeakUsed}  ({store.PoolUtilisation * 100f:F1}%)" +
+                          (store.IsUnderPoolPressure ? "   *** LRU VALVE ARMED (§3.6) ***" : ""));
+        }
+
+        sb.AppendLine("The trusted frame-time source is ./run-acceptance-rig.sh, not this overlay.");
+
+        var st = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 13,
+            richText = true,
+            normal = { textColor = Color.white },
+        };
+        GUI.Box(new Rect(Screen.width - 640, 6, 630, 168), GUIContent.none);
+        GUI.Label(new Rect(Screen.width - 630, 10, 620, 160), sb.ToString(), st);
+    }
+}
