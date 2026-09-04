@@ -73,6 +73,10 @@ namespace VoxelEngine.Simulation
         private readonly int _maxDeferTicks;
         private readonly List<int> _cells = new List<int>();
         private readonly List<int> _ages = new List<int>();
+        /// The mirror's upload epoch AT THE MOMENT THE EDIT HAPPENED. Readiness
+        /// is "the chunk has been uploaded since then", which a plain
+        /// is-it-dirty test cannot express -- see the header note on why.
+        private readonly List<long> _stamps = new List<long>();
         private readonly HashSet<int> _member = new HashSet<int>();
 
         /// Requests still waiting for the mirror to catch up.
@@ -102,12 +106,26 @@ namespace VoxelEngine.Simulation
         /// same "this cell does not move this tick" no-op RequestWake already
         /// documented -- never a lost byte, because the material stays in
         /// terrain either way and CSWakeScan can still find it later.
-        public bool Add(int regionCell)
+        /// <param name="stamp">The mirror's upload epoch when the edit was
+        /// made. The request is released once the chunk has been uploaded at a
+        /// STRICTLY LATER epoch, because such an upload necessarily contains
+        /// the edit.</param>
+        public bool Add(int regionCell, long stamp)
         {
-            if (_member.Contains(regionCell)) { CoalescedTotal++; return true; }
+            if (_member.Contains(regionCell))
+            {
+                // Keep the OLDEST stamp: a later edit to the same cell cannot
+                // make an earlier one's wake less urgent, and taking the newer
+                // stamp would let a cell edited every frame push its own
+                // release forever -- which is precisely the starvation this
+                // stamp scheme replaced.
+                CoalescedTotal++;
+                return true;
+            }
             if (_cells.Count >= _capacity) { RejectedFullTotal++; return false; }
             _cells.Add(regionCell);
             _ages.Add(0);
+            _stamps.Add(stamp);
             _member.Add(regionCell);
             QueuedTotal++;
             return true;
@@ -117,6 +135,7 @@ namespace VoxelEngine.Simulation
         {
             _cells.Clear();
             _ages.Clear();
+            _stamps.Clear();
             _member.Clear();
         }
 
@@ -133,7 +152,7 @@ namespace VoxelEngine.Simulation
         /// wasted promotion attempt, which CSPromote already handles as a
         /// guarded no-op (§7.7). The counter exists so this is visible rather
         /// than a quiet fallback.
-        public int Collect(Func<int, bool> isMirrorReady, int[] dest, int destCapacity)
+        public int Collect(Func<int, long, bool> isMirrorReady, int[] dest, int destCapacity)
         {
             if (isMirrorReady == null) throw new ArgumentNullException(nameof(isMirrorReady));
             if (dest == null) throw new ArgumentNullException(nameof(dest));
@@ -144,7 +163,8 @@ namespace VoxelEngine.Simulation
             {
                 int cell = _cells[i];
                 int age = _ages[i] + 1;
-                bool ready = isMirrorReady(cell);
+                long stamp = _stamps[i];
+                bool ready = isMirrorReady(cell, stamp);
                 bool stale = age > _maxDeferTicks;
 
                 if ((ready || stale) && n < destCapacity && n < dest.Length)
@@ -158,11 +178,13 @@ namespace VoxelEngine.Simulation
                 // Not ready (or no room in dest this tick) -- keep it, aged.
                 _cells[keep] = cell;
                 _ages[keep] = age;
+                _stamps[keep] = stamp;
                 keep++;
             }
 
             _cells.RemoveRange(keep, _cells.Count - keep);
             _ages.RemoveRange(keep, _ages.Count - keep);
+            _stamps.RemoveRange(keep, _stamps.Count - keep);
             return n;
         }
     }

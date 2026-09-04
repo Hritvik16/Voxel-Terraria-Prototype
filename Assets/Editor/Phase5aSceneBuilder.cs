@@ -160,6 +160,52 @@ public static class Phase5aSceneBuilder
         if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
     }
 
+    public const string Phase5cScenePath = "Assets/Scenes/Phase 5c Edit Stress.unity";
+
+    /// Edit-path stress rig (Phase 5c). Same basin shape as 5b so a human
+    /// comparing screenshots is looking at the same world; the difference is
+    /// that this one drives PLAYER-shaped edits and runs every case in both
+    /// frame orderings. See Phase5cEditStress.
+    [MenuItem("Voxel/Generate Phase 5c Edit Stress Scene")]
+    public static void GeneratePhase5c()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.05f, 0.06f, 0.09f, 1f);
+        cam.fieldOfView = 60f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 500f;
+        // Inside the clipmap window looking across the basin -- a camera at
+        // negative X/Z sits outside the window, every ray is killed, and the
+        // capture is a flat fill that looks like missing fluid (§6.2 lesson).
+        camGo.transform.position = new Vector3(3.2f, 2.6f, -3.5f);
+        camGo.transform.rotation = Quaternion.Euler(18f, 0f, 0f);
+
+        var go = new GameObject("Phase5cEditStress");
+        var rig = go.AddComponent<Phase5cEditStress>();
+
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+
+        var so = new SerializedObject(rig);
+        so.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        so.FindProperty("_slotCapacity").intValue = 65536;
+        so.FindProperty("_maxOpsPerFrame").intValue = 65536;
+        so.FindProperty("_outputRootFolderName").stringValue = "Phase5cEditStress";
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Phase5cScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, Phase5cScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {Phase5cScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {Phase5cScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
+
     public const string Phase5bScenePath = "Assets/Scenes/Phase 5b Basin.unity";
 
     [MenuItem("Voxel Engine/Phase 5b/Generate Basin Scene")]

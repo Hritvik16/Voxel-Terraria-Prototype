@@ -81,6 +81,15 @@ public class TerrainClipmap : IDisposable
     private readonly uint[] _chunkStaging = new uint[EngineConfig.BRICKS_PER_CHUNK];
 
     private readonly HashSet<int3> _dirtyChunks = new HashSet<int3>();
+
+    // --- Upload epochs. ADDITIVE (Phase 5c); nothing existing reads these.
+    // "Is this chunk dirty?" cannot answer "has the GPU seen my edit yet?" for
+    // a chunk that is edited EVERY frame -- it is dirty at every tick, was
+    // uploaded between them, and a dirtiness test starves forever. The wake
+    // queue needs "an upload has happened SINCE I asked", which is what an
+    // epoch answers and a boolean cannot. See FluidWakeQueue.
+    private long _uploadEpoch;
+    private readonly Dictionary<int3, long> _lastUploadEpoch = new Dictionary<int3, long>();
     private readonly List<int3> _dirtyOrdered = new List<int3>();
     private readonly List<int> _dirtyBrickSlots = new List<int>();
 
@@ -235,6 +244,17 @@ public class TerrainClipmap : IDisposable
     // The first acceptance run reported 15 mismatches and could not tell these
     // apart, which is why it produced no actionable finding.
     public bool IsDirty(int3 chunkCoord) => _dirtyChunks.Contains(chunkCoord);
+
+    /// Monotonic counter, incremented once per UploadDirty pass. A caller that
+    /// records this when it makes a request can later ask whether the chunk it
+    /// cares about has been uploaded since.
+    public long UploadEpoch => _uploadEpoch;
+
+    /// The epoch at which this chunk's contents last reached the GPU, or -1 if
+    /// it never has. Any upload strictly after an edit necessarily CONTAINS
+    /// that edit, because UploadDirty copies the chunk's current CPU state.
+    public long LastUploadEpoch(int3 chunkCoord)
+        => _lastUploadEpoch.TryGetValue(chunkCoord, out long e) ? e : -1L;
     public int DirtyCount => _dirtyChunks.Count;
 
     /// Forces every pending chunk out regardless of the per-frame byte budget.
@@ -278,6 +298,9 @@ public class TerrainClipmap : IDisposable
         int byteBudget, int3 cameraChunk, int exemptRadiusChunks)
     {
         var stats = new UploadStats();
+        // One pass = one epoch, advanced BEFORE the early-out so a pass with
+        // nothing to do still moves time forward for anyone waiting on it.
+        _uploadEpoch++;
         if (_dirtyChunks.Count == 0) return stats;
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -407,6 +430,7 @@ public class TerrainClipmap : IDisposable
             phaseStart = sw.Elapsed.TotalMilliseconds;
 
             _dirtyChunks.Remove(chunkCoord);
+            _lastUploadEpoch[chunkCoord] = _uploadEpoch;
             stats.chunksUploaded++;
             bytes += EngineConfig.CLIPMAP_BYTES_PER_CHUNK;
         }

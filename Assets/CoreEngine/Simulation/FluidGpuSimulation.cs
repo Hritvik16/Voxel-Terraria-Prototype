@@ -126,6 +126,40 @@ namespace VoxelEngine.Simulation
         };
         public GraphicsBuffer DebugCountersBuffer => _debugCounters;
 
+        private readonly uint[] _counterScratch = new uint[4];
+
+        /// §10.4 diagnostic. BLOCKING read -- diagnostics and rigs only, never a
+        /// timing path.
+        ///   highWater     = Counters[0], the highest slot index ever bound, which
+        ///                   is how far CSIntent/CSSweep scan.
+        ///   everAllocated = Counters[1], the AllocSlot bump counter: the number
+        ///                   of slots EVER handed out. It never decreases, because
+        ///                   AllocSlot is a bump allocator with no free list, so
+        ///                   comparing it against SlotCapacity is how you tell
+        ///                   whether promotion has run out of indices.
+        /// §10.4 diagnostic. BLOCKING, whole-buffer read -- rigs only.
+        /// Returns the slot index owning this region cell, or -1 (NONE).
+        ///
+        /// This distinguishes the two causes of a permanently stranded voxel,
+        /// which need opposite fixes: a cell with NO owner was never promoted
+        /// (a wake problem), while a cell WITH an owner cannot be promoted at
+        /// all -- both CSPromote and CSWakeScan return early on an owned cell --
+        /// so if its slot is not awake, nothing can ever move it again.
+        public int ReadSlotAtCell(int regionCell)
+        {
+            if (regionCell < 0 || regionCell >= _regionCellCount) return -2;
+            var all = new int[_regionCellCount];
+            _slotAt.GetData(all);
+            return all[regionCell];
+        }
+
+        public void ReadSlotCounters(out uint highWater, out uint everAllocated)
+        {
+            _counters.GetData(_counterScratch);
+            highWater = _counterScratch[0];
+            everAllocated = _counterScratch[1];
+        }
+
         private GraphicsBuffer _materialFlags;
         private GraphicsBuffer _materialTick;
         private GraphicsBuffer _reactSelf;
@@ -137,7 +171,7 @@ namespace VoxelEngine.Simulation
         /// Requests wait HERE until the GPU mirror can see the edit that caused
         /// them. See FluidWakeQueue for the frozen-fluid bug this fixes.
         private readonly FluidWakeQueue _wakePending;
-        private readonly Func<int, bool> _mirrorReady;   // cached: called per pending request per tick
+        private readonly Func<int, long, bool> _mirrorReady;  // cached: called per pending request per tick
         private TerrainClipmap _mirrorForReadyTest;
 
         // CPU-side half of the §10.4 dump. promote.seen==0 on the GPU has two
@@ -299,11 +333,59 @@ namespace VoxelEngine.Simulation
         /// region cell, i.e. CSPromote's SampleVoxel will read the CURRENT
         /// material rather than the pre-edit one. A chunk that was never dirty
         /// is ready by definition.
-        private bool IsMirrorReadyForCell(int cell)
+        /// Ready once the chunk has been uploaded at an epoch STRICTLY LATER
+        /// than the edit that queued this request. Any such upload contains the
+        /// edit, because UploadDirty copies the chunk's current CPU state.
+        ///
+        /// This replaced a plain !IsDirty(chunk) test, which STARVED: a cell
+        /// edited every frame leaves its chunk dirty at every tick even though
+        /// it is uploaded between them, so the request never came ready and
+        /// only escaped via the stale timeout. The Phase 5c hold_paint case
+        /// (holding the place button) measured that directly -- 8 voxels placed
+        /// where 30 were asked for, 900/120 = the stale interval exactly.
+        private bool IsMirrorReadyForCell(int cell, long stamp)
         {
-            if (_mirrorForReadyTest == null) return true;
-            return !_mirrorForReadyTest.IsDirty(CoordMath.VoxelToChunk(RegionVoxel(cell)));
+            TerrainClipmap m = Mirror;
+            if (m == null) return true;      // no mirror at all: nothing to wait for
+
+            int3 chunk = CoordMath.VoxelToChunk(RegionVoxel(cell));
+
+            // NOT DIRTY => the mirror already holds this chunk's current state,
+            // so there is nothing to wait for and the request is ready NOW.
+            //
+            // This half is load-bearing and was missing at first. §8.3 wakes the
+            // edited cell's whole 26-NEIGHBOURHOOD, and those neighbours are
+            // routinely in a DIFFERENT chunk that was never edited and so is
+            // never dirty. With only the epoch test below, no upload ever
+            // advanced their chunk's epoch, so those requests waited out the
+            // full MaxWakeDeferTicks. The Phase 5c large_pour case showed it as
+            // voxels that looked permanently stranded but were merely 120 ticks
+            // from being looked at.
+            if (!m.IsDirty(chunk)) return true;
+
+            // DIRTY => an upload is outstanding. Wait for one that happened
+            // after the edit, since only such an upload can contain it.
+            return m.LastUploadEpoch(chunk) > stamp;
         }
+
+        /// The clipmap to measure readiness against. Tick() supplies it, but
+        /// EDITS HAPPEN BEFORE THE FIRST TICK -- a vent places its first voxel
+        /// in the same frame the scene starts simulating -- so fall back to the
+        /// active mirror rather than to "no mirror".
+        private TerrainClipmap Mirror => _mirrorForReadyTest ?? TerrainClipmap.Active;
+
+        /// The mirror epoch to stamp a request with: the state of the world the
+        /// edit was made against.
+        ///
+        /// THE DEFAULT HERE MUST BE CONSERVATIVE. Returning -1 for "I don't
+        /// know the epoch yet" meant "already uploaded", which released the
+        /// request on the very next tick against a mirror that did not contain
+        /// the edit -- reintroducing the exact freeze this class exists to
+        /// prevent, for the first edit of every scene. The Phase 5c rig caught
+        /// it immediately: vent_sustained placed 1 voxel instead of 40 and left
+        /// it floating. long.MaxValue instead means "not ready until a real
+        /// epoch says so", so an unknown mirror errs toward waiting.
+        private long CurrentMirrorStamp => Mirror?.UploadEpoch ?? long.MaxValue;
 
         /// Queue a world voxel to be considered for promotion next dispatch.
         /// Silently drops out-of-region coordinates and overflow, both of which
@@ -311,7 +393,7 @@ namespace VoxelEngine.Simulation
         public void RequestWake(int3 worldVoxel)
         {
             if (!InRegion(worldVoxel)) { WakeRejectedOutOfRegion++; return; }
-            if (!_wakePending.Add(RegionIndex(worldVoxel))) { WakeRejectedFull++; return; }
+            if (!_wakePending.Add(RegionIndex(worldVoxel), CurrentMirrorStamp)) { WakeRejectedFull++; return; }
             WakeRequestsQueuedTotal++;
         }
 
@@ -327,7 +409,7 @@ namespace VoxelEngine.Simulation
         public void RequestWakeRegionCell(int regionCell)
         {
             if (regionCell < 0 || regionCell >= _regionCellCount) { WakeRejectedOutOfRegion++; return; }
-            if (!_wakePending.Add(regionCell)) { WakeRejectedFull++; return; }
+            if (!_wakePending.Add(regionCell, CurrentMirrorStamp)) { WakeRejectedFull++; return; }
             WakeRequestsQueuedTotal++;
         }
 
