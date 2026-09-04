@@ -405,7 +405,15 @@ public class RaymarchFeature : ScriptableRendererFeature
 
                     int threadGroupsX = Mathf.CeilToInt(data.dispatchWidth / 8f);
                     int threadGroupsY = Mathf.CeilToInt(data.dispatchHeight / 8f);
+                    // NAMED for GPU capture. CommandBuffer.BeginSample emits a
+                    // Metal debug group, so this shows up in an Instruments
+                    // "Metal System Trace" as a named encoder rather than an
+                    // anonymous dispatch. See tools/capture-gpu-trace.sh.
+                    // The name must match the one parsed by
+                    // tools/parse-gpu-trace.py.
+                    cmd.BeginSample("VE.Raymarch.Primary");
                     cmd.DispatchCompute(data.compute, 0, threadGroupsX, threadGroupsY, 1);
+                    cmd.EndSample("VE.Raymarch.Primary");
                 });
             }
 

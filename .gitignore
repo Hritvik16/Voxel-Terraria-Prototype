@@ -136,3 +136,5 @@ InitTestScene*.unity*
 /playground_build.log
 /playground_scene.log
 /shadercheck2.log
+gpu-traces/
+*.trace/

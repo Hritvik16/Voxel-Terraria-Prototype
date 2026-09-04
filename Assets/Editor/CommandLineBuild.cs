@@ -54,6 +54,45 @@ public static class CommandLineBuild
         DisableAppNap(PLAYGROUND_OUTPUT_PATH);
     }
 
+    private const string PLAYGROUND_TRACE_OUTPUT_PATH = "Builds/PlaygroundTrace.app";
+
+    /// DEVELOPMENT build of the Playground, for GPU capture ONLY.
+    ///
+    /// WHY A SEPARATE, NON-RELEASE BUILD EXISTS AT ALL. Metal debug groups are
+    /// what makes a captured trace show "VE.FluidCA.CSIntent" instead of an
+    /// anonymous compute encoder, and Unity emits them from
+    /// CommandBuffer.BeginSample -- which is a PROFILER marker and is compiled
+    /// out of a non-development player. Measured, not assumed: a release build
+    /// captured with Instruments' Metal System Trace contained zero occurrences
+    /// of any "VE." label anywhere in the trace bundle, and every encoder was
+    /// labelled "Command Buffer 0". BuildOptions.Development is what turns the
+    /// markers back on.
+    ///
+    /// THIS BUILD MUST NEVER BE USED FOR FRAME TIME. It carries development
+    /// overhead by construction. It exists to attribute GPU work BETWEEN
+    /// kernels, which is a ratio, not a budget. ./run-acceptance-rig.sh remains
+    /// the only trusted frame-time source (CLAUDE.md), and it builds release.
+    /// The output path is deliberately different from Builds/Playground.app so
+    /// the two can never be confused.
+    public static void BuildPlaygroundTraceStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PLAYGROUND_SCENE_PATH },
+            locationPathName = PLAYGROUND_TRACE_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            // Development enables profiler markers -> Metal debug groups.
+            // AllowDebugging is NOT set: a script debugger would change timing
+            // far more than the markers do.
+            options = BuildOptions.Development,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] playgroundTrace result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PLAYGROUND_TRACE_OUTPUT_PATH);
+    }
+
     private const string PHASE5BDEMO_SCENE_PATH = "Assets/Scenes/Phase 5b Demo.unity";
     private const string PHASE5BDEMO_OUTPUT_PATH = "Builds/Phase5bDemo.app";
 

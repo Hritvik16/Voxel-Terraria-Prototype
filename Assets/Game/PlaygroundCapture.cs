@@ -19,6 +19,50 @@ public class PlaygroundCapture : MonoBehaviour
     private string _folder;
     private int _shots;
 
+    /// -gputrace: put the CA under REAL, SUSTAINED load and then stay running,
+    /// so an external profiler (Instruments "Metal System Trace", driven by
+    /// tools/capture-gpu-trace.sh) records a window with all three fluids
+    /// active. Same gate condition the screenshot pass uses --
+    /// DebugOpenAllVents -- so what is measured is what was looked at.
+    ///
+    /// THIS MODE NEVER QUITS. xctrace's --time-limit ends the process. If you
+    /// run the build with -gputrace by hand, you have to kill it yourself.
+    ///
+    /// It captures NOTHING itself and reports NO numbers: all timing comes from
+    /// the trace. Nothing in this file is a measurement.
+    private IEnumerator GpuTraceLoad()
+    {
+        // Force one encoder per kernel so a capture can tell them apart. This
+        // PERTURBS timing (8 command-buffer submissions per tick instead of 1)
+        // and is why -gputrace numbers are ratios between kernels, never a
+        // budget. See FluidGpuSimulation.SplitDispatchEncodersForCapture.
+        VoxelEngine.Simulation.FluidGpuSimulation.SplitDispatchEncodersForCapture = true;
+
+        var pg = FindAnyObjectByType<Playground>();
+        while (Phase4Bootstrapper.Store == null) yield return null;
+        // Let streaming settle first, so the recorded window is fluid + raymarch
+        // work and not a window fill.
+        for (int i = 0; i < 240; i++) yield return null;
+
+        if (pg != null)
+        {
+            pg.SendMessage("TeleportToArena", SendMessageOptions.DontRequireReceiver);
+            yield return null;
+        }
+
+        Debug.Log("[PlaygroundCapture] -gputrace: arena primed, vents cycling, running until killed.");
+
+        // Vent budgets are finite (water 160 / sand 90 / lava 60) and would
+        // drain and settle partway through a 15 s window, leaving the tail of
+        // the recording measuring an idle CA. Re-opening them keeps all three
+        // materials genuinely in flight for the whole capture.
+        while (true)
+        {
+            if (pg != null) pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+            for (int i = 0; i < 180; i++) yield return null;   // ~3 s at 60 fps
+        }
+    }
+
     private static bool HasFlag(string f)
     {
         foreach (string a in Environment.GetCommandLineArgs())
@@ -28,6 +72,7 @@ public class PlaygroundCapture : MonoBehaviour
 
     IEnumerator Start()
     {
+        if (HasFlag("-gputrace")) { yield return GpuTraceLoad(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;
         Screen.SetResolution(1920, 1080, false);
 

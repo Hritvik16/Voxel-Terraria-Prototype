@@ -32,6 +32,7 @@ using System;
 using System.Runtime.InteropServices;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Rendering;
 using VoxelEngine.Mirror;
 
 namespace VoxelEngine.Simulation
@@ -125,6 +126,57 @@ namespace VoxelEngine.Simulation
             "promote.rej_radius", "PROBE.saw_material_at_wake0",
         };
         public GraphicsBuffer DebugCountersBuffer => _debugCounters;
+
+        // ---------------------------------------------------------------
+        // GPU CAPTURE LABELLING
+        // ---------------------------------------------------------------
+        // The CA used to call ComputeShader.Dispatch directly. That works, but
+        // an immediate dispatch cannot carry a Metal debug group, so a captured
+        // trace showed eight anonymous compute encoders per tick with no way to
+        // tell CSIntent from CSCommit -- which is exactly the per-kernel
+        // attribution OPTIMIZATION_CANDIDATES.md says is missing and needed to
+        // rank #1 against #3.
+        //
+        // Recording into a CommandBuffer lets BeginSample/EndSample wrap each
+        // dispatch, and Unity emits those as Metal debug groups, so Instruments
+        // shows named encoders. ONE command buffer per tick, executed once, in
+        // the same place the immediate dispatches were issued -- so submission
+        // order relative to the readback request is unchanged.
+        //
+        // Parameter binding is deliberately left on the ComputeShader object
+        // (BindGlobals, immediate). ComputeShader parameter state is applied at
+        // dispatch time, and nothing mutates it between recording and the
+        // Execute at the end of Tick.
+        private CommandBuffer _cb;
+
+        /// CAPTURE ONLY. Off in every shipping path, and the Phase 5c rig runs
+        /// with it off.
+        ///
+        /// Metal merges consecutive compute dispatches into ONE compute encoder,
+        /// and Instruments names that encoder after the FIRST debug group inside
+        /// it. Measured: with all eight dispatches in one command buffer, a
+        /// capture showed 710 encoder intervals all labelled
+        /// "VE.FluidCA.CSClear" and none for CSPromote/CSReact/CSIntent/
+        /// CSCommit/CSSweep -- one encoder covering the whole tick, named after
+        /// the first sample in it.
+        ///
+        /// Setting this executes a command buffer PER DISPATCH, which forces an
+        /// encoder boundary between kernels so each is attributed separately.
+        ///
+        /// IT PERTURBS WHAT IT MEASURES: eight command-buffer submissions per
+        /// tick instead of one adds real per-submission cost. Use the per-kernel
+        /// numbers as a RATIO between kernels, never as an absolute budget.
+        public static bool SplitDispatchEncodersForCapture;
+
+        /// Kernel labels. MUST match the names parsed by tools/parse-gpu-trace.py.
+        private const string LblClear    = "VE.FluidCA.CSClear";
+        private const string LblPromote  = "VE.FluidCA.CSPromote";
+        private const string LblReact    = "VE.FluidCA.CSReact";
+        private const string LblIntent   = "VE.FluidCA.CSIntent";
+        private const string LblCommit   = "VE.FluidCA.CSCommit";
+        private const string LblWakeScan = "VE.FluidCA.CSWakeScan";
+        private const string LblSweep    = "VE.FluidCA.CSSweep";
+        private const string LblFinalize = "VE.FluidCA.CSFinalize";
 
         private readonly uint[] _counterScratch = new uint[4];
 
@@ -254,6 +306,7 @@ namespace VoxelEngine.Simulation
                 _opCounters[i] = New(GraphicsBuffer.Target.Structured, 4, 4);
             }
             _wakeRequests = New(GraphicsBuffer.Target.Structured, maxOpsPerFrame, 4);
+            _cb = new CommandBuffer { name = "VE.FluidCA" };
             _wakeScratch = new int[maxOpsPerFrame];
             // MaxWakeDeferTicks: how long a request may wait for its chunk to
             // upload before being released anyway. 120 ticks is far longer than
@@ -463,14 +516,16 @@ namespace VoxelEngine.Simulation
 
             BindGlobals(clipmap);
 
-            Dispatch(_kClear, _regionCellCount);
-            if (_wakeCount > 0) { Dispatch(_kPromote, _wakeCount); PromoteDispatchesTotal++; }
-            Dispatch(_kReact, _slotCapacity);
-            Dispatch(_kIntent, _slotCapacity);
-            Dispatch(_kCommit, _regionCellCount);
-            Dispatch(_kWakeScan, _regionCellCount);   // immediate GPU-side wake
-            Dispatch(_kSweep, _slotCapacity);
-            Dispatch(_kFinalize, 1);            // publish the count into ops[0]
+            if (!SplitDispatchEncodersForCapture) _cb.Clear();
+            Dispatch(_kClear, _regionCellCount, LblClear);
+            if (_wakeCount > 0) { Dispatch(_kPromote, _wakeCount, LblPromote); PromoteDispatchesTotal++; }
+            Dispatch(_kReact, _slotCapacity, LblReact);
+            Dispatch(_kIntent, _slotCapacity, LblIntent);
+            Dispatch(_kCommit, _regionCellCount, LblCommit);
+            Dispatch(_kWakeScan, _regionCellCount, LblWakeScan);   // immediate GPU-side wake
+            Dispatch(_kSweep, _slotCapacity, LblSweep);
+            Dispatch(_kFinalize, 1, LblFinalize);   // publish the count into ops[0]
+            if (!SplitDispatchEncodersForCapture) Graphics.ExecuteCommandBuffer(_cb);
 
             _wakeCount = 0;
         }
@@ -515,10 +570,22 @@ namespace VoxelEngine.Simulation
             }
         }
 
-        private void Dispatch(int kernel, int threads)
+        private void Dispatch(int kernel, int threads, string label)
         {
             if (threads <= 0) return;
-            _cs.Dispatch(kernel, (threads + 63) / 64, 1, 1);
+            if (SplitDispatchEncodersForCapture)
+            {
+                // One command buffer per dispatch => one encoder per kernel.
+                _cb.Clear();
+                _cb.BeginSample(label);
+                _cb.DispatchCompute(_cs, kernel, (threads + 63) / 64, 1, 1);
+                _cb.EndSample(label);
+                Graphics.ExecuteCommandBuffer(_cb);
+                return;
+            }
+            _cb.BeginSample(label);
+            _cb.DispatchCompute(_cs, kernel, (threads + 63) / 64, 1, 1);
+            _cb.EndSample(label);
         }
 
         // =====================================================================
@@ -564,6 +631,7 @@ namespace VoxelEngine.Simulation
         {
             _slots?.Dispose(); _claim?.Dispose(); _slotAt?.Dispose(); _reacted?.Dispose();
             _wakeMark?.Dispose(); _wakeMark = null;
+            _cb?.Dispose(); _cb = null;
             _counters?.Dispose(); _wakeRequests?.Dispose();
             for (int i = 0; i < RING; i++)
             {
