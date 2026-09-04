@@ -63,7 +63,7 @@ namespace VoxelEngine.Simulation
     public sealed class FluidGpuSimulation : IDisposable
     {
         // Kernel indices, resolved once in the constructor.
-        private readonly int _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep;
+        private readonly int _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep, _kFinalize;
         private readonly ComputeShader _cs;
 
         private readonly int3 _regionDims;
@@ -85,8 +85,10 @@ namespace VoxelEngine.Simulation
         /// RING must exceed FluidOpListReadback.MaxFramesInFlight so a slot is
         /// never rewritten while its own readback is outstanding.
         public const int RING = 4;
-        private readonly GraphicsBuffer[] _opList = new GraphicsBuffer[RING];
-        private readonly GraphicsBuffer[] _wakeOut = new GraphicsBuffer[RING];
+        /// Element 0 is a HEADER (.voxel.x = op count); elements 1.. are the ops.
+        /// One buffer, one readback request per frame -- see the note on
+        /// OpsBuffer in FluidCA.compute for why the shape changed.
+        private readonly GraphicsBuffer[] _ops = new GraphicsBuffer[RING];
         private readonly GraphicsBuffer[] _opCounters = new GraphicsBuffer[RING];
         private readonly uint[] _opCountersZero = new uint[4];
         private int _ring = -1;
@@ -144,9 +146,8 @@ namespace VoxelEngine.Simulation
         /// The ring slot the most recent Tick wrote. IssueReadback must read
         /// THIS slot, not a fixed one.
         public int CurrentRing => _ring;
-        public GraphicsBuffer OpListBuffer => _opList[_ring < 0 ? 0 : _ring];
-        public GraphicsBuffer WakeOutBuffer => _wakeOut[_ring < 0 ? 0 : _ring];
-        public GraphicsBuffer OpCountersBuffer => _opCounters[_ring < 0 ? 0 : _ring];
+        /// THE only buffer the CPU reads back.
+        public GraphicsBuffer OpsBuffer => _ops[_ring < 0 ? 0 : _ring];
 
         /// <param name="regionDims">Active-region size in voxels. EVERY component
         /// must be a power of two: FluidCA.compute addresses the region with
@@ -176,6 +177,7 @@ namespace VoxelEngine.Simulation
             _kIntent  = _cs.FindKernel("CSIntent");
             _kCommit  = _cs.FindKernel("CSCommit");
             _kSweep   = _cs.FindKernel("CSSweep");
+            _kFinalize = _cs.FindKernel("CSFinalize");
 
             _slots   = New(GraphicsBuffer.Target.Structured, _slotCapacity, FluidSlotGpu.SizeBytes);
             _claim   = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
@@ -184,8 +186,7 @@ namespace VoxelEngine.Simulation
             _counters = New(GraphicsBuffer.Target.Structured, 4, 4);
             for (int i = 0; i < RING; i++)
             {
-                _opList[i]  = New(GraphicsBuffer.Target.Append, maxOpsPerFrame, FluidWriteOp.SizeBytes);
-                _wakeOut[i] = New(GraphicsBuffer.Target.Append, maxOpsPerFrame, 4);
+                _ops[i] = New(GraphicsBuffer.Target.Structured, maxOpsPerFrame + 1, FluidWriteOp.SizeBytes);
                 _opCounters[i] = New(GraphicsBuffer.Target.Structured, 4, 4);
             }
             _wakeRequests = New(GraphicsBuffer.Target.Structured, maxOpsPerFrame, 4);
@@ -311,8 +312,6 @@ namespace VoxelEngine.Simulation
             TickCount++;
 
             _ring = (_ring + 1) % RING;          // advance BEFORE binding
-            _opList[_ring].SetCounterValue(0);
-            _wakeOut[_ring].SetCounterValue(0);
             _opCounters[_ring].SetData(_opCountersZero);
             // Cleared every tick: these are PER-TICK counters, and a running
             // total would hide which tick a stage went silent on.
@@ -329,6 +328,7 @@ namespace VoxelEngine.Simulation
             Dispatch(_kIntent, _slotCapacity);
             Dispatch(_kCommit, _regionCellCount);
             Dispatch(_kSweep, _slotCapacity);
+            Dispatch(_kFinalize, 1);            // publish the count into ops[0]
 
             _wakeCount = 0;
         }
@@ -352,7 +352,7 @@ namespace VoxelEngine.Simulation
             _cs.SetInts("_WindowDimsBricksPacked", wdb.x, wdb.y, wdb.z, 0);
             _cs.SetInts("_WindowOriginBricksPacked", wob.x, wob.y, wob.z, 0);
 
-            foreach (int k in new[] { _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep })
+            foreach (int k in new[] { _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep, _kFinalize })
             {
                 _cs.SetBuffer(k, "ClipmapBuffer", clipmap.ClipmapBuffer);
                 _cs.SetBuffer(k, "BrickDataBuffer", clipmap.BrickDataBuffer);
@@ -361,7 +361,7 @@ namespace VoxelEngine.Simulation
                 _cs.SetBuffer(k, "SlotAtBuffer", _slotAt);
                 _cs.SetBuffer(k, "ReactedBuffer", _reacted);
                 _cs.SetBuffer(k, "Counters", _counters);
-                _cs.SetBuffer(k, "OpList", _opList[_ring]);
+                _cs.SetBuffer(k, "OpsBuffer", _ops[_ring]);
                 _cs.SetBuffer(k, "OpCounters", _opCounters[_ring]);
                 _cs.SetBuffer(k, "WakeRequests", _wakeRequests);
                 _cs.SetBuffer(k, "DebugCounters", _debugCounters);
@@ -423,8 +423,7 @@ namespace VoxelEngine.Simulation
             _counters?.Dispose(); _wakeRequests?.Dispose();
             for (int i = 0; i < RING; i++)
             {
-                _opList[i]?.Dispose(); _opList[i] = null;
-                _wakeOut[i]?.Dispose(); _wakeOut[i] = null;
+                _ops[i]?.Dispose(); _ops[i] = null;
                 _opCounters[i]?.Dispose(); _opCounters[i] = null;
             }
             _debugCounters?.Dispose(); _debugCounters = null;

@@ -64,17 +64,16 @@ namespace VoxelEngine.Simulation
             // request read the SAME buffer). Cutting the request count is what
             // this addresses; the underlying per-request failure is documented
             // in the report as unexplained rather than claimed as understood.
-            public AsyncGPUReadbackRequest CountersReq;
+            /// ONE request per frame. The op count rides in element 0's header
+            /// so there is no second, small buffer to read -- that small read is
+            /// exactly what kept failing.
             public AsyncGPUReadbackRequest OpsReq;
             public int IssuedFrame;
             public int ActiveSlotsAtIssue;
         }
 
         private readonly Queue<InFlight> _inFlight = new Queue<InFlight>();
-        // Ringed for the same reason the op-list is: CopyCount writes into these
-        // every tick while readbacks of them are still pending.
-        private readonly GraphicsBuffer[] _opCountBuffer = new GraphicsBuffer[FluidGpuSimulation.RING];
-        private readonly GraphicsBuffer[] _wakeCountBuffer = new GraphicsBuffer[FluidGpuSimulation.RING];
+
 
         // ---- Instrumentation (§13's boundedness gate) ----
         public int OpsLastFrame { get; private set; }
@@ -104,9 +103,26 @@ namespace VoxelEngine.Simulation
         /// Capping the queue at the spec's own bound both fixes that and makes
         /// the stated 1-3 frames a property of the code rather than a hope.
         /// Skipping an issue costs one frame of fluid motion, never a voxel.
-        /// MUST stay below FluidGpuSimulation.RING. The ring slot a readback is
-        /// reading must not be rewritten before that readback lands.
-        private const int MaxFramesInFlight = FluidGpuSimulation.RING - 1;
+        /// ONE outstanding op-list, and this is a CORRECTNESS bound, not a
+        /// throughput knob.
+        ///
+        /// The CA reads terrain from the clipmap to decide moves (§7.3's
+        /// Air-Only rule). Its own committed moves only reach terrain after the
+        /// CPU applies the op-list and re-uploads. If a second tick runs before
+        /// that lands, it decides against terrain that does not yet contain its
+        /// own previous decisions -- and the same source gets committed twice.
+        /// Measured directly: at 3 outstanding op-lists, sand_column reported
+        /// conserved count GPU 25 vs CPU 24, a GAIN of one grain. At 1 it
+        /// matches.
+        ///
+        /// This is §3.9's frame order taken literally -- "terrain upload (dirty,
+        /// from LAST FRAME'S APPLIED OPS + edits) -> fluid Clear/Intent+Claim/
+        /// Commit" -- which only reads as one CA tick per applied op-list.
+        /// The cost is that the CA ticks once per readback round-trip rather
+        /// than once per frame. That is a real throughput limit and it is the
+        /// honest reading of the design; raising it trades conservation for
+        /// tick rate, which §7.3 does not permit.
+        private const int MaxFramesInFlight = 1;
 
         /// BACK-PRESSURE. The caller must not run another CA tick while this is
         /// false. Ring-buffering the op-list alone did NOT fix the readback
@@ -131,11 +147,7 @@ namespace VoxelEngine.Simulation
         {
             _sim = sim ?? throw new ArgumentNullException(nameof(sim));
             _store = store ?? throw new ArgumentNullException(nameof(store));
-            for (int i = 0; i < FluidGpuSimulation.RING; i++)
-            {
-                _opCountBuffer[i] = new GraphicsBuffer(GraphicsBuffer.Target.Raw, 4, 4);
-                _wakeCountBuffer[i] = new GraphicsBuffer(GraphicsBuffer.Target.Raw, 4, 4);
-            }
+
         }
 
         /// Issue this frame's readback. Call AFTER FluidGpuSimulation.Tick, and
@@ -145,15 +157,11 @@ namespace VoxelEngine.Simulation
         {
             if (!CanIssue) { SkippedIssuesTotal++; return; }
 
-            int r = _sim.CurrentRing;
-            if (r < 0) return;
+            if (_sim.CurrentRing < 0) return;
 
-            // NO CopyCount. Both counts come from OpCounters, which the shader
-            // maintains directly -- see the comment on OpCounters in FluidCA.compute.
             _inFlight.Enqueue(new InFlight
             {
-                CountersReq = AsyncGPUReadback.Request(_sim.OpCountersBuffer),
-                OpsReq = AsyncGPUReadback.Request(_sim.OpListBuffer),
+                OpsReq = AsyncGPUReadback.Request(_sim.OpsBuffer),
                 IssuedFrame = Time.frameCount,
                 ActiveSlotsAtIssue = activeSlotsHint,
             });
@@ -169,18 +177,17 @@ namespace VoxelEngine.Simulation
             while (_inFlight.Count > 0)
             {
                 InFlight f = _inFlight.Peek();
-                if (f.CountersReq.hasError || f.OpsReq.hasError)
+                if (f.OpsReq.hasError)
                 {
                     // §9's contract: never crash. A failed readback costs one
                     // frame of fluid motion, never a voxel -- the terrain bytes
                     // are untouched and the slots simply retry next tick.
-                    LastReadbackError = (f.CountersReq.hasError ? "counters " : "") +
-                                        (f.OpsReq.hasError ? "ops" : "");
+                    LastReadbackError = "ops";
                     _inFlight.Dequeue();
                     ReadbackErrorsTotal++;
                     continue;
                 }
-                if (!f.CountersReq.done || !f.OpsReq.done) break;
+                if (!f.OpsReq.done) break;
 
                 _inFlight.Dequeue();
                 applied += Apply(f);
@@ -190,8 +197,8 @@ namespace VoxelEngine.Simulation
 
         private int Apply(InFlight f)
         {
-            var counters = f.CountersReq.GetData<uint>();
-            int opCount = (int)counters[0];
+            NativeArray<FluidWriteOp> all = f.OpsReq.GetData<FluidWriteOp>();
+            int opCount = all.Length > 0 ? all[0].x : 0;    // element 0 is the header
             int wakeCount = 0;
 
             if (opCount >= _sim.MaxOpsPerFrame || wakeCount >= _sim.MaxOpsPerFrame)
@@ -212,10 +219,9 @@ namespace VoxelEngine.Simulation
 
             if (opCount > 0)
             {
-                NativeArray<FluidWriteOp> ops = f.OpsReq.GetData<FluidWriteOp>();
-                for (int i = 0; i < opCount; i++)
+                for (int i = 0; i < opCount && (i + 1) < all.Length; i++)
                 {
-                    FluidWriteOp op = ops[i];
+                    FluidWriteOp op = all[i + 1];          // +1: skip the header
                     bool wake = (op.newMaterial & 0x100u) != 0u;
                     // THE single terrain write path (§8.3). ChunkStore.SetVoxel
                     // marks the chunk dirty and delta-dirty itself, so the
@@ -248,10 +254,9 @@ namespace VoxelEngine.Simulation
             while (_inFlight.Count > 0)
             {
                 InFlight f = _inFlight.Peek();
-                f.CountersReq.WaitForCompletion();
                 f.OpsReq.WaitForCompletion();
                 _inFlight.Dequeue();
-                if (!f.CountersReq.hasError && !f.OpsReq.hasError)
+                if (!f.OpsReq.hasError)
                     applied += Apply(f);
                 else ReadbackErrorsTotal++;
             }
@@ -260,17 +265,9 @@ namespace VoxelEngine.Simulation
 
         public void Dispose()
         {
-            foreach (var f in _inFlight)
-            {
-                f.CountersReq.WaitForCompletion();
-                f.OpsReq.WaitForCompletion();
-            }
+            foreach (var f in _inFlight) f.OpsReq.WaitForCompletion();
             _inFlight.Clear();
-            for (int i = 0; i < FluidGpuSimulation.RING; i++)
-            {
-                _opCountBuffer[i]?.Dispose();
-                _wakeCountBuffer[i]?.Dispose();
-            }
+
         }
     }
 }

@@ -59,6 +59,7 @@
 #pragma kernel CSIntent
 #pragma kernel CSCommit
 #pragma kernel CSSweep
+#pragma kernel CSFinalize
 
 #include "../Coord/CoordMath.hlsl"
 
@@ -114,14 +115,23 @@ RWStructuredBuffer<int>       ClaimBuffer;    // cell -> winning slot, or NONE
 RWStructuredBuffer<int>       SlotAtBuffer;   // cell -> owning slot, or NONE
 RWStructuredBuffer<int>       ReactedBuffer;  // cell -> 1 if a reaction spoke for it
 RWStructuredBuffer<uint>      Counters;       // [0]=slotHighWater [1]=freeCursor [2]=opCount(dbg) [3]=wakeCount
-AppendStructuredBuffer<FluidWriteOp> OpList;
-// The op-list's OWN count, maintained here rather than recovered with
-// GraphicsBuffer.CopyCount. CopyCount's destination readback failed
-// intermittently on this toolchain (hasError, no logged reason, and only ever
-// on the op-list's copy -- never on the structurally identical wake-list copy),
-// which is unexplained. A plain structured buffer the shader increments reads
-// back reliably, so the count comes from here. [0]=ops appended, [1]=wake cells.
+// THE OP-LIST IS ONE PLAIN STRUCTURED BUFFER, READ BACK WITH ONE REQUEST.
+//
+// It was an AppendStructuredBuffer plus a separate counter buffer. That needed
+// two AsyncGPUReadback requests per frame, and the SMALL COUNTER one failed
+// intermittently with hasError and no reason logged by Unity -- while the large
+// op-list request beside it always succeeded. Five narrower fixes did not move
+// it (in-flight cap, ring buffering, replacing CopyCount with a shader counter,
+// 4 requests -> 2, back-pressure), including a version where both requests read
+// the SAME buffer and only the first still failed.
+//
+// So the transport changed shape instead: element 0 is a HEADER carrying the op
+// count (written by CSFinalize), elements 1.. are the ops. One buffer, one
+// request per frame, on the buffer type and size that was already reliable.
+// OpCounters is still the allocation cursor, but it is no longer read back.
+RWStructuredBuffer<FluidWriteOp> OpsBuffer;
 RWStructuredBuffer<uint> OpCounters;
+
 RWStructuredBuffer<int>       WakeRequests;   // cells the CPU asked to wake (§7.6)
 
 // §10.4's per-subsystem diagnostic dump, GPU side. "This converts a vague
@@ -160,6 +170,23 @@ uint  _RegionCellCount;
 uint  _WakeRequestCount;
 uint  _MaxOpsPerFrame;
 uint  _SleepTicks;        // EngineConfig.FLUID_SLEEP_TICKS
+
+/// Reserve one op slot. Returns false when the frame's budget is spent, which
+/// is a MOTION loss (the move simply does not happen this tick), never a mass
+/// loss -- the terrain bytes are untouched and the slot retries next tick.
+bool EmitOp(int3 voxel, uint material)
+{
+    uint idx;
+    InterlockedAdd(OpCounters[0], 1u, idx);
+    if (idx >= _MaxOpsPerFrame) return false;
+    FluidWriteOp op;
+    op.voxel = voxel;
+    op.newMaterial = material;
+    OpsBuffer[1 + idx] = op;      // +1: element 0 is the header
+    return true;
+}
+// (EmitOp lives here, AFTER the uniform block: HLSL requires declaration
+//  before use and _MaxOpsPerFrame is declared just above.)
 
 // =========================================================================
 // Region addressing -- bitwise only (§0.1 invariant 2)
@@ -440,11 +467,8 @@ void CSReact(uint3 id : SV_DispatchThreadID)
         ReactedBuffer[home] = 1;
         ReactedBuffer[RegionIndex(n)] = 1;
 
-        FluidWriteOp opSelf;  opSelf.voxel = c;  opSelf.newMaterial = selfProduct;
-        FluidWriteOp opOther; opOther.voxel = n; opOther.newMaterial = otherProduct;
-        OpList.Append(opSelf);
-        OpList.Append(opOther);
-        uint rc; InterlockedAdd(OpCounters[0], 2u, rc);
+        EmitOp(c, selfProduct);
+        EmitOp(n, otherProduct);
 
         // This slot is gone. Its counterpart self-frees on its next Intent via
         // the orphan check once the CPU applies the op (§7.3's mechanism).
@@ -603,11 +627,8 @@ void CSCommit(uint3 id : SV_DispatchThreadID)
     // A lateral shuffle changes no fluid level, and waking from it re-promotes
     // sleeping neighbours with a fresh budget, sustaining the shuffle forever.
     uint wake = descended ? OP_WAKE_BIT : 0u;
-    FluidWriteOp opDst; opDst.voxel = dv; opDst.newMaterial = slot.materialID | wake;
-    FluidWriteOp opSrc; opSrc.voxel = hv; opSrc.newMaterial = AIR | wake;
-    OpList.Append(opDst);
-    OpList.Append(opSrc);
-    uint oc; InterlockedAdd(OpCounters[0], 2u, oc);
+    EmitOp(dv, slot.materialID | wake);
+    EmitOp(hv, AIR | wake);
     DBG(7);
 
     SlotAtBuffer[home] = NONE;
@@ -657,4 +678,19 @@ void CSSweep(uint3 id : SV_DispatchThreadID)
         return;
     }
     FluidSlots[s] = slot;
+}
+
+// =========================================================================
+// CSFinalize -- publishes the op count into the op buffer's header element so
+// the CPU needs exactly ONE readback, of one buffer, per frame. Single thread.
+// =========================================================================
+[numthreads(1, 1, 1)]
+void CSFinalize(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x != 0) return;
+    uint n = OpCounters[0];
+    FluidWriteOp header;
+    header.voxel = int3(min(n, _MaxOpsPerFrame), 0, 0);   // .x = op count, clamped
+    header.newMaterial = 0xFEEDu;                          // recognisable in a dump
+    OpsBuffer[0] = header;
 }
