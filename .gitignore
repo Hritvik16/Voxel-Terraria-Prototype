@@ -122,3 +122,8 @@ InitTestScene*.unity*
 # Phase 5a rig build + logs
 /Builds/Phase5aAcceptance.app/
 /phase5a_build.log
+
+/Builds/Phase5bValidation.app/
+/phase5b_build.log
+/phase5b_scene.log
+/Phase5bValidation/

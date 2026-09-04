@@ -25,6 +25,59 @@ public static class Phase5aSceneBuilder
     public const string ScenePath = "Assets/Scenes/Phase 5a Basin.unity";
 
 
+
+    public const string Phase5bScenePath = "Assets/Scenes/Phase 5b Basin.unity";
+
+    [MenuItem("Voxel Engine/Phase 5b/Generate Basin Scene")]
+    public static void GeneratePhase5b()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        // The basin spans world voxels 0..63 => 0..6.4 m (0.1 m voxels). Sit the
+        // camera back and above it so the raymarcher has real work: §13's gate
+        // config is fluid CA + PRIMARY RAYMARCH together, and a camera staring at
+        // nothing would measure the wrong thing.
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.05f, 0.06f, 0.09f, 1f);
+        cam.fieldOfView = 60f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 500f;
+        camGo.transform.position = new Vector3(3.2f, 2.6f, -3.5f);
+        camGo.transform.rotation = Quaternion.Euler(18f, 0f, 0f);
+
+        var basinGo = new GameObject("Phase5bBasin");
+        var basin = basinGo.AddComponent<Phase5bBasin>();
+        var rigGo = new GameObject("Phase5bValidationRig");
+        var rig = rigGo.AddComponent<Phase5bValidationRig>();
+
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+
+        var bo = new SerializedObject(basin);
+        bo.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        bo.FindProperty("_slotCapacity").intValue = 65536;
+        bo.FindProperty("_maxOpsPerFrame").intValue = 65536;
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var ro = new SerializedObject(rig);
+        ro.FindProperty("_maxTicksPerScenario").intValue = 1200;
+        ro.FindProperty("_quietTicksForRest").intValue = 12;
+        ro.FindProperty("_perfWarmupTicks").intValue = 60;
+        ro.FindProperty("_perfSampleTicks").intValue = 300;
+        ro.FindProperty("_outputRootFolderName").stringValue = "Phase5bValidation";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Phase5bScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, Phase5bScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {Phase5bScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {Phase5bScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
+
     public const string ClaimStressScenePath = "Assets/Scenes/Phase 5b ClaimStress.unity";
 
     /// §7.3's Metal claim verification scene. Deliberately trivial: a camera and

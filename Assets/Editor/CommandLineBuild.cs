@@ -35,6 +35,29 @@ public static class CommandLineBuild
     /// file -- and additionally so Debug.isDebugBuild reads false in the rig's
     /// own report, where it is printed as evidence of which build produced the
     /// screenshots.
+    private const string PHASE5B_SCENE_PATH = "Assets/Scenes/Phase 5b Basin.unity";
+    private const string PHASE5B_OUTPUT_PATH = "Builds/Phase5bValidation.app";
+
+    /// Phase 5b's GPU-port validation rig. RELEASE, not Development: a
+    /// Development build carries profiling overhead, and this rig takes a
+    /// wall-clock frame-time reading (provisional, but not deliberately spoiled).
+    public static void BuildPhase5bStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE5B_SCENE_PATH },
+            locationPathName = PHASE5B_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        var summary = report.summary;
+        Debug.Log($"[CommandLineBuild] phase5b result={summary.result} errors={summary.totalErrors} " +
+                  $"outputPath={summary.outputPath}");
+        if (summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE5B_OUTPUT_PATH);
+    }
+
     public static void BuildPhase5aStandalone()
     {
         var options = new BuildPlayerOptions
