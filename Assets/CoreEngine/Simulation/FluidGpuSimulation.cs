@@ -134,6 +134,12 @@ namespace VoxelEngine.Simulation
         private readonly int[] _wakeScratch;
         private int _wakeCount;
 
+        /// Requests wait HERE until the GPU mirror can see the edit that caused
+        /// them. See FluidWakeQueue for the frozen-fluid bug this fixes.
+        private readonly FluidWakeQueue _wakePending;
+        private readonly Func<int, bool> _mirrorReady;   // cached: called per pending request per tick
+        private TerrainClipmap _mirrorForReadyTest;
+
         // CPU-side half of the §10.4 dump. promote.seen==0 on the GPU has two
         // completely different causes -- the CPU never queued anything, or it
         // queued and the dispatch/upload lost it -- and they are indistinguishable
@@ -147,6 +153,13 @@ namespace VoxelEngine.Simulation
         public long WakeRequestsQueuedTotal { get; private set; }
         public long WakeRejectedOutOfRegion { get; private set; }
         public long WakeRejectedFull { get; private set; }
+        /// Requests queued but not yet dispatched because the mirror is still
+        /// stale for their chunk. Steady non-zero here means uploads are behind.
+        public int DeferredWakeRequests => _wakePending.PendingCount;
+        public long WakeCoalescedTotal => _wakePending.CoalescedTotal;
+        /// Released without the mirror ever going clean (§FluidWakeQueue.Collect).
+        /// Should be 0 in a healthy run.
+        public long WakeReleasedStaleTotal => _wakePending.ReleasedStaleTotal;
 
         public int3 RegionOriginVoxels { get; set; }
         public int3 PlayerVoxel { get; set; }
@@ -208,6 +221,12 @@ namespace VoxelEngine.Simulation
             }
             _wakeRequests = New(GraphicsBuffer.Target.Structured, maxOpsPerFrame, 4);
             _wakeScratch = new int[maxOpsPerFrame];
+            // MaxWakeDeferTicks: how long a request may wait for its chunk to
+            // upload before being released anyway. 120 ticks is far longer than
+            // any observed upload lag (a single edited chunk normally clears on
+            // the very next LateUpdate) while still bounding the queue.
+            _wakePending = new FluidWakeQueue(maxOpsPerFrame, MaxWakeDeferTicks);
+            _mirrorReady = IsMirrorReadyForCell;
             _debugCounters = New(GraphicsBuffer.Target.Structured, DebugSlots, 4);
 
             // §3.7's lesson, applied here too: a fresh GraphicsBuffer contains
@@ -267,16 +286,32 @@ namespace VoxelEngine.Simulation
         // Wake requests (§7.6) -- uploaded, never read back
         // =====================================================================
 
-        public void ClearWakeRequests() => _wakeCount = 0;
+        /// Ticks a wake request may wait for its chunk to reach the GPU.
+        public const int MaxWakeDeferTicks = 120;
+
+        public void ClearWakeRequests()
+        {
+            _wakeCount = 0;
+            _wakePending.Clear();
+        }
+
+        /// True when the GPU clipmap already holds the chunk containing this
+        /// region cell, i.e. CSPromote's SampleVoxel will read the CURRENT
+        /// material rather than the pre-edit one. A chunk that was never dirty
+        /// is ready by definition.
+        private bool IsMirrorReadyForCell(int cell)
+        {
+            if (_mirrorForReadyTest == null) return true;
+            return !_mirrorForReadyTest.IsDirty(CoordMath.VoxelToChunk(RegionVoxel(cell)));
+        }
 
         /// Queue a world voxel to be considered for promotion next dispatch.
         /// Silently drops out-of-region coordinates and overflow, both of which
         /// are "this cell does not move this tick", never a lost byte.
         public void RequestWake(int3 worldVoxel)
         {
-            if (_wakeCount >= _wakeScratch.Length) { WakeRejectedFull++; return; }
             if (!InRegion(worldVoxel)) { WakeRejectedOutOfRegion++; return; }
-            _wakeScratch[_wakeCount++] = RegionIndex(worldVoxel);
+            if (!_wakePending.Add(RegionIndex(worldVoxel))) { WakeRejectedFull++; return; }
             WakeRequestsQueuedTotal++;
         }
 
@@ -291,9 +326,8 @@ namespace VoxelEngine.Simulation
 
         public void RequestWakeRegionCell(int regionCell)
         {
-            if (_wakeCount >= _wakeScratch.Length) { WakeRejectedFull++; return; }
             if (regionCell < 0 || regionCell >= _regionCellCount) { WakeRejectedOutOfRegion++; return; }
-            _wakeScratch[_wakeCount++] = regionCell;
+            if (!_wakePending.Add(regionCell)) { WakeRejectedFull++; return; }
             WakeRequestsQueuedTotal++;
         }
 
@@ -328,6 +362,13 @@ namespace VoxelEngine.Simulation
         {
             if (clipmap == null) throw new ArgumentNullException(nameof(clipmap));
             TickCount++;
+
+            // Release only the requests the GPU can actually act on. When the
+            // mirror is already current -- every rig and every existing test --
+            // this releases them on the same tick they were queued, so nothing
+            // about existing behaviour changes.
+            _mirrorForReadyTest = clipmap;
+            _wakeCount = _wakePending.Collect(_mirrorReady, _wakeScratch, _wakeScratch.Length);
 
             _ring = (_ring + 1) % RING;          // advance BEFORE binding
             _opCounters[_ring].SetData(_opCountersZero);
