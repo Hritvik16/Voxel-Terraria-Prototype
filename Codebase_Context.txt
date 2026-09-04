@@ -1,6 +1,6 @@
 // --- M1 VOXEL ENGINE STABLE CONTEXT ---
-// Generated: 9/4/2026 10:31:27 AM
-// Files included: 110
+// Generated: 9/4/2026 3:30:34 PM
+// Files included: 111
 
 // ==========================================
 // FILE: Assets/ContentModules/Config/EngineConfig.cs
@@ -7065,7 +7065,15 @@ public class RaymarchFeature : ScriptableRendererFeature
 
                     int threadGroupsX = Mathf.CeilToInt(data.dispatchWidth / 8f);
                     int threadGroupsY = Mathf.CeilToInt(data.dispatchHeight / 8f);
+                    // NAMED for GPU capture. CommandBuffer.BeginSample emits a
+                    // Metal debug group, so this shows up in an Instruments
+                    // "Metal System Trace" as a named encoder rather than an
+                    // anonymous dispatch. See tools/capture-gpu-trace.sh.
+                    // The name must match the one parsed by
+                    // tools/parse-gpu-trace.py.
+                    cmd.BeginSample("VE.Raymarch.Primary");
                     cmd.DispatchCompute(data.compute, 0, threadGroupsX, threadGroupsY, 1);
+                    cmd.EndSample("VE.Raymarch.Primary");
                 });
             }
 
@@ -9381,6 +9389,7 @@ using System;
 using System.Runtime.InteropServices;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Rendering;
 using VoxelEngine.Mirror;
 
 namespace VoxelEngine.Simulation
@@ -9474,6 +9483,57 @@ namespace VoxelEngine.Simulation
             "promote.rej_radius", "PROBE.saw_material_at_wake0",
         };
         public GraphicsBuffer DebugCountersBuffer => _debugCounters;
+
+        // ---------------------------------------------------------------
+        // GPU CAPTURE LABELLING
+        // ---------------------------------------------------------------
+        // The CA used to call ComputeShader.Dispatch directly. That works, but
+        // an immediate dispatch cannot carry a Metal debug group, so a captured
+        // trace showed eight anonymous compute encoders per tick with no way to
+        // tell CSIntent from CSCommit -- which is exactly the per-kernel
+        // attribution OPTIMIZATION_CANDIDATES.md says is missing and needed to
+        // rank #1 against #3.
+        //
+        // Recording into a CommandBuffer lets BeginSample/EndSample wrap each
+        // dispatch, and Unity emits those as Metal debug groups, so Instruments
+        // shows named encoders. ONE command buffer per tick, executed once, in
+        // the same place the immediate dispatches were issued -- so submission
+        // order relative to the readback request is unchanged.
+        //
+        // Parameter binding is deliberately left on the ComputeShader object
+        // (BindGlobals, immediate). ComputeShader parameter state is applied at
+        // dispatch time, and nothing mutates it between recording and the
+        // Execute at the end of Tick.
+        private CommandBuffer _cb;
+
+        /// CAPTURE ONLY. Off in every shipping path, and the Phase 5c rig runs
+        /// with it off.
+        ///
+        /// Metal merges consecutive compute dispatches into ONE compute encoder,
+        /// and Instruments names that encoder after the FIRST debug group inside
+        /// it. Measured: with all eight dispatches in one command buffer, a
+        /// capture showed 710 encoder intervals all labelled
+        /// "VE.FluidCA.CSClear" and none for CSPromote/CSReact/CSIntent/
+        /// CSCommit/CSSweep -- one encoder covering the whole tick, named after
+        /// the first sample in it.
+        ///
+        /// Setting this executes a command buffer PER DISPATCH, which forces an
+        /// encoder boundary between kernels so each is attributed separately.
+        ///
+        /// IT PERTURBS WHAT IT MEASURES: eight command-buffer submissions per
+        /// tick instead of one adds real per-submission cost. Use the per-kernel
+        /// numbers as a RATIO between kernels, never as an absolute budget.
+        public static bool SplitDispatchEncodersForCapture;
+
+        /// Kernel labels. MUST match the names parsed by tools/parse-gpu-trace.py.
+        private const string LblClear    = "VE.FluidCA.CSClear";
+        private const string LblPromote  = "VE.FluidCA.CSPromote";
+        private const string LblReact    = "VE.FluidCA.CSReact";
+        private const string LblIntent   = "VE.FluidCA.CSIntent";
+        private const string LblCommit   = "VE.FluidCA.CSCommit";
+        private const string LblWakeScan = "VE.FluidCA.CSWakeScan";
+        private const string LblSweep    = "VE.FluidCA.CSSweep";
+        private const string LblFinalize = "VE.FluidCA.CSFinalize";
 
         private readonly uint[] _counterScratch = new uint[4];
 
@@ -9603,6 +9663,7 @@ namespace VoxelEngine.Simulation
                 _opCounters[i] = New(GraphicsBuffer.Target.Structured, 4, 4);
             }
             _wakeRequests = New(GraphicsBuffer.Target.Structured, maxOpsPerFrame, 4);
+            _cb = new CommandBuffer { name = "VE.FluidCA" };
             _wakeScratch = new int[maxOpsPerFrame];
             // MaxWakeDeferTicks: how long a request may wait for its chunk to
             // upload before being released anyway. 120 ticks is far longer than
@@ -9812,14 +9873,16 @@ namespace VoxelEngine.Simulation
 
             BindGlobals(clipmap);
 
-            Dispatch(_kClear, _regionCellCount);
-            if (_wakeCount > 0) { Dispatch(_kPromote, _wakeCount); PromoteDispatchesTotal++; }
-            Dispatch(_kReact, _slotCapacity);
-            Dispatch(_kIntent, _slotCapacity);
-            Dispatch(_kCommit, _regionCellCount);
-            Dispatch(_kWakeScan, _regionCellCount);   // immediate GPU-side wake
-            Dispatch(_kSweep, _slotCapacity);
-            Dispatch(_kFinalize, 1);            // publish the count into ops[0]
+            if (!SplitDispatchEncodersForCapture) _cb.Clear();
+            Dispatch(_kClear, _regionCellCount, LblClear);
+            if (_wakeCount > 0) { Dispatch(_kPromote, _wakeCount, LblPromote); PromoteDispatchesTotal++; }
+            Dispatch(_kReact, _slotCapacity, LblReact);
+            Dispatch(_kIntent, _slotCapacity, LblIntent);
+            Dispatch(_kCommit, _regionCellCount, LblCommit);
+            Dispatch(_kWakeScan, _regionCellCount, LblWakeScan);   // immediate GPU-side wake
+            Dispatch(_kSweep, _slotCapacity, LblSweep);
+            Dispatch(_kFinalize, 1, LblFinalize);   // publish the count into ops[0]
+            if (!SplitDispatchEncodersForCapture) Graphics.ExecuteCommandBuffer(_cb);
 
             _wakeCount = 0;
         }
@@ -9864,10 +9927,22 @@ namespace VoxelEngine.Simulation
             }
         }
 
-        private void Dispatch(int kernel, int threads)
+        private void Dispatch(int kernel, int threads, string label)
         {
             if (threads <= 0) return;
-            _cs.Dispatch(kernel, (threads + 63) / 64, 1, 1);
+            if (SplitDispatchEncodersForCapture)
+            {
+                // One command buffer per dispatch => one encoder per kernel.
+                _cb.Clear();
+                _cb.BeginSample(label);
+                _cb.DispatchCompute(_cs, kernel, (threads + 63) / 64, 1, 1);
+                _cb.EndSample(label);
+                Graphics.ExecuteCommandBuffer(_cb);
+                return;
+            }
+            _cb.BeginSample(label);
+            _cb.DispatchCompute(_cs, kernel, (threads + 63) / 64, 1, 1);
+            _cb.EndSample(label);
         }
 
         // =====================================================================
@@ -9913,6 +9988,7 @@ namespace VoxelEngine.Simulation
         {
             _slots?.Dispose(); _claim?.Dispose(); _slotAt?.Dispose(); _reacted?.Dispose();
             _wakeMark?.Dispose(); _wakeMark = null;
+            _cb?.Dispose(); _cb = null;
             _counters?.Dispose(); _wakeRequests?.Dispose();
             for (int i = 0; i < RING; i++)
             {
@@ -10185,6 +10261,11 @@ namespace VoxelEngine.Simulation
         /// application. Expected to be non-zero in edit scenarios; a large value
         /// in a quiet scenario would mean the CA is deciding against stale state.
         public long StaleOpsDropped { get; private set; }
+        /// Ops refused because a half of the move lay in a chunk that is not
+        /// resident. NOT a mass loss -- the material stays exactly where it was,
+        /// which is the point. A non-zero value here means fluid is live next to
+        /// a streaming edge; see Phase 5d.
+        public long OpsDroppedNonResident { get; private set; }
         public int SkippedIssuesTotal { get; private set; }
 
         /// §7.2 states the readback lag is "typically 1-3 frames". Nothing was
@@ -10326,6 +10407,42 @@ namespace VoxelEngine.Simulation
                     // have landed on either cell since. Applying a stale move
                     // half is how place_block/mine_drop drifted by one drop.
                     // Both halves apply, or neither does.
+                    // RESIDENCY IS PART OF VALIDITY, NOT JUST MATERIAL.
+                    //
+                    // MEASURED BUG (Phase 5d, fixed here): with the CA's region
+                    // straddling a chunk boundary and ONE side evicted, this
+                    // path destroyed mass silently -- 7 water voxels of 52, with
+                    // StaleOpsDropped staying 0 because nothing looked stale.
+                    //
+                    // The mechanism is that ChunkStore.GetVoxel returns Air for
+                    // a NON-RESIDENT chunk, and its own comment says that is
+                    // "DELIBERATELY ambiguous with real air" and that callers
+                    // needing the distinction must ask IsResident/IsInWindow.
+                    // This path never asked. So for an op whose Dst was in an
+                    // evicted chunk:
+                    //     GetVoxel(Dst) == Air == ExpectedAtDst  -> looked valid
+                    //     SetVoxel(Dst, m)                       -> silent no-op
+                    //     SetVoxel(Src, 0)                       -> succeeded
+                    // and the material existed nowhere afterwards. The CA can
+                    // generate exactly that op because SampleVoxel also returns
+                    // AIR outside the window, and AIR reads as "free to move
+                    // into".
+                    //
+                    // BOTH halves are checked, because the mirror case gains
+                    // mass: a non-resident SRC means the vacate is the half that
+                    // silently no-ops while the write lands. This op is
+                    // documented directly above as "both halves apply, or
+                    // neither does", and residency is part of being able to.
+                    //
+                    // This is a GUARD, not §7.4's moving active radius. Fluid
+                    // that cannot move into unloaded space simply stays where it
+                    // is -- which is the behaviour Phase 5d defined as correct
+                    // BEFORE measuring, and what already happens when the whole
+                    // region is evicted.
+                    if (!_store.IsResident(CoordMath.VoxelToChunk(op.Dst)) ||
+                        (op.HasSrc && !_store.IsResident(CoordMath.VoxelToChunk(op.Src))))
+                    { OpsDroppedNonResident++; continue; }
+
                     if (_store.GetVoxel(op.Dst) != op.ExpectedAtDst) { StaleOpsDropped++; continue; }
                     if (op.HasSrc && _store.GetVoxel(op.Src) != op.NewMaterial)
                     { StaleOpsDropped++; continue; }
@@ -22340,6 +22457,45 @@ public static class CommandLineBuild
         DisableAppNap(PLAYGROUND_OUTPUT_PATH);
     }
 
+    private const string PLAYGROUND_TRACE_OUTPUT_PATH = "Builds/PlaygroundTrace.app";
+
+    /// DEVELOPMENT build of the Playground, for GPU capture ONLY.
+    ///
+    /// WHY A SEPARATE, NON-RELEASE BUILD EXISTS AT ALL. Metal debug groups are
+    /// what makes a captured trace show "VE.FluidCA.CSIntent" instead of an
+    /// anonymous compute encoder, and Unity emits them from
+    /// CommandBuffer.BeginSample -- which is a PROFILER marker and is compiled
+    /// out of a non-development player. Measured, not assumed: a release build
+    /// captured with Instruments' Metal System Trace contained zero occurrences
+    /// of any "VE." label anywhere in the trace bundle, and every encoder was
+    /// labelled "Command Buffer 0". BuildOptions.Development is what turns the
+    /// markers back on.
+    ///
+    /// THIS BUILD MUST NEVER BE USED FOR FRAME TIME. It carries development
+    /// overhead by construction. It exists to attribute GPU work BETWEEN
+    /// kernels, which is a ratio, not a budget. ./run-acceptance-rig.sh remains
+    /// the only trusted frame-time source (CLAUDE.md), and it builds release.
+    /// The output path is deliberately different from Builds/Playground.app so
+    /// the two can never be confused.
+    public static void BuildPlaygroundTraceStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PLAYGROUND_SCENE_PATH },
+            locationPathName = PLAYGROUND_TRACE_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            // Development enables profiler markers -> Metal debug groups.
+            // AllowDebugging is NOT set: a script debugger would change timing
+            // far more than the markers do.
+            options = BuildOptions.Development,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] playgroundTrace result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PLAYGROUND_TRACE_OUTPUT_PATH);
+    }
+
     private const string PHASE5BDEMO_SCENE_PATH = "Assets/Scenes/Phase 5b Demo.unity";
     private const string PHASE5BDEMO_OUTPUT_PATH = "Builds/Phase5bDemo.app";
 
@@ -22359,6 +22515,25 @@ public static class CommandLineBuild
                   $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
         if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
         DisableAppNap(PHASE5BDEMO_OUTPUT_PATH);
+    }
+
+    private const string PHASE5D_SCENE_PATH = "Assets/Scenes/Phase 5d Stream Fluid.unity";
+    private const string PHASE5D_OUTPUT_PATH = "Builds/Phase5dStreamFluid.app";
+
+    public static void BuildPhase5dStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE5D_SCENE_PATH },
+            locationPathName = PHASE5D_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase5d result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE5D_OUTPUT_PATH);
     }
 
     private const string PHASE5C_SCENE_PATH = "Assets/Scenes/Phase 5c Edit Stress.unity";
@@ -22972,6 +23147,61 @@ public static class Phase5aSceneBuilder
         bool ok = EditorSceneManager.SaveScene(scene, Phase5bDemoScenePath);
         Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {Phase5bDemoScenePath}"
                      : $"[Phase5aSceneBuilder] FAILED to write {Phase5bDemoScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
+
+    public const string Phase5dScenePath = "Assets/Scenes/Phase 5d Stream Fluid.unity";
+
+    /// Streaming x fluid interaction rig (Phase 5d). DIAGNOSTIC scene: the real
+    /// Phase 4 streaming stack plus a live fluid CA, scripted camera, minimal
+    /// rendering. Unlike every other fluid scene this one has a REAL
+    /// StreamManager with a non-zero load radius, because chunks actually
+    /// streaming in and out is the whole point.
+    [MenuItem("Voxel/Generate Phase 5d Stream+Fluid Scene")]
+    public static void GeneratePhase5d()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.05f, 0.06f, 0.09f, 1f);
+        cam.fieldOfView = 60f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 500f;
+        // The rig drives this camera from a script; the starting pose is
+        // overwritten in Start(). No flycam component: no human input.
+        camGo.transform.position = new Vector3(128f, 14f, 128f);
+
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        // 0 = use the engine default radius. The rig reads the resulting
+        // LoadRadiusChunks back and derives its camera distances from it, so
+        // this scene does not hardcode how far "far" is.
+        SetIfPresent(bo, "_loadRadiusChunks", 0);
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", false);
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var rigGo = new GameObject("Phase5dStreamFluid");
+        var rig = rigGo.AddComponent<Phase5dStreamFluid>();
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+        var ro = new SerializedObject(rig);
+        ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        ro.FindProperty("_slotCapacity").intValue = 65536;
+        ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
+        ro.FindProperty("_outputRootFolderName").stringValue = "Phase5dStreamFluid";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Phase5dScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, Phase5dScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {Phase5dScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {Phase5dScenePath}");
         if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
     }
 
@@ -30549,6 +30779,788 @@ public class Phase5cEditStress : MonoBehaviour
 
 
 // ==========================================
+// FILE: Assets/Game/Phase5dStreamFluid.cs
+// ==========================================
+// ==========================================
+// Assets/Game/Phase5dStreamFluid.cs
+//
+// STREAMING x FLUID INTERACTION RIG. Diagnostic scene, not a demo.
+//
+// =========================================================================
+// THE GAP THIS EXISTS TO CLOSE
+// =========================================================================
+// PHASE_5B_COMPLETION.md §2 lists under "NOT TESTED AT ALL":
+//   "Streaming interaction. The demo and rig use one static chunk. Fluid has
+//    never run while chunks stream in/out."
+// Every fluid rig so far (5a basin, 5b basin, 5c edit stress) builds its own
+// world in one chunk with NO StreamManager. This rig runs the REAL Phase 4
+// streaming stack (Phase4Bootstrapper: StreamManager, admission, eviction,
+// the sliding toroidal window) with live fluid next to it.
+//
+// NOT IN SCOPE, DELIBERATELY: §7.4's moving active radius. The CA's region is
+// fixed and stays fixed. This rig asks what the EXISTING design does when the
+// world moves underneath it -- it does not build the feature that would make
+// the region follow the player.
+//
+// =========================================================================
+// THE PRECEDENT BEING CHECKED FOR (PHASE_3_COMPLETION.md §6.2)
+// =========================================================================
+// "Phantom terrain floating in the sky": ReadClipmap addressed the clipmap
+// toroidally with NO bounds check, so a ray that outran the window's extent
+// wrapped around and struck terrain near the origin. The fix added an XZ
+// bounds check, and the patch flagged that Phase 4 must make it
+// ORIGIN-RELATIVE once StreamManager slides the window.
+//
+// The fluid CA reads the same toroidally-addressed clipmap through
+// SampleVoxel. Whether it inherited the fix or the bug is the central
+// question here, and it is checked per-voxel, not by eye -- see ProbeGpuRead.
+//
+// TIMING: this rig reports NO performance numbers. It is a correctness
+// investigation.
+
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Text;
+using Unity.Mathematics;
+using UnityEngine;
+using VoxelEngine.Memory;
+using VoxelEngine.Simulation;
+using VoxelEngine.Streaming;
+
+public class Phase5dStreamFluid : MonoBehaviour
+{
+    [SerializeField] private ComputeShader _fluidCA;
+    [SerializeField] private int _slotCapacity = 65536;
+    [SerializeField] private int _maxOpsPerFrame = 65536;
+    [SerializeField] private string _outputRootFolderName = "Phase5dStreamFluid";
+
+    // The CA region. 64^3 voxels, half a chunk on each axis (chunk = 128^3),
+    // placed so it sits INSIDE one chunk -- see PickRegion.
+    private const int RX = 64, RY = 32, RZ = 64;
+
+    private FluidGpuSimulation _fluid;
+    private FluidOpListReadback _readback;
+    private EditService _edits;
+    private int3 _regionOrigin;
+    private long _applied;
+
+    private readonly StringBuilder _log = new StringBuilder();
+    private int _pass, _fail;
+    private string _phase = "-";
+
+    private static ChunkStore Store => Phase4Bootstrapper.Store;
+    private static TerrainClipmap Clip => Phase4Bootstrapper.Clipmap;
+    private static StreamManager Streamer => Phase4Bootstrapper.Streamer;
+
+    private void L(string s) { _log.AppendLine(s); Debug.Log("[5d] " + s); }
+    private void Note(string s) => L("    note  " + s);
+    private void Pass(string s) { _pass++; L("    PASS  " + s); }
+    private void Fail(string s) { _fail++; L($"    FAIL  {s}   [{_phase}]"); }
+    private void Check(bool ok, string s) { if (ok) Pass(s); else Fail(s); }
+
+    // =====================================================================
+    // Geometry helpers
+    // =====================================================================
+
+    private static int3 ChunkOriginVoxel(int3 c) => c * EngineConfig.CHUNK_EDGE_VOXELS;
+
+    /// Every chunk the CA region touches.
+    private List<int3> RegionChunks()
+    {
+        var set = new HashSet<int3>();
+        int3 lo = _regionOrigin, hi = _regionOrigin + new int3(RX - 1, RY - 1, RZ - 1);
+        for (int z = lo.z; z <= hi.z; z += 1)
+        for (int x = lo.x; x <= hi.x; x += 1)
+            set.Add(CoordMath.VoxelToChunk(new int3(x, lo.y, z)));
+        return new List<int3>(set);
+    }
+
+    private int CountMobileInRegion()
+    {
+        int n = 0;
+        for (int y = 0; y < RY; y++)
+        for (int z = 0; z < RZ; z++)
+        for (int x = 0; x < RX; x++)
+            if (MaterialRules.IsMobile(Store.GetVoxel(_regionOrigin + new int3(x, y, z)))) n++;
+        return n;
+    }
+
+    private int CountMaterialInRegion(byte m)
+    {
+        int n = 0;
+        for (int y = 0; y < RY; y++)
+        for (int z = 0; z < RZ; z++)
+        for (int x = 0; x < RX; x++)
+            if (Store.GetVoxel(_regionOrigin + new int3(x, y, z)) == m) n++;
+        return n;
+    }
+
+    // =====================================================================
+    // Window-relative telemetry (QUEUE STEP 2)
+    // =====================================================================
+
+    private struct WindowState
+    {
+        public int3 originChunks, originBricks, dimsBricks;
+        public int inWindow, resident, total;
+        public bool allInWindow, allResident;
+    }
+
+    private WindowState Sample()
+    {
+        var w = new WindowState
+        {
+            originBricks = Clip.WindowOriginBricks,
+            dimsBricks = Clip.WindowDimsBricks,
+        };
+        var chunks = RegionChunks();
+        w.total = chunks.Count;
+        foreach (int3 c in chunks)
+        {
+            if (Store.IsInWindow(c)) w.inWindow++;
+            if (Store.IsResident(c)) w.resident++;
+        }
+        w.allInWindow = w.inWindow == w.total;
+        w.allResident = w.resident == w.total;
+        return w;
+    }
+
+    private string Describe(WindowState w, Vector3 camPos)
+    {
+        int3 camChunk = CoordMath.VoxelToChunk(CoordMath.WorldToVoxel(
+            new float3(camPos.x, camPos.y, camPos.z)));
+        return $"cam {camPos.x,7:F1},{camPos.z,7:F1} chunk {camChunk.x},{camChunk.z}  " +
+               $"windowOriginBricks {w.originBricks.x},{w.originBricks.z}  " +
+               $"regionChunks inWindow {w.inWindow}/{w.total} resident {w.resident}/{w.total}";
+    }
+
+    // =====================================================================
+    // THE PER-VOXEL GPU/CPU ORACLE
+    // =====================================================================
+    //
+    // FluidCA.compute's CSPromote writes, from thread 0, BEFORE any early-out:
+    //     DebugCounters[17] = SampleVoxel(RegionVoxel(WakeRequests[0]));
+    // i.e. "what terrain the GPU actually reads at the first wake request".
+    // Issuing exactly ONE wake request for a probe voxel and reading slot 17
+    // back therefore answers, per voxel, what the GPU sees THROUGH THE
+    // TOROIDAL CLIPMAP -- which is exactly the read path §6.2's phantom
+    // terrain came from. Comparing it against ChunkStore.GetVoxel is the
+    // per-voxel aliasing test, not an eyeball.
+    //
+    // Returns false if the request never reached the GPU (the wake queue defers
+    // until the mirror has the chunk), because a stale slot 17 would be a
+    // false reading -- the same class of mistake as reporting on a stale build.
+    private bool ProbeGpuRead(int3 worldVoxel, out uint gpuMaterial, out byte cpuMaterial)
+    {
+        gpuMaterial = 0xFFFFFFFF;
+        cpuMaterial = Store.GetVoxel(worldVoxel);
+
+        _fluid.ClearWakeRequests();
+        _fluid.RequestWake(worldVoxel);
+        for (int attempt = 0; attempt < 240; attempt++)
+        {
+            Clip.UploadDirty(Store, Phase4Bootstrapper.Pool);
+            _fluid.Tick(Clip);
+            if (_fluid.LastDispatchedWakeCount > 0)
+            {
+                uint[] dbg = _fluid.ReadDebugCountersBlocking();
+                gpuMaterial = dbg[17];
+                cpuMaterial = Store.GetVoxel(worldVoxel);
+                return true;
+            }
+            _fluid.RequestWake(worldVoxel);
+        }
+        return false;
+    }
+
+    // =====================================================================
+    // Setup
+    // =====================================================================
+
+    /// Puts the CA region inside ONE chunk, on the island, at a place the
+    /// camera can then walk away from. One chunk on purpose: it makes
+    /// "the region's backing chunk was evicted" a single, unambiguous event.
+    private void PickRegion(out Vector3 camStart)
+    {
+        Vector3 spawn = Phase4Bootstrapper.DeriveIslandSpawn(1);
+        int3 spawnVoxel = CoordMath.WorldToVoxel(new float3(spawn.x, spawn.y, spawn.z));
+        int3 chunk = CoordMath.VoxelToChunk(spawnVoxel);
+        int3 corg = ChunkOriginVoxel(chunk);
+
+        // Sit the region in the chunk's lower-middle: origin + 32, so a 64-wide
+        // region spans voxels 32..95 of a 128-wide chunk and cannot straddle a
+        // chunk boundary. Straddling is a DIFFERENT test and is called out in
+        // the report rather than silently mixed in here.
+        //
+        // Y IS RESOLVED LATER, AGAINST THE ACTUAL TERRAIN (ResolveRegionY).
+        // The first version hardcoded y=1, which on this island is ~100 voxels
+        // UNDERGROUND: the whole region sat inside solid rock, nothing could be
+        // poured, and every conservation check passed 0-against-0. A rig that
+        // asserts nothing and looks green is the failure mode this project has
+        // hit before, so the pour now fails loudly instead (see Step3).
+        _regionOrigin = new int3(corg.x + 32, 1, corg.z + 32);
+        camStart = new Vector3((_regionOrigin.x + RX / 2) * 0.1f,
+                               12f,
+                               (_regionOrigin.z + RZ / 2) * 0.1f - 4f);
+    }
+
+    /// Puts the region's base just above the terrain surface at its centre
+    /// column, so the CA has open air to work in and real ground to land on.
+    private bool ResolveRegionY()
+    {
+        int3 c = new int3(_regionOrigin.x + RX / 2, 0, _regionOrigin.z + RZ / 2);
+        for (int y = WorldGenConstants.MAX_TERRAIN_HEIGHT + 2; y >= 1; y--)
+            if (Store.GetVoxel(new int3(c.x, y, c.z)) != Materials.Air)
+            {
+                _regionOrigin.y = y + 1;
+                return true;
+            }
+        return false;
+    }
+
+    private void CreateFluid()
+    {
+        _edits = new EditService();
+        _fluid = new FluidGpuSimulation(_fluidCA, new int3(RX, RY, RZ), _slotCapacity, _maxOpsPerFrame)
+        {
+            RegionOriginVoxels = _regionOrigin,
+            PlayerVoxel = _regionOrigin + new int3(RX / 2, RY / 2, RZ / 2),
+            ActiveRadiusVoxels = EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS,
+        };
+        _readback = new FluidOpListReadback(_fluid, Store)
+        {
+            OnVoxelApplied = v => { Clip.MarkDirty(CoordMath.VoxelToChunk(v)); _applied++; },
+        };
+        _edits.AttachFluidSimulation(_fluid, Store);
+    }
+
+    private void Edit(int3 v, byte m)
+    {
+        Store.SetVoxel(v, m);
+        Clip.MarkDirty(CoordMath.VoxelToChunk(v));
+        _edits.NotifyEdited(v);
+    }
+
+    /// One CA tick in the SHIPPING frame order (tick, then upload) -- the
+    /// ordering Phase 5c established every real scene uses.
+    private void FluidTick()
+    {
+        _fluid.Tick(Clip);
+        _readback.IssueReadback(0);
+        _readback.DrainBlocking();
+        Clip.UploadDirty(Store, Phase4Bootstrapper.Pool);
+    }
+
+    private int Settle(int quiet = 20, int max = 900)
+    {
+        int still = 0, t = 0; long last = _applied;
+        for (; t < max; t++)
+        {
+            FluidTick();
+            bool q = _applied == last && _fluid.DeferredWakeRequests == 0;
+            if (q) still++; else { still = 0; last = _applied; }
+            if (still >= quiet) break;
+        }
+        return t;
+    }
+
+    /// Drops a column of fluid into the region's middle, above the terrain.
+    private int PourInto(byte material, int count)
+    {
+        int placed = 0;
+        int3 src = _regionOrigin + new int3(RX / 2, RY - 3, RZ / 2);
+        for (int i = 0; i < 2000 && placed < count; i++)
+        {
+            if (Store.GetVoxel(src) == Materials.Air) { Edit(src, material); placed++; }
+            FluidTick();
+        }
+        return placed;
+    }
+
+    // =====================================================================
+    // Driver
+    // =====================================================================
+
+    void Start() => StartCoroutine(Run());
+
+    private IEnumerator Run()
+    {
+        while (Store == null || Streamer == null) yield return null;
+        for (int i = 0; i < 240; i++) yield return null;   // let the initial window settle
+
+        var cam = Camera.main;
+        PickRegion(out Vector3 camStart);
+        if (cam != null) cam.transform.position = camStart;
+        yield return null;
+        for (int i = 0; i < 180; i++) yield return null;   // let the region's chunk stream in
+
+        // Y must be resolved AFTER the chunk is resident -- GetVoxel on a
+        // non-resident chunk returns Air, which would put the region back
+        // underground for the same reason as before, just less obviously.
+        if (!ResolveRegionY())
+        {
+            L("FATAL: no terrain surface found at the region column; cannot place the region.");
+            _fail++;
+        }
+        camStart = new Vector3(camStart.x, (_regionOrigin.y + 20) * 0.1f, camStart.z);
+        if (cam != null) cam.transform.position = camStart;
+        for (int i = 0; i < 60; i++) yield return null;
+
+        CreateFluid();
+
+        L("=== PHASE 5D: STREAMING x FLUID INTERACTION ===");
+        L(DateTime.Now.ToString("u", CultureInfo.InvariantCulture));
+        L("");
+        L("Real Phase 4 streaming (StreamManager, admission, eviction, sliding");
+        L("toroidal window) with a LIVE fluid CA region beside it. The CA's region");
+        L("is FIXED -- §7.4's moving active radius is not built and is not built here.");
+        L("NO performance numbers are produced. This is a correctness investigation.");
+        L("");
+        L($"region origin voxels {_regionOrigin}  dims {RX}x{RY}x{RZ}");
+        L($"region chunks: {string.Join(", ", RegionChunks().ConvertAll(c => c.ToString()))}");
+        L($"load radius chunks: {Streamer.LoadRadiusChunks}   chunk edge voxels: {EngineConfig.CHUNK_EDGE_VOXELS}");
+        L($"FLUID_ACTIVE_RADIUS_VOXELS: {EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS}");
+        L("");
+
+        yield return Step2_Characterize(cam, camStart);
+        yield return Step3_Eviction(cam, camStart);
+        yield return Step4_WindowSlide(cam, camStart);
+        yield return Step5_Straddle(cam, camStart);
+        yield return Step7_Honey(cam, camStart);
+
+        string dir = Path.Combine(Application.persistentDataPath, _outputRootFolderName,
+                                  DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture));
+        Directory.CreateDirectory(dir);
+        _log.AppendLine();
+        _log.AppendLine($"PASS {_pass}  FAIL {_fail}");
+        _log.AppendLine(_fail == 0 ? "RESULT: PASSED" : "RESULT: FAILED");
+        File.WriteAllText(Path.Combine(dir, "phase5d_report.txt"), _log.ToString());
+        Debug.Log("[5d] report -> " + dir);
+        yield return null;
+        Application.Quit(_fail == 0 ? 0 : 1);
+    }
+
+    /// Moves the camera CONTINUOUSLY to a world position, then holds.
+    ///
+    /// NOT A TELEPORT, and that is a finding in itself. The first version of
+    /// this rig set transform.position directly, jumping ~17 chunks in one
+    /// frame. StreamManager then tried to admit the new neighbourhood before
+    /// the old one had been evicted, the resident set spanned more than the
+    /// 32-chunk window, and ChunkStore's own guard fired repeatedly:
+    ///
+    ///   InvalidOperationException: [ChunkStore] Insert of chunk (119,0,100)
+    ///   would overwrite live chunk (87,0,100) in ring slot 2071
+    ///
+    /// 119 - 87 = 32 = exactly the window width, i.e. two chunks aliasing to
+    /// one ring slot. THE GUARD DID ITS JOB -- it refused the insert and named
+    /// the cause instead of corrupting the ring, which is the §4.5 invariant
+    /// holding. But a teleport is not how a camera moves, so driving streaming
+    /// that way tests the guard, not the fluid. Stepping at 0.5 m/frame (~30
+    /// m/s at 60 fps, well under a 12.8 m chunk per frame) keeps the resident
+    /// set inside the window and lets the eviction path actually run.
+    private IEnumerator MoveCam(Camera cam, Vector3 pos, int frames)
+    {
+        const float stepM = 0.5f;
+        if (cam != null)
+        {
+            Vector3 from = cam.transform.position;
+            float dist = Vector3.Distance(from, pos);
+            int steps = Mathf.Max(1, Mathf.CeilToInt(dist / stepM));
+            for (int i = 1; i <= steps; i++)
+            {
+                cam.transform.position = Vector3.Lerp(from, pos, (float)i / steps);
+                yield return null;
+            }
+        }
+        for (int i = 0; i < frames; i++) yield return null;
+    }
+
+    // =====================================================================
+    // QUEUE STEP 2 -- characterize the window-relative position FIRST
+    // =====================================================================
+    // Is the CA's fixed region inside the streaming window under normal camera
+    // movement, or has it only ever been safe because every scene so far kept
+    // the camera on top of it? That decides whether steps 3 and 4 are testing
+    // an edge case or the common case.
+    private IEnumerator Step2_Characterize(Camera cam, Vector3 camStart)
+    {
+        _phase = "step2-characterize";
+        L("---------------------------------------------------------------");
+        L("STEP 2 -- WINDOW-RELATIVE POSITION OF THE FIXED CA REGION");
+        L("---------------------------------------------------------------");
+
+        float chunkM = EngineConfig.CHUNK_EDGE_VOXELS * 0.1f;
+        int firstOutOfWindow = -1, firstNotResident = -1;
+
+        for (int step = 0; step <= 12; step++)
+        {
+            Vector3 p = camStart + new Vector3(step * chunkM, 0f, 0f);
+            yield return MoveCam(cam, p, 40);
+            var w = Sample();
+            L($"  +{step,2} chunks ({step * chunkM,6:F1} m)  {Describe(w, p)}");
+            if (!w.allInWindow && firstOutOfWindow < 0) firstOutOfWindow = step;
+            if (!w.allResident && firstNotResident < 0) firstNotResident = step;
+        }
+
+        L("");
+        Note(firstOutOfWindow < 0
+            ? "region stayed INSIDE the window for the whole 12-chunk walk"
+            : $"region left the window at +{firstOutOfWindow} chunks ({firstOutOfWindow * chunkM:F0} m)");
+        Note(firstNotResident < 0
+            ? "region chunks stayed RESIDENT for the whole walk"
+            : $"region chunks stopped being resident at +{firstNotResident} chunks ({firstNotResident * chunkM:F0} m)");
+        // Stated from the measurement, not from the constant. An earlier draft
+        // of this line asserted the region is left behind "almost immediately",
+        // which the walk above refutes: it survived the full 12 chunks.
+        Note($"load radius is {Streamer.LoadRadiusChunks} chunks " +
+             $"(~{Streamer.LoadRadiusChunks * EngineConfig.CHUNK_EDGE_VOXELS * 0.1f:F0} m), and the walk above " +
+             "shows the region stays in-window well past 150 m. So this is NOT a " +
+             "hair-trigger condition.");
+        Note("It is still the COMMON case over a whole session: sizeClass 1's island is " +
+             "~1909 m across (AMENDMENT_8_11), so any real traversal leaves a fixed " +
+             "region behind many times over. Steps 3 and 4 test normal play, not a corner.");
+
+        yield return MoveCam(cam, camStart, 90);
+    }
+
+    // =====================================================================
+    // QUEUE STEP 3 -- THE EVICTION TEST
+    // =====================================================================
+    private IEnumerator Step3_Eviction(Camera cam, Vector3 camStart)
+    {
+        _phase = "step3-eviction";
+        L("");
+        L("---------------------------------------------------------------");
+        L("STEP 3 -- EVICTION: what happens to live fluid when its chunk goes");
+        L("---------------------------------------------------------------");
+        L("DEFINED BEFORE MEASURING (the queue's instruction): fluid whose backing");
+        L("chunk is no longer resident SHOULD freeze/deactivate cleanly. It must");
+        L("NOT: vanish from the CPU state, be double-counted on return, or let a");
+        L("later chunk in the same physical slot be misread as fluid.");
+        L("");
+
+        int poured = PourInto(Materials.Water, 40);
+        Settle();
+        int before = CountMaterialInRegion(Materials.Water);
+        // VACUOUS-TEST GUARD. Everything below compares counts; if nothing was
+        // poured, all of it passes 0-against-0 and proves nothing. The first
+        // run of this rig did exactly that.
+        Check(poured > 0, $"the pour actually placed fluid ({poured}) -- otherwise every check below is vacuous");
+        var w0 = Sample();
+        L($"  poured {poured}, settled water in region = {before}, {Describe(w0, camStart)}");
+        Check(before == poured, $"all poured water present before eviction ({before}/{poured})");
+
+        // Probe the GPU's own read of a known fluid voxel while everything is resident.
+        int3 probe = FindFirst(Materials.Water);
+        if (probe.x >= 0 && ProbeGpuRead(probe, out uint g0, out byte c0))
+            Check(g0 == c0, $"baseline: GPU and CPU agree at {probe} (gpu {g0} cpu {c0})");
+        else
+            Note("baseline probe did not reach the GPU; skipped");
+
+        // Walk far enough to evict, THEN keep ticking the CA -- the whole point
+        // is that the CA is still live while its world is gone.
+        float chunkM = EngineConfig.CHUNK_EDGE_VOXELS * 0.1f;
+        Vector3 far = camStart + new Vector3((Streamer.LoadRadiusChunks + 4) * chunkM, 0f, 0f);
+        yield return MoveCam(cam, far, 240);
+        var w1 = Sample();
+        L($"  after moving away: {Describe(w1, far)}");
+        Note($"evicted total so far: {Streamer.ChunksEvictedTotal}");
+
+        if (w1.resident > 0)
+        {
+            Note("region chunks are STILL RESIDENT at this distance -- eviction did not");
+            Note("happen, so the eviction test below is vacuous. Reported, not hidden.");
+        }
+
+        long appliedBefore = _applied;
+        for (int i = 0; i < 120; i++) FluidTick();
+        int during = CountMaterialInRegion(Materials.Water);
+        L($"  CA ticked 120x with region evicted={!w1.allResident}: water in region = {during}, " +
+          $"ops applied during = {_applied - appliedBefore}");
+
+        // The dangerous read: does the GPU see this voxel as something else now?
+        if (probe.x >= 0 && ProbeGpuRead(probe, out uint g1, out byte c1))
+        {
+            L($"  probe at {probe}: GPU reads {g1}, CPU reads {c1}");
+            Check(g1 == c1 || g1 == 0,
+                "GPU read of an evicted cell is either AIR or agrees with the CPU " +
+                "(anything else is the §6.2 aliasing class)");
+        }
+
+        // Back into range.
+        yield return MoveCam(cam, camStart, 300);
+        Settle();
+        var w2 = Sample();
+        int after = CountMaterialInRegion(Materials.Water);
+        L($"  after returning: {Describe(w2, camStart)}  water in region = {after}");
+        Check(after <= poured, $"no water was CREATED by the round trip ({after} <= {poured})");
+        Check(after == before,
+            $"water conserved across evict+return ({after} vs {before} before)");
+        Note($"stale ops dropped by the readback ledger: {_readback.StaleOpsDropped}");
+    }
+
+    private int3 FindFirst(byte m)
+    {
+        for (int y = 0; y < RY; y++)
+        for (int z = 0; z < RZ; z++)
+        for (int x = 0; x < RX; x++)
+        {
+            int3 v = _regionOrigin + new int3(x, y, z);
+            if (Store.GetVoxel(v) == m) return v;
+        }
+        return new int3(-1, -1, -1);
+    }
+
+    // =====================================================================
+    // QUEUE STEP 4 -- THE WINDOW-SLIDE TEST (the §6.2 precedent)
+    // =====================================================================
+    private IEnumerator Step4_WindowSlide(Camera cam, Vector3 camStart)
+    {
+        _phase = "step4-window-slide";
+        L("");
+        L("---------------------------------------------------------------");
+        L("STEP 4 -- WINDOW SLIDE: per-voxel aliasing check (PHASE_3 §6.2)");
+        L("---------------------------------------------------------------");
+        L("Slides the toroidal window origin itself and asks, PER VOXEL, whether");
+        L("the GPU's clipmap read still resolves to the same world location the");
+        L("CPU does. This is the read path the phantom-terrain bug came from.");
+        L("");
+
+        // Build a known, distinctive pattern the CA will not touch: Stone is not
+        // mobile, so any change to these cells is the world lying, not physics.
+        var probes = new List<int3>();
+        var expect = new List<byte>();
+        byte[] pattern = { Materials.Stone, Materials.Sandstone, Materials.Deepstone, Materials.MossyStone };
+        for (int i = 0; i < 16; i++)
+        {
+            int3 v = _regionOrigin + new int3(2 + (i * 3) % (RX - 4), 4 + (i % 5), 2 + (i * 7) % (RZ - 4));
+            byte m = pattern[i % pattern.Length];
+            Edit(v, m);
+            probes.Add(v);
+            expect.Add(m);
+        }
+        Clip.UploadDirty(Store, Phase4Bootstrapper.Pool);
+        for (int i = 0; i < 10; i++) FluidTick();
+
+        int3 originBefore = Clip.WindowOriginBricks;
+        int agreeBefore = 0;
+        for (int i = 0; i < probes.Count; i++)
+            if (ProbeGpuRead(probes[i], out uint g, out byte c) && g == c && c == expect[i]) agreeBefore++;
+        L($"  before slide: window origin bricks {originBefore}, {agreeBefore}/{probes.Count} probes agree GPU==CPU==expected");
+        Check(agreeBefore == probes.Count, "all probes agree BEFORE the window slides");
+
+        // Slide the window: move far enough that the origin must change, then
+        // come back so the probes are in-window again and can be re-read.
+        float chunkM = EngineConfig.CHUNK_EDGE_VOXELS * 0.1f;
+        yield return MoveCam(cam, camStart + new Vector3(6 * chunkM, 0f, 3 * chunkM), 240);
+        int3 originMid = Clip.WindowOriginBricks;
+        yield return MoveCam(cam, camStart + new Vector3(-3 * chunkM, 0f, -5 * chunkM), 240);
+        int3 originMid2 = Clip.WindowOriginBricks;
+        yield return MoveCam(cam, camStart, 300);
+        int3 originAfter = Clip.WindowOriginBricks;
+
+        L($"  window origin bricks: start {originBefore} -> {originMid} -> {originMid2} -> back {originAfter}");
+        Check(!originBefore.Equals(originMid) || !originBefore.Equals(originMid2),
+            "the window origin actually MOVED (otherwise this test proves nothing)");
+
+        int agreeAfter = 0, mismatched = 0;
+        for (int i = 0; i < probes.Count; i++)
+        {
+            if (!ProbeGpuRead(probes[i], out uint g, out byte c)) { Note($"probe {probes[i]} never reached the GPU"); continue; }
+            if (g == c) agreeAfter++;
+            else { mismatched++; if (mismatched <= 5) L($"    MISMATCH at {probes[i]}: GPU {g}, CPU {c}, expected {expect[i]}"); }
+        }
+        L($"  after slide: {agreeAfter}/{probes.Count} probes agree GPU==CPU, {mismatched} mismatched");
+        Check(mismatched == 0, "NO probe aliases to a different material after the window slid (§6.2 class)");
+
+        int stillRight = 0;
+        for (int i = 0; i < probes.Count; i++) if (Store.GetVoxel(probes[i]) == expect[i]) stillRight++;
+        Check(stillRight == probes.Count,
+            $"CPU state itself is unchanged by streaming ({stillRight}/{probes.Count})");
+    }
+
+    // =====================================================================
+    // STEP 5 -- THE STRADDLE CASE (predicted by reading, tested here)
+    // =====================================================================
+    // Steps 3 and 4 put the region INSIDE one chunk, so "evicted" was all or
+    // nothing. Reading the apply path suggests the dangerous case is PARTIAL:
+    //
+    //   FluidOpListReadback.Apply:
+    //     if (_store.GetVoxel(op.Dst) != op.ExpectedAtDst) { drop; }   // (1)
+    //     _store.SetVoxel(op.Dst, op.NewMaterial);                     // (2)
+    //     if (op.HasSrc) _store.SetVoxel(op.Src, 0);                   // (3)
+    //
+    //   ChunkStore.GetVoxel on a NON-RESIDENT chunk returns Air, and its own
+    //   comment says that is "DELIBERATELY ambiguous with real air" and that
+    //   callers needing the distinction must ask IsResident/IsInWindow.
+    //   ChunkStore.SetVoxel on a non-resident chunk silently returns.
+    //
+    // So if Dst is in an evicted chunk and Src is not: (1) passes because Air
+    // is what an empty destination looks like, (2) silently does nothing, and
+    // (3) succeeds -- the source is cleared and the material is never written
+    // anywhere. That is SILENT MASS LOSS, and the apply path asks neither
+    // IsResident nor IsInWindow.
+    //
+    // The CA can generate exactly that op, because SampleVoxel returns AIR for
+    // out-of-window cells and AIR reads as "free to move into".
+    //
+    // This step re-homes the region ACROSS a chunk boundary and walks the
+    // camera until exactly one of its two chunks is resident, which is the
+    // only state in which the above can fire.
+    private IEnumerator Step5_Straddle(Camera cam, Vector3 camStart)
+    {
+        _phase = "step5-straddle";
+        L("");
+        L("---------------------------------------------------------------");
+        L("STEP 5 -- REGION STRADDLING A CHUNK BOUNDARY, ONE SIDE EVICTED");
+        L("---------------------------------------------------------------");
+
+        // Re-home the CA across the boundary at chunk-local x = 128.
+        _readback?.Dispose(); _fluid?.Dispose();
+        int3 c = CoordMath.VoxelToChunk(_regionOrigin);
+        int3 corg = ChunkOriginVoxel(c);
+        _regionOrigin = new int3(corg.x + 128 - RX / 2, _regionOrigin.y, corg.z + 32);
+        CreateFluid();
+
+        var chunks = RegionChunks();
+        L($"  region re-homed to {_regionOrigin}, spanning {chunks.Count} chunks: " +
+          string.Join(", ", chunks.ConvertAll(k => k.ToString())));
+        Check(chunks.Count >= 2, "the region really does straddle a chunk boundary");
+
+        int poured = PourInto(Materials.Water, 40);
+        Settle();
+        int before = CountMaterialInRegion(Materials.Water);
+        Check(poured > 0, $"the straddle pour placed fluid ({poured})");
+        L($"  poured {poured}, settled = {before}");
+
+        // Walk out one chunk at a time, looking for PARTIAL residency.
+        float chunkM = EngineConfig.CHUNK_EDGE_VOXELS * 0.1f;
+        bool sawPartial = false;
+        int atStep = -1;
+        for (int step = 10; step <= 22 && !sawPartial; step++)
+        {
+            yield return MoveCam(cam, camStart + new Vector3(step * chunkM, 0f, 0f), 60);
+            var w = Sample();
+            L($"  +{step,2} chunks: resident {w.resident}/{w.total} inWindow {w.inWindow}/{w.total}");
+            if (w.resident > 0 && w.resident < w.total) { sawPartial = true; atStep = step; }
+        }
+
+        if (!sawPartial)
+        {
+            Note("NEVER reached a partial-residency state: the region's chunks always");
+            Note("evicted together. The predicted mass-loss path needs one side resident");
+            Note("and the other not, so it was NOT exercised. Reported, not assumed safe.");
+            yield return MoveCam(cam, camStart, 240);
+            Settle();
+            int back = CountMaterialInRegion(Materials.Water);
+            Check(back == before, $"water still conserved across the walk ({back} vs {before})");
+            yield break;
+        }
+
+        L($"  PARTIAL RESIDENCY reached at +{atStep} chunks -- this is the state the");
+        L("  predicted mass-loss path needs.");
+
+        // The fluid poured earlier has SETTLED, so it is asleep and nothing
+        // moves -- a first version of this step ticked 300 times here, applied
+        // ZERO ops, and "passed" without exercising the path at all. Fresh
+        // fluid is injected on the RESIDENT side, right next to the boundary,
+        // so it is actively moving toward the evicted chunk while the edge
+        // exists. That is the only configuration in which Apply can be handed
+        // a Dst in a non-resident chunk.
+        int3 evicted = int3.zero; bool haveEvicted = false;
+        foreach (int3 k in chunks) if (!Store.IsResident(k)) { evicted = k; haveEvicted = true; }
+        L($"  evicted chunk: {(haveEvicted ? evicted.ToString() : "none")}");
+
+        int injected = 0;
+        int boundaryX = ChunkOriginVoxel(evicted).x + EngineConfig.CHUNK_EDGE_VOXELS;
+        for (int i = 0; i < 12; i++)
+        {
+            // Just inside the RESIDENT chunk, a few voxels up so it falls and
+            // spreads -- toward the evicted side among other directions.
+            int3 v = new int3(boundaryX + 1 + (i % 3), _regionOrigin.y + 6 + (i / 3), _regionOrigin.z + RZ / 2);
+            if (Store.GetVoxel(v) == Materials.Air) { Edit(v, Materials.Water); injected++; }
+        }
+        int expected = before + injected;
+        L($"  injected {injected} water at the resident side of x={boundaryX}; expected total {expected}");
+
+        long appliedBefore = _applied;
+        for (int i = 0; i < 400; i++) FluidTick();
+        long opsDuring = _applied - appliedBefore;
+        L($"  ops applied while partially resident: {opsDuring}");
+        Check(opsDuring > 0,
+            "the CA actually MOVED fluid while a residency edge cut the region " +
+            "(otherwise the mass-loss path is untested, not proven safe)");
+
+        yield return MoveCam(cam, camStart, 300);
+        Settle();
+        int after = CountMaterialInRegion(Materials.Water);
+        L($"  after returning: water = {after} (expected {expected}, was {before} before injection)");
+        Check(after == expected,
+            $"NO MASS LOST OR GAINED across a residency edge ({after} vs expected {expected})");
+        Note($"stale ops dropped by the ledger overall: {_readback.StaleOpsDropped}");
+        Note($"ops refused for a NON-RESIDENT half: {_readback.OpsDroppedNonResident} " +
+             "-- these are the ops that used to destroy mass silently; a non-zero " +
+             "count here is the guard working, not a fault.");
+        Check(_readback.OpsDroppedNonResident > 0,
+            "the residency guard actually fired (if 0, the edge was never crossed " +
+            "and the conservation result above is untested, not proven)");
+    }
+
+    // =====================================================================
+    // QUEUE STEP 7 -- HONEY ON THE GPU PATH
+    // =====================================================================
+    private IEnumerator Step7_Honey(Camera cam, Vector3 camStart)
+    {
+        _phase = "step7-honey";
+        L("");
+        L("---------------------------------------------------------------");
+        L("STEP 7 -- HONEY THROUGH THE REAL GPU CA (never poured on GPU before)");
+        L("---------------------------------------------------------------");
+        yield return MoveCam(cam, camStart, 60);
+
+        int before = CountMaterialInRegion(Materials.Honey);
+        int poured = PourInto(Materials.Honey, 12);
+        Check(poured > 0, $"honey pour actually placed fluid ({poured})");
+        long tickStart = _applied;
+
+        // Interval 30: honey must still be MOVING long after a fast fluid would
+        // have finished. Sampled, not assumed.
+        int movedEarly = 0;
+        for (int i = 0; i < 60; i++) { long a = _applied; FluidTick(); if (_applied != a) movedEarly++; }
+        int settleTicks = Settle(30, 3000);
+
+        int after = CountMaterialInRegion(Materials.Honey);
+        L($"  poured {poured}, settled after {settleTicks} further ticks, honey in region = {after}");
+        L($"  ops applied for honey: {_applied - tickStart}; ticks with movement in the first 60: {movedEarly}");
+        Check(after == before + poured, $"honey conserved on the GPU path ({after} = {before} + {poured})");
+        Check(_applied - tickStart > 0, "honey actually MOVED on the GPU (not inert)");
+
+        int floating = 0;
+        for (int y = 1; y < RY; y++)
+        for (int z = 0; z < RZ; z++)
+        for (int x = 0; x < RX; x++)
+        {
+            int3 v = _regionOrigin + new int3(x, y, z);
+            if (Store.GetVoxel(v) != Materials.Honey) continue;
+            if (Store.GetVoxel(v - new int3(0, 1, 0)) == Materials.Air) floating++;
+        }
+        Check(floating == 0, $"no honey left floating ({floating})");
+        Note($"MaterialRules.TickInterval(Honey) = {MaterialRules.TickInterval(Materials.Honey)} " +
+             "-- viscosity is REPORTED here, not asserted as a rate: this rig makes no timing claim.");
+    }
+
+    void OnDestroy()
+    {
+        _readback?.Dispose();
+        _fluid?.Dispose();
+    }
+}
+
+
+// ==========================================
 // FILE: Assets/Game/Playground.cs
 // ==========================================
 // ==========================================
@@ -31128,6 +32140,8 @@ public class Playground : MonoBehaviour
 // nothing it produces is evidence about correctness, scale, or performance.
 using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using Unity.Mathematics;
@@ -31140,6 +32154,147 @@ public class PlaygroundCapture : MonoBehaviour
     private string _folder;
     private int _shots;
 
+    /// -gputrace: put the CA under REAL, SUSTAINED load and then stay running,
+    /// so an external profiler (Instruments "Metal System Trace", driven by
+    /// tools/capture-gpu-trace.sh) records a window with all three fluids
+    /// active. Same gate condition the screenshot pass uses --
+    /// DebugOpenAllVents -- so what is measured is what was looked at.
+    ///
+    /// THIS MODE NEVER QUITS. xctrace's --time-limit ends the process. If you
+    /// run the build with -gputrace by hand, you have to kill it yourself.
+    ///
+    /// It captures NOTHING itself and reports NO numbers: all timing comes from
+    /// the trace. Nothing in this file is a measurement.
+    private IEnumerator GpuTraceLoad()
+    {
+        // Force one encoder per kernel so a capture can tell them apart. This
+        // PERTURBS timing (8 command-buffer submissions per tick instead of 1)
+        // and is why -gputrace numbers are ratios between kernels, never a
+        // budget. See FluidGpuSimulation.SplitDispatchEncodersForCapture.
+        VoxelEngine.Simulation.FluidGpuSimulation.SplitDispatchEncodersForCapture = true;
+
+        var pg = FindAnyObjectByType<Playground>();
+        while (Phase4Bootstrapper.Store == null) yield return null;
+        // Let streaming settle first, so the recorded window is fluid + raymarch
+        // work and not a window fill.
+        for (int i = 0; i < 240; i++) yield return null;
+
+        if (pg != null)
+        {
+            pg.SendMessage("TeleportToArena", SendMessageOptions.DontRequireReceiver);
+            yield return null;
+        }
+
+        Debug.Log("[PlaygroundCapture] -gputrace: arena primed, vents cycling, running until killed.");
+
+        // Vent budgets are finite (water 160 / sand 90 / lava 60) and would
+        // drain and settle partway through a 15 s window, leaving the tail of
+        // the recording measuring an idle CA. Re-opening them keeps all three
+        // materials genuinely in flight for the whole capture.
+        while (true)
+        {
+            if (pg != null) pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+            for (int i = 0; i < 180; i++) yield return null;   // ~3 s at 60 fps
+        }
+    }
+
+    // =====================================================================
+    // §13 PHASE 5B PERFORMANCE GATE -- wall-clock substitute methodology
+    // =====================================================================
+    // Same family as RaymarchAutoBenchmark and PHASE_2_COMPLITION's table:
+    // RELEASE standalone, wall clock, driftcheck-validated. NOT Instruments --
+    // per-kernel GPU attribution was tried and is a confirmed dead end on this
+    // toolchain (Unity merges the CA's dispatches into one Metal encoder), and
+    // a development build distorts what it measures.
+    //
+    // ONE CONFIG PER PROCESS LAUNCH, deliberately. Two reasons, both real:
+    //   1. RaymarchAutoBenchmark's own header records that back-to-back configs
+    //      in one process produced a physically impossible ordering, with GPU
+    //      frequency scaling on this fanless machine as the leading hypothesis,
+    //      and says the next step is "isolating one config per process launch,
+    //      not tuning these numbers further". This is that.
+    //   2. Fluid PERSISTS. Once the primed config has poured, the arena is full
+    //      of settled fluid, so a later idle config in the same process is not
+    //      idle at all. A fresh process is the only way to get a clean idle.
+    //
+    // gpuFrameTime is NOT read anywhere here -- Amendment 8.10 measured it
+    // inflated ~2.6-2.7x on this hardware. Wall clock only.
+    private IEnumerator FluidBenchmark()
+    {
+        // Methodology constants, consts not fields, for the reason
+        // RaymarchAutoBenchmark states: serialized copies go stale silently.
+        const int warmupFrames = 600;     // ~10 s, once, before anything is measured
+        const int settleFrames = 180;     // ~3 s after the config is applied
+        const int targetSamples = 240;    // ~4 s of samples
+        const int reopenEvery = 180;      // re-open vents ~every 3 s so load is sustained
+
+        string cfg = ArgValue("-fluidbench") ?? "idle";
+        bool primed = cfg.StartsWith("primed");
+
+        Screen.SetResolution(1920, 1080, false);
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = -1;   // uncapped: a cap would floor the measurement
+
+        var pg = FindAnyObjectByType<Playground>();
+        while (Phase4Bootstrapper.Store == null) yield return null;
+
+        // Identical camera pose for every config: TeleportToArena is derived
+        // from the arena centre and is deterministic, so idle and primed frame
+        // exactly the same view. The delta must not include a pose difference.
+        if (pg != null) { pg.SendMessage("TeleportToArena", SendMessageOptions.DontRequireReceiver); yield return null; }
+
+        for (int i = 0; i < warmupFrames; i++) yield return null;
+
+        if (primed && pg != null) pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+        for (int i = 0; i < settleFrames; i++)
+        {
+            if (primed && pg != null && i > 0 && i % reopenEvery == 0)
+                pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+            yield return null;
+        }
+
+        var samples = new List<double>(targetSamples);
+        int frame = 0;
+        while (samples.Count < targetSamples)
+        {
+            // Vent budgets are finite and would drain mid-window, leaving the
+            // tail measuring an idle CA and understating the delta.
+            if (primed && pg != null && frame > 0 && frame % reopenEvery == 0)
+                pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+            yield return null;
+            samples.Add(Time.unscaledDeltaTime * 1000.0);
+            frame++;
+        }
+
+        samples.Sort();
+        double P(double q)
+        {
+            int k = Mathf.Clamp(Mathf.RoundToInt((float)(q * (samples.Count - 1))), 0, samples.Count - 1);
+            return samples[k];
+        }
+        double mean = 0; foreach (double v in samples) mean += v; mean /= samples.Count;
+
+        var res = RaymarchFeature.LastDispatchResolution;
+        string dir = Path.Combine(Application.persistentDataPath, "PlaygroundFluidBench");
+        Directory.CreateDirectory(dir);
+        string line = string.Format(CultureInfo.InvariantCulture,
+            "{0},{1},{2:F3},{3:F3},{4:F3},{5:F3},{6}x{7},{8}x{9}",
+            cfg, samples.Count, P(0.50), P(0.99), samples[samples.Count - 1], mean,
+            res.x, res.y, Screen.width, Screen.height);
+        File.AppendAllText(Path.Combine(dir, "results.csv"), line + "\n");
+        Debug.Log("[FluidBench] " + line);
+        yield return null;
+        Application.Quit(0);
+    }
+
+    private static string ArgValue(string flag)
+    {
+        string[] a = Environment.GetCommandLineArgs();
+        for (int i = 0; i < a.Length - 1; i++)
+            if (string.Equals(a[i], flag, StringComparison.OrdinalIgnoreCase)) return a[i + 1];
+        return null;
+    }
+
     private static bool HasFlag(string f)
     {
         foreach (string a in Environment.GetCommandLineArgs())
@@ -31149,6 +32304,8 @@ public class PlaygroundCapture : MonoBehaviour
 
     IEnumerator Start()
     {
+        if (HasFlag("-gputrace")) { yield return GpuTraceLoad(); yield break; }
+        if (HasFlag("-fluidbench")) { yield return FluidBenchmark(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;
         Screen.SetResolution(1920, 1080, false);
 
