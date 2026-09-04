@@ -127,3 +127,7 @@ InitTestScene*.unity*
 /phase5b_build.log
 /phase5b_scene.log
 /Phase5bValidation/
+
+/Builds/Phase5bDemo.app/
+/phase5bdemo_build.log
+/phase5bdemo_scene.log

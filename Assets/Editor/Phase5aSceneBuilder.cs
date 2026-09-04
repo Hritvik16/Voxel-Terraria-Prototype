@@ -26,6 +26,57 @@ public static class Phase5aSceneBuilder
 
 
 
+
+    public const string Phase5bDemoScenePath = "Assets/Scenes/Phase 5b Demo.unity";
+
+    /// The demo / playable scene. One scene, two modes -- see Phase5bDemo.
+    [MenuItem("Voxel Engine/Phase 5b/Generate Demo Scene")]
+    public static void GeneratePhase5bDemo()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        // Framed deliberately: high and back on the -Z/-X corner, looking down
+        // the diagonal so the shelf, the spillway and the catch basin are all in
+        // frame at once. The world spans 0..12.8 m; voxels are 0.1 m.
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.10f, 0.13f, 0.19f, 1f);
+        cam.fieldOfView = 55f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 300f;
+        // INSIDE the world, not outside it. The first framing sat at negative
+        // X/Z, outside the clipmap window, where every ray starts out of bounds
+        // and is killed -- which renders as a flat fill and looks like the fluid
+        // is missing when nothing is wrong with the fluid at all.
+        // The arena spans voxels 2..125 => 0.2..12.5 m; this stands in the
+        // near corner at head height looking down the diagonal.
+        camGo.transform.position = new Vector3(1.8f, 3.6f, 1.8f);
+        camGo.transform.rotation = Quaternion.Euler(20f, 45f, 0f);
+        camGo.AddComponent<SimpleFlyCamera>();
+
+        var go = new GameObject("Phase5bDemo");
+        var demo = go.AddComponent<Phase5bDemo>();
+
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+
+        var so = new SerializedObject(demo);
+        so.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        so.FindProperty("_slotCapacity").intValue = 131072;
+        so.FindProperty("_maxOpsPerFrame").intValue = 32768;
+        so.FindProperty("_outputRootFolderName").stringValue = "Phase5bDemo";
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Phase5bDemoScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, Phase5bDemoScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {Phase5bDemoScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {Phase5bDemoScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
+
     public const string Phase5bScenePath = "Assets/Scenes/Phase 5b Basin.unity";
 
     [MenuItem("Voxel Engine/Phase 5b/Generate Basin Scene")]

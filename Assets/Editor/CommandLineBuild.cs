@@ -35,6 +35,27 @@ public static class CommandLineBuild
     /// file -- and additionally so Debug.isDebugBuild reads false in the rig's
     /// own report, where it is printed as evidence of which build produced the
     /// screenshots.
+    private const string PHASE5BDEMO_SCENE_PATH = "Assets/Scenes/Phase 5b Demo.unity";
+    private const string PHASE5BDEMO_OUTPUT_PATH = "Builds/Phase5bDemo.app";
+
+    /// The demo/playable build. RELEASE for the same reasons as every other
+    /// build here; it is also the one a human launches and flies around in.
+    public static void BuildPhase5bDemoStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE5BDEMO_SCENE_PATH },
+            locationPathName = PHASE5BDEMO_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase5bdemo result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE5BDEMO_OUTPUT_PATH);
+    }
+
     private const string PHASE5B_SCENE_PATH = "Assets/Scenes/Phase 5b Basin.unity";
     private const string PHASE5B_OUTPUT_PATH = "Builds/Phase5bValidation.app";
 
