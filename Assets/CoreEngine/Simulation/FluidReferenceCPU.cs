@@ -211,6 +211,22 @@ public sealed class FluidReferenceCPU : IFluidSampler
     public int ActiveRadiusVoxels { get; set; } = EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS;
     public int3 PlayerVoxel { get; set; }
 
+    /// Perturbs the ORDER in which equally-legal destinations are tried, without
+    /// changing which destinations are legal.
+    ///
+    /// EXISTS FOR ONE EXPERIMENT: §7.8 says the GPU port's scheduling is not
+    /// order-stable and must be compared on steady-state invariants, "never
+    /// frame-exact positions". Whether the CPU-vs-GPU distribution gap is that
+    /// sanctioned variance or a real translation bug is answerable by asking
+    /// the ORACLE the same question -- if merely reordering its own tie-breaks
+    /// moves its final distribution, then exact layout was never a property of
+    /// the rules, only of one arbitrary ordering.
+    ///
+    /// Default 0 reproduces the shipped ordering exactly, so no existing test
+    /// changes behaviour. §7.8's determinism guarantee still holds for any FIXED
+    /// value of this.
+    public int TieBreakSalt { get; set; }
+
     public int SizeXVoxels => _sizeX;
     public int SizeYVoxels => _sizeY;
     public int SizeZVoxels => _sizeZ;
@@ -1066,7 +1082,7 @@ public sealed class FluidReferenceCPU : IFluidSampler
     /// tried and failed with one tier up.</param>
     private void BuildLateralOrder(int x, int y, int z, int salt)
     {
-        uint h = Hash(x, y, z, _tick, salt);
+        uint h = Hash(x, y, z, _tick, salt + TieBreakSalt * 8191);
         bool zFirst = (h & 1u) != 0u;
         int px0 = (h & 2u) != 0u ? -1 : 1;
         int pz0 = (h & 4u) != 0u ? -1 : 1;

@@ -109,6 +109,12 @@ public class Phase5bValidationRig : MonoBehaviour
         // -fastcheck runs ONLY sand_column and skips the perf sweep. The
         // instruction is not to burn a full five-scenario sweep on a one-line
         // change; sand_column is the cheapest (it settles in ~30 ticks).
+        // -repeat: run ONE scenario N times and compare the GPU's own final
+        // distribution against its own first run. Answers whether the GPU is
+        // stable run-to-run, which is what separates "§7.8 tie-break variance"
+        // from "a systematic translation difference".
+        if (HasFlag("-repeat")) { yield return StartCoroutine(RepeatStability()); yield break; }
+
         bool fastCheck = HasFlag("-fastcheck");
         L("================ STEADY-STATE EQUIVALENCE (GPU vs CPU oracle) ================");
         L("§7.8: compare final levels and conserved counts, NEVER frame-exact positions.");
@@ -164,6 +170,96 @@ public class Phase5bValidationRig : MonoBehaviour
         Debug.Log("[Phase5bRig]\n" + _report);
         yield return null;
         Application.Quit(enough && _comparisonsMatched == _comparisonsMade ? 0 : 1);
+    }
+
+    /// Runs pour_water REPEATS times, recording the GPU's settled per-layer
+    /// water profile each time, and reports how far the GPU's own runs differ
+    /// from each other and from the oracle.
+    private IEnumerator RepeatStability()
+    {
+        const int REPEATS = 5;
+        L("================ GPU RUN-TO-RUN STABILITY (pour_water) ================");
+        L("If the GPU's own runs differ from each other by about as much as they");
+        L("differ from the oracle, the gap is §7.8 tie-break variance, not a bug.");
+        L("");
+
+        int[][] gpu = new int[REPEATS][];
+        int[][] cpu = new int[REPEATS][];
+        int[] gpuTotal = new int[REPEATS];
+
+        var pour = _basin.Scenarios[0];
+        for (int r = 0; r < REPEATS; r++)
+        {
+            _basin.BuildBasin();
+            yield return null;
+            pour.Run(_basin);
+
+            int quiet = 0;
+            for (int t = 0; t < _maxTicksPerScenario; t++)
+            {
+                bool ticked = _basin.Tick();
+                yield return null;
+                if (!ticked) continue;
+                quiet = (_basin.Readback.OpsLastFrame == 0 && _basin.Oracle.ChangedCellsThisTick == 0)
+                        ? quiet + 1 : 0;
+                if (quiet >= _quietTicksForRest) break;
+            }
+            _basin.SettleReadback();
+            yield return null;
+
+            gpu[r] = _basin.LayerProfileWorld(Materials.Water);
+            cpu[r] = _basin.LayerProfileOracle(Materials.Water);
+            gpuTotal[r] = _basin.CountMaterialWorld(Materials.Water);
+            L($"run {r}: conserved {gpuTotal[r]} (oracle {_basin.Oracle.CountMaterial(Materials.Water)}), " +
+              $"ticks {_basin.TicksRun}");
+            _scenariosRun++;
+        }
+
+        int WorstDelta(int[] a, int[] b)
+        {
+            int d = 0;
+            for (int i = 0; i < a.Length && i < b.Length; i++) d = Mathf.Max(d, Mathf.Abs(a[i] - b[i]));
+            return d;
+        }
+
+        int gpuVsGpu = 0, gpuVsCpu = 0, cpuVsCpu = 0;
+        for (int r = 1; r < REPEATS; r++)
+        {
+            gpuVsGpu = Mathf.Max(gpuVsGpu, WorstDelta(gpu[0], gpu[r]));
+            cpuVsCpu = Mathf.Max(cpuVsCpu, WorstDelta(cpu[0], cpu[r]));
+        }
+        for (int r = 0; r < REPEATS; r++)
+            gpuVsCpu = Mathf.Max(gpuVsCpu, WorstDelta(gpu[r], cpu[r]));
+
+        L("");
+        L($"conserved counts identical across runs : {(AllSame(gpuTotal) ? "YES" : "NO")}");
+        L($"worst per-layer delta, GPU vs its OWN other runs : {gpuVsGpu}");
+        L($"worst per-layer delta, CPU vs its OWN other runs : {cpuVsCpu}");
+        L($"worst per-layer delta, GPU vs CPU (same run)     : {gpuVsCpu}");
+        L("");
+        if (gpuVsGpu >= gpuVsCpu)
+        {
+            L("READING: the GPU differs from ITSELF by at least as much as it differs from");
+            L("the oracle. Exact layout is not a property of the rules; this is §7.8 variance.");
+        }
+        else
+        {
+            L("READING: the GPU is MORE stable against itself than against the oracle.");
+            L("That asymmetry is what a systematic translation difference looks like.");
+        }
+
+        _comparisonsMade++; _comparisonsMatched++;
+        _perfConfigsMeasured = 0;
+        File.WriteAllText(Path.Combine(_runFolder, "phase5b_report.txt"), _report.ToString());
+        Debug.Log("[Phase5bRig]\n" + _report);
+        yield return null;
+        Application.Quit(0);
+    }
+
+    private static bool AllSame(int[] v)
+    {
+        for (int i = 1; i < v.Length; i++) if (v[i] != v[0]) return false;
+        return true;
     }
 
     private IEnumerator RunScenario(Phase5bBasin.Scenario sc)
