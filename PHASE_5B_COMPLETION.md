@@ -2,11 +2,11 @@
 
 **Project:** Voxel Terraria 1 Byte BrickMap
 **Spec:** ARCHITECTURE_v8.6.md §13 Phase 5b, §7.2, §7.3, §7.8, §8.4
-**Date:** September 3, 2026
+**Date:** September 3, 2026 (updated September 4)
 **Branch:** `phase5a-fluid-reference`
 **EditMode suite:** `PASS 218  FAIL 0  SKIP 0`
-**Validation rig:** 5 scenarios, conservation MATCHES on all five; final-level
-distribution matches on 1 of 5 (see §4)
+**Validation rig:** 5 scenarios, conservation MATCHES on all five; the
+§7.8-shaped steady-state assertion MATCHES on 4 of 5 (see §4)
 **Hardware:** Apple M1 Air (fanless, 8GB unified memory)
 **Engine:** Unity 6000.3.10f1, release standalone
 
@@ -14,12 +14,19 @@ distribution matches on 1 of 5 (see §4)
 
 ## PHASE 5B IS NOT CLOSEABLE. READ §4 AND §8 BEFORE TREATING FLUID AS DONE.
 
-What works: the GPU CA runs, conserves mass exactly on every scenario, produces
-obsidian, and is visible in 3D through the shipped raymarcher with no
-fluid-specific render code. What does not: the water's *final distribution*
-still differs from the CPU oracle on 4 of 5 scenarios, and whether that is
-§7.8 tie-break nondeterminism or a translation bug **has not been determined**.
-The assertion has not been loosened to hide it.
+**Status as of Sept 4.** The GPU CA runs, conserves mass exactly on every
+scenario, produces obsidian, leaves no drop stranded in mid-air, and is visible
+in 3D through the shipped raymarcher with no fluid-specific render code. Four of
+five scenarios now match the oracle on every steady-state check.
+
+**One item blocks closure on the automated side:** `pour_water`'s settled
+surface height differs (GPU y=1, oracle y=2). That is characterised but not
+resolved — §4. Two further gates need a human and cannot be closed here at all:
+the Metal claim-race test and any Xcode-verified timing.
+
+The §4 question this document previously left open — variance or bug — **has
+been answered by experiment**, and the answer turned out to be *both*, for
+different statistics. See §4.
 
 Two things §13 requires are also not done by this record: the Metal claim-race
 verification (built, not run — it needs a human on this machine) and any
@@ -55,6 +62,10 @@ run**), `Assets/Editor/ShaderCompileCheck.cs`.
 
 - **Mass conservation on the GPU path**, all five scenarios, against the CPU
   oracle on identical inputs: 150/150, 24/24, 62/62, 150/150, 150/150.
+- **No fluid is ever stranded in mid-air**, on either implementation, including
+  on staircase and overhang geometry (§4.5). Asserted as an exact zero.
+- **Four of five scenarios match the oracle on every steady-state check**
+  (conserved count, surface height, occupied layers, full layers, floaters).
 - **Full CA pipeline executes**: `promote.ALLOCATED=47`, `intent.awake=47`,
   `intent.CLAIMS=24`, `commit.claims_seen=24`, `commit.APPLIED=24`.
 - **Sand's final distribution matches the oracle exactly** (per-layer delta 0).
@@ -204,52 +215,107 @@ The rig was wrong more often than the CA was.
 
 ---
 
-## 4. THE UNRESOLVED DIVERGENCE
+## 4. THE DIVERGENCE — ANSWERED BY EXPERIMENT
 
-Final validation sweep, async transport, all five at rest:
+Two experiments were run to separate §7.8's sanctioned tie-break variance from a
+real translation bug. They give different answers for different statistics, and
+that distinction is the finding.
 
-| scenario | conserved count | final levels (worst per-layer delta) |
-|---|---|---|
-| pour_water | 150 vs 150 **MATCH** | 10 — **DIVERGED** |
-| sand_column | 24 vs 24 **MATCH** | 0 — **MATCH** |
-| lava_vent | 62 vs 62 **MATCH** | 1 — **DIVERGED** |
-| place_block | 150 vs 150 **MATCH** | 11 — **DIVERGED** |
-| mine_drop | 150 vs 150 **MATCH** | 8 — **DIVERGED** |
+### 4.1 Is the GPU stable against itself? (5 repeats of `pour_water`)
 
-**Mass is exact everywhere.** What differs is *where* the water ends up: roughly
-10 of 150 drops settle one layer higher in one sim than the other. Both are
-valid rest states — nothing is moving in either.
+```
+run 0..4 conserved 150 every time (oracle 150 every time)
+ticks to rest 235 / 232 / 250 / 212 / 225      <- not order-stable, per §7.8
+worst per-layer delta, GPU vs its OWN other runs : 2
+worst per-layer delta, CPU vs its OWN other runs : 0
+worst per-layer delta, GPU vs CPU (same run)     : 2
+```
 
-**What is known:** sand (no horizontals, §7.5) matches exactly. Lava (62 drops,
-interval 6) is off by 1. Water (150 drops, horizontals enabled) is off by ~10.
-The divergence scales with horizontal spreading, which is where claim
-contention is highest.
+The GPU differs from **itself** by exactly as much as it differs from the
+oracle, while the CPU is bit-deterministic against itself.
 
-**What is NOT known, and was not determined:** whether this is §7.8's sanctioned
-tie-break nondeterminism (GPU claim ties resolve arbitrarily, CPU by slot order)
-or a real translation difference in the sleep/wake timing. The experiments that
-would settle it — running the same scenario repeatedly to see whether the GPU's
-own result is stable, and permuting the CPU oracle's tie-break order — **were
-not run.** That is the single highest-value next step.
+### 4.2 Does permuting the oracle's OWN tie-break order move its answer?
 
-**The assertion has not been loosened.** Per-layer delta must be 0 to pass. If
-this turns out to be legitimate tie-break variance, the correct response is to
-define the invariant §7.8 actually specifies (fill height / surface level), not
-to widen a tolerance until the current numbers fit.
+`FluidReferenceCPU.TieBreakSalt` reorders equally-legal destinations without
+changing which are legal (conserved count identical at every salt, asserted).
+At the rig's exact geometry and pour:
 
-`CSWakeScan` was added during this investigation so fluid-internal waking
-happens on the GPU in the same tick rather than round-tripping through the CPU
-op-list. **It did not close the gap** (delta stayed ~10). It is kept on
-correctness grounds — immediate wake matches the oracle's semantics — and
-explicitly not as a fix.
+```
+per-layer occupancy   salt deltas 1,0,0,2,0   worst 2   -> LAYOUT, moves
+surface height        2,2,2,2,2,2             stable    -> LEVEL, does not move
+occupied-layer count  2,2,2,2,2,2             stable    -> LEVEL, does not move
+full-layer count      0,0,0,0,0,0             stable    -> LEVEL, does not move
+```
 
----
+### 4.3 Conclusion, and what changed because of it
+
+**Per-layer occupancy equality was the wrong assertion.** It moves by 2 under a
+pure reordering of the oracle's own preferences, so it was never a property of
+the rules — only of one arbitrary ordering. §7.8 says exactly this: *"identical
+inputs give visually identical outcomes, not bit-identical frames... assert
+steady-state invariants, never frame-exact positions."*
+
+It was replaced with five checks, each an **exact equality or an exact zero** —
+no tolerance was introduced:
+
+1. conserved count — exact
+2. surface height — exact *(verified rule-determined by 4.2)*
+3. occupied-layer set — exact
+4. full-layer set — exact
+5. **floating drops — exact zero, both sides** — strictly NEW, see §4.5
+
+The per-layer spread is still printed in the rig output, explicitly labelled
+"REPORTED ONLY, not asserted".
+
+### 4.4 What still diverges, and what it is
+
+`pour_water`: **surface height GPU y=1 vs oracle y=2.** Everything else matches.
+
+This is **not** tie-break variance — 4.2 shows surface height does not wobble
+under permutation. The GPU systematically settles **lower**: it gets all 150
+drops down to y=1, while the oracle always leaves a few resting on top of the
+puddle at y=2. Neither state contains a floating drop and both conserve exactly.
+The GPU is settling *more completely* than the reference, not less.
+
+**Leading hypothesis, NOT confirmed:** the async pipeline delivers wake signals
+spread across frames, so a GPU slot can be re-promoted after sleeping and
+accumulates more total lateral budget than the oracle's synchronous single wake
+gives it — making the extra settling a consequence of §7.2's latency rather than
+a rule difference. Confirming or refuting this is the next step and it is the
+one automated item blocking closure.
+
+### 4.5 A REAL BUG WAS FOUND AND FIXED ON THE WAY (both implementations)
+
+The Playground dogfood scene put fluid on generated terrain for the first time
+and a lava voxel appeared to hang in mid-air. Reproduced in the **oracle**, not
+diagnosed in Playground:
+
+```
+Water_OnStaircase   1 voxel floating at int3(3, 3, 22)
+Water_OnOverhang    1 voxel floating at int3(5, 2, 16)
+```
+
+**Root cause.** 5a §5.2's "only a DESCENDING move wakes" is right about the
+destination and wrong about the source. A lateral move still *empties* the cell
+it left, and anything above that cell gains a legal downward move. If it had
+already slept, nothing told it, and it sat with Air beneath it forever. Flat
+floors hide this entirely — a drop and the cell below it drain together — and
+5a/5b only ever tested flat basins.
+
+**Fix.** Vacating a cell always wakes what could descend into it, and *only*
+that: the cell straight above plus the four down-diagonal sources. It never
+wakes a lateral neighbour at the same level, which is what the shuffle-sustain
+cycle needed, so it cannot reintroduce the never-resting surface.
+`PartiallyFilledSurface_StillReachesRest` pins that and stays green.
+
+Pinned by four new regression tests (`FluidSlopedTerrainTests`) on staircase and
+overhang geometry — the CA's first non-flat test coverage.
 
 ## 5. §13 Phase 5b's acceptance assertions
 
 | assertion | status |
 |---|---|
-| All of 5a's behavioural assertions as steady-state invariants | **PARTIAL** — conservation yes on all five; final levels only sand |
+| All of 5a's behavioural assertions as steady-state invariants | **PARTIAL** — conservation on all five; full steady-state match on 4 of 5 (§4.4) |
 | Live fluid visible while falling (authoritative-byte proof) | **MET** — see §6 |
 | Pool exhaustion: distant drops freeze, zero errors, no device removal | **NOT TESTED** |
 | Op-list genuinely bounded, correlates with changed cells | **MET** — 24–48 ops/frame vs 24–130 slots; 0 at rest |
@@ -303,7 +369,8 @@ no arguments: WASD + right-mouse to fly, Q/E down/up, Shift to sprint.
 
 ## 8. Gaps carried forward
 
-- **The final-level divergence (§4)** — the blocking item.
+- **`pour_water`'s surface-height difference (§4.4)** — the one automated item
+  blocking closure. Characterised, hypothesis stated, not confirmed.
 - **The Metal claim-race test has never been run.** Until it is, §7.3's
   plain-write claim is unverified on this toolchain, and the whole claim design
   rests on it.
@@ -320,11 +387,19 @@ no arguments: WASD + right-mouse to fly, Q/E down/up, Shift to sprint.
 
 ## 9. Sign-off
 
-**Phase 5b is not closeable.** The GPU port runs, conserves mass exactly on all
-five scenarios, produces obsidian, and is visibly correct in 3D through the
-shipped raymarcher with no fluid-specific render code. But its steady state
-matches the oracle's on 1 of 5 scenarios by the strict assertion, and the reason
-is undetermined.
+**Phase 5b is not closeable, but the gap is now one characterised item plus two
+manual gates.**
+
+The GPU port runs, conserves mass exactly on all five scenarios, produces
+obsidian, strands no fluid in mid-air, and is visibly correct in 3D through the
+shipped raymarcher with no fluid-specific render code. Its steady state matches
+the oracle on **4 of 5** scenarios under an assertion that was rebuilt from
+measurement rather than assumption.
+
+Outstanding:
+1. `pour_water`'s surface height (§4.4) — automated, characterised, unresolved.
+2. The Metal claim-race test — **never run**; needs a human on this machine.
+3. Xcode-verified timing — deferred by decision (§9), needs a human.
 
 **What this does not license:**
 
