@@ -4,7 +4,7 @@
 **Spec:** ARCHITECTURE_v8.6.md §13 Phase 5b, §7.2, §7.3, §7.8, §8.4
 **Date:** September 3, 2026 (updated September 4)
 **Branch:** `phase5a-fluid-reference`
-**EditMode suite:** `PASS 218  FAIL 0  SKIP 0`
+**EditMode suite:** `PASS 229  FAIL 0  SKIP 0`
 **Validation rig:** 5 scenarios, conservation MATCHES on all five; the
 §7.8-shaped steady-state assertion MATCHES on 4 of 5 (see §4)
 **Hardware:** Apple M1 Air (fanless, 8GB unified memory)
@@ -28,9 +28,7 @@ The §4 question this document previously left open — variance or bug — **ha
 been answered by experiment**, and the answer turned out to be *both*, for
 different statistics. See §4.
 
-Two things §13 requires are also not done by this record: the Metal claim-race
-verification (built, not run — it needs a human on this machine) and any
-Xcode-verified timing. All timing here is **PROVISIONAL — NOT XCODE-VERIFIED**.
+All timing here remains **PROVISIONAL — NOT XCODE-VERIFIED**.
 
 ---
 
@@ -76,7 +74,8 @@ run**), `Assets/Editor/ShaderCompileCheck.cs`.
   while slots still exist** — the sharpest form of that test.
 - **Fluid renders through the shipped raymarcher with no fluid-specific code**
   (§3.10) — verified by looking at the captures, not by counters.
-- The 218-test EditMode suite (Phase 5a's oracle) is untouched and green.
+- The EditMode suite is green at 229 tests, including 4 new sloped-terrain
+  regressions (§4.5) and 4 new tie-break-variance tests (§4.2).
 
 ### PERFORMANCE — PROVISIONAL, NOT XCODE-VERIFIED
 
@@ -414,5 +413,5 @@ Outstanding:
 **Suite at sign-off:**
 
 ```
-PASS 218  FAIL 0  SKIP 0
+PASS 229  FAIL 0  SKIP 0
 ```
