@@ -41,6 +41,26 @@ public class Phase4Bootstrapper : MonoBehaviour
     public const uint WORLD_SEED = 42;
     public const byte SIZE_CLASS = 1;   // §2.4 "Small": 2560m, 200x200 chunks
 
+    /// Spawn point for this world's size class, in METRES, derived from the same
+    /// island geometry generation uses -- so it cannot drift out of sync with
+    /// the world the way a hardcoded literal did.
+    ///
+    /// Height is a fixed altitude above MAX_TERRAIN_HEIGHT rather than a terrain
+    /// probe: nothing is generated yet when this is called.
+    public static Vector3 DeriveIslandSpawn(byte sizeClass)
+    {
+        WorldGenConstants.DeriveIslandGeometry(sizeClass, out float cx, out float cz, out _, out _);
+        // Voxels are 0.1 m (§2.3). Sit slightly south of centre so the island
+        // fills the view rather than surrounding the camera.
+        return new Vector3(cx * 0.1f,
+                           (WorldGenConstants.MAX_TERRAIN_HEIGHT + 20) * 0.1f,
+                           cz * 0.1f - 12f);
+    }
+
+    /// The serialized spawn, or the derived one when it is left at zero.
+    private Vector3 ResolveSpawn() =>
+        _cameraSpawnPosition == Vector3.zero ? DeriveIslandSpawn(SIZE_CLASS) : _cameraSpawnPosition;
+
     [Header("Streaming")]
     [Tooltip("Chunks loaded around the camera. 0 = derive the maximum the window allows (recommended). " +
              "Any value above the maximum is clamped with a warning rather than silently accepted.")]
@@ -62,7 +82,19 @@ public class Phase4Bootstrapper : MonoBehaviour
 
     [Header("Camera spawn")]
     [SerializeField] private bool _overrideCameraOnStart = true;
-    [SerializeField] private Vector3 _cameraSpawnPosition = new Vector3(140.8f, 12f, 140.8f);
+    /// LEAVE AT ZERO TO DERIVE FROM THE ISLAND. Zero means "put me on the
+    /// island", resolved at Start via DeriveIslandSpawn.
+    ///
+    /// This used to default to a hardcoded (140.8, 12, 140.8), which was correct
+    /// for sizeClass 0 and became DEEP OCEAN when Content.cs added sizeClass 1
+    /// and moved the island centre to ~1280 m (§D.2, additive). Any new scene
+    /// that added this component silently spawned 1.1 km out to sea looking at
+    /// featureless water -- which is exactly what the Playground scene did, and
+    /// why its basin scan reported "no basin found near spawn".
+    ///
+    /// The existing "Phase 4 Streaming" scene serialises {1280, 12, 1280}
+    /// explicitly, so the acceptance rig's flight path is UNCHANGED by this.
+    [SerializeField] private Vector3 _cameraSpawnPosition = Vector3.zero;
     [SerializeField] private Vector3 _cameraSpawnEuler = new Vector3(10f, 0f, 0f);
 
     private BrickDataPool _pool;
@@ -198,13 +230,13 @@ public class Phase4Bootstrapper : MonoBehaviour
 
         if (_overrideCameraOnStart && Camera.main != null)
         {
-            Camera.main.transform.position = _cameraSpawnPosition;
+            Camera.main.transform.position = ResolveSpawn();
             Camera.main.transform.rotation = Quaternion.Euler(_cameraSpawnEuler);
         }
 
         // ---- Fill the initial window ----
         sw.Restart();
-        Vector3 camPos = Camera.main != null ? Camera.main.transform.position : _cameraSpawnPosition;
+        Vector3 camPos = Camera.main != null ? Camera.main.transform.position : ResolveSpawn();
         Streamer.Update(camPos);
         if (_fillWindowOnStart)
         {
