@@ -181,10 +181,19 @@ live, which is itself a reason not to lean on them.
   ~35 allocations per live voxel. Exhaustion is therefore reachable in ordinary
   play at §2.5's target scale, not only under a debug-shrunk pool. See
   `PHASE_5C_COMPLETION.md` §5 and `OPTIMIZATION_CANDIDATES.md` #7.
-- **Streaming interaction.** The demo and rig use one static chunk. Fluid has
-  never run while chunks stream in/out, and the CA's region is fixed at the
-  origin — a moving active region is untested.
-- **Honey on the GPU path.** Defined, never poured on the GPU path. It now
+- ~~**Streaming interaction.**~~ **TESTED — and it found a real bug, now fixed.**
+  Moved out of this list on Sept 4. Fluid has now run against the REAL Phase 4
+  streaming stack (admission, eviction, sliding toroidal window) in
+  `Phase5dStreamFluid` — full result in `PHASE_5C_COMPLETION.md` §9. Summary:
+  no aliasing (the §6.2 class does not reproduce), clean deactivation on
+  eviction, and **one bona fide silent mass-loss bug** at a chunk-residency
+  edge, diagnosed, fixed and pinned.
+  **Still untested, and unchanged by that work:** §7.4's moving active region.
+  The CA's region is still fixed and no part of that feature was built.
+- ~~**Honey on the GPU path.**~~ **DONE Sept 4** — poured through the real GPU
+  CA in `Phase5dStreamFluid` step 7: 12 voxels, conserved, 1240 ops applied,
+  settled, none floating. Viscosity is REPORTED there, not asserted as a rate.
+  It also
   settles in the CPU oracle (`FluidSlowViscositySettleTests`: interval 30,
   settles by tick 870, conserved, nothing floating) — the suite's first
   slow-viscosity rest coverage — but the GPU path has still never seen it.

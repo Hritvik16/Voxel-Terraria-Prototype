@@ -373,11 +373,11 @@ in ordinary play rather than only under a debug-shrunk pool.
   **never been run**. Unchanged by this work, and untouched by it.
 - **Xcode-verified timing** — deferred by decision.
 - **Pool exhaustion** — still untested, and §5 raises its priority.
-- **Streaming interaction** — 5c uses a fixed region at the origin like 5b.
-  Fluid has still never run while chunks stream in and out.
-- **Honey on the GPU path.** Honey now settles in the CPU oracle
-  (`FluidSlowViscositySettleTests`, interval 30, settles by tick 870) but has
-  still never been poured through the GPU CA.
+- ~~**Streaming interaction**~~ — **TESTED, see §9.** One real bug found and
+  fixed (silent mass loss across a chunk-residency edge). What remains untested
+  there is listed in §9.7.
+- ~~**Honey on the GPU path.**~~ **DONE, see §9.6** — poured through the real
+  GPU CA, conserved, settled, none floating.
 - **A moving active region** (§7.4) — still unbuilt.
 
 ---
@@ -448,7 +448,149 @@ remain open behind them.**
 
 ---
 
-## 9. Sign-off
+## 9. Streaming × fluid (Phase 5d) — tested, one real bug found and fixed
+
+`./run-phase5d-rig.sh` — new diagnostic scene, the REAL Phase 4 streaming stack
+(`StreamManager`, admission, eviction, the sliding toroidal window) with a live
+fluid CA beside it. Scripted camera, no human input, minimal rendering.
+**`PASS 19  FAIL 0`.**
+
+Closes the "fluid has never run while chunks stream in/out" line in
+`PHASE_5B_COMPLETION.md` §2. **§7.4's moving active region was NOT built and
+is not proposed here** — the CA's region stays fixed; this asks what the
+existing design does when the world moves underneath it.
+
+### 9.1 Window-relative position, characterised first
+
+Before testing anything dynamic: the fixed region stayed **in-window and
+resident across a full 12-chunk (153.6 m) walk**; the load radius is 13 chunks
+(~166 m). So eviction is not a hair-trigger. But on sizeClass 1's ~1909 m
+island any real traversal leaves a fixed region behind many times over, so the
+tests below are **normal play, not a corner case**.
+
+### 9.2 Eviction — clean, and the expectation was defined before measuring
+
+Defined first, as the honest order requires: fluid whose chunk is gone *should*
+freeze cleanly; it must not vanish from CPU state, double-count on return, or
+let a later chunk in the same physical slot be misread as fluid.
+
+Measured: 40 water poured and settled; camera walked out until the region read
+0/1 in-window and 0/1 resident; **the CA then ticked 120× with its world gone
+and applied ZERO ops** — it self-deactivates, because `SampleVoxel` returns AIR
+outside the window and `CSIntent` frees a slot whose home no longer holds its
+material. On return: **40 water, conserved exactly**, none created, zero stale
+ops. **This is acceptable current behaviour, not a bug.**
+
+### 9.3 The §6.2 precedent does NOT reproduce
+
+`PHASE_3_COMPLETION.md` §6.2 (phantom terrain) came from toroidal clipmap
+addressing with no bounds check, and its patch flagged that Phase 4 would have
+to make the check origin-relative once the window slid. **The fluid CA
+inherited the fix, not the bug:** `FluidCA.compute`'s `SampleVoxel` computes
+`rel = brickCoord - _WindowOriginBricksPacked` and bounds-checks all three axes,
+returning AIR outside.
+
+Verified per voxel, not by eye. 16 probe voxels of non-mobile materials were
+read **through the GPU's own clipmap sampler** — `CSPromote` writes
+`DebugCounters[17] = SampleVoxel(RegionVoxel(WakeRequests[0]))`, "what terrain
+the GPU actually reads" — and compared against `ChunkStore`. The window origin
+was made to move for real (bricks 1344 → 1440 → 1296 → 1344).
+**16/16 agreed GPU==CPU before AND after. Zero aliasing.**
+
+### 9.4 THE BUG: silent mass loss across a chunk-residency edge — FIXED
+
+Predicted by reading the code, then reproduced, then fixed.
+
+`FluidOpListReadback.Apply` re-validated an op against current terrain **by
+material only, never by residency**:
+
+```
+if (GetVoxel(op.Dst) != op.ExpectedAtDst) drop;   // (1)
+SetVoxel(op.Dst, m);                              // (2)
+if (HasSrc) SetVoxel(op.Src, 0);                  // (3)
+```
+
+`ChunkStore.GetVoxel` returns Air for a **non-resident** chunk — its own comment
+says that is *"DELIBERATELY ambiguous with real air"* and that callers needing
+the distinction must ask `IsResident`/`IsInWindow`. This path never asked. With
+`Dst` in an evicted chunk: (1) passed because Air is exactly what an empty
+destination looks like, (2) **silently no-opped**, (3) succeeded — and the
+material existed nowhere afterwards. The CA emits exactly that op because
+`SampleVoxel` also returns AIR outside the window, and AIR reads as *free to
+move into*.
+
+**Reproduced** with the region straddling a chunk boundary and the camera walked
+until exactly one of its two chunks was resident:
+
+```
+ops applied while partially resident : 474
+water after returning                : 45   expected 52   -> 7 DESTROYED
+StaleOpsDropped                      : 0    (nothing looked wrong)
+```
+
+**Fix:** residency is part of validity. **Both** halves must be resident — the
+mirror case *gains* mass, since a non-resident `Src` means the vacate is the
+half that no-ops while the write lands. The op already documents itself as
+"both halves apply, or neither does"; residency is part of being able to.
+
+```
+after the fix: water 52 of expected 52, guard fired 16x, 580 ops at the edge
+```
+
+**This is a guard, not §7.4's moving active radius.** Fluid that cannot move
+into unloaded space stays where it is — exactly the behaviour 9.2 defined as
+correct before measuring.
+
+### 9.5 Two defects in the rig itself, fixed before any verdict
+
+Recorded because each produced a **green run that proved nothing**:
+
+1. The region was placed at **y=1, ~100 voxels underground** on this island, so
+   nothing could be poured and every conservation check passed 0-against-0. Y is
+   now resolved against the real terrain surface, and a vacuous-test guard fails
+   the run if a pour places nothing.
+2. The straddle test first ticked 300× at the residency edge, applied **zero
+   ops** because the fluid had already settled, and "passed" 40-vs-40 **without
+   exercising the path at all**. It now injects fresh fluid at the edge and
+   asserts the CA actually moved something.
+
+A third, separate observation: the camera originally **teleported** ~17 chunks
+in one frame, which made `StreamManager` admit a new neighbourhood before
+evicting the old one. The resident set then spanned more than the 32-chunk
+window and `ChunkStore`'s guard fired: *"Insert of chunk (119,0,100) would
+overwrite live chunk (87,0,100) in ring slot 2071"* — 119−87 = 32, exactly one
+window period. **The guard did its job**: it refused the insert and named the
+cause rather than corrupting the ring, which is §4.5 holding. But a teleport is
+not how a camera moves, so it tested the guard rather than the fluid. With a
+continuous path (0.5 m/frame) the exception count is **zero**. Whether a
+fast-travel feature should be allowed to jump further than the window in one
+frame is a **Phase 6 question**, logged here, not answered.
+
+### 9.6 Honey on the GPU path
+
+First time honey has run through the real GPU CA: 12 poured, **conserved**, 1240
+ops applied, settled after 1228 further ticks, none floating. Viscosity is
+**REPORTED, not asserted as a rate** — this rig makes no timing claim.
+
+### 9.7 Verdict
+
+**Streaming × fluid is CHARACTERISED-SAFE WITH CAVEATS, not proven-safe.**
+
+- **CORRECTNESS PROVEN:** no aliasing across a real window slide (per-voxel,
+  16/16); clean deactivation and exact conservation across evict-and-return;
+  exact conservation across a residency edge **after** the fix, with the guard
+  observed firing; honey conserves on the GPU path.
+- **CARRIED FORWARD:** the CA's region is still fixed (§7.4 unbuilt), so all of
+  the above describes fluid *being left behind correctly* — not fluid that
+  follows the player. A camera teleport longer than the window still trips
+  `ChunkStore`'s admission guard.
+- **NOT TESTED:** fluid straddling **more than two** chunks; several
+  simultaneous regions; eviction *while* the op-list is in flight at
+  `MaxFramesInFlight > 1`; and anything about §7.4.
+
+---
+
+## 10. Sign-off
 
 The edit path — the way a player actually touches fluid — is now covered by a
 rig that runs every case in the frame ordering shipping scenes use, and it is
@@ -470,6 +612,7 @@ found by measurement and fixed rather than asserted around.
 
 ```
 EditMode      PASS 249  FAIL 0  SKIP 0
+Phase 5d rig  PASS 19   FAIL 0   (streaming x fluid — see §9)
 Phase 5c rig  PASS 170  FAIL 0   RESULT: PASSED
 Phase 5b rig  5/5 MATCH, floating drops GPU 0 / CPU 0 on all five
 Phase 4 rig   PASS 47   FAIL 4   (§4.3 upload p99; see §7 — not caused here)
