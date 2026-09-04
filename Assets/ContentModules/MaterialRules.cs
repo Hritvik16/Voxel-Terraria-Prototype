@@ -215,9 +215,14 @@ public static class MaterialPalette
         // Warm pale sand, not yellow. Beach sand is closer to grey than people
         // remember; pushing saturation here is what makes deserts look neon.
         _table[Materials.Sand] = new Rgb(0.735f, 0.660f, 0.495f);
-        // Snow: near-white with a faint cool cast so it separates from stone.
-        // Held below 0.90 so the sky term has somewhere to go.
-        _table[Materials.Snow] = new Rgb(0.860f, 0.880f, 0.905f);
+        // Snow: LOWERED 0.86 -> 0.72 after looking at the first Playground
+        // captures. At 0.86 the hemisphere term pushed up-facing snow to
+        // clipping, and since snow covers most of this island the whole
+        // mid-ground read as a flat white sheet with the terrain shape lost in
+        // it. 0.72 keeps snow clearly the brightest material while leaving the
+        // sky term somewhere to go, so slopes and contours stay legible.
+        // Faint cool cast retained so it still separates from stone.
+        _table[Materials.Snow] = new Rgb(0.715f, 0.735f, 0.760f);
 
         // ---- Liquids ----
         // Water: desaturated blue-green and DARK. The old teal read as a UI

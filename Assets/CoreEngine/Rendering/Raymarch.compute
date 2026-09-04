@@ -216,7 +216,7 @@ float3 MaterialAlbedo(uint mat)
     if (mat == 4u)  return float3(0.735, 0.660, 0.495);  // Sand
     if (mat == 5u)  return float3(0.355, 0.410, 0.330);  // MossyStone
     if (mat == 6u)  return float3(0.150, 0.330, 0.420);  // Water
-    if (mat == 7u)  return float3(0.860, 0.880, 0.905);  // Snow
+    if (mat == 7u)  return float3(0.715, 0.735, 0.760);  // Snow
     if (mat == 8u)  return float3(0.520, 0.415, 0.295);  // Sandstone (earth role)
     if (mat == 9u)  return float3(0.275, 0.410, 0.235);  // JungleGrass
     if (mat == 10u) return float3(0.255, 0.260, 0.285);  // Deepstone
