@@ -60,6 +60,13 @@ public class Phase5bBasin : MonoBehaviour
     public EditService Edits { get; private set; }
     public int TicksRun { get; private set; }
 
+    /// DIAGNOSTIC ONLY. Drains the readback synchronously each tick instead of
+    /// letting it pipeline. Isolates "is the CA logic right?" from "is the async
+    /// readback plumbing right?" -- they are separate questions and the async
+    /// path is currently failing for reasons not yet understood.
+    /// A run with this ON does NOT validate §7.2's async path.
+    public bool SynchronousReadback { get; set; }
+
     private BrickDataPool _pool;
     private ChunkHandleAllocator _allocator;
 
@@ -138,7 +145,7 @@ public class Phase5bBasin : MonoBehaviour
             PlayerVoxel = Oracle.PlayerVoxel,
             ActiveRadiusVoxels = EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS,
         };
-        Readback = new FluidOpListReadback(Fluid, Store);
+        Readback = new FluidOpListReadback(Fluid, Store) { OnVoxelApplied = MarkDirtyFor };
         Edits.AttachFluidSimulation(Fluid, Store);
 
         Clipmap.UploadDirty(Store, _pool);
@@ -150,9 +157,17 @@ public class Phase5bBasin : MonoBehaviour
     public void PlaceBoth(int3 v, byte material)
     {
         Store.SetVoxel(v, material);
+        MarkDirtyFor(v);
         Edits.NotifyEdited(v);          // §7.6 wake scan -- the Phase 5b hook
         Oracle.EditVoxel(v, material);
     }
+
+    /// ChunkStore.SetVoxel sets chunk.dirty, but TerrainClipmap tracks its own
+    /// _dirtyChunks set which ONLY StreamManager feeds (TerrainClipmap.MarkDirty).
+    /// Without this the clipmap's UploadDirty early-returns on an empty dirty
+    /// set, the GPU keeps reading a zero-filled (all-Air) clipmap, and the CA
+    /// correctly refuses to promote anything -- which is exactly what happened.
+    public void MarkDirtyFor(int3 v) => Clipmap.MarkDirty(CoordMath.VoxelToChunk(v));
 
     public void OpenSource(int3 cell, byte material, int budget)
     {
@@ -199,8 +214,17 @@ public class Phase5bBasin : MonoBehaviour
     /// One CA tick on BOTH paths, in §3.9's frame order: terrain upload, fluid
     /// dispatch, then the readback issued off the critical path and last frame's
     /// ops applied.
-    public void Tick()
+    /// Returns false when the readback queue is full and NO tick was run --
+    /// see FluidOpListReadback.CanIssue. Both simulations are skipped together
+    /// so the oracle can never drift ahead of the GPU in tick count.
+    public bool Tick()
     {
+        if (!SynchronousReadback && !Readback.CanIssue)
+        {
+            Readback.PumpAndApply();
+            Clipmap.UploadDirty(Store, _pool);
+            return false;
+        }
         TicksRun++;
 
         if (_srcRemaining > 0 && Store.GetVoxel(_srcCell) == Materials.Air)
@@ -212,10 +236,12 @@ public class Phase5bBasin : MonoBehaviour
         Clipmap.UploadDirty(Store, _pool);      // GPU sees this frame's edits
         Fluid.Tick(Clipmap);                    // Clear/Promote/React/Intent/Commit/Sweep
         Readback.IssueReadback(Oracle.ActiveSlotCount);
-        Readback.PumpAndApply();                // applies whatever has landed
+        if (SynchronousReadback) Readback.DrainBlocking();
+        else Readback.PumpAndApply();           // applies whatever has landed
         Clipmap.UploadDirty(Store, _pool);      // and the ops it just applied
 
         Oracle.Tick();                          // the oracle, same inputs, no coupling
+        return true;
     }
 
     /// Drain every outstanding readback so a steady-state comparison is not

@@ -76,9 +76,39 @@ namespace VoxelEngine.Simulation
         private GraphicsBuffer _slotAt;
         private GraphicsBuffer _reacted;
         private GraphicsBuffer _counters;
-        private GraphicsBuffer _opList;
+        /// THE OP-LIST AND WAKE-OUT ARE RING-BUFFERED, AND THEY HAVE TO BE.
+        /// They are written by the GPU every tick and read back ASYNCHRONOUSLY
+        /// over the following 1-3 frames (§7.2). A single buffer means each
+        /// tick's SetCounterValue + appends overwrite data a pending readback is
+        /// still reading -- which showed up as intermittent hasError on the
+        /// count readback with no logged reason, and as ops going missing.
+        /// RING must exceed FluidOpListReadback.MaxFramesInFlight so a slot is
+        /// never rewritten while its own readback is outstanding.
+        public const int RING = 4;
+        private readonly GraphicsBuffer[] _opList = new GraphicsBuffer[RING];
+        private readonly GraphicsBuffer[] _wakeOut = new GraphicsBuffer[RING];
+        private readonly GraphicsBuffer[] _opCounters = new GraphicsBuffer[RING];
+        private readonly uint[] _opCountersZero = new uint[4];
+        private int _ring = -1;
         private GraphicsBuffer _wakeRequests;
-        private GraphicsBuffer _wakeOut;
+        private GraphicsBuffer _debugCounters;
+        private readonly uint[] _debugZero = new uint[DebugSlots];
+        private readonly uint[] _debugScratch = new uint[DebugSlots];
+
+        /// §10.4's per-subsystem diagnostic dump. See FluidCA.compute for the
+        /// slot meanings; they are duplicated in DebugCounterNames so a dump is
+        /// readable without opening the shader.
+        public const int DebugSlots = 18;
+        public static readonly string[] DebugCounterNames =
+        {
+            "promote.seen", "promote.ALLOCATED", "promote.rej_owned", "promote.rej_notmobile",
+            "intent.awake", "intent.CLAIMS", "commit.claims_seen", "commit.APPLIED",
+            "intent.orphan_freed", "intent.no_destination", "commit.rej_home", "commit.rej_dst_not_air",
+            "PROBE.promote_ran(ABCD)", "PROBE.saw_wakecount", "PROBE.saw_regioncells", "PROBE.saw_tick",
+            "promote.rej_radius", "PROBE.saw_material_at_wake0",
+        };
+        public GraphicsBuffer DebugCountersBuffer => _debugCounters;
+
         private GraphicsBuffer _materialFlags;
         private GraphicsBuffer _materialTick;
         private GraphicsBuffer _reactSelf;
@@ -86,6 +116,20 @@ namespace VoxelEngine.Simulation
 
         private readonly int[] _wakeScratch;
         private int _wakeCount;
+
+        // CPU-side half of the §10.4 dump. promote.seen==0 on the GPU has two
+        // completely different causes -- the CPU never queued anything, or it
+        // queued and the dispatch/upload lost it -- and they are indistinguishable
+        // from GPU counters alone.
+        public int PendingWakeRequests => _wakeCount;
+        public int LastDispatchedWakeCount { get; private set; }
+        /// Cumulative, because the per-tick value is 0 on every tick after the
+        /// first and a late sample therefore proves nothing about the first.
+        public long WakeDispatchedTotal { get; private set; }
+        public long PromoteDispatchesTotal { get; private set; }
+        public long WakeRequestsQueuedTotal { get; private set; }
+        public long WakeRejectedOutOfRegion { get; private set; }
+        public long WakeRejectedFull { get; private set; }
 
         public int3 RegionOriginVoxels { get; set; }
         public int3 PlayerVoxel { get; set; }
@@ -97,8 +141,12 @@ namespace VoxelEngine.Simulation
         public int SlotCapacity => _slotCapacity;
         public int MaxOpsPerFrame { get; }
 
-        public GraphicsBuffer OpListBuffer => _opList;
-        public GraphicsBuffer WakeOutBuffer => _wakeOut;
+        /// The ring slot the most recent Tick wrote. IssueReadback must read
+        /// THIS slot, not a fixed one.
+        public int CurrentRing => _ring;
+        public GraphicsBuffer OpListBuffer => _opList[_ring < 0 ? 0 : _ring];
+        public GraphicsBuffer WakeOutBuffer => _wakeOut[_ring < 0 ? 0 : _ring];
+        public GraphicsBuffer OpCountersBuffer => _opCounters[_ring < 0 ? 0 : _ring];
 
         /// <param name="regionDims">Active-region size in voxels. EVERY component
         /// must be a power of two: FluidCA.compute addresses the region with
@@ -134,10 +182,15 @@ namespace VoxelEngine.Simulation
             _slotAt  = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
             _reacted = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
             _counters = New(GraphicsBuffer.Target.Structured, 4, 4);
-            _opList  = New(GraphicsBuffer.Target.Append, maxOpsPerFrame, FluidWriteOp.SizeBytes);
-            _wakeOut = New(GraphicsBuffer.Target.Append, maxOpsPerFrame, 4);
+            for (int i = 0; i < RING; i++)
+            {
+                _opList[i]  = New(GraphicsBuffer.Target.Append, maxOpsPerFrame, FluidWriteOp.SizeBytes);
+                _wakeOut[i] = New(GraphicsBuffer.Target.Append, maxOpsPerFrame, 4);
+                _opCounters[i] = New(GraphicsBuffer.Target.Structured, 4, 4);
+            }
             _wakeRequests = New(GraphicsBuffer.Target.Structured, maxOpsPerFrame, 4);
             _wakeScratch = new int[maxOpsPerFrame];
+            _debugCounters = New(GraphicsBuffer.Target.Structured, DebugSlots, 4);
 
             // §3.7's lesson, applied here too: a fresh GraphicsBuffer contains
             // whatever was in GPU memory. SlotAt in particular MUST start at
@@ -202,9 +255,10 @@ namespace VoxelEngine.Simulation
         /// are "this cell does not move this tick", never a lost byte.
         public void RequestWake(int3 worldVoxel)
         {
-            if (_wakeCount >= _wakeScratch.Length) return;
-            if (!InRegion(worldVoxel)) return;
+            if (_wakeCount >= _wakeScratch.Length) { WakeRejectedFull++; return; }
+            if (!InRegion(worldVoxel)) { WakeRejectedOutOfRegion++; return; }
             _wakeScratch[_wakeCount++] = RegionIndex(worldVoxel);
+            WakeRequestsQueuedTotal++;
         }
 
         /// §8.3's "scan 26-neighborhood for fluid/falling materials -> wake slots".
@@ -218,9 +272,10 @@ namespace VoxelEngine.Simulation
 
         public void RequestWakeRegionCell(int regionCell)
         {
-            if (_wakeCount >= _wakeScratch.Length) return;
-            if (regionCell < 0 || regionCell >= _regionCellCount) return;
+            if (_wakeCount >= _wakeScratch.Length) { WakeRejectedFull++; return; }
+            if (regionCell < 0 || regionCell >= _regionCellCount) { WakeRejectedOutOfRegion++; return; }
             _wakeScratch[_wakeCount++] = regionCell;
+            WakeRequestsQueuedTotal++;
         }
 
         public bool InRegion(int3 v)
@@ -255,14 +310,21 @@ namespace VoxelEngine.Simulation
             if (clipmap == null) throw new ArgumentNullException(nameof(clipmap));
             TickCount++;
 
-            _opList.SetCounterValue(0);
-            _wakeOut.SetCounterValue(0);
+            _ring = (_ring + 1) % RING;          // advance BEFORE binding
+            _opList[_ring].SetCounterValue(0);
+            _wakeOut[_ring].SetCounterValue(0);
+            _opCounters[_ring].SetData(_opCountersZero);
+            // Cleared every tick: these are PER-TICK counters, and a running
+            // total would hide which tick a stage went silent on.
+            _debugCounters.SetData(_debugZero);
+            LastDispatchedWakeCount = _wakeCount;
+            WakeDispatchedTotal += _wakeCount;
             if (_wakeCount > 0) _wakeRequests.SetData(_wakeScratch, 0, 0, _wakeCount);
 
             BindGlobals(clipmap);
 
             Dispatch(_kClear, _regionCellCount);
-            if (_wakeCount > 0) Dispatch(_kPromote, _wakeCount);
+            if (_wakeCount > 0) { Dispatch(_kPromote, _wakeCount); PromoteDispatchesTotal++; }
             Dispatch(_kReact, _slotCapacity);
             Dispatch(_kIntent, _slotCapacity);
             Dispatch(_kCommit, _regionCellCount);
@@ -299,9 +361,10 @@ namespace VoxelEngine.Simulation
                 _cs.SetBuffer(k, "SlotAtBuffer", _slotAt);
                 _cs.SetBuffer(k, "ReactedBuffer", _reacted);
                 _cs.SetBuffer(k, "Counters", _counters);
-                _cs.SetBuffer(k, "OpList", _opList);
+                _cs.SetBuffer(k, "OpList", _opList[_ring]);
+                _cs.SetBuffer(k, "OpCounters", _opCounters[_ring]);
                 _cs.SetBuffer(k, "WakeRequests", _wakeRequests);
-                _cs.SetBuffer(k, "WakeOut", _wakeOut);
+                _cs.SetBuffer(k, "DebugCounters", _debugCounters);
                 _cs.SetBuffer(k, "MaterialFlags", _materialFlags);
                 _cs.SetBuffer(k, "MaterialTickInterval", _materialTick);
                 _cs.SetBuffer(k, "ReactionSelfProduct", _reactSelf);
@@ -325,14 +388,50 @@ namespace VoxelEngine.Simulation
 
         private static int Log2(int p) { int n = 0; while ((p >> n) > 1) n++; return n; }
 
+        /// Blocking read of this tick's diagnostic counters. Rig/debug only --
+        /// it stalls the pipeline, which is exactly why it is not on any
+        /// shipped path.
+        public uint[] ReadDebugCountersBlocking()
+        {
+            _debugCounters.GetData(_debugScratch);
+            return _debugScratch;
+        }
+
+        /// One-line §10.4 dump of the last tick's per-stage activity.
+        public string DebugDump()
+        {
+            uint[] c = ReadDebugCountersBlocking();
+            var sb = new System.Text.StringBuilder();
+            sb.Append("cpu.wake_queued_total=").Append(WakeRequestsQueuedTotal)
+              .Append(" cpu.wake_dispatched_total=").Append(WakeDispatchedTotal)
+              .Append(" cpu.promote_dispatches=").Append(PromoteDispatchesTotal)
+              .Append(" cpu.wake_dispatched_lasttick=").Append(LastDispatchedWakeCount)
+              .Append(" cpu.wake_rej_region=").Append(WakeRejectedOutOfRegion)
+              .Append(" cpu.wake_rej_full=").Append(WakeRejectedFull)
+              .Append(" | ");
+            for (int i = 0; i < DebugSlots; i++)
+            {
+                if (i > 0) sb.Append(' ');
+                sb.Append(DebugCounterNames[i]).Append('=').Append(c[i]);
+            }
+            return sb.ToString();
+        }
+
         public void Dispose()
         {
             _slots?.Dispose(); _claim?.Dispose(); _slotAt?.Dispose(); _reacted?.Dispose();
-            _counters?.Dispose(); _opList?.Dispose(); _wakeRequests?.Dispose(); _wakeOut?.Dispose();
+            _counters?.Dispose(); _wakeRequests?.Dispose();
+            for (int i = 0; i < RING; i++)
+            {
+                _opList[i]?.Dispose(); _opList[i] = null;
+                _wakeOut[i]?.Dispose(); _wakeOut[i] = null;
+                _opCounters[i]?.Dispose(); _opCounters[i] = null;
+            }
+            _debugCounters?.Dispose(); _debugCounters = null;
             _materialFlags?.Dispose(); _materialTick?.Dispose();
             _reactSelf?.Dispose(); _reactOther?.Dispose();
-            _slots = _claim = _slotAt = _reacted = _counters = _opList = null;
-            _wakeRequests = _wakeOut = _materialFlags = _materialTick = _reactSelf = _reactOther = null;
+            _slots = _claim = _slotAt = _reacted = _counters = null;
+            _wakeRequests = _materialFlags = _materialTick = _reactSelf = _reactOther = null;
         }
     }
 }

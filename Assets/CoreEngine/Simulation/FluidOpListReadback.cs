@@ -57,17 +57,24 @@ namespace VoxelEngine.Simulation
 
         private struct InFlight
         {
-            public AsyncGPUReadbackRequest OpCountReq;
+            // TWO requests, not four. With four concurrent AsyncGPUReadback
+            // requests per frame the FIRST one issued came back with hasError
+            // and no logged reason -- consistently, and regardless of which
+            // buffer it targeted (it still failed when it and the wake-count
+            // request read the SAME buffer). Cutting the request count is what
+            // this addresses; the underlying per-request failure is documented
+            // in the report as unexplained rather than claimed as understood.
+            public AsyncGPUReadbackRequest CountersReq;
             public AsyncGPUReadbackRequest OpsReq;
-            public AsyncGPUReadbackRequest WakeCountReq;
-            public AsyncGPUReadbackRequest WakeReq;
             public int IssuedFrame;
             public int ActiveSlotsAtIssue;
         }
 
         private readonly Queue<InFlight> _inFlight = new Queue<InFlight>();
-        private readonly GraphicsBuffer _opCountBuffer;
-        private readonly GraphicsBuffer _wakeCountBuffer;
+        // Ringed for the same reason the op-list is: CopyCount writes into these
+        // every tick while readbacks of them are still pending.
+        private readonly GraphicsBuffer[] _opCountBuffer = new GraphicsBuffer[FluidGpuSimulation.RING];
+        private readonly GraphicsBuffer[] _wakeCountBuffer = new GraphicsBuffer[FluidGpuSimulation.RING];
 
         // ---- Instrumentation (§13's boundedness gate) ----
         public int OpsLastFrame { get; private set; }
@@ -77,14 +84,58 @@ namespace VoxelEngine.Simulation
         public int FramesInFlight { get; private set; }
         public int MaxFramesInFlightSeen { get; private set; }
         public long AppliedVoxelWrites { get; private set; }
-        public int OverflowFramesTotal { get; private set; }
+        /// SPLIT FROM A SINGLE CONFLATED COUNTER. These two failures look
+        /// identical in the report if they share a slot -- "the append buffer
+        /// filled" and "the readback never landed" both showed up as
+        /// OverflowFramesTotal, which made a run with ZERO ops and a run with
+        /// TOO MANY ops indistinguishable. They are opposite problems and
+        /// diagnosing either while they share a counter is impossible.
+        public int ReadbackErrorsTotal { get; private set; }
+        public int AppendOverflowFramesTotal { get; private set; }
+        /// Last readback error's stage, for §10.4-style triage.
+        public string LastReadbackError { get; private set; } = "none";
+        public int SkippedIssuesTotal { get; private set; }
+
+        /// §7.2 states the readback lag is "typically 1-3 frames". Nothing was
+        /// ENFORCING that: IssueReadback queued unconditionally every frame, and
+        /// with four requests per frame the queue reached 6 frames deep = 24
+        /// concurrent AsyncGPUReadback requests, at which point the oldest
+        /// request started coming back with hasError and no logged reason.
+        /// Capping the queue at the spec's own bound both fixes that and makes
+        /// the stated 1-3 frames a property of the code rather than a hope.
+        /// Skipping an issue costs one frame of fluid motion, never a voxel.
+        /// MUST stay below FluidGpuSimulation.RING. The ring slot a readback is
+        /// reading must not be rewritten before that readback lands.
+        private const int MaxFramesInFlight = FluidGpuSimulation.RING - 1;
+
+        /// BACK-PRESSURE. The caller must not run another CA tick while this is
+        /// false. Ring-buffering the op-list alone did NOT fix the readback
+        /// errors, and this is why: the ring advanced once per TICK while the
+        /// queue drained once per COMPLETION, so a skipped issue desynchronised
+        /// them and the ring wrapped onto a slot whose readback was still
+        /// outstanding. Gating the whole tick -- not just the issue -- keeps
+        /// ring advance and queue depth in lockstep, which is the actual
+        /// invariant: a slot is reused only after its own readback has landed.
+        public bool CanIssue => _inFlight.Count < MaxFramesInFlight;
+
+        /// Invoked for every voxel the op-list applies. EXISTS BECAUSE
+        /// ChunkStore.SetVoxel marks the CHUNK dirty but TerrainClipmap keeps a
+        /// separate _dirtyChunks set that only StreamManager feeds -- so in a
+        /// scene without a StreamManager the upload silently early-returns and
+        /// the GPU reads stale terrain forever. The owner of the clipmap hooks
+        /// this to close that gap; in the shipped streaming path StreamManager
+        /// already does the equivalent.
+        public Action<int3> OnVoxelApplied;
 
         public FluidOpListReadback(FluidGpuSimulation sim, ChunkStore store)
         {
             _sim = sim ?? throw new ArgumentNullException(nameof(sim));
             _store = store ?? throw new ArgumentNullException(nameof(store));
-            _opCountBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Raw, 1, 4);
-            _wakeCountBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Raw, 1, 4);
+            for (int i = 0; i < FluidGpuSimulation.RING; i++)
+            {
+                _opCountBuffer[i] = new GraphicsBuffer(GraphicsBuffer.Target.Raw, 4, 4);
+                _wakeCountBuffer[i] = new GraphicsBuffer(GraphicsBuffer.Target.Raw, 4, 4);
+            }
         }
 
         /// Issue this frame's readback. Call AFTER FluidGpuSimulation.Tick, and
@@ -92,15 +143,17 @@ namespace VoxelEngine.Simulation
         /// raymarch, applied next frame.
         public void IssueReadback(int activeSlotsHint)
         {
-            GraphicsBuffer.CopyCount(_sim.OpListBuffer, _opCountBuffer, 0);
-            GraphicsBuffer.CopyCount(_sim.WakeOutBuffer, _wakeCountBuffer, 0);
+            if (!CanIssue) { SkippedIssuesTotal++; return; }
 
+            int r = _sim.CurrentRing;
+            if (r < 0) return;
+
+            // NO CopyCount. Both counts come from OpCounters, which the shader
+            // maintains directly -- see the comment on OpCounters in FluidCA.compute.
             _inFlight.Enqueue(new InFlight
             {
-                OpCountReq = AsyncGPUReadback.Request(_opCountBuffer),
+                CountersReq = AsyncGPUReadback.Request(_sim.OpCountersBuffer),
                 OpsReq = AsyncGPUReadback.Request(_sim.OpListBuffer),
-                WakeCountReq = AsyncGPUReadback.Request(_wakeCountBuffer),
-                WakeReq = AsyncGPUReadback.Request(_sim.WakeOutBuffer),
                 IssuedFrame = Time.frameCount,
                 ActiveSlotsAtIssue = activeSlotsHint,
             });
@@ -116,18 +169,18 @@ namespace VoxelEngine.Simulation
             while (_inFlight.Count > 0)
             {
                 InFlight f = _inFlight.Peek();
-                if (f.OpCountReq.hasError || f.OpsReq.hasError ||
-                    f.WakeCountReq.hasError || f.WakeReq.hasError)
+                if (f.CountersReq.hasError || f.OpsReq.hasError)
                 {
                     // §9's contract: never crash. A failed readback costs one
                     // frame of fluid motion, never a voxel -- the terrain bytes
                     // are untouched and the slots simply retry next tick.
+                    LastReadbackError = (f.CountersReq.hasError ? "counters " : "") +
+                                        (f.OpsReq.hasError ? "ops" : "");
                     _inFlight.Dequeue();
-                    OverflowFramesTotal++;
+                    ReadbackErrorsTotal++;
                     continue;
                 }
-                if (!f.OpCountReq.done || !f.OpsReq.done ||
-                    !f.WakeCountReq.done || !f.WakeReq.done) break;
+                if (!f.CountersReq.done || !f.OpsReq.done) break;
 
                 _inFlight.Dequeue();
                 applied += Apply(f);
@@ -137,8 +190,9 @@ namespace VoxelEngine.Simulation
 
         private int Apply(InFlight f)
         {
-            int opCount = (int)f.OpCountReq.GetData<uint>()[0];
-            int wakeCount = (int)f.WakeCountReq.GetData<uint>()[0];
+            var counters = f.CountersReq.GetData<uint>();
+            int opCount = (int)counters[0];
+            int wakeCount = 0;
 
             if (opCount >= _sim.MaxOpsPerFrame || wakeCount >= _sim.MaxOpsPerFrame)
             {
@@ -146,7 +200,7 @@ namespace VoxelEngine.Simulation
                 // the GPU, which is a MOTION loss, not a mass loss: the terrain
                 // bytes for those moves were never written, so every drop is
                 // still exactly where it was. Counted rather than hidden.
-                OverflowFramesTotal++;
+                AppendOverflowFramesTotal++;
                 opCount = Math.Min(opCount, _sim.MaxOpsPerFrame);
                 wakeCount = Math.Min(wakeCount, _sim.MaxOpsPerFrame);
             }
@@ -162,24 +216,22 @@ namespace VoxelEngine.Simulation
                 for (int i = 0; i < opCount; i++)
                 {
                     FluidWriteOp op = ops[i];
+                    bool wake = (op.newMaterial & 0x100u) != 0u;
                     // THE single terrain write path (§8.3). ChunkStore.SetVoxel
                     // marks the chunk dirty and delta-dirty itself, so the
                     // clipmap upload (§3.7) and the save (§4.2) both follow.
-                    _store.SetVoxel(op.Voxel, (byte)op.newMaterial);
+                    _store.SetVoxel(op.Voxel, (byte)(op.newMaterial & 0xFFu));
+                    OnVoxelApplied?.Invoke(op.Voxel);
                     AppliedVoxelWrites++;
 
                     // §8.3's wake scan, run for the SAME reason an edit runs it:
                     // an applied op IS an edit as far as the neighbourhood is
-                    // concerned (§7.6).
-                    _sim.RequestWakeNeighbourhood(op.Voxel);
+                    // concerned (§7.6) -- but ONLY when the GPU flagged this op
+                    // as descending. Waking on a lateral move re-promotes
+                    // sleeping neighbours with a fresh budget and sustains the
+                    // shuffle forever (PHASE_5A_COMPLETION.md §5.2).
+                    if (wake) _sim.RequestWakeNeighbourhood(op.Voxel);
                 }
-            }
-
-            if (wakeCount > 0)
-            {
-                NativeArray<int> wake = f.WakeReq.GetData<int>();
-                for (int i = 0; i < wakeCount; i++)
-                    _sim.RequestWakeRegionCell(wake[i]);
             }
 
             return opCount;
@@ -196,15 +248,12 @@ namespace VoxelEngine.Simulation
             while (_inFlight.Count > 0)
             {
                 InFlight f = _inFlight.Peek();
-                f.OpCountReq.WaitForCompletion();
+                f.CountersReq.WaitForCompletion();
                 f.OpsReq.WaitForCompletion();
-                f.WakeCountReq.WaitForCompletion();
-                f.WakeReq.WaitForCompletion();
                 _inFlight.Dequeue();
-                if (!f.OpCountReq.hasError && !f.OpsReq.hasError &&
-                    !f.WakeCountReq.hasError && !f.WakeReq.hasError)
+                if (!f.CountersReq.hasError && !f.OpsReq.hasError)
                     applied += Apply(f);
-                else OverflowFramesTotal++;
+                else ReadbackErrorsTotal++;
             }
             return applied;
         }
@@ -213,14 +262,15 @@ namespace VoxelEngine.Simulation
         {
             foreach (var f in _inFlight)
             {
-                f.OpCountReq.WaitForCompletion();
+                f.CountersReq.WaitForCompletion();
                 f.OpsReq.WaitForCompletion();
-                f.WakeCountReq.WaitForCompletion();
-                f.WakeReq.WaitForCompletion();
             }
             _inFlight.Clear();
-            _opCountBuffer?.Dispose();
-            _wakeCountBuffer?.Dispose();
+            for (int i = 0; i < FluidGpuSimulation.RING; i++)
+            {
+                _opCountBuffer[i]?.Dispose();
+                _wakeCountBuffer[i]?.Dispose();
+            }
         }
     }
 }

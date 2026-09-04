@@ -57,6 +57,7 @@ public class Phase5bValidationRig : MonoBehaviour
     [SerializeField] private string _outputRootFolderName = "Phase5bValidation";
 
     private Phase5bBasin _basin;
+    private string _midRunDump, _firstTickDump;
     private string _runFolder;
     private readonly StringBuilder _report = new StringBuilder();
 
@@ -81,6 +82,7 @@ public class Phase5bValidationRig : MonoBehaviour
         _basin = FindAnyObjectByType<Phase5bBasin>();
         if (_basin == null) { Debug.LogError("[Phase5bRig] no Phase5bBasin"); Application.Quit(1); yield break; }
 
+        _basin.SynchronousReadback = HasFlag("-syncreadback");
         for (int i = 0; i < 5; i++) yield return null;
 
         string ts = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
@@ -92,6 +94,8 @@ public class Phase5bValidationRig : MonoBehaviour
         L($"build   {(Debug.isDebugBuild ? "DEVELOPMENT" : "release")} standalone, {Application.platform}");
         L($"device  {SystemInfo.graphicsDeviceName} / {SystemInfo.graphicsDeviceType}");
         L($"basin   {Phase5bBasin.SX}x{Phase5bBasin.SY}x{Phase5bBasin.SZ} voxels, one chunk, enclosed");
+        if (_basin.SynchronousReadback)
+            L("readback SYNCHRONOUS (diagnostic) — this run does NOT validate §7.2's async path");
         L("");
         L("ALL TIMING BELOW IS PROVISIONAL — NOT XCODE-VERIFIED.");
         L("  Wall clock only (Time.unscaledDeltaTime), per AMENDMENT_8_9 §0 Rule 1.");
@@ -102,27 +106,40 @@ public class Phase5bValidationRig : MonoBehaviour
         L("");
 
         // ---- Part 1: steady-state equivalence, GPU vs CPU oracle (§7.8) ----
+        // -fastcheck runs ONLY sand_column and skips the perf sweep. The
+        // instruction is not to burn a full five-scenario sweep on a one-line
+        // change; sand_column is the cheapest (it settles in ~30 ticks).
+        bool fastCheck = HasFlag("-fastcheck");
         L("================ STEADY-STATE EQUIVALENCE (GPU vs CPU oracle) ================");
         L("§7.8: compare final levels and conserved counts, NEVER frame-exact positions.");
+        if (fastCheck) L("FAST CHECKPOINT MODE: sand_column only, no perf sweep.");
         L("");
         foreach (var sc in _basin.Scenarios)
+        {
+            if (fastCheck && sc.Id != "sand_column") continue;
             yield return StartCoroutine(RunScenario(sc));
+        }
 
         // ---- Part 2: provisional wall-clock, with driftcheck ----
-        L("");
-        L("================ WALL-CLOCK FRAME TIME (PROVISIONAL) ================");
-        yield return StartCoroutine(MeasureAll());
+        if (!fastCheck)
+        {
+            L("");
+            L("================ WALL-CLOCK FRAME TIME (PROVISIONAL) ================");
+            yield return StartCoroutine(MeasureAll());
+        }
 
         // ---- Verdict on evidence completeness, not on performance ----
         L("");
         L("================ SUMMARY ================");
-        L($"scenarios run            {_scenariosRun} (expected {_basin.Scenarios.Length})");
+        L($"scenarios run            {_scenariosRun} (expected {(HasFlag("-fastcheck") ? 1 : _basin.Scenarios.Length)})");
         L($"steady-state comparisons {_comparisonsMade}, matched {_comparisonsMatched}");
-        L($"perf configs measured    {_perfConfigsMeasured} (expected 3)");
+        L($"perf configs measured    {_perfConfigsMeasured} (expected {(HasFlag("-fastcheck") ? 0 : 3)})");
 
-        bool enough = _scenariosRun == _basin.Scenarios.Length
+        int expectedScenarios = fastCheck ? 1 : _basin.Scenarios.Length;
+        int expectedPerf = fastCheck ? 0 : 3;
+        bool enough = _scenariosRun == expectedScenarios
                    && _comparisonsMade > 0
-                   && _perfConfigsMeasured == 3;
+                   && _perfConfigsMeasured == expectedPerf;
         // PHASE_5A_COMPLETION.md §8.4's lesson: a rig that can report success on
         // an absence of evidence is worse than no rig. Short-count is a FAIL.
         if (!enough)
@@ -153,10 +170,17 @@ public class Phase5bValidationRig : MonoBehaviour
         sc.Run(_basin);
 
         int quiet = 0, peakOps = 0, peakSlots = 0, opsAtRest = -1;
+        _midRunDump = null; _firstTickDump = null;
         for (int t = 0; t < _maxTicksPerScenario; t++)
         {
             _basin.Tick();
             yield return null;                       // one CA tick per frame
+            // Tick 1 is the ONLY tick that can show the scenario's own wake
+            // requests being consumed: the GPU counters are cleared every tick,
+            // so a sample at tick 8 shows an idle sim regardless of whether
+            // tick 1 worked.
+            if (t == 0) _firstTickDump = _basin.Fluid.DebugDump();
+            if (t == 8) _midRunDump = _basin.Fluid.DebugDump();
 
             peakOps = Mathf.Max(peakOps, _basin.Readback.OpsLastFrame);
             peakSlots = Mathf.Max(peakSlots, _basin.Oracle.ActiveSlotCount);
@@ -177,7 +201,14 @@ public class Phase5bValidationRig : MonoBehaviour
         // slots may still exist while nothing changes, and ops must be zero.
         L($"op-list: peak {peakOps} ops/frame against peak {peakSlots} active slots" +
           $"; at rest {(opsAtRest >= 0 ? opsAtRest.ToString() : "n/a")}" +
-          $"  [total {_basin.Readback.OpsTotal}, overflow frames {_basin.Readback.OverflowFramesTotal}]");
+          $"  [total {_basin.Readback.OpsTotal}, readback errors {_basin.Readback.ReadbackErrorsTotal}" +
+          $" ({_basin.Readback.LastReadbackError}), append overflow {_basin.Readback.AppendOverflowFramesTotal}, skipped {_basin.Readback.SkippedIssuesTotal}]");
+        // §10.4 per-subsystem dump: which stage went silent, not just "nothing
+        // happened". Sampled at rest and again mid-run so a stage that works
+        // early and stops is distinguishable from one that never ran.
+        if (_firstTickDump != null) L($"  §10.4 dump @tick1: {_firstTickDump}");
+        L($"  §10.4 dump @rest : {_basin.Fluid.DebugDump()}");
+        if (_midRunDump != null) L($"  §10.4 dump @tick8: {_midRunDump}");
         L($"readback latency: max frames in flight {_basin.Readback.MaxFramesInFlightSeen} " +
           "(§7.2 expects 1-3; §8.2's speed clamp does not exist until Phase 6)");
 

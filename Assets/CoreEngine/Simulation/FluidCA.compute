@@ -82,8 +82,13 @@ struct FluidSlot
 struct FluidWriteOp
 {
     int3 voxel;         // world voxel coordinate
+    // [7:0] material. [8] WAKE: this cell's neighbourhood should be re-promoted
+    // next tick. The flag rides on the op instead of a separate WakeOut buffer
+    // so the whole GPU->CPU path is ONE append buffer plus one small counter
+    // buffer -- see FluidOpListReadback for why the request count mattered.
     uint newMaterial;
 };
+#define OP_WAKE_BIT (1u << 8)
 
 // ---- Appendix B stateFlags ----
 #define FLAG_AWAKE        (1u << 0)
@@ -110,13 +115,28 @@ RWStructuredBuffer<int>       SlotAtBuffer;   // cell -> owning slot, or NONE
 RWStructuredBuffer<int>       ReactedBuffer;  // cell -> 1 if a reaction spoke for it
 RWStructuredBuffer<uint>      Counters;       // [0]=slotHighWater [1]=freeCursor [2]=opCount(dbg) [3]=wakeCount
 AppendStructuredBuffer<FluidWriteOp> OpList;
+// The op-list's OWN count, maintained here rather than recovered with
+// GraphicsBuffer.CopyCount. CopyCount's destination readback failed
+// intermittently on this toolchain (hasError, no logged reason, and only ever
+// on the op-list's copy -- never on the structurally identical wake-list copy),
+// which is unexplained. A plain structured buffer the shader increments reads
+// back reliably, so the count comes from here. [0]=ops appended, [1]=wake cells.
+RWStructuredBuffer<uint> OpCounters;
 RWStructuredBuffer<int>       WakeRequests;   // cells the CPU asked to wake (§7.6)
-// Cells this tick's DESCENDING commits want woken next tick. An APPEND buffer,
-// not a per-cell array: a per-cell array would be region-sized (4 MB at the
-// default 128x64x128) and would have to be read back every frame to be useful,
-// which is exactly the full-state readback §7.2 removed. Bounded, like the
-// op-list itself.
-AppendStructuredBuffer<int>   WakeOut;
+
+// §10.4's per-subsystem diagnostic dump, GPU side. "This converts a vague
+// failure into the exact state that caused it -- the single highest-leverage
+// debugging aid when code is generated fast and bugs arrive fast."
+// Cleared by the CPU every tick and read back small; slots are:
+//   [0] wake requests seen by CSPromote      [1] slots ALLOCATED
+//   [2] promote rejected: cell already owned [3] promote rejected: not mobile
+//   [4] awake slots CSIntent processed       [5] claims CSIntent placed
+//   [6] claims CSCommit saw                  [7] commits CSCommit applied
+//   [8] intent: orphan-freed                 [9] intent: no legal destination
+//  [10] commit reject: home mismatch        [11] commit reject: dst not air
+RWStructuredBuffer<uint>      DebugCounters;
+#define DBG(i) InterlockedAdd(DebugCounters[i], 1u)
+
 
 // ---- Material registry (A.7 flags + §7.4 tick intervals), 256 entries ----
 StructuredBuffer<uint>  MaterialFlags;
@@ -302,17 +322,31 @@ uint AllocSlot()
 [numthreads(64, 1, 1)]
 void CSPromote(uint3 id : SV_DispatchThreadID)
 {
+    // DIAGNOSTIC, thread 0 only, BEFORE any early-out: proves whether this
+    // kernel executed at all and what scalar uniforms it actually saw. A zero
+    // in promote.seen has two causes -- the kernel never ran, or it ran with
+    // _WakeRequestCount==0 -- and they are indistinguishable without this.
+    if (id.x == 0)
+    {
+        DebugCounters[12] = 0xABCDu;              // "CSPromote executed"
+        DebugCounters[13] = _WakeRequestCount;
+        DebugCounters[14] = _RegionCellCount;
+        DebugCounters[15] = (uint)_Tick;
+        DebugCounters[17] = SampleVoxel(RegionVoxel(WakeRequests[0]));  // what terrain the GPU actually reads
+    }
+
     uint i = id.x;
     if (i >= _WakeRequestCount) return;
 
+    DBG(0);
     int cell = WakeRequests[i];
     if (cell < 0 || (uint)cell >= _RegionCellCount) return;
-    if (SlotAtBuffer[cell] != NONE) return;              // already has a slot
+    if (SlotAtBuffer[cell] != NONE) { DBG(2); return; }   // already has a slot
 
     int3 v = RegionVoxel(cell);
     uint m = SampleVoxel(v);
-    if (!IsMobile(m)) return;
-    if (!WithinActiveRadius(v)) return;
+    if (!IsMobile(m)) { DBG(3); return; }
+    if (!WithinActiveRadius(v)) { DBG(16); return; }   // distinct from not-mobile
 
     uint s = AllocSlot();
     if (s >= _SlotCapacity)
@@ -322,16 +356,26 @@ void CSPromote(uint3 id : SV_DispatchThreadID)
         return;
     }
 
+    // EVERY FIELD ASSIGNED, AND SetHome DELIBERATELY NOT USED HERE.
+    // This previously built the slot by assigning two fields and then calling
+    // SetHome(inout FluidSlot, ...), which reads the whole struct through the
+    // inout. Metal's compiler rejects that outright:
+    //   "'SetHome': output parameter 's' not completely initialized at kernel
+    //    CSPromote (on metal)"
+    // Unity then dropped kernel index 1 and SILENTLY SKIPPED every CSPromote
+    // dispatch -- no slots were ever allocated, so Intent and Commit had
+    // nothing to do and the whole CA looked like it was running and doing
+    // nothing. Inlining the home computation removes the inout entirely.
     FluidSlot slot;
-    slot.brickDataIndex   = 0;
-    slot.localVoxelOffset = 0;
-    SetHome(slot, cell);
-    slot.materialID    = m;
-    slot.sleepCounter  = 0;
-    slot.viscosityPhase = 0;
-    slot.stateFlags    = FLAG_AWAKE;
+    slot.brickDataIndex   = cell >> 9;
+    slot.localVoxelOffset = (uint)(cell & 511);
+    slot.materialID       = m;
+    slot.sleepCounter     = 0;
+    slot.viscosityPhase   = 0;
+    slot.stateFlags       = FLAG_AWAKE;
     FluidSlots[s] = slot;
     SlotAtBuffer[cell] = (int)s;
+    DBG(1);
 
     // Grow the high-water mark so CSIntent/CSSweep know how far to scan.
     uint prev;
@@ -400,6 +444,7 @@ void CSReact(uint3 id : SV_DispatchThreadID)
         FluidWriteOp opOther; opOther.voxel = n; opOther.newMaterial = otherProduct;
         OpList.Append(opSelf);
         OpList.Append(opOther);
+        uint rc; InterlockedAdd(OpCounters[0], 2u, rc);
 
         // This slot is gone. Its counterpart self-frees on its next Intent via
         // the orphan check once the CPU applies the op (§7.3's mechanism).
@@ -430,6 +475,7 @@ bool TryClaim(uint s, inout FluidSlot slot, int3 dst)
     // neither is torn. Which one is arbitrary and that is explicitly fine.
     ClaimBuffer[d] = (int)s;
     slot.stateFlags |= FLAG_BID_PLACED;
+    DBG(5);
     return true;
 }
 
@@ -441,6 +487,7 @@ void CSIntent(uint3 id : SV_DispatchThreadID)
 
     FluidSlot slot = FluidSlots[s];
     if ((slot.stateFlags & FLAG_AWAKE) == 0u) return;
+    DBG(4);
 
     slot.stateFlags &= ~(FLAG_BID_PLACED | FLAG_WON_CLAIM | FLAG_EVALUATED | FLAG_DESCENDED);
 
@@ -451,6 +498,7 @@ void CSIntent(uint3 id : SV_DispatchThreadID)
     // ---- Orphan self-free (§7.3), BEFORE any movement ----
     if (SampleVoxel(c) != slot.materialID)
     {
+        DBG(8);
         slot.stateFlags = 0;
         FluidSlots[s] = slot;
         if (SlotAtBuffer[home] == (int)s) SlotAtBuffer[home] = NONE;
@@ -513,6 +561,7 @@ void CSIntent(uint3 id : SV_DispatchThreadID)
             bid = TryClaim(s, slot, int3(c.x + dirs[k].x, c.y, c.z + dirs[k].y));
     }
 
+    if (!bid) DBG(9);
     FluidSlots[s] = slot;
 }
 
@@ -530,6 +579,7 @@ void CSCommit(uint3 id : SV_DispatchThreadID)
 
     int s = ClaimBuffer[d];
     if (s == NONE) return;
+    DBG(6);
     if ((uint)s >= _SlotCapacity) return;
 
     FluidSlot slot = FluidSlots[s];
@@ -540,19 +590,25 @@ void CSCommit(uint3 id : SV_DispatchThreadID)
     int3 hv = RegionVoxel(home);
     int3 dv = RegionVoxel((int)d);
 
-    if (SampleVoxel(hv) != slot.materialID) return;     // orphaned between Intent and Commit
-    if (SlotAtBuffer[home] != s) return;
-    if (SampleVoxel(dv) != AIR) return;                 // must still be the Air it claimed
+    if (SampleVoxel(hv) != slot.materialID) { DBG(10); return; }  // orphaned between Intent and Commit
+    if (SlotAtBuffer[home] != s) { DBG(10); return; }
+    if (SampleVoxel(dv) != AIR) { DBG(11); return; }              // must still be the Air it claimed
     if (ReactedBuffer[d] != 0 || ReactedBuffer[home] != 0) return;
 
     bool descended = dv.y < hv.y;
 
     // The two ops that ARE the move. Terrain is not touched here; the CPU
     // applies both through ChunkStore.SetVoxel (§7.2, §0.1 invariant 1).
-    FluidWriteOp opDst; opDst.voxel = dv; opDst.newMaterial = slot.materialID;
-    FluidWriteOp opSrc; opSrc.voxel = hv; opSrc.newMaterial = AIR;
+    // ONLY A DESCENDING MOVE WAKES -- ported as BEHAVIOUR from 5a (see header).
+    // A lateral shuffle changes no fluid level, and waking from it re-promotes
+    // sleeping neighbours with a fresh budget, sustaining the shuffle forever.
+    uint wake = descended ? OP_WAKE_BIT : 0u;
+    FluidWriteOp opDst; opDst.voxel = dv; opDst.newMaterial = slot.materialID | wake;
+    FluidWriteOp opSrc; opSrc.voxel = hv; opSrc.newMaterial = AIR | wake;
     OpList.Append(opDst);
     OpList.Append(opSrc);
+    uint oc; InterlockedAdd(OpCounters[0], 2u, oc);
+    DBG(7);
 
     SlotAtBuffer[home] = NONE;
     SlotAtBuffer[d]    = s;
@@ -561,14 +617,6 @@ void CSCommit(uint3 id : SV_DispatchThreadID)
     if (descended) slot.stateFlags |= FLAG_DESCENDED;
     FluidSlots[s] = slot;
 
-    // ONLY A DESCENDING MOVE WAKES -- ported as BEHAVIOUR from 5a, see the
-    // header. WakeOut is consumed by the CPU next tick and folded into the wake
-    // request list, which keeps promotion CPU-driven per §7.6.
-    if (descended)
-    {
-        WakeOut.Append(home);
-        WakeOut.Append((int)d);
-    }
 }
 
 // =========================================================================

@@ -26,12 +26,22 @@ echo "== Building (release) =="
 "$UNITY_BIN" -batchmode -quit -projectPath "$(pwd)" \
   -executeMethod CommandLineBuild.BuildPhase5bStandalone -logFile phase5b_build.log
 
+# Shader errors for the TARGET platform only appear in the build log --
+# Assets/Editor/ShaderCompileCheck.cs compiles for the Editor's platform and
+# missed a Metal-only error that silently dropped a kernel and cost several
+# diagnostic cycles. A dropped kernel does not fail the build, so grep for it.
+if grep -q "Shader error" phase5b_build.log; then
+  echo "SHADER ERROR in the build (kernel(s) will be silently dropped at runtime):"
+  grep -E "Shader error|Shader warning" phase5b_build.log
+  exit 1
+fi
+
 if [ ! -d "$APP_PATH" ]; then
   echo "BUILD FAILED. Tail of phase5b_build.log:"; tail -n 60 phase5b_build.log; exit 1
 fi
 
 echo "== Running (blocks until the rig quits itself) =="
-open -n -W "$APP_PATH" --args -phase5brig
+open -n -W "$APP_PATH" --args -phase5brig ${EXTRA_ARGS:-}
 
 LATEST=$(ls -td "$RIG_OUTPUT_DIR"/*/ 2>/dev/null | head -n 1)
 if [ -z "$LATEST" ]; then echo "No run folder under $RIG_OUTPUT_DIR"; exit 1; fi
