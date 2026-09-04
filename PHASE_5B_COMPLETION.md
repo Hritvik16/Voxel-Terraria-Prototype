@@ -13,7 +13,7 @@
 
 ---
 
-## PHASE 5B IS NOT CLOSEABLE. READ §4, §8 AND §10 BEFORE TREATING FLUID AS DONE.
+## PHASE 5B IS NOT CLOSEABLE. READ §4, §8, §10 AND §11 BEFORE TREATING FLUID AS DONE.
 
 **Status as of Sept 4 (second update).** The GPU CA runs, conserves mass exactly
 on every scenario, produces obsidian, leaves no drop stranded in mid-air, and is
@@ -37,7 +37,10 @@ ordering is the opposite of the one every rig here uses. That work, the rig
 built to close it, and the resolution of the intermittent floater live in
 `PHASE_5C_COMPLETION.md`. §10 summarises what it changed about this document.
 
-All timing here remains **PROVISIONAL — NOT XCODE-VERIFIED**.
+Most timing here remains **PROVISIONAL — NOT XCODE-VERIFIED**. Two narrow
+questions are now MEASURED — thermal state under load, and the fluid-vs-idle
+wall-clock delta (§2, §11) — and the §13 performance gate is **measured but does
+not close**, carried forward the same way §4.3's upload budget is.
 
 ---
 
@@ -89,6 +92,56 @@ run**), `Assets/Editor/ShaderCompileCheck.cs`.
   regressions (§4.5), 4 tie-break-variance tests (§4.2), 4 slow-viscosity settle
   tests closing 5a §8.1's rest-detector blind spot, and 10 wake-queue tests from
   the edit-path work (`PHASE_5C_COMPLETION.md`).
+
+### PERFORMANCE — MEASURED (two narrow questions only)
+
+Both added Sept 4. They are listed as MEASURED, not PROVISIONAL, because each
+answers a *specific* question with direct evidence — and neither licenses a
+ms figure for the CA.
+
+**1. The machine was not throttled while fluid was under load.** Instruments'
+`device-thermal-state-intervals`, over a 15.9 s window with water, sand and
+lava all venting, reads **`Nominal` — a single interval, no transitions.**
+`gpu-performance-state-intervals` sat at Medium/Minimum with one 7.8 ms
+excursion to Maximum. Two independent captures agree.
+
+This matters because §13's gate text says *"Xcode capture, **Performance State
+checked**"*, and `PHASE_2_COMPLETION.md` §5 recorded that the qualifier had no
+equivalent here, since `FrameTimingManager` cannot report Performance State
+(Amendment 8.9 Rule 2). **It now has one.** The thermal/performance-state track
+is that equivalent, it is automated, and it reads clean under load.
+
+What this does NOT do: produce a frame time, a per-kernel figure, or anything
+comparable to the wall-clock numbers below. It answers "was the machine
+throttled while measuring" and nothing else.
+
+**2. The fluid CA is a small fraction of GPU work.** Same captures: the primary
+raymarch encoder accounts for **98.9–99.8%** of labelled GPU work and the entire
+CA tick for **0.2–1.1%**. Recorded because it redirects
+`OPTIMIZATION_CANDIDATES.md` #1 and #3, which propose optimising the CA.
+**Caveat that must travel with it:** those captures are a *development* build
+with per-dispatch encoder splitting, so the figures are a RATIO between passes,
+never a budget.
+
+### PLATFORM LIMITATION — CONFIRMED. STOP CHASING THIS.
+
+**Per-kernel GPU attribution for the six CA kernels is not obtainable on this
+toolchain.** This is settled, not open.
+
+Metal merges consecutive compute dispatches into ONE encoder, and Instruments
+names that encoder after the FIRST debug group inside it. A capture therefore
+shows one encoder per CA tick labelled `VE.FluidCA.CSClear` and nothing for
+`CSPromote/CSReact/CSIntent/CSCommit/CSWakeScan/CSSweep`. Executing one Unity
+`CommandBuffer` per dispatch does **not** help — Unity manages its own Metal
+encoder and does not break it at `ExecuteCommandBuffer` boundaries. Verified by
+searching every exported table (`metal-gpu-intervals`,
+`metal-application-intervals`, `metal-application-encoders-list`,
+`metal-shader-profiler-intervals`): only `CSClear` and `Raymarch.Primary` ever
+appear.
+
+`OPTIMIZATION_CANDIDATES.md` closes by saying #1 cannot be ranked against #3
+without per-dispatch attribution. **That attribution is unavailable.** Ranking
+those two needs A/B wall-clock with kernels disabled, not a better profiler.
 
 ### PERFORMANCE — PROVISIONAL, NOT XCODE-VERIFIED
 
@@ -365,7 +418,7 @@ overhang geometry — the CA's first non-flat test coverage.
 | Live fluid visible while falling (authoritative-byte proof) | **MET** — see §6 |
 | Pool exhaustion: distant drops freeze, zero errors, no device removal | **NOT TESTED** |
 | Op-list genuinely bounded, correlates with changed cells | **MET** — 24–48 ops/frame vs 24–130 slots; 0 at rest |
-| GPU-lane cost against the interim budget | **PROVISIONAL ONLY** (§2) |
+| GPU-lane cost against the interim budget | **MEASURED, DOES NOT CLOSE** — see §11. Fluid costs +0.87 ms p50 / +1.88 ms p99 (medians) on the shipped release build; absolute p99 straddles the 16.67 ms budget depending on machine state, exactly like §4.3's upload p99 |
 | CPU-lane op-list-apply cost markedly lighter than 5a's full CA | **NOT MEASURED** |
 
 ---
@@ -435,6 +488,14 @@ no arguments: WASD + right-mouse to fly, Q/E down/up, Shift to sprint.
 - **Throughput cost of `MaxFramesInFlight = 1`** — the CA ticks once per readback
   round-trip. Unmeasured, and it will matter when fluid shares a frame with
   streaming.
+- **The §13 performance gate is MEASURED but does NOT CLOSE (§11).** Fluid costs
+  +0.87 ms p50 / +1.88 ms p99 (medians of four pairs) on the shipped release
+  build. Absolute p99 straddles 16.67 ms depending on machine state, the same
+  way §4.3's upload p99 does. One unexplained +11.32 ms p99 outlier.
+- **Per-kernel CA attribution is a CONFIRMED PLATFORM LIMITATION, not a gap
+  (§2).** Do not spend more time on profilers for it; ranking
+  `OPTIMIZATION_CANDIDATES.md` #1 against #3 needs A/B wall-clock with kernels
+  disabled.
 - **Fixed active region at the origin.** The CA's region never moves. §7.4's
   near-player scope on a streaming world is untested.
 - **Pool exhaustion, CPU-lane apply cost, honey** — all untested.
@@ -455,9 +516,16 @@ the oracle on **5 of 5** scenarios under an assertion that was rebuilt from
 measurement rather than assumption, and the edit path a player actually drives is
 covered separately by `PHASE_5C_COMPLETION.md` (`PASS 170 FAIL 0`).
 
-Blocking, and neither is automatable here:
+Blocking:
 1. The Metal claim-race test — **never run**; needs a human on this machine.
-2. Xcode-verified timing — deferred by decision, needs a human.
+   This is now the ONLY blocking item that needs a person.
+2. ~~Xcode-verified timing~~ — **superseded, not deferred.** §13's gate has now
+   been measured by the project's established wall-clock substitute (§11), and
+   the "Performance State checked" qualifier has an automated equivalent for the
+   first time (§2: thermal `Nominal` under load). Per-kernel GPU attribution is
+   a **confirmed platform limitation** (§2), not a pending task. What remains is
+   not a missing tool — it is that **the measurement does not pass cleanly**
+   (§11.4), which is a result, not a gap in method.
 
 Open behind those, and smaller — but open, so "closeable pending only the two
 manual gates" would be an overstatement:
@@ -469,7 +537,10 @@ manual gates" would be an overstatement:
 
 - It does not say fluid is correct. Conservation is proven; distribution is not.
 - It does not say the claim design is safe on Metal — **that test has not run**.
-- It does not say fluid is fast. No Xcode-verified number exists, by decision.
+- It does not say fluid is fast. §11 measures fluid's own cost as small
+  (+0.87 ms p50 / +1.88 ms p99 medians) but the frame it sits in fails the
+  16.67 ms budget at p99 in one of two sweeps, and one pair showed a +11.32 ms
+  p99 delta that is unexplained.
 - It does not say fluid works with streaming. It has only ever run on one
   static chunk.
 
@@ -481,6 +552,9 @@ manual gates" would be an overstatement:
 EditMode      PASS 249  FAIL 0  SKIP 0
 Phase 5b rig  5/5 MATCH, floating drops GPU 0 / CPU 0 on all five
 Phase 5c rig  PASS 170  FAIL 0   (the edit path — see PHASE_5C_COMPLETION.md)
+§13 gate      MEASURED, DOES NOT CLOSE — fluid +0.87 ms p50 / +1.88 ms p99
+              (medians, 4 pairs); primed p99 clears 16.67 ms in one sweep of
+              two. ./run-fluid-benchmark.sh, release build, wall clock. §11.
 ```
 
 ---
@@ -502,3 +576,114 @@ stays legible.
 run, no Xcode-verified timing exists, fluid has still never run while chunks
 stream, and §4.3's upload p99 is still red — `PHASE_5C_COMPLETION.md` §7 shows
 this work neither caused nor fixed the current numbers.
+
+---
+
+## 11. The §13 performance gate, measured — and why it does not close
+
+**Method:** `./run-fluid-benchmark.sh`. The project's established substitute
+methodology, the same family as `RaymarchAutoBenchmark` and
+`PHASE_2_COMPLETION.md` §5: **RELEASE standalone**, launched outside the Editor,
+wall clock from `Time.unscaledDeltaTime`, 240 samples after 600 warm-up + 180
+settle frames, driftcheck-validated. `gpuFrameTime` is read nowhere
+(Amendment 8.10). No Xcode, no Instruments, fully automated.
+
+**Two configurations, identical camera pose, identical duration:**
+
+| config | what it runs |
+|---|---|
+| `idle` | the fluid arena present, **no vents open** — raymarch + streaming only |
+| `primed` | water + sand + lava **all venting continuously**, re-opened every ~3 s so the budgets cannot drain mid-window |
+
+**One config per process launch.** `RaymarchAutoBenchmark`'s own header says
+that is the next step after back-to-back configs produced a physically
+impossible ordering on this fanless machine. It is also forced here for a second
+reason: **fluid persists once poured**, so a second `idle` config inside one
+process would not be idle.
+
+### 11.1 A methodology defect found and fixed before any number was believed
+
+The first sweep reported **34–40% driftcheck spread** and a **negative** p50
+delta — primed measuring *faster* than idle, which is not physically possible.
+The driftcheck did exactly what it exists to do.
+
+Cause: the first launches of a sweep pay costs later ones do not — Metal
+pipeline-cache compilation and OS file cache for the world data both persist
+**across processes** — which penalises whichever config runs first. That is an
+ordering artefact, not a fluid cost. A **discarded warm-up launch** now precedes
+every sweep, and the configs alternate (idle, primed, idle, primed) so residual
+monotonic drift pushes both the same way and the paired deltas survive it.
+
+After the fix, driftcheck spread is **0.7–6.7%** in one sweep and **1.3–1.4%**
+in the next — the range `PHASE_2_COMPLETION.md` §5 reported (1.2%).
+
+**The pre-fix sweep is excluded from every figure below.** It is recorded here
+only because it is the reason the warm-up launch exists.
+
+### 11.2 The measurement
+
+Two valid sweeps, four idle/primed pairs, 960×540 render in a 1920×1080 window:
+
+| sweep | config | p50 ms | p99 ms | max ms | drift (p50) |
+|---|---|---|---|---|---|
+| A | idle | 8.092 | 11.370 | 11.810 | — |
+| A | primed | 8.819 | 13.168 | 15.328 | — |
+| A | idle repeat | 8.150 | 10.498 | 12.040 | 0.7% |
+| A | primed repeat | 8.224 | 11.511 | 11.946 | 6.7% |
+| B | idle | 11.952 | 18.873 | 19.824 | — |
+| B | primed | 12.955 | 20.828 | 24.981 | — |
+| B | idle repeat | 12.110 | 15.399 | 17.771 | 1.3% |
+| B | primed repeat | 13.134 | 26.720 | 28.912 | 1.4% |
+
+**The gate number — the cost of running fluid, on the shipped release build:**
+
+```
+delta p50 : +0.727, +0.074, +1.003, +1.024   median +0.87 ms   range +0.07 .. +1.02
+delta p99 : +1.798, +1.013, +1.955, +11.321  median +1.88 ms   range +1.01 .. +11.32
+```
+
+**What the delta includes, stated plainly:** this is the cost of fluid AS A
+WHOLE, not of the CA kernels alone. It contains the op-list readback, the CPU
+applying ops through `ChunkStore`, the clipmap uploads that follow, and any
+extra raymarch work from voxels that are now solid. That is what §13's gate
+actually asks — "does adding fluid still fit the frame" — and it is reported as
+that rather than passed off as a GPU-kernel figure, which §2's platform
+limitation says is unobtainable anyway.
+
+### 11.3 Against Phase 2's own baseline
+
+`PHASE_2_COMPLETION.md` §5, same methodology and rig family: `GroundHorizon`,
+mode 4, cascade ON = **11.95 ms** raymarch-alone. Here, `idle` p50 measured
+**8.09 ms** (sweep A) and **11.95 ms** (sweep B).
+
+Sweep B's idle landing exactly on Phase 2's figure is a coincidence and is not
+evidence of anything — the two run different worlds (Phase 2's world vs the
+Playground on sizeClass 1). It is a **reference point for magnitude and
+methodology, not a like-for-like control.**
+
+### 11.4 Why it does not close — the same shape as §4.3's upload budget
+
+Against a 60 fps budget of 16.67 ms/frame:
+
+- **p50 passes in every sweep.** Primed p50 ranged 8.22–13.13 ms.
+- **p99 passes in one sweep and fails in the other.** Primed p99 was 11.51 and
+  13.17 ms in sweep A, and 20.83 and 26.72 ms in sweep B.
+
+The *absolute* frame time swung ~48% between sweeps (idle p50 8.09 vs 11.95)
+while the *paired delta within* a sweep stayed stable. So the thing that moves
+is the machine, not the fluid. Note the thermal track read `Nominal` throughout
+a comparable window (§2), so this is frequency scaling on a fanless M1 Air, not
+thermal throttling.
+
+**Therefore: MEASURED, NOT CLOSED — and carried forward exactly as §4.3's upload
+p99 is.** Both are real numbers that straddle their budget depending on machine
+state, and neither is honestly reportable as a pass. The fluid's own
+contribution is small and consistent (+0.87 ms p50 / +1.88 ms p99 medians); what
+fails the budget is the frame it is added to, not the fluid.
+
+**One outlier is not swept under the rug:** one pair measured a **+11.32 ms** p99
+delta, five times the other three. p99 is exactly where bursty fluid work
+(readback drain plus the clipmap uploads that follow it) would show. It is one
+observation out of four and it is not explained.
+
+---

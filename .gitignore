@@ -138,3 +138,4 @@ InitTestScene*.unity*
 /shadercheck2.log
 gpu-traces/
 *.trace/
+fluid-bench/

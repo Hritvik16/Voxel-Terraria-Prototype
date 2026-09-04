@@ -7,6 +7,8 @@
 // nothing it produces is evidence about correctness, scale, or performance.
 using System;
 using System.Collections;
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using Unity.Mathematics;
@@ -63,6 +65,103 @@ public class PlaygroundCapture : MonoBehaviour
         }
     }
 
+    // =====================================================================
+    // §13 PHASE 5B PERFORMANCE GATE -- wall-clock substitute methodology
+    // =====================================================================
+    // Same family as RaymarchAutoBenchmark and PHASE_2_COMPLITION's table:
+    // RELEASE standalone, wall clock, driftcheck-validated. NOT Instruments --
+    // per-kernel GPU attribution was tried and is a confirmed dead end on this
+    // toolchain (Unity merges the CA's dispatches into one Metal encoder), and
+    // a development build distorts what it measures.
+    //
+    // ONE CONFIG PER PROCESS LAUNCH, deliberately. Two reasons, both real:
+    //   1. RaymarchAutoBenchmark's own header records that back-to-back configs
+    //      in one process produced a physically impossible ordering, with GPU
+    //      frequency scaling on this fanless machine as the leading hypothesis,
+    //      and says the next step is "isolating one config per process launch,
+    //      not tuning these numbers further". This is that.
+    //   2. Fluid PERSISTS. Once the primed config has poured, the arena is full
+    //      of settled fluid, so a later idle config in the same process is not
+    //      idle at all. A fresh process is the only way to get a clean idle.
+    //
+    // gpuFrameTime is NOT read anywhere here -- Amendment 8.10 measured it
+    // inflated ~2.6-2.7x on this hardware. Wall clock only.
+    private IEnumerator FluidBenchmark()
+    {
+        // Methodology constants, consts not fields, for the reason
+        // RaymarchAutoBenchmark states: serialized copies go stale silently.
+        const int warmupFrames = 600;     // ~10 s, once, before anything is measured
+        const int settleFrames = 180;     // ~3 s after the config is applied
+        const int targetSamples = 240;    // ~4 s of samples
+        const int reopenEvery = 180;      // re-open vents ~every 3 s so load is sustained
+
+        string cfg = ArgValue("-fluidbench") ?? "idle";
+        bool primed = cfg.StartsWith("primed");
+
+        Screen.SetResolution(1920, 1080, false);
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = -1;   // uncapped: a cap would floor the measurement
+
+        var pg = FindAnyObjectByType<Playground>();
+        while (Phase4Bootstrapper.Store == null) yield return null;
+
+        // Identical camera pose for every config: TeleportToArena is derived
+        // from the arena centre and is deterministic, so idle and primed frame
+        // exactly the same view. The delta must not include a pose difference.
+        if (pg != null) { pg.SendMessage("TeleportToArena", SendMessageOptions.DontRequireReceiver); yield return null; }
+
+        for (int i = 0; i < warmupFrames; i++) yield return null;
+
+        if (primed && pg != null) pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+        for (int i = 0; i < settleFrames; i++)
+        {
+            if (primed && pg != null && i > 0 && i % reopenEvery == 0)
+                pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+            yield return null;
+        }
+
+        var samples = new List<double>(targetSamples);
+        int frame = 0;
+        while (samples.Count < targetSamples)
+        {
+            // Vent budgets are finite and would drain mid-window, leaving the
+            // tail measuring an idle CA and understating the delta.
+            if (primed && pg != null && frame > 0 && frame % reopenEvery == 0)
+                pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+            yield return null;
+            samples.Add(Time.unscaledDeltaTime * 1000.0);
+            frame++;
+        }
+
+        samples.Sort();
+        double P(double q)
+        {
+            int k = Mathf.Clamp(Mathf.RoundToInt((float)(q * (samples.Count - 1))), 0, samples.Count - 1);
+            return samples[k];
+        }
+        double mean = 0; foreach (double v in samples) mean += v; mean /= samples.Count;
+
+        var res = RaymarchFeature.LastDispatchResolution;
+        string dir = Path.Combine(Application.persistentDataPath, "PlaygroundFluidBench");
+        Directory.CreateDirectory(dir);
+        string line = string.Format(CultureInfo.InvariantCulture,
+            "{0},{1},{2:F3},{3:F3},{4:F3},{5:F3},{6}x{7},{8}x{9}",
+            cfg, samples.Count, P(0.50), P(0.99), samples[samples.Count - 1], mean,
+            res.x, res.y, Screen.width, Screen.height);
+        File.AppendAllText(Path.Combine(dir, "results.csv"), line + "\n");
+        Debug.Log("[FluidBench] " + line);
+        yield return null;
+        Application.Quit(0);
+    }
+
+    private static string ArgValue(string flag)
+    {
+        string[] a = Environment.GetCommandLineArgs();
+        for (int i = 0; i < a.Length - 1; i++)
+            if (string.Equals(a[i], flag, StringComparison.OrdinalIgnoreCase)) return a[i + 1];
+        return null;
+    }
+
     private static bool HasFlag(string f)
     {
         foreach (string a in Environment.GetCommandLineArgs())
@@ -73,6 +172,7 @@ public class PlaygroundCapture : MonoBehaviour
     IEnumerator Start()
     {
         if (HasFlag("-gputrace")) { yield return GpuTraceLoad(); yield break; }
+        if (HasFlag("-fluidbench")) { yield return FluidBenchmark(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;
         Screen.SetResolution(1920, 1080, false);
 
