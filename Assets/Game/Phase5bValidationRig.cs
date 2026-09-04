@@ -50,7 +50,7 @@ using UnityEngine;
 
 public class Phase5bValidationRig : MonoBehaviour
 {
-    [SerializeField] private int _maxTicksPerScenario = 1200;
+    [SerializeField] private int _maxTicksPerScenario = 4000;
     [SerializeField] private int _quietTicksForRest = 12;
     [SerializeField] private int _perfWarmupTicks = 60;
     [SerializeField] private int _perfSampleTicks = 300;
@@ -133,10 +133,13 @@ public class Phase5bValidationRig : MonoBehaviour
         L("================ SUMMARY ================");
         L($"scenarios run            {_scenariosRun} (expected {(HasFlag("-fastcheck") ? 1 : _basin.Scenarios.Length)})");
         L($"steady-state comparisons {_comparisonsMade}, matched {_comparisonsMatched}");
-        L($"perf configs measured    {_perfConfigsMeasured} (expected {(HasFlag("-fastcheck") ? 0 : 3)})");
+        // 4, not 3: three configs plus the REPEAT_driftcheck, which is a real
+        // measurement and was previously counted while the expectation said 3 --
+        // so a fully successful run reported FAILED for the wrong reason.
+        L($"perf measurements        {_perfConfigsMeasured} (expected {(HasFlag("-fastcheck") ? 0 : 4)})");
 
         int expectedScenarios = fastCheck ? 1 : _basin.Scenarios.Length;
-        int expectedPerf = fastCheck ? 0 : 3;
+        int expectedPerf = fastCheck ? 0 : 4;   // 3 configs + driftcheck
         bool enough = _scenariosRun == expectedScenarios
                    && _comparisonsMade > 0
                    && _perfConfigsMeasured == expectedPerf;
@@ -173,8 +176,13 @@ public class Phase5bValidationRig : MonoBehaviour
         _midRunDump = null; _firstTickDump = null;
         for (int t = 0; t < _maxTicksPerScenario; t++)
         {
-            _basin.Tick();
+            bool ticked = _basin.Tick();
             yield return null;                       // one CA tick per frame
+            // Back-pressured frames run NO tick. Counting them as quiet let
+            // lava_vent declare rest after 12 frames in which nothing had been
+            // asked to happen -- a spurious rest, and then a comparison against
+            // a sim that had not moved yet.
+            if (!ticked) continue;
             // Tick 1 is the ONLY tick that can show the scenario's own wake
             // requests being consumed: the GPU counters are cleared every tick,
             // so a sample at tick 8 shows an idle sim regardless of whether
@@ -194,7 +202,19 @@ public class Phase5bValidationRig : MonoBehaviour
 
         _scenariosRun++;
         L($"---------------- {sc.Id} ----------------");
-        L($"ticks {_basin.TicksRun}, rest {(opsAtRest >= 0 ? "reached" : "NOT reached")}");
+        L($"ticks {_basin.TicksRun}, rest {(opsAtRest >= 0 ? "reached" : "NOT reached")}" +
+          (sc.Id == "place_block" || sc.Id == "mine_drop"
+              ? $", edit applied to {_basin.LastEditCells} cell(s)" : ""));
+        // §7.8 compares STEADY STATES. A scenario that never came to rest has no
+        // steady state to compare, so its comparison is meaningless -- record it
+        // as a failure rather than comparing two mid-motion snapshots.
+        if (opsAtRest < 0)
+        {
+            _comparisonsMade++;
+            L("  *** NOT AT REST — no steady state to compare. Counted as a divergence. ***");
+            L("");
+            yield break;
+        }
 
         // §13's boundedness gate: the op-list must track CHANGED cells, not
         // total active slots. The sharpest form of that is the resting state --
@@ -202,7 +222,7 @@ public class Phase5bValidationRig : MonoBehaviour
         L($"op-list: peak {peakOps} ops/frame against peak {peakSlots} active slots" +
           $"; at rest {(opsAtRest >= 0 ? opsAtRest.ToString() : "n/a")}" +
           $"  [total {_basin.Readback.OpsTotal}, readback errors {_basin.Readback.ReadbackErrorsTotal}" +
-          $" ({_basin.Readback.LastReadbackError}), append overflow {_basin.Readback.AppendOverflowFramesTotal}, skipped {_basin.Readback.SkippedIssuesTotal}]");
+          $" ({_basin.Readback.LastReadbackError}), append overflow {_basin.Readback.AppendOverflowFramesTotal}, skipped {_basin.Readback.SkippedIssuesTotal}, stale dropped {_basin.Readback.StaleOpsDropped}]");
         // §10.4 per-subsystem dump: which stage went silent, not just "nothing
         // happened". Sampled at rest and again mid-run so a stage that works
         // early and stops is distinguishable from one that never ran.

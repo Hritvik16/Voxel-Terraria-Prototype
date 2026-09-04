@@ -51,19 +51,33 @@ namespace VoxelEngine.Simulation
     }
 
     /// A.9 FluidWriteOp. MUST stay byte-identical to the HLSL struct. 16 bytes.
+    /// A.9 FluidWriteOp, extended to a MOVE op. MUST stay byte-identical to the
+    /// HLSL struct in FluidCA.compute. 32 bytes. See that file for why a move is
+    /// one record naming both cells rather than two single-cell writes.
     [StructLayout(LayoutKind.Sequential)]
     public struct FluidWriteOp
     {
-        public int x, y, z;
-        public uint newMaterial;
-        public const int SizeBytes = 16;
-        public int3 Voxel => new int3(x, y, z);
+        public int dx, dy, dz;
+        public uint material;      // [7:0] new, [8] wake, [23:16] expected at dst
+        public int sx, sy, sz;
+        public uint flags;         // [0] HAS_SRC
+
+        public const int SizeBytes = 32;
+        public const uint HAS_SRC = 1u << 0;
+        public const uint WAKE = 1u << 8;
+
+        public int3 Dst => new int3(dx, dy, dz);
+        public int3 Src => new int3(sx, sy, sz);
+        public byte NewMaterial => (byte)(material & 0xFFu);
+        public byte ExpectedAtDst => (byte)((material >> 16) & 0xFFu);
+        public bool HasSrc => (flags & HAS_SRC) != 0u;
+        public bool Wake => (material & WAKE) != 0u;
     }
 
     public sealed class FluidGpuSimulation : IDisposable
     {
         // Kernel indices, resolved once in the constructor.
-        private readonly int _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep, _kFinalize;
+        private readonly int _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep, _kFinalize, _kWakeScan;
         private readonly ComputeShader _cs;
 
         private readonly int3 _regionDims;
@@ -75,6 +89,7 @@ namespace VoxelEngine.Simulation
         private GraphicsBuffer _claim;
         private GraphicsBuffer _slotAt;
         private GraphicsBuffer _reacted;
+        private GraphicsBuffer _wakeMark;
         private GraphicsBuffer _counters;
         /// THE OP-LIST AND WAKE-OUT ARE RING-BUFFERED, AND THEY HAVE TO BE.
         /// They are written by the GPU every tick and read back ASYNCHRONOUSLY
@@ -178,11 +193,13 @@ namespace VoxelEngine.Simulation
             _kCommit  = _cs.FindKernel("CSCommit");
             _kSweep   = _cs.FindKernel("CSSweep");
             _kFinalize = _cs.FindKernel("CSFinalize");
+            _kWakeScan = _cs.FindKernel("CSWakeScan");
 
             _slots   = New(GraphicsBuffer.Target.Structured, _slotCapacity, FluidSlotGpu.SizeBytes);
             _claim   = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
             _slotAt  = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
             _reacted = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
+            _wakeMark = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
             _counters = New(GraphicsBuffer.Target.Structured, 4, 4);
             for (int i = 0; i < RING; i++)
             {
@@ -202,6 +219,7 @@ namespace VoxelEngine.Simulation
             _slotAt.SetData(noneFill);
             _claim.SetData(noneFill);
             _reacted.SetData(new int[_regionCellCount]);
+            _wakeMark.SetData(new int[_regionCellCount]);
             _counters.SetData(new uint[4]);
             _slots.SetData(new FluidSlotGpu[_slotCapacity]);
 
@@ -327,6 +345,7 @@ namespace VoxelEngine.Simulation
             Dispatch(_kReact, _slotCapacity);
             Dispatch(_kIntent, _slotCapacity);
             Dispatch(_kCommit, _regionCellCount);
+            Dispatch(_kWakeScan, _regionCellCount);   // immediate GPU-side wake
             Dispatch(_kSweep, _slotCapacity);
             Dispatch(_kFinalize, 1);            // publish the count into ops[0]
 
@@ -352,7 +371,7 @@ namespace VoxelEngine.Simulation
             _cs.SetInts("_WindowDimsBricksPacked", wdb.x, wdb.y, wdb.z, 0);
             _cs.SetInts("_WindowOriginBricksPacked", wob.x, wob.y, wob.z, 0);
 
-            foreach (int k in new[] { _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep, _kFinalize })
+            foreach (int k in new[] { _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep, _kFinalize, _kWakeScan })
             {
                 _cs.SetBuffer(k, "ClipmapBuffer", clipmap.ClipmapBuffer);
                 _cs.SetBuffer(k, "BrickDataBuffer", clipmap.BrickDataBuffer);
@@ -360,6 +379,7 @@ namespace VoxelEngine.Simulation
                 _cs.SetBuffer(k, "ClaimBuffer", _claim);
                 _cs.SetBuffer(k, "SlotAtBuffer", _slotAt);
                 _cs.SetBuffer(k, "ReactedBuffer", _reacted);
+                _cs.SetBuffer(k, "WakeMark", _wakeMark);
                 _cs.SetBuffer(k, "Counters", _counters);
                 _cs.SetBuffer(k, "OpsBuffer", _ops[_ring]);
                 _cs.SetBuffer(k, "OpCounters", _opCounters[_ring]);
@@ -420,6 +440,7 @@ namespace VoxelEngine.Simulation
         public void Dispose()
         {
             _slots?.Dispose(); _claim?.Dispose(); _slotAt?.Dispose(); _reacted?.Dispose();
+            _wakeMark?.Dispose(); _wakeMark = null;
             _counters?.Dispose(); _wakeRequests?.Dispose();
             for (int i = 0; i < RING; i++)
             {

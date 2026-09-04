@@ -93,6 +93,10 @@ namespace VoxelEngine.Simulation
         public int AppendOverflowFramesTotal { get; private set; }
         /// Last readback error's stage, for §10.4-style triage.
         public string LastReadbackError { get; private set; } = "none";
+        /// Ops dropped because terrain changed under them between decision and
+        /// application. Expected to be non-zero in edit scenarios; a large value
+        /// in a quiet scenario would mean the CA is deciding against stale state.
+        public long StaleOpsDropped { get; private set; }
         public int SkippedIssuesTotal { get; private set; }
 
         /// §7.2 states the readback lag is "typically 1-3 frames". Nothing was
@@ -198,7 +202,7 @@ namespace VoxelEngine.Simulation
         private int Apply(InFlight f)
         {
             NativeArray<FluidWriteOp> all = f.OpsReq.GetData<FluidWriteOp>();
-            int opCount = all.Length > 0 ? all[0].x : 0;    // element 0 is the header
+            int opCount = all.Length > 0 ? all[0].dx : 0;   // element 0 is the header
             int wakeCount = 0;
 
             if (opCount >= _sim.MaxOpsPerFrame || wakeCount >= _sim.MaxOpsPerFrame)
@@ -222,13 +226,29 @@ namespace VoxelEngine.Simulation
                 for (int i = 0; i < opCount && (i + 1) < all.Length; i++)
                 {
                     FluidWriteOp op = all[i + 1];          // +1: skip the header
-                    bool wake = (op.newMaterial & 0x100u) != 0u;
+
+                    // RE-VALIDATE AGAINST CURRENT TERRAIN BEFORE APPLYING.
+                    // The op was decided on the GPU 1+ frames ago; an edit may
+                    // have landed on either cell since. Applying a stale move
+                    // half is how place_block/mine_drop drifted by one drop.
+                    // Both halves apply, or neither does.
+                    if (_store.GetVoxel(op.Dst) != op.ExpectedAtDst) { StaleOpsDropped++; continue; }
+                    if (op.HasSrc && _store.GetVoxel(op.Src) != op.NewMaterial)
+                    { StaleOpsDropped++; continue; }
+
                     // THE single terrain write path (§8.3). ChunkStore.SetVoxel
                     // marks the chunk dirty and delta-dirty itself, so the
                     // clipmap upload (§3.7) and the save (§4.2) both follow.
-                    _store.SetVoxel(op.Voxel, (byte)(op.newMaterial & 0xFFu));
-                    OnVoxelApplied?.Invoke(op.Voxel);
+                    _store.SetVoxel(op.Dst, op.NewMaterial);
+                    OnVoxelApplied?.Invoke(op.Dst);
                     AppliedVoxelWrites++;
+                    if (op.HasSrc)
+                    {
+                        _store.SetVoxel(op.Src, 0);        // vacated home -> Air
+                        OnVoxelApplied?.Invoke(op.Src);
+                        AppliedVoxelWrites++;
+                    }
+                    bool wake = op.Wake;
 
                     // §8.3's wake scan, run for the SAME reason an edit runs it:
                     // an applied op IS an edit as far as the neighbourhood is
@@ -236,7 +256,11 @@ namespace VoxelEngine.Simulation
                     // as descending. Waking on a lateral move re-promotes
                     // sleeping neighbours with a fresh budget and sustains the
                     // shuffle forever (PHASE_5A_COMPLETION.md §5.2).
-                    if (wake) _sim.RequestWakeNeighbourhood(op.Voxel);
+                    if (wake)
+                    {
+                        _sim.RequestWakeNeighbourhood(op.Dst);
+                        if (op.HasSrc) _sim.RequestWakeNeighbourhood(op.Src);
+                    }
                 }
             }
 

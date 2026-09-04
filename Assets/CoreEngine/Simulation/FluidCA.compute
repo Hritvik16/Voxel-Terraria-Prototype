@@ -59,6 +59,7 @@
 #pragma kernel CSIntent
 #pragma kernel CSCommit
 #pragma kernel CSSweep
+#pragma kernel CSWakeScan
 #pragma kernel CSFinalize
 
 #include "../Coord/CoordMath.hlsl"
@@ -80,16 +81,30 @@ struct FluidSlot
 };
 
 // A.9 FluidWriteOp -- the bounded command-list record (§7.2, §3.9).
+// A.9 FluidWriteOp, EXTENDED to a MOVE op. 32 bytes.
+//
+// A.9 describes a single-cell write, "(voxelPosition, newMaterial)". That
+// cannot survive an edit landing between a move being DECIDED on the GPU and
+// APPLIED on the CPU: the move's two halves (write dst, clear src) are separate
+// records, so validating one and dropping it while the other applies changes
+// mass. Measured: place_block reported GPU 250 vs CPU 249 and mine_drop
+// GPU 249 vs CPU 250 -- gain and loss of exactly one drop, both in the two
+// scenarios that edit terrain while ops are in flight.
+//
+// So a move is ONE record naming BOTH cells, and the CPU applies both or
+// neither after re-validating against current terrain. Reactions, which are
+// genuinely single-cell, set OP_HAS_SRC to 0 and carry their expected previous
+// material instead. This is a deliberate, documented extension of A.9.
 struct FluidWriteOp
 {
-    int3 voxel;         // world voxel coordinate
-    // [7:0] material. [8] WAKE: this cell's neighbourhood should be re-promoted
-    // next tick. The flag rides on the op instead of a separate WakeOut buffer
-    // so the whole GPU->CPU path is ONE append buffer plus one small counter
-    // buffer -- see FluidOpListReadback for why the request count mattered.
-    uint newMaterial;
+    int3 dst;       // gets `material`
+    uint material;  // [7:0] new material, [8] WAKE, [23:16] expected material at dst
+    int3 src;       // gets Air, when OP_HAS_SRC
+    uint flags;
 };
-#define OP_WAKE_BIT (1u << 8)
+#define OP_WAKE_BIT    (1u << 8)
+#define OP_HAS_SRC     (1u << 0)
+#define OP_EXPECT_SHIFT 16
 
 // ---- Appendix B stateFlags ----
 #define FLAG_AWAKE        (1u << 0)
@@ -114,6 +129,17 @@ RWStructuredBuffer<FluidSlot> FluidSlots;
 RWStructuredBuffer<int>       ClaimBuffer;    // cell -> winning slot, or NONE
 RWStructuredBuffer<int>       SlotAtBuffer;   // cell -> owning slot, or NONE
 RWStructuredBuffer<int>       ReactedBuffer;  // cell -> 1 if a reaction spoke for it
+// Cells a DESCENDING commit touched this tick. CSWakeScan re-promotes their
+// mobile neighbours immediately, on the GPU, in the same tick.
+//
+// WHY THIS IS NOT LEFT TO THE CPU'S op-driven wake: that path is latency-bound
+// (§7.2's 1-3 frame readback), so a drop whose support vacated got its wake a
+// round-trip late and had already slept. The CPU oracle wakes instantly, so the
+// two settled into DIFFERENT valid rest states -- measured as up to 12 drops
+// stranded a layer high, with mass conserved exactly. §7.6's "any adjacent edit
+// re-promotes" is about the EDIT path; fluid waking its own neighbours is the
+// CA's own business and belongs on the GPU where it can be immediate.
+RWStructuredBuffer<int>       WakeMark;
 RWStructuredBuffer<uint>      Counters;       // [0]=slotHighWater [1]=freeCursor [2]=opCount(dbg) [3]=wakeCount
 // THE OP-LIST IS ONE PLAIN STRUCTURED BUFFER, READ BACK WITH ONE REQUEST.
 //
@@ -174,14 +200,16 @@ uint  _SleepTicks;        // EngineConfig.FLUID_SLEEP_TICKS
 /// Reserve one op slot. Returns false when the frame's budget is spent, which
 /// is a MOTION loss (the move simply does not happen this tick), never a mass
 /// loss -- the terrain bytes are untouched and the slot retries next tick.
-bool EmitOp(int3 voxel, uint material)
+bool EmitOp(int3 dst, uint material, int3 src, uint flags, uint expectAtDst)
 {
     uint idx;
     InterlockedAdd(OpCounters[0], 1u, idx);
     if (idx >= _MaxOpsPerFrame) return false;
     FluidWriteOp op;
-    op.voxel = voxel;
-    op.newMaterial = material;
+    op.dst = dst;
+    op.material = material | (expectAtDst << OP_EXPECT_SHIFT);
+    op.src = src;
+    op.flags = flags;
     OpsBuffer[1 + idx] = op;      // +1: element 0 is the header
     return true;
 }
@@ -330,6 +358,7 @@ void CSClear(uint3 id : SV_DispatchThreadID)
     if (i >= _RegionCellCount) return;
     ClaimBuffer[i] = NONE;
     ReactedBuffer[i] = 0;
+    WakeMark[i] = 0;
 }
 
 // =========================================================================
@@ -467,8 +496,10 @@ void CSReact(uint3 id : SV_DispatchThreadID)
         ReactedBuffer[home] = 1;
         ReactedBuffer[RegionIndex(n)] = 1;
 
-        EmitOp(c, selfProduct);
-        EmitOp(n, otherProduct);
+        // Single-cell: each side expects its own current material to still be
+        // there, so an edit that changed it drops the op instead of stomping it.
+        EmitOp(c, selfProduct, int3(0,0,0), 0u, slot.materialID);
+        EmitOp(n, otherProduct, int3(0,0,0), 0u, other);
 
         // This slot is gone. Its counterpart self-frees on its next Intent via
         // the orphan check once the CPU applies the op (§7.3's mechanism).
@@ -626,10 +657,20 @@ void CSCommit(uint3 id : SV_DispatchThreadID)
     // ONLY A DESCENDING MOVE WAKES -- ported as BEHAVIOUR from 5a (see header).
     // A lateral shuffle changes no fluid level, and waking from it re-promotes
     // sleeping neighbours with a fresh budget, sustaining the shuffle forever.
+    // ONE record for the whole move: dst must still be Air and src must still
+    // hold the material, or the CPU applies neither half.
     uint wake = descended ? OP_WAKE_BIT : 0u;
-    EmitOp(dv, slot.materialID | wake);
-    EmitOp(hv, AIR | wake);
+    EmitOp(dv, slot.materialID | wake, hv, OP_HAS_SRC, AIR);
     DBG(7);
+
+    // ONLY A DESCENDING MOVE WAKES (5a's reading, ported as behaviour): a
+    // lateral shuffle changes no fluid level, and waking from it re-promotes
+    // sleeping neighbours with a fresh budget and sustains the shuffle forever.
+    if (descended)
+    {
+        WakeMark[home] = 1;
+        WakeMark[d] = 1;
+    }
 
     SlotAtBuffer[home] = NONE;
     SlotAtBuffer[d]    = s;
@@ -690,7 +731,55 @@ void CSFinalize(uint3 id : SV_DispatchThreadID)
     if (id.x != 0) return;
     uint n = OpCounters[0];
     FluidWriteOp header;
-    header.voxel = int3(min(n, _MaxOpsPerFrame), 0, 0);   // .x = op count, clamped
-    header.newMaterial = 0xFEEDu;                          // recognisable in a dump
+    header.dst = int3(min(n, _MaxOpsPerFrame), 0, 0);   // .x = op count, clamped
+    header.material = 0xFEEDu;                           // recognisable in a dump
+    header.src = int3(0, 0, 0);
+    header.flags = 0u;
     OpsBuffer[0] = header;
+}
+
+// =========================================================================
+// CSWakeScan -- immediate, GPU-side re-promotion around this tick's descending
+// commits. FluidReferenceCPU.WakeNeighbourhood, run where it can be instant.
+// Dispatched over the region AFTER CSCommit, so WakeMark is fully settled.
+// =========================================================================
+[numthreads(64, 1, 1)]
+void CSWakeScan(uint3 id : SV_DispatchThreadID)
+{
+    uint i = id.x;
+    if (i >= _RegionCellCount) return;
+    if (SlotAtBuffer[i] != NONE) return;              // already owned
+
+    int3 c = RegionVoxel((int)i);
+    uint m = SampleVoxel(c);
+    if (!IsMobile(m)) return;
+    if (!WithinActiveRadius(c)) return;
+
+    // Full 3x3x3, because §7.4's Intent hierarchy includes diagonals: a drop
+    // diagonally above a vacated cell has a legal move into it.
+    bool near = false;
+    [loop] for (int dz = -1; dz <= 1 && !near; dz++)
+    [loop] for (int dy = -1; dy <= 1 && !near; dy++)
+    [loop] for (int dx = -1; dx <= 1 && !near; dx++)
+    {
+        int3 n = c + int3(dx, dy, dz);
+        if (!InRegion(n)) continue;
+        if (WakeMark[RegionIndex(n)] != 0) near = true;
+    }
+    if (!near) return;
+
+    uint s = AllocSlot();
+    if (s >= _SlotCapacity) return;                   // §7.7 guarded no-op
+
+    FluidSlot slot;
+    slot.brickDataIndex   = (int)i >> 9;
+    slot.localVoxelOffset = (uint)((int)i & 511);
+    slot.materialID       = m;
+    slot.sleepCounter     = 0;
+    slot.viscosityPhase   = 0;
+    slot.stateFlags       = FLAG_AWAKE;
+    FluidSlots[s] = slot;
+    SlotAtBuffer[i] = (int)s;
+    uint prev; InterlockedMax(Counters[0], s + 1, prev);
+    DBG(1);
 }

@@ -84,11 +84,20 @@ public class Phase5bBasin : MonoBehaviour
     private Scenario[] _scenarios;
     public Scenario[] Scenarios => _scenarios ??= new[]
     {
-        new Scenario("pour_water",  b => b.OpenSource(new int3(21, SY - 2, 32), Materials.Water, 250)),
+        // 150, not 250: with one CA tick per readback round-trip (see
+        // FluidOpListReadback.MaxFramesInFlight) a 250-drop pour does not reach
+        // rest inside a sane tick cap, and comparing a mid-motion state is
+        // exactly what §7.8 forbids. 150 settles; the scenario is unchanged in kind.
+        new Scenario("pour_water",  b => b.OpenSource(new int3(21, SY - 2, 32), Materials.Water, 150)),
         new Scenario("sand_column", b => b.DropColumn(new int3(32, SY - 2, 32), Materials.Sand, 24)),
         new Scenario("lava_vent",   b => b.OpenSource(new int3(42, SY - 2, 32), Materials.Lava, 62)),
-        new Scenario("place_block", b => b.PlaceBlockIntoStream()),
-        new Scenario("mine_drop",   b => b.MineAFallingDrop()),
+        // These two ACT ON fluid already in flight, so they need a stream to
+        // act on. 5a's rig ran "Pour water" for 10 ticks first and said so; this
+        // one does the same, through the same scenario entry, and reports it.
+        // Without the setup both produced zero comparisons -- a rig that runs,
+        // asserts nothing, and looks fine.
+        new Scenario("place_block", b => { b.PrimeStream(); b.PlaceBlockIntoStream(); }),
+        new Scenario("mine_drop",   b => { b.PrimeStream(); b.MineAFallingDrop(); }),
     };
 
     // Continuous sources, emitted identically into both sims.
@@ -169,6 +178,15 @@ public class Phase5bBasin : MonoBehaviour
     /// correctly refuses to promote anything -- which is exactly what happened.
     public void MarkDirtyFor(int3 v) => Clipmap.MarkDirty(CoordMath.VoxelToChunk(v));
 
+    /// Runs the pour-water source for a few ticks so there is fluid in flight
+    /// for place_block / mine_drop to act on. Ticks BOTH sims, so the oracle
+    /// stays in lockstep.
+    public void PrimeStream()
+    {
+        OpenSource(new int3(21, SY - 2, 32), Materials.Water, 150);
+        for (int i = 0; i < 24; i++) Tick();
+    }
+
     public void OpenSource(int3 cell, byte material, int budget)
     {
         _srcCell = cell; _srcMaterial = material; _srcRemaining = budget;
@@ -185,30 +203,50 @@ public class Phase5bBasin : MonoBehaviour
         }
     }
 
-    public bool TryFindAirborneDrop(out int3 found)
+    /// A falling drop BOTH simulations agree on.
+    ///
+    /// THE AGREEMENT IS THE POINT. Scanning only the GPU's state and applying
+    /// the resulting edit to both fed them different edits: §7.2's accepted 1-3
+    /// frame readback lag means the two are legitimately at different points
+    /// mid-flight, so "the cell under this drop" was Air in one and water in the
+    /// other, and a destructive edit there destroyed a drop in one sim and
+    /// nothing in the other. Measured as exactly that: place_block GPU 150 /
+    /// CPU 149 and mine_drop GPU 149 / CPU 150 -- mirror images, one each way.
+    /// Requiring both sims to agree on the target makes the edit identical in
+    /// effect, which is the premise the whole comparison rests on.
+    public bool TryFindAgreedAirborneDrop(out int3 found)
     {
         for (int y = 2; y < SY; y++)
         for (int z = 1; z < SZ - 1; z++)
         for (int x = 1; x < SX - 1; x++)
         {
             int3 v = new int3(x, y, z);
-            if (!MaterialRules.IsMobile(Store.GetVoxel(v))) continue;
-            if (Store.GetVoxel(new int3(x, y - 1, z)) != Materials.Air) continue;
+            int3 below = new int3(x, y - 1, z);
+            byte g = Store.GetVoxel(v), c = Oracle.GetVoxel(v);
+            if (g != c || !MaterialRules.IsMobile(g)) continue;
+            if (Store.GetVoxel(below) != Materials.Air) continue;
+            if (Oracle.GetVoxel(below) != Materials.Air) continue;
             found = v; return true;
         }
         found = default; return false;
     }
 
+    public int LastEditCells { get; private set; }
+
     public void PlaceBlockIntoStream()
     {
-        if (!TryFindAirborneDrop(out int3 at)) return;
+        LastEditCells = 0;
+        if (!TryFindAgreedAirborneDrop(out int3 at)) return;
         PlaceBoth(new int3(at.x, at.y - 1, at.z), Materials.Stone);
+        LastEditCells = 1;
     }
 
     public void MineAFallingDrop()
     {
-        if (!TryFindAirborneDrop(out int3 at)) return;
+        LastEditCells = 0;
+        if (!TryFindAgreedAirborneDrop(out int3 at)) return;
         PlaceBoth(at, Materials.Air);
+        LastEditCells = 1;
     }
 
     /// One CA tick on BOTH paths, in §3.9's frame order: terrain upload, fluid
@@ -227,7 +265,15 @@ public class Phase5bBasin : MonoBehaviour
         }
         TicksRun++;
 
-        if (_srcRemaining > 0 && Store.GetVoxel(_srcCell) == Materials.Air)
+        // BOTH sims must be clear before a drop is emitted. Gating on the GPU's
+        // state alone fed the two simulations DIFFERENT INPUTS -- the oracle got
+        // a drop whenever the GPU's source cell happened to be free, even if the
+        // oracle's own was still occupied, where the write silently no-op'd.
+        // That alone produced count differences, and the whole comparison rests
+        // on the two receiving identical edits in identical order.
+        if (_srcRemaining > 0 &&
+            Store.GetVoxel(_srcCell) == Materials.Air &&
+            Oracle.GetVoxel(_srcCell) == Materials.Air)
         {
             PlaceBoth(_srcCell, _srcMaterial);
             _srcRemaining--;

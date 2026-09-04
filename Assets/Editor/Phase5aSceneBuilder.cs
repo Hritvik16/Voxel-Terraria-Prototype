@@ -64,7 +64,7 @@ public static class Phase5aSceneBuilder
         bo.ApplyModifiedPropertiesWithoutUndo();
 
         var ro = new SerializedObject(rig);
-        ro.FindProperty("_maxTicksPerScenario").intValue = 1200;
+        ro.FindProperty("_maxTicksPerScenario").intValue = 4000;
         ro.FindProperty("_quietTicksForRest").intValue = 12;
         ro.FindProperty("_perfWarmupTicks").intValue = 60;
         ro.FindProperty("_perfSampleTicks").intValue = 300;
