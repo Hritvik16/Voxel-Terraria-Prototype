@@ -179,11 +179,17 @@ public static class Phase5aSceneBuilder
         cam.fieldOfView = 60f;
         cam.nearClipPlane = 0.05f;
         cam.farClipPlane = 500f;
-        // Inside the clipmap window looking across the basin -- a camera at
-        // negative X/Z sits outside the window, every ray is killed, and the
-        // capture is a flat fill that looks like missing fluid (§6.2 lesson).
-        camGo.transform.position = new Vector3(3.2f, 2.6f, -3.5f);
-        camGo.transform.rotation = Quaternion.Euler(18f, 0f, 0f);
+        // INSIDE the clipmap window. The first version of this scene copied 5b's
+        // camera, which stands at NEGATIVE Z -- outside the window, where every
+        // ray starts out of bounds and is killed, so the capture came out as a
+        // flat pale fill that looks exactly like "the fluid is missing" when
+        // nothing is wrong with the fluid at all (§6.2 lesson, and it caught me
+        // once here despite being written down two lines above).
+        // The basin spans voxels 0..63 => 0..6.4 m at 0.1 m/voxel. This stands
+        // inside the near corner at head height, looking down the diagonal
+        // toward the pour column at voxel (26,*,32).
+        camGo.transform.position = new Vector3(0.9f, 1.9f, 0.9f);
+        camGo.transform.rotation = Quaternion.Euler(22f, 45f, 0f);
 
         var go = new GameObject("Phase5cEditStress");
         var rig = go.AddComponent<Phase5cEditStress>();

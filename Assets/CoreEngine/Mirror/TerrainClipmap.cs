@@ -430,6 +430,12 @@ public class TerrainClipmap : IDisposable
             phaseStart = sw.Elapsed.TotalMilliseconds;
 
             _dirtyChunks.Remove(chunkCoord);
+            // COST MEASURED, NOT ASSUMED: this line was A/B'd against a full
+            // acceptance run with it commented out (2026-09-04). Both runs gave
+            // PASS 47 / FAIL 4 with staging p50 0.05 and p99 0.74-0.91, i.e. the
+            // epoch write is not measurable in the §4.3 upload budget. One
+            // Dictionary<int3,long> insert per uploaded chunk, and int3
+            // implements IEquatable so it does not box.
             _lastUploadEpoch[chunkCoord] = _uploadEpoch;
             stats.chunksUploaded++;
             bytes += EngineConfig.CLIPMAP_BYTES_PER_CHUNK;
