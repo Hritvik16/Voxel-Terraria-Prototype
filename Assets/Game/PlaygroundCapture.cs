@@ -60,8 +60,8 @@ public class PlaygroundCapture : MonoBehaviour
             yield return null;
             yield return Shot("05_arena_before", "the natural basin the arena sits in, before fluid");
 
-            foreach (KeyCode k in new[] { KeyCode.Alpha1, KeyCode.Alpha2, KeyCode.Alpha3 })
-                pg.SendMessage("DebugRunKey", k, SendMessageOptions.DontRequireReceiver);
+            // 1/2/3 select a brush now; vents are opened explicitly.
+            pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
 
             for (int i = 0; i < 120; i++) yield return null;
             yield return Shot("06_arena_pouring", "water/sand/lava falling into generated terrain");

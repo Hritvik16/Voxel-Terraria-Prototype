@@ -86,6 +86,21 @@ public class Playground : MonoBehaviour
     private bool _ready;
     private string _status = "locating a basin in the generated terrain...";
 
+    // ---- Crosshair targeting ----
+    private bool _hasTarget;
+    private int3 _targetVoxel;      // the solid voxel under the crosshair
+    private int3 _targetAdjacent;   // the empty voxel in front of it (where placing goes)
+    private byte _targetMaterial;
+    private float _targetDistM;
+
+    // ---- Brush ----
+    private static readonly byte[] _brushes =
+        { Materials.Water, Materials.Sand, Materials.Lava, Materials.Stone };
+    private static readonly string[] _brushNames = { "water", "sand", "lava", "stone" };
+    private int _brush;
+    private PlaygroundFlyCamera _cam;
+    private Texture2D _px;
+
     // ---- Additive feature registration (header requirement e) ----
     // Deliberately the simplest thing that works: a list of named actions the
     // HUD lists and a key runs. New Playground toys register here instead of
@@ -142,18 +157,51 @@ public class Playground : MonoBehaviour
 
         RegisterDefaultToys();
         _ready = true;
+        // Start the player IN the arena. The fluid region is fixed, so spawning
+        // outside it means every fluid control silently does nothing useful --
+        // which is exactly how the first build felt.
+        TeleportToArena();
         _status = $"arena at {_arenaCentre} — fluid is FIXED here and does not follow you";
     }
 
     private void RegisterDefaultToys()
     {
-        Register(new Toy(KeyCode.Alpha1, "pour water", () => { _waterLeft = _waterBudget; _status = "pouring water"; }));
-        Register(new Toy(KeyCode.Alpha2, "drop sand", () => { _sandLeft = _sandBudget; _status = "dropping sand"; }));
-        Register(new Toy(KeyCode.Alpha3, "lava vent", () => { _lavaLeft = _lavaBudget; _status = "lava vent open"; }));
-        Register(new Toy(KeyCode.Alpha4, "place block", () => { EditBox(Materials.Stone); _status = "placed stone"; }));
-        Register(new Toy(KeyCode.Alpha5, "mine", () => { EditBox(Materials.Air); _status = "mined"; }));
-        Register(new Toy(KeyCode.Alpha0, "stop sources", () => { _waterLeft = _sandLeft = _lavaLeft = 0; _status = "sources closed"; }));
+        // 1-4 SELECT A BRUSH; the mouse applies it at the crosshair.
+        //
+        // The first version bound 1/2/3 to vents at FIXED points inside the
+        // arena, tens of metres from wherever the player happened to be. Press
+        // one and nothing visibly happens, because the fluid is pouring
+        // correctly somewhere off screen. That is a genuinely bad control
+        // scheme, not a bug in the fluid.
+        Register(new Toy(KeyCode.Alpha1, "brush: water", () => SetBrush(0)));
+        Register(new Toy(KeyCode.Alpha2, "brush: sand", () => SetBrush(1)));
+        Register(new Toy(KeyCode.Alpha3, "brush: lava", () => SetBrush(2)));
+        Register(new Toy(KeyCode.Alpha4, "brush: stone", () => SetBrush(3)));
+        Register(new Toy(KeyCode.V, "vent here", OpenVentAtTarget));
+        Register(new Toy(KeyCode.Alpha0, "stop vents", () =>
+            { _waterLeft = _sandLeft = _lavaLeft = 0; _status = "vents closed"; }));
         Register(new Toy(KeyCode.F, "fly to arena", TeleportToArena));
+    }
+
+    private void SetBrush(int i)
+    {
+        _brush = Mathf.Clamp(i, 0, _brushes.Length - 1);
+        _status = $"brush: {_brushNames[_brush]}";
+    }
+
+    /// Opens a continuous source in the air above whatever the crosshair is on,
+    /// so a vent appears WHERE YOU ARE LOOKING instead of at a fixed point.
+    private void OpenVentAtTarget()
+    {
+        if (!_hasTarget) { _status = "vent: aim at a surface first"; return; }
+        int3 cell = new int3(_targetVoxel.x, _targetVoxel.y + 18, _targetVoxel.z);
+        if (!_fluid.InRegion(cell)) { _status = "vent: outside the fluid arena (press F)"; return; }
+        byte m = _brushes[_brush];
+        if (m == Materials.Water) { _waterSrc = cell; _waterLeft = _waterBudget; }
+        else if (m == Materials.Sand) { _sandSrc = cell; _sandLeft = _sandBudget; }
+        else if (m == Materials.Lava) { _lavaSrc = cell; _lavaLeft = _lavaBudget; }
+        else { _status = "vent: pick a fluid brush (1/2/3)"; return; }
+        _status = $"{_brushNames[_brush]} vent open above {_targetVoxel}";
     }
 
     /// Finds the lowest surface point in a band around spawn -- i.e. a valley or
@@ -216,6 +264,57 @@ public class Playground : MonoBehaviour
             Edit(c + new int3(x, y, z), m);
     }
 
+    /// Voxel DDA from the camera through the world, stopping at the first solid
+    /// cell. Straight-line stepping on the CPU against ChunkStore.GetVoxel --
+    /// it shares no code with the GPU raymarcher and is not a check on it.
+    private void UpdateTarget()
+    {
+        _hasTarget = false;
+        Camera cam = Camera.main;
+        if (cam == null || _store == null) return;
+
+        float3 originM = new float3(cam.transform.position.x, cam.transform.position.y, cam.transform.position.z);
+        float3 dir = math.normalize(new float3(cam.transform.forward.x, cam.transform.forward.y, cam.transform.forward.z));
+
+        const float reachM = 12f;
+        const float stepM = 0.05f;       // half a voxel; fine enough not to skip one
+        int3 prev = CoordMath.WorldToVoxel(originM);
+        for (float t = 0.15f; t < reachM; t += stepM)
+        {
+            int3 v = CoordMath.WorldToVoxel(originM + dir * t);
+            if (v.Equals(prev)) continue;
+            byte m = _store.GetVoxel(v);
+            if (m != Materials.Air)
+            {
+                _hasTarget = true;
+                _targetVoxel = v;
+                _targetAdjacent = prev;      // last empty cell before the hit
+                _targetMaterial = m;
+                _targetDistM = t;
+                return;
+            }
+            prev = v;
+        }
+    }
+
+    private static string MaterialName(byte m)
+    {
+        if (m == Materials.Air) return "air";
+        if (m == Materials.Stone) return "stone";
+        if (m == Materials.Grass) return "grass";
+        if (m == Materials.Sand) return "sand";
+        if (m == Materials.MossyStone) return "mossy stone";
+        if (m == Materials.Water) return "water";
+        if (m == Materials.Snow) return "snow";
+        if (m == Materials.Sandstone) return "sandstone";
+        if (m == Materials.JungleGrass) return "jungle grass";
+        if (m == Materials.Deepstone) return "deepstone";
+        if (m == Materials.Lava) return "lava";
+        if (m == Materials.Honey) return "honey";
+        if (m == Materials.Obsidian) return "obsidian";
+        return $"id {m}";
+    }
+
     private int3 CameraVoxel()
     {
         Camera cam = Camera.main;
@@ -237,7 +336,11 @@ public class Playground : MonoBehaviour
     void Update()
     {
         if (!_ready) return;
+        if (_cam == null && Camera.main != null) _cam = Camera.main.GetComponent<PlaygroundFlyCamera>();
+
+        UpdateTarget();
         foreach (var t in _toys) if (Input.GetKeyDown(t.Key)) t.Run();
+        HandleMouse();
 
         Emit(ref _waterLeft, _waterSrc, Materials.Water);
         Emit(ref _sandLeft, _sandSrc, Materials.Sand);
@@ -251,12 +354,64 @@ public class Playground : MonoBehaviour
         _readback.PumpAndApply();
     }
 
+    /// Mouse actions only fire while the camera has the cursor captured, so the
+    /// click that re-focuses the window cannot also dig a hole.
+    private void HandleMouse()
+    {
+        if (_cam == null || !_cam.Captured) return;
+
+        float scroll = Input.mouseScrollDelta.y;
+        if (Mathf.Abs(scroll) > 0.01f)
+            SetBrush((_brush + (scroll > 0 ? 1 : _brushes.Length - 1)) % _brushes.Length);
+
+        if (!_hasTarget) return;
+
+        if (Input.GetMouseButton(0))          // held: mine continuously
+        {
+            EditSphere(_targetVoxel, 2, Materials.Air);
+            _status = $"mining at {_targetVoxel}";
+        }
+        else if (Input.GetMouseButton(1))     // held: paint the brush
+        {
+            byte m = _brushes[_brush];
+            if (m == Materials.Stone) EditSphere(_targetAdjacent, 2, m);
+            else EditSphere(_targetAdjacent, 1, m);   // a small blob of fluid
+            _status = $"placing {_brushNames[_brush]} at {_targetAdjacent}";
+        }
+    }
+
+    private void EditSphere(int3 centre, int radius, byte m)
+    {
+        int r2 = radius * radius;
+        for (int z = -radius; z <= radius; z++)
+        for (int y = -radius; y <= radius; y++)
+        for (int x = -radius; x <= radius; x++)
+        {
+            if (x * x + y * y + z * z > r2) continue;
+            Edit(centre + new int3(x, y, z), m);
+        }
+    }
+
     private void Emit(ref int budget, int3 cell, byte material)
     {
         if (budget <= 0) return;
         if (_store.GetVoxel(cell) != Materials.Air) return;
         Edit(cell, material);
         budget--;
+    }
+
+    /// For PlaygroundCapture only. Opens all three vents above the arena centre.
+    /// The capture pass used to press 1/2/3, which now select a BRUSH rather
+    /// than opening a vent -- so without this the screenshot pass would have
+    /// quietly photographed an empty arena and reported success.
+    public void DebugOpenAllVents()
+    {
+        int top = _arenaOrigin.y + _arenaEdge - 4;
+        _waterSrc = new int3(_arenaCentre.x - 6, top, _arenaCentre.z);
+        _sandSrc  = new int3(_arenaCentre.x + 8, top, _arenaCentre.z - 6);
+        _lavaSrc  = new int3(_arenaCentre.x + 2, top, _arenaCentre.z + 7);
+        _waterLeft = _waterBudget; _sandLeft = _sandBudget; _lavaLeft = _lavaBudget;
+        _status = "capture: all vents open";
     }
 
     /// For PlaygroundCapture only -- lets the screenshot pass trigger a toy
@@ -266,12 +421,115 @@ public class Playground : MonoBehaviour
         foreach (var t in _toys) if (t.Key == k) { t.Run(); return; }
     }
 
+    // ---- Screen-space voxel highlight -------------------------------------
+    // Drawn in IMGUI rather than with GL lines or a wireframe mesh. The scene is
+    // a compute raymarch blitted into the camera target, so anything drawn
+    // through the normal geometry path has no depth to sort against and may or
+    // may not composite depending on the render-graph pass order. Projecting the
+    // cube's eight corners and drawing the twelve edges as 2D lines always lands
+    // on top, and costs nothing.
+    private void DrawLine(Vector2 a, Vector2 b, Color c, float w)
+    {
+        if (_px == null)
+        {
+            _px = new Texture2D(1, 1);
+            _px.SetPixel(0, 0, Color.white);
+            _px.Apply();
+        }
+        Vector2 d = b - a;
+        float len = d.magnitude;
+        if (len < 0.01f) return;
+        float ang = Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg;
+        Color old = GUI.color;
+        GUI.color = c;
+        Matrix4x4 m = GUI.matrix;
+        GUIUtility.RotateAroundPivot(ang, a);
+        GUI.DrawTexture(new Rect(a.x, a.y - w * 0.5f, len, w), _px);
+        GUI.matrix = m;
+        GUI.color = old;
+    }
+
+    private void DrawVoxelHighlight(Camera cam, int3 v, Color c, float width)
+    {
+        // Voxels are 0.1 m (§2.3). Inflate very slightly so the outline sits
+        // just outside the surface instead of z-fighting it visually.
+        Vector3 lo = new Vector3(v.x, v.y, v.z) * 0.1f - Vector3.one * 0.002f;
+        Vector3 hi = lo + Vector3.one * (0.1f + 0.004f);
+
+        Vector3[] w = new Vector3[8];
+        for (int i = 0; i < 8; i++)
+            w[i] = new Vector3((i & 1) == 0 ? lo.x : hi.x,
+                               (i & 2) == 0 ? lo.y : hi.y,
+                               (i & 4) == 0 ? lo.z : hi.z);
+
+        Vector2[] p = new Vector2[8];
+        for (int i = 0; i < 8; i++)
+        {
+            Vector3 sp = cam.WorldToScreenPoint(w[i]);
+            if (sp.z <= 0f) return;                       // behind the camera
+            p[i] = new Vector2(sp.x, Screen.height - sp.y);
+        }
+
+        int[,] edges = {
+            {0,1},{1,3},{3,2},{2,0},   // -z face
+            {4,5},{5,7},{7,6},{6,4},   // +z face
+            {0,4},{1,5},{2,6},{3,7},   // connecting
+        };
+        for (int e = 0; e < 12; e++)
+            DrawLine(p[edges[e, 0]], p[edges[e, 1]], c, width);
+    }
+
     void OnGUI()
     {
+        // UI scale. Unity lays IMGUI out in PHYSICAL pixels, so on a 2880x1800
+        // backbuffer a 14 pt label is genuinely unreadable -- which is exactly
+        // how the first build looked. Everything textual below is drawn through
+        // this scale; the crosshair and voxel highlight are NOT, because they
+        // are projected from world space and must stay in real screen pixels.
+        float ui = Mathf.Max(1f, Screen.height / 900f);
         var st = new GUIStyle(GUI.skin.label) { fontSize = 14, richText = true };
+
+        // ---- Crosshair + target highlight ----
+        Camera cam = Camera.main;
+        if (cam != null)
+        {
+            // Crosshair, drawn DARK-THEN-LIGHT. A plain white crosshair is
+            // invisible against snow, which is most of this island -- the first
+            // build's was, in the very screenshot taken to check it.
+            // Sized off screen height so it does not shrink to nothing on a
+            // Retina backbuffer.
+            float cx = Screen.width * 0.5f, cy = Screen.height * 0.5f;
+            float k = Mathf.Max(1f, Screen.height / 900f);
+            float gap = 4f * k, len = 13f * k;
+            Color dark = new Color(0f, 0f, 0f, 0.65f);
+            Color lite = new Color(1f, 1f, 1f, 0.95f);
+            for (int pass = 0; pass < 2; pass++)
+            {
+                Color c = pass == 0 ? dark : lite;
+                float w = pass == 0 ? 4f * k : 1.6f * k;
+                DrawLine(new Vector2(cx - len, cy), new Vector2(cx - gap, cy), c, w);
+                DrawLine(new Vector2(cx + gap, cy), new Vector2(cx + len, cy), c, w);
+                DrawLine(new Vector2(cx, cy - len), new Vector2(cx, cy - gap), c, w);
+                DrawLine(new Vector2(cx, cy + gap), new Vector2(cx, cy + len), c, w);
+            }
+
+            if (_ready && _hasTarget)
+            {
+                bool inRegion = _fluid != null && _fluid.InRegion(_targetVoxel);
+                // Amber inside the fluid arena, grey outside it -- so "why is
+                // nothing happening here" is answerable at a glance.
+                // Dark backing pass first, same reason as the crosshair.
+                DrawVoxelHighlight(cam, _targetVoxel, new Color(0f, 0f, 0f, 0.55f), 4.5f * k);
+                DrawVoxelHighlight(cam, _targetVoxel,
+                    inRegion ? new Color(1f, 0.78f, 0.25f, 0.98f)
+                             : new Color(0.85f, 0.85f, 0.88f, 0.9f), 2f * k);
+            }
+        }
         var sb = new StringBuilder();
         sb.AppendLine("<b>Playground — dogfood scene. Not a diagnostic scene, not a scale test.</b>");
-        sb.AppendLine("WASD + right-mouse to look, Q/E down/up, Shift sprint");
+        sb.AppendLine(_cam != null && _cam.Captured
+            ? "<b>LMB</b> mine   <b>RMB</b> place brush   <b>scroll</b> cycle brush   WASD/QE fly, Shift sprint   ESC release mouse"
+            : "<color=#ffc64a><b>CLICK the window to capture the mouse and look around</b></color>   (ESC releases)");
         if (_ready)
         {
             var keys = new StringBuilder();
@@ -279,9 +537,22 @@ public class Playground : MonoBehaviour
             sb.AppendLine(keys.ToString());
             sb.AppendLine($"fluid arena {_arenaEdge}^3 voxels at {_arenaCentre} — FIXED, does not follow the camera (§7.4's moving radius is unbuilt)");
             sb.AppendLine($"budgets water {_waterBudget} / sand {_sandBudget} / lava {_lavaBudget} — deliberately tiny; this is NOT a scale test");
+            sb.Append($"<b>brush: {_brushNames[_brush]}</b>   ");
+            if (_hasTarget)
+            {
+                bool inRegion = _fluid != null && _fluid.InRegion(_targetVoxel);
+                sb.AppendLine($"looking at <b>{MaterialName(_targetMaterial)}</b> @ {_targetVoxel}  " +
+                              $"{_targetDistM:F1} m  " +
+                              (inRegion ? "<color=#ffc64a>[inside fluid arena]</color>"
+                                        : "<color=#bbbbbb>[OUTSIDE arena — fluid will not simulate here]</color>"));
+            }
+            else sb.AppendLine("looking at nothing within 12 m");
         }
         sb.AppendLine(_status);
-        GUI.Label(new Rect(12, 8, 1400, 140), sb.ToString(), st);
+        Matrix4x4 prev = GUI.matrix;
+        GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * ui);
+        GUI.Label(new Rect(12, 8, 1400, 180), sb.ToString(), st);
+        GUI.matrix = prev;
     }
 
     void OnDestroy()

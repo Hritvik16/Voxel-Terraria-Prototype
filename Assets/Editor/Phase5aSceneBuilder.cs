@@ -51,7 +51,9 @@ public static class Phase5aSceneBuilder
         // ocean. A dogfood scene that opens on featureless sea is useless.
         camGo.transform.position = new Vector3(1280f, 9.5f, 1268f);
         camGo.transform.rotation = Quaternion.Euler(14f, 0f, 0f);
-        camGo.AddComponent<SimpleFlyCamera>();
+        // PlaygroundFlyCamera, not SimpleFlyCamera: mouse-capture look, which
+        // the rig scenes deliberately do not have (see that file's header).
+        camGo.AddComponent<PlaygroundFlyCamera>();
 
         // The real world. Every serialized value set explicitly -- AddComponent
         // does not reliably pick up C# field initializers under -executeMethod.

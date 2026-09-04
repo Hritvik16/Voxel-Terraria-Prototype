@@ -80,7 +80,11 @@ public class PlaygroundHud : MonoBehaviour
     {
         if (!_visible)
         {
-            GUI.Label(new Rect(Screen.width - 150, 8, 140, 20), $"F1 — debug HUD");
+            float uiHidden = Mathf.Max(1f, Screen.height / 900f);
+            Matrix4x4 pv = GUI.matrix;
+            GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * uiHidden);
+            GUI.Label(new Rect(Screen.width / uiHidden - 150, 8, 140, 22), "F1 — debug HUD");
+            GUI.matrix = pv;
             return;
         }
 
@@ -112,7 +116,16 @@ public class PlaygroundHud : MonoBehaviour
             richText = true,
             normal = { textColor = Color.white },
         };
-        GUI.Box(new Rect(Screen.width - 640, 6, 630, 168), GUIContent.none);
-        GUI.Label(new Rect(Screen.width - 630, 10, 620, 160), sb.ToString(), st);
+
+        // IMGUI lays out in PHYSICAL pixels; on a Retina backbuffer this panel
+        // was microscopic. Scale the whole block by screen height.
+        float ui = Mathf.Max(1f, Screen.height / 900f);
+        float w = 640f, h = 172f;
+        Matrix4x4 prev = GUI.matrix;
+        GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * ui);
+        float vw = Screen.width / ui;
+        GUI.Box(new Rect(vw - w - 8, 6, w, h), GUIContent.none);
+        GUI.Label(new Rect(vw - w, 10, w - 14, h - 8), sb.ToString(), st);
+        GUI.matrix = prev;
     }
 }
