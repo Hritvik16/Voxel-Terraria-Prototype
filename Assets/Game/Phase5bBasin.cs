@@ -320,6 +320,26 @@ public class Phase5bBasin : MonoBehaviour
         return p;
     }
 
+    /// Mobile voxels in the SHIPPED world with Air directly beneath them.
+    /// Mirrors FluidReferenceCPU.CountFloatingMobile. At rest this must be 0 on
+    /// both sides: straight down is Intent tier 1, so anything with air under it
+    /// had a legal move and stopped anyway.
+    public int CountFloatingMobileWorld()
+    {
+        int n = 0;
+        for (int z = 0; z < SZ; z++)
+        for (int y = 1; y < SY; y++)
+        for (int x = 0; x < SX; x++)
+        {
+            if (!MaterialRules.IsMobile(Store.GetVoxel(new int3(x, y, z)))) continue;
+            if (Store.GetVoxel(new int3(x, y - 1, z)) == Materials.Air) n++;
+        }
+        return n;
+    }
+
+    /// Interior cells per layer, for deciding whether a layer is FULL.
+    public int InteriorCellsPerLayer => (SX - 2) * (SZ - 2);
+
     public int[] LayerProfileOracle(byte material)
     {
         var p = new int[SY];

@@ -199,6 +199,29 @@ public class FluidTieBreakVarianceTests
             report.Append($"salt {salt}: delta {delta}   ");
         }
 
+        // Which SUMMARY statistics survive a tie-break permutation? Anything
+        // that moves here is layout, not level, and must not be asserted
+        // against the GPU (§7.8). Anything that never moves is a candidate for
+        // an exact cross-implementation assertion.
+        var heights = new System.Collections.Generic.List<int>();
+        var fullCounts = new System.Collections.Generic.List<int>();
+        var occupiedCounts = new System.Collections.Generic.List<int>();
+        for (int salt = 0; salt <= 5; salt++)
+        {
+            int[] p = RunRigShaped(salt, out _, out _);
+            int top = -1, full = 0, occ = 0;
+            const int area = 62 * 62;                       // interior of the 64^3 basin
+            for (int y = 0; y < p.Length; y++)
+            {
+                if (p[y] > 0) { occ++; if (y > top) top = y; }
+                if (p[y] >= area) full++;
+            }
+            heights.Add(top); fullCounts.Add(full); occupiedCounts.Add(occ);
+        }
+        TestContext.WriteLine($"[stats] surface height per salt : {string.Join(",", heights)}");
+        TestContext.WriteLine($"[stats] full-layer count per salt: {string.Join(",", fullCounts)}");
+        TestContext.WriteLine($"[stats] occupied-layer count     : {string.Join(",", occupiedCounts)}");
+
         TestContext.WriteLine($"[rigscale] conserved {baseTotal} water at every salt");
         TestContext.WriteLine($"[rigscale] {report}");
         TestContext.WriteLine($"[rigscale] WORST per-layer delta from tie-break reordering alone: {worst}");
