@@ -97,6 +97,11 @@ namespace VoxelEngine.Simulation
         /// application. Expected to be non-zero in edit scenarios; a large value
         /// in a quiet scenario would mean the CA is deciding against stale state.
         public long StaleOpsDropped { get; private set; }
+        /// Ops refused because a half of the move lay in a chunk that is not
+        /// resident. NOT a mass loss -- the material stays exactly where it was,
+        /// which is the point. A non-zero value here means fluid is live next to
+        /// a streaming edge; see Phase 5d.
+        public long OpsDroppedNonResident { get; private set; }
         public int SkippedIssuesTotal { get; private set; }
 
         /// §7.2 states the readback lag is "typically 1-3 frames". Nothing was
@@ -238,6 +243,42 @@ namespace VoxelEngine.Simulation
                     // have landed on either cell since. Applying a stale move
                     // half is how place_block/mine_drop drifted by one drop.
                     // Both halves apply, or neither does.
+                    // RESIDENCY IS PART OF VALIDITY, NOT JUST MATERIAL.
+                    //
+                    // MEASURED BUG (Phase 5d, fixed here): with the CA's region
+                    // straddling a chunk boundary and ONE side evicted, this
+                    // path destroyed mass silently -- 7 water voxels of 52, with
+                    // StaleOpsDropped staying 0 because nothing looked stale.
+                    //
+                    // The mechanism is that ChunkStore.GetVoxel returns Air for
+                    // a NON-RESIDENT chunk, and its own comment says that is
+                    // "DELIBERATELY ambiguous with real air" and that callers
+                    // needing the distinction must ask IsResident/IsInWindow.
+                    // This path never asked. So for an op whose Dst was in an
+                    // evicted chunk:
+                    //     GetVoxel(Dst) == Air == ExpectedAtDst  -> looked valid
+                    //     SetVoxel(Dst, m)                       -> silent no-op
+                    //     SetVoxel(Src, 0)                       -> succeeded
+                    // and the material existed nowhere afterwards. The CA can
+                    // generate exactly that op because SampleVoxel also returns
+                    // AIR outside the window, and AIR reads as "free to move
+                    // into".
+                    //
+                    // BOTH halves are checked, because the mirror case gains
+                    // mass: a non-resident SRC means the vacate is the half that
+                    // silently no-ops while the write lands. This op is
+                    // documented directly above as "both halves apply, or
+                    // neither does", and residency is part of being able to.
+                    //
+                    // This is a GUARD, not §7.4's moving active radius. Fluid
+                    // that cannot move into unloaded space simply stays where it
+                    // is -- which is the behaviour Phase 5d defined as correct
+                    // BEFORE measuring, and what already happens when the whole
+                    // region is evicted.
+                    if (!_store.IsResident(CoordMath.VoxelToChunk(op.Dst)) ||
+                        (op.HasSrc && !_store.IsResident(CoordMath.VoxelToChunk(op.Src))))
+                    { OpsDroppedNonResident++; continue; }
+
                     if (_store.GetVoxel(op.Dst) != op.ExpectedAtDst) { StaleOpsDropped++; continue; }
                     if (op.HasSrc && _store.GetVoxel(op.Src) != op.NewMaterial)
                     { StaleOpsDropped++; continue; }

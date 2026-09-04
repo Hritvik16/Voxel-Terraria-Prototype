@@ -345,6 +345,7 @@ public class Phase5dStreamFluid : MonoBehaviour
         yield return Step2_Characterize(cam, camStart);
         yield return Step3_Eviction(cam, camStart);
         yield return Step4_WindowSlide(cam, camStart);
+        yield return Step5_Straddle(cam, camStart);
         yield return Step7_Honey(cam, camStart);
 
         string dir = Path.Combine(Application.persistentDataPath, _outputRootFolderName,
@@ -596,6 +597,133 @@ public class Phase5dStreamFluid : MonoBehaviour
         for (int i = 0; i < probes.Count; i++) if (Store.GetVoxel(probes[i]) == expect[i]) stillRight++;
         Check(stillRight == probes.Count,
             $"CPU state itself is unchanged by streaming ({stillRight}/{probes.Count})");
+    }
+
+    // =====================================================================
+    // STEP 5 -- THE STRADDLE CASE (predicted by reading, tested here)
+    // =====================================================================
+    // Steps 3 and 4 put the region INSIDE one chunk, so "evicted" was all or
+    // nothing. Reading the apply path suggests the dangerous case is PARTIAL:
+    //
+    //   FluidOpListReadback.Apply:
+    //     if (_store.GetVoxel(op.Dst) != op.ExpectedAtDst) { drop; }   // (1)
+    //     _store.SetVoxel(op.Dst, op.NewMaterial);                     // (2)
+    //     if (op.HasSrc) _store.SetVoxel(op.Src, 0);                   // (3)
+    //
+    //   ChunkStore.GetVoxel on a NON-RESIDENT chunk returns Air, and its own
+    //   comment says that is "DELIBERATELY ambiguous with real air" and that
+    //   callers needing the distinction must ask IsResident/IsInWindow.
+    //   ChunkStore.SetVoxel on a non-resident chunk silently returns.
+    //
+    // So if Dst is in an evicted chunk and Src is not: (1) passes because Air
+    // is what an empty destination looks like, (2) silently does nothing, and
+    // (3) succeeds -- the source is cleared and the material is never written
+    // anywhere. That is SILENT MASS LOSS, and the apply path asks neither
+    // IsResident nor IsInWindow.
+    //
+    // The CA can generate exactly that op, because SampleVoxel returns AIR for
+    // out-of-window cells and AIR reads as "free to move into".
+    //
+    // This step re-homes the region ACROSS a chunk boundary and walks the
+    // camera until exactly one of its two chunks is resident, which is the
+    // only state in which the above can fire.
+    private IEnumerator Step5_Straddle(Camera cam, Vector3 camStart)
+    {
+        _phase = "step5-straddle";
+        L("");
+        L("---------------------------------------------------------------");
+        L("STEP 5 -- REGION STRADDLING A CHUNK BOUNDARY, ONE SIDE EVICTED");
+        L("---------------------------------------------------------------");
+
+        // Re-home the CA across the boundary at chunk-local x = 128.
+        _readback?.Dispose(); _fluid?.Dispose();
+        int3 c = CoordMath.VoxelToChunk(_regionOrigin);
+        int3 corg = ChunkOriginVoxel(c);
+        _regionOrigin = new int3(corg.x + 128 - RX / 2, _regionOrigin.y, corg.z + 32);
+        CreateFluid();
+
+        var chunks = RegionChunks();
+        L($"  region re-homed to {_regionOrigin}, spanning {chunks.Count} chunks: " +
+          string.Join(", ", chunks.ConvertAll(k => k.ToString())));
+        Check(chunks.Count >= 2, "the region really does straddle a chunk boundary");
+
+        int poured = PourInto(Materials.Water, 40);
+        Settle();
+        int before = CountMaterialInRegion(Materials.Water);
+        Check(poured > 0, $"the straddle pour placed fluid ({poured})");
+        L($"  poured {poured}, settled = {before}");
+
+        // Walk out one chunk at a time, looking for PARTIAL residency.
+        float chunkM = EngineConfig.CHUNK_EDGE_VOXELS * 0.1f;
+        bool sawPartial = false;
+        int atStep = -1;
+        for (int step = 10; step <= 22 && !sawPartial; step++)
+        {
+            yield return MoveCam(cam, camStart + new Vector3(step * chunkM, 0f, 0f), 60);
+            var w = Sample();
+            L($"  +{step,2} chunks: resident {w.resident}/{w.total} inWindow {w.inWindow}/{w.total}");
+            if (w.resident > 0 && w.resident < w.total) { sawPartial = true; atStep = step; }
+        }
+
+        if (!sawPartial)
+        {
+            Note("NEVER reached a partial-residency state: the region's chunks always");
+            Note("evicted together. The predicted mass-loss path needs one side resident");
+            Note("and the other not, so it was NOT exercised. Reported, not assumed safe.");
+            yield return MoveCam(cam, camStart, 240);
+            Settle();
+            int back = CountMaterialInRegion(Materials.Water);
+            Check(back == before, $"water still conserved across the walk ({back} vs {before})");
+            yield break;
+        }
+
+        L($"  PARTIAL RESIDENCY reached at +{atStep} chunks -- this is the state the");
+        L("  predicted mass-loss path needs.");
+
+        // The fluid poured earlier has SETTLED, so it is asleep and nothing
+        // moves -- a first version of this step ticked 300 times here, applied
+        // ZERO ops, and "passed" without exercising the path at all. Fresh
+        // fluid is injected on the RESIDENT side, right next to the boundary,
+        // so it is actively moving toward the evicted chunk while the edge
+        // exists. That is the only configuration in which Apply can be handed
+        // a Dst in a non-resident chunk.
+        int3 evicted = int3.zero; bool haveEvicted = false;
+        foreach (int3 k in chunks) if (!Store.IsResident(k)) { evicted = k; haveEvicted = true; }
+        L($"  evicted chunk: {(haveEvicted ? evicted.ToString() : "none")}");
+
+        int injected = 0;
+        int boundaryX = ChunkOriginVoxel(evicted).x + EngineConfig.CHUNK_EDGE_VOXELS;
+        for (int i = 0; i < 12; i++)
+        {
+            // Just inside the RESIDENT chunk, a few voxels up so it falls and
+            // spreads -- toward the evicted side among other directions.
+            int3 v = new int3(boundaryX + 1 + (i % 3), _regionOrigin.y + 6 + (i / 3), _regionOrigin.z + RZ / 2);
+            if (Store.GetVoxel(v) == Materials.Air) { Edit(v, Materials.Water); injected++; }
+        }
+        int expected = before + injected;
+        L($"  injected {injected} water at the resident side of x={boundaryX}; expected total {expected}");
+
+        long appliedBefore = _applied;
+        for (int i = 0; i < 400; i++) FluidTick();
+        long opsDuring = _applied - appliedBefore;
+        L($"  ops applied while partially resident: {opsDuring}");
+        Check(opsDuring > 0,
+            "the CA actually MOVED fluid while a residency edge cut the region " +
+            "(otherwise the mass-loss path is untested, not proven safe)");
+
+        yield return MoveCam(cam, camStart, 300);
+        Settle();
+        int after = CountMaterialInRegion(Materials.Water);
+        L($"  after returning: water = {after} (expected {expected}, was {before} before injection)");
+        Check(after == expected,
+            $"NO MASS LOST OR GAINED across a residency edge ({after} vs expected {expected})");
+        Note($"stale ops dropped by the ledger overall: {_readback.StaleOpsDropped}");
+        Note($"ops refused for a NON-RESIDENT half: {_readback.OpsDroppedNonResident} " +
+             "-- these are the ops that used to destroy mass silently; a non-zero " +
+             "count here is the guard working, not a fault.");
+        Check(_readback.OpsDroppedNonResident > 0,
+            "the residency guard actually fired (if 0, the edge was never crossed " +
+            "and the conservation result above is untested, not proven)");
     }
 
     // =====================================================================
