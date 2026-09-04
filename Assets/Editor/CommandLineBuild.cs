@@ -114,6 +114,25 @@ public static class CommandLineBuild
         DisableAppNap(PHASE5BDEMO_OUTPUT_PATH);
     }
 
+    private const string PHASE5D_SCENE_PATH = "Assets/Scenes/Phase 5d Stream Fluid.unity";
+    private const string PHASE5D_OUTPUT_PATH = "Builds/Phase5dStreamFluid.app";
+
+    public static void BuildPhase5dStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE5D_SCENE_PATH },
+            locationPathName = PHASE5D_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase5d result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE5D_OUTPUT_PATH);
+    }
+
     private const string PHASE5C_SCENE_PATH = "Assets/Scenes/Phase 5c Edit Stress.unity";
     private const string PHASE5C_OUTPUT_PATH = "Builds/Phase5cEditStress.app";
 

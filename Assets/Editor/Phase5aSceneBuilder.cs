@@ -160,6 +160,61 @@ public static class Phase5aSceneBuilder
         if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
     }
 
+    public const string Phase5dScenePath = "Assets/Scenes/Phase 5d Stream Fluid.unity";
+
+    /// Streaming x fluid interaction rig (Phase 5d). DIAGNOSTIC scene: the real
+    /// Phase 4 streaming stack plus a live fluid CA, scripted camera, minimal
+    /// rendering. Unlike every other fluid scene this one has a REAL
+    /// StreamManager with a non-zero load radius, because chunks actually
+    /// streaming in and out is the whole point.
+    [MenuItem("Voxel/Generate Phase 5d Stream+Fluid Scene")]
+    public static void GeneratePhase5d()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.05f, 0.06f, 0.09f, 1f);
+        cam.fieldOfView = 60f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 500f;
+        // The rig drives this camera from a script; the starting pose is
+        // overwritten in Start(). No flycam component: no human input.
+        camGo.transform.position = new Vector3(128f, 14f, 128f);
+
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        // 0 = use the engine default radius. The rig reads the resulting
+        // LoadRadiusChunks back and derives its camera distances from it, so
+        // this scene does not hardcode how far "far" is.
+        SetIfPresent(bo, "_loadRadiusChunks", 0);
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", false);
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var rigGo = new GameObject("Phase5dStreamFluid");
+        var rig = rigGo.AddComponent<Phase5dStreamFluid>();
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+        var ro = new SerializedObject(rig);
+        ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        ro.FindProperty("_slotCapacity").intValue = 65536;
+        ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
+        ro.FindProperty("_outputRootFolderName").stringValue = "Phase5dStreamFluid";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Phase5dScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, Phase5dScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {Phase5dScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {Phase5dScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
+
     public const string Phase5cScenePath = "Assets/Scenes/Phase 5c Edit Stress.unity";
 
     /// Edit-path stress rig (Phase 5c). Same basin shape as 5b so a human
