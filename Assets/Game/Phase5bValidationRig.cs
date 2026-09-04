@@ -247,7 +247,21 @@ public class Phase5bValidationRig : MonoBehaviour
         for (int r = 0; r < REPEATS; r++)
             gpuVsCpu = Mathf.Max(gpuVsCpu, WorstDelta(gpu[r], cpu[r]));
 
+        // Surface height across the GPU's own repeats. If this moves, the
+        // statistic is ordering-sensitive and asserting it against the oracle
+        // is asserting layout, not level.
+        int TopOf(int[] p) { for (int y = p.Length - 1; y >= 0; y--) if (p[y] > 0) return y; return -1; }
+        var gpuTops = new System.Text.StringBuilder();
+        var cpuTops = new System.Text.StringBuilder();
+        for (int r = 0; r < REPEATS; r++)
+        {
+            gpuTops.Append(TopOf(gpu[r])).Append(r < REPEATS - 1 ? "," : "");
+            cpuTops.Append(TopOf(cpu[r])).Append(r < REPEATS - 1 ? "," : "");
+        }
+
         L("");
+        L($"surface height per GPU run : {gpuTops}");
+        L($"surface height per CPU run : {cpuTops}");
         L($"conserved counts identical across runs : {(AllSame(gpuTotal) ? "YES" : "NO")}");
         L($"worst per-layer delta, GPU vs its OWN other runs : {gpuVsGpu}");
         L($"worst per-layer delta, CPU vs its OWN other runs : {cpuVsCpu}");
@@ -378,13 +392,26 @@ public class Phase5bValidationRig : MonoBehaviour
             // which the rules do determine, instead of about which particular
             // cell within a level a drop happened to pick:
             //   1. conserved count            exact equality
-            //   2. surface height             exact equality (top occupied layer)
-            //      -- VERIFIED rule-determined, not layout: permuting the
-            //         oracle's tie-break order across 6 salts gave surface
-            //         height 2,2,2,2,2,2 and occupied-layer count 2,2,2,2,2,2.
-            //         It does not wobble, so asserting it is legitimate.
-            //   3. occupied-layer set         exact equality (which layers hold any)
-            //   4. full-layer set             exact equality (which layers are FULL)
+            //   2. full-layer set             exact equality  ("settled-layer
+            //                                  occupancy" -- forced by mass)
+            //   3. floating drops             exact ZERO, both sides
+            //
+            // SURFACE HEIGHT AND OCCUPIED-LAYER COUNT WERE ASSERTED HERE AND ARE
+            // NOW REPORTED-ONLY, ON EVIDENCE -- not to obtain a pass.
+            // They were added because permuting the ORACLE'S tie-break order
+            // left them stable (2,2,2,2,2,2), which made them look
+            // rule-determined. That perturbation was too weak: the GPU's
+            // concurrent claim resolution reorders far more than reordering one
+            // slot's preference list. Measured directly, five GPU repeats of the
+            // same scenario:
+            //     surface height per GPU run : 2,2,2,1,2      <- MOVES
+            //     surface height per CPU run : 2,2,2,2,2      <- stable
+            // and across two consecutive full sweeps the scenario failing this
+            // check CHANGED (pour_water, then mine_drop). A statistic that varies
+            // run-to-run on one implementation cannot be required to match
+            // another exactly -- that is layout, and §7.8 says not to test it.
+            // Both are still PRINTED every run, so a systematic shift stays
+            // visible to a human.
             //   5. no floating drops          exact zero, BOTH sides
             // (5) is strictly NEW -- it did not exist before tonight and it
             // catches the stranded-drop class of bug that per-layer equality
@@ -410,7 +437,8 @@ public class Phase5bValidationRig : MonoBehaviour
             int cpuFloat = _basin.Oracle.CountFloatingMobile();
             bool noFloaters = gpuFloat == 0 && cpuFloat == 0;
 
-            bool ok = countsMatch && surfaceMatch && occupiedSetMatch && fullSetMatch && noFloaters;
+            // ASSERTED: mass, settled-layer occupancy, no floaters.
+            bool ok = countsMatch && fullSetMatch && noFloaters;
             if (ok) _comparisonsMatched++;
 
             int worstLayer = -1, worstDelta = 0;
@@ -422,9 +450,10 @@ public class Phase5bValidationRig : MonoBehaviour
 
             L($"  material {m}: {(ok ? "MATCH" : "*** DIVERGED ***")}");
             L($"    conserved count   GPU {gpu} vs CPU {cpu}  {(countsMatch ? "ok" : "MISMATCH")}");
-            L($"    surface height    GPU y={gpuTop} vs CPU y={cpuTop}  {(surfaceMatch ? "ok" : "MISMATCH")}");
-            L($"    occupied layers   {(occupiedSetMatch ? "ok" : "MISMATCH")}   " +
-              $"full layers {(fullSetMatch ? "ok" : "MISMATCH")}");
+            L($"    full layers       {(fullSetMatch ? "ok" : "MISMATCH")}   (settled-layer occupancy)");
+            L($"    surface height    GPU y={gpuTop} vs CPU y={cpuTop}  " +
+              $"{(surfaceMatch ? "same" : "differs")} — REPORTED ONLY (varies run-to-run 2,2,2,1,2)");
+            L($"    occupied layers   {(occupiedSetMatch ? "same" : "differs")} — REPORTED ONLY");
             L($"    floating drops    GPU {gpuFloat} / CPU {cpuFloat}  {(noFloaters ? "ok" : "MISMATCH")}");
             L($"    (per-layer spread {worstDelta}" +
               (worstLayer >= 0 && worstDelta > 0 ? $" at y={worstLayer}" : "") +
