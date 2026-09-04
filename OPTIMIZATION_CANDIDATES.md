@@ -1,6 +1,6 @@
 # Optimization Candidates — ranked, with evidence
 
-**Date:** September 4, 2026
+**Date:** September 4, 2026 (updated later the same day: #7 added)
 **Status:** PROPOSALS AWAITING APPROVAL. **Nothing in this document has been
 implemented.**
 
@@ -176,6 +176,63 @@ is built, this sizing is the thing that decides whether it is affordable.
 
 ---
 
+### 7. `AllocSlot` is a bump allocator with no free list — slots are consumed by CHURN
+**Evidence: MEASURED on the GPU, plus read from the shader. Added Sept 4 from the
+Phase 5c investigation (`PHASE_5C_COMPLETION.md` §5).**
+
+```hlsl
+uint AllocSlot()
+{
+    uint idx;
+    InterlockedAdd(Counters[1], 1u, idx);   // bump. Never decreases.
+    return idx;
+}
+```
+
+`CSSweep` frees a slot when it sleeps (clears `stateFlags`, releases
+`SlotAtBuffer[home]`) but **the index is never returned to anything.**
+`Counters[1]` only grows, so capacity is consumed by promote/sleep/re-promote
+cycles rather than by how much fluid is alive.
+
+**Measured, 220-voxel pour, three orderings:**
+
+| | slots ever allocated | live voxels | capacity |
+|---|---|---|---|
+| MirrorFirst | 7,446 | 220 | 65,536 |
+| TickFirst | 8,150 | 220 | 65,536 |
+| MirrorFirstOffset | 7,523 | 220 | 65,536 |
+
+**~35 allocations per live voxel.** Comfortable at this scale — this is not a
+bug today, and it was explicitly checked and ruled out as the cause of the
+stranded-voxel investigation that found it.
+
+**Why it matters.** §2.5's ~500,000 near-player active target would exhaust
+65,536 indices long before reaching it. §7.7 makes exhaustion a guarded no-op —
+"retry next tick, no invalid write, ever" — and mass is indeed safe. But
+**nothing re-requests**, and the counter only grows, so in practice exhaustion
+means voxels silently stop being simulated: a voxel frozen in mid-air, which is
+the same *symptom* as the Phase 5c bug from an entirely different cause.
+
+**Proposed fix.** A LIFO free list: `CSSweep` pushes the freed index, `AllocSlot`
+pops before bumping. Both ends are already atomic (`InterlockedAdd` on a stack
+pointer), so this **does not touch the claim path** and §8.4's "no atomic in the
+claim path" rule is unaffected — the header note in `FluidCA.compute` already
+draws that distinction for the existing bump counter.
+
+**What could break.** ABA on the free list under concurrent push/pop, and slot
+reuse racing a readback still referencing the old slot — `RING` exists precisely
+because a slot must not be rewritten while its own readback is outstanding, and
+a free list makes reuse much faster, so that interaction needs thinking about
+before it is written.
+
+**Verifiable tonight?** No, and not proposed for it. This is a change to the CA's
+allocator under §7.3/§7.7, there is no evidence it bites at any scale currently
+tested, and §2.5's target has never been run. **The honest first step is not this
+fix — it is running §13's untested pool-exhaustion assertion**, which would show
+what actually happens at the ceiling instead of predicting it.
+
+---
+
 ## What I would do first, if approved
 
 1. **#2 (op-list size)** — the clearest measured waste (475× oversized), the
@@ -187,6 +244,10 @@ is built, this sizing is the thing that decides whether it is affordable.
    another and we cannot currently see which is bigger.
 
 **#4 and #6 should be left alone**, for reasons stated above.
+
+**#7 is not an optimization and should not be treated as one.** It is a
+correctness ceiling written down early. Its prerequisite is §13's untested
+pool-exhaustion assertion, not a profiler.
 
 ---
 

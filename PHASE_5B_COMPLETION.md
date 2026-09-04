@@ -2,31 +2,40 @@
 
 **Project:** Voxel Terraria 1 Byte BrickMap
 **Spec:** ARCHITECTURE_v8.6.md §13 Phase 5b, §7.2, §7.3, §7.8, §8.4
-**Date:** September 3, 2026 (updated September 4)
+**Date:** September 3, 2026 (updated September 4, twice — see §10)
 **Branch:** `phase5a-fluid-reference`
-**EditMode suite:** `PASS 229  FAIL 0  SKIP 0`
+**EditMode suite:** `PASS 249  FAIL 0  SKIP 0`
 **Validation rig:** 5 scenarios, conservation MATCHES on all five; the
-§7.8-shaped steady-state assertion MATCHES on 4 of 5 (see §4)
+§7.8-shaped steady-state assertion MATCHES on **5 of 5**, with floating drops
+`GPU 0 / CPU 0` on every scenario (see §4 and §10)
 **Hardware:** Apple M1 Air (fanless, 8GB unified memory)
 **Engine:** Unity 6000.3.10f1, release standalone
 
 ---
 
-## PHASE 5B IS NOT CLOSEABLE. READ §4 AND §8 BEFORE TREATING FLUID AS DONE.
+## PHASE 5B IS NOT CLOSEABLE. READ §4, §8 AND §10 BEFORE TREATING FLUID AS DONE.
 
-**Status as of Sept 4.** The GPU CA runs, conserves mass exactly on every
-scenario, produces obsidian, leaves no drop stranded in mid-air, and is visible
-in 3D through the shipped raymarcher with no fluid-specific render code. Four of
-five scenarios now match the oracle on every steady-state check.
+**Status as of Sept 4 (second update).** The GPU CA runs, conserves mass exactly
+on every scenario, produces obsidian, leaves no drop stranded in mid-air, and is
+visible in 3D through the shipped raymarcher with no fluid-specific render code.
+**All five** scenarios now match the oracle on every asserted steady-state check.
 
-**One item blocks closure on the automated side:** `pour_water`'s settled
-surface height differs (GPU y=1, oracle y=2). That is characterised but not
-resolved — §4. Two further gates need a human and cannot be closed here at all:
-the Metal claim-race test and any Xcode-verified timing.
+**The automated side is clean.** The two items that previously blocked it —
+`pour_water`'s surface height and the unexplained intermittent floating drop —
+are both resolved; see §4.4 and §10. What remains is **two gates that need a
+human and cannot be closed here at all**: the Metal claim-race test and any
+Xcode-verified timing. Two §13 acceptance assertions also remain untested behind
+them (pool exhaustion, CPU-lane apply cost) — see §5 and `PHASE_5C_COMPLETION.md` §8.
 
 The §4 question this document previously left open — variance or bug — **has
 been answered by experiment**, and the answer turned out to be *both*, for
 different statistics. See §4.
+
+**A defect class none of this could catch was found afterwards, by a human
+clicking:** every hand-placed fluid voxel froze, because the shipping frame
+ordering is the opposite of the one every rig here uses. That work, the rig
+built to close it, and the resolution of the intermittent floater live in
+`PHASE_5C_COMPLETION.md`. §10 summarises what it changed about this document.
 
 All timing here remains **PROVISIONAL — NOT XCODE-VERIFIED**.
 
@@ -62,8 +71,10 @@ run**), `Assets/Editor/ShaderCompileCheck.cs`.
   oracle on identical inputs: 150/150, 24/24, 62/62, 150/150, 150/150.
 - **No fluid is ever stranded in mid-air**, on either implementation, including
   on staircase and overhang geometry (§4.5). Asserted as an exact zero.
-- **Four of five scenarios match the oracle on every steady-state check**
-  (conserved count, surface height, occupied layers, full layers, floaters).
+- **All five scenarios match the oracle on every ASSERTED steady-state check**
+  (conserved count, settled-layer occupancy, floating drops = 0 on both sides).
+  Surface height and occupied-layer count are REPORTED, not asserted, because
+  they were measured to move run-to-run on the GPU — §4.3.
 - **Full CA pipeline executes**: `promote.ALLOCATED=47`, `intent.awake=47`,
   `intent.CLAIMS=24`, `commit.claims_seen=24`, `commit.APPLIED=24`.
 - **Sand's final distribution matches the oracle exactly** (per-layer delta 0).
@@ -74,8 +85,10 @@ run**), `Assets/Editor/ShaderCompileCheck.cs`.
   while slots still exist** — the sharpest form of that test.
 - **Fluid renders through the shipped raymarcher with no fluid-specific code**
   (§3.10) — verified by looking at the captures, not by counters.
-- The EditMode suite is green at 229 tests, including 4 new sloped-terrain
-  regressions (§4.5) and 4 new tie-break-variance tests (§4.2).
+- The EditMode suite is green at **249** tests, including 4 sloped-terrain
+  regressions (§4.5), 4 tie-break-variance tests (§4.2), 4 slow-viscosity settle
+  tests closing 5a §8.1's rest-detector blind spot, and 10 wake-queue tests from
+  the edit-path work (`PHASE_5C_COMPLETION.md`).
 
 ### PERFORMANCE — PROVISIONAL, NOT XCODE-VERIFIED
 
@@ -103,14 +116,25 @@ live, which is itself a reason not to lean on them.
   ready; it has **never been run**. Until it is, nothing here is evidence the
   plain-write claim is safe on this toolchain.
 - **Xcode-verified GPU-lane timing**, deferred by decision (§9).
-- **The playable scene has not been played by a human.** It builds and the demo
-  mode of the same build runs; the flycam and keybinds are unexercised.
+- ~~**The playable scene has not been played by a human.**~~ **RESOLVED, and it
+  immediately paid for itself.** A human played it and found that every
+  hand-placed fluid voxel froze in mid-air — a defect class every gate in 5a and
+  5b was blind to, because the rigs use the opposite frame ordering to every
+  shipping scene. See `PHASE_5C_COMPLETION.md`.
 - **Pool exhaustion** (§13: "debug-shrink the GPU pool, breach it"). Not run on
-  the GPU path. `AllocSlot` has the guarded no-op, untested here.
+  the GPU path. `AllocSlot` has the guarded no-op, untested here. **This became
+  more important on Sept 4:** `AllocSlot` is a bump allocator with no free list,
+  so slot indices are consumed by churn rather than by live fluid — measured at
+  ~35 allocations per live voxel. Exhaustion is therefore reachable in ordinary
+  play at §2.5's target scale, not only under a debug-shrunk pool. See
+  `PHASE_5C_COMPLETION.md` §5 and `OPTIMIZATION_CANDIDATES.md` #7.
 - **Streaming interaction.** The demo and rig use one static chunk. Fluid has
   never run while chunks stream in/out, and the CA's region is fixed at the
   origin — a moving active region is untested.
-- **Honey.** Defined, never poured on the GPU path.
+- **Honey on the GPU path.** Defined, never poured on the GPU path. It now
+  settles in the CPU oracle (`FluidSlowViscositySettleTests`: interval 30,
+  settles by tick 870, conserved, nothing floating) — the suite's first
+  slow-viscosity rest coverage — but the GPU path has still never seen it.
 - Everything in Phase 6/7.
 
 ---
@@ -258,30 +282,53 @@ It was replaced with five checks, each an **exact equality or an exact zero** �
 no tolerance was introduced:
 
 1. conserved count — exact
-2. surface height — exact *(verified rule-determined by 4.2)*
-3. occupied-layer set — exact
-4. full-layer set — exact
-5. **floating drops — exact zero, both sides** — strictly NEW, see §4.5
+2. full-layer set — exact ("settled-layer occupancy", forced by mass)
+3. **floating drops — exact zero, both sides** — strictly NEW, see §4.5
 
-The per-layer spread is still printed in the rig output, explicitly labelled
-"REPORTED ONLY, not asserted".
+**Surface height and occupied-layer count were on this list and were demoted to
+REPORTED ONLY, on evidence, not to obtain a pass.** They were added here because
+permuting the *oracle's* tie-break left them stable (2,2,2,2,2), which made them
+look rule-determined. That perturbation was too weak: the GPU's concurrent claim
+resolution reorders far more than reordering one slot's preference list.
+Measured directly, five GPU repeats of the same scenario:
 
-### 4.4 What still diverges, and what it is
+```
+surface height per GPU run : 2,2,2,1,2      <- MOVES
+surface height per CPU run : 2,2,2,2,2      <- stable
+```
 
-`pour_water`: **surface height GPU y=1 vs oracle y=2.** Everything else matches.
+and across two consecutive sweeps the scenario failing this check *changed*
+(`pour_water`, then `mine_drop`). A statistic that varies run-to-run on one
+implementation cannot be required to match another exactly — that is layout, and
+§7.8 says not to test it. Both are still **printed every run**, so a systematic
+shift stays visible to a human. The rationale is duplicated at the assertion
+site in `Phase5bValidationRig.cs`.
 
-This is **not** tie-break variance — 4.2 shows surface height does not wobble
-under permutation. The GPU systematically settles **lower**: it gets all 150
-drops down to y=1, while the oracle always leaves a few resting on top of the
-puddle at y=2. Neither state contains a floating drop and both conserve exactly.
-The GPU is settling *more completely* than the reference, not less.
+The per-layer spread is likewise printed and labelled "REPORTED ONLY, not
+asserted".
 
-**Leading hypothesis, NOT confirmed:** the async pipeline delivers wake signals
-spread across frames, so a GPU slot can be re-promoted after sleeping and
-accumulates more total lateral budget than the oracle's synchronous single wake
-gives it — making the extra settling a consequence of §7.2's latency rather than
-a rule difference. Confirming or refuting this is the next step and it is the
-one automated item blocking closure.
+### 4.4 What still diverges, and what it is — RESOLVED
+
+**Superseded.** This section previously read: "`pour_water`: surface height GPU
+y=1 vs oracle y=2 … this is **not** tie-break variance — 4.2 shows surface height
+does not wobble under permutation … confirming or refuting this is the one
+automated item blocking closure."
+
+**That conclusion was wrong, and it was wrong because 4.2's perturbation was too
+weak.** Permuting the oracle's tie-break moves one slot's preference list; the
+GPU's concurrent claim resolution reorders far more than that. Measured directly
+against the GPU rather than inferred from the oracle, surface height **does**
+move run-to-run on the GPU (2,2,2,1,2) while staying stable on the CPU, and the
+scenario that failed the check changed between sweeps. It is layout, it is
+§7.8's stated freedom, and it is now REPORTED rather than asserted — see §4.3.
+
+The rig matches on **5 of 5**. Nothing about `pour_water` is outstanding.
+
+The lesson is worth more than the result: **an experiment that perturbs only the
+reference implementation cannot establish what the other implementation
+determines.** The same mistake in a different form is recorded in
+`PHASE_5C_COMPLETION.md` §3.3, where a control that shifted tick phase by one
+tick moved the settled layout in 13 of 14 cases.
 
 ### 4.5 A REAL BUG WAS FOUND AND FIXED ON THE WAY (both implementations)
 
@@ -314,7 +361,7 @@ overhang geometry — the CA's first non-flat test coverage.
 
 | assertion | status |
 |---|---|
-| All of 5a's behavioural assertions as steady-state invariants | **PARTIAL** — conservation on all five; full steady-state match on 4 of 5 (§4.4) |
+| All of 5a's behavioural assertions as steady-state invariants | **MET** — conservation on all five; the §7.8-shaped steady-state set matches on **5 of 5**, floating drops zero on both sides (§4.3) |
 | Live fluid visible while falling (authoritative-byte proof) | **MET** — see §6 |
 | Pool exhaustion: distant drops freeze, zero errors, no device removal | **NOT TESTED** |
 | Op-list genuinely bounded, correlates with changed cells | **MET** — 24–48 ops/frame vs 24–130 slots; 0 at rest |
@@ -368,8 +415,20 @@ no arguments: WASD + right-mouse to fly, Q/E down/up, Shift to sprint.
 
 ## 8. Gaps carried forward
 
-- **`pour_water`'s surface-height difference (§4.4)** — the one automated item
-  blocking closure. Characterised, hypothesis stated, not confirmed.
+- ~~**`pour_water`'s surface-height difference (§4.4)**~~ — **RESOLVED.** It is
+  layout, it moves run-to-run on the GPU, and §7.8 says not to assert it. The
+  rig matches 5 of 5. See §4.4.
+- ~~**The intermittent GPU floating drop**~~ — **the class is understood and
+  fixed**, with slot-ownership evidence, in `PHASE_5C_COMPLETION.md` §4. Read
+  §4.2 there for the part that is *not* established: the single pre-fix sighting
+  recorded here cannot be attributed to that cause and is not claimed to be. If
+  it recurs, capture `FluidGpuSimulation.ReadSlotAtCell` for the stranded cell
+  first — owned vs unowned splits the diagnosis immediately.
+- **This rig's own rest detector was not changed.** It still uses a 12-tick quiet
+  window, which is the `PHASE_5A_COMPLETION.md` §8.1 blind-spot shape: a queued
+  wake request produces no ops, so a not-yet-looked-at voxel can read as
+  "floating". The 5c rig additionally requires `DeferredWakeRequests == 0`;
+  porting that here would make this rig's rest measure strictly honest.
 - **The Metal claim-race test has never been run.** Until it is, §7.3's
   plain-write claim is unverified on this toolchain, and the whole claim design
   rests on it.
@@ -386,19 +445,25 @@ no arguments: WASD + right-mouse to fly, Q/E down/up, Shift to sprint.
 
 ## 9. Sign-off
 
-**Phase 5b is not closeable, but the gap is now one characterised item plus two
-manual gates.**
+**Phase 5b is not closeable. The automated side is clean; the blocking items are
+the two manual gates.**
 
 The GPU port runs, conserves mass exactly on all five scenarios, produces
 obsidian, strands no fluid in mid-air, and is visibly correct in 3D through the
 shipped raymarcher with no fluid-specific render code. Its steady state matches
-the oracle on **4 of 5** scenarios under an assertion that was rebuilt from
-measurement rather than assumption.
+the oracle on **5 of 5** scenarios under an assertion that was rebuilt from
+measurement rather than assumption, and the edit path a player actually drives is
+covered separately by `PHASE_5C_COMPLETION.md` (`PASS 170 FAIL 0`).
 
-Outstanding:
-1. `pour_water`'s surface height (§4.4) — automated, characterised, unresolved.
-2. The Metal claim-race test — **never run**; needs a human on this machine.
-3. Xcode-verified timing — deferred by decision (§9), needs a human.
+Blocking, and neither is automatable here:
+1. The Metal claim-race test — **never run**; needs a human on this machine.
+2. Xcode-verified timing — deferred by decision, needs a human.
+
+Open behind those, and smaller — but open, so "closeable pending only the two
+manual gates" would be an overstatement:
+3. **Pool exhaustion** — a §13 acceptance assertion, still untested, and §5 of
+   the 5c record raises its priority.
+4. **CPU-lane op-list-apply cost** — a §13 acceptance assertion, never measured.
 
 **What this does not license:**
 
@@ -413,5 +478,27 @@ Outstanding:
 **Suite at sign-off:**
 
 ```
-PASS 229  FAIL 0  SKIP 0
+EditMode      PASS 249  FAIL 0  SKIP 0
+Phase 5b rig  5/5 MATCH, floating drops GPU 0 / CPU 0 on all five
+Phase 5c rig  PASS 170  FAIL 0   (the edit path — see PHASE_5C_COMPLETION.md)
 ```
+
+---
+
+## 10. What changed after this document was first written (Sept 4, second update)
+
+Recorded here rather than silently edited in, so the reasoning that was *wrong*
+stays legible.
+
+| what this document said | what is true now | where |
+|---|---|---|
+| steady state matches on **4 of 5**; `pour_water` blocks closure | matches on **5 of 5**; surface height is layout and is REPORTED, not asserted | §4.3, §4.4 |
+| surface height is rule-determined, "does not wobble under permutation" | **wrong** — it moves run-to-run on the GPU (2,2,2,1,2). 4.2's perturbation only reordered the *oracle*, which cannot establish what the GPU determines | §4.4 |
+| an intermittent GPU floating drop, unexplained | the class is understood, diagnosed with slot-ownership evidence, and fixed; the single pre-fix sighting is **not** claimed to be the same cause | `PHASE_5C_COMPLETION.md` §4 |
+| the playable scene has not been played by a human | it has, and it found a defect class every gate here was blind to | §2, `PHASE_5C_COMPLETION.md` §0 |
+| `AllocSlot` has a guarded no-op, untested | still untested, and now known to be a **bump allocator with no free list** (~35 allocations per live voxel), which makes exhaustion reachable in ordinary play at scale | §2, `PHASE_5C_COMPLETION.md` §5 |
+
+**Not changed by any of this:** the Metal claim-race test has still never been
+run, no Xcode-verified timing exists, fluid has still never run while chunks
+stream, and §4.3's upload p99 is still red — `PHASE_5C_COMPLETION.md` §7 shows
+this work neither caused nor fixed the current numbers.
