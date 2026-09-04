@@ -131,3 +131,8 @@ InitTestScene*.unity*
 /Builds/Phase5bDemo.app/
 /phase5bdemo_build.log
 /phase5bdemo_scene.log
+
+/Builds/Playground.app/
+/playground_build.log
+/playground_scene.log
+/shadercheck2.log

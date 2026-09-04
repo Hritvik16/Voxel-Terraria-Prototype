@@ -145,3 +145,106 @@ public static class MaterialRules
         return false;
     }
 }
+
+/// ==========================================================================
+/// MaterialPalette — the authored look of each material.
+///
+/// REPLACES the shader's old `(mat - 1) % 8` dev palette, which assigned
+/// colours by arithmetic accident: it guaranteed adjacent material ids never
+/// shared a colour, and guaranteed nothing else. Water landed on teal, lava on
+/// olive, obsidian on magenta -- flat, saturated, game-UI colours that made a
+/// screenshot hard to read as terrain.
+///
+/// ART DIRECTION: natural and muted. Earthy greens and browns, warm neutral
+/// stone, and liquids that read as materials rather than as UI accents. Fewer
+/// saturated primaries; tonal variation comes from the shading step (per-voxel
+/// grain, ambient occlusion, hemisphere tint) rather than from picking louder
+/// hues. Values are deliberately mid-range: the shading multiplies them down,
+/// so anything authored near 1.0 blows out once a face catches the sky term.
+///
+/// THIS TABLE IS MIRRORED IN Raymarch.compute's MaterialAlbedo(). The two must
+/// stay in sync and there is an EditMode test (PaletteSyncTests) that parses the
+/// shader and fails if they drift -- because a silent mismatch between the CPU
+/// palette (debug overlays) and the GPU palette (what you actually look at) is
+/// exactly the kind of thing nobody notices for a month.
+public static class MaterialPalette
+{
+    public readonly struct Rgb
+    {
+        public readonly float R, G, B;
+        public Rgb(float r, float g, float b) { R = r; G = g; B = b; }
+    }
+
+    /// Unknown/unauthored materials get a flat magenta so a missing entry is
+    /// obvious on screen rather than silently plausible.
+    public static readonly Rgb Missing = new Rgb(0.90f, 0.10f, 0.80f);
+
+    private static readonly Rgb[] _table = new Rgb[256];
+
+    static MaterialPalette()
+    {
+        for (int i = 0; i < 256; i++) _table[i] = Missing;
+
+        // Air is never shaded (the raymarcher treats mat==0 as no-hit), but give
+        // it something inert so a stray lookup is not magenta.
+        _table[Materials.Air] = new Rgb(0.00f, 0.00f, 0.00f);
+
+        // ---- Rock ----
+        // Warm neutral grey, very slightly brown. Pure grey reads as plastic;
+        // a few points of red over blue is what makes it read as rock.
+        _table[Materials.Stone] = new Rgb(0.44f, 0.425f, 0.400f);
+        // Deeper rock: darker and cooler, so depth reads as depth without
+        // needing a lighting system to tell you.
+        _table[Materials.Deepstone] = new Rgb(0.255f, 0.260f, 0.285f);
+        // Stone with a green cast rather than a green ON stone -- it should sit
+        // between Stone and Grass, not look like painted rock.
+        _table[Materials.MossyStone] = new Rgb(0.355f, 0.410f, 0.330f);
+
+        // ---- Ground cover ----
+        // Muted olive-green. The single most important restraint in the whole
+        // palette: a saturated green here is what makes voxel terrain look like
+        // a toy. Kept dark and yellow-shifted.
+        _table[Materials.Grass] = new Rgb(0.365f, 0.470f, 0.255f);
+        // Jungle: deeper and bluer than grass, still unsaturated.
+        _table[Materials.JungleGrass] = new Rgb(0.275f, 0.410f, 0.235f);
+        // NOTE ON "DIRT": the v1 roster (§5.5) has no Dirt material, so the
+        // warm-earth role is carried by Sandstone below. Adding a Dirt id would
+        // be additive and harmless, but it would be content generation never
+        // emits, so it is deliberately not added here.
+        _table[Materials.Sandstone] = new Rgb(0.520f, 0.415f, 0.295f);
+        // Warm pale sand, not yellow. Beach sand is closer to grey than people
+        // remember; pushing saturation here is what makes deserts look neon.
+        _table[Materials.Sand] = new Rgb(0.735f, 0.660f, 0.495f);
+        // Snow: near-white with a faint cool cast so it separates from stone.
+        // Held below 0.90 so the sky term has somewhere to go.
+        _table[Materials.Snow] = new Rgb(0.860f, 0.880f, 0.905f);
+
+        // ---- Liquids ----
+        // Water: desaturated blue-green and DARK. The old teal read as a UI
+        // colour; real water is mostly a dark surface that borrows brightness
+        // from the sky, which the hemisphere term supplies.
+        _table[Materials.Water] = new Rgb(0.150f, 0.330f, 0.420f);
+        // Lava: authored as a deep hot red rather than orange. The shading step
+        // gives it a self-lit boost and skips the darkening terms, which is what
+        // actually makes it read as emissive -- see MaterialAlbedo/IsEmissive in
+        // the shader. Authoring it bright here instead would just look pink.
+        _table[Materials.Lava] = new Rgb(0.720f, 0.215f, 0.070f);
+        // Honey: amber, warm, noticeably darker than sand so the two never
+        // read as the same substance.
+        _table[Materials.Honey] = new Rgb(0.680f, 0.480f, 0.130f);
+
+        // ---- Reaction product ----
+        // Obsidian: near-black with a violet bias, and the darkest thing in the
+        // palette. It should read as dense and glassy against both the lava it
+        // came from and the stone around it.
+        _table[Materials.Obsidian] = new Rgb(0.095f, 0.085f, 0.125f);
+    }
+
+    public static Rgb Of(byte material) => _table[material];
+
+    /// True for materials the shader should treat as self-lit -- they skip the
+    /// ambient-occlusion and hemisphere darkening so they stay hot.
+    /// NOT a lighting system: nothing here emits light onto anything else.
+    /// Real emission arrives with Phase 7 (§6.5); this is a shading cheat.
+    public static bool IsSelfLit(byte material) => material == Materials.Lava;
+}

@@ -27,6 +27,78 @@ public static class Phase5aSceneBuilder
 
 
 
+
+    public const string PlaygroundScenePath = "Assets/Scenes/Playground.unity";
+
+    /// The dogfood scene: REAL Phase 3 generation + Phase 4 streaming via
+    /// Phase4Bootstrapper, plus a flycam and one fixed fluid arena.
+    [MenuItem("Voxel Engine/Playground/Generate Scene")]
+    public static void GeneratePlayground()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.62f, 0.70f, 0.78f, 1f);   // matches RaymarchFeature.SkyColor
+        cam.fieldOfView = 60f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 600f;
+        // ON THE ISLAND, not at the origin. Phase4Bootstrapper's own spawn is
+        // 140.8 m, which was correct for sizeClass 0; sizeClass 1 (Content.cs,
+        // §D.2) moved the island centre to ~1280 m and left that spawn in deep
+        // ocean. A dogfood scene that opens on featureless sea is useless.
+        camGo.transform.position = new Vector3(1280f, 9.5f, 1268f);
+        camGo.transform.rotation = Quaternion.Euler(14f, 0f, 0f);
+        camGo.AddComponent<SimpleFlyCamera>();
+
+        // The real world. Every serialized value set explicitly -- AddComponent
+        // does not reliably pick up C# field initializers under -executeMethod.
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        SetIfPresent(bo, "_loadRadiusChunks", 0);
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);   // a feel scene starts clean
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", false); // this scene frames its own camera
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var pgGo = new GameObject("Playground");
+        var pg = pgGo.AddComponent<Playground>();
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+        var po = new SerializedObject(pg);
+        po.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        po.FindProperty("_arenaEdge").intValue = 64;
+        po.FindProperty("_slotCapacity").intValue = 8192;
+        po.FindProperty("_maxOpsPerFrame").intValue = 8192;
+        // Tiny on purpose -- see Playground's header note 2. Not a scale test.
+        po.FindProperty("_waterBudget").intValue = 160;
+        po.FindProperty("_sandBudget").intValue = 90;
+        po.FindProperty("_lavaBudget").intValue = 60;
+        po.FindProperty("_outputRootFolderName").stringValue = "PlaygroundShots";
+        po.ApplyModifiedPropertiesWithoutUndo();
+
+        var capGo = new GameObject("PlaygroundCapture");
+        var cap = capGo.AddComponent<PlaygroundCapture>();
+        var co = new SerializedObject(cap);
+        co.FindProperty("_outputRootFolderName").stringValue = "PlaygroundShots";
+        co.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(PlaygroundScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, PlaygroundScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {PlaygroundScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {PlaygroundScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
+
+    private static void SetIfPresent(SerializedObject so, string name, int v)
+    { var p = so.FindProperty(name); if (p != null) p.intValue = v; }
+    private static void SetBoolIfPresent(SerializedObject so, string name, bool v)
+    { var p = so.FindProperty(name); if (p != null) p.boolValue = v; }
+
     public const string Phase5bDemoScenePath = "Assets/Scenes/Phase 5b Demo.unity";
 
     /// The demo / playable scene. One scene, two modes -- see Phase5bDemo.
