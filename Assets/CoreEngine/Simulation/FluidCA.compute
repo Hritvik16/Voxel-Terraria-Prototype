@@ -666,10 +666,21 @@ void CSCommit(uint3 id : SV_DispatchThreadID)
     // ONLY A DESCENDING MOVE WAKES (5a's reading, ported as behaviour): a
     // lateral shuffle changes no fluid level, and waking from it re-promotes
     // sleeping neighbours with a fresh budget and sustains the shuffle forever.
+    // WakeMark values: 1 = NARROW (only what can descend into this cell),
+    //                   2 = BROAD  (the full 3x3x3 neighbourhood).
+    //
+    // Vacating a cell ALWAYS creates a downward opportunity for whatever sits
+    // above it, lateral move or not. Marking only on descend left a drop that
+    // had already slept above a laterally-departing neighbour stranded with Air
+    // beneath it forever -- reproduced in the oracle on a staircase floor
+    // (FluidSlopedTerrainTests) and fixed there first. The narrow mark cannot
+    // reintroduce the never-resting shuffle, because it never wakes a lateral
+    // neighbour at the same level.
+    WakeMark[home] = 1;
     if (descended)
     {
-        WakeMark[home] = 1;
-        WakeMark[d] = 1;
+        WakeMark[home] = 2;
+        WakeMark[d] = 2;
     }
 
     SlotAtBuffer[home] = NONE;
@@ -755,16 +766,31 @@ void CSWakeScan(uint3 id : SV_DispatchThreadID)
     if (!IsMobile(m)) return;
     if (!WithinActiveRadius(c)) return;
 
-    // Full 3x3x3, because §7.4's Intent hierarchy includes diagonals: a drop
-    // diagonally above a vacated cell has a legal move into it.
     bool near = false;
+
+    // NARROW (mark 1 or 2): can THIS cell descend into a vacated one? Exactly
+    // the five cells §7.4's tiers 1 and 2 let it reach -- straight down plus
+    // the four down-diagonals. Nothing at the same level qualifies.
+    int3 below[5] = {
+        int3(0, -1, 0), int3(-1, -1, 0), int3(1, -1, 0), int3(0, -1, -1), int3(0, -1, 1)
+    };
+    [unroll]
+    for (int b = 0; b < 5; b++)
+    {
+        int3 n = c + below[b];
+        if (!InRegion(n)) continue;
+        if (WakeMark[RegionIndex(n)] != 0) near = true;
+    }
+
+    // BROAD (mark 2 only): a descending move genuinely changed the local level,
+    // so the whole 3x3x3 gets to re-evaluate.
     [loop] for (int dz = -1; dz <= 1 && !near; dz++)
     [loop] for (int dy = -1; dy <= 1 && !near; dy++)
     [loop] for (int dx = -1; dx <= 1 && !near; dx++)
     {
         int3 n = c + int3(dx, dy, dz);
         if (!InRegion(n)) continue;
-        if (WakeMark[RegionIndex(n)] != 0) near = true;
+        if (WakeMark[RegionIndex(n)] == 2) near = true;
     }
     if (!near) return;
 

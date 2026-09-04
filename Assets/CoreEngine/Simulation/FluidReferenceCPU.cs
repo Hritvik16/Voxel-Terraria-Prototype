@@ -390,6 +390,42 @@ public sealed class FluidReferenceCPU : IFluidSampler
 
     public FluidLedgerCheck CheckConservation() => Ledger.Check(_tick, CountMobileBytes());
 
+    /// Mobile voxels sitting with Air directly beneath them.
+    ///
+    /// At rest this should be ZERO: straight down is the first tier of §7.4's
+    /// Intent hierarchy, so anything with air under it has a legal move and has
+    /// no business being at rest. A non-zero count at rest means a drop stopped
+    /// being asked to move while a move was still available -- i.e. it slept and
+    /// nothing woke it. Added to chase the floating lava voxel seen in the
+    /// Playground captures.
+    public int CountFloatingMobile()
+    {
+        int n = 0;
+        for (int i = 0; i < _voxelCount; i++)
+        {
+            if (!MaterialRules.IsMobile(_voxels[i])) continue;
+            int3 c = IndexToVoxel(i);
+            if (c.y <= 0) continue;
+            if (_voxels[VoxelIndex(c.x, c.y - 1, c.z)] == Materials.Air) n++;
+        }
+        return n;
+    }
+
+    /// First floating mobile voxel found, for a failure message that names a
+    /// coordinate instead of just a count.
+    public bool TryFindFloatingMobile(out int3 found, out byte material)
+    {
+        for (int i = 0; i < _voxelCount; i++)
+        {
+            if (!MaterialRules.IsMobile(_voxels[i])) continue;
+            int3 c = IndexToVoxel(i);
+            if (c.y <= 0) continue;
+            if (_voxels[VoxelIndex(c.x, c.y - 1, c.z)] != Materials.Air) continue;
+            found = c; material = _voxels[i]; return true;
+        }
+        found = default; material = 0; return false;
+    }
+
     // =====================================================================
     // Edits -- the sandbox's OWN private path
     // =====================================================================
@@ -503,6 +539,30 @@ public sealed class FluidReferenceCPU : IFluidSampler
         slot.stateFlags = FLAG_AWAKE;
         _slotAt[voxelIndex] = s;
         return s;
+    }
+
+    /// Wakes only what could descend INTO a just-vacated cell: the cell
+    /// directly above it, and the four cells that could reach it by a
+    /// down-diagonal (§7.4 Intent tiers 1 and 2). Deliberately excludes the
+    /// vacated cell's own lateral neighbours -- see the note at the call site.
+    private void WakeAbove(int vacatedIndex)
+    {
+        int3 c = IndexToVoxel(vacatedIndex);
+        int y = c.y + 1;
+        WakeOne(c.x, y, c.z);
+        WakeOne(c.x - 1, y, c.z);
+        WakeOne(c.x + 1, y, c.z);
+        WakeOne(c.x, y, c.z - 1);
+        WakeOne(c.x, y, c.z + 1);
+    }
+
+    private void WakeOne(int x, int y, int z)
+    {
+        if (!InBounds(x, y, z)) return;
+        int n = VoxelIndex(x, y, z);
+        if (!MaterialRules.IsMobile(_voxels[n])) return;
+        if (_slotAt[n] != NONE) return;
+        TryPromote(n);
     }
 
     /// §7.6: "Any adjacent edit re-promotes: the edit path scans the edit's
@@ -848,6 +908,32 @@ public sealed class FluidReferenceCPU : IFluidSampler
             // shuffle. Spread still works: every drop that falls in, and every
             // drop that descends off a stack, hands its neighbourhood a fresh
             // lateral budget, and that is what carries a pour out to the walls.
+            // ...BUT VACATING A CELL ALWAYS WAKES WHAT COULD FALL INTO IT.
+            //
+            // "Only a descending move wakes" is right about the DESTINATION
+            // neighbourhood and wrong about the SOURCE. A lateral move still
+            // empties the cell it left, and anything directly above that cell
+            // now has a legal straight-down or down-diagonal move it did not
+            // have a tick ago. With no wake at all on a lateral move, a drop
+            // that had already slept above it never learns, and sits there with
+            // Air underneath it forever.
+            //
+            // Measured, on a staircase floor in the oracle:
+            //   Water_OnStaircase  1 voxel left floating at int3(3, 3, 22)
+            //   Water_OnOverhang   1 voxel left floating at int3(5, 2, 16)
+            // 5a and 5b only ever ran on FLAT floors, where a drop and the
+            // cell below it drain together, so this never showed up.
+            //
+            // WakeAbove is deliberately much narrower than WakeNeighbourhood:
+            // it touches only the five cells that can actually descend into the
+            // vacated one (straight above plus the four down-diagonal sources).
+            // It never wakes a lateral NEIGHBOUR at the same level, which is
+            // what the shuffle-sustain cycle needed -- so this cannot
+            // reintroduce the never-resting surface that "descending only"
+            // was introduced to fix. PartiallyFilledSurface_StillReachesRest
+            // is the test that pins that.
+            WakeAbove(home);
+
             if (descended)
             {
                 WakeNeighbourhood(home);
