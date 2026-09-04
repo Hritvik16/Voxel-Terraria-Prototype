@@ -83,6 +83,22 @@ public class Phase5bValidationRig : MonoBehaviour
         if (_basin == null) { Debug.LogError("[Phase5bRig] no Phase5bBasin"); Application.Quit(1); yield break; }
 
         _basin.SynchronousReadback = HasFlag("-syncreadback");
+
+        // -inflight N: deliberately BREAK the one-tick-per-applied-op-list rule,
+        // so the conservation GAIN it exists to prevent can be reproduced on
+        // demand instead of only existing in a commit message.
+        foreach (string a in Environment.GetCommandLineArgs())
+        {
+            if (!a.StartsWith("-inflight")) continue;
+            string digits = a.Substring("-inflight".Length).TrimStart('=', ':');
+            if (int.TryParse(digits, out int n) && n > 0)
+            {
+                VoxelEngine.Simulation.FluidOpListReadback.MaxFramesInFlight = n;
+                L($"*** -inflight {n}: the one-CA-tick-per-applied-op-list rule is DISABLED. ***");
+                L("*** Conservation is EXPECTED to break. This mode exists to prove it does. ***");
+                L("");
+            }
+        }
         for (int i = 0; i < 5; i++) yield return null;
 
         string ts = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");

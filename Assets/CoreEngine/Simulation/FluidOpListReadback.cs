@@ -126,7 +126,13 @@ namespace VoxelEngine.Simulation
         /// than once per frame. That is a real throughput limit and it is the
         /// honest reading of the design; raising it trades conservation for
         /// tick rate, which §7.3 does not permit.
-        private const int MaxFramesInFlight = 1;
+        public const int MaxFramesInFlightDefault = 1;
+
+        /// Settable ONLY so the validation rig can reproduce the conservation
+        /// GAIN on demand (-inflight N) and so a test can prove the ledger still
+        /// catches it. Nothing on a shipped path may raise this.
+        /// FluidReadbackInvariantTests pins the default at 1.
+        public static int MaxFramesInFlight { get; set; } = MaxFramesInFlightDefault;
 
         /// BACK-PRESSURE. The caller must not run another CA tick while this is
         /// false. Ring-buffering the op-list alone did NOT fix the readback
