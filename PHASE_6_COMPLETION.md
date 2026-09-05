@@ -175,7 +175,7 @@ PASS 387  FAIL 0  SKIP 0      (baseline at phase start: 249/0/0; +138 tests)
 
 ### 5.3 The integrated acceptance test — RAN, and it changed the picture
 
-`run-phase6-sandbox.sh` — **`PASS 30  FAIL 0  RESULT: PASSED`**
+`run-phase6-sandbox.sh` — **`PASS 32  FAIL 0  RESULT: PASSED`**
 
 | §13 item | Measured |
 |---|---|
@@ -183,6 +183,7 @@ PASS 387  FAIL 0  SKIP 0      (baseline at phase start: 249/0/0; +138 tests)
 | 0.2 m wall, grapple 60 m/s | 20/20 stop at the face; projectile agrees at 2.000 m |
 | adversarial checkerboard | 86,715 edits; dense bricks peak **388,280 / 500,000** |
 | drill 60 s @ 200 vox/s | **11,808** of a nominal 12,000 |
+| save / reload round trip | probe chunk evicted, **27 deltas reloaded, hole survived, 0 rejected** |
 | 400K detonation | radius 46 = 407,597 cells, **3 frames**, **one** Proxy Drop |
 | 60 m/s dive | fluid contact frame **2**, 100% submerged, **+0.34 m/s²**, no slam |
 | flood front | 4,378 ops; front reached the player frame 93, buoyancy same frame |
@@ -198,8 +199,12 @@ or a scenario the rig itself had built wrong. None was papered over.
   high-water mark, so §3.6's LRU eviction path was never asked to fire. The
   attack is bounded by the resident window. **`EngineConfig` line 57's
   "ASSUMPTION, flagged, Phase 6 gate" is therefore still ungated.**
-- **The probe chunk never evicted**, so drill-then-save-reload exercised the
-  flush half only. The round trip is untested.
+- ~~The probe chunk never evicted~~ — **FIXED AND NOW PASSING.** The walk was a
+  flat 8 chunks against an evict radius of 15; it now derives the distance from
+  `Streamer.EvictRadiusChunks` (21 chunks, 269 m) and walks rather than
+  teleports, since a single-frame jump past the window trips ChunkStore's
+  admission guard (§9.5) — a different failure from the one under test. The
+  drilled hole survives a real eviction round trip.
 
 ### 5.4 The defect the integrated rig found
 
@@ -259,9 +264,9 @@ water, and something asking about staleness in the same run.
   `BRICK_POOL_HIGH_WATER_FRACTION` an "ASSUMPTION, flagged, Phase 6 gate";
   **that gate is still open.** Closing it needs a wider window or a longer
   attack than the resident window currently allows.
-- **Edits persisting through an eviction round trip** (§13, and §10.4's M-G).
-  The integrated rig flushed 9 dirty chunks, but the probe chunk never evicted,
-  so only the flush half is proven. Coalescing on fill-in is untested.
+- **Coalescing on fill-in** (§13's third clause for the drill test). Edits now
+  provably survive a real eviction round trip, but nothing checks that a
+  re-filled region coalesces its bricks back to uniform.
 - **Steep slopes, overhangs, cliffs.** File 1's walk crossed 0.30 m of relief
   over 31 m — a gently contoured snow plateau, not rugged ground.
 - **Swimming** as a movement mode. Buoyancy produces forces; nothing consumes

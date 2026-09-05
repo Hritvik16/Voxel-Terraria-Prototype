@@ -497,27 +497,43 @@ public class Phase6SandboxRig : MonoBehaviour
         L($"  flushed {flushed} dirty chunks; saved total {savedBefore}");
         Check(flushed > 0 || savedBefore > 0, "the drilled region was written to disk");
 
-        // Walk the camera far enough to evict, then come back.
+        // WALK PAST THE EVICT RADIUS, DERIVED, NOT GUESSED. A first version
+        // moved a flat 8 chunks and the probe chunk never left the window, so
+        // the "save/reload" step only ever exercised the flush half and said so.
+        // WINDOW_CHUNKS_XZ is 32, and the streamer knows its own evict radius --
+        // ask it, the way the Phase 5d rig derives its distances, rather than
+        // hardcoding a number that silently stops being far enough.
         Camera cam = Camera.main;
         Vector3 home = cam.transform.position;
         float chunkM = EngineConfig.CHUNK_EDGE_VOXELS * 0.1f;
-        for (int i = 0; i < 240; i++)
+        float awayChunks = Streamer.EvictRadiusChunks + 6;
+        Vector3 away = home + Vector3.right * (chunkM * awayChunks);
+        L($"  walking {awayChunks} chunks ({chunkM * awayChunks:F0} m) to force eviction " +
+          $"(evict radius {Streamer.EvictRadiusChunks}, load radius {Streamer.LoadRadiusChunks})");
+
+        // Walk, don't teleport: a single-frame jump beyond the window trips
+        // ChunkStore's admission guard (PHASE_5C_COMPLETION.md §9.5), which is a
+        // different failure from the one under test.
+        for (int i = 0; i <= 600; i++)
         {
-            cam.transform.position = home + Vector3.right * (chunkM * 8f * (i / 240f));
+            cam.transform.position = Vector3.Lerp(home, away, i / 600f);
+            if ((i % 4) == 0) Streamer.WaitForIdle();
             yield return null;
         }
         Streamer.WaitForIdle();
         bool evicted = !Store.IsResident(probeChunk);
-        Note($"probe chunk {probeChunk} evicted while away: {evicted}");
+        Note($"probe chunk {probeChunk} evicted while away: {evicted} " +
+             $"(evictions total {Streamer.ChunksEvictedTotal}, saved {Streamer.ChunksSavedTotal})");
 
-        for (int i = 0; i < 240; i++)
+        for (int i = 0; i <= 600; i++)
         {
-            cam.transform.position = Vector3.Lerp(home + Vector3.right * chunkM * 8f, home, i / 240f);
+            cam.transform.position = Vector3.Lerp(away, home, i / 600f);
+            if ((i % 4) == 0) Streamer.WaitForIdle();
             yield return null;
         }
         cam.transform.position = home;
         Streamer.WaitForIdle();
-        for (int i = 0; i < 120; i++) yield return null;
+        for (int i = 0; i < 180; i++) yield return null;
 
         int loaded = Streamer.DeltasLoadedTotal - loadedBefore;
         L($"  deltas loaded on return: {loaded}; rejected total {Streamer.DeltasRejectedTotal}");
