@@ -73,6 +73,28 @@ public static class CommandLineBuild
         DisableAppNap(FLUID_ACTIVITY_OUTPUT_PATH);
     }
 
+    private const string PLAYTEST_BUGS_SCENE_PATH = "Assets/Scenes/Playtest Bugs.unity";
+    private const string PLAYTEST_BUGS_OUTPUT_PATH = "Builds/PlaytestBugs.app";
+
+    /// STEP 0's two-bug diagnostic. Release build for consistency with every
+    /// other rig here; it reports no timings, so the build type is not load-
+    /// bearing for its conclusions.
+    public static void BuildPlaytestBugsStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PLAYTEST_BUGS_SCENE_PATH },
+            locationPathName = PLAYTEST_BUGS_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] playtest bugs result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PLAYTEST_BUGS_OUTPUT_PATH);
+    }
+
     private const string PHASE6_SANDBOX_SCENE_PATH = "Assets/Scenes/Phase 6 Sandbox.unity";
     private const string PHASE6_SANDBOX_OUTPUT_PATH = "Builds/Phase6Sandbox.app";
 

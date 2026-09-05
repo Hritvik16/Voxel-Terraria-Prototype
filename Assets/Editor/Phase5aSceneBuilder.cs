@@ -797,4 +797,70 @@ public static class Phase5aSceneBuilder
             : $"[Phase5aSceneBuilder] FAILED to write {ScenePath}");
         if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
     }
+
+    public const string PlaytestBugsScenePath = "Assets/Scenes/Playtest Bugs.unity";
+
+    /// STEP 0 diagnostic scene for the two bugs found by playtesting: a
+    /// floating cluster near the fluid arena, and no-fall-on-Tab at height.
+    /// Deliberately the SAME shape as the Playground (64^3 arena, 8192 slots,
+    /// a 128-voxel demo activity radius), because both bugs were seen there and
+    /// a diagnosis against different numbers would be diagnosing a different
+    /// scene.
+    [MenuItem("Voxel Engine/Diagnostics/Generate Playtest Bugs Scene")]
+    public static void GeneratePlaytestBugs()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.62f, 0.70f, 0.78f, 1f);
+        cam.fieldOfView = 65f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 4000f;      // B1 flies to 2000 m; a 600 m far plane
+                                       // would clip the sky and confuse the shot
+        camGo.transform.position = new Vector3(1280f, 9.5f, 1268f);
+
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        SetIfPresent(bo, "_loadRadiusChunks", 0);
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", false);
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var playerGo = new GameObject("Player");
+        playerGo.transform.position = new Vector3(1280f, 14f, 1268f);
+        var pc = playerGo.AddComponent<PlayerController>();
+        var pco = new SerializedObject(pc);
+        var camProp = pco.FindProperty("_camera");
+        if (camProp != null) camProp.objectReferenceValue = cam;
+        var spawnProp = pco.FindProperty("_spawnM");
+        if (spawnProp != null) spawnProp.vector3Value = new Vector3(1280f, 40f, 1268f);
+        SetBoolIfPresent(pco, "_resolveSpawnUpward", true);
+        SetBoolIfPresent(pco, "_captureMouse", false);
+        SetBoolIfPresent(pco, "_hotReload", false);
+        pco.ApplyModifiedPropertiesWithoutUndo();
+
+        var rigGo = new GameObject("PlaytestBugsRig");
+        var rig = rigGo.AddComponent<PlaytestBugsRig>();
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+        var ro = new SerializedObject(rig);
+        ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        ro.FindProperty("_player").objectReferenceValue = pc;
+        // PLAYGROUND'S DEMO VALUE, on purpose -- see the rig header.
+        ro.FindProperty("_activeRadiusVoxels").intValue = 128;
+        ro.FindProperty("_outputRootFolderName").stringValue = "PlaytestBugs";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(PlaytestBugsScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, PlaytestBugsScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {PlaytestBugsScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {PlaytestBugsScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
 }
