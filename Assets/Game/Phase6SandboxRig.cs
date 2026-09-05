@@ -447,8 +447,16 @@ public class Phase6SandboxRig : MonoBehaviour
         // had already cleared, the unspent allowance was dropped, and 60 s
         // delivered ~8,900 of 12,000. Stepping by the brush DIAMETER (7) over a
         // 10x10 grid gives 100 disjoint spheres = 12,300 cells.
-        int3 p = CoordMath.WorldToVoxel(M.PositionM);
-        int bx = p.x, by = math.max(20, p.y - 10), bz = p.z;
+        // ANCHORED CLEAR OF THE FLUID ARENA, NOT ON THE PLAYER. This block is
+        // 81 voxels across -- wider than the 64-voxel arena -- so centring it on
+        // the player put it straight through the volume step 6 later builds its
+        // dive pool in. The fill-in below then dumped ~111,000 voxels of stone
+        // into that space and step 6 failed with an empty pool. Steps sharing
+        // volumes has now bitten this rig twice (step 3's block enclosed step
+        // 5's basin in an earlier version); every step gets its own ground.
+        int bx = _regionOrigin.x + RX + 80;
+        int bz = _regionOrigin.z + RZ / 2;
+        int by = math.max(20, SurfaceY(bx, bz) - 10);
         const int GRID = 10, STEP = 7;
         _edits.SetBox(new int3(bx - 40, by - 8, bz - 40), new int3(bx + 40, by + 8, bz + 40),
                       Materials.Stone);
@@ -559,6 +567,38 @@ public class Phase6SandboxRig : MonoBehaviour
         yield return Shot("step4_drilled",
             new float3(bx * 0.1f - 4f, by * 0.1f + 4f, bz * 0.1f - 4f),
             new float3(bx * 0.1f, by * 0.1f, bz * 0.1f));
+
+        // ---- §13's third clause: "coalesces on fill-in" ----
+        //
+        // Drilling forced bricks DENSE (a uniform-air or uniform-stone brick
+        // has to be expanded the moment one voxel in it differs). Filling the
+        // hole back in with a single material should let §4.5's coalescer
+        // collapse them to uniform again and hand the slots back -- otherwise a
+        // player who digs and refills leaks pool capacity permanently, which is
+        // the §3.6 memory story failing by a slower route than the checkerboard.
+        var coalescer = Phase4Bootstrapper.Coalescer;
+        int denseBeforeFill = Store.DenseBricksHeld;
+        int coalescedBefore = coalescer.BricksCoalescedTotal;
+
+        _edits.SetBox(new int3(bx - 40, by - 8, bz - 40), new int3(bx + 40, by + 8, bz + 40),
+                      Materials.Stone);
+        for (int i = 0; i < 10; i++) yield return null;
+        int denseAfterFill = Store.DenseBricksHeld;
+
+        coalescer.RunFullPass();
+        for (int i = 0; i < 10; i++) yield return null;
+
+        int coalesced = coalescer.BricksCoalescedTotal - coalescedBefore;
+        int denseAfterCoalesce = Store.DenseBricksHeld;
+        L($"  fill-in: dense {denseBeforeFill} -> {denseAfterFill} (refilled) -> " +
+          $"{denseAfterCoalesce} (after coalesce); {coalesced} bricks coalesced");
+
+        Check(coalesced > 0,
+            $"§13's 'coalesces on fill-in': the refilled region collapsed {coalesced} bricks " +
+            "back to uniform");
+        Check(denseAfterCoalesce < denseAfterFill,
+            $"and the pool got slots back ({denseAfterFill} -> {denseAfterCoalesce} dense " +
+            "bricks) -- without this, dig-and-refill leaks capacity permanently");
         L("");
     }
 

@@ -175,7 +175,7 @@ PASS 387  FAIL 0  SKIP 0      (baseline at phase start: 249/0/0; +138 tests)
 
 ### 5.3 The integrated acceptance test — RAN, and it changed the picture
 
-`run-phase6-sandbox.sh` — **`PASS 32  FAIL 0  RESULT: PASSED`**
+`run-phase6-sandbox.sh` — **`PASS 34  FAIL 0  RESULT: PASSED`**
 
 | §13 item | Measured |
 |---|---|
@@ -184,6 +184,7 @@ PASS 387  FAIL 0  SKIP 0      (baseline at phase start: 249/0/0; +138 tests)
 | adversarial checkerboard | 86,715 edits; dense bricks peak **388,280 / 500,000** |
 | drill 60 s @ 200 vox/s | **11,808** of a nominal 12,000 |
 | save / reload round trip | probe chunk evicted, **27 deltas reloaded, hole survived, 0 rejected** |
+| coalesce on fill-in | **925 bricks** collapsed back to uniform, pool slots returned |
 | 400K detonation | radius 46 = 407,597 cells, **3 frames**, **one** Proxy Drop |
 | 60 m/s dive | fluid contact frame **2**, 100% submerged, **+0.34 m/s²**, no slam |
 | flood front | 4,378 ops; front reached the player frame 93, buoyancy same frame |
@@ -264,9 +265,9 @@ water, and something asking about staleness in the same run.
   `BRICK_POOL_HIGH_WATER_FRACTION` an "ASSUMPTION, flagged, Phase 6 gate";
   **that gate is still open.** Closing it needs a wider window or a longer
   attack than the resident window currently allows.
-- **Coalescing on fill-in** (§13's third clause for the drill test). Edits now
-  provably survive a real eviction round trip, but nothing checks that a
-  re-filled region coalesces its bricks back to uniform.
+- ~~Coalescing on fill-in~~ — **CLOSED.** Refilling the drilled region collapsed
+  925 bricks back to uniform and returned pool slots (284,889 → 284,018 dense).
+  All three clauses of §13's drill line now pass together.
 - **Steep slopes, overhangs, cliffs.** File 1's walk crossed 0.30 m of relief
   over 31 m — a gently contoured snow plateau, not rugged ground.
 - **Swimming** as a movement mode. Buoyancy produces forces; nothing consumes
@@ -315,7 +316,7 @@ Phase 6 brush guard     PASS 30   FAIL 0
 Phase 6 player          PASS 35   FAIL 0
 Phase 6 CCD             PASS 19   FAIL 0
 Phase 6 edit            PASS 34   FAIL 0
-Phase 6 sandbox         PASS 30   FAIL 0
+Phase 6 sandbox         PASS 34   FAIL 0
 ```
 
 **This draft does not close Phase 6.** §6's NOT TESTED bucket still contains
