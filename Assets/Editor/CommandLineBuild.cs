@@ -54,6 +54,27 @@ public static class CommandLineBuild
         DisableAppNap(PLAYGROUND_OUTPUT_PATH);
     }
 
+    private const string PHASE6_CCD_SCENE_PATH = "Assets/Scenes/Phase 6 CCD.unity";
+    private const string PHASE6_CCD_OUTPUT_PATH = "Builds/Phase6Ccd.app";
+
+    /// §13 Phase 6 file 2's acceptance rig. Scene path and output path must
+    /// agree with run-phase6-ccd.sh.
+    public static void BuildPhase6CcdStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE6_CCD_SCENE_PATH },
+            locationPathName = PHASE6_CCD_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase6 ccd result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE6_CCD_OUTPUT_PATH);
+    }
+
     private const string PHASE6_PLAYER_SCENE_PATH = "Assets/Scenes/Phase 6 Player.unity";
     private const string PHASE6_PLAYER_OUTPUT_PATH = "Builds/Phase6Player.app";
 

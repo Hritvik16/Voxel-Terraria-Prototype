@@ -110,6 +110,48 @@ public static class Phase5aSceneBuilder
     private static void SetBoolIfPresent(SerializedObject so, string name, bool v)
     { var p = so.FindProperty(name); if (p != null) p.boolValue = v; }
 
+    public const string Phase6CcdScenePath = "Assets/Scenes/Phase 6 CCD.unity";
+
+    /// §13 Phase 6 file 2's acceptance scene. Real world, a free camera the rig
+    /// aims itself, and no player: SweptCCD is exercised directly, so nothing
+    /// else may be moving bodies around while it is measured.
+    [MenuItem("Voxel Engine/Phase 6/Generate CCD Scene")]
+    public static void GeneratePhase6Ccd()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.62f, 0.70f, 0.78f, 1f);
+        cam.fieldOfView = 65f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 600f;
+        camGo.transform.position = new Vector3(1270f, 12f, 1272f);
+
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        SetIfPresent(bo, "_loadRadiusChunks", 0);
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", false);
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var rigGo = new GameObject("Phase6CcdRig");
+        var rig = rigGo.AddComponent<Phase6CcdRig>();
+        var ro = new SerializedObject(rig);
+        ro.FindProperty("_outputRootFolderName").stringValue = "Phase6Ccd";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Phase6CcdScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, Phase6CcdScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {Phase6CcdScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {Phase6CcdScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
+
     public const string Phase6PlayerScenePath = "Assets/Scenes/Phase 6 Player.unity";
 
     /// §13 Phase 6 file 1's acceptance scene. Real Phase 3 generation and Phase

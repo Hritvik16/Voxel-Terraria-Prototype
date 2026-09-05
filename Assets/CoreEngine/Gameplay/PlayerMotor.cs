@@ -37,7 +37,9 @@
 // =========================================================================
 // 1. Air is ambiguous. ChunkStore.GetVoxel returns Air for a chunk that is not
 //    loaded, deliberately and frozen (§12). Movement must not read that as
-//    "empty space" -- see IsBlocking, which asks IVoxelResidency first.
+//    "empty space". The rule lives in VoxelCollision, shared with SweptCCD --
+//    two passes with two copies of "what is solid" is how a body stopped by one
+//    gets passed by the other.
 // 2. A single-frame position jump larger than the streaming window makes
 //    ChunkStore refuse the insert (PHASE_5C_COMPLETION.md §9.5). Continuous
 //    walking cannot do that; Teleport can. See the note there.
@@ -49,13 +51,13 @@ public sealed class PlayerMotor
     /// Metres per voxel. CoordMath.WorldToVoxel is floor(worldPos * 10), so this
     /// is 0.1 by construction, not by choice. Named because a bare 0.1f in
     /// collision maths is unreadable.
-    public const float VoxelSizeM = 0.1f;
+    public const float VoxelSizeM = VoxelCollision.VoxelSizeM;
 
     /// Pushed off a contact plane by this much so the next frame's overlap test
     /// does not immediately re-detect the surface it just resolved against.
     /// 0.1 mm: far below a voxel, far above float noise at world coordinates in
     /// the ~1300 m range this island uses.
-    private const float SkinM = 1e-4f;
+    private const float SkinM = VoxelCollision.SkinM;
 
     /// How far below the feet to look when deciding "grounded". Two thirds of a
     /// millimetre more than the skin, so a player resting exactly on a surface
@@ -122,48 +124,14 @@ public sealed class PlayerMotor
     /// and honey are passable here. Sand does block -- it is a falling SOLID
     /// (MaterialRules.IsFallingSolidMaterial), not a fluid, and standing on a
     /// sand pile has to work.
-    public bool IsBlocking(int3 voxel)
-    {
-        if (_residency != null && !_residency.IsResident(CoordMath.VoxelToChunk(voxel)))
-            return true;
-
-        byte m = _world.GetVoxel(voxel);
-        if (m == Materials.Air) return false;
-        return !MaterialRules.IsFluidMaterial(m);
-    }
-
-    /// True if the chunk under this voxel is not loaded. Only used to explain
-    /// WHY a move was blocked, never to decide whether it was.
-    private bool IsNonResident(int3 voxel)
-        => _residency != null && !_residency.IsResident(CoordMath.VoxelToChunk(voxel));
+    public bool IsBlocking(int3 voxel) => VoxelCollision.IsBlocking(_world, _residency, voxel);
 
     /// Does the AABB at `feetCentre` overlap anything blocking?
     public bool OverlapsSolid(float3 feetCentre) => OverlapsSolid(feetCentre, out _);
 
     public bool OverlapsSolid(float3 feetCentre, out bool nonResident)
-    {
-        nonResident = false;
-        float half = Config.bodyWidthM * 0.5f;
-        float3 lo = new float3(feetCentre.x - half, feetCentre.y, feetCentre.z - half);
-        float3 hi = new float3(feetCentre.x + half, feetCentre.y + Config.bodyHeightM, feetCentre.z + half);
-
-        // The AABB's max face sits exactly on a voxel boundary when the player
-        // is snapped to one. Nudging the max inward keeps that from counting the
-        // next voxel along as overlapping, which would wedge the player.
-        int3 vlo = CoordMath.WorldToVoxel(lo);
-        int3 vhi = CoordMath.WorldToVoxel(hi - SkinM);
-
-        for (int z = vlo.z; z <= vhi.z; z++)
-        for (int y = vlo.y; y <= vhi.y; y++)
-        for (int x = vlo.x; x <= vhi.x; x++)
-        {
-            int3 v = new int3(x, y, z);
-            if (!IsBlocking(v)) continue;
-            nonResident = IsNonResident(v);
-            return true;
-        }
-        return false;
-    }
+        => VoxelCollision.OverlapsSolid(_world, _residency, feetCentre,
+                                        Config.bodyWidthM, Config.bodyHeightM, out nonResident);
 
     /// Is there support within GroundProbeM below the feet?
     public bool IsGroundedAt(float3 feetCentre)
