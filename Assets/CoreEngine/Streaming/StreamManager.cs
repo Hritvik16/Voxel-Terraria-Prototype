@@ -1025,6 +1025,22 @@ namespace VoxelEngine.Streaming
             {
                 DispatchLoads(_lastCameraChunk);
                 DrainCompletions();
+                // §3.6'S VALVE BELONGS HERE TOO. The per-frame path runs
+                // DispatchLoads -> DrainCompletions -> ApplyPoolPressureValve;
+                // this loop ran the first two and not the third, so a bulk
+                // drain admitted chunks with nothing watching the pool. Starting
+                // from a world already near the high-water mark it walked the
+                // tier-0 pool straight into "BrickDataPool exhausted. LRU valve
+                // failed or cap is too low." -- thrown from TransferToSharedPool,
+                // which kills the caller's coroutine.
+                //
+                // §3.6's claim is that the pool is hard-capped and THE VALVE,
+                // not luck, keeps it there. A drain loop that skips the valve
+                // makes that claim false for any path that uses it. Only rigs
+                // call WaitForIdle today, so this was not reachable in play --
+                // but the invariant is the engine's, not the harness's, and the
+                // camera chunk it needs is already right here.
+                ApplyPoolPressureValve(_lastCameraChunk);
                 if (_inFlight > 0) Thread.Sleep(1);
             }
         }

@@ -98,6 +98,49 @@ public class Phase6SandboxRig : MonoBehaviour
     private void Note(string s) => L("    note  " + s);
     private void Pass(string s) { _pass++; L("    PASS  " + s); }
     private void Fail(string s) { _fail++; L($"    FAIL  {s}   [{_phase}]"); }
+
+    /// Dense bricks held by the chunks spanning an inclusive voxel box.
+    ///
+    /// WHY NOT ChunkStore.DenseBricksHeld. That is a WORLD counter, and step 4
+    /// now runs immediately after the checkerboard has parked the world at the
+    /// §3.6 high-water mark, where the streamer is admitting and evicting
+    /// constantly. Across the twenty frames the fill-in test spans, that churn
+    /// is worth hundreds of bricks in either direction -- far more than the
+    /// tunnel itself -- so the global delta measures streaming, not coalescing.
+    /// Scoping the count to the chunks the fill actually touched isolates the
+    /// effect the assertion is about.
+    private int DenseBricksIn(int3 lo, int3 hi)
+    {
+        int3 cLo = CoordMath.VoxelToChunk(lo), cHi = CoordMath.VoxelToChunk(hi);
+        int n = 0;
+        for (int cz = cLo.z; cz <= cHi.z; cz++)
+        for (int cy = cLo.y; cy <= cHi.y; cy++)
+        for (int cx = cLo.x; cx <= cHi.x; cx++)
+        {
+            var chunk = Store.GetChunk(new int3(cx, cy, cz));
+            if (chunk == null || chunk.isUniform || chunk.bricks == null) continue;
+            for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++)
+                if ((chunk.bricks[i].data & 0x80000000u) != 0) n++;
+        }
+        return n;
+    }
+
+    /// §3.6's valve arms off ChunkStore.DenseBricksHeld, but the thing that
+    /// actually runs out is the tier-0 BrickDataPool. Those are two different
+    /// numbers and nothing was ever comparing them. A run that reported
+    /// "memory stayed sane: 423482 <= 500000" threw "BrickDataPool exhausted"
+    /// from the very next allocation, which is only possible if the counter the
+    /// valve watches under-reports what the pool holds.
+    private void ReportPoolAccounting(string where)
+    {
+        var pool = Phase4Bootstrapper.Pool;
+        if (pool == null) { L($"  [{where}] pool unavailable"); return; }
+        int held = Store.DenseBricksHeld;
+        int inUse = pool.InUse;
+        L($"  [{where}] DenseBricksHeld {held}  |  pool.InUse {inUse}  |  " +
+          $"divergence {inUse - held}  |  pool free {pool.Capacity - inUse}  " +
+          $"(valve arms at {EngineConfig.BrickPoolHighWaterBricks})");
+    }
     private void Check(bool ok, string s) { if (ok) Pass(s); else Fail(s); }
     private void Manual(string s) => L("    MANUAL  " + s);
 
@@ -360,26 +403,80 @@ public class Phase6SandboxRig : MonoBehaviour
         bool everOverCap = false;
         int lastEditFailed = 0;
 
-        const int SPAN = 320;                     // voxels each way => 40 bricks each way
+        // ---- SIZING THE ATTACK OFF THE REAL NUMBERS, not off a guess ----
+        //
+        // The previous version used SPAN=320 (81x81 brick columns) over a
+        // -64..+96 dy window, and peaked at 388,280 dense bricks against a
+        // 425,000 high-water mark -- it never reached the valve, so §13's one
+        // named §3.6 clause went untested and the rig said so rather than
+        // claiming a pass.
+        //
+        // What it actually has to clear: the world idles at ~330,000 dense
+        // bricks, so the attack must ADD ~95,000 to cross the mark. Each write
+        // densifies at most one brick, and only if that brick was uniform, so
+        // the previous run's +58,000 from ~105,000 distinct bricks tells us the
+        // real hit rate is roughly half -- most bricks near the surface are
+        // dense already. Sizing for +150,000 at that observed rate needs about
+        // 2.5x the columns:
+        //
+        //   SPAN 512 => 129 x 129 = 16,641 brick columns
+        //   full column height     = 16 brick layers (the world is 128 voxels)
+        //   distinct bricks        = 266,256, ~50% of them uniform => ~133,000
+        //
+        // The span stays well inside the resident window (load radius 13 chunks
+        // = 27x27; SPAN 512 voxels is 4 chunks each way = 9x9), so rejections
+        // stay incidental rather than becoming the limit.
+        const int SPAN = 512;
         int step = EngineConfig.BRICK_EDGE;       // 8
+        const int WRITE_CAP = 400000;
 
-        for (int dz = -SPAN; dz <= SPAN && written < 200000; dz += step)
+        // Walk the WHOLE column in absolute coordinates rather than a window
+        // relative to the player. The old dy range depended on where the player
+        // happened to be standing, which silently changed how many of the 16
+        // brick layers the attack could reach.
+        int yTop = EngineConfig.CHUNK_EDGE_VOXELS - 1;   // 127
+
+        int firstPressureFrame = -1;
+        bool editSucceededUnderPressure = false, editProbedUnderPressure = false;
+        float worstFrameMs = 0f;
+        int attackFrames = 0;
+
+        for (int dz = -SPAN; dz <= SPAN && written < WRITE_CAP; dz += step)
         {
-            for (int dy = -64; dy <= 96 && written < 200000; dy += step)
-            for (int dx = -SPAN; dx <= SPAN && written < 200000; dx += step)
+            for (int y = 1; y <= yTop && written < WRITE_CAP; y += step)
+            for (int dx = -SPAN; dx <= SPAN && written < WRITE_CAP; dx += step)
             {
-                int3 v = new int3(p.x + dx, p.y + dy, p.z + dz);
-                if (v.y < 1) continue;
+                int3 v = new int3(p.x + dx, y, p.z + dz);
                 // Alternate materials so no brick can coalesce back to uniform.
-                byte m = ((dx + dy + dz) / step) % 2 == 0 ? Materials.Stone : Materials.Sandstone;
+                byte m = ((dx + y + dz) / step) % 2 == 0 ? Materials.Stone : Materials.Sandstone;
                 if (_edits.TrySetVoxel(v, m)) written++; else rejected++;
             }
 
             peakDense = math.max(peakDense, Store.DenseBricksHeld);
-            if (Store.IsUnderPoolPressure) pressureSeen = true;
             if (Store.DenseBricksHeld > EngineConfig.BRICK_POOL_CAP) everOverCap = true;
+
+            if (Store.IsUnderPoolPressure)
+            {
+                if (!pressureSeen) firstPressureFrame = attackFrames;
+                pressureSeen = true;
+
+                // §3.6's ACTUAL PROMISE, probed WHILE the valve is engaged
+                // rather than only after the attack has finished and pressure
+                // has drained. "You push the eviction radius inward, never
+                // fail" is a claim about the moment of pressure, and testing it
+                // afterwards tests a different and much easier thing.
+                if (!editProbedUnderPressure)
+                {
+                    editProbedUnderPressure = true;
+                    editSucceededUnderPressure =
+                        _edits.TrySetVoxel(new int3(p.x + 2, p.y + 2, p.z + 2), Materials.Obsidian);
+                }
+            }
+
             lastEditFailed = rejected;
+            attackFrames++;
             yield return null;                    // let StreamManager run its valve
+            worstFrameMs = math.max(worstFrameMs, Time.unscaledDeltaTime * 1000f);
         }
 
         int evictions = Streamer.LruEvictionsTotal - evictionsBefore;
@@ -388,6 +485,12 @@ public class Phase6SandboxRig : MonoBehaviour
           $"({peakDense / (float)EngineConfig.BRICK_POOL_CAP:P1})");
         L($"  LRU evictions during the attack: {evictions}");
         L($"  under pool pressure at any point: {pressureSeen}");
+
+        ReportPoolAccounting("after checkerboard");
+        L($"  attack ran {attackFrames} frames; first pressure at frame {firstPressureFrame}");
+        L($"  worst frame during the attack: {worstFrameMs:F1} ms " +
+          "(WALL CLOCK, RELATIVE-WITHIN-RUN ONLY -- not a §2.2 figure, and this rig " +
+          "is not run-acceptance-rig.sh)");
 
         Check(written > 10000, $"the attack actually landed a lot of edits ({written})");
         Check(!everOverCap,
@@ -406,16 +509,60 @@ public class Phase6SandboxRig : MonoBehaviour
         }
         else
         {
-            Note($"POOL PRESSURE WAS NEVER REACHED. Peak {peakDense} stayed under the " +
-                 $"{EngineConfig.BrickPoolHighWaterBricks} high-water mark, so the LRU valve was " +
-                 "never asked to fire and §3.6's eviction path is NOT exercised by this run. " +
-                 "That is a genuine gap in the gate, not a pass: the attack was bounded by the " +
-                 "resident window, and a wider window or a longer attack would be needed to " +
-                 "reach the mark. Reported rather than papered over.");
+            // A FAILURE, NOT A NOTE. This used to report "never reached" as an
+            // observation and still let the step pass, which meant §13's one
+            // named §3.6 clause could stay untested indefinitely while the rig
+            // read green. If the attack cannot reach the mark, the gate is not
+            // satisfied and the rig must say so in the PASS/FAIL count.
+            Fail($"POOL PRESSURE WAS NEVER REACHED: peak {peakDense} stayed under the " +
+                 $"{EngineConfig.BrickPoolHighWaterBricks} high-water mark, so §3.6's eviction " +
+                 "path is NOT exercised. The attack needs to be wider or longer -- size it off " +
+                 "the measured idle dense-brick count, not off a guess.");
         }
+
+        // Frame time must not collapse under the valve. Deliberately a loose
+        // bound: this is a within-run wall-clock observation on a rig that is
+        // not the §2.2 measurement tool, so it can only catch a COLLAPSE (an
+        // order of magnitude), never confirm a budget.
+        Check(worstFrameMs < 1000f,
+            $"frame time did not collapse under the valve (worst {worstFrameMs:F1} ms " +
+            "within-run; a stall here would mean eviction is unbounded per frame)");
 
         // §3.6: "the triggering edit always succeeds -- you push the eviction
         // radius inward, never fail."
+        // §3.6's OTHER clause, which the assertions above do not touch:
+        // "Under abuse the far edges of a giant checkerboard base lose detail
+        // and pop back on turn; never a crash, NEVER LOST PROGRESS (edits are
+        // in the delta, §4.2)." An eviction that silently dropped its edits
+        // would satisfy every other check in this step, so it is asserted
+        // directly: a voxel written at the far edge -- the likeliest victim --
+        // must still read back after the valve has been through.
+        int dxP = SPAN, dzP = SPAN, yP = 65;      // all on the 8-voxel write grid
+        int3 far = new int3(p.x + dxP, yP, p.z + dzP);
+        byte expected = ((dxP + yP + dzP) / step) % 2 == 0 ? Materials.Stone : Materials.Sandstone;
+        int3 farChunk = CoordMath.VoxelToChunk(far);
+
+        for (int i = 0; i < 300 && !Store.IsResident(farChunk); i++) yield return null;
+
+        if (Store.IsResident(farChunk))
+        {
+            byte got = Store.GetVoxel(far);
+            Check(got == expected,
+                $"NEVER LOST PROGRESS (§3.6/§4.2): the far-edge voxel {far} still reads " +
+                $"{got} (expected {expected}) after the valve ran -- an eviction must round-trip " +
+                "its edits through the delta, not drop them");
+        }
+        else
+        {
+            Note($"the far-edge chunk {farChunk} did not return to residency within 300 frames, " +
+                 "so the lost-progress clause could not be asserted this run (NOT a pass)");
+        }
+
+        if (editProbedUnderPressure)
+            Check(editSucceededUnderPressure,
+                "THE TRIGGERING EDIT SUCCEEDS WHILE THE VALVE IS ENGAGED -- §3.6: 'you push " +
+                "the eviction radius inward, never fail'. Probed during pressure, not after.");
+
         int3 probe = new int3(p.x + 1, p.y + 1, p.z + 1);
         Check(_edits.TrySetVoxel(probe, Materials.Obsidian),
             "and an edit still succeeds after the attack -- §3.6: 'the triggering edit always " +
@@ -490,8 +637,26 @@ public class Phase6SandboxRig : MonoBehaviour
         int expected = (int)(tier.VoxelsPerSecond * 60);
         L($"  removed {removed} voxels in 60 s (nominal {expected})");
         Check(removed >= expected * 0.9f, $"the drill kept pace over a full minute ({removed})");
+        ReportPoolAccounting("after drill");
         Check(Store.DenseBricksHeld <= EngineConfig.BRICK_POOL_CAP,
             $"memory stayed sane: {Store.DenseBricksHeld} <= {EngineConfig.BRICK_POOL_CAP}");
+
+        // THE NUMBER THAT ACTUALLY RUNS OUT. The check above passes on a
+        // counter; BrickDataPool.Alloc throws on the pool. If those two ever
+        // disagree, §3.6's valve is armed off the wrong number and will fire
+        // too late -- so assert the pool itself, not the bookkeeping.
+        var tier0 = Phase4Bootstrapper.Pool;
+        if (tier0 != null)
+        {
+            int div = tier0.InUse - Store.DenseBricksHeld;
+            Check(tier0.InUse < tier0.Capacity,
+                $"THE POOL ITSELF has room: InUse {tier0.InUse} < capacity {tier0.Capacity}");
+            Check(div <= EngineConfig.MAX_CHUNK_LOADS_PER_FRAME * EngineConfig.BRICKS_PER_CHUNK,
+                $"pool accounting tracks the pool: InUse - DenseBricksHeld = {div}, which must " +
+                "stay within what can legitimately be in flight (chunks allocated but not yet " +
+                "inserted). A larger gap means the valve is watching a number that under-reports " +
+                "the pool it is protecting.");
+        }
 
         // ---- Persistence: flush, force the region out and back ----
         int3 probe = new int3(bx, by, bz);
@@ -504,6 +669,19 @@ public class Phase6SandboxRig : MonoBehaviour
         int loadedBefore = Streamer.DeltasLoadedTotal;
         L($"  flushed {flushed} dirty chunks; saved total {savedBefore}");
         Check(flushed > 0 || savedBefore > 0, "the drilled region was written to disk");
+
+        // AND EVERY DIRTY CHUNK ACTUALLY GOT SAVED. The assertion above passes
+        // if even one chunk was written, which is how a scratch-pool leak that
+        // silently failed most SaveDelta calls sat undetected: SaveDelta catches
+        // its own exception, returns false, and leaves deltaDirty SET, so the
+        // edits stay unwritten while the rig reads green. §4.2 and §3.6's "never
+        // lost progress" both depend on this being zero, not on it being small.
+        int stillDirty = 0;
+        foreach (var c in Store.ResidentChunks()) if (c.deltaDirty) stillDirty++;
+        Check(stillDirty == 0,
+            $"NO DIRTY CHUNK SURVIVES THE FLUSH ({stillDirty} still dirty). A non-zero count " +
+            "means SaveDelta failed for that chunk and swallowed the reason -- the edits are " +
+            "not on disk, and nothing else in this rig would notice.");
 
         // WALK PAST THE EVICT RADIUS, DERIVED, NOT GUESSED. A first version
         // moved a flat 8 chunks and the probe chunk never left the window, so
@@ -580,25 +758,33 @@ public class Phase6SandboxRig : MonoBehaviour
         int denseBeforeFill = Store.DenseBricksHeld;
         int coalescedBefore = coalescer.BricksCoalescedTotal;
 
-        _edits.SetBox(new int3(bx - 40, by - 8, bz - 40), new int3(bx + 40, by + 8, bz + 40),
-                      Materials.Stone);
+        int3 fillLo = new int3(bx - 40, by - 8, bz - 40), fillHi = new int3(bx + 40, by + 8, bz + 40);
+        _edits.SetBox(fillLo, fillHi, Materials.Stone);
         for (int i = 0; i < 10; i++) yield return null;
         int denseAfterFill = Store.DenseBricksHeld;
+        int localAfterFill = DenseBricksIn(fillLo, fillHi);
 
         coalescer.RunFullPass();
         for (int i = 0; i < 10; i++) yield return null;
 
         int coalesced = coalescer.BricksCoalescedTotal - coalescedBefore;
         int denseAfterCoalesce = Store.DenseBricksHeld;
+        int localAfterCoalesce = DenseBricksIn(fillLo, fillHi);
         L($"  fill-in: dense {denseBeforeFill} -> {denseAfterFill} (refilled) -> " +
           $"{denseAfterCoalesce} (after coalesce); {coalesced} bricks coalesced");
 
         Check(coalesced > 0,
             $"§13's 'coalesces on fill-in': the refilled region collapsed {coalesced} bricks " +
             "back to uniform");
-        Check(denseAfterCoalesce < denseAfterFill,
-            $"and the pool got slots back ({denseAfterFill} -> {denseAfterCoalesce} dense " +
-            "bricks) -- without this, dig-and-refill leaks capacity permanently");
+        L($"  fill-in, SCOPED to the chunks the fill touched: {localAfterFill} -> " +
+          $"{localAfterCoalesce} dense bricks (the WORLD counter moved {denseAfterFill} -> " +
+          $"{denseAfterCoalesce}, which at the §3.6 high-water mark is mostly streaming churn " +
+          "and is reported, not asserted on)");
+
+        Check(localAfterCoalesce < localAfterFill,
+            $"and the pool got slots back IN THE REFILLED REGION ({localAfterFill} -> " +
+            $"{localAfterCoalesce} dense bricks there) -- without this, dig-and-refill leaks " +
+            "capacity permanently");
         L("");
     }
 
