@@ -54,6 +54,25 @@ public static class CommandLineBuild
         DisableAppNap(PLAYGROUND_OUTPUT_PATH);
     }
 
+    private const string FLUID_ACTIVITY_SCENE_PATH = "Assets/Scenes/Fluid Activity.unity";
+    private const string FLUID_ACTIVITY_OUTPUT_PATH = "Builds/FluidActivity.app";
+
+    public static void BuildFluidActivityStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { FLUID_ACTIVITY_SCENE_PATH },
+            locationPathName = FLUID_ACTIVITY_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] fluid activity result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(FLUID_ACTIVITY_OUTPUT_PATH);
+    }
+
     private const string PHASE6_SANDBOX_SCENE_PATH = "Assets/Scenes/Phase 6 Sandbox.unity";
     private const string PHASE6_SANDBOX_OUTPUT_PATH = "Builds/Phase6Sandbox.app";
 

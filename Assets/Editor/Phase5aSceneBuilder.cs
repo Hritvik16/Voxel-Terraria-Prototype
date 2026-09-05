@@ -133,6 +133,56 @@ public static class Phase5aSceneBuilder
     private static void SetBoolIfPresent(SerializedObject so, string name, bool v)
     { var p = so.FindProperty(name); if (p != null) p.boolValue = v; }
 
+    public const string FluidActivityScenePath = "Assets/Scenes/Fluid Activity.unity";
+
+    /// STEP 0 diagnostic scene for "fluid stops simulating". Real world, a
+    /// Playground-shaped fluid arena (including its 8192 slot capacity), and a
+    /// rig that pours into it while logging slot-allocation counters.
+    [MenuItem("Voxel Engine/Diagnostics/Generate Fluid Activity Scene")]
+    public static void GenerateFluidActivity()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.62f, 0.70f, 0.78f, 1f);
+        cam.fieldOfView = 65f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 600f;
+        camGo.transform.position = new Vector3(1280f, 9.5f, 1268f);
+
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        SetIfPresent(bo, "_loadRadiusChunks", 0);
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", false);
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var rigGo = new GameObject("FluidActivityRig");
+        var rig = rigGo.AddComponent<FluidActivityRig>();
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+        var ro = new SerializedObject(rig);
+        ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        // PLAYGROUND'S NUMBER, deliberately: 8192 is what the reported symptom
+        // was produced against, and the diagnosis is about that value.
+        ro.FindProperty("_slotCapacity").intValue = 8192;
+        ro.FindProperty("_maxOpsPerFrame").intValue = 8192;
+        ro.FindProperty("_outputRootFolderName").stringValue = "FluidActivity";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(FluidActivityScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, FluidActivityScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {FluidActivityScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {FluidActivityScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
+
     public const string Phase6SandboxScenePath = "Assets/Scenes/Phase 6 Sandbox.unity";
 
     /// §13 Phase 6's INTEGRATED acceptance scene. Everything live at once: the
