@@ -14,12 +14,29 @@
 //
 // TWO RULES LIVE HERE, BOTH LOAD-BEARING:
 //
-// 1. NON-RESIDENT COUNTS AS BLOCKING (§9.4). ChunkStore.GetVoxel returns Air
-//    for a chunk that is merely not loaded, deliberately and frozen (§12) --
-//    the raymarcher and the CPU oracle both want "nothing solid here". Physics
-//    does not: it means the body walks into, and then falls through, world that
-//    has not streamed in. Failing closed stops the body at the edge of the
-//    loaded world, which is visible and harmless.
+// 1. NON-RESIDENT COUNTS AS BLOCKING (§9.4), WITHIN ITS DOMAIN. ChunkStore
+//    .GetVoxel returns Air for a chunk that is merely not loaded, deliberately
+//    and frozen (§12) -- the raymarcher and the CPU oracle both want "nothing
+//    solid here". Physics does not: it means the body walks into, and then
+//    falls through, world that has not streamed in. Failing closed stops the
+//    body at the edge of the loaded world, which is visible and harmless.
+//
+//    THE DOMAIN MATTERS, and getting it wrong was a real bug. "Fail closed"
+//    is right where non-resident means UNKNOWN -- the horizontal streaming
+//    edge, where the chunk really might be rock. It is wrong ABOVE the
+//    generation ceiling, where non-resident means statically EMPTY:
+//    StreamManager.RebuildPendingSet only ever admits cy in
+//    [0, MAX_GENERATED_CHUNK_Y], so every chunk above it is permanently
+//    non-resident at any altitude, by construction and not by timing.
+//    Treating that as solid embedded a flying player in phantom rock on all
+//    six sides: they could not fall, could not move, and ResolveSpawn could
+//    not free them because there was no free voxel within its reach. That is
+//    the whole of the "Tab at height does not drop me" bug.
+//
+//    BELOW the world stays fail-closed on purpose. The asymmetry is not an
+//    oversight: above the ceiling is sky the generator guarantees is empty,
+//    while below cy=0 is off the bottom of a world that has no floor, and
+//    a body let through there falls forever with nothing to land on.
 //
 // 2. FLUID DOES NOT BLOCK. §8.2: "the swept pass clamps only on *solid*" and
 //    "fluid doesn't block movement the way solid terrain does". Water, lava and
@@ -40,10 +57,19 @@ public static class VoxelCollision
     /// snapped flush to a surface does not count the next voxel along.
     public const float SkinM = 1e-4f;
 
+    /// Is this voxel in a chunk layer the generator can never fill?
+    ///
+    /// Reads the SAME constant StreamManager admits by, so the two cannot drift
+    /// apart -- see MAX_GENERATED_CHUNK_Y's own note about its readers going
+    /// stale together. The moment generation grows vertically this answer moves
+    /// with it, and no separate number needs remembering.
+    public static bool AboveGeneratedContent(int3 voxel)
+        => CoordMath.VoxelToChunk(voxel).y > VoxelEngine.Streaming.StreamManager.MAX_GENERATED_CHUNK_Y;
+
     public static bool IsBlocking(IWorldQuery world, IVoxelResidency residency, int3 voxel)
     {
         if (residency != null && !residency.IsResident(CoordMath.VoxelToChunk(voxel)))
-            return true;                                   // rule 1
+            return !AboveGeneratedContent(voxel);          // rule 1, see the header
 
         byte m = world.GetVoxel(voxel);
         if (m == Materials.Air) return false;
