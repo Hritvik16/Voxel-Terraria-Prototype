@@ -66,7 +66,7 @@ using Unity.Mathematics;
 using UnityEngine;
 using VoxelEngine.Memory;
 
-public class TerrainClipmap : IDisposable
+public class TerrainClipmap : IDisposable, IChunkDirtySink
 {
     public static TerrainClipmap Active { get; private set; }
 

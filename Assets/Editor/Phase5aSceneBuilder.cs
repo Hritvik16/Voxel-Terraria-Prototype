@@ -110,6 +110,53 @@ public static class Phase5aSceneBuilder
     private static void SetBoolIfPresent(SerializedObject so, string name, bool v)
     { var p = so.FindProperty(name); if (p != null) p.boolValue = v; }
 
+    public const string Phase6EditScenePath = "Assets/Scenes/Phase 6 Edit.unity";
+
+    /// §13 Phase 6 file 3's acceptance scene. Real world, a fluid arena for the
+    /// wake-scan step, and a camera the rig aims itself.
+    [MenuItem("Voxel Engine/Phase 6/Generate Edit Scene")]
+    public static void GeneratePhase6Edit()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.62f, 0.70f, 0.78f, 1f);
+        cam.fieldOfView = 65f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 600f;
+        camGo.transform.position = new Vector3(1280f, 9.5f, 1268f);
+
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        SetIfPresent(bo, "_loadRadiusChunks", 0);
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", false);
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var rigGo = new GameObject("Phase6EditRig");
+        var rig = rigGo.AddComponent<Phase6EditRig>();
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+        var ro = new SerializedObject(rig);
+        ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        ro.FindProperty("_slotCapacity").intValue = 65536;
+        ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
+        ro.FindProperty("_outputRootFolderName").stringValue = "Phase6Edit";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Phase6EditScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, Phase6EditScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {Phase6EditScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {Phase6EditScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
+
     public const string Phase6CcdScenePath = "Assets/Scenes/Phase 6 CCD.unity";
 
     /// §13 Phase 6 file 2's acceptance scene. Real world, a free camera the rig
