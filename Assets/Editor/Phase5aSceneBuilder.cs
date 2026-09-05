@@ -83,6 +83,29 @@ public static class Phase5aSceneBuilder
         po.FindProperty("_outputRootFolderName").stringValue = "PlaygroundShots";
         po.ApplyModifiedPropertiesWithoutUndo();
 
+        // THE PLAYER (Phase 6). Playground drives it via DebugStep and owns its
+        // input, so mouse capture and look stay in ONE place (PlaygroundFlyCamera)
+        // whichever movement mode is active -- two components both locking the
+        // cursor and both writing the camera transform fight each other.
+        var playerGo = new GameObject("Player");
+        playerGo.transform.position = camGo.transform.position;
+        var pc = playerGo.AddComponent<PlayerController>();
+        var pco = new SerializedObject(pc);
+        var pcCam = pco.FindProperty("_camera");
+        if (pcCam != null) pcCam.objectReferenceValue = cam;
+        var pcSpawn = pco.FindProperty("_spawnM");
+        if (pcSpawn != null) pcSpawn.vector3Value = camGo.transform.position;
+        SetBoolIfPresent(pco, "_resolveSpawnUpward", true);
+        // Playground owns capture; PlayerController must not also grab the cursor.
+        SetBoolIfPresent(pco, "_captureMouse", false);
+        SetBoolIfPresent(pco, "_hotReload", true);   // §8.1's live tuning loop
+        pco.ApplyModifiedPropertiesWithoutUndo();
+
+        po.Update();
+        var pgPlayer = po.FindProperty("_player");
+        if (pgPlayer != null) pgPlayer.objectReferenceValue = pc;
+        po.ApplyModifiedPropertiesWithoutUndo();
+
         // Live debug readout. Its own object so the dogfood scene keeps the
         // perf overlay separable from the gameplay toys.
         var hudGo = new GameObject("PlaygroundHud");

@@ -35,6 +35,19 @@ public class PlaygroundFlyCamera : MonoBehaviour
     /// Scroll adjusts fly speed unless something else claims the wheel.
     public bool ScrollControlsSpeed { get; set; } = false;
 
+    /// When false this component still CAPTURES THE MOUSE AND ACCUMULATES LOOK,
+    /// but stops moving the transform. Playground turns it off in walk mode so
+    /// PlayerController owns the position while mouse-look keeps working from
+    /// one place -- two components both locking the cursor and both writing the
+    /// camera transform fight, and the symptom is a camera that jitters or
+    /// snaps back every frame.
+    public bool MovementEnabled { get; set; } = true;
+
+    /// Current look angles, so a controller driven by Playground can aim with
+    /// the same mouse the flycam is reading.
+    public float Yaw => _yaw;
+    public float Pitch => _pitch;
+
     void Start()
     {
         Vector3 e = transform.rotation.eulerAngles;
@@ -76,6 +89,8 @@ public class PlaygroundFlyCamera : MonoBehaviour
             if (Mathf.Abs(scroll) > 0.01f)
                 _moveSpeed = Mathf.Clamp(_moveSpeed * (scroll > 0 ? 1.2f : 1f / 1.2f), _minSpeed, _maxSpeed);
         }
+
+        if (!MovementEnabled) return;
 
         float speed = _moveSpeed * (Input.GetKey(KeyCode.LeftShift) ? _fastMultiplier : 1f);
         Vector3 move = Vector3.zero;

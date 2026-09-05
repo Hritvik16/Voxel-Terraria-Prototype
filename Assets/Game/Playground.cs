@@ -4,7 +4,7 @@
 // =========================================================================
 // THIS IS A DOGFOOD / FEEL SCENE. IT IS NOT A DIAGNOSTIC SCENE.
 // =========================================================================
-// It exists to be flown around and poked at, to see whether the engine feels
+// It exists to be walked around and poked at, to see whether the engine feels
 // and looks right. It is NOT instrumented, it asserts nothing, and it proves
 // nothing.
 //
@@ -14,8 +14,9 @@
 //   streaming / persistence ... Phase 4 Streaming  (./run-acceptance-rig.sh)
 //   fluid correctness ......... Phase 5b Basin     (./run-phase5b-rig.sh)
 //   fluid vs the oracle ....... FluidConservationTests (./run-editmode-tests.sh)
-// A number read off this scene is not evidence. A screenshot from it is a
-// vibe check, not a result.
+//   player / CCD / editing .... Phase 6 rigs       (./run-phase6-*.sh)
+//   everything at once ........ ./run-phase6-sandbox.sh
+// A number here is not evidence. A screenshot from here is a vibe check.
 //
 // =========================================================================
 // WHAT THIS SCENE IS HONEST ABOUT
@@ -23,40 +24,45 @@
 // 1. FLUID IS FIXED TO ONE ARENA AND DOES NOT FOLLOW YOU.
 //    §7.4 describes a near-player active radius that moves with the player.
 //    THAT IS NOT BUILT. FluidGpuSimulation's region is created once, at one
-//    world location, and stays there. Fly away and the fluid keeps simulating
-//    where you left it; fly far enough and it is simply out of sight. This
-//    scene puts fluid in ONE place on purpose so that limitation is visible
-//    rather than disguised. "Fluid in one spot" is not "fluid works across the
-//    world" and this scene must never be cited as the latter.
+//    world location, and stays there. Walk away and the fluid keeps simulating
+//    where you left it. This scene puts fluid in ONE place on purpose so that
+//    limitation is visible rather than disguised. "Fluid in one spot" is not
+//    "fluid works across the world" and this scene must never be cited as the
+//    latter.
 //    Enforced, not just advertised: the brush REFUSES to place a mobile
-//    material outside the arena (see HandleMouse). It used to place it happily,
-//    which committed a blob that could never be simulated and left it frozen in
-//    mid-air -- the limitation disguised as a fluid bug, which is exactly what
-//    this note promises the scene will not do.
+//    material outside the arena (see TryPaintBrush). It used to place it
+//    happily, which committed a blob that could never be simulated and left it
+//    frozen in mid-air -- the limitation disguised as a fluid bug.
 //
 // 2. THE FLUID POPULATION HERE IS DELIBERATELY TINY.
-//    Source budgets are tens to low hundreds of voxels -- the same range
-//    Phase 5a/5b actually tested. §2.5's ~500,000 near-player active target has
-//    NEVER been tested, and this scene is deliberately not where that gets
-//    discovered. Scale testing is a separate, deliberate task; it is not a side
-//    effect of a feel scene. Do not raise these budgets to "see what happens"
-//    and then quote the result.
+//    Source budgets are tens to low hundreds of voxels -- the range Phase 5a/5b
+//    actually tested. §2.5's ~500,000 near-player active target has NEVER been
+//    tested, and this scene is deliberately not where that gets discovered.
 //
-// 3. FLUID ON NATURAL TERRAIN IS NEW HERE.
-//    Phases 5a and 5b both ran on flat, hand-built basins. This is the first
-//    time the CA has met generated geometry -- slopes, overhangs, carved
-//    features. Anything odd at the fluid/terrain boundary in this scene is a
-//    GENUINE NEW FINDING and should be written up, not shrugged off. See
-//    §"boundary watch" in the report.
+// 3. FLUID ON NATURAL TERRAIN IS NEW HERE. Phases 5a/5b ran on flat hand-built
+//    basins. Anything odd at the fluid/terrain boundary here is a GENUINE NEW
+//    FINDING and should be written up, not shrugged off.
+//
+// 4. SWIMMING IS COMPOSED HERE, NOT IN THE ENGINE. §8.6's Buoyancy PRODUCES
+//    forces; PlayerMotor does not consume them, by design -- §8.6 is one-way
+//    sampling and the motor knows nothing about fluid beyond "it does not
+//    block". This scene applies the buoyant acceleration and drag to the motor
+//    itself, in ApplyBuoyancy below, because a demo where you cannot swim
+//    cannot show that §8.6 works. That composition is GAME-LAYER, it is not
+//    part of Phase 6's proven surface, and no rig covers it.
 //
 // The world itself is real: Phase4Bootstrapper does the actual Phase 3
-// generation and Phase 4 streaming. This file adds a camera, some keys, and one
-// fluid arena; it does not fake terrain.
+// generation and Phase 4 streaming. This file adds a player, some keys, one
+// fluid arena and a HUD; it does not fake terrain.
+//
+// KEEPING THIS SCENE CURRENT IS PART OF FINISHING A PHASE. See
+// PLAYGROUND_GUIDE.md -- when a phase's files land, they get woven in here and
+// the guide is updated in the same pass. A phase whose work you cannot touch in
+// the Playground is a phase nobody can feel.
 
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.IO;
 using System.Text;
 using Unity.Mathematics;
 using UnityEngine;
@@ -73,6 +79,12 @@ public class Playground : MonoBehaviour
     [SerializeField] private int _maxOpsPerFrame = 8192;
     [SerializeField] private string _outputRootFolderName = "PlaygroundShots";
 
+    [Header("Phase 6")]
+    [Tooltip("Left empty, one is found in the scene. Without it the scene is fly-only.")]
+    [SerializeField] private PlayerController _player;
+    [Tooltip("Radius in voxels of the B-key demo blast. §13's 400K reference is radius 46.")]
+    [SerializeField] private int _bombRadiusVoxels = 20;
+
     // Budgets, tiny on purpose. See header note 2.
     [SerializeField] private int _waterBudget = 160;
     [SerializeField] private int _sandBudget = 90;
@@ -84,6 +96,12 @@ public class Playground : MonoBehaviour
     private FluidGpuSimulation _fluid;
     private FluidOpListReadback _readback;
     private EditService _edits;
+
+    // ---- Phase 6 systems, all driven from here ----
+    private SweptCCD _ccd;
+    private ProjectileTrace _projectiles;
+    private DestructionReducer _demolition;
+    private Buoyancy _buoyancy;
 
     private int3 _arenaOrigin, _arenaCentre;
     private int3 _waterSrc, _sandSrc, _lavaSrc;
@@ -98,18 +116,50 @@ public class Playground : MonoBehaviour
     private byte _targetMaterial;
     private float _targetDistM;
 
-    // ---- Brush ----
+    // =====================================================================
+    // HOTBAR
+    //
+    // SLOTS 0-3 MUST STAY water / sand / lava / stone. Phase6BrushGuard drives
+    // this scene by slot INDEX (its BrushWater/BrushSand/BrushLava/BrushStone
+    // constants are 0/1/2/3) and asserts on what each places. Appending is
+    // safe; reordering silently changes what that rig tests.
+    // =====================================================================
     private static readonly byte[] _brushes =
-        { Materials.Water, Materials.Sand, Materials.Lava, Materials.Stone };
-    private static readonly string[] _brushNames = { "water", "sand", "lava", "stone" };
+        { Materials.Water, Materials.Sand, Materials.Lava, Materials.Stone,
+          Materials.Sandstone, Materials.Snow };
+    private static readonly string[] _brushNames =
+        { "water", "sand", "lava", "stone", "sandstone", "snow" };
     private int _brush;
+
+    // ---- Movement mode ----
+    private enum MoveMode { Walk, Fly }
+    private MoveMode _mode = MoveMode.Walk;
+
+    // ---- Tools (§8.3 tiers) ----
+    private int _tier = 1;                       // hand / drill / bore
+    private EditService.ToolBudget _digBudget;
+    private int _dugThisSecond, _dugCounter;
+    private float _dugTimer;
+
+    // ---- Last action, for the HUD's DIG/PLACE indicator ----
+    private enum Act { None, Dig, Place, Refused }
+    private Act _act;
+    private float _actAge = 99f;
+
+    // ---- Phase 6 demo state, surfaced in the HUD ----
+    private BuoyancyState _buoyState;
+    private ProjectileHit _lastShot;
+    private bool _hasShot;
+    private float _shotAge = 99f;
+    private ProxyDrop _lastDrop;
+    private bool _hasDrop;
+    private int _bombFrames;
+
     private PlaygroundFlyCamera _cam;
     private Texture2D _px;
+    private bool _showHelp = true;
 
     // ---- Additive feature registration (header requirement e) ----
-    // Deliberately the simplest thing that works: a list of named actions the
-    // HUD lists and a key runs. New Playground toys register here instead of
-    // editing HandleKeys, so adding one is additive.
     public readonly struct Toy
     {
         public readonly KeyCode Key;
@@ -120,10 +170,10 @@ public class Playground : MonoBehaviour
     private readonly List<Toy> _toys = new List<Toy>();
     public void Register(Toy toy) => _toys.Add(toy);
 
+    // =====================================================================
+
     IEnumerator Start()
     {
-        // Phase4Bootstrapper owns the real world. Wait for it rather than
-        // duplicating any of it here.
         while (Phase4Bootstrapper.Store == null || Phase4Bootstrapper.Clipmap == null)
             yield return null;
         for (int i = 0; i < 30; i++) yield return null;   // let the window fill
@@ -131,7 +181,6 @@ public class Playground : MonoBehaviour
         _store = Phase4Bootstrapper.Store;
         _clipmap = Phase4Bootstrapper.Clipmap;
         _pool = Phase4Bootstrapper.Pool;
-        _edits = new EditService();
 
         if (!TryFindNaturalBasin(out _arenaCentre))
         {
@@ -152,50 +201,170 @@ public class Playground : MonoBehaviour
             ActiveRadiusVoxels = EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS,
         };
         _readback = new FluidOpListReadback(_fluid, _store) { OnVoxelApplied = MarkDirtyFor };
+
+        // §8.3's edit path, not the hand-rolled trio. EVERY edit in this scene
+        // now goes through EditService: it marks the mirror dirty, runs §7.6's
+        // wake scan, and REFUSES writes to unloaded chunks instead of dropping
+        // them silently. The old code did SetVoxel + MarkDirty + NotifyEdited by
+        // hand at four call sites, which is what EditService exists to end.
+        _edits = new EditService();
+        _edits.AttachWorld(_store, _store, _store, _clipmap);
         _edits.AttachFluidSimulation(_fluid, _store);
 
-        // Sources sit above the basin floor, inside the arena, so what pours
-        // lands on GENERATED ground rather than on anything this file built.
+        _ccd = new SweptCCD(_store, _store);
+        _projectiles = new ProjectileTrace(_store, _store);
+        _demolition = new DestructionReducer(_edits, _store);
+        _buoyancy = new Buoyancy(_store, _store);
+
         _waterSrc = new int3(_arenaCentre.x - 6, _arenaOrigin.y + _arenaEdge - 4, _arenaCentre.z);
         _sandSrc  = new int3(_arenaCentre.x + 8, _arenaOrigin.y + _arenaEdge - 4, _arenaCentre.z - 6);
         _lavaSrc  = new int3(_arenaCentre.x + 2, _arenaOrigin.y + _arenaEdge - 4, _arenaCentre.z + 7);
 
+        // The player. Playground owns its clock and its input so mouse-look
+        // lives in one place (the flycam) whichever mode is active.
+        if (_player == null) _player = FindObjectOfType<PlayerController>();
+        if (_player != null)
+        {
+            _player.DebugTakeControl();
+            _player.Bind(_store, _store);
+        }
+        else
+        {
+            _mode = MoveMode.Fly;
+            Debug.LogWarning("[Playground] no PlayerController in the scene — fly mode only");
+        }
+
+        // A CAPTURE PASS OWNS THE CAMERA, SO THE PLAYER MUST NOT.
+        // PlaygroundCapture (-playgroundshots / -gputrace) positions the camera
+        // itself for each shot; in walk mode DebugStep rewrites the camera every
+        // frame from the motor, and the two fight -- the symptom is screenshots
+        // taken from wherever the player happened to be standing. Fly mode
+        // leaves the transform alone, which is what those passes expect.
+        if (HasArg("-playgroundshots") || HasArg("-gputrace"))
+        {
+            _mode = MoveMode.Fly;
+            _showHelp = false;
+        }
+
         RegisterDefaultToys();
         _ready = true;
-        // Start the player IN the arena. The fluid region is fixed, so spawning
-        // outside it means every fluid control silently does nothing useful --
-        // which is exactly how the first build felt.
         TeleportToArena();
         _status = $"arena at {_arenaCentre} — fluid is FIXED here and does not follow you";
     }
 
+    private static bool HasArg(string flag)
+    {
+        foreach (string a in Environment.GetCommandLineArgs())
+            if (string.Equals(a, flag, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
     private void RegisterDefaultToys()
     {
-        // 1-4 SELECT A BRUSH; the mouse applies it at the crosshair.
-        //
-        // The first version bound 1/2/3 to vents at FIXED points inside the
-        // arena, tens of metres from wherever the player happened to be. Press
-        // one and nothing visibly happens, because the fluid is pouring
-        // correctly somewhere off screen. That is a genuinely bad control
-        // scheme, not a bug in the fluid.
-        Register(new Toy(KeyCode.Alpha1, "brush: water", () => SetBrush(0)));
-        Register(new Toy(KeyCode.Alpha2, "brush: sand", () => SetBrush(1)));
-        Register(new Toy(KeyCode.Alpha3, "brush: lava", () => SetBrush(2)));
-        Register(new Toy(KeyCode.Alpha4, "brush: stone", () => SetBrush(3)));
+        Register(new Toy(KeyCode.Tab, "walk/fly", ToggleMode));
         Register(new Toy(KeyCode.V, "vent here", OpenVentAtTarget));
         Register(new Toy(KeyCode.Alpha0, "stop vents", () =>
             { _waterLeft = _sandLeft = _lavaLeft = 0; _status = "vents closed"; }));
-        Register(new Toy(KeyCode.F, "fly to arena", TeleportToArena));
+        Register(new Toy(KeyCode.F, "go to arena", TeleportToArena));
+        Register(new Toy(KeyCode.R, "respawn on ground", Respawn));
+        Register(new Toy(KeyCode.B, "bomb", DetonateAtTarget));
+        Register(new Toy(KeyCode.T, "shoot", ShootProjectile));
+        Register(new Toy(KeyCode.Z, "tool -", () => CycleTier(-1)));
+        Register(new Toy(KeyCode.X, "tool +", () => CycleTier(+1)));
+        Register(new Toy(KeyCode.F2, "help", () => _showHelp = !_showHelp));
+    }
+
+    // =====================================================================
+    // Modes, tools, hotbar
+    // =====================================================================
+
+    private void ToggleMode()
+    {
+        if (_player == null) { _status = "no PlayerController — fly only"; return; }
+        _mode = _mode == MoveMode.Walk ? MoveMode.Fly : MoveMode.Walk;
+        if (_mode == MoveMode.Walk) SnapPlayerToCamera();
+        _status = _mode == MoveMode.Walk
+            ? "WALK — gravity, jumping, 3-voxel steps, swimming"
+            : "FLY — noclip camera, gravity off";
+    }
+
+    /// Entering walk mode from wherever the camera drifted to. Uses the motor's
+    /// own spawn resolution so you never materialise inside rock.
+    private void SnapPlayerToCamera()
+    {
+        Camera cam = Camera.main;
+        if (cam == null || _player == null || _player.Motor == null) return;
+        float eye = 1.6f;
+        Vector3 p = cam.transform.position - Vector3.up * eye;
+        _player.Motor.Teleport(new float3(p.x, p.y, p.z));
+        if (!_player.Motor.ResolveSpawn())
+            _status = "could not find open space here — try F or R";
+    }
+
+    private void Respawn()
+    {
+        if (_player == null || _player.Motor == null) return;
+        int3 c = CameraVoxel();
+        int sy = SurfaceY(c.x, c.z);
+        if (sy < 0) { _status = "no ground under you to respawn onto"; return; }
+        _player.Motor.Teleport(new float3(c.x * 0.1f, (sy + 1) * 0.1f + 0.2f, c.z * 0.1f));
+        _player.Motor.ResolveSpawn();
+        _mode = MoveMode.Walk;
+        _status = "respawned on the surface";
+    }
+
+    private void CycleTier(int d)
+    {
+        _tier = (int)Mathf.Repeat(_tier + d, EditService.Tiers.Length);
+        var t = EditService.Tiers[_tier];
+        _status = $"tool: {t.Name} — {t.VoxelsPerSecond} vox/s, radius {t.RadiusVoxels}";
     }
 
     private void SetBrush(int i)
     {
         _brush = Mathf.Clamp(i, 0, _brushes.Length - 1);
-        _status = $"brush: {_brushNames[_brush]}";
+        _status = $"holding {_brushNames[_brush]}";
     }
 
-    /// Opens a continuous source in the air above whatever the crosshair is on,
-    /// so a vent appears WHERE YOU ARE LOOKING instead of at a fixed point.
+    // =====================================================================
+    // Phase 6 demo actions
+    // =====================================================================
+
+    /// §8.5's mass destruction, at the crosshair. Frame-split: Update drains it
+    /// under the per-frame work budget, exactly as a real detonation would be.
+    private void DetonateAtTarget()
+    {
+        if (!_hasTarget) { _status = "bomb: aim at something first"; return; }
+        if (_demolition.InProgress) { _status = "bomb: one is still going off"; return; }
+        int cells = DestructionReducer.SphereVoxelCount(_bombRadiusVoxels);
+        _demolition.Detonate(_targetVoxel, _bombRadiusVoxels);
+        _bombFrames = 0;
+        _status = $"bomb: radius {_bombRadiusVoxels} ({cells} cells) — draining under the frame budget";
+    }
+
+    /// §8.4's projectile, fired down the crosshair. The trace is authoritative:
+    /// §13's solo-dev note says provisional motion stays visual until a trace
+    /// confirms, so nothing here moves anything before the answer comes back.
+    private void ShootProjectile()
+    {
+        Camera cam = Camera.main;
+        if (cam == null) return;
+        float3 from = new float3(cam.transform.position.x, cam.transform.position.y,
+                                 cam.transform.position.z);
+        float3 dir = new float3(cam.transform.forward.x, cam.transform.forward.y,
+                                cam.transform.forward.z);
+        _lastShot = _projectiles.Trace(from, from + dir * 60f);
+        _hasShot = true;
+        _shotAge = 0f;
+        _status = _lastShot.Hit
+            ? $"shot hit {MaterialName(_lastShot.Material)} at {_lastShot.DistanceM:F1} m" +
+              (_lastShot.FluidTraversedDistanceM > 0f
+                  ? $" (through {_lastShot.FluidTraversedDistanceM:F2} m of {MaterialName(_lastShot.PrimaryFluidMaterial)})"
+                  : "")
+            : $"shot travelled {_lastShot.DistanceM:F1} m and hit nothing";
+    }
+
+    /// Opens a continuous source in the air above whatever the crosshair is on.
     private void OpenVentAtTarget()
     {
         if (!_hasTarget) { _status = "vent: aim at a surface first"; return; }
@@ -205,23 +374,19 @@ public class Playground : MonoBehaviour
         if (m == Materials.Water) { _waterSrc = cell; _waterLeft = _waterBudget; }
         else if (m == Materials.Sand) { _sandSrc = cell; _sandLeft = _sandBudget; }
         else if (m == Materials.Lava) { _lavaSrc = cell; _lavaLeft = _lavaBudget; }
-        else { _status = "vent: pick a fluid brush (1/2/3)"; return; }
+        else { _status = "vent: hold water, sand or lava (1/2/3)"; return; }
         _status = $"{_brushNames[_brush]} vent open above {_targetVoxel}";
     }
 
-    /// Finds the lowest surface point in a band around spawn -- i.e. a valley or
-    /// carved basin the GENERATOR made. Nothing here sculpts terrain; if the
-    /// world has no dip near spawn, the arena is simply not placed.
+    // =====================================================================
+    // World helpers
+    // =====================================================================
+
     private bool TryFindNaturalBasin(out int3 centre)
     {
         centre = default;
         int bestY = int.MaxValue;
         bool found = false;
-        // Search around WHERE THE CAMERA ACTUALLY IS, not a hardcoded point.
-        // The first version searched around Phase4Bootstrapper's own spawn
-        // (140.8 m), which sizeClass 1 left in deep ocean 1.1 km from the
-        // island -- so the scan found only sea floor under generated water,
-        // rejected all of it, and reported "no basin found".
         Camera cam = Camera.main;
         float3 camPos = cam != null
             ? new float3(cam.transform.position.x, cam.transform.position.y, cam.transform.position.z)
@@ -234,8 +399,6 @@ public class Playground : MonoBehaviour
             int x = spawn.x + dx, z = spawn.z + dz;
             int surface = SurfaceY(x, z);
             if (surface < 0) continue;
-            // Skip ocean: a basin already full of generated water is not a place
-            // to watch poured fluid interact with ground.
             if (_store.GetVoxel(new int3(x, surface, z)) == Materials.Water) continue;
             if (surface < bestY) { bestY = surface; centre = new int3(x, surface, z); found = true; }
         }
@@ -244,63 +407,15 @@ public class Playground : MonoBehaviour
 
     private int SurfaceY(int x, int z)
     {
-        // From above MAX_TERRAIN_HEIGHT (120) downward -- starting at 90 missed
-        // anything on a hill.
         for (int y = WorldGenConstants.MAX_TERRAIN_HEIGHT + 2; y >= 1; y--)
-            if (_store.GetVoxel(new int3(x, y, z)) != Materials.Air) return y;
+        {
+            byte m = _store.GetVoxel(new int3(x, y, z));
+            if (m != Materials.Air && !MaterialRules.IsFluidMaterial(m)) return y;
+        }
         return -1;
     }
 
     private void MarkDirtyFor(int3 v) => _clipmap.MarkDirty(CoordMath.VoxelToChunk(v));
-
-    private void Edit(int3 v, byte m)
-    {
-        _store.SetVoxel(v, m);
-        MarkDirtyFor(v);
-        _edits.NotifyEdited(v);
-    }
-
-    private void EditBox(byte m)
-    {
-        int3 c = CameraVoxel();
-        for (int z = -1; z <= 1; z++)
-        for (int y = -1; y <= 1; y++)
-        for (int x = -1; x <= 1; x++)
-            Edit(c + new int3(x, y, z), m);
-    }
-
-    /// Voxel DDA from the camera through the world, stopping at the first solid
-    /// cell. Straight-line stepping on the CPU against ChunkStore.GetVoxel --
-    /// it shares no code with the GPU raymarcher and is not a check on it.
-    private void UpdateTarget()
-    {
-        _hasTarget = false;
-        Camera cam = Camera.main;
-        if (cam == null || _store == null) return;
-
-        float3 originM = new float3(cam.transform.position.x, cam.transform.position.y, cam.transform.position.z);
-        float3 dir = math.normalize(new float3(cam.transform.forward.x, cam.transform.forward.y, cam.transform.forward.z));
-
-        const float reachM = 12f;
-        const float stepM = 0.05f;       // half a voxel; fine enough not to skip one
-        int3 prev = CoordMath.WorldToVoxel(originM);
-        for (float t = 0.15f; t < reachM; t += stepM)
-        {
-            int3 v = CoordMath.WorldToVoxel(originM + dir * t);
-            if (v.Equals(prev)) continue;
-            byte m = _store.GetVoxel(v);
-            if (m != Materials.Air)
-            {
-                _hasTarget = true;
-                _targetVoxel = v;
-                _targetAdjacent = prev;      // last empty cell before the hit
-                _targetMaterial = m;
-                _targetDistM = t;
-                return;
-            }
-            prev = v;
-        }
-    }
 
     private static string MaterialName(byte m)
     {
@@ -332,24 +447,90 @@ public class Playground : MonoBehaviour
     {
         Camera cam = Camera.main;
         if (cam == null) return;
-        cam.transform.position = new Vector3(
-            _arenaCentre.x * 0.1f - 3.2f, _arenaCentre.y * 0.1f + 2.6f, _arenaCentre.z * 0.1f - 3.2f);
+        Vector3 at = new Vector3(_arenaCentre.x * 0.1f - 3.2f,
+                                 _arenaCentre.y * 0.1f + 2.6f,
+                                 _arenaCentre.z * 0.1f - 3.2f);
+        cam.transform.position = at;
         cam.transform.rotation = Quaternion.Euler(18f, 45f, 0f);
-        _status = "flew to the fluid arena";
+        if (_mode == MoveMode.Walk) SnapPlayerToCamera();
+        _status = "went to the fluid arena";
     }
+
+    /// Voxel DDA from the camera, stopping at the first solid cell.
+    private void UpdateTarget()
+    {
+        _hasTarget = false;
+        Camera cam = Camera.main;
+        if (cam == null || _store == null) return;
+
+        float3 originM = new float3(cam.transform.position.x, cam.transform.position.y, cam.transform.position.z);
+        float3 dir = math.normalize(new float3(cam.transform.forward.x, cam.transform.forward.y, cam.transform.forward.z));
+
+        const float reachM = 12f;
+        const float stepM = 0.05f;
+        int3 prev = CoordMath.WorldToVoxel(originM);
+        for (float t = 0.15f; t < reachM; t += stepM)
+        {
+            int3 v = CoordMath.WorldToVoxel(originM + dir * t);
+            if (v.Equals(prev)) continue;
+            byte m = _store.GetVoxel(v);
+            if (m != Materials.Air)
+            {
+                _hasTarget = true;
+                _targetVoxel = v;
+                _targetAdjacent = prev;
+                _targetMaterial = m;
+                _targetDistM = t;
+                return;
+            }
+            prev = v;
+        }
+    }
+
+    // =====================================================================
+    // Frame
+    // =====================================================================
 
     void Update()
     {
         if (!_ready) return;
         if (_cam == null && Camera.main != null) _cam = Camera.main.GetComponent<PlaygroundFlyCamera>();
 
+        float dt = Time.deltaTime;
+        _actAge += dt;
+        _shotAge += dt;
+
+        // The flycam always owns capture + look; only its MOVEMENT is mode-gated.
+        if (_cam != null) _cam.MovementEnabled = _mode == MoveMode.Fly;
+
         UpdateTarget();
         foreach (var t in _toys) if (Input.GetKeyDown(t.Key)) t.Run();
-        HandleMouse();
+        HandleHotbarKeys();
+        HandleMouse(dt);
+        DriveWalk(dt);
 
         Emit(ref _waterLeft, _waterSrc, Materials.Water);
         Emit(ref _sandLeft, _sandSrc, Materials.Sand);
         Emit(ref _lavaLeft, _lavaSrc, Materials.Lava);
+
+        // §8.5's frame-split drain. One Step per frame is exactly how a real
+        // detonation recovers, and it is why a 400K blast does not stall a frame.
+        if (_demolition.InProgress)
+        {
+            _demolition.Step();
+            _bombFrames++;
+            if (!_demolition.InProgress && _demolition.TryTakeCompleted(out _lastDrop))
+            {
+                _hasDrop = true;
+                _status = $"bomb: {_lastDrop.TotalVoxels} voxels in {_bombFrames} frames, " +
+                          $"mostly {MaterialName(_lastDrop.DominantMaterial)} — one Proxy Drop";
+            }
+        }
+
+        // Dug-per-second readout, so the tool tiers are visible rather than
+        // asserted. Reset on a whole-second boundary.
+        _dugTimer += dt;
+        if (_dugTimer >= 1f) { _dugThisSecond = _dugCounter; _dugCounter = 0; _dugTimer = 0f; }
 
         if (_readback.CanIssue)
         {
@@ -359,79 +540,148 @@ public class Playground : MonoBehaviour
         _readback.PumpAndApply();
     }
 
+    private void HandleHotbarKeys()
+    {
+        for (int i = 0; i < _brushes.Length && i < 9; i++)
+            if (Input.GetKeyDown(KeyCode.Alpha1 + i)) SetBrush(i);
+    }
+
+    /// Walks the player, then lets §8.6's buoyancy act on the result.
+    private void DriveWalk(float dt)
+    {
+        if (_mode != MoveMode.Walk || _player == null || !_player.Ready || dt <= 0f) return;
+
+        float yaw = _cam != null ? _cam.Yaw : 0f;
+        _player.DebugSetLook(yaw, _cam != null ? _cam.Pitch : 0f);
+
+        float2 wish = float2.zero;
+        if (_cam == null || _cam.Captured)
+        {
+            if (Input.GetKey(KeyCode.W)) wish.y += 1f;
+            if (Input.GetKey(KeyCode.S)) wish.y -= 1f;
+            if (Input.GetKey(KeyCode.D)) wish.x += 1f;
+            if (Input.GetKey(KeyCode.A)) wish.x -= 1f;
+        }
+        float r = math.radians(yaw);
+        float sin = math.sin(r), cos = math.cos(r);
+        float2 world = new float2(wish.x * cos + wish.y * sin, wish.y * cos - wish.x * sin);
+
+        bool jump = (_cam == null || _cam.Captured) && Input.GetKeyDown(KeyCode.Space);
+        _player.DebugStep(dt, world, jump);
+
+        ApplyBuoyancy(dt);
+    }
+
+    /// SWIMMING, COMPOSED IN THE GAME LAYER. See header note 4.
+    ///
+    /// §8.6's Buoyancy is one-way: it samples terrain and returns forces, and
+    /// PlayerMotor deliberately knows nothing about them. Something has to join
+    /// the two for a body to actually float, and that something is game code --
+    /// this. It is NOT part of Phase 6's proven surface and no rig covers it;
+    /// it exists so the demo can show that §8.6 produces sensible numbers.
+    private void ApplyBuoyancy(float dt)
+    {
+        var motor = _player.Motor;
+        if (motor == null) return;
+
+        _buoyState = _buoyancy.Sample(motor.PositionM, PlayerConfig.Active.bodyHeightM,
+                                      PlayerConfig.Active.maxSpeedMps,
+                                      _readback != null ? _readback.FramesSinceLastApplied : 0);
+        if (!_buoyState.InFluid) return;
+
+        motor.VelocityMps.y += _buoyState.BuoyantAccelMps2 * dt;
+
+        // Linear drag, applied as an exponential decay so a large coefficient
+        // cannot overshoot into a reversal at low frame rates.
+        float k = math.exp(-_buoyState.DragPerSecond * dt);
+        motor.VelocityMps *= k;
+    }
+
     /// Mouse actions only fire while the camera has the cursor captured, so the
     /// click that re-focuses the window cannot also dig a hole.
-    private void HandleMouse()
+    private void HandleMouse(float dt)
     {
         if (_cam == null || !_cam.Captured) return;
 
         float scroll = Input.mouseScrollDelta.y;
         if (Mathf.Abs(scroll) > 0.01f)
-            SetBrush((_brush + (scroll > 0 ? 1 : _brushes.Length - 1)) % _brushes.Length);
+            SetBrush((int)Mathf.Repeat(_brush + (scroll > 0 ? 1 : -1), _brushes.Length));
 
         if (!_hasTarget) return;
 
-        if (Input.GetMouseButton(0))          // held: mine continuously
+        if (Input.GetMouseButton(0))          // held: dig at the tool's own rate
         {
-            EditSphere(_targetVoxel, 2, Materials.Air);
-            _status = $"mining at {_targetVoxel}";
+            var tier = EditService.Tiers[_tier];
+            int allow = _digBudget.Accrue(dt, tier.VoxelsPerSecond);
+            if (allow > 0)
+            {
+                int got = _edits.MineSphereBudgeted(_targetVoxel, tier.RadiusVoxels,
+                                                    allow, Materials.Air);
+                _dugCounter += got;
+                _act = Act.Dig;
+                _actAge = 0f;
+                _status = $"digging with {tier.Name} at {_targetVoxel}";
+            }
         }
-        else if (Input.GetMouseButton(1))     // held: paint the brush
+        else if (Input.GetMouseButton(1))     // held: place the held item
         {
             TryPaintBrush(_targetAdjacent);
         }
     }
 
-    /// THE PAINT ACTION. Returns true if the blob was actually written.
+    /// THE PLACE ACTION. Returns true if the blob was actually written.
     ///
     /// Factored out of HandleMouse so a rig can drive the REAL path without
     /// synthesising mouse input -- HandleMouse and Phase6BrushGuard are the only
     /// two callers, and they share this one implementation, so a rig result is a
-    /// statement about what RMB does, not about a parallel copy of it. See
-    /// Phase6BrushGuard for why that mattered: the guard below was
-    /// correctness-proven at the unit level but unreachable from EditMode,
-    /// because Playground lives in Assembly-CSharp and CoreEngine.Tests cannot
-    /// reference it.
+    /// statement about what right-click does, not about a parallel copy of it.
     internal bool TryPaintBrush(int3 at)
     {
         byte m = _brushes[_brush];
-        int radius = m == Materials.Stone ? 2 : 1;   // a small blob of fluid
+        int radius = MaterialRules.IsMobile(m) ? 1 : 2;   // a small blob of fluid
 
         // REFUSE A MOBILE BRUSH OUTSIDE THE ARENA. The CA's region is fixed
-        // (§7.4's moving radius is unbuilt), and FluidGpuSimulation.
-        // RequestWake correctly drops out-of-region wakes -- so a mobile
-        // material written outside the arena is committed to ChunkStore and
-        // uploaded to the mirror, and then NEVER SIMULATED. It renders as a
-        // frozen blob hanging wherever the crosshair was: sand that does not
-        // fall, water that does not spread. The vent path (OpenVentAtTarget)
-        // has always guarded this; this path did not, so the same limitation
-        // was refused in one place and silently disguised in the other.
-        // Header note 1 says this scene must make that limit VISIBLE.
+        // (§7.4's moving radius is unbuilt), and FluidGpuSimulation.RequestWake
+        // correctly drops out-of-region wakes -- so a mobile material written
+        // outside the arena is committed to ChunkStore and uploaded to the
+        // mirror, and then NEVER SIMULATED. It renders as a frozen blob hanging
+        // wherever the crosshair was: sand that does not fall, water that does
+        // not spread. Header note 1 says this scene must make that limit VISIBLE.
         //
-        // All-or-nothing on purpose. Placing only the in-region cells of a
-        // blob that straddles the edge would leave a frozen rim outside it
-        // -- the same silent-partial shape as the §9.4 residency-edge bug.
+        // All-or-nothing on purpose. Placing only the in-region cells of a blob
+        // that straddles the edge would leave a frozen rim outside it -- the
+        // same silent-partial shape as the §9.4 residency-edge bug.
         if (MaterialRules.IsMobile(m) && !SphereFitsInFluidArena(at, radius))
         {
             _status = $"<color=#ff9a9a>{_brushNames[_brush]} NOT placed at {at} — outside the " +
                       $"{_arenaEdge}^3 fluid arena at {_arenaCentre}. It would never simulate here " +
-                      $"(§7.4's moving radius is unbuilt). Press F to fly to the arena.</color>";
+                      $"(§7.4's moving radius is unbuilt). Press F to go to the arena.</color>";
+            _act = Act.Refused;
+            _actAge = 0f;
             return false;
         }
 
-        EditSphere(at, radius, m);
+        _edits.SetSphere(at, radius, m);
+        _act = Act.Place;
+        _actAge = 0f;
         _status = $"placing {_brushNames[_brush]} at {at}";
         return true;
     }
 
+    /// True iff a blob placed here would actually be simulated. The predicate
+    /// lives in FluidGpuSimulation next to the region it asks about.
+    private bool SphereFitsInFluidArena(int3 centre, int radius)
+        => _fluid != null && _fluid.SphereFitsInRegion(centre, radius);
+
+    private void Emit(ref int budget, int3 cell, byte material)
+    {
+        if (budget <= 0) return;
+        if (_store.GetVoxel(cell) != Materials.Air) return;
+        if (_edits.TrySetVoxel(cell, material)) budget--;
+    }
+
     // =====================================================================
-    // RIG SURFACE -- Phase6BrushGuard only. Not part of the playable scene.
-    //
-    // Playground is in Assembly-CSharp, which no asmdef test assembly can
-    // reference, so the brush guard cannot be reached from EditMode at all.
-    // These read-only accessors plus TryPaintBrush above let a standalone rig
-    // drive and observe the real thing instead. Nothing here changes behaviour;
-    // DebugOpenAllVents/DebugRunKey set the precedent for this kind of surface.
+    // Rig surface. Phase6BrushGuard / PlaygroundCapture only.
     // =====================================================================
 
     internal bool DebugReady => _ready;
@@ -445,8 +695,6 @@ public class Playground : MonoBehaviour
     internal string DebugBrushName => _brushNames[_brush];
     internal void DebugSetBrush(int i) => SetBrush(i);
 
-    /// Drives one CA tick + readback exactly as Update does, so a rig can advance
-    /// the simulation without Update's input handling running.
     internal void DebugTickFluid()
     {
         if (_readback.CanIssue)
@@ -457,36 +705,7 @@ public class Playground : MonoBehaviour
         _readback.PumpAndApply();
     }
 
-    /// True iff a blob placed here would actually be simulated. The predicate
-    /// itself lives in FluidGpuSimulation next to the region it asks about, and
-    /// shares SphereCovers with EditSphere below, so the cells the guard checks
-    /// and the cells EditSphere writes cannot drift apart.
-    private bool SphereFitsInFluidArena(int3 centre, int radius)
-        => _fluid != null && _fluid.SphereFitsInRegion(centre, radius);
-
-    private void EditSphere(int3 centre, int radius, byte m)
-    {
-        for (int z = -radius; z <= radius; z++)
-        for (int y = -radius; y <= radius; y++)
-        for (int x = -radius; x <= radius; x++)
-        {
-            if (!FluidGpuSimulation.SphereCovers(x, y, z, radius)) continue;
-            Edit(centre + new int3(x, y, z), m);
-        }
-    }
-
-    private void Emit(ref int budget, int3 cell, byte material)
-    {
-        if (budget <= 0) return;
-        if (_store.GetVoxel(cell) != Materials.Air) return;
-        Edit(cell, material);
-        budget--;
-    }
-
     /// For PlaygroundCapture only. Opens all three vents above the arena centre.
-    /// The capture pass used to press 1/2/3, which now select a BRUSH rather
-    /// than opening a vent -- so without this the screenshot pass would have
-    /// quietly photographed an empty arena and reported success.
     public void DebugOpenAllVents()
     {
         int top = _arenaOrigin.y + _arenaEdge - 4;
@@ -497,20 +716,17 @@ public class Playground : MonoBehaviour
         _status = "capture: all vents open";
     }
 
-    /// For PlaygroundCapture only -- lets the screenshot pass trigger a toy
-    /// without duplicating the key table. Not part of the playable surface.
+    /// For PlaygroundCapture only -- triggers a toy without duplicating the key
+    /// table. Not part of the playable surface.
     public void DebugRunKey(KeyCode k)
     {
         foreach (var t in _toys) if (t.Key == k) { t.Run(); return; }
     }
 
-    // ---- Screen-space voxel highlight -------------------------------------
-    // Drawn in IMGUI rather than with GL lines or a wireframe mesh. The scene is
-    // a compute raymarch blitted into the camera target, so anything drawn
-    // through the normal geometry path has no depth to sort against and may or
-    // may not composite depending on the render-graph pass order. Projecting the
-    // cube's eight corners and drawing the twelve edges as 2D lines always lands
-    // on top, and costs nothing.
+    // =====================================================================
+    // Screen-space drawing
+    // =====================================================================
+
     private void DrawLine(Vector2 a, Vector2 b, Color c, float w)
     {
         if (_px == null)
@@ -534,8 +750,6 @@ public class Playground : MonoBehaviour
 
     private void DrawVoxelHighlight(Camera cam, int3 v, Color c, float width)
     {
-        // Voxels are 0.1 m (§2.3). Inflate very slightly so the outline sits
-        // just outside the surface instead of z-fighting it visually.
         Vector3 lo = new Vector3(v.x, v.y, v.z) * 0.1f - Vector3.one * 0.002f;
         Vector3 hi = lo + Vector3.one * (0.1f + 0.004f);
 
@@ -549,38 +763,54 @@ public class Playground : MonoBehaviour
         for (int i = 0; i < 8; i++)
         {
             Vector3 sp = cam.WorldToScreenPoint(w[i]);
-            if (sp.z <= 0f) return;                       // behind the camera
+            if (sp.z <= 0f) return;
             p[i] = new Vector2(sp.x, Screen.height - sp.y);
         }
 
         int[,] edges = {
-            {0,1},{1,3},{3,2},{2,0},   // -z face
-            {4,5},{5,7},{7,6},{6,4},   // +z face
-            {0,4},{1,5},{2,6},{3,7},   // connecting
+            {0,1},{1,3},{3,2},{2,0},
+            {4,5},{5,7},{7,6},{6,4},
+            {0,4},{1,5},{2,6},{3,7},
         };
         for (int e = 0; e < 12; e++)
             DrawLine(p[edges[e, 0]], p[edges[e, 1]], c, width);
     }
 
+    private static Color MaterialSwatch(byte m)
+    {
+        var rgb = MaterialPalette.Of(m);
+        return new Color(rgb.R, rgb.G, rgb.B, 1f);
+    }
+
+    private void Box(Rect r, Color fill)
+    {
+        if (_px == null) { _px = new Texture2D(1, 1); _px.SetPixel(0, 0, Color.white); _px.Apply(); }
+        Color old = GUI.color;
+        GUI.color = fill;
+        GUI.DrawTexture(r, _px);
+        GUI.color = old;
+    }
+
+    private void Frame(Rect r, Color c, float w)
+    {
+        Box(new Rect(r.x, r.y, r.width, w), c);
+        Box(new Rect(r.x, r.yMax - w, r.width, w), c);
+        Box(new Rect(r.x, r.y, w, r.height), c);
+        Box(new Rect(r.xMax - w, r.y, w, r.height), c);
+    }
+
+    // =====================================================================
+    // HUD
+    // =====================================================================
+
     void OnGUI()
     {
-        // UI scale. Unity lays IMGUI out in PHYSICAL pixels, so on a 2880x1800
-        // backbuffer a 14 pt label is genuinely unreadable -- which is exactly
-        // how the first build looked. Everything textual below is drawn through
-        // this scale; the crosshair and voxel highlight are NOT, because they
-        // are projected from world space and must stay in real screen pixels.
         float ui = Mathf.Max(1f, Screen.height / 900f);
-        var st = new GUIStyle(GUI.skin.label) { fontSize = 14, richText = true };
-
-        // ---- Crosshair + target highlight ----
         Camera cam = Camera.main;
+
+        // ---- World-space overlays, in REAL screen pixels ----
         if (cam != null)
         {
-            // Crosshair, drawn DARK-THEN-LIGHT. A plain white crosshair is
-            // invisible against snow, which is most of this island -- the first
-            // build's was, in the very screenshot taken to check it.
-            // Sized off screen height so it does not shrink to nothing on a
-            // Retina backbuffer.
             float cx = Screen.width * 0.5f, cy = Screen.height * 0.5f;
             float k = Mathf.Max(1f, Screen.height / 900f);
             float gap = 4f * k, len = 13f * k;
@@ -599,43 +829,200 @@ public class Playground : MonoBehaviour
             if (_ready && _hasTarget)
             {
                 bool inRegion = _fluid != null && _fluid.InRegion(_targetVoxel);
-                // Amber inside the fluid arena, grey outside it -- so "why is
-                // nothing happening here" is answerable at a glance.
-                // Dark backing pass first, same reason as the crosshair.
                 DrawVoxelHighlight(cam, _targetVoxel, new Color(0f, 0f, 0f, 0.55f), 4.5f * k);
                 DrawVoxelHighlight(cam, _targetVoxel,
                     inRegion ? new Color(1f, 0.78f, 0.25f, 0.98f)
                              : new Color(0.85f, 0.85f, 0.88f, 0.9f), 2f * k);
             }
-        }
-        var sb = new StringBuilder();
-        sb.AppendLine("<b>Playground — dogfood scene. Not a diagnostic scene, not a scale test.</b>");
-        sb.AppendLine(_cam != null && _cam.Captured
-            ? "<b>LMB</b> mine   <b>RMB</b> place brush   <b>scroll</b> cycle brush   WASD/QE fly, Shift sprint   ESC release mouse"
-            : "<color=#ffc64a><b>CLICK the window to capture the mouse and look around</b></color>   (ESC releases)");
-        if (_ready)
-        {
-            var keys = new StringBuilder();
-            foreach (var t in _toys) keys.Append(t.Key.ToString().Replace("Alpha", "")).Append(' ').Append(t.Label).Append("   ");
-            sb.AppendLine(keys.ToString());
-            sb.AppendLine($"fluid arena {_arenaEdge}^3 voxels at {_arenaCentre} — FIXED, does not follow the camera (§7.4's moving radius is unbuilt)");
-            sb.AppendLine($"budgets water {_waterBudget} / sand {_sandBudget} / lava {_lavaBudget} — deliberately tiny; this is NOT a scale test");
-            sb.Append($"<b>brush: {_brushNames[_brush]}</b>   ");
-            if (_hasTarget)
+
+            // The last shot's impact, fading. Makes T do something visible.
+            if (_ready && _hasShot && _lastShot.Hit && _shotAge < 2f)
             {
-                bool inRegion = _fluid != null && _fluid.InRegion(_targetVoxel);
-                sb.AppendLine($"looking at <b>{MaterialName(_targetMaterial)}</b> @ {_targetVoxel}  " +
-                              $"{_targetDistM:F1} m  " +
-                              (inRegion ? "<color=#ffc64a>[inside fluid arena]</color>"
-                                        : "<color=#bbbbbb>[OUTSIDE arena — fluid will not simulate here]</color>"));
+                float a = 1f - _shotAge / 2f;
+                DrawVoxelHighlight(cam, _lastShot.Voxel, new Color(1f, 0.35f, 0.2f, a), 3f * k);
             }
-            else sb.AppendLine("looking at nothing within 12 m");
         }
-        sb.AppendLine(_status);
+
+        if (!_ready)
+        {
+            DrawTextPanel(new Rect(12, 8, 900, 40), ui, _status);
+            return;
+        }
+
         Matrix4x4 prev = GUI.matrix;
         GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * ui);
-        GUI.Label(new Rect(12, 8, 1400, 180), sb.ToString(), st);
+        float vw = Screen.width / ui, vh = Screen.height / ui;
+
+        DrawTopBar(vw);
+        DrawHotbar(vw, vh);
+        DrawStatePanel(vh);
+        if (_showHelp) DrawHelp(vw, vh);
+
         GUI.matrix = prev;
+    }
+
+    private GUIStyle _label;
+    private GUIStyle Label(int size, TextAnchor anchor = TextAnchor.UpperLeft)
+    {
+        _label = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = size,
+            richText = true,
+            alignment = anchor,
+            wordWrap = false,
+            normal = { textColor = Color.white },
+        };
+        return _label;
+    }
+
+    private void DrawTextPanel(Rect r, float ui, string text)
+    {
+        Matrix4x4 prev = GUI.matrix;
+        GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * ui);
+        GUI.Label(r, text, Label(14));
+        GUI.matrix = prev;
+    }
+
+    private void DrawTopBar(float vw)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("<b>Playground — dogfood scene. Not a diagnostic scene, not a scale test.</b>");
+        if (_cam != null && !_cam.Captured)
+            sb.AppendLine("<color=#ffc64a><b>CLICK the window to capture the mouse</b></color>   (ESC releases)");
+        else
+            sb.AppendLine($"<b>{(_mode == MoveMode.Walk ? "WALK" : "FLY")}</b>   " +
+                          "<b>Tab</b> switch   <b>F2</b> controls   <b>F1</b> perf");
+        sb.Append(_status);
+
+        // Width is bounded so it cannot slide under PlaygroundHud's perf panel,
+        // which anchors itself to the right edge at vw - 648.
+        float w = Mathf.Min(760f, vw - 660f);
+        Box(new Rect(8, 6, w, 66), new Color(0f, 0f, 0f, 0.45f));
+        GUI.Label(new Rect(16, 10, w - 14, 62), sb.ToString(), Label(14));
+    }
+
+    /// The hotbar plus what the two mouse buttons currently do. This is the
+    /// "what am I holding / what will clicking do" question, answered without
+    /// reading a paragraph.
+    private void DrawHotbar(float vw, float vh)
+    {
+        const float slot = 54f, pad = 6f;
+        float total = _brushes.Length * (slot + pad) - pad;
+        float x0 = (vw - total) * 0.5f;
+        float y0 = vh - slot - 58f;
+
+        for (int i = 0; i < _brushes.Length; i++)
+        {
+            var r = new Rect(x0 + i * (slot + pad), y0, slot, slot);
+            bool sel = i == _brush;
+
+            Box(r, new Color(0f, 0f, 0f, sel ? 0.75f : 0.45f));
+            Box(new Rect(r.x + 6, r.y + 6, r.width - 12, r.height - 22), MaterialSwatch(_brushes[i]));
+            Frame(r, sel ? new Color(1f, 0.82f, 0.3f, 1f) : new Color(1f, 1f, 1f, 0.25f), sel ? 2.5f : 1f);
+
+            GUI.Label(new Rect(r.x + 5, r.y + 2, 20, 16), $"{i + 1}", Label(11));
+            GUI.Label(new Rect(r.x, r.yMax - 17, r.width, 16), _brushNames[i],
+                      Label(10, TextAnchor.MiddleCenter));
+        }
+
+        // What the mouse buttons do, and which fired most recently.
+        var tier = EditService.Tiers[_tier];
+        bool digHot = _act == Act.Dig && _actAge < 0.35f;
+        bool placeHot = (_act == Act.Place || _act == Act.Refused) && _actAge < 0.35f;
+        string refused = _act == Act.Refused && _actAge < 0.6f ? "  <color=#ff9a9a>REFUSED</color>" : "";
+
+        var lr = new Rect(x0 - 250, y0 + 8, 240, 40);
+        var rr = new Rect(x0 + total + 10, y0 + 8, 260, 40);
+        Box(lr, new Color(0f, 0f, 0f, digHot ? 0.75f : 0.4f));
+        Box(rr, new Color(0f, 0f, 0f, placeHot ? 0.75f : 0.4f));
+        if (digHot) Frame(lr, new Color(1f, 0.82f, 0.3f, 1f), 2f);
+        if (placeHot) Frame(rr, new Color(1f, 0.82f, 0.3f, 1f), 2f);
+
+        GUI.Label(lr, $"<b>LMB — DIG</b>\n{tier.Name} · {tier.VoxelsPerSecond} vox/s · r{tier.RadiusVoxels}   <b>Z/X</b>",
+                  Label(12, TextAnchor.MiddleCenter));
+        GUI.Label(rr, $"<b>RMB — PLACE</b>{refused}\n{_brushNames[_brush]}   <b>1-{_brushes.Length}</b> / scroll",
+                  Label(12, TextAnchor.MiddleCenter));
+    }
+
+    /// Live engine state, bottom-left. Everything here is a READOUT of a Phase 6
+    /// system, so "is buoyancy doing anything" is answerable at a glance.
+    private void DrawStatePanel(float vh)
+    {
+        var sb = new StringBuilder();
+
+        if (_mode == MoveMode.Walk && _player != null && _player.Motor != null)
+        {
+            var m = _player.Motor;
+            float speed = math.length(new float2(m.VelocityMps.x, m.VelocityMps.z));
+            sb.AppendLine($"<b>player</b>  {(m.Grounded ? "<color=#8fd98f>grounded</color>" : "airborne")}" +
+                          $"   {speed:F1} m/s   y {m.PositionM.y:F2} m");
+            if (m.LastBlockedByNonResident)
+                sb.AppendLine("<color=#ff9a9a>blocked by an UNLOADED chunk (§9.4) — the streamer is behind</color>");
+            if (_buoyState.InFluid)
+                sb.AppendLine($"<b>buoyancy</b>  {_buoyState.SubmergedFraction * 100f:F0}% submerged in " +
+                              $"{MaterialName(_buoyState.DominantFluid)}   " +
+                              $"lift {_buoyState.BuoyantAccelMps2:+0.0;-0.0} m/s²   drag {_buoyState.DragPerSecond:F1}/s");
+            else sb.AppendLine("<b>buoyancy</b>  dry");
+            if (_buoyState.SpeedClampEngaged)
+                sb.AppendLine($"<color=#ffc64a><b>§8.2 SPEED CLAMP ENGAGED</b> — op-list stale, limited to " +
+                              $"{_buoyState.ClampedSpeedMps:F0} m/s</color>");
+        }
+        else sb.AppendLine("<b>fly</b>  noclip camera — press Tab to walk");
+
+        sb.AppendLine($"<b>dug</b>  {_dugThisSecond} vox in the last second" +
+                      (_demolition != null && _demolition.InProgress
+                          ? $"   <color=#ffc64a>bomb draining… {_demolition.VoxelsRemovedSoFar} voxels</color>"
+                          : ""));
+        if (_hasDrop)
+            sb.AppendLine($"<b>last blast</b>  {_lastDrop.TotalVoxels} voxels in {_lastDrop.Frames} frames, " +
+                          $"mostly {MaterialName(_lastDrop.DominantMaterial)}");
+        if (_hasShot)
+            sb.AppendLine($"<b>last shot</b>  " + (_lastShot.Hit
+                ? $"{MaterialName(_lastShot.Material)} at {_lastShot.DistanceM:F1} m"
+                : $"no hit in {_lastShot.DistanceM:F0} m"));
+
+        if (_edits != null)
+            sb.AppendLine($"<b>edits</b>  {_edits.VoxelsWritten} written   {_edits.EditsNoOp} no-op   " +
+                          $"{_edits.EditsRejectedNotResident} refused (not loaded)");
+
+        sb.Append($"<b>fluid arena</b>  {_arenaEdge}³ at {_arenaCentre} — FIXED, does not follow you " +
+                  "(§7.4 unbuilt)");
+
+        // SITS ABOVE THE HOTBAR ROW. The hotbar's LMB panel starts at
+        // (vw - 354)/2 - 250 and spans vh-104..vh-64, so a panel anchored at
+        // vh-180 runs underneath it -- the first build had the arena line
+        // disappearing behind the DIG box.
+        Box(new Rect(8, vh - 300, 700, 128), new Color(0f, 0f, 0f, 0.45f));
+        GUI.Label(new Rect(16, vh - 296, 686, 122), sb.ToString(), Label(13));
+    }
+
+    private void DrawHelp(float vw, float vh)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("<b>CONTROLS</b>   (F2 hides this)");
+        sb.AppendLine("");
+        sb.AppendLine("<b>move</b>      WASD, Space jump, Shift sprint   ·   fly: Q/E down/up");
+        sb.AppendLine("<b>Tab</b>       walk ↔ fly            <b>R</b>  respawn on the surface");
+        sb.AppendLine("<b>LMB</b>       dig at the tool's rate    <b>Z / X</b>  tool tier");
+        sb.AppendLine("<b>RMB</b>       place held item           <b>1-6</b> / scroll  pick item");
+        sb.AppendLine("<b>V</b>         open a vent above the crosshair (water/sand/lava)");
+        sb.AppendLine("<b>0</b>         close all vents       <b>F</b>  go to the fluid arena");
+        sb.AppendLine("<b>B</b>         bomb at the crosshair (§8.5, frame-split)");
+        sb.AppendLine("<b>T</b>         shoot a projectile (§8.4 DDA trace)");
+        sb.AppendLine("<b>F1</b>        perf overlay          <b>ESC</b>  release the mouse");
+        sb.AppendLine("");
+        sb.Append("<color=#bbbbbb>Fluid only simulates inside the arena — the crosshair box turns grey " +
+                  "outside it, and placing water/sand/lava there is refused.</color>");
+
+        // CENTRED, not tucked into a corner: at 6 hotbar slots the bottom-right
+        // is already occupied by the RMB panel, and a controls list that
+        // overlaps the thing it is describing is worse than useless. It is
+        // toggled, so covering the view while open is intended.
+        float w = 640f, h = 244f;
+        var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f, w, h);
+        Box(r, new Color(0f, 0f, 0f, 0.82f));
+        Frame(r, new Color(1f, 1f, 1f, 0.22f), 1f);
+        GUI.Label(new Rect(r.x + 18, r.y + 12, w - 36, h - 24), sb.ToString(), Label(13));
     }
 
     void OnDestroy()
