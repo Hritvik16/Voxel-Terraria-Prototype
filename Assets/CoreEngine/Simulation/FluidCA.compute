@@ -59,6 +59,7 @@
 #pragma kernel CSIntent
 #pragma kernel CSCommit
 #pragma kernel CSSweep
+#pragma kernel CSRecycle
 #pragma kernel CSWakeScan
 #pragma kernel CSFinalize
 
@@ -113,6 +114,14 @@ struct FluidWriteOp
 #define FLAG_FORCE_DEMOTE (1u << 3)
 #define FLAG_EVALUATED    (1u << 4)   // reserved [7:4], same use as the CPU reference
 #define FLAG_DESCENDED    (1u << 5)
+// A.5's free list, GPU side. Marks a dead slot whose INDEX has already been
+// returned to FreeList, so CSRecycle cannot push the same index twice. Cleared
+// implicitly on reuse, because CSPromote ASSIGNS stateFlags = FLAG_AWAKE.
+#define FLAG_RECYCLED     (1u << 6)
+
+// AllocSlot's failure return. Distinct from a valid index and from NONE (-1),
+// which is a cell->slot sentinel and a different type.
+#define NO_SLOT (0xFFFFFFFFu)
 
 #define NONE (-1)
 #define AIR  (0u)
@@ -128,6 +137,12 @@ uint4 _WindowDimsBricksPacked;   // .xyz = window size in bricks
 RWStructuredBuffer<FluidSlot> FluidSlots;
 RWStructuredBuffer<int>       ClaimBuffer;    // cell -> winning slot, or NONE
 RWStructuredBuffer<int>       SlotAtBuffer;   // cell -> owning slot, or NONE
+// A.5: "brickDataIndex -- home brick (next-free when free, intrusive list)".
+// The CPU oracle (FluidReferenceCPU) implements exactly that intrusive list.
+// This port cannot: a singly-linked list has no concurrent pop. Same SEMANTICS
+// -- freed indices are reused -- in the shape the hardware allows. §7.8 asks
+// the port to match the oracle's steady-state behaviour, not its data layout.
+RWStructuredBuffer<uint>      FreeList;       // recycled slot indices
 RWStructuredBuffer<int>       ReactedBuffer;  // cell -> 1 if a reaction spoke for it
 // Cells a DESCENDING commit touched this tick. CSWakeScan re-promotes their
 // mobile neighbours immediately, on the GPU, in the same tick.
@@ -367,11 +382,40 @@ void CSClear(uint3 id : SV_DispatchThreadID)
 // neighbourhood for fluid/falling materials and wakes GPU slots -- this wake
 // signal is a small CPU->GPU upload, not a readback, so it is immediate."
 // =========================================================================
+// A.5's slot recycling, which this port previously omitted entirely.
+//
+// THE BUG THIS FIXES, measured: 24.5 slot allocations per LIVE voxel, because
+// indices were consumed by CHURN and never returned. 406 placed voxels
+// exhausted an 8192-slot region, after which NOTHING could ever be promoted
+// again -- and the old code bumped Counters[1] BEFORE the capacity check, so
+// every failed promotion burned another index and the counter ran away past the
+// cap (measured 10,984/8,192). Exhaustion was self-reinforcing and permanent.
+//
+// NOT the claim path. §7.3's no-atomics rule governs Intent->Claim->Commit;
+// promotion and recycling are outside it, which is why the file's one
+// InterlockedAdd already lived here.
 uint AllocSlot()
 {
-    // NOT the claim path. See the header note on 8.4.
+    // 1. Reuse a returned index first.
+    uint prev;
+    InterlockedAdd(Counters[2], 0xFFFFFFFFu, prev);   // -1, returns the PRE-value
+    if (prev > 0u && prev <= _SlotCapacity)
+        return FreeList[prev - 1u];
+    // Empty, or another thread took the last one and this decrement underflowed.
+    // Give the count back; the guard above means an underflowed value is never
+    // used as an index.
+    uint back;
+    InterlockedAdd(Counters[2], 1u, back);
+
+    // 2. Fall back to the bump allocator. PEEK BEFORE BUMPING so an exhausted
+    //    region stops consuming indices instead of running away. The post-bump
+    //    check is still the real guard -- the peek is racy and can overshoot by
+    //    at most the number of threads in flight, which is bounded, unlike the
+    //    old unbounded runaway.
+    if (Counters[1] >= _SlotCapacity) return NO_SLOT;
     uint idx;
     InterlockedAdd(Counters[1], 1u, idx);
+    if (idx >= _SlotCapacity) return NO_SLOT;
     return idx;
 }
 
@@ -405,10 +449,11 @@ void CSPromote(uint3 id : SV_DispatchThreadID)
     if (!WithinActiveRadius(v)) { DBG(16); return; }   // distinct from not-mobile
 
     uint s = AllocSlot();
-    if (s >= _SlotCapacity)
+    if (s == NO_SLOT)
     {
         // §7.7: "Underflow on promotion is a guarded no-op -- retry next tick.
         // No invalid write, ever." The byte stays in terrain, so nothing is lost.
+        DBG(18);
         return;
     }
 
@@ -730,6 +775,46 @@ void CSSweep(uint3 id : SV_DispatchThreadID)
         return;
     }
     FluidSlots[s] = slot;
+}
+
+// =========================================================================
+// CSRecycle -- A.5's free list, the half CSSweep cannot do.
+//
+// ONE PUSH SITE, ON PURPOSE. Eight different places clear a slot (orphan
+// self-free, the ownership guard, reacted, force-demote, sleep, wake-scan...)
+// and pushing at each is how the same index gets handed to two live slots --
+// silent state corruption of exactly the kind §7.3 exists to prevent. Instead
+// nothing pushes anywhere, and this pass sweeps for dead-but-unreturned slots
+// once per tick, AFTER every clear site has run.
+//
+// Idempotent twice over: thread id.x owns slot index id.x, so no two threads in
+// a dispatch can push the same index; and FLAG_RECYCLED stops a later dispatch
+// pushing it again. The flag is cleared implicitly on reuse because CSPromote
+// assigns stateFlags rather than OR-ing it.
+//
+// Ordering safety: CSPromote runs BEFORE this in the same tick, so an index
+// pushed here is first visible to promotion on the NEXT tick. There is no
+// same-tick pop-and-push race.
+// =========================================================================
+[numthreads(64, 1, 1)]
+void CSRecycle(uint3 id : SV_DispatchThreadID)
+{
+    uint s = id.x;
+    // Only indices that have ever been handed out can be dead-and-unreturned,
+    // and Counters[0] is exactly that high-water mark.
+    if (s >= Counters[0] || s >= _SlotCapacity) return;
+
+    FluidSlot slot = FluidSlots[s];
+    if ((slot.stateFlags & FLAG_AWAKE) != 0u) return;      // still live
+    if ((slot.stateFlags & FLAG_RECYCLED) != 0u) return;   // already returned
+
+    // Mark before pushing, so a re-run cannot double-push.
+    slot.stateFlags |= FLAG_RECYCLED;
+    FluidSlots[s] = slot;
+
+    uint idx;
+    InterlockedAdd(Counters[2], 1u, idx);
+    if (idx < _SlotCapacity) FreeList[idx] = s;
 }
 
 // =========================================================================

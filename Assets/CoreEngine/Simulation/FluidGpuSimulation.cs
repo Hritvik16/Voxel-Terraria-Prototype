@@ -78,7 +78,7 @@ namespace VoxelEngine.Simulation
     public sealed class FluidGpuSimulation : IDisposable
     {
         // Kernel indices, resolved once in the constructor.
-        private readonly int _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep, _kFinalize, _kWakeScan;
+        private readonly int _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep, _kFinalize, _kWakeScan, _kRecycle;
         private readonly ComputeShader _cs;
 
         private readonly int3 _regionDims;
@@ -176,6 +176,7 @@ namespace VoxelEngine.Simulation
         private const string LblCommit   = "VE.FluidCA.CSCommit";
         private const string LblWakeScan = "VE.FluidCA.CSWakeScan";
         private const string LblSweep    = "VE.FluidCA.CSSweep";
+        private const string LblRecycle  = "VE.FluidCA.CSRecycle";
         private const string LblFinalize = "VE.FluidCA.CSFinalize";
 
         private readonly uint[] _counterScratch = new uint[4];
@@ -211,6 +212,19 @@ namespace VoxelEngine.Simulation
             highWater = _counterScratch[0];
             everAllocated = _counterScratch[1];
         }
+
+        /// Slot indices currently sitting in A.5's free list, waiting to be
+        /// reused. With recycling working, a region that has settled should show
+        /// this rising back toward highWater -- that is what "sleep returns
+        /// capacity" looks like from the CPU. BLOCKING; rigs only.
+        public uint ReadFreeSlotCount()
+        {
+            _counters.GetData(_counterScratch);
+            return _counterScratch[2];
+        }
+
+        /// A.5's free list, GPU side. Holds slot indices returned by CSRecycle.
+        private GraphicsBuffer _freeList;
 
         private GraphicsBuffer _materialFlags;
         private GraphicsBuffer _materialTick;
@@ -293,8 +307,10 @@ namespace VoxelEngine.Simulation
             _kSweep   = _cs.FindKernel("CSSweep");
             _kFinalize = _cs.FindKernel("CSFinalize");
             _kWakeScan = _cs.FindKernel("CSWakeScan");
+            _kRecycle = _cs.FindKernel("CSRecycle");
 
             _slots   = New(GraphicsBuffer.Target.Structured, _slotCapacity, FluidSlotGpu.SizeBytes);
+            _freeList = New(GraphicsBuffer.Target.Structured, _slotCapacity, 4);
             _claim   = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
             _slotAt  = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
             _reacted = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
@@ -328,6 +344,9 @@ namespace VoxelEngine.Simulation
             _wakeMark.SetData(new int[_regionCellCount]);
             _counters.SetData(new uint[4]);
             _slots.SetData(new FluidSlotGpu[_slotCapacity]);
+            // Not strictly required (Counters[2] starts at 0, so nothing is read),
+            // but a deterministic buffer beats one holding whatever was in GPU memory.
+            _freeList.SetData(new uint[_slotCapacity]);
 
             UploadMaterialRegistry();
         }
@@ -566,6 +585,9 @@ namespace VoxelEngine.Simulation
             Dispatch(_kCommit, _regionCellCount, LblCommit);
             Dispatch(_kWakeScan, _regionCellCount, LblWakeScan);   // immediate GPU-side wake
             Dispatch(_kSweep, _slotCapacity, LblSweep);
+            // A.5's free list. AFTER every clear site, and after Promote, so an
+            // index returned this tick is first reusable on the next one.
+            Dispatch(_kRecycle, _slotCapacity, LblRecycle);
             Dispatch(_kFinalize, 1, LblFinalize);   // publish the count into ops[0]
             if (!SplitDispatchEncodersForCapture) Graphics.ExecuteCommandBuffer(_cb);
 
@@ -591,13 +613,14 @@ namespace VoxelEngine.Simulation
             _cs.SetInts("_WindowDimsBricksPacked", wdb.x, wdb.y, wdb.z, 0);
             _cs.SetInts("_WindowOriginBricksPacked", wob.x, wob.y, wob.z, 0);
 
-            foreach (int k in new[] { _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep, _kFinalize, _kWakeScan })
+            foreach (int k in new[] { _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep, _kFinalize, _kWakeScan, _kRecycle })
             {
                 _cs.SetBuffer(k, "ClipmapBuffer", clipmap.ClipmapBuffer);
                 _cs.SetBuffer(k, "BrickDataBuffer", clipmap.BrickDataBuffer);
                 _cs.SetBuffer(k, "FluidSlots", _slots);
                 _cs.SetBuffer(k, "ClaimBuffer", _claim);
                 _cs.SetBuffer(k, "SlotAtBuffer", _slotAt);
+                _cs.SetBuffer(k, "FreeList", _freeList);
                 _cs.SetBuffer(k, "ReactedBuffer", _reacted);
                 _cs.SetBuffer(k, "WakeMark", _wakeMark);
                 _cs.SetBuffer(k, "Counters", _counters);
@@ -675,6 +698,7 @@ namespace VoxelEngine.Simulation
             _wakeMark?.Dispose(); _wakeMark = null;
             _cb?.Dispose(); _cb = null;
             _counters?.Dispose(); _wakeRequests?.Dispose();
+            _freeList?.Dispose(); _freeList = null;
             for (int i = 0; i < RING; i++)
             {
                 _ops[i]?.Dispose(); _ops[i] = null;

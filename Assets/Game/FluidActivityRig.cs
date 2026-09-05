@@ -249,10 +249,17 @@ public class FluidActivityRig : MonoBehaviour
              "AllocSlot is a bump allocator with no free list, so this number is the " +
              "rate at which a region burns its capacity permanently.");
 
+        float perVoxel = live > 0 ? allocs / (float)live : float.MaxValue;
         Check(live > 0, "the pour produced live water");
-        Check(allocs > live,
-            $"slot allocations ({allocs}) exceed live voxels ({live}) -- confirms indices are " +
-            "consumed by CHURN, not by live fluid");
+
+        // THE REGRESSION PIN FOR A.5'S FREE LIST. Before recycling existed this
+        // measured 24.5 allocations per live voxel (and §5 of PHASE_5C measured
+        // ~35); with it, 2.2. The threshold sits far below the broken value and
+        // comfortably above the fixed one, so it catches a removal of recycling
+        // without being brittle about the exact figure.
+        Check(perVoxel < 6f,
+            $"slot indices are RECYCLED: {perVoxel:F1} allocations per live voxel " +
+            "(24.5 before A.5's free list was ported; §5 measured ~35)");
         L("");
     }
 
@@ -309,7 +316,21 @@ public class FluidActivityRig : MonoBehaviour
             }
         }
 
-        for (int i = 0; i < 300; i++) { Tick(); yield return null; }
+        // SETTLE TO QUIESCENCE BEFORE JUDGING "FLOATING". The pour runs right up
+        // to this point, so a voxel in flight is not a stalled one -- an earlier
+        // version counted them together and called a healthy run inconclusive.
+        // Tick until the CA stops applying ops, THEN measure.
+        int quiet = 0;
+        long prevApplied = _applied;
+        for (int i = 0; i < 3000 && quiet < 90; i++)
+        {
+            Tick();
+            quiet = _applied == prevApplied ? quiet + 1 : 0;
+            prevApplied = _applied;
+            yield return null;
+        }
+        L($"  settled after {quiet} consecutive quiet ticks");
+
         uint hiF, everF;
         _fluid.ReadSlotCounters(out hiF, out everF);
         int floatingFinal = CountFloating();
@@ -325,6 +346,14 @@ public class FluidActivityRig : MonoBehaviour
         bool exhausted = everF >= _fluid.SlotCapacity;
         bool stalled = stallTick >= 0;
         bool frozenMidAir = floatingFinal > 0;
+
+        // The capacity headroom the free list buys, pinned directly.
+        Check(everF < _fluid.SlotCapacity,
+            $"the region never exhausted its slots: everAllocated {everF} < cap " +
+            $"{_fluid.SlotCapacity} after {totalPlaced} placed voxels");
+        Check(!stalled,
+            stalled ? $"the CA STALLED at burst {stallTick} with everAllocated {everAtStall}"
+                    : $"the CA never stalled across {totalPlaced} placed voxels");
 
         L("  CLASSIFICATION:");
         if (stalled && exhausted)
