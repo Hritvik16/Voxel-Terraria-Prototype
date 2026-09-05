@@ -286,6 +286,20 @@ public class EditService : IEditService
         return changed;
     }
 
+    /// One voxel, WITHOUT the wake scan -- for a caller driving its own batch
+    /// across frames, which cannot use SetBox because it does not process the
+    /// whole region at once.
+    ///
+    /// THE CONTRACT YOU ARE TAKING ON: you MUST call NotifyEditedRegion over
+    /// the area you touched when the batch finishes, or fluid beside the edit
+    /// never wakes and a breach silently does nothing. This is exactly the
+    /// hand-rolled sequence EditService exists to stop people writing, and it
+    /// is public only because §8.5's frame-split destruction genuinely cannot
+    /// express itself with SetBox -- 400K voxels through TrySetVoxel would run
+    /// a 27-cell wake scan per voxel, ~10.8 million probes for one detonation.
+    /// DestructionReducer is the intended and only caller.
+    public bool WriteVoxelDeferred(int3 v, byte material) => WriteOne(v, material);
+
     /// The per-voxel half of a batch: everything TrySetVoxel does EXCEPT the
     /// wake scan, which the batch does once at the end.
     private bool WriteOne(int3 v, byte material)
