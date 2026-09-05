@@ -138,20 +138,53 @@ a session with a typo mid-edit.
   loaded)"** — edits to unstreamed chunks are refused and counted, not silently
   dropped.
 
-### Fluid (§7) and its one big limitation
+### Fluid (§7), and what is fixed vs what follows you
 
-The fluid arena is **64³ voxels, fixed in one place, and does not follow you**.
-§7.4's moving active radius is **not built**.
+Two different things, and it is worth keeping them apart:
 
-The scene makes this visible rather than hiding it:
+- **The arena (region) is fixed** — 64³ voxels in one place. That is deliberate,
+  not a gap: the region is the CA's addressing space, and §7.2's op-list is
+  indexed by region cell, so moving it would re-index every in-flight batch.
+- **The activity inside it follows you** — §7.4's near-player active radius is
+  now driven. Fluid ticks only within a radius of you and sleeps back to static
+  terrain when you leave.
+
+The scene makes both visible:
 
 - The crosshair box is **amber inside** the arena and **grey outside** it.
 - Placing water, sand or lava outside the arena is **refused**, with the reason
-  on screen. It is refused because a fluid voxel written out there would be
-  drawn and then never simulated — it hangs in mid-air forever.
+  on screen — a fluid voxel written out there would be drawn and never
+  simulated, hanging in mid-air forever.
+- The state panel shows the **wake / sleep radii**, where the centre currently
+  is, how many times it has re-centred, and whether the arena is inside the
+  radius right now.
+
+**Try this:** pour some water, then walk away past the radius. It stops moving
+and freezes exactly as it was — that is §7.4 working ("distant water is a
+settled terrain byte that looks like water but does not tick"), not fluid
+breaking. Walk back and it resumes.
+
+> The radius here is **128 voxels (12.8 m), a demo value**. The shipped constant
+> is `FLUID_ACTIVE_RADIUS_VOXELS = 1280` (128 m) — 23× this arena's
+> half-diagonal, so at the real value the radius would be correct but completely
+> invisible in a 64-voxel arena. Change `_activeRadiusVoxels` on the `Playground`
+> component to see the shipped behaviour.
 
 Inside the arena: pour water down a slope, drop sand and watch it fall, breach a
 wall and watch it drain.
+
+### Fluid no longer stops after you place a lot of it
+
+If you remember fluid mysteriously freezing after a while — that was real, and
+it is fixed. `AllocSlot` was a bump allocator with no free list, so slot indices
+were consumed by churn rather than by live fluid: **24.5 allocations per live
+voxel**, and **406 placed voxels exhausted the region permanently**. Appendix
+A.5 specifies an intrusive free list and the CPU oracle implements one; the GPU
+port had simply omitted it.
+
+After the fix: **2.2 allocations per live voxel**, and 2,800 placed voxels use
+849 of 8,192 slots. If you ever see it stall again, that is a regression worth
+reporting — `./run-fluid-activity.sh` pins it.
 
 ### Buoyancy and swimming (§8.6)
 
@@ -218,6 +251,11 @@ real.
 - **Not a scale test.** Fluid budgets are tens to low hundreds of voxels — the
   range Phases 5a/5b actually tested. §2.5's ~500,000 near-player active target
   has never been tested and this is not where that should be discovered.
+- **Not a demonstration of the shipped active radius.** The radius here is a
+  demo value 10× smaller than the engine constant, chosen so the effect is
+  visible in a 64-voxel arena. The real value has never been measured either —
+  `FLUID_ACTIVE_RADIUS_VOXELS` is marked *"ASSUMPTION, NOT MEASURED"* with a
+  Phase 5b GPU-lane measurement named as the only thing that should move it.
 - **Not a correctness proof.** That is what the rigs are for:
   `run-phase5b-rig.sh`, `run-phase6-*.sh`, `run-phase6-sandbox.sh`, and
   `run-editmode-tests.sh`.
@@ -233,7 +271,8 @@ What of each phase you can actually touch here. **Add a row when a phase lands.*
 |-------|-------------------|--------------------|
 | **3 — Generation** | The whole island. Everything you walk on is real Phase 3 terrain. | Generation parameters; use the Phase 3 scene. |
 | **4 — Streaming & persistence** | Streaming runs constantly as you move. Resident chunks, dense bricks and pool pressure are on the F1 overlay. Edits at the window edge are refused and counted. | Save/reload round trips, admission/eviction gates — `run-acceptance-rig.sh`. |
-| **5 — Fluid** | Vents (`V`), placing water/sand/lava, watching it settle on natural terrain. Arena bounds shown by crosshair colour. | The moving active radius (§7.4) **does not exist**. Conservation proofs — Phase 5b rig. |
+| **5 — Fluid** | Vents (`V`), placing water/sand/lava, watching it settle on natural terrain. Arena bounds shown by crosshair colour. | Conservation proofs — Phase 5b rig. Honey/lava viscosity at their real tick intervals is slow enough to be hard to judge here. |
+| **7.4 — Active radius** | Walk away from a pool and watch it sleep to static terrain; walk back and watch it wake. Wake/sleep radii, the current centre and the re-centre count are all on the state panel. | The radius VALUE is a demo number, not the shipped one, and neither has been measured. Multi-region behaviour (several pools live at once) is real but not visible here — `run-fluid-activity.sh` covers it. |
 | **6 — Physics & editing** | Walking, jumping, 3-voxel steps, coyote time (§8.1); live `PlayerConfig` reload (§8.1); digging with all three tool tiers and placing through `EditService` (§8.3); bombs (§8.5); projectiles (§8.4); buoyancy and swimming (§8.6); the speed-clamp indicator (§8.2). | Swept CCD at 60 m/s — no grapple exists here yet, so `SweptCCD` is constructed but only exercised by its rig. The adversarial checkerboard (§3.6). |
 | **7 — Lighting** | *(not started — do not begin without a scoped prompt)* | — |
 
@@ -247,3 +286,10 @@ What of each phase you can actually touch here. **Add a row when a phase lands.*
 - **The fluid arena is placed once at startup**, in the lowest non-water basin
   near spawn. If the scene opens somewhere flat, the arena may be somewhere
   unexciting; `F` takes you to it.
+- **The active radius is a scene demo value** (128 voxels), not the shipped 1280.
+  Both the radius and the hysteresis ratio behind it are engineering defaults
+  that have never been measured against a GPU-lane budget.
+- **Only one fluid region exists in this scene.** The engine now supports
+  several at once — and `EditService` wakes all of them, which it did not until
+  this was tested — but the Playground makes only one, so you cannot see that
+  here.

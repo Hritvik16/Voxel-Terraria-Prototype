@@ -21,18 +21,27 @@
 // =========================================================================
 // WHAT THIS SCENE IS HONEST ABOUT
 // =========================================================================
-// 1. FLUID IS FIXED TO ONE ARENA AND DOES NOT FOLLOW YOU.
-//    §7.4 describes a near-player active radius that moves with the player.
-//    THAT IS NOT BUILT. FluidGpuSimulation's region is created once, at one
-//    world location, and stays there. Walk away and the fluid keeps simulating
-//    where you left it. This scene puts fluid in ONE place on purpose so that
-//    limitation is visible rather than disguised. "Fluid in one spot" is not
-//    "fluid works across the world" and this scene must never be cited as the
-//    latter.
-//    Enforced, not just advertised: the brush REFUSES to place a mobile
-//    material outside the arena (see TryPaintBrush). It used to place it
-//    happily, which committed a blob that could never be simulated and left it
-//    frozen in mid-air -- the limitation disguised as a fluid bug.
+// 1. THE FLUID ARENA IS FIXED. THE ACTIVITY INSIDE IT NOW FOLLOWS YOU.
+//    Two different things, and this note used to conflate them.
+//
+//    THE REGION BOX IS STILL FIXED, and deliberately so. It is the CA's
+//    addressing space -- §7.2's op-list is indexed by region cell, so moving the
+//    origin would re-index every slot home and every in-flight batch, applying
+//    ops to the wrong voxels. Placing fluid outside it is still refused, still
+//    for the original reason (see TryPaintBrush): a mobile material written out
+//    there would be drawn and never simulated, hanging frozen in mid-air.
+//
+//    WHAT IS NEW is §7.4's near-player active radius, which is now DRIVEN.
+//    Playground calls UpdatePlayerPosition every frame, so fluid simulates only
+//    within a radius of you and sleeps back to static terrain when you leave --
+//    "distant water is a settled terrain byte that looks like water but does not
+//    tick". Walk away from a pool and it stops moving; come back and it wakes.
+//    That is §7.4 working, not fluid breaking.
+//
+//    The GPU always had this test; nothing updated the centre, so it was
+//    anchored wherever the region was created. The radius here is a DEMO value
+//    (see _activeRadiusVoxels), far smaller than the shipped 1280 so the effect
+//    is observable inside a 64-voxel arena at all.
 //
 // 2. THE FLUID POPULATION HERE IS DELIBERATELY TINY.
 //    Source budgets are tens to low hundreds of voxels -- the range Phase 5a/5b
@@ -84,6 +93,13 @@ public class Playground : MonoBehaviour
     [SerializeField] private PlayerController _player;
     [Tooltip("Radius in voxels of the B-key demo blast. §13's 400K reference is radius 46.")]
     [SerializeField] private int _bombRadiusVoxels = 20;
+
+    [Tooltip("§7.4's active radius, in voxels, FOR THIS SCENE ONLY. The shipped engine " +
+             "constant is FLUID_ACTIVE_RADIUS_VOXELS = 1280 (128 m), which is 23x this " +
+             "arena's half-diagonal -- so at the real value the radius never bites here and " +
+             "§7.4 would be correct but invisible. 128 voxels (12.8 m) keeps you comfortably " +
+             "inside it while working, and lets you walk away and watch fluid sleep.")]
+    [SerializeField] private int _activeRadiusVoxels = 128;
 
     // Budgets, tiny on purpose. See header note 2.
     [SerializeField] private int _waterBudget = 160;
@@ -198,7 +214,8 @@ public class Playground : MonoBehaviour
         {
             RegionOriginVoxels = _arenaOrigin,
             PlayerVoxel = _arenaCentre,
-            ActiveRadiusVoxels = EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS,
+            ActiveRadiusVoxels = _activeRadiusVoxels,
+            SleepRadiusVoxels = FluidActiveRegion.SleepRadiusFor(_activeRadiusVoxels),
         };
         _readback = new FluidOpListReadback(_fluid, _store) { OnVoxelApplied = MarkDirtyFor };
 
@@ -532,12 +549,32 @@ public class Playground : MonoBehaviour
         _dugTimer += dt;
         if (_dugTimer >= 1f) { _dugThisSecond = _dugCounter; _dugCounter = 0; _dugTimer = 0f; }
 
+        // §7.4: MOVE THE ACTIVE CENTRE WITH THE PLAYER. Nothing did this before
+        // -- PlayerVoxel was set once at construction, so the GPU's radius test
+        // (which has always existed) was anchored to the arena centre forever.
+        // UpdatePlayerPosition applies the re-centre threshold itself, so
+        // calling it every frame is cheap and does not churn the boundary.
+        _fluid.UpdatePlayerPosition(PlayerOrCameraVoxel());
+
         if (_readback.CanIssue)
         {
             _fluid.Tick(_clipmap);
             _readback.IssueReadback(0);
         }
         _readback.PumpAndApply();
+    }
+
+    /// Where §7.4's radius is centred: the player's feet when walking, the
+    /// camera when flying.
+    private int3 PlayerOrCameraVoxel()
+    {
+        if (_mode == MoveMode.Walk && _player != null && _player.Motor != null)
+            return CoordMath.WorldToVoxel(_player.Motor.PositionM);
+        Camera cam = Camera.main;
+        if (cam == null) return _arenaCentre;
+        return CoordMath.WorldToVoxel(new float3(cam.transform.position.x,
+                                                 cam.transform.position.y,
+                                                 cam.transform.position.z));
     }
 
     private void HandleHotbarKeys()
@@ -985,8 +1022,18 @@ public class Playground : MonoBehaviour
             sb.AppendLine($"<b>edits</b>  {_edits.VoxelsWritten} written   {_edits.EditsNoOp} no-op   " +
                           $"{_edits.EditsRejectedNotResident} refused (not loaded)");
 
-        sb.Append($"<b>fluid arena</b>  {_arenaEdge}³ at {_arenaCentre} — FIXED, does not follow you " +
-                  "(§7.4 unbuilt)");
+        int3 pv = PlayerOrCameraVoxel();
+        int3 d = pv - _fluid.PlayerVoxel;
+        long dist2 = (long)d.x * d.x + (long)d.y * d.y + (long)d.z * d.z;
+        bool inRadius = FluidActiveRegion.WithinWakeRadius(_arenaCentre, pv, _activeRadiusVoxels);
+        sb.AppendLine($"<b>fluid arena</b>  {_arenaEdge}³ at {_arenaCentre} — the REGION is fixed " +
+                      "(§7.2 addressing); the ACTIVITY follows you");
+        sb.Append($"<b>§7.4 radius</b>  {_activeRadiusVoxels}v wake / " +
+                  $"{_fluid.SleepRadiusVoxels}v sleep   centre {_fluid.PlayerVoxel}   " +
+                  $"re-centres {_fluid.RecentresTotal}   " +
+                  (inRadius ? "<color=#8fd98f>arena INSIDE the radius — it ticks</color>"
+                            : "<color=#ffc64a>arena OUTSIDE — fluid is asleep as static terrain</color>"));
+        _ = dist2;
 
         // SITS ABOVE THE HOTBAR ROW. The hotbar's LMB panel starts at
         // (vw - 354)/2 - 250 and spans vh-104..vh-64, so a panel anchored at
