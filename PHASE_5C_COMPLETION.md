@@ -603,8 +603,12 @@ found by measurement and fixed rather than asserted around.
   invariants are proven; **distribution is not, and §7.8 says not to test it.**
 - It does not say the claim design is safe on Metal — **that test has not run.**
 - It does not say fluid is fast. The 5c rig reports no timing at all, by design.
-- It does not say fluid works with streaming. It has still only run on one
-  static chunk with a fixed region.
+- It does not say fluid works with streaming *in general*. §9 tested the
+  streaming interaction and fixed one real bug (silent mass loss across a
+  chunk-residency edge); the result there is **characterised-safe with
+  caveats, not proven-safe**. The CA's region is still fixed (§7.4 unbuilt),
+  so §9 describes fluid *being left behind correctly*, not fluid that follows
+  the player — and straddling more than two chunks is still untested.
 - It does not close §4.3's upload p99. §7 shows this work did not cause the
   current numbers; it did not fix them either.
 

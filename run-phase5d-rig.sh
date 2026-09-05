@@ -1,24 +1,42 @@
 #!/bin/bash
 # run-phase5d-rig.sh
 #
-# Phase 5d EDIT-PATH stress rig: regenerate the scene, build the standalone,
+# Phase 5d STREAMING x FLUID rig: regenerate the scene, build the standalone,
 # run it, print the report.
 #
-# WHAT THIS COVERS THAT 5a/5b DO NOT: the paths a PLAYER drives -- placing,
-# mining out from under settled fluid, painting one cell repeatedly, running a
-# vent -- and, centrally, it runs every case in BOTH frame orderings:
-#   MirrorFirst = upload then tick   (what the 5a/5b rigs do)
-#   TickFirst   = tick then upload   (what Playground/Phase4Bootstrapper do)
-# and requires identical results. That is the invariant the frozen-fluid bug
-# violated, and the reason 5b was green while hand-placed fluid froze.
+# WHAT THIS COVERS THAT 5a/5b/5c DO NOT: every earlier fluid rig ran on ONE
+# static, always-resident chunk. This one runs the CA while the streamer is
+# actually admitting and evicting underneath it:
+#   - window-relative position characterised FIRST, before any assertion
+#   - eviction and return, checking conservation across the round trip
+#   - a pour that STRADDLES a chunk-residency edge, with the guard observed
+#     firing (if it never fires, the conservation result is untested, not proven)
+#   - a window slide, checking the CPU state is unchanged by streaming alone
+#   - honey on the GPU path
+# It found one real bug -- silent mass loss when fluid moved across a
+# residency edge -- fixed in 1dfcb7f. PHASE_5C_COMPLETION.md §9 is the
+# authoritative write-up; §9.7 is the verdict and its caveats.
+#
+# NOT the 5c edit-path rig. That one is run-phase5c-rig.sh: 14 cases x both
+# frame orderings (MirrorFirst / TickFirst). This header used to describe that
+# rig instead of this one.
 #
 # NO TIMING. This rig runs synchronous readback for determinism and reports no
 # ms figures at all. Performance stays with run-acceptance-rig.sh.
 set -uo pipefail
 
 UNITY_BIN="/Applications/6000.3.10f1/Unity.app/Contents/MacOS/Unity"
-APP_PATH="Builds/Phase5dEditStress.app"
-RIG_OUTPUT_DIR="$HOME/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Phase5dEditStress"
+# These two MUST match what the build and the rig actually use, or the script
+# lies about a healthy run. They were copied from run-phase5c-rig.sh and left
+# saying "Phase5dEditStress", while CommandLineBuild.BuildPhase5dStandalone
+# writes Builds/Phase5dStreamFluid.app and Phase5dStreamFluid.cs writes its
+# report under .../Phase5dStreamFluid. The visible effect was a build that
+# SUCCEEDED ("result=Succeeded errors=0") being reported as "BUILD FAILED",
+# because the -d check below tested a path nothing ever creates. The rm -rf
+# above was also clearing the wrong path, which is exactly the stale-binary
+# hazard its own comment warns about.
+APP_PATH="Builds/Phase5dStreamFluid.app"
+RIG_OUTPUT_DIR="$HOME/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Phase5dStreamFluid"
 
 echo "== Regenerating the scene =="
 "$UNITY_BIN" -batchmode -quit -nographics -projectPath "$(pwd)" \

@@ -68,6 +68,12 @@ public class Phase5dStreamFluid : MonoBehaviour
     private int _pass, _fail;
     private string _phase = "-";
 
+    // Screenshot output. The run folder is created UP FRONT (it used to be
+    // created only at the end, when the report was written) because stills are
+    // captured while the run is in progress.
+    private string _outDir;
+    private int _shotIndex;
+
     private static ChunkStore Store => Phase4Bootstrapper.Store;
     private static TerrainClipmap Clip => Phase4Bootstrapper.Clipmap;
     private static StreamManager Streamer => Phase4Bootstrapper.Streamer;
@@ -328,6 +334,10 @@ public class Phase5dStreamFluid : MonoBehaviour
 
         CreateFluid();
 
+        _outDir = Path.Combine(Application.persistentDataPath, _outputRootFolderName,
+                               DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture));
+        Directory.CreateDirectory(_outDir);
+
         L("=== PHASE 5D: STREAMING x FLUID INTERACTION ===");
         L(DateTime.Now.ToString("u", CultureInfo.InvariantCulture));
         L("");
@@ -348,14 +358,11 @@ public class Phase5dStreamFluid : MonoBehaviour
         yield return Step5_Straddle(cam, camStart);
         yield return Step7_Honey(cam, camStart);
 
-        string dir = Path.Combine(Application.persistentDataPath, _outputRootFolderName,
-                                  DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture));
-        Directory.CreateDirectory(dir);
         _log.AppendLine();
         _log.AppendLine($"PASS {_pass}  FAIL {_fail}");
         _log.AppendLine(_fail == 0 ? "RESULT: PASSED" : "RESULT: FAILED");
-        File.WriteAllText(Path.Combine(dir, "phase5d_report.txt"), _log.ToString());
-        Debug.Log("[5d] report -> " + dir);
+        File.WriteAllText(Path.Combine(_outDir, "phase5d_report.txt"), _log.ToString());
+        Debug.Log("[5d] report -> " + _outDir);
         yield return null;
         Application.Quit(_fail == 0 ? 0 : 1);
     }
@@ -393,6 +400,43 @@ public class Phase5dStreamFluid : MonoBehaviour
             }
         }
         for (int i = 0; i < frames; i++) yield return null;
+    }
+
+    /// Captures one still, aiming the camera at the CA region first.
+    ///
+    /// AIMING IS ROTATION-ONLY, AND THAT IS WHAT MAKES THIS SAFE TO CALL FROM
+    /// INSIDE A TEST. StreamManager is driven purely by camera POSITION --
+    /// Phase4Bootstrapper passes it `Camera.main.transform.position` and nothing
+    /// reads the rotation (the only other rotation write is the spawn override,
+    /// which this scene disables). So pointing the camera cannot admit, evict,
+    /// or slide anything, and cannot perturb a residency count an assertion is
+    /// about to read. Moving the camera WOULD, so this never does.
+    ///
+    /// These stills are for a human to look at. NOTHING here is asserted --
+    /// the rig's verdict comes from the counts, not the pictures.
+    private IEnumerator Shot(Camera cam, string name)
+    {
+        if (cam == null || string.IsNullOrEmpty(_outDir)) yield break;
+
+        Vector3 target = new Vector3((_regionOrigin.x + RX / 2) * 0.1f,
+                                     (_regionOrigin.y + 4) * 0.1f,
+                                     (_regionOrigin.z + RZ / 2) * 0.1f);
+        Vector3 look = target - cam.transform.position;
+        if (look.sqrMagnitude > 1e-6f)
+            cam.transform.rotation = Quaternion.LookRotation(look.normalized, Vector3.up);
+
+        // One frame to render the new orientation, then grab the framebuffer.
+        // CaptureScreenshotAsTexture is synchronous at end-of-frame, unlike
+        // CaptureScreenshot, which returns before the file exists.
+        yield return null;
+        yield return new WaitForEndOfFrame();
+
+        Texture2D tex = ScreenCapture.CaptureScreenshotAsTexture();
+        string file = Path.Combine(_outDir, $"{_shotIndex:D2}_{name}.png");
+        File.WriteAllBytes(file, tex.EncodeToPNG());
+        Destroy(tex);
+        _shotIndex++;
+        Note($"screenshot -> {Path.GetFileName(file)}   (cam {cam.transform.position}, looking at the region)");
     }
 
     // =====================================================================
@@ -469,6 +513,7 @@ public class Phase5dStreamFluid : MonoBehaviour
         var w0 = Sample();
         L($"  poured {poured}, settled water in region = {before}, {Describe(w0, camStart)}");
         Check(before == poured, $"all poured water present before eviction ({before}/{poured})");
+        yield return Shot(cam, "step3_poured_resident");
 
         // Probe the GPU's own read of a known fluid voxel while everything is resident.
         int3 probe = FindFirst(Materials.Water);
@@ -485,6 +530,7 @@ public class Phase5dStreamFluid : MonoBehaviour
         var w1 = Sample();
         L($"  after moving away: {Describe(w1, far)}");
         Note($"evicted total so far: {Streamer.ChunksEvictedTotal}");
+        yield return Shot(cam, "step3_walked_away_evicted");
 
         if (w1.resident > 0)
         {
@@ -517,6 +563,7 @@ public class Phase5dStreamFluid : MonoBehaviour
         Check(after == before,
             $"water conserved across evict+return ({after} vs {before} before)");
         Note($"stale ops dropped by the readback ledger: {_readback.StaleOpsDropped}");
+        yield return Shot(cam, "step3_returned");
     }
 
     private int3 FindFirst(byte m)
@@ -597,6 +644,7 @@ public class Phase5dStreamFluid : MonoBehaviour
         for (int i = 0; i < probes.Count; i++) if (Store.GetVoxel(probes[i]) == expect[i]) stillRight++;
         Check(stillRight == probes.Count,
             $"CPU state itself is unchanged by streaming ({stillRight}/{probes.Count})");
+        yield return Shot(cam, "step4_after_window_slide");
     }
 
     // =====================================================================
@@ -652,6 +700,7 @@ public class Phase5dStreamFluid : MonoBehaviour
         int before = CountMaterialInRegion(Materials.Water);
         Check(poured > 0, $"the straddle pour placed fluid ({poured})");
         L($"  poured {poured}, settled = {before}");
+        yield return Shot(cam, "step5_straddle_poured");
 
         // Walk out one chunk at a time, looking for PARTIAL residency.
         float chunkM = EngineConfig.CHUNK_EDGE_VOXELS * 0.1f;
@@ -707,6 +756,7 @@ public class Phase5dStreamFluid : MonoBehaviour
         for (int i = 0; i < 400; i++) FluidTick();
         long opsDuring = _applied - appliedBefore;
         L($"  ops applied while partially resident: {opsDuring}");
+        yield return Shot(cam, "step5_partial_residency_edge");
         Check(opsDuring > 0,
             "the CA actually MOVED fluid while a residency edge cut the region " +
             "(otherwise the mass-loss path is untested, not proven safe)");
@@ -724,6 +774,7 @@ public class Phase5dStreamFluid : MonoBehaviour
         Check(_readback.OpsDroppedNonResident > 0,
             "the residency guard actually fired (if 0, the edge was never crossed " +
             "and the conservation result above is untested, not proven)");
+        yield return Shot(cam, "step5_straddle_returned");
     }
 
     // =====================================================================
@@ -767,6 +818,7 @@ public class Phase5dStreamFluid : MonoBehaviour
         Check(floating == 0, $"no honey left floating ({floating})");
         Note($"MaterialRules.TickInterval(Honey) = {MaterialRules.TickInterval(Materials.Honey)} " +
              "-- viscosity is REPORTED here, not asserted as a rate: this rig makes no timing claim.");
+        yield return Shot(cam, "step7_honey_settled");
     }
 
     void OnDestroy()
