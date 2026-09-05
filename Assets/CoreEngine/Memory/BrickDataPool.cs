@@ -76,6 +76,41 @@ namespace VoxelEngine.Memory
             }
         }
 
+        /// Returns the pool to its constructed state: everything free, in one
+        /// piece. For SCRATCH pools only -- anything holding a live index into
+        /// this pool has that index silently invalidated, so this must never be
+        /// called on the tier-0 pool or a cascade tier pool.
+        ///
+        /// WHY THIS EXISTS. StreamManager.SaveDelta regenerates a pristine
+        /// baseline chunk into a pooled scratch context to diff against the live
+        /// chunk. Its ResetScratch was an EMPTY METHOD BODY, and the scratch
+        /// pool holds exactly BRICKS_PER_CHUNK (4096) bricks -- so each save
+        /// leaked roughly a chunk's worth of dense bricks (~400 on this world)
+        /// into a context that was then returned to the pool and handed out
+        /// again. After about ten saves through the same context every
+        /// subsequent SaveDelta threw "BrickDataPool exhausted" and returned
+        /// false, which means the delta was NOT written.
+        ///
+        /// That is silent edit loss, and it breaks the two guarantees that
+        /// depend on it: §4.2's delta round-trip, and §3.6's "never lost
+        /// progress (edits are in the delta)" -- the latter precisely when the
+        /// LRU valve is evicting, which is when the most deltas get written.
+        /// Found by sizing §13's checkerboard large enough to actually reach the
+        /// high-water mark; the under-sized version never wrote enough deltas.
+        public void Reset()
+        {
+            _freeCount = Capacity;
+            if (_rangeAware)
+            {
+                _free.Clear();
+                if (Capacity > 0) _free.Add(new Run(0, Capacity));
+            }
+            else
+            {
+                for (int i = 0; i < Capacity; i++) _freeStack[i] = Capacity - 1 - i;
+            }
+        }
+
         /// Index of the run containing `slot`, or the bitwise complement of the
         /// insertion point if no run contains it. Binary search over starts.
         private int FindRun(int slot)

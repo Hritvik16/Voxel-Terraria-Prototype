@@ -740,7 +740,17 @@ namespace VoxelEngine.Streaming
         /// future generator path allocates a slot it does not hand back via
         /// chunk.bricks, the scratch pool would slowly fill and eventually throw
         /// from Alloc. ScratchExhaustionWarnings counts that, loudly.
-        private static void ResetScratch(ScratchContext scratch) { }
+        /// Hands a scratch context back in the state it was created in.
+        ///
+        /// THIS WAS AN EMPTY METHOD BODY. The contexts are pooled and reused, so
+        /// a baseline regeneration's ~400 dense bricks were never returned; the
+        /// 4096-brick scratch pool ran dry after roughly ten saves and every
+        /// SaveDelta through that context then failed. See BrickDataPool.Reset
+        /// for the full account and why it is edit loss rather than a slowdown.
+        private static void ResetScratch(ScratchContext scratch)
+        {
+            scratch.pool?.Reset();
+        }
 
         // =====================================================================
         // Eviction (§4.5)
@@ -822,6 +832,7 @@ namespace VoxelEngine.Streaming
             // baseline regeneration." The baseline is built into a scratch pool
             // so the diff never perturbs the live one.
             ScratchContext scratch = null;
+            Chunk baseline = null;
             try
             {
                 if (!_scratchPool.TryTake(out scratch))
@@ -831,7 +842,7 @@ namespace VoxelEngine.Streaming
                         allocator = new ChunkHandleAllocator(2),
                     };
 
-                var baseline = new Chunk();
+                baseline = new Chunk();
                 ChunkGeneratorFull.GenerateChunkFull(in _samplerState, _meta, coord, baseline,
                     scratch.allocator, scratch.pool, null);
 
@@ -858,6 +869,10 @@ namespace VoxelEngine.Streaming
             }
             finally
             {
+                // The handle array is abandoned on every save otherwise -- not a
+                // hard failure like the brick pool, but a per-save allocation
+                // handed straight to the GC.
+                if (baseline?.bricks != null) scratch?.allocator?.Free(baseline.bricks);
                 if (scratch != null) { ResetScratch(scratch); _scratchPool.Add(scratch); }
             }
         }
