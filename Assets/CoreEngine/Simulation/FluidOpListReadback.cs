@@ -183,14 +183,24 @@ namespace VoxelEngine.Simulation
         }
 
         /// Apply whatever has landed. Returns the number of ops applied.
-        /// Pump calls since a batch last actually applied. §8.2's "timestamp on
-        /// the last applied batch", expressed in the unit that matters: one
-        /// pump per frame, so this IS frames-since-applied.
+        /// Pump calls since the op-list last CAME BACK from the GPU. §8.2's
+        /// "timestamp on the last applied batch", in the unit that matters: one
+        /// pump per frame, so this is frames-since-the-readback-returned.
+        ///
+        /// IT COUNTS RETURNED BATCHES, NOT WRITTEN VOXELS, and the difference is
+        /// the whole point. A first version reset only when a voxel was actually
+        /// applied, which meant the counter climbed without bound whenever fluid
+        /// was merely SETTLED -- the integrated rig measured 336 "stale" frames
+        /// beside a pond that was simply at rest. Feeding that to the speed
+        /// clamp would throttle a player to 20 m/s during ordinary play with no
+        /// fluid anywhere near them. An empty op-list is a healthy readback
+        /// saying nothing moved; a STALL is the readback not coming back at all,
+        /// which is what §8.2 is actually protecting against.
         ///
         /// SweptCCD.SpeedClampMps consumes this. §8.2: "A speed clamp (to ~20
         /// m/s) engages if op-list readback stalls beyond ~2-3 frames". Until
-        /// §8.6's buoyancy existed there was nothing to clamp, which is why
-        /// this was not added in Phase 5.
+        /// §8.6's buoyancy existed there was nothing to clamp, which is why this
+        /// was not added in Phase 5.
         public int FramesSinceLastApplied { get; private set; }
 
         public int PumpAndApply()
@@ -216,6 +226,10 @@ namespace VoxelEngine.Simulation
                 if (!f.OpsReq.done) break;
 
                 _inFlight.Dequeue();
+                // A BATCH CAME BACK. That is what "not stale" means -- see the
+                // property's comment. An empty op-list is a HEALTHY readback
+                // reporting that nothing moved, not a stalled one.
+                FramesSinceLastApplied = 0;
                 applied += Apply(f);
             }
             return applied;
@@ -300,7 +314,6 @@ namespace VoxelEngine.Simulation
                     _store.SetVoxel(op.Dst, op.NewMaterial);
                     OnVoxelApplied?.Invoke(op.Dst);
                     AppliedVoxelWrites++;
-                    FramesSinceLastApplied = 0;      // a batch landed this frame
                     if (op.HasSrc)
                     {
                         _store.SetVoxel(op.Src, 0);        // vacated home -> Air

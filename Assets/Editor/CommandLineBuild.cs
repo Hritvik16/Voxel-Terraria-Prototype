@@ -54,6 +54,27 @@ public static class CommandLineBuild
         DisableAppNap(PLAYGROUND_OUTPUT_PATH);
     }
 
+    private const string PHASE6_SANDBOX_SCENE_PATH = "Assets/Scenes/Phase 6 Sandbox.unity";
+    private const string PHASE6_SANDBOX_OUTPUT_PATH = "Builds/Phase6Sandbox.app";
+
+    /// §13 Phase 6's INTEGRATED acceptance rig. RELEASE build -- step 8 reports
+    /// frame time, and a development build would make those figures meaningless.
+    public static void BuildPhase6SandboxStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE6_SANDBOX_SCENE_PATH },
+            locationPathName = PHASE6_SANDBOX_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase6 sandbox result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE6_SANDBOX_OUTPUT_PATH);
+    }
+
     private const string PHASE6_EDIT_SCENE_PATH = "Assets/Scenes/Phase 6 Edit.unity";
     private const string PHASE6_EDIT_OUTPUT_PATH = "Builds/Phase6Edit.app";
 

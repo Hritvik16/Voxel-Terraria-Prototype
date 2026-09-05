@@ -110,6 +110,68 @@ public static class Phase5aSceneBuilder
     private static void SetBoolIfPresent(SerializedObject so, string name, bool v)
     { var p = so.FindProperty(name); if (p != null) p.boolValue = v; }
 
+    public const string Phase6SandboxScenePath = "Assets/Scenes/Phase 6 Sandbox.unity";
+
+    /// §13 Phase 6's INTEGRATED acceptance scene. Everything live at once: the
+    /// real world, a PlayerController, a fluid arena, and the rig that drives
+    /// the whole §13 acceptance list in one run.
+    [MenuItem("Voxel Engine/Phase 6/Generate Sandbox Scene")]
+    public static void GeneratePhase6Sandbox()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.62f, 0.70f, 0.78f, 1f);
+        cam.fieldOfView = 68f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 600f;
+        camGo.transform.position = new Vector3(1280f, 9.5f, 1268f);
+
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        SetIfPresent(bo, "_loadRadiusChunks", 0);
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", false);
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var playerGo = new GameObject("Player");
+        playerGo.transform.position = new Vector3(1280f, 14f, 1268f);
+        var pc = playerGo.AddComponent<PlayerController>();
+        var pco = new SerializedObject(pc);
+        var camProp = pco.FindProperty("_camera");
+        if (camProp != null) camProp.objectReferenceValue = cam;
+        var spawnProp = pco.FindProperty("_spawnM");
+        if (spawnProp != null) spawnProp.vector3Value = new Vector3(1280f, 40f, 1268f);
+        SetBoolIfPresent(pco, "_resolveSpawnUpward", true);
+        SetBoolIfPresent(pco, "_captureMouse", false);
+        SetBoolIfPresent(pco, "_hotReload", true);
+        pco.ApplyModifiedPropertiesWithoutUndo();
+
+        var rigGo = new GameObject("Phase6SandboxRig");
+        var rig = rigGo.AddComponent<Phase6SandboxRig>();
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+        var ro = new SerializedObject(rig);
+        ro.FindProperty("_player").objectReferenceValue = pc;
+        ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        ro.FindProperty("_slotCapacity").intValue = 65536;
+        ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
+        ro.FindProperty("_outputRootFolderName").stringValue = "Phase6Sandbox";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Phase6SandboxScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, Phase6SandboxScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {Phase6SandboxScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {Phase6SandboxScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
+
     public const string Phase6EditScenePath = "Assets/Scenes/Phase 6 Edit.unity";
 
     /// §13 Phase 6 file 3's acceptance scene. Real world, a fluid arena for the
