@@ -110,6 +110,65 @@ public static class Phase5aSceneBuilder
     private static void SetBoolIfPresent(SerializedObject so, string name, bool v)
     { var p = so.FindProperty(name); if (p != null) p.boolValue = v; }
 
+    public const string Phase6PlayerScenePath = "Assets/Scenes/Phase 6 Player.unity";
+
+    /// §13 Phase 6 file 1's acceptance scene. Real Phase 3 generation and Phase
+    /// 4 streaming (Phase4Bootstrapper), a PlayerController, and the rig that
+    /// drives it. No flycam and no HUD: the rig owns the camera through the
+    /// player, and nothing else may move it.
+    [MenuItem("Voxel Engine/Phase 6/Generate Player Scene")]
+    public static void GeneratePhase6Player()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.62f, 0.70f, 0.78f, 1f);
+        cam.fieldOfView = 70f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 600f;
+        camGo.transform.position = new Vector3(1280f, 14f, 1268f);
+
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        SetIfPresent(bo, "_loadRadiusChunks", 0);
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", false);
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var playerGo = new GameObject("Player");
+        playerGo.transform.position = new Vector3(1280f, 14f, 1268f);
+        var pc = playerGo.AddComponent<PlayerController>();
+        var pco = new SerializedObject(pc);
+        var camProp = pco.FindProperty("_camera");
+        if (camProp != null) camProp.objectReferenceValue = cam;
+        var spawnProp = pco.FindProperty("_spawnM");
+        if (spawnProp != null) spawnProp.vector3Value = new Vector3(1280f, 40f, 1268f);
+        SetBoolIfPresent(pco, "_resolveSpawnUpward", true);
+        // No mouse capture: this is a scripted run with no human at the keyboard,
+        // and a locked cursor in a batch-launched player is just a nuisance.
+        SetBoolIfPresent(pco, "_captureMouse", false);
+        SetBoolIfPresent(pco, "_hotReload", true);   // step 5 depends on it
+        pco.ApplyModifiedPropertiesWithoutUndo();
+
+        var rigGo = new GameObject("Phase6PlayerRig");
+        var rig = rigGo.AddComponent<Phase6PlayerRig>();
+        var ro = new SerializedObject(rig);
+        ro.FindProperty("_player").objectReferenceValue = pc;
+        ro.FindProperty("_outputRootFolderName").stringValue = "Phase6Player";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Phase6PlayerScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, Phase6PlayerScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {Phase6PlayerScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {Phase6PlayerScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
+
     public const string Phase6BrushGuardScenePath = "Assets/Scenes/Phase 6 Brush Guard.unity";
 
     /// The brush-guard end-to-end rig scene. Deliberately the PLAYGROUND setup

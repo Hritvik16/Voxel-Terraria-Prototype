@@ -54,6 +54,27 @@ public static class CommandLineBuild
         DisableAppNap(PLAYGROUND_OUTPUT_PATH);
     }
 
+    private const string PHASE6_PLAYER_SCENE_PATH = "Assets/Scenes/Phase 6 Player.unity";
+    private const string PHASE6_PLAYER_OUTPUT_PATH = "Builds/Phase6Player.app";
+
+    /// §13 Phase 6 file 1's acceptance rig. Scene path and output path must
+    /// agree with run-phase6-player.sh.
+    public static void BuildPhase6PlayerStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE6_PLAYER_SCENE_PATH },
+            locationPathName = PHASE6_PLAYER_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase6 player result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE6_PLAYER_OUTPUT_PATH);
+    }
+
     private const string PHASE6_BRUSHGUARD_SCENE_PATH = "Assets/Scenes/Phase 6 Brush Guard.unity";
     private const string PHASE6_BRUSHGUARD_OUTPUT_PATH = "Builds/Phase6BrushGuard.app";
 

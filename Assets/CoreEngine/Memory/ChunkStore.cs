@@ -56,7 +56,7 @@ using Unity.Collections;
 using Unity.Mathematics;
 using VoxelEngine.Memory;
 
-public class ChunkStore : IWorldQuery, IEditService
+public class ChunkStore : IWorldQuery, IEditService, IVoxelResidency
 {
     /// Preallocated so eviction's run-detection allocates nothing on the
     /// streaming path (§0.1 invariant 3).
