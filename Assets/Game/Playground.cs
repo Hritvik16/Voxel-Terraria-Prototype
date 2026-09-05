@@ -378,34 +378,83 @@ public class Playground : MonoBehaviour
         }
         else if (Input.GetMouseButton(1))     // held: paint the brush
         {
-            byte m = _brushes[_brush];
-            int radius = m == Materials.Stone ? 2 : 1;   // a small blob of fluid
-
-            // REFUSE A MOBILE BRUSH OUTSIDE THE ARENA. The CA's region is fixed
-            // (§7.4's moving radius is unbuilt), and FluidGpuSimulation.
-            // RequestWake correctly drops out-of-region wakes -- so a mobile
-            // material written outside the arena is committed to ChunkStore and
-            // uploaded to the mirror, and then NEVER SIMULATED. It renders as a
-            // frozen blob hanging wherever the crosshair was: sand that does not
-            // fall, water that does not spread. The vent path (OpenVentAtTarget)
-            // has always guarded this; this path did not, so the same limitation
-            // was refused in one place and silently disguised in the other.
-            // Header note 1 says this scene must make that limit VISIBLE.
-            //
-            // All-or-nothing on purpose. Placing only the in-region cells of a
-            // blob that straddles the edge would leave a frozen rim outside it
-            // -- the same silent-partial shape as the §9.4 residency-edge bug.
-            if (MaterialRules.IsMobile(m) && !SphereFitsInFluidArena(_targetAdjacent, radius))
-            {
-                _status = $"<color=#ff9a9a>{_brushNames[_brush]} NOT placed at {_targetAdjacent} — outside the " +
-                          $"{_arenaEdge}^3 fluid arena at {_arenaCentre}. It would never simulate here " +
-                          $"(§7.4's moving radius is unbuilt). Press F to fly to the arena.</color>";
-                return;
-            }
-
-            EditSphere(_targetAdjacent, radius, m);
-            _status = $"placing {_brushNames[_brush]} at {_targetAdjacent}";
+            TryPaintBrush(_targetAdjacent);
         }
+    }
+
+    /// THE PAINT ACTION. Returns true if the blob was actually written.
+    ///
+    /// Factored out of HandleMouse so a rig can drive the REAL path without
+    /// synthesising mouse input -- HandleMouse and Phase6BrushGuard are the only
+    /// two callers, and they share this one implementation, so a rig result is a
+    /// statement about what RMB does, not about a parallel copy of it. See
+    /// Phase6BrushGuard for why that mattered: the guard below was
+    /// correctness-proven at the unit level but unreachable from EditMode,
+    /// because Playground lives in Assembly-CSharp and CoreEngine.Tests cannot
+    /// reference it.
+    internal bool TryPaintBrush(int3 at)
+    {
+        byte m = _brushes[_brush];
+        int radius = m == Materials.Stone ? 2 : 1;   // a small blob of fluid
+
+        // REFUSE A MOBILE BRUSH OUTSIDE THE ARENA. The CA's region is fixed
+        // (§7.4's moving radius is unbuilt), and FluidGpuSimulation.
+        // RequestWake correctly drops out-of-region wakes -- so a mobile
+        // material written outside the arena is committed to ChunkStore and
+        // uploaded to the mirror, and then NEVER SIMULATED. It renders as a
+        // frozen blob hanging wherever the crosshair was: sand that does not
+        // fall, water that does not spread. The vent path (OpenVentAtTarget)
+        // has always guarded this; this path did not, so the same limitation
+        // was refused in one place and silently disguised in the other.
+        // Header note 1 says this scene must make that limit VISIBLE.
+        //
+        // All-or-nothing on purpose. Placing only the in-region cells of a
+        // blob that straddles the edge would leave a frozen rim outside it
+        // -- the same silent-partial shape as the §9.4 residency-edge bug.
+        if (MaterialRules.IsMobile(m) && !SphereFitsInFluidArena(at, radius))
+        {
+            _status = $"<color=#ff9a9a>{_brushNames[_brush]} NOT placed at {at} — outside the " +
+                      $"{_arenaEdge}^3 fluid arena at {_arenaCentre}. It would never simulate here " +
+                      $"(§7.4's moving radius is unbuilt). Press F to fly to the arena.</color>";
+            return false;
+        }
+
+        EditSphere(at, radius, m);
+        _status = $"placing {_brushNames[_brush]} at {at}";
+        return true;
+    }
+
+    // =====================================================================
+    // RIG SURFACE -- Phase6BrushGuard only. Not part of the playable scene.
+    //
+    // Playground is in Assembly-CSharp, which no asmdef test assembly can
+    // reference, so the brush guard cannot be reached from EditMode at all.
+    // These read-only accessors plus TryPaintBrush above let a standalone rig
+    // drive and observe the real thing instead. Nothing here changes behaviour;
+    // DebugOpenAllVents/DebugRunKey set the precedent for this kind of surface.
+    // =====================================================================
+
+    internal bool DebugReady => _ready;
+    internal int3 DebugArenaCentre => _arenaCentre;
+    internal int3 DebugArenaOrigin => _arenaOrigin;
+    internal int DebugArenaEdge => _arenaEdge;
+    internal string DebugStatus => _status;
+    internal FluidGpuSimulation DebugFluid => _fluid;
+    internal ChunkStore DebugStore => _store;
+    internal byte DebugBrushMaterial => _brushes[_brush];
+    internal string DebugBrushName => _brushNames[_brush];
+    internal void DebugSetBrush(int i) => SetBrush(i);
+
+    /// Drives one CA tick + readback exactly as Update does, so a rig can advance
+    /// the simulation without Update's input handling running.
+    internal void DebugTickFluid()
+    {
+        if (_readback.CanIssue)
+        {
+            _fluid.Tick(_clipmap);
+            _readback.IssueReadback(0);
+        }
+        _readback.PumpAndApply();
     }
 
     /// True iff a blob placed here would actually be simulated. The predicate

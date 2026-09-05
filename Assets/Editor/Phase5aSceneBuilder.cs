@@ -110,6 +110,78 @@ public static class Phase5aSceneBuilder
     private static void SetBoolIfPresent(SerializedObject so, string name, bool v)
     { var p = so.FindProperty(name); if (p != null) p.boolValue = v; }
 
+    public const string Phase6BrushGuardScenePath = "Assets/Scenes/Phase 6 Brush Guard.unity";
+
+    /// The brush-guard end-to-end rig scene. Deliberately the PLAYGROUND setup
+    /// -- the real Phase4Bootstrapper world and the real Playground component --
+    /// with the rig driving it instead of a human. Two things the dogfood scene
+    /// has are omitted on purpose:
+    ///   PlaygroundFlyCamera  the rig owns the camera; a flycam would fight it
+    ///   PlaygroundCapture    its screenshot pass would race the rig's own
+    /// Playground.HandleMouse is additionally inert here regardless, because it
+    /// is gated on the flycam having captured the mouse.
+    [MenuItem("Voxel Engine/Phase 6/Generate Brush Guard Scene")]
+    public static void GeneratePhase6BrushGuard()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.62f, 0.70f, 0.78f, 1f);
+        cam.fieldOfView = 60f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 600f;
+        // Same island spawn as the Playground scene, so the basin the arena
+        // lands in is the same one a human would see. The rig repositions from
+        // here; it never teleports far enough to matter (the arena is 6.4 m
+        // across, so "outside" is metres away, not chunks).
+        camGo.transform.position = new Vector3(1280f, 9.5f, 1268f);
+        camGo.transform.rotation = Quaternion.Euler(14f, 0f, 0f);
+
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        SetIfPresent(bo, "_loadRadiusChunks", 0);
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", false);
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var pgGo = new GameObject("Playground");
+        var pg = pgGo.AddComponent<Playground>();
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+        var po = new SerializedObject(pg);
+        po.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        po.FindProperty("_arenaEdge").intValue = 64;
+        po.FindProperty("_slotCapacity").intValue = 8192;
+        po.FindProperty("_maxOpsPerFrame").intValue = 8192;
+        // Vents off: the rig places every voxel it reasons about itself, so a
+        // background vent dribbling water into the arena would contaminate the
+        // conservation check in step 4.
+        po.FindProperty("_waterBudget").intValue = 0;
+        po.FindProperty("_sandBudget").intValue = 0;
+        po.FindProperty("_lavaBudget").intValue = 0;
+        po.FindProperty("_outputRootFolderName").stringValue = "Phase6BrushGuard";
+        po.ApplyModifiedPropertiesWithoutUndo();
+
+        var rigGo = new GameObject("Phase6BrushGuard");
+        var rig = rigGo.AddComponent<Phase6BrushGuard>();
+        var ro = new SerializedObject(rig);
+        ro.FindProperty("_playground").objectReferenceValue = pg;
+        ro.FindProperty("_outputRootFolderName").stringValue = "Phase6BrushGuard";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Phase6BrushGuardScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, Phase6BrushGuardScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {Phase6BrushGuardScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {Phase6BrushGuardScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
+
     public const string Phase5bDemoScenePath = "Assets/Scenes/Phase 5b Demo.unity";
 
     /// The demo / playable scene. One scene, two modes -- see Phase5bDemo.

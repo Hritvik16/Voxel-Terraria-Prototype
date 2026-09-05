@@ -54,6 +54,29 @@ public static class CommandLineBuild
         DisableAppNap(PLAYGROUND_OUTPUT_PATH);
     }
 
+    private const string PHASE6_BRUSHGUARD_SCENE_PATH = "Assets/Scenes/Phase 6 Brush Guard.unity";
+    private const string PHASE6_BRUSHGUARD_OUTPUT_PATH = "Builds/Phase6BrushGuard.app";
+
+    /// The brush-guard end-to-end rig. RELEASE build, same as every other rig:
+    /// the scene and the output path must agree with run-phase6-brushguard.sh,
+    /// which is the mistake run-phase5d-rig.sh actually shipped with (it tested
+    /// for a path nothing ever wrote and called a successful build a failure).
+    public static void BuildPhase6BrushGuardStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE6_BRUSHGUARD_SCENE_PATH },
+            locationPathName = PHASE6_BRUSHGUARD_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase6 brushguard result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE6_BRUSHGUARD_OUTPUT_PATH);
+    }
+
     private const string PLAYGROUND_TRACE_OUTPUT_PATH = "Builds/PlaygroundTrace.app";
 
     /// DEVELOPMENT build of the Playground, for GPU capture ONLY.
