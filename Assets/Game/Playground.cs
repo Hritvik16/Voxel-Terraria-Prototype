@@ -1039,8 +1039,13 @@ public class Playground : MonoBehaviour
         // (vw - 354)/2 - 250 and spans vh-104..vh-64, so a panel anchored at
         // vh-180 runs underneath it -- the first build had the arena line
         // disappearing behind the DIG box.
-        Box(new Rect(8, vh - 300, 700, 128), new Color(0f, 0f, 0f, 0.45f));
-        GUI.Label(new Rect(16, vh - 296, 686, 122), sb.ToString(), Label(13));
+        // TALL ENOUGH FOR THE WORST CASE, which is walk mode with every optional
+        // line present: player, non-resident block, buoyancy, speed clamp, dug,
+        // last blast, last shot, edits, arena, §7.4 radius. At 13pt that is ~10
+        // lines; 128px held 8 and silently clipped the last two, which are the
+        // ones this session added.
+        Box(new Rect(8, vh - 356, 760, 184), new Color(0f, 0f, 0f, 0.45f));
+        GUI.Label(new Rect(16, vh - 352, 746, 178), sb.ToString(), Label(13));
     }
 
     private void DrawHelp(float vw, float vh)
