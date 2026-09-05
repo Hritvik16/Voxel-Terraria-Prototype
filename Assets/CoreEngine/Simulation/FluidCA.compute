@@ -205,6 +205,12 @@ uint4 _RegionDimsVoxels;     // .xyz, each a power of two
 uint4 _RegionShifts;         // .x = log2(dims.x), .y = log2(dims.y)
 int4  _PlayerVoxel;
 int   _ActiveRadiusVoxels;
+// §7.4 HYSTERESIS. Promotion uses the wake radius; demotion uses this LARGER
+// one. A slot promoted at the boundary must then travel the gap before it can
+// be demoted, so a player oscillating at the edge cannot wake and sleep the
+// same ring of slots every frame. One radius for both directions is what makes
+// boundary thrash possible at all.
+int   _SleepRadiusVoxels;
 int   _Tick;
 uint  _SlotCapacity;
 uint  _RegionCellCount;
@@ -318,6 +324,14 @@ bool WithinActiveRadius(int3 v)
 {
     int3 d = v - _PlayerVoxel.xyz;
     return (d.x * d.x + d.y * d.y + d.z * d.z) <= (_ActiveRadiusVoxels * _ActiveRadiusVoxels);
+}
+
+/// §7.4's demote test, deliberately NOT the negation of WithinActiveRadius.
+/// See _SleepRadiusVoxels: the gap between the two radii is the hysteresis band.
+bool BeyondSleepRadius(int3 v)
+{
+    int3 d = v - _PlayerVoxel.xyz;
+    return (d.x * d.x + d.y * d.y + d.z * d.z) > (_SleepRadiusVoxels * _SleepRadiusVoxels);
 }
 
 // C.7 tie-variety hash. Identical constants and mixing to
@@ -625,7 +639,9 @@ void CSIntent(uint3 id : SV_DispatchThreadID)
     }
 
     // ---- §7.4 near-player scope / §7.7 forced demotion ----
-    if (!WithinActiveRadius(c))
+    // The SLEEP radius, not the wake radius -- the difference is the hysteresis
+    // band that stops a player at the boundary thrashing slots every frame.
+    if (BeyondSleepRadius(c))
     {
         slot.stateFlags = FLAG_FORCE_DEMOTE;   // clears AWAKE
         FluidSlots[s] = slot;

@@ -264,6 +264,35 @@ namespace VoxelEngine.Simulation
         public int3 RegionOriginVoxels { get; set; }
         public int3 PlayerVoxel { get; set; }
         public int ActiveRadiusVoxels { get; set; } = EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS;
+
+        /// §7.4's DEMOTE radius. Larger than the wake radius; the gap is the
+        /// hysteresis band. Defaults to the ratio in FluidActiveRegion.
+        public int SleepRadiusVoxels { get; set; } =
+            FluidActiveRegion.SleepRadiusFor(EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS);
+
+        /// Moves §7.4's active centre toward the player, subject to the
+        /// re-centre threshold. Returns true if the centre actually moved.
+        ///
+        /// CALL THIS EVERY FRAME. Nothing else updates PlayerVoxel -- before
+        /// this existed it was set once at construction and never again, so
+        /// §7.4's radius (which the shader has always tested) was anchored to
+        /// wherever the region was created.
+        public bool UpdatePlayerPosition(int3 playerVoxel)
+        {
+            if (!FluidActiveRegion.ShouldRecentre(PlayerVoxel, playerVoxel, RecentreThresholdVoxels))
+                return false;
+            PlayerVoxel = playerVoxel;
+            RecentresTotal++;
+            return true;
+        }
+
+        /// How far the player must move before the centre follows. See
+        /// FluidActiveRegion for why this is a separate mechanism from
+        /// hysteresis rather than a duplicate of it.
+        public int RecentreThresholdVoxels { get; set; } =
+            FluidActiveRegion.DefaultRecentreThresholdVoxels;
+
+        public long RecentresTotal { get; private set; }
         public int TickCount { get; private set; }
 
         public int3 RegionDims => _regionDims;
@@ -601,6 +630,7 @@ namespace VoxelEngine.Simulation
             _cs.SetInts("_RegionShifts", _shiftX, _shiftY, 0, 0);
             _cs.SetInts("_PlayerVoxel", PlayerVoxel.x, PlayerVoxel.y, PlayerVoxel.z, 0);
             _cs.SetInt("_ActiveRadiusVoxels", ActiveRadiusVoxels);
+            _cs.SetInt("_SleepRadiusVoxels", SleepRadiusVoxels);
             _cs.SetInt("_Tick", TickCount);
             _cs.SetInt("_SlotCapacity", _slotCapacity);
             _cs.SetInt("_RegionCellCount", _regionCellCount);
