@@ -28,6 +28,11 @@
 //    scene puts fluid in ONE place on purpose so that limitation is visible
 //    rather than disguised. "Fluid in one spot" is not "fluid works across the
 //    world" and this scene must never be cited as the latter.
+//    Enforced, not just advertised: the brush REFUSES to place a mobile
+//    material outside the arena (see HandleMouse). It used to place it happily,
+//    which committed a blob that could never be simulated and left it frozen in
+//    mid-air -- the limitation disguised as a fluid bug, which is exactly what
+//    this note promises the scene will not do.
 //
 // 2. THE FLUID POPULATION HERE IS DELIBERATELY TINY.
 //    Source budgets are tens to low hundreds of voxels -- the same range
@@ -374,20 +379,49 @@ public class Playground : MonoBehaviour
         else if (Input.GetMouseButton(1))     // held: paint the brush
         {
             byte m = _brushes[_brush];
-            if (m == Materials.Stone) EditSphere(_targetAdjacent, 2, m);
-            else EditSphere(_targetAdjacent, 1, m);   // a small blob of fluid
+            int radius = m == Materials.Stone ? 2 : 1;   // a small blob of fluid
+
+            // REFUSE A MOBILE BRUSH OUTSIDE THE ARENA. The CA's region is fixed
+            // (§7.4's moving radius is unbuilt), and FluidGpuSimulation.
+            // RequestWake correctly drops out-of-region wakes -- so a mobile
+            // material written outside the arena is committed to ChunkStore and
+            // uploaded to the mirror, and then NEVER SIMULATED. It renders as a
+            // frozen blob hanging wherever the crosshair was: sand that does not
+            // fall, water that does not spread. The vent path (OpenVentAtTarget)
+            // has always guarded this; this path did not, so the same limitation
+            // was refused in one place and silently disguised in the other.
+            // Header note 1 says this scene must make that limit VISIBLE.
+            //
+            // All-or-nothing on purpose. Placing only the in-region cells of a
+            // blob that straddles the edge would leave a frozen rim outside it
+            // -- the same silent-partial shape as the §9.4 residency-edge bug.
+            if (MaterialRules.IsMobile(m) && !SphereFitsInFluidArena(_targetAdjacent, radius))
+            {
+                _status = $"<color=#ff9a9a>{_brushNames[_brush]} NOT placed at {_targetAdjacent} — outside the " +
+                          $"{_arenaEdge}^3 fluid arena at {_arenaCentre}. It would never simulate here " +
+                          $"(§7.4's moving radius is unbuilt). Press F to fly to the arena.</color>";
+                return;
+            }
+
+            EditSphere(_targetAdjacent, radius, m);
             _status = $"placing {_brushNames[_brush]} at {_targetAdjacent}";
         }
     }
 
+    /// True iff a blob placed here would actually be simulated. The predicate
+    /// itself lives in FluidGpuSimulation next to the region it asks about, and
+    /// shares SphereCovers with EditSphere below, so the cells the guard checks
+    /// and the cells EditSphere writes cannot drift apart.
+    private bool SphereFitsInFluidArena(int3 centre, int radius)
+        => _fluid != null && _fluid.SphereFitsInRegion(centre, radius);
+
     private void EditSphere(int3 centre, int radius, byte m)
     {
-        int r2 = radius * radius;
         for (int z = -radius; z <= radius; z++)
         for (int y = -radius; y <= radius; y++)
         for (int x = -radius; x <= radius; x++)
         {
-            if (x * x + y * y + z * z > r2) continue;
+            if (!FluidGpuSimulation.SphereCovers(x, y, z, radius)) continue;
             Edit(centre + new int3(x, y, z), m);
         }
     }

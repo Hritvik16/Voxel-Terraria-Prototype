@@ -466,12 +466,54 @@ namespace VoxelEngine.Simulation
             WakeRequestsQueuedTotal++;
         }
 
-        public bool InRegion(int3 v)
+        public bool InRegion(int3 v) => InRegion(v, RegionOriginVoxels, _regionDims);
+
+        /// Pure form, so a caller can ask the question about a region it does not
+        /// hold an instance of -- and so it is unit-testable without a GPU.
+        public static bool InRegion(int3 v, int3 regionOrigin, int3 regionDims)
         {
-            int3 r = v - RegionOriginVoxels;
+            int3 r = v - regionOrigin;
             return r.x >= 0 && r.y >= 0 && r.z >= 0 &&
-                   r.x < _regionDims.x && r.y < _regionDims.y && r.z < _regionDims.z;
+                   r.x < regionDims.x && r.y < regionDims.y && r.z < regionDims.z;
         }
+
+        /// The ONE definition of which offsets a radius-`radius` sphere brush
+        /// covers. Both the guard below and the code that actually writes the
+        /// blob must use this, or they drift and the guard stops matching what
+        /// gets written.
+        public static bool SphereCovers(int dx, int dy, int dz, int radius)
+            => dx * dx + dy * dy + dz * dz <= radius * radius;
+
+        /// True iff EVERY cell a radius-`radius` sphere brush at `centre` would
+        /// write lies inside the region -- i.e. a blob placed there would
+        /// actually be simulated.
+        ///
+        /// WHY THIS EXISTS. RequestWake correctly and silently drops
+        /// out-of-region wakes ("this cell does not move this tick"). That is
+        /// right for the engine, but it means a CALLER that writes a mobile
+        /// material outside the region gets no error and no movement: the voxel
+        /// is committed to ChunkStore, uploaded to the mirror, drawn, and then
+        /// never simulated. It hangs in mid-air forever. Sand that does not fall
+        /// is the giveaway. Ask this BEFORE writing, not after.
+        ///
+        /// All-or-nothing on purpose: placing only the in-region cells of a blob
+        /// that straddles the edge leaves a frozen rim outside it, which is the
+        /// same silent-partial shape as the §9.4 residency-edge bug.
+        public static bool SphereFitsInRegion(int3 centre, int radius, int3 regionOrigin, int3 regionDims)
+        {
+            for (int z = -radius; z <= radius; z++)
+            for (int y = -radius; y <= radius; y++)
+            for (int x = -radius; x <= radius; x++)
+            {
+                if (!SphereCovers(x, y, z, radius)) continue;
+                if (!InRegion(centre + new int3(x, y, z), regionOrigin, regionDims)) return false;
+            }
+            return true;
+        }
+
+        /// Instance form against this region.
+        public bool SphereFitsInRegion(int3 centre, int radius)
+            => SphereFitsInRegion(centre, radius, RegionOriginVoxels, _regionDims);
 
         public int RegionIndex(int3 v)
         {
