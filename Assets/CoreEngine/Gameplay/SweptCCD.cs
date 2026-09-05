@@ -327,62 +327,25 @@ public sealed class SweptCCD
         hitVoxel = default;
         nonResident = false;
 
-        float3 d = p1 - p0;
-        float len = math.length(d);
-        if (len <= 1e-9f) return false;
-        float3 dir = d / len;
-
-        const float s = VoxelCollision.VoxelSizeM;
-        int3 v = CoordMath.WorldToVoxel(p0);
-
-        int3 step = new int3(dir.x > 0f ? 1 : -1, dir.y > 0f ? 1 : -1, dir.z > 0f ? 1 : -1);
-
-        // Distance along the ray to the next voxel boundary on each axis, and
-        // the distance between successive boundaries.
-        float3 tDelta = default, tMax = default;
-        for (int k = 0; k < 3; k++)
+        // The DDA arithmetic lives in VoxelRayWalker, shared with §8.4's
+        // ProjectileTrace. Two hand-rolled traversals is two chances to get
+        // tMax/tDelta subtly different, and the failure mode -- a projectile
+        // passing through a wall this sweep stops at -- would look like a
+        // projectile bug rather than a duplication bug.
+        var walker = VoxelRayWalker.Create(p0, p1);
+        while (walker.MoveNext())
         {
-            if (math.abs(dir[k]) < 1e-12f)
+            if (VoxelCollision.IsBlocking(_world, _residency, walker.Voxel))
             {
-                tDelta[k] = float.PositiveInfinity;
-                tMax[k] = float.PositiveInfinity;
-            }
-            else
-            {
-                tDelta[k] = math.abs(s / dir[k]);
-                float boundary = (v[k] + (step[k] > 0 ? 1 : 0)) * s;
-                tMax[k] = (boundary - p0[k]) / dir[k];
-            }
-        }
-
-        float t = 0f;
-        // A generous but finite bound: the ray cannot visit more cells than its
-        // length in voxels on all three axes, plus slack.
-        int maxCells = (int)(len / s) * 3 + 8;
-
-        for (int guard = 0; guard < maxCells; guard++)
-        {
-            if (VoxelCollision.IsBlocking(_world, _residency, v))
-            {
-                hitT = t;
-                hitVoxel = v;
-                nonResident = VoxelCollision.IsNonResident(_residency, v);
+                hitT = walker.TEnter;
+                hitVoxel = walker.Voxel;
+                nonResident = VoxelCollision.IsNonResident(_residency, walker.Voxel);
                 return true;
             }
 
-            // Advance to the next cell.
-            int axis = tMax.x < tMax.y ? (tMax.x < tMax.z ? 0 : 2) : (tMax.y < tMax.z ? 1 : 2);
-            float tNext = math.min(tMax[axis], len);
-
             byte fluid;
-            if (VoxelCollision.IsFluid(_world, _residency, v, out fluid))
-                tally.Add(fluid, tNext - t);
-
-            if (tMax[axis] >= len) return false;      // reached the destination
-
-            t = tMax[axis];
-            v[axis] += step[axis];
-            tMax[axis] += tDelta[axis];
+            if (VoxelCollision.IsFluid(_world, _residency, walker.Voxel, out fluid))
+                tally.Add(fluid, walker.TExit - walker.TEnter);
         }
         return false;
     }
