@@ -211,6 +211,10 @@ int   _ActiveRadiusVoxels;
 // same ring of slots every frame. One radius for both directions is what makes
 // boundary thrash possible at all.
 int   _SleepRadiusVoxels;
+// §7.4's WAKE-ON-APPROACH SEED. Non-zero for a few ticks after the active
+// centre moves; see CSWakeScan for why demotion needs an inverse and why
+// activity propagation alone cannot provide one.
+int   _RecentreSeed;
 int   _Tick;
 uint  _SlotCapacity;
 uint  _RegionCellCount;
@@ -867,14 +871,56 @@ void CSWakeScan(uint3 id : SV_DispatchThreadID)
     if (!IsMobile(m)) return;
     if (!WithinActiveRadius(c)) return;
 
-    bool near = false;
-
-    // NARROW (mark 1 or 2): can THIS cell descend into a vacated one? Exactly
-    // the five cells §7.4's tiers 1 and 2 let it reach -- straight down plus
-    // the four down-diagonals. Nothing at the same level qualifies.
+    // The five cells §7.4's tiers 1 and 2 let a cell descend into: straight
+    // down plus the four down-diagonals. Nothing at the same level qualifies.
     int3 below[5] = {
         int3(0, -1, 0), int3(-1, -1, 0), int3(1, -1, 0), int3(0, -1, -1), int3(0, -1, 1)
     };
+
+    bool near = false;
+
+    // ---- §7.4's WAKE-ON-APPROACH, and the only non-activity-driven path ----
+    //
+    // WHY THIS EXISTS. §7.4 promises both directions: "on approach it wakes
+    // (slots allocate on GPU); on departure it sleeps back to static terrain."
+    // The departure half is CSIntent's BeyondSleepRadius force-demote. The
+    // approach half had NO implementation, and the two paths that look like
+    // they should provide it cannot:
+    //
+    //   CSPromote is REQUEST-driven -- it walks WakeRequests, and moving the
+    //   player generates none.
+    //
+    //   The propagation below is ACTIVITY-driven -- it needs a neighbour that
+    //   moved THIS tick. Once a region is fully asleep no cell carries a mark,
+    //   so there is nothing to propagate from. A region that goes to sleep
+    //   mid-flow can never restart itself: a deadlock, not a slow wake.
+    //
+    // Measured, not theorised: a pour watched from 13 m away left 54 voxels
+    // hanging in mid-air, all of them owning no slot (so demotion had cleaned
+    // up correctly), and they stayed hanging through a re-centre and 1500
+    // ticks. Requesting a wake for those exact cells by hand cleared 54 -> 1.
+    //
+    // WHY "A DESCENT TARGET IS AIR" AND NOT "EVERYTHING IN RADIUS". Waking
+    // every mobile cell would allocate a slot per voxel of a settled lake and
+    // spike §7.7's pool for the _SleepTicks it takes them to sleep again. This
+    // predicate is the cheapest honest proxy for "not in equilibrium", and it
+    // reuses the exact five directions the CA itself can move in, so it cannot
+    // drift from the Intent hierarchy. It deliberately does NOT catch a cell
+    // that can only move laterally -- it does not need to. Seeding the
+    // descenders is enough: they move, they set marks, and the ordinary
+    // propagation below takes the region from there.
+    if (_RecentreSeed != 0)
+    {
+        [unroll]
+        for (int sb = 0; sb < 5; sb++)
+        {
+            int3 ns = c + below[sb];
+            if (!InRegion(ns)) continue;
+            if (SampleVoxel(ns) == AIR) { near = true; }
+        }
+    }
+
+    // NARROW (mark 1 or 2): can THIS cell descend into a vacated one?
     [unroll]
     for (int b = 0; b < 5; b++)
     {

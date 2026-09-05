@@ -283,8 +283,30 @@ namespace VoxelEngine.Simulation
                 return false;
             PlayerVoxel = playerVoxel;
             RecentresTotal++;
+            _recentreSeedTicks = RecentreSeedTicks;   // §7.4's wake-on-approach
             return true;
         }
+
+        /// How many ticks CSWakeScan is allowed its radius-driven seed after the
+        /// active centre moves. See the long note in CSWakeScan: the seed is what
+        /// gives §7.4's force-demote an inverse, without which a region that goes
+        /// to sleep mid-flow can never restart itself.
+        ///
+        /// ENGINEERING DEFAULT, NOT MEASURED. One tick is enough in principle --
+        /// the seeded cells move, set wake marks, and ordinary propagation takes
+        /// over. It is larger than one so that a tick where §7.7's pool guard
+        /// refuses the allocation is retried rather than lost, which would strand
+        /// exactly the cells the seed exists to rescue.
+        public int RecentreSeedTicks { get; set; } = 4;
+
+        /// Counts down to zero; non-zero uploads _RecentreSeed. Ticks, not
+        /// frames -- it must track dispatches, and a frame that skips the tick
+        /// must not burn the budget.
+        private int _recentreSeedTicks;
+
+        /// Diagnostic: how many ticks have actually run with the seed enabled.
+        /// A rig asserting the seed did something needs to know it was ON.
+        public long RecentreSeedTicksRun { get; private set; }
 
         /// How far the player must move before the centre follows. See
         /// FluidActiveRegion for why this is a separate mechanism from
@@ -606,6 +628,12 @@ namespace VoxelEngine.Simulation
 
             BindGlobals(clipmap);
 
+            // AFTER binding, so the tick that re-centred is itself seeded. Doing
+            // it before would upload 0 on the very tick the centre moved and
+            // spend the budget on the tick after, which is off by one in the
+            // direction that matters least visibly and is hardest to spot.
+            if (_recentreSeedTicks > 0) { _recentreSeedTicks--; RecentreSeedTicksRun++; }
+
             if (!SplitDispatchEncodersForCapture) _cb.Clear();
             Dispatch(_kClear, _regionCellCount, LblClear);
             if (_wakeCount > 0) { Dispatch(_kPromote, _wakeCount, LblPromote); PromoteDispatchesTotal++; }
@@ -631,6 +659,7 @@ namespace VoxelEngine.Simulation
             _cs.SetInts("_PlayerVoxel", PlayerVoxel.x, PlayerVoxel.y, PlayerVoxel.z, 0);
             _cs.SetInt("_ActiveRadiusVoxels", ActiveRadiusVoxels);
             _cs.SetInt("_SleepRadiusVoxels", SleepRadiusVoxels);
+            _cs.SetInt("_RecentreSeed", _recentreSeedTicks > 0 ? 1 : 0);
             _cs.SetInt("_Tick", TickCount);
             _cs.SetInt("_SlotCapacity", _slotCapacity);
             _cs.SetInt("_RegionCellCount", _regionCellCount);

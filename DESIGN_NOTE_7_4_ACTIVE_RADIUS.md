@@ -218,3 +218,81 @@ everything else is already asleep per §7.6" composes, rather than assuming it.
 
 Step 0's regression rig re-runs at the end: the same 406-voxel pour must no
 longer stall.
+
+---
+
+## 8. What playtesting found afterwards: demotion had no inverse
+
+**Added after the §7.4 work above shipped.** This section is a correction to it,
+not a footnote — the note as written above was wrong by omission, and the gap it
+left was visible in ordinary play within a session.
+
+§7.4 states both directions of the same mechanism:
+
+> "On approach it wakes (slots allocate on GPU); on departure it sleeps back to
+> static terrain."
+
+§3 above reasoned carefully about the *departure* half and about not thrashing
+the boundary. It never asked what performs the *approach* half. Nothing did.
+
+**The symptom.** A cluster of water voxels hanging in mid-air beside the fluid
+arena, visibly disconnected from the terrain with gaps beneath it, that never
+resolved no matter how long you watched or how close you stood.
+
+**The measurement** (`run-playtest-bugs.sh`, step A2). A pour watched from 13 m
+back left 54 unsupported voxels. The same 54 at 16 m back. The same 54 after
+re-centring the radius onto the arena and settling for 1500 ticks. A count that
+does not move under a change that should move it is the whole signal.
+
+**Which failure it was.** `ReadSlotAtCell` reported `-1` for all 54: they owned
+no slot, so CSIntent's force-demote had cleaned up correctly — this was *not*
+the orphaned-slot leak its own doc comment warns about. The control settled it:
+issuing `RequestWake` for those exact cells, changing nothing else, took 54 → 1.
+
+**The deadlock.** Neither promotion path can start a region that is fully asleep:
+
+- `CSPromote` is **request-driven**. It walks `WakeRequests`. Moving the player
+  generates none, because §7.4's radius is a GPU-side gate and the CPU never
+  learns which cells crossed it.
+- `CSWakeScan` is **activity-driven**. It requires a neighbour carrying a
+  `WakeMark` set by a descending move *this tick*. When every slot in the region
+  has been demoted, no cell carries a mark, so there is nothing to propagate
+  from. It is a deadlock, not a slow wake.
+
+This is why §7.7's "distant fluid freezes mid-flow, no state lost" is true and
+still not sufficient: no *state* is lost, but without an inverse the freeze is
+permanent, and permanently-frozen mid-flow fluid is indistinguishable from a
+rendering bug to anyone playing.
+
+**The fix.** A radius-driven seed in `CSWakeScan`, enabled for
+`RecentreSeedTicks` ticks after the active centre moves: a mobile cell inside
+the wake radius, owning no slot, with **a legal descent target that is Air**,
+wakes without needing a marked neighbour.
+
+The predicate is deliberately narrower than "everything in radius". Waking every
+mobile cell would allocate a slot per voxel of a settled lake and spike §7.7's
+pool for the `_SleepTicks` it takes them all to sleep again. "A descent target
+is Air" reuses the exact five directions §7.4's tiers 1 and 2 can move in, so it
+cannot drift from the Intent hierarchy, and a settled body of water fails it
+everywhere except its own perimeter. It does not catch a cell that can only move
+laterally, and does not need to: seeding the descenders is enough, because they
+move, set marks, and hand the region back to ordinary propagation.
+
+**Scope — this was never a demo-value artifact.** The Playground's 128-voxel
+demo radius is what makes it fire at 13 m rather than 147 m. At the shipped
+`FLUID_ACTIVE_RADIUS_VOXELS = 1280` the identical deadlock occurs whenever a
+player leaves a region and returns. Raising the demo radius would have hidden
+the symptom and left the defect.
+
+**What §6 item 1 got right and what it missed.** It correctly predicted that the
+mechanism would be "correct and inert" in a small arena at the shipped radius,
+and that demonstrating §7.4 in the Playground needed a smaller radius. Lowering
+it did demonstrate §7.4 — including the half that was missing. That is an
+argument for dogfooding at values where a mechanism actually engages, not
+against it.
+
+**Not measured.** `RecentreSeedTicks = 4` is an engineering default: one tick is
+enough in principle, and the margin exists so a tick where §7.7's pool guard
+refuses an allocation is retried rather than stranding exactly the cells the
+seed exists to rescue. The GPU-lane cost of the seeded ticks has not been
+measured and is not claimed.
