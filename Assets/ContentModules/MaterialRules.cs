@@ -103,6 +103,68 @@ public static class MaterialRules
 
     public static uint Flags(byte material) => _flags[material];
 
+    // =====================================================================
+    // §8.6 / Appendix C.6 -- DENSITY AND DRAG
+    //
+    // A.7's MaterialData declares `density` and `viscosityDrag` fields, and
+    // §8.6 says buoyancy takes them "from the Registry" -- but NOTHING IN THE
+    // PROJECT EVER POPULATED THEM. The struct existed; the data did not. This
+    // table is that data, added additively alongside the flags and tick-interval
+    // tables it sits beside, in the same Define-style shape.
+    //
+    // VALUES ARE CONTENT, NOT ARCHITECTURE. They are seeded from real-world
+    // figures (kg/m^3) so the relative ordering is defensible on day one --
+    // honey sinks in water, lava is denser than both, a player floats in water
+    // and sinks in air. They are exactly the kind of number §8.1 says feel is
+    // found by iterating, so treat them as a starting point to tune, not as
+    // settled physics.
+    //
+    // Air is given a density so the buoyancy formula needs no special case:
+    // (rho_fluid - rho_entity) with rho_fluid = air just produces a negligible
+    // force, which is correct.
+    // =====================================================================
+
+    private static readonly float[] _densityKgM3 = BuildDensities();
+    private static readonly float[] _viscosityDrag = BuildDrag();
+
+    private static float[] BuildDensities()
+    {
+        var d = new float[256];
+        for (int i = 0; i < 256; i++) d[i] = 2200f;      // generic rock default
+        d[Materials.Air] = 1.2f;
+        d[Materials.Water] = 1000f;
+        d[Materials.Lava] = 3100f;
+        d[Materials.Honey] = 1420f;
+        d[Materials.Sand] = 1600f;
+        d[Materials.Snow] = 300f;
+        d[Materials.Stone] = 2600f;
+        d[Materials.Deepstone] = 2900f;
+        d[Materials.Obsidian] = 2650f;
+        d[Materials.Sandstone] = 2300f;
+        d[Materials.Grass] = 1300f;
+        d[Materials.JungleGrass] = 1300f;
+        d[Materials.MossyStone] = 2500f;
+        return d;
+    }
+
+    private static float[] BuildDrag()
+    {
+        var v = new float[256];
+        for (int i = 0; i < 256; i++) v[i] = 0f;         // solids apply no drag; they block
+        v[Materials.Air] = 0.02f;
+        v[Materials.Water] = 3.0f;
+        v[Materials.Lava] = 12.0f;
+        v[Materials.Honey] = 30.0f;                      // §7.4 already makes honey the slow one
+        return v;
+    }
+
+    /// Density in kg/m^3. Appendix C.6's rho.
+    public static float Density(byte material) => _densityKgM3[material];
+
+    /// Linear drag coefficient applied to a body moving through this material,
+    /// per second. 0 for solids, which stop a body rather than slowing it.
+    public static float ViscosityDrag(byte material) => _viscosityDrag[material];
+
     /// True if `material` gets a fluid slot and runs the CA (§7.3).
     public static bool IsMobile(byte material) => (_flags[material] & IsMobileMask) != 0u;
 

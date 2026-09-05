@@ -183,9 +183,20 @@ namespace VoxelEngine.Simulation
         }
 
         /// Apply whatever has landed. Returns the number of ops applied.
+        /// Pump calls since a batch last actually applied. §8.2's "timestamp on
+        /// the last applied batch", expressed in the unit that matters: one
+        /// pump per frame, so this IS frames-since-applied.
+        ///
+        /// SweptCCD.SpeedClampMps consumes this. §8.2: "A speed clamp (to ~20
+        /// m/s) engages if op-list readback stalls beyond ~2-3 frames". Until
+        /// §8.6's buoyancy existed there was nothing to clamp, which is why
+        /// this was not added in Phase 5.
+        public int FramesSinceLastApplied { get; private set; }
+
         public int PumpAndApply()
         {
             int applied = 0;
+            FramesSinceLastApplied++;
             FramesInFlight = _inFlight.Count;
             if (FramesInFlight > MaxFramesInFlightSeen) MaxFramesInFlightSeen = FramesInFlight;
 
@@ -289,6 +300,7 @@ namespace VoxelEngine.Simulation
                     _store.SetVoxel(op.Dst, op.NewMaterial);
                     OnVoxelApplied?.Invoke(op.Dst);
                     AppliedVoxelWrites++;
+                    FramesSinceLastApplied = 0;      // a batch landed this frame
                     if (op.HasSrc)
                     {
                         _store.SetVoxel(op.Src, 0);        // vacated home -> Air
