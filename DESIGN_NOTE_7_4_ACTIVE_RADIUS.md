@@ -296,3 +296,90 @@ enough in principle, and the margin exists so a tick where §7.7's pool guard
 refuses an allocation is retried rather than stranding exactly the cells the
 seed exists to rescue. The GPU-lane cost of the seeded ticks has not been
 measured and is not claimed.
+
+---
+
+## 9. §6 item 1, finally measured: the shipped radius cannot bite
+
+**Added after §8.** §6 item 1 flagged `FLUID_ACTIVE_RADIUS_VOXELS = 1280` as
+never measured and declined to invent a different number. It has now been
+measured — `run-fluid-scale.sh`, step 3 — and the result is not a tuning
+observation but a structural one.
+
+**For the radius to gate anything, the region must be larger than the radius.**
+A §7.2 region is a *dense per-cell map*: four GPU buffers (`claim`, `slotAt`,
+`reacted`, `wakeMark`), 4 bytes each, **16 bytes per cell**, measured and
+confirmed identical at three sizes:
+
+| region | cells | per-cell buffers | half-diagonal | does a 1280 radius bite? |
+|---|---|---|---|---|
+| 64³ | 262,144 | 4.0 MB | 55 vox | no |
+| 128³ | 2,097,152 | 32.0 MB | 110 vox | no |
+| 256³ | 16,777,216 | 256.0 MB | 221 vox | no |
+
+The smallest power-of-two region whose half-diagonal reaches 1280 voxels is
+**2048³ = 8,589,934,592 cells = 128 GB** of per-cell buffers alone — and
+`CSClear`, `CSCommit` and `CSWakeScan` each dispatch over *every cell every
+tick*, so the per-tick cost scales with region volume regardless of how much
+fluid is actually live.
+
+So at any region size that can exist, the shipped radius is at least 5.8×
+larger than the region's own half-diagonal. **§7.4's gate is inert by
+construction at the shipped constant**: every cell in the region is always
+inside the radius, `WithinActiveRadius` is always true, and `BeyondSleepRadius`
+is never true.
+
+### 9.1 What this does and does not mean
+
+It does **not** mean §7.4 is broken. The mechanism is proven correct in policy
+(`FluidActiveRegionTests`) and proven to demote on departure and wake on
+approach on the GPU (`run-playtest-bugs.sh`, steps A2/A2m). The Playground
+exercises it precisely *because* its demo radius is 128 rather than 1280.
+
+It means the **shipped constant selects a regime no single region can reach**,
+so in the shipped configuration §7.4 costs its per-cell dispatch and delivers
+no gating.
+
+### 9.2 A DESIGN FORK — flagged, not decided
+
+Three readings, and neither §7.2, §7.4 nor §2.5 settles which is intended:
+
+- **(a) The radius is mis-sized.** It was derived to match C.5's LOD0 boundary
+  (128 m), a *rendering* distance, and nothing checked it against the region it
+  has to fit inside. Under this reading it should be derived from the region —
+  some fraction of the half-diagonal — and the LOD0 correspondence abandoned.
+- **(b) The region is the wrong shape.** If a 128 m active radius is genuinely
+  wanted, the region cannot stay a dense per-cell map; it needs to be sparse or
+  tiled, at which point the per-tick full-region dispatches go too. That is a
+  §7.2 redesign, not a constant change.
+- **(c) The radius belongs one level up.** §7.4 may be meant to select which of
+  *many* regions tick, not which cells within one tick. `run-fluid-scale.sh`
+  step 2 shows 2/4/8 simultaneous regions scale linearly with no cross-region
+  interference, so the multi-region path is real and cheap. Under this reading
+  the per-cell radius gate is the wrong mechanism at the wrong level.
+
+I am not choosing between these. (a) is a one-line change that makes the
+mechanism live immediately; (b) and (c) are architecture. The measurement above
+is what any of the three needs in order to be decided on evidence.
+
+### 9.3 Slot occupancy, measured (no timing claim)
+
+From the same rig, step 1 — peak *simultaneous* slot occupancy per placed
+voxel, which is the number that sizes a pool:
+
+| live voxels placed | peak slots | slots/voxel | allocations/voxel |
+|---|---|---|---|
+| 500 | 1,500 | 3.00 | 3.00 |
+| 2,000 | 6,000 | 3.00 | 3.00 |
+| 8,000 | 22,620 | 2.83 | 2.83 |
+| 32,000 | 84,244 | 2.63 | 2.63 |
+
+The ratio *improves* with scale and the free list returned every slot at every
+rung, so A.5's allocator is healthy across two orders of magnitude. At the worst
+measured ratio a 500,000-slot pool holds roughly 166,000 live voxels in one
+region.
+
+**§2.5's ~500,000 active-fluid target is not tested by this and is not
+claimed.** The line above is arithmetic on a measured ratio for a single region;
+whether the engine sustains that figure world-wide is a different question, and
+the honest answer is still that nobody has asked it.

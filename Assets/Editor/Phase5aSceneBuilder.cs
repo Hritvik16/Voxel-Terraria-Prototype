@@ -863,4 +863,52 @@ public static class Phase5aSceneBuilder
                      : $"[Phase5aSceneBuilder] FAILED to write {PlaytestBugsScenePath}");
         if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
     }
+
+    public const string FluidScaleScenePath = "Assets/Scenes/Fluid Scale.unity";
+
+    /// §7 slot/memory scale data. Counter-only: no timings are taken, so the
+    /// scene needs no camera framing beyond a valid Main Camera.
+    [MenuItem("Voxel Engine/Diagnostics/Generate Fluid Scale Scene")]
+    public static void GenerateFluidScale()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.62f, 0.70f, 0.78f, 1f);
+        cam.fieldOfView = 65f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 600f;
+        camGo.transform.position = new Vector3(1280f, 9.5f, 1268f);
+
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        SetIfPresent(bo, "_loadRadiusChunks", 0);
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", false);
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var rigGo = new GameObject("FluidScaleRig");
+        var rig = rigGo.AddComponent<FluidScaleRig>();
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+        var ro = new SerializedObject(rig);
+        ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        // Big enough that 32,000 live voxels is a test of the ALLOCATOR rather
+        // than a test of an artificially small capacity.
+        ro.FindProperty("_slotCapacity").intValue = 65536;
+        ro.FindProperty("_outputRootFolderName").stringValue = "FluidScale";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(FluidScaleScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, FluidScaleScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {FluidScaleScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {FluidScaleScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
 }

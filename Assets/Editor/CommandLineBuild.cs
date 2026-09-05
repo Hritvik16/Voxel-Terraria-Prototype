@@ -95,6 +95,25 @@ public static class CommandLineBuild
         DisableAppNap(PLAYTEST_BUGS_OUTPUT_PATH);
     }
 
+    private const string FLUID_SCALE_SCENE_PATH = "Assets/Scenes/Fluid Scale.unity";
+    private const string FLUID_SCALE_OUTPUT_PATH = "Builds/FluidScale.app";
+
+    public static void BuildFluidScaleStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { FLUID_SCALE_SCENE_PATH },
+            locationPathName = FLUID_SCALE_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] fluid scale result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(FLUID_SCALE_OUTPUT_PATH);
+    }
+
     private const string PHASE6_SANDBOX_SCENE_PATH = "Assets/Scenes/Phase 6 Sandbox.unity";
     private const string PHASE6_SANDBOX_OUTPUT_PATH = "Builds/Phase6Sandbox.app";
 
