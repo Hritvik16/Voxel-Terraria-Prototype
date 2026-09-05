@@ -43,15 +43,30 @@
 // actually wrote, and EditsRejectedNotResident counts the misses.
 
 using System;
+using System.Collections.Generic;
 using Unity.Mathematics;
 using VoxelEngine.Simulation;
 
 public class EditService : IEditService
 {
-    /// The fluid simulation to wake on an edit, or null when no simulation is
-    /// running (EditMode tests, the Phase 3/4 scenes). Null is a supported
-    /// state: the wake scan simply does nothing, it never throws.
-    private FluidGpuSimulation _fluid;
+    /// The fluid simulations to wake on an edit. EMPTY is a supported state
+    /// (EditMode tests, the Phase 3/4 scenes): the wake scan simply does
+    /// nothing, it never throws.
+    ///
+    /// A LIST, NOT ONE REFERENCE, and that is a fix rather than generality for
+    /// its own sake. §7.6 says "the edit path scans the edit's neighbourhood for
+    /// fluid/falling materials and wakes GPU slots". With a single reference it
+    /// woke ONE region, so with several simultaneous regions -- which §7.4's
+    /// moving radius makes reachable in ordinary play, since you can walk
+    /// between two pools you made earlier -- an edit in region B woke only
+    /// region A and B's fluid sat inert in terrain forever. Measured: two live
+    /// regions, water poured into both, ZERO ops applied in either, both pools
+    /// frozen in mid-air. §9.7 listed "several simultaneous regions" as never
+    /// tested; this is what that test found.
+    ///
+    /// RequestWake already drops out-of-region coordinates cheaply, so waking
+    /// every attached region is correct without a containment test here.
+    private readonly List<FluidGpuSimulation> _fluids = new List<FluidGpuSimulation>();
 
     /// The world to read materials from when deciding what is worth waking.
     private IWorldQuery _world;
@@ -79,20 +94,24 @@ public class EditService : IEditService
     // Wiring
     // =====================================================================
 
-    /// Phase 5b hook. Additive: nothing else in this class changed.
+    /// Phase 5b hook. Attaching a second simulation ADDS it rather than
+    /// replacing the first -- see _fluids.
     public void AttachFluidSimulation(FluidGpuSimulation fluid, IWorldQuery world)
     {
-        _fluid = fluid;
+        if (fluid != null && !_fluids.Contains(fluid)) _fluids.Add(fluid);
         _world = world;
     }
 
-    public void DetachFluidSimulation()
+    /// Detaches one simulation, or ALL of them when passed null.
+    public void DetachFluidSimulation(FluidGpuSimulation fluid = null)
     {
-        _fluid = null;
-        _world = null;
+        if (fluid == null) _fluids.Clear();
+        else _fluids.Remove(fluid);
+        if (_fluids.Count == 0) _world = null;
     }
 
-    public bool HasFluidSimulation => _fluid != null;
+    public bool HasFluidSimulation => _fluids.Count > 0;
+    public int AttachedFluidSimulations => _fluids.Count;
 
     /// Phase 6 wiring. `writer` is the frozen ChunkStore.SetVoxel path; in
     /// production the same ChunkStore instance satisfies all three of writer,
@@ -173,7 +192,7 @@ public class EditService : IEditService
     /// an edit far from the player legitimately has no slots to wake.
     public void NotifyEdited(int3 worldVoxelCoord)
     {
-        if (_fluid == null) return;
+        if (_fluids.Count == 0) return;
         WakeScansRun++;
 
         // The edited cell itself, plus its 26 neighbours. The full 3x3x3 rather
@@ -186,7 +205,7 @@ public class EditService : IEditService
         {
             int3 n = worldVoxelCoord + new int3(dx, dy, dz);
             if (_world != null && !MaterialRules.IsMobile(_world.GetVoxel(n))) continue;
-            _fluid.RequestWake(n);
+            for (int i = 0; i < _fluids.Count; i++) _fluids[i].RequestWake(n);
         }
     }
 
@@ -195,7 +214,7 @@ public class EditService : IEditService
     /// with a huge box should prefer waking only the shell.
     public void NotifyEditedRegion(int3 minVoxel, int3 maxVoxel)
     {
-        if (_fluid == null) return;
+        if (_fluids.Count == 0) return;
         WakeScansRun++;
         for (int z = minVoxel.z - 1; z <= maxVoxel.z + 1; z++)
         for (int y = minVoxel.y - 1; y <= maxVoxel.y + 1; y++)
@@ -203,7 +222,7 @@ public class EditService : IEditService
         {
             int3 n = new int3(x, y, z);
             if (_world != null && !MaterialRules.IsMobile(_world.GetVoxel(n))) continue;
-            _fluid.RequestWake(n);
+            for (int i = 0; i < _fluids.Count; i++) _fluids[i].RequestWake(n);
         }
     }
 

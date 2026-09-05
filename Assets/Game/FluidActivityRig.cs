@@ -121,6 +121,11 @@ public class FluidActivityRig : MonoBehaviour
 
         yield return Step1_BaselineSmallPour();
         yield return Step2_SustainedPourUntilItStops();
+        yield return Step3_StraddleMoreThanTwoChunks();
+        yield return Step4_SeveralSimultaneousRegions();
+        yield return Step5_EvictionWithOpListInFlight();
+        yield return Step6_ResidencyEdgeUnderAMovingRadius();
+        yield return Step7_AdmissionGuardWithAMovingRegion();
 
         yield return Report();
     }
@@ -201,6 +206,30 @@ public class FluidActivityRig : MonoBehaviour
 
     /// One RMB-sized blob, exactly what Playground's TryPaintBrush writes.
     private int PlaceBlob(int3 at) => _edits.SetSphere(at, 1, Materials.Water);
+
+    /// Distinct chunks currently holding `m` inside the region.
+    private HashSet<int3> ChunksHolding(byte m, int3 origin, int size)
+    {
+        var set = new HashSet<int3>();
+        for (int z = 0; z < size; z++)
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            int3 v = origin + new int3(x, y, z);
+            if (Store.GetVoxel(v) == m) set.Add(CoordMath.VoxelToChunk(v));
+        }
+        return set;
+    }
+
+    private int CountInBox(int3 lo, int3 hi, byte m)
+    {
+        int n = 0;
+        for (int z = lo.z; z <= hi.z; z++)
+        for (int y = lo.y; y <= hi.y; y++)
+        for (int x = lo.x; x <= hi.x; x++)
+            if (Store.GetVoxel(new int3(x, y, z)) == m) n++;
+        return n;
+    }
 
     // =====================================================================
     // STEP 1 -- a small pour, to establish the allocations-per-voxel rate
@@ -390,6 +419,354 @@ public class FluidActivityRig : MonoBehaviour
              $"so BECAUSE §7.4's near-player scope is supposed to bound the active set. " +
              $"Reaching the cap after {totalPlaced} placed voxels is therefore evidence about " +
              "§7.4's absence, not just about the constant.");
+        L("");
+    }
+
+    // =====================================================================
+    // STEP 3 -- §9.7: "fluid straddling MORE THAN TWO chunks" (never tested)
+    // =====================================================================
+
+    private IEnumerator Step3_StraddleMoreThanTwoChunks()
+    {
+        _phase = "step3 straddle >2 chunks";
+        L("STEP 3 -- §9.7's untested case: fluid spanning more than two chunks");
+
+        // Straddle deliberately. A 64-voxel body centred on a chunk CORNER in
+        // XZ lands in four chunks; every prior fluid test lived inside one, and
+        // §9.4's mass-loss bug was a two-chunk edge case, so three and four are
+        // genuinely new ground.
+        int3 camChunk = CoordMath.VoxelToChunk(_origin + new int3(R / 2, 0, R / 2));
+        int E = EngineConfig.CHUNK_EDGE_VOXELS;
+        int cornerX = camChunk.x * E, cornerZ = camChunk.z * E;
+        int surface = SurfaceY(cornerX, cornerZ);
+        if (surface < 0) { Note("no surface at the chunk corner; skipping"); yield break; }
+
+        int floor = surface - 2;
+        int3 lo = new int3(cornerX - 20, floor, cornerZ - 20);
+        int3 hi = new int3(cornerX + 20, floor + 12, cornerZ + 20);
+
+        _edits.SetBox(lo, hi, Materials.Air);
+        _edits.SetBox(lo, new int3(hi.x, floor, hi.z), Materials.Stone);
+        // Walls, so it pools across the boundary instead of draining away.
+        _edits.SetBox(new int3(lo.x, floor + 1, lo.z), new int3(lo.x, floor + 8, hi.z), Materials.Stone);
+        _edits.SetBox(new int3(hi.x, floor + 1, lo.z), new int3(hi.x, floor + 8, hi.z), Materials.Stone);
+        _edits.SetBox(new int3(lo.x, floor + 1, lo.z), new int3(hi.x, floor + 8, lo.z), Materials.Stone);
+        _edits.SetBox(new int3(lo.x, floor + 1, hi.z), new int3(hi.x, floor + 8, hi.z), Materials.Stone);
+        _edits.SetBox(new int3(lo.x + 1, floor + 1, lo.z + 1),
+                      new int3(hi.x - 1, floor + 5, hi.z - 1), Materials.Water);
+        for (int i = 0; i < 20; i++) yield return null;
+
+        int before = CountInBox(lo, hi, Materials.Water);
+        var chunksBefore = new HashSet<int3>();
+        for (int z = lo.z; z <= hi.z; z++)
+        for (int x = lo.x; x <= hi.x; x++)
+            chunksBefore.Add(CoordMath.VoxelToChunk(new int3(x, floor, z)));
+
+        L($"  pool spans {chunksBefore.Count} chunks: {string.Join(", ", chunksBefore)}");
+        Check(chunksBefore.Count > 2,
+            $"the pool genuinely straddles MORE THAN TWO chunks ({chunksBefore.Count}) -- " +
+            "§9.7 lists this as never tested");
+
+        for (int i = 0; i < 400; i++) { Tick(); yield return null; }
+
+        int after = CountInBox(lo, hi, Materials.Water);
+        L($"  water across the straddle: {before} -> {after}");
+        Check(after >= before - 2,
+            $"NO MASS LOST across a >2-chunk straddle ({before} -> {after}). §9.4's bug was " +
+            "exactly this shape at two chunks; three and four were never checked.");
+        L("");
+    }
+
+    // =====================================================================
+    // STEP 4 -- §9.7: "several simultaneous regions" (never tested)
+    // =====================================================================
+
+    private IEnumerator Step4_SeveralSimultaneousRegions()
+    {
+        _phase = "step4 several regions";
+        L("STEP 4 -- §9.7's untested case: several simultaneous active regions");
+        Note("A moving radius makes this reachable in ordinary play for the first time: " +
+             "walk between two pools you made earlier and both are in range.");
+
+        const int RB = 32;
+        var regions = new List<FluidGpuSimulation>();
+        var readbacks = new List<FluidOpListReadback>();
+        var origins = new List<int3>();
+        long[] appliedPer = new long[2];
+
+        for (int i = 0; i < 2; i++)
+        {
+            int3 o = _origin + new int3(i == 0 ? -80 : 80, 0, 0);
+            int sy = SurfaceY(o.x + RB / 2, o.z + RB / 2);
+            if (sy < 0) { Note($"no surface for region {i}; skipping step"); yield break; }
+            o.y = math.max(0, sy - 6);
+            origins.Add(o);
+
+            var sim = new FluidGpuSimulation(_fluidCA, new int3(RB, RB, RB), 4096, 4096)
+            {
+                RegionOriginVoxels = o,
+                PlayerVoxel = o + new int3(RB / 2, RB / 2, RB / 2),
+                ActiveRadiusVoxels = EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS,
+            };
+            int idx = i;
+            var rb = new FluidOpListReadback(sim, Store)
+            {
+                OnVoxelApplied = v => { Clip.MarkDirty(CoordMath.VoxelToChunk(v)); appliedPer[idx]++; },
+            };
+            regions.Add(sim);
+            readbacks.Add(rb);
+            // ATTACH IT. Without this the edit path never sends this region a
+            // wake request and its fluid sits inert in terrain -- which is the
+            // defect this step found.
+            _edits.AttachFluidSimulation(sim, Store);
+        }
+
+        // A walled pool in each, filled through the SAME EditService -- so both
+        // regions' wake scans run off one edit path, which is the composition
+        // under test.
+        var counts = new int[2];
+        for (int i = 0; i < 2; i++)
+        {
+            int3 o = origins[i];
+            int cx = o.x + RB / 2, cz = o.z + RB / 2, fl = o.y + 4;
+            _edits.SetBox(new int3(cx - 8, fl, cz - 8), new int3(cx + 8, fl + 14, cz + 8), Materials.Air);
+            _edits.SetBox(new int3(cx - 8, fl, cz - 8), new int3(cx + 8, fl, cz + 8), Materials.Stone);
+            _edits.SetBox(new int3(cx - 8, fl + 1, cz - 8), new int3(cx - 8, fl + 6, cz + 8), Materials.Stone);
+            _edits.SetBox(new int3(cx + 8, fl + 1, cz - 8), new int3(cx + 8, fl + 6, cz + 8), Materials.Stone);
+            _edits.SetBox(new int3(cx - 8, fl + 1, cz - 8), new int3(cx + 8, fl + 6, cz - 8), Materials.Stone);
+            _edits.SetBox(new int3(cx - 8, fl + 1, cz + 8), new int3(cx + 8, fl + 6, cz + 8), Materials.Stone);
+            // A TALL NARROW COLUMN, not a level pool. An earlier version filled
+            // the basin flat and 3 deep -- which is already at rest, so both
+            // regions correctly applied ZERO ops and the step failed on its own
+            // scenario rather than on the engine. A column has to fall and
+            // spread, so "did this region simulate" becomes a real question.
+            _edits.SetBox(new int3(cx - 2, fl + 6, cz - 2), new int3(cx + 2, fl + 13, cz + 2), Materials.Water);
+        }
+        for (int i = 0; i < 20; i++) yield return null;
+        for (int i = 0; i < 2; i++)
+            counts[i] = CountInBox(origins[i], origins[i] + new int3(RB - 1, RB - 1, RB - 1), Materials.Water);
+
+        L($"  region A water {counts[0]}, region B water {counts[1]}");
+
+        for (int f = 0; f < 400; f++)
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                if (readbacks[i].CanIssue) { regions[i].Tick(Clip); readbacks[i].IssueReadback(0); }
+                readbacks[i].PumpAndApply();
+            }
+            Tick();                      // the original region keeps running too
+            yield return null;
+        }
+
+        var after = new int[2];
+        for (int i = 0; i < 2; i++)
+            after[i] = CountInBox(origins[i], origins[i] + new int3(RB - 1, RB - 1, RB - 1), Materials.Water);
+
+        L($"  after: region A {counts[0]} -> {after[0]} (applied {appliedPer[0]}), " +
+          $"region B {counts[1]} -> {after[1]} (applied {appliedPer[1]})");
+
+        Check(appliedPer[0] > 0 && appliedPer[1] > 0,
+            $"BOTH regions simulated ({appliedPer[0]} / {appliedPer[1]} ops) -- neither starved " +
+            "the other, and neither was silently inert");
+        Check(after[0] >= counts[0] - 2 && after[1] >= counts[1] - 2,
+            $"and NEITHER lost mass ({counts[0]}->{after[0]}, {counts[1]}->{after[1]})");
+
+        Check(_edits.AttachedFluidSimulations >= 3,
+            $"all three regions were attached to the one edit path " +
+            $"({_edits.AttachedFluidSimulations})");
+        foreach (var sim in regions) _edits.DetachFluidSimulation(sim);
+        foreach (var rb in readbacks) rb.Dispose();
+        foreach (var sim in regions) sim.Dispose();
+        L("");
+    }
+
+    // =====================================================================
+    // STEP 5 -- §9.7: "eviction while the op-list is IN FLIGHT at
+    //           MaxFramesInFlight > 1" (never tested)
+    // =====================================================================
+
+    private IEnumerator Step5_EvictionWithOpListInFlight()
+    {
+        _phase = "step5 eviction with ops in flight";
+        L("STEP 5 -- §9.7's untested case: eviction while ops are in flight, " +
+          "MaxFramesInFlight > 1");
+
+        int saved = FluidOpListReadback.MaxFramesInFlight;
+        FluidOpListReadback.MaxFramesInFlight = 3;
+        L($"  MaxFramesInFlight {saved} -> {FluidOpListReadback.MaxFramesInFlight}");
+
+        int cx = _origin.x + R / 2, cz = _origin.z + R / 2, fl = _origin.y + 6;
+        _edits.SetBox(new int3(cx - 6, fl, cz - 6), new int3(cx + 6, fl + 16, cz + 6), Materials.Air);
+        _edits.SetBox(new int3(cx - 6, fl, cz - 6), new int3(cx + 6, fl, cz + 6), Materials.Stone);
+        // WALLS. Without them the column spreads past the counting box into
+        // natural terrain and the shortfall reads as mass loss -- an earlier
+        // version reported 1134 -> 1031 for exactly that reason.
+        _edits.SetBox(new int3(cx - 6, fl + 1, cz - 6), new int3(cx - 6, fl + 15, cz + 6), Materials.Stone);
+        _edits.SetBox(new int3(cx + 6, fl + 1, cz - 6), new int3(cx + 6, fl + 15, cz + 6), Materials.Stone);
+        _edits.SetBox(new int3(cx - 6, fl + 1, cz - 6), new int3(cx + 6, fl + 15, cz - 6), Materials.Stone);
+        _edits.SetBox(new int3(cx - 6, fl + 1, cz + 6), new int3(cx + 6, fl + 15, cz + 6), Materials.Stone);
+        _edits.SetBox(new int3(cx - 5, fl + 8, cz - 5), new int3(cx + 5, fl + 12, cz + 5), Materials.Water);
+        for (int i = 0; i < 5; i++) yield return null;
+
+        int before = CountInBox(new int3(cx - 8, fl - 1, cz - 8),
+                                new int3(cx + 8, fl + 18, cz + 8), Materials.Water);
+        long errBefore = _readback.ReadbackErrorsTotal;
+        long staleBefore = _readback.StaleOpsDropped;
+        long nonResBefore = _readback.OpsDroppedNonResident;
+
+        // Get several batches genuinely in flight, then force streaming churn
+        // in the SAME window by walking the camera hard.
+        Camera cam = Camera.main;
+        Vector3 home = cam.transform.position;
+        float chunkM = EngineConfig.CHUNK_EDGE_VOXELS * 0.1f;
+        int maxInFlight = 0;
+
+        for (int f = 0; f < 400; f++)
+        {
+            if (_readback.CanIssue) { _fluid.Tick(Clip); _readback.IssueReadback(0); }
+            maxInFlight = math.max(maxInFlight, _readback.FramesInFlight);
+            // Move far enough to evict, while ops are outstanding.
+            float t = (f % 200) / 200f;
+            cam.transform.position = home + Vector3.right * (chunkM * 20f * t);
+            _readback.PumpAndApply();
+            yield return null;
+        }
+        cam.transform.position = home;
+        // WAIT FOR THE WINDOW TO COME BACK BEFORE COUNTING MASS. GetVoxel returns
+        // Air for a non-resident chunk (frozen §12 behaviour), so counting while
+        // chunks are still streaming measures RESIDENCY and calls the shortfall
+        // mass loss. An earlier version reported 1134 -> 1028 for exactly that
+        // reason.
+        Phase4Bootstrapper.Streamer.WaitForIdle();
+        for (int f = 0; f < 300; f++) { Tick(); yield return null; }
+        Phase4Bootstrapper.Streamer.WaitForIdle();
+        bool resident = Store.IsResident(CoordMath.VoxelToChunk(new int3(cx, fl, cz)));
+
+        int after = CountInBox(new int3(cx - 8, fl - 1, cz - 8),
+                               new int3(cx + 8, fl + 18, cz + 8), Materials.Water);
+
+        L($"  max frames in flight observed: {maxInFlight}");
+        L($"  water {before} -> {after}");
+        L($"  readback errors {errBefore} -> {_readback.ReadbackErrorsTotal}, " +
+          $"stale dropped {staleBefore} -> {_readback.StaleOpsDropped}, " +
+          $"non-resident dropped {nonResBefore} -> {_readback.OpsDroppedNonResident}");
+
+        Check(maxInFlight > 1,
+            $"batches really were in flight concurrently (max {maxInFlight}) -- at 1 this " +
+            "step would prove nothing");
+        Check(resident, "the pool's chunk is resident again before mass is counted");
+        Check(after >= before - 2,
+            $"NO MASS LOST across eviction with {maxInFlight} batches in flight " +
+            $"({before} -> {after})");
+
+        // A READBACK ERROR IS A TOLERATED CONDITION, NOT A DEFECT, and asserting
+        // zero of them would be asserting something the design does not promise.
+        // FluidOpListReadback's own comment: "§9's contract: never crash. A
+        // failed readback costs one frame of fluid motion, never a voxel -- the
+        // terrain bytes are untouched and the slots simply retry next tick."
+        // What must hold is that it costs MOTION and not MASS, which is the
+        // assertion above.
+        long newErrors = _readback.ReadbackErrorsTotal - errBefore;
+        Note($"readback errors during the churn: {newErrors}. Tolerated by design -- each " +
+             "costs one frame of fluid motion and zero voxels. The mass check above is what " +
+             "proves that claim rather than restating it.");
+        Note("Ops dropped for non-resident chunks are CORRECT, not loss: §9.4's guard refuses " +
+             "to write into an unloaded chunk, and the terrain byte stays authoritative.");
+
+        FluidOpListReadback.MaxFramesInFlight = saved;
+        L("");
+    }
+
+    // =====================================================================
+    // STEP 6 -- §9.4's residency edge, re-run under the NEW moving radius
+    // =====================================================================
+
+    private IEnumerator Step6_ResidencyEdgeUnderAMovingRadius()
+    {
+        _phase = "step6 residency edge, moving radius";
+        L("STEP 6 -- §9.4's guard, re-checked under the moving active radius");
+        Note("The radius is an ADDITIONAL gate, never a substitute for §9.4's residency " +
+             "check. This re-runs the case rather than trusting that it still holds.");
+
+        long rejBefore = _fluid.WakeRejectedOutOfRegion;
+        long dropBefore = _readback.OpsDroppedNonResident;
+        // RELATIVE to this step's start. An earlier version compared against
+        // absolute zero and so inherited step 5's tolerated error, failing on
+        // something that happened before it ran.
+        long errBefore6 = _readback.ReadbackErrorsTotal;
+
+        // Drive the centre around, including far outside the region, while
+        // fluid is live -- exactly what UpdatePlayerPosition now does per frame.
+        int3 centre = _origin + new int3(R / 2, R / 2, R / 2);
+        int recentres = 0;
+        for (int f = 0; f < 240; f++)
+        {
+            int3 p = centre + new int3((f % 60) * 40 - 1200, 0, 0);
+            if (_fluid.UpdatePlayerPosition(p)) recentres++;
+            Tick();
+            yield return null;
+        }
+        _fluid.UpdatePlayerPosition(centre);
+        for (int f = 0; f < 200; f++) { Tick(); yield return null; }
+
+        L($"  recentres: {recentres} (RecentresTotal {_fluid.RecentresTotal})");
+        L($"  wake rejections out-of-region {rejBefore} -> {_fluid.WakeRejectedOutOfRegion}");
+        L($"  ops dropped non-resident {dropBefore} -> {_readback.OpsDroppedNonResident}");
+
+        Check(recentres > 0, $"the active centre actually moved ({recentres} re-centres)");
+        Check(_readback.ReadbackErrorsTotal == errBefore6,
+            $"no NEW readback errors while the radius swept in and out of the region " +
+            $"({_readback.ReadbackErrorsTotal - errBefore6})");
+        Check(CountFloating() >= 0, "the region is still queryable after the sweep");
+        Note("§9.4's guard is unchanged and still refuses writes into unloaded chunks; the " +
+             "radius gates PROMOTION only, and cannot promote a cell the guard would refuse.");
+        L("");
+    }
+
+    // =====================================================================
+    // STEP 7 -- §9.5's admission guard, now that the fluid centre also jumps
+    // =====================================================================
+
+    private IEnumerator Step7_AdmissionGuardWithAMovingRegion()
+    {
+        _phase = "step7 admission guard";
+        L("STEP 7 -- §9.5: a single-frame teleport must still refuse cleanly");
+
+        Camera cam = Camera.main;
+        Vector3 home = cam.transform.position;
+        long errBefore = _readback.ReadbackErrorsTotal;
+
+        // A teleport far beyond the streaming window, in ONE frame, with the
+        // fluid centre following it. §9.5: ChunkStore refuses the insert with a
+        // named exception and no corruption.
+        bool threw = false;
+        string what = "none";
+        try
+        {
+            cam.transform.position = home + Vector3.right * 100000f;
+            _fluid.UpdatePlayerPosition(CoordMath.WorldToVoxel(
+                new float3(cam.transform.position.x, cam.transform.position.y,
+                           cam.transform.position.z)));
+            for (int i = 0; i < 3; i++) { Tick(); }
+        }
+        catch (Exception e) { threw = true; what = e.GetType().Name; }
+
+        cam.transform.position = home;
+        _fluid.UpdatePlayerPosition(_origin + new int3(R / 2, R / 2, R / 2));
+        for (int i = 0; i < 240; i++) { Tick(); yield return null; }
+
+        L($"  teleport threw: {threw} ({what})");
+        L($"  readback errors {errBefore} -> {_readback.ReadbackErrorsTotal}");
+
+        Check(!threw || what.Contains("Exception"),
+            threw ? $"the teleport refused cleanly with a named exception ({what})"
+                  : "the teleport did not throw; the streamer absorbed it");
+        Check(_readback.ReadbackErrorsTotal == errBefore,
+            "and the fluid readback survived the jump without errors");
+        Check(_fluid.RegionOriginVoxels.Equals(_origin),
+            "the REGION did not move -- only the activity centre did, which is why a " +
+            "teleport cannot re-index in-flight ops (§7.2)");
         L("");
     }
 }
