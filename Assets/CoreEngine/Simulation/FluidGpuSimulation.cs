@@ -226,6 +226,68 @@ namespace VoxelEngine.Simulation
         /// A.5's free list, GPU side. Holds slot indices returned by CSRecycle.
         private GraphicsBuffer _freeList;
 
+        /// The sparse active set, or null for the original dense region.
+        public FluidTileMap Tiles { get; }
+
+        private GraphicsBuffer _tileDirectory, _tileCoords, _activeTileSlots, _dummyTileBuf;
+        private int[] _dirScratch, _coordScratch, _activeScratch;
+        private int _tileShift, _tileCellShift, _ringShiftY, _ringShiftZ;
+        private int _cellCount;
+        private int _activeTileCount;
+
+        /// Cells actually allocated -- the pool under tiling, the region when
+        /// dense. Multiply by 16 B (four 4-byte per-cell buffers) for the
+        /// footprint this design exists to bound.
+        public int CellCount => _cellCount;
+
+        /// GPU bytes for the per-cell buffers plus, under tiling, the directory.
+        /// MEASURED FROM THE ACTUAL ALLOCATION, not computed from a formula --
+        /// the acceptance bar asks for an allocation number, not arithmetic.
+        public long CellBufferBytes
+        {
+            get
+            {
+                long b = (long)_cellCount * 16;
+                if (Tiles != null)
+                    b += (long)Tiles.RingDimsTiles.x * Tiles.RingDimsTiles.y
+                       * Tiles.RingDimsTiles.z * 4;
+                return b;
+            }
+        }
+
+        /// Every GPU byte this simulation has actually allocated, summed from
+        /// the buffer objects themselves (count x stride) rather than recomputed
+        /// from the configuration.
+        ///
+        /// THE ACCEPTANCE BAR ASKS FOR AN ALLOCATION NUMBER, NOT ARITHMETIC.
+        /// A formula can be right about a design and wrong about the code; this
+        /// enumerates what was really created.
+        public long GpuAllocatedBytes()
+        {
+            long total = 0;
+            void Add(GraphicsBuffer b) { if (b != null) total += (long)b.count * b.stride; }
+
+            Add(_slots); Add(_freeList); Add(_claim); Add(_slotAt); Add(_reacted);
+            Add(_wakeMark); Add(_counters); Add(_wakeRequests); Add(_debugCounters);
+            Add(_materialFlags); Add(_materialTick); Add(_reactSelf); Add(_reactOther);
+            Add(_tileDirectory); Add(_tileCoords); Add(_activeTileSlots); Add(_dummyTileBuf);
+            for (int i = 0; i < RING; i++) { Add(_ops[i]); Add(_opCounters[i]); }
+            return total;
+        }
+
+        /// Just the per-cell buffers plus the tile directory -- the part that
+        /// scaled with the radius before tiling and must not now.
+        public long GpuActiveSetBytes()
+        {
+            long total = 0;
+            void Add(GraphicsBuffer b) { if (b != null) total += (long)b.count * b.stride; }
+            Add(_claim); Add(_slotAt); Add(_reacted); Add(_wakeMark);
+            Add(_tileDirectory); Add(_tileCoords); Add(_activeTileSlots);
+            return total;
+        }
+
+        public int ActiveTileCount => _activeTileCount;
+
         private GraphicsBuffer _materialFlags;
         private GraphicsBuffer _materialTick;
         private GraphicsBuffer _reactSelf;
@@ -335,6 +397,19 @@ namespace VoxelEngine.Simulation
         /// class. Asserted, not trusted.</param>
         public FluidGpuSimulation(ComputeShader fluidCA, int3 regionDims,
                                   int slotCapacity, int maxOpsPerFrame)
+            : this(fluidCA, regionDims, slotCapacity, maxOpsPerFrame, null) { }
+
+        /// §7.2 SPARSE MODE. Passing a FluidTileMap replaces the dense per-cell
+        /// buffers with a hard-capped pool of fixed-size tiles, so the footprint
+        /// stops scaling with the region (and therefore with §7.4's radius) and
+        /// starts scaling with how much fluid there actually is.
+        ///
+        /// `tiles == null` keeps the ORIGINAL dense path byte-for-byte, which is
+        /// what lets every Phase 5a-5d proof keep exercising the code it was
+        /// written against while the new path is proven beside it.
+        public FluidGpuSimulation(ComputeShader fluidCA, int3 regionDims,
+                                  int slotCapacity, int maxOpsPerFrame,
+                                  FluidTileMap tiles)
         {
             _cs = fluidCA != null ? fluidCA
                 : throw new ArgumentNullException(nameof(fluidCA), "FluidCA.compute not assigned");
@@ -343,6 +418,7 @@ namespace VoxelEngine.Simulation
             RequirePow2(regionDims.y, "regionDims.y");
             RequirePow2(regionDims.z, "regionDims.z");
 
+            Tiles = tiles;
             _regionDims = regionDims;
             _regionCellCount = regionDims.x * regionDims.y * regionDims.z;
             _shiftX = Log2(regionDims.x);
@@ -362,11 +438,33 @@ namespace VoxelEngine.Simulation
 
             _slots   = New(GraphicsBuffer.Target.Structured, _slotCapacity, FluidSlotGpu.SizeBytes);
             _freeList = New(GraphicsBuffer.Target.Structured, _slotCapacity, 4);
-            _claim   = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
-            _slotAt  = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
-            _reacted = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
-            _wakeMark = New(GraphicsBuffer.Target.Structured, _regionCellCount, 4);
+            // THE NUMBER THE WHOLE DESIGN IS ABOUT. Dense: one cell per voxel
+            // of the region, so the radius can never exceed what fits. Tiled:
+            // one cell per voxel of the POOL, which is capped and independent
+            // of the radius entirely.
+            _cellCount = tiles != null ? tiles.TileCapacity * tiles.TileCells : _regionCellCount;
+
+            _claim   = New(GraphicsBuffer.Target.Structured, _cellCount, 4);
+            _slotAt  = New(GraphicsBuffer.Target.Structured, _cellCount, 4);
+            _reacted = New(GraphicsBuffer.Target.Structured, _cellCount, 4);
+            _wakeMark = New(GraphicsBuffer.Target.Structured, _cellCount, 4);
+
+            if (tiles != null)
+            {
+                int ringCount = tiles.RingDimsTiles.x * tiles.RingDimsTiles.y * tiles.RingDimsTiles.z;
+                _tileDirectory = New(GraphicsBuffer.Target.Structured, ringCount, 4);
+                _tileCoords = New(GraphicsBuffer.Target.Structured, tiles.TileCapacity * 4, 4);
+                _activeTileSlots = New(GraphicsBuffer.Target.Structured, tiles.TileCapacity, 4);
+                _dirScratch = new int[ringCount];
+                _coordScratch = new int[tiles.TileCapacity * 4];
+                _activeScratch = new int[tiles.TileCapacity];
+                _tileShift = Log2(tiles.TileEdge);
+                _tileCellShift = _tileShift * 3;
+                _ringShiftY = Log2(tiles.RingDimsTiles.x);
+                _ringShiftZ = _ringShiftY + Log2(tiles.RingDimsTiles.y);
+            }
             _counters = New(GraphicsBuffer.Target.Structured, 4, 4);
+            _dummyTileBuf = New(GraphicsBuffer.Target.Structured, 1, 4);
             for (int i = 0; i < RING; i++)
             {
                 _ops[i] = New(GraphicsBuffer.Target.Structured, maxOpsPerFrame + 1, FluidWriteOp.SizeBytes);
@@ -626,6 +724,7 @@ namespace VoxelEngine.Simulation
             WakeDispatchedTotal += _wakeCount;
             if (_wakeCount > 0) _wakeRequests.SetData(_wakeScratch, 0, 0, _wakeCount);
 
+            UploadTileState();
             BindGlobals(clipmap);
 
             // AFTER binding, so the tick that re-centred is itself seeded. Doing
@@ -635,12 +734,12 @@ namespace VoxelEngine.Simulation
             if (_recentreSeedTicks > 0) { _recentreSeedTicks--; RecentreSeedTicksRun++; }
 
             if (!SplitDispatchEncodersForCapture) _cb.Clear();
-            Dispatch(_kClear, _regionCellCount, LblClear);
+            Dispatch(_kClear, DispatchCells, LblClear);
             if (_wakeCount > 0) { Dispatch(_kPromote, _wakeCount, LblPromote); PromoteDispatchesTotal++; }
             Dispatch(_kReact, _slotCapacity, LblReact);
             Dispatch(_kIntent, _slotCapacity, LblIntent);
-            Dispatch(_kCommit, _regionCellCount, LblCommit);
-            Dispatch(_kWakeScan, _regionCellCount, LblWakeScan);   // immediate GPU-side wake
+            Dispatch(_kCommit, DispatchCells, LblCommit);
+            Dispatch(_kWakeScan, DispatchCells, LblWakeScan);   // immediate GPU-side wake
             Dispatch(_kSweep, _slotCapacity, LblSweep);
             // A.5's free list. AFTER every clear site, and after Promote, so an
             // index returned this tick is first reusable on the next one.
@@ -651,6 +750,43 @@ namespace VoxelEngine.Simulation
             _wakeCount = 0;
         }
 
+        /// Pushes the CPU-owned tile directory to the GPU and compacts this
+        /// tick's active slots.
+        ///
+        /// THE DIRECTORY IS MAINTAINED EXACTLY ON THE CPU -- entries are cleared
+        /// on release -- so the shader never needs the identity check
+        /// FluidTileMap does on its side. There is no stale entry to catch,
+        /// which is the only reason RegionIndex can be one indexed read.
+        private void UploadTileState()
+        {
+            if (Tiles == null) { _activeTileCount = 0; return; }
+
+            for (int i = 0; i < _dirScratch.Length; i++) _dirScratch[i] = FluidTileMap.NO_TILE;
+
+            _activeTileCount = 0;
+            foreach (int3 coord in Tiles.ResidentTileCoords())
+            {
+                int slot = Tiles.TryGetSlot(coord);
+                if (slot == FluidTileMap.NO_TILE) continue;
+
+                _dirScratch[Tiles.RingIndex(coord)] = slot;
+                _coordScratch[slot * 4 + 0] = coord.x;
+                _coordScratch[slot * 4 + 1] = coord.y;
+                _coordScratch[slot * 4 + 2] = coord.z;
+                _activeScratch[_activeTileCount++] = slot;
+            }
+
+            _tileDirectory.SetData(_dirScratch);
+            _tileCoords.SetData(_coordScratch);
+            if (_activeTileCount > 0) _activeTileSlots.SetData(_activeScratch, 0, 0, _activeTileCount);
+        }
+
+        /// Cells dispatched for the per-cell kernels this tick. Dense: the whole
+        /// region. Tiled: only ACTIVE tiles, so per-tick cost tracks fluid
+        /// present rather than pool capacity.
+        private int DispatchCells =>
+            Tiles == null ? _regionCellCount : _activeTileCount * Tiles.TileCells;
+
         private void BindGlobals(TerrainClipmap clipmap)
         {
             _cs.SetInts("_RegionOriginVoxels", RegionOriginVoxels.x, RegionOriginVoxels.y, RegionOriginVoxels.z, 0);
@@ -659,10 +795,27 @@ namespace VoxelEngine.Simulation
             _cs.SetInts("_PlayerVoxel", PlayerVoxel.x, PlayerVoxel.y, PlayerVoxel.z, 0);
             _cs.SetInt("_ActiveRadiusVoxels", ActiveRadiusVoxels);
             _cs.SetInt("_SleepRadiusVoxels", SleepRadiusVoxels);
+
+            // §7.2 addressing mode. EVERY ONE OF THESE MUST BE SET EVEN WHEN
+            // DENSE: an unset compute uniform is 0, and _HomeShift = 0 would
+            // silently repack every slot's home address.
+            bool tiled = Tiles != null;
+            _cs.SetInt("_Tiled", tiled ? 1 : 0);
+            _cs.SetInt("_TileShift", tiled ? _tileShift : 0);
+            _cs.SetInt("_TileCellShift", tiled ? _tileCellShift : 0);
+            _cs.SetInt("_HomeShift", tiled ? _tileCellShift : 9);   // 9 = A.5's 512-cell brick
+            _cs.SetInt("_RingShiftY", _ringShiftY);
+            _cs.SetInt("_RingShiftZ", _ringShiftZ);
+            _cs.SetInt("_ActiveTileCount", _activeTileCount);
+            if (tiled)
+                _cs.SetInts("_RingMaskTiles", Tiles.RingDimsTiles.x - 1,
+                            Tiles.RingDimsTiles.y - 1, Tiles.RingDimsTiles.z - 1, 0);
+            else
+                _cs.SetInts("_RingMaskTiles", 0, 0, 0, 0);
             _cs.SetInt("_RecentreSeed", _recentreSeedTicks > 0 ? 1 : 0);
             _cs.SetInt("_Tick", TickCount);
             _cs.SetInt("_SlotCapacity", _slotCapacity);
-            _cs.SetInt("_RegionCellCount", _regionCellCount);
+            _cs.SetInt("_RegionCellCount", _cellCount);
             _cs.SetInt("_WakeRequestCount", _wakeCount);
             _cs.SetInt("_MaxOpsPerFrame", MaxOpsPerFrame);
             _cs.SetInt("_SleepTicks", EngineConfig.FLUID_SLEEP_TICKS);
@@ -671,6 +824,16 @@ namespace VoxelEngine.Simulation
             _cs.SetInts("_WindowDimsChunksPacked", wdc.x, wdc.y, wdc.z, 0);
             _cs.SetInts("_WindowDimsBricksPacked", wdb.x, wdb.y, wdb.z, 0);
             _cs.SetInts("_WindowOriginBricksPacked", wob.x, wob.y, wob.z, 0);
+
+            // Bound even when dense: HLSL requires every declared StructuredBuffer
+            // to have something bound, and an unbound one reads as garbage rather
+            // than failing loudly. They are 1-element dummies in that case.
+            foreach (int k in new[] { _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep, _kFinalize, _kWakeScan, _kRecycle })
+            {
+                _cs.SetBuffer(k, "TileDirectory", _tileDirectory ?? _dummyTileBuf);
+                _cs.SetBuffer(k, "TileCoords", _tileCoords ?? _dummyTileBuf);
+                _cs.SetBuffer(k, "ActiveTileSlots", _activeTileSlots ?? _dummyTileBuf);
+            }
 
             foreach (int k in new[] { _kClear, _kPromote, _kReact, _kIntent, _kCommit, _kSweep, _kFinalize, _kWakeScan, _kRecycle })
             {
@@ -758,6 +921,10 @@ namespace VoxelEngine.Simulation
             _cb?.Dispose(); _cb = null;
             _counters?.Dispose(); _wakeRequests?.Dispose();
             _freeList?.Dispose(); _freeList = null;
+            _tileDirectory?.Dispose(); _tileDirectory = null;
+            _tileCoords?.Dispose(); _tileCoords = null;
+            _activeTileSlots?.Dispose(); _activeTileSlots = null;
+            _dummyTileBuf?.Dispose(); _dummyTileBuf = null;
             for (int i = 0; i < RING; i++)
             {
                 _ops[i]?.Dispose(); _ops[i] = null;

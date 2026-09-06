@@ -218,6 +218,36 @@ int   _RecentreSeed;
 int   _Tick;
 uint  _SlotCapacity;
 uint  _RegionCellCount;
+
+// ---- §7.2 SPARSE TILED ACTIVE SET (DESIGN_NOTE_7_2) ----
+//
+// One dense per-cell buffer set costs 16 B/cell, so reaching the shipped
+// FLUID_ACTIVE_RADIUS_VOXELS (1280) needed a 2048^3 region = 137 GB and the
+// radius was inert at every size that can exist. Tiling makes the active set
+// sparse: only tiles CONTAINING fluid are instantiated, so memory becomes
+// O(fluid present) instead of O(r^3). Which tiles those are is answered on the
+// CPU by ChunkFluidMask (one ulong per chunk) -- without that, a settled pool
+// whose tile was released would be invisible here and never wake.
+//
+// ADDITIVE. _Tiled == 0 keeps the original dense addressing byte-for-byte, so
+// every Phase 5a-5d proof still exercises the path it was written against. The
+// branch is on a UNIFORM: fully coherent, no divergence.
+int   _Tiled;             // 0 = dense region (original), 1 = sparse tiles
+int   _TileShift;         // log2(tile edge in voxels)
+int   _TileCellShift;     // log2(cells per tile) = 3 * _TileShift
+int   _HomeShift;         // bits for the in-tile offset in FluidSlot's home
+int4  _RingMaskTiles;     // (ringDims - 1) per axis, powers of two (§6.2)
+int   _RingShiftY;
+int   _RingShiftZ;
+uint  _ActiveTileCount;
+
+// ring index -> tile slot, or NONE. Maintained EXACTLY by the CPU (cleared on
+// release), so there is never a stale entry for the GPU to catch.
+StructuredBuffer<int> TileDirectory;
+// slot -> tile coord, 4 ints per slot, so RegionVoxel can invert an index.
+StructuredBuffer<int> TileCoords;
+// this tick's active slots, compacted, so dispatch is O(fluid) not O(capacity).
+StructuredBuffer<int> ActiveTileSlots;
 uint  _WakeRequestCount;
 uint  _MaxOpsPerFrame;
 uint  _SleepTicks;        // EngineConfig.FLUID_SLEEP_TICKS
@@ -244,27 +274,76 @@ bool EmitOp(int3 dst, uint material, int3 src, uint flags, uint expectAtDst)
 // =========================================================================
 // Region addressing -- bitwise only (§0.1 invariant 2)
 // =========================================================================
-bool InRegion(int3 v)
-{
-    int3 r = v - _RegionOriginVoxels.xyz;
-    return r.x >= 0 && r.y >= 0 && r.z >= 0
-        && r.x < (int)_RegionDimsVoxels.x
-        && r.y < (int)_RegionDimsVoxels.y
-        && r.z < (int)_RegionDimsVoxels.z;
-}
-
+/// World voxel -> cell index, or -1 when the cell is not in the active set.
+/// Bitwise only (§0). Under tiling the index is slot-major -- slot * cellsPerTile
+/// + in-tile offset -- which is what makes RegionVoxel invertible.
 int RegionIndex(int3 v)
 {
-    int3 r = v - _RegionOriginVoxels.xyz;
-    return r.x | (r.y << _RegionShifts.x) | (r.z << (_RegionShifts.x + _RegionShifts.y));
+    if (_Tiled == 0)
+    {
+        int3 r = v - _RegionOriginVoxels.xyz;
+        return r.x | (r.y << _RegionShifts.x) | (r.z << (_RegionShifts.x + _RegionShifts.y));
+    }
+
+    int3 tile = int3(v.x >> _TileShift, v.y >> _TileShift, v.z >> _TileShift);
+    int3 w = tile & _RingMaskTiles.xyz;
+    int slot = TileDirectory[w.x | (w.y << _RingShiftY) | (w.z << _RingShiftZ)];
+    if (slot < 0) return -1;                       // no tile here: sparse by design
+
+    int m = (1 << _TileShift) - 1;
+    int local = (v.x & m) | ((v.y & m) << _TileShift) | ((v.z & m) << (_TileShift + _TileShift));
+    return (slot << _TileCellShift) | local;
+}
+
+/// Is this voxel in the active set? Under tiling that is exactly "its tile
+/// exists", so every caller that indexes a buffer after this check is guarded
+/// by the same test that produced the index.
+bool InRegion(int3 v)
+{
+    if (_Tiled == 0)
+    {
+        int3 r = v - _RegionOriginVoxels.xyz;
+        return r.x >= 0 && r.y >= 0 && r.z >= 0
+            && r.x < (int)_RegionDimsVoxels.x
+            && r.y < (int)_RegionDimsVoxels.y
+            && r.z < (int)_RegionDimsVoxels.z;
+    }
+    return RegionIndex(v) >= 0;
 }
 
 int3 RegionVoxel(int index)
 {
-    int sx = (int)_RegionShifts.x, sy = (int)_RegionShifts.y;
-    int mx = (int)_RegionDimsVoxels.x - 1, my = (int)_RegionDimsVoxels.y - 1;
-    int3 r = int3(index & mx, (index >> sx) & my, index >> (sx + sy));
-    return r + _RegionOriginVoxels.xyz;
+    if (_Tiled == 0)
+    {
+        int sx = (int)_RegionShifts.x, sy = (int)_RegionShifts.y;
+        int mx = (int)_RegionDimsVoxels.x - 1, my = (int)_RegionDimsVoxels.y - 1;
+        int3 r = int3(index & mx, (index >> sx) & my, index >> (sx + sy));
+        return r + _RegionOriginVoxels.xyz;
+    }
+
+    int slot = index >> _TileCellShift;
+    int local = index & ((1 << _TileCellShift) - 1);
+    int m = (1 << _TileShift) - 1;
+    int3 inTile = int3(local & m, (local >> _TileShift) & m, local >> (_TileShift + _TileShift));
+    int3 tile = int3(TileCoords[slot * 4 + 0], TileCoords[slot * 4 + 1], TileCoords[slot * 4 + 2]);
+    return (tile << _TileShift) + inTile;
+}
+
+/// Dispatch thread -> cell index. Under tiling these are NOT the same: only
+/// active tiles are dispatched, so thread i addresses ActiveTileSlots[i >> k].
+/// Conflating them would silently address another tile's cells -- the same
+/// failure shape as §6.2's aliasing bug.
+bool CellOfDispatch(uint i, out int cell)
+{
+    if (_Tiled == 0)
+    {
+        cell = (int)i;
+        return i < _RegionCellCount;
+    }
+    uint t = i >> (uint)_TileCellShift;
+    if (t >= _ActiveTileCount) { cell = -1; return false; }
+    cell = (ActiveTileSlots[t] << _TileCellShift) | (int)(i & ((1u << (uint)_TileCellShift) - 1u));
+    return true;
 }
 
 // =========================================================================
@@ -313,15 +392,19 @@ uint TickIntervalOf(uint material)
     return t == 0u ? 1u : t;
 }
 
-int  HomeIndexOf(FluidSlot s)  { return (s.brickDataIndex << 9) | (int)s.localVoxelOffset; }
+/// A.5 packs home as brick + offset. The split is a UNIFORM because a dense
+/// region's bricks hold 512 cells (9 bits) while a tile holds cellsPerTile;
+/// using 9 under tiling would truncate the home of every cell past a tile's
+/// first 512.
+int  HomeIndexOf(FluidSlot s)  { return (s.brickDataIndex << _HomeShift) | (int)s.localVoxelOffset; }
 
 /// The home address is stored A.5-style (brick + local offset) over the REGION's
 /// own cell indexing, not the world brick pool -- the region is the CA's address
 /// space, exactly as the sandbox was for the CPU reference.
 void SetHome(inout FluidSlot s, int regionCellIndex)
 {
-    s.brickDataIndex   = regionCellIndex >> 9;
-    s.localVoxelOffset = (uint)(regionCellIndex & 511);
+    s.brickDataIndex   = regionCellIndex >> _HomeShift;
+    s.localVoxelOffset = (uint)(regionCellIndex & ((1 << _HomeShift) - 1));
 }
 
 bool WithinActiveRadius(int3 v)
@@ -387,8 +470,8 @@ void LateralOrder(int3 c, int salt, out int2 dirs[4])
 [numthreads(64, 1, 1)]
 void CSClear(uint3 id : SV_DispatchThreadID)
 {
-    uint i = id.x;
-    if (i >= _RegionCellCount) return;
+    int i;
+    if (!CellOfDispatch(id.x, i)) return;
     ClaimBuffer[i] = NONE;
     ReactedBuffer[i] = 0;
     WakeMark[i] = 0;
@@ -486,8 +569,8 @@ void CSPromote(uint3 id : SV_DispatchThreadID)
     // nothing to do and the whole CA looked like it was running and doing
     // nothing. Inlining the home computation removes the inout entirely.
     FluidSlot slot;
-    slot.brickDataIndex   = cell >> 9;
-    slot.localVoxelOffset = (uint)(cell & 511);
+    slot.brickDataIndex   = cell >> _HomeShift;
+    slot.localVoxelOffset = (uint)(cell & ((1 << _HomeShift) - 1));
     slot.materialID       = m;
     slot.sleepCounter     = 0;
     slot.viscosityPhase   = 0;
@@ -694,8 +777,9 @@ void CSIntent(uint3 id : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void CSCommit(uint3 id : SV_DispatchThreadID)
 {
-    uint d = id.x;
-    if (d >= _RegionCellCount) return;
+    int di;
+    if (!CellOfDispatch(id.x, di)) return;
+    uint d = (uint)di;
 
     int s = ClaimBuffer[d];
     if (s == NONE) return;
@@ -862,11 +946,12 @@ void CSFinalize(uint3 id : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void CSWakeScan(uint3 id : SV_DispatchThreadID)
 {
-    uint i = id.x;
-    if (i >= _RegionCellCount) return;
+    int cellIdx;
+    if (!CellOfDispatch(id.x, cellIdx)) return;
+    uint i = (uint)cellIdx;
     if (SlotAtBuffer[i] != NONE) return;              // already owned
 
-    int3 c = RegionVoxel((int)i);
+    int3 c = RegionVoxel(cellIdx);
     uint m = SampleVoxel(c);
     if (!IsMobile(m)) return;
     if (!WithinActiveRadius(c)) return;
@@ -945,8 +1030,8 @@ void CSWakeScan(uint3 id : SV_DispatchThreadID)
     if (s >= _SlotCapacity) return;                   // §7.7 guarded no-op
 
     FluidSlot slot;
-    slot.brickDataIndex   = (int)i >> 9;
-    slot.localVoxelOffset = (uint)((int)i & 511);
+    slot.brickDataIndex   = cellIdx >> _HomeShift;
+    slot.localVoxelOffset = (uint)(cellIdx & ((1 << _HomeShift) - 1));
     slot.materialID       = m;
     slot.sleepCounter     = 0;
     slot.viscosityPhase   = 0;
