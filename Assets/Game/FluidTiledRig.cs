@@ -87,6 +87,7 @@ public class FluidTiledRig : MonoBehaviour
         yield return A_ShippedRadiusMeasured();
         yield return B_RadiusActuallyBites();
         yield return C_ExplosionScatter();
+        yield return D_MultiplePoolsOneInstance();
 
         yield return Report();
     }
@@ -290,6 +291,73 @@ public class FluidTiledRig : MonoBehaviour
         Check(reacquired && back > 0,
             $"and returning WAKES it again ({back} tiles) -- the §7.4 contract that a sparse " +
             "active set nearly lost, answered by ChunkFluidMask rather than by a cell sweep");
+        L("");
+    }
+
+    // =====================================================================
+    // D -- §9.7's "several simultaneous regions", under ONE CA instance
+    //
+    // WHY THIS RETIRES A STOPGAP. §9.7's fix was EditService holding a LIST of
+    // separate FluidGpuSimulation instances, so two player-placed pools would
+    // both wake. That was correct for the dense design -- a region is a fixed
+    // box, and two pools far apart genuinely needed two boxes -- but it is the
+    // wrong shape here: a sparse tile pool covers arbitrarily-placed pools
+    // structurally, because a tile is created wherever fluid is and nowhere
+    // else. Scenario C already showed 220 pockets under one instance; this
+    // reproduces §9.7's ORIGINAL scenario specifically, so the claim is
+    // compared against the thing it replaces rather than a new one.
+    // =====================================================================
+
+    private IEnumerator D_MultiplePoolsOneInstance()
+    {
+        _phase = "D §9.7 under one instance";
+        L("D -- §9.7's several-simultaneous-regions, with ONE CA over the tile pool");
+
+        Camera cam = Camera.main;
+        int3 camVox = CoordMath.WorldToVoxel(new float3(cam.transform.position.x,
+                                                        cam.transform.position.y,
+                                                        cam.transform.position.z));
+        Build(EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS, _tilePoolCap);
+
+        // Two pools far enough apart that a single DENSE region could not have
+        // held both: 300 voxels is well beyond a 64^3 box.
+        int3[] sites = { camVox + new int3(-150, 0, 0), camVox + new int3(150, 0, 0) };
+        var poolTiles = new List<int3>();
+        int totalPlaced = 0;
+
+        foreach (int3 site in sites)
+        {
+            int sy = SurfaceY(site.x, site.z);
+            int3 c = new int3(site.x, sy + 3, site.z);
+            totalPlaced += _edits.SetBox(c - new int3(3, 0, 3), c + new int3(3, 2, 3), Materials.Water);
+            poolTiles.Add(ChunkFluidMask.AbsoluteTile(CoordMath.VoxelToChunk(c),
+                                                      ChunkFluidMask.TileInChunkOf(c)));
+        }
+        L($"  placed {totalPlaced} water voxels in 2 pools 300 voxels ({300 * 0.1f:F0} m) apart");
+        Check(_edits.AttachedFluidSimulations == 1,
+            $"ONE CA instance is attached ({_edits.AttachedFluidSimulations}), not one per pool -- " +
+            "the §9.7 stopgap held a list");
+
+        long before = _applied;
+        for (int i = 0; i < 240; i++)
+        {
+            if ((i % 20) == 0) RefreshTiles(camVox);
+            Tick();
+            yield return null;
+        }
+
+        int live = 0;
+        foreach (int3 t in poolTiles) if (_tiles.TryGetSlot(t) != FluidTileMap.NO_TILE) live++;
+        uint hiD, everD;
+        _fluid.ReadSlotCounters(out hiD, out everD);
+
+        L($"  after 240 ticks: {live}/2 pool tiles resident, {_applied - before} voxel writes, " +
+          $"slots everAllocated {everD}");
+        Check(live == 2,
+            $"BOTH pools are resident under a single instance ({live}/2) -- structurally, " +
+            "because a tile exists wherever fluid is, not because something kept a list");
+        Check(_applied - before > 0,
+            $"and both are actually simulating ({_applied - before} voxel writes)");
         L("");
     }
 

@@ -685,7 +685,7 @@ namespace VoxelEngine.Streaming
                 }
                 finally
                 {
-                    ResetScratch(c.scratch);
+                    ResetScratch(c.scratch, expectEmpty: true);
                     _scratchPool.Add(c.scratch);
                 }
             }
@@ -770,11 +770,25 @@ namespace VoxelEngine.Streaming
         /// on its first occurrence instead of on the save where the pool finally
         /// runs dry. TransferToSharedPool frees its slots as it copies, so a
         /// healthy context arrives here already empty and this is silent.
-        private void ResetScratch(ScratchContext scratch)
+        /// <param name="expectEmpty">
+        /// TRUE only for the GENERATION path. TransferToSharedPool frees each
+        /// scratch slot as it copies the brick out, so that context must arrive
+        /// here already empty and anything left is a genuine leak -- the exact
+        /// "allocates a slot it does not hand back via chunk.bricks" case the
+        /// original comment described.
+        ///
+        /// FALSE for SaveDelta, which allocates a whole baseline chunk and
+        /// hands it back WHOLESALE via Reset rather than slot by slot. That
+        /// residue is by design, and a first version of this check warned on it
+        /// -- 81 "leaks" per sandbox run that were the normal path working
+        /// correctly. A detector that fires on healthy behaviour is worse than
+        /// none, because it trains you to ignore it.
+        /// </param>
+        private void ResetScratch(ScratchContext scratch, bool expectEmpty)
         {
             if (scratch?.pool == null) return;
 
-            int leaked = scratch.pool.InUse;
+            int leaked = expectEmpty ? scratch.pool.InUse : 0;
             if (leaked > 0)
             {
                 ScratchExhaustionWarnings++;
@@ -919,7 +933,7 @@ namespace VoxelEngine.Streaming
                 // hard failure like the brick pool, but a per-save allocation
                 // handed straight to the GC.
                 if (baseline?.bricks != null) scratch?.allocator?.Free(baseline.bricks);
-                if (scratch != null) { ResetScratch(scratch); _scratchPool.Add(scratch); }
+                if (scratch != null) { ResetScratch(scratch, expectEmpty: false); _scratchPool.Add(scratch); }
             }
         }
 

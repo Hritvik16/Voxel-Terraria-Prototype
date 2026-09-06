@@ -83,6 +83,56 @@ the same refuse-cleanly discipline §3.6's LRU valve already proved for terrain.
 
 ---
 
+## 4b. Acceptance scenario D — §9.7's multiple pools, under ONE instance
+
+§9.7's original fix was `EditService` holding a **list** of separate
+`FluidGpuSimulation` instances so two player-placed pools would both wake. That
+was right for the dense design — a region is a fixed box, and two distant pools
+genuinely needed two boxes. It is the wrong shape here.
+
+Two pools 300 voxels (30 m) apart, one CA instance:
+
+```
+  attached CA instances   1        (the stopgap held a list)
+  pool tiles resident     2 / 2
+  motion                  10,610 voxel writes, 936 slots
+```
+
+Both pools live **structurally** — a tile exists wherever fluid is, and nowhere
+else — rather than because something kept a list.
+
+**The stopgap is NOT deleted.** `EditService`'s list is still what the dense
+path needs, and the dense path is retained as the regression baseline for four
+phases of proofs. Removing it now would delete a working mechanism the older
+path still depends on, to no benefit. What has changed is that it is no longer
+*load-bearing* for the tiled substrate.
+
+---
+
+## 4c. Rig re-verification
+
+Every rig re-run against the current tree. **None needed weakening to pass.**
+
+| rig | result | still testing the same claim? |
+|---|---|---|
+| Phase 5a reference (`run-phase5a-rig.sh`) | 5/5 scenarios, ledger OK, replay matched, 0 mismatches | **yes, unchanged** — CPU oracle, no addressing involved |
+| Phase 5c edit stress | **170 PASS / 0 FAIL** | yes, unchanged |
+| Phase 5d streaming × fluid | **19 PASS / 0 FAIL** | yes, unchanged |
+| `run-fluid-activity.sh` | **19 PASS / 0 FAIL** | yes — dense mode, the regression baseline |
+| Phase 6 brush guard | **30 PASS / 0 FAIL** | yes, unchanged |
+| Phase 6 sandbox (integrated) | **43 PASS / 0 FAIL** | yes, plus two new persistence detectors |
+| `run-fluid-scale.sh` | **4 PASS / 0 FAIL** | yes, unchanged |
+| `run-fluid-tiled.sh` (new) | **19 PASS / 0 FAIL** | new — the tiled acceptance |
+| EditMode | **460 PASS / 0 FAIL** | +32 tests tonight |
+
+**Updated, and why:** `FluidWakeQueueTests` was re-keyed from `int` to `int3`.
+The queue's key changed from a cell index to a world voxel (§5), so the tests
+were mechanically re-keyed and prove exactly the same claims — coalescing,
+mirror gating, staleness release, overflow, capacity. No assertion was
+loosened; `V(k)` keeps each request's identity distinct.
+
+---
+
 ## 5. Three defects found, each by measurement
 
 **1. Silent dispatch truncation — the significant one.** Compute thread groups
@@ -102,6 +152,18 @@ coordinates was rejected out-of-region and nothing promoted.
 tiling the per-cell buffers are `TileCapacity × TileCells`; initialising only
 the first `_regionCellCount` entries would leave `SlotAt` as garbage, which by
 its own comment makes `CSPromote` believe every cell already owns a slot.
+
+**4. A detector that fired on healthy behaviour.** The
+`ScratchExhaustionWarnings` counter added earlier the same day warned whenever a
+pooled scratch context came back holding slots. `ResetScratch` has **two**
+callers: the generation path, which frees slot-by-slot and must arrive empty,
+and `SaveDelta`, which allocates a whole baseline chunk and hands it back
+*wholesale* via `Reset`. The second is by design, so the counter reported 81
+"leaks" per sandbox run that were the normal path working correctly. Now scoped
+to the generation path only. **A detector that fires on healthy behaviour is
+worse than none, because it trains you to ignore it** — and it was caught by the
+sandbox rig asserting the counter is zero, which is the only reason a
+report-only counter would not have been shrugged at.
 
 **Plus one design correction:** the wake queue is now keyed on the **world
 voxel**, not a cell index. A tile's slot is not stable across the deferral
