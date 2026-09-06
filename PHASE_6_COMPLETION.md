@@ -1,10 +1,32 @@
 # Phase 6 Completion Record — Physics & Editing — **DRAFT**
 
 > **THIS IS A DRAFT FOR REVIEW, NOT A PHASE CLOSURE.**
-> Written unattended overnight on 2026-09-05. Closing a phase is the project
-> owner's call, made after reading the evidence — not something an agent
-> declares. Nothing in this document should be read as "Phase 6 is done".
-> §7 lists what is still open, and §6's NOT TESTED bucket is not empty.
+> First written unattended overnight on 2026-09-05; **substantially revised
+> later the same day** with the results of the §3.6 gate, the two playtest-bug
+> fixes, the §7.4 driving mechanism, the first real `run-acceptance-rig.sh`
+> numbers of Phase 6, and a pre-existing/regression verdict on the frame-time
+> stutter. Closing a phase is the project owner's call, made after reading the
+> evidence — not something an agent declares. Nothing here should be read as
+> "Phase 6 is done". §6's NOT TESTED bucket is smaller than it was and is still
+> not empty, and §7 now carries a **design fork** that wants a human.
+
+---
+
+## 0.0 What changed since the first draft (read this first)
+
+| | First draft | Now |
+|---|---|---|
+| **§3.6 LRU valve** (§13's named memory gate) | never reached — attack peaked 388,280 vs a 425,000 mark | **PASSES.** Peak 426,720, 401–544 LRU evictions, cap never exceeded, edit succeeds under live pressure, edits survive eviction |
+| **CPU-lane frame time** | unmeasured | **MEASURED** — `run-acceptance-rig.sh`, 51 PASS / 0 FAIL. Upload p99 **0.721 ms** vs a 1.0 ms budget |
+| **Frame-time stutter** | unknown | p99 32% over budget, **proven PRE-EXISTING** — reproduced on the pre-Phase-6 commit at equal magnitude |
+| **§7.4 active radius** | not driven at all | driven, with hysteresis + re-centre threshold; **wake-on-approach was missing and is fixed** |
+| **Shipped fluid radius** | never measured | measured: **cannot bite inside any region that can exist** — a design fork, §7.2 |
+| **Delta saves under pressure** | assumed fine | **silent edit loss found and fixed** (scratch pool never reset) |
+| **Sandbox rig** | 34 PASS | **41 PASS / 0 FAIL** |
+
+Three real defects were found and fixed this week, and two of the three were
+invisible until a test was made big enough or honest enough to reach them.
+That pattern is the most important thing in this document.
 
 ---
 
@@ -246,25 +268,72 @@ water, and something asking about staleness in the same run.
   asserted by checking 50 samples change zero voxels.
 - **The shared walker visits an unbroken chain of cells**, each one axis-step
   from the last, covering the segment end to end with no gaps or overlaps.
+- **§3.6's LRU valve** — added 2026-09-05, and this is §13's named memory gate.
+  Peak 426,720 dense bricks against a 425,000 high-water mark and a 500,000 hard
+  cap; 401–544 LRU evictions; the cap never exceeded; the triggering edit
+  succeeds *while the valve is engaged* (probed during pressure, not after); and
+  a far-edge voxel round-trips through eviction, which is §3.6's "never lost
+  progress (edits are in the delta, §4.2)".
+- **§7.4's active radius** — hysteresis (wake 1× / sleep 1.15×) and the
+  re-centre threshold proven as policy in `FluidActiveRegionTests`, with the
+  control test showing a single radius *does* thrash; and proven on the GPU
+  in `run-playtest-bugs.sh`, including that a region which slept mid-flow
+  **wakes again on approach** (0 voxels left hanging, against 35 with the seed
+  disabled — a built-in mutation control, not a one-off manual check).
+- **Collision above the generation ceiling.** `VoxelCollision` rule 1 no longer
+  reports permanently-non-resident sky as solid; a player at 300 m falls
+  (44.37 m in 2 s, measured) instead of hanging. Mutation-checked in both
+  directions, including 4 pre-existing §9.4 guards that catch the over-fix.
+- **Delta saves survive an eviction storm.** The scratch pool used to build the
+  pristine baseline is reset between saves, so `SaveDelta` no longer starts
+  failing after ~10 chunks. Asserted end-to-end: no resident chunk is left
+  `deltaDirty` after a flush.
 
-### PERFORMANCE — NOT MEASURED
+### PERFORMANCE — CPU LANE MEASURED, GPU LANE STILL NOT
 
-- **No Phase 6 rig reports a millisecond figure.** This is deliberate and total.
-- The exhaustive-AABB deviation (§1.1) is **not costed**.
-- The frame-split budget bounds **voxels per frame, not time**.
-- §13's "CPU-lane total under 16.6 ms" is **unmeasured** — the only rig that
-  would have produced a figure is the one that never ran (§7.1), and even that
-  one labels its output provisional and not a substitute for
-  `run-acceptance-rig.sh`.
+**Measured** (`run-acceptance-rig.sh`, release standalone, Apple M1, 960×540,
+run `2026-09-05_144650`, **51 PASS / 0 FAIL**) — the only source CLAUDE.md
+trusts:
+
+| §2.2 item | Budget | Measured |
+|---|---|---|
+| terrain upload, steady | ≤1.0 ms | **p99 0.721 ms** ✓ |
+| peak upload bytes/frame | 3.145 MB | 2.906 MB ✓ |
+| our whole `update` interval | (CPU lane totals 3.2 ms) | p50 **0.15** / p99 4.23 ms |
+| frame total | 16.6 ms | p50 **10.05** ✓ / p99 **21.98** ✗ / max 222.76 |
+
+The upload p99 is the item CLAUDE.md's known-issues bullet lists as *red* at
+0.98–1.63 ms. It measured 0.721 ms here. One run does not overturn a documented
+variance, but it is green in this one.
+
+**Still not measured, and deliberately not guessed:**
+
+- **The entire GPU lane** (raymarch ≤9.0 ms, Fluid CA ≤3.5 ms, GPU total
+  ≤13.0 ms). Per-stage attribution does not exist in this workflow —
+  AMENDMENT_8_9 §0 Rule 1 rules out Xcode, Rule 2 states `FrameTimingManager`
+  cannot report Performance State, and AMENDMENT_8_10 measured `gpuFrameTime`
+  inflated ~2.6–2.7×. No GPU-lane figure is quoted against a budget anywhere in
+  this phase, and none should be.
+- **The exhaustive-AABB deviation** (§1.1) is still not costed individually,
+  though `update` at 0.15 ms p50 bounds everything it is inside.
+- **The §7.4 seed's GPU cost.** `RecentreSeedTicks = 4` is an engineering
+  default; the cost of a seeded tick is not claimed.
+- The frame-split budget still bounds **voxels per frame, not time**.
 
 ### NOT TESTED AT ALL
 
-- **§3.6's LRU eviction path.** The integrated rig ran, but its checkerboard
-  peaked at 388,280 dense bricks against a 425,000 high-water mark, so the valve
-  was never asked to fire. `EngineConfig` line 57 names
-  `BRICK_POOL_HIGH_WATER_FRACTION` an "ASSUMPTION, flagged, Phase 6 gate";
-  **that gate is still open.** Closing it needs a wider window or a longer
-  attack than the resident window currently allows.
+- ~~**§3.6's LRU eviction path.**~~ — **CLOSED 2026-09-05.** The attack was
+  sized off the measured world (idle ~330,000 dense bricks, so it must add
+  ~95,000) rather than off a guess, and now reaches the mark. See CORRECTNESS
+  PROVEN above. `BRICK_POOL_HIGH_WATER_FRACTION = 0.85` is no longer *ungated* —
+  the valve demonstrably fires at it and holds the cap. Whether 0.85 is the
+  *right* fraction, and whether the resulting eviction is visually acceptable
+  under normal building (§3.6's own wording), is still a judgement nobody has
+  made.
+- **§2.5's ~500,000 active-fluid target.** Untested and unclaimed. What *is*
+  measured: peak occupancy is 2.63–3.00 slots per live voxel, so a 500,000-slot
+  pool holds ~166,000 live voxels in one region. Whether the engine sustains
+  §2.5's figure world-wide has not been asked.
 - ~~Coalescing on fill-in~~ — **CLOSED.** Refilling the drilled region collapsed
   925 bricks back to uniform and returned pool slots (284,889 → 284,018 dense).
   All three clauses of §13's drill line now pass together.
@@ -295,32 +364,172 @@ successful integrated run in this session used that.
 This is an environment limit, not a code one, but it makes the integrated rig
 expensive to re-run — worth knowing before assuming it can be iterated cheaply.
 
-### 7.2 Open questions for a human
+### 7.2 A DESIGN FORK that wants a human — the shipped fluid radius
 
-- **The §8.1 treadmill fork** remains open. Nothing forced escalation, but
-  nothing measured the probe controller's cost either.
+**Measured 2026-09-05** (`run-fluid-scale.sh` step 3, and
+`DESIGN_NOTE_7_4_ACTIVE_RADIUS.md` §9). A §7.2 region is a *dense per-cell map*
+— four 4-byte GPU buffers, **16 B/cell**, confirmed identical at 64³/128³/256³ —
+and `CSClear`/`CSCommit`/`CSWakeScan` each dispatch over every cell every tick.
+
+For §7.4's radius to gate anything, the region must be *larger* than the radius.
+The smallest power-of-two region whose half-diagonal reaches
+`FLUID_ACTIVE_RADIUS_VOXELS = 1280` is **2048³ = 128 GB** of per-cell buffers.
+At 256³ — already 256 MB — the radius is 5.8× the region's own half-diagonal.
+
+**So at the shipped constant, §7.4's gate is inert by construction:**
+`WithinActiveRadius` is always true and `BeyondSleepRadius` never is. The
+mechanism is proven correct and proven to wake on approach; it is the *constant*
+that selects a regime no single region can reach.
+
+Three readings, and no document settles which is intended:
+
+- **(a) The radius is mis-sized.** It was derived from C.5's LOD0 boundary — a
+  *rendering* distance — and nothing checked it against the region it must fit
+  inside. A one-line change makes the mechanism live immediately.
+- **(b) The region is the wrong shape.** If a 128 m active radius is genuinely
+  wanted, the region cannot stay a dense per-cell map. That is a §7.2 redesign.
+- **(c) The radius belongs one level up** — selecting which of *many* regions
+  tick, not which cells within one. 2/4/8 simultaneous regions scale linearly
+  with no cross-region interference (flat 26.6% utilisation), so that path is
+  real and cheap.
+
+I have not chosen. (a) is a constant; (b) and (c) are architecture.
+
+### 7.3 The frame-time stutter — REAL, and NOT Phase 6's
+
+p99 frame time is **21.98 ms against §2.2's 16.6 ms** (32% over), with 8 frames
+of 1340 exceeding 100 ms, worst 222.76 ms. `preUpdate` — the engine frame start —
+is **99.7% of the stutter wall clock**; our `update` is 0.1% and `postLate` 0.2%.
+
+**It is pre-existing.** Built and ran the acceptance rig on `c20a547`, the last
+commit before Phase 6 file 1, with a byte-identical rig and `FrameGapProbe`:
+
+| Gate C | pre-Phase-6 `c20a547` | HEAD |
+|---|---|---|
+| frame p50 | 9.59 | 9.92 |
+| frame **p99** | **25.15** | **22.18** |
+| frame max | 222.02 | 222.76 |
+| preUpdate p99 | 20.89 | 20.46 |
+| `update` p99 | 5.62 | **4.23** |
+| stutter frames | 8 of 1316 | 8 of 1340 |
+
+Phase 6 is *slightly better* at the tail. This is not this phase's defect and
+was deliberately not chased further here. **One lead for whoever does**, present
+identically in both builds: `GC collections DURING stutter frames: gen0 +2
+gen1 +2 gen2 +2` — full gen2 collections coincide with the stutters, and GC
+stop-the-world suspend is exactly what `preUpdate` contains.
+
+### 7.4 Open questions for a human
+
+- **The §8.1 treadmill fork** remains open. Nothing forced escalation; the probe
+  controller's cost is now bounded by `update` p50 0.15 ms but not isolated.
 - **Burst legality of the world** (§2.1) — a §3.2/§3.3 layout decision that
   §8.4 and §8.5 both currently wait on.
 - **`PlayerFeedback`** (§3) — where it lives and who owns it.
 - **Density and drag values** (§2.3) — content, seeded plausibly, untuned.
-- **Whether `BRICK_POOL_HIGH_WATER_FRACTION = 0.85` is right** — still an
-  assumption, still ungated.
+- **Whether `BRICK_POOL_HIGH_WATER_FRACTION = 0.85` is the RIGHT fraction.** No
+  longer ungated — the valve fires at it and holds the cap — but §3.6 also asks
+  whether the resulting eviction is *visually acceptable under normal building*,
+  and that is a judgement, not a measurement.
+- **`WaitForIdle` is rig-only today.** It now runs the §3.6 valve as it drains
+  (it did not, and walked the pool into exhaustion). If any production path ever
+  bulk-drains, this is the invariant it must keep.
 
 ---
 
-## 8. Suite at draft time
+## 8. Suite — one consolidated run, 2026-09-05
+
+Every line below was run against the current tree in one pass, after all of
+this week's fixes. Nothing here is carried over from an earlier session.
 
 ```
-EditMode                PASS 387  FAIL 0  SKIP 0
-Phase 6 brush guard     PASS 30   FAIL 0
-Phase 6 player          PASS 35   FAIL 0
-Phase 6 CCD             PASS 19   FAIL 0
-Phase 6 edit            PASS 34   FAIL 0
-Phase 6 sandbox         PASS 34   FAIL 0
+EditMode                     PASS 414  FAIL 0  SKIP 0
+Phase 6 brush guard          PASS  30  FAIL 0
+Phase 6 player               PASS  35  FAIL 0
+Phase 6 CCD                  PASS  19  FAIL 0
+Phase 6 edit                 PASS  34  FAIL 0
+Phase 6 sandbox (integrated) PASS  41  FAIL 0     <- was 34; §3.6 gate now included
+Playtest bugs (diagnostic)   PASS  13  FAIL 0
+Fluid scale (counters only)  PASS   4  FAIL 0
+run-acceptance-rig.sh        PASS  51  FAIL 0
 ```
 
-**This draft does not close Phase 6.** §6's NOT TESTED bucket still contains
-§13 acceptance items — most importantly §3.6's LRU eviction path, which
-`EngineConfig` itself names as this phase's gate and which the checkerboard did
-not reach. Frame time is also unmeasured by the only source CLAUDE.md trusts.
-Closing the phase is the owner's call.
+`run-fluid-activity.sh` is the one line that is **not** clean — see §9.
+
+## 9. The one thing still red
+
+`run-fluid-activity.sh` step 2 (sustained pour) leaves **1–2 water voxels
+unsupported in mid-air** out of ~2,900, and the classification step therefore
+returns MIXED/INCONCLUSIVE. **18 PASS / 2 FAIL.** That rig's last recorded
+result was 20 PASS / 0 FAIL.
+
+### What was ruled out, by measurement rather than argument
+
+- **Not an early stop.** The settle loop exits on op-list quiescence, which is
+  not the same as "no work left" — a wake request still held by
+  `FluidWakeQueue` would look identical. Instrumented: **0 immediate and 0
+  deferred wake requests outstanding**, and the voxels are still floating after
+  **600 further ticks**. It is a stall.
+- **Not pool exhaustion (§7.7).** everAllocated 848 against an 8,192 cap.
+- **Not §7.4, and not this week's seed fix.** Step 2 sets `PlayerVoxel` once at
+  construction and never calls `UpdatePlayerPosition`, so `_RecentreSeed` is
+  never armed and the new wake-on-approach seed is **provably inert in this
+  step**. It also only ever wakes *more* cells, never fewer.
+- **Not the §7.2 region boundary.** Straight-down descent stays in-region even
+  on the boundary planes the count scans.
+
+### What it is
+
+A genuine, low-rate stall in the CA's own settling: 1–2 cells in ~2,900 that
+should fall and are never asked to. It is **intermittent across runs** (0 in the
+earlier session's run, 1, 1 and 2 in three runs today), which §7.8 tier 3
+permits — the GPU CA is not promised to be frame-exact — but "a voxel that
+should have fallen and did not" is a defect at any rate.
+
+It is the **same shape** as the §7.4 bug fixed this week — a cell needing a wake
+that nothing asks for — with a different trigger. `CSWakeScan`'s propagation
+requires a neighbour carrying a `WakeMark` from a descending move *this tick*;
+if a local neighbourhood happens to go quiet in the same tick, there is nothing
+left to propagate from and no other path wakes it.
+
+### Why it is not fixed here
+
+The obvious fix is to let `CSWakeScan`'s radius-driven seed run always rather
+than only for a few ticks after a re-centre. The dispatch already covers every
+cell every tick, so the added work is the seed's own `SampleVoxel` reads on
+cells that fail the `near` gate — **bounded, but not free, and its cost lands
+squarely in §2.2's GPU lane, which this workflow cannot measure at all.**
+
+Shipping an unmeasured per-tick cost into the one lane with no instrumentation,
+at the end of a session, is exactly the trade this project's rules exist to
+prevent. It is written up here instead, with the isolation already done, so
+whoever takes it starts from evidence rather than from a symptom.
+
+## 10. The verdict this draft supports — and does not
+
+**Closing the phase is the owner's call. This document does not close it.**
+
+What changed in Phase 6's favour today: §13's one named §3.6 memory gate now
+genuinely passes, the CPU lane is measured against §2.2 for the first time and
+is inside budget, the frame-time stutter is proven to be inherited rather than
+caused here, and three real defects were found and fixed — two of which existed
+only because a test was too small or too forgiving to reach them.
+
+What a reader should weigh against that:
+
+1. **A design fork is open** (§7.2): the shipped fluid active radius cannot
+   bite inside any region that can exist. It needs a decision, not more
+   measurement.
+2. **The GPU lane is entirely unmeasured** and cannot be measured in this
+   workflow. §2.2's raymarch, Fluid CA and GPU-total budgets have no numbers
+   against them, and the honest position is that nobody knows.
+3. **One rig is red** (§9) — a rare fluid stall that is not yet reproducible
+   enough to isolate.
+4. **The §8.1 treadmill fork** was never forced and never costed.
+5. **Feel-based items remain feel-based**: whether movement is good, whether
+   §3.6's eviction is visually acceptable under normal building, and §13's own
+   flood-front judgement.
+
+None of 1–5 is a correctness failure. All five are the kind of thing that is
+much cheaper to decide before a phase is declared closed than after.
+

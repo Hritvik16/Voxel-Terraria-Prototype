@@ -365,6 +365,37 @@ public class FluidActivityRig : MonoBehaviour
         int floatingFinal = CountFloating();
         Snapshot("final");
 
+        // ---- IS A LEFTOVER FLOATER A STALL, OR DID WE STOP TOO EARLY? ----
+        //
+        // The settle loop above exits on op-list quiescence: N consecutive ticks
+        // that applied no voxel. That is NOT the same as "the region has no work
+        // left". EditService queues wakes through FluidWakeQueue, which holds a
+        // request until the GPU mirror can actually see the edit that caused it
+        // (see the frozen-fluid bug that queue exists to fix). A request still
+        // waiting when the op-list happens to go quiet leaves its voxel
+        // motionless, and the count then reads exactly like a stall.
+        //
+        // These two are different defects with opposite fixes -- one is in the
+        // CA, one is in this rig's stopping condition -- so they are separated
+        // here rather than reported as one number.
+        if (floatingFinal > 0)
+        {
+            L($"  {floatingFinal} floating at quiescence. Pending wake requests: " +
+              $"{_fluid.PendingWakeRequests} immediate, {_fluid.DeferredWakeRequests} deferred.");
+            L("  Ticking 600 more frames to see whether it is a stall or an early stop.");
+            for (int i = 0; i < 600; i++) { Tick(); yield return null; }
+            int afterExtra = CountFloating();
+            L($"  after 600 extra ticks: {afterExtra} floating (was {floatingFinal})");
+            if (afterExtra < floatingFinal)
+                Note("THE SETTLE LOOP STOPPED TOO EARLY. Op-list quiescence is not the same as " +
+                     "'no work left' -- deferred wake requests were still outstanding. This is " +
+                     "a defect in the rig's stopping condition, not in the CA.");
+            else
+                Note("STILL FLOATING after 600 further ticks with no other change, so this is " +
+                     "a genuine stall and not an early stop.");
+            floatingFinal = afterExtra;
+        }
+
         L("");
         L($"  placed {totalPlaced} voxels total");
         L($"  everAllocated {everF} / capacity {_fluid.SlotCapacity}");
