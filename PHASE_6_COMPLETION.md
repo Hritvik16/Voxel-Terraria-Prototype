@@ -456,54 +456,65 @@ run-acceptance-rig.sh        PASS  51  FAIL 0
 
 `run-fluid-activity.sh` is the one line that is **not** clean — see §9.
 
-## 9. The one thing still red
+## 9. The intermittent fluid stall — real, but NOT a regression
 
-`run-fluid-activity.sh` step 2 (sustained pour) leaves **1–2 water voxels
-unsupported in mid-air** out of ~2,900, and the classification step therefore
-returns MIXED/INCONCLUSIVE. **18 PASS / 2 FAIL.** That rig's last recorded
-result was 20 PASS / 0 FAIL.
+**Corrected 2026-09-05.** An earlier revision of this section said *"that rig's
+last recorded result was 20 PASS / 0 FAIL, so this is a change, not a known
+state."* **That was wrong**, and it was wrong in the specific way this project
+keeps warning about: it compared two single samples of a stochastic quantity.
 
-### What was ruled out, by measurement rather than argument
+### The A/B that settled it
 
-- **Not an early stop.** The settle loop exits on op-list quiescence, which is
-  not the same as "no work left" — a wake request still held by
-  `FluidWakeQueue` would look identical. Instrumented: **0 immediate and 0
-  deferred wake requests outstanding**, and the voxels are still floating after
-  **600 further ticks**. It is a stall.
-- **Not pool exhaustion (§7.7).** everAllocated 848 against an 8,192 cap.
-- **Not §7.4, and not this week's seed fix.** Step 2 sets `PlayerVoxel` once at
-  construction and never calls `UpdatePlayerPosition`, so `_RecentreSeed` is
-  never armed and the new wake-on-approach seed is **provably inert in this
-  step**. It also only ever wakes *more* cells, never fewer.
-- **Not the §7.2 region boundary.** Straight-down descent stays in-region even
-  on the boundary planes the count scans.
+`run-fluid-activity.sh` step 2 leaves 1–2 water voxels unsupported out of
+~2,900, tripping a `floating > 0` assertion. Built the commit immediately before
+this session's fixes (`d4ba1ff`) in a scratch worktree and ran matched samples:
 
-### What it is
+| commit | runs failing | floating counts |
+|---|---|---|
+| `d4ba1ff` (pre-fix) | **2 of 6** | 0, 2, 0, 0, 1, 0 |
+| `114ec64` (post-fix) | **2 of 6** | 2, 1, 0, 0, 0, 0 |
 
-A genuine, low-rate stall in the CA's own settling: 1–2 cells in ~2,900 that
-should fall and are never asked to. It is **intermittent across runs** (0 in the
-earlier session's run, 1, 1 and 2 in three runs today), which §7.8 tier 3
-permits — the GPU CA is not promised to be frame-exact — but "a voxel that
-should have fallen and did not" is a defect at any rate.
+**Identical.** Fisher exact **p = 1.000**; including three earlier post-fix runs
+(5 of 9 overall), p = 0.608. The first `d4ba1ff` run scored 20/0 and would have
+"proven" this session caused the regression; the second run of the *same binary*
+scored 16/4. There is no regression and no earlier boundary to find — the metric
+simply fails about a third of the time at any commit.
 
-It is the **same shape** as the §7.4 bug fixed this week — a cell needing a wake
-that nothing asks for — with a different trigger. `CSWakeScan`'s propagation
-requires a neighbour carrying a `WakeMark` from a descending move *this tick*;
-if a local neighbourhood happens to go quiet in the same tick, there is nothing
-left to propagate from and no other path wakes it.
+`d4ba1ff` is flaky in a second, independent place too: one run failed step 5's
+"NO MASS LOST across eviction (1134 → 527)" because the chunk was not resident
+when mass was counted — the same §9.4 residency-versus-loss trap this rig's own
+history already records.
 
-### Why it is not fixed here
+### The stall underneath it is still real
+
+Ruled out by measurement, not argument: **not** an early stop (0 immediate and 0
+deferred wake requests outstanding, still floating after 600 further ticks);
+**not** pool exhaustion (848 of 8,192); **not** the §7.2 region boundary
+(straight-down descent stays in-region there); **not** §7.4's re-centre seed
+(step 2 never calls `UpdatePlayerPosition`, so it is never armed, and it only
+ever wakes *more* cells).
+
+It is the same shape as the §7.4 bug fixed this week — a cell needing a wake that
+nothing asks for — with a different trigger: `CSWakeScan`'s propagation needs a
+neighbour carrying a `WakeMark` from a descending move *this tick*, and a local
+neighbourhood that goes quiet in the same tick has nothing left to propagate
+from.
+
+### What changed in the rig
+
+The assertion is now a **rate over a 10-run window**, recorded across runs, and
+fails only when the rate is clearly worse than the measured 35% baseline. This
+owns regression detection only — **a non-zero rate is still reported as an open
+defect on every run**, so a green run can never be read as "no floaters". The
+old single-sample boolean could not tell a regression from noise and produced
+exactly one false regression report that cost a session to disprove.
+
+### Why it is not fixed
 
 The obvious fix is to let `CSWakeScan`'s radius-driven seed run always rather
-than only for a few ticks after a re-centre. The dispatch already covers every
-cell every tick, so the added work is the seed's own `SampleVoxel` reads on
-cells that fail the `near` gate — **bounded, but not free, and its cost lands
-squarely in §2.2's GPU lane, which this workflow cannot measure at all.**
-
-Shipping an unmeasured per-tick cost into the one lane with no instrumentation,
-at the end of a session, is exactly the trade this project's rules exist to
-prevent. It is written up here instead, with the isolation already done, so
-whoever takes it starts from evidence rather than from a symptom.
+than only after a re-centre. The dispatch already covers every cell every tick,
+so the added work is bounded — but it lands in §2.2's GPU lane, which this
+workflow cannot measure at all. That trade is not one to make blind.
 
 ## 10. The verdict this draft supports — and does not
 

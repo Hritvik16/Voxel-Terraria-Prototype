@@ -676,6 +676,17 @@ public class Phase6SandboxRig : MonoBehaviour
         // its own exception, returns false, and leaves deltaDirty SET, so the
         // edits stay unwritten while the rig reads green. §4.2 and §3.6's "never
         // lost progress" both depend on this being zero, not on it being small.
+        // THE DETECTORS THAT DID NOT EXIST WHEN THIS BUG SHIPPED. Both are
+        // asserted rather than merely printed: a silent-failure counter nobody
+        // checks is the same as no counter.
+        Check(Streamer.DeltaSaveFailuresTotal == 0,
+            $"NO DELTA SAVE FAILED ({Streamer.DeltaSaveFailuresTotal}). SaveDelta swallows its " +
+            "own exception and returns false, and ChunksSavedTotal counts attempts, so this is " +
+            "the only counter that distinguishes 'saved' from 'tried to save'.");
+        Check(Streamer.ScratchExhaustionWarnings == 0,
+            $"NO SCRATCH POOL LEAK ({Streamer.ScratchExhaustionWarnings}). Fires on the FIRST " +
+            "leaked slot, not on the save where the pool finally runs dry.");
+
         int stillDirty = 0;
         foreach (var c in Store.ResidentChunks()) if (c.deltaDirty) stillDirty++;
         Check(stillDirty == 0,

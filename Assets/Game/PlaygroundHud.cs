@@ -108,6 +108,15 @@ public class PlaygroundHud : MonoBehaviour
                           (store.IsUnderPoolPressure ? "   *** LRU VALVE ARMED (§3.6) ***" : ""));
         }
 
+        // PERSISTENCE HEALTH. Both are silent-failure detectors and both should
+        // read 0 forever; they are on screen precisely because the failure they
+        // catch produced no visible symptom at all for eight days.
+        var streamer = Phase4Bootstrapper.Streamer;
+        if (streamer != null && (streamer.DeltaSaveFailuresTotal > 0 || streamer.ScratchExhaustionWarnings > 0))
+            sb.AppendLine($"<color=#ff5555>*** PERSISTENCE: {streamer.DeltaSaveFailuresTotal} delta " +
+                          $"saves FAILED, {streamer.ScratchExhaustionWarnings} scratch leaks. " +
+                          "Edits are NOT reaching disk. ***</color>");
+
         sb.AppendLine("The trusted frame-time source is ./run-acceptance-rig.sh, not this overlay.");
 
         var st = new GUIStyle(GUI.skin.label)

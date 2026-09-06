@@ -1521,6 +1521,18 @@ public class Phase4AcceptanceRig : MonoBehaviour
         Line($"deltas written={streamer.ChunksSavedTotal} loaded={streamer.DeltasLoadedTotal} " +
              $"rejected={streamer.DeltasRejectedTotal}");
         Check(streamer.ChunksSavedTotal > 0, "at least one delta was written during eviction");
+
+        // ChunksSavedTotal COUNTS ATTEMPTS. SaveDelta catches its own exception
+        // and returns false, and EvictChunk increments regardless, so the check
+        // above passes even when every save failed. That is exactly how the
+        // scratch-pool leak survived this phase's sign-off: Gate D wrote two
+        // deltas, far under the ~140-save threshold, and had no counter that
+        // could have told the difference anyway.
+        Check(streamer.DeltaSaveFailuresTotal == 0,
+            $"and NONE of them failed ({streamer.DeltaSaveFailuresTotal} failures) -- the only " +
+            "counter that separates 'saved' from 'tried to save'");
+        Check(streamer.ScratchExhaustionWarnings == 0,
+            $"no scratch-pool leak was detected ({streamer.ScratchExhaustionWarnings})");
         Check(streamer.DeltasLoadedTotal > 0, "at least one delta was read back on re-admission");
 
         var returned = store.GetChunk(editChunk);
