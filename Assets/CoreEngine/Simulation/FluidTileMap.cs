@@ -245,6 +245,18 @@ namespace VoxelEngine.Simulation
             return freed;
         }
 
+        /// The coords of every resident tile, snapshotted.
+        ///
+        /// SNAPSHOTTED ON PURPOSE: callers release while iterating, and Release
+        /// mutates the ring the enumeration would be walking.
+        public System.Collections.Generic.List<int3> ResidentTileCoords()
+        {
+            var list = new System.Collections.Generic.List<int3>(ResidentTiles);
+            for (int r = 0; r < _ringSlot.Length; r++)
+                if (_ringSlot[r] != NO_TILE) list.Add(_ringCoord[r]);
+            return list;
+        }
+
         /// Would two tiles inside the wake radius collide on one ring entry?
         ///
         /// The ring is only safe while the resident set spans fewer tiles than
