@@ -143,9 +143,35 @@ public class FluidTiledRig : MonoBehaviour
         _readback.PumpAndApply();
     }
 
+    /// Moves BOTH halves of §7.4's centre: the tile set (CPU residency) and
+    /// _PlayerVoxel (the GPU's own radius gate).
+    ///
+    /// THEY ARE SEPARATE AND BOTH REQUIRED. A first version of this rig moved
+    /// only the tile set, so tiles were resident and dispatched while CSPromote
+    /// rejected every cell as outside WithinActiveRadius -- 488 tiles live,
+    /// zero slots allocated, zero voxels moved. Tiles existing is not the same
+    /// as fluid simulating, and scenario C is the step that can tell.
+    /// The shader's own §10.4 per-stage counters. They are cleared every tick,
+    /// so this is a snapshot of the LAST tick -- which is exactly what is wanted
+    /// when the question is "where did the CA decide to do nothing".
+    private void DumpDebugCounters(string when)
+    {
+        var buf = _fluid.DebugCountersBuffer;
+        if (buf == null) { L($"  [{when}] no debug counters"); return; }
+        var v = new uint[FluidGpuSimulation.DebugSlots];
+        buf.GetData(v);
+        var sb = new StringBuilder();
+        for (int i = 0; i < v.Length && i < FluidGpuSimulation.DebugCounterNames.Length; i++)
+            if (v[i] != 0) sb.Append($"{FluidGpuSimulation.DebugCounterNames[i]}={v[i]}  ");
+        L($"  [{when}] last-tick stage counters: {(sb.Length == 0 ? "(all zero)" : sb.ToString())}");
+    }
+
     private void RefreshTiles(int3 centre)
-        => FluidTileResidency.Refresh(Store, _tiles, centre,
-                                      _fluid.ActiveRadiusVoxels, _fluid.SleepRadiusVoxels);
+    {
+        _fluid.UpdatePlayerPosition(centre);
+        FluidTileResidency.Refresh(Store, _tiles, centre,
+                                   _fluid.ActiveRadiusVoxels, _fluid.SleepRadiusVoxels);
+    }
 
     // =====================================================================
     // A -- the shipped radius, with a MEASURED footprint
@@ -225,21 +251,43 @@ public class FluidTiledRig : MonoBehaviour
         for (int i = 0; i < 5; i++) { RefreshTiles(pool); Tick(); yield return null; }
 
         int near = _tiles.ResidentTiles;
-        L($"  standing on the pool: {near} resident tile(s), {_fluid.ActiveTileCount} dispatched");
-        Check(near > 0, $"fluid within the radius is tiled and simulating ({near} tiles)");
+        long movedHere = _applied;
+        for (int i = 0; i < 60; i++) { Tick(); yield return null; }
+        movedHere = _applied - movedHere;
+        uint hiB, everB;
+        _fluid.ReadSlotCounters(out hiB, out everB);
 
+        L($"  standing on the pool: {near} resident tile(s), {_fluid.ActiveTileCount} dispatched, " +
+          $"{movedHere} voxel writes, slots everAllocated {everB}");
+        Check(near > 0, $"fluid within the radius is tiled ({near} tiles)");
+        Check(everB > 0,
+            $"AND SLOTS WERE ACTUALLY ALLOCATED ({everB}) -- tiles being resident is not the " +
+            "same as fluid simulating, and asserting only residency is what let a rig report " +
+            "488 live tiles with zero slots and zero motion");
+
+        // THE POOL'S OWN TILE, not the global count. The first version asserted
+        // "0 tiles anywhere", which is wrong on a world that HAS water: walking
+        // 85 m away legitimately picks up whatever fluid is near the new
+        // position. What §7.4 promises is that the tile you LEFT is released.
+        int3 poolTile = ChunkFluidMask.AbsoluteTile(CoordMath.VoxelToChunk(pool),
+                                                    ChunkFluidMask.TileInChunkOf(pool));
         int3 away = pool + new int3(600, 0, 600);
         for (int i = 0; i < 5; i++) { RefreshTiles(away); Tick(); yield return null; }
         int far = _tiles.ResidentTiles;
-        L($"  walked {math.length(new float2(600, 600)) * 0.1f:F0} m away: {far} resident tile(s)");
-        Check(far == 0,
-            $"leaving the radius releases every tile ({far}) -- §7.4's departure half, which " +
-            "is what makes the footprint bounded by presence rather than by radius");
+        bool leftReleased = _tiles.TryGetSlot(poolTile) == FluidTileMap.NO_TILE;
+        L($"  walked {math.length(new float2(600, 600)) * 0.1f:F0} m away: {far} tile(s) " +
+          $"resident near the NEW position; the tile we left is " +
+          $"{(leftReleased ? "released" : "STILL HELD")}");
+        Check(leftReleased,
+            "leaving the radius releases the tile you left -- §7.4's departure half, which is " +
+            "what makes the footprint bounded by presence rather than by radius");
 
         for (int i = 0; i < 5; i++) { RefreshTiles(pool); Tick(); yield return null; }
         int back = _tiles.ResidentTiles;
-        L($"  returned: {back} resident tile(s)");
-        Check(back > 0,
+        bool reacquired = _tiles.TryGetSlot(poolTile) != FluidTileMap.NO_TILE;
+        L($"  returned: {back} resident tile(s); the tile we left is " +
+          $"{(reacquired ? "re-acquired" : "STILL MISSING")}");
+        Check(reacquired && back > 0,
             $"and returning WAKES it again ({back} tiles) -- the §7.4 contract that a sparse " +
             "active set nearly lost, answered by ChunkFluidMask rather than by a cell sweep");
         L("");
@@ -304,6 +352,10 @@ public class FluidTiledRig : MonoBehaviour
             if ((i % 20) == 0) RefreshTiles(camVox);
             Tick();
             peakTiles = math.max(peakTiles, _tiles.ResidentTiles);
+            // Counters are cleared EVERY TICK, so a dump at the end only ever
+            // shows a settled region. The question is where the CA decided to
+            // do nothing while it was still awake.
+            if (i == 1 || i == 4 || i == 12 || i == 40) DumpDebugCounters($"tick {i}");
             yield return null;
         }
 
@@ -315,6 +367,21 @@ public class FluidTiledRig : MonoBehaviour
           $"free list {_fluid.ReadFreeSlotCount()}");
         L($"  tiles: acquired {_tiles.TilesAcquiredTotal}, released {_tiles.TilesReleasedTotal}, " +
           $"peak resident {_tiles.PeakResidentTiles}, pool exhaustions {_tiles.PoolExhaustionsTotal}");
+
+        // WHERE THE MOTION WENT, if it went anywhere. "0 writes applied" has
+        // three completely different causes and the counters separate them:
+        // the CA emitted nothing, or it emitted and the readback dropped them
+        // (§9.4 residency / staleness), or the requests never reached it.
+        L($"  op-list: emitted {_readback.OpsTotal} total, peak {_readback.PeakOpsInAFrame}/frame, " +
+          $"applied {_readback.AppliedVoxelWrites}");
+        L($"  ops dropped: {_readback.OpsDroppedNonResident} non-resident, " +
+          $"{_readback.StaleOpsDropped} stale; readback errors {_readback.ReadbackErrorsTotal} " +
+          $"({_readback.LastReadbackError})");
+        DumpDebugCounters("after 400 ticks");
+        L($"  wake requests: queued {_fluid.WakeRequestsQueuedTotal}, dispatched " +
+          $"{_fluid.WakeDispatchedTotal}, rejected out-of-region {_fluid.WakeRejectedOutOfRegion}, " +
+          $"rejected full {_fluid.WakeRejectedFull}, still pending {_fluid.PendingWakeRequests}" +
+          $"/{_fluid.DeferredWakeRequests} deferred");
 
         Check(pocketsPlaced > 100, $"the scatter actually landed ({pocketsPlaced} pockets)");
         Check(peakTiles > 1,

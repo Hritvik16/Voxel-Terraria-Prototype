@@ -294,12 +294,13 @@ namespace VoxelEngine.Simulation
         private GraphicsBuffer _reactOther;
 
         private readonly int[] _wakeScratch;
+        private int3[] _wakeVoxelScratch;
         private int _wakeCount;
 
         /// Requests wait HERE until the GPU mirror can see the edit that caused
         /// them. See FluidWakeQueue for the frozen-fluid bug this fixes.
         private readonly FluidWakeQueue _wakePending;
-        private readonly Func<int, long, bool> _mirrorReady;  // cached: called per pending request per tick
+        private readonly Func<int3, long, bool> _mirrorReady;  // cached: called per pending request per tick
         private TerrainClipmap _mirrorForReadyTest;
 
         // CPU-side half of the §10.4 dump. promote.seen==0 on the GPU has two
@@ -473,6 +474,7 @@ namespace VoxelEngine.Simulation
             _wakeRequests = New(GraphicsBuffer.Target.Structured, maxOpsPerFrame, 4);
             _cb = new CommandBuffer { name = "VE.FluidCA" };
             _wakeScratch = new int[maxOpsPerFrame];
+            _wakeVoxelScratch = new int3[maxOpsPerFrame];
             // MaxWakeDeferTicks: how long a request may wait for its chunk to
             // upload before being released anyway. 120 ticks is far longer than
             // any observed upload lag (a single edited chunk normally clears on
@@ -485,12 +487,19 @@ namespace VoxelEngine.Simulation
             // whatever was in GPU memory. SlotAt in particular MUST start at
             // NONE or CSPromote will believe every cell already owns a slot and
             // silently promote nothing.
-            var noneFill = new int[_regionCellCount];
-            for (int i = 0; i < _regionCellCount; i++) noneFill[i] = -1;
+            // OVER THE WHOLE ALLOCATION, not the region. Under tiling the
+            // buffers are TileCapacity * TileCells, and initialising only the
+            // first _regionCellCount entries would leave the rest as whatever
+            // was in GPU memory -- with SlotAt in particular that means
+            // CSPromote believes every cell already owns a slot and silently
+            // promotes nothing, which is exactly the §3.7 lesson this block
+            // already existed to apply.
+            var noneFill = new int[_cellCount];
+            for (int i = 0; i < _cellCount; i++) noneFill[i] = -1;
             _slotAt.SetData(noneFill);
             _claim.SetData(noneFill);
-            _reacted.SetData(new int[_regionCellCount]);
-            _wakeMark.SetData(new int[_regionCellCount]);
+            _reacted.SetData(new int[_cellCount]);
+            _wakeMark.SetData(new int[_cellCount]);
             _counters.SetData(new uint[4]);
             _slots.SetData(new FluidSlotGpu[_slotCapacity]);
             // Not strictly required (Counters[2] starts at 0, so nothing is read),
@@ -564,12 +573,12 @@ namespace VoxelEngine.Simulation
         /// only escaped via the stale timeout. The Phase 5c hold_paint case
         /// (holding the place button) measured that directly -- 8 voxels placed
         /// where 30 were asked for, 900/120 = the stale interval exactly.
-        private bool IsMirrorReadyForCell(int cell, long stamp)
+        private bool IsMirrorReadyForCell(int3 voxel, long stamp)
         {
             TerrainClipmap m = Mirror;
             if (m == null) return true;      // no mirror at all: nothing to wait for
 
-            int3 chunk = CoordMath.VoxelToChunk(RegionVoxel(cell));
+            int3 chunk = CoordMath.VoxelToChunk(voxel);
 
             // NOT DIRTY => the mirror already holds this chunk's current state,
             // so there is nothing to wait for and the request is ready NOW.
@@ -613,8 +622,26 @@ namespace VoxelEngine.Simulation
         /// are "this cell does not move this tick", never a lost byte.
         public void RequestWake(int3 worldVoxel)
         {
-            if (!InRegion(worldVoxel)) { WakeRejectedOutOfRegion++; return; }
-            if (!_wakePending.Add(RegionIndex(worldVoxel), CurrentMirrorStamp)) { WakeRejectedFull++; return; }
+            // TILE ALLOCATION IS CPU-SIDE, DELIBERATELY (DESIGN_NOTE_7_2 §5.4).
+            // Doing it on the GPU would need an atomic inside CSWakeScan, in the
+            // tick, in the path FluidCA.compute's own header forbids. The CPU
+            // already drives promotion, so an edit into a tile that does not yet
+            // exist creates it here rather than being dropped.
+            if (Tiles != null)
+            {
+                int3 tc = Tiles.TileOf(worldVoxel);
+                if (Tiles.TryGetSlot(tc) == FluidTileMap.NO_TILE &&
+                    Tiles.Acquire(tc) == FluidTileMap.NO_TILE)
+                {
+                    // Pool full: §7.7's guarded no-op. The material stays in
+                    // terrain and CSWakeScan can find it once a tile frees.
+                    WakeRejectedOutOfRegion++;
+                    return;
+                }
+            }
+            else if (!InRegion(worldVoxel)) { WakeRejectedOutOfRegion++; return; }
+
+            if (!_wakePending.Add(worldVoxel, CurrentMirrorStamp)) { WakeRejectedFull++; return; }
             WakeRequestsQueuedTotal++;
         }
 
@@ -629,12 +656,16 @@ namespace VoxelEngine.Simulation
 
         public void RequestWakeRegionCell(int regionCell)
         {
-            if (regionCell < 0 || regionCell >= _regionCellCount) { WakeRejectedOutOfRegion++; return; }
-            if (!_wakePending.Add(regionCell, CurrentMirrorStamp)) { WakeRejectedFull++; return; }
-            WakeRequestsQueuedTotal++;
+            if (regionCell < 0 || regionCell >= _cellCount) { WakeRejectedOutOfRegion++; return; }
+            RequestWake(RegionVoxel(regionCell));
         }
 
-        public bool InRegion(int3 v) => InRegion(v, RegionOriginVoxels, _regionDims);
+        /// Under §7.2's tiled active set this is "the voxel's tile exists",
+        /// not "inside the region box". The box is only an addressing origin for
+        /// the dense path; with tiles the active set IS the resident tiles.
+        public bool InRegion(int3 v) => Tiles != null
+            ? Tiles.SlotForVoxel(v) != FluidTileMap.NO_TILE
+            : InRegion(v, RegionOriginVoxels, _regionDims);
 
         /// Pure form, so a caller can ask the question about a region it does not
         /// hold an instance of -- and so it is unit-testable without a GPU.
@@ -683,14 +714,30 @@ namespace VoxelEngine.Simulation
         public bool SphereFitsInRegion(int3 centre, int radius)
             => SphereFitsInRegion(centre, radius, RegionOriginVoxels, _regionDims);
 
+        /// Cell index for a world voxel, or -1 when the voxel has no cell.
+        /// MUST mirror the shader's RegionIndex exactly in both modes, or the
+        /// CPU and GPU disagree about which cell a wake request names.
         public int RegionIndex(int3 v)
         {
+            if (Tiles != null) return Tiles.CellIndex(v);
             int3 r = v - RegionOriginVoxels;
             return r.x | (r.y << _shiftX) | (r.z << (_shiftX + _shiftY));
         }
 
+        /// Cell index -> world voxel. MUST mirror the shader's RegionVoxel in
+        /// both modes; the two are inverses and a disagreement would put a wake
+        /// request on a different cell than the one that asked for it.
         public int3 RegionVoxel(int index)
         {
+            if (Tiles != null)
+            {
+                int slot = index >> _tileCellShift;
+                int local = index & ((1 << _tileCellShift) - 1);
+                int m = Tiles.TileEdge - 1;
+                int3 inTile = new int3(local & m, (local >> _tileShift) & m,
+                                       local >> (_tileShift + _tileShift));
+                return (Tiles.CoordOfSlot(slot) << _tileShift) + inTile;
+            }
             int mx = _regionDims.x - 1, my = _regionDims.y - 1;
             return new int3(index & mx, (index >> _shiftX) & my,
                             index >> (_shiftX + _shiftY)) + RegionOriginVoxels;
@@ -713,7 +760,20 @@ namespace VoxelEngine.Simulation
             // this releases them on the same tick they were queued, so nothing
             // about existing behaviour changes.
             _mirrorForReadyTest = clipmap;
-            _wakeCount = _wakePending.Collect(_mirrorReady, _wakeScratch, _wakeScratch.Length);
+            // COLLECT VOXELS, CONVERT TO CELLS HERE. The queue is keyed on the
+            // world voxel because a tile slot is not stable across the deferral
+            // window; the cell index is derived now, against the tile set this
+            // very tick is about to upload. A voxel whose tile has since gone is
+            // dropped rather than pointed at another tile's cells.
+            int collected = _wakePending.Collect(_mirrorReady, _wakeVoxelScratch,
+                                                 _wakeVoxelScratch.Length);
+            _wakeCount = 0;
+            for (int i = 0; i < collected; i++)
+            {
+                int cell = RegionIndex(_wakeVoxelScratch[i]);
+                if (cell >= 0 && cell < _cellCount) _wakeScratch[_wakeCount++] = cell;
+                else WakeRejectedOutOfRegion++;
+            }
 
             _ring = (_ring + 1) % RING;          // advance BEFORE binding
             _opCounters[_ring].SetData(_opCountersZero);
@@ -865,14 +925,39 @@ namespace VoxelEngine.Simulation
                 // One command buffer per dispatch => one encoder per kernel.
                 _cb.Clear();
                 _cb.BeginSample(label);
-                _cb.DispatchCompute(_cs, kernel, (threads + 63) / 64, 1, 1);
+                DispatchGrid(kernel, threads);
                 _cb.EndSample(label);
                 Graphics.ExecuteCommandBuffer(_cb);
                 return;
             }
             _cb.BeginSample(label);
-            _cb.DispatchCompute(_cs, kernel, (threads + 63) / 64, 1, 1);
+            DispatchGrid(kernel, threads);
             _cb.EndSample(label);
+        }
+
+        /// Thread groups are capped at 65535 PER DIMENSION. A dense 64^3 region
+        /// is 4096 groups and never came close; a tiled active set of 488 tiles
+        /// x 32768 cells is 250,000, and exceeding the cap TRUNCATES THE
+        /// DISPATCH SILENTLY -- measured as CSIntent placing 3253 claims that
+        /// CSCommit never saw, while promote/intent counters looked healthy.
+        ///
+        /// Dispatches that still fit stay strictly 1D, so the dense path is
+        /// bit-identical: gy = 1 makes LinearThread collapse to id.x.
+        private const int MaxGroupsPerDim = 60000;
+
+        private void DispatchGrid(int kernel, int threads)
+        {
+            int groups = (threads + 63) / 64;
+            int gx = groups, gy = 1;
+            if (groups > MaxGroupsPerDim)
+            {
+                gx = 1024;                                  // 65,536 threads per row
+                gy = (groups + gx - 1) / gx;
+            }
+            // Set INSIDE the command buffer so it is sequenced with THIS
+            // dispatch; _cs.SetInt would apply to whichever executes last.
+            _cb.SetComputeIntParam(_cs, "_DispatchRowThreads", gx * 64);
+            _cb.DispatchCompute(_cs, kernel, gx, gy, 1);
         }
 
         // =====================================================================

@@ -9,11 +9,20 @@
 // decision with no compute device. The end-to-end proof is the Phase 5b rig.
 using System.Collections.Generic;
 using NUnit.Framework;
+using Unity.Mathematics;
 using VoxelEngine.Simulation;
 
 public class FluidWakeQueueTests
 {
-    private static int[] Dest(int n) => new int[n];
+    private static int3[] Dest(int n) => new int3[n];
+
+    /// The queue is keyed on the WORLD VOXEL now, not a cell index -- under
+    /// §7.2's tiled active set a tile's slot is not stable across the deferral
+    /// window, so a stored cell index could address a different tile's cells by
+    /// the time it is released. These tests prove exactly the same claims
+    /// (coalescing, mirror gating, staleness, overflow, capacity) with the key
+    /// type that is now correct; V() keeps each one's identity distinct.
+    private static int3 V(int k) => new int3(k, 0, 0);
 
     [Test]
     public void RequestIsHeld_WhileTheMirrorIsStale_AndReleasedWhenItCatchesUp()
@@ -22,7 +31,7 @@ public class FluidWakeQueueTests
         // immediately, read pre-edit terrain, allocated no slot, and was gone.
         var q = new FluidWakeQueue(64, 120);
         bool mirrorClean = false;
-        q.Add(4242, 0);
+        q.Add(V(4242), 0);
 
         var dst = Dest(8);
         Assert.AreEqual(0, q.Collect((c, st) => mirrorClean, dst, dst.Length),
@@ -35,7 +44,7 @@ public class FluidWakeQueueTests
         mirrorClean = true;                       // LateUpdate uploaded the chunk
         Assert.AreEqual(1, q.Collect((c, st) => mirrorClean, dst, dst.Length),
             "once the mirror is current the request must be released");
-        Assert.AreEqual(4242, dst[0]);
+        Assert.AreEqual(4242, dst[0].x);
         Assert.AreEqual(0, q.PendingCount);
         Assert.AreEqual(1, q.ReleasedReadyTotal);
         Assert.AreEqual(0, q.ReleasedStaleTotal);
@@ -50,11 +59,12 @@ public class FluidWakeQueueTests
         // fails, the fix has changed the behaviour the 5b baseline was measured
         // against and that baseline is no longer comparable.
         var q = new FluidWakeQueue(64, 120);
-        q.Add(1, 0); q.Add(2, 0); q.Add(3, 0);
+        q.Add(V(1), 0); q.Add(V(2), 0); q.Add(V(3), 0);
         var dst = Dest(8);
         Assert.AreEqual(3, q.Collect((c, st) => true, dst, dst.Length));
         Assert.AreEqual(0, q.PendingCount);
-        CollectionAssert.AreEquivalent(new[] { 1, 2, 3 }, new List<int> { dst[0], dst[1], dst[2] });
+        CollectionAssert.AreEquivalent(new[] { 1, 2, 3 },
+            new List<int> { dst[0].x, dst[1].x, dst[2].x });
     }
 
     [Test]
@@ -64,12 +74,12 @@ public class FluidWakeQueueTests
         // ones must go now; the stale ones must wait rather than being dropped
         // alongside them.
         var q = new FluidWakeQueue(64, 120);
-        for (int c = 0; c < 6; c++) q.Add(c, 0);
+        for (int c = 0; c < 6; c++) q.Add(V(c), 0);
         var dst = Dest(16);
-        int n = q.Collect((c, st) => c % 2 == 0, dst, dst.Length);
+        int n = q.Collect((c, st) => c.x % 2 == 0, dst, dst.Length);
         Assert.AreEqual(3, n);
         Assert.AreEqual(3, q.PendingCount);
-        for (int i = 0; i < n; i++) Assert.AreEqual(0, dst[i] % 2, "only ready cells released");
+        for (int i = 0; i < n; i++) Assert.AreEqual(0, dst[i].x % 2, "only ready cells released");
     }
 
     [Test]
@@ -80,7 +90,7 @@ public class FluidWakeQueueTests
         // requests -- which would reintroduce the original bug under exactly
         // the input that found it.
         var q = new FluidWakeQueue(4, 120);
-        for (int i = 0; i < 50; i++) Assert.IsTrue(q.Add(777, 0));
+        for (int i = 0; i < 50; i++) Assert.IsTrue(q.Add(V(777), 0));
         Assert.AreEqual(1, q.PendingCount);
         Assert.AreEqual(1, q.QueuedTotal);
         Assert.AreEqual(49, q.CoalescedTotal);
@@ -88,7 +98,7 @@ public class FluidWakeQueueTests
 
         var dst = Dest(8);
         Assert.AreEqual(1, q.Collect((c, st) => true, dst, dst.Length));
-        Assert.IsTrue(q.Add(777, 0), "after release the same cell may be queued again");
+        Assert.IsTrue(q.Add(V(777), 0), "after release the same cell may be queued again");
         Assert.AreEqual(1, q.PendingCount);
     }
 
@@ -99,14 +109,14 @@ public class FluidWakeQueueTests
         // and silently stop waking that cell -- the very failure being fixed.
         // Release it, and make it VISIBLE rather than a quiet fallback.
         var q = new FluidWakeQueue(64, 3);
-        q.Add(9, 0);
+        q.Add(V(9), 0);
         var dst = Dest(8);
         for (int t = 0; t < 3; t++)
             Assert.AreEqual(0, q.Collect((c, st) => false, dst, dst.Length), $"held at tick {t}");
 
         Assert.AreEqual(1, q.Collect((c, st) => false, dst, dst.Length),
             "after maxDeferTicks the request is released best-effort");
-        Assert.AreEqual(9, dst[0]);
+        Assert.AreEqual(9, dst[0].x);
         Assert.AreEqual(1, q.ReleasedStaleTotal, "and it is counted as stale, not as a normal release");
         Assert.AreEqual(0, q.ReleasedReadyTotal);
         Assert.AreEqual(0, q.PendingCount);
@@ -116,8 +126,8 @@ public class FluidWakeQueueTests
     public void QueueIsBounded_AndOverflowIsCountedNotThrown()
     {
         var q = new FluidWakeQueue(3, 120);
-        Assert.IsTrue(q.Add(1, 0)); Assert.IsTrue(q.Add(2, 0)); Assert.IsTrue(q.Add(3, 0));
-        Assert.IsFalse(q.Add(4, 0), "overflow returns false rather than throwing");
+        Assert.IsTrue(q.Add(V(1), 0)); Assert.IsTrue(q.Add(V(2), 0)); Assert.IsTrue(q.Add(V(3), 0));
+        Assert.IsFalse(q.Add(V(4), 0), "overflow returns false rather than throwing");
         Assert.AreEqual(1, q.RejectedFullTotal);
         Assert.AreEqual(3, q.PendingCount);
     }
@@ -127,21 +137,21 @@ public class FluidWakeQueueTests
     {
         // Partial drain must not silently discard the tail.
         var q = new FluidWakeQueue(64, 120);
-        for (int c = 0; c < 10; c++) q.Add(c, 0);
+        for (int c = 0; c < 10; c++) q.Add(V(c), 0);
         var dst = Dest(4);
         Assert.AreEqual(4, q.Collect((c, st) => true, dst, dst.Length));
         Assert.AreEqual(6, q.PendingCount, "the rest stay queued for the next tick");
-        Assert.AreEqual(6, q.Collect((c, st) => true, new int[16], 16));
+        Assert.AreEqual(6, q.Collect((c, st) => true, new int3[16], 16));
     }
 
     [Test]
     public void Clear_DropsPendingRequestsAndAllowsRequeue()
     {
         var q = new FluidWakeQueue(8, 120);
-        q.Add(5, 0); q.Add(6, 0);
+        q.Add(V(5), 0); q.Add(V(6), 0);
         q.Clear();
         Assert.AreEqual(0, q.PendingCount);
-        Assert.IsTrue(q.Add(5, 0), "membership must be cleared too, or the cell can never requeue");
+        Assert.IsTrue(q.Add(V(5), 0), "membership must be cleared too, or the cell can never requeue");
         Assert.AreEqual(1, q.PendingCount);
     }
 
@@ -165,7 +175,7 @@ public class FluidWakeQueueTests
 
         for (int frame = 0; frame < 30; frame++)
         {
-            q.Add(1234, epoch);               // edit, stamped with the CURRENT epoch
+            q.Add(V(1234), epoch);               // edit, stamped with the CURRENT epoch
             // tick: ready iff the chunk was uploaded strictly after the stamp
             released += q.Collect((c, st) => epoch > st, dst, dst.Length);
             epoch++;                          // the upload pass, after the tick
@@ -190,8 +200,8 @@ public class FluidWakeQueueTests
         // push its own release target forward every frame and never resolve --
         // reintroducing the starvation under a different mechanism.
         var q = new FluidWakeQueue(64, 120);
-        q.Add(7, 10);                          // first edit at epoch 10
-        for (int i = 0; i < 20; i++) q.Add(7, 100 + i);   // later edits, same cell
+        q.Add(V(7), 10);                          // first edit at epoch 10
+        for (int i = 0; i < 20; i++) q.Add(V(7), 100 + i);   // later edits, same cell
         var dst = Dest(4);
 
         // An upload at epoch 11 is later than the FIRST edit and must release it.

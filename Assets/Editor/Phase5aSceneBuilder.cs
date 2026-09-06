@@ -911,4 +911,51 @@ public static class Phase5aSceneBuilder
                      : $"[Phase5aSceneBuilder] FAILED to write {FluidScaleScenePath}");
         if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
     }
+
+    public const string FluidTiledScenePath = "Assets/Scenes/Fluid Tiled.unity";
+
+    /// §7.2's sparse tiled active set -- acceptance. Real world, a tiled CA at
+    /// the SHIPPED radius, and an explosion-scatter stress.
+    [MenuItem("Voxel Engine/Diagnostics/Generate Fluid Tiled Scene")]
+    public static void GenerateFluidTiled()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.62f, 0.70f, 0.78f, 1f);
+        cam.fieldOfView = 65f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 600f;
+        camGo.transform.position = new Vector3(1280f, 9.5f, 1268f);
+
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        SetIfPresent(bo, "_loadRadiusChunks", 0);
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", false);
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var rigGo = new GameObject("FluidTiledRig");
+        var rig = rigGo.AddComponent<FluidTiledRig>();
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+        var ro = new SerializedObject(rig);
+        ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        ro.FindProperty("_tilePoolCap").intValue = 512;
+        ro.FindProperty("_slotCapacity").intValue = 65536;
+        ro.FindProperty("_outputRootFolderName").stringValue = "FluidTiled";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(FluidTiledScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, FluidTiledScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {FluidTiledScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {FluidTiledScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
 }

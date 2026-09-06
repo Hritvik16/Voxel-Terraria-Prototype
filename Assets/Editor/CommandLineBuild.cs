@@ -114,6 +114,25 @@ public static class CommandLineBuild
         DisableAppNap(FLUID_SCALE_OUTPUT_PATH);
     }
 
+    private const string FLUID_TILED_SCENE_PATH = "Assets/Scenes/Fluid Tiled.unity";
+    private const string FLUID_TILED_OUTPUT_PATH = "Builds/FluidTiled.app";
+
+    public static void BuildFluidTiledStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { FLUID_TILED_SCENE_PATH },
+            locationPathName = FLUID_TILED_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] fluid tiled result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(FLUID_TILED_OUTPUT_PATH);
+    }
+
     private const string PHASE6_SANDBOX_SCENE_PATH = "Assets/Scenes/Phase 6 Sandbox.unity";
     private const string PHASE6_SANDBOX_OUTPUT_PATH = "Builds/Phase6Sandbox.app";
 

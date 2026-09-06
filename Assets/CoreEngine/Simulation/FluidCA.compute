@@ -241,6 +241,15 @@ int   _RingShiftY;
 int   _RingShiftZ;
 uint  _ActiveTileCount;
 
+// Threads per DISPATCH ROW. Thread groups are capped at 65535 PER DIMENSION,
+// i.e. ~4.19M threads at 64/group -- fine for a dense 64^3 region (4096 groups)
+// and NOT fine for a tiled active set, where 488 tiles x 32768 cells is 250,000
+// groups. Exceeding it does not fail loudly: the dispatch is silently
+// TRUNCATED, which was measured as CSIntent placing 3253 claims that CSCommit's
+// threads never reached, with every other counter looking healthy. Dispatches
+// that still fit stay 1D (gy = 1), so the dense path is bit-identical.
+int   _DispatchRowThreads;
+
 // ring index -> tile slot, or NONE. Maintained EXACTLY by the CPU (cleared on
 // release), so there is never a stale entry for the GPU to catch.
 StructuredBuffer<int> TileDirectory;
@@ -333,6 +342,10 @@ int3 RegionVoxel(int index)
 /// active tiles are dispatched, so thread i addresses ActiveTileSlots[i >> k].
 /// Conflating them would silently address another tile's cells -- the same
 /// failure shape as §6.2's aliasing bug.
+/// The thread's linear index across a possibly-2D dispatch. With gy = 1 this is
+/// exactly id.x, which is why the dense path is unchanged.
+uint LinearThread(uint3 id) { return id.x + id.y * (uint)_DispatchRowThreads; }
+
 bool CellOfDispatch(uint i, out int cell)
 {
     if (_Tiled == 0)
@@ -471,7 +484,7 @@ void LateralOrder(int3 c, int salt, out int2 dirs[4])
 void CSClear(uint3 id : SV_DispatchThreadID)
 {
     int i;
-    if (!CellOfDispatch(id.x, i)) return;
+    if (!CellOfDispatch(LinearThread(id), i)) return;
     ClaimBuffer[i] = NONE;
     ReactedBuffer[i] = 0;
     WakeMark[i] = 0;
@@ -536,7 +549,7 @@ void CSPromote(uint3 id : SV_DispatchThreadID)
         DebugCounters[17] = SampleVoxel(RegionVoxel(WakeRequests[0]));  // what terrain the GPU actually reads
     }
 
-    uint i = id.x;
+    uint i = LinearThread(id);
     if (i >= _WakeRequestCount) return;
 
     DBG(0);
@@ -616,7 +629,7 @@ int3 FaceOffset(int f)
 [numthreads(64, 1, 1)]
 void CSReact(uint3 id : SV_DispatchThreadID)
 {
-    uint s = id.x;
+    uint s = LinearThread(id);
     if (s >= Counters[0] || s >= _SlotCapacity) return;
 
     FluidSlot slot = FluidSlots[s];
@@ -683,7 +696,7 @@ bool TryClaim(uint s, inout FluidSlot slot, int3 dst)
 [numthreads(64, 1, 1)]
 void CSIntent(uint3 id : SV_DispatchThreadID)
 {
-    uint s = id.x;
+    uint s = LinearThread(id);
     if (s >= Counters[0] || s >= _SlotCapacity) return;
 
     FluidSlot slot = FluidSlots[s];
@@ -778,7 +791,7 @@ void CSIntent(uint3 id : SV_DispatchThreadID)
 void CSCommit(uint3 id : SV_DispatchThreadID)
 {
     int di;
-    if (!CellOfDispatch(id.x, di)) return;
+    if (!CellOfDispatch(LinearThread(id), di)) return;
     uint d = (uint)di;
 
     int s = ClaimBuffer[d];
@@ -848,7 +861,7 @@ void CSCommit(uint3 id : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void CSSweep(uint3 id : SV_DispatchThreadID)
 {
-    uint s = id.x;
+    uint s = LinearThread(id);
     if (s >= Counters[0] || s >= _SlotCapacity) return;
 
     FluidSlot slot = FluidSlots[s];
@@ -903,7 +916,7 @@ void CSSweep(uint3 id : SV_DispatchThreadID)
 [numthreads(64, 1, 1)]
 void CSRecycle(uint3 id : SV_DispatchThreadID)
 {
-    uint s = id.x;
+    uint s = LinearThread(id);
     // Only indices that have ever been handed out can be dead-and-unreturned,
     // and Counters[0] is exactly that high-water mark.
     if (s >= Counters[0] || s >= _SlotCapacity) return;
@@ -947,7 +960,7 @@ void CSFinalize(uint3 id : SV_DispatchThreadID)
 void CSWakeScan(uint3 id : SV_DispatchThreadID)
 {
     int cellIdx;
-    if (!CellOfDispatch(id.x, cellIdx)) return;
+    if (!CellOfDispatch(LinearThread(id), cellIdx)) return;
     uint i = (uint)cellIdx;
     if (SlotAtBuffer[i] != NONE) return;              // already owned
 

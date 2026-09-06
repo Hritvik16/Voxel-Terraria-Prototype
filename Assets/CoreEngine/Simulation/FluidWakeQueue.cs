@@ -60,6 +60,7 @@
 // unchanged. Nothing here alters what gets promoted, only when it is asked.
 
 using System;
+using Unity.Mathematics;
 using System.Collections.Generic;
 
 namespace VoxelEngine.Simulation
@@ -71,13 +72,13 @@ namespace VoxelEngine.Simulation
     {
         private readonly int _capacity;
         private readonly int _maxDeferTicks;
-        private readonly List<int> _cells = new List<int>();
+        private readonly List<int3> _cells = new List<int3>();
         private readonly List<int> _ages = new List<int>();
         /// The mirror's upload epoch AT THE MOMENT THE EDIT HAPPENED. Readiness
         /// is "the chunk has been uploaded since then", which a plain
         /// is-it-dirty test cannot express -- see the header note on why.
         private readonly List<long> _stamps = new List<long>();
-        private readonly HashSet<int> _member = new HashSet<int>();
+        private readonly HashSet<int3> _member = new HashSet<int3>();
 
         /// Requests still waiting for the mirror to catch up.
         public int PendingCount => _cells.Count;
@@ -110,7 +111,17 @@ namespace VoxelEngine.Simulation
         /// made. The request is released once the chunk has been uploaded at a
         /// STRICTLY LATER epoch, because such an upload necessarily contains
         /// the edit.</param>
-        public bool Add(int regionCell, long stamp)
+        /// KEYED ON THE WORLD VOXEL, NOT A CELL INDEX.
+        ///
+        /// Under §7.2's tiled active set a cell index is slot * cellsPerTile +
+        /// offset, and a tile's SLOT is not stable: a request may wait up to
+        /// maxDeferTicks, and the tile can be released and its slot reissued to
+        /// a different tile in that window. A stored cell index would then
+        /// address another tile's cells -- silently, which is the §6.2 aliasing
+        /// failure in a third buffer. The world voxel is stable by definition,
+        /// so the conversion happens at dispatch, against the tile set that is
+        /// actually current.
+        public bool Add(int3 regionCell, long stamp)
         {
             if (_member.Contains(regionCell))
             {
@@ -152,7 +163,7 @@ namespace VoxelEngine.Simulation
         /// wasted promotion attempt, which CSPromote already handles as a
         /// guarded no-op (§7.7). The counter exists so this is visible rather
         /// than a quiet fallback.
-        public int Collect(Func<int, long, bool> isMirrorReady, int[] dest, int destCapacity)
+        public int Collect(Func<int3, long, bool> isMirrorReady, int3[] dest, int destCapacity)
         {
             if (isMirrorReady == null) throw new ArgumentNullException(nameof(isMirrorReady));
             if (dest == null) throw new ArgumentNullException(nameof(dest));
@@ -161,7 +172,7 @@ namespace VoxelEngine.Simulation
 
             for (int i = 0; i < _cells.Count; i++)
             {
-                int cell = _cells[i];
+                int3 cell = _cells[i];
                 int age = _ages[i] + 1;
                 long stamp = _stamps[i];
                 bool ready = isMirrorReady(cell, stamp);
