@@ -262,4 +262,50 @@ public class FluidTileMapTests
             "the tiled active set must be orders of magnitude smaller than the dense one; " +
             "if this ratio is small the design is not buying anything");
     }
+
+    [Test]
+    public void CellIndexAndVoxelOfCell_AreExactInverses()
+    {
+        // THE CPU MIRROR OF THE SHADER'S RegionIndex/RegionVoxel PAIR. A wake
+        // request is produced on the CPU and consumed on the GPU; if the two
+        // directions disagree by one axis the request names a different cell
+        // than the one that asked for it, and both indices are valid so nothing
+        // complains. This is the same class as the TileInChunkOf bug that used
+        // the brick-local helper instead of the chunk-local one.
+        var m = Map(tileEdge: 32, ring: 128, cap: 8);
+        foreach (int3 tile in new[] { new int3(0, 0, 0), new int3(5, 2, 9), new int3(-3, 1, -7) })
+        {
+            Assert.AreNotEqual(FluidTileMap.NO_TILE, m.Acquire(tile));
+            int3 basis = tile << m.TileShift;
+            foreach (int3 off in new[]
+            {
+                new int3(0, 0, 0), new int3(31, 31, 31), new int3(1, 0, 0),
+                new int3(0, 1, 0), new int3(0, 0, 1), new int3(17, 5, 29),
+            })
+            {
+                int3 v = basis + off;
+                int cell = m.CellIndex(v);
+                Assert.AreNotEqual(-1, cell, $"{v} should have a cell");
+                Assert.AreEqual(v, m.VoxelOfCell(cell),
+                    $"round trip must be exact for {v} (cell {cell})");
+            }
+        }
+    }
+
+    [Test]
+    public void TheInverseDistinguishesAxes_NotJustMagnitude()
+    {
+        // A mapping that swapped Y and Z would round-trip a symmetric probe
+        // perfectly and be wrong everywhere else, so the probe is deliberately
+        // asymmetric on all three axes.
+        var m = Map(tileEdge: 32, ring: 128, cap: 4);
+        int3 tile = new int3(2, 6, 11);
+        m.Acquire(tile);
+        int3 v = (tile << m.TileShift) + new int3(3, 17, 28);
+
+        int3 back = m.VoxelOfCell(m.CellIndex(v));
+        Assert.AreEqual(v.x, back.x, "x");
+        Assert.AreEqual(v.y, back.y, "y");
+        Assert.AreEqual(v.z, back.z, "z");
+    }
 }

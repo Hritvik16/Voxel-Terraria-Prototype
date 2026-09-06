@@ -153,6 +153,23 @@ namespace VoxelEngine.Simulation
             return slot * TileCells + local;
         }
 
+        /// Cell index -> world voxel. The inverse of CellIndex, and the CPU
+        /// mirror of the shader's RegionVoxel.
+        ///
+        /// THE TWO DIRECTIONS MUST AGREE EXACTLY. A wake request is produced on
+        /// the CPU and consumed on the GPU; if the mappings disagree by even one
+        /// axis, the request names a different cell than the one that asked for
+        /// it -- silently, because both indices are valid.
+        public int3 VoxelOfCell(int cellIndex)
+        {
+            int slot = cellIndex / TileCells;
+            int local = cellIndex - slot * TileCells;
+            int m = TileEdge - 1;
+            int3 inTile = new int3(local & m, (local >> TileShift) & m,
+                                   local >> (TileShift + TileShift));
+            return (_slotCoord[slot] << TileShift) + inTile;
+        }
+
         // =====================================================================
         // Lifetime
         // =====================================================================

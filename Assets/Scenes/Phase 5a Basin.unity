@@ -119,7 +119,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &85554027
+--- !u!1 &95820172
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -127,39 +127,40 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 85554029}
-  - component: {fileID: 85554028}
+  - component: {fileID: 95820174}
+  - component: {fileID: 95820173}
   m_Layer: 0
-  m_Name: Phase5aAcceptanceRig
+  m_Name: Phase5aBasin
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &85554028
+--- !u!114 &95820173
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 85554027}
+  m_GameObject: {fileID: 95820172}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: d8324ec571c504c9da155be4968f8d7a, type: 3}
+  m_Script: {fileID: 11500000, guid: 079c421e694a94f0fb6632962e37ae18, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Phase5aAcceptanceRig
-  _quietTicksForRest: 12
-  _maxTicksPerScenario: 1500
-  _captureWidth: 1600
-  _captureHeight: 900
-  _outputRootFolderName: Phase5aAcceptance
---- !u!4 &85554029
+  m_EditorClassIdentifier: Assembly-CSharp::Phase5aBasin
+  _bricksX: 8
+  _bricksY: 4
+  _bricksZ: 8
+  _ticksPerSecond: 20
+  _paused: 0
+  _sourceBudget: 250
+--- !u!4 &95820174
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 85554027}
+  m_GameObject: {fileID: 95820172}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -168,7 +169,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &368124579
+--- !u!1 &575721823
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -176,8 +177,8 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 368124581}
-  - component: {fileID: 368124580}
+  - component: {fileID: 575721825}
+  - component: {fileID: 575721824}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -185,13 +186,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!20 &368124580
+--- !u!20 &575721824
 Camera:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 368124579}
+  m_GameObject: {fileID: 575721823}
   m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 2
@@ -236,13 +237,13 @@ Camera:
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
---- !u!4 &368124581
+--- !u!4 &575721825
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 368124579}
+  m_GameObject: {fileID: 575721823}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: -10}
@@ -251,7 +252,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1911131594
+--- !u!1 &1935148402
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -259,40 +260,39 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 1911131596}
-  - component: {fileID: 1911131595}
+  - component: {fileID: 1935148404}
+  - component: {fileID: 1935148403}
   m_Layer: 0
-  m_Name: Phase5aBasin
+  m_Name: Phase5aAcceptanceRig
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1911131595
+--- !u!114 &1935148403
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1911131594}
+  m_GameObject: {fileID: 1935148402}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 079c421e694a94f0fb6632962e37ae18, type: 3}
+  m_Script: {fileID: 11500000, guid: d8324ec571c504c9da155be4968f8d7a, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Phase5aBasin
-  _bricksX: 8
-  _bricksY: 4
-  _bricksZ: 8
-  _ticksPerSecond: 20
-  _paused: 0
-  _sourceBudget: 250
---- !u!4 &1911131596
+  m_EditorClassIdentifier: Assembly-CSharp::Phase5aAcceptanceRig
+  _quietTicksForRest: 12
+  _maxTicksPerScenario: 1500
+  _captureWidth: 1600
+  _captureHeight: 900
+  _outputRootFolderName: Phase5aAcceptance
+--- !u!4 &1935148404
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1911131594}
+  m_GameObject: {fileID: 1935148402}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -305,6 +305,6 @@ Transform:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 368124581}
-  - {fileID: 1911131596}
-  - {fileID: 85554029}
+  - {fileID: 575721825}
+  - {fileID: 95820174}
+  - {fileID: 1935148404}
