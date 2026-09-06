@@ -322,3 +322,86 @@ Two things are deliberately **not** claimed by this note:
 - that 512 tiles is the right cap. It is derived from §2.5's target with ~33×
   headroom, and like `BRICK_POOL_HIGH_WATER_FRACTION` before it, it is an
   assumption until a rig drives it to its limit.
+
+---
+
+## 9. A GAP IN THIS NOTE, found while implementing it
+
+**Added 2026-09-05, after §1–8 were committed and the CPU half was built.**
+The note above is incomplete, and the omission is structural rather than
+cosmetic. Recording it here rather than quietly patching it, because the shape
+of the miss matters as much as the miss.
+
+### 9.1 The gap
+
+§4.1 says memory becomes O(fluid present) because *"only tiles that contain
+fluid exist"*. That is true, and it is also the problem: **a sparse tile set
+does not know where dormant fluid is.**
+
+The dense region never had to know. `CSWakeScan` dispatches over *every cell in
+the region* every tick, so fluid that settled long ago is re-examined for free
+whenever the radius reaches it — which is exactly how §7.4's *"on approach it
+wakes"* is delivered today. Remove the cells that hold no live slot and that
+sweep no longer covers them: a settled pool whose tile was released is invisible
+to the GPU, and nothing will ever ask for it back.
+
+This is the **same failure shape** as the §7.4 bug fixed earlier this week — a
+cell that needs waking and nothing asks — reintroduced by the very structure
+meant to make the radius affordable. §5.4 already noted a one-tick latency at
+tile edges and treated that as the only lifetime consequence. It is not.
+
+### 9.2 Why the obvious sources cannot answer it
+
+`AirMip` (8.7) and `OccupancyMask` (8.8) both summarise **air versus not-air**.
+Stone and water read identically in both. Neither can answer "does this brick
+contain mobile material", so neither closes the gap. This was checked, not
+assumed.
+
+Scanning terrain directly is not viable either: at r = 1280 and T = 32 the
+radius covers ~512,000 tiles, and testing each by reading its voxels is the
+O(r³) cost the design exists to remove.
+
+### 9.3 The fix, named precisely — NOT built
+
+**One `ulong` per chunk.** A chunk is 128³ voxels; at T = 32 that is exactly
+4×4×4 = **64 tiles**, one bit each. Bit *i* set means "tile *i* of this chunk
+contains at least one mobile voxel".
+
+- **Maintained where the voxels are already being touched**: generation walks
+  every voxel of a new chunk, `ChunkStore.SetVoxel` is the single terrain writer
+  (a hard invariant, so there is exactly one site), and delta-apply replays
+  writes through the same path. No new scan anywhere.
+- **Queried cheaply**: "which tiles in the radius hold fluid" becomes a walk of
+  the ≤729 resident chunks reading one `ulong` each, then expanding set bits.
+  ~729 reads per re-centre, against 512,000 tile probes.
+- **T = 32 is what makes it one word.** T = 16 gives 8³ = 512 tiles per chunk,
+  which needs eight `ulong`s — still cheap, but the 64-bit fit is a real
+  argument for T = 32 that §4.2 reached for unrelated reasons.
+
+This is genuinely small, but it touches `Chunk`'s layout (Appendix A), the
+generator, `SetVoxel`, and delta-apply — four places, one of them a struct
+layout CLAUDE.md flags as needing care. It is *additional scope*, not a detail
+of the tiling change, and it belongs in the plan explicitly rather than being
+discovered mid-implementation, which is what happened.
+
+### 9.4 Status, stated plainly
+
+- **Built and proven:** `FluidTileMap` — the sparse directory, the pool, the
+  §3.10 immediate-free rule, the §6.2 aliasing guard, the chunk-alignment
+  guarantee, and the bounded-footprint arithmetic. 14 tests, two silent-failure
+  classes mutation-checked.
+- **Written, then REVERTED:** the shader addressing (`InRegion`, `RegionIndex`,
+  `RegionVoxel`, `CellOfDispatch`, the `_HomeShift` change, three rewired
+  kernels). It was behind a `_Tiled == 0` uniform branch and therefore inert,
+  but it had never been compiled by a shader build or exercised by any rig, and
+  an unverified path in the shipped CA that no test touches is precisely the
+  kind of thing that rots. `FluidCA.compute` is byte-identical to its proven
+  state.
+- **Not built:** the per-chunk fluid-tile mask of §9.3, and therefore the tiled
+  substrate as a whole.
+
+**The tiling design is not withdrawn.** §1–8 stand, including the two code facts
+that de-risk it (the op-list is already world-addressed; the mapping is three
+functions) and the rejections of (b) and (c). What changed is that the work has
+a prerequisite nobody had identified, and the honest order is: build the
+per-chunk fluid mask first, with its own tests, then the substrate.
