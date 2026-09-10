@@ -237,6 +237,12 @@ public class FluidABBenchmark : MonoBehaviour
         int liveMin = int.MaxValue, liveMax = 0; long liveSum = 0;
         long appliedAtStart = _applied;
 
+        // STEP 1: is the upload blowout CALL COUNT or BYTE VOLUME?
+        // Measured, not read off the type of _dirtyChunks.
+        long markCallsAtStart = Clip.MarkDirtyCallsTotal;
+        long markCoalescedAtStart = Clip.MarkDirtyCoalescedTotal;
+        long uploadBytesSum = 0, uploadChunksSum = 0, brickRunsSum = 0, brickSlotsSum = 0;
+
         for (int i = 0; i < TargetSamples; i++)
         {
             // Residency is refreshed on the same cadence the acceptance rig
@@ -257,6 +263,14 @@ public class FluidABBenchmark : MonoBehaviour
             liveMin = math.min(liveMin, live);
             liveMax = math.max(liveMax, live);
             liveSum += live;
+
+            var us = Phase4Bootstrapper.Streamer != null
+                ? Phase4Bootstrapper.Streamer.LastUploadStats
+                : default;
+            uploadBytesSum += us.bytesUploaded;
+            uploadChunksSum += us.chunksUploaded;
+            brickRunsSum += us.brickRuns;
+            brickSlotsSum += us.brickSlots;
 
             yield return null;
             frameMs.Add(Time.unscaledDeltaTime * 1000.0);
@@ -297,6 +311,12 @@ public class FluidABBenchmark : MonoBehaviour
             _readback.ReadbackErrorsTotal.ToString(CultureInfo.InvariantCulture),
             _readback.StaleOpsDropped.ToString(CultureInfo.InvariantCulture),
             _readback.OpsDroppedNonResident.ToString(CultureInfo.InvariantCulture),
+            (Clip.MarkDirtyCallsTotal - markCallsAtStart).ToString(CultureInfo.InvariantCulture),
+            (Clip.MarkDirtyCoalescedTotal - markCoalescedAtStart).ToString(CultureInfo.InvariantCulture),
+            (uploadBytesSum / Math.Max(1, frameMs.Count)).ToString(CultureInfo.InvariantCulture),
+            (uploadChunksSum / Math.Max(1, frameMs.Count)).ToString(CultureInfo.InvariantCulture),
+            (brickRunsSum / Math.Max(1, frameMs.Count)).ToString(CultureInfo.InvariantCulture),
+            (brickSlotsSum / Math.Max(1, frameMs.Count)).ToString(CultureInfo.InvariantCulture),
         }));
 
         string csv = Path.Combine(outDir, "results.csv");
@@ -315,7 +335,9 @@ public class FluidABBenchmark : MonoBehaviour
         "pump_p50_ms,pump_p99_ms,pump_mean_ms," +
         "live_slots_mean,live_slots_min,live_slots_max," +
         "dispatch_cells_mean,active_tiles_mean,voxel_writes,ops_total,slots_ever," +
-        "dense_region_cells,dense_region_dims,readback_errors,stale_ops,nonresident_ops";
+        "dense_region_cells,dense_region_dims,readback_errors,stale_ops,nonresident_ops," +
+        "markdirty_calls,markdirty_coalesced,upload_bytes_mean,upload_chunks_mean," +
+        "brick_runs_mean,brick_slots_mean";
 
     private void OnDestroy() { _readback?.Dispose(); _fluid?.Dispose(); }
 

@@ -803,6 +803,9 @@ public class Phase4AcceptanceRig : MonoBehaviour
     private readonly List<double> _packMs = new List<double>();
     private readonly List<double> _brickSetMs = new List<double>();
     private readonly List<double> _packUpMs = new List<double>();
+    /// The phase that was invisible. See UploadStats.sortMs.
+    private readonly List<double> _sortMs = new List<double>();
+    private readonly List<int> _dirtySetSize = new List<int>();
     private readonly List<double> _cascadeMs = new List<double>();
     private readonly List<int> _setDataCalls = new List<int>();
     private readonly List<int> _brickSlots = new List<int>();
@@ -1108,6 +1111,8 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _packMs.Add(u.packRegionMs);
         _brickSetMs.Add(u.brickSetMs);
         _packUpMs.Add(u.packUploadMs);
+        _sortMs.Add(u.sortMs);
+        _dirtySetSize.Add(u.dirtySetSize);
         _cascadeMs.Add(st.LastCascadeMs);
         _setDataCalls.Add(u.setDataCalls);
         _brickSlots.Add(u.brickSlots);
@@ -1525,8 +1530,28 @@ public class Phase4AcceptanceRig : MonoBehaviour
         int maxBytes = 0; foreach (int b in bytes) if (b > maxBytes) maxBytes = b;
         double drainMax = 0; foreach (double d in drain) if (d > drainMax) drainMax = d;
 
+        // STEP 1: CALL COUNT or BYTE VOLUME? max-bytes alone cannot tell them
+        // apart. Terrain-only and combined-load runs had almost the SAME max
+        // bytes (2.61 vs 3.00 MB) while upload_ms p50 went 0.001 -> 6.841, so
+        // the question is not how big an upload is but how OFTEN one happens
+        // and whether the byte cap is binding every frame.
+        long byteSum = 0; int framesWithUpload = 0;
+        foreach (int b in bytes) { byteSum += b; if (b > 0) framesWithUpload++; }
+        double meanBytes = bytes.Count > 0 ? (double)byteSum / bytes.Count : 0;
+        double pctFramesUploading = bytes.Count > 0 ? 100.0 * framesWithUpload / bytes.Count : 0;
+        int capBoundFrames = 0;
+        foreach (int b in bytes)
+            if (b >= EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME) capBoundFrames++;
+
         Line($"{label}: upload_ms p50={p50:F3} p99={p99:F3} max={max:F3} over {ms.Count} frames; " +
              $"drain_ms max={drainMax:F3}; max upload bytes/frame={maxBytes} ({maxBytes / 1048576.0:F2} MB)");
+        Line($"{label}: MEAN upload bytes/frame={meanBytes:F0} ({meanBytes / 1048576.0:F2} MB); " +
+             $"frames doing ANY upload {pctFramesUploading:F1}%; frames AT the byte cap {capBoundFrames} " +
+             $"({(bytes.Count > 0 ? 100.0 * capBoundFrames / bytes.Count : 0):F1}%)");
+        Line($"{label}: MarkDirty calls {Phase4Bootstrapper.Clipmap.MarkDirtyCallsTotal} of which " +
+             $"{Phase4Bootstrapper.Clipmap.MarkDirtyCoalescedTotal} coalesced into an already-dirty chunk " +
+             $"({(Phase4Bootstrapper.Clipmap.MarkDirtyCallsTotal > 0 ? 100.0 * Phase4Bootstrapper.Clipmap.MarkDirtyCoalescedTotal / Phase4Bootstrapper.Clipmap.MarkDirtyCallsTotal : 0):F2}%); " +
+             $"dirty set now {Phase4Bootstrapper.Clipmap.DirtyCount}");
 
         Check(p99 <= 1.0,
             $"steady-state terrain upload p99 {p99:F3}ms <= 1.0ms (§4.3 'terrain upload <=1.0ms/frame CPU')");
@@ -1586,6 +1611,8 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _report.AppendLine($"    pack region     {Pct(_packMs, 0.5f),8:F2} / {Pct(_packMs, 0.99f),8:F2}");
         _report.AppendLine($"    brick bodies    {Pct(_brickSetMs, 0.5f),8:F2} / {Pct(_brickSetMs, 0.99f),8:F2}");
         _report.AppendLine($"    packed mip up   {Pct(_packUpMs, 0.5f),8:F2} / {Pct(_packUpMs, 0.99f),8:F2}");
+        _report.AppendLine($"    dirty-set SORT  {Pct(_sortMs, 0.5f),8:F2} / {Pct(_sortMs, 0.99f),8:F2}"
+                           + $"   <-- was untimed; dirty set p50 {IPct(_dirtySetSize, 0.5f)} p99 {IPct(_dirtySetSize, 0.99f)} chunks");
         _report.AppendLine($"    cascades        {Pct(_cascadeMs, 0.5f),8:F2} / {Pct(_cascadeMs, 0.99f),8:F2}");
         _report.AppendLine($"      - downsample  {Pct(_cascadeDownMs, 0.5f),8:F2} / {Pct(_cascadeDownMs, 0.99f),8:F2}");
         _report.AppendLine($"      - gpu writes  {Pct(_cascadeWriteMs, 0.5f),8:F2} / {Pct(_cascadeWriteMs, 0.99f),8:F2}");
