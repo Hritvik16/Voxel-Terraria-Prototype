@@ -151,6 +151,47 @@ namespace VoxelEngine.Simulation
         /// FluidReadbackInvariantTests pins the default at 1.
         public static int MaxFramesInFlight { get; set; } = MaxFramesInFlightDefault;
 
+        /// §8.5's FRAME BUDGET, applied to the op-list apply.
+        ///
+        /// PumpAndApply used to drain a whole batch in one shot. Measured last
+        /// session: p50 ~0.0006 ms (the median frame applies nothing, because
+        /// the readback lands on only some frames) but p99 0.52 / 1.84 / 6.71 /
+        /// 21.98 ms across the 500 / 2,000 / 8,000 / 32,000 volume ladder. At
+        /// 8,000 live voxels the burst alone is longer than a whole 60 fps
+        /// frame, on the main thread. The cost is not the average, it is that
+        /// the work arrives all at once.
+        ///
+        /// Same shape as DestructionReducer's budget (§8.5): bound the work per
+        /// frame, carry the remainder to the next one. NOTHING IS DROPPED --
+        /// carried ops are re-validated when they are finally applied, exactly
+        /// as they would have been had they applied immediately, so an op whose
+        /// chunk was evicted while it waited hits §9.4's residency guard and is
+        /// counted as OpsDroppedNonResident like any other. That is the
+        /// existing contract, not a new rule.
+        public const int MaxOpsAppliedPerFrameDefault = 4096;
+
+        /// Settable so a rig can restore the old unbounded behaviour
+        /// (int.MaxValue) and demonstrate the burst returning. Nothing on a
+        /// shipped path may raise it.
+        public static int MaxOpsAppliedPerFrame { get; set; } = MaxOpsAppliedPerFrameDefault;
+
+        // The carry-forward buffer. One batch at most: CanIssue refuses to let
+        // the caller tick again until it is drained, so this is bounded by
+        // MaxOpsPerFrame and cannot grow without limit however far behind the
+        // CPU falls. Falling behind slows the CA down; it never loses an op.
+        private FluidWriteOp[] _pending = new FluidWriteOp[0];
+        /// The index arithmetic lives in OpDrainCursor so EditMode can pin the
+        /// exactly-once and ordering guarantees; see that file's header.
+        private OpDrainCursor _cursor;
+
+        /// Ops waiting to be applied on a later frame.
+        public int PendingOps => _cursor.Remaining;
+        public int MaxPendingSeen { get; private set; }
+        /// Times a batch could not be finished in the frame it landed.
+        public long BatchesCarriedForward { get; private set; }
+        /// Frames on which the budget actually bit.
+        public long BudgetLimitedFrames { get; private set; }
+
         /// BACK-PRESSURE. The caller must not run another CA tick while this is
         /// false. Ring-buffering the op-list alone did NOT fix the readback
         /// errors, and this is why: the ring advanced once per TICK while the
@@ -159,7 +200,13 @@ namespace VoxelEngine.Simulation
         /// outstanding. Gating the whole tick -- not just the issue -- keeps
         /// ring advance and queue depth in lockstep, which is the actual
         /// invariant: a slot is reused only after its own readback has landed.
-        public bool CanIssue => _inFlight.Count < MaxFramesInFlight;
+        /// Extended for the frame budget: a tick is also refused while ops are
+        /// still queued from the LAST batch. Without this the CA would keep
+        /// producing while the CPU drained, and the carry-forward buffer would
+        /// grow without bound -- which is how "never drop an op" turns into an
+        /// allocation leak. Throttling the producer is the bounded answer, and
+        /// it is the same back-pressure this property already existed to apply.
+        public bool CanIssue => _inFlight.Count < MaxFramesInFlight && PendingOps == 0;
 
         /// Invoked for every voxel the op-list applies. EXISTS BECAUSE
         /// ChunkStore.SetVoxel marks the CHUNK dirty but TerrainClipmap keeps a
@@ -245,23 +292,35 @@ namespace VoxelEngine.Simulation
                 }
                 if (!f.OpsReq.done) break;
 
+                // Do not take another batch while one is still draining --
+                // order across batches must hold, and the carry buffer holds
+                // exactly one batch by design.
+                if (PendingOps > 0) break;
+
                 _inFlight.Dequeue();
                 // A BATCH CAME BACK. That is what "not stale" means -- see the
                 // property's comment. An empty op-list is a HEALTHY readback
                 // reporting that nothing moved, not a stalled one.
                 FramesSinceLastApplied = 0;
-                applied += Apply(f);
+                StagePending(f);
             }
+
+            applied += DrainPending(MaxOpsAppliedPerFrame);
             return applied;
         }
 
-        private int Apply(InFlight f)
+        /// Copies a landed batch into the carry-forward buffer.
+        ///
+        /// IT MUST COPY. The NativeArray from GetData is only valid while the
+        /// request is alive, and the whole point of carrying forward is to
+        /// apply some of it after the request is gone. Reading it next frame
+        /// would be a use-after-free that happens to usually work.
+        private void StagePending(InFlight f)
         {
             NativeArray<FluidWriteOp> all = f.OpsReq.GetData<FluidWriteOp>();
             int opCount = all.Length > 0 ? all[0].dx : 0;   // element 0 is the header
-            int wakeCount = 0;
 
-            if (opCount >= _sim.MaxOpsPerFrame || wakeCount >= _sim.MaxOpsPerFrame)
+            if (opCount >= _sim.MaxOpsPerFrame)
             {
                 // The append buffer filled. Ops beyond the cap were dropped by
                 // the GPU, which is a MOTION loss, not a mass loss: the terrain
@@ -269,19 +328,48 @@ namespace VoxelEngine.Simulation
                 // still exactly where it was. Counted rather than hidden.
                 AppendOverflowFramesTotal++;
                 opCount = Math.Min(opCount, _sim.MaxOpsPerFrame);
-                wakeCount = Math.Min(wakeCount, _sim.MaxOpsPerFrame);
             }
 
             OpsLastFrame = opCount;
-            WakeCellsLastFrame = wakeCount;
+            WakeCellsLastFrame = 0;
             OpsTotal += opCount;
             if (opCount > PeakOpsInAFrame) PeakOpsInAFrame = opCount;
 
-            if (opCount > 0)
+            int staged = Math.Min(opCount, Math.Max(0, all.Length - 1));
+            if (_pending.Length < staged) _pending = new FluidWriteOp[Math.Max(staged, 1024)];
+            // +1 skips the header, so index i of _pending is op i of the batch
+            // and ORDER IS PRESERVED EXACTLY -- the drain walks it front to
+            // back and never reorders, which is what keeps two writes to the
+            // same voxel resolving the way the CA intended.
+            for (int i = 0; i < staged; i++) _pending[i] = all[i + 1];
+            _cursor.Stage(staged);
+            if (PendingOps > MaxPendingSeen) MaxPendingSeen = PendingOps;
+        }
+
+        /// Applies at most `budget` ops from the front of the carry buffer.
+        private int DrainPending(int budget)
+        {
+            if (_cursor.IsEmpty) return 0;
+            bool carries = _cursor.WouldCarry(budget);
+            bool firstSlice = _cursor.Head == 0;
+            if (!_cursor.Take(budget, out int from, out int to)) return 0;
+            if (carries) { BudgetLimitedFrames++; if (firstSlice) BatchesCarriedForward++; }
+            return ApplyRange(from, to);
+        }
+
+        /// Applies _pending[from, to). Every guard below is UNCHANGED from
+        /// when this drained a whole batch in one call -- the budget decides
+        /// HOW MANY ops run this frame, never WHICH ops are valid. A carried
+        /// op is re-validated at the moment it applies, which is the same rule
+        /// as before; waiting a frame simply gives terrain more chance to have
+        /// moved under it, and that is what the guards are for.
+        private int ApplyRange(int from, int to)
+        {
+            int appliedOps = 0;
             {
-                for (int i = 0; i < opCount && (i + 1) < all.Length; i++)
+                for (int i = from; i < to; i++)
                 {
-                    FluidWriteOp op = all[i + 1];          // +1: skip the header
+                    FluidWriteOp op = _pending[i];
 
                     // RE-VALIDATE AGAINST CURRENT TERRAIN BEFORE APPLYING.
                     // The op was decided on the GPU 1+ frames ago; an edit may
@@ -353,10 +441,11 @@ namespace VoxelEngine.Simulation
                         _sim.RequestWakeNeighbourhood(op.Dst);
                         if (op.HasSrc) _sim.RequestWakeNeighbourhood(op.Src);
                     }
+                    appliedOps++;
                 }
             }
 
-            return opCount;
+            return appliedOps;
         }
 
         /// Blocks until every outstanding readback has landed and been applied.
@@ -366,14 +455,27 @@ namespace VoxelEngine.Simulation
         /// an ASYNC readback.
         public int DrainBlocking()
         {
-            int applied = 0;
+            // Anything the per-frame budget carried over must go first, or
+            // "blocking drain" would leave the oldest ops queued behind the
+            // newest batch and break the ordering it is here to settle.
+            int applied = DrainPending(int.MaxValue);
             while (_inFlight.Count > 0)
             {
                 InFlight f = _inFlight.Peek();
                 f.OpsReq.WaitForCompletion();
                 _inFlight.Dequeue();
                 if (!f.OpsReq.hasError)
-                    applied += Apply(f);
+                {
+                    // UNBUDGETED HERE, DELIBERATELY. DrainBlocking exists so a
+                    // rig can compare a SETTLED state against the CPU oracle
+                    // (§7.8); leaving ops carried over would make "settled"
+                    // mean "settled except for a few thousand ops still
+                    // queued", which is exactly the ambiguity it exists to
+                    // remove. It is already documented as never for a shipped
+                    // frame.
+                    StagePending(f);
+                    applied += DrainPending(int.MaxValue);
+                }
                 else
                 {
                     if (ReadbackErrorsTotal == 0)

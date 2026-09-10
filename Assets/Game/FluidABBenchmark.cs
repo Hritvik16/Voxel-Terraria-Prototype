@@ -135,6 +135,17 @@ public class FluidABBenchmark : MonoBehaviour
             Application.Quit(2); yield break;
         }
 
+        // -fluidopbudget <n>, or "off" for the pre-budget behaviour. Exists so
+        // the burst can be shown RETURNING when the cap is removed -- a fix
+        // whose absence cannot be demonstrated has not been shown to be the
+        // thing that helped.
+        string budgetArg = ArgValue("-fluidopbudget");
+        if (!string.IsNullOrEmpty(budgetArg))
+        {
+            FluidOpListReadback.MaxOpsAppliedPerFrame =
+                budgetArg == "off" ? int.MaxValue : int.Parse(budgetArg, CultureInfo.InvariantCulture);
+        }
+
         Screen.SetResolution(1920, 1080, false);
         QualitySettings.vSyncCount = 0;
         Application.targetFrameRate = -1;   // a cap would floor the measurement
@@ -317,6 +328,10 @@ public class FluidABBenchmark : MonoBehaviour
             (uploadChunksSum / Math.Max(1, frameMs.Count)).ToString(CultureInfo.InvariantCulture),
             (brickRunsSum / Math.Max(1, frameMs.Count)).ToString(CultureInfo.InvariantCulture),
             (brickSlotsSum / Math.Max(1, frameMs.Count)).ToString(CultureInfo.InvariantCulture),
+            FluidOpListReadback.MaxOpsAppliedPerFrame.ToString(CultureInfo.InvariantCulture),
+            _readback.BudgetLimitedFrames.ToString(CultureInfo.InvariantCulture),
+            _readback.BatchesCarriedForward.ToString(CultureInfo.InvariantCulture),
+            _readback.MaxPendingSeen.ToString(CultureInfo.InvariantCulture),
         }));
 
         string csv = Path.Combine(outDir, "results.csv");
@@ -337,7 +352,8 @@ public class FluidABBenchmark : MonoBehaviour
         "dispatch_cells_mean,active_tiles_mean,voxel_writes,ops_total,slots_ever," +
         "dense_region_cells,dense_region_dims,readback_errors,stale_ops,nonresident_ops," +
         "markdirty_calls,markdirty_coalesced,upload_bytes_mean,upload_chunks_mean," +
-        "brick_runs_mean,brick_slots_mean";
+        "brick_runs_mean,brick_slots_mean," +
+        "op_budget,budget_limited_frames,batches_carried,max_pending";
 
     private void OnDestroy() { _readback?.Dispose(); _fluid?.Dispose(); }
 
