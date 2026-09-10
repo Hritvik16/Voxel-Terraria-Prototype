@@ -836,7 +836,10 @@ public class Phase4AcceptanceRig : MonoBehaviour
     private FluidTileMap _fluidTiles;
     private long _fluidApplied;
     private int _fluidFrame;
-    private int3 _fluidLastSeedChunk = new int3(int.MinValue, 0, 0);
+    private int _fluidLastSeedFrame = -100000;
+    /// Minimum frames between top-ups. ~2 s at 60 fps: long enough that a
+    /// single seed has time to spread and register before another is judged.
+    private const int FluidReseedMinFrames = 120;
     private readonly System.Diagnostics.Stopwatch _swFluidSubmit = new System.Diagnostics.Stopwatch();
     private readonly System.Diagnostics.Stopwatch _swFluidPump = new System.Diagnostics.Stopwatch();
     private readonly List<double> _fluidSubmitMs = new List<double>();
@@ -925,7 +928,7 @@ public class Phase4AcceptanceRig : MonoBehaviour
         // SetBox is INCLUSIVE on both bounds, so hi is lo + side - 1.
         _fluidEdits.SetBox(lo, lo + new int3(side - 1, side - 1, side - 1), Materials.Water);
         _fluidReseeds++;
-        _fluidLastSeedChunk = CoordMath.VoxelToChunk(camVox);
+        _fluidLastSeedFrame = _fluidFrame;
     }
 
     private static int FluidSurfaceY(ChunkStore store, int x, int z)
@@ -957,10 +960,25 @@ public class Phase4AcceptanceRig : MonoBehaviour
                                        _fluidSim.ActiveRadiusVoxels, _fluidSim.SleepRadiusVoxels);
         }
 
-        // Re-seed when the camera enters a new chunk. NOT every frame: a
-        // per-frame SetBox would be an edit benchmark wearing a fluid costume.
-        int3 camChunk = CoordMath.VoxelToChunk(camVox);
-        if (!camChunk.Equals(_fluidLastSeedChunk)) SeedFluidNearCamera(cam, "chunk change");
+        // RE-SEED TO HOLD A TARGET LOAD, not on every chunk change.
+        //
+        // Chunk-change seeding was the first version and it was wrong: at 60
+        // m/s the camera crosses a chunk boundary about five times a second,
+        // so a multi-minute run re-seeded 320 times and dumped 2.5 MILLION
+        // voxels into the world. Slots pinned at the 65,536 cap for the whole
+        // run, 4.7 million pool exhaustions, 27.8 million voxel writes. That
+        // is a flood, not "a meaningful live fluid load", and every number it
+        // produced described the flood rather than the load.
+        //
+        // Two conditions now, both required: the live population has actually
+        // fallen below half the target (so we top up rather than pile on), and
+        // a minimum interval has passed (so a transient dip cannot trigger a
+        // burst of seeds). Between them the load stays near the requested
+        // figure instead of running away.
+        _fluidSim.ReadSlotCounters(out uint liveNow, out uint _unused);
+        bool depleted = liveNow < (uint)(_fluidLoadVoxels / 2);
+        bool intervalPassed = _fluidFrame - _fluidLastSeedFrame >= FluidReseedMinFrames;
+        if (depleted && intervalPassed) SeedFluidNearCamera(cam, "topping up");
 
         _swFluidSubmit.Restart();
         if (_fluidReadback.CanIssue) { _fluidSim.Tick(Phase4Bootstrapper.Clipmap); _fluidReadback.IssueReadback(0); }
@@ -997,7 +1015,8 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _report.AppendLine("fluid; the GPU CA's own share of the frame is NOT separated out and is");
         _report.AppendLine("not claimed against §2.2's <=3.5 ms.");
         _report.AppendLine();
-        _report.AppendLine($"  requested load        {_fluidLoadVoxels} voxels, re-seeded {_fluidReseeds}x on chunk change");
+        _report.AppendLine($"  requested load        {_fluidLoadVoxels} voxels, topped up {_fluidReseeds}x " +
+                           $"(only when live fell below half target, min {FluidReseedMinFrames} frames apart)");
         _report.AppendLine($"  GPU active set        {_fluidSim.GpuActiveSetBytes() / 1048576.0:F1} MB " +
                            $"(whole sim {_fluidSim.GpuAllocatedBytes() / 1048576.0:F1} MB)");
         _report.AppendLine($"  live slots            p50 {IPct(_fluidLiveSlots, 0.5f)}  p99 {IPct(_fluidLiveSlots, 0.99f)}  max {IMax(_fluidLiveSlots)}");
@@ -1016,6 +1035,13 @@ public class Phase4AcceptanceRig : MonoBehaviour
             "a dormant pool would make this gate silently identical to the terrain-only run");
         Check(_fluidReadback.ReadbackErrorsTotal == 0,
             $"no op-list readback errors under combined load ({_fluidReadback.ReadbackErrorsTotal})");
+        // THE OTHER HALF OF "is this the load we asked for". A dormant pool
+        // fails the check above; a runaway flood passes it while describing
+        // something else entirely, and that is what the first run did.
+        Check(IPct(_fluidLiveSlots, 0.5f) < _fluidSim.SlotCapacity,
+            $"the load stayed BOUNDED rather than saturating the slot pool " +
+            $"(p50 {IPct(_fluidLiveSlots, 0.5f)} of {_fluidSim.SlotCapacity}) -- " +
+            "a run pinned at the cap measures pool exhaustion, not the requested load");
     }
 
     private static int IPct(List<int> xs, float q)
