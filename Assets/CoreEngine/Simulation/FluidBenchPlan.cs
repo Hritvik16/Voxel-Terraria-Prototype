@@ -182,14 +182,14 @@ namespace VoxelEngine.Simulation
         /// through each other and merge, which is the one thing the scatter
         /// ladder must not let happen.
         ///
-        /// Each pocket is the closest cube to TargetVoxels/Pockets, so the
-        /// TOTAL placed is usually a little off the target. That is reported
-        /// rather than corrected: forcing an exact total would make pockets
-        /// different sizes, and then the ladder varies two things at once.
+        /// Every pocket is the SAME shape, sized by PocketShape to land close to
+        /// TargetVoxels/Pockets. Uniform pockets matter more than an exact
+        /// total: if pockets differed in size the ladder would vary two things
+        /// at once. The small residual error is reported, not hidden.
         public static FluidBenchPocket[] Layout(FluidBenchConfig cfg, int3 centre, int surfaceY)
         {
             int perPocket = Math.Max(1, cfg.TargetVoxels / cfg.Pockets);
-            int side = Math.Max(1, (int)Math.Round(Math.Pow(perPocket, 1.0 / 3.0)));
+            int3 shape = PocketShape(perPocket);
 
             var pockets = new FluidBenchPocket[cfg.Pockets];
             int cols = (int)Math.Ceiling(Math.Sqrt(cfg.Pockets));
@@ -205,13 +205,32 @@ namespace VoxelEngine.Simulation
                 int gx = i % cols, gz = i / cols;
                 pockets[i] = new FluidBenchPocket
                 {
-                    Lo = new int3(originX + gx * PocketSpacingVoxels - side / 2,
+                    Lo = new int3(originX + gx * PocketSpacingVoxels - shape.x / 2,
                                   surfaceY + DropHeightVoxels,
-                                  originZ + gz * PocketSpacingVoxels - side / 2),
-                    Size = new int3(side, side, side),
+                                  originZ + gz * PocketSpacingVoxels - shape.z / 2),
+                    Size = shape,
                 };
             }
             return pockets;
+        }
+
+        /// The box closest to `n` voxels, as near cubic as `n` allows.
+        ///
+        /// A PLAIN CUBE IS NOT GOOD ENOUGH, and step 2 is where that showed.
+        /// round(n^(1/3)) quantises hard at small n: 512 pockets of 15 voxels
+        /// rounds to a 2-cube, which is 8 -- so an "8000 voxel" 512-pocket
+        /// scatter placed 4096, half the volume of every other rung, and the
+        /// scatter ladder would have been comparing volume as much as scatter.
+        /// Extending one axis instead keeps the error under one layer.
+        public static int3 PocketShape(int n)
+        {
+            // Round, NOT Floor. Math.Pow(1000, 1.0/3.0) is 9.999999999999998,
+            // so Floor turns a perfect 10-cube into 9x9x13 -- the EditMode
+            // suite caught exactly that. Round is exact on perfect cubes, and
+            // ceil() on the depth keeps the box >= n either way.
+            int s = Math.Max(1, (int)Math.Round(Math.Pow(n, 1.0 / 3.0)));
+            int depth = Math.Max(1, (int)Math.Ceiling((double)n / (s * s)));
+            return new int3(s, s, depth);
         }
 
         /// Total voxels a layout will actually place.

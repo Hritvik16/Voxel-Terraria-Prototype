@@ -1009,4 +1009,42 @@ public static class Phase5aSceneBuilder
                      : $"[Phase5aSceneBuilder] FAILED to write {FluidABScenePath}");
         if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
     }
+
+    public const string Phase4FluidScenePath = "Assets/Scenes/Phase 4 Streaming Fluid.unity";
+
+    /// STEP 3's combined-load scene: the Phase 4 acceptance scene, byte-for-byte,
+    /// PLUS the one thing it lacks -- a reference to FluidCA.compute.
+    ///
+    /// IT IS CLONED, NOT REBUILT, and that is the whole point. Reconstructing a
+    /// Phase 4 scene by hand would risk a different camera pose, a different
+    /// bootstrapper setting, a different load radius -- and then the combined-load
+    /// numbers could not be compared against the terrain-only ones at all, which
+    /// is the only reason to run them. Opening the real scene and saving it under
+    /// a new name guarantees everything else is identical.
+    ///
+    /// The ORIGINAL scene is never modified. The terrain-only build does not even
+    /// contain FluidCA.compute, so every Phase 4 figure on record stays comparable.
+    public static void GeneratePhase4FluidScene()
+    {
+        const string src = "Assets/Scenes/Phase 4 Streaming.unity";
+        var scene = EditorSceneManager.OpenScene(src, OpenSceneMode.Single);
+
+        var rig = UnityEngine.Object.FindAnyObjectByType<Phase4AcceptanceRig>();
+        if (rig == null) throw new InvalidOperationException($"no Phase4AcceptanceRig in {src}");
+
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+
+        var ro = new SerializedObject(rig);
+        var prop = ro.FindProperty("_fluidCA");
+        if (prop == null) throw new InvalidOperationException("Phase4AcceptanceRig has no _fluidCA field");
+        prop.objectReferenceValue = fluidCA;
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        bool ok = EditorSceneManager.SaveScene(scene, Phase4FluidScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {Phase4FluidScenePath} (clone of {src} + FluidCA)"
+                     : $"[Phase5aSceneBuilder] FAILED to write {Phase4FluidScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
 }

@@ -216,7 +216,12 @@ public class FluidABBenchmark : MonoBehaviour
         for (int i = 0; i < pockets.Length; i++)
         {
             byte m = (i % 3) == 0 ? Materials.Water : (i % 3) == 1 ? Materials.Sand : Materials.Lava;
-            placed += _edits.SetBox(pockets[i].Lo, pockets[i].Lo + pockets[i].Size, m);
+            // SetBox's bounds are INCLUSIVE on both ends (`x <= b.x`), while
+            // FluidBenchPocket.Size is a count. Passing Lo + Size placed
+            // (side+1)^3 -- 35,937 voxels for a 32,768 target, and worse at
+            // small sides. Caught by the planned-vs-placed columns disagreeing
+            // in the first sweep, which is why both are in the CSV.
+            placed += _edits.SetBox(pockets[i].Lo, pockets[i].Lo + pockets[i].Size - 1, m);
             if ((i & 15) == 0) yield return null;
         }
 

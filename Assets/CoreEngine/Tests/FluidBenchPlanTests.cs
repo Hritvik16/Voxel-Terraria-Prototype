@@ -92,18 +92,56 @@ public class FluidBenchPlanTests
     }
 
     [Test]
-    public void Layout_PlacedTotalTracksTheTarget_WithinCubeRounding()
+    public void Layout_PlacedTotalTracksTheTarget_Closely()
     {
-        // Not exact, deliberately -- see Layout's comment. What must hold is
-        // that it is CLOSE, so the ladder's rungs stay meaningfully apart.
+        // Not exact -- pockets must all be the same shape, which quantises the
+        // total. But it must be CLOSE, or a rung is not the volume it claims.
         foreach (string label in new[] { "tiled_v500", "tiled_v2000", "tiled_v8000", "tiled_v32000" })
         {
             var cfg = FluidBenchPlan.Parse(label);
             int placed = FluidBenchPlan.PlacedVoxels(
                 FluidBenchPlan.Layout(cfg, new int3(1000, 0, 1000), 40));
             double ratio = (double)placed / cfg.TargetVoxels;
-            Assert.That(ratio, Is.InRange(0.75, 1.35),
+            Assert.That(ratio, Is.InRange(0.95, 1.12),
                 $"{label} placed {placed} for a target of {cfg.TargetVoxels}");
+        }
+    }
+
+    [Test]
+    public void Layout_HoldsTotalVolumeConstantAcrossTheScatterLadder()
+    {
+        // STEP 2's ENTIRE PREMISE: same volume, only the scatter changes. If
+        // the rungs place different totals, the ladder measures volume and
+        // scatter mixed together and cannot answer what it was built to ask.
+        //
+        // This is not hypothetical. The first sweep placed 9,261 voxels at s1
+        // and 13,824 at s512 -- round(n^(1/3)) collapsed 512 pockets of 15
+        // voxels to a 2-cube -- and nothing in this file noticed.
+        var totals = new System.Collections.Generic.List<int>();
+        foreach (int s in new[] { 1, 8, 64, 512 })
+        {
+            var cfg = FluidBenchPlan.Parse($"tiled_s{s}_v8000");
+            int placed = FluidBenchPlan.PlacedVoxels(
+                FluidBenchPlan.Layout(cfg, new int3(1000, 0, 1000), 40));
+            totals.Add(placed);
+        }
+        int lo = int.MaxValue, hi = 0;
+        foreach (int t in totals) { lo = math.min(lo, t); hi = math.max(hi, t); }
+        Assert.That((double)hi / lo, Is.LessThan(1.10),
+            $"scatter rungs must place comparable totals, got [{string.Join(", ", totals)}]");
+    }
+
+    [Test]
+    public void PocketShape_DoesNotCollapseAtSmallVolumes()
+    {
+        // round(15^(1/3)) is 2, and 2^3 is 8 -- barely half of 15. Extending
+        // one axis is what keeps the error under a single layer.
+        foreach (int n in new[] { 3, 15, 64, 125, 500, 1000, 8000 })
+        {
+            int3 shape = FluidBenchPlan.PocketShape(n);
+            int got = shape.x * shape.y * shape.z;
+            Assert.GreaterOrEqual(got, n, $"PocketShape({n}) = {got} is under target");
+            Assert.That((double)got / n, Is.LessThan(1.45), $"PocketShape({n}) = {got} overshoots");
         }
     }
 

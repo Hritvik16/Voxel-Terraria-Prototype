@@ -133,6 +133,28 @@ public static class CommandLineBuild
         DisableAppNap(FLUID_TILED_OUTPUT_PATH);
     }
 
+    private const string PHASE4_FLUID_SCENE_PATH = "Assets/Scenes/Phase 4 Streaming Fluid.unity";
+    private const string PHASE4_FLUID_OUTPUT_PATH = "Builds/Phase4AcceptanceFluid.app";
+
+    /// STEP 3: the Phase 4 acceptance rig with a live fluid load. Separate app
+    /// from Phase4Acceptance.app so the terrain-only baseline build is never
+    /// touched and its numbers stay comparable to every prior run.
+    public static void BuildPhase4FluidStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE4_FLUID_SCENE_PATH },
+            locationPathName = PHASE4_FLUID_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase4 fluid result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE4_FLUID_OUTPUT_PATH);
+    }
+
     private const string FLUID_AB_SCENE_PATH = "Assets/Scenes/Fluid AB.unity";
     private const string FLUID_AB_OUTPUT_PATH = "Builds/FluidAB.app";
 
