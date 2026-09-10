@@ -836,6 +836,7 @@ public class Phase4AcceptanceRig : MonoBehaviour
     private FluidTileMap _fluidTiles;
     private long _fluidApplied;
     private int _fluidFrame;
+    private double _lastSubmitMs, _lastPumpMs;
     private int _fluidLastSeedFrame = -100000;
     /// Minimum frames between top-ups. ~2 s at 60 fps: long enough that a
     /// single seed has time to spread and register before another is judged.
@@ -988,12 +989,23 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _fluidReadback.PumpAndApply();
         _swFluidPump.Stop();
 
-        _fluidSubmitMs.Add(_swFluidSubmit.Elapsed.TotalMilliseconds);
-        _fluidPumpMs.Add(_swFluidPump.Elapsed.TotalMilliseconds);
+        _lastSubmitMs = _swFluidSubmit.Elapsed.TotalMilliseconds;
+        _lastPumpMs = _swFluidPump.Elapsed.TotalMilliseconds;
+        _fluidFrame++;
+    }
+
+    /// Records the most recent tick's costs against a SAMPLED frame. Kept
+    /// separate from TickFluidLoad so the tick can run every frame while the
+    /// distributions still describe the frames the rig actually sampled --
+    /// mixing the two would silently change what the percentiles mean.
+    private void RecordFluidSample()
+    {
+        if (_fluidSim == null) return;
+        _fluidSubmitMs.Add(_lastSubmitMs);
+        _fluidPumpMs.Add(_lastPumpMs);
         _fluidSim.ReadSlotCounters(out uint hi, out uint _);
         _fluidLiveSlots.Add((int)hi);
         _fluidActiveTiles.Add(_fluidSim.ActiveTileCount);
-        _fluidFrame++;
     }
 
     /// The combined-load section of the report. Printed only when the load was
@@ -1026,6 +1038,8 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _report.AppendLine($"  voxel writes applied  {_fluidApplied}");
         _report.AppendLine($"  ops total {_fluidReadback.OpsTotal}, readback errors {_fluidReadback.ReadbackErrorsTotal}, " +
                            $"stale {_fluidReadback.StaleOpsDropped}, non-resident {_fluidReadback.OpsDroppedNonResident}");
+        _report.AppendLine($"  readback requests issued {_fluidReadback.RequestsIssuedTotal}");
+        _report.AppendLine($"  FIRST readback error: {_fluidReadback.FirstReadbackErrorDetail}");
         _report.AppendLine($"  tiles acquired {_fluidTiles.TilesAcquiredTotal}, released {_fluidTiles.TilesReleasedTotal}, " +
                            $"peak resident {_fluidTiles.PeakResidentTiles}, pool exhaustions {_fluidTiles.PoolExhaustionsTotal}");
 
@@ -1060,9 +1074,11 @@ public class Phase4AcceptanceRig : MonoBehaviour
     {
         var st = Phase4Bootstrapper.Streamer;
         var u = st.LastUploadStats;
-        // Ticked BEFORE the frame-time sample is taken, so the fluid's cost is
-        // inside the frame this sample describes rather than the next one.
-        TickFluidLoad();
+        // The fluid is ticked from Update(), EVERY frame -- not from here.
+        // See TickFluidLoad's header: pumping only on sampled frames left the
+        // op-list readback un-polled across the rig's between-gate work, which
+        // is what produced the stray readback error. This sampler only RECORDS.
+        RecordFluidSample();
         _frameMs.Add(Time.unscaledDeltaTime * 1000.0);
         _frameLabel.Add($"{_legLabel}#{_legFrameIdx++}");
         _frameGcCount.Add(System.GC.CollectionCount(0));
@@ -2043,6 +2059,25 @@ public class Phase4AcceptanceRig : MonoBehaviour
             finally { UnityEngine.Object.Destroy(shot); }
         }
         RaymarchFeature.UseDebugViewOverride = false;
+    }
+
+    /// EVERY FRAME, not only on sampled ones.
+    ///
+    /// The first version ticked the fluid from SamplePhases, which the rig
+    /// calls only during a gate's sampled frames. Between gates -- screenshots,
+    /// WaitForIdle, validator GetData storms -- nothing pumped, so an issued
+    /// op-list readback sat un-polled for ~25 frames while the rig did
+    /// synchronous GPU work around it. That is what the stray readback error
+    /// was: intermittent (4 of 7 runs), always exactly one, always the
+    /// LAST-ISSUED request, always at an age of ~25 frames. The fluid-only
+    /// rig, which pumps every frame, never produced one across 24 configs.
+    ///
+    /// Ticking here is also simply more honest: a real game pumps the readback
+    /// every frame, and the gap was an artefact of the measurement harness
+    /// rather than anything about fluid.
+    private void Update()
+    {
+        TickFluidLoad();
     }
 
     private void OnDestroy()

@@ -70,6 +70,11 @@ namespace VoxelEngine.Simulation
             public AsyncGPUReadbackRequest OpsReq;
             public int IssuedFrame;
             public int ActiveSlotsAtIssue;
+            /// 1-based index of this request across the whole run. The stray
+            /// error is one per run, every run; whether it is ALWAYS the first
+            /// request is the difference between a startup race and something
+            /// that can bite mid-play, and nothing recorded that before.
+            public long Seq;
         }
 
         private readonly Queue<InFlight> _inFlight = new Queue<InFlight>();
@@ -93,6 +98,13 @@ namespace VoxelEngine.Simulation
         public int AppendOverflowFramesTotal { get; private set; }
         /// Last readback error's stage, for §10.4-style triage.
         public string LastReadbackError { get; private set; } = "none";
+        /// FULL detail of the FIRST error only, captured once and never
+        /// overwritten. "Exactly one error per run" has been true of every
+        /// combined-load run; a last-write-wins string cannot tell you whether
+        /// that one was request #1 or request #4000.
+        public string FirstReadbackErrorDetail { get; private set; } = "none";
+        /// Total readback requests issued this run, for the same reason.
+        public long RequestsIssuedTotal { get; private set; }
         /// Ops dropped because terrain changed under them between decision and
         /// application. Expected to be non-zero in edit scenarios; a large value
         /// in a quiet scenario would mean the CA is deciding against stale state.
@@ -174,11 +186,13 @@ namespace VoxelEngine.Simulation
 
             if (_sim.CurrentRing < 0) return;
 
+            RequestsIssuedTotal++;
             _inFlight.Enqueue(new InFlight
             {
                 OpsReq = AsyncGPUReadback.Request(_sim.OpsBuffer),
                 IssuedFrame = Time.frameCount,
                 ActiveSlotsAtIssue = activeSlotsHint,
+                Seq = RequestsIssuedTotal,
             });
         }
 
@@ -219,6 +233,12 @@ namespace VoxelEngine.Simulation
                     // frame of fluid motion, never a voxel -- the terrain bytes
                     // are untouched and the slots simply retry next tick.
                     LastReadbackError = "ops";
+                    if (ReadbackErrorsTotal == 0)
+                        FirstReadbackErrorDetail =
+                            $"seq={f.Seq}/{RequestsIssuedTotal} issuedFrame={f.IssuedFrame} " +
+                            $"nowFrame={Time.frameCount} ageFrames={Time.frameCount - f.IssuedFrame} " +
+                            $"inFlight={_inFlight.Count} ring={_sim.CurrentRing} " +
+                            $"opsTotalSoFar={OpsTotal}";
                     _inFlight.Dequeue();
                     ReadbackErrorsTotal++;
                     continue;
@@ -354,7 +374,15 @@ namespace VoxelEngine.Simulation
                 _inFlight.Dequeue();
                 if (!f.OpsReq.hasError)
                     applied += Apply(f);
-                else ReadbackErrorsTotal++;
+                else
+                {
+                    if (ReadbackErrorsTotal == 0)
+                        FirstReadbackErrorDetail =
+                            $"DRAINBLOCKING seq={f.Seq}/{RequestsIssuedTotal} " +
+                            $"issuedFrame={f.IssuedFrame} nowFrame={Time.frameCount}";
+                    LastReadbackError = "ops(drain)";
+                    ReadbackErrorsTotal++;
+                }
             }
             return applied;
         }
