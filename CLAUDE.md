@@ -170,6 +170,41 @@ directly by path if you need to look rather than just read the numbers.
 Never launch the Phase 4 scene from inside the Editor and report on its
 frame time — see Measurement discipline above.
 
+## RIG SELECTION RULE: terrain-identity gates vs live fluid
+
+**Do not run the acceptance rig's identity/hash gates with a live fluid load
+and treat the failures as bugs. They are expected, they are documented here,
+and the assertions must NOT be loosened to make them pass.**
+
+Gates C and D verify persistence by hashing a chunk's content, doing something
+(reload, a 500 m round trip, a dig and refill), and asserting the content is
+IDENTICAL afterwards. That assertion presumes **no legitimate writer is
+changing terrain during the run**. Fluid is exactly such a writer: water flows
+into the chunk between the two hashes, so the content genuinely did change and
+the hash genuinely does differ. The gate is reporting the truth; it is the
+question that no longer applies.
+
+Measured with an 8,000-voxel tiled load (`run-acceptance-fluid.sh`), these fail
+and are expected to:
+
+- `no reloaded chunk changed content (N of 9 hash-mismatched)`
+- `edits survived a 500m round trip: 0x… == 0x…`
+- `no brick that was UNIFORM before the dig failed to coalesce back` — the
+  tunnel refilled with water, so those bricks legitimately are not uniform air
+
+**This is a rig-selection rule, not a defect and not a TODO.** Run the
+terrain-only rig (`run-acceptance-rig.sh`) for persistence and identity
+evidence; run the combined-load rig (`run-acceptance-fluid.sh`) for frame-time
+and upload-pressure evidence under fluid. Do not merge the two by weakening an
+assertion — a fluid-aware identity gate would be a **new gate with a different
+contract** (hash only chunks fluid never touched, or snapshot-and-compare with
+fluid paused), and designing one is a deliberate decision, not a cleanup task.
+
+Anything that IS a real failure under combined load will be something other
+than these three. §4.3's upload budget, for instance, fails under fluid for a
+real and separate reason — see the LOD-cascade finding in
+`FLUID_PERFORMANCE_AB_RESULTS.md` §3.
+
 ## Known open issues (act on these, don't rediscover them)
 
 - **The world/render-range mismatch REVERSED, and is now the opposite problem.**
