@@ -544,3 +544,109 @@ What a reader should weigh against that:
 None of 1–5 is a correctness failure. All five are the kind of thing that is
 much cheaper to decide before a phase is declared closed than after.
 
+
+---
+
+> **The section below was added 2026-09-10 by an agent session. It changes
+> NOTHING about this document's DRAFT status, which remains the project
+> owner's call.** It is a pointer, so the open decisions from the fluid
+> performance line of work are visible from here rather than only from
+> `FLUID_PERFORMANCE_AB_RESULTS.md`.
+
+---
+
+# OPEN ITEMS REQUIRING A HUMAN DECISION
+
+**One place, so this does not have to be mined out of five documents.**
+Last consolidated 2026-09-10 (`e71cd01`). Every item below is a judgment call
+with evidence for each option, deliberately **left undecided** by the agent
+sessions that surfaced them. None is a correctness failure.
+
+### 1. Retire the multi-instance fluid-simulation stopgap? — OPEN since 2026-09-06
+
+§9.7's fix had `EditService` hold a **list** of separate `FluidGpuSimulation`
+instances so two player-placed pools would both wake. The tiled substrate
+subsumes this structurally — acceptance scenario D shows **one** CA instance
+covering two pools 30 m apart (2/2 tiles resident, 10,610 voxel writes),
+because a tile exists wherever fluid is.
+
+- **Keep it:** the list is still what the **dense** path needs, and the dense
+  path is the retained regression baseline for four phases of proofs.
+  Removing a working mechanism the older path depends on buys nothing today.
+- **Retire it:** it is no longer load-bearing for the tiled substrate, and
+  carrying two ways to do the same thing has its own cost.
+
+**Retiring it is really the same decision as retiring the dense path**, which
+is the larger call. Evidence: `FLUID_SCALE_ARCHITECTURE_RESULTS.md` §4b.
+
+### 2. Fluid apply budget: 1024 or 4096 ops/frame? — OPEN, measured 2026-09-10
+
+Cooled sweep, driftchecks 0.2–4.0%:
+
+| volume | budget | pump p99 | frame p50 | voxel writes | vs 4096 |
+|---|---|---|---|---|---|
+| 8,000 | **1024** | **0.995** | **8.900** | 268,990 | **−39.0%** |
+| 8,000 | 4096 | 3.549 | 9.701 | 440,786 | — |
+| 32,000 | **1024** | **0.969** | **7.605** | 320,356 | **−68.7%** |
+| 32,000 | 4096 | 3.794 | 10.223 | 1,022,646 | — |
+
+**16384 is ruled out on the evidence** — at 8,000 it buys +2.9% throughput for
++2.9 ms of pump p99 (throughput has already saturated by 4096); at 32,000 it
+costs +9.5 ms pump p99 *and* +5.2 ms frame p50.
+
+1024 vs 4096 is **not** decidable from the numbers:
+
+- **1024** puts the apply burst under 1 ms at both volumes and gives the best
+  frame p50 at 32,000 (7.6 vs 10.2). Choose if frame smoothness dominates.
+- **4096** simulates fluid 1.6×–3.2× faster under load. Choose if fluid
+  fidelity under heavy load dominates.
+
+This is a question about how the game should feel, not a measurement.
+**4096 remains the default** only because nothing beats it outright.
+
+### 3. Should §4.3's 1.0 ms upload gate apply under live fluid at all? — NEW
+
+The cascade fix halved the **median** (upload_ms p50 6.60 → 3.99, downsample
+p50 6.29 → 3.52) but **§4.3 is a p99 gate and the p99 barely moved**
+(~8.8 → ~8.3 ms). It still fails at ~8× budget with fluid, while **terrain-only
+now passes at p99 0.613 ms with 0 FAIL**.
+
+- **Keep one gate:** a budget that only holds without fluid is not a budget.
+- **Scope it per rig:** the number was derived for terrain streaming; a live
+  fluid load is a different workload, and this is the same reasoning already
+  accepted for the terrain-identity gates (CLAUDE.md's RIG SELECTION RULE).
+
+Deciding this needs a target for what fluid *should* cost, which does not
+exist yet. Attributing the remaining p99 tail is a separate isolation job and
+is **not** claimed to be understood.
+
+### 4. §2.2's GPU-lane budget is permanently unattributable here — STANDING LIMITATION, NOT A TASK
+
+§2.2 budgets the fluid CA at ≤3.5 ms **on the GPU lane**. This toolchain
+cannot attribute GPU stages: no Xcode and no Instruments (Amendment 8.9
+Rule 1), `gpuFrameTime` is inflated ~2.6–2.7× (Amendment 8.10) and is read
+nowhere, and per-kernel Metal attribution is a **confirmed dead end** — Unity
+merges the CA's eight dispatches into one encoder, so only the first kernel is
+ever named.
+
+Every fluid figure on record is therefore **CPU-lane or wall-clock**. Whether
+the tiled CA meets §2.2 is **unknown and unknowable in this workflow**. This
+is not a pending measurement; it should stop being re-litigated each session.
+
+### 5. Gas / fire / density-layered stacking — UNSPECIFIED, NOT A GAP TO FILL SILENTLY
+
+Real Noita mechanics with **no specification anywhere in this architecture**.
+Repeatedly deliberately not invented. Any implementation needs a design
+conversation and a spec first. Not blocked by the substrate work.
+
+### A methodological note that outranks most of the above
+
+**This machine throttles monotonically and back-to-back runs are not
+comparable.** An uncooled ON/OFF/ON/OFF sequence measured the *same* config at
+4.172 / 4.751 / 11.812 ms — a 183% spread. Every timing figure in this document
+from 2026-09-10 onward was taken with **300 s idle cooldowns between runs**.
+Figures recorded before that date carry unquantified thermal inflation,
+particularly the tail: Gate C frame p99 was recorded at 72–76 ms uncooled and
+measures 50–68 ms cooled, **for both configs**.
+
+*(Identical section maintained in `FLUID_PERFORMANCE_AB_RESULTS.md`; that file carries the full measurements behind each item.)*

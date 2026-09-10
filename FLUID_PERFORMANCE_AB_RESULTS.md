@@ -520,3 +520,203 @@ Every rig from session 1's table, re-run against Steps 0/1/3.
 - **§2.2 remains unanswerable** — GPU-lane budget, no GPU-stage attribution in
   this workflow. Unchanged from session 1.
 - Gas / fire / density-layering remain unspecified and untouched.
+
+---
+---
+
+# SESSION 3 — 2026-09-10, commits `35baa4f`..`e71cd01`
+
+**Appends to sessions 1 and 2; replaces nothing.**
+
+**METHODOLOGY CHANGE THAT AFFECTS EVERY EARLIER NUMBER.** This machine
+throttles monotonically. An uncooled ON/OFF/ON/OFF sequence measured the *same*
+config at **4.172 / 4.751 / 11.812 ms** — a 183% spread. Every figure below was
+taken with **300 s idle cooldowns between runs** (150 s for the shorter
+FluidAB runs). Sessions 1–2's figures were taken back-to-back and carry
+unquantified thermal inflation, worst in the tail.
+
+## S3.1 — The cascade was already budgeted; the waste was a duplicated chain
+
+The brief was "apply §8.5's frame budget to cascade rebuilds". **It is already
+budgeted**: `MAX_CASCADE_CHUNKS_PER_FRAME = 2`, `MAX_CASCADE_MS_PER_TIER = 2.0`
+over 2 tiers ≈ 4 ms/frame by design. And the queue is **not** backing up —
+instrumented under live fluid the backlog is p50 2, p99 14, max 16 chunks and
+ends where it starts. Deferring more would only make distant terrain staler.
+
+**Wrong guess, measured and discarded:** I assumed the 2 MB tier-0 gather was
+the waste. It is 1514 gathers × 0.337 ms against ~3.76 ms per chunk-tier —
+**~9%**. (Same lesson as session 2's dirty-set `Sort`.)
+
+**The real duplicate is the halving chain.** Every dirty chunk is marked dirty
+on *every* tier, and each tier re-ran the chain from Tier0. At the shipped
+sizes `{0.1, 0.2, 0.4}` tier 1 is one step (262,144 majority votes) and tier 2
+is two (262,144 + 32,768) — **tier 2 repeats 89% of tier 1's work; 47% of the
+combined total is redundant.**
+
+`LODDownsampler.BuildChain` now runs the chain once to the deepest tier;
+`LODCascadeManager` drives the tiers chunk-major so gather and chain are paid
+once per chunk. The per-tier path is retained byte-for-byte behind
+`SharedChainEnabled` as the regression baseline and the mutation check.
+
+### Cooled A/B (300 s between runs, pair order reversed)
+
+| cfg | upload p50 | upload p99 | downsample p50 |
+|---|---|---|---|
+| ON A | 3.803 | 8.649 | 3.29 |
+| ON B | 4.182 | 7.987 | 3.76 |
+| OFF A | 6.611 | 8.738 | 6.30 |
+| OFF B | 6.586 | 8.920 | 6.27 |
+
+Driftcheck: **ON 10.0%**, **OFF 0.4%**.
+
+- **downsample p50 6.29 → 3.52 (−44%)**, matching the predicted 47% — the best
+  evidence the mechanism is the one identified.
+- **upload_ms p50 6.60 → 3.99 (−39.5%)**
+- The 10.0% ON spread does not threaten the conclusion: worst-ON (4.182) vs
+  best-OFF (6.586) is still −36.5%.
+
+### What did NOT improve, and the brief expected it to
+
+- **§4.3 upload p99: ~8.83 → ~8.32 (≈6%).** §4.3 is a **p99** gate, so it
+  still fails at ~8× budget. Halving the median does not move the tail.
+- **Gate C frame p99: no measurable change** (67.8/54.4 ON vs 57.8/63.3 OFF).
+
+Attributing the remaining p99 tail is a separate isolation job and is **not**
+claimed to be understood. Recorded as open item 3.
+
+## S3.2 — Apply-budget curve
+
+See **open item 2**. `16384` is ruled out on evidence; `1024` vs `4096` is a
+genuine judgment call and is left undecided.
+
+## S3.3 — Combined load, three-session chain
+
+| | S1 `aa91b6b` | S2 `d4593ee` | S3 `e71cd01` (cooled) |
+|---|---|---|---|
+| result | 50 PASS / 6 FAIL | 51 PASS / 5 FAIL | **51 PASS / 5 FAIL** |
+| readback errors | 1 | 0 | **0** |
+| §4.3 upload p99 (Gate C) | 11.162 | 9.699 | **7.64** |
+| cascade downsample p50 | 6.35 | 6.31 | **3.52** |
+| PumpAndApply p99 | 1.542 | 1.505 | 1.51 |
+| Gate C frame p50 / p99 | 7.90 / 76.53 | 7.49 / 72.81 | 7.6–8.4 / **50–68** |
+
+The frame-p99 improvement is **mostly the cooldowns, not the fixes** — the
+OFF runs show the same range. Stated rather than claimed.
+
+The **three terrain-identity failures are unchanged, for the same documented
+reason** (CLAUDE.md's RIG SELECTION RULE), confirmed by reading them in all
+four cooled runs.
+
+## S3.4 — Full regression sweep
+
+| rig | result | vs session 2 |
+|---|---|---|
+| **TERRAIN-ONLY acceptance (no fluid)** | **53 PASS / 0 FAIL** | **was 51/2 — both prior failures gone; §4.3 passes at p99 0.613 ms** |
+| Phase 5a reference | 5 scenarios, 0 unbalanced, 0 dup | unchanged |
+| Phase 5c edit stress | 170 PASS / 0 FAIL | unchanged |
+| Phase 5d streaming × fluid | 19 PASS / 0 FAIL | unchanged |
+| `run-fluid-activity.sh` | 19 PASS / 0 FAIL | unchanged |
+| Phase 6 brush guard | 30 PASS / 0 FAIL | unchanged |
+| Phase 6 sandbox | 43 PASS / 0 FAIL | unchanged |
+| `run-fluid-scale.sh` | 4 PASS / 0 FAIL | unchanged |
+| `run-fluid-tiled.sh` | 19 PASS / 0 FAIL | unchanged |
+| EditMode | 485 PASS / 0 FAIL | unchanged |
+
+**The terrain-only result is the one that mattered** — Step 1 changed the LOD
+cascade, a subsystem fluid does not own. It did not regress; it improved.
+
+---
+
+# OPEN ITEMS REQUIRING A HUMAN DECISION
+
+**One place, so this does not have to be mined out of five documents.**
+Last consolidated 2026-09-10 (`e71cd01`). Every item below is a judgment call
+with evidence for each option, deliberately **left undecided** by the agent
+sessions that surfaced them. None is a correctness failure.
+
+### 1. Retire the multi-instance fluid-simulation stopgap? — OPEN since 2026-09-06
+
+§9.7's fix had `EditService` hold a **list** of separate `FluidGpuSimulation`
+instances so two player-placed pools would both wake. The tiled substrate
+subsumes this structurally — acceptance scenario D shows **one** CA instance
+covering two pools 30 m apart (2/2 tiles resident, 10,610 voxel writes),
+because a tile exists wherever fluid is.
+
+- **Keep it:** the list is still what the **dense** path needs, and the dense
+  path is the retained regression baseline for four phases of proofs.
+  Removing a working mechanism the older path depends on buys nothing today.
+- **Retire it:** it is no longer load-bearing for the tiled substrate, and
+  carrying two ways to do the same thing has its own cost.
+
+**Retiring it is really the same decision as retiring the dense path**, which
+is the larger call. Evidence: `FLUID_SCALE_ARCHITECTURE_RESULTS.md` §4b.
+
+### 2. Fluid apply budget: 1024 or 4096 ops/frame? — OPEN, measured 2026-09-10
+
+Cooled sweep, driftchecks 0.2–4.0%:
+
+| volume | budget | pump p99 | frame p50 | voxel writes | vs 4096 |
+|---|---|---|---|---|---|
+| 8,000 | **1024** | **0.995** | **8.900** | 268,990 | **−39.0%** |
+| 8,000 | 4096 | 3.549 | 9.701 | 440,786 | — |
+| 32,000 | **1024** | **0.969** | **7.605** | 320,356 | **−68.7%** |
+| 32,000 | 4096 | 3.794 | 10.223 | 1,022,646 | — |
+
+**16384 is ruled out on the evidence** — at 8,000 it buys +2.9% throughput for
++2.9 ms of pump p99 (throughput has already saturated by 4096); at 32,000 it
+costs +9.5 ms pump p99 *and* +5.2 ms frame p50.
+
+1024 vs 4096 is **not** decidable from the numbers:
+
+- **1024** puts the apply burst under 1 ms at both volumes and gives the best
+  frame p50 at 32,000 (7.6 vs 10.2). Choose if frame smoothness dominates.
+- **4096** simulates fluid 1.6×–3.2× faster under load. Choose if fluid
+  fidelity under heavy load dominates.
+
+This is a question about how the game should feel, not a measurement.
+**4096 remains the default** only because nothing beats it outright.
+
+### 3. Should §4.3's 1.0 ms upload gate apply under live fluid at all? — NEW
+
+The cascade fix halved the **median** (upload_ms p50 6.60 → 3.99, downsample
+p50 6.29 → 3.52) but **§4.3 is a p99 gate and the p99 barely moved**
+(~8.8 → ~8.3 ms). It still fails at ~8× budget with fluid, while **terrain-only
+now passes at p99 0.613 ms with 0 FAIL**.
+
+- **Keep one gate:** a budget that only holds without fluid is not a budget.
+- **Scope it per rig:** the number was derived for terrain streaming; a live
+  fluid load is a different workload, and this is the same reasoning already
+  accepted for the terrain-identity gates (CLAUDE.md's RIG SELECTION RULE).
+
+Deciding this needs a target for what fluid *should* cost, which does not
+exist yet. Attributing the remaining p99 tail is a separate isolation job and
+is **not** claimed to be understood.
+
+### 4. §2.2's GPU-lane budget is permanently unattributable here — STANDING LIMITATION, NOT A TASK
+
+§2.2 budgets the fluid CA at ≤3.5 ms **on the GPU lane**. This toolchain
+cannot attribute GPU stages: no Xcode and no Instruments (Amendment 8.9
+Rule 1), `gpuFrameTime` is inflated ~2.6–2.7× (Amendment 8.10) and is read
+nowhere, and per-kernel Metal attribution is a **confirmed dead end** — Unity
+merges the CA's eight dispatches into one encoder, so only the first kernel is
+ever named.
+
+Every fluid figure on record is therefore **CPU-lane or wall-clock**. Whether
+the tiled CA meets §2.2 is **unknown and unknowable in this workflow**. This
+is not a pending measurement; it should stop being re-litigated each session.
+
+### 5. Gas / fire / density-layered stacking — UNSPECIFIED, NOT A GAP TO FILL SILENTLY
+
+Real Noita mechanics with **no specification anywhere in this architecture**.
+Repeatedly deliberately not invented. Any implementation needs a design
+conversation and a spec first. Not blocked by the substrate work.
+
+### A methodological note that outranks most of the above
+
+**This machine throttles monotonically and back-to-back runs are not
+comparable.** An uncooled ON/OFF/ON/OFF sequence measured the *same* config at
+4.172 / 4.751 / 11.812 ms — a 183% spread. Every timing figure in this document
+from 2026-09-10 onward was taken with **300 s idle cooldowns between runs**.
+Figures recorded before that date carry unquantified thermal inflation,
+particularly the tail: Gate C frame p99 was recorded at 72–76 ms uncooled and
+measures 50–68 ms cooled, **for both configs**.
