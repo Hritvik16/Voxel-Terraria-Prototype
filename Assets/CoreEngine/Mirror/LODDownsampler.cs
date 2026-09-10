@@ -276,6 +276,49 @@ namespace VoxelEngine.Mirror
             return current;
         }
 
+        /// Runs the halving chain ONCE to the deepest tier, leaving every
+        /// intermediate step populated so each tier can read its own.
+        ///
+        /// WHY THIS EXISTS. DownsampleTierFromScratch recomputes the chain
+        /// from Tier0 on every call, so asking it for tier 1 and then tier 2
+        /// does step 1 (128->64) TWICE. Measured shape at the shipped tier
+        /// sizes {0.1, 0.2, 0.4}: tier 1 is one step (262,144 majority votes),
+        /// tier 2 is two (262,144 + 32,768). Tier 2 therefore repeats 89% of
+        /// tier 1's work, and 47% of the combined total is redundant.
+        ///
+        /// Returns the number of steps computed. Steps[i] holds edge 128>>(i+1),
+        /// so a tier needing `n` steps reads Steps[n-1]. Returns 0 for a null
+        /// or uniform chunk -- the caller must use the fill fast path, exactly
+        /// as DownsampleTierFromScratch does, because a reused buffer still
+        /// holds the previous chunk and must be written in full.
+        public static int BuildChain(Chunk chunk, BrickDataPool pool, DownsampleScratch scratch)
+        {
+            if (scratch == null) throw new ArgumentNullException(nameof(scratch));
+            if (!PrepareTier0(chunk, pool, scratch)) return 0;
+
+            int maxSteps = scratch.Steps.Length;
+            byte[] current = scratch.Tier0;
+            int currentEdge = 128;
+            for (int i = 0; i < maxSteps; i++)
+            {
+                DownsampleOnceInto(current, currentEdge, scratch.Steps[i]);
+                current = scratch.Steps[i];
+                currentEdge /= 2;
+            }
+            return maxSteps;
+        }
+
+        /// The buffer holding tier `targetTier`'s result after BuildChain.
+        public static byte[] ChainResultFor(int targetTier, DownsampleScratch scratch)
+        {
+            int steps = IntegerLog2(LODConfig.DownsampleFactor(targetTier));
+            return scratch.Steps[steps - 1];
+        }
+
+        /// Steps a tier needs. Public so a caller can size a shared chain.
+        public static int StepsForTier(int targetTier)
+            => IntegerLog2(LODConfig.DownsampleFactor(targetTier));
+
         /// Allocation-free form.
         ///
         /// THE RETURNED ARRAY IS SCRATCH, NOT A GIFT. It is one of the caller's
@@ -358,7 +401,7 @@ namespace VoxelEngine.Mirror
                 return uniformResult;
             }
 
-            byte[] tier0 = ExtractChunkTier0Materials(chunk, pool, chunkEdgeVoxels);
+            byte[] tier0 = ExtractChunkTier0MaterialsCounted(chunk, pool, chunkEdgeVoxels);
 
             int steps = IntegerLog2(factor);
             byte[] current = tier0;
@@ -393,6 +436,25 @@ namespace VoxelEngine.Mirror
         /// internal layout changes) for the ~2-3 orders of magnitude speedup
         /// that made the old approach viable at all at this chunk count.
         /// </summary>
+        // DIAGNOSTIC ONLY. The cascade calls DownsampleChunkToTier once per
+        // chunk PER TIER, and every dirty chunk is marked dirty on every tier
+        // (LODCascadeManager.MarkDirty loops them), so the 2 MB tier-0 gather
+        // looks like it is paid twice for the same chunk. "Looks like" is a
+        // code reading; last session a code reading about the dirty-set Sort
+        // was wrong. These count it instead.
+        public static long Tier0GathersTotal { get; private set; }
+        public static double Tier0GatherMs { get; private set; }
+        public static void ResetGatherCounters() { Tier0GathersTotal = 0; Tier0GatherMs = 0; }
+
+        private static byte[] ExtractChunkTier0MaterialsCounted(Chunk chunk, BrickDataPool pool, int chunkEdgeVoxels)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            byte[] r = ExtractChunkTier0Materials(chunk, pool, chunkEdgeVoxels);
+            Tier0GatherMs += sw.Elapsed.TotalMilliseconds;
+            Tier0GathersTotal++;
+            return r;
+        }
+
         private static byte[] ExtractChunkTier0Materials(Chunk chunk, BrickDataPool pool, int chunkEdgeVoxels)
         {
             byte[] result = new byte[chunkEdgeVoxels * chunkEdgeVoxels * chunkEdgeVoxels];

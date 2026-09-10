@@ -5,6 +5,7 @@
 // TerrainClipmap.Active static-instance pattern so RaymarchFeature can reach
 // it the same way it reaches TerrainClipmap.Active.
 using System;
+using System.Collections.Generic;
 using Unity.Mathematics;
 using VoxelEngine.Memory;
 
@@ -53,6 +54,8 @@ namespace VoxelEngine.Mirror
         public LODCascadeManager(int3 windowDimsChunks, Func<int, int> tierPoolCapacity)
         {
             _tierPools = new CascadeTierPool[LODConfig.TIER_COUNT];
+            _batchScratch = new List<int3>[LODConfig.TIER_COUNT];
+            for (int t = 0; t < LODConfig.TIER_COUNT; t++) _batchScratch[t] = new List<int3>();
             for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
             {
                 int capacity = tierPoolCapacity(tier);
@@ -67,10 +70,102 @@ namespace VoxelEngine.Mirror
                 _tierPools[tier].MarkDirty(chunkCoord);
         }
 
+        /// SHARED-CHAIN CASCADE UPLOAD. Default ON.
+        ///
+        /// Set false to restore the per-tier path byte-for-byte. That is the
+        /// regression baseline every prior cascade proof was written against,
+        /// and it is how the mutation check is run: flip this off and the cost
+        /// must come back.
+        public static bool SharedChainEnabled { get; set; } = true;
+
+        private readonly List<int3> _unionScratch = new List<int3>();
+        private readonly List<int3>[] _batchScratch;
+        private LODDownsampler.DownsampleScratch _chainScratch;
+
+        /// WHAT CHANGED AND WHAT DID NOT.
+        ///
+        /// NOT changed: the frame budget. MAX_CASCADE_CHUNKS_PER_FRAME still
+        /// caps chunks and MAX_CASCADE_MS_PER_TIER still bounds wall clock.
+        /// The cascade was ALREADY budgeted -- measured backlog under a live
+        /// fluid load was p50 2, max 16 chunks and did not grow, so deferring
+        /// more would only have made distant terrain staler without saving
+        /// anything.
+        ///
+        /// Changed: the WORK. Every dirty chunk is marked dirty on EVERY tier
+        /// (MarkDirty loops them), and each tier then re-gathered the chunk's
+        /// 128^3 materials and re-ran the halving chain from scratch. At the
+        /// shipped tier sizes tier 2 repeated 89% of tier 1's chain. Driving
+        /// the tiers chunk-major computes the gather and the chain ONCE and
+        /// lets each tier read its own step.
         public void UploadDirty(ChunkStore store, BrickDataPool pool)
         {
+            if (!SharedChainEnabled)
+            {
+                for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+                    _tierPools[tier].UploadDirty(store, pool);
+                return;
+            }
+
+            // Pass 1 per tier: evicted clears (unbudgeted) + batch selection.
+            _unionScratch.Clear();
             for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
-                _tierPools[tier].UploadDirty(store, pool);
+            {
+                _tierPools[tier].SelectBatch(store, _batchScratch[tier]);
+                _tierPools[tier].ClearBrickSlotScratch();
+                foreach (int3 c in _batchScratch[tier])
+                    if (!_unionScratch.Contains(c)) _unionScratch.Add(c);
+            }
+            if (_unionScratch.Count == 0) return;
+
+            _chainScratch ??= new LODDownsampler.DownsampleScratch();
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            double budgetMs = EngineConfig.MAX_CASCADE_MS_PER_TIER * (LODConfig.TIER_COUNT - 1);
+            int processed = 0;
+
+            foreach (int3 chunkCoord in _unionScratch)
+            {
+                // Same shape as the per-tier guard: at least one chunk always
+                // runs so the queue cannot stall, and beyond that a frame that
+                // is already spent stops paying.
+                if (processed > 0 && sw.Elapsed.TotalMilliseconds > budgetMs) break;
+                processed++;
+
+                double t0 = sw.Elapsed.TotalMilliseconds;
+                Chunk chunk = store.GetChunk(chunkCoord);
+                int steps = LODDownsampler.BuildChain(chunk, pool, _chainScratch);
+                double downMs = sw.Elapsed.TotalMilliseconds - t0;
+
+                double t1 = sw.Elapsed.TotalMilliseconds;
+                for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+                {
+                    if (!_batchScratch[tier].Contains(chunkCoord)) continue;
+
+                    byte[] result;
+                    if (steps == 0)
+                    {
+                        // Null or uniform chunk. A REUSED BUFFER MUST BE
+                        // WRITTEN IN FULL -- it still holds the last chunk.
+                        result = LODDownsampler.ChainResultFor(tier, _chainScratch);
+                        byte fill = (chunk == null) ? (byte)0 : chunk.uniformMaterial;
+                        if (fill == 0) Array.Clear(result, 0, result.Length);
+                        else Array.Fill(result, fill);
+                    }
+                    else result = LODDownsampler.ChainResultFor(tier, _chainScratch);
+
+                    _tierPools[tier].ApplyChunkFromChain(store, chunkCoord, result);
+                }
+                double writeMs = sw.Elapsed.TotalMilliseconds - t1;
+
+                // Attribute the shared chain to tier 1 so the existing report
+                // lines keep summing to the real total rather than counting it
+                // once per tier.
+                _tierPools[1].AddTimings(downMs, 0);
+                _tierPools[1].AddTimings(0, writeMs);
+            }
+
+            for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+                _tierPools[tier].FlushBrickBodies();
         }
 
         public void Dispose()

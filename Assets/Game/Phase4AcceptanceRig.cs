@@ -116,6 +116,13 @@ public class Phase4AcceptanceRig : MonoBehaviour
         foreach (string a in Environment.GetCommandLineArgs()) if (a == name) return true;
         return false;
     }
+    private static string FlagString(string name)
+    {
+        string[] args = Environment.GetCommandLineArgs();
+        for (int i = 0; i < args.Length - 1; i++) if (args[i] == name) return args[i + 1];
+        return null;
+    }
+
     private static float FlagValue(string name, float fallback)
     {
         string[] args = Environment.GetCommandLineArgs();
@@ -205,6 +212,17 @@ public class Phase4AcceptanceRig : MonoBehaviour
         // comparable to a new run ever again. run-acceptance-rig.sh does not
         // pass the flag, so its behaviour is byte-identical to before.
         _fluidLoadVoxels = (int)FlagValue("-fluidload", 0f);
+        // MUTATION CHECK for the shared cascade chain: -nosharedchain restores
+        // the per-tier path, and the cost must come back.
+        if (HasFlag("-nosharedchain"))
+            VoxelEngine.Mirror.LODCascadeManager.SharedChainEnabled = false;
+        // Sweep the fluid apply budget (Step 2): -fluidopbudget <n> | off
+        {
+            string b = FlagString("-fluidopbudget");
+            if (!string.IsNullOrEmpty(b))
+                VoxelEngine.Simulation.FluidOpListReadback.MaxOpsAppliedPerFrame =
+                    b == "off" ? int.MaxValue : int.Parse(b);
+        }
 
         if (FreeFlyRequested)
         {
@@ -824,6 +842,8 @@ public class Phase4AcceptanceRig : MonoBehaviour
     /// tier-1/tier-2 work the GPU was handed -- that is what these count.
     private readonly List<int> _cascadeChunks = new List<int>();
     private readonly List<int> _cascadeWrites = new List<int>();
+    /// Chunks still queued for a cascade rebuild, summed over tiers 1 and 2.
+    private readonly List<int> _cascadeBacklog = new List<int>();
     private float _nextShotAt;
     private int _travShotIndex;
 
@@ -1132,8 +1152,13 @@ public class Phase4AcceptanceRig : MonoBehaviour
             _cascadeWriteMs.Add(casc.TierPool(1).LastGpuWriteMs + casc.TierPool(2).LastGpuWriteMs);
             _cascadeChunks.Add(casc.TierPool(1).LastChunksProcessed + casc.TierPool(2).LastChunksProcessed);
             _cascadeWrites.Add(casc.TierPool(1).LastWriteCalls + casc.TierPool(2).LastWriteCalls);
+            // QUEUE DEPTH. The cascade is ALREADY budgeted (2 chunks/frame,
+            // 2 ms/tier). The question is therefore not "is there a budget"
+            // but "is the queue permanently fed, and is it GROWING" -- a
+            // budget over a growing backlog is stale terrain, not a saving.
+            _cascadeBacklog.Add(casc.TierPool(1).DirtyRemaining + casc.TierPool(2).DirtyRemaining);
         }
-        else { _cascadeChunks.Add(0); _cascadeWrites.Add(0); }
+        else { _cascadeChunks.Add(0); _cascadeWrites.Add(0); _cascadeBacklog.Add(0); }
     }
 
     /// GPU-vs-stutter correlation.
@@ -1616,6 +1641,15 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _report.AppendLine($"    cascades        {Pct(_cascadeMs, 0.5f),8:F2} / {Pct(_cascadeMs, 0.99f),8:F2}");
         _report.AppendLine($"      - downsample  {Pct(_cascadeDownMs, 0.5f),8:F2} / {Pct(_cascadeDownMs, 0.99f),8:F2}");
         _report.AppendLine($"      - gpu writes  {Pct(_cascadeWriteMs, 0.5f),8:F2} / {Pct(_cascadeWriteMs, 0.99f),8:F2}");
+        _report.AppendLine($"      - cascade path: {(VoxelEngine.Mirror.LODCascadeManager.SharedChainEnabled ? "SHARED CHAIN (gather+chain once per chunk)" : "PER-TIER (regression baseline)")}"
+                           + $";  fluid op budget {VoxelEngine.Simulation.FluidOpListReadback.MaxOpsAppliedPerFrame}");
+        _report.AppendLine($"      - tier0 GATHERS {VoxelEngine.Mirror.LODDownsampler.Tier0GathersTotal}"
+                           + $" costing {VoxelEngine.Mirror.LODDownsampler.Tier0GatherMs:F0} ms total"
+                           + $"  (2 MB each; the cascade marks EVERY tier dirty per chunk)");
+        _report.AppendLine($"      - BACKLOG (chunks queued, tiers 1+2)  p50 {IPct(_cascadeBacklog, 0.5f)}"
+                           + $"  p99 {IPct(_cascadeBacklog, 0.99f)}  max {IMax(_cascadeBacklog)}"
+                           + $"   first {(_cascadeBacklog.Count > 0 ? _cascadeBacklog[0] : 0)}"
+                           + $"  last {(_cascadeBacklog.Count > 0 ? _cascadeBacklog[_cascadeBacklog.Count - 1] : 0)}");
         _report.AppendLine($"    max GPU write calls/frame: {MaxOf(_setDataCalls)}");
         {
             var st2 = Phase4Bootstrapper.Streamer;
