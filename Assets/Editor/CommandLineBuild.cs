@@ -133,6 +133,28 @@ public static class CommandLineBuild
         DisableAppNap(FLUID_TILED_OUTPUT_PATH);
     }
 
+    private const string FLUID_AB_SCENE_PATH = "Assets/Scenes/Fluid AB.unity";
+    private const string FLUID_AB_OUTPUT_PATH = "Builds/FluidAB.app";
+
+    /// The dense-vs-tiled wall-clock A/B. RELEASE build, and that is the whole
+    /// point: a development build distorts exactly the frame time this rig
+    /// exists to measure.
+    public static void BuildFluidABStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { FLUID_AB_SCENE_PATH },
+            locationPathName = FLUID_AB_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] fluid AB result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(FLUID_AB_OUTPUT_PATH);
+    }
+
     private const string PHASE6_SANDBOX_SCENE_PATH = "Assets/Scenes/Phase 6 Sandbox.unity";
     private const string PHASE6_SANDBOX_OUTPUT_PATH = "Builds/Phase6Sandbox.app";
 
