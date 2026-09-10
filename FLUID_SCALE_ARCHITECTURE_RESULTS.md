@@ -21,7 +21,14 @@ as O(radius³), which made §7.4's shipped radius unreachable. **It is not
 | Does §7.4's radius gate anything? | **no** — inert by construction at every affordable size | **yes** — measured releasing and re-waking |
 | Concurrent disconnected fluid pockets | one region's extent | **512 tiles** over ±90 m, cap reached and handled |
 
-`run-fluid-tiled.sh`: **16 PASS / 0 FAIL.**
+`run-fluid-tiled.sh`: **19 PASS / 0 FAIL.**
+
+**Provenance.** Every figure below is taken from ONE run,
+`FluidTiled/20260906_001844` (19 PASS / 0 FAIL) — the only complete run
+carrying all four scenarios A–D. Reproduced independently by
+`FluidTiled/20260906_074302` (also 19 PASS / 0 FAIL); the counts differ
+run-to-run by ~1-4% because the GPU CA's claim ordering is not deterministic,
+which is why a single run is named rather than a blend.
 
 ---
 
@@ -51,7 +58,7 @@ tile pool capped at 512.
 
 | step | result |
 |---|---|
-| standing on a pool | 2 tiles resident, **795 slots allocated, 2,706 voxel writes** |
+| standing on a pool | 2 tiles resident, **797 slots allocated, 2,728 voxel writes** |
 | walked ~85 m away | the tile left behind is **released** |
 | returned | the tile is **re-acquired** and simulating again |
 
@@ -68,14 +75,16 @@ nothing knows where dormant fluid is. It is answered by `ChunkFluidMask` — one
 ```
   residency scan   441 chunks read (one ulong each), 733 tiles flagged
   concurrent       512 tiles (cap 512) -- the cap WAS reached
-  motion           51,261 ops emitted, 77,694 voxel writes applied
-  slots            highWater 12,024 / 65,536
-  pool refusals    2,424, every one a §7.7 guarded no-op, cap never exceeded
-  wake audit       0 of 220 pockets silently failed to wake
+  motion           50,901 ops emitted, 76,736 voxel writes applied
+  slots            highWater 12,122 / 65,536
+  pool refusals    2,280, every one a §7.7 guarded no-op, cap never exceeded
+  wake audit       0 of the 219 pockets still holding mobile material
+                   failed to wake (of 220 scattered; one had fully settled)
 ```
 
 The wake audit is the one that matters: every pocket still holding mobile
-material was verified to be inside a resident tile. That is the defect class
+material (219 of the 220 scattered; one had fully settled by the audit) was
+verified to be inside a resident tile. That is the defect class
 `DESIGN_NOTE_7_2` §9 exists to prevent, audited rather than asserted.
 
 The cap being reached is a **feature of the run, not a failure** — it exercises
@@ -124,6 +133,14 @@ Every rig re-run against the current tree. **None needed weakening to pass.**
 | `run-fluid-scale.sh` | **4 PASS / 0 FAIL** | yes, unchanged |
 | `run-fluid-tiled.sh` (new) | **19 PASS / 0 FAIL** | new — the tiled acceptance |
 | EditMode | **460 PASS / 0 FAIL** | +32 tests tonight |
+
+**Re-verified 2026-09-10** against the same tree (`717ba49`, clean apart from
+`Codebase_Context.txt`): EditMode re-run independently at **460 PASS / 0 FAIL /
+0 skipped**, and the tiled rig's own later run `20260906_074302` reproduces
+**19 PASS / 0 FAIL**. Two run folders from that morning
+(`Phase6Sandbox/20260906_074159`, `FluidTiled/20260906_155835`) are incomplete —
+started, no report written. They are aborted launches, not failures; the
+completed runs on either side of them pass.
 
 **Updated, and why:** `FluidWakeQueueTests` was re-keyed from `int` to `int3`.
 The queue's key changed from a cell index to a world voxel (§5), so the tests
