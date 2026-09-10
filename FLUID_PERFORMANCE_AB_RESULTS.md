@@ -287,3 +287,236 @@ to get that**, which is the useful result, rather than that it bought any.
 
 Out of scope and untouched, as instructed: the §9.7 stopgap-retirement
 question, and any gas / fire / density-layering work.
+
+---
+---
+
+# SESSION 2 — 2026-09-10, commits `95a357d`..`2e7498d`
+
+**This section APPENDS to the session-1 data above; it does not replace it.**
+Session-1 rows were measured at `aa91b6b` and remain valid for that commit.
+Where a number is superseded, both are shown with their commit.
+
+Same methodology throughout: RELEASE standalone outside the Editor, vsync off,
+wall clock, one config per process launch, discarded warm-up, driftcheck twin
+on every timing figure. No `gpuFrameTime`, no Xcode, no Instruments, no
+Performance State field. All **PROVISIONAL**.
+
+---
+
+## S2.1 — The stray readback error: my harness, not the fluid system
+
+Session 1 reported "exactly one op-list readback error, every combined-load
+run" and flagged it unexplained.
+
+**The premise was wrong: it came from n=2.** Instrumented (per-request sequence
+number, issue frame, age, in-flight depth, ring index, captured for the *first*
+error only so it cannot be overwritten) and re-run, it is **intermittent —
+4 of 7 runs had exactly one, 3 had none.**
+
+Both captured instances agree:
+
+```
+  seq=248/248  issuedFrame=1048  nowFrame=1073  ageFrames=25  inFlight=1  ring=3
+  seq=167/167  issuedFrame=795   nowFrame=821   ageFrames=26  inFlight=1  ring=2
+```
+
+The failing request is always the **most recently issued** (`seq == total
+issued`, nothing after it — so not a startup race) and always **~25 frames
+old**. Twenty-five frames is the tell: session 1's integration ticked the fluid
+from `SamplePhases`, which the rig calls only on a gate's *sampled* frames.
+Between gates the rig takes screenshots, waits for idle and runs validator
+`GetData` storms — synchronous GPU work — while an issued `AsyncGPUReadback`
+sat un-polled across all of it. The fluid-only rig, which pumps every frame,
+produced **zero errors across 24 configs**: the control this needed.
+
+**Fix:** tick from `Update()`, every frame. **0 errors in 5 runs after, vs 4 in
+7 before.** It is also simply more honest — a real game pumps every frame.
+
+Side effect, expected: ticking every frame raises ops total (543K → 756K–1.01M)
+and makes `StaleOpsDropped` non-zero (216K–478K). Both follow from simulating
+more ticks under active streaming.
+
+**Verdict: not a fluid defect. An artefact of the session-1 measurement
+harness, now removed.**
+
+---
+
+## S2.2 — The upload blowout is NEITHER call count NOR byte volume
+
+The question was: do N fluid voxels moving in one chunk cost N dirty-marks, or
+does something coalesce them?
+
+**Call count is already solved.** `MarkDirty` is called ~once per voxel write,
+and `_dirtyChunks` is a `HashSet`:
+
+| rung | voxel writes | MarkDirty calls | coalesced | distinct chunks | coalesce rate |
+|---|---|---|---|---|---|
+| 500 | 27,174 | 27,377 | 27,174 | 203 | **99.26%** |
+| 8,000 | 450,464 | 450,708 | 450,465 | 243 | **99.95%** |
+| 32,000 | 1,844,098 | 1,844,342 | 1,844,099 | 243 | **99.99%** |
+
+Chunks uploaded per frame: **1**. There is no per-voxel upload call to batch.
+**Step 2 as specified is not applicable and was not forced.**
+
+**Byte volume is not it either.** Gate C mean upload bytes/frame goes
+**0.42 MB → 0.93 MB** with fluid, and the byte cap binds on **0 of 881 frames**.
+A 2.2× byte increase cannot produce an 18× time increase.
+
+### What it actually is: the LOD cascade
+
+`StreamManager.LastUploadMs` spans the clipmap upload **and
+`_cascades.UploadDirty`**, while the phase breakdown only ever covered the
+clipmap half — which is why every named phase summed to 0.08 ms against a
+6.6 ms total. The resident-chunk loop marks *both* mirrors from the same
+`chunk.dirty` flag, so every fluid-touched chunk forces a tier-1 + tier-2
+re-downsample.
+
+| Gate C | terrain only | with fluid |
+|---|---|---|
+| `upload_ms` p50 | 0.001 ms | **6.595 ms** |
+| cascades total p50 / p99 | 0.00 / 0.11 ms | **6.36 / 8.95 ms** |
+| — downsample | 0.00 / 0.00 ms | **6.35 / 8.64 ms** |
+| — gpu writes | 0.00 / 0.00 ms | 0.30 / 0.83 ms |
+| cascade chunks/frame | 0.00 | 1.86 |
+
+**6.36 of the 6.595 ms is the cascade; 6.35 of that is `LODDownsampler`.**
+CLAUDE.md already records that it allocates a fresh `byte[]` per chunk *per
+tier* (256 KB + 32 KB) on every rebuild — also where the `gc+1` on the worst
+frames comes from.
+
+**A wrong turn, recorded.** The dirty-set `Sort` sits after the stopwatch
+starts but before the first `phaseStart`, so it was untimed and looked like the
+obvious gap. Timed it: **0.00 / 0.00 ms, dirty set p50 2 chunks.** Not the
+cause. The timer stays — an untimed region inside a budgeted path is worth
+closing regardless.
+
+**Recommended fix, NOT done here:** §8.5's frame-budget pattern applied to
+*cascade rebuilds*. That is a change to the LOD cascade, not to fluid, and
+deserves its own isolated checkpoint rather than being bundled into a fluid
+session.
+
+---
+
+## S2.3 — Frame-budgeting the apply: the burst goes
+
+`PumpAndApply` now stages a batch and applies at most **4096 ops/frame**,
+carrying the rest forward.
+
+**Budget ON vs OFF, same build, same session** — a better control than
+comparing across sessions, and the mutation check:
+
+| config | pump p99 ON | pump p99 OFF | frame p50 ON | frame p50 OFF |
+|---|---|---|---|---|
+| tiled_v8000 | **3.905** | 6.758 | 10.494 | 9.309 |
+| tiled_v32000 | **4.785** | 26.070 | **11.903** | 19.495 |
+
+The burst returns the moment the cap is removed. Against session 1's
+unbudgeted figures (`aa91b6b`):
+
+| config | pump p99 S1 | pump p99 S2 | change |
+|---|---|---|---|
+| dense_v8000 | 6.712 | **3.771** | −44% |
+| tiled_v8000 | 7.083 | **3.905** | −45% |
+| dense_v32000 | 21.982 | **4.384** | −80% |
+| tiled_v32000 | 22.471 | **4.785** | −79% |
+
+Driftcheck spreads on the budgeted rows: **1.7% / 1.8% / 1.9% / 3.0%.**
+
+**The cost, reported not buried.** Back-pressure means the CA ticks less often
+when the CPU cannot keep up, so fluid simulates slower under load — voxel
+writes in the same window fall **2.9% at 8,000** and **42.9% at 32,000**. At
+32,000 that buys frame p50 19.5 → 11.9 ms as well as the p99, so it is a good
+trade. At 8,000 it costs 1.2 ms of frame p50 to halve the apply burst, which is
+more arguable. **4096 was chosen a priori, not tuned** — the rig now takes
+`-fluidopbudget` and sweeping it is an obvious follow-up.
+
+**§9.4 / §9.5 are not weakened, and this needed no new rule.** `Apply` already
+re-validates residency and expected material at the moment of application. A
+carried op whose chunk was evicted while it waited hits the existing residency
+guard and counts as `OpsDroppedNonResident` exactly as an immediate op would.
+Not a design fork.
+
+---
+
+## S2.4 — Combined load, re-verified
+
+| | S1 before (`aa91b6b`) | S2 after (`d4593ee`) |
+|---|---|---|
+| result | 50 PASS / 6 FAIL | **51 PASS / 5 FAIL** |
+| op-list readback errors | 1 | **0** |
+| Gate B frame total p50 / p99 | 9.10 / 54.92 | 8.87 / 50.71 |
+| Gate C frame total p50 / p99 | 7.90 / 76.53 | 7.49 / 72.81 |
+| §4.3 upload p99 (Gate B / C) | 9.843 / 11.162 ms | 8.961 / 9.699 ms |
+| PumpAndApply p99 | 1.542 ms | 1.505 ms |
+| live slots p50 | 32,128 | 26,118 |
+
+**§4.3 is still ~9× over its 1.0 ms budget, and that is expected**: S2.2 showed
+the cause is the LOD cascade, which was deliberately not changed. The apply
+budget could not have fixed it.
+
+**`PumpAndApply` p99 barely moved here (1.542 → 1.505 ms), and that is honest
+rather than disappointing** — at this rig's ~26K live slots the per-frame op
+count rarely reaches 4096, so the budget seldom bites. Its benefit shows at the
+higher volumes in the controlled rig, not in this configuration.
+
+**The three terrain-identity failures still fail, for the same documented
+reason** — confirmed, not assumed:
+
+- `no reloaded chunk changed content (4 of 9 hash-mismatched)`
+- `edits survived a 500m round trip: 0x46EB1687 == 0xABE2659F`
+- `no brick that was UNIFORM before the dig failed to coalesce back (23 of 23)`
+
+These are now a standing rule in CLAUDE.md ("RIG SELECTION RULE"): they are
+expected under live fluid, and the assertions must not be loosened.
+
+---
+
+## S2.5 — Full re-verification sweep (`d4593ee`)
+
+Every rig from session 1's table, re-run against Steps 0/1/3.
+
+| rig | session 1 | session 2 | verdict |
+|---|---|---|---|
+| Phase 5a reference | 5 scenarios, ledger OK | 5 scenarios, 0 unbalanced, 0 dup ownership | **unchanged** |
+| Phase 5c edit stress | 170 PASS / 0 FAIL | **170 PASS / 0 FAIL** | unchanged |
+| Phase 5d streaming × fluid | 19 PASS / 0 FAIL | **19 PASS / 0 FAIL** | unchanged |
+| `run-fluid-activity.sh` (dense baseline) | 19 PASS / 0 FAIL | **19 PASS / 0 FAIL** | unchanged |
+| Phase 6 brush guard | 30 PASS / 0 FAIL | **30 PASS / 0 FAIL** | unchanged |
+| Phase 6 sandbox | 43 PASS / 0 FAIL | **43 PASS / 0 FAIL** | unchanged |
+| `run-fluid-scale.sh` | 4 PASS / 0 FAIL | **4 PASS / 0 FAIL** | unchanged |
+| `run-fluid-tiled.sh` | 19 PASS / 0 FAIL | **19 PASS / 0 FAIL** | unchanged |
+| EditMode | 477 PASS / 0 FAIL | **485 PASS / 0 FAIL** | +8 (OpDrainCursor) |
+| Combined load | 50 PASS / 6 FAIL | **51 PASS / 5 FAIL** | readback error gone |
+
+**No rig needed weakening, and none changed what it proves.**
+
+---
+
+## S2.6 — Mutation sweeps
+
+**`OpDrainCursor` — 6 mutants, all killed:**
+
+| mutant | killed by |
+|---|---|
+| `Take` overruns the batch | 3 tests, incl. exactly-once |
+| head advances one short (duplicates) | 3 tests |
+| head advances one far (drops) | 3 tests, incl. ordering |
+| `Stage` overwrites an undrained batch | the refusal test |
+| `WouldCarry` off-by-one | the agreement test |
+| zero budget discards instead of stalling | the stall test |
+
+---
+
+## S2.7 — Still open after this session
+
+- **The LOD cascade re-downsample is the §4.3 blowout** and is unfixed.
+  Recommended: §8.5's budget applied to cascade rebuilds. Own checkpoint.
+- **The 4096 op budget is untuned.** `-fluidopbudget` exists to sweep it; the
+  8,000 rung's 1.2 ms p50 regression is the number to optimise against.
+- **Fluid throughput falls 42.9% at 32,000 live voxels** under back-pressure.
+  Bounded frames were bought with simulation rate; whether that trade is right
+  at that load is a design call, not a measurement one.
+- **§2.2 remains unanswerable** — GPU-lane budget, no GPU-stage attribution in
+  this workflow. Unchanged from session 1.
+- Gas / fire / density-layering remain unspecified and untouched.
