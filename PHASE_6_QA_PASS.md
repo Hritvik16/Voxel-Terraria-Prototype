@@ -306,7 +306,10 @@ arithmetic matches the counter:
   against a pool of **512**.
 - 289 of 512 does not saturate on its own — **the saturation comes from the Y
   dimension**: falling fluid occupies tiles in roughly two layers at once,
-  which puts demand near or past the cap.
+  which puts demand near or past the cap. *(2026-09-11: this reasoning was
+  right in direction and roughly right in size — the siege's peak demand has
+  since been measured directly at **678**, against the 512 cap. See
+  `FLUID_TILE_CAP_RESULTS.md` §7.)*
 - The engine then refuses cleanly per §7.7: **283,337 / 294,588 exhaustions
   recorded, 0 ops dropped for non-residency, cap never exceeded**. A voxel
   whose tile cannot be acquired does not move, and it does not corrupt
@@ -337,10 +340,17 @@ Also widened: the conservation census covered ±130 while the pour spreads
 
 ## 7.6 What the siege adds to the open items in §5
 
-1. **Tile pool size (512) vs. wide fluid spreads.** The cap is doing its job
+1. **Tile pool size (512) vs. wide fluid spreads.** ~~The cap is doing its job
    correctly, but at siege width it is reached ~290,000 times and the visible
    consequence is suspended fluid. Raise the pool, narrow the spread, or
-   accept the artifact — a tuning/feel call, not a correctness one.
+   accept the artifact — a tuning/feel call, not a correctness one.~~
+   **SUPERSEDED 2026-09-11 — now measured, see `FLUID_TILE_CAP_RESULTS.md`.**
+   The cause is confirmed by a deliberate repro (not inferred from a counter),
+   real demand is **~680 tiles**, and a **1024 cap takes the artifact to 0.0%
+   with no measurable frame-time cost** for +256 MB. The open decision is
+   narrower than "raise, narrow or accept": it is whether +256 MB on an 8 GB
+   machine is worth it, and whether to fix the orphan-tile gap that a 1024
+   pool exposes at the same time. A recommendation is on the table there.
 2. **A siege p50 is not a comparable number.** 15.5% twin spread; use the p99
    (0.9%) or quote p50 as a range.
 

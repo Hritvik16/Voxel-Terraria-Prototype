@@ -142,3 +142,253 @@ without paying for it somewhere else. It is a redesign and needs a deliberate
 decision.
 
 ---
+
+## 6. The cooled ladder (Step 2)
+
+Six runs, 300s idle cooldown before each, `-holdseconds 60` (3,600 measured
+frames per run), two passes so every cap carries a driftcheck twin.
+**4 PASS / 0 FAIL in every run**, and the twins agree on every verdict.
+
+| cap | peak demand | refusals | marker cube | GPU active set | GPU total (sim) |
+|---|---|---|---|---|---|
+| **512** | 844–849 | **97,400 / 97,529** | **FROZEN** 1,728 / 1,728 | 264 MB | 286 MB |
+| **1024** | 877 / 877 | 0 | FELL 0 / 1,728 | 520 MB | 542 MB |
+| **2048** | 876 / 877 | 0 | FELL 0 / 1,728 | 1032 MB | 1054 MB |
+
+**A cap of 1024 fixes this scenario completely** — zero refusals, not merely
+fewer. 2048 buys nothing beyond it, because demand is ~877 and a pool only has
+to exceed demand.
+
+### 6a. Demand is self-suppressing at a binding cap
+
+Worth naming, because it is a trap for anyone sizing a pool from a saturated
+run: cap 512 reports demand **844–849** while the non-binding caps report
+**876–877**. Refused fluid cannot spread, so it never generates the demand it
+would have generated. **Only a non-binding run yields an honest demand
+figure**, and a saturated run's number is an underestimate by construction.
+
+### 6b. Frame time: no cap-attributable cost is detectable
+
+The first ladder ran the caps in the same order in both passes, which
+confounds cap with position-in-pass. A third pass was run in **reverse order**
+(2048 → 1024 → 512) to break that. All nine runs:
+
+| pass | order | p50 by position |
+|---|---|---|
+| 1 | 512, 1024, 2048 | 10.49, 10.28, 10.29 |
+| 2 | 512, 1024, 2048 | 10.32, 11.91, 12.10 |
+| 3 | **2048, 1024, 512** | 10.86, 11.80, 11.76 |
+
+Grouped two ways:
+
+| grouping | means | spread of means |
+|---|---|---|
+| by **cap** (512 / 1024 / 2048) | 10.86, 11.33, 11.08 | 0.47 ms, **not monotonic** |
+| by **position in pass** (1 / 2 / 3) | 10.56, 11.33, 11.38 | 0.83 ms, **monotonic** |
+
+In the reversed pass the **largest** cap was the **fastest**, which is the
+opposite of what a cap cost would produce. Within-cap range (1.44–1.81 ms)
+exceeds the entire between-cap spread (0.47 ms).
+
+**Conclusion: no frame-time cost attributable to the cap, bounded at roughly
+the measurement noise (~4% between cap means, against 13–17% within-cap
+scatter).** The 4× memory increase from 512 to 2048 did not show up in wall
+clock at this demand level.
+
+**A methodology finding that applies beyond this document: 300s cooldowns do
+not fully absorb drift across a three-run sequence.** Position within a
+measurement session is the largest single term in these numbers. Ladders
+should be run counterbalanced, and a single-order ladder should not be trusted
+to separate the variable under test from where the run sat in the session.
+
+### 6c. What raising the cap actually costs
+
+1. **Memory, always, whether used or not** — 0.5 MiB × cap, allocated at
+   construction. 512 → 1024 is +256 MB on an 8 GB machine.
+2. **Dispatch, but only when the cap was binding** — `DispatchCells` is
+   `_activeTileCount × TileCells`, so per-tick work follows *resident* tiles.
+   This repro went 512 → ~882 resident, 1.72× the dispatch, and still showed
+   no measurable wall-clock difference.
+3. **Nothing else.** No refusals, no correctness change, water conserved
+   exactly in every run at every cap.
+
+---
+
+## 7. The real scenario: the siege at both caps
+
+The lattice's demand is whatever the rig dials it to, so nothing can be
+recommended from it alone. The late-game siege — heavy fluid plus all six
+Phase 6 systems, 200s — was re-run cooled at both caps, with a **direct census
+of the artifact** rather than a screenshot impression.
+
+| | cap 512 | cap 1024 |
+|---|---|---|
+| peak tile demand | 678 | 682 / 692 |
+| refusals | 283,784 | **0** |
+| tiles resident | 512 / 512 | 795 / 787 of 1024 |
+| **frozen-fluid census** | **90 of 2,677 (3.4%)** | **0 of 2,279 and 0 of 2,265 (0.0%)** |
+| live slots peak | 321,695 / 500,000 | 321,158 / 321,200 |
+| p50 / p99 | 8.59 / 47.82 ms | 8.60 / 50.97 and 8.51 / 51.89 ms |
+| lava+obsidian | 12,395 → 12,395 (0.00%) | exact in both runs |
+| gates | 8 PASS / 0 FAIL | **7 PASS / 1 FAIL** — see §7.2 |
+
+**Real heavy play wants ~680 tiles, not thousands.** A 1024 pool covers it with
+~35% headroom and takes the artifact to **exactly zero**, at 8.60 vs 8.59 ms
+p50 — indistinguishable, and inside the noise §6b established.
+
+### 7.1 Visual confirmation
+
+The after-settle frames were compared directly. At cap 512 the scene has
+several unmistakable **suspended water cubes** hanging in mid-air plus floating
+sand and stone blocks. At cap 1024, in the otherwise identical scene — same
+craters, same lava, same obsidian, same stone arch — **every one of them is
+gone.**
+
+One floater remains in both: a dark slab upper-left. That is **obsidian**,
+which `MaterialRules` defines as `Define(Materials.Obsidian, 0u, 0)` — flags
+zero, an ordinary static solid. It is §7.3's product formed in mid-air where
+lava met falling water, it is not mobile, and the tile pool has nothing to do
+with it. It belongs to the already-resolved "floating debris from destruction
+is not a defect" category and should not be re-reported as this bug.
+
+### 7.2 Raising the cap SURFACED something the small pool was hiding
+
+This is the one result that argues against treating 1024 as a free win.
+
+| | cap 512 | cap 1024 (two runs) |
+|---|---|---|
+| op-list total | 3.6 M | **7.9 M / 8.3 M** |
+| ops dropped non-resident | **0** | **4,442,181 / 4,392,230** (53–56%) |
+
+Op traffic more than doubled and over half of it is discarded. It reproduces
+to within 1.1% across two runs, so it is not noise.
+
+**It is not corruption.** That path is §9.4's documented guard: the op is
+refused, the material stays exactly where it was, the counter is incremented.
+Conservation was still exact in both runs, and frame time did not move — so
+the wasted work is currently costing nothing measurable. But it is real work
+being thrown away, and it appears only once the pool is large enough to hold
+the tiles that generate it.
+
+**Why — measured, not guessed.** Two candidates were possible: fluid pressing
+outward against the streaming edge (the guard doing its job, just more often),
+or tiles **outliving their chunk's residency**, since `Refresh` tests §9.4 at
+*acquire* time only and `ReleaseBeyondSleep` tests only the radius. A counter
+that is nonzero only in the second case was added and run:
+
+```
+TILES WHOSE CHUNK IS NO LONGER RESIDENT: 15 of 787
+```
+
+**So the second gap is real, not hypothetical** — a tile can and does outlive
+its chunk. At cap 512 the pool saturates near the player and never has spare
+capacity to hold such a tile, which is why the count is 0 there: the small cap
+was masking it.
+
+What this run does **not** establish is the split. 4.4 M drops over 12,000
+frames is ~370/frame, and 15 orphaned tiles could plausibly supply all of that
+or only part of it. **Apportioning the two causes would need another
+measurement and was not done.**
+
+---
+
+## 8. Step 3 — the slot cap: not reached, and not implicated
+
+Step 3 was conditional on tiles being available while slots ran out. That
+condition is not met anywhere in this work:
+
+| scenario | live slots peak | % of MAX_ACTIVE_FLUID |
+|---|---|---|
+| lattice, cap 512 (frozen) | 39,788 | **8.0%** |
+| lattice, cap 2048 | 72,345 | 14.5% |
+| siege, cap 512 | 321,695 | 64.3% |
+| siege, cap 1024 (artifact gone) | 321,158 | 64.2% |
+
+The marker cube froze with slots at **8%**. The siege's slot usage is
+**identical at both caps** — 64% either way — while the artifact goes from
+3.4% to 0. Slots are not what changed and not what was binding.
+
+**Raising `MAX_ACTIVE_FLUID` would fix nothing here, and would not be free:**
+more slots means more concurrent GPU simulation, which is the one cost the
+tile cap did *not* impose. No experiment was run on it, because there is no
+measurement showing it is the constraint — running one would be answering a
+question the evidence says is not being asked.
+
+---
+
+## 9. RECOMMENDATION (Step 4) — a decision for a human, not a change made here
+
+### 9.1 Yes: a higher tile cap alone fixes it, and cheaply in time
+
+- **1024 is the right number, not 2048.** Demand is ~680 real / ~880 synthetic.
+  1024 clears both with headroom; 2048 buys nothing and doubles the memory.
+- **Cost in frame time: none measurable** (§6b, nine cooled runs,
+  counterbalanced).
+- **Cost in memory: +256 MB, always, allocated at the cap** — 264 → 520 MB.
+  On this 8 GB machine that is the real price, and it is paid whether or not
+  a player ever spreads that much fluid.
+- **Correctness: unchanged.** Conservation exact, zero wake failures, zero
+  readback errors, water conserved at every cap.
+
+### 9.2 But it is not a free win, and the caveat is the decision
+
+Raising the cap to 1024 **exposes 4.4 M discarded ops and confirms that tiles
+outlive chunk residency** (§7.2). Costless today in frame time, and not
+corruption — but it is a latent gap that the 512 cap was concealing, and
+shipping 1024 makes it live.
+
+Three ways forward, and **which one is right is a judgement call about how
+much memory a fanless 8 GB machine should spend on fluid**:
+
+| option | fixes the artifact | memory | risk |
+|---|---|---|---|
+| **A. cap 1024** | completely (0.0%) | +256 MB | surfaces §7.2's op waste |
+| **B. cap 1024 + release tiles whose chunk is evicted** | completely | +256 MB | small, targeted change to `Refresh`; removes the §7.2 caveat |
+| **C. keep 512, make the refusal visible** | no — makes it *legible* | 0 | player is told, not surprised |
+
+**Recommended: B**, on the evidence — the artifact is real and visible in
+ordinary play, 1024 resolves it at no measurable time cost, and the one
+side-effect has a known, contained cause worth fixing at the same time rather
+than shipping around. **A** is acceptable if the orphan-tile work is deferred
+deliberately rather than forgotten.
+
+### 9.3 If the memory is judged too expensive, the honest fallback (option C)
+
+Not implemented, per instruction — the caps *can* solve it, so this is the
+alternative rather than the plan. But the pattern already exists and the gap
+is specific:
+
+`Playground.TryPaintBrush` **already** refuses a mobile brush outside §7.4's
+wake radius, with a red status line and a `Act.Refused` flash, and the HUD
+already shows `pool full Nx (refused cleanly)`. **What it does not guard is
+the pool.** Inside the radius with a full pool, placement is accepted and the
+fluid silently never simulates — which is exactly the frozen cube.
+
+So option C is: extend that existing guard to also refuse when
+`FluidTileMap.Acquire` would fail for the target tile, reusing the same
+message path. That turns a silent frozen blob into the same visible refusal
+the radius already produces. It is a real behaviour change (placements that
+used to succeed would start failing at the edge of a busy scene), which is why
+it is a decision and not a cleanup.
+
+### 9.4 A cheaper lever exists but is a redesign, not a knob
+
+§5's tile-edge arithmetic: memory for the thin-and-wide shape is linear in
+tile edge, so T=16 would **halve** the cost of exactly the case that breaks.
+It is blocked by `ChunkFluidMask` packing a chunk's sub-tiles into one ulong
+(4³ = 64 at T=32; T=16 needs 512). Recorded so it is not rediscovered; not
+proposed for now.
+
+---
+
+## 10. What was NOT established
+
+- **The split between the two causes of the 4.4 M dropped ops** (§7.2). The
+  orphan-tile gap is confirmed to exist; its share is not measured.
+- **Whether cap 1024 holds up beyond 200s.** Both siege runs at 1024 showed
+  the same flat-to-improving trajectory as 512, but no longer run was done.
+- **Any slot-cap experiment.** Deliberately not run — §8.
+- **GPU-stage attribution for any of it.** Standing toolchain limitation.
+- **Demand for scenarios wider than the siege.** Demand scales with spread;
+  a pour twice as wide would need roughly twice the tiles, and 1024 is sized
+  to *this* scenario plus ~35%, not to an arbitrary one.

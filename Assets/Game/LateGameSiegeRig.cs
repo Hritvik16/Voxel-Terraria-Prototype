@@ -502,6 +502,28 @@ public class LateGameSiegeRig : MonoBehaviour
                     mobileSeen++;
                     if (_tiles.SlotForVoxel(v) == FluidTileMap.NO_TILE) frozen++;
                 }
+        // WHY ARE OPS BEING DROPPED FOR NON-RESIDENCY? Two candidates, and
+        // they call for different responses:
+        //   (a) a tile OUTLIVES its chunk's residency. Refresh tests §9.4 at
+        //       ACQUIRE time and never again; ReleaseBeyondSleep tests only
+        //       the radius. So an evicted chunk leaves its tile resident, and
+        //       that would be a latent gap a small pool merely hid.
+        //   (b) fluid simply reaches the STREAMING EDGE and keeps trying to
+        //       move outward into never-loaded space -- the documented §9.4
+        //       guard doing its job, just far more often because a larger
+        //       pool can afford tiles out at the edge that a full one never
+        //       acquired.
+        // This counter separates them: it is nonzero only under (a).
+        int orphanTiles = 0;
+        foreach (int3 tc in _tiles.ResidentTileCoords())
+        {
+            int3 anyVoxel = tc * ChunkFluidMask.TILE_EDGE;
+            if (!Store.IsResident(CoordMath.VoxelToChunk(anyVoxel))) orphanTiles++;
+        }
+        Note($"TILES WHOSE CHUNK IS NO LONGER RESIDENT: {orphanTiles} of {_tiles.ResidentTiles}. " +
+             "Nonzero means a tile outlived its chunk (Refresh checks §9.4 at acquire time only); " +
+             "zero means the dropped ops are fluid pressing on the streaming edge instead");
+
         Note($"FROZEN-FLUID CENSUS (4-voxel stride, surface-26..+40): {frozen:N0} of " +
              $"{mobileSeen:N0} sampled mobile voxels inside the radius have NO TILE and " +
              $"therefore cannot move ({(mobileSeen > 0 ? frozen * 100.0 / mobileSeen : 0):F1}%). " +
