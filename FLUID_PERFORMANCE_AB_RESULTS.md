@@ -645,6 +645,91 @@ coarse geometry written for terrain that no longer exists.
 ---
 ---
 
+# SESSION 4 — 2026-09-10, commits `2efc0f5`..
+
+## S4.1 — THE AUTHORITATIVE COOLED BASELINE (cite this one)
+
+**First fully-cooled combined-load reference. 2026-09-10, commit `d243370`.**
+Two independent runs, each preceded by a **300 s idle cooldown**, shared
+cascade chain ON, fluid apply budget 4096, 8,000-voxel tiled load.
+The pair **is** the driftcheck — both runs are quoted so the spread is visible
+rather than hidden behind an average.
+
+| metric | run A `185655` | run B `191013` | spread |
+|---|---|---|---|
+| result | 51 PASS / 5 FAIL | 51 PASS / 5 FAIL | — |
+| op-list readback errors | 0 | 0 | — |
+| Gate B frame p50 / p99 | 8.30 / 54.71 | 8.00 / 56.27 | 3.6% / 2.9% |
+| Gate C frame p50 / p99 | 4.20 / 69.53 | 4.29 / 60.03 | 2.1% / **13.7%** |
+| Gate C upload p50 / p99 | 4.087 / 8.298 | 4.610 / 7.807 | **12.8%** / 5.9% |
+| Gate E upload p50 / p99 | 0.002 / 7.972 | 0.002 / 7.558 | — / 5.2% |
+| cascades p50 / p99 | 4.03 / 7.95 | 4.47 / 7.62 | **10.9%** / 4.2% |
+| — downsample p50 | 3.69 | 4.09 | 10.8% |
+| PumpAndApply p99 | 1.548 | 1.442 | 6.9% |
+| CA submit p99 | 2.873 | 4.446 | **54.8%** |
+| live slots p50 | 23,503 | 23,950 | 1.9% |
+
+**How to cite it.** Frame p50, live slots and readback errors are tight (≤4%)
+and quotable as stated. Upload p50, cascades p50 and Gate C frame p99 carry
+**11–14%** — quote as a range, not a point. **CA submit p99 varies 55% and
+should not be quoted at all** until it is understood.
+
+The matching cooled **terrain-only** reference (`191732`): **53 PASS / 0 FAIL**,
+Gate C upload p50 0.001 / p99 0.613 ms, frame p50 ~7.2 ms, p99 14–29 ms.
+
+## S4.2 — §4.3 under live fluid: a design question, NOT decided here
+
+**The gate's pass/fail logic was not touched.** Both options below are
+supported by the same measurements; choosing between them is a call about
+what the budget is *for*.
+
+### The measurements both options must explain
+
+| | terrain only | combined load |
+|---|---|---|
+| §4.3 terrain upload p50 / p99 | 0.001 / **0.613 ms — PASSES** | 4.1–4.6 / **7.6–8.3 ms — ~8× over** |
+| of which cascade | 0.00 | **4.0–4.5 ms p50** (the bulk) |
+| of which clipmap phases | ~0 | ~0.1 ms |
+| §2.2 "fluid op-list apply" (≤0.5 ms) | n/a | **1.44–1.55 ms p99 — ~3× over** |
+
+### Option (a): §4.3 was always a terrain-only budget; fluid needs its own line
+
+**Evidence for.** §2.2 *already* separates "Fluid op-list apply" from "Terrain
+upload" as distinct CPU-lane lines, so the architecture anticipates fluid
+carrying its own cost line rather than being charged to terrain's. §4.3's
+1.0 ms was derived for terrain streaming — chunks admitted as the window
+slides — and terrain-only meets it with 40% margin. The combined overage is
+almost entirely **cascade re-downsampling triggered by fluid mutating
+terrain**, which is mirror maintenance caused by fluid, not terrain streaming.
+
+**What a number would look like.** §2.2's named CPU lines total 3.2 ms of
+16.6, so there is nominal headroom. Codifying today's behaviour needs ≈8.5 ms
+p99, which is just blessing the status quo. A line at **≤2.0 ms** would demand
+roughly halving the cascade cost again; **≤4.5 ms** would cover today's p50 but
+still leave the p99 out. **No number is proposed for adoption** — the honest
+input is the measured distribution above.
+
+### Option (b): the budget holds regardless, and ~8× is a real regression
+
+**Evidence for.** A budget that only applies when the headline feature is idle
+is not a budget. §2.2's whole purpose is that the *frame* fits; the CPU lane
+does not care which subsystem dirtied the chunk. The cost is real main-thread
+time in shipped play, and fluid is not an optional mode. §2.2 also explicitly
+warns that the combined case needs "its own explicit capture, not just each
+system measured in isolation" — this is that capture, and it does not fit.
+
+**Also supporting (b):** the apply line is over its own budget too (1.44–1.55
+vs ≤0.5 ms), so redefining only §4.3 would leave a second line breached.
+Against (b): §2.2 itself calls that 0.5 ms "a placeholder, not a measurement"
+and says it "needs a number attached before it's trusted" — so it is weak
+evidence of a regression and strong evidence that the placeholder needs
+revisiting.
+
+**Not decided. Not implemented either way.**
+
+---
+---
+
 # THERMAL TRUST AUDIT — read this before citing ANY number above
 
 Added 2026-09-10 (session 4). **Nothing above was re-measured for this audit**;
