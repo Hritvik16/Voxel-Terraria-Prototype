@@ -754,6 +754,107 @@ line of log.
 ---
 ---
 
+# SESSION 5 — 2026-09-10/11, commits `8755570`..`de10271`
+
+## S5.1 — Every Phase 6 system at once, on the tiled substrate (a first)
+
+`run-phase6-combined.sh` / `Phase6CombinedRig`. 75 s (4500 frames) of
+**concurrent** player stepping, dig/place at two tool tiers, grapple-speed CCD,
+detonations, projectile traces and buoyancy — against the **tiled** fluid.
+`Phase6SandboxRig` drives the same six systems but strictly in sequence and
+still builds the old **dense** simulation, so both the concurrency and the
+substrate are new.
+
+**Cooled pair (300 s idle each), driftcheck twin:**
+
+| | run A | run B | spread |
+|---|---|---|---|
+| result | 14 PASS / 0 FAIL | 14 PASS / 0 FAIL | — |
+| frame p50 | 13.07 ms | 13.08 ms | **0.1%** |
+| frame p99 | 21.61 ms | 21.70 ms | **0.4%** |
+| frame max | 224.42 ms | 226.01 ms | 0.7% |
+| readback errors | 0 | 0 | — |
+| ops dropped non-resident | 0 | 0 | — |
+| slot pool | 4,947 / 65,536 | — | — |
+| tiles resident / exhaustions | 334 / 0 | — | — |
+| silent wake failures | 0 | 0 | — |
+
+**Combined-load p99 (~21.6 ms) is BETTER than the fluid+terrain acceptance
+rig's (50–68 ms cooled)** — a different scenario, with no camera traversal or
+streaming churn. It does not worsen under the fuller load.
+
+## S5.2 — Per-system toggles: the tail correlates with nothing
+
+| config | PASS/FAIL | p50 | p99 | band mean | preUpdate % |
+|---|---|---|---|---|---|
+| all-on | 14/0 | 12.66 | 23.18 | 40.65 | 70.1 |
+| no-physics | 11/1 | 12.98 | 18.97 | 38.74 | 62.8 |
+| no-edits | 13/0 | 12.67 | 21.20 | 39.94 | 67.4 |
+| no-boom | 13/0 | 12.91 | 21.30 | 40.31 | 62.2 |
+| no-proj | 12/0 | 11.28 | 21.88 | 38.47 | 86.9 |
+| no-buoy | 12/0 | 11.28 | 20.57 | 35.91 | 71.1 |
+| **no-fluid** | 7/0 | 11.56 | 21.29 | **42.97** | 53.6 |
+| all-on REPEAT | 14/0 | 12.09 | 21.82 | 38.85 | 68.1 |
+
+Driftcheck p50 **4.5%**, p99 **5.9%**. Band mean spans 35.91–42.97 (19.7%)
+with **no ordering** — and **disabling fluid entirely gives the HIGHEST band
+mean of the eight**. `preUpdate` stays dominant (53.6–86.9%) whatever runs.
+
+**Verdict: the tail is a fixed, bounded, toolchain-level limitation.** With
+last session's ten eliminated candidates, this is the strongest evidence
+available here, and no further measurement on this toolchain can narrow it.
+
+## S5.3 — Visual verification, and what it actually found
+
+Frames viewed: arena before, mid-activity, late-activity, after — for both
+all-on and `-nofluid`.
+
+**Correct:** detonation craters are clean hemispherical bites with stepped
+rims, connected to the parent mass; terrain has no holes; the CCD wall and
+basin are intact; water stays inside the basin (no leaking past its bounds);
+no duplicated geometry.
+
+**Fluid demonstrably live:** with the CA on, placed sand settles into smooth
+mounds and water redistributes around it. With `-nofluid`, the same sand stays
+in blocky unsettled pillars. That difference between the two images *is* the CA
+working, visible in frame rather than inferred from a counter.
+
+**FOUND: floating geometry near the detonations.** Isolated stone blocks in
+mid-air. Measured rather than eyeballed, because a real unsupported voxel and a
+stale GPU-mirror phantom look identical in a screenshot:
+
+```
+  detonation region: 2426 solid voxels, 1 fully isolated (all 6 neighbours air)
+```
+
+- They are **real CPU terrain** (`Store.GetVoxel`), **not** a mirror artefact.
+- They appear at **identical positions with `-nofluid`** — fluid uninvolved.
+- **No spec requires structural connectivity.** §8.5 specifies sphere removal
+  plus a tally; a sphere that undercuts a block leaves it floating by
+  construction.
+- The census counts only *fully* isolated voxels, so it **understates** the
+  visually-unsupported clusters (a slab is internally connected).
+
+## S5.4 — GATE DECISION: STOPPED. Playground was NOT touched.
+
+| condition | verdict |
+|---|---|
+| 1. Full duration, zero correctness failures | **PASS** — 14/0 on three cooled all-on runs; 0 readback errors, 0 non-resident drops, 0 silent wake failures, pool unsaturated |
+| 2. Visual check found nothing wrong | **NOT MET as written** — floating geometry from the detonation was found |
+| 3. Tail attributed, or confirmed fixed/bounded and not worse under combined load | **PASS** — S5.2 confirms it survives every toggle; combined p99 ~21.6 ms is better than the documented fluid+terrain 50–68 ms |
+
+Conditions 1 and 3 pass on evidence. **Condition 2 is the only one in
+question, and it turns on a design question I was told not to answer**:
+whether unsupported voxels left by sphere-subtraction count as "wrong". My
+assessment is that they are expected voxel behaviour, not a defect — real
+terrain, fluid-independent, spec-compliant, one isolated voxel in 2426. But
+the gate names exactly this, and waiving it is the project owner's call.
+
+**Playground remains on the old dense simulation. Step 5 was not started.**
+
+---
+---
+
 # THERMAL TRUST AUDIT — read this before citing ANY number above
 
 Added 2026-09-10 (session 4). **Nothing above was re-measured for this audit**;
