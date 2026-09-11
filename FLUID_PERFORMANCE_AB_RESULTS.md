@@ -643,6 +643,65 @@ evicted *between* `SelectBatch` and the write. Without the re-check it gets
 coarse geometry written for terrain that no longer exists.
 
 ---
+---
+
+# THERMAL TRUST AUDIT — read this before citing ANY number above
+
+Added 2026-09-10 (session 4). **Nothing above was re-measured for this audit**;
+it classifies what is already recorded so nobody cites an uncooled figure as
+settled.
+
+## How the classification was made
+
+Not by memory — by run-start gaps on disk and by each harness's own
+driftcheck design.
+
+- **Cooled runs show 407–475 s between run starts** (a ~4 min run plus a 300 s
+  idle cooldown).
+- **Every suspect sequence shows 110–157 s between starts**, i.e. a ~4 min run
+  with essentially zero idle. Back-to-back.
+- **None of the three committed harnesses** (`run-fluid-ab.sh`,
+  `run-acceptance-fluid.sh`, `run-acceptance-rig.sh`) contains a cooldown.
+  Every cooled figure on record came from an ad-hoc script. **This is itself a
+  gap**: re-running a committed harness today reproduces uncooled numbers.
+
+## The two harnesses are NOT equally affected, and this matters
+
+| | acceptance rig (`run-acceptance-*.sh`) | FluidAB (`run-fluid-ab.sh`) |
+|---|---|---|
+| run length | ~4 min, heavy | ~90 s |
+| driftcheck twin | **none** — single runs | **yes**, all twins run at the END of the sweep, so the pair straddles the whole sweep and genuinely detects cross-sweep drift |
+| measured uncooled drift | **183%** on upload p50 across 4 back-to-back runs | median **1.9–6.9%**, max excursions caught and re-run |
+
+The 183% figure that triggered all of this was the **acceptance rig**. The
+FluidAB sweeps carry their own evidence that they did *not* drift badly.
+
+## Verdict per figure class
+
+| figures | status |
+|---|---|
+| **Session 3 cooled A/B** (cascade ON/OFF: upload p50 6.60→3.99, downsample 6.29→3.52) | **KNOWN-GOOD.** 300 s cooldowns, order reversed, ON drift 10.0% / OFF 0.4% |
+| **Session 3 budget sweep** (1024/4096/16384 curve) | **KNOWN-GOOD.** 150 s cooldowns, driftchecks 0.2–4.0% |
+| **Session 3 terrain-only baseline** (53 PASS / 0 FAIL, §4.3 p99 0.613 ms) | **KNOWN-GOOD** for pass/fail; the 2768 s preceding gap makes it genuinely cold |
+| **Sessions 1–2 FluidAB sweeps** (dense-vs-tiled ladder, scatter ladder, PumpAndApply p99 ladder) | **DIRECTION RELIABLE, MAGNITUDE ±~7%.** Uncooled, but each carries an end-of-sweep driftcheck twin with median spread 1.9–6.9%. Do not quote to 3 significant figures; the crossover and the shape of the curves stand |
+| **Sessions 1–2 acceptance-rig figures** (Gate B/C frame p50 & p99, §4.3 upload p99, combined-load cascade cost) | **UNVERIFIED MAGNITUDE, DIRECTION ONLY.** Uncooled, 110–157 s gaps, and **no driftcheck twin at all**. This is the suspect class |
+| **Gate C frame p99 "72–76 ms"** (sessions 1–2) | **SUPERSEDED.** Measures 50–68 ms cooled, *for both configs*. Do not cite 72–76 |
+| Session 1–2 **counts** (ops, voxel writes, live slots, tiles, gathers, backlog) | **TRUSTWORTHY.** Counts are not timings; the 4-trial readback series varied only ±2% |
+
+## The two specific comparisons this weakens
+
+1. **Terrain-only vs combined-load (sessions 1–2).** The pairs were taken
+   157 s and 135 s apart — the terrain baseline ran immediately after a fluid
+   run. Some of the measured gap is thermal. **Direction is safe** (0.001 vs
+   6.8 ms upload p50 is far too large to be drift, and the cascade mechanism
+   explains it), but the magnitude is not settled.
+2. **"Terrain-only improved from 51 PASS / 2 FAIL to 53 PASS / 0 FAIL."** The
+   session 1–2 run was uncooled, the session 3 run had a 2768 s preceding gap.
+   **Part of that improvement may be thermal rather than the cascade fix.**
+   The pass/fail change is real; attributing it entirely to the fix is not
+   supported.
+
+---
 
 # OPEN ITEMS REQUIRING A HUMAN DECISION
 
