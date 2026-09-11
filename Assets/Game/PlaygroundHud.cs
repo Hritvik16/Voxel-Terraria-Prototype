@@ -52,6 +52,25 @@ public class PlaygroundHud : MonoBehaviour
     private float _worstResetTimer;
     private int _frames;
 
+    /// Reads the commit + build time baked in at build time. Cached: this is
+    /// drawn every frame and Resources.Load is not free.
+    private static string _buildStamp;
+    private static string BuildStampLine()
+    {
+        if (_buildStamp != null) return _buildStamp;
+        var ta = Resources.Load<TextAsset>("BuildStamp");
+        if (ta == null) { _buildStamp = "(no stamp -- Editor play, or built before BuildStamp existed)"; return _buildStamp; }
+        string commit = "?", built = "?";
+        foreach (string line in ta.text.Split('\n'))
+        {
+            string t = line.Trim();
+            if (t.StartsWith("commit")) commit = t.Substring(6).Trim();
+            else if (t.StartsWith("built")) built = t.Substring(5).Trim();
+        }
+        _buildStamp = $"{commit}   built {built}";
+        return _buildStamp;
+    }
+
     void Update()
     {
         if (Input.GetKeyDown(_toggleKey)) _visible = !_visible;
@@ -118,6 +137,14 @@ public class PlaygroundHud : MonoBehaviour
                           "Edits are NOT reaching disk. ***</color>");
 
         sb.AppendLine("The trusted frame-time source is ./run-acceptance-rig.sh, not this overlay.");
+
+        // BUILD PROVENANCE. On screen because the .app's modified date LIES:
+        // Unity writes into an existing bundle in place, so the directory keeps
+        // its original mtime while the binary inside is current. That ambiguity
+        // once cost a round of doubt about a build that was in fact fresh, and
+        // it was only settled by grepping string literals out of the shipped
+        // dylib. This line is the cheap answer. See Assets/Editor/BuildStamp.cs.
+        sb.AppendLine($"<b>build</b>  {BuildStampLine()}");
 
         var st = new GUIStyle(GUI.skin.label)
         {

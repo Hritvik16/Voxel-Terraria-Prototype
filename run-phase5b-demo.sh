@@ -10,6 +10,7 @@ APP_PATH="Builds/Phase5bDemo.app"
 OUT="$HOME/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Phase5bDemo"
 
 echo "== Regenerating the demo scene =="
+rm -rf "$APP_PATH"   # so the bundle mtime tells the truth (see BuildStamp.cs)
 "$UNITY_BIN" -batchmode -quit -nographics -projectPath "$(pwd)" \
   -executeMethod Phase5aSceneBuilder.GeneratePhase5bDemo -logFile phase5bdemo_scene.log
 

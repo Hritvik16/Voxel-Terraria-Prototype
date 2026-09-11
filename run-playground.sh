@@ -9,6 +9,8 @@ UNITY_BIN="/Applications/6000.3.10f1/Unity.app/Contents/MacOS/Unity"
 APP="Builds/Playground.app"
 OUT="$HOME/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/PlaygroundShots"
 
+rm -rf "$APP"   # so the bundle mtime tells the truth (see BuildStamp.cs)
+
 "$UNITY_BIN" -batchmode -quit -nographics -projectPath "$(pwd)" \
   -executeMethod Phase5aSceneBuilder.GeneratePlayground -logFile playground_scene.log
 "$UNITY_BIN" -batchmode -quit -projectPath "$(pwd)" \

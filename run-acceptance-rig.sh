@@ -28,6 +28,7 @@ rm -f "$BUILD_LOG"
 # a graphics context even in batch mode, and this step needs no window itself
 # either way. -nographics stays reserved for the EditMode test runner, which
 # genuinely doesn't need a GPU present.
+rm -rf "$APP_PATH"   # so the bundle mtime tells the truth (see BuildStamp.cs)
 "$UNITY_BIN" -batchmode -quit -projectPath "$PROJECT_PATH" \
   -executeMethod CommandLineBuild.BuildPhase4Standalone \
   -logFile "$BUILD_LOG"

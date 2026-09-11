@@ -29,6 +29,7 @@ SCENE_LOG="phase5a_scene.log"
 RIG_OUTPUT_DIR="$HOME/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Phase5aAcceptance"
 
 echo "== Regenerating the scene (so the rig component is guaranteed present) =="
+rm -rf "$APP_PATH"   # so the bundle mtime tells the truth (see BuildStamp.cs)
 "$UNITY_BIN" -batchmode -quit -nographics -projectPath "$PROJECT_PATH" \
   -executeMethod Phase5aSceneBuilder.Generate \
   -logFile "$SCENE_LOG"

@@ -5,6 +5,7 @@ set -uo pipefail
 UNITY_BIN="/Applications/6000.3.10f1/Unity.app/Contents/MacOS/Unity"
 APP_PATH="Builds/Phase5bValidation.app"
 RIG_OUTPUT_DIR="$HOME/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Phase5bValidation"
+rm -rf "$APP_PATH"   # so the bundle mtime tells the truth (see BuildStamp.cs)
 "$UNITY_BIN" -batchmode -quit -nographics -projectPath "$(pwd)" \
   -executeMethod Phase5aSceneBuilder.GeneratePhase5b -logFile phase5b_scene.log
 "$UNITY_BIN" -batchmode -quit -projectPath "$(pwd)" \
