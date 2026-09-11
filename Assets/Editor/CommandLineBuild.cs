@@ -155,6 +155,24 @@ public static class CommandLineBuild
         DisableAppNap(PHASE4_FLUID_OUTPUT_PATH);
     }
 
+    private const string PHASE6_QA_SCENE_PATH = "Assets/Scenes/Phase 6 QA.unity";
+    private const string PHASE6_QA_OUTPUT_PATH = "Builds/Phase6Qa.app";
+
+    public static void BuildPhase6QaStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE6_QA_SCENE_PATH },
+            locationPathName = PHASE6_QA_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase6 qa result={report.summary.result}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE6_QA_OUTPUT_PATH);
+    }
+
     private const string FLUID_STAGGER_SCENE_PATH = "Assets/Scenes/Fluid Stagger.unity";
     private const string FLUID_STAGGER_OUTPUT_PATH = "Builds/FluidStagger.app";
 

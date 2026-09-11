@@ -163,6 +163,25 @@ The scene makes it visible:
   released, whether the pool is full, and how many slots are actually
   simulating.
 
+### Scattered still water near the radius edge is CORRECT
+
+If you fly out to the edge of the active radius you will see a band of water
+that is rendered but completely motionless, scattered rather than pooled.
+**That is not fluid breaking and not a wake failure** — it is §7.4's
+hysteresis band, and it was measured in the 2026-09-11 QA pass:
+
+```
+  inside radius, HAS tile     0
+  inside radius, NO tile      0   <-- a real wake failure would appear here
+  outside radius, no tile     0
+  outside radius, HAS tile 1123
+```
+
+Two radii, not one. Fluid promotes inside the **wake** radius (1280) and its
+tile is only released past the **sleep** radius (~1478). Between them —
+a ~198 voxel / ~20 m band — fluid keeps its tile but does not tick. It is
+supposed to sit there. Fly closer and it resumes.
+
 **Try this:** pour water, then fly away past the radius. It freezes exactly as
 it was — §7.4 working, not fluid breaking. Fly back and it resumes. Watch the
 **tiles resident** count fall as you leave and climb as you return; that is the
