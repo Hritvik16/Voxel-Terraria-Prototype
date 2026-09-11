@@ -56,9 +56,11 @@ public class BuildStamp : IPreprocessBuildWithReport, IPostprocessBuildWithRepor
         {
             string outPath = report.summary.outputPath;
             if (string.IsNullOrEmpty(outPath)) return;
+            // report.summary.result is not final in this callback -- it reads
+            // Unknown even on a successful build -- so it is deliberately not
+            // written. A field that always says Unknown is worse than absent.
             File.WriteAllText(outPath + ".buildinfo.txt", Compose() + "\n" +
-                              $"output    {outPath}\n" +
-                              $"result    {report.summary.result}\n");
+                              $"output    {outPath}\n");
         }
         catch (Exception e)
         {
@@ -70,7 +72,13 @@ public class BuildStamp : IPreprocessBuildWithReport, IPostprocessBuildWithRepor
     private static string Compose()
     {
         string commit = Git("rev-parse --short HEAD");
-        string dirty = string.IsNullOrEmpty(Git("status --porcelain")) ? "clean" : "DIRTY";
+        // EXCLUDE OUR OWN OUTPUT. The pre-build hook writes BuildStamp.txt and
+        // then asks git whether the tree is clean -- so without this exclusion
+        // every build reports DIRTY because of the stamp it just created, and
+        // a flag that is always on tells you nothing.
+        string porcelain = Git("status --porcelain -- . \":(exclude)Assets/Resources/BuildStamp.txt\" " +
+                               "\":(exclude)Assets/Resources/BuildStamp.txt.meta\"");
+        string dirty = string.IsNullOrEmpty(porcelain) ? "clean" : "DIRTY";
         string subject = Git("log -1 --format=%s");
         return $"commit    {commit} ({dirty})\n" +
                $"subject   {subject}\n" +

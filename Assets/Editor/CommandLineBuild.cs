@@ -155,6 +155,24 @@ public static class CommandLineBuild
         DisableAppNap(PHASE4_FLUID_OUTPUT_PATH);
     }
 
+    private const string FLUID_STAGGER_SCENE_PATH = "Assets/Scenes/Fluid Stagger.unity";
+    private const string FLUID_STAGGER_OUTPUT_PATH = "Builds/FluidStagger.app";
+
+    public static void BuildFluidStaggerStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { FLUID_STAGGER_SCENE_PATH },
+            locationPathName = FLUID_STAGGER_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] fluid stagger result={report.summary.result}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(FLUID_STAGGER_OUTPUT_PATH);
+    }
+
     private const string FLUID_CHAOS_SCENE_PATH = "Assets/Scenes/Fluid Chaos.unity";
     private const string FLUID_CHAOS_OUTPUT_PATH = "Builds/FluidChaos.app";
 
