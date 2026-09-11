@@ -155,6 +155,27 @@ public static class CommandLineBuild
         DisableAppNap(PHASE4_FLUID_OUTPUT_PATH);
     }
 
+    private const string PHASE6_COMBINED_SCENE_PATH = "Assets/Scenes/Phase 6 Combined.unity";
+    private const string PHASE6_COMBINED_OUTPUT_PATH = "Builds/Phase6Combined.app";
+
+    /// Every Phase 6 system at once on the tiled substrate. RELEASE -- the rig
+    /// reports frame time and a development build would distort it.
+    public static void BuildPhase6CombinedStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE6_COMBINED_SCENE_PATH },
+            locationPathName = PHASE6_COMBINED_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase6 combined result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE6_COMBINED_OUTPUT_PATH);
+    }
+
     private const string FLUID_AB_SCENE_PATH = "Assets/Scenes/Fluid AB.unity";
     private const string FLUID_AB_OUTPUT_PATH = "Builds/FluidAB.app";
 

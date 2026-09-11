@@ -1047,4 +1047,69 @@ public static class Phase5aSceneBuilder
                      : $"[Phase5aSceneBuilder] FAILED to write {Phase4FluidScenePath}");
         if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
     }
+
+    public const string Phase6CombinedScenePath = "Assets/Scenes/Phase 6 Combined.unity";
+
+    /// Every Phase 6 system at once, on the TILED fluid substrate.
+    ///
+    /// Cloned in shape from GeneratePhase6Sandbox deliberately: same camera,
+    /// same bootstrapper settings, same player spawn. The combined rig's
+    /// numbers are only comparable to the sandbox's if the scene is.
+    public static void GeneratePhase6Combined()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.62f, 0.70f, 0.78f, 1f);
+        cam.fieldOfView = 68f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 600f;
+        camGo.transform.position = new Vector3(1280f, 9.5f, 1268f);
+
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        SetIfPresent(bo, "_loadRadiusChunks", 0);
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", false);
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var playerGo = new GameObject("Player");
+        playerGo.transform.position = new Vector3(1280f, 14f, 1268f);
+        var pc = playerGo.AddComponent<PlayerController>();
+        var pco = new SerializedObject(pc);
+        var camProp = pco.FindProperty("_camera");
+        if (camProp != null) camProp.objectReferenceValue = cam;
+        var spawnProp = pco.FindProperty("_spawnM");
+        if (spawnProp != null) spawnProp.vector3Value = new Vector3(1280f, 40f, 1268f);
+        SetBoolIfPresent(pco, "_resolveSpawnUpward", true);
+        SetBoolIfPresent(pco, "_captureMouse", false);
+        SetBoolIfPresent(pco, "_hotReload", true);
+        pco.ApplyModifiedPropertiesWithoutUndo();
+
+        var rigGo = new GameObject("Phase6CombinedRig");
+        var rig = rigGo.AddComponent<Phase6CombinedRig>();
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+        var ro = new SerializedObject(rig);
+        ro.FindProperty("_player").objectReferenceValue = pc;
+        ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        ro.FindProperty("_slotCapacity").intValue = 65536;
+        ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
+        ro.FindProperty("_tilePoolCap").intValue = 512;
+        ro.FindProperty("_secondsOfActivity").floatValue = 75f;
+        ro.FindProperty("_outputRootFolderName").stringValue = "Phase6Combined";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Phase6CombinedScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, Phase6CombinedScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {Phase6CombinedScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {Phase6CombinedScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
 }
