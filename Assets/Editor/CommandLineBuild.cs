@@ -155,6 +155,24 @@ public static class CommandLineBuild
         DisableAppNap(PHASE4_FLUID_OUTPUT_PATH);
     }
 
+    private const string SIEGE_SCENE_PATH = "Assets/Scenes/Late Game Siege.unity";
+    private const string SIEGE_OUTPUT_PATH = "Builds/LateGameSiege.app";
+
+    public static void BuildLateGameSiegeStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { SIEGE_SCENE_PATH },
+            locationPathName = SIEGE_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] siege result={report.summary.result}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(SIEGE_OUTPUT_PATH);
+    }
+
     private const string PHASE6_QA_SCENE_PATH = "Assets/Scenes/Phase 6 QA.unity";
     private const string PHASE6_QA_OUTPUT_PATH = "Builds/Phase6Qa.app";
 
