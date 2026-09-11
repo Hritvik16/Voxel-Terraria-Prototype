@@ -1,4 +1,0 @@
-commit    f884799 (DIRTY)
-subject   Step 1.2: stamp every build with its commit, because the .app mtime lies
-built     2026-09-11 00:31:35Z
-unity     6000.3.10f1
