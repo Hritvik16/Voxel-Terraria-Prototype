@@ -184,6 +184,95 @@ public class FrameGapProbe : MonoBehaviour
         Row("postLate", _postLate);
         Row("  of which:", _streamerMs);
 
+        // ---- THE p99 BAND, which is NOT the >=100ms stutter bucket ----
+        //
+        // The stutter analysis below fires on frames >= 100 ms, and a cooled
+        // combined-load run has TWO of those in ~930 frames. The number
+        // actually under scrutiny is the p99 (~66 ms), i.e. roughly the worst
+        // 1% -- about nine frames, none of which the stutter bucket sees.
+        // Reporting only the >=100ms bucket answers a question nobody asked
+        // and leaves the tail unattributed, which is exactly where the last
+        // cascade fix ran out of explanation.
+        //
+        // Percentiles of the INTERVALS are also not enough on their own: p99
+        // of preUpdate and p99 of update need not be the same frame. This
+        // takes the worst 1% of frames BY TOTAL TIME and reports what those
+        // specific frames were doing.
+        {
+            var order = new List<int>();
+            for (int i = 0; i < _frameMs.Count; i++) order.Add(i);
+            order.Sort((a, b) => _frameMs[b].CompareTo(_frameMs[a]));
+            int bandN = Math.Max(1, _frameMs.Count / 100);
+            double bPre = 0, bUpd = 0, bPost = 0, bTot = 0;
+            int bGc0 = 0, bGc1 = 0, bGc2 = 0;
+            double bStream = 0, bBytes = 0, bCalls = 0;
+            for (int k = 0; k < bandN; k++)
+            {
+                int i = order[k];
+                bPre += _preUpdate[i]; bUpd += _update[i]; bPost += _postLate[i]; bTot += _frameMs[i];
+                bStream += _streamerMs[i]; bBytes += _uploadBytes[i]; bCalls += _setDataCalls[i];
+                if (i > 0)
+                {
+                    bGc0 += _gc0[i] - _gc0[i - 1];
+                    bGc1 += _gc1[i] - _gc1[i - 1];
+                    bGc2 += _gc2[i] - _gc2[i - 1];
+                }
+            }
+            // Median frame, for contrast -- "what does the tail do that the
+            // median does not" is the whole question.
+            int mid = order[_frameMs.Count / 2];
+            sb.AppendLine($"      --- p99 BAND: worst {bandN} of {_frameMs.Count} frames by total time ---");
+            sb.AppendLine($"        band mean frame {bTot / bandN,8:F2} ms   (median frame {_frameMs[mid],6:F2} ms)");
+            sb.AppendLine($"        SHARE OF BAND WALL CLOCK:  preUpdate {bPre / bTot * 100,5:F1}%   " +
+                          $"update {bUpd / bTot * 100,5:F1}%   postLate {bPost / bTot * 100,5:F1}%");
+            sb.AppendLine($"        band means (ms):           preUpdate {bPre / bandN,8:F2}   " +
+                          $"update {bUpd / bandN,8:F2}   postLate {bPost / bandN,8:F2}");
+            sb.AppendLine($"        median frame  (ms):        preUpdate {_preUpdate[mid],8:F2}   " +
+                          $"update {_update[mid],8:F2}   postLate {_postLate[mid],8:F2}");
+            sb.AppendLine($"        GC across the band: gen0 +{bGc0}  gen1 +{bGc1}  gen2 +{bGc2}" +
+                          $"   (if these are 0, GC is NOT the tail)");
+            sb.AppendLine($"        band upload: {bBytes / bandN,10:F0} bytes/frame, {bCalls / bandN,6:F1} SetData calls/frame, " +
+                          $"streamer {bStream / bandN,6:F2} ms/frame");
+        }
+
+        // ---- IS THE TAIL DRIFTING UPWARD WITHIN THE RUN? ----
+        //
+        // The decisive test between two remaining explanations, once GC and
+        // the GPU are ruled out. On the worst frames Unity's own numbers do
+        // not add up to the wall clock -- main-thread frame time ~5-10 ms,
+        // present wait 0.0, on a 75 ms frame -- which means the main thread
+        // was not RUNNING, not that it was busy or blocked on the GPU.
+        //
+        // Two candidates produce that: the OS descheduling us (thermal on
+        // this fanless machine, which heats up DURING a 4-minute run even
+        // when the run started cold), or something episodic and unrelated.
+        // They separate cleanly: thermal gets WORSE as the run proceeds,
+        // episodic does not. A cooldown before the run cannot prevent
+        // heating during it, so this is measurable regardless of cooldown.
+        {
+            const int BUCKETS = 10;
+            int n = _frameMs.Count;
+            sb.AppendLine("      --- FRAME TIME BY POSITION IN RUN (thermal drift test) ---");
+            sb.AppendLine("        decile   p50 ms   p99 ms   mean ms   (rising = the machine is heating DURING the run)");
+            for (int b = 0; b < BUCKETS; b++)
+            {
+                int lo = (int)((long)n * b / BUCKETS), hi = (int)((long)n * (b + 1) / BUCKETS);
+                if (hi <= lo) continue;
+                var slice = _frameMs.GetRange(lo, hi - lo);
+                double mean = 0; foreach (double v in slice) mean += v; mean /= slice.Count;
+                sb.AppendLine($"          {b + 1,2}/10 {Pct(slice, 0.5f),9:F2}{Pct(slice, 0.99f),9:F2}{mean,10:F2}");
+            }
+            // One number for the whole question: last fifth vs first fifth.
+            int fifth = Math.Max(1, n / 5);
+            var firstF = _frameMs.GetRange(0, fifth);
+            var lastF = _frameMs.GetRange(n - fifth, fifth);
+            double m1 = 0, m2 = 0;
+            foreach (double v in firstF) m1 += v; m1 /= firstF.Count;
+            foreach (double v in lastF) m2 += v; m2 /= lastF.Count;
+            sb.AppendLine($"        LAST fifth vs FIRST fifth:  mean {m1:F2} -> {m2:F2} ms ({(m1 > 0 ? (m2 / m1 - 1) * 100 : 0):+0.0;-0.0}%)" +
+                          $"   p99 {Pct(firstF, 0.99f):F2} -> {Pct(lastF, 0.99f):F2} ms");
+        }
+
         var stut = new List<int>();
         for (int i = 0; i < _frameMs.Count; i++) if (_frameMs[i] >= stutterMs) stut.Add(i);
         sb.AppendLine($"      stutter frames (>= {stutterMs:F0}ms): {stut.Count} of {_frameMs.Count}");
