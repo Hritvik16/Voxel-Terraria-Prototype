@@ -1112,4 +1112,66 @@ public static class Phase5aSceneBuilder
                      : $"[Phase5aSceneBuilder] FAILED to write {Phase6CombinedScenePath}");
         if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
     }
+
+    public const string FluidChaosScenePath = "Assets/Scenes/Fluid Chaos.unity";
+
+    /// The large-scale chaos ladder. Same scene shape as the combined rig so
+    /// the two are comparable.
+    public static void GenerateFluidChaos()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.62f, 0.70f, 0.78f, 1f);
+        cam.fieldOfView = 68f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 600f;
+        camGo.transform.position = new Vector3(1280f, 9.5f, 1268f);
+
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        SetIfPresent(bo, "_loadRadiusChunks", 0);
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", false);
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var playerGo = new GameObject("Player");
+        playerGo.transform.position = new Vector3(1280f, 14f, 1268f);
+        var pc = playerGo.AddComponent<PlayerController>();
+        var pco = new SerializedObject(pc);
+        var camProp = pco.FindProperty("_camera");
+        if (camProp != null) camProp.objectReferenceValue = cam;
+        var spawnProp = pco.FindProperty("_spawnM");
+        if (spawnProp != null) spawnProp.vector3Value = new Vector3(1280f, 40f, 1268f);
+        SetBoolIfPresent(pco, "_resolveSpawnUpward", true);
+        SetBoolIfPresent(pco, "_captureMouse", false);
+        SetBoolIfPresent(pco, "_hotReload", true);
+        pco.ApplyModifiedPropertiesWithoutUndo();
+
+        var rigGo = new GameObject("FluidChaosRig");
+        var rig = rigGo.AddComponent<FluidChaosRig>();
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+        var ro = new SerializedObject(rig);
+        ro.FindProperty("_player").objectReferenceValue = pc;
+        ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        ro.FindProperty("_slotCapacity").intValue = 500000;
+        ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
+        ro.FindProperty("_tilePoolCap").intValue = 512;
+        
+        ro.FindProperty("_outputRootFolderName").stringValue = "FluidChaos";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(FluidChaosScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, FluidChaosScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {FluidChaosScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {FluidChaosScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
 }

@@ -155,6 +155,26 @@ public static class CommandLineBuild
         DisableAppNap(PHASE4_FLUID_OUTPUT_PATH);
     }
 
+    private const string FLUID_CHAOS_SCENE_PATH = "Assets/Scenes/Fluid Chaos.unity";
+    private const string FLUID_CHAOS_OUTPUT_PATH = "Builds/FluidChaos.app";
+
+    /// The large-scale chaos ladder. RELEASE -- it reports frame time.
+    public static void BuildFluidChaosStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { FLUID_CHAOS_SCENE_PATH },
+            locationPathName = FLUID_CHAOS_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] fluid chaos result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(FLUID_CHAOS_OUTPUT_PATH);
+    }
+
     private const string PHASE6_COMBINED_SCENE_PATH = "Assets/Scenes/Phase 6 Combined.unity";
     private const string PHASE6_COMBINED_OUTPUT_PATH = "Builds/Phase6Combined.app";
 
