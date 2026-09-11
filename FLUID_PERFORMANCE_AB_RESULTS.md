@@ -727,6 +727,30 @@ revisiting.
 
 **Not decided. Not implemented either way.**
 
+## S4.3 — Regression sweep (`b4e753a`, cooled 150 s between rigs)
+
+| rig | result | vs session 3 |
+|---|---|---|
+| TERRAIN-ONLY acceptance | **53 PASS / 0 FAIL** | unchanged |
+| Phase 5a reference | 5 scenarios, 0 unbalanced, 0 dup ownership | unchanged |
+| Phase 5c edit stress | 170 PASS / 0 FAIL | unchanged |
+| Phase 5d streaming × fluid | 19 PASS / 0 FAIL | unchanged |
+| `run-fluid-activity.sh` | 19 PASS / 0 FAIL | unchanged |
+| Phase 6 brush guard | 30 PASS / 0 FAIL | unchanged |
+| Phase 6 sandbox | 43 PASS / 0 FAIL | unchanged |
+| `run-fluid-scale.sh` | 4 PASS / 0 FAIL | unchanged |
+| `run-fluid-tiled.sh` | 19 PASS / 0 FAIL | unchanged (see note) |
+| Combined load | 51 PASS / 5 FAIL | unchanged |
+| EditMode | **494 PASS / 0 FAIL** | unchanged |
+
+**Note on the tiled rig.** Its first attempt exited 1 with no result line.
+**Not a regression** — the log says *"another Unity instance is running with
+this project open"*. An EditMode run had been chained into the same command as
+the sweep and took the project lock, exactly the collision CLAUDE.md warns
+about. Re-run serialized: 19 PASS / 0 FAIL. Recorded because an exit-1 with no
+PASS/FAIL line looks identical to a real failure and the difference is one
+line of log.
+
 ---
 ---
 
