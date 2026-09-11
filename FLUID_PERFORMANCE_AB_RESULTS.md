@@ -625,6 +625,23 @@ four cooled runs.
 **The terrain-only result is the one that mattered** — Step 1 changed the LOD
 cascade, a subsystem fluid does not own. It did not regress; it improved.
 
+## S3.5 — Mutation sweep: the shared chain had no unit coverage
+
+Run against the work built this session. All five mutants **survived** the
+suite at 485 PASS / 0 FAIL — `BuildChain` stopping a step short, a
+`ChainResultFor` off-by-one, skipping the gather, dropping the residency
+re-check, and never consuming the dirty entry. The rigs exercise the path and
+passed, but the unit suite could not distinguish correct from broken.
+
+`LODSharedChainTests` closes it (EditMode 485 → **494**), and all five now die.
+The load-bearing test compares the shared chain against the per-tier path tier
+by tier, byte for byte — the optimisation's actual claim — with a guard test
+asserting the fixture isn't vacuous.
+
+The residency test covers the window the shared path itself opened: a chunk
+evicted *between* `SelectBatch` and the write. Without the re-check it gets
+coarse geometry written for terrain that no longer exists.
+
 ---
 
 # OPEN ITEMS REQUIRING A HUMAN DECISION
