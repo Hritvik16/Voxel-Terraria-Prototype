@@ -112,6 +112,7 @@ public class LateGameSiegeRig : MonoBehaviour
     IEnumerator Start()
     {
         int seconds = ArgInt("-siegeseconds", 200);
+        _tilePoolCap = ArgInt("-tilecap", _tilePoolCap);
         int shotEvery = ArgInt("-shotevery", 15) * 60;
 
         QualitySettings.vSyncCount = 0;
@@ -128,6 +129,7 @@ public class LateGameSiegeRig : MonoBehaviour
         L("=== LATE-GAME SIEGE: heavy fluid + all six systems, sustained ===");
         L(DateTime.Now.ToString("u", CultureInfo.InvariantCulture));
         L($"duration {seconds}s, screenshot every {shotEvery / 60}s");
+        L($"tile pool cap {_tilePoolCap} (0.5 MB/tile reserved up front)");
         L($"live-volume band {TargetLiveLow:N0}-{TargetLiveHigh:N0} " +
           $"(MAX_ACTIVE_FLUID {EngineConfig.MAX_ACTIVE_FLUID:N0} -- the clamp is NOT what this measures)");
         L("Wall clock only; gpuFrameTime read nowhere against a budget (Amdt 8.10).");
@@ -474,6 +476,36 @@ public class LateGameSiegeRig : MonoBehaviour
                 }
         Check(unwoken == 0,
             $"no silent wake failure: {unwoken} of {sampled} sampled mobile voxels inside the radius lack a tile");
+
+        // FROZEN-FLUID CENSUS -- the artifact itself, counted rather than
+        // eyeballed in a screenshot.
+        //
+        // WHY THE GATE ABOVE DOES NOT ALREADY CATCH IT, which matters: that
+        // audit steps 16 voxels and spans only surfaceY-10..+12, and it
+        // reported 0 in both siege runs while the screenshots plainly showed
+        // suspended cubes. It was not wrong -- it sampled a band the floaters
+        // were mostly above. A "0" from a narrow sample is not evidence of
+        // absence, so this walks the pour footprint on a 4-voxel stride and
+        // reaches 40 voxels above the surface.
+        //
+        // Reported as a NOTE, never a gate: at cap 512 a nonzero count is the
+        // designed §7.7 refusal being visible, not a failure.
+        long frozen = 0, mobileSeen = 0;
+        for (int x = _centre.x - (SpreadVoxels + 12); x <= _centre.x + (SpreadVoxels + 12); x += 4)
+            for (int y = _surfaceY - 26; y <= _surfaceY + 40; y += 4)
+                for (int z = _centre.z - (SpreadVoxels + 12); z <= _centre.z + (SpreadVoxels + 12); z += 4)
+                {
+                    var v = new int3(x, y, z);
+                    if (!Store.IsResident(CoordMath.VoxelToChunk(v))) continue;
+                    if (!MaterialRules.IsMobile(Store.GetVoxel(v))) continue;
+                    if (!FluidActiveRegion.WithinWakeRadius(v, _fluid.PlayerVoxel, _fluid.ActiveRadiusVoxels)) continue;
+                    mobileSeen++;
+                    if (_tiles.SlotForVoxel(v) == FluidTileMap.NO_TILE) frozen++;
+                }
+        Note($"FROZEN-FLUID CENSUS (4-voxel stride, surface-26..+40): {frozen:N0} of " +
+             $"{mobileSeen:N0} sampled mobile voxels inside the radius have NO TILE and " +
+             $"therefore cannot move ({(mobileSeen > 0 ? frozen * 100.0 / mobileSeen : 0):F1}%). " +
+             $"Tile cap {_tiles.TileCapacity}, peak demand {_peakTileDemand}");
 
         var sb = new StringBuilder();
         _gap.AppendReport(sb);

@@ -704,22 +704,43 @@ public class Playground : MonoBehaviour
         byte m = _brushes[_brush];
         int radius = MaterialRules.IsMobile(m) ? 1 : 2;   // a small blob of fluid
 
-        // REFUSE A MOBILE BRUSH OUTSIDE THE ARENA. The CA's region is fixed
-        // (§7.4's moving radius is unbuilt), and FluidGpuSimulation.RequestWake
-        // correctly drops out-of-region wakes -- so a mobile material written
-        // outside the arena is committed to ChunkStore and uploaded to the
-        // mirror, and then NEVER SIMULATED. It renders as a frozen blob hanging
-        // wherever the crosshair was: sand that does not fall, water that does
-        // not spread. Header note 1 says this scene must make that limit VISIBLE.
+        // REFUSE A MOBILE BRUSH OUTSIDE §7.4's WAKE RADIUS. (This comment
+        // also said "the CA's region is fixed, the moving radius is unbuilt".
+        // It IS built -- that is what the guard below tests.) RequestWake
+        // correctly drops wakes outside the radius, so a mobile material
+        // written outside it is committed to ChunkStore and uploaded to the
+        // mirror, and then NEVER SIMULATED. It renders as a frozen blob
+        // hanging wherever the crosshair was: sand that does not fall, water
+        // that does not spread. Header note 1 says this scene must make that
+        // limit VISIBLE.
+        //
+        // THIS GUARD COVERS THE RADIUS AND NOT THE TILE POOL, and those are
+        // two different ways to get the same frozen blob. Inside the radius
+        // with a FULL POOL, placement is still accepted and the fluid still
+        // never simulates -- reproduced deliberately in FluidTileCapRig. The
+        // pool half is deliberately NOT guarded here yet; it is one of the
+        // options written up in FLUID_TILE_CAP_RESULTS.md and is a decision,
+        // not a cleanup.
         //
         // All-or-nothing on purpose. Placing only the in-region cells of a blob
         // that straddles the edge would leave a frozen rim outside it -- the
         // same silent-partial shape as the §9.4 residency-edge bug.
-        if (MaterialRules.IsMobile(m) && !SphereFitsInFluidArena(at, radius))
+        if (MaterialRules.IsMobile(m) && !SphereFitsInWakeRadius(at, radius))
         {
-            _status = $"<color=#ff9a9a>{_brushNames[_brush]} NOT placed at {at} — outside the " +
-                      $"{_arenaEdge}^3 fluid arena at {_arenaCentre}. It would never simulate here " +
-                      $"(§7.4's moving radius is unbuilt). Press F to go to the arena.</color>";
+            // THE MESSAGE HAS TO NAME THE BOUND THAT ACTUALLY REFUSED.
+            // It used to read "outside the 64^3 fluid arena ... §7.4's moving
+            // radius is unbuilt ... press F to go to the arena", which was
+            // written for the dense build and is now wrong three times over:
+            // the guard above tests §7.4's WAKE RADIUS, that radius is built
+            // and is what refused, and F teleports to the startup basin --
+            // not the remedy, because the radius follows the player. A
+            // refusal that misnames its own cause sends the player to fix
+            // the wrong thing.
+            int away = (int)math.distance((float3)at, (float3)_fluid.PlayerVoxel);
+            _status = $"<color=#ff9a9a>{_brushNames[_brush]} NOT placed at {at} — {away} voxels " +
+                      $"away, outside §7.4's {_fluid.ActiveRadiusVoxels}-voxel wake radius. " +
+                      "It would be written to terrain and then never simulate. " +
+                      "Move closer — the radius follows you.</color>";
             _act = Act.Refused;
             _actAge = 0f;
             return false;
@@ -744,7 +765,7 @@ public class Playground : MonoBehaviour
     ///
     /// The real tiled bound is §7.4's active radius around the player, plus
     /// residency of the chunk (EditService already refuses unloaded chunks).
-    private bool SphereFitsInFluidArena(int3 centre, int radius)
+    private bool SphereFitsInWakeRadius(int3 centre, int radius)
     {
         if (_fluid == null) return false;
         // Every cell the brush covers must be inside the wake radius, or the
