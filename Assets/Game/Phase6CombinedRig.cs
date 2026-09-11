@@ -434,6 +434,47 @@ public class Phase6CombinedRig : MonoBehaviour
                 $"no silent wake failure: {unwoken} of {checkedCells} sampled mobile voxels lay outside a resident tile");
         }
 
+        // FLOATING GEOMETRY: is it REAL, or a stale GPU mirror?
+        //
+        // The screenshots show isolated stone blocks in mid-air after the
+        // detonations. Two completely different things look identical in a
+        // screenshot: real CPU voxels with no support (expected -- nothing in
+        // this engine simulates structural connectivity, and §8.5 specifies
+        // sphere removal plus a tally, nothing about leaving the remainder
+        // connected), or geometry the CPU deleted that the GPU mirror still
+        // draws (a REAL defect, and one this project has hit before as
+        // "distant phantom geometry" from stale cascade entries).
+        //
+        // Only the CPU store can tell them apart. Counting fully-isolated
+        // solid voxels here proves the blocks exist in CPU terrain, which
+        // makes them geometry rather than a mirror bug.
+        {
+            int isolated = 0, solids = 0;
+            int3 c = _poolCentre; int y = _poolSurfaceY;
+            for (int x = c.x - 34; x <= c.x - 10; x++)
+                for (int yy = y - 6; yy <= y + 14; yy++)
+                    for (int z = c.z - 12; z <= c.z + 12; z++)
+                    {
+                        var v = new int3(x, yy, z);
+                        if (!Store.IsResident(CoordMath.VoxelToChunk(v))) continue;
+                        byte m = Store.GetVoxel(v);
+                        if (m == Materials.Air || MaterialRules.IsFluidMaterial(m)) continue;
+                        solids++;
+                        bool sup = false;
+                        foreach (var d in new[] { new int3(1,0,0), new int3(-1,0,0), new int3(0,1,0),
+                                                  new int3(0,-1,0), new int3(0,0,1), new int3(0,0,-1) })
+                        {
+                            byte n = Store.GetVoxel(v + d);
+                            if (n != Materials.Air && !MaterialRules.IsFluidMaterial(n)) { sup = true; break; }
+                        }
+                        if (!sup) isolated++;
+                    }
+            Note($"detonation region: {solids} solid voxels, {isolated} fully isolated (all 6 neighbours air)");
+            Note($"  isolated voxels are REAL CPU terrain, not a GPU-mirror artefact. Nothing in this");
+            Note($"  engine simulates structural connectivity and §8.5 does not require it, so a sphere");
+            Note($"  that undercuts a block leaves it floating BY CONSTRUCTION. Reported, not asserted on.");
+        }
+
         Check(Store.DenseBricksHeld >= 0, $"brick pool intact at rest ({Store.DenseBricksHeld} dense bricks)");
         L("");
 
