@@ -289,6 +289,30 @@ public static class EngineConfig
     // move it, not a Phase 5a convenience.
     public const int MAX_ACTIVE_FLUID = 500000;
 
+    // §7.2's sparse tile pool: how many 32^3 fluid tiles may be resident at
+    // once. MEASURED, unlike most of this block -- see
+    // FLUID_TILE_CAP_RESULTS.md for the nine cooled runs behind it.
+    //
+    // WAS 512, AND 512 WAS TOO SMALL. A tile costs one pool slot however
+    // little fluid it holds, so wide-and-thin spreads exhaust the POOL long
+    // before they come near MAX_ACTIVE_FLUID. Measured peak demand: ~680 in
+    // the late-game siege, ~880 on a deliberately wide synthetic lattice, and
+    // 733 in the older explosion-scatter scenario. At 512 the overflow was
+    // VISIBLE -- §7.7 refuses cleanly, so the fluid simply never moves and
+    // hangs in the air as a raw cube. 1024 clears real demand with ~35%
+    // headroom and took that artifact to 0.0% of sampled mobile voxels.
+    //
+    // THE COST IS MEMORY, AND IT IS PAID UP FRONT: the per-cell buffers are
+    // 16 B/cell x 32,768 cells = 0.5 MiB PER TILE, allocated at this cap
+    // whether or not any fluid exists. 512 -> 1024 is 264 -> 520 MB on an
+    // 8 GB machine. Frame time did not move (nine cooled counterbalanced runs;
+    // between-cap spread 0.47 ms and non-monotonic, against 1.44-1.81 ms of
+    // within-cap scatter).
+    //
+    // DO NOT raise this to 2048 "for headroom". 2048 is 1,032 MB and buys
+    // nothing: a pool only has to exceed demand, and demand is ~680.
+    public const int FLUID_TILE_POOL_CAPACITY = 1024;
+
     // §7.4's near-player active radius, in VOXELS (0.1 m each) => 128 m, chosen
     // to match C.5's LOD0 boundary so simulated fluid and full-resolution
     // terrain have the same reach. A slot whose home leaves this radius is

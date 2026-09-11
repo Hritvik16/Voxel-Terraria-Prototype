@@ -914,7 +914,8 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _fluidEdits = new EditService();
         _fluidEdits.AttachWorld(store, store, store, clip);
 
-        _fluidTiles = new FluidTileMap(ChunkFluidMask.TILE_EDGE, new int3(128, 128, 128), 512);
+        _fluidTiles = new FluidTileMap(ChunkFluidMask.TILE_EDGE, new int3(128, 128, 128),
+                                          EngineConfig.FLUID_TILE_POOL_CAPACITY);
         _fluidSim = new FluidGpuSimulation(_fluidCA, new int3(64, 64, 64), 65536, 65536, _fluidTiles)
         {
             RegionOriginVoxels = int3.zero,

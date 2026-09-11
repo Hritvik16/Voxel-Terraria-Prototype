@@ -36,7 +36,7 @@ using VoxelEngine.Streaming;
 public class FluidTiledRig : MonoBehaviour
 {
     [SerializeField] private ComputeShader _fluidCA;
-    [SerializeField] private int _tilePoolCap = 512;
+    [SerializeField] private int _tilePoolCap = EngineConfig.FLUID_TILE_POOL_CAPACITY;
     [SerializeField] private int _slotCapacity = 65536;
     [SerializeField] private string _outputRootFolderName = "FluidTiled";
 

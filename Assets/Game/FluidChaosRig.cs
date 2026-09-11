@@ -61,7 +61,7 @@ public class FluidChaosRig : MonoBehaviour
 {
     [SerializeField] private ComputeShader _fluidCA;
     [SerializeField] private PlayerController _player;
-    [SerializeField] private int _tilePoolCap = 512;
+    [SerializeField] private int _tilePoolCap = EngineConfig.FLUID_TILE_POOL_CAPACITY;
     [SerializeField] private int _slotCapacity = 500000;     // == MAX_ACTIVE_FLUID
     [SerializeField] private int _maxOpsPerFrame = 65536;
     [SerializeField] private string _outputRootFolderName = "FluidChaos";

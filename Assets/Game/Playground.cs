@@ -122,7 +122,7 @@ public class Playground : MonoBehaviour
 
     [Tooltip("§7.2 tile pool cap. 512 tiles x 32^3 cells is the configuration every " +
              "tiled rig proved; the footprint does not scale with the active radius.")]
-    [SerializeField] private int _tilePoolCap = 512;
+    [SerializeField] private int _tilePoolCap = EngineConfig.FLUID_TILE_POOL_CAPACITY;
 
     private int _residencyTick;
     private int3 _arenaOrigin, _arenaCentre;

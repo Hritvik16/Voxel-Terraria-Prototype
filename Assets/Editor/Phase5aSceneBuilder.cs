@@ -947,7 +947,7 @@ public static class Phase5aSceneBuilder
         if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
         var ro = new SerializedObject(rig);
         ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
-        ro.FindProperty("_tilePoolCap").intValue = 512;
+        ro.FindProperty("_tilePoolCap").intValue = EngineConfig.FLUID_TILE_POOL_CAPACITY;
         ro.FindProperty("_slotCapacity").intValue = 65536;
         ro.FindProperty("_outputRootFolderName").stringValue = "FluidTiled";
         ro.ApplyModifiedPropertiesWithoutUndo();
@@ -997,7 +997,7 @@ public static class Phase5aSceneBuilder
         if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
         var ro = new SerializedObject(rig);
         ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
-        ro.FindProperty("_tilePoolCap").intValue = 512;
+        ro.FindProperty("_tilePoolCap").intValue = EngineConfig.FLUID_TILE_POOL_CAPACITY;
         ro.FindProperty("_slotCapacity").intValue = 65536;
         ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
         ro.FindProperty("_outputRootFolderName").stringValue = "FluidAB";
@@ -1101,7 +1101,7 @@ public static class Phase5aSceneBuilder
         ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
         ro.FindProperty("_slotCapacity").intValue = 65536;
         ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
-        ro.FindProperty("_tilePoolCap").intValue = 512;
+        ro.FindProperty("_tilePoolCap").intValue = EngineConfig.FLUID_TILE_POOL_CAPACITY;
         ro.FindProperty("_secondsOfActivity").floatValue = 75f;
         ro.FindProperty("_outputRootFolderName").stringValue = "Phase6Combined";
         ro.ApplyModifiedPropertiesWithoutUndo();
@@ -1163,7 +1163,7 @@ public static class Phase5aSceneBuilder
         ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
         ro.FindProperty("_slotCapacity").intValue = 500000;
         ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
-        ro.FindProperty("_tilePoolCap").intValue = 512;
+        ro.FindProperty("_tilePoolCap").intValue = EngineConfig.FLUID_TILE_POOL_CAPACITY;
         
         ro.FindProperty("_outputRootFolderName").stringValue = "FluidChaos";
         ro.ApplyModifiedPropertiesWithoutUndo();
@@ -1224,7 +1224,7 @@ public static class Phase5aSceneBuilder
         ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
         ro.FindProperty("_slotCapacity").intValue = 65536;
         ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
-        ro.FindProperty("_tilePoolCap").intValue = 512;
+        ro.FindProperty("_tilePoolCap").intValue = EngineConfig.FLUID_TILE_POOL_CAPACITY;
         
         ro.FindProperty("_outputRootFolderName").stringValue = "FluidStagger";
         ro.ApplyModifiedPropertiesWithoutUndo();
@@ -1285,7 +1285,7 @@ public static class Phase5aSceneBuilder
         ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
         ro.FindProperty("_slotCapacity").intValue = 65536;
         ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
-        ro.FindProperty("_tilePoolCap").intValue = 512;
+        ro.FindProperty("_tilePoolCap").intValue = EngineConfig.FLUID_TILE_POOL_CAPACITY;
         
         ro.FindProperty("_outputRootFolderName").stringValue = "Phase6Qa";
         ro.ApplyModifiedPropertiesWithoutUndo();
@@ -1348,7 +1348,7 @@ public static class Phase5aSceneBuilder
         ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
         ro.FindProperty("_slotCapacity").intValue = 500000;
         ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
-        ro.FindProperty("_tilePoolCap").intValue = 512;
+        ro.FindProperty("_tilePoolCap").intValue = EngineConfig.FLUID_TILE_POOL_CAPACITY;
         
         ro.FindProperty("_outputRootFolderName").stringValue = "LateGameSiege";
         ro.ApplyModifiedPropertiesWithoutUndo();
@@ -1397,7 +1397,7 @@ public static class Phase5aSceneBuilder
         ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
         ro.FindProperty("_slotCapacity").intValue = 500000;
         ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
-        ro.FindProperty("_tilePoolCap").intValue = 512;
+        ro.FindProperty("_tilePoolCap").intValue = EngineConfig.FLUID_TILE_POOL_CAPACITY;
         ro.FindProperty("_outputRootFolderName").stringValue = "FluidTileCap";
         ro.ApplyModifiedPropertiesWithoutUndo();
 

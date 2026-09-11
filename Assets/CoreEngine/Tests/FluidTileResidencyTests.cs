@@ -273,4 +273,129 @@ public class FluidTileResidencyTests
             "no tile was even considered: every chunk answered with one word");
         Assert.LessOrEqual(st.ChunksScanned, 25);
     }
+
+    // =====================================================================
+    // Gate 1, RE-CHECKED -- a tile must not outlive its chunk
+    //
+    // Refresh tests §9.4 at ACQUIRE time. Until ReleaseOrphaned existed it
+    // never asked again, so an evicted chunk left its tile resident forever:
+    // holding a pool slot and dispatching every tick against terrain the CPU
+    // no longer has, with every emitted op discarded by §9.4's guard in
+    // FluidOpListReadback. Measured at 15 of 787 tiles in a 200s siege.
+    // =====================================================================
+
+    [Test]
+    public void TileWhoseChunkIsEvictedIsReleased()
+    {
+        AirChunk(int3.zero);
+        var tiles = Tiles();
+        int3 v = new int3(70, 40, 100);
+        PlaceWater(v);
+        FluidTileResidency.Refresh(_store, tiles, v, 512, 640);
+        Assert.AreEqual(1, tiles.ResidentTiles, "precondition: the tile was admitted");
+
+        _store.EvictChunk(int3.zero);
+        var st = FluidTileResidency.Refresh(_store, tiles, v, 512, 640);
+
+        Assert.AreEqual(0, tiles.ResidentTiles,
+            "a tile whose chunk is gone must not stay resident -- it holds a pool slot and " +
+            "dispatches against terrain the CPU no longer has");
+        Assert.AreEqual(1, st.TilesReleasedOrphaned, "and it must be counted as an ORPHAN release");
+        Assert.AreEqual(0, st.TilesReleasedByRadius,
+            "not as a radius release -- the player never moved, and conflating the two would " +
+            "hide which rule fired");
+    }
+
+    [Test]
+    public void OrphanReleaseFreesTheSlotForReuse()
+    {
+        AirChunk(int3.zero);
+        var tiles = Tiles(cap: 1);
+        int3 a = new int3(70, 40, 100);
+        PlaceWater(a);
+        FluidTileResidency.Refresh(_store, tiles, a, 512, 640);
+        Assert.AreEqual(1, tiles.ResidentTiles);
+
+        // Evict the chunk the only slot is pinned to, then offer a DIFFERENT
+        // chunk's fluid. With a cap of 1 this can only succeed if the orphan
+        // actually returned its slot to the free list.
+        _store.EvictChunk(int3.zero);
+        AirChunk(new int3(1, 0, 0));
+        int3 b = new int3(140, 40, 100);
+        PlaceWater(b);
+
+        var st = FluidTileResidency.Refresh(_store, tiles, b, 512, 640);
+
+        Assert.AreEqual(1, st.TilesReleasedOrphaned, "the orphan was released");
+        Assert.AreEqual(1, st.TilesAcquired, "and its slot was reused");
+        Assert.AreEqual(0, tiles.PoolExhaustionsTotal,
+            "a freed orphan must not still be counted against the cap");
+    }
+
+    [Test]
+    public void ResidentChunksKeepTheirTiles()
+    {
+        // The failing-open direction: a release rule that is too eager is a
+        // tile that stops simulating while its world is right there.
+        AirChunk(int3.zero);
+        var tiles = Tiles();
+        int3 v = new int3(70, 40, 100);
+        PlaceWater(v);
+        FluidTileResidency.Refresh(_store, tiles, v, 512, 640);
+
+        for (int i = 0; i < 10; i++)
+        {
+            var st = FluidTileResidency.Refresh(_store, tiles, v, 512, 640);
+            Assert.AreEqual(0, st.TilesReleasedOrphaned,
+                "nothing was evicted, so nothing may be released as an orphan");
+        }
+        Assert.AreEqual(1, tiles.ResidentTiles, "the tile is still resident after 10 refreshes");
+    }
+
+    [Test]
+    public void TileIsReAcquiredWhenItsChunkStreamsBack()
+    {
+        // §7.7's contract: releasing loses nothing, because the terrain byte
+        // is authoritative and the tile comes back when the chunk does.
+        AirChunk(int3.zero);
+        var tiles = Tiles();
+        int3 v = new int3(70, 40, 100);
+        PlaceWater(v);
+        FluidTileResidency.Refresh(_store, tiles, v, 512, 640);
+
+        _store.EvictChunk(int3.zero);
+        FluidTileResidency.Refresh(_store, tiles, v, 512, 640);
+        Assert.AreEqual(0, tiles.ResidentTiles, "gone while the chunk is gone");
+
+        AirChunk(int3.zero);
+        PlaceWater(v);
+        var st = FluidTileResidency.Refresh(_store, tiles, v, 512, 640);
+
+        Assert.AreEqual(1, tiles.ResidentTiles, "and back when the chunk is back");
+        Assert.AreEqual(1, st.TilesAcquired);
+    }
+
+    [Test]
+    public void OrphanReleaseRunsBeforeAdmissionSoAFullPoolCanStillWake()
+    {
+        // Ordering matters for the same reason the radius release runs first:
+        // if admission ran before the orphan sweep, a pool full of dead tiles
+        // would refuse live ones for a whole refresh cycle.
+        AirChunk(int3.zero);
+        AirChunk(new int3(1, 0, 0));
+        var tiles = Tiles(cap: 1);
+        int3 a = new int3(70, 40, 100);
+        PlaceWater(a);
+        FluidTileResidency.Refresh(_store, tiles, a, 512, 640);
+
+        _store.EvictChunk(int3.zero);
+        int3 b = new int3(140, 40, 100);
+        PlaceWater(b);
+
+        var st = FluidTileResidency.Refresh(_store, tiles, b, 512, 640);
+
+        Assert.AreEqual(1, st.TilesAcquired,
+            "the live tile must be admitted in the SAME refresh that retires the dead one");
+        Assert.AreEqual(0, st.TilesRefusedPoolFull, "it must not be refused first and retried later");
+    }
 }

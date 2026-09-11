@@ -46,6 +46,9 @@ namespace VoxelEngine.Simulation
             public int TilesAlreadyResident;
             public int TilesRefusedPoolFull;
             public int TilesReleasedByRadius;
+            /// Tiles released because their backing chunk stopped being
+            /// resident. See ReleaseOrphaned.
+            public int TilesReleasedOrphaned;
         }
 
         /// Squared distance from `p` to the closest point of the inclusive box.
@@ -80,6 +83,7 @@ namespace VoxelEngine.Simulation
             // way round makes departure and arrival race for capacity, and the
             // loser is silently a tile that does not wake.
             st.TilesReleasedByRadius = ReleaseBeyondSleep(tiles, centreVoxel, sleepRadiusVoxels);
+            st.TilesReleasedOrphaned = ReleaseOrphaned(store, tiles);
 
             int3 lo = CoordMath.VoxelToChunk(centreVoxel - wakeRadiusVoxels);
             int3 hi = CoordMath.VoxelToChunk(centreVoxel + wakeRadiusVoxels);
@@ -125,6 +129,43 @@ namespace VoxelEngine.Simulation
                 }
             }
             return st;
+        }
+
+        /// Releases tiles whose backing chunk is no longer resident.
+        ///
+        /// GATE 1 WAS ONLY EVER TESTED ONCE. Refresh refuses to ADMIT a tile
+        /// whose chunk is not resident, and then never asks again;
+        /// ReleaseBeyondSleep tests only the radius. So a chunk evicted under
+        /// a live tile left that tile resident indefinitely -- holding a pool
+        /// slot, and dispatching every tick against terrain the CPU no longer
+        /// has. Every op it emitted then hit §9.4's guard in
+        /// FluidOpListReadback and was discarded.
+        ///
+        /// MEASURED, NOT THEORETICAL: 15 of 787 resident tiles (1.9%) were in
+        /// this state at the end of a 200s siege. It did not show at the old
+        /// 512 cap for a reason worth keeping in mind -- a saturated pool has
+        /// no spare capacity to hold a tile it no longer needs, so raising the
+        /// cap to 1024 is what made the pre-existing gap observable.
+        ///
+        /// SAFE FOR THE SAME REASON THE RADIUS RELEASE IS (§7.7): the terrain
+        /// byte is authoritative, the tile carries no material of its own, and
+        /// Refresh re-acquires when the chunk streams back and gate 1 passes.
+        /// A tile lies wholly inside ONE chunk by construction (TileEdge | 128
+        /// -- FluidTileMap calls that a correctness property, not a
+        /// convenience), so "the tile's chunk" is unambiguous and one lookup
+        /// decides it.
+        public static int ReleaseOrphaned(ChunkStore store, FluidTileMap tiles)
+        {
+            if (store == null || tiles == null) return 0;
+            int edge = tiles.TileEdge;
+            int freed = 0;
+            foreach (int3 coord in tiles.ResidentTileCoords())
+            {
+                int3 anyVoxelInTile = coord * edge;
+                if (store.GetChunk(CoordMath.VoxelToChunk(anyVoxelInTile)) == null &&
+                    tiles.Release(coord)) freed++;
+            }
+            return freed;
         }
 
         /// Releases tiles whose FARTHEST corner is beyond the sleep radius, i.e.
