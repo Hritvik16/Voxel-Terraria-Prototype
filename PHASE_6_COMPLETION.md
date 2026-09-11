@@ -639,6 +639,44 @@ Real Noita mechanics with **no specification anywhere in this architecture**.
 Repeatedly deliberately not invented. Any implementation needs a design
 conversation and a spec first. Not blocked by the substrate work.
 
+### 6. Large-scale chaos: no failure ceiling to 1M placed voxels — NEW 2026-09-11
+
+The ladder ran 50,000 → 150,000 → 400,000 → 1,002,923 placed fluid voxels
+under continuous pours, overlapping detonations and a moving, digging player.
+**All four rungs passed 6/0.** Frame p50 at the top rung is **12.28 ms**
+(three cooled samples, 4.4% spread).
+
+Two ceilings were REACHED and handled cleanly, neither a failure:
+
+- **`MAX_ACTIVE_FLUID = 500,000`** clamps live slots. At 2× oversubscription
+  the un-slotted voxels hang as static cubes in mid-air.
+- **The 512-tile pool** refuses cleanly per §7.7 (31,400 refusals at the top
+  rung, cap never exceeded).
+
+**The open question, and it is gameplay-feel, not correctness:** is fluid
+visibly frozen in mid-air at 2× oversubscription acceptable? Options are to
+leave it (it is the documented clamp, identical to fluid outside the active
+radius), raise `MAX_ACTIVE_FLUID` (costs GPU slot memory linearly), or refuse
+placement once the clamp is reached (changes edit semantics). **Not decided.**
+
+### 7. The p99 frame-time tail is PERMANENT AND TOOLCHAIN-BOUND, not a to-do
+
+Restated here because it keeps being re-opened. Across five sessions, **ten
+candidates were eliminated by measurement** (GC, in-run thermal, LOD cascade,
+vsync/present, streaming starvation, upload volume, CPU apply, GPU time, CA
+dispatch rate, rig overhead), and a **per-system toggle sweep turned every
+subsystem off one at a time — including fluid — and the tail did not move**
+(disabling fluid gave the *worst* figure of the eight configurations).
+
+On an affected frame Unity reports main thread ~9 ms, present wait 0.0, GPU
+~30 ms inflated: **nothing the engine times accounts for the wall clock.**
+
+Separating what remains needs GPU-stage attribution, which this workflow does
+not have and cannot get (no Xcode, no Instruments; Unity merges the CA's
+dispatches into a single Metal encoder). **This is a standing limitation of
+the toolchain, not an open task.** p50 is stable and quotable at every scale
+measured; p99 is not, and should be quoted as a range or not at all.
+
 ### A methodological note that outranks most of the above
 
 **This machine throttles monotonically and back-to-back runs are not

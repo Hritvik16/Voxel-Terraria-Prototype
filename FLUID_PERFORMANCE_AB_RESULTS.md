@@ -855,6 +855,111 @@ the gate names exactly this, and waiving it is the project owner's call.
 ---
 ---
 
+# SESSION 6 — 2026-09-11, commits `f7e5525`..`a03cb7a`
+
+## S6.1 — Playground is on the tiled substrate
+
+It had been building the **old dense** `FluidGpuSimulation` — the one scene a
+human actually flies around in was the last thing exercising a path every rig
+had left.
+
+**Two API traps that compile and are silently wrong under tiling**, both
+avoided:
+
+- `SphereFitsInRegion` tests the dense **region box**, which under tiling is a
+  64³ addressing origin at world zero. The placement guard would have rejected
+  every placement in the world.
+- `InRegion(v)` under tiling means *"is this voxel in a resident tile"* — true
+  only where fluid **already** exists. As a placement guard it would refuse to
+  start a new pool anywhere; as a crosshair tint it would mark the whole world
+  out-of-bounds until fluid arrived.
+
+Both replaced with the real tiled bound: §7.4's active radius via
+`FluidActiveRegion.WithinWakeRadius`. Also added `FluidTileResidency.Refresh`
+on a 20-frame cadence — without it no tile is ever acquired and nothing
+simulates, and the dense path needs no equivalent, so nothing in the old code
+prompts you to add it.
+
+**Verified running**, screenshots viewed: 5 tiles resident / 512 cap, 278 slots
+simulating, **264 MB active set**. Water pools, lava streams, sand mounds,
+terrain intact.
+
+`PLAYGROUND_GUIDE.md`: §4's fluid section rewritten (the arena is gone), §8
+gains a §7.2 row, and **§6 carries an honest tail-latency note** written the
+same direct way as the GPU-inflation caveat.
+
+## S6.2 — THE CHAOS LADDER: no failure ceiling up to 1M placed voxels
+
+`run-fluid-chaos.sh` / `FluidChaosRig`. Continuous multi-material pours,
+overlapping detonations scattering material into the fluid, player moving and
+digging throughout. 300 s cooled before every rung; ladder stops at the first
+failure.
+
+| rung (placed) | result | live slots | tiles | active set | heap |
+|---|---|---|---|---|---|
+| 50,014 | 6 PASS / 0 FAIL | 55,380 | 512/512, 135 refusals | 264.0 MB | 208 MB |
+| 150,000 | 6 PASS / 0 FAIL | — | — | 264.0 MB | — |
+| 400,000 | 6 PASS / 0 FAIL | — | — | 264.0 MB | — |
+| **1,002,923** | **6 PASS / 0 FAIL** | **500,000 (at the clamp)** | 512/512, 31,400 refusals | **264.0 MB** | 203 MB |
+
+**All four rungs passed. No failure ceiling was found; the ladder was not
+exhausted.**
+
+**The 264 MB active set is identical at 50,000 and at 1,002,923 placed voxels.**
+That is the tiled design's central claim holding at 20× the volume it was first
+measured at — the footprint is a function of the tile pool, not of how much
+fluid exists.
+
+### Two ceilings REACHED, both designed, neither a failure
+
+1. **`MAX_ACTIVE_FLUID = 500,000`** clamps live slots however much is placed.
+   The top rung sat exactly on it. No configuration can simulate more at once.
+2. **The 512-tile pool** binds on *spread*, not volume (512 tiles hold 16.7M
+   cells). 31,400 refusals at the top rung, **all clean per §7.7**, cap never
+   exceeded.
+
+### Frame time at the top rung — three cooled samples
+
+| | sample 1 | sample 2 | sample 3 | spread |
+|---|---|---|---|---|
+| p50 | 11.90 | 12.28 | 12.42 ms | **4.4% — quotable, median 12.28 ms** |
+| p99 | 17.40 | 23.60 | 27.87 ms | **60.2% — NOT quotable** |
+
+**p50 ≈ 12.3 ms under million-voxel chaos** is the first "does this actually
+run" number at genuine scale. The p99 spread is the documented unattributable
+tail behaving exactly as recorded; per instruction it was not re-diagnosed.
+
+### A gate of mine that was wrong, caught by its own failure
+
+The first conservation gate counted **fluid voxels** and demanded the total
+hold. It failed at −10.2%, and the engine was right: the scenario pours water
+**and** lava, and §7.3 is `Water + Lava → Air + Obsidian`, so every reaction
+**deliberately destroys one water voxel**. A fluid census cannot be conserved
+in a scenario that reacts.
+
+Replaced with the invariant that survives reaction — **lava + obsidian**, since
+each reacted lava becomes exactly one obsidian — which holds to **0.09%**.
+Water loss is reported as the designed behaviour it is. Strict whole-system
+conservation remains Phase 5a/5b's job (ledger + CPU oracle); this rig tests
+scale.
+
+## S6.3 — Visual at the two highest rungs
+
+**Correctness-relevant: nothing wrong.** Terrain intact, no holes, no
+corruption, no duplicated geometry, no fluid outside where it was placed. At
+400K, **obsidian is visible exactly where orange lava meets blue water** —
+§7.3's reaction working in frame, at scale.
+
+**Aesthetic, and a design question rather than a defect:** at 1M placed — 2×
+the clamp — roughly half a million voxels never receive a slot and hang as
+**static cubes in mid-air**, while the 400K rung settles fully into natural
+pools and mounds. That is the `MAX_ACTIVE_FLUID` clamp made visible (the same
+mechanism as fluid outside the active radius). **Whether 2× oversubscription
+looking like that is acceptable game feel is flagged, not decided.**
+
+---
+---
+
 # THERMAL TRUST AUDIT — read this before citing ANY number above
 
 Added 2026-09-10 (session 4). **Nothing above was re-measured for this audit**;
@@ -996,6 +1101,44 @@ is not a pending measurement; it should stop being re-litigated each session.
 Real Noita mechanics with **no specification anywhere in this architecture**.
 Repeatedly deliberately not invented. Any implementation needs a design
 conversation and a spec first. Not blocked by the substrate work.
+
+### 6. Large-scale chaos: no failure ceiling to 1M placed voxels — NEW 2026-09-11
+
+The ladder ran 50,000 → 150,000 → 400,000 → 1,002,923 placed fluid voxels
+under continuous pours, overlapping detonations and a moving, digging player.
+**All four rungs passed 6/0.** Frame p50 at the top rung is **12.28 ms**
+(three cooled samples, 4.4% spread).
+
+Two ceilings were REACHED and handled cleanly, neither a failure:
+
+- **`MAX_ACTIVE_FLUID = 500,000`** clamps live slots. At 2× oversubscription
+  the un-slotted voxels hang as static cubes in mid-air.
+- **The 512-tile pool** refuses cleanly per §7.7 (31,400 refusals at the top
+  rung, cap never exceeded).
+
+**The open question, and it is gameplay-feel, not correctness:** is fluid
+visibly frozen in mid-air at 2× oversubscription acceptable? Options are to
+leave it (it is the documented clamp, identical to fluid outside the active
+radius), raise `MAX_ACTIVE_FLUID` (costs GPU slot memory linearly), or refuse
+placement once the clamp is reached (changes edit semantics). **Not decided.**
+
+### 7. The p99 frame-time tail is PERMANENT AND TOOLCHAIN-BOUND, not a to-do
+
+Restated here because it keeps being re-opened. Across five sessions, **ten
+candidates were eliminated by measurement** (GC, in-run thermal, LOD cascade,
+vsync/present, streaming starvation, upload volume, CPU apply, GPU time, CA
+dispatch rate, rig overhead), and a **per-system toggle sweep turned every
+subsystem off one at a time — including fluid — and the tail did not move**
+(disabling fluid gave the *worst* figure of the eight configurations).
+
+On an affected frame Unity reports main thread ~9 ms, present wait 0.0, GPU
+~30 ms inflated: **nothing the engine times accounts for the wall clock.**
+
+Separating what remains needs GPU-stage attribution, which this workflow does
+not have and cannot get (no Xcode, no Instruments; Unity merges the CA's
+dispatches into a single Metal encoder). **This is a standing limitation of
+the toolchain, not an open task.** p50 is stable and quotable at every scale
+measured; p99 is not, and should be quoted as a range or not at all.
 
 ### A methodological note that outranks most of the above
 
