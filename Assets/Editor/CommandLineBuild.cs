@@ -173,6 +173,24 @@ public static class CommandLineBuild
         DisableAppNap(SIEGE_OUTPUT_PATH);
     }
 
+    private const string TILECAP_SCENE_PATH = "Assets/Scenes/Fluid Tile Cap.unity";
+    private const string TILECAP_OUTPUT_PATH = "Builds/FluidTileCap.app";
+
+    public static void BuildFluidTileCapStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { TILECAP_SCENE_PATH },
+            locationPathName = TILECAP_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] tilecap result={report.summary.result}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(TILECAP_OUTPUT_PATH);
+    }
+
     private const string PHASE6_QA_SCENE_PATH = "Assets/Scenes/Phase 6 QA.unity";
     private const string PHASE6_QA_OUTPUT_PATH = "Builds/Phase6Qa.app";
 

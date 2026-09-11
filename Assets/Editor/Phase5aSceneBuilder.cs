@@ -1298,6 +1298,7 @@ public static class Phase5aSceneBuilder
     }
 
     public const string LateGameSiegeScenePath = "Assets/Scenes/Late Game Siege.unity";
+    public const string FluidTileCapScenePath = "Assets/Scenes/Fluid Tile Cap.unity";
 
     /// Heavy fluid + all six Phase 6 systems, sustained. Same scene shape as
     /// the chaos and combined rigs so all three stay comparable.
@@ -1356,6 +1357,54 @@ public static class Phase5aSceneBuilder
         bool ok = EditorSceneManager.SaveScene(scene, LateGameSiegeScenePath);
         Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {LateGameSiegeScenePath}"
                      : $"[Phase5aSceneBuilder] FAILED to write {LateGameSiegeScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
+
+    /// The tile-cap ladder. Same world and boot as the siege so the two are
+    /// comparable; no player control, because this rig holds the fluid centre
+    /// fixed on purpose -- a drifting player would change which tiles are
+    /// resident and make one cap value incomparable with the next.
+    [MenuItem("Voxel/Generate Fluid Tile Cap Scene")]
+    public static void GenerateFluidTileCap()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.62f, 0.70f, 0.78f, 1f);
+        cam.fieldOfView = 68f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 600f;
+        camGo.transform.position = new Vector3(1280f, 9.5f, 1268f);
+
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        SetIfPresent(bo, "_loadRadiusChunks", 0);
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", false);
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        var rigGo = new GameObject("FluidTileCapRig");
+        var rig = rigGo.AddComponent<FluidTileCapRig>();
+        var fluidCA = AssetDatabase.LoadAssetAtPath<ComputeShader>(
+            "Assets/CoreEngine/Simulation/FluidCA.compute");
+        if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
+        var ro = new SerializedObject(rig);
+        ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
+        ro.FindProperty("_slotCapacity").intValue = 500000;
+        ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
+        ro.FindProperty("_tilePoolCap").intValue = 512;
+        ro.FindProperty("_outputRootFolderName").stringValue = "FluidTileCap";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(FluidTileCapScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, FluidTileCapScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {FluidTileCapScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {FluidTileCapScenePath}");
         if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
     }
 }

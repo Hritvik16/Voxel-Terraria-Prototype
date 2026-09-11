@@ -221,8 +221,9 @@ public class LateGameSiegeRig : MonoBehaviour
             if ((f % 20) == 0)
             {
                 _fluid.UpdatePlayerPosition(pv);
-                FluidTileResidency.Refresh(Store, _tiles, pv,
+                var rst = FluidTileResidency.Refresh(Store, _tiles, pv,
                                            _fluid.ActiveRadiusVoxels, _fluid.SleepRadiusVoxels);
+                RecordDemand(rst);
             }
             if (_readback.CanIssue) { _fluid.Tick(Clip); _readback.IssueReadback(0); }
             _readback.PumpAndApply();
@@ -317,6 +318,18 @@ public class LateGameSiegeRig : MonoBehaviour
         L("");
     }
 
+    /// PEAK TILE DEMAND -- the pool size this scenario would need in order to
+    /// refuse nothing. Counted post-radius-gate, so it is the tiles that
+    /// passed all three of Refresh's gates and genuinely wanted a slot;
+    /// Stats.TilesWithFluid is counted BEFORE the radius test and overcounts.
+    /// Without this, "raise the cap" has no target to raise it TO.
+    private int _peakTileDemand;
+    private void RecordDemand(FluidTileResidency.Stats st)
+    {
+        int demand = st.TilesAlreadyResident + st.TilesAcquired + st.TilesRefusedPoolFull;
+        if (demand > _peakTileDemand) _peakTileDemand = demand;
+    }
+
     private long _lavaObsBefore, _lavaObsAfter, _waterBefore, _waterAfter;
     private IEnumerator Settle()
     {
@@ -328,8 +341,9 @@ public class LateGameSiegeRig : MonoBehaviour
             if ((i % 20) == 0)
             {
                 _fluid.UpdatePlayerPosition(pv);
-                FluidTileResidency.Refresh(Store, _tiles, pv,
+                var rst = FluidTileResidency.Refresh(Store, _tiles, pv,
                                            _fluid.ActiveRadiusVoxels, _fluid.SleepRadiusVoxels);
+                RecordDemand(rst);
             }
             if (_readback.CanIssue) { _fluid.Tick(Clip); _readback.IssueReadback(0); }
             _readback.PumpAndApply();
@@ -375,6 +389,8 @@ public class LateGameSiegeRig : MonoBehaviour
         L($"  detonations {_dets} ({_boomVox:N0} voxels)   CCD sweeps {_sweeps} (missed {_ccdMissed})");
         L($"  projectiles {_shots}   player steps {_steps}   buoyancy wet {_buoyWet:N0}");
         L($"  live slots peak {hi:N0} / {_fluid.SlotCapacity:N0}");
+        L($"  PEAK TILE DEMAND {_peakTileDemand} (the pool size that would refuse nothing; " +
+          $"cap is {_tiles.TileCapacity})");
         L($"  tiles {_tiles.ResidentTiles}/{_tiles.TileCapacity} resident, acquired " +
           $"{_tiles.TilesAcquiredTotal}, released {_tiles.TilesReleasedTotal}, exhaustions {_tiles.PoolExhaustionsTotal:N0}");
         L($"  op-list total {_readback.OpsTotal:N0}, readback errors {_readback.ReadbackErrorsTotal}, " +
