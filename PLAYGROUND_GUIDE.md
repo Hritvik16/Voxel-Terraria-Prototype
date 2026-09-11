@@ -138,40 +138,45 @@ a session with a typo mid-edit.
   loaded)"** — edits to unstreamed chunks are refused and counted, not silently
   dropped.
 
-### Fluid (§7), and what is fixed vs what follows you
+### Fluid (§7) — THE ARENA IS GONE
 
-Two different things, and it is worth keeping them apart:
+**This section was rewritten. The scene used to build the old dense fluid
+region and this guide described it; both are now on §7.2's tiled substrate,
+and the difference is the kind a player notices immediately.**
 
-- **The arena (region) is fixed** — 64³ voxels in one place. That is deliberate,
-  not a gap: the region is the CA's addressing space, and §7.2's op-list is
-  indexed by region cell, so moving it would re-index every in-flight batch.
-- **The activity inside it follows you** — §7.4's near-player active radius is
-  now driven. Fluid ticks only within a radius of you and sleeps back to static
-  terrain when you leave.
+There is no arena any more. There is no box you can stand outside of.
 
-The scene makes both visible:
+- **Fluid lives wherever you put it.** The active set is a pool of 32³ tiles
+  acquired around fluid that actually exists, not a fixed region allocated up
+  front.
+- **What bounds it is §7.4's active radius around you**, and nothing else.
+- **The footprint does not grow with the radius.** The state panel reports the
+  active set in MB; it reads the same whether the radius is 128 voxels or the
+  shipped 1280. That invariance is the entire point of the tiled design.
 
-- The crosshair box is **amber inside** the arena and **grey outside** it.
-- Placing water, sand or lava outside the arena is **refused**, with the reason
-  on screen — a fluid voxel written out there would be drawn and never
-  simulated, hanging in mid-air forever.
-- The state panel shows the **wake / sleep radii**, where the centre currently
-  is, how many times it has re-centred, and whether the arena is inside the
-  radius right now.
+The scene makes it visible:
 
-**Try this:** pour some water, then walk away past the radius. It stops moving
-and freezes exactly as it was — that is §7.4 working ("distant water is a
-settled terrain byte that looks like water but does not tick"), not fluid
-breaking. Walk back and it resumes.
+- The crosshair box is **amber inside** the active radius and **grey outside**.
+- Placing fluid outside the radius is **refused**, with the reason on screen —
+  a fluid voxel written out there would be drawn and never simulated.
+- The state panel shows **tiles resident / cap**, how many were acquired and
+  released, whether the pool is full, and how many slots are actually
+  simulating.
 
-> The radius here is **128 voxels (12.8 m), a demo value**. The shipped constant
-> is `FLUID_ACTIVE_RADIUS_VOXELS = 1280` (128 m) — 23× this arena's
-> half-diagonal, so at the real value the radius would be correct but completely
-> invisible in a 64-voxel arena. Change `_activeRadiusVoxels` on the `Playground`
-> component to see the shipped behaviour.
+**Try this:** pour water, then fly away past the radius. It freezes exactly as
+it was — §7.4 working, not fluid breaking. Fly back and it resumes. Watch the
+**tiles resident** count fall as you leave and climb as you return; that is the
+tile pool releasing and re-acquiring, which the old dense build could not do.
 
-Inside the arena: pour water down a slope, drop sand and watch it fall, breach a
-wall and watch it drain.
+**Also try:** change `_activeRadiusVoxels` on the `Playground` component from
+128 to the shipped 1280 and watch the **active set MB stay the same**. Under
+the old dense region that change was unaffordable — a 2048³ region is 128 GB.
+
+> The radius default here is **128 voxels (12.8 m), a demo value**, so you can
+> walk out of it. The shipped constant is `FLUID_ACTIVE_RADIUS_VOXELS = 1280`.
+
+Pour water down a slope, drop sand and watch it fall, breach a wall and watch
+it drain.
 
 ### Fluid no longer stops after you place a lot of it
 
@@ -246,6 +251,33 @@ report, from a release standalone launched outside the Editor. If something here
 looks alarming, reproduce it in the phase rig that owns it before treating it as
 real.
 
+### The frame-time spikes are real, and nobody knows what causes them
+
+**If you watch `worst/3s` you will see occasional frames far above `WALL`. That
+is not this overlay lying. It is a real, measured, still-unexplained tail, and
+you should know its status before it alarms you.**
+
+Four sessions have chased it with cooled, driftchecked measurements. Eliminated
+by evidence, not argument: GC (zero collections on the affected frames, heap
+flat), in-run thermal drift, the LOD cascade, vsync and present-wait, streaming
+starvation, upload byte volume, the CPU op-list apply, GPU time (frames are
+*long* when GPU time is *low*), CA dispatch rate, and this rig's own overhead.
+A per-system toggle sweep then turned **every** subsystem off one at a time —
+physics, edits, detonations, projectiles, buoyancy, and fluid itself — and the
+tail did not move. Turning fluid off entirely produced the *worst* number of the
+eight configurations.
+
+On an affected frame Unity reports main thread ~9 ms, present wait 0.0, GPU
+~30 ms (inflated) — **nothing the engine times accounts for the wall clock.**
+The time is spent with the main thread not running.
+
+**Treat this as a known, bounded, toolchain-level limitation, not an open
+to-do.** Separating the remaining possibilities needs GPU-stage attribution,
+which this workflow does not have and cannot get (no Xcode, no Instruments;
+Unity merges the CA's dispatches into one Metal encoder). Do not spend a
+session re-deriving the ten eliminated causes — they are recorded in
+`FLUID_PERFORMANCE_AB_RESULTS.md`.
+
 ## 7. What this scene is *not*
 
 - **Not a scale test.** Fluid budgets are tens to low hundreds of voxels — the
@@ -271,7 +303,8 @@ What of each phase you can actually touch here. **Add a row when a phase lands.*
 |-------|-------------------|--------------------|
 | **3 — Generation** | The whole island. Everything you walk on is real Phase 3 terrain. | Generation parameters; use the Phase 3 scene. |
 | **4 — Streaming & persistence** | Streaming runs constantly as you move. Resident chunks, dense bricks and pool pressure are on the F1 overlay. Edits at the window edge are refused and counted. | Save/reload round trips, admission/eviction gates — `run-acceptance-rig.sh`. |
-| **5 — Fluid** | Vents (`V`), placing water/sand/lava, watching it settle on natural terrain. Arena bounds shown by crosshair colour. | Conservation proofs — Phase 5b rig. Honey/lava viscosity at their real tick intervals is slow enough to be hard to judge here. |
+| **5 — Fluid** | Vents (`V`), placing water/sand/lava, watching it settle on natural terrain. Active-radius bounds shown by crosshair colour. | Conservation proofs — Phase 5b rig. Honey/lava viscosity at their real tick intervals is slow enough to be hard to judge here. |
+| **7.2 — Tiled active set** | **Wired 2026-09-11.** The state panel reports tiles resident / cap, acquired and released counts, whether the pool is full, live slot count, and the active set in MB. Fly away and watch tiles release; fly back and watch them re-acquire. Change `_activeRadiusVoxels` from 128 to the shipped 1280 and watch the MB figure **not move** — that invariance is the design's whole claim, and the old dense build could not have run at 1280 at all (a 2048³ region is 128 GB). | The 512-tile cap being reached — `run-fluid-tiled.sh` scenario C and the chaos ladder. |
 | **7.4 — Active radius** | Walk away from a pool and watch it sleep to static terrain; walk back and watch it **wake again** — that second half was missing until 2026-09-05 and a region that slept mid-flow could never restart (`DESIGN_NOTE_7_4` §8). Wake/sleep radii, the current centre and the re-centre count are all on the state panel. | The radius value here is the **demo** 128, not the shipped 1280. The shipped value has now been measured and **cannot bite inside any region that can exist** — see `DESIGN_NOTE_7_4` §9; that is an open design fork, not something the Playground can show. Multi-region behaviour — `run-fluid-activity.sh` and `run-fluid-scale.sh`. |
 | **6 — Physics & editing** | Walking, jumping, 3-voxel steps, coyote time (§8.1); live `PlayerConfig` reload (§8.1); digging with all three tool tiers and placing through `EditService` (§8.3); bombs (§8.5); projectiles (§8.4); buoyancy and swimming (§8.6); the speed-clamp indicator (§8.2). | Swept CCD at 60 m/s — no grapple exists here yet, so `SweptCCD` is constructed but only exercised by its rig. The adversarial checkerboard (§3.6) — now covered by `run-phase6-sandbox.sh` step 3, which reaches the high-water mark and fires the LRU valve. |
 | **7 — Lighting** | *(not started — do not begin without a scoped prompt)* | — |
@@ -283,9 +316,13 @@ What of each phase you can actually touch here. **Add a row when a phase lands.*
 - **The bomb default is radius 20**, not §13's 400K reference (radius 46), so it
   is pleasant to use rather than a stress test.
 - **Fly mode has no collision at all** — that is what it is for.
-- **The fluid arena is placed once at startup**, in the lowest non-water basin
-  near spawn. If the scene opens somewhere flat, the arena may be somewhere
-  unexciting; `F` takes you to it.
+- **There is no fluid arena any more.** The scene moved to §7.2's tiled
+  substrate on 2026-09-11; fluid lives wherever you put it and is bounded only
+  by §7.4's radius. `F` still takes you to the basin the scene seeds, but that
+  is now just a nice place to start, not a boundary.
+- **Frame-time spikes have a known, unexplained cause** — see §6. Four sessions
+  eliminated ten candidates and a full per-system toggle sweep; do not
+  re-diagnose it.
 - **The active radius is a scene demo value** (128 voxels), not the shipped 1280.
   Both the radius and the hysteresis ratio behind it are engineering defaults
   that have never been measured against a GPU-lane budget.

@@ -110,6 +110,7 @@ public class Playground : MonoBehaviour
     private TerrainClipmap _clipmap;
     private BrickDataPool _pool;
     private FluidGpuSimulation _fluid;
+    private FluidTileMap _tiles;
     private FluidOpListReadback _readback;
     private EditService _edits;
 
@@ -119,6 +120,11 @@ public class Playground : MonoBehaviour
     private DestructionReducer _demolition;
     private Buoyancy _buoyancy;
 
+    [Tooltip("§7.2 tile pool cap. 512 tiles x 32^3 cells is the configuration every " +
+             "tiled rig proved; the footprint does not scale with the active radius.")]
+    [SerializeField] private int _tilePoolCap = 512;
+
+    private int _residencyTick;
     private int3 _arenaOrigin, _arenaCentre;
     private int3 _waterSrc, _sandSrc, _lavaSrc;
     private int _waterLeft, _sandLeft, _lavaLeft;
@@ -209,10 +215,23 @@ public class Playground : MonoBehaviour
                                 Mathf.Max(0, _arenaCentre.y - half),
                                 _arenaCentre.z - half);
 
+        // §7.2's TILED SUBSTRATE. Playground built the old DENSE simulation
+        // until now -- it predated the tiled rewrite entirely, so the one
+        // scene a human actually flies around in was the only thing still
+        // exercising the path every rig had moved off.
+        //
+        // WHAT CHANGES FOR A PLAYER: the fluid "arena" is gone. There is no
+        // box any more. Fluid lives wherever you put it, and what bounds it is
+        // §7.4's ACTIVE RADIUS around you, not a region you can stand outside
+        // of. _arenaEdge now only sizes the basin search and the HUD's old
+        // arena marker; it no longer sizes any allocation.
+        _tiles = new FluidTileMap(ChunkFluidMask.TILE_EDGE, new int3(128, 128, 128), _tilePoolCap);
         _fluid = new FluidGpuSimulation(_fluidCA,
-            new int3(_arenaEdge, _arenaEdge, _arenaEdge), _slotCapacity, _maxOpsPerFrame)
+            new int3(64, 64, 64), _slotCapacity, _maxOpsPerFrame, _tiles)
         {
-            RegionOriginVoxels = _arenaOrigin,
+            // Under tiling the region box is only an addressing origin; the
+            // tile pool is the active set. Zero, matching every proven rig.
+            RegionOriginVoxels = int3.zero,
             PlayerVoxel = _arenaCentre,
             ActiveRadiusVoxels = _activeRadiusVoxels,
             SleepRadiusVoxels = FluidActiveRegion.SleepRadiusFor(_activeRadiusVoxels),
@@ -386,7 +405,7 @@ public class Playground : MonoBehaviour
     {
         if (!_hasTarget) { _status = "vent: aim at a surface first"; return; }
         int3 cell = new int3(_targetVoxel.x, _targetVoxel.y + 18, _targetVoxel.z);
-        if (!_fluid.InRegion(cell)) { _status = "vent: outside the fluid arena (press F)"; return; }
+        if (!InFluidRange(cell)) { _status = "vent: outside §7.4's active radius — move closer"; return; }
         byte m = _brushes[_brush];
         if (m == Materials.Water) { _waterSrc = cell; _waterLeft = _waterBudget; }
         else if (m == Materials.Sand) { _sandSrc = cell; _sandLeft = _sandBudget; }
@@ -554,7 +573,15 @@ public class Playground : MonoBehaviour
         // (which has always existed) was anchored to the arena centre forever.
         // UpdatePlayerPosition applies the re-centre threshold itself, so
         // calling it every frame is cheap and does not churn the boundary.
-        _fluid.UpdatePlayerPosition(PlayerOrCameraVoxel());
+        int3 centre = PlayerOrCameraVoxel();
+        _fluid.UpdatePlayerPosition(centre);
+
+        // TILED: residency must be refreshed or no tile is ever acquired and
+        // nothing simulates. The dense path needed no equivalent, which is
+        // exactly the kind of step that goes missing in a port.
+        if ((_residencyTick++ % 20) == 0)
+            FluidTileResidency.Refresh(_store, _tiles, centre,
+                                       _fluid.ActiveRadiusVoxels, _fluid.SleepRadiusVoxels);
 
         if (_readback.CanIssue)
         {
@@ -705,10 +732,42 @@ public class Playground : MonoBehaviour
         return true;
     }
 
-    /// True iff a blob placed here would actually be simulated. The predicate
-    /// lives in FluidGpuSimulation next to the region it asks about.
+    /// True iff a blob placed here would actually be simulated.
+    ///
+    /// REWRITTEN FOR TILING, AND THE OLD PREDICATE WOULD HAVE BEEN A TRAP.
+    /// SphereFitsInRegion tests the dense region BOX, which under tiling is a
+    /// 64^3 addressing origin at world zero -- it would have rejected every
+    /// placement in the world. And InRegion(v) under tiling asks "is this
+    /// voxel in a RESIDENT TILE", which is only true where fluid ALREADY is,
+    /// so using it as a placement guard would refuse to start a new pool
+    /// anywhere. Both compile and both are silently wrong.
+    ///
+    /// The real tiled bound is §7.4's active radius around the player, plus
+    /// residency of the chunk (EditService already refuses unloaded chunks).
     private bool SphereFitsInFluidArena(int3 centre, int radius)
-        => _fluid != null && _fluid.SphereFitsInRegion(centre, radius);
+    {
+        if (_fluid == null) return false;
+        // Every cell the brush covers must be inside the wake radius, or the
+        // part outside it is placed and then never promoted.
+        for (int dz = -radius; dz <= radius; dz++)
+            for (int dy = -radius; dy <= radius; dy++)
+                for (int dx = -radius; dx <= radius; dx++)
+                {
+                    if (!FluidGpuSimulation.SphereCovers(dx, dy, dz, radius)) continue;
+                    if (!FluidActiveRegion.WithinWakeRadius(centre + new int3(dx, dy, dz),
+                                                            _fluid.PlayerVoxel,
+                                                            _fluid.ActiveRadiusVoxels))
+                        return false;
+                }
+        return true;
+    }
+
+    /// Will fluid at this voxel be simulated right now? Used for the crosshair
+    /// tint and the vent guard. Under tiling this is the RADIUS question, not
+    /// a region-box question.
+    private bool InFluidRange(int3 v)
+        => _fluid != null &&
+           FluidActiveRegion.WithinWakeRadius(v, _fluid.PlayerVoxel, _fluid.ActiveRadiusVoxels);
 
     private void Emit(ref int budget, int3 cell, byte material)
     {
@@ -865,7 +924,7 @@ public class Playground : MonoBehaviour
 
             if (_ready && _hasTarget)
             {
-                bool inRegion = _fluid != null && _fluid.InRegion(_targetVoxel);
+                bool inRegion = InFluidRange(_targetVoxel);
                 DrawVoxelHighlight(cam, _targetVoxel, new Color(0f, 0f, 0f, 0.55f), 4.5f * k);
                 DrawVoxelHighlight(cam, _targetVoxel,
                     inRegion ? new Color(1f, 0.78f, 0.25f, 0.98f)
@@ -1026,13 +1085,27 @@ public class Playground : MonoBehaviour
         int3 d = pv - _fluid.PlayerVoxel;
         long dist2 = (long)d.x * d.x + (long)d.y * d.y + (long)d.z * d.z;
         bool inRadius = FluidActiveRegion.WithinWakeRadius(_arenaCentre, pv, _activeRadiusVoxels);
-        sb.AppendLine($"<b>fluid arena</b>  {_arenaEdge}³ at {_arenaCentre} — the REGION is fixed " +
-                      "(§7.2 addressing); the ACTIVITY follows you");
+        // REWRITTEN FOR §7.2's TILED SUBSTRATE. The old readout announced a
+        // fixed cubic "arena" and coloured itself by whether that arena was
+        // inside the radius. Under tiling there IS no arena: the active set is
+        // a pool of 32^3 tiles acquired wherever fluid actually is, and its
+        // footprint does not scale with the radius at all. Leaving the old
+        // line up would have been the HUD confidently describing a data
+        // structure the build no longer contains.
+        _fluid.ReadSlotCounters(out uint liveSlots, out uint _everSlots);
+        sb.AppendLine($"<b>§7.2 tiles</b>  {_tiles.ResidentTiles} resident / {_tiles.TileCapacity} cap   " +
+                      $"acquired {_tiles.TilesAcquiredTotal}  released {_tiles.TilesReleasedTotal}   " +
+                      (_tiles.PoolExhaustionsTotal > 0
+                          ? $"<color=#ffc64a>pool full {_tiles.PoolExhaustionsTotal}x (refused cleanly)</color>"
+                          : "<color=#8fd98f>pool has room</color>"));
+        sb.AppendLine($"<b>live fluid</b>  {liveSlots} slots simulating   " +
+                      $"{_fluid.GpuActiveSetBytes() / 1048576.0:F0} MB active set " +
+                      "(FIXED — does not grow with the radius)");
         sb.Append($"<b>§7.4 radius</b>  {_activeRadiusVoxels}v wake / " +
                   $"{_fluid.SleepRadiusVoxels}v sleep   centre {_fluid.PlayerVoxel}   " +
                   $"re-centres {_fluid.RecentresTotal}   " +
-                  (inRadius ? "<color=#8fd98f>arena INSIDE the radius — it ticks</color>"
-                            : "<color=#ffc64a>arena OUTSIDE — fluid is asleep as static terrain</color>"));
+                  (inRadius ? "<color=#8fd98f>your old basin is inside the radius</color>"
+                            : "<color=#ffc64a>basin outside — that fluid sleeps as static terrain</color>"));
         _ = dist2;
 
         // SITS ABOVE THE HOTBAR ROW. The hotbar's LMB panel starts at
