@@ -907,41 +907,66 @@ An agent can measure these, screenshot them and describe them — and this line
 of work has. It cannot decide them. **Five minutes in Playground is the
 instrument.**
 
-### 11. Horizon FPS investigation — RESOLVED 2026-09-12, see `FPS_INVESTIGATION_RESULTS.md`
+### 11. Horizon FPS investigation — see `FPS_INVESTIGATION_RESULTS.md`
 
 A reported "FPS drop when looking at the horizon" was investigated end to end.
-**The horizon was not the cause.** Sustained rate went **65.1 → 75.6 FPS** by
-reverting a Playground *demo* change (its local `_activeRadiusVoxels`, raised
-128 → 1280 the previous session, which drove ~486 resident tiles through the
-CA's region passes). **No engine constant was touched.**
+**The horizon was not the cause and nothing needed fixing.** Measured
+correctly, the scene sustains **69.8 FPS ± 0.4** (five cool repetitions,
+fullscreen, frames ÷ elapsed time) at the **full shipped fluid radius** — a
+16% margin over 60 FPS. Frame cost is flat across pitch; the horizon is ~7%
+dearer than looking down at most.
 
-Full write-up, including three measurement traps that each produced a
-confident wrong answer before being caught, is in
-**`FPS_INVESTIGATION_RESULTS.md`**. The parts that outlive this one
-investigation:
+**A correction is part of that result.** Mid-investigation a "fix" was
+reported — reverting Playground's demo radius 1280 → 128 for 65.5 → 75.75 FPS.
+That was a **unit error**: voxels are 0.1 m, so 1280 voxels is 128 m while 128
+voxels is 12.8 m. The speedup came from simulating a tenth of the radius. It
+has been undone, the field now **references** the engine constant rather than
+restating it, and metres are shown beside voxels everywhere a radius appears.
 
+Durable lessons, all in the document:
 - **Windowed capture is worthless on this machine** — identical runs returned
   26.9 and 122.8 FPS. Fullscreen reproduces to 2.9%.
-- **Percentile frame time misleads** — the display is 120 Hz ProMotion and the
-  app out-presents it, so a third of frames block in `present` regardless of
+- **Percentile frame time misleads** — 120 Hz ProMotion display, app
+  out-presents it, so a third of frames block in `present` regardless of
   workload. Use frames ÷ elapsed wall time.
-- **Counterbalance every sweep** — a ~7% position/thermal decay per run
-  sequence will otherwise read as an effect. It did, twice.
+- **Counterbalance every sweep.** A ~7% position/thermal decay per run
+  sequence otherwise reads as an effect. It did, twice.
 
-**Two shader fixes were tried, measured and REJECTED** (air-mip reuse in the
-tier path, 67.0 → 44.9 FPS; tier dense inner loop, 66.0 → 61.4 FPS). Both are
-written up with their numbers so they are not re-attempted blind.
+**Two shader fixes tried, measured and REJECTED**, written up so they are not
+re-attempted blind: air-mip reuse in the tier 1/2 path (67.0 → 44.9 FPS), and
+mirroring tier 0's dense inner loop into the tier path (66.0 → 61.4 at the
+shipped gate, measured old-vs-new as two builds in one session).
 
-**Deferred, ranked, not urgent** — we sit 26% above the 60 FPS target:
-1. Fluid CA region passes scale with *resident tiles*, not live fluid
-   (~11 FPS, 75.6 → 87). Touches §7.3 and the §3.9 sync contract; needs its
-   own session and oracle.
-2. LOD cascade costs 16.8% at high resolution because tiers 1/2 have no
-   air-mip pyramid (a documented scope cut).
+**Deferred, ranked, not urgent:** the CA's region passes scale with *resident
+tiles* rather than live fluid (suspending the CA measures 87 FPS — the largest
+single cost in the frame); and the cascade costs ~17% at high resolution
+because tiers 1/2 have no air-mip pyramid.
 
-**A mild stutter was reported during sustained play. It was not isolated or
-chased this session.** If it persists it is a candidate for the same
-methodology — fullscreen only, frames ÷ elapsed-time, counterbalanced A/B.
+**DO NOT report the original drop as fixed.** The 48.9 → 35.2 FPS drop under
+heavy sustained fluid load is a *different* symptom — the frame-time tail of
+open item 4, permanently unattributable in this toolchain. This session did
+not address it. A separately reported mild stutter was also **not** isolated
+or chased. Both are distinguished explicitly in the document's §6.
+
+### 12. Amendment 8.11 (render range vs world size) — NEEDS A DECISION, NOT MORE INVESTIGATION
+
+`AMENDMENT_8_11_RENDER_RANGE.md` has been **DRAFT, NOT ADOPTED** for three
+weeks. It documents a real, measured mismatch: the island is **~1,909 m
+across** and the renderer can draw **290 m** — 6.6× wider than anything that
+can be shown, producing a hard flat cutoff against sky.
+
+Its analysis is complete and its options are costed. It recommends short term
+**distance fog + a smaller additive `sizeClass`** (about a day, no memory),
+and long term **a true doubling cascade as its own phase** (the only option
+that both reaches the island and stays inside §11.3). It also says plainly
+what *not* to do: raising `TIER_OUTER_RANGE_M` alone does nothing (the window
+bounds guard is the real limit), growing `WINDOW_CHUNKS_XZ` is quadratic and
+not recommended at any size, and `LOD_TIERS` should not be raised.
+
+**Nothing from it has been implemented, and it has never been explicitly
+deferred either** — it simply keeps being rediscovered. Listed here so it
+stops being: it wants the owner's decision between the costed options, not
+further measurement.
 
 ### 7. The p99 frame-time tail is PERMANENT AND TOOLCHAIN-BOUND, not a to-do
 

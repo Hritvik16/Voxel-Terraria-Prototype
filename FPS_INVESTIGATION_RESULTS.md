@@ -3,11 +3,26 @@
 **Reported symptom:** "there seems to be a drop in fps when looking at the
 horizon."
 
-**Outcome:** the horizon was **not** the cause. Sustained frame rate went
-**65.1 → 75.6 FPS** by reverting a Playground demo change made the previous
-session. No engine constant was touched: `FLUID_ACTIVE_RADIUS_VOXELS` is still
-1280, `MAX_ACTIVE_FLUID` 750,000, `FLUID_TILE_POOL_CAPACITY` 1024, LOD tiers,
-tier ranges and render distance all unchanged.
+**Outcome: the horizon was not the cause, and no fix was required.** Once
+measured correctly the scene sustains **~69.8 FPS ± 0.4** at the full shipped
+fluid radius — a **16% margin** over 60 FPS. No engine constant was changed:
+`FLUID_ACTIVE_RADIUS_VOXELS` 1280 (128 m), `MAX_ACTIVE_FLUID` 750,000,
+`FLUID_TILE_POOL_CAPACITY` 1024, LOD tiers, tier ranges and render distance
+all exactly as specified.
+
+> ### A correction that is part of the result
+>
+> Midway through, this investigation reported a fix: reverting Playground's
+> demo `_activeRadiusVoxels` from 1280 to 128, measured at 65.5 → 75.75 FPS.
+> **That was a unit error and the "fix" has been undone.** Voxels are 0.1 m:
+> 1280 voxels is **128 metres**, while 128 voxels is **12.8 metres** — the two
+> share their digits and differ by a factor of ten. The speedup was real
+> arithmetic reached by simulating a tenth of the radius, which is exactly the
+> fluid-scale compromise the project forbids.
+>
+> The field now **references** `EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS`
+> rather than restating it, and every place a radius is displayed now shows
+> metres beside voxels ("1280v / 128m"). See §2.
 
 ---
 
@@ -110,45 +125,54 @@ render distance, which is non-negotiable. **Not a usable lever.**
 
 ---
 
-## 2. ROOT CAUSE — the demo active radius, via resident tile count
+## 2. There was no root cause to fix — plus the unit error, in full
 
-§7.4's wake radius decides how many §7.2 tiles stay resident. The CA's three
-region passes — `CSClear`, `CSCommit`, `CSWakeScan` — dispatch over
-`activeTileCount × 32768` cells **every tick**, whether or not that fluid is
-moving.
+### 2.1 What the scene actually does, measured correctly
 
-The previous session raised Playground's own `_activeRadiusVoxels` from **128
-to the shipped 1280** to "showcase the shipped config". In this scene that made
-**~486 tiles resident** — about **15.9 M cells per pass, ~48 M threads per
-tick** — to service roughly **1,700 live voxels** of ambient ocean water that
-is sitting still.
+Five repetitions, fullscreen, frames ÷ elapsed wall time, at the **full
+shipped radius** (1280 voxels / 128 m):
 
-| configuration | FPS |
+| condition | FPS |
 |---|---|
-| radius 1280 (previous session) | 65.5 |
-| **radius 128 (reverted)** | **75.75** |
-| CA suspended entirely | 87 |
+| moving 12 m/s | 69.4, 69.8, 69.8 |
+| static | 70.2, 69.7 |
+| **mean** | **69.8 ± 0.4** — mean frame 14.33 ms |
 
-Two runs each, reproducing to 0.3 FPS.
+**2.34 ms inside the 16.67 ms a 60 FPS frame allows: a 16% margin.** Stable
+over a 102 s run (last fifth vs first −2.4%).
 
-**Sustained check**, moving at 12 m/s, fullscreen, shipped gate:
+### 2.2 The unit error, and why it produced a convincing wrong answer
 
-```
-before   10800 frames in 165.84 s = 65.1 FPS   (mean frame 15.36 ms)
-after     5400 frames in  71.45 s = 75.6 FPS   (mean frame 13.23 ms)
-flat: last fifth vs first fifth -0.3%
-```
+§7.4's wake radius decides how many §7.2 tiles stay resident, and the CA's
+three region passes (`CSClear`, `CSCommit`, `CSWakeScan`) dispatch over
+`activeTileCount × 32768` cells every tick. So the radius really does drive a
+large cost, and shrinking it really does raise the frame rate:
 
-15.36 ms left only **1.24 ms of margin** against the 16.6 ms a 60 FPS frame
-allows — which is why a warmer or busier run dipped under, and why the reverse
-pitch sweep saw 57.6 FPS.
+| radius | | FPS |
+|---|---|---|
+| 1280 voxels | **128 m — shipped** | 65.5 (short hot runs) / **69.8 (five cool runs)** |
+| 128 voxels | 12.8 m — a tenth | 75.75 |
 
-**The engine constant was not changed.** `FLUID_ACTIVE_RADIUS_VOXELS` remains
-1280 and every rig still runs it. Playground's local value was 128 for the
-project's entire history before the previous session; the comment at the field
-records the measurement and how to put it back.
+The measurement was sound. The **interpretation** was not: 128 was read as
+"the historical demo value, therefore a legitimate setting" when it is a 10×
+reduction in simulated fluid radius. A real speedup obtained by deleting
+90% of the work is not a fix.
 
----
+An earlier figure of 65.5 FPS for the shipped radius also turns out to be low
+— it came from 20-second runs taken hot during a long sequence of builds. The
+five cool repetitions in 2.1 disagree with it and are the ones to trust.
+
+### 2.3 What was changed so it cannot recur
+
+- The demo field **references** `EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS`
+  instead of restating it, so it cannot drift from the spec.
+- Any future reduction must be written as a visible fraction of the constant
+  (`/ 10`), so it reads as a reduction in review.
+- **Metres appear beside voxels** wherever a radius is shown: the HUD reads
+  `1280v / 128m wake, 1472v / 147.2m sleep`, and the placement-refusal message
+  does the same.
+- `EngineConfig`'s constant carries the unit — and this incident — in its own
+  comment.
 
 ## 3. Two fixes tried and REJECTED — do not re-attempt these blind
 
@@ -207,13 +231,17 @@ code path the change cannot touch. **Only same-session A/B is trustworthy.**
 
 ## 5. Remaining headroom — ranked, DEFERRED, not urgent
 
-We are at **75.6 FPS sustained**, 26% above the 60 FPS target. Neither item
-below is needed to hold 60, and both are Phase-sized.
+We are at **69.8 FPS sustained** at the full shipped radius, 16% above the
+60 FPS target. Neither item below is needed to hold 60, and both are
+Phase-sized.
 
-### 5.1 Fluid CA region passes — worth ~11 FPS (75.6 → 87)
+### 5.1 Fluid CA region passes — the largest single cost in the frame
 
 The three region passes scale with **resident tiles**, not with live fluid, so
-settled ambient water is swept every tick forever. The fix is to bound them to
+settled ambient water is swept every tick forever. Suspending the CA entirely
+measured **87 FPS** against 65.5 with it running, so this is the dominant
+single cost in the frame — bigger than the raymarcher and far bigger than the
+horizon. It is also why the radius has such leverage (§2.2). The fix is to bound them to
 tiles that actually hold live cells — `FluidTileMap` already tracks `_slotLive`
 per tile, so the information exists.
 
@@ -232,15 +260,29 @@ shrinking one.
 
 ---
 
-## 6. A mild stutter, reported and NOT chased
+## 6. NOT the same thing as the original reported drop — read this before claiming anything fixed
 
-A mild stutter was reported during sustained play. **It was not isolated or
-chased this session.** If it persists, it is a candidate for exactly the
-methodology in §0.4 — fullscreen only, frames ÷ elapsed-time as the metric,
-and counterbalanced A/B — rather than percentile frame time, which §0.2 shows
-will mislead on this hardware.
+Two different symptoms have been discussed and they must not be conflated.
 
----
+**(a) This investigation — "FPS drops when looking at the horizon."** Measured
+flat across pitch (§1), ~7% at most once isolated. **Nothing was broken and
+nothing was fixed.** The scene sustains ~69.8 FPS.
+
+**(b) The ORIGINAL reported drop — 48.9 → 35.2 FPS under heavy sustained fluid
+load during active play. THIS SESSION DID NOT FIX THAT, and it must not be
+reported as fixed.** That symptom is the separately documented frame-time
+tail: chased across several sessions, attributed as far as this toolchain
+permits, and **permanently unattributable beyond that point** because §2.2's
+budget lives on the GPU lane and no per-kernel timing exists here (no Xcode by
+Amendment 8.9 Rule 1, `gpuFrameTime` inflated ~2.6–2.7× by Amendment 8.10,
+Unity merging the CA's dispatches into a single encoder). See
+`PHASE_6_COMPLETION.md` open item 4 and §7 of its open-items list.
+
+**(c) A mild stutter during sustained play**, reported separately. **It was not
+isolated or chased this session.** If it persists it is a candidate for exactly
+the methodology in §0.4 — fullscreen only, frames ÷ elapsed-time as the metric,
+counterbalanced A/B — and specifically *not* percentile frame time, which §0.2
+shows will mislead on this hardware.
 
 ## 7. The instrument
 
