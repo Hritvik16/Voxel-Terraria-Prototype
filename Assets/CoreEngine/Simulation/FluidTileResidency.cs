@@ -72,8 +72,15 @@ namespace VoxelEngine.Simulation
 
         /// Brings the tile set into line with where the player is and where fluid
         /// actually is. Call once per re-centre, not per tick.
+        /// <param name="releaseOrphaned">
+        /// A MEASUREMENT SEAM, NOT A CONFIGURATION. Passing false restores the
+        /// pre-fix behaviour so an A/B can attribute the op-discard change to
+        /// the orphan sweep and nothing else. Only a rig should ever pass
+        /// false; shipped callers take the default.
+        /// </param>
         public static Stats Refresh(ChunkStore store, FluidTileMap tiles,
-                                    int3 centreVoxel, int wakeRadiusVoxels, int sleepRadiusVoxels)
+                                    int3 centreVoxel, int wakeRadiusVoxels, int sleepRadiusVoxels,
+                                    bool releaseOrphaned = true)
         {
             var st = new Stats();
             if (store == null || tiles == null) return st;
@@ -83,7 +90,7 @@ namespace VoxelEngine.Simulation
             // way round makes departure and arrival race for capacity, and the
             // loser is silently a tile that does not wake.
             st.TilesReleasedByRadius = ReleaseBeyondSleep(tiles, centreVoxel, sleepRadiusVoxels);
-            st.TilesReleasedOrphaned = ReleaseOrphaned(store, tiles);
+            if (releaseOrphaned) st.TilesReleasedOrphaned = ReleaseOrphaned(store, tiles);
 
             int3 lo = CoordMath.VoxelToChunk(centreVoxel - wakeRadiusVoxels);
             int3 hi = CoordMath.VoxelToChunk(centreVoxel + wakeRadiusVoxels);

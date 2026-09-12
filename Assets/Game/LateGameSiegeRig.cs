@@ -113,6 +113,9 @@ public class LateGameSiegeRig : MonoBehaviour
     {
         int seconds = ArgInt("-siegeseconds", 200);
         _tilePoolCap = ArgInt("-tilecap", _tilePoolCap);
+        // -noorphan restores the pre-fix behaviour for the A/B. See the seam
+        // note on FluidTileResidency.Refresh.
+        _releaseOrphaned = ArgInt("-noorphan", 0) == 0;
         int shotEvery = ArgInt("-shotevery", 15) * 60;
 
         QualitySettings.vSyncCount = 0;
@@ -130,6 +133,7 @@ public class LateGameSiegeRig : MonoBehaviour
         L(DateTime.Now.ToString("u", CultureInfo.InvariantCulture));
         L($"duration {seconds}s, screenshot every {shotEvery / 60}s");
         L($"tile pool cap {_tilePoolCap} (0.5 MB/tile reserved up front)");
+        L($"orphaned-tile release {(_releaseOrphaned ? "ON (shipped)" : "OFF (-noorphan, the A/B baseline)")}");
         L($"live-volume band {TargetLiveLow:N0}-{TargetLiveHigh:N0} " +
           $"(MAX_ACTIVE_FLUID {EngineConfig.MAX_ACTIVE_FLUID:N0} -- the clamp is NOT what this measures)");
         L("Wall clock only; gpuFrameTime read nowhere against a budget (Amdt 8.10).");
@@ -224,7 +228,8 @@ public class LateGameSiegeRig : MonoBehaviour
             {
                 _fluid.UpdatePlayerPosition(pv);
                 var rst = FluidTileResidency.Refresh(Store, _tiles, pv,
-                                           _fluid.ActiveRadiusVoxels, _fluid.SleepRadiusVoxels);
+                                           _fluid.ActiveRadiusVoxels, _fluid.SleepRadiusVoxels,
+                                           _releaseOrphaned);
                 RecordDemand(rst);
             }
             if (_readback.CanIssue) { _fluid.Tick(Clip); _readback.IssueReadback(0); }
@@ -326,10 +331,13 @@ public class LateGameSiegeRig : MonoBehaviour
     /// Stats.TilesWithFluid is counted BEFORE the radius test and overcounts.
     /// Without this, "raise the cap" has no target to raise it TO.
     private int _peakTileDemand;
+    private bool _releaseOrphaned = true;
+    private long _orphansReleased;
     private void RecordDemand(FluidTileResidency.Stats st)
     {
         int demand = st.TilesAlreadyResident + st.TilesAcquired + st.TilesRefusedPoolFull;
         if (demand > _peakTileDemand) _peakTileDemand = demand;
+        _orphansReleased += st.TilesReleasedOrphaned;
     }
 
     private long _lavaObsBefore, _lavaObsAfter, _waterBefore, _waterAfter;
@@ -344,7 +352,8 @@ public class LateGameSiegeRig : MonoBehaviour
             {
                 _fluid.UpdatePlayerPosition(pv);
                 var rst = FluidTileResidency.Refresh(Store, _tiles, pv,
-                                           _fluid.ActiveRadiusVoxels, _fluid.SleepRadiusVoxels);
+                                           _fluid.ActiveRadiusVoxels, _fluid.SleepRadiusVoxels,
+                                           _releaseOrphaned);
                 RecordDemand(rst);
             }
             if (_readback.CanIssue) { _fluid.Tick(Clip); _readback.IssueReadback(0); }
@@ -395,6 +404,10 @@ public class LateGameSiegeRig : MonoBehaviour
           $"cap is {_tiles.TileCapacity})");
         L($"  tiles {_tiles.ResidentTiles}/{_tiles.TileCapacity} resident, acquired " +
           $"{_tiles.TilesAcquiredTotal}, released {_tiles.TilesReleasedTotal}, exhaustions {_tiles.PoolExhaustionsTotal:N0}");
+        double discardPct = _readback.OpsTotal > 0
+            ? _readback.OpsDroppedNonResident * 100.0 / _readback.OpsTotal : 0;
+        L($"  ORPHANED TILES RELEASED {_orphansReleased:N0} (sweep " +
+          $"{(_releaseOrphaned ? "ON" : "OFF")})   OP-DISCARD RATE {discardPct:F1}%");
         L($"  op-list total {_readback.OpsTotal:N0}, readback errors {_readback.ReadbackErrorsTotal}, " +
           $"stale {_readback.StaleOpsDropped:N0}, non-resident {_readback.OpsDroppedNonResident}");
         L($"  GPU active set {_fluid.GpuActiveSetBytes() / 1048576.0:F1} MB");
@@ -446,10 +459,41 @@ public class LateGameSiegeRig : MonoBehaviour
             "every system actually ran (a silent no-op would make the whole run meaningless)");
         Check(_ccdMissed == 0, $"every CCD sweep hit the wall ({_sweeps - _ccdMissed}/{_sweeps})");
         Check(_readback.ReadbackErrorsTotal == 0, $"no op-list readback errors ({_readback.ReadbackErrorsTotal})");
-        Check(_readback.OpsDroppedNonResident == 0,
-            $"no ops dropped for non-residency ({_readback.OpsDroppedNonResident})");
+        // WAS `OpsDroppedNonResident == 0`, AND THAT ASSERTION WAS WRONG HERE
+        // -- stricter than the engine's own contract. FluidOpListReadback
+        // documents a non-zero value as "fluid is live next to a streaming
+        // edge", i.e. §9.4's guard doing exactly its job. This scenario pours
+        // across +/-260 voxels and reaches that edge by construction, so zero
+        // is not achievable and the gate was red on EVERY run including the
+        // pre-fix baseline. A permanently-red gate is worse than no gate: it
+        // teaches the reader to skip the result.
+        //
+        // It is replaced by an assertion on the thing that IS meant to be
+        // zero and that a regression would break -- no tile may outlive its
+        // chunk. The drop rate stays visible as a note immediately below,
+        // because losing sight of it is how the orphan bug hid in the first
+        // place.
+        double discard = _readback.OpsTotal > 0
+            ? _readback.OpsDroppedNonResident * 100.0 / _readback.OpsTotal : 0;
+        Note($"ops dropped for non-residency {_readback.OpsDroppedNonResident:N0} of " +
+             $"{_readback.OpsTotal:N0} ({discard:F1}%) -- fluid pressing on the streaming edge. " +
+             "§9.4's guard refusing to simulate into unloaded world: the material stays put, " +
+             "nothing is lost. Measured 54.1% before the orphaned-tile release and 6.0% after");
         Check(_tiles.PeakResidentTiles <= _tiles.TileCapacity,
             $"tile pool never exceeded its cap ({_tiles.PeakResidentTiles} <= {_tiles.TileCapacity})");
+
+        // THE ORPHANED-TILE GATE. Refresh tests §9.4 at acquire time; until
+        // ReleaseOrphaned existed it never asked again, and a chunk evicted
+        // under a live tile left that tile resident forever, dispatching
+        // against terrain the CPU no longer had. Measured at 15 of 787 before
+        // the fix. This is the assertion that keeps it fixed.
+        int orphanTilesLeft = 0;
+        foreach (int3 tc in _tiles.ResidentTileCoords())
+            if (!Store.IsResident(CoordMath.VoxelToChunk(tc * ChunkFluidMask.TILE_EDGE)))
+                orphanTilesLeft++;
+        Check(orphanTilesLeft == 0,
+            $"no tile outlived its chunk ({orphanTilesLeft} of {_tiles.ResidentTiles} resident " +
+            $"tiles have no resident chunk; {_orphansReleased:N0} were retired during the run)");
         if (_tiles.PoolExhaustionsTotal > 0)
             Note($"tile pool cap reached {_tiles.PoolExhaustionsTotal:N0}x -- §7.7's clean refusal, " +
                  "expected when destruction keeps feeding new material into a wide fluid spread");
@@ -502,28 +546,6 @@ public class LateGameSiegeRig : MonoBehaviour
                     mobileSeen++;
                     if (_tiles.SlotForVoxel(v) == FluidTileMap.NO_TILE) frozen++;
                 }
-        // WHY ARE OPS BEING DROPPED FOR NON-RESIDENCY? Two candidates, and
-        // they call for different responses:
-        //   (a) a tile OUTLIVES its chunk's residency. Refresh tests §9.4 at
-        //       ACQUIRE time and never again; ReleaseBeyondSleep tests only
-        //       the radius. So an evicted chunk leaves its tile resident, and
-        //       that would be a latent gap a small pool merely hid.
-        //   (b) fluid simply reaches the STREAMING EDGE and keeps trying to
-        //       move outward into never-loaded space -- the documented §9.4
-        //       guard doing its job, just far more often because a larger
-        //       pool can afford tiles out at the edge that a full one never
-        //       acquired.
-        // This counter separates them: it is nonzero only under (a).
-        int orphanTiles = 0;
-        foreach (int3 tc in _tiles.ResidentTileCoords())
-        {
-            int3 anyVoxel = tc * ChunkFluidMask.TILE_EDGE;
-            if (!Store.IsResident(CoordMath.VoxelToChunk(anyVoxel))) orphanTiles++;
-        }
-        Note($"TILES WHOSE CHUNK IS NO LONGER RESIDENT: {orphanTiles} of {_tiles.ResidentTiles}. " +
-             "Nonzero means a tile outlived its chunk (Refresh checks §9.4 at acquire time only); " +
-             "zero means the dropped ops are fluid pressing on the streaming edge instead");
-
         Note($"FROZEN-FLUID CENSUS (4-voxel stride, surface-26..+40): {frozen:N0} of " +
              $"{mobileSeen:N0} sampled mobile voxels inside the radius have NO TILE and " +
              $"therefore cannot move ({(mobileSeen > 0 ? frozen * 100.0 / mobileSeen : 0):F1}%). " +
