@@ -1,20 +1,77 @@
-# Phase 6 Completion Record — Physics & Editing — **DRAFT**
+# Phase 6 Completion Record — Physics & Editing — **CLOSED**
 
-> **THIS IS A DRAFT FOR REVIEW, NOT A PHASE CLOSURE.**
-> First written unattended overnight on 2026-09-05; **substantially revised
-> later the same day** with the results of the §3.6 gate, the two playtest-bug
-> fixes, the §7.4 driving mechanism, the first real `run-acceptance-rig.sh`
-> numbers of Phase 6, and a pre-existing/regression verdict on the frame-time
-> stutter. Closing a phase is the project owner's call, made after reading the
-> evidence — not something an agent declares. Nothing here should be read as
-> "Phase 6 is done". §6's NOT TESTED bucket is smaller than it was and is still
-> not empty, and §7 now carries a **design fork** that wants a human.
+> # ✅ PHASE 6 CLOSED — 2026-09-12
+>
+> **Closed by the project owner's decision**, which is the only way this
+> document was ever going to change status: every prior revision said so
+> explicitly, and no agent session altered it.
+>
+> **What the closure rests on.** Phase 6's own acceptance criteria are met and
+> re-verified on the branch tip immediately before merge: the terrain-only
+> acceptance rig at **53 PASS / 0 FAIL**, Phase 5a/5c/5d at ledger-balanced /
+> **170-0** / **19-0**, `run-fluid-activity` **20-0**, sandbox **43-0**,
+> fluid-scale **4-0**, fluid-tiled **19-0**, the late-game siege **8-0** with a
+> **0.00%** mass-conservation error and a **0.0%** frozen-fluid census, and
+> EditMode at **499 PASS / 0 FAIL**. The evidence behind each is in this
+> document plus `FPS_INVESTIGATION_RESULTS.md`, `FLUID_TILE_CAP_RESULTS.md`,
+> `FLUID_PERFORMANCE_AB_RESULTS.md`, `FLUID_SCALE_ARCHITECTURE_RESULTS.md`,
+> `PHASE_6_QA_PASS.md` and `DESIGN_NOTE_7_2` / `DESIGN_NOTE_7_4`. Sustained
+> play measures **69.8 ± 0.4 FPS** at the full shipped fluid radius — a 16%
+> margin over 60.
+>
+> **Closing does not mean everything is finished.** Four things are explicitly
+> carried forward, and none was silently resolved to reach this point — see
+> **CARRY-FORWARD** immediately below.
+
+---
+
+## CARRY-FORWARD PAST CLOSURE — open, and known to be open
+
+**1. Amendment 8.11 (render range vs world size) — UNDECIDED, needs the owner.**
+`AMENDMENT_8_11_RENDER_RANGE.md` is still DRAFT, NOT ADOPTED. The island is
+~1,909 m across and the renderer draws 290 m. The analysis is complete and the
+options are costed; it wants a decision, not more investigation. Nothing from
+it has been implemented. See open item 12.
+
+**2. Feel-based items — NEVER CHASED, NEVER CLAIMED FIXED.** Movement feel,
+whether §3.6's eviction is visually acceptable under normal building, and the
+flood-front judgement are judgements an agent cannot make. See open item 10.
+
+**3. The sustained-load stutter — NOT FIXED, and must not be reported as
+fixed.** The original 48.9 → 35.2 FPS drop under heavy sustained fluid is the
+frame-time tail of open item 4: chased across several sessions and
+**permanently unattributable in this toolchain** (no Xcode by Amdt 8.9 Rule 1,
+`gpuFrameTime` inflated ~2.6–2.7× by Amdt 8.10, Unity merging the CA's
+dispatches into one encoder). A separately reported mild stutter was likewise
+not isolated. Both are distinguished in `FPS_INVESTIGATION_RESULTS.md` §6.
+
+**4. Two ranked, deferred performance optimizations**, both evidence-backed and
+both Phase-sized:
+- **CA region passes scale with resident tiles, not live fluid.** Suspending
+  the CA measured 87 FPS against 65.5 — the largest single cost in the frame.
+  Touches §7.3 and the §3.9 sync contract; needs its own session and oracle.
+- **LOD cascade air-mip gap.** The cascade costs ~17% at high resolution
+  because tiers 1/2 have no air-mip pyramid (a documented scope cut). Two fixes
+  were tried, measured and rejected; their numbers are recorded so they are not
+  re-attempted blind.
+
+---
+
+> **Historical note, kept for the record.** Before closure this document read:
+> *"THIS IS A DRAFT FOR REVIEW, NOT A PHASE CLOSURE."* It was first written
+> unattended overnight on 2026-09-05 and substantially revised later the same
+> day with the §3.6 gate results, the two playtest-bug fixes, the §7.4 driving
+> mechanism, the first real `run-acceptance-rig.sh` numbers of Phase 6, and a
+> pre-existing/regression verdict on the frame-time stutter. The §7.2 design
+> fork it once carried was resolved on measured evidence (open item 7.2); §6's
+> NOT TESTED bucket is smaller than it was and is still not empty.
 
 ---
 
 # MORNING VERDICT — 2026-09-11 — **A RECOMMENDATION, NOT A CLOSURE**
 
-**I did not change the DRAFT marker. That is yours.**
+**The DRAFT marker was left for the owner, and the owner flipped it on
+2026-09-12. See the header.**
 
 ## Recommendation: READY TO CLOSE — conditional on five minutes in Playground
 
@@ -662,11 +719,11 @@ much cheaper to decide before a phase is declared closed than after.
 
 ---
 
-> **The section below was added 2026-09-10 by an agent session. It changes
-> NOTHING about this document's DRAFT status, which remains the project
-> owner's call.** It is a pointer, so the open decisions from the fluid
-> performance line of work are visible from here rather than only from
-> `FLUID_PERFORMANCE_AB_RESULTS.md`.
+> **The section below was added 2026-09-10 by an agent session as a pointer**,
+> so the open decisions from the fluid performance line of work are visible
+> from here rather than only from `FLUID_PERFORMANCE_AB_RESULTS.md`. It did not
+> alter this document's status; the phase was closed separately by the project
+> owner on 2026-09-12 (see the header).
 
 ---
 
