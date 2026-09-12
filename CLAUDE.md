@@ -249,14 +249,17 @@ real and separate reason — see the LOD-cascade finding in
   reverted to 512 gives the identical 16/14. Fixing it means rewriting the
   rig's arena predicate in terms of the wake radius. Full analysis in
   `FLUID_TILE_CAP_RESULTS.md` §12.2.
-- **`run-fluid-tiled.sh` fails 2 of 19 on MEMORY BUDGET assertions at the
-  shipped 1024 tile cap** (active set 520 MB vs an asserted "< 512 MB"; dense/
-  tiled ratio 252× vs an asserted "> 400×"). Not a bug: the cap was raised
-  deliberately on measured demand. The `> 400×` assertion is provably
-  incompatible with that demand (it needs cap ≤ 639; peak demand is 779), so it
-  must be re-based or the frozen-fluid artifact re-accepted. The design's
-  central claim — footprint invariant to radius — still PASSES. Decision and
-  the full cap/memory/demand table in `FLUID_TILE_CAP_RESULTS.md` §12.1.
+- **`run-fluid-tiled.sh`'s two memory-budget assertions were REBASED on
+  2026-09-11** when the tile cap went 512 -> 1024 (active set 264 -> 520 MB).
+  Budget is now "< 544 MB" and the dense/tiled ratio bound is ">= 100x"
+  (measured 252x, was 496x). Rebased with the cap/demand arithmetic recorded
+  in the source next to the assertions, NOT loosened to pass: the old >400x
+  bound required cap <= 639 while measured peak demand reached 779, so the
+  assertion and the measurement were in direct conflict. The claim asserted is
+  unchanged -- "orders of magnitude below the dense region" -- and the
+  design's load-bearing claim, that the footprint does not move WITH THE
+  RADIUS, is a separate assertion and was never in question. Rig is 19/19
+  again. Background in `FLUID_TILE_CAP_RESULTS.md` §12.1.
 
 ## The build-run-review loop
 

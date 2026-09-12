@@ -218,10 +218,52 @@ public class FluidTiledRig : MonoBehaviour
         double denseGB = denseCells * 16.0 / (1024.0 * 1024.0 * 1024.0);
         L($"  the DENSE equivalent would be 2048^3 = {denseCells:N0} cells = {denseGB:F0} GB");
 
-        Check(finalBytes < 512L * 1024 * 1024,
-            $"the active set at the shipped radius is under 512 MB ({finalBytes / (1024 * 1024)} MB)");
-        Check(denseCells * 16 / math.max(1, finalBytes) > 400,
-            "and orders of magnitude smaller than the dense region it replaces");
+        // ---------------------------------------------------------------
+        // REBASED 2026-09-11, WHEN THE TILE CAP WENT 512 -> 1024.
+        //
+        // Both numbers below were calibrated against a 512-tile pool (264 MB
+        // active set, 496x). The cap was then raised on measured demand --
+        // peak tile demand reached 603-779 across four cooled siege runs, and
+        // at 512 the overflow was VISIBLE as raw cubes of fluid hanging in the
+        // air that never settled (FLUID_TILE_CAP_RESULTS.md).
+        //
+        // These are REBASED WITH A PAPER TRAIL, not loosened until they pass.
+        // The distinction matters, so the arithmetic is here rather than in a
+        // commit message:
+        //
+        //   cap   active set   ratio    clears demand 779
+        //   512      264 MB     496x          NO
+        //   640      328 MB     400x          NO
+        //   896      456 MB     287x         yes
+        //  1024      520 MB     252x         yes
+        //
+        // The OLD >400x bound required cap <= 639, which cannot meet demand at
+        // all -- the assertion and the measurement were in direct conflict,
+        // and the measurement wins. 896 would have kept the old 512 MB bound,
+        // and was deliberately NOT chosen: fluid volume is about to rise
+        // (MAX_ACTIVE_FLUID is under test), real demand will rise with it, and
+        // locking in a tighter budget now only means revisiting this same
+        // decision in a week.
+        //
+        // THE CLAIM BEING MADE IS NOT WEAKENED. It was, and remains, "the
+        // active set is a small fixed cost, orders of magnitude below the
+        // dense region it replaces". 252x is still better than two orders of
+        // magnitude. Only the specific constants move, to match what is
+        // actually built. The claim that carries the design -- that the
+        // footprint does not move WITH THE RADIUS -- is asserted separately
+        // above and is untouched by any of this.
+        // ---------------------------------------------------------------
+        const long activeSetBudgetMB = 544;    // 520 MB measured at cap 1024, + headroom
+        Check(finalBytes < activeSetBudgetMB * 1024 * 1024,
+            $"the active set at the shipped radius is under {activeSetBudgetMB} MB " +
+            $"({finalBytes / (1024 * 1024)} MB at a {EngineConfig.FLUID_TILE_POOL_CAPACITY}-tile cap; " +
+            "rebased 2026-09-11 from 512 MB when the cap went 512 -> 1024)");
+
+        long ratio = denseCells * 16 / math.max(1, finalBytes);
+        Check(ratio >= 100,
+            $"and still at least two orders of magnitude smaller than the dense region it " +
+            $"replaces ({ratio}x; was 496x at the 512-tile cap, bound rebased from >400x to " +
+            ">=100x so it asserts the claim it is named for rather than a particular cap)");
 
         Finding($"THE SHIPPED RADIUS IS REACHABLE. {finalBytes / (1024 * 1024)} MB measured " +
                 $"from the actual GPU allocations, against {denseGB:F0} GB for the dense region " +
