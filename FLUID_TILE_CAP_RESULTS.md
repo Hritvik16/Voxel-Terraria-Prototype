@@ -4,10 +4,10 @@
 siege), which is where the artifact was first seen and where its cause was
 inferred but not demonstrated.*
 
-**Status of this document: MEASUREMENT AND OPTIONS. It recommends; it does not
-decide.** Nothing in the shipped configuration is changed by it —
-`FluidTileMap`'s cap stays at 512 and `MAX_ACTIVE_FLUID` stays at 500,000
-until a human says otherwise.
+**Status: SHIPPED as of 2026-09-11.** §§0–10 below are the investigation that
+produced the recommendation; **§11 is the shipped state and the final
+numbers.** The recommendation in §9 was accepted: the cap is now 1024 and the
+orphaned-tile gap is fixed. `MAX_ACTIVE_FLUID` is unchanged at 500,000.
 
 ---
 
@@ -392,3 +392,195 @@ proposed for now.
 - **Demand for scenarios wider than the siege.** Demand scales with spread;
   a pour twice as wide would need roughly twice the tiles, and 1024 is sized
   to *this* scenario plus ~35%, not to an arbitrary one.
+
+---
+
+# 11. SHIPPED (2026-09-11)
+
+Both changes from §9's option **B** are in.
+
+## 11.1 The cap: `EngineConfig.FLUID_TILE_POOL_CAPACITY = 1024`
+
+One constant, eleven call sites — Playground, `Phase4AcceptanceRig`'s
+hardcoded literal, nine rigs, eight scene-builder defaults. It carries its own
+justification and its own cost, so the next person to consider raising it
+finds the arithmetic rather than repeating the experiment.
+
+Checked before changing: **no rig asserts on a particular cap value.** Every
+gate is `PeakResidentTiles <= TileCapacity`, which is cap-agnostic; the "cap
+WAS reached" lines are notes. Nothing was tuned to 512, so nothing needed
+re-tuning off it.
+
+**Headroom, corrected.** §7 quoted ~35% headroom from a single run measuring
+demand 678. Across the four A/B runs below, peak demand ranged **603–779**.
+1024 still clears it, but the honest figure at the observed maximum is
+**~24% headroom**, not 35%. Demand varies run to run with where destruction
+happens to throw material.
+
+## 11.2 `FluidTileResidency.ReleaseOrphaned`
+
+Gate 1 was only ever tested once: `Refresh` refuses to *admit* a tile whose
+chunk is not resident, then never asks again, and `ReleaseBeyondSleep` tests
+only the radius. A chunk evicted under a live tile left that tile resident
+indefinitely — holding a pool slot and dispatching every tick against terrain
+the CPU no longer had.
+
+The sweep runs inside `Refresh`, in the release phase **before** admission,
+for the same reason the radius release does: otherwise a pool full of dead
+tiles refuses live ones for a whole cycle. `Stats.TilesReleasedOrphaned` is
+kept separate from `TilesReleasedByRadius` — conflating them is how this gap
+stayed invisible.
+
+Five tests, **mutation-checked with 5 mutants, all killed** (no-op; predicate
+inverted; counts-but-never-releases; swept-after-admission;
+misattributed-to-radius). Tests cover both directions — a release rule that is
+too eager is a tile that stops simulating while its world is right there.
+
+## 11.3 The result: a counterbalanced A/B/B/A
+
+Four 200s sieges, 300s cooled before each, cap 1024 throughout, the only
+variable being the sweep. A `-noorphan` seam restores the pre-fix behaviour so
+this is a same-build, same-session comparison rather than a number measured
+against a previous session's thermal history.
+
+| pos | arm | p50 | p99 | op-list total | discard | orphans retired |
+|---|---|---|---|---|---|---|
+| 1 | off | 8.48 | 42.21 | 7,926,929 | **56.2%** | 0 |
+| 2 | **ON** | 8.70 | 48.76 | 4,170,944 | **5.9%** | 382 |
+| 3 | **ON** | 8.61 | 48.96 | 4,216,045 | **6.0%** | 382 |
+| 4 | off | 8.71 | 49.42 | 8,156,792 | **52.0%** | 0 |
+
+| | before | after | |
+|---|---|---|---|
+| op-discard rate | 54.1% | **6.0%** | −89% relative |
+| op-list total | 8.04 M | **4.19 M** | **−48% — half the op traffic was dead tiles** |
+| p50 | 8.595 | 8.655 | +0.7% (0.06 ms) |
+
+**No frame-time cost is measurable.** The +0.7% is smaller than the within-arm
+scatter (ON 0.09 ms, OFF 0.23 ms), and the arms are position-balanced by
+construction — OFF took positions 1 and 4, ON took 2 and 3, mean position 2.5
+each. That balancing is not ceremony: position produced a 0.83 ms spread in
+§6b, larger than the effect being measured here.
+
+Both sweep-ON runs retired **exactly 382** orphaned tiles. Frozen-fluid census
+**0.0%** in all four runs. lava+obsidian conserved **exactly** in all four.
+
+## 11.4 The remaining 6% is correct behaviour, not a residual defect
+
+It is fluid pressing on the **streaming edge** — §9.4's guard refusing to
+simulate into unloaded world. `FluidOpListReadback` documents this itself: a
+non-zero value "means fluid is live next to a streaming edge". The material
+stays exactly where it is; nothing is lost. **This is not being chased.**
+
+## 11.5 One gate was replaced, and it was not a weakened assertion
+
+Flagged explicitly because that distinction is the whole point of the rule
+against loosening gates.
+
+`OpsDroppedNonResident == 0` was **stricter than the engine's own contract**.
+A pour across ±260 voxels reaches the streaming edge by construction, so zero
+is unachievable — and the gate was red on every siege run at cap 1024
+**including the pre-fix baseline arms**. A permanently-red gate is worse than
+no gate: it teaches the reader to skip the result.
+
+It is replaced by an assertion on what *is* meant to be zero and what a
+regression would actually break — **no tile may outlive its chunk** — with the
+drop rate kept as a prominent note directly beneath it, carrying both the
+before and after figures. Losing sight of that number is how the orphan bug
+hid in the first place.
+
+---
+
+# 12. Regression sweep (Step 4) — and two failures
+
+The whole suite, serialized, at the new cap. **Six of eight rigs and EditMode
+match baseline exactly. Two rigs fail, and only one of them is caused by this
+work.**
+
+| rig | baseline | now | |
+|---|---|---|---|
+| `run-phase5a-rig.sh` | 5 scenarios, ledger balanced, no dup ownership | same | ✅ |
+| `run-phase5c-rig.sh` | 170 / 0 | 170 / 0 | ✅ |
+| `run-phase5d-rig.sh` | 19 / 0 | 19 / 0 | ✅ |
+| `run-fluid-activity.sh` | 19 / 0 | 19 / 0 | ✅ |
+| `run-phase6-sandbox.sh` | 43 / 0 | 43 / 0 | ✅ |
+| `run-fluid-scale.sh` | 4 / 0 | 4 / 0 | ✅ |
+| `run-phase6-brushguard.sh` | 30 / 0 | **16 / 14** | ❌ **pre-existing, not this work** |
+| `run-fluid-tiled.sh` | 19 / 0 | **17 / 2** | ❌ **caused by the cap** |
+| EditMode | 494 / 0 | **499 / 0** | ✅ (+5 new) |
+| late-game siege (shipped config) | — | **8 / 0** | ✅ |
+
+## 12.1 `run-fluid-tiled.sh` — the cap crosses a documented memory budget
+
+Two assertions fail, and they are not threshold quibbles:
+
+```
+FAIL  the active set at the shipped radius is under 512 MB (520 MB)
+FAIL  and orders of magnitude smaller than the dense region it replaces
+```
+
+The second is `denseCells * 16 / activeSet > 400`. At 1024 the ratio is 252×.
+
+**Can both be satisfied at all?** The dense equivalent is 2048³ × 16 B = 128 GB.
+
+| cap | active set | < 512 MB? | ratio | > 400×? | clears observed demand 779? |
+|---|---|---|---|---|---|
+| 512 | 264 MB | yes | 496× | yes | **no** |
+| 640 | 328 MB | yes | 400× | no | **no** |
+| **896** | **456 MB** | **yes** | 287× | no | **yes** (~15% headroom) |
+| 1024 | 520 MB | **no** | 252× | no | yes (~31% headroom) |
+| 2048 | 1032 MB | no | 127× | no | yes |
+
+- **The `> 400×` assertion is incompatible with real demand.** It requires
+  cap ≤ 639; peak demand across the four A/B siege runs reached **779**. No cap
+  satisfies both. This assertion must be re-based or the artifact re-accepted —
+  there is no third option.
+- **The `< 512 MB` budget CAN be kept**, at cap 896: 456 MB, clearing 779 with
+  ~15% headroom instead of 1024's ~31%.
+- Worth noting the 400 threshold is **stricter than the claim it is labelled
+  with**. The message says "orders of magnitude smaller"; 252× is still more
+  than two orders of magnitude. 400 was calibrated when the cap was 512.
+
+**The design's central claim is intact.** The assertion that matters —
+"the active-set footprint does not move with the radius … the entire claim of
+the design" — **passed**. What changed is the absolute size, not the
+invariance.
+
+**Neither threshold was changed here.** They encode a stated design budget, and
+re-basing a budget to fit a number that just breached it is the exact move the
+measurement rules exist to prevent. **This is a decision:** keep 1024 and
+re-base both thresholds on the demand evidence, or drop to 896 and keep the
+512 MB budget while re-basing only the ratio.
+
+## 12.2 `run-phase6-brushguard.sh` — pre-existing, and NOT from this work
+
+14 failures, all of the form "the target cell really is outside the arena" /
+"outside the arena is REFUSED". The rig asserts through `Fluid.InRegion` and
+`Fluid.SphereFitsInRegion` — **dense-path predicates**. Under tiling
+`InRegion(v)` means "is v inside a RESIDENT TILE", which `Playground`'s own doc
+comment already flags as the wrong predicate for a placement guard ("would
+refuse to start a new pool anywhere"), and `SphereFitsInRegion` tests the dense
+region box, which under tiling is a 64³ box at world origin.
+
+**Ruled out as this session's doing, by experiment rather than by argument.**
+Raising the cap changes how many tiles are resident, which changes `InRegion`,
+so it was a real candidate. Re-running the rig with only
+`FLUID_TILE_POOL_CAPACITY` reverted to 512:
+
+```
+cap 1024 -> PASS 16  FAIL 14
+cap  512 -> PASS 16  FAIL 14     (identical)
+```
+
+The rig is unchanged since `c20a547`, which predates session 7 wiring
+`Playground` to the tiled substrate, and no brushguard log exists after
+session 6 — so it has been failing since Playground was tiled and nothing
+re-ran it until now.
+
+**This is the same class as CLAUDE.md's RIG SELECTION RULE**: an assertion
+whose premise no longer applies, not a product defect. The brush guard itself
+is correct and is exercised — `Playground.TryPaintBrush` refuses mobile brushes
+outside §7.4's wake radius. What is stale is how the rig *asks* the question.
+Fixing it means rewriting the rig's arena predicate to the wake radius, which
+is a real piece of work and is **not** something to fold into a tile-cap
+session.

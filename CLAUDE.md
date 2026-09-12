@@ -237,6 +237,27 @@ real and separate reason — see the LOD-cascade finding in
   fragmentation -- reverted, do not retry it. The write mechanism is settled
   and load-bearing; §0.2 forbids raising MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME.
 
+- **`run-phase6-brushguard.sh` has been red since Playground was tiled, and it
+  is the RIG that is stale, not the product.** 16 PASS / 14 FAIL. Every failure
+  runs through `Fluid.InRegion` or `Fluid.SphereFitsInRegion` — dense-path
+  predicates. Under tiling `InRegion(v)` answers "is v in a RESIDENT TILE"
+  (true only where fluid already is) and `SphereFitsInRegion` tests a 64³ box
+  at world origin. `Playground.cs`'s own doc comment on
+  `SphereFitsInWakeRadius` spells both traps out. The guard being tested is
+  fine: mobile brushes outside §7.4's wake radius ARE refused, with a status
+  line. Confirmed NOT caused by the 1024 tile cap — re-running with the cap
+  reverted to 512 gives the identical 16/14. Fixing it means rewriting the
+  rig's arena predicate in terms of the wake radius. Full analysis in
+  `FLUID_TILE_CAP_RESULTS.md` §12.2.
+- **`run-fluid-tiled.sh` fails 2 of 19 on MEMORY BUDGET assertions at the
+  shipped 1024 tile cap** (active set 520 MB vs an asserted "< 512 MB"; dense/
+  tiled ratio 252× vs an asserted "> 400×"). Not a bug: the cap was raised
+  deliberately on measured demand. The `> 400×` assertion is provably
+  incompatible with that demand (it needs cap ≤ 639; peak demand is 779), so it
+  must be re-based or the frozen-fluid artifact re-accepted. The design's
+  central claim — footprint invariant to radius — still PASSES. Decision and
+  the full cap/memory/demand table in `FLUID_TILE_CAP_RESULTS.md` §12.1.
+
 ## The build-run-review loop
 
 When asked to iterate toward a stable build, follow this exact procedure
