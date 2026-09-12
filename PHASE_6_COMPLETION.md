@@ -12,6 +12,63 @@
 
 ---
 
+# MORNING VERDICT — 2026-09-11 — **A RECOMMENDATION, NOT A CLOSURE**
+
+**I did not change the DRAFT marker. That is yours.**
+
+## Recommendation: READY TO CLOSE — conditional on five minutes in Playground
+
+Every open item that *can* be settled with evidence has been settled. What is
+left is one category an agent cannot settle, and it needs your hands, not more
+measurement.
+
+### The five §10 blockers, as they now stand
+
+| # | §10's blocker (2026-09-05) | now |
+|---|---|---|
+| 1 | "A design fork is open — the shipped fluid radius cannot bite inside any region that can exist" | **RESOLVED.** Stale. Reading (b) was built (§7.2's tiled substrate) and the radius is measured releasing at ~85 m and re-acquiring on return; footprint 264 MB identical at r = 128/640/1280 |
+| 2 | "The GPU lane is entirely unmeasured" | **PERMANENT LIMITATION, not a task.** Restated so it stops being re-opened — no future session can close it |
+| 3 | "One rig is red — a rare fluid stall not reproducible enough to isolate" | **REPRODUCED AND ACCEPTED.** 4 of 12 runs (33%) vs the 35% baseline; 1–2 voxels of ~2,800; cause already isolated, the *fix* is what is blocked by #2. The rig is **not red** — it passes with its rate window |
+| 4 | "The §8.1 treadmill fork was never forced and never costed" | **RESOLVED: keep the probe controller.** 20 siege runs CCD-clean; the only 2 failures trace to a rig bug that destroyed the wall being asserted against |
+| 5 | "Feel-based items remain feel-based" | **STILL OPEN, AND DELIBERATELY SO — this is the condition on the recommendation** |
+
+### What shipped since the draft was written
+
+`FLUID_TILE_POOL_CAPACITY` 512 → **1024** (measured demand 603–779; at 512 the
+overflow was *visible* as frozen cubes). The orphaned-tile fix. `MAX_ACTIVE_FLUID`
+500,000 → **750,000**. `MaxOpsAppliedPerFrameDefault` 4096 → **1024** (−30.8%
+p99 at real scale). Playground raised to showcase it.
+
+### The condition: five minutes in Playground
+
+**Do not sign off without this.** Four things are measured, screenshotted and
+described in this document, and *none* of them can be decided from a
+measurement (§10 of the open items, below):
+
+1. **Movement feel** — it collides correctly; does it play well?
+2. **Eviction visuals** (§3.6) — the valve holds the cap; is what you see
+   while building acceptable?
+3. **Flood-front judgement** — it looks like chaos in the captures; does it
+   look like *good* chaos in motion?
+4. **Frozen fluid at deliberate oversubscription** — now only reachable by
+   abusing the 750,000 clamp, not in ordinary play. Leave, or refuse visibly?
+
+Playground is now tuned to show all four at real scale (92,000 vent voxels,
+~200,000 live slots). If those four feel right, I see nothing else standing
+between this and closure.
+
+### Why I am recommending rather than declaring
+
+Every serious bug in this project's history — the frozen-fluid ordering bug,
+the scratch-pool leak, the tile-cap freeze — was caught by a human checkpoint,
+never by an automated gate alone. **This session is itself an example.** The
+suite was fully green while Playground silently emitted 310 voxels instead of
+92,000, because a scene builder was overriding the constants; no gate noticed,
+and only looking at a screenshot did. A clean table is not the same as a
+correct system.
+
+---
+
 ## 0.0 What changed since the first draft (read this first)
 
 | | First draft | Now |
@@ -451,6 +508,47 @@ stop-the-world suspend is exactly what `preUpdate` contains.
 - **`WaitForIdle` is rig-only today.** It now runs the §3.6 valve as it drains
   (it did not, and walked the pool into exhaustion). If any production path ever
   bulk-drains, this is the invariant it must keep.
+
+---
+
+## 8b. Suite — final consolidated run, 2026-09-11
+
+Every rig in the project's history, serialized, at the fully shipped
+configuration (tile pool 1024, `MAX_ACTIVE_FLUID` 750,000, apply budget 1024).
+
+| rig | result |
+|---|---|
+| `run-acceptance-rig.sh` (terrain-only) | **53 / 0** — frame total p50/p99 **8.94 / 20.32**; Gate C §4.3 upload p99 **0.741 ms** vs the 1.0 ms budget; peak 2.98 MB vs the 3.145 MB cap |
+| `run-phase5a-rig.sh` | 5 scenarios, ledger balanced, 0 duplicate ownership |
+| `run-phase5c-rig.sh` | **170 / 0** |
+| `run-phase5d-rig.sh` | **19 / 0** |
+| `run-fluid-activity.sh` | **20 / 0** (floating 0 this run) |
+| `run-phase6-brushguard.sh` | **16 / 14** — pre-existing, failure set **byte-identical** to the previous sweep, logged in CLAUDE.md |
+| `run-phase6-sandbox.sh` | **43 / 0** |
+| `run-fluid-scale.sh` | **4 / 0** — third rung now reports a 750,000-slot pool, picked up with no edit |
+| `run-fluid-tiled.sh` | **19 / 0** |
+| **late-game siege** (shipped config) | **8 / 0** |
+| EditMode | **499 / 0** |
+
+Siege detail at the shipped configuration:
+
+```
+tile pool cap 1024   apply budget 1024 ops/frame   SLOT CEILING 750,000
+live slots peak      411,395 / 750,000
+PEAK TILE DEMAND     792 (cap 1024)
+FROZEN-FLUID CENSUS  0 of 2,232 sampled  ->  0.0%
+no tile outlived its chunk   0 of 830 resident (300 retired during the run)
+lava+obsidian        13,479 -> 13,479  (0.00%)
+WHOLE RUN  p50 8.20  p99 35.29  max 155.06 ms
+```
+
+**Nothing regressed.** The only red is the pre-existing brushguard rig, whose
+failing assertions are dense-path predicates that no longer describe a tiled
+build — the rig is stale, not the product (CLAUDE.md known issues).
+
+Note the siege p99 of **35.29 ms** against the 43–48 ms typical of earlier
+runs: consistent with the apply budget moving to 1024, though this is a single
+run and the A/B in open item 2 is the measurement that established it.
 
 ---
 
