@@ -584,3 +584,274 @@ outside §7.4's wake radius. What is stale is how the rig *asks* the question.
 Fixing it means rewriting the rig's arena predicate to the wake radius, which
 is a real piece of work and is **not** something to fold into a tile-cap
 session.
+
+---
+
+# 13. The MAX_ACTIVE_FLUID ladder (2026-09-11)
+
+`MAX_ACTIVE_FLUID = 500,000` has been carried since Phase 5a as a
+**spec-mandated, never-measured** number — §0.2's "~500,000 near-player", which
+`EngineConfig` itself flags as "SPEC-MANDATED, not measured". Every session
+since has tested tile spread, memory and correctness *at* that value. None has
+asked whether the GPU can afford **more simultaneous active voxels**.
+
+## 13.1 The structural fact, found by reading before measuring
+
+```
+Dispatch(_kReact,   _slotCapacity, ...)
+Dispatch(_kIntent,  _slotCapacity, ...)
+Dispatch(_kSweep,   _slotCapacity, ...)
+Dispatch(_kRecycle, _slotCapacity, ...)
+```
+
+Four kernels dispatch **slot capacity** threads every tick, live fluid or not.
+The tile pool dispatches over *active* tiles; this dispatches over the *cap*.
+That predicted the ceiling would be a standing per-tick cost rather than
+headroom — and it forced a control rung nobody had run: **ceiling raised with
+volume held flat**, without which ceiling cost and fluid cost rise together and
+cannot be told apart.
+
+**The prediction was wrong, and the control is what proved it.** See 13.3.
+
+## 13.2 The seam
+
+`FluidGpuSimulation` gained an optional `slotCeilingOverride` (0 = §0.2's
+constant, which is what every shipped caller gets). One build serves every
+rung — comparing two builds puts compiler variance inside a GPU measurement.
+`LateGameSiegeRig` gained `-ceiling` and `-targetlive`; defaults reproduce the
+established baseline bit-for-bit. `PourEdge` scales as the cube root of the
+target so the *number* of `SetBox` calls per frame stays flat while the volume
+they move rises.
+
+## 13.3 The ladder
+
+200s sieges, 300s cooled before each, tile cap 1024 throughout.
+
+| rung | ceiling | target | live peak | p50 | p99 | tile demand | gates |
+|---|---|---|---|---|---|---|---|
+| **A** baseline | 500,000 | 320,000 | 320,781 | 8.49 | 45.21 | 729 | 8 / 0 |
+| **A'** baseline, *late/hot* | 500,000 | 320,000 | 321,023 | **7.31** | 46.07 | 679 | 8 / 0 |
+| **B** *control* | 750,000 | 320,000 | 321,208 | **8.29** | 42.69 | 678 | 8 / 0 |
+| **C** | 750,000 | 750,000 | **750,000** | 8.01 | 33.91 | 613 | 8 / 0 |
+| **D** | 1,500,000 | 1,500,000 | **1,500,000** | **11.19** | 45.48 | **990 / 1024** | 8 / 0 |
+| **D'** twin | 1,500,000 | 1,500,000 | **1,500,000** | **11.20** | 45.50 | 838 / 1024 | 8 / 0 |
+
+D and D' reproduce to **0.1%** on p50 and 0.04% on p99. Tile demand varies
+run to run (838–990) with where destruction throws material.
+
+### The ceiling itself is free; the fluid is not
+
+**A vs B is the only exactly-matched pair** — identical scenario, only the
+ceiling differs. B is *marginally faster* than A. Raising the ceiling 50% with
+volume flat costs **nothing measurable**, contradicting 13.1's prediction:
+750,000 threads is ~11,700 thread groups on an M1, and the kernels early-out on
+empty slots.
+
+So the cost that appears at D belongs to the **fluid volume and the edits that
+deliver it**, not to the ceiling. That attribution is the control's whole
+purpose.
+
+### Rungs are not perfectly matched scenarios
+
+`PourEdge` scales with the target, so C and D edit more terrain per frame than
+A (placed 194K → 403K → 1.43M). Only A vs B is a clean like-for-like. C and D
+answer "what does this much live fluid cost in a scenario that can sustain it",
+which is the question that matters, but it is not a pure fluid-volume isolation.
+
+## 13.4 Where it stopped, and why — rung D
+
+Two independent stop conditions, both met at 1.5M:
+
+1. **Frame time crossed.** p50 **11.19 ms** against the established ~8.6 ms
+   baseline — **+32%**.
+
+   **Thermal position is ruled out, by measurement rather than by argument.**
+   D ran cold at position 1, the *most favourable* slot available. The baseline
+   was then re-run in a **late, hot** position and measured **7.31 ms** — faster
+   than its own 8.49 from position 1. So the baseline sits at **7.31–8.49
+   wherever it runs**, while D measured 11.19 from the coolest slot in the
+   sequence. The gap is real and, if anything, understated.
+2. **Tile demand reached 990 of the 1024 cap — 97%.** Raising
+   `MAX_ACTIVE_FLUID` pushes tile demand up with it. **Reported, not acted on:**
+   the cap is not being raised again without evidence of its own.
+
+**Nothing failed.** 8 / 8 gates green at 1.5M, frozen-fluid census 0.0% across
+17,505 sampled voxels, lava+obsidian conserved exactly, zero wake failures,
+zero pool exhaustion, op-discard 0.0%. This is a **performance ceiling, not a
+breakage ceiling** — the engine degrades gracefully rather than failing.
+
+**3,000,000 was not run.** The stop condition was met at 1.5M, and forcing past
+a met stop condition produces a number that has to be caveated into
+uselessness.
+
+## 13.5 Memory — and an honest note about two killed runs
+
+Memory is reported **split by what drives it**, because one total would let the
+interesting number hide inside the big one:
+
+| | 500K | 750K | 1.5M |
+|---|---|---|---|
+| per-CELL (sized by the **tile cap**) | 520.0 MB | 520.0 MB | 520.0 MB |
+| per-SLOT (sized by the **ceiling**) | 13.4 MB | 20.0 MB | 40.1 MB |
+| GPU total | 542 MB | 548.8 MB | 568.8 MB |
+| managed heap peak | ~220 MB | 217 MB | 222 MB |
+
+**Slot memory is trivial** — 28 B/slot (24 B slot + 4 B free-list entry).
+Tripling the ceiling costs 27 MB. Note that the tiled design's "cost tracks
+usage, not capacity" claim covers the **per-cell** buffers; the per-slot
+buffers scale with the cap. Both are small, but they are different claims and
+are not conflated here.
+
+**Two runs were killed by the host running out of memory.** This is recorded
+because it looks like a finding and is not one: the player's own heap was
+201→215 MB with GPU at 549 MB — under 1 GB — and `dense bricks at rest` was
+unchanged at 293,799, so `BrickDataPool` growth (my first hypothesis) was
+**wrong**. The pressure is environmental on an 8 GB machine — editor session,
+browser, and a compressor that grew from 1.7 GB to 2.3 GB over the session. The
+player process survived both kills and wrote its report; only the wrapper shell
+died. **No rung's numbers are affected.**
+
+## 13.6 Visual QA at the top rung (1,500,000 live)
+
+Screenshots every 15s through rung D, viewed rather than counted.
+
+**The scene matches the numbers.** At 30s the camera is very nearly *engulfed*
+— water, sand and lava filling almost the entire frame with large volumes
+visibly in mid-fall. By 165s and after the settle, the whole visible landscape
+is a flood: water to the horizon, sand mounds, lava pools, substantial obsidian
+formations at every lava–water contact, terraced craters, the stone arch
+standing in the middle of it. This is qualitatively different from the 320K
+baseline, where fluid sat in localised pools around the arena. **1.5M live
+voxels looks like 1.5M live voxels.**
+
+**The frozen-cube artifact does NOT return at this scale.** Mid-run frames (30s,
+75s) show flat slabs of water/sand/lava suspended in the air — which is exactly
+what the artifact looked like, and is the thing this check exists to catch. They
+are **fluid in flight during an active pour**, not frozen fluid, and the
+distinguishing evidence is the after-settle frame: every one of them is gone.
+The census agrees independently — 0 of 17,505 sampled mobile voxels inside the
+radius lacked a tile.
+
+So Step 1 and Step 2's tile fixes **hold at 4.7× the live volume they were
+built for**, with tile demand at 990/1024.
+
+**Terrain integrity:** no holes, no corruption, no z-fighting, no chunk-boundary
+seams in any frame.
+
+**One persistent floater, and it is the known non-defect:** a dark slab
+upper-left in every frame. That is **obsidian** —
+`Define(Materials.Obsidian, 0u, 0)`, flags zero, an ordinary static solid —
+§7.3's product formed in mid-air where lava met falling water. Not mobile, not
+the tile pool, already resolved. It should not be re-reported as this bug.
+
+---
+
+# 13.7 Regression sweep (Step 4)
+
+Run with the shipped configuration **unchanged** — `MAX_ACTIVE_FLUID` is still
+500,000, since §14 recommends rather than ships. The sweep therefore validates
+the seam additions and Step 1's rebase, not a new default.
+
+| rig | baseline | now | |
+|---|---|---|---|
+| `run-phase5a-rig.sh` | 5 scenarios, ledger balanced, no dup ownership | same | ✅ |
+| `run-phase5c-rig.sh` | 170 / 0 | 170 / 0 | ✅ |
+| `run-phase5d-rig.sh` | 19 / 0 | 19 / 0 | ✅ |
+| `run-fluid-activity.sh` | 19 / 0 | 19 / 0 | ✅ |
+| `run-phase6-sandbox.sh` | 43 / 0 | 43 / 0 | ✅ |
+| `run-fluid-scale.sh` | 4 / 0 | 4 / 0 | ✅ |
+| `run-fluid-tiled.sh` | **17 / 2** last session | **19 / 0** | ✅ **Step 1's rebase confirmed** |
+| `run-phase6-brushguard.sh` | 16 / 14 | 16 / 14 | ⚠️ pre-existing, **unchanged** |
+| EditMode | 499 / 0 | 499 / 0 | ✅ |
+| late-game siege, all rungs | — | **8 / 0 at every rung** | ✅ |
+
+`run-phase6-brushguard.sh`'s failing assertion **set** was diffed against last
+session's, not just its count: **byte-identical**. Untouched by this work, as
+instructed, and already logged in CLAUDE.md.
+
+**Nothing regressed.** The only movement is `run-fluid-tiled.sh` going from red
+to green because Step 1 rebased the two budget bounds it had breached.
+
+---
+
+# 14. RECOMMENDATION on MAX_ACTIVE_FLUID (Step 5)
+
+## 14.1 What the measurements support
+
+| | 500,000 (shipped) | **750,000** | 1,500,000 |
+|---|---|---|---|
+| p50 vs baseline (7.31–8.49) | — | **8.01, inside it** | **11.19 / 11.20, +32%** |
+| p99 | 45.21 / 46.07 | 33.91 | 45.48 / 45.50 |
+| slot memory | 13.4 MB | 20.0 MB (**+7**) | 40.1 MB (+27) |
+| peak tile demand | 679–729 | **613** | **838–990 of 1024** |
+| headroom over ordinary heavy play (~320K) | 1.56× | **2.34×** | 4.7× |
+| gates | 8 / 0 | 8 / 0 | 8 / 0 |
+
+**750,000 is free on every axis measured.** Frame time inside the baseline
+band, +7 MB, tile demand *lower* than the baseline's, every gate green, no
+visual artifact. **1,500,000 is not**: +32% p50, reproduced to 0.1%, and it
+consumes 82–97% of the tile cap Step 1 just bought.
+
+## 14.2 Why raising it at all — the artifact argument
+
+This is the part that makes 750K worth doing rather than merely affordable.
+`FLUID_PERFORMANCE_AB_RESULTS.md` already recorded that the chaos ladder
+**reaches** the 500,000 clamp at 2× oversubscription, and that when it does,
+"the un-slotted voxels hang as static cubes in mid-air".
+
+That is **the same visible artifact, in the same shape**, as the 512-tile pool
+produced — the one this whole line of work has just spent two sessions
+reproducing, root-causing and fixing. Fixing the tile cap and leaving the slot
+cap means the frozen-cube artifact still exists; it has only moved to a higher
+threshold. 750,000 raises that threshold by 50% for no measured cost.
+
+## 14.3 Why this is NOT shipped here
+
+`EngineConfig` states the constraint in its own comment:
+
+> SPEC-MANDATED, not measured — §0.2's own "raise only if" reads "Phase 5 shows
+> near-player scope insufficient", so a Phase 5b measurement is the thing
+> allowed to move it, not a Phase 5a convenience.
+
+**§0.2 gates this on necessity, and what this session measured is
+affordability. They are different claims, and only one of them is established.**
+
+- Established: raising to 750,000 costs nothing measurable.
+- Established: the 500,000 clamp is reachable and its overflow is visible —
+  but in the *chaos ladder*, which is deliberately extreme.
+- **NOT established: that ordinary heavy play needs more than 500,000.** The
+  siege — the most demanding realistic scenario built across this whole line of
+  work — peaks at **320,781 live, 64% of the current cap**. Ordinary play does
+  not touch it.
+
+So the honest recommendation is **750,000**, and the reason to hand the decision
+over is sharper than "it is a close call": the spec's raise-condition has not
+been demonstrated. Whether to spend it is a judgement about whether
+Terraria-scale ambient chaos is a target worth pre-provisioning for, which is a
+design call, not a measurement.
+
+**Recommended: 750,000.** Free, doubles headroom over real heavy play, and
+raises the visible-clamp threshold that the tile-cap fix otherwise leaves
+standing.
+
+**Not recommended: 1,500,000.** The +32% is real and reproducible, and it would
+immediately re-open the tile-cap question at 990/1024.
+
+**If shipped**, it goes in the same single-source-of-truth way as the tile cap:
+`EngineConfig.MAX_ACTIVE_FLUID` is already the only definition and every rig
+reads it, so the change is one line plus the justification comment — there are
+no scattered literals to chase.
+
+## 14.4 What was NOT established
+
+- **3,000,000 was not run.** The stop condition was met at 1.5M.
+- **Rungs C and D are not scenario-matched to A.** `PourEdge` scales with the
+  target, so they edit more terrain per frame. **A vs B is the only
+  exactly-matched pair**, and it is what licenses "the ceiling itself is free".
+  C and D answer "what does this much live fluid cost in a scenario that can
+  sustain it" — the question that matters, but not a pure isolation.
+- **Why 1.5M costs +32% is not attributed** between fluid simulation, the
+  larger edits feeding it, and op-apply volume. The ladder found the ceiling;
+  it did not dissect it.
+- **Sustained behaviour beyond 200s at high volume.** Both 1.5M runs showed the
+  same flat-to-improving segment trend, but no longer run was done.

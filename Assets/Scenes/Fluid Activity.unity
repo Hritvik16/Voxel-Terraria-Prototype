@@ -119,7 +119,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &373993134
+--- !u!1 &596637756
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -127,8 +127,8 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 373993136}
-  - component: {fileID: 373993135}
+  - component: {fileID: 596637758}
+  - component: {fileID: 596637757}
   m_Layer: 0
   m_Name: Phase4Bootstrapper
   m_TagString: Untagged
@@ -136,13 +136,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &373993135
+--- !u!114 &596637757
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 373993134}
+  m_GameObject: {fileID: 596637756}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 3829142968a6d48e9810147359170aa4, type: 3}
@@ -154,13 +154,13 @@ MonoBehaviour:
   _overrideCameraOnStart: 0
   _cameraSpawnPosition: {x: 0, y: 0, z: 0}
   _cameraSpawnEuler: {x: 10, y: 0, z: 0}
---- !u!4 &373993136
+--- !u!4 &596637758
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 373993134}
+  m_GameObject: {fileID: 596637756}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -169,7 +169,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &778681581
+--- !u!1 &1155112697
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -177,8 +177,8 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 778681583}
-  - component: {fileID: 778681582}
+  - component: {fileID: 1155112699}
+  - component: {fileID: 1155112698}
   m_Layer: 0
   m_Name: FluidActivityRig
   m_TagString: Untagged
@@ -186,13 +186,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &778681582
+--- !u!114 &1155112698
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 778681581}
+  m_GameObject: {fileID: 1155112697}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 480788086e51040f7bcbe16df7e74739, type: 3}
@@ -202,13 +202,13 @@ MonoBehaviour:
   _slotCapacity: 8192
   _maxOpsPerFrame: 8192
   _outputRootFolderName: FluidActivity
---- !u!4 &778681583
+--- !u!4 &1155112699
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 778681581}
+  m_GameObject: {fileID: 1155112697}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -217,7 +217,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1710147265
+--- !u!1 &1626010773
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -225,8 +225,8 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 1710147267}
-  - component: {fileID: 1710147266}
+  - component: {fileID: 1626010775}
+  - component: {fileID: 1626010774}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -234,13 +234,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!20 &1710147266
+--- !u!20 &1626010774
 Camera:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1710147265}
+  m_GameObject: {fileID: 1626010773}
   m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 2
@@ -285,13 +285,13 @@ Camera:
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
---- !u!4 &1710147267
+--- !u!4 &1626010775
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1710147265}
+  m_GameObject: {fileID: 1626010773}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 1280, y: 9.5, z: 1268}
@@ -304,6 +304,6 @@ Transform:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 1710147267}
-  - {fileID: 373993136}
-  - {fileID: 778681583}
+  - {fileID: 1626010775}
+  - {fileID: 596637758}
+  - {fileID: 1155112699}
