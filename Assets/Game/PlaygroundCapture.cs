@@ -163,6 +163,289 @@ public class PlaygroundCapture : MonoBehaviour
         return null;
     }
 
+    // =====================================================================
+    // -pitchsweep : THE HORIZON FPS INSTRUMENT
+    //
+    // Reported symptom: frame rate drops when looking at the horizon. This
+    // measures that as a curve instead of an impression -- same position,
+    // same world, same full Phase 6 stack, only the camera PITCH changing.
+    //
+    // Why pitch is the right axis: a ray aimed down hits terrain within a few
+    // voxels. A ray aimed at the horizon travels nearly horizontally through
+    // the air gap above the surface and below _ContentCeilingVoxelY, so
+    // neither of the shader's two cheap early exits can fire -- the content
+    // ceiling needs the ray to be LEAVING [0,128) in Y, and the window bounds
+    // guard needs it to reach the window edge, which for a horizontal ray is
+    // the full 204.8-289.6 m. With the cascade on, maxDist is tier 2's outer
+    // bound (290 m = 2900 voxels) and MaxOuterIterations is 1024.
+    //
+    // THAT IS A HYPOTHESIS. This rig exists to make it a measurement, and to
+    // catch the case where the peak is somewhere else entirely -- which is why
+    // it sweeps the whole range rather than sampling "horizon" and "down".
+    //
+    // Wall clock only (Time.unscaledDeltaTime). gpuFrameTime is inflated
+    // ~2.6-2.7x on this machine (Amdt 8.10) and is not read.
+    // =====================================================================
+    private IEnumerator PitchSweep()
+    {
+        // MUST BE FULLSCREEN TO MEAN ANYTHING. Windowed, this same probe
+        // returned 26.9 and 122.8 FPS for identical back-to-back runs, and
+        // "fluid ON" measured FASTER than "fluid OFF" -- the compositor was
+        // dominating, not the workload. Fullscreen owns the display and
+        // reproduces to ~3% (66.5 / 68.3 / 68.4 across three runs).
+        Screen.SetResolution(1920, 1080, !HasFlag("-windowed"));
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = -1;
+        var pg = FindAnyObjectByType<Playground>();
+        while (Phase4Bootstrapper.Store == null) yield return null;
+        for (int i = 0; i < 300; i++) yield return null;   // streaming settles
+
+        // SEE PAST THE DISPLAY CAP. Fullscreen presentation is locked to the
+        // 60 Hz refresh, so at the shipped 960x540 gate every pitch returns
+        // ~60 FPS and the curve is flat by construction -- that is the CAP
+        // being measured, not the renderer. Forcing a larger gate pushes GPU
+        // cost well above one refresh interval, and the RELATIVE cost between
+        // pitches (which is the question) survives the scaling.
+        int gate = ArgInt("-gateres", 0);
+        if (gate > 0)
+        {
+            RaymarchFeature.GateModeOverride = RaymarchFeature.GateResMode.ForcedCustom;
+            RaymarchFeature.CustomGateResolution = new Vector2Int(gate, gate * 9 / 16);
+            for (int i = 0; i < 60; i++) yield return null;
+        }
+        if (HasFlag("-nocascade")) RaymarchFeature.UseLODCascade = false;
+        if (HasFlag("-noairmip")) RaymarchFeature.AirMipEnabled = false;
+        if (HasFlag("-nosim")) Playground.DebugSuspendFluidSim = true;
+
+        int holdFrames = ArgInt("-pitchframes", 240);
+        bool withFluid = !HasFlag("-nofluid");
+
+        string ts = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
+        _folder = Path.Combine(Application.persistentDataPath, "PitchSweep", ts);
+        Directory.CreateDirectory(_folder);
+
+        var cam = Camera.main;
+        if (pg != null) pg.SendMessage("TeleportToArena", SendMessageOptions.DontRequireReceiver);
+        yield return null;
+        Vector3 pos = cam != null ? cam.transform.position : Vector3.zero;
+
+        if (withFluid && pg != null)
+            pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+
+        L($"PITCH SWEEP -- horizon frame-cost curve -- {ts}");
+        L($"device {SystemInfo.graphicsDeviceName}, {Screen.width}x{Screen.height}");
+        L($"camera at {pos}, {holdFrames} frames per pitch, fluid {(withFluid ? "ON" : "OFF")}");
+        L($"cascade {(RaymarchFeature.UseLODCascade ? "ON" : "OFF")}, " +
+          $"maxOuterIterations {RaymarchFeature.MaxOuterIterations}, " +
+          $"contentCeilingVoxelY {RaymarchFeature.ContentCeilingVoxelY}");
+        L("Wall clock only; gpuFrameTime not read (Amdt 8.10).");
+        L("");
+        L("  TRUE FPS = frames / elapsed wall time. That is the column that matters;");
+        L("  the percentiles are diagnostic only (present-blocking inflates them).");
+        L($"  {"pitch",7}{"p50",9}{"p99",9}{"p99-late",11}{"max",9}{"TRUE-FPS",10}");
+
+        // ORDER IS A CONFOUND AND MUST BE BREAKABLE. The vents are open, so
+        // fluid accumulates for the whole sweep; a cost that rises with
+        // POSITION IN THE SWEEP would look exactly like a cost that rises
+        // with pitch. -pitchreverse runs the same poses in the opposite
+        // order, and only a peak that survives BOTH orders is about pitch.
+        bool reverse = HasFlag("-pitchreverse");
+        var pitches = new List<int>();
+        for (int q = -80; q <= 40; q += 5) pitches.Add(q);
+        if (reverse) pitches.Reverse();
+        L($"  order {(reverse ? "REVERSED (+40 -> -80)" : "forward (-80 -> +40)")}");
+        L("");
+
+        var rows = new List<string>();
+        foreach (int pitch in pitches)
+        {
+            if (cam != null)
+            {
+                cam.transform.position = pos;
+                cam.transform.rotation = Quaternion.Euler(pitch, 90f, 0f);
+            }
+            // SETTLE LONGER THAN LOOKS NECESSARY, AND SAY WHY. Rotating the
+            // camera brings new chunks into view, which can trigger a burst of
+            // cascade/clipmap upload. At a 30-frame settle that burst landed
+            // INSIDE the measured window and showed up as ~1% of frames --
+            // i.e. exactly as p99 -- making a pose-change transient look like
+            // a steady-state tail. -pitchsettle sets it so the two can be told
+            // apart instead of argued about.
+            int settle = ArgInt("-pitchsettle", 120);
+            for (int i = 0; i < settle; i++) yield return null;
+
+            var ms = new List<double>(holdFrames);
+            float t0 = Time.realtimeSinceStartup;
+            for (int i = 0; i < holdFrames; i++)
+            {
+                yield return null;
+                ms.Add(Time.unscaledDeltaTime * 1000.0);
+            }
+            float elapsed = Time.realtimeSinceStartup - t0;
+            double trueFps = holdFrames / elapsed;
+            // Also report the window with its first 60 frames dropped, so a
+            // residual pose-change transient is visible as a GAP between the
+            // two p99s rather than hidden inside one number.
+            var tail = ms.GetRange(60, ms.Count - 60);
+            tail.Sort();
+            double tailP99 = tail[Mathf.Clamp((int)(0.99 * (tail.Count - 1)), 0, tail.Count - 1)];
+            ms.Sort();
+            double p50 = ms[ms.Count / 2];
+            double p99 = ms[Mathf.Clamp((int)(0.99 * (ms.Count - 1)), 0, ms.Count - 1)];
+            double mx = ms[ms.Count - 1];
+            L($"  {pitch,7}{p50,9:F2}{p99,9:F2}{tailP99,11:F2}{mx,9:F2}{trueFps,10:F1}");
+            rows.Add($"{pitch}\t{p50:F3}\t{p99:F3}\t{mx:F3}");
+        }
+
+        File.WriteAllText(Path.Combine(_folder, "pitch_sweep.tsv"),
+            "pitch\tp50\tp99\tmax\n" + string.Join("\n", rows) + "\n");
+        File.WriteAllText(Path.Combine(_folder, "pitch_sweep.txt"), _log.ToString());
+        Debug.Log("[PitchSweep]\n" + _log);
+        yield return null;
+        Application.Quit(0);
+    }
+
+    // =====================================================================
+    // -stutterprobe : ATTRIBUTE THE TAIL, don't just observe it.
+    //
+    // The pitch sweep established what the tail is NOT: it is not the
+    // horizon, not the raymarcher, and not a pose-change transient. p50 sits
+    // at 3.8-5.9 ms at every pitch while p99 sits at 47-76 ms at every pitch,
+    // with fluid off and the camera static. Roughly 1% of frames take ten
+    // times the median.
+    //
+    // This holds ONE pose and hands the window to FrameGapProbe, which tiles
+    // the frame into preUpdate / update / postLate and reports GC generations,
+    // upload bytes, SetData calls and streamer ms across the p99 band -- so
+    // the answer is an attribution, not another observation.
+    // =====================================================================
+    private IEnumerator StutterProbe()
+    {
+        // VALIDITY LEVER. A windowed app on macOS is composited, and an
+        // occluded or non-frontmost window has its presentation throttled --
+        // which would look exactly like what the first probe found: a FIXED
+        // fraction of slow frames, independent of how much GPU work there is.
+        // Fullscreen owns the display and removes the compositor from the
+        // question, so -fullscreen is how that gets ruled in or out instead
+        // of assumed either way.
+        bool fullscreen = HasFlag("-fullscreen");
+        Screen.SetResolution(1920, 1080, fullscreen);
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = -1;
+
+        var pg = FindAnyObjectByType<Playground>();
+        while (Phase4Bootstrapper.Store == null) yield return null;
+        for (int i = 0; i < 300; i++) yield return null;
+
+        // ISOLATION LEVER. The stripped kernel keeps the dispatch, the target
+        // texture and the blit identical but makes the ray work trivial. If
+        // the tail survives it, the tail is not the raymarch math.
+        if (HasFlag("-stripped")) RaymarchFeature.UseStrippedKernel = true;
+
+        // RAY-LENGTH LEVER. If horizon cost is "rays that travel until they
+        // run out of window", capping the per-ray iteration count is the most
+        // direct thing that can prove it: the cap bounds ray length and
+        // nothing else. A large FPS response means ray length IS the cost; a
+        // flat response means the cost is elsewhere and the long rays are
+        // incidental.
+        int maxIter = ArgInt("-maxiter", 0);
+        if (maxIter > 0) RaymarchFeature.MaxOuterIterations = maxIter;
+        // AIR-MIP LEVER: the mechanism that is SUPPOSED to make long empty
+        // rays cheap. If turning it off barely changes horizon cost, it is
+        // not doing its job there.
+        if (HasFlag("-noairmip")) RaymarchFeature.AirMipEnabled = false;
+        if (HasFlag("-nosim")) Playground.DebugSuspendFluidSim = true;
+        if (HasFlag("-nocascade")) RaymarchFeature.UseLODCascade = false;
+
+        int seconds = ArgInt("-stutterseconds", 60);
+        int pitch = ArgInt("-stutterpitch", 0);
+        bool withFluid = !HasFlag("-nofluid");
+
+        var cam = Camera.main;
+        if (pg != null) pg.SendMessage("TeleportToArena", SendMessageOptions.DontRequireReceiver);
+        yield return null;
+        if (cam != null) cam.transform.rotation = Quaternion.Euler(pitch, 90f, 0f);
+        if (withFluid && pg != null)
+            pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+        for (int i = 0; i < 180; i++) yield return null;
+
+        string ts = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
+        _folder = Path.Combine(Application.persistentDataPath, "StutterProbe", ts);
+        Directory.CreateDirectory(_folder);
+
+        // ISOLATION LEVER: cut the raymarch's own work without touching
+        // anything else. If the tail is GPU raymarch cost, quartering the
+        // pixels moves it. If the tail is presentation, it does not.
+        int gate = ArgInt("-gateres", 0);
+        if (gate > 0)
+        {
+            RaymarchFeature.GateModeOverride = RaymarchFeature.GateResMode.ForcedCustom;
+            RaymarchFeature.CustomGateResolution = new Vector2Int(gate, gate * 9 / 16);
+            for (int i = 0; i < 60; i++) yield return null;
+        }
+
+        // MOTION. Every measurement before this one held the camera still,
+        // which means no chunk ever streamed -- and "looking at the horizon"
+        // in real play is something you do while MOVING. -movespeed flies the
+        // camera forward along its own heading so the streamer, the clipmap
+        // upload and the cascade are all live while the horizon is on screen.
+        float moveSpeed = ArgInt("-movespeed", 0);
+
+        var probe = gameObject.AddComponent<FrameGapProbe>();
+        probe.Recording = true;
+        var ms = new List<double>();
+        float t0 = Time.realtimeSinceStartup;
+        for (int i = 0; i < seconds * 60; i++)
+        {
+            if (moveSpeed > 0f && cam != null)
+                cam.transform.position += cam.transform.forward * (moveSpeed * Time.deltaTime);
+            yield return null;
+            ms.Add(Time.unscaledDeltaTime * 1000.0);
+        }
+        float elapsed = Time.realtimeSinceStartup - t0;
+        probe.Recording = false;
+
+        ms.Sort();
+        L($"STUTTER PROBE -- {ts}");
+        L($"device {SystemInfo.graphicsDeviceName}, {Screen.width}x{Screen.height}, " +
+          $"render {RaymarchFeature.LastDispatchResolution.x}x{RaymarchFeature.LastDispatchResolution.y}" +
+          (gate > 0 ? $"  (FORCED gate {gate}x{gate * 9 / 16})" : ""));
+        L($"pitch {pitch}, fluid {(withFluid ? "ON" : "OFF")}, {ms.Count} frames, camera STATIC, " +
+          $"{(fullscreen ? "FULLSCREEN" : "windowed")}, kernel {(RaymarchFeature.UseStrippedKernel ? "STRIPPED" : "full")}, " +
+          $"maxIter {RaymarchFeature.MaxOuterIterations}, airMip {RaymarchFeature.AirMipEnabled}, " +
+          $"cascade {RaymarchFeature.UseLODCascade}, move {moveSpeed} m/s");
+        L($"frames  p50 {ms[ms.Count / 2]:F2}  p90 {ms[(int)(0.90 * (ms.Count - 1))]:F2}  " +
+          $"p99 {ms[(int)(0.99 * (ms.Count - 1))]:F2}  max {ms[ms.Count - 1]:F2} ms");
+        L($"frames over 16.6 ms: {ms.FindAll(x => x > 16.6).Count} of {ms.Count} " +
+          $"({100.0 * ms.FindAll(x => x > 16.6).Count / ms.Count:F1}%)");
+        L("");
+        L($"  >>> TRUE SUSTAINED RATE: {ms.Count} frames in {elapsed:F2} s = " +
+          $"{ms.Count / elapsed:F1} FPS  (mean frame {1000.0 * elapsed / ms.Count:F2} ms)");
+        L("  Percentiles above are NOT the headline. This app presents faster than the");
+        L("  display can show, so a third of frames block in present and land in the tail");
+        L("  by pacing rather than by cost -- every isolation arm returned EXACTLY 600 of");
+        L("  1800. Frames divided by elapsed time is the number that matches what a player");
+        L("  sees, and it is the one to hold to 60.");
+        L("");
+        var sb = new StringBuilder();
+        probe.AppendReport(sb, 30.0);
+        _log.Append(sb);
+
+        File.WriteAllText(Path.Combine(_folder, "stutter_probe.txt"), _log.ToString());
+        Debug.Log("[StutterProbe]\n" + _log);
+        yield return null;
+        Application.Quit(0);
+    }
+
+    private static int ArgInt(string flag, int dflt)
+    {
+        string[] a = Environment.GetCommandLineArgs();
+        for (int i = 0; i < a.Length - 1; i++)
+            if (string.Equals(a[i], flag, StringComparison.OrdinalIgnoreCase))
+                return int.Parse(a[i + 1], CultureInfo.InvariantCulture);
+        return dflt;
+    }
+
     private static bool HasFlag(string f)
     {
         foreach (string a in Environment.GetCommandLineArgs())
@@ -172,6 +455,8 @@ public class PlaygroundCapture : MonoBehaviour
 
     IEnumerator Start()
     {
+        if (HasFlag("-pitchsweep")) { yield return PitchSweep(); yield break; }
+        if (HasFlag("-stutterprobe")) { yield return StutterProbe(); yield break; }
         if (HasFlag("-gputrace")) { yield return GpuTraceLoad(); yield break; }
         if (HasFlag("-fluidbench")) { yield return FluidBenchmark(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;

@@ -129,7 +129,32 @@ public class Playground : MonoBehaviour
              "arena's half-diagonal -- so at the real value the radius never bites here and " +
              "§7.4 would be correct but invisible. 128 voxels (12.8 m) keeps you comfortably " +
              "inside it while working, and lets you walk away and watch fluid sleep.")]
-    [SerializeField] private int _activeRadiusVoxels = EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS;
+    // REVERTED TO 128 ON 2026-09-12, AND THE REASON IS MEASURED.
+    //
+    // Last session raised this to the shipped FLUID_ACTIVE_RADIUS_VOXELS
+    // (1280) to "showcase the shipped config". That change costs 15.6% of the
+    // frame rate in this scene, and it is very likely what prompted the
+    // report of an FPS drop:
+    //
+    //     radius 1280 -> 65.5 FPS      radius 128 -> 75.75 FPS
+    //     (fullscreen, shipped 960x540 gate, no vents, two runs each,
+    //      reproducing to 0.3 FPS)
+    //
+    // WHY: §7.4's wake radius decides how many §7.2 tiles stay resident, and
+    // the CA's three region passes (CSClear / CSCommit / CSWakeScan) dispatch
+    // over activeTileCount * 32768 cells EVERY tick. At 1280 this scene holds
+    // ~486 tiles resident -- ~15.9 M cells per pass, ~48 M threads per tick --
+    // to service roughly 1,700 live voxels of ambient water. At 128 it holds a
+    // handful. Suspending the CA entirely measures 87 FPS, so this is the
+    // dominant single cost in the frame, not the raymarcher and not the
+    // horizon.
+    //
+    // THE ENGINE CONSTANT IS UNTOUCHED. EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS
+    // is still 1280 and every rig still runs it; this is the DEMO SCENE's own
+    // value, which was 128 for the whole project's history before last
+    // session. Set it back to FLUID_ACTIVE_RADIUS_VOXELS if you want the
+    // showcase behaviour and can spend the 15.6%.
+    [SerializeField] private int _activeRadiusVoxels = 128;
 
     // DEMO BUDGETS, raised 2026-09-11. See header note 2 for why they used to be
     // tiny and why that reason has expired.
@@ -625,13 +650,25 @@ public class Playground : MonoBehaviour
             FluidTileResidency.Refresh(_store, _tiles, centre,
                                        _fluid.ActiveRadiusVoxels, _fluid.SleepRadiusVoxels);
 
-        if (_readback.CanIssue)
+        // MEASUREMENT SEAM, not a configuration. DebugSuspendFluidSim lets a
+        // probe run the scene with the CA's per-tick dispatch removed while
+        // everything else stays identical, to test how much of the frame is
+        // fixed cost that has nothing to do with fluid being present. The CA
+        // dispatches its region and slot passes EVERY tick regardless of
+        // activity -- OPTIMIZATION_CANDIDATES #1 -- so "no fluid placed" is
+        // NOT the same thing as "no fluid cost".
+        if (!DebugSuspendFluidSim)
         {
-            _fluid.Tick(_clipmap);
-            _readback.IssueReadback(0);
+            if (_readback.CanIssue)
+            {
+                _fluid.Tick(_clipmap);
+                _readback.IssueReadback(0);
+            }
+            _readback.PumpAndApply();
         }
-        _readback.PumpAndApply();
     }
+
+    internal static bool DebugSuspendFluidSim = false;
 
     /// Where §7.4's radius is centred: the player's feet when walking, the
     /// camera when flying.
