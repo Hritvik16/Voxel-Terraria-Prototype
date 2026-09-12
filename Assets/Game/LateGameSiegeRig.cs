@@ -127,6 +127,12 @@ public class LateGameSiegeRig : MonoBehaviour
         // the volume the closed-loop pour holds. Both default to the shipped
         // values, so a plain run is bit-for-bit the established baseline.
         _slotCeiling = ArgInt("-ceiling", 0);
+        // -applybudget: §8.5's per-frame apply cap. Default is whatever
+        // FluidOpListReadback ships; the flag exists so 1024 vs 4096 can be
+        // A/B'd on the real scenario rather than on the 8K/32K pools the
+        // original sweep used.
+        FluidOpListReadback.MaxOpsAppliedPerFrame =
+            ArgInt("-applybudget", FluidOpListReadback.MaxOpsAppliedPerFrameDefault);
         int targetLive = ArgInt("-targetlive", TargetLiveHigh);
         if (targetLive != TargetLiveHigh)
         {
@@ -158,6 +164,7 @@ public class LateGameSiegeRig : MonoBehaviour
         L(DateTime.Now.ToString("u", CultureInfo.InvariantCulture));
         L($"duration {seconds}s, screenshot every {shotEvery / 60}s");
         L($"tile pool cap {_tilePoolCap} (0.5 MB/tile reserved up front)");
+        L($"apply budget {FluidOpListReadback.MaxOpsAppliedPerFrame} ops/frame (§8.5)");
         L($"orphaned-tile release {(_releaseOrphaned ? "ON (shipped)" : "OFF (-noorphan, the A/B baseline)")}");
         L($"live-volume band {TargetLiveLow:N0}-{TargetLiveHigh:N0}, pour boxes {PourEdge}^3");
         L($"SLOT CEILING {(_slotCeiling > 0 ? _slotCeiling.ToString("N0") + " (RAISED for this run)" : EngineConfig.MAX_ACTIVE_FLUID.ToString("N0") + " (shipped MAX_ACTIVE_FLUID)")}");

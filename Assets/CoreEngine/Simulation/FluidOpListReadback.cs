@@ -168,7 +168,36 @@ namespace VoxelEngine.Simulation
         /// chunk was evicted while it waited hits §9.4's residency guard and is
         /// counted as OpsDroppedNonResident like any other. That is the
         /// existing contract, not a new rule.
-        public const int MaxOpsAppliedPerFrameDefault = 4096;
+        /// 4096 -> 1024 ON 2026-09-11, MEASURED AT REAL SCALE.
+        ///
+        /// The earlier sweep that left this open ran at 8,000 and 32,000 live
+        /// voxels and concluded 1024-vs-4096 was "not decidable from the
+        /// numbers" -- a smoothness-versus-throughput judgement. That sweep
+        /// was a 10x smaller scenario than the engine now runs.
+        ///
+        /// Re-measured on the late-game siege (~320,000 live, 200s), cooled
+        /// 300s, A/B/B/A so the arms are position-balanced against thermal
+        /// drift (4096 took positions 1 and 4, 1024 took 2 and 3):
+        ///
+        ///     budget   p50 mean   p99 mean
+        ///     1024       8.04       30.29
+        ///     4096       8.30       43.77
+        ///                -3.1%      -30.8%
+        ///
+        /// Within-arm p99 spread was 1.83 ms (1024) and 3.51 ms (4096), so a
+        /// 13.5 ms gap is far outside the noise. AT THIS SCALE IT IS NOT A
+        /// TRADEOFF: 1024 wins on p99 AND on p50, which is not what the small
+        /// scenario predicted.
+        ///
+        /// WHAT 1024 COSTS, stated so it is not rediscovered as a surprise:
+        /// applied throughput is ~16% lower (6.46M vs 7.67M voxel writes over
+        /// the run) and the opening apply backlog is larger and drains slower
+        /// (26,884 avg in the first 30s, clear by ~60s, against 7,301 clear by
+        /// 30s). Live volume consequently overshoots the pour's target band
+        /// early on, because fluid whose moves have not been applied yet stays
+        /// live. No gate failed in any arm and the frozen-fluid census stayed
+        /// 0.0% in all four.
+        public const int MaxOpsAppliedPerFrameDefault = 1024;
 
         /// Settable so a rig can restore the old unbounded behaviour
         /// (int.MaxValue) and demonstrate the burst returning. Nothing on a

@@ -579,47 +579,67 @@ Last consolidated 2026-09-10 (`e71cd01`). Every item below is a judgment call
 with evidence for each option, deliberately **left undecided** by the agent
 sessions that surfaced them. None is a correctness failure.
 
-### 1. Retire the multi-instance fluid-simulation stopgap? — OPEN since 2026-09-06
+### 1. Multi-instance fluid-simulation stopgap — RESOLVED 2026-09-11: **KEEP**
 
 §9.7's fix had `EditService` hold a **list** of separate `FluidGpuSimulation`
 instances so two player-placed pools would both wake. The tiled substrate
 subsumes this structurally — acceptance scenario D shows **one** CA instance
-covering two pools 30 m apart (2/2 tiles resident, 10,610 voxel writes),
-because a tile exists wherever fluid is.
+covering two pools 30 m apart (2/2 tiles resident, 10,610 voxel writes).
 
-- **Keep it:** the list is still what the **dense** path needs, and the dense
-  path is the retained regression baseline for four phases of proofs.
-  Removing a working mechanism the older path depends on buys nothing today.
-- **Retire it:** it is no longer load-bearing for the tiled substrate, and
-  carrying two ways to do the same thing has its own cost.
+**Decision: keep it.** "No longer load-bearing for the tiled path" is not
+sufficient reason to delete a working mechanism the **dense** path still
+depends on, and the dense path is the retained regression baseline for four
+phases of proofs.
 
-**Retiring it is really the same decision as retiring the dense path**, which
-is the larger call. Evidence: `FLUID_SCALE_ARCHITECTURE_RESULTS.md` §4b.
+**Evidence it is not dead weight:** the dense path is still exercised and still
+green on every sweep — `run-fluid-activity.sh` **19 PASS / 0 FAIL** in this
+session's final sweep, and it runs the dense region, not tiles. Deleting the
+stopgap is really the same decision as retiring the dense path; that is a
+larger call and nothing forces it now.
 
-### 2. Fluid apply budget: 1024 or 4096 ops/frame? — OPEN, measured 2026-09-10
+**Reversible either way**, which is why this is a low-risk default rather than
+a hedge: the tiled path does not consult the list at all.
 
-Cooled sweep, driftchecks 0.2–4.0%:
+### 2. Fluid apply budget — RESOLVED 2026-09-11: **SHIPPED AT 1024**
 
-| volume | budget | pump p99 | frame p50 | voxel writes | vs 4096 |
-|---|---|---|---|---|---|
-| 8,000 | **1024** | **0.995** | **8.900** | 268,990 | **−39.0%** |
-| 8,000 | 4096 | 3.549 | 9.701 | 440,786 | — |
-| 32,000 | **1024** | **0.969** | **7.605** | 320,356 | **−68.7%** |
-| 32,000 | 4096 | 3.794 | 10.223 | 1,022,646 | — |
+`FluidOpListReadback.MaxOpsAppliedPerFrameDefault` is now **1024** (was 4096).
 
-**16384 is ruled out on the evidence** — at 8,000 it buys +2.9% throughput for
-+2.9 ms of pump p99 (throughput has already saturated by 4096); at 32,000 it
-costs +9.5 ms pump p99 *and* +5.2 ms frame p50.
+**The previous verdict — "not decidable from the numbers, a question about how
+the game should feel" — was drawn from a sweep at 8,000 and 32,000 live voxels.
+The engine now runs ~320,000 in the siege, a 10× larger scenario, and at that
+scale it IS decidable.**
 
-1024 vs 4096 is **not** decidable from the numbers:
+Re-measured on the late-game siege, cooled 300s, **A/B/B/A** so the arms are
+position-balanced against thermal drift (4096 took positions 1 and 4, 1024 took
+2 and 3 — mean position 2.5 each):
 
-- **1024** puts the apply burst under 1 ms at both volumes and gives the best
-  frame p50 at 32,000 (7.6 vs 10.2). Choose if frame smoothness dominates.
-- **4096** simulates fluid 1.6×–3.2× faster under load. Choose if fluid
-  fidelity under heavy load dominates.
+| budget | p50 (two runs) | p50 mean | p99 (two runs) | p99 mean |
+|---|---|---|---|---|
+| **1024** | 7.99, 8.10 | **8.04** | 31.20, 29.37 | **30.29** |
+| 4096 | 8.40, 8.20 | 8.30 | 45.52, 42.01 | 43.77 |
+| | | **−3.1%** | | **−30.8%** |
 
-This is a question about how the game should feel, not a measurement.
-**4096 remains the default** only because nothing beats it outright.
+Within-arm p99 spread was 1.83 ms (1024) and 3.51 ms (4096), so a **13.5 ms
+gap is far outside the noise**. **At real scale this is not a tradeoff** — 1024
+wins on p99 *and* p50, which the small scenario did not predict. All four runs
+8 PASS / 0 FAIL with a 0.0% frozen-fluid census.
+
+**What 1024 costs**, recorded so it is not rediscovered as a surprise:
+
+- Applied throughput ~**16% lower** (6.46 M vs 7.67 M voxel writes per run).
+- The opening apply backlog is larger and drains slower: **26,884 average in
+  the first 30 s, clear by ~60 s**, against 7,301 clear by 30 s.
+- Live volume consequently **overshoots** the pour's target band early (412 K vs
+  321 K average in segment 2), because fluid whose moves have not been applied
+  yet stays live.
+
+None of that broke a gate. The axis this project has been chasing all along is
+stutter, and 1024 removes 13.5 ms of p99 for 16% of throughput that nothing is
+currently short of.
+
+**Revisit if** fluid fidelity under heavy load ever becomes the complaint
+instead of smoothness — `-applybudget N` on the siege rig re-runs this A/B in
+about 40 minutes.
 
 ### 3. Should §4.3's 1.0 ms upload gate apply under live fluid at all? — NEW
 

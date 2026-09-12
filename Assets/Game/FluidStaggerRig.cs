@@ -17,9 +17,10 @@
 //      refresh waits up to 19 frames for a tile before it can move at all.
 //
 //   B. APPLY-RATE THROTTLING. §8.5's frame budget applies at most
-//      MaxOpsAppliedPerFrame (4096) op-list entries per frame and carries the
+//      MaxOpsAppliedPerFrame (1024 since 2026-09-11, was 4096) op-list entries
+//      per frame and carries the
 //      rest forward, and CanIssue refuses a new CA tick while a batch is
-//      still draining. A wide pour produces far more than 4096 moves in its
+//      still draining. A wide pour produces far more than that in its
 //      first ticks, so motion could be rationed rather than delayed.
 //
 // They predict DIFFERENT signatures, which is what makes this separable:
@@ -36,7 +37,7 @@
 //
 // KNOBS, for the two variants:
 //   -refreshevery N     tile residency refresh cadence (default 20)
-//   -applybudget N      FluidOpListReadback.MaxOpsAppliedPerFrame (default 4096)
+//   -applybudget N      FluidOpListReadback.MaxOpsAppliedPerFrame (default 1024)
 // ==========================================
 
 using System;
