@@ -17,6 +17,8 @@ SECS="${SECS:-200}"
 TILECAP="${TILECAP:-1024}"
 # ORPHAN=off restores the pre-fix behaviour (the A/B baseline arm).
 ORPHAN="${ORPHAN:-on}"
+CEILING="${CEILING:-0}"
+TARGETLIVE="${TARGETLIVE:-320000}"
 [ "$ORPHAN" = "off" ] && OFLAG="-noorphan 1" || OFLAG=""
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
@@ -32,14 +34,14 @@ fi
 for i in $(seq 1 "$RUNS"); do
   FREE=$(df -g . | tail -1 | awk '{print $4}')
   [ "$FREE" -lt 5 ] && { echo "!! ${FREE}GB free, below the 5GB floor -- stopping"; exit 2; }
-  echo; echo "########## SIEGE RUN $i/$RUNS  cap ${TILECAP} orphan-release ${ORPHAN}  (cooling ${COOL}s, ${FREE}GB free) ##########"
+  echo; echo "########## SIEGE RUN $i/$RUNS  cap ${TILECAP} ceiling ${CEILING} target ${TARGETLIVE}  (cooling ${COOL}s, ${FREE}GB free) ##########"
   sleep "$COOL"
-  open -n -W "$APP" --args -cleardeltas -siegeseconds "$SECS" -tilecap "$TILECAP" $OFLAG
+  open -n -W "$APP" --args -cleardeltas -siegeseconds "$SECS" -tilecap "$TILECAP" $OFLAG -ceiling "$CEILING" -targetlive "$TARGETLIVE"
   D=$(ls -1d "$RD"/*/ 2>/dev/null | sort | tail -1)
   [ -z "$D" ] && { echo "  NO RUN FOLDER"; continue; }
   echo "  folder $(basename "$D")"
   sed -n '/FRAME TIME PER 30s SEGMENT/,/WHOLE RUN/p' "${D}siege_report.txt" | sed 's/^/  /'
-  grep -E "^  WHOLE RUN|    (PASS|FAIL|note)|^  live slots peak|^  tiles |^  placed |^  PEAK TILE|^  ORPHANED TILES|^  op-list total" "${D}siege_report.txt" | sed 's/^/  /'
+  grep -E "^  WHOLE RUN|    (PASS|FAIL|note)|^  live slots peak|^  tiles |^  placed |^  PEAK TILE|^  ORPHANED TILES|^  op-list total|^  GPU |^  SLOT CEILING" "${D}siege_report.txt" | sed 's/^/  /'
   grep -oE "^PASS [0-9]+  FAIL [0-9]+" "${D}siege_report.txt" | sed 's/^/  >>> /'
 done
 echo; echo "SIEGE DONE"

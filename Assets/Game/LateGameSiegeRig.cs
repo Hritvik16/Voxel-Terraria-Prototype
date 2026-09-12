@@ -65,8 +65,17 @@ public class LateGameSiegeRig : MonoBehaviour
     private const float Dt = 1f / 60f;
     /// Hold the live volume in this band. Well under MAX_ACTIVE_FLUID (500K)
     /// so the clamp is NOT what this run measures.
-    private const int TargetLiveLow = 150000;
-    private const int TargetLiveHigh = 320000;
+    /// Defaults reproduce the established siege baseline exactly. -targetlive
+    /// raises the band for the MAX_ACTIVE_FLUID ladder; the low water mark
+    /// tracks it at the same 47% ratio so the closed loop behaves identically
+    /// at every rung.
+    private int TargetLiveLow = 150000;
+    private int TargetLiveHigh = 320000;
+    /// Pour box edge. Scales with the target: holding millions of live voxels
+    /// with 6^3 boxes would spend the whole run in EditService, not in the CA,
+    /// and would measure the wrong thing.
+    private int PourEdge = 6;
+    private int _slotCeiling;
     private const int SegmentFrames = 1800;          // 30 s
     private const int SpreadVoxels = 260;            // pour across ~52 m, not one pool
 
@@ -113,6 +122,22 @@ public class LateGameSiegeRig : MonoBehaviour
     {
         int seconds = ArgInt("-siegeseconds", 200);
         _tilePoolCap = ArgInt("-tilecap", _tilePoolCap);
+        // THE LADDER. -ceiling raises §0.2's MAX_ACTIVE_FLUID for this process
+        // only (a constructor seam, not a config change); -targetlive raises
+        // the volume the closed-loop pour holds. Both default to the shipped
+        // values, so a plain run is bit-for-bit the established baseline.
+        _slotCeiling = ArgInt("-ceiling", 0);
+        int targetLive = ArgInt("-targetlive", TargetLiveHigh);
+        if (targetLive != TargetLiveHigh)
+        {
+            TargetLiveHigh = targetLive;
+            TargetLiveLow = (int)(targetLive * 0.47);
+            // Volume per pour scales as the cube root of the target, so the
+            // number of SetBox calls per frame stays flat while the volume
+            // they move rises. Measured first at 6^3/320K.
+            PourEdge = Math.Max(6, (int)Math.Round(6.0 * Math.Pow(targetLive / 320000.0, 1.0 / 3.0)));
+        }
+        if (_slotCeiling > 0) _slotCapacity = _slotCeiling;
         // -noorphan restores the pre-fix behaviour for the A/B. See the seam
         // note on FluidTileResidency.Refresh.
         _releaseOrphaned = ArgInt("-noorphan", 0) == 0;
@@ -134,8 +159,10 @@ public class LateGameSiegeRig : MonoBehaviour
         L($"duration {seconds}s, screenshot every {shotEvery / 60}s");
         L($"tile pool cap {_tilePoolCap} (0.5 MB/tile reserved up front)");
         L($"orphaned-tile release {(_releaseOrphaned ? "ON (shipped)" : "OFF (-noorphan, the A/B baseline)")}");
-        L($"live-volume band {TargetLiveLow:N0}-{TargetLiveHigh:N0} " +
-          $"(MAX_ACTIVE_FLUID {EngineConfig.MAX_ACTIVE_FLUID:N0} -- the clamp is NOT what this measures)");
+        L($"live-volume band {TargetLiveLow:N0}-{TargetLiveHigh:N0}, pour boxes {PourEdge}^3");
+        L($"SLOT CEILING {(_slotCeiling > 0 ? _slotCeiling.ToString("N0") + " (RAISED for this run)" : EngineConfig.MAX_ACTIVE_FLUID.ToString("N0") + " (shipped MAX_ACTIVE_FLUID)")}");
+        L("  NOTE: CSReact/CSIntent/CSSweep/CSRecycle dispatch SLOT CAPACITY threads every");
+        L("  tick regardless of live volume, so the ceiling is a per-tick cost, not headroom.");
         L("Wall clock only; gpuFrameTime read nowhere against a budget (Amdt 8.10).");
         L("");
 
@@ -155,7 +182,7 @@ public class LateGameSiegeRig : MonoBehaviour
         _edits.AttachWorld(Store, Store, Store, Clip);
         _tiles = new FluidTileMap(ChunkFluidMask.TILE_EDGE, new int3(128, 128, 128), _tilePoolCap);
         _fluid = new FluidGpuSimulation(_fluidCA, new int3(64, 64, 64), _slotCapacity,
-                                        _maxOpsPerFrame, _tiles)
+                                        _maxOpsPerFrame, _tiles, _slotCeiling)
         {
             RegionOriginVoxels = int3.zero,
             PlayerVoxel = camVox,
@@ -251,7 +278,7 @@ public class LateGameSiegeRig : MonoBehaviour
                     int sy = SurfaceY(sx, sz);
                     if (sy < 1) continue;
                     var lo = new int3(sx, sy + 8, sz);
-                    _placed += _edits.SetBox(lo, lo + new int3(5, 5, 5), m);
+                    _placed += _edits.SetBox(lo, lo + (PourEdge - 1), m);
                 }
             }
             else poursThrottled++;
@@ -410,7 +437,17 @@ public class LateGameSiegeRig : MonoBehaviour
           $"{(_releaseOrphaned ? "ON" : "OFF")})   OP-DISCARD RATE {discardPct:F1}%");
         L($"  op-list total {_readback.OpsTotal:N0}, readback errors {_readback.ReadbackErrorsTotal}, " +
           $"stale {_readback.StaleOpsDropped:N0}, non-resident {_readback.OpsDroppedNonResident}");
-        L($"  GPU active set {_fluid.GpuActiveSetBytes() / 1048576.0:F1} MB");
+        // MEMORY, SPLIT BY WHAT DRIVES IT. The tiled design's claim -- cost
+        // tracks usage, not capacity -- is about the per-CELL buffers, which
+        // are sized by the TILE pool. The per-SLOT buffers (24 B slot + 4 B
+        // free-list entry) are sized by the CEILING and are allocated whether
+        // or not a single voxel is live. Reporting one total would let the
+        // second hide inside the first.
+        long slotBytes = (long)_fluid.SlotCapacity * 28;
+        L($"  GPU active set {_fluid.GpuActiveSetBytes() / 1048576.0:F1} MB (per-CELL, sized by the tile cap)");
+        L($"  GPU slot pool  {slotBytes / 1048576.0:F1} MB (per-SLOT, sized by the CEILING " +
+          $"{_fluid.SlotCapacity:N0} -- allocated whether or not fluid is live)");
+        L($"  GPU total      {_fluid.GpuAllocatedBytes() / 1048576.0:F1} MB");
         L("");
 
         // ---- THE NEW QUESTION: does it degrade over time? ----
@@ -487,6 +524,23 @@ public class LateGameSiegeRig : MonoBehaviour
         // under a live tile left that tile resident forever, dispatching
         // against terrain the CPU no longer had. Measured at 15 of 787 before
         // the fix. This is the assertion that keeps it fixed.
+        // MEASURE THE INVARIANT WHERE THE INVARIANT HOLDS. The sweep is
+        // periodic (every 20th frame, the same cadence as the rest of
+        // Refresh), so between the last sweep and this census up to ~19 frames
+        // of streaming can evict a chunk under a live tile. At the 320K
+        // baseline that race never lost; at 750K, with far heavier digging and
+        // therefore more eviction, it produced 2 of 804 -- and an assertion
+        // that fails on a race the design never promised to win is measuring
+        // the cadence, not the rule.
+        //
+        // So: sweep once, THEN count. This is not a loosened gate. If
+        // ReleaseOrphaned were failing to release something, a fresh sweep
+        // would not clear it and this would still fail -- which is exactly
+        // what the 5 mutation-tests in FluidTileResidencyTests confirm.
+        _fluid.UpdatePlayerPosition(_fluid.PlayerVoxel);
+        FluidTileResidency.Refresh(Store, _tiles, _fluid.PlayerVoxel,
+                                   _fluid.ActiveRadiusVoxels, _fluid.SleepRadiusVoxels,
+                                   _releaseOrphaned);
         int orphanTilesLeft = 0;
         foreach (int3 tc in _tiles.ResidentTileCoords())
             if (!Store.IsResident(CoordMath.VoxelToChunk(tc * ChunkFluidMask.TILE_EDGE)))

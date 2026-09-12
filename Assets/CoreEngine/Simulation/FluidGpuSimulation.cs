@@ -408,9 +408,23 @@ namespace VoxelEngine.Simulation
         /// `tiles == null` keeps the ORIGINAL dense path byte-for-byte, which is
         /// what lets every Phase 5a-5d proof keep exercising the code it was
         /// written against while the new path is proven beside it.
+        /// <param name="slotCeilingOverride">
+        /// A MEASUREMENT SEAM, NOT A CONFIGURATION. 0 (the default) clamps to
+        /// §0.2's EngineConfig.MAX_ACTIVE_FLUID, which is what every shipped
+        /// caller gets. A positive value clamps to THAT instead, so a rig can
+        /// ask "what would a higher ceiling cost?" without a rebuild between
+        /// the two numbers being compared -- and comparing two builds is how
+        /// you get compiler variance mixed into a GPU measurement.
+        ///
+        /// WHY THIS QUESTION IS WORTH A SEAM: CSReact, CSIntent, CSSweep and
+        /// CSRecycle all dispatch _slotCapacity threads EVERY TICK, live fluid
+        /// or not. So the ceiling is not free headroom the way a tile pool's
+        /// spare capacity nearly is -- see Tick(). That is a prediction, and
+        /// the seam exists to test it rather than argue it.
+        /// </param>
         public FluidGpuSimulation(ComputeShader fluidCA, int3 regionDims,
                                   int slotCapacity, int maxOpsPerFrame,
-                                  FluidTileMap tiles)
+                                  FluidTileMap tiles, int slotCeilingOverride = 0)
         {
             _cs = fluidCA != null ? fluidCA
                 : throw new ArgumentNullException(nameof(fluidCA), "FluidCA.compute not assigned");
@@ -424,7 +438,8 @@ namespace VoxelEngine.Simulation
             _regionCellCount = regionDims.x * regionDims.y * regionDims.z;
             _shiftX = Log2(regionDims.x);
             _shiftY = Log2(regionDims.y);
-            _slotCapacity = Math.Min(slotCapacity, EngineConfig.MAX_ACTIVE_FLUID);
+            int ceiling = slotCeilingOverride > 0 ? slotCeilingOverride : EngineConfig.MAX_ACTIVE_FLUID;
+            _slotCapacity = Math.Min(slotCapacity, ceiling);
             MaxOpsPerFrame = maxOpsPerFrame;
 
             _kClear   = _cs.FindKernel("CSClear");
