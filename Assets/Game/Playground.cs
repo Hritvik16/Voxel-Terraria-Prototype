@@ -21,15 +21,25 @@
 // =========================================================================
 // WHAT THIS SCENE IS HONEST ABOUT
 // =========================================================================
-// 1. THE FLUID ARENA IS FIXED. THE ACTIVITY INSIDE IT NOW FOLLOWS YOU.
-//    Two different things, and this note used to conflate them.
+// 1. WHAT BOUNDS FLUID HERE IS §7.4's WAKE RADIUS, NOT AN ARENA BOX.
+//    This note used to open "THE FLUID ARENA IS FIXED" and describe the region
+//    box as the thing that refuses placement. Under §7.2's tiled substrate that
+//    is no longer what happens, and the guard was renamed to say so:
+//    TryPaintBrush calls SphereFitsInWakeRadius, and refuses a mobile brush
+//    that falls outside §7.4's radius around YOU. The radius follows the
+//    player, so the bound moves; _arenaEdge now only sizes the startup basin
+//    search.
 //
-//    THE REGION BOX IS STILL FIXED, and deliberately so. It is the CA's
-//    addressing space -- §7.2's op-list is indexed by region cell, so moving the
-//    origin would re-index every slot home and every in-flight batch, applying
-//    ops to the wrong voxels. Placing fluid outside it is still refused, still
-//    for the original reason (see TryPaintBrush): a mobile material written out
-//    there would be drawn and never simulated, hanging frozen in mid-air.
+//    The REASON for refusing is unchanged and still worth stating: a mobile
+//    material written where it will never be simulated is drawn and then hangs
+//    frozen in mid-air. That is the artifact this scene exists to make visible
+//    rather than hide.
+//
+//    NOT GUARDED: the tile pool. Inside the radius with a full pool, placement
+//    is accepted and the fluid still never moves -- the same frozen blob by a
+//    different route, reproduced deliberately in FluidTileCapRig. The pool is
+//    sized well above measured demand (1024 vs 603-779), so this is headroom
+//    rather than a live defect; see FLUID_TILE_CAP_RESULTS.md.
 //
 //    WHAT IS NEW is §7.4's near-player active radius, which is now DRIVEN.
 //    Playground calls UpdatePlayerPosition every frame, so fluid simulates only
@@ -39,14 +49,29 @@
 //    That is §7.4 working, not fluid breaking.
 //
 //    The GPU always had this test; nothing updated the centre, so it was
-//    anchored wherever the region was created. The radius here is a DEMO value
-//    (see _activeRadiusVoxels), far smaller than the shipped 1280 so the effect
-//    is observable inside a 64-voxel arena at all.
+//    anchored wherever the region was created.
 //
-// 2. THE FLUID POPULATION HERE IS DELIBERATELY TINY.
-//    Source budgets are tens to low hundreds of voxels -- the range Phase 5a/5b
-//    actually tested. §2.5's ~500,000 near-player active target has NEVER been
-//    tested, and this scene is deliberately not where that gets discovered.
+//    2026-09-11: the radius is now the SHIPPED FLUID_ACTIVE_RADIUS_VOXELS
+//    (1280 / 128 m), not a reduced demo value. Under the tiled substrate the
+//    footprint no longer scales with it -- measured 264 MB identical at r=128,
+//    640 and 1280 -- so the scene can finally run the real constant. THE COST
+//    IS A DEMO: sleep/wake needs a 128 m flight to observe instead of 13 m.
+//    Set _activeRadiusVoxels back to 128 in the inspector if you want the
+//    quick version; nothing else depends on the value.
+//
+// 2. THE FLUID POPULATION USED TO BE DELIBERATELY TINY. THAT REASON EXPIRED.
+//    This note read: "Source budgets are tens to low hundreds of voxels -- the
+//    range Phase 5a/5b actually tested. §2.5's ~500,000 near-player active
+//    target has NEVER been tested, and this scene is deliberately not where
+//    that gets discovered."
+//
+//    It HAS been tested since, and well past that target: the late-game siege
+//    holds ~320,000 live for 200s, and the MAX_ACTIVE_FLUID ladder ran to
+//    1,500,000 live with 8/8 gates green and a 0.0% frozen-fluid census
+//    (FLUID_TILE_CAP_RESULTS.md §13). The shipped ceiling is now 750,000.
+//    Budgets were raised 2026-09-11 to match what the engine is known to
+//    survive; this scene is no longer the place where scale would be
+//    discovered, because it was discovered on the rigs first.
 //
 // 3. FLUID ON NATURAL TERRAIN IS NEW HERE. Phases 5a/5b ran on flat hand-built
 //    basins. Anything odd at the fluid/terrain boundary here is a GENUINE NEW
@@ -84,27 +109,38 @@ public class Playground : MonoBehaviour
     [SerializeField] private ComputeShader _fluidCA;
     [Tooltip("Arena edge in voxels. Power of two -- the CA addresses its region with shifts.")]
     [SerializeField] private int _arenaEdge = 64;
-    [SerializeField] private int _slotCapacity = 8192;
-    [SerializeField] private int _maxOpsPerFrame = 8192;
+    [Tooltip("DEMO TUNING, raised 2026-09-11 from 8192. The shipped ceiling is " +
+             "MAX_ACTIVE_FLUID = 750,000 and it has been measured to 1.5M live with every " +
+             "gate green; 8192 was the Phase 5a/5b correctness range and showcased none of it.")]
+    [SerializeField] private int _slotCapacity = EngineConfig.MAX_ACTIVE_FLUID;
+    [SerializeField] private int _maxOpsPerFrame = 65536;
     [SerializeField] private string _outputRootFolderName = "PlaygroundShots";
 
     [Header("Phase 6")]
     [Tooltip("Left empty, one is found in the scene. Without it the scene is fly-only.")]
     [SerializeField] private PlayerController _player;
-    [Tooltip("Radius in voxels of the B-key demo blast. §13's 400K reference is radius 46.")]
-    [SerializeField] private int _bombRadiusVoxels = 20;
+    [Tooltip("Radius in voxels of the B-key demo blast. §13's 400K reference IS radius 46, " +
+             "which the late-game siege fires ten times a run inside a live fluid flood -- " +
+             "so the demo now uses the reference figure instead of a third of it.")]
+    [SerializeField] private int _bombRadiusVoxels = 46;
 
     [Tooltip("§7.4's active radius, in voxels, FOR THIS SCENE ONLY. The shipped engine " +
              "constant is FLUID_ACTIVE_RADIUS_VOXELS = 1280 (128 m), which is 23x this " +
              "arena's half-diagonal -- so at the real value the radius never bites here and " +
              "§7.4 would be correct but invisible. 128 voxels (12.8 m) keeps you comfortably " +
              "inside it while working, and lets you walk away and watch fluid sleep.")]
-    [SerializeField] private int _activeRadiusVoxels = 128;
+    [SerializeField] private int _activeRadiusVoxels = EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS;
 
-    // Budgets, tiny on purpose. See header note 2.
-    [SerializeField] private int _waterBudget = 160;
-    [SerializeField] private int _sandBudget = 90;
-    [SerializeField] private int _lavaBudget = 60;
+    // DEMO BUDGETS, raised 2026-09-11. See header note 2 for why they used to be
+    // tiny and why that reason has expired.
+    [SerializeField] private int _waterBudget = 60000;
+    [SerializeField] private int _sandBudget = 20000;
+    [SerializeField] private int _lavaBudget = 12000;
+    [Tooltip("Edge of the cube a vent emits per frame. Was effectively 1 (one voxel per " +
+             "frame per vent), which caps a vent at 60 voxels/second however large its " +
+             "budget is -- raising the budget alone would just make the vents drip for " +
+             "minutes. 5 gives up to 125 voxels/frame/vent.")]
+    [SerializeField] private int _ventEdge = 5;
 
     private ChunkStore _store;
     private TerrainClipmap _clipmap;
@@ -790,11 +826,31 @@ public class Playground : MonoBehaviour
         => _fluid != null &&
            FluidActiveRegion.WithinWakeRadius(v, _fluid.PlayerVoxel, _fluid.ActiveRadiusVoxels);
 
+    /// Emits a small cube per frame rather than a single voxel.
+    ///
+    /// THE OLD FORM PLACED ONE VOXEL PER FRAME, which caps a vent at 60
+    /// voxels/second no matter how large its budget is -- so raising the
+    /// budget alone would have turned a 160-voxel trickle into a 60,000-voxel
+    /// trickle lasting sixteen minutes. Rate and budget have to move together
+    /// for the scene to show the scale that has been proven.
+    ///
+    /// Still one voxel at a time through TrySetVoxel, still Air-only, so every
+    /// §9.4 residency and refusal path is exercised exactly as before -- this
+    /// changes how MANY are offered per frame, not how any one of them is
+    /// written.
     private void Emit(ref int budget, int3 cell, byte material)
     {
         if (budget <= 0) return;
-        if (_store.GetVoxel(cell) != Materials.Air) return;
-        if (_edits.TrySetVoxel(cell, material)) budget--;
+        int r = math.max(0, _ventEdge / 2);
+        for (int dy = -r; dy <= r; dy++)
+        for (int dz = -r; dz <= r; dz++)
+        for (int dx = -r; dx <= r; dx++)
+        {
+            if (budget <= 0) return;
+            int3 c = cell + new int3(dx, dy, dz);
+            if (_store.GetVoxel(c) != Materials.Air) continue;
+            if (_edits.TrySetVoxel(c, material)) budget--;
+        }
     }
 
     // =====================================================================

@@ -54,10 +54,11 @@ public class PlaygroundCapture : MonoBehaviour
 
         Debug.Log("[PlaygroundCapture] -gputrace: arena primed, vents cycling, running until killed.");
 
-        // Vent budgets are finite (water 160 / sand 90 / lava 60) and would
-        // drain and settle partway through a 15 s window, leaving the tail of
-        // the recording measuring an idle CA. Re-opening them keeps all three
-        // materials genuinely in flight for the whole capture.
+        // Vent budgets are finite (raised 2026-09-11 to water 60,000 / sand
+        // 20,000 / lava 12,000, emitted as a cube per frame rather than one
+        // voxel) and can still drain or back up partway through a 15 s window,
+        // leaving the tail of the recording measuring an idle CA. Re-opening
+        // them keeps all three materials genuinely in flight for the capture.
         while (true)
         {
             if (pg != null) pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
