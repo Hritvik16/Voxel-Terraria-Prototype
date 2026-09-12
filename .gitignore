@@ -144,3 +144,16 @@ fluid-bench/
 # Tracking it makes every build dirty the tree and every commit noisy.
 Assets/Resources/BuildStamp.txt
 Assets/Resources/BuildStamp.txt.meta
+
+# Generated at build time, regenerated every build, carries no source information.
+#   BuildStamp.txt            written by Assets/Editor/BuildStamp.cs pre-build so the
+#                             running player can report its own commit in the HUD.
+#   PerformanceTestRun*.json  Unity's performance-testing package scratch.
+# Committing these would dirty the tree on every single build -- which also makes
+# BuildStamp's own clean/DIRTY flag lie, since it reads `git status`.
+/Assets/Resources/BuildStamp.txt
+/Assets/Resources/BuildStamp.txt.meta
+/Assets/Resources/PerformanceTestRunInfo.json
+/Assets/Resources/PerformanceTestRunInfo.json.meta
+/Assets/Resources/PerformanceTestRunSettings.json
+/Assets/Resources/PerformanceTestRunSettings.json.meta
