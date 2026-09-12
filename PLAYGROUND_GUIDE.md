@@ -87,6 +87,7 @@ watch it.
 
 | Key | Action |
 |-----|--------|
+| **`G`** | **CHAOS BURST — ~51,000 voxels of water, sand and lava at once.** The scale showcase; see below |
 | `V` | open a vent above the crosshair (needs water/sand/lava held) |
 | `0` | close all vents |
 
@@ -146,6 +147,9 @@ and the difference is the kind a player notices immediately.**
 
 There is no arena any more. There is no box you can stand outside of.
 
+- **The state panel reads in voxels AND metres.** `wake 1280v / 128m` — the
+  two units differ by 10× and have been confused once already, so both are
+  always shown.
 - **Fluid lives wherever you put it.** The active set is a pool of 32³ tiles
   acquired around fluid that actually exists, not a fixed region allocated up
   front.
@@ -167,6 +171,35 @@ The scene makes it visible:
 - The state panel shows **tiles resident / cap**, how many were acquired and
   released, whether the pool is full, and how many slots are actually
   simulating.
+
+### `G` — CHAOS BURST, the scale showcase (added 2026-09-12)
+
+The vents prove fluid *works*; they do not show it working **at scale**, which
+is what five phases went into. `G` drops **~51,000 voxels** of water, sand and
+lava across a wide footprint around you in one action.
+
+Measured from the automated capture, so this is what you should actually see:
+
+| | |
+|---|---|
+| voxels written | **79,263** (burst + vents) |
+| live fluid at peak | **127,831 slots simulating** |
+| §7.2 tiles | 445 / 1024 — "pool has room" |
+| what it looks like | one mass of water, sand and lava falling together, then finding the terrain |
+
+Two design points worth knowing:
+
+- **It drains over frames, not in one.** 51,000 voxels through `SetBox` in a
+  single frame is a visible hitch that would misrepresent the engine; it places
+  4 boxes per frame, near the per-frame edit cost the late-game siege rig uses.
+- **It lands inside §7.4's wake radius**, so all of it actually simulates.
+  Material placed outside the radius would be drawn and never tick — the
+  frozen-blob artifact this scene exists to make visible rather than hide.
+
+**Expect a dip while it lands.** The capture frame shows ~19 FPS at the instant
+the burst arrives, CPU-bound applying the op-list. That is a deliberate stress
+action, not the steady state — idle sustained rate is ~69.8 FPS
+(`FPS_INVESTIGATION_RESULTS.md`).
 
 ### What the vents actually do now (raised 2026-09-11)
 

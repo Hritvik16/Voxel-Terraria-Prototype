@@ -509,10 +509,13 @@ public class PlaygroundCapture : MonoBehaviour
             yield return Shot("05_arena_before", "the natural basin the arena sits in, before fluid");
 
             // 1/2/3 select a brush now; vents are opened explicitly.
+            // THE BURST IS THE SCALE SHOWCASE, so the capture has to show it
+            // rather than only the vents' trickle.
+            pg.SendMessage("StartChaosBurst", SendMessageOptions.DontRequireReceiver);
             pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
 
             for (int i = 0; i < 120; i++) yield return null;
-            yield return Shot("06_arena_pouring", "water/sand/lava falling into generated terrain");
+            yield return Shot("06_arena_pouring", "CHAOS BURST mid-pour: ~51,000 voxels of water/sand/lava");
             for (int i = 0; i < 400; i++) yield return null;
             yield return Shot("07_arena_settling", "fluid finding the shape of the natural ground");
             for (int i = 0; i < 700; i++) yield return null;

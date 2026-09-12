@@ -372,6 +372,7 @@ public class Playground : MonoBehaviour
         Register(new Toy(KeyCode.F, "go to arena", TeleportToArena));
         Register(new Toy(KeyCode.R, "respawn on ground", Respawn));
         Register(new Toy(KeyCode.B, "bomb", DetonateAtTarget));
+        Register(new Toy(KeyCode.G, "CHAOS BURST", StartChaosBurst));
         Register(new Toy(KeyCode.T, "shoot", ShootProjectile));
         Register(new Toy(KeyCode.Z, "tool -", () => CycleTier(-1)));
         Register(new Toy(KeyCode.X, "tool +", () => CycleTier(+1)));
@@ -436,6 +437,66 @@ public class Playground : MonoBehaviour
 
     /// §8.5's mass destruction, at the crosshair. Frame-split: Update drains it
     /// under the per-frame work budget, exactly as a real detonation would be.
+    // =====================================================================
+    // CHAOS BURST (G) -- the scale showcase.
+    //
+    // The vents were the only way to add fluid and they are a trickle by
+    // construction: Air-only placement around a walking source point. They
+    // demonstrate that fluid works, not that it works AT SCALE, and the scale
+    // is the thing this engine spent five phases proving -- 750,000 live
+    // voxels, a 1024-tile pool, 1.5 M live measured with every gate green.
+    //
+    // This drops ~51,000 voxels of water, sand and lava across a wide
+    // footprint around the player in one action, using the same scattered-box
+    // pour LateGameSiegeRig uses (SetBox of a small cube at jittered offsets,
+    // materials cycled) -- proven placement logic, not a new path.
+    //
+    // DRAINED OVER FRAMES, NOT DUMPED IN ONE. 51,000 voxels through SetBox in
+    // a single frame is a visible hitch and would misrepresent the engine's
+    // behaviour; the siege rig places ~1,000/frame for exactly this reason.
+    // BurstBoxesPerFrame keeps each frame's edit cost near the siege's, so
+    // what you see is the CA absorbing a real pour rather than a stall.
+    //
+    // Everything lands inside §7.4's wake radius, so all of it actually
+    // simulates -- material placed outside it would be drawn and never tick,
+    // which is the frozen-blob artifact this scene exists to avoid.
+    private const int BurstTotalBoxes = 100;   // x 512 voxels = ~51,200
+    private const int BurstBoxEdge = 8;
+    private const int BurstSpreadVoxels = 56;
+    private const int BurstBoxesPerFrame = 4;
+    private int _burstBoxesLeft;
+    private int3 _burstCentre;
+    private System.Random _burstRng;
+
+    private void StartChaosBurst()
+    {
+        if (_burstBoxesLeft > 0) { _status = "chaos burst: already pouring"; return; }
+        _burstCentre = PlayerOrCameraVoxel();
+        _burstRng = new System.Random(20260912);
+        _burstBoxesLeft = BurstTotalBoxes;
+        _status = $"CHAOS BURST — {BurstTotalBoxes * BurstBoxEdge * BurstBoxEdge * BurstBoxEdge:N0} " +
+                  $"voxels of water/sand/lava over ±{BurstSpreadVoxels}v " +
+                  $"({BurstSpreadVoxels * 0.1f:0.#}m), draining over frames";
+    }
+
+    private void StepChaosBurst()
+    {
+        if (_burstBoxesLeft <= 0) return;
+        for (int i = 0; i < BurstBoxesPerFrame && _burstBoxesLeft > 0; i++, _burstBoxesLeft--)
+        {
+            int n = BurstTotalBoxes - _burstBoxesLeft;
+            byte m = (n % 3) == 0 ? Materials.Water : (n % 3) == 1 ? Materials.Sand : Materials.Lava;
+            int dx = _burstRng.Next(-BurstSpreadVoxels, BurstSpreadVoxels);
+            int dz = _burstRng.Next(-BurstSpreadVoxels, BurstSpreadVoxels);
+            int sx = _burstCentre.x + dx, sz = _burstCentre.z + dz;
+            int sy = SurfaceY(sx, sz);
+            if (sy < 1) continue;
+            var lo = new int3(sx, sy + 10 + _burstRng.Next(0, 14), sz);
+            _edits.SetBox(lo, lo + (BurstBoxEdge - 1), m);
+        }
+        if (_burstBoxesLeft == 0) _status = "chaos burst: all placed — watch it settle";
+    }
+
     private void DetonateAtTarget()
     {
         if (!_hasTarget) { _status = "bomb: aim at something first"; return; }
@@ -612,6 +673,8 @@ public class Playground : MonoBehaviour
         HandleHotbarKeys();
         HandleMouse(dt);
         DriveWalk(dt);
+
+        StepChaosBurst();
 
         _ventPhase++;
         Emit(ref _waterLeft, _waterSrc, Materials.Water);
@@ -1142,7 +1205,7 @@ public class Playground : MonoBehaviour
         // Width is bounded so it cannot slide under PlaygroundHud's perf panel,
         // which anchors itself to the right edge at vw - 648.
         float w = Mathf.Min(760f, vw - 660f);
-        Box(new Rect(8, 6, w, 66), new Color(0f, 0f, 0f, 0.45f));
+        Box(new Rect(8, 6, w, 66), new Color(0.04f, 0.06f, 0.09f, 0.88f));
         GUI.Label(new Rect(16, 10, w - 14, 62), sb.ToString(), Label(14));
     }
 
@@ -1191,6 +1254,10 @@ public class Playground : MonoBehaviour
 
     /// Live engine state, bottom-left. Everything here is a READOUT of a Phase 6
     /// system, so "is buoyancy doing anything" is answerable at a glance.
+    private const int FluidCounterRefreshFrames = 15;
+    private int _fluidCounterCountdown;
+    private uint _cachedLiveSlots;
+
     private void DrawStatePanel(float vh)
     {
         var sb = new StringBuilder();
@@ -1214,50 +1281,72 @@ public class Playground : MonoBehaviour
         }
         else sb.AppendLine("<b>fly</b>  noclip camera — press Tab to walk");
 
-        sb.AppendLine($"<b>dug</b>  {_dugThisSecond} vox in the last second" +
-                      (_demolition != null && _demolition.InProgress
-                          ? $"   <color=#ffc64a>bomb draining… {_demolition.VoxelsRemovedSoFar} voxels</color>"
-                          : ""));
+        // ---- SKIMMABLE LAYOUT ----
+        // This panel used to be eight lines of prose with the numbers buried
+        // mid-sentence, so finding one value meant reading all of them. It is
+        // now grouped under headers with the LABEL LEFT-PADDED TO A FIXED
+        // WIDTH, so the values form a column the eye can run down. Colour is
+        // used consistently and only for state: green = healthy, amber =
+        // worth noticing, red = wrong.
+        string Row(string k, string v) => $"  <color=#b9cfe4>{k,-13}</color>{v}\n";
+
+        sb.AppendLine();
+        sb.AppendLine("<b><color=#ffd479>── EDITS ──────────────────────────────</color></b>");
+        sb.Append(Row("dug/s", $"{_dugThisSecond} vox" +
+            (_demolition != null && _demolition.InProgress
+                ? $"   <color=#ffc64a>bomb draining… {_demolition.VoxelsRemovedSoFar}</color>" : "")));
+        if (_edits != null)
+            sb.Append(Row("written", $"{_edits.VoxelsWritten:N0}   " +
+                $"<color=#b9cfe4>no-op</color> {_edits.EditsNoOp:N0}   " +
+                (_edits.EditsRejectedNotResident > 0
+                    ? $"<color=#ffc64a>refused {_edits.EditsRejectedNotResident:N0} (not loaded)</color>"
+                    : "<color=#8fd98f>0 refused</color>")));
+        if (_burstBoxesLeft > 0)
+            sb.Append(Row("chaos burst", $"<color=#ffc64a>pouring… {_burstBoxesLeft} boxes left</color>"));
         if (_hasDrop)
-            sb.AppendLine($"<b>last blast</b>  {_lastDrop.TotalVoxels} voxels in {_lastDrop.Frames} frames, " +
-                          $"mostly {MaterialName(_lastDrop.DominantMaterial)}");
+            sb.Append(Row("last blast", $"{_lastDrop.TotalVoxels:N0} vox in {_lastDrop.Frames} frames, " +
+                $"mostly {MaterialName(_lastDrop.DominantMaterial)}"));
         if (_hasShot)
-            sb.AppendLine($"<b>last shot</b>  " + (_lastShot.Hit
+            sb.Append(Row("last shot", _lastShot.Hit
                 ? $"{MaterialName(_lastShot.Material)} at {_lastShot.DistanceM:F1} m"
                 : $"no hit in {_lastShot.DistanceM:F0} m"));
-
-        if (_edits != null)
-            sb.AppendLine($"<b>edits</b>  {_edits.VoxelsWritten} written   {_edits.EditsNoOp} no-op   " +
-                          $"{_edits.EditsRejectedNotResident} refused (not loaded)");
 
         int3 pv = PlayerOrCameraVoxel();
         int3 d = pv - _fluid.PlayerVoxel;
         long dist2 = (long)d.x * d.x + (long)d.y * d.y + (long)d.z * d.z;
         bool inRadius = FluidActiveRegion.WithinWakeRadius(_arenaCentre, pv, _activeRadiusVoxels);
-        // REWRITTEN FOR §7.2's TILED SUBSTRATE. The old readout announced a
-        // fixed cubic "arena" and coloured itself by whether that arena was
-        // inside the radius. Under tiling there IS no arena: the active set is
-        // a pool of 32^3 tiles acquired wherever fluid actually is, and its
-        // footprint does not scale with the radius at all. Leaving the old
-        // line up would have been the HUD confidently describing a data
-        // structure the build no longer contains.
-        _fluid.ReadSlotCounters(out uint liveSlots, out uint _everSlots);
-        sb.AppendLine($"<b>§7.2 tiles</b>  {_tiles.ResidentTiles} resident / {_tiles.TileCapacity} cap   " +
-                      $"acquired {_tiles.TilesAcquiredTotal}  released {_tiles.TilesReleasedTotal}   " +
-                      (_tiles.PoolExhaustionsTotal > 0
-                          ? $"<color=#ffc64a>pool full {_tiles.PoolExhaustionsTotal}x (refused cleanly)</color>"
-                          : "<color=#8fd98f>pool has room</color>"));
-        sb.AppendLine($"<b>live fluid</b>  {liveSlots} slots simulating   " +
-                      $"{_fluid.GpuActiveSetBytes() / 1048576.0:F0} MB active set " +
-                      "(FIXED — does not grow with the radius)");
+
+        // THROTTLED, BECAUSE THIS IS A BLOCKING GPU READBACK.
+        // ReadSlotCounters calls GraphicsBuffer.GetData, which syncs the CPU
+        // to the GPU. The sibling ReadFreeSlotCount carries the warning
+        // "BLOCKING; rigs only" in its own doc comment -- and this was being
+        // called EVERY FRAME from OnGUI, on the render path, purely to print
+        // one number. Now sampled every FluidCounterRefreshFrames and cached.
+        if (--_fluidCounterCountdown <= 0)
+        {
+            _fluid.ReadSlotCounters(out uint live, out uint _ever);
+            _cachedLiveSlots = live;
+            _fluidCounterCountdown = FluidCounterRefreshFrames;
+        }
+        uint liveSlots = _cachedLiveSlots;
+
+        sb.AppendLine("<b><color=#ffd479>── FLUID (§7.2 tiles / §7.4 radius) ───</color></b>");
+        sb.Append(Row("tiles", $"{_tiles.ResidentTiles} / {_tiles.TileCapacity} resident   " +
+            (_tiles.PoolExhaustionsTotal > 0
+                ? $"<color=#ffc64a>pool FULL {_tiles.PoolExhaustionsTotal:N0}x (refused cleanly)</color>"
+                : "<color=#8fd98f>pool has room</color>")));
+        sb.Append(Row("live", $"{liveSlots:N0} slots simulating   " +
+            $"<color=#b9cfe4>active set</color> {_fluid.GpuActiveSetBytes() / 1048576.0:F0} MB " +
+            "<color=#b9cfe4>(fixed — does not grow with the radius)</color>"));
         // METRES BESIDE VOXELS, ALWAYS. 1280v and 128v differ by 10x and read
-        // alike; showing "1280v / 128m" makes the unit unmistakable at a
-        // glance. A session already mistook one for the other once.
-        sb.Append($"<b>§7.4 radius</b>  {_activeRadiusVoxels}v / {_activeRadiusVoxels * 0.1f:0.#}m wake, " +
-                  $"{_fluid.SleepRadiusVoxels}v / {_fluid.SleepRadiusVoxels * 0.1f:0.#}m sleep   centre {_fluid.PlayerVoxel}   " +
-                  $"re-centres {_fluid.RecentresTotal}   " +
-                  (inRadius ? "<color=#8fd98f>your old basin is inside the radius</color>"
-                            : "<color=#ffc64a>basin outside — that fluid sleeps as static terrain</color>"));
+        // alike; "1280v / 128m" makes the unit unmistakable at a glance. A
+        // session already mistook one for the other once.
+        sb.Append(Row("radius", $"wake {_activeRadiusVoxels}v / {_activeRadiusVoxels * 0.1f:0.#}m   " +
+            $"sleep {_fluid.SleepRadiusVoxels}v / {_fluid.SleepRadiusVoxels * 0.1f:0.#}m   " +
+            $"<color=#b9cfe4>re-centres</color> {_fluid.RecentresTotal}"));
+        sb.Append(Row("basin", inRadius
+            ? "<color=#8fd98f>inside the radius — it simulates</color>"
+            : "<color=#ffc64a>outside — sleeps as static terrain</color>"));
         _ = dist2;
 
         // SITS ABOVE THE HOTBAR ROW. The hotbar's LMB panel starts at
@@ -1269,33 +1358,54 @@ public class Playground : MonoBehaviour
         // last blast, last shot, edits, arena, §7.4 radius. At 13pt that is ~10
         // lines; 128px held 8 and silently clipped the last two, which are the
         // ones this session added.
-        Box(new Rect(8, vh - 356, 760, 184), new Color(0f, 0f, 0f, 0.45f));
-        GUI.Label(new Rect(16, vh - 352, 746, 178), sb.ToString(), Label(13));
+        // SIZED FOR THE WORST CASE, COUNTED NOT GUESSED. Grouping the panel
+        // added two section headers and a spacer, and the rows are longer.
+        // Worst case is walk mode with every optional row present: player,
+        // non-resident block, buoyancy, speed clamp, spacer, EDITS header,
+        // dug/s, written, chaos burst, last blast, last shot, FLUID header,
+        // tiles, live, radius, basin = 16 lines. At 13pt that is ~272 px; the
+        // old 184 px box would have silently clipped the fluid rows, which is
+        // the same way this panel lost two lines once before.
+        // 0.55 alpha was unreadable over bright snow in the capture; the text
+        // needs its own ground, not a tint.
+        Box(new Rect(8, vh - 474, 792, 302), new Color(0.04f, 0.06f, 0.09f, 0.88f));
+        GUI.Label(new Rect(16, vh - 470, 778, 296), sb.ToString(), Label(13));
     }
 
     private void DrawHelp(float vw, float vh)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("<b>CONTROLS</b>   (F2 hides this)");
+        // GROUPED BY WHAT YOU ARE TRYING TO DO, not by key order. The old
+        // list mixed movement, tools and fluid on adjacent lines, so finding
+        // one binding meant reading all of them.
+        sb.AppendLine("<b>CONTROLS</b>   <color=#9fb6c9>(F2 hides this)</color>");
         sb.AppendLine("");
-        sb.AppendLine("<b>move</b>      WASD, Space jump, Shift sprint   ·   fly: Q/E down/up");
-        sb.AppendLine("<b>Tab</b>       walk ↔ fly            <b>R</b>  respawn on the surface");
-        sb.AppendLine("<b>LMB</b>       dig at the tool's rate    <b>Z / X</b>  tool tier");
-        sb.AppendLine("<b>RMB</b>       place held item           <b>1-6</b> / scroll  pick item");
-        sb.AppendLine("<b>V</b>         open a vent above the crosshair (water/sand/lava)");
-        sb.AppendLine("<b>0</b>         close all vents       <b>F</b>  go to the fluid arena");
-        sb.AppendLine("<b>B</b>         bomb at the crosshair (§8.5, frame-split)");
-        sb.AppendLine("<b>T</b>         shoot a projectile (§8.4 DDA trace)");
-        sb.AppendLine("<b>F1</b>        perf overlay          <b>ESC</b>  release the mouse");
+        sb.AppendLine("<b><color=#cfe3f5>MOVE</color></b>");
+        sb.AppendLine("  <b>WASD</b> walk    <b>Space</b> jump    <b>Shift</b> sprint    <b>Q/E</b> down/up (fly)");
+        sb.AppendLine("  <b>Tab</b> walk ↔ fly      <b>R</b> respawn on the surface      <b>F</b> go to the basin");
         sb.AppendLine("");
-        sb.Append("<color=#bbbbbb>Fluid only simulates inside the arena — the crosshair box turns grey " +
-                  "outside it, and placing water/sand/lava there is refused.</color>");
+        sb.AppendLine("<b><color=#cfe3f5>BUILD &amp; DIG</color></b>");
+        sb.AppendLine("  <b>LMB</b> dig at the tool's rate        <b>Z / X</b> tool tier");
+        sb.AppendLine("  <b>RMB</b> place held item               <b>1-6</b> / scroll  pick item");
+        sb.AppendLine("");
+        sb.AppendLine("<b><color=#cfe3f5>FLUID &amp; DESTRUCTION</color></b>");
+        sb.AppendLine("  <b><color=#ffd479>G</color></b>   <b>CHAOS BURST</b> — ~51,000 voxels of water/sand/lava at once");
+        sb.AppendLine("  <b>V</b>   open a vent above the crosshair      <b>0</b>  close all vents");
+        sb.AppendLine("  <b>B</b>   bomb at the crosshair (§8.5, frame-split)");
+        sb.AppendLine("  <b>T</b>   shoot a projectile (§8.4 DDA trace)");
+        sb.AppendLine("");
+        sb.AppendLine("<b><color=#cfe3f5>VIEW</color></b>");
+        sb.AppendLine("  <b>F1</b> perf overlay      <b>F2</b> these controls      <b>ESC</b> release the mouse");
+        sb.AppendLine("");
+        sb.Append("<color=#9fb6c9>Fluid simulates only inside §7.4's wake radius (shown in the state " +
+                  "panel in both voxels and metres). The crosshair box turns grey outside it, and " +
+                  "placing water/sand/lava there is refused rather than left frozen.</color>");
 
         // CENTRED, not tucked into a corner: at 6 hotbar slots the bottom-right
         // is already occupied by the RMB panel, and a controls list that
         // overlaps the thing it is describing is worse than useless. It is
         // toggled, so covering the view while open is intended.
-        float w = 640f, h = 244f;
+        float w = 720f, h = 372f;   // grew with the grouping above
         var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f, w, h);
         Box(r, new Color(0f, 0f, 0f, 0.82f));
         Frame(r, new Color(1f, 1f, 1f, 0.22f), 1f);
