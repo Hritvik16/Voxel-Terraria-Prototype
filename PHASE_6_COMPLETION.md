@@ -657,7 +657,7 @@ Deciding this needs a target for what fluid *should* cost, which does not
 exist yet. Attributing the remaining p99 tail is a separate isolation job and
 is **not** claimed to be understood.
 
-### 4. §2.2's GPU-lane budget is permanently unattributable here — STANDING LIMITATION, NOT A TASK
+### 4. §2.2's GPU-lane budget — PERMANENT TOOLCHAIN LIMITATION. NOTHING TO RESOLVE, EVER, IN THIS WORKFLOW
 
 §2.2 budgets the fluid CA at ≤3.5 ms **on the GPU lane**. This toolchain
 cannot attribute GPU stages: no Xcode and no Instruments (Amendment 8.9
@@ -667,8 +667,17 @@ merges the CA's eight dispatches into one encoder, so only the first kernel is
 ever named.
 
 Every fluid figure on record is therefore **CPU-lane or wall-clock**. Whether
-the tiled CA meets §2.2 is **unknown and unknowable in this workflow**. This
-is not a pending measurement; it should stop being re-litigated each session.
+the tiled CA meets §2.2 is **unknown and unknowable in this workflow**.
+
+**Restated plainly 2026-09-11, because it keeps being re-opened: this is not a
+pending task and has no resolution to reach.** It has been true and unchanged
+for the entire project. It is a property of the toolchain (no Xcode by
+standing rule, no Instruments, `gpuFrameTime` inflated ~2.6–2.7×, Unity merging
+the CA's dispatches into one encoder), not a gap in the work. The correct
+handling is the one already in force: never quote a GPU figure against a
+budget, and treat wall clock as the only trusted source. **Nothing a future
+session does will close this**; it should be read as a constraint on what can
+ever be claimed, not as an item awaiting effort.
 
 ### 5. Gas / fire / density-layered stacking — UNSPECIFIED, NOT A GAP TO FILL SILENTLY
 
@@ -676,25 +685,129 @@ Real Noita mechanics with **no specification anywhere in this architecture**.
 Repeatedly deliberately not invented. Any implementation needs a design
 conversation and a spec first. Not blocked by the substrate work.
 
-### 6. Large-scale chaos: no failure ceiling to 1M placed voxels — NEW 2026-09-11
+### 6. Large-scale chaos — PARTLY RESOLVED 2026-09-11; both ceilings have moved
 
 The ladder ran 50,000 → 150,000 → 400,000 → 1,002,923 placed fluid voxels
 under continuous pours, overlapping detonations and a moving, digging player.
-**All four rungs passed 6/0.** Frame p50 at the top rung is **12.28 ms**
-(three cooled samples, 4.4% spread).
+**All four rungs passed 6/0.**
 
-Two ceilings were REACHED and handled cleanly, neither a failure:
+**Both ceilings this item named have since been raised on measured evidence:**
 
-- **`MAX_ACTIVE_FLUID = 500,000`** clamps live slots. At 2× oversubscription
-  the un-slotted voxels hang as static cubes in mid-air.
-- **The 512-tile pool** refuses cleanly per §7.7 (31,400 refusals at the top
-  rung, cap never exceeded).
+| ceiling | then | now | why |
+|---|---|---|---|
+| tile pool | 512, 31,400 refusals at the top rung | **1024** | measured demand 603–779; at 512 the overflow was visible as frozen cubes |
+| `MAX_ACTIVE_FLUID` | 500,000 | **750,000** | ladder to 1.5M live, 8/8 gates green; 750K costs nothing measurable |
 
-**The open question, and it is gameplay-feel, not correctness:** is fluid
-visibly frozen in mid-air at 2× oversubscription acceptable? Options are to
-leave it (it is the documented clamp, identical to fluid outside the active
-radius), raise `MAX_ACTIVE_FLUID` (costs GPU slot memory linearly), or refuse
-placement once the clamp is reached (changes edit semantics). **Not decided.**
+The tile-pool half is **fully resolved** — the frozen-fluid census is **0.0%**
+in every siege run since, including at 1.5M live.
+
+**What remains is the same gameplay-feel question, at a higher threshold:** is
+fluid visibly frozen in mid-air acceptable *when a player genuinely
+oversubscribes the new 750,000 clamp*? Nothing in ordinary play reaches it —
+the siege peaks at ~320,000 — so this is now a question about deliberate abuse
+rather than about normal use. **Still not decided, and still not an agent's
+call** (see the feel-based items below).
+
+### 8. The intermittent fluid stall — RESOLVED 2026-09-11 as KNOWN AND ACCEPTED
+
+Re-measured with a fresh, larger sample this session: **12 consecutive runs of
+`run-fluid-activity.sh`**, one build, same scenario.
+
+| floating voxels at quiescence | runs |
+|---|---|
+| 0 | 8 |
+| 1 | 3 |
+| 2 | 1 |
+
+**4 of 12 = 33%**, against the recorded 35% baseline. P(≤4 failures in 12 at a
+true rate of 0.35) = **0.58** — indistinguishable. The rate has not moved, in
+either direction, across everything shipped since it was first recorded.
+
+**It reproduces, and it reproduces with exactly the documented signature**, so
+this is not an unreproducible ghost:
+
+```
+1-2 floating at quiescence. Pending wake requests: 0 immediate, 0 deferred.
+after 600 extra ticks: 2 floating (was 2)
+STILL FLOATING after 600 further ticks -- a genuine stall, not an early stop.
+```
+
+Magnitude is **1–2 voxels out of ~2,800 placed (0.04–0.07%)**, every time. No
+run has ever produced a large floater count.
+
+**A nuance worth recording**, because it misleads at a glance: the per-burst
+counters show `floating` reaching 90–98 mid-run. That is fluid *in flight* and
+is normal — the defect is only floaters **at quiescence**, and the two are
+different measurements in the same log.
+
+**Why it is ACCEPTED rather than fixed.** The cause is already isolated (§9):
+`CSWakeScan`'s propagation needs a neighbour carrying a `WakeMark` from a
+descending move *that tick*, and a local neighbourhood going quiet in the same
+tick has nothing left to propagate from. The obvious fix — let the
+radius-driven seed run every tick rather than only after a re-centre — lands
+squarely in §2.2's **GPU lane, which this toolchain cannot measure at all**
+(open item 4). Trading an unmeasurable amount of per-tick GPU work for two
+voxels in 2,800 is not a trade to make blind, and forcing it without a
+measurable cost is exactly the kind of change this project's rules exist to
+prevent.
+
+**Status: KNOWN, ACCEPTED, low-rate intermittent.** Regression detection is
+owned by the rig's 10-run rate window; a non-zero rate is still reported on
+every run, so a green run can never be misread as "no floaters".
+
+### 9. The §8.1 treadmill-vs-probe fork — RESOLVED 2026-09-11: **KEEP THE PROBE CONTROLLER**
+
+§13 says "build the simple version first… Only if it proves insufficient,
+escalate." The question this session asked is narrow and answerable: **did
+anything, anywhere in the QA pass or the siege testing, ever hit the failure
+signature that would force escalation?** No.
+
+**CCD across every siege run on record** — the assertion that would catch a
+probe controller missing collisions at speed:
+
+| result | runs |
+|---|---|
+| **PASS**, all sweeps hit the wall (40/40, 12/12, 8/8) | **20** |
+| FAIL, 33/40 | 2 |
+
+**Both failures were traced to a rig bug, not the controller**: a radius-40
+detonation at `c.x+65` spans `c.x+25..+105` and destroyed the CCD wall at
+`c.x+30..31`. The assertion was right and the arena was wrong; after the wall
+moved, 40/40 in every subsequent run. That is recorded in
+`PHASE_6_QA_PASS.md` §7.5.
+
+**The QA pass looked for the other half of the signature and found none:** "no
+clipping through terrain, no jitter at rest, camera stable through
+grapple-speed CCD passes."
+
+**Recommendation: keep the probe controller.** PhysX never sees the world; no
+`Rigidbody`, no `BoxCollider`, no 540-collider treadmill. Nothing measured has
+asked for one, and building it speculatively would add a whole physics
+integration to carry with no evidence it is needed. **If the signature ever
+does appear** — clipping at speed, missed CCD sweeps not traceable to the
+arena — the escalation is still available and §8.1 still describes it.
+
+### 10. Feel-based items — NOT RESOLVABLE BY AN AGENT, AND NOT RESOLVED HERE
+
+**This is the one category that needs the user's own hands on the controls.**
+Listing it explicitly so it is not mistaken for an oversight or quietly
+defaulted:
+
+- **Movement feel** — whether the probe controller *feels* right to play, as
+  distinct from whether it collides correctly (which it does; see item 9).
+- **Eviction visual acceptability** (§3.6) — `BRICK_POOL_HIGH_WATER_FRACTION
+  = 0.85` is no longer ungated and the valve holds the cap, but §3.6 also asks
+  whether the resulting eviction is *visually acceptable under normal
+  building*. That is a judgement, not a measurement.
+- **Flood-front judgement** — whether large-scale fluid *reads* correctly in
+  motion. The numbers say it is correct and the screenshots say it looks like
+  chaos; whether it looks like **good** chaos is a different question.
+- **Frozen fluid at deliberate oversubscription** (item 6) — acceptable, or
+  worth a visible refusal?
+
+An agent can measure these, screenshot them and describe them — and this line
+of work has. It cannot decide them. **Five minutes in Playground is the
+instrument.**
 
 ### 7. The p99 frame-time tail is PERMANENT AND TOOLCHAIN-BOUND, not a to-do
 
