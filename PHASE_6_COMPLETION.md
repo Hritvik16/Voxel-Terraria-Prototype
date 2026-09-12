@@ -364,36 +364,53 @@ successful integrated run in this session used that.
 This is an environment limit, not a code one, but it makes the integrated rig
 expensive to re-run — worth knowing before assuming it can be iterated cheaply.
 
-### 7.2 A DESIGN FORK that wants a human — the shipped fluid radius
+### 7.2 RESOLVED 2026-09-11 — the shipped fluid radius, and the §7.2 rewrite that answered it
 
-**Measured 2026-09-05** (`run-fluid-scale.sh` step 3, and
-`DESIGN_NOTE_7_4_ACTIVE_RADIUS.md` §9). A §7.2 region is a *dense per-cell map*
-— four 4-byte GPU buffers, **16 B/cell**, confirmed identical at 64³/128³/256³ —
-and `CSClear`/`CSCommit`/`CSWakeScan` each dispatch over every cell every tick.
+**This section previously read "A DESIGN FORK that wants a human" and listed
+three unchosen readings. It was stale, and it contradicted the project's own
+later record. Reading (b) was chosen and built; the fork is closed.**
 
-For §7.4's radius to gate anything, the region must be *larger* than the radius.
-The smallest power-of-two region whose half-diagonal reaches
-`FLUID_ACTIVE_RADIUS_VOXELS = 1280` is **2048³ = 128 GB** of per-cell buffers.
-At 256³ — already 256 MB — the radius is 5.8× the region's own half-diagonal.
+The original finding stands as written for the DENSE design it described: a
+§7.2 region was a dense per-cell map at 16 B/cell, so for §7.4's radius to gate
+anything the region had to exceed the radius, and
+`FLUID_ACTIVE_RADIUS_VOXELS = 1280` needs a 2048³ region — **128 GB**. At every
+affordable size the gate was inert by construction.
 
-**So at the shipped constant, §7.4's gate is inert by construction:**
-`WithinActiveRadius` is always true and `BeyondSleepRadius` never is. The
-mechanism is proven correct and proven to wake on approach; it is the *constant*
-that selects a regime no single region can reach.
+**The three readings offered were (a) the radius is mis-sized, (b) the region is
+the wrong shape, (c) the radius belongs one level up. (b) was implemented** as
+§7.2's sparse tiled active set (`FluidTileMap`, `ChunkFluidMask`,
+`FluidTileResidency`). Memory became O(fluid present) instead of O(radius³),
+which makes the shipped radius affordable and hands the radius its real job:
+bounding simulation cost by gating which tiles stay resident. (a) and (c) are
+moot — the constant no longer needs changing, and tiles *are* the "many regions"
+(c) proposed.
 
-Three readings, and no document settles which is intended:
+**The gate is not merely affordable now; it is measured working**, which is the
+part that makes this resolved rather than merely re-architected:
 
-- **(a) The radius is mis-sized.** It was derived from C.5's LOD0 boundary — a
-  *rendering* distance — and nothing checked it against the region it must fit
-  inside. A one-line change makes the mechanism live immediately.
-- **(b) The region is the wrong shape.** If a 128 m active radius is genuinely
-  wanted, the region cannot stay a dense per-cell map. That is a §7.2 redesign.
-- **(c) The radius belongs one level up** — selecting which of *many* regions
-  tick, not which cells within one. 2/4/8 simultaneous regions scale linearly
-  with no cross-region interference (flat 26.6% utilisation), so that path is
-  real and cheap.
+| evidence | result |
+|---|---|
+| `FLUID_SCALE_ARCHITECTURE_RESULTS.md` §2 — footprint vs radius | **264 MB, identical at r = 128, 640 and 1280.** The footprint does not move with the radius |
+| §3, "the radius actually gates" | standing on a pool → 2 tiles resident; **walked ~85 m away → the tile is RELEASED; returned → RE-ACQUIRED and simulating** |
+| §4, explosion scatter | 441 chunks scanned by one `ulong` each; **0 of 219 pockets still holding mobile material failed to wake** |
+| `run-fluid-tiled.sh` (19 PASS / 0 FAIL, re-run 2026-09-11) | asserts "the active-set footprint does not move with the radius — the entire claim of the design" |
+| Playground, session of 2026-09-10 | 1,123 voxels of still water sampled outside the wake radius, **0 wake failures** — they sit in the wake/sleep hysteresis band and are correctly NOT promoted |
+| Late-game siege, every run | "no silent wake failure: 0 of N sampled mobile voxels inside the radius lack a tile" |
 
-I have not chosen. (a) is a constant; (b) and (c) are architecture.
+The first and second rows are the fork's two halves answered directly: the
+footprint stopped scaling with the radius, and the radius started releasing and
+re-waking.
+
+**What remains open from this area is NOT this fork**, and is tracked elsewhere
+so it is not mistaken for it:
+
+- Whether the tiled CA meets §2.2's ≤3.5 ms **GPU** budget is unknown and not
+  claimed — that is the permanent toolchain limitation (open item 4), not a
+  design question.
+- The tile pool size, which `FLUID_SCALE_ARCHITECTURE_RESULTS.md` §6 called "an
+  assumption … untested", **has since been measured and shipped at 1024**
+  (demand 603–779 across cooled siege runs; 512 was overflowing visibly).
+  See `FLUID_TILE_CAP_RESULTS.md`.
 
 ### 7.3 The frame-time stutter — REAL, and NOT Phase 6's
 

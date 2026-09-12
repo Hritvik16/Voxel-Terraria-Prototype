@@ -198,10 +198,19 @@ buffer.
   ≤3.5 ms is unknown and is not claimed.** The design makes cost proportional
   to fluid present rather than to radius volume; whether the constant is
   affordable is a separate, currently unanswerable question.
-- **The 512-tile cap is an assumption**, sized against §2.5's target with
+- ~~**The 512-tile cap is an assumption**, sized against §2.5's target with
   headroom. Scenario C reached it, so it is now at least *exercised* — but
   whether 512 is the right number for real play is untested, exactly as
-  `BRICK_POOL_HIGH_WATER_FRACTION` was before a rig drove it to its limit.
+  `BRICK_POOL_HIGH_WATER_FRACTION` was before a rig drove it to its limit.~~
+  **ANSWERED 2026-09-11 — the cap is now 1024.** 512 was not merely untested,
+  it was too small: real demand measures **603–779** in the late-game siege and
+  ~880 on a deliberately wide lattice, and the overflow was *visible* as raw
+  cubes of fluid hanging in the air that never settled. A deliberate repro, a
+  cooled counterbalanced cap ladder, and the fix are in
+  `FLUID_TILE_CAP_RESULTS.md`. Scenario C's own "733 tiles flagged against a
+  512 cap, 2,280 refusals" was the first sighting of this and was read at the
+  time as the cap working rather than as the cap being undersized — which it
+  also was.
 - **Tile edge 32 is load-bearing in two places**: it must divide 128 (so a tile
   can never straddle a chunk boundary — the Phase 5d bug class), and 4³ = 64
   tiles per chunk is what makes the wake mask exactly one `ulong`.
