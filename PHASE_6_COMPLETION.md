@@ -907,6 +907,42 @@ An agent can measure these, screenshot them and describe them — and this line
 of work has. It cannot decide them. **Five minutes in Playground is the
 instrument.**
 
+### 11. Horizon FPS investigation — RESOLVED 2026-09-12, see `FPS_INVESTIGATION_RESULTS.md`
+
+A reported "FPS drop when looking at the horizon" was investigated end to end.
+**The horizon was not the cause.** Sustained rate went **65.1 → 75.6 FPS** by
+reverting a Playground *demo* change (its local `_activeRadiusVoxels`, raised
+128 → 1280 the previous session, which drove ~486 resident tiles through the
+CA's region passes). **No engine constant was touched.**
+
+Full write-up, including three measurement traps that each produced a
+confident wrong answer before being caught, is in
+**`FPS_INVESTIGATION_RESULTS.md`**. The parts that outlive this one
+investigation:
+
+- **Windowed capture is worthless on this machine** — identical runs returned
+  26.9 and 122.8 FPS. Fullscreen reproduces to 2.9%.
+- **Percentile frame time misleads** — the display is 120 Hz ProMotion and the
+  app out-presents it, so a third of frames block in `present` regardless of
+  workload. Use frames ÷ elapsed wall time.
+- **Counterbalance every sweep** — a ~7% position/thermal decay per run
+  sequence will otherwise read as an effect. It did, twice.
+
+**Two shader fixes were tried, measured and REJECTED** (air-mip reuse in the
+tier path, 67.0 → 44.9 FPS; tier dense inner loop, 66.0 → 61.4 FPS). Both are
+written up with their numbers so they are not re-attempted blind.
+
+**Deferred, ranked, not urgent** — we sit 26% above the 60 FPS target:
+1. Fluid CA region passes scale with *resident tiles*, not live fluid
+   (~11 FPS, 75.6 → 87). Touches §7.3 and the §3.9 sync contract; needs its
+   own session and oracle.
+2. LOD cascade costs 16.8% at high resolution because tiers 1/2 have no
+   air-mip pyramid (a documented scope cut).
+
+**A mild stutter was reported during sustained play. It was not isolated or
+chased this session.** If it persists it is a candidate for the same
+methodology — fullscreen only, frames ÷ elapsed-time, counterbalanced A/B.
+
 ### 7. The p99 frame-time tail is PERMANENT AND TOOLCHAIN-BOUND, not a to-do
 
 Restated here because it keeps being re-opened. Across five sessions, **ten
