@@ -204,6 +204,23 @@ public class PlaygroundCapture : MonoBehaviour
         {
             pg.SendMessage("TeleportToArena", SendMessageOptions.DontRequireReceiver);
             yield return null;
+
+            // ELEVATED VANTAGE FOR THE FLUID SHOTS, added 2026-09-11.
+            // TeleportToArena puts the camera 2.6 m above the basin centre,
+            // which was fine when the vents emitted 310 voxels in total. At
+            // the raised budgets the basin floods PAST that point and the
+            // capture came back as a flat blue screen -- the camera was
+            // underwater. The numbers were right (92,000 written, 202,107
+            // live) and the picture showed none of it.
+            var ac = Camera.main;
+            if (ac != null)
+            {
+                Vector3 basePos = ac.transform.position;
+                ac.transform.position = new Vector3(basePos.x - 5.5f, basePos.y + 7.5f,
+                                                    basePos.z - 5.5f);
+                ac.transform.rotation = Quaternion.Euler(34f, 45f, 0f);
+            }
+            yield return null;
             yield return Shot("05_arena_before", "the natural basin the arena sits in, before fluid");
 
             // 1/2/3 select a brush now; vents are opened explicitly.

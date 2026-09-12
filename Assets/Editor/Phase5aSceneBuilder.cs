@@ -74,12 +74,20 @@ public static class Phase5aSceneBuilder
         var po = new SerializedObject(pg);
         po.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
         po.FindProperty("_arenaEdge").intValue = 64;
-        po.FindProperty("_slotCapacity").intValue = 8192;
-        po.FindProperty("_maxOpsPerFrame").intValue = 8192;
-        // Tiny on purpose -- see Playground's header note 2. Not a scale test.
-        po.FindProperty("_waterBudget").intValue = 160;
-        po.FindProperty("_sandBudget").intValue = 90;
-        po.FindProperty("_lavaBudget").intValue = 60;
+        // THESE OVERRODE THE CODE DEFAULTS AND SILENTLY UNDID A RETUNE.
+        // Raising the SerializeField defaults in Playground.cs did nothing,
+        // because this builder stamps its own values into the scene on every
+        // regeneration -- so the capture kept emitting exactly 160+90+60 = 310
+        // voxels and the "raised" budgets were never in the build at all. The
+        // identical 310 across two builds is what gave it away.
+        //
+        // They now track the fields they are meant to mirror; the values live
+        // in Playground.cs next to the tooltips that explain them.
+        po.FindProperty("_slotCapacity").intValue = EngineConfig.MAX_ACTIVE_FLUID;
+        po.FindProperty("_maxOpsPerFrame").intValue = 65536;
+        po.FindProperty("_waterBudget").intValue = 60000;
+        po.FindProperty("_sandBudget").intValue = 20000;
+        po.FindProperty("_lavaBudget").intValue = 12000;
         po.FindProperty("_outputRootFolderName").stringValue = "PlaygroundShots";
         po.ApplyModifiedPropertiesWithoutUndo();
 

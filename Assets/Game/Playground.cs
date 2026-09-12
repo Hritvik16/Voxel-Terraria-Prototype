@@ -141,6 +141,11 @@ public class Playground : MonoBehaviour
              "budget is -- raising the budget alone would just make the vents drip for " +
              "minutes. 5 gives up to 125 voxels/frame/vent.")]
     [SerializeField] private int _ventEdge = 5;
+    [Tooltip("Half-width in voxels of the footprint a vent walks while emitting. A point " +
+             "source chokes on its own output (Air-only placement) and only ever touches " +
+             "one or two tiles; spreading the pour is what makes it both keep flowing and " +
+             "exercise the tiled substrate.")]
+    [SerializeField] private int _ventSpread = 40;
 
     private ChunkStore _store;
     private TerrainClipmap _clipmap;
@@ -581,6 +586,7 @@ public class Playground : MonoBehaviour
         HandleMouse(dt);
         DriveWalk(dt);
 
+        _ventPhase++;
         Emit(ref _waterLeft, _waterSrc, Materials.Water);
         Emit(ref _sandLeft, _sandSrc, Materials.Sand);
         Emit(ref _lavaLeft, _lavaSrc, Materials.Lava);
@@ -826,28 +832,54 @@ public class Playground : MonoBehaviour
         => _fluid != null &&
            FluidActiveRegion.WithinWakeRadius(v, _fluid.PlayerVoxel, _fluid.ActiveRadiusVoxels);
 
-    /// Emits a small cube per frame rather than a single voxel.
+    /// Emits a small cube per frame, SCATTERED over a footprint.
     ///
-    /// THE OLD FORM PLACED ONE VOXEL PER FRAME, which caps a vent at 60
-    /// voxels/second no matter how large its budget is -- so raising the
-    /// budget alone would have turned a 160-voxel trickle into a 60,000-voxel
-    /// trickle lasting sixteen minutes. Rate and budget have to move together
-    /// for the scene to show the scale that has been proven.
+    /// TWO FAILURES FIXED HERE, THE SECOND FOUND BY LOOKING AT THE CAPTURE.
+    ///
+    /// 1. The original placed ONE voxel per frame, capping a vent at 60
+    ///    voxels/second however large its budget was -- raising the budget
+    ///    alone would have turned a 160-voxel trickle into a 60,000-voxel
+    ///    trickle lasting sixteen minutes.
+    ///
+    /// 2. Emitting a cube at a FIXED point then choked itself. Air-only
+    ///    placement means that once the source neighbourhood fills, nothing
+    ///    more is placed and the budget stops draining entirely. The capture
+    ///    proved it: 310 edits and 1,714 live slots after 8.7 s, and the 20 s
+    ///    frame was pixel-identical to the 8.7 s one. A self-limiting vent is
+    ///    not the same thing as a paced one.
+    ///
+    /// So the emission point WALKS a deterministic lattice across a
+    /// _ventSpread footprint each frame. A blocked spot costs one frame, not
+    /// the rest of the run, and the pour covers an area -- which is also the
+    /// shape that actually exercises the tiled substrate, since a point source
+    /// only ever touches one or two tiles.
     ///
     /// Still one voxel at a time through TrySetVoxel, still Air-only, so every
-    /// §9.4 residency and refusal path is exercised exactly as before -- this
-    /// changes how MANY are offered per frame, not how any one of them is
-    /// written.
+    /// §9.4 residency and refusal path is exercised exactly as before.
+    private int _ventPhase;
     private void Emit(ref int budget, int3 cell, byte material)
     {
         if (budget <= 0) return;
         int r = math.max(0, _ventEdge / 2);
+
+        // HASHED, NOT RASTER-SCANNED. A lattice walk in index order lays
+        // material down in rows, and the capture showed it: the finished lake
+        // had regular parallel stripes of lava and obsidian across its
+        // surface, which reads as a comb rather than as chaos. A cheap
+        // integer hash scatters consecutive frames across the whole footprint
+        // instead, and the same hash still covers it evenly over time.
+        uint h = (uint)_ventPhase * 2654435761u + (uint)material * 40503u;
+        h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
+        int spanV = math.max(1, 2 * _ventSpread);
+        int3 at = cell + new int3((int)(h % (uint)spanV) - _ventSpread, 0,
+                                  (int)((h >> 8) % (uint)spanV) - _ventSpread);
+
         for (int dy = -r; dy <= r; dy++)
         for (int dz = -r; dz <= r; dz++)
         for (int dx = -r; dx <= r; dx++)
         {
             if (budget <= 0) return;
-            int3 c = cell + new int3(dx, dy, dz);
+            int3 c = at + new int3(dx, dy, dz);
             if (_store.GetVoxel(c) != Materials.Air) continue;
             if (_edits.TrySetVoxel(c, material)) budget--;
         }
