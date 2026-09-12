@@ -282,12 +282,38 @@ public static class EngineConfig
 
     // ---- Fluid simulation (§7, Phase 5a) ----
     // §0.2 lists MAX_ACTIVE_FLUID at "~500,000 near-player (pool hard cap
-    // higher)" and it had never been transcribed into this file. It is here now
-    // because FluidReferenceCPU is the first code that needs it. SPEC-MANDATED,
-    // not measured -- §0.2's own "raise only if" reads "Phase 5 shows near-player
-    // scope insufficient", so a Phase 5b measurement is the thing allowed to
-    // move it, not a Phase 5a convenience.
-    public const int MAX_ACTIVE_FLUID = 500000;
+    // higher)". It was carried at 500,000 from Phase 5a until 2026-09-11 as a
+    // SPEC-MANDATED, never-measured number.
+    //
+    // RAISED TO 750,000 ON 2026-09-11, and the basis is worth stating exactly
+    // because it is NOT the basis §0.2 names. §0.2's "raise only if" reads
+    // "Phase 5 shows near-player scope insufficient" -- a NECESSITY test. What
+    // was measured is AFFORDABILITY. Both halves, honestly:
+    //
+    //   MEASURED, cooled, counterbalanced (FLUID_TILE_CAP_RESULTS.md §13):
+    //     750,000 costs nothing. p50 8.01 ms against a 7.31-8.49 baseline
+    //     band, slot memory +7 MB (28 B/slot), peak tile demand 613 -- LOWER
+    //     than the baseline's 679-729 -- and 8/8 gates green.
+    //     A control rung (ceiling raised, volume held FLAT) isolated this: the
+    //     ceiling itself is free. 1,500,000 is NOT: +32% p50, reproduced to
+    //     0.1%, and it consumes up to 97% of the tile pool.
+    //
+    //   MEASURED, and the reason to bother: the old 500,000 clamp IS
+    //     reachable. The chaos ladder hits it at 2x oversubscription and the
+    //     un-slotted voxels "hang as static cubes in mid-air" -- the SAME
+    //     artifact the 512-tile pool produced, which took two sessions to
+    //     find and fix. Fixing the tile cap and leaving this one only moved
+    //     the artifact's threshold.
+    //
+    //   NOT ESTABLISHED: that ordinary heavy play needs it. The late-game
+    //     siege -- the most demanding realistic scenario built -- peaks at
+    //     320,781 live, 64% of the OLD cap. §0.2's necessity condition was
+    //     therefore not demonstrated, and this was shipped as a deliberate
+    //     decision to pre-provision headroom, not as a measurement outcome.
+    //
+    // DO NOT raise to 1,500,000 without re-opening the tile cap: demand there
+    // reached 838-990 against FLUID_TILE_POOL_CAPACITY's 1024.
+    public const int MAX_ACTIVE_FLUID = 750000;
 
     // §7.2's sparse tile pool: how many 32^3 fluid tiles may be resident at
     // once. MEASURED, unlike most of this block -- see

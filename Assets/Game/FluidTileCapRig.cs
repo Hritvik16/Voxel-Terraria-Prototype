@@ -13,7 +13,7 @@
 // WHY THE SATURATION FIELD IS THIN AND WIDE, NOT A BIG POOL
 // -------------------------------------------------------------------------
 // A tile is 32^3 = 32,768 cells but costs ONE pool slot however little fluid
-// it holds. MAX_ACTIVE_FLUID is 500,000 live voxels; 512 tiles could hold
+// it holds. MAX_ACTIVE_FLUID is 750,000 live voxels; 512 tiles could hold
 // 16.7 MILLION. So the two caps are reached by OPPOSITE shapes:
 //
 //   dense and compact -> slots run out first, tiles are nearly empty
@@ -77,7 +77,7 @@ public class FluidTileCapRig : MonoBehaviour
     [SerializeField] private ComputeShader _fluidCA;
     [SerializeField] private PlayerController _player;
     [SerializeField] private int _tilePoolCap = EngineConfig.FLUID_TILE_POOL_CAPACITY;
-    [SerializeField] private int _slotCapacity = 500000;
+    [SerializeField] private int _slotCapacity = EngineConfig.MAX_ACTIVE_FLUID;
     [SerializeField] private int _maxOpsPerFrame = 65536;
     [SerializeField] private string _outputRootFolderName = "FluidTileCap";
 

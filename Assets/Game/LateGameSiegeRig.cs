@@ -58,12 +58,12 @@ public class LateGameSiegeRig : MonoBehaviour
     [SerializeField] private ComputeShader _fluidCA;
     [SerializeField] private PlayerController _player;
     [SerializeField] private int _tilePoolCap = EngineConfig.FLUID_TILE_POOL_CAPACITY;
-    [SerializeField] private int _slotCapacity = 500000;
+    [SerializeField] private int _slotCapacity = EngineConfig.MAX_ACTIVE_FLUID;
     [SerializeField] private int _maxOpsPerFrame = 65536;
     [SerializeField] private string _outputRootFolderName = "LateGameSiege";
 
     private const float Dt = 1f / 60f;
-    /// Hold the live volume in this band. Well under MAX_ACTIVE_FLUID (500K)
+    /// Hold the live volume in this band. Well under MAX_ACTIVE_FLUID (750K)
     /// so the clamp is NOT what this run measures.
     /// Defaults reproduce the established siege baseline exactly. -targetlive
     /// raises the band for the MAX_ACTIVE_FLUID ladder; the low water mark

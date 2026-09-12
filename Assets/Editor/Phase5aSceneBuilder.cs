@@ -1161,7 +1161,7 @@ public static class Phase5aSceneBuilder
         var ro = new SerializedObject(rig);
         ro.FindProperty("_player").objectReferenceValue = pc;
         ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
-        ro.FindProperty("_slotCapacity").intValue = 500000;
+        ro.FindProperty("_slotCapacity").intValue = EngineConfig.MAX_ACTIVE_FLUID;
         ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
         ro.FindProperty("_tilePoolCap").intValue = EngineConfig.FLUID_TILE_POOL_CAPACITY;
         
@@ -1346,7 +1346,7 @@ public static class Phase5aSceneBuilder
         var ro = new SerializedObject(rig);
         ro.FindProperty("_player").objectReferenceValue = pc;
         ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
-        ro.FindProperty("_slotCapacity").intValue = 500000;
+        ro.FindProperty("_slotCapacity").intValue = EngineConfig.MAX_ACTIVE_FLUID;
         ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
         ro.FindProperty("_tilePoolCap").intValue = EngineConfig.FLUID_TILE_POOL_CAPACITY;
         
@@ -1395,7 +1395,7 @@ public static class Phase5aSceneBuilder
         if (fluidCA == null) throw new InvalidOperationException("FluidCA.compute not found");
         var ro = new SerializedObject(rig);
         ro.FindProperty("_fluidCA").objectReferenceValue = fluidCA;
-        ro.FindProperty("_slotCapacity").intValue = 500000;
+        ro.FindProperty("_slotCapacity").intValue = EngineConfig.MAX_ACTIVE_FLUID;
         ro.FindProperty("_maxOpsPerFrame").intValue = 65536;
         ro.FindProperty("_tilePoolCap").intValue = EngineConfig.FLUID_TILE_POOL_CAPACITY;
         ro.FindProperty("_outputRootFolderName").stringValue = "FluidTileCap";

@@ -14,7 +14,7 @@
 // THE TWO CEILINGS THAT ALREADY EXIST, AND WHY THE LADDER IS PHRASED IN
 // "PLACED" RATHER THAN "LIVE"
 // -------------------------------------------------------------------------
-// EngineConfig.MAX_ACTIVE_FLUID = 500,000 hard-clamps the slot pool, so no
+// EngineConfig.MAX_ACTIVE_FLUID (750,000 since 2026-09-11) hard-clamps the slot pool, so no
 // configuration can have more than half a million voxels SIMULATING at once.
 // A "1,000,000 live voxel" rung is not a thing this engine can express, and a
 // rig that claimed one would be lying. The ladder therefore targets PLACED
@@ -62,7 +62,7 @@ public class FluidChaosRig : MonoBehaviour
     [SerializeField] private ComputeShader _fluidCA;
     [SerializeField] private PlayerController _player;
     [SerializeField] private int _tilePoolCap = EngineConfig.FLUID_TILE_POOL_CAPACITY;
-    [SerializeField] private int _slotCapacity = 500000;     // == MAX_ACTIVE_FLUID
+    [SerializeField] private int _slotCapacity = EngineConfig.MAX_ACTIVE_FLUID;
     [SerializeField] private int _maxOpsPerFrame = 65536;
     [SerializeField] private string _outputRootFolderName = "FluidChaos";
 
