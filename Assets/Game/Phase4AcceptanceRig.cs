@@ -32,6 +32,7 @@ using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using VoxelEngine.Memory;
+using VoxelEngine.Simulation;
 using VoxelEngine.Streaming;
 using VoxelEngine.WorldGen;
 
@@ -55,6 +56,12 @@ public class Phase4AcceptanceRig : MonoBehaviour
     [SerializeField] private float _persistenceRoundTripMeters = 250f;
     [Tooltip("Hard ceiling on total rig wall-clock. The run aborts and writes what it has rather than hanging.")]
     [SerializeField] private float _maxRunSeconds = 240f;
+
+    [Header("Step 3 combined load (opt-in, -fluidload <voxels>)")]
+    [Tooltip("FluidCA.compute. NULL in the terrain-only 'Phase 4 Streaming' scene by design -- " +
+             "only the generated 'Phase 4 Streaming Fluid' scene wires it, so the baseline build " +
+             "does not even contain the shader and its numbers stay comparable.")]
+    [SerializeField] private ComputeShader _fluidCA;
     [Tooltip("Beauty screenshot every N metres of traversal. The stills are the only artifact that shows streaming LAG -- terrain arriving behind the camera -- as opposed to streaming errors.")]
     [SerializeField] private float _screenshotEveryMeters = 100f;
 
@@ -109,6 +116,13 @@ public class Phase4AcceptanceRig : MonoBehaviour
         foreach (string a in Environment.GetCommandLineArgs()) if (a == name) return true;
         return false;
     }
+    private static string FlagString(string name)
+    {
+        string[] args = Environment.GetCommandLineArgs();
+        for (int i = 0; i < args.Length - 1; i++) if (args[i] == name) return args[i + 1];
+        return null;
+    }
+
     private static float FlagValue(string name, float fallback)
     {
         string[] args = Environment.GetCommandLineArgs();
@@ -192,6 +206,23 @@ public class Phase4AcceptanceRig : MonoBehaviour
         if (HasFlag("-verifyload")) { StartCoroutine(VerifyLoad()); return; }
         _soakSeconds = FlagValue("-soak", _soakSeconds);
         _maxRunSeconds = FlagValue("-maxrun", _maxRunSeconds);
+        // STEP 3: combined load. DEFAULT 0 = OFF, and that is load-bearing.
+        // Every Phase 4 number on record is terrain-only; if this rig started
+        // simulating fluid by default, none of those numbers would be
+        // comparable to a new run ever again. run-acceptance-rig.sh does not
+        // pass the flag, so its behaviour is byte-identical to before.
+        _fluidLoadVoxels = (int)FlagValue("-fluidload", 0f);
+        // MUTATION CHECK for the shared cascade chain: -nosharedchain restores
+        // the per-tier path, and the cost must come back.
+        if (HasFlag("-nosharedchain"))
+            VoxelEngine.Mirror.LODCascadeManager.SharedChainEnabled = false;
+        // Sweep the fluid apply budget (Step 2): -fluidopbudget <n> | off
+        {
+            string b = FlagString("-fluidopbudget");
+            if (!string.IsNullOrEmpty(b))
+                VoxelEngine.Simulation.FluidOpListReadback.MaxOpsAppliedPerFrame =
+                    b == "off" ? int.MaxValue : int.Parse(b);
+        }
 
         if (FreeFlyRequested)
         {
@@ -266,10 +297,16 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _runStart = Time.realtimeSinceStartup;
 
         yield return StartCoroutine(GateA()); FlushReport();
+        // AFTER Gate A, which is CPU-only and has no camera, and BEFORE the
+        // gates that fly: the fluid load has to be live for the traversal, not
+        // for the lifecycle table.
+        if (_fluidLoadVoxels > 0) yield return StartCoroutine(SetupFluidLoad());
         if (!Halted() && !OutOfTime()) { yield return StartCoroutine(GateB()); FlushReport(); }
         if (!Halted() && !OutOfTime()) { yield return StartCoroutine(GateC()); FlushReport(); }
         if (!Halted() && !OutOfTime()) { yield return StartCoroutine(GateD()); FlushReport(); }
         if (!Halted() && !OutOfTime()) { yield return StartCoroutine(GateE()); FlushReport(); }
+
+        ReportFluidLoad();
 
         _report.AppendLine();
         _report.AppendLine("=== COMMIT READINESS ===");
@@ -784,6 +821,9 @@ public class Phase4AcceptanceRig : MonoBehaviour
     private readonly List<double> _packMs = new List<double>();
     private readonly List<double> _brickSetMs = new List<double>();
     private readonly List<double> _packUpMs = new List<double>();
+    /// The phase that was invisible. See UploadStats.sortMs.
+    private readonly List<double> _sortMs = new List<double>();
+    private readonly List<int> _dirtySetSize = new List<int>();
     private readonly List<double> _cascadeMs = new List<double>();
     private readonly List<int> _setDataCalls = new List<int>();
     private readonly List<int> _brickSlots = new List<int>();
@@ -802,13 +842,267 @@ public class Phase4AcceptanceRig : MonoBehaviour
     /// tier-1/tier-2 work the GPU was handed -- that is what these count.
     private readonly List<int> _cascadeChunks = new List<int>();
     private readonly List<int> _cascadeWrites = new List<int>();
+    /// Chunks still queued for a cascade rebuild, summed over tiers 1 and 2.
+    private readonly List<int> _cascadeBacklog = new List<int>();
     private float _nextShotAt;
     private int _travShotIndex;
+
+    // ---- STEP 3: live fluid running SIMULTANEOUS with traversal ----
+    // Opt-in via -fluidload <voxels>. The fluid is TILED (§7.2's substrate),
+    // re-seeded near the camera as it flies so the load is live throughout the
+    // traversal rather than left behind at the start point -- a pool the
+    // camera has flown away from is dormant, and would measure nothing.
+    private int _fluidLoadVoxels;
+    private EditService _fluidEdits;
+    private FluidGpuSimulation _fluidSim;
+    private FluidOpListReadback _fluidReadback;
+    private FluidTileMap _fluidTiles;
+    private long _fluidApplied;
+    private int _fluidFrame;
+    private double _lastSubmitMs, _lastPumpMs;
+    private int _fluidLastSeedFrame = -100000;
+    /// Minimum frames between top-ups. ~2 s at 60 fps: long enough that a
+    /// single seed has time to spread and register before another is judged.
+    private const int FluidReseedMinFrames = 120;
+    private readonly System.Diagnostics.Stopwatch _swFluidSubmit = new System.Diagnostics.Stopwatch();
+    private readonly System.Diagnostics.Stopwatch _swFluidPump = new System.Diagnostics.Stopwatch();
+    private readonly List<double> _fluidSubmitMs = new List<double>();
+    private readonly List<double> _fluidPumpMs = new List<double>();
+    private readonly List<int> _fluidLiveSlots = new List<int>();
+    private readonly List<int> _fluidActiveTiles = new List<int>();
+    private int _fluidReseeds;
+
+    // =====================================================================
+    // STEP 3 -- A LIVE FLUID LOAD, SIMULTANEOUS WITH TRAVERSAL AND STREAMING
+    // =====================================================================
+    // Every Phase 4 figure on record is TERRAIN ONLY. This rig has never had
+    // fluid in it, so "does the frame still fit once fluid is running while
+    // the window slides" has never been asked here at all -- and that is what
+    // actual play looks like, not a fluid-only benchmark with a parked camera.
+    //
+    // OPT-IN, and off by default. run-acceptance-rig.sh passes no flag, so its
+    // numbers stay comparable to every prior run. run-acceptance-fluid.sh
+    // passes -fluidload <voxels>.
+    //
+    // TILED, not dense: §7.2's substrate is what a combined-load number should
+    // describe going forward, and the dense path could not follow a flying
+    // camera across the world without re-allocating its box every reseed.
+    //
+    // THE FLUID FOLLOWS THE CAMERA. A pool the camera has flown away from is
+    // dormant within a few seconds and measures nothing, which would make this
+    // gate quietly equivalent to the terrain-only one. Re-seeding on chunk
+    // change keeps a live body in front of the camera for the whole traversal.
+    private IEnumerator SetupFluidLoad()
+    {
+        Line("");
+        Line($"--- STEP 3 SETUP: attaching a live TILED fluid load ({_fluidLoadVoxels} voxels) ---");
+
+        var store = Phase4Bootstrapper.Store;
+        var clip = Phase4Bootstrapper.Clipmap;
+        Camera cam = Camera.main;
+        if (cam == null) { Line("  no camera -- fluid load NOT attached"); yield break; }
+
+        if (_fluidCA == null)
+        {
+            // Fail loudly. Silently running terrain-only while the report says
+            // "combined load" is the exact shape of a fake-passing gate.
+            Check(false, "-fluidload was requested but _fluidCA is not wired in this scene; " +
+                         "use the generated 'Phase 4 Streaming Fluid' scene (run-acceptance-fluid.sh)");
+            yield break;
+        }
+
+        _fluidEdits = new EditService();
+        _fluidEdits.AttachWorld(store, store, store, clip);
+
+        _fluidTiles = new FluidTileMap(ChunkFluidMask.TILE_EDGE, new int3(128, 128, 128),
+                                          EngineConfig.FLUID_TILE_POOL_CAPACITY);
+        _fluidSim = new FluidGpuSimulation(_fluidCA, new int3(64, 64, 64), 65536, 65536, _fluidTiles)
+        {
+            RegionOriginVoxels = int3.zero,
+            ActiveRadiusVoxels = EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS,
+            SleepRadiusVoxels = FluidActiveRegion.SleepRadiusFor(EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS),
+        };
+        _fluidReadback = new FluidOpListReadback(_fluidSim, store)
+        {
+            OnVoxelApplied = v => { clip.MarkDirty(CoordMath.VoxelToChunk(v)); _fluidApplied++; },
+        };
+        _fluidEdits.AttachFluidSimulation(_fluidSim, store);
+
+        Line($"  tile pool cap 512, tile edge {ChunkFluidMask.TILE_EDGE}, " +
+             $"active radius {_fluidSim.ActiveRadiusVoxels} voxels");
+        Line($"  GPU active set {_fluidSim.GpuActiveSetBytes() / 1048576.0:F1} MB, " +
+             $"whole simulation {_fluidSim.GpuAllocatedBytes() / 1048576.0:F1} MB");
+
+        SeedFluidNearCamera(cam, "initial");
+        yield return null;
+    }
+
+    private void SeedFluidNearCamera(Camera cam, string why)
+    {
+        var store = Phase4Bootstrapper.Store;
+        int3 camVox = CoordMath.WorldToVoxel(new float3(cam.transform.position.x,
+                                                        cam.transform.position.y,
+                                                        cam.transform.position.z));
+        int surface = FluidSurfaceY(store, camVox.x, camVox.z);
+        if (surface < 1) return;
+
+        // One contiguous body, cube-shaped, dropped above the surface so it is
+        // still moving. Same shape step 1 uses, so the two are comparable.
+        int side = Math.Max(2, (int)Math.Round(Math.Pow(_fluidLoadVoxels, 1.0 / 3.0)));
+        int3 lo = new int3(camVox.x - side / 2, surface + 24, camVox.z - side / 2);
+        // SetBox is INCLUSIVE on both bounds, so hi is lo + side - 1.
+        _fluidEdits.SetBox(lo, lo + new int3(side - 1, side - 1, side - 1), Materials.Water);
+        _fluidReseeds++;
+        _fluidLastSeedFrame = _fluidFrame;
+    }
+
+    private static int FluidSurfaceY(ChunkStore store, int x, int z)
+    {
+        for (int y = WorldGenConstants.MAX_TERRAIN_HEIGHT + 2; y >= 1; y--)
+        {
+            byte m = store.GetVoxel(new int3(x, y, z));
+            if (m != Materials.Air && !MaterialRules.IsFluidMaterial(m)) return y;
+        }
+        return -1;
+    }
+
+    private void TickFluidLoad()
+    {
+        if (_fluidSim == null) return;
+        Camera cam = Camera.main;
+        if (cam == null) return;
+
+        int3 camVox = CoordMath.WorldToVoxel(new float3(cam.transform.position.x,
+                                                        cam.transform.position.y,
+                                                        cam.transform.position.z));
+
+        // Residency on the same cadence the acceptance rig for §7.2 uses. This
+        // is CPU work only the tiled path does and it stays inside the frame.
+        if ((_fluidFrame % 20) == 0)
+        {
+            _fluidSim.UpdatePlayerPosition(camVox);
+            FluidTileResidency.Refresh(Phase4Bootstrapper.Store, _fluidTiles, camVox,
+                                       _fluidSim.ActiveRadiusVoxels, _fluidSim.SleepRadiusVoxels);
+        }
+
+        // RE-SEED TO HOLD A TARGET LOAD, not on every chunk change.
+        //
+        // Chunk-change seeding was the first version and it was wrong: at 60
+        // m/s the camera crosses a chunk boundary about five times a second,
+        // so a multi-minute run re-seeded 320 times and dumped 2.5 MILLION
+        // voxels into the world. Slots pinned at the 65,536 cap for the whole
+        // run, 4.7 million pool exhaustions, 27.8 million voxel writes. That
+        // is a flood, not "a meaningful live fluid load", and every number it
+        // produced described the flood rather than the load.
+        //
+        // Two conditions now, both required: the live population has actually
+        // fallen below half the target (so we top up rather than pile on), and
+        // a minimum interval has passed (so a transient dip cannot trigger a
+        // burst of seeds). Between them the load stays near the requested
+        // figure instead of running away.
+        _fluidSim.ReadSlotCounters(out uint liveNow, out uint _unused);
+        bool depleted = liveNow < (uint)(_fluidLoadVoxels / 2);
+        bool intervalPassed = _fluidFrame - _fluidLastSeedFrame >= FluidReseedMinFrames;
+        if (depleted && intervalPassed) SeedFluidNearCamera(cam, "topping up");
+
+        _swFluidSubmit.Restart();
+        if (_fluidReadback.CanIssue) { _fluidSim.Tick(Phase4Bootstrapper.Clipmap); _fluidReadback.IssueReadback(0); }
+        _swFluidSubmit.Stop();
+
+        _swFluidPump.Restart();
+        _fluidReadback.PumpAndApply();
+        _swFluidPump.Stop();
+
+        _lastSubmitMs = _swFluidSubmit.Elapsed.TotalMilliseconds;
+        _lastPumpMs = _swFluidPump.Elapsed.TotalMilliseconds;
+        _fluidFrame++;
+    }
+
+    /// Records the most recent tick's costs against a SAMPLED frame. Kept
+    /// separate from TickFluidLoad so the tick can run every frame while the
+    /// distributions still describe the frames the rig actually sampled --
+    /// mixing the two would silently change what the percentiles mean.
+    private void RecordFluidSample()
+    {
+        if (_fluidSim == null) return;
+        _fluidSubmitMs.Add(_lastSubmitMs);
+        _fluidPumpMs.Add(_lastPumpMs);
+        _fluidSim.ReadSlotCounters(out uint hi, out uint _);
+        _fluidLiveSlots.Add((int)hi);
+        _fluidActiveTiles.Add(_fluidSim.ActiveTileCount);
+    }
+
+    /// The combined-load section of the report. Printed only when the load was
+    /// actually attached, so a terrain-only run's report is unchanged.
+    private void ReportFluidLoad()
+    {
+        if (_fluidSim == null) return;
+        _report.AppendLine();
+        _report.AppendLine("--- STEP 3: LIVE FLUID DURING TRAVERSAL (combined load) ---");
+        _report.AppendLine("Every other Phase 4 figure in this file is TERRAIN ONLY. This section is");
+        _report.AppendLine("the first combined measurement this project has: §7.2 tiled fluid running");
+        _report.AppendLine("while the window slides and the camera flies.");
+        _report.AppendLine();
+        _report.AppendLine("READING RULE, and it matters here more than anywhere else in this file:");
+        _report.AppendLine("'frame total' above is WALL CLOCK for the whole frame. §2.2 budgets the");
+        _report.AppendLine("fluid CA on the GPU LANE, which this workflow cannot attribute (no Metal");
+        _report.AppendLine("capture; Amendment 8.10 measured gpuFrameTime inflated ~2.6-2.7x here).");
+        _report.AppendLine("So the pump/submit columns below are the only fluid costs MEASURED as");
+        _report.AppendLine("fluid; the GPU CA's own share of the frame is NOT separated out and is");
+        _report.AppendLine("not claimed against §2.2's <=3.5 ms.");
+        _report.AppendLine();
+        _report.AppendLine($"  requested load        {_fluidLoadVoxels} voxels, topped up {_fluidReseeds}x " +
+                           $"(only when live fell below half target, min {FluidReseedMinFrames} frames apart)");
+        _report.AppendLine($"  GPU active set        {_fluidSim.GpuActiveSetBytes() / 1048576.0:F1} MB " +
+                           $"(whole sim {_fluidSim.GpuAllocatedBytes() / 1048576.0:F1} MB)");
+        _report.AppendLine($"  live slots            p50 {IPct(_fluidLiveSlots, 0.5f)}  p99 {IPct(_fluidLiveSlots, 0.99f)}  max {IMax(_fluidLiveSlots)}");
+        _report.AppendLine($"  active tiles          p50 {IPct(_fluidActiveTiles, 0.5f)}  p99 {IPct(_fluidActiveTiles, 0.99f)}  max {IMax(_fluidActiveTiles)}");
+        _report.AppendLine($"  CA submit (CPU ms)    p50 {Pct(_fluidSubmitMs, 0.5f):F4}  p99 {Pct(_fluidSubmitMs, 0.99f):F4}");
+        _report.AppendLine($"  PumpAndApply (CPU ms) p50 {Pct(_fluidPumpMs, 0.5f):F4}  p99 {Pct(_fluidPumpMs, 0.99f):F4}");
+        _report.AppendLine($"  voxel writes applied  {_fluidApplied}");
+        _report.AppendLine($"  ops total {_fluidReadback.OpsTotal}, readback errors {_fluidReadback.ReadbackErrorsTotal}, " +
+                           $"stale {_fluidReadback.StaleOpsDropped}, non-resident {_fluidReadback.OpsDroppedNonResident}");
+        _report.AppendLine($"  readback requests issued {_fluidReadback.RequestsIssuedTotal}");
+        _report.AppendLine($"  FIRST readback error: {_fluidReadback.FirstReadbackErrorDetail}");
+        _report.AppendLine($"  tiles acquired {_fluidTiles.TilesAcquiredTotal}, released {_fluidTiles.TilesReleasedTotal}, " +
+                           $"peak resident {_fluidTiles.PeakResidentTiles}, pool exhaustions {_fluidTiles.PoolExhaustionsTotal}");
+
+        // The one thing that would invalidate the whole section.
+        Check(IMax(_fluidLiveSlots) > 0,
+            $"the fluid load was actually LIVE during traversal (peak {IMax(_fluidLiveSlots)} slots) -- " +
+            "a dormant pool would make this gate silently identical to the terrain-only run");
+        Check(_fluidReadback.ReadbackErrorsTotal == 0,
+            $"no op-list readback errors under combined load ({_fluidReadback.ReadbackErrorsTotal})");
+        // THE OTHER HALF OF "is this the load we asked for". A dormant pool
+        // fails the check above; a runaway flood passes it while describing
+        // something else entirely, and that is what the first run did.
+        Check(IPct(_fluidLiveSlots, 0.5f) < _fluidSim.SlotCapacity,
+            $"the load stayed BOUNDED rather than saturating the slot pool " +
+            $"(p50 {IPct(_fluidLiveSlots, 0.5f)} of {_fluidSim.SlotCapacity}) -- " +
+            "a run pinned at the cap measures pool exhaustion, not the requested load");
+    }
+
+    private static int IPct(List<int> xs, float q)
+    {
+        if (xs.Count == 0) return 0;
+        var c = new List<int>(xs); c.Sort();
+        return c[Mathf.Clamp(Mathf.RoundToInt(q * (c.Count - 1)), 0, c.Count - 1)];
+    }
+
+    private static int IMax(List<int> xs)
+    {
+        int m = 0; foreach (int v in xs) if (v > m) m = v; return m;
+    }
 
     private void SamplePhases()
     {
         var st = Phase4Bootstrapper.Streamer;
         var u = st.LastUploadStats;
+        // The fluid is ticked from Update(), EVERY frame -- not from here.
+        // See TickFluidLoad's header: pumping only on sampled frames left the
+        // op-list readback un-polled across the rig's between-gate work, which
+        // is what produced the stray readback error. This sampler only RECORDS.
+        RecordFluidSample();
         _frameMs.Add(Time.unscaledDeltaTime * 1000.0);
         _frameLabel.Add($"{_legLabel}#{_legFrameIdx++}");
         _frameGcCount.Add(System.GC.CollectionCount(0));
@@ -838,6 +1132,8 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _packMs.Add(u.packRegionMs);
         _brickSetMs.Add(u.brickSetMs);
         _packUpMs.Add(u.packUploadMs);
+        _sortMs.Add(u.sortMs);
+        _dirtySetSize.Add(u.dirtySetSize);
         _cascadeMs.Add(st.LastCascadeMs);
         _setDataCalls.Add(u.setDataCalls);
         _brickSlots.Add(u.brickSlots);
@@ -857,8 +1153,13 @@ public class Phase4AcceptanceRig : MonoBehaviour
             _cascadeWriteMs.Add(casc.TierPool(1).LastGpuWriteMs + casc.TierPool(2).LastGpuWriteMs);
             _cascadeChunks.Add(casc.TierPool(1).LastChunksProcessed + casc.TierPool(2).LastChunksProcessed);
             _cascadeWrites.Add(casc.TierPool(1).LastWriteCalls + casc.TierPool(2).LastWriteCalls);
+            // QUEUE DEPTH. The cascade is ALREADY budgeted (2 chunks/frame,
+            // 2 ms/tier). The question is therefore not "is there a budget"
+            // but "is the queue permanently fed, and is it GROWING" -- a
+            // budget over a growing backlog is stale terrain, not a saving.
+            _cascadeBacklog.Add(casc.TierPool(1).DirtyRemaining + casc.TierPool(2).DirtyRemaining);
         }
-        else { _cascadeChunks.Add(0); _cascadeWrites.Add(0); }
+        else { _cascadeChunks.Add(0); _cascadeWrites.Add(0); _cascadeBacklog.Add(0); }
     }
 
     /// GPU-vs-stutter correlation.
@@ -1255,8 +1556,28 @@ public class Phase4AcceptanceRig : MonoBehaviour
         int maxBytes = 0; foreach (int b in bytes) if (b > maxBytes) maxBytes = b;
         double drainMax = 0; foreach (double d in drain) if (d > drainMax) drainMax = d;
 
+        // STEP 1: CALL COUNT or BYTE VOLUME? max-bytes alone cannot tell them
+        // apart. Terrain-only and combined-load runs had almost the SAME max
+        // bytes (2.61 vs 3.00 MB) while upload_ms p50 went 0.001 -> 6.841, so
+        // the question is not how big an upload is but how OFTEN one happens
+        // and whether the byte cap is binding every frame.
+        long byteSum = 0; int framesWithUpload = 0;
+        foreach (int b in bytes) { byteSum += b; if (b > 0) framesWithUpload++; }
+        double meanBytes = bytes.Count > 0 ? (double)byteSum / bytes.Count : 0;
+        double pctFramesUploading = bytes.Count > 0 ? 100.0 * framesWithUpload / bytes.Count : 0;
+        int capBoundFrames = 0;
+        foreach (int b in bytes)
+            if (b >= EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME) capBoundFrames++;
+
         Line($"{label}: upload_ms p50={p50:F3} p99={p99:F3} max={max:F3} over {ms.Count} frames; " +
              $"drain_ms max={drainMax:F3}; max upload bytes/frame={maxBytes} ({maxBytes / 1048576.0:F2} MB)");
+        Line($"{label}: MEAN upload bytes/frame={meanBytes:F0} ({meanBytes / 1048576.0:F2} MB); " +
+             $"frames doing ANY upload {pctFramesUploading:F1}%; frames AT the byte cap {capBoundFrames} " +
+             $"({(bytes.Count > 0 ? 100.0 * capBoundFrames / bytes.Count : 0):F1}%)");
+        Line($"{label}: MarkDirty calls {Phase4Bootstrapper.Clipmap.MarkDirtyCallsTotal} of which " +
+             $"{Phase4Bootstrapper.Clipmap.MarkDirtyCoalescedTotal} coalesced into an already-dirty chunk " +
+             $"({(Phase4Bootstrapper.Clipmap.MarkDirtyCallsTotal > 0 ? 100.0 * Phase4Bootstrapper.Clipmap.MarkDirtyCoalescedTotal / Phase4Bootstrapper.Clipmap.MarkDirtyCallsTotal : 0):F2}%); " +
+             $"dirty set now {Phase4Bootstrapper.Clipmap.DirtyCount}");
 
         Check(p99 <= 1.0,
             $"steady-state terrain upload p99 {p99:F3}ms <= 1.0ms (§4.3 'terrain upload <=1.0ms/frame CPU')");
@@ -1316,9 +1637,20 @@ public class Phase4AcceptanceRig : MonoBehaviour
         _report.AppendLine($"    pack region     {Pct(_packMs, 0.5f),8:F2} / {Pct(_packMs, 0.99f),8:F2}");
         _report.AppendLine($"    brick bodies    {Pct(_brickSetMs, 0.5f),8:F2} / {Pct(_brickSetMs, 0.99f),8:F2}");
         _report.AppendLine($"    packed mip up   {Pct(_packUpMs, 0.5f),8:F2} / {Pct(_packUpMs, 0.99f),8:F2}");
+        _report.AppendLine($"    dirty-set SORT  {Pct(_sortMs, 0.5f),8:F2} / {Pct(_sortMs, 0.99f),8:F2}"
+                           + $"   <-- was untimed; dirty set p50 {IPct(_dirtySetSize, 0.5f)} p99 {IPct(_dirtySetSize, 0.99f)} chunks");
         _report.AppendLine($"    cascades        {Pct(_cascadeMs, 0.5f),8:F2} / {Pct(_cascadeMs, 0.99f),8:F2}");
         _report.AppendLine($"      - downsample  {Pct(_cascadeDownMs, 0.5f),8:F2} / {Pct(_cascadeDownMs, 0.99f),8:F2}");
         _report.AppendLine($"      - gpu writes  {Pct(_cascadeWriteMs, 0.5f),8:F2} / {Pct(_cascadeWriteMs, 0.99f),8:F2}");
+        _report.AppendLine($"      - cascade path: {(VoxelEngine.Mirror.LODCascadeManager.SharedChainEnabled ? "SHARED CHAIN (gather+chain once per chunk)" : "PER-TIER (regression baseline)")}"
+                           + $";  fluid op budget {VoxelEngine.Simulation.FluidOpListReadback.MaxOpsAppliedPerFrame}");
+        _report.AppendLine($"      - tier0 GATHERS {VoxelEngine.Mirror.LODDownsampler.Tier0GathersTotal}"
+                           + $" costing {VoxelEngine.Mirror.LODDownsampler.Tier0GatherMs:F0} ms total"
+                           + $"  (2 MB each; the cascade marks EVERY tier dirty per chunk)");
+        _report.AppendLine($"      - BACKLOG (chunks queued, tiers 1+2)  p50 {IPct(_cascadeBacklog, 0.5f)}"
+                           + $"  p99 {IPct(_cascadeBacklog, 0.99f)}  max {IMax(_cascadeBacklog)}"
+                           + $"   first {(_cascadeBacklog.Count > 0 ? _cascadeBacklog[0] : 0)}"
+                           + $"  last {(_cascadeBacklog.Count > 0 ? _cascadeBacklog[_cascadeBacklog.Count - 1] : 0)}");
         _report.AppendLine($"    max GPU write calls/frame: {MaxOf(_setDataCalls)}");
         {
             var st2 = Phase4Bootstrapper.Streamer;
@@ -1521,6 +1853,18 @@ public class Phase4AcceptanceRig : MonoBehaviour
         Line($"deltas written={streamer.ChunksSavedTotal} loaded={streamer.DeltasLoadedTotal} " +
              $"rejected={streamer.DeltasRejectedTotal}");
         Check(streamer.ChunksSavedTotal > 0, "at least one delta was written during eviction");
+
+        // ChunksSavedTotal COUNTS ATTEMPTS. SaveDelta catches its own exception
+        // and returns false, and EvictChunk increments regardless, so the check
+        // above passes even when every save failed. That is exactly how the
+        // scratch-pool leak survived this phase's sign-off: Gate D wrote two
+        // deltas, far under the ~140-save threshold, and had no counter that
+        // could have told the difference anyway.
+        Check(streamer.DeltaSaveFailuresTotal == 0,
+            $"and NONE of them failed ({streamer.DeltaSaveFailuresTotal} failures) -- the only " +
+            "counter that separates 'saved' from 'tried to save'");
+        Check(streamer.ScratchExhaustionWarnings == 0,
+            $"no scratch-pool leak was detected ({streamer.ScratchExhaustionWarnings})");
         Check(streamer.DeltasLoadedTotal > 0, "at least one delta was read back on re-admission");
 
         var returned = store.GetChunk(editChunk);
@@ -1777,6 +2121,31 @@ public class Phase4AcceptanceRig : MonoBehaviour
             finally { UnityEngine.Object.Destroy(shot); }
         }
         RaymarchFeature.UseDebugViewOverride = false;
+    }
+
+    /// EVERY FRAME, not only on sampled ones.
+    ///
+    /// The first version ticked the fluid from SamplePhases, which the rig
+    /// calls only during a gate's sampled frames. Between gates -- screenshots,
+    /// WaitForIdle, validator GetData storms -- nothing pumped, so an issued
+    /// op-list readback sat un-polled for ~25 frames while the rig did
+    /// synchronous GPU work around it. That is what the stray readback error
+    /// was: intermittent (4 of 7 runs), always exactly one, always the
+    /// LAST-ISSUED request, always at an age of ~25 frames. The fluid-only
+    /// rig, which pumps every frame, never produced one across 24 configs.
+    ///
+    /// Ticking here is also simply more honest: a real game pumps the readback
+    /// every frame, and the gap was an artefact of the measurement harness
+    /// rather than anything about fluid.
+    private void Update()
+    {
+        TickFluidLoad();
+    }
+
+    private void OnDestroy()
+    {
+        _fluidReadback?.Dispose();
+        _fluidSim?.Dispose();
     }
 
     private void Finish()

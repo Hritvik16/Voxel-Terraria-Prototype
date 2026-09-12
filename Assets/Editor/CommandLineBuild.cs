@@ -27,6 +27,520 @@ public static class CommandLineBuild
     private const string SCENE_PATH = "Assets/Scenes/Phase 4 Streaming.unity";
     private const string OUTPUT_PATH = "Builds/Phase4Acceptance.app";
 
+    private const string PHASE5A_SCENE_PATH = "Assets/Scenes/Phase 5a Basin.unity";
+    private const string PHASE5A_OUTPUT_PATH = "Builds/Phase5aAcceptance.app";
+
+    /// Phase 5a's basin acceptance rig, same shape as BuildPhase4Standalone.
+    /// RELEASE, not Development, for the same reason stated at the top of this
+    /// file -- and additionally so Debug.isDebugBuild reads false in the rig's
+    /// own report, where it is printed as evidence of which build produced the
+    /// screenshots.
+    private const string PLAYGROUND_SCENE_PATH = "Assets/Scenes/Playground.unity";
+    private const string PLAYGROUND_OUTPUT_PATH = "Builds/Playground.app";
+
+    public static void BuildPlaygroundStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PLAYGROUND_SCENE_PATH },
+            locationPathName = PLAYGROUND_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] playground result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PLAYGROUND_OUTPUT_PATH);
+    }
+
+    private const string FLUID_ACTIVITY_SCENE_PATH = "Assets/Scenes/Fluid Activity.unity";
+    private const string FLUID_ACTIVITY_OUTPUT_PATH = "Builds/FluidActivity.app";
+
+    public static void BuildFluidActivityStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { FLUID_ACTIVITY_SCENE_PATH },
+            locationPathName = FLUID_ACTIVITY_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] fluid activity result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(FLUID_ACTIVITY_OUTPUT_PATH);
+    }
+
+    private const string PLAYTEST_BUGS_SCENE_PATH = "Assets/Scenes/Playtest Bugs.unity";
+    private const string PLAYTEST_BUGS_OUTPUT_PATH = "Builds/PlaytestBugs.app";
+
+    /// STEP 0's two-bug diagnostic. Release build for consistency with every
+    /// other rig here; it reports no timings, so the build type is not load-
+    /// bearing for its conclusions.
+    public static void BuildPlaytestBugsStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PLAYTEST_BUGS_SCENE_PATH },
+            locationPathName = PLAYTEST_BUGS_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] playtest bugs result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PLAYTEST_BUGS_OUTPUT_PATH);
+    }
+
+    private const string FLUID_SCALE_SCENE_PATH = "Assets/Scenes/Fluid Scale.unity";
+    private const string FLUID_SCALE_OUTPUT_PATH = "Builds/FluidScale.app";
+
+    public static void BuildFluidScaleStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { FLUID_SCALE_SCENE_PATH },
+            locationPathName = FLUID_SCALE_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] fluid scale result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(FLUID_SCALE_OUTPUT_PATH);
+    }
+
+    private const string FLUID_TILED_SCENE_PATH = "Assets/Scenes/Fluid Tiled.unity";
+    private const string FLUID_TILED_OUTPUT_PATH = "Builds/FluidTiled.app";
+
+    public static void BuildFluidTiledStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { FLUID_TILED_SCENE_PATH },
+            locationPathName = FLUID_TILED_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] fluid tiled result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(FLUID_TILED_OUTPUT_PATH);
+    }
+
+    private const string PHASE4_FLUID_SCENE_PATH = "Assets/Scenes/Phase 4 Streaming Fluid.unity";
+    private const string PHASE4_FLUID_OUTPUT_PATH = "Builds/Phase4AcceptanceFluid.app";
+
+    /// STEP 3: the Phase 4 acceptance rig with a live fluid load. Separate app
+    /// from Phase4Acceptance.app so the terrain-only baseline build is never
+    /// touched and its numbers stay comparable to every prior run.
+    public static void BuildPhase4FluidStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE4_FLUID_SCENE_PATH },
+            locationPathName = PHASE4_FLUID_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase4 fluid result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE4_FLUID_OUTPUT_PATH);
+    }
+
+    private const string SIEGE_SCENE_PATH = "Assets/Scenes/Late Game Siege.unity";
+    private const string SIEGE_OUTPUT_PATH = "Builds/LateGameSiege.app";
+
+    public static void BuildLateGameSiegeStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { SIEGE_SCENE_PATH },
+            locationPathName = SIEGE_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] siege result={report.summary.result}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(SIEGE_OUTPUT_PATH);
+    }
+
+    private const string TILECAP_SCENE_PATH = "Assets/Scenes/Fluid Tile Cap.unity";
+    private const string TILECAP_OUTPUT_PATH = "Builds/FluidTileCap.app";
+
+    public static void BuildFluidTileCapStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { TILECAP_SCENE_PATH },
+            locationPathName = TILECAP_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] tilecap result={report.summary.result}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(TILECAP_OUTPUT_PATH);
+    }
+
+    private const string PHASE6_QA_SCENE_PATH = "Assets/Scenes/Phase 6 QA.unity";
+    private const string PHASE6_QA_OUTPUT_PATH = "Builds/Phase6Qa.app";
+
+    public static void BuildPhase6QaStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE6_QA_SCENE_PATH },
+            locationPathName = PHASE6_QA_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase6 qa result={report.summary.result}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE6_QA_OUTPUT_PATH);
+    }
+
+    private const string FLUID_STAGGER_SCENE_PATH = "Assets/Scenes/Fluid Stagger.unity";
+    private const string FLUID_STAGGER_OUTPUT_PATH = "Builds/FluidStagger.app";
+
+    public static void BuildFluidStaggerStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { FLUID_STAGGER_SCENE_PATH },
+            locationPathName = FLUID_STAGGER_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] fluid stagger result={report.summary.result}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(FLUID_STAGGER_OUTPUT_PATH);
+    }
+
+    private const string FLUID_CHAOS_SCENE_PATH = "Assets/Scenes/Fluid Chaos.unity";
+    private const string FLUID_CHAOS_OUTPUT_PATH = "Builds/FluidChaos.app";
+
+    /// The large-scale chaos ladder. RELEASE -- it reports frame time.
+    public static void BuildFluidChaosStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { FLUID_CHAOS_SCENE_PATH },
+            locationPathName = FLUID_CHAOS_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] fluid chaos result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(FLUID_CHAOS_OUTPUT_PATH);
+    }
+
+    private const string PHASE6_COMBINED_SCENE_PATH = "Assets/Scenes/Phase 6 Combined.unity";
+    private const string PHASE6_COMBINED_OUTPUT_PATH = "Builds/Phase6Combined.app";
+
+    /// Every Phase 6 system at once on the tiled substrate. RELEASE -- the rig
+    /// reports frame time and a development build would distort it.
+    public static void BuildPhase6CombinedStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE6_COMBINED_SCENE_PATH },
+            locationPathName = PHASE6_COMBINED_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase6 combined result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE6_COMBINED_OUTPUT_PATH);
+    }
+
+    private const string FLUID_AB_SCENE_PATH = "Assets/Scenes/Fluid AB.unity";
+    private const string FLUID_AB_OUTPUT_PATH = "Builds/FluidAB.app";
+
+    /// The dense-vs-tiled wall-clock A/B. RELEASE build, and that is the whole
+    /// point: a development build distorts exactly the frame time this rig
+    /// exists to measure.
+    public static void BuildFluidABStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { FLUID_AB_SCENE_PATH },
+            locationPathName = FLUID_AB_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] fluid AB result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(FLUID_AB_OUTPUT_PATH);
+    }
+
+    private const string PHASE6_SANDBOX_SCENE_PATH = "Assets/Scenes/Phase 6 Sandbox.unity";
+    private const string PHASE6_SANDBOX_OUTPUT_PATH = "Builds/Phase6Sandbox.app";
+
+    /// §13 Phase 6's INTEGRATED acceptance rig. RELEASE build -- step 8 reports
+    /// frame time, and a development build would make those figures meaningless.
+    public static void BuildPhase6SandboxStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE6_SANDBOX_SCENE_PATH },
+            locationPathName = PHASE6_SANDBOX_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase6 sandbox result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE6_SANDBOX_OUTPUT_PATH);
+    }
+
+    private const string PHASE6_EDIT_SCENE_PATH = "Assets/Scenes/Phase 6 Edit.unity";
+    private const string PHASE6_EDIT_OUTPUT_PATH = "Builds/Phase6Edit.app";
+
+    /// §13 Phase 6 file 3's acceptance rig. Scene path and output path must
+    /// agree with run-phase6-edit.sh.
+    public static void BuildPhase6EditStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE6_EDIT_SCENE_PATH },
+            locationPathName = PHASE6_EDIT_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase6 edit result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE6_EDIT_OUTPUT_PATH);
+    }
+
+    private const string PHASE6_CCD_SCENE_PATH = "Assets/Scenes/Phase 6 CCD.unity";
+    private const string PHASE6_CCD_OUTPUT_PATH = "Builds/Phase6Ccd.app";
+
+    /// §13 Phase 6 file 2's acceptance rig. Scene path and output path must
+    /// agree with run-phase6-ccd.sh.
+    public static void BuildPhase6CcdStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE6_CCD_SCENE_PATH },
+            locationPathName = PHASE6_CCD_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase6 ccd result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE6_CCD_OUTPUT_PATH);
+    }
+
+    private const string PHASE6_PLAYER_SCENE_PATH = "Assets/Scenes/Phase 6 Player.unity";
+    private const string PHASE6_PLAYER_OUTPUT_PATH = "Builds/Phase6Player.app";
+
+    /// §13 Phase 6 file 1's acceptance rig. Scene path and output path must
+    /// agree with run-phase6-player.sh.
+    public static void BuildPhase6PlayerStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE6_PLAYER_SCENE_PATH },
+            locationPathName = PHASE6_PLAYER_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase6 player result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE6_PLAYER_OUTPUT_PATH);
+    }
+
+    private const string PHASE6_BRUSHGUARD_SCENE_PATH = "Assets/Scenes/Phase 6 Brush Guard.unity";
+    private const string PHASE6_BRUSHGUARD_OUTPUT_PATH = "Builds/Phase6BrushGuard.app";
+
+    /// The brush-guard end-to-end rig. RELEASE build, same as every other rig:
+    /// the scene and the output path must agree with run-phase6-brushguard.sh,
+    /// which is the mistake run-phase5d-rig.sh actually shipped with (it tested
+    /// for a path nothing ever wrote and called a successful build a failure).
+    public static void BuildPhase6BrushGuardStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE6_BRUSHGUARD_SCENE_PATH },
+            locationPathName = PHASE6_BRUSHGUARD_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase6 brushguard result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE6_BRUSHGUARD_OUTPUT_PATH);
+    }
+
+    private const string PLAYGROUND_TRACE_OUTPUT_PATH = "Builds/PlaygroundTrace.app";
+
+    /// DEVELOPMENT build of the Playground, for GPU capture ONLY.
+    ///
+    /// WHY A SEPARATE, NON-RELEASE BUILD EXISTS AT ALL. Metal debug groups are
+    /// what makes a captured trace show "VE.FluidCA.CSIntent" instead of an
+    /// anonymous compute encoder, and Unity emits them from
+    /// CommandBuffer.BeginSample -- which is a PROFILER marker and is compiled
+    /// out of a non-development player. Measured, not assumed: a release build
+    /// captured with Instruments' Metal System Trace contained zero occurrences
+    /// of any "VE." label anywhere in the trace bundle, and every encoder was
+    /// labelled "Command Buffer 0". BuildOptions.Development is what turns the
+    /// markers back on.
+    ///
+    /// THIS BUILD MUST NEVER BE USED FOR FRAME TIME. It carries development
+    /// overhead by construction. It exists to attribute GPU work BETWEEN
+    /// kernels, which is a ratio, not a budget. ./run-acceptance-rig.sh remains
+    /// the only trusted frame-time source (CLAUDE.md), and it builds release.
+    /// The output path is deliberately different from Builds/Playground.app so
+    /// the two can never be confused.
+    public static void BuildPlaygroundTraceStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PLAYGROUND_SCENE_PATH },
+            locationPathName = PLAYGROUND_TRACE_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            // Development enables profiler markers -> Metal debug groups.
+            // AllowDebugging is NOT set: a script debugger would change timing
+            // far more than the markers do.
+            options = BuildOptions.Development,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] playgroundTrace result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PLAYGROUND_TRACE_OUTPUT_PATH);
+    }
+
+    private const string PHASE5BDEMO_SCENE_PATH = "Assets/Scenes/Phase 5b Demo.unity";
+    private const string PHASE5BDEMO_OUTPUT_PATH = "Builds/Phase5bDemo.app";
+
+    /// The demo/playable build. RELEASE for the same reasons as every other
+    /// build here; it is also the one a human launches and flies around in.
+    public static void BuildPhase5bDemoStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE5BDEMO_SCENE_PATH },
+            locationPathName = PHASE5BDEMO_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase5bdemo result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE5BDEMO_OUTPUT_PATH);
+    }
+
+    private const string PHASE5D_SCENE_PATH = "Assets/Scenes/Phase 5d Stream Fluid.unity";
+    private const string PHASE5D_OUTPUT_PATH = "Builds/Phase5dStreamFluid.app";
+
+    public static void BuildPhase5dStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE5D_SCENE_PATH },
+            locationPathName = PHASE5D_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase5d result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE5D_OUTPUT_PATH);
+    }
+
+    private const string PHASE5C_SCENE_PATH = "Assets/Scenes/Phase 5c Edit Stress.unity";
+    private const string PHASE5C_OUTPUT_PATH = "Builds/Phase5cEditStress.app";
+
+    public static void BuildPhase5cStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE5C_SCENE_PATH },
+            locationPathName = PHASE5C_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        var summary = report.summary;
+        Debug.Log($"[CommandLineBuild] phase5c result={summary.result} errors={summary.totalErrors} " +
+                  $"outputPath={summary.outputPath}");
+        if (summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE5C_OUTPUT_PATH);
+    }
+
+    private const string PHASE5B_SCENE_PATH = "Assets/Scenes/Phase 5b Basin.unity";
+    private const string PHASE5B_OUTPUT_PATH = "Builds/Phase5bValidation.app";
+
+    /// Phase 5b's GPU-port validation rig. RELEASE, not Development: a
+    /// Development build carries profiling overhead, and this rig takes a
+    /// wall-clock frame-time reading (provisional, but not deliberately spoiled).
+    public static void BuildPhase5bStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE5B_SCENE_PATH },
+            locationPathName = PHASE5B_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        var summary = report.summary;
+        Debug.Log($"[CommandLineBuild] phase5b result={summary.result} errors={summary.totalErrors} " +
+                  $"outputPath={summary.outputPath}");
+        if (summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE5B_OUTPUT_PATH);
+    }
+
+    public static void BuildPhase5aStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE5A_SCENE_PATH },
+            locationPathName = PHASE5A_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        var summary = report.summary;
+        Debug.Log($"[CommandLineBuild] phase5a result={summary.result} " +
+                  $"errors={summary.totalErrors} warnings={summary.totalWarnings} " +
+                  $"outputPath={summary.outputPath} sizeBytes={summary.totalSize}");
+
+        if (summary.result != BuildResult.Succeeded)
+            EditorApplication.Exit(1);
+
+        DisableAppNap(PHASE5A_OUTPUT_PATH);
+    }
+
     public static void BuildPhase4Standalone()
     {
         var options = new BuildPlayerOptions

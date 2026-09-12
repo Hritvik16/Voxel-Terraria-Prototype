@@ -1,0 +1,55 @@
+// Assets/CoreEngine/Simulation/FluidClaimStress.compute
+//
+// §7.3's mandated Metal verification, isolated to the smallest thing that can
+// answer the question:
+//
+//   "Still verify on Metal specifically in Phase 5b -- a stated hardware
+//    guarantee is not the same as a measurement on this actual toolchain, and
+//    that verification is cheap (write a stress test that floods one
+//    destination cell with hundreds of contending sources, assert the surviving
+//    value is always one of the valid candidates, never garbage)."
+//
+// It deliberately touches NO terrain, no clipmap, no slots. It is the claim
+// write and nothing else, so a failure here cannot be confused with a bug in
+// the CA.
+//
+// THE CLAIM IS A PLAIN STORE. No InterlockedMin, no atomics (§7.3, 8.4). That
+// is the thing under test -- "tidying" this into an atomic would make the test
+// pass by removing the question.
+
+#pragma kernel CSSeed
+#pragma kernel CSFlood
+
+RWStructuredBuffer<int>  Claims;      // one entry per contested destination cell
+RWStructuredBuffer<uint> Verdict;     // [0]=garbageCount [1]=untouchedCount [2]=distinctWinners
+
+uint _DestCount;        // contested cells
+uint _SourcesPerDest;   // contending writers per cell (hundreds, per §7.3)
+uint _Pass;             // varies the candidate range between passes
+
+#define NONE (-1)
+
+[numthreads(64,1,1)]
+void CSSeed(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _DestCount) return;
+    Claims[id.x] = NONE;
+}
+
+// Every thread is a "source" writing its own id into the destination's claim
+// slot with an ORDINARY STORE. Candidate ids for destination d are exactly
+// [d*_SourcesPerDest, (d+1)*_SourcesPerDest), so the CPU can check the survivor
+// is one of them without needing to know which thread physically landed last.
+[numthreads(64,1,1)]
+void CSFlood(uint3 id : SV_DispatchThreadID)
+{
+    uint t = id.x;
+    if (t >= _DestCount * _SourcesPerDest) return;
+
+    uint dest = t / _SourcesPerDest;
+    uint candidate = t;            // globally unique, and decodable back to dest
+
+    // *** THE LINE UNDER TEST *** plain aligned 32-bit store, contended by
+    // _SourcesPerDest threads. §7.3 asserts this cannot tear.
+    Claims[dest] = (int)candidate;
+}

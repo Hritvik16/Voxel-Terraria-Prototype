@@ -145,6 +145,20 @@ int _TraversalMode;
 // exactly, byte-for-byte, for any comparison against pre-existing screenshots.
 int _UseDevColors;
 
+// ---- PRESENTATION FLAGS (shading step only) ----
+// Every one of these gates a purely cosmetic term applied AFTER traversal has
+// already resolved which voxel and which face a ray hit. None of them is read
+// by any stepping, addressing or LOD-selection code. Set them to 0 and the
+// output collapses to the pre-existing look, which is why they are flags and
+// not edits: Phase 7's real lighting (§6.5) can switch any of them off without
+// unpicking anything.
+int   _ShadeAO;        // per-face ambient occlusion from neighbour occupancy
+int   _ShadeHemi;      // sky/ground hemisphere tint
+int   _ShadeFog;       // distance fog toward the sky colour
+float4 _SkyColor;      // also the fog target and the "up" hemisphere tint
+float  _FogStartM;
+float  _FogEndM;
+
 #define MAX_CHAIN_LEAPS 7
 
 float4 StepHeatColor(int steps)
@@ -185,6 +199,40 @@ float3 DevMaterialColor(uint mat)
     return kDevPalette[idx];
 }
 
+// ===========================================================================
+// AUTHORED PALETTE + CHEAP FAKE SHADING. Presentation only.
+//
+// MIRRORS MaterialPalette in Assets/ContentModules/MaterialRules.cs, which is
+// the authoritative table. PaletteSyncTests parses this function and fails if
+// the two drift. If you change a colour, change it in BOTH places.
+//
+// Nothing below participates in traversal. These functions are called once, at
+// the end of CSMain, on a voxel the DDA has already decided was hit.
+// ===========================================================================
+float3 MaterialAlbedo(uint mat)
+{
+    if (mat == 2u)  return float3(0.440, 0.425, 0.400);  // Stone
+    if (mat == 3u)  return float3(0.365, 0.470, 0.255);  // Grass
+    if (mat == 4u)  return float3(0.735, 0.660, 0.495);  // Sand
+    if (mat == 5u)  return float3(0.355, 0.410, 0.330);  // MossyStone
+    if (mat == 6u)  return float3(0.150, 0.330, 0.420);  // Water
+    if (mat == 7u)  return float3(0.715, 0.735, 0.760);  // Snow
+    if (mat == 8u)  return float3(0.520, 0.415, 0.295);  // Sandstone (earth role)
+    if (mat == 9u)  return float3(0.275, 0.410, 0.235);  // JungleGrass
+    if (mat == 10u) return float3(0.255, 0.260, 0.285);  // Deepstone
+    if (mat == 11u) return float3(0.720, 0.215, 0.070);  // Lava
+    if (mat == 12u) return float3(0.680, 0.480, 0.130);  // Honey
+    if (mat == 13u) return float3(0.095, 0.085, 0.125);  // Obsidian
+    return float3(0.90, 0.10, 0.80);                     // unauthored -> obvious magenta
+}
+
+// Self-lit materials skip the darkening terms so they stay hot. This is a
+// SHADING CHEAT, not a light source: nothing here illuminates anything else.
+// Real emission is Phase 7 (§6.5).
+bool MaterialIsSelfLit(uint mat) { return mat == 11u; }
+
+
+
 // CHUNK-MAJOR (Phase 4). Ring-masking the CHUNK coord rather than the brick
 // coord is what makes a chunk's 4096 entries contiguous. Masking stays
 // origin-independent: under a power-of-two mask, subtracting the origin only
@@ -202,6 +250,68 @@ uint ReadClipmap(int3 brickCoord, uint3 windowDimsBricks)
     int  local      = LocalBrickIndex(localBrick);   // C.1, CoordMath.hlsl
 
     return ClipmapBuffer[(chunkSlot * 4096) + local];
+}
+
+// ---- AO helpers live HERE, below ReadClipmap, because they call it.
+// HLSL requires declaration before use; placing them up beside the palette
+// produced 'undeclared identifier ReadClipmap' on Metal only, which the
+// Editor-side shader check does not catch -- the build-log gate did.
+/// Solid test for ambient occlusion. READ-ONLY, and deliberately a separate
+/// function from anything the DDA uses -- it reuses ReadClipmap and
+/// BrickDataBuffer exactly as the traversal reads them, but no traversal code
+/// path calls this and it mutates nothing.
+bool AoSolidAt(int3 voxel, uint3 windowDimsBricks)
+{
+    int3 rel = VoxelToBrick(voxel) - _WindowOriginBricksPacked.xyz;
+    if (rel.x < 0 || rel.y < 0 || rel.z < 0 ||
+        rel.x >= (int)windowDimsBricks.x ||
+        rel.y >= (int)windowDimsBricks.y ||
+        rel.z >= (int)windowDimsBricks.z) return false;
+
+    uint handle = ReadClipmap(VoxelToBrick(voxel), windowDimsBricks);
+    if ((handle & 0x80000000u) == 0u) return (handle & 0xFFu) != 0u;   // uniform brick
+    uint poolIdx = handle & 0x3FFFFFFFu;
+    uint vIdx = (uint)LocalVoxelIndex(LocalVoxelIndex3D(voxel));
+    uint packed = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
+    return (((packed >> ((vIdx & 3u) * 8u)) & 0xFFu) != 0u);
+}
+
+/// Classic voxel corner-darkening. For each of the four corners of the hit
+/// face, occlusion is a function of the two edge neighbours and the diagonal;
+/// the four values are then bilinearly interpolated across the face using the
+/// ray's actual hit position. This is the trick that makes voxel terrain read
+/// as having depth without any light in the scene at all.
+float FaceAO(int3 voxel, int3 normal, float3 hitVoxelPos, uint3 windowDimsBricks)
+{
+    // Face-plane tangents. Any consistent pair works; the bilinear weights
+    // below are computed in the same basis, so the choice cannot skew the result.
+    int3 n = normal;
+    int3 u = (abs(n.x) == 1) ? int3(0, 1, 0) : int3(1, 0, 0);
+    int3 v = (abs(n.z) == 1) ? int3(0, 1, 0) : int3(0, 0, 1);
+    if (abs(n.y) == 1) { u = int3(1, 0, 0); v = int3(0, 0, 1); }
+
+    int3 base = voxel + n;                    // the empty cell in front of the face
+    float ao[4];
+    [unroll]
+    for (int c = 0; c < 4; c++)
+    {
+        int su = (c & 1) ? 1 : -1;
+        int sv = (c & 2) ? 1 : -1;
+        bool s1 = AoSolidAt(base + u * su, windowDimsBricks);
+        bool s2 = AoSolidAt(base + v * sv, windowDimsBricks);
+        bool cd = AoSolidAt(base + u * su + v * sv, windowDimsBricks);
+        // Both edges occluded => fully dark corner, the diagonal cannot help.
+        float occ = (s1 && s2) ? 3.0 : (float)((s1 ? 1 : 0) + (s2 ? 1 : 0) + (cd ? 1 : 0));
+        ao[c] = 1.0 - occ * 0.25;             // 3 occluders -> 0.25, none -> 1.0
+    }
+
+    // Where in the face did the ray land? Project the hit position onto the
+    // tangents and remap [-0.5,0.5] to [0,1].
+    float fu = saturate(dot(hitVoxelPos, float3(u)) + 0.5);
+    float fv = saturate(dot(hitVoxelPos, float3(v)) + 0.5);
+    float a = lerp(ao[0], ao[1], fu);
+    float b = lerp(ao[2], ao[3], fu);
+    return lerp(a, b, fv);
 }
 
 // Generalized clipmap read for cascade tiers 1/2. tierCoarseBrickCoord is in
@@ -890,7 +1000,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         return;
     }
 
-    float4 color = float4(0.2, 0.4, 0.8, 1.0);
+    float4 color = _SkyColor;
     if (hit)
     {
         float ndotl = max(0.2, dot(float3(normal), normalize(float3(0.5, 1.0, 0.2))));
@@ -904,10 +1014,57 @@ void CSMain(uint3 id : SV_DispatchThreadID)
             // same idea the person asked for ("take the voxel position, apply
             // noise, shift the color slightly"), just extended from grayscale-
             // only to also picking a base hue per material id.
-            float3 baseColor = DevMaterialColor(mat);
-            float grain = (VoxelHash(voxel) - 0.5) * 0.35; // +/-17.5% per-voxel brightness jitter
-            float3 shaded = saturate(baseColor * (1.0 + grain)) * ndotl;
-            color = float4(shaded, 1.0);
+            // ---- AUTHORED PALETTE + CHEAP FAKE SHADING (presentation only) ----
+            // Runs after traversal has resolved `voxel`, `normal` and
+            // `currentDist`. Reads nothing the DDA writes and writes nothing the
+            // DDA reads.
+            float3 baseColor = MaterialAlbedo(mat);
+            bool selfLit = MaterialIsSelfLit(mat);
+
+            // Per-voxel grain, kept from the dev shading: without it, large flat
+            // faces of one material read as untextured plastic. Halved from the
+            // old +/-17.5%, because a real palette needs far less help than the
+            // modulo one did.
+            float grain = (VoxelHash(voxel) - 0.5) * 0.18;
+            float3 shaded = saturate(baseColor * (1.0 + grain));
+
+            // Hemisphere tint: up-facing faces catch the sky, down-facing faces
+            // fall toward ground shadow. This single term does most of the work
+            // that other voxel engines get from real lighting -- it is what makes
+            // a horizontal surface read as horizontal.
+            if (_ShadeHemi != 0 && !selfLit)
+            {
+                float upness = float(normal.y) * 0.5 + 0.5;      // 0 down, 0.5 side, 1 up
+                float hemi = lerp(0.62, 1.12, upness);
+                shaded *= hemi;
+                shaded = lerp(shaded, shaded * (0.85 + 0.35 * _SkyColor.rgb), upness * 0.35);
+            }
+
+            // Ambient occlusion from neighbour occupancy.
+            if (_ShadeAO != 0 && !selfLit)
+            {
+                float3 hitP = rayStart + rayDir * currentDist;
+                float3 inVoxel = hitP - (float3(voxel) + 0.5);   // [-0.5, 0.5] per axis
+                float ao = FaceAO(voxel, normal, inVoxel, _WindowDimsBricks);
+                shaded *= lerp(0.55, 1.0, ao);
+            }
+
+            // Directional term, retained but softened -- with hemisphere + AO
+            // carrying the shape, a hard N.L on top just crushes the palette.
+            shaded *= selfLit ? 1.0 : lerp(0.80, 1.0, ndotl);
+
+            // Self-lit materials read hot by being pushed ABOVE their albedo
+            // rather than by being authored bright (which just looks pink).
+            if (selfLit) shaded = saturate(baseColor * 1.35 + 0.06);
+
+            // Distance fog toward the sky colour. Depth cue only.
+            if (_ShadeFog != 0)
+            {
+                float f = saturate((currentDist * 0.1 - _FogStartM) / max(0.001, _FogEndM - _FogStartM));
+                shaded = lerp(shaded, _SkyColor.rgb, f * 0.85);
+            }
+
+            color = float4(saturate(shaded), 1.0);
         }
         else
         {

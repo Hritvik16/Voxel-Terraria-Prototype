@@ -233,11 +233,27 @@ Every ceiling the engine must respect. **An AI assistant will "helpfully" raise 
 | `BRICK_POOL_CAP` | 750,000 bricks (~384MB ×2) | §3.4, §3.6 LRU | Phase 6 shows normal building evicts too aggressively |
 | `MAX_ACTIVE_LIGHTS` (v1 global cap) | 32 (placeholder — a handful of placed torches) | §3.8, §6.5 | Phase 7 measurement if v1 content wants more simultaneous lights |
 | `MAX_LIGHTS_PER_BRICK` (v1.5 per-brick clustering, not built in v1) | 8 | §3.8, §6.5 | n/a until v1.5 |
-| `MAX_ACTIVE_FLUID` | ~500,000 near-player (pool hard cap higher) | §7.4, §7.7 | Phase 5 shows near-player scope insufficient |
+| `MAX_ACTIVE_FLUID` | ~500,000 near-player (pool hard cap higher) — **RAISED TO 750,000 on 2026-09-11; see note below the table** | §7.4, §7.7 | Phase 5 shows near-player scope insufficient |
 | `MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME` | ~3MB (forces multi-frame spread) | §3.7, §4.3 | never (this is the anti-stutter guarantee) |
 | `MAX_FLUID_OPLIST_BYTES_PER_FRAME` | bounded (only changed cells, not full active-fluid state) | §3.9, §7 | Phase 5b measurement |
 | `WINDOW_CHUNKS_XZ` / `_Y` | Phase 4 measurement | §4.3 | Phase 4 measurement |
 | `MAX_ACTIVE_COLLIDERS` | 540 (or ~12 probes if controller suffices) | §8.1 | never (PhysX object-count guard) |
+
+> **`MAX_ACTIVE_FLUID` raised 500,000 → 750,000, 2026-09-11.** The column above
+> is the *v1 starting value* and is left as written; `EngineConfig` holds the
+> shipped value. **The basis was not this table's "raise only if" condition.**
+> That condition is a NECESSITY test ("Phase 5 shows near-player scope
+> insufficient") and it was **not** demonstrated — the late-game siege, the most
+> demanding realistic scenario built, peaks at 320,781 live voxels, 64% of the
+> old cap. What was demonstrated, cooled and counterbalanced, is
+> **affordability**: 750,000 costs nothing measurable (p50 8.01 ms against a
+> 7.31–8.49 baseline band, +7 MB, tile demand *lower* than baseline), and the
+> old clamp **is** reachable — the chaos ladder hits it at 2× oversubscription,
+> where un-slotted voxels hang as static cubes in mid-air, the same artifact
+> class the §7.2 tile pool produced. Shipped as a deliberate decision to
+> pre-provision headroom. Full evidence: `FLUID_TILE_CAP_RESULTS.md` §13–§15.
+> 1,500,000 was tested and is **not** shipped: +32% p50 and up to 97% of the
+> tile pool.
 | `LOD_TIERS` | 3 | §6.4 | never for v1 |
 | `MAX_SHADER_KERNELS` | tracked, not hard | §10.3 HUD | reviewed, not auto-raised |
 

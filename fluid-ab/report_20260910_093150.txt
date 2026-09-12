@@ -1,0 +1,105 @@
+
+================================================================================================
+DENSE vs TILED FLUID ADDRESSING -- WALL-CLOCK A/B   [PROVISIONAL]
+================================================================================================
+RELEASE standalone, launched outside the Editor. vsync off, uncapped.
+Wall clock from Time.unscaledDeltaTime. ONE CONFIG PER PROCESS LAUNCH.
+180 samples after 420 warmup + 45 settle frames, discarded warm-up launch first.
+
+NO GPU TIMING ANYWHERE. gpuFrameTime is read nowhere (Amendment 8.10:
+inflated ~2.6-2.7x on this hardware). No Xcode, no Instruments (8.9 Rule 1).
+There is no Performance State field -- FrameTimingManager cannot report it
+on this platform; that is a permanent accepted limitation, not worked around.
+
+READING RULE. 'frame' is the WHOLE frame: CA submit, the GPU catching up,
+the op-list readback, the CPU applying it, and the clipmap uploads that
+follow. It is not a fluid-kernel figure and may not be quoted as one.
+§2.2's <=3.5 ms fluid budget is a GPU-LANE budget; a wall-clock frame
+total is a different quantity, so no row below is scored pass/fail against it.
+
+================================================================================================
+STEP 1 -- MATCHED VOLUME, DENSE vs TILED
+================================================================================================
+Same scenario, same pockets, same camera. The only difference is whether
+FluidGpuSimulation was handed a FluidTileMap. The dense region is re-sized
+per config to the SMALLEST power-of-two box that holds the scenario, which
+is the best dense can do -- a tiled win here is therefore conservative.
+
+  volume   path  placed    live  disp.cells   p50 ms   p99 ms    drift         region
+-------------------------------------------------------------------------------------
+     500  dense     729    2186     524,288    7.850   33.609   0.5%        64x128x64
+     500  tiled     729    2186   7,330,747    7.698   31.535   7.9%            tiled
+
+    2000  dense    2744    8203     524,288    7.997   30.695   1.2%        64x128x64
+    2000  tiled    2744    8198   7,405,568    7.894   27.306   7.8%            tiled
+
+    8000  dense    9261   26969   2,097,152    9.784   43.296   3.9%      128x128x128
+    8000  tiled    9261   26929   7,405,568    9.684   27.181   1.8%            tiled
+
+   32000  dense   35937   65536   2,097,152   22.004   41.389   1.3%      128x128x128
+   32000  tiled   35937   65536   7,439,610   19.599   32.908   3.2%            tiled
+
+  TILED RELATIVE TO DENSE (negative = tiled faster)
+    volume  dense p50  tiled p50  delta ms  delta %  cells x
+       500      7.850      7.698    -0.152    -1.9%   13.98x
+      2000      7.997      7.894    -0.103    -1.3%   14.12x
+      8000      9.784      9.684    -0.100    -1.0%    3.53x
+     32000     22.004     19.599    -2.406   -10.9%    3.55x
+
+  'cells x' is tiled dispatch cells / dense dispatch cells -- the
+  mechanism behind whatever the timing column says.
+
+================================================================================================
+STEP 2 -- SAME VOLUME, VARYING SCATTER (tiled)
+================================================================================================
+~8000 voxels split across 1 / 8 / 64 / 512 disconnected pockets, each
+pocket in its own tile. Isolates whether SCATTER costs beyond raw volume.
+
+ pockets  placed    live  tiles  disp.cells   p50 ms   p99 ms    drift  ms/1k vox
+---------------------------------------------------------------------------------
+       1    9261   26941    226   7,405,568    9.584   27.791   1.2%       1.0348
+       8   10648   28231    253   8,318,702    9.915   34.117   0.8%       0.9312
+      64   13824   36098    430  14,090,240    9.800   36.302   5.1%       0.7089
+     512   13824   11911    512  16,777,216    9.503   48.548   2.0%       0.6875
+
+  SCATTER COST RELATIVE TO ONE CONTIGUOUS POOL OF THE SAME VOLUME
+    s8      +0.332 ms  (  +3.5%)   tiles  253
+    s64     +0.216 ms  (  +2.3%)   tiles  430
+    s512    -0.080 ms  (  -0.8%)   tiles  512
+
+================================================================================================
+STEP 4 -- CPU-SIDE OP-LIST APPLY (FluidOpListReadback.PumpAndApply)
+================================================================================================
+Stopwatch bracketed around PumpAndApply and nothing else. This is the CPU
+MAIN-THREAD lane, entirely separate from the GPU CA, and is the cost
+flagged NOT MEASURED since Phase 5b. 'submit' is the CA dispatch call for
+comparison -- also CPU, also main thread.
+
+                    config    live   writes  pump p50  pump p99  submit p50  frame p50
+--------------------------------------------------------------------------------------
+                dense_v500    2186    39014    0.0006    0.6941      0.0005      7.850
+                tiled_v500    2186    39240    0.0007    0.8161      0.0005      7.698
+               dense_v2000    8203   150894    0.0006    2.3476      0.0005      7.997
+               tiled_v2000    8198   151510    0.0007    2.6559      0.0004      7.894
+               dense_v8000   26969   523674    0.0006    7.7335      0.0005      9.784
+               tiled_v8000   26929   519968    0.0006    7.8101      0.0005      9.684
+              dense_v32000   65536  2040346    0.0006   25.3702      0.0004     22.004
+              tiled_v32000   65536  2003932    0.0007   25.8335      0.0005     19.599
+            tiled_s8_v8000   28231   408654    0.0006    8.3174      0.0005      9.915
+           tiled_s64_v8000   36098   456960    0.0006   10.9096      0.0005      9.800
+          tiled_s512_v8000   11911   122180    0.0006    3.1454      0.0005      9.503
+
+================================================================================================
+INTEGRITY -- anything here invalidates the rows above
+================================================================================================
+  clean: every config sustained live fluid, no readback errors,
+  no ops dropped for non-residency.
+
+DRIFTCHECK SPREAD, worst first (>15.0% means re-run, not average):
+                          tiled_v500    7.9%
+                         tiled_v2000    7.8%
+                     tiled_s64_v8000    5.1%
+                         dense_v8000    3.9%
+                        tiled_v32000    3.2%
+                    tiled_s512_v8000    2.0%
+

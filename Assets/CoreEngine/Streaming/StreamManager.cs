@@ -97,6 +97,29 @@ namespace VoxelEngine.Streaming
         public int DeltasLoadedTotal { get; private set; }
         public int DeltasRejectedTotal { get; private set; }
         public int LruEvictionsTotal { get; private set; }
+
+        /// Times a scratch context came back to the pool still holding slots.
+        ///
+        /// THE COUNTER THE ORIGINAL COMMENT PROMISED AND NEVER DELIVERED. When
+        /// ResetScratch was emptied in 0e80aa4 the note beside it said "if a
+        /// future generator path allocates a slot it does not hand back via
+        /// chunk.bricks, the scratch pool would slowly fill and eventually throw
+        /// from Alloc. ScratchExhaustionWarnings counts that, loudly." The
+        /// identifier appeared in that sentence and nowhere else in the entire
+        /// history -- it was never written. So the failure it described happened
+        /// on the very next commit (SaveDelta was already such a path, 76 lines
+        /// below) and stayed silent for eight days.
+        ///
+        /// It is real now, and it fires on the FIRST leaked slot rather than on
+        /// the ~140th save when the pool finally runs dry, which is the whole
+        /// difference between a warning and an outage.
+        public int ScratchExhaustionWarnings { get; private set; }
+
+        /// Deltas that FAILED to write. SaveDelta catches its own exception and
+        /// returns false; ChunksSavedTotal increments regardless, so that
+        /// counter reports attempts and cannot be read as successes. Anything
+        /// asserting persistence wants this one to be zero.
+        public int DeltaSaveFailuresTotal { get; private set; }
         public int PendingLoads => _pending.Count;
         public int InFlightLoads => _inFlight;
         public double LastDrainMs { get; private set; }
@@ -662,7 +685,7 @@ namespace VoxelEngine.Streaming
                 }
                 finally
                 {
-                    ResetScratch(c.scratch);
+                    ResetScratch(c.scratch, expectEmpty: true);
                     _scratchPool.Add(c.scratch);
                 }
             }
@@ -734,13 +757,55 @@ namespace VoxelEngine.Streaming
             chunk.bricks = real;
         }
 
-        /// Scratch slots are returned in TransferToSharedPool as each dense
-        /// brick is copied out, so by the time we get here the pool should
-        /// already be empty. This is now a no-op that exists as a seam: if a
-        /// future generator path allocates a slot it does not hand back via
-        /// chunk.bricks, the scratch pool would slowly fill and eventually throw
-        /// from Alloc. ScratchExhaustionWarnings counts that, loudly.
-        private static void ResetScratch(ScratchContext scratch) { }
+        /// Hands a scratch context back in the state it was created in.
+        ///
+        /// THIS WAS AN EMPTY METHOD BODY. The contexts are pooled and reused, so
+        /// a baseline regeneration's ~400 dense bricks were never returned; the
+        /// 4096-brick scratch pool ran dry after roughly ten saves and every
+        /// SaveDelta through that context then failed. See BrickDataPool.Reset
+        /// for the full account and why it is edit loss rather than a slowdown.
+        ///
+        /// The leak check is not redundant with the Reset. Reset makes the pool
+        /// usable again either way; the check is what makes a NEW leak visible
+        /// on its first occurrence instead of on the save where the pool finally
+        /// runs dry. TransferToSharedPool frees its slots as it copies, so a
+        /// healthy context arrives here already empty and this is silent.
+        /// <param name="expectEmpty">
+        /// TRUE only for the GENERATION path. TransferToSharedPool frees each
+        /// scratch slot as it copies the brick out, so that context must arrive
+        /// here already empty and anything left is a genuine leak -- the exact
+        /// "allocates a slot it does not hand back via chunk.bricks" case the
+        /// original comment described.
+        ///
+        /// FALSE for SaveDelta, which allocates a whole baseline chunk and
+        /// hands it back WHOLESALE via Reset rather than slot by slot. That
+        /// residue is by design, and a first version of this check warned on it
+        /// -- 81 "leaks" per sandbox run that were the normal path working
+        /// correctly. A detector that fires on healthy behaviour is worse than
+        /// none, because it trains you to ignore it.
+        /// </param>
+        private void ResetScratch(ScratchContext scratch, bool expectEmpty)
+        {
+            if (scratch?.pool == null) return;
+
+            int leaked = expectEmpty ? scratch.pool.InUse : 0;
+            if (leaked > 0)
+            {
+                ScratchExhaustionWarnings++;
+                // Loud ONCE, then counted. The failure repeats on every save, so
+                // logging each one buries the first -- and the first is the one
+                // that names the commit that broke it.
+                if (ScratchExhaustionWarnings == 1)
+                    Debug.LogError(
+                        $"[StreamManager] SCRATCH POOL LEAK: a context came back holding {leaked} " +
+                        $"of {scratch.pool.Capacity} slots. Some path allocated from a scratch " +
+                        "pool without handing the slots back via chunk.bricks. Reset recovers " +
+                        "the pool, but the leak is real and will exhaust it if it grows. " +
+                        "See ScratchExhaustionWarnings / DeltaSaveFailuresTotal.");
+            }
+
+            scratch.pool.Reset();
+        }
 
         // =====================================================================
         // Eviction (§4.5)
@@ -822,6 +887,7 @@ namespace VoxelEngine.Streaming
             // baseline regeneration." The baseline is built into a scratch pool
             // so the diff never perturbs the live one.
             ScratchContext scratch = null;
+            Chunk baseline = null;
             try
             {
                 if (!_scratchPool.TryTake(out scratch))
@@ -831,7 +897,7 @@ namespace VoxelEngine.Streaming
                         allocator = new ChunkHandleAllocator(2),
                     };
 
-                var baseline = new Chunk();
+                baseline = new Chunk();
                 ChunkGeneratorFull.GenerateChunkFull(in _samplerState, _meta, coord, baseline,
                     scratch.allocator, scratch.pool, null);
 
@@ -853,12 +919,21 @@ namespace VoxelEngine.Streaming
             }
             catch (Exception e)
             {
+                // COUNTED, not just logged. This returns false, the caller
+                // leaves deltaDirty set, and the edits are simply not on disk --
+                // a state nothing was measuring before, which is how it stayed
+                // invisible through Phase 4's sign-off.
+                DeltaSaveFailuresTotal++;
                 Debug.LogError($"[StreamManager] Delta save failed for {coord}: {e}");
                 return false;
             }
             finally
             {
-                if (scratch != null) { ResetScratch(scratch); _scratchPool.Add(scratch); }
+                // The handle array is abandoned on every save otherwise -- not a
+                // hard failure like the brick pool, but a per-save allocation
+                // handed straight to the GC.
+                if (baseline?.bricks != null) scratch?.allocator?.Free(baseline.bricks);
+                if (scratch != null) { ResetScratch(scratch, expectEmpty: false); _scratchPool.Add(scratch); }
             }
         }
 
@@ -1010,6 +1085,22 @@ namespace VoxelEngine.Streaming
             {
                 DispatchLoads(_lastCameraChunk);
                 DrainCompletions();
+                // §3.6'S VALVE BELONGS HERE TOO. The per-frame path runs
+                // DispatchLoads -> DrainCompletions -> ApplyPoolPressureValve;
+                // this loop ran the first two and not the third, so a bulk
+                // drain admitted chunks with nothing watching the pool. Starting
+                // from a world already near the high-water mark it walked the
+                // tier-0 pool straight into "BrickDataPool exhausted. LRU valve
+                // failed or cap is too low." -- thrown from TransferToSharedPool,
+                // which kills the caller's coroutine.
+                //
+                // §3.6's claim is that the pool is hard-capped and THE VALVE,
+                // not luck, keeps it there. A drain loop that skips the valve
+                // makes that claim false for any path that uses it. Only rigs
+                // call WaitForIdle today, so this was not reachable in play --
+                // but the invariant is the engine's, not the harness's, and the
+                // camera chunk it needs is already right here.
+                ApplyPoolPressureValve(_lastCameraChunk);
                 if (_inFlight > 0) Thread.Sleep(1);
             }
         }

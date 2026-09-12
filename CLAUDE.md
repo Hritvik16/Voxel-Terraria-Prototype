@@ -170,6 +170,41 @@ directly by path if you need to look rather than just read the numbers.
 Never launch the Phase 4 scene from inside the Editor and report on its
 frame time — see Measurement discipline above.
 
+## RIG SELECTION RULE: terrain-identity gates vs live fluid
+
+**Do not run the acceptance rig's identity/hash gates with a live fluid load
+and treat the failures as bugs. They are expected, they are documented here,
+and the assertions must NOT be loosened to make them pass.**
+
+Gates C and D verify persistence by hashing a chunk's content, doing something
+(reload, a 500 m round trip, a dig and refill), and asserting the content is
+IDENTICAL afterwards. That assertion presumes **no legitimate writer is
+changing terrain during the run**. Fluid is exactly such a writer: water flows
+into the chunk between the two hashes, so the content genuinely did change and
+the hash genuinely does differ. The gate is reporting the truth; it is the
+question that no longer applies.
+
+Measured with an 8,000-voxel tiled load (`run-acceptance-fluid.sh`), these fail
+and are expected to:
+
+- `no reloaded chunk changed content (N of 9 hash-mismatched)`
+- `edits survived a 500m round trip: 0x… == 0x…`
+- `no brick that was UNIFORM before the dig failed to coalesce back` — the
+  tunnel refilled with water, so those bricks legitimately are not uniform air
+
+**This is a rig-selection rule, not a defect and not a TODO.** Run the
+terrain-only rig (`run-acceptance-rig.sh`) for persistence and identity
+evidence; run the combined-load rig (`run-acceptance-fluid.sh`) for frame-time
+and upload-pressure evidence under fluid. Do not merge the two by weakening an
+assertion — a fluid-aware identity gate would be a **new gate with a different
+contract** (hash only chunks fluid never touched, or snapshot-and-compare with
+fluid paused), and designing one is a deliberate decision, not a cleanup task.
+
+Anything that IS a real failure under combined load will be something other
+than these three. §4.3's upload budget, for instance, fails under fluid for a
+real and separate reason — see the LOD-cascade finding in
+`FLUID_PERFORMANCE_AB_RESULTS.md` §3.
+
 ## Known open issues (act on these, don't rediscover them)
 
 - **The world/render-range mismatch REVERSED, and is now the opposite problem.**
@@ -201,6 +236,38 @@ frame time — see Measurement discipline above.
   fragmentation (runs/slots 0.224) and made the timing WORSE while improving
   fragmentation -- reverted, do not retry it. The write mechanism is settled
   and load-bearing; §0.2 forbids raising MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME.
+
+- **`run-phase6-brushguard.sh` has been red since Playground was tiled, and it
+  is the RIG that is stale, not the product.** 15 PASS / 15 FAIL as of
+  2026-09-12 (was 16/14). Every failure
+  runs through `Fluid.InRegion` or `Fluid.SphereFitsInRegion` — dense-path
+  predicates. Under tiling `InRegion(v)` answers "is v in a RESIDENT TILE"
+  (true only where fluid already is) and `SphereFitsInRegion` tests a 64³ box
+  at world origin. `Playground.cs`'s own doc comment on
+  `SphereFitsInWakeRadius` spells both traps out. The guard being tested is
+  fine: mobile brushes outside §7.4's wake radius ARE refused, with a status
+  line. Confirmed NOT caused by the 1024 tile cap — re-running with the cap
+  reverted to 512 gives the identical 16/14. Fixing it means rewriting the
+  rig's arena predicate in terms of the wake radius. Full analysis in
+  `FLUID_TILE_CAP_RESULTS.md` §12.2.
+  **The 15th failure appeared 2026-09-12 and is the same class, not new
+  breakage:** restoring Playground's demo radius to the shipped 1280 voxels
+  (128 m, up from a 128-voxel / 12.8 m value) means the point the rig flies to
+  as "outside the arena" is now INSIDE the simulated region, so fluid there
+  correctly simulates instead of freezing — and the assertion that expects the
+  frozen bug.png signature therefore fails. The product behaves better; the
+  rig's premise is stale.
+- **`run-fluid-tiled.sh`'s two memory-budget assertions were REBASED on
+  2026-09-11** when the tile cap went 512 -> 1024 (active set 264 -> 520 MB).
+  Budget is now "< 544 MB" and the dense/tiled ratio bound is ">= 100x"
+  (measured 252x, was 496x). Rebased with the cap/demand arithmetic recorded
+  in the source next to the assertions, NOT loosened to pass: the old >400x
+  bound required cap <= 639 while measured peak demand reached 779, so the
+  assertion and the measurement were in direct conflict. The claim asserted is
+  unchanged -- "orders of magnitude below the dense region" -- and the
+  design's load-bearing claim, that the footprint does not move WITH THE
+  RADIUS, is a separate assertion and was never in question. Rig is 19/19
+  again. Background in `FLUID_TILE_CAP_RESULTS.md` §12.1.
 
 ## The build-run-review loop
 

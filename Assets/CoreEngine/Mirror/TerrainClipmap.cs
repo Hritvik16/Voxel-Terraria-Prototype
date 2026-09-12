@@ -66,7 +66,7 @@ using Unity.Mathematics;
 using UnityEngine;
 using VoxelEngine.Memory;
 
-public class TerrainClipmap : IDisposable
+public class TerrainClipmap : IDisposable, IChunkDirtySink
 {
     public static TerrainClipmap Active { get; private set; }
 
@@ -81,6 +81,15 @@ public class TerrainClipmap : IDisposable
     private readonly uint[] _chunkStaging = new uint[EngineConfig.BRICKS_PER_CHUNK];
 
     private readonly HashSet<int3> _dirtyChunks = new HashSet<int3>();
+
+    // --- Upload epochs. ADDITIVE (Phase 5c); nothing existing reads these.
+    // "Is this chunk dirty?" cannot answer "has the GPU seen my edit yet?" for
+    // a chunk that is edited EVERY frame -- it is dirty at every tick, was
+    // uploaded between them, and a dirtiness test starves forever. The wake
+    // queue needs "an upload has happened SINCE I asked", which is what an
+    // epoch answers and a boolean cannot. See FluidWakeQueue.
+    private long _uploadEpoch;
+    private readonly Dictionary<int3, long> _lastUploadEpoch = new Dictionary<int3, long>();
     private readonly List<int3> _dirtyOrdered = new List<int3>();
     private readonly List<int> _dirtyBrickSlots = new List<int>();
 
@@ -134,6 +143,19 @@ public class TerrainClipmap : IDisposable
         public double packRegionMs;   // AirMip.PackRegion
         public double brickSetMs;     // BrickDataBuffer writes (dense bodies)
         public double packUploadMs;   // AirMipPackedBuffer write
+        /// Ordering the dirty set before the admission loop.
+        ///
+        /// UNTIMED UNTIL NOW, AND THAT IS WHY THE FLUID BLOWOUT LOOKED
+        /// UNATTRIBUTABLE. The AddRange + Sort sits after the Stopwatch starts
+        /// but before the first phaseStart assignment, so it counted toward the
+        /// rig's upload_ms while landing in no phase at all. A combined-load
+        /// run measured upload_ms p50 = 7.02 ms with every named phase summing
+        /// to 0.10 ms; this is the gap.
+        public double sortMs;
+        /// Size of the dirty set at the START of the pass -- what the sort
+        /// actually ordered, which is NOT the same as chunksUploaded once the
+        /// per-frame chunk cap starts deferring.
+        public int dirtySetSize;
         public int setDataCalls;      // count of GPU write calls issued
     }
 
@@ -222,7 +244,24 @@ public class TerrainClipmap : IDisposable
     }
 
     public void SetWindowOrigin(int3 originChunks) => _windowOrigin = originChunks;
-    public void MarkDirty(int3 chunkCoord) => _dirtyChunks.Add(chunkCoord);
+    /// CALL count vs DISTINCT-CHUNK count, split.
+    ///
+    /// §4.3's upload budget blew out ~10x under fluid load, and "too many
+    /// calls" and "too many bytes" are opposite problems with opposite fixes.
+    /// _dirtyChunks is a HashSet, so marking one chunk a thousand times in a
+    /// tick already collapses to one entry -- but that is a code reading, and
+    /// a code reading is not a measurement. These two counters make the
+    /// coalescing ratio an observed number instead of an assumption.
+    public long MarkDirtyCallsTotal { get; private set; }
+    /// Calls that hit a chunk ALREADY in the dirty set, i.e. the ones
+    /// coalescing is saving. calls - coalesced = distinct chunks marked.
+    public long MarkDirtyCoalescedTotal { get; private set; }
+
+    public void MarkDirty(int3 chunkCoord)
+    {
+        MarkDirtyCallsTotal++;
+        if (!_dirtyChunks.Add(chunkCoord)) MarkDirtyCoalescedTotal++;
+    }
 
     // --- Dirty-set introspection. Not decoration: without it a clipmap
     // mismatch is undiagnosable, because "GPU is stale" has two causes that
@@ -235,6 +274,17 @@ public class TerrainClipmap : IDisposable
     // The first acceptance run reported 15 mismatches and could not tell these
     // apart, which is why it produced no actionable finding.
     public bool IsDirty(int3 chunkCoord) => _dirtyChunks.Contains(chunkCoord);
+
+    /// Monotonic counter, incremented once per UploadDirty pass. A caller that
+    /// records this when it makes a request can later ask whether the chunk it
+    /// cares about has been uploaded since.
+    public long UploadEpoch => _uploadEpoch;
+
+    /// The epoch at which this chunk's contents last reached the GPU, or -1 if
+    /// it never has. Any upload strictly after an edit necessarily CONTAINS
+    /// that edit, because UploadDirty copies the chunk's current CPU state.
+    public long LastUploadEpoch(int3 chunkCoord)
+        => _lastUploadEpoch.TryGetValue(chunkCoord, out long e) ? e : -1L;
     public int DirtyCount => _dirtyChunks.Count;
 
     /// Forces every pending chunk out regardless of the per-frame byte budget.
@@ -278,6 +328,9 @@ public class TerrainClipmap : IDisposable
         int byteBudget, int3 cameraChunk, int exemptRadiusChunks)
     {
         var stats = new UploadStats();
+        // One pass = one epoch, advanced BEFORE the early-out so a pass with
+        // nothing to do still moves time forward for anyone waiting on it.
+        _uploadEpoch++;
         if (_dirtyChunks.Count == 0) return stats;
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -285,9 +338,12 @@ public class TerrainClipmap : IDisposable
 
         // Exempt chunks first (§3.7's 8.4 invariant), then the rest nearest-first
         // so the spread admits what the player is closest to seeing.
+        stats.dirtySetSize = _dirtyChunks.Count;
+        phaseStart = sw.Elapsed.TotalMilliseconds;
         _dirtyOrdered.Clear();
         _dirtyOrdered.AddRange(_dirtyChunks);
         _dirtyOrdered.Sort((a, b) => ChebyshevXZ(a, cameraChunk).CompareTo(ChebyshevXZ(b, cameraChunk)));
+        stats.sortMs = sw.Elapsed.TotalMilliseconds - phaseStart;
 
         _dirtyBrickSlots.Clear();
         int bytes = 0;
@@ -407,6 +463,13 @@ public class TerrainClipmap : IDisposable
             phaseStart = sw.Elapsed.TotalMilliseconds;
 
             _dirtyChunks.Remove(chunkCoord);
+            // COST MEASURED, NOT ASSUMED: this line was A/B'd against a full
+            // acceptance run with it commented out (2026-09-04). Both runs gave
+            // PASS 47 / FAIL 4 with staging p50 0.05 and p99 0.74-0.91, i.e. the
+            // epoch write is not measurable in the §4.3 upload budget. One
+            // Dictionary<int3,long> insert per uploaded chunk, and int3
+            // implements IEquatable so it does not box.
+            _lastUploadEpoch[chunkCoord] = _uploadEpoch;
             stats.chunksUploaded++;
             bytes += EngineConfig.CLIPMAP_BYTES_PER_CHUNK;
         }

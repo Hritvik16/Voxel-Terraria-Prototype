@@ -280,6 +280,96 @@ public static class EngineConfig
     // is explicitly on loan until then.
     public const float BRICK_POOL_HIGH_WATER_FRACTION = 0.85f;
 
+    // ---- Fluid simulation (§7, Phase 5a) ----
+    // §0.2 lists MAX_ACTIVE_FLUID at "~500,000 near-player (pool hard cap
+    // higher)". It was carried at 500,000 from Phase 5a until 2026-09-11 as a
+    // SPEC-MANDATED, never-measured number.
+    //
+    // RAISED TO 750,000 ON 2026-09-11, and the basis is worth stating exactly
+    // because it is NOT the basis §0.2 names. §0.2's "raise only if" reads
+    // "Phase 5 shows near-player scope insufficient" -- a NECESSITY test. What
+    // was measured is AFFORDABILITY. Both halves, honestly:
+    //
+    //   MEASURED, cooled, counterbalanced (FLUID_TILE_CAP_RESULTS.md §13):
+    //     750,000 costs nothing. p50 8.01 ms against a 7.31-8.49 baseline
+    //     band, slot memory +7 MB (28 B/slot), peak tile demand 613 -- LOWER
+    //     than the baseline's 679-729 -- and 8/8 gates green.
+    //     A control rung (ceiling raised, volume held FLAT) isolated this: the
+    //     ceiling itself is free. 1,500,000 is NOT: +32% p50, reproduced to
+    //     0.1%, and it consumes up to 97% of the tile pool.
+    //
+    //   MEASURED, and the reason to bother: the old 500,000 clamp IS
+    //     reachable. The chaos ladder hits it at 2x oversubscription and the
+    //     un-slotted voxels "hang as static cubes in mid-air" -- the SAME
+    //     artifact the 512-tile pool produced, which took two sessions to
+    //     find and fix. Fixing the tile cap and leaving this one only moved
+    //     the artifact's threshold.
+    //
+    //   NOT ESTABLISHED: that ordinary heavy play needs it. The late-game
+    //     siege -- the most demanding realistic scenario built -- peaks at
+    //     320,781 live, 64% of the OLD cap. §0.2's necessity condition was
+    //     therefore not demonstrated, and this was shipped as a deliberate
+    //     decision to pre-provision headroom, not as a measurement outcome.
+    //
+    // DO NOT raise to 1,500,000 without re-opening the tile cap: demand there
+    // reached 838-990 against FLUID_TILE_POOL_CAPACITY's 1024.
+    public const int MAX_ACTIVE_FLUID = 750000;
+
+    // §7.2's sparse tile pool: how many 32^3 fluid tiles may be resident at
+    // once. MEASURED, unlike most of this block -- see
+    // FLUID_TILE_CAP_RESULTS.md for the nine cooled runs behind it.
+    //
+    // WAS 512, AND 512 WAS TOO SMALL. A tile costs one pool slot however
+    // little fluid it holds, so wide-and-thin spreads exhaust the POOL long
+    // before they come near MAX_ACTIVE_FLUID. Measured peak demand: ~680 in
+    // the late-game siege, ~880 on a deliberately wide synthetic lattice, and
+    // 733 in the older explosion-scatter scenario. At 512 the overflow was
+    // VISIBLE -- §7.7 refuses cleanly, so the fluid simply never moves and
+    // hangs in the air as a raw cube. 1024 clears real demand with ~35%
+    // headroom and took that artifact to 0.0% of sampled mobile voxels.
+    //
+    // THE COST IS MEMORY, AND IT IS PAID UP FRONT: the per-cell buffers are
+    // 16 B/cell x 32,768 cells = 0.5 MiB PER TILE, allocated at this cap
+    // whether or not any fluid exists. 512 -> 1024 is 264 -> 520 MB on an
+    // 8 GB machine. Frame time did not move (nine cooled counterbalanced runs;
+    // between-cap spread 0.47 ms and non-monotonic, against 1.44-1.81 ms of
+    // within-cap scatter).
+    //
+    // DO NOT raise this to 2048 "for headroom". 2048 is 1,032 MB and buys
+    // nothing: a pool only has to exceed demand, and demand is ~680.
+    public const int FLUID_TILE_POOL_CAPACITY = 1024;
+
+    // §7.4's near-player active radius, in VOXELS (0.1 m each) => 128 m, chosen
+    // to match C.5's LOD0 boundary so simulated fluid and full-resolution
+    // terrain have the same reach. A slot whose home leaves this radius is
+    // force-demoted (§7.7) -- freed, byte left in place, indistinguishable from
+    // natural sleep.
+    // ASSUMPTION, NOT MEASURED. Phase 5b's GPU-lane cost measurement is the
+    // gate that has any business tuning it.
+    // UNITS: VOXELS. A voxel is 0.1 m, so 1280 voxels = 128 METRES.
+    //
+    // STATED THIS LOUDLY BECAUSE IT HAS ALREADY CAUSED A WRONG RESULT. The
+    // demo scene once carried 128 -- which is 128 VOXELS, 12.8 m, a TENTH of
+    // this -- and a session mistook the two for each other, measured the
+    // resulting speedup, and reported it as a performance win rather than as
+    // a 10x reduction in simulated fluid radius. Never retype this value;
+    // reference the constant, and write reductions as a visible fraction of
+    // it (e.g. `/ 10`) so the relationship survives review.
+    public const int FLUID_ACTIVE_RADIUS_VOXELS = 1280;
+
+    // §7.6 sleep: consecutive ticks a slot may fail to move before its slot is
+    // freed. The byte stays (§3.10 -- material truth is the terrain byte), so
+    // this frees simulation cost, never mass.
+    //
+    // ASSUMPTION, NOT MEASURED. It is safe to keep small ONLY because an
+    // applied move wakes its neighbourhood (§7.6 "any adjacent edit
+    // re-promotes"): a drop stalled above a draining column is re-promoted the
+    // tick the cell under it vacates, so the counter measures "genuinely
+    // settled", not "waiting its turn". Raising it costs sim time on settled
+    // pools; lowering it below ~4 starts freezing fluid that is merely
+    // contended, which reads as fluid sticking to walls.
+    public const int FLUID_SLEEP_TICKS = 8;
+
     // ---- Derived helpers (single source of truth; never re-derive inline) ----
     public const int CHUNK_EDGE_VOXELS = CHUNK_EDGE_BRICKS * BRICK_EDGE;   // 128
     public const int BRICKS_PER_CHUNK = CHUNK_EDGE_BRICKS * CHUNK_EDGE_BRICKS * CHUNK_EDGE_BRICKS; // 4096

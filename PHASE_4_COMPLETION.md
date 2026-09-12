@@ -405,6 +405,56 @@ than a bespoke reader).
    `Phase4Bootstrapper.DeltaDirectory` directly. Recorded because a
    wrong-path zero is indistinguishable from a real zero unless you look.
 
+### 3.3a A defect was live during this sign-off, and TEST 3 could not have caught it
+
+**Added 2026-09-05, after the fact.** `StreamManager.ResetScratch` was reduced
+to an empty method body on 2026-08-28 in `0e80aa4` ("Downsample into per-worker
+scratch buffers"), which is **inside this phase's own work and before these
+results were recorded**. `SaveDelta` builds a pristine baseline chunk into a
+*pooled* `ScratchContext`, and with no reset those ~403 dense bricks per baseline
+were never returned. A context holds 4,096, and the pool is pre-seeded with
+`_maxConcurrentLoads * 2` = 14 contexts on this 8-core machine, so the ceiling is
+roughly **142 successful saves** before every context is poisoned and each
+subsequent `SaveDelta` throws internally, catches its own exception, and returns
+**false** — meaning the delta is not written.
+
+**§13 TEST 3 is the only thing here that reached that threshold** — 138, 151,
+151, 152 and 192 deltas on disk across its five kills — **and its assertions are
+structurally blind to this failure.** It asserted zero orphaned `.delta.tmp`
+files and zero CRC rejections on relaunch. A save that fails writes *no file at
+all*: no `.tmp`, no corrupt bytes, nothing to reject. **Silent non-writing
+satisfies both assertions perfectly.** §3.3's own caveat 1 already notes that
+"at most the in-flight chunk reverted" was NOT measured — that is precisely the
+assertion that would have caught this, and it needs a journal independent of the
+delta files, which does not exist.
+
+Whether those five runs actually hit the ceiling is **not established**. The
+counts cluster near the predicted ~142 but the geometry bound for 55 s at 60 m/s
+is ~258 chunks, so they are *consistent with* the ceiling without proving it.
+Nothing in the recorded evidence can distinguish the two, which is the point.
+
+**What this does and does not change:**
+
+- **§3.2's "MET" verdict stands.** It rests on a **2-delta** round trip with a
+  content-hash comparison, five saves under the ~142 ceiling. That result is
+  unaffected and remains proven.
+- **§3.3's "MET for save integrity" stands** for what it actually asserts —
+  atomic rename held, nothing was corrupted, nothing was rejected. Those are
+  true and were tested.
+- **What was never established** is that the edits in those runs reached disk at
+  all. "Zero corruption" and "the edits are there" are different claims, and only
+  the first was measured.
+- **No EditMode test exercises this path.** `StreamingTests` drives
+  `DeltaCodec.Encode`/`TryDecodeOnto` directly against hand-built pools; nothing
+  in the suite constructs a `StreamManager` or calls `SaveDelta`.
+
+Fixed 2026-09-05 (`a51f077`): `BrickDataPool.Reset()` plus a real
+`ScratchExhaustionWarnings` counter — the one the original comment promised and
+never delivered — which now fires on the **first** leaked slot rather than on
+the save where the pool runs dry. `DeltaSaveFailuresTotal` makes the swallowed
+failure countable, and Gate D now asserts both are zero. `ChunksSavedTotal`
+counts *attempts*, so it never could.
+
 ### 3.4 Corrupt delta — **MET**
 
 > "Hex-corrupt a `.delta`: that chunk regenerates pristine, game continues."

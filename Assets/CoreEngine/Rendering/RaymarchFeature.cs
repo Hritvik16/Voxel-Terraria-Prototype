@@ -58,6 +58,21 @@ public class RaymarchFeature : ScriptableRendererFeature
     public static bool UseLODCascade = true;
     public static bool UseDevColors = true;
 
+    // ---- PRESENTATION TOGGLES (shading step only) ----
+    // Each gates a purely cosmetic term applied after traversal has resolved
+    // the hit. Turning all three off reproduces the pre-palette look exactly.
+    // They exist as toggles precisely so Phase 7's real lighting (§6.5) can
+    // disable any of them without unpicking code.
+    public static bool ShadeAmbientOcclusion = true;
+    public static bool ShadeHemisphere = true;
+    public static bool ShadeDistanceFog = true;
+    /// Also the fog target and the hemisphere "up" tint. A pale, slightly cool
+    /// daylight haze -- deliberately not a saturated blue, so distant terrain
+    /// desaturates into it instead of turning blue.
+    public static Color SkyColor = new Color(0.62f, 0.70f, 0.78f, 1f);
+    public static float FogStartMetres = 45f;
+    public static float FogEndMetres = 260f;
+
     /// Highest world voxel Y that generation can produce content for, +1.
     /// Set by the bootstrapper from StreamManager.MAX_GENERATED_CHUNK_Y.
     /// Kept tighter than the window's Y extent on purpose -- see the shader.
@@ -99,6 +114,9 @@ public class RaymarchFeature : ScriptableRendererFeature
             public int debugMode;
             public int traversalMode;
             public int useDevColors;
+            public int shadeAO, shadeHemi, shadeFog;
+            public Color skyColor;
+            public float fogStart, fogEnd;
             public int maxOuterIterations;
             public bool useStripped;
             public bool useMemoryProbe;
@@ -195,6 +213,12 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.debugMode = _debugMode;
                 passData.traversalMode = TraversalMode;
                 passData.useDevColors = UseDevColors ? 1 : 0;
+                passData.shadeAO = ShadeAmbientOcclusion ? 1 : 0;
+                passData.shadeHemi = ShadeHemisphere ? 1 : 0;
+                passData.shadeFog = ShadeDistanceFog ? 1 : 0;
+                passData.skyColor = SkyColor;
+                passData.fogStart = FogStartMetres;
+                passData.fogEnd = FogEndMetres;
                 passData.maxOuterIterations = MaxOuterIterations;
                 passData.usePackedMips = UsePackedMips ? 1 : 0;
                 passData.contentCeilingVoxelY = ContentCeilingVoxelY;
@@ -362,6 +386,13 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_TraversalMode", data.traversalMode);
                         cmd.SetComputeIntParam(data.compute, "_MaxOuterIterations", data.maxOuterIterations);
                         cmd.SetComputeIntParam(data.compute, "_UseDevColors", data.useDevColors);
+                        cmd.SetComputeIntParam(data.compute, "_ShadeAO", data.shadeAO);
+                        cmd.SetComputeIntParam(data.compute, "_ShadeHemi", data.shadeHemi);
+                        cmd.SetComputeIntParam(data.compute, "_ShadeFog", data.shadeFog);
+                        cmd.SetComputeVectorParam(data.compute, "_SkyColor",
+                            new Vector4(data.skyColor.r, data.skyColor.g, data.skyColor.b, 1f));
+                        cmd.SetComputeFloatParam(data.compute, "_FogStartM", data.fogStart);
+                        cmd.SetComputeFloatParam(data.compute, "_FogEndM", data.fogEnd);
                     }
 
                     if (!data.useMemoryProbe)
@@ -374,7 +405,15 @@ public class RaymarchFeature : ScriptableRendererFeature
 
                     int threadGroupsX = Mathf.CeilToInt(data.dispatchWidth / 8f);
                     int threadGroupsY = Mathf.CeilToInt(data.dispatchHeight / 8f);
+                    // NAMED for GPU capture. CommandBuffer.BeginSample emits a
+                    // Metal debug group, so this shows up in an Instruments
+                    // "Metal System Trace" as a named encoder rather than an
+                    // anonymous dispatch. See tools/capture-gpu-trace.sh.
+                    // The name must match the one parsed by
+                    // tools/parse-gpu-trace.py.
+                    cmd.BeginSample("VE.Raymarch.Primary");
                     cmd.DispatchCompute(data.compute, 0, threadGroupsX, threadGroupsY, 1);
+                    cmd.EndSample("VE.Raymarch.Primary");
                 });
             }
 

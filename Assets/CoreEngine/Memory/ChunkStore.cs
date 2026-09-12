@@ -56,7 +56,7 @@ using Unity.Collections;
 using Unity.Mathematics;
 using VoxelEngine.Memory;
 
-public class ChunkStore : IWorldQuery, IEditService
+public class ChunkStore : IWorldQuery, IEditService, IVoxelResidency
 {
     /// Preallocated so eviction's run-detection allocates nothing on the
     /// streaming path (§0.1 invariant 3).
@@ -215,6 +215,14 @@ public class ChunkStore : IWorldQuery, IEditService
 
         _residentWindow[flat] = chunk;
         _denseBricksHeld += CountDenseBricks(chunk);
+
+        // §7.2's wake signal, built at the ONE point a fully-formed chunk enters
+        // residency. Generation and delta-apply both arrive here, and delta
+        // decode writes straight into the chunk's bricks rather than through
+        // SetVoxel, so hooking the writer alone would miss every reloaded edit.
+        // Rebuilding here also means the mask is derived rather than persisted,
+        // which keeps the frozen D.1 delta format untouched.
+        RebuildFluidTileMask(chunk);
     }
 
     public Chunk GetChunk(int3 chunkCoord)
@@ -446,11 +454,66 @@ public class ChunkStore : IWorldQuery, IEditService
         int voxelFlatIndex = CoordMath.LocalVoxelIndex(localVoxel);
 
         NativeArray<byte> finalData = _brickPool.RawData;
-        finalData[(poolIdx * 512) + voxelFlatIndex] = material;
+        int flat = (poolIdx * 512) + voxelFlatIndex;
+        byte previous = finalData[flat];
+        finalData[flat] = material;
+
+        // 3b. §7.2's wake signal (DESIGN_NOTE_7_2 §9). THIS IS THE ONLY TERRAIN
+        // WRITER, which is what makes one hook here sufficient -- delta-apply
+        // and every edit path funnel through it.
+        //
+        // ASYMMETRIC ON PURPOSE. Setting is exact and costs one OR. Clearing
+        // correctly needs a scan of the tile's 64 bricks, and a pour writes Air
+        // to vacated cells constantly, so doing it here would put a brick scan
+        // on the hot path. The suspicion is recorded instead and resolved off
+        // the write path -- safe, because a stale SET costs one acquire-and-free
+        // while a missed set is fluid that never wakes again.
+        if (MaterialRules.IsMobile(material))
+            chunk.fluidTileMask |= ChunkFluidMask.BitFor(worldVoxelCoord);
+        else if (MaterialRules.IsMobile(previous))
+            chunk.fluidTileDirty |= ChunkFluidMask.BitFor(worldVoxelCoord);
 
         // 4. Mark dirty for clipmap upload and delta save
         chunk.dirty = true;
         chunk.deltaDirty = true;
+    }
+
+    /// Recomputes a chunk's fluid-tile mask from its actual contents.
+    ///
+    /// Called after generation and after a delta is applied -- the two points
+    /// where a chunk's voxels arrive wholesale rather than one at a time. The
+    /// mask is derived state, so this is what makes an evicted-and-reloaded
+    /// chunk correct without persisting anything into the frozen D.1 format.
+    public void RebuildFluidTileMask(Chunk chunk)
+    {
+        if (chunk == null) return;
+        chunk.fluidTileMask = ChunkFluidMask.Rebuild(chunk, _brickPool);
+        chunk.fluidTileDirty = 0UL;
+    }
+
+    /// Resolves suspected-stale SET bits, at most `budget` tiles per call.
+    ///
+    /// OFF THE WRITE PATH AND BUDGETED, because clearing one tile scans up to 64
+    /// bricks and a draining pour dirties tiles faster than it is worth chasing.
+    /// Falling behind is harmless in the safe direction: the bit stays set, the
+    /// tile is acquired and immediately freed by §3.10's empty-release.
+    public int ResolveDirtyFluidTiles(Chunk chunk, int budget = 4)
+    {
+        if (chunk == null || chunk.fluidTileDirty == 0UL) return 0;
+
+        int done = 0;
+        for (int bit = 0; bit < ChunkFluidMask.TILES_PER_CHUNK && done < budget; bit++)
+        {
+            ulong b = 1UL << bit;
+            if ((chunk.fluidTileDirty & b) == 0UL) continue;
+
+            int3 tile = new int3(bit & 3, (bit >> 2) & 3, (bit >> 4) & 3);
+            chunk.fluidTileMask = ChunkFluidMask.RebuildTile(chunk, _brickPool, tile,
+                                                             chunk.fluidTileMask);
+            chunk.fluidTileDirty &= ~b;
+            done++;
+        }
+        return done;
     }
 
     /// Coalescing (§4.5) frees dense bricks outside SetVoxel, so it reports back

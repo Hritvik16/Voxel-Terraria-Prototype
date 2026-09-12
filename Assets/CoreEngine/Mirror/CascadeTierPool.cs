@@ -180,6 +180,77 @@ namespace VoxelEngine.Mirror
         private int LocalCoarseIndex(int bx, int by, int bz)
             => bx + _coarseBricksPerChunkEdge * (by + _coarseBricksPerChunkEdge * bz);
 
+        // =====================================================================
+        // SHARED-CHAIN UPLOAD (§8.5 budget preserved; the WORK is what shrinks)
+        // =====================================================================
+        // These three let LODCascadeManager drive the tiers CHUNK-MAJOR so the
+        // 128^3 gather and the halving chain are computed ONCE per chunk and
+        // read by every tier, instead of once per chunk PER TIER.
+        //
+        // The per-tier UploadDirty below is UNCHANGED and remains the
+        // regression path -- same reason the dense fluid path was kept when
+        // tiling landed: every prior cascade proof still exercises the code it
+        // was written against, and the mutation check is a flag flip.
+
+        /// Pass 1 (evicted clears, unbudgeted -- O(memset) correctness work
+        /// must not queue behind O(downsample) work) plus batch selection.
+        /// Returns the resident chunks this tier wants rebuilt this frame.
+        public void SelectBatch(ChunkStore store, List<int3> outBatch)
+        {
+            outBatch.Clear();
+            LastDownsampleMs = 0; LastGpuWriteMs = 0; LastChunksProcessed = 0; LastWriteCalls = 0;
+            if (_dirtyChunks.Count == 0) return;
+
+            _evictedScratch.Clear();
+            foreach (int3 c in _dirtyChunks)
+                if (store.GetChunk(c) == null) _evictedScratch.Add(c);
+            foreach (int3 c in _evictedScratch)
+            {
+                _dirtyChunks.Remove(c);
+                ClearChunkEntries(c);
+                LastChunksProcessed++;
+            }
+
+            foreach (int3 c in _dirtyChunks)
+            {
+                if (outBatch.Count >= EngineConfig.MAX_CASCADE_CHUNKS_PER_FRAME) break;
+                outBatch.Add(c);
+            }
+        }
+
+        /// Consumes one chunk whose chain the caller already built.
+        ///
+        /// §9.4/§9.5: the chunk is re-checked for residency HERE, not only at
+        /// selection. A carried or shared rebuild for a chunk evicted between
+        /// selection and write clears its coarse entries instead of writing
+        /// stale geometry -- the same resolution the per-tier path already
+        /// used, and the reason distant phantom geometry was fixed before.
+        public void ApplyChunkFromChain(ChunkStore store, int3 chunkCoord, byte[] downsampled)
+        {
+            if (!_dirtyChunks.Remove(chunkCoord)) return;   // another tier's batch only
+            LastChunksProcessed++;
+
+            if (store.GetChunk(chunkCoord) == null) { ClearChunkEntries(chunkCoord); return; }
+
+            int downsampledEdge = CHUNK_EDGE_VOXELS_TIER0 / LODConfig.DownsampleFactor(Tier);
+            WriteChunkFromDownsampled(chunkCoord, downsampled, downsampledEdge);
+            LastWriteCalls++;
+        }
+
+        /// Flushes this tier's dense brick bodies. Called once per frame after
+        /// every chunk has been applied.
+        public void FlushBrickBodies() => UploadDirtyBrickBodies();
+
+        /// Timing is attributed by the manager, which owns the shared chain.
+        public void AddTimings(double downsampleMs, double gpuWriteMs)
+        {
+            LastDownsampleMs += downsampleMs;
+            LastGpuWriteMs += gpuWriteMs;
+        }
+
+        /// Scratch clear for the shared path -- see UploadDirty's own use.
+        public void ClearBrickSlotScratch() => _dirtyBrickSlots.Clear();
+
         public void UploadDirty(ChunkStore store, BrickDataPool pool)
         {
             if (_dirtyChunks.Count == 0) return;
