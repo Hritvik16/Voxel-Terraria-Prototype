@@ -153,6 +153,11 @@ There is no arena any more. There is no box you can stand outside of.
 - **The footprint does not grow with the radius.** The state panel reports the
   active set in MB; it reads the same whether the radius is 128 voxels or the
   shipped 1280. That invariance is the entire point of the tiled design.
+- **The scene now runs the SHIPPED radius, 1280 (128 m)**, not a reduced demo
+  value — changed 2026-09-11, once the tiled substrate made the real constant
+  affordable. **The cost is that sleep/wake needs a 128 m flight to observe
+  instead of 13 m.** Set `_activeRadiusVoxels` back to 128 in the inspector if
+  you want the quick version of that demo; nothing else depends on it.
 
 The scene makes it visible:
 
@@ -162,6 +167,37 @@ The scene makes it visible:
 - The state panel shows **tiles resident / cap**, how many were acquired and
   released, whether the pool is full, and how many slots are actually
   simulating.
+
+### What the vents actually do now (raised 2026-09-11)
+
+The scene used to emit **310 voxels in total** (water 160 / sand 90 / lava 60),
+one voxel per frame — the range Phase 5a/5b tested, and a showcase of nothing.
+Those budgets are now **60,000 / 20,000 / 12,000**, emitted as a scattered cube
+per frame.
+
+Measured from the automated capture, so these are what you should actually see:
+
+| | |
+|---|---|
+| edits written when all three vents drain | **92,000** |
+| live fluid at peak | **~200,000 slots simulating** |
+| §7.2 tiles resident | 416–504 of 1024 — "pool has room" |
+| what it looks like | a lake with a sand shore, irregular obsidian where lava met water, lava pockets |
+
+**Three things had to change together** for that to work, and each was caught
+by looking at the screenshots rather than the numbers:
+
+1. **Rate, not just budget.** One voxel per frame caps a vent at 60
+   voxels/second however large its budget is — raising the budget alone made a
+   sixteen-minute trickle.
+2. **A point source chokes on its own output.** Placement is Air-only, so once
+   the source neighbourhood fills, the budget stops draining entirely. The
+   emission point now scatters across a footprint.
+3. **The scatter has to be hashed, not raster-scanned.** A lattice walk in
+   index order laid material down in rows and the finished lake had visible
+   parallel stripes.
+
+**This is demo tuning only.** No engine constant was changed to achieve it.
 
 ### Scattered still water near the radius edge is CORRECT
 
