@@ -238,7 +238,8 @@ real and separate reason — see the LOD-cascade finding in
   and load-bearing; §0.2 forbids raising MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME.
 
 - **`run-phase6-brushguard.sh` has been red since Playground was tiled, and it
-  is the RIG that is stale, not the product.** 16 PASS / 14 FAIL. Every failure
+  is the RIG that is stale, not the product.** 15 PASS / 15 FAIL as of
+  2026-09-12 (was 16/14). Every failure
   runs through `Fluid.InRegion` or `Fluid.SphereFitsInRegion` — dense-path
   predicates. Under tiling `InRegion(v)` answers "is v in a RESIDENT TILE"
   (true only where fluid already is) and `SphereFitsInRegion` tests a 64³ box
@@ -249,6 +250,13 @@ real and separate reason — see the LOD-cascade finding in
   reverted to 512 gives the identical 16/14. Fixing it means rewriting the
   rig's arena predicate in terms of the wake radius. Full analysis in
   `FLUID_TILE_CAP_RESULTS.md` §12.2.
+  **The 15th failure appeared 2026-09-12 and is the same class, not new
+  breakage:** restoring Playground's demo radius to the shipped 1280 voxels
+  (128 m, up from a 128-voxel / 12.8 m value) means the point the rig flies to
+  as "outside the arena" is now INSIDE the simulated region, so fluid there
+  correctly simulates instead of freezing — and the assertion that expects the
+  frozen bug.png signature therefore fails. The product behaves better; the
+  rig's premise is stale.
 - **`run-fluid-tiled.sh`'s two memory-budget assertions were REBASED on
   2026-09-11** when the tile cap went 512 -> 1024 (active set 264 -> 520 MB).
   Budget is now "< 544 MB" and the dense/tiled ratio bound is ">= 100x"

@@ -119,7 +119,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &660047005
+--- !u!1 &126988993
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -127,40 +127,36 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 660047007}
-  - component: {fileID: 660047006}
+  - component: {fileID: 126988995}
+  - component: {fileID: 126988994}
   m_Layer: 0
-  m_Name: Phase4Bootstrapper
+  m_Name: Phase6BrushGuard
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &660047006
+--- !u!114 &126988994
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 660047005}
+  m_GameObject: {fileID: 126988993}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 3829142968a6d48e9810147359170aa4, type: 3}
+  m_Script: {fileID: 11500000, guid: b3c5de11d23a44124aa7ed48d2d25cdd, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Phase4Bootstrapper
-  _loadRadiusChunks: 0
-  _fillWindowOnStart: 1
-  _clearDeltasOnStart: 1
-  _overrideCameraOnStart: 0
-  _cameraSpawnPosition: {x: 0, y: 0, z: 0}
-  _cameraSpawnEuler: {x: 10, y: 0, z: 0}
---- !u!4 &660047007
+  m_EditorClassIdentifier: Assembly-CSharp::Phase6BrushGuard
+  _playground: {fileID: 1061794106}
+  _outputRootFolderName: Phase6BrushGuard
+--- !u!4 &126988995
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 660047005}
+  m_GameObject: {fileID: 126988993}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -169,7 +165,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &933153860
+--- !u!1 &382071242
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -177,8 +173,8 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 933153862}
-  - component: {fileID: 933153861}
+  - component: {fileID: 382071244}
+  - component: {fileID: 382071243}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -186,13 +182,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!20 &933153861
+--- !u!20 &382071243
 Camera:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 933153860}
+  m_GameObject: {fileID: 382071242}
   m_Enabled: 1
   serializedVersion: 2
   m_ClearFlags: 2
@@ -237,13 +233,13 @@ Camera:
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
---- !u!4 &933153862
+--- !u!4 &382071244
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 933153860}
+  m_GameObject: {fileID: 382071242}
   serializedVersion: 2
   m_LocalRotation: {x: 0.12186935, y: 0, z: 0, w: 0.99254614}
   m_LocalPosition: {x: 1280, y: 9.5, z: 1268}
@@ -252,7 +248,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &950286096
+--- !u!1 &799047327
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -260,8 +256,58 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 950286098}
-  - component: {fileID: 950286097}
+  - component: {fileID: 799047329}
+  - component: {fileID: 799047328}
+  m_Layer: 0
+  m_Name: Phase4Bootstrapper
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &799047328
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 799047327}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3829142968a6d48e9810147359170aa4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Phase4Bootstrapper
+  _loadRadiusChunks: 0
+  _fillWindowOnStart: 1
+  _clearDeltasOnStart: 1
+  _overrideCameraOnStart: 0
+  _cameraSpawnPosition: {x: 0, y: 0, z: 0}
+  _cameraSpawnEuler: {x: 10, y: 0, z: 0}
+--- !u!4 &799047329
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 799047327}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1061794105
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1061794107}
+  - component: {fileID: 1061794106}
   m_Layer: 0
   m_Name: Playground
   m_TagString: Untagged
@@ -269,13 +315,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &950286097
+--- !u!114 &1061794106
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 950286096}
+  m_GameObject: {fileID: 1061794105}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 71fe7c5e5588044ad9ca2930a5d5efb9, type: 3}
@@ -288,66 +334,20 @@ MonoBehaviour:
   _outputRootFolderName: Phase6BrushGuard
   _player: {fileID: 0}
   _bombRadiusVoxels: 46
-  _activeRadiusVoxels: 128
+  _activeRadiusVoxels: 1280
   _waterBudget: 0
   _sandBudget: 0
   _lavaBudget: 0
   _ventEdge: 5
   _ventSpread: 40
   _tilePoolCap: 1024
---- !u!4 &950286098
+--- !u!4 &1061794107
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 950286096}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1399191261
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1399191263}
-  - component: {fileID: 1399191262}
-  m_Layer: 0
-  m_Name: Phase6BrushGuard
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &1399191262
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1399191261}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b3c5de11d23a44124aa7ed48d2d25cdd, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::Phase6BrushGuard
-  _playground: {fileID: 950286097}
-  _outputRootFolderName: Phase6BrushGuard
---- !u!4 &1399191263
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1399191261}
+  m_GameObject: {fileID: 1061794105}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -360,7 +360,7 @@ Transform:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 933153862}
-  - {fileID: 660047007}
-  - {fileID: 950286098}
-  - {fileID: 1399191263}
+  - {fileID: 382071244}
+  - {fileID: 799047329}
+  - {fileID: 1061794107}
+  - {fileID: 126988995}
