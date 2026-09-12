@@ -346,6 +346,15 @@ public static class EngineConfig
     // natural sleep.
     // ASSUMPTION, NOT MEASURED. Phase 5b's GPU-lane cost measurement is the
     // gate that has any business tuning it.
+    // UNITS: VOXELS. A voxel is 0.1 m, so 1280 voxels = 128 METRES.
+    //
+    // STATED THIS LOUDLY BECAUSE IT HAS ALREADY CAUSED A WRONG RESULT. The
+    // demo scene once carried 128 -- which is 128 VOXELS, 12.8 m, a TENTH of
+    // this -- and a session mistook the two for each other, measured the
+    // resulting speedup, and reported it as a performance win rather than as
+    // a 10x reduction in simulated fluid radius. Never retype this value;
+    // reference the constant, and write reductions as a visible fraction of
+    // it (e.g. `/ 10`) so the relationship survives review.
     public const int FLUID_ACTIVE_RADIUS_VOXELS = 1280;
 
     // §7.6 sleep: consecutive ticks a slot may fail to move before its slot is

@@ -124,37 +124,39 @@ public class Playground : MonoBehaviour
              "so the demo now uses the reference figure instead of a third of it.")]
     [SerializeField] private int _bombRadiusVoxels = 46;
 
-    [Tooltip("§7.4's active radius, in voxels, FOR THIS SCENE ONLY. The shipped engine " +
-             "constant is FLUID_ACTIVE_RADIUS_VOXELS = 1280 (128 m), which is 23x this " +
-             "arena's half-diagonal -- so at the real value the radius never bites here and " +
-             "§7.4 would be correct but invisible. 128 voxels (12.8 m) keeps you comfortably " +
-             "inside it while working, and lets you walk away and watch fluid sleep.")]
-    // REVERTED TO 128 ON 2026-09-12, AND THE REASON IS MEASURED.
+    // THE SHIPPED RADIUS, REFERENCED NOT RETYPED (corrected 2026-09-12).
     //
-    // Last session raised this to the shipped FLUID_ACTIVE_RADIUS_VOXELS
-    // (1280) to "showcase the shipped config". That change costs 15.6% of the
-    // frame rate in this scene, and it is very likely what prompted the
-    // report of an FPS drop:
+    // A UNIT MIXUP HAPPENED HERE TWICE AND THE FIELD IS NOW SHAPED TO PREVENT
+    // A THIRD. Voxels are 0.1 m, so:
     //
-    //     radius 1280 -> 65.5 FPS      radius 128 -> 75.75 FPS
-    //     (fullscreen, shipped 960x540 gate, no vents, two runs each,
-    //      reproducing to 0.3 FPS)
+    //     EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS = 1280 voxels = 128 METRES
+    //     the old demo value                      =  128 voxels =  12.8 metres
     //
-    // WHY: §7.4's wake radius decides how many §7.2 tiles stay resident, and
-    // the CA's three region passes (CSClear / CSCommit / CSWakeScan) dispatch
-    // over activeTileCount * 32768 cells EVERY tick. At 1280 this scene holds
-    // ~486 tiles resident -- ~15.9 M cells per pass, ~48 M threads per tick --
-    // to service roughly 1,700 live voxels of ambient water. At 128 it holds a
-    // handful. Suspending the CA entirely measures 87 FPS, so this is the
-    // dominant single cost in the frame, not the raymarcher and not the
-    // horizon.
+    // Those two numbers share their digits and mean things a factor of TEN
+    // apart. On 2026-09-12 a session "reverted" this field to 128 believing it
+    // was restoring the shipped value, measured 65.5 -> 75.75 FPS, and
+    // reported a performance win. The win was real arithmetic and a false
+    // conclusion: it came from simulating a tenth of the radius, which is
+    // exactly the fluid-scale compromise the project forbids.
     //
-    // THE ENGINE CONSTANT IS UNTOUCHED. EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS
-    // is still 1280 and every rig still runs it; this is the DEMO SCENE's own
-    // value, which was 128 for the whole project's history before last
-    // session. Set it back to FLUID_ACTIVE_RADIUS_VOXELS if you want the
-    // showcase behaviour and can spend the 15.6%.
-    [SerializeField] private int _activeRadiusVoxels = 128;
+    // So this now REFERENCES the engine constant instead of restating it. A
+    // literal here can silently drift from the spec; a reference cannot. If a
+    // smaller radius is ever wanted for a quick sleep/wake demo, write it as
+    // `EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS / 10` so the relationship --
+    // and the fact that it is a REDUCTION -- stays visible in the code.
+    //
+    // WHAT THE FULL RADIUS COSTS, measured and not hidden: §7.4's wake radius
+    // decides how many §7.2 tiles stay resident, and the CA's three region
+    // passes (CSClear / CSCommit / CSWakeScan) dispatch over
+    // activeTileCount * 32768 cells every tick. At the shipped radius this
+    // scene holds ~486 tiles resident. That cost is real and is tracked as
+    // deferred work in FPS_INVESTIGATION_RESULTS.md §5.1 -- it is not a reason
+    // to shrink the radius.
+    [Tooltip("§7.4's active radius FOR THIS SCENE, in VOXELS. Voxels are 0.1 m, so the " +
+             "shipped 1280 voxels is 128 METRES. Do not retype the number -- reference " +
+             "EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS, because 128 (voxels) and 1280 " +
+             "(voxels) look alike and differ by 10x.")]
+    [SerializeField] private int _activeRadiusVoxels = EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS;
 
     // DEMO BUDGETS, raised 2026-09-11. See header note 2 for why they used to be
     // tiny and why that reason has expired.
@@ -817,7 +819,8 @@ public class Playground : MonoBehaviour
             // the wrong thing.
             int away = (int)math.distance((float3)at, (float3)_fluid.PlayerVoxel);
             _status = $"<color=#ff9a9a>{_brushNames[_brush]} NOT placed at {at} — {away} voxels " +
-                      $"away, outside §7.4's {_fluid.ActiveRadiusVoxels}-voxel wake radius. " +
+                      $"away, outside §7.4's {_fluid.ActiveRadiusVoxels}v / " +
+                      $"{_fluid.ActiveRadiusVoxels * 0.1f:0.#}m wake radius. " +
                       "It would be written to terrain and then never simulate. " +
                       "Move closer — the radius follows you.</color>";
             _act = Act.Refused;
@@ -1247,8 +1250,11 @@ public class Playground : MonoBehaviour
         sb.AppendLine($"<b>live fluid</b>  {liveSlots} slots simulating   " +
                       $"{_fluid.GpuActiveSetBytes() / 1048576.0:F0} MB active set " +
                       "(FIXED — does not grow with the radius)");
-        sb.Append($"<b>§7.4 radius</b>  {_activeRadiusVoxels}v wake / " +
-                  $"{_fluid.SleepRadiusVoxels}v sleep   centre {_fluid.PlayerVoxel}   " +
+        // METRES BESIDE VOXELS, ALWAYS. 1280v and 128v differ by 10x and read
+        // alike; showing "1280v / 128m" makes the unit unmistakable at a
+        // glance. A session already mistook one for the other once.
+        sb.Append($"<b>§7.4 radius</b>  {_activeRadiusVoxels}v / {_activeRadiusVoxels * 0.1f:0.#}m wake, " +
+                  $"{_fluid.SleepRadiusVoxels}v / {_fluid.SleepRadiusVoxels * 0.1f:0.#}m sleep   centre {_fluid.PlayerVoxel}   " +
                   $"re-centres {_fluid.RecentresTotal}   " +
                   (inRadius ? "<color=#8fd98f>your old basin is inside the radius</color>"
                             : "<color=#ffc64a>basin outside — that fluid sleeps as static terrain</color>"));
