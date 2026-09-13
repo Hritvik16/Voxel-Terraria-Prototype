@@ -40,7 +40,10 @@ using VoxelEngine.Memory;
 
 public class PlaygroundHud : MonoBehaviour
 {
-    [SerializeField] private bool _visible = true;
+    [SerializeField] private bool _visible = false;   // STAGE I -- detail behind F1
+    /// The always-on strip. Separately toggleable so a screenshot pass can
+    /// clear the frame completely; `DebugHideUi` still wins over both.
+    [SerializeField] private bool _minimalVisible = true;
     [SerializeField] private KeyCode _toggleKey = KeyCode.F1;
 
     private FrameTiming[] _timings = new FrameTiming[1];
@@ -66,6 +69,26 @@ public class PlaygroundHud : MonoBehaviour
             case 2: return "2 HARD only";
             case 3: return "3 OFF (flat N.L + ambient)";
             default: return level.ToString();
+        }
+    }
+
+    /// The same four rungs said in PLAIN LANGUAGE, for the always-on strip.
+    ///
+    /// The names above are correct and cite the spec, which is what you want on
+    /// a diagnostic panel you opened deliberately. They are the wrong register
+    /// for a line that is on screen all the time while someone is judging how
+    /// the game LOOKS: "HALF-RES beyond LOD1" asks the reader to know what LOD1
+    /// is before they can tell whether the picture in front of them is the good
+    /// one. These say what you would SEE.
+    internal static string ShadowRungPlain(int level)
+    {
+        switch (level)
+        {
+            case 0: return "Full (soft edges)";
+            case 1: return "Cheaper far away";
+            case 2: return "Hard edges only";
+            case 3: return "Off";
+            default: return "rung " + level;
         }
     }
 
@@ -112,15 +135,8 @@ public class PlaygroundHud : MonoBehaviour
     void OnGUI()
     {
         if (Playground.DebugHideUi) return;
-        if (!_visible)
-        {
-            float uiHidden = Mathf.Max(1f, Screen.height / 900f);
-            Matrix4x4 pv = GUI.matrix;
-            GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * uiHidden);
-            GUI.Label(new Rect(Screen.width / uiHidden - 150, 8, 140, 22), "F1 — debug HUD");
-            GUI.matrix = pv;
-            return;
-        }
+        if (_minimalVisible) DrawMinimalStrip();
+        if (!_visible) return;
 
         var sb = new StringBuilder();
         double fps = _wallSmoothed > 0.0001 ? 1000.0 / _wallSmoothed : 0.0;
@@ -209,8 +225,65 @@ public class PlaygroundHud : MonoBehaviour
         Matrix4x4 prev = GUI.matrix;
         GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * ui);
         float vw = Screen.width / ui;
-        GUI.Box(new Rect(vw - w - 8, 6, w, h), GUIContent.none);
-        GUI.Label(new Rect(vw - w, 10, w - 14, h - 8), sb.ToString(), st);
+        // Sit BELOW the always-on strip rather than on top of it. Both anchor to
+        // the same corner on purpose (F1 must not make the strip move), which
+        // means the detail panel has to yield the strip's 26 px + gap.
+        float topY = _minimalVisible ? 38f : 6f;
+        GUI.Box(new Rect(vw - w - 8, topY, w, h), GUIContent.none);
+        GUI.Label(new Rect(vw - w, topY + 4f, w - 14, h - 8), sb.ToString(), st);
+        GUI.matrix = prev;
+    }
+
+    /// STAGE I -- THE ALWAYS-ON LINE.
+    ///
+    /// The owner's note was that the two things you must know to judge a
+    /// screenshot -- which preset and which shadow rung produced it -- were
+    /// only visible inside a debug panel, so every judgement made with that
+    /// panel closed was made without them. This line is the fix: it is the
+    /// smallest set of facts that makes the picture INTERPRETABLE, and nothing
+    /// else. Frame time is here too because "which rung can I afford" is the
+    /// question the rungs exist to answer, and a number you have to open a
+    /// panel to see is a number you will not check while flying around.
+    ///
+    /// The FPS here is a smoothed on-screen readout and is NOT evidence --
+    /// CLAUDE.md is explicit that the only trusted frame-time source is the
+    /// rig's own report from a release standalone. It is a live indicator, and
+    /// the strip says so rather than letting the number look authoritative.
+    private void DrawMinimalStrip()
+    {
+        var pg = FindAnyObjectByType<Playground>();
+        string preset = pg != null ? pg.CurrentPresetName : "-";
+        double ms = _wallSmoothed;
+        double fps = ms > 0.0 ? 1000.0 / ms : 0.0;
+
+        // Colour the frame time against the 16.67 ms frame, so the strip
+        // answers "am I inside budget" without arithmetic.
+        string fpsCol = ms <= 16.67 ? "#8fe08f" : ms <= 22.0 ? "#ffd479" : "#ff8a8a";
+
+        string text =
+            $"<b>PRESET</b> {preset}    " +
+            $"<b>SHADOWS</b> {ShadowRungPlain(RaymarchFeature.ShadowQualityLevel)}    " +
+            $"<color={fpsCol}><b>{fps:F0} fps</b>  ({ms:F1} ms)</color>" +
+            $"    <color=#7f93a3>[ ] preset   J shadows   F1 detail</color>";
+
+        var st = new GUIStyle(GUI.skin.label)
+        {
+            fontSize = 14,
+            richText = true,
+            alignment = TextAnchor.MiddleLeft,
+            normal = { textColor = Color.white },
+        };
+
+        float ui = Mathf.Max(1f, Screen.height / 900f);
+        Matrix4x4 prev = GUI.matrix;
+        GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * ui);
+        float vw = Screen.width / ui;
+        const float w = 560f, h = 26f;
+        // Top-right, where the detail panel also lives, so opening F1 does not
+        // make the strip jump to somewhere else on screen.
+        var r = new Rect(vw - w - 8, 6, w, h);
+        GUI.Box(r, GUIContent.none);
+        GUI.Label(new Rect(r.x + 10, r.y, r.width - 16, r.height), text, st);
         GUI.matrix = prev;
     }
 }

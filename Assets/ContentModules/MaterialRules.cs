@@ -78,6 +78,12 @@ public static class MaterialRules
         // no fluid slot and never runs the CA -- carrying Appendix B's bit 4.
         // Tick interval 0 for the same reason Obsidian's is 0: it never ticks.
         Define(Materials.Torch, IsEmissive, 0);
+        // Stage G's coloured torches: identical flags and hardness to the warm
+        // torch by design. They differ ONLY in tint, so a measurement that
+        // separates them is measuring colour and not some other property.
+        Define(Materials.TorchBlue,   IsEmissive, 0);
+        Define(Materials.TorchGreen,  IsEmissive, 0);
+        Define(Materials.TorchPurple, IsEmissive, 0);
 
         // Obsidian is the Water+Lava product: an ordinary static solid, and
         // specifically NOT mobile -- that is what makes a reaction show up in
@@ -210,6 +216,11 @@ public static class MaterialRules
         // strength than a torch, because a lava lake is large and 1.0 across
         // hundreds of voxels would wash out a cave that §6.5 requires be dark.
         e[Materials.Lava] = 0.55f;
+        // Stage G: same strength as the warm torch. A dimmer coloured torch
+        // would confound "does the colour read" with "is it bright enough".
+        e[Materials.TorchBlue]   = 1.0f;
+        e[Materials.TorchGreen]  = 1.0f;
+        e[Materials.TorchPurple] = 1.0f;
         return e;
     }
 
@@ -221,6 +232,13 @@ public static class MaterialRules
         Tint(t, Materials.Torch, 1.00f, 0.72f, 0.38f);
         // Hotter and redder than the torch, matching the palette's deep hot red.
         Tint(t, Materials.Lava,  1.00f, 0.42f, 0.14f);
+        // Stage G. Each keeps ONE channel near 1 and lifts the others off zero:
+        // a fully saturated primary (0,0,1) lights a grey wall to pure blue and
+        // loses all surface detail, because albedo * light zeroes two channels.
+        // These read as coloured without flattening what they fall on.
+        Tint(t, Materials.TorchBlue,   0.36f, 0.58f, 1.00f);   // cool arcane blue
+        Tint(t, Materials.TorchGreen,  0.42f, 1.00f, 0.48f);   // green flame
+        Tint(t, Materials.TorchPurple, 0.78f, 0.42f, 1.00f);   // violet
         return t;
     }
 
@@ -236,6 +254,9 @@ public static class MaterialRules
         // materials keep their relative reach.
         s[Materials.Torch] = 1.0f;
         s[Materials.Lava]  = 0.6f;
+        s[Materials.TorchBlue]   = 1.0f;
+        s[Materials.TorchGreen]  = 1.0f;
+        s[Materials.TorchPurple] = 1.0f;
         return s;
     }
 
@@ -422,6 +443,14 @@ public static class MaterialPalette
         // 0.86 and was lowered for. Warm and slightly orange so an unlit torch
         // still reads as a torch.
         _table[Materials.Torch] = new Rgb(0.760f, 0.545f, 0.285f);
+        // Stage G's coloured torches. The ALBEDO is the unlit body of the torch
+        // -- what you see when it is off screen-edge or occluded -- and it is
+        // deliberately a MUTED version of the light it casts, not the same
+        // colour: a torch whose body is as saturated as its flame reads as a
+        // glowing cube rather than as a lit object.
+        _table[Materials.TorchBlue]   = new Rgb(0.300f, 0.480f, 0.780f);
+        _table[Materials.TorchGreen]  = new Rgb(0.330f, 0.720f, 0.390f);
+        _table[Materials.TorchPurple] = new Rgb(0.560f, 0.340f, 0.760f);
 
         // ---- Reaction product ----
         // Obsidian: near-black with a violet bias, and the darkest thing in the

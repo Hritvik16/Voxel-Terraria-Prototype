@@ -69,6 +69,22 @@ public static class Materials
     // invalidate every existing world.meta for a material no generated world
     // contains. Same precedent, same justification, stated rather than copied.
     public const byte Torch       = 14;
+
+    // ---- Phase 7 Stage G: COLOURED torches (ADDITIVE; nothing above renumbered) ----
+    // §3.8's light struct has always carried an RGB colour (A.6, 8 floats), but
+    // until now every placeable light in the game was the same warm orange, so
+    // the colour channel was carrying exactly one value and coloured blending
+    // was untested by anything a player could actually do. These three are the
+    // cheapest possible exercise of it: same emissive strength and range as the
+    // torch, different tint, so any difference in behaviour between them is the
+    // colour path and nothing else.
+    //
+    // Absent from ContentVersionHash() for the same reason as Lava/Honey/
+    // Obsidian/Torch: world generation never places them, so they cannot change
+    // what GenerateChunk produces and must not invalidate existing world.meta.
+    public const byte TorchBlue   = 15;
+    public const byte TorchGreen  = 16;
+    public const byte TorchPurple = 17;
 }
 
 public struct BiomeDefinition

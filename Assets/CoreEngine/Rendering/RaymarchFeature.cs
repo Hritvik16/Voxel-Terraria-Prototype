@@ -139,6 +139,37 @@ public class RaymarchFeature : ScriptableRendererFeature
 
     public static Vector2Int LastDispatchResolution = new Vector2Int(0, 0);
 
+    /// Stage F's branch-engagement counters. Off by default: the per-pixel
+    /// InterlockedAdd that fills them is expensive and would contaminate any
+    /// timing arm. Enabled only by the -shadowstats diagnostic.
+    /// Forces a tonemap curve regardless of the live config, so a capture pass
+    /// can shoot the same preset with and without. -1 = use the config.
+    public static int TonemapOverride = -1;
+
+    /// Rig overrides for Stage F's two levers. -1 = use the live config.
+    public static float ShadowMaxDistanceOverrideM = -1f;
+    public static float Rung1DistanceOverrideM = -1f;
+
+    public static bool CollectShadowStats = false;
+    public static GraphicsBuffer ShadowStatsBuffer { get; private set; }
+    private static readonly uint[] _statsZero = new uint[4];
+
+    /// Zeroes the counters, so a read measures ONE frame rather than an
+    /// unbounded accumulation.
+    public static void ResetShadowStats()
+    {
+        if (ShadowStatsBuffer == null) return;
+        ShadowStatsBuffer.SetData(_statsZero);
+    }
+
+    /// hit / beyondLod1 / traced / reused, for the last frame since a reset.
+    public static uint[] ReadShadowStats()
+    {
+        var d = new uint[4];
+        ShadowStatsBuffer?.GetData(d);
+        return d;
+    }
+
     public static GraphicsBuffer DebugBuffer { get; private set; }
     public static Vector2Int DebugPixel = new Vector2Int(700, 400);
     private const int DEBUG_BUFFER_FLOATS = 128;
@@ -162,6 +193,8 @@ public class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer clipmapBuffer;
             public GraphicsBuffer brickDataBuffer;
             public GraphicsBuffer debugBuffer;
+            public GraphicsBuffer shadowStats;
+            public int collectShadowStats;
             public Vector3Int windowDimsBricks;
             public Vector3Int windowDimsChunks;
             public Vector3Int windowOriginBricks;
@@ -187,6 +220,11 @@ public class RaymarchFeature : ScriptableRendererFeature
             public int pointLightNdotL;
             public int useSkyProbeAmbient;
             public float undergroundAmbientFloor;
+            public float shadowMaxDistVoxels;
+            public float rung1DistVoxels;
+            public int tonemap;
+            public float exposure;
+            public float tonemapWhite;
 
             public bool useStripped;
             public bool useMemoryProbe;
@@ -244,6 +282,8 @@ public class RaymarchFeature : ScriptableRendererFeature
 
             if (DebugBuffer == null)
                 DebugBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, DEBUG_BUFFER_FLOATS, sizeof(float));
+            if (ShadowStatsBuffer == null)
+                ShadowStatsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 4, sizeof(uint));
 
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
             UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
@@ -279,6 +319,8 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.clipmapBuffer = clip.ClipmapBuffer;
                 passData.brickDataBuffer = clip.BrickDataBuffer;
                 passData.debugBuffer = DebugBuffer;
+                passData.shadowStats = ShadowStatsBuffer;
+                passData.collectShadowStats = CollectShadowStats ? 1 : 0;
                 passData.debugPixel = DebugPixel;
                 passData.debugMode = _debugMode;
                 passData.traversalMode = TraversalMode;
@@ -317,6 +359,15 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.pointLightNdotL = PointLightNdotL ? 1 : 0;
                 passData.useSkyProbeAmbient = UseSkyProbeAmbient ? 1 : 0;
                 passData.undergroundAmbientFloor = cfg.undergroundAmbientFloor;
+                float shadowClampM = ShadowMaxDistanceOverrideM >= 0f
+                    ? ShadowMaxDistanceOverrideM : cfg.shadowMaxDistanceM;
+                passData.shadowMaxDistVoxels = shadowClampM * 10f;
+                float rung1M = Rung1DistanceOverrideM >= 0f
+                    ? Rung1DistanceOverrideM : cfg.rung1DistanceM;
+                passData.rung1DistVoxels = rung1M * 10f;
+                passData.tonemap = TonemapOverride >= 0 ? TonemapOverride : cfg.tonemap;
+                passData.exposure = cfg.exposure;
+                passData.tonemapWhite = cfg.tonemapWhite;
 
                 Unity.Mathematics.int3 dims = clip.WindowDimsBricks;
                 passData.windowDimsBricks = new Vector3Int(dims.x, dims.y, dims.z);
@@ -511,6 +562,18 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_UseSkyProbeAmbient", data.useSkyProbeAmbient);
                         cmd.SetComputeFloatParam(data.compute, "_UndergroundAmbientFloor",
                             data.undergroundAmbientFloor);
+
+                        // Stage F's counters. Bound unconditionally (an unbound
+                        // RWStructuredBuffer is undefined even when unread) but
+                        // only WRITTEN when the flag is set.
+                        if (data.shadowStats != null)
+                            cmd.SetComputeBufferParam(data.compute, 0, "ShadowStats", data.shadowStats);
+                        cmd.SetComputeIntParam(data.compute, "_CollectShadowStats", data.collectShadowStats);
+                        cmd.SetComputeFloatParam(data.compute, "_ShadowMaxDistVoxels", data.shadowMaxDistVoxels);
+                        cmd.SetComputeFloatParam(data.compute, "_Rung1DistVoxels", data.rung1DistVoxels);
+                        cmd.SetComputeIntParam(data.compute, "_Tonemap", data.tonemap);
+                        cmd.SetComputeFloatParam(data.compute, "_Exposure", data.exposure);
+                        cmd.SetComputeFloatParam(data.compute, "_TonemapWhite", data.tonemapWhite);
                     }
 
                     if (!data.useMemoryProbe)
@@ -585,6 +648,8 @@ public class RaymarchFeature : ScriptableRendererFeature
     {
         DebugBuffer?.Release();
         DebugBuffer = null;
+        ShadowStatsBuffer?.Release();
+        ShadowStatsBuffer = null;
         base.Dispose(disposing);
     }
 }

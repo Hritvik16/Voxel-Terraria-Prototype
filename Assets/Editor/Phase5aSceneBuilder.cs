@@ -132,8 +132,20 @@ public static class Phase5aSceneBuilder
         var hudGo = new GameObject("PlaygroundHud");
         var hud = hudGo.AddComponent<PlaygroundHud>();
         var ho = new SerializedObject(hud);
+        // STAGE I: the DETAILED panel now starts CLOSED. A 292 px wall of
+        // diagnostics across the top-right of a dogfood scene is not what you
+        // want to look at while judging how the lighting FEELS -- but the two
+        // facts you need to interpret what you are seeing (which preset, which
+        // shadow rung) must never be hidden, so they moved to an always-on
+        // single line instead. F1 brings the detail back.
+        //
+        // THIS ASSIGNMENT IS LOAD-BEARING, not redundant with the field's
+        // initialiser: the scene builder's serialized value OVERRIDES it, so
+        // changing only the default in PlaygroundHud.cs would silently do
+        // nothing. That exact trap has already cost this project a debugging
+        // round -- the tell is an identical number across two different builds.
         var visProp = ho.FindProperty("_visible");
-        if (visProp != null) visProp.boolValue = true;
+        if (visProp != null) visProp.boolValue = false;
         ho.ApplyModifiedPropertiesWithoutUndo();
 
         var capGo = new GameObject("PlaygroundCapture");

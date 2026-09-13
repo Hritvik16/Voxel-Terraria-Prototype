@@ -76,25 +76,88 @@ to grazing view angles**, which is what genuine per-coarse-voxel shadowing looks
 like (an addressing bug would be distance-dependent). **Inconclusive, leaning
 benign** — settling it needs the tier-1/2 oracle that does not exist.
 
-## The uncomfortable result: no shadow rung holds 60 FPS at golden hour
+## SHADOWS FIT THE FRAME. This is the headline, and it reverses last night's.
 
-Cooled and counterbalanced: rung 1 = **53.0 ms**, rung 3 (off) = **15.1 ms**.
-**Rung 1 saves nothing** — §6.5's first fallback is not a fallback as
-implemented. With §6's rung 0 at 52.06 and rung 2 at 40.77, only *off* fits.
-I have a cheap, untested hypothesis (§E.2: it half-rates only beyond 128 m, and
-most hit pixels are nearer) and two one-constant experiments that might change
-this. **Not decided — §10 flag 4.**
+The summary above this line used to read *"no shadow rung holds 60 FPS"*. **That
+was wrong.** The arms behind it were measured before the lava fix, so they were
+timing a 12,000-light O(n²) sort and calling it the shadow ray.
+
+Measured again — cooled 300 s per arm, counterbalanced, clock pinned, live fluid,
+moving camera, release standalone — at **two** times of day, including the worst
+one a full 12-point day sweep could find:
+
+| | shadows OFF | **shadows FULL (soft penumbra)** | cost of shadows |
+|---|---|---|---|
+| golden hour (§F.4) | 8.91 ms / 112 FPS | **12.29 ms / 81 FPS** | 3.3 ms |
+| 16:00, sun 29° (§F.6) | 8.75 ms / 114 FPS | **10.61 ms / 94 FPS** | 1.9 ms |
+
+**Full soft shadows cost about 2–3 ms and leave 4–6 ms of headroom in a 16.67 ms
+frame.** My recommendation is **ship rung 0**, subject to the one caveat below.
+
+**Three other things the night established, two of them by failing:**
+
+- **Half the day is free.** With the sun below the horizon, shadows cost between
+  −0.18 and +0.30 ms across five separate sample points — zero, within noise.
+- **The shadow-distance clamp is disproved as a performance lever.** Shortening
+  it 12× (290 m → 24 m) moved the frame *less than running the same condition
+  twice did*. Reported rather than dropped.
+- **My day-sweep had a confound I built into it**, and its own control caught it:
+  it holds fluid vents open across all 12 points, so late points carry both more
+  heat and more water. Its absolute numbers inflate by ~50% and its ranking of
+  which lit hour is worst should not be used. What survives is the zero/non-zero
+  result above. Written up in §F.5 as the design error it was.
+
+## The caveat that keeps this a recommendation and not a decision
+
+**The tail gets worse, and only with the soft penumbra.** Frames over 100 ms per
+1000: shadows off **0.0**, hard-only shadows **0.0**, full soft penumbra **4.4–5.6**.
+That is roughly one hitch per 200 frames that the other two rungs never produce.
+
+**Rung 2 (hard edges only) removes that tail entirely and still keeps shadows**,
+for 0.8 ms of the 1.9 ms that full shadows cost. So the real question is not
+"can we afford shadows" — we can — but **"is the soft edge worth an occasional
+hitch?"** That is a feel judgement and it is yours: press `J` to flip rung 0 ↔
+rung 2 while moving and see whether you can feel it. §10 flag 4.
 
 Also: **32 torches cost +0.33 ms.** Point lights are effectively free.
 
+## What else landed, in one line each
+
+- **Coloured torches** (`8` blue / `9` green / `0` violet) — and **512 placed
+  lights cost 0.17 ms more than 32**, with zero GPU re-uploads per frame at any
+  count. **No placement cap is needed**; §3.8's 32-light cap already bounds
+  everything the GPU does. (§G)
+- **Lava lighting its cave: the cost objection is dead** (+0.99 ms for 9,315
+  voxels, down from tens of ms) **but turning it on naively looks worse and
+  starves your torches.** Not built — three costed options are in §H.2, and the
+  one I'd build reuses the fluid tile map to make a lake ~3 lights, not 9,315.
+- **The HUD now always says which preset and which rung you are looking at**, in
+  plain language, in one line. The detailed overlay moved fully behind `F1` and
+  starts closed. (§I)
+- **There was no tonemapping in this renderer at all** — the final combine was a
+  bare `saturate()`, which is why the presets felt capped. ACES and Reinhard are
+  now in, hot-reloadable, with `tonemap: 0` reproducing the old clamp exactly so
+  no historical screenshot becomes irreproducible. (§J)
+- **`Screenshots/Presets/` — 90 images**, 5 presets × 9 fixed scenes + a
+  three-way tonemap comparison, each folder indexed. **No favourite is marked.**
+
 ## The one thing most worth your five minutes
 
-**Press `]` to cycle presets at golden hour (`N`), then press `J` to step the
-shadow rungs.** That single pass answers the two questions only you can:
-which look ships, and whether shadows-off is acceptable given nothing else
-holds 60 FPS. Second-best thirty seconds: flip between the five
-`D3_swim_*_200m.png` frames and tell me whether the distant shadow drifts — I
-deliberately did not judge that from stills.
+**Move continuously and press `J` to flip between *Full (soft edges)* and *Hard
+edges only*.** That is the only open question the measurements could not answer:
+both fit the frame comfortably, but only the soft rung produces >100 ms frames
+(4.4–5.6 per 1000 against zero). If you cannot feel it, ship rung 0.
+
+**Second-best five minutes:** open `Screenshots/Presets/INDEX.md` and compare
+`5_snow_noon` under `tmNone` and `tmACES` in any preset folder — that shows you
+what the missing tone curve was costing. While you are there, look at how dark
+the *vertical* voxel faces go at noon versus golden hour: §J.3 argues that is a
+bigger influence on how these read than the preset palette is, and it has a
+different lever.
+
+**Thirty seconds:** flip between the five `Screenshots/D3_swim/` frames and tell
+me whether the distant shadow drifts — I deliberately did not judge that from
+stills.
 
 ---
 
@@ -617,40 +680,57 @@ flat. A toggle exists. **One line either way; the owner should look at both.**
 ### 4. Which shadow rung ships
 All four are built and switchable by one config number.
 
-**What the measurement narrows it to, without deciding it.** §6 measured rung 0
-at 52.06 ms and rung 2 at 40.77 ms at golden hour, against a 16.67 ms frame.
-**Neither can ship.** That leaves rung 1 (half-res beyond LOD1, which targets
-precisely the long grazing rays the isolation identified as the cost) and rung 3
-(off).
+**This flag changed completely overnight, and the hard version of it is gone.**
+The measurement that said "neither rung 0 nor rung 2 can ship" predates the §A
+lava fix and is superseded — see §F.4 and §F.6. Cooled, counterbalanced, clock
+pinned, live fluid, moving camera, shipped gate, at the worst time of day found:
 
-**RECOMMENDATION, and it is a recommendation about what to MEASURE, not about
-what to ship:** run rung 1 against rung 3, cooled, counterbalanced, at both
-gates and with the combined fluid scenario, before choosing. If rung 1 lands near
-rung 3, it ships. If it does not, the choice is between shadows off and a
-shorter shadow clamp than the primary ray's 290 m — and that second option is a
-visual trade (distant shadows fade out) that is **yours, not mine**.
+| rung | what it is | mean frame | tail >100 ms /1000 | fits 16.67 ms? |
+|---|---|---|---|---|
+| **0** | **full soft penumbra** | **10.61 / 10.82 ms** | **4.4 / 5.6** | yes, 5.9 ms spare |
+| 2 | hard edges only | 9.92 ms | **0.0** | yes, 6.8 ms spare |
+| 3 | off | 8.75 / 8.88 ms | 0.0 | yes, by a lot |
+
+Rung 1 is not re-measured post-fix and is not needed: §F.1–F.2 explain with
+counters why it does nothing (it half-rates only beyond 128 m, and the near field
+is where the work is). It is kept as a rung for slower hardware, not for this
+machine.
+
+**RECOMMENDATION: ship rung 0** — it is the best-looking option and it fits the
+frame at both times of day measured, with room to spare.
+
+**THE ONE THING THAT COULD CHANGE THAT, and only you can judge it:** rung 0 is
+the *only* rung that produces frames over 100 ms (4.4–5.6 per 1000; rungs 2 and 3
+produce none). Rung 2 keeps shadows, removes that tail, and costs 0.8 ms less.
+If a hitch roughly every 200 frames is noticeable while you are moving, rung 2 is
+the better ship and the loss is only the soft shadow edge.
+
+**How to decide it in two minutes:** move continuously and press `J` to flip
+between *Full (soft edges)* and *Hard edges only* — the always-on HUD strip names
+them now. If you cannot feel the difference, ship rung 0.
 
 §6.5 is explicit that stepping down is the spec's own designed outcome and that
 "the game ships either way".
 
-### 9. A lava lake no longer lights the cave around it — NEW, needs your call
+### 9. A lava lake no longer lights the cave around it — RE-EXAMINED, still your call
 Fixing the Stage A stutter required that **mobile emissives stop registering as
 point lights** (§A.6): lava is `IsFluid | IsEmissive`, and a flowing lava lake
-registered thousands of lights, which is what §3.8's "a handful of placed
-torches, not a lit city" exists to prevent.
+registered thousands of lights, which is what §3.8's "a handful of placed torches,
+not a lit city" exists to prevent.
 
-**What lava keeps:** `MaterialPalette.IsSelfLit`'s shading cheat (it skips AO and
-the hemisphere term and is pushed above its albedo) and C.9's `+ emissive` on the
-voxel itself. It still reads hot.
-**What it loses:** illuminating its *neighbours* through the §3.8 buffer.
+**§H re-opened this with a measurement, and the answer changed shape.** The cost
+objection is gone — 9,315 lava voxels now cost **+0.99 ms**, not tens of
+milliseconds. But turning it on naively is still wrong, for two reasons that are
+structural rather than tunable: 32 nearest-first lights all land inside one lake
+and saturate the wall to white (`H1_02`), and they occupy the entire global cap,
+so **the player's own torches stop being drawn**.
 
-**§6.5 never promised the latter** ("no propagation, no BFS ... light does not
-bend around corners in v1"), so this is arguably the spec's behaviour rather than
-a regression — but it is a visible change from what you saw yesterday and it is
-yours to accept. **The alternative is §3.8's per-brick clustering
-(`MAX_LIGHTS_PER_BRICK`), which §3.8 explicitly defers to v1.5.** A cheaper
-middle option nobody has costed: register one light per lava *brick* rather than
-per cell.
+**Three costed options are in §H.2.** Short version: leave it off (ships today,
+zero work); **one aggregate light per fluid tile** — ~3 lights instead of 9,315,
+using substrate `FluidTileMap` already has, and the option I would build; or raise
+the cap, which makes it worse. **Not built, deliberately** — §H said to stop and
+describe the options rather than guess at an implementation overnight, and this is
+the case it was describing.
 
 ### 5. The art constants
 `k_soft`, the C.11 falloff `k`, torch range and colour, ambient intensity and
@@ -1097,6 +1177,21 @@ offered as such.
 
 ## E. STAGE E — rung 1 measured at last, and it is NOT a usable fallback
 
+> **SUPERSEDED IN PART — READ §F.4 FIRST. Kept deliberately, not corrected in
+> place.** Every arm below was measured before `263b580`, the commit that stopped
+> ~12,000 lava voxels registering as point lights into an O(n²) selection. The
+> absolute frame times in this section are therefore dominated by that bug, and
+> the conclusion it draws — *"no shadow rung holds 60 FPS"* — is **false**: rung 0
+> re-measures at 12.29 ms / 81.3 FPS. What survives is the *relative* finding,
+> because both arms carried the same bug: **rung 1 is not cheaper than rung 0**,
+> and §F.1's counters later explained why.
+>
+> This section is left standing because the mistake it records — trusting a
+> cooled, counterbalanced, correctly-run measurement whose *binary* contained a
+> known-unfixed bug — is the more useful lesson than the numbers. Protocol
+> discipline does not protect you from measuring the wrong build.
+
+
 **Cooled (300 s before every arm), counterbalanced A/B/B/A, same session, same
 binary, fullscreen, golden hour, shipped 960×540 gate, fluid off.** This is the
 first Phase 7 measurement that meets `AMENDMENT_8_12` §3.1 in full.
@@ -1165,6 +1260,521 @@ cannot ship:
    behave as designed.
 
 Neither was done tonight. Both are one-constant experiments.
+
+---
+
+## F. STAGE F — why rung 1 does nothing: measured, not guessed
+
+### F.1 The instrumentation, and what it settles
+
+§E.2 offered a *hypothesis* for rung 1's non-effect ("most hit pixels at this
+pose are nearer than the 128 m LOD1 boundary") and said what would settle it: a
+per-pixel count of how many take the reuse path. That counter now exists
+(`ShadowStats`, frame-wide `InterlockedAdd`, behind `_CollectShadowStats` and
+off by default so it cannot contaminate a timing arm).
+
+At the Stage E pose (`GroundHorizon`, fluid live, 960×540, release), over one
+frame:
+
+| time | rung | hit pixels | beyond LOD1 | rays traced | reused | % beyond |
+|---|---|---|---|---|---|---|
+| golden hour | 0 | 1,043,918 | **34** | 1,043,918 | 0 | **0.003%** |
+| golden hour | 1 | 1,044,210 | **80** | 1,044,148 | **62** | **0.008%** |
+| midday | 0 | 1,044,396 | 72 | 1,044,396 | 0 | 0.007% |
+| midday | 1 | 1,044,402 | **0** | 1,044,402 | 0 | **0.000%** |
+
+*(counts span two frames — the reset-to-read window caught two dispatches — so
+read the ratios, not the absolutes.)*
+
+**Rung 1's branch engages for 62 pixels out of 1,044,210.** The hypothesis was
+right in direction and far understated in degree: it is not "a small fraction",
+it is **three thousandths of one percent**.
+
+### F.2 The cause is geometric, and it is not a bug in the mechanism
+
+At a **ground-level camera**, terrain within 128 m occludes essentially
+everything behind it. What lies beyond the LOD1 boundary is *sky* — and sky has
+no primary hit, so it fires no shadow ray and cannot be helped by a shadow
+optimisation. Distant terrain occupies a thin band of pixels near the horizon
+line, and at this pose that band is ~34 pixels.
+
+**So rung 1 is not broken. As specified it can only help aerial and overlook
+views** — where a large share of the frame is distant terrain. At Amendment
+8.9's "real gameplay camera", which is the pose every budget question in this
+project has been asked at, it is **structurally incapable of saving anything**,
+and no amount of repairing the mechanism changes that.
+
+**A hypothesis I held and DISPROVED, recorded because it was wrong:** reading
+the code, I expected the failure to be SIMD lockstep — `traceMine` masks *lanes*,
+and a wave costs the max over its lanes rather than the sum, so one-of-four
+lanes tracing would save nothing. That would have shown as *traced count falling
+while time stayed flat*. The counters show the traced count **not falling at
+all** (1,044,148 vs 1,043,918). The mechanism never ran. My explanation was
+plausible, more interesting, and wrong.
+
+**Lowering rung 1's threshold was considered and rejected as the lever.** It is
+now configurable (`rung1DistanceM`) purely so the question could be asked, but
+even if a lower threshold engaged the branch, the SIMD objection above is
+untested and would likely cap the benefit. The data points somewhere better.
+
+### F.3 The lever the data actually points at
+
+Every shadow ray starts within 128 m of the camera — and every one was allowed
+to travel to the **primary ray's 290 m clamp**. §6.5 predicts exactly where that
+goes: *"grazing golden-hour rays travel farthest"*. §6's isolation measured the
+sun ray at **+25.5 ms**, the single largest cost in the frame.
+
+`PHASE_7_COMPLETION` §5.4 already named a shorter shadow clamp as an unbuilt
+lever. It is now built — `LightingConfig.shadowMaxDistanceM`, per-preset and
+live-tunable, `<= 0` meaning "inherit the primary clamp" so every prior
+measurement stays reproducible. **The trade is real and is why it is a config
+value rather than a constant:** a shorter clamp means distant geometry stops
+casting onto you and shadows fade out at range.
+
+### F.4 Results — the clamp lever is DISPROVED, and rung 0 is not what §E said
+
+**Protocol:** seven arms, each preceded by a 300 s cooldown, counterbalanced
+(the first and last arms repeat conditions run in the middle), one session, one
+release binary, fullscreen, 960×540 gate, moving camera, **live fluid**, and —
+new since §E — the **clock PINNED at golden hour (17:35, sun 6.0°)** for every
+arm, which removes §A.8's confound.
+
+| arm | mean frame | sustained | >33 ms /1000 | >50 ms /1000 |
+|---|---|---|---|---|
+| rung 3 — shadows off | 8.91 ms | 112.3 FPS | 12.8 | 0.6 |
+| **rung 0 — FULL penumbra, clamp 290 m** | **12.29 ms** | **81.3 FPS** | 23.3 | 13.9 |
+| rung 0, clamp 96 m | 12.27 ms | 81.5 FPS | 22.8 | 13.3 |
+| rung 0, clamp 48 m | 11.86 ms | 84.3 FPS | 20.6 | 12.8 |
+| rung 0, clamp 24 m | 12.16 ms | 82.2 FPS | 21.7 | 12.8 |
+| rung 0, clamp 48 m *(repeat)* | 12.65 ms | 79.1 FPS | 23.9 | 12.8 |
+| rung 3 — off *(repeat)* | 9.13 ms | 109.5 FPS | 11.7 | 3.3 |
+
+#### The shadow-distance clamp buys nothing. This is a disproved hypothesis.
+
+§F.3 predicted that clamping the shadow ray well short of the primary ray's
+290 m would recover a large part of the sun ray's cost, on §6.5's reasoning that
+grazing golden-hour rays travel farthest. **It does not.**
+
+- Across a **12× range of clamp distance** (290 m → 24 m) the spread is
+  **0.43 ms** (12.29 → 11.86).
+- The **repeat of a single condition** — clamp 48 m, run twice in the same
+  session — spread **0.79 ms** (11.86 → 12.65).
+
+The between-condition signal is *smaller than the within-condition noise*. The
+lever is not weak, it is **absent at the resolution this rig can measure**. The
+most likely reason is that §8.8's air-mip already makes long empty traversal
+nearly free, so the distance a ray is *allowed* to travel is not what it costs —
+consistent with §F.1's counters, which showed the work is in the near field.
+
+The config field (`LightingConfig.shadowMaxDistanceM`) is **kept, not reverted**:
+it costs nothing at `<= 0`, it is the honest record of the experiment, and it is
+the control any future art decision about shadow fade-out would use. **It is not
+a performance lever and must not be presented as one.**
+
+#### The larger finding: §E's picture of rung 0 was wrong
+
+§E.1 reported rung 0 at **52.06 ms** and concluded "no shadow rung holds 60 FPS".
+This measurement puts **full soft-penumbra rung 0 at 12.29 ms — 81.3 FPS**, with
+~3.2–3.4 ms of that attributable to shadows (12.29 vs rung 3's 8.91/9.13).
+
+**Why the two disagree — stated as established, with the check that establishes it:**
+
+1. **§E's arms predate the lava fix.** §E was committed in `991cc01`; the real
+   cause of the stutter — lava registering ~12,000 voxels as point lights into an
+   O(n²) selection — was not fixed until `263b580`, the *next* commit. Every
+   number in §E and §6 therefore has that sort in it. §A.7 measured that same
+   pose dropping from 42.21 ms to 10.54 ms once it was fixed.
+2. **§E's clock was not pinned.** §E ran `-lightingab`, which sets golden hour at
+   the start and then lets the cycle advance through the arm; §F2 runs
+   `-stutterprobe -tod`, which holds it. The two harnesses also use different
+   camera paths, so they are not otherwise directly comparable.
+
+(1) alone is sufficient to explain a 40 ms difference and is verifiable from the
+commit order, so the contamination is **established**, not hypothesised. The
+*residual* difference between the two harnesses is not separated here and is not
+claimed to be.
+
+#### What this does and does not license
+
+**Does:** at golden hour, at the shipped gate, with live fluid and a moving
+camera, **rung 0 has 4.4 ms of headroom against the 16.67 ms frame.** That is the
+first Phase 7 measurement in which the full-quality shadow path fits the budget.
+
+**Does not:** golden hour is one point in the cycle. §6.5 *predicts* it is the
+worst one; that prediction has never been tested in this project. **§F.5 tests
+it** — 12 points across a full day/night, clock pinned per point, at rung 0 and
+rung 3. Until that lands, the sentence "shadows fit the budget" is true of
+**17:35 only**, and is written that way deliberately.
+
+Note also the tail: rung 0 carries **13–14 frames per 1000 over 50 ms** against
+rung 3's 0.6–3.3. The mean fits; the tail is materially worse and is part of
+§10 flag 4's decision, not a footnote to it.
+### F.5 The full day-cycle sweep — and §6.5's worst-case prediction is WRONG
+
+Every budget measurement in this project, from §6 through §F.4, has been taken at
+golden hour, on §6.5's stated reasoning that *"grazing golden-hour rays travel
+farthest"*. **That prediction has never been tested. It is tested here, and it
+does not hold for this content.**
+
+**Protocol.** 12 points, every 2 in-game hours, **clock pinned per point**, pose
+reset to the arena and re-flown at 12 m/s per point, live fluid, 960×540 gate,
+release standalone, fullscreen. All 12 points in one process so they are
+comparable to each other; the whole sweep run twice, once at **rung 0** and once
+at **rung 3**, each preceded by a 300 s cooldown.
+
+| hour | sun elev | rung 0 (full penumbra) | rung 3 (off) | **Δ = the shadows** |
+|---|---|---|---|---|
+| 00:00 | −76.0° | 11.62 ms | 11.59 ms | **+0.03** |
+| 02:00 | −57.2° | 11.71 | 11.54 | +0.17 |
+| 04:00 | −29.0° | 11.57 | 11.45 | +0.12 |
+| 06:00 | 0.0° | 11.00 | 10.94 | +0.06 |
+| 08:00 | 29.0° | 14.92 | 11.32 | **+3.60** |
+| 10:00 | 57.2° | 16.44 | 12.91 | +3.53 |
+| 12:00 | 76.0° | 15.97 | 13.40 | +2.57 |
+| 14:00 | 57.2° | 17.06 | 13.39 | +3.67 |
+| **16:00** | **29.0°** | **18.98** | **13.33** | **+5.65 ← worst** |
+| 18:00 | 0.0° | 13.83 | 13.88 | −0.05 |
+| 20:00 | −29.0° | 13.88 | 14.06 | −0.18 |
+| 22:00 | −57.2° | 14.32 | 14.02 | +0.30 |
+
+#### Rung 3 is not a second result — it is the control, and it invalidates the absolutes
+
+**Read the rung-3 column on its own first.** It has no sun shadows at any hour,
+so every number in it *should* be the same. It is not: it climbs from 10.94 ms to
+14.06 ms across the run, monotonically. **Night at the start of the sweep costs
+11.59 ms; night at the end costs 14.06 ms — identical work, +2.5 ms.**
+
+So roughly 2.5 ms of the rung-0 column is *when the sample was taken*, not what
+time of day it depicts. **Two mechanisms, and the second one is my design error:**
+
+1. **Thermal.** A fanless M1 Air under ~7 minutes of sustained load throttles.
+2. **Accumulating fluid — a confound I introduced and did not control.** The
+   sweep opens every fluid vent once at the start and then runs all 12 points.
+   Fluid keeps spreading for the whole sweep, so the late points are simulating
+   and drawing materially more water than the early ones. Time-of-day and
+   fluid-load advance together, which is exactly the shape of confound this
+   sweep existed to remove from the *clock*, reintroduced on another axis.
+
+**And the Δ column does not rescue it.** I initially reasoned that subtracting
+rung 3 cancels the drift. It does not: if throttling scales GPU work by some
+factor k, then rung 0 = k·(base + shadow) and rung 3 = k·base, so Δ = k·shadow —
+**drift multiplies the difference rather than cancelling out of it.** Subtraction
+would only cancel an additive offset, and this is not one.
+
+**What the sweep can and cannot be used for, stated honestly:**
+
+- **CAN:** establish the *shape* — that shadows cost nothing at all when the sun
+  is below the horizon, and something real whenever it is up. That conclusion
+  survives because it is a difference between **zero and non-zero**, which no
+  plausible drift manufactures: five separate elevation-≤-0 points land between
+  −0.18 and +0.30 ms, straddling zero, while every sun-up point is ≥ +2.5 ms.
+- **CANNOT:** be trusted for absolute frame times, or for ranking sun-up points
+  against each other. The candidate "worst point" at 16:00 is the ninth of twelve
+  samples and carries the most heat and the most fluid of any lit sample. Its
+  apparent margin over 08:00 (the same 29° elevation, but early in the run) is
+  exactly what the confound would manufacture.
+
+**§F.6 therefore re-measures 16:00 cooled, and it is §F.6 that decides anything.**
+
+#### What the Δ column says, kept to what survives the confound
+
+1. **Shadows cost exactly nothing when the sun is down.** Elevation ≤ 0° gives
+   −0.18 to +0.30 ms across five points — noise either side of zero. The shadow
+   ray is correctly skipped and **half the day is free**. This was assumed
+   before; it is measured now, and it is the sweep's most durable result.
+2. **Shadows cost something real whenever the sun is up** — every lit point is
+   ≥ +2.5 ms even before the confound is accounted for.
+3. **Which lit hour is worst, the sweep cannot say**, for the reasons above. It
+   nominated 16:00; §F.6 tested that nomination.
+
+
+### F.6 The worst point, measured cooled — and rung 0 holds it comfortably
+
+**Protocol:** five arms at **16:00 (sun 29°, descending)** — the point §F.5
+nominated as worst — each preceded by a **300 s cooldown**, counterbalanced
+(A/B/C/B/A), clock pinned, moving camera at 12 m/s, live fluid, 960×540 gate,
+release standalone, fullscreen, **the same binary as the §F.5 sweep**, deliberately
+not rebuilt so the two are comparable.
+
+| arm | rung | mean frame | sustained | >50 ms /1000 | >100 ms /1000 |
+|---|---|---|---|---|---|
+| 1 | 3 — off | 8.75 ms | 114.3 FPS | 0.6 | 0.0 |
+| 2 | **0 — full soft penumbra** | **10.61 ms** | **94.3 FPS** | 12.2 | 4.4 |
+| 3 | 2 — hard only | 9.92 ms | 100.8 FPS | 10.6 | 0.0 |
+| 4 | **0 — full soft penumbra** *(repeat)* | **10.82 ms** | **92.4 FPS** | 13.3 | 5.6 |
+| 5 | 3 — off *(repeat)* | 8.88 ms | 112.6 FPS | 0.6 | 0.0 |
+
+Within-condition spread is **0.21 ms** (rung 0) and **0.13 ms** (rung 3) — tight
+enough that the differences below are real.
+
+- **Full soft-penumbra shadows cost 1.90 ms** (10.72 mean vs 8.82 mean).
+- **Hard-only shadows cost 1.17 ms**, and save 0.80 ms over full penumbra.
+- **Rung 0 holds ~93 FPS at the worst point the day sweep could find**, with
+  **5.9 ms of headroom** against the 16.67 ms frame.
+
+#### This also settles that the sweep's absolutes were the confound, not the clock
+
+The sweep measured this exact time of day at **18.98 ms**. Cooled, it is
+**10.61 ms**. The rung-3 control shows the same thing independently: **13.33 ms in
+the sweep against 8.75 ms cooled**, for work that does not involve shadows at all.
+**The sweep inflated everything by roughly 50%,** and §F.5's section on that is
+written up as the design error it was rather than trimmed out.
+
+It also means the sweep's *ranking* of lit hours should not be relied on. Against
+§F.4's cooled golden-hour arms (12.29 ms rung 0, 8.91 ms rung 3 — a 3.3 ms shadow
+cost) this point measures **cheaper**, at 1.90 ms. Those are different sessions
+and a different binary, so the comparison is indicative rather than decisive — but
+it points the opposite way to the sweep, and **§6.5's original prediction that
+golden hour is the worst case is, if anything, supported** rather than overturned.
+**The claim in §F.5's first draft that §6.5's prediction is wrong is withdrawn: it
+rested on the inflated ranking.**
+
+#### The one thing that is genuinely worse with shadows on
+
+The **tail**, and it is not a rounding difference:
+
+| | >50 ms per 1000 | >100 ms per 1000 |
+|---|---|---|
+| rung 3 — off | 0.6 | **0.0** |
+| rung 2 — hard only | 10.6 | **0.0** |
+| rung 0 — full penumbra | 12.2 / 13.3 | **4.4 / 5.6** |
+
+Turning shadows on at all takes >50 ms frames from ~0.6 to ~11–13 per 1000.
+Turning on the **soft penumbra specifically** is what introduces >100 ms frames,
+which rungs 2 and 3 produce **none** of. That is roughly one frame in 200 over
+100 ms — perceptible as a hitch, and invisible in every mean in this document.
+
+**p99 is not a headline here and is not used as one** (`AMENDMENT_8_12` §3.2), but
+a category that goes from *never* to *regularly* is a difference in kind, not in
+degree. **Rung 2 buys that tail away for 0.80 ms of the 1.90 ms that shadows
+cost, while keeping shadows.** Whether the soft edge is worth a hitch every ~200
+frames is a feel judgement, which is why it is §10 flag 4 and not a decision here.
+
+---
+
+## I. STAGE I — the HUD says what you are looking at, without being asked
+
+**The problem, in one sentence:** the preset and the shadow rung lived *inside*
+the F1 debug panel, and that panel was open by default — so the choice was
+between a screenshot with a 292 px wall of diagnostics across it, and a
+screenshot with no record of which preset or rung produced it. Every judgement
+made with F1 closed was made without the two facts needed to interpret it.
+
+**What changed.**
+
+1. **A one-line strip, always on, top-right:**
+   `PRESET Atmospheric   SHADOWS Full (soft edges)   81 fps (12.3 ms)   [ ] preset  J shadows  F1 detail`
+   The frame time is coloured against the 16.67 ms frame — green under, amber to
+   22 ms, red beyond — so "am I inside budget" needs no arithmetic.
+2. **The detailed overlay now starts CLOSED** and is entirely behind `F1`. It
+   keeps everything it had; it also now draws *below* the strip, so pressing F1
+   never makes the strip jump somewhere else.
+3. **The rungs are named in plain language on the strip:** *Full (soft edges)* /
+   *Cheaper far away* / *Hard edges only* / *Off*. The spec-accurate names
+   (`1 HALF-RES beyond LOD1`) are kept in the F1 panel, where citing §6.5 is what
+   you want. On a line that is on screen while someone judges how the game looks,
+   "HALF-RES beyond LOD1" asks the reader to know what LOD1 is first.
+4. `PLAYGROUND_GUIDE.md` §3 and §5 updated, including the new `8`/`9`/`0`
+   coloured-torch brushes.
+
+**The strip's fps is explicitly labelled as not evidence**, in the guide and in
+the source comment. `CLAUDE.md` is unambiguous that the only trusted frame-time
+source is the rig's own report from a release standalone, and a number that is
+always on screen is exactly the kind that gets quoted later as though it were.
+
+**One trap worth recording, because it would have been silent.** `_visible` is a
+`[SerializeField]`, and `Phase5aSceneBuilder` *explicitly writes it* into the
+generated scene. Changing the field's default in `PlaygroundHud.cs` alone would
+have compiled, looked correct, and done **nothing** — the serialized value wins.
+Both sites are changed, and the scene builder now carries a comment saying the
+assignment is load-bearing rather than redundant. This project has already lost a
+debugging round to exactly this, and the tell is an identical number across two
+builds that should differ.
+
+---
+
+## G. STAGE G — coloured lights, and where the real cap is
+
+**Three new materials** — `TorchBlue` (15), `TorchGreen` (16), `TorchPurple` (17),
+additive, nothing renumbered, absent from `ContentVersionHash()` for the same
+reason `Torch` is. They are on the hotbar as `8` / `9` / `0`.
+
+They differ from the warm torch in **tint only** — same emissive strength, same
+range, same flags — and `ColouredTorches_AreLightsThatDifferFromTheWarmTorchInTintAlone`
+asserts exactly that, because the measurement below attributes differences to the
+colour path and that attribution is invalid if anything else varies too.
+
+**No channel is at zero**, deliberately: a saturated primary like `(0,0,1)`
+multiplies two of a surface's albedo channels to nothing and flattens lit rock to
+a silhouette. The test pins that too.
+
+### G.1 The scaling measurement
+
+512 mixed-colour torches on a lattice in an open hall, placed cumulatively, four
+tints cycling so the selected set is never trivially identical frame to frame.
+
+| placed | registered | **active** | mean frame | vs baseline | uploads/frame |
+|---|---|---|---|---|---|
+| 0 | 0 | 0 | 4.97 ms | — | — |
+| 32 | 32 | 32 | 5.69 ms | +0.73 | **0.00** |
+| 64 | 64 | 32 | 5.78 ms | +0.81 | **0.00** |
+| 128 | 128 | 32 | 5.76 ms | +0.79 | **0.00** |
+| 256 | 256 | 32 | 5.79 ms | +0.82 | **0.00** |
+| 512 | 512 | 32 | 5.86 ms | +0.89 | **0.00** |
+
+**Going from 32 to 512 placed lights costs 0.17 ms.** Not 16× more; 0.17 ms.
+
+Two separate things are working, and it is worth naming both:
+
+1. **§3.8's cap does its job.** The shader always shades exactly 32 lights. The
+   other 480 cost only their per-frame distance score and a partial selection —
+   the O(n × 32) pass that replaced §A's O(n²) insertion sort.
+2. **The §A upload skip holds at scale.** `uploads/frame` reads **0.00** at every
+   count including 512, measured over an explicit 120-frame window. The
+   byte-comparison that decides whether to re-`SetData` is not degrading as n
+   grows, which was the specific worry §G asked about. It is comparing the
+   selected 32, not the registered 512, so it does not grow with n at all.
+
+### G.2 The recommended cap, with the number behind it
+
+**Recommendation: do not impose a placement cap below 512.** There is no
+measured reason for one. If you want a number to put in a design document,
+**512 placed lights costs 0.89 ms over an unlit scene and 0.17 ms over 32** — and
+`MAX_ACTIVE_LIGHTS` (32) already bounds everything the GPU does, so the cap that
+matters is already in place and already enforced.
+
+**What a player will actually notice long before frame time is the §3.8
+degradation itself:** past 32, the furthest lights stop being drawn. In a lit
+base that reads as torches going out behind you as you walk. The F1 overlay says
+`CAP BINDING — n furthest not drawn` when it happens, which is the honest fix for
+it; raising `MAX_ACTIVE_LIGHTS` is a shader cost and a separate decision.
+
+**Caveat, stated plainly:** this is a same-session, back-to-back diagnostic, not
+a cooled gate. It is trustworthy for the *shape* (flat, not linear in n) because
+the effect is a factor of ~30 smaller than the thing it would need to hide.
+
+---
+
+## H. STAGE H — lava as a light: the cost is now fine, and that is not the problem
+
+**§A's premise is genuinely obsolete.** The exclusion was added when 12,000 lava
+voxels went into an O(n²) insertion sort and cost tens of milliseconds. Measured
+again against a **9,315-voxel lava lake** with the current O(n × 32) selection:
+
+| | mean frame |
+|---|---|
+| lava NOT a light (shipping) | 4.39 ms |
+| lava IS a light | 5.38 ms |
+| **delta** | **+0.99 ms** for 9,315 registered sources |
+
+That is **0.106 µs per lava voxel per frame** — affordable. If the decision were
+purely "can we afford it", the answer would now be yes.
+
+### H.1 STOPPING HERE, as instructed — because it is not a cost problem
+
+**Turning the seam on naively produces a worse picture, not a better one.** Both
+arms were shot from the same eye, at the same wall beside the same lake:
+
+- `H1_03_wall_beside_lava_UNLIT.png` — **the wall is pure black.** This is what
+  ships today, and it is the flagged consequence §10 item 9 describes.
+- `H1_02_wall_beside_lava_LIT.png` — **the wall is blown out to near-white**, flat,
+  with the voxel relief almost entirely gone.
+
+Neither is a lava-lit cave. The reason is structural, not a tuning error:
+
+1. **32 point lights all land in the same square metre.** §3.8 selects the
+   *nearest* 32 sources; with 9,315 candidates in one lake they are 32 adjacent
+   voxels, effectively one light counted 32 times. C.11's `1/(1+d²k)` attenuation
+   then sums 32 nearly-identical near-field contributions and saturates.
+2. **It starves every other light in the world.** The cap is global. A lava lake
+   anywhere near the player permanently occupies all 32 slots, so **the player's
+   own torches stop being drawn**. That is a gameplay regression, not a visual one.
+
+**This is the "real design work" case §H said to stop at, so it stops here.**
+
+### H.2 Three options, costed, for the owner to choose between
+
+**Option 1 — leave it excluded (ships today, zero work).** Lava self-lights and
+does not illuminate neighbours. §6.5 never promised it did: *"no propagation, no
+BFS… light does not bend around corners in v1"*. Cost: 0. The black wall stays.
+
+**Option 2 — one aggregate light per fluid tile.** The substrate already exists:
+`FluidTileMap` has 32-voxel (3.2 m) tiles, tracks which are resident, exposes
+`ResidentTileCoords()`, and already keeps a live-cell count per tile in
+`_slotLive`. A 9,315-voxel lake spans roughly **3 tiles**, so this replaces ~9,315
+point lights with **~3** — it fixes the cost *and* both problems above, because
+three well-separated lights neither saturate nor monopolise the cap.
+**Estimated work: moderate.** Needs a per-tile *lava-specific* count (the existing
+count is all fluid), a light rebuilt when a tile's count changes, and a decision
+about intensity-vs-volume. It is a new §3.8 producer, so it wants its own tests
+and a checkpoint. **This is the option I would build**, but it is not an overnight
+change and I have not built it.
+
+**Option 3 — raise `MAX_ACTIVE_LIGHTS`.** Does not help. It makes the saturation
+worse, costs shader time on every pixel, and leaves the starvation problem intact.
+Listed because it is the obvious first idea and it is wrong.
+
+**What is shipped tonight:** the exclusion stays on (Option 1, unchanged default),
+with `LightSourceBuffer.AllowMobileEmissives` as a measured, tested seam so this
+can be re-opened without re-deriving any of the above. `MobileEmissives_RegisterOnlyWhenTheStageHSeamIsOpened`
+asserts the default stays closed *and* that the seam genuinely opens — because a
+seam that silently does nothing would have made the +0.99 ms above a measurement
+of nothing at all.
+
+---
+
+## J. STAGE J — the review package, and the thing underneath the presets
+
+### J.1 The root cause of "not a fan of any of them"
+
+**There was no tonemapping anywhere in this renderer.** Not a bad curve — none.
+The final combine ended in a bare `saturate()`, so every value over 1.0 clipped
+flat. §6.1 explicitly defers *"palette/mood/post… to Phases 2 and 7"*, so it was
+in scope and unbuilt rather than out of scope.
+
+Every preset was therefore being judged through a hard clamp, which is why §C
+found the snow problem was **arithmetic** (1.149 at noon) and could not be fixed
+by lowering ambient — the sun term alone was already at the ceiling.
+
+Implemented: `ApplyTonemap` with **Reinhard (extended, white point)** and **ACES
+(Narkowicz fit)**, plus exposure, behind `LightingConfig.tonemap` / `.exposure` /
+`.tonemapWhite`, hot-reloadable. **`tonemap: 0` reproduces the old hard clamp
+exactly**, so every historical screenshot in this repo remains reproducible.
+
+### J.2 The package
+
+`Screenshots/Presets/` — **90 images**, five presets × nine fixed scenes, plus a
+three-way tonemap comparison on the three scenes where it changes anything. Each
+preset folder has an `INDEX.md` naming what to look at in each shot and listing
+the preset's own constants; `Screenshots/Presets/INDEX.md` indexes the set.
+
+The nine scenes are identical across presets by construction — same eye, same
+target, same clock, same cave, same torch — because a preset comparison in which
+the camera moved is not a comparison.
+
+`Screenshots/D3_swim/` — the five-frame lateral pan at 200 m, with an `INDEX.md`
+explaining the stable-vs-swimming distinction and how to flip between them.
+
+### J.3 No favourite, and two honest observations
+
+**I am not picking a preset and this document does not contain a ranking.** What
+I will report is what I saw looking at the frames:
+
+1. **Tonemapping is a real but modest change at these settings.** Comparing
+   `5_snow_noon_tmNone` against `tmACES`: ACES keeps slightly more tonal
+   separation in the snow and holds the grass colour better, but snow at noon is
+   still close to white in both. The clamp was **not** the whole of the problem —
+   it was a ceiling the presets were fighting, and removing it gives them room to
+   be tuned rather than fixing the look by itself.
+2. **The thing that most affects how these read is not the tone curve — it is
+   that vertical voxel faces go very dark under a high sun.** At noon the snow
+   shows as heavy dark contour banding following every terrain step, because
+   near-vertical faces receive almost no direct sun and the ambient floor is low.
+   At golden hour the same terrain reads far better: the low sun catches those
+   faces and the crater rim in `2_golden_surface.png` is the best-looking frame
+   in the set. **This is worth your eye before any preset choice**, because if it
+   bothers you the lever is the ambient/hemisphere term, not the preset palette,
+   and no amount of preset-picking will address it.
 
 ---
 

@@ -220,9 +220,11 @@ public class Playground : MonoBehaviour
     // unchanged and slot 7 is simply new.
     private static readonly byte[] _brushes =
         { Materials.Water, Materials.Sand, Materials.Lava, Materials.Stone,
-          Materials.Sandstone, Materials.Snow, Materials.Torch };
+          Materials.Sandstone, Materials.Snow, Materials.Torch,
+          Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple };
     private static readonly string[] _brushNames =
-        { "water", "sand", "lava", "stone", "sandstone", "snow", "torch" };
+        { "water", "sand", "lava", "stone", "sandstone", "snow", "torch",
+          "blue torch", "green torch", "violet torch" };
     private int _brush;
 
     /// Remembers k_soft across the hard/soft toggle so the owner's tuned value
@@ -372,7 +374,8 @@ public class Playground : MonoBehaviour
         // came back from the surface, with the F2 help panel open across the
         // middle of frame. The trap was documented; the new flag simply was not
         // added to the list. Any future capture mode must be added here too.
-        if (HasArg("-playgroundshots") || HasArg("-gputrace") || HasArg("-p7stress"))
+        if (HasArg("-playgroundshots") || HasArg("-gputrace") || HasArg("-p7stress") ||
+            HasArg("-daysweep") || HasArg("-presetshots"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
@@ -381,7 +384,7 @@ public class Playground : MonoBehaviour
         // Screenshot passes also want the overlays OUT of frame. The Stage D
         // shots are meant to be looked at as pictures of the lighting; a perf
         // panel and a hotbar across them defeats the point.
-        if (HasArg("-p7stress")) DebugHideUi = true;
+        if (HasArg("-p7stress") || HasArg("-daysweep") || HasArg("-presetshots")) DebugHideUi = true;
 
         RegisterDefaultToys();
         _ready = true;
@@ -702,6 +705,10 @@ public class Playground : MonoBehaviour
         if (m == Materials.Lava) return "lava";
         if (m == Materials.Honey) return "honey";
         if (m == Materials.Obsidian) return "obsidian";
+        if (m == Materials.Torch) return "torch";
+        if (m == Materials.TorchBlue) return "blue torch";
+        if (m == Materials.TorchGreen) return "green torch";
+        if (m == Materials.TorchPurple) return "violet torch";
         return $"id {m}";
     }
 

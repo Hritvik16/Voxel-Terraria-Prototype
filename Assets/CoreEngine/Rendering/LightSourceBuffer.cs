@@ -95,6 +95,17 @@ namespace VoxelEngine.Rendering
         /// SetData calls actually issued. The point of the fix is that this stays
         /// flat while the player moves without touching a light, so a test can
         /// assert on it rather than on a frame time.
+        /// STAGE H SEAM. When false (the default, and what ships unless the
+        /// owner decides otherwise) a mobile emissive -- lava -- registers no
+        /// point light and therefore does not illuminate its neighbours. When
+        /// true it does, at whatever cost the measurement finds.
+        ///
+        /// Static rather than per-instance so a capture mode can flip it before
+        /// the world is edited; it changes REGISTRATION, so flipping it after
+        /// lava is already placed does nothing retroactively, and any harness
+        /// using it must set it first and say so.
+        public static bool AllowMobileEmissives = false;
+
         public long UploadsPerformed { get; private set; }
 
         /// How many lights exist in the world right now, ignoring the cap.
@@ -176,7 +187,16 @@ namespace VoxelEngine.Rendering
             // alternative (per-brick light clustering, §3.8's MAX_LIGHTS_PER_BRICK)
             // is explicitly deferred to v1.5.
             // -----------------------------------------------------------------
-            if (MaterialRules.IsMobile(material)) return false;
+            // STAGE H MADE THIS A MEASURABLE SEAM RATHER THAN A PERMANENT NO.
+            //
+            // The exclusion was added when selection was an O(n^2) insertion
+            // sort and 12,000 lava voxels cost 30+ ms per frame. Selection is
+            // now partial and O(n x 32), so the premise the exclusion rested on
+            // no longer holds and the question deserves re-asking WITH A NUMBER
+            // rather than inheriting the old answer. The default is unchanged
+            // (excluded), because changing a default on an unmeasured guess is
+            // how the first Stage A "fix" went wrong.
+            if (!AllowMobileEmissives && MaterialRules.IsMobile(material)) return false;
 
             if (!MaterialRules.TryGetLight(material, out float r, out float g, out float b,
                                            out float rangeScale))

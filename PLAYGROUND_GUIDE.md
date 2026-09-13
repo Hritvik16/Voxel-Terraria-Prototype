@@ -107,8 +107,9 @@ watch it.
 | `L` | jump to **midnight** |
 | `,` `.` | **scrub** time of day, held. Scrubbing pauses the clock so the pose you find stays put |
 | `P` | pause / resume the clock |
-| `7` | select the **torch** in the hotbar; `RMB` places it, `LMB` digs it out |
-| `J` | cycle shadow quality `0` full soft → `1` half-res distant → `2` hard → `3` off |
+| `7` | select the **warm torch** in the hotbar; `RMB` places it, `LMB` digs it out |
+| `8` `9` `0` | **blue**, **green** and **violet** torches. Same brightness and range as the warm one — only the colour differs, so overlapping two of them shows real colour blending rather than a brightness change |
+| `J` | cycle shadow quality. The always-on strip names the rung in plain language: **Full (soft edges)** → **Cheaper far away** → **Hard edges only** → **Off** |
 | `K` | hard ↔ soft shadows (`k_soft` toggle, without touching the JSON) |
 | `Y` | view: beauty → sun visibility → shadow-ray step heat |
 
@@ -116,7 +117,7 @@ watch it.
 
 | Key | Action |
 |-----|--------|
-| `F1` | performance overlay (now also sun angle/time, active lights vs cap, shadow rung) |
+| `F1` | the **detailed** performance overlay — sun angle/time, resident chunks, pool pressure, active lights vs cap, persistence health. **Starts closed.** |
 | `F2` | controls help |
 | `ESC` | release the mouse |
 
@@ -384,7 +385,14 @@ constantly, that is a finding worth chasing — take it to the Phase 5 rigs.
   is what you are holding. Whichever fired most recently lights up.
 - **Bottom-left** — live engine state: grounded/airborne, speed, submersion,
   dug/second, last blast, last shot, edit counters, and the arena's position.
-- **Top-right** (`F1`) — performance. **Read §6 before believing any of it.**
+- **Top-right, always on** — one line: **which preset**, **which shadow rung**,
+  and the current frame time, coloured green under 16.67 ms and red well over.
+  This line exists because the two facts you need to interpret what you are
+  looking at — the preset and the rung — used to live *inside* a debug panel, so
+  every judgement made with that panel closed was made without them.
+- **Top-right, below it** (`F1`) — the detailed overlay, which now starts
+  **closed**. **Read §6 before believing any of it**, including the fps on the
+  always-on line: it is a smoothed indicator, not a measurement.
 
 ## 6. What you can and cannot trust
 

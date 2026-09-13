@@ -164,6 +164,28 @@ uint4 _CascadeTierInfo1;
 uint4 _CascadeTierInfo2;
 
 RWStructuredBuffer<float> DebugOut;
+
+// ===========================================================================
+// STAGE F -- SHADOW BRANCH STATISTICS, frame-wide.
+//
+// §0.3's rule and this project's repeated experience: instrument before
+// guessing. Rung 1 measures indistinguishable from rung 0 (53.0 vs 52.06 ms),
+// and PHASE_7_COMPLETION §E.2 offered a HYPOTHESIS for why -- that the
+// half-res branch rarely engages because most hit pixels are nearer than the
+// 128 m LOD1 boundary. A hypothesis is not a cause. These counters settle it
+// with a number.
+//
+//   [0] pixels with a primary hit
+//   [1] pixels beyond the LOD1 boundary (the ones rung 1 targets)
+//   [2] shadow rays ACTUALLY TRACED
+//   [3] pixels that took a REUSED value instead of tracing
+//
+// InterlockedAdd per pixel is genuinely expensive and is why this is behind
+// _CollectShadowStats, off by default and enabled only for the diagnostic arm.
+// It measures BRANCH ENGAGEMENT, not time -- the timing arms stay clean.
+// ===========================================================================
+RWStructuredBuffer<uint> ShadowStats;
+int _CollectShadowStats;
 uint2 _DebugPixel;
 
 // 0=Beauty 1=StepHeat 2=UniformDense 3=Normals 4=NonExitHeat 5=VoxelGrain 6=LODTier
@@ -272,6 +294,89 @@ int _UseSkyProbeAmbient;
 // LightingConfig.json.
 float _UndergroundAmbientFloor;
 
+// ===========================================================================
+// TONEMAPPING (§6.1: "Palette/mood/post are deferred to visual prototyping in
+// Phases 2 and 7." This is Phase 7, and none existed.)
+//
+// FOUND BY LOOKING RATHER THAN BY TUNING. A strict search of the whole
+// ARCHITECTURE_v8.6.md returns ZERO hits for tonemap / Reinhard / filmic /
+// ACES / exposure curve, and the shader ended in a bare `saturate(shaded)` --
+// a HARD CLAMP of raw linear radiance to [0,1].
+//
+// That clamp is why the snow finding looked the way it did. §C measured an
+// up-facing snow voxel at 1.149 at noon and the fix was to lower intensities
+// until it fitted under 1.0. That works, but it treats the symptom: with a hard
+// clamp, ANY surface that exceeds 1.0 loses all gradient at once and goes flat
+// white, so the whole image is permanently one bad exposure away from a cliff.
+// It also means bright and mid-bright surfaces compress differently from how
+// any camera or eye responds, which is a large part of "it doesn't look
+// amazing" that no amount of intensity tuning can reach.
+//
+// 0 = OFF, the previous behaviour exactly (hard clamp), kept so every earlier
+//     screenshot and measurement remains reproducible.
+// 1 = Reinhard, extended with a white point: c(1 + c/w^2)/(1 + c). Never
+//     clips, gentle, desaturates highlights.
+// 2 = ACES filmic (Narkowicz's fit). Punchier, holds saturation into the
+//     highlights, the more "graded" look.
+//
+// Deliberately a TOGGLE AND AN AXIS rather than a silent replacement: the
+// presets ship in both states so the owner compares rather than takes my word.
+// ===========================================================================
+// ===========================================================================
+// STAGE F -- AN INDEPENDENT SHADOW-RAY CLAMP.
+//
+// §6.5 says the shadow ray "clamps at max distance (island diagonal)", and
+// until now it simply inherited the PRIMARY ray's _MaxRayDistance (tier 2's
+// outer bound, 290 m) -- recorded as a deliberate reading in
+// PHASE_7_COMPLETION §5.4, and named there as an unbuilt lever.
+//
+// STAGE F's INSTRUMENTATION IS WHAT MADE THIS THE OBVIOUS LEVER. It measured
+// only 34 of 1,043,918 hit pixels (0.003%) beyond the 128 m LOD1 boundary at
+// the ground-level gameplay pose: essentially every shaded pixel is NEAR, yet
+// every one of their shadow rays was permitted to travel 290 m. §6.5 itself
+// predicts where that cost goes -- "grazing golden-hour rays travel farthest".
+//
+// <= 0 means "inherit the primary ray's clamp", i.e. the previous behaviour
+// exactly, so every earlier measurement stays reproducible.
+//
+// THE VISUAL COST IS REAL AND IS THE POINT OF MEASURING IT: a shorter clamp
+// means a distant mountain stops casting a shadow onto you, and shadows fade
+// out at range rather than ending at the world edge. That is a quality trade,
+// so it is a LightingConfig value (per-preset, live-tunable) rather than a
+// hidden constant.
+float _ShadowMaxDistVoxels;
+
+// Rung 1's engagement threshold, in raw voxels. Was hardcoded to the LOD1
+// boundary; made configurable purely so Stage F could test whether the
+// threshold -- rather than the mechanism -- was why rung 1 never engaged.
+float _Rung1DistVoxels;
+
+int   _Tonemap;
+float _Exposure;
+float _TonemapWhite;
+
+float3 TonemapReinhard(float3 c, float w)
+{
+    float w2 = max(0.0001, w * w);
+    return (c * (1.0 + c / w2)) / (1.0 + c);
+}
+
+float3 TonemapAces(float3 c)
+{
+    // Narkowicz 2015 fit. Cheap, and close enough to the real ACES curve for
+    // a look pass; the full RRT/ODT is not worth its cost here.
+    const float a = 2.51, b = 0.03, cc = 2.43, d = 0.59, e = 0.14;
+    return saturate((c * (a * c + b)) / (c * (cc * c + d) + e));
+}
+
+float3 ApplyTonemap(float3 c)
+{
+    c *= max(0.0, _Exposure);
+    if (_Tonemap == 1) return saturate(TonemapReinhard(c, _TonemapWhite));
+    if (_Tonemap == 2) return TonemapAces(c);
+    return saturate(c);          // 0 = the pre-Phase-7 hard clamp, unchanged
+}
+
 // §6.5's 8.4 guard and rung 1's neighbour reuse, in groupshared memory.
 // 8x8 threads = 64 lanes; gsSunVis is 256 B, which is nothing against a 32 KB
 // budget and is the entire cost of not needing wave intrinsics.
@@ -343,6 +448,9 @@ float3 MaterialAlbedo(uint mat)
     if (mat == 12u) return float3(0.680, 0.480, 0.130);  // Honey
     if (mat == 13u) return float3(0.095, 0.085, 0.125);  // Obsidian
     if (mat == 14u) return float3(0.760, 0.545, 0.285);  // Torch (Phase 7)
+    if (mat == 15u) return float3(0.300, 0.480, 0.780);  // TorchBlue   (Stage G)
+    if (mat == 16u) return float3(0.330, 0.720, 0.390);  // TorchGreen  (Stage G)
+    if (mat == 17u) return float3(0.560, 0.340, 0.760);  // TorchPurple (Stage G)
     return float3(0.90, 0.10, 0.80);                     // unauthored -> obvious magenta
 }
 
@@ -375,6 +483,9 @@ float MaterialEmissive(uint mat)
 {
     if (mat == 14u) return 1.00;   // Torch
     if (mat == 11u) return 0.55;   // Lava
+    if (mat == 15u) return 1.00;   // TorchBlue   (Stage G)
+    if (mat == 16u) return 1.00;   // TorchGreen  (Stage G)
+    if (mat == 17u) return 1.00;   // TorchPurple (Stage G)
     return 0.0;
 }
 
@@ -382,6 +493,9 @@ float3 MaterialEmissiveTint(uint mat)
 {
     if (mat == 14u) return float3(1.00, 0.72, 0.38);   // Torch -- warm candle flame
     if (mat == 11u) return float3(1.00, 0.42, 0.14);   // Lava  -- hotter, redder
+    if (mat == 15u) return float3(0.36, 0.58, 1.00);   // TorchBlue   (Stage G)
+    if (mat == 16u) return float3(0.42, 1.00, 0.48);   // TorchGreen  (Stage G)
+    if (mat == 17u) return float3(0.78, 0.42, 1.00);   // TorchPurple (Stage G)
     return float3(0.0, 0.0, 0.0);
 }
 
@@ -908,6 +1022,8 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
     // is NOT an implementation of Amendment 8.11 (DRAFT, NOT ADOPTED); it
     // follows _MaxRayDistance, so if render range ever grows this follows.
     float maxDist = (_MaxRayDistance > 0.0) ? _MaxRayDistance : 1280.0;
+    // Stage F: an independent, shorter shadow clamp when one is configured.
+    if (_ShadowMaxDistVoxels > 0.0) maxDist = min(maxDist, _ShadowMaxDistVoxels);
 
     float m = 3.0e30;                 // C.10's minimum clearance/travel ratio
     float3 camVox = _CameraPos * 10.0;
@@ -1628,7 +1744,8 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
         // undefined. Both shipped gate resolutions are even in both axes, so
         // every quad is entirely in or entirely out, but the guard costs two
         // comparisons and removes the question.
-        bool distant = hit && (currentDist >= _TierOuterRangeVoxels.y);
+        float rung1Threshold = (_Rung1DistVoxels > 0.0) ? _Rung1DistVoxels : _TierOuterRangeVoxels.y;
+        bool distant = hit && (currentDist >= rung1Threshold);
         bool reuse = (_ShadowQualityLevel == 1) && distant;
         bool isQuadLead = ((gtid.x & 1u) == 0u) && ((gtid.y & 1u) == 0u);
 
@@ -1652,6 +1769,14 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
 
         sunVis = needsShadowRay ? (reuse ? leadVis : mineVis) : 0.0;
         shadowSteps = sh.steps;
+
+        if (_CollectShadowStats != 0)
+        {
+            if (hit)      InterlockedAdd(ShadowStats[0], 1u);
+            if (distant)  InterlockedAdd(ShadowStats[1], 1u);
+            if (traceMine) InterlockedAdd(ShadowStats[2], 1u);
+            if (needsShadowRay && reuse && !isQuadLead) InterlockedAdd(ShadowStats[3], 1u);
+        }
     }
 
     // When shadows are OFF (rung 3), §6.5 says "sun becomes a flat N.L term
@@ -1890,7 +2015,10 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
                 shaded = lerp(shaded, _SkyColor.rgb, f * 0.85);
             }
 
-            color = float4(saturate(shaded), 1.0);
+            // §6.1's deferred "post", at the one place every lit pixel passes
+            // through. With _Tonemap == 0 this is byte-identical to the
+            // previous `saturate(shaded)`.
+            color = float4(ApplyTonemap(shaded), 1.0);
         }
         else
         {

@@ -163,6 +163,46 @@ public sealed class LightingConfig
     /// to raise once the look is settled.
     public float dayLengthSeconds = 120f;
 
+    // =====================================================================
+    // TONEMAPPING -- §6.1's deferred "post", added in Phase 7
+    // =====================================================================
+
+    /// 0 = off (hard clamp, the pre-Phase-7 behaviour, kept reproducible)
+    /// 1 = Reinhard with a white point   2 = ACES filmic
+    ///
+    /// This is an AXIS of the presets, not a global decision: every preset is
+    /// screenshotted both with and without, because a curve changes the look
+    /// more than any single intensity value and the owner should compare rather
+    /// than inherit my choice.
+    public int tonemap = 2;
+
+    /// Linear exposure applied BEFORE the curve. With a curve in play this is
+    /// the natural brightness control -- it slides the image along the curve
+    /// instead of pushing values into a clamp.
+    public float exposure = 1.0f;
+
+    /// Reinhard's white point: the linear value that maps to display white.
+    /// Higher keeps more highlight detail and looks flatter; lower clips
+    /// sooner and looks punchier. Ignored by ACES.
+    public float tonemapWhite = 2.2f;
+
+    /// STAGE F's LEVER. How far a SUN SHADOW RAY may travel, in METRES.
+    /// <= 0 inherits the primary ray's clamp (290 m), which is the behaviour
+    /// every measurement before 2026-09-13 was taken under.
+    ///
+    /// Stage F measured 0.003% of hit pixels beyond 128 m at the ground-level
+    /// gameplay camera, yet every shadow ray was allowed 290 m. Shortening this
+    /// bounds the single most expensive thing in the frame (§6's isolation put
+    /// the sun ray at +25.5 ms). The trade is that distant geometry stops
+    /// casting onto you -- a QUALITY decision, which is why it lives here and
+    /// is per-preset rather than being a hidden constant.
+    public float shadowMaxDistanceM = 0f;
+
+    /// Rung 1's engagement threshold in metres. <= 0 uses the LOD1 boundary
+    /// (128 m). Exposed only so Stage F could test whether the THRESHOLD rather
+    /// than the mechanism was why rung 1 never engaged.
+    public float rung1DistanceM = 0f;
+
     /// Axial tilt of the sun's arc, unitless. 0 puts the sun's path in a
     /// vertical plane through the zenith, which makes every shadow sweep
     /// through exactly one azimuth and looks artificial. 0.25 tilts the arc so
@@ -217,6 +257,12 @@ public sealed class LightingConfig
         // A day cannot be zero seconds long -- the clock would divide by it.
         dayLengthSeconds = Fix(dayLengthSeconds, 1f, 86400f, 120f, nameof(dayLengthSeconds), notes);
         sunArcTilt       = Fix(sunArcTilt, -1f, 1f, 0.25f, nameof(sunArcTilt), notes);
+        exposure         = Fix(exposure, 0f, 32f, 1.0f, nameof(exposure), notes);
+        shadowMaxDistanceM = Fix(shadowMaxDistanceM, 0f, 4000f, 0f, nameof(shadowMaxDistanceM), notes);
+        rung1DistanceM     = Fix(rung1DistanceM, 0f, 4000f, 0f, nameof(rung1DistanceM), notes);
+        tonemapWhite     = Fix(tonemapWhite, 0.1f, 64f, 2.2f, nameof(tonemapWhite), notes);
+        if (tonemap < 0 || tonemap > 2)
+        { notes.Append($"{nameof(tonemap)} {tonemap}->2; "); tonemap = 2; }
 
         return notes.Length == 0 ? null : notes.ToString().TrimEnd();
     }

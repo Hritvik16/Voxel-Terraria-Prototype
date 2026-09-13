@@ -391,6 +391,78 @@ public class LightingTests
         Assert.AreEqual(1, _lights.RegisteredCount);
     }
 
+    /// STAGE H's seam, both ways. The DEFAULT must stay closed -- the test
+    /// above proves that -- and the seam must actually open, or the H1
+    /// measurement would be comparing a condition against itself and reporting
+    /// "no cost" for a path that never ran. That failure mode has already
+    /// happened once in this phase (§F's rung-1 counters showed the mechanism
+    /// never engaged), so the seam gets its own assertion.
+    [Test]
+    public void MobileEmissives_RegisterOnlyWhenTheStageHSeamIsOpened()
+    {
+        try
+        {
+            Assert.IsFalse(LightSourceBuffer.AllowMobileEmissives,
+                "the seam must default CLOSED -- shipping behaviour is unchanged by §H");
+            Assert.IsFalse(_lights.Register(new int3(5, 5, 5), Materials.Lava));
+
+            LightSourceBuffer.AllowMobileEmissives = true;
+            Assert.IsTrue(_lights.Register(new int3(5, 5, 5), Materials.Lava),
+                "the seam is open and lava still refused to register -- the H1 arms " +
+                "would then measure nothing and report it as free");
+            Assert.AreEqual(1, _lights.RegisteredCount);
+        }
+        finally
+        {
+            LightSourceBuffer.AllowMobileEmissives = false;   // static: never leak into another test
+        }
+    }
+
+    /// STAGE G. The three coloured torches must be real lights, must be
+    /// SEPARABLE from the warm torch by colour, and must differ from it in
+    /// NOTHING ELSE -- because G1 attributes any measured difference between
+    /// them to the colour path, and that attribution is only valid if colour is
+    /// genuinely the only variable.
+    [Test]
+    public void ColouredTorches_AreLightsThatDifferFromTheWarmTorchInTintAlone()
+    {
+        byte[] coloured = { Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple };
+
+        Assert.IsTrue(MaterialRules.TryGetLight(Materials.Torch, out float wr, out float wg, out float wb,
+                                                out float wRange));
+        foreach (byte m in coloured)
+        {
+            Assert.IsTrue(MaterialRules.TryGetLight(m, out float r, out float g, out float b, out float range),
+                $"material {m} is not a light source");
+            Assert.IsFalse(MaterialRules.IsMobile(m), $"material {m} must be static, or §A's exclusion eats it");
+            Assert.AreEqual(MaterialRules.Emissive(Materials.Torch), MaterialRules.Emissive(m), 1e-6f,
+                $"material {m} differs from the warm torch in STRENGTH as well as tint");
+            Assert.AreEqual(wRange, range, 1e-6f,
+                $"material {m} differs from the warm torch in RANGE as well as tint");
+
+            float d = math.abs(r - wr) + math.abs(g - wg) + math.abs(b - wb);
+            Assert.Greater(d, 0.25f,
+                $"material {m}'s colour is too close to the warm torch to read as a different light");
+
+            // No channel at zero: a fully saturated primary multiplies two of a
+            // surface's albedo channels to nothing and flattens it to a
+            // silhouette. This is the reason the tints are what they are.
+            Assert.Greater(math.min(r, math.min(g, b)), 0.05f,
+                $"material {m} has a channel at zero and will flatten surface detail");
+        }
+
+        // And they must be distinguishable from EACH OTHER, or the mixed-colour
+        // premise of G1 collapses into one colour repeated.
+        for (int i = 0; i < coloured.Length; i++)
+            for (int j = i + 1; j < coloured.Length; j++)
+            {
+                MaterialRules.TryGetLight(coloured[i], out float ar, out float ag, out float ab, out _);
+                MaterialRules.TryGetLight(coloured[j], out float br, out float bg, out float bb, out _);
+                Assert.Greater(math.abs(ar - br) + math.abs(ag - bg) + math.abs(ab - bb), 0.25f,
+                    $"materials {coloured[i]} and {coloured[j]} are near-identical colours");
+            }
+    }
+
     /// The selection must stay bounded no matter how many are registered, so a
     /// future emissive material cannot reintroduce the quadratic blow-up.
     /// This is the defence-in-depth half; the predicate above is the cause.
@@ -498,11 +570,22 @@ public class LightingTests
     [Test]
     public void Emissive_TorchAndLavaAreTheEmissiveMaterials()
     {
-        Assert.IsTrue(MaterialRules.IsEmissiveMaterial(Materials.Torch));
-        Assert.IsTrue(MaterialRules.IsEmissiveMaterial(Materials.Lava));
+        // STAGE G WIDENED THIS LIST, and the widening is the point of the test:
+        // it went red the moment the three coloured torches were added, which is
+        // exactly what a closed-world assertion is for. Adding an id here is a
+        // deliberate act; inheriting one by accident is what this prevents.
+        byte[] emissive =
+        {
+            Materials.Torch, Materials.Lava,
+            Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple,
+        };
+
+        foreach (byte m in emissive)
+            Assert.IsTrue(MaterialRules.IsEmissiveMaterial(m), $"material {m} should be emissive");
+
         for (int i = 0; i < 256; i++)
         {
-            if (i == Materials.Torch || i == Materials.Lava) continue;
+            if (System.Array.IndexOf(emissive, (byte)i) >= 0) continue;
             Assert.IsFalse(MaterialRules.IsEmissiveMaterial((byte)i),
                 $"material {i} is emissive and nothing says it should be");
         }

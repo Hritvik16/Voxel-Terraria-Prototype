@@ -366,6 +366,24 @@ public class PlaygroundCapture : MonoBehaviour
         int shadowLevel = ArgInt("-shadowlevel", -1);
         if (shadowLevel >= 0) RaymarchFeature.ShadowQualityLevel = shadowLevel;
         if (HasFlag("-noskyprobe")) RaymarchFeature.UseSkyProbeAmbient = false;
+        float shClamp = ArgFloat("-shadowclamp", -1f);
+        if (shClamp >= 0f) RaymarchFeature.ShadowMaxDistanceOverrideM = shClamp;
+        float r1 = ArgFloat("-rung1dist", -1f);
+        if (r1 >= 0f) RaymarchFeature.Rung1DistanceOverrideM = r1;
+        int tm = ArgInt("-tonemap", -1);
+        if (tm >= 0) RaymarchFeature.TonemapOverride = tm;
+
+        // PIN THE CLOCK. PHASE_7_COMPLETION §A.8 recorded this as a confound:
+        // this probe never set the time of day and the Playground clock runs a
+        // full day in 120 s, so every arm averaged over a day-night cycle with
+        // shadow rays skipped below the horizon. Fine for the before/after
+        // comparisons §A used -- every arm shared it -- but useless for any
+        // question about what a rung COSTS. -tod pins it; -goldenhour is the
+        // shorthand for the worst case §6.5 names.
+        VoxelEngine.Rendering.LightingDriver.ClockPaused = true;
+        if (HasFlag("-goldenhour")) SunCycle.SetHours(SunCycle.GoldenHourHours);
+        float todHours = ArgFloat("-tod", -1f);
+        if (todHours >= 0f) SunCycle.SetHours(todHours);
         if (HasFlag("-nolightupload")) { Playground.DebugSuspendLightUpload = true;
             VoxelEngine.Rendering.LightingDriver.SuspendUpload = true; }
 
@@ -468,10 +486,15 @@ public class PlaygroundCapture : MonoBehaviour
         L($"  shadow rung {(shadowLevel >= 0 ? shadowLevel.ToString() : "default/none")}   " +
           $"turn {turnRate} deg/s   move {moveSpeed} m/s   " +
           $"lightUpload {(Playground.DebugSuspendLightUpload ? "SUSPENDED" : "on")}");
+        L($"  shadowClamp {(RaymarchFeature.ShadowMaxDistanceOverrideM >= 0f ? RaymarchFeature.ShadowMaxDistanceOverrideM + " m" : "inherit primary (290 m)")}   " +
+          $"rung1dist {(RaymarchFeature.Rung1DistanceOverrideM >= 0f ? RaymarchFeature.Rung1DistanceOverrideM + " m" : "LOD1 (128 m)")}   " +
+          $"tonemap {(RaymarchFeature.TonemapOverride >= 0 ? RaymarchFeature.TonemapOverride.ToString() : "config")}");
         // REGISTERED is the number that matters for Stage A's second round:
         // §3.8 sizes the whole light system for "a handful of placed torches",
         // and if this reads in the thousands then something is registering that
         // §3.8 never contemplated.
+        L($"  SUN {SunCycle.ClockString()}  {SunCycle.ElevationDegrees:F1} deg  {SunCycle.PhaseName}  " +
+          $"(clock {(VoxelEngine.Rendering.LightingDriver.ClockPaused ? "PINNED" : "RUNNING -- see §A.8")})");
         L($"  LIGHTS registered {(lb != null ? lb.RegisteredCount : -1)}   " +
           $"active {(lb != null ? lb.ActiveCount : -1)} / cap {EngineConfig.MAX_ACTIVE_LIGHTS}   " +
           $"SetData calls {(lb != null ? lb.UploadsPerformed : -1)}");
@@ -695,6 +718,8 @@ public class PlaygroundCapture : MonoBehaviour
         if (sub == "all" || sub == "d2") yield return D2_ManyLights(edits, driver, cam, peak, surf);
         if (sub == "all" || sub == "d3") yield return D3_Distance(cam, peak, surf);
         if (sub == "all" || sub == "d4") yield return D4_Chaos(pg, edits, cam, peak, surf);
+        if (sub == "all" || sub == "g1") yield return G1_ColouredLightScale(edits, driver, cam, peak, surf);
+        if (sub == "all" || sub == "h1") yield return H1_LavaAsALight(edits, driver, cam, peak, surf);
 
         File.WriteAllText(Path.Combine(_folder, "stage_d_report.txt"), _log.ToString());
         Debug.Log("[p7stress]\n" + _log);
@@ -810,6 +835,218 @@ public class PlaygroundCapture : MonoBehaviour
         L($"  PERFORMANCE MEASURED (same-session, back-to-back, NOT cooled -- a");
         L($"  diagnostic, not a gate): 0 lights {zeroLights:F2} ms/frame, " +
           $"{cap} lights {fullLights:F2} ms/frame, delta {fullLights - zeroLights:+0.00;-0.00} ms");
+        L("");
+    }
+
+    // =====================================================================
+    // G1 -- COLOURED LIGHTS AT TERRARIA SCALE, and where the real cap is.
+    //
+    // THE QUESTION IS NOT "does 32 work". §3.8's cap already guarantees 32 is
+    // what the shader ever sees. The question is what happens to the CPU side
+    // when a player behaves like a Terraria player and places FAR more than the
+    // cap -- because everything above the cap still gets registered, still gets
+    // distance-scored, and still gets sorted, EVERY FRAME. That is the exact
+    // shape of the Stage A stutter (12,000 lava voxels in an O(n^2) sort), and
+    // the fix made selection O(n x 32) rather than free. O(n x 32) still grows
+    // with n; this finds the n where it starts to matter.
+    //
+    // MIXED COLOURS, not one tint repeated: the §A upload path skips the
+    // GPU SetData when the selected set is byte-identical to what was uploaded
+    // last frame. Identical torches make that comparison succeed trivially and
+    // would flatter the result. Cycling four tints guarantees the 32 selected
+    // lights differ in content as well as position.
+    // =====================================================================
+    private IEnumerator G1_ColouredLightScale(EditService edits, VoxelEngine.Rendering.LightingDriver driver,
+                                              Camera cam, int3 peak, int surf)
+    {
+        L("G1 -- COLOURED light scaling: 32 / 64 / 128 / 256 / 512 mixed-colour torches.");
+        L("  Same emissive strength and range for all four tints, so what varies is colour.");
+        if (driver == null) { L("  NO LightingDriver -- skipped, and that is a rig failure, not a result."); yield break; }
+
+        byte[] tints = { Materials.Torch, Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple };
+        string[] tintNames = { "warm", "blue", "green", "violet" };
+
+        // A big open hall, so the lights are all mutually visible and none is
+        // occluded into irrelevance. 512 torches at 2-voxel spacing on a grid.
+        int cy = Mathf.Max(14, surf - 26);
+        int3 hall = new int3(peak.x + 40, cy, peak.z + 40);
+        int carved = 0;
+        for (int gx = 0; gx < 8; gx++)
+            for (int gz = 0; gz < 8; gz++)
+                carved += Carve(edits, hall + new int3(gx * 8 - 28, 0, gz * 8 - 28), 6);
+        L($"  carved a hall: {carved} voxels");
+        for (int i = 0; i < 60; i++) yield return null;
+
+        int3 eye = hall + new int3(-42, 6, -42);
+        int3 look = hall;
+
+        float baseline = 0f;
+        yield return MeasureHere(cam, eye, look, r => baseline = r, "G1_00_hall_no_lights");
+        L($"  baseline, 0 lights: {baseline:F2} ms/frame");
+        L("");
+        L($"  {"placed",8}{"registered",12}{"active",8}{"meanMs",9}{"vs base",10}{"uploads/frame",15}");
+
+        int[] counts = { 32, 64, 128, 256, 512 };
+        int already = 0;
+        var results = new List<(int n, float ms, double upf)>();
+        foreach (int target in counts)
+        {
+            // Place the DIFFERENCE, so this is cumulative and each count is the
+            // same world plus more lights -- not five unrelated scenes.
+            int placed = 0;
+            for (int i = already; i < target; i++)
+            {
+                // A loose 3D lattice inside the hall, cycling tint per light.
+                int gx = i % 16, gz = (i / 16) % 16, gy = i / 256;
+                int3 at = hall + new int3(gx * 4 - 30, 1 + gy * 3, gz * 4 - 30);
+                if (edits.TrySetVoxel(at, tints[i % tints.Length])) placed++;
+            }
+            already = target;
+            for (int i = 0; i < 45; i++) yield return null;
+
+            float ms = 0f;
+            yield return MeasureHere(cam, eye, look, r => ms = r, $"G1_{target:D3}_lights");
+
+            // Uploads per frame over an EXPLICIT, counted window. The §A fix
+            // skips the GPU SetData when the selected 32 are byte-identical to
+            // last frame's; with a still camera and static lights this should
+            // read ~0, and anything else means the byte comparison is failing
+            // to converge -- which is the thing worth catching at 512.
+            const int uploadWindow = 120;
+            long u0 = driver.Lights.UploadsPerformed;
+            for (int f = 0; f < uploadWindow; f++) yield return null;
+            double perFrame = (driver.Lights.UploadsPerformed - u0) / (double)uploadWindow;
+
+            L($"  {target,8}{driver.Lights.RegisteredCount,12}{driver.Lights.ActiveCount,8}" +
+              $"{ms,9:F2}{ms - baseline,10:+0.00;-0.00}{perFrame,15:F2}");
+            results.Add((target, ms, perFrame));
+        }
+
+        L("");
+        L("  Colour blending, looked at rather than asserted:");
+        yield return StressShot(cam, hall + new int3(-20, 4, -20), hall, "G1_blend_wide");
+        yield return StressShot(cam, hall + new int3(-6, 2, -6), hall + new int3(6, 1, 6), "G1_blend_close");
+        for (int i = 0; i < tints.Length; i++)
+        {
+            // One tint at a time, so the blend shot above can be read against
+            // what each colour does on its own.
+            driver.Lights.Clear();
+            int3 solo = hall + new int3(0, 1, 0);
+            edits.TrySetVoxel(solo, tints[i]);
+            for (int f = 0; f < 30; f++) yield return null;
+            yield return StressShot(cam, hall + new int3(-9, 3, -9), solo, $"G1_solo_{tintNames[i]}");
+        }
+
+        L("");
+        L("  READ THIS AS: the shader always shades exactly MAX_ACTIVE_LIGHTS (32).");
+        L("  Any growth in the column above is CPU-side selection, and it is the");
+        L("  number that decides what a real placement cap should be.");
+        if (results.Count >= 2)
+        {
+            var lo = results[0]; var hi = results[results.Count - 1];
+            L($"  32 -> {hi.n} lights moved the frame {hi.ms - lo.ms:+0.00;-0.00} ms " +
+              $"({lo.ms:F2} -> {hi.ms:F2}).");
+        }
+        L("  NOT COOLED and not counterbalanced: this is a diagnostic that locates");
+        L("  the knee, and the count either side of it gets a cooled arm of its own.");
+        L("");
+    }
+
+    // =====================================================================
+    // H1 -- SHOULD LAVA LIGHT THE CAVE AROUND IT? Re-asked with a number.
+    //
+    // §A excluded mobile emissives from the §3.8 light buffer because a flowing
+    // lava lake registered ~12,000 point lights into an O(n^2) insertion sort,
+    // which is what the owner was feeling as stutter. The sort is now partial
+    // selection, O(n x MAX_ACTIVE_LIGHTS). The exclusion therefore rests on a
+    // premise that no longer holds, and §H's brief is to re-examine it rather
+    // than inherit the answer.
+    //
+    // THE HONEST SHAPE OF THE EXPERIMENT: the same lava lake, measured twice in
+    // the same session back to back, differing only in whether its voxels are
+    // registered as lights. Both arms shot from the same eye so the visual
+    // difference -- the whole reason anyone wants this -- can be looked at.
+    //
+    // THIS IS A DIAGNOSTIC, NOT A GATE. It locates the cost. Whether the cost
+    // is acceptable, and whether the per-region representation §H asks about is
+    // worth building, is a design decision and is written up as options.
+    // =====================================================================
+    private IEnumerator H1_LavaAsALight(EditService edits, VoxelEngine.Rendering.LightingDriver driver,
+                                        Camera cam, int3 peak, int surf)
+    {
+        L("H1 -- LAVA AS A LIGHT SOURCE: the §A exclusion, re-measured now that");
+        L("  selection is O(n x 32) rather than O(n^2).");
+        if (driver == null) { L("  NO LightingDriver -- skipped; that is a rig failure, not a result."); yield break; }
+
+        driver.Lights.Clear();
+        VoxelEngine.Rendering.LightSourceBuffer.AllowMobileEmissives = false;
+
+        // A cavern with a lava lake in the floor, which is the situation the
+        // flagged consequence is about: a dark cave that a player expects to be
+        // lit orange by the lava in it.
+        int cy = Mathf.Max(16, surf - 40);
+        int3 cave = new int3(peak.x - 60, cy, peak.z + 20);
+        int carved = 0;
+        for (int i = 0; i < 5; i++)
+            carved += Carve(edits, cave + new int3(i * 10 - 20, 0, 0), 14);
+        L($"  carved a cavern: {carved} voxels");
+        for (int i = 0; i < 60; i++) yield return null;
+
+        // Fill the floor with lava and REMEMBER where, so the second arm can
+        // register exactly the same voxels instead of a different lake.
+        var lavaVoxels = new List<int3>();
+        for (int dx = -34; dx <= 34; dx++)
+            for (int dz = -13; dz <= 13; dz++)
+                for (int dy = -12; dy <= -8; dy++)
+                {
+                    int3 at = cave + new int3(dx, dy, dz);
+                    if (edits.TrySetVoxel(at, Materials.Lava)) lavaVoxels.Add(at);
+                }
+        for (int i = 0; i < 120; i++) yield return null;
+        L($"  placed {lavaVoxels.Count} lava voxels " +
+          $"(§A's case was ~12,000; this is {lavaVoxels.Count / 1000.0:F1}k)");
+        L($"  lights registered with the exclusion IN PLACE: {driver.Lights.RegisteredCount}" +
+          "   <- expected 0, and if it is not 0 the exclusion is not doing what §A says");
+        L("");
+
+        int3 eye = cave + new int3(-40, 4, 0);
+        int3 look = cave + new int3(0, -8, 0);
+
+        float off = 0f;
+        yield return MeasureHere(cam, eye, look, r => off = r, "H1_00_lava_NOT_a_light");
+
+        // ARM 2: register every one of them. Direct Register() rather than a
+        // re-edit, because TrySetVoxel to the material already there is a no-op
+        // and would silently register nothing.
+        VoxelEngine.Rendering.LightSourceBuffer.AllowMobileEmissives = true;
+        int registered = 0;
+        foreach (int3 v in lavaVoxels)
+            if (driver.Lights.Register(v, Materials.Lava)) registered++;
+        for (int i = 0; i < 60; i++) yield return null;
+        L($"  ARM 2: registered {registered} lava voxels as point lights; buffer reports " +
+          $"{driver.Lights.RegisteredCount} registered, {driver.Lights.ActiveCount} active " +
+          $"(cap {EngineConfig.MAX_ACTIVE_LIGHTS})");
+
+        float on = 0f;
+        yield return MeasureHere(cam, eye, look, r => on = r, "H1_01_lava_IS_a_light");
+
+        // A closer pair, because the visual question is about the cave WALL
+        // next to the lava, not the lake surface -- the lake is self-lit either
+        // way and looks identical in both arms.
+        yield return StressShot(cam, cave + new int3(-16, -4, 0), cave + new int3(-16, -2, 12), "H1_02_wall_beside_lava_LIT");
+        VoxelEngine.Rendering.LightSourceBuffer.AllowMobileEmissives = false;
+        driver.Lights.Clear();
+        for (int i = 0; i < 45; i++) yield return null;
+        yield return StressShot(cam, cave + new int3(-16, -4, 0), cave + new int3(-16, -2, 12), "H1_03_wall_beside_lava_UNLIT");
+
+        L("");
+        L($"  lava NOT a light: {off:F2} ms/frame");
+        L($"  lava IS  a light: {on:F2} ms/frame   delta {on - off:+0.00;-0.00} ms " +
+          $"for {registered} registered sources");
+        if (registered > 0)
+            L($"  = {1000f * (on - off) / registered:F4} us per registered lava voxel per frame");
+        L("  Same session, back to back, NOT cooled and NOT counterbalanced. It");
+        L("  locates the cost; it does not certify it.");
         L("");
     }
 
@@ -970,6 +1207,216 @@ public class PlaygroundCapture : MonoBehaviour
         sink((float)(mean / ms.Count));
     }
 
+    // =====================================================================
+    // -shadowstats : STAGE F's INSTRUMENTATION, BEFORE ANY GUESS
+    //
+    // Rung 1 measures indistinguishable from rung 0. §E.2 offered a hypothesis
+    // (the half-res branch rarely engages, because most hit pixels at the test
+    // pose are nearer than the 128 m LOD1 boundary). This settles it: it counts,
+    // frame-wide, how many pixels hit, how many are beyond LOD1, how many rays
+    // are ACTUALLY TRACED, and how many took a reused value.
+    //
+    // Two outcomes and they point at different bugs:
+    //   - branch rarely engages  -> the THRESHOLD or the pose is wrong, and the
+    //     mechanism is untested rather than broken;
+    //   - branch engages often but traced-ray count does not fall -> the
+    //     "half-res" path is not actually skipping work;
+    //   - branch engages, traced count DOES fall, and time does not -> the work
+    //     is being skipped per-LANE but not per-WAVE, which on a SIMD GPU saves
+    //     nothing because a wave costs the max over its lanes.
+    // The third is the one a ray-count-only test would miss, which is why this
+    // reports counts AND the arm is paired with a timing arm.
+    // =====================================================================
+    private IEnumerator ShadowStats()
+    {
+        Screen.SetResolution(1920, 1080, !HasFlag("-windowed"));
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = -1;
+
+        var pg = FindAnyObjectByType<Playground>();
+        while (Phase4Bootstrapper.Store == null) yield return null;
+
+        int gate = ArgInt("-gateres", 960);
+        RaymarchFeature.GateModeOverride = RaymarchFeature.GateResMode.ForcedCustom;
+        RaymarchFeature.CustomGateResolution = new Vector2Int(gate, gate * 9 / 16);
+
+        for (int i = 0; i < 300; i++) yield return null;
+        if (pg != null) { pg.SendMessage("TeleportToArena", SendMessageOptions.DontRequireReceiver); yield return null; }
+        var cam = Camera.main;
+        if (cam != null) cam.transform.rotation = Quaternion.Euler(0f, 90f, 0f);   // GroundHorizon, Stage E's pose
+
+        VoxelEngine.Rendering.LightingDriver.ClockPaused = true;
+        if (!HasFlag("-nofluid") && pg != null)
+            pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+        for (int i = 0; i < 120; i++) yield return null;
+
+        string ts = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
+        _folder = Path.Combine(Application.persistentDataPath, "ShadowStats", ts);
+        Directory.CreateDirectory(_folder);
+
+        L($"STAGE F -- SHADOW BRANCH ENGAGEMENT -- {ts}");
+        L($"device {SystemInfo.graphicsDeviceName}  gate {gate}x{gate * 9 / 16}  " +
+          $"{(Debug.isDebugBuild ? "DEVELOPMENT" : "RELEASE")}");
+        L($"pose GroundHorizon (Stage E's), fluid {(HasFlag("-nofluid") ? "OFF" : "LIVE")}");
+        L($"LOD1 boundary = {LODConfig.TIER_OUTER_RANGE_M[1]} m (the threshold rung 1 keys off)");
+        L("");
+        L($"  {"time",-14}{"rung",5}{"hit",10}{"beyondLOD1",12}{"traced",10}{"reused",10}  {"%beyond",9}{"%traced/hit",12}");
+
+        RaymarchFeature.CollectShadowStats = true;
+        foreach (float hours in new[] { SunCycle.GoldenHourHours, SunCycle.NoonHours })
+        {
+            SunCycle.SetHours(hours);
+            foreach (int rung in new[] { 0, 1 })
+            {
+                RaymarchFeature.ShadowQualityLevel = rung;
+                for (int i = 0; i < 30; i++) yield return null;
+                RaymarchFeature.ResetShadowStats();
+                yield return null;          // exactly one frame accumulates
+                yield return new WaitForEndOfFrame();
+                uint[] st = RaymarchFeature.ReadShadowStats();
+                float hit = Mathf.Max(1u, st[0]);
+                L($"  {SunCycle.ClockString() + " " + SunCycle.PhaseName,-14}{rung,5}" +
+                  $"{st[0],10}{st[1],12}{st[2],10}{st[3],10}  " +
+                  $"{100f * st[1] / hit,8:F1}%{100f * st[2] / hit,11:F1}%");
+            }
+        }
+        RaymarchFeature.CollectShadowStats = false;
+
+        L("");
+        L("HOW TO READ THIS:");
+        L("  %beyond   -- share of hit pixels past the LOD1 boundary. This is the");
+        L("               ONLY population rung 1 can help. If it is small, rung 1");
+        L("               cannot save much no matter how well it works.");
+        L("  traced    -- rays actually cast. Rung 1 should cast ~1/4 as many as");
+        L("               rung 0 over the 'beyond' population. If it does, the");
+        L("               mechanism works and any missing speedup is SIMD lockstep");
+        L("               (a wave costs the max over its lanes, not the sum).");
+        File.WriteAllText(Path.Combine(_folder, "shadow_stats.txt"), _log.ToString());
+        Debug.Log("[shadowstats]\n" + _log);
+        yield return null;
+        Application.Quit(0);
+    }
+
+    // =====================================================================
+    // -daysweep : STAGE F.5 -- THE FULL DAY CYCLE, not just golden hour.
+    //
+    // §6.5 PREDICTS golden hour is the worst case ("the longest grazing rays"),
+    // and every budget measurement in this project has taken that on trust and
+    // sampled golden hour alone. It has never been swept and checked.
+    //
+    // DESIGN, AND THE COMPROMISE STATED UP FRONT: 12 sample points x a 300 s
+    // cooldown each would be an hour per rung. This sweeps all 12 in ONE process
+    // launch, back-to-back, with a settle between points -- so the points are
+    // comparable TO EACH OTHER (same thermal state, same session, same pose)
+    // and identify the WORST POINT relatively, which is the question. The
+    // absolute number at that worst point is then re-measured in a separate
+    // COOLED arm. Relative sweep to locate, cooled arm to quantify.
+    //
+    // The clock is PINNED per point (§A.8's confound): each sample is a fixed
+    // time of day, not an average over one.
+    // =====================================================================
+    private IEnumerator DaySweep()
+    {
+        Screen.SetResolution(1920, 1080, !HasFlag("-windowed"));
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = -1;
+
+        var pg = FindAnyObjectByType<Playground>();
+        while (Phase4Bootstrapper.Store == null) yield return null;
+
+        int gate = ArgInt("-gateres", 960);
+        RaymarchFeature.GateModeOverride = RaymarchFeature.GateResMode.ForcedCustom;
+        RaymarchFeature.CustomGateResolution = new Vector2Int(gate, gate * 9 / 16);
+        int rung = ArgInt("-shadowlevel", 0);
+        RaymarchFeature.ShadowQualityLevel = rung;
+
+        for (int i = 0; i < 300; i++) yield return null;
+        var cam = Camera.main;
+        VoxelEngine.Rendering.LightingDriver.ClockPaused = true;
+
+        bool withFluid = !HasFlag("-nofluid");
+        if (withFluid && pg != null) pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+        for (int i = 0; i < 150; i++) yield return null;
+
+        string ts = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
+        _folder = Path.Combine(Application.persistentDataPath, "DaySweep", $"{ts}_rung{rung}");
+        Directory.CreateDirectory(_folder);
+
+        L($"STAGE F.5 -- FULL DAY-CYCLE SWEEP -- rung {rung} -- {ts}");
+        L($"device {SystemInfo.graphicsDeviceName}  gate {gate}  " +
+          $"{(Debug.isDebugBuild ? "DEVELOPMENT" : "RELEASE")}  fluid {(withFluid ? "LIVE" : "OFF")}");
+        L($"Back-to-back, ONE process, pose RESET per point, fly {ArgInt("-movespeed", 12)} m/s.");
+        L("Points are comparable to");
+        L("EACH OTHER and locate the worst case; the absolute figure at the worst");
+        L("point is re-measured in a separate COOLED arm. Not a cooled gate itself.");
+        L("");
+        L($"  {"hour",6}{"elev",8}  {"phase",-15}{"meanMs",9}{"FPS",8}{">33/1000",10}");
+
+        int samples = ArgInt("-daysamples", 12);
+        int hold = ArgInt("-dayframes", 240);
+        float worstMs = 0f; float worstHour = -1f; string worstPhase = "";
+        var rows = new List<string>();
+
+        // MOVE THE CAMERA THE WAY §F.2's ARMS DID -- fly forward at 12 m/s, so the
+        // streamer, the clipmap upload and the cascade are all live. But RESET THE
+        // POSE AT EVERY POINT: 12 x 300 frames of continuous flight is ~720 m of
+        // travel, which would put the late points somewhere else in the world
+        // entirely and let a change of PLACE masquerade as a change of TIME. Each
+        // point therefore flies the same path from the same start.
+        float moveSpeed = ArgInt("-movespeed", 12);
+
+        for (int k = 0; k < samples; k++)
+        {
+            float hours = k * (24f / samples);
+            SunCycle.SetHours(hours);
+            if (pg != null) pg.SendMessage("TeleportToArena", SendMessageOptions.DontRequireReceiver);
+            yield return null;
+            if (cam != null) cam.transform.rotation = Quaternion.Euler(0f, 90f, 0f);
+            for (int i = 0; i < 90; i++) yield return null;    // settle pose, clock, streaming
+
+            var ms = new List<double>(hold);
+            float t0 = Time.realtimeSinceStartup;
+            for (int i = 0; i < hold; i++)
+            {
+                if (moveSpeed > 0f && cam != null)
+                    cam.transform.position += cam.transform.forward * (moveSpeed * Time.deltaTime);
+                yield return null;
+                ms.Add(Time.unscaledDeltaTime * 1000.0);
+            }
+            float elapsed = Time.realtimeSinceStartup - t0;
+
+            float mean = (float)(1000.0 * elapsed / ms.Count);
+            float fps = ms.Count / elapsed;
+            int over33 = ms.FindAll(x => x > 33.0).Count;
+            L($"  {SunCycle.ClockString(),6}{SunCycle.ElevationDegrees,8:F1}  " +
+              $"{SunCycle.PhaseName,-15}{mean,9:F2}{fps,8:F1}{1000.0 * over33 / ms.Count,10:F1}");
+            rows.Add($"{hours}	{SunCycle.ElevationDegrees:F1}	{mean:F3}	{fps:F1}");
+            if (mean > worstMs) { worstMs = mean; worstHour = hours; worstPhase = SunCycle.PhaseName; }
+        }
+
+        L("");
+        L($"  >>> WORST POINT IN THE CYCLE: {worstHour:F1}h ({worstPhase}) at {worstMs:F2} ms " +
+          $"= {1000f / worstMs:F1} FPS");
+        L($"  >>> golden hour is {SunCycle.GoldenHourHours:F2}h -- §6.5 predicts it is the worst case.");
+        L("      If the worst point above is NOT near it, that prediction is wrong for this");
+        L("      content and the assumption every prior budget capture rests on needs revisiting.");
+        File.WriteAllText(Path.Combine(_folder, "day_sweep.txt"), _log.ToString());
+        File.WriteAllText(Path.Combine(_folder, "day_sweep.tsv"),
+            "hours\televation\tmeanMs\tfps\n" + string.Join("\n", rows) + "\n");
+        Debug.Log("[daysweep]\n" + _log);
+        yield return null;
+        Application.Quit(0);
+    }
+
+    private static float ArgFloat(string flag, float dflt)
+    {
+        string[] a = Environment.GetCommandLineArgs();
+        for (int i = 0; i < a.Length - 1; i++)
+            if (string.Equals(a[i], flag, StringComparison.OrdinalIgnoreCase))
+                return float.Parse(a[i + 1], CultureInfo.InvariantCulture);
+        return dflt;
+    }
+
     private static int ArgInt(string flag, int dflt)
     {
         string[] a = Environment.GetCommandLineArgs();
@@ -994,6 +1441,9 @@ public class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-fluidbench")) { yield return FluidBenchmark(); yield break; }
         if (HasFlag("-lightingab")) { yield return LightingAb(); yield break; }
         if (HasFlag("-p7stress")) { yield return Phase7Stress(); yield break; }
+        if (HasFlag("-shadowstats")) { yield return ShadowStats(); yield break; }
+        if (HasFlag("-daysweep")) { yield return DaySweep(); yield break; }
+        if (HasFlag("-presetshots")) { yield return PresetShots(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;
         Screen.SetResolution(1920, 1080, false);
 
@@ -1074,6 +1524,190 @@ public class PlaygroundCapture : MonoBehaviour
         cam.transform.rotation = Quaternion.Euler(euler);
         for (int i = 0; i < 90; i++) yield return null;   // let streaming catch up
         yield return Shot(name, $"pos {pos} euler {euler}");
+    }
+
+    // =====================================================================
+    // -presetshots : STAGE J -- THE OFFLINE REVIEW PACKAGE
+    //
+    // The owner's note on the presets was "not a fan of any of them", and Stage
+    // J's first job was to find out whether that was a preset problem or
+    // something underneath all five. It was underneath: there was NO TONEMAPPING
+    // ANYWHERE in this renderer -- the final colour was a bare saturate(), so
+    // anything brighter than 1.0 clipped flat and every preset was being judged
+    // through a hard clamp. §6.1 defers "palette/mood/post" to Phases 2 and 7,
+    // so it is in scope, and it is now implemented (Reinhard and ACES, behind
+    // LightingConfig.tonemap).
+    //
+    // THIS MODE DOES NOT PICK A WINNER AND MUST NOT. It produces the same nine
+    // scenes under every preset, plus a three-way tonemap comparison on the
+    // three scenes where tonemapping actually changes the picture, so the choice
+    // can be made by looking rather than by reading someone's adjectives.
+    //
+    // The nine scenes are fixed and identical across presets by construction --
+    // same eye, same target, same clock -- because a preset comparison in which
+    // the camera moved is not a comparison.
+    // =====================================================================
+    private struct ShotScene
+    {
+        public string Name;
+        public float Hours;
+        public int3 Eye, Look;
+        public string Why;
+    }
+
+    private IEnumerator PresetShots()
+    {
+        Screen.SetResolution(1920, 1080, !HasFlag("-windowed"));
+        QualitySettings.vSyncCount = 0;
+        var pg = FindAnyObjectByType<Playground>();
+        while (Phase4Bootstrapper.Store == null) yield return null;
+        for (int i = 0; i < 300; i++) yield return null;
+
+        VoxelEngine.Rendering.LightingDriver.ClockPaused = true;
+        RaymarchFeature.ShadowQualityLevel = ArgInt("-shadowlevel", 0);
+
+        var store = Phase4Bootstrapper.Store;
+        var edits = new EditService();
+        edits.AttachWorld(store, store, store, Phase4Bootstrapper.Clipmap);
+        var driver = FindAnyObjectByType<VoxelEngine.Rendering.LightingDriver>();
+        if (driver != null) driver.Attach(edits);
+        var cam = Camera.main;
+
+        int3 camVox = CoordMath.WorldToVoxel(new float3(cam.transform.position.x,
+                                                        cam.transform.position.y,
+                                                        cam.transform.position.z));
+        int3 peak = DeepestNear(store, camVox, 240);
+        int surf = SurfaceYAt(store, peak.x, peak.z);
+
+        // A cave with a torch in it, built ONCE and shared by every preset, so
+        // scene 6/7 are the same room in all of them.
+        int3 cave = new int3(peak.x - 50, Mathf.Max(16, surf - 45), peak.z + 15);
+        for (int i = 0; i < 4; i++) Carve(edits, cave + new int3(i * 9 - 14, 0, 0), 11);
+        int3 torchAt = cave + new int3(0, -8, 0);
+        edits.TrySetVoxel(torchAt, Materials.Torch);
+        for (int i = 0; i < 90; i++) yield return null;
+
+        int3 top = new int3(peak.x, surf, peak.z);
+        int3 sky = new int3(peak.x, surf + 55, peak.z - 90);
+        var scenes = new ShotScene[]
+        {
+            new ShotScene { Name = "1_noon_surface",    Hours = 12f, Eye = sky, Look = top,
+                Why = "the flat midday case -- where highlights clip first" },
+            new ShotScene { Name = "2_golden_surface",  Hours = SunCycle.GoldenHourHours, Eye = sky, Look = top,
+                Why = "long shadows and the warmest sun colour the preset defines" },
+            new ShotScene { Name = "3_dusk",            Hours = 18f, Eye = sky, Look = top,
+                Why = "sun at the horizon -- ambient is doing nearly all the work" },
+            new ShotScene { Name = "4_midnight",        Hours = 0f,  Eye = sky, Look = top,
+                Why = "the night floor: is it moody, or is it unreadably black?" },
+            new ShotScene { Name = "5_snow_noon",       Hours = 12f,
+                Eye = top + new int3(-35, 30, -35), Look = top,
+                Why = "THE CLIPPING TEST. Snow at noon is the brightest surface in the game" },
+            new ShotScene { Name = "6_cave_dark",       Hours = 12f,
+                Eye = cave + new int3(-26, 2, 0), Look = cave + new int3(4, -2, 0),
+                Why = "§6.5 requires caves be dark. Is this dark, or is it black?" },
+            new ShotScene { Name = "7_cave_torchlit",   Hours = 12f,
+                Eye = cave + new int3(-14, 1, 0), Look = torchAt,
+                Why = "one torch, the falloff, and whether the far wall still reads" },
+            new ShotScene { Name = "8_distant_terrain", Hours = SunCycle.GoldenHourHours,
+                Eye = top + new int3(0, 45, -200), Look = top,
+                Why = "200 m out, past the tier 1->2 boundary -- aerial and shadow at range" },
+            new ShotScene { Name = "9_shadow_edge",     Hours = SunCycle.GoldenHourHours,
+                Eye = top + new int3(-14, 8, -14), Look = top,
+                Why = "close on a shadow edge: C.10's penumbra, or a hard step?" },
+        };
+
+        // The three scenes where tonemapping is the whole question.
+        var tmScenes = new[] { "1_noon_surface", "5_snow_noon", "7_cave_torchlit" };
+        var tmModes = new[] { (0, "None"), (1, "Reinhard"), (2, "ACES") };
+
+        string root = Path.Combine(Application.persistentDataPath, "Presets");
+        Directory.CreateDirectory(root);
+        var presets = VoxelEngine.Rendering.LightingPresets.All;
+        var topIndex = new StringBuilder();
+        topIndex.AppendLine("# Phase 7 preset review package");
+        topIndex.AppendLine();
+        topIndex.AppendLine("Nine fixed scenes, shot identically under every preset. **No preset is");
+        topIndex.AppendLine("recommended here and none is marked as a favourite** -- that is the owner's");
+        topIndex.AppendLine("call and the whole reason this package exists.");
+        topIndex.AppendLine();
+        topIndex.AppendLine("Every folder also has a `tonemap/` set. Read that FIRST if you are deciding");
+        topIndex.AppendLine("anything: until this stage there was no tonemapping in the renderer at all,");
+        topIndex.AppendLine("so every earlier judgement of these presets was made through a hard clamp.");
+        topIndex.AppendLine();
+        topIndex.AppendLine($"Shot at {Screen.width}x{Screen.height}, shadow rung {RaymarchFeature.ShadowQualityLevel}, " +
+                            $"{(Debug.isDebugBuild ? "DEVELOPMENT" : "RELEASE")} build.");
+        topIndex.AppendLine();
+
+        for (int pi = 0; pi < presets.Length; pi++)
+        {
+            string name = presets[pi].Name;
+            VoxelEngine.Rendering.LightingPresets.Apply(pi);
+            for (int i = 0; i < 20; i++) yield return null;    // let §8.1's poll pick the file up
+
+            _folder = Path.Combine(root, name);
+            Directory.CreateDirectory(_folder);
+            var idx = new StringBuilder();
+            idx.AppendLine($"# {name}");
+            idx.AppendLine();
+            idx.AppendLine($"> {presets[pi].Note}");
+            idx.AppendLine();
+            var cfg = LightingConfig.Active;
+            idx.AppendLine($"`sunIntensity` {cfg.sunIntensity:F2} | `ambientIntensity` {cfg.ambientIntensity:F2} | " +
+                           $"`kSoft` {cfg.kSoft:F3} | `tonemap` {cfg.tonemap} | `exposure` {cfg.exposure:F2}");
+            idx.AppendLine();
+            idx.AppendLine("| # | image | time | what to look at |");
+            idx.AppendLine("|---|---|---|---|");
+
+            foreach (var sc in scenes)
+            {
+                SunCycle.SetHours(sc.Hours);
+                for (int i = 0; i < 20; i++) yield return null;
+                yield return StressShot(cam, sc.Eye, sc.Look, sc.Name);
+                idx.AppendLine($"| {sc.Name[0]} | `{sc.Name}.png` | {SunCycle.ClockString()} | {sc.Why} |");
+            }
+
+            // ---- the tonemap axis ----
+            string tmDir = Path.Combine(_folder, "tonemap");
+            Directory.CreateDirectory(tmDir);
+            string savedFolder = _folder;
+            _folder = tmDir;
+            foreach (string want in tmScenes)
+            {
+                foreach (var sc in scenes)
+                {
+                    if (sc.Name != want) continue;
+                    SunCycle.SetHours(sc.Hours);
+                    foreach (var (mode, label) in tmModes)
+                    {
+                        RaymarchFeature.TonemapOverride = mode;
+                        for (int i = 0; i < 16; i++) yield return null;
+                        yield return StressShot(cam, sc.Eye, sc.Look, $"{sc.Name}_tm{label}");
+                    }
+                    RaymarchFeature.TonemapOverride = -1;
+                }
+            }
+            _folder = savedFolder;
+
+            idx.AppendLine();
+            idx.AppendLine("## tonemap/");
+            idx.AppendLine();
+            idx.AppendLine("The same three scenes under each tone curve. `None` is what every");
+            idx.AppendLine("screenshot before Stage J looked like -- a bare `saturate()`, so anything");
+            idx.AppendLine("over 1.0 clips to flat white and the surface detail in it is gone.");
+            idx.AppendLine();
+            idx.AppendLine("| scene | None (pre-Phase-7 clamp) | Reinhard | ACES |");
+            idx.AppendLine("|---|---|---|---|");
+            foreach (string want in tmScenes)
+                idx.AppendLine($"| {want} | `tonemap/{want}_tmNone.png` | `tonemap/{want}_tmReinhard.png` | " +
+                               $"`tonemap/{want}_tmACES.png` |");
+            File.WriteAllText(Path.Combine(savedFolder, "INDEX.md"), idx.ToString());
+            topIndex.AppendLine($"- **{name}/** — {presets[pi].Note}");
+        }
+
+        File.WriteAllText(Path.Combine(root, "INDEX.md"), topIndex.ToString());
+        Debug.Log("[presetshots] wrote " + root);
+        yield return null;
+        Application.Quit(0);
     }
 
     private IEnumerator Shot(string name, string caption)

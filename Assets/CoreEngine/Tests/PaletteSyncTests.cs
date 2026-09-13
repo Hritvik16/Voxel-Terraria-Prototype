@@ -80,6 +80,7 @@ public class PaletteSyncTests
             Materials.Water, Materials.Snow, Materials.Sandstone, Materials.JungleGrass,
             Materials.Deepstone, Materials.Lava, Materials.Honey, Materials.Obsidian,
             Materials.Torch,   // Phase 7
+            Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple,   // Stage G
         };
 
         foreach (byte id in authored)
@@ -158,7 +159,8 @@ public class PaletteSyncTests
     public void ShaderEmissiveStrength_MatchesMaterialRules()
     {
         var shader = ParseShaderEmissive();
-        foreach (byte id in new[] { Materials.Torch, Materials.Lava })
+        foreach (byte id in new[] { Materials.Torch, Materials.Lava,
+                                   Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple })
         {
             Assert.IsTrue(shader.ContainsKey(id),
                 $"material {id} has an emissive strength in MaterialRules but none in the shader");
@@ -185,7 +187,8 @@ public class PaletteSyncTests
         var tint = ParseShaderEmissiveTint();
         var strength = ParseShaderEmissive();
 
-        foreach (byte id in new[] { Materials.Torch, Materials.Lava })
+        foreach (byte id in new[] { Materials.Torch, Materials.Lava,
+                                   Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple })
         {
             Assert.IsTrue(tint.ContainsKey(id), $"material {id} has no emissive tint in the shader");
             Assert.IsTrue(MaterialRules.TryGetLight(id, out float r, out float g, out float b, out _),
