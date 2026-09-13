@@ -4,7 +4,13 @@
 
 1. `ARCHITECTURE_v8.6.md` is the base specification.
 2. Amendments override it where they conflict, in this order: 8.8 (occupancy
-   bitmask) → 8.9 (LOD & resolution) → 8.10 (LOD cascade performance).
+   bitmask) → 8.9 (LOD & resolution) → 8.10 (LOD cascade performance) →
+   8.12 (Phase 7's substitute budget gate).
+   **Note: no `.md` exists in this repo for amendment 8.8, or for 8.7.** Both
+   are in force and implemented (`OccupancyMask.cs`, `AirMip*.cs`) and both are
+   cited by the completion docs, but the documents themselves are absent and
+   `git log` shows neither was ever deleted. Read the implementations.
+   `AMENDMENT_8_11_RENDER_RANGE.md` exists but is **DRAFT, NOT ADOPTED**.
 3. `PHASE_1/2/3_COMPLETION.md` are historical records of what was proven and
    how — useful for *why* something is shaped the way it is, never a source
    of current requirements. If a completion doc and the architecture doc
@@ -17,6 +23,13 @@
    not just when asked.
 
 ## Current state (verify, don't trust this note)
+
+Phase 6 is CLOSED and merged. **Phase 7 (lighting & day/night) is built and its
+acceptance gates are green, but it is NOT closed** -- `PHASE_7_COMPLETION.md`
+recommends; the owner closes. EditMode is `PASS 550 FAIL 0` and
+`./run-phase7-rig.sh` reports `PASS 28 FAIL 0`. What Phase 7 still wants is the
+owner's five minutes in the Playground (that document's §12) and answers to its
+§10 flags -- principally which of §6.5's four shadow rungs ships.
 
 Phase 4 (streaming & persistence) is functionally correct: all EditMode tests
 pass, admission/eviction/persistence gates are green. Current work is
@@ -170,6 +183,24 @@ directly by path if you need to look rather than just read the numbers.
 Never launch the Phase 4 scene from inside the Editor and report on its
 frame time — see Measurement discipline above.
 
+**Phase 7 (lighting) has two rigs, and they answer different questions:**
+
+```
+./run-phase7-rig.sh            # CORRECTNESS. §13's acceptance gates.
+./run-phase7-lighting-ab.sh    # FRAME RATE. The substitute budget gate.
+```
+
+`run-phase7-rig.sh` asserts and exits; it quotes no frame time against any
+budget, deliberately. `run-phase7-lighting-ab.sh` measures end-to-end sustained
+rate across §6.5's four shadow rungs — the full matrix is ~40 launches at ~360 s
+each (about four hours), reducible via `ARMS`/`SCENARIOS`/`GATES`/`REPS`, and
+the report names which arms actually ran. **Read
+`AMENDMENT_8_12_PHASE7_GATE.md` §3.2 and §3.3 before quoting anything it
+produces** — §13's own gates are per-pass ms with Performance State checked and
+are unrunnable in this workflow.
+
+Both write their logs to `Logs/`, not the repo root.
+
 ## RIG SELECTION RULE: terrain-identity gates vs live fluid
 
 **Do not run the acceptance rig's identity/hash gates with a live fluid load
@@ -206,6 +237,39 @@ real and separate reason — see the LOD-cascade finding in
 `FLUID_PERFORMANCE_AB_RESULTS.md` §3.
 
 ## Known open issues (act on these, don't rediscover them)
+
+- **`ShaderCompileCheck.CheckAll` CAN REPORT A GREEN SHADER THAT DOES NOT
+  BUILD.** Found 2026-09-12: it printed `Raymarch.compute: OK (0 message(s))`
+  and `DONE totalErrors=0` for a file the standalone build then refused with
+  `undeclared identifier 'WaveActiveAnyTrue' ... (on metal)`. `ShaderUtil`'s
+  message list comes from the **Editor's import-time compile**, which does not
+  cover the player's Metal target. **Always also grep the build log for
+  `Shader error`** — `run-phase7-rig.sh` does, and that grep is what caught it.
+  Running `ShaderCompileCheck` remains worthwhile; treating it as sufficient is
+  not.
+- **SM6.0 wave intrinsics are NOT available to compute shaders here.**
+  `WaveActiveAnyTrue`/`QuadReadLaneAt` fail on the legacy compiler ("undeclared
+  identifier ... on metal") and, under `#pragma use_dxc`, fail again with
+  "Subgroups are only supported in Metal 2.0 and up". Phase 7 uses a
+  `groupshared` + `GroupMemoryBarrierWithGroupSync` equivalent instead. Raising
+  the Metal/MSL floor would change every shader and the shipping macOS minimum,
+  and is an owner decision — `PHASE_7_COMPLETION.md` §10 flag 7. **Do not
+  re-attempt `use_dxc` without deciding that first**: it also changes the
+  compiler for the whole shader, which would make every historical frame-time
+  comparison carry a codegen confound.
+- **FLAGGED FOR THE OWNER, NOT CHANGED: `run-acceptance-rig.sh` measures
+  WINDOWED.** Neither the script, nor `Phase4AcceptanceRig.cs`, nor
+  `Phase4Bootstrapper.cs` ever calls `Screen.SetResolution` or sets fullscreen
+  (verified by grep 2026-09-12). `FPS_INVESTIGATION_RESULTS.md` §0.1 — written
+  later — demonstrates windowed capture on this machine is worthless (69.6 vs
+  26.9 FPS for identical back-to-back runs of the same binary, and "fluid ON"
+  measuring *faster* than "fluid OFF"). That sits awkwardly beside Measurement
+  discipline's "the ONLY trusted frame-time source is
+  `./run-acceptance-rig.sh`'s output". **Nothing was changed**: making that rig
+  fullscreen would silently invalidate every historical Gate C comparison in
+  `PHASE_4_COMPLETION.md`, which is the owner's call, not a cleanup. The rule
+  is left exactly as written; this note exists so the next session does not have
+  to rediscover the tension.
 
 - **The world/render-range mismatch REVERSED, and is now the opposite problem.**
   This entry used to read "the world is still Phase 3's original island... no
