@@ -360,6 +360,22 @@ document (Amendment 8.9 Rule 3).
     `09_golden_hour_beauty.png` is the evidence. **Suggested starting point:
     `ambientIntensity` ~0.12 and a higher `sunIntensity`.** This is a tuning
     number, not a defect, and it is exactly the kind §13 says to fix by eye.
+- **DISTANT SHADOW SPECKLE AT COARSE TIERS — observed, not asserted, and worth
+  the owner's eye.** `10_silhouette_sunvis.png` (rung 2, hard shadows, golden
+  hour) shows the near-field shadows as crisp, spatially coherent shapes that
+  follow ridge lines exactly as exact voxel shadows should. In the **mid and far
+  distance** — tier 1 and tier 2 territory — the same view shows a dithered
+  speckle rather than solid regions. Two candidate explanations, and this phase
+  does not distinguish them:
+  (a) genuine per-coarse-voxel shadowing of blocky downsampled terrain, which is
+  correct and simply looks noisy in a binary diagnostic view; or
+  (b) coarse-tier sampling noise, which would be a defect.
+  **It cannot be settled here**, because tiers 1/2 have no CPU oracle
+  (Amdt 8.10 §5.7) — Gate 3's 98.40% agreement covers mostly near-field samples.
+  It is much less visible in Beauty, where albedo, ambient and the C.10 penumbra
+  all soften it, and rung 0 would soften it further. Recorded so it is not
+  rediscovered as new, and so the owner knows to look at the far field
+  specifically.
 - **Two pre-existing render artifacts are visible in the Phase 7 screenshots and
   are NOT Phase 7's.** `PHASE_2_COMPLETION.md` §6 item 6 records "small
   sky-coloured gaps along the horizon at certain angles, and a grazing-angle
