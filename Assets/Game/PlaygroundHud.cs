@@ -55,6 +55,20 @@ public class PlaygroundHud : MonoBehaviour
     /// Reads the commit + build time baked in at build time. Cached: this is
     /// drawn every frame and Resources.Load is not free.
     private static string _buildStamp;
+    /// §6.5's four rungs, named rather than numbered on screen. A bare "2" on a
+    /// HUD tells a player nothing about what they are looking at.
+    private static string ShadowRungName(int level)
+    {
+        switch (level)
+        {
+            case 0: return "0 FULL (soft penumbra, C.10)";
+            case 1: return "1 HALF-RES beyond LOD1";
+            case 2: return "2 HARD only";
+            case 3: return "3 OFF (flat N.L + ambient)";
+            default: return level.ToString();
+        }
+    }
+
     private static string BuildStampLine()
     {
         if (_buildStamp != null) return _buildStamp;
@@ -136,6 +150,31 @@ public class PlaygroundHud : MonoBehaviour
                           $"saves FAILED, {streamer.ScratchExhaustionWarnings} scratch leaks. " +
                           "Edits are NOT reaching disk. ***</color>");
 
+        // ---- §10.3 item 7, Phase 7: "sun angle/time" ----
+        // Plus the two Phase 7 numbers a player needs to interpret what they are
+        // looking at: how many of their torches are actually being drawn, and
+        // which §6.5 rung is in force. Without the first, the §3.8 cap is
+        // invisible and "my torch did nothing" has no explanation on screen.
+        sb.AppendLine();
+        sb.AppendLine($"<b>SUN</b>        {SunCycle.ClockString()}   {SunCycle.ElevationDegrees,6:F1} deg   " +
+                      $"{SunCycle.PhaseName}{(VoxelEngine.Rendering.LightingDriver.ClockPaused ? "   <color=#ffd479>[PAUSED]</color>" : "")}");
+
+        var lights = RaymarchFeature.Lights;
+        if (lights != null)
+        {
+            string capNote = lights.CapIsBinding
+                ? $"   <color=#ffd479>CAP BINDING - {lights.RegisteredCount - lights.ActiveCount} " +
+                  "furthest not drawn (§3.8, furthest-first)</color>"
+                : "";
+            sb.AppendLine($"<b>LIGHTS</b>     {lights.ActiveCount} active / {lights.RegisteredCount} placed   " +
+                          $"cap {EngineConfig.MAX_ACTIVE_LIGHTS}{capNote}");
+        }
+        sb.AppendLine($"<b>SHADOWS</b>    {ShadowRungName(RaymarchFeature.ShadowQualityLevel)}   " +
+                      $"k_soft {LightingConfig.Active.kSoft:F3}" +
+                      (LightingConfig.LastError != null
+                        ? $"   <color=#ff8888>LightingConfig: {LightingConfig.LastError}</color>"
+                        : ""));
+        sb.AppendLine();
         sb.AppendLine("The trusted frame-time source is ./run-acceptance-rig.sh, not this overlay.");
 
         // BUILD PROVENANCE. On screen because the .app's modified date LIES:

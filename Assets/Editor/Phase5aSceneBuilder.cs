@@ -114,6 +114,19 @@ public static class Phase5aSceneBuilder
         if (pgPlayer != null) pgPlayer.objectReferenceValue = pc;
         po.ApplyModifiedPropertiesWithoutUndo();
 
+        // PHASE 7. Without this the Playground would register torches and never
+        // upload them, so §6.6 would look broken for a wiring reason rather than
+        // a lighting one. Hot reload ON here -- unlike the gate scene -- because
+        // §13's solo-dev note makes live tuning the whole point of this scene.
+        var lightGo = new GameObject("LightingDriver");
+        var driver = lightGo.AddComponent<VoxelEngine.Rendering.LightingDriver>();
+        var ldo = new SerializedObject(driver);
+        var lcentre = ldo.FindProperty("_centre");
+        if (lcentre != null) lcentre.objectReferenceValue = camGo.transform;
+        SetBoolIfPresent(ldo, "_runClock", true);
+        SetBoolIfPresent(ldo, "_hotReload", true);
+        ldo.ApplyModifiedPropertiesWithoutUndo();
+
         // Live debug readout. Its own object so the dogfood scene keeps the
         // perf overlay separable from the gameplay toys.
         var hudGo = new GameObject("PlaygroundHud");

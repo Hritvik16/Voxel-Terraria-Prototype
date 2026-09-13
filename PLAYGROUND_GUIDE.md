@@ -98,11 +98,25 @@ watch it.
 | `B` | bomb at the crosshair (§8.5 mass destruction) |
 | `T` | shoot a projectile (§8.4 DDA trace) |
 
+### Light and time (Phase 7)
+
+| Key | Action |
+|-----|--------|
+| `N` | jump to **golden hour** — derived from the sun's own arc, never a typed hour |
+| `M` | jump to **noon** |
+| `L` | jump to **midnight** |
+| `,` `.` | **scrub** time of day, held. Scrubbing pauses the clock so the pose you find stays put |
+| `P` | pause / resume the clock |
+| `7` | select the **torch** in the hotbar; `RMB` places it, `LMB` digs it out |
+| `J` | cycle shadow quality `0` full soft → `1` half-res distant → `2` hard → `3` off |
+| `K` | hard ↔ soft shadows (`k_soft` toggle, without touching the JSON) |
+| `Y` | view: beauty → sun visibility → shadow-ray step heat |
+
 ### Overlays
 
 | Key | Action |
 |-----|--------|
-| `F1` | performance overlay |
+| `F1` | performance overlay (now also sun angle/time, active lights vs cap, shadow rung) |
 | `F2` | controls help |
 | `ESC` | release the mouse |
 
@@ -131,6 +145,57 @@ recompile, no restart. Same for `accelerationMps2`, `maxSpeedMps`, `airControl`,
 
 A malformed file is ignored and the running config is kept, so you cannot break
 a session with a typo mid-edit.
+
+### Lighting and the day/night cycle (§6.5) — Phase 7
+
+**Live tuning is the point of this section, not a footnote.** §13's own solo-dev
+note says the fused shadow ray is a day of code and *the real work is tuning the
+penumbra constant, the ambient curve and the sun-colour ramp by eye, in real
+time*. So:
+
+```
+~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LightingConfig.json
+```
+
+Same folder as `PlayerConfig.json`, same contract: edit, save, **the next frame
+is different** — no recompile, no restart, and a malformed file is ignored
+rather than fatal. `k_soft`, the C.11 falloff `k`, light range and colour,
+ambient intensity and colour, the underground ambient floor, the sun-colour ramp
+and the day length are all in there.
+
+What to actually look at:
+
+- **Press `N`.** Golden hour. Watch shadows run long across the terrain. This is
+  the pose §13 asks to be captured specifically, and the one §6.5 identifies as
+  the worst case for shadow-ray cost.
+- **Hold `,` then `.`.** The mountain shadow should sweep **continuously** —
+  no snapping, no stepping, no lag. There is nothing to be stale: the shadow is
+  re-derived from live terrain bytes every frame, so there is no cascade to
+  refresh (§6.5).
+- **Look along a flat surface at a very low sun.** There should be **zero**
+  speckle. §6.5 says acne is impossible by construction, because the shadow ray
+  starts one cell off the hit face and reads the same data the primary ray drew.
+  The rig measures literally 0.00% at 2° elevation; your eyes are the check that
+  the number means what it says.
+- **Press `Y`.** Sun-visibility view: white lit, black shadowed, dark blue sky,
+  violet night. Press again for the shadow-ray step heat, which uses the **same
+  colour ramp** as the primary step heat so the two are directly comparable —
+  the question it exists to answer is "does a shadow ray cost what the primary
+  ray that spawned it cost".
+- **Dig down until it is properly dark, then place a torch (`7`, `RMB`).**
+  §6.5 requires a deep cave to be *genuinely* dark, and it is: the rig measures
+  mean luminance 0.037 sealed and 0.502 with one torch.
+- **Put a torch behind a wall.** It lights the far side. That is the literal
+  §6.5/§3.8 v1 reading — pure attenuation, no per-light occlusion ray — and it
+  is **flagged for your decision**, not a defect. See `PHASE_7_COMPLETION.md`.
+- **Press `J` at golden hour** and step through all four rungs. §6.5 says
+  stepping down is the spec's own designed outcome, not a failure. Which one
+  ships is your call.
+- **Press `M`, then bomb a cave roof (`B`).** Sunlight reaches the floor the
+  *same frame* — a consequence of §3.10's authoritative byte, not of any
+  lighting code.
+- **Pour water off a ledge (`1`, `RMB`) and watch its shadow move.** Same rule,
+  free: fluid writes terrain bytes and shadow rays read terrain bytes.
 
 ### Editing (§8.3)
 
@@ -371,11 +436,23 @@ session re-deriving the ten eliminated causes — they are recorded in
 - **Not a scale test.** Fluid budgets are tens to low hundreds of voxels — the
   range Phases 5a/5b actually tested. §2.5's ~500,000 near-player active target
   has never been tested and this is not where that should be discovered.
-- **Not a demonstration of the shipped active radius.** The radius here is a
-  demo value 10× smaller than the engine constant, chosen so the effect is
-  visible in a 64-voxel arena. The real value has never been measured either —
-  `FLUID_ACTIVE_RADIUS_VOXELS` is marked *"ASSUMPTION, NOT MEASURED"* with a
-  Phase 5b GPU-lane measurement named as the only thing that should move it.
+- **CORRECTED 2026-09-12 — this bullet used to be wrong.** It read *"Not a
+  demonstration of the shipped active radius. The radius here is a demo value
+  10× smaller than the engine constant."* That has not been true since the unit
+  error recorded in `FPS_INVESTIGATION_RESULTS.md` §2.3 was undone:
+  `Playground.cs` now **references** `EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS`
+  (1280 voxels = 128 m) rather than restating it, precisely so it cannot drift
+  from the spec again. The scene *does* demonstrate the shipped radius. The
+  radius itself is still marked *"ASSUMPTION, NOT MEASURED"* in `EngineConfig`,
+  which is a separate and still-open point.
+- **Not a lighting budget test.** You can see every §6.5 rung here and form an
+  opinion about how each looks, but the frame-rate numbers on the F1 overlay are
+  a feel readout, not evidence — see §6. The substitute budget gate is
+  `run-phase7-lighting-ab.sh`, and what it can and cannot establish is set out
+  in `AMENDMENT_8_12_PHASE7_GATE.md` §3.2/§3.3.
+- **Not the §13 `Phase7_Cycle` acceptance scene.** That is
+  `run-phase7-rig.sh` — a scripted rig that asserts and exits. This is the
+  playable counterpart, and it asserts nothing.
 - **Not a correctness proof.** That is what the rigs are for:
   `run-phase5b-rig.sh`, `run-phase6-*.sh`, `run-phase6-sandbox.sh`, and
   `run-editmode-tests.sh`.
@@ -395,7 +472,7 @@ What of each phase you can actually touch here. **Add a row when a phase lands.*
 | **7.2 — Tiled active set** | **Wired 2026-09-11.** The state panel reports tiles resident / cap, acquired and released counts, whether the pool is full, live slot count, and the active set in MB. Fly away and watch tiles release; fly back and watch them re-acquire. Change `_activeRadiusVoxels` from 128 to the shipped 1280 and watch the MB figure **not move** — that invariance is the design's whole claim, and the old dense build could not have run at 1280 at all (a 2048³ region is 128 GB). | The tile cap being reached — `run-fluid-tiled.sh` scenario C and the chaos ladder. **The cap is 1024 as of 2026-09-11** (was 512); at 512 a wide fluid spread overflowed the pool and the overflow was visible as raw cubes of fluid hanging in the air that never settled. See `FLUID_TILE_CAP_RESULTS.md`. |
 | **7.4 — Active radius** | Walk away from a pool and watch it sleep to static terrain; walk back and watch it **wake again** — that second half was missing until 2026-09-05 and a region that slept mid-flow could never restart (`DESIGN_NOTE_7_4` §8). Wake/sleep radii, the current centre and the re-centre count are all on the state panel. | The radius value here is the **demo** 128, not the shipped 1280. The shipped value has now been measured and **cannot bite inside any region that can exist** — see `DESIGN_NOTE_7_4` §9; that is an open design fork, not something the Playground can show. Multi-region behaviour — `run-fluid-activity.sh` and `run-fluid-scale.sh`. |
 | **6 — Physics & editing** | Walking, jumping, 3-voxel steps, coyote time (§8.1); live `PlayerConfig` reload (§8.1); digging with all three tool tiers and placing through `EditService` (§8.3); bombs (§8.5); projectiles (§8.4); buoyancy and swimming (§8.6); the speed-clamp indicator (§8.2). | Swept CCD at 60 m/s — no grapple exists here yet, so `SweptCCD` is constructed but only exercised by its rig. The adversarial checkerboard (§3.6) — now covered by `run-phase6-sandbox.sh` step 3, which reaches the high-water mark and fires the LRU valve. |
-| **7 — Lighting** | *(not started — do not begin without a scoped prompt)* | — |
+| **7 — Lighting** | **Wired 2026-09-12.** The full day/night cycle with a scrubber and three jump keys (`N`/`M`/`L`); torches in the hotbar, placed and dug through the real §8.3 path; all four §6.5 shadow rungs on `J`; the hard↔soft toggle on `K`; §10.3 item 6's two debug views on `Y`; sun angle/time, active lights vs cap and the current rung on the F1 overlay; and **live tuning of every art constant through `LightingConfig.json`**, which is the highest-value thing in this row. | The **budget gates**: §13's "≤9.0 ms" and "≤13.0 ms" are per-pass figures with Performance State checked, and neither is obtainable in this workflow — see `AMENDMENT_8_12_PHASE7_GATE.md` and `run-phase7-lighting-ab.sh`. The **acceptance gates** (acne, Peter-Panning, the §6.5 silhouette test as a per-pixel GPU-vs-oracle comparison, §3.10's same-frame sunlight, §3.8's cap degradation) are asserted by `run-phase7-rig.sh`, not here. Tiers 1/2 still have **no CPU oracle** for shadow rays any more than for primary rays (Amdt 8.10 §5.7). |
 
 ## 9. Known rough edges
 
@@ -411,7 +488,9 @@ What of each phase you can actually touch here. **Add a row when a phase lands.*
 - **Frame-time spikes have a known, unexplained cause** — see §6. Four sessions
   eliminated ten candidates and a full per-system toggle sweep; do not
   re-diagnose it.
-- **The active radius is a scene demo value** (128 voxels), not the shipped 1280.
+- ~~**The active radius is a scene demo value** (128 voxels), not the shipped 1280.~~
+  **STALE, corrected 2026-09-12.** The field references
+  `EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS` (1280 voxels = 128 m); see §7.
   Both the radius and the hysteresis ratio behind it are engineering defaults
   that have never been measured against a GPU-lane budget.
 - **Only one fluid region exists in this scene.** The engine now supports

@@ -437,6 +437,136 @@ public class PlaygroundCapture : MonoBehaviour
         Application.Quit(0);
     }
 
+    // =====================================================================
+    // -lightingab : AMENDMENT_8_12_PHASE7_GATE.md's SUBSTITUTE GATE
+    //
+    // §13 Phase 7 asks for "raymarch + shadows <= 9.0 ms, Performance State
+    // checked" and a combined "<= 13.0 ms" gate. NEITHER CAN BE RUN AS WRITTEN
+    // HERE, for four independent reasons set out in AMENDMENT_8_12 §2: no Xcode
+    // (Amdt 8.9 Rule 1), Performance State unreadable (Rule 2), gpuFrameTime
+    // inflated ~2.6-2.7x (Amdt 8.10's retracted result), and Unity merging the
+    // dispatches into one Metal encoder so per-pass attribution does not exist.
+    //
+    // So this measures END-TO-END SUSTAINED RATE, which does exist, and reports
+    // it as such. NO per-pass ms figure is produced, because producing one would
+    // be inventing a number to fill a gap -- which Amendment 8.9 Rule 3 forbids
+    // in exactly those words.
+    //
+    // BUILT ON THIS FILE'S EXISTING LEVERS, NOT A NEW HARNESS. -fullscreen,
+    // -gateres, -nofluid, -nosim and -movespeed already exist here and already
+    // carry the reasoning for why each is needed; a parallel harness would have
+    // to re-derive all of it and would drift.
+    // =====================================================================
+    private IEnumerator LightingAb()
+    {
+        // FULLSCREEN IS NOT OPTIONAL. FPS_INVESTIGATION §0.1: identical
+        // back-to-back WINDOWED runs of this same binary returned 69.6 and 26.9
+        // FPS, and "fluid ON" measured FASTER than "fluid OFF" -- the macOS
+        // compositor throttles a windowed surface and dominates everything else.
+        // Fullscreen reproduces to 2.9%.
+        Screen.SetResolution(1920, 1080, !HasFlag("-windowed"));
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = -1;   // a cap would floor the measurement
+
+        var pg = FindAnyObjectByType<Playground>();
+        while (Phase4Bootstrapper.Store == null) yield return null;
+
+        int gate = ArgInt("-gateres", 0);
+        if (gate > 0)
+        {
+            RaymarchFeature.GateModeOverride = RaymarchFeature.GateResMode.ForcedCustom;
+            RaymarchFeature.CustomGateResolution = new Vector2Int(gate, gate * 9 / 16);
+        }
+
+        // The rung under test. Absent => whatever EngineConfig ships, which is
+        // what arm A (the pre-Phase-7 build) will report, since it has no such
+        // flag and no shadow code at all.
+        int level = ArgInt("-shadowlevel", -1);
+        if (level >= 0) RaymarchFeature.ShadowQualityLevel = level;
+
+        // GOLDEN HOUR, DERIVED FROM THE ARC rather than typed. §13 asks for it
+        // to be captured specifically and §6.5 identifies it as the worst case:
+        // the longest grazing rays.
+        VoxelEngine.Rendering.LightingDriver.ClockPaused = true;
+        if (HasFlag("-goldenhour")) SunCycle.SetHours(SunCycle.GoldenHourHours);
+        float tod = ArgInt("-tod", -1);
+        if (tod >= 0f) SunCycle.SetHours(tod);
+
+        if (HasFlag("-nosim")) Playground.DebugSuspendFluidSim = true;
+        if (HasFlag("-noskyprobe")) RaymarchFeature.UseSkyProbeAmbient = false;
+
+        for (int i = 0; i < 300; i++) yield return null;   // streaming settles
+
+        var cam = Camera.main;
+        if (pg != null) { pg.SendMessage("TeleportToArena", SendMessageOptions.DontRequireReceiver); yield return null; }
+
+        // GROUND HORIZON. Amendment 8.9 established this as "the real gameplay
+        // camera" and consistently the MOST EXPENSIVE pose in every config, so
+        // it is the pose a budget question should be asked at.
+        if (cam != null) cam.transform.rotation = Quaternion.Euler(0f, 90f, 0f);
+
+        bool withFluid = !HasFlag("-nofluid");
+        if (withFluid && pg != null) pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+        for (int i = 0; i < 180; i++) yield return null;   // fluid settles into flight
+
+        int seconds = ArgInt("-abseconds", 60);
+        string ts = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
+        _folder = Path.Combine(Application.persistentDataPath, "LightingAB", ts);
+        Directory.CreateDirectory(_folder);
+
+        var ms = new List<double>(seconds * 70);
+        float t0 = Time.realtimeSinceStartup;
+        int reopen = 0;
+        for (int i = 0; i < seconds * 60; i++)
+        {
+            // Vent budgets are finite and would drain mid-window, leaving the
+            // tail measuring an IDLE CA and understating the combined arm --
+            // which is the arm §11.2 moved to this phase specifically to get right.
+            if (withFluid && pg != null && ++reopen % 180 == 0)
+                pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+            yield return null;
+            ms.Add(Time.unscaledDeltaTime * 1000.0);
+        }
+        float elapsed = Time.realtimeSinceStartup - t0;
+
+        var sorted = new List<double>(ms); sorted.Sort();
+        double P(double q) => sorted[Mathf.Clamp((int)(q * (sorted.Count - 1)), 0, sorted.Count - 1)];
+
+        var res = RaymarchFeature.LastDispatchResolution;
+        L($"LIGHTING A/B -- {ts}");
+        L($"device {SystemInfo.graphicsDeviceName}   {Screen.width}x{Screen.height} " +
+          $"{(Screen.fullScreen ? "FULLSCREEN" : "WINDOWED -- INVALID, see FPS §0.1")}");
+        L($"build {(Debug.isDebugBuild ? "DEVELOPMENT -- NOT COMPARABLE" : "RELEASE")}");
+        L($"internal gate {res.x}x{res.y}" + (gate > 0 ? $"  (FORCED {gate})" : "  (shipped)"));
+        L($"shadow rung {(level >= 0 ? level.ToString() : "n/a -- arm A, no shadow code")}" +
+          $"   k_soft {LightingConfig.Active.kSoft:F3}   skyProbe {RaymarchFeature.UseSkyProbeAmbient}");
+        L($"sun {SunCycle.ClockString()}  {SunCycle.ElevationDegrees:F1} deg  {SunCycle.PhaseName}");
+        L($"fluid {(withFluid ? "LIVE (§13's true combined gate)" : "OFF")}" +
+          $"   lights {(RaymarchFeature.Lights != null ? RaymarchFeature.Lights.ActiveCount : 0)} active");
+        L("");
+        L($"  >>> TRUE SUSTAINED RATE: {ms.Count} frames in {elapsed:F2} s = " +
+          $"{ms.Count / elapsed:F1} FPS   (mean frame {1000.0 * elapsed / ms.Count:F2} ms)");
+        L("");
+        L($"  diagnostics only, NOT a headline: p50 {P(0.50):F2}  p90 {P(0.90):F2}  " +
+          $"p99 {P(0.99):F2}  max {sorted[sorted.Count - 1]:F2} ms");
+        L($"  frames over 16.6 ms: {sorted.FindAll(x => x > 16.6).Count} of {sorted.Count}");
+        L("  (120 Hz ProMotion: the app out-presents the display, so roughly one frame in three");
+        L("   lands in the tail BY PACING rather than by cost -- FPS_INVESTIGATION §0.2 measured");
+        L("   exactly 600 of 1800 in four different isolation arms. Do not read the percentiles");
+        L("   as cost, and never quote p99 against a budget.)");
+
+        File.WriteAllText(Path.Combine(_folder, "lighting_ab.txt"), _log.ToString());
+        Debug.Log("[LightingAB]\n" + _log);
+
+        yield return new WaitForEndOfFrame();
+        Texture2D tex = ScreenCapture.CaptureScreenshotAsTexture();
+        try { File.WriteAllBytes(Path.Combine(_folder, "pose.png"), tex.EncodeToPNG()); }
+        finally { Destroy(tex); }
+
+        yield return null;
+        Application.Quit(0);
+    }
+
     private static int ArgInt(string flag, int dflt)
     {
         string[] a = Environment.GetCommandLineArgs();
@@ -459,6 +589,7 @@ public class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-stutterprobe")) { yield return StutterProbe(); yield break; }
         if (HasFlag("-gputrace")) { yield return GpuTraceLoad(); yield break; }
         if (HasFlag("-fluidbench")) { yield return FluidBenchmark(); yield break; }
+        if (HasFlag("-lightingab")) { yield return LightingAb(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;
         Screen.SetResolution(1920, 1080, false);
 
