@@ -54,6 +54,21 @@ public static class Materials
     public const byte Lava        = 11;
     public const byte Honey       = 12;
     public const byte Obsidian    = 13;
+
+    // ---- Phase 7 lighting material (ADDITIVE; nothing above renumbered) ----
+    // §6.6: "the 1-byte ID indexes the Material Registry for albedo/emissive;
+    // emissives additionally enqueue into the light system when placed." §13
+    // Phase 7's scene calls for "placeable torches", and a torch in this engine
+    // is not an entity -- it is a terrain byte whose material carries an
+    // emissive strength and a light definition (MaterialRules.LightOf), written
+    // through the one §8.3 SetVoxel path like every other edit (§0.1 inv 1).
+    //
+    // DELIBERATELY ABSENT FROM ContentVersionHash() BELOW, for exactly the
+    // reason Lava/Honey/Obsidian are: world generation never places it, so it
+    // cannot change what GenerateChunk produces, and including it would
+    // invalidate every existing world.meta for a material no generated world
+    // contains. Same precedent, same justification, stated rather than copied.
+    public const byte Torch       = 14;
 }
 
 public struct BiomeDefinition

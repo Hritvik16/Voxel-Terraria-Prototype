@@ -159,6 +159,73 @@ float4 _SkyColor;      // also the fog target and the "up" hemisphere tint
 float  _FogStartM;
 float  _FogEndM;
 
+// ===========================================================================
+// PHASE 7 -- LIGHTING (§6.5, §3.8, C.9 / C.10 / C.11)
+//
+// Everything below is read ONLY after traversal has resolved a hit, except
+// _ShadowQualityLevel and _SunDir, which gate whether the fused shadow ray runs
+// at all. No stepping, addressing or LOD-selection code for the PRIMARY ray
+// reads any of it -- so with _ShadowQualityLevel == 3 (rung "off") and the
+// lighting terms neutral, the tier-0 path is the pre-Phase-7 path. That claim
+// is not left as an argument from code structure: RaymarchLightingTests and the
+// Phase 7 rig both check an EXACT traversal-counter match at a pose where the
+// shadow branch cannot engage, the way Amendment 8.10 §2 proved the cascade's
+// tier-0 path unchanged (denseMicroSteps 116 == 116).
+// ===========================================================================
+
+// A.6 point lights (§3.8). Always MAX_ACTIVE_LIGHTS entries; _ActiveLightCount
+// says how many are live this frame. Selection (nearest-to-player, furthest
+// dropping first) happens on the CPU in LightSourceBuffer.SelectActive -- the
+// shader never decides which lights to drop, it just reads the first N.
+StructuredBuffer<LightSource> LightBuffer;
+uint _ActiveLightCount;
+
+// The two animated uniforms §6.5 calls for: "sun direction + color are two
+// animated uniforms from the in-game clock."
+// _SunDir points FROM a surface TOWARD the sun -- the direction a shadow ray
+// travels, and the L in C.9's max(0, N.L).
+// _SunColor is EXACTLY zero below the horizon, not merely small, so this and
+// the "is the sun up" branch can never disagree about whether it is night.
+float3 _SunDir;
+float3 _SunColor;
+
+// C.9's ambientSky, already scaled by intensity and by time of day.
+float3 _AmbientColor;
+
+// C.10's penumbra constant. 0 => hard shadows (a BRANCH, not a limit --
+// smoothstep with a zero-width edge is undefined).
+float _KSoft;
+
+// §6.5's fallback ladder, from EngineConfig.SHADOW_QUALITY_LEVEL:
+//   0 full penumbra | 1 half-res beyond LOD1 | 2 hard only | 3 off
+// All four are compiled in so ONE binary can be measured at every rung in one
+// session -- FPS_INVESTIGATION_RESULTS.md §3.2 records a CROSS-session
+// comparison producing a wrong number because the untouched arm drifted.
+int _ShadowQualityLevel;
+
+// Runaway guard for the shadow DDA. Counts OUTER iterations, like
+// _MaxOuterIterations, not voxels -- each can leap a whole air brick or
+// air-mip cell.
+int _MaxShadowSteps;
+
+// C.9 applies max(0, N.L) to the SUN term only; the pointLights term is bare.
+// Implemented literally by default (0). See the FLAG in PHASE_7_COMPLETION.md:
+// the literal reading lights faces pointing away from a torch, which reads as
+// flat. 1 applies N.L to point lights too. Shipped at the literal reading so
+// the owner judges the deviation rather than inheriting it.
+int _PointLightNdotL;
+
+// FLAG (§6.5's three simultaneous ambient requirements). 1 = modulate ambient
+// by a straight-up sky-visibility probe so deep caves are genuinely dark; 0 =
+// plain hemisphere term, which lights a cave ceiling as brightly as open sky.
+// Measured as its own arm; see AMENDMENT_8_12_PHASE7_GATE.md.
+int _UseSkyProbeAmbient;
+
+// Fraction of ambient surviving with zero sky visibility -- §6.5's
+// "underground reads near-zero ambient". Art constant, live-tunable via
+// LightingConfig.json.
+float _UndergroundAmbientFloor;
+
 #define MAX_CHAIN_LEAPS 7
 
 float4 StepHeatColor(int steps)
@@ -223,6 +290,7 @@ float3 MaterialAlbedo(uint mat)
     if (mat == 11u) return float3(0.720, 0.215, 0.070);  // Lava
     if (mat == 12u) return float3(0.680, 0.480, 0.130);  // Honey
     if (mat == 13u) return float3(0.095, 0.085, 0.125);  // Obsidian
+    if (mat == 14u) return float3(0.760, 0.545, 0.285);  // Torch (Phase 7)
     return float3(0.90, 0.10, 0.80);                     // unauthored -> obvious magenta
 }
 
@@ -230,6 +298,40 @@ float3 MaterialAlbedo(uint mat)
 // SHADING CHEAT, not a light source: nothing here illuminates anything else.
 // Real emission is Phase 7 (§6.5).
 bool MaterialIsSelfLit(uint mat) { return mat == 11u; }
+
+// ===========================================================================
+// A.7's `emissive`, MIRRORED -- and why it is mirrored rather than uploaded.
+//
+// Stage 0 established that there is NO GraphicsBuffer<MaterialData> anywhere in
+// this project: A.7's struct is declared in StructHeaders.cs/.hlsl and read by
+// nothing, and FluidGpuSimulation uploads four separate flat uint arrays
+// instead, deliberately, "restricted to what the CA reads". So Phase 7 had a
+// choice: build the real §3.9 registry buffer and thread it through
+// RaymarchFeature's render-graph pass, or mirror the two numbers it needs the
+// way the palette beside it is already mirrored.
+//
+// It mirrors, for MaterialPalette's own stated reason: wiring a new registry
+// buffer through render setup for a colour change is a §3.9 sync-contract
+// addition, and Phase 7 already has one new untrusted thing (§0.1 invariant 5).
+// The real A.7 buffer is CARRIED FORWARD, not silently skipped --
+// PHASE_7_COMPLETION.md's CARRY-FORWARD section names it.
+//
+// PaletteSyncTests parses BOTH of these functions and fails if they drift from
+// MaterialRules' tables, exactly as it already does for MaterialAlbedo.
+// ===========================================================================
+float MaterialEmissive(uint mat)
+{
+    if (mat == 14u) return 1.00;   // Torch
+    if (mat == 11u) return 0.55;   // Lava
+    return 0.0;
+}
+
+float3 MaterialEmissiveTint(uint mat)
+{
+    if (mat == 14u) return float3(1.00, 0.72, 0.38);   // Torch -- warm candle flame
+    if (mat == 11u) return float3(1.00, 0.42, 0.14);   // Lava  -- hotter, redder
+    return float3(0.0, 0.0, 0.0);
+}
 
 
 
@@ -358,6 +460,36 @@ uint ReadBrickDataTier(int tier, uint poolIdx, uint wordIdx)
 int TierShift(int tier)
 {
     return (tier == 1) ? 1 : 2;
+}
+
+// ===========================================================================
+// §6.5's 8.2 LOD RULE, EXTRACTED SO IT IS DEFINED ONCE (§0.1 invariant 8).
+//
+// This was four inline lines in CSMain. It is now a function for one reason,
+// and the reason is a latent bug rather than tidiness:
+//
+//   §6.5: "the shadow ray selects LOD by CAMERA DISTANCE TO THE CURRENT SAMPLE
+//   POINT, NOT by the shadow ray's own traveled distance. The 8.1 rule
+//   (coarsen by traveled distance) was wrong: a short shadow ray to a mountain
+//   the camera renders coarse would evaluate it at fine LOD, so the cast shadow
+//   wouldn't match the on-screen silhouette -- detached, floating shadows."
+//
+// The inline version compared `currentDist`. For a PRIMARY ray that is correct,
+// but only by accident of where the ray starts: a primary ray begins at the
+// camera, so its travelled distance IS its camera distance. A shadow ray begins
+// at a surface. Reusing `currentDist` there is EXACTLY the retracted 8.1 rule,
+// and it would have looked like working code.
+//
+// Naming the parameter `cameraDistanceVoxels` forces each call site to say
+// which distance it is passing. ShadowRayReference.SelectLODTier is the CPU
+// sibling of this function and is unit-tested against these same boundaries.
+// ===========================================================================
+int SelectLODTier(float cameraDistanceVoxels)
+{
+    if (_UseLODCascade == 0) return 0;
+    if (cameraDistanceVoxels >= _TierOuterRangeVoxels.y) return 2;
+    if (cameraDistanceVoxels >= _TierOuterRangeVoxels.x) return 1;
+    return 0;
 }
 
 int AirMipFlatIndex(int3 cell, uint3 dims)
@@ -565,6 +697,351 @@ void LeapSpanReseedClosedForm(inout int3 voxel, inout float3 tMax, inout float c
                           : int3(0, 0, -step.z));
 }
 
+// ===========================================================================
+// THE FUSED SUN-SHADOW RAY (§6.5, C.10)
+//
+// §6.5: "in the SAME raymarch kernel, immediately after a pixel's primary ray
+// resolves a hit, the thread fires ONE secondary DDA ray from the hit voxel
+// toward the sun THROUGH THE SAME CLIPMAP/LOD DATA."
+//
+// "the same data" is the load-bearing phrase and it is why this function reads
+// ReadClipmap / ReadClipmapTier / ReadAirMip and nothing else. There is no
+// shadow-specific buffer, no shadow map, no cascade to re-render and nothing to
+// invalidate -- which is also why "bomb a cave roof at noon and sunlight
+// reaches the floor the SAME frame" and "pour water off a ledge and get a
+// moving shadow" are consequences of §3.10's authoritative-byte rule rather
+// than features anyone implements.
+//
+// STRUCTURALLY THIS IS THE PRIMARY LOOP WITH FOUR DIFFERENCES, and §13's own
+// "if stuck" note says so: "the shadow ray is the Phase-2 DDA with a new origin
+// + early-out." The four:
+//   1. the origin is one cell off the hit face, not the camera (§6.5)
+//   2. the tier comes from CAMERA distance to the sample, not from travel (8.2)
+//   3. the first hit ends the ray -- occlusion only, material never recorded
+//   4. it tracks C.10's minimum clearance ratio on the way
+// Everything else -- the leap primitives, the bounds guard, the content-ceiling
+// early exit -- is the same already-proven code, called with different numbers.
+// ===========================================================================
+
+struct ShadowHit
+{
+    float sunVis;   // C.9's sunVis: 0 fully occluded .. 1 fully lit
+    int   steps;    // outer iterations, for the §10.3 heat view and §10.4 dump
+};
+
+/// Solid test at a tier, for C.10's near-miss scan.
+///
+/// Out of the window means NO DATA, and no data must read as air -- returning
+/// "solid" there would paint a penumbra against the window edge that moves with
+/// the player. Same rule the traversal itself uses: leaving the window
+/// terminates a ray, it never aliases back in (PHASE_3_COMPLETION.md §6.2).
+bool ShadowSolidAt(int3 v, int tier, uint3 windowDimsBricks)
+{
+    int3 rel = VoxelToBrick(v) - _WindowOriginBricksPacked.xyz;
+    if (rel.x < 0 || rel.y < 0 || rel.z < 0 ||
+        rel.x >= (int)windowDimsBricks.x ||
+        rel.y >= (int)windowDimsBricks.y ||
+        rel.z >= (int)windowDimsBricks.z) return false;
+
+    if (tier == 0)
+    {
+        uint handle = ReadClipmap(VoxelToBrick(v), windowDimsBricks);
+        if ((handle & 0x80000000u) == 0u) return (handle & 0xFFu) != 0u;
+        uint poolIdx = handle & 0x3FFFFFFFu;
+        uint vIdx = (uint)LocalVoxelIndex(LocalVoxelIndex3D(v));
+        uint packed = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
+        return (((packed >> ((vIdx & 3u) * 8u)) & 0xFFu) != 0u);
+    }
+
+    int tierShift = TierShift(tier);
+    int3 tv = v >> tierShift;
+    uint h = ReadClipmapTier(tier, tv >> 3);
+    if ((h & 0x80000000u) == 0u) return (h & 0xFFu) != 0u;
+    uint pi = h & 0x3FFFFFFFu;
+    uint vi = (uint)LocalVoxelIndex(tv & 7);
+    uint pk = ReadBrickDataTier(tier, pi, vi >> 2);
+    return (((pk >> ((vi & 3u) * 8u)) & 0xFFu) != 0u);
+}
+
+/// C.10's `clearance`, in voxel units: the perpendicular distance from the
+/// ray's current position to the nearest solid face neighbour that lies AHEAD
+/// of the ray. 3.0e30 when nothing ahead is solid.
+///
+/// THE `dir` TEST IS NOT AN OPTIMISATION -- IT IS WHY LIT PIXELS ARE LIT.
+/// A shadow ray starts one cell off the surface it is shading, so that surface
+/// is ALWAYS a face neighbour of the origin cell and is always solid. Scanned
+/// as a near-miss it gives clearance ~0 at t ~ 0, C.10's m collapses to 0, and
+/// every sunlit surface in the world reports full shadow. Skipping neighbours
+/// strictly behind the advancing ray removes it BY CONSTRUCTION: the receiver
+/// sits at -hitNormal, and any pixel the sun lights has dot(dir, hitNormal) > 0
+/// (that is C.9's max(0, N.L) being positive), so dot(dir, -hitNormal) < 0
+/// always. No epsilon, nothing to tune. Full derivation and the failing test
+/// that found it are in ShadowRayReference.NearestSolidFaceClearance.
+float ShadowClearance(int3 voxel, float3 posVox, float3 dir, int tier, uint3 windowDimsBricks)
+{
+    float best = 3.0e30;
+    if (dir.x >= 0.0 && ShadowSolidAt(voxel + int3(1, 0, 0), tier, windowDimsBricks))
+        best = min(best, max(0.0, (voxel.x + 1.0) - posVox.x));
+    if (dir.x <= 0.0 && ShadowSolidAt(voxel - int3(1, 0, 0), tier, windowDimsBricks))
+        best = min(best, max(0.0, posVox.x - voxel.x));
+    if (dir.y >= 0.0 && ShadowSolidAt(voxel + int3(0, 1, 0), tier, windowDimsBricks))
+        best = min(best, max(0.0, (voxel.y + 1.0) - posVox.y));
+    if (dir.y <= 0.0 && ShadowSolidAt(voxel - int3(0, 1, 0), tier, windowDimsBricks))
+        best = min(best, max(0.0, posVox.y - voxel.y));
+    if (dir.z >= 0.0 && ShadowSolidAt(voxel + int3(0, 0, 1), tier, windowDimsBricks))
+        best = min(best, max(0.0, (voxel.z + 1.0) - posVox.z));
+    if (dir.z <= 0.0 && ShadowSolidAt(voxel - int3(0, 0, 1), tier, windowDimsBricks))
+        best = min(best, max(0.0, posVox.z - voxel.z));
+    return best;
+}
+
+/// Fires one shadow ray. `softEnabled` turns C.10's near-miss tracking on;
+/// with it off this is pure binary occlusion, which is §6.5's rung 2.
+ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
+                         uint3 windowDimsBricks, bool softEnabled)
+{
+    ShadowHit r;
+    r.sunVis = 1.0;
+    r.steps = 0;
+
+    // ---- §6.5's ORIGIN RULE. One cell off the hit face, at its centre. ----
+    // There is no bias term here and there must never be one: §13's failure
+    // signature for acne and Peter-Panning is "shadow-ray origin isn't starting
+    // one cell off the hit face; FIX THE ORIGIN, DON'T ADD A BIAS HACK."
+    int3 voxel = hitVoxel + hitNormal;
+    float3 rayStart = (float3)voxel + 0.5;
+
+    float3 dir = normalize(sunDir);
+    dir.x = abs(dir.x) < 1e-6 ? (dir.x >= 0 ? 1e-6 : -1e-6) : dir.x;
+    dir.y = abs(dir.y) < 1e-6 ? (dir.y >= 0 ? 1e-6 : -1e-6) : dir.y;
+    dir.z = abs(dir.z) < 1e-6 ? (dir.z >= 0 ? 1e-6 : -1e-6) : dir.z;
+
+    int3 step = int3(sign(dir.x), sign(dir.y), sign(dir.z));
+    float3 tDelta = abs(1.0 / dir);
+    float3 tMax = float3(
+        step.x > 0 ? (voxel.x + 1.0 - rayStart.x) : (rayStart.x - voxel.x),
+        step.y > 0 ? (voxel.y + 1.0 - rayStart.y) : (rayStart.y - voxel.y),
+        step.z > 0 ? (voxel.z + 1.0 - rayStart.z) : (rayStart.z - voxel.z)
+    ) * tDelta;
+
+    float currentDist = 0.0;
+
+    // §6.5: "clamps at max distance (island diagonal)". The SAME clamp the
+    // primary ray uses, which under the cascade is tier 2's outer bound. That
+    // is the effective island diagonal in this build: the renderer draws 290 m,
+    // the resident window is 409.6 m across, and nothing exists past it -- so a
+    // literal ~2,700 m island diagonal would only buy thousands of voxels of
+    // guaranteed-nothing before the window guard stopped the ray anyway. This
+    // is NOT an implementation of Amendment 8.11 (DRAFT, NOT ADOPTED); it
+    // follows _MaxRayDistance, so if render range ever grows this follows.
+    float maxDist = (_MaxRayDistance > 0.0) ? _MaxRayDistance : 1280.0;
+
+    float m = 3.0e30;                 // C.10's minimum clearance/travel ratio
+    float3 camVox = _CameraPos * 10.0;
+
+    int3 nrm = int3(0, 0, 0);         // the leap helpers want these; unused here
+    int exitIters = 0, nonExitIters = 0;
+
+    [loop]
+    while (currentDist < maxDist && r.steps < _MaxShadowSteps)
+    {
+        // Content-ceiling early exit. Same structural fact the primary ray
+        // uses: above the highest chunk layer generation can produce, and
+        // moving further away, every remaining voxel is guaranteed unloaded.
+        // For a shadow ray aimed at the sun this fires almost immediately on
+        // open ground, which is most of why an unshadowed pixel is cheap.
+        if ((voxel.y >= _ContentCeilingVoxelY && step.y > 0) || (voxel.y < 0 && step.y < 0)) break;
+
+        {
+            int3 rel = VoxelToBrick(voxel) - _WindowOriginBricksPacked.xyz;
+            if (rel.x < 0 || rel.y < 0 || rel.z < 0 ||
+                rel.x >= (int)windowDimsBricks.x ||
+                rel.y >= (int)windowDimsBricks.y ||
+                rel.z >= (int)windowDimsBricks.z) break;
+        }
+
+        r.steps++;
+
+        // ---- §6.5's 8.2 LOD RULE ----
+        // By CAMERA distance to THIS sample point. Passing `currentDist` here
+        // would be the retracted 8.1 rule and would produce detached shadows;
+        // SelectLODTier's parameter is named so this line has to say which
+        // distance it means.
+        float3 sampleVox = (float3)voxel + 0.5;
+        int tier = SelectLODTier(length(sampleVox - camVox));
+
+        if (tier == 0)
+        {
+            // Air-mip leaps, exactly as the primary tier-0 path does them.
+            // PHASE_3_COMPLETION.md §5 measured the air-mip as the highest-value
+            // structure in the traversal (disabling it costs 44% at one pose,
+            // 3.5x at another), and a sun-facing shadow ray is mostly empty sky,
+            // which is precisely what it accelerates.
+            bool leapt = false;
+            [loop]
+            for (int k = (int)_AirMipLevelCount; k >= 1; k--)
+            {
+                int shift = 3 + k;
+                int3 cell = voxel >> shift;
+                if (ReadAirMip(k, cell) == 0u)
+                {
+                    LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart,
+                                             cell << shift, 8 << k, nrm, exitIters, nonExitIters);
+                    leapt = true;
+                    break;
+                }
+            }
+            if (leapt) continue;
+
+            int3 brickCoord = VoxelToBrick(voxel);
+            uint handle = ReadClipmap(brickCoord, windowDimsBricks);
+
+            if ((handle & 0x80000000) != 0)
+            {
+                uint poolIdx = handle & 0x3FFFFFFF;
+                uint vIdx = (uint)LocalVoxelIndex(LocalVoxelIndex3D(voxel));
+                uint packed = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
+                uint mat = (packed >> ((vIdx & 3u) * 8u)) & 0xFF;
+
+                // OCCLUSION ONLY. §6.5: "first hit = done." The material is
+                // deliberately not recorded -- nothing downstream may branch on
+                // WHAT cast a shadow, only that something did.
+                if (mat != 0) { r.sunVis = 0.0; return r; }
+
+                // ---- C.10, tracked on the DENSE path only ----
+                // A BOUNDED, STATED APPROXIMATION, not an oversight. Scanning
+                // six neighbours at every outer iteration would pay for it on
+                // air-brick leaps too, where by definition there is no solid
+                // within the brick being leapt. Restricting it to dense bricks
+                // puts the cost exactly where near-misses can occur and keeps
+                // the reads inside the 512-byte body the step just touched.
+                // WHAT IT MISSES: a ray skimming a wall built of UNIFORM-solid
+                // bricks while travelling through uniform-air bricks gets a hard
+                // edge rather than a penumbra, because neither brick is ever
+                // micro-stepped. ShadowRayReference (the CPU oracle) scans every
+                // cell and is the reference definition; the two agree exactly on
+                // OCCLUSION, which is the binary the oracle property is about,
+                // and the shader's sunVis is an approximation of the oracle's.
+                // Recorded in PHASE_7_COMPLETION.md rather than left implicit.
+                if (softEnabled)
+                {
+                    float3 posVox = rayStart + dir * currentDist;
+                    float c = ShadowClearance(voxel, posVox, dir, tier, windowDimsBricks);
+                    if (c < 3.0e30) m = min(m, c / max(1.0, currentDist));
+                }
+
+                if (tMax.x < tMax.y)
+                {
+                    if (tMax.x < tMax.z) { voxel.x += step.x; currentDist = tMax.x; tMax.x += tDelta.x; }
+                    else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; }
+                }
+                else
+                {
+                    if (tMax.y < tMax.z) { voxel.y += step.y; currentDist = tMax.y; tMax.y += tDelta.y; }
+                    else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; }
+                }
+                continue;
+            }
+
+            uint umat = handle & 0xFF;
+            if (umat != 0) { r.sunVis = 0.0; return r; }
+
+            LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart,
+                                     brickCoord * 8, 8, nrm, exitIters, nonExitIters);
+        }
+        else
+        {
+            // Tiers 1/2, mirroring the primary coarse path. NOTE, and it is a
+            // real gap rather than a claim: this branch has NO CPU oracle, for
+            // shadow rays exactly as for primary rays (Amendment 8.10 §5.7,
+            // PHASE_2_COMPLETION.md §6.2). Every statement about it is "this
+            // reuses an already-proven primitive with different arguments",
+            // which is real evidence and categorically weaker than a fuzz proof.
+            int tierShift = TierShift(tier);
+            int3 tierVoxel = voxel >> tierShift;
+            int3 tierBrick = tierVoxel >> 3;
+
+            uint handle = ReadClipmapTier(tier, tierBrick);
+            if ((handle & 0x80000000) != 0)
+            {
+                uint poolIdx = handle & 0x3FFFFFFF;
+                uint vIdx = (uint)LocalVoxelIndex(tierVoxel & 7);
+                uint packed = ReadBrickDataTier(tier, poolIdx, vIdx >> 2);
+                uint mat = (packed >> ((vIdx & 3u) * 8u)) & 0xFF;
+                if (mat != 0) { r.sunVis = 0.0; return r; }
+
+                LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart,
+                                         tierVoxel << tierShift, 1 << tierShift,
+                                         nrm, exitIters, nonExitIters);
+                continue;
+            }
+
+            uint umat = handle & 0xFF;
+            if (umat != 0) { r.sunVis = 0.0; return r; }
+
+            LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart,
+                                     (tierBrick * 8) << tierShift, 8 << tierShift,
+                                     nrm, exitIters, nonExitIters);
+        }
+    }
+
+    // Missed. C.10: sunVis = smoothstep(0, k_soft, m) on a miss.
+    // k_soft <= 0 is §6.5's hard-shadow toggle and is a BRANCH, not a limit --
+    // smoothstep with a zero-width edge is undefined and a NaN here would black
+    // out every lit pixel in the frame.
+    if (softEnabled && _KSoft > 0.0 && m < 3.0e30) r.sunVis = smoothstep(0.0, _KSoft, m);
+    else                                           r.sunVis = 1.0;
+    return r;
+}
+
+// ===========================================================================
+// C.11 -- POINT LIGHTS
+//
+// §6.5: "On a surface hit the raymarcher sums attenuated contributions from
+// lights within range (atten = 1/(1 + d^2 k), C.11). No propagation, no BFS, no
+// per-brick storage -- LIGHT DOES NOT BEND AROUND CORNERS IN v1 (a torch behind
+// a wall does not light the far side)."
+//
+// IMPLEMENTED LITERALLY, INCLUDING THE CONSEQUENCE. There is no occlusion ray
+// per light here, because §3.8's whole cost model (2M pixels x N lights)
+// assumes there is not one. With no occlusion test, a torch behind a wall
+// LIGHTS THE FAR SIDE -- which is leaking, not bending, and is in tension with
+// §13's acceptance wording. The literal reading is what ships; the consequence
+// is screenshotted; the ambiguity and the cost of the alternative are flagged
+// in PHASE_7_COMPLETION.md for the owner. No per-light shadow rays were added.
+//
+// The loop is bounded by _ActiveLightCount, which the CPU caps at
+// MAX_ACTIVE_LIGHTS -- that cap is the entire defence against §3.8's
+// "per-pixel light death spiral", so the bound is load-bearing, not hygiene.
+// ===========================================================================
+float3 SumPointLights(float3 posM, float3 nrmF)
+{
+    float3 sum = float3(0.0, 0.0, 0.0);
+    [loop]
+    for (uint i = 0u; i < _ActiveLightCount; i++)
+    {
+        LightSource L = LightBuffer[i];
+        float3 d = float3(L.x, L.y, L.z) - posM;
+        float dist2 = dot(d, d);
+
+        // The hard cutoff at `range` is what keeps the per-pixel cost bounded
+        // in a way the 1/(1+d^2 k) falloff alone would not -- attenuation never
+        // reaches zero, so without it every light would touch every pixel.
+        if (dist2 > L.range * L.range) continue;
+
+        float atten = 1.0 / (1.0 + dist2 * L.k);
+
+        // C.9 attaches max(0, N.L) to the SUN term only and leaves pointLights
+        // bare, so the literal default is 0. See the FLAG: the literal reading
+        // lights faces pointing away from a torch, which reads flat.
+        if (_PointLightNdotL != 0)
+            atten *= max(0.0, dot(nrmF, normalize(d + 1e-6)));
+
+        sum += float3(L.r, L.g, L.b) * atten;
+    }
+    return sum;
+}
+
 [numthreads(8, 8, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
 {
@@ -698,12 +1175,12 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         // so every line inside "if (tier == 0)" below is reached exactly as
         // it always was - this is the one and only new branch point tier-0
         // rays pass through, and it's a single cheap comparison.
-        int tier = 0;
-        if (_UseLODCascade != 0)
-        {
-            if (currentDist >= _TierOuterRangeVoxels.y) tier = 2;
-            else if (currentDist >= _TierOuterRangeVoxels.x) tier = 1;
-        }
+        // NOTE THE ARGUMENT. For a PRIMARY ray, `currentDist` IS the distance
+        // from the camera -- the ray started there. That equality is why the
+        // old inline form was correct here and is NOT correct for a shadow ray,
+        // which starts at a surface; see SelectLODTier's header. Behaviour at
+        // this call site is unchanged, byte for byte.
+        int tier = SelectLODTier(currentDist);
 
         if (tier == 0)
         {
@@ -960,6 +1437,125 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         DebugOut[19] = currentDist;
     }
 
+    // =======================================================================
+    // PHASE 7 -- THE FUSED SHADOW RAY, FIRED HERE (§6.5)
+    //
+    // §6.5: "in the same raymarch kernel, IMMEDIATELY AFTER a pixel's primary
+    // ray resolves a hit, the thread fires one secondary DDA ray from the hit
+    // voxel toward the sun." This is that point: traversal is done, `hit`,
+    // `voxel` and `normal` are resolved, and no debug view has returned yet --
+    // so the two new debug views below can show the shadow ray's own state.
+    // =======================================================================
+
+    float sunVis = 0.0;
+    float skyVis = 1.0;
+    int shadowSteps = 0;
+
+    // §6.5's night rule and rung 3, evaluated once and shared by every branch
+    // below so they cannot disagree. _SunColor is EXACTLY zero below the
+    // horizon, which is the other half of the same guarantee.
+    bool sunIsUp = (_SunDir.y > 0.0);
+    bool shadowsOn = (_ShadowQualityLevel < 3);
+    bool softShadows = (_ShadowQualityLevel <= 1) && (_KSoft > 0.0);
+
+    // §6.5: "skips sky pixels (no primary hit => no shadow ray)".
+    bool needsShadowRay = hit && sunIsUp && shadowsOn;
+
+    // -----------------------------------------------------------------------
+    // §6.5's 8.4 WAVE-UNIFORM BRANCH GUARD -- built in from the start.
+    //
+    // "GPU threads execute in lockstep groups (waves/warps); if even one lane
+    //  in a wave needs a shadow ray, the whole wave pays for entering that
+    //  divergent branch, even though only the needing lanes are unmasked. Guard
+    //  the shadow branch with WaveActiveAnyTrue(hasPrimaryHit) so a wave that is
+    //  ENTIRELY sky skips instantiating the shadow-ray code path altogether...
+    //  worth building into Raymarch.compute FROM THE START rather than
+    //  retrofitting after a Phase 7 budget miss."
+    //
+    // This is the literal instruction, taken literally. At the horizon poses
+    // that dominate this project's cost (Amendment 8.9: GroundHorizon is the
+    // most expensive pose in every config) a large fraction of waves are pure
+    // sky, and those waves now skip the entire block rather than each of their
+    // 32 lanes paying branch-entry cost for nothing.
+    // -----------------------------------------------------------------------
+    if (WaveActiveAnyTrue(needsShadowRay))
+    {
+        // §6.5 rung 1: "shadow rays beyond LOD1 drop to half resolution with
+        // NEIGHBOUR REUSE (near shadows, the ones by the player, untouched)."
+        //
+        // Implemented as 2x2 quad reuse: one lane of each quad traces and the
+        // other three read its result. QuadReadLaneAt is the primitive designed
+        // for exactly this, and quads in a 2D compute dispatch are the 2x2
+        // block of threads, so quad lane 0 is the even/even thread.
+        //
+        // THAT LANE MAPPING IS AN ASSUMPTION OF THE SM6.0 COMPUTE QUAD RULES
+        // AND IS FLAGGED, NOT ASSERTED. If it is wrong on this driver the
+        // symptom is distant shadows taking their value from the wrong
+        // neighbour -- visible in the rig's own screenshots, not silent. It
+        // affects rung 1 ONLY; rungs 0, 2 and 3 never execute this path.
+        //
+        // `quadComplete` keeps the quad ops away from partially-out-of-bounds
+        // quads, where lanes have already returned and cross-lane reads are
+        // undefined. Both shipped gate resolutions are even in both axes, so
+        // every quad is entirely in or entirely out, but the guard costs two
+        // comparisons and removes the question.
+        bool distant = hit && (currentDist >= _TierOuterRangeVoxels.y);
+        bool quadComplete = ((id.x | 1u) < width) && ((id.y | 1u) < height);
+        bool reuse = (_ShadowQualityLevel == 1) && distant && quadComplete;
+        bool isQuadLead = ((id.x & 1u) == 0u) && ((id.y & 1u) == 0u);
+
+        // Every lane evaluates the trace condition the same way so the quad
+        // read below is reached uniformly.
+        bool traceMine = needsShadowRay && (!reuse || isQuadLead);
+
+        ShadowHit sh;
+        sh.sunVis = 1.0;
+        sh.steps = 0;
+        if (traceMine) sh = TraceShadowRay(voxel, normal, _SunDir, _WindowDimsBricks, softShadows);
+
+        float mineVis = sh.sunVis;
+        float leadVis = QuadReadLaneAt(mineVis, 0);
+        sunVis = needsShadowRay ? (reuse ? leadVis : mineVis) : 0.0;
+        shadowSteps = sh.steps;
+    }
+
+    // When shadows are OFF (rung 3), §6.5 says "sun becomes a flat N.L term
+    // with ambient" -- i.e. full sun visibility everywhere, with the N.L in the
+    // combine doing the shaping. Handled here rather than inside the guard so a
+    // wave that skipped the block entirely still lands on the right value.
+    if (hit && sunIsUp && !shadowsOn) sunVis = 1.0;
+
+    // -----------------------------------------------------------------------
+    // AMBIENT SKY VISIBILITY (§6.5's "underground reads near-zero ambient")
+    //
+    // FLAGGED, NOT DECIDED. §6.5 asks ambient to be three things at once: a
+    // CHEAP HEMISPHERE TERM, the stand-in for BOUNCE INTO CAVE MOUTHS, and
+    // near-zero DEEP UNDERGROUND. A plain normal-based hemisphere term cannot
+    // be the third -- it lights a sealed cave ceiling exactly as brightly as
+    // open sky, and "deep cave genuinely dark" is a §13 acceptance bullet.
+    //
+    // The cheapest thing that satisfies all three is a straight-up occlusion
+    // probe, and it is deliberately THE SAME FUNCTION with its direction fixed
+    // to +Y rather than a second traversal: it inherits the air-mip, the
+    // content-ceiling exit and the window guard, and it has the same CPU oracle
+    // (ShadowRayReference.Trace with dir = (0,1,0)). A vertical ray is also the
+    // cheapest possible one -- axis-aligned, so every air-mip leap is maximal
+    // and it exits at the content ceiling in a handful of iterations.
+    //
+    // IT IS STILL A SECOND RAY AND IS NOT CLAIMED TO BE FREE. It is behind its
+    // own flag so Stage 6 measures it as its own arm, and the decision is the
+    // owner's. See PHASE_7_COMPLETION.md's FLAG list.
+    // -----------------------------------------------------------------------
+    if (hit && _UseSkyProbeAmbient != 0)
+    {
+        if (WaveActiveAnyTrue(hit))
+        {
+            ShadowHit sky = TraceShadowRay(voxel, normal, float3(0.0, 1.0, 0.0),
+                                           _WindowDimsBricks, false);
+            skyVis = sky.sunVis;
+        }
+    }
+
     if (_DebugMode == 1) { ResultTexture[id.xy] = StepHeatColor(steps); return; }
     if (_DebugMode == 2)
     {
@@ -983,6 +1579,28 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         float variation = (VoxelHash(voxel) - 0.5) * 0.28;
         float shadeV = saturate(baseV + variation) * ndotlV;
         ResultTexture[id.xy] = float4(shadeV, shadeV, shadeV, 1.0);
+        return;
+    }
+    if (_DebugMode == 7)
+    {
+        // §10.3 item 6: SUN-VISIBILITY VIEW. Greyscale sunVis on hits; sky
+        // pixels a flat dark blue so "no primary hit" is distinguishable from
+        // "fully shadowed", which a plain greyscale ramp would conflate -- and
+        // telling those two apart is exactly what you need this view for.
+        if (!hit) { ResultTexture[id.xy] = float4(0.05, 0.08, 0.16, 1.0); return; }
+        if (!sunIsUp) { ResultTexture[id.xy] = float4(0.10, 0.02, 0.16, 1.0); return; }  // night: violet
+        ResultTexture[id.xy] = float4(sunVis, sunVis, sunVis, 1.0);
+        return;
+    }
+    if (_DebugMode == 8)
+    {
+        // §10.3 item 6: SHADOW-RAY STEP-COUNT HEAT. Same StepHeatColor ramp the
+        // primary heat view uses, so the two are directly comparable by eye --
+        // the question this view exists to answer is "does a shadow ray cost
+        // the same as the primary ray that spawned it", and two different
+        // colour ramps would make that unanswerable.
+        if (!hit) { ResultTexture[id.xy] = float4(0.02, 0.02, 0.04, 1.0); return; }
+        ResultTexture[id.xy] = StepHeatColor(shadowSteps);
         return;
     }
     if (_DebugMode == 6)
@@ -1049,13 +1667,62 @@ void CSMain(uint3 id : SV_DispatchThreadID)
                 shaded *= lerp(0.55, 1.0, ao);
             }
 
-            // Directional term, retained but softened -- with hemisphere + AO
-            // carrying the shape, a hard N.L on top just crushes the palette.
-            shaded *= selfLit ? 1.0 : lerp(0.80, 1.0, ndotl);
+            // ===============================================================
+            // C.9 -- THE FINAL COMBINE
+            //
+            //   color = albedo x (sunColor . sunVis . max(0, N.L)
+            //                     + pointLights + ambientSky) + emissive,
+            //   then VAO.
+            //
+            // Written in that order, term for term, so it is checkable against
+            // the spec line rather than merely "a lighting model".
+            //
+            // WHERE VAO IS. C.9 says "then VAO", and the VAO term is the
+            // FaceAO() corner-darkening already applied above. Stage 0 recorded
+            // its provenance honestly: the literal token "VAO" appears nowhere
+            // in this project, and FaceAO arrived in a later presentation pass
+            // rather than as §13 Phase 2's file-4 build step, which
+            // PHASE_2_COMPLETION.md never ticked. It IS voxel ambient occlusion
+            // -- four corners, two edge neighbours and a diagonal each,
+            // bilinearly interpolated across the face -- so it is used as C.9's
+            // VAO rather than a new one being invented. Flagged, not assumed.
+            //
+            // WHAT THE OLD SHADING TERMS BECOME. The hemisphere tint and the
+            // softened lerp(0.80, 1.0, ndotl) above were a stand-in for
+            // lighting that did not exist yet, and RaymarchFeature's own
+            // comment says the flags exist "precisely so Phase 7's real
+            // lighting (§6.5) can disable any of them without unpicking
+            // anything". They are now DEMOTED, not deleted: _ShadeHemi still
+            // gates the hemisphere tint (it is C.9's ambientSky given a
+            // direction, which is what makes a horizontal surface read as
+            // horizontal), and the fake directional term is replaced outright
+            // by the real sun term below. Turning the new lighting off restores
+            // the old look exactly, which is what makes the A/B in Stage 6
+            // meaningful.
+            // ===============================================================
+            float ndl = max(0.0, dot(float3(normal), normalize(_SunDir)));
+            float3 sunTerm = _SunColor * sunVis * ndl;
 
-            // Self-lit materials read hot by being pushed ABOVE their albedo
-            // rather than by being authored bright (which just looks pink).
+            float3 hitPosM = (rayStart + rayDir * currentDist) * 0.1;
+            float3 pointTerm = SumPointLights(hitPosM, float3(normal));
+
+            // ambientSky, modulated by sky visibility so a sealed cave is dark
+            // and a cave mouth is not (§6.5). With the probe off this collapses
+            // to the plain ambient term.
+            float ambientScale = lerp(_UndergroundAmbientFloor, 1.0, skyVis);
+            float3 ambientTerm = _AmbientColor * ambientScale;
+
+            // Self-lit materials (today: lava) keep the shading cheat that
+            // predates Phase 7 AND now also carry a real emissive term. The
+            // cheat skips AO and the hemisphere so they stay hot; the emissive
+            // is what makes them light their surroundings via the §3.8 buffer.
+            // PaletteSyncTests pins that lava is still the only self-lit
+            // material, and a torch deliberately is NOT one -- it takes the
+            // real emissive path instead, so it is not double-counted.
             if (selfLit) shaded = saturate(baseColor * 1.35 + 0.06);
+            else         shaded = shaded * (sunTerm + pointTerm + ambientTerm);
+
+            shaded += MaterialEmissiveTint(mat) * MaterialEmissive(mat);
 
             // Distance fog toward the sky colour. Depth cue only.
             if (_ShadeFog != 0)

@@ -25,6 +25,11 @@ public class RaymarchFeature : ScriptableRendererFeature
         NonExitHeat = 4,
         VoxelGrain = 5,
         LODTier = 6,
+        // §10.3 item 6, Phase 7: "sun-visibility view + shadow-ray step-count
+        // heat". Appended, never inserted -- RaymarchDebugControls, the capture
+        // rigs and several report files all key off these integers.
+        SunVis = 7,
+        ShadowHeat = 8,
     }
 
     public enum GateResMode { UseInspector, Native, Forced960x540, ForcedCustom }
@@ -73,6 +78,40 @@ public class RaymarchFeature : ScriptableRendererFeature
     public static float FogStartMetres = 45f;
     public static float FogEndMetres = 260f;
 
+    // ---- PHASE 7 LIGHTING (§6.5, §3.8, C.9/C.10/C.11) ----
+    //
+    // Statics, matching every other render toggle in this file, so a rig can
+    // set them before the first frame without a scene reference. The VALUES
+    // come from LightingConfig (live-reloadable JSON) and SunCycle every frame;
+    // these are the seams a rig or the Playground drives.
+
+    /// The A.6 light buffer this feature binds. Owned by whoever builds the
+    /// world (the bootstrapper / Playground), not by the renderer -- the
+    /// renderer only reads it, which keeps §0.1 invariant 1's direction of
+    /// travel obvious: lights are a consequence of terrain edits.
+    public static VoxelEngine.Rendering.LightSourceBuffer Lights;
+
+    /// §6.5's fallback ladder. Defaults to EngineConfig's shipped rung; a rig
+    /// overrides it per process launch so Stage 6 can measure every rung from
+    /// ONE binary in ONE session.
+    public static int ShadowQualityLevel = EngineConfig.SHADOW_QUALITY_LEVEL;
+
+    /// Runaway guard for the shadow DDA, in OUTER iterations -- the same unit
+    /// as MaxOuterIterations, and deliberately the same value. A shadow ray
+    /// crosses the same clipmap with the same leap primitives, so there is no
+    /// basis for a different number, and two numbers would invite one to drift.
+    public static int MaxShadowSteps = 1024;
+
+    /// FLAG: C.9 attaches max(0, N.L) to the sun term only. False is the
+    /// literal spec reading and is what ships; true applies it to point lights
+    /// too. Exposed so the owner can see both in the Playground and decide.
+    public static bool PointLightNdotL = false;
+
+    /// FLAG: modulate ambient by a straight-up sky-visibility probe so deep
+    /// caves are genuinely dark (§6.5). It IS a second ray; measured as its own
+    /// arm rather than assumed free.
+    public static bool UseSkyProbeAmbient = true;
+
     /// Highest world voxel Y that generation can produce content for, +1.
     /// Set by the bootstrapper from StreamManager.MAX_GENERATED_CHUNK_Y.
     /// Kept tighter than the window's Y extent on purpose -- see the shader.
@@ -118,6 +157,20 @@ public class RaymarchFeature : ScriptableRendererFeature
             public Color skyColor;
             public float fogStart, fogEnd;
             public int maxOuterIterations;
+
+            // ---- Phase 7 lighting ----
+            public GraphicsBuffer lightBuffer;
+            public int activeLightCount;
+            public Vector4 sunDir;
+            public Vector4 sunColor;
+            public Vector4 ambientColor;
+            public float kSoft;
+            public int shadowQualityLevel;
+            public int maxShadowSteps;
+            public int pointLightNdotL;
+            public int useSkyProbeAmbient;
+            public float undergroundAmbientFloor;
+
             public bool useStripped;
             public bool useMemoryProbe;
             public int probeIterations;
@@ -222,6 +275,31 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.maxOuterIterations = MaxOuterIterations;
                 passData.usePackedMips = UsePackedMips ? 1 : 0;
                 passData.contentCeilingVoxelY = ContentCeilingVoxelY;
+
+                // ---- Phase 7 lighting ----
+                // LightSourceBuffer.Upload() is the CPU's job and happens in the
+                // world's own update, not here: §3.9's contract is CPU -> GPU
+                // with "none (dispatch after write)" staleness, and the render
+                // graph's record phase is not where a CPU-side selection pass
+                // belongs. This only READS what was already selected.
+                var cfg = LightingConfig.Active;
+                var lights = Lights;
+                passData.lightBuffer = lights != null ? lights.Buffer : null;
+                passData.activeLightCount = lights != null ? lights.ActiveCount : 0;
+
+                Unity.Mathematics.float3 sd = SunCycle.Direction;
+                Unity.Mathematics.float3 sc = SunCycle.Color;
+                Unity.Mathematics.float3 amb = SunCycle.Ambient;
+                passData.sunDir = new Vector4(sd.x, sd.y, sd.z, 0f);
+                passData.sunColor = new Vector4(sc.x, sc.y, sc.z, 0f);
+                passData.ambientColor = new Vector4(amb.x, amb.y, amb.z, 0f);
+
+                passData.kSoft = cfg.kSoft;
+                passData.shadowQualityLevel = ShadowQualityLevel;
+                passData.maxShadowSteps = MaxShadowSteps;
+                passData.pointLightNdotL = PointLightNdotL ? 1 : 0;
+                passData.useSkyProbeAmbient = UseSkyProbeAmbient ? 1 : 0;
+                passData.undergroundAmbientFloor = cfg.undergroundAmbientFloor;
 
                 Unity.Mathematics.int3 dims = clip.WindowDimsBricks;
                 passData.windowDimsBricks = new Vector3Int(dims.x, dims.y, dims.z);
@@ -393,6 +471,29 @@ public class RaymarchFeature : ScriptableRendererFeature
                             new Vector4(data.skyColor.r, data.skyColor.g, data.skyColor.b, 1f));
                         cmd.SetComputeFloatParam(data.compute, "_FogStartM", data.fogStart);
                         cmd.SetComputeFloatParam(data.compute, "_FogEndM", data.fogEnd);
+
+                        // ---- Phase 7 lighting. FULL KERNEL ONLY ----
+                        // The stripped and memory-probe kernels do not declare
+                        // any of this and never shade; binding to them would be
+                        // a silent no-op at best. Keeping them out of this block
+                        // is also what preserves them as clean isolation arms --
+                        // Amendment 8.10 §5.3 measured the diagnostic kernels
+                        // earning their keep and this must not change what they
+                        // measure.
+                        if (data.lightBuffer != null)
+                            cmd.SetComputeBufferParam(data.compute, 0, "LightBuffer", data.lightBuffer);
+                        cmd.SetComputeIntParam(data.compute, "_ActiveLightCount",
+                            data.lightBuffer != null ? data.activeLightCount : 0);
+                        cmd.SetComputeVectorParam(data.compute, "_SunDir", data.sunDir);
+                        cmd.SetComputeVectorParam(data.compute, "_SunColor", data.sunColor);
+                        cmd.SetComputeVectorParam(data.compute, "_AmbientColor", data.ambientColor);
+                        cmd.SetComputeFloatParam(data.compute, "_KSoft", data.kSoft);
+                        cmd.SetComputeIntParam(data.compute, "_ShadowQualityLevel", data.shadowQualityLevel);
+                        cmd.SetComputeIntParam(data.compute, "_MaxShadowSteps", data.maxShadowSteps);
+                        cmd.SetComputeIntParam(data.compute, "_PointLightNdotL", data.pointLightNdotL);
+                        cmd.SetComputeIntParam(data.compute, "_UseSkyProbeAmbient", data.useSkyProbeAmbient);
+                        cmd.SetComputeFloatParam(data.compute, "_UndergroundAmbientFloor",
+                            data.undergroundAmbientFloor);
                     }
 
                     if (!data.useMemoryProbe)

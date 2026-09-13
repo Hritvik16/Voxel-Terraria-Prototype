@@ -49,6 +49,44 @@ namespace VoxelEngine.Memory
         // [30]    Volatile: dense brick created by fluid entering uniform-air
     }
 
+    // A.6 LightSource - GPU, flat point-light buffer (§3.8) - 8.1: replaces
+    // v8's LightBrickRecord.
+    //
+    // APPENDIX A.6 VERBATIM, FIELD FOR FIELD, IN ORDER:
+    //     float x, y, z;      // world position
+    //     float r, g, b;      // color
+    //     float range;        // cutoff radius
+    //     float k;            // falloff constant (C.11)
+    //
+    // Eight floats, 32 B. NOTHING ELSE. No intensity, no enabled flag, no
+    // padding, no reordering "for alignment" -- Appendix A's opening line says
+    // C# mirrors use LayoutKind.Sequential with field order identical to HLSL,
+    // and §0.3 lists inventing or reordering a struct field as the exact
+    // failure mode header-first prompting exists to prevent. The HLSL twin is
+    // in StructHeaders.hlsl and the two are checked field-for-field by
+    // LightSourceLayoutTests.
+    //
+    // WHY POSITION IS FLOAT AND NOT AN INT3 VOXEL COORD, since every other
+    // spatial thing in this engine is integer (§0.1 inv 2): this struct is not
+    // coordinate math. It is consumed by C.11's attenuation, which is a float
+    // distance calculation on already-resolved world positions -- there is no
+    // addressing, no masking, and no shifting done with it, so the bitwise-
+    // integer invariant does not apply and A.6 says float. The VOXEL a torch
+    // occupies stays integer everywhere it matters (the edit path, the
+    // registry key); this is the shading-side view of it.
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    public struct LightSource
+    {
+        public float x, y, z;
+        public float r, g, b;
+        public float range;
+        public float k;
+
+        /// 32 B. Named rather than computed at every call site so a caller
+        /// cannot get the GraphicsBuffer stride wrong.
+        public const int SizeBytes = 32;
+    }
+
     // A.7 MaterialData - GPU, 32B x 256
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
     public struct MaterialData

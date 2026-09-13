@@ -74,6 +74,11 @@ public static class MaterialRules
         // hierarchy (down + down-diagonals only), not from ticking slowly.
         Define(Materials.Sand, IsFallingSolid, 1);
 
+        // §6.6's placeable emissive. A static solid -- NOT mobile, so it gets
+        // no fluid slot and never runs the CA -- carrying Appendix B's bit 4.
+        // Tick interval 0 for the same reason Obsidian's is 0: it never ticks.
+        Define(Materials.Torch, IsEmissive, 0);
+
         // Obsidian is the Water+Lava product: an ordinary static solid, and
         // specifically NOT mobile -- that is what makes a reaction show up in
         // the conservation ledger as a permanent removal rather than a loss.
@@ -156,6 +161,116 @@ public static class MaterialRules
         v[Materials.Lava] = 12.0f;
         v[Materials.Honey] = 30.0f;                      // §7.4 already makes honey the slow one
         return v;
+    }
+
+    // =====================================================================
+    // §6.6 / A.7 -- EMISSIVE, AND THE LIGHT A MATERIAL DEFINES
+    //
+    // THE SAME GAP PHASE_6_COMPLETION.md §2.3 FOUND, ONE FIELD OVER. That note
+    // records that A.7's `density` and `viscosityDrag` were declared by the
+    // struct and never populated by anything -- "the struct existed; the
+    // numbers did not" -- and adds the two tables above. `emissive` is the
+    // third field of that kind and it was in exactly the same state: declared
+    // in StructHeaders.cs and StructHeaders.hlsl, referenced by nothing,
+    // no value ever written. §6.6 and C.9 both depend on it.
+    //
+    // STATED PRECISELY, BECAUSE "THE REGISTRY IS UNPOPULATED" UNDERSTATES IT:
+    // there is no GraphicsBuffer<MaterialData> anywhere in this project at all.
+    // FluidGpuSimulation.UploadMaterialRegistry() uploads four separate flat
+    // uint arrays -- deliberately, per its own comment, "restricted to what the
+    // CA reads" -- not the A.7 struct. So this table is the A.7 emissive data
+    // existing for the first time, and the shader reads it the way the shader
+    // already reads the palette: mirrored, with a parse-the-shader sync test.
+    // MaterialPalette's own header explains why that route was chosen over
+    // wiring a registry buffer through RaymarchFeature's render-graph pass, and
+    // PaletteSyncTests is the guard. Building the real A.7 buffer is carried
+    // forward, not done here: it is a §3.9 sync-contract addition that wants
+    // its own checkpoint, and Phase 7 already has one new untrusted thing
+    // (§0.1 invariant 5).
+    //
+    // VALUES ARE CONTENT, NOT ARCHITECTURE -- the same disclaimer the density
+    // table carries, and it means it. Strengths and tints below are placeholders
+    // awaiting the owner's eye, tunable live through LightingConfig.json's
+    // global multipliers without touching this file.
+    // =====================================================================
+
+    private static readonly float[] _emissive = BuildEmissive();
+    private static readonly float[] _emissiveTint = BuildEmissiveTints();   // 3 floats per material
+    private static readonly float[] _lightRangeScale = BuildLightRangeScales();
+
+    private static float[] BuildEmissive()
+    {
+        var e = new float[256];                          // 0 = not emissive
+        // A torch is the §13 Phase 7 scene's placeable light. Full strength.
+        e[Materials.Torch] = 1.0f;
+        // Lava already carries the IsEmissive flag (set in the static ctor
+        // above, Appendix B bit 4) and already reads hot through the shader's
+        // self-lit shading cheat. Giving it a real emissive value is what turns
+        // that cheat into an actual light source per §6.6 -- but at a lower
+        // strength than a torch, because a lava lake is large and 1.0 across
+        // hundreds of voxels would wash out a cave that §6.5 requires be dark.
+        e[Materials.Lava] = 0.55f;
+        return e;
+    }
+
+    private static float[] BuildEmissiveTints()
+    {
+        var t = new float[256 * 3];
+        for (int i = 0; i < 256; i++) { t[i * 3] = 1f; t[i * 3 + 1] = 1f; t[i * 3 + 2] = 1f; }
+        // Warm candle-flame, not white: a neutral torch reads as a flashlight.
+        Tint(t, Materials.Torch, 1.00f, 0.72f, 0.38f);
+        // Hotter and redder than the torch, matching the palette's deep hot red.
+        Tint(t, Materials.Lava,  1.00f, 0.42f, 0.14f);
+        return t;
+    }
+
+    private static void Tint(float[] t, byte m, float r, float g, float b)
+    { t[m * 3] = r; t[m * 3 + 1] = g; t[m * 3 + 2] = b; }
+
+    private static float[] BuildLightRangeScales()
+    {
+        var s = new float[256];
+        for (int i = 0; i < 256; i++) s[i] = 1f;
+        // Per-material multiplier on LightingConfig's base light range, so the
+        // one tunable number in the JSON still moves every light together while
+        // materials keep their relative reach.
+        s[Materials.Torch] = 1.0f;
+        s[Materials.Lava]  = 0.6f;
+        return s;
+    }
+
+    /// A.7's `emissive` field: how strongly this material emits, 0..1.
+    /// 0 for everything that is not an emissive material.
+    public static float Emissive(byte material) => _emissive[material];
+
+    /// True if this material is a LIGHT SOURCE -- i.e. §6.6's "emissives
+    /// additionally enqueue into the light system when placed" applies to it.
+    ///
+    /// Deliberately derived from the emissive STRENGTH being non-zero AND the
+    /// Appendix B flag being set, so a material cannot become a light by
+    /// accident of one table being edited without the other. A mismatch is a
+    /// test failure (MaterialEmissiveTests), not a silent behaviour change.
+    public static bool IsEmissiveMaterial(byte material) =>
+        (_flags[material] & IsEmissive) != 0u && _emissive[material] > 0f;
+
+    /// The light a material defines, for §3.8's buffer. Colour is the material's
+    /// tint scaled by its emissive strength; `rangeScale` multiplies
+    /// LightingConfig's base range. Returns false for anything that is not a
+    /// light, so a caller cannot enqueue a dark voxel.
+    public static bool TryGetLight(byte material, out float r, out float g, out float b,
+                                   out float rangeScale)
+    {
+        if (!IsEmissiveMaterial(material))
+        {
+            r = g = b = 0f; rangeScale = 0f;
+            return false;
+        }
+        float e = _emissive[material];
+        r = _emissiveTint[material * 3] * e;
+        g = _emissiveTint[material * 3 + 1] * e;
+        b = _emissiveTint[material * 3 + 2] * e;
+        rangeScale = _lightRangeScale[material];
+        return true;
     }
 
     /// Density in kg/m^3. Appendix C.6's rho.
@@ -299,6 +414,14 @@ public static class MaterialPalette
         // Honey: amber, warm, noticeably darker than sand so the two never
         // read as the same substance.
         _table[Materials.Honey] = new Rgb(0.680f, 0.480f, 0.130f);
+
+        // ---- Light source (Phase 7) ----
+        // Authored MID-BRIGHT, not near-white. The shading step adds the
+        // emissive term on top (C.9), so a torch authored at 0.9 would clip the
+        // moment its own light landed on it -- the same mistake Snow made at
+        // 0.86 and was lowered for. Warm and slightly orange so an unlit torch
+        // still reads as a torch.
+        _table[Materials.Torch] = new Rgb(0.760f, 0.545f, 0.285f);
 
         // ---- Reaction product ----
         // Obsidian: near-black with a violet bias, and the darkest thing in the
