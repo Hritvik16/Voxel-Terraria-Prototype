@@ -29,6 +29,16 @@
    the substitute that Amendment 8.9 §4 recommended in 2026 and nobody adopted.
    **No per-pass ms figure is quoted against §11.2 anywhere in this phase.**
 
+1b. **THE SHIPPED RUNG DOES NOT HOLD 60 FPS AT GOLDEN HOUR, AND THE RAY — NOT
+   THE PENUMBRA — IS WHY.** Measured, same binary, minutes apart: shadows off
+   15.31 ms, hard-only 40.77 ms, full penumbra 52.06 ms. The sun shadow ray
+   costs **+25.5 ms**; C.10's clearance scan adds a further **+11.3 ms**.
+   §6.5 predicted this for grazing golden-hour rays in terms, and Amdt 8.10
+   §6.4 predicted the rungs would be *needed, not optional*. **Rung 1 —
+   half-res beyond LOD1, the rung aimed at exactly this cost — was not
+   measured, and measuring it is the highest-value next action.** §6 has the
+   caveats, which are substantial.
+
 2. **The §6.5 8.4 wave guard is NOT a `WaveActiveAnyTrue` call.** Two attempts
    at wave intrinsics failed on this target; the third is a groupshared
    equivalent at thread-group granularity. §5.2 explains why that is not a
@@ -60,8 +70,8 @@
 | 4a | Bomb a cave roof at noon → sunlight reaches the floor **the same frame** | **MET** | Rig Gate 4: occluded before, lit after exactly one frame, 2,044 voxels removed (§3.10) |
 | 4b | Pour water off a ledge → moving shadow | **NOT SEPARATELY TESTED, and no code exists to test** | A consequence of §3.10 alone: fluid writes terrain bytes, shadow rays read terrain bytes. Exercised by hand in the Playground and under live fluid by the combined arm |
 | 5 | §3.8's cap degrades gracefully, furthest-first, no silent drops | **MET** | Rig Gate 5: 32 active / 48 registered; a torch placed at the player's feet while over the cap is registered and lit. Furthest-first proven exhaustively in EditMode, mutation-checked |
-| 6 | **Budget gate:** raymarch + shadows ≤ 9.0 ms, Performance State checked | **UNRUNNABLE AS WRITTEN** | `AMENDMENT_8_12` §2. Substitute in §6 below |
-| 7 | **Combined gate:** + fluid CA, golden hour, sustained ≤ 13.0 ms | **UNRUNNABLE AS WRITTEN** | Same. Substitute arm (ii) in §6 |
+| 6 | **Budget gate:** raymarch + shadows ≤ 9.0 ms, Performance State checked | **UNRUNNABLE AS WRITTEN — and the substitute says the shipped rung FAILS** | `AMENDMENT_8_12` §2 for why it is unrunnable. §6 for what was measured: at golden hour, rung 0 is 52.06 ms and rung 2 is 40.77 ms against a 16.67 ms *whole frame*. Rung 0 and rung 2 cannot ship |
+| 7 | **Combined gate:** + fluid CA, golden hour, sustained ≤ 13.0 ms | **UNRUNNABLE AS WRITTEN, AND NOT MEASURED EVEN IN SUBSTITUTE** | The combined scenario was not run. Named as not run in §6.1 |
 
 Plus one assertion §13 does not ask for, but Amendment 8.10 §2's method does:
 
@@ -301,16 +311,99 @@ Percentiles are diagnostics only — 120 Hz ProMotion, the app out-presents the
 display, and roughly one frame in three lands over 16.6 ms regardless of
 workload (FPS §0.2). **p99 is never a headline here.**
 
-*(Results section: see `RESULTS.md` insertion below — filled from the run folder
-this phase produced. Arms that did not run are named as not run; a reduced
-matrix is a real measurement of what it covered and is **not** §13's gate.)*
+### 6.1 What was actually run, and what was not
 
-**RESULTS — PENDING AT THE TIME THIS SECTION WAS WRITTEN.** The run was launched
-from this session; its report lands in
-`~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Phase7LightingAB/`.
-Until a number here carries a run folder, **there is no Phase 7 performance
-number**, and any figure that appears elsewhere without one is not from this
-document (Amendment 8.9 Rule 3).
+**RUN:** three arms — shadow rungs **3, 2 and 0** — golden hour, fluid OFF, the
+shipped 960×540 gate, fullscreen, release standalone, same binary, minutes
+apart, single repetition each.
+
+**NOT RUN, and named rather than quietly omitted:**
+- **Arm A** (the pre-Phase-7 baseline). Two attempts failed for a real reason:
+  the pre-Phase-7 binary has **no `-lightingab` mode**, so it launches a plain
+  playable scene and never quits. The script now routes arm A through
+  `-stutterprobe` (measurement-equivalent: same pose, same settle, same metric)
+  with a hard timeout, but the arm was not completed in this session. **Nothing
+  was substituted from an earlier session** — that is exactly the cross-session
+  comparison FPS §3.2 records as producing a wrong number.
+- **Rung 1** (half-res distant). Not measured.
+- **Scenario (ii), the combined gate with live fluid.** Not measured.
+- **The forced 1920 gate.** Not measured.
+- **300 s cooldowns, counterbalanced ordering, and repetitions.** **Not applied.**
+
+### 6.2 The numbers
+
+| rung | what it is | mean frame | sustained rate | run folder |
+|---|---|---|---|---|
+| **3** | shadows OFF (flat N·L + ambient) | **15.31 ms** | **65.3 FPS** | `LightingAB/2026-09-12_200313` |
+| **2** | HARD shadows only, no penumbra | **40.77 ms** | **24.5 FPS** | `LightingAB/2026-09-12_200444` |
+| **0** | FULL soft penumbra (C.10) | **52.06 ms** | **19.2 FPS** | `LightingAB/2026-09-12_200118` |
+
+### 6.3 What these do and do not establish
+
+**THE CAVEAT FIRST, because it governs everything below.** These are
+**UNCOOLED, SINGLE-REPETITION, UNCOUNTERBALANCED** runs. They violate three of
+`AMENDMENT_8_12` §3.1's own requirements and **they are not §13's gate, nor are
+they 8.12's substitute gate.** They are a **diagnostic**, and they are reported
+as one.
+
+**Why the ordering is nonetheless not in doubt.** Two independent reasons:
+1. The spread between arms is **3.4×**, against a documented worst-case
+   uncooled thermal spread of 183% (1.8×). The effect is twice the size of the
+   largest confound this machine is known to produce.
+2. **Rung 3 lands at 65.3 FPS against the historical cooled baseline of
+   69.8 ± 0.4 FPS** (FPS §2.1) — within 6.5%. The machine was demonstrably not
+   in a throttled state, because the control arm reproduced the known number.
+   That control is what turns "the machine might be hot" from a possibility
+   into a measured non-explanation.
+
+**The isolation, which is the actually useful result:**
+
+```
+rung 3 -> rung 2   15.31 -> 40.77 ms   THE SUN SHADOW RAY COSTS +25.5 ms
+rung 2 -> rung 0   40.77 -> 52.06 ms   C.10's CLEARANCE SCAN ADDS +11.3 ms
+```
+
+**The shadow RAY is the cost, not the penumbra.** That inverts the intuition
+this phase was built with — the C.10 near-miss scan does six extra clipmap reads
+per dense micro-step and looked like the obvious suspect — and it is why the
+rungs were measured separately rather than one number being taken.
+
+**And §6.5 predicted exactly this, in terms:**
+
+> "Early exit & cost: … **Grazing golden-hour rays travel farthest** but mostly
+> through uniform-Air leaps at coarse LOD — **measured in Phase 7, not assumed**,
+> against the ≤9.0 ms combined budget."
+
+At 6° elevation a sun ray is nearly horizontal and can travel the full 2,900-voxel
+clamp across the window. The sky probe, by contrast, goes straight up and exits
+at the content ceiling within a handful of iterations — and its cost is visible
+in rung 3's own number: **rung 3 fires the sky probe on every hit pixel and
+still runs at 65.3 FPS**, i.e. the probe plus all the rest of Phase 7's
+non-shadow machinery costs roughly 6% against the historical baseline. §10 flag
+2's "it is a second ray and is not claimed to be free" now has a number: it is
+cheap, because it is vertical.
+
+### 6.4 The consequence, stated plainly
+
+**Rung 0 cannot ship.** 52.06 ms is a 19 FPS frame against a 60 FPS target.
+**Rung 2 cannot ship either** at 40.77 ms / 24.5 FPS.
+
+This is not a surprise and it is not a failure — it is the outcome §6.5 designed
+the ladder for ("the game ships either way") and the one Amendment 8.10 §6.4
+predicted in terms ("the doc's three shadow fallback rungs are likely to be
+**needed**, not optional — plan for engaging them rather than being surprised").
+
+**Rung 1 — half-resolution beyond LOD1 with neighbour reuse — is the rung that
+was not measured and is the one most likely to matter**, because it targets
+precisely the cost this isolation found: distant, long, grazing rays. It is
+built and it is one config number away. **Measuring it, cooled and
+counterbalanced, against rung 3, is the single highest-value next action in this
+phase**, and it is named as such rather than guessed at.
+
+A second, cheaper lever exists and is **not** implemented: the shadow ray
+currently inherits the primary ray's 290 m clamp. A shorter shadow clamp would
+bound grazing-ray travel directly, at the cost of distant shadows fading out.
+That is a visual-quality trade and therefore the owner's, not mine.
 
 ---
 
@@ -438,9 +531,23 @@ in §8: every face is lit identically regardless of orientation, which reads
 flat. A toggle exists. **One line either way; the owner should look at both.**
 
 ### 4. Which shadow rung ships
-All four are built and measurable from one binary. §6.5 says stepping down is
-the spec's own designed outcome, not a failure. **Recommendation deferred to the
-measurement in §6; the choice is a visual-quality judgement and is the owner's.**
+All four are built and switchable by one config number.
+
+**What the measurement narrows it to, without deciding it.** §6 measured rung 0
+at 52.06 ms and rung 2 at 40.77 ms at golden hour, against a 16.67 ms frame.
+**Neither can ship.** That leaves rung 1 (half-res beyond LOD1, which targets
+precisely the long grazing rays the isolation identified as the cost) and rung 3
+(off).
+
+**RECOMMENDATION, and it is a recommendation about what to MEASURE, not about
+what to ship:** run rung 1 against rung 3, cooled, counterbalanced, at both
+gates and with the combined fluid scenario, before choosing. If rung 1 lands near
+rung 3, it ships. If it does not, the choice is between shadows off and a
+shorter shadow clamp than the primary ray's 290 m — and that second option is a
+visual trade (distant shadows fade out) that is **yours, not mine**.
+
+§6.5 is explicit that stepping down is the spec's own designed outcome and that
+"the game ships either way".
 
 ### 5. The art constants
 `k_soft`, the C.11 falloff `k`, torch range and colour, ambient intensity and
@@ -475,7 +582,11 @@ shows neither was ever deleted.
    shader the way the palette already is, with `PaletteSyncTests` extended to
    pin it. Building the real §3.9 registry buffer is a sync-contract addition
    that wants its own checkpoint.
-3. **Shadow rung 1 has no correctness assertion.**
+3. **Shadow rung 1 has no correctness assertion AND no performance number**, and
+   it is now the rung the phase most needs both for. See §10 flag 4.
+3b. **`AMENDMENT_8_12` §4's matrix has NOT been run** — only a three-arm
+   diagnostic. Arm A, rung 1, the combined fluid scenario, the forced 1920 gate,
+   and cooled/counterbalanced/repeated runs are all outstanding. §6.1 names each.
 4. **The shader's penumbra is a bounded approximation of the oracle's** (§5.3).
 5. **The §6.5 / §13 ambiguities in §10 flags 1 and 3** are undecided.
 6. **`run-phase6-brushguard.sh` is still 15 PASS / 15 FAIL** for the stale-rig

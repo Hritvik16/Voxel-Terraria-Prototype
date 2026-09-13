@@ -195,7 +195,13 @@ public class PlaygroundHud : MonoBehaviour
         // IMGUI lays out in PHYSICAL pixels; on a Retina backbuffer this panel
         // was microscopic. Scale the whole block by screen height.
         float ui = Mathf.Max(1f, Screen.height / 900f);
-        float w = 640f, h = 172f;
+        // HEIGHT GROWN FOR PHASE 7's THREE LINES (SUN / LIGHTS / SHADOWS).
+        // The first Playground capture with those lines in place showed the box
+        // clipping mid-word through LIGHTS, so the §3.8 cap readout -- the whole
+        // point of which is to make the degradation VISIBLE -- was itself
+        // invisible. A HUD line that is cut off is worse than one that is
+        // absent, because it looks like it is there.
+        float w = 700f, h = 268f;
         Matrix4x4 prev = GUI.matrix;
         GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * ui);
         float vw = Screen.width / ui;

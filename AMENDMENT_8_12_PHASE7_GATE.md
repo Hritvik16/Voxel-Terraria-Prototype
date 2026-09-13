@@ -174,10 +174,36 @@ reported; neither alone is the answer.
 
 ## 5. Results
 
-**OPEN — not yet run at the time this section was written.** Filled in by
-`./run-phase7-lighting-ab.sh`; every figure will carry its run folder. Until
-then there is no Phase 7 performance number, and any that appears elsewhere
-without a run folder attached is not from this document.
+**THE FULL MATRIX IN §4 IS OPEN — IT HAS NOT BEEN RUN.** What exists is a
+three-arm **diagnostic**, reported as one, with its own violations of §3.1
+stated. See `PHASE_7_COMPLETION.md` §6 for the full write-up; the numbers:
+
+| rung | mean frame | sustained | run folder |
+|---|---|---|---|
+| 3 — shadows off | 15.31 ms | 65.3 FPS | `LightingAB/2026-09-12_200313` |
+| 2 — hard only | 40.77 ms | 24.5 FPS | `LightingAB/2026-09-12_200444` |
+| 0 — full penumbra | 52.06 ms | 19.2 FPS | `LightingAB/2026-09-12_200118` |
+
+**VERIFIED:** the three figures above, each from the named run folder, golden
+hour, fluid off, shipped 960×540 gate, fullscreen, release, one binary.
+
+**VERIFIED, and the reason the ordering is usable despite the violations:**
+rung 3 reproduces the historical cooled baseline to within 6.5% (65.3 vs
+69.8 ± 0.4 FPS, FPS §2.1), so the machine was demonstrably not throttled; and
+the spread between arms is 3.4×, twice the largest uncooled thermal spread this
+machine is known to produce (183%).
+
+**VERIFIED isolation:** rung 3 → 2 is **+25.5 ms** (the sun shadow ray itself);
+rung 2 → 0 is **+11.3 ms** (C.10's clearance scan). The ray, not the penumbra,
+is the dominant cost — which is what §6.5 predicted for grazing golden-hour rays
+and is why the rungs were measured separately.
+
+**OPEN:** arm A (pre-Phase-7 baseline, not completed — two documented failures,
+and **not** substituted from another session); rung 1; scenario (ii), the
+combined gate with live fluid; the forced 1920 gate; and cooled, counterbalanced,
+repeated runs of all of the above. **Until those exist, §4's matrix is not
+satisfied and this document's substitute gate has not been run** — only
+diagnosed.
 
 ---
 

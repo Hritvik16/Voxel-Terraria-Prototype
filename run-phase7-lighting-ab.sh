@@ -66,6 +66,12 @@ say "Percentiles are diagnostics only -- 120 Hz ProMotion, the app out-presents"
 say "the display, and exactly one frame in three lands over 16.6 ms regardless"
 say "of workload (FPS_INVESTIGATION §0.2). NEVER quote p99 as a headline."
 say ""
+say "ARM A CAVEAT, stated up front: arm A is the PRE-PHASE-7 binary, which has no"
+say "-lightingab mode, so it is measured with -stutterprobe instead. The two are"
+say "measurement-equivalent (same pose, same settle, same metric) but -stutterprobe"
+say "also attaches FrameGapProbe, whose bookkeeping biases arm A SLIGHTLY SLOWER --"
+say "i.e. AGAINST finding a Phase 7 regression, the conservative direction."
+say ""
 
 # ---------------------------------------------------------------- build
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
@@ -109,9 +115,32 @@ fi
 # ---------------------------------------------------------------- run
 run_one() {   # arm scenario gate rep
   local arm="$1" scen="$2" gate="$3" rep="$4"
-  local app="$APP" flags=""
+  local app="$APP" flags="" mode="-lightingab -goldenhour" resultdir="LightingAB" resultfile="lighting_ab.txt"
   case "$arm" in
-    A) app="$BASE_APP"; flags="" ;;
+    # ARM A RUNS -stutterprobe, NOT -lightingab, AND THAT IS NOT A SHORTCUT.
+    # Arm A is the PRE-PHASE-7 BINARY. It has no -lightingab handler -- that mode
+    # did not exist when it was built -- so passing it would fall through
+    # PlaygroundCapture.Start's flag chain, launch a plain playable scene, and
+    # NEVER QUIT. (It did exactly that on the first attempt and hung the matrix;
+    # hence also the timeout below.)
+    #
+    # -stutterprobe is the right vehicle because it is MEASUREMENT-EQUIVALENT,
+    # not merely available. Read both in PlaygroundCapture.cs: each waits for the
+    # store, settles 300 frames, calls TeleportToArena, sets rotation
+    # Euler(pitch=0, YAW 90, 0) -- the same GroundHorizon pose -- honours
+    # -nofluid and -gateres identically, settles a further 180 frames, then
+    # samples Time.unscaledDeltaTime and reports the same
+    # "TRUE SUSTAINED RATE: frames / elapsed" line. The sequences match.
+    #
+    # THE ONE REAL DIFFERENCE, STATED: -stutterprobe attaches FrameGapProbe,
+    # which adds per-frame attribution bookkeeping that -lightingab does not run.
+    # That biases arm A SLOWER, i.e. AGAINST finding a Phase 7 regression -- the
+    # conservative direction. It is recorded here and in the report rather than
+    # waved past, because an unstated instrumentation difference between two arms
+    # is exactly the confound FPS_INVESTIGATION §3.2 is about.
+    A) app="$BASE_APP"
+       mode="-stutterprobe -stutterpitch 0 -stutterseconds $SECONDS_PER_RUN"
+       resultdir="StutterProbe"; resultfile="stutter_probe.txt" ;;
     B) flags="-shadowlevel 3" ;;
     C) flags="-shadowlevel 2" ;;
     D) flags="-shadowlevel 1" ;;
@@ -126,12 +155,26 @@ run_one() {   # arm scenario gate rep
   say "---- arm $arm  scenario $scen  gate $gate  rep $rep   (cooling ${COOL}s, ${free}GB free) ----"
   sleep "$COOL"
 
-  open -n -W "$app" --args -lightingab -fullscreen -goldenhour \
-      -gateres "$gate" -abseconds "$SECONDS_PER_RUN" $flags
-  local d; d=$(ls -1d "$HOME/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LightingAB"/*/ 2>/dev/null | sort | tail -1)
-  if [ -z "$d" ]; then say "  NO RUN FOLDER -- the arm produced nothing"; return; fi
-  sed 's/^/  /' "${d}lighting_ab.txt" | tee -a "$REPORT" >/dev/null
-  grep -E "TRUE SUSTAINED RATE" "${d}lighting_ab.txt" | sed 's/^/  /'
+  # A HARD TIMEOUT, because a rig that can hang the whole matrix on one bad arm
+  # is worse than a rig that drops one arm. Generous: settle + measure + startup
+  # is about 2 minutes, so 8 is a runaway guard rather than a bound on the run.
+  ( open -n -W "$app" --args $mode -fullscreen \
+      -gateres "$gate" -abseconds "$SECONDS_PER_RUN" $flags ) &
+  local pid=$!
+  local waited=0
+  while kill -0 $pid 2>/dev/null && [ $waited -lt 480 ]; do sleep 5; waited=$((waited+5)); done
+  if kill -0 $pid 2>/dev/null; then
+    say "  !! arm $arm did not quit within 480 s -- killed. NO NUMBER FROM THIS ARM."
+    pkill -f "$(basename "$app" .app)" 2>/dev/null
+    kill $pid 2>/dev/null
+    return
+  fi
+
+  local d; d=$(ls -1d "$HOME/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/$resultdir"/*/ 2>/dev/null | sort | tail -1)
+  if [ -z "$d" ] || [ ! -f "${d}${resultfile}" ]; then
+    say "  NO RUN FOLDER -- the arm produced nothing"; return; fi
+  sed 's/^/  /' "${d}${resultfile}" | tee -a "$REPORT" >/dev/null
+  grep -E "TRUE SUSTAINED RATE" "${d}${resultfile}" | sed 's/^/  /'
 }
 
 for rep in $(seq 1 "$REPS"); do
