@@ -12,6 +12,19 @@
 //   H : cycle debug view (Beauty -> StepHeat -> UniformDense -> Normals).
 //   T : cycle traversal mode 0 -> 1 -> 2 -> 3 -> 4 -> 0.
 //
+// v4 (Phase 7): H now cycles ALL views, 0..8, instead of 0..3. It had been
+// capped at %4 since before UniformDense/NonExitHeat/VoxelGrain/LODTier
+// existed, so four already-shipped views were unreachable from this overlay and
+// nobody noticed -- the same class of stale-default bug Amendment 8.10 §7
+// records for TraversalMode and UsePackedMips, where "the code never agreed"
+// with a decision already made. The count is now derived from the enum so it
+// cannot go stale again.
+//
+// Phase 7 also adds the §10.3 item-6 views and §13's time-of-day scrubber:
+//   , / .  scrub time of day back / forward
+//   J      cycle shadow quality level 0 -> 1 -> 2 -> 3 (§6.5's rungs)
+//   N      jump to golden hour (§13's "capture it specifically")
+//
 // OVERLAY shows: air-mip state, debug view, the ACTUAL dispatch resolution,
 // and a GPU frame time read from Unity's FrameTimingManager - a real DRIVER
 // GPU timestamp, available in standalone builds, NOT the Editor stats panel.
@@ -26,6 +39,15 @@ public class RaymarchDebugControls : MonoBehaviour
     [SerializeField] private KeyCode _cycleIterCapKey = KeyCode.O;
     [SerializeField] private KeyCode _toggleAirMipUploadModeKey = KeyCode.L;
     [SerializeField] private KeyCode _toggleStrippedKernelKey = KeyCode.K;
+
+    // ---- Phase 7 (§10.3 item 6, §13's scrubber) ----
+    [SerializeField] private KeyCode _scrubBackKey = KeyCode.Comma;
+    [SerializeField] private KeyCode _scrubForwardKey = KeyCode.Period;
+    [SerializeField] private KeyCode _cycleShadowLevelKey = KeyCode.J;
+    [SerializeField] private KeyCode _goldenHourKey = KeyCode.N;
+
+    [Tooltip("In-game hours moved per real second while a scrub key is held.")]
+    [SerializeField] private float _scrubHoursPerSecond = 3f;
 
     private static readonly int[] _iterCapSweep = { 1, 2, 4, 8, 16, 32, 64, 128, 400 };
     private int _iterCapIndex = _iterCapSweep.Length - 1;
@@ -54,7 +76,10 @@ public class RaymarchDebugControls : MonoBehaviour
         if (Input.GetKeyDown(_cycleViewKey))
         {
             RaymarchFeature.UseDebugViewOverride = true;
-            int next = ((int)RaymarchFeature.DebugViewOverride + 1) % 4;
+            // DERIVED FROM THE ENUM, not a literal. This was hardcoded %4 and
+            // had silently stopped covering half the views that exist.
+            int viewCount = System.Enum.GetValues(typeof(RaymarchFeature.DebugMode)).Length;
+            int next = ((int)RaymarchFeature.DebugViewOverride + 1) % viewCount;
             RaymarchFeature.DebugViewOverride = (RaymarchFeature.DebugMode)next;
         }
 
@@ -72,6 +97,24 @@ public class RaymarchDebugControls : MonoBehaviour
 
         if (Input.GetKeyDown(_toggleStrippedKernelKey))
             RaymarchFeature.UseStrippedKernel = !RaymarchFeature.UseStrippedKernel;
+
+        // ---- §13's TIME SCRUBBER ----
+        // Held, not tapped: §13's solo-dev note says the real work is tuning by
+        // eye in real time, and "scrub dawn->dusk and watch the mountain shadow
+        // SWEEP CONTINUOUSLY" is an acceptance bullet you cannot judge one
+        // keypress at a time.
+        if (Input.GetKey(_scrubBackKey))
+            SunCycle.SetHours(SunCycle.Hours - _scrubHoursPerSecond * Time.unscaledDeltaTime);
+        if (Input.GetKey(_scrubForwardKey))
+            SunCycle.SetHours(SunCycle.Hours + _scrubHoursPerSecond * Time.unscaledDeltaTime);
+
+        // Golden hour is DERIVED from the sun's own arc, never typed, so it
+        // stays golden hour if the arc tilt changes.
+        if (Input.GetKeyDown(_goldenHourKey))
+            SunCycle.SetHours(SunCycle.GoldenHourHours);
+
+        if (Input.GetKeyDown(_cycleShadowLevelKey))
+            RaymarchFeature.ShadowQualityLevel = (RaymarchFeature.ShadowQualityLevel + 1) % 4;
 
         FrameTimingManager.CaptureFrameTimings();
         uint got = FrameTimingManager.GetLatestTimings(1, _timings);
@@ -99,7 +142,7 @@ public class RaymarchDebugControls : MonoBehaviour
             : "GPU timing unavailable (use Instruments)";
 
         GUI.color = new Color(0f, 0f, 0f, 0.6f);
-        GUI.DrawTexture(new Rect(8, 8, 440, 268), Texture2D.whiteTexture);
+        GUI.DrawTexture(new Rect(8, 8, 470, 324), Texture2D.whiteTexture);
         GUI.color = Color.white;
 
         GUI.Label(new Rect(18, 12, 480, 28),
@@ -117,13 +160,32 @@ public class RaymarchDebugControls : MonoBehaviour
         GUI.Label(new Rect(18, 180, 480, 28),
             $"KERNEL: {(RaymarchFeature.UseStrippedKernel ? "STRIPPED (mode1/Beauty only)" : "FULL")}   [{_toggleStrippedKernelKey}]", style);
 
+        // ---- Phase 7 (§10.3 item 7: "sun angle/time") ----
+        GUI.Label(new Rect(18, 208, 520, 28),
+            $"SUN: {SunCycle.ClockString()}  {SunCycle.ElevationDegrees:F1}deg  {SunCycle.PhaseName}" +
+            $"   [{_scrubBackKey}/{_scrubForwardKey}]  [{_goldenHourKey}]=golden", style);
+        GUI.Label(new Rect(18, 236, 520, 28),
+            $"SHADOWS: {ShadowLevelName(RaymarchFeature.ShadowQualityLevel)}   [{_cycleShadowLevelKey}]", style);
+
         GUIStyle gpuStyle = new GUIStyle(style)
         { normal = { textColor = _smoothedGpuMs > 0f ? new Color(0.5f, 1f, 0.5f) : new Color(1f, 0.6f, 0.3f) } };
-        GUI.Label(new Rect(18, 208, 480, 28), gpuLine, gpuStyle);
+        GUI.Label(new Rect(18, 264, 480, 28), gpuLine, gpuStyle);
 
-        GUI.Label(new Rect(18, 240, 480, 24),
-            "GPU frame time = driver GPU timer (standalone, gate-valid)",
+        GUI.Label(new Rect(18, 296, 520, 24),
+            "gpuFrameTime is INFLATED ~2.6-2.7x on this machine (Amdt 8.10) -- relative only, never a budget",
             new GUIStyle(GUI.skin.label) { fontSize = 12, normal = { textColor = new Color(0.8f, 0.8f, 0.8f) } });
+    }
+
+    private static string ShadowLevelName(int level)
+    {
+        switch (level)
+        {
+            case 0: return "0-FULL (soft penumbra, C.10)";
+            case 1: return "1-HALF-RES beyond LOD1";
+            case 2: return "2-HARD only";
+            case 3: return "3-OFF (flat N.L + ambient)";
+            default: return level.ToString();
+        }
     }
 
     private static string TraversalModeName(int mode)

@@ -795,10 +795,31 @@ float ShadowClearance(int3 voxel, float3 posVox, float3 dir, int tier, uint3 win
     return best;
 }
 
+// §10.4's ring buffer for the shadow path. DebugOut is 128 floats; slots 0-19
+// are the pre-Phase-7 raymarcher dump and are NOT touched. 20-33 are the shadow
+// ray's scalars, 34-43 are the last 10 clipmap indices it traversed.
+#define SHADOW_DUMP_BASE 34
+#define SHADOW_DUMP_RING 10
+
+/// The flat clipmap index a shadow ray is about to read, recorded verbatim so a
+/// dump can be checked against the CPU store by index rather than by
+/// re-deriving addressing from a coordinate (re-deriving it is how an
+/// addressing bug hides from its own diagnostic).
+int ShadowClipmapFlatIndex(int3 voxel, uint3 windowDimsBricks)
+{
+    int3 brickCoord = VoxelToBrick(voxel);
+    int3 chunkCoord = brickCoord >> 4;
+    int3 wrappedChunk = chunkCoord & (int3)(_WindowDimsChunksPacked.xyz - 1);
+    int chunkSlot = wrappedChunk.x
+                  + (wrappedChunk.y * (int)_WindowDimsChunksPacked.x)
+                  + (wrappedChunk.z * (int)_WindowDimsChunksPacked.x * (int)_WindowDimsChunksPacked.y);
+    return (chunkSlot * 4096) + LocalBrickIndex(brickCoord & 15);
+}
+
 /// Fires one shadow ray. `softEnabled` turns C.10's near-miss tracking on;
 /// with it off this is pure binary occlusion, which is §6.5's rung 2.
 ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
-                         uint3 windowDimsBricks, bool softEnabled)
+                         uint3 windowDimsBricks, bool softEnabled, bool dbg)
 {
     ShadowHit r;
     r.sunVis = 1.0;
@@ -861,6 +882,28 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
         }
 
         r.steps++;
+
+        // ---- §10.4 PER-SUBSYSTEM DIAGNOSTIC DUMP ----
+        // "Raymarcher: if a single ray's step count exceeds a threshold (e.g.
+        //  >1000), log its origin, direction, and LAST ~10 CLIPMAP INDICES
+        //  TRAVERSED." This is the shadow ray's form of that, the same shape as
+        //  the existing raymarcher dump: a ring buffer in DebugOut that
+        //  ShadowRayDump reads back and writes to a file when the threshold is
+        //  crossed.
+        //
+        // COST, STATED RATHER THAN HIDDEN. `dbg` is uniform per thread and true
+        // for exactly one thread in the dispatch, so 2,073,599 of 2,073,600
+        // pixels pay one predicated compare per outer iteration and no store.
+        // That is the same class of diagnostic branch Amendment 8.10 §5.3
+        // measured (all diagnostics together, ~12%) and explicitly recommended
+        // continuing to pay -- and Stage 6 measures the SHIPPED binary with it
+        // compiled in, so the reported number includes it rather than excluding
+        // it and being quietly optimistic.
+        if (dbg)
+        {
+            int slot = (r.steps - 1) % SHADOW_DUMP_RING;
+            DebugOut[SHADOW_DUMP_BASE + slot] = (float)ShadowClipmapFlatIndex(voxel, windowDimsBricks);
+        }
 
         // ---- §6.5's 8.2 LOD RULE ----
         // By CAMERA distance to THIS sample point. Passing `currentDist` here
@@ -991,6 +1034,14 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
     // out every lit pixel in the frame.
     if (softEnabled && _KSoft > 0.0 && m < 3.0e30) r.sunVis = smoothstep(0.0, _KSoft, m);
     else                                           r.sunVis = 1.0;
+
+    if (dbg)
+    {
+        DebugOut[21] = (float)voxel.x;      // where the ray ended up
+        DebugOut[22] = (float)voxel.y;
+        DebugOut[23] = (float)voxel.z;
+        DebugOut[32] = (m < 3.0e30) ? m : -1.0;   // C.10's m, -1 = no near miss
+    }
     return r;
 }
 
@@ -1511,7 +1562,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         ShadowHit sh;
         sh.sunVis = 1.0;
         sh.steps = 0;
-        if (traceMine) sh = TraceShadowRay(voxel, normal, _SunDir, _WindowDimsBricks, softShadows);
+        if (traceMine) sh = TraceShadowRay(voxel, normal, _SunDir, _WindowDimsBricks, softShadows, isDebugPixel);
 
         float mineVis = sh.sunVis;
         float leadVis = QuadReadLaneAt(mineVis, 0);
@@ -1550,10 +1601,32 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     {
         if (WaveActiveAnyTrue(hit))
         {
+            // `dbg` false: the sky probe must not overwrite the SUN ray's §10.4
+            // ring buffer, or the dump would describe the wrong ray.
             ShadowHit sky = TraceShadowRay(voxel, normal, float3(0.0, 1.0, 0.0),
-                                           _WindowDimsBricks, false);
+                                           _WindowDimsBricks, false, false);
             skyVis = sky.sunVis;
         }
+    }
+
+    // §10.4's scalar record for the shadow path, alongside the ring buffer the
+    // trace filled. Written unconditionally for the debug pixel so a dump
+    // describes a LIT ray as readily as an occluded one -- "why is this pixel
+    // lit when it should be shadowed" is the question this answers most often.
+    if (isDebugPixel)
+    {
+        DebugOut[20] = (float)shadowSteps;
+        DebugOut[24] = _SunDir.x;        // direction the shadow ray travelled
+        DebugOut[25] = _SunDir.y;
+        DebugOut[26] = _SunDir.z;
+        DebugOut[27] = (float)(voxel.x + normal.x);   // §6.5's origin, one cell off
+        DebugOut[28] = (float)(voxel.y + normal.y);
+        DebugOut[29] = (float)(voxel.z + normal.z);
+        DebugOut[30] = sunVis;
+        DebugOut[31] = skyVis;
+        DebugOut[33] = (float)_ShadowQualityLevel;
+        DebugOut[44] = (float)_ActiveLightCount;
+        DebugOut[45] = hit ? 1.0 : 0.0;
     }
 
     if (_DebugMode == 1) { ResultTexture[id.xy] = StepHeatColor(steps); return; }
