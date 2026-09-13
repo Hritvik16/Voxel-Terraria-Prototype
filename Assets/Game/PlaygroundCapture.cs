@@ -464,9 +464,17 @@ public class PlaygroundCapture : MonoBehaviour
           $">33ms {ms.FindAll(x => x > 33.0).Count * per1000:F1}   " +
           $">50ms {ms.FindAll(x => x > 50.0).Count * per1000:F1}   " +
           $">100ms {ms.FindAll(x => x > 100.0).Count * per1000:F1}");
+        var lb = RaymarchFeature.Lights;
         L($"  shadow rung {(shadowLevel >= 0 ? shadowLevel.ToString() : "default/none")}   " +
           $"turn {turnRate} deg/s   move {moveSpeed} m/s   " +
           $"lightUpload {(Playground.DebugSuspendLightUpload ? "SUSPENDED" : "on")}");
+        // REGISTERED is the number that matters for Stage A's second round:
+        // §3.8 sizes the whole light system for "a handful of placed torches",
+        // and if this reads in the thousands then something is registering that
+        // §3.8 never contemplated.
+        L($"  LIGHTS registered {(lb != null ? lb.RegisteredCount : -1)}   " +
+          $"active {(lb != null ? lb.ActiveCount : -1)} / cap {EngineConfig.MAX_ACTIVE_LIGHTS}   " +
+          $"SetData calls {(lb != null ? lb.UploadsPerformed : -1)}");
         L("");
         L($"  >>> TRUE SUSTAINED RATE: {ms.Count} frames in {elapsed:F2} s = " +
           $"{ms.Count / elapsed:F1} FPS  (mean frame {1000.0 * elapsed / ms.Count:F2} ms)");

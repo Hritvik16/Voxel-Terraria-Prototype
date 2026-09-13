@@ -145,6 +145,39 @@ namespace VoxelEngine.Rendering
         /// re-place the same material.
         public bool Register(int3 voxel, byte material)
         {
+            // -----------------------------------------------------------------
+            // MOBILE EMISSIVES ARE NOT POINT LIGHTS. §3.8's SCOPE, ENFORCED.
+            //
+            // §3.8 sizes this entire subsystem for "a handful of placed torches,
+            // not a lit city", and §6.5 calls v1 lights "genuinely sparse".
+            // Lava is `IsFluid | IsEmissive` -- emissive AND mobile -- so
+            // without this predicate every lava CELL became a point light. The
+            // Playground's lava vent budget alone is 12,000 voxels, and each one
+            // went through §6.6's enqueue on the §8.3 edit path.
+            //
+            // MEASURED CONSEQUENCE (PHASE_7_COMPLETION §A.6): with lava flowing,
+            // Upload() insertion-sorted thousands of entries every frame and the
+            // moving frame cost 42 ms against 10.5 ms with the upload suspended.
+            // My own comment on that sort read "at n in the tens this is also
+            // simply faster" -- true, and the assumption behind it was wrong,
+            // because a fluid can register itself.
+            //
+            // LAVA STILL READS HOT. MaterialPalette.IsSelfLit keeps its shading
+            // cheat (it skips AO and the hemisphere term and is pushed above its
+            // albedo), and A.7's `emissive` still contributes through C.9's
+            // `+ emissive` term on the voxel itself. What it no longer does is
+            // illuminate its NEIGHBOURS via the §3.8 buffer -- which §6.5 never
+            // promised: "no propagation, no BFS ... light does not bend around
+            // corners in v1".
+            //
+            // THE FLAGGED CONSEQUENCE: a lava lake no longer casts light onto
+            // the cave around it. That is a visible change and it is the
+            // owner's to accept or reject -- see PHASE_7_COMPLETION §A.6. The
+            // alternative (per-brick light clustering, §3.8's MAX_LIGHTS_PER_BRICK)
+            // is explicitly deferred to v1.5.
+            // -----------------------------------------------------------------
+            if (MaterialRules.IsMobile(material)) return false;
+
             if (!MaterialRules.TryGetLight(material, out float r, out float g, out float b,
                                            out float rangeScale))
                 return false;
@@ -212,27 +245,42 @@ namespace VoxelEngine.Rendering
                 scratchDist[i] = math.distancesq(p, playerPosM);
             }
 
-            // Insertion sort, ascending by squared distance to the player.
-            // Chosen over Array.Sort deliberately: Array.Sort with a comparator
-            // allocates a comparer and boxes on some runtimes, and §0.1
-            // invariant 3 forbids hot-path allocation. At n in the tens this is
-            // also simply faster.
-            for (int i = 1; i < n; i++)
-            {
-                float d = scratchDist[i];
-                Registered v = scratch[i];
-                int j = i - 1;
-                while (j >= 0 && scratchDist[j] > d)
-                {
-                    scratchDist[j + 1] = scratchDist[j];
-                    scratch[j + 1] = scratch[j];
-                    j--;
-                }
-                scratchDist[j + 1] = d;
-                scratch[j + 1] = v;
-            }
-
+            // PARTIAL SELECTION, NOT A FULL SORT. Only the nearest
+            // MAX_ACTIVE_LIGHTS are ever needed, so sorting the rest is work
+            // whose result is discarded.
+            //
+            // THIS REPLACES A FULL INSERTION SORT, AND THE REASON IS A MEASURED
+            // FAILURE RATHER THAN TIDINESS. That sort was O(n^2) and its own
+            // comment justified it with "at n in the tens this is also simply
+            // faster" -- correct for n in the tens, and the assumption that n
+            // WOULD be in the tens came from §3.8's "a handful of placed
+            // torches". Lava is emissive and mobile, so a lava flow registered
+            // thousands of lights and the sort became ~144M operations per
+            // frame (PHASE_7_COMPLETION §A.6).
+            //
+            // The predicate in Register() now stops mobile materials
+            // registering at all, which addresses the CAUSE. This addresses the
+            // HAZARD: selection is now O(n x cap) with cap = 32, so no future
+            // caller -- an ore that glows, a v1.5 content pass -- can make this
+            // quadratic again by registering more than expected. Defence in
+            // depth, because the first assumption about n was wrong once
+            // already.
+            //
+            // Still allocation-free (§0.1 invariant 3) and still exactly
+            // §3.8's rule: the kept set is the nearest, so the dropped set is
+            // the furthest.
             int count = math.min(n, math.min(dest.Length, EngineConfig.MAX_ACTIVE_LIGHTS));
+            for (int slot = 0; slot < count; slot++)
+            {
+                int best = slot;
+                for (int i = slot + 1; i < n; i++)
+                    if (scratchDist[i] < scratchDist[best]) best = i;
+                if (best != slot)
+                {
+                    (scratchDist[slot], scratchDist[best]) = (scratchDist[best], scratchDist[slot]);
+                    (scratch[slot], scratch[best]) = (scratch[best], scratch[slot]);
+                }
+            }
             float k = LightingConfig.Active.pointFalloffK;
             float intensity = LightingConfig.Active.lightIntensity;
             for (int i = 0; i < count; i++)

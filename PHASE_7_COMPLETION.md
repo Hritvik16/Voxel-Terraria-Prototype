@@ -851,22 +851,73 @@ in the phase that `MAX_ACTIVE_LIGHTS = 32` is conservative** — though raising 
 is §0.2's decision and needs its own re-derivation, not an inference from one
 uncooled pair.
 
-### D1, D3, D4 — re-run pending
+### D1 — a torch in an irregular cave: YES, it reads right
 
-Re-running with the camera fix. D1 (irregular cave, 1 vs 3 torches), D3 (the
-same mountain at 30/55/75/110/150/240 m in Beauty *and* sun-visibility, at noon
-and golden hour, plus a 5-step lateral pan at 200 m to check whether distant
-shadows swim) and D4 (golden hour + live fluid + active digging + torches) all
-produced correctly-structured reports and the right *number* of frames; only the
-camera pose was wrong, and that is now fixed.
+Re-run with the camera fix. An irregular chamber — three overlapping lobes of
+different radii plus a low side passage, 24,953 voxels carved through the real
+§8.3 path — rather than the rig's sphere, because a sphere lights too evenly to
+tell you anything.
 
-**NOT ESTABLISHED, and not guessed at:** whether a torch-lit cave looks good,
-whether §8's flagged distant speckle is genuine coarse-tier shadowing or a
-defect, and whether distant shadows stay put under lateral motion. Those are
-exactly what the re-run is for, and if it does not land this session they remain
-open with the rig now built and working.
+**Looked at, not just counted.** `D1_02_one_torch_3m.png` reads as a genuine
+torch-lit cave: a bright warm source voxel, smooth falloff across the floor and
+up the walls, and — visibly — **Stage B's `N·L` doing its job**: the horizontal
+tops of the stepped ledges are clearly brighter than their vertical faces, and
+the ceiling falls away dark. That distinction did not exist before Stage B; the
+earlier capture was a uniform wash in which every face of every cube read the
+same. This is the single most visible improvement of the session.
 
----
+**Honest criticism:** the result is close to monochrome — everything in torch
+range is the same warm tan, because the torch dominates and underground ambient
+is near-zero by design (§6.5). That is defensible and arguably correct for a
+torch-lit cave, but it is worth the owner's eye: if it reads as flat *brown*
+rather than *warm*, the lever is `undergroundAmbientFloor` (a little cool
+ambient would separate the far walls from the near ones).
+
+**Multi-light:** 3 torches spread across the lobes registered 3/3 and their
+falloffs overlap smoothly — no seams, no double-bright patches at the overlaps.
+
+### D3 — distant lit terrain: the speckle is real, and it is LOCALISED
+
+Twelve paired captures (Beauty + sun-visibility) at 30/55/75/110/150/240 m,
+at noon and at golden hour, plus a 5-step lateral pan at 200 m.
+
+**What the far field actually shows** (`D3_golden_240m_tier2_sunvis.png`): the
+shadows are **coherent, structured ribbons that follow terrain contours** — they
+are unmistakably real cast shadows of real relief, not noise. Near-field
+shadows are solid and crisp.
+
+**The §8 speckle is present, and it is CONCENTRATED rather than general:** it
+appears (i) in the horizon band, where terrain is seen at a grazing view angle,
+and (ii) as some regular dot patterns in the near-right field. It is *not*
+spread evenly across the far field, which is what a general coarse-tier sampling
+defect would look like.
+
+**VERDICT, scoped to what can be shown: (c) INCONCLUSIVE, but leaning (a).**
+The concentration at grazing view angles is what genuine per-coarse-voxel
+shadowing would produce — at a shallow angle each coarse voxel's shadow
+alternates over a few pixels — and it is not what an addressing bug would
+produce (that would be distance-dependent, not angle-dependent). **This still
+cannot be settled without a tier-1/2 oracle** (Amdt 8.10 §5.7), exactly as §8
+said, and building one was explicitly out of scope tonight. The regular dot
+pattern is the part I would look at first if it is ever chased.
+
+**In Beauty it is much less visible**, as §8 predicted, and Stage B/C did not
+make it worse.
+
+**NOT ANSWERED:** whether the distant shadow *swims* under lateral motion. The
+five `D3_swim_*` frames exist and are directly comparable, but judging drift
+across five stills is a job for a human flipping between them — I did not want
+to assert a conclusion from a comparison I cannot do well. **This is a good
+thirty seconds of the owner's five minutes.**
+
+### D4 — lighting under combined chaos: captured, not asserted
+
+Five frames at golden hour with live fluid, active digging and two torches near
+the action. §3.10 predicts the shadow and the torch stay correct because both
+read the authoritative terrain byte; these are the visual spot-check, not a new
+correctness proof. The frames exist and show no obvious tearing or stale
+lighting, but **five stills of a moving scene are weak evidence** and are
+offered as such.
 
 ## E. STAGE E — rung 1 measured at last, and it is NOT a usable fallback
 

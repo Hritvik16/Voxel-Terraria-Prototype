@@ -361,6 +361,67 @@ public class LightingTests
             "removing a light that was never in the active set caused a pointless re-upload");
     }
 
+    /// THE TEST THAT WOULD HAVE CAUGHT THE WHOLE STAGE-A REGRESSION.
+    ///
+    /// Lava is `IsFluid | IsEmissive`. Before this predicate existed, every lava
+    /// CELL registered as a point light through §6.6's enqueue on the §8.3 edit
+    /// path -- and the Playground's lava vent budget alone is 12,000 voxels.
+    /// §3.8 sizes the light system for "a handful of placed torches, not a lit
+    /// city" and §6.5 calls v1 lights "genuinely sparse"; a fluid registering
+    /// itself violates both, and cost 32 ms/frame.
+    ///
+    /// MUTATION CHECK: delete `if (MaterialRules.IsMobile(material)) return
+    /// false;` from Register and this goes red.
+    [Test]
+    public void MobileEmissivesDoNotRegisterAsPointLights()
+    {
+        // Lava: emissive AND mobile. It must NOT become a point light.
+        Assert.IsTrue(MaterialRules.IsEmissiveMaterial(Materials.Lava),
+            "precondition: lava is still emissive");
+        Assert.IsTrue(MaterialRules.IsMobile(Materials.Lava),
+            "precondition: lava is still a fluid");
+        Assert.IsFalse(_lights.Register(new int3(5, 5, 5), Materials.Lava),
+            "a lava cell registered as a point light. §3.8 sizes this subsystem for " +
+            "'a handful of placed torches, not a lit city' -- a flowing fluid registers " +
+            "thousands, which is exactly the Phase 7 stutter.");
+        Assert.AreEqual(0, _lights.RegisteredCount);
+
+        // A torch: emissive and STATIC. It must still work.
+        Assert.IsTrue(_lights.Register(new int3(6, 6, 6), Materials.Torch));
+        Assert.AreEqual(1, _lights.RegisteredCount);
+    }
+
+    /// The selection must stay bounded no matter how many are registered, so a
+    /// future emissive material cannot reintroduce the quadratic blow-up.
+    /// This is the defence-in-depth half; the predicate above is the cause.
+    [Test]
+    public void SelectActive_IsBoundedAndStillPicksTheNearest_AtLargeN()
+    {
+        const int n = 4000;
+        var all = new LightSourceBuffer.Registered[n];
+        for (int i = 0; i < n; i++)
+            all[i] = new LightSourceBuffer.Registered
+            {
+                voxel = new int3((n - i) * 10, 0, 0),   // index 0 is FURTHEST
+                material = Materials.Torch,
+                r = 1f, g = 1f, b = 1f, range = 8f,
+            };
+
+        var scratch = new LightSourceBuffer.Registered[n];
+        var dist = new float[n];
+        var dest = new LightSource[EngineConfig.MAX_ACTIVE_LIGHTS];
+
+        int count = LightSourceBuffer.SelectActive(all, n, float3.zero, scratch, dist, dest);
+        Assert.AreEqual(EngineConfig.MAX_ACTIVE_LIGHTS, count);
+
+        // The nearest 32 are the LAST 32 entries, at x = 10..320 voxels = 1..32 m.
+        float farthestKept = 0f;
+        for (int i = 0; i < count; i++) farthestKept = math.max(farthestKept, dest[i].x);
+        Assert.LessOrEqual(farthestKept, 32.05f,
+            "partial selection kept a light further than the nearest 32 -- §3.8's " +
+            "furthest-first rule is not being honoured at large n");
+    }
+
     // =====================================================================
     // STAGE C -- the presets, and the snow-clipping ceiling they respect
     // =====================================================================
