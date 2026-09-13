@@ -228,7 +228,7 @@ public class PlaygroundHud : MonoBehaviour
         // Sit BELOW the always-on strip rather than on top of it. Both anchor to
         // the same corner on purpose (F1 must not make the strip move), which
         // means the detail panel has to yield the strip's 26 px + gap.
-        float topY = _minimalVisible ? 38f : 6f;
+        float topY = _minimalVisible ? 36f : 6f;
         GUI.Box(new Rect(vw - w - 8, topY, w, h), GUIContent.none);
         GUI.Label(new Rect(vw - w, topY + 4f, w - 14, h - 8), sb.ToString(), st);
         GUI.matrix = prev;
@@ -253,6 +253,12 @@ public class PlaygroundHud : MonoBehaviour
     {
         var pg = FindAnyObjectByType<Playground>();
         string preset = pg != null ? pg.CurrentPresetName : "-";
+        // The as-found name is "custom (LightingConfig.json as found)", which is
+        // longer than this line has room for. A clipped HUD line is worse than
+        // an absent one -- it looks like it is there -- so truncate explicitly
+        // rather than letting the box cut it mid-word.
+        if (preset.Length > 22) preset = preset.Substring(0, 21) + "\u2026";
+
         double ms = _wallSmoothed;
         double fps = ms > 0.0 ? 1000.0 / ms : 0.0;
 
@@ -261,16 +267,17 @@ public class PlaygroundHud : MonoBehaviour
         string fpsCol = ms <= 16.67 ? "#8fe08f" : ms <= 22.0 ? "#ffd479" : "#ff8a8a";
 
         string text =
-            $"<b>PRESET</b> {preset}    " +
-            $"<b>SHADOWS</b> {ShadowRungPlain(RaymarchFeature.ShadowQualityLevel)}    " +
-            $"<color={fpsCol}><b>{fps:F0} fps</b>  ({ms:F1} ms)</color>" +
-            $"    <color=#7f93a3>[ ] preset   J shadows   F1 detail</color>";
+            $"<b>PRESET</b> {preset}   <b>SHADOWS</b> {ShadowRungPlain(RaymarchFeature.ShadowQualityLevel)}   " +
+            $"<color={fpsCol}><b>{fps:F0} fps</b> ({ms:F1} ms)</color>" +
+            $"   <color=#7f93a3>F1 detail</color>";
 
         var st = new GUIStyle(GUI.skin.label)
         {
             fontSize = 14,
             richText = true,
             alignment = TextAnchor.MiddleLeft,
+            wordWrap = false,          // one line, always -- wrapping is what clipped it
+            clipping = TextClipping.Overflow,
             normal = { textColor = Color.white },
         };
 
@@ -278,7 +285,11 @@ public class PlaygroundHud : MonoBehaviour
         Matrix4x4 prev = GUI.matrix;
         GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * ui);
         float vw = Screen.width / ui;
-        const float w = 560f, h = 26f;
+        // Width measured from the text itself rather than guessed: the preset
+        // name is variable-length and a fixed box is what clipped the first
+        // attempt. Bounded so it cannot run off the left of the screen.
+        float w = Mathf.Clamp(st.CalcSize(new GUIContent(text)).x + 24f, 320f, vw - 16f);
+        const float h = 24f;
         // Top-right, where the detail panel also lives, so opening F1 does not
         // make the strip jump to somewhere else on screen.
         var r = new Rect(vw - w - 8, 6, w, h);

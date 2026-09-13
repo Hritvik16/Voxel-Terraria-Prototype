@@ -1582,6 +1582,16 @@ the source comment. `CLAUDE.md` is unambiguous that the only trusted frame-time
 source is the rig's own report from a release standalone, and a number that is
 always on screen is exactly the kind that gets quoted later as though it were.
 
+**The first version of the strip was broken, and only looking caught it.** It
+compiled, it drew, and it was *clipped*: the box was a fixed 560 px, the preset
+name at runtime is `custom (LightingConfig.json as found)`, the label wrapped to a
+second line, and the box was one line tall — so the hint text was sliced in half
+and the frame time sat outside the panel. `PlaygroundHud`'s own comment already
+says a HUD line that is cut off is worse than one that is absent, because it looks
+like it is there. Fixed by measuring the text (`CalcSize`) instead of guessing a
+width, disabling word wrap, and truncating the preset name explicitly. **Verified
+by taking a screenshot and reading it**, not by the fact that it built.
+
 **One trap worth recording, because it would have been silent.** `_visible` is a
 `[SerializeField]`, and `Phase5aSceneBuilder` *explicitly writes it* into the
 generated scene. Changing the field's default in `PlaygroundHud.cs` alone would
