@@ -37,6 +37,52 @@
 // leap across many bricks at once the way tier 0's pyramid does. If the fix
 // above isn't enough on its own to close the gap with cascade-off, this is
 // the next thing to build, not a smaller tweak to the fix above.
+// ===========================================================================
+// §6.5's 8.4 BRANCH GUARD: TWO ATTEMPTS AT WAVE INTRINSICS FAILED ON THIS
+// TARGET. THE THIRD IS GROUPSHARED, IT IS PORTABLE, AND IT IS BETTER.
+//
+// §6.5 asks, in terms, for `WaveActiveAnyTrue(hasPrimaryHit)` around the shadow
+// branch, and says to build it in from the start rather than retrofit it after
+// a budget miss. §6.5's rung 1 similarly wants "neighbour reuse", for which
+// QuadReadLaneAt is the natural primitive. Neither is available here:
+//
+//   ATTEMPT 1 -- plain build, legacy compute compiler:
+//     "Shader error in 'Raymarch': undeclared identifier 'WaveActiveAnyTrue'
+//      at kernel CSMain at Raymarch.compute(1532) (on metal)"
+//   ATTEMPT 2 -- #pragma use_dxc:
+//     "DXC SPIRV-Cross error: Subgroups are only supported in Metal 2.0 and up.
+//      at kernel CSMain"
+//
+// A third attempt at the intrinsics would have meant raising the project's
+// Metal/MSL floor in ProjectSettings -- a global change to every shader and to
+// the shipping macOS minimum, for one branch guard. That is the owner's call,
+// not a side effect of a lighting phase, and §0.3's debugging rule says to stop
+// patching after ~3 attempts rather than reach for a cleverer one.
+//
+// THE GROUPSHARED FORM BELOW IS NOT A CONSOLATION PRIZE. It achieves exactly
+// what §6.5 asks for -- "a wave that is ENTIRELY sky skips instantiating the
+// shadow-ray code path altogether" -- at 64-thread THREAD-GROUP granularity
+// instead of 32-thread wave granularity. Coarser by a factor of two, same
+// mechanism. And for rung 1 it is strictly BETTER than QuadReadLaneAt: reading
+// gsSunVis[(gtid.y & ~1) * 8 + (gtid.x & ~1)] is an exact, stated index, where
+// QuadReadLaneAt would have relied on the SM6.0 assumption that quad lane 0 is
+// the even/even thread -- an assumption that could have been silently wrong on
+// this driver and would have shown up only as distant shadows sampling the
+// wrong neighbour.
+//
+// AND IT KEEPS THE MEASUREMENT CLEAN. Reverting use_dxc means this shader is
+// still built by the same compiler as every historical number in Amendments
+// 8.9/8.10, PHASE_2 §5 and FPS_INVESTIGATION. Had DXC been kept, every Stage 6
+// arm would have carried a compiler change as a confound and the
+// pre-Phase-7 baseline would not have been comparable.
+//
+// THE COST OF THE BARRIERS, and the one restructure they forced: a group
+// barrier requires EVERY thread in the group to reach it, so CSMain's
+// out-of-bounds early `return` had to become a flag tested at the final write.
+// Out-of-bounds threads therefore traverse. At the shipped 960x540 gate that is
+// 4 rows of 960 threads out of 2,073,600 -- 0.185% -- and at 1920x1080 both
+// dimensions divide by 8 exactly, so it is 0.000%.
+// ===========================================================================
 #pragma kernel CSMain
 
 #include "../Coord/CoordMath.hlsl"
@@ -225,6 +271,12 @@ int _UseSkyProbeAmbient;
 // "underground reads near-zero ambient". Art constant, live-tunable via
 // LightingConfig.json.
 float _UndergroundAmbientFloor;
+
+// §6.5's 8.4 guard and rung 1's neighbour reuse, in groupshared memory.
+// 8x8 threads = 64 lanes; gsSunVis is 256 B, which is nothing against a 32 KB
+// budget and is the entire cost of not needing wave intrinsics.
+groupshared uint  gsAnyShadowNeeded;
+groupshared float gsSunVis[64];
 
 #define MAX_CHAIN_LEAPS 7
 
@@ -1094,14 +1146,25 @@ float3 SumPointLights(float3 posM, float3 nrmF)
 }
 
 [numthreads(8, 8, 1)]
-void CSMain(uint3 id : SV_DispatchThreadID)
+void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
 {
     uint3 _WindowDimsBricks = _WindowDimsBricksPacked.xyz;
     int _DebugMode = _DebugModePacked.x;
 
     uint width, height;
     ResultTexture.GetDimensions(width, height);
-    if (id.x >= width || id.y >= height) return;
+
+    // NO EARLY RETURN. This was `if (id.x >= width || id.y >= height) return;`
+    // and it cannot stay: the §6.5 8.4 group guard below uses
+    // GroupMemoryBarrierWithGroupSync, which is undefined unless EVERY thread in
+    // the group reaches it. A returned thread never does.
+    //
+    // Out-of-bounds threads now traverse and simply do not write. The waste is
+    // bounded and small: the dispatch is ceil(w/8) x ceil(h/8), so at the
+    // shipped 960x540 gate it is 4 rows of 960 threads out of 2,073,600
+    // (0.185%), and at 1920x1080 both dimensions divide by 8 exactly (0.000%).
+    bool inBounds = (id.x < width && id.y < height);
+    uint lane = gtid.y * 8u + gtid.x;
 
     bool isDebugPixel = (id.x == _DebugPixel.x && id.y == _DebugPixel.y);
 
@@ -1529,7 +1592,22 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     // sky, and those waves now skip the entire block rather than each of their
     // 32 lanes paying branch-entry cost for nothing.
     // -----------------------------------------------------------------------
-    if (WaveActiveAnyTrue(needsShadowRay))
+    // ---- §6.5's 8.4 guard, group-uniform ----
+    // The write is a PLAIN-WRITE RACE and is deliberately not an atomic: every
+    // thread that writes, writes the same value (1), so the result is the same
+    // whatever order they land in. That is exactly the pattern §7.3/8.4 already
+    // established for the fluid CA's claims -- "claims resolve via a safe
+    // plain-write race (8.4, no atomics)" -- reused here rather than reaching
+    // for InterlockedOr, which would serialise 64 lanes to compute a boolean.
+    if (lane == 0u) gsAnyShadowNeeded = 0u;
+    GroupMemoryBarrierWithGroupSync();
+    if (needsShadowRay) gsAnyShadowNeeded = 1u;
+    GroupMemoryBarrierWithGroupSync();
+
+    // gsAnyShadowNeeded is now GROUP-UNIFORM, so this branch is scalar: a group
+    // that is entirely sky skips instantiating the shadow path altogether,
+    // which is the behaviour §6.5 asks for.
+    if (gsAnyShadowNeeded != 0u)
     {
         // §6.5 rung 1: "shadow rays beyond LOD1 drop to half resolution with
         // NEIGHBOUR REUSE (near shadows, the ones by the player, untouched)."
@@ -1551,9 +1629,8 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         // every quad is entirely in or entirely out, but the guard costs two
         // comparisons and removes the question.
         bool distant = hit && (currentDist >= _TierOuterRangeVoxels.y);
-        bool quadComplete = ((id.x | 1u) < width) && ((id.y | 1u) < height);
-        bool reuse = (_ShadowQualityLevel == 1) && distant && quadComplete;
-        bool isQuadLead = ((id.x & 1u) == 0u) && ((id.y & 1u) == 0u);
+        bool reuse = (_ShadowQualityLevel == 1) && distant;
+        bool isQuadLead = ((gtid.x & 1u) == 0u) && ((gtid.y & 1u) == 0u);
 
         // Every lane evaluates the trace condition the same way so the quad
         // read below is reached uniformly.
@@ -1564,8 +1641,15 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         sh.steps = 0;
         if (traceMine) sh = TraceShadowRay(voxel, normal, _SunDir, _WindowDimsBricks, softShadows, isDebugPixel);
 
+        // The 2x2 block's lead lane, by EXACT INDEX rather than by assuming a
+        // quad-lane mapping. Every lane publishes and every lane reads, so the
+        // barrier is reached uniformly inside this already-uniform branch.
         float mineVis = sh.sunVis;
-        float leadVis = QuadReadLaneAt(mineVis, 0);
+        gsSunVis[lane] = mineVis;
+        GroupMemoryBarrierWithGroupSync();
+        uint leadLane = (gtid.y & ~1u) * 8u + (gtid.x & ~1u);
+        float leadVis = gsSunVis[leadLane];
+
         sunVis = needsShadowRay ? (reuse ? leadVis : mineVis) : 0.0;
         shadowSteps = sh.steps;
     }
@@ -1599,14 +1683,16 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     // -----------------------------------------------------------------------
     if (hit && _UseSkyProbeAmbient != 0)
     {
-        if (WaveActiveAnyTrue(hit))
-        {
-            // `dbg` false: the sky probe must not overwrite the SUN ray's §10.4
-            // ring buffer, or the dump would describe the wrong ray.
-            ShadowHit sky = TraceShadowRay(voxel, normal, float3(0.0, 1.0, 0.0),
-                                           _WindowDimsBricks, false, false);
-            skyVis = sky.sunVis;
-        }
+        // No second group guard here: `hit` is already the per-thread condition
+        // and a group with no hits at all has nothing to probe, so the outer
+        // test does the same work the guard would. Adding a second pair of
+        // barriers to restate it would cost two syncs to save nothing.
+        //
+        // `dbg` false: the sky probe must not overwrite the SUN ray's §10.4
+        // ring buffer, or the dump would describe the wrong ray.
+        ShadowHit sky = TraceShadowRay(voxel, normal, float3(0.0, 1.0, 0.0),
+                                       _WindowDimsBricks, false, false);
+        skyVis = sky.sunVis;
     }
 
     // §10.4's scalar record for the shadow path, alongside the ring buffer the
@@ -1629,29 +1715,29 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         DebugOut[45] = hit ? 1.0 : 0.0;
     }
 
-    if (_DebugMode == 1) { ResultTexture[id.xy] = StepHeatColor(steps); return; }
+    if (_DebugMode == 1) { if (inBounds) ResultTexture[id.xy] = StepHeatColor(steps); return; }
     if (_DebugMode == 2)
     {
-        if (!hit) { ResultTexture[id.xy] = float4(0.05, 0.05, 0.1, 1.0); return; }
-        ResultTexture[id.xy] = lastWasDense ? float4(0.9, 0.9, 0.2, 1.0) : float4(0.2, 0.2, 0.3, 1.0);
+        if (!hit) { if (inBounds) ResultTexture[id.xy] = float4(0.05, 0.05, 0.1, 1.0); return; }
+        if (inBounds) ResultTexture[id.xy] = lastWasDense ? float4(0.9, 0.9, 0.2, 1.0) : float4(0.2, 0.2, 0.3, 1.0);
         return;
     }
     if (_DebugMode == 3)
     {
-        if (!hit) { ResultTexture[id.xy] = float4(0.0, 0.0, 0.0, 1.0); return; }
+        if (!hit) { if (inBounds) ResultTexture[id.xy] = float4(0.0, 0.0, 0.0, 1.0); return; }
         float3 n = (float3(normal) * 0.5) + 0.5;
-        ResultTexture[id.xy] = float4(n, 1.0);
+        if (inBounds) ResultTexture[id.xy] = float4(n, 1.0);
         return;
     }
-    if (_DebugMode == 4) { ResultTexture[id.xy] = StepHeatColor(nonExitIters >> 3); return; }
+    if (_DebugMode == 4) { if (inBounds) ResultTexture[id.xy] = StepHeatColor(nonExitIters >> 3); return; }
     if (_DebugMode == 5)
     {
-        if (!hit) { ResultTexture[id.xy] = float4(0.2, 0.4, 0.8, 1.0); return; }
+        if (!hit) { if (inBounds) ResultTexture[id.xy] = float4(0.2, 0.4, 0.8, 1.0); return; }
         float ndotlV = max(0.25, dot(float3(normal), normalize(float3(0.5, 1.0, 0.2))));
         float baseV = (mat == 2) ? 0.60 : 0.50;
         float variation = (VoxelHash(voxel) - 0.5) * 0.28;
         float shadeV = saturate(baseV + variation) * ndotlV;
-        ResultTexture[id.xy] = float4(shadeV, shadeV, shadeV, 1.0);
+        if (inBounds) ResultTexture[id.xy] = float4(shadeV, shadeV, shadeV, 1.0);
         return;
     }
     if (_DebugMode == 7)
@@ -1660,9 +1746,9 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         // pixels a flat dark blue so "no primary hit" is distinguishable from
         // "fully shadowed", which a plain greyscale ramp would conflate -- and
         // telling those two apart is exactly what you need this view for.
-        if (!hit) { ResultTexture[id.xy] = float4(0.05, 0.08, 0.16, 1.0); return; }
-        if (!sunIsUp) { ResultTexture[id.xy] = float4(0.10, 0.02, 0.16, 1.0); return; }  // night: violet
-        ResultTexture[id.xy] = float4(sunVis, sunVis, sunVis, 1.0);
+        if (!hit) { if (inBounds) ResultTexture[id.xy] = float4(0.05, 0.08, 0.16, 1.0); return; }
+        if (!sunIsUp) { if (inBounds) ResultTexture[id.xy] = float4(0.10, 0.02, 0.16, 1.0); return; }  // night: violet
+        if (inBounds) ResultTexture[id.xy] = float4(sunVis, sunVis, sunVis, 1.0);
         return;
     }
     if (_DebugMode == 8)
@@ -1672,8 +1758,8 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         // the question this view exists to answer is "does a shadow ray cost
         // the same as the primary ray that spawned it", and two different
         // colour ramps would make that unanswerable.
-        if (!hit) { ResultTexture[id.xy] = float4(0.02, 0.02, 0.04, 1.0); return; }
-        ResultTexture[id.xy] = StepHeatColor(shadowSteps);
+        if (!hit) { if (inBounds) ResultTexture[id.xy] = float4(0.02, 0.02, 0.04, 1.0); return; }
+        if (inBounds) ResultTexture[id.xy] = StepHeatColor(shadowSteps);
         return;
     }
     if (_DebugMode == 6)
@@ -1683,11 +1769,11 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         // eyeball whether tier boundaries land where expected and whether the
         // 0->1->2 transitions are visually reasonable, BEFORE trusting this
         // path for a benchmark run. This is the capture to send back first.
-        if (!hit) { ResultTexture[id.xy] = float4(0.05, 0.05, 0.05, 1.0); return; }
+        if (!hit) { if (inBounds) ResultTexture[id.xy] = float4(0.05, 0.05, 0.05, 1.0); return; }
         float4 tierColor = float4(0.1, 0.3, 0.9, 1.0); // tier 0 = blue
         if (tierAtHit == 1) tierColor = float4(0.15, 0.85, 0.2, 1.0); // tier 1 = green
         if (tierAtHit == 2) tierColor = float4(0.9, 0.15, 0.15, 1.0); // tier 2 = red
-        ResultTexture[id.xy] = tierColor;
+        if (inBounds) ResultTexture[id.xy] = tierColor;
         return;
     }
 
@@ -1816,5 +1902,5 @@ void CSMain(uint3 id : SV_DispatchThreadID)
             if (mat == 2) color = float4(0.6 * ndotl, 0.6 * ndotl, 0.6 * ndotl, 1.0);
         }
     }
-    ResultTexture[id.xy] = color;
+    if (inBounds) ResultTexture[id.xy] = color;
 }
