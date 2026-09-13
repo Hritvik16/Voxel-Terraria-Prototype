@@ -238,6 +238,20 @@ real and separate reason — see the LOD-cascade finding in
 
 ## Known open issues (act on these, don't rediscover them)
 
+- **EMISSIVE + MOBILE MATERIALS MUST NOT REGISTER AS POINT LIGHTS.** Lava is
+  `IsFluid | IsEmissive`. §6.6's enqueue runs on every `SetVoxel`, so before
+  2026-09-13 a lava flow registered thousands of lights and the §3.8 selection
+  sorted all of them every frame -- **43.46 ms/frame against 9.32 ms
+  pre-Phase-7**. `LightSourceBuffer.Register` now refuses mobile materials, and
+  selection is partial (O(n x cap)) so no future emissive can make it quadratic
+  again. §3.8's "a handful of placed torches, not a lit city" is a statement
+  about PLACED torches -- do not apply it to every emissive material.
+- **`-stutterprobe` does not pin the time of day** and the Playground clock runs
+  (`dayLengthSeconds` 120). Its arms average over a day-night cycle, so shadow
+  rays are skipped for part of every run. Fine for before/after comparisons
+  where every arm shares it; **never** quote a rung cost from it -- use
+  `-lightingab`, which pins golden hour.
+
 - **`ShaderCompileCheck.CheckAll` CAN REPORT A GREEN SHADER THAT DOES NOT
   BUILD.** Found 2026-09-12: it printed `Raymarch.compute: OK (0 message(s))`
   and `DONE totalErrors=0` for a file the standalone build then refused with

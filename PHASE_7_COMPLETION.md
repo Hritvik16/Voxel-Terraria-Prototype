@@ -18,16 +18,83 @@
 
 # MORNING SUMMARY
 
-*(Written for a five-minute read. Everything here is expanded, with numbers and
-caveats, in the sections below. Section A is the stutter, B is the N·L flip,
-C is the presets, D is the stress/distance pass, E is the remaining matrix.)*
+**STAGES REACHED: A, B, C, D and E — all five.** EditMode **PASS 558 FAIL 0**.
+Three commits on `phase7-lighting`.
 
-**STAGES REACHED THIS SESSION: _(filled at the end of the run)_**
+## The stutter is fixed, and it was ours
 
-**PLACEHOLDER — this section is written last, once every stage that ran has
-landed. If you are reading this sentence, the session was interrupted before it
-could be completed; the individual stage sections below are still accurate and
-self-contained, and `git log` shows exactly how far it got.**
+**43.46 ms → 10.54 ms** on the moving frame; long frames (>33 ms) per 1000 went
+from **1000 to 41**. The pre-Phase-7 build measures 9.32 ms, so Phase 7 now
+costs ~13% rather than 4.7×.
+
+**It was not the documented, unfixable frame-time tail** — that tail is a few
+long frames against a healthy median, and Phase 7's *median* had moved from 8.9
+to 42.9 ms. **And it was not the shadow ray**: turning shadows fully off
+recovered nothing (43.46 vs 43.62).
+
+**The cause was lava.** Lava is `IsFluid | IsEmissive`, so every lava cell
+registered as a point light through §6.6's hook — 12,000 of them from the vents
+alone — and the light selection insertion-sorted all of them every frame. My own
+comment on that sort said *"at n in the tens"*; the assumption behind it came
+from §3.8's "a handful of placed torches" and I wrongly applied it to every
+emissive material.
+
+**My first fix was wrong** and is recorded as a failure in §A.6 rather than
+replaced quietly. The verification includes a mutation arm that is now a no-op —
+the strongest evidence available that the expensive work is genuinely gone.
+
+**⚠ One consequence needs your decision: a lava lake no longer lights the cave
+around it.** It still reads hot (self-lit shading + C.9's `+ emissive`); it just
+no longer illuminates neighbours, which §6.5 never promised. §10 flag 9.
+
+## Which preset I'd pick: **Atmospheric**
+
+Closest to "soft, atmospheric, painterly, warm/cool balance" for three concrete
+reasons: `k_soft` at 0.090 (3× shipped) is the only lever that makes voxel edges
+read painted rather than cut; ambient kept high but pushed lilac-cool against a
+warm sun *is* the warm/cool split, which is lost if you merely turn ambient
+down; and a 30° ramp with a 300 s day makes golden hour watchable. **Press `]` in
+the Playground to cycle all five.** The choice is yours.
+
+**Your "blindingly bright snow" was real and is arithmetic, not taste.** Snow at
+noon computed to 1.149 — clipping all three channels to flat white. And lowering
+ambient alone does *not* fix it (still 1.05), because the sun term alone is at
+the ceiling. All four new presets sit under a derived ceiling; the shipped values
+are kept as a preset so you can A/B the clipping.
+
+## Do dark caves and distant terrain look good?
+
+**Caves: yes.** A torch in an irregular 3-lobe chamber reads right, and Stage B's
+`N·L` flip is *visibly* working — ledge tops brighter than their vertical faces,
+ceiling falling away dark. That distinction did not exist yesterday. Criticism:
+it's close to monochrome warm tan; if that reads flat, `undergroundAmbientFloor`
+is the lever.
+
+**Distance: no problem found, but not fully settled.** Distant shadows are
+coherent ribbons following real relief. §8's speckle is present but **localised
+to grazing view angles**, which is what genuine per-coarse-voxel shadowing looks
+like (an addressing bug would be distance-dependent). **Inconclusive, leaning
+benign** — settling it needs the tier-1/2 oracle that does not exist.
+
+## The uncomfortable result: no shadow rung holds 60 FPS at golden hour
+
+Cooled and counterbalanced: rung 1 = **53.0 ms**, rung 3 (off) = **15.1 ms**.
+**Rung 1 saves nothing** — §6.5's first fallback is not a fallback as
+implemented. With §6's rung 0 at 52.06 and rung 2 at 40.77, only *off* fits.
+I have a cheap, untested hypothesis (§E.2: it half-rates only beyond 128 m, and
+most hit pixels are nearer) and two one-constant experiments that might change
+this. **Not decided — §10 flag 4.**
+
+Also: **32 torches cost +0.33 ms.** Point lights are effectively free.
+
+## The one thing most worth your five minutes
+
+**Press `]` to cycle presets at golden hour (`N`), then press `J` to step the
+shadow rungs.** That single pass answers the two questions only you can:
+which look ships, and whether shadows-off is acceptable given nothing else
+holds 60 FPS. Second-best thirty seconds: flip between the five
+`D3_swim_*_200m.png` frames and tell me whether the distant shadow drifts — I
+deliberately did not judge that from stills.
 
 ---
 
@@ -566,6 +633,25 @@ visual trade (distant shadows fade out) that is **yours, not mine**.
 §6.5 is explicit that stepping down is the spec's own designed outcome and that
 "the game ships either way".
 
+### 9. A lava lake no longer lights the cave around it — NEW, needs your call
+Fixing the Stage A stutter required that **mobile emissives stop registering as
+point lights** (§A.6): lava is `IsFluid | IsEmissive`, and a flowing lava lake
+registered thousands of lights, which is what §3.8's "a handful of placed
+torches, not a lit city" exists to prevent.
+
+**What lava keeps:** `MaterialPalette.IsSelfLit`'s shading cheat (it skips AO and
+the hemisphere term and is pushed above its albedo) and C.9's `+ emissive` on the
+voxel itself. It still reads hot.
+**What it loses:** illuminating its *neighbours* through the §3.8 buffer.
+
+**§6.5 never promised the latter** ("no propagation, no BFS ... light does not
+bend around corners in v1"), so this is arguably the spec's behaviour rather than
+a regression — but it is a visible change from what you saw yesterday and it is
+yours to accept. **The alternative is §3.8's per-brick clustering
+(`MAX_LIGHTS_PER_BRICK`), which §3.8 explicitly defers to v1.5.** A cheaper
+middle option nobody has costed: register one light per lava *brick* rather than
+per cell.
+
 ### 5. The art constants
 `k_soft`, the C.11 falloff `k`, torch range and colour, ambient intensity and
 colour, the underground floor, the sun ramp, the day length. All placeholders,
@@ -678,12 +764,102 @@ isolate before fixing; two seams were added to make that possible
 pre-existing `-noskyprobe`), and the numbers decide which candidate to act on.
 Results land in §A.5 below.
 
-### A.5 Isolation results
+### A.5 Isolation results — the sky probe was innocent
 
-**PENDING — the arms were launched in this session. If this line is still here,
-the session ended before they landed, and §A.1–A.4 stand on their own: the
-regression is real, it is Phase 7's, it is not the shadow ray, and the two
-leading candidates are named with the seams already built to test them.**
+| arm (all rung 3, moving, fluid live, 300 s cooled, same session) | mean frame | >33 ms /1000 | >50 ms /1000 |
+|---|---|---|---|
+| baseline | 43.46 ms | 1000.0 | 58.8 |
+| **A2** — `-noskyprobe` | 43.13 ms | 1000.0 | 50.4 |
+| **A3** — `-nolightupload` | **11.25 ms** | 43.8 | 3.3 |
+| **A4** — both | 8.89 ms | 6.3 | 0.0 |
+| *(c)* pre-Phase-7 | 9.32 ms | — | — |
+
+**The sky probe — a full extra ray per hit pixel, and my leading suspect — was
+innocent** (43.46 → 43.13). The per-frame light upload was the whole of it.
+
+### A.6 The first fix was WRONG, and what the real cause turned out to be
+
+**Attempt 1** added a dirty-check so `SetData` only fired when the bytes
+changed. Verified on the rebuilt binary, cooled:
+
+| arm | mean frame |
+|---|---|
+| FIXED rung 3, upload on | 42.21 ms *(was 43.46 — unchanged)* |
+| FIXED rung 0, upload on | 42.80 ms *(was 43.62 — unchanged)* |
+| upload suspended via the seam | 10.53 ms |
+
+Suspending `Upload()` **still** gave 4× after the dirty-check. That proved the
+cost was never the `SetData` at all — it was inside `Upload()`.
+
+**THE ACTUAL CAUSE. Lava is `IsFluid | IsEmissive` — emissive AND mobile.**
+`-stutterprobe` opens all vents; the Playground's lava vent budget is **12,000
+voxels**; and every lava cell goes through §6.6's enqueue on the §8.3 edit path
+and **registers as a point light**. `SelectActive` then insertion-sorted
+thousands of entries every frame: O(n²), ~144M operations.
+
+**The assumption that failed was mine, and it is worth naming precisely.** My
+comment on that sort read *"at n in the tens this is also simply faster"*. That
+was true. The assumption *behind* it — that n would be in the tens — came from
+§3.8's *"a handful of placed torches, not a lit city"* and §6.5's *"v1 lights are
+genuinely sparse"*. Both of those are statements about **placed torches**, and I
+applied them to **every emissive material**. A fluid can register itself.
+
+**Two changes — cause and hazard:**
+
+1. **CAUSE.** `if (MaterialRules.IsMobile(material)) return false;` in
+   `Register`. §3.8's own scope, enforced rather than assumed.
+2. **HAZARD.** Partial selection replaces the full sort: O(n × 32) regardless of
+   n, so no future emissive can make it quadratic again. The assumption about n
+   was already wrong once.
+
+### A.7 VERIFICATION — the fix works, and the mutation arm proves it
+
+Rebuilt, 300 s cooled, same probe, same pose, same flags:
+
+| arm | mean frame | sustained | >33 ms /1000 | registered | SetData calls |
+|---|---|---|---|---|---|
+| **rung 3, upload ON** | **10.54 ms** | 94.9 FPS | 41.3 | **0** | **1** |
+| **rung 0, upload ON** | 13.63 ms | 73.4 FPS | 43.3 | 0 | 1 |
+| **mutation — upload SUSPENDED** | 10.52 ms | 95.1 FPS | 41.3 | 0 | 1 |
+
+**THE MUTATION ARM IS THE PROOF.** `-nolightupload` is now a **no-op** — 10.52
+against 10.54, a 0.2% difference. Before the fix that same seam moved the frame
+from 43.46 to 11.25 ms. A seam that no longer changes anything is exactly what
+"the expensive work is gone" looks like, and it is stronger evidence than the
+headline number alone because it cannot be explained by the machine being
+cooler.
+
+**Two direct observations confirm the mechanism rather than inferring it:**
+`LIGHTS registered 0` (the 12,000 lava cells no longer register) and
+`SetData calls 1` (one upload served all 2,400 frames).
+
+**Against the pre-Phase-7 baseline:** 10.54 ms vs **9.32 ms** — Phase 7 now
+costs about **13%** on the moving frame, which is the sky probe, the sun cycle
+and the C.9 combine. That is a real cost and it is stated rather than rounded
+away, but it is not a 4.7× regression.
+
+**The stutter distribution, which is what "we can feel each frame" actually
+means:** long frames per 1000 went from **1000.0 / 58.8** (>33 ms / >50 ms) to
+**41.3 / 1.7**. The pre-Phase-7 build sits at 6.3% of frames over 16.6 ms.
+
+### A.8 A CONFOUND IN THESE ARMS, stated so the numbers are not over-read
+
+**`-stutterprobe` does not set the time of day, and the Playground's clock
+RUNS** (`dayLengthSeconds` 120, runs ~100 s). So the sun sweeps most of a
+day–night cycle during each arm, and **shadow rays are skipped entirely while
+the sun is below the horizon** (§6.5).
+
+**What that does and does not invalidate:**
+- It does **not** affect Stage A's conclusions. Every arm shares the same clock
+  behaviour, so the before/after and the arm-to-arm comparisons hold.
+- It **does** mean the rung-0 figure here (13.63 ms) is an average over a full
+  cycle, **not a golden-hour number**, and must not be compared with §E's
+  golden-hour measurements or read as "rung 0 now fits the budget". §E's
+  cooled golden-hour arms remain the figures of record for rung cost.
+
+Fixing the probe to pin the clock is a one-line change and is **not** done here,
+because redoing every Stage A arm to get it would cost the rest of the night for
+a conclusion that does not change.
 
 ---
 
@@ -1014,7 +1190,18 @@ Neither was done tonight. Both are one-constant experiments.
 7. **Amendment 8.11 remains DRAFT, NOT ADOPTED.** Untouched. §5.4 records the one
    place Phase 7 came near it and why that is not an implementation of it.
 8. **The unattributed frame-time tail and the sustained-load stutter** are
-   untouched and must not be reported as fixed.
+   untouched and must not be reported as fixed. **The stutter fixed in §A is a
+   DIFFERENT, NEW defect that Phase 7 introduced** — the pre-existing tail is
+   still there (6.3% of frames over 16.6 ms in the pre-Phase-7 arm, 41.3 per
+   1000 over 33 ms after the fix) and nothing in this session touched it.
+9. **`-stutterprobe` does not pin the time of day** (§A.8), so its arms average
+   over a day–night cycle. Fine for the comparisons it was used for; a one-line
+   fix before it is used for anything rung-related.
+10. **Rung 1's hypothesis (§E.2) is untested** — it half-rates only beyond 128 m
+    and most hit pixels at the test pose are nearer. One constant.
+11. **Whether distant shadows swim under lateral motion is unjudged.** Five
+    comparable frames exist (`D3_swim_*`); judging drift across stills is a
+    human job.
 
 ---
 
