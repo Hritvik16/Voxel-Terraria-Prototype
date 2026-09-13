@@ -252,6 +252,184 @@ public class LightingTests
         Assert.AreEqual(0, _lights.RegisteredCount);
     }
 
+    /// §10 flag 3's default, PINNED so it cannot drift back silently.
+    ///
+    /// This is a DEFAULT, not a law: C.9's literal grouping attaches
+    /// max(0, N.L) to the sun term only, and `false` still reproduces that
+    /// exactly. The flip to `true` is recorded in RaymarchFeature's own comment
+    /// with the screenshot evidence behind it. The test exists so that reverting
+    /// it is a deliberate act with a failing test attached, rather than
+    /// something that happens by accident during a merge.
+    [Test]
+    public void PointLightNdotL_DefaultsToOn_AndIsStillAToggle()
+    {
+        Assert.IsTrue(RaymarchFeature.PointLightNdotL,
+            "§10 flag 3's default was flipped to ON on 2026-09-13 because without N.L every face " +
+            "of a torch-lit chamber renders identically regardless of orientation. If this is being " +
+            "reverted, do it deliberately and update PHASE_7_COMPLETION.md §10 flag 3 -- do not just " +
+            "delete this assertion.");
+    }
+
+    // =====================================================================
+    // STAGE A -- the per-frame upload that cost 32 ms/frame
+    // =====================================================================
+
+    /// THE PHASE 7 STUTTER, AS AN ASSERTION ON CALL COUNT RATHER THAN ON TIME.
+    ///
+    /// LightSourceBuffer.Upload() used to issue a GraphicsBuffer.SetData EVERY
+    /// FRAME, even with zero lights placed. Measured cost, cooled, moving camera
+    /// with live fluid: 43.46 ms/frame with it, 11.25 ms/frame without
+    /// (PHASE_7_COMPLETION §A). A frame-time test would be unrunnable in
+    /// EditMode and unstable anywhere; the CALL COUNT is the thing that actually
+    /// changed, it is deterministic, and it is what this pins.
+    ///
+    /// MUTATION CHECK: remove the `if (n == 0)` fast path or the
+    /// `StagingDiffers()` guard in Upload and this goes red.
+    [Test]
+    public void Upload_DoesNotReUploadWhenNothingChanged()
+    {
+        // No lights at all -- the overwhelmingly common case, and the one that
+        // was costing a full SetData per frame for a buffer of zeroes.
+        for (int frame = 0; frame < 50; frame++)
+            _lights.Upload(new float3(frame * 0.5f, 12f, frame * 0.25f));
+
+        Assert.AreEqual(1, _lights.UploadsPerformed,
+            "with ZERO lights placed, the buffer must be initialised exactly once and then left " +
+            "alone. Re-uploading it every frame is the Phase 7 stutter: SetData on a buffer the " +
+            "raymarch kernel is reading serialises against in-flight GPU work, and under camera " +
+            "motion that stall dominated the frame (43.46 ms -> 11.25 ms when suspended).");
+
+        // Now place a light: that IS a change and must upload exactly once.
+        _lights.Register(new int3(100, 20, 100), Materials.Torch);
+        _lights.Upload(float3.zero);
+        Assert.AreEqual(2, _lights.UploadsPerformed, "placing a light must upload once");
+
+        // Standing still with an unchanged set: no further uploads.
+        for (int frame = 0; frame < 30; frame++) _lights.Upload(float3.zero);
+        Assert.AreEqual(2, _lights.UploadsPerformed,
+            "a stationary player with an unchanged light set re-uploaded the buffer");
+    }
+
+    /// The other half: a change the player CAN cause must still reach the GPU.
+    /// A dirty-check that never re-uploads is worse than no dirty-check, because
+    /// the lighting silently stops tracking the world.
+    [Test]
+    public void Upload_StillUploadsWhenTheActiveSetActuallyChanges()
+    {
+        for (int i = 0; i < EngineConfig.MAX_ACTIVE_LIGHTS + 4; i++)
+            _lights.Register(new int3(i * 40, 20, 0), Materials.Torch);
+
+        _lights.Upload(float3.zero);
+        long afterFirst = _lights.UploadsPerformed;
+
+        // MOVING far enough re-orders the nearest-N selection (§3.8's
+        // furthest-first rule is relative to the player), so the bytes change
+        // even though no light moved. This is the case the original comment
+        // correctly identified -- and then wrongly concluded made a dirty-check
+        // pointless.
+        _lights.Upload(new float3(400f, 20f, 0f));
+        Assert.Greater(_lights.UploadsPerformed, afterFirst,
+            "the player moved far enough to change which lights are nearest, but the buffer " +
+            "was not re-uploaded -- the active set is now stale on the GPU");
+
+        // Digging out a torch that is IN THE ACTIVE SET must reach the GPU.
+        //
+        // THE FIRST VERSION OF THIS ASSERTION WAS WRONG AND THE CODE WAS RIGHT.
+        // It removed the light at voxel (0,20,0) while the player stood at
+        // x = 400 m -- which is the FURTHEST of the 36, and therefore was not in
+        // the active 32 at all (§3.8 drops furthest-first). Removing a light the
+        // GPU was never told about correctly changes no bytes and correctly
+        // triggers no upload. The test was asserting that a no-op must cause
+        // work. It now removes the NEAREST light instead, which is
+        // unambiguously in the active set.
+        long afterMove = _lights.UploadsPerformed;
+        var nearest = new int3(35 * 40, 20, 0);          // x = 1400 voxels = 140 m
+        Assert.IsTrue(_lights.IsRegistered(nearest), "precondition: the nearest light exists");
+        Assert.IsTrue(_lights.Unregister(nearest));
+        _lights.Upload(new float3(400f, 20f, 0f));
+        Assert.Greater(_lights.UploadsPerformed, afterMove,
+            "a light INSIDE the active set was removed but the buffer was not re-uploaded -- " +
+            "the GPU is now drawing a torch that no longer exists");
+
+        // And the complement, which is the behaviour the first version mistook
+        // for a bug: removing a light OUTSIDE the active set changes nothing on
+        // the GPU and must NOT cost an upload.
+        long afterRemove = _lights.UploadsPerformed;
+        Assert.IsTrue(_lights.Unregister(new int3(0, 20, 0)));   // the furthest
+        _lights.Upload(new float3(400f, 20f, 0f));
+        Assert.AreEqual(afterRemove, _lights.UploadsPerformed,
+            "removing a light that was never in the active set caused a pointless re-upload");
+    }
+
+    // =====================================================================
+    // STAGE C -- the presets, and the snow-clipping ceiling they respect
+    // =====================================================================
+
+    /// THE OWNER'S "BLINDINGLY BRIGHT IN SNOW" COMPLAINT, AS AN ASSERTION.
+    ///
+    /// An up-facing snow voxel at noon must not saturate, or the terrain shape
+    /// disappears into flat white. This is arithmetic, not taste, which is why
+    /// it is a test and not a preset comment: see LightingPresets' header for
+    /// the derivation.
+    ///
+    /// The SHIPPED config is deliberately EXCLUDED and separately asserted to
+    /// clip below -- it is kept as a preset for A/B, and a test that quietly
+    /// passed it would erase the finding.
+    [Test]
+    public void Presets_DoNotClipSnowAtNoon()
+    {
+        foreach (var p in LightingPresets.All)
+        {
+            if (p.Name == "Shipped") continue;
+            var c = p.Build();
+            float peak = LightingPresets.SnowNoonPeak(c);
+            Assert.Less(peak, 1.0f,
+                $"preset '{p.Name}' drives an up-facing snow voxel to {peak:F3} at noon, which " +
+                "saturates to flat white and loses the terrain shape -- the exact symptom reported. " +
+                "Lower sunIntensity (not just ambientIntensity: the sun term alone reaches the " +
+                "ceiling). See LightingPresets' header for the constraint.");
+            Assert.LessOrEqual(c.sunIntensity, LightingPresets.MaxSunIntensityForSnow(c.ambientIntensity) + 1e-3f,
+                $"preset '{p.Name}' exceeds the derived sunIntensity ceiling for its ambient");
+        }
+    }
+
+    /// The finding itself, pinned so it cannot be quietly lost: the values this
+    /// phase shipped DO clip. If someone "fixes" this by lowering the snow
+    /// palette instead, this test still passes and MORNING_REPORT item 1's
+    /// earlier correction gets undone by accident -- so the palette is asserted
+    /// unchanged alongside it.
+    [Test]
+    public void ShippedConfig_ClipsSnowAtNoon_AndThatIsWhyThePresetsExist()
+    {
+        float peak = LightingPresets.SnowNoonPeak(new LightingConfig());
+        Assert.Greater(peak, 1.0f,
+            "the shipped lighting config no longer clips snow at noon. If that was fixed " +
+            "deliberately, update LightingPresets' header and PHASE_7_COMPLETION §C -- this " +
+            "assertion records a measured defect, not a requirement.");
+
+        var snow = MaterialPalette.Of(Materials.Snow);
+        Assert.AreEqual(0.760f, snow.B, 0.0005f,
+            "the snow palette moved. MORNING_REPORT.md item 1 already lowered snow 0.86 -> 0.72 " +
+            "for this same clipping class; the Phase 7 fix belongs in the LIGHTING constants, " +
+            "not in the palette. Lowering snow again would treat the symptom in the wrong file.");
+    }
+
+    [Test]
+    public void Presets_AreDistinctAndAllParseBackFromJson()
+    {
+        var seen = new System.Collections.Generic.HashSet<string>();
+        foreach (var p in LightingPresets.All)
+        {
+            Assert.IsTrue(seen.Add(p.Name), $"duplicate preset name '{p.Name}'");
+            string err;
+            var back = LightingConfig.Parse(p.Build().ToJson(), new LightingConfig(), out err);
+            Assert.IsNull(err, $"preset '{p.Name}' does not round-trip through its own JSON: {err}");
+            Assert.AreEqual(p.Build().kSoft, back.kSoft, 1e-6f);
+            Assert.AreEqual(p.Build().sunIntensity, back.sunIntensity, 1e-6f);
+        }
+        Assert.GreaterOrEqual(LightingPresets.All.Length, 4, "Stage C asked for 3-4 distinct presets");
+    }
+
     // =====================================================================
     // §6.6 / A.7 -- the emissive data that had never existed
     // =====================================================================

@@ -361,11 +361,27 @@ public class Playground : MonoBehaviour
         // frame from the motor, and the two fight -- the symptom is screenshots
         // taken from wherever the player happened to be standing. Fly mode
         // leaves the transform alone, which is what those passes expect.
-        if (HasArg("-playgroundshots") || HasArg("-gputrace"))
+        // A CAPTURE PASS OWNS THE CAMERA, SO THE PLAYER MUST NOT. -p7stress
+        // ADDED 2026-09-13, after its first run produced ten unusable frames.
+        //
+        // This block's own comment already explained the failure exactly -- "in
+        // walk mode DebugStep rewrites the camera every frame from the motor,
+        // and the two fight; the symptom is screenshots taken from wherever the
+        // player happened to be standing" -- and that is precisely what
+        // happened: Stage D positioned the camera inside a cave and every shot
+        // came back from the surface, with the F2 help panel open across the
+        // middle of frame. The trap was documented; the new flag simply was not
+        // added to the list. Any future capture mode must be added here too.
+        if (HasArg("-playgroundshots") || HasArg("-gputrace") || HasArg("-p7stress"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
         }
+
+        // Screenshot passes also want the overlays OUT of frame. The Stage D
+        // shots are meant to be looked at as pictures of the lighting; a perf
+        // panel and a hotbar across them defeats the point.
+        if (HasArg("-p7stress")) DebugHideUi = true;
 
         RegisterDefaultToys();
         _ready = true;
@@ -440,6 +456,14 @@ public class Playground : MonoBehaviour
                 _status = $"SOFT shadows (C.10, k_soft = {LightingConfig.Active.kSoft:F3})";
             }
         }));
+        // STAGE C's preset switch. Goes through the FILE (see
+        // LightingPresets.Apply), so the chosen preset ends up sitting in the
+        // very file the owner was told to edit -- tweaking from there needs no
+        // extra step, and a preset that switches correctly is itself evidence
+        // the §8.1 hot-reload path works.
+        Register(new Toy(KeyCode.RightBracket, "next light preset", () => CyclePreset(+1)));
+        Register(new Toy(KeyCode.LeftBracket, "prev light preset", () => CyclePreset(-1)));
+
         Register(new Toy(KeyCode.Y, "lighting view", () =>
         {
             // Beauty -> SunVis -> ShadowHeat -> Beauty. §10.3 item 6's two views,
@@ -817,6 +841,25 @@ public class Playground : MonoBehaviour
 
     internal static bool DebugSuspendFluidSim = false;
 
+    /// MEASUREMENT SEAM, NOT A CONFIGURATION -- the same standing this file's
+    /// own header gives DebugSuspendFluidSim.
+    ///
+    /// LightSourceBuffer.Upload() runs unconditionally every frame: it copies
+    /// the registry to scratch, sorts it by distance, rebuilds the staging array
+    /// and calls GraphicsBuffer.SetData -- even with ZERO lights placed and the
+    /// player standing still. That was a deliberate choice (the ACTIVE SET
+    /// depends on player position, so it changes when the player moves even
+    /// though no light did) and it is documented as such in that file. But
+    /// "deliberate" is not "measured", and a per-frame driver call is exactly
+    /// the shape of thing that shows up as variance rather than as mean cost.
+    /// This flag lets Stage A ask the question instead of arguing it.
+    internal static bool DebugSuspendLightUpload = false;
+
+    /// Suppresses every in-scene overlay (help, perf, hotbar, state panels) so a
+    /// capture pass produces a clean picture of the world rather than a picture
+    /// of the UI. Set by -p7stress.
+    internal static bool DebugHideUi = false;
+
     /// Where §7.4's radius is centred: the player's feet when walking, the
     /// camera when flying.
     private int3 PlayerOrCameraVoxel()
@@ -847,6 +890,24 @@ public class Playground : MonoBehaviour
         VoxelEngine.Rendering.LightingDriver.ClockPaused = true;
         SunCycle.SetHours(SunCycle.Hours + (fwd ? 1f : -1f) * hoursPerSecond * dt);
         _status = SunStatus("scrubbing");
+    }
+
+    /// Which preset is showing. -1 until one is chosen, because at startup the
+    /// live config is whatever LightingConfig.json holds, which may be a
+    /// hand-edit rather than any preset -- claiming a name for it would be a lie.
+    private int _presetIndex = -1;
+    internal string CurrentPresetName =>
+        _presetIndex < 0 ? "custom (LightingConfig.json as found)"
+                         : VoxelEngine.Rendering.LightingPresets.All[_presetIndex].Name;
+
+    private void CyclePreset(int delta)
+    {
+        int n = VoxelEngine.Rendering.LightingPresets.All.Length;
+        _presetIndex = _presetIndex < 0
+            ? (delta > 0 ? 0 : n - 1)
+            : (int)Mathf.Repeat(_presetIndex + delta, n);
+        string what = VoxelEngine.Rendering.LightingPresets.Apply(_presetIndex);
+        _status = $"LIGHT PRESET {_presetIndex + 1}/{n}: {what}";
     }
 
     private static string SunStatus(string label) =>
@@ -1229,6 +1290,7 @@ public class Playground : MonoBehaviour
 
     void OnGUI()
     {
+        if (DebugHideUi) return;
         float ui = Mathf.Max(1f, Screen.height / 900f);
         Camera cam = Camera.main;
 
@@ -1516,6 +1578,7 @@ public class Playground : MonoBehaviour
         sb.AppendLine("  <b>J</b>   shadow quality 0-3 — full soft / half-res distant / hard / off (§6.5)");
         sb.AppendLine("  <b>K</b>   hard &lt;-&gt; soft shadows (k_soft toggle)");
         sb.AppendLine("  <b>Y</b>   view: beauty -&gt; sun visibility -&gt; shadow step heat");
+        sb.AppendLine("  <b><color=#ffd479>[</color></b> / <b><color=#ffd479>]</color></b>   cycle LIGHT PRESET — Warm / Atmospheric / HighContrast / Muted / Shipped");
         sb.AppendLine("");
         sb.AppendLine("<b><color=#cfe3f5>VIEW</color></b>");
         sb.AppendLine("  <b>F1</b> perf overlay      <b>F2</b> these controls      <b>ESC</b> release the mouse");

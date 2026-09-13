@@ -62,6 +62,10 @@ namespace VoxelEngine.Rendering
         /// would also stop the hot reload and the light upload).
         public static bool ClockPaused;
 
+        /// Stage A's isolation seam for the per-frame light upload. See
+        /// Playground.DebugSuspendLightUpload for why this exists.
+        public static bool SuspendUpload;
+
         /// Frames uploaded, so a rig can assert the driver actually ran rather
         /// than inferring it from a screenshot.
         public static long UploadsRun { get; private set; }
@@ -70,6 +74,12 @@ namespace VoxelEngine.Rendering
         {
             Lights = new LightSourceBuffer();
             RaymarchFeature.Lights = Lights;
+
+            // Stage C: drop the preset files beside LightingConfig.json so the
+            // owner can read and edit them as ordinary files rather than having
+            // to press a key to discover what a preset contains. Non-destructive
+            // -- an existing file is never overwritten, so hand-edits survive.
+            LightingPresets.WritePresetFilesIfAbsent();
         }
 
         /// Wire the §6.6 enqueue. Called by whoever built the EditService --
@@ -88,8 +98,15 @@ namespace VoxelEngine.Rendering
                         : (Camera.main != null ? Camera.main.transform : null);
             float3 p = t != null ? new float3(t.position.x, t.position.y, t.position.z) : float3.zero;
 
-            Lights.Upload(p);
-            UploadsRun++;
+            // The measurement seam. Suspending the upload leaves the buffer
+            // holding its last contents, which is correct for an isolation arm:
+            // lights already uploaded keep rendering, so the arm measures the
+            // per-frame UPLOAD cost and not "the lighting was turned off".
+            if (!SuspendUpload)
+            {
+                Lights.Upload(p);
+                UploadsRun++;
+            }
         }
 
         /// Test/rig seam: point the cap's distance measurement somewhere without

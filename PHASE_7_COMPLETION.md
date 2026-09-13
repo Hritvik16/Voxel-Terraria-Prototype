@@ -14,6 +14,23 @@
 **Acceptance rig:** `run-phase7-rig.sh` → `PASS 28  FAIL 0`, 15 screenshots
 **Shader:** `Raymarch.compute` compiles clean in a release standalone build
 
+---
+
+# MORNING SUMMARY
+
+*(Written for a five-minute read. Everything here is expanded, with numbers and
+caveats, in the sections below. Section A is the stutter, B is the N·L flip,
+C is the presets, D is the stress/distance pass, E is the remaining matrix.)*
+
+**STAGES REACHED THIS SESSION: _(filled at the end of the run)_**
+
+**PLACEHOLDER — this section is written last, once every stage that ran has
+landed. If you are reading this sentence, the session was interrupted before it
+could be completed; the individual stage sections below are still accurate and
+self-contained, and `git log` shows exactly how far it got.**
+
+---
+
 > **This document does not say Phase 7 is complete.** It records what was built,
 > what was proven, what was measured, what was disproved, what measured worse,
 > and what is open. The owner closes the phase.
@@ -570,6 +587,357 @@ every shader and the shipping macOS minimum. Not done.
 Both amendments are *in force* and *implemented*, and CLAUDE.md cites 8.8 in its
 ground-truth ordering — but no `.md` for either is in the repo and `git log`
 shows neither was ever deleted.
+
+---
+
+## A. STAGE A — THE STUTTER: Phase 7 DID regress the frame, and it is NOT the shadow ray
+
+### A.1 The three-arm comparison
+
+Same probe (`-stutterprobe`), same pose, same settle, same flags, **fullscreen,
+300 s cooldown before each, same session**. `-movespeed 12` is used rather than
+a static camera because the reported symptom's trigger is *motion*, and it is
+the one motion lever present in both the current and the pre-Phase-7 binary.
+Fluid live in all three arms. 2,400 frames each.
+
+| arm | build / rung | mean frame | sustained | p50 | p99 | >33 ms /1000 | >50 ms /1000 |
+|---|---|---|---|---|---|---|---|
+| **(a)** | current, rung 3 — **shadows OFF** | **43.46 ms** | 23.0 FPS | 42.86 | 78.60 | 1000.0 | 58.8 |
+| **(b)** | current, rung 0 — full penumbra | **43.62 ms** | 22.9 FPS | 43.00 | 75.41 | 1000.0 | 60.0 |
+| **(c)** | **pre-Phase-7** (`cbdc90f`) | **9.32 ms** | 107.3 FPS | 8.88 | 37.28 | — (6.3% over 16.6 ms) | — |
+
+### A.2 What this says, plainly
+
+**1. Phase 7 regressed the moving frame by ~4.7×, and it is NOT the pre-existing
+tail.** Stage A's first question was whether the stutter is new. It is. Arm (c)
+runs the same scene, the same motion and the same live fluid at **9.32 ms**;
+arm (a) runs it at **43.46 ms**. This is not the permanently-unattributable tail
+of `FPS_INVESTIGATION` §6 / `PHASE_6_COMPLETION` open item 4 — that tail is a
+small fraction of long frames against a healthy median, and arm (c) shows
+exactly that shape (p50 8.88 ms, 6.3% of frames over 16.6 ms). Arm (a)'s median
+is 42.86 ms. **The median moved. That is a new, systematic cost, not a tail.**
+
+**2. The shadow ray is NOT what costs it.** Arms (a) and (b) differ by **0.4%**
+(43.46 vs 43.62 ms) — far inside run-to-run spread. Turning §6.5's shadow ray
+completely off recovers **nothing**. Whatever Phase 7 added that costs ~34 ms
+per frame is present at rung 3.
+
+**3. This CONTRADICTS §6's earlier diagnostic, and the contradiction is
+informative rather than an error in either.** §6 measured rung 3 at 15.31 ms and
+rung 0 at 52.06 ms — a 3.4× shadow-ray cost. That was a **static camera with
+fluid off**. These arms are **moving with fluid live**. Both are real; they are
+different workloads. Read together they say: the shadow ray is expensive when
+the frame is otherwise cheap, and irrelevant when something else is already
+costing 43 ms. **The something else only appears under motion**, which is
+precisely why §6's static probe could not see it and why the owner's report
+("while turning and walking") was the necessary clue.
+
+### A.3 The candidates, and what is already ruled out
+
+Checked by inspection before measuring (cheapest first, as Stage A directs):
+
+- **(a) `LightingConfig`'s hot-reload poll — RULED OUT as a *deviation*.** It
+  calls `ReloadIfChanged()` once per frame, two `stat()` calls when nothing
+  changed. That is **exactly** `PlayerConfig`'s cadence, verified by reading
+  both call sites (`PlayerController.cs:112`/`:172` vs `LightingDriver.cs:84`).
+  It is a second poll where there was one, not a more aggressive one.
+- **(d) `ShadowRayDump` — RULED OUT by inspection.** It is added to the
+  Phase 7 Cycle scene only; `GeneratePlayground` does not add it (0 matches in
+  that method). It is not in the binary under test.
+- **(b) The per-frame light upload — PRESENT, CONFIRMED BY READING.**
+  `LightSourceBuffer.Upload()` runs unconditionally every frame: it copies the
+  registry to scratch, sorts by distance, rebuilds the staging array and calls
+  `GraphicsBuffer.SetData` — **even with zero lights placed**. That was a
+  deliberate choice (the *active set* depends on player position) and is
+  documented as such in that file, but "deliberate" is not "measured", and a
+  per-frame `SetData` on a buffer the shader reads is exactly the shape of
+  thing that stalls under motion.
+- **(c') A CANDIDATE STAGE A's LIST DID NOT NAME, found by reading the shader:
+  THE SKY PROBE IS NOT GATED ON SHADOW RUNG.** `_UseSkyProbeAmbient` is tested
+  independently of `_ShadowQualityLevel`, so at rung 3 — documented as
+  "shadows off" — **a full extra ray per hit pixel is still fired**. Arm (a) is
+  therefore not "Phase 7 minus shadows"; it still carries one ray per pixel.
+  This is both a leading suspect for the regression **and**, independently, a
+  defect in what rung 3 claims to be.
+
+### A.4 Isolation in progress
+
+Three further arms, identical to (a) but with one thing removed each, cooled
+and same-session, so they are directly comparable to (a) = 43.46 ms and
+(c) = 9.32 ms:
+
+| arm | removes |
+|---|---|
+| **A2** | the sky probe (`-noskyprobe`) |
+| **A3** | the per-frame light upload (`-nolightupload`) |
+| **A4** | both |
+
+**NOTHING IS FIXED YET AND NOTHING IS CLAIMED FIXED.** The standing rule is
+isolate before fixing; two seams were added to make that possible
+(`Playground.DebugSuspendLightUpload` → `LightingDriver.SuspendUpload`, and the
+pre-existing `-noskyprobe`), and the numbers decide which candidate to act on.
+Results land in §A.5 below.
+
+### A.5 Isolation results
+
+**PENDING — the arms were launched in this session. If this line is still here,
+the session ended before they landed, and §A.1–A.4 stand on their own: the
+regression is real, it is Phase 7's, it is not the shadow ray, and the two
+leading candidates are named with the seams already built to test them.**
+
+---
+
+## B. STAGE B — `N·L` on point lights: the default flipped, on evidence
+
+**§10 flag 3 is now decided as a DEFAULT, and still reversible.**
+
+`RaymarchFeature.PointLightNdotL` was `false` — C.9's literal grouping, which
+attaches `max(0, N·L)` to the sun term only and leaves `pointLights` bare. It is
+now `true`.
+
+**The evidence is this phase's own screenshot, not taste.** §8 recorded that in
+`02_cave_lit_by_torch.png` every face of the chamber renders identically
+regardless of which way it points, because with no `N·L` the only thing
+modulating a point light is distance. A cube lit from one side that is equally
+bright on all six faces does not read as lit — it reads as *tinted*. §6.1's
+aesthetic contract states the look is carried by "albedo, the lighting of §6.5,
+and voxel ambient occlusion"; a lighting term that cannot distinguish a face
+from its opposite is not carrying anything.
+
+**Why this is a default flip and not a spec deviation to argue about:** the
+toggle is unchanged and still reachable, `false` still reproduces C.9's literal
+grouping exactly, and both states are screenshotted side by side. It is
+reversible in one edit.
+
+**Pinned by a test** (`LightingTests.PointLightNdotL_DefaultsToOn_AndIsStillAToggle`)
+whose message says explicitly that reverting is allowed but must be deliberate —
+so a merge cannot flip it back silently.
+
+---
+
+## C. STAGE C — four lighting presets, offered rather than chosen
+
+### C.1 The part that is NOT a style choice: snow clips to pure white at noon
+
+The owner reported the snow biome as "blindingly bright". **It is, and it is
+arithmetic.** For an up-facing snow voxel at noon the shader computes
+
+```
+out = snowAlbedo × (zenithColour × sunIntensity × N·L
+                    + ambientColour × ambientIntensity) × hemiUp
+```
+
+with `snowAlbedo.b = 0.760`, `zenith.b = 0.92`, `hemiUp = 1.12`, `N·L ≈ 0.97`.
+At the shipped values (`sunIntensity 1.25`, `ambientIntensity 0.30`):
+
+```
+0.760 × (0.92×1.25×0.97 + 0.78×0.30) × 1.12  =  1.149     CLIPPED
+```
+
+All three channels exceed 1.0, so the surface saturates to flat white and the
+terrain shape disappears into it. That is the reported symptom exactly.
+
+**AND — the part worth reading — LOWERING AMBIENT ALONE DOES NOT FIX IT:**
+
+```
+ambientIntensity 0.30 → 0.10:
+0.760 × (0.92×1.25×0.97 + 0.78×0.10) × 1.12  =  1.05      STILL CLIPPED
+```
+
+because the **sun term alone is already at the ceiling**. §8 diagnosed golden
+hour as "ambient is 1.5–5× the sun", and the natural reading of that is "turn
+ambient down". For golden hour that is right. For snow at *noon* it is
+insufficient — and a preset that only did that would have left the owner's
+actual complaint in place while appearing to address it. Stage C's brief asked
+for this distinction to be checked rather than assumed; it was, and it matters.
+
+**The constraint, solved for `sunIntensity` S at ambient A:**
+
+```
+0.8924·S + 0.78·A ≤ 1.1747      ⇒   S ≤ (1.1747 − 0.78·A) / 0.8924
+```
+
+Every preset sits under its own ceiling. The shipped config sits **15% over**.
+
+**The palette is NOT the place to fix this.** `MORNING_REPORT.md` item 1 already
+lowered snow 0.86 → 0.72 for this same clipping class. That fix was correct and
+is untouched. What changed since is that Phase 7 added a real *sun* term on top
+of the hemisphere term, re-opening the headroom problem from the other side — so
+the fix belongs in the lighting constants. A test pins the snow palette
+unchanged precisely so a future session cannot "fix" this in the wrong file.
+
+### C.2 The four presets
+
+All four are `LightingPresets.cs` entries, written to disk as
+`LightingConfig_<Name>.json` beside `LightingConfig.json`, and switchable live
+with `[` / `]` in the Playground (the key writes the chosen preset over
+`LightingConfig.json`, so the existing §8.1 poll picks it up next frame — and the
+owner ends up with the preset already sitting in the file they were told to edit).
+
+| preset | direction | k_soft | ambient | sun | snow@noon |
+|---|---|---|---|---|---|
+| **Warm** | sun-dominant golden hour — the direct answer to §8 | 0.035 | 0.11 | 1.15 | 0.861 |
+| **Atmospheric** | soft, wide penumbra, warm/cool split | 0.090 | 0.17 | 1.02 | 0.848 |
+| **HighContrast** | near-hard shadows, deep ambient, dramatic | 0.012 | 0.055 | 1.20 | 0.974 |
+| **Muted** | low-saturation, even, the safe floor | 0.050 | 0.15 | 0.95 | 0.816 |
+| *Shipped* | tonight's values, kept for A/B | 0.030 | 0.30 | 1.25 | **1.149 CLIPS** |
+
+**MY READ, WHICH IS NOT A DECISION.** If forced to pick one against the stated
+brief — "soft, atmospheric, painterly, warm/cool balance, distinct not a copy" —
+I would pick **Atmospheric**, for three specific reasons rather than a general
+impression:
+
+1. **`k_soft` 0.090, three times shipped.** This is the only lever that makes
+   voxel edges read as *painted* rather than *cut*. C.10's penumbra is the one
+   thing this renderer has that a hard-shadow voxel game does not, and at 0.03
+   it is nearly invisible.
+2. **Ambient kept comparatively high but pushed lilac-cool** (0.50, 0.55, 0.74)
+   against a warm sun. That split *is* the warm/cool balance — and it is
+   precisely what gets lost if ambient is merely turned down, which is the
+   trap §8's "ambient is too high" phrasing sets.
+3. **A wide sun ramp (30°) and a 300 s day**, so golden hour is something you
+   watch rather than catch.
+
+**Warm** is the better answer to §8 read literally and will look more dramatic
+at golden hour; **HighContrast** exists so the comparison has a pole rather than
+three variations on soft, and is the one that makes the shadow ray visible as a
+*feature*; **Muted** is the floor to fall back to if the other three all read as
+too much. **The choice is the owner's**, as it has been for every art constant in
+this project.
+
+---
+
+## D. STAGE D — lighting stress and distance
+
+### D.0 A rig defect that cost the first run, recorded because it was avoidable
+
+The first Stage D pass produced ten unusable frames: the camera was positioned
+inside a carved cave and every shot came back from the **surface**, with the F2
+help panel across the middle of frame. Cause: `Playground.Start` forces fly mode
+and hides the help for `-playgroundshots` and `-gputrace`, because — in that
+block's own words — *"in walk mode DebugStep rewrites the camera every frame
+from the motor, and the two fight; the symptom is screenshots taken from
+wherever the player happened to be standing."* `-p7stress` was not added to that
+list. **The trap was documented in the exact file I was editing and I walked
+into it anyway.** Fixed, plus a `DebugHideUi` so capture passes produce a
+picture of the world rather than of the UI. Any future capture mode must be
+added to that condition.
+
+### D2 — many-light stress *(the one sub-test whose numbers survived the first run)*
+
+Thirty-two torches — `MAX_ACTIVE_LIGHTS` — down both walls of a 17 m corridor at
+even spacing, which is what a player lighting a base actually builds rather than
+an adversarial layout.
+
+**CORRECTNESS, at real density through the real edit path:**
+- 32 placed → **32 registered, 32 active**, cap not binding.
+- 12 more placed past the cap → **44 registered, 32 active**. The over-cap
+  torches remain *registered* — §3.8's "must not silently ignore new torches"
+  holds at density, not just in the unit test.
+
+**PERFORMANCE MEASURED** *(same-session back-to-back, **not** cooled — a
+diagnostic, and labelled as one)*:
+
+```
+  0 lights   20.23 ms/frame
+ 32 lights   20.57 ms/frame      delta +0.33 ms for the full cap
+```
+
+**Point lights are effectively free.** +0.33 ms for 32 simultaneous lights, i.e.
+~0.01 ms each, against a 16.67 ms frame. §3.8's entire reason for existing is
+the "per-pixel light death spiral" (2M pixels × N lights); at v1's cap on this
+hardware that spiral is nowhere near engaging. **This is the strongest argument
+in the phase that `MAX_ACTIVE_LIGHTS = 32` is conservative** — though raising it
+is §0.2's decision and needs its own re-derivation, not an inference from one
+uncooled pair.
+
+### D1, D3, D4 — re-run pending
+
+Re-running with the camera fix. D1 (irregular cave, 1 vs 3 torches), D3 (the
+same mountain at 30/55/75/110/150/240 m in Beauty *and* sun-visibility, at noon
+and golden hour, plus a 5-step lateral pan at 200 m to check whether distant
+shadows swim) and D4 (golden hour + live fluid + active digging + torches) all
+produced correctly-structured reports and the right *number* of frames; only the
+camera pose was wrong, and that is now fixed.
+
+**NOT ESTABLISHED, and not guessed at:** whether a torch-lit cave looks good,
+whether §8's flagged distant speckle is genuine coarse-tier shadowing or a
+defect, and whether distant shadows stay put under lateral motion. Those are
+exactly what the re-run is for, and if it does not land this session they remain
+open with the rig now built and working.
+
+---
+
+## E. STAGE E — rung 1 measured at last, and it is NOT a usable fallback
+
+**Cooled (300 s before every arm), counterbalanced A/B/B/A, same session, same
+binary, fullscreen, golden hour, shipped 960×540 gate, fluid off.** This is the
+first Phase 7 measurement that meets `AMENDMENT_8_12` §3.1 in full.
+
+| arm | rung | mean frame | sustained |
+|---|---|---|---|
+| 1 | **1** — half-res beyond LOD1 | 53.18 ms | 18.8 FPS |
+| 2 | **3** — off | 15.10 ms | 66.2 FPS |
+| 3 | **3** — off | 15.17 ms | 65.9 FPS |
+| 4 | **1** — half-res beyond LOD1 | 52.95 ms | 18.9 FPS |
+
+**Within-rung spread: 0.23 ms (rung 1) and 0.07 ms (rung 3). Between-rung
+difference: ~38 ms.** The difference is two orders of magnitude larger than the
+noise, so unlike §6's diagnostic this one is established rather than merely
+indicated.
+
+### E.1 The finding: rung 1 saves nothing
+
+Set beside §6's uncooled diagnostic for the other rungs:
+
+| rung | what it is | mean frame | holds 60 FPS? |
+|---|---|---|---|
+| 0 | full soft penumbra | 52.06 ms *(uncooled)* | no |
+| **1** | **half-res beyond LOD1** | **53.0 ms** *(cooled)* | **no** |
+| 2 | hard only | 40.77 ms *(uncooled)* | no |
+| 3 | off | **15.1 ms** *(cooled)* | **yes** |
+
+**Rung 1 is not cheaper than rung 0 — it is indistinguishable from it, possibly
+marginally worse.** §6.5 designed rung 1 as the *first* fallback to engage; as
+implemented it is not a fallback at all.
+
+### E.2 Why, stated as a hypothesis with its evidence — not as a fact
+
+**HYPOTHESIS:** rung 1 only halves the rate for pixels whose primary hit is
+**beyond the LOD1 boundary** (`currentDist >= _TierOuterRangeVoxels.y`, 128 m).
+At the `GroundHorizon` golden-hour pose, most pixels that resolve a hit are
+*nearer* than 128 m — the ground in front of the camera — so almost nothing
+takes the reuse path, while every lane still pays the group barriers the reuse
+requires.
+
+**WHAT SUPPORTS IT:** Gate 3's own sampling at this pose recorded 438 hits out
+of 960 samples with the rest sky, and the mismatches it listed were at voxel Y
+41–53 — near-field ground, not distant mountain. **WHAT WOULD SETTLE IT:** a
+per-pixel count of how many took the reuse path, which the shader does not
+currently expose. **It is not settled here, and is written as a hypothesis
+because §0.1 invariant 12 requires a plausible cause to carry a measurement.**
+
+If the hypothesis holds, the lever is the *threshold*, not the mechanism —
+half-rating from, say, 32 m rather than 128 m would engage it on the pixels that
+actually dominate. That is a one-constant experiment and it is **not** done here.
+
+### E.3 What this leaves for §10 flag 4
+
+**Only rung 3 holds 60 FPS**, and by a wide margin (15.1 ms against a 16.67 ms
+frame). Rungs 0, 1 and 2 all sit at 40–53 ms.
+
+**This does not decide the flag, and deliberately so** — but it narrows it to an
+unpleasant pair: ship with **no sun shadows at all**, or ship a rung that misses
+60 FPS at golden hour. Two things worth weighing before concluding the feature
+cannot ship:
+
+1. **§6.5's own fallback ladder has an untried rung between 1 and 3:** the
+   distance at which shadow rays are *skipped entirely* (rather than
+   half-rated). The shadow clamp currently inherits the primary ray's 290 m.
+2. **§E.2's threshold hypothesis is cheap to test** and, if right, makes rung 1
+   behave as designed.
+
+Neither was done tonight. Both are one-constant experiments.
 
 ---
 

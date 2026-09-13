@@ -111,6 +111,7 @@ public class PlaygroundHud : MonoBehaviour
 
     void OnGUI()
     {
+        if (Playground.DebugHideUi) return;
         if (!_visible)
         {
             float uiHidden = Mathf.Max(1f, Screen.height / 900f);
@@ -169,6 +170,9 @@ public class PlaygroundHud : MonoBehaviour
             sb.AppendLine($"<b>LIGHTS</b>     {lights.ActiveCount} active / {lights.RegisteredCount} placed   " +
                           $"cap {EngineConfig.MAX_ACTIVE_LIGHTS}{capNote}");
         }
+        var pg = FindAnyObjectByType<Playground>();
+        if (pg != null)
+            sb.AppendLine($"<b>PRESET</b>     {pg.CurrentPresetName}   <color=#9fb6c9>[ / ] to cycle</color>");
         sb.AppendLine($"<b>SHADOWS</b>    {ShadowRungName(RaymarchFeature.ShadowQualityLevel)}   " +
                       $"k_soft {LightingConfig.Active.kSoft:F3}" +
                       (LightingConfig.LastError != null
@@ -201,7 +205,7 @@ public class PlaygroundHud : MonoBehaviour
         // point of which is to make the degradation VISIBLE -- was itself
         // invisible. A HUD line that is cut off is worse than one that is
         // absent, because it looks like it is there.
-        float w = 700f, h = 268f;
+        float w = 740f, h = 292f;   // +1 line for Stage C's PRESET readout
         Matrix4x4 prev = GUI.matrix;
         GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * ui);
         float vw = Screen.width / ui;

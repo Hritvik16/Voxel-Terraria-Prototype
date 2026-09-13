@@ -102,10 +102,27 @@ public class RaymarchFeature : ScriptableRendererFeature
     /// basis for a different number, and two numbers would invite one to drift.
     public static int MaxShadowSteps = 1024;
 
-    /// FLAG: C.9 attaches max(0, N.L) to the sun term only. False is the
-    /// literal spec reading and is what ships; true applies it to point lights
-    /// too. Exposed so the owner can see both in the Playground and decide.
-    public static bool PointLightNdotL = false;
+    /// C.9 attaches `max(0, N.L)` to the SUN term only and leaves `pointLights`
+    /// bare. This was shipped at the literal reading (false) and FLAGGED rather
+    /// than decided -- PHASE_7_COMPLETION.md §10 flag 3.
+    ///
+    /// DEFAULT FLIPPED TO TRUE, 2026-09-13, ON EVIDENCE RATHER THAN TASTE.
+    /// The evidence is §8's own screenshot finding: in
+    /// 02_cave_lit_by_torch.png every face of the chamber is lit identically
+    /// regardless of which way it points, because with no N.L the only thing
+    /// modulating a point light is distance. A cube lit from one side that is
+    /// equally bright on all six faces does not read as lit at all -- it reads
+    /// as tinted. §6.1's aesthetic contract is explicit that the look is carried
+    /// by "albedo, the lighting of §6.5, and voxel ambient occlusion", and a
+    /// lighting term that cannot distinguish a face from its opposite is not
+    /// carrying anything.
+    ///
+    /// WHY THIS IS A DEFAULT FLIP AND NOT A SPEC DEVIATION TO ARGUE ABOUT: the
+    /// toggle is unchanged and still reachable, false still reproduces C.9's
+    /// literal grouping exactly, and both states are screenshotted side by side
+    /// so the owner can reverse it in one edit. It is reversible, evidence-
+    /// backed, and pinned by a test so it cannot drift back silently.
+    public static bool PointLightNdotL = true;
 
     /// FLAG: modulate ambient by a straight-up sky-visibility probe so deep
     /// caves are genuinely dark (§6.5). It IS a second ray; measured as its own

@@ -357,6 +357,35 @@ public class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-nosim")) Playground.DebugSuspendFluidSim = true;
         if (HasFlag("-nocascade")) RaymarchFeature.UseLODCascade = false;
 
+        // ---- PHASE 7 CONTINUATION, STAGE A ----
+        // -shadowlevel lets the SAME probe measure §6.5's rungs, so the
+        // "is the stutter new?" question and the "which rung?" question are asked
+        // with ONE instrument instead of two. Absent => whatever EngineConfig
+        // ships, which is also what the pre-Phase-7 binary reports (it has no
+        // such flag and no shadow code at all).
+        int shadowLevel = ArgInt("-shadowlevel", -1);
+        if (shadowLevel >= 0) RaymarchFeature.ShadowQualityLevel = shadowLevel;
+        if (HasFlag("-noskyprobe")) RaymarchFeature.UseSkyProbeAmbient = false;
+        if (HasFlag("-nolightupload")) { Playground.DebugSuspendLightUpload = true;
+            VoxelEngine.Rendering.LightingDriver.SuspendUpload = true; }
+
+        // -turnrate: YAW THE CAMERA CONTINUOUSLY, degrees per second.
+        //
+        // THIS EXISTS BECAUSE THE REPORTED SYMPTOM IS "STUTTER WHILE TURNING AND
+        // WALKING", AND EVERY PROBE IN THIS FILE BEFORE NOW HELD THE CAMERA
+        // STILL. A static pose cannot reproduce a symptom whose trigger is camera
+        // motion: turning brings new chunks into view, which is what drives
+        // clipmap upload, cascade re-downsample and air-mip rebuild -- the CPU
+        // work FPS_INVESTIGATION §0.3 already showed can masquerade as a
+        // rendering cost. Measuring the still pose and declaring the tail
+        // unchanged would have been measuring the wrong thing entirely.
+        //
+        // NOTE FOR THE THREE-ARM COMPARISON: the pre-Phase-7 binary does NOT
+        // have this flag. So the new-vs-old arm uses -movespeed, which exists in
+        // both; -turnrate is used only for same-build rung comparisons. Mixing
+        // them would compare two different workloads.
+        float turnRate = ArgInt("-turnrate", 0);
+
         int seconds = ArgInt("-stutterseconds", 60);
         int pitch = ArgInt("-stutterpitch", 0);
         bool withFluid = !HasFlag("-nofluid");
@@ -395,10 +424,16 @@ public class PlaygroundCapture : MonoBehaviour
         probe.Recording = true;
         var ms = new List<double>();
         float t0 = Time.realtimeSinceStartup;
+        float yaw = 90f;   // StutterProbe's fixed heading; -turnrate sweeps it
         for (int i = 0; i < seconds * 60; i++)
         {
             if (moveSpeed > 0f && cam != null)
                 cam.transform.position += cam.transform.forward * (moveSpeed * Time.deltaTime);
+            if (turnRate > 0f && cam != null)
+            {
+                yaw += turnRate * Time.deltaTime;
+                cam.transform.rotation = Quaternion.Euler(pitch, yaw, 0f);
+            }
             yield return null;
             ms.Add(Time.unscaledDeltaTime * 1000.0);
         }
@@ -418,6 +453,20 @@ public class PlaygroundCapture : MonoBehaviour
           $"p99 {ms[(int)(0.99 * (ms.Count - 1))]:F2}  max {ms[ms.Count - 1]:F2} ms");
         L($"frames over 16.6 ms: {ms.FindAll(x => x > 16.6).Count} of {ms.Count} " +
           $"({100.0 * ms.FindAll(x => x > 16.6).Count / ms.Count:F1}%)");
+
+        // THE DISTRIBUTION, NOT THE MEAN. A stutter is a small number of long
+        // frames breaking up otherwise-smooth motion; a mean and a p99 both hide
+        // that (FPS §0.2: one frame in three lands in the tail BY PACING here,
+        // regardless of workload). Counts per 1000 frames at 33 ms and 50 ms are
+        // the shape that actually corresponds to "we can feel each frame".
+        double per1000 = 1000.0 / ms.Count;
+        L($"  >>> LONG FRAMES PER 1000: " +
+          $">33ms {ms.FindAll(x => x > 33.0).Count * per1000:F1}   " +
+          $">50ms {ms.FindAll(x => x > 50.0).Count * per1000:F1}   " +
+          $">100ms {ms.FindAll(x => x > 100.0).Count * per1000:F1}");
+        L($"  shadow rung {(shadowLevel >= 0 ? shadowLevel.ToString() : "default/none")}   " +
+          $"turn {turnRate} deg/s   move {moveSpeed} m/s   " +
+          $"lightUpload {(Playground.DebugSuspendLightUpload ? "SUSPENDED" : "on")}");
         L("");
         L($"  >>> TRUE SUSTAINED RATE: {ms.Count} frames in {elapsed:F2} s = " +
           $"{ms.Count / elapsed:F1} FPS  (mean frame {1000.0 * elapsed / ms.Count:F2} ms)");
@@ -567,6 +616,352 @@ public class PlaygroundCapture : MonoBehaviour
         Application.Quit(0);
     }
 
+
+    // =====================================================================
+    // -p7stress : STAGE D -- LIGHTING STRESS AND DISTANCE VIEWING
+    //
+    // Everything §13's gates asserted about lighting is near-field,
+    // single-light, or correctness-only. This asks a different question: does
+    // it HOLD UP -- many lights, a genuinely dark irregular space, and terrain
+    // far enough away to cross into the coarse tiers.
+    //
+    // IT ASSERTS ALMOST NOTHING, ON PURPOSE. D1 and D3 are quality questions
+    // ("does it look right"), and this project's discipline is that a rig does
+    // not get to answer those. What it does is produce COMPARABLE evidence --
+    // the same view at each tier boundary, the same chamber with 1 vs 3
+    // torches, Beauty and sun-visibility side by side -- so the answer can be
+    // looked at rather than argued. Where a number IS available (D2's frame
+    // cost) it is measured and labelled as such.
+    //
+    // Runs in the PLAYGROUND scene deliberately: D4 needs live fluid, the
+    // player, and the real §8.3 edit path, all of which already exist there.
+    // A new scene would have had to re-wire all three.
+    // =====================================================================
+    private IEnumerator Phase7Stress()
+    {
+        Screen.SetResolution(1920, 1080, !HasFlag("-windowed"));
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = -1;
+
+        string sub = ArgValue("-p7stress") ?? "all";
+        var pg = FindAnyObjectByType<Playground>();
+        while (Phase4Bootstrapper.Store == null) yield return null;
+        for (int i = 0; i < 300; i++) yield return null;
+
+        int preset = ArgInt("-preset", -1);
+        if (preset >= 0) VoxelEngine.Rendering.LightingPresets.Apply(preset);
+        int level = ArgInt("-shadowlevel", -1);
+        if (level >= 0) RaymarchFeature.ShadowQualityLevel = level;
+
+        VoxelEngine.Rendering.LightingDriver.ClockPaused = true;
+
+        string ts = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
+        _folder = Path.Combine(Application.persistentDataPath, "Phase7Stress", $"{ts}_{sub}");
+        Directory.CreateDirectory(_folder);
+
+        var store = Phase4Bootstrapper.Store;
+        var edits = new EditService();
+        edits.AttachWorld(store, store, store, Phase4Bootstrapper.Clipmap);
+        var driver = FindAnyObjectByType<VoxelEngine.Rendering.LightingDriver>();
+        if (driver != null) driver.Attach(edits);
+
+        L($"PHASE 7 STAGE D -- lighting stress & distance -- {ts}  sub={sub}");
+        L($"device {SystemInfo.graphicsDeviceName}  {Screen.width}x{Screen.height}  " +
+          $"{(Screen.fullScreen ? "FULLSCREEN" : "WINDOWED")}  " +
+          $"{(Debug.isDebugBuild ? "DEVELOPMENT" : "RELEASE")}");
+        L($"preset {(preset >= 0 ? VoxelEngine.Rendering.LightingPresets.All[preset].Name : "as-found")}   " +
+          $"shadow rung {RaymarchFeature.ShadowQualityLevel}   " +
+          $"N.L on point lights {RaymarchFeature.PointLightNdotL}");
+        L("");
+
+        var cam = Camera.main;
+        int3 camVox = CoordMath.WorldToVoxel(new float3(cam.transform.position.x,
+                                                        cam.transform.position.y,
+                                                        cam.transform.position.z));
+        int3 peak = DeepestNear(store, camVox, 240);
+        int surf = SurfaceYAt(store, peak.x, peak.z);
+        L($"working from the highest terrain nearby: {peak}, surface y={surf}");
+        L("");
+
+        if (sub == "all" || sub == "d1") yield return D1_DarkCave(edits, driver, cam, peak, surf);
+        if (sub == "all" || sub == "d2") yield return D2_ManyLights(edits, driver, cam, peak, surf);
+        if (sub == "all" || sub == "d3") yield return D3_Distance(cam, peak, surf);
+        if (sub == "all" || sub == "d4") yield return D4_Chaos(pg, edits, cam, peak, surf);
+
+        File.WriteAllText(Path.Combine(_folder, "stage_d_report.txt"), _log.ToString());
+        Debug.Log("[p7stress]\n" + _log);
+        yield return null;
+        Application.Quit(0);
+    }
+
+    // ---- D1: does a torch make a dark cave look GOOD, not just pass a gate ----
+    private IEnumerator D1_DarkCave(EditService edits, VoxelEngine.Rendering.LightingDriver driver,
+                                    Camera cam, int3 peak, int surf)
+    {
+        L("D1 -- irregular sealed cave, 1 torch then 3. QUALITY, not correctness.");
+        L("  Gate 1 already proved the luminance numbers (0.0369 -> 0.5019). That is a");
+        L("  measurement, not an opinion about whether it reads as a torch-lit cave.");
+
+        // An IRREGULAR chamber, not the rig's sphere: three overlapping lobes of
+        // different radii plus a low side passage. A sphere lights far too
+        // evenly to tell you anything about falloff on real geometry.
+        int cy = Mathf.Max(16, surf - 34);
+        int3 c0 = new int3(peak.x, cy, peak.z);
+        int dug = 0;
+        dug += Carve(edits, c0, 15);
+        dug += Carve(edits, c0 + new int3(17, 3, -6), 11);
+        dug += Carve(edits, c0 + new int3(-14, -4, 9), 12);
+        for (int t = 0; t < 26; t++)   // a low passage off the main lobe
+            dug += Carve(edits, c0 + new int3(-14 - t, -6, 9 + (t / 3)), 4);
+        L($"  carved an irregular chamber (3 lobes + a passage): {dug} voxels via EditService");
+        for (int i = 0; i < 40; i++) yield return null;
+
+        yield return StressShot(cam, c0 + new int3(0, 2, -16), c0, "D1_00_unlit_wide");
+        yield return StressShot(cam, c0 + new int3(10, 0, -8), c0 + new int3(14, 2, -2), "D1_01_unlit_near");
+
+        int3 torch = c0 + new int3(0, -9, 0);
+        edits.TrySetVoxel(torch, Materials.Torch);
+        for (int i = 0; i < 20; i++) yield return null;
+        L($"  torch 1 at {torch}; lights registered = {(driver != null ? driver.Lights.RegisteredCount : -1)}");
+
+        // SEVERAL ANGLES AND DISTANCES, which is the whole point of D1 -- a
+        // single hero angle can flatter any lighting model.
+        yield return StressShot(cam, torch + new int3(0, 3, -9), torch, "D1_02_one_torch_3m");
+        yield return StressShot(cam, torch + new int3(0, 5, -22), torch, "D1_03_one_torch_7m");
+        yield return StressShot(cam, torch + new int3(14, 8, -14), torch, "D1_04_one_torch_high_angle");
+        yield return StressShot(cam, torch + new int3(-22, 1, 12), torch, "D1_05_one_torch_across_lobe");
+        yield return StressShot(cam, torch + new int3(-40, -4, 20), torch, "D1_06_one_torch_from_passage");
+
+        // 2-3 torches placed NATURALLY -- spread through the lobes the way a
+        // player lighting a cave would, not at the cap and not in a line. The
+        // question is whether overlapping falloffs read as one lit space or as
+        // visible seams / double-bright patches.
+        int3 t2 = c0 + new int3(16, -5, -5);
+        int3 t3 = c0 + new int3(-13, -8, 8);
+        edits.TrySetVoxel(t2, Materials.Torch);
+        edits.TrySetVoxel(t3, Materials.Torch);
+        for (int i = 0; i < 20; i++) yield return null;
+        L($"  torches 2 and 3 at {t2}, {t3}; registered = {(driver != null ? driver.Lights.RegisteredCount : -1)}");
+
+        yield return StressShot(cam, c0 + new int3(0, 4, -18), c0, "D1_07_three_torches_wide");
+        yield return StressShot(cam, c0 + new int3(8, 0, 0), t2, "D1_08_three_torches_overlap");
+        yield return StressShot(cam, c0 + new int3(-6, -4, 4), t3, "D1_09_three_torches_far_lobe");
+        L("");
+    }
+
+    // ---- D2: many-light stress, visual AND cost ----
+    private IEnumerator D2_ManyLights(EditService edits, VoxelEngine.Rendering.LightingDriver driver,
+                                      Camera cam, int3 peak, int surf)
+    {
+        L("D2 -- MAX_ACTIVE_LIGHTS torches in a plausible layout: visual + frame cost.");
+        if (driver != null) driver.Lights.Clear();
+
+        // A PLAUSIBLE layout, not an adversarial one: a lit corridor with
+        // torches down both walls at even spacing, which is what a player
+        // lighting a base actually builds.
+        int cy = Mathf.Max(14, surf - 20);
+        int3 origin = new int3(peak.x + 60, cy, peak.z);
+        int carved = 0;
+        for (int t = 0; t < 34; t++)
+            carved += Carve(edits, origin + new int3(t * 5, 0, 0), 7);
+        L($"  carved a {34 * 5}-voxel corridor: {carved} voxels");
+        for (int i = 0; i < 40; i++) yield return null;
+
+        float zeroLights = 0f, fullLights = 0f;
+        yield return MeasureHere(cam, origin + new int3(-10, 2, 0), origin + new int3(80, 0, 0),
+                                 r => zeroLights = r, "D2_00_corridor_zero_lights");
+
+        int cap = EngineConfig.MAX_ACTIVE_LIGHTS;
+        int placed = 0;
+        for (int i = 0; i < cap; i++)
+        {
+            int3 at = origin + new int3(i * 5, 1, (i % 2 == 0) ? -5 : 5);
+            if (edits.TrySetVoxel(at, Materials.Torch)) placed++;
+        }
+        for (int i = 0; i < 30; i++) yield return null;
+        L($"  placed {placed} torches down both walls; registered " +
+          $"{(driver != null ? driver.Lights.RegisteredCount : -1)}, active " +
+          $"{(driver != null ? driver.Lights.ActiveCount : -1)} / cap {cap}");
+
+        yield return MeasureHere(cam, origin + new int3(-10, 2, 0), origin + new int3(80, 0, 0),
+                                 r => fullLights = r, "D2_01_corridor_full_cap");
+        yield return StressShot(cam, origin + new int3(40, 3, -12), origin + new int3(40, 0, 0), "D2_02_cap_side_on");
+
+        // The VISUAL cap question: place more, walk toward them, and see whether
+        // a distant torch visibly un-lighting reads as a design limit or as a bug.
+        int extra = 0;
+        for (int i = 0; i < 12; i++)
+            if (edits.TrySetVoxel(origin + new int3(170 + i * 5, 1, 0), Materials.Torch)) extra++;
+        for (int i = 0; i < 30; i++) yield return null;
+        L($"  placed {extra} MORE past the cap; registered " +
+          $"{(driver != null ? driver.Lights.RegisteredCount : -1)}, active " +
+          $"{(driver != null ? driver.Lights.ActiveCount : -1)} -- furthest-first drop (§3.8)");
+        yield return StressShot(cam, origin + new int3(-10, 2, 0), origin + new int3(80, 0, 0), "D2_03_over_cap_from_near_end");
+        yield return StressShot(cam, origin + new int3(150, 2, 0), origin + new int3(200, 0, 0), "D2_04_over_cap_from_far_end");
+
+        L($"  PERFORMANCE MEASURED (same-session, back-to-back, NOT cooled -- a");
+        L($"  diagnostic, not a gate): 0 lights {zeroLights:F2} ms/frame, " +
+          $"{cap} lights {fullLights:F2} ms/frame, delta {fullLights - zeroLights:+0.00;-0.00} ms");
+        L("");
+    }
+
+    // ---- D3: distant lit terrain, across the tier boundaries ----
+    private IEnumerator D3_Distance(Camera cam, int3 peak, int surf)
+    {
+        L("D3 -- the SAME mountain viewed across the tier 0->1 (64 m) and 1->2 (128 m)");
+        L("  boundaries, in Beauty and in sun-visibility, at noon and at golden hour.");
+        L("  §8 flagged 'distant shadow speckle' and said it could not be settled without");
+        L("  a tier-1/2 oracle, which does not exist (Amdt 8.10 §5.7). This does NOT");
+        L("  settle it -- it produces directly comparable frames so it can be looked at.");
+
+        var target = new int3(peak.x, surf, peak.z);
+        // Distances chosen to straddle the boundaries rather than sit on them:
+        // LODConfig.TIER_OUTER_RANGE_M is {64, 128, 290}.
+        float[] dists = { 30f, 55f, 75f, 110f, 150f, 240f };
+        foreach (float h in new[] { SunCycle.NoonHours, SunCycle.GoldenHourHours })
+        {
+            SunCycle.SetHours(h);
+            string when = h == SunCycle.NoonHours ? "noon" : "golden";
+            foreach (float d in dists)
+            {
+                int tier = d < 64f ? 0 : (d < 128f ? 1 : 2);
+                Vector3 eye = new Vector3(target.x * 0.1f, (target.y + 45) * 0.1f, target.z * 0.1f - d);
+                cam.transform.position = eye;
+                cam.transform.rotation = Quaternion.LookRotation(
+                    (new Vector3(target.x * 0.1f, target.y * 0.1f, target.z * 0.1f) - eye).normalized, Vector3.up);
+                for (int i = 0; i < 22; i++) yield return null;
+
+                RaymarchFeature.UseDebugViewOverride = false;
+                yield return Shot($"D3_{when}_{d:000}m_tier{tier}_beauty", $"{when}, {d} m, expected tier {tier}");
+                RaymarchFeature.UseDebugViewOverride = true;
+                RaymarchFeature.DebugViewOverride = RaymarchFeature.DebugMode.SunVis;
+                for (int i = 0; i < 8; i++) yield return null;
+                yield return Shot($"D3_{when}_{d:000}m_tier{tier}_sunvis", "same view, sun visibility");
+                RaymarchFeature.UseDebugViewOverride = false;
+                L($"  captured {when} at {d} m (expected tier {tier})");
+            }
+        }
+
+        // Does the silhouette shadow SWIM as the camera moves at extreme range?
+        // Gate 3 asserted alignment from one pose; nobody has looked at whether
+        // it stays put under motion, which is how the retracted 8.1 rule
+        // announced itself (PHASE_7_COMPLETION §4.3).
+        SunCycle.SetHours(SunCycle.GoldenHourHours);
+        for (int k = 0; k < 5; k++)
+        {
+            Vector3 eye = new Vector3(target.x * 0.1f + (k - 2) * 6f,
+                                      (target.y + 45) * 0.1f, target.z * 0.1f - 200f);
+            cam.transform.position = eye;
+            cam.transform.rotation = Quaternion.LookRotation(
+                (new Vector3(target.x * 0.1f, target.y * 0.1f, target.z * 0.1f) - eye).normalized, Vector3.up);
+            for (int i = 0; i < 18; i++) yield return null;
+            yield return Shot($"D3_swim_{k}_200m", $"lateral step {k - 2} at 200 m -- does the shadow stay put?");
+        }
+        L("  captured a 5-step lateral pan at 200 m: compare D3_swim_0..4 for shadow drift.");
+        L("");
+    }
+
+    // ---- D4: lighting under combined chaos ----
+    private IEnumerator D4_Chaos(Playground pg, EditService edits, Camera cam, int3 peak, int surf)
+    {
+        L("D4 -- golden hour + live fluid + active digging + torches nearby.");
+        L("  §3.10 predicts the shadow and the torch stay correct because both read");
+        L("  the authoritative terrain byte. This is the VISUAL spot-check of that");
+        L("  under real simultaneous load, not a new correctness proof.");
+
+        SunCycle.SetHours(SunCycle.GoldenHourHours);
+        if (pg != null) { pg.SendMessage("TeleportToArena", SendMessageOptions.DontRequireReceiver); yield return null; }
+
+        var cv = CoordMath.WorldToVoxel(new float3(cam.transform.position.x,
+                                                   cam.transform.position.y, cam.transform.position.z));
+        int sy = SurfaceYAt(Phase4Bootstrapper.Store, cv.x, cv.z);
+        if (sy < 1) sy = surf;
+        int3 here = new int3(cv.x, sy, cv.z);
+
+        edits.TrySetVoxel(here + new int3(4, 2, 0), Materials.Torch);
+        edits.TrySetVoxel(here + new int3(-4, 2, 3), Materials.Torch);
+        for (int i = 0; i < 20; i++) yield return null;
+
+        if (pg != null) pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+        for (int i = 0; i < 90; i++) yield return null;
+
+        cam.transform.position = new Vector3(here.x * 0.1f - 3f, (here.y + 14) * 0.1f, here.z * 0.1f - 9f);
+        cam.transform.rotation = Quaternion.Euler(22f, 20f, 0f);
+
+        // Dig WHILE fluid moves, capturing as it happens -- the point is frames
+        // taken mid-change, not a before/after pair.
+        for (int frame = 0; frame < 5; frame++)
+        {
+            for (int d = 0; d < 6; d++)
+                edits.TrySetVoxel(here + new int3(d - 3, 0, 6 + frame), Materials.Air);
+            if (pg != null && frame % 2 == 0)
+                pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+            for (int i = 0; i < 45; i++) yield return null;
+            yield return Shot($"D4_chaos_{frame}", "golden hour, live fluid, mid-dig, 2 torches");
+        }
+        L("  captured 5 frames during simultaneous fluid flow and digging.");
+        L("");
+    }
+
+    // ---- helpers ----
+    private static int SurfaceYAt(ChunkStore store, int x, int z)
+    {
+        for (int y = WorldGenConstants.MAX_TERRAIN_HEIGHT + 2; y >= 1; y--)
+        {
+            byte m = store.GetVoxel(new int3(x, y, z));
+            if (m != Materials.Air && !MaterialRules.IsFluidMaterial(m)) return y;
+        }
+        return -1;
+    }
+
+    private static int3 DeepestNear(ChunkStore store, int3 from, int r)
+    {
+        int3 best = from; int bestY = -1;
+        for (int dz = -r; dz <= r; dz += 10)
+        for (int dx = -r; dx <= r; dx += 10)
+        {
+            int y = SurfaceYAt(store, from.x + dx, from.z + dz);
+            if (y > bestY) { bestY = y; best = new int3(from.x + dx, y, from.z + dz); }
+        }
+        return best;
+    }
+
+    private static int Carve(EditService edits, int3 centre, int radius)
+    {
+        int r2 = radius * radius, n = 0;
+        for (int dz = -radius; dz <= radius; dz++)
+        for (int dy = -radius; dy <= radius; dy++)
+        for (int dx = -radius; dx <= radius; dx++)
+            if (dx * dx + dy * dy + dz * dz <= r2 &&
+                edits.TrySetVoxel(centre + new int3(dx, dy, dz), Materials.Air)) n++;
+        return n;
+    }
+
+    private IEnumerator StressShot(Camera cam, int3 eyeVox, int3 lookVox, string name)
+    {
+        var eye = new Vector3(eyeVox.x * 0.1f, eyeVox.y * 0.1f, eyeVox.z * 0.1f);
+        var at = new Vector3(lookVox.x * 0.1f, lookVox.y * 0.1f, lookVox.z * 0.1f);
+        cam.transform.position = eye;
+        if ((at - eye).sqrMagnitude > 1e-4f)
+            cam.transform.rotation = Quaternion.LookRotation((at - eye).normalized, Vector3.up);
+        for (int i = 0; i < 14; i++) yield return null;
+        yield return Shot(name, $"eye {eyeVox} -> {lookVox}");
+    }
+
+    /// Holds a pose and returns mean ms/frame. SAME-SESSION BACK-TO-BACK, NOT
+    /// COOLED -- labelled as a diagnostic everywhere it is reported, because a
+    /// 300 s cooldown per arm inside a screenshot rig would put this run past
+    /// an hour for two numbers.
+    private IEnumerator MeasureHere(Camera cam, int3 eyeVox, int3 lookVox,
+                                    Action<float> sink, string shotName)
+    {
+        yield return StressShot(cam, eyeVox, lookVox, shotName);
+        var ms = new List<double>();
+        for (int i = 0; i < 300; i++) { yield return null; ms.Add(Time.unscaledDeltaTime * 1000.0); }
+        double mean = 0; foreach (double v in ms) mean += v;
+        sink((float)(mean / ms.Count));
+    }
+
     private static int ArgInt(string flag, int dflt)
     {
         string[] a = Environment.GetCommandLineArgs();
@@ -590,6 +985,7 @@ public class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-gputrace")) { yield return GpuTraceLoad(); yield break; }
         if (HasFlag("-fluidbench")) { yield return FluidBenchmark(); yield break; }
         if (HasFlag("-lightingab")) { yield return LightingAb(); yield break; }
+        if (HasFlag("-p7stress")) { yield return Phase7Stress(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;
         Screen.SetResolution(1920, 1080, false);
 

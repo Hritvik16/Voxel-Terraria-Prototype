@@ -86,6 +86,17 @@ namespace VoxelEngine.Rendering
 
         private GraphicsBuffer _gpu;
 
+        /// A CPU-side mirror of what is currently on the GPU, so Upload can skip
+        /// a SetData whose bytes would be identical. See the fix note in Upload.
+        private readonly LightSource[] _uploaded = new LightSource[EngineConfig.MAX_ACTIVE_LIGHTS];
+        private int _uploadedCount = -1;
+        private bool _everUploaded;
+
+        /// SetData calls actually issued. The point of the fix is that this stays
+        /// flat while the player moves without touching a light, so a test can
+        /// assert on it rather than on a frame time.
+        public long UploadsPerformed { get; private set; }
+
         /// How many lights exist in the world right now, ignoring the cap.
         public int RegisteredCount => _registered.Count;
 
@@ -278,6 +289,29 @@ namespace VoxelEngine.Rendering
                 _scratchDist = new float[cap];
             }
 
+            // ---------------------------------------------------------------
+            // FAST PATH: NO LIGHTS AT ALL.
+            //
+            // This is the overwhelmingly common case -- a player who has not
+            // placed a torch -- and before this it still cost a full
+            // GraphicsBuffer.SetData of 32 zeroed entries EVERY FRAME. One
+            // upload is still needed so the buffer is not whatever was in GPU
+            // memory (§3.7's lesson), but exactly one, not one per frame.
+            // ---------------------------------------------------------------
+            if (n == 0)
+            {
+                ActiveCount = 0;
+                if (_uploadedCount != 0 || !_everUploaded)
+                {
+                    for (int j = 0; j < _staging.Length; j++) _staging[j] = default;
+                    Buffer.SetData(_staging);
+                    _uploadedCount = 0;
+                    _everUploaded = true;
+                    UploadsPerformed++;
+                }
+                return;
+            }
+
             int i = 0;
             foreach (Registered reg in _registered.Values) _scratch[i++] = reg;
 
@@ -292,7 +326,66 @@ namespace VoxelEngine.Rendering
             // re-uploaded rather than freshly allocated.
             for (int j = ActiveCount; j < _staging.Length; j++) _staging[j] = default;
 
-            Buffer.SetData(_staging);
+            // ---------------------------------------------------------------
+            // UPLOAD ONLY WHEN THE BYTES ACTUALLY CHANGED.
+            //
+            // THIS IS THE PHASE 7 STUTTER FIX, AND THE COMMENT THIS REPLACES
+            // WAS WRONG IN A SPECIFIC, MEASURABLE WAY. It read: "there is
+            // deliberately no dirty-check skipping the upload: the ACTIVE SET
+            // depends on player position, so it changes when the player moves
+            // even though no light did, and a 'skip if unchanged' test would
+            // have to compare the selection anyway."
+            //
+            // Both halves of that were true and the conclusion was still wrong.
+            // Comparing the selection IS cheap -- it is at most 32 structs of 8
+            // floats, an array scan of ~1 KB. What is NOT cheap is
+            // GraphicsBuffer.SetData on a buffer the raymarch kernel is reading:
+            // it serialises against in-flight GPU work, and under camera motion
+            // -- when the streamer is already uploading clipmap and cascade data
+            // -- that stall dominates the frame.
+            //
+            // MEASURED, cooled, same session, moving camera with live fluid
+            // (PHASE_7_COMPLETION §A):
+            //     per-frame SetData      43.46 ms/frame   >33 ms on 1000 of 1000
+            //     SetData suspended      11.25 ms/frame   >33 ms on 43.8 of 1000
+            //     suspended + no probe    8.89 ms/frame   >33 ms on  6.3 of 1000
+            //     pre-Phase-7 build       9.32 ms/frame
+            // The comparison scan costs microseconds; the upload it avoids cost
+            // roughly 32 ms. §0.1 invariant 9 ("do not optimize before
+            // profiling") cuts both ways: this was not optimised before
+            // profiling, it was PESSIMISED before profiling, by reasoning about
+            // correctness and never measuring the cost of the conclusion.
+            // ---------------------------------------------------------------
+            if (!_everUploaded || _uploadedCount != ActiveCount || StagingDiffers())
+            {
+                Buffer.SetData(_staging);
+                System.Array.Copy(_staging, _uploaded, _staging.Length);
+                _uploadedCount = ActiveCount;
+                _everUploaded = true;
+                UploadsPerformed++;
+            }
+        }
+
+        /// True when this frame's staging array differs from what is already on
+        /// the GPU. Compares only the LIVE entries: everything past ActiveCount
+        /// is zeroed on both sides by construction, so scanning it would be
+        /// comparing zeroes to zeroes.
+        ///
+        /// Field-by-field rather than a memcmp because LightSource is a managed
+        /// struct of floats and an exact equality test is what is wanted -- a
+        /// light that moved by a float ULP genuinely did change, and NaN cannot
+        /// occur here (positions come from integer voxel coords, colours and
+        /// ranges from validated config).
+        private bool StagingDiffers()
+        {
+            for (int i = 0; i < ActiveCount; i++)
+            {
+                LightSource a = _staging[i], b = _uploaded[i];
+                if (a.x != b.x || a.y != b.y || a.z != b.z ||
+                    a.r != b.r || a.g != b.g || a.b != b.b ||
+                    a.range != b.range || a.k != b.k) return true;
+            }
+            return false;
         }
 
         // A second scratch array for the sort, so SelectActive never sorts the
