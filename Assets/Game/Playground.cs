@@ -375,7 +375,8 @@ public class Playground : MonoBehaviour
         // middle of frame. The trap was documented; the new flag simply was not
         // added to the list. Any future capture mode must be added here too.
         if (HasArg("-playgroundshots") || HasArg("-gputrace") || HasArg("-p7stress") ||
-            HasArg("-daysweep") || HasArg("-presetshots"))
+            HasArg("-daysweep") || HasArg("-presetshots") ||
+            HasArg("-sustained"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;

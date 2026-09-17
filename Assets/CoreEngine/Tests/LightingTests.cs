@@ -463,6 +463,79 @@ public class LightingTests
             }
     }
 
+    /// STAGE M. The snow complaint survived two sessions of tuning, and this
+    /// test pins WHY: those sessions bounded PEAK brightness, and peak was only
+    /// half the problem. The other half is the ratio between the lit top face
+    /// and the unlit vertical face of the same voxel staircase -- the dark
+    /// contour banding §J.3 saw at noon.
+    ///
+    /// The result that matters is the DIRECTION OF THE ERROR: lowering ambient,
+    /// which is what every Stage C preset did to bound the peak, makes this
+    /// ratio dramatically WORSE. Warm (ambient 0.11) reaches 16.7:1 against the
+    /// shipped config's 7.4:1. So the presets were trading a problem the owner
+    /// could name for a bigger one they could only feel.
+    [Test]
+    public void SnowNoon_LoweringAmbientToFixPeakMakesFaceContrastWorse()
+    {
+        var shipped = new LightingConfig();                       // A = 0.30
+        var lowAmbient = new LightingConfig { ambientIntensity = 0.11f, sunIntensity = 1.15f };
+
+        float shippedRatio = LightingPresets.NoonFaceContrast(shipped);
+        float lowRatio = LightingPresets.NoonFaceContrast(lowAmbient);
+
+        // The peak behaves exactly as Stage C said it would -- that part was right.
+        Assert.Greater(LightingPresets.SnowNoonPeak(shipped), 1.0f,
+            "precondition: the shipped config still clips snow at noon (Stage C's finding)");
+        Assert.Less(LightingPresets.SnowNoonPeak(lowAmbient), 1.0f,
+            "precondition: the low-ambient preset does bound the peak, which is what it was for");
+
+        // And the contrast goes the other way, which is the finding.
+        Assert.Greater(lowRatio, shippedRatio,
+            $"lowering ambient was supposed to help; it takes noon face contrast from " +
+            $"{shippedRatio:F1}:1 to {lowRatio:F1}:1");
+        Assert.Greater(lowRatio, 12f,
+            $"expected the low-ambient preset to be badly contrasty; measured {lowRatio:F1}:1");
+    }
+
+    /// And the lever that fixes it, which did NOT exist before Stage J put a
+    /// tone curve in the renderer. With ACES absorbing the highlight, ambient
+    /// can be raised to lift the vertical faces WITHOUT the top face getting
+    /// meaningfully brighter on screen -- the thing Stage C correctly concluded
+    /// was impossible under a bare saturate().
+    [Test]
+    public void RaisingAmbientUnderACES_CompressesFaceContrastWithoutBrighteningTheTopFace()
+    {
+        var low = new LightingConfig { ambientIntensity = 0.30f };
+        var high = new LightingConfig { ambientIntensity = 0.60f };
+
+        float displayedTopLow = LightingPresets.AcesTonemap(LightingPresets.SnowNoonUpFace(low));
+        float displayedTopHigh = LightingPresets.AcesTonemap(LightingPresets.SnowNoonUpFace(high));
+
+        // Doubling ambient moves the DISPLAYED top face by under 5 percent,
+        // because it is already up on the flat part of the curve.
+        Assert.Less(math.abs(displayedTopHigh - displayedTopLow) / displayedTopLow, 0.05f,
+            $"top face moved {displayedTopLow:F3} -> {displayedTopHigh:F3} on screen, which is " +
+            "more than the tone curve should let through");
+
+        // While the contrast it was raised to fix nearly halves.
+        float ratioLow = LightingPresets.NoonFaceContrastTonemapped(low);
+        float ratioHigh = LightingPresets.NoonFaceContrastTonemapped(high);
+        Assert.Less(ratioHigh, ratioLow * 0.65f,
+            $"displayed contrast {ratioLow:F1}:1 -> {ratioHigh:F1}:1, expected a large reduction");
+
+        // MUTATION GUARD: this whole argument depends on ACES being non-linear.
+        // Under the old hard clamp the same move does NOT have this property,
+        // and asserting that here is what stops the test passing for the wrong
+        // reason if the tone curve is ever removed.
+        float clampedRatioLow = math.saturate(LightingPresets.SnowNoonUpFace(low))
+                              / math.saturate(LightingPresets.SnowNoonVerticalFace(low));
+        float clampedRatioHigh = math.saturate(LightingPresets.SnowNoonUpFace(high))
+                               / math.saturate(LightingPresets.SnowNoonVerticalFace(high));
+        Assert.Greater(clampedRatioLow / clampedRatioHigh, 1f);
+        Assert.Less(ratioLow / ratioHigh, clampedRatioLow / clampedRatioHigh * 1.6f,
+            "sanity: the tone curve is what makes the top face hold still, not the ratio arithmetic");
+    }
+
     /// The selection must stay bounded no matter how many are registered, so a
     /// future emissive material cannot reintroduce the quadratic blow-up.
     /// This is the defence-in-depth half; the predicate above is the cause.

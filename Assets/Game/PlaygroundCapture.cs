@@ -155,12 +155,27 @@ public class PlaygroundCapture : MonoBehaviour
         Application.Quit(0);
     }
 
+    // ARGUMENT LOOKUP TAKES THE **LAST** MATCH, NOT THE FIRST.
+    //
+    // This cost two invalid arms in one session and nearly cost a wrong verdict.
+    // Runner scripts naturally pass a default first and the per-arm override
+    // second -- `--args -shadowlevel 0 -gateres 960 "$@"` with `"$@"` being
+    // `-shadowlevel 3`. First-match lookup silently ignores the override, so the
+    // arm runs the DEFAULT while its label, its log line and its report all say
+    // otherwise. That produced a confident "shadows cost nothing" reading in §K
+    // that §L had to retract, and a gate-520 arm that was really gate 960.
+    //
+    // Last-match is the conventional CLI rule (later wins) and makes the natural
+    // script shape correct by construction. A flag that is silently ignored is
+    // worse than one that errors, because it yields a plausible number for a
+    // condition that never ran.
     private static string ArgValue(string flag)
     {
         string[] a = Environment.GetCommandLineArgs();
+        string found = null;
         for (int i = 0; i < a.Length - 1; i++)
-            if (string.Equals(a[i], flag, StringComparison.OrdinalIgnoreCase)) return a[i + 1];
-        return null;
+            if (string.Equals(a[i], flag, StringComparison.OrdinalIgnoreCase)) found = a[i + 1];
+        return found;
     }
 
     // =====================================================================
@@ -1408,22 +1423,18 @@ public class PlaygroundCapture : MonoBehaviour
         Application.Quit(0);
     }
 
+    /// Last match wins -- see the note on ArgValue.
     private static float ArgFloat(string flag, float dflt)
     {
-        string[] a = Environment.GetCommandLineArgs();
-        for (int i = 0; i < a.Length - 1; i++)
-            if (string.Equals(a[i], flag, StringComparison.OrdinalIgnoreCase))
-                return float.Parse(a[i + 1], CultureInfo.InvariantCulture);
-        return dflt;
+        string v = ArgValue(flag);
+        return v == null ? dflt : float.Parse(v, CultureInfo.InvariantCulture);
     }
 
+    /// Last match wins -- see the note on ArgValue.
     private static int ArgInt(string flag, int dflt)
     {
-        string[] a = Environment.GetCommandLineArgs();
-        for (int i = 0; i < a.Length - 1; i++)
-            if (string.Equals(a[i], flag, StringComparison.OrdinalIgnoreCase))
-                return int.Parse(a[i + 1], CultureInfo.InvariantCulture);
-        return dflt;
+        string v = ArgValue(flag);
+        return v == null ? dflt : int.Parse(v, CultureInfo.InvariantCulture);
     }
 
     private static bool HasFlag(string f)
@@ -1444,6 +1455,7 @@ public class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-shadowstats")) { yield return ShadowStats(); yield break; }
         if (HasFlag("-daysweep")) { yield return DaySweep(); yield break; }
         if (HasFlag("-presetshots")) { yield return PresetShots(); yield break; }
+        if (HasFlag("-sustained")) { yield return Sustained(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;
         Screen.SetResolution(1920, 1080, false);
 
@@ -1706,6 +1718,228 @@ public class PlaygroundCapture : MonoBehaviour
 
         File.WriteAllText(Path.Combine(root, "INDEX.md"), topIndex.ToString());
         Debug.Log("[presetshots] wrote " + root);
+        yield return null;
+        Application.Quit(0);
+    }
+
+    // =====================================================================
+    // -sustained : STAGE K -- THE MEASUREMENT EVERY PRIOR ONE SHOULD HAVE BEEN
+    //
+    // THE PROBLEM THIS EXISTS TO SOLVE: the owner sees ~30 FPS at golden hour in
+    // real play. Last session measured 12.29 ms / 81 FPS at golden hour, cooled,
+    // counterbalanced, fullscreen, release, live fluid, moving camera. That is a
+    // 2.7x discrepancy between a careful measurement and the actual experience,
+    // and until it is explained NO frame-time number in this project's history
+    // can be called representative.
+    //
+    // THE SUSPECTED FLAW IN ALL PRIOR MEASUREMENTS: every single one was ~30
+    // seconds of capture after a 300 s cooldown. That protocol was adopted to
+    // remove thermal variance between ARMS -- and it does, which is why the A/B
+    // comparisons in this document are still sound. But it also guarantees that
+    // every arm reports the first 30 seconds of a cold machine, which on a
+    // FANLESS M1 Air is the best case and nothing like a play session. §F.5
+    // already caught the edge of this: its rung-3 control, doing identical work
+    // at every sample, drifted +2.5 ms over ~7 minutes.
+    //
+    // SO THIS MODE DELIBERATELY DOES THE OPPOSITE OF EVERY OTHER PROBE HERE:
+    // one continuous run of 15-20 minutes, NO cooldown pause anywhere in it,
+    // reporting mean frame time in rolling 30 s windows for the whole duration.
+    // The output is a CURVE, not a number. If it is flat, the cooled numbers
+    // were representative and the discrepancy is something else (see K4). If it
+    // climbs and settles, the settled value is the honest frame rate and every
+    // headline in this document is a best case.
+    //
+    // THE CAMERA ORBITS rather than flying straight: 20 minutes at 12 m/s is
+    // 14.4 km, which leaves the island entirely and would measure empty sky.
+    // A circle keeps terrain in frame and the streamer genuinely working for
+    // the whole run, which is the load being tested.
+    // =====================================================================
+    private IEnumerator Sustained()
+    {
+        Screen.SetResolution(1920, 1080, !HasFlag("-windowed"));
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = -1;
+
+        var pg = FindAnyObjectByType<Playground>();
+        while (Phase4Bootstrapper.Store == null) yield return null;
+
+        int gate = ArgInt("-gateres", 960);
+        if (gate > 0)
+        {
+            RaymarchFeature.GateModeOverride = RaymarchFeature.GateResMode.ForcedCustom;
+            RaymarchFeature.CustomGateResolution = new Vector2Int(gate, gate * 9 / 16);
+        }
+        RaymarchFeature.ShadowQualityLevel = ArgInt("-shadowlevel", 0);
+
+        // The shadow-distance clamp, re-exposed here because §F.4 "disproved" it
+        // AT THE WRONG POSE. That sweep ran inside the arena pit, where almost
+        // nothing is sunlit and almost no shadow ray is traced, so a 12x change
+        // in how far rays MAY travel moved nothing -- as it must, when the rays
+        // are not running. At the open-ground pose the shadow ray costs ~9-12 ms
+        // and §6.5's grazing-ray reasoning finally has something to bite on.
+        float shClampM = ArgFloat("-shadowclamp", -1f);
+        if (shClampM >= 0f) RaymarchFeature.ShadowMaxDistanceOverrideM = shClampM;
+
+        // K4b: the overlays are part of what a player actually has on screen.
+        // Default here is HUD ON, because the question is what the OWNER sees,
+        // not what a clean capture pose sees. -nohud is the isolation arm.
+        bool hud = !HasFlag("-nohud");
+        Playground.DebugHideUi = !hud;
+
+        for (int i = 0; i < 300; i++) yield return null;
+        if (pg != null) { pg.SendMessage("TeleportToArena", SendMessageOptions.DontRequireReceiver); yield return null; }
+
+        var cam = Camera.main;
+        Vector3 centre = cam != null ? cam.transform.position : Vector3.zero;
+
+        float tod = ArgFloat("-tod", -1f);
+        if (tod >= 0f) SunCycle.SetHours(tod);
+        else SunCycle.SetHours(SunCycle.GoldenHourHours);
+        VoxelEngine.Rendering.LightingDriver.ClockPaused = true;
+
+        bool withFluid = !HasFlag("-nofluid");
+        if (withFluid && pg != null) pg.SendMessage("DebugOpenAllVents", SendMessageOptions.DontRequireReceiver);
+        for (int i = 0; i < 180; i++) yield return null;
+
+        string ts = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
+        string tag = ArgValue("-tag") ?? "K1";
+        _folder = Path.Combine(Application.persistentDataPath, "Sustained", $"{ts}_{tag}");
+        Directory.CreateDirectory(_folder);
+
+        int totalSeconds = ArgInt("-minutes", 20) * 60;
+        const float windowSeconds = 30f;
+        float speed = ArgInt("-movespeed", 12);
+        float radiusM = ArgInt("-orbitradius", 60);
+        string motion = ArgValue("-motion") ?? (speed > 0f ? "orbit" : "static");
+
+        // -chaos N: fire the G-key CHAOS BURST N seconds in (STAGE L). Placed on
+        // the same clock as everything else so the window it lands in is
+        // identifiable in the curve rather than inferred.
+        int chaosAt = ArgInt("-chaos", -1);
+        bool chaosFired = false;
+
+        L($"STAGE K/L -- SUSTAINED-DURATION PROBE -- {tag} -- {ts}");
+        L($"device {SystemInfo.graphicsDeviceName}  {Screen.width}x{Screen.height}  " +
+          $"{(Screen.fullScreen ? "FULLSCREEN" : "WINDOWED")}  {(Debug.isDebugBuild ? "DEVELOPMENT" : "RELEASE")}");
+        L($"gate {(gate > 0 ? gate + "x" + (gate * 9 / 16) : "as-shipped")}   " +
+          $"shadow rung {RaymarchFeature.ShadowQualityLevel}   HUD {(hud ? "ON" : "OFF")}   " +
+          $"fluid {(withFluid ? "LIVE" : "OFF")}   motion {motion} ({radiusM} m at {speed} m/s)   " +
+          $"shadowClamp {(shClampM >= 0f ? shClampM + " m" : "inherit 290 m")}");
+        L($"clock PINNED at {SunCycle.ClockString()}  sun {SunCycle.ElevationDegrees:F1} deg ({SunCycle.PhaseName})");
+        L($"DURATION {totalSeconds / 60} min CONTINUOUS -- no cooldown, no pause. This is the");
+        L("point: every other probe in this project reports the first 30 s of a cold machine.");
+        if (chaosAt >= 0) L($"CHAOS BURST scheduled at t+{chaosAt}s");
+        L("");
+        // WHAT IS ACTUALLY IN FRAME. The K5 decomposition found a 3.6x gap
+        // between two poses 60 m apart, which is not explainable by streaming
+        // (the orbit never leaves the window) -- so the next question is
+        // literally "what is on screen", and guessing at that is how the last
+        // four sessions each lost a round. Shoot it instead.
+        bool wantShot = !HasFlag("-noshot");
+        if (wantShot)
+        {
+            Playground.DebugHideUi = true;
+            yield return Shot("00_start_pose", $"{motion}: eye {cam.transform.position} " +
+                                               $"fwd {cam.transform.forward}");
+            Playground.DebugHideUi = !hud;
+        }
+
+        L($"  {"t(min)",8}{"meanMs",9}{"FPS",8}{">33/1000",10}{"vs first",10}  note");
+
+        var rows = new List<string>();
+        var windowMs = new List<double>(2048);
+        float windowStart = Time.realtimeSinceStartup;
+        float runStart = windowStart;
+        int windowFrames = 0;
+        float firstWindowMs = -1f;
+        float lastWindowMs = -1f;
+        float worstWindowMs = 0f, worstAtMin = 0f;
+        float angle = 0f;
+
+        while (Time.realtimeSinceStartup - runStart < totalSeconds)
+        {
+            float elapsed = Time.realtimeSinceStartup - runStart;
+
+            if (chaosAt >= 0 && !chaosFired && elapsed >= chaosAt)
+            {
+                chaosFired = true;
+                if (pg != null) pg.SendMessage("StartChaosBurst", SendMessageOptions.DontRequireReceiver);
+                L($"  >>> CHAOS BURST fired at t+{elapsed:F0}s");
+            }
+
+            // -motion DECOMPOSES WHAT "A MOVING CAMERA" ACTUALLY COSTS.
+            //   orbit    translate + rotate (a player walking a circuit)
+            //   straight translate only, fixed heading (what every prior probe did)
+            //   spin     rotate only, no translation (a player looking around)
+            //   static   neither
+            // The four together separate translation cost from rotation cost,
+            // which is the whole question §K4 is trying to answer.
+            if (cam != null)
+            {
+                if (motion == "orbit" && speed > 0f)
+                {
+                    angle += (speed / Mathf.Max(1f, radiusM)) * Time.deltaTime;
+                    cam.transform.position = centre + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radiusM;
+                    var tangent = new Vector3(-Mathf.Sin(angle), 0f, Mathf.Cos(angle));
+                    cam.transform.rotation = Quaternion.LookRotation(tangent, Vector3.up);
+                }
+                else if (motion == "straight" && speed > 0f)
+                {
+                    cam.transform.position += cam.transform.forward * (speed * Time.deltaTime);
+                }
+                else if (motion == "spin")
+                {
+                    // Same ANGULAR rate as the orbit, so spin and orbit differ in
+                    // translation alone rather than in how fast the view sweeps.
+                    angle += (speed / Mathf.Max(1f, radiusM)) * Time.deltaTime;
+                    cam.transform.rotation = Quaternion.Euler(0f, angle * Mathf.Rad2Deg, 0f);
+                }
+            }
+
+            yield return null;
+            windowMs.Add(Time.unscaledDeltaTime * 1000.0);
+            windowFrames++;
+
+            float wElapsed = Time.realtimeSinceStartup - windowStart;
+            if (wElapsed >= windowSeconds)
+            {
+                float mean = (float)(1000.0 * wElapsed / windowFrames);
+                float fps = windowFrames / wElapsed;
+                int over33 = windowMs.FindAll(x => x > 33.0).Count;
+                if (firstWindowMs < 0f) firstWindowMs = mean;
+                lastWindowMs = mean;
+                if (mean > worstWindowMs) { worstWindowMs = mean; worstAtMin = (Time.realtimeSinceStartup - runStart) / 60f; }
+
+                string note = (chaosFired && elapsed - chaosAt < 90f) ? "  <- chaos burst active" : "";
+                L($"  {(Time.realtimeSinceStartup - runStart) / 60f,8:F1}{mean,9:F2}{fps,8:F1}" +
+                  $"{1000.0 * over33 / windowMs.Count,10:F1}{mean - firstWindowMs,10:+0.00;-0.00}{note}");
+                int resident = Phase4Bootstrapper.Store != null ? Phase4Bootstrapper.Store.ResidentCount : -1;
+                rows.Add($"{(Time.realtimeSinceStartup - runStart) / 60f:F3}\t{mean:F3}\t{fps:F2}\t{over33}\t{windowMs.Count}\t{resident}");
+
+                windowMs.Clear(); windowFrames = 0; windowStart = Time.realtimeSinceStartup;
+            }
+        }
+
+        if (wantShot)
+        {
+            Playground.DebugHideUi = true;
+            yield return Shot("99_end_pose", $"{motion}: eye {cam.transform.position}");
+        }
+
+        L("");
+        L($"  FIRST 30 s window: {firstWindowMs:F2} ms = {1000f / firstWindowMs:F1} FPS   <- what a cooled short arm reports");
+        L($"  LAST  30 s window: {lastWindowMs:F2} ms = {1000f / lastWindowMs:F1} FPS   <- what sustained play gets");
+        L($"  WORST 30 s window: {worstWindowMs:F2} ms = {1000f / worstWindowMs:F1} FPS at t+{worstAtMin:F1} min");
+        if (firstWindowMs > 0f)
+            L($"  DEGRADATION first -> last: {lastWindowMs - firstWindowMs:+0.00;-0.00} ms " +
+              $"({100f * (lastWindowMs - firstWindowMs) / firstWindowMs:+0.0;-0.0}%)");
+        L("");
+        L("  Raw 30 s windows are in sustained.tsv -- the CURVE is the result, not the endpoint.");
+
+        File.WriteAllText(Path.Combine(_folder, "sustained.txt"), _log.ToString());
+        File.WriteAllText(Path.Combine(_folder, "sustained.tsv"),
+            "minutes\tmeanMs\tfps\tframesOver33\tframesInWindow\tresidentChunks\n" + string.Join("\n", rows) + "\n");
+        Debug.Log("[sustained]\n" + _log);
         yield return null;
         Application.Quit(0);
     }

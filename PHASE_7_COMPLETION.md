@@ -18,154 +18,106 @@
 
 # MORNING SUMMARY
 
-**STAGES REACHED: A, B, C, D and E — all five.** EditMode **PASS 558 FAIL 0**.
-Three commits on `phase7-lighting`.
+## You were right and this document was wrong. It was measuring inside a hole.
 
-## The stutter is fixed, and it was ours
+**Your ~30 FPS is the real number. The 81 FPS in the previous summary was not.**
 
-**43.46 ms → 10.54 ms** on the moving frame; long frames (>33 ms) per 1000 went
-from **1000 to 41**. The pre-Phase-7 build measures 9.32 ms, so Phase 7 now
-costs ~13% rather than 4.7×.
+It is not thermal — I tested that first and it is disproved: 20 continuous
+minutes of load made the machine **5% faster**, with OS thermal pressure nominal
+across 12 samples. It is not fluid, not the HUD, not streaming; all three measure
+as noise.
 
-**It was not the documented, unfixable frame-time tail** — that tail is a few
-long frames against a healthy median, and Phase 7's *median* had moved from 8.9
-to 42.9 ms. **And it was not the shadow ray**: turning shadows fully off
-recovered nothing (43.46 vs 43.62).
+**Every fast number in this project was taken in a scene no player is ever in.**
+`TeleportToArena` — where every Playground probe starts — puts the camera inside
+the dug-out arena facing a near wall, so most of the frame is occluded black and
+rays die in a few voxels: **7.7 ms**. And `-movespeed 12` for 30 s flies 360 m,
+so the probe spends most of its run over empty sky: **3.1 ms**. Standing on open
+ground looking at the landscape, which is what you actually do: **26.5 ms**. Both
+poses are photographed in `Screenshots/StageK/` — the two images tell the whole
+story faster than the numbers do.
 
-**The cause was lava.** Lava is `IsFluid | IsEmissive`, so every lava cell
-registered as a point light through §6.6's hook — 12,000 of them from the vents
-alone — and the light selection insertion-sorted all of them every frame. My own
-comment on that sort said *"at n in the tens"*; the assumption behind it came
-from §3.8's "a handful of placed torches" and I wrongly applied it to every
-emissive material.
+## The real numbers, sustained, at a representative pose
 
-**My first fix was wrong** and is recorded as a failure in §A.6 rather than
-replaced quietly. The verification includes a mutation arm that is now a no-op —
-the strongest evidence available that the expensive work is genuinely gone.
+| | frame | FPS |
+|---|---|---|
+| golden hour, full shadows, shipped 960×540 gate | 26.5 ms | **37.7** |
+| **worst case** — golden hour + 51,000-voxel chaos burst | **30.5 ms** | **32.8** |
+| noon | 17.1 ms | 58 |
+| midnight | 13.5–16.6 ms | 60–74 |
+| golden hour, **gate 560×315**, full shadows | **16.36 ms** | **61.1** |
 
-**⚠ One consequence needs your decision: a lava lake no longer lights the cave
-around it.** It still reads hot (self-lit shading + C.9's `+ emissive`); it just
-no longer illuminates neighbours, which §6.5 never promised. §10 flag 9.
+## Can this hardware support what you want to build? Yes — with one trade
 
-## Which preset I'd pick: **Atmospheric**
+**60 FPS with full soft shadows, live fluid and a chaos burst is already
+achievable: at 560×315 internal resolution it measures 61 FPS, in the tightest
+three windows of the session.** What is *not* achievable is 960×540 with soft
+shadows at a 6° sun. Amendment 8.9 is literally "LOD & resolution" — this is the
+spec's own lever, and it is one number.
 
-Closest to "soft, atmospheric, painterly, warm/cool balance" for three concrete
-reasons: `k_soft` at 0.090 (3× shipped) is the only lever that makes voxel edges
-read painted rather than cut; ambient kept high but pushed lilac-cool against a
-warm sun *is* the warm/cool split, which is lost if you merely turn ambient
-down; and a 30° ramp with a 300 s day makes golden hour watchable. **Press `]` in
-the Playground to cycle all five.** The choice is yours.
+**Half the day already fits at the full 960 gate.** Golden hour is a ~10 ms spike
+confined to low-sun hours, exactly where §6.5 predicted it.
 
-**Your "blindingly bright snow" was real and is arithmetic, not taste.** Snow at
-noon computed to 1.149 — clipping all three channels to flat white. And lowering
-ambient alone does *not* fix it (still 1.05), because the sun term alone is at
-the ceiling. All four new presets sit under a derived ceiling; the shipped values
-are kept as a preset so you can A/B the clipping.
+Five options with their costs are in **§N.5** — lower the gate, dynamic
+resolution, accept 37 FPS at dusk, shadows off at low sun, or shorten render
+distance at low sun (the one lever left untested). **I am not choosing for you.**
 
-## Do dark caves and distant terrain look good?
+**The thing I would not want you to miss:** §6.5's shadow fallback ladder does not
+work as a budget mechanism. Rungs 0, 1 and 2 are within 3 ms of each other — the
+cost is *tracing the ray*, not the soft edge, so every rung but "off" still pays
+it. §F.6's "ship rung 0, it has 5.9 ms of headroom" is **withdrawn**; there is no
+headroom at 960.
 
-**Caves: yes.** A torch in an irregular 3-lobe chamber reads right, and Stage B's
-`N·L` flip is *visibly* working — ledge tops brighter than their vertical faces,
-ceiling falling away dark. That distinction did not exist yesterday. Criticism:
-it's close to monochrome warm tan; if that reads flat, `undergroundAmbientFloor`
-is the lever.
+## The fluid slowdown is connected, not separate
 
-**Distance: no problem found, but not fully settled.** Distant shadows are
-coherent ribbons following real relief. §8's speckle is present but **localised
-to grazing view angles**, which is what genuine per-coarse-voxel shadowing looks
-like (an addressing bug would be distance-dependent). **Inconclusive, leaning
-benign** — settling it needs the tier-1/2 oracle that does not exist.
+`Playground.Update()` calls `_fluid.Tick()` **once per rendered frame**, with no
+fixed-timestep accumulator anywhere in that path. Fluid speed is therefore
+directly proportional to frame rate: at 33 FPS it advances at 55% of its 60 FPS
+rate. **"Fluid moves like syrup" is a symptom of the frame rate, not a second
+bug** — fix one and the other goes with it. (It also means that if you ever cap
+the frame rate, fluid speed changes with it; decoupling the CA is a real design
+question and is flagged in §L.5, not built.)
 
-## SHADOWS FIT THE FRAME. This is the headline, and it reverses last night's.
+## Snow: two sessions optimised the wrong variable
 
-The summary above this line used to read *"no shadow rung holds 60 FPS"*. **That
-was wrong.** The arms behind it were measured before the lava fix, so they were
-timing a 12,000-light O(n²) sort and calling it the shadow ray.
+The complaint was never peak brightness alone — it is **contrast**. At noon the
+vertical faces of the voxel staircase get no direct sun at all, and ambient in
+C.9 is non-directional, so they sit **7.4× darker** than the lit top faces. That
+is the dark contour banding.
 
-Measured again — cooled 300 s per arm, counterbalanced, clock pinned, live fluid,
-moving camera, release standalone — at **two** times of day, including the worst
-one a full 12-point day sweep could find:
+**Every preset that lowered ambient to bound the peak made this worse** — "Warm"
+reaches **16.7:1**. They traded a problem you could name for a bigger one you
+could only feel. Both facts are now pinned by tests.
 
-| | shadows OFF | **shadows FULL (soft penumbra)** | cost of shadows |
-|---|---|---|---|
-| golden hour (§F.4) | 8.91 ms / 112 FPS | **12.29 ms / 81 FPS** | 3.3 ms |
-| 16:00, sun 29° (§F.6) | 8.75 ms / 114 FPS | **10.61 ms / 94 FPS** | 1.9 ms |
+**The fix is one number, and it only became possible last session:** with ACES in
+the pipeline, raising `ambientIntensity` 0.30 → 0.60 lifts the dark faces while
+moving the displayed top face by **3.4%** — halving the contrast. Under the old
+hard clamp this was impossible, which is why §C correctly concluded it couldn't be
+done. **Not applied — it is an art constant and yours to set** (§M.2); it
+hot-reloads, so try it and look.
 
-**Full soft shadows cost about 2–3 ms and leave 4–6 ms of headroom in a 16.67 ms
-frame.** My recommendation is **ship rung 0**, subject to the one caveat below.
+## And the honest answer on the "Layer of the Land" feel: lighting won't get you there
 
-**Three other things the night established, two of them by failing:**
+Asked directly, so: **no. A third pass at lighting constants would waste your
+time.** Aerial-perspective fog already exists (45→260 m), a tone curve now exists,
+as do AO, hemisphere tint, real sun, shadows and point lights.
 
-- **Half the day is free.** With the sun below the horizon, shadows cost between
-  −0.18 and +0.30 ms across five separate sample points — zero, within noise.
-- **The shadow-distance clamp is disproved as a performance lever.** Shortening
-  it 12× (290 m → 24 m) moved the frame *less than running the same condition
-  twice did*. Reported rather than dropped.
-- **My day-sweep had a confound I built into it**, and its own control caught it:
-  it holds fluid vents open across all 12 points, so late points carry both more
-  heat and more water. Its absolute numbers inflate by ~50% and its ranking of
-  which lit hour is worst should not be used. What survives is the zero/non-zero
-  result above. Written up in §F.5 as the design error it was.
+What's missing isn't in the lighting system. The landscape is large contiguous
+areas of **one flat colour per material** — nine terrain materials, with a ±9%
+per-voxel grain as the only within-surface variation. That look leans on dense
+small-scale detail and colour variation *within* a surface. No lighting model
+applied to nine flat colours produces it. Ranked by effort in **§M.4**: per-material
+colour variation (small, a shader change — I'd try this first), scattered detail
+content (phase-sized, and really your forthcoming content work), and §M.2's
+ambient raise (one number).
 
-## The caveat that keeps this a recommendation and not a decision
+## What I'd do with your first ten minutes
 
-**The tail gets worse, and only with the soft penumbra.** Frames over 100 ms per
-1000: shadows off **0.0**, hard-only shadows **0.0**, full soft penumbra **4.4–5.6**.
-That is roughly one hitch per 200 frames that the other two rungs never produce.
+Open `Screenshots/StageK/pose_static_IN_THE_PIT.png` and
+`pose_orbit_OPEN_GROUND.png` side by side. That is the whole measurement story.
+Then set `ambientIntensity` to 0.55 in `LightingConfig.json`, stand on open ground
+at noon, and tell me whether the snow banding is gone.
 
-**Rung 2 (hard edges only) removes that tail entirely and still keeps shadows**,
-for 0.8 ms of the 1.9 ms that full shadows cost. So the real question is not
-"can we afford shadows" — we can — but **"is the soft edge worth an occasional
-hitch?"** That is a feel judgement and it is yours: press `J` to flip rung 0 ↔
-rung 2 while moving and see whether you can feel it. §10 flag 4.
-
-Also: **32 torches cost +0.33 ms.** Point lights are effectively free.
-
-## What else landed, in one line each
-
-- **Coloured torches** (`8` blue / `9` green / `0` violet) — and **512 placed
-  lights cost 0.17 ms more than 32**, with zero GPU re-uploads per frame at any
-  count. **No placement cap is needed**; §3.8's 32-light cap already bounds
-  everything the GPU does. (§G)
-- **Lava lighting its cave: the cost objection is dead** (+0.99 ms for 9,315
-  voxels, down from tens of ms) **but turning it on naively looks worse and
-  starves your torches.** Not built — three costed options are in §H.2, and the
-  one I'd build reuses the fluid tile map to make a lake ~3 lights, not 9,315.
-- **The HUD now always says which preset and which rung you are looking at**, in
-  plain language, in one line. The detailed overlay moved fully behind `F1` and
-  starts closed. (§I)
-- **There was no tonemapping in this renderer at all** — the final combine was a
-  bare `saturate()`, which is why the presets felt capped. ACES and Reinhard are
-  now in, hot-reloadable, with `tonemap: 0` reproducing the old clamp exactly so
-  no historical screenshot becomes irreproducible. (§J)
-- **`Screenshots/Presets/` — 90 images**, 5 presets × 9 fixed scenes + a
-  three-way tonemap comparison, each folder indexed. **No favourite is marked.**
-
-## The one thing most worth your five minutes
-
-**Move continuously and press `J` to flip between *Full (soft edges)* and *Hard
-edges only*.** That is the only open question the measurements could not answer:
-both fit the frame comfortably, but only the soft rung produces >100 ms frames
-(4.4–5.6 per 1000 against zero). If you cannot feel it, ship rung 0.
-
-**Second-best five minutes:** open `Screenshots/Presets/INDEX.md` and compare
-`5_snow_noon` under `tmNone` and `tmACES` in any preset folder — that shows you
-what the missing tone curve was costing. While you are there, look at how dark
-the *vertical* voxel faces go at noon versus golden hour: §J.3 argues that is a
-bigger influence on how these read than the preset palette is, and it has a
-different lever.
-
-**Thirty seconds:** flip between the five `Screenshots/D3_swim/` frames and tell
-me whether the distant shadow drifts — I deliberately did not judge that from
-stills.
-
----
-
-> **This document does not say Phase 7 is complete.** It records what was built,
-> what was proven, what was measured, what was disproved, what measured worse,
-> and what is open. The owner closes the phase.
-
----
+EditMode **PASS 562 FAIL 0**.
 
 ## 0. Read this first — the four things most likely to be misread
 
@@ -1785,6 +1737,536 @@ I will report is what I saw looking at the frames:
    in the set. **This is worth your eye before any preset choice**, because if it
    bothers you the lever is the ambient/hemisphere term, not the preset palette,
    and no amount of preset-picking will address it.
+
+---
+
+## K. STAGE K — THE 81 vs 30 FPS GAP, RESOLVED. The owner's number is the right one.
+
+**The owner sees ~30 FPS at golden hour. This document said 81 FPS.** That 2.7×
+gap is resolved below, and the conclusion is unambiguous: **every frame-rate
+headline in this document measured a scene no player is ever in.** The owner's
+number is correct and the document's was not.
+
+### K.1 The sustained-duration probe — and the obvious hypothesis, DISPROVED
+
+Every prior measurement in this project is ~30 s of capture after a 300 s
+cooldown. The obvious suspicion was that this reports the first 30 seconds of a
+cold fanless machine and hides a thermal decline.
+
+`-sustained` tests that directly: **one continuous 20-minute run, no cooldown
+inside it**, mean frame time in rolling 30 s windows. Golden hour pinned, rung 0,
+live fluid, HUD on, 960×540 gate, release standalone, fullscreen. Raw data:
+`Measurements/Sustained/K1_goldenhour_20min.tsv`.
+
+| | |
+|---|---|
+| **first 30 s window** (straight off a 300 s cooldown) | **26.00 ms = 38.5 FPS** |
+| steady state, minutes 5–20 | ~24.6 ms = 40.6 FPS |
+| worst window (t+15.0 min) | 31.10 ms = 32.2 FPS |
+| **drift across 20 continuous minutes** | **−1.31 ms (−5.0%) — it got FASTER** |
+
+**Thermal is not the cause, and that is measured, not assumed.** `pmset -g therm`
+sampled before, every 2 min during, and after — 12 samples, all
+`No thermal warning level has been recorded`
+(`Measurements/Sustained/K1_thermal_pmset.log`). The curve says it independently:
+20 minutes of sustained load made the machine 5% *faster*.
+
+**THE THERMAL HYPOTHESIS IS DISPROVED.** It was the obvious explanation and it is
+wrong. Recorded as a disproved hypothesis rather than dropped.
+
+**And the real clue is in the first row:** the probe does not start at 81 FPS and
+decay. **It starts at 38.5 FPS on a just-cooled machine.** Duration was never the
+variable. The 81 FPS arms and this 38.5 FPS arm were measuring *different scenes*.
+
+### K.2 Isolation: not fluid, not the HUD, not shadows
+
+Six 5-minute arms, same binary, back to back (K1 having established that drift
+over 20 minutes is −5%, so cooling between arms would add variance, not remove it):
+
+| arm | steady mean | vs baseline |
+|---|---|---|
+| baseline | 25.61 ms | — |
+| baseline repeat | 27.04 ms | +1.43 (the repeat spread) |
+| no fluid | 25.31 ms | −0.30 |
+| no HUD | 24.59 ms | −1.02 |
+| shadows OFF (rung 3) | ~27 ms over its first 3 min | ~0 |
+| **camera not moving** | **7.66 ms** | **−17.95** |
+
+Fluid, the HUD and the shadow ray are all inside the repeat spread. **Camera
+motion is worth 18 ms — more than everything else in the frame put together.**
+
+### K.3 Decomposing "camera motion" — and the methodology flaw it exposes
+
+Four motions, identical starting pose, varying only what changes per frame:
+
+| motion | what it is | steady mean |
+|---|---|---|
+| `static` | camera held still | 7.35–9.11 ms |
+| `spin` | rotate in place, no translation | 7.26–9.32 ms |
+| `spin` repeat | — | 7.26–7.80 ms |
+| `straight` | translate on a fixed heading — **what every prior probe did** | 9.58 ms, then **3.10 ms** |
+| **`orbit`** | translate, staying over terrain | **26.6–31.4 ms** |
+
+**Rotation is free.** Spin and static are indistinguishable across two arms.
+
+**And `straight` is the smoking gun.** It reads 9.58 ms in its first window and
+then collapses to **3.10 ms (322 FPS)** and stays there. At 12 m/s a 5-minute
+straight-line flight covers 3.6 km — **the camera leaves the island and spends the
+rest of the run rendering empty sky.** That is the exact motion `-stutterprobe`
+and `-lightingab` used for every cooled arm in §F.4 and §F.6.
+
+### K.4 What the camera was actually looking at — the whole answer, in two images
+
+The numbers above say two poses 60 m apart differ by 3.6×, which no amount of
+streaming explains. So the probe was made to photograph its own pose instead of
+reasoning about it. `Screenshots/StageK/`:
+
+- **`pose_static_IN_THE_PIT.png`** — the `static`/`spin` pose. `TeleportToArena`
+  puts the camera at eye height **inside the Playground's dug-out arena**, facing
+  a near wall. **Most of the frame is occluded black.** Rays terminate within a
+  few voxels. That is why it costs 7.7 ms, and it is not a scene, it is a hole.
+- **`pose_orbit_OPEN_GROUND.png`** — the `orbit` pose. Standing on open ground at
+  eye level, looking across the landscape to the horizon, hills visible at range.
+  **This is what a player looks at essentially all the time.** 26.6–31.4 ms.
+
+### K.5 The reconciliation, stated plainly
+
+**There is no measurement error and no thermal effect. Every fast number in this
+document was taken either inside a pit or over empty ocean.**
+
+| scene | frame time | FPS |
+|---|---|---|
+| inside the arena pit (`static`, `spin`) | 7.3–9.3 ms | 110–137 |
+| off the island over empty sky (`straight`, after ~30 s) | 3.1 ms | 322 |
+| **standing on open ground looking at the landscape** | **26.6–31.4 ms** | **32–38** |
+| prior cooled golden-hour arms (§F.4/§F.6) | 10.6–12.3 ms | 81–94 |
+
+The prior arms sit between the pit and open ground because a straight-line flight
+**starts in the pit and exits across open terrain and then off the island** — their
+number is an average over a traverse that is mostly not the scene of interest.
+
+**THE HONEST GOLDEN-HOUR NUMBER FOR A PLAYER ON OPEN GROUND IS ~27 ms = ~37 FPS.**
+That is the number this project should use from here, and it matches what the
+owner reports to within the noise.
+
+**What survives, and what does not.** The cooled arms compared like with like, so
+their *differences* remain valid — shadows cost 1.9 ms, 512 lights cost 0.17 ms,
+the clamp lever does nothing. Those were always relative measurements and they
+are unaffected. What does not survive is every **absolute** figure and every
+"fits the 16.67 ms budget" conclusion built on one, **including §F.6's
+recommendation to ship rung 0 on the grounds that it had 5.9 ms of headroom.**
+There is no headroom. §10 flag 4 is reopened on this basis.
+
+### K.6 The rig defect this exposes, which is bigger than Phase 7
+
+`TeleportToArena` is where **every** Playground-based probe starts, and it starts
+inside a hole. `-movespeed` then flies out of the world. This is not a Phase 7
+bug — it is the measurement substrate this project has used since Phase 5a, and
+it means **any Playground-derived absolute frame time in any document here is
+suspect until re-measured at a representative pose.** `-sustained -motion orbit`
+is the pose-and-motion pair that is representative; it should replace the
+straight-line flight in the probes that feed budget claims.
+
+**This is flagged, not fixed.** Rewriting the historical rigs would invalidate
+comparisons in `PHASE_4_COMPLETION.md` and `FLUID_*_RESULTS.md` that are load
+bearing for decisions already taken, and `CLAUDE.md` reserves that call for the
+owner — the same reasoning already recorded for the windowed-capture defect.
+
+---
+
+## L. STAGE L — the real worst case, and what the 27 ms is actually made of
+
+All arms below are at **the open-ground orbit pose §K.4 established as
+representative**, golden hour pinned, live fluid, release standalone, fullscreen,
+sustained windows. Raw data in `Measurements/Sustained/`.
+
+### L.1 A defect in my own rig, disclosed because it changed a conclusion
+
+§K.2's "shadows OFF" arm was **invalid**. My runner passed a default
+`-shadowlevel 0` before the per-arm `"$@"`, so `-shadowlevel 3` arrived second and
+`ArgInt` takes the first match — **that arm ran with shadows ON and I briefly read
+it as evidence that shadows cost nothing.** Fixed, re-run, and the corrected
+result is the largest finding in this session. Recorded rather than quietly
+replaced: it is the same class of error as §D.0's missing capture-mode flag, and
+the lesson is the same — a flag that is silently ignored produces a confident
+number for a condition that never ran.
+
+### L.2 What the frame is made of at the representative pose
+
+| arm | mean frame | FPS |
+|---|---|---|
+| rung 0, gate 960 (baseline) | 28.5 ms | 35 |
+| baseline repeat | 29.2–33.1 ms | 30–34 |
+| **shadows OFF (rung 3)** | **16.3 ms** | **61** |
+| fluid OFF | 26.5–28.0 ms | 36–38 |
+
+**The sun-shadow ray costs ~12 ms at this pose** — not the 1.9 ms §F.6 measured in
+the pit. §6.5 predicted exactly this: at 6° elevation the rays graze for hundreds
+of metres, and on open ground **nearly every pixel is a sunlit surface that needs
+one**, where in the arena almost nothing is sunlit so almost no ray is traced.
+
+**Fluid costs ~1 ms here** and is not a factor.
+
+### L.3 The gate-resolution sweep — the frame is pixel-bound
+
+| gate | pixels | mean frame | FPS |
+|---|---|---|---|
+| 480×270 | 129,600 | 13.9 ms | 72 |
+| 672×378 | 254,016 | 20.6 ms | 49 |
+| **960×540 (shipped)** | **518,400** | **28.5 ms** | **35** |
+| 1280×720 | 921,600 | 39.5 ms | 25 |
+
+Frame time tracks gate pixels closely across a 7× range. **This is a GPU
+ray-throughput problem, not a CPU or streaming one** — which is consistent with
+§K.2 (fluid, HUD and streaming all measured as noise) and with §K.3 (rotation,
+which changes what is on screen but not how many pixels there are, is free).
+
+### L.4 STAGE L1 — golden hour + full CHAOS BURST, sustained
+
+8 minutes continuous, burst fired at t+60 s (~51,000 voxels of water/sand/lava).
+Raw: `Measurements/Sustained/L1_chaos.tsv`.
+
+| phase | mean frame | FPS |
+|---|---|---|
+| before the burst (t 0–1 min) | 26.1–26.4 ms | 38 |
+| during placement and settling (t 1.5–4 min) | 27.5 → **30.5 ms** | 37 → **32.8** |
+| after settling (t 4.5–7.5 min) | 25.5–25.7 ms | 39 |
+
+**THE WORST SUSTAINED NUMBER IN THE SYSTEM IS 30.46 ms = 32.8 FPS**, at golden
+hour with full shadows and a chaos burst settling. Reported as the headline worst
+case, not averaged against anything.
+
+**The burst itself costs ~4 ms — about 15% — and recovers completely.** That is a
+good result and it is worth saying plainly: **the fluid system is not the problem
+here.** §7.2's tiled substrate absorbs 51,000 voxels for 4 ms. The 26 ms
+underneath it is the problem, and it is there before the burst starts.
+
+### L.5 "Fluid moves slower than normal" — CONNECTED, and here is the code path
+
+**The fluid CA advances exactly one tick per rendered frame.** `Playground.Update()`
+(line 771) calls `_fluid.Tick(_clipmap)` (line 842) once per frame, gated only by
+readback availability. There is **no fixed-timestep accumulator anywhere in that
+path** — no `FixedUpdate`, no `Time.deltaTime` scaling of the CA, no catch-up loop.
+
+**Therefore fluid simulation speed is directly proportional to frame rate.** At
+33 FPS fluid advances at 55% of the rate it does at 60 FPS. The "fluid moves like
+syrup" report is **not a separate defect** — it is an inevitable, mechanical
+consequence of the frame-rate finding above, and fixing the frame rate fixes it.
+
+**This is reported as a connection, not filed as a fluid ticket.** It does mean
+that if the owner ever caps or stabilises the frame rate, fluid speed will change
+with it — decoupling the CA from the render frame rate is a real design question
+(§7.3), and it is **flagged, not built**: it changes simulation determinism, which
+`PHASE_5A_COMPLETION`'s conservation tests depend on.
+
+### L.6 §2.2's fallback ladder does not engage — because it does not exist
+
+§2.2 specifies, for the case where the GPU lane does not fit: shrink the fluid
+active radius → two-speed fluid tick → shadow fallback rungs.
+
+**Checked in code rather than assumed. None of it is a runtime mechanism.**
+`ActiveRadiusVoxels` is a settable property that is only ever assigned
+`EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS`; there is no two-speed tick; there is
+no code anywhere that reads a frame time and changes a quality setting. Grep for
+adaptive/degrade/budget-exceeded logic returns nothing but profiling readouts.
+
+**This is not a bug.** §2.2 words it as what to do *"if the GPU lane doesn't
+fit"* — a development decision, not an automatic ladder, and the shadow rungs it
+names are indeed built and switchable. **But it does mean there is no safety net:**
+nothing in the shipping build notices that the frame is at 30 ms and gives
+anything up. Whether there should be is an architecture decision and is left in
+§N as an option with a cost.
+
+---
+
+## M. STAGE M — snow: the root cause is CONTRAST, and two sessions optimised the wrong variable
+
+### M.1 What the previous two sessions got wrong
+
+Both prior sessions treated *"snow is blindingly bright"* as a **peak brightness**
+problem. §C derived a ceiling (`SnowNoonPeak`), bounded every preset under it, and
+that arithmetic was correct. **The complaint survived anyway**, and §J.3 noticed
+why while looking at the frames: at noon the snow carries heavy **dark contour
+banding** following every terrain step.
+
+Those bands are the **vertical faces of the voxel staircase**, and they are not
+slightly darker than the horizontal ones.
+
+At noon the sun sits at ~76°, so for a vertical face `N·L` is at most ~0.24 and is
+**exactly zero** for every face pointing away from the sun. Such a face is lit by
+ambient alone — and in C.9 ambient is a single **non-directional** term. Computed
+from the shipped config (`LightingPresets.SnowNoonUpFace` / `SnowNoonVerticalFace`,
+both now test-covered):
+
+| config | up face | vertical face | **raw ratio** | displayed ratio (ACES) |
+|---|---|---|---|---|
+| **Shipped** (ambient 0.30) | 1.149 *(clipped)* | 0.155 | **7.4 : 1** | 3.7 : 1 |
+| **Atmospheric** (0.22) | 0.944 | 0.113 | **8.3 : 1** | 5.3 : 1 |
+| **Warm** (0.11) | 0.947 | 0.057 | **16.7 : 1** | 14.7 : 1 |
+
+**Every preset that lowered ambient to bound the peak made the contrast
+dramatically worse.** Warm — the preset §C described as "the direct answer to §8"
+— more than doubles it. A surface that is simultaneously clipped white and
+near-black reads as *blinding* no matter what its peak value is, because the eye
+judges brightness by contrast. **The presets traded a problem the owner could name
+for a bigger one they could only feel.**
+
+`SnowNoon_LoweringAmbientToFixPeakMakesFaceContrastWorse` pins this.
+
+### M.2 The lever — which did not exist before Stage J
+
+Raising ambient lifts the vertical faces. Before Stage J that was impossible: the
+renderer ended in a bare `saturate()`, the up-face was *already* clipped, and
+adding ambient only clipped it harder. **With ACES in the pipeline the top face is
+on the flat part of the curve, so it barely moves while the dark faces lift.**
+
+| ambient | up face → displayed | vertical face → displayed | displayed ratio |
+|---|---|---|---|
+| 0.30 (shipped) | 1.149 → **0.832** | 0.155 → 0.224 | 3.7 : 1 |
+| 0.45 | 1.248 → 0.847 | 0.232 → 0.349 | 2.4 : 1 |
+| **0.60** | 1.348 → **0.860** | 0.309 → 0.450 | **1.9 : 1** |
+
+**Doubling ambient moves the displayed top face by 3.4% and nearly halves the
+contrast.** `RaisingAmbientUnderACES_CompressesFaceContrastWithoutBrighteningTheTopFace`
+asserts exactly this, with a mutation guard proving it is the tone curve doing the
+work and not the ratio arithmetic.
+
+**This is offered as the lever, NOT applied.** Ambient intensity is an art
+constant and §10 flag 5 reserves those for the owner. It is one number in
+`LightingConfig.json` and reloads live: set `ambientIntensity` to 0.45–0.60 and
+look at snow at noon.
+
+### M.3 One genuine implementation deviation from C.9, flagged not patched
+
+C.9 specifies `albedo × (sun + points + ambient)`. The hemisphere term is applied
+**to the albedo**, before that multiply:
+
+```
+shaded  = albedo * grain
+shaded *= hemi          // 0.62 down .. 1.12 up
+shaded *= AO
+shaded  = shaded * (sunTerm + pointTerm + ambientTerm)
+```
+
+So the hemisphere tint **also scales the direct sun term** — a face angled away
+from the sky has its *sunlight* reduced by up to 38% even when the sun is shining
+straight at it. The shader's own comment says hemi "is C.9's ambientSky given a
+direction", and if that is what it is, it belongs on the ambient term only.
+
+**This is a real deviation and it is small.** Moving it would slightly brighten
+directly-lit angled faces — helpful at golden hour, marginal at noon — and it
+changes every existing screenshot. **Not changed**: it is a spec-conformance
+question about a term §6.5 deliberately "demoted, not deleted", the visual effect
+is minor next to §M.2's lever, and §0.1 invariant 5 says one new untrusted thing
+at a time.
+
+### M.4 The honest answer on "Layer of the Land" — lighting alone will NOT get there
+
+**My opinion, asked for directly, given plainly: no. Further tuning of lighting
+constants will not close this gap, and a third pass at it would waste the
+owner's time.** What is already present is more than the look is short of:
+
+- **Aerial perspective exists** — linear distance fog toward the sky colour,
+  45 m → 260 m, up to 85% (`_ShadeFog`). The distant hills in
+  `Screenshots/StageK/pose_orbit_OPEN_GROUND.png` do fade correctly.
+- **A tone curve now exists** (Stage J).
+- Hemisphere tint, voxel AO, per-voxel grain, real sun, shadows and point lights
+  all exist.
+
+**What is missing is not in the lighting system.** Looking at that same
+screenshot: the landscape is large contiguous areas of **one flat colour per
+material**, with nine terrain materials total and a ±9% per-voxel grain as the
+only within-surface variation. Layer of the Land's visual language leans on
+**dense small-scale detail and colour variation within a surface** — scattered
+vegetation, rocks, grass tufts, and several tones inside what reads as "grass".
+No lighting model applied to nine flat colours produces that.
+
+**Named specifically, in the order I would rank them:**
+
+1. **Within-material colour variation** (low-frequency noise over the palette, or
+   2–3 tonal variants per material chosen by hash). **Small-to-medium work** — it
+   is a shader change plus palette authoring, no new systems, no new buffers.
+   This is the highest ratio of look-per-effort available and it is the one I
+   would try first.
+2. **Scattered detail content** — grass, rocks, plants as actual voxels.
+   **Phase-sized.** It needs generation rules, density by biome, and it interacts
+   with streaming cost. This is the big one and it is genuinely the owner's
+   forthcoming content/gameplay work, not a lighting task.
+3. **§M.2's ambient raise**, to stop shadowed faces crushing to black. **One
+   number.**
+
+**Do not read this as "the renderer is wrong".** It is doing what §6.5 and C.9
+specify. The gap is content density and palette variation, which is a different
+system that has not been built yet — and saying so is more useful than a third
+round of constant-tuning that was never going to land.
+
+---
+
+# N. VIABILITY ASSESSMENT
+
+**The owner asked directly: is a real, sustained, comfortable frame rate
+achievable on this hardware, or is this project's ceiling too low to keep
+investing in? The answer is YES, it is achievable — but not at the internal
+resolution currently shipped, with shadows on, at golden hour.** The evidence,
+and the cost of each option, is below. Nothing here is softened.
+
+## N.1 What Stage K established as the REAL sustained frame rate
+
+**~27 ms = ~37 FPS**, golden hour, open ground, full shadows, shipped 960×540
+gate, live fluid, sustained. This matches the owner's report to within noise.
+
+**The gap to the old 81 FPS headline is NOT thermal and NOT a measurement error.
+It is that every prior number was taken in a scene no player is in** — either
+inside the Playground's dug-out arena (`TeleportToArena` starts the camera in a
+hole facing a wall: 7.7 ms) or, after 30 s of straight-line flight at 12 m/s, off
+the island over empty sky (3.1 ms). Both poses are photographed in
+`Screenshots/StageK/`. Thermal was tested directly and disproved: 20 continuous
+minutes made the machine **5% faster**, with `pmset -g therm` nominal across 12
+samples.
+
+## N.2 What Stage L established as the worst case
+
+**30.46 ms = 32.8 FPS** — golden hour, full shadows, a full ~51,000-voxel chaos
+burst settling, sustained (`Measurements/Sustained/L1_chaos.tsv`).
+
+**The burst itself accounts for only ~4 ms of that and recovers completely.** The
+fluid system is not the problem; §7.2's tiled substrate absorbs 51,000 voxels for
+about 15%. The 26 ms underneath it is the problem, and it is there before the
+burst starts.
+
+## N.3 Which of (a) acceptable / (b) fixable / (c) architecture ceiling
+
+**It is (b) — fixable, and the fix is a spec-sanctioned setting, not new
+engineering.** But that verdict comes with two hard qualifications, and the first
+one is the important one.
+
+### The decisive evidence: 60 FPS is already reachable, at a cost
+
+Golden hour, open ground, **full soft-penumbra shadows**, sustained:
+
+| internal gate | mean frame | FPS | verdict |
+|---|---|---|---|
+| 960×540 *(shipped)* | 26.5 ms | 37.7 | **misses** |
+| 672×378 | 20.2 ms | 49.5 | misses |
+| **560×315** | **16.36 ms** | **61.1** | **holds 60** |
+| 480×270 | ~15.1 ms | 66 | holds 60 |
+
+**560×315 holds 60 FPS with everything on**, in three consecutive windows of
+16.50 / 16.33 / 16.26 ms — the tightest arm in this session. Amendment 8.9 is
+literally *"LOD & resolution"*; internal render scale is the spec's own lever for
+exactly this situation.
+
+**And half the day already fits at the shipped gate.** Same pose, same shadows:
+
+| time of day | mean frame | FPS |
+|---|---|---|
+| midnight | 13.5–16.6 ms | 60–74 |
+| noon | ~17.1 ms | 58 |
+| **golden hour** | **26.5 ms** | **37.7** |
+
+Golden hour is the worst case, exactly as §6.5 predicted. **The problem is not
+the engine's general throughput — it is a ~10 ms spike confined to low-sun hours.**
+
+### Qualification 1: §6.5's fallback ladder does NOT work as a budget mechanism
+
+This is an architecture-level finding and it should not be buried. At the
+representative pose, gate 960:
+
+| rung | what it is | mean frame |
+|---|---|---|
+| 0 | full soft penumbra | 25.9 ms |
+| 1 | half-res beyond LOD1 | 28.1 ms — **worse than rung 0** |
+| 2 | hard edges only | 25.1 ms — **saves 0.8 ms** |
+| 3 | **off** | **16.5 ms** |
+
+**Rungs 0, 1 and 2 are within 3 ms of each other. Only not tracing the ray at all
+helps.** The cost is the *traversal*, not the penumbra — so a ladder built out of
+"cheaper shadows" cannot recover the budget, because every rung except the last
+still traces the ray. §6.5 designed the rungs as the graceful-degradation path;
+measured, they are not one. That is worth knowing before any future phase relies
+on them.
+
+The shadow-distance clamp was also re-tested **at the correct pose** (§F.4 had
+"disproved" it in the pit, where shadow rays barely run): it is real here but
+small — 2.5 ms at 64 m, 4.3 ms at a visually destructive 16 m. Rung 2 plus a 64 m
+clamp together reach 23.2 ms ≈ 43 FPS. **Still not 60.** Resolution is the only
+lever that gets there with shadows on.
+
+### Qualification 2: §2.2's budget is genuinely exceeded, and by a lot
+
+§2.2 budgets **≤9.0 ms** for raymarch including fused shadow rays and **≤13.0 ms**
+for the whole GPU lane. Measured at the shipped gate on open ground at golden
+hour: **~26 ms**, of which the shadow ray is ~9–12 ms on its own. That is **~2×
+the entire GPU-lane budget**. The budget was written before any of this existed
+and was explicitly flagged as unproven; it is now measured, and it does not hold
+at 960×540 with shadows at low sun.
+
+**At 560×315 it does hold** (16.36 ms total frame, inside the 16.6 ms lane target).
+
+## N.4 What I am NOT claiming
+
+- I have **not** measured CPU-lane headroom directly. The evidence that this is
+  GPU-bound is strong and indirect: frame time tracks gate pixels across a 7×
+  range, while fluid, the HUD, streaming and camera rotation all measure as noise.
+  If that reading is right, the owner's planned gameplay/NPC/village systems land
+  in the lane that is **not** saturated — but that is an inference from the
+  pixel-scaling evidence, not a measurement, and it should be measured before it
+  is relied on.
+- These numbers are one pose on one machine. It is a *representative* pose, chosen
+  and photographed for that reason, but it is not a distribution over play.
+- Nothing here says the renderer is incorrect. It is doing what §6.5 and C.9
+  specify, with the air-mip and §6.5 8.2's LOD tier selection both confirmed
+  active inside the shadow ray — the acceleration is not missing, the work is just
+  genuinely expensive at grazing sun angles.
+
+## N.5 The options, with costs. These are the owner's call, not mine.
+
+**Option 1 — lower the internal gate to 560×315.** Holds 60 FPS with everything
+on, all day. **Cost: image sharpness.** 1920/560 is a 3.4× linear upscale against
+the current 2×. Voxel art upscales more gracefully than most content — large flat
+faces, hard silhouettes — but this is a real and visible trade and it is the
+owner's to judge by looking, not mine to assert. **Zero engineering; one number.**
+
+**Option 2 — dynamic resolution: full gate when the frame is cheap, drop it at low
+sun.** Keeps 960×540 for the ~16 hours a day that already fit and only degrades
+through golden hour. **Cost: small, well-understood engineering** (a resolution
+controller with hysteresis), plus the risk that a visible resolution change reads
+worse than a constant lower one. This is the §2.2 fallback ladder the spec
+intended, built for the lever that actually works (resolution) instead of the one
+that does not (shadow rungs).
+
+**Option 3 — accept 37 FPS at golden hour, 60+ the rest of the day.** **Cost:
+the owner's stated complaint remains**, for a couple of in-game hours per cycle.
+Free.
+
+**Option 4 — shadows off at low sun only.** 16.5 ms at the full 960 gate. **Cost:
+shadows disappear exactly when they are most dramatic**, which is the worst
+possible time to lose them.
+
+**Option 5 — reduce max render distance at low sun.** Not measured. The shadow
+cost is driven by grazing rays over long distances, and `LODConfig.TIER_OUTER_RANGE_M`
+(290 m) bounds them. §F.4's clamp test only limited *shadow* rays; limiting the
+primary ray too would cut both. **Untested — I am naming it as the one remaining
+unexplored lever, not claiming it works.**
+
+## N.6 The honest bottom line
+
+**This project's performance ceiling is not too low, and the architecture is not
+the problem.** The engine sustains 60+ FPS with full shadows, live fluid and a
+51,000-voxel chaos burst — at 560×315 internal, or at 960×540 for most of the day.
+What it cannot currently do is 960×540 with soft shadows at a 6° sun.
+
+**The single most important correction this session makes is not a number, it is a
+method:** this project has been measuring itself in a hole. Every absolute frame
+time in every document here predates that discovery. The differences those
+measurements report are still good; the absolutes are not. **`-sustained -motion
+orbit` is the pose and motion that should feed any future budget claim**, and
+§K.6 flags — without changing — that the historical rigs share the defect.
+
+**Recommended next session, concretely:** measure Option 5 (primary-ray render
+distance at low sun) and the CPU-lane headroom in §N.4, both at the representative
+pose. Those are the two things that would change this assessment, and neither is
+guesswork — they are one flag and one instrument away.
 
 ---
 

@@ -87,6 +87,65 @@ namespace VoxelEngine.Rendering
             0.760f * (c.sunZenithB * c.sunIntensity * 0.97f
                       + c.ambientColorB * c.ambientIntensity) * 1.12f;
 
+        // =================================================================
+        // STAGE M -- THE OTHER HALF OF THE SNOW PROBLEM, WHICH IS NOT PEAK
+        // BRIGHTNESS BUT THE RATIO BETWEEN TWO FACES OF THE SAME VOXEL.
+        //
+        // Two lighting sessions treated "snow is blindingly bright" as a peak
+        // problem and bounded sunIntensity against SnowNoonPeak above. That is
+        // correct and insufficient. The complaint survived both sessions, and
+        // §J.3 noticed why while looking at the frames: at noon the snow shows
+        // heavy DARK CONTOUR BANDING following every terrain step. Those bands
+        // are the VERTICAL faces of the voxel staircase, and they are not
+        // slightly darker than the horizontal ones -- they are an order of
+        // magnitude darker. A surface that is simultaneously clipped white and
+        // near-black reads as "blinding" no matter what the peak value is,
+        // because the eye judges brightness by contrast.
+        //
+        // At noon the sun is at ~76 degrees, so for a vertical face
+        // N.L = dot(horizontal normal, near-vertical sun) is at most ~0.24 and
+        // is ZERO for every face pointing away from the sun. Such a face is lit
+        // by ambient alone, and ambient in C.9 is a single non-directional term.
+        // =================================================================
+
+        /// An up-facing snow voxel at noon: full sun plus full ambient, times
+        /// the hemisphere term's up value. Same expression as SnowNoonPeak.
+        public static float SnowNoonUpFace(LightingConfig c) => SnowNoonPeak(c);
+
+        /// A VERTICAL snow face at noon pointing away from the sun: N.L = 0, so
+        /// the sun term vanishes entirely and only ambient remains, times the
+        /// hemisphere term's side value (upness 0.5 -> lerp(0.62, 1.12, 0.5)).
+        public static float SnowNoonVerticalFace(LightingConfig c) =>
+            0.760f * (c.ambientColorB * c.ambientIntensity) * 0.87f;
+
+        /// The ratio between them. This is the number the banding is made of.
+        public static float NoonFaceContrast(LightingConfig c) =>
+            SnowNoonVerticalFace(c) <= 0f
+                ? float.PositiveInfinity
+                : SnowNoonUpFace(c) / SnowNoonVerticalFace(c);
+
+        /// Narkowicz 2015 ACES fit -- a CPU mirror of Raymarch.compute's
+        /// TonemapAces, so a test can reason about what the tone curve does to
+        /// the two values above without rendering anything. Kept beside the
+        /// shader constant for the same reason MaterialPalette is mirrored:
+        /// PaletteSyncTests-style drift is caught by a test, not by hoping.
+        public static float AcesTonemap(float x)
+        {
+            const float a = 2.51f, b = 0.03f, cc = 2.43f, d = 0.59f, e = 0.14f;
+            float v = (x * (a * x + b)) / (x * (cc * x + d) + e);
+            return Mathf.Clamp01(v);
+        }
+
+        /// The DISPLAYED contrast once the tone curve has run -- which is what
+        /// the eye actually receives, and the only version of this number that
+        /// means anything now that Stage J put a tone curve in the renderer.
+        public static float NoonFaceContrastTonemapped(LightingConfig c)
+        {
+            float lo = AcesTonemap(SnowNoonVerticalFace(c));
+            float hi = AcesTonemap(SnowNoonUpFace(c));
+            return lo <= 0f ? float.PositiveInfinity : hi / lo;
+        }
+
         public struct Preset
         {
             public string Name;
