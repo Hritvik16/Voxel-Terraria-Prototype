@@ -150,9 +150,21 @@ public class RaymarchFeature : ScriptableRendererFeature
     public static float ShadowMaxDistanceOverrideM = -1f;
     public static float Rung1DistanceOverrideM = -1f;
 
+    /// Shadow LOD coarsening by ray TRAVEL as well as camera distance.
+    /// &lt; 0 defers to LightingConfig; 0 disables (the shipped 8.2 behaviour, so
+    /// every historical measurement stays reproducible); 1 is the
+    /// penumbra-derived threshold. See Raymarch.compute's note on
+    /// _ShadowTravelLOD for why max() of the two rules cannot reintroduce 8.1's
+    /// detached shadows.
+    public static float ShadowTravelLodOverride = -1f;
+
+    /// Within-material colour variation (§M.4 item 1). &lt; 0 defers to
+    /// LightingConfig; 0 off, 1 on.
+    public static int MaterialVariationOverride = -1;
+
     public static bool CollectShadowStats = false;
     public static GraphicsBuffer ShadowStatsBuffer { get; private set; }
-    private static readonly uint[] _statsZero = new uint[4];
+    private static readonly uint[] _statsZero = new uint[5];
 
     /// Zeroes the counters, so a read measures ONE frame rather than an
     /// unbounded accumulation.
@@ -165,7 +177,7 @@ public class RaymarchFeature : ScriptableRendererFeature
     /// hit / beyondLod1 / traced / reused, for the last frame since a reset.
     public static uint[] ReadShadowStats()
     {
-        var d = new uint[4];
+        var d = new uint[5];
         ShadowStatsBuffer?.GetData(d);
         return d;
     }
@@ -222,6 +234,9 @@ public class RaymarchFeature : ScriptableRendererFeature
             public float undergroundAmbientFloor;
             public float shadowMaxDistVoxels;
             public float rung1DistVoxels;
+            public float shadowTravelLod;
+            public int materialVariation;
+            public float materialVariationAmount;
             public int tonemap;
             public float exposure;
             public float tonemapWhite;
@@ -283,7 +298,7 @@ public class RaymarchFeature : ScriptableRendererFeature
             if (DebugBuffer == null)
                 DebugBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, DEBUG_BUFFER_FLOATS, sizeof(float));
             if (ShadowStatsBuffer == null)
-                ShadowStatsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 4, sizeof(uint));
+                ShadowStatsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 5, sizeof(uint));
 
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
             UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
@@ -365,6 +380,11 @@ public class RaymarchFeature : ScriptableRendererFeature
                 float rung1M = Rung1DistanceOverrideM >= 0f
                     ? Rung1DistanceOverrideM : cfg.rung1DistanceM;
                 passData.rung1DistVoxels = rung1M * 10f;
+                passData.shadowTravelLod = ShadowTravelLodOverride >= 0f
+                    ? ShadowTravelLodOverride : cfg.shadowTravelLod;
+                passData.materialVariation = MaterialVariationOverride >= 0
+                    ? MaterialVariationOverride : cfg.materialVariation;
+                passData.materialVariationAmount = cfg.materialVariationAmount;
                 passData.tonemap = TonemapOverride >= 0 ? TonemapOverride : cfg.tonemap;
                 passData.exposure = cfg.exposure;
                 passData.tonemapWhite = cfg.tonemapWhite;
@@ -571,6 +591,9 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_CollectShadowStats", data.collectShadowStats);
                         cmd.SetComputeFloatParam(data.compute, "_ShadowMaxDistVoxels", data.shadowMaxDistVoxels);
                         cmd.SetComputeFloatParam(data.compute, "_Rung1DistVoxels", data.rung1DistVoxels);
+                        cmd.SetComputeFloatParam(data.compute, "_ShadowTravelLOD", data.shadowTravelLod);
+                        cmd.SetComputeIntParam(data.compute, "_MaterialVariation", data.materialVariation);
+                        cmd.SetComputeFloatParam(data.compute, "_MaterialVariationAmount", data.materialVariationAmount);
                         cmd.SetComputeIntParam(data.compute, "_Tonemap", data.tonemap);
                         cmd.SetComputeFloatParam(data.compute, "_Exposure", data.exposure);
                         cmd.SetComputeFloatParam(data.compute, "_TonemapWhite", data.tonemapWhite);

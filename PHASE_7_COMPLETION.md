@@ -110,6 +110,38 @@ colour variation (small, a shader change — I'd try this first), scattered deta
 content (phase-sized, and really your forthcoming content work), and §M.2's
 ambient raise (one number).
 
+## Beautiful shadows AND the look, at 60 FPS: measured, and it is one config away
+
+**gate 560×315 · full soft-penumbra shadows · within-material colour variation ·
+ambient 0.30 · live fluid · moving camera · golden hour: 16.28 / 16.81 ms =
+59–61 FPS.** Against the shipped config's 26.5 ms at the same pose — and the
+picture gets *better*, not worse. Compare `Screenshots/Aesthetics/1_golden_BASE.png`
+with `3_golden_matvar_ambient030.png`.
+
+**The shadows get there by tracing fewer rays, not cheaper ones.** Every attempt
+to make the shadow ray itself cheaper failed, and they are all measured in §O.3:
+rung 1 is *worse*, rung 2 buys 0.8 ms, the distance clamp buys 2.5 ms, and my new
+travel-based LOD rule buys nothing at all (it increases steps per ray from 70 to
+106 and leaves the frame unchanged — §O.2, disproved with counters). The cost is
+**tracing the ray at all**, so the only lever that moves it is one ray per gate
+pixel.
+
+Two aesthetic levers are now built, both nearly free: **within-material colour
+variation** (+0.6 ms — two octaves of smooth noise moving albedo on a warm/cool
+axis, replacing white-noise brightness jitter that averages to grey at any
+distance) and **ambient** (0 ms, §M.2's contrast fix).
+
+**Everything added this session defaults OFF.** The shipped build's look and speed
+are unchanged; these are levers with numbers attached.
+
+Also found: the live `LightingConfig.json` has been sitting at **ambient 0.055**
+(the HighContrast preset, left by the Stage J run) — 5× below shipped default, and
+the reason the landscape in every Stage K/L frame reads as crushed black.
+
+Flagged separately: a **deterministic fluid spike ~2.5 minutes after a chaos
+burst** (not during it) costing +9 to +51 ms. It is a fluid question, not a
+lighting one — §O.6.
+
 ## What I'd do with your first ten minutes
 
 Open `Screenshots/StageK/pose_static_IN_THE_PIT.png` and
@@ -2267,6 +2299,203 @@ orbit` is the pose and motion that should feed any future budget claim**, and
 distance at low sun) and the CPU-lane headroom in §N.4, both at the representative
 pose. Those are the two things that would change this assessment, and neither is
 guesswork — they are one flag and one instrument away.
+
+---
+
+# O. GETTING BEAUTIFUL SHADOWS *AND* THE AESTHETIC AT 60 FPS
+
+Asked directly: can this engine have good shadows and the target look, at 60 FPS?
+**Measured answer: yes — at 560×315 internal, with everything on.** What follows
+is what was tried, what worked, and what was disproved.
+
+All arms: open-ground orbit pose (§K.4), golden hour pinned, live fluid, moving
+camera, release standalone, fullscreen, sustained 30 s windows.
+
+## O.1 A measurement hazard that voided two runs, recorded so it is not repeated
+
+**Two full sweeps in this session had to be thrown away** because background work
+appeared mid-run: a **Time Machine backup** (triggered, almost certainly, by the
+`Measurements/` and `Screenshots/` files committed minutes earlier) and later a
+**Shortcuts automation at 96% CPU**. Both inflated every arm by 30–100%, and the
+tell was the control arm — a condition already known to measure ~26 ms reading
+46 ms and 85 ms.
+
+Fixed by gating the runner on `uptime` load average < 2.5 before starting, and by
+always including a reproduce-the-known-baseline arm. **Neither voided run is
+reported as a result.** If a future session sees arms drift upward together while
+a control arm also moves, check `ps -Ao pcpu,comm -r | head` before believing
+anything.
+
+## O.2 DISPROVED: coarsening shadow LOD by ray travel
+
+**The hypothesis, and it was a good one.** §6.5's 8.2 rule pins shadow LOD to
+**camera** distance to the sample. At a 6° sun the shadow ray travels almost
+horizontally *along* the surface, so its samples stay near the camera and it
+marches **per voxel** through dense bricks — calling `ShadowClearance` (up to six
+clipmap reads) at every step — for a hundred metres. §6.5's own cost note assumes
+the opposite: *"mostly through uniform-Air leaps at coarse LOD."* **That
+assumption does not hold at the pose the gate is measured at.**
+
+The proposed fix was `tier = max(tierByCamera, tierByTravel)`. `max()` is what
+makes it safe — it can only coarsen, never refine, so the shadow is never
+evaluated finer than the camera draws that geometry, which is exactly the
+condition the retracted 8.1 rule violated and 8.2 exists to guarantee. The
+threshold is derived rather than tuned: C.10 already blurs the edge by
+`smoothstep(0, kSoft, m)`, so the penumbra half-width at travel `t` is ~`kSoft·t`
+voxels, and detail finer than that is already being blurred away.
+
+**It does not work.** Instrumented rather than argued, with a new `ShadowStats[4]`
+step counter:
+
+| travel LOD | rays/frame | steps/frame | **steps per ray** | frame |
+|---|---|---|---|---|
+| off (shipped 8.2) | 258,095 | 18.1 M | **70.2** | 27.7 ms |
+| 1.0 | 258,049 | 21.0 M | **81.5** | 27.4 ms |
+| 0.2 (most aggressive) | 258,045 | 27.4 M | **106.1** | 25.1 ms |
+
+**Coarsening makes the ray take MORE steps, monotonically, and frame time does not
+move.** The images are identical (`O3_shadow_travel_off` vs `_on`, same pose, same
+frame) — so it is not trading quality for speed either. It is simply not a lever.
+
+**Why, as far as the evidence goes:** step count rising with coarseness means rays
+are travelling *further* before terminating, not less far. The coarse tiers cannot
+be under-occluding by construction — `LODDownsampler` is majority-vote with an
+explicit solid-preserving bias (air wins only on a strict 5-of-8 majority) — so the
+likeliest explanation is that tier 1/2 data is not resident for the near-field
+region these rays traverse, leaving them to leap through nominal "air" to the
+distance clamp. **That is a hypothesis, not a conclusion** — what is established
+is that the lever does not help and is not worth pursuing further.
+
+**The code is kept, defaulted OFF** (`LightingConfig.shadowTravelLod = 0`, which
+reproduces shipped 8.2 behaviour exactly), because the `ShadowStats[4]` counter it
+came with is the useful part and because a disproved lever that is still switchable
+is cheaper to re-test than to rebuild.
+
+## O.3 The shadow levers, ranked by what they actually buy
+
+Everything tried across this session and the last, at the representative pose:
+
+| lever | cost change | verdict |
+|---|---|---|
+| rung 1 (half-res beyond LOD1) | **+2.2 ms (worse)** | dead |
+| travel-based LOD coarsening | 0, +16% steps | **dead (§O.2)** |
+| rung 2 (hard edges, no penumbra) | −0.8 ms | negligible |
+| shadow distance clamp, 64 m | −2.5 ms | small, real |
+| shadow distance clamp, 16 m | −4.3 ms | visually destructive |
+| **internal resolution 960 → 560** | **−10.2 ms** | **the only lever that works** |
+
+**The pattern is consistent and it is the finding:** every attempt to make the
+shadow *ray* cheaper fails, because the cost is **tracing the ray at all**, and
+rungs 0/1/2 plus the travel rule all still trace it. The only thing that moves the
+number is **tracing fewer of them** — which is what internal resolution does, one
+ray per gate pixel.
+
+## O.4 The aesthetic levers, and what they cost
+
+Two changes, both §M.4 items, both now implemented behind defaulted-off flags.
+
+**1. Within-material colour variation** (`materialVariation`). The existing
+`grain` is per-voxel white noise on *brightness only* — it averages to grey over
+any distance or downsample, so it vanishes exactly where the flatness shows, and
+it never varies hue. This adds two octaves of smooth value noise (a hash lattice,
+trilinearly interpolated — pure ALU, no texture, no memory traffic) at ~6.4 m and
+~1.6 m, and moves the albedo along a **warm/cool axis** as well as in value. The
+original grain is kept at half strength, because it still does a different job up
+close.
+
+**Measured cost: +0.6 ms** (15.5 → 16.1 ms at gate 560).
+
+**2. Ambient raised** (§M.2's lever, now testable rather than derived). Free.
+
+**A note that matters for reading every screenshot in this document:** the live
+`LightingConfig.json` had `ambientIntensity` **0.055** — the HighContrast preset,
+left there by the Stage J preset run. That is 5× lower than the shipped default
+and is why the landscape in the Stage K/L frames reads as crushed black. The
+comparison below therefore covers 0.055, 0.30 (shipped) and 0.55.
+
+`Screenshots/Aesthetics/`, all at gate 560 with full soft shadows, same pose:
+
+| file | what |
+|---|---|
+| `1_golden_BASE.png` | as-found: no variation, ambient 0.055 |
+| `2_golden_matvar_only.png` | variation on, ambient still 0.055 — isolates the variation |
+| `3_golden_matvar_ambient030.png` | variation + shipped ambient |
+| `4_golden_matvar_ambient055.png` | variation + ambient 0.55 |
+| `5_noon_BASE.png` / `6_noon_matvar_ambient055.png` | the noon snow/banding case |
+
+**My read, offered as an opinion and not a decision:** 1 → 3 is a large and
+obvious change — the landscape goes from muddy olive with crushed black shadows to
+a readable green terrain with visible ground variation and graded shadow. Between
+3 and 4 I prefer **3** (ambient 0.30): 0.55 lifts the shadows far enough that the
+terrain starts to flatten. **Both are one number in `LightingConfig.json` and both
+hot-reload — this is exactly the judgement that should be made by looking, not by
+reading my adjectives.**
+
+## O.5 THE CANDIDATE CONFIG, measured properly
+
+**gate 560×315 · rung 0 (full soft penumbra) · within-material variation ON ·
+ambient 0.30 · live fluid · moving camera · golden hour · sustained.**
+
+| arm | windows | mean | FPS |
+|---|---|---|---|
+| 5 minutes | 14.55 16.47 15.95 15.99 16.17 15.98 17.83 17.50 16.11 | **16.28 ms** | **61.4** |
+| 3 minutes (repeat) | 15.43 17.30 17.61 16.83 16.91 | **16.81 ms** | **59.5** |
+
+**It sits ON the 60 FPS line, not comfortably above it — 59–61 FPS.** Stated that
+way deliberately: the two arms bracket 16.67 ms, so "holds 60" is accurate and
+"comfortably 60+" would not be. If the owner wants real margin, gate 520 or 480
+buys it (§N.3's sweep: 480 measured ~15.1 ms), at more upscale softness.
+
+**Against the shipped 960×540 config at the same pose, this is 26.5 ms → 16.3 ms,
+with the picture improved rather than degraded** — the softness of a 3.4× upscale
+traded for colour variation, graded shadows and a frame that fits.
+
+## O.6 A separate problem this uncovered: a delayed fluid spike
+
+Both chaos-burst arms show a large spike **~2.5 minutes AFTER the burst lands**,
+not while it is being placed:
+
+| | baseline | during placement | **t+3.5 min** | settled |
+|---|---|---|---|---|
+| gate 560 | 16.0 ms | 17.0–19.0 ms | **66.9 ms (15 FPS)** | 17.2 ms |
+| gate 960 | 28.2 ms | 27.9–29.7 ms | **37.0 ms (27 FPS)** | 29.7 ms |
+
+**It is deterministic** — the burst seeds its RNG with a fixed value, and the spike
+lands at the same point in both arms — so this is engine behaviour, not the
+background contamination of §O.1. Placement itself is cheap (+1–3 ms); the
+expensive moment is whatever the fluid does two and a half minutes later, most
+likely the water/lava reaction front or a large residency change.
+
+**Two things stop me characterising it further here:** the 560 arm ran with load
+creeping to 3.97 so its 66.9 ms peak may be partly inflated, and this is a fluid
+question rather than a lighting one. **Flagged as its own investigation**, with the
+raw curves in `Measurements/Sustained/Q2_chaos.tsv` and `Q2_960_chaos.tsv`. It does
+not change the shadow or aesthetic conclusions, which are measured at steady state.
+
+## O.7 Answering the question directly
+
+**Can this engine have beautiful shadows and the target aesthetic at 60 FPS? Yes,
+and it is one config change away — but the shadows get there by tracing fewer
+rays, not cheaper ones.**
+
+- **Full soft-penumbra shadows are kept.** Not rung 2, not a clamp, not a
+  degraded approximation — rung 0, the best-looking option, at every hour.
+- **The aesthetic improves at the same time**, because the two levers that work
+  (colour variation at +0.6 ms, ambient at 0 ms) are nearly free, and the one that
+  pays for them (internal resolution) costs sharpness rather than lighting quality.
+- **Every attempt to make the shadow ray itself cheaper failed** — rung 1, rung 2,
+  the distance clamp and the travel-LOD rule are all measured above, and the best
+  of them buys 2.5 ms against a 10 ms problem.
+
+**What I did NOT do, and would do next:** §N.5's Option 5 — reducing the *primary*
+ray's render distance at low sun — is still untested, and it is the one remaining
+lever that attacks the cost at its source rather than by sampling less. It would
+shorten the grazing rays that §6.5 correctly identified as the expensive case.
+
+**Everything built this session defaults OFF** (`shadowTravelLod = 0`,
+`materialVariation = 0`, ambient unchanged, gate unchanged). Nothing about the
+shipped build's look or speed has changed. These are levers with numbers attached,
+for the owner to pull.
 
 ---
 

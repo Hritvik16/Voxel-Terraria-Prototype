@@ -1780,6 +1780,16 @@ public class PlaygroundCapture : MonoBehaviour
         float shClampM = ArgFloat("-shadowclamp", -1f);
         if (shClampM >= 0f) RaymarchFeature.ShadowMaxDistanceOverrideM = shClampM;
 
+        // Shadow LOD coarsening by ray travel. The cost lever this session is
+        // actually testing; 0 reproduces shipped behaviour exactly.
+        float travelLod = ArgFloat("-shadowtravellod", -1f);
+        if (travelLod >= 0f) RaymarchFeature.ShadowTravelLodOverride = travelLod;
+
+        float ambient = ArgFloat("-ambient", -1f);
+        if (ambient >= 0f) LightingConfig.Active.ambientIntensity = ambient;
+        int matVar = ArgInt("-matvar", -1);
+        if (matVar >= 0) RaymarchFeature.MaterialVariationOverride = matVar;
+
         // K4b: the overlays are part of what a player actually has on screen.
         // Default here is HUD ON, because the question is what the OWNER sees,
         // not what a clean capture pose sees. -nohud is the isolation arm.
@@ -1824,7 +1834,9 @@ public class PlaygroundCapture : MonoBehaviour
         L($"gate {(gate > 0 ? gate + "x" + (gate * 9 / 16) : "as-shipped")}   " +
           $"shadow rung {RaymarchFeature.ShadowQualityLevel}   HUD {(hud ? "ON" : "OFF")}   " +
           $"fluid {(withFluid ? "LIVE" : "OFF")}   motion {motion} ({radiusM} m at {speed} m/s)   " +
-          $"shadowClamp {(shClampM >= 0f ? shClampM + " m" : "inherit 290 m")}");
+          $"shadowClamp {(shClampM >= 0f ? shClampM + " m" : "inherit 290 m")}   " +
+          $"travelLOD {RaymarchFeature.ShadowTravelLodOverride}   " +
+          $"ambient {LightingConfig.Active.ambientIntensity:F2}");
         L($"clock PINNED at {SunCycle.ClockString()}  sun {SunCycle.ElevationDegrees:F1} deg ({SunCycle.PhaseName})");
         L($"DURATION {totalSeconds / 60} min CONTINUOUS -- no cooldown, no pause. This is the");
         L("point: every other probe in this project reports the first 30 s of a cold machine.");
@@ -1924,6 +1936,26 @@ public class PlaygroundCapture : MonoBehaviour
         {
             Playground.DebugHideUi = true;
             yield return Shot("99_end_pose", $"{motion}: eye {cam.transform.position}");
+        }
+
+        // SHADOW-RAY STEP COUNT, averaged over a short window. The decisive
+        // counter for whether a shadow cost lever is actually engaging.
+        if (RaymarchFeature.ShadowStatsBuffer != null)
+        {
+            RaymarchFeature.CollectShadowStats = true;
+            RaymarchFeature.ResetShadowStats();
+            const int statFrames = 60;
+            for (int f = 0; f < statFrames; f++) yield return null;
+            uint[] st = RaymarchFeature.ReadShadowStats();
+            RaymarchFeature.CollectShadowStats = false;
+            if (st != null && st.Length >= 5)
+            {
+                double tracedPf = st[2] / (double)statFrames;
+                double stepsPf = st[4] / (double)statFrames;
+                L("");
+                L($"  SHADOW RAYS traced/frame {tracedPf:N0}   steps/frame {stepsPf:N0}   " +
+                  $"steps per ray {(tracedPf > 0 ? stepsPf / tracedPf : 0):F1}");
+            }
         }
 
         L("");

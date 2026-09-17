@@ -203,6 +203,20 @@ public sealed class LightingConfig
     /// than the mechanism was why rung 1 never engaged.
     public float rung1DistanceM = 0f;
 
+    /// Shadow LOD coarsening by ray travel (see Raymarch.compute's
+    /// _ShadowTravelLOD note). 0 = off, which is the shipped §6.5 8.2 behaviour.
+    /// DEFAULT IS 0 DELIBERATELY: this is a new approximation and turning it on
+    /// by default would silently change every shadow in the game and every
+    /// number measured against it. It is switched on by measurement, not by me.
+    public float shadowTravelLod = 0f;
+
+    /// Within-material colour variation (§M.4 item 1 -- the highest
+    /// look-per-effort item in that assessment). OFF by default: it changes how
+    /// every surface in the game looks, which is an art decision and §10 flag 5
+    /// reserves those for the owner.
+    public int materialVariation = 0;
+    public float materialVariationAmount = 1.0f;
+
     /// Axial tilt of the sun's arc, unitless. 0 puts the sun's path in a
     /// vertical plane through the zenith, which makes every shadow sweep
     /// through exactly one azimuth and looks artificial. 0.25 tilts the arc so

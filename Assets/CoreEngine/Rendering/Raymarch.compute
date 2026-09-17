@@ -263,6 +263,51 @@ float3 _AmbientColor;
 // C.10's penumbra constant. 0 => hard shadows (a BRANCH, not a limit --
 // smoothstep with a zero-width edge is undefined).
 float _KSoft;
+int   _MaterialVariation;
+float _MaterialVariationAmount;
+
+// =====================================================================
+// SHADOW LOD BY *TRAVEL* AS WELL AS BY CAMERA DISTANCE.
+//
+// §6.5's 8.2 rule pins shadow LOD to CAMERA distance to the sample, and it is
+// right to: the retracted 8.1 rule (coarsen by travelled distance alone) let a
+// short shadow ray evaluate a distant mountain at fine LOD, so the cast shadow
+// did not match the silhouette the camera drew -- detached, floating shadows.
+//
+// But 8.2 alone is what makes golden hour cost 9-12 ms. At a 6 degree sun the
+// ray travels almost horizontally ALONG the surface, so its samples stay close
+// to the camera and it marches per-voxel through dense bricks -- calling
+// ShadowClearance (up to six clipmap reads) at every step -- for a hundred
+// metres. §6.5's own cost note assumes the opposite ("mostly through uniform-Air
+// leaps at coarse LOD"), and that assumption does not hold for the exact case
+// the gate is measured at.
+//
+// THE FIX TAKES THE COARSER OF THE TWO RULES:
+//
+//     tier = max(tierByCameraDistance, tierByTravelDistance)
+//
+// max() is what makes this safe. It can only ever coarsen, never refine, so the
+// shadow is NEVER evaluated at finer detail than the camera draws that geometry
+// -- which is precisely the condition 8.1 violated and 8.2 exists to guarantee.
+// 8.2's acceptance test (a player in a distant mountain's shadow sees the edge
+// align with the silhouette) is unaffected: for distant geometry the camera term
+// already returns tier 2 and max() leaves it there.
+//
+// WHY COARSENING BY TRAVEL IS INVISIBLE. C.10 already blurs the shadow edge by
+// smoothstep(0, _KSoft, m) with m = min(clearance/t), so the penumbra half-width
+// at travel t is ~ _KSoft * t voxels. Once that exceeds the tier's voxel size,
+// detail finer than the tier is *already* being blurred away by the penumbra --
+// sampling it is work whose result cannot be seen. At the shipped _KSoft = 0.03
+// tier 1 (2 voxels) is justified beyond ~6.7 m of travel and tier 2 (4 voxels)
+// beyond ~13.3 m.
+//
+// _ShadowTravelLOD is that threshold's multiplier: <= 0 disables the rule
+// entirely (exactly the shipped 8.2 behaviour, so every historical measurement
+// stays reproducible), 1.0 is the penumbra-derived threshold above, and larger
+// values are more conservative.
+// =====================================================================
+float _ShadowTravelLOD;
+
 
 // §6.5's fallback ladder, from EngineConfig.SHADOW_QUALITY_LEVEL:
 //   0 full penumbra | 1 half-res beyond LOD1 | 2 hard only | 3 off
@@ -399,6 +444,73 @@ float VoxelHash(int3 v)
     uint h = uv.x * 73856093u ^ uv.y * 19349663u ^ uv.z * 83492791u;
     h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
     return (float)(h & 0xFFFFFFu) / (float)0xFFFFFF;
+}
+
+// =====================================================================
+// WITHIN-MATERIAL COLOUR VARIATION (§M.4 item 1).
+//
+// §M.4's assessment was that the remaining gap to the target aesthetic is not in
+// the lighting model -- fog, tone curve, AO, hemisphere, sun, shadows and point
+// lights all exist -- but in the fact that the landscape is large contiguous
+// areas of ONE FLAT COLOUR per material, nine materials total.
+//
+// The existing `grain` term does not address that, for two reasons worth stating
+// because they are the whole design of this function:
+//
+//   1. IT IS WHITE NOISE. Per-voxel uncorrelated noise averages to grey over any
+//      distance or downsample -- so it vanishes exactly where the flatness is
+//      most visible (mid and far ground), and at the shipped gate it is fighting
+//      the upscale as well. Variation has to be LOW FREQUENCY to survive.
+//   2. IT ONLY MOVES BRIGHTNESS. Real ground varies in hue, not just value. A
+//      brightness-only jitter reads as noise on a flat colour, not as varied
+//      ground.
+//
+// So this adds two octaves of smooth value noise (a hash lattice, trilinearly
+// interpolated -- pure ALU, no texture and no memory traffic) and uses it to
+// move the albedo along a warm/cool axis as well as in value.
+//
+// _MaterialVariation is the toggle and DEFAULTS OFF: it changes the look of
+// every surface in the game, and that is the owner's call, not a default I get
+// to set. _MaterialVariationAmount scales it.
+// =====================================================================
+float VoxelNoiseSmooth(int3 v, int shift)
+{
+    int3 c = v >> shift;
+    float3 f = (float3)(v - (c << shift)) / (float)(1 << shift);
+    f = f * f * (3.0 - 2.0 * f);                       // smoothstep fade
+
+    float n000 = VoxelHash(c + int3(0, 0, 0));
+    float n100 = VoxelHash(c + int3(1, 0, 0));
+    float n010 = VoxelHash(c + int3(0, 1, 0));
+    float n110 = VoxelHash(c + int3(1, 1, 0));
+    float n001 = VoxelHash(c + int3(0, 0, 1));
+    float n101 = VoxelHash(c + int3(1, 0, 1));
+    float n011 = VoxelHash(c + int3(0, 1, 1));
+    float n111 = VoxelHash(c + int3(1, 1, 1));
+
+    float nx00 = lerp(n000, n100, f.x), nx10 = lerp(n010, n110, f.x);
+    float nx01 = lerp(n001, n101, f.x), nx11 = lerp(n011, n111, f.x);
+    return lerp(lerp(nx00, nx10, f.y), lerp(nx01, nx11, f.y), f.z);
+}
+
+float3 ApplyMaterialVariation(int3 voxel, float3 base)
+{
+    if (_MaterialVariation == 0) return base;
+
+    // ~6.4 m patches carry the shape; ~1.6 m breaks up their edges.
+    float lf = VoxelNoiseSmooth(voxel, 6) - 0.5;
+    float mf = VoxelNoiseSmooth(voxel, 4) - 0.5;
+    float v = lf * 0.72 + mf * 0.28;
+
+    // Warm/cool rather than light/dark. The two tints are deliberately gentle
+    // and near-complementary so the result reads as the same material under
+    // varying ground, not as two different materials.
+    float3 warm = float3(1.07, 1.01, 0.91);
+    float3 cool = float3(0.93, 0.99, 1.07);
+    float3 tint = lerp(cool, warm, saturate(v * 2.0 + 0.5));
+
+    float amt = _MaterialVariationAmount;
+    return base * lerp(float3(1.0, 1.0, 1.0), tint, amt) * (1.0 + v * amt * 0.55);
 }
 
 // NEW: developer material palette. 8 hand-picked, well-separated colors,
@@ -656,6 +768,19 @@ int SelectLODTier(float cameraDistanceVoxels)
     if (cameraDistanceVoxels >= _TierOuterRangeVoxels.y) return 2;
     if (cameraDistanceVoxels >= _TierOuterRangeVoxels.x) return 1;
     return 0;
+}
+
+/// See the note beside _ShadowTravelLOD's declaration.
+int SelectShadowTier(float cameraDistanceVoxels, float travelVoxels)
+{
+    int camTier = SelectLODTier(cameraDistanceVoxels);
+    if (_ShadowTravelLOD <= 0.0 || _UseLODCascade == 0) return camTier;
+
+    float k = max(1.0e-4, _KSoft);
+    float t1 = _ShadowTravelLOD * 2.0 / k;   // tier 1 voxels are 2 voxels wide
+    float t2 = _ShadowTravelLOD * 4.0 / k;   // tier 2 voxels are 4 voxels wide
+    int travelTier = travelVoxels >= t2 ? 2 : (travelVoxels >= t1 ? 1 : 0);
+    return max(camTier, travelTier);
 }
 
 int AirMipFlatIndex(int3 cell, uint3 dims)
@@ -1079,7 +1204,7 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
         // SelectLODTier's parameter is named so this line has to say which
         // distance it means.
         float3 sampleVox = (float3)voxel + 0.5;
-        int tier = SelectLODTier(length(sampleVox - camVox));
+        int tier = SelectShadowTier(length(sampleVox - camVox), currentDist);
 
         if (tier == 0)
         {
@@ -1776,6 +1901,11 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
             if (distant)  InterlockedAdd(ShadowStats[1], 1u);
             if (traceMine) InterlockedAdd(ShadowStats[2], 1u);
             if (needsShadowRay && reuse && !isQuadLead) InterlockedAdd(ShadowStats[3], 1u);
+            // [4] TOTAL SHADOW STEPS. The decisive counter for the travel-LOD
+            // experiment: if steps do not fall when the rule is enabled, the
+            // mechanism is not engaging and no amount of frame-time staring will
+            // say so. Same instrument-before-guessing that settled rung 1 (§F.1).
+            if (traceMine) InterlockedAdd(ShadowStats[4], (uint)sh.steps);
         }
     }
 
@@ -1927,8 +2057,13 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
             // faces of one material read as untextured plastic. Halved from the
             // old +/-17.5%, because a real palette needs far less help than the
             // modulo one did.
-            float grain = (VoxelHash(voxel) - 0.5) * 0.18;
-            float3 shaded = saturate(baseColor * (1.0 + grain));
+            // The original white-noise grain is KEPT and simply scaled down when
+            // the low-frequency variation is on -- the two do different jobs
+            // (this one breaks up a single face up close, that one varies the
+            // ground across metres) and removing it makes near surfaces plastic.
+            float grainAmt = _MaterialVariation != 0 ? 0.09 : 0.18;
+            float grain = (VoxelHash(voxel) - 0.5) * grainAmt;
+            float3 shaded = saturate(ApplyMaterialVariation(voxel, baseColor) * (1.0 + grain));
 
             // Hemisphere tint: up-facing faces catch the sky, down-facing faces
             // fall toward ground shadow. This single term does most of the work
