@@ -26,7 +26,7 @@
 
 Phase 6 is CLOSED and merged. **Phase 7 (lighting & day/night) is built and its
 acceptance gates are green, but it is NOT closed** -- `PHASE_7_COMPLETION.md`
-recommends; the owner closes. EditMode is `PASS 550 FAIL 0` and
+recommends; the owner closes. EditMode is `PASS 562 FAIL 0` and
 `./run-phase7-rig.sh` reports `PASS 28 FAIL 0`. What Phase 7 still wants is the
 owner's five minutes in the Playground (that document's §12) and answers to its
 §10 flags -- principally which of §6.5's four shadow rungs ships.
@@ -238,6 +238,43 @@ real and separate reason — see the LOD-cascade finding in
 
 ## Known open issues (act on these, don't rediscover them)
 
+- **EVERY PLAYGROUND PROBE HAS BEEN MEASURING INSIDE A HOLE. This is the biggest
+  measurement defect found in this project so far.** `TeleportToArena` -- where
+  every Playground-based capture mode starts -- puts the camera inside the dug-out
+  arena facing a near wall, so most of the frame is occluded and rays die within a
+  few voxels: **7.7 ms**. `-movespeed 12` then flies 360 m in 30 s and spends most
+  of the run off the island over empty sky: **3.1 ms**. A player standing on open
+  ground looking at the landscape measures **26.5 ms**. Both poses are
+  photographed in `Screenshots/StageK/`. Consequence: **the DIFFERENCES reported
+  by historical A/B arms remain valid (they compared like with like), but every
+  ABSOLUTE frame time and every "fits the budget" conclusion in every document
+  here is suspect until re-measured.** Use `-sustained -motion orbit` for anything
+  that feeds a budget claim. **NOT FIXED** -- rewriting the historical rigs would
+  invalidate load-bearing comparisons in `PHASE_4_COMPLETION.md` and
+  `FLUID_*_RESULTS.md`, which is the owner's call. Full analysis in
+  `PHASE_7_COMPLETION.md` §K.
+- **A SHORT COOLED ARM IS NO LONGER SUFFICIENT EVIDENCE FOR AN FPS CLAIM.** Use
+  `-sustained`, which runs continuously for N minutes and reports rolling 30 s
+  windows -- the curve is the result, not the endpoint. Thermal throttling was
+  tested directly and is NOT a factor on this machine: 20 continuous minutes made
+  it **5% faster**, `pmset -g therm` nominal across 12 samples. (`pmset`/
+  `powermetrics` are OS utilities, not GPU profilers, and are not covered by the
+  no-Xcode rule.)
+- **§6.5's shadow fallback ladder does NOT work as a budget mechanism.** Measured
+  at a representative pose: rung 0 (full soft) 25.9 ms, rung 1 28.1 ms (worse than
+  rung 0), rung 2 (hard only) 25.1 ms, rung 3 (off) 16.5 ms. **Rungs 0/1/2 are
+  within 3 ms of each other because the cost is TRACING THE RAY, not the soft
+  edge.** Do not plan on stepping down a rung to recover frame time -- only "off"
+  recovers anything. The lever that does work is internal resolution (Amdt 8.9):
+  gate 560x315 holds 61 FPS with full shadows where 960x540 gets 37.7.
+- **`ArgValue`/`ArgInt`/`ArgFloat` in `PlaygroundCapture` take the LAST match, and
+  that is deliberate -- do not "fix" it back to first-match.** Runner scripts pass
+  a default first and the per-arm override second (`--args -shadowlevel 0 "$@"`).
+  First-match silently ignored the override, so an arm ran the DEFAULT while its
+  label, log line and report all claimed otherwise. That produced a wrong
+  "shadows cost nothing" reading that had to be retracted, and a gate-520 arm that
+  was really gate 960.
+
 - **EMISSIVE + MOBILE MATERIALS MUST NOT REGISTER AS POINT LIGHTS.** Lava is
   `IsFluid | IsEmissive`. §6.6's enqueue runs on every `SetVoxel`, so before
   2026-09-13 a lava flow registered thousands of lights and the §3.8 selection
@@ -246,7 +283,9 @@ real and separate reason — see the LOD-cascade finding in
   selection is partial (O(n x cap)) so no future emissive can make it quadratic
   again. §3.8's "a handful of placed torches, not a lit city" is a statement
   about PLACED torches -- do not apply it to every emissive material.
-- **`-stutterprobe` does not pin the time of day** and the Playground clock runs
+- **`-stutterprobe` flies in a straight line and leaves the world** -- see the
+  measuring-inside-a-hole entry above; its absolute numbers are not
+  representative. It also **does not pin the time of day** and the Playground clock runs
   (`dayLengthSeconds` 120). Its arms average over a day-night cycle, so shadow
   rays are skipped for part of every run. Fine for before/after comparisons
   where every arm shares it; **never** quote a rung cost from it -- use
