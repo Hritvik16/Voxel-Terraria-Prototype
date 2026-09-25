@@ -288,8 +288,24 @@ real and separate reason — see the LOD-cascade finding in
   invalidate load-bearing comparisons in `PHASE_4_COMPLETION.md` and
   `FLUID_*_RESULTS.md`, which is the owner's call. Full analysis in
   `PHASE_7_COMPLETION.md` §K.
-- **THE PLAYGROUND HUD STALLS THE GPU PIPELINE EVERY ~7.5 FRAMES (found
-  2026-09-25, NOT FIXED -- proposed, awaiting the owner).** The fluid panel
+- **TIER-0 CLIPMAP LOST UPDATES AFTER A TELEPORT OR FAST FLIGHT (found and
+  FIXED 2026-09-25).** `TerrainClipmap.UploadDirty` uploads nearest-first; an
+  evicted chunk and its replacement share a toroidal slot, so the replacement
+  uploaded and THEN the eviction's clear wiped it: 57-94 resident chunks with
+  empty GPU slots ("LOST 83,138" in the validator), seen as chunk-shaped holes
+  and as a tier 0 -> 1 "pop" (the coarse tiers still held the chunk). The
+  eviction clear now skips a slot a resident chunk owns. The Phase 4 rig never
+  saw it because it traverses continuously and never teleports; `-lodpop`'s
+  `MirrorDiagnostics` (after a teleport) is the check. Verified 0 LOST.
+- **EVERY PHASE 4 ACCEPTANCE RUN AFTER PHASE 7 RENDERED BLACK (found and FIXED
+  2026-09-25).** Phase 7's `LightBuffer` was bound only when a LightingDriver
+  existed; the acceptance scene has none, Metal SKIPS a dispatch with an unset
+  buffer ("Property (LightBuffer) ... is not set" in the player log), so the
+  frame was black and "frame total" measured an empty frame (1.3 ms). Its CPU/
+  buffer gates stayed valid. A dummy is bound now. **Always open the rig's
+  screenshots** -- 53 PASS / 0 FAIL came with four pure-black PNGs.
+- **THE PLAYGROUND HUD STALLED THE GPU PIPELINE EVERY ~7.5 FRAMES (found
+  2026-09-25, FIXED in bf9aaba: async readback; >100 ms frames 646 -> 16).** The fluid panel
   calls `ReadSlotCounters` (a blocking `GraphicsBuffer.GetData`) every 15
   countdown ticks, and the countdown runs from `OnGUI`, which Unity calls
   twice a frame -- so every 7-8 frames the CPU waits for the whole GPU queue.
@@ -297,8 +313,8 @@ real and separate reason — see the LOD-cascade finding in
   ~10 ms catch-up frames: THE DEMO'S STUTTER. `-flyfast` at 60 m/s, far band
   off, HUD on vs `-nohud`: frames > 100 ms 646 -> 19, p99 160 -> 83 ms, mean
   47.2 -> 45.6 (`Logs/flyfast_20260925_105003.txt`). Every `-sustained` arm
-  defaults to HUD ON, so its per-frame tail (not its A/B deltas) carries this.
-  Use `-nohud` for any frame-time TAIL claim until it is fixed.
+  defaults to HUD ON, so the per-frame TAIL of any arm before bf9aaba (not its
+  A/B deltas) carries this.
 - **A SHORT COOLED ARM IS NO LONGER SUFFICIENT EVIDENCE FOR AN FPS CLAIM.** Use
   `-sustained`, which runs continuously for N minutes and reports rolling 30 s
   windows -- the curve is the result, not the endpoint. Thermal throttling was
