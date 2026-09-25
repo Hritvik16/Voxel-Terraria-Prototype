@@ -213,6 +213,26 @@ namespace VoxelEngine.Simulation
             everAllocated = _counterScratch[1];
         }
 
+        /// NON-BLOCKING twin of ReadSlotCounters, for per-frame UI. Issues one
+        /// AsyncGPUReadback of the counters when none is in flight; the value
+        /// lands a few frames later in LastLiveSlots. ReadSlotCounters' GetData
+        /// waits for the whole GPU queue to drain -- called from the Playground
+        /// HUD every ~7.5 frames it was the demo's 150 ms stutter (2026-09-25,
+        /// -flyfast: frames > 100 ms 646 with it, 19 without).
+        public void RequestSlotCountersAsync()
+        {
+            if (_counterReadInFlight || _counters == null) return;
+            _counterReadInFlight = true;
+            AsyncGPUReadback.Request(_counters, req =>
+            {
+                _counterReadInFlight = false;
+                if (!req.hasError) LastLiveSlots = req.GetData<uint>()[0];
+            });
+        }
+        private bool _counterReadInFlight;
+        /// highWater from the most recent landed RequestSlotCountersAsync.
+        public uint LastLiveSlots { get; private set; }
+
         /// Slot indices currently sitting in A.5's free list, waiting to be
         /// reused. With recycling working, a region that has settled should show
         /// this rising back toward highWater -- that is what "sleep returns

@@ -378,7 +378,7 @@ public class Playground : MonoBehaviour
             HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
             HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-looksweep") ||
-            HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams"))
+            HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
@@ -390,7 +390,7 @@ public class Playground : MonoBehaviour
         if (HasArg("-p7stress") || HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-phase7demo") || HasArg("-roofskipab") || HasArg("-upscaleab") ||
             HasArg("-lavalight") || HasArg("-looksweep") || HasArg("-farvisual") ||
-            HasArg("-farpreview") || HasArg("-farseams")) DebugHideUi = true;
+            HasArg("-farpreview") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer")) DebugHideUi = true;
 
         RegisterDefaultToys();
         _ready = true;
@@ -1488,7 +1488,6 @@ public class Playground : MonoBehaviour
     /// system, so "is buoyancy doing anything" is answerable at a glance.
     private const int FluidCounterRefreshFrames = 15;
     private int _fluidCounterCountdown;
-    private uint _cachedLiveSlots;
 
     private void DrawStatePanel(float vh)
     {
@@ -1548,19 +1547,20 @@ public class Playground : MonoBehaviour
         long dist2 = (long)d.x * d.x + (long)d.y * d.y + (long)d.z * d.z;
         bool inRadius = FluidActiveRegion.WithinWakeRadius(_arenaCentre, pv, _activeRadiusVoxels);
 
-        // THROTTLED, BECAUSE THIS IS A BLOCKING GPU READBACK.
-        // ReadSlotCounters calls GraphicsBuffer.GetData, which syncs the CPU
-        // to the GPU. The sibling ReadFreeSlotCount carries the warning
-        // "BLOCKING; rigs only" in its own doc comment -- and this was being
-        // called EVERY FRAME from OnGUI, on the render path, purely to print
-        // one number. Now sampled every FluidCounterRefreshFrames and cached.
+        // ASYNC, NOT THROTTLED-BLOCKING. This used to call ReadSlotCounters
+        // (GraphicsBuffer.GetData) every FluidCounterRefreshFrames OnGUI calls.
+        // OnGUI runs at least twice a frame, so that was a full CPU<-GPU sync
+        // every ~7.5 frames: a ~150 ms hitch plus two catch-up frames near the
+        // ground, i.e. the demo's stutter (-flyfast 2026-09-25: frames > 100 ms
+        // 646 with the HUD on vs 19 with -nohud). The async request never
+        // waits; the number it prints is a few frames old, which is fine for
+        // a readout.
         if (--_fluidCounterCountdown <= 0)
         {
-            _fluid.ReadSlotCounters(out uint live, out uint _ever);
-            _cachedLiveSlots = live;
+            _fluid.RequestSlotCountersAsync();
             _fluidCounterCountdown = FluidCounterRefreshFrames;
         }
-        uint liveSlots = _cachedLiveSlots;
+        uint liveSlots = _fluid.LastLiveSlots;
 
         sb.AppendLine("<b><color=#ffd479>── FLUID (§7.2 tiles / §7.4 radius) ───</color></b>");
         sb.Append(Row("tiles", $"{_tiles.ResidentTiles} / {_tiles.TileCapacity} resident   " +
