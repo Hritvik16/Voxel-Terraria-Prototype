@@ -98,6 +98,10 @@ run_scenario() {  # run_scenario <name> <extra args...>
 }
 
 has ground && run_scenario ground
+# low8: the ground orbit lifted 8 m (13.7 m, above the tallest terrain, 12.8 m).
+# The plain ground orbit skims the terrain at 5.7 m and spends part of every
+# arm inside rock (black frame, every ray hits at step 1) -- see the report.
+has low8 && run_scenario low8 -orbitheight 8
 has high && run_scenario high -orbitheight 300 -orbitpitch 15
 has map && run_scenario map -orbitheight 1000 -orbitpitch 70
 

@@ -11,9 +11,11 @@
 // the next stage; the API is shaped so they slot in as passes over these
 // arrays without changing S or D.
 //
-// Band limit: every octave here has a wavelength >= 700 voxels (70 m), far
-// above the map's 16 m Nyquist, so sampling the map at any far-band texel
-// (0.8-12.8 m) cannot alias.
+// Band limit: every NOISE octave here has a wavelength >= 700 voxels (70 m),
+// far above the map's 16 m Nyquist. The landmark stamps and plateau/butte
+// cliffs are sharper (cliff bands ~20-30 m): at the far band's coarsest
+// levels (6.4, 12.8 m texels) a cliff is 2-5 texels wide, so it is resolved,
+// not aliased -- but it is the part of the map closest to the limit.
 using System;
 using System.Runtime.InteropServices;
 using Unity.Mathematics;
@@ -88,6 +90,58 @@ namespace TerrainGen
             return new float2(c, c) + u * (spec.islandRadius * 0.32f);
         }
 
+        public const int LANDMARK_CELL = 6000;   // voxels: one candidate per 600 m cell
+
+        /// Height (voxels) added by the meso landmarks at p. One candidate per
+        /// LANDMARK_CELL, jittered inside its cell; the 3x3 neighbourhood is
+        /// searched because a landmark's footprint (<= 1,100 voxels) is far
+        /// smaller than a cell. Shapes: SPIRE (a steep cone), BUTTE (a flat top
+        /// with cliff sides), TOR (a low rounded cluster). `edge` is 1 on the
+        /// cliff band, for the roughness channel.
+        public static float Landmarks(in Offsets o, float2 p, float landWeight, out float edge)
+        {
+            edge = 0f;
+            if (landWeight <= 0f) return 0f;
+            int cx = (int)math.floor(p.x / LANDMARK_CELL), cz = (int)math.floor(p.y / LANDMARK_CELL);
+            float add = 0f;
+            for (int j = -1; j <= 1; j++)
+            for (int i = -1; i <= 1; i++)
+            {
+                int gx = cx + i, gz = cz + j;
+                if (Noise.Hash01(gx, 0, gz, o.seed + 101u) > 0.75f) continue;       // 75% of cells hold one
+                float2 c = new float2(gx + 0.2f + 0.6f * Noise.Hash01(gx, 1, gz, o.seed + 102u),
+                                      gz + 0.2f + 0.6f * Noise.Hash01(gx, 2, gz, o.seed + 103u)) * LANDMARK_CELL;
+                float2 d = p - c;
+                float dist = math.sqrt(d.x * d.x + d.y * d.y);
+                float kind = Noise.Hash01(gx, 3, gz, o.seed + 104u);
+                float size = Noise.Hash01(gx, 4, gz, o.seed + 105u);
+                if (kind < 0.40f)
+                {
+                    // SPIRE: radius 250-450 voxels, 80-160 m tall, steep.
+                    float r = 250f + 200f * size, h = 800f + 800f * size;
+                    float t = math.saturate(1f - dist / r);
+                    add = math.max(add, h * t * t * (3f - 2f * t) * t);
+                    edge = math.max(edge, t > 0f && t < 0.8f ? 1f : 0f);
+                }
+                else if (kind < 0.75f)
+                {
+                    // BUTTE: flat top, radius 500-1,000 voxels, 50-110 m, cliffs ~30 m wide.
+                    float r = 500f + 500f * size, h = 500f + 600f * size;
+                    float t = Noise.SmoothStep(r, r - 300f, dist);
+                    add = math.max(add, h * t);
+                    edge = math.max(edge, t > 0.05f && t < 0.95f ? 1f : 0f);
+                }
+                else
+                {
+                    // TOR: a low rounded knoll, radius 350-600, 25-55 m.
+                    float r = 350f + 250f * size, h = 250f + 300f * size;
+                    float t = math.saturate(1f - dist / r);
+                    add = math.max(add, h * t * t * (3f - 2f * t));
+                }
+            }
+            return add * landWeight;
+        }
+
         /// The macro landform at p (voxels), height relative to sea level.
         public static void Macro(in TerrainSpec spec, in Offsets o, float2 peak, float2 p, out float height, out float rough)
         {
@@ -114,7 +168,7 @@ namespace TerrainGen
 
             // Mountain ranges: ridged noise inside a low-frequency range mask.
             float rangeMask = Noise.SmoothStep(0.05f, 0.40f, Noise.Fbm(p / 17000f + o.range, 3)) * math.saturate(coast * 3f);
-            float ridges = Noise.Ridged(p / 7200f + o.ridge, 5);
+            float ridges = Noise.Ridged(p / 7200f + o.ridge, 4);
             float mountains = rangeMask * ridges * spec.rangeHeight;
 
             // The dominant peak (§2.2: one ~600 m summit), with ridged spurs.
@@ -141,12 +195,18 @@ namespace TerrainGen
             float valley = 1f - Noise.SmoothStep(0f, 0.07f, vf);
             hgt -= valley * 0.4f * math.max(0f, hgt - 80f);
 
+            // Meso landmarks (§2.5): spires, buttes, tors on a jittered grid, so
+            // lowlands and plateaus get something on every horizon too.
+            hgt += Landmarks(in o, p, math.saturate(coast * 4f), out float lmEdge);
+
             // Beaches: flatten the last few metres at the waterline.
             float shore = math.saturate(coast * 12f);
             height = math.max(8f, hgt) * shore + 8f * (1f - shore) - 10f * (1f - inland);
 
             float edge = pm * (1f - pm) * 4f;
-            rough = 0.35f + 1.5f * rangeMask + 1.2f * pd + 1.0f * edge;
+            // Detail scale. Lower on the ranges than first authored: the first
+            // far-band preview read as noisy "rock teeth" at 0.8 m blocks.
+            rough = 0.35f + 1.0f * rangeMask + 0.7f * pd + 0.8f * edge + 0.5f * lmEdge;
         }
     }
 

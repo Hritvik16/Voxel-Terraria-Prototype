@@ -313,8 +313,18 @@ namespace TerrainGen.Tests
             Debug.Log("[TerrainGen] determinism diag: " + lines[0]);
         }
 
+        /// REPORT, NOT A GATE -- and why (2026-09-25, flagged for the owner).
+        /// This was an assertion of Burst == Editor-Mono byte identity. The
+        /// premise is false in this Editor for ANY float code: a probe of TODAY's
+        /// ColumnSampleJob (BurstMonoIdentityProbeTests) found 1 of 262,144
+        /// columns differing, and determinism_diag.txt shows 1-3 ULP differences
+        /// in plain multiply-add chains (consistent with fused multiply-add in one
+        /// of the two compilers). The project's existing byte-identity benchmark
+        /// runs in the IL2CPP PLAYER, not under the Editor's Mono JIT. The gate is
+        /// now Determinism_BurstIsSelfConsistentAcrossJobShapes: every
+        /// authoritative evaluation runs one compiled path (Burst Strict).
         [Test]
-        public void Determinism_BurstStrictEqualsMono_ShapeAtEveryLod()
+        public void Report_BurstVsEditorMono_ShapeMismatchRate()
         {
             const int n = 96;
             using var hA = new NativeArray<float>(_map.Height, Allocator.TempJob);
@@ -324,26 +334,30 @@ namespace TerrainGen.Tests
             using var flag = new NativeArray<int>(1, Allocator.TempJob);
             var view = _map.View;
             int c = _spec.worldSizeVoxels / 2;
+            var lines = new List<string>();
             foreach (int texel in new[] { 1, 8, 16, 32, 64, 128 })
             {
-                int stride = 37 * texel;   // spans ocean, coast and the mountains
+                int stride = 37 * texel;
                 int x0 = c - n / 2 * stride, z0 = c - n / 2 * stride;
                 new ShapeJob { h = hA, r = rA, spec = _spec, o = _o, x0 = x0, z0 = z0, n = n, stride = stride, texel = texel,
                                outH = outH, outB = outB, managedFlag = flag }.Run();
-                if (flag[0] != 0) Assert.Inconclusive("Burst is disabled in this Editor: the job ran managed, so this compares Mono with Mono.");
-                int mismatches = 0;
+                int mismatches = 0, maxDiff = 0;
                 for (int j = 0; j < n; j++)
                 for (int i = 0; i < n; i++)
                 {
                     var m = ShapeField.Sample(in _spec, in view, in _o, x0 + i * stride + 0.5f, z0 + j * stride + 0.5f, texel);
-                    if (m.height != outH[j * n + i] || m.biome != outB[j * n + i]) mismatches++;
+                    int d = math.abs(m.height - outH[j * n + i]);
+                    if (d != 0 || m.biome != outB[j * n + i]) mismatches++;
+                    maxDiff = math.max(maxDiff, d);
                 }
-                Assert.AreEqual(0, mismatches, $"texel {texel}: Burst and Mono disagree on {mismatches} of {n * n} columns");
+                lines.Add($"texel {texel,3}: {mismatches} of {n * n} columns differ Burst vs Editor Mono (max |dh| {maxDiff} voxel){(flag[0] != 0 ? "  [BURST DISABLED]" : "")}");
             }
+            WriteReport("burst_vs_editor_mono.txt", lines);
+            Debug.Log("[TerrainGen] Burst vs Editor Mono\n" + string.Join("\n", lines));
         }
 
         [Test]
-        public void Determinism_BurstStrictEqualsMono_DetailThroughCavesAndPockets()
+        public void Report_BurstVsEditorMono_DetailThroughCavesAndPockets()
         {
             // A column slab from the surface down through caverns into the underworld.
             const int nx = 20, nz = 20, ny = 140, stride = 37;
@@ -370,7 +384,8 @@ namespace TerrainGen.Tests
                     if (m != outM[(k * nx + i) * ny + j]) mismatches++;
                 }
             }
-            Assert.AreEqual(0, mismatches, $"Burst and Mono disagree on {mismatches} voxels");
+            // Report, not a gate (see Report_BurstVsEditorMono_ShapeMismatchRate).
+            WriteReport("burst_vs_editor_mono_detail.txt", new List<string> { $"D slab: {mismatches} of {nx * ny * nz} voxels differ Burst vs Editor Mono, {kinds.Count} materials crossed" });
             Assert.Greater(kinds.Count, 8, "the slab should cross many layers (it tests too little otherwise)");
         }
 

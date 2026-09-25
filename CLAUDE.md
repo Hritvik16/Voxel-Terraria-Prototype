@@ -253,6 +253,23 @@ real and separate reason — see the LOD-cascade finding in
 
 ## Known open issues (act on these, don't rediscover them)
 
+- **THE STANDARD GROUND `-sustained -motion orbit` PASSES THROUGH ROCK (found
+  2026-09-25, NOT FIXED -- owner's call, it feeds historical comparisons).** The
+  orbit runs at the arena pose's height (eye y = 5.7 m) on a 60 m radius; the
+  terrain there reaches 12 m, so part of every arm is inside hills. Evidence:
+  arms whose end-pose shot is pure black and whose shadow counters read "every
+  pixel traced, 1.0 steps per ray". Arms end in or out of rock depending on
+  frame pacing, which is a large part of that scenario's rep spread (3.8-5.8 ms
+  measured). For an in-air comparison use `-orbitheight 8` (13.7 m, above the
+  tallest terrain): its rep spread was <= 0.05 ms. `run-farband.sh`'s `low8`.
+- **Burst vs the EDITOR's Mono are NOT byte-identical for float code (found
+  2026-09-25).** Probe: today's `ColumnSampleJob` differs on 1 of 262,144 columns
+  (`BurstMonoIdentityProbeTests`); TerrainGen's S shows 1-3 ULP differences in
+  plain multiply-add chains (`Logs/TerrainGen/determinism_diag.txt`). The
+  existing "Burst == Mono" benchmark runs in the IL2CPP player, not the Editor.
+  TerrainGen's gate is therefore Burst self-consistency (one compiled path for
+  every authoritative evaluation), with the Editor-Mono rate reported.
+
 - **EVERY PLAYGROUND PROBE HAS BEEN MEASURING INSIDE A HOLE. This is the biggest
   measurement defect found in this project so far.** `TeleportToArena` -- where
   every Playground-based capture mode starts -- puts the camera inside the dug-out

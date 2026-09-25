@@ -473,3 +473,38 @@ come out too high, cave density or the CPU ring's height becomes the tuning knob
    line. This decides cave density and ring height, not the other way round.
 7. **Far-band cost at a map-view (top-down, high-altitude) pose**, where
    nearly every pixel is a far pixel (§2.3: unlimited altitude).
+
+## 8. Step 1 result: the far band on today's world (2026-09-25)
+
+**Verdict: the plan holds.** Built as specified in §4.2 with §2.10's changes (5
+levels, 0.8-12.8 m texels, ~5.6 km Chebyshev reach, stepped columns), opt-in
+with `-farband 1`. Evidence: `run-farband.sh`, logs in `Logs/farband_*`.
+
+**Frame cost (ESTABLISHED, sustained arms: RELEASE, fullscreen, gate 960x540,
+3 min per arm, A B C C B A, mean of 30 s windows):**
+
+| scenario | far OFF | far ON | ON + far shadows | notes |
+|---|---|---|---|---|
+| low orbit, +8 m (13.7 m, always in air) | 49.60 ms | 50.15 (**+0.55**) | 50.43 (**+0.83**) | rep spread <= 0.05 ms; 2.3-3.0 steps per far ray |
+| 300 m orbit, pitched 15 deg | 2.59 | 6.01 (**+3.42**) | 6.90 (**+4.31**) | 514 k far rays/frame, 32-37 steps each |
+| 1 km orbit, pitched 70 deg (map view) | 2.68 | 11.33 (**+8.66**) | 12.90 (**+10.23**) | 479 k far rays/frame, 38-46 steps each |
+| ground orbit (the standard `-sustained` pose) | 36.81 | 38.28 (+1.47, within noise) | 41.67 (+4.86) | **NOT TRUSTED: this orbit passes through rock**, see CLAUDE.md known issues |
+
+The cost lands where it is cheapest to absorb: near the ground the far band is
+~1% of a frame dominated by near shadow rays; at altitude, where it is 60-80% of
+the frame, the whole frame is 6-13 ms because the voxel band has little to draw.
+
+**Seam at 290 m:** photographed at dawn/noon/golden/night (`-farvisual`). Two
+defects found and fixed before measuring: (1) a wall of column faces where the
+voxel band's hysteresis ring is not resident -- the hand-off is now per resident
+chunk column, not per window; (2) haze saturating high views -- replaced by
+exponential-height fog along the ray when the far band is on.
+
+**Memory (ESTABLISHED):** 27.2 MB GPU (rings, mips, staging), matching §5's
+estimate. Ring fill: 1.0-1.5 s at startup (5 x 1 M columns, Burst, parallel);
+strips of 32 x 1024 columns thereafter; 49 MB uploaded over a 3-minute orbit.
+
+**Known gaps (prototype):** no edits/persistence in the rings; point-sampled
+coarse levels (band-limited S lands with Step 2 / TerrainGen); the voxel march's
+290 m distance cap can stop a corner ray before the window edge, and the far
+march then skips that unmarched corner; far terrain does not shadow near terrain.
