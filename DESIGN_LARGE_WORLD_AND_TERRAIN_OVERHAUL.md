@@ -610,3 +610,8 @@ at the end (§6 step 5, and the natural Unity-upgrade boundary).
 3. Whether V/H lands before the cinematic pass (§2.8) and before the palette identity (§2.6) is settled -- V1 needs engine colours for ~45 materials.
 
 **Not in V/H:** sky islands (§2.5, deferred), M-horizontal (§4.4), fire.
+
+Reports (2026-09-25): item 1 diagnosis and fixes https://claude.ai/artifact/Fh4pZgxkXXBkEVZ91cKLqQ ·
+fluids https://claude.ai/artifact/TChKqRWKHMPM9unLfSAC17 · TerrainGen features
+https://claude.ai/artifact/6S3bf2n4Py4SrrgG688H8u · status, questions and the V/H plan
+https://claude.ai/artifact/TUhRaksmPswMtNBA6dBjiT

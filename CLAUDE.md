@@ -26,7 +26,7 @@
 
 Phase 6 is CLOSED and merged. **Phase 7 (lighting & day/night) is built and its
 acceptance gates are green, but it is NOT closed** -- `PHASE_7_COMPLETION.md`
-recommends; the owner closes. EditMode is `PASS 569 FAIL 0` and
+recommends; the owner closes. EditMode is `PASS 612 FAIL 0` (2026-09-25, world-terrain-overhaul) and
 `./run-phase7-rig.sh` reports `PASS 32 FAIL 0` (2026-09-24; Gate 1's rock poses fixed). What Phase 7 still wants is the
 owner's five minutes in the Playground (that document's §12) and answers to its
 §10 flags -- principally which of §6.5's four shadow rungs ships.
