@@ -1457,6 +1457,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-presetshots")) { yield return PresetShots(); yield break; }
         if (HasFlag("-sustained")) { yield return Sustained(); yield break; }
         if (HasFlag("-phase7demo")) { yield return Phase7Demo(); yield break; }
+        if (HasFlag("-roofskipab")) { yield return RoofSkipAb(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;
         Screen.SetResolution(1920, 1080, false);
 
@@ -1839,6 +1840,7 @@ public partial class PlaygroundCapture : MonoBehaviour
           $"travelLOD {RaymarchFeature.ShadowTravelLodOverride}   " +
           $"ambient {LightingConfig.Active.ambientIntensity:F2}");
         L($"clock PINNED at {SunCycle.ClockString()}  sun {SunCycle.ElevationDegrees:F1} deg ({SunCycle.PhaseName})");
+        L($"shadow roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}   look {(RaymarchFeature.LookOverride >= 0 ? RaymarchFeature.LookOverride : LightingConfig.Active.look)}");
         L($"DURATION {totalSeconds / 60} min CONTINUOUS -- no cooldown, no pause. This is the");
         L("point: every other probe in this project reports the first 30 s of a cold machine.");
         if (chaosAt >= 0) L($"CHAOS BURST scheduled at t+{chaosAt}s");

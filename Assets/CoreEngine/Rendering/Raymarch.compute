@@ -84,6 +84,9 @@
 // dimensions divide by 8 exactly, so it is 0.000%.
 // ===========================================================================
 #pragma kernel CSMain
+#pragma kernel BuildHeightRaw
+#pragma kernel BuildHeightDilate
+#pragma kernel BuildHeightLevel
 
 #include "../Coord/CoordMath.hlsl"
 #include "../Memory/StructHeaders.hlsl"
@@ -712,6 +715,59 @@ uint ReadClipmap(int3 brickCoord, uint3 windowDimsBricks)
     return ClipmapBuffer[(chunkSlot * 4096) + local];
 }
 
+// ===========================================================================
+// SHADOW ROOF SKIP -- a 2D max-height pyramid over the window (2026-09-24).
+//
+// The idea is the comparison engines' per-chunk height map ("the ray is above
+// this chunk's roof and heading up, so nothing in it can occlude"), built as a
+// PYRAMID so a sun ray that has climbed above a whole region's tallest point
+// crosses that region in one step. That is exactly the golden-hour case: a
+// grazing ray otherwise walks ~840 voxels of near-ground air before the
+// content-ceiling exit, and the 3D air-mip cannot take big steps there because
+// every large cube near the ground contains some terrain.
+//
+// EXACT BY CONSTRUCTION, not an approximation:
+//  * level 0 is per brick column (8x8 voxels), the first air voxel Y above the
+//    highest solid brick -- brick-granular, so it only ever OVER-states;
+//  * it is DILATED by one column (3x3), so a skipped ray has no solid face
+//    neighbour either -- C.10's clearance scan would have found nothing, so
+//    the soft penumbra is unchanged too;
+//  * it is rounded UP to 16 voxels, the tier-2 voxel size, and the cascade's
+//    majority-rule downsample can never put a coarse voxel above that;
+//  * it is used only when the ray is climbing (dir.y > 0), so a ray above a
+//    column's roof can never come back down into it.
+// Rebuilt every frame from the tier-0 clipmap (the GPU mirror of CPU state),
+// so edits and fluid are never stale. The rebuild is inside the measured
+// frame, not excluded from it.
+// ===========================================================================
+#define HEIGHT_LEVELS 6
+RWStructuredBuffer<uint> HeightMip;
+int   _ShadowRoofSkip;
+int   _HeightLevel;
+int4  _HeightOffsetsA;   // levels 0..3
+int4  _HeightOffsetsB;   // levels 4, 5, then the raw (undilated) level-0 scratch
+
+int HeightOffset(int L)
+{
+    if (L == 0) return _HeightOffsetsA.x;
+    if (L == 1) return _HeightOffsetsA.y;
+    if (L == 2) return _HeightOffsetsA.z;
+    if (L == 3) return _HeightOffsetsA.w;
+    if (L == 4) return _HeightOffsetsB.x;
+    return _HeightOffsetsB.y;
+}
+
+// Top (first air voxel Y) of the level-L cell containing brick column (bx, bz),
+// world brick coordinates. Ring-addressed, bitwise, like the clipmap itself.
+uint ReadHeight(int L, int bx, int bz)
+{
+    int nx = (int)_WindowDimsBricksPacked.x >> L;
+    int nz = (int)_WindowDimsBricksPacked.z >> L;
+    int cx = (bx >> L) & (nx - 1);
+    int cz = (bz >> L) & (nz - 1);
+    return HeightMip[HeightOffset(L) + cx + cz * nx];
+}
+
 // ---- AO helpers live HERE, below ReadClipmap, because they call it.
 // HLSL requires declaration before use; placing them up beside the palette
 // produced 'undeclared identifier ReadClipmap' on Metal only, which the
@@ -1255,6 +1311,45 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
         }
 
         r.steps++;
+
+        // ---- SHADOW ROOF SKIP (see the HeightMip block) ----
+        // Largest pyramid cell whose tallest point is at or below this voxel.
+        // Found -> cross that cell's XZ footprint in one step and continue.
+        if (_ShadowRoofSkip != 0 && step.y > 0)
+        {
+            int bx = voxel.x >> 3, bz = voxel.z >> 3;
+            int lv = -1;
+            [loop]
+            for (int L = HEIGHT_LEVELS - 1; L >= 0; L--)
+            {
+                if (voxel.y >= (int)ReadHeight(L, bx, bz)) { lv = L; break; }
+            }
+            if (lv >= 0)
+            {
+                int sh = 3 + lv;
+                int span = 1 << sh;
+                int cx0 = (voxel.x >> sh) << sh;
+                int cz0 = (voxel.z >> sh) << sh;
+                float tx = ((step.x > 0 ? (float)(cx0 + span) : (float)cx0) - rayStart.x) / dir.x;
+                float tz = ((step.z > 0 ? (float)(cz0 + span) : (float)cz0) - rayStart.z) / dir.z;
+                float tExit = min(tx, tz);
+                if (tExit > currentDist)
+                {
+                    float3 p = rayStart + dir * tExit;
+                    int3 nv = int3(floor(p));
+                    if (tx <= tz) nv.x = step.x > 0 ? cx0 + span : cx0 - 1;
+                    else          nv.z = step.z > 0 ? cz0 + span : cz0 - 1;
+                    nv.y = max(nv.y, voxel.y);          // climbing: never step down
+                    voxel = nv;
+                    currentDist = tExit;
+                    tMax = float3(
+                        ((step.x > 0 ? voxel.x + 1.0 : (float)voxel.x) - rayStart.x) / dir.x,
+                        ((step.y > 0 ? voxel.y + 1.0 : (float)voxel.y) - rayStart.y) / dir.y,
+                        ((step.z > 0 ? voxel.z + 1.0 : (float)voxel.z) - rayStart.z) / dir.z);
+                    continue;
+                }
+            }
+        }
 
         // ---- §10.4 PER-SUBSYSTEM DIAGNOSTIC DUMP ----
         // "Raymarcher: if a single ray's step count exceeds a threshold (e.g.
@@ -2301,4 +2396,57 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
         }
     }
     if (inBounds) ResultTexture[id.xy] = color;
+}
+
+// ===========================================================================
+// SHADOW ROOF SKIP -- the per-frame pyramid build. One thread per ring column.
+// ===========================================================================
+[numthreads(8, 8, 1)]
+void BuildHeightRaw(uint3 id : SV_DispatchThreadID)
+{
+    int nx = (int)_WindowDimsBricksPacked.x, nz = (int)_WindowDimsBricksPacked.z;
+    if ((int)id.x >= nx || (int)id.y >= nz) return;
+    int3 o = _WindowOriginBricksPacked.xyz;
+    // The one world brick column in the window that maps to this ring slot.
+    int bx = o.x + (((int)id.x - o.x) & (nx - 1));
+    int bz = o.z + (((int)id.y - o.z) & (nz - 1));
+    int yHi = min(o.y + (int)_WindowDimsBricksPacked.y, (_ContentCeilingVoxelY + 7) >> 3);
+    uint top = 0u;
+    [loop]
+    for (int by = yHi - 1; by >= o.y; by--)
+    {
+        uint h = ReadClipmap(int3(bx, by, bz), _WindowDimsBricksPacked.xyz);
+        if ((h & 0x80000000u) != 0u || (h & 0xFFu) != 0u) { top = (uint)((by + 1) << 3); break; }
+    }
+    HeightMip[_HeightOffsetsB.z + (int)id.x + (int)id.y * nx] = top;
+}
+
+[numthreads(8, 8, 1)]
+void BuildHeightDilate(uint3 id : SV_DispatchThreadID)
+{
+    int nx = (int)_WindowDimsBricksPacked.x, nz = (int)_WindowDimsBricksPacked.z;
+    if ((int)id.x >= nx || (int)id.y >= nz) return;
+    uint m = 0u;
+    [unroll] for (int dz = -1; dz <= 1; dz++)
+    [unroll] for (int dx = -1; dx <= 1; dx++)
+    {
+        int x = ((int)id.x + dx) & (nx - 1);
+        int z = ((int)id.y + dz) & (nz - 1);
+        m = max(m, HeightMip[_HeightOffsetsB.z + x + z * nx]);
+    }
+    HeightMip[_HeightOffsetsA.x + (int)id.x + (int)id.y * nx] = (m + 15u) & ~15u;
+}
+
+[numthreads(8, 8, 1)]
+void BuildHeightLevel(uint3 id : SV_DispatchThreadID)
+{
+    int L = _HeightLevel;
+    int nx = (int)_WindowDimsBricksPacked.x >> L, nz = (int)_WindowDimsBricksPacked.z >> L;
+    if ((int)id.x >= nx || (int)id.y >= nz) return;
+    int cnx = nx << 1;
+    int src = HeightOffset(L - 1);
+    int x2 = (int)id.x << 1, z2 = (int)id.y << 1;
+    uint m = max(max(HeightMip[src + x2 + z2 * cnx], HeightMip[src + x2 + 1 + z2 * cnx]),
+                 max(HeightMip[src + x2 + (z2 + 1) * cnx], HeightMip[src + x2 + 1 + (z2 + 1) * cnx]));
+    HeightMip[HeightOffset(L) + (int)id.x + (int)id.y * nx] = m;
 }

@@ -165,6 +165,37 @@ public class RaymarchFeature : ScriptableRendererFeature
     /// Playground's U key and the -phase7demo A/B shots). -1 = use the config.
     public static int LookOverride = -1;
 
+    /// SHADOW ROOF SKIP (Raymarch.compute's HeightMip block): exact by
+    /// construction, so it changes cost, not pixels. OFF until measured;
+    /// `-roofskip 1` on any player's command line turns it on (last match wins,
+    /// like PlaygroundCapture's args).
+    public static bool ShadowRoofSkip = ReadRoofSkipArg();
+
+    public static GraphicsBuffer HeightMipBuffer;
+    private static int _heightMipWindowX = -1, _heightMipWindowZ = -1;
+    private static int[] _heightOffsets = new int[8];
+
+    private static bool ReadRoofSkipArg()
+    {
+        string[] a = System.Environment.GetCommandLineArgs();
+        bool on = false;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == "-roofskip") on = a[i + 1] == "1";
+        return on;
+    }
+
+    /// Sizes the pyramid for the window: levels 0..5 at (X>>L)*(Z>>L) each,
+    /// then a level-0-sized raw scratch. ~2.4 MB for a 512x512-brick window.
+    private static void EnsureHeightMip(int nx, int nz)
+    {
+        if (HeightMipBuffer != null && nx == _heightMipWindowX && nz == _heightMipWindowZ) return;
+        HeightMipBuffer?.Release();
+        int off = 0;
+        for (int L = 0; L < 6; L++) { _heightOffsets[L] = off; off += (nx >> L) * (nz >> L); }
+        _heightOffsets[6] = off; off += nx * nz;
+        HeightMipBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, off, sizeof(uint));
+        _heightMipWindowX = nx; _heightMipWindowZ = nz;
+    }
     private static Vector4 V4(Unity.Mathematics.float3 v) => new Vector4(v.x, v.y, v.z, 0f);
 
     public static bool CollectShadowStats = false;
@@ -246,6 +277,10 @@ public class RaymarchFeature : ScriptableRendererFeature
             public float exposure;
             public float tonemapWhite;
             public int look;
+            public int roofSkip;
+            public GraphicsBuffer heightMip;
+            public int[] heightOffsetsA, heightOffsetsB;
+            public int kHeightRaw, kHeightDilate, kHeightLevel;
             public Vector4 lookSkyZenith, lookSkyHorizon, lookSkyHalo, lookSun, lookAmbient, lookMoon;
             public float lookShadowDarkness, lookHazeDensity;
 
@@ -408,6 +443,20 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.lookMoon = V4(SunCycle.LookMoonAt(hrs));
                 passData.lookShadowDarkness = cfg.lookShadowDarkness;
                 passData.lookHazeDensity = cfg.hazeDensity;
+
+                // Shadow roof skip. The buffer is bound on EVERY frame, on or
+                // off: an HLSL-declared buffer left unbound is undefined on Metal.
+                EnsureHeightMip(clip.WindowDimsBricks.x, clip.WindowDimsBricks.z);
+                passData.roofSkip = ShadowRoofSkip ? 1 : 0;
+                passData.heightMip = HeightMipBuffer;
+                passData.heightOffsetsA = new[] { _heightOffsets[0], _heightOffsets[1], _heightOffsets[2], _heightOffsets[3] };
+                passData.heightOffsetsB = new[] { _heightOffsets[4], _heightOffsets[5], _heightOffsets[6], 0 };
+                if (!useStripped && !useMemoryProbe)
+                {
+                    passData.kHeightRaw = activeCompute.FindKernel("BuildHeightRaw");
+                    passData.kHeightDilate = activeCompute.FindKernel("BuildHeightDilate");
+                    passData.kHeightLevel = activeCompute.FindKernel("BuildHeightLevel");
+                }
 
                 Unity.Mathematics.int3 dims = clip.WindowDimsBricks;
                 passData.windowDimsBricks = new Vector3Int(dims.x, dims.y, dims.z);
@@ -626,6 +675,30 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeVectorParam(data.compute, "_LookMoon", data.lookMoon);
                         cmd.SetComputeFloatParam(data.compute, "_LookShadowDarkness", data.lookShadowDarkness);
                         cmd.SetComputeFloatParam(data.compute, "_LookHazeDensity", data.lookHazeDensity);
+
+                        cmd.SetComputeIntParam(data.compute, "_ShadowRoofSkip", data.roofSkip);
+                        cmd.SetComputeIntParams(data.compute, "_HeightOffsetsA", data.heightOffsetsA);
+                        cmd.SetComputeIntParams(data.compute, "_HeightOffsetsB", data.heightOffsetsB);
+                        cmd.SetComputeBufferParam(data.compute, 0, "HeightMip", data.heightMip);
+                        if (data.roofSkip != 0)
+                        {
+                            int gx = (data.windowDimsBricks.x + 7) / 8, gz = (data.windowDimsBricks.z + 7) / 8;
+                            cmd.BeginSample("VE.Raymarch.HeightMip");
+                            cmd.SetComputeBufferParam(data.compute, data.kHeightRaw, "ClipmapBuffer", data.clipmapBuffer);
+                            cmd.SetComputeBufferParam(data.compute, data.kHeightRaw, "HeightMip", data.heightMip);
+                            cmd.DispatchCompute(data.compute, data.kHeightRaw, gx, gz, 1);
+                            cmd.SetComputeBufferParam(data.compute, data.kHeightDilate, "HeightMip", data.heightMip);
+                            cmd.DispatchCompute(data.compute, data.kHeightDilate, gx, gz, 1);
+                            cmd.SetComputeBufferParam(data.compute, data.kHeightLevel, "HeightMip", data.heightMip);
+                            for (int L = 1; L < 6; L++)
+                            {
+                                cmd.SetComputeIntParam(data.compute, "_HeightLevel", L);
+                                int lx = Mathf.Max(1, ((data.windowDimsBricks.x >> L) + 7) / 8);
+                                int lz = Mathf.Max(1, ((data.windowDimsBricks.z >> L) + 7) / 8);
+                                cmd.DispatchCompute(data.compute, data.kHeightLevel, lx, lz, 1);
+                            }
+                            cmd.EndSample("VE.Raymarch.HeightMip");
+                        }
                     }
 
                     if (!data.useMemoryProbe)
