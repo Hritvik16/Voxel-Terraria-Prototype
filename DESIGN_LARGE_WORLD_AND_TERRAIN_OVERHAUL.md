@@ -508,3 +508,5 @@ strips of 32 x 1024 columns thereafter; 49 MB uploaded over a 3-minute orbit.
 coarse levels (band-limited S lands with Step 2 / TerrainGen); the voxel march's
 290 m distance cap can stop a corner ray before the window edge, and the far
 march then skips that unmarched corner; far terrain does not shadow near terrain.
+
+Full overnight report with screenshots: https://claude.ai/artifact/NtfmpryEEh6t45twdyeJ3M
