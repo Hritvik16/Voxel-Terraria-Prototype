@@ -862,6 +862,11 @@ public class Playground : MonoBehaviour
 
     internal static bool DebugSuspendFluidSim = false;
 
+    /// Fluid CA ticks issued so far (one per GPU readback round-trip -- see
+    /// FluidOpListReadback.MaxFramesInFlight). Read by -sustained to report
+    /// ticks/second, i.e. how fluid speed tracks frame rate. -1 before setup.
+    internal long DebugFluidTicks => _readback != null ? _readback.RequestsIssuedTotal : -1;
+
     /// MEASUREMENT SEAM, NOT A CONFIGURATION -- the same standing this file's
     /// own header gives DebugSuspendFluidSim.
     ///

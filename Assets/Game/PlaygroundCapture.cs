@@ -1873,6 +1873,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         float lastWindowMs = -1f;
         float worstWindowMs = 0f, worstAtMin = 0f;
         float angle = 0f;
+        long fluidTicksAtStart = pg != null ? pg.DebugFluidTicks : -1;
 
         while (Time.realtimeSinceStartup - runStart < totalSeconds)
         {
@@ -1964,6 +1965,13 @@ public partial class PlaygroundCapture : MonoBehaviour
             }
         }
 
+        if (pg != null && fluidTicksAtStart >= 0)
+        {
+            float secs = Time.realtimeSinceStartup - runStart;
+            L("");
+            L($"  fluid CA ticks/s {(pg.DebugFluidTicks - fluidTicksAtStart) / Math.Max(1f, secs):F1}   " +
+              "(one tick per readback round-trip; this is fluid SPEED)");
+        }
         L("");
         L($"  FIRST 30 s window: {firstWindowMs:F2} ms = {1000f / firstWindowMs:F1} FPS   <- what a cooled short arm reports");
         L($"  LAST  30 s window: {lastWindowMs:F2} ms = {1000f / lastWindowMs:F1} FPS   <- what sustained play gets");
