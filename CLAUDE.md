@@ -288,6 +288,17 @@ real and separate reason — see the LOD-cascade finding in
   invalidate load-bearing comparisons in `PHASE_4_COMPLETION.md` and
   `FLUID_*_RESULTS.md`, which is the owner's call. Full analysis in
   `PHASE_7_COMPLETION.md` §K.
+- **THE PLAYGROUND HUD STALLS THE GPU PIPELINE EVERY ~7.5 FRAMES (found
+  2026-09-25, NOT FIXED -- proposed, awaiting the owner).** The fluid panel
+  calls `ReadSlotCounters` (a blocking `GraphicsBuffer.GetData`) every 15
+  countdown ticks, and the countdown runs from `OnGUI`, which Unity calls
+  twice a frame -- so every 7-8 frames the CPU waits for the whole GPU queue.
+  Near the ground (~45 ms GPU frames) that is a ~150 ms hitch followed by two
+  ~10 ms catch-up frames: THE DEMO'S STUTTER. `-flyfast` at 60 m/s, far band
+  off, HUD on vs `-nohud`: frames > 100 ms 646 -> 19, p99 160 -> 83 ms, mean
+  47.2 -> 45.6 (`Logs/flyfast_20260925_105003.txt`). Every `-sustained` arm
+  defaults to HUD ON, so its per-frame tail (not its A/B deltas) carries this.
+  Use `-nohud` for any frame-time TAIL claim until it is fixed.
 - **A SHORT COOLED ARM IS NO LONGER SUFFICIENT EVIDENCE FOR AN FPS CLAIM.** Use
   `-sustained`, which runs continuously for N minutes and reports rolling 30 s
   windows -- the curve is the result, not the endpoint. Thermal throttling was

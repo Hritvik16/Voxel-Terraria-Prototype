@@ -132,6 +132,22 @@ namespace VoxelEngine.Rendering
         public double InitialFillMs { get; private set; }
         public double LastStripJobMs { get; private set; }
 
+        /// What the LAST Update did, per phase (main-thread ms) and per GPU
+        /// work item (counts: the GPU cost is not timed in this workflow).
+        /// Read by -flyfast the frame after, aligned to the frame it describes.
+        public struct FrameStats
+        {
+            public float harvestMs, applyFullMs, stagingMs, scheduleMs, residencyMs;
+            public int strips, fulls, mipLevels;
+        }
+        public FrameStats LastFrame;
+
+        /// DIAGNOSTIC ISOLATION ARM, not a setting: -farmipstress N rebuilds the
+        /// whole mip chain of levels 0..N-1 EVERY frame, on top of the real
+        /// upkeep. The frame-time delta against the same arm without it, divided
+        /// by N, bounds one whole-level rebuild's GPU cost. Default 0 = off.
+        public static int MipStressLevels = ArgInt("-farmipstress", 0);
+
         public struct Scatter { public int level, x0, z0, w, h; }
         /// GPU work the render pass must do before the primary dispatch this
         /// frame. Filled by Update, drained by RaymarchFeature.
@@ -218,6 +234,7 @@ namespace VoxelEngine.Rendering
         /// 32x32 window; uploaded every frame, 128 bytes).
         public void UpdateResidency(ChunkStore store, int3 windowOriginChunks, int3 windowDimsChunks)
         {
+            long r0 = System.Diagnostics.Stopwatch.GetTimestamp();
             int n = windowDimsChunks.x * windowDimsChunks.z;
             int words = (n + 31) >> 5;
             if (_residentBits.Length != words) _residentBits = new uint[words];
@@ -236,11 +253,15 @@ namespace VoxelEngine.Rendering
                 Resident = new GraphicsBuffer(GraphicsBuffer.Target.Structured, words, sizeof(uint));
             }
             Resident.SetData(_residentBits, 0, 0, words);
+            LastFrame.residencyMs = (float)((System.Diagnostics.Stopwatch.GetTimestamp() - r0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency);
         }
 
         /// Per-frame: finish jobs, issue at most ONE strip scatter, schedule new work.
         public void Update(Vector3 camMetres)
         {
+            var fs = new FrameStats();
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            double applyTicks = 0;
             // 1. Harvest finished jobs.
             for (int L = 0; L < LEVELS; L++)
             {
@@ -248,9 +269,16 @@ namespace VoxelEngine.Rendering
                 if (!p.active || !p.handle.IsCompleted) continue;
                 p.handle.Complete();
                 LastStripJobMs = (Time.realtimeSinceStartupAsDouble - p.startedAt) * 1000.0;
-                if (p.full) ApplyFull(L);
+                if (p.full)
+                {
+                    long a0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                    ApplyFull(L);
+                    applyTicks += System.Diagnostics.Stopwatch.GetTimestamp() - a0;
+                    fs.fulls++;
+                }
                 else if (!_readyStrips.Contains(L)) _readyStrips.Enqueue(L);
             }
+            long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
 
             // 2. One strip per frame reaches the GPU (bounded upload).
             // The staging buffer holds ONE strip: never overwrite it before the
@@ -266,9 +294,11 @@ namespace VoxelEngine.Rendering
                 _origin[L] = p.newOrigin;
                 MaxHeightVoxels = math.max(MaxHeightVoxels, p.maxH[0]);
                 StripsApplied++;
+                fs.strips++;
                 p.result.Dispose(); p.maxH.Dispose();
                 p.active = false;
             }
+            long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
 
             // 3. Schedule: each idle level moves one step toward its desired origin.
             for (int L = 0; L < LEVELS; L++)
@@ -294,6 +324,17 @@ namespace VoxelEngine.Rendering
                     ScheduleStrip(L, new int2(have.x, want.y), have.x, z0, EDGE, h);
                 }
             }
+            long t3 = System.Diagnostics.Stopwatch.GetTimestamp();
+
+            if (MipStressLevels > 0) PendingMipMask |= (1 << math.min(MipStressLevels, LEVELS)) - 1;
+            double toMs = 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            fs.harvestMs = (float)((t1 - t0 - applyTicks) * toMs);
+            fs.applyFullMs = (float)(applyTicks * toMs);
+            fs.stagingMs = (float)((t2 - t1) * toMs);
+            fs.scheduleMs = (float)((t3 - t2) * toMs);
+            fs.mipLevels = math.countbits(PendingMipMask);
+            fs.residencyMs = LastFrame.residencyMs;   // UpdateResidency runs after Update and overwrites it
+            LastFrame = fs;
         }
 
         private void ScheduleStrip(int L, int2 newOrigin, int x0, int z0, int w, int h)

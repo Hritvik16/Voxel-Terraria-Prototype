@@ -378,7 +378,7 @@ public class Playground : MonoBehaviour
             HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
             HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-looksweep") ||
-            HasArg("-farvisual") || HasArg("-farpreview"))
+            HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
@@ -390,7 +390,7 @@ public class Playground : MonoBehaviour
         if (HasArg("-p7stress") || HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-phase7demo") || HasArg("-roofskipab") || HasArg("-upscaleab") ||
             HasArg("-lavalight") || HasArg("-looksweep") || HasArg("-farvisual") ||
-            HasArg("-farpreview")) DebugHideUi = true;
+            HasArg("-farpreview") || HasArg("-farseams")) DebugHideUi = true;
 
         RegisterDefaultToys();
         _ready = true;

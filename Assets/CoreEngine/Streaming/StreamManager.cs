@@ -126,6 +126,21 @@ namespace VoxelEngine.Streaming
         public double LastUploadMs { get; private set; }
         public int LastUploadBytes { get; private set; }
         public double LastCascadeMs { get; private set; }
+
+        /// LastDrainMs split into its parts, per frame (read-only diagnostics,
+        /// added 2026-09-25 when -flyfast measured Update at 19 ms/frame mean at
+        /// 60 m/s): slide = SlideWindow + RebuildPendingSet + EvictOutOfRange
+        /// (camera changed chunk only); transfer = TransferToSharedPool inside
+        /// the drain; sweep = the resident dirty-flag sweep.
+        public double LastSlideMs { get; private set; }
+        public double LastDispatchMs { get; private set; }
+        public double LastDrainCompletionsMs { get; private set; }
+        public double LastTransferMs { get; private set; }
+        public double LastValveMs { get; private set; }
+        public double LastSweepMs { get; private set; }
+        public int LastAdmitted { get; private set; }
+        public int LastEvicted { get; private set; }
+        private long _transferTicks;
         public TerrainClipmap.UploadStats LastUploadStats { get; private set; }
         public int ClipmapDirtyRemaining => LastUploadStats.dirtyRemaining;
 
@@ -356,6 +371,8 @@ namespace VoxelEngine.Streaming
             camChunk.y = 0; // Y pinned this phase -- see EngineConfig header
 
             bool cameraMoved = !camChunk.Equals(_lastCameraChunk);
+            double tp0 = sw.Elapsed.TotalMilliseconds;
+            long admitted0 = ChunksAdmittedTotal, evicted0 = ChunksEvictedTotal;
             if (allowSlide && cameraMoved)
             {
                 _lastCameraChunk = camChunk;
@@ -378,9 +395,14 @@ namespace VoxelEngine.Streaming
                 RebuildPendingSet(camChunk);
             }
 
+            double tp1 = sw.Elapsed.TotalMilliseconds;
             DispatchLoads(camChunk);
+            double tp2 = sw.Elapsed.TotalMilliseconds;
+            _transferTicks = 0;
             DrainCompletions();
+            double tp3 = sw.Elapsed.TotalMilliseconds;
             ApplyPoolPressureValve(camChunk);
+            double tp4 = sw.Elapsed.TotalMilliseconds;
 
             // EDIT PROPAGATION. SetVoxel sets chunk.dirty and nothing else --
             // through every run so far, no code path carried an in-place edit
@@ -400,6 +422,14 @@ namespace VoxelEngine.Streaming
             }
 
             LastDrainMs = sw.Elapsed.TotalMilliseconds;
+            LastSlideMs = tp1 - tp0;
+            LastDispatchMs = tp2 - tp1;
+            LastDrainCompletionsMs = tp3 - tp2;
+            LastTransferMs = _transferTicks * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+            LastValveMs = tp4 - tp3;
+            LastSweepMs = LastDrainMs - tp4;
+            LastAdmitted = (int)(ChunksAdmittedTotal - admitted0);
+            LastEvicted = (int)(ChunksEvictedTotal - evicted0);
 
             sw.Restart();
             var stats = _clipmap.UploadDirty(_store, _pool, EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME,
@@ -661,7 +691,9 @@ namespace VoxelEngine.Streaming
 
                     // Transfer scratch -> shared pool. This is the only place
                     // shared pool allocation happens for generated chunks.
+                    long tt0 = System.Diagnostics.Stopwatch.GetTimestamp();
                     TransferToSharedPool(c.chunk, c.scratch);
+                    _transferTicks += System.Diagnostics.Stopwatch.GetTimestamp() - tt0;
 
                     // Loading -> Resident. Condition: "CRC passes (loaded) or
                     // generation done". Generation completed without throwing,

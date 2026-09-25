@@ -2475,6 +2475,33 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
         if (inBounds) ResultTexture[id.xy] = c10;
         return;
     }
+    if (_DebugMode == 11)
+    {
+        // VOXEL-STOP VIEW (diagnostic, item 1 of the 2026-09-25 brief): WHY the
+        // voxel march ended. A march cut short by its distance or iteration cap
+        // while still over a RESIDENT column hands the far march a ray whose
+        // remaining resident columns it then skips (skipWindow) -- a hole.
+        //   blue hit | green far hit after a legitimate hand-off | grey sky
+        //   red: capped over resident terrain, far drew nothing (sky hole)
+        //   magenta: capped over resident terrain, far drew terrain further on
+        float4 c11 = float4(0.25, 0.25, 0.27, 1.0);
+        if (hit) c11 = float4(0.15, 0.35, 0.90, 1.0);
+        else
+        {
+            bool capped = !skipVoxel && (steps >= _iterCap || currentDist >= maxDist);
+            bool overResident = false;
+            if (capped)
+            {
+                float3 ps = rayStart + rayDir * currentDist;
+                int3 wMin11 = _WindowOriginBricksPacked.xyz * 8;
+                overResident = FarChunkResident((int2(floor(ps.xz)) >> 7) - (wMin11.xz >> 7));
+            }
+            if (capped && overResident) c11 = farHit ? float4(0.85, 0.20, 0.85, 1.0) : float4(0.95, 0.10, 0.10, 1.0);
+            else if (farHit) c11 = float4(0.15, 0.80, 0.25, 1.0);
+        }
+        if (inBounds) ResultTexture[id.xy] = c11;
+        return;
+    }
     if (_DebugMode == 1) { if (inBounds) ResultTexture[id.xy] = StepHeatColor(steps); return; }
     if (_DebugMode == 2)
     {

@@ -526,3 +526,29 @@ In this order, each with its own measurement before the next starts:
    source, then edits and persistence.
 5. **V/H:** camera-following mirror with the H3 tiers -- what lets chunks come
    from TerrainGen.
+
+## 10. Owner play-test diagnosis (2026-09-25, item 1 of the owner's brief)
+
+The owner played `./run-demo.sh` and reported (a) stutter and 25-35 FPS near the
+ground, (b) seams when flying high. Measured with `run-flyfast.sh` (new
+`-flyfast` 60 m/s ping-pong capture, `-farseams` altitude flights, per-frame
+far-band and streamer phase timers, GC counts). ESTABLISHED:
+
+- **(a) The stutter is not the far band.** It is the Playground HUD's blocking
+  `GetData` every ~7.5 frames (CLAUDE.md known issues): >100 ms frames 646 -> 19
+  with `-nohud`. The far band's CPU phases total ~0.05 ms/frame; one whole-level
+  mip rebuild is ~1 ms GPU (isolated with `-farmipstress 5`: +5.0 ms for 5
+  levels/frame), paid on ~22% of frames at 60 m/s. Near-ground cost of the band:
+  +0.41 ms on the in-air `-orbitheight 8` orbit, within noise (spread 1.33).
+- **25-35 FPS is the near band's own cost** at gate 960 with shadows (p50 ~41-43 ms
+  flying at 20 m, far band on or off).
+- Secondary, both far-band independent: `Streamer.Update` is 11-16 ms/frame of
+  main thread at 60 m/s (drain 5.5, cascade 4.3), and 6 gen-0 GCs per second
+  (per-chunk cascade copies, 294 KB each) add ~9 ms to 18% of frames.
+- **(b) At 150/300/1000 m:** no capped-ray holes (voxel-stop view, 0.00% of
+  pixels), no stale rings in flight, no visible F-level transition. Found: a
+  20-30 px band of horizontal tearing where tier 2 hands off to F0 at 150 m
+  (gone with the cascade off; cause not yet isolated), and sub-pixel point-sampled
+  texels at 1 km (level chosen by horizontal distance, not pixel footprint). The
+  far band's texels equal the generator's top voxel column for column
+  (`FarBandSeamOracleTests`, 73,728 columns). Nothing was fixed yet.

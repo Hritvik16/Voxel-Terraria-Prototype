@@ -33,6 +33,7 @@ public class RaymarchFeature : ScriptableRendererFeature
         // Far band (FarField.cs), appended per the rule above.
         FarBand = 9,
         FarHeat = 10,
+        VoxelStop = 11,
     }
 
     public enum GateResMode { UseInspector, Native, Forced960x540, ForcedCustom }

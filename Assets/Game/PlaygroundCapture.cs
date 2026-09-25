@@ -1463,6 +1463,8 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-looksweep")) { yield return LookSweep(); yield break; }
         if (HasFlag("-farvisual")) { yield return FarVisual(); yield break; }
         if (HasFlag("-farpreview")) { yield return FarPreview(); yield break; }
+        if (HasFlag("-flyfast")) { yield return FlyFast(); yield break; }
+        if (HasFlag("-farseams")) { yield return FarSeams(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;
         Screen.SetResolution(1920, 1080, false);
 
