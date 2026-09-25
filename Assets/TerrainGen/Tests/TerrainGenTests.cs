@@ -87,6 +87,9 @@ namespace TerrainGen.Tests
             foreach (var c in LandColumns(400, 1).Concat(new[] { new int2(1000, 1000), new int2(79000, 40000) }))
             {
                 var col = S(c.x + 0.5f, c.y + 0.5f);
+                // §2.5: a cave mouth / fissure / skull mouth carves THIS column's
+                // top by design; S flags exactly those columns (Stamps.cs).
+                if (col.carvesTop) continue;
                 float st = Step1(c.x, c.y, col.height);
                 int top = int.MinValue;
                 for (int y = col.height + 40; y > col.height - 200; y--)
@@ -96,7 +99,8 @@ namespace TerrainGen.Tests
                 }
                 Assert.AreEqual(col.height, top, $"column ({c.x},{c.y}): S says {col.height}, D's top solid is {top}");
                 byte above = DetailField.Material(in _spec, in _o, in col, st, c.x, col.height + 1, c.y);
-                Assert.IsTrue(above == GenMat.Air || above == GenMat.Water, $"voxel above the top at ({c.x},{c.y}) is {above}");
+                // Air, or a fluid at rest over the column (sea, lake, river, the caldera's lava).
+                Assert.IsTrue(above == GenMat.Air || GenMat.IsFluid(above), $"voxel above the top at ({c.x},{c.y}) is {above}");
                 checkedCols++;
             }
             Assert.GreaterOrEqual(checkedCols, 300);
@@ -109,6 +113,12 @@ namespace TerrainGen.Tests
             double worst = 0;
             foreach (var c in LandColumns(300, 2))
             {
+                // Thin §2.5 stamps (arches, hoops, stone rings, fossils) are
+                // FEATURES, dropped below 2 texels like an octave but not part of
+                // the octave bound: their columns are not what this test bounds.
+                if (Stamps.StampAt(in _o, new float2(c.x, c.y), out var stp) &&
+                    (stp.kind == Stamps.Arch || stp.kind == Stamps.Hoop || stp.kind == Stamps.StoneRing || stp.kind == Stamps.Fossil) &&
+                    math.distance(stp.pos, new float2(c.x, c.y)) < 1100f) continue;
                 var fine = S(c.x + 0.5f, c.y + 0.5f, 1);
                 foreach (int t in texels)
                 {
@@ -537,6 +547,11 @@ namespace TerrainGen.Tests
                     float shade = math.saturate(0.75f - (hx + hz) / (2f * _spec.mapCellVoxels) * 1.5f);
                     float alt = math.saturate(h / _spec.peakHeight);
                     c = Color.Lerp(c * (0.45f + 0.75f * shade), Color.white, alt * alt * 0.55f);
+                    // Map v2: lakes (flat, filled to spill) and rivers.
+                    float wl = _map.Water[z * n + x];
+                    if (wl != Hydrology.NO_WATER && wl > h)
+                        c = Hydrology.IsLake(z * n + x, _map.WaterClass)
+                            ? new Color(0.22f, 0.50f, 0.78f) : new Color(0.16f, 0.40f, 0.85f);
                 }
                 px[z * n + x] = c;
             }
@@ -612,7 +627,7 @@ namespace TerrainGen.Tests
             }
 
             var rng = new Unity.Mathematics.Random(7);
-            int pts = 0, all4 = 0; var sectorHits = new int[5];
+            int pts = 0, all4 = 0, seaOnly = 0; var sectorHits = new int[5];
             float r15 = 1500f / cellM;
             while (pts < 1500)
             {
@@ -633,13 +648,35 @@ namespace TerrainGen.Tests
                 int c = 0; for (int s2 = 0; s2 < 4; s2++) if (seen[s2]) c++;
                 sectorHits[c]++;
                 if (c == 4) all4++;
+                // A missing sector that is (almost) all SEA cannot hold a landmark
+                // at all; count points whose every missing sector is like that.
+                bool onlySea = c < 4;
+                for (int s2 = 0; s2 < 4 && onlySea; s2++)
+                {
+                    if (seen[s2]) continue;
+                    int land = 0, tot = 0;
+                    for (int k2 = 1; k2 <= 6; k2++)
+                    for (int j2 = -k2; j2 <= k2; j2++)
+                    {
+                        int rr = (int)(r15 * k2 / 6f);
+                        int2 d2 = s2 == 0 ? new int2(j2 * rr / math.max(1, k2), rr) : s2 == 1 ? new int2(rr, j2 * rr / math.max(1, k2))
+                                : s2 == 2 ? new int2(j2 * rr / math.max(1, k2), -rr) : new int2(-rr, j2 * rr / math.max(1, k2));
+                        int xx = x + d2.x, zz = z + d2.y;
+                        if (xx < 0 || zz < 0 || xx >= n || zz >= n) continue;
+                        tot++; if (g[zz * n + xx] > 0f) land++;
+                    }
+                    if (tot == 0 || land > tot / 10) onlySea = false;
+                }
+                if (onlySea) seaOnly++;
             }
             var lines = new List<string>
             {
-                $"landmarks (local summit, >= 60 m above its 1 km mean): {marks.Count}",
+                $"landmarks (local summit, >= 60 m above its 1 km mean): {marks.Count}  (map beacons raised: {_map.BeaconCount})",
                 $"land points sampled: {pts}",
                 $"points with a visible landmark within 1.5 km in ALL 4 sectors: {100.0 * all4 / pts:F1}%",
                 $"distribution of sectors covered (0..4): {string.Join(" / ", sectorHits.Select(v => $"{100.0 * v / pts:F0}%"))}",
+                $"points short of 4 ONLY because the missing sectors are open sea (no land to hold a landmark): {100.0 * seaOnly / pts:F1}%",
+                $"=> covered, or unfixable without sea stacks/islets: {100.0 * (all4 + seaOnly) / pts:F1}%",
                 "Target (§2.5 rule 1): all 4 sectors from every land cell. Tune the map toward it.",
             };
             Debug.Log("[TerrainGen] landmark report\n" + string.Join("\n", lines));

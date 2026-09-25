@@ -119,6 +119,11 @@ public sealed class FluidReferenceCPU : IFluidSampler
     /// move that was applied actually went DOWN, as opposed to sideways.
     /// See the sleep rule in PostCommitSweep for why the distinction is needed.
     private const byte FLAG_DESCENDED   = 1 << 5;
+    /// §2.7 density layering (2026-09-25). This slot's single bid this tick is
+    /// a SWAP with the lighter fluid directly below it, not a move into Air.
+    /// Bit 7 (bit 6 is the GPU's FLAG_RECYCLED; kept distinct so the two
+    /// layouts stay comparable).
+    private const byte FLAG_SWAP_BID    = 1 << 7;
 
     private const int NONE = -1;
 
@@ -235,6 +240,9 @@ public sealed class FluidReferenceCPU : IFluidSampler
     public int SlotCapacity => _slotCapacity;
 
     public int MovesThisTick => _movesThisTick;
+    /// Committed density swaps this tick (subset of MovesThisTick).
+    public int SwapsThisTick => _swapsThisTick;
+    private int _swapsThisTick;
     /// Moves that went sideways rather than down. Split out because a basin
     /// that will not come to rest looks identical to a busy one on MovesThisTick
     /// alone, and the difference is the whole diagnosis.
@@ -421,6 +429,13 @@ public sealed class FluidReferenceCPU : IFluidSampler
         {
             if (!MaterialRules.IsMobile(_voxels[i])) continue;
             int3 c = IndexToVoxel(i);
+            // A gas "floats" the other way up: Air directly ABOVE it is its
+            // unused first-tier move.
+            if (MaterialRules.IsGasMaterial(_voxels[i]))
+            {
+                if (InBounds(c.x, c.y + 1, c.z) && _voxels[VoxelIndex(c.x, c.y + 1, c.z)] == Materials.Air) n++;
+                continue;
+            }
             if (c.y <= 0) continue;
             if (_voxels[VoxelIndex(c.x, c.y - 1, c.z)] == Materials.Air) n++;
         }
@@ -435,6 +450,11 @@ public sealed class FluidReferenceCPU : IFluidSampler
         {
             if (!MaterialRules.IsMobile(_voxels[i])) continue;
             int3 c = IndexToVoxel(i);
+            if (MaterialRules.IsGasMaterial(_voxels[i]))
+            {
+                if (!InBounds(c.x, c.y + 1, c.z) || _voxels[VoxelIndex(c.x, c.y + 1, c.z)] != Materials.Air) continue;
+                found = c; material = _voxels[i]; return true;
+            }
             if (c.y <= 0) continue;
             if (_voxels[VoxelIndex(c.x, c.y - 1, c.z)] != Materials.Air) continue;
             found = c; material = _voxels[i]; return true;
@@ -565,11 +585,44 @@ public sealed class FluidReferenceCPU : IFluidSampler
     {
         int3 c = IndexToVoxel(vacatedIndex);
         int y = c.y + 1;
-        WakeOne(c.x, y, c.z);
-        WakeOne(c.x - 1, y, c.z);
-        WakeOne(c.x + 1, y, c.z);
-        WakeOne(c.x, y, c.z - 1);
-        WakeOne(c.x, y, c.z + 1);
+        WakeDescender(c.x, y, c.z);
+        WakeDescender(c.x - 1, y, c.z);
+        WakeDescender(c.x + 1, y, c.z);
+        WakeDescender(c.x, y, c.z - 1);
+        WakeDescender(c.x, y, c.z + 1);
+    }
+
+    /// WakeOne for anything that can DESCEND -- i.e. not a gas, which moves
+    /// up. Mirrors CSWakeScan, where a gas's descent targets are the cells
+    /// above it, so a vacated cell below a gas never wakes it on the GPU.
+    private void WakeDescender(int x, int y, int z)
+    {
+        if (!InBounds(x, y, z)) return;
+        if (MaterialRules.IsGasMaterial(_voxels[VoxelIndex(x, y, z)])) return;
+        WakeOne(x, y, z);
+    }
+
+    /// The mirror of WakeAbove for GASES only: the cell below a vacated cell
+    /// and its four up-diagonal sources, woken if they hold a gas that could
+    /// now rise into it. Liquids below are deliberately NOT woken -- a liquid
+    /// cannot move up, and a fresh lateral budget is exactly the shuffle-
+    /// sustain cycle PartiallyFilledSurface_StillReachesRest pins.
+    private void WakeBelowGas(int vacatedIndex)
+    {
+        int3 c = IndexToVoxel(vacatedIndex);
+        int y = c.y - 1;
+        WakeGas(c.x, y, c.z);
+        WakeGas(c.x - 1, y, c.z);
+        WakeGas(c.x + 1, y, c.z);
+        WakeGas(c.x, y, c.z - 1);
+        WakeGas(c.x, y, c.z + 1);
+    }
+
+    private void WakeGas(int x, int y, int z)
+    {
+        if (!InBounds(x, y, z)) return;
+        if (!MaterialRules.IsGasMaterial(_voxels[VoxelIndex(x, y, z)])) return;
+        WakeOne(x, y, z);
     }
 
     private void WakeOne(int x, int y, int z)
@@ -620,6 +673,7 @@ public sealed class FluidReferenceCPU : IFluidSampler
     {
         _tick++;
         _movesThisTick = 0;
+        _swapsThisTick = 0;
         _lateralMovesThisTick = 0;
         _orphansFreedThisTick = 0;
         _sleepFreedThisTick = 0;
@@ -656,7 +710,7 @@ public sealed class FluidReferenceCPU : IFluidSampler
             if ((slot.stateFlags & FLAG_AWAKE) == 0) continue;
 
             slot.stateFlags &= unchecked((byte)~(FLAG_BID_PLACED | FLAG_WON_CLAIM |
-                                                 FLAG_EVALUATED | FLAG_DESCENDED));
+                                                 FLAG_EVALUATED | FLAG_DESCENDED | FLAG_SWAP_BID));
 
             int home = HomeVoxelIndex(in slot);
 
@@ -760,16 +814,29 @@ public sealed class FluidReferenceCPU : IFluidSampler
             // The FIRST legal destination wins; a slot bids exactly once, which
             // is what makes §7.3's single-writer Commit argument hold.
             int3 c = IndexToVoxel(home);
+            // §2.7 STEAM: a gas runs the SAME hierarchy mirrored upward --
+            // straight up, then the four up-diagonals, then level. vdir is the
+            // only difference; every rule below (one bid, Air-only, single-
+            // writer Commit) is unchanged.
+            bool gas = MaterialRules.IsGasMaterial(slot.materialID);
+            int vdir = gas ? 1 : -1;
 
             if ((EnabledTiers & FluidMotionTiers.Gravity) != 0 &&
-                TryClaim(s, ref slot, c.x, c.y - 1, c.z)) continue;
+                TryClaim(s, ref slot, c.x, c.y + vdir, c.z)) continue;
+
+            // §2.7 DENSITY LAYERING: straight down is blocked by a LIGHTER
+            // fluid -> trade places with it (oil rises through water because
+            // water sinks through oil). Second in the hierarchy, so a heavy
+            // drop sinks through a light layer before spreading across it.
+            if (!gas && (EnabledTiers & FluidMotionTiers.Gravity) != 0 &&
+                TrySwapClaim(s, ref slot, c.x, c.y - 1, c.z)) continue;
 
             if ((EnabledTiers & FluidMotionTiers.DownDiagonals) != 0)
             {
                 BuildLateralOrder(c.x, c.y, c.z, salt: 0);
                 bool bid = false;
                 for (int k = 0; k < 4 && !bid; k++)
-                    bid = TryClaim(s, ref slot, c.x + _ordDX[k], c.y - 1, c.z + _ordDZ[k]);
+                    bid = TryClaim(s, ref slot, c.x + _ordDX[k], c.y + vdir, c.z + _ordDZ[k]);
                 if (bid) continue;
             }
 
@@ -807,6 +874,22 @@ public sealed class FluidReferenceCPU : IFluidSampler
         if (_claim[d] == NONE) _claimedList[_claimedCount++] = d;
         _claim[d] = s;
         slot.stateFlags |= FLAG_BID_PLACED;
+        return true;
+    }
+
+    /// §2.7 density swap bid. The destination holds (at tick start) a fluid
+    /// this one sinks through. Same plain-write claim as TryClaim; only the
+    /// cell directly above can target it, so it has at most one bidder.
+    private bool TrySwapClaim(int s, ref FluidSlotCPU slot, int x, int y, int z)
+    {
+        if (!InBounds(x, y, z)) return false;
+        int d = VoxelIndex(x, y, z);
+        if (!MaterialRules.SinksThrough(slot.materialID, _voxels[d])) return false;
+        if (_reacted[d]) return false;
+
+        if (_claim[d] == NONE) _claimedList[_claimedCount++] = d;
+        _claim[d] = s;
+        slot.stateFlags |= (byte)(FLAG_BID_PLACED | FLAG_SWAP_BID);
         return true;
     }
 
@@ -882,12 +965,46 @@ public sealed class FluidReferenceCPU : IFluidSampler
             int home = HomeVoxelIndex(in slot);
             if (_voxels[home] != slot.materialID) continue;      // orphaned between Intent and Commit
             if (_slotAt[home] != s) continue;
-            if (_voxels[d] != Materials.Air) continue;           // must still be the Air it claimed
             if (_reacted[d] || _reacted[home]) continue;
+
+            if ((slot.stateFlags & FLAG_SWAP_BID) != 0)
+            {
+                // §2.7 SWAP. Still the same single writer: this destination is
+                // the only thread touching d and home. The lighter fluid's own
+                // slot must NOT have bid this tick -- if it is moving itself,
+                // its move and this swap would both claim its cell, so the swap
+                // waits a tick. Mass is exact: two mobile bytes trade cells.
+                byte light = _voxels[d];
+                if (!MaterialRules.SinksThrough(slot.materialID, light)) continue;
+                int ls = _slotAt[d];
+                if (ls != NONE && (_slots[ls].stateFlags & FLAG_BID_PLACED) != 0) continue;
+
+                _voxels[d] = slot.materialID;
+                _voxels[home] = light;
+                _slotAt[d] = s;
+                _slotAt[home] = ls;
+                SetHome(ref slot, d);
+                if (ls != NONE) SetHome(ref _slots[ls], home);
+                slot.stateFlags |= (byte)(FLAG_WON_CLAIM | FLAG_DESCENDED);
+                _movesThisTick++;
+                _swapsThisTick++;
+                _changedCellsThisTick += 2;
+                // Both levels changed: broad wake at both cells, exactly as a
+                // descending move does.
+                WakeNeighbourhood(home);
+                WakeNeighbourhood(d);
+                continue;
+            }
+
+            if (_voxels[d] != Materials.Air) continue;           // must still be the Air it claimed
 
             // The destination is the only writer of both its own byte and the
             // winning source's vacated home byte (§7.3's single-writer argument).
-            bool descended = IndexToVoxel(d).y < IndexToVoxel(home).y;
+            // "descended" means PROGRESS in the material's own direction: down
+            // for liquids and falling solids, UP for a gas (§2.7 steam).
+            bool gasMover = MaterialRules.IsGasMaterial(slot.materialID);
+            bool descended = gasMover ? IndexToVoxel(d).y > IndexToVoxel(home).y
+                                      : IndexToVoxel(d).y < IndexToVoxel(home).y;
 
             _voxels[d] = slot.materialID;
             _voxels[home] = Materials.Air;
@@ -949,6 +1066,7 @@ public sealed class FluidReferenceCPU : IFluidSampler
             // was introduced to fix. PartiallyFilledSurface_StillReachesRest
             // is the test that pins that.
             WakeAbove(home);
+            WakeBelowGas(home);
 
             if (descended)
             {

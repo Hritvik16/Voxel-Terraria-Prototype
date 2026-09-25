@@ -73,6 +73,11 @@ namespace VoxelEngine.Rendering
         /// it). The ring keeps streaming either way; only the march is gated.
         public static bool RenderEnabled = true;
 
+        /// Level selection by pixel footprint as well as horizontal distance
+        /// (Raymarch.compute FarMarch). -farfootprint 0 is the pre-2026-09-25
+        /// A/B arm. Runtime-switchable for same-process shimmer comparisons.
+        public static bool FootprintLevels = ArgInt("-farfootprint", 1) != 0;
+
         /// -farband 1 turns the band on (last match wins, the project's rule for
         /// runner overrides). Default OFF: the shipped frame is unchanged.
         public static bool RequestedByArgs() => ArgInt("-farband", 0) != 0;
@@ -155,7 +160,7 @@ namespace VoxelEngine.Rendering
         public int PendingMipMask;   // bit L = rebuild level L's mips
 
         private readonly int2[] _origin = new int2[LEVELS];
-        private NativeArray<float> _tgH, _tgR;
+        private NativeArray<float> _tgH, _tgR, _tgW;
         private NativeArray<byte> _genToEngine;
         private TerrainGen.Offsets _tgO;
         private ColumnSampler.State _st;
@@ -186,6 +191,7 @@ namespace VoxelEngine.Rendering
                 _tgO = TerrainGen.Offsets.For(meta.seed);
                 _tgH = new NativeArray<float>(Tg2Map.Height, Allocator.Persistent);
                 _tgR = new NativeArray<float>(Tg2Map.Rough, Allocator.Persistent);
+                _tgW = new NativeArray<float>(Tg2Map.Water, Allocator.Persistent);
                 // Put today's camera over the new island's centre, texel-aligned.
                 int half = Tg2Spec.worldSizeVoxels / 2;
                 Tg2OffsetVoxels = new int2(((half - (int)(cameraMetres.x * 10f)) >> 7) << 7,
@@ -383,7 +389,7 @@ namespace VoxelEngine.Rendering
             if (FarOnly)
                 return new FillTg2Job
                 {
-                    h = _tgH, r = _tgR, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
+                    h = _tgH, r = _tgR, wat = _tgW, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
                     texelVoxels = texelVoxels, x0 = x0, z0 = z0, w = w, ringOrder = ringOrder, ringOrigin = ringOrigin, output = output,
                 }.Schedule(count, batch);
             return new FillRegionJob
@@ -400,6 +406,12 @@ namespace VoxelEngine.Rendering
             switch (g)
             {
                 case TerrainGen.GenMat.Water: return Materials.Water;
+                case TerrainGen.GenMat.Lava: return Materials.Lava;
+                case TerrainGen.GenMat.Honey: return Materials.Honey;
+                case TerrainGen.GenMat.Oil: return Materials.Oil;
+                case TerrainGen.GenMat.Acid: return Materials.Acid;
+                case TerrainGen.GenMat.Sludge: return Materials.Sludge;
+                case TerrainGen.GenMat.Quicksand: return Materials.Quicksand;
                 case TerrainGen.GenMat.Grass: return Materials.Grass;
                 case TerrainGen.GenMat.JungleGrass: return Materials.JungleGrass;
                 case TerrainGen.GenMat.Sand:
@@ -407,6 +419,19 @@ namespace VoxelEngine.Rendering
                 case TerrainGen.GenMat.Snow:
                 case TerrainGen.GenMat.PackedIce: return Materials.Snow;
                 case TerrainGen.GenMat.PackedSand: return Materials.Sandstone;
+                // §2.5 stamps -> the nearest existing engine material (PREVIEW
+                // only; their own engine ids land with the §2.6 material set).
+                case TerrainGen.GenMat.Sinter: return Materials.Snow;
+                case TerrainGen.GenMat.CrystalBlue: return Materials.TorchBlue;
+                case TerrainGen.GenMat.CrystalAmber: return Materials.Torch;
+                case TerrainGen.GenMat.CrystalRose: return Materials.TorchPurple;
+                case TerrainGen.GenMat.CrystalGreen: return Materials.TorchGreen;
+                case TerrainGen.GenMat.Bone: return Materials.Sand;
+                case TerrainGen.GenMat.MeteorOre: return Materials.Lava;
+                case TerrainGen.GenMat.Bark: return Materials.Sandstone;
+                case TerrainGen.GenMat.Leaves: return Materials.JungleGrass;
+                case TerrainGen.GenMat.VolcanicRock: return Materials.Obsidian;
+                case TerrainGen.GenMat.StandingStone: return Materials.Stone;
             }
             if (g >= TerrainGen.GenMat.CreamSandstone && g <= TerrainGen.GenMat.PinkSiltstone) return Materials.Sandstone;
             if (g >= TerrainGen.GenMat.KarstLimestone && g <= TerrainGen.GenMat.JadeSerpentine) return Materials.MossyStone;
@@ -427,6 +452,7 @@ namespace VoxelEngine.Rendering
             if (_surfaceByBiome.IsCreated) _surfaceByBiome.Dispose();
             if (_tgH.IsCreated) _tgH.Dispose();
             if (_tgR.IsCreated) _tgR.Dispose();
+            if (_tgW.IsCreated) _tgW.Dispose();
             if (_genToEngine.IsCreated) _genToEngine.Dispose();
             Tg2Map?.Dispose();
             if (Active == this) Active = null;
@@ -474,7 +500,7 @@ namespace VoxelEngine.Rendering
         [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High)]
         private struct FillTg2Job : IJobParallelFor
         {
-            [ReadOnly] public NativeArray<float> h, r;
+            [ReadOnly] public NativeArray<float> h, r, wat;
             [ReadOnly] public NativeArray<byte> genToEngine;
             public TerrainGen.TerrainSpec spec;
             public TerrainGen.Offsets o;
@@ -498,6 +524,7 @@ namespace VoxelEngine.Rendering
                 {
                     height = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(h),
                     rough = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(r),
+                    water = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(wat),
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 int half = texelVoxels >> 1;
@@ -511,6 +538,9 @@ namespace VoxelEngine.Rendering
                 int top = c.height + 1 - (spec.seaLevelY - SEA);
                 if (c.height < spec.seaLevelY)
                     output[i] = (uint)(SEA + 1) | ((uint)Materials.Water << 16) | (FLAG_WATER << 24);
+                else if (c.water > c.height)   // map v2: a lake or river (or the caldera's lava) over this column
+                    output[i] = (uint)math.clamp(c.water + 1 - (spec.seaLevelY - SEA), 0, 65535)
+                              | ((uint)(c.waterKind == 1 ? Materials.Lava : Materials.Water) << 16) | (FLAG_WATER << 24);
                 else
                     output[i] = (uint)math.clamp(top, 0, 65535) | ((uint)genToEngine[gm] << 16);
             }

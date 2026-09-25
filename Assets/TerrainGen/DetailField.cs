@@ -73,22 +73,119 @@ namespace TerrainGen
 
         public static byte Material(in TerrainSpec spec, in Offsets o, in ColumnSample c, in ColumnDetail cd,
                                     float stepAtTop, int x, int y, int z)
+            => Material(in spec, in o, in c, in cd, stepAtTop, x, y, z, BrickCull.None);
+
+        // ------------------------------------------------------------------
+        // BRICK CULLING (2026-09-25, design doc §9 step 2). D is ~140 ns/voxel
+        // underground because every voxel below 6 m evaluates 2-6 3D simplex
+        // noises for caves. Those noises are SMOOTH at 440-2400 voxel scales,
+        // so over an 8^3 brick (half-diagonal 6.93 voxels) each can change by
+        // at most SNOISE_GRAD_BOUND * 6.93 / scale. One evaluation at the brick
+        // centre therefore PROVES, for most bricks, that no voxel in the brick
+        // can pass a carve test -- and the per-voxel code skips that test.
+        //
+        // EXACT, NOT APPROXIMATE: a culled Material is byte-identical to the
+        // unculled one whenever SNOISE_GRAD_BOUND really bounds |grad snoise|.
+        // TerrainGenTests measures the gradient (and asserts the margin) and
+        // compares culled vs unculled over cave-dense chunks voxel for voxel.
+        // ------------------------------------------------------------------
+        public const int BRICK = 8;
+        /// Upper bound on |grad noise.snoise(float3)| (per unit input). Measured
+        /// max is asserted to sit below this by a 1.25x margin in the tests.
+        public const float SNOISE_GRAD_BOUND = 10f;   // measured max 6.985 (1.43x margin)
+        private const float BRICK_HALF_DIAG = 6.9282f;      // 4 * sqrt(3)
+        private const float CULL_EPS = 1e-4f;               // float rounding of p / scale
+
+        public struct BrickCull
+        {
+            public bool noPocket;        // no pocket or shell reaches the brick
+            public bool noTunnel;        // spaghetti test cannot pass anywhere in it
+            public bool noCheese;        // cavern-layer cheese test cannot pass
+            public bool underClosed;     // underworld open-volume test cannot pass
+            public static BrickCull None => default;
+        }
+
+        /// The cull record of the 8^3 brick whose MIN corner is (bx, by, bz)
+        /// (all multiples of BRICK). Valid for every voxel inside that brick.
+        public static BrickCull CullBrick(in TerrainSpec spec, in Offsets o, int bx, int by, int bz)
+        {
+            var r = new BrickCull();
+            float3 ctr = new float3(bx, by, bz) + 4f;    // voxel centres span [b+0.5, b+7.5]; the geometric centre is b+4
+            float reach = SNOISE_GRAD_BOUND * BRICK_HALF_DIAG;
+
+            // Pockets: a brick is inside exactly one POCKET_CELL (both power-of-two
+            // aligned), so one lookup and an AABB test decide it for all 512 voxels.
+            int cx = bx >> POCKET_CELL_SHIFT, cy = by >> POCKET_CELL_SHIFT, cz = bz >> POCKET_CELL_SHIFT;
+            if (!TryGetPocket(in spec, in o, cx, cy, cz, out PocketInfo pk)) r.noPocket = true;
+            else
+            {
+                float3 ext = pk.radii * 1.35f + 1f;
+                float3 lo = new float3(bx, by, bz), hi = lo + BRICK;
+                r.noPocket = math.any(hi < pk.centre - ext) || math.any(lo > pk.centre + ext);
+            }
+
+            // Spaghetti: a^2 + b^2 < 0.0035 needs |a| and |b| < sqrt(0.0035).
+            float dT = reach / 440f + CULL_EPS;
+            float a = noise.snoise(ctr / 440f + o.caveA);
+            float b = noise.snoise(ctr / 440f + o.caveB);
+            const float TUBE = 0.059161f;                // sqrt(0.0035), rounded up
+            r.noTunnel = math.abs(a) - dT > TUBE || math.abs(b) - dT > TUBE;
+
+            // Cheese (cavern layer): cav > 0.62 carves.
+            float dC = reach * (1f / 1500f + 0.3f / 450f) + CULL_EPS;
+            float cav = noise.snoise(ctr / 1500f + o.cavern) + 0.3f * noise.snoise(ctr / 450f + o.cavern + 20f);
+            r.noCheese = cav + dC <= 0.62f;
+
+            // Underworld open volume: u > -0.15 carves.
+            float dU = reach * (1f / 2400f + 0.35f / 700f) + CULL_EPS;
+            float u = noise.snoise(ctr / 2400f + o.under) + 0.35f * noise.snoise(ctr / 700f + o.under + 40f);
+            r.underClosed = u + dU <= -0.15f;
+            return r;
+        }
+
+        /// Material with a brick's cull record. Byte-identical to the unculled
+        /// form (see the block above); `cull` must be CullBrick of the brick
+        /// containing (x, y, z).
+        public static byte Material(in TerrainSpec spec, in Offsets o, in ColumnSample c, in ColumnDetail cd,
+                                    float stepAtTop, int x, int y, int z, in BrickCull cull)
         {
             int h = c.height;
-            if (y > h) return y <= spec.seaLevelY ? GenMat.Water : GenMat.Air;
+            if (y > h)
+            {
+                if (y <= spec.seaLevelY) return GenMat.Water;
+                if (y <= c.water) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
+                return GenMat.Air;
+            }
             if (y <= spec.worldBottomY) return GenMat.Bedrock;
+
+            // §2.5 stamp openings (arches, hoops, ribs, under the tree's canopy).
+            // Never the top voxel (Stamps.cs header), so S stays the top solid.
+            if ((y >= c.open1Lo && y < c.open1Hi) || (y >= c.open2Lo && y < c.open2Hi)) return GenMat.Air;
+            if (c.stamp3D)
+            {
+                byte st = Stamps.Carve3D(in spec, in o, in c, x, y, z);
+                if (st != 255) return st;
+            }
 
             int depth = h - y;
             if (depth > CARVE_MIN_DEPTH)
             {
-                byte pocket = Pocket(in spec, in o, x, y, z, out bool inShell);
-                if (pocket != 255) return pocket;
+                bool inShell = false;
+                if (!cull.noPocket)
+                {
+                    byte pocket = Pocket(in spec, in o, x, y, z, out inShell);
+                    if (pocket != 255) return pocket;
+                }
                 if (!inShell)
                 {
-                    byte carved = Carve(in spec, in o, x, y, z);
+                    // Giant mushrooms stand IN the cavern layer's open space.
+                    byte mush = Stamps.Mushroom(in spec, in o, x, y, z);
+                    if (mush != 255) return mush;
+                    byte carved = Carve(in spec, in o, x, y, z, in cull);
                     if (carved != 255) return carved;
                 }
             }
+            if (c.stampMat != 0 && y >= c.stampBodyLo) return c.stampMat;
 
             if (y < spec.UnderworldTopY) return UnderworldRock(y + cd.underOffset);
             if (y < spec.CavernTopY) return CavernBands(y + cd.cavernOffset);
@@ -107,6 +204,8 @@ namespace TerrainGen
         public static byte TopMaterial(in TerrainSpec spec, in ColumnSample c, float stepAtTop, in Offsets o, int x, int z)
         {
             if (c.height < spec.seaLevelY) return GenMat.Water;
+            if (c.water > c.height) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
+            if (c.stampMat != 0 && c.height >= c.stampBodyLo) return c.stampMat;
             if (stepAtTop > 1.5f) return Strata(in o, c.biome, x, c.height, z);
             return Surface(in spec, in c, stepAtTop);
         }
@@ -187,26 +286,33 @@ namespace TerrainGen
         // ------------------------------------------------------------------
         // Caves. Returns 255 when the voxel is not carved.
         // ------------------------------------------------------------------
-        private static byte Carve(in TerrainSpec spec, in Offsets o, int x, int y, int z)
+        private static byte Carve(in TerrainSpec spec, in Offsets o, int x, int y, int z, in BrickCull cull)
         {
             float3 p = new float3(x, y, z);
 
             // Underworld: a huge open volume over a lava sea at rest.
             if (y < spec.UnderworldTopY)
             {
-                float u = noise.snoise(p / 2400f + o.under) + 0.35f * noise.snoise(p / 700f + o.under + 40f);
-                int floorY = spec.worldBottomY + 300;
-                if (y < spec.UnderworldTopY - 250 && u > -0.15f)
-                    return y <= floorY ? GenMat.Lava : GenMat.Air;
+                if (!cull.underClosed && y < spec.UnderworldTopY - 250)
+                {
+                    float u = noise.snoise(p / 2400f + o.under) + 0.35f * noise.snoise(p / 700f + o.under + 40f);
+                    int floorY = spec.worldBottomY + 300;
+                    if (u > -0.15f)
+                        return y <= floorY ? GenMat.Lava : GenMat.Air;
+                }
             }
             // Cavern layer: cheese caverns.
             else if (y < spec.CavernTopY)
             {
-                float cav = noise.snoise(p / 1500f + o.cavern) + 0.3f * noise.snoise(p / 450f + o.cavern + 20f);
-                if (cav > 0.62f) return GenMat.Air;
+                if (!cull.noCheese)
+                {
+                    float cav = noise.snoise(p / 1500f + o.cavern) + 0.3f * noise.snoise(p / 450f + o.cavern + 20f);
+                    if (cav > 0.62f) return GenMat.Air;
+                }
             }
             // Spaghetti tunnels everywhere below 6 m: the intersection of two
             // noise zero-sets is a tube.
+            if (cull.noTunnel) return 255;
             float a = noise.snoise(p / 440f + o.caveA);
             float b = noise.snoise(p / 440f + o.caveB);
             if (a * a + b * b < 0.0035f) return GenMat.Air;

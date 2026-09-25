@@ -5,11 +5,10 @@
 // peak, plateaus, an escarpment, valleys) at mapCellVoxels resolution, plus a
 // roughness channel that scales S's fine detail.
 //
-// v1 SCOPE, STATED: the map is currently an analytic field CACHED on a grid.
-// Nothing in it is non-local yet. Rivers drained to the sea, lakes filled to
-// their spill level and erosion are the reason the map exists (§2.4) and are
-// the next stage; the API is shaped so they slot in as passes over these
-// arrays without changing S or D.
+// v2 (2026-09-25): the analytic field is followed by Hydrology.Run -- lakes
+// filled to their spill level, rivers drained to the sea, light erosion -- the
+// non-local features the map exists for (§2.4). It adds two channels: Water (a
+// still-water level per cell, or Hydrology.NO_WATER) and Flow (catchment).
 //
 // Band limit: every NOISE octave here has a wavelength >= 700 voxels (70 m),
 // far above the map's 16 m Nyquist. The landmark stamps and plateau/butte
@@ -30,6 +29,9 @@ namespace TerrainGen
     {
         public float* height;   // voxels relative to sea level
         public float* rough;    // detail amplitude scale
+        /// Still-water level per cell (voxels rel. sea) or Hydrology.NO_WATER.
+        /// OPTIONAL: null means a dry map (every job that predates map v2).
+        public float* water;
         public int cells;
         public float cellVoxels;
     }
@@ -39,20 +41,35 @@ namespace TerrainGen
         public readonly TerrainSpec Spec;
         public readonly float[] Height;
         public readonly float[] Rough;
+        public readonly float[] Water;
+        public readonly float[] Flow;
+        /// Hydrology.DRY / LAKE / RIVER per cell.
+        public readonly byte[] WaterClass;
         public readonly float2 PeakPosition;   // voxels
-        private GCHandle _hH, _hR;
+        public readonly Hydrology.Stats Hydro;
+        public int BeaconCount { get; private set; }
+        private GCHandle _hH, _hR, _hW;
 
-        public WorldMap(TerrainSpec spec, float[] height, float[] rough, float2 peak)
+        public WorldMap(TerrainSpec spec, float[] height, float[] rough, float2 peak,
+                        float[] water = null, float[] flow = null, Hydrology.Stats hydro = default, byte[] waterClass = null)
         {
             Spec = spec; Height = height; Rough = rough; PeakPosition = peak;
+            Water = water ?? Filled(height.Length, Hydrology.NO_WATER);
+            Flow = flow ?? new float[height.Length];
+            WaterClass = waterClass ?? new byte[height.Length];
+            Hydro = hydro;
             _hH = GCHandle.Alloc(Height, GCHandleType.Pinned);
             _hR = GCHandle.Alloc(Rough, GCHandleType.Pinned);
+            _hW = GCHandle.Alloc(Water, GCHandleType.Pinned);
         }
+
+        private static float[] Filled(int n, float v) { var a = new float[n]; for (int i = 0; i < n; i++) a[i] = v; return a; }
 
         public unsafe MapView View => new MapView
         {
             height = (float*)_hH.AddrOfPinnedObject(),
             rough = (float*)_hR.AddrOfPinnedObject(),
+            water = (float*)_hW.AddrOfPinnedObject(),
             cells = Spec.mapCells,
             cellVoxels = Spec.mapCellVoxels,
         };
@@ -61,6 +78,7 @@ namespace TerrainGen
         {
             if (_hH.IsAllocated) _hH.Free();
             if (_hR.IsAllocated) _hR.Free();
+            if (_hW.IsAllocated) _hW.Free();
         }
 
         // ------------------------------------------------------------------
@@ -79,7 +97,87 @@ namespace TerrainGen
                 float2 p = new float2((x + 0.5f) * spec.mapCellVoxels, (z + 0.5f) * spec.mapCellVoxels);
                 Macro(in spec, in o, peak, p, out h[z * n + x], out r[z * n + x]);
             }
-            return new WorldMap(spec, h, r, peak);
+            int beacons = Beacons(in spec, in o, h, r, peak);
+            var water = new float[n * n];
+            var flow = new float[n * n];
+            var cls = new byte[n * n];
+            var hydro = Hydrology.Run(n, h, r, water, flow, cls);
+            // The caldera is a depression, so the flood filled it with WATER to
+            // its rim; it holds LAVA instead, at its own level (Stamps.Column
+            // reports the kind per column). Drop the flood's water there.
+            for (int z = 0; z < n; z++)
+            for (int x = 0; x < n; x++)
+            {
+                float2 p = new float2((x + 0.5f) * spec.mapCellVoxels, (z + 0.5f) * spec.mapCellVoxels);
+                float2 q = p - Stamps.VolcanoSite(in spec, in o);
+                if (q.x * q.x + q.y * q.y < Stamps.CALDERA_R * Stamps.CALDERA_R * 1.1f) { water[z * n + x] = Hydrology.NO_WATER; cls[z * n + x] = Hydrology.DRY; }
+            }
+            return new WorldMap(spec, h, r, peak, water, flow, hydro, cls) { BeaconCount = beacons };
+        }
+
+        // ------------------------------------------------------------------
+        // BEACONS (§2.5 rule 1, 2026-09-25): "always a landmark on the horizon".
+        // The jittered spires/buttes/tors above give only ~21 qualifying
+        // summits: most are outranked by the ranges or by a neighbour. This
+        // pass GUARANTEES a candidate per 800 m cell of land: at the cell's
+        // highest point it raises a spire or a butte to BEACON_RISE above the
+        // highest ground within 384 m, so it is a local summit standing >= 60 m
+        // above its surroundings by construction (the landmark metric's own
+        // definition). Singleton areas (volcano, tree, geyser basin) are
+        // landmarks already and are skipped. Map cells, integer grid.
+        // ------------------------------------------------------------------
+        public const int BEACON_CELLS = 75;            // map cells per beacon cell (600 m)
+        public const float BEACON_RISE = 900f;         // voxels (90 m) above the local max, + up to 50 m
+
+        public static int Beacons(in TerrainSpec spec, in Offsets o, float[] h, float[] r, float2 peak)
+        {
+            int n = spec.mapCells, count = 0;
+            int bc = (n + BEACON_CELLS - 1) / BEACON_CELLS;
+            for (int bz = 0; bz < bc; bz++)
+            for (int bx = 0; bx < bc; bx++)
+            {
+                // Highest land cell in the beacon cell's inner 60%.
+                int best = -1; float bestH = 200f;             // >= 20 m above sea
+                int x0 = bx * BEACON_CELLS + BEACON_CELLS / 5, z0 = bz * BEACON_CELLS + BEACON_CELLS / 5;
+                int span = BEACON_CELLS * 3 / 5;
+                for (int z = z0; z < math.min(n, z0 + span); z++)
+                for (int x = x0; x < math.min(n, x0 + span); x++)
+                    if (h[z * n + x] > bestH) { bestH = h[z * n + x]; best = z * n + x; }
+                if (best < 0) continue;
+                int cx = best % n, cz = best / n;
+                float2 p = new float2((cx + 0.5f) * spec.mapCellVoxels, (cz + 0.5f) * spec.mapCellVoxels);
+                // Mountains are their own landmarks, and the dominant peak must stay
+                // the dominant peak (§2.2): no beacon on high ground or near it.
+                if (bestH > 0.55f * spec.peakHeight || math.distance(p, peak) < 12000f) continue;
+                if (math.distance(p, Stamps.VolcanoSite(in spec, in o)) < Stamps.VOLCANO_BASE_R ||
+                    math.distance(p, Stamps.TreeSite(in spec, in o)) < Stamps.TREE_CANOPY_R + 1500f ||
+                    math.distance(p, Stamps.GeyserSite(in spec, in o)) < 2500f) continue;
+                // Highest ground within 384 m (48 map cells).
+                float localMax = bestH;
+                for (int z = math.max(0, cz - 48); z <= math.min(n - 1, cz + 48); z++)
+                for (int x = math.max(0, cx - 48); x <= math.min(n - 1, cx + 48); x++)
+                    localMax = math.max(localMax, h[z * n + x]);
+                float top = math.min(localMax + BEACON_RISE + 500f * Noise.Hash01(bx, 7, bz, o.seed + 301u),
+                                     0.85f * spec.peakHeight);    // never rivals the dominant summit
+                if (top < localMax + 600f) continue;             // could not stand out: not a beacon
+                bool butte = Noise.Hash01(bx, 8, bz, o.seed + 302u) < 0.35f;
+                float rad = butte ? 450f + 250f * Noise.Hash01(bx, 9, bz, o.seed + 303u)
+                                  : 500f + 200f * Noise.Hash01(bx, 9, bz, o.seed + 303u);   // peaks, not needles
+                int rc = (int)math.ceil(rad / spec.mapCellVoxels) + 1;
+                for (int z = math.max(0, cz - rc); z <= math.min(n - 1, cz + rc); z++)
+                for (int x = math.max(0, cx - rc); x <= math.min(n - 1, cx + rc); x++)
+                {
+                    float2 q = new float2((x + 0.5f) * spec.mapCellVoxels, (z + 0.5f) * spec.mapCellVoxels) - p;
+                    float d = math.sqrt(q.x * q.x + q.y * q.y);
+                    float t = butte ? Noise.SmoothStep(rad, rad - 250f, d) : math.pow(math.saturate(1f - d / rad), 1.4f);
+                    if (t <= 0f) continue;
+                    int i = z * n + x;
+                    float nh = h[i] + (top - h[i]) * t;
+                    if (nh > h[i]) { h[i] = nh; r[i] = math.max(r[i], 0.8f); }
+                }
+                count++;
+            }
+            return count;
         }
 
         /// The dominant summit: a seeded site in the island's inner third.
@@ -198,6 +296,8 @@ namespace TerrainGen
             // Meso landmarks (§2.5): spires, buttes, tors on a jittered grid, so
             // lowlands and plateaus get something on every horizon too.
             hgt += Landmarks(in o, p, math.saturate(coast * 4f), out float lmEdge);
+            // Map-level stamps: volcano, world tree, crystal spires, meteor craters.
+            hgt = Stamps.MacroApply(in spec, in o, p, hgt, inland, ref lmEdge);
 
             // Beaches: flatten the last few metres at the waterline.
             float shore = math.saturate(coast * 12f);

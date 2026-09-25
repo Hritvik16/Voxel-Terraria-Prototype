@@ -657,8 +657,9 @@ public class ShadowRayTests
         Assert.IsTrue(near.occluded, "at tier 0 a solid voxel overhead must cast a shadow");
 
         // --- camera FAR: a coarse tier, the lone voxel has been voted away. ---
-        // Past TIER_OUTER_RANGE_M[0] (64 m = 640 voxels) from the sample.
-        float3 camFar = CameraAtVoxel(sample + new int3(0, 0, 900));
+        // Past TIER_OUTER_RANGE_M[0] from the sample (93.5 m since the
+        // pixel-footprint boundaries; was 64 m, when this sat at 900 voxels).
+        float3 camFar = CameraAtVoxel(sample + new int3(0, 0, 1400));
         var far = ShadowRayReference.TraceHard(_store, sample, normal, sun, camFar);
         Assert.Greater(far.firstSampleTier, 0,
             "camera is far; §6.5's 8.2 rule must select a COARSE tier for this sample");
@@ -681,10 +682,15 @@ public class ShadowRayTests
 
         int tierNear = ShadowRayReference.TraceHard(
             _store, sample, normal, sun, CameraAtVoxel(sample + new int3(0, 6, 0))).firstSampleTier;
+        // Mid-band of tier 1 and of tier 2, from the config rather than literals:
+        // the boundaries moved (64/128 m -> pixel footprint, 2026-09-25) and a
+        // literal 800/1500 voxels silently became tier 0 / tier 1.
+        int midT1 = (int)((LODConfig.TIER_OUTER_RANGE_M[0] + LODConfig.TIER_OUTER_RANGE_M[1]) * 5f);
+        int midT2 = (int)((LODConfig.TIER_OUTER_RANGE_M[1] + LODConfig.TIER_OUTER_RANGE_M[2]) * 5f);
         int tierMid = ShadowRayReference.TraceHard(
-            _store, sample, normal, sun, CameraAtVoxel(sample + new int3(0, 0, 800))).firstSampleTier;
+            _store, sample, normal, sun, CameraAtVoxel(sample + new int3(0, 0, midT1))).firstSampleTier;
         int tierFar = ShadowRayReference.TraceHard(
-            _store, sample, normal, sun, CameraAtVoxel(sample + new int3(0, 0, 1500))).firstSampleTier;
+            _store, sample, normal, sun, CameraAtVoxel(sample + new int3(0, 0, midT2))).firstSampleTier;
 
         Assert.AreEqual(0, tierNear);
         Assert.AreEqual(1, tierMid);

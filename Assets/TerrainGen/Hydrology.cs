@@ -1,0 +1,249 @@
+// Assets/TerrainGen/Hydrology.cs
+//
+// MAP STAGE v2 (§2.4, design doc §9 step 3): the non-local features a per-column
+// generator can never produce. A pass over the world map's height grid, run once
+// at world creation, deterministic from the seed (every tie breaks by cell index):
+//
+//   1. PRIORITY FLOOD from the ocean (Barnes et al. 2014), twice:
+//        plain  -> every depression's SPILL LEVEL: lakes are flat, filled
+//                  exactly to the height where their basin overflows
+//        eps    -> a drainage surface with no sinks at all, and each cell's
+//                  flood PARENT, which is a downhill path that ends in the sea
+//   2. FLOW ACCUMULATION along the parents, in reverse flood order
+//   3. RIVERS where the catchment exceeds RIVER_MIN_CELLS; every river drains to
+//      the sea by construction (the parent chain ends at an ocean seed)
+//   4. LIGHT EROSION: channels carved ~ log2(catchment), blurred into valleys,
+//      then the plain flood re-run so lake levels match the carved terrain
+//   5. WATER LEVEL per cell: lake -> spill level; river -> bed + depth. Still
+//      water for now (§2.7): lakes are at rest; river water on a slope is not
+//      (it will drain downhill once the CA wakes it) -- the channel is what the
+//      map carries "from day one so flow can switch on later".
+//
+// Coordinates are map CELLS; heights are voxels relative to sea level (the map's
+// own convention). NO_WATER marks a dry cell.
+using System;
+using Unity.Mathematics;
+
+namespace TerrainGen
+{
+    public static class Hydrology
+    {
+        public const float NO_WATER = -1e9f;
+        public const float FLOOD_EPS = 0.02f;         // voxels per cell on flats
+        public const int RIVER_MIN_CELLS = 800;      // ~0.05 km^2 catchment (8 m cells)
+        /// Per-cell water class (WorldMap.WaterClass).
+        public const byte DRY = 0, LAKE = 1, RIVER = 2;
+        public const float LAKE_MIN_DEPTH = 12f;     // voxels (1.2 m): shallower is a puddle, left dry.
+                                                     // Was 0.3 m: the first map v2 PNG was speckled
+                                                     // with hundreds of puddle "lakes" on every range.
+
+        public struct Stats
+        {
+            public int landCells, riverCells, riverMouths, lakeCells, lakes;
+            public float maxCarve, maxCatchmentKm2;
+            public double ms;
+        }
+
+        private static readonly int[] DX = { -1, 0, 1, -1, 1, -1, 0, 1 };
+        private static readonly int[] DZ = { -1, -1, -1, 0, 0, 1, 1, 1 };
+
+        /// Runs the pass IN PLACE on `height` (erosion) and `rough` (smoother beds),
+        /// and fills `water` (level or NO_WATER) and `flow` (catchment, cells).
+        public static Stats Run(int n, float[] height, float[] rough, float[] water, float[] flow, byte[] cls)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var st = new Stats();
+            int count = n * n;
+            var parent = new int[count];
+            var order = new int[count];
+            var eps = new float[count];
+
+            // ---- 1. eps flood: drainage parents + order ----
+            Flood(n, height, FLOOD_EPS, eps, parent, order);
+
+            // ---- 2. accumulation (reverse flood order = upstream first) ----
+            for (int i = 0; i < count; i++) flow[i] = height[i] > 0f ? 1f : 0f;
+            for (int k = count - 1; k >= 0; k--)
+            {
+                int c = order[k];
+                int p = parent[c];
+                if (p >= 0 && height[c] > 0f) flow[p] += flow[c];
+            }
+
+            // ---- 3 + 4. rivers and light erosion ----
+            var carve = new float[count];
+            for (int i = 0; i < count; i++)
+            {
+                if (height[i] <= 0f) continue;
+                st.landCells++;
+                if (flow[i] < RIVER_MIN_CELLS) continue;
+                float c = 15f + 12f * math.log2(flow[i] / RIVER_MIN_CELLS);
+                carve[i] = math.min(80f, c);
+            }
+            // Two 3x3 box blurs: a channel becomes a valley ~3 cells (24 m) wide.
+            var tmp = new float[count];
+            for (int pass = 0; pass < 2; pass++)
+            {
+                for (int z = 0; z < n; z++)
+                for (int x = 0; x < n; x++)
+                {
+                    float s = 0f; int m = 0;
+                    for (int j = -1; j <= 1; j++)
+                    for (int i = -1; i <= 1; i++)
+                    {
+                        int xx = x + i, zz = z + j;
+                        if (xx < 0 || zz < 0 || xx >= n || zz >= n) continue;
+                        s += carve[zz * n + xx]; m++;
+                    }
+                    tmp[z * n + x] = s / m;
+                }
+                Array.Copy(tmp, carve, count);
+            }
+            for (int i = 0; i < count; i++)
+            {
+                if (height[i] <= 0f || carve[i] <= 0f) continue;
+                // Land stays land: a carved channel bottoms out just above the sea.
+                float nh = math.max(2f, height[i] - carve[i]);
+                st.maxCarve = math.max(st.maxCarve, height[i] - nh);
+                height[i] = nh;
+                rough[i] *= math.lerp(1f, 0.3f, math.saturate(carve[i] / 20f));   // smooth beds
+            }
+
+            // ---- 1 again, plain: spill levels on the carved terrain ----
+            var level = new float[count];
+            var parent2 = new int[count];
+            var order2 = new int[count];
+            Flood(n, height, 0f, level, parent2, order2);
+
+            // ---- 5. water level ----
+            for (int i = 0; i < count; i++)
+            {
+                water[i] = NO_WATER;
+                cls[i] = DRY;
+                if (height[i] <= 0f) continue;
+                if (level[i] - height[i] >= LAKE_MIN_DEPTH) { water[i] = level[i]; cls[i] = LAKE; st.lakeCells++; continue; }
+                if (flow[i] >= RIVER_MIN_CELLS)
+                {
+                    st.riverCells++;
+                    cls[i] = RIVER;
+                    water[i] = height[i] + 8f + 2f * math.log2(flow[i] / RIVER_MIN_CELLS);
+                    int p = parent[i];
+                    if (p >= 0 && height[p] <= 0f) st.riverMouths++;
+                }
+            }
+            st.lakes = CountLakes(n, water, cls);
+            for (int i = 0; i < count; i++) st.maxCatchmentKm2 = math.max(st.maxCatchmentKm2, flow[i]);
+            st.maxCatchmentKm2 *= 64f / 1e6f;   // 8 m cells
+            st.ms = sw.Elapsed.TotalMilliseconds;
+            return st;
+        }
+
+        /// Priority flood from every ocean cell (height <= 0) and every border
+        /// cell. out[i] = max(height[i], out[parent] + eps); parent[i] = the cell
+        /// that opened i (-1 for a seed); order = pop order (non-decreasing out).
+        public static void Flood(int n, float[] height, float eps, float[] outLevel, int[] parent, int[] order)
+        {
+            int count = n * n;
+            var closed = new bool[count];
+            var heap = new MinHeap(count);
+            for (int z = 0; z < n; z++)
+            for (int x = 0; x < n; x++)
+            {
+                int i = z * n + x;
+                bool seed = height[i] <= 0f || x == 0 || z == 0 || x == n - 1 || z == n - 1;
+                parent[i] = -1;
+                if (!seed) continue;
+                outLevel[i] = height[i];
+                closed[i] = true;
+                heap.Push(outLevel[i], i);
+            }
+            int k = 0;
+            while (heap.Count > 0)
+            {
+                heap.Pop(out float lv, out int c);
+                order[k++] = c;
+                int cx = c % n, cz = c / n;
+                for (int d = 0; d < 8; d++)
+                {
+                    int x = cx + DX[d], z = cz + DZ[d];
+                    if (x < 0 || z < 0 || x >= n || z >= n) continue;
+                    int nb = z * n + x;
+                    if (closed[nb]) continue;
+                    closed[nb] = true;
+                    outLevel[nb] = math.max(height[nb], lv + eps);
+                    parent[nb] = c;
+                    heap.Push(outLevel[nb], nb);
+                }
+            }
+        }
+
+        private static int CountLakes(int n, float[] water, byte[] cls)
+        {
+            int count = n * n, lakes = 0;
+            var seen = new bool[count];
+            var stack = new int[count];
+            for (int i = 0; i < count; i++)
+            {
+                if (seen[i] || cls[i] != LAKE) continue;
+                lakes++;
+                int sp = 0; stack[sp++] = i; seen[i] = true;
+                while (sp > 0)
+                {
+                    int c = stack[--sp];
+                    int cx = c % n, cz = c / n;
+                    for (int d = 0; d < 8; d++)
+                    {
+                        int x = cx + DX[d], z = cz + DZ[d];
+                        if (x < 0 || z < 0 || x >= n || z >= n) continue;
+                        int nb = z * n + x;
+                        if (seen[nb] || cls[nb] != LAKE || water[nb] != water[i]) continue;
+                        seen[nb] = true; stack[sp++] = nb;
+                    }
+                }
+            }
+            return lakes;
+        }
+
+        /// A lake cell (flat, filled to spill). River cells are NOT lakes even
+        /// though their water stands above the bed: they are classed apart.
+        public static bool IsLake(int i, byte[] cls) => cls[i] == LAKE;
+
+        /// Binary min-heap on (key, index); ties break by index, so the flood's
+        /// pop order -- and everything downstream of it -- is deterministic.
+        private sealed class MinHeap
+        {
+            private readonly float[] _k;
+            private readonly int[] _v;
+            public int Count;
+            public MinHeap(int cap) { _k = new float[cap]; _v = new int[cap]; }
+            private bool Less(int a, int b) => _k[a] < _k[b] || (_k[a] == _k[b] && _v[a] < _v[b]);
+            private void Swap(int a, int b)
+            {
+                float tk = _k[a]; _k[a] = _k[b]; _k[b] = tk;
+                int tv = _v[a]; _v[a] = _v[b]; _v[b] = tv;
+            }
+            public void Push(float key, int v)
+            {
+                int i = Count++;
+                _k[i] = key; _v[i] = v;
+                while (i > 0) { int p = (i - 1) >> 1; if (!Less(i, p)) break; Swap(i, p); i = p; }
+            }
+            public void Pop(out float key, out int v)
+            {
+                key = _k[0]; v = _v[0];
+                Count--;
+                if (Count == 0) return;
+                _k[0] = _k[Count]; _v[0] = _v[Count];
+                int i = 0;
+                while (true)
+                {
+                    int l = 2 * i + 1, r = l + 1, m = i;
+                    if (l < Count && Less(l, m)) m = l;
+                    if (r < Count && Less(r, m)) m = r;
+                    if (m == i) break;
+                    Swap(i, m); i = m;
+                }
+            }
+        }
+    }
+}

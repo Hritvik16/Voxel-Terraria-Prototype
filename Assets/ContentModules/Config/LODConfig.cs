@@ -47,7 +47,40 @@ public static class LODConfig
     // shape) - the amendment's recommendation, not yet independently verified
     // against the window math by a second source. Re-derive if WINDOW_CHUNKS_XZ
     // changes.
-    public static readonly float[] TIER_OUTER_RANGE_M = { 64f, 128f, 290f };
+    //
+    //
+    // 2026-09-25, TRIED AND MEASURED, NOT ADOPTED: the 64/128 m below put each
+    // boundary where the FINER tier reaches ~0.8 px, so the coarser tier
+    // arrives at 1.6 px. Moving each boundary to where the COARSER voxel is
+    // <= 1 px (FrameBoundariesM: 93.5 / 187.1 m at 60 deg, 540 rows) was built
+    // and measured (-lodpop, run-fixes.sh): tier-1 pixels differed from an
+    // all-tier-0 frame by 11.7/255 vs 11.4/255 before -- no better -- because
+    // the visible difference is missing/late COARSE DATA, not voxel size; and
+    // it cost +6 ms/frame on the in-air orbit (54.4 vs 48.4 ms). So the
+    // shipped bounds stay 8.9's decided values. The formula is kept for the
+    // -tierbounds pixel arm.
+    public const float DESIGN_VFOV_DEG = 60f;
+    public const float OUTERMOST_RANGE_M = 290f;
+    public static readonly float[] TIER_OUTER_RANGE_M = { 64f, 128f, OUTERMOST_RANGE_M };
+
+    /// Angle (radians) one pixel subtends at the screen centre.
+    public static float PixelAngleRad(float vfovDeg, int screenHeightPx)
+        => (float)(2.0 * Math.Tan(vfovDeg * Math.PI / 360.0) / Math.Max(1, screenHeightPx));
+
+    /// Distance (m) beyond which tier `tier`'s voxel is at most one pixel at
+    /// the screen centre (§6.4 C.5's D(V) with V = that tier's voxel size).
+    public static float PixelInvisibleRangeM(int tier, float vfovDeg, int screenHeightPx)
+        => TIER_VOXEL_SIZE_M[tier] / PixelAngleRad(vfovDeg, screenHeightPx);
+
+    /// This frame's tier boundaries (m): out[N] = where tier N ends. Tier N+1
+    /// begins only where its voxels are <= 1 px; everything is clamped to the
+    /// outermost range (at high resolutions tier 2, then tier 1, is unused).
+    public static void FrameBoundariesM(float vfovDeg, int screenHeightPx, float[] outM)
+    {
+        for (int t = 0; t < TIER_COUNT - 1; t++)
+            outM[t] = Math.Min(PixelInvisibleRangeM(t + 1, vfovDeg, screenHeightPx), OUTERMOST_RANGE_M);
+        outM[TIER_COUNT - 1] = OUTERMOST_RANGE_M;
+    }
 
     // Screen height used for the pixel-subtend formula (§6.4 C.5):
     //   anglePerPixel = vFOV_radians / screenHeightPixels

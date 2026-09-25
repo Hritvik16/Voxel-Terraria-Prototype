@@ -24,6 +24,29 @@ namespace TerrainGen
         public int height;       // absolute Y of the top SOLID voxel
         public byte biome;       // GenBiome
         public float rough;      // map detail scale at this column
+        /// Absolute Y of the still-water surface over this column (lake or
+        /// river, map v2), or NO_WATER_Y. Water fills (height, water].
+        public int water;
+        public const int NO_WATER_Y = int.MinValue;
+        /// 0 = water, 1 = lava (the volcano's caldera lake).
+        public byte waterKind;
+
+        // ---- §2.5 stamps (Stamps.Column) ----
+        /// Air intervals [lo, hi) in this column (arches, hoops, ribs, the
+        /// space under the tree's canopy). Never contain the top voxel.
+        public int open1Lo, open1Hi, open2Lo, open2Hi;
+        /// The stamp's own material for y in [stampBodyLo, height]; 0 = none
+        /// (natural geology, e.g. an arch).
+        public byte stampMat;
+        public int stampBodyLo;
+        /// D must run Stamps.Carve3D in this column (mouths, fissures, the skull
+        /// cave, root caves, vents, a crater core).
+        public bool stamp3D;
+        /// The column's TOP voxel is carved by a surface opening (cave mouth,
+        /// fissure, skull mouth): the LOD-0 oracle excludes exactly these.
+        public bool carvesTop;
+        /// The stamp site's map ground (absolute Y), for D's 3D tests.
+        public int stampGround;
     }
 
     public static class ShapeField
@@ -79,6 +102,11 @@ namespace TerrainGen
             c.height = math.max(c.height, spec.worldBottomY + 1);
             c.biome = Biome(in o, p);
             c.rough = rough;
+            float wl = SampleWater(in map, x, z);
+            c.water = wl > Hydrology.NO_WATER * 0.5f ? spec.seaLevelY + (int)math.floor(wl) : ColumnSample.NO_WATER_Y;
+            // §2.5 stamps. Skipped for a dry (pre-v2) map view, which is what
+            // every older job builds -- they keep their exact prior output.
+            if (map.water != null) Stamps.Column(in spec, in map, in o, p, texelVoxels, ref c);
             return c;
         }
 
@@ -121,6 +149,26 @@ namespace TerrainGen
             if (ds < best) { best = ds; b = GenBiome.Snow; }
             if (dj < best) { b = GenBiome.Jungle; }
             return b;
+        }
+
+        /// Still-water level (voxels rel. sea) at (x, z): the highest level among
+        /// the 2x2 cells around the point, so a lake's water reaches every
+        /// column its basin holds (the terrain, not the cell edge, is the
+        /// shore). NO_WATER when none of the four has water or the map is dry.
+        public static unsafe float SampleWater(in MapView map, float x, float z)
+        {
+            if (map.water == null) return Hydrology.NO_WATER;
+            float gx = x / map.cellVoxels - 0.5f, gz = z / map.cellVoxels - 0.5f;
+            int ix = (int)math.floor(gx), iz = (int)math.floor(gz);
+            int n = map.cells;
+            float w = Hydrology.NO_WATER;
+            for (int j = 0; j <= 1; j++)
+            for (int i = 0; i <= 1; i++)
+            {
+                int cx = math.clamp(ix + i, 0, n - 1), cz = math.clamp(iz + j, 0, n - 1);
+                w = math.max(w, map.water[cz * n + cx]);
+            }
+            return w;
         }
 
         /// Catmull-Rom over the map (C1: no creases along 8 m cell edges).

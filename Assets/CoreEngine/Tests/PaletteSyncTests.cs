@@ -234,12 +234,31 @@ public class PaletteSyncTests
     }
 
     [Test]
-    public void LavaIsTheOnlySelfLitMaterial()
+    public void SelfLitMaterialsAreExactlyTheMobileEmissives()
     {
         // The self-lit path skips AO and the hemisphere term. Anything else
-        // acquiring that flag would silently stop receiving shading.
+        // acquiring that flag would silently stop receiving shading. Was "lava
+        // is the only self-lit material"; since §2.7's toxic sludge the rule is
+        // stated instead of the list: self-lit <=> an emissive FLUID (the ones
+        // that glow through the tile aggregate rather than as point lights).
         for (int i = 0; i < 256; i++)
-            Assert.AreEqual(i == Materials.Lava, MaterialPalette.IsSelfLit((byte)i),
-                $"material {i} self-lit flag unexpected");
+        {
+            byte m = (byte)i;
+            bool expected = MaterialRules.IsMobile(m) && MaterialRules.IsEmissiveMaterial(m);
+            Assert.AreEqual(expected, MaterialPalette.IsSelfLit(m), $"material {i} self-lit flag unexpected");
+        }
+        Assert.IsTrue(MaterialPalette.IsSelfLit(Materials.Lava));
+        Assert.IsTrue(MaterialPalette.IsSelfLit(Materials.Sludge));
+
+        // And the shader's MaterialIsSelfLit lists the same ids.
+        string src = System.IO.File.ReadAllText(ShaderPath);
+        int start = src.IndexOf("bool MaterialIsSelfLit(uint mat)");
+        Assert.Greater(start, 0, "MaterialIsSelfLit not found");
+        string line = src.Substring(start, src.IndexOf('\n', start) - start);
+        var ids = new System.Collections.Generic.HashSet<int>();
+        foreach (System.Text.RegularExpressions.Match mm in new System.Text.RegularExpressions.Regex(@"mat\s*==\s*(\d+)u").Matches(line))
+            ids.Add(int.Parse(mm.Groups[1].Value));
+        for (int i = 0; i < 256; i++)
+            Assert.AreEqual(MaterialPalette.IsSelfLit((byte)i), ids.Contains(i), $"shader self-lit list disagrees on {i}");
     }
 }

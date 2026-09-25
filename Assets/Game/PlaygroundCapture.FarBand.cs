@@ -208,6 +208,24 @@ public partial class PlaygroundCapture
         Look("coast_from_sea_30m", E(c, spec.seaLevelY + 300f, c - 36000f), E(c, spec.seaLevelY + 800f, c));
         Look("oblique_3000m", E(c, spec.seaLevelY + 30000f, c - 22000f), E(c, spec.seaLevelY, c + 6000f));
         poses.Add(("map_7000m", E(c, spec.seaLevelY + 70000f, c), Quaternion.Euler(89.5f, 0f, 0f)));
+        // Map v2 + §2.5 stamps (2026-09-25): each singleton from a glide, and a
+        // crystal cluster, so the new features can be judged by eye.
+        var volcSite = TerrainGen.Stamps.VolcanoSite(in spec, in o);
+        var treeSite = TerrainGen.Stamps.TreeSite(in spec, in o);
+        var geySite = TerrainGen.Stamps.GeyserSite(in spec, in o);
+        Look("volcano_from_2km", E(volcSite.x - 20000f, spec.seaLevelY + 5000f, volcSite.y - 6000f), E(volcSite.x, spec.seaLevelY + 2600f, volcSite.y));
+        Look("caldera_above", E(volcSite.x - 3000f, spec.seaLevelY + 9000f, volcSite.y - 3000f), E(volcSite.x, spec.seaLevelY + 2000f, volcSite.y));
+        Look("world_tree_1km", E(treeSite.x - 9000f, Ground(treeSite.x - 9000f, treeSite.y) + 600f, treeSite.y - 2000f), E(treeSite.x, Ground(treeSite.x, treeSite.y) - 800f, treeSite.y));
+        Look("geyser_basin", E(geySite.x - 2500f, Ground(geySite.x, geySite.y) + 1500f, geySite.y - 2500f), E(geySite.x, Ground(geySite.x, geySite.y), geySite.y));
+        Look("rivers_oblique", E(c - 30000f, spec.seaLevelY + 26000f, c - 30000f), E(c, spec.seaLevelY, c));
+        for (int gz = 0, done = 0; gz < (spec.worldSizeVoxels >> TerrainGen.Stamps.CELL_SHIFT) && done == 0; gz++)
+        for (int gx = 0; gx < (spec.worldSizeVoxels >> TerrainGen.Stamps.CELL_SHIFT) && done == 0; gx++)
+        {
+            if (!TerrainGen.Stamps.CellStamp(in o, gx, gz, out var st) || st.kind != TerrainGen.Stamps.CrystalSpires) continue;
+            if (Ground(st.pos.x, st.pos.y) < spec.seaLevelY + 300f) continue;
+            Look("crystal_spires", E(st.pos.x - 2200f, Ground(st.pos.x, st.pos.y) + 400f, st.pos.y - 1200f), E(st.pos.x, Ground(st.pos.x, st.pos.y) + 300f, st.pos.y));
+            done = 1;
+        }
 
         foreach (var (n, pos, rot) in poses)
         {

@@ -38,6 +38,9 @@ public static class MaterialRules
     public const uint DamagesPlayer  = 1u << 3;
     public const uint IsEmissive     = 1u << 4;
     public const uint Dissolves      = 1u << 5;
+    /// ADDITIVE (2026-09-25), past Appendix B's fixed bits 0-5: a fluid whose
+    /// Intent hierarchy is mirrored UPWARD (steam). Bit 6 was unused.
+    public const uint IsGas          = 1u << 6;
 
     /// A material that participates in the CA at all -- fluid or falling solid.
     /// §7.5: falling solids run the identical pipeline with a shorter Intent
@@ -90,6 +93,29 @@ public static class MaterialRules
         // the conservation ledger as a permanent removal rather than a loss.
         Define(Materials.Obsidian, 0u, 0);
 
+        // ---- §2.7 fluids (2026-09-25) ----
+        // Oil: slightly viscous, flammable (fire is a later system), LIGHTER
+        // than water, so it layers on top via the CA's density swap.
+        Define(Materials.Oil,       IsFluid | IsFlammable, 2);
+        // Acid: runny, harmful, dissolves anything flagged Dissolves (below)
+        // and is consumed doing it -- one acid voxel eats one rock voxel.
+        Define(Materials.Acid,      IsFluid | DamagesPlayer, 1);
+        // Toxic sludge: thick and emissive. Emissive + mobile => it lights
+        // through LightSourceBuffer's tile AGGREGATE, never per voxel (CLAUDE.md).
+        Define(Materials.Sludge,    IsFluid | IsEmissive | DamagesPlayer, 12);
+        // Quicksand: the slow viscosity tier (honey is 30). Dense and draggy.
+        Define(Materials.Quicksand, IsFluid, 60);
+        // Steam: a gas -- rises, spreads under ceilings, liquids fall through it.
+        Define(Materials.Steam,     IsFluid | IsGas, 1);
+
+        // What acid eats. Obsidian is deliberately acid-proof (it is the
+        // container a player can make), as are torches.
+        foreach (byte m in new[] { Materials.Stone, Materials.Deepstone, Materials.MossyStone,
+                                   Materials.Sandstone, Materials.Grass, Materials.JungleGrass,
+                                   Materials.Snow })
+            _flags[m] |= Dissolves;
+        _flags[Materials.Sand] |= Dissolves;   // keeps IsFallingSolid
+
         // ---- §7.6 reactions ----
         // Water + Lava -> Obsidian. The LAVA cell becomes the obsidian (the
         // solid is where the melt was); the WATER cell is consumed to Air
@@ -97,13 +123,25 @@ public static class MaterialRules
         // frees immediately, its counterpart self-frees on the next tick's
         // orphan check (§7.3), because its home byte no longer matches its
         // cached material. That asymmetry is the spec's mechanism, not a bug.
-        _reactions = new[]
+        var reactions = new System.Collections.Generic.List<Reaction>
         {
             new Reaction { self = Materials.Water, other = Materials.Lava,
                            selfProduct = Materials.Air, otherProduct = Materials.Obsidian },
             new Reaction { self = Materials.Lava,  other = Materials.Water,
                            selfProduct = Materials.Obsidian, otherProduct = Materials.Air },
         };
+        // Acid + anything Dissolves -> Air + Air. Both directions, so the pair
+        // resolves whichever side scans first (the rock never has a slot, so in
+        // practice the acid always does).
+        for (int m = 0; m < 256; m++)
+        {
+            if ((_flags[m] & Dissolves) == 0u) continue;
+            reactions.Add(new Reaction { self = Materials.Acid, other = (byte)m,
+                                         selfProduct = Materials.Air, otherProduct = Materials.Air });
+            reactions.Add(new Reaction { self = (byte)m, other = Materials.Acid,
+                                         selfProduct = Materials.Air, otherProduct = Materials.Air });
+        }
+        _reactions = reactions.ToArray();
     }
 
     private static void Define(byte material, uint flags, uint tickInterval)
@@ -155,6 +193,11 @@ public static class MaterialRules
         d[Materials.Grass] = 1300f;
         d[Materials.JungleGrass] = 1300f;
         d[Materials.MossyStone] = 2500f;
+        d[Materials.Oil] = 850f;          // floats on water
+        d[Materials.Acid] = 1100f;        // sinks under water, just
+        d[Materials.Sludge] = 1300f;
+        d[Materials.Quicksand] = 1700f;
+        d[Materials.Steam] = 0.6f;        // lighter than air: rises
         return d;
     }
 
@@ -166,6 +209,11 @@ public static class MaterialRules
         v[Materials.Water] = 3.0f;
         v[Materials.Lava] = 12.0f;
         v[Materials.Honey] = 30.0f;                      // §7.4 already makes honey the slow one
+        v[Materials.Oil] = 5.0f;
+        v[Materials.Acid] = 3.5f;
+        v[Materials.Sludge] = 18.0f;
+        v[Materials.Quicksand] = 80.0f;                  // it holds you
+        v[Materials.Steam] = 0.5f;
         return v;
     }
 
@@ -221,6 +269,9 @@ public static class MaterialRules
         e[Materials.TorchBlue]   = 1.0f;
         e[Materials.TorchGreen]  = 1.0f;
         e[Materials.TorchPurple] = 1.0f;
+        // Sludge: a dim toxic glow. Lower than lava: a sludge pool is a
+        // navigation cue in a dark cavern, not a light source to read by.
+        e[Materials.Sludge] = 0.35f;
         return e;
     }
 
@@ -239,6 +290,7 @@ public static class MaterialRules
         Tint(t, Materials.TorchBlue,   0.36f, 0.58f, 1.00f);   // cool arcane blue
         Tint(t, Materials.TorchGreen,  0.42f, 1.00f, 0.48f);   // green flame
         Tint(t, Materials.TorchPurple, 0.78f, 0.42f, 1.00f);   // violet
+        Tint(t, Materials.Sludge,      0.55f, 1.00f, 0.30f);   // toxic green
         return t;
     }
 
@@ -257,6 +309,7 @@ public static class MaterialRules
         s[Materials.TorchBlue]   = 1.0f;
         s[Materials.TorchGreen]  = 1.0f;
         s[Materials.TorchPurple] = 1.0f;
+        s[Materials.Sludge] = 0.7f;
         return s;
     }
 
@@ -307,6 +360,49 @@ public static class MaterialRules
     public static bool IsFluidMaterial(byte material) => (_flags[material] & IsFluid) != 0u;
 
     public static bool IsFallingSolidMaterial(byte material) => (_flags[material] & IsFallingSolid) != 0u;
+
+    /// A fluid that rises (steam): its Intent hierarchy is mirrored upward.
+    public static bool IsGasMaterial(byte material) => (_flags[material] & IsGas) != 0u;
+
+    /// §2.7 density layering: may `heavy`, sitting directly above `light`,
+    /// trade places with it? Both must be FLUIDS (a falling solid never swaps:
+    /// sand has an angle of repose, it sinks through nothing), must not react
+    /// with each other (the reaction wins), and `heavy` must rank denser.
+    /// Ranks, not raw densities, so the CPU oracle and FluidCA.compute (which
+    /// receives only the ranks) can never disagree at a margin.
+    public static bool SinksThrough(byte heavy, byte light)
+    {
+        if (!IsFluidMaterial(heavy) || !IsFluidMaterial(light) || heavy == light) return false;
+        if (TryGetReaction(heavy, light, out _, out _)) return false;
+        return DensityRank(heavy) > DensityRank(light);
+    }
+
+    /// 1..n rank of a FLUID by density (0 for non-fluids); a rank step always
+    /// means more than 5% denser, so near-equal fluids share a rank and never
+    /// churn. Uploaded to the GPU with the registry.
+    /// LAZY, deliberately: static field initializers run BEFORE the static
+    /// constructor body that populates _flags, so an initializer here would
+    /// rank against empty flags.
+    public static uint DensityRank(byte material)
+    {
+        if (_densityRank == null) _densityRank = BuildDensityRank();
+        return _densityRank[material];
+    }
+    private static uint[] _densityRank;
+    private static uint[] BuildDensityRank()
+    {
+        var r = new uint[256];
+        var fluids = new System.Collections.Generic.List<byte>();
+        for (int m = 0; m < 256; m++) if (IsFluidMaterial((byte)m)) fluids.Add((byte)m);
+        fluids.Sort((a, b) => _densityKgM3[a].CompareTo(_densityKgM3[b]));
+        uint rank = 0; float last = -1f;
+        foreach (byte m in fluids)
+        {
+            if (last < 0f || _densityKgM3[m] > last * 1.05f) { rank++; last = _densityKgM3[m]; }
+            r[m] = rank;
+        }
+        return r;
+    }
 
     /// §7.4 viscosity tick interval. 1 = acts every tick. Never returns 0 for a
     /// mobile material, so a caller can use it as a divisor/counter bound
@@ -457,6 +553,18 @@ public static class MaterialPalette
         // palette. It should read as dense and glassy against both the lava it
         // came from and the stone around it.
         _table[Materials.Obsidian] = new Rgb(0.095f, 0.085f, 0.125f);
+
+        // ---- §2.7 fluids ----
+        // Oil: near-black warm brown, darker than anything but obsidian.
+        _table[Materials.Oil]       = new Rgb(0.110f, 0.085f, 0.060f);
+        // Acid: sour yellow-green, the one deliberately loud liquid (danger).
+        _table[Materials.Acid]      = new Rgb(0.520f, 0.700f, 0.160f);
+        // Sludge: deeper, murkier green; the glow comes from its emissive term.
+        _table[Materials.Sludge]    = new Rgb(0.300f, 0.620f, 0.180f);
+        // Quicksand: wet sand, darker and browner than dry sand.
+        _table[Materials.Quicksand] = new Rgb(0.560f, 0.470f, 0.320f);
+        // Steam: pale cool grey, below snow so the two never read alike.
+        _table[Materials.Steam]     = new Rgb(0.700f, 0.720f, 0.740f);
     }
 
     public static Rgb Of(byte material) => _table[material];
@@ -500,6 +608,11 @@ public static class MaterialPalette
         t[Materials.TorchBlue]   = new Rgb(0.40f, 0.60f, 1.00f);
         t[Materials.TorchGreen]  = new Rgb(0.45f, 1.00f, 0.50f);
         t[Materials.TorchPurple] = new Rgb(0.78f, 0.45f, 1.00f);
+        t[Materials.Oil]         = new Rgb(0.16f, 0.12f, 0.08f);
+        t[Materials.Acid]        = new Rgb(0.62f, 0.90f, 0.18f);
+        t[Materials.Sludge]      = new Rgb(0.40f, 0.85f, 0.22f);
+        t[Materials.Quicksand]   = new Rgb(0.66f, 0.56f, 0.38f);
+        t[Materials.Steam]       = new Rgb(0.85f, 0.87f, 0.90f);
         return t;
     }
 
@@ -509,5 +622,5 @@ public static class MaterialPalette
     /// ambient-occlusion and hemisphere darkening so they stay hot.
     /// NOT a lighting system: nothing here emits light onto anything else.
     /// Real emission arrives with Phase 7 (§6.5); this is a shading cheat.
-    public static bool IsSelfLit(byte material) => material == Materials.Lava;
+    public static bool IsSelfLit(byte material) => material == Materials.Lava || material == Materials.Sludge;
 }

@@ -65,6 +65,20 @@ public class RaymarchFeature : ScriptableRendererFeature
     public static bool UsePackedMips = true;
     public static float MaxRayDistance = 1280f;
     public static bool UseLODCascade = true;
+
+    /// Tier boundaries: 8.9's fixed LODConfig.TIER_OUTER_RANGE_M (default) or
+    /// the pixel-footprint form, recomputed per frame from the dispatch height
+    /// and camera FOV (-tierbounds pixel; measured 2026-09-25, not adopted --
+    /// see LODConfig). Last match wins.
+    public static bool LegacyTierBounds = LastArg("-tierbounds") != "pixel";
+    public static float[] LastTierBoundsM = new float[LODConfig.TIER_COUNT];
+    private static string LastArg(string name)
+    {
+        string[] a = System.Environment.GetCommandLineArgs();
+        string found = null;
+        for (int i = 0; i + 1 < a.Length; i++) if (a[i] == name) found = a[i + 1];
+        return found;
+    }
     public static bool UseDevColors = true;
 
     // ---- PRESENTATION TOGGLES (shading step only) ----
@@ -214,6 +228,12 @@ public class RaymarchFeature : ScriptableRendererFeature
     public const int STATS_LEN = 8;
     private static readonly uint[] _statsZero = new uint[STATS_LEN];
     private static GraphicsBuffer _farDummy;
+    /// Bound as LightBuffer when no LightingDriver exists (the Phase 4
+    /// acceptance scene, the fluid rigs). An UNSET buffer does not fail loudly
+    /// on Metal: Unity logs "Property (LightBuffer) ... is not set" once and
+    /// SKIPS THE DISPATCH, so every frame came out black and the acceptance
+    /// rig's frame times measured an empty frame (found 2026-09-25).
+    private static GraphicsBuffer _lightDummy;
 
     /// Zeroes the counters, so a read measures ONE frame rather than an
     /// unbounded accumulation.
@@ -304,6 +324,7 @@ public class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer farTexels, farMips, farStaging, farResident;
             public Vector4[] farOrigins;
             public Vector4 farParams;
+            public float farPixelAngle;
             public VoxelEngine.Rendering.FarField.Scatter[] farScatters;
             public int farMipMask;
             public int kFarScatter = -1, kFarMip = -1;
@@ -368,6 +389,9 @@ public class RaymarchFeature : ScriptableRendererFeature
                 ShadowStatsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, STATS_LEN, sizeof(uint));
             if (_farDummy == null)
                 _farDummy = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, sizeof(uint));
+            if (_lightDummy == null)
+                _lightDummy = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1,
+                    System.Runtime.InteropServices.Marshal.SizeOf<VoxelEngine.Memory.LightSource>());
 
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
             UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
@@ -509,6 +533,8 @@ public class RaymarchFeature : ScriptableRendererFeature
                         passData.farOrigins[L] = new Vector4(o.x, o.y, 1f, 0f);
                     }
                     passData.farParams = new Vector4(far.MaxHeightVoxels, far.HazeRangeMetres * 10f, far.PrimaryStepCap, far.ShadowStepCap);
+                    passData.farPixelAngle = VoxelEngine.Rendering.FarField.FootprintLevels
+                        ? LODConfig.PixelAngleRad(cameraData.camera.fieldOfView, dispatchH) : 0f;
                     passData.farScatters = far.PendingScatters.ToArray();
                     far.PendingScatters.Clear();
                     passData.farMipMask = far.PendingMipMask;
@@ -589,9 +615,13 @@ public class RaymarchFeature : ScriptableRendererFeature
                         Log2Int(tier2.CoarseBricksPerChunkEdge),
                         tier2.EntriesPerChunk, 0f);
 
-                    float tier0Outer = LODConfig.TIER_OUTER_RANGE_M[0] * 10f;
-                    float tier1Outer = LODConfig.TIER_OUTER_RANGE_M[1] * 10f;
-                    float tier2Outer = LODConfig.TIER_OUTER_RANGE_M[2] * 10f;
+                    if (LegacyTierBounds)
+                        System.Array.Copy(LODConfig.TIER_OUTER_RANGE_M, LastTierBoundsM, LODConfig.TIER_COUNT);
+                    else
+                        LODConfig.FrameBoundariesM(cameraData.camera.fieldOfView, dispatchH, LastTierBoundsM);
+                    float tier0Outer = LastTierBoundsM[0] * 10f;
+                    float tier1Outer = LastTierBoundsM[1] * 10f;
+                    float tier2Outer = LastTierBoundsM[2] * 10f;
                     passData.tierOuterRangeVoxels = new Vector4(tier0Outer, tier1Outer, tier2Outer, 0f);
                     passData.maxRayDistance = tier2Outer;
                 }
@@ -696,8 +726,9 @@ public class RaymarchFeature : ScriptableRendererFeature
                         // Amendment 8.10 §5.3 measured the diagnostic kernels
                         // earning their keep and this must not change what they
                         // measure.
-                        if (data.lightBuffer != null)
-                            cmd.SetComputeBufferParam(data.compute, 0, "LightBuffer", data.lightBuffer);
+                        // ALWAYS bound: a dummy (with a light count of 0) when no
+                        // driver provides one -- see _lightDummy.
+                        cmd.SetComputeBufferParam(data.compute, 0, "LightBuffer", data.lightBuffer ?? _lightDummy);
                         cmd.SetComputeIntParam(data.compute, "_ActiveLightCount",
                             data.lightBuffer != null ? data.activeLightCount : 0);
                         cmd.SetComputeVectorParam(data.compute, "_SunDir", data.sunDir);
@@ -765,6 +796,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_FarShadow", data.farShadow);
                         cmd.SetComputeVectorArrayParam(data.compute, "_FarOrigin", data.farOrigins);
                         cmd.SetComputeVectorParam(data.compute, "_FarParams", data.farParams);
+                        cmd.SetComputeFloatParam(data.compute, "_FarPixelAngle", data.farPixelAngle);
                         cmd.SetComputeBufferParam(data.compute, 0, "FarTexels", data.farTexels);
                         cmd.SetComputeBufferParam(data.compute, 0, "FarMips", data.farMips);
                         cmd.SetComputeBufferParam(data.compute, 0, "FarResident", data.farResident);
@@ -871,6 +903,7 @@ public class RaymarchFeature : ScriptableRendererFeature
         ShadowStatsBuffer?.Release();
         ShadowStatsBuffer = null;
         _farDummy?.Release();
+        _lightDummy?.Release(); _lightDummy = null;
         _farDummy = null;
         base.Dispose(disposing);
     }

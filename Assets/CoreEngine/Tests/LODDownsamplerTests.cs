@@ -44,9 +44,37 @@ public class LODConfigTests
         // outer bound (window corner distance, option 1). Pinning these exact
         // numbers in a test means a future accidental edit to LODConfig shows
         // up as a failing test, not a silent drift from the decided values.
+        // (2026-09-25: the pixel-footprint alternative was measured and not
+        // adopted -- LODConfig's comment has the numbers.)
         Assert.AreEqual(64f, LODConfig.TIER_OUTER_RANGE_M[0], 0.01f);
         Assert.AreEqual(128f, LODConfig.TIER_OUTER_RANGE_M[1], 0.01f);
         Assert.AreEqual(290f, LODConfig.TIER_OUTER_RANGE_M[2], 0.01f);
+        Assert.AreEqual(93.53f, LODConfig.PixelInvisibleRangeM(1, 60f, 540), 0.05f);
+        Assert.AreEqual(187.06f, LODConfig.PixelInvisibleRangeM(2, 60f, 540), 0.05f);
+    }
+
+    [Test]
+    public void FrameBoundaries_CoarserVoxelIsAtMostOnePixelWhereItStarts()
+    {
+        var b = new float[LODConfig.TIER_COUNT];
+        foreach (int h in new[] { 270, 315, 360, 540, 720, 1080 })
+        foreach (float fov in new[] { 50f, 60f, 75f })
+        {
+            LODConfig.FrameBoundariesM(fov, h, b);
+            float px = LODConfig.PixelAngleRad(fov, h);
+            for (int t = 0; t < LODConfig.TIER_COUNT - 1; t++)
+            {
+                Assert.LessOrEqual(b[t], LODConfig.OUTERMOST_RANGE_M + 1e-3f);
+                if (b[t] < LODConfig.OUTERMOST_RANGE_M)   // tier t+1 is actually used
+                    Assert.LessOrEqual(LODConfig.TIER_VOXEL_SIZE_M[t + 1] / (b[t] * px), 1.0001f,
+                        $"fov {fov} h {h}: tier {t + 1} voxel is over one pixel where it starts");
+                if (t > 0) Assert.GreaterOrEqual(b[t], b[t - 1]);
+            }
+            Assert.AreEqual(LODConfig.OUTERMOST_RANGE_M, b[LODConfig.TIER_COUNT - 1]);
+        }
+        // Higher resolution pushes the coarse tiers out; at 1080 rows tier 2 is unused.
+        LODConfig.FrameBoundariesM(60f, 1080, b);
+        Assert.AreEqual(LODConfig.OUTERMOST_RANGE_M, b[1], 1e-3f);
     }
 }
 

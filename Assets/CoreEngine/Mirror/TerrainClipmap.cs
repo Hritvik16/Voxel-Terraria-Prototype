@@ -132,6 +132,9 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         public int brickSlots;
         public int bytesUploaded;
         public int dirtyRemaining;
+        /// Evicted chunks whose clear was skipped because a resident chunk
+        /// now owns their toroidal slot (the lost-update fix, 2026-09-25).
+        public int evictClearsSkipped;
 
         // PER-PHASE TIMING. The previous run reported a single upload_ms of
         // 44.9ms median against a 1.0ms budget and gave no way to attribute it.
@@ -419,6 +422,28 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
             // unloaded chunk reads as air on the CPU too (see ChunkStore's
             // GetVoxel note), so the two mirrors agree.
             bool evicted = chunk == null;
+
+            // THE LOST-UPDATE BUG (2026-09-25, -lodpop's validator: 57-94 clean
+            // resident chunks wrong on the GPU, "LOST 83,138"). The dirty set is
+            // uploaded NEAREST-FIRST, and an evicted chunk shares its toroidal
+            // slot with the chunk that replaced it. The replacement (near)
+            // uploaded, then the eviction's clear (far) ran on the SAME slot and
+            // wiped it -- leaving a resident, un-dirty chunk with an empty GPU
+            // slot and an empty air-mip: a chunk-shaped hole, which the coarse
+            // cascade tiers (correct) papered over beyond 64 m. That is the
+            // owner's tier 0 -> 1 "pop" in motion. An evicted chunk may clear
+            // its slot only if no RESIDENT chunk owns that slot now; if one
+            // does, that chunk's own upload is (or was) the slot's content.
+            if (evicted)
+            {
+                int3 owner = _windowOrigin + ((chunkCoord - _windowOrigin) & _chunkMask);
+                if (!owner.Equals(chunkCoord) && store.GetChunk(owner) != null)
+                {
+                    _dirtyChunks.Remove(chunkCoord);
+                    stats.evictClearsSkipped++;
+                    continue;
+                }
+            }
 
             for (int z = 0; z < 16; z++)
             for (int y = 0; y < 16; y++)

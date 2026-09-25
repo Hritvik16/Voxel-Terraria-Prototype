@@ -568,6 +568,11 @@ float3 MaterialAlbedo(uint mat)
     if (mat == 15u) return float3(0.300, 0.480, 0.780);  // TorchBlue   (Stage G)
     if (mat == 16u) return float3(0.330, 0.720, 0.390);  // TorchGreen  (Stage G)
     if (mat == 17u) return float3(0.560, 0.340, 0.760);  // TorchPurple (Stage G)
+    if (mat == 18u) return float3(0.110, 0.085, 0.060);  // Oil (§2.7)
+    if (mat == 19u) return float3(0.520, 0.700, 0.160);  // Acid
+    if (mat == 20u) return float3(0.300, 0.620, 0.180);  // Sludge
+    if (mat == 21u) return float3(0.560, 0.470, 0.320);  // Quicksand
+    if (mat == 22u) return float3(0.700, 0.720, 0.740);  // Steam
     return float3(0.90, 0.10, 0.80);                     // unauthored -> obvious magenta
 }
 
@@ -648,6 +653,11 @@ float3 MaterialAlbedoLook(uint mat)
     if (mat == 15u) return float3(0.400, 0.600, 1.000);  // TorchBlue
     if (mat == 16u) return float3(0.450, 1.000, 0.500);  // TorchGreen
     if (mat == 17u) return float3(0.780, 0.450, 1.000);  // TorchPurple
+    if (mat == 18u) return float3(0.160, 0.120, 0.080);  // Oil (§2.7)
+    if (mat == 19u) return float3(0.620, 0.900, 0.180);  // Acid
+    if (mat == 20u) return float3(0.400, 0.850, 0.220);  // Sludge
+    if (mat == 21u) return float3(0.660, 0.560, 0.380);  // Quicksand
+    if (mat == 22u) return float3(0.850, 0.870, 0.900);  // Steam
     return float3(0.90, 0.10, 0.80);                     // unauthored -> obvious magenta
 }
 
@@ -675,7 +685,7 @@ float3 LookAlbedo(uint mat, int3 voxel)
 // Self-lit materials skip the darkening terms so they stay hot. This is a
 // SHADING CHEAT, not a light source: nothing here illuminates anything else.
 // Real emission is Phase 7 (§6.5).
-bool MaterialIsSelfLit(uint mat) { return mat == 11u; }
+bool MaterialIsSelfLit(uint mat) { return mat == 11u || mat == 20u; }   // Lava, Sludge
 
 // ===========================================================================
 // A.7's `emissive`, MIRRORED -- and why it is mirrored rather than uploaded.
@@ -704,6 +714,7 @@ float MaterialEmissive(uint mat)
     if (mat == 15u) return 1.00;   // TorchBlue   (Stage G)
     if (mat == 16u) return 1.00;   // TorchGreen  (Stage G)
     if (mat == 17u) return 1.00;   // TorchPurple (Stage G)
+    if (mat == 20u) return 0.35;   // Sludge (§2.7)
     return 0.0;
 }
 
@@ -714,6 +725,7 @@ float3 MaterialEmissiveTint(uint mat)
     if (mat == 15u) return float3(0.36, 0.58, 1.00);   // TorchBlue   (Stage G)
     if (mat == 16u) return float3(0.42, 1.00, 0.48);   // TorchGreen  (Stage G)
     if (mat == 17u) return float3(0.78, 0.42, 1.00);   // TorchPurple (Stage G)
+    if (mat == 20u) return float3(0.55, 1.00, 0.30);   // Sludge -- toxic green
     return float3(0.0, 0.0, 0.0);
 }
 
@@ -1605,6 +1617,7 @@ int    _FarEnabled;       // 0 off, 1 far band, 2 far band ONLY (tg2 preview)
 int    _FarShadow;
 float4 _FarOrigin[5];     // .xy ring min corner (texels), unused otherwise
 float4 _FarParams;        // x max top height (voxels), y haze range (voxels), z primary step cap, w shadow step cap
+float  _FarPixelAngle;    // radians per pixel at screen centre; 0 = footprint level selection off (-farfootprint 0)
 int4   _FarScatter;       // x0, z0, w, h  (texel coords of the strip)
 int    _FarScatterLevel;
 int    _FarMipLevel;
@@ -1706,7 +1719,10 @@ struct FarHit
 // skipWindow: ignore columns inside the voxel window's XZ footprint -- the voxel
 // march already owns them (window edges are chunk-aligned, so a texel of any
 // level is wholly in or wholly out).
-FarHit FarMarch(float3 O, float3 D, float tStart, int stepCap, bool skipWindow)
+// fpBase: the camera distance (voxels) of the ray's ORIGIN -- 0 for a primary
+// ray, the hit's distance for a far shadow ray -- so the footprint level
+// follows the camera distance of every sample, as the near cascade's 8.2 rule.
+FarHit FarMarch(float3 O, float3 D, float tStart, int stepCap, bool skipWindow, float fpBase)
 {
     FarHit r;
     r.hit = false; r.t = 0.0; r.normal = int3(0, 1, 0); r.texel = 0u; r.level = 0; r.cell = int2(0, 0); r.steps = 0;
@@ -1728,6 +1744,17 @@ FarHit FarMarch(float3 O, float3 D, float tStart, int stepCap, bool skipWindow)
         float cheb = max(abs(p.x - camV.x), abs(p.z - camV.y));
         [loop] while (L < FAR_LEVELS - 1 && cheb >= (float)(FAR_USE_RADIUS * (8 << L))) L++;
         if (cheb >= (float)(FAR_USE_RADIUS * (8 << L))) break;     // past the outermost ring
+        // PIXEL FOOTPRINT (2026-09-25): never use a level whose texel is smaller
+        // than one pixel at this camera distance. Choosing by horizontal
+        // distance alone drew 0.8 m texels straight below a 1 km camera, where a
+        // pixel spans ~2 m: point-sampled sub-pixel texels, i.e. shimmer. A
+        // coarser ring always contains the finer ring's footprint, so raising L
+        // is always legal. k (mip) is kept; it is capped per level anyway.
+        if (_FarPixelAngle > 0.0)
+        {
+            float fp = (fpBase + t) * _FarPixelAngle;
+            [loop] while (L < FAR_LEVELS - 1 && (float)(8 << L) < fp) L++;
+        }
 
         int tv = 8 << L;
         int cs = tv << k;
@@ -2256,12 +2283,12 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
     {
         float tFar = (_FarEnabled == 2) ? 0.0 : FarStartT(rayStart, rayDir, skipVoxel ? 0.0 : currentDist);
         if (skipVoxel && _FarEnabled == 1) tFar = 0.0;
-        fh = FarMarch(rayStart, rayDir, tFar, (int)_FarParams.z, _FarEnabled == 1);
+        fh = FarMarch(rayStart, rayDir, tFar, (int)_FarParams.z, _FarEnabled == 1, 0.0);
         farHit = fh.hit;
         if (farHit && _SunDir.y > 0.0 && _FarShadow != 0 && _ShadowQualityLevel < 3)
         {
             float3 hp = rayStart + rayDir * fh.t + float3(fh.normal) * 0.05;
-            FarHit fs = FarMarch(hp, FarSafeDir(normalize(_SunDir)), 0.0, (int)_FarParams.w, false);
+            FarHit fs = FarMarch(hp, FarSafeDir(normalize(_SunDir)), 0.0, (int)_FarParams.w, false, fh.t);
             farSunVis = fs.hit ? 0.0 : 1.0;
             farShadowSteps = fs.steps;
         }

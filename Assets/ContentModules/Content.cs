@@ -85,6 +85,19 @@ public static class Materials
     public const byte TorchBlue   = 15;
     public const byte TorchGreen  = 16;
     public const byte TorchPurple = 17;
+
+    // ---- DESIGN_LARGE_WORLD §2.7 fluids (ADDITIVE; nothing above renumbered) ----
+    // Oil floats on water (density layering), Acid dissolves stone and is
+    // consumed, Toxic sludge glows through the aggregate-light path (never per-
+    // voxel lights), Quicksand is the slow viscosity tier, Steam rises.
+    // Absent from ContentVersionHash() for the Lava/Honey precedent: sizeClass
+    // 0/1 generation never places them. TerrainGen (sizeClass 2) will, and its
+    // own content scope is the open item named in the design doc §5.1.
+    public const byte Oil         = 18;
+    public const byte Acid        = 19;
+    public const byte Sludge      = 20;
+    public const byte Quicksand   = 21;
+    public const byte Steam       = 22;
 }
 
 public struct BiomeDefinition

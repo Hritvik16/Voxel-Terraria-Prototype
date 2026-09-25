@@ -45,6 +45,16 @@ namespace TerrainGen
         public const byte MagmaCrust = 74;
         public const byte Bedrock = 75;
 
+        // ---- stamps (§2.5), 2026-09-25, append-only ----
+        public const byte Sinter = 80;          // geyser-basin mineral terraces
+        public const byte CrystalBlue = 81, CrystalAmber = 82, CrystalRose = 83, CrystalGreen = 84; // spires, by biome
+        public const byte Bone = 85;            // colossal fossils
+        public const byte MeteorOre = 86;       // a crater's glowing core
+        public const byte Bark = 87, Leaves = 88;          // the world tree
+        public const byte MushroomStem = 89, MushroomCap = 90;
+        public const byte VolcanicRock = 91;    // the volcano's cone
+        public const byte StandingStone = 92;   // stone rings
+
         public static bool IsFluid(byte m) => m >= Water && m <= Quicksand;
         public static bool IsSolid(byte m) => m >= Grass;
     }

@@ -196,6 +196,12 @@ public class Playground : MonoBehaviour
     private int3 _arenaOrigin, _arenaCentre;
     private int3 _waterSrc, _sandSrc, _lavaSrc;
     private int _waterLeft, _sandLeft, _lavaLeft;
+    // §2.7: ONE extra vent for whichever other mobile material is selected
+    // (oil, acid, sludge, quicksand, steam). Same emit path and budget style.
+    private const int OtherVentBudget = 6000;
+    private int3 _otherSrc;
+    private int _otherLeft;
+    private byte _otherMat;
     private bool _ready;
     private string _status = "locating a basin in the generated terrain...";
 
@@ -221,10 +227,14 @@ public class Playground : MonoBehaviour
     private static readonly byte[] _brushes =
         { Materials.Water, Materials.Sand, Materials.Lava, Materials.Stone,
           Materials.Sandstone, Materials.Snow, Materials.Torch,
-          Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple };
+          Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple,
+          // §2.7's fluids (2026-09-25), APPENDED: every earlier index is
+          // unchanged (Phase6BrushGuard keys off them). Scroll to reach them.
+          Materials.Oil, Materials.Acid, Materials.Sludge, Materials.Quicksand, Materials.Steam };
     private static readonly string[] _brushNames =
         { "water", "sand", "lava", "stone", "sandstone", "snow", "torch",
-          "blue torch", "green torch", "violet torch" };
+          "blue torch", "green torch", "violet torch",
+          "oil", "acid", "toxic sludge", "quicksand", "steam" };
     private int _brush;
 
     /// Remembers k_soft across the hard/soft toggle so the owner's tuned value
@@ -378,7 +388,7 @@ public class Playground : MonoBehaviour
             HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
             HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-looksweep") ||
-            HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer"))
+            HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-fluidroster"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
@@ -390,7 +400,7 @@ public class Playground : MonoBehaviour
         if (HasArg("-p7stress") || HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-phase7demo") || HasArg("-roofskipab") || HasArg("-upscaleab") ||
             HasArg("-lavalight") || HasArg("-looksweep") || HasArg("-farvisual") ||
-            HasArg("-farpreview") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer")) DebugHideUi = true;
+            HasArg("-farpreview") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-fluidroster")) DebugHideUi = true;
 
         RegisterDefaultToys();
         _ready = true;
@@ -410,7 +420,7 @@ public class Playground : MonoBehaviour
         Register(new Toy(KeyCode.Tab, "walk/fly", ToggleMode));
         Register(new Toy(KeyCode.V, "vent here", OpenVentAtTarget));
         Register(new Toy(KeyCode.Alpha0, "stop vents", () =>
-            { _waterLeft = _sandLeft = _lavaLeft = 0; _status = "vents closed"; }));
+            { _waterLeft = _sandLeft = _lavaLeft = _otherLeft = 0; _status = "vents closed"; }));
         Register(new Toy(KeyCode.F, "go to arena", TeleportToArena));
         Register(new Toy(KeyCode.R, "respawn on ground", Respawn));
         Register(new Toy(KeyCode.B, "bomb", DetonateAtTarget));
@@ -686,7 +696,8 @@ public class Playground : MonoBehaviour
         if (m == Materials.Water) { _waterSrc = cell; _waterLeft = _waterBudget; }
         else if (m == Materials.Sand) { _sandSrc = cell; _sandLeft = _sandBudget; }
         else if (m == Materials.Lava) { _lavaSrc = cell; _lavaLeft = _lavaBudget; }
-        else { _status = "vent: hold water, sand or lava (1/2/3)"; return; }
+        else if (MaterialRules.IsMobile(m)) { _otherSrc = cell; _otherLeft = OtherVentBudget; _otherMat = m; }
+        else { _status = "vent: hold a fluid or sand (water, sand, lava, oil, acid, sludge, quicksand, steam)"; return; }
         _status = $"{_brushNames[_brush]} vent open above {_targetVoxel}";
     }
 
@@ -748,6 +759,11 @@ public class Playground : MonoBehaviour
         if (m == Materials.TorchBlue) return "blue torch";
         if (m == Materials.TorchGreen) return "green torch";
         if (m == Materials.TorchPurple) return "violet torch";
+        if (m == Materials.Oil) return "oil";
+        if (m == Materials.Acid) return "acid";
+        if (m == Materials.Sludge) return "toxic sludge";
+        if (m == Materials.Quicksand) return "quicksand";
+        if (m == Materials.Steam) return "steam";
         return $"id {m}";
     }
 
@@ -832,6 +848,7 @@ public class Playground : MonoBehaviour
         Emit(ref _waterLeft, _waterSrc, Materials.Water);
         Emit(ref _sandLeft, _sandSrc, Materials.Sand);
         Emit(ref _lavaLeft, _lavaSrc, Materials.Lava);
+        if (_otherLeft > 0) Emit(ref _otherLeft, _otherSrc, _otherMat);
 
         // §8.5's frame-split drain. One Step per frame is exactly how a real
         // detonation recovers, and it is why a 400K blast does not stall a frame.
@@ -1225,6 +1242,9 @@ public class Playground : MonoBehaviour
 
     internal bool DebugReady => _ready;
     internal int3 DebugArenaCentre => _arenaCentre;
+    /// For PlaygroundCapture only: THE edit path, attached to the GPU fluid sim,
+    /// so a capture's edits wake fluid exactly as the player's do.
+    internal EditService DebugEdits => _edits;
     internal int3 DebugArenaOrigin => _arenaOrigin;
     internal int DebugArenaEdge => _arenaEdge;
     internal string DebugStatus => _status;
