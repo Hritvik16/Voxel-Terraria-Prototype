@@ -376,7 +376,7 @@ public class Playground : MonoBehaviour
         // added to the list. Any future capture mode must be added here too.
         if (HasArg("-playgroundshots") || HasArg("-gputrace") || HasArg("-p7stress") ||
             HasArg("-daysweep") || HasArg("-presetshots") ||
-            HasArg("-sustained"))
+            HasArg("-sustained") || HasArg("-phase7demo"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
@@ -385,7 +385,8 @@ public class Playground : MonoBehaviour
         // Screenshot passes also want the overlays OUT of frame. The Stage D
         // shots are meant to be looked at as pictures of the lighting; a perf
         // panel and a hotbar across them defeats the point.
-        if (HasArg("-p7stress") || HasArg("-daysweep") || HasArg("-presetshots")) DebugHideUi = true;
+        if (HasArg("-p7stress") || HasArg("-daysweep") || HasArg("-presetshots") ||
+            HasArg("-phase7demo")) DebugHideUi = true;
 
         RegisterDefaultToys();
         _ready = true;

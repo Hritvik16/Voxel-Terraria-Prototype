@@ -14,7 +14,7 @@ using System.Text;
 using Unity.Mathematics;
 using UnityEngine;
 
-public class PlaygroundCapture : MonoBehaviour
+public partial class PlaygroundCapture : MonoBehaviour
 {
     [SerializeField] private string _outputRootFolderName = "PlaygroundShots";
     private readonly StringBuilder _log = new StringBuilder();
@@ -1456,6 +1456,7 @@ public class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-daysweep")) { yield return DaySweep(); yield break; }
         if (HasFlag("-presetshots")) { yield return PresetShots(); yield break; }
         if (HasFlag("-sustained")) { yield return Sustained(); yield break; }
+        if (HasFlag("-phase7demo")) { yield return Phase7Demo(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;
         Screen.SetResolution(1920, 1080, false);
 
