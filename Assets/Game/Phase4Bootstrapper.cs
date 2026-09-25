@@ -98,6 +98,7 @@ public class Phase4Bootstrapper : MonoBehaviour
     [SerializeField] private Vector3 _cameraSpawnEuler = new Vector3(10f, 0f, 0f);
 
     private BrickDataPool _pool;
+    private VoxelEngine.Rendering.FarField _far;
     private ChunkHandleAllocator _allocator;
     private ChunkStore _store;
 
@@ -264,6 +265,11 @@ public class Phase4Bootstrapper : MonoBehaviour
         UnityEngine.Debug.Log($"[Phase4Bootstrapper] Initial window fill: {sw.ElapsedMilliseconds}ms, " +
                               $"{_store.ResidentCount} chunks resident, pool {_store.PoolUtilisation:P1}");
 
+        // Far band (DESIGN_LARGE_WORLD §4.2, Step 1 prototype). Opt-in with
+        // -farband 1, so every existing rig and scene is unchanged by default.
+        if (VoxelEngine.Rendering.FarField.RequestedByArgs())
+            _far = new VoxelEngine.Rendering.FarField(Meta, camPos);
+
         StartupMs = total.Elapsed.TotalMilliseconds;
         UnityEngine.Debug.Log($"[Phase4Bootstrapper] Total startup: {StartupMs:F0}ms");
     }
@@ -287,6 +293,11 @@ public class Phase4Bootstrapper : MonoBehaviour
         double streamMs = sw.Elapsed.TotalMilliseconds;
         Coalescer.Update();
         FrameGapProbe.LastStreamerMs = streamMs;
+        if (_far != null)
+        {
+            _far.Update(camPos);
+            _far.UpdateResidency(_store, Clipmap.WindowOriginBricks / EngineConfig.CHUNK_EDGE_BRICKS, Clipmap.WindowDimsChunks);
+        }
         FrameGapProbe.LastCoalescerMs = sw.Elapsed.TotalMilliseconds - streamMs;
     }
 
@@ -303,6 +314,8 @@ public class Phase4Bootstrapper : MonoBehaviour
 
     void OnDestroy()
     {
+        _far?.Dispose();
+        _far = null;
         Streamer?.Dispose();
         Clipmap?.Dispose();
         Cascades?.Dispose();

@@ -30,6 +30,9 @@ public class RaymarchFeature : ScriptableRendererFeature
         // rigs and several report files all key off these integers.
         SunVis = 7,
         ShadowHeat = 8,
+        // Far band (FarField.cs), appended per the rule above.
+        FarBand = 9,
+        FarHeat = 10,
     }
 
     public enum GateResMode { UseInspector, Native, Forced960x540, ForcedCustom }
@@ -206,7 +209,10 @@ public class RaymarchFeature : ScriptableRendererFeature
 
     public static bool CollectShadowStats = false;
     public static GraphicsBuffer ShadowStatsBuffer { get; private set; }
-    private static readonly uint[] _statsZero = new uint[5];
+    // [0..4] shadow counters; [5] far rays, [6] far steps (primary + far shadow), [7] far hits.
+    public const int STATS_LEN = 8;
+    private static readonly uint[] _statsZero = new uint[STATS_LEN];
+    private static GraphicsBuffer _farDummy;
 
     /// Zeroes the counters, so a read measures ONE frame rather than an
     /// unbounded accumulation.
@@ -219,7 +225,7 @@ public class RaymarchFeature : ScriptableRendererFeature
     /// hit / beyondLod1 / traced / reused, for the last frame since a reset.
     public static uint[] ReadShadowStats()
     {
-        var d = new uint[5];
+        var d = new uint[STATS_LEN];
         ShadowStatsBuffer?.GetData(d);
         return d;
     }
@@ -292,6 +298,15 @@ public class RaymarchFeature : ScriptableRendererFeature
             public float lookShadowDarkness, lookHazeDensity;
             public Vector4 lookGrade;
 
+            // ---- far band (FarField.cs) ----
+            public int farEnabled, farShadow;
+            public GraphicsBuffer farTexels, farMips, farStaging, farResident;
+            public Vector4[] farOrigins;
+            public Vector4 farParams;
+            public VoxelEngine.Rendering.FarField.Scatter[] farScatters;
+            public int farMipMask;
+            public int kFarScatter = -1, kFarMip = -1;
+
             public bool useStripped;
             public bool useMemoryProbe;
             public int probeIterations;
@@ -349,7 +364,9 @@ public class RaymarchFeature : ScriptableRendererFeature
             if (DebugBuffer == null)
                 DebugBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, DEBUG_BUFFER_FLOATS, sizeof(float));
             if (ShadowStatsBuffer == null)
-                ShadowStatsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 5, sizeof(uint));
+                ShadowStatsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, STATS_LEN, sizeof(uint));
+            if (_farDummy == null)
+                _farDummy = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, sizeof(uint));
 
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
             UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
@@ -468,6 +485,35 @@ public class RaymarchFeature : ScriptableRendererFeature
                     passData.kHeightRaw = activeCompute.FindKernel("BuildHeightRaw");
                     passData.kHeightDilate = activeCompute.FindKernel("BuildHeightDilate");
                     passData.kHeightLevel = activeCompute.FindKernel("BuildHeightLevel");
+                }
+
+                // Far band. Buffers are bound EVERY frame, on or off (dummies
+                // when off): a declared buffer left unbound is undefined on Metal.
+                var far = VoxelEngine.Rendering.FarField.Active;
+                bool farOn = far != null && far.Ready && VoxelEngine.Rendering.FarField.RenderEnabled && !useStripped && !useMemoryProbe;
+                passData.farEnabled = farOn ? (far.FarOnly ? 2 : 1) : 0;
+                passData.farShadow = farOn && far.ShadowsOn ? 1 : 0;
+                passData.farTexels = farOn ? far.Texels : _farDummy;
+                passData.farMips = farOn ? far.Mips : _farDummy;
+                passData.farStaging = farOn ? far.Staging : _farDummy;
+                passData.farResident = farOn ? far.Resident : _farDummy;
+                passData.farOrigins = new Vector4[VoxelEngine.Rendering.FarField.LEVELS];
+                passData.farScatters = System.Array.Empty<VoxelEngine.Rendering.FarField.Scatter>();
+                passData.farMipMask = 0;
+                if (farOn)
+                {
+                    for (int L = 0; L < VoxelEngine.Rendering.FarField.LEVELS; L++)
+                    {
+                        var o = far.Origin(L);
+                        passData.farOrigins[L] = new Vector4(o.x, o.y, 1f, 0f);
+                    }
+                    passData.farParams = new Vector4(far.MaxHeightVoxels, far.HazeRangeMetres * 10f, far.PrimaryStepCap, far.ShadowStepCap);
+                    passData.farScatters = far.PendingScatters.ToArray();
+                    far.PendingScatters.Clear();
+                    passData.farMipMask = far.PendingMipMask;
+                    far.PendingMipMask = 0;
+                    passData.kFarScatter = activeCompute.FindKernel("FarScatter");
+                    passData.kFarMip = activeCompute.FindKernel("FarMipBuild");
                 }
 
                 Unity.Mathematics.int3 dims = clip.WindowDimsBricks;
@@ -712,6 +758,41 @@ public class RaymarchFeature : ScriptableRendererFeature
                             }
                             cmd.EndSample("VE.Raymarch.HeightMip");
                         }
+
+                        // ---- far band: bindings, then upkeep BEFORE the primary ray ----
+                        cmd.SetComputeIntParam(data.compute, "_FarEnabled", data.farEnabled);
+                        cmd.SetComputeIntParam(data.compute, "_FarShadow", data.farShadow);
+                        cmd.SetComputeVectorArrayParam(data.compute, "_FarOrigin", data.farOrigins);
+                        cmd.SetComputeVectorParam(data.compute, "_FarParams", data.farParams);
+                        cmd.SetComputeBufferParam(data.compute, 0, "FarTexels", data.farTexels);
+                        cmd.SetComputeBufferParam(data.compute, 0, "FarMips", data.farMips);
+                        cmd.SetComputeBufferParam(data.compute, 0, "FarResident", data.farResident);
+                        if (data.farEnabled != 0 && (data.farScatters.Length > 0 || data.farMipMask != 0))
+                        {
+                            cmd.BeginSample("VE.Raymarch.FarUpkeep");
+                            foreach (var sc in data.farScatters)
+                            {
+                                cmd.SetComputeIntParams(data.compute, "_FarScatter", new int[] { sc.x0, sc.z0, sc.w, sc.h });
+                                cmd.SetComputeIntParam(data.compute, "_FarScatterLevel", sc.level);
+                                cmd.SetComputeBufferParam(data.compute, data.kFarScatter, "FarStaging", data.farStaging);
+                                cmd.SetComputeBufferParam(data.compute, data.kFarScatter, "FarTexelsRW", data.farTexels);
+                                cmd.DispatchCompute(data.compute, data.kFarScatter, (sc.w * sc.h + 63) / 64, 1, 1);
+                            }
+                            for (int L = 0; L < VoxelEngine.Rendering.FarField.LEVELS; L++)
+                            {
+                                if ((data.farMipMask & (1 << L)) == 0) continue;
+                                cmd.SetComputeIntParam(data.compute, "_FarMipLevel", L);
+                                cmd.SetComputeBufferParam(data.compute, data.kFarMip, "FarTexelsRW", data.farTexels);
+                                cmd.SetComputeBufferParam(data.compute, data.kFarMip, "FarMipsRW", data.farMips);
+                                for (int k = 1; k <= VoxelEngine.Rendering.FarField.MIP_COUNT; k++)
+                                {
+                                    cmd.SetComputeIntParam(data.compute, "_FarMipK", k);
+                                    int n = VoxelEngine.Rendering.FarField.EDGE >> k;
+                                    cmd.DispatchCompute(data.compute, data.kFarMip, (n + 7) / 8, (n + 7) / 8, 1);
+                                }
+                            }
+                            cmd.EndSample("VE.Raymarch.FarUpkeep");
+                        }
                     }
 
                     if (!data.useMemoryProbe)
@@ -788,6 +869,8 @@ public class RaymarchFeature : ScriptableRendererFeature
         DebugBuffer = null;
         ShadowStatsBuffer?.Release();
         ShadowStatsBuffer = null;
+        _farDummy?.Release();
+        _farDummy = null;
         base.Dispose(disposing);
     }
 }

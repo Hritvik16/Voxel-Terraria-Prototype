@@ -1461,6 +1461,8 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-upscaleab")) { yield return UpscaleAb(); yield break; }
         if (HasFlag("-lavalight")) { yield return LavaLightShots(); yield break; }
         if (HasFlag("-looksweep")) { yield return LookSweep(); yield break; }
+        if (HasFlag("-farvisual")) { yield return FarVisual(); yield break; }
+        if (HasFlag("-farpreview")) { yield return FarPreview(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;
         Screen.SetResolution(1920, 1080, false);
 
@@ -1825,6 +1827,12 @@ public partial class PlaygroundCapture : MonoBehaviour
 
         var cam = Camera.main;
         Vector3 centre = cam != null ? cam.transform.position : Vector3.zero;
+        // FAR BAND arms (DESIGN_LARGE_WORLD §7 item 1): the same orbit, lifted
+        // and tilted. -orbitheight is metres ADDED to the arena pose; -orbitpitch
+        // tilts the view down (degrees). Both default 0 = the historical orbit.
+        float orbitHeight = ArgFloat("-orbitheight", 0f);
+        float orbitPitch = ArgFloat("-orbitpitch", 0f);
+        centre.y += orbitHeight;
 
         float tod = ArgFloat("-tod", -1f);
         if (tod >= 0f) SunCycle.SetHours(tod);
@@ -1867,6 +1875,11 @@ public partial class PlaygroundCapture : MonoBehaviour
           $"look grade {(SunCycle.LookGradeOverride >= 0 ? SunCycle.LookGradeOverride : LightingConfig.Active.lookGrade)} " +
           $"(amount {SunCycle.LookGradeAmountAt(SunCycle.Hours):F2} at this hour)   maxQueuedFrames {QualitySettings.maxQueuedFrames}");
         L($"shadow roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}   look {(RaymarchFeature.LookOverride >= 0 ? RaymarchFeature.LookOverride : LightingConfig.Active.look)}");
+        var farBand = VoxelEngine.Rendering.FarField.Active;
+        L($"FAR BAND {(farBand != null ? "ON" : "OFF")}" +
+          (farBand != null ? $"  far shadows {(farBand.ShadowsOn ? "ON" : "OFF")}  haze {farBand.HazeRangeMetres:F0} m  " +
+                             $"step caps {farBand.PrimaryStepCap}/{farBand.ShadowStepCap}  initial fill {farBand.InitialFillMs:F0} ms" : "") +
+          $"   orbit height +{orbitHeight:F0} m  pitch {orbitPitch:F0} deg");
         L($"DURATION {totalSeconds / 60} min CONTINUOUS -- no cooldown, no pause. This is the");
         L("point: every other probe in this project reports the first 30 s of a cold machine.");
         if (chaosAt >= 0) L($"CHAOS BURST scheduled at t+{chaosAt}s");
@@ -1930,7 +1943,7 @@ public partial class PlaygroundCapture : MonoBehaviour
                     angle += (speed / Mathf.Max(1f, radiusM)) * Time.deltaTime;
                     cam.transform.position = centre + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radiusM;
                     var tangent = new Vector3(-Mathf.Sin(angle), 0f, Mathf.Cos(angle));
-                    cam.transform.rotation = Quaternion.LookRotation(tangent, Vector3.up);
+                    cam.transform.rotation = Quaternion.LookRotation(tangent, Vector3.up) * Quaternion.Euler(orbitPitch, 0f, 0f);
                 }
                 else if (motion == "straight" && speed > 0f)
                 {
@@ -1992,6 +2005,13 @@ public partial class PlaygroundCapture : MonoBehaviour
                 L("");
                 L($"  SHADOW RAYS traced/frame {tracedPf:N0}   steps/frame {stepsPf:N0}   " +
                   $"steps per ray {(tracedPf > 0 ? stepsPf / tracedPf : 0):F1}");
+                if (st.Length >= 8 && farBand != null)
+                {
+                    double farPf = st[5] / (double)statFrames, farStepsPf = st[6] / (double)statFrames, farHitPf = st[7] / (double)statFrames;
+                    L($"  FAR RAYS/frame {farPf:N0}   far hits/frame {farHitPf:N0}   far steps/frame {farStepsPf:N0}   " +
+                      $"steps per far ray {(farPf > 0 ? farStepsPf / farPf : 0):F1}   " +
+                      $"ring: {farBand.StripsApplied} strips, {farBand.FullRefills} refills, {farBand.BytesUploaded / 1048576.0:F1} MB up");
+                }
             }
         }
 
