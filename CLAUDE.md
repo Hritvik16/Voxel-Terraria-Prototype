@@ -129,6 +129,18 @@ current numbers before reasoning about what's slow.
   a tall ring affordable — collapsing them back together was a real
   regression once.
 
+## ONE UNITY PROCESS AT A TIME — the shared build lock (owner rule, 2026-09-24)
+
+This 8 GB Mac must never run two Unity builds, test runs or players at once.
+The sibling session in `../VoxelTerraria_compare` shares the lock
+`/tmp/voxel-unity.lock` and has agreed to honour it. Before ANY batchmode
+build, EditMode run or player launch: `source tools/unity-lock.sh` and call
+`unity_lock_acquire` (waits for the lock and 45 s with no Unity/il2cpp/player,
+takes it, releases on exit). Newer runner scripts already do; older ones
+(`run-editmode-tests.sh`, `run-phase7-rig.sh`, `run-acceptance-rig.sh`, ...)
+do NOT — wrap them. Never put `pgrep -f '<pattern>'` inline in a shell command:
+it matches that shell itself and deadlocks the queue (happened twice).
+
 ## Commands
 
 Run the EditMode suite before and after any change:
