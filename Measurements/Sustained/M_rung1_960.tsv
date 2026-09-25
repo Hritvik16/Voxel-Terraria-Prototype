@@ -1,0 +1,4 @@
+minutes	meanMs	fps	framesOver33	framesInWindow	residentChunks
+0.500	26.878	37.20	238	1117	839
+1.001	28.213	35.44	321	1065	840
+1.503	29.287	34.14	262	1028	835

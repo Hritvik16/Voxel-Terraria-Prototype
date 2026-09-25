@@ -114,13 +114,38 @@ public static class Phase5aSceneBuilder
         if (pgPlayer != null) pgPlayer.objectReferenceValue = pc;
         po.ApplyModifiedPropertiesWithoutUndo();
 
+        // PHASE 7. Without this the Playground would register torches and never
+        // upload them, so §6.6 would look broken for a wiring reason rather than
+        // a lighting one. Hot reload ON here -- unlike the gate scene -- because
+        // §13's solo-dev note makes live tuning the whole point of this scene.
+        var lightGo = new GameObject("LightingDriver");
+        var driver = lightGo.AddComponent<VoxelEngine.Rendering.LightingDriver>();
+        var ldo = new SerializedObject(driver);
+        var lcentre = ldo.FindProperty("_centre");
+        if (lcentre != null) lcentre.objectReferenceValue = camGo.transform;
+        SetBoolIfPresent(ldo, "_runClock", true);
+        SetBoolIfPresent(ldo, "_hotReload", true);
+        ldo.ApplyModifiedPropertiesWithoutUndo();
+
         // Live debug readout. Its own object so the dogfood scene keeps the
         // perf overlay separable from the gameplay toys.
         var hudGo = new GameObject("PlaygroundHud");
         var hud = hudGo.AddComponent<PlaygroundHud>();
         var ho = new SerializedObject(hud);
+        // STAGE I: the DETAILED panel now starts CLOSED. A 292 px wall of
+        // diagnostics across the top-right of a dogfood scene is not what you
+        // want to look at while judging how the lighting FEELS -- but the two
+        // facts you need to interpret what you are seeing (which preset, which
+        // shadow rung) must never be hidden, so they moved to an always-on
+        // single line instead. F1 brings the detail back.
+        //
+        // THIS ASSIGNMENT IS LOAD-BEARING, not redundant with the field's
+        // initialiser: the scene builder's serialized value OVERRIDES it, so
+        // changing only the default in PlaygroundHud.cs would silently do
+        // nothing. That exact trap has already cost this project a debugging
+        // round -- the tell is an identical number across two different builds.
         var visProp = ho.FindProperty("_visible");
-        if (visProp != null) visProp.boolValue = true;
+        if (visProp != null) visProp.boolValue = false;
         ho.ApplyModifiedPropertiesWithoutUndo();
 
         var capGo = new GameObject("PlaygroundCapture");
@@ -140,6 +165,86 @@ public static class Phase5aSceneBuilder
     { var p = so.FindProperty(name); if (p != null) p.intValue = v; }
     private static void SetBoolIfPresent(SerializedObject so, string name, bool v)
     { var p = so.FindProperty(name); if (p != null) p.boolValue = v; }
+
+    // =====================================================================
+    // PHASE 7 -- "Phase7_Cycle" (§13 Phase 7's scene)
+    //
+    // §13 asks for "a cave with a large chamber, a mountain in view, placeable
+    // torches, a time scrubber."
+    //
+    // THE CAVE AND THE MOUNTAIN ARE NOT AUTHORED HERE, and that is deliberate.
+    // Phase 3 already generates both, and Phase7CycleRig carves its chamber at
+    // runtime through the REAL §8.3 EditService path. Hand-authoring geometry
+    // into the scene would test a hand-authored world; carving it through
+    // SetVoxel tests the path the game actually uses, and it means the gates
+    // run against real generated terrain rather than a diorama.
+    //
+    // EVERY VALUE IS SET EXPLICITLY. AddComponent does not reliably pick up C#
+    // field initialisers under -executeMethod, and -- the trap this builder's
+    // own Playground method already carries a comment about -- a builder stamps
+    // its values into the scene on every regeneration, so raising a
+    // [SerializeField] default in the component does NOTHING. Values that
+    // mirror a constant REFERENCE the constant rather than restating it.
+    public const string Phase7CycleScenePath = "Assets/Scenes/Phase 7 Cycle.unity";
+
+    [MenuItem("Voxel Engine/Phase 7/Generate Cycle Scene")]
+    public static void GeneratePhase7Cycle()
+    {
+        var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+        var camGo = new GameObject("Main Camera");
+        camGo.tag = "MainCamera";
+        var cam = camGo.AddComponent<Camera>();
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.62f, 0.70f, 0.78f, 1f);
+        cam.fieldOfView = 60f;
+        cam.nearClipPlane = 0.05f;
+        cam.farClipPlane = 600f;
+        camGo.AddComponent<SimpleFlyCamera>();
+
+        // The real world: Phase 3 generation + Phase 4 streaming. The rig poses
+        // the camera itself for every gate, so the bootstrapper must not.
+        var bootGo = new GameObject("Phase4Bootstrapper");
+        var boot = bootGo.AddComponent<Phase4Bootstrapper>();
+        var bo = new SerializedObject(boot);
+        SetIfPresent(bo, "_loadRadiusChunks", 0);            // 0 = derive the maximum the window allows
+        SetBoolIfPresent(bo, "_fillWindowOnStart", true);
+        SetBoolIfPresent(bo, "_clearDeltasOnStart", true);   // a gate scene starts from pristine generation
+        SetBoolIfPresent(bo, "_overrideCameraOnStart", true);
+        bo.ApplyModifiedPropertiesWithoutUndo();
+
+        // §6.5's live half: the clock, the hot reload, and the §3.9 light
+        // upload. Without this component torches register and never reach the
+        // GPU, and every lighting gate would fail for a wiring reason rather
+        // than a lighting one.
+        var lightGo = new GameObject("LightingDriver");
+        var driver = lightGo.AddComponent<VoxelEngine.Rendering.LightingDriver>();
+        var lo = new SerializedObject(driver);
+        var centre = lo.FindProperty("_centre");
+        if (centre != null) centre.objectReferenceValue = camGo.transform;
+        SetBoolIfPresent(lo, "_runClock", false);   // gates want a fixed pose; the rig scrubs explicitly
+        SetBoolIfPresent(lo, "_hotReload", false);  // a gate run must not pick up a mid-run JSON edit
+        lo.ApplyModifiedPropertiesWithoutUndo();
+
+        var rigGo = new GameObject("Phase7CycleRig");
+        var rig = rigGo.AddComponent<Phase7CycleRig>();
+        var ro = new SerializedObject(rig);
+        var outName = ro.FindProperty("_outputRootFolderName");
+        if (outName != null) outName.stringValue = "Phase7Cycle";
+        ro.ApplyModifiedPropertiesWithoutUndo();
+
+        // §10.4's dump, armed but quiet: it only writes when a shadow ray
+        // exceeds its step threshold, so in a healthy run it produces nothing
+        // and costs one async readback every 30 frames.
+        var dumpGo = new GameObject("ShadowRayDump");
+        dumpGo.AddComponent<VoxelEngine.Diagnostics.ShadowRayDump>();
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Phase7CycleScenePath));
+        bool ok = EditorSceneManager.SaveScene(scene, Phase7CycleScenePath);
+        Debug.Log(ok ? $"[Phase5aSceneBuilder] wrote {Phase7CycleScenePath}"
+                     : $"[Phase5aSceneBuilder] FAILED to write {Phase7CycleScenePath}");
+        if (!ok && Application.isBatchMode) EditorApplication.Exit(1);
+    }
 
     public const string FluidActivityScenePath = "Assets/Scenes/Fluid Activity.unity";
 

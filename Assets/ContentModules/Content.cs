@@ -54,6 +54,37 @@ public static class Materials
     public const byte Lava        = 11;
     public const byte Honey       = 12;
     public const byte Obsidian    = 13;
+
+    // ---- Phase 7 lighting material (ADDITIVE; nothing above renumbered) ----
+    // §6.6: "the 1-byte ID indexes the Material Registry for albedo/emissive;
+    // emissives additionally enqueue into the light system when placed." §13
+    // Phase 7's scene calls for "placeable torches", and a torch in this engine
+    // is not an entity -- it is a terrain byte whose material carries an
+    // emissive strength and a light definition (MaterialRules.LightOf), written
+    // through the one §8.3 SetVoxel path like every other edit (§0.1 inv 1).
+    //
+    // DELIBERATELY ABSENT FROM ContentVersionHash() BELOW, for exactly the
+    // reason Lava/Honey/Obsidian are: world generation never places it, so it
+    // cannot change what GenerateChunk produces, and including it would
+    // invalidate every existing world.meta for a material no generated world
+    // contains. Same precedent, same justification, stated rather than copied.
+    public const byte Torch       = 14;
+
+    // ---- Phase 7 Stage G: COLOURED torches (ADDITIVE; nothing above renumbered) ----
+    // §3.8's light struct has always carried an RGB colour (A.6, 8 floats), but
+    // until now every placeable light in the game was the same warm orange, so
+    // the colour channel was carrying exactly one value and coloured blending
+    // was untested by anything a player could actually do. These three are the
+    // cheapest possible exercise of it: same emissive strength and range as the
+    // torch, different tint, so any difference in behaviour between them is the
+    // colour path and nothing else.
+    //
+    // Absent from ContentVersionHash() for the same reason as Lava/Honey/
+    // Obsidian/Torch: world generation never places them, so they cannot change
+    // what GenerateChunk produces and must not invalidate existing world.meta.
+    public const byte TorchBlue   = 15;
+    public const byte TorchGreen  = 16;
+    public const byte TorchPurple = 17;
 }
 
 public struct BiomeDefinition

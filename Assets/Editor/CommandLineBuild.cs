@@ -54,6 +54,29 @@ public static class CommandLineBuild
         DisableAppNap(PLAYGROUND_OUTPUT_PATH);
     }
 
+    private const string PHASE7_CYCLE_SCENE_PATH = "Assets/Scenes/Phase 7 Cycle.unity";
+    private const string PHASE7_CYCLE_OUTPUT_PATH = "Builds/Phase7Cycle.app";
+
+    /// §13 Phase 7's acceptance scene. Release, not Development, for the reason
+    /// at the top of this file -- and additionally so Debug.isDebugBuild reads
+    /// false in the rig's own report, where it is printed as evidence of which
+    /// build produced the screenshots.
+    public static void BuildPhase7CycleStandalone()
+    {
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { PHASE7_CYCLE_SCENE_PATH },
+            locationPathName = PHASE7_CYCLE_OUTPUT_PATH,
+            target = BuildTarget.StandaloneOSX,
+            options = BuildOptions.None,
+        };
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log($"[CommandLineBuild] phase7 cycle result={report.summary.result} " +
+                  $"errors={report.summary.totalErrors} outputPath={report.summary.outputPath}");
+        if (report.summary.result != BuildResult.Succeeded) EditorApplication.Exit(1);
+        DisableAppNap(PHASE7_CYCLE_OUTPUT_PATH);
+    }
+
     private const string FLUID_ACTIVITY_SCENE_PATH = "Assets/Scenes/Fluid Activity.unity";
     private const string FLUID_ACTIVITY_OUTPUT_PATH = "Builds/FluidActivity.app";
 

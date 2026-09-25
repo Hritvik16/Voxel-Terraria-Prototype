@@ -88,6 +88,8 @@ public class EditService : IEditService
         EditsRejectedNotResident = 0;
         EditsNoOp = 0;
         WakeScansRun = 0;
+        LightsRegistered = 0;
+        LightsUnregistered = 0;
     }
 
     // =====================================================================
@@ -174,12 +176,79 @@ public class EditService : IEditService
             return false;                      // §8.3's two no-op fast paths, observed here too
         }
 
+        byte previous = _world.GetVoxel(worldVoxelCoord);
+
         _writer.SetVoxel(worldVoxelCoord, material);
         _dirty?.MarkDirty(CoordMath.VoxelToChunk(worldVoxelCoord));
         VoxelsWritten++;
 
+        NotifyLightingEdited(worldVoxelCoord, previous, material);
         NotifyEdited(worldVoxelCoord);
         return true;
+    }
+
+    // =====================================================================
+    // §6.6 -- "emissives additionally enqueue into the light system when placed"
+    // =====================================================================
+
+    /// The Phase 7 light registry, or null. OPTIONAL BY DESIGN, exactly the way
+    /// _fluids and _dirty already are: EditMode tests, the Phase 3/4 scenes and
+    /// every pre-Phase-7 rig attach no light buffer and must keep working
+    /// unchanged, so a null here is a no-op and never an error.
+    private VoxelEngine.Rendering.LightSourceBuffer _lights;
+
+    /// Counters, surfaced so "the torch did not light anything" can be told
+    /// apart from "the torch was never registered" without a debugger.
+    public long LightsRegistered { get; private set; }
+    public long LightsUnregistered { get; private set; }
+
+    /// Phase 7 wiring. Additive, the same shape as AttachFluidSimulation.
+    public void AttachLightBuffer(VoxelEngine.Rendering.LightSourceBuffer lights) => _lights = lights;
+
+    public void DetachLightBuffer() => _lights = null;
+
+    public bool HasLightBuffer => _lights != null;
+
+    /// §6.6's enqueue, and its counterpart.
+    ///
+    /// WHY IT LIVES HERE AND NOT IN A SECOND EDIT PATH. §6.6 says emissives
+    /// "enqueue into the light system WHEN PLACED", and §8.3 is the one place a
+    /// voxel is ever placed -- ChunkStore.SetVoxel through this orchestrator.
+    /// Registering lights anywhere else (a Playground key handler, a rig, a
+    /// torch "entity") would mean a torch written by the fluid op-list apply,
+    /// by a batch fill, or by a delta reload would not light anything, because
+    /// those all come through here and through nothing else. One hook at the
+    /// choke point is the only version that cannot be bypassed.
+    ///
+    /// THE REMOVAL HALF IS NOT IN §6.6 AND IS STILL REQUIRED. §6.6 only
+    /// describes placement, but a torch that keeps lighting a room after it has
+    /// been mined out is wrong under any reading, and the light registry is
+    /// keyed by voxel precisely so the inverse is exact rather than heuristic.
+    ///
+    /// ORDER: this runs AFTER the write, beside MarkDirty, and BEFORE the fluid
+    /// wake scan. After the write because the registry mirrors committed terrain
+    /// state, never intent; before the wake scan only because the wake scan is
+    /// the more expensive of the two and there is no ordering dependency between
+    /// them.
+    private void NotifyLightingEdited(int3 worldVoxelCoord, byte previous, byte material)
+    {
+        if (_lights == null) return;
+
+        bool wasLight = MaterialRules.IsEmissiveMaterial(previous);
+        bool isLight = MaterialRules.IsEmissiveMaterial(material);
+
+        if (wasLight && !isLight)
+        {
+            if (_lights.Unregister(worldVoxelCoord)) LightsUnregistered++;
+            return;
+        }
+        if (isLight)
+        {
+            // Register is idempotent, so re-placing the same emissive material
+            // over itself refreshes the record rather than stacking a second
+            // light in the same cell.
+            if (_lights.Register(worldVoxelCoord, material)) LightsRegistered++;
+        }
     }
 
     /// THE HOOK. Call after any terrain edit to re-promote fluid the edit may

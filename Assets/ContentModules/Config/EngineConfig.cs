@@ -280,6 +280,64 @@ public static class EngineConfig
     // is explicitly on loan until then.
     public const float BRICK_POOL_HIGH_WATER_FRACTION = 0.85f;
 
+    // ---- Lighting (§3.8, §6.5, Phase 7) ----
+    // §0.2's table: MAX_ACTIVE_LIGHTS, v1 starting value 32, enforced in §3.8
+    // and §6.5, "raise only if Phase 7 measurement if v1 content wants more
+    // simultaneous lights". Shipped AT the spec value; this phase measured
+    // against it and did not move it.
+    //
+    // WHAT IT IS FOR (§3.8, and the reason it is a hard limit rather than a
+    // guideline): "a naive 'sum all lights in range per pixel' loop is 2M
+    // pixels x N lights -- 64 torches in a cave ~= 133M attenuation
+    // calcs/frame, breaching the GPU budget underground." The cap is the
+    // simplest possible fix and is sufficient because v1 lights are genuinely
+    // sparse. Per-brick clustering (MAX_LIGHTS_PER_BRICK, 8) is explicitly
+    // v1.5 and is NOT built here.
+    //
+    // THE DEGRADATION RULE IS PART OF THE LIMIT, NOT AN EXTRA. §3.8: "placing
+    // more than the cap should degrade gracefully -- FURTHEST-FROM-PLAYER
+    // LIGHTS DROP FIRST -- not silently ignore new torches." That selection
+    // lives in LightSourceBuffer.SelectActive and is pinned by a test whose
+    // mutation check inverts the comparator.
+    //
+    // MEMORY: 32 x 32 B (A.6) = 1,024 B. §11.3 budgets ~1 MB for this row, so
+    // the cap is three orders of magnitude inside its own budget line -- which
+    // is worth stating because it means memory is NOT the reason for the cap
+    // and nobody should re-derive it as if it were. The cost is per-pixel ALU.
+    public const int MAX_ACTIVE_LIGHTS = 32;
+
+    // §6.5's fallback ladder, as ONE number so switching rungs is a number
+    // change and not a code change (§0.1 invariant 8). §6.5 defines the rungs
+    // and states plainly that stepping down one is the spec's own designed
+    // outcome -- "the feature ships if the gate passes; the game ships
+    // regardless because the fallback rungs exist."
+    //
+    //   0  full        soft penumbra everywhere (C.10)
+    //   1  half-res    shadow rays beyond LOD1 at half resolution with
+    //                  neighbour reuse; near-player shadows untouched, sharp
+    //   2  hard        binary occlusion only, no penumbra tracking
+    //   3  off         no shadow rays; sun becomes flat N.L plus ambient
+    //
+    // All four are compiled into Raymarch.compute behind this one value, so a
+    // single binary can be measured at every rung in one session -- which is
+    // what AMENDMENT_8_12_PHASE7_GATE.md's counterbalanced arms require, and
+    // what FPS_INVESTIGATION_RESULTS.md §3.2 shows a CROSS-session comparison
+    // cannot deliver (the untouched arm drifted 27.15 -> 24.5 FPS on a code
+    // path the change could not touch).
+    //
+    // DEFAULT: 0. The default is deliberately the FULL feature, not a
+    // pre-emptive downgrade -- §6.5 says "measurement decides, not intuition",
+    // and shipping a rung before the measurement exists would be intuition.
+    // The shipping rung is a visual-quality judgement and is the owner's; see
+    // PHASE_7_COMPLETION.md's FLAG list.
+    public const int SHADOW_QUALITY_LEVEL = 0;
+
+    /// Named rungs, so no caller writes a bare integer.
+    public const int SHADOW_LEVEL_FULL_PENUMBRA = 0;
+    public const int SHADOW_LEVEL_HALFRES_DISTANT = 1;
+    public const int SHADOW_LEVEL_HARD_ONLY = 2;
+    public const int SHADOW_LEVEL_OFF = 3;
+
     // ---- Fluid simulation (§7, Phase 5a) ----
     // §0.2 lists MAX_ACTIVE_FLUID at "~500,000 near-player (pool hard cap
     // higher)". It was carried at 500,000 from Phase 5a until 2026-09-11 as a

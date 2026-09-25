@@ -162,3 +162,9 @@ Assets/Resources/BuildStamp.txt.meta
 /Assets/Resources/PerformanceTestRunInfo.json.meta
 /Assets/Resources/PerformanceTestRunSettings.json
 /Assets/Resources/PerformanceTestRunSettings.json.meta
+
+# Housekeeping added 2026-09-17. These are all REGENERATED artifacts and were
+# collectively 18 GB on the dev machine -- see CLEANUP below.
+/gpu-traces/
+/Logs/
+/*.log

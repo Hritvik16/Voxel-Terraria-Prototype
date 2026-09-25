@@ -74,6 +74,17 @@ public static class MaterialRules
         // hierarchy (down + down-diagonals only), not from ticking slowly.
         Define(Materials.Sand, IsFallingSolid, 1);
 
+        // §6.6's placeable emissive. A static solid -- NOT mobile, so it gets
+        // no fluid slot and never runs the CA -- carrying Appendix B's bit 4.
+        // Tick interval 0 for the same reason Obsidian's is 0: it never ticks.
+        Define(Materials.Torch, IsEmissive, 0);
+        // Stage G's coloured torches: identical flags and hardness to the warm
+        // torch by design. They differ ONLY in tint, so a measurement that
+        // separates them is measuring colour and not some other property.
+        Define(Materials.TorchBlue,   IsEmissive, 0);
+        Define(Materials.TorchGreen,  IsEmissive, 0);
+        Define(Materials.TorchPurple, IsEmissive, 0);
+
         // Obsidian is the Water+Lava product: an ordinary static solid, and
         // specifically NOT mobile -- that is what makes a reaction show up in
         // the conservation ledger as a permanent removal rather than a loss.
@@ -156,6 +167,131 @@ public static class MaterialRules
         v[Materials.Lava] = 12.0f;
         v[Materials.Honey] = 30.0f;                      // §7.4 already makes honey the slow one
         return v;
+    }
+
+    // =====================================================================
+    // §6.6 / A.7 -- EMISSIVE, AND THE LIGHT A MATERIAL DEFINES
+    //
+    // THE SAME GAP PHASE_6_COMPLETION.md §2.3 FOUND, ONE FIELD OVER. That note
+    // records that A.7's `density` and `viscosityDrag` were declared by the
+    // struct and never populated by anything -- "the struct existed; the
+    // numbers did not" -- and adds the two tables above. `emissive` is the
+    // third field of that kind and it was in exactly the same state: declared
+    // in StructHeaders.cs and StructHeaders.hlsl, referenced by nothing,
+    // no value ever written. §6.6 and C.9 both depend on it.
+    //
+    // STATED PRECISELY, BECAUSE "THE REGISTRY IS UNPOPULATED" UNDERSTATES IT:
+    // there is no GraphicsBuffer<MaterialData> anywhere in this project at all.
+    // FluidGpuSimulation.UploadMaterialRegistry() uploads four separate flat
+    // uint arrays -- deliberately, per its own comment, "restricted to what the
+    // CA reads" -- not the A.7 struct. So this table is the A.7 emissive data
+    // existing for the first time, and the shader reads it the way the shader
+    // already reads the palette: mirrored, with a parse-the-shader sync test.
+    // MaterialPalette's own header explains why that route was chosen over
+    // wiring a registry buffer through RaymarchFeature's render-graph pass, and
+    // PaletteSyncTests is the guard. Building the real A.7 buffer is carried
+    // forward, not done here: it is a §3.9 sync-contract addition that wants
+    // its own checkpoint, and Phase 7 already has one new untrusted thing
+    // (§0.1 invariant 5).
+    //
+    // VALUES ARE CONTENT, NOT ARCHITECTURE -- the same disclaimer the density
+    // table carries, and it means it. Strengths and tints below are placeholders
+    // awaiting the owner's eye, tunable live through LightingConfig.json's
+    // global multipliers without touching this file.
+    // =====================================================================
+
+    private static readonly float[] _emissive = BuildEmissive();
+    private static readonly float[] _emissiveTint = BuildEmissiveTints();   // 3 floats per material
+    private static readonly float[] _lightRangeScale = BuildLightRangeScales();
+
+    private static float[] BuildEmissive()
+    {
+        var e = new float[256];                          // 0 = not emissive
+        // A torch is the §13 Phase 7 scene's placeable light. Full strength.
+        e[Materials.Torch] = 1.0f;
+        // Lava already carries the IsEmissive flag (set in the static ctor
+        // above, Appendix B bit 4) and already reads hot through the shader's
+        // self-lit shading cheat. Giving it a real emissive value is what turns
+        // that cheat into an actual light source per §6.6 -- but at a lower
+        // strength than a torch, because a lava lake is large and 1.0 across
+        // hundreds of voxels would wash out a cave that §6.5 requires be dark.
+        e[Materials.Lava] = 0.55f;
+        // Stage G: same strength as the warm torch. A dimmer coloured torch
+        // would confound "does the colour read" with "is it bright enough".
+        e[Materials.TorchBlue]   = 1.0f;
+        e[Materials.TorchGreen]  = 1.0f;
+        e[Materials.TorchPurple] = 1.0f;
+        return e;
+    }
+
+    private static float[] BuildEmissiveTints()
+    {
+        var t = new float[256 * 3];
+        for (int i = 0; i < 256; i++) { t[i * 3] = 1f; t[i * 3 + 1] = 1f; t[i * 3 + 2] = 1f; }
+        // Warm candle-flame, not white: a neutral torch reads as a flashlight.
+        Tint(t, Materials.Torch, 1.00f, 0.72f, 0.38f);
+        // Hotter and redder than the torch, matching the palette's deep hot red.
+        Tint(t, Materials.Lava,  1.00f, 0.42f, 0.14f);
+        // Stage G. Each keeps ONE channel near 1 and lifts the others off zero:
+        // a fully saturated primary (0,0,1) lights a grey wall to pure blue and
+        // loses all surface detail, because albedo * light zeroes two channels.
+        // These read as coloured without flattening what they fall on.
+        Tint(t, Materials.TorchBlue,   0.36f, 0.58f, 1.00f);   // cool arcane blue
+        Tint(t, Materials.TorchGreen,  0.42f, 1.00f, 0.48f);   // green flame
+        Tint(t, Materials.TorchPurple, 0.78f, 0.42f, 1.00f);   // violet
+        return t;
+    }
+
+    private static void Tint(float[] t, byte m, float r, float g, float b)
+    { t[m * 3] = r; t[m * 3 + 1] = g; t[m * 3 + 2] = b; }
+
+    private static float[] BuildLightRangeScales()
+    {
+        var s = new float[256];
+        for (int i = 0; i < 256; i++) s[i] = 1f;
+        // Per-material multiplier on LightingConfig's base light range, so the
+        // one tunable number in the JSON still moves every light together while
+        // materials keep their relative reach.
+        s[Materials.Torch] = 1.0f;
+        s[Materials.Lava]  = 0.6f;
+        s[Materials.TorchBlue]   = 1.0f;
+        s[Materials.TorchGreen]  = 1.0f;
+        s[Materials.TorchPurple] = 1.0f;
+        return s;
+    }
+
+    /// A.7's `emissive` field: how strongly this material emits, 0..1.
+    /// 0 for everything that is not an emissive material.
+    public static float Emissive(byte material) => _emissive[material];
+
+    /// True if this material is a LIGHT SOURCE -- i.e. §6.6's "emissives
+    /// additionally enqueue into the light system when placed" applies to it.
+    ///
+    /// Deliberately derived from the emissive STRENGTH being non-zero AND the
+    /// Appendix B flag being set, so a material cannot become a light by
+    /// accident of one table being edited without the other. A mismatch is a
+    /// test failure (MaterialEmissiveTests), not a silent behaviour change.
+    public static bool IsEmissiveMaterial(byte material) =>
+        (_flags[material] & IsEmissive) != 0u && _emissive[material] > 0f;
+
+    /// The light a material defines, for §3.8's buffer. Colour is the material's
+    /// tint scaled by its emissive strength; `rangeScale` multiplies
+    /// LightingConfig's base range. Returns false for anything that is not a
+    /// light, so a caller cannot enqueue a dark voxel.
+    public static bool TryGetLight(byte material, out float r, out float g, out float b,
+                                   out float rangeScale)
+    {
+        if (!IsEmissiveMaterial(material))
+        {
+            r = g = b = 0f; rangeScale = 0f;
+            return false;
+        }
+        float e = _emissive[material];
+        r = _emissiveTint[material * 3] * e;
+        g = _emissiveTint[material * 3 + 1] * e;
+        b = _emissiveTint[material * 3 + 2] * e;
+        rangeScale = _lightRangeScale[material];
+        return true;
     }
 
     /// Density in kg/m^3. Appendix C.6's rho.
@@ -300,6 +436,22 @@ public static class MaterialPalette
         // read as the same substance.
         _table[Materials.Honey] = new Rgb(0.680f, 0.480f, 0.130f);
 
+        // ---- Light source (Phase 7) ----
+        // Authored MID-BRIGHT, not near-white. The shading step adds the
+        // emissive term on top (C.9), so a torch authored at 0.9 would clip the
+        // moment its own light landed on it -- the same mistake Snow made at
+        // 0.86 and was lowered for. Warm and slightly orange so an unlit torch
+        // still reads as a torch.
+        _table[Materials.Torch] = new Rgb(0.760f, 0.545f, 0.285f);
+        // Stage G's coloured torches. The ALBEDO is the unlit body of the torch
+        // -- what you see when it is off screen-edge or occluded -- and it is
+        // deliberately a MUTED version of the light it casts, not the same
+        // colour: a torch whose body is as saturated as its flame reads as a
+        // glowing cube rather than as a lit object.
+        _table[Materials.TorchBlue]   = new Rgb(0.300f, 0.480f, 0.780f);
+        _table[Materials.TorchGreen]  = new Rgb(0.330f, 0.720f, 0.390f);
+        _table[Materials.TorchPurple] = new Rgb(0.560f, 0.340f, 0.760f);
+
         // ---- Reaction product ----
         // Obsidian: near-black with a violet bias, and the darkest thing in the
         // palette. It should read as dense and glassy against both the lava it
@@ -308,6 +460,50 @@ public static class MaterialPalette
     }
 
     public static Rgb Of(byte material) => _table[material];
+
+    // ---------------------------------------------------------------------
+    // THE LOOK-1 PALETTE (LightingConfig.look = 1, the Brickmap look).
+    //
+    // Taken verbatim from VoxelTerraria_Brickmap's NewMaterialPalette.asset,
+    // through that repo's own PaletteMap (main material -> Brickmap slot). These
+    // are DISPLAY-space values -- that engine renders in Gamma -- and the shader
+    // treats them as such. Deliberately more saturated than `_table` above: the
+    // "natural and muted" direction above was authored for a linear pipeline
+    // that brightens and desaturates everything on output, and the owner's
+    // recorded preference is the Brickmap's look.
+    //
+    // Mirrored in Raymarch.compute's MaterialAlbedoLook(); PaletteSyncTests
+    // pins the two together exactly as it does for MaterialAlbedo.
+    // Deepstone and MossyStone follow PaletteMap (stone and sandstone/mud); the
+    // Brickmap has no honey, so honey keeps its muted amber.
+    // ---------------------------------------------------------------------
+    private static readonly Rgb[] _lookTable = BuildLookTable();
+
+    private static Rgb[] BuildLookTable()
+    {
+        var t = new Rgb[256];
+        for (int i = 0; i < 256; i++) t[i] = Missing;
+        t[Materials.Air]         = new Rgb(0.00f, 0.00f, 0.00f);
+        t[Materials.Stone]       = new Rgb(0.48f, 0.48f, 0.50f);
+        t[Materials.Grass]       = new Rgb(0.33f, 0.55f, 0.24f);
+        t[Materials.Sand]        = new Rgb(0.83f, 0.74f, 0.51f);
+        t[Materials.MossyStone]  = new Rgb(0.72f, 0.60f, 0.42f);
+        t[Materials.Water]       = new Rgb(0.12f, 0.34f, 0.62f);
+        t[Materials.Snow]        = new Rgb(0.93f, 0.95f, 0.97f);
+        t[Materials.Sandstone]   = new Rgb(0.72f, 0.60f, 0.42f);
+        t[Materials.JungleGrass] = new Rgb(0.20f, 0.46f, 0.18f);
+        t[Materials.Deepstone]   = new Rgb(0.48f, 0.48f, 0.50f);
+        t[Materials.Lava]        = new Rgb(0.95f, 0.35f, 0.08f);
+        t[Materials.Honey]       = new Rgb(0.68f, 0.48f, 0.13f);
+        t[Materials.Obsidian]    = new Rgb(0.09f, 0.07f, 0.12f);
+        t[Materials.Torch]       = new Rgb(1.00f, 0.70f, 0.35f);
+        t[Materials.TorchBlue]   = new Rgb(0.40f, 0.60f, 1.00f);
+        t[Materials.TorchGreen]  = new Rgb(0.45f, 1.00f, 0.50f);
+        t[Materials.TorchPurple] = new Rgb(0.78f, 0.45f, 1.00f);
+        return t;
+    }
+
+    public static Rgb OfLook(byte material) => _lookTable[material];
 
     /// True for materials the shader should treat as self-lit -- they skip the
     /// ambient-occlusion and hemisphere darkening so they stay hot.

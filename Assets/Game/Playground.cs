@@ -214,12 +214,22 @@ public class Playground : MonoBehaviour
     // constants are 0/1/2/3) and asserts on what each places. Appending is
     // safe; reordering silently changes what that rig tests.
     // =====================================================================
+    // TORCH IS APPENDED, NEVER INSERTED. The comment above this array says
+    // reordering silently changes what Phase6BrushGuard tests, and that is still
+    // true -- so Phase 7's brush goes on the end, where every existing index is
+    // unchanged and slot 7 is simply new.
     private static readonly byte[] _brushes =
         { Materials.Water, Materials.Sand, Materials.Lava, Materials.Stone,
-          Materials.Sandstone, Materials.Snow };
+          Materials.Sandstone, Materials.Snow, Materials.Torch,
+          Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple };
     private static readonly string[] _brushNames =
-        { "water", "sand", "lava", "stone", "sandstone", "snow" };
+        { "water", "sand", "lava", "stone", "sandstone", "snow", "torch",
+          "blue torch", "green torch", "violet torch" };
     private int _brush;
+
+    /// Remembers k_soft across the hard/soft toggle so the owner's tuned value
+    /// survives an A/B without a file round-trip.
+    private float _savedKSoft = 0.03f;
 
     // ---- Movement mode ----
     private enum MoveMode { Walk, Fly }
@@ -315,6 +325,15 @@ public class Playground : MonoBehaviour
         _edits.AttachWorld(_store, _store, _store, _clipmap);
         _edits.AttachFluidSimulation(_fluid, _store);
 
+        // §6.6's enqueue, on the SAME EditService every other edit in this scene
+        // already goes through. A torch is a terrain byte, so placing one is an
+        // ordinary edit that happens to have a lighting consequence -- it is not
+        // a second system with its own placement path (§0.1 invariant 1).
+        var lighting = FindAnyObjectByType<VoxelEngine.Rendering.LightingDriver>();
+        if (lighting != null) lighting.Attach(_edits);
+        else Debug.LogWarning("[Playground] no LightingDriver in the scene -- torches will be " +
+                              "placed as terrain but will not light anything. Regenerate the scene.");
+
         _ccd = new SweptCCD(_store, _store);
         _projectiles = new ProjectileTrace(_store, _store);
         _demolition = new DestructionReducer(_edits, _store);
@@ -344,11 +363,32 @@ public class Playground : MonoBehaviour
         // frame from the motor, and the two fight -- the symptom is screenshots
         // taken from wherever the player happened to be standing. Fly mode
         // leaves the transform alone, which is what those passes expect.
-        if (HasArg("-playgroundshots") || HasArg("-gputrace"))
+        // A CAPTURE PASS OWNS THE CAMERA, SO THE PLAYER MUST NOT. -p7stress
+        // ADDED 2026-09-13, after its first run produced ten unusable frames.
+        //
+        // This block's own comment already explained the failure exactly -- "in
+        // walk mode DebugStep rewrites the camera every frame from the motor,
+        // and the two fight; the symptom is screenshots taken from wherever the
+        // player happened to be standing" -- and that is precisely what
+        // happened: Stage D positioned the camera inside a cave and every shot
+        // came back from the surface, with the F2 help panel open across the
+        // middle of frame. The trap was documented; the new flag simply was not
+        // added to the list. Any future capture mode must be added here too.
+        if (HasArg("-playgroundshots") || HasArg("-gputrace") || HasArg("-p7stress") ||
+            HasArg("-daysweep") || HasArg("-presetshots") ||
+            HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
+            HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-looksweep"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
         }
+
+        // Screenshot passes also want the overlays OUT of frame. The Stage D
+        // shots are meant to be looked at as pictures of the lighting; a perf
+        // panel and a hotbar across them defeats the point.
+        if (HasArg("-p7stress") || HasArg("-daysweep") || HasArg("-presetshots") ||
+            HasArg("-phase7demo") || HasArg("-roofskipab") || HasArg("-upscaleab") ||
+            HasArg("-lavalight") || HasArg("-looksweep")) DebugHideUi = true;
 
         RegisterDefaultToys();
         _ready = true;
@@ -377,6 +417,89 @@ public class Playground : MonoBehaviour
         Register(new Toy(KeyCode.Z, "tool -", () => CycleTier(-1)));
         Register(new Toy(KeyCode.X, "tool +", () => CycleTier(+1)));
         Register(new Toy(KeyCode.F2, "help", () => _showHelp = !_showHelp));
+
+        // ================= PHASE 7 (§13, §6.5, §10.3) =================
+        // THE THREE POSES THE OWNER HAS TO JUDGE IN MINUTES GET THEIR OWN KEYS.
+        // §13's solo-dev note says the real work here is tuning by eye in real
+        // time, and a tuning loop that starts with "scrub until it looks like
+        // evening" wastes the minutes it is meant to save. Golden hour is
+        // DERIVED from the sun's own arc (SunCycle.GoldenHourHours), never
+        // typed, so it stays golden hour if the arc tilt is retuned.
+        Register(new Toy(KeyCode.N, "golden hour", () =>
+            { SunCycle.SetHours(SunCycle.GoldenHourHours); _status = SunStatus("GOLDEN HOUR"); }));
+        Register(new Toy(KeyCode.M, "noon", () =>
+            { SunCycle.SetHours(SunCycle.NoonHours); _status = SunStatus("NOON"); }));
+        Register(new Toy(KeyCode.L, "midnight", () =>
+            { SunCycle.SetHours(SunCycle.MidnightHours); _status = SunStatus("MIDNIGHT"); }));
+        Register(new Toy(KeyCode.P, "pause/run the clock", () =>
+        {
+            VoxelEngine.Rendering.LightingDriver.ClockPaused =
+                !VoxelEngine.Rendering.LightingDriver.ClockPaused;
+            _status = VoxelEngine.Rendering.LightingDriver.ClockPaused
+                ? $"clock PAUSED at {SunCycle.ClockString()} — , and . still scrub"
+                : $"clock RUNNING — a full day takes {LightingConfig.Active.dayLengthSeconds:F0} s";
+        }));
+        Register(new Toy(KeyCode.J, "shadow quality 0-3", () =>
+        {
+            RaymarchFeature.ShadowQualityLevel = (RaymarchFeature.ShadowQualityLevel + 1) % 4;
+            _status = "shadows: " + ShadowRungName(RaymarchFeature.ShadowQualityLevel) +
+                      "   (§6.5's fallback rungs — stepping down one is the spec's own designed outcome)";
+        }));
+        Register(new Toy(KeyCode.K, "hard <-> soft shadows", () =>
+        {
+            // §6.5: "hard shadows remain a toggle." Flips k_soft between 0 and
+            // the config's value WITHOUT writing the file, so the owner can A/B
+            // it instantly and still have their tuned number to come back to.
+            if (LightingConfig.Active.kSoft > 0f)
+            {
+                _savedKSoft = LightingConfig.Active.kSoft;
+                LightingConfig.Active.kSoft = 0f;
+                _status = "HARD shadows (k_soft = 0). Press K again to restore " +
+                          $"k_soft = {_savedKSoft:F3} from LightingConfig.json.";
+            }
+            else
+            {
+                LightingConfig.Active.kSoft = _savedKSoft > 0f ? _savedKSoft : 0.03f;
+                _status = $"SOFT shadows (C.10, k_soft = {LightingConfig.Active.kSoft:F3})";
+            }
+        }));
+        // LightingConfig.look A/B without touching the file: flips between the
+        // Brickmap look (1) and C.9 as specified (0), like K does for k_soft.
+        Register(new Toy(KeyCode.U, "look: Brickmap <-> Phase 7", () =>
+        {
+            int cur = RaymarchFeature.LookOverride >= 0 ? RaymarchFeature.LookOverride
+                                                        : LightingConfig.Active.look;
+            RaymarchFeature.LookOverride = cur == 1 ? 0 : 1;
+            _status = RaymarchFeature.LookOverride == 1
+                ? "LOOK: Brickmap (display-space shading, sky gradient, haze) — U to compare"
+                : "LOOK: Phase 7 / C.9 as specified (linear + ACES) — U to compare";
+        }));
+        // STAGE C's preset switch. Goes through the FILE (see
+        // LightingPresets.Apply), so the chosen preset ends up sitting in the
+        // very file the owner was told to edit -- tweaking from there needs no
+        // extra step, and a preset that switches correctly is itself evidence
+        // the §8.1 hot-reload path works.
+        Register(new Toy(KeyCode.RightBracket, "next light preset", () => CyclePreset(+1)));
+        Register(new Toy(KeyCode.LeftBracket, "prev light preset", () => CyclePreset(-1)));
+
+        Register(new Toy(KeyCode.Y, "lighting view", () =>
+        {
+            // Beauty -> SunVis -> ShadowHeat -> Beauty. §10.3 item 6's two views,
+            // reachable without cycling all nine.
+            var cur = RaymarchFeature.UseDebugViewOverride
+                ? RaymarchFeature.DebugViewOverride : RaymarchFeature.DebugMode.Beauty;
+            if (cur == RaymarchFeature.DebugMode.SunVis)
+            { RaymarchFeature.DebugViewOverride = RaymarchFeature.DebugMode.ShadowHeat;
+              RaymarchFeature.UseDebugViewOverride = true;
+              _status = "view: SHADOW-RAY STEP HEAT (blue cheap, red expensive — same ramp as the primary heat view)"; }
+            else if (cur == RaymarchFeature.DebugMode.ShadowHeat)
+            { RaymarchFeature.UseDebugViewOverride = false;
+              _status = "view: BEAUTY"; }
+            else
+            { RaymarchFeature.DebugViewOverride = RaymarchFeature.DebugMode.SunVis;
+              RaymarchFeature.UseDebugViewOverride = true;
+              _status = "view: SUN VISIBILITY (white lit, black shadowed, dark blue sky, violet night)"; }
+        }));
     }
 
     // =====================================================================
@@ -597,6 +720,10 @@ public class Playground : MonoBehaviour
         if (m == Materials.Lava) return "lava";
         if (m == Materials.Honey) return "honey";
         if (m == Materials.Obsidian) return "obsidian";
+        if (m == Materials.Torch) return "torch";
+        if (m == Materials.TorchBlue) return "blue torch";
+        if (m == Materials.TorchGreen) return "green torch";
+        if (m == Materials.TorchPurple) return "violet torch";
         return $"id {m}";
     }
 
@@ -670,6 +797,7 @@ public class Playground : MonoBehaviour
 
         UpdateTarget();
         foreach (var t in _toys) if (Input.GetKeyDown(t.Key)) t.Run();
+        HandleTimeScrub(dt);
         HandleHotbarKeys();
         HandleMouse(dt);
         DriveWalk(dt);
@@ -735,6 +863,33 @@ public class Playground : MonoBehaviour
 
     internal static bool DebugSuspendFluidSim = false;
 
+    /// Fluid CA ticks issued so far (one per GPU readback round-trip -- see
+    /// FluidOpListReadback.MaxFramesInFlight). Read by -sustained to report
+    /// ticks/second, i.e. how fluid speed tracks frame rate. -1 before setup.
+    internal long DebugFluidTicks => _readback != null ? _readback.RequestsIssuedTotal : -1;
+
+    /// Decision 11's diagnosis: the readback whose counters split a tick's period.
+    internal FluidOpListReadback DebugReadback => _readback;
+
+    /// MEASUREMENT SEAM, NOT A CONFIGURATION -- the same standing this file's
+    /// own header gives DebugSuspendFluidSim.
+    ///
+    /// LightSourceBuffer.Upload() runs unconditionally every frame: it copies
+    /// the registry to scratch, sorts it by distance, rebuilds the staging array
+    /// and calls GraphicsBuffer.SetData -- even with ZERO lights placed and the
+    /// player standing still. That was a deliberate choice (the ACTIVE SET
+    /// depends on player position, so it changes when the player moves even
+    /// though no light did) and it is documented as such in that file. But
+    /// "deliberate" is not "measured", and a per-frame driver call is exactly
+    /// the shape of thing that shows up as variance rather than as mean cost.
+    /// This flag lets Stage A ask the question instead of arguing it.
+    internal static bool DebugSuspendLightUpload = false;
+
+    /// Suppresses every in-scene overlay (help, perf, hotbar, state panels) so a
+    /// capture pass produces a clean picture of the world rather than a picture
+    /// of the UI. Set by -p7stress.
+    internal static bool DebugHideUi = false;
+
     /// Where §7.4's radius is centred: the player's feet when walking, the
     /// camera when flying.
     private int3 PlayerOrCameraVoxel()
@@ -746,6 +901,58 @@ public class Playground : MonoBehaviour
         return CoordMath.WorldToVoxel(new float3(cam.transform.position.x,
                                                  cam.transform.position.y,
                                                  cam.transform.position.z));
+    }
+
+    /// §13's time scrubber. HELD, not tapped: §13's acceptance bullet is "scrub
+    /// dawn->dusk and watch the mountain shadow sweep CONTINUOUSLY", which is
+    /// not a thing you can judge one keypress at a time.
+    ///
+    /// Scrubbing PAUSES the clock automatically. Without that, letting go of the
+    /// key hands the time back to whatever the day-length multiplier was doing
+    /// and the pose you just found drifts out from under you.
+    private void HandleTimeScrub(float dt)
+    {
+        const float hoursPerSecond = 3f;
+        bool back = Input.GetKey(KeyCode.Comma);
+        bool fwd = Input.GetKey(KeyCode.Period);
+        if (!back && !fwd) return;
+
+        VoxelEngine.Rendering.LightingDriver.ClockPaused = true;
+        SunCycle.SetHours(SunCycle.Hours + (fwd ? 1f : -1f) * hoursPerSecond * dt);
+        _status = SunStatus("scrubbing");
+    }
+
+    /// Which preset is showing. -1 until one is chosen, because at startup the
+    /// live config is whatever LightingConfig.json holds, which may be a
+    /// hand-edit rather than any preset -- claiming a name for it would be a lie.
+    private int _presetIndex = -1;
+    internal string CurrentPresetName =>
+        _presetIndex < 0 ? "custom (LightingConfig.json as found)"
+                         : VoxelEngine.Rendering.LightingPresets.All[_presetIndex].Name;
+
+    private void CyclePreset(int delta)
+    {
+        int n = VoxelEngine.Rendering.LightingPresets.All.Length;
+        _presetIndex = _presetIndex < 0
+            ? (delta > 0 ? 0 : n - 1)
+            : (int)Mathf.Repeat(_presetIndex + delta, n);
+        string what = VoxelEngine.Rendering.LightingPresets.Apply(_presetIndex);
+        _status = $"LIGHT PRESET {_presetIndex + 1}/{n}: {what}";
+    }
+
+    private static string SunStatus(string label) =>
+        $"{label} — {SunCycle.ClockString()}, sun {SunCycle.ElevationDegrees:F1}° ({SunCycle.PhaseName})";
+
+    internal static string ShadowRungName(int level)
+    {
+        switch (level)
+        {
+            case 0: return "0 FULL (soft penumbra, C.10)";
+            case 1: return "1 HALF-RES beyond LOD1";
+            case 2: return "2 HARD only";
+            case 3: return "3 OFF (flat N.L + ambient)";
+            default: return level.ToString();
+        }
     }
 
     private void HandleHotbarKeys()
@@ -1113,6 +1320,7 @@ public class Playground : MonoBehaviour
 
     void OnGUI()
     {
+        if (DebugHideUi) return;
         float ui = Mathf.Max(1f, Screen.height / 900f);
         Camera cam = Camera.main;
 
@@ -1394,18 +1602,30 @@ public class Playground : MonoBehaviour
         sb.AppendLine("  <b>B</b>   bomb at the crosshair (§8.5, frame-split)");
         sb.AppendLine("  <b>T</b>   shoot a projectile (§8.4 DDA trace)");
         sb.AppendLine("");
+        sb.AppendLine("<b><color=#cfe3f5>LIGHT &amp; TIME</color></b>   <color=#9fb6c9>(Phase 7)</color>");
+        sb.AppendLine("  <b><color=#ffd479>N</color></b> golden hour   <b>M</b> noon   <b>L</b> midnight   <b>,</b> / <b>.</b> scrub (hold)   <b>P</b> pause the clock");
+        sb.AppendLine("  <b>7</b>   place a <b>torch</b> (hotbar slot 7, then RMB)      LMB digs it out again");
+        sb.AppendLine("  <b>J</b>   shadow quality 0-3 — full soft / half-res distant / hard / off (§6.5)");
+        sb.AppendLine("  <b>K</b>   hard &lt;-&gt; soft shadows (k_soft toggle)");
+        sb.AppendLine("  <b>Y</b>   view: beauty -&gt; sun visibility -&gt; shadow step heat");
+        sb.AppendLine("  <b><color=#ffd479>[</color></b> / <b><color=#ffd479>]</color></b>   cycle LIGHT PRESET — Warm / Atmospheric / HighContrast / Muted / Shipped");
+        sb.AppendLine("");
         sb.AppendLine("<b><color=#cfe3f5>VIEW</color></b>");
         sb.AppendLine("  <b>F1</b> perf overlay      <b>F2</b> these controls      <b>ESC</b> release the mouse");
         sb.AppendLine("");
         sb.Append("<color=#9fb6c9>Fluid simulates only inside §7.4's wake radius (shown in the state " +
                   "panel in both voxels and metres). The crosshair box turns grey outside it, and " +
-                  "placing water/sand/lava there is refused rather than left frozen.</color>");
+                  "placing water/sand/lava there is refused rather than left frozen.\n\n" +
+                  "Lighting tunes LIVE from LightingConfig.json in the same folder as " +
+                  "PlayerConfig.json — edit, save, and the NEXT FRAME is different. k_soft, the " +
+                  "torch falloff, the ambient curve, the sun colour ramp and the day length are " +
+                  "all in there, and a typo is ignored rather than fatal.</color>");
 
         // CENTRED, not tucked into a corner: at 6 hotbar slots the bottom-right
         // is already occupied by the RMB panel, and a controls list that
         // overlaps the thing it is describing is worse than useless. It is
         // toggled, so covering the view while open is intended.
-        float w = 720f, h = 372f;   // grew with the grouping above
+        float w = 760f, h = 476f;   // grew again with Phase 7's LIGHT & TIME group
         var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f, w, h);
         Box(r, new Color(0f, 0f, 0f, 0.82f));
         Frame(r, new Color(1f, 1f, 1f, 0.22f), 1f);

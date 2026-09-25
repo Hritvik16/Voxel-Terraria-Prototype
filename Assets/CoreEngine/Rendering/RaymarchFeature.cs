@@ -25,6 +25,11 @@ public class RaymarchFeature : ScriptableRendererFeature
         NonExitHeat = 4,
         VoxelGrain = 5,
         LODTier = 6,
+        // §10.3 item 6, Phase 7: "sun-visibility view + shadow-ray step-count
+        // heat". Appended, never inserted -- RaymarchDebugControls, the capture
+        // rigs and several report files all key off these integers.
+        SunVis = 7,
+        ShadowHeat = 8,
     }
 
     public enum GateResMode { UseInspector, Native, Forced960x540, ForcedCustom }
@@ -73,6 +78,57 @@ public class RaymarchFeature : ScriptableRendererFeature
     public static float FogStartMetres = 45f;
     public static float FogEndMetres = 260f;
 
+    // ---- PHASE 7 LIGHTING (§6.5, §3.8, C.9/C.10/C.11) ----
+    //
+    // Statics, matching every other render toggle in this file, so a rig can
+    // set them before the first frame without a scene reference. The VALUES
+    // come from LightingConfig (live-reloadable JSON) and SunCycle every frame;
+    // these are the seams a rig or the Playground drives.
+
+    /// The A.6 light buffer this feature binds. Owned by whoever builds the
+    /// world (the bootstrapper / Playground), not by the renderer -- the
+    /// renderer only reads it, which keeps §0.1 invariant 1's direction of
+    /// travel obvious: lights are a consequence of terrain edits.
+    public static VoxelEngine.Rendering.LightSourceBuffer Lights;
+
+    /// §6.5's fallback ladder. Defaults to EngineConfig's shipped rung; a rig
+    /// overrides it per process launch so Stage 6 can measure every rung from
+    /// ONE binary in ONE session.
+    public static int ShadowQualityLevel = EngineConfig.SHADOW_QUALITY_LEVEL;
+
+    /// Runaway guard for the shadow DDA, in OUTER iterations -- the same unit
+    /// as MaxOuterIterations, and deliberately the same value. A shadow ray
+    /// crosses the same clipmap with the same leap primitives, so there is no
+    /// basis for a different number, and two numbers would invite one to drift.
+    public static int MaxShadowSteps = 1024;
+
+    /// C.9 attaches `max(0, N.L)` to the SUN term only and leaves `pointLights`
+    /// bare. This was shipped at the literal reading (false) and FLAGGED rather
+    /// than decided -- PHASE_7_COMPLETION.md §10 flag 3.
+    ///
+    /// DEFAULT FLIPPED TO TRUE, 2026-09-13, ON EVIDENCE RATHER THAN TASTE.
+    /// The evidence is §8's own screenshot finding: in
+    /// 02_cave_lit_by_torch.png every face of the chamber is lit identically
+    /// regardless of which way it points, because with no N.L the only thing
+    /// modulating a point light is distance. A cube lit from one side that is
+    /// equally bright on all six faces does not read as lit at all -- it reads
+    /// as tinted. §6.1's aesthetic contract is explicit that the look is carried
+    /// by "albedo, the lighting of §6.5, and voxel ambient occlusion", and a
+    /// lighting term that cannot distinguish a face from its opposite is not
+    /// carrying anything.
+    ///
+    /// WHY THIS IS A DEFAULT FLIP AND NOT A SPEC DEVIATION TO ARGUE ABOUT: the
+    /// toggle is unchanged and still reachable, false still reproduces C.9's
+    /// literal grouping exactly, and both states are screenshotted side by side
+    /// so the owner can reverse it in one edit. It is reversible, evidence-
+    /// backed, and pinned by a test so it cannot drift back silently.
+    public static bool PointLightNdotL = true;
+
+    /// FLAG: modulate ambient by a straight-up sky-visibility probe so deep
+    /// caves are genuinely dark (§6.5). It IS a second ray; measured as its own
+    /// arm rather than assumed free.
+    public static bool UseSkyProbeAmbient = true;
+
     /// Highest world voxel Y that generation can produce content for, +1.
     /// Set by the bootstrapper from StreamManager.MAX_GENERATED_CHUNK_Y.
     /// Kept tighter than the window's Y extent on purpose -- see the shader.
@@ -82,6 +138,91 @@ public class RaymarchFeature : ScriptableRendererFeature
     public static bool UseDebugViewOverride = false;
 
     public static Vector2Int LastDispatchResolution = new Vector2Int(0, 0);
+
+    /// Stage F's branch-engagement counters. Off by default: the per-pixel
+    /// InterlockedAdd that fills them is expensive and would contaminate any
+    /// timing arm. Enabled only by the -shadowstats diagnostic.
+    /// Forces a tonemap curve regardless of the live config, so a capture pass
+    /// can shoot the same preset with and without. -1 = use the config.
+    public static int TonemapOverride = -1;
+
+    /// Rig overrides for Stage F's two levers. -1 = use the live config.
+    public static float ShadowMaxDistanceOverrideM = -1f;
+    public static float Rung1DistanceOverrideM = -1f;
+
+    /// Shadow LOD coarsening by ray TRAVEL as well as camera distance.
+    /// &lt; 0 defers to LightingConfig; 0 disables (the shipped 8.2 behaviour, so
+    /// every historical measurement stays reproducible); 1 is the
+    /// penumbra-derived threshold. See Raymarch.compute's note on
+    /// _ShadowTravelLOD for why max() of the two rules cannot reintroduce 8.1's
+    /// detached shadows.
+    public static float ShadowTravelLodOverride = -1f;
+
+    /// Within-material colour variation (§M.4 item 1). &lt; 0 defers to
+    /// LightingConfig; 0 off, 1 on.
+    public static int MaterialVariationOverride = -1;
+    /// >= 0 forces LightingConfig.look without touching the file (the
+    /// Playground's U key and the -phase7demo A/B shots). -1 = use the config.
+    public static int LookOverride = -1;
+
+    /// SHADOW ROOF SKIP (Raymarch.compute's HeightMip block): exact by
+    /// construction, so it changes cost, not pixels. OFF until measured;
+    /// `-roofskip 1` on any player's command line turns it on (last match wins,
+    /// like PlaygroundCapture's args).
+    public static bool ShadowRoofSkip = ReadRoofSkipArg();
+
+    /// Build rays from URP's per-frame projection (which carries TAA/STP
+    /// sub-pixel JITTER) instead of Camera.projectionMatrix. Without jitter a
+    /// temporal upscaler accumulates identical samples and cannot add detail.
+    /// With TAA/STP off URP's jitter matrix is identity, so this is inert; it
+    /// is still OFF by default so the shipped path is byte-identical.
+    public static bool UseCameraDataProjection = false;
+    public static GraphicsBuffer HeightMipBuffer;
+    private static int _heightMipWindowX = -1, _heightMipWindowZ = -1;
+    private static int[] _heightOffsets = new int[8];
+
+    private static bool ReadRoofSkipArg()
+    {
+        string[] a = System.Environment.GetCommandLineArgs();
+        bool on = false;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == "-roofskip") on = a[i + 1] == "1";
+        return on;
+    }
+
+    /// Sizes the pyramid for the window: levels 0..5 at (X>>L)*(Z>>L) each,
+    /// then a level-0-sized raw scratch. ~2.4 MB for a 512x512-brick window.
+    private static void EnsureHeightMip(int nx, int nz)
+    {
+        if (HeightMipBuffer != null && nx == _heightMipWindowX && nz == _heightMipWindowZ) return;
+        HeightMipBuffer?.Release();
+        int off = 0;
+        for (int L = 0; L < 6; L++) { _heightOffsets[L] = off; off += (nx >> L) * (nz >> L); }
+        _heightOffsets[6] = off; off += nx * nz;
+        HeightMipBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, off, sizeof(uint));
+        _heightMipWindowX = nx; _heightMipWindowZ = nz;
+    }
+    private static Vector4 V4(Unity.Mathematics.float3 v) => new Vector4(v.x, v.y, v.z, 0f);
+
+    public static bool CollectShadowStats = false;
+    public static GraphicsBuffer ShadowStatsBuffer { get; private set; }
+    private static readonly uint[] _statsZero = new uint[5];
+
+    /// Zeroes the counters, so a read measures ONE frame rather than an
+    /// unbounded accumulation.
+    public static void ResetShadowStats()
+    {
+        if (ShadowStatsBuffer == null) return;
+        ShadowStatsBuffer.SetData(_statsZero);
+    }
+
+    /// hit / beyondLod1 / traced / reused, for the last frame since a reset.
+    public static uint[] ReadShadowStats()
+    {
+        var d = new uint[5];
+        ShadowStatsBuffer?.GetData(d);
+        return d;
+    }
 
     public static GraphicsBuffer DebugBuffer { get; private set; }
     public static Vector2Int DebugPixel = new Vector2Int(700, 400);
@@ -100,12 +241,15 @@ public class RaymarchFeature : ScriptableRendererFeature
         {
             public ComputeShader compute;
             public Camera cam;
+            public Matrix4x4 invProjection;
             public TextureHandle target;
             public int dispatchWidth;
             public int dispatchHeight;
             public GraphicsBuffer clipmapBuffer;
             public GraphicsBuffer brickDataBuffer;
             public GraphicsBuffer debugBuffer;
+            public GraphicsBuffer shadowStats;
+            public int collectShadowStats;
             public Vector3Int windowDimsBricks;
             public Vector3Int windowDimsChunks;
             public Vector3Int windowOriginBricks;
@@ -118,6 +262,36 @@ public class RaymarchFeature : ScriptableRendererFeature
             public Color skyColor;
             public float fogStart, fogEnd;
             public int maxOuterIterations;
+
+            // ---- Phase 7 lighting ----
+            public GraphicsBuffer lightBuffer;
+            public int activeLightCount;
+            public Vector4 sunDir;
+            public Vector4 sunColor;
+            public Vector4 ambientColor;
+            public float kSoft;
+            public int shadowQualityLevel;
+            public int maxShadowSteps;
+            public int pointLightNdotL;
+            public int useSkyProbeAmbient;
+            public float undergroundAmbientFloor;
+            public float shadowMaxDistVoxels;
+            public float rung1DistVoxels;
+            public float shadowTravelLod;
+            public int materialVariation;
+            public float materialVariationAmount;
+            public int tonemap;
+            public float exposure;
+            public float tonemapWhite;
+            public int look;
+            public int roofSkip;
+            public GraphicsBuffer heightMip;
+            public int[] heightOffsetsA, heightOffsetsB;
+            public int kHeightRaw, kHeightDilate, kHeightLevel;
+            public Vector4 lookSkyZenith, lookSkyHorizon, lookSkyHalo, lookSun, lookAmbient, lookMoon;
+            public float lookShadowDarkness, lookHazeDensity;
+            public Vector4 lookGrade;
+
             public bool useStripped;
             public bool useMemoryProbe;
             public int probeIterations;
@@ -174,6 +348,8 @@ public class RaymarchFeature : ScriptableRendererFeature
 
             if (DebugBuffer == null)
                 DebugBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, DEBUG_BUFFER_FLOATS, sizeof(float));
+            if (ShadowStatsBuffer == null)
+                ShadowStatsBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 5, sizeof(uint));
 
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
             UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
@@ -203,12 +379,16 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.useMemoryProbe = useMemoryProbe;
                 passData.probeIterations = RaymarchFeature.ProbeIterations;
                 passData.cam = cameraData.camera;
+                passData.invProjection = (UseCameraDataProjection ? cameraData.GetProjectionMatrix(0)
+                                                                  : cameraData.camera.projectionMatrix).inverse;
                 passData.target = target;
                 passData.dispatchWidth = dispatchW;
                 passData.dispatchHeight = dispatchH;
                 passData.clipmapBuffer = clip.ClipmapBuffer;
                 passData.brickDataBuffer = clip.BrickDataBuffer;
                 passData.debugBuffer = DebugBuffer;
+                passData.shadowStats = ShadowStatsBuffer;
+                passData.collectShadowStats = CollectShadowStats ? 1 : 0;
                 passData.debugPixel = DebugPixel;
                 passData.debugMode = _debugMode;
                 passData.traversalMode = TraversalMode;
@@ -222,6 +402,73 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.maxOuterIterations = MaxOuterIterations;
                 passData.usePackedMips = UsePackedMips ? 1 : 0;
                 passData.contentCeilingVoxelY = ContentCeilingVoxelY;
+
+                // ---- Phase 7 lighting ----
+                // LightSourceBuffer.Upload() is the CPU's job and happens in the
+                // world's own update, not here: §3.9's contract is CPU -> GPU
+                // with "none (dispatch after write)" staleness, and the render
+                // graph's record phase is not where a CPU-side selection pass
+                // belongs. This only READS what was already selected.
+                var cfg = LightingConfig.Active;
+                var lights = Lights;
+                passData.lightBuffer = lights != null ? lights.Buffer : null;
+                passData.activeLightCount = lights != null ? lights.ActiveCount : 0;
+
+                Unity.Mathematics.float3 sd = SunCycle.Direction;
+                Unity.Mathematics.float3 sc = SunCycle.Color;
+                Unity.Mathematics.float3 amb = SunCycle.Ambient;
+                passData.sunDir = new Vector4(sd.x, sd.y, sd.z, 0f);
+                passData.sunColor = new Vector4(sc.x, sc.y, sc.z, 0f);
+                passData.ambientColor = new Vector4(amb.x, amb.y, amb.z, 0f);
+
+                passData.kSoft = cfg.kSoft;
+                passData.shadowQualityLevel = ShadowQualityLevel;
+                passData.maxShadowSteps = MaxShadowSteps;
+                passData.pointLightNdotL = PointLightNdotL ? 1 : 0;
+                passData.useSkyProbeAmbient = UseSkyProbeAmbient ? 1 : 0;
+                passData.undergroundAmbientFloor = cfg.undergroundAmbientFloor;
+                float shadowClampM = ShadowMaxDistanceOverrideM >= 0f
+                    ? ShadowMaxDistanceOverrideM : cfg.shadowMaxDistanceM;
+                passData.shadowMaxDistVoxels = shadowClampM * 10f;
+                float rung1M = Rung1DistanceOverrideM >= 0f
+                    ? Rung1DistanceOverrideM : cfg.rung1DistanceM;
+                passData.rung1DistVoxels = rung1M * 10f;
+                passData.shadowTravelLod = ShadowTravelLodOverride >= 0f
+                    ? ShadowTravelLodOverride : cfg.shadowTravelLod;
+                passData.materialVariation = MaterialVariationOverride >= 0
+                    ? MaterialVariationOverride : cfg.materialVariation;
+                passData.materialVariationAmount = cfg.materialVariationAmount;
+                passData.tonemap = TonemapOverride >= 0 ? TonemapOverride : cfg.tonemap;
+                passData.exposure = cfg.exposure;
+                passData.tonemapWhite = cfg.tonemapWhite;
+
+                // LightingConfig.look -- see the LOOK 1 block in Raymarch.compute.
+                passData.look = LookOverride >= 0 ? LookOverride : cfg.look;
+                float hrs = SunCycle.Hours;
+                passData.lookSkyZenith = V4(SunCycle.LookSkyZenithAt(hrs));
+                passData.lookSkyHorizon = V4(SunCycle.LookSkyHorizonAt(hrs));
+                passData.lookSkyHalo = V4(SunCycle.LookSunHaloAt(hrs));
+                passData.lookSun = V4(SunCycle.LookSunAt(hrs));
+                passData.lookAmbient = V4(SunCycle.LookAmbientAt(hrs));
+                passData.lookMoon = V4(SunCycle.LookMoonAt(hrs));
+                passData.lookShadowDarkness = cfg.lookShadowDarkness;
+                passData.lookHazeDensity = cfg.hazeDensity;
+                Unity.Mathematics.float4 g = SunCycle.LookGradeAt(hrs);
+                passData.lookGrade = new Vector4(g.x, g.y, g.z, g.w);
+
+                // Shadow roof skip. The buffer is bound on EVERY frame, on or
+                // off: an HLSL-declared buffer left unbound is undefined on Metal.
+                EnsureHeightMip(clip.WindowDimsBricks.x, clip.WindowDimsBricks.z);
+                passData.roofSkip = ShadowRoofSkip ? 1 : 0;
+                passData.heightMip = HeightMipBuffer;
+                passData.heightOffsetsA = new[] { _heightOffsets[0], _heightOffsets[1], _heightOffsets[2], _heightOffsets[3] };
+                passData.heightOffsetsB = new[] { _heightOffsets[4], _heightOffsets[5], _heightOffsets[6], 0 };
+                if (!useStripped && !useMemoryProbe)
+                {
+                    passData.kHeightRaw = activeCompute.FindKernel("BuildHeightRaw");
+                    passData.kHeightDilate = activeCompute.FindKernel("BuildHeightDilate");
+                    passData.kHeightLevel = activeCompute.FindKernel("BuildHeightLevel");
+                }
 
                 Unity.Mathematics.int3 dims = clip.WindowDimsBricks;
                 passData.windowDimsBricks = new Vector3Int(dims.x, dims.y, dims.z);
@@ -322,7 +569,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                 {
                     var cmd = context.cmd;
 
-                    cmd.SetComputeMatrixParam(data.compute, "_CameraInverseProjection", data.cam.projectionMatrix.inverse);
+                    cmd.SetComputeMatrixParam(data.compute, "_CameraInverseProjection", data.invProjection);
                     cmd.SetComputeMatrixParam(data.compute, "_CameraInverseView", data.cam.cameraToWorldMatrix);
                     cmd.SetComputeVectorParam(data.compute, "_CameraPos", data.cam.transform.position);
 
@@ -393,6 +640,78 @@ public class RaymarchFeature : ScriptableRendererFeature
                             new Vector4(data.skyColor.r, data.skyColor.g, data.skyColor.b, 1f));
                         cmd.SetComputeFloatParam(data.compute, "_FogStartM", data.fogStart);
                         cmd.SetComputeFloatParam(data.compute, "_FogEndM", data.fogEnd);
+
+                        // ---- Phase 7 lighting. FULL KERNEL ONLY ----
+                        // The stripped and memory-probe kernels do not declare
+                        // any of this and never shade; binding to them would be
+                        // a silent no-op at best. Keeping them out of this block
+                        // is also what preserves them as clean isolation arms --
+                        // Amendment 8.10 §5.3 measured the diagnostic kernels
+                        // earning their keep and this must not change what they
+                        // measure.
+                        if (data.lightBuffer != null)
+                            cmd.SetComputeBufferParam(data.compute, 0, "LightBuffer", data.lightBuffer);
+                        cmd.SetComputeIntParam(data.compute, "_ActiveLightCount",
+                            data.lightBuffer != null ? data.activeLightCount : 0);
+                        cmd.SetComputeVectorParam(data.compute, "_SunDir", data.sunDir);
+                        cmd.SetComputeVectorParam(data.compute, "_SunColor", data.sunColor);
+                        cmd.SetComputeVectorParam(data.compute, "_AmbientColor", data.ambientColor);
+                        cmd.SetComputeFloatParam(data.compute, "_KSoft", data.kSoft);
+                        cmd.SetComputeIntParam(data.compute, "_ShadowQualityLevel", data.shadowQualityLevel);
+                        cmd.SetComputeIntParam(data.compute, "_MaxShadowSteps", data.maxShadowSteps);
+                        cmd.SetComputeIntParam(data.compute, "_PointLightNdotL", data.pointLightNdotL);
+                        cmd.SetComputeIntParam(data.compute, "_UseSkyProbeAmbient", data.useSkyProbeAmbient);
+                        cmd.SetComputeFloatParam(data.compute, "_UndergroundAmbientFloor",
+                            data.undergroundAmbientFloor);
+
+                        // Stage F's counters. Bound unconditionally (an unbound
+                        // RWStructuredBuffer is undefined even when unread) but
+                        // only WRITTEN when the flag is set.
+                        if (data.shadowStats != null)
+                            cmd.SetComputeBufferParam(data.compute, 0, "ShadowStats", data.shadowStats);
+                        cmd.SetComputeIntParam(data.compute, "_CollectShadowStats", data.collectShadowStats);
+                        cmd.SetComputeFloatParam(data.compute, "_ShadowMaxDistVoxels", data.shadowMaxDistVoxels);
+                        cmd.SetComputeFloatParam(data.compute, "_Rung1DistVoxels", data.rung1DistVoxels);
+                        cmd.SetComputeFloatParam(data.compute, "_ShadowTravelLOD", data.shadowTravelLod);
+                        cmd.SetComputeIntParam(data.compute, "_MaterialVariation", data.materialVariation);
+                        cmd.SetComputeFloatParam(data.compute, "_MaterialVariationAmount", data.materialVariationAmount);
+                        cmd.SetComputeIntParam(data.compute, "_Tonemap", data.tonemap);
+                        cmd.SetComputeFloatParam(data.compute, "_Exposure", data.exposure);
+                        cmd.SetComputeFloatParam(data.compute, "_TonemapWhite", data.tonemapWhite);
+                        cmd.SetComputeIntParam(data.compute, "_Look", data.look);
+                        cmd.SetComputeVectorParam(data.compute, "_LookSkyZenith", data.lookSkyZenith);
+                        cmd.SetComputeVectorParam(data.compute, "_LookSkyHorizon", data.lookSkyHorizon);
+                        cmd.SetComputeVectorParam(data.compute, "_LookSkyHalo", data.lookSkyHalo);
+                        cmd.SetComputeVectorParam(data.compute, "_LookSun", data.lookSun);
+                        cmd.SetComputeVectorParam(data.compute, "_LookAmbient", data.lookAmbient);
+                        cmd.SetComputeVectorParam(data.compute, "_LookMoon", data.lookMoon);
+                        cmd.SetComputeFloatParam(data.compute, "_LookShadowDarkness", data.lookShadowDarkness);
+                        cmd.SetComputeFloatParam(data.compute, "_LookHazeDensity", data.lookHazeDensity);
+                        cmd.SetComputeVectorParam(data.compute, "_LookGrade", data.lookGrade);
+
+                        cmd.SetComputeIntParam(data.compute, "_ShadowRoofSkip", data.roofSkip);
+                        cmd.SetComputeIntParams(data.compute, "_HeightOffsetsA", data.heightOffsetsA);
+                        cmd.SetComputeIntParams(data.compute, "_HeightOffsetsB", data.heightOffsetsB);
+                        cmd.SetComputeBufferParam(data.compute, 0, "HeightMip", data.heightMip);
+                        if (data.roofSkip != 0)
+                        {
+                            int gx = (data.windowDimsBricks.x + 7) / 8, gz = (data.windowDimsBricks.z + 7) / 8;
+                            cmd.BeginSample("VE.Raymarch.HeightMip");
+                            cmd.SetComputeBufferParam(data.compute, data.kHeightRaw, "ClipmapBuffer", data.clipmapBuffer);
+                            cmd.SetComputeBufferParam(data.compute, data.kHeightRaw, "HeightMip", data.heightMip);
+                            cmd.DispatchCompute(data.compute, data.kHeightRaw, gx, gz, 1);
+                            cmd.SetComputeBufferParam(data.compute, data.kHeightDilate, "HeightMip", data.heightMip);
+                            cmd.DispatchCompute(data.compute, data.kHeightDilate, gx, gz, 1);
+                            cmd.SetComputeBufferParam(data.compute, data.kHeightLevel, "HeightMip", data.heightMip);
+                            for (int L = 1; L < 6; L++)
+                            {
+                                cmd.SetComputeIntParam(data.compute, "_HeightLevel", L);
+                                int lx = Mathf.Max(1, ((data.windowDimsBricks.x >> L) + 7) / 8);
+                                int lz = Mathf.Max(1, ((data.windowDimsBricks.z >> L) + 7) / 8);
+                                cmd.DispatchCompute(data.compute, data.kHeightLevel, lx, lz, 1);
+                            }
+                            cmd.EndSample("VE.Raymarch.HeightMip");
+                        }
                     }
 
                     if (!data.useMemoryProbe)
@@ -467,6 +786,8 @@ public class RaymarchFeature : ScriptableRendererFeature
     {
         DebugBuffer?.Release();
         DebugBuffer = null;
+        ShadowStatsBuffer?.Release();
+        ShadowStatsBuffer = null;
         base.Dispose(disposing);
     }
 }

@@ -4,7 +4,13 @@
 
 1. `ARCHITECTURE_v8.6.md` is the base specification.
 2. Amendments override it where they conflict, in this order: 8.8 (occupancy
-   bitmask) → 8.9 (LOD & resolution) → 8.10 (LOD cascade performance).
+   bitmask) → 8.9 (LOD & resolution) → 8.10 (LOD cascade performance) →
+   8.12 (Phase 7's substitute budget gate).
+   **Note: no `.md` exists in this repo for amendment 8.8, or for 8.7.** Both
+   are in force and implemented (`OccupancyMask.cs`, `AirMip*.cs`) and both are
+   cited by the completion docs, but the documents themselves are absent and
+   `git log` shows neither was ever deleted. Read the implementations.
+   `AMENDMENT_8_11_RENDER_RANGE.md` exists but is **DRAFT, NOT ADOPTED**.
 3. `PHASE_1/2/3_COMPLETION.md` are historical records of what was proven and
    how — useful for *why* something is shaped the way it is, never a source
    of current requirements. If a completion doc and the architecture doc
@@ -17,6 +23,13 @@
    not just when asked.
 
 ## Current state (verify, don't trust this note)
+
+Phase 6 is CLOSED and merged. **Phase 7 (lighting & day/night) is built and its
+acceptance gates are green, but it is NOT closed** -- `PHASE_7_COMPLETION.md`
+recommends; the owner closes. EditMode is `PASS 569 FAIL 0` and
+`./run-phase7-rig.sh` reports `PASS 32 FAIL 0` (2026-09-24; Gate 1's rock poses fixed). What Phase 7 still wants is the
+owner's five minutes in the Playground (that document's §12) and answers to its
+§10 flags -- principally which of §6.5's four shadow rungs ships.
 
 Phase 4 (streaming & persistence) is functionally correct: all EditMode tests
 pass, admission/eviction/persistence gates are green. Current work is
@@ -116,6 +129,21 @@ current numbers before reasoning about what's slow.
   a tall ring affordable — collapsing them back together was a real
   regression once.
 
+## ONE UNITY PROCESS AT A TIME — the shared build lock (owner rule, 2026-09-24)
+
+This 8 GB Mac must never run two Unity builds, test runs or players at once.
+The sibling session in `../VoxelTerraria_compare` shares the lock
+`/tmp/voxel-unity.lock` and has agreed to honour it. Before ANY batchmode
+build, EditMode run or player launch: `source tools/unity-lock.sh` and call
+`unity_lock_acquire` (waits for the lock and 45 s with no Unity/il2cpp/player,
+takes it, releases on exit). Newer runner scripts already do; older ones
+(`run-editmode-tests.sh`, `run-phase7-rig.sh`, `run-acceptance-rig.sh`, ...)
+do NOT — wrap them: `tools/with-unity-lock.sh ./run-editmode-tests.sh`. Never
+put `pgrep -f '<pattern>'` inline in a shell command: it matches that shell
+itself and deadlocks the queue (happened twice). **Never edit a `run-*.sh` while
+it is running** — bash reads scripts incrementally and the edit shifts what it
+executes next (happened 2026-09-24; harmless that time).
+
 ## Commands
 
 Run the EditMode suite before and after any change:
@@ -170,6 +198,24 @@ directly by path if you need to look rather than just read the numbers.
 Never launch the Phase 4 scene from inside the Editor and report on its
 frame time — see Measurement discipline above.
 
+**Phase 7 (lighting) has two rigs, and they answer different questions:**
+
+```
+./run-phase7-rig.sh            # CORRECTNESS. §13's acceptance gates.
+./run-phase7-lighting-ab.sh    # FRAME RATE. The substitute budget gate.
+```
+
+`run-phase7-rig.sh` asserts and exits; it quotes no frame time against any
+budget, deliberately. `run-phase7-lighting-ab.sh` measures end-to-end sustained
+rate across §6.5's four shadow rungs — the full matrix is ~40 launches at ~360 s
+each (about four hours), reducible via `ARMS`/`SCENARIOS`/`GATES`/`REPS`, and
+the report names which arms actually ran. **Read
+`AMENDMENT_8_12_PHASE7_GATE.md` §3.2 and §3.3 before quoting anything it
+produces** — §13's own gates are per-pass ms with Performance State checked and
+are unrunnable in this workflow.
+
+Both write their logs to `Logs/`, not the repo root.
+
 ## RIG SELECTION RULE: terrain-identity gates vs live fluid
 
 **Do not run the acceptance rig's identity/hash gates with a live fluid load
@@ -206,6 +252,98 @@ real and separate reason — see the LOD-cascade finding in
 `FLUID_PERFORMANCE_AB_RESULTS.md` §3.
 
 ## Known open issues (act on these, don't rediscover them)
+
+- **EVERY PLAYGROUND PROBE HAS BEEN MEASURING INSIDE A HOLE. This is the biggest
+  measurement defect found in this project so far.** `TeleportToArena` -- where
+  every Playground-based capture mode starts -- puts the camera inside the dug-out
+  arena facing a near wall, so most of the frame is occluded and rays die within a
+  few voxels: **7.7 ms**. `-movespeed 12` then flies 360 m in 30 s and spends most
+  of the run off the island over empty sky: **3.1 ms**. A player standing on open
+  ground looking at the landscape measures **26.5 ms**. Both poses are
+  photographed in `Screenshots/StageK/`. Consequence: **the DIFFERENCES reported
+  by historical A/B arms remain valid (they compared like with like), but every
+  ABSOLUTE frame time and every "fits the budget" conclusion in every document
+  here is suspect until re-measured.** Use `-sustained -motion orbit` for anything
+  that feeds a budget claim. **NOT FIXED** -- rewriting the historical rigs would
+  invalidate load-bearing comparisons in `PHASE_4_COMPLETION.md` and
+  `FLUID_*_RESULTS.md`, which is the owner's call. Full analysis in
+  `PHASE_7_COMPLETION.md` §K.
+- **A SHORT COOLED ARM IS NO LONGER SUFFICIENT EVIDENCE FOR AN FPS CLAIM.** Use
+  `-sustained`, which runs continuously for N minutes and reports rolling 30 s
+  windows -- the curve is the result, not the endpoint. Thermal throttling was
+  tested directly and is NOT a factor on this machine: 20 continuous minutes made
+  it **5% faster**, `pmset -g therm` nominal across 12 samples. (`pmset`/
+  `powermetrics` are OS utilities, not GPU profilers, and are not covered by the
+  no-Xcode rule.)
+- **§6.5's shadow fallback ladder does NOT work as a budget mechanism.** Measured
+  at a representative pose: rung 0 (full soft) 25.9 ms, rung 1 28.1 ms (worse than
+  rung 0), rung 2 (hard only) 25.1 ms, rung 3 (off) 16.5 ms. **Rungs 0/1/2 are
+  within 3 ms of each other because the cost is TRACING THE RAY, not the soft
+  edge.** Do not plan on stepping down a rung to recover frame time -- only "off"
+  recovers anything. The lever that does work is internal resolution (Amdt 8.9):
+  gate 560x315 holds 61 FPS with full shadows where 960x540 gets 37.7.
+- **`ArgValue`/`ArgInt`/`ArgFloat` in `PlaygroundCapture` take the LAST match, and
+  that is deliberate -- do not "fix" it back to first-match.** Runner scripts pass
+  a default first and the per-arm override second (`--args -shadowlevel 0 "$@"`).
+  First-match silently ignored the override, so an arm ran the DEFAULT while its
+  label, log line and report all claimed otherwise. That produced a wrong
+  "shadows cost nothing" reading that had to be retracted, and a gate-520 arm that
+  was really gate 960.
+
+- **EMISSIVE + MOBILE MATERIALS MUST NOT REGISTER AS POINT LIGHTS.** Lava is
+  `IsFluid | IsEmissive`. §6.6's enqueue runs on every `SetVoxel`, so before
+  2026-09-13 a lava flow registered thousands of lights and the §3.8 selection
+  sorted all of them every frame -- **43.46 ms/frame against 9.32 ms
+  pre-Phase-7**. `LightSourceBuffer.Register` now refuses mobile materials, and
+  selection is partial (O(n x cap)) so no future emissive can make it quadratic
+  again. §3.8's "a handful of placed torches, not a lit city" is a statement
+  about PLACED torches -- do not apply it to every emissive material.
+- **A CAMERA POSE CAN SIT INSIDE ROCK AND STILL "MEASURE" SOMETHING.** Found three
+  times on 2026-09-24: Phase7CycleRig Gate 1's falloff poses (fixed, now a
+  checked precondition), its `04_torch_through_wall` shot (not fixed), and
+  Stage H1's lava-cavern "wide" pose (`cave + (-40,4,0)`; the carved spheres end
+  at x = -34). A black frame reads as a very dark scene. Any new pose inside
+  carved geometry should assert the camera voxel is air.
+- **`-stutterprobe` flies in a straight line and leaves the world** -- see the
+  measuring-inside-a-hole entry above; its absolute numbers are not
+  representative. It also **does not pin the time of day** and the Playground clock runs
+  (`dayLengthSeconds` 120). Its arms average over a day-night cycle, so shadow
+  rays are skipped for part of every run. Fine for before/after comparisons
+  where every arm shares it; **never** quote a rung cost from it -- use
+  `-lightingab`, which pins golden hour.
+
+- **`ShaderCompileCheck.CheckAll` CAN REPORT A GREEN SHADER THAT DOES NOT
+  BUILD.** Found 2026-09-12: it printed `Raymarch.compute: OK (0 message(s))`
+  and `DONE totalErrors=0` for a file the standalone build then refused with
+  `undeclared identifier 'WaveActiveAnyTrue' ... (on metal)`. `ShaderUtil`'s
+  message list comes from the **Editor's import-time compile**, which does not
+  cover the player's Metal target. **Always also grep the build log for
+  `Shader error`** — `run-phase7-rig.sh` does, and that grep is what caught it.
+  Running `ShaderCompileCheck` remains worthwhile; treating it as sufficient is
+  not.
+- **SM6.0 wave intrinsics are NOT available to compute shaders here.**
+  `WaveActiveAnyTrue`/`QuadReadLaneAt` fail on the legacy compiler ("undeclared
+  identifier ... on metal") and, under `#pragma use_dxc`, fail again with
+  "Subgroups are only supported in Metal 2.0 and up". Phase 7 uses a
+  `groupshared` + `GroupMemoryBarrierWithGroupSync` equivalent instead. Raising
+  the Metal/MSL floor would change every shader and the shipping macOS minimum,
+  and is an owner decision — `PHASE_7_COMPLETION.md` §10 flag 7. **Do not
+  re-attempt `use_dxc` without deciding that first**: it also changes the
+  compiler for the whole shader, which would make every historical frame-time
+  comparison carry a codegen confound.
+- **FLAGGED FOR THE OWNER, NOT CHANGED: `run-acceptance-rig.sh` measures
+  WINDOWED.** Neither the script, nor `Phase4AcceptanceRig.cs`, nor
+  `Phase4Bootstrapper.cs` ever calls `Screen.SetResolution` or sets fullscreen
+  (verified by grep 2026-09-12). `FPS_INVESTIGATION_RESULTS.md` §0.1 — written
+  later — demonstrates windowed capture on this machine is worthless (69.6 vs
+  26.9 FPS for identical back-to-back runs of the same binary, and "fluid ON"
+  measuring *faster* than "fluid OFF"). That sits awkwardly beside Measurement
+  discipline's "the ONLY trusted frame-time source is
+  `./run-acceptance-rig.sh`'s output". **Nothing was changed**: making that rig
+  fullscreen would silently invalidate every historical Gate C comparison in
+  `PHASE_4_COMPLETION.md`, which is the owner's call, not a cleanup. The rule
+  is left exactly as written; this note exists so the next session does not have
+  to rediscover the tension.
 
 - **The world/render-range mismatch REVERSED, and is now the opposite problem.**
   This entry used to read "the world is still Phase 3's original island... no
