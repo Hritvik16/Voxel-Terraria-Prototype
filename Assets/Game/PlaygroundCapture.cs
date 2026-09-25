@@ -1468,6 +1468,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-lodpop")) { yield return LodPop(); yield break; }
         if (HasFlag("-farshimmer")) { yield return FarShimmer(); yield break; }
         if (HasFlag("-fluidroster")) { yield return FluidRoster(); yield break; }
+        if (HasFlag("-devmap")) { yield return DevMapShots(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;
         Screen.SetResolution(1920, 1080, false);
 

@@ -388,7 +388,8 @@ public class Playground : MonoBehaviour
             HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
             HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-looksweep") ||
-            HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-fluidroster"))
+            HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-fluidroster") ||
+            HasArg("-devmap"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
@@ -403,6 +404,9 @@ public class Playground : MonoBehaviour
             HasArg("-farpreview") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-fluidroster")) DebugHideUi = true;
 
         RegisterDefaultToys();
+        // The dev map (O). Its own component: it owns the camera and the
+        // keyboard while open, and Update/OnGUI below stand aside for it.
+        if (GetComponent<DevMap>() == null) gameObject.AddComponent<DevMap>();
         _ready = true;
         TeleportToArena();
         _status = $"arena at {_arenaCentre} — fluid is FIXED here and does not follow you";
@@ -429,6 +433,7 @@ public class Playground : MonoBehaviour
         Register(new Toy(KeyCode.Z, "tool -", () => CycleTier(-1)));
         Register(new Toy(KeyCode.X, "tool +", () => CycleTier(+1)));
         Register(new Toy(KeyCode.F2, "help", () => _showHelp = !_showHelp));
+        Register(new Toy(KeyCode.O, "dev map (whole island + underground slice)", DevMap.Toggle));
 
         // ================= PHASE 7 (§13, §6.5, §10.3) =================
         // THE THREE POSES THE OWNER HAS TO JUDGE IN MINUTES GET THEIR OWN KEYS.
@@ -835,12 +840,21 @@ public class Playground : MonoBehaviour
         // The flycam always owns capture + look; only its MOVEMENT is mode-gated.
         if (_cam != null) _cam.MovementEnabled = _mode == MoveMode.Fly;
 
-        UpdateTarget();
-        foreach (var t in _toys) if (Input.GetKeyDown(t.Key)) t.Run();
-        HandleTimeScrub(dt);
-        HandleHotbarKeys();
-        HandleMouse(dt);
-        DriveWalk(dt);
+        // THE DEV MAP OWNS INPUT WHILE OPEN: no digging, no brushes, no walk
+        // motor rewriting the camera. The simulation below keeps running.
+        if (DevMap.IsOpen)
+        {
+            if (Input.GetKeyDown(KeyCode.O) || Input.GetKeyDown(KeyCode.Escape)) DevMap.Toggle();
+        }
+        else
+        {
+            UpdateTarget();
+            foreach (var t in _toys) if (Input.GetKeyDown(t.Key)) t.Run();
+            HandleTimeScrub(dt);
+            HandleHotbarKeys();
+            HandleMouse(dt);
+            DriveWalk(dt);
+        }
 
         StepChaosBurst();
 
@@ -1364,7 +1378,7 @@ public class Playground : MonoBehaviour
 
     void OnGUI()
     {
-        if (DebugHideUi) return;
+        if (DebugHideUi || DevMap.IsOpen) return;
         float ui = Mathf.Max(1f, Screen.height / 900f);
         Camera cam = Camera.main;
 
@@ -1655,7 +1669,7 @@ public class Playground : MonoBehaviour
         sb.AppendLine("  <b><color=#ffd479>[</color></b> / <b><color=#ffd479>]</color></b>   cycle LIGHT PRESET — Warm / Atmospheric / HighContrast / Muted / Shipped");
         sb.AppendLine("");
         sb.AppendLine("<b><color=#cfe3f5>VIEW</color></b>");
-        sb.AppendLine("  <b>F1</b> perf overlay      <b>F2</b> these controls      <b>ESC</b> release the mouse");
+        sb.AppendLine("  <b>F1</b> perf overlay      <b>F2</b> these controls      <b>ESC</b> release the mouse      <b>O</b> dev map");
         sb.AppendLine("");
         sb.Append("<color=#9fb6c9>Fluid simulates only inside §7.4's wake radius (shown in the state " +
                   "panel in both voxels and metres). The crosshair box turns grey outside it, and " +
