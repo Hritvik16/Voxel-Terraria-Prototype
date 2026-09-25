@@ -868,6 +868,9 @@ public class Playground : MonoBehaviour
     /// ticks/second, i.e. how fluid speed tracks frame rate. -1 before setup.
     internal long DebugFluidTicks => _readback != null ? _readback.RequestsIssuedTotal : -1;
 
+    /// Decision 11's diagnosis: the readback whose counters split a tick's period.
+    internal FluidOpListReadback DebugReadback => _readback;
+
     /// MEASUREMENT SEAM, NOT A CONFIGURATION -- the same standing this file's
     /// own header gives DebugSuspendFluidSim.
     ///

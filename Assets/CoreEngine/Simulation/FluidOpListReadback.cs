@@ -116,6 +116,21 @@ namespace VoxelEngine.Simulation
         public long OpsDroppedNonResident { get; private set; }
         public int SkippedIssuesTotal { get; private set; }
 
+        // ---- TICK-PERIOD DECOMPOSITION (owner decision 11, 2026-09-24) ----
+        // INSTRUMENTATION ONLY -- nothing below changes when a tick runs. One CA
+        // tick costs (issue -> readback lands) + (lands -> fully drained) +
+        // (drained -> next issue) frames; these split a measured ticks/s into
+        // those three so the cause is read off a number, not guessed.
+        public long TicksLanded { get; private set; }
+        public long LandLatencyFramesTotal { get; private set; }
+        public long DrainFramesTotal { get; private set; }
+        public long IssueGapFramesTotal { get; private set; }
+        public long IssueGapsCounted { get; private set; }
+        public long OpsInLandedBatchesTotal { get; private set; }
+        /// Histogram of issue -> landed latency in frames; the last bucket is ">= 15".
+        public readonly long[] LandLatencyHistogram = new long[16];
+        private int _landedFrame = -1, _drainedFrame = -1;
+
         /// §7.2 states the readback lag is "typically 1-3 frames". Nothing was
         /// ENFORCING that: IssueReadback queued unconditionally every frame, and
         /// with four requests per frame the queue reached 6 frames deep = 24
@@ -263,6 +278,12 @@ namespace VoxelEngine.Simulation
             if (_sim.CurrentRing < 0) return;
 
             RequestsIssuedTotal++;
+            if (_drainedFrame >= 0)
+            {
+                IssueGapFramesTotal += Time.frameCount - _drainedFrame;
+                IssueGapsCounted++;
+                _drainedFrame = -1;
+            }
             _inFlight.Enqueue(new InFlight
             {
                 OpsReq = AsyncGPUReadback.Request(_sim.OpsBuffer),
@@ -332,9 +353,22 @@ namespace VoxelEngine.Simulation
                 // reporting that nothing moved, not a stalled one.
                 FramesSinceLastApplied = 0;
                 StagePending(f);
+                int lat = Time.frameCount - f.IssuedFrame;
+                TicksLanded++;
+                LandLatencyFramesTotal += lat;
+                LandLatencyHistogram[Math.Min(Math.Max(lat, 0), LandLatencyHistogram.Length - 1)]++;
+                OpsInLandedBatchesTotal += OpsLastFrame;
+                _landedFrame = Time.frameCount;
             }
 
             applied += DrainPending(MaxOpsAppliedPerFrame);
+            if (_landedFrame >= 0 && PendingOps == 0)
+            {
+                // Frames spent draining, counting the landing frame itself.
+                DrainFramesTotal += Time.frameCount - _landedFrame + 1;
+                _drainedFrame = Time.frameCount;
+                _landedFrame = -1;
+            }
             return applied;
         }
 

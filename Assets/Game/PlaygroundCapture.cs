@@ -1782,6 +1782,12 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (lavaSlots >= 0) LightingConfig.Active.lavaLightMaxSlots = lavaSlots;
         var lightDriver = FindAnyObjectByType<VoxelEngine.Rendering.LightingDriver>();
 
+        // -maxqueued N: DIAGNOSTIC SEAM for decision 11, not a setting. How many
+        // frames the CPU may run ahead of the GPU; if the fluid readback's
+        // latency is the GPU frame queue, it moves with this.
+        int maxQueued = ArgInt("-maxqueued", -1);
+        if (maxQueued >= 0) QualitySettings.maxQueuedFrames = maxQueued;
+
         // The shadow-distance clamp, re-exposed here because §F.4 "disproved" it
         // AT THE WRONG POSE. That sweep ran inside the arena pit, where almost
         // nothing is sunlit and almost no shadow ray is traced, so a 12x change
@@ -1882,6 +1888,12 @@ public partial class PlaygroundCapture : MonoBehaviour
         float worstWindowMs = 0f, worstAtMin = 0f;
         float angle = 0f;
         long fluidTicksAtStart = pg != null ? pg.DebugFluidTicks : -1;
+        var rb = pg != null ? pg.DebugReadback : null;
+        long rbTicks0 = rb?.TicksLanded ?? 0, rbLat0 = rb?.LandLatencyFramesTotal ?? 0,
+             rbDrain0 = rb?.DrainFramesTotal ?? 0, rbGap0 = rb?.IssueGapFramesTotal ?? 0,
+             rbGapN0 = rb?.IssueGapsCounted ?? 0, rbOps0 = rb?.OpsInLandedBatchesTotal ?? 0;
+        long[] rbHist0 = rb != null ? (long[])rb.LandLatencyHistogram.Clone() : null;
+        int frames0 = Time.frameCount;
         long lightUploadsAtStart = lightDriver != null ? lightDriver.Lights.UploadsPerformed : -1;
 
         while (Time.realtimeSinceStartup - runStart < totalSeconds)
@@ -1980,6 +1992,25 @@ public partial class PlaygroundCapture : MonoBehaviour
             L("");
             L($"  fluid CA ticks/s {(pg.DebugFluidTicks - fluidTicksAtStart) / Math.Max(1f, secs):F1}   " +
               "(one tick per readback round-trip; this is fluid SPEED)");
+        }
+        if (rb != null)
+        {
+            long t = Math.Max(1, rb.TicksLanded - rbTicks0);
+            long gn = Math.Max(1, rb.IssueGapsCounted - rbGapN0);
+            float secs = Time.realtimeSinceStartup - runStart;
+            L($"  TICK PERIOD (decision 11): {(Time.frameCount - frames0) / (float)t:F2} frames/tick over {t} ticks " +
+              $"at {(Time.frameCount - frames0) / Math.Max(1f, secs):F1} FPS   maxQueuedFrames {QualitySettings.maxQueuedFrames}");
+            L($"    issue -> landed   {(rb.LandLatencyFramesTotal - rbLat0) / (float)t:F2} frames  (readback latency)");
+            L($"    landed -> drained {(rb.DrainFramesTotal - rbDrain0) / (float)t:F2} frames  (1 = applied the frame it landed; >1 = 1024-op budget carried it)");
+            L($"    drained -> issue  {(rb.IssueGapFramesTotal - rbGap0) / (float)gn:F2} frames  (1 = CanIssue checked before PumpAndApply)");
+            L($"    ops per tick      {(rb.OpsInLandedBatchesTotal - rbOps0) / (float)t:F0}   budget-limited frames {rb.BudgetLimitedFrames}");
+            var sb = new StringBuilder("    latency histogram (frames:count)");
+            for (int i = 0; i < rb.LandLatencyHistogram.Length; i++)
+            {
+                long c = rb.LandLatencyHistogram[i] - rbHist0[i];
+                if (c > 0) sb.Append($"  {i}{(i == rb.LandLatencyHistogram.Length - 1 ? "+" : "")}:{c}");
+            }
+            L(sb.ToString());
         }
         if (lightDriver != null)
         {
