@@ -26,8 +26,8 @@
 
 Phase 6 is CLOSED and merged. **Phase 7 (lighting & day/night) is built and its
 acceptance gates are green, but it is NOT closed** -- `PHASE_7_COMPLETION.md`
-recommends; the owner closes. EditMode is `PASS 562 FAIL 0` and
-`./run-phase7-rig.sh` reports `PASS 28 FAIL 0`. What Phase 7 still wants is the
+recommends; the owner closes. EditMode is `PASS 569 FAIL 0` and
+`./run-phase7-rig.sh` reports `PASS 32 FAIL 0` (2026-09-24; Gate 1's rock poses fixed). What Phase 7 still wants is the
 owner's five minutes in the Playground (that document's §12) and answers to its
 §10 flags -- principally which of §6.5's four shadow rungs ships.
 
@@ -138,8 +138,11 @@ build, EditMode run or player launch: `source tools/unity-lock.sh` and call
 `unity_lock_acquire` (waits for the lock and 45 s with no Unity/il2cpp/player,
 takes it, releases on exit). Newer runner scripts already do; older ones
 (`run-editmode-tests.sh`, `run-phase7-rig.sh`, `run-acceptance-rig.sh`, ...)
-do NOT — wrap them. Never put `pgrep -f '<pattern>'` inline in a shell command:
-it matches that shell itself and deadlocks the queue (happened twice).
+do NOT — wrap them: `tools/with-unity-lock.sh ./run-editmode-tests.sh`. Never
+put `pgrep -f '<pattern>'` inline in a shell command: it matches that shell
+itself and deadlocks the queue (happened twice). **Never edit a `run-*.sh` while
+it is running** — bash reads scripts incrementally and the edit shifts what it
+executes next (happened 2026-09-24; harmless that time).
 
 ## Commands
 
@@ -295,6 +298,12 @@ real and separate reason — see the LOD-cascade finding in
   selection is partial (O(n x cap)) so no future emissive can make it quadratic
   again. §3.8's "a handful of placed torches, not a lit city" is a statement
   about PLACED torches -- do not apply it to every emissive material.
+- **A CAMERA POSE CAN SIT INSIDE ROCK AND STILL "MEASURE" SOMETHING.** Found three
+  times on 2026-09-24: Phase7CycleRig Gate 1's falloff poses (fixed, now a
+  checked precondition), its `04_torch_through_wall` shot (not fixed), and
+  Stage H1's lava-cavern "wide" pose (`cave + (-40,4,0)`; the carved spheres end
+  at x = -34). A black frame reads as a very dark scene. Any new pose inside
+  carved geometry should assert the camera voxel is air.
 - **`-stutterprobe` flies in a straight line and leaves the world** -- see the
   measuring-inside-a-hole entry above; its absolute numbers are not
   representative. It also **does not pin the time of day** and the Playground clock runs

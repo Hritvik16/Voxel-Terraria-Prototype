@@ -2524,6 +2524,74 @@ for the owner to pull.
 
 ---
 
+## P. 2026-09-24 (second session): the owner's decisions 1, 8, 2–4 and 11, acted on
+
+**P.1 Rig: Gate 1's falloff poses were inside rock (decision 1).** This was a
+RIG change, not a product change. The 1.5/3/6 m poses sat outside the 1.4 m chamber,
+in solid stone, so the frame was black and the luminance read 0.0000 at every
+distance. Gate 1 now carves a sealed sight corridor along the measurement axis.
+It checks for a ≥ 6-voxel roof over every column before carving, and adds
+preconditions (a sealed corridor exists; the camera is in air at every pose).
+The monotonic-falloff assertion is unchanged. Rig **PASS 32 FAIL 0** (was 27/1);
+falloff 0.0690 / 0.0106 / 0.0019. Before/after: `Screenshots/Phase7RigGate1/`.
+**Still open:** `04_torch_through_wall_FLAGGED.png` uses the same kind of rock pose
+and is black. It's not asserted, and it's left for the owner.
+
+**P.2 Lava lights its surroundings (decision 8, §H.2 Option 2 built).**
+`LightSourceBuffer`'s LAVA AGGREGATE: a mobile emissive is counted into its
+32-voxel tile (count, X/Z centroid, a per-layer histogram for the top surface),
+and each tile emits **one** light. The light sits at the centroid, `lavaLightLiftM`
+above the top lava face, with strength ∝ √(count / `lavaLightFullCount`), saturating.
+Lava's share of the §3.8 cap is capped at `lavaLightMaxSlots` (8), so **placed
+torches always keep ≥ 24 of 32**; furthest-first still holds within each class.
+Four EditMode tests (aggregation/idempotence, placement/saturation, starvation,
+lava-only upload).
+- MEASURED (`-lavalight`): a 9,315-voxel lake → **6 tile lights, 0 point lights**.
+  40 torches + lava → 26 torches + 6 lava active. The wall beside the lake goes
+  from pitch black to warm and lit, with relief intact (not §H.1's blow-out).
+  Shots: `Screenshots/LavaLight/`.
+- MEASURED (`run-lavalight-ab.sh`, 4 min × 4, counterbalanced 8/0/0/8, live vents
+  incl. lava): mean 30.40 ms with lava light vs 30.28 ms without, **+0.11 ms, inside
+  the 0.23 ms spread between the two identical "on" arms, so not measurable.**
+  Light-buffer uploads rise from 0 to ~2/s; fluid ticks/s unchanged (4.9–5.0).
+- ALSO FOUND: §H.1's own "wide" pose (`cave + (-40, 4, 0)`) is inside rock, since the
+  carved spheres reach only x = −34. Its H1_00/H1_01 frame times were measured
+  looking at stone. Its **cost delta** is unaffected (both arms shared the pose),
+  but its screenshots showed nothing.
+- `4_torches_AND_lava_ON.png` is blown out. That's 26 torches in one cavern, the
+  pre-existing many-lights-summing saturation, not the aggregate.
+
+**P.3 The cinematic grade (decisions 2–4).** `LightingConfig.lookGrade` (1 = on).
+It's an elevation ramp (smoothstep 8° → 40°) that lowers exposure on sun +
+ambient (0.62 at noon; torches and lava untouched), deepens the day sky, takes
+the yellow out of the noon sun, trims saturation (0.86) and adds a highlight
+shoulder (knee 0.70) so snow rolls off instead of clipping. **Below 8° the grade
+is exactly neutral**, so golden hour (the owner's anchor), dawn, dusk and night
+are unchanged.
+- MEASURED (`run-looksweep.sh`): **15 of 15 below-ramp before/after pairs are
+  pixel-identical**, 0 differing pixels (dawn, golden, dusk, night, midnight × 3
+  poses). Noon: snow off-white with visible grain instead of flat white; sky
+  deeper; grass natural rather than neon. 33 pairs in `Screenshots/LookSweep/`
+  (select-all in Preview sorts pose → time → before/after).
+- LOOKED AT, flagged: at 08:00 / 16:00 (29°) the graded snow reads grey and
+  slightly overcast. The candidate fix is to extend the golden warmth past 25°.
+  That's the owner's call on the pictures.
+- Frame cost: see P.5.
+
+**P.4 Fluid tick period (decision 11): diagnosed, not fixed.** See
+`FLUID_TICK_DIAGNOSIS.md`. One tick = readback latency (~3.6–3.8 frames, fixed in
+frames) + drain (1024 ops/frame; ~3.7 frames at ~3,100 ops/tick) + a 1-frame issue
+gap. Options costed; no change made.
+
+**P.5 Grade frame cost: not measurable.** MEASURED at NOON (`-tod 12`; at the
+default golden-hour pin the grade is inert and an A/B would compare the frame
+with itself). `run-looksweep.sh GRADE_AB=1`, 3 min × 4, counterbalanced 1/0/0/1,
+orbit, gate 960, live fluid, fullscreen. Mean of the first five 30 s windows:
+grade on 17.59 / 18.42 ms, off 18.05 / 17.83 ms. That's **+0.06 ms** on average,
+against a 0.83 ms spread between the two identical "on" arms. Log
+`Logs/looksweep_20260924_220334.txt`. (Noon runs ~55 FPS against ~32 at golden
+hour, because noon shadow rays are short.)
+
 ## 11. CARRY-FORWARD — open, and known to be open
 
 1. **Tiers 1/2 still have no CPU oracle.** Carried from Amdt 8.10 §5.7 and
