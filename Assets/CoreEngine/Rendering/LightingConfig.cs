@@ -94,6 +94,33 @@ public sealed class LightingConfig
     public float lightIntensity = 1.6f;
 
     // =====================================================================
+    // LAVA LIGHT -- one aggregate point light per lava-containing tile
+    // (owner decision 8, 2026-09-24; PHASE_7_COMPLETION §H.2 Option 2)
+    // =====================================================================
+
+    /// The most §3.8 slots lava may occupy. Placed torches always keep
+    /// MAX_ACTIVE_LIGHTS minus this many, however much lava is near. 0 turns
+    /// lava lighting off (lava still self-lights, as before decision 8).
+    public int lavaLightMaxSlots = 8;
+
+    /// Colour multiplier on a FULL tile's light, on top of lightIntensity.
+    public float lavaLightIntensity = 1.0f;
+
+    /// Lava cells in a tile at which its light reaches full strength. Below
+    /// it the light scales by sqrt(count / this), so a trickle glows faintly
+    /// and a pool glows fully, without a lake saturating.
+    public float lavaLightFullCount = 96f;
+
+    /// Range multiplier over lava's own per-material range: one aggregate
+    /// stands in for a whole 3.2 m tile, so it has to reach further than one
+    /// voxel's light would.
+    public float lavaLightRangeScale = 1.6f;
+
+    /// Height of the aggregate light above the tile's top lava surface, in
+    /// metres. Above the surface so the ground around a pool faces it (N.L).
+    public float lavaLightLiftM = 0.6f;
+
+    // =====================================================================
     // AMBIENT -- §6.5's hemisphere term, and the cave-darkness requirement
     // =====================================================================
 
@@ -308,6 +335,12 @@ public sealed class LightingConfig
         pointFalloffK    = Fix(pointFalloffK, 0.0001f, 1000f, 0.35f, nameof(pointFalloffK), notes);
         lightRangeM      = Fix(lightRangeM, 0.1f, 512f, 8f, nameof(lightRangeM), notes);
         lightIntensity   = Fix(lightIntensity, 0f, 64f, 1.6f, nameof(lightIntensity), notes);
+        if (lavaLightMaxSlots < 0 || lavaLightMaxSlots > EngineConfig.MAX_ACTIVE_LIGHTS / 2)
+        { notes.Append($"{nameof(lavaLightMaxSlots)} {lavaLightMaxSlots}->8; "); lavaLightMaxSlots = 8; }
+        lavaLightIntensity  = Fix(lavaLightIntensity, 0f, 16f, 1.0f, nameof(lavaLightIntensity), notes);
+        lavaLightFullCount  = Fix(lavaLightFullCount, 1f, 32768f, 96f, nameof(lavaLightFullCount), notes);
+        lavaLightRangeScale = Fix(lavaLightRangeScale, 0.1f, 16f, 1.6f, nameof(lavaLightRangeScale), notes);
+        lavaLightLiftM      = Fix(lavaLightLiftM, 0f, 4f, 0.6f, nameof(lavaLightLiftM), notes);
 
         ambientIntensity = Fix(ambientIntensity, 0f, 8f, 0.30f, nameof(ambientIntensity), notes);
         ambientColorR    = Fix(ambientColorR, 0f, 1f, 0.52f, nameof(ambientColorR), notes);

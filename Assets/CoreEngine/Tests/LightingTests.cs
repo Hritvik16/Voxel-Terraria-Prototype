@@ -418,6 +418,103 @@ public class LightingTests
         }
     }
 
+    // =====================================================================
+    // DECISION 8 -- lava lights its surroundings through ONE aggregate light
+    // per 32-voxel tile, capped so placed torches keep their §3.8 share
+    // =====================================================================
+
+    /// A lava pool is ONE light per tile however many cells it has, the count
+    /// is exact under repeat writes and removal, and an emptied tile's light
+    /// disappears. MUTATION CHECK: make AddLava skip its idempotence guard and
+    /// the re-register half goes red.
+    [Test]
+    public void Lava_IsOneAggregatePerTile_ExactUnderRewriteAndRemoval()
+    {
+        // 10 x 10 cells in tile (0,0,0), 3 cells in tile (1,0,0).
+        for (int x = 0; x < 10; x++)
+        for (int z = 0; z < 10; z++)
+            _lights.Register(new int3(x, 4, z), Materials.Lava);
+        for (int i = 0; i < 3; i++) _lights.Register(new int3(40 + i, 4, 0), Materials.Lava);
+
+        Assert.AreEqual(0, _lights.RegisteredCount, "lava must not become per-voxel point lights");
+        Assert.AreEqual(103, _lights.LavaVoxelCount);
+        Assert.AreEqual(2, _lights.LavaTileCount, "one aggregate per lava-holding tile");
+
+        // Flowing lava rewrites cells in place: must not double count.
+        for (int x = 0; x < 10; x++) _lights.Register(new int3(x, 4, 0), Materials.Lava);
+        Assert.AreEqual(103, _lights.LavaVoxelCount, "re-placing lava over lava counted twice");
+
+        for (int i = 0; i < 3; i++) _lights.Unregister(new int3(40 + i, 4, 0));
+        Assert.AreEqual(1, _lights.LavaTileCount, "an emptied tile must lose its light");
+        _lights.Unregister(new int3(99, 99, 99));   // never lava: a no-op, not an error
+        Assert.AreEqual(100, _lights.LavaVoxelCount);
+    }
+
+    /// Where the aggregate sits and how bright it is. Centroid in X/Z, above
+    /// the TOP lava layer (not the centroid height, or N.L leaves the ground
+    /// around a pool unlit), and strength that grows with volume but is capped
+    /// at lavaLightFullCount so a lake cannot saturate.
+    [Test]
+    public void Lava_AggregateSitsAboveTheSurface_AndStrengthSaturates()
+    {
+        var c = LightingConfig.Active;
+        // Cells x 2..5, z 10, y 3 and y 7: centroid x = 3.5 voxels, top layer 7.
+        int count = 0; long sx = 0, sz = 0;
+        foreach (int y in new[] { 3, 7 })
+        for (int x = 2; x <= 5; x++) { count++; sx += x; sz += 10; }
+        LightSource l = LightSourceBuffer.LavaTileLight(new int3(0, 0, 0), count, sx, sz, 7, Materials.Lava);
+        Assert.AreEqual((3.5f + 0.5f) * 0.1f, l.x, 1e-5f);
+        Assert.AreEqual((10f + 0.5f) * 0.1f, l.z, 1e-5f);
+        Assert.AreEqual(0.8f + c.lavaLightLiftM, l.y, 1e-5f, "light must sit lift metres above the top lava face");
+
+        LightSource small = LightSourceBuffer.LavaTileLight(int3.zero, 4, 0, 0, 0, Materials.Lava);
+        LightSource full = LightSourceBuffer.LavaTileLight(int3.zero, (int)c.lavaLightFullCount, 0, 0, 0, Materials.Lava);
+        LightSource lake = LightSourceBuffer.LavaTileLight(int3.zero, 32768, 0, 0, 0, Materials.Lava);
+        Assert.Less(small.r, full.r, "a trickle must glow less than a pool");
+        Assert.AreEqual(full.r, lake.r, 1e-6f, "strength must saturate: a lake is not brighter than a full tile");
+        Assert.Greater(full.r, 0f);
+    }
+
+    /// THE STARVATION RULE (§H.1 failure 2). With more torches than the cap AND
+    /// lava in more tiles than its share, lava gets exactly its share and the
+    /// torches get the rest; with no lava, torches get the whole cap back.
+    /// MUTATION CHECK: drop the maxCount argument from Upload's SelectActive
+    /// call and the ActiveCount assertion goes red (torches + lava > cap).
+    [Test]
+    public void Lava_NeverStarvesPlacedTorches_OfTheirShareOfTheCap()
+    {
+        int cap = EngineConfig.MAX_ACTIVE_LIGHTS;
+        int share = LightingConfig.Active.lavaLightMaxSlots;
+        Assert.Greater(share, 0, "precondition: lava lighting is on by default");
+        Assert.Less(share, cap, "precondition: lava's share leaves room for torches");
+
+        for (int i = 0; i < cap + 8; i++) _lights.Register(new int3(i * 3, 10, 0), Materials.Torch);
+        for (int t = 0; t < share + 12; t++) _lights.Register(new int3(t * 32 + 5, 40, 64), Materials.Lava);
+
+        // Player right beside the lava, so nearest-first alone would pick lava.
+        _lights.Upload(new float3(1f, 4f, 6.4f));
+        Assert.AreEqual(cap, _lights.ActiveCount, "the cap still bounds the total");
+        Assert.AreEqual(share, _lights.LavaActiveCount, "lava took more than its share");
+        Assert.AreEqual(cap - share, _lights.ActiveCount - _lights.LavaActiveCount,
+            "placed torches lost slots to lava -- §H.1's starvation");
+
+        for (int t = 0; t < share + 12; t++) _lights.Unregister(new int3(t * 32 + 5, 40, 64));
+        _lights.Upload(new float3(1f, 4f, 6.4f));
+        Assert.AreEqual(0, _lights.LavaActiveCount);
+        Assert.AreEqual(cap, _lights.ActiveCount, "with no lava the torches must get the whole cap back");
+    }
+
+    /// Lava ALONE lights: no torches placed, one lava cell, and the upload
+    /// carries exactly one light -- the fast "no lights" path must not swallow it.
+    [Test]
+    public void Lava_AloneStillUploadsItsLight()
+    {
+        _lights.Register(new int3(3, 3, 3), Materials.Lava);
+        _lights.Upload(float3.zero);
+        Assert.AreEqual(1, _lights.ActiveCount);
+        Assert.AreEqual(1, _lights.LavaActiveCount);
+    }
+
     /// STAGE G. The three coloured torches must be real lights, must be
     /// SEPARABLE from the warm torch by colour, and must differ from it in
     /// NOTHING ELSE -- because G1 attributes any measured difference between

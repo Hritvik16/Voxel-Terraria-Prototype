@@ -196,11 +196,20 @@ namespace VoxelEngine.Rendering
             // rather than inheriting the old answer. The default is unchanged
             // (excluded), because changing a default on an unmeasured guess is
             // how the first Stage A "fix" went wrong.
-            if (!AllowMobileEmissives && MaterialRules.IsMobile(material)) return false;
-
             if (!MaterialRules.TryGetLight(material, out float r, out float g, out float b,
                                            out float rangeScale))
                 return false;
+
+            // DECISION 8 (2026-09-24): a mobile emissive is still not a point
+            // light of its own -- it is counted into its tile's AGGREGATE light
+            // instead (see the LAVA AGGREGATE block below), which is what lets
+            // lava light a cave without the two §H.1 failures. Returns false
+            // because this voxel is not itself a registered light.
+            if (!AllowMobileEmissives && MaterialRules.IsMobile(material))
+            {
+                AddLava(voxel, material);
+                return false;
+            }
 
             _registered[Key(voxel)] = new Registered
             {
@@ -217,11 +226,174 @@ namespace VoxelEngine.Rendering
         /// overwritten -- §6.6 only says emissives enqueue when placed, but a
         /// torch that keeps lighting a room after you mine it is a bug in any
         /// reading.
-        public bool Unregister(int3 voxel) => _registered.Remove(Key(voxel));
+        ///
+        /// Also removes the voxel from its lava tile's aggregate, if it was
+        /// lava; that removal does not count toward the return value, which
+        /// stays "a registered point light was removed".
+        public bool Unregister(int3 voxel)
+        {
+            RemoveLava(voxel);
+            return _registered.Remove(Key(voxel));
+        }
 
         /// Drops every light. Used when a world is torn down or a rig resets;
         /// never on the hot path.
-        public void Clear() { _registered.Clear(); ActiveCount = 0; }
+        public void Clear()
+        {
+            _registered.Clear();
+            _lavaVoxels.Clear();
+            _lavaTiles.Clear();
+            ActiveCount = 0;
+            LavaActiveCount = 0;
+        }
+
+        // =================================================================
+        // LAVA AGGREGATE -- one light per 32-voxel tile that contains lava
+        // (owner decision 8; PHASE_7_COMPLETION §H.2 Option 2)
+        // =================================================================
+        //
+        // §H.1 measured why lava cannot be one point light per voxel: the 32
+        // nearest lava voxels are 32 adjacent cells, so C.11 sums 32 copies of
+        // the same near-field light and saturates the wall to white; and the
+        // cap is global, so a lake takes every slot and the player's own
+        // torches go dark. One light per TILE fixes both: a 9,315-voxel lake
+        // becomes a handful of lights 3.2 m apart, and those lights are capped
+        // at LightingConfig.lavaLightMaxSlots, so placed torches always keep
+        // MAX_ACTIVE_LIGHTS minus that share. §3.8's furthest-first rule holds
+        // within each class.
+        //
+        // COST. The bookkeeping runs on the §8.3 edit path (one HashSet op and
+        // a few integer adds per lava write -- the fluid apply writes at most
+        // ~1,024 ops a frame). The per-frame part is over TILES, not voxels.
+        //
+        // WHERE THE LIGHT SITS: the tile's lava centroid in X/Z, and
+        // lavaLightLiftM above the tile's TOP lava layer, found from a per-tile
+        // layer histogram so it is exact under removal without rescanning.
+        // Above the surface, not at the centroid, because a light inside a
+        // pool would sit below the ground around it and N.L would leave that
+        // ground unlit (decision 7 keeps point-light N.L on).
+        //
+        // THE TILE is 32 voxels, the same edge FluidTileMap uses by default.
+        // It is not coupled to FluidTileMap (Rendering does not reference
+        // Simulation); it only needs to be coarse enough that one light per
+        // tile does not saturate, and fine enough that a pool's glow sits
+        // where the pool is.
+        public const int LavaTileShift = 5;
+        private const int LavaTileEdge = 1 << LavaTileShift;
+
+        private sealed class LavaTile
+        {
+            public int3 tile;
+            public byte material;
+            public int count;
+            public long sumX, sumZ;
+            public readonly int[] layer = new int[LavaTileEdge];
+        }
+
+        private readonly HashSet<long> _lavaVoxels = new HashSet<long>();
+        private readonly Dictionary<long, LavaTile> _lavaTiles = new Dictionary<long, LavaTile>();
+        private LightSource[] _lavaCand = new LightSource[16];
+        private float[] _lavaCandDist = new float[16];
+
+        /// Lava voxels counted into aggregates (not point lights).
+        public int LavaVoxelCount => _lavaVoxels.Count;
+        /// Tiles currently holding lava, i.e. aggregate lights that exist.
+        public int LavaTileCount => _lavaTiles.Count;
+        /// Aggregate lava lights uploaded on the last Upload() (<= the lava share).
+        public int LavaActiveCount { get; private set; }
+
+        private static long TileKey(int3 t) => Key(t);
+
+        private void AddLava(int3 v, byte material)
+        {
+            if (!_lavaVoxels.Add(Key(v))) return;           // idempotent, like Register
+            int3 t = v >> LavaTileShift;
+            long tk = TileKey(t);
+            if (!_lavaTiles.TryGetValue(tk, out LavaTile tile))
+            {
+                tile = new LavaTile { tile = t };
+                _lavaTiles[tk] = tile;
+            }
+            tile.material = material;
+            tile.count++;
+            tile.sumX += v.x;
+            tile.sumZ += v.z;
+            tile.layer[v.y & (LavaTileEdge - 1)]++;
+        }
+
+        private void RemoveLava(int3 v)
+        {
+            if (!_lavaVoxels.Remove(Key(v))) return;
+            int3 t = v >> LavaTileShift;
+            long tk = TileKey(t);
+            if (!_lavaTiles.TryGetValue(tk, out LavaTile tile)) return;
+            tile.count--;
+            tile.sumX -= v.x;
+            tile.sumZ -= v.z;
+            tile.layer[v.y & (LavaTileEdge - 1)]--;
+            if (tile.count <= 0) _lavaTiles.Remove(tk);
+        }
+
+        /// The aggregate light a lava tile emits. PURE over its inputs so
+        /// EditMode can pin the placement and scaling rules.
+        public static LightSource LavaTileLight(int3 tile, int count, long sumX, long sumZ, int topLayer,
+                                                byte material)
+        {
+            var c = LightingConfig.Active;
+            MaterialRules.TryGetLight(material, out float r, out float g, out float b, out float rangeScale);
+            float strength = c.lightIntensity * c.lavaLightIntensity *
+                             math.sqrt(math.saturate(count / c.lavaLightFullCount));
+            float topVoxelY = (tile.y << LavaTileShift) + topLayer + 1;       // top face of the top lava layer
+            return new LightSource
+            {
+                x = ((float)sumX / count + 0.5f) * 0.1f,
+                y = topVoxelY * 0.1f + c.lavaLightLiftM,
+                z = ((float)sumZ / count + 0.5f) * 0.1f,
+                r = r * strength, g = g * strength, b = b * strength,
+                range = c.lightRangeM * rangeScale * c.lavaLightRangeScale,
+                k = c.pointFalloffK,
+            };
+        }
+
+        /// Appends up to `maxSlots` lava aggregates to `dest` from `start`,
+        /// nearest to the player first. Returns how many were written.
+        private int SelectLava(float3 playerPosM, LightSource[] dest, int start, int maxSlots)
+        {
+            int nt = _lavaTiles.Count;
+            if (nt == 0 || maxSlots <= 0) return 0;
+            if (_lavaCand.Length < nt)
+            {
+                // Grows only when the number of lava TILES grows -- on edits,
+                // not per frame.
+                int cap = math.max(nt, _lavaCand.Length * 2);
+                _lavaCand = new LightSource[cap];
+                _lavaCandDist = new float[cap];
+            }
+            int n = 0;
+            foreach (LavaTile t in _lavaTiles.Values)
+            {
+                int top = LavaTileEdge - 1;
+                while (top > 0 && t.layer[top] == 0) top--;
+                LightSource ls = LavaTileLight(t.tile, t.count, t.sumX, t.sumZ, top, t.material);
+                _lavaCand[n] = ls;
+                _lavaCandDist[n] = math.distancesq(new float3(ls.x, ls.y, ls.z), playerPosM);
+                n++;
+            }
+            int count = math.min(n, math.min(maxSlots, dest.Length - start));
+            for (int slot = 0; slot < count; slot++)
+            {
+                int best = slot;
+                for (int i = slot + 1; i < n; i++)
+                    if (_lavaCandDist[i] < _lavaCandDist[best]) best = i;
+                if (best != slot)
+                {
+                    (_lavaCandDist[slot], _lavaCandDist[best]) = (_lavaCandDist[best], _lavaCandDist[slot]);
+                    (_lavaCand[slot], _lavaCand[best]) = (_lavaCand[best], _lavaCand[slot]);
+                }
+                dest[start + slot] = _lavaCand[slot];
+            }
+            return count;
+        }
 
         public bool IsRegistered(int3 voxel) => _registered.ContainsKey(Key(voxel));
 
@@ -249,7 +421,8 @@ namespace VoxelEngine.Rendering
         /// The first draft of this file did that; an array plus a count cannot.
         public static int SelectActive(Registered[] all, int allCount, float3 playerPosM,
                                        Registered[] scratch, float[] scratchDist,
-                                       LightSource[] dest)
+                                       LightSource[] dest,
+                                       int maxCount = EngineConfig.MAX_ACTIVE_LIGHTS)
         {
             int n = allCount;
             if (n > scratch.Length || n > scratchDist.Length)
@@ -289,7 +462,7 @@ namespace VoxelEngine.Rendering
             // Still allocation-free (§0.1 invariant 3) and still exactly
             // §3.8's rule: the kept set is the nearest, so the dropped set is
             // the furthest.
-            int count = math.min(n, math.min(dest.Length, EngineConfig.MAX_ACTIVE_LIGHTS));
+            int count = math.min(n, math.min(dest.Length, math.min(maxCount, EngineConfig.MAX_ACTIVE_LIGHTS)));
             for (int slot = 0; slot < count; slot++)
             {
                 int best = slot;
@@ -366,9 +539,10 @@ namespace VoxelEngine.Rendering
             // upload is still needed so the buffer is not whatever was in GPU
             // memory (§3.7's lesson), but exactly one, not one per frame.
             // ---------------------------------------------------------------
-            if (n == 0)
+            if (n == 0 && _lavaTiles.Count == 0)
             {
                 ActiveCount = 0;
+                LavaActiveCount = 0;
                 if (_uploadedCount != 0 || !_everUploaded)
                 {
                     for (int j = 0; j < _staging.Length; j++) _staging[j] = default;
@@ -383,8 +557,15 @@ namespace VoxelEngine.Rendering
             int i = 0;
             foreach (Registered reg in _registered.Values) _scratch[i++] = reg;
 
-            ActiveCount = SelectActive(_scratch, n, playerPosM,
-                                       _scratchSecondary(n), _scratchDist, _staging);
+            // Lava's share first, so torches get everything else: placed
+            // torches always keep MAX_ACTIVE_LIGHTS - lavaLightMaxSlots, and
+            // all of it when no lava is near (decision 8).
+            int lavaSlots = math.min(_lavaTiles.Count, LightingConfig.Active.lavaLightMaxSlots);
+            int torches = SelectActive(_scratch, n, playerPosM,
+                                       _scratchSecondary(n), _scratchDist, _staging,
+                                       EngineConfig.MAX_ACTIVE_LIGHTS - lavaSlots);
+            LavaActiveCount = SelectLava(playerPosM, _staging, torches, lavaSlots);
+            ActiveCount = torches + LavaActiveCount;
 
             // Entries past ActiveCount are stale from a previous frame. They are
             // never read (the shader loops to _ActiveLightCount) but leaving a

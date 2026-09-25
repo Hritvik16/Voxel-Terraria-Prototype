@@ -377,7 +377,7 @@ public class Playground : MonoBehaviour
         if (HasArg("-playgroundshots") || HasArg("-gputrace") || HasArg("-p7stress") ||
             HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
-            HasArg("-upscaleab"))
+            HasArg("-upscaleab") || HasArg("-lavalight"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
@@ -387,7 +387,8 @@ public class Playground : MonoBehaviour
         // shots are meant to be looked at as pictures of the lighting; a perf
         // panel and a hotbar across them defeats the point.
         if (HasArg("-p7stress") || HasArg("-daysweep") || HasArg("-presetshots") ||
-            HasArg("-phase7demo") || HasArg("-roofskipab") || HasArg("-upscaleab")) DebugHideUi = true;
+            HasArg("-phase7demo") || HasArg("-roofskipab") || HasArg("-upscaleab") ||
+            HasArg("-lavalight")) DebugHideUi = true;
 
         RegisterDefaultToys();
         _ready = true;

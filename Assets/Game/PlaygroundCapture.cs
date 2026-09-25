@@ -1459,6 +1459,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-phase7demo")) { yield return Phase7Demo(); yield break; }
         if (HasFlag("-roofskipab")) { yield return RoofSkipAb(); yield break; }
         if (HasFlag("-upscaleab")) { yield return UpscaleAb(); yield break; }
+        if (HasFlag("-lavalight")) { yield return LavaLightShots(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;
         Screen.SetResolution(1920, 1080, false);
 
@@ -1775,6 +1776,12 @@ public partial class PlaygroundCapture : MonoBehaviour
         RaymarchFeature.ShadowQualityLevel = ArgInt("-shadowlevel", 0);
         string upscaleNote = ApplyUpscaleArgs();
 
+        // -lavaslots N: decision 8's A/B arm. Lava's share of §3.8's cap; 0
+        // reproduces pre-decision-8 behaviour exactly (lava lights nothing).
+        int lavaSlots = ArgInt("-lavaslots", -1);
+        if (lavaSlots >= 0) LightingConfig.Active.lavaLightMaxSlots = lavaSlots;
+        var lightDriver = FindAnyObjectByType<VoxelEngine.Rendering.LightingDriver>();
+
         // The shadow-distance clamp, re-exposed here because §F.4 "disproved" it
         // AT THE WRONG POSE. That sweep ran inside the arena pit, where almost
         // nothing is sunlit and almost no shadow ray is traced, so a 12x change
@@ -1843,6 +1850,7 @@ public partial class PlaygroundCapture : MonoBehaviour
           $"ambient {LightingConfig.Active.ambientIntensity:F2}");
         L($"clock PINNED at {SunCycle.ClockString()}  sun {SunCycle.ElevationDegrees:F1} deg ({SunCycle.PhaseName})");
         L($"upscale {upscaleNote ?? "not set (as shipped)"}");
+        L($"lava light share {LightingConfig.Active.lavaLightMaxSlots} of {EngineConfig.MAX_ACTIVE_LIGHTS} slots");
         L($"shadow roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}   look {(RaymarchFeature.LookOverride >= 0 ? RaymarchFeature.LookOverride : LightingConfig.Active.look)}");
         L($"DURATION {totalSeconds / 60} min CONTINUOUS -- no cooldown, no pause. This is the");
         L("point: every other probe in this project reports the first 30 s of a cold machine.");
@@ -1874,6 +1882,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         float worstWindowMs = 0f, worstAtMin = 0f;
         float angle = 0f;
         long fluidTicksAtStart = pg != null ? pg.DebugFluidTicks : -1;
+        long lightUploadsAtStart = lightDriver != null ? lightDriver.Lights.UploadsPerformed : -1;
 
         while (Time.realtimeSinceStartup - runStart < totalSeconds)
         {
@@ -1971,6 +1980,15 @@ public partial class PlaygroundCapture : MonoBehaviour
             L("");
             L($"  fluid CA ticks/s {(pg.DebugFluidTicks - fluidTicksAtStart) / Math.Max(1f, secs):F1}   " +
               "(one tick per readback round-trip; this is fluid SPEED)");
+        }
+        if (lightDriver != null)
+        {
+            var lb = lightDriver.Lights;
+            float secs = Time.realtimeSinceStartup - runStart;
+            L($"  lights at end: {lb.ActiveCount} active ({lb.LavaActiveCount} lava aggregates), " +
+              $"{lb.RegisteredCount} point lights, {lb.LavaVoxelCount} lava voxels in {lb.LavaTileCount} tiles");
+            L($"  light-buffer uploads/s {(lb.UploadsPerformed - lightUploadsAtStart) / Math.Max(1f, secs):F2}   " +
+              "(SetData on change only; each one is a potential GPU sync -- PHASE_7 §A)");
         }
         L("");
         L($"  FIRST 30 s window: {firstWindowMs:F2} ms = {1000f / firstWindowMs:F1} FPS   <- what a cooled short arm reports");
