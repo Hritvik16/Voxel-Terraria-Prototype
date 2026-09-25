@@ -161,6 +161,11 @@ public class RaymarchFeature : ScriptableRendererFeature
     /// Within-material colour variation (§M.4 item 1). &lt; 0 defers to
     /// LightingConfig; 0 off, 1 on.
     public static int MaterialVariationOverride = -1;
+    /// >= 0 forces LightingConfig.look without touching the file (the
+    /// Playground's U key and the -phase7demo A/B shots). -1 = use the config.
+    public static int LookOverride = -1;
+
+    private static Vector4 V4(Unity.Mathematics.float3 v) => new Vector4(v.x, v.y, v.z, 0f);
 
     public static bool CollectShadowStats = false;
     public static GraphicsBuffer ShadowStatsBuffer { get; private set; }
@@ -240,6 +245,9 @@ public class RaymarchFeature : ScriptableRendererFeature
             public int tonemap;
             public float exposure;
             public float tonemapWhite;
+            public int look;
+            public Vector4 lookSkyZenith, lookSkyHorizon, lookSkyHalo, lookSun, lookAmbient, lookMoon;
+            public float lookShadowDarkness, lookHazeDensity;
 
             public bool useStripped;
             public bool useMemoryProbe;
@@ -388,6 +396,18 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.tonemap = TonemapOverride >= 0 ? TonemapOverride : cfg.tonemap;
                 passData.exposure = cfg.exposure;
                 passData.tonemapWhite = cfg.tonemapWhite;
+
+                // LightingConfig.look -- see the LOOK 1 block in Raymarch.compute.
+                passData.look = LookOverride >= 0 ? LookOverride : cfg.look;
+                float hrs = SunCycle.Hours;
+                passData.lookSkyZenith = V4(SunCycle.LookSkyZenithAt(hrs));
+                passData.lookSkyHorizon = V4(SunCycle.LookSkyHorizonAt(hrs));
+                passData.lookSkyHalo = V4(SunCycle.LookSunHaloAt(hrs));
+                passData.lookSun = V4(SunCycle.LookSunAt(hrs));
+                passData.lookAmbient = V4(SunCycle.LookAmbientAt(hrs));
+                passData.lookMoon = V4(SunCycle.LookMoonAt(hrs));
+                passData.lookShadowDarkness = cfg.lookShadowDarkness;
+                passData.lookHazeDensity = cfg.hazeDensity;
 
                 Unity.Mathematics.int3 dims = clip.WindowDimsBricks;
                 passData.windowDimsBricks = new Vector3Int(dims.x, dims.y, dims.z);
@@ -597,6 +617,15 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_Tonemap", data.tonemap);
                         cmd.SetComputeFloatParam(data.compute, "_Exposure", data.exposure);
                         cmd.SetComputeFloatParam(data.compute, "_TonemapWhite", data.tonemapWhite);
+                        cmd.SetComputeIntParam(data.compute, "_Look", data.look);
+                        cmd.SetComputeVectorParam(data.compute, "_LookSkyZenith", data.lookSkyZenith);
+                        cmd.SetComputeVectorParam(data.compute, "_LookSkyHorizon", data.lookSkyHorizon);
+                        cmd.SetComputeVectorParam(data.compute, "_LookSkyHalo", data.lookSkyHalo);
+                        cmd.SetComputeVectorParam(data.compute, "_LookSun", data.lookSun);
+                        cmd.SetComputeVectorParam(data.compute, "_LookAmbient", data.lookAmbient);
+                        cmd.SetComputeVectorParam(data.compute, "_LookMoon", data.lookMoon);
+                        cmd.SetComputeFloatParam(data.compute, "_LookShadowDarkness", data.lookShadowDarkness);
+                        cmd.SetComputeFloatParam(data.compute, "_LookHazeDensity", data.lookHazeDensity);
                     }
 
                     if (!data.useMemoryProbe)

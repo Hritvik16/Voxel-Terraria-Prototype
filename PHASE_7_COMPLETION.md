@@ -738,6 +738,31 @@ Both amendments are *in force* and *implemented*, and CLAUDE.md cites 8.8 in its
 ground-truth ordering — but no `.md` for either is in the repo and `git log`
 shows neither was ever deleted.
 
+### 10. The Brickmap look is now the default (`LightingConfig.look = 1`), and it deviates from C.9 — added 2026-09-24
+Built at the owner's request ("the visual changes don't affect the core
+architecture, go ahead and make them"), with the comparison repo's recorded
+decision "Brickmap is the look reference". Presentation only: traversal, both
+shadow rays, the light buffer and every §13 mechanism are shared by both looks.
+
+**What changed, and why most of it is one fact.** The Brickmap renders in
+**Gamma** colour space; this project renders in **Linear**, so URP sRGB-encodes
+every value the kernel writes — lifting and desaturating it. Look 1 shades in
+display space and converts once at the end (`LookToLinear`), and ports the
+Brickmap's palette (`MaterialPalette.OfLook`, pinned by `PaletteSyncTests`), its
+three-tone grass, face shade, sky gradient + sun halo and squared haze. The haze
+also makes the 290 m edge fade into sky, which is Amendment 8.11's Option D.
+
+**THE SPEC DEVIATION, flagged not hidden:** look 1 floors the sun term
+(`0.8·N·L + 0.2`) and lets a shadowed face keep `1 − lookShadowDarkness` (25%) of
+the sun. C.9 specifies `max(0, N·L)` and full occlusion. The floor is what removes
+the black terrace contours (§M). Sealed caves stay dark because the floor is
+scaled by sky visibility. **Look 0 is C.9 byte-for-byte** and remains one
+config value (or `U` in the Playground) away.
+
+**Owner's call:** keep look 1 as the default, keep it with a C.9-exact sun term
+(`lookShadowDarkness 1.0`), or revert to look 0. `./run-phase7-demo.sh` shows both
+side by side (section 1 of its index.html).
+
 ---
 
 ## A. STAGE A — THE STUTTER: Phase 7 DID regress the frame, and it is NOT the shadow ray

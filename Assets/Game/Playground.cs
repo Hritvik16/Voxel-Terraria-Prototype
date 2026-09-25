@@ -460,6 +460,17 @@ public class Playground : MonoBehaviour
                 _status = $"SOFT shadows (C.10, k_soft = {LightingConfig.Active.kSoft:F3})";
             }
         }));
+        // LightingConfig.look A/B without touching the file: flips between the
+        // Brickmap look (1) and C.9 as specified (0), like K does for k_soft.
+        Register(new Toy(KeyCode.U, "look: Brickmap <-> Phase 7", () =>
+        {
+            int cur = RaymarchFeature.LookOverride >= 0 ? RaymarchFeature.LookOverride
+                                                        : LightingConfig.Active.look;
+            RaymarchFeature.LookOverride = cur == 1 ? 0 : 1;
+            _status = RaymarchFeature.LookOverride == 1
+                ? "LOOK: Brickmap (display-space shading, sky gradient, haze) — U to compare"
+                : "LOOK: Phase 7 / C.9 as specified (linear + ACES) — U to compare";
+        }));
         // STAGE C's preset switch. Goes through the FILE (see
         // LightingPresets.Apply), so the chosen preset ends up sitting in the
         // very file the owner was told to edit -- tweaking from there needs no

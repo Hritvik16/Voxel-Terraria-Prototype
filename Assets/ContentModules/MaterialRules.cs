@@ -461,6 +461,50 @@ public static class MaterialPalette
 
     public static Rgb Of(byte material) => _table[material];
 
+    // ---------------------------------------------------------------------
+    // THE LOOK-1 PALETTE (LightingConfig.look = 1, the Brickmap look).
+    //
+    // Taken verbatim from VoxelTerraria_Brickmap's NewMaterialPalette.asset,
+    // through that repo's own PaletteMap (main material -> Brickmap slot). These
+    // are DISPLAY-space values -- that engine renders in Gamma -- and the shader
+    // treats them as such. Deliberately more saturated than `_table` above: the
+    // "natural and muted" direction above was authored for a linear pipeline
+    // that brightens and desaturates everything on output, and the owner's
+    // recorded preference is the Brickmap's look.
+    //
+    // Mirrored in Raymarch.compute's MaterialAlbedoLook(); PaletteSyncTests
+    // pins the two together exactly as it does for MaterialAlbedo.
+    // Deepstone and MossyStone follow PaletteMap (stone and sandstone/mud); the
+    // Brickmap has no honey, so honey keeps its muted amber.
+    // ---------------------------------------------------------------------
+    private static readonly Rgb[] _lookTable = BuildLookTable();
+
+    private static Rgb[] BuildLookTable()
+    {
+        var t = new Rgb[256];
+        for (int i = 0; i < 256; i++) t[i] = Missing;
+        t[Materials.Air]         = new Rgb(0.00f, 0.00f, 0.00f);
+        t[Materials.Stone]       = new Rgb(0.48f, 0.48f, 0.50f);
+        t[Materials.Grass]       = new Rgb(0.33f, 0.55f, 0.24f);
+        t[Materials.Sand]        = new Rgb(0.83f, 0.74f, 0.51f);
+        t[Materials.MossyStone]  = new Rgb(0.72f, 0.60f, 0.42f);
+        t[Materials.Water]       = new Rgb(0.12f, 0.34f, 0.62f);
+        t[Materials.Snow]        = new Rgb(0.93f, 0.95f, 0.97f);
+        t[Materials.Sandstone]   = new Rgb(0.72f, 0.60f, 0.42f);
+        t[Materials.JungleGrass] = new Rgb(0.20f, 0.46f, 0.18f);
+        t[Materials.Deepstone]   = new Rgb(0.48f, 0.48f, 0.50f);
+        t[Materials.Lava]        = new Rgb(0.95f, 0.35f, 0.08f);
+        t[Materials.Honey]       = new Rgb(0.68f, 0.48f, 0.13f);
+        t[Materials.Obsidian]    = new Rgb(0.09f, 0.07f, 0.12f);
+        t[Materials.Torch]       = new Rgb(1.00f, 0.70f, 0.35f);
+        t[Materials.TorchBlue]   = new Rgb(0.40f, 0.60f, 1.00f);
+        t[Materials.TorchGreen]  = new Rgb(0.45f, 1.00f, 0.50f);
+        t[Materials.TorchPurple] = new Rgb(0.78f, 0.45f, 1.00f);
+        return t;
+    }
+
+    public static Rgb OfLook(byte material) => _lookTable[material];
+
     /// True for materials the shader should treat as self-lit -- they skip the
     /// ambient-occlusion and hemisphere darkening so they stay hot.
     /// NOT a lighting system: nothing here emits light onto anything else.

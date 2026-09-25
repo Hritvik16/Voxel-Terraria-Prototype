@@ -199,6 +199,62 @@ public static class SunCycle
 
     public static float3 Ambient => AmbientAt(Hours);
 
+    // =====================================================================
+    // LOOK 1 (the Brickmap look) -- LightingConfig.look. Every value below is
+    // DISPLAY-space, like the engine it is taken from; the shader converts to
+    // linear once, at the end. The day factor is the Brickmap's own
+    // `saturate(sunDir.y * 4)`: full day from ~14.5 degrees up, zero at the
+    // horizon, so sky, sun and ambient all fade together through dusk.
+    // =====================================================================
+
+    public static float LookDayFactorAt(float hours) => math.saturate(DirectionAt(hours).y * 4f);
+
+    private static float3 V(float r, float g, float b) => new float3(r, g, b);
+
+    public static float3 LookSkyZenithAt(float hours)
+    {
+        var c = LightingConfig.Active;
+        return math.lerp(V(c.nightZenithR, c.nightZenithG, c.nightZenithB),
+                         V(c.skyZenithR, c.skyZenithG, c.skyZenithB), LookDayFactorAt(hours));
+    }
+
+    public static float3 LookSkyHorizonAt(float hours)
+    {
+        var c = LightingConfig.Active;
+        return math.lerp(V(c.nightHorizonR, c.nightHorizonG, c.nightHorizonB),
+                         V(c.skyHorizonR, c.skyHorizonG, c.skyHorizonB), LookDayFactorAt(hours));
+    }
+
+    /// The sun's colour in the sky (the halo), fading to black at night and
+    /// warming toward `golden` as it nears the horizon -- 0 warmth at 25
+    /// degrees and above, full at 2 degrees (the comparison Playground's curve).
+    public static float3 LookSunHaloAt(float hours)
+    {
+        var c = LightingConfig.Active;
+        float el = ElevationDegreesAt(hours);
+        float warmth = math.saturate(1f - (el - 2f) / 23f);
+        float3 halo = math.lerp(V(c.sunHaloR, c.sunHaloG, c.sunHaloB), V(c.goldenR, c.goldenG, c.goldenB), warmth);
+        return halo * LookDayFactorAt(hours);
+    }
+
+    /// Direct sun term: the halo times `lookSunScale` (the Brickmap's 1.5).
+    public static float3 LookSunAt(float hours) => LookSunHaloAt(hours) * LightingConfig.Active.lookSunScale;
+
+    public static float3 LookAmbientAt(float hours)
+    {
+        var c = LightingConfig.Active;
+        float d = LookDayFactorAt(hours);
+        float3 day = V(c.skyHorizonR, c.skyHorizonG, c.skyHorizonB) * c.lookAmbientStrength;
+        float3 night = V(c.nightHorizonR, c.nightHorizonG, c.nightHorizonB) * c.lookNightAmbient;
+        return math.lerp(night, day, d);
+    }
+
+    public static float3 LookMoonAt(float hours)
+    {
+        var c = LightingConfig.Active;
+        return V(c.moonR, c.moonG, c.moonB) * (1f - LookDayFactorAt(hours));
+    }
+
     /// A short human label for the HUD and for report lines. Derived from
     /// elevation so it cannot drift from what is on screen.
     public static string PhaseNameAt(float hours)

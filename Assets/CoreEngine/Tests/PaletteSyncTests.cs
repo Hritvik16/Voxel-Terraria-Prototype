@@ -47,11 +47,11 @@ public class PaletteSyncTests
 {
     private const string ShaderPath = "Assets/CoreEngine/Rendering/Raymarch.compute";
 
-    private static Dictionary<byte, float[]> ParseShaderPalette()
+    private static Dictionary<byte, float[]> ParseShaderPalette(string fn = "MaterialAlbedo")
     {
         string src = File.ReadAllText(ShaderPath);
-        int start = src.IndexOf("float3 MaterialAlbedo(uint mat)");
-        Assert.Greater(start, 0, "MaterialAlbedo not found in " + ShaderPath);
+        int start = src.IndexOf("float3 " + fn + "(uint mat)");
+        Assert.Greater(start, 0, fn + " not found in " + ShaderPath);
         int end = src.IndexOf('}', start);
         string body = src.Substring(start, end - start);
 
@@ -68,6 +68,37 @@ public class PaletteSyncTests
             };
         }
         return map;
+    }
+
+    /// LightingConfig.look = 1's palette: MaterialPalette.OfLook against the
+    /// shader's MaterialAlbedoLook, by the same parse. Also pins that the two
+    /// tables are genuinely different, so a copy-paste of one over the other
+    /// cannot pass silently.
+    [Test]
+    public void LookPalette_MatchesShader_AndDiffersFromThePhase7Palette()
+    {
+        var shader = ParseShaderPalette("MaterialAlbedoLook");
+        byte[] authored =
+        {
+            Materials.Stone, Materials.Grass, Materials.Sand, Materials.MossyStone,
+            Materials.Water, Materials.Snow, Materials.Sandstone, Materials.JungleGrass,
+            Materials.Deepstone, Materials.Lava, Materials.Honey, Materials.Obsidian,
+            Materials.Torch, Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple,
+        };
+        foreach (byte id in authored)
+        {
+            Assert.IsTrue(shader.ContainsKey(id), $"material {id} missing from MaterialAlbedoLook");
+            var cpu = MaterialPalette.OfLook(id);
+            var missing = MaterialPalette.Missing;
+            Assert.IsFalse(cpu.R == missing.R && cpu.G == missing.G && cpu.B == missing.B,
+                $"material {id} has no look-1 colour");
+            Assert.AreEqual(cpu.R, shader[id][0], 0.0005f, $"material {id} red differs (CPU vs shader, look 1)");
+            Assert.AreEqual(cpu.G, shader[id][1], 0.0005f, $"material {id} green differs (CPU vs shader, look 1)");
+            Assert.AreEqual(cpu.B, shader[id][2], 0.0005f, $"material {id} blue differs (CPU vs shader, look 1)");
+        }
+        var g0 = MaterialPalette.Of(Materials.Grass);
+        var g1 = MaterialPalette.OfLook(Materials.Grass);
+        Assert.Greater(System.Math.Abs(g0.G - g1.G), 0.05f, "look-1 grass should not equal the Phase 7 grass");
     }
 
     [Test]

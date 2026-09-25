@@ -566,6 +566,86 @@ float3 MaterialAlbedo(uint mat)
     return float3(0.90, 0.10, 0.80);                     // unauthored -> obvious magenta
 }
 
+// ===========================================================================
+// LOOK 1 -- THE BRICKMAP LOOK (LightingConfig.look; 0 = C.9 exactly as before)
+//
+// Everything in this block is DISPLAY-space, because the engine it reproduces
+// (VoxelTerraria_Brickmap) renders in Gamma colour space: its numbers go to the
+// screen as-is. This project renders in Linear, so URP sRGB-encodes whatever
+// the kernel writes -- which lifts and desaturates every value. That encode is
+// the largest single reason this project read as washed out beside it. The
+// look-1 path therefore shades in display space and calls LookToLinear() ONCE,
+// on the final colour, so the encode lands back on the Brickmap's value.
+//
+// Presentation only: nothing here is read by traversal or by any shadow ray.
+// All colours arrive precomputed for the time of day from SunCycle.Look*.
+// ===========================================================================
+int    _Look;
+float4 _LookSkyZenith;
+float4 _LookSkyHorizon;
+float4 _LookSkyHalo;       // the sun's colour in the sky (x day factor)
+float4 _LookSun;           // direct sun term colour (halo x lookSunScale)
+float4 _LookAmbient;
+float4 _LookMoon;
+float  _LookShadowDarkness;
+float  _LookHazeDensity;
+
+float3 LookToLinear(float3 c) { return pow(saturate(c), 2.2); }
+
+// Sky gradient + sun halo for a view direction. Also the haze target, so
+// distant terrain fades into exactly the sky behind it.
+float3 LookAtmosphere(float3 dir)
+{
+    float3 baseSky = lerp(_LookSkyHorizon.rgb, _LookSkyZenith.rgb, saturate(dir.y * 0.5 + 0.5));
+    float sunHighlight = pow(max(0.0, dot(dir, normalize(_SunDir))), 8.0);
+    return lerp(baseSky, _LookSkyHalo.rgb, sunHighlight);
+}
+
+// MIRRORS MaterialPalette.OfLook in MaterialRules.cs (the authoritative
+// table). PaletteSyncTests parses this function exactly as it does
+// MaterialAlbedo. Change a colour in BOTH places.
+float3 MaterialAlbedoLook(uint mat)
+{
+    if (mat == 2u)  return float3(0.480, 0.480, 0.500);  // Stone
+    if (mat == 3u)  return float3(0.330, 0.550, 0.240);  // Grass
+    if (mat == 4u)  return float3(0.830, 0.740, 0.510);  // Sand
+    if (mat == 5u)  return float3(0.720, 0.600, 0.420);  // MossyStone
+    if (mat == 6u)  return float3(0.120, 0.340, 0.620);  // Water
+    if (mat == 7u)  return float3(0.930, 0.950, 0.970);  // Snow
+    if (mat == 8u)  return float3(0.720, 0.600, 0.420);  // Sandstone
+    if (mat == 9u)  return float3(0.200, 0.460, 0.180);  // JungleGrass
+    if (mat == 10u) return float3(0.480, 0.480, 0.500);  // Deepstone
+    if (mat == 11u) return float3(0.950, 0.350, 0.080);  // Lava
+    if (mat == 12u) return float3(0.680, 0.480, 0.130);  // Honey
+    if (mat == 13u) return float3(0.090, 0.070, 0.120);  // Obsidian
+    if (mat == 14u) return float3(1.000, 0.700, 0.350);  // Torch
+    if (mat == 15u) return float3(0.400, 0.600, 1.000);  // TorchBlue
+    if (mat == 16u) return float3(0.450, 1.000, 0.500);  // TorchGreen
+    if (mat == 17u) return float3(0.780, 0.450, 1.000);  // TorchPurple
+    return float3(0.90, 0.10, 0.80);                     // unauthored -> obvious magenta
+}
+
+// The Brickmap's "Lay of the Land" colour blend, ported with its constants:
+// green materials drift between lush, olive and deep tones in blocky patches
+// (hash of floor(pos * 0.1) and floor(pos * 0.5) there; >> 3 and >> 1 here,
+// bitwise per this project's coordinate rule), plus +/-4% per voxel on all.
+float3 LookAlbedo(uint mat, int3 voxel)
+{
+    float3 baseColor = MaterialAlbedoLook(mat);
+    float noiseLarge  = VoxelHash(voxel >> 3);
+    float noiseMedium = VoxelHash(voxel >> 1);
+    float noiseDetail = (VoxelHash(voxel) - 0.5) * 0.08;
+    if (baseColor.g > baseColor.r && baseColor.g > baseColor.b)
+    {
+        float3 colorLush  = baseColor * float3(1.1, 1.1, 0.8);
+        float3 colorOlive = baseColor * float3(0.8, 0.9, 0.6);
+        float3 colorDeep  = baseColor * float3(0.5, 0.7, 0.5);
+        float3 mixColor = lerp(colorLush, colorOlive, smoothstep(0.2, 0.8, noiseLarge));
+        baseColor = lerp(mixColor, colorDeep, smoothstep(0.3, 0.9, noiseMedium));
+    }
+    return baseColor + noiseDetail;
+}
+
 // Self-lit materials skip the darkening terms so they stay hot. This is a
 // SHADING CHEAT, not a light source: nothing here illuminates anything else.
 // Real emission is Phase 7 (§6.5).
@@ -2033,10 +2113,65 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
     }
 
     float4 color = _SkyColor;
+    if (_Look == 1 && _UseDevColors != 0) color = float4(LookToLinear(LookAtmosphere(rayDir)), 1.0);
     if (hit)
     {
         float ndotl = max(0.2, dot(float3(normal), normalize(float3(0.5, 1.0, 0.2))));
-        if (_UseDevColors != 0)
+        if (_UseDevColors != 0 && _Look == 1)
+        {
+            // ---- LOOK 1: the Brickmap's shading, term for term (see the
+            // block above MaterialAlbedoLook). Shares sunVis / skyVis / the
+            // light buffer / FaceAO with C.9 below; only the combine differs.
+            uint lm = mat;
+            bool selfLit = MaterialIsSelfLit(lm);
+            float3 baseColor = LookAlbedo(lm, voxel);
+            float3 nF = float3(normal);
+            float3 sd = normalize(_SunDir);
+
+            // Face shade: tops bright, sides distinct (the Brickmap's constants).
+            float3 ln = normalize(nF + float3(0.0, 0.65, 0.0));
+            float faceShade = saturate(ln.y) * 0.6 + saturate(abs(ln.x)) * 0.2 + 0.2;
+            float softened = lerp(0.4, 1.0, faceShade);
+
+            // Floored sun term -- a face turned from the sun keeps 20%, a
+            // shadowed face keeps (1 - darkness). This is what removes the black
+            // terrace contours. skyOpen keeps sealed caves dark: with no sky
+            // visibility the shadow floor collapses to the underground floor.
+            float sunLight = saturate(dot(nF, sd) * 0.8 + 0.2);
+            float skyOpen = lerp(_UndergroundAmbientFloor, 1.0, skyVis);
+            float sunExposure = lerp((1.0 - _LookShadowDarkness) * skyOpen, 1.0, sunVis);
+            float3 direct = _LookSun.rgb * sunLight * sunExposure * softened;
+            float moonLight = saturate(dot(nF, -sd) * 0.8 + 0.2);
+            direct += _LookMoon.rgb * moonLight * softened * skyOpen;
+
+            // VAO on the ambient term only, with the Brickmap's remap.
+            float vao = 1.0;
+            if (_ShadeAO != 0 && !selfLit)
+            {
+                float3 hitP = rayStart + rayDir * currentDist;
+                float3 inVoxel = hitP - (float3(voxel) + 0.5);
+                vao = FaceAO(voxel, normal, inVoxel, _WindowDimsBricks);
+                vao = lerp(0.15, 1.0, pow(smoothstep(0.0, 1.0, vao), 1.2));
+            }
+            float3 ambient = _LookAmbient.rgb * skyOpen * vao;
+
+            float3 hitPosM = (rayStart + rayDir * currentDist) * 0.1;
+            float3 pointTerm = SumPointLights(hitPosM, nF);
+
+            float3 lit = selfLit ? saturate(baseColor * 1.35 + 0.06)
+                                 : baseColor * (direct + ambient + pointTerm);
+            lit += MaterialEmissiveTint(lm) * MaterialEmissive(lm);
+
+            // Squared distance haze into the sky behind the pixel.
+            if (_ShadeFog != 0)
+            {
+                float range = (_MaxRayDistance > 0.0) ? _MaxRayDistance : 1280.0;
+                float d = saturate(currentDist / range);
+                lit = lerp(lit, LookAtmosphere(rayDir), saturate(d * d * _LookHazeDensity));
+            }
+            color = float4(LookToLinear(lit), 1.0);
+        }
+        else if (_UseDevColors != 0)
         {
             // NEW: developer material colors + per-voxel grain. Not final art -
             // a cheap, explicitly-flagged debug palette so individual voxels

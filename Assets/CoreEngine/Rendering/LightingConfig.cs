@@ -224,6 +224,66 @@ public sealed class LightingConfig
     public float sunArcTilt = 0.25f;
 
     // =====================================================================
+    // THE LOOK -- which shading model the final combine uses (2026-09-24)
+    // =====================================================================
+
+    /// 1 = THE BRICKMAP LOOK (default). The owner's recorded decision is that
+    ///     VoxelTerraria_Brickmap is the look reference. This path reproduces
+    ///     that engine's shading from its own source: its palette (mirrored in
+    ///     MaterialPalette.OfLook), its three-tone grass, its face shade, its
+    ///     floored sun term (a shadowed face keeps 25% of the sun instead of
+    ///     going black), a zenith/horizon sky with a sun halo, squared distance
+    ///     haze, and NO tone curve -- because that engine renders in GAMMA
+    ///     colour space and its numbers are display values. The shader converts
+    ///     the result to linear at the very end so URP's sRGB encode shows the
+    ///     same value that engine shows. That conversion, not any single colour,
+    ///     is most of why this project looked washed out beside it.
+    /// 0 = C.9 as specified (§6.5), the look every Phase 7 document describes.
+    ///     Kept byte-for-byte so every earlier screenshot stays reproducible.
+    ///
+    /// PRESENTATION ONLY. Traversal, shadow rays, the sky probe, the light
+    /// buffer and every §13 mechanism are shared by both looks; only the
+    /// colour maths after them differs. NOTE THE ONE SPEC DEVIATION: look 1
+    /// floors N.L (0.8*N.L + 0.2) and lets shadowed faces keep
+    /// (1 - lookShadowDarkness) of the sun, where C.9 says max(0, N.L) and
+    /// full occlusion. That is the Brickmap's model and the fix for the black
+    /// terrace contours; it is flagged in PHASE_7_COMPLETION.md, not hidden.
+    public int look = 1;
+
+    /// Sky gradient by day: zenith straight up, horizon at eye level. Also the
+    /// haze target, and the horizon colour is the ambient light's colour.
+    public float skyZenithR = 0.20f, skyZenithG = 0.40f, skyZenithB = 0.80f;
+    public float skyHorizonR = 0.60f, skyHorizonG = 0.80f, skyHorizonB = 1.00f;
+
+    /// The same two colours at night. Night is dark blue, not void.
+    public float nightZenithR = 0.02f, nightZenithG = 0.02f, nightZenithB = 0.06f;
+    public float nightHorizonR = 0.10f, nightHorizonG = 0.11f, nightHorizonB = 0.22f;
+
+    /// Sun colour when high, and the colour it warms toward near the horizon.
+    public float sunHaloR = 1.00f, sunHaloG = 0.90f, sunHaloB = 0.70f;
+    public float goldenR = 1.00f, goldenG = 0.62f, goldenB = 0.32f;
+
+    /// Direct sun multiplier (the Brickmap's `sun_light * 1.5`).
+    public float lookSunScale = 1.5f;
+
+    /// Ambient strength by day, as a fraction of the horizon colour (0.3 in the
+    /// Brickmap), and at night as a fraction of the night horizon colour.
+    public float lookAmbientStrength = 0.30f;
+    public float lookNightAmbient = 0.90f;
+
+    /// How much of the sun a SHADOWED face loses. 0.75 = a face in shadow still
+    /// gets 25% of the direct term. 1.0 = C.9's full occlusion.
+    public float lookShadowDarkness = 0.75f;
+
+    /// Direct moonlight at night, from opposite the sun. No shadow ray.
+    public float moonR = 0.16f, moonG = 0.19f, moonB = 0.30f;
+
+    /// Distance haze: fog = saturate((d / renderRange)^2 * hazeDensity).
+    /// 1.2 is the "restrained haze" the owner chose in the comparison repo;
+    /// the Brickmap ships 2.5.
+    public float hazeDensity = 1.2f;
+
+    // =====================================================================
     // Validation
     // =====================================================================
 
@@ -277,6 +337,35 @@ public sealed class LightingConfig
         tonemapWhite     = Fix(tonemapWhite, 0.1f, 64f, 2.2f, nameof(tonemapWhite), notes);
         if (tonemap < 0 || tonemap > 2)
         { notes.Append($"{nameof(tonemap)} {tonemap}->2; "); tonemap = 2; }
+
+        if (look < 0 || look > 1)
+        { notes.Append($"{nameof(look)} {look}->1; "); look = 1; }
+        skyZenithR = Fix(skyZenithR, 0f, 1f, 0.20f, nameof(skyZenithR), notes);
+        skyZenithG = Fix(skyZenithG, 0f, 1f, 0.40f, nameof(skyZenithG), notes);
+        skyZenithB = Fix(skyZenithB, 0f, 1f, 0.80f, nameof(skyZenithB), notes);
+        skyHorizonR = Fix(skyHorizonR, 0f, 1f, 0.60f, nameof(skyHorizonR), notes);
+        skyHorizonG = Fix(skyHorizonG, 0f, 1f, 0.80f, nameof(skyHorizonG), notes);
+        skyHorizonB = Fix(skyHorizonB, 0f, 1f, 1.00f, nameof(skyHorizonB), notes);
+        nightZenithR = Fix(nightZenithR, 0f, 1f, 0.02f, nameof(nightZenithR), notes);
+        nightZenithG = Fix(nightZenithG, 0f, 1f, 0.02f, nameof(nightZenithG), notes);
+        nightZenithB = Fix(nightZenithB, 0f, 1f, 0.06f, nameof(nightZenithB), notes);
+        nightHorizonR = Fix(nightHorizonR, 0f, 1f, 0.10f, nameof(nightHorizonR), notes);
+        nightHorizonG = Fix(nightHorizonG, 0f, 1f, 0.11f, nameof(nightHorizonG), notes);
+        nightHorizonB = Fix(nightHorizonB, 0f, 1f, 0.22f, nameof(nightHorizonB), notes);
+        sunHaloR = Fix(sunHaloR, 0f, 1f, 1.00f, nameof(sunHaloR), notes);
+        sunHaloG = Fix(sunHaloG, 0f, 1f, 0.90f, nameof(sunHaloG), notes);
+        sunHaloB = Fix(sunHaloB, 0f, 1f, 0.70f, nameof(sunHaloB), notes);
+        goldenR = Fix(goldenR, 0f, 1f, 1.00f, nameof(goldenR), notes);
+        goldenG = Fix(goldenG, 0f, 1f, 0.62f, nameof(goldenG), notes);
+        goldenB = Fix(goldenB, 0f, 1f, 0.32f, nameof(goldenB), notes);
+        lookSunScale = Fix(lookSunScale, 0f, 8f, 1.5f, nameof(lookSunScale), notes);
+        lookAmbientStrength = Fix(lookAmbientStrength, 0f, 4f, 0.30f, nameof(lookAmbientStrength), notes);
+        lookNightAmbient = Fix(lookNightAmbient, 0f, 4f, 0.90f, nameof(lookNightAmbient), notes);
+        lookShadowDarkness = Fix(lookShadowDarkness, 0f, 1f, 0.75f, nameof(lookShadowDarkness), notes);
+        moonR = Fix(moonR, 0f, 1f, 0.16f, nameof(moonR), notes);
+        moonG = Fix(moonG, 0f, 1f, 0.19f, nameof(moonG), notes);
+        moonB = Fix(moonB, 0f, 1f, 0.30f, nameof(moonB), notes);
+        hazeDensity = Fix(hazeDensity, 0f, 16f, 1.2f, nameof(hazeDensity), notes);
 
         return notes.Length == 0 ? null : notes.ToString().TrimEnd();
     }
