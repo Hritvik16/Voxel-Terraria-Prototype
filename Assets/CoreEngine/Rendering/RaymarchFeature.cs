@@ -290,6 +290,7 @@ public class RaymarchFeature : ScriptableRendererFeature
             public int kHeightRaw, kHeightDilate, kHeightLevel;
             public Vector4 lookSkyZenith, lookSkyHorizon, lookSkyHalo, lookSun, lookAmbient, lookMoon;
             public float lookShadowDarkness, lookHazeDensity;
+            public Vector4 lookGrade;
 
             public bool useStripped;
             public bool useMemoryProbe;
@@ -452,6 +453,8 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.lookMoon = V4(SunCycle.LookMoonAt(hrs));
                 passData.lookShadowDarkness = cfg.lookShadowDarkness;
                 passData.lookHazeDensity = cfg.hazeDensity;
+                Unity.Mathematics.float4 g = SunCycle.LookGradeAt(hrs);
+                passData.lookGrade = new Vector4(g.x, g.y, g.z, g.w);
 
                 // Shadow roof skip. The buffer is bound on EVERY frame, on or
                 // off: an HLSL-declared buffer left unbound is undefined on Metal.
@@ -684,6 +687,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeVectorParam(data.compute, "_LookMoon", data.lookMoon);
                         cmd.SetComputeFloatParam(data.compute, "_LookShadowDarkness", data.lookShadowDarkness);
                         cmd.SetComputeFloatParam(data.compute, "_LookHazeDensity", data.lookHazeDensity);
+                        cmd.SetComputeVectorParam(data.compute, "_LookGrade", data.lookGrade);
 
                         cmd.SetComputeIntParam(data.compute, "_ShadowRoofSkip", data.roofSkip);
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsA", data.heightOffsetsA);

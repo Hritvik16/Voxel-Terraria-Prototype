@@ -592,8 +592,29 @@ float4 _LookAmbient;
 float4 _LookMoon;
 float  _LookShadowDarkness;
 float  _LookHazeDensity;
+float4 _LookGrade;         // CINEMATIC GRADE: x exposure (sun+ambient), y saturation, z shoulder knee, w amount
 
 float3 LookToLinear(float3 c) { return pow(saturate(c), 2.2); }
+
+// The cinematic grade's highlight shoulder: identity below the knee, then an
+// exponential roll-off that approaches 1 instead of clipping at it. Knee 1 is
+// exactly the identity, which is what the grade passes whenever its amount is
+// 0 (golden hour and below), so those frames are unchanged bit for bit.
+float3 LookShoulder(float3 x, float knee)
+{
+    if (knee >= 0.999) return x;
+    float span = 1.0 - knee;
+    float3 over = max(x - knee, 0.0);
+    return min(x, knee) + span * (1.0 - exp(-over / span));
+}
+
+// Saturation then shoulder. Neutral (1, 1) is the identity.
+float3 LookGradeColour(float3 c, float saturation, float knee)
+{
+    float luma = dot(c, float3(0.2126, 0.7152, 0.0722));
+    c = lerp(float3(luma, luma, luma), c, saturation);
+    return LookShoulder(max(c, 0.0), knee);
+}
 
 // Sky gradient + sun halo for a view direction. Also the haze target, so
 // distant terrain fades into exactly the sky behind it.
@@ -2208,7 +2229,7 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
     }
 
     float4 color = _SkyColor;
-    if (_Look == 1 && _UseDevColors != 0) color = float4(LookToLinear(LookAtmosphere(rayDir)), 1.0);
+    if (_Look == 1 && _UseDevColors != 0) color = float4(LookToLinear(LookShoulder(LookAtmosphere(rayDir), _LookGrade.z)), 1.0);
     if (hit)
     {
         float ndotl = max(0.2, dot(float3(normal), normalize(float3(0.5, 1.0, 0.2))));
@@ -2254,7 +2275,7 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
             float3 pointTerm = SumPointLights(hitPosM, nF);
 
             float3 lit = selfLit ? saturate(baseColor * 1.35 + 0.06)
-                                 : baseColor * (direct + ambient + pointTerm);
+                                 : baseColor * ((direct + ambient) * _LookGrade.x + pointTerm);
             lit += MaterialEmissiveTint(lm) * MaterialEmissive(lm);
 
             // Squared distance haze into the sky behind the pixel.
@@ -2264,6 +2285,7 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
                 float d = saturate(currentDist / range);
                 lit = lerp(lit, LookAtmosphere(rayDir), saturate(d * d * _LookHazeDensity));
             }
+            if (_LookGrade.w > 0.0) lit = LookGradeColour(lit, _LookGrade.y, _LookGrade.z);
             color = float4(LookToLinear(lit), 1.0);
         }
         else if (_UseDevColors != 0)

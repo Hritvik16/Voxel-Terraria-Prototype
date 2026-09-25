@@ -211,18 +211,63 @@ public static class SunCycle
 
     private static float3 V(float r, float g, float b) => new float3(r, g, b);
 
+    /// >= 0 forces LightingConfig.lookGrade without touching the file (the
+    /// -looksweep before/after pairs). -1 = use the config.
+    public static int LookGradeOverride = -1;
+
+    /// How much of the CINEMATIC GRADE applies at this time of day: 0 at and
+    /// below gradeFromDeg of sun elevation, 1 at gradeToDeg, smoothstep between.
+    /// 0 whenever lookGrade is 0. Because it is 0 below gradeFromDeg, golden
+    /// hour, dawn, dusk and night are identical with the grade on or off --
+    /// see LightingConfig's CINEMATIC GRADE block.
+    public static float LookGradeAmountAt(float hours)
+    {
+        var c = LightingConfig.Active;
+        int grade = LookGradeOverride >= 0 ? LookGradeOverride : c.lookGrade;
+        if (grade == 0) return 0f;
+        return math.smoothstep(c.gradeFromDeg, c.gradeToDeg, ElevationDegreesAt(hours));
+    }
+
+    /// The DAY sky colours, blended toward the grade's deeper sky by the grade.
+    private static float3 DayZenith(float hours)
+    {
+        var c = LightingConfig.Active;
+        return math.lerp(V(c.skyZenithR, c.skyZenithG, c.skyZenithB),
+                         V(c.cineZenithR, c.cineZenithG, c.cineZenithB), LookGradeAmountAt(hours));
+    }
+
+    private static float3 DayHorizon(float hours)
+    {
+        var c = LightingConfig.Active;
+        return math.lerp(V(c.skyHorizonR, c.skyHorizonG, c.skyHorizonB),
+                         V(c.cineHorizonR, c.cineHorizonG, c.cineHorizonB), LookGradeAmountAt(hours));
+    }
+
     public static float3 LookSkyZenithAt(float hours)
     {
         var c = LightingConfig.Active;
         return math.lerp(V(c.nightZenithR, c.nightZenithG, c.nightZenithB),
-                         V(c.skyZenithR, c.skyZenithG, c.skyZenithB), LookDayFactorAt(hours));
+                         DayZenith(hours), LookDayFactorAt(hours));
     }
 
     public static float3 LookSkyHorizonAt(float hours)
     {
         var c = LightingConfig.Active;
         return math.lerp(V(c.nightHorizonR, c.nightHorizonG, c.nightHorizonB),
-                         V(c.skyHorizonR, c.skyHorizonG, c.skyHorizonB), LookDayFactorAt(hours));
+                         DayHorizon(hours), LookDayFactorAt(hours));
+    }
+
+    /// The grade's shader parameters: x = exposure on sun + ambient, y =
+    /// saturation, z = highlight-shoulder knee (1 = none), w = grade amount.
+    /// All three are exactly neutral (1, 1, 1) when the amount is 0.
+    public static float4 LookGradeAt(float hours)
+    {
+        var c = LightingConfig.Active;
+        float k = LookGradeAmountAt(hours);
+        return new float4(math.lerp(1f, c.gradeNoonExposure, k),
+                          math.lerp(1f, c.gradeSaturation, k),
+                          math.lerp(1f, c.gradeShoulderKnee, k),
+                          k);
     }
 
     /// The sun's colour in the sky (the halo), fading to black at night and
@@ -233,7 +278,9 @@ public static class SunCycle
         var c = LightingConfig.Active;
         float el = ElevationDegreesAt(hours);
         float warmth = math.saturate(1f - (el - 2f) / 23f);
-        float3 halo = math.lerp(V(c.sunHaloR, c.sunHaloG, c.sunHaloB), V(c.goldenR, c.goldenG, c.goldenB), warmth);
+        float3 high = math.lerp(V(c.sunHaloR, c.sunHaloG, c.sunHaloB), V(c.cineSunR, c.cineSunG, c.cineSunB),
+                                LookGradeAmountAt(hours));
+        float3 halo = math.lerp(high, V(c.goldenR, c.goldenG, c.goldenB), warmth);
         return halo * LookDayFactorAt(hours);
     }
 
@@ -244,7 +291,7 @@ public static class SunCycle
     {
         var c = LightingConfig.Active;
         float d = LookDayFactorAt(hours);
-        float3 day = V(c.skyHorizonR, c.skyHorizonG, c.skyHorizonB) * c.lookAmbientStrength;
+        float3 day = DayHorizon(hours) * c.lookAmbientStrength;
         float3 night = V(c.nightHorizonR, c.nightHorizonG, c.nightHorizonB) * c.lookNightAmbient;
         return math.lerp(night, day, d);
     }

@@ -310,6 +310,37 @@ public sealed class LightingConfig
     /// the Brickmap ships 2.5.
     public float hazeDensity = 1.2f;
 
+    // ---------------------------------------------------------------------
+    // THE CINEMATIC GRADE (owner decisions 2-4, 2026-09-24) -- look 1 only.
+    //
+    // The Brickmap look was right at golden hour and blinding from 08:00 to
+    // 16:00: full sun x 1.5 on snow is ~1.4x display white, so snow clipped flat
+    // and grass went neon. The owner anchored golden hour to
+    // Phase7Demo/2026-09-24_151908/1b_ground_golden_NEW.png.
+    //
+    // So the grade is an ELEVATION RAMP: amount 0 at and below gradeFromDeg,
+    // full at gradeToDeg (smoothstep). Golden hour (6 deg), dawn, dusk and
+    // night sit below the ramp and are PIXEL-IDENTICAL to lookGrade 0 -- the
+    // anchor is preserved by construction, not by tuning. As the sun climbs
+    // the grade lowers exposure on sun+ambient (not torches/lava), deepens the
+    // day sky, takes the yellow out of the noon sun, trims saturation and
+    // rolls highlights off with a soft shoulder instead of clipping.
+    // 0 = the Brickmap look exactly as it was on 2026-09-24.
+    // ---------------------------------------------------------------------
+    public int lookGrade = 1;
+    public float gradeFromDeg = 8f, gradeToDeg = 40f;
+    /// Multiplier on sun + ambient at full grade (noon).
+    public float gradeNoonExposure = 0.62f;
+    /// Saturation at full grade (1 = unchanged).
+    public float gradeSaturation = 0.86f;
+    /// Display value where the highlight shoulder starts. 1 = no shoulder.
+    public float gradeShoulderKnee = 0.70f;
+    /// The day sky at full grade -- deeper than skyZenith/skyHorizon.
+    public float cineZenithR = 0.14f, cineZenithG = 0.30f, cineZenithB = 0.66f;
+    public float cineHorizonR = 0.50f, cineHorizonG = 0.66f, cineHorizonB = 0.86f;
+    /// The sun's colour at full grade -- whiter than sunHalo's afternoon yellow.
+    public float cineSunR = 1.00f, cineSunG = 0.95f, cineSunB = 0.86f;
+
     // =====================================================================
     // Validation
     // =====================================================================
@@ -399,6 +430,24 @@ public sealed class LightingConfig
         moonG = Fix(moonG, 0f, 1f, 0.19f, nameof(moonG), notes);
         moonB = Fix(moonB, 0f, 1f, 0.30f, nameof(moonB), notes);
         hazeDensity = Fix(hazeDensity, 0f, 16f, 1.2f, nameof(hazeDensity), notes);
+        if (lookGrade < 0 || lookGrade > 1)
+        { notes.Append($"{nameof(lookGrade)} {lookGrade}->1; "); lookGrade = 1; }
+        gradeFromDeg = Fix(gradeFromDeg, -90f, 90f, 8f, nameof(gradeFromDeg), notes);
+        gradeToDeg = Fix(gradeToDeg, -90f, 90f, 40f, nameof(gradeToDeg), notes);
+        if (gradeToDeg <= gradeFromDeg)
+        { notes.Append($"{nameof(gradeToDeg)} <= {nameof(gradeFromDeg)} -> 8/40; "); gradeFromDeg = 8f; gradeToDeg = 40f; }
+        gradeNoonExposure = Fix(gradeNoonExposure, 0.05f, 4f, 0.62f, nameof(gradeNoonExposure), notes);
+        gradeSaturation = Fix(gradeSaturation, 0f, 2f, 0.86f, nameof(gradeSaturation), notes);
+        gradeShoulderKnee = Fix(gradeShoulderKnee, 0.1f, 1f, 0.70f, nameof(gradeShoulderKnee), notes);
+        cineZenithR = Fix(cineZenithR, 0f, 1f, 0.14f, nameof(cineZenithR), notes);
+        cineZenithG = Fix(cineZenithG, 0f, 1f, 0.30f, nameof(cineZenithG), notes);
+        cineZenithB = Fix(cineZenithB, 0f, 1f, 0.66f, nameof(cineZenithB), notes);
+        cineHorizonR = Fix(cineHorizonR, 0f, 1f, 0.50f, nameof(cineHorizonR), notes);
+        cineHorizonG = Fix(cineHorizonG, 0f, 1f, 0.66f, nameof(cineHorizonG), notes);
+        cineHorizonB = Fix(cineHorizonB, 0f, 1f, 0.86f, nameof(cineHorizonB), notes);
+        cineSunR = Fix(cineSunR, 0f, 1f, 1.00f, nameof(cineSunR), notes);
+        cineSunG = Fix(cineSunG, 0f, 1f, 0.95f, nameof(cineSunG), notes);
+        cineSunB = Fix(cineSunB, 0f, 1f, 0.86f, nameof(cineSunB), notes);
 
         return notes.Length == 0 ? null : notes.ToString().TrimEnd();
     }

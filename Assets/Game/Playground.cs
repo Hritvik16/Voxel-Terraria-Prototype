@@ -377,7 +377,7 @@ public class Playground : MonoBehaviour
         if (HasArg("-playgroundshots") || HasArg("-gputrace") || HasArg("-p7stress") ||
             HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
-            HasArg("-upscaleab") || HasArg("-lavalight"))
+            HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-looksweep"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
@@ -388,7 +388,7 @@ public class Playground : MonoBehaviour
         // panel and a hotbar across them defeats the point.
         if (HasArg("-p7stress") || HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-phase7demo") || HasArg("-roofskipab") || HasArg("-upscaleab") ||
-            HasArg("-lavalight")) DebugHideUi = true;
+            HasArg("-lavalight") || HasArg("-looksweep")) DebugHideUi = true;
 
         RegisterDefaultToys();
         _ready = true;

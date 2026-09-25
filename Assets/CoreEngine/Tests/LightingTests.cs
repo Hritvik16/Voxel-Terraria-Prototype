@@ -504,6 +504,59 @@ public class LightingTests
         Assert.AreEqual(cap, _lights.ActiveCount, "with no lava the torches must get the whole cap back");
     }
 
+    // =====================================================================
+    // DECISIONS 2-4 -- the cinematic grade must leave golden hour ALONE
+    // =====================================================================
+
+    /// The owner anchored golden hour to 1b_ground_golden_NEW.png. The grade
+    /// is an elevation ramp that is zero below gradeFromDeg, so at golden hour,
+    /// dawn and night every look-1 input must be IDENTICAL with the grade on
+    /// or off, and the shader's grade vector exactly neutral. MUTATION CHECK:
+    /// drop the smoothstep's lower edge to 0 deg and this goes red.
+    [Test]
+    public void CinematicGrade_LeavesGoldenHourDawnAndNight_Untouched()
+    {
+        try
+        {
+            foreach (float h in new[] { SunCycle.GoldenHourHours, SunCycle.HoursForElevation(4f, morning: true), 0f, 19f })
+            {
+                SunCycle.LookGradeOverride = 1;
+                float4 g = SunCycle.LookGradeAt(h);
+                float3 sun1 = SunCycle.LookSunAt(h), zen1 = SunCycle.LookSkyZenithAt(h),
+                       hor1 = SunCycle.LookSkyHorizonAt(h), amb1 = SunCycle.LookAmbientAt(h);
+                SunCycle.LookGradeOverride = 0;
+                Assert.AreEqual(new float4(1f, 1f, 1f, 0f), g, $"grade not neutral at {h:F2} h");
+                Assert.AreEqual(SunCycle.LookSunAt(h), sun1, $"sun changed at {h:F2} h");
+                Assert.AreEqual(SunCycle.LookSkyZenithAt(h), zen1, $"zenith changed at {h:F2} h");
+                Assert.AreEqual(SunCycle.LookSkyHorizonAt(h), hor1, $"horizon changed at {h:F2} h");
+                Assert.AreEqual(SunCycle.LookAmbientAt(h), amb1, $"ambient changed at {h:F2} h");
+            }
+        }
+        finally { SunCycle.LookGradeOverride = -1; }
+    }
+
+    /// And at noon it must actually DO something: less exposure, a knee below
+    /// 1, and a snow value that no longer clips. Guards against a grade that is
+    /// silently neutral everywhere -- which would pass the test above.
+    [Test]
+    public void CinematicGrade_TamesNoon()
+    {
+        try
+        {
+            SunCycle.LookGradeOverride = 1;
+            float4 g = SunCycle.LookGradeAt(SunCycle.NoonHours);
+            Assert.Greater(g.w, 0.9f, "grade barely applies at noon");
+            Assert.Less(g.x, 0.8f, "noon exposure not reduced");
+            Assert.Less(g.z, 0.95f, "no highlight shoulder at noon");
+            float3 sunGraded = SunCycle.LookSunAt(SunCycle.NoonHours) * g.x;
+            SunCycle.LookGradeOverride = 0;
+            float3 sunRaw = SunCycle.LookSunAt(SunCycle.NoonHours);
+            Assert.Greater(math.cmax(sunRaw) * 0.93f, 1f, "precondition: ungraded noon snow clips");
+            Assert.Less(math.cmax(sunGraded) * 0.93f, 1f, "graded noon snow still clips on the sun term alone");
+        }
+        finally { SunCycle.LookGradeOverride = -1; }
+    }
+
     /// Lava ALONE lights: no torches placed, one lava cell, and the upload
     /// carries exactly one light -- the fast "no lights" path must not swallow it.
     [Test]

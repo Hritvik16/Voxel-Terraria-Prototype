@@ -1460,6 +1460,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-roofskipab")) { yield return RoofSkipAb(); yield break; }
         if (HasFlag("-upscaleab")) { yield return UpscaleAb(); yield break; }
         if (HasFlag("-lavalight")) { yield return LavaLightShots(); yield break; }
+        if (HasFlag("-looksweep")) { yield return LookSweep(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;
         Screen.SetResolution(1920, 1080, false);
 
@@ -1788,6 +1789,12 @@ public partial class PlaygroundCapture : MonoBehaviour
         int maxQueued = ArgInt("-maxqueued", -1);
         if (maxQueued >= 0) QualitySettings.maxQueuedFrames = maxQueued;
 
+        // -lookgrade 0|1: decisions 2-4's A/B arm. MEASURE IT WITH -tod 12: the
+        // grade's amount is 0 at the default golden-hour pin, so an arm there
+        // would compare the shipped frame with itself.
+        int lookGrade = ArgInt("-lookgrade", -1);
+        if (lookGrade >= 0) SunCycle.LookGradeOverride = lookGrade;
+
         // The shadow-distance clamp, re-exposed here because §F.4 "disproved" it
         // AT THE WRONG POSE. That sweep ran inside the arena pit, where almost
         // nothing is sunlit and almost no shadow ray is traced, so a 12x change
@@ -1856,7 +1863,9 @@ public partial class PlaygroundCapture : MonoBehaviour
           $"ambient {LightingConfig.Active.ambientIntensity:F2}");
         L($"clock PINNED at {SunCycle.ClockString()}  sun {SunCycle.ElevationDegrees:F1} deg ({SunCycle.PhaseName})");
         L($"upscale {upscaleNote ?? "not set (as shipped)"}");
-        L($"lava light share {LightingConfig.Active.lavaLightMaxSlots} of {EngineConfig.MAX_ACTIVE_LIGHTS} slots");
+        L($"lava light share {LightingConfig.Active.lavaLightMaxSlots} of {EngineConfig.MAX_ACTIVE_LIGHTS} slots   " +
+          $"look grade {(SunCycle.LookGradeOverride >= 0 ? SunCycle.LookGradeOverride : LightingConfig.Active.lookGrade)} " +
+          $"(amount {SunCycle.LookGradeAmountAt(SunCycle.Hours):F2} at this hour)   maxQueuedFrames {QualitySettings.maxQueuedFrames}");
         L($"shadow roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}   look {(RaymarchFeature.LookOverride >= 0 ? RaymarchFeature.LookOverride : LightingConfig.Active.look)}");
         L($"DURATION {totalSeconds / 60} min CONTINUOUS -- no cooldown, no pause. This is the");
         L("point: every other probe in this project reports the first 30 s of a cold machine.");
