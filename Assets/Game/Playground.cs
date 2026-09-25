@@ -484,6 +484,28 @@ public class Playground : MonoBehaviour
         Register(new Toy(KeyCode.RightBracket, "next light preset", () => CyclePreset(+1)));
         Register(new Toy(KeyCode.LeftBracket, "prev light preset", () => CyclePreset(-1)));
 
+        // FAR BAND (DESIGN_LARGE_WORLD §4.2). Only does anything when the player
+        // was launched with -farband 1 (run-farband.sh / the demo command).
+        Register(new Toy(KeyCode.C, "far band on/off", () =>
+        {
+            if (VoxelEngine.Rendering.FarField.Active == null) { _status = "far band not built -- launch with -farband 1"; return; }
+            VoxelEngine.Rendering.FarField.RenderEnabled = !VoxelEngine.Rendering.FarField.RenderEnabled;
+            _status = VoxelEngine.Rendering.FarField.RenderEnabled ? "FAR BAND ON (terrain to ~5.6 km)" : "FAR BAND OFF (shipped: sky past 290 m)";
+        }));
+        Register(new Toy(KeyCode.I, "far band view", () =>
+        {
+            // Beauty -> band view (who drew each pixel) -> far step heat -> Beauty.
+            var cur = RaymarchFeature.UseDebugViewOverride ? RaymarchFeature.DebugViewOverride : RaymarchFeature.DebugMode.Beauty;
+            if (cur == RaymarchFeature.DebugMode.FarBand)
+            { RaymarchFeature.DebugViewOverride = RaymarchFeature.DebugMode.FarHeat; RaymarchFeature.UseDebugViewOverride = true;
+              _status = "view: FAR STEP HEAT (blue cheap, red expensive; black = voxel band)"; }
+            else if (cur == RaymarchFeature.DebugMode.FarHeat)
+            { RaymarchFeature.UseDebugViewOverride = false; _status = "view: BEAUTY"; }
+            else
+            { RaymarchFeature.DebugViewOverride = RaymarchFeature.DebugMode.FarBand; RaymarchFeature.UseDebugViewOverride = true;
+              _status = "view: BANDS (blue voxels; far rings F0 green, F1 yellow, F2 orange, F3 red, F4 magenta)"; }
+        }));
+
         Register(new Toy(KeyCode.Y, "lighting view", () =>
         {
             // Beauty -> SunVis -> ShadowHeat -> Beauty. §10.3 item 6's two views,

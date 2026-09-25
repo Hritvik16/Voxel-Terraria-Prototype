@@ -510,3 +510,19 @@ coarse levels (band-limited S lands with Step 2 / TerrainGen); the voxel march's
 march then skips that unmarched corner; far terrain does not shadow near terrain.
 
 Full overnight report with screenshots: https://claude.ai/artifact/NtfmpryEEh6t45twdyeJ3M
+
+## 9. Next steps (decided 2026-09-25, owner delegated)
+
+In this order, each with its own measurement before the next starts:
+
+1. **Ground-orbit rig:** keep the historical orbit unchanged; new frame-time
+   claims also run and quote the in-air `-orbitheight 8` arm (CLAUDE.md).
+2. **D brick culling**, then measure a cave-dense chunk's generation cost and
+   the dense-brick peak (§7 item 6). That measurement sets cave density and the
+   CPU ring height.
+3. **Map stage v2:** rivers drained to the sea, lakes filled to spill level,
+   light erosion; then re-run the landmark metric (3.3% today, target all).
+4. **Far band production form:** TerrainGen's band-limited S as the ring
+   source, then edits and persistence.
+5. **V/H:** camera-following mirror with the H3 tiers -- what lets chunks come
+   from TerrainGen.

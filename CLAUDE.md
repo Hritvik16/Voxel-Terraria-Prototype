@@ -262,6 +262,9 @@ real and separate reason — see the LOD-cascade finding in
   frame pacing, which is a large part of that scenario's rep spread (3.8-5.8 ms
   measured). For an in-air comparison use `-orbitheight 8` (13.7 m, above the
   tallest terrain): its rep spread was <= 0.05 ms. `run-farband.sh`'s `low8`.
+  **Decided 2026-09-25 (owner delegated):** the historical rig stays exactly as
+  it is, so old comparisons stay valid; every NEW budget or frame-time claim
+  also reports the lifted `-orbitheight 8` arm, and that arm is the one quoted.
 - **Burst vs the EDITOR's Mono are NOT byte-identical for float code (found
   2026-09-25).** Probe: today's `ColumnSampleJob` differs on 1 of 262,144 columns
   (`BurstMonoIdentityProbeTests`); TerrainGen's S shows 1-3 ULP differences in
