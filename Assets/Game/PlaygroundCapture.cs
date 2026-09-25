@@ -1458,6 +1458,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-sustained")) { yield return Sustained(); yield break; }
         if (HasFlag("-phase7demo")) { yield return Phase7Demo(); yield break; }
         if (HasFlag("-roofskipab")) { yield return RoofSkipAb(); yield break; }
+        if (HasFlag("-upscaleab")) { yield return UpscaleAb(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;
         Screen.SetResolution(1920, 1080, false);
 
@@ -1772,6 +1773,7 @@ public partial class PlaygroundCapture : MonoBehaviour
             RaymarchFeature.CustomGateResolution = new Vector2Int(gate, gate * 9 / 16);
         }
         RaymarchFeature.ShadowQualityLevel = ArgInt("-shadowlevel", 0);
+        string upscaleNote = ApplyUpscaleArgs();
 
         // The shadow-distance clamp, re-exposed here because §F.4 "disproved" it
         // AT THE WRONG POSE. That sweep ran inside the arena pit, where almost
@@ -1840,6 +1842,7 @@ public partial class PlaygroundCapture : MonoBehaviour
           $"travelLOD {RaymarchFeature.ShadowTravelLodOverride}   " +
           $"ambient {LightingConfig.Active.ambientIntensity:F2}");
         L($"clock PINNED at {SunCycle.ClockString()}  sun {SunCycle.ElevationDegrees:F1} deg ({SunCycle.PhaseName})");
+        L($"upscale {upscaleNote ?? "not set (as shipped)"}");
         L($"shadow roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}   look {(RaymarchFeature.LookOverride >= 0 ? RaymarchFeature.LookOverride : LightingConfig.Active.look)}");
         L($"DURATION {totalSeconds / 60} min CONTINUOUS -- no cooldown, no pause. This is the");
         L("point: every other probe in this project reports the first 30 s of a cold machine.");

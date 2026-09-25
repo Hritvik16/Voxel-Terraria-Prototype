@@ -171,6 +171,12 @@ public class RaymarchFeature : ScriptableRendererFeature
     /// like PlaygroundCapture's args).
     public static bool ShadowRoofSkip = ReadRoofSkipArg();
 
+    /// Build rays from URP's per-frame projection (which carries TAA/STP
+    /// sub-pixel JITTER) instead of Camera.projectionMatrix. Without jitter a
+    /// temporal upscaler accumulates identical samples and cannot add detail.
+    /// With TAA/STP off URP's jitter matrix is identity, so this is inert; it
+    /// is still OFF by default so the shipped path is byte-identical.
+    public static bool UseCameraDataProjection = false;
     public static GraphicsBuffer HeightMipBuffer;
     private static int _heightMipWindowX = -1, _heightMipWindowZ = -1;
     private static int[] _heightOffsets = new int[8];
@@ -235,6 +241,7 @@ public class RaymarchFeature : ScriptableRendererFeature
         {
             public ComputeShader compute;
             public Camera cam;
+            public Matrix4x4 invProjection;
             public TextureHandle target;
             public int dispatchWidth;
             public int dispatchHeight;
@@ -371,6 +378,8 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.useMemoryProbe = useMemoryProbe;
                 passData.probeIterations = RaymarchFeature.ProbeIterations;
                 passData.cam = cameraData.camera;
+                passData.invProjection = (UseCameraDataProjection ? cameraData.GetProjectionMatrix(0)
+                                                                  : cameraData.camera.projectionMatrix).inverse;
                 passData.target = target;
                 passData.dispatchWidth = dispatchW;
                 passData.dispatchHeight = dispatchH;
@@ -557,7 +566,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                 {
                     var cmd = context.cmd;
 
-                    cmd.SetComputeMatrixParam(data.compute, "_CameraInverseProjection", data.cam.projectionMatrix.inverse);
+                    cmd.SetComputeMatrixParam(data.compute, "_CameraInverseProjection", data.invProjection);
                     cmd.SetComputeMatrixParam(data.compute, "_CameraInverseView", data.cam.cameraToWorldMatrix);
                     cmd.SetComputeVectorParam(data.compute, "_CameraPos", data.cam.transform.position);
 
