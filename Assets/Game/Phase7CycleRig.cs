@@ -276,12 +276,29 @@ public class Phase7CycleRig : MonoBehaviour
         // not just the presence of light. C.11 is 1/(1 + d^2 k), so this is
         // monotone by construction and a non-monotone result means the range
         // cutoff or the attenuation is wired wrong.
+        //
+        // THE FIRST VERSION OF THESE POSES WAS INSIDE ROCK. The chamber is 1.4 m
+        // in radius; 1.5 / 3 / 6 m back from the torch is solid stone, so all
+        // three readings were 0.0000 (a black frame) and the gate measured the
+        // inside of a wall, not a falloff. The fix is the POSE, not the
+        // assertion: a sealed air corridor is carved along the measurement axis
+        // so the camera stands in open air with the torch in view, and the
+        // camera-in-air precondition below makes that a checked fact.
+        const float PoseLiftM = 0.3f;
+        int3 axis = CarveSightCorridor(torchAt, 6.0f, PoseLiftM);
+        for (int i = 0; i < 30; i++) yield return null;
         var lums = new List<float>();
         foreach (float dist in new[] { 1.5f, 3.0f, 6.0f })
         {
-            PoseLookingAt(cam, torchAt, dist);
+            PoseLookingAlong(cam, torchAt, axis, dist, PoseLiftM);
             for (int i = 0; i < 12; i++) yield return null;
+            Vector3 p = cam.transform.position;
+            byte at = Store.GetVoxel(CoordMath.WorldToVoxel(new float3(p.x, p.y, p.z)));
+            Check(at == Materials.Air,
+                $"PRECONDITION: the {dist:F1} m falloff camera stands in air (material {at}) -- " +
+                "a camera inside rock reads a black frame and makes the falloff check meaningless");
             lums.Add(AverageLuminance());
+            if (dist < 2f) yield return Shot("03a_torch_falloff_1.5m");
         }
         Note($"luminance at 1.5 m / 3 m / 6 m from the torch: " +
              $"{lums[0]:F4} / {lums[1]:F4} / {lums[2]:F4}");
@@ -821,6 +838,64 @@ public class Phase7CycleRig : MonoBehaviour
             if (_edits.TrySetVoxel(centre + new int3(dx, dy, dz), Materials.Air)) n++;
         }
         Note($"carved a chamber of radius {radius} at {centre}: {n} voxels removed via EditService");
+    }
+
+    /// Carves Gate 1's falloff corridor: a straight air tunnel from the torch
+    /// out along one horizontal axis, long enough for the farthest pose plus a
+    /// margin, and 7 voxels wide x 9 tall around the camera's line of sight.
+    /// Returns the axis (unit int3, pointing from the torch toward the camera).
+    ///
+    /// SEALED, NOT JUST CARVED. A corridor that broke out of the mountain's
+    /// flank would let daylight in, and daylight at the far pose would make the
+    /// falloff non-monotone for a reason that has nothing to do with C.11. So
+    /// each of the four horizontal axes is checked for at least MinRoof voxels
+    /// of terrain over every corridor column BEFORE anything is carved, and the
+    /// first sealed one is used. No sealed axis is reported as a failed
+    /// PRECONDITION rather than silently measuring a leaky tunnel.
+    private int3 CarveSightCorridor(int3 torchAt, float farthestM, float liftM)
+    {
+        const int HalfWidth = 3, Below = 2, Above = 6, MinRoof = 6;
+        int lift = Mathf.RoundToInt(liftM * 10f);
+        int length = Mathf.CeilToInt(farthestM * 10f) + 8;
+        int top = torchAt.y + lift + Above;
+        var axes = new[] { new int3(0, 0, -1), new int3(0, 0, 1), new int3(-1, 0, 0), new int3(1, 0, 0) };
+        int3 chosen = axes[0];
+        int chosenRoof = int.MinValue;
+        foreach (var a in axes)
+        {
+            int3 side = new int3(a.z, 0, a.x);   // perpendicular in XZ
+            int minRoof = int.MaxValue;
+            for (int s = 1; s <= length; s++)
+            for (int w = -HalfWidth; w <= HalfWidth; w++)
+            {
+                int3 c = torchAt + a * s + side * w;
+                minRoof = Mathf.Min(minRoof, SurfaceY(c.x, c.z) - top);
+            }
+            if (minRoof > chosenRoof) { chosenRoof = minRoof; chosen = a; }
+            if (minRoof >= MinRoof) break;
+        }
+        Check(chosenRoof >= MinRoof,
+            $"PRECONDITION: a sealed falloff corridor exists (axis {chosen}, " +
+            $"thinnest roof {chosenRoof} voxels, need >= {MinRoof})");
+
+        int3 perp = new int3(chosen.z, 0, chosen.x);
+        int n = 0;
+        for (int s = 1; s <= length; s++)
+        for (int w = -HalfWidth; w <= HalfWidth; w++)
+        for (int dy = -Below; dy <= lift + Above; dy++)
+            if (_edits.TrySetVoxel(torchAt + chosen * s + perp * w + new int3(0, dy, 0), Materials.Air)) n++;
+        Note($"carved a {length}-voxel sealed sight corridor along {chosen} from the torch " +
+             $"({n} voxels removed; thinnest roof {chosenRoof} voxels)");
+        return chosen;
+    }
+
+    /// The camera `distanceM` from `target` along `axis`, lifted `liftM`,
+    /// looking back at the target.
+    private static void PoseLookingAlong(Camera cam, int3 target, int3 axis, float distanceM, float liftM)
+    {
+        var t = new Vector3(target.x * 0.1f, target.y * 0.1f, target.z * 0.1f);
+        cam.transform.position = t + new Vector3(axis.x, 0f, axis.z) * distanceM + new Vector3(0f, liftM, 0f);
+        cam.transform.rotation = Quaternion.LookRotation((t - cam.transform.position).normalized, Vector3.up);
     }
 
     private static void PoseGroundHorizon(Camera cam)
