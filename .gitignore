@@ -168,3 +168,4 @@ Assets/Resources/BuildStamp.txt.meta
 /gpu-traces/
 /Logs/
 /*.log
+tools/vxrender
