@@ -137,13 +137,17 @@ namespace TerrainGen
                 float env = math.lerp(math.saturate(coast * 5f), math.saturate(coast * 14f), w[Regions.CoastalCliffs]);
                 // A little jitter so flats never drain in ruler-straight lines.
                 hc[i] = math.max(4f, H * env + 20f * Noise.Fbm(p / 1500f + o.detail + 3f, 2));
-                // T6: inselbergs in the flat regions -- hard rock, so erosion
-                // cuts their flanks but does not level them.
-                float flat = w[Regions.Plains] + w[Regions.Highlands] + w[Regions.Dunes] + w[Regions.Wetland];
-                if (flat > 0.3f && coast > 0.15f)
+                // T6: inselbergs everywhere outside the mountains -- hard rock, so
+                // erosion cuts their flanks but does not level them. (Round 2,
+                // 2026-09-26: flat regions alone gave 19 landmarks and 1.5% of
+                // land seeing one in every direction within 3 km; the interior
+                // needs its own. In the layered regions the fine map's terracing
+                // turns the dome into a stepped butte.)
+                float open = 1f - w[Regions.Alpine] - w[Regions.Volcanic];
+                if (open > 0.3f && coast > 0.15f)
                 {
                     float ib = Inselberg(in o, p, out float hard);
-                    if (ib > 0f) { hc[i] += ib * flat; E *= math.lerp(1f, 0.1f, hard); T = math.max(T, math.lerp(T, 2.5f, hard)); }
+                    if (ib > 0f) { hc[i] += ib * open; E *= math.lerp(1f, 0.1f, hard); T = math.max(T, math.lerp(T, 2.5f, hard)); }
                 }
                 ec[i] = E; tc[i] = T; lc[i] = lay > 0.5f;
             }
@@ -235,12 +239,13 @@ namespace TerrainGen
         // T6 INSELBERGS (2026-09-26; owner kept §2.5's "a landmark in every
         // direction" and asked for natural ways to meet it). A lone massif of
         // hard rock rising from flat land -- Uluru, Sugarloaf -- is the natural
-        // landmark flat country has. One candidate per INSELBERG_CELL (1.3 km),
-        // jittered; a steep-walled, round-topped dome 300-500 m across and
-        // 70-130 m tall; broad enough for the needle guard, tall enough to be
-        // seen over the plain. `hard` (0..1) marks its rock for the erosion.
+        // landmark flat country has. One candidate per INSELBERG_CELL (1.1 km),
+        // 85% occupied, jittered; a steep-walled, round-topped dome 300-500 m
+        // across and 90-160 m tall (erosion takes ~20-30 m off; the landmark
+        // test wants >= 60 m over the 1 km mean); broad enough for the needle
+        // guard. `hard` (0..1) marks its rock for the erosion.
         // ------------------------------------------------------------------
-        public const float INSELBERG_CELL = 13000f;
+        public const float INSELBERG_CELL = 11000f;
 
         public static float Inselberg(in Offsets o, float2 p, out float hard)
         {
@@ -251,11 +256,11 @@ namespace TerrainGen
             for (int i = -1; i <= 1; i++)
             {
                 int gx = cx + i, gz = cz + j;
-                if (Noise.Hash01(gx, 60, gz, o.seed + 701u) > 0.7f) continue;
+                if (Noise.Hash01(gx, 60, gz, o.seed + 701u) > 0.85f) continue;
                 float2 c = new float2(gx + 0.25f + 0.5f * Noise.Hash01(gx, 61, gz, o.seed + 702u),
                                       gz + 0.25f + 0.5f * Noise.Hash01(gx, 62, gz, o.seed + 703u)) * INSELBERG_CELL;
                 float R = 1500f + 1000f * Noise.Hash01(gx, 63, gz, o.seed + 704u);
-                float H = 700f + 600f * Noise.Hash01(gx, 64, gz, o.seed + 705u);
+                float H = 900f + 700f * Noise.Hash01(gx, 64, gz, o.seed + 705u);
                 float2 u = HashUnit(gx, gz, o.seed + 706u);
                 float2 lobeOff = new float2(Noise.Hash01(gx, 65, gz, o.seed + 707u), Noise.Hash01(gx, 66, gz, o.seed + 708u)) * 100f;
                 float x = IrregularX(p - c, R, u, 1f + 0.5f * Noise.Hash01(gx, 67, gz, o.seed + 709u), lobeOff);
