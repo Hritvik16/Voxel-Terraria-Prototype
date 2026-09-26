@@ -24,15 +24,14 @@ namespace TerrainGen
         }
 
         /// Ridged multifractal, [0, ~1]: sharp crests where the noise crosses zero.
-        /// Ridged multifractal with ROUNDED crests (2026-09-25). The textbook
-        /// fold 1 - |n| is a V crease, and its weight feedback piles the fine
-        /// octaves onto the crests, so where ridges meet it builds horns: summits
-        /// falling 50-77 m within 40 m on every side (StampTests.NoNeedles, seed
-        /// 42), the owner's "tall cone shaped things". A soft |n| rounds the
-        /// crest over ~RIDGE_ROUND of the noise range and a lower feedback gain
-        /// stops the fine octaves concentrating on peaks. Wavelengths unchanged.
-        public const float RIDGE_ROUND = 0.15f;
-        public const float RIDGE_FEEDBACK = 1.2f;
+        /// Ridged multifractal. The crest rounding (RIDGE_ROUND) and feedback gain
+        /// are knobs; they are at the ORIGINAL sharp values (0, 1.6). Rounding
+        /// them (0.15, 1.2) was tried on 2026-09-25 against the horns and made
+        /// every range soft -- owner: "too rounded and soft ... overcompensated".
+        /// Linear crests are natural; only POINT peaks were the problem, and
+        /// WorldMap.TrimSpikes removes those while keeping ridges.
+        public const float RIDGE_ROUND = 0f;
+        public const float RIDGE_FEEDBACK = 1.6f;
 
         public static float Ridged(float2 p, int octaves)
         {

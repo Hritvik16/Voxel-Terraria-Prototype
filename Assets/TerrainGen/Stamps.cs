@@ -100,6 +100,15 @@ namespace TerrainGen
         // ================================================================
         public const float VOLCANO_BASE_R = 9000f, VOLCANO_H = 3600f, CALDERA_R = 1500f, CALDERA_DEPTH = 700f, LAVA_DEPTH = 130f;
         public const float TREE_CANOPY_R = 1300f, TREE_TRUNK_R = 220f;
+        /// THE WORLD TREE IS OFF (owner, 2026-09-25: it "looks very weird and out
+        /// of place ... should be massive ... something we should add after we
+        /// discuss object placement, which is where I think we do trees"). Every
+        /// tree path -- canopy, trunk, void, root caves, its exclusion zones -- is
+        /// gated on this one switch, so it returns intact when trees are designed.
+        public static readonly bool WorldTreeEnabled = false;
+        /// True inside the tree's area plus `margin` (voxels), only while it is on.
+        public static bool InTreeArea(in TerrainSpec spec, in Offsets o, float2 p, float margin)
+            => WorldTreeEnabled && math.distance(p, TreeSite(in spec, in o)) < TREE_CANOPY_R + margin;
 
         /// Canopy top above the ground under it (voxels), for d < TREE_CANOPY_R.
         public static float TreeCanopyTop(float d) => 2500f + 500f * math.sqrt(math.max(0f, 1f - (d / TREE_CANOPY_R) * (d / TREE_CANOPY_R)));
@@ -154,7 +163,7 @@ namespace TerrainGen
 
             // Singletons own their areas at the map level too (see Column).
             float2 gq = p - GeyserSite(in spec, in o);
-            if (v > 0f || td < TREE_CANOPY_R + 200f || gq.x * gq.x + gq.y * gq.y < 1400f * 1400f) return hgt;
+            if (v > 0f || (WorldTreeEnabled && td < TREE_CANOPY_R + 200f) || gq.x * gq.x + gq.y * gq.y < 1400f * 1400f) return hgt;
             if (inland <= 0.2f || !StampAt(in o, p, out Stamp s)) return hgt;
             float2 q = p - s.pos;
             float dist = math.sqrt(q.x * q.x + q.y * q.y);
@@ -192,7 +201,7 @@ namespace TerrainGen
             // ---- world tree (map height; S gives its trunk, canopy, the void below) ----
             float2 tq = p - TreeSite(in spec, in o);
             float td = math.sqrt(tq.x * tq.x + tq.y * tq.y);
-            if (td < TREE_CANOPY_R)
+            if (WorldTreeEnabled && td < TREE_CANOPY_R)
             {
                 c.water = ColumnSample.NO_WATER_Y;   // no map river across the leaves
                 int top = c.height;
@@ -250,7 +259,7 @@ namespace TerrainGen
             // The singletons OWN their areas: no cell stamp inside the volcano's
             // cone, the tree's canopy or the geyser basin (a cell stamp there
             // would build on the ground as it was BEFORE the singleton reshaped it).
-            if (vh > 0f || td < TREE_CANOPY_R + 200f || gd < 1400f) return;
+            if (vh > 0f || (WorldTreeEnabled && td < TREE_CANOPY_R + 200f) || gd < 1400f) return;
             if (!StampAt(in o, p, out Stamp s)) return;
             float2 q = p - s.pos;
             float along = math.dot(q, s.dir), side = math.dot(q, Perp(s.dir));
@@ -477,7 +486,7 @@ namespace TerrainGen
                 // World tree root caves: a shaft down the trunk, four radiating tunnels.
                 float2 tq = p - TreeSite(in spec, in o);
                 float td2 = tq.x * tq.x + tq.y * tq.y;
-                if (td2 < (TREE_TRUNK_R * 3.5f) * (TREE_TRUNK_R * 3.5f))
+                if (WorldTreeEnabled && td2 < (TREE_TRUNK_R * 3.5f) * (TREE_TRUNK_R * 3.5f))
                 {
                     int groundY = c.height - (int)math.floor(TreeCanopyTop(math.sqrt(td2)));
                     if (td2 < 60f * 60f && y > groundY - 110 && y < groundY + 60) return GenMat.Air;       // shaft

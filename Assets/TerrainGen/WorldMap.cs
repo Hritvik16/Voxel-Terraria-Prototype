@@ -98,7 +98,7 @@ namespace TerrainGen
                 Macro(in spec, in o, peak, p, out h[z * n + x], out r[z * n + x]);
             }
             int beacons = Beacons(in spec, in o, h, r, peak);
-            RoundSummits(in spec, in o, h);
+            TrimSpikes(in spec, in o, h);
             TreeCanopy(in spec, in o, h);
             var water = new float[n * n];
             var flow = new float[n * n];
@@ -202,6 +202,36 @@ namespace TerrainGen
             return dl / rr;
         }
 
+        /// CUESTA profile in [0, 1] (2026-09-25; the round domes read as "large
+        /// rounded hills" from above). An asymmetric ridge: the crest runs along
+        /// `u` (half-length Ls, wandering, fading out over the last 40% at each
+        /// end); on one side a long smooth BACK SLOPE of width Wb (the way up), on
+        /// the other a terraced SCARP of width Ws (the cliff, the view). `scarp`
+        /// is true on the cliff band, for the roughness channel.
+        public static float CuestaT(float2 q, float2 u, float Ls, float Wb, float Ws, float2 noiseOff, out bool scarp)
+        {
+            scarp = false;
+            float along = math.dot(q, u), side = q.x * -u.y + q.y * u.x;
+            side += 0.15f * Wb * noise.snoise(new float2(along / (Ls * 0.8f), 0.5f) + noiseOff);
+            float a = math.abs(along) / (Ls * (1f + 0.2f * noise.snoise(new float2(along / Ls * 1.7f, 3.1f) + noiseOff)));
+            float end = Noise.SmoothStep(1f, 0.6f, a);
+            if (end <= 0f) return 0f;
+            float across;
+            if (side >= 0f)
+            {
+                float t = math.saturate(1f - side / Wb);
+                across = t * t * (3f - 2f * t);
+            }
+            else
+            {
+                float w = math.saturate(1f + side / Ws);
+                float s3 = w * 3f, k = math.floor(s3);
+                across = math.min(1f, (k + Noise.SmoothStep(0.7f, 1f, s3 - k)) / 3f);
+                scarp = w > 0f && w < 1f;
+            }
+            return across * end;
+        }
+
         public static int Beacons(in TerrainSpec spec, in Offsets o, float[] h, float[] r, float2 peak)
         {
             int n = spec.mapCells, count = 0;
@@ -223,7 +253,7 @@ namespace TerrainGen
                 // the dominant peak (§2.2): no beacon on high ground or near it.
                 if (bestH > 0.55f * spec.peakHeight || math.distance(p, peak) < 12000f) continue;
                 if (math.distance(p, Stamps.VolcanoSite(in spec, in o)) < Stamps.VOLCANO_BASE_R ||
-                    math.distance(p, Stamps.TreeSite(in spec, in o)) < Stamps.TREE_CANOPY_R + 1500f ||
+                    Stamps.InTreeArea(in spec, in o, p, 1500f) ||
                     math.distance(p, Stamps.GeyserSite(in spec, in o)) < 2500f) continue;
                 // Highest ground within 384 m (48 map cells).
                 float localMax = bestH;
@@ -242,23 +272,26 @@ namespace TerrainGen
                 float R = 900f + 600f * Noise.Hash01(bx, 9, bz, o.seed + 303u);   // mesa top 90-150 m
                 float B = math.max(450f, rise * 0.8f);                             // terraced cliff band
                 float L = rise * 3.5f;                                             // ramp run: ~16 degrees
-                // Dome radius from the slope limit, divided by the narrowest lobe
-                // so even the steepest side of the irregular outline respects it.
-                float rad = math.max(2200f, 1.5f * rise / DOME_MAX_SLOPE) / (1f - HILL_LOBE);
-                float stretch = 1f + 0.7f * Noise.Hash01(bx, 10, bz, o.seed + 305u);
+                // Cuesta: the back slope's width from the slope limit (smoothstep
+                // peaks at 1.5 H / Wb), a terraced scarp a third of the rise wide,
+                // the crest 1.2-2x the back slope's width long.
+                float Wb = math.max(2200f, 1.5f * rise / DOME_MAX_SLOPE);
+                float Ws = math.max(350f, rise * 0.35f);
+                float Ls = Wb * (1.2f + 0.8f * Noise.Hash01(bx, 10, bz, o.seed + 305u));
                 float2 lobeOff = new float2(Noise.Hash01(bx, 13, bz, o.seed + 306u), Noise.Hash01(bx, 14, bz, o.seed + 307u)) * 100f;
-                float extent = mesa ? R + math.max(B, L) : rad * stretch * (1f + HILL_LOBE);
+                float extent = mesa ? R + math.max(B, L) : math.max(Ls * 1.25f, Wb * 1.2f) + Ws;
                 int rc = (int)math.ceil(extent / spec.mapCellVoxels) + 1;
                 for (int z = math.max(0, cz - rc); z <= math.min(n - 1, cz + rc); z++)
                 for (int x = math.max(0, cx - rc); x <= math.min(n - 1, cx + rc); x++)
                 {
                     float2 q = new float2((x + 0.5f) * spec.mapCellVoxels, (z + 0.5f) * spec.mapCellVoxels) - p;
                     float d = math.sqrt(q.x * q.x + q.y * q.y);
-                    float t = mesa ? MesaT(q, d, R, B, L, rampDir) : DomeT(IrregularX(q, rad, rampDir, stretch, lobeOff), 1f);
+                    bool cliff = false;
+                    float t = mesa ? MesaT(q, d, R, B, L, rampDir) : CuestaT(q, rampDir, Ls, Wb, Ws, lobeOff, out cliff);
                     if (t <= 0f) continue;
                     int i = z * n + x;
                     float nh = h[i] + (top - h[i]) * t;
-                    if (nh > h[i]) { h[i] = nh; r[i] = math.max(r[i], mesa ? 0.8f : 0.4f); }
+                    if (nh > h[i]) { h[i] = nh; r[i] = math.max(r[i], mesa || cliff ? 0.8f : 0.4f); }
                 }
                 count++;
             }
@@ -266,75 +299,81 @@ namespace TerrainGen
         }
 
         // ------------------------------------------------------------------
-        // SUMMIT CURVATURE LIMIT (2026-09-25). The ridged ranges make horns
-        // wherever the noise touches zero at a POINT rather than along a line:
-        // an isolated maximum no crest rounding removes (StampTests.NoNeedles:
-        // seed 42 had summits falling 45-75 m within 40 m on every side). A
-        // grey-scale OPENING with a paraboloid structuring element removes
-        // every peak sharper than the paraboloid and leaves broader shapes --
-        // ranges, domes, mesa tops, the escarpment -- exactly as they were. It
-        // only ever lowers terrain. Separable (the paraboloid k(dx^2 + dz^2) over
-        // a square window), so two 1-D passes per stage. The singletons keep
-        // their deliberate edges (the basin terrace, the caldera and its rim; the
-        // tree canopy is added afterwards, TreeCanopy); the volcano's flanks are
-        // rounded like any slope.
+        // SPIKE TRIM (2026-09-25). The ridged ranges make horns wherever the
+        // noise touches zero at a POINT rather than along a line (seed 42 had
+        // summits falling 45-82 m within 40 m on every side). The first fix, an
+        // opening with a round paraboloid, removed them -- and also rounded every
+        // ridge ACROSS its crest, which made the whole island soft (owner: "too
+        // rounded ... overcompensated"). This is a UNION OF LINE OPENINGS: a 1-D
+        // parabolic opening along each of four directions (0, 45, 90, 135 deg),
+        // keeping the MAX of the four. A crest that is long in at least one
+        // direction (a ridge, an arete, an escarpment or mesa edge) survives
+        // intact along that direction; only a peak that is sharp in EVERY
+        // direction -- a spike -- is cut down. It only ever lowers terrain.
+        // The caldera and its rim, and the geyser basin's terrace, are left alone.
         // ------------------------------------------------------------------
-        /// Voxels of height per map cell squared: at 40 m (5 cells) the rounded
-        /// summit has fallen 7 x 25 = 175 voxels (17.5 m).
+        /// Voxels of height per map cell squared along a line: 40 m (5 cells)
+        /// from a trimmed tip the ground has fallen at most 7 x 25 = 175 voxels.
         public const float SUMMIT_CURVATURE = 7f;
         public const int SUMMIT_WINDOW = 6;   // cells each side (48 m)
 
-        public static void RoundSummits(in TerrainSpec spec, in Offsets o, float[] h)
+        public static void TrimSpikes(in TerrainSpec spec, in Offsets o, float[] h)
         {
             int n = spec.mapCells, W = SUMMIT_WINDOW;
-            float k = SUMMIT_CURVATURE;
-            var a = new float[n * n];
-            var b = new float[n * n];
-            // Erosion: e(x) = min_y h(y) + k |x - y|^2, rows then columns.
-            for (int z = 0; z < n; z++)
-            for (int x = 0; x < n; x++)
+            var best = new float[n * n];
+            for (int i = 0; i < best.Length; i++) best[i] = float.MinValue;
+            var e = new float[n * n];
+            int2[] dirs = { new int2(1, 0), new int2(0, 1), new int2(1, 1), new int2(1, -1) };
+            foreach (int2 dv in dirs)
             {
-                float m = float.MaxValue;
-                for (int d = -W; d <= W; d++) { int xx = x + d; if (xx < 0 || xx >= n) continue; m = math.min(m, h[z * n + xx] + k * d * d); }
-                a[z * n + x] = m;
-            }
-            for (int z = 0; z < n; z++)
-            for (int x = 0; x < n; x++)
-            {
-                float m = float.MaxValue;
-                for (int d = -W; d <= W; d++) { int zz = z + d; if (zz < 0 || zz >= n) continue; m = math.min(m, a[zz * n + x] + k * d * d); }
-                b[z * n + x] = m;
-            }
-            // Dilation: o(x) = max_y e(y) - k |x - y|^2.
-            for (int z = 0; z < n; z++)
-            for (int x = 0; x < n; x++)
-            {
-                float m = float.MinValue;
-                for (int d = -W; d <= W; d++) { int xx = x + d; if (xx < 0 || xx >= n) continue; m = math.max(m, b[z * n + xx] - k * d * d); }
-                a[z * n + x] = m;
+                float k = SUMMIT_CURVATURE * (dv.x != 0 && dv.y != 0 ? 2f : 1f);   // diagonal steps are sqrt(2) cells
+                // Erosion along the line: e(x) = min_t h(x + t d) + k t^2.
+                for (int z = 0; z < n; z++)
+                for (int x = 0; x < n; x++)
+                {
+                    float m = float.MaxValue;
+                    for (int t = -W; t <= W; t++)
+                    {
+                        int xx = x + t * dv.x, zz = z + t * dv.y;
+                        if (xx < 0 || zz < 0 || xx >= n || zz >= n) continue;
+                        m = math.min(m, h[zz * n + xx] + k * t * t);
+                    }
+                    e[z * n + x] = m;
+                }
+                // Dilation along the same line, and the union over directions.
+                for (int z = 0; z < n; z++)
+                for (int x = 0; x < n; x++)
+                {
+                    float m = float.MinValue;
+                    for (int t = -W; t <= W; t++)
+                    {
+                        int xx = x + t * dv.x, zz = z + t * dv.y;
+                        if (xx < 0 || zz < 0 || xx >= n || zz >= n) continue;
+                        m = math.max(m, e[zz * n + xx] - k * t * t);
+                    }
+                    int i = z * n + x;
+                    best[i] = math.max(best[i], m);
+                }
             }
             float2 vs = Stamps.VolcanoSite(in spec, in o), gs = Stamps.GeyserSite(in spec, in o);
             for (int z = 0; z < n; z++)
             for (int x = 0; x < n; x++)
             {
-                float m = float.MinValue;
-                for (int d = -W; d <= W; d++) { int zz = z + d; if (zz < 0 || zz >= n) continue; m = math.max(m, a[zz * n + x] - k * d * d); }
                 int i = z * n + x;
-                if (m >= h[i]) continue;
+                if (best[i] >= h[i]) continue;
                 float2 p = new float2((x + 0.5f) * spec.mapCellVoxels, (z + 0.5f) * spec.mapCellVoxels);
                 // The caldera and its rim keep their edge: a curvature limit cuts a
-                // crest that sharp down by 50 m and the wall stops containing the
-                // lava (StampTests.Volcano). Nothing pokes through the rim any more
-                // -- MacroApply lets the cone replace the ranges near its summit.
+                // crest that sharp and the wall stops containing the lava.
                 if (math.distance(p, vs) < Stamps.CALDERA_R * 1.15f || math.distance(p, gs) < 1600f) continue;
-                h[i] = m;
+                h[i] = best[i];
             }
         }
 
         /// The world tree's canopy (map level): the leaf dome's top over the
-        /// ground under it. Runs after RoundSummits so it sits on rounded ground.
+        /// ground under it. Runs after TrimSpikes so it sits on trimmed ground.
         public static void TreeCanopy(in TerrainSpec spec, in Offsets o, float[] h)
         {
+            if (!Stamps.WorldTreeEnabled) return;
             int n = spec.mapCells;
             float2 ts = Stamps.TreeSite(in spec, in o);
             int rc = (int)math.ceil(Stamps.TREE_CANOPY_R / spec.mapCellVoxels) + 1;
@@ -365,10 +404,11 @@ namespace TerrainGen
         /// band, for the roughness channel.
         ///
         /// Shapes (2026-09-25, replacing SPIRE and the narrow BUTTE -- see
-        /// Beacons for the owner's note): DOME, a broad rounded hill (radius
-        /// 180-300 m, elongated and lobed, gentle slopes); MESA, a flat lookout
-        /// top (radius 80-160 m) on a terraced cliff band with one walkable
-        /// ramp; KNOLL, a low rounded hill. Height <= MAX_ASPECT x footprint radius.
+        /// Beacons for the owner's note -- and then the round DOMES, which made
+        /// the island "too rounded and soft"): CUESTA, an asymmetric ridge with
+        /// a walkable back slope and a terraced cliff; MESA, a flat lookout top
+        /// on a terraced cliff band with one walkable ramp; CRAGS, a cluster of
+        /// small rocky knobs; KNOLL, a low irregular hill.
         public static float Landmarks(in Offsets o, float2 p, float landWeight, out float edge)
         {
             edge = 0f;
@@ -389,15 +429,17 @@ namespace TerrainGen
                 float2 u = HashUnit(gx, gz, o.seed + 107u);
                 float stretch = 1f + 0.7f * Noise.Hash01(gx, 6, gz, o.seed + 108u);
                 float2 lobeOff = new float2(Noise.Hash01(gx, 7, gz, o.seed + 109u), Noise.Hash01(gx, 8, gz, o.seed + 110u)) * 100f;
-                if (kind < 0.30f)
+                if (kind < 0.35f)
                 {
-                    // DOME: radius 1,800-3,000 voxels (x stretch, +-lobe), height
-                    // 0.20-0.27 x radius. Footprint <= 3,000 x 1.7 x 1.3 < 7,200.
-                    float r = 1800f + 1200f * size, h = r * (0.20f + 0.07f * Noise.Hash01(gx, 5, gz, o.seed + 106u));
-                    float x = IrregularX(d, r, u, stretch, lobeOff);
-                    if (x < 1f) add = math.max(add, h * DomeT(x, 1f));
+                    // CUESTA: 40-100 m, crest 200-350 m long (half), back slope
+                    // >= 2.6 x its height wide, terraced scarp. Footprint < 4,500.
+                    float h = 400f + 600f * size;
+                    float Ls = 2000f + 1500f * Noise.Hash01(gx, 5, gz, o.seed + 106u);
+                    float Wb = math.max(1200f, 2.6f * h), Ws = 300f + 0.3f * h;
+                    float t = CuestaT(d, u, Ls, Wb, Ws, lobeOff, out bool cliff);
+                    if (t > 0f) { add = math.max(add, h * t); if (cliff) edge = 1f; }
                 }
-                else if (kind < 0.60f)
+                else if (kind < 0.62f)
                 {
                     // MESA: top radius 800-1,600, 30-70 m, 40 m terraced band, ramp.
                     float R = 800f + 800f * size, h = 300f + 400f * Noise.Hash01(gx, 5, gz, o.seed + 106u);
@@ -408,6 +450,27 @@ namespace TerrainGen
                         float t = MesaT(d, dist, R, B, L, u);
                         add = math.max(add, h * t);
                         edge = math.max(edge, dist > R && dist < R + B ? 1f : 0f);
+                    }
+                }
+                else if (kind < 0.85f)
+                {
+                    // CRAGS: a cluster of 3-6 rocky knobs, 30-55 m across and 8-20 m
+                    // tall, within 80 m of the centre -- exposed rock to scramble
+                    // over, not a tower. Rough (edge) so D's detail makes it rocky.
+                    // No smaller: at the map's 8 m cells a narrower knob is below
+                    // TrimSpikes' curvature and would be cut flat.
+                    if (dist < 1400f)
+                    {
+                        int count = 3 + (int)(4f * size);
+                        for (int kk = 0; kk < count; kk++)
+                        {
+                            float2 kc = c + new float2(Noise.Hash01(gx * 8 + kk, 20, gz, o.seed + 111u) - 0.5f,
+                                                       Noise.Hash01(gx * 8 + kk, 21, gz, o.seed + 112u) - 0.5f) * 1600f;
+                            float kr = 300f + 250f * Noise.Hash01(gx * 8 + kk, 22, gz, o.seed + 113u);
+                            float kh = 80f + 120f * Noise.Hash01(gx * 8 + kk, 23, gz, o.seed + 114u);
+                            float kx = math.saturate(math.distance(p, kc) / kr);
+                            if (kx < 1f) { add = math.max(add, kh * (1f - kx * kx)); edge = 1f; }
+                        }
                     }
                 }
                 else

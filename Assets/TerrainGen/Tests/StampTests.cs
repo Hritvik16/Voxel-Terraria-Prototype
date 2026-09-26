@@ -77,10 +77,14 @@ namespace TerrainGen.Tests
             float rim = SiteGround(vs + new float2(Stamps.CALDERA_R * 1.2f, 0f)) - _spec.seaLevelY;
             lines.Add($"volcano at {vs}: flank {rim / 10f:F0} m above sea 120 m out from the caldera");
             Assert.Greater(rim, 2000f, "the volcano's flank is not a mountain");
-            var ts = Stamps.TreeSite(in _spec, in _o);
-            var tc = S(ts.x + 400f, ts.y);
-            lines.Add($"world tree at {ts}: canopy top {(tc.height - _spec.seaLevelY) / 10f:F0} m above sea");
-            Assert.Greater(tc.height - SiteGround(ts + new float2(1500f, 0f)), 2000, "the tree is not 200+ m tall");
+            if (Stamps.WorldTreeEnabled)
+            {
+                var ts = Stamps.TreeSite(in _spec, in _o);
+                var tc = S(ts.x + 400f, ts.y);
+                lines.Add($"world tree at {ts}: canopy top {(tc.height - _spec.seaLevelY) / 10f:F0} m above sea");
+                Assert.Greater(tc.height - SiteGround(ts + new float2(1500f, 0f)), 2000, "the tree is not 200+ m tall");
+            }
+            else lines.Add("world tree: OFF (Stamps.WorldTreeEnabled; deferred to object placement)");
             var gs = Stamps.GeyserSite(in _spec, in _o);
             Assert.Greater(SiteGround(gs), _spec.seaLevelY + 20, "the geyser basin is not on land");
             File.WriteAllLines(Path.Combine(Dir(), "stamps.txt"), lines);
@@ -158,6 +162,8 @@ namespace TerrainGen.Tests
         [Test]
         public void WorldTree_HasTrunkCanopyAndAirBeneath()
         {
+            if (!Stamps.WorldTreeEnabled)
+                Assert.Ignore("the world tree is off until object placement is designed (owner, 2026-09-25)");
             var ts = Stamps.TreeSite(in _spec, in _o);
             int tx = (int)math.floor(ts.x), tz = (int)math.floor(ts.y);
             var under = Col(tx + 700, tz);

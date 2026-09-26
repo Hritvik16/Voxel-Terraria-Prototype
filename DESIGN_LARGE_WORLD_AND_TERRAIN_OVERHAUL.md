@@ -615,3 +615,17 @@ Reports (2026-09-25): item 1 diagnosis and fixes https://claude.ai/artifact/Fh4p
 fluids https://claude.ai/artifact/TChKqRWKHMPM9unLfSAC17 · TerrainGen features
 https://claude.ai/artifact/6S3bf2n4Py4SrrgG688H8u · status, questions and the V/H plan
 https://claude.ai/artifact/TUhRaksmPswMtNBA6dBjiT
+
+## 12. Owner decisions, 2026-09-25 (evening)
+
+| Question | Decision |
+|---|---|
+| Palette identity (§2.6) | **Gouache Frontier (D)** is the base (`tools/palette_defs.py`). Refined in-game later: per-material shade variants, the slope "salt-and-pepper" surface rule, in-engine lighting. Round 2 compared A / C / D on real terrain, four seeds: https://claude.ai/artifact/UHVE3p9YL5D8iQhFsR4t9w |
+| Cone / needle landforms | **Removed** (owner: "tall cone shaped things ... too unnatural ... not fun for traversal"). Spires, narrow buttes, spike beacons, crystal spires and ridged-noise horns are gone; `StampTests.NoNeedles_OnTheMap` guards it. The first replacement (round domes + a round summit opening) was "too rounded and soft"; the current one keeps sharp linear ridges (`WorldMap.TrimSpikes`, a union of line openings) and uses cuestas, terraced mesas, crags and knolls |
+| World tree | **Off** (`Stamps.WorldTreeEnabled = false`): "looks very weird and out of place ... should be massive ... add after we discuss object placement, which is where I think we do trees". Code and tests kept, gated |
+| §2.5 rule 1, "a landmark on every horizon" | **Kept**: find natural features that meet it (the spikes were the only thing that did: 21.6% of land points before, ~0.3% after) |
+| Minimap | Recommended (not yet confirmed): a baked relief minimap (depth slice underground) always on, plus the 3-D dev map as the full map on a key. "Explored only" comes with gameplay |
+| V/H (§11) | **Go, V0 first**, with an owner check-in before V1 |
+| Frame-rate target | Owner: "ideally 60 fps at 1080p". Today: 47.0 ms (21.3 FPS) on the in-air orbit at 960x540, full shadows (`Logs/flyfast_20260925_173755.txt`). Proposed path, each step measured alone: isolate where the 47 ms goes; temporal reuse (trace a fraction of pixels, reproject the rest); a temporal upscaler (URP STP) to 1080p output; a cached sun-shadow term; a coarse depth pre-pass. Owner asked: is the M1 / 8 GB the minimum spec? |
+
+Report: https://claude.ai/artifact/YDFrpwXtz7XsTzoNbL6N1f

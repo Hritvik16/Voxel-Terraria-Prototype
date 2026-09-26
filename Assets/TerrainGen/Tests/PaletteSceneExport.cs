@@ -187,7 +187,7 @@ namespace TerrainGen.Tests
         {
             var spec = ctx.spec; var o = ctx.o;
             if (math.distance(p, Stamps.VolcanoSite(in spec, in o)) < Stamps.VOLCANO_BASE_R + margin) return true;
-            if (math.distance(p, Stamps.TreeSite(in spec, in o)) < Stamps.TREE_CANOPY_R + 400f + margin) return true;
+            if (Stamps.InTreeArea(in spec, in o, p, 400f + margin)) return true;
             if (math.distance(p, Stamps.GeyserSite(in spec, in o)) < 1600f + margin) return true;
             return false;
         }

@@ -226,7 +226,8 @@ public sealed class DevMap : MonoBehaviour
         TerrainGen.Stamps.VolcanoHeight(in _spec, in _o, v, out _, out float lava);
         AddMarker("VOLCANO (caldera lava lake)", TgToEngine(v.x, _spec.seaLevelY + lava, v.y), new Color(1f, 0.45f, 0.2f), true);
         float2 t = TerrainGen.Stamps.TreeSite(in _spec, in _o);
-        AddMarker("WORLD TREE", TgToEngine(t.x, TgGround(t.x, t.y), t.y), new Color(0.5f, 0.95f, 0.45f), true);
+        if (TerrainGen.Stamps.WorldTreeEnabled)
+            AddMarker("WORLD TREE", TgToEngine(t.x, TgGround(t.x, t.y), t.y), new Color(0.5f, 0.95f, 0.45f), true);
         float2 g = TerrainGen.Stamps.GeyserSite(in _spec, in _o);
         AddMarker("GEYSER BASIN", TgToEngine(g.x, TgGround(g.x, g.y), g.y), new Color(0.6f, 0.9f, 1f), true);
 
@@ -238,7 +239,7 @@ public sealed class DevMap : MonoBehaviour
             // The singletons own their areas (Stamps.Column / MacroApply use
             // the same three tests), and a stamp over the sea builds nothing.
             if (TerrainGen.Stamps.VolcanoHeight(in _spec, in _o, s.pos, out _, out _) > 0f) continue;
-            if (math.distance(s.pos, t) < TerrainGen.Stamps.TREE_CANOPY_R + 200f) continue;
+            if (TerrainGen.Stamps.InTreeArea(in _spec, in _o, s.pos, 200f)) continue;
             if (math.distance(s.pos, g) < 1400f) continue;
             float gy = TgGround(s.pos.x, s.pos.y);
             if (gy < _spec.seaLevelY + 20) continue;
