@@ -35,6 +35,15 @@ using System.Text;
 public static class Materials
 {
     public const byte Air         = 0;
+
+    /// The TerrainGen (sizeClass 2) world's own materials, palette D (owner
+    /// locked it 2026-09-25): engine id = TG2_BASE + the TerrainGen GenMat code
+    /// (128..223). Fluids are NOT in this block -- they keep the ids above,
+    /// where their behaviour lives. Colours: MaterialPalette's generated TG2
+    /// tables (tools/gen-tg2-materials.py). Unreachable from the legacy
+    /// generator, so no legacy content hash changes.
+    public const byte TG2_BASE = 128;
+    public static byte FromTg2(byte genMat) => (byte)(TG2_BASE + genMat);
     public const byte Water       = 6;  // MaterialData.flags bit0 IsFluid (A.7)
     public const byte Stone       = 2;  // legacy id — do not renumber
     public const byte Grass       = 3;

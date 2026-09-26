@@ -432,7 +432,30 @@ namespace VoxelEngine.Rendering
 
         /// GenMat -> today's material ids: the far band's preview and V1's
         /// TerrainGenChunkSource (the palette-D materials, V1b, replace it).
+        /// TerrainGen material -> engine material. Fluids keep their engine ids
+        /// (their behaviour lives there); every other GenMat is its own engine
+        /// material, Materials.TG2_BASE + g, coloured by palette D (owner,
+        /// 2026-09-26: "add the materials now"). V1's chunk source maps every
+        /// voxel through here, the far band every surface texel.
         public static byte GenToEngine(byte g)
+        {
+            switch (g)
+            {
+                case TerrainGen.GenMat.Air: return Materials.Air;
+                case TerrainGen.GenMat.Water: return Materials.Water;
+                case TerrainGen.GenMat.Lava: return Materials.Lava;
+                case TerrainGen.GenMat.Honey: return Materials.Honey;
+                case TerrainGen.GenMat.Oil: return Materials.Oil;
+                case TerrainGen.GenMat.Acid: return Materials.Acid;
+                case TerrainGen.GenMat.Sludge: return Materials.Sludge;
+                case TerrainGen.GenMat.Quicksand: return Materials.Quicksand;
+            }
+            return g < 96 ? Materials.FromTg2(g) : Materials.Stone;
+        }
+
+        /// The pre-palette-D mapping (every GenMat collapsed onto ~12 legacy
+        /// engine materials). Kept for reference and A/B looks; unused.
+        public static byte GenToEngineLegacy(byte g)
         {
             switch (g)
             {

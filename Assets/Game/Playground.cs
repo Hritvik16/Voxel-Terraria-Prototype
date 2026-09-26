@@ -292,6 +292,15 @@ public class Playground : MonoBehaviour
         _clipmap = Phase4Bootstrapper.Clipmap;
         _pool = Phase4Bootstrapper.Pool;
 
+        // RENDER PRESET (RenderPreset.cs; owner, 2026-09-26: 60 FPS). Only an
+        // INTERACTIVE run takes the default: every capture/rig mode keeps the
+        // shipped path unless it asks (-renderpreset / -upscale), so the
+        // historical comparisons stay like for like. Applied BEFORE the arena
+        // search: a failed search yield-breaks out of Start, and the TerrainGen
+        // world's first run lost its preset exactly that way.
+        if (!IsCaptureRun()) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Default));
+        else if (HasArg("-renderpreset")) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Kind.Quality));
+
         if (!TryFindNaturalBasin(out _arenaCentre))
         {
             _status = "no basin found near spawn — fluid arena not placed";
@@ -408,12 +417,6 @@ public class Playground : MonoBehaviour
         // keyboard while open, and Update/OnGUI below stand aside for it.
         if (GetComponent<DevMap>() == null) gameObject.AddComponent<DevMap>();
 
-        // RENDER PRESET (RenderPreset.cs; owner, 2026-09-26: 60 FPS). Only an
-        // INTERACTIVE run takes the default: every capture/rig mode keeps the
-        // shipped path unless it asks (-renderpreset / -upscale), so the
-        // historical comparisons stay like for like.
-        if (!IsCaptureRun()) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Default));
-        else if (HasArg("-renderpreset")) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Kind.Quality));
         _ready = true;
         TeleportToArena();
         _status = $"arena at {_arenaCentre} — fluid is FIXED here and does not follow you";
@@ -762,7 +765,11 @@ public class Playground : MonoBehaviour
 
     private int SurfaceY(int x, int z)
     {
-        for (int y = WorldGenConstants.MAX_TERRAIN_HEIGHT + 2; y >= 1; y--)
+        // V2: the TerrainGen world's ground is ~5,000 voxels up and streams in
+        // a band; scan the loaded band. The flat world keeps its exact range.
+        int yTop = Phase4Bootstrapper.IsTg2World ? RaymarchFeature.ContentCeilingVoxelY - 1 : WorldGenConstants.MAX_TERRAIN_HEIGHT + 2;
+        int yBot = Phase4Bootstrapper.IsTg2World ? RaymarchFeature.ContentFloorVoxelY : 1;
+        for (int y = yTop; y >= yBot; y--)
         {
             byte m = _store.GetVoxel(new int3(x, y, z));
             if (m != Materials.Air && !MaterialRules.IsFluidMaterial(m)) return y;

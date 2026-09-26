@@ -156,6 +156,9 @@ public class RaymarchFeature : ScriptableRendererFeature
     /// bounds to its loaded band every frame, and rays leaving the band hand
     /// over to the far band.
     public static int ContentFloorVoxelY = 0;
+    /// One light colour per voxel: faces differ in brightness only (owner,
+    /// 2026-09-26). -facehue 0 restores the per-face colour for A/B.
+    public static bool UniformFaceHue = ReadIntArg("-facehue", 1) != 0;
 
     public static DebugMode DebugViewOverride = DebugMode.Beauty;
     public static bool UseDebugViewOverride = false;
@@ -311,6 +314,7 @@ public class RaymarchFeature : ScriptableRendererFeature
             public Vector3Int windowOriginBricks;
             public int contentCeilingVoxelY;
             public int contentFloorVoxelY;
+            public int uniformFaceHue;
             public Vector2Int debugPixel;
             public int debugMode;
             public int traversalMode;
@@ -503,6 +507,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.usePackedMips = UsePackedMips ? 1 : 0;
                 passData.contentCeilingVoxelY = ContentCeilingVoxelY;
                 passData.contentFloorVoxelY = ContentFloorVoxelY;
+                passData.uniformFaceHue = UniformFaceHue ? 1 : 0;
 
                 // ---- Phase 7 lighting ----
                 // LightSourceBuffer.Upload() is the CPU's job and happens in the
@@ -744,6 +749,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                         new int[] { data.windowOriginBricks.x, data.windowOriginBricks.y, data.windowOriginBricks.z, 0 });
                     cmd.SetComputeIntParam(data.compute, "_ContentCeilingVoxelY", data.contentCeilingVoxelY);
                     cmd.SetComputeIntParam(data.compute, "_ContentFloorVoxelY", data.contentFloorVoxelY);
+                    cmd.SetComputeIntParam(data.compute, "_UniformFaceHue", data.uniformFaceHue);
 
                     cmd.SetComputeBufferParam(data.compute, 0, "ClipmapBufferTier1", data.clipmapTier1);
                     cmd.SetComputeBufferParam(data.compute, 0, "BrickDataBufferTier1", data.brickDataTier1);
