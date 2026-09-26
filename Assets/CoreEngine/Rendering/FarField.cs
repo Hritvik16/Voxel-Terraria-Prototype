@@ -399,12 +399,16 @@ namespace VoxelEngine.Rendering
             }.Schedule(count, batch);
         }
 
-        /// GenMat -> today's material ids, for the PREVIEW only (the real
-        /// mapping lands with the new materials, §2.6).
-        private static byte GenToEngine(byte g)
+        /// GenMat -> today's material ids: the far band's preview and V1's
+        /// TerrainGenChunkSource (the palette-D materials, V1b, replace it).
+        public static byte GenToEngine(byte g)
         {
             switch (g)
             {
+                // Air is never a far-band surface, but V1's chunk source maps
+                // every voxel through this table (found by its LOD-0 test: Air
+                // fell through to Stone and every chunk was solid to its top).
+                case TerrainGen.GenMat.Air: return Materials.Air;
                 case TerrainGen.GenMat.Water: return Materials.Water;
                 case TerrainGen.GenMat.Lava: return Materials.Lava;
                 case TerrainGen.GenMat.Honey: return Materials.Honey;
