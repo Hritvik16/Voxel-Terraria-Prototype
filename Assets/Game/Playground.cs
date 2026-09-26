@@ -407,9 +407,28 @@ public class Playground : MonoBehaviour
         // The dev map (O). Its own component: it owns the camera and the
         // keyboard while open, and Update/OnGUI below stand aside for it.
         if (GetComponent<DevMap>() == null) gameObject.AddComponent<DevMap>();
+
+        // RENDER PRESET (RenderPreset.cs; owner, 2026-09-26: 60 FPS). Only an
+        // INTERACTIVE run takes the default: every capture/rig mode keeps the
+        // shipped path unless it asks (-renderpreset / -upscale), so the
+        // historical comparisons stay like for like.
+        if (!IsCaptureRun()) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Default));
+        else if (HasArg("-renderpreset")) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Kind.Quality));
         _ready = true;
         TeleportToArena();
         _status = $"arena at {_arenaCentre} — fluid is FIXED here and does not follow you";
+    }
+
+    private static bool IsCaptureRun()
+    {
+        foreach (string a in Environment.GetCommandLineArgs())
+            if (a.StartsWith("-") && (a == "-sustained" || a == "-playgroundshots" || a == "-gputrace" || a == "-p7stress" ||
+                a == "-daysweep" || a == "-presetshots" || a == "-phase7demo" || a == "-roofskipab" || a == "-upscaleab" ||
+                a == "-lavalight" || a == "-looksweep" || a == "-farvisual" || a == "-farpreview" || a == "-flyfast" ||
+                a == "-farseams" || a == "-lodpop" || a == "-farshimmer" || a == "-fluidroster" || a == "-devmap" ||
+                a == "-stutterprobe" || a == "-lightingab" || a == "-shadowstats" || a == "-pitchsweep" || a == "-fluidbench"))
+                return true;
+        return false;
     }
 
     private static bool HasArg(string flag)
@@ -434,6 +453,14 @@ public class Playground : MonoBehaviour
         Register(new Toy(KeyCode.X, "tool +", () => CycleTier(+1)));
         Register(new Toy(KeyCode.F2, "help", () => _showHelp = !_showHelp));
         Register(new Toy(KeyCode.O, "dev map (whole island + underground slice)", DevMap.Toggle));
+        Register(new Toy(KeyCode.F3, "render preset: quality / balanced / performance", () =>
+        {
+            var next = (RenderPreset.Kind)(((int)RenderPreset.Current + 1) % 3);
+            RenderPreset.Apply(next);
+            _status = $"RENDER PRESET: {next} ({RenderPreset.InternalWidth(next)} px wide internal" +
+                      (next == RenderPreset.Kind.Quality ? ", nearest blit)" : ", FSR to the screen)") +
+                      (RaymarchFeature.TemporalShadows ? " -- temporal shadows ON" : "");
+        }));
 
         // ================= PHASE 7 (§13, §6.5, §10.3) =================
         // THE THREE POSES THE OWNER HAS TO JUDGE IN MINUTES GET THEIR OWN KEYS.
@@ -832,6 +859,7 @@ public class Playground : MonoBehaviour
     {
         if (!_ready) return;
         if (_cam == null && Camera.main != null) _cam = Camera.main.GetComponent<PlaygroundFlyCamera>();
+        RenderPreset.Tick();
 
         float dt = Time.deltaTime;
         _actAge += dt;
@@ -1669,7 +1697,7 @@ public class Playground : MonoBehaviour
         sb.AppendLine("  <b><color=#ffd479>[</color></b> / <b><color=#ffd479>]</color></b>   cycle LIGHT PRESET — Warm / Atmospheric / HighContrast / Muted / Shipped");
         sb.AppendLine("");
         sb.AppendLine("<b><color=#cfe3f5>VIEW</color></b>");
-        sb.AppendLine("  <b>F1</b> perf overlay      <b>F2</b> these controls      <b>ESC</b> release the mouse      <b>O</b> dev map");
+        sb.AppendLine("  <b>F1</b> perf overlay      <b>F2</b> these controls      <b>ESC</b> release the mouse      <b>O</b> dev map      <b>F3</b> render preset");
         sb.AppendLine("");
         sb.Append("<color=#9fb6c9>Fluid simulates only inside §7.4's wake radius (shown in the state " +
                   "panel in both voxels and metres). The crosshair box turns grey outside it, and " +

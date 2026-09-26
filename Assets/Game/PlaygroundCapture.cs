@@ -1876,7 +1876,7 @@ public partial class PlaygroundCapture : MonoBehaviour
           $"travelLOD {RaymarchFeature.ShadowTravelLodOverride}   " +
           $"ambient {LightingConfig.Active.ambientIntensity:F2}");
         L($"clock PINNED at {SunCycle.ClockString()}  sun {SunCycle.ElevationDegrees:F1} deg ({SunCycle.PhaseName})");
-        L($"upscale {upscaleNote ?? "not set (as shipped)"}");
+        L($"upscale {upscaleNote ?? (HasFlag("-renderpreset") ? $"RenderPreset {RenderPreset.Current} ({RenderPreset.InternalWidth(RenderPreset.Current)} px wide internal, temporal shadows {(RaymarchFeature.TemporalShadows ? "ON" : "OFF")})" : "not set (as shipped)")}");
         L($"lava light share {LightingConfig.Active.lavaLightMaxSlots} of {EngineConfig.MAX_ACTIVE_LIGHTS} slots   " +
           $"look grade {(SunCycle.LookGradeOverride >= 0 ? SunCycle.LookGradeOverride : LightingConfig.Active.lookGrade)} " +
           $"(amount {SunCycle.LookGradeAmountAt(SunCycle.Hours):F2} at this hour)   maxQueuedFrames {QualitySettings.maxQueuedFrames}");
@@ -1923,6 +1923,12 @@ public partial class PlaygroundCapture : MonoBehaviour
         long[] rbHist0 = rb != null ? (long[])rb.LandLatencyHistogram.Clone() : null;
         int frames0 = Time.frameCount;
         long lightUploadsAtStart = lightDriver != null ? lightDriver.Lights.UploadsPerformed : -1;
+        // -frametiming (2026-09-26): FrameTimingManager's CPU-main / GPU split,
+        // so a floor that does not scale with pixels can be called CPU or GPU.
+        // Off by default: every historical arm ran without the capture call.
+        bool ftm = HasFlag("-frametiming");
+        var ftmT = new FrameTiming[1];
+        var ftmCpu = new List<double>(4096); var ftmGpu = new List<double>(4096);
 
         while (Time.realtimeSinceStartup - runStart < totalSeconds)
         {
@@ -1967,6 +1973,12 @@ public partial class PlaygroundCapture : MonoBehaviour
             yield return null;
             windowMs.Add(Time.unscaledDeltaTime * 1000.0);
             windowFrames++;
+            if (ftm)
+            {
+                FrameTimingManager.CaptureFrameTimings();
+                if (FrameTimingManager.GetLatestTimings(1, ftmT) > 0)
+                { ftmCpu.Add(ftmT[0].cpuMainThreadFrameTime); ftmGpu.Add(ftmT[0].gpuFrameTime); }
+            }
 
             float wElapsed = Time.realtimeSinceStartup - windowStart;
             if (wElapsed >= windowSeconds)
@@ -2057,6 +2069,12 @@ public partial class PlaygroundCapture : MonoBehaviour
               "(SetData on change only; each one is a potential GPU sync -- PHASE_7 §A)");
         }
         L("");
+        if (ftm && ftmCpu.Count > 0)
+        {
+            ftmCpu.Sort(); ftmGpu.Sort();
+            L($"  FrameTimingManager ({ftmCpu.Count} frames): cpu main p50 {ftmCpu[ftmCpu.Count / 2]:F2} ms   " +
+              $"gpu p50 {ftmGpu[ftmGpu.Count / 2]:F2} ms (GPU inflated ~2.6x on this Mac, Amdt 8.10 -- relative only)");
+        }
         L($"  FIRST 30 s window: {firstWindowMs:F2} ms = {1000f / firstWindowMs:F1} FPS   <- what a cooled short arm reports");
         L($"  LAST  30 s window: {lastWindowMs:F2} ms = {1000f / lastWindowMs:F1} FPS   <- what sustained play gets");
         L($"  WORST 30 s window: {worstWindowMs:F2} ms = {1000f / worstWindowMs:F1} FPS at t+{worstAtMin:F1} min");
