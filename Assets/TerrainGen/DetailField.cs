@@ -263,14 +263,19 @@ namespace TerrainGen
 
             // §2.5 stamp openings (arches, hoops, ribs, under the tree's canopy).
             // Never the top voxel (Stamps.cs header), so S stays the top solid.
-            if ((y >= c.open1Lo && y < c.open1Hi) || (y >= c.open2Lo && y < c.open2Hi)) return GenMat.Air;
+            if ((y >= c.open1Lo && y < c.open1Hi) || (y >= c.open2Lo && y < c.open2Hi) || (y >= c.open3Lo && y < c.open3Hi)) return GenMat.Air;
             if (c.stamp3D)
             {
                 byte st = Stamps.Carve3D(in spec, in o, in c, x, y, z);
                 if (st != 255) return st;
             }
 
-            int depth = h - y;
+            // Under a cap-rock LEDGE (ShapeField.Ledge) the ground is the top of
+            // the gap's floor, not the shelf: caves, tunnels and the surface /
+            // soil rules measure depth from there, or the ground under a ledge
+            // counts as 15 m deep and gets carved away (LedgesTest found it).
+            int hg = (c.open3Hi > c.open3Lo && y < c.open3Lo) ? c.open3Lo - 1 : h;
+            int depth = hg - y;
             if (depth > CARVE_MIN_DEPTH)
             {
                 bool inShell = false;
@@ -291,7 +296,7 @@ namespace TerrainGen
                     if (y < spec.UnderworldTopY && y >= cd.underLo && y < cd.underHi)
                         return y <= spec.worldBottomY + LAVA_ABOVE_FLOOR ? GenMat.Lava : GenMat.Air;
                     // Tunnels: an elliptical passage around each layer's centre line.
-                    if (InTunnel(cd.tun0, h - cd.tunY0, cd.tunH0, y) || InTunnel(cd.tun1, cd.tunY1, cd.tunH1, y) ||
+                    if (InTunnel(cd.tun0, hg - cd.tunY0, cd.tunH0, y) || InTunnel(cd.tun1, cd.tunY1, cd.tunH1, y) ||
                         InTunnel(cd.tun2, cd.tunY2, cd.tunH2, y) || InTunnel(cd.tun3, c.regional - cd.tunY3, cd.tunH3, y))
                         return GenMat.Air;
                 }

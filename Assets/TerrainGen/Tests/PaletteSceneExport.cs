@@ -134,6 +134,12 @@ namespace TerrainGen.Tests
                 if (FindCaveColumn(ctx, 0, out int tx, out int tz, out int ty))
                     Box(ctx, "caves_tunnels", "Tunnels 18-30 m under the surface (96 m block, cut open)",
                         tx - 480, tz - 480, 96, 96, ty - 600, ty + 80, 10, 10, "cutaway");
+                // T5b: a cap-rock ledge at native voxel scale.
+                if (FindCaveColumn(ctx, 2, out int lx, out int lz, out _))
+                {
+                    ColumnRange(ctx, lx - 64, lz - 64, 128, out int lLo, out int lHi, out _);
+                    Box(ctx, "close_ledge", "a cap-rock ledge at native voxel scale (12.8 m)", lx - 64, lz - 64, 128, 128, lLo - 40, lHi + 30, 1, 1, "close");
+                }
                 if (FindCaveColumn(ctx, 1, out int kx, out int kz, out int ky))
                     Box(ctx, "caves_cavern", "A cavern hall in the cavern layer (160 m, roof lifted off)",
                         kx - 800, kz - 800, 160, 160, ky - 250, ky + 350, 10, 10, "cavern");
@@ -390,6 +396,7 @@ namespace TerrainGen.Tests
                 var cd = DetailField.PrepareColumn(in spec, in o, px, pz);
                 if (kind == 0 && cd.tun0 < 0.2f) { x = px; z = pz; y = col.height; return true; }
                 if (kind == 1 && cd.cav0Hi - cd.cav0Lo > 150) { x = px; z = pz; y = (cd.cav0Lo + cd.cav0Hi) / 2; return true; }
+                if (kind == 2 && col.open3Hi > col.open3Lo + 40) { x = px; z = pz; y = col.height; return true; }
             }
             return false;
         }

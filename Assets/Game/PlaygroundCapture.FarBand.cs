@@ -241,6 +241,12 @@ public partial class PlaygroundCapture
                     break;
                 }
             }
+            // T5b: a CAP-ROCK LEDGE from 12 m away, eye at the gap's height. The
+            // eye column must be open air there (a pose inside rock "measures"
+            // a black frame -- CLAUDE.md), so the first of 8 directions whose
+            // ground is below the eye is used.
+            if (TryLedgePose(spec, map, o, out Vector3 le, out Vector3 lt)) Look("ledge_view", E(le.x, le.y, le.z), E(lt.x, lt.y, lt.z));
+            else L("ledge_view: no ledge with an open-air vantage found");
         }
         for (int gz = 0, done = 0; gz < (spec.worldSizeVoxels >> TerrainGen.Stamps.CELL_SHIFT) && done == 0; gz++)
         for (int gx = 0; gx < (spec.worldSizeVoxels >> TerrainGen.Stamps.CELL_SHIFT) && done == 0; gx++)
@@ -285,11 +291,60 @@ public partial class PlaygroundCapture
                                          $"deficit {deficit}  dense {Phase4Bootstrapper.Store.DenseBricksHeld}  lruEvictions {sm.LruEvictionsTotal}" : ""));
             }
         }
+        if (world)
+        {
+            // The minimap, photographed once (its own render path is OnGUI, so
+            // it only exists in a frame with the overlay on).
+            foreach (var (n, pos, rot) in poses)
+            {
+                if (n != "eye_level_2") continue;
+                SunCycle.SetHours(12f);
+                cam.transform.position = pos; cam.transform.rotation = rot;
+                Minimap.ForceShow = true;
+                for (int w = 0; w < 600; w++) yield return null;
+                yield return CaptureTo("minimap_check_noon");
+                Minimap.ForceShow = false;
+                cam.transform.position = pos - new Vector3(0f, 40f, 0f);   // underground: the depth slice
+                Minimap.ForceShow = true;
+                for (int w = 0; w < 120; w++) yield return null;
+                yield return CaptureTo("minimap_check_underground");
+                Minimap.ForceShow = false;
+            }
+        }
         L($"ring upkeep: {far.StripsApplied} strips, {far.FullRefills} refills, {far.BytesUploaded / 1048576.0:F1} MB uploaded");
         File.WriteAllText(Path.Combine(_folder, "farpreview.txt"), _log.ToString());
         Debug.Log("[farpreview]\n" + _log);
         yield return null;
         Application.Quit(0);
+    }
+
+    /// A ledge column near the island centre and an open-air eye 12 m from it
+    /// at the gap's height (tg2 voxels). Not an iterator (holds the map view).
+    private static bool TryLedgePose(TerrainGen.TerrainSpec spec, TerrainGen.WorldMap map, TerrainGen.Offsets o,
+                                     out Vector3 eye, out Vector3 target)
+    {
+        eye = target = default;
+        var view = map.View;
+        float c = spec.worldSizeVoxels * 0.5f;
+        for (int i = 0; i < 20000; i++)
+        {
+            float ang = i * 2.39996f, r = 800f + i * 1.2f;
+            float px = c + math.cos(ang) * r, pz = c + math.sin(ang) * r;
+            var col = TerrainGen.ShapeField.Sample(in spec, in view, in o, px + 0.5f, pz + 0.5f, 1);
+            if (col.open3Hi <= col.open3Lo + 40) continue;
+            float gapY = (col.open3Lo + col.open3Hi) * 0.5f;
+            for (int k = 0; k < 8; k++)
+            {
+                float a = k * 0.785398f;
+                float ex = px + math.cos(a) * 120f, ez = pz + math.sin(a) * 120f;
+                var ec = TerrainGen.ShapeField.Sample(in spec, in view, in o, ex + 0.5f, ez + 0.5f, 1);
+                if (ec.height + 5 >= gapY || ec.open3Hi > ec.open3Lo) continue;
+                eye = new Vector3(ex, gapY + 5f, ez);
+                target = new Vector3(px, gapY, pz);
+                return true;
+            }
+        }
+        return false;
     }
 
     /// Top-face Y (tg2 absolute voxels) of the sizeClass 2 column, or sea level.

@@ -300,6 +300,8 @@ public class Playground : MonoBehaviour
         // world's first run lost its preset exactly that way.
         if (!IsCaptureRun()) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Default));
         else if (HasArg("-renderpreset")) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Kind.Quality));
+        // The minimap (owner, 2026-09-26: "always in the corner"). F4 hides it.
+        if (GetComponent<Minimap>() == null) gameObject.AddComponent<Minimap>();
 
         if (!TryFindNaturalBasin(out _arenaCentre))
         {
@@ -421,6 +423,9 @@ public class Playground : MonoBehaviour
         TeleportToArena();
         _status = $"arena at {_arenaCentre} — fluid is FIXED here and does not follow you";
     }
+
+    /// For overlays (Minimap) that must stay out of capture frames.
+    internal static bool IsCaptureRunForUi => IsCaptureRun();
 
     private static bool IsCaptureRun()
     {
@@ -1704,7 +1709,7 @@ public class Playground : MonoBehaviour
         sb.AppendLine("  <b><color=#ffd479>[</color></b> / <b><color=#ffd479>]</color></b>   cycle LIGHT PRESET — Warm / Atmospheric / HighContrast / Muted / Shipped");
         sb.AppendLine("");
         sb.AppendLine("<b><color=#cfe3f5>VIEW</color></b>");
-        sb.AppendLine("  <b>F1</b> perf overlay      <b>F2</b> these controls      <b>ESC</b> release the mouse      <b>O</b> dev map      <b>F3</b> render preset");
+        sb.AppendLine("  <b>F1</b> perf overlay      <b>F2</b> these controls      <b>ESC</b> release the mouse      <b>O</b> dev map      <b>F3</b> render preset      <b>F4</b> minimap");
         sb.AppendLine("");
         sb.Append("<color=#9fb6c9>Fluid simulates only inside §7.4's wake radius (shown in the state " +
                   "panel in both voxels and metres). The crosshair box turns grey outside it, and " +

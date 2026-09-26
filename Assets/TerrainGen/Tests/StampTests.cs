@@ -91,6 +91,40 @@ namespace TerrainGen.Tests
             Debug.Log("[Stamps]\n" + string.Join("\n", lines));
         }
 
+        /// v3 T5b cap-rock ledges: they exist at cliff feet, each is a solid
+        /// shelf over an air gap over solid ground, and the shelf is the
+        /// column's top. Counted on a 16 m grid over the island.
+        /// Report: Logs/TerrainGen/ledges.txt.
+        [Test]
+        public void Ledges_AreShelvesOverAGap_AtCliffFeet()
+        {
+            int land = 0, ledges = 0, checkedN = 0;
+            float c0 = _spec.worldSizeVoxels * 0.5f;
+            for (int gz = -200; gz < 200; gz++)
+            for (int gx = -200; gx < 200; gx++)
+            {
+                int x = (int)c0 + gx * 160, z = (int)c0 + gz * 160;
+                var c = Col(x, z);
+                if (c.height < _spec.seaLevelY + 60) continue;
+                land++;
+                if (c.open3Hi <= c.open3Lo) continue;
+                ledges++;
+                if (checkedN >= 60) continue;
+                Assert.Less(c.open3Hi, c.height, "the gap reaches the shelf top");
+                Assert.GreaterOrEqual(c.open3Hi - c.open3Lo, ShapeField.LEDGE_MIN_GAP);
+                Assert.AreEqual(GenMat.Air, D(c, x, (c.open3Lo + c.open3Hi) / 2, z), $"no air under the ledge at ({x},{z})");
+                Assert.IsTrue(GenMat.IsSolid(D(c, x, c.height, z)), $"the ledge top at ({x},{z}) is not solid");
+                Assert.IsTrue(GenMat.IsSolid(D(c, x, c.open3Lo - 1, z)), $"the ground under the ledge at ({x},{z}) is not solid");
+                checkedN++;
+            }
+            var lines = new List<string> { $"ledge columns on a 16 m grid: {ledges} of {land} land ({100.0 * ledges / System.Math.Max(1, land):F2}%), {checkedN} checked voxel by voxel" };
+            string dir = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "Logs", "TerrainGen");
+            System.IO.Directory.CreateDirectory(dir);
+            System.IO.File.WriteAllLines(System.IO.Path.Combine(dir, "ledges.txt"), lines);
+            Debug.Log("[Ledges] " + lines[0]);
+            Assert.Greater(ledges, 20, "almost no ledges on the island");
+        }
+
         [Test]
         public void Arch_HasAnOpening_UnderASolidDeck()
         {

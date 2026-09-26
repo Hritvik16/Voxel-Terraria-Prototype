@@ -51,6 +51,9 @@ namespace TerrainGen
         /// +-120 m. D runs a passage layer below it; where a valley or cliff cuts
         /// under that level, the passage breaks out through the wall.
         public float regional;
+        /// v3 T5b: the air under a CAP-ROCK LEDGE, [lo, hi). Like the stamp
+        /// intervals, never contains the top voxel (the ledge IS the top).
+        public int open3Lo, open3Hi;
     }
 
     public static class ShapeField
@@ -119,8 +122,55 @@ namespace TerrainGen
             // §2.5 stamps. Skipped for a dry (pre-v2) map view, which is what
             // every older job builds -- they keep their exact prior output.
             if (map.water != null) Stamps.Column(in spec, in map, in o, p, texelVoxels, ref c);
+            if (map.water != null && spec.mapVersion >= 3) Ledge(in spec, in map, in o, p, ref c);
             return c;
         }
+
+        // ------------------------------------------------------------------
+        // v3 T5b CAP-ROCK LEDGES (owner, 2026-09-26: "do the buttes and
+        // overhangs and let me know if it is worth it"). At the FOOT of a cliff
+        // -- the map stands >= LEDGE_MIN_STEP higher within a few metres, which
+        // is what the layered regions' terraces and the buttes make -- the
+        // column's top is raised to a shelf LEDGE_BELOW_CAP under the cliff's
+        // cap level, with air between its own ground and the shelf's underside:
+        // a lip of hard rock over a soft undercut. Width and presence vary
+        // along the cliff by a 2-D noise, so a cliff gets ledges in runs, not
+        // a uniform band. 2-D only (owner: no 3-D noise), per column, and the
+        // top voxel stays the column's top, so every consumer of S (the far
+        // band, LOD-0, the air fast path) is unchanged in kind.
+        // Skipped over water (a river at the cliff foot keeps its surface) and
+        // in stamp columns (their intervals win).
+        // ------------------------------------------------------------------
+        public const float LEDGE_PROBE = 55f;          // voxels towards the cliff (5.5 m, max width)
+        public const int LEDGE_MIN_STEP = 150;         // 15 m higher within the probe = a cliff
+        public const int LEDGE_BELOW_CAP = 30;         // the shelf sits 3 m under the cap level
+        public const int LEDGE_MIN_GAP = 25;           // no gap under 2.5 m (a crawl is not a ledge)
+
+        private static void Ledge(in TerrainSpec spec, in MapView map, in Offsets o, float2 p, ref ColumnSample c)
+        {
+            if (c.stamp3D || c.open1Hi > c.open1Lo || c.water > c.height || c.height < spec.seaLevelY + 60) return;
+            float n = noise.snoise(p / 900f + o.detail + new float2(71f, -13f));
+            if (n < -0.15f) return;                                        // ~40% of cliff length has none
+            float w = LEDGE_PROBE * (0.45f + 0.55f * math.saturate(n + 0.15f));
+            SampleMap(in map, p.x, p.y, out float own, out _);
+            float best = own;
+            for (int k = 0; k < 8; k++)
+            {
+                SampleMap(in map, p.x + w * DirX(k), p.y + w * DirZ(k), out float h, out _);
+                best = math.max(best, h);
+            }
+            if (best - own < LEDGE_MIN_STEP) return;
+            int top = spec.seaLevelY + (int)math.floor(best) - LEDGE_BELOW_CAP;
+            float thick = 25f + 20f * (0.5f + 0.5f * noise.snoise(p / 300f + o.detail + new float2(-40f, 88f)));
+            int under = top - (int)thick;
+            if (top <= c.height || under - (c.height + 1) < LEDGE_MIN_GAP) return;
+            c.open3Lo = c.height + 1;
+            c.open3Hi = under;
+            c.height = top;
+        }
+
+        private static float DirX(int k) => k == 0 ? 1f : k == 1 ? 0.7071f : k == 2 ? 0f : k == 3 ? -0.7071f : k == 4 ? -1f : k == 5 ? -0.7071f : k == 6 ? 0f : 0.7071f;
+        private static float DirZ(int k) => DirX((k + 6) & 7);
 
         /// Detail octave i at p, in [-1, 1]. One function, so the determinism
         /// diagnostics evaluate exactly what Sample evaluates.
