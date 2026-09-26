@@ -135,6 +135,24 @@ namespace TerrainGen
             return floorH;
         }
 
+        /// v3's map-level craters: the MeteorCrater cell stamp's bowl and rim at
+        /// p over `hgt`, applied AFTER erosion so craters are fresh. Same shape
+        /// and the same exclusions as MacroApply's (v2) crater.
+        public static float CraterApply(in TerrainSpec spec, in Offsets o, float2 p, float hgt, float inland)
+        {
+            if (VolcanoHeight(in spec, in o, p, out _, out _) > 0f) return hgt;
+            float2 gq = p - GeyserSite(in spec, in o);
+            if (gq.x * gq.x + gq.y * gq.y < 1400f * 1400f || InTreeArea(in spec, in o, p, 200f)) return hgt;
+            if (inland <= 0.2f || !StampAt(in o, p, out Stamp s) || s.kind != MeteorCrater) return hgt;
+            float2 q = p - s.pos;
+            float dist = math.sqrt(q.x * q.x + q.y * q.y);
+            float R = 500f + 400f * s.a, D = 150f + 150f * s.b, rim = 0.35f * D;
+            float x = dist / R;
+            if (x < 1f) return hgt - D * (1f - x * x) + rim * x * x * x * x;
+            if (x < 1.8f) { float t = 1f - (x - 1f) / 0.8f; return hgt + rim * t * t; }
+            return hgt;
+        }
+
         /// Everything the map adds for stamps at p. `hgt` is the map height so
         /// far (voxels rel. sea); returns the new height. `edge` feeds the
         /// roughness channel (sharp stamps get less fine noise).

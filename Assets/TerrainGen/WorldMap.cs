@@ -48,6 +48,10 @@ namespace TerrainGen
         public readonly float2 PeakPosition;   // voxels
         public readonly Hydrology.Stats Hydro;
         public int BeaconCount { get; private set; }
+        /// v3 (§13): the region layout and, per cell, the nearest region's
+        /// archetype (Regions.*; 255 = sea). Null / empty on a v2 map.
+        public Regions.Layout RegionLayout { get; private set; }
+        public byte[] Region { get; private set; }
         private GCHandle _hH, _hR, _hW;
 
         public WorldMap(TerrainSpec spec, float[] height, float[] rough, float2 peak,
@@ -84,7 +88,180 @@ namespace TerrainGen
         // ------------------------------------------------------------------
         // Build
         // ------------------------------------------------------------------
-        public static WorldMap Build(TerrainSpec spec)
+        public static WorldMap Build(TerrainSpec spec) => spec.mapVersion >= 3 ? BuildV3(spec) : BuildV2(spec);
+
+        // ------------------------------------------------------------------
+        // v3 (§13, T1 + T2): regions -> starting shapes -> erosion -> fine map.
+        // ------------------------------------------------------------------
+        public const int EROSION_ITERATIONS = 240;
+        public const float PEAK_ALLOWANCE = 1.12f;
+        public static Erosion.Stats LastErosion;
+
+        private static WorldMap BuildV3(TerrainSpec spec)
+        {
+            int n = spec.mapCells, m = n / 2;
+            float cm = spec.mapCellVoxels * 2f;
+            var o = Offsets.For(spec.seed);
+            float2 peak = PeakSite(spec, o);
+            var L = Regions.Build(in spec, in o);
+            var w = new float[Regions.KINDS];
+
+            // ---- starting shapes on the coarse (erosion) grid ----
+            var hc = new float[m * m]; var ec = new float[m * m]; var tc = new float[m * m]; var lc = new bool[m * m];
+            for (int z = 0; z < m; z++)
+            for (int x = 0; x < m; x++)
+            {
+                int i = z * m + x;
+                float2 p = new float2((x + 0.5f) * cm, (z + 0.5f) * cm);
+                float coast = Coast(in spec, in o, p);
+                if (coast <= 0f) { hc[i] = OceanFloor(in spec, coast); tc[i] = 1f; continue; }
+                Regions.Weights(L, in o, p, w);
+                float H = 0f, E = 0f, T = 0f, lay = 0f;
+                for (byte k = 0; k < Regions.KINDS; k++)
+                {
+                    if (w[k] <= 0f) continue;
+                    var pr = Regions.P(k);
+                    H += w[k] * Regions.Shape(k, in spec, in o, p);
+                    E += w[k] * pr.erodibility; T += w[k] * pr.talus; if (pr.layered) lay += w[k];
+                }
+                // The dominant peak (§2.2), broad, in its alpine region. Started
+                // PEAK_ALLOWANCE above its target: erosion takes ~10% off a summit
+                // (541 m of 600 at the tuned erodibility, TerrainGenTests.Targets).
+                float2 dp = p - peak;
+                float pd = math.saturate(1f - math.sqrt(dp.x * dp.x + dp.y * dp.y) / 10500f);
+                H = math.max(H, pd * pd * (3f - 2f * pd) * (0.82f + 0.18f * Noise.Ridged(p / 7200f + o.ridge, 4)) * spec.peakHeight * PEAK_ALLOWANCE);
+                // The volcano's cone everywhere it reaches (it is wider than a region
+                // is apart from its neighbours, so a region blend would clip it).
+                H = math.max(H, Stamps.VolcanoHeight(in spec, in o, p, out _, out _));
+                // Island envelope: land rises from the shore; sea cliffs rise sharply.
+                float env = math.lerp(math.saturate(coast * 5f), math.saturate(coast * 14f), w[Regions.CoastalCliffs]);
+                // A little jitter so flats never drain in ruler-straight lines.
+                hc[i] = math.max(4f, H * env + 20f * Noise.Fbm(p / 1500f + o.detail + 3f, 2));
+                ec[i] = E; tc[i] = T; lc[i] = lay > 0.5f;
+            }
+            if (DumpErosionInputsTo != null) DumpErosionInputs(DumpErosionInputsTo + $"_{spec.seed}.bin", m, hc, ec, tc, lc);
+            LastErosion = Erosion.Run(m, hc, ec, tc, lc, cm, EROSION_ITERATIONS);
+
+            // ---- the fine map: upsample, then per-cell detail ----
+            var h = new float[n * n]; var r = new float[n * n]; var reg = new byte[n * n];
+            float2 vs = Stamps.VolcanoSite(in spec, in o);
+            for (int z = 0; z < n; z++)
+            for (int x = 0; x < n; x++)
+            {
+                int i = z * n + x;
+                float2 p = new float2((x + 0.5f) * spec.mapCellVoxels, (z + 0.5f) * spec.mapCellVoxels);
+                float coast = Coast(in spec, in o, p);
+                if (coast <= 0f) { h[i] = OceanFloor(in spec, coast); r[i] = 0.25f; reg[i] = 255; continue; }
+                // Bilinear from the coarse grid (cell centres).
+                float gx = (x + 0.5f) * 0.5f - 0.5f, gz = (z + 0.5f) * 0.5f - 0.5f;
+                int x0 = math.clamp((int)math.floor(gx), 0, m - 2), z0 = math.clamp((int)math.floor(gz), 0, m - 2);
+                float fx = math.saturate(gx - x0), fz = math.saturate(gz - z0);
+                float a = math.lerp(hc[z0 * m + x0], hc[z0 * m + x0 + 1], fx);
+                float b = math.lerp(hc[(z0 + 1) * m + x0], hc[(z0 + 1) * m + x0 + 1], fx);
+                float hh = math.lerp(a, b, fz);
+                int near = Regions.Weights(L, in o, p, w);
+                reg[i] = L.kind[near];
+                float rough = 0f;
+                for (byte k = 0; k < Regions.KINDS; k++) if (w[k] > 0f) rough += w[k] * Regions.P(k).rough;
+                if (w[Regions.Dunes] > 0f) hh += w[Regions.Dunes] * DuneField(in o, p);
+                // Beaches: the last metres at the waterline (not under sea cliffs).
+                float shore = math.saturate(coast * 12f);
+                float beach = math.max(8f, hh) * shore + 8f * (1f - shore) - 10f * (1f - math.saturate(coast * 5f));
+                hh = math.lerp(beach, hh, w[Regions.CoastalCliffs]);
+                // The caldera, fresh (erosion would have worn its rim).
+                float vd = math.distance(p, vs);
+                if (vd < Stamps.CALDERA_R * 1.4f)
+                {
+                    float v = Stamps.VolcanoHeight(in spec, in o, p, out _, out _);
+                    float t = math.saturate((Stamps.CALDERA_R * 1.4f - vd) / (Stamps.CALDERA_R * 0.25f));
+                    hh = math.lerp(hh, v, t);
+                }
+                hh = Stamps.CraterApply(in spec, in o, p, hh, math.saturate(coast * 5f));
+                h[i] = hh; r[i] = rough;
+            }
+            // Rock shows where the eroded land is steep.
+            for (int z = 1; z < n - 1; z++)
+            for (int x = 1; x < n - 1; x++)
+            {
+                int i = z * n + x;
+                float gxs = (h[i + 1] - h[i - 1]) * 0.5f, gzs = (h[i + n] - h[i - n]) * 0.5f;
+                float slope = math.sqrt(gxs * gxs + gzs * gzs) / spec.mapCellVoxels;
+                r[i] += 0.5f * Noise.SmoothStep(0.6f, 1.4f, slope);
+            }
+            TrimSpikes(in spec, in o, h);
+            var water = new float[n * n];
+            var flow = new float[n * n];
+            var cls = new byte[n * n];
+            var hydro = Hydrology.Run(n, h, r, water, flow, cls);
+            ClearCalderaLake(in spec, in o, water, cls);
+            return new WorldMap(spec, h, r, peak, water, flow, hydro, cls) { RegionLayout = L, Region = reg };
+        }
+
+        /// TUNING SEAM (tools/erosion-lab.c): when set, BuildV3 writes the erosion
+        /// grid's inputs to <path>_<seed>.bin -- int32 n, then n*n float32 each
+        /// of target, erodibility, talus, then n*n bytes of the layered flag.
+        public static string DumpErosionInputsTo;
+
+        private static void DumpErosionInputs(string path, int m, float[] hc, float[] ec, float[] tc, bool[] lc)
+        {
+            using var f = new System.IO.BinaryWriter(System.IO.File.Create(path));
+            f.Write(m);
+            foreach (float v in hc) f.Write(v);
+            foreach (float v in ec) f.Write(v);
+            foreach (float v in tc) f.Write(v);
+            foreach (bool v in lc) f.Write((byte)(v ? 1 : 0));
+        }
+
+        /// Dunes (v3 dune sea): asymmetric ridges across a hashed wind -- a
+        /// long windward slope, a steep slip face -- bent by a 2-D warp.
+        public static float DuneField(in Offsets o, float2 p)
+        {
+            float2 wind = math.normalizesafe(o.dip + new float2(0.3f, 0.1f), new float2(1f, 0f));
+            float2 perp = new float2(-wind.y, wind.x);
+            float s = math.dot(p, wind) / 900f + 0.35f * Noise.Fbm(p / 4000f + o.soil, 3) + 0.08f * math.dot(p, perp) / 900f;
+            float t = s - math.floor(s);
+            float y = t < 0.75f ? t / 0.75f : (1f - t) / 0.25f;
+            y = y * y * (3f - 2f * y);
+            float amp = 120f * (0.6f + 0.4f * (Noise.Fbm(p / 6000f + o.soil + 3f, 2) * 0.5f + 0.5f));
+            return y * amp;
+        }
+
+        /// The island envelope (§2.5): the coast value at p, > 0 on land.
+        public static float Coast(in TerrainSpec spec, in Offsets o, float2 p)
+        {
+            float c = spec.worldSizeVoxels * 0.5f;
+            float2 q = p - new float2(c, c);
+            float d = math.sqrt(q.x * q.x + q.y * q.y) / spec.islandRadius;
+            return (1f - d) + Noise.Fbm(p / 9000f + o.coastA, 5) * 0.45f + Noise.Fbm(p / 2600f + o.coastB, 3) * 0.12f;
+        }
+
+        public static float OceanFloor(in TerrainSpec spec, float coast)
+        {
+            float deep = math.min(1f, -coast * 3.5f);
+            return -(60f + (spec.oceanDepth - 60f) * deep * deep * (3f - 2f * deep));
+        }
+
+        /// The caldera holds LAVA, not the flood's water: clear the whole
+        /// caldera lake, found by its level (see BuildV2's note).
+        private static void ClearCalderaLake(in TerrainSpec spec, in Offsets o, float[] water, byte[] cls)
+        {
+            int n = spec.mapCells;
+            float2 vsite = Stamps.VolcanoSite(in spec, in o);
+            int vcx = math.clamp((int)(vsite.x / spec.mapCellVoxels), 0, n - 1), vcz = math.clamp((int)(vsite.y / spec.mapCellVoxels), 0, n - 1);
+            float calLevel = water[vcz * n + vcx];
+            for (int z = 0; z < n; z++)
+            for (int x = 0; x < n; x++)
+            {
+                float2 p = new float2((x + 0.5f) * spec.mapCellVoxels, (z + 0.5f) * spec.mapCellVoxels);
+                float2 q = p - vsite;
+                float d2 = q.x * q.x + q.y * q.y;
+                int i = z * n + x;
+                bool calderaLake = calLevel != Hydrology.NO_WATER && water[i] == calLevel && d2 < 4f * Stamps.CALDERA_R * Stamps.CALDERA_R;
+                if (d2 < Stamps.CALDERA_R * Stamps.CALDERA_R * 1.1f || calderaLake) { water[i] = Hydrology.NO_WATER; cls[i] = Hydrology.DRY; }
+            }
+        }
+
+        private static WorldMap BuildV2(TerrainSpec spec)
         {
             int n = spec.mapCells;
             var h = new float[n * n];

@@ -7,7 +7,10 @@
 // tools/palette-render.py ray-traces (sun + shadows) in every candidate palette.
 // Nothing is painted by hand: the palette is the only variable.
 //
-// Scenes per seed (step = voxels per sample; 1 voxel = 0.1 m):
+// Scenes per seed (step = voxels per sample; 1 voxel = 0.1 m). SINCE v3
+// (§13, 2026-09-25): the island, one 512 m block per topography REGION, an
+// alpine close-up and the volcano; the biome blocks, coast and cave scenes
+// below were round 2's list (caves are being replaced, T4):
 //   island      the whole island, 16 m x 2 m samples
 //   forest / desert / snow / jungle
 //               a 256 m block of that biome with real relief, 1 m samples,
@@ -95,21 +98,31 @@ namespace TerrainGen.Tests
                     Box(ctx, "island", "The whole island", (int)c - half, (int)c - half, 2 * half / stepXZ, 2 * half / stepXZ, y0, y1, stepXZ, stepY, "island");
                 }
 
-                // ---- a block of each biome with real relief ----
-                byte[] biomes = { GenBiome.Forest, GenBiome.Desert, GenBiome.Snow, GenBiome.Jungle };
-                string[] names = { "forest", "desert", "snow", "jungle" };
-                for (int b = 0; b < 4; b++)
+                // ---- v3 (§13): one block per topography region ----
+                // A 512 m block around each archetype's first region seed, 2 m
+                // samples, heights fitted to the ground in the box.
+                if (ctx.map.RegionLayout != null)
                 {
-                    const int SIZE = 2560;   // 256 m
-                    if (!FindBiomeBlock(ctx, biomes[b], SIZE, out int bx, out int bz, out float lo, out float hi))
-                    { log.AppendLine($"  {names[b]}: no block found on this seed"); continue; }
-                    int y0 = spec.seaLevelY + (int)lo - 150, y1 = spec.seaLevelY + (int)hi + 60;
-                    y0 = math.max(y0, spec.seaLevelY - 150);
-                    Box(ctx, names[b], $"A {names[b]} block with relief (256 m)", bx, bz, SIZE / 10, SIZE / 10, y0, y1, 10, 10, "block");
-                    // The close-up: the steepest spot of that block, at native scale.
-                    FindSteep(ctx, bx, bz, SIZE, out int sx, out int sz, out int sy);
-                    ColumnRange(ctx, sx - 96, sz - 96, 192, out int cLo, out int cHi, out _);
-                    Box(ctx, "close_" + names[b], $"{names[b]} at native voxel scale (19.2 m)", sx - 96, sz - 96, 192, 192, cLo - 40, cHi + 30, 1, 1, "close");
+                    var L = ctx.map.RegionLayout;
+                    var seen = new bool[Regions.KINDS];
+                    for (int si = 0; si < L.Count; si++)
+                    {
+                        byte k = L.kind[si];
+                        if (seen[k]) continue;
+                        seen[k] = true;
+                        const int SIZE = 5120, STEP = 20;
+                        int bx = (int)L.seeds[si].x - SIZE / 2, bz = (int)L.seeds[si].y - SIZE / 2;
+                        ColumnRangeCoarse(ctx, bx, bz, SIZE, out int lo, out int hi);
+                        string nm = "region_" + Regions.Name(k).Replace(' ', '_');
+                        Box(ctx, nm, $"{Regions.Name(k)} (512 m block)", bx, bz, SIZE / STEP, SIZE / STEP,
+                            math.max(lo - 200, spec.seaLevelY - 200), hi + 150, STEP, STEP, "block");
+                        if (k == Regions.Alpine && si == 0)
+                        {
+                            FindSteep(ctx, bx + SIZE / 4, bz + SIZE / 4, SIZE / 2, out int sx, out int sz, out int sy);
+                            ColumnRange(ctx, sx - 96, sz - 96, 192, out int cLo, out int cHi, out _);
+                            Box(ctx, "close_alpine", "alpine range at native voxel scale (19.2 m)", sx - 96, sz - 96, 192, 192, cLo - 40, cHi + 30, 1, 1, "close");
+                        }
+                    }
                 }
 
                 // ---- the volcano ----
@@ -120,18 +133,6 @@ namespace TerrainGen.Tests
                     int y0 = spec.seaLevelY - 200;
                     Box(ctx, "volcano", "The volcano and its caldera lava lake (1.9 km)", (int)v.x - half, (int)v.y - half, 2 * half / step, 2 * half / step, y0, y1, step, 30, "volcano");
                 }
-
-                // ---- a coast ----
-                if (FindCoast(ctx, out int cx0, out int cz0))
-                    Box(ctx, "coast", "A stretch of coast (256 m)", cx0 - 1280, cz0 - 1280, 256, 256, spec.seaLevelY - 200, spec.seaLevelY + 700, 10, 10, "coast");
-
-                // ---- underground: surface into the cavern layer ----
-                if (FindLowland(ctx, out int lx, out int lz, out int ly))
-                    Box(ctx, "cutaway", "Surface down into the cavern layer (256 m wide, cut open)", lx - 1280, lz - 1280, 256, 256, spec.CavernTopY - 900, ly + 60, 10, 10, "cutaway");
-
-                // ---- the underworld's lava sea ----
-                FindUnderworld(ctx, out int ux, out int uz);
-                Box(ctx, "underworld", "The underworld's lava sea (192 m, roof lifted off)", ux - 960, uz - 960, 192, 192, spec.worldBottomY, spec.UnderworldTopY + 150, 10, 10, "underworld");
             }
             finally
             {
@@ -268,6 +269,19 @@ namespace TerrainGen.Tests
                 int r = hi - lo;
                 if (r >= 60 && r <= 220) { sx = c.x; sz = c.z; sy = c.h; return; }
                 if (r < bestRange) { bestRange = r; sx = c.x; sz = c.z; sy = c.h; }
+            }
+        }
+
+        /// Lowest and highest map ground (absolute Y) over a box, on the map grid.
+        private static void ColumnRangeCoarse(Ctx ctx, int x0, int z0, int size, out int lo, out int hi)
+        {
+            var spec = ctx.spec; var o = ctx.o; var view = ctx.map.View;
+            lo = int.MaxValue; hi = int.MinValue;
+            for (int z = 0; z <= size; z += 80)
+            for (int x = 0; x <= size; x += 80)
+            {
+                int h = math.max(ShapeField.Sample(in spec, in view, in o, x0 + x + 0.5f, z0 + z + 0.5f, 8).height, spec.seaLevelY);
+                lo = math.min(lo, h); hi = math.max(hi, h);
             }
         }
 

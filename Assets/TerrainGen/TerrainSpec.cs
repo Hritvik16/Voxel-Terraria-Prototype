@@ -45,6 +45,10 @@ namespace TerrainGen
         /// unless a cave, a pocket or a biome border crosses them. 0 (the
         /// default) = per-voxel geology everywhere, as before.
         public int brickGeologyDepth;
+        /// Which world-map recipe: 2 = noise ranges + bolted-on landforms (to
+        /// 2026-09-25), 3 = regions + erosion (TerrainGen v3, design doc §13).
+        /// 0 is read as 2, so a spec built field by field keeps the old map.
+        public int mapVersion;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -63,6 +67,7 @@ namespace TerrainGen
             cavernTopBelowSea = 1500,        // 150 m
             underworldTopBelowSea = 4000,    // 400 m
             worldBottomY = 120,              // 12 m of bedrock floor under the underworld
+            mapVersion = 3,                  // regions + erosion (§13)
         };
 
         public int CavernTopY => seaLevelY - cavernTopBelowSea;
