@@ -241,6 +241,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         // HYSTERESIS_RING_CHUNKS 2->1 (+12.8m). Measure before doing either.
         int maxRadius = StreamManager.MaxLoadRadiusChunks(_store.WindowDims);
         int loadRadius = _loadRadiusChunks <= 0 ? maxRadius : _loadRadiusChunks;
+        if (IsTg2World) loadRadius = Math.Min(loadRadius, EngineConfig.TG2_LOAD_RADIUS_CHUNKS);
         if (loadRadius > maxRadius)
         {
             UnityEngine.Debug.LogWarning(
@@ -334,12 +335,23 @@ public class Phase4Bootstrapper : MonoBehaviour
         Coalescer.Update();
         FrameGapProbe.LastStreamerMs = streamMs;
         ApplyBandToRenderer();
+        FrameGapProbe.LastAdmitted = Streamer.LastAdmitted;
+        {
+            var ph = FrameGapProbe.LastStreamPhases;
+            ph[0] = Streamer.LastSlideMs; ph[1] = Streamer.LastDispatchMs; ph[2] = Streamer.LastDrainCompletionsMs;
+            ph[3] = Streamer.LastTransferMs; ph[4] = Streamer.LastValveMs; ph[5] = Streamer.LastSweepMs;
+            ph[6] = Streamer.LastUploadMs - Streamer.LastCascadeMs; ph[7] = Streamer.LastCascadeMs;
+        }
+        FrameGapProbe.LastUploadBytes = Streamer.LastUploadBytes;
+        FrameGapProbe.LastSetDataCalls = Streamer.LastUploadStats.brickRuns + Streamer.LastUploadStats.chunksUploaded;
+        double farT0 = sw.Elapsed.TotalMilliseconds;
         if (_far != null)
         {
             _far.Update(camPos);
             Streamer.LayerRange(out int lo, out int hi);
             _far.UpdateResidency(_store, Clipmap.WindowOriginBricks / EngineConfig.CHUNK_EDGE_BRICKS, Clipmap.WindowDimsChunks, lo, hi);
         }
+        FrameGapProbe.LastFarMs = sw.Elapsed.TotalMilliseconds - farT0;
         FrameGapProbe.LastCoalescerMs = sw.Elapsed.TotalMilliseconds - streamMs;
     }
 

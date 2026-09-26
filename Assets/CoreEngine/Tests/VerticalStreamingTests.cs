@@ -80,6 +80,20 @@ public class VerticalStreamingTests
             int layer3 = (int)math.floor(up3.y * 10f) >> 7;
             for (int i = 0; i < 4; i++) { sm.Update(up3); sm.WaitForIdle(); }
             CheckBand(sm, store, clip, layer3, "after climbing three layers");
+
+            // TELEPORT WITH LOADS IN FLIGHT (2026-09-26): dispatch a band, then
+            // jump 1 km and 2 layers up before it lands. Completions for the old
+            // position must be discarded, not inserted -- inserting them left
+            // resident chunks outside the window that a later chunk's ring slot
+            // collided with ("Insert of chunk ... would overwrite live chunk").
+            Vector3 far = up3 + new Vector3(1000f, 0f, 700f);
+            sm.Update(cam + new Vector3(40f, 0f, 40f));      // new loads dispatched here...
+            sm.Update(far);                                  // ...and the camera leaves before they land
+            sm.WaitForIdle();
+            for (int i = 0; i < 4; i++) { sm.Update(far); sm.WaitForIdle(); }
+            int farLayer = (int)math.floor(far.y * 10f) >> 7;
+            CheckBand(sm, store, clip, farLayer, "after a 1 km teleport with loads in flight");
+            Debug.Log($"[V2] teleport: {sm.DiscardedOnArrivalTotal} completions discarded on arrival");
             Debug.Log($"[V2] ground Y {groundY}, band {camLayer}+-{StreamManager.V_LOAD_LAYERS} -> {layer3}; " +
                       $"resident {residentAtStart} -> {store.ResidentCount}; air fast path {sm.TerrainGenSource.AirFastPathTotal}; " +
                       $"dense bricks held {store.DenseBricksHeld}; top layer {sm.TopLayerChunkY}");

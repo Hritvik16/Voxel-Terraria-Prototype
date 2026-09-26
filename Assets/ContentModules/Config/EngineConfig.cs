@@ -244,13 +244,22 @@ public static class EngineConfig
     /// sizeClass 2 world. Its band holds the surface chunk AND the layers above
     /// and below it (V0 projected ~1.1-1.5 M dense bricks for a 7-layer band
     /// under R1 geology). The GPU mirrors the pool one-for-one, so this costs
-    /// 512 B x cap TWICE: 1.2 M = 614 MB CPU + 614 MB GPU. FIRST SIZING, to be
-    /// set from the measured peak against the owner's 3 GB total (2026-09-26).
-    /// The flat world keeps BRICK_POOL_CAP.
-    public const int TG2_BRICK_POOL_CAP = 1200000;
+    /// 512 B x cap TWICE. MEASURED (run-tg2world.sh, 2026-09-26): peak
+    /// 753,458 dense bricks (a mountainside pose); phys_footprint 2.80-2.94 GB
+    /// at a 1.2 M cap. 1.0 M puts that peak under the §3.6 valve's 850k line
+    /// and returns ~200 MB of the owner's 3 GB. The flat world keeps
+    /// BRICK_POOL_CAP.
+    public const int TG2_BRICK_POOL_CAP = 1000000;
     /// GPU mirror height for a vertically streamed world: 8 layers strictly
     /// contain the loaded band (StreamManager.V_LOAD_LAYERS = 3 -> 7 layers).
     public const int TG2_MIRROR_CHUNKS_Y = 8;
+    /// Load radius for the TerrainGen world (the flat world derives 13 from its
+    /// window). MEASURED 2026-09-26: with palette D's distinct strata, a 27x27
+    /// band's dense-brick demand passed the 1.0 M pool's 850k valve line, the
+    /// valve evicted what streaming loaded (2,830 chunks missing at a mountain
+    /// pose) and the churn lifted phys_footprint to 3.3 GB. 10 (21x21, -40%
+    /// chunks) keeps voxel detail to 128 m; the far band draws beyond it.
+    public const int TG2_LOAD_RADIUS_CHUNKS = 10;
 
     /// Per-tier cascade pool capacities, sized against measured peaks.
     ///

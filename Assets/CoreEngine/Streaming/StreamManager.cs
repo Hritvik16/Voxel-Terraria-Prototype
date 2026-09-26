@@ -737,6 +737,7 @@ namespace VoxelEngine.Streaming
             int admitted = 0;
             while (admitted < EngineConfig.MAX_CHUNK_LOADS_PER_FRAME && _completions.TryDequeue(out var c))
             {
+                bool discarded = false;
                 try
                 {
                     if (!_table.TryGetValue(c.coord, out ChunkRecord rec)) continue;
@@ -748,6 +749,30 @@ namespace VoxelEngine.Streaming
                     // its own previous load -- an ordering bug that only
                     // reproduces at speed.
                     if (rec.generation != c.generation || rec.state != ChunkState.Loading) continue;
+
+                    // OUT OF RANGE ON ARRIVAL (found 2026-09-26, -world tg2 pose
+                    // jumps). A load dispatched for the camera's OLD position can
+                    // finish after the camera has left: Loading is not evictable,
+                    // so EvictOutOfRange skipped it, and this drain used to
+                    // insert it anyway -- a resident chunk outside the window /
+                    // band, holding a ring slot a legitimate chunk later maps to
+                    // ("Insert of chunk (343,43,408) would overwrite live chunk
+                    // (311,59,312)"), and uploaded into the GPU mirror's toroidal
+                    // slot for a chunk of the CURRENT band: terrain from 200 m
+                    // away drawn in the wrong place. §4.4 has no Loading->Unloaded
+                    // edge, so it takes the two legal ones, Loading -> Resident ->
+                    // Unloaded, without touching the store, the pool or the
+                    // mirror. The generation bump on ->Unloaded lets it re-admit
+                    // normally if the camera comes back. A delta on disk is
+                    // untouched (nothing was applied to the live world).
+                    if (!WantedNow(c.coord))
+                    {
+                        ChunkLifecycle.Transition(rec, ChunkState.Resident, true, "DrainCompletions (arrived out of range)");
+                        ChunkLifecycle.Transition(rec, ChunkState.Unloaded, true, "discarded: out of range on arrival");
+                        DiscardedOnArrivalTotal++;
+                        discarded = true;
+                        continue;
+                    }
 
                     if (c.error != null)
                     {
@@ -804,10 +829,28 @@ namespace VoxelEngine.Streaming
                 }
                 finally
                 {
-                    ResetScratch(c.scratch, expectEmpty: true);
+                    // A discarded chunk's bricks were never transferred: the
+                    // scratch pool is SUPPOSED to hold them, so it is not a leak.
+                    ResetScratch(c.scratch, expectEmpty: !discarded);
                     _scratchPool.Add(c.scratch);
                 }
             }
+        }
+
+        /// Completions discarded because the camera left their range while they
+        /// were loading (see DrainCompletions).
+        public int DiscardedOnArrivalTotal { get; private set; }
+
+        /// Would EvictOutOfRange keep this chunk right now? The same three tests:
+        /// inside the store window, within the evict radius of the camera
+        /// chunk, and (tall worlds) inside the vertical band.
+        private bool WantedNow(int3 coord)
+        {
+            if (!_store.IsInWindow(coord)) return false;
+            int dx = math.abs(coord.x - _lastCameraChunk.x), dz = math.abs(coord.z - _lastCameraChunk.z);
+            if (math.max(dx, dz) > _evictRadiusChunks) return false;
+            if (VerticalStreaming && math.abs(coord.y - _lastCameraChunk.y) > V_LOAD_LAYERS) return false;
+            return true;
         }
 
         /// Admission contiguity counters, so the rig can report whether the

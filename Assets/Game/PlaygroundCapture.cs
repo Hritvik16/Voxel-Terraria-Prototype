@@ -1927,6 +1927,11 @@ public partial class PlaygroundCapture : MonoBehaviour
         // so a floor that does not scale with pixels can be called CPU or GPU.
         // Off by default: every historical arm ran without the capture call.
         bool ftm = HasFlag("-frametiming");
+        // -framegap (2026-09-26): attach FrameGapProbe for the whole run --
+        // per-frame attribution of the >33 ms tail (engine frame start / our
+        // Update / render+present, GC, streamer, far band, chunks admitted).
+        FrameGapProbe gap = null;
+        if (HasFlag("-framegap")) { gap = gameObject.AddComponent<FrameGapProbe>(); gap.Recording = true; }
         var ftmT = new FrameTiming[1];
         var ftmCpu = new List<double>(4096); var ftmGpu = new List<double>(4096);
 
@@ -2069,6 +2074,13 @@ public partial class PlaygroundCapture : MonoBehaviour
               "(SetData on change only; each one is a potential GPU sync -- PHASE_7 §A)");
         }
         L("");
+        if (gap != null)
+        {
+            gap.Recording = false;
+            var gsb = new StringBuilder();
+            gap.AppendReport(gsb, 33.0);
+            L(gsb.ToString());
+        }
         if (ftm && ftmCpu.Count > 0)
         {
             ftmCpu.Sort(); ftmGpu.Sort();
