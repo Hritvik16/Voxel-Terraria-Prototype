@@ -663,3 +663,66 @@ openings), the needle guard, region coverage.
 **Interaction with V/H.** V1 (chunk-source seam, engine material ids from palette
 D) does not depend on the generator and proceeds. The V0 memory rule is re-measured
 after T4 (the cave network and the new strata change the dense-brick counts).
+
+## 14. Overnight 2026-09-26: what was built, and what V2/V3 needs (FLAGGED)
+
+**Built (see the morning report for evidence):** T4 structured caves (no 3-D noise:
+per-column tunnel / cavern / chamber intervals), T5 valley-wall cave mouths (a
+passage layer below the REGIONAL ground), T6 inselbergs (hard-rock massifs in the
+flat regions), temporal shadow reuse (`-tshadow`), render presets with FSR
+(`RenderPreset.cs`, F3), and V1 (`TerrainGenChunkSource` + the
+`StreamManager.GenerateBaseline` seam; sizeClass 0/1 untouched).
+
+**V2/V3 -- NOT built, and why.** Walking the new island needs the CPU ring to
+follow the camera in Y (V2: `StreamManager` pins `camChunk.y = 0` and admits only
+`cy <= MAX_GENERATED_CHUNK_Y = 0`) and the GPU mirror to follow it too (V3:
+`MIRROR_CHUNKS_Y = 4`, a fixed 51 m slab). Both change FROZEN Phase 4 contracts
+(the §4.4 admission rules, `AboveWorldCeilingTests`, `IslandSpawnTests`,
+`VoxelCollision`'s ceiling rule, the raymarch content ceiling) and carry the V0
+memory risk: a 16-layer ring over the new terrain measures ~2.2 GB of dense
+bricks (R0) or ~750 MB with brick geology below 20 m (R1; 560 MB for an
+8-layer ring), and a camera deep in the cavern layer ~785 MB for half the
+ring (R1), against today's 366 MB pool (`Logs/TerrainGen/v0_dense_bricks.txt`,
+after the cavern-site fix of 2026-09-26). That is a redesign by CLAUDE.md's own definition, so it is proposed,
+not done:
+
+1. V2 behind a per-world flag (`sizeClass 2` only): ring origin Y =
+   camChunk.y - 8; admit layers within +-3 of the camera's layer and the surface
+   layers of each column (from the map), never the air above the top; R1 brick
+   geology on; pool cap raised to the measured need (owner decision: memory).
+2. V3: mirror Y origin follows the camera (a toroidal Y slot, like X/Z today),
+   MIRROR_CHUNKS_Y 4 -> 8 (+~70 MB), content ceiling from the map's max height.
+3. Gates: every existing Phase 4 gate unchanged on sizeClass 1; a sizeClass 2
+   acceptance run (deficit 0, uploads under §4.3's cap), a walk + a shaft
+   descent, the lifted-orbit frame time.
+
+### 14.1 Results by morning (2026-09-26)
+
+- **60 FPS.** The Playground opens on `RenderPreset.Performance` (URP FSR 1.0
+  from 480x270 + temporal shadow reuse). Measured through the preset's own
+  code path (`run-perf60.sh` PP/PPd/PB, 1080p fullscreen RELEASE, in-air orbit,
+  far band + far shadows, live fluid, 3 min, 2 counterbalanced reps):
+  Performance 15.1-15.6 ms (~65 FPS), pitched 12 degrees at the ground
+  16.8 ms (59.5 FPS), Balanced 19.7-19.8 ms (50.6 FPS). Yesterday's shipped
+  path was 55.2 ms. `Logs/perf60_20260926_031103.txt`.
+- **The frame-time TAIL is not fixed.** While the camera translates, 8-10% of
+  frames exceed 33 ms. Not the fluid (-nofluid unchanged) and not the HUD
+  (-nohud unchanged); the one valid still-camera arm had the same mean
+  (13.7 ms) and ~0 frames > 33 ms, so translation (streaming) is the lead
+  suspect -- not proven. Three other still-camera arms went black at the arena
+  pose (the fluid demo buries a camera that stays put) and are void.
+  `Logs/perf60_20260926_0339*.txt`, `_041648.txt`.
+- **V1 found a real bug:** `FarField.GenToEngine` mapped `GenMat.Air` to Stone.
+- **Landmarks, round 2:** inselbergs in every region outside the mountains
+  (1.1 km cells, 85%, 90-160 m). 19 -> 40 local summits (a flat-topped massif
+  counts several times, so ~30 distinct); all 4 sectors within 3 km 1.5% ->
+  2.2%; points seeing NONE within 3 km 48% -> 33%. Needles unchanged (worst
+  22 m). The rule as measured (a summit >= 60 m over its 1 km mean, in every
+  90-degree sector within 1.5 km, line of sight from 2 m) stays far off: on a
+  6 km island it needs a distinct massif roughly every kilometre. Whether that
+  density is wanted, or whether ridges / escarpments should count as
+  landmarks, is the owner's call.
+- **Caves look primitive.** Per-column intervals give vertical cavern walls;
+  2-4 m tunnels do not read at report scale. Shaped walls (per-column interval
+  slopes, ledges) are the next cave step, still without 3-D noise.
+

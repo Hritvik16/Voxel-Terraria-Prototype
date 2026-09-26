@@ -26,7 +26,7 @@
 
 Phase 6 is CLOSED and merged. **Phase 7 (lighting & day/night) is built and its
 acceptance gates are green, but it is NOT closed** -- `PHASE_7_COMPLETION.md`
-recommends; the owner closes. EditMode is `PASS 617 FAIL 0 SKIP 2` (2026-09-25, world-terrain-overhaul; skipped: the report-only PaletteSceneExport and the world-tree test, parked while the tree is off) and
+recommends; the owner closes. EditMode is `PASS 619 FAIL 0 SKIP 2` (2026-09-26, world-terrain-overhaul; skipped: the report-only PaletteSceneExport and the world-tree test, parked while the tree is off) and
 `./run-phase7-rig.sh` reports `PASS 32 FAIL 0` (2026-09-24; Gate 1's rock poses fixed). What Phase 7 still wants is the
 owner's five minutes in the Playground (that document's §12) and answers to its
 §10 flags -- principally which of §6.5's four shadow rungs ships.
@@ -315,6 +315,31 @@ real and separate reason — see the LOD-cascade finding in
   47.2 -> 45.6 (`Logs/flyfast_20260925_105003.txt`). Every `-sustained` arm
   defaults to HUD ON, so the per-frame TAIL of any arm before bf9aaba (not its
   A/B deltas) carries this.
+- **THE INTERACTIVE PLAYGROUND NO LONGER RENDERS THE WAY THE RIGS DO (2026-09-26).**
+  `RenderPreset.Default` is Performance: URP FSR 1.0 from 480x270 plus temporal
+  shadow reuse (`-tshadow`), applied ONLY when no capture flag is present
+  (`Playground.IsCaptureRun`). Every rig still runs the shipped 960 gate
+  unless it passes `-renderpreset`/`-upscale`, so historical comparisons stay
+  like for like -- but a number from a rig is NOT what a player sees, and vice
+  versa. `run-perf60.sh` arms PP/PB/PPd measure the presets' own path. An
+  upscaling preset swaps in an EMPTY URP volume profile (SampleSceneProfile's
+  Bloom/Vignette/tonemap otherwise tints the frame grey once post is on for
+  FSR). Measured: Performance 15.1-15.6 ms, 16.8 ms pitched at the ground,
+  Balanced 19.7 ms, vs 55.2 ms shipped (`Logs/perf60_20260926_031103.txt`).
+- **WHILE THE CAMERA MOVES, 8-10% OF FRAMES EXCEED 33 ms (found 2026-09-26, NOT
+  FIXED).** Present at every preset. Not the fluid (`-nofluid`), not the HUD
+  (`-nohud`). The one valid still-camera arm had the same mean and ~0 such
+  frames, so translation (streaming) is the lead suspect, unproven. Only the
+  per-30 s count exists today (`framesOver33` in sustained.tsv); isolate
+  further (per-frame capture; far band off; streaming budget) before fixing.
+  **`-motion spin`/`static` stay at the ARENA pose (orbitheight moves only the
+  orbit centre), and the fluid demo buries that camera: 3 of 4 such arms ended
+  pure black at "4 ms". Check the end-pose shot of any non-orbit arm.**
+- **`FarField.GenToEngine` IS NOW THE CHUNK MATERIAL TABLE, not only the far
+  band's.** V1 (`TerrainGenChunkSource`, sizeClass 2) maps every voxel through
+  it. It had no case for `GenMat.Air` (the far band never passes one), so air
+  became Stone and every generated chunk was solid to its top -- caught by
+  `TerrainGenChunkSourceTests`. Any new GenMat needs a mapping there.
 - **A SHORT COOLED ARM IS NO LONGER SUFFICIENT EVIDENCE FOR AN FPS CLAIM.** Use
   `-sustained`, which runs continuously for N minutes and reports rolling 30 s
   windows -- the curve is the result, not the endpoint. Thermal throttling was

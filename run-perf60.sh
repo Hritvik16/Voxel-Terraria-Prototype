@@ -13,6 +13,8 @@
 #             -renderpreset performance|balanced): the code path an interactive
 #             run takes, not the -upscale measurement path
 #   PPd / PBd the same, pitched 12 deg DOWN at the ground (more terrain in frame)
+#   PPnf / PPnh  PP without live fluid / without the HUD (isolating the >33 ms tail)
+#   PPspin / PPstatic  PP rotating in place / held still (is the tail TRANSLATION?)
 # Order S N F640 F480 F480 F640 N S. Uses the existing Builds/Playground.app
 # unless BUILD=1. EXTRA="-frametiming" adds flags to every arm. Takes the
 # shared Unity lock.
@@ -68,6 +70,10 @@ for label in $ORDER; do
     T560) arm T560 -upscale fsr -internalw 560 -tshadow 1 ;;
     PP) arm PP -gateres 0 -renderpreset performance ;;
     PB) arm PB -gateres 0 -renderpreset balanced ;;
+    PPspin) arm PPspin -gateres 0 -renderpreset performance -motion spin ;;
+    PPstatic) arm PPstatic -gateres 0 -renderpreset performance -motion static ;;
+    PPnf) arm PPnf -gateres 0 -renderpreset performance -nofluid ;;
+    PPnh) arm PPnh -gateres 0 -renderpreset performance -nohud ;;
     PPd) arm PPd -gateres 0 -renderpreset performance -orbitpitch 12 ;;
     PBd) arm PBd -gateres 0 -renderpreset balanced -orbitpitch 12 ;;
     TN480) arm TN480 -upscale fsr -internalw 480 -tshadow 1 -noskyprobe ;;
