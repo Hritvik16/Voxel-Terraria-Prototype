@@ -629,3 +629,37 @@ https://claude.ai/artifact/TUhRaksmPswMtNBA6dBjiT
 | Frame-rate target | Owner: "ideally 60 fps at 1080p". Today: 47.0 ms (21.3 FPS) on the in-air orbit at 960x540, full shadows (`Logs/flyfast_20260925_173755.txt`). Proposed path, each step measured alone: isolate where the 47 ms goes; temporal reuse (trace a fraction of pixels, reproject the rest); a temporal upscaler (URP STP) to 1080p output; a cached sun-shadow term; a coarse depth pre-pass. Owner asked: is the M1 / 8 GB the minimum spec? |
 
 Report: https://claude.ai/artifact/YDFrpwXtz7XsTzoNbL6N1f
+
+## 13. TerrainGen v3 -- the rethink (PROPOSED 2026-09-25, needs the owner's OK)
+
+**Why.** Owner, after three passes at the landforms: "It looks too unnatural ...
+no varying terrain features ... Is it just a 2D heightmap for the surface and
+digging holes into the ground for caves? ... We want vast terrain that is fun to
+navigate and explore. A challenge too." Correct diagnosis: the surface is noise
+(fBm, ridged) plus shapes bolted on, one height per column; nothing shapes it the
+way erosion shapes real land, and every region is the same recipe.
+
+**Owner constraints (2026-09-25).** No 3-D noise anywhere except as a last resort
+(this includes today's caves: replace them with structured caves). Reference:
+the Minecraft mods Tectonic / Terralith. "Like in One Piece: one island should
+have lots of varying topographies." Palette D stays; V/H continues in parallel.
+
+**Pipeline (all 2-D fields or explicit geometry; no 3-D noise):**
+
+| # | Stage | What it produces |
+|---|---|---|
+| T1 | **Regions** | The island split into ~8-14 organic regions (seeded region graph, 2-D noise borders), each assigned a TOPOGRAPHY ARCHETYPE from a catalogue: alpine range, canyonlands / tablelands, volcanic, rolling highlands, river plains and delta, badlands, dune sea, coastal cliffs / fjords, wetland basin, plateau. Borders become passes, escarpments or valleys |
+| T2 | **Uplift + erosion** | Per-archetype uplift (where land is pushed up) and rock hardness, then a stream-power erosion simulation (implicit, Braun-Willett style) and thermal (talus) erosion on the world map at world creation. Gives branching valley networks, real ridgelines, canyons, alluvial plains -- the Tectonic/Terralith look. Glacial carving (U-valleys) for alpine; layered hardness for canyonlands (cap rock -> mesas, cliff bands) |
+| T3 | **Rivers from the erosion** | Rivers where the flow accumulates, lakes, waterfalls where rivers cross cliffs (replaces today's separate hydrology carving) |
+| T4 | **Structured caves** (replacing the 3-D noise caves) | A cave NETWORK: caverns as placed shapes whose floor and ceiling are 2-D height fields, joined by worm tunnels along generated spline paths with varying radius; entrances into valley walls and cliff bases; the underworld chamber as a floor/ceiling pair of 2-D fields over the lava sea |
+| T5 | **3-D surface character without 3-D noise** | Cap-rock overhangs and undercut cliffs from the hardness layers (the column's open intervals, as arches use today), sea caves and cliff caves (short structured tunnels), slot canyons (2-D carve paths), arches in canyonlands (existing stamps) |
+| T6 | **Detail + landmarks** | 2-D detail octaves per archetype (as now); the §2.5 landmark rule re-measured on the new land (real ridges, cliffs and region contrasts should carry it); the needle guard stays |
+
+**Review loop.** Each stage ends with renders of every region on four seeds (the
+palette-render pipeline) and a far-band flyover, for the owner to judge before
+the next stage. Tests: determinism, the LOD-0 contract (S top == D top except
+openings), the needle guard, region coverage.
+
+**Interaction with V/H.** V1 (chunk-source seam, engine material ids from palette
+D) does not depend on the generator and proceeds. The V0 memory rule is re-measured
+after T4 (the cave network and the new strata change the dense-brick counts).
