@@ -726,3 +726,5 @@ not done:
   2-4 m tunnels do not read at report scale. Shaped walls (per-column interval
   slopes, ledges) are the next cave step, still without 3-D noise.
 
+
+Report: https://claude.ai/artifact/NW5Qu7uu6mPW7ruvcf5PSF
