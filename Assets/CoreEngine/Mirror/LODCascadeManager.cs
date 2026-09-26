@@ -6,6 +6,7 @@
 // it the same way it reaches TerrainClipmap.Active.
 using System;
 using System.Collections.Generic;
+using Unity.Collections;
 using Unity.Mathematics;
 using VoxelEngine.Memory;
 
@@ -68,6 +69,147 @@ namespace VoxelEngine.Mirror
         {
             for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
                 _tierPools[tier].MarkDirty(chunkCoord);
+            if (_asyncStarted)
+                _editEpoch[chunkCoord] = _editEpoch.TryGetValue(chunkCoord, out int e) ? e + 1 : 1;
+        }
+
+        // =====================================================================
+        // ASYNC REBUILD (2026-09-26). Edit-driven cascade rebuilds -- the live
+        // fluid dirties its chunks every tick -- ran the whole 128^3 gather and
+        // halving chain ON THE MAIN THREAD, and a single chunk costs more than
+        // the frame budget meant to bound it ("at least one chunk always runs").
+        // -framegap measured it: cascade 7.7 ms in the median frame, 16.2 ms in
+        // the worst 1%. Admission already moved this work to the chunk
+        // workers; edits now do the same:
+        //   main    copies the chunk's 4,096 handles and its dense bodies into a
+        //           pre-allocated snapshot CONTEXT it owns (a private chunk, a
+        //           private pool, downsample scratch, per-tier result buffers);
+        //   worker  runs the same BuildChain on that snapshot -- it reads only
+        //           the context, never the store or the shared pool;
+        //   main    writes the result through the tier's normal write path. An
+        //           edit epoch per chunk decides whether the chunk is now clean
+        //           or was edited again in flight (then it stays dirty).
+        // Ownership of a context moves main -> worker -> main through the two
+        // concurrent queues, exactly as StreamManager's scratch contexts do; no
+        // lock guards the world. No allocation per job, so no new garbage.
+        // -cascadeasync 0 restores the synchronous path.
+        // =====================================================================
+        /// OFF by default in code, so every existing cascade test keeps its
+        /// synchronous "one UploadDirty and the tiers are current" contract; the
+        /// player's bootstrapper turns it on (Phase4Bootstrapper, -cascadeasync).
+        public static bool AsyncRebuildEnabled = false;
+        public static bool AsyncRequestedByArgs() => ReadArg("-cascadeasync", 1) != 0;
+        private const int ASYNC_CONTEXTS = 3;
+
+        private sealed class AsyncContext
+        {
+            public int3 coord;
+            public int epoch;
+            public readonly Chunk chunk = new Chunk { bricks = new BrickHandle[EngineConfig.BRICKS_PER_CHUNK] };
+            public readonly BrickDataPool pool = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
+            public readonly LODDownsampler.DownsampleScratch scratch = new LODDownsampler.DownsampleScratch();
+            public readonly byte[][] results = new byte[LODConfig.TIER_COUNT][];
+        }
+
+        private bool _asyncStarted;
+        private readonly Dictionary<int3, int> _editEpoch = new Dictionary<int3, int>();
+        private readonly HashSet<int3> _inFlight = new HashSet<int3>();
+        private readonly Stack<AsyncContext> _freeContexts = new Stack<AsyncContext>();
+        private readonly List<AsyncContext> _allContexts = new List<AsyncContext>();
+        private System.Collections.Concurrent.BlockingCollection<AsyncContext> _asyncJobs;
+        private readonly System.Collections.Concurrent.ConcurrentQueue<AsyncContext> _asyncDone =
+            new System.Collections.Concurrent.ConcurrentQueue<AsyncContext>();
+        private System.Threading.Thread _asyncThread;
+        private System.Threading.CancellationTokenSource _asyncCancel;
+        public int AsyncRebuildsTotal { get; private set; }
+        public bool IsRebuildInFlight(int3 chunkCoord) => _inFlight.Contains(chunkCoord);
+
+        private static int ReadArg(string flag, int fallback)
+        {
+            int v = fallback;
+            string[] a = Environment.GetCommandLineArgs();
+            for (int i = 0; i + 1 < a.Length; i++) if (a[i] == flag && int.TryParse(a[i + 1], out int p)) v = p;
+            return v;
+        }
+
+        private void StartAsync()
+        {
+            _asyncStarted = true;
+            for (int i = 0; i < ASYNC_CONTEXTS; i++)
+            {
+                var ctx = new AsyncContext();
+                for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+                {
+                    int edge = 128 / LODConfig.DownsampleFactor(tier);
+                    ctx.results[tier] = new byte[edge * edge * edge];
+                }
+                _allContexts.Add(ctx);
+                _freeContexts.Push(ctx);
+            }
+            _asyncJobs = new System.Collections.Concurrent.BlockingCollection<AsyncContext>();
+            _asyncCancel = new System.Threading.CancellationTokenSource();
+            _asyncThread = new System.Threading.Thread(AsyncLoop) { IsBackground = true, Name = "CascadeRebuild" };
+            _asyncThread.Start();
+        }
+
+        // ---- WORKER THREAD. Touches only the context it was handed. ----
+        private void AsyncLoop()
+        {
+            try
+            {
+                foreach (var ctx in _asyncJobs.GetConsumingEnumerable(_asyncCancel.Token))
+                {
+                    LODDownsampler.BuildChain(ctx.chunk, ctx.pool, ctx.scratch);
+                    for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+                    {
+                        byte[] r = LODDownsampler.ChainResultFor(tier, ctx.scratch);
+                        Buffer.BlockCopy(r, 0, ctx.results[tier], 0, r.Length);
+                    }
+                    _asyncDone.Enqueue(ctx);
+                }
+            }
+            catch (OperationCanceledException) { }
+        }
+
+        /// Main thread: copy a resident, non-uniform chunk into a free context.
+        private bool TrySubmitAsync(Chunk chunk, BrickDataPool pool)
+        {
+            if (_freeContexts.Count == 0) return false;
+            var ctx = _freeContexts.Pop();
+            ctx.pool.Reset();
+            ctx.coord = chunk.coord;
+            ctx.chunk.coord = chunk.coord;
+            ctx.chunk.isUniform = false;
+            ctx.epoch = _editEpoch.TryGetValue(chunk.coord, out int e) ? e : 0;
+            var src = pool.RawData;
+            var dst = ctx.pool.RawData;
+            for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++)
+            {
+                uint h = chunk.bricks[i].data;
+                if ((h & 0x80000000u) == 0) { ctx.chunk.bricks[i].data = h; continue; }
+                int from = (int)(h & 0x7FFFFFFFu), to = ctx.pool.Alloc();
+                NativeArray<byte>.Copy(src, from * EngineConfig.BRICK_BODY_BYTES, dst, to * EngineConfig.BRICK_BODY_BYTES, EngineConfig.BRICK_BODY_BYTES);
+                ctx.chunk.bricks[i].data = 0x80000000u | (uint)to;
+            }
+            _inFlight.Add(chunk.coord);
+            _asyncJobs.Add(ctx);
+            AsyncRebuildsTotal++;
+            return true;
+        }
+
+        /// Main thread: apply every finished rebuild.
+        private void DrainAsync(ChunkStore store)
+        {
+            while (_asyncDone.TryDequeue(out var ctx))
+            {
+                _inFlight.Remove(ctx.coord);
+                bool clean = (_editEpoch.TryGetValue(ctx.coord, out int e) ? e : 0) == ctx.epoch;
+                if (clean) _editEpoch.Remove(ctx.coord);
+                for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+                    if (_tierPools[tier].IsDirty(ctx.coord))
+                        _tierPools[tier].ApplyAsyncResult(store, ctx.coord, ctx.results[tier], clean);
+                _freeContexts.Push(ctx);
+            }
         }
 
         /// SHARED-CHAIN CASCADE UPLOAD. Default ON.
@@ -106,6 +248,8 @@ namespace VoxelEngine.Mirror
                 return;
             }
 
+            if (AsyncRebuildEnabled && !_asyncStarted) StartAsync();
+
             // Pass 1 per tier: evicted clears (unbudgeted) + batch selection.
             _unionScratch.Clear();
             for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
@@ -115,7 +259,16 @@ namespace VoxelEngine.Mirror
                 foreach (int3 c in _batchScratch[tier])
                     if (!_unionScratch.Contains(c)) _unionScratch.Add(c);
             }
-            if (_unionScratch.Count == 0) return;
+            // Finished async rebuilds land AFTER pass 1: its per-tier
+            // ClearBrickSlotScratch would otherwise drop the body uploads they
+            // queue, and they must be flushed even when nothing else is dirty.
+            if (_asyncStarted) DrainAsync(store);
+            if (_unionScratch.Count == 0)
+            {
+                if (_asyncStarted)
+                    for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++) _tierPools[tier].FlushBrickBodies();
+                return;
+            }
 
             _chainScratch ??= new LODDownsampler.DownsampleScratch();
 
@@ -128,6 +281,22 @@ namespace VoxelEngine.Mirror
                 // Same shape as the per-tier guard: at least one chunk always
                 // runs so the queue cannot stall, and beyond that a frame that
                 // is already spent stops paying.
+                if (_asyncStarted)
+                {
+                    // In flight: its result is coming; a re-dirty in the
+                    // meantime is caught by the edit epoch when it lands.
+                    if (_inFlight.Contains(chunkCoord)) continue;
+                    bool stillDirty = false;
+                    for (int tier = 1; tier < LODConfig.TIER_COUNT && !stillDirty; tier++) stillDirty = _tierPools[tier].IsDirty(chunkCoord);
+                    if (!stillDirty) continue;   // an async result just landed clean
+                    Chunk ac = store.GetChunk(chunkCoord);
+                    if (ac != null && !ac.isUniform && ac.bricks != null)
+                    {
+                        TrySubmitAsync(ac, pool);   // no free context: stays dirty, next frame
+                        continue;
+                    }
+                    // Null or uniform: the cheap fill path below, synchronously.
+                }
                 if (processed > 0 && sw.Elapsed.TotalMilliseconds > budgetMs) break;
                 processed++;
 
@@ -170,6 +339,14 @@ namespace VoxelEngine.Mirror
 
         public void Dispose()
         {
+            if (_asyncStarted)
+            {
+                _asyncCancel.Cancel();
+                _asyncJobs.CompleteAdding();
+                _asyncThread?.Join(200);
+                foreach (var ctx in _allContexts) ctx.pool.Dispose();
+                _asyncCancel.Dispose();
+            }
             if (Active == this) Active = null;
             for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
                 _tierPools[tier]?.Dispose();

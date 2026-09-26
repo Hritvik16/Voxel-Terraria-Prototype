@@ -152,6 +152,24 @@ namespace VoxelEngine.Mirror
         /// second is a bug.
         public bool IsDirty(int3 chunkCoord) => _dirtyChunks.Contains(chunkCoord);
 
+        /// READ-ONLY CPU view of one chunk's coarse content, for tests: every
+        /// coarse brick as 512 bytes (uniform -> its material repeated, dense ->
+        /// its body), in local-brick order. Two tier pools that hold the same
+        /// geometry produce the same bytes whatever pool slots they chose.
+        public byte[] CpuChunkSnapshot(int3 chunkCoord)
+        {
+            var outBytes = new byte[_entriesPerChunk * 512];
+            int slotBase = ChunkSlot(chunkCoord) * _entriesPerChunk;
+            var raw = _brickPool.RawData;
+            for (int i = 0; i < _entriesPerChunk; i++)
+            {
+                uint h = _clipmapLocal[slotBase + i];
+                if ((h & 0x80000000u) == 0) { for (int k = 0; k < 512; k++) outBytes[i * 512 + k] = (byte)(h & 0xFFu); }
+                else { int idx = (int)(h & 0x7FFFFFFFu); for (int k = 0; k < 512; k++) outBytes[i * 512 + k] = raw[idx * 512 + k]; }
+            }
+            return outBytes;
+        }
+
         /// Accepts a downsampled chunk COMPUTED ON A WORKER THREAD and does only
         /// the cheap remainder here: brick split, pool slot management, GPU
         /// writes -- measured at ~0.3ms against the ~11ms the downsample itself
@@ -234,6 +252,23 @@ namespace VoxelEngine.Mirror
 
             int downsampledEdge = CHUNK_EDGE_VOXELS_TIER0 / LODConfig.DownsampleFactor(Tier);
             WriteChunkFromDownsampled(chunkCoord, downsampled, downsampledEdge);
+            LastWriteCalls++;
+        }
+
+        /// ASYNC REBUILD (2026-09-26): a downsample computed OFF the main thread
+        /// from a snapshot of the chunk. The chunk is re-checked for residency
+        /// here (an eviction while in flight clears instead of writing stale
+        /// geometry, as ApplyChunkFromChain does). `clean` is false when the
+        /// chunk was edited again after its snapshot: the write still lands
+        /// (fresher than what the GPU holds) but the chunk stays dirty and goes
+        /// round again.
+        public void ApplyAsyncResult(ChunkStore store, int3 chunkCoord, byte[] downsampled, bool clean)
+        {
+            if (store.GetChunk(chunkCoord) == null) { _dirtyChunks.Remove(chunkCoord); ClearChunkEntries(chunkCoord); return; }
+            if (clean) _dirtyChunks.Remove(chunkCoord);
+            int downsampledEdge = CHUNK_EDGE_VOXELS_TIER0 / LODConfig.DownsampleFactor(Tier);
+            WriteChunkFromDownsampled(chunkCoord, downsampled, downsampledEdge);
+            LastChunksProcessed++;
             LastWriteCalls++;
         }
 

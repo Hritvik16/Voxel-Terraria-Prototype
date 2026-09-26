@@ -212,6 +212,9 @@ public class Phase4Bootstrapper : MonoBehaviour
                                      IsTg2World ? EngineConfig.TG2_MIRROR_CHUNKS_Y : EngineConfig.MIRROR_CHUNKS_Y,
                                      EngineConfig.WINDOW_CHUNKS_XZ);
         Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity);
+        // Edit-driven cascade rebuilds off the main thread (LODCascadeManager's
+        // ASYNC REBUILD block). -cascadeasync 0 is the A/B.
+        LODCascadeManager.AsyncRebuildEnabled = LODCascadeManager.AsyncRequestedByArgs();
         Cascades = new LODCascadeManager(mirrorChunks, tier => IsTg2World ? EngineConfig.Tg2CascadeTierPoolCap(tier)
                                                                           : EngineConfig.CascadeTierPoolCap(tier));
 

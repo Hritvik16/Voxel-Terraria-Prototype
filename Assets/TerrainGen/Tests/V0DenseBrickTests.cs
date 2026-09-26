@@ -190,5 +190,53 @@ namespace TerrainGen.Tests
             File.WriteAllLines(Path.Combine(dir, "v0_dense_bricks.txt"), lines);
             Debug.Log("[V0]\n" + string.Join("\n", lines));
         }
+    
+        /// V2 MEMORY (2026-09-26): the vertically streamed band on a MOUNTAIN
+        /// needs every one of its 7 layers, and palette D's distinct strata make
+        /// most surface bricks dense -- the 1.0 M pool filled at two mountain
+        /// poses. Measures dense bricks per chunk on the 7-layer band of 9
+        /// columns around the peak and on a steep ridge, under brick geology
+        /// from 20 m (today), 6 m and 3 m below the column top.
+        /// Report: Logs/TerrainGen/v2_mountain_dense.txt.
+        [Test]
+        public void Report_V2_MountainBandDenseBricks()
+        {
+            var view = _map.View;
+            var pk = _map.PeakPosition;
+            var lines = new List<string> { "V2 -- dense bricks per chunk on a 7-layer band, mountain sites, seed 42", "" };
+            float2[] sites = { pk, pk + new float2(2500, 0), pk + new float2(0, -3000), pk + new float2(-3500, 1500) };
+            int[] depths = { 200, 60, 30 };
+            var total = new double[depths.Length];
+            int chunks = 0;
+            foreach (var st in sites)
+            {
+                var col = ShapeField.Sample(in _spec, in view, in _o, st.x, st.y, 1);
+                int cy = col.height >> 7;
+                for (int layer = cy - 3; layer <= cy + 3; layer++)
+                {
+                    var origin = new int3(((int)st.x) & ~(CHUNK - 1), layer * CHUNK, ((int)st.y) & ~(CHUNK - 1));
+                    var row = new System.Text.StringBuilder($"{origin,-26}");
+                    for (int d = 0; d < depths.Length; d++)
+                    {
+                        var sp = _spec; sp.brickGeologyDepth = depths[d];
+                        int n = Dense(in sp, origin);
+                        total[d] += n;
+                        row.Append($"{n,10}");
+                    }
+                    lines.Add(row.ToString());
+                    chunks++;
+                }
+            }
+            lines.Add("");
+            var mean = new System.Text.StringBuilder($"{"mean per chunk",-26}");
+            for (int d = 0; d < depths.Length; d++) mean.Append($"{total[d] / chunks,10:F0}");
+            lines.Add(mean.ToString() + "   (columns: brick geology below 20 m / 6 m / 3 m)");
+            lines.Add($"projected 21x21x7 band on such ground: " +
+                      string.Join(" / ", System.Linq.Enumerable.Select(total, t => $"{t / chunks * 441 * 7 / 1e6:F2} M")) + " dense bricks");
+            string dir = Path.Combine(Directory.GetCurrentDirectory(), "Logs", "TerrainGen");
+            Directory.CreateDirectory(dir);
+            File.WriteAllLines(Path.Combine(dir, "v2_mountain_dense.txt"), lines);
+            Debug.Log("[V2 mountain]\n" + string.Join("\n", lines));
+        }
     }
 }

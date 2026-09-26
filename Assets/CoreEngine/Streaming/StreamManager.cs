@@ -713,7 +713,12 @@ namespace VoxelEngine.Streaming
                 {
                     byte[] scratchResult =
                         LODDownsampler.DownsampleTierFromScratch(chunk, tier, scratch.downsample, tier0Ready);
-                    var owned = new byte[scratchResult.Length];
+                    // POOLED (2026-09-26): -framegap found 22 gen2 collections in
+                    // the worst 1% of frames. These are 262 KB + 32 KB per chunk
+                    // (large-object heap, so every allocation feeds a gen2); the
+                    // main thread consumes them synchronously in
+                    // SubmitPrecomputed and hands them straight back.
+                    var owned = RentCascadeArray(tier, scratchResult.Length);
                     Array.Copy(scratchResult, owned, scratchResult.Length);
                     completion.cascadeData[tier - 1] = owned;
                 }
@@ -771,6 +776,8 @@ namespace VoxelEngine.Streaming
                         ChunkLifecycle.Transition(rec, ChunkState.Unloaded, true, "discarded: out of range on arrival");
                         DiscardedOnArrivalTotal++;
                         discarded = true;
+                        if (c.cascadeData != null)
+                            for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++) ReturnCascadeArray(tier, c.cascadeData[tier - 1]);
                         continue;
                     }
 
@@ -820,7 +827,10 @@ namespace VoxelEngine.Streaming
                     _clipmap.MarkDirty(c.coord);
                     if (c.cascadeData != null)
                         for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+                        {
                             _cascades.TierPool(tier).SubmitPrecomputed(c.coord, c.cascadeData[tier - 1]);
+                            ReturnCascadeArray(tier, c.cascadeData[tier - 1]);
+                        }
                     else
                         _cascades.MarkDirty(c.coord); // fallback: main-thread path
 
@@ -835,6 +845,23 @@ namespace VoxelEngine.Streaming
                     _scratchPool.Add(c.scratch);
                 }
             }
+        }
+
+        // Per-tier pools of cascade result arrays (see GenerateOnWorker). A
+        // ConcurrentBag because workers rent and the main thread returns;
+        // neither side holds an array the other can touch at the same time.
+        private readonly ConcurrentBag<byte[]>[] _cascadeArrays = CreateCascadeArrayPools();
+        private static ConcurrentBag<byte[]>[] CreateCascadeArrayPools()
+        {
+            var b = new ConcurrentBag<byte[]>[LODConfig.TIER_COUNT];
+            for (int i = 0; i < b.Length; i++) b[i] = new ConcurrentBag<byte[]>();
+            return b;
+        }
+        private byte[] RentCascadeArray(int tier, int length)
+            => _cascadeArrays[tier].TryTake(out var a) && a.Length == length ? a : new byte[length];
+        private void ReturnCascadeArray(int tier, byte[] a)
+        {
+            if (a != null && _cascadeArrays[tier].Count < 64) _cascadeArrays[tier].Add(a);
         }
 
         /// Completions discarded because the camera left their range while they

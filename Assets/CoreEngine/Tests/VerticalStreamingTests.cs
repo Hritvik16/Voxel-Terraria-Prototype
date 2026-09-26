@@ -65,7 +65,8 @@ public class VerticalStreamingTests
             Vector3 cam = LandSite(sm.TerrainGenSource, out int groundY);
             int camLayer = groundY + 20 >> 7;
             sm.PrimeWindow(cam);
-            sm.WaitForIdle();
+            var clk0 = System.Diagnostics.Stopwatch.StartNew();
+            do { sm.WaitForIdle(); } while ((sm.PendingLoads > 0 || sm.InFlightLoads > 0) && clk0.Elapsed.TotalSeconds < 120);
             CheckBand(sm, store, clip, camLayer, "after PrimeWindow");
             Assert.Greater(sm.TerrainGenSource.AirFastPathTotal, 0, "no chunk took the air fast path");
             int residentAtStart = store.ResidentCount;
@@ -78,7 +79,9 @@ public class VerticalStreamingTests
             // Three layers up from the start: the band follows.
             Vector3 up3 = cam + new Vector3(0f, 3 * 12.8f, 0f);
             int layer3 = (int)math.floor(up3.y * 10f) >> 7;
-            for (int i = 0; i < 4; i++) { sm.Update(up3); sm.WaitForIdle(); }
+            var clk3 = System.Diagnostics.Stopwatch.StartNew();
+            do { sm.Update(up3); sm.WaitForIdle(); }
+            while (sm.LoadDeficit() > 0 && clk3.Elapsed.TotalSeconds < 120);
             CheckBand(sm, store, clip, layer3, "after climbing three layers");
 
             // TELEPORT WITH LOADS IN FLIGHT (2026-09-26): dispatch a band, then
@@ -89,8 +92,14 @@ public class VerticalStreamingTests
             Vector3 far = up3 + new Vector3(1000f, 0f, 700f);
             sm.Update(cam + new Vector3(40f, 0f, 40f));      // new loads dispatched here...
             sm.Update(far);                                  // ...and the camera leaves before they land
-            sm.WaitForIdle();
-            for (int i = 0; i < 4; i++) { sm.Update(far); sm.WaitForIdle(); }
+            // Wait on the CONDITION, not on WaitForIdle's fixed iteration cap:
+            // on a loaded machine (measured 2026-09-26 with 3.7 GB of swap in
+            // use: 281 ms/chunk instead of 10) the cap ran out with loads still
+            // in flight and the test reported a deficit that was only latency.
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            do { sm.Update(far); sm.WaitForIdle(); }
+            while (sm.LoadDeficit() > 0 && clock.Elapsed.TotalSeconds < 120);
+            for (int i = 0; i < 2; i++) { sm.Update(far); sm.WaitForIdle(); }
             int farLayer = (int)math.floor(far.y * 10f) >> 7;
             CheckBand(sm, store, clip, farLayer, "after a 1 km teleport with loads in flight");
             Debug.Log($"[V2] teleport: {sm.DiscardedOnArrivalTotal} completions discarded on arrival");
@@ -113,7 +122,18 @@ public class VerticalStreamingTests
         sm.LayerRange(out int lo, out int hi);
         Assert.AreEqual(math.max(0, expectedLayer - StreamManager.V_LOAD_LAYERS), lo, $"{when}: band bottom");
         Assert.AreEqual(math.min(sm.TopLayerChunkY, expectedLayer + StreamManager.V_LOAD_LAYERS), hi, $"{when}: band top");
-        Assert.AreEqual(0, sm.LoadDeficit(), $"{when}: chunks of the band missing");
+        int deficit = sm.LoadDeficit();
+        if (deficit != 0)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var mc in sm.MissingChunks(8))
+            {
+                var rec = sm.GetRecord(mc);
+                sb.Append($" {mc}:{(rec == null ? "no record" : rec.state + " gen " + rec.generation)}");
+            }
+            Assert.Fail($"{when}: {deficit} chunks of the band missing (pending {sm.PendingLoads}, in flight {sm.InFlightLoads}, " +
+                        $"discarded on arrival {sm.DiscardedOnArrivalTotal}):{sb}");
+        }
         Assert.AreEqual(sm.ExpectedResidentChunks, store.ResidentCount, $"{when}: resident count != the band");
 
         int3 o = clip.WindowOrigin, d = clip.WindowDimsChunks;
