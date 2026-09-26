@@ -141,11 +141,24 @@ namespace TerrainGen.Tests
                                            $"{"class",-26}{"site",-22}{"R0 today",10}{"R1 brick geology",18}" };
             foreach (var s in sites)
             {
+                // The CAVERN chunk sits ON a cavern: the nearest column (within
+                // 1 km of the site) whose cavern interval is open, at its mid
+                // height. (A fixed depth missed the caverns at every site and
+                // measured solid banded rock -- 0 dense bricks under R1.)
+                int3 cav = new int3(s.x, (_spec.CavernTopY - 600) & ~(CHUNK - 1), s.z);
+                for (int k2 = 0; k2 < 400; k2++)
+                {
+                    int px = s.x + 64 + ((k2 % 20) - 10) * 100, pz = s.z + 64 + ((k2 / 20) - 10) * 100;
+                    var cd = DetailField.PrepareColumn(in _spec, in _o, px, pz);
+                    if (cd.cav0Hi - cd.cav0Lo < 100) continue;
+                    cav = new int3(px & ~(CHUNK - 1), ((cd.cav0Lo + cd.cav0Hi) / 2) & ~(CHUNK - 1), pz & ~(CHUNK - 1));
+                    break;
+                }
                 int3[] origins =
                 {
                     s,
                     s - new int3(0, 2 * CHUNK, 0),
-                    new int3(s.x, (_spec.CavernTopY - 600) & ~(CHUNK - 1), s.z),
+                    cav,
                     new int3(s.x, (_spec.worldBottomY + 250) & ~(CHUNK - 1), s.z),
                 };
                 for (int k = 0; k < 4; k++)

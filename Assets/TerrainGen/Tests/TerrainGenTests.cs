@@ -626,6 +626,10 @@ namespace TerrainGen.Tests
                 return true;
             }
 
+            // Diagnostic dump for tools/landmark-view.py: the 32 m grid, every
+            // landmark, and every sampled point with its sector counts.
+            var diag = new List<string> { $"grid {n} {cellM}" };
+            foreach (var mk in marks) diag.Add($"mark {mk.x} {mk.y} {g[mk.y * n + mk.x]:F1} {g[mk.y * n + mk.x] - Mean(mk.x - rMean, mk.y - rMean, mk.x + rMean, mk.y + rMean):F1}");
             var rng = new Unity.Mathematics.Random(7);
             int pts = 0, all4 = 0, seaOnly = 0, all4At3 = 0; var sectorHits = new int[5];
             float r15 = 1500f / cellM, r30 = 3000f / cellM;
@@ -650,6 +654,8 @@ namespace TerrainGen.Tests
                 }
                 if (seen3[0] && seen3[1] && seen3[2] && seen3[3]) all4At3++;
                 int c = 0; for (int s2 = 0; s2 < 4; s2++) if (seen[s2]) c++;
+                int c3 = 0; for (int s2 = 0; s2 < 4; s2++) if (seen3[s2]) c3++;
+                diag.Add($"pt {x} {z} {c} {c3}");
                 sectorHits[c]++;
                 if (c == 4) all4++;
                 // A missing sector that is (almost) all SEA cannot hold a landmark
@@ -686,6 +692,9 @@ namespace TerrainGen.Tests
             };
             Debug.Log("[TerrainGen] landmark report\n" + string.Join("\n", lines));
             WriteReport("landmarks.txt", lines);
+            WriteReport("landmarks_diag.txt", diag);
+            using (var f = new BinaryWriter(File.Create(Path.Combine(Directory.GetCurrentDirectory(), "Logs", "TerrainGen", "landmarks_grid.f32"))))
+                foreach (float v in g) f.Write(v);
         }
 
         private static void WriteReport(string name, List<string> lines)
