@@ -49,7 +49,11 @@ namespace TerrainGen
 
         /// Runs the pass IN PLACE on `height` (erosion) and `rough` (smoother beds),
         /// and fills `water` (level or NO_WATER) and `flow` (catchment, cells).
-        public static Stats Run(int n, float[] height, float[] rough, float[] water, float[] flow, byte[] cls)
+        /// `minLakeDepth` (optional, voxels per cell): a lake survives only if its
+        /// deepest point is at least this deep there (DrainShallowLakes) -- v3
+        /// regions drain small hollows in sand and plains and keep a wetland's
+        /// ponds. Null = map v2's behaviour exactly.
+        public static Stats Run(int n, float[] height, float[] rough, float[] water, float[] flow, byte[] cls, float[] minLakeDepth = null)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var st = new Stats();
@@ -131,6 +135,7 @@ namespace TerrainGen
                     if (p >= 0 && height[p] <= 0f) st.riverMouths++;
                 }
             }
+            if (minLakeDepth != null) DrainShallowLakes(n, height, water, flow, cls, parent, minLakeDepth, ref st);
             st.lakes = CountLakes(n, water, cls);
             for (int i = 0; i < count; i++) st.maxCatchmentKm2 = math.max(st.maxCatchmentKm2, flow[i]);
             st.maxCatchmentKm2 *= 64f / 1e6f;   // 8 m cells
@@ -173,6 +178,55 @@ namespace TerrainGen
                     outLevel[nb] = math.max(height[nb], lv + eps);
                     parent[nb] = c;
                     heap.Push(outLevel[nb], nb);
+                }
+            }
+        }
+
+        /// v3: a WHOLE lake stays or goes. Its deepest point must reach the
+        /// minimum depth of the region it lies in (minLakeDepth at that cell);
+        /// otherwise every cell of it is drained -- to river where the flow is a
+        /// river's, dry elsewhere. Per-cell thresholds left dry shelves below a
+        /// lake's own water line (HydrologyTests' containment check caught it).
+        private static void DrainShallowLakes(int n, float[] height, float[] water, float[] flow, byte[] cls, int[] parent,
+                                              float[] minLakeDepth, ref Stats st)
+        {
+            int count = n * n;
+            var seen = new bool[count];
+            var stack = new int[count];
+            var members = new System.Collections.Generic.List<int>();
+            for (int i = 0; i < count; i++)
+            {
+                if (seen[i] || cls[i] != LAKE) continue;
+                members.Clear();
+                float deepest = -1f; int deepCell = i;
+                int sp = 0; stack[sp++] = i; seen[i] = true;
+                while (sp > 0)
+                {
+                    int c = stack[--sp];
+                    members.Add(c);
+                    float dpt = water[c] - height[c];
+                    if (dpt > deepest) { deepest = dpt; deepCell = c; }
+                    int cx = c % n, cz = c / n;
+                    for (int d = 0; d < 8; d++)
+                    {
+                        int x = cx + DX[d], z = cz + DZ[d];
+                        if (x < 0 || z < 0 || x >= n || z >= n) continue;
+                        int nb = z * n + x;
+                        if (seen[nb] || cls[nb] != LAKE || water[nb] != water[i]) continue;
+                        seen[nb] = true; stack[sp++] = nb;
+                    }
+                }
+                if (deepest >= minLakeDepth[deepCell]) continue;
+                foreach (int c in members)
+                {
+                    st.lakeCells--;
+                    water[c] = NO_WATER; cls[c] = DRY;
+                    if (flow[c] >= RIVER_MIN_CELLS)
+                    {
+                        st.riverCells++;
+                        cls[c] = RIVER;
+                        water[c] = height[c] + 8f + 2f * math.log2(flow[c] / RIVER_MIN_CELLS);
+                    }
                 }
             }
         }

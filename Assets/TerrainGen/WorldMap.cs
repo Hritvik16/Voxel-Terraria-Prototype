@@ -144,6 +144,8 @@ namespace TerrainGen
 
             // ---- the fine map: upsample, then per-cell detail ----
             var h = new float[n * n]; var r = new float[n * n]; var reg = new byte[n * n];
+            var lakeMin = new float[n * n];
+            for (int i = 0; i < lakeMin.Length; i++) lakeMin[i] = Hydrology.LAKE_MIN_DEPTH;
             float2 vs = Stamps.VolcanoSite(in spec, in o);
             for (int z = 0; z < n; z++)
             for (int x = 0; x < n; x++)
@@ -161,8 +163,17 @@ namespace TerrainGen
                 float hh = math.lerp(a, b, fz);
                 int near = Regions.Weights(L, in o, p, w);
                 reg[i] = L.kind[near];
-                float rough = 0f;
-                for (byte k = 0; k < Regions.KINDS; k++) if (w[k] > 0f) rough += w[k] * Regions.P(k).rough;
+                float rough = 0f, layered = 0f, minLake = 0f;
+                for (byte k = 0; k < Regions.KINDS; k++)
+                {
+                    if (w[k] <= 0f) continue;
+                    var pr = Regions.P(k);
+                    rough += w[k] * pr.rough; minLake += w[k] * pr.minLake;
+                    if (pr.layered) layered += w[k];
+                }
+                // Canyonlands and plateaus: benches and cliff bands.
+                if (layered > 0f && hh > 20f) hh = math.lerp(hh, Regions.Terrace(hh), layered);
+                lakeMin[i] = minLake;
                 if (w[Regions.Dunes] > 0f) hh += w[Regions.Dunes] * DuneField(in o, p);
                 // Beaches: the last metres at the waterline (not under sea cliffs).
                 float shore = math.saturate(coast * 12f);
@@ -192,7 +203,7 @@ namespace TerrainGen
             var water = new float[n * n];
             var flow = new float[n * n];
             var cls = new byte[n * n];
-            var hydro = Hydrology.Run(n, h, r, water, flow, cls);
+            var hydro = Hydrology.Run(n, h, r, water, flow, cls, lakeMin);
             ClearCalderaLake(in spec, in o, water, cls);
             return new WorldMap(spec, h, r, peak, water, flow, hydro, cls) { RegionLayout = L, Region = reg };
         }
@@ -218,11 +229,12 @@ namespace TerrainGen
         {
             float2 wind = math.normalizesafe(o.dip + new float2(0.3f, 0.1f), new float2(1f, 0f));
             float2 perp = new float2(-wind.y, wind.x);
-            float s = math.dot(p, wind) / 900f + 0.35f * Noise.Fbm(p / 4000f + o.soil, 3) + 0.08f * math.dot(p, perp) / 900f;
+            // 160 m apart, up to 26 m tall (the first try, 90 m / 12 m, barely showed).
+            float s = math.dot(p, wind) / 1600f + 0.35f * Noise.Fbm(p / 5000f + o.soil, 3) + 0.08f * math.dot(p, perp) / 1600f;
             float t = s - math.floor(s);
             float y = t < 0.75f ? t / 0.75f : (1f - t) / 0.25f;
             y = y * y * (3f - 2f * y);
-            float amp = 120f * (0.6f + 0.4f * (Noise.Fbm(p / 6000f + o.soil + 3f, 2) * 0.5f + 0.5f));
+            float amp = 260f * (0.6f + 0.4f * (Noise.Fbm(p / 6000f + o.soil + 3f, 2) * 0.5f + 0.5f));
             return y * amp;
         }
 

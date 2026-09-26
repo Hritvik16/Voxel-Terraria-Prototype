@@ -29,7 +29,7 @@ static void pop(float *k, int *v) {
     for (;;) { int l = i << 1, r = l + 1, m = i; if (l <= hn && less(l, m)) m = l; if (r <= hn && less(r, m)) m = r; if (m == i) break; swp(i, m); i = m; }
 }
 
-static int hard(float h) { float f = h / 250.f - floorf(h / 250.f); return f > 0.65f; }
+static int hard(float h) { float f = h / 600.f - floorf(h / 600.f); return f > 0.60f; }  // Regions.HardLayer
 
 int main(int argc, char **argv) {
     if (argc < 8) { fprintf(stderr, "usage: see header\n"); return 2; }

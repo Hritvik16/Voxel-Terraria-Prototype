@@ -35,8 +35,8 @@ namespace TerrainGen
         /// Seeds closer than this fraction of the island radius are rejected.
         public const float MIN_SEPARATION = 0.34f;
         /// Border blend width (voxels): regions fade into each other over ~2x this.
-        public const float BLEND = 800f;
-        public const float WARP = 1400f;          // voxels of organic border wander
+        public const float BLEND = 1500f;         // (800 read as crisp lines in the first review)
+        public const float WARP = 2600f;          // voxels of organic border wander
 
         public static string Name(byte k)
         {
@@ -137,23 +137,25 @@ namespace TerrainGen
         /// of four seeds (2026-09-25): at these values every slope carries its
         /// own valley network while mean land height stays ~80% of the target;
         /// 1/10 of them left hillsides as smooth noise, 2.5x over-dissects.
-        public struct Params { public float erodibility, talus, rough; public bool layered; }
+        public struct Params { public float erodibility, talus, rough, minLake; public bool layered; }
 
         public static Params P(byte k)
         {
             switch (k)
             {
-                case Alpine:        return new Params { erodibility = 0.030f, talus = 1.40f, rough = 1.15f };
-                case Highlands:     return new Params { erodibility = 0.070f, talus = 0.55f, rough = 0.55f };
-                case Canyonlands:   return new Params { erodibility = 0.050f, talus = 0.80f, rough = 0.65f, layered = true };
-                case Volcanic:      return new Params { erodibility = 0.045f, talus = 0.90f, rough = 0.70f };
-                case Plains:        return new Params { erodibility = 0.080f, talus = 0.25f, rough = 0.30f };
-                case Badlands:      return new Params { erodibility = 0.130f, talus = 1.10f, rough = 0.85f };
-                case Dunes:         return new Params { erodibility = 0.020f, talus = 0.60f, rough = 0.35f };
-                case CoastalCliffs: return new Params { erodibility = 0.035f, talus = 1.80f, rough = 0.90f };
-                case Plateau:       return new Params { erodibility = 0.025f, talus = 0.80f, rough = 0.50f, layered = true };
-                case Wetland:       return new Params { erodibility = 0.060f, talus = 0.20f, rough = 0.20f };
-                default:            return new Params { erodibility = 0.050f, talus = 0.8f, rough = 0.5f };
+                // minLake: voxels of standing water before a hollow counts as a lake
+                // (first review: flat regions were dotted with puddle lakes).
+                case Alpine:        return new Params { erodibility = 0.030f, talus = 1.40f, rough = 1.15f, minLake = 12f };
+                case Highlands:     return new Params { erodibility = 0.070f, talus = 0.55f, rough = 0.55f, minLake = 20f };
+                case Canyonlands:   return new Params { erodibility = 0.050f, talus = 0.80f, rough = 0.65f, minLake = 20f, layered = true };
+                case Volcanic:      return new Params { erodibility = 0.045f, talus = 0.90f, rough = 0.70f, minLake = 12f };
+                case Plains:        return new Params { erodibility = 0.080f, talus = 0.25f, rough = 0.30f, minLake = 30f };
+                case Badlands:      return new Params { erodibility = 0.130f, talus = 1.10f, rough = 0.85f, minLake = 30f };
+                case Dunes:         return new Params { erodibility = 0.020f, talus = 0.60f, rough = 0.35f, minLake = 60f };
+                case CoastalCliffs: return new Params { erodibility = 0.035f, talus = 1.80f, rough = 0.90f, minLake = 12f };
+                case Plateau:       return new Params { erodibility = 0.025f, talus = 0.80f, rough = 0.50f, minLake = 20f, layered = true };
+                case Wetland:       return new Params { erodibility = 0.060f, talus = 0.20f, rough = 0.20f, minLake = 6f };
+                default:            return new Params { erodibility = 0.050f, talus = 0.8f, rough = 0.5f, minLake = 12f };
             }
         }
 
@@ -169,7 +171,7 @@ namespace TerrainGen
                 case Highlands:
                     return 250f + 950f * u(p / 6500f + o.low, 4);
                 case Canyonlands:
-                    return 1500f + 450f * u(p / 16000f + o.plateau, 2);
+                    return 1800f + 700f * u(p / 16000f + o.plateau, 2);
                 case Volcanic:
                 {
                     float v = Stamps.VolcanoHeight(in spec, in o, p, out _, out _);
@@ -184,7 +186,7 @@ namespace TerrainGen
                 case CoastalCliffs:
                     return 900f + 1000f * u(p / 7000f + o.plateauTop, 3);
                 case Plateau:
-                    return 1800f + 350f * u(p / 22000f + o.plateauTop + 7f, 2);
+                    return 2200f + 400f * u(p / 22000f + o.plateauTop + 7f, 2);
                 case Wetland:
                     return 30f + 70f * u(p / 6000f + o.valley + 5f, 3);
                 default:
@@ -192,14 +194,25 @@ namespace TerrainGen
             }
         }
 
-        /// Hard cap-rock layers for the layered archetypes: the top 35% of
-        /// every 25 m band resists erosion ~12x -- what leaves benches, mesas
-        /// and cliff bands when the soft layers between them wash out.
-        public const float LAYER = 250f;
+        /// Hard cap-rock layers for the layered archetypes: the top 40% of
+        /// every 60 m band resists erosion ~12x -- what leaves benches, mesas
+        /// and cliff bands when the soft layers between them wash out. (25 m
+        /// bands, the first try, were below what the 16 m erosion grid resolves.)
+        public const float LAYER = 600f;
         public static bool HardLayer(float h)
         {
             float f = h / LAYER - math.floor(h / LAYER);
-            return f > 0.65f;
+            return f > 0.60f;
+        }
+
+        /// Terracing for the layered archetypes on the fine map: each 30 m of
+        /// height is a flat bench for 72% of its span and a cliff for the rest --
+        /// the stepped walls and mesa tops canyonlands are read by.
+        public const float TERRACE = 300f;
+        public static float Terrace(float h)
+        {
+            float k = math.floor(h / TERRACE), f = h / TERRACE - k;
+            return (k + Noise.SmoothStep(0.72f, 1f, f)) * TERRACE;
         }
     }
 }

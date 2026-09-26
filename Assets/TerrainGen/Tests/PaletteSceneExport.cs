@@ -111,7 +111,11 @@ namespace TerrainGen.Tests
                         if (seen[k]) continue;
                         seen[k] = true;
                         const int SIZE = 5120, STEP = 20;
-                        int bx = (int)L.seeds[si].x - SIZE / 2, bz = (int)L.seeds[si].y - SIZE / 2;
+                        // Centre the block where this archetype actually covers the
+                        // most dry ground near its seed: region borders are warped,
+                        // so the seed itself can sit outside its own region (the
+                        // first dune-sea block landed in the neighbouring plains).
+                        BestRegionBlock(ctx, k, L.seeds[si], SIZE, out int bx, out int bz);
                         ColumnRangeCoarse(ctx, bx, bz, SIZE, out int lo, out int hi);
                         string nm = "region_" + Regions.Name(k).Replace(' ', '_');
                         Box(ctx, nm, $"{Regions.Name(k)} (512 m block)", bx, bz, SIZE / STEP, SIZE / STEP,
@@ -269,6 +273,29 @@ namespace TerrainGen.Tests
                 int r = hi - lo;
                 if (r >= 60 && r <= 220) { sx = c.x; sz = c.z; sy = c.h; return; }
                 if (r < bestRange) { bestRange = r; sx = c.x; sz = c.z; sy = c.h; }
+            }
+        }
+
+        /// The SIZE box near `seed` (centres on an 800-voxel grid within 3 km)
+        /// holding the most dry map cells of archetype k.
+        private static void BestRegionBlock(Ctx ctx, byte k, float2 seed, int size, out int bx, out int bz)
+        {
+            int n = ctx.spec.mapCells, cv = ctx.spec.mapCellVoxels;
+            bx = (int)seed.x - size / 2; bz = (int)seed.y - size / 2;
+            int best = -1;
+            for (int oz = -30000; oz <= 30000; oz += 8000)
+            for (int ox = -30000; ox <= 30000; ox += 8000)
+            {
+                int x0 = (int)seed.x + ox / 10 - size / 2, z0 = (int)seed.y + oz / 10 - size / 2, hits = 0;
+                for (int z = 0; z < size; z += 4 * cv)
+                for (int x = 0; x < size; x += 4 * cv)
+                {
+                    int cx = (x0 + x) / cv, cz = (z0 + z) / cv;
+                    if (cx < 0 || cz < 0 || cx >= n || cz >= n) continue;
+                    int i = cz * n + cx;
+                    if (ctx.map.Region[i] == k && ctx.map.Height[i] > 20f) hits++;
+                }
+                if (hits > best) { best = hits; bx = x0; bz = z0; }
             }
         }
 
