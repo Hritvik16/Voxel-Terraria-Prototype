@@ -137,6 +137,14 @@ namespace TerrainGen
                 float env = math.lerp(math.saturate(coast * 5f), math.saturate(coast * 14f), w[Regions.CoastalCliffs]);
                 // A little jitter so flats never drain in ruler-straight lines.
                 hc[i] = math.max(4f, H * env + 20f * Noise.Fbm(p / 1500f + o.detail + 3f, 2));
+                // T6: inselbergs in the flat regions -- hard rock, so erosion
+                // cuts their flanks but does not level them.
+                float flat = w[Regions.Plains] + w[Regions.Highlands] + w[Regions.Dunes] + w[Regions.Wetland];
+                if (flat > 0.3f && coast > 0.15f)
+                {
+                    float ib = Inselberg(in o, p, out float hard);
+                    if (ib > 0f) { hc[i] += ib * flat; E *= math.lerp(1f, 0.1f, hard); T = math.max(T, math.lerp(T, 2.5f, hard)); }
+                }
                 ec[i] = E; tc[i] = T; lc[i] = lay > 0.5f;
             }
             if (DumpErosionInputsTo != null) DumpErosionInputs(DumpErosionInputsTo + $"_{spec.seed}.bin", m, hc, ec, tc, lc);
@@ -221,6 +229,43 @@ namespace TerrainGen
             foreach (float v in ec) f.Write(v);
             foreach (float v in tc) f.Write(v);
             foreach (bool v in lc) f.Write((byte)(v ? 1 : 0));
+        }
+
+        // ------------------------------------------------------------------
+        // T6 INSELBERGS (2026-09-26; owner kept §2.5's "a landmark in every
+        // direction" and asked for natural ways to meet it). A lone massif of
+        // hard rock rising from flat land -- Uluru, Sugarloaf -- is the natural
+        // landmark flat country has. One candidate per INSELBERG_CELL (1.3 km),
+        // jittered; a steep-walled, round-topped dome 300-500 m across and
+        // 70-130 m tall; broad enough for the needle guard, tall enough to be
+        // seen over the plain. `hard` (0..1) marks its rock for the erosion.
+        // ------------------------------------------------------------------
+        public const float INSELBERG_CELL = 13000f;
+
+        public static float Inselberg(in Offsets o, float2 p, out float hard)
+        {
+            hard = 0f;
+            int cx = (int)math.floor(p.x / INSELBERG_CELL), cz = (int)math.floor(p.y / INSELBERG_CELL);
+            float best = 0f;
+            for (int j = -1; j <= 1; j++)
+            for (int i = -1; i <= 1; i++)
+            {
+                int gx = cx + i, gz = cz + j;
+                if (Noise.Hash01(gx, 60, gz, o.seed + 701u) > 0.7f) continue;
+                float2 c = new float2(gx + 0.25f + 0.5f * Noise.Hash01(gx, 61, gz, o.seed + 702u),
+                                      gz + 0.25f + 0.5f * Noise.Hash01(gx, 62, gz, o.seed + 703u)) * INSELBERG_CELL;
+                float R = 1500f + 1000f * Noise.Hash01(gx, 63, gz, o.seed + 704u);
+                float H = 700f + 600f * Noise.Hash01(gx, 64, gz, o.seed + 705u);
+                float2 u = HashUnit(gx, gz, o.seed + 706u);
+                float2 lobeOff = new float2(Noise.Hash01(gx, 65, gz, o.seed + 707u), Noise.Hash01(gx, 66, gz, o.seed + 708u)) * 100f;
+                float x = IrregularX(p - c, R, u, 1f + 0.5f * Noise.Hash01(gx, 67, gz, o.seed + 709u), lobeOff);
+                if (x >= 1f) continue;
+                // Steep walls, rounded top: sqrt(1 - x^4).
+                float x2 = x * x;
+                float t = math.sqrt(math.max(0f, 1f - x2 * x2));
+                if (H * t > best) { best = H * t; hard = Noise.SmoothStep(1f, 0.85f, x); }
+            }
+            return best;
         }
 
         /// Dunes (v3 dune sea): asymmetric ridges across a hashed wind -- a
