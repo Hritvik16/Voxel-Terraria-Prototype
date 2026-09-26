@@ -191,6 +191,21 @@ RWStructuredBuffer<float> DebugOut;
 // ===========================================================================
 RWStructuredBuffer<uint> ShadowStats;
 int _CollectShadowStats;
+
+// ---- TEMPORAL SHADOW REUSE (2026-09-26; owner target 60 FPS) ----
+// The sun ray was measured at ~2/3 of the frame on the in-air orbit (51.7 ms
+// with shadows, 18.6 ms without). The world is static between edits, so a
+// pixel traces its sun ray on ONE frame in four (a rotating 2x2 pattern) and
+// otherwise reuses last frame's value at its reprojected position -- only when
+// the previous frame saw the SAME surface there (depth within 2% + 2 voxels);
+// anything newly revealed traces. Off unless _TemporalShadows (-tshadow 1).
+StructuredBuffer<float2> ShadowHistR;      // x = sunVis, y = distance (voxels) from that frame's camera; y < 0 = none
+RWStructuredBuffer<float2> ShadowHistW;
+float4x4 _PrevViewProj;
+float4 _PrevCamVox;
+int _TemporalShadows;
+int _ShadowHistValid;
+uint _ShadowFrame;
 uint2 _DebugPixel;
 
 // 0=Beauty 1=StepHeat 2=UniformDense 3=Normals 4=NonExitHeat 5=VoxelGrain 6=LODTier
@@ -2382,9 +2397,40 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
         bool reuse = (_ShadowQualityLevel == 1) && distant;
         bool isQuadLead = ((gtid.x & 1u) == 0u) && ((gtid.y & 1u) == 0u);
 
+        // Temporal reuse: is last frame's value for this surface usable?
+        bool histHit = false;
+        float histVis = 1.0;
+        if (_TemporalShadows != 0 && needsShadowRay && _ShadowHistValid != 0)
+        {
+            // The rotation is per 8x8 THREAD GROUP, not per pixel: a group runs
+            // in lockstep, so a per-pixel 1-in-4 pattern still had 16 lanes of
+            // every group tracing each frame and the group waited for its
+            // slowest ray (measured 2026-09-26: 74% fewer rays, only -9 ms). A
+            // whole tile now traces on its frame and skips the branch on the
+            // other three, apart from newly revealed pixels.
+            uint2 tile = id.xy >> 3u;
+            bool myTurn = (((tile.x & 1u) | ((tile.y & 1u) << 1u)) == (_ShadowFrame & 3u));
+            if (!myTurn)
+            {
+                float3 pv = float3(voxel) + 0.5;
+                float4 pc = mul(_PrevViewProj, float4(pv * 0.1, 1.0));
+                if (pc.w > 1e-4)
+                {
+                    float2 ndc = pc.xy / pc.w;
+                    int2 pp = int2(floor((ndc * 0.5 + 0.5) * float2(width, height)));
+                    if (pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
+                    {
+                        float2 hv = ShadowHistR[(uint)pp.y * width + (uint)pp.x];
+                        float d = length(pv - _PrevCamVox.xyz);
+                        if (hv.y >= 0.0 && abs(hv.y - d) < max(2.0, d * 0.02)) { histHit = true; histVis = hv.x; }
+                    }
+                }
+            }
+        }
+
         // Every lane evaluates the trace condition the same way so the quad
         // read below is reached uniformly.
-        bool traceMine = needsShadowRay && (!reuse || isQuadLead);
+        bool traceMine = needsShadowRay && !histHit && (!reuse || isQuadLead);
 
         ShadowHit sh;
         sh.sunVis = 1.0;
@@ -2394,7 +2440,7 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
         // The 2x2 block's lead lane, by EXACT INDEX rather than by assuming a
         // quad-lane mapping. Every lane publishes and every lane reads, so the
         // barrier is reached uniformly inside this already-uniform branch.
-        float mineVis = sh.sunVis;
+        float mineVis = histHit ? histVis : sh.sunVis;
         gsSunVis[lane] = mineVis;
         GroupMemoryBarrierWithGroupSync();
         uint leadLane = (gtid.y & ~1u) * 8u + (gtid.x & ~1u);
@@ -2422,6 +2468,12 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
     // combine doing the shaping. Handled here rather than inside the guard so a
     // wave that skipped the block entirely still lands on the right value.
     if (hit && sunIsUp && !shadowsOn) sunVis = 1.0;
+
+    // Temporal reuse: every pixel records what it used, for the next frame.
+    if (_TemporalShadows != 0 && inBounds)
+        ShadowHistW[id.y * width + id.x] = needsShadowRay
+            ? float2(sunVis, length((float3(voxel) + 0.5) - _CameraPos * 10.0))
+            : float2(0.0, -1.0);
 
     // -----------------------------------------------------------------------
     // AMBIENT SKY VISIBILITY (§6.5's "underground reads near-zero ambient")

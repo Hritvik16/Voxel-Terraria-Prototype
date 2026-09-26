@@ -222,6 +222,25 @@ public class RaymarchFeature : ScriptableRendererFeature
     }
     private static Vector4 V4(Unity.Mathematics.float3 v) => new Vector4(v.x, v.y, v.z, 0f);
 
+    /// TEMPORAL SHADOW REUSE (Raymarch.compute's header note). Off unless
+    /// `-tshadow 1` (last match wins) until measured.
+    public static bool TemporalShadows = ReadIntArg("-tshadow", 0) != 0;
+    private static GraphicsBuffer _tsA, _tsB, _tsDummyR, _tsDummyW;
+    private static int _tsW, _tsH;
+    private static bool _tsValid;
+    private static uint _tsFrame;
+    private static Matrix4x4 _tsPrevVP;
+    private static Vector3 _tsPrevCamVox;
+
+    private static int ReadIntArg(string flag, int fallback)
+    {
+        string[] a = System.Environment.GetCommandLineArgs();
+        int v = fallback;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == flag && int.TryParse(a[i + 1], out int p)) v = p;
+        return v;
+    }
+
     public static bool CollectShadowStats = false;
     public static GraphicsBuffer ShadowStatsBuffer { get; private set; }
     // [0..4] shadow counters; [5] far rays, [6] far steps (primary + far shadow), [7] far hits.
@@ -266,6 +285,11 @@ public class RaymarchFeature : ScriptableRendererFeature
 
         class ComputePassData
         {
+            public int temporalShadows, tsValid;
+            public uint tsFrame;
+            public GraphicsBuffer tsRead, tsWrite;
+            public Matrix4x4 tsPrevVP;
+            public Vector3 tsPrevCamVox;
             public ComputeShader compute;
             public Camera cam;
             public Matrix4x4 invProjection;
@@ -426,6 +450,34 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.target = target;
                 passData.dispatchWidth = dispatchW;
                 passData.dispatchHeight = dispatchH;
+
+                // Temporal shadow reuse: ping-pong history, previous camera.
+                if (_tsDummyR == null)
+                {
+                    _tsDummyR = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 8);
+                    _tsDummyW = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 8);
+                }
+                passData.temporalShadows = TemporalShadows ? 1 : 0;
+                if (TemporalShadows)
+                {
+                    if (_tsA == null || _tsW != dispatchW || _tsH != dispatchH)
+                    {
+                        _tsA?.Release(); _tsB?.Release();
+                        _tsA = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, 8);
+                        _tsB = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, 8);
+                        _tsW = dispatchW; _tsH = dispatchH; _tsValid = false;
+                    }
+                    passData.tsRead = _tsA; passData.tsWrite = _tsB;
+                    passData.tsValid = _tsValid ? 1 : 0;
+                    passData.tsFrame = _tsFrame++;
+                    passData.tsPrevVP = _tsPrevVP; passData.tsPrevCamVox = _tsPrevCamVox;
+                    var tc = cameraData.camera;
+                    _tsPrevVP = tc.projectionMatrix * tc.worldToCameraMatrix;
+                    _tsPrevCamVox = tc.transform.position * 10f;
+                    (_tsA, _tsB) = (_tsB, _tsA);
+                    _tsValid = true;
+                }
+                else { passData.tsRead = _tsDummyR; passData.tsWrite = _tsDummyW; }
                 passData.clipmapBuffer = clip.ClipmapBuffer;
                 passData.brickDataBuffer = clip.BrickDataBuffer;
                 passData.debugBuffer = DebugBuffer;
@@ -736,6 +788,13 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeVectorParam(data.compute, "_AmbientColor", data.ambientColor);
                         cmd.SetComputeFloatParam(data.compute, "_KSoft", data.kSoft);
                         cmd.SetComputeIntParam(data.compute, "_ShadowQualityLevel", data.shadowQualityLevel);
+                        cmd.SetComputeIntParam(data.compute, "_TemporalShadows", data.temporalShadows);
+                        cmd.SetComputeIntParam(data.compute, "_ShadowHistValid", data.tsValid);
+                        cmd.SetComputeIntParam(data.compute, "_ShadowFrame", (int)data.tsFrame);
+                        cmd.SetComputeMatrixParam(data.compute, "_PrevViewProj", data.tsPrevVP);
+                        cmd.SetComputeVectorParam(data.compute, "_PrevCamVox", data.tsPrevCamVox);
+                        cmd.SetComputeBufferParam(data.compute, 0, "ShadowHistR", data.tsRead);
+                        cmd.SetComputeBufferParam(data.compute, 0, "ShadowHistW", data.tsWrite);
                         cmd.SetComputeIntParam(data.compute, "_MaxShadowSteps", data.maxShadowSteps);
                         cmd.SetComputeIntParam(data.compute, "_PointLightNdotL", data.pointLightNdotL);
                         cmd.SetComputeIntParam(data.compute, "_UseSkyProbeAmbient", data.useSkyProbeAmbient);
