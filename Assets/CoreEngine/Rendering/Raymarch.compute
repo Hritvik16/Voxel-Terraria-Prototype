@@ -162,6 +162,8 @@ int4 _WindowOriginBricksPacked;
 // at the CONTENT ceiling rather than the WINDOW ceiling halves their travel.
 // Folding this into the window bounds test would be a silent perf regression.
 int _ContentCeilingVoxelY;
+// V2: the loaded band's floor (0 for a flat world -- the old hard `y < 0`).
+int _ContentFloorVoxelY;
 
 // Cascade tier geometry: .x = coarse bricks per chunk edge, .y = log2 of that,
 // .z = coarse-brick entries per chunk. Tier 1 = (8,3,512), tier 2 = (4,2,64).
@@ -1350,7 +1352,7 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
         // moving further away, every remaining voxel is guaranteed unloaded.
         // For a shadow ray aimed at the sun this fires almost immediately on
         // open ground, which is most of why an unshadowed pixel is cheap.
-        if ((voxel.y >= _ContentCeilingVoxelY && step.y > 0) || (voxel.y < 0 && step.y < 0)) break;
+        if ((voxel.y >= _ContentCeilingVoxelY && step.y > 0) || (voxel.y < _ContentFloorVoxelY && step.y < 0)) break;
 
         {
             int3 rel = VoxelToBrick(voxel) - _WindowOriginBricksPacked.xyz;
@@ -1794,7 +1796,14 @@ FarHit FarMarch(float3 O, float3 D, float tStart, int stepCap, bool skipWindow, 
         }
         if (k > 0) { k--; continue; }
 
-        if (skipWindow && c.x * tv >= wMin.x && (c.x + 1) * tv <= wMax.x
+        // V2: the voxel march owns a resident column only INSIDE the loaded
+        // band [_ContentFloorVoxelY, _ContentCeilingVoxelY). A surface above or
+        // below the band (a valley floor under a summit, a cliff over a
+        // canyon) is the far band's. Flat worlds: the band is [0, 128), which
+        // holds every surface, so this is the old rule exactly.
+        float hitY = (y0 <= H) ? y0 : H;
+        if (skipWindow && hitY >= (float)_ContentFloorVoxelY && hitY < (float)_ContentCeilingVoxelY
+                       && c.x * tv >= wMin.x && (c.x + 1) * tv <= wMax.x
                        && c.y * tv >= wMin.z && (c.y + 1) * tv <= wMax.z
                        && FarChunkResident(((c * tv) >> 7) - (wMin.xz >> 7)))
         {
@@ -1983,7 +1992,7 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
         // flagged the constant as an assumption that breaks the moment anything
         // outside cy=0 generates. It stays SEPARATE from, and tighter than, the
         // window bounds test below -- see _ContentCeilingVoxelY's declaration.
-        if ((voxel.y >= _ContentCeilingVoxelY && step.y > 0) || (voxel.y < 0 && step.y < 0))
+        if ((voxel.y >= _ContentCeilingVoxelY && step.y > 0) || (voxel.y < _ContentFloorVoxelY && step.y < 0))
         {
             hit = false;
             break;

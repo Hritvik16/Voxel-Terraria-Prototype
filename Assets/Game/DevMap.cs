@@ -167,7 +167,7 @@ public sealed class DevMap : MonoBehaviour
         if (_frameBuilt) return;
         _frameBuilt = true;
         var far = FarField.Active;
-        _tg2 = far != null && far.FarOnly && far.Tg2Map != null;
+        _tg2 = far != null && far.UsesTg2;
         if (_tg2)
         {
             var m = far.Tg2Map;
@@ -175,7 +175,7 @@ public sealed class DevMap : MonoBehaviour
             _o = TerrainGen.Offsets.For(_spec.seed);
             _mapView = new TerrainGen.WorldMap(m.Spec, m.Height, m.Rough, m.PeakPosition, m.Water, m.Flow, m.Hydro, m.WaterClass);
             _off = far.Tg2OffsetVoxels;
-            _seaShift = _spec.seaLevelY - WorldGenConstants.SEA_LEVEL_VOXEL_Y;
+            _seaShift = far.Tg2SeaShift;
             float c = _spec.worldSizeVoxels * 0.5f;
             _islandCentre = TgToEngine(c, _spec.seaLevelY, c);
             _islandRadiusM = _spec.islandRadius * 0.1f * 1.25f;

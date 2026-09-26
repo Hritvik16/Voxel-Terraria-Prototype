@@ -9,8 +9,10 @@
 // sea surface is at Y 5120; the world is 0..~11,000 voxels tall, chunk layers
 // 0..86). Streaming those layers is V2; this file only makes the chunk.
 //
-// Per chunk: one Burst job samples S, MaxStep and D's column detail for the
-// 128^2 columns, then D's material for every voxel with the brick cull record
+// Per chunk: a Burst ColumnJob samples S, MaxStep and D's column detail for
+// the 128^2 columns; a chunk wholly above every column's ground and water is
+// returned as UNIFORM AIR right there (V2's air fast path). Otherwise a
+// VoxelJob evaluates D's material for every voxel with the brick cull record
 // (exact by construction, DetailCullTests), mapped to engine material ids.
 // Bricks of one material are stored as that material (the sticky-note
 // economy); the rest get a pooled 512-byte body, laid out exactly as
@@ -36,6 +38,7 @@ namespace VoxelEngine.WorldGen
     public sealed class TerrainGenChunkSource : IDisposable
     {
         public const byte SIZE_CLASS = 2;
+        public const int BRICK_GEOLOGY_DEPTH = 200;
         public readonly TerrainGen.TerrainSpec Spec;
         public readonly TerrainGen.Offsets O;
         public readonly TerrainGen.WorldMap Map;
@@ -44,7 +47,15 @@ namespace VoxelEngine.WorldGen
 
         public TerrainGenChunkSource(uint seed)
         {
-            Spec = TerrainGen.TerrainSpec.SizeClass2(seed);
+            // R1 BRICK GEOLOGY (V0, design doc §11/§15): below 20 m under the
+            // column top, one strata decision per 8^3 brick instead of per
+            // voxel. Measured (V0): shallow chunks 499 -> 97 dense bricks, the
+            // underworld 993 -> 95. Only dug-out or cave walls deeper than 20 m
+            // show it, as 0.8 m steps in the bands. It is what fits the band
+            // in the owner's 3 GB.
+            var spec = TerrainGen.TerrainSpec.SizeClass2(seed);
+            spec.brickGeologyDepth = BRICK_GEOLOGY_DEPTH;
+            Spec = spec;
             O = TerrainGen.Offsets.For(seed);
             Map = TerrainGen.WorldMap.Build(Spec);
             _h = new NativeArray<float>(Map.Height, Allocator.Persistent);
@@ -52,7 +63,24 @@ namespace VoxelEngine.WorldGen
             _w = new NativeArray<float>(Map.Water, Allocator.Persistent);
             _toEngine = new NativeArray<byte>(256, Allocator.Persistent);
             for (int i = 0; i < 256; i++) _toEngine[i] = VoxelEngine.Rendering.FarField.GenToEngine((byte)i);
+
+            // Highest chunk layer that can hold anything but air: the map's
+            // highest macro height and roughness, every detail octave at full
+            // amplitude, and STAMP_RISE_BOUND for stamps (the tallest lifts a
+            // column ~180 voxels above its site's ground). V2 admits no layer
+            // above it; TopLayerIsABound_OnTheMap checks it.
+            float maxMacro = 0f, maxRough = 0f;
+            for (int i = 0; i < Map.Height.Length; i++) { maxMacro = math.max(maxMacro, Map.Height[i]); maxRough = math.max(maxRough, Map.Rough[i]); }
+            float detailMax = 0f;
+            for (int i = 0; i < TerrainGen.ShapeField.DETAIL_OCTAVES; i++) detailMax += TerrainGen.ShapeField.Amplitude(i);
+            MaxContentY = Spec.seaLevelY + (int)math.ceil(maxMacro + detailMax * maxRough) + STAMP_RISE_BOUND;
+            TopLayerChunkY = MaxContentY >> 7;
         }
+
+        public const int STAMP_RISE_BOUND = 400;
+        /// Upper bound on any non-air voxel's Y (see the constructor).
+        public readonly int MaxContentY;
+        public readonly int TopLayerChunkY;
 
         public void Dispose()
         {
@@ -67,23 +95,83 @@ namespace VoxelEngine.WorldGen
         /// z then y within a brick-major order the caller reads with Index().
         public static int Index(int x, int y, int z) => (y << 14) | (z << 7) | x;
 
+        /// Chunks generated as uniform air without the voxel pass (whole chunk
+        /// above every column's ground and water) -- diagnostics for V2.
+        public int AirFastPathTotal => _airFast;
+        private int _airFast;
+
+        /// max(ground, still water, sea) over each chunk COLUMN's 128^2 columns,
+        /// keyed by (cx, cz). The same for every layer of the column, so once
+        /// one layer has run the column pass, every layer above it knows it is
+        /// air without one. A MEMO OF A PURE FUNCTION, not world state: two
+        /// workers racing on one key compute and store the same value, so no
+        /// ordering or lock matters (CLAUDE.md's single-writer rule concerns
+        /// ChunkStore, the pools and the chunk table, none of which this is).
+        /// Bounded: cleared past COLUMN_TOP_MEMO_MAX (the whole 8 km world is
+        /// 390,625 columns; one ring is ~1,000).
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<long, int> _columnTop =
+            new System.Collections.Concurrent.ConcurrentDictionary<long, int>();
+        private const int COLUMN_TOP_MEMO_MAX = 65536;
+        private static long ColumnKey(int3 c) => ((long)c.x << 32) | (uint)c.z;
+
+        private static void MakeAir(Chunk chunk)
+        {
+            chunk.isUniform = true;
+            chunk.uniformMaterial = Materials.Air;
+        }
+
         public void Generate(int3 coord, Chunk chunk, ChunkHandleAllocator allocator, BrickDataPool pool, object allocLock)
         {
             const int E = EngineConfig.CHUNK_EDGE_VOXELS;
             chunk.coord = coord;
             chunk.isUniform = false;
-            if (allocLock != null) { lock (allocLock) { chunk.bricks = allocator.Alloc(); } }
-            else chunk.bricks = allocator.Alloc();
 
-            var mats = new NativeArray<byte>(E * E * E, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-            var uniform = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, Allocator.TempJob);
-            var isUniform = new NativeArray<bool>(EngineConfig.BRICKS_PER_CHUNK, Allocator.TempJob);
+            if (_columnTop.TryGetValue(ColumnKey(coord), out int knownTop) && coord.y * E > knownTop)
+            {
+                MakeAir(chunk);
+                System.Threading.Interlocked.Increment(ref _airFast);
+                return;
+            }
+
+            var colS = new NativeArray<TerrainGen.ColumnSample>(E * E, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+            var colSt = new NativeArray<float>(E * E, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+            var colCd = new NativeArray<TerrainGen.DetailField.ColumnDetail>(E * E, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+            var top = new NativeArray<int>(1, Allocator.TempJob);
+            NativeArray<byte> mats = default, uniform = default;
+            NativeArray<bool> isUniform = default;
             try
             {
-                new ChunkJob
+                new ColumnJob
                 {
-                    h = _h, r = _r, w = _w, toEngine = _toEngine, spec = Spec, o = O,
-                    origin = coord * E, mats = mats, brickMat = uniform, brickUniform = isUniform,
+                    h = _h, r = _r, w = _w, spec = Spec, o = O, origin = coord * E,
+                    colS = colS, colSt = colSt, colCd = colCd, top = top,
+                }.Run();
+
+                // V2 AIR FAST PATH. Above a column's top solid voxel D returns only
+                // air or water (DetailField.Material's first block), so a chunk
+                // wholly above every column's max(ground, still water, sea) is
+                // uniform air by construction -- no voxel pass, no brick table.
+                // Most of a vertically streamed ring is exactly this.
+                if (_columnTop.Count > COLUMN_TOP_MEMO_MAX) _columnTop.Clear();
+                _columnTop[ColumnKey(coord)] = top[0];
+                if (coord.y * E > top[0])
+                {
+                    MakeAir(chunk);
+                    System.Threading.Interlocked.Increment(ref _airFast);
+                    return;
+                }
+
+                if (allocLock != null) { lock (allocLock) { chunk.bricks = allocator.Alloc(); } }
+                else chunk.bricks = allocator.Alloc();
+
+                mats = new NativeArray<byte>(E * E * E, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
+                uniform = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, Allocator.TempJob);
+                isUniform = new NativeArray<bool>(EngineConfig.BRICKS_PER_CHUNK, Allocator.TempJob);
+                new VoxelJob
+                {
+                    toEngine = _toEngine, spec = Spec, o = O, origin = coord * E,
+                    colS = colS, colSt = colSt, colCd = colCd,
+                    mats = mats, brickMat = uniform, brickUniform = isUniform,
                 }.Run();
 
                 var raw = pool.RawData;
@@ -104,19 +192,25 @@ namespace VoxelEngine.WorldGen
                         raw[start + ((vz << 6) | (vy << 3) | vx)] = mats[Index((bx << 3) + vx, (by << 3) + vy, (bz << 3) + vz)];
                 }
             }
-            finally { mats.Dispose(); uniform.Dispose(); isUniform.Dispose(); }
+            finally
+            {
+                colS.Dispose(); colSt.Dispose(); colCd.Dispose(); top.Dispose();
+                if (mats.IsCreated) mats.Dispose();
+                if (uniform.IsCreated) uniform.Dispose();
+                if (isUniform.IsCreated) isUniform.Dispose();
+            }
         }
 
         [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]
-        private struct ChunkJob : IJob
+        private struct ColumnJob : IJob
         {
             [ReadOnly] public NativeArray<float> h, r, w;
-            [ReadOnly] public NativeArray<byte> toEngine;
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
-            [WriteOnly] public NativeArray<byte> mats;
-            public NativeArray<byte> brickMat;
-            public NativeArray<bool> brickUniform;
+            public NativeArray<TerrainGen.ColumnSample> colS;
+            [WriteOnly] public NativeArray<float> colSt;
+            [WriteOnly] public NativeArray<TerrainGen.DetailField.ColumnDetail> colCd;
+            public NativeArray<int> top;   // [0] = max over columns of max(height, water, sea)
 
             public unsafe void Execute()
             {
@@ -126,18 +220,59 @@ namespace VoxelEngine.WorldGen
                     height = (float*)h.GetUnsafeReadOnlyPtr(), rough = (float*)r.GetUnsafeReadOnlyPtr(),
                     water = (float*)w.GetUnsafeReadOnlyPtr(), cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
-                var colS = new NativeArray<TerrainGen.ColumnSample>(E * E, Allocator.Temp);
-                var colSt = new NativeArray<float>(E * E, Allocator.Temp);
-                var colCd = new NativeArray<TerrainGen.DetailField.ColumnDetail>(E * E, Allocator.Temp);
+                // S on a 130^2 grid (the chunk's columns plus a one-column
+                // border). MaxStep(x, z, 1) is max |S(neighbour) - S(centre)|
+                // over the four neighbours at +-1 voxel -- which ARE the
+                // neighbouring columns' own samples, at the same float
+                // coordinates ((x + 0.5f) + 1 == (x + 1) + 0.5f exactly for any
+                // |x| < 2^22), so reading them from the grid is bit-identical to
+                // calling MaxStep and saves four full Samples per column. The
+                // exactness test compares against a reference that calls
+                // MaxStep itself.
+                const int G = E + 2;
+                var hg = new NativeArray<int>(G * G, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+                for (int k = -1; k <= E; k++)
+                for (int i = -1; i <= E; i++)
+                {
+                    int x = origin.x + i, z = origin.z + k;
+                    var c = TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, z + 0.5f, 1);
+                    hg[(k + 1) * G + i + 1] = c.height;
+                    if (i >= 0 && i < E && k >= 0 && k < E) colS[k * E + i] = c;
+                }
+                int maxTop = spec.seaLevelY;
                 for (int k = 0; k < E; k++)
                 for (int i = 0; i < E; i++)
                 {
-                    int x = origin.x + i, z = origin.z + k, ci = k * E + i;
-                    var c = TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, z + 0.5f, 1);
-                    colS[ci] = c;
-                    colSt[ci] = TerrainGen.ShapeField.MaxStep(in spec, in map, in o, x + 0.5f, z + 0.5f, 1, c.height);
+                    int x = origin.x + i, z = origin.z + k, ci = k * E + i, gi = (k + 1) * G + i + 1;
+                    int ch = hg[gi];
+                    int m = math.max(math.max(math.abs(hg[gi + 1] - ch), math.abs(hg[gi - 1] - ch)),
+                                     math.max(math.abs(hg[gi + G] - ch), math.abs(hg[gi - G] - ch)));
+                    colSt[ci] = m / 1f;
                     colCd[ci] = TerrainGen.DetailField.PrepareColumn(in spec, in o, x, z);
+                    var c = colS[ci];
+                    maxTop = math.max(maxTop, math.max(c.height, c.water));
                 }
+                hg.Dispose();
+                top[0] = maxTop;
+            }
+        }
+
+        [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]
+        private struct VoxelJob : IJob
+        {
+            [ReadOnly] public NativeArray<byte> toEngine;
+            public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
+            public int3 origin;
+            [ReadOnly] public NativeArray<TerrainGen.ColumnSample> colS;
+            [ReadOnly] public NativeArray<float> colSt;
+            [ReadOnly] public NativeArray<TerrainGen.DetailField.ColumnDetail> colCd;
+            [WriteOnly] public NativeArray<byte> mats;
+            public NativeArray<byte> brickMat;
+            public NativeArray<bool> brickUniform;
+
+            public void Execute()
+            {
+                const int E = 128;
                 for (int by = 0; by < 16; by++)
                 for (int bz = 0; bz < 16; bz++)
                 for (int bx = 0; bx < 16; bx++)
@@ -164,7 +299,6 @@ namespace VoxelEngine.WorldGen
                     brickUniform[bi] = uni;
                     brickMat[bi] = first;
                 }
-                colS.Dispose(); colSt.Dispose(); colCd.Dispose();
             }
         }
     }

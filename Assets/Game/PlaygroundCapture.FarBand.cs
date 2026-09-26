@@ -170,7 +170,8 @@ public partial class PlaygroundCapture
         while (Phase4Bootstrapper.Store == null) yield return null;
         yield return Frames(200);
         string ts = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
-        _folder = Path.Combine(Application.persistentDataPath, "FarBand", ts + "_preview");
+        bool world = Phase4Bootstrapper.IsTg2World;
+        _folder = Path.Combine(Application.persistentDataPath, "FarBand", ts + (world ? "_world" : "_preview"));
         Directory.CreateDirectory(_folder);
         VoxelEngine.Rendering.LightingDriver.ClockPaused = true;
         RaymarchFeature.ShadowQualityLevel = 0;
@@ -179,20 +180,24 @@ public partial class PlaygroundCapture
         Playground.DebugHideUi = true;
         var far = FarField.Active;
         var cam = Camera.main;
-        if (far == null || !far.FarOnly || far.Tg2Map == null)
+        // V2: also runs in a real sizeClass 2 world (-world tg2), where the far
+        // band is ALIGNED (offset 0, no sea shift) and the voxel band streams
+        // around each pose -- the same poses, now walkable up close.
+        if (far == null || !far.UsesTg2)
         {
-            L("PREVIEW NEEDS -farband 1 -farsource tg2");
+            L("PREVIEW NEEDS -farband 1 -farsource tg2, or -world tg2");
             File.WriteAllText(Path.Combine(_folder, "farpreview.txt"), _log.ToString());
             Application.Quit(2); yield break;
         }
         var spec = far.Tg2Spec; var map = far.Tg2Map; var o = TerrainGen.Offsets.For(spec.seed);
         int2 off = far.Tg2OffsetVoxels;
-        int seaShift = spec.seaLevelY - WorldGenConstants.SEA_LEVEL_VOXEL_Y;
+        int seaShift = far.Tg2SeaShift;
         // tg2 voxel (x, z) -> engine metres; tg2 absolute Y -> engine metres.
         Vector3 E(float gx, float gy, float gz) => new Vector3((gx - off.x) * 0.1f, (gy - seaShift) * 0.1f, (gz - off.y) * 0.1f);
         float Ground(float gx, float gz) => TgGround(map, gx, gz);
 
-        L($"SIZECLASS 2 PREVIEW (TerrainGen via the far band) -- {ts}");
+        L(world ? $"SIZECLASS 2 WORLD (-world tg2: voxel band streamed in Y + the far band) -- {ts}"
+                : $"SIZECLASS 2 PREVIEW (TerrainGen via the far band) -- {ts}");
         L($"seed {spec.seed}: world {spec.worldSizeVoxels / 10000f:F0} km, sea at Y {spec.seaLevelY}, peak site {map.PeakPosition}, " +
           $"max top {far.MaxHeightVoxels} (engine voxels), ring initial fill {far.InitialFillMs:F0} ms");
         float c = spec.worldSizeVoxels * 0.5f;
@@ -218,6 +223,25 @@ public partial class PlaygroundCapture
         if (TerrainGen.Stamps.WorldTreeEnabled) Look("world_tree_1km", E(treeSite.x - 9000f, Ground(treeSite.x - 9000f, treeSite.y) + 600f, treeSite.y - 2000f), E(treeSite.x, Ground(treeSite.x, treeSite.y) - 800f, treeSite.y));
         Look("geyser_basin", E(geySite.x - 2500f, Ground(geySite.x, geySite.y) + 1500f, geySite.y - 2500f), E(geySite.x, Ground(geySite.x, geySite.y), geySite.y));
         Look("rivers_oblique", E(c - 30000f, spec.seaLevelY + 26000f, c - 30000f), E(c, spec.seaLevelY, c));
+        if (world)
+        {
+            // EYE LEVEL, where the voxel band and the far band meet: three dry
+            // sites at 25 / 45 / 65% of the island radius, 1.7 m above the
+            // ground, looking at the peak.
+            float[] fr = { 0.25f, 0.45f, 0.65f };
+            for (int k = 0; k < fr.Length; k++)
+            {
+                for (int a = 0; a < 36; a++)
+                {
+                    float ang = a * 0.1745f + k * 2.1f;
+                    float2 q = new float2(c, c) + new float2(math.cos(ang), math.sin(ang)) * spec.islandRadius * fr[k];
+                    float g = Ground(q.x, q.y);
+                    if (g < spec.seaLevelY + 150f) continue;
+                    Look($"eye_level_{k + 1}", E(q.x, g + 17f, q.y), E(pk.x, g + 17f + 0.05f * math.distance(q, pk), pk.y));
+                    break;
+                }
+            }
+        }
         for (int gz = 0, done = 0; gz < (spec.worldSizeVoxels >> TerrainGen.Stamps.CELL_SHIFT) && done == 0; gz++)
         for (int gx = 0; gx < (spec.worldSizeVoxels >> TerrainGen.Stamps.CELL_SHIFT) && done == 0; gx++)
         {
@@ -237,6 +261,13 @@ public partial class PlaygroundCapture
                 cam.transform.position = pos; cam.transform.rotation = rot;
                 yield return Frames(30);
                 for (int w = 0; w < 1500 && far.Busy; w++) yield return null;   // ring refills after the jump
+                var sm = Phase4Bootstrapper.Streamer;
+                int deficit = 0;
+                if (world && sm != null)
+                {
+                    for (int w = 0; w < 3000 && sm.LoadDeficit() > 0; w++) yield return null;   // the voxel band streams in
+                    deficit = sm.LoadDeficit();
+                }
                 yield return Frames(30);
                 double ms = 0; for (int i = 0; i < 60; i++) { yield return null; ms += Time.unscaledDeltaTime * 1000.0; }
                 string tn = hours == 12f ? "noon" : "golden";
@@ -249,7 +280,9 @@ public partial class PlaygroundCapture
                     yield return CaptureTo($"{n}_{tn}_band");
                     RaymarchFeature.UseDebugViewOverride = false;
                 }
-                L($"{n,-24}{tn,7}  eye {pos}  {ms / 60.0:F2} ms (diagnostic)");
+                L($"{n,-24}{tn,7}  eye {pos}  {ms / 60.0:F2} ms (diagnostic)" +
+                  (world && sm != null ? $"  band {sm.StreamLayer}+-{VoxelEngine.Streaming.StreamManager.V_LOAD_LAYERS}  resident {Phase4Bootstrapper.Store.ResidentCount}  " +
+                                         $"deficit {deficit}  dense {Phase4Bootstrapper.Store.DenseBricksHeld}" : ""));
             }
         }
         L($"ring upkeep: {far.StripsApplied} strips, {far.FullRefills} refills, {far.BytesUploaded / 1048576.0:F1} MB uploaded");

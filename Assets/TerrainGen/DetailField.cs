@@ -209,6 +209,12 @@ namespace TerrainGen
             public bool noTunnel;        // spaghetti test cannot pass anywhere in it
             public bool noCheese;        // cavern-layer cheese test cannot pass
             public bool underClosed;     // underworld open-volume test cannot pass
+            // V2: brick geology (TerrainSpec.brickGeologyDepth) evaluated ONCE
+            // per brick, at its centre column -- the rule's own definition, so
+            // passing it in is exact. Without it (None) Material prepares it
+            // per voxel, which the exactness tests use as the reference.
+            public bool hasGeo;
+            public float geoStrata, geoCavern, geoUnder;
             public static BrickCull None => default;
         }
 
@@ -231,6 +237,12 @@ namespace TerrainGen
 
             // T4's caves are per-column intervals: nothing left to cull per brick.
             r.noTunnel = true; r.noCheese = true; r.underClosed = true;
+
+            if (spec.brickGeologyDepth > 0)
+            {
+                var g = PrepareGeology(in o, bx + BRICK / 2, bz + BRICK / 2);
+                r.hasGeo = true; r.geoStrata = g.strataOffset; r.geoCavern = g.cavernOffset; r.geoUnder = g.underOffset;
+            }
             return r;
         }
 
@@ -293,10 +305,16 @@ namespace TerrainGen
             if (spec.brickGeologyDepth > 0 && depth > spec.brickGeologyDepth)
             {
                 int gy = (y & ~(BRICK - 1)) + BRICK / 2;
-                var bd = PrepareGeology(in o, (x & ~(BRICK - 1)) + BRICK / 2, (z & ~(BRICK - 1)) + BRICK / 2);
-                if (gy < spec.UnderworldTopY) return UnderworldRock(gy + bd.underOffset);
-                if (gy < spec.CavernTopY) return CavernBands(gy + bd.cavernOffset);
-                return StrataBand(c.biome, gy + bd.strataOffset);
+                float gStrata, gCavern, gUnder;
+                if (cull.hasGeo) { gStrata = cull.geoStrata; gCavern = cull.geoCavern; gUnder = cull.geoUnder; }
+                else
+                {
+                    var bd = PrepareGeology(in o, (x & ~(BRICK - 1)) + BRICK / 2, (z & ~(BRICK - 1)) + BRICK / 2);
+                    gStrata = bd.strataOffset; gCavern = bd.cavernOffset; gUnder = bd.underOffset;
+                }
+                if (gy < spec.UnderworldTopY) return UnderworldRock(gy + gUnder);
+                if (gy < spec.CavernTopY) return CavernBands(gy + gCavern);
+                return StrataBand(c.biome, gy + gStrata);
             }
 
             if (y < spec.UnderworldTopY) return UnderworldRock(y + cd.underOffset);

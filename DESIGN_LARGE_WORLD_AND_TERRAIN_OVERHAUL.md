@@ -728,3 +728,57 @@ not done:
 
 
 Report: https://claude.ai/artifact/NW5Qu7uu6mPW7ruvcf5PSF
+
+## 15. V2 + V3: the walkable TerrainGen island (owner: "walkable island first", "max 3 GB", 2026-09-26)
+
+**Why this was needed at all** (owner: "I thought we built the system to be
+modular and terrain agnostic"). It is agnostic in WHAT it generates -- V1
+swapped the generator behind one seam with no engine change. It was not
+agnostic in how TALL the world is: Phase 4's world fit one 12.8 m chunk layer,
+so the ring pinned Y at layer 0, only layer 0 generated
+(`MAX_GENERATED_CHUNK_Y = 0`), the GPU mirror was a fixed 51 m slab, and the
+shader's floor/ceiling were 0/128. TerrainGen's island spans ~1.1 km. V2/V3
+make the height a property of the world instead of a constant. Every change
+below is gated on the world (`-world tg2`, sizeClass 2); sizeClass 0/1 take
+exactly the old values on every path.
+
+**Design.**
+1. *Band.* A stream layer follows the camera's chunk layer with a lag of one
+   (`V_STREAM_LAG`), so a walk across a layer boundary does not evict and
+   reload a layer. Chunks load for layers stream +- 3 (`V_LOAD_LAYERS`),
+   clipped to [0, the map's content bound]; they evict as soon as they leave
+   it (the lag is the hysteresis). `StreamManager.LayerRange` is the one place
+   every loop reads.
+2. *Air fast path.* A chunk wholly above every column's max(ground, water,
+   sea) is uniform air without the 2 M-voxel pass; the column's top is
+   memoised per chunk column, so layers above the ground cost ~0 ms after the
+   first. `MaxStep` is read from a 130^2 grid of the column samples
+   (bit-identical; exactness test). Measured (Editor): column pass 49 -> 24 ms,
+   air chunks 49 -> 0 ms, underground 66-80 -> 43-58 ms.
+3. *Mirror.* 8 layers (`TG2_MIRROR_CHUNKS_Y`), toroidal in Y exactly as in
+   X/Z, origin = stream - 4, strictly containing the 7-layer band (asserted).
+4. *Shader.* `_ContentFloorVoxelY` joins `_ContentCeilingVoxelY`; both are set
+   every frame to the loaded band. The far band now yields to the voxel march
+   only for hits INSIDE the band: a valley floor under a summit, or a cliff
+   above a canyon, is drawn by the heightfield. Flat worlds: band [0, 128),
+   which holds every surface, so the old rule exactly.
+5. *Far band.* A sizeClass 2 world fills its rings from TerrainGen ALIGNED
+   (offset 0, no sea shift -- the preview's shifts stay for `-farsource tg2`),
+   borrowing the chunk source's map (one ~25 s build, not two). A column is
+   "resident" to the far march only when its whole band is.
+6. *Memory.* Brick bodies cost twice (the GPU buffer mirrors the pool slot for
+   slot). First sizing: pool 1.2 M bricks (614 MB x 2), cascade tiers 2x the
+   flat world's; `run-tg2world.sh` records the process's phys_footprint
+   against the 3 GB cap, and the caps get set from the measured peaks.
+7. *Collision.* The "above generated content is air" rule reads the world's
+   content bound (`StreamManager.ContentTopChunkY`).
+
+**Known limits (first cut).** A voxel pixel's sun ray stops at the band's
+ceiling, so terrain above the band does not shadow it yet (continuing that ray
+into the far band is the fix). Caves outside the band are not drawn (the far
+band is a heightfield). Flying faster than generation (~100 chunks/s on 7
+workers) leaves the far band showing until the band catches up.
+
+**Tests.** `VerticalStreamingTests` (the band follows with lag, deficit 0,
+nothing outside the band, fits the mirror, air fast path, collision ceiling);
+`TerrainGenChunkSourceTests.AirFastPath_IsExact_AndChunkCostIsReported`.

@@ -32,6 +32,7 @@ public class TerrainGenChunkSourceTests
 
     private static byte Read(Chunk c, BrickDataPool pool, int x, int y, int z)
     {
+        if (c.isUniform) return c.uniformMaterial;
         int bi = ((z >> 3) << 8) | ((y >> 3) << 4) | (x >> 3);
         uint d = c.bricks[bi].data;
         if ((d & 0x80000000u) == 0) return (byte)d;
@@ -145,5 +146,73 @@ public class TerrainGenChunkSourceTests
             pool.Dispose(); pool2.Dispose();
             hA.Dispose(); rA.Dispose(); wA.Dispose(); te.Dispose(); top.Dispose(); refM.Dispose();
         }
+    }
+
+    /// Mismatches between a generated chunk and TerrainGen's own D (every 3rd
+    /// voxel, both under Burst).
+    private static int Mismatches(int3 cc, Chunk chunk, BrickDataPool pool)
+    {
+        var hA = new Unity.Collections.NativeArray<float>(_src.Map.Height, Unity.Collections.Allocator.TempJob);
+        var rA = new Unity.Collections.NativeArray<float>(_src.Map.Rough, Unity.Collections.Allocator.TempJob);
+        var wA = new Unity.Collections.NativeArray<float>(_src.Map.Water, Unity.Collections.Allocator.TempJob);
+        var te = new Unity.Collections.NativeArray<byte>(256, Unity.Collections.Allocator.TempJob);
+        var top = new Unity.Collections.NativeArray<int>(43 * 43, Unity.Collections.Allocator.TempJob);
+        var refM = new Unity.Collections.NativeArray<byte>(43 * 43 * 43, Unity.Collections.Allocator.TempJob);
+        try
+        {
+            for (int i = 0; i < 256; i++) te[i] = VoxelEngine.Rendering.FarField.GenToEngine((byte)i);
+            new RefJob { h = hA, r = rA, w = wA, toEngine = te, spec = _src.Spec, o = _src.O, origin = cc * 128, top = top, mats = refM }.Run();
+            int bad = 0, k = 0;
+            for (int z = 0; z < 128; z += 3)
+            for (int x = 0; x < 128; x += 3)
+            for (int y = 0; y < 128; y += 3)
+                if (Read(chunk, pool, x, y, z) != refM[k++]) bad++;
+            return bad;
+        }
+        finally { hA.Dispose(); rA.Dispose(); wA.Dispose(); te.Dispose(); top.Dispose(); refM.Dispose(); }
+    }
+
+    /// V2's air fast path: a chunk wholly above the ground comes back as
+    /// uniform air without the voxel pass, and every chunk stays exact. Also
+    /// MEASURES the per-chunk cost by class (Logs/TerrainGen/v2_chunk_cost.txt):
+    /// vertical streaming multiplies the chunks per column, so throughput is a
+    /// number to know, not guess.
+    [Test]
+    public void AirFastPath_IsExact_AndChunkCostIsReported()
+    {
+        int3 cc = SurfaceChunk(out _);
+        var lines = new System.Collections.Generic.List<string> { $"V2 chunk cost, seed 42, surface chunk {cc} (ms per Generate, Editor, Burst)", "" };
+        var sky = new int3(cc.x, 60, cc.z);                        // Y 7680 > the 600 m peak
+        int3[] probe = { sky, cc + new int3(0, 2, 0), cc + new int3(0, 1, 0), cc, cc - new int3(0, 3, 0), new int3(cc.x, 16, cc.z), new int3(cc.x, 2, cc.z) };
+        string[] name = { "sky (y 60)", "surface + 2", "surface + 1", "SURFACE", "surface - 3", "cavern layer (y 16)", "underworld (y 2)" };
+        for (int p = 0; p < probe.Length; p++)
+        {
+            var pool = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
+            try
+            {
+                var chunk = new Chunk();
+                _src.Generate(probe[p], chunk, new ChunkHandleAllocator(2), pool, null);   // warm (Burst compile on first)
+                int bad = Mismatches(probe[p], chunk, pool);
+                Assert.AreEqual(0, bad, $"{name[p]} {probe[p]}: {bad} voxels differ from TerrainGen's D");
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                const int REPS = 3;
+                for (int r = 0; r < REPS; r++)
+                {
+                    var pr = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
+                    _src.Generate(probe[p], new Chunk(), new ChunkHandleAllocator(2), pr, null);
+                    pr.Dispose();
+                }
+                double ms = sw.Elapsed.TotalMilliseconds / REPS;
+                int dense = 0;
+                if (!chunk.isUniform) for (int bi = 0; bi < EngineConfig.BRICKS_PER_CHUNK; bi++) if ((chunk.bricks[bi].data & 0x80000000u) != 0) dense++;
+                lines.Add($"{name[p],-22}{probe[p].ToString(),-24}{ms,8:F1} ms   {(chunk.isUniform ? "UNIFORM air (fast path)" : dense + " dense bricks")}   exact");
+                if (p == 0) Assert.IsTrue(chunk.isUniform && chunk.uniformMaterial == Materials.Air, "a chunk above the peak must take the air fast path");
+            }
+            finally { pool.Dispose(); }
+        }
+        string dir = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "Logs", "TerrainGen");
+        System.IO.Directory.CreateDirectory(dir);
+        System.IO.File.WriteAllLines(System.IO.Path.Combine(dir, "v2_chunk_cost.txt"), lines);
+        UnityEngine.Debug.Log("[V2]\n" + string.Join("\n", lines));
     }
 }

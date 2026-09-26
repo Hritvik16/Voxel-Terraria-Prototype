@@ -151,6 +151,11 @@ public class RaymarchFeature : ScriptableRendererFeature
     /// Set by the bootstrapper from StreamManager.MAX_GENERATED_CHUNK_Y.
     /// Kept tighter than the window's Y extent on purpose -- see the shader.
     public static int ContentCeilingVoxelY = 128;
+    /// Lowest voxel Y the voxel band holds (V2). 0 for a flat world, which is
+    /// the shader's old hard floor; a vertically streamed world sets both
+    /// bounds to its loaded band every frame, and rays leaving the band hand
+    /// over to the far band.
+    public static int ContentFloorVoxelY = 0;
 
     public static DebugMode DebugViewOverride = DebugMode.Beauty;
     public static bool UseDebugViewOverride = false;
@@ -305,6 +310,7 @@ public class RaymarchFeature : ScriptableRendererFeature
             public Vector3Int windowDimsChunks;
             public Vector3Int windowOriginBricks;
             public int contentCeilingVoxelY;
+            public int contentFloorVoxelY;
             public Vector2Int debugPixel;
             public int debugMode;
             public int traversalMode;
@@ -496,6 +502,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.maxOuterIterations = MaxOuterIterations;
                 passData.usePackedMips = UsePackedMips ? 1 : 0;
                 passData.contentCeilingVoxelY = ContentCeilingVoxelY;
+                passData.contentFloorVoxelY = ContentFloorVoxelY;
 
                 // ---- Phase 7 lighting ----
                 // LightSourceBuffer.Upload() is the CPU's job and happens in the
@@ -736,6 +743,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                     cmd.SetComputeIntParams(data.compute, "_WindowOriginBricksPacked",
                         new int[] { data.windowOriginBricks.x, data.windowOriginBricks.y, data.windowOriginBricks.z, 0 });
                     cmd.SetComputeIntParam(data.compute, "_ContentCeilingVoxelY", data.contentCeilingVoxelY);
+                    cmd.SetComputeIntParam(data.compute, "_ContentFloorVoxelY", data.contentFloorVoxelY);
 
                     cmd.SetComputeBufferParam(data.compute, 0, "ClipmapBufferTier1", data.clipmapTier1);
                     cmd.SetComputeBufferParam(data.compute, 0, "BrickDataBufferTier1", data.brickDataTier1);

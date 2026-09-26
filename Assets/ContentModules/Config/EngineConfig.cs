@@ -240,6 +240,18 @@ public static class EngineConfig
     // margin is acceptable here and deliberately not used there.
     public const int BRICK_POOL_CAP = 500000;
 
+    /// V2 (design doc §15): the dense-brick pool for a VERTICALLY STREAMED
+    /// sizeClass 2 world. Its band holds the surface chunk AND the layers above
+    /// and below it (V0 projected ~1.1-1.5 M dense bricks for a 7-layer band
+    /// under R1 geology). The GPU mirrors the pool one-for-one, so this costs
+    /// 512 B x cap TWICE: 1.2 M = 614 MB CPU + 614 MB GPU. FIRST SIZING, to be
+    /// set from the measured peak against the owner's 3 GB total (2026-09-26).
+    /// The flat world keeps BRICK_POOL_CAP.
+    public const int TG2_BRICK_POOL_CAP = 1200000;
+    /// GPU mirror height for a vertically streamed world: 8 layers strictly
+    /// contain the loaded band (StreamManager.V_LOAD_LAYERS = 3 -> 7 layers).
+    public const int TG2_MIRROR_CHUNKS_Y = 8;
+
     /// Per-tier cascade pool capacities, sized against measured peaks.
     ///
     /// These used to be LODCascadeManager.DefaultTierPoolCapacity =
@@ -260,6 +272,12 @@ public static class EngineConfig
     /// Tier 2 is the outlier because it is the coarsest tier: an 8x downsample
     /// yields far fewer dense bricks, which is why 13.5% utilisation was never
     /// noticed behind a shared /4 constant.
+    /// V2: cascade tiers for the vertically streamed world cover an 8-layer
+    /// mirror instead of the flat world's one content layer. A cascade pool has
+    /// no valve (exhaustion throws), so FIRST SIZING is 2x the flat world's
+    /// measured-and-padded caps; the run's PeakUsed sets the real number.
+    public static int Tg2CascadeTierPoolCap(int tier) => 2 * CascadeTierPoolCap(tier);
+
     public static int CascadeTierPoolCap(int tier)
     {
         switch (tier)

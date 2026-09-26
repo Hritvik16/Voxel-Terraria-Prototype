@@ -89,7 +89,16 @@ namespace VoxelEngine.Rendering
         /// A PREVIEW of the new island at scale, not a playable mode.
         public static bool Tg2Requested() => ArgValue("-farsource") == "tg2";
         public bool FarOnly { get; private set; }
+        /// V2: the rings are filled from TerrainGen -- either the -farsource tg2
+        /// PREVIEW (FarOnly, offset + sea shift into today's world frame) or a
+        /// real sizeClass 2 WORLD (aligned: offset 0, absolute Y, voxel band on).
+        public bool UsesTg2 => Tg2Map != null;
+        private bool _ownsTg2Map;
+        public bool Tg2World { get; private set; }
         public int2 Tg2OffsetVoxels { get; private set; }
+        /// Y the rings subtract from TerrainGen heights: the preview maps the
+        /// new sea onto today's (SEA_LEVEL_VOXEL_Y); a real world keeps 0.
+        public int Tg2SeaShift { get; private set; }
         public TerrainGen.WorldMap Tg2Map { get; private set; }
         public TerrainGen.TerrainSpec Tg2Spec { get; private set; }
 
@@ -179,26 +188,38 @@ namespace VoxelEngine.Rendering
         private readonly Pending[] _pending = new Pending[LEVELS];
         private readonly Queue<int> _readyStrips = new Queue<int>();
 
-        public FarField(WorldMetaData meta, Vector3 cameraMetres)
+        /// sharedTg2Map: a sizeClass 2 world's map, already built by the chunk
+        /// source (TerrainGenChunkSource.Map) -- borrowed, not owned, so the
+        /// ~25 s build happens once. Null: build (and own) one as before.
+        public FarField(WorldMetaData meta, Vector3 cameraMetres, TerrainGen.WorldMap sharedTg2Map = null)
         {
             _st = ColumnSampler.CreateState(meta);
-            if (Tg2Requested())
+            Tg2World = meta.sizeClass == VoxelEngine.WorldGen.TerrainGenChunkSource.SIZE_CLASS;
+            if (Tg2Requested() || Tg2World)
             {
                 var swm = System.Diagnostics.Stopwatch.StartNew();
-                FarOnly = true;
-                Tg2Spec = TerrainGen.TerrainSpec.SizeClass2(meta.seed);
-                Tg2Map = TerrainGen.WorldMap.Build(Tg2Spec);
+                FarOnly = !Tg2World;
+                // A world's map carries its spec (with the chunk source's brick
+                // geology), so the dev map's slice reads what the chunks hold.
+                Tg2Spec = sharedTg2Map != null ? sharedTg2Map.Spec : TerrainGen.TerrainSpec.SizeClass2(meta.seed);
+                _ownsTg2Map = sharedTg2Map == null;
+                Tg2Map = sharedTg2Map ?? TerrainGen.WorldMap.Build(Tg2Spec);
                 _tgO = TerrainGen.Offsets.For(meta.seed);
                 _tgH = new NativeArray<float>(Tg2Map.Height, Allocator.Persistent);
                 _tgR = new NativeArray<float>(Tg2Map.Rough, Allocator.Persistent);
                 _tgW = new NativeArray<float>(Tg2Map.Water, Allocator.Persistent);
-                // Put today's camera over the new island's centre, texel-aligned.
+                // PREVIEW: put today's camera over the new island's centre,
+                // texel-aligned, and map its sea onto today's. A real world is
+                // already in the island's own frame.
                 int half = Tg2Spec.worldSizeVoxels / 2;
-                Tg2OffsetVoxels = new int2(((half - (int)(cameraMetres.x * 10f)) >> 7) << 7,
-                                           ((half - (int)(cameraMetres.z * 10f)) >> 7) << 7);
+                Tg2OffsetVoxels = Tg2World ? int2.zero
+                    : new int2(((half - (int)(cameraMetres.x * 10f)) >> 7) << 7,
+                               ((half - (int)(cameraMetres.z * 10f)) >> 7) << 7);
+                Tg2SeaShift = Tg2World ? 0 : Tg2Spec.seaLevelY - WorldGenConstants.SEA_LEVEL_VOXEL_Y;
                 _genToEngine = new NativeArray<byte>(256, Allocator.Persistent);
                 for (int i = 0; i < 256; i++) _genToEngine[i] = GenToEngine((byte)i);
-                Debug.Log($"[FarField] tg2 preview: world map built in {swm.ElapsedMilliseconds} ms, offset {Tg2OffsetVoxels}");
+                Debug.Log($"[FarField] tg2 {(Tg2World ? "WORLD (aligned)" : "preview")}: world map built in {swm.ElapsedMilliseconds} ms, " +
+                          $"offset {Tg2OffsetVoxels}, sea shift {Tg2SeaShift}");
             }
             _surfaceByBiome = new NativeArray<byte>(256, Allocator.Persistent);
             for (int i = 0; i < 256; i++) _surfaceByBiome[i] = Materials.Stone;
@@ -239,6 +260,13 @@ namespace VoxelEngine.Rendering
         /// Rebuilds the residency bitmap from the store (1024 lookups for a
         /// 32x32 window; uploaded every frame, 128 bytes).
         public void UpdateResidency(ChunkStore store, int3 windowOriginChunks, int3 windowDimsChunks)
+            => UpdateResidency(store, windowOriginChunks, windowDimsChunks, 0, 0);
+
+        /// V2: a column is resident when EVERY chunk of the loaded band
+        /// [layerLo, layerHi] is -- a half-streamed column would otherwise hand
+        /// its missing layers to the voxel march as air. Flat worlds: 0..0,
+        /// exactly the old "its y=0 chunk is resident".
+        public void UpdateResidency(ChunkStore store, int3 windowOriginChunks, int3 windowDimsChunks, int layerLo, int layerHi)
         {
             long r0 = System.Diagnostics.Stopwatch.GetTimestamp();
             int n = windowDimsChunks.x * windowDimsChunks.z;
@@ -248,8 +276,10 @@ namespace VoxelEngine.Rendering
             for (int rz = 0; rz < windowDimsChunks.z; rz++)
             for (int rx = 0; rx < windowDimsChunks.x; rx++)
             {
-                var c = new int3(windowOriginChunks.x + rx, 0, windowOriginChunks.z + rz);
-                if (!store.IsResident(c)) continue;
+                bool all = true;
+                for (int cy = layerLo; cy <= layerHi && all; cy++)
+                    all = store.IsResident(new int3(windowOriginChunks.x + rx, cy, windowOriginChunks.z + rz));
+                if (!all) continue;
                 int i = rz * windowDimsChunks.x + rx;
                 _residentBits[i >> 5] |= 1u << (i & 31);
             }
@@ -386,10 +416,11 @@ namespace VoxelEngine.Rendering
         private JobHandle ScheduleFill(int texelVoxels, int x0, int z0, int w, bool ringOrder, int2 ringOrigin,
                                        NativeArray<uint> output, int count, int batch)
         {
-            if (FarOnly)
+            if (UsesTg2)
                 return new FillTg2Job
                 {
                     h = _tgH, r = _tgR, wat = _tgW, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
+                    seaShift = Tg2SeaShift,
                     texelVoxels = texelVoxels, x0 = x0, z0 = z0, w = w, ringOrder = ringOrder, ringOrigin = ringOrigin, output = output,
                 }.Schedule(count, batch);
             return new FillRegionJob
@@ -458,7 +489,7 @@ namespace VoxelEngine.Rendering
             if (_tgR.IsCreated) _tgR.Dispose();
             if (_tgW.IsCreated) _tgW.Dispose();
             if (_genToEngine.IsCreated) _genToEngine.Dispose();
-            Tg2Map?.Dispose();
+            if (_ownsTg2Map) Tg2Map?.Dispose();
             if (Active == this) Active = null;
         }
 
@@ -509,6 +540,7 @@ namespace VoxelEngine.Rendering
             public TerrainGen.TerrainSpec spec;
             public TerrainGen.Offsets o;
             public int2 offset;
+            public int seaShift;
             public int texelVoxels, x0, z0, w;
             public bool ringOrder;
             public int2 ringOrigin;
@@ -538,12 +570,11 @@ namespace VoxelEngine.Rendering
                 // MaxStep is per voxel at this spacing; the surface rules want the
                 // per-voxel step, so it is directly comparable.
                 byte gm = TerrainGen.DetailField.TopMaterial(in spec, in c, step, in o, (int)gx, (int)gz);
-                const int SEA = WorldGenConstants.SEA_LEVEL_VOXEL_Y;
-                int top = c.height + 1 - (spec.seaLevelY - SEA);
+                int top = c.height + 1 - seaShift;
                 if (c.height < spec.seaLevelY)
-                    output[i] = (uint)(SEA + 1) | ((uint)Materials.Water << 16) | (FLAG_WATER << 24);
+                    output[i] = (uint)(spec.seaLevelY + 1 - seaShift) | ((uint)Materials.Water << 16) | (FLAG_WATER << 24);
                 else if (c.water > c.height)   // map v2: a lake or river (or the caldera's lava) over this column
-                    output[i] = (uint)math.clamp(c.water + 1 - (spec.seaLevelY - SEA), 0, 65535)
+                    output[i] = (uint)math.clamp(c.water + 1 - seaShift, 0, 65535)
                               | ((uint)(c.waterKind == 1 ? Materials.Lava : Materials.Water) << 16) | (FLAG_WATER << 24);
                 else
                     output[i] = (uint)math.clamp(top, 0, 65535) | ((uint)genToEngine[gm] << 16);

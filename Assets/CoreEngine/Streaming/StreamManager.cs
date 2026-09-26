@@ -166,7 +166,8 @@ namespace VoxelEngine.Streaming
             get
             {
                 int side = _loadRadiusChunks * 2 + 1;
-                return side * side * (MAX_GENERATED_CHUNK_Y + 1);
+                LayerRange(out int lo, out int hi);
+                return side * side * (hi - lo + 1);
             }
         }
 
@@ -180,7 +181,8 @@ namespace VoxelEngine.Streaming
         {
             var missing = new List<int3>();
             int r = _loadRadiusChunks;
-            for (int cy = 0; cy <= MAX_GENERATED_CHUNK_Y && missing.Count < max; cy++)
+            LayerRange(out int lo, out int hi);
+            for (int cy = lo; cy <= hi && missing.Count < max; cy++)
             for (int dz = -r; dz <= r && missing.Count < max; dz++)
             for (int dx = -r; dx <= r && missing.Count < max; dx++)
             {
@@ -208,6 +210,64 @@ namespace VoxelEngine.Streaming
         // Both go stale together the moment generation grows vertically, which
         // is why they read one constant instead of two.
         public const int MAX_GENERATED_CHUNK_Y = 0;
+
+        // =====================================================================
+        // V2 -- VERTICAL STREAMING (design doc §15; owner go-ahead 2026-09-26,
+        // "max 3 GB"). SIZECLASS 2 ONLY: sizeClass 0/1 keep Y pinned at 0 and
+        // every loop below reads exactly [0, MAX_GENERATED_CHUNK_Y] as before.
+        //
+        // The engine was terrain-agnostic in WHAT it generates but not in how
+        // TALL the world is: Phase 4's world fit one 12.8 m layer, so the ring
+        // never had to follow the camera in Y. TerrainGen's island spans
+        // ~1.1 km (512 m of underground below the sea, a 600 m peak), so:
+        //   - a STREAM LAYER follows the camera's chunk layer with a lag of
+        //     V_STREAM_LAG, so walking a slope across a layer boundary does not
+        //     evict and reload a whole layer each time;
+        //   - chunks load for layers streamLayer +- V_LOAD_LAYERS, clipped to
+        //     [0, TopLayerChunkY] (nothing above the map's content bound);
+        //   - they evict the moment they leave that band (the lag is the
+        //     hysteresis), so the resident band always fits the GPU mirror's
+        //     8-layer toroidal box -- a resident chunk outside it would alias
+        //     onto another layer's slot;
+        //   - everything outside the band is drawn by the FAR BAND heightfield
+        //     (Raymarch.compute: the voxel march owns only the loaded Y range).
+        // =====================================================================
+        public const int V_LOAD_LAYERS = 3;
+        public const int V_STREAM_LAG = 1;
+        /// Chebyshev radius PrimeWindow fills before play on a tall world.
+        public const int V_PRIME_RADIUS_CHUNKS = 5;
+        public bool VerticalStreaming => _tgSource != null;
+        private int _streamY = int.MinValue;
+        /// The layer the vertical band is centred on (0 when not vertical).
+        public int StreamLayer => VerticalStreaming ? _streamY : 0;
+        public int TopLayerChunkY => _tgSource != null ? _tgSource.TopLayerChunkY : MAX_GENERATED_CHUNK_Y;
+        public TerrainGenChunkSource TerrainGenSource => _tgSource;
+
+        /// Highest chunk layer that can hold anything but air, for readers that
+        /// cannot see the StreamManager (VoxelCollision's ceiling rule). Equal to
+        /// MAX_GENERATED_CHUNK_Y unless a vertically streamed world is live.
+        public static int ContentTopChunkY { get; private set; } = MAX_GENERATED_CHUNK_Y;
+
+        /// The chunk layers admitted right now: [0, MAX_GENERATED_CHUNK_Y] for a
+        /// flat world, streamLayer +- V_LOAD_LAYERS (clipped) for a tall one.
+        public void LayerRange(out int lo, out int hi)
+        {
+            if (!VerticalStreaming || _streamY == int.MinValue) { lo = 0; hi = MAX_GENERATED_CHUNK_Y; return; }
+            lo = math.max(0, _streamY - V_LOAD_LAYERS);
+            hi = math.min(TopLayerChunkY, _streamY + V_LOAD_LAYERS);
+        }
+
+        /// The camera's chunk, with Y replaced by the stream layer (flat worlds:
+        /// Y pinned to 0, exactly as before).
+        private int3 StreamChunk(float3 camPos)
+        {
+            int3 c = CoordMath.VoxelToChunk(CoordMath.WorldToVoxel(camPos));
+            if (!VerticalStreaming) { c.y = 0; return c; }
+            int cy = math.clamp(c.y, 0, TopLayerChunkY);
+            if (_streamY == int.MinValue || math.abs(cy - _streamY) > V_STREAM_LAG) _streamY = cy;
+            c.y = _streamY;
+            return c;
+        }
 
         // =====================================================================
         // Radius derivation. THE EVICT RADIUS IS WHAT MUST FIT, NOT THE LOAD
@@ -274,6 +334,20 @@ namespace VoxelEngine.Streaming
             if (meta.sizeClass == TerrainGenChunkSource.SIZE_CLASS) _tgSource = new TerrainGenChunkSource(meta.seed);
 
             _windowDims = store.WindowDims;
+            if (VerticalStreaming)
+            {
+                // The resident band (2 * V_LOAD_LAYERS + 1 layers) must fit BOTH
+                // toroidal rings strictly, or a loading layer aliases onto a
+                // resident one (the same silent failure as §6.2's phantom terrain).
+                int band = 2 * V_LOAD_LAYERS + 1;
+                if (band >= _windowDims.y || band >= clipmap.WindowDimsChunks.y)
+                    throw new InvalidOperationException(
+                        $"[StreamManager] vertical band of {band} layers does not fit the store ring ({_windowDims.y}) " +
+                        $"and the GPU mirror ({clipmap.WindowDimsChunks.y}); the mirror needs >= {band + 1} layers.");
+                ContentTopChunkY = _tgSource.TopLayerChunkY;
+                Debug.Log($"[StreamManager] VERTICAL STREAMING (sizeClass {meta.sizeClass}): band +-{V_LOAD_LAYERS} layers, " +
+                          $"lag {V_STREAM_LAG}, content top layer {TopLayerChunkY} (Y {_tgSource.MaxContentY})");
+            }
 
             // Eviction must happen strictly OUTSIDE the load radius or a chunk
             // oscillates between admitted and evicted on every camera jitter.
@@ -371,8 +445,9 @@ namespace VoxelEngine.Streaming
             _velocity = math.lerp(_velocity, (camPos - _lastCameraPos) * 60f, 0.25f);
             _lastCameraPos = camPos;
 
-            int3 camChunk = CoordMath.VoxelToChunk(CoordMath.WorldToVoxel(camPos));
-            camChunk.y = 0; // Y pinned this phase -- see EngineConfig header
+            // Flat worlds: Y pinned to 0 (EngineConfig header). Tall worlds: the
+            // stream layer (V2, see LayerRange).
+            int3 camChunk = StreamChunk(camPos);
 
             bool cameraMoved = !camChunk.Equals(_lastCameraChunk);
             double tp0 = sw.Elapsed.TotalMilliseconds;
@@ -453,10 +528,16 @@ namespace VoxelEngine.Streaming
             // an untrusted axis for zero content (EngineConfig header).
             int3 origin = new int3(
                 camChunk.x - _windowDims.x / 2,
-                0,
+                VerticalStreaming ? camChunk.y - _windowDims.y / 2 : 0,
                 camChunk.z - _windowDims.z / 2);
             _store.SetWindowOrigin(origin);
-            _clipmap.SetWindowOrigin(origin);
+            // V2: the mirror is shorter than the store ring, so it centres on the
+            // stream layer by its OWN height (8 layers: stream - 4 .. stream + 3,
+            // which strictly contains the loaded band stream -+ 3). Flat worlds
+            // pass the store's origin unchanged, as before.
+            int3 clipOrigin = origin;
+            if (VerticalStreaming) clipOrigin.y = camChunk.y - _clipmap.WindowDimsChunks.y / 2;
+            _clipmap.SetWindowOrigin(clipOrigin);
         }
 
         // =====================================================================
@@ -493,7 +574,8 @@ namespace VoxelEngine.Streaming
                     $"[StreamManager] MAX_GENERATED_CHUNK_Y={MAX_GENERATED_CHUNK_Y} does not fit in a " +
                     $"{_windowDims.y}-chunk-tall window. Raise EngineConfig.WINDOW_CHUNKS_Y.");
 
-            for (int cy = 0; cy <= MAX_GENERATED_CHUNK_Y; cy++)
+            LayerRange(out int layerLo, out int layerHi);
+            for (int cy = layerLo; cy <= layerHi; cy++)
             for (int dz = -r; dz <= r; dz++)
             for (int dx = -r; dx <= r; dx++)
             {
@@ -517,7 +599,9 @@ namespace VoxelEngine.Streaming
 
             float Score(int3 c)
             {
-                float3 d = new float3(c.x - camChunk.x, 0, c.z - camChunk.z);
+                // Flat worlds: c.y == camChunk.y == 0, so this is the XZ distance
+                // it always was. Tall worlds: layers nearer the camera first.
+                float3 d = new float3(c.x - camChunk.x, c.y - camChunk.y, c.z - camChunk.z);
                 float dist = math.length(d);
                 float align = dist > 0.01f ? math.dot(math.normalize(d), vel) : 1f;
                 return dist - align * 1.5f; // up to 1.5 chunks of priority for heading
@@ -853,7 +937,8 @@ namespace VoxelEngine.Streaming
             {
                 int dx = math.abs(chunk.coord.x - camChunk.x);
                 int dz = math.abs(chunk.coord.z - camChunk.z);
-                if (math.max(dx, dz) > _evictRadiusChunks || !_store.IsInWindow(chunk.coord))
+                bool outsideBand = VerticalStreaming && math.abs(chunk.coord.y - camChunk.y) > V_LOAD_LAYERS;
+                if (math.max(dx, dz) > _evictRadiusChunks || !_store.IsInWindow(chunk.coord) || outsideBand)
                     _evictScratch.Add(chunk.coord);
             }
 
@@ -1078,11 +1163,20 @@ namespace VoxelEngine.Streaming
 
             float3 camPos = new float3(cameraWorldPos.x, cameraWorldPos.y, cameraWorldPos.z);
             _lastCameraPos = camPos;
-            int3 camChunk = CoordMath.VoxelToChunk(CoordMath.WorldToVoxel(camPos));
-            camChunk.y = 0;
+            int3 camChunk = StreamChunk(camPos);
             _lastCameraChunk = camChunk;
             SlideWindow(camChunk);
             RebuildPendingSet(camChunk);
+            // V2: a tall world's band is ~7x a flat world's chunks (5,103 at
+            // spawn, 53 s). Startup fills only the NEAR square; the far band
+            // draws the rest while the normal pipeline streams it in play.
+            if (VerticalStreaming)
+            {
+                int pr = V_PRIME_RADIUS_CHUNKS;
+                _pending.RemoveAll(c => math.max(math.abs(c.x - camChunk.x), math.abs(c.z - camChunk.z)) > pr);
+                _pendingSet.Clear();
+                foreach (var c in _pending) _pendingSet.Add(c);
+            }
 
             int before = ChunksAdmittedTotal;
             while ((_pending.Count > 0 || _inFlight > 0 || _completions.Count > 0)
@@ -1166,7 +1260,8 @@ namespace VoxelEngine.Streaming
             int r = _loadRadiusChunks;
             const float CH = 12.8f;
             float limitSq = POPIN_CRITERION_METRES * POPIN_CRITERION_METRES;
-            for (int cy = 0; cy <= MAX_GENERATED_CHUNK_Y; cy++)
+            LayerRange(out int lo, out int hi);
+            for (int cy = lo; cy <= hi; cy++)
             for (int dz = -r; dz <= r; dz++)
             for (int dx = -r; dx <= r; dx++)
             {
@@ -1182,7 +1277,8 @@ namespace VoxelEngine.Streaming
         {
             int deficit = 0;
             int r = _loadRadiusChunks;
-            for (int cy = 0; cy <= MAX_GENERATED_CHUNK_Y; cy++)
+            LayerRange(out int lo, out int hi);
+            for (int cy = lo; cy <= hi; cy++)
             for (int dz = -r; dz <= r; dz++)
             for (int dx = -r; dx <= r; dx++)
                 if (!_store.IsResident(new int3(_lastCameraChunk.x + dx, cy, _lastCameraChunk.z + dz)))
@@ -1201,6 +1297,7 @@ namespace VoxelEngine.Streaming
 
         public void Dispose()
         {
+            if (VerticalStreaming) ContentTopChunkY = MAX_GENERATED_CHUNK_Y;
             _tgSource?.Dispose();
             _samplerState.Dispose();   // owns NativeArrays since the Burst port
             _cancel.Cancel();
