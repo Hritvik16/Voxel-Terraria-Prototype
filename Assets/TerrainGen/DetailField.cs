@@ -12,8 +12,14 @@
 //   caverns            below sea - 150 m: CavernRock / Deepstone bands
 //   underworld         below sea - 400 m: ash, obsidian, magma crust; an open
 //                      lava sea at rest
-//   caves              spaghetti tunnels anywhere > 6 m deep; cheese caverns in
-//                      the cavern layer; the underworld's open volume
+//   caves              STRUCTURED (v3 T4, 2026-09-26; owner: no 3-D noise):
+//                      three layers of meandering tunnels (the zero-lines of
+//                      2-D fields, at depths set by 2-D fields; one layer
+//                      follows the terrain 18-30 m down), placed caverns with a
+//                      2-D floor and a domed ceiling, the underworld chamber
+//                      between a 2-D floor and ceiling with pillars. All of it
+//                      is per-COLUMN open intervals (PrepareColumn); a voxel
+//                      costs a few comparisons.
 //   fluid pockets      sealed ellipsoids, generated AT REST: fluid below a flat
 //                      level, air above; a shell no cave may breach (§2.7)
 //
@@ -44,9 +50,23 @@ namespace TerrainGen
             public float cavernOffset;
             public float underOffset;
             public int soilDepth;
+            // ---- T4 structured caves, per column ----
+            /// Tunnel layer k: |line field| / width (a passage needs < 1), the
+            /// passage centre (layer 0: DEPTH below the column top; layers 1-2:
+            /// absolute Y) and its half height. 99 = no passage here.
+            public float tun0, tun1, tun2, tunY0, tunY1, tunY2, tunH0, tunH1, tunH2;
+            /// Layer 3 (T5): DEPTH below the column's REGIONAL ground, so it breaks
+            /// out through valley walls and cliffs.
+            public float tun3, tunY3, tunH3;
+            /// Up to two cavern open intervals [lo, hi), absolute Y (lo == hi: none).
+            public int cav0Lo, cav0Hi, cav1Lo, cav1Hi;
+            /// The underworld chamber's open interval [lo, hi) (lo == hi: a pillar).
+            public int underLo, underHi;
         }
 
-        public static ColumnDetail PrepareColumn(in Offsets o, int x, int z)
+        /// The geology terms only (strata, soil, band offsets): what the surface
+        /// and Strata need. No caves.
+        private static ColumnDetail PrepareGeology(in Offsets o, int x, int z)
         {
             float2 p = new float2(x, z);
             // Regional tilt (dip) and a wavy boundary surface: the band index is
@@ -61,13 +81,100 @@ namespace TerrainGen
             return cd;
         }
 
+        // ---- T4 constants ----
+        public const float TUNNEL_SCALE = 2200f;      // voxels: meander wavelength of a passage
+        public const float TUNNEL_WIDTH = 0.012f;     // line-field half width (~2-3 m passages)
+        public const int CAVERN_CELL_SHIFT = 10;      // one cavern candidate per 102.4 m cell
+        public const int CAVERN_CELL = 1 << CAVERN_CELL_SHIFT;
+        public const int CAVERN_CELL_Y = 500;
+        public const int LAVA_ABOVE_FLOOR = 300;      // the lava sea's level above the world floor
+
+        /// Everything D needs per COLUMN: the geology terms and every cave's
+        /// open interval through this column. Computed once per column.
+        public static ColumnDetail PrepareColumn(in TerrainSpec spec, in Offsets o, int x, int z)
+        {
+            var cd = PrepareGeology(in o, x, z);
+            float2 p = new float2(x, z);
+            // Tunnels: the zero-line of a 2-D field meanders like a river in plan;
+            // a second field gives its depth, a third its size, a fourth where it runs.
+            cd.tun0 = TunnelLine(p, o.caveA.xy, o.caveA.z, out float h0);
+            cd.tun1 = TunnelLine(p, o.caveB.xy, o.caveB.z, out float h1);
+            cd.tun2 = TunnelLine(p, o.cavern.xy, o.cavern.z, out float h2);
+            cd.tun3 = TunnelLine(p, o.under.xy + 43f, o.under.z, out float h3);
+            cd.tunH0 = h0; cd.tunH1 = h1; cd.tunH2 = h2; cd.tunH3 = h3 * 1.3f;
+            cd.tunY3 = 200f + 150f * (Noise.Fbm(p / 3000f + o.under.xy + 47f, 2) * 0.5f + 0.5f);   // below the regional ground
+            cd.tunY0 = 180f + 120f * (Noise.Fbm(p / 3500f + o.caveA.xy + 11f, 2) * 0.5f + 0.5f);        // depth below the top
+            cd.tunY1 = spec.seaLevelY - 500f - 300f * (Noise.Fbm(p / 4000f + o.caveB.xy + 13f, 2) * 0.5f + 0.5f);
+            cd.tunY2 = spec.seaLevelY - 1100f - 300f * (Noise.Fbm(p / 4000f + o.cavern.xy + 17f, 2) * 0.5f + 0.5f);
+
+            // Caverns: placed halls in the cavern layer, one candidate per cell.
+            float nR = Noise.Fbm(p / 400f + o.cavern.xy + 23f, 2), nF = Noise.Fbm(p / 200f + o.cavern.xy + 29f, 2);
+            int gx = x >> CAVERN_CELL_SHIFT, gz = z >> CAVERN_CELL_SHIFT;
+            int band0 = spec.UnderworldTopY + 300;
+            int cells = math.max(0, (spec.CavernTopY - 200 - band0) / CAVERN_CELL_Y);
+            int found = 0;
+            for (int cy = 0; cy < cells && found < 2; cy++)
+            for (int j = -1; j <= 1 && found < 2; j++)
+            for (int i = -1; i <= 1 && found < 2; i++)
+            {
+                if (!CavernInterval(in o, gx + i, cy, gz + j, band0, p, nR, nF, out int lo, out int hi)) continue;
+                if (found == 0) { cd.cav0Lo = lo; cd.cav0Hi = hi; } else { cd.cav1Lo = lo; cd.cav1Hi = hi; }
+                found++;
+            }
+
+            // The underworld chamber: floor and ceiling from 2-D fields; pillars
+            // where the ceiling comes down to the floor.
+            float pil = Noise.Fbm(p / 1800f + o.under.xy + 31f, 3);
+            if (pil < 0.42f)
+            {
+                cd.underLo = spec.worldBottomY + 200 + (int)(150f * (Noise.Fbm(p / 3000f + o.under.xy + 37f, 3) * 0.5f + 0.5f));
+                cd.underHi = spec.UnderworldTopY - 250 - (int)(250f * (Noise.Fbm(p / 2200f + o.under.xy + 41f, 3) * 0.5f + 0.5f));
+            }
+            return cd;
+        }
+
+        /// A tunnel layer at p: |line| / width, and the passage half height.
+        private static float TunnelLine(float2 p, float2 off, float seedZ, out float halfH)
+        {
+            halfH = 22f + 14f * (Noise.Fbm(p / 1500f + off + seedZ + 5f, 2) * 0.5f + 0.5f);
+            if (Noise.Fbm(p / 6000f + off + seedZ + 3f, 2) < -0.15f) return 99f;          // passages end and begin
+            float w = TUNNEL_WIDTH * (0.7f + 0.6f * (Noise.Fbm(p / 2500f + off + seedZ + 7f, 2) * 0.5f + 0.5f));
+            return math.abs(Noise.Fbm(p / TUNNEL_SCALE + off + seedZ, 3)) / w;
+        }
+
+        /// The open interval of cell (gx, cy, gz)'s cavern through column p.
+        private static bool CavernInterval(in Offsets o, int gx, int cy, int gz, int band0, float2 p, float nR, float nF,
+                                           out int lo, out int hi)
+        {
+            lo = hi = 0;
+            uint sd = o.seed + 601u;
+            if (Noise.Hash01(gx, cy, gz, sd) > 0.45f) return false;
+            float2 c = new float2(gx + 0.3f + 0.4f * Noise.Hash01(gx, cy, gz, sd + 1u),
+                                  gz + 0.3f + 0.4f * Noise.Hash01(gx, cy, gz, sd + 2u)) * CAVERN_CELL;
+            float R = 200f + 220f * Noise.Hash01(gx, cy, gz, sd + 3u);
+            float stretch = 1f + 0.6f * Noise.Hash01(gx, cy, gz, sd + 4u);
+            float2 u = new float2(Noise.Hash01(gx, cy, gz, sd + 5u) - 0.5f, Noise.Hash01(gx, cy, gz, sd + 6u) - 0.5f);
+            float ul = math.sqrt(u.x * u.x + u.y * u.y);
+            u = ul > 1e-3f ? u / ul : new float2(1f, 0f);
+            float2 q = p - c;
+            float along = math.dot(q, u) / stretch, side = q.x * -u.y + q.y * u.x;
+            float r2 = (along * along + side * side) / (R * R) * (1f + 0.25f * nR);
+            if (r2 >= 1f) return false;
+            float cyc = band0 + cy * CAVERN_CELL_Y + CAVERN_CELL_Y * 0.5f + (Noise.Hash01(gx, cy, gz, sd + 7u) - 0.5f) * 100f;
+            float floorDepth = 60f + 60f * Noise.Hash01(gx, cy, gz, sd + 8u);
+            float ceilH = 100f + 120f * Noise.Hash01(gx, cy, gz, sd + 9u);
+            lo = (int)math.floor(cyc - floorDepth * (1f - 0.5f * r2) + 20f * nF);
+            hi = (int)math.floor(cyc + ceilH * math.sqrt(1f - r2));
+            return hi > lo + 2;
+        }
+
         /// Convenience form: prepares the column itself (slow in a loop).
         /// `stepAtTop` is ShapeField.MaxStep at spacing 1 for this column (the
         /// falling-solid stability test).
         public static byte Material(in TerrainSpec spec, in Offsets o, in ColumnSample c, float stepAtTop,
                                     int x, int y, int z)
         {
-            var cd = PrepareColumn(in o, x, z);
+            var cd = PrepareColumn(in spec, in o, x, z);
             return Material(in spec, in o, in c, in cd, stepAtTop, x, y, z);
         }
 
@@ -110,8 +217,6 @@ namespace TerrainGen
         public static BrickCull CullBrick(in TerrainSpec spec, in Offsets o, int bx, int by, int bz)
         {
             var r = new BrickCull();
-            float3 ctr = new float3(bx, by, bz) + 4f;    // voxel centres span [b+0.5, b+7.5]; the geometric centre is b+4
-            float reach = SNOISE_GRAD_BOUND * BRICK_HALF_DIAG;
 
             // Pockets: a brick is inside exactly one POCKET_CELL (both power-of-two
             // aligned), so one lookup and an AABB test decide it for all 512 voxels.
@@ -124,22 +229,8 @@ namespace TerrainGen
                 r.noPocket = math.any(hi < pk.centre - ext) || math.any(lo > pk.centre + ext);
             }
 
-            // Spaghetti: a^2 + b^2 < 0.0035 needs |a| and |b| < sqrt(0.0035).
-            float dT = reach / 440f + CULL_EPS;
-            float a = noise.snoise(ctr / 440f + o.caveA);
-            float b = noise.snoise(ctr / 440f + o.caveB);
-            const float TUBE = 0.059161f;                // sqrt(0.0035), rounded up
-            r.noTunnel = math.abs(a) - dT > TUBE || math.abs(b) - dT > TUBE;
-
-            // Cheese (cavern layer): cav > 0.62 carves.
-            float dC = reach * (1f / 1500f + 0.3f / 450f) + CULL_EPS;
-            float cav = noise.snoise(ctr / 1500f + o.cavern) + 0.3f * noise.snoise(ctr / 450f + o.cavern + 20f);
-            r.noCheese = cav + dC <= 0.62f;
-
-            // Underworld open volume: u > -0.15 carves.
-            float dU = reach * (1f / 2400f + 0.35f / 700f) + CULL_EPS;
-            float u = noise.snoise(ctr / 2400f + o.under) + 0.35f * noise.snoise(ctr / 700f + o.under + 40f);
-            r.underClosed = u + dU <= -0.15f;
+            // T4's caves are per-column intervals: nothing left to cull per brick.
+            r.noTunnel = true; r.noCheese = true; r.underClosed = true;
             return r;
         }
 
@@ -178,11 +269,19 @@ namespace TerrainGen
                 }
                 if (!inShell)
                 {
-                    // Giant mushrooms stand IN the cavern layer's open space.
-                    byte mush = Stamps.Mushroom(in spec, in o, x, y, z);
-                    if (mush != 255) return mush;
-                    byte carved = Carve(in spec, in o, x, y, z, in cull);
-                    if (carved != 255) return carved;
+                    // Caverns; giant mushrooms stand inside them.
+                    if ((y >= cd.cav0Lo && y < cd.cav0Hi) || (y >= cd.cav1Lo && y < cd.cav1Hi))
+                    {
+                        byte mush = Stamps.Mushroom(in spec, in o, x, y, z);
+                        return mush != 255 ? mush : GenMat.Air;
+                    }
+                    // The underworld chamber over the lava sea.
+                    if (y < spec.UnderworldTopY && y >= cd.underLo && y < cd.underHi)
+                        return y <= spec.worldBottomY + LAVA_ABOVE_FLOOR ? GenMat.Lava : GenMat.Air;
+                    // Tunnels: an elliptical passage around each layer's centre line.
+                    if (InTunnel(cd.tun0, h - cd.tunY0, cd.tunH0, y) || InTunnel(cd.tun1, cd.tunY1, cd.tunH1, y) ||
+                        InTunnel(cd.tun2, cd.tunY2, cd.tunH2, y) || InTunnel(cd.tun3, c.regional - cd.tunY3, cd.tunH3, y))
+                        return GenMat.Air;
                 }
             }
             if (c.stampMat != 0 && y >= c.stampBodyLo) return c.stampMat;
@@ -194,7 +293,7 @@ namespace TerrainGen
             if (spec.brickGeologyDepth > 0 && depth > spec.brickGeologyDepth)
             {
                 int gy = (y & ~(BRICK - 1)) + BRICK / 2;
-                var bd = PrepareColumn(in o, (x & ~(BRICK - 1)) + BRICK / 2, (z & ~(BRICK - 1)) + BRICK / 2);
+                var bd = PrepareGeology(in o, (x & ~(BRICK - 1)) + BRICK / 2, (z & ~(BRICK - 1)) + BRICK / 2);
                 if (gy < spec.UnderworldTopY) return UnderworldRock(gy + bd.underOffset);
                 if (gy < spec.CavernTopY) return CavernBands(gy + bd.cavernOffset);
                 return StrataBand(c.biome, gy + bd.strataOffset);
@@ -266,7 +365,7 @@ namespace TerrainGen
 
         public static byte Strata(in Offsets o, byte biome, int x, int y, int z)
         {
-            var cd = PrepareColumn(in o, x, z);
+            var cd = PrepareGeology(in o, x, z);
             return StrataBand(biome, y + cd.strataOffset);
         }
 
@@ -297,39 +396,12 @@ namespace TerrainGen
         }
 
         // ------------------------------------------------------------------
-        // Caves. Returns 255 when the voxel is not carved.
-        // ------------------------------------------------------------------
-        private static byte Carve(in TerrainSpec spec, in Offsets o, int x, int y, int z, in BrickCull cull)
+        // Caves (T4): see PrepareColumn. `t` = |line| / width, yc the centre.
+        private static bool InTunnel(float t, float yc, float halfH, int y)
         {
-            float3 p = new float3(x, y, z);
-
-            // Underworld: a huge open volume over a lava sea at rest.
-            if (y < spec.UnderworldTopY)
-            {
-                if (!cull.underClosed && y < spec.UnderworldTopY - 250)
-                {
-                    float u = noise.snoise(p / 2400f + o.under) + 0.35f * noise.snoise(p / 700f + o.under + 40f);
-                    int floorY = spec.worldBottomY + 300;
-                    if (u > -0.15f)
-                        return y <= floorY ? GenMat.Lava : GenMat.Air;
-                }
-            }
-            // Cavern layer: cheese caverns.
-            else if (y < spec.CavernTopY)
-            {
-                if (!cull.noCheese)
-                {
-                    float cav = noise.snoise(p / 1500f + o.cavern) + 0.3f * noise.snoise(p / 450f + o.cavern + 20f);
-                    if (cav > 0.62f) return GenMat.Air;
-                }
-            }
-            // Spaghetti tunnels everywhere below 6 m: the intersection of two
-            // noise zero-sets is a tube.
-            if (cull.noTunnel) return 255;
-            float a = noise.snoise(p / 440f + o.caveA);
-            float b = noise.snoise(p / 440f + o.caveB);
-            if (a * a + b * b < 0.0035f) return GenMat.Air;
-            return 255;
+            if (t >= 1f) return false;
+            float v = (y - yc) / halfH;
+            return t * t + v * v < 1f;
         }
 
         // ------------------------------------------------------------------

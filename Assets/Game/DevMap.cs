@@ -510,7 +510,7 @@ public sealed class DevMap : MonoBehaviour
                     int x = X0 + i * Step, z = Z0 + j * Step, k = j * N + i;
                     _cols[k] = TerrainGen.ShapeField.Sample(in _spec, in view, in _o, x + 0.5f, z + 0.5f, 1);
                     _st[k] = TerrainGen.ShapeField.MaxStep(in _spec, in view, in _o, x + 0.5f, z + 0.5f, 1, _cols[k].height);
-                    _det[k] = TerrainGen.DetailField.PrepareColumn(in _o, x, z);
+                    _det[k] = TerrainGen.DetailField.PrepareColumn(in _spec, in _o, x, z);
                 }
                 _prepRows = j + 1;
             }

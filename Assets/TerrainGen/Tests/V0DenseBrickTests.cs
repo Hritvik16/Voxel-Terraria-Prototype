@@ -69,7 +69,7 @@ namespace TerrainGen.Tests
                     var c = ShapeField.Sample(in spec, in map, in o, x + 0.5f, z + 0.5f, 1);
                     colS[ci] = c;
                     colStep[ci] = ShapeField.MaxStep(in spec, in map, in o, x + 0.5f, z + 0.5f, 1, c.height);
-                    colCd[ci] = DetailField.PrepareColumn(in o, x, z);
+                    colCd[ci] = DetailField.PrepareColumn(in spec, in o, x, z);
                 }
                 for (int bz = 0; bz < CHUNK; bz += 8)
                 for (int by = 0; by < CHUNK; by += 8)

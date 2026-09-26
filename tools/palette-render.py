@@ -25,6 +25,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from palette_defs import PALETTES, ROUND2, EMISSIVE, BIOMES, NAMES  # noqa: E402
+# PALETTES_ONLY=D renders just the locked palette (owner locked D, 2026-09-25).
+if os.environ.get("PALETTES_ONLY"):
+    ROUND2 = [k for k in os.environ["PALETTES_ONLY"].split(",") if k in PALETTES]
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 VXR = os.path.join(HERE, "vxrender")
@@ -92,6 +95,11 @@ def camera_for(kind, vol, h, man):
     elif kind == "cutaway":
         cut, ca, cb = 1, h["nx"] // 2, h["nz"] // 2
         pitch, dist, tgt_y = 18.0, 1.9, Ly * 0.55
+    elif kind == "cavern":
+        # The hall's roof lifted off just above its mid height (the box is
+        # centred on the cavern's middle: 250 below, 350 above).
+        cut, ca = 2, max(1, (250 + 60) // h["sy"])
+        pitch, dist, tgt_y = 48.0, 1.3, ca * sy * 0.6
     elif kind == "underworld":
         # The box starts at the world floor; the lava sea rests 300 voxels above
         # it (DetailField.Carve). Cutting 12 m above the lava removes the

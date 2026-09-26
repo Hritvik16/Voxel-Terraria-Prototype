@@ -56,7 +56,7 @@ namespace TerrainGen.Tests
             {
                 int x = x0 + i * step;
                 var c = S(x, z);
-                var cd = DetailField.PrepareColumn(in _o, x, z);
+                var cd = DetailField.PrepareColumn(in _spec, in _o, x, z);
                 var v = _map.View;
                 float st = ShapeField.MaxStep(in _spec, in v, in _o, x + 0.5f, z + 0.5f, 1, c.height);
                 for (int j = 0; j < h; j++)

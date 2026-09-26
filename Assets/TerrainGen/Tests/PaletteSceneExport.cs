@@ -129,6 +129,20 @@ namespace TerrainGen.Tests
                     }
                 }
 
+                // ---- T4 structured caves: a surface-tunnel cutaway, a cavern hall,
+                // the underworld chamber ----
+                if (FindCaveColumn(ctx, 0, out int tx, out int tz, out int ty))
+                    Box(ctx, "caves_tunnels", "Tunnels 18-30 m under the surface (96 m block, cut open)",
+                        tx - 480, tz - 480, 96, 96, ty - 600, ty + 80, 10, 10, "cutaway");
+                if (FindCaveColumn(ctx, 1, out int kx, out int kz, out int ky))
+                    Box(ctx, "caves_cavern", "A cavern hall in the cavern layer (160 m, roof lifted off)",
+                        kx - 800, kz - 800, 160, 160, ky - 250, ky + 350, 10, 10, "cavern");
+                {
+                    FindUnderworld(ctx, out int ux, out int uz);
+                    Box(ctx, "caves_underworld", "The underworld chamber over the lava sea (192 m, roof lifted off)",
+                        ux - 960, uz - 960, 192, 192, spec.worldBottomY, spec.UnderworldTopY + 150, 10, 10, "underworld");
+                }
+
                 // ---- the volcano ----
                 {
                     float2 v = Stamps.VolcanoSite(in spec, in ctx.o);
@@ -165,7 +179,7 @@ namespace TerrainGen.Tests
                     int gx = x0 + x * stepXZ, gz = z0 + z * stepXZ;
                     var col = ShapeField.Sample(in spec, in view, in o, gx + 0.5f, gz + 0.5f, texel);
                     float st = ShapeField.MaxStep(in spec, in view, in o, gx + 0.5f, gz + 0.5f, texel, col.height);
-                    var cd = DetailField.PrepareColumn(in o, gx, gz);
+                    var cd = DetailField.PrepareColumn(in spec, in o, gx, gz);
                     for (int y = 0; y < ny; y++)
                         vol[((long)y * nz + z) * nx + x] = DetailField.Material(in spec, in o, in col, in cd, st, gx, y0 + y * stepY, gz);
                 }
@@ -359,6 +373,27 @@ namespace TerrainGen.Tests
             return bestDrop >= 0f;
         }
 
+        /// A column with a surface tunnel (kind 0: layer 0 near its centre line,
+        /// on land 20+ m above sea) or a cavern (kind 1) near the island centre.
+        /// y = the ground (kind 0) or the cavern's mid height (kind 1).
+        private static bool FindCaveColumn(Ctx ctx, int kind, out int x, out int z, out int y)
+        {
+            var spec = ctx.spec; var view = ctx.map.View; var o = ctx.o;
+            float c = spec.worldSizeVoxels * 0.5f;
+            x = z = y = 0;
+            for (int i = 0; i < 4000; i++)
+            {
+                float ang = i * 2.39996f, r = 1000f + i * 5f;
+                int px = (int)(c + math.cos(ang) * r), pz = (int)(c + math.sin(ang) * r);
+                var col = ShapeField.Sample(in spec, in view, in o, px + 0.5f, pz + 0.5f, 1);
+                if (col.height < spec.seaLevelY + 200 || col.water > col.height) continue;
+                var cd = DetailField.PrepareColumn(in spec, in o, px, pz);
+                if (kind == 0 && cd.tun0 < 0.2f) { x = px; z = pz; y = col.height; return true; }
+                if (kind == 1 && cd.cav0Hi - cd.cav0Lo > 150) { x = px; z = pz; y = (cd.cav0Lo + cd.cav0Hi) / 2; return true; }
+            }
+            return false;
+        }
+
         /// A HALF-open spot of the underworld chamber among a few candidates
         /// (air or lava on a coarse grid just above the lava sea): all-open is a
         /// featureless lava plane, all-closed is rock; half shows shore and pillars.
@@ -377,7 +412,7 @@ namespace TerrainGen.Tests
                 {
                     int gx = px + dx, gz = pz + dz;
                     var col = ShapeField.Sample(in spec, in view, in o, gx + 0.5f, gz + 0.5f, 1);
-                    var cd = DetailField.PrepareColumn(in o, gx, gz);
+                    var cd = DetailField.PrepareColumn(in spec, in o, gx, gz);
                     byte m = DetailField.Material(in spec, in o, in col, in cd, 0f, gx, y, gz);
                     if (m == GenMat.Air || m == GenMat.Lava) open++;
                 }

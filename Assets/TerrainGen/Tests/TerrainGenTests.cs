@@ -197,7 +197,7 @@ namespace TerrainGen.Tests
                     int x = x0 + i * stride, z = z0 + k * stride;
                     var c = ShapeField.Sample(in spec, in map, in o, x + 0.5f, z + 0.5f, 1);
                     float st = ShapeField.MaxStep(in spec, in map, in o, x + 0.5f, z + 0.5f, 1, c.height);
-                    var cd = DetailField.PrepareColumn(in o, x, z);
+                    var cd = DetailField.PrepareColumn(in spec, in o, x, z);
                     for (int j = 0; j < ny; j++)
                         outM[(k * nx + i) * ny + j] = DetailField.Material(in spec, in o, in c, in cd, st, x, y0 + j * stride, z);
                 }

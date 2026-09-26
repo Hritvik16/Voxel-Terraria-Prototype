@@ -47,6 +47,10 @@ namespace TerrainGen
         public bool carvesTop;
         /// The stamp site's map ground (absolute Y), for D's 3D tests.
         public int stampGround;
+        /// v3 T5: the REGIONAL ground (absolute Y) -- the map's mean height over
+        /// +-120 m. D runs a passage layer below it; where a valley or cliff cuts
+        /// under that level, the passage breaks out through the wall.
+        public float regional;
     }
 
     public static class ShapeField
@@ -102,6 +106,14 @@ namespace TerrainGen
             c.height = math.max(c.height, spec.worldBottomY + 1);
             c.biome = Biome(in o, p);
             c.rough = rough;
+            {
+                float acc = macro;
+                SampleMap(in map, x + 1200f, z, out float r0, out _); acc += r0;
+                SampleMap(in map, x - 1200f, z, out float r1, out _); acc += r1;
+                SampleMap(in map, x, z + 1200f, out float r2, out _); acc += r2;
+                SampleMap(in map, x, z - 1200f, out float r3, out _); acc += r3;
+                c.regional = spec.seaLevelY + acc * 0.2f;
+            }
             float wl = SampleWater(in map, x, z);
             c.water = wl > Hydrology.NO_WATER * 0.5f ? spec.seaLevelY + (int)math.floor(wl) : ColumnSample.NO_WATER_Y;
             // §2.5 stamps. Skipped for a dry (pre-v2) map view, which is what

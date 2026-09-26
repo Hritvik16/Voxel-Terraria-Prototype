@@ -135,7 +135,7 @@ namespace TerrainGen.Tests
                 var c = ShapeField.Sample(in _spec, in v, in _o, x, z, 1);
                 if (c.water <= c.height) continue;   // a lake cell whose column rose above its level (detail)
                 found++;
-                var cd = DetailField.PrepareColumn(in _o, (int)x, (int)z);
+                var cd = DetailField.PrepareColumn(in _spec, in _o, (int)x, (int)z);
                 Assert.AreEqual(GenMat.Water, DetailField.Material(in _spec, in _o, in c, in cd, 0f, (int)x, c.water, (int)z));
                 Assert.AreEqual(GenMat.Air, DetailField.Material(in _spec, in _o, in c, in cd, 0f, (int)x, c.water + 1, (int)z));
                 Assert.AreNotEqual(GenMat.Water, DetailField.Material(in _spec, in _o, in c, in cd, 0f, (int)x, c.height, (int)z));

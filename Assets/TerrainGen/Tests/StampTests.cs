@@ -43,7 +43,7 @@ namespace TerrainGen.Tests
         private static ColumnSample Col(int x, int z) => S(x + 0.5f, z + 0.5f);
         private static byte D(in ColumnSample c, int x, int y, int z)
         {
-            var cd = DetailField.PrepareColumn(in _o, x, z);
+            var cd = DetailField.PrepareColumn(in _spec, in _o, x, z);
             return DetailField.Material(in _spec, in _o, in c, in cd, 0f, x, y, z);
         }
         private static int SiteGround(float2 p) { var v = _map.View; Stamps.SampleSiteHeight(in _spec, in v, p, out int g); return g; }
