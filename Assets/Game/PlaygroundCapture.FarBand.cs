@@ -221,9 +221,11 @@ public partial class PlaygroundCapture
         for (int gz = 0, done = 0; gz < (spec.worldSizeVoxels >> TerrainGen.Stamps.CELL_SHIFT) && done == 0; gz++)
         for (int gx = 0; gx < (spec.worldSizeVoxels >> TerrainGen.Stamps.CELL_SHIFT) && done == 0; gx++)
         {
-            if (!TerrainGen.Stamps.CellStamp(in o, gx, gz, out var st) || st.kind != TerrainGen.Stamps.CrystalSpires) continue;
+            if (!TerrainGen.Stamps.CellStamp(in o, gx, gz, out var st) || st.kind != TerrainGen.Stamps.CrystalCluster) continue;
             if (Ground(st.pos.x, st.pos.y) < spec.seaLevelY + 300f) continue;
-            Look("crystal_spires", E(st.pos.x - 2200f, Ground(st.pos.x, st.pos.y) + 400f, st.pos.y - 1200f), E(st.pos.x, Ground(st.pos.x, st.pos.y) + 300f, st.pos.y));
+            // Clusters are 2.5-6 m prisms (2026-09-25; they were 40-100 m spires):
+            // look from 40 m away, 15 m up.
+            Look("crystal_cluster", E(st.pos.x - 350f, Ground(st.pos.x, st.pos.y) + 150f, st.pos.y - 200f), E(st.pos.x, Ground(st.pos.x, st.pos.y) + 20f, st.pos.y));
             done = 1;
         }
 

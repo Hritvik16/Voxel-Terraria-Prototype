@@ -7,13 +7,18 @@
 // never leaves the cell -- a column consults exactly one cell. Three levels:
 //
 //   MAP  (WorldMap.Macro, 8 m cells; hydrology sees them; they count as
-//        landmarks)     volcano + caldera, world tree, crystal spire clusters,
-//                       meteor craters
+//        landmarks)     volcano + caldera, world tree, meteor craters
 //   S    (ShapeField.Sample, analytic per column; dropped where the feature is
 //        thinner than 2 texels, like a noise octave)
 //                       arches, hoops, stone rings, fossils (skull + ribs),
-//                       geyser-basin pools; plus each MAP stamp's column
-//                       materials and openings
+//                       crystal clusters, geyser-basin pools; plus each MAP
+//                       stamp's column materials and openings
+//
+// 2026-09-25 (owner: "I don't like the tall cone shaped things ... too
+// unnatural"): the crystal SPIRES -- four map-level cones 40-100 m tall and
+// 7-12 m wide -- became crystal CLUSTERS: 5-9 squat prisms 2.5-6 m tall on the
+// ground, a thing to find rather than a tower. WorldMap's spires, narrow buttes
+// and spike beacons went the same way (domes, terraced mesas, knolls).
 //   D    (DetailField.Material, 3D, near the player only)
 //                       cave mouths, fissures, the skull cave, the tree's root
 //                       caves, the crater's glowing core, geyser vents, giant
@@ -37,7 +42,7 @@ namespace TerrainGen
         public const int CELL = 1 << CELL_SHIFT;        // 409.6 m
 
         public const byte None = 0, CaveMouth = 1, Fissure = 2, Arch = 3, StoneRing = 4, Hoop = 5,
-                          CrystalSpires = 6, MeteorCrater = 7, Fossil = 8;
+                          CrystalCluster = 6, MeteorCrater = 7, Fossil = 8;
         public const byte Volcano = 20, WorldTree = 21, GeyserBasin = 22;
 
         public struct Stamp
@@ -64,7 +69,7 @@ namespace TerrainGen
             s = default;
             float k = H(gx, 30, gz, o.seed + 201u);
             byte kind = k < 0.16f ? CaveMouth : k < 0.27f ? Fissure : k < 0.39f ? Arch : k < 0.47f ? StoneRing
-                      : k < 0.53f ? Hoop : k < 0.65f ? CrystalSpires : k < 0.72f ? MeteorCrater : k < 0.78f ? Fossil : None;
+                      : k < 0.53f ? Hoop : k < 0.65f ? CrystalCluster : k < 0.72f ? MeteorCrater : k < 0.78f ? Fossil : None;
             if (kind == None) return false;
             s.kind = kind; s.gx = gx; s.gz = gz;
             s.pos = new float2(gx + 0.3f + 0.4f * H(gx, 31, gz, o.seed + 202u),
@@ -129,12 +134,23 @@ namespace TerrainGen
             // Volcano: the cone replaces lower terrain; the caldera floor is flat.
             float v = VolcanoHeight(in spec, in o, p, out bool caldera, out _);
             if (caldera) hgt = v;
-            else if (v > 0f) hgt = math.max(hgt, v);
+            else if (v > 0f)
+            {
+                // The cone REPLACES the ranges toward its summit (fully inside the
+                // inner half of its base radius, blending out to max() at the base):
+                // a range poking up through the cone made horns on the flanks and
+                // notched the rim (2026-09-25, StampTests.NoNeedles).
+                float2 vq = p - VolcanoSite(in spec, in o);
+                float w = math.saturate((VOLCANO_BASE_R - math.sqrt(vq.x * vq.x + vq.y * vq.y)) / (0.5f * VOLCANO_BASE_R));
+                hgt = math.max(v, math.lerp(hgt, v, w));
+            }
 
-            // World tree: the canopy's top, over the ground.
+            // World tree: its canopy is added by WorldMap.TreeCanopy AFTER the
+            // summit rounding, over the rounded ground. Built here, a horn under
+            // the tree was lifted 300 m into the canopy (seed 7) and the rounding
+            // had to leave the whole tree alone.
             float2 tq = p - TreeSite(in spec, in o);
             float td = math.sqrt(tq.x * tq.x + tq.y * tq.y);
-            if (td < TREE_CANOPY_R) hgt = math.max(hgt, 8f) + TreeCanopyTop(td);
 
             // Singletons own their areas at the map level too (see Column).
             float2 gq = p - GeyserSite(in spec, in o);
@@ -142,23 +158,6 @@ namespace TerrainGen
             if (inland <= 0.2f || !StampAt(in o, p, out Stamp s)) return hgt;
             float2 q = p - s.pos;
             float dist = math.sqrt(q.x * q.x + q.y * q.y);
-            if (s.kind == CrystalSpires)
-            {
-                // A cluster of 4 sharp cones, 40-100 m tall.
-                float add = 0f;
-                for (int i = 0; i < 4; i++)
-                {
-                    float2 c = s.pos + new float2(H(s.gx, 50 + i, s.gz, o.seed + 210u) - 0.5f,
-                                                  H(s.gx, 60 + i, s.gz, o.seed + 211u) - 0.5f) * 520f;
-                    float r = 70f + 50f * H(s.gx, 70 + i, s.gz, o.seed + 212u);
-                    float h = 400f + 600f * H(s.gx, 80 + i, s.gz, o.seed + 213u) * (i == 0 ? 1f : 0.7f);
-                    float2 dq = p - c;
-                    float t = math.saturate(1f - math.sqrt(dq.x * dq.x + dq.y * dq.y) / r);
-                    add = math.max(add, h * t);
-                    if (t > 0f) edge = 1f;
-                }
-                return hgt + add;
-            }
             if (s.kind == MeteorCrater)
             {
                 // A bowl with a raised rim; hydrology turns deep bowls into crater lakes.
@@ -257,13 +256,6 @@ namespace TerrainGen
             float along = math.dot(q, s.dir), side = math.dot(q, Perp(s.dir));
             float dist = math.sqrt(q.x * q.x + q.y * q.y);
 
-            if (s.kind == CrystalSpires)
-            {
-                // The spire bodies are MAP height; colour everything above the
-                // local ground as crystal, by biome.
-                if (dist < 700f) { c.stampMat = CrystalFor(c.biome); c.stampBodyLo = SiteGround(in spec, in map, s.pos) + 20; }
-                return;
-            }
             if (s.kind == MeteorCrater)
             {
                 if (dist < 300f)
@@ -287,6 +279,32 @@ namespace TerrainGen
             }
             // The remaining S stamps are thin (30-60 voxels): dropped below 2 texels.
             if (texel > 16) return;
+
+            if (s.kind == CrystalCluster)
+            {
+                // 5-9 squat prisms within 18 m of the site, each 1.5-3 m across and
+                // 2.5-6 m tall, standing on the column's own ground, gently domed
+                // on top. Coloured by biome.
+                if (dist > 220f) return;
+                int count = 5 + (int)(5f * s.a);
+                float best = 0f;
+                for (int i = 0; i < count; i++)
+                {
+                    float2 pc = s.pos + new float2(H(s.gx * 16 + i, 96, s.gz, o.seed + 231u) - 0.5f,
+                                                   H(s.gx * 16 + i, 97, s.gz, o.seed + 232u) - 0.5f) * 360f;
+                    float pr = 15f + 15f * H(s.gx * 16 + i, 98, s.gz, o.seed + 233u);
+                    float2 dq = p - pc;
+                    float dd = math.sqrt(dq.x * dq.x + dq.y * dq.y);
+                    if (dd >= pr) continue;
+                    float ph = 25f + 35f * H(s.gx * 16 + i, 99, s.gz, o.seed + 234u);
+                    float xr = dd / pr;
+                    best = math.max(best, ph * (1f - 0.35f * xr * xr));
+                }
+                if (best < 1f) return;
+                c.height = ground + (int)math.floor(best);
+                c.stampMat = CrystalFor(c.biome); c.stampBodyLo = ground + 1;
+                return;
+            }
 
             if (s.kind == Arch)
             {

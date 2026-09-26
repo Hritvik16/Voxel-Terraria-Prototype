@@ -10,6 +10,8 @@
 //   Geyser      pools of still water below the flat sinter terrace
 //   Mushrooms   at least one stands in the cavern layer
 //   LOD-0       over stamp columns: S height == D's top solid (except carvesTop)
+//   Needles     no map summit falls > 25 m within 40 m on every side (two seeds)
+//   Crystals    cluster prisms are <= 6 m tall
 // Report: Logs/TerrainGen/stamps.txt.
 using System.Collections.Generic;
 using System.IO;
@@ -65,7 +67,7 @@ namespace TerrainGen.Tests
         {
             var lines = new List<string>();
             foreach (byte k in new[] { Stamps.CaveMouth, Stamps.Fissure, Stamps.Arch, Stamps.StoneRing, Stamps.Hoop,
-                                       Stamps.CrystalSpires, Stamps.MeteorCrater, Stamps.Fossil })
+                                       Stamps.CrystalCluster, Stamps.MeteorCrater, Stamps.Fossil })
             {
                 int n = LandStamps(k).Count;
                 lines.Add($"kind {k,2}: {n} on land");
@@ -210,11 +212,113 @@ namespace TerrainGen.Tests
             Assert.Greater(found, 0, "no giant mushroom in 17 x 17 cavern columns around the centre");
         }
 
+        /// Owner, 2026-09-25: "I don't like the tall cone shaped things ... too
+        /// unnatural". No summit on the map may be a NEEDLE: at every local
+        /// maximum of the map, the highest ground 40 m away (the ring of cells at
+        /// Chebyshev distance 5) must be within NEEDLE_DROP of the summit. A
+        /// dome, a mesa top, a ridge or a crater rim keeps high ground on that
+        /// ring; a spire (25-45 m radius, 80-160 m tall) or a 50 m spike beacon
+        /// drops by nearly its whole height. Two seeds.
+        public const float NEEDLE_DROP = 250f;   // voxels (25 m)
+
+        [Test]
+        public void NoNeedles_OnTheMap()
+        {
+            var lines = new List<string>();
+            foreach (uint seed in new[] { 42u, 7u })
+            {
+                var spec = TerrainSpec.SizeClass2(seed);
+                var map = seed == 42u ? _map : WorldMap.Build(spec);
+                try
+                {
+                    int n = spec.mapCells, summits = 0;
+                    var worst = new List<(float drop, int x, int z)>();
+                    var h = map.Height;
+                    for (int z = 5; z < n - 5; z++)
+                    for (int x = 5; x < n - 5; x++)
+                    {
+                        float c = h[z * n + x];
+                        if (c <= 40f) continue;                          // land only
+                        bool isMax = true;
+                        for (int j = -1; j <= 1 && isMax; j++)
+                        for (int i = -1; i <= 1 && isMax; i++)
+                            if ((i != 0 || j != 0) && h[(z + j) * n + x + i] > c) isMax = false;
+                        if (!isMax) continue;
+                        summits++;
+                        float ring = float.MinValue;
+                        for (int k = -5; k <= 5; k++)
+                        {
+                            ring = math.max(ring, math.max(h[(z - 5) * n + x + k], h[(z + 5) * n + x + k]));
+                            ring = math.max(ring, math.max(h[(z + k) * n + x - 5], h[(z + k) * n + x + 5]));
+                        }
+                        worst.Add((c - ring, x, z));
+                    }
+                    worst.Sort((a, b) => b.drop.CompareTo(a.drop));
+                    lines.Add($"seed {seed}: {summits} summits on land; worst drops 40 m from a summit:");
+                    var o = Offsets.For(seed);
+                    for (int i = 0; i < math.min(8, worst.Count); i++)
+                    {
+                        // Which macro term built it (WorldMap.Macro's own fields).
+                        float2 pp = new float2((worst[i].x + 0.5f) * spec.mapCellVoxels, (worst[i].z + 0.5f) * spec.mapCellVoxels);
+                        float pf = Noise.Fbm(pp / 11500f + o.plateau, 3);
+                        float range = Noise.SmoothStep(0.05f, 0.40f, Noise.Fbm(pp / 17000f + o.range, 3));
+                        float peakD = math.distance(pp, map.PeakPosition) / 10f;
+                        // The macro landform ALONE (before beacons and hydrology) at the
+                        // summit and on its 40 m ring: a needle already here is a macro
+                        // term; one that appears only in the final map was made later.
+                        WorldMap.Macro(in spec, in o, map.PeakPosition, pp, out float mh, out _);
+                        float mRing = float.MinValue;
+                        for (int k = -5; k <= 5; k++)
+                        foreach (var off in new[] { new int2(k, -5), new int2(k, 5), new int2(-5, k), new int2(5, k) })
+                        {
+                            float2 rp = new float2((worst[i].x + off.x + 0.5f) * spec.mapCellVoxels, (worst[i].z + off.y + 0.5f) * spec.mapCellVoxels);
+                            WorldMap.Macro(in spec, in o, map.PeakPosition, rp, out float rh, out _);
+                            mRing = math.max(mRing, rh);
+                        }
+                        float vf = math.abs(Noise.Fbm(pp / 9500f + o.valley, 3));
+                        lines.Add($"   {worst[i].drop / 10f,6:F1} m at map cell ({worst[i].x},{worst[i].z}), summit {h[worst[i].z * n + worst[i].x] / 10f:F0} m" +
+                                  $"   macro alone: summit {mh / 10f:F0} m, drop {(mh - mRing) / 10f:F1} m   valley field {vf:F3} (cut < 0.070)" +
+                                  $"   plateau {pf:F3}  range {range:F2}  {peakD:F0} m from the peak");
+                    }
+                    File.WriteAllLines(Path.Combine(Dir(), $"needles_{seed}.txt"), lines);
+                    Assert.Less(worst.Count > 0 ? worst[0].drop : 0f, NEEDLE_DROP,
+                        $"seed {seed}: a needle -- the summit at map cell ({worst[0].x},{worst[0].z}) falls {worst[0].drop / 10f:F1} m within 40 m on every side");
+                }
+                finally { if (seed != 42u) map.Dispose(); }
+            }
+            File.WriteAllLines(Path.Combine(Dir(), "needles.txt"), lines);
+            Debug.Log("[Stamps] needle check\n" + string.Join("\n", lines));
+        }
+
+        /// The crystal clusters that replaced the spires stay squat: every
+        /// crystal column is 2.5-6 m of crystal on its own ground.
+        [Test]
+        public void CrystalClusters_AreSquat()
+        {
+            int cols = 0, tallest = 0;
+            foreach (var s in LandStamps(Stamps.CrystalCluster))
+            {
+                for (int dz = -220; dz <= 220; dz += 5)
+                for (int dx = -220; dx <= 220; dx += 5)
+                {
+                    int x = (int)math.floor(s.pos.x) + dx, z = (int)math.floor(s.pos.y) + dz;
+                    var c = Col(x, z);
+                    if (c.stampMat < GenMat.CrystalBlue || c.stampMat > GenMat.CrystalGreen) continue;
+                    int tall = c.height - c.stampBodyLo + 1;
+                    tallest = math.max(tallest, tall);
+                    Assert.LessOrEqual(tall, 60, $"crystal column at ({x},{z}) is {tall / 10f} m tall");
+                    cols++;
+                }
+            }
+            Debug.Log($"[Stamps] crystal clusters: {cols} crystal columns sampled, tallest {tallest / 10f:F1} m");
+            Assert.Greater(cols, 20, "no crystal cluster columns found on land");
+        }
+
         [Test]
         public void Lod0_HoldsOverStampColumns()
         {
             int checkedCols = 0, skipped = 0;
-            foreach (byte k in new[] { Stamps.Arch, Stamps.Hoop, Stamps.StoneRing, Stamps.Fossil, Stamps.CrystalSpires, Stamps.CaveMouth, Stamps.Fissure })
+            foreach (byte k in new[] { Stamps.Arch, Stamps.Hoop, Stamps.StoneRing, Stamps.Fossil, Stamps.CrystalCluster, Stamps.CaveMouth, Stamps.Fissure })
             {
                 foreach (var s in LandStamps(k))
                 {

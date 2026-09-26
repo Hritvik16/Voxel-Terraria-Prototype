@@ -24,15 +24,27 @@ namespace TerrainGen
         }
 
         /// Ridged multifractal, [0, ~1]: sharp crests where the noise crosses zero.
+        /// Ridged multifractal with ROUNDED crests (2026-09-25). The textbook
+        /// fold 1 - |n| is a V crease, and its weight feedback piles the fine
+        /// octaves onto the crests, so where ridges meet it builds horns: summits
+        /// falling 50-77 m within 40 m on every side (StampTests.NoNeedles, seed
+        /// 42), the owner's "tall cone shaped things". A soft |n| rounds the
+        /// crest over ~RIDGE_ROUND of the noise range and a lower feedback gain
+        /// stops the fine octaves concentrating on peaks. Wavelengths unchanged.
+        public const float RIDGE_ROUND = 0.15f;
+        public const float RIDGE_FEEDBACK = 1.2f;
+
         public static float Ridged(float2 p, int octaves)
         {
             float a = 0f, amp = 0.5f, w = 1f, norm = 0f;
             for (int i = 0; i < octaves; i++)
             {
-                float n = 1f - math.abs(noise.snoise(p));
+                float v = noise.snoise(p);
+                float soft = math.sqrt(v * v + RIDGE_ROUND * RIDGE_ROUND) - RIDGE_ROUND;   // |v|, rounded at 0
+                float n = 1f - soft;
                 n *= n;
                 n *= w;
-                w = math.saturate(n * 1.6f);
+                w = math.saturate(n * RIDGE_FEEDBACK);
                 a += n * amp;
                 norm += amp;
                 p = p * 2.03f + new float2(-31.7f, 5.3f);

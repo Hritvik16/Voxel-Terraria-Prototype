@@ -255,7 +255,7 @@ public sealed class DevMap : MonoBehaviour
             case TerrainGen.Stamps.Arch: return "arch";
             case TerrainGen.Stamps.StoneRing: return "stone ring";
             case TerrainGen.Stamps.Hoop: return "hoop";
-            case TerrainGen.Stamps.CrystalSpires: return "crystal spires";
+            case TerrainGen.Stamps.CrystalCluster: return "crystal cluster";
             case TerrainGen.Stamps.MeteorCrater: return "meteor crater";
             case TerrainGen.Stamps.Fossil: return "fossil";
             default: return "stamp " + k;
@@ -271,7 +271,7 @@ public sealed class DevMap : MonoBehaviour
             case TerrainGen.Stamps.Arch: return new Color(1f, 0.75f, 0.45f);
             case TerrainGen.Stamps.StoneRing: return new Color(0.85f, 0.85f, 0.8f);
             case TerrainGen.Stamps.Hoop: return new Color(1f, 0.6f, 0.3f);
-            case TerrainGen.Stamps.CrystalSpires: return new Color(0.45f, 0.8f, 1f);
+            case TerrainGen.Stamps.CrystalCluster: return new Color(0.45f, 0.8f, 1f);
             case TerrainGen.Stamps.MeteorCrater: return new Color(1f, 0.35f, 0.55f);
             case TerrainGen.Stamps.Fossil: return new Color(0.95f, 0.92f, 0.8f);
             default: return Color.white;

@@ -627,24 +627,28 @@ namespace TerrainGen.Tests
             }
 
             var rng = new Unity.Mathematics.Random(7);
-            int pts = 0, all4 = 0, seaOnly = 0; var sectorHits = new int[5];
-            float r15 = 1500f / cellM;
+            int pts = 0, all4 = 0, seaOnly = 0, all4At3 = 0; var sectorHits = new int[5];
+            float r15 = 1500f / cellM, r30 = 3000f / cellM;
             while (pts < 1500)
             {
                 int x = rng.NextInt(0, n), z = rng.NextInt(0, n);
                 if (g[z * n + x] <= 0f) continue;
                 pts++;
                 var seen = new bool[4];
+                var seen3 = new bool[4];
                 foreach (var m in marks)
                 {
                     float dx = m.x - x, dz = m.y - z;
                     float d = math.sqrt(dx * dx + dz * dz);
-                    if (d < 1f || d > r15) continue;
+                    if (d < 1f || d > r30) continue;
                     // sector by dominant axis: 0 N, 1 E, 2 S, 3 W (90 degrees each)
                     int sector = math.abs(dz) >= math.abs(dx) ? (dz > 0 ? 0 : 2) : (dx > 0 ? 1 : 3);
-                    if (seen[sector]) continue;
-                    if (Visible(new int2(x, z), m)) seen[sector] = true;
+                    if (seen3[sector] && (seen[sector] || d > r15)) continue;
+                    if (!Visible(new int2(x, z), m)) continue;
+                    seen3[sector] = true;
+                    if (d <= r15) seen[sector] = true;
                 }
+                if (seen3[0] && seen3[1] && seen3[2] && seen3[3]) all4At3++;
                 int c = 0; for (int s2 = 0; s2 < 4; s2++) if (seen[s2]) c++;
                 sectorHits[c]++;
                 if (c == 4) all4++;
@@ -674,6 +678,7 @@ namespace TerrainGen.Tests
                 $"landmarks (local summit, >= 60 m above its 1 km mean): {marks.Count}  (map beacons raised: {_map.BeaconCount})",
                 $"land points sampled: {pts}",
                 $"points with a visible landmark within 1.5 km in ALL 4 sectors: {100.0 * all4 / pts:F1}%",
+                $"points with a visible landmark within 3 km in ALL 4 sectors: {100.0 * all4At3 / pts:F1}%  (the far band draws to ~5.6 km)",
                 $"distribution of sectors covered (0..4): {string.Join(" / ", sectorHits.Select(v => $"{100.0 * v / pts:F0}%"))}",
                 $"points short of 4 ONLY because the missing sectors are open sea (no land to hold a landmark): {100.0 * seaOnly / pts:F1}%",
                 $"=> covered, or unfixable without sea stacks/islets: {100.0 * (all4 + seaOnly) / pts:F1}%",
