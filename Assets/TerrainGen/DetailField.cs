@@ -187,6 +187,19 @@ namespace TerrainGen
             }
             if (c.stampMat != 0 && y >= c.stampBodyLo) return c.stampMat;
 
+            // V0's opt-in brick geology (TerrainSpec.brickGeologyDepth): one band
+            // decision per 8^3 brick, from the brick centre's column detail. This
+            // form re-prepares that column per voxel -- fine for measuring; a
+            // chunk generator that adopts the rule passes the brick's detail in.
+            if (spec.brickGeologyDepth > 0 && depth > spec.brickGeologyDepth)
+            {
+                int gy = (y & ~(BRICK - 1)) + BRICK / 2;
+                var bd = PrepareColumn(in o, (x & ~(BRICK - 1)) + BRICK / 2, (z & ~(BRICK - 1)) + BRICK / 2);
+                if (gy < spec.UnderworldTopY) return UnderworldRock(gy + bd.underOffset);
+                if (gy < spec.CavernTopY) return CavernBands(gy + bd.cavernOffset);
+                return StrataBand(c.biome, gy + bd.strataOffset);
+            }
+
             if (y < spec.UnderworldTopY) return UnderworldRock(y + cd.underOffset);
             if (y < spec.CavernTopY) return CavernBands(y + cd.cavernOffset);
 

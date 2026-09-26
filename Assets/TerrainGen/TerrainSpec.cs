@@ -39,6 +39,12 @@ namespace TerrainGen
         public int cavernTopBelowSea;    // voxels below sea where caverns begin
         public int underworldTopBelowSea;// voxels below sea where the underworld begins
         public int worldBottomY;         // absolute voxel Y of the world floor
+        /// V0 (design doc §11), OPT-IN: deeper than this many voxels below the
+        /// column top, the geology (strata, cavern and underworld bands) is
+        /// decided once per 8^3 brick, at its centre, so deep bricks are uniform
+        /// unless a cave, a pocket or a biome border crosses them. 0 (the
+        /// default) = per-voxel geology everywhere, as before.
+        public int brickGeologyDepth;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
