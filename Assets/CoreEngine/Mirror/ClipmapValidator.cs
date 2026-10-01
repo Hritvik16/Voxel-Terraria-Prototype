@@ -109,6 +109,40 @@ public static class ClipmapValidator
         }
     }
 
+    /// STALE SLOTS (2026-09-26): ValidateRegion walks RESIDENT chunks, so it
+    /// cannot see the failure a phantom-geometry report points at -- a mirror
+    /// slot whose position holds NO resident chunk but whose GPU entries are
+    /// not air (an eviction's clear still queued behind uploads, or lost).
+    /// Walks every chunk position of the mirror box; where nothing is
+    /// resident, every sampled GPU entry must be 0 (uniform air). Returns the
+    /// number of such positions with any non-air entry, and one example.
+    public static int CountStaleSlots(TerrainClipmap clipmap, ChunkStore store, out string example)
+    {
+        example = null;
+        int3 dims = clipmap.WindowDimsChunks, origin = clipmap.WindowOrigin;
+        int totalBricks = clipmap.WindowDimsBricks.x * clipmap.WindowDimsBricks.y * clipmap.WindowDimsBricks.z;
+        uint[] gpu = new uint[totalBricks];
+        clipmap.ClipmapBuffer.GetData(gpu);
+        int stale = 0;
+        for (int cz = 0; cz < dims.z; cz++)
+        for (int cy = 0; cy < dims.y; cy++)
+        for (int cx = 0; cx < dims.x; cx++)
+        {
+            int3 coord = origin + new int3(cx, cy, cz);
+            if (store.IsResident(coord)) continue;
+            bool bad = false;
+            for (int z = 0; z < 16 && !bad; z += 3)
+            for (int y = 0; y < 16 && !bad; y += 3)
+            for (int x = 0; x < 16 && !bad; x += 3)
+            {
+                uint h = gpu[clipmap.GpuIndexOf(coord, new int3(x, y, z))];
+                if (h != 0u) { bad = true; if (example == null) example = $"{coord} brick ({x},{y},{z}) GPU 0x{h:X8} dirty={clipmap.IsDirty(coord)}"; }
+            }
+            if (bad) stale++;
+        }
+        return stale;
+    }
+
     public static Result ValidateRegion(TerrainClipmap clipmap, BrickDataPool cpuPool, ChunkStore store,
         int maxChunks = int.MaxValue, bool validateBrickBodies = true)
     {

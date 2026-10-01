@@ -286,7 +286,16 @@ public partial class PlaygroundCapture
                     yield return CaptureTo($"{n}_{tn}_band");
                     RaymarchFeature.UseDebugViewOverride = false;
                 }
-                L($"{n,-24}{tn,7}  eye {pos}  {ms / 60.0:F2} ms (diagnostic)" +
+                string mirrorCheck = "";
+                if (world && hours != 12f && Phase4Bootstrapper.Clipmap != null)
+                {
+                    // CPU vs GPU mirror, both ways: resident chunks that differ
+                    // on the GPU, and non-resident box positions still drawn.
+                    var vr = ClipmapValidator.ValidateRegion(Phase4Bootstrapper.Clipmap, Phase4Bootstrapper.Pool, Phase4Bootstrapper.Store, maxChunks: 4096, validateBrickBodies: false);
+                    int stale = ClipmapValidator.CountStaleSlots(Phase4Bootstrapper.Clipmap, Phase4Bootstrapper.Store, out string ex);
+                    mirrorCheck = $"  MIRROR lost {vr.mismatchesInCleanChunks} lag {vr.mismatchesInDirtyChunks} stale {stale}" + (ex != null ? $" [{ex}]" : "");
+                }
+                L($"{n,-24}{tn,7}  eye {pos}  {ms / 60.0:F2} ms (diagnostic)" + mirrorCheck +
                   (world && sm != null ? $"  band {sm.StreamLayer}+-{VoxelEngine.Streaming.StreamManager.V_LOAD_LAYERS}  resident {Phase4Bootstrapper.Store.ResidentCount}  " +
                                          $"deficit {deficit}  dense {Phase4Bootstrapper.Store.DenseBricksHeld}  lruEvictions {sm.LruEvictionsTotal}" : ""));
             }
