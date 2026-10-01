@@ -27,7 +27,12 @@
    Do not cite it for game design. The only written game intent is
    `DESIGN_LARGE_WORLD_AND_TERRAIN_OVERHAUL.md` §2 (terrain, view distance,
    palette) plus the owner decisions recorded in its §12-15 and in the
-   2026-10-01 review linked below.
+   2026-10-01 review linked below. **The game-design brief (started
+   2026-10-01, built from the owner's answers) is now the design authority:**
+   https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf --
+   its "Decided" rows bind terrain and placement work; "Leaning" and "Open"
+   rows do not. The owner prefers to be asked specific questions in batches
+   rather than to write long explanations.
 
 ## Current state (verify, don't trust this note)
 
