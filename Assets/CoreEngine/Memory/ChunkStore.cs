@@ -316,7 +316,14 @@ public class ChunkStore : IWorldQuery, IEditService, IVoxelResidency
     /// StreamManager should LRU-evict the coldest resident chunk BEFORE
     /// servicing the next edit. §3.6: "the triggering edit always succeeds --
     /// you push the eviction radius inward, never fail."
-    public bool IsUnderPoolPressure => _denseBricksHeld >= EngineConfig.BrickPoolHighWaterBricks;
+    public bool IsUnderPoolPressure => _denseBricksHeld >= (HighWaterBricksOverride >= 0
+        ? HighWaterBricksOverride : EngineConfig.BrickPoolHighWaterBricks);
+
+    /// V2: a store over a pool LARGER than EngineConfig.BRICK_POOL_CAP (the
+    /// vertically streamed sizeClass 2 world) states its own §3.6 high-water
+    /// mark; otherwise the valve would fire at the flat world's threshold.
+    /// -1 (default): EngineConfig's, exactly as before.
+    public int HighWaterBricksOverride = -1;
 
     public float PoolUtilisation => _brickPool.Capacity > 0
         ? _denseBricksHeld / (float)_brickPool.Capacity

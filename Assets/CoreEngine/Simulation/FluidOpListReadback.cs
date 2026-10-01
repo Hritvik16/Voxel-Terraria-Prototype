@@ -487,7 +487,10 @@ namespace VoxelEngine.Simulation
                     AppliedVoxelWrites++;
                     if (op.HasSrc)
                     {
-                        _store.SetVoxel(op.Src, 0);        // vacated home -> Air
+                        // A §2.7 density SWAP hands src the lighter fluid that
+                        // was at dst (validated above as ExpectedAtDst); a move
+                        // vacates it. Both halves or neither, as always.
+                        _store.SetVoxel(op.Src, op.IsSwap ? op.ExpectedAtDst : (byte)0);
                         OnVoxelApplied?.Invoke(op.Src);
                         AppliedVoxelWrites++;
                     }

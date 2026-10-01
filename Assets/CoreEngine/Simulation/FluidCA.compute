@@ -105,6 +105,9 @@ struct FluidWriteOp
 };
 #define OP_WAKE_BIT    (1u << 8)
 #define OP_HAS_SRC     (1u << 0)
+// §2.7 swap: src gets the EXPECTED-at-dst material (the lighter fluid) instead
+// of Air. The record's 32-byte layout is unchanged; this is a new flag value.
+#define OP_SWAP        (1u << 1)
 #define OP_EXPECT_SHIFT 16
 
 // ---- Appendix B stateFlags ----
@@ -118,6 +121,9 @@ struct FluidWriteOp
 // returned to FreeList, so CSRecycle cannot push the same index twice. Cleared
 // implicitly on reuse, because CSPromote ASSIGNS stateFlags = FLAG_AWAKE.
 #define FLAG_RECYCLED     (1u << 6)
+// §2.7 density layering (2026-09-25): this slot's one bid is a SWAP with the
+// lighter fluid directly below. Mirrors FluidReferenceCPU.FLAG_SWAP_BID.
+#define FLAG_SWAP_BID     (1u << 7)
 
 // AllocSlot's failure return. Distinct from a valid index and from NONE (-1),
 // which is a cell->slot sentinel and a different type.
@@ -194,10 +200,14 @@ StructuredBuffer<uint>  MaterialFlags;
 StructuredBuffer<uint>  MaterialTickInterval;
 StructuredBuffer<uint>  ReactionSelfProduct;   // [self*256 + other], 0xFFFFFFFF = no reaction
 StructuredBuffer<uint>  ReactionOtherProduct;
+// §2.7: MaterialRules.DensityRank -- 0 for non-fluids, rank steps mean > 5%
+// denser. The swap test compares ranks, exactly as the CPU oracle does.
+StructuredBuffer<uint>  MaterialDensityRank;
 
 #define FLAG_IS_FLUID         (1u << 0)
 #define FLAG_IS_FALLING_SOLID (1u << 1)
 #define FLAG_IS_MOBILE_MASK   (FLAG_IS_FLUID | FLAG_IS_FALLING_SOLID)
+#define FLAG_IS_GAS           (1u << 6)   // MaterialRules.IsGas (steam)
 
 // ---- Active region (§7.4 near-player scope). Power-of-two dims, bitwise only. ----
 int4  _RegionOriginVoxels;   // .xyz
@@ -399,6 +409,14 @@ uint SampleVoxel(int3 voxel)
 
 bool IsMobile(uint material)      { return (MaterialFlags[material] & FLAG_IS_MOBILE_MASK) != 0u; }
 bool IsFluidMaterial(uint material){ return (MaterialFlags[material] & FLAG_IS_FLUID) != 0u; }
+bool IsGasMaterial(uint material)  { return (MaterialFlags[material] & FLAG_IS_GAS) != 0u; }
+/// MaterialRules.SinksThrough, line for line.
+bool SinksThrough(uint heavy, uint light)
+{
+    if (!IsFluidMaterial(heavy) || !IsFluidMaterial(light) || heavy == light) return false;
+    if (ReactionSelfProduct[heavy * 256u + light] != 0xFFFFFFFFu) return false;
+    return MaterialDensityRank[heavy] > MaterialDensityRank[light];
+}
 uint TickIntervalOf(uint material)
 {
     uint t = MaterialTickInterval[material];
@@ -693,6 +711,20 @@ bool TryClaim(uint s, inout FluidSlot slot, int3 dst)
     return true;
 }
 
+/// FluidReferenceCPU.TrySwapClaim: the destination holds (tick-start) a fluid
+/// this one sinks through. Only the cell directly above ever targets it.
+bool TrySwapClaim(uint s, inout FluidSlot slot, int3 dst)
+{
+    if (!InRegion(dst)) return false;
+    int d = RegionIndex(dst);
+    if (!SinksThrough(slot.materialID, SampleVoxel(dst))) return false;
+    if (ReactedBuffer[d] != 0) return false;
+    ClaimBuffer[d] = (int)s;
+    slot.stateFlags |= FLAG_BID_PLACED | FLAG_SWAP_BID;
+    DBG(5);
+    return true;
+}
+
 [numthreads(64, 1, 1)]
 void CSIntent(uint3 id : SV_DispatchThreadID)
 {
@@ -703,7 +735,7 @@ void CSIntent(uint3 id : SV_DispatchThreadID)
     if ((slot.stateFlags & FLAG_AWAKE) == 0u) return;
     DBG(4);
 
-    slot.stateFlags &= ~(FLAG_BID_PLACED | FLAG_WON_CLAIM | FLAG_EVALUATED | FLAG_DESCENDED);
+    slot.stateFlags &= ~(FLAG_BID_PLACED | FLAG_WON_CLAIM | FLAG_EVALUATED | FLAG_DESCENDED | FLAG_SWAP_BID);
 
     int home = HomeIndexOf(slot);
     if (home < 0 || (uint)home >= _RegionCellCount) { FluidSlots[s] = slot; return; }
@@ -759,14 +791,20 @@ void CSIntent(uint3 id : SV_DispatchThreadID)
 
     // ---- §7.4's Intent hierarchy, in order. First legal destination wins, and
     // ---- a slot bids EXACTLY ONCE, which is what makes Commit single-writer.
-    bool bid = TryClaim(s, slot, int3(c.x, c.y - 1, c.z));
+    // §2.7 steam: a gas runs the same hierarchy mirrored upward (vdir).
+    bool gas = IsGasMaterial(slot.materialID);
+    int vdir = gas ? 1 : -1;
+    bool bid = TryClaim(s, slot, int3(c.x, c.y + vdir, c.z));
+
+    // §2.7 density layering: second in the hierarchy, as in the oracle.
+    if (!bid && !gas) bid = TrySwapClaim(s, slot, int3(c.x, c.y - 1, c.z));
 
     int2 dirs[4];
     if (!bid)
     {
         LateralOrder(c, 0, dirs);
         for (int k = 0; k < 4 && !bid; k++)
-            bid = TryClaim(s, slot, int3(c.x + dirs[k].x, c.y - 1, c.z + dirs[k].y));
+            bid = TryClaim(s, slot, int3(c.x + dirs[k].x, c.y + vdir, c.z + dirs[k].y));
     }
     if (!bid && IsFluidMaterial(slot.materialID))
     {
@@ -809,10 +847,44 @@ void CSCommit(uint3 id : SV_DispatchThreadID)
 
     if (SampleVoxel(hv) != slot.materialID) { DBG(10); return; }  // orphaned between Intent and Commit
     if (SlotAtBuffer[home] != s) { DBG(10); return; }
-    if (SampleVoxel(dv) != AIR) { DBG(11); return; }              // must still be the Air it claimed
     if (ReactedBuffer[d] != 0 || ReactedBuffer[home] != 0) return;
 
-    bool descended = dv.y < hv.y;
+    if ((slot.stateFlags & FLAG_SWAP_BID) != 0u)
+    {
+        // §2.7 SWAP -- FluidReferenceCPU.CommitPass's swap branch. Still one
+        // writer: this destination thread owns d and home. The lighter fluid's
+        // slot must not have bid (its own move would claim d too); CSIntent is
+        // a separate dispatch, so its flags are final here.
+        uint light = SampleVoxel(dv);
+        if (!SinksThrough(slot.materialID, light)) { DBG(11); return; }
+        int ls = SlotAtBuffer[d];
+        if (ls != NONE && (uint)ls < _SlotCapacity &&
+            (FluidSlots[ls].stateFlags & FLAG_BID_PLACED) != 0u) return;
+
+        // ONE record, both halves: dst must still hold `light`, src the heavy
+        // material, or the CPU applies neither. src receives `light`.
+        EmitOp(dv, slot.materialID | OP_WAKE_BIT, hv, OP_HAS_SRC | OP_SWAP, light);
+        DBG(7);
+        WakeMark[home] = 2;
+        WakeMark[d] = 2;
+        SlotAtBuffer[d] = s;
+        SlotAtBuffer[home] = ls;
+        SetHome(slot, (int)d);
+        if (ls != NONE && (uint)ls < _SlotCapacity)
+        {
+            FluidSlot l = FluidSlots[ls];
+            SetHome(l, home);
+            FluidSlots[ls] = l;
+        }
+        slot.stateFlags |= FLAG_WON_CLAIM | FLAG_DESCENDED;
+        FluidSlots[s] = slot;
+        return;
+    }
+
+    if (SampleVoxel(dv) != AIR) { DBG(11); return; }              // must still be the Air it claimed
+
+    // PROGRESS in the material's own direction: down, or up for a gas.
+    bool descended = IsGasMaterial(slot.materialID) ? (dv.y > hv.y) : (dv.y < hv.y);
 
     // The two ops that ARE the move. Terrain is not touched here; the CPU
     // applies both through ChunkStore.SetVoxel (§7.2, §0.1 invariant 1).
@@ -971,8 +1043,11 @@ void CSWakeScan(uint3 id : SV_DispatchThreadID)
 
     // The five cells §7.4's tiers 1 and 2 let a cell descend into: straight
     // down plus the four down-diagonals. Nothing at the same level qualifies.
+    // A GAS (§2.7 steam) "descends" upward, so its five are above it -- the
+    // GPU form of FluidReferenceCPU.WakeBelowGas / WakeDescender.
+    int vy = IsGasMaterial(m) ? 1 : -1;
     int3 below[5] = {
-        int3(0, -1, 0), int3(-1, -1, 0), int3(1, -1, 0), int3(0, -1, -1), int3(0, -1, 1)
+        int3(0, vy, 0), int3(-1, vy, 0), int3(1, vy, 0), int3(0, vy, -1), int3(0, vy, 1)
     };
 
     bool near = false;

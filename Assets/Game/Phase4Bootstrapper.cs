@@ -41,6 +41,18 @@ public class Phase4Bootstrapper : MonoBehaviour
     public const uint WORLD_SEED = 42;
     public const byte SIZE_CLASS = 1;   // §2.4 "Small": 2560m, 200x200 chunks
 
+    /// V2 (design doc §15): `-world tg2` boots the TerrainGen island
+    /// (sizeClass 2) instead: vertically streamed, far band always on, its own
+    /// save folder. Without the flag nothing below changes.
+    public static bool Tg2WorldRequested()
+    {
+        string v = null;
+        string[] a = Environment.GetCommandLineArgs();
+        for (int i = 0; i + 1 < a.Length; i++) if (a[i] == "-world") v = a[i + 1];
+        return v == "tg2";
+    }
+    public static bool IsTg2World { get; private set; }
+
     /// Spawn point for this world's size class, in METRES, derived from the same
     /// island geometry generation uses -- so it cannot drift out of sync with
     /// the world the way a hardcoded literal did.
@@ -98,6 +110,7 @@ public class Phase4Bootstrapper : MonoBehaviour
     [SerializeField] private Vector3 _cameraSpawnEuler = new Vector3(10f, 0f, 0f);
 
     private BrickDataPool _pool;
+    private VoxelEngine.Rendering.FarField _far;
     private ChunkHandleAllocator _allocator;
     private ChunkStore _store;
 
@@ -108,8 +121,19 @@ public class Phase4Bootstrapper : MonoBehaviour
 
         // ---- Stage 1 (§5.2): plan, persist, read back, verify. Unchanged
         // from Phase 3 -- generation still consumes the FILE, not the plan.
-        WorldMetaData planned = AnchorPlanner.Plan(WORLD_SEED, SIZE_CLASS);
-        string worldDir = Path.Combine(Application.persistentDataPath, "Phase4World");
+        IsTg2World = Tg2WorldRequested();
+        // The TerrainGen world has no legacy anchors (its landmarks are the
+        // map's own); a SEPARATE folder keeps its deltas from ever being
+        // replayed onto the other world's chunks (deltas are keyed by coord).
+        WorldMetaData planned = IsTg2World
+            ? new WorldMetaData
+              {
+                  seed = WORLD_SEED, sizeClass = TerrainGenChunkSource.SIZE_CLASS,
+                  formatVersion = WorldMeta.FORMAT_VERSION,
+                  contentVersionHash = WorldGenConstants.ContentVersionHash(),
+              }
+            : AnchorPlanner.Plan(WORLD_SEED, SIZE_CLASS);
+        string worldDir = Path.Combine(Application.persistentDataPath, IsTg2World ? "Phase4World_tg2" : "Phase4World");
         string metaPath = Path.Combine(worldDir, "world.meta");
         WorldMeta.WriteAtomic(metaPath, planned);
 
@@ -165,9 +189,11 @@ public class Phase4Bootstrapper : MonoBehaviour
         }
 
         // ---- Pools / store / mirrors ----
-        _pool = new BrickDataPool(EngineConfig.BRICK_POOL_CAP, rangeAware: true);
+        _pool = new BrickDataPool(IsTg2World ? EngineConfig.TG2_BRICK_POOL_CAP : EngineConfig.BRICK_POOL_CAP, rangeAware: true);
         _allocator = new ChunkHandleAllocator(1024);
         _store = new ChunkStore(_pool, _allocator);
+        if (IsTg2World)
+            _store.HighWaterBricksOverride = (int)(EngineConfig.TG2_BRICK_POOL_CAP * EngineConfig.BRICK_POOL_HIGH_WATER_FRACTION);
         Store = _store; Pool = _pool;
 
         // The STORE's ring and the GPU MIRROR's window are deliberately
@@ -182,9 +208,15 @@ public class Phase4Bootstrapper : MonoBehaviour
         // vertically, MIRROR_CHUNKS_Y must grow with MAX_GENERATED_CHUNK_Y --
         // StreamManager asserts that the streamed range fits its window.
         int3 storeWindowChunks = _store.WindowDims;
-        int3 mirrorChunks = new int3(EngineConfig.WINDOW_CHUNKS_XZ, EngineConfig.MIRROR_CHUNKS_Y, EngineConfig.WINDOW_CHUNKS_XZ);
+        int3 mirrorChunks = new int3(EngineConfig.WINDOW_CHUNKS_XZ,
+                                     IsTg2World ? EngineConfig.TG2_MIRROR_CHUNKS_Y : EngineConfig.MIRROR_CHUNKS_Y,
+                                     EngineConfig.WINDOW_CHUNKS_XZ);
         Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity);
-        Cascades = new LODCascadeManager(mirrorChunks, tier => EngineConfig.CascadeTierPoolCap(tier));
+        // Edit-driven cascade rebuilds off the main thread (LODCascadeManager's
+        // ASYNC REBUILD block). -cascadeasync 0 is the A/B.
+        LODCascadeManager.AsyncRebuildEnabled = LODCascadeManager.AsyncRequestedByArgs();
+        Cascades = new LODCascadeManager(mirrorChunks, tier => IsTg2World ? EngineConfig.Tg2CascadeTierPoolCap(tier)
+                                                                          : EngineConfig.CascadeTierPoolCap(tier));
 
         UnityEngine.Debug.Log($"[Phase4Bootstrapper] store ring {storeWindowChunks}, GPU mirror {mirrorChunks} " +
                               $"(camera altitude ceiling {EngineConfig.MIRROR_CEILING_METRES:F1}m -- see EngineConfig)");
@@ -212,6 +244,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         // HYSTERESIS_RING_CHUNKS 2->1 (+12.8m). Measure before doing either.
         int maxRadius = StreamManager.MaxLoadRadiusChunks(_store.WindowDims);
         int loadRadius = _loadRadiusChunks <= 0 ? maxRadius : _loadRadiusChunks;
+        if (IsTg2World) loadRadius = Math.Min(loadRadius, EngineConfig.TG2_LOAD_RADIUS_CHUNKS);
         if (loadRadius > maxRadius)
         {
             UnityEngine.Debug.LogWarning(
@@ -228,7 +261,13 @@ public class Phase4Bootstrapper : MonoBehaviour
                                      Meta, DeltaDirectory, loadRadius);
         Coalescer = new CoalesceScheduler(_store, _pool, Clipmap, Cascades);
 
-        if (_overrideCameraOnStart && Camera.main != null)
+        if (IsTg2World && Camera.main != null)
+        {
+            // The island's own frame: stand on dry land near the centre.
+            Camera.main.transform.position = Tg2Spawn(Streamer.TerrainGenSource);
+            Camera.main.transform.rotation = Quaternion.Euler(_cameraSpawnEuler);
+        }
+        else if (_overrideCameraOnStart && Camera.main != null)
         {
             Camera.main.transform.position = ResolveSpawn();
             Camera.main.transform.rotation = Quaternion.Euler(_cameraSpawnEuler);
@@ -236,7 +275,8 @@ public class Phase4Bootstrapper : MonoBehaviour
 
         // ---- Fill the initial window ----
         sw.Restart();
-        Vector3 camPos = Camera.main != null ? Camera.main.transform.position : ResolveSpawn();
+        Vector3 camPos = Camera.main != null ? Camera.main.transform.position
+                       : IsTg2World ? Tg2Spawn(Streamer.TerrainGenSource) : ResolveSpawn();
         Streamer.Update(camPos);
         if (_fillWindowOnStart)
         {
@@ -248,8 +288,10 @@ public class Phase4Bootstrapper : MonoBehaviour
             // fast, for the one case that needs bulk throughput.
             Streamer.PrimeWindow(camPos);
             // Mop up anything PrimeWindow skipped (records already mid-flight
-            // from the Update() above).
-            Streamer.WaitForIdle();
+            // from the Update() above). NOT on the TerrainGen world: its prime
+            // fills only the near square on purpose (StreamManager
+            // V_PRIME_RADIUS_CHUNKS) and play streams the rest.
+            if (!IsTg2World) Streamer.WaitForIdle();
             // Tier-0 upload deliberately bypasses the per-frame byte cap here so
             // the rig does not begin measuring against a half-uploaded window.
             // This is the one place that cap is intentionally ignored.
@@ -263,6 +305,14 @@ public class Phase4Bootstrapper : MonoBehaviour
         }
         UnityEngine.Debug.Log($"[Phase4Bootstrapper] Initial window fill: {sw.ElapsedMilliseconds}ms, " +
                               $"{_store.ResidentCount} chunks resident, pool {_store.PoolUtilisation:P1}");
+
+        // Far band (DESIGN_LARGE_WORLD §4.2, Step 1 prototype). Opt-in with
+        // -farband 1, so every existing rig and scene is unchanged by default.
+        // The TerrainGen world ALWAYS has it: outside the voxel band (above,
+        // below, beyond) the far band is the only thing that draws the island.
+        if (VoxelEngine.Rendering.FarField.RequestedByArgs() || IsTg2World)
+            _far = new VoxelEngine.Rendering.FarField(Meta, camPos, IsTg2World ? Streamer.TerrainGenSource.Map : null);
+        ApplyBandToRenderer();
 
         StartupMs = total.Elapsed.TotalMilliseconds;
         UnityEngine.Debug.Log($"[Phase4Bootstrapper] Total startup: {StartupMs:F0}ms");
@@ -287,7 +337,53 @@ public class Phase4Bootstrapper : MonoBehaviour
         double streamMs = sw.Elapsed.TotalMilliseconds;
         Coalescer.Update();
         FrameGapProbe.LastStreamerMs = streamMs;
+        ApplyBandToRenderer();
+        FrameGapProbe.LastAdmitted = Streamer.LastAdmitted;
+        {
+            var ph = FrameGapProbe.LastStreamPhases;
+            ph[0] = Streamer.LastSlideMs; ph[1] = Streamer.LastDispatchMs; ph[2] = Streamer.LastDrainCompletionsMs;
+            ph[3] = Streamer.LastTransferMs; ph[4] = Streamer.LastValveMs; ph[5] = Streamer.LastSweepMs;
+            ph[6] = Streamer.LastUploadMs - Streamer.LastCascadeMs; ph[7] = Streamer.LastCascadeMs;
+        }
+        FrameGapProbe.LastUploadBytes = Streamer.LastUploadBytes;
+        FrameGapProbe.LastSetDataCalls = Streamer.LastUploadStats.brickRuns + Streamer.LastUploadStats.chunksUploaded;
+        double farT0 = sw.Elapsed.TotalMilliseconds;
+        if (_far != null)
+        {
+            _far.Update(camPos);
+            Streamer.LayerRange(out int lo, out int hi);
+            _far.UpdateResidency(_store, Clipmap.WindowOriginBricks / EngineConfig.CHUNK_EDGE_BRICKS, Clipmap.WindowDimsChunks, lo, hi);
+        }
+        FrameGapProbe.LastFarMs = sw.Elapsed.TotalMilliseconds - farT0;
         FrameGapProbe.LastCoalescerMs = sw.Elapsed.TotalMilliseconds - streamMs;
+    }
+
+    /// V2: the voxel march owns exactly the loaded band. Flat worlds keep the
+    /// boot-time [0, 128) this file has always set.
+    private void ApplyBandToRenderer()
+    {
+        if (Streamer == null || !Streamer.VerticalStreaming) return;
+        Streamer.LayerRange(out int lo, out int hi);
+        RaymarchFeature.ContentFloorVoxelY = lo * EngineConfig.CHUNK_EDGE_VOXELS;
+        RaymarchFeature.ContentCeilingVoxelY = (hi + 1) * EngineConfig.CHUNK_EDGE_VOXELS;
+    }
+
+    /// Spawn for the TerrainGen island, in metres: the first dry column at
+    /// least 20 m above the sea on a spiral out from the island centre, eye
+    /// 2 m above its ground.
+    public static Vector3 Tg2Spawn(TerrainGenChunkSource src)
+    {
+        var spec = src.Spec; var view = src.Map.View; var o = src.O;
+        float c = spec.worldSizeVoxels * 0.5f;
+        for (int i = 0; i < 2000; i++)
+        {
+            float a = i * 2.39996f, r = 40f * i;       // golden-angle spiral, 4 m apart radially
+            float2 p = new float2(c + r * math.cos(a), c + r * math.sin(a));
+            var col = TerrainGen.ShapeField.Sample(in spec, in view, in o, p.x, p.y, 1);
+            if (col.height < spec.seaLevelY + 200 || col.water > col.height) continue;
+            return new Vector3(p.x * 0.1f, (col.height + 1) * 0.1f + 2f, p.y * 0.1f);
+        }
+        return new Vector3(c * 0.1f, (spec.seaLevelY + 800) * 0.1f, c * 0.1f);
     }
 
     void OnApplicationQuit()
@@ -303,6 +399,9 @@ public class Phase4Bootstrapper : MonoBehaviour
 
     void OnDestroy()
     {
+        _far?.Dispose();
+        _far = null;
+        if (IsTg2World) { RaymarchFeature.ContentFloorVoxelY = 0; RaymarchFeature.ContentCeilingVoxelY = 128; }
         Streamer?.Dispose();
         Clipmap?.Dispose();
         Cascades?.Dispose();

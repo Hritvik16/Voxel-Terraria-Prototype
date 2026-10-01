@@ -8,7 +8,8 @@
         "Unity.Collections",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
-        "ContentModules"
+        "ContentModules",
+        "TerrainGen"
     ],
     "includePlatforms": [
         "Editor"

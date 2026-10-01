@@ -1,6 +1,11 @@
 # A much larger world with long render range, and the terrain overhaul that feeds it
 
 **Status: DESIGN PROPOSAL, NOT ADOPTED.** Written 2026-09-24 for the owner (decision 13).
+**§2 and §5 rewritten 2026-09-25 from the owner's Step 0 interview.** The owner
+then delegated sign-off ("make your own decisions"), so §2/§5 are ADOPTED AS
+DELEGATED DEFAULTS, and the owner can overturn any of them. Delegated decisions: the
+hellevator uses layout **H3** (§5.2, stays inside §0.2). §2.10 lists where §2
+supersedes §4 and §6.
 No code was written for this. It builds on `AMENDMENT_8_11_RENDER_RANGE.md` (also a
 draft), whose facts it reuses and does not repeat at length.
 
@@ -57,19 +62,178 @@ else is committed.
 above 51 m. Palworld-like terrain has mountains hundreds of metres high, and a
 viewpoint you can glide from. Both have to change along with range.
 
-## 2. What "Palworld-like" is taken to mean (confirm or correct these)
+## 2. Targets (owner interview, 2026-09-24/25)
 
-These are **targets I've assumed**. They weren't measured from Palworld, and the
-owner should adjust them:
+**Rewritten from the owner's answers in the Step 0 interview.** Rows tagged
+**OWNER** are the owner's decision. **DEFAULT** means the owner delegated the
+choice ("we'll go with your decision") or it's a stated placeholder. Anything
+tagged **ESTIMATED** is still arithmetic, not a measurement. This section
+supersedes §4 and §6 wherever they conflict. The conflicts are listed in §2.10.
 
-| Target | Proposed value |
+**The one-line brief (OWNER):** Terraria in 3D, with a Minecraft look at 0.1 m
+blocks, Noita's fluids, and Palworld's sense of scale. The terrain has to be as
+much fun to dig through as to look across.
+
+### 2.1 Gameplay intent
+
+| | Target | Tag |
+|---|---|---|
+| Core loop | **Not decided yet.** Designed against a Terraria-style loop: explore across, dig down, gather, build. Horizontal and vertical exploration are weighted equally, which is why view distance **and** the hellevator are both hard requirements. | DEFAULT (assumption, revisit) |
+| Look | Crisp and blocky: **Minecraft's aesthetic at 0.1 m blocks.** No smoothed normals. Face normals and per-face AO as today. | OWNER |
+
+### 2.2 World shape
+
+| | Target | Tag |
+|---|---|---|
+| World | New **sizeClass 2**, **8 km × 8 km**. Additive per §D.2; sizeClass 0/1 and their content hashes untouched. | OWNER |
+| Island | One **organic island ~6 km across**, surrounded by ocean to the world edge. The coast has bays, headlands and offshore islets. | OWNER |
+| Peaks | **Tallest summit ~600 m** above sea level (one dominant peak); typical mountains 150–400 m | OWNER ("500 m+", pinned at 600) |
+| Depth | **500 m below sea level**, in four layers | OWNER |
+| Vertical span | −500 m to +600 m ≈ **1.1 km ≈ 11,000 voxels ≈ 86 chunk layers** (today: 1 layer, 12.8 m) | ESTIMATED arithmetic |
+
+Depth layers (thicknesses DEFAULT, to tune on the map):
+
+| Layer | Depth below surface | Character |
+|---|---|---|
+| Surface | 0 – ~30 m | Biome soil and strata, shallow caves, aquifers |
+| Underground | ~30 – 150 m | Biome continues downward (snow → ice caves, desert → underground desert); tunnels and fluid pockets |
+| Caverns | ~150 – 400 m | Depth-defined, shared by all biomes: large caverns, lava tubes; oil, acid and sludge pockets; giant mushrooms |
+| Underworld | ~400 – 500 m | Lava sea, ash, obsidian |
+
+**Underground biome layering is a placeholder** (OWNER: "pick one and leave it
+as a placeholder, we'll think about the underground later").
+
+### 2.3 View distance, altitude, and the hellevator
+
+| | Target | Tag |
+|---|---|---|
+| Surface horizon | **The whole world: terrain drawn to ~6.5 km.** From a peak you see coast to coast. | OWNER |
+| Recognisable shapes | ridges, coast, lakes and landmarks to ~1.5–2 km | DEFAULT |
+| Near detail | Unchanged: 0.1 m voxels, editable, shadowed, within ~250–290 m | OWNER (unchanged) |
+| Far detail | **Stepped flat-topped columns with face normals**, not a smooth mesh, so the far band stays blocky (0.8–12.8 m blocks) and the 290 m seam is blocks meeting blocks. Not editable in place; follows edits that change a column's top. | DEFAULT (derived from the look target) |
+| Camera altitude | **Unlimited, including a top-down map view.** Never a black screen. | OWNER |
+| Hellevator | **You can see down your own shaft to the bottom of the world** (500 m), and up it from below. | OWNER (hard requirement) |
+| Underground horizontal range | Capped at the voxel window (~200 m) for now; caverns are designed to fit inside it. Long horizontal sight lines underground are the deferred mid cascade (M). | DEFAULT (placeholder) |
+
+**Why the hellevator is affordable:** at 960×540, a 0.1 m voxel is smaller
+than a pixel beyond ~47 m (ESTIMATED: 2·tan 30° / 540 rad per pixel). A 2 m
+shaft's floor at 500 m down covers about 2 pixels. Below ~50 m, only coarse
+data is ever visible. §5 costs two ways to provide it.
+
+### 2.4 World map first
+
+**OWNER-approved:** generation starts with a **2D world map built once from the
+seed**, before any voxel is generated. It holds the coastline, mountain ranges,
+erosion, a river network drained to the sea, lakes filled to their spill level,
+biome regions, and every major feature's placement.
+
+- **Why:** the features that make a world interesting aren't local. A river
+  must know where downhill goes; a lake fills to the level where its basin
+  spills. A per-column generator (today's) can never produce them.
+- **Resolution:** 1024 × 1024 cells at 8 m for the 8 km world (DEFAULT). It's
+  deterministic, and ESTIMATED at seconds on the workers at world creation.
+- **The voxels stay the ground truth for gameplay.** The map is the plan the
+  shape field reads. `S(x, z, lod)` = map (interpolated) + band-limited detail.
+- **What it gives for free:** the **minimap and world map**; the far band's
+  outer levels (F3/F4 are at the map's resolution); and **PNG-based iteration**,
+  where a test renders the map to an image in seconds with no Unity build.
+
+### 2.5 Topography
+
+**Design rules (DEFAULT, from the owner's "looking in any direction should give
+the player a reason to go there"):**
+
+1. **Always a landmark on the horizon.** Every direction shows a distinctive
+   silhouette. This rule is **testable on the map**: from every land cell, each
+   90° view sector must contain at least one landmark within ~1.5 km. The
+   thresholds are tuned by looking at the PNGs.
+2. **Terrain hides, then reveals.** Ridges and hills block the view, so
+   cresting one shows something new.
+3. **Detail at every scale:** kilometres (ranges), hundreds of metres
+   (features), tens of metres (outcrops).
+4. **Each landform has its own character**, independent of which biome covers it.
+
+**No domain warping (OWNER).** Organic shapes come from thresholded noise
+fields instead. The coastline is a smooth island envelope plus fBm, cut at sea
+level. Biome borders are the contour lines of climate fields.
+
+**Overhangs (OWNER):** there is no general 3D overhang generation. Overhangs,
+arches and cliff lips come only from **analytic stamps** placed at anchors (as
+`FeatureCarve` does today), which run near the player only.
+
+**Catalogue.** Macro landforms live in the map; meso features are anchor
+stamps; micro detail is the detail field `D`.
+
+| Scale | Features |
 |---|---|
-| World size | a new **sizeClass 2**, about 6–8 km across (additive per §D.2; sizeClass 0/1 untouched) |
-| Terrain height range | sea floor to peaks of ~250–300 m (≈ 2,500–3,000 voxels) |
-| Visible terrain | silhouettes and colour to ≥ 3 km; recognisable shapes (ridges, coast, lakes) to ~1.5 km |
-| Near detail | unchanged: 0.1 m voxels, editable, shadowed, within ~250 m |
-| Far detail | not editable in place; follows edits only where they change a column's top (§4.4) |
-| Flight / gliding | camera up to ~400 m without the screen going black |
+| Macro (in the map) | One dominant peak (~600 m); mountain ranges with ridgelines, passes and saddles; escarpments splitting highland from lowland; plateaus and table-top mountains; valleys and basins; rolling hill country; badlands; highland moors; a volcano |
+| Meso (stamps) | Rock spires and hoodoos; natural arches and rock bridges; tors, boulder fields, glacial erratics; canyons, gorges, ravines; **fissures and cave mouths** (surface entrances to the underground); sinkholes and cenotes; crater fields; cliffs with ledges; rock-pinnacle forests; sea cliffs, sea stacks, sea caves |
+| Micro (`D`) | Scattered boulders, outcrops, scree below cliffs, hollows and ledges |
+| Fluid-bearing (see §2.7) | Volcano caldera and lava tubes; glacial cirques with tarns; plateau waterfalls; river networks with gorges, deltas and oxbows; geyser basin with hot springs and mineral terraces; tar pits and oil seeps; quicksand flats; jungle bogs; hives; crater lakes; aquifers, underground rivers, ceiling waterfalls into cavern lakes; oil under domed rock caps; acid caves; magma chambers; the underworld lava sea |
+
+**Fantasy landmarks (DEFAULT, owner delegated):**
+
+| Landmark | Decision |
+|---|---|
+| Giant crystal spires (glow at night, biome-coloured; one aggregate light each, never per voxel) | **In** |
+| Colossal fossils (ribcage arches, a skull cave leading underground) | **In** |
+| World tree (one; ~300 m tall, caves in the roots) | **In** |
+| Meteor craters with a glowing ore/crystal core (extends today's craters) | **In** |
+| Stone rings and natural hoops | **In** |
+| Giant mushrooms (caverns) | **In** |
+| Sky islands | **Deferred, its own decision.** The far band is a single height per column and cannot draw land floating over land. |
+| Ruins, megaliths, temples | **Deferred** to the structure/object-placement system |
+
+### 2.6 Biomes and palette
+
+| | Target | Tag |
+|---|---|---|
+| Roster | Forest, Snow, Desert, **Jungle (stays)** | OWNER |
+| Independence | **Biomes are independent of topography**, so any biome can cover any landform (snowy mesas, desert pinnacle forests). Object placement will have to cope with that later. | OWNER |
+| Borders | Organic, from thresholded climate fields; no Voronoi straight lines, no domain warp | OWNER |
+| Colours | **Defined per biome.** Each biome gets its own surface, soil, 4–5 rock strata and a deep rock, as one material ID per stratum (~45 new IDs of 256). Strata are horizontal geology cut by the terrain, with noisy boundaries and a regional tilt, and adjacent bands alternate light/dark. | OWNER (per-biome) / DEFAULT (mechanism) |
+| Palette | First proposal at https://claude.ai/artifact/RBvstn6SySedSfDApnNMvh. **OWNER: "all good but seem to copy Terraria 1:1".** The project needs its own colour identity. **OPEN**; revisit in the cinematic-visuals pass. | OPEN |
+
+### 2.7 Fluids
+
+| | Target | Tag |
+|---|---|---|
+| Roster | Existing Water, Lava, Honey, plus **Oil, Acid, Toxic sludge, Quicksand, Steam** | OWNER ("add all") |
+| New engine work | Oil: floats on water (density layering, if the CA doesn't already do it); burning waits for a fire system. Acid: a reaction that dissolves stone. Sludge: emissive, via the aggregate-light path. Quicksand: a slow viscosity tier. **Steam: a rising mode in the CA, the largest item, lands last.** | DEFAULT |
+| Placement | **Generated at rest**, in sealed basins and pockets. Settled fluid costs no simulation; the gameplay is breaching it. Every landform should have a natural way to hold fluid. | OWNER (intent) / DEFAULT (mechanism) |
+| Flowing water | Rivers and waterfalls are never at rest. **Plan for spring/sink materials, which simulate only within §7.4's wake radius. Generate still water first** (lakes, tarns, stepped pools); the map carries river channels from day one so flow can switch on later. | OWNER ("yes") |
+| Sand / snow | **Simulated, as falling solids.** Sand already is (`MaterialRules.cs:75`); powder snow joins it. Generated as a **thin surface layer (a few metres) over rock, slopes clamped to ≤ 45°** so it is stable at rest. Digging causes local slides; biome-wide avalanches cannot happen. Cost is per *awake* tile only (32³, ~0.5 MB, cap 1024 unchanged). | DEFAULT; slide size is unmeasured |
+
+### 2.8 Visuals
+
+| | Target | Tag |
+|---|---|---|
+| Aesthetic | Minecraft-crisp at 0.1 m; far band as stepped columns (§2.3) | OWNER |
+| Cinematic pass | Owner judges today's look "subpar". Candidates discussed: sky gradient and sun disc, clouds and cloud shadows, sun-coloured aerial haze, vegetation stamps (trees), water reflection and depth tint, per-biome strata. **Not yet decided; discussion continues after this sign-off.** | OPEN |
+
+### 2.9 Open items (not blocking Step 1)
+
+1. The gameplay loop (§2.1).
+2. Underground biome layering and horizontal underground range (§2.2, §2.3).
+3. The palette's own identity (§2.6).
+4. The cinematic pass (§2.8).
+5. Sky islands (§2.5).
+6. ~~Hellevator tier layout vs §0.2's `LOD_TIERS = 3`~~. Decided under delegation:
+   **H3** (§5.2), which keeps `LOD_TIERS = 3`.
+
+### 2.10 What this supersedes elsewhere in this document
+
+- §4.2's far band is **4 levels (F0–F3, 3.28 km)**. It is now **5 levels
+  (F0–F4, ~6.55 km)**, drawn as stepped columns.
+- §4.3's "camera up to ~400 m" and its 8-layer surface-following mirror are
+  replaced by **unlimited altitude**, a camera-following mirror, and
+  hellevator coarse tiers (§5.2).
+- §4.1's T now starts with **the world-map stage** (§2.4) and includes the
+  stamp catalogue (§2.5), per-biome strata materials and generated fluids.
+- §4.4's M is split. The **vertical** part (hellevator) is now required. The
+  **horizontal** part (long underground sight lines) stays deferred.
+- §6's order is unchanged for Steps 1–2 (far-band prototype, then generator
+  split); the map stage becomes part of Step 2.
 
 ## 3. Why the current design can't simply be stretched
 
@@ -204,17 +368,76 @@ Build this only if §7's seam test shows the heightfield looks wrong at 290 m �
 at a ~2 m pixel footprint (see §3) is unlikely. It's a phase plus a §0.3
 review; 8.11 costs it at about 1.4 GB of pools and clipmaps (ESTIMATED).
 
-## 5. Cost table
+## 5. Cost table (updated to §2's targets, 2026-09-25)
 
-| Piece | GPU memory | CPU | GPU per frame | Engineering | §0.3 |
+**Every figure here is ESTIMATED unless tagged.** The memory arithmetic reuses
+8.11 §1's ESTABLISHED tier-0 clipmap figure: 64 MB per copy for a 32 × 32 × 4
+chunk window, with two copies.
+
+### 5.1 Summary
+
+| Piece | GPU memory | CPU | GPU per frame | Engineering | Review |
 |---|---|---|---|---|---|
-| T terrain overhaul | 0 | generation re-split; far `S` is cheaper per column than today's | 0 | ~1 phase | generation determinism (review) |
-| F far heightfield | ~21 MB | ~2–3% of one worker core at 60 m/s | **UNKNOWN**: far pixels go from ~free to 20–60 heightfield steps plus a shadow march | ~1 phase | traversal exit (review) |
-| V vertical / altitude | ~+64 MB per mirror copy (8 layers) | small | small (the entry-plane advance saves work) | ~0.5 phase | clipmap Y dims (review) |
-| M mid voxel cascade (deferred) | ~+600 MB (8.11) | coarse chunk generation | tier-1/2 marches | ~1 phase | layout + sync (review) |
+| **T** terrain overhaul: world map, `S`/`D` split, stamp catalogue, per-biome strata, generated fluids | ~4 MB (minimap texture) | map build once per world (~seconds, erosion dominates); ~12 MB RAM for a 1024² map at ~12 B/cell; far `S` cheaper per column than today | 0 | **~2 phases** (was ~1: the map stage, erosion/rivers/lakes and the stamp catalogue are new) | generation determinism (§0.3); **content-hash scope**: `ContentVersionHash()` is global today (ESTABLISHED, `Content.cs:215`), so sizeClass 2's new materials need their own scope or they invalidate sizeClass 0/1 worlds |
+| **F** far heightfield, **5 levels** (F0–F4, 0.8–12.8 m texels, ~6.55 km reach), stepped columns | **~27 MB** (5 × 1024² × 4 B = 20 MB, +33% max-height pyramid) | ~2–3% of one worker core at 60 m/s (unchanged: F0 dominates); F3/F4 filled from the map | **UNKNOWN.** Far pixels go from ~free to a pyramid-accelerated column march plus a shadow march. **At map-view altitude almost every pixel is a far pixel**, so that pose is the worst case. | ~1 phase | traversal exit (§0.3) |
+| **V/H** camera-following mirror + hellevator coarse tiers (§5.2) | **+195 MB** (option H5) or **+302 MB** (option H3) | **coarse generation for everything outside the 204.8 m CPU ring**, with persisted edits applied: a new subsystem, cost unknown | small for the entry-plane advance; shaft rays march coarse tiers (unknown, but only for pixels looking into shafts) | **~1–1.5 phases** (was ~0.5) | clipmap Y dims + tier layout + §3.9 sync (§0.3); **§0.2 `LOD_TIERS` if H5** |
+| **Fl** fluids: Oil, Acid, Sludge, Quicksand, then Steam, then springs/sinks | 0 new (tile pool unchanged, 1024 tiles, 520 MB ESTABLISHED) | reactions and densities in the existing CA | small for the first four; Steam adds a rising pass | **~1 phase** (Steam and springs/sinks are most of it) | fluid op-list format unchanged |
+| **Materials** ~45 new IDs (strata, soils, ice, fluids) | ~0 (256-entry tables) | 0 | 0 | inside T | `PaletteSyncTests` extended |
+| Cinematic pass | TBD | 0 | TBD | TBD (§2.8 open) | — |
+| **M-horizontal** (long underground sight lines; 8.11 Option B) | ~+600 MB (8.11) | coarse chunk generation | tier marches | ~1 phase | **deferred** |
+| Sky islands | own far representation | — | — | — | **deferred** |
 
-**Against the budget:** T + F + V adds about 150 MB to a 1.6 GB footprint
-(ESTIMATED), comfortably inside §11.3. **Frame time is the open risk, not memory.**
+### 5.2 The hellevator: two tier layouts
+
+In both options, the mirror follows the **camera's** height, not the surface.
+Tier 0 grows from 4 to **8 chunk layers (102.4 m, ±51 m)**. Tiers 1 and 2 keep
+today's voxel sizes (0.2 m, 0.4 m), so Amendment 8.9/8.10's horizontal LOD
+behaviour is unchanged. Only their **vertical** extent grows. The XZ footprint
+stays the 409.6 m window. A tier's clipmap scales as (vertical extent) / (brick
+size)³.
+
+| Tier | Voxel | **H5**: 5 tiers, 2× height per tier | **H3**: 3 tiers, 4× height per tier |
+|---|---|---|---|
+| 0 | 0.1 m | ±51 m · 128 MB | ±51 m · 128 MB |
+| 1 | 0.2 m | ±102 m · 32 MB | ±205 m · 64 MB |
+| 2 | 0.4 m | ±205 m · 8 MB | **±819 m** · 32 MB |
+| 3 | 0.8 m | ±410 m · 2 MB | — |
+| 4 | 1.6 m | **±819 m** · 0.5 MB | — |
+| Per copy / ×2 copies | | 170.5 / **341 MB** | 224 / **448 MB** |
+| vs today's (64+8+1)×2 = 146 MB | | **+195 MB** | **+302 MB** |
+
+- **H5** is cheaper and grows detail more gradually (0.8 m blocks at 205–410 m
+  down). But **§0.2 fixes `LOD_TIERS = 3` "never for v1"** (ESTABLISHED,
+  `ARCHITECTURE_v8.6.md:257`), so it needs an explicit spec change.
+- **H3** stays inside §0.2 and reaches the same ±819 m. It costs ~107 MB more
+  and jumps straight from 0.4 m data to "none" at 819 m.
+- Both see the full 500 m depth from the surface. **Neither can be built
+  without the coarse-generation source**, because everything beyond the CPU
+  ring's ±102 m has no resident data (8.11 §3). That subsystem is the real cost
+  of V/H, not the memory.
+- **Recommendation: H3.** It avoids a constitution change for ~107 MB, and
+  §0.2's rule was written for exactly this kind of temptation. Owner decision
+  before V/H is built (§2.9 item 6).
+
+### 5.3 Against the budget
+
+T + F + V/H + minimap adds **~+230 MB (H5) to ~+335 MB (H3)** of GPU memory and
+~12 MB of CPU memory to a 1.6 GB footprint (ESTABLISHED, `PHASE_4_COMPLETION.md`).
+That's **~1.85–1.95 GB, inside §11.3's 3,000 MB**, leaving roughly 1 GB for the
+one term not costed yet:
+
+**NEW RISK, the largest unknown on the memory side: cave-driven dense bricks.**
+Today's dense-brick peak (336,731, ESTABLISHED, 8.11 §4) is for a **surface-only**
+world: `MAX_GENERATED_CHUNK_Y = 0`, and underground chunks are uniform solid
+(sticky-note bricks, near-free). A Terraria-style underground is honeycombed
+with caves, and **every cave wall is a dense brick**. Across a CPU ring 16 chunk
+layers tall, that could multiply the brick pool well past the surface figure.
+Streaming throughput carries the same risk: each column now yields up to 16
+generated chunks instead of 1. **Neither can be estimated honestly without a
+cave density; both must be measured** (added to §7) once `D` exists. If they
+come out too high, cave density or the CPU ring's height becomes the tuning knob.
+
+**Frame time remains the open risk on the GPU side.** Step 1 measures it.
 
 ## 6. Order of work, with gates
 
@@ -242,4 +465,320 @@ review; 8.11 costs it at about 1.4 GB of pools and clipmaps (ESTIMATED).
 4. **Dense-brick peak with 8 mirror layers over mountainous sizeClass-2 terrain**,
    using `BrickDataPool.PeakUsed`, because the "modest" surface-area growth in §4.3
    is an estimate.
-5. Whether the owner's picture of "Palworld-like" matches §2's targets.
+5. ~~Whether the owner's picture of "Palworld-like" matches §2's targets.~~ Done:
+   §2 was rewritten from the owner interview, 2026-09-24/25.
+6. **Cave-driven dense-brick peak and chunks-per-column streaming throughput**
+   (§5.3), with `D` producing caves at the intended density across a CPU ring
+   16 layers tall. `BrickDataPool.PeakUsed` plus the Phase 4 rig's load-deficit
+   line. This decides cave density and ring height, not the other way round.
+7. **Far-band cost at a map-view (top-down, high-altitude) pose**, where
+   nearly every pixel is a far pixel (§2.3: unlimited altitude).
+
+## 8. Step 1 result: the far band on today's world (2026-09-25)
+
+**Verdict: the plan holds.** Built as specified in §4.2 with §2.10's changes (5
+levels, 0.8-12.8 m texels, ~5.6 km Chebyshev reach, stepped columns), opt-in
+with `-farband 1`. Evidence: `run-farband.sh`, logs in `Logs/farband_*`.
+
+**Frame cost (ESTABLISHED, sustained arms: RELEASE, fullscreen, gate 960x540,
+3 min per arm, A B C C B A, mean of 30 s windows):**
+
+| scenario | far OFF | far ON | ON + far shadows | notes |
+|---|---|---|---|---|
+| low orbit, +8 m (13.7 m, always in air) | 49.60 ms | 50.15 (**+0.55**) | 50.43 (**+0.83**) | rep spread <= 0.05 ms; 2.3-3.0 steps per far ray |
+| 300 m orbit, pitched 15 deg | 2.59 | 6.01 (**+3.42**) | 6.90 (**+4.31**) | 514 k far rays/frame, 32-37 steps each |
+| 1 km orbit, pitched 70 deg (map view) | 2.68 | 11.33 (**+8.66**) | 12.90 (**+10.23**) | 479 k far rays/frame, 38-46 steps each |
+| ground orbit (the standard `-sustained` pose) | 36.81 | 38.28 (+1.47, within noise) | 41.67 (+4.86) | **NOT TRUSTED: this orbit passes through rock**, see CLAUDE.md known issues |
+
+The cost lands where it is cheapest to absorb: near the ground the far band is
+~1% of a frame dominated by near shadow rays; at altitude, where it is 60-80% of
+the frame, the whole frame is 6-13 ms because the voxel band has little to draw.
+
+**Seam at 290 m:** photographed at dawn/noon/golden/night (`-farvisual`). Two
+defects found and fixed before measuring: (1) a wall of column faces where the
+voxel band's hysteresis ring is not resident -- the hand-off is now per resident
+chunk column, not per window; (2) haze saturating high views -- replaced by
+exponential-height fog along the ray when the far band is on.
+
+**Memory (ESTABLISHED):** 27.2 MB GPU (rings, mips, staging), matching §5's
+estimate. Ring fill: 1.0-1.5 s at startup (5 x 1 M columns, Burst, parallel);
+strips of 32 x 1024 columns thereafter; 49 MB uploaded over a 3-minute orbit.
+
+**Known gaps (prototype):** no edits/persistence in the rings; point-sampled
+coarse levels (band-limited S lands with Step 2 / TerrainGen); the voxel march's
+290 m distance cap can stop a corner ray before the window edge, and the far
+march then skips that unmarched corner; far terrain does not shadow near terrain.
+
+Full overnight report with screenshots: https://claude.ai/artifact/NtfmpryEEh6t45twdyeJ3M
+
+## 9. Next steps (decided 2026-09-25, owner delegated)
+
+In this order, each with its own measurement before the next starts:
+
+1. **Ground-orbit rig:** keep the historical orbit unchanged; new frame-time
+   claims also run and quote the in-air `-orbitheight 8` arm (CLAUDE.md).
+2. **D brick culling**, then measure a cave-dense chunk's generation cost and
+   the dense-brick peak (§7 item 6). That measurement sets cave density and the
+   CPU ring height.
+3. **Map stage v2:** rivers drained to the sea, lakes filled to spill level,
+   light erosion; then re-run the landmark metric (3.3% today, target all).
+4. **Far band production form:** TerrainGen's band-limited S as the ring
+   source, then edits and persistence.
+5. **V/H:** camera-following mirror with the H3 tiers -- what lets chunks come
+   from TerrainGen.
+
+## 10. Owner play-test diagnosis (2026-09-25, item 1 of the owner's brief)
+
+The owner played `./run-demo.sh` and reported (a) stutter and 25-35 FPS near the
+ground, (b) seams when flying high. Measured with `run-flyfast.sh` (new
+`-flyfast` 60 m/s ping-pong capture, `-farseams` altitude flights, per-frame
+far-band and streamer phase timers, GC counts). ESTABLISHED:
+
+- **(a) The stutter is not the far band.** It is the Playground HUD's blocking
+  `GetData` every ~7.5 frames (CLAUDE.md known issues): >100 ms frames 646 -> 19
+  with `-nohud`. The far band's CPU phases total ~0.05 ms/frame; one whole-level
+  mip rebuild is ~1 ms GPU (isolated with `-farmipstress 5`: +5.0 ms for 5
+  levels/frame), paid on ~22% of frames at 60 m/s. Near-ground cost of the band:
+  +0.41 ms on the in-air `-orbitheight 8` orbit, within noise (spread 1.33).
+- **25-35 FPS is the near band's own cost** at gate 960 with shadows (p50 ~41-43 ms
+  flying at 20 m, far band on or off).
+- Secondary, both far-band independent: `Streamer.Update` is 11-16 ms/frame of
+  main thread at 60 m/s (drain 5.5, cascade 4.3), and 6 gen-0 GCs per second
+  (per-chunk cascade copies, 294 KB each) add ~9 ms to 18% of frames.
+- **(b) At 150/300/1000 m:** no capped-ray holes (voxel-stop view, 0.00% of
+  pixels), no stale rings in flight, no visible F-level transition. Found: a
+  20-30 px band of horizontal tearing where tier 2 hands off to F0 at 150 m
+  (gone with the cascade off; cause not yet isolated), and sub-pixel point-sampled
+  texels at 1 km (level chosen by horizontal distance, not pixel footprint). The
+  far band's texels equal the generator's top voxel column for column
+  (`FarBandSeamOracleTests`, 73,728 columns). Nothing was fixed yet.
+
+### 10.1 Follow-up fixes (2026-09-25, owner: "go ahead and do them")
+
+- **Stutter:** HUD readback made asynchronous (bf9aaba). >100 ms frames 646 -> 16,
+  p99 160 -> 85 ms (HUD on now equals HUD hidden). ESTABLISHED.
+- **1 km shimmer:** far level chosen by pixel footprint as well as distance.
+  Map view 14.26 -> 13.37 ms (-0.89, beyond rep spread), 300 m within noise;
+  luma change under a quarter-pixel nudge -31% at 1 km. ESTABLISHED.
+- **The owner's tier 0 -> 1 "pop":** NOT tier resolution. Pixel-footprint tier
+  bounds (93.5 / 187 m) were built and measured: +7.35 ms/frame on the in-air
+  orbit and no reduction in the tier-1 difference -- reverted, kept as
+  `-tierbounds pixel`. The cause was a **tier-0 clipmap lost-update bug** (CLAUDE.md
+  known issues): 57-94 resident chunks empty on the GPU after a teleport. Fixed;
+  validator 0 LOST; the tier-1 difference vs an all-tier-0 frame halved
+  (11.47 -> 6.41 / 255). The remainder is thin dark streaks in the coarse bands.
+- **Phase 4 rig black frames** since Phase 7 (unset LightBuffer): fixed.
+
+## 11. Plan: the V/H phase -- chunks from TerrainGen (PROPOSED, not started; needs the owner's go-ahead)
+
+**Goal.** The sizeClass 2 island becomes walkable: chunks are generated by
+TerrainGen (S + D + stamps + map v2), the camera can go anywhere from the
+underworld to map view, and the hellevator works (§2.3). Today TerrainGen is
+drawn only by the far band (`-farsource tg2`); the voxel window still holds the
+sizeClass 1 world, one chunk layer tall (`MAX_GENERATED_CHUNK_Y = 0`).
+
+**The measurement that shapes the plan (ESTABLISHED, `Logs/TerrainGen/detail_cull.txt`,
+2026-09-25).** With brick culling, D costs 72 ms per cave-dense 128³ chunk and
+48 ms per near-surface chunk on one thread (Burst). That is fast enough for
+streaming. **The memory is the problem.** A near-surface TerrainGen chunk has
+**1,501 dense bricks of 4,096 (37%)** and an underground chunk **637 (15.6%)**.
+They come from **strata boundaries**, not caves: noisy, tilted band edges cross
+bricks. Today's whole window peaks at 336,731 dense bricks. A 32 × 32 × 16 CPU
+ring with the camera at the surface holds ~8 air layers, one surface layer and
+~8 underground layers: 1,024 × (1,501 + 8 × 637) ≈ **6.7 M dense bricks, ≈ 3.4 GB
+of brick bodies** (ESTIMATED arithmetic from the two measured chunk classes), against
+§11.3's 3 GB for everything.
+§5.3 predicted caves; the real cost is geology.
+
+**Steps, each with its own gate:**
+
+| # | Step | Gate (evidence before the next step) |
+|---|---|---|
+| V0 | **Decide the dense-brick budget** (owner decision below): quantize strata boundaries to brick edges below ~20 m depth, and/or a shorter CPU ring (8 layers, ±51 m), and/or "far-underground = uniform deep rock until approached" | EditMode: dense-brick count per chunk class under the chosen rule; projected ring peak <= §11.3's share |
+| V1 | **Chunk-source seam**: `IChunkSource` with the legacy generator (sizeClass 0/1, byte-identical) and TerrainGen (sizeClass 2). GenMat -> engine material ids (~45 new ids: strata, soils, stamps; `PaletteSyncTests` extended). `ContentVersionHash` scoped per sizeClass (§5.1's open item) | Legacy chunk hashes unchanged (existing determinism tests); LOD-0 oracle over generated chunks (`S` == top solid voxel, `carvesTop` excluded) |
+| V2 | **Vertical streaming**: unpin `camChunk.y`; admit/evict in 3D around the camera; `MAX_GENERATED_CHUNK_Y` becomes the world span (0..86); uniform-air/uniform-rock chunks stay sticky-note cheap | Phase 4 acceptance rig on sizeClass 2 (terrain-only): load deficit 0, Gate C/D identity green, peak upload under §4.3's cap |
+| V3 | **Camera-following mirror, H3 tiers** (§5.2): tier 0 = 8 layers (±51 m) centred on the camera; tiers 1/2 taller (±205 m, ±819 m). +302 MB (ESTIMATED) | Validators (tier 0 + cascades: 0 LOST); `-sustained -orbitheight 8` and a shaft-descent arm, counterbalanced |
+| V4 | **Coarse generation beyond the CPU ring**: tiers 1/2 filled straight from TerrainGen at 0.2/0.4 m (D evaluated at coarse voxel centres, 8-64x fewer calls), with persisted edits applied | EditMode: coarse-from-TerrainGen == downsample-of-full-res within the majority-vote rule; hellevator capture: the shaft floor visible from the top |
+| V5 | **Far band production**: TerrainGen's band-limited S as the ring source for sizeClass 2 (the preview path made real), edits and persistence for far texels | Far LOD-0 seam oracle (as `FarBandSeamOracleTests`, on TerrainGen); `-farseams` at 150/300/1000 m |
+
+**Estimate:** 2-3 phases (V0-V2 one, V3-V4 one, V5 half). Rigs re-baselined
+at the end (§6 step 5, and the natural Unity-upgrade boundary).
+
+**Owner decisions needed before V0:**
+1. The dense-brick rule (quantized deep strata vs shorter ring vs coarse-until-approached).
+2. H3 confirmed (§5.2; delegated default today).
+3. Whether V/H lands before the cinematic pass (§2.8) and before the palette identity (§2.6) is settled -- V1 needs engine colours for ~45 materials.
+
+**Not in V/H:** sky islands (§2.5, deferred), M-horizontal (§4.4), fire.
+
+Reports (2026-09-25): item 1 diagnosis and fixes https://claude.ai/artifact/Fh4pZgxkXXBkEVZ91cKLqQ ·
+fluids https://claude.ai/artifact/TChKqRWKHMPM9unLfSAC17 · TerrainGen features
+https://claude.ai/artifact/6S3bf2n4Py4SrrgG688H8u · status, questions and the V/H plan
+https://claude.ai/artifact/TUhRaksmPswMtNBA6dBjiT
+
+## 12. Owner decisions, 2026-09-25 (evening)
+
+| Question | Decision |
+|---|---|
+| Palette identity (§2.6) | **Gouache Frontier (D)** is the base (`tools/palette_defs.py`). Refined in-game later: per-material shade variants, the slope "salt-and-pepper" surface rule, in-engine lighting. Round 2 compared A / C / D on real terrain, four seeds: https://claude.ai/artifact/UHVE3p9YL5D8iQhFsR4t9w |
+| Cone / needle landforms | **Removed** (owner: "tall cone shaped things ... too unnatural ... not fun for traversal"). Spires, narrow buttes, spike beacons, crystal spires and ridged-noise horns are gone; `StampTests.NoNeedles_OnTheMap` guards it. The first replacement (round domes + a round summit opening) was "too rounded and soft"; the current one keeps sharp linear ridges (`WorldMap.TrimSpikes`, a union of line openings) and uses cuestas, terraced mesas, crags and knolls |
+| World tree | **Off** (`Stamps.WorldTreeEnabled = false`): "looks very weird and out of place ... should be massive ... add after we discuss object placement, which is where I think we do trees". Code and tests kept, gated |
+| §2.5 rule 1, "a landmark on every horizon" | **Kept**: find natural features that meet it (the spikes were the only thing that did: 21.6% of land points before, ~0.3% after) |
+| Minimap | Recommended (not yet confirmed): a baked relief minimap (depth slice underground) always on, plus the 3-D dev map as the full map on a key. "Explored only" comes with gameplay |
+| V/H (§11) | **Go, V0 first**, with an owner check-in before V1 |
+| Frame-rate target | Owner: "ideally 60 fps at 1080p". Today: 47.0 ms (21.3 FPS) on the in-air orbit at 960x540, full shadows (`Logs/flyfast_20260925_173755.txt`). Proposed path, each step measured alone: isolate where the 47 ms goes; temporal reuse (trace a fraction of pixels, reproject the rest); a temporal upscaler (URP STP) to 1080p output; a cached sun-shadow term; a coarse depth pre-pass. Owner asked: is the M1 / 8 GB the minimum spec? |
+
+Report: https://claude.ai/artifact/YDFrpwXtz7XsTzoNbL6N1f
+
+## 13. TerrainGen v3 -- the rethink (PROPOSED 2026-09-25, needs the owner's OK)
+
+**Why.** Owner, after three passes at the landforms: "It looks too unnatural ...
+no varying terrain features ... Is it just a 2D heightmap for the surface and
+digging holes into the ground for caves? ... We want vast terrain that is fun to
+navigate and explore. A challenge too." Correct diagnosis: the surface is noise
+(fBm, ridged) plus shapes bolted on, one height per column; nothing shapes it the
+way erosion shapes real land, and every region is the same recipe.
+
+**Owner constraints (2026-09-25).** No 3-D noise anywhere except as a last resort
+(this includes today's caves: replace them with structured caves). Reference:
+the Minecraft mods Tectonic / Terralith. "Like in One Piece: one island should
+have lots of varying topographies." Palette D stays; V/H continues in parallel.
+
+**Pipeline (all 2-D fields or explicit geometry; no 3-D noise):**
+
+| # | Stage | What it produces |
+|---|---|---|
+| T1 | **Regions** | The island split into ~8-14 organic regions (seeded region graph, 2-D noise borders), each assigned a TOPOGRAPHY ARCHETYPE from a catalogue: alpine range, canyonlands / tablelands, volcanic, rolling highlands, river plains and delta, badlands, dune sea, coastal cliffs / fjords, wetland basin, plateau. Borders become passes, escarpments or valleys |
+| T2 | **Uplift + erosion** | Per-archetype uplift (where land is pushed up) and rock hardness, then a stream-power erosion simulation (implicit, Braun-Willett style) and thermal (talus) erosion on the world map at world creation. Gives branching valley networks, real ridgelines, canyons, alluvial plains -- the Tectonic/Terralith look. Glacial carving (U-valleys) for alpine; layered hardness for canyonlands (cap rock -> mesas, cliff bands) |
+| T3 | **Rivers from the erosion** | Rivers where the flow accumulates, lakes, waterfalls where rivers cross cliffs (replaces today's separate hydrology carving) |
+| T4 | **Structured caves** (replacing the 3-D noise caves) | A cave NETWORK: caverns as placed shapes whose floor and ceiling are 2-D height fields, joined by worm tunnels along generated spline paths with varying radius; entrances into valley walls and cliff bases; the underworld chamber as a floor/ceiling pair of 2-D fields over the lava sea |
+| T5 | **3-D surface character without 3-D noise** | Cap-rock overhangs and undercut cliffs from the hardness layers (the column's open intervals, as arches use today), sea caves and cliff caves (short structured tunnels), slot canyons (2-D carve paths), arches in canyonlands (existing stamps) |
+| T6 | **Detail + landmarks** | 2-D detail octaves per archetype (as now); the §2.5 landmark rule re-measured on the new land (real ridges, cliffs and region contrasts should carry it); the needle guard stays |
+
+**Review loop.** Each stage ends with renders of every region on four seeds (the
+palette-render pipeline) and a far-band flyover, for the owner to judge before
+the next stage. Tests: determinism, the LOD-0 contract (S top == D top except
+openings), the needle guard, region coverage.
+
+**Interaction with V/H.** V1 (chunk-source seam, engine material ids from palette
+D) does not depend on the generator and proceeds. The V0 memory rule is re-measured
+after T4 (the cave network and the new strata change the dense-brick counts).
+
+## 14. Overnight 2026-09-26: what was built, and what V2/V3 needs (FLAGGED)
+
+**Built (see the morning report for evidence):** T4 structured caves (no 3-D noise:
+per-column tunnel / cavern / chamber intervals), T5 valley-wall cave mouths (a
+passage layer below the REGIONAL ground), T6 inselbergs (hard-rock massifs in the
+flat regions), temporal shadow reuse (`-tshadow`), render presets with FSR
+(`RenderPreset.cs`, F3), and V1 (`TerrainGenChunkSource` + the
+`StreamManager.GenerateBaseline` seam; sizeClass 0/1 untouched).
+
+**V2/V3 -- NOT built, and why.** Walking the new island needs the CPU ring to
+follow the camera in Y (V2: `StreamManager` pins `camChunk.y = 0` and admits only
+`cy <= MAX_GENERATED_CHUNK_Y = 0`) and the GPU mirror to follow it too (V3:
+`MIRROR_CHUNKS_Y = 4`, a fixed 51 m slab). Both change FROZEN Phase 4 contracts
+(the §4.4 admission rules, `AboveWorldCeilingTests`, `IslandSpawnTests`,
+`VoxelCollision`'s ceiling rule, the raymarch content ceiling) and carry the V0
+memory risk: a 16-layer ring over the new terrain measures ~2.2 GB of dense
+bricks (R0) or ~750 MB with brick geology below 20 m (R1; 560 MB for an
+8-layer ring), and a camera deep in the cavern layer ~785 MB for half the
+ring (R1), against today's 366 MB pool (`Logs/TerrainGen/v0_dense_bricks.txt`,
+after the cavern-site fix of 2026-09-26). That is a redesign by CLAUDE.md's own definition, so it is proposed,
+not done:
+
+1. V2 behind a per-world flag (`sizeClass 2` only): ring origin Y =
+   camChunk.y - 8; admit layers within +-3 of the camera's layer and the surface
+   layers of each column (from the map), never the air above the top; R1 brick
+   geology on; pool cap raised to the measured need (owner decision: memory).
+2. V3: mirror Y origin follows the camera (a toroidal Y slot, like X/Z today),
+   MIRROR_CHUNKS_Y 4 -> 8 (+~70 MB), content ceiling from the map's max height.
+3. Gates: every existing Phase 4 gate unchanged on sizeClass 1; a sizeClass 2
+   acceptance run (deficit 0, uploads under §4.3's cap), a walk + a shaft
+   descent, the lifted-orbit frame time.
+
+### 14.1 Results by morning (2026-09-26)
+
+- **60 FPS.** The Playground opens on `RenderPreset.Performance` (URP FSR 1.0
+  from 480x270 + temporal shadow reuse). Measured through the preset's own
+  code path (`run-perf60.sh` PP/PPd/PB, 1080p fullscreen RELEASE, in-air orbit,
+  far band + far shadows, live fluid, 3 min, 2 counterbalanced reps):
+  Performance 15.1-15.6 ms (~65 FPS), pitched 12 degrees at the ground
+  16.8 ms (59.5 FPS), Balanced 19.7-19.8 ms (50.6 FPS). Yesterday's shipped
+  path was 55.2 ms. `Logs/perf60_20260926_031103.txt`.
+- **The frame-time TAIL is not fixed.** While the camera translates, 8-10% of
+  frames exceed 33 ms. Not the fluid (-nofluid unchanged) and not the HUD
+  (-nohud unchanged); the one valid still-camera arm had the same mean
+  (13.7 ms) and ~0 frames > 33 ms, so translation (streaming) is the lead
+  suspect -- not proven. Three other still-camera arms went black at the arena
+  pose (the fluid demo buries a camera that stays put) and are void.
+  `Logs/perf60_20260926_0339*.txt`, `_041648.txt`.
+- **V1 found a real bug:** `FarField.GenToEngine` mapped `GenMat.Air` to Stone.
+- **Landmarks, round 2:** inselbergs in every region outside the mountains
+  (1.1 km cells, 85%, 90-160 m). 19 -> 40 local summits (a flat-topped massif
+  counts several times, so ~30 distinct); all 4 sectors within 3 km 1.5% ->
+  2.2%; points seeing NONE within 3 km 48% -> 33%. Needles unchanged (worst
+  22 m). The rule as measured (a summit >= 60 m over its 1 km mean, in every
+  90-degree sector within 1.5 km, line of sight from 2 m) stays far off: on a
+  6 km island it needs a distinct massif roughly every kilometre. Whether that
+  density is wanted, or whether ridges / escarpments should count as
+  landmarks, is the owner's call.
+- **Caves look primitive.** Per-column intervals give vertical cavern walls;
+  2-4 m tunnels do not read at report scale. Shaped walls (per-column interval
+  slopes, ledges) are the next cave step, still without 3-D noise.
+
+
+Report: https://claude.ai/artifact/NW5Qu7uu6mPW7ruvcf5PSF
+
+## 15. V2 + V3: the walkable TerrainGen island (owner: "walkable island first", "max 3 GB", 2026-09-26)
+
+**Why this was needed at all** (owner: "I thought we built the system to be
+modular and terrain agnostic"). It is agnostic in WHAT it generates -- V1
+swapped the generator behind one seam with no engine change. It was not
+agnostic in how TALL the world is: Phase 4's world fit one 12.8 m chunk layer,
+so the ring pinned Y at layer 0, only layer 0 generated
+(`MAX_GENERATED_CHUNK_Y = 0`), the GPU mirror was a fixed 51 m slab, and the
+shader's floor/ceiling were 0/128. TerrainGen's island spans ~1.1 km. V2/V3
+make the height a property of the world instead of a constant. Every change
+below is gated on the world (`-world tg2`, sizeClass 2); sizeClass 0/1 take
+exactly the old values on every path.
+
+**Design.**
+1. *Band.* A stream layer follows the camera's chunk layer with a lag of one
+   (`V_STREAM_LAG`), so a walk across a layer boundary does not evict and
+   reload a layer. Chunks load for layers stream +- 3 (`V_LOAD_LAYERS`),
+   clipped to [0, the map's content bound]; they evict as soon as they leave
+   it (the lag is the hysteresis). `StreamManager.LayerRange` is the one place
+   every loop reads.
+2. *Air fast path.* A chunk wholly above every column's max(ground, water,
+   sea) is uniform air without the 2 M-voxel pass; the column's top is
+   memoised per chunk column, so layers above the ground cost ~0 ms after the
+   first. `MaxStep` is read from a 130^2 grid of the column samples
+   (bit-identical; exactness test). Measured (Editor): column pass 49 -> 24 ms,
+   air chunks 49 -> 0 ms, underground 66-80 -> 43-58 ms.
+3. *Mirror.* 8 layers (`TG2_MIRROR_CHUNKS_Y`), toroidal in Y exactly as in
+   X/Z, origin = stream - 4, strictly containing the 7-layer band (asserted).
+4. *Shader.* `_ContentFloorVoxelY` joins `_ContentCeilingVoxelY`; both are set
+   every frame to the loaded band. The far band now yields to the voxel march
+   only for hits INSIDE the band: a valley floor under a summit, or a cliff
+   above a canyon, is drawn by the heightfield. Flat worlds: band [0, 128),
+   which holds every surface, so the old rule exactly.
+5. *Far band.* A sizeClass 2 world fills its rings from TerrainGen ALIGNED
+   (offset 0, no sea shift -- the preview's shifts stay for `-farsource tg2`),
+   borrowing the chunk source's map (one ~25 s build, not two). A column is
+   "resident" to the far march only when its whole band is.
+6. *Memory.* Brick bodies cost twice (the GPU buffer mirrors the pool slot for
+   slot). First sizing: pool 1.2 M bricks (614 MB x 2), cascade tiers 2x the
+   flat world's; `run-tg2world.sh` records the process's phys_footprint
+   against the 3 GB cap, and the caps get set from the measured peaks.
+7. *Collision.* The "above generated content is air" rule reads the world's
+   content bound (`StreamManager.ContentTopChunkY`).
+
+**Known limits (first cut).** A voxel pixel's sun ray stops at the band's
+ceiling, so terrain above the band does not shadow it yet (continuing that ray
+into the far band is the fix). Caves outside the band are not drawn (the far
+band is a heightfield). Flying faster than generation (~100 chunks/s on 7
+workers) leaves the far band showing until the band catches up.
+
+**Tests.** `VerticalStreamingTests` (the band follows with lag, deficit 0,
+nothing outside the band, fits the mirror, air fast path, collision ceiling);
+`TerrainGenChunkSourceTests.AirFastPath_IsExact_AndChunkCostIsReported`.

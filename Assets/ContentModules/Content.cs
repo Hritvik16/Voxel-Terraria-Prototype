@@ -35,6 +35,15 @@ using System.Text;
 public static class Materials
 {
     public const byte Air         = 0;
+
+    /// The TerrainGen (sizeClass 2) world's own materials, palette D (owner
+    /// locked it 2026-09-25): engine id = TG2_BASE + the TerrainGen GenMat code
+    /// (128..223). Fluids are NOT in this block -- they keep the ids above,
+    /// where their behaviour lives. Colours: MaterialPalette's generated TG2
+    /// tables (tools/gen-tg2-materials.py). Unreachable from the legacy
+    /// generator, so no legacy content hash changes.
+    public const byte TG2_BASE = 128;
+    public static byte FromTg2(byte genMat) => (byte)(TG2_BASE + genMat);
     public const byte Water       = 6;  // MaterialData.flags bit0 IsFluid (A.7)
     public const byte Stone       = 2;  // legacy id — do not renumber
     public const byte Grass       = 3;
@@ -85,6 +94,19 @@ public static class Materials
     public const byte TorchBlue   = 15;
     public const byte TorchGreen  = 16;
     public const byte TorchPurple = 17;
+
+    // ---- DESIGN_LARGE_WORLD §2.7 fluids (ADDITIVE; nothing above renumbered) ----
+    // Oil floats on water (density layering), Acid dissolves stone and is
+    // consumed, Toxic sludge glows through the aggregate-light path (never per-
+    // voxel lights), Quicksand is the slow viscosity tier, Steam rises.
+    // Absent from ContentVersionHash() for the Lava/Honey precedent: sizeClass
+    // 0/1 generation never places them. TerrainGen (sizeClass 2) will, and its
+    // own content scope is the open item named in the design doc §5.1.
+    public const byte Oil         = 18;
+    public const byte Acid        = 19;
+    public const byte Sludge      = 20;
+    public const byte Quicksand   = 21;
+    public const byte Steam       = 22;
 }
 
 public struct BiomeDefinition

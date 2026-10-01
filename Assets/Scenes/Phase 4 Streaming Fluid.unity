@@ -293,6 +293,11 @@ MonoBehaviour:
   _cycleIterCapKey: 111
   _toggleAirMipUploadModeKey: 108
   _toggleStrippedKernelKey: 107
+  _scrubBackKey: 44
+  _scrubForwardKey: 46
+  _cycleShadowLevelKey: 106
+  _goldenHourKey: 110
+  _scrubHoursPerSecond: 3
   _force1080pWindowOnStart: 0
 --- !u!114 &330585552
 MonoBehaviour:

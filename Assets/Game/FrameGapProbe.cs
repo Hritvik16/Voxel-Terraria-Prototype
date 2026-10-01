@@ -68,6 +68,17 @@ public class FrameGapProbe : MonoBehaviour
     private readonly List<double> _setDataCalls = new List<double>(CAPACITY);
     private readonly List<double> _uploadBytes  = new List<double>(CAPACITY);
     private readonly List<double> _streamerMs   = new List<double>(CAPACITY);
+    // 2026-09-26 (the moving-camera tail): far-band upkeep and chunks admitted,
+    // the two streaming suspects a still camera does not exercise.
+    private readonly List<double> _farMs        = new List<double>(CAPACITY);
+    private readonly List<double> _admitted     = new List<double>(CAPACITY);
+    public static double LastFarMs;
+    public static int LastAdmitted;
+    /// The streamer's phases this frame (ms): slide, dispatch, drain, transfer
+    /// (inside drain), valve, sweep, clipmap upload, cascade upload.
+    public static readonly double[] LastStreamPhases = new double[8];
+    public static readonly string[] StreamPhaseNames = { "slide", "dispatch", "drain", "transfer", "valve", "sweep", "upload", "cascade" };
+    private readonly List<double[]> _phases = new List<double[]>(CAPACITY);
 
     /// Published by the rig once per frame from LastUploadStats. Read at
     /// end-of-frame so it lands on the same frame the intervals describe --
@@ -121,6 +132,9 @@ public class FrameGapProbe : MonoBehaviour
                 _setDataCalls.Add(LastSetDataCalls);
                 _uploadBytes.Add(LastUploadBytes);
                 _streamerMs.Add(LastStreamerMs + LastCoalescerMs);
+                _farMs.Add(LastFarMs);
+                _admitted.Add(LastAdmitted);
+                _phases.Add((double[])LastStreamPhases.Clone());
             }
             _tEofPrev = tEof;
             _armed = false;
@@ -133,7 +147,7 @@ public class FrameGapProbe : MonoBehaviour
     {
         _frameMs.Clear(); _unscaledMs.Clear(); _preUpdate.Clear(); _update.Clear(); _postLate.Clear();
         _gc0.Clear(); _gc1.Clear(); _gc2.Clear(); _heapMb.Clear();
-        _setDataCalls.Clear(); _uploadBytes.Clear(); _streamerMs.Clear();
+        _setDataCalls.Clear(); _uploadBytes.Clear(); _streamerMs.Clear(); _farMs.Clear(); _admitted.Clear(); _phases.Clear();
     }
 
     private static string Fmt(double r) => double.IsNaN(r) ? "n/a" : r.ToString("+0.000;-0.000");
@@ -205,12 +219,13 @@ public class FrameGapProbe : MonoBehaviour
             int bandN = Math.Max(1, _frameMs.Count / 100);
             double bPre = 0, bUpd = 0, bPost = 0, bTot = 0;
             int bGc0 = 0, bGc1 = 0, bGc2 = 0;
-            double bStream = 0, bBytes = 0, bCalls = 0;
+            double bStream = 0, bBytes = 0, bCalls = 0, bFar = 0, bAdm = 0;
             for (int k = 0; k < bandN; k++)
             {
                 int i = order[k];
                 bPre += _preUpdate[i]; bUpd += _update[i]; bPost += _postLate[i]; bTot += _frameMs[i];
                 bStream += _streamerMs[i]; bBytes += _uploadBytes[i]; bCalls += _setDataCalls[i];
+                bFar += _farMs[i]; bAdm += _admitted[i];
                 if (i > 0)
                 {
                     bGc0 += _gc0[i] - _gc0[i - 1];
@@ -233,6 +248,22 @@ public class FrameGapProbe : MonoBehaviour
                           $"   (if these are 0, GC is NOT the tail)");
             sb.AppendLine($"        band upload: {bBytes / bandN,10:F0} bytes/frame, {bCalls / bandN,6:F1} SetData calls/frame, " +
                           $"streamer {bStream / bandN,6:F2} ms/frame");
+            // The same numbers for the MEDIAN HALF of frames, so the band can be
+            // read against normal rather than against zero.
+            double mStream = 0, mFar = 0, mAdm = 0, mBytes = 0; int mN = 0;
+            for (int k = _frameMs.Count / 4; k < 3 * _frameMs.Count / 4; k++)
+            { int i = order[k]; mStream += _streamerMs[i]; mFar += _farMs[i]; mAdm += _admitted[i]; mBytes += _uploadBytes[i]; mN++; }
+            mN = Math.Max(1, mN);
+            {
+                var bp = new double[8]; var mp = new double[8]; int mc = 0;
+                for (int k = 0; k < bandN; k++) { var ph = _phases[order[k]]; for (int j = 0; j < 8; j++) bp[j] += ph[j]; }
+                for (int k = _frameMs.Count / 4; k < 3 * _frameMs.Count / 4; k++) { var ph = _phases[order[k]]; for (int j = 0; j < 8; j++) mp[j] += ph[j]; mc++; }
+                var ln = new StringBuilder("        streamer phases, band vs median half (ms):");
+                for (int j = 0; j < 8; j++) ln.Append($"  {StreamPhaseNames[j]} {bp[j] / bandN:F2}/{mp[j] / Math.Max(1, mc):F2}");
+                sb.AppendLine(ln.ToString());
+            }
+            sb.AppendLine($"        band far-band upkeep {bFar / bandN,6:F2} ms/frame, chunks admitted {bAdm / bandN,5:F2}/frame   " +
+                          $"| median half: streamer {mStream / mN:F2} ms, far {mFar / mN:F2} ms, admitted {mAdm / mN:F2}, upload {mBytes / mN:F0} B");
         }
 
         // ---- IS THE TAIL DRIFTING UPWARD WITHIN THE RUN? ----

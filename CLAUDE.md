@@ -21,15 +21,42 @@
    (struct layouts) yourself when a task touches memory layout or the state
    machine. Cite the section you're relying on when you make a design choice,
    not just when asked.
+5. **There is NO game-design document.** `ARCHITECTURE_v8.6.md` is the ENGINE
+   architecture only; it defers objects/NPCs/towns/combat to "the second
+   document" (its §5.4, and the at-a-glance cut list), which was never written.
+   Do not cite it for game design. The only written game intent is
+   `DESIGN_LARGE_WORLD_AND_TERRAIN_OVERHAUL.md` §2 (terrain, view distance,
+   palette) plus the owner decisions recorded in its §12-15 and in the
+   2026-10-01 review linked below.
 
 ## Current state (verify, don't trust this note)
 
-Phase 6 is CLOSED and merged. **Phase 7 (lighting & day/night) is built and its
-acceptance gates are green, but it is NOT closed** -- `PHASE_7_COMPLETION.md`
-recommends; the owner closes. EditMode is `PASS 569 FAIL 0` and
-`./run-phase7-rig.sh` reports `PASS 32 FAIL 0` (2026-09-24; Gate 1's rock poses fixed). What Phase 7 still wants is the
-owner's five minutes in the Playground (that document's §12) and answers to its
-§10 flags -- principally which of §6.5's four shadow rungs ships.
+Phases 1-7 are CLOSED and merged (Phase 7: `9b3ee50`, 2026-09-24). The
+large-world / terrain-overhaul work -- TerrainGen v3, the far band, and the
+walkable sizeClass 2 island (`-world tg2`), design doc §12-15 -- was merged to
+`main` on 2026-10-01. EditMode is `PASS 625 FAIL 0 SKIP 2` (2026-10-01; skipped:
+the report-only PaletteSceneExport and the world-tree test, parked while the
+tree is off). `./run-phase7-rig.sh` last reported `PASS 32 FAIL 0` (2026-09-24).
+Phase 7's §10 flags (shadow rung, torch-through-wall, lava light) are still the
+owner's calls.
+
+**Where the project is (2026-10-01).** Owner review:
+https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7 . The tg2
+terrain looks good but is not shaped for play (seed 42: median slope 30°, 73% of
+land "mountainous", 4% open; only the plains are gentle) and the owner wants it
+to play well. The recommended next step is a short game-design brief (world
+structure, planned movement abilities, progression, settlements, fluids,
+signature features, placement), then a rebuild of the surface around play
+(that report's "direction B"). **Do not start new terrain-generator work until
+the owner picks a direction.** Owner intent recorded so far: minimum spec M1
+8 GB; 3 GB process cap; long render distance; natural-looking but NOT bound to
+realistic topography (nothing sticking out); biomes and landform regions are
+INDEPENDENT maps (snow beside desert is intended), biomes should be LARGER and
+not every biome x landform pair need appear in every world; object placement
+will later read the pair from a "world record"; many towns; progression as fun
+as Terraria's, carried by the overworld; spawn not decided (`Tg2Spawn` is a
+Playground placeholder); the player character is a placeholder (don't design
+its movement rules yet -- only a list of planned abilities is wanted).
 
 Phase 4 (streaming & persistence) is functionally correct: all EditMode tests
 pass, admission/eviction/persistence gates are green. Current work is
@@ -253,6 +280,48 @@ real and separate reason — see the LOD-cascade finding in
 
 ## Known open issues (act on these, don't rediscover them)
 
+- **THE TG2 WORLD IS OVER THE 3 GB CAP BEFORE THE PLAYER BUILDS ANYTHING (found
+  2026-09-26, NOT FIXED).** Peak phys_footprint 3,218-3,814 MB across four runs
+  (`Logs/tg2world_*_mem.txt`). On mountain ground untouched terrain holds
+  ~849k of the 1.0 M brick-pool slots and the LRU valve is already firing
+  (deficit 322-870). Player building is NOT the risk -- §3.6's valve caps that
+  by design; the risk is that generated terrain leaves no headroom and that the
+  pools are sized past 3 GB in total. Measured lever not yet enabled:
+  `TerrainSpec.brickGeologyDepth` at 3 m cuts mountain dense bricks ~45%
+  (`Logs/TerrainGen/v2_mountain_dense.txt`). **No breakdown of the remaining
+  ~2.9 GB exists -- measure one before changing anything.**
+- **NO TG2 FRAME-TIME MEASUREMENT AT WALKING HEIGHT UNDER THE PERFORMANCE
+  PRESET EXISTS.** `run-tg2world.sh` MODE=poses uses the default render path
+  (32-82 ms on the ground); MODE=orbit uses the preset but flies 40 m up
+  (8-17 ms, rising over 2.5 min). Neither is what a walking player sees.
+- **The placeholder player can run up ~70° slopes** (3-voxel step-up on every
+  blocked move, no slope rule, `PlayerMotor.MoveAxisWithStepUp`). Terrain can't
+  be judged as an obstacle until the character is designed -- the owner does
+  NOT want movement rules designed yet.
+- **Phantom geometry: `ClipmapValidator.CountStaleSlots`** (commit `d60d986`)
+  counts mirror positions with no resident chunk that still draw. First use: 1
+  stale slot at one pose, still dirty (queued clear), 0 elsewhere. Not closed.
+
+- **THE STANDARD GROUND `-sustained -motion orbit` PASSES THROUGH ROCK (found
+  2026-09-25, NOT FIXED -- owner's call, it feeds historical comparisons).** The
+  orbit runs at the arena pose's height (eye y = 5.7 m) on a 60 m radius; the
+  terrain there reaches 12 m, so part of every arm is inside hills. Evidence:
+  arms whose end-pose shot is pure black and whose shadow counters read "every
+  pixel traced, 1.0 steps per ray". Arms end in or out of rock depending on
+  frame pacing, which is a large part of that scenario's rep spread (3.8-5.8 ms
+  measured). For an in-air comparison use `-orbitheight 8` (13.7 m, above the
+  tallest terrain): its rep spread was <= 0.05 ms. `run-farband.sh`'s `low8`.
+  **Decided 2026-09-25 (owner delegated):** the historical rig stays exactly as
+  it is, so old comparisons stay valid; every NEW budget or frame-time claim
+  also reports the lifted `-orbitheight 8` arm, and that arm is the one quoted.
+- **Burst vs the EDITOR's Mono are NOT byte-identical for float code (found
+  2026-09-25).** Probe: today's `ColumnSampleJob` differs on 1 of 262,144 columns
+  (`BurstMonoIdentityProbeTests`); TerrainGen's S shows 1-3 ULP differences in
+  plain multiply-add chains (`Logs/TerrainGen/determinism_diag.txt`). The
+  existing "Burst == Mono" benchmark runs in the IL2CPP player, not the Editor.
+  TerrainGen's gate is therefore Burst self-consistency (one compiled path for
+  every authoritative evaluation), with the Editor-Mono rate reported.
+
 - **EVERY PLAYGROUND PROBE HAS BEEN MEASURING INSIDE A HOLE. This is the biggest
   measurement defect found in this project so far.** `TeleportToArena` -- where
   every Playground-based capture mode starts -- puts the camera inside the dug-out
@@ -268,6 +337,58 @@ real and separate reason — see the LOD-cascade finding in
   invalidate load-bearing comparisons in `PHASE_4_COMPLETION.md` and
   `FLUID_*_RESULTS.md`, which is the owner's call. Full analysis in
   `PHASE_7_COMPLETION.md` §K.
+- **TIER-0 CLIPMAP LOST UPDATES AFTER A TELEPORT OR FAST FLIGHT (found and
+  FIXED 2026-09-25).** `TerrainClipmap.UploadDirty` uploads nearest-first; an
+  evicted chunk and its replacement share a toroidal slot, so the replacement
+  uploaded and THEN the eviction's clear wiped it: 57-94 resident chunks with
+  empty GPU slots ("LOST 83,138" in the validator), seen as chunk-shaped holes
+  and as a tier 0 -> 1 "pop" (the coarse tiers still held the chunk). The
+  eviction clear now skips a slot a resident chunk owns. The Phase 4 rig never
+  saw it because it traverses continuously and never teleports; `-lodpop`'s
+  `MirrorDiagnostics` (after a teleport) is the check. Verified 0 LOST.
+- **EVERY PHASE 4 ACCEPTANCE RUN AFTER PHASE 7 RENDERED BLACK (found and FIXED
+  2026-09-25).** Phase 7's `LightBuffer` was bound only when a LightingDriver
+  existed; the acceptance scene has none, Metal SKIPS a dispatch with an unset
+  buffer ("Property (LightBuffer) ... is not set" in the player log), so the
+  frame was black and "frame total" measured an empty frame (1.3 ms). Its CPU/
+  buffer gates stayed valid. A dummy is bound now. **Always open the rig's
+  screenshots** -- 53 PASS / 0 FAIL came with four pure-black PNGs.
+- **THE PLAYGROUND HUD STALLED THE GPU PIPELINE EVERY ~7.5 FRAMES (found
+  2026-09-25, FIXED in bf9aaba: async readback; >100 ms frames 646 -> 16).** The fluid panel
+  calls `ReadSlotCounters` (a blocking `GraphicsBuffer.GetData`) every 15
+  countdown ticks, and the countdown runs from `OnGUI`, which Unity calls
+  twice a frame -- so every 7-8 frames the CPU waits for the whole GPU queue.
+  Near the ground (~45 ms GPU frames) that is a ~150 ms hitch followed by two
+  ~10 ms catch-up frames: THE DEMO'S STUTTER. `-flyfast` at 60 m/s, far band
+  off, HUD on vs `-nohud`: frames > 100 ms 646 -> 19, p99 160 -> 83 ms, mean
+  47.2 -> 45.6 (`Logs/flyfast_20260925_105003.txt`). Every `-sustained` arm
+  defaults to HUD ON, so the per-frame TAIL of any arm before bf9aaba (not its
+  A/B deltas) carries this.
+- **THE INTERACTIVE PLAYGROUND NO LONGER RENDERS THE WAY THE RIGS DO (2026-09-26).**
+  `RenderPreset.Default` is Performance: URP FSR 1.0 from 480x270 plus temporal
+  shadow reuse (`-tshadow`), applied ONLY when no capture flag is present
+  (`Playground.IsCaptureRun`). Every rig still runs the shipped 960 gate
+  unless it passes `-renderpreset`/`-upscale`, so historical comparisons stay
+  like for like -- but a number from a rig is NOT what a player sees, and vice
+  versa. `run-perf60.sh` arms PP/PB/PPd measure the presets' own path. An
+  upscaling preset swaps in an EMPTY URP volume profile (SampleSceneProfile's
+  Bloom/Vignette/tonemap otherwise tints the frame grey once post is on for
+  FSR). Measured: Performance 15.1-15.6 ms, 16.8 ms pitched at the ground,
+  Balanced 19.7 ms, vs 55.2 ms shipped (`Logs/perf60_20260926_031103.txt`).
+- **WHILE THE CAMERA MOVES, 8-10% OF FRAMES EXCEED 33 ms (found 2026-09-26, NOT
+  FIXED).** Present at every preset. Not the fluid (`-nofluid`), not the HUD
+  (`-nohud`). The one valid still-camera arm had the same mean and ~0 such
+  frames, so translation (streaming) is the lead suspect, unproven. Only the
+  per-30 s count exists today (`framesOver33` in sustained.tsv); isolate
+  further (per-frame capture; far band off; streaming budget) before fixing.
+  **`-motion spin`/`static` stay at the ARENA pose (orbitheight moves only the
+  orbit centre), and the fluid demo buries that camera: 3 of 4 such arms ended
+  pure black at "4 ms". Check the end-pose shot of any non-orbit arm.**
+- **`FarField.GenToEngine` IS NOW THE CHUNK MATERIAL TABLE, not only the far
+  band's.** V1 (`TerrainGenChunkSource`, sizeClass 2) maps every voxel through
+  it. It had no case for `GenMat.Air` (the far band never passes one), so air
+  became Stone and every generated chunk was solid to its top -- caught by
+  `TerrainGenChunkSourceTests`. Any new GenMat needs a mapping there.
 - **A SHORT COOLED ARM IS NO LONGER SUFFICIENT EVIDENCE FOR AN FPS CLAIM.** Use
   `-sustained`, which runs continuously for N minutes and reports rolling 30 s
   windows -- the curve is the result, not the endpoint. Thermal throttling was

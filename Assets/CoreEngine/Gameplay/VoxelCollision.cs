@@ -63,8 +63,14 @@ public static class VoxelCollision
     /// apart -- see MAX_GENERATED_CHUNK_Y's own note about its readers going
     /// stale together. The moment generation grows vertically this answer moves
     /// with it, and no separate number needs remembering.
+    ///
+    /// V2: reads StreamManager.ContentTopChunkY, which IS MAX_GENERATED_CHUNK_Y
+    /// for a flat world and the map's content bound for a vertically streamed
+    /// one. Between the loaded band and that bound a non-resident chunk is
+    /// unknown (a mountain may be there), so it stays fail-closed like the
+    /// horizontal streaming edge.
     public static bool AboveGeneratedContent(int3 voxel)
-        => CoordMath.VoxelToChunk(voxel).y > VoxelEngine.Streaming.StreamManager.MAX_GENERATED_CHUNK_Y;
+        => CoordMath.VoxelToChunk(voxel).y > VoxelEngine.Streaming.StreamManager.ContentTopChunkY;
 
     public static bool IsBlocking(IWorldQuery world, IVoxelResidency residency, int3 voxel)
     {

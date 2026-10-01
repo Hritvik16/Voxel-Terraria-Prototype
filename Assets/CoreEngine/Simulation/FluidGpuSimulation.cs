@@ -61,10 +61,13 @@ namespace VoxelEngine.Simulation
         public int dx, dy, dz;
         public uint material;      // [7:0] new, [8] wake, [23:16] expected at dst
         public int sx, sy, sz;
-        public uint flags;         // [0] HAS_SRC
+        public uint flags;         // [0] HAS_SRC, [1] SWAP
 
         public const int SizeBytes = 32;
         public const uint HAS_SRC = 1u << 0;
+        /// §2.7 density swap: src receives ExpectedAtDst (the lighter fluid)
+        /// instead of Air. Same 32-byte record; a new flag value only.
+        public const uint SWAP = 1u << 1;
         public const uint WAKE = 1u << 8;
 
         public int3 Dst => new int3(dx, dy, dz);
@@ -72,6 +75,7 @@ namespace VoxelEngine.Simulation
         public byte NewMaterial => (byte)(material & 0xFFu);
         public byte ExpectedAtDst => (byte)((material >> 16) & 0xFFu);
         public bool HasSrc => (flags & HAS_SRC) != 0u;
+        public bool IsSwap => (flags & SWAP) != 0u;
         public bool Wake => (material & WAKE) != 0u;
     }
 
@@ -213,6 +217,26 @@ namespace VoxelEngine.Simulation
             everAllocated = _counterScratch[1];
         }
 
+        /// NON-BLOCKING twin of ReadSlotCounters, for per-frame UI. Issues one
+        /// AsyncGPUReadback of the counters when none is in flight; the value
+        /// lands a few frames later in LastLiveSlots. ReadSlotCounters' GetData
+        /// waits for the whole GPU queue to drain -- called from the Playground
+        /// HUD every ~7.5 frames it was the demo's 150 ms stutter (2026-09-25,
+        /// -flyfast: frames > 100 ms 646 with it, 19 without).
+        public void RequestSlotCountersAsync()
+        {
+            if (_counterReadInFlight || _counters == null) return;
+            _counterReadInFlight = true;
+            AsyncGPUReadback.Request(_counters, req =>
+            {
+                _counterReadInFlight = false;
+                if (!req.hasError) LastLiveSlots = req.GetData<uint>()[0];
+            });
+        }
+        private bool _counterReadInFlight;
+        /// highWater from the most recent landed RequestSlotCountersAsync.
+        public uint LastLiveSlots { get; private set; }
+
         /// Slot indices currently sitting in A.5's free list, waiting to be
         /// reused. With recycling working, a region that has settled should show
         /// this rising back toward highWater -- that is what "sleep returns
@@ -269,7 +293,7 @@ namespace VoxelEngine.Simulation
 
             Add(_slots); Add(_freeList); Add(_claim); Add(_slotAt); Add(_reacted);
             Add(_wakeMark); Add(_counters); Add(_wakeRequests); Add(_debugCounters);
-            Add(_materialFlags); Add(_materialTick); Add(_reactSelf); Add(_reactOther);
+            Add(_materialFlags); Add(_materialTick); Add(_reactSelf); Add(_reactOther); Add(_densityRank);
             Add(_tileDirectory); Add(_tileCoords); Add(_activeTileSlots); Add(_dummyTileBuf);
             for (int i = 0; i < RING; i++) { Add(_ops[i]); Add(_opCounters[i]); }
             return total;
@@ -289,6 +313,7 @@ namespace VoxelEngine.Simulation
         public int ActiveTileCount => _activeTileCount;
 
         private GraphicsBuffer _materialFlags;
+        private GraphicsBuffer _densityRank;   // §2.7, MaterialRules.DensityRank
         private GraphicsBuffer _materialTick;
         private GraphicsBuffer _reactSelf;
         private GraphicsBuffer _reactOther;
@@ -534,6 +559,7 @@ namespace VoxelEngine.Simulation
         {
             var flags = new uint[256];
             var interval = new uint[256];
+            var rank = new uint[256];
             var reactSelf = new uint[256 * 256];
             var reactOther = new uint[256 * 256];
             for (int i = 0; i < reactSelf.Length; i++) reactSelf[i] = 0xFFFFFFFFu;
@@ -542,6 +568,7 @@ namespace VoxelEngine.Simulation
             {
                 flags[m] = MaterialRules.Flags((byte)m);
                 interval[m] = MaterialRules.TickInterval((byte)m);
+                rank[m] = MaterialRules.DensityRank((byte)m);
                 for (int o = 0; o < 256; o++)
                 {
                     if (!MaterialRules.TryGetReaction((byte)m, (byte)o,
@@ -555,6 +582,8 @@ namespace VoxelEngine.Simulation
             _materialTick  = New(GraphicsBuffer.Target.Structured, 256, 4);
             _reactSelf     = New(GraphicsBuffer.Target.Structured, 256 * 256, 4);
             _reactOther    = New(GraphicsBuffer.Target.Structured, 256 * 256, 4);
+            _densityRank   = New(GraphicsBuffer.Target.Structured, 256, 4);
+            _densityRank.SetData(rank);
             _materialFlags.SetData(flags);
             _materialTick.SetData(interval);
             _reactSelf.SetData(reactSelf);
@@ -929,6 +958,7 @@ namespace VoxelEngine.Simulation
                 _cs.SetBuffer(k, "MaterialTickInterval", _materialTick);
                 _cs.SetBuffer(k, "ReactionSelfProduct", _reactSelf);
                 _cs.SetBuffer(k, "ReactionOtherProduct", _reactOther);
+                _cs.SetBuffer(k, "MaterialDensityRank", _densityRank);
             }
         }
 
@@ -1032,7 +1062,7 @@ namespace VoxelEngine.Simulation
             }
             _debugCounters?.Dispose(); _debugCounters = null;
             _materialFlags?.Dispose(); _materialTick?.Dispose();
-            _reactSelf?.Dispose(); _reactOther?.Dispose();
+            _reactSelf?.Dispose(); _reactOther?.Dispose(); _densityRank?.Dispose(); _densityRank = null;
             _slots = _claim = _slotAt = _reacted = _counters = null;
             _wakeRequests = _materialFlags = _materialTick = _reactSelf = _reactOther = null;
         }

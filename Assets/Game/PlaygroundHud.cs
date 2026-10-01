@@ -134,7 +134,7 @@ public class PlaygroundHud : MonoBehaviour
 
     void OnGUI()
     {
-        if (Playground.DebugHideUi) return;
+        if (Playground.DebugHideUi || DevMap.IsOpen) return;
         if (_minimalVisible) DrawMinimalStrip();
         if (!_visible) return;
 

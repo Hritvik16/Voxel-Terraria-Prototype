@@ -196,6 +196,12 @@ public class Playground : MonoBehaviour
     private int3 _arenaOrigin, _arenaCentre;
     private int3 _waterSrc, _sandSrc, _lavaSrc;
     private int _waterLeft, _sandLeft, _lavaLeft;
+    // §2.7: ONE extra vent for whichever other mobile material is selected
+    // (oil, acid, sludge, quicksand, steam). Same emit path and budget style.
+    private const int OtherVentBudget = 6000;
+    private int3 _otherSrc;
+    private int _otherLeft;
+    private byte _otherMat;
     private bool _ready;
     private string _status = "locating a basin in the generated terrain...";
 
@@ -221,10 +227,14 @@ public class Playground : MonoBehaviour
     private static readonly byte[] _brushes =
         { Materials.Water, Materials.Sand, Materials.Lava, Materials.Stone,
           Materials.Sandstone, Materials.Snow, Materials.Torch,
-          Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple };
+          Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple,
+          // §2.7's fluids (2026-09-25), APPENDED: every earlier index is
+          // unchanged (Phase6BrushGuard keys off them). Scroll to reach them.
+          Materials.Oil, Materials.Acid, Materials.Sludge, Materials.Quicksand, Materials.Steam };
     private static readonly string[] _brushNames =
         { "water", "sand", "lava", "stone", "sandstone", "snow", "torch",
-          "blue torch", "green torch", "violet torch" };
+          "blue torch", "green torch", "violet torch",
+          "oil", "acid", "toxic sludge", "quicksand", "steam" };
     private int _brush;
 
     /// Remembers k_soft across the hard/soft toggle so the owner's tuned value
@@ -281,6 +291,17 @@ public class Playground : MonoBehaviour
         _store = Phase4Bootstrapper.Store;
         _clipmap = Phase4Bootstrapper.Clipmap;
         _pool = Phase4Bootstrapper.Pool;
+
+        // RENDER PRESET (RenderPreset.cs; owner, 2026-09-26: 60 FPS). Only an
+        // INTERACTIVE run takes the default: every capture/rig mode keeps the
+        // shipped path unless it asks (-renderpreset / -upscale), so the
+        // historical comparisons stay like for like. Applied BEFORE the arena
+        // search: a failed search yield-breaks out of Start, and the TerrainGen
+        // world's first run lost its preset exactly that way.
+        if (!IsCaptureRun()) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Default));
+        else if (HasArg("-renderpreset")) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Kind.Quality));
+        // The minimap (owner, 2026-09-26: "always in the corner"). F4 hides it.
+        if (GetComponent<Minimap>() == null) gameObject.AddComponent<Minimap>();
 
         if (!TryFindNaturalBasin(out _arenaCentre))
         {
@@ -377,7 +398,9 @@ public class Playground : MonoBehaviour
         if (HasArg("-playgroundshots") || HasArg("-gputrace") || HasArg("-p7stress") ||
             HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
-            HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-looksweep"))
+            HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-looksweep") ||
+            HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-fluidroster") ||
+            HasArg("-devmap"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
@@ -388,12 +411,32 @@ public class Playground : MonoBehaviour
         // panel and a hotbar across them defeats the point.
         if (HasArg("-p7stress") || HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-phase7demo") || HasArg("-roofskipab") || HasArg("-upscaleab") ||
-            HasArg("-lavalight") || HasArg("-looksweep")) DebugHideUi = true;
+            HasArg("-lavalight") || HasArg("-looksweep") || HasArg("-farvisual") ||
+            HasArg("-farpreview") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-fluidroster")) DebugHideUi = true;
 
         RegisterDefaultToys();
+        // The dev map (O). Its own component: it owns the camera and the
+        // keyboard while open, and Update/OnGUI below stand aside for it.
+        if (GetComponent<DevMap>() == null) gameObject.AddComponent<DevMap>();
+
         _ready = true;
         TeleportToArena();
         _status = $"arena at {_arenaCentre} — fluid is FIXED here and does not follow you";
+    }
+
+    /// For overlays (Minimap) that must stay out of capture frames.
+    internal static bool IsCaptureRunForUi => IsCaptureRun();
+
+    private static bool IsCaptureRun()
+    {
+        foreach (string a in Environment.GetCommandLineArgs())
+            if (a.StartsWith("-") && (a == "-sustained" || a == "-playgroundshots" || a == "-gputrace" || a == "-p7stress" ||
+                a == "-daysweep" || a == "-presetshots" || a == "-phase7demo" || a == "-roofskipab" || a == "-upscaleab" ||
+                a == "-lavalight" || a == "-looksweep" || a == "-farvisual" || a == "-farpreview" || a == "-flyfast" ||
+                a == "-farseams" || a == "-lodpop" || a == "-farshimmer" || a == "-fluidroster" || a == "-devmap" ||
+                a == "-stutterprobe" || a == "-lightingab" || a == "-shadowstats" || a == "-pitchsweep" || a == "-fluidbench"))
+                return true;
+        return false;
     }
 
     private static bool HasArg(string flag)
@@ -408,7 +451,7 @@ public class Playground : MonoBehaviour
         Register(new Toy(KeyCode.Tab, "walk/fly", ToggleMode));
         Register(new Toy(KeyCode.V, "vent here", OpenVentAtTarget));
         Register(new Toy(KeyCode.Alpha0, "stop vents", () =>
-            { _waterLeft = _sandLeft = _lavaLeft = 0; _status = "vents closed"; }));
+            { _waterLeft = _sandLeft = _lavaLeft = _otherLeft = 0; _status = "vents closed"; }));
         Register(new Toy(KeyCode.F, "go to arena", TeleportToArena));
         Register(new Toy(KeyCode.R, "respawn on ground", Respawn));
         Register(new Toy(KeyCode.B, "bomb", DetonateAtTarget));
@@ -417,6 +460,15 @@ public class Playground : MonoBehaviour
         Register(new Toy(KeyCode.Z, "tool -", () => CycleTier(-1)));
         Register(new Toy(KeyCode.X, "tool +", () => CycleTier(+1)));
         Register(new Toy(KeyCode.F2, "help", () => _showHelp = !_showHelp));
+        Register(new Toy(KeyCode.O, "dev map (whole island + underground slice)", DevMap.Toggle));
+        Register(new Toy(KeyCode.F3, "render preset: quality / balanced / performance", () =>
+        {
+            var next = (RenderPreset.Kind)(((int)RenderPreset.Current + 1) % 3);
+            RenderPreset.Apply(next);
+            _status = $"RENDER PRESET: {next} ({RenderPreset.InternalWidth(next)} px wide internal" +
+                      (next == RenderPreset.Kind.Quality ? ", nearest blit)" : ", FSR to the screen)") +
+                      (RaymarchFeature.TemporalShadows ? " -- temporal shadows ON" : "");
+        }));
 
         // ================= PHASE 7 (§13, §6.5, §10.3) =================
         // THE THREE POSES THE OWNER HAS TO JUDGE IN MINUTES GET THEIR OWN KEYS.
@@ -481,6 +533,28 @@ public class Playground : MonoBehaviour
         // the §8.1 hot-reload path works.
         Register(new Toy(KeyCode.RightBracket, "next light preset", () => CyclePreset(+1)));
         Register(new Toy(KeyCode.LeftBracket, "prev light preset", () => CyclePreset(-1)));
+
+        // FAR BAND (DESIGN_LARGE_WORLD §4.2). Only does anything when the player
+        // was launched with -farband 1 (run-farband.sh / the demo command).
+        Register(new Toy(KeyCode.C, "far band on/off", () =>
+        {
+            if (VoxelEngine.Rendering.FarField.Active == null) { _status = "far band not built -- launch with -farband 1"; return; }
+            VoxelEngine.Rendering.FarField.RenderEnabled = !VoxelEngine.Rendering.FarField.RenderEnabled;
+            _status = VoxelEngine.Rendering.FarField.RenderEnabled ? "FAR BAND ON (terrain to ~5.6 km)" : "FAR BAND OFF (shipped: sky past 290 m)";
+        }));
+        Register(new Toy(KeyCode.I, "far band view", () =>
+        {
+            // Beauty -> band view (who drew each pixel) -> far step heat -> Beauty.
+            var cur = RaymarchFeature.UseDebugViewOverride ? RaymarchFeature.DebugViewOverride : RaymarchFeature.DebugMode.Beauty;
+            if (cur == RaymarchFeature.DebugMode.FarBand)
+            { RaymarchFeature.DebugViewOverride = RaymarchFeature.DebugMode.FarHeat; RaymarchFeature.UseDebugViewOverride = true;
+              _status = "view: FAR STEP HEAT (blue cheap, red expensive; black = voxel band)"; }
+            else if (cur == RaymarchFeature.DebugMode.FarHeat)
+            { RaymarchFeature.UseDebugViewOverride = false; _status = "view: BEAUTY"; }
+            else
+            { RaymarchFeature.DebugViewOverride = RaymarchFeature.DebugMode.FarBand; RaymarchFeature.UseDebugViewOverride = true;
+              _status = "view: BANDS (blue voxels; far rings F0 green, F1 yellow, F2 orange, F3 red, F4 magenta)"; }
+        }));
 
         Register(new Toy(KeyCode.Y, "lighting view", () =>
         {
@@ -662,7 +736,8 @@ public class Playground : MonoBehaviour
         if (m == Materials.Water) { _waterSrc = cell; _waterLeft = _waterBudget; }
         else if (m == Materials.Sand) { _sandSrc = cell; _sandLeft = _sandBudget; }
         else if (m == Materials.Lava) { _lavaSrc = cell; _lavaLeft = _lavaBudget; }
-        else { _status = "vent: hold water, sand or lava (1/2/3)"; return; }
+        else if (MaterialRules.IsMobile(m)) { _otherSrc = cell; _otherLeft = OtherVentBudget; _otherMat = m; }
+        else { _status = "vent: hold a fluid or sand (water, sand, lava, oil, acid, sludge, quicksand, steam)"; return; }
         _status = $"{_brushNames[_brush]} vent open above {_targetVoxel}";
     }
 
@@ -695,7 +770,11 @@ public class Playground : MonoBehaviour
 
     private int SurfaceY(int x, int z)
     {
-        for (int y = WorldGenConstants.MAX_TERRAIN_HEIGHT + 2; y >= 1; y--)
+        // V2: the TerrainGen world's ground is ~5,000 voxels up and streams in
+        // a band; scan the loaded band. The flat world keeps its exact range.
+        int yTop = Phase4Bootstrapper.IsTg2World ? RaymarchFeature.ContentCeilingVoxelY - 1 : WorldGenConstants.MAX_TERRAIN_HEIGHT + 2;
+        int yBot = Phase4Bootstrapper.IsTg2World ? RaymarchFeature.ContentFloorVoxelY : 1;
+        for (int y = yTop; y >= yBot; y--)
         {
             byte m = _store.GetVoxel(new int3(x, y, z));
             if (m != Materials.Air && !MaterialRules.IsFluidMaterial(m)) return y;
@@ -724,6 +803,11 @@ public class Playground : MonoBehaviour
         if (m == Materials.TorchBlue) return "blue torch";
         if (m == Materials.TorchGreen) return "green torch";
         if (m == Materials.TorchPurple) return "violet torch";
+        if (m == Materials.Oil) return "oil";
+        if (m == Materials.Acid) return "acid";
+        if (m == Materials.Sludge) return "toxic sludge";
+        if (m == Materials.Quicksand) return "quicksand";
+        if (m == Materials.Steam) return "steam";
         return $"id {m}";
     }
 
@@ -787,6 +871,7 @@ public class Playground : MonoBehaviour
     {
         if (!_ready) return;
         if (_cam == null && Camera.main != null) _cam = Camera.main.GetComponent<PlaygroundFlyCamera>();
+        RenderPreset.Tick();
 
         float dt = Time.deltaTime;
         _actAge += dt;
@@ -795,12 +880,21 @@ public class Playground : MonoBehaviour
         // The flycam always owns capture + look; only its MOVEMENT is mode-gated.
         if (_cam != null) _cam.MovementEnabled = _mode == MoveMode.Fly;
 
-        UpdateTarget();
-        foreach (var t in _toys) if (Input.GetKeyDown(t.Key)) t.Run();
-        HandleTimeScrub(dt);
-        HandleHotbarKeys();
-        HandleMouse(dt);
-        DriveWalk(dt);
+        // THE DEV MAP OWNS INPUT WHILE OPEN: no digging, no brushes, no walk
+        // motor rewriting the camera. The simulation below keeps running.
+        if (DevMap.IsOpen)
+        {
+            if (Input.GetKeyDown(KeyCode.O) || Input.GetKeyDown(KeyCode.Escape)) DevMap.Toggle();
+        }
+        else
+        {
+            UpdateTarget();
+            foreach (var t in _toys) if (Input.GetKeyDown(t.Key)) t.Run();
+            HandleTimeScrub(dt);
+            HandleHotbarKeys();
+            HandleMouse(dt);
+            DriveWalk(dt);
+        }
 
         StepChaosBurst();
 
@@ -808,6 +902,7 @@ public class Playground : MonoBehaviour
         Emit(ref _waterLeft, _waterSrc, Materials.Water);
         Emit(ref _sandLeft, _sandSrc, Materials.Sand);
         Emit(ref _lavaLeft, _lavaSrc, Materials.Lava);
+        if (_otherLeft > 0) Emit(ref _otherLeft, _otherSrc, _otherMat);
 
         // §8.5's frame-split drain. One Step per frame is exactly how a real
         // detonation recovers, and it is why a 400K blast does not stall a frame.
@@ -1201,6 +1296,9 @@ public class Playground : MonoBehaviour
 
     internal bool DebugReady => _ready;
     internal int3 DebugArenaCentre => _arenaCentre;
+    /// For PlaygroundCapture only: THE edit path, attached to the GPU fluid sim,
+    /// so a capture's edits wake fluid exactly as the player's do.
+    internal EditService DebugEdits => _edits;
     internal int3 DebugArenaOrigin => _arenaOrigin;
     internal int DebugArenaEdge => _arenaEdge;
     internal string DebugStatus => _status;
@@ -1320,7 +1418,7 @@ public class Playground : MonoBehaviour
 
     void OnGUI()
     {
-        if (DebugHideUi) return;
+        if (DebugHideUi || DevMap.IsOpen) return;
         float ui = Mathf.Max(1f, Screen.height / 900f);
         Camera cam = Camera.main;
 
@@ -1464,7 +1562,6 @@ public class Playground : MonoBehaviour
     /// system, so "is buoyancy doing anything" is answerable at a glance.
     private const int FluidCounterRefreshFrames = 15;
     private int _fluidCounterCountdown;
-    private uint _cachedLiveSlots;
 
     private void DrawStatePanel(float vh)
     {
@@ -1524,19 +1621,20 @@ public class Playground : MonoBehaviour
         long dist2 = (long)d.x * d.x + (long)d.y * d.y + (long)d.z * d.z;
         bool inRadius = FluidActiveRegion.WithinWakeRadius(_arenaCentre, pv, _activeRadiusVoxels);
 
-        // THROTTLED, BECAUSE THIS IS A BLOCKING GPU READBACK.
-        // ReadSlotCounters calls GraphicsBuffer.GetData, which syncs the CPU
-        // to the GPU. The sibling ReadFreeSlotCount carries the warning
-        // "BLOCKING; rigs only" in its own doc comment -- and this was being
-        // called EVERY FRAME from OnGUI, on the render path, purely to print
-        // one number. Now sampled every FluidCounterRefreshFrames and cached.
+        // ASYNC, NOT THROTTLED-BLOCKING. This used to call ReadSlotCounters
+        // (GraphicsBuffer.GetData) every FluidCounterRefreshFrames OnGUI calls.
+        // OnGUI runs at least twice a frame, so that was a full CPU<-GPU sync
+        // every ~7.5 frames: a ~150 ms hitch plus two catch-up frames near the
+        // ground, i.e. the demo's stutter (-flyfast 2026-09-25: frames > 100 ms
+        // 646 with the HUD on vs 19 with -nohud). The async request never
+        // waits; the number it prints is a few frames old, which is fine for
+        // a readout.
         if (--_fluidCounterCountdown <= 0)
         {
-            _fluid.ReadSlotCounters(out uint live, out uint _ever);
-            _cachedLiveSlots = live;
+            _fluid.RequestSlotCountersAsync();
             _fluidCounterCountdown = FluidCounterRefreshFrames;
         }
-        uint liveSlots = _cachedLiveSlots;
+        uint liveSlots = _fluid.LastLiveSlots;
 
         sb.AppendLine("<b><color=#ffd479>── FLUID (§7.2 tiles / §7.4 radius) ───</color></b>");
         sb.Append(Row("tiles", $"{_tiles.ResidentTiles} / {_tiles.TileCapacity} resident   " +
@@ -1611,7 +1709,7 @@ public class Playground : MonoBehaviour
         sb.AppendLine("  <b><color=#ffd479>[</color></b> / <b><color=#ffd479>]</color></b>   cycle LIGHT PRESET — Warm / Atmospheric / HighContrast / Muted / Shipped");
         sb.AppendLine("");
         sb.AppendLine("<b><color=#cfe3f5>VIEW</color></b>");
-        sb.AppendLine("  <b>F1</b> perf overlay      <b>F2</b> these controls      <b>ESC</b> release the mouse");
+        sb.AppendLine("  <b>F1</b> perf overlay      <b>F2</b> these controls      <b>ESC</b> release the mouse      <b>O</b> dev map      <b>F3</b> render preset      <b>F4</b> minimap");
         sb.AppendLine("");
         sb.Append("<color=#9fb6c9>Fluid simulates only inside §7.4's wake radius (shown in the state " +
                   "panel in both voxels and metres). The crosshair box turns grey outside it, and " +

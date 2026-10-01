@@ -801,6 +801,10 @@ public class LightingTests
         {
             Materials.Torch, Materials.Lava,
             Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple,
+            // §2.7 (2026-09-25): toxic sludge, deliberately. A MOBILE emissive:
+            // it lights through the tile aggregate, never as point lights
+            // (FluidRosterTests.Sludge_GlowsThroughTheTileAggregate_...).
+            Materials.Sludge,
         };
 
         foreach (byte m in emissive)
