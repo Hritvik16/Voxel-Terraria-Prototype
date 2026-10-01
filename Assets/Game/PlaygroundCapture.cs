@@ -1767,6 +1767,21 @@ public partial class PlaygroundCapture : MonoBehaviour
     // A circle keeps terrain in frame and the streamer genuinely working for
     // the whole run, which is the load being tested.
     // =====================================================================
+
+    /// -motion walk: eye Y (metres) 1.6 m above the TerrainGen ground or still
+    /// water at (xM, zM). Voxel-exact column (texel 1); carved tops (cave mouths)
+    /// read as the uncarved top, which keeps the eye out of rock. Returns
+    /// `fallbackY` on worlds without a TerrainGen source.
+    private static float WalkEyeY(float xM, float zM, float fallbackY)
+    {
+        var src = Phase4Bootstrapper.Streamer != null ? Phase4Bootstrapper.Streamer.TerrainGenSource : null;
+        if (src == null) return fallbackY;
+        var spec = src.Spec; var view = src.Map.View; var o = src.O;
+        var col = TerrainGen.ShapeField.Sample(in spec, in view, in o, xM * 10f, zM * 10f, 1);
+        int top = math.max(math.max(col.height, col.water), spec.seaLevelY);
+        return (top + 1) * 0.1f + 1.6f;
+    }
+
     private IEnumerator Sustained()
     {
         Screen.SetResolution(1920, 1080, !HasFlag("-windowed"));
@@ -1959,6 +1974,20 @@ public partial class PlaygroundCapture : MonoBehaviour
                 {
                     angle += (speed / Mathf.Max(1f, radiusM)) * Time.deltaTime;
                     cam.transform.position = centre + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radiusM;
+                    var tangent = new Vector3(-Mathf.Sin(angle), 0f, Mathf.Cos(angle));
+                    cam.transform.rotation = Quaternion.LookRotation(tangent, Vector3.up) * Quaternion.Euler(orbitPitch, 0f, 0f);
+                }
+                else if (motion == "walk" && speed > 0f)
+                {
+                    // -motion walk (2026-10-01): the orbit's circle, but at a
+                    // walking player's eye -- 1.6 m above the generated ground
+                    // (or the water surface) under the camera -- so the frame is
+                    // what a player on foot sees. tg2 only: other worlds have no
+                    // TerrainGen ground to sample and keep the orbit's height.
+                    angle += (speed / Mathf.Max(1f, radiusM)) * Time.deltaTime;
+                    Vector3 p = centre + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radiusM;
+                    p.y = WalkEyeY(p.x, p.z, p.y);
+                    cam.transform.position = p;
                     var tangent = new Vector3(-Mathf.Sin(angle), 0f, Mathf.Cos(angle));
                     cam.transform.rotation = Quaternion.LookRotation(tangent, Vector3.up) * Quaternion.Euler(orbitPitch, 0f, 0f);
                 }

@@ -290,10 +290,16 @@ real and separate reason — see the LOD-cascade finding in
   `TerrainSpec.brickGeologyDepth` at 3 m cuts mountain dense bricks ~45%
   (`Logs/TerrainGen/v2_mountain_dense.txt`). **No breakdown of the remaining
   ~2.9 GB exists -- measure one before changing anything.**
-- **NO TG2 FRAME-TIME MEASUREMENT AT WALKING HEIGHT UNDER THE PERFORMANCE
-  PRESET EXISTS.** `run-tg2world.sh` MODE=poses uses the default render path
-  (32-82 ms on the ground); MODE=orbit uses the preset but flies 40 m up
-  (8-17 ms, rising over 2.5 min). Neither is what a walking player sees.
+- **TG2 AT WALKING HEIGHT (first measured 2026-10-01, `MODE=walk
+  ./run-tg2world.sh`: `-motion walk`, a 150 m circle round the spawn at 1.6 m
+  eye height, 5 m/s, Performance preset, 5 min).** 30 s windows 10.0-13.8 ms
+  except a 3.0-3.5 min stretch at 17.8-21.3 ms with 53 frames/1000 over 33 ms
+  (`Logs/tg2world_20261001_151146.txt`). Peak memory 3,328 MB =
+  **1,638 MB IOAccelerator (Metal buffers) + 1,460 MB Untagged (Unity native
+  heap, where the CPU brick pool lives) + ~230 MB the rest**
+  (`..._mem_peak_breakdown.txt`). Per-buffer attribution inside those two
+  categories does not exist yet. `MODE=poses` uses the default render path
+  (32-82 ms on the ground) and is not the walking number.
 - **The placeholder player can run up ~70° slopes** (3-voxel step-up on every
   blocked move, no slope rule, `PlayerMotor.MoveAxisWithStepUp`). Terrain can't
   be judged as an obstacle until the character is designed -- the owner does

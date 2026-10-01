@@ -30,9 +30,15 @@ sleep 30
 # MODE=poses (default): the far-band preview's poses + eye level, photographed.
 # MODE=orbit: -sustained in-air orbit (-orbitheight 8) for MINUTES, Performance
 # preset (the default an interactive session gets), frame time + memory.
+# MODE=walk (2026-10-01): -sustained -motion walk -- the same circle (WALKR m,
+# default 150) at a walking player's eye, 1.6 m above the ground, at 5 m/s,
+# Performance preset. What a player on foot sees; no earlier run measured it.
 if [ "${MODE:-poses}" = "orbit" ]; then
   open -n "$APP" --args -world tg2 -sustained -motion orbit -orbitheight "${ORBITH:-40}" -minutes "${MINUTES:-3}" \
     -gateres 0 -renderpreset performance -farshadow 1 -cleardeltas -tag "tg2orbit_${RUN_ID}" ${EXTRA:-}
+elif [ "${MODE:-poses}" = "walk" ]; then
+  open -n "$APP" --args -world tg2 -sustained -motion walk -orbitradius "${WALKR:-150}" -movespeed 5 -minutes "${MINUTES:-5}" \
+    -gateres 0 -renderpreset performance -farshadow 1 -cleardeltas -tag "tg2walk_${RUN_ID}" ${EXTRA:-}
 else
   open -n "$APP" --args -world tg2 -farpreview -farshadow 1 -cleardeltas ${EXTRA:-}
 fi
@@ -41,15 +47,23 @@ BIN="$APP/Contents/MacOS/Voxel Terraria 1 Byte BrickMap"
 PID=$(pgrep -nf "$BIN" || true)
 echo "player pid ${PID:-none}" | tee -a "$LOG"
 : > "$MEM"
+# 2026-10-01: also keep `footprint`'s per-category breakdown (Malloc,
+# IOAccelerator = Metal buffers, VM_ALLOCATE, ...) of the largest sample, so
+# the peak can be attributed and not just reported.
+MEMPEAK="${MEM%.txt}_peak_breakdown.txt"
+PEAKMB=0
 while [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; do
-  F=$(footprint -p "$PID" 2>/dev/null | grep -i "phys_footprint:" | head -1 | sed 's/.*phys_footprint: *//')
+  FULL=$(footprint -p "$PID" 2>/dev/null)
+  F=$(echo "$FULL" | grep -i "phys_footprint:" | head -1 | sed 's/.*phys_footprint: *//')
   echo "$(date +%T) $F" >> "$MEM"
+  MB=$(echo "$F" | awk '{v=$1; u=$2; if (u=="GB") v*=1024; else if (u=="KB") v/=1024; printf "%.0f", v}')
+  if [ -n "$MB" ] && [ "$MB" -gt "$PEAKMB" ] 2>/dev/null; then PEAKMB=$MB; { echo "$(date +%T) phys_footprint $F"; echo "$FULL"; } > "$MEMPEAK"; fi
   sleep 10
 done
 PEAK=$(awk '{v=$2; u=$3; if (u=="GB") v*=1024; else if (u=="KB") v/=1024; if (v>m) m=v} END{printf "%.0f MB", m}' "$MEM")
-echo "peak phys_footprint: $PEAK   (owner cap 3 GB; samples in $MEM)" | tee -a "$LOG"
-if [ "${MODE:-poses}" = "orbit" ]; then
-  S=$(ls -td "$DATA/Sustained"/*_tg2orbit_${RUN_ID}/ 2>/dev/null | head -n 1)
+echo "peak phys_footprint: $PEAK   (owner cap 3 GB; samples in $MEM; breakdown at peak in $MEMPEAK)" | tee -a "$LOG"
+if [ "${MODE:-poses}" = "orbit" ] || [ "${MODE:-poses}" = "walk" ]; then
+  S=$(ls -td "$DATA/Sustained"/*_tg2${MODE}_${RUN_ID}/ 2>/dev/null | head -n 1)
   if [ -n "$S" ]; then cat "${S}sustained.txt" | tee -a "$LOG"; echo "shots: $S" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
 else
   R=$(ls -td "$DATA/FarBand"/*_world/ 2>/dev/null | head -n 1)
