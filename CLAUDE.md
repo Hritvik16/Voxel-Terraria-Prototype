@@ -21,15 +21,42 @@
    (struct layouts) yourself when a task touches memory layout or the state
    machine. Cite the section you're relying on when you make a design choice,
    not just when asked.
+5. **There is NO game-design document.** `ARCHITECTURE_v8.6.md` is the ENGINE
+   architecture only; it defers objects/NPCs/towns/combat to "the second
+   document" (its §5.4, and the at-a-glance cut list), which was never written.
+   Do not cite it for game design. The only written game intent is
+   `DESIGN_LARGE_WORLD_AND_TERRAIN_OVERHAUL.md` §2 (terrain, view distance,
+   palette) plus the owner decisions recorded in its §12-15 and in the
+   2026-10-01 review linked below.
 
 ## Current state (verify, don't trust this note)
 
-Phase 6 is CLOSED and merged. **Phase 7 (lighting & day/night) is built and its
-acceptance gates are green, but it is NOT closed** -- `PHASE_7_COMPLETION.md`
-recommends; the owner closes. EditMode is `PASS 619 FAIL 0 SKIP 2` (2026-09-26, world-terrain-overhaul; skipped: the report-only PaletteSceneExport and the world-tree test, parked while the tree is off) and
-`./run-phase7-rig.sh` reports `PASS 32 FAIL 0` (2026-09-24; Gate 1's rock poses fixed). What Phase 7 still wants is the
-owner's five minutes in the Playground (that document's §12) and answers to its
-§10 flags -- principally which of §6.5's four shadow rungs ships.
+Phases 1-7 are CLOSED and merged (Phase 7: `9b3ee50`, 2026-09-24). The
+large-world / terrain-overhaul work -- TerrainGen v3, the far band, and the
+walkable sizeClass 2 island (`-world tg2`), design doc §12-15 -- was merged to
+`main` on 2026-10-01. EditMode is `PASS 625 FAIL 0 SKIP 2` (2026-10-01; skipped:
+the report-only PaletteSceneExport and the world-tree test, parked while the
+tree is off). `./run-phase7-rig.sh` last reported `PASS 32 FAIL 0` (2026-09-24).
+Phase 7's §10 flags (shadow rung, torch-through-wall, lava light) are still the
+owner's calls.
+
+**Where the project is (2026-10-01).** Owner review:
+https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7 . The tg2
+terrain looks good but is not shaped for play (seed 42: median slope 30°, 73% of
+land "mountainous", 4% open; only the plains are gentle) and the owner wants it
+to play well. The recommended next step is a short game-design brief (world
+structure, planned movement abilities, progression, settlements, fluids,
+signature features, placement), then a rebuild of the surface around play
+(that report's "direction B"). **Do not start new terrain-generator work until
+the owner picks a direction.** Owner intent recorded so far: minimum spec M1
+8 GB; 3 GB process cap; long render distance; natural-looking but NOT bound to
+realistic topography (nothing sticking out); biomes and landform regions are
+INDEPENDENT maps (snow beside desert is intended), biomes should be LARGER and
+not every biome x landform pair need appear in every world; object placement
+will later read the pair from a "world record"; many towns; progression as fun
+as Terraria's, carried by the overworld; spawn not decided (`Tg2Spawn` is a
+Playground placeholder); the player character is a placeholder (don't design
+its movement rules yet -- only a list of planned abilities is wanted).
 
 Phase 4 (streaming & persistence) is functionally correct: all EditMode tests
 pass, admission/eviction/persistence gates are green. Current work is
@@ -252,6 +279,28 @@ real and separate reason — see the LOD-cascade finding in
 `FLUID_PERFORMANCE_AB_RESULTS.md` §3.
 
 ## Known open issues (act on these, don't rediscover them)
+
+- **THE TG2 WORLD IS OVER THE 3 GB CAP BEFORE THE PLAYER BUILDS ANYTHING (found
+  2026-09-26, NOT FIXED).** Peak phys_footprint 3,218-3,814 MB across four runs
+  (`Logs/tg2world_*_mem.txt`). On mountain ground untouched terrain holds
+  ~849k of the 1.0 M brick-pool slots and the LRU valve is already firing
+  (deficit 322-870). Player building is NOT the risk -- §3.6's valve caps that
+  by design; the risk is that generated terrain leaves no headroom and that the
+  pools are sized past 3 GB in total. Measured lever not yet enabled:
+  `TerrainSpec.brickGeologyDepth` at 3 m cuts mountain dense bricks ~45%
+  (`Logs/TerrainGen/v2_mountain_dense.txt`). **No breakdown of the remaining
+  ~2.9 GB exists -- measure one before changing anything.**
+- **NO TG2 FRAME-TIME MEASUREMENT AT WALKING HEIGHT UNDER THE PERFORMANCE
+  PRESET EXISTS.** `run-tg2world.sh` MODE=poses uses the default render path
+  (32-82 ms on the ground); MODE=orbit uses the preset but flies 40 m up
+  (8-17 ms, rising over 2.5 min). Neither is what a walking player sees.
+- **The placeholder player can run up ~70° slopes** (3-voxel step-up on every
+  blocked move, no slope rule, `PlayerMotor.MoveAxisWithStepUp`). Terrain can't
+  be judged as an obstacle until the character is designed -- the owner does
+  NOT want movement rules designed yet.
+- **Phantom geometry: `ClipmapValidator.CountStaleSlots`** (commit `d60d986`)
+  counts mirror positions with no resident chunk that still draw. First use: 1
+  stale slot at one pose, still dirty (queued clear), 0 elsewhere. Not closed.
 
 - **THE STANDARD GROUND `-sustained -motion orbit` PASSES THROUGH ROCK (found
   2026-09-25, NOT FIXED -- owner's call, it feeds historical comparisons).** The
