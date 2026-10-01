@@ -302,9 +302,17 @@ real and separate reason — see the LOD-cascade finding in
   (`Logs/tg2world_20261001_151146.txt`). Peak memory 3,328 MB =
   **1,638 MB IOAccelerator (Metal buffers) + 1,460 MB Untagged (Unity native
   heap, where the CPU brick pool lives) + ~230 MB the rest**
-  (`..._mem_peak_breakdown.txt`). Per-buffer attribution inside those two
-  categories does not exist yet. `MODE=poses` uses the default render path
+  (`..._mem_peak_breakdown.txt`). `MODE=poses` uses the default render path
   (32-82 ms on the ground) and is not the walking number.
+  **Per-owner ledger (`EXTRA=-memledger`, `MemoryLedger.cs`, run
+  `Logs/tg2world_20261001_162217.txt`, peak 3,259 MB):** GPU -- mirror 635 MB,
+  **fluid sim 549 MB (the Playground demo's 750k slots + 1,024 tiles)**,
+  cascades 221 MB, far band 27 MB (1,436 of 1,586 MB IOAccelerator attributed);
+  native -- CPU brick pool 488 MB, cascades 211 MB, far band 12 MB; managed
+  arrays 260 MB (clipmap 148, cascades 46, fluid 43); managed heap 359 MB.
+  **Pools are allocated at CAPACITY**, so fewer dense bricks (e.g. 3 m brick
+  geology) saves memory only if the pool cap is then lowered to the measured
+  need.
 - **The placeholder player can run up ~70° slopes** (3-voxel step-up on every
   blocked move, no slope rule, `PlayerMotor.MoveAxisWithStepUp`). Terrain can't
   be judged as an obstacle until the character is designed -- the owner does
