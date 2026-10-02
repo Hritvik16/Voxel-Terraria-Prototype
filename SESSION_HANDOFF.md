@@ -20,12 +20,18 @@
 - Scope & ETA: https://claude.ai/code/artifact/e649e29b-82eb-42cb-b947-df23073ee081
 - Terrain review: https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7
 
-## Next (in order, once the owner gives the go-ahead)
-1. Queue: `tools/overnight/start.sh --resume` (removes PAUSE, runs in tmux session
-   `overnight`): 01 cliff before/after shot, 02 far-band wall colour.
-2. TAA step 1-2 if the owner ticks the boxes in the TAA proposal.
+## Overnight queue (started 2026-10-02 07:26, tmux session `overnight`)
+- Runner now: one task at a time; a task that stops for the owner, fails or ends
+  without a handoff is set aside in `tools/overnight/blocked/` (its uncommitted
+  edits saved as a patch) and the queue goes on with tasks that don't `Require:`
+  it; each task waits for 15 min of no keyboard/mouse input (IDLE_MIN).
+- Queued: 03 steep far slopes -> rock (owner 2c), 04 cliff band A/B pose,
+  05 TAA shimmer metric, 06 TAA core (needs 05), 07 TAA risk checks (needs 06),
+  08 checkerboard (needs 07). TAA steps 1-3 approved; step 4 (shadow tuning) NOT.
+- Owner decisions 2026-10-02: keep cd28987 (wall rock); 2c; cliff pose yes;
+  follow-up tasks OK; Unity 7 not yet (beta Dec 2026, release Q1 2027).
 
 ## Ready-to-paste prompt for a fresh session
-> Read SESSION_HANDOFF.md and tools/overnight/HANDOFF.md, then wait. Builds are PAUSED
-> until I say go. When I do, run `tools/overnight/start.sh --resume` and report when
-> the queue finishes; don't start anything else.
+> Read SESSION_HANDOFF.md, Logs/overnight/runner.log, tools/overnight/HANDOFF.md
+> and tools/overnight/blocked/. Report what each overnight task did, what is
+> blocked and what I need to decide. Don't start anything else.
