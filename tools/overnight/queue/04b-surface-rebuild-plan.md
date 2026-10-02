@@ -28,10 +28,10 @@ Read (targeted: search / sections, not whole docs):
 
 The plan doc ("Surface rebuild plan", lead sentence = what B builds and in how
 many steps) must contain:
-1. The rules: each B rule (start zone, difficulty zones, large biome zones,
-   region types by flatness, placed landmarks, barriers at zone borders, town
-   sites, erosion as a light valley pass) with its ONE controlling number, its
-   default, and which Decided row of the brief it serves.
+1. The rules: each B rule (start zone, large biome zones, region types by
+   flatness, placed landmarks, town sites, erosion as a light valley pass,
+   danger layout, routes -- see "Owner corrections" below) with its ONE
+   controlling number, its default, and which Decided row of the brief it serves.
 2. Kept as is: caves, rivers, palette D, far band, streaming, determinism
    tests, thick depth layers. Say what each new rule must not break.
 3. The "world record" (what is where: region, biome, landform, features,
@@ -48,6 +48,24 @@ many steps) must contain:
    those; biomes and landform are independent maps).
 7. Questions for the owner: specific multiple-choice, recommendation first,
    batched, only where the brief has no Decided row.
+
+## Owner corrections to direction B (2026-10-02)
+Direction B was written BEFORE the design brief; where they disagree, the brief wins.
+- NO "barriers at zone borders" in the sense of walls that keep the player out.
+  The character will be very mobile (climb, glide, grapple, flight): progress
+  is gated by DANGER and MATERIALS, not walls. A border can be dangerous, never
+  impassable.
+- NO distance-based "difficulty zones". Difficulty = altitude + biome x landform
+  + world progress (brief, Decided). Plan the danger layout from those inputs.
+- ROUTES (owner, 2026-10-02): the easy areas (~10% of land, several areas)
+  must be reachable from each other, and the way between them may cross harder
+  ground. An under-equipped player should be able to cross it, or sneak in and
+  get some loot out, with real risk. Along "routes" between easy areas (not
+  literal roads: corridors of terrain) the danger should be somewhat LOWER than
+  the ground around them. The plan should say how routes are chosen (which easy
+  areas connect, how wide, how much the danger drops, how a player can find one
+  -- landmarks, sight lines) and how this is measured on seeds. The owner flagged
+  this for the rebuild phase: plan it, and put any open choices in item 7.
 
 Finish: HANDOFF.md starting with `STOP_FOR_OWNER`, the plan doc's link, and the
 questions from item 7 copied verbatim (the supervisor moves them into the
