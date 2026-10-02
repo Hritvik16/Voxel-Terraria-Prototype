@@ -20,7 +20,7 @@
 - Scope & ETA: https://claude.ai/code/artifact/e649e29b-82eb-42cb-b947-df23073ee081
 - Terrain review: https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7
 
-## Overnight queue (started 2026-10-02 07:26, tmux session `overnight`)
+## Overnight queue (running since 2026-10-02 08:40, IDLE_MIN=0, nice 10, tmux session `overnight`)
 - Runner now: one task at a time; a task that stops for the owner, fails or ends
   without a handoff is set aside in `tools/overnight/blocked/` (its uncommitted
   edits saved as a patch) and the queue goes on with tasks that don't `Require:`
@@ -31,7 +31,17 @@
 - Owner decisions 2026-10-02: keep cd28987 (wall rock); 2c; cliff pose yes;
   follow-up tasks OK; Unity 7 not yet (beta Dec 2026, release Q1 2027).
 
-## Ready-to-paste prompt for a fresh session
-> Read SESSION_HANDOFF.md, Logs/overnight/runner.log, tools/overnight/HANDOFF.md
-> and tools/overnight/blocked/. Report what each overnight task did, what is
-> blocked and what I need to decide. Don't start anything else.
+## Waiting on the owner
+- 03 BLOCKED (`tools/overnight/blocked/03-*.HANDOFF.md`, commit eac21bd): the far
+  band already uses the voxels' rock rule (agrees with the voxel majority on ~93%
+  of texels), so far and near match; 30 deg slopes are green in both. Question:
+  (a) keep as is / (b) rock from ~45 deg on both (generator change) / (c) from
+  ~30 deg on both (~60% of land turns rock) / (d) far-only dither. Recommended:
+  (a) now; decide slope colour with the movement bands in the surface rebuild.
+- No "Queue decisions" doc yet: the supervisor creates it (tools/overnight/SUPERVISOR.md).
+
+## Ready-to-paste prompt
+> Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the
+> overnight queue as described there until nothing is left that can run without
+> me. Only one agent works on the project at a time; you do no engineering
+> yourself. Put every question for me in the "Queue decisions" doc.
