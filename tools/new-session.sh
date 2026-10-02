@@ -19,10 +19,14 @@ prompt="$(awk '/^## Ready-to-paste prompt/{f=1; next} /^## /{f=0} f && /^>/{sub(
 cmd="cd $(printf '%q' "$PWD") && claude $(printf '%q' "$prompt")"
 target="$(tmux list-sessions -F '#{session_attached} #{session_name}' 2>/dev/null | awk '$1 > 0 {print $2; exit}')"
 if [ -n "$target" ]; then
-  tmux new-window -t "$target" -n "claude-fresh" -c "$PWD" "$SHELL -ic $(printf '%q' "$cmd"); exec $SHELL -i"
+  # "$target:" (trailing colon) = that SESSION, next free window; a bare "0"
+  # reads as window index 0 and fails with "index 0 in use".
+  tmux new-window -t "$target:" -n "claude-fresh" -c "$PWD" "$SHELL -ic $(printf '%q' "$cmd"); exec $SHELL -i" \
+    || { echo "tmux new-window failed"; exit 1; }
   echo "fresh session started in tmux window 'claude-fresh' of session '$target' (C-b w to switch)"
 else
   name="voxel"; tmux has-session -t "$name" 2>/dev/null && name="voxel-$(date +%H%M)"
-  tmux new-session -d -s "$name" -c "$PWD" "$SHELL -ic $(printf '%q' "$cmd"); exec $SHELL -i"
+  tmux new-session -d -s "$name" -c "$PWD" "$SHELL -ic $(printf '%q' "$cmd"); exec $SHELL -i" \
+    || { echo "tmux new-session failed"; exit 1; }
   echo "fresh session started in tmux session '$name' -- attach with: tmux attach -t $name"
 fi
