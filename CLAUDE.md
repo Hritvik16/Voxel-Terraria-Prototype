@@ -148,11 +148,13 @@ current numbers before reasoning about what's slow.
 - **Fresh sessions over long ones.** Every turn re-sends the whole history. At a
   natural stopping point or a task switch, finish and commit the step, write
   `SESSION_HANDOFF.md` (done, evidence, state, next step, a ready-to-paste
-  prompt) and tell the owner in one line that a fresh session will be cheaper.
+  prompt), then START the fresh session yourself with `tools/new-session.sh`
+  (a new tmux window seeded with that prompt) and tell the owner to switch to it
+  and close this one. The owner is on the $20 Pro plan.
   A `UserPromptSubmit` hook (`tools/session-size-hint.sh`) adds this reminder
   automatically each time the transcript grows another 8 MB.
 - **Unattended / overnight work goes in the queue**, one task per file in
-  `tools/overnight/queue/`; `tools/overnight/run-queue.sh` runs each in its own
+  `tools/overnight/queue/`; `tools/overnight/run-queue.sh` (in tmux via `tools/overnight/start.sh`) runs each in its own
   fresh headless session (`--permission-mode auto`), passes
   `tools/overnight/HANDOFF.md` along, stops on `tools/overnight/PAUSE`, a
   failure or `STOP_FOR_OWNER`. When the owner says "pause builds", also `touch`

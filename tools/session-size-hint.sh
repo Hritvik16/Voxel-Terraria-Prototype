@@ -27,7 +27,7 @@ jq -n --arg mb "$mb" '{
   systemMessage: ("Session transcript is ~" + $mb + " MB. A fresh session for the next task is likely cheaper on plan usage."),
   hookSpecificOutput: {
     hookEventName: "UserPromptSubmit",
-    additionalContext: ("SESSION SIZE: this transcript is ~" + $mb + " MB, so every turn re-sends a large history. If the new request is a separate task (or this one is at a natural stopping point), first finish and commit the current step, write SESSION_HANDOFF.md (what was done, evidence, state, next step, and a ready-to-paste prompt for a fresh session), then tell the owner in one line that starting a fresh session with that prompt will save usage. For queued or overnight work, add the task to tools/overnight/queue/ instead (each queued task runs in its own fresh session). Do not stop mid-change to do this.")
+    additionalContext: ("SESSION SIZE: this transcript is ~" + $mb + " MB, so every turn re-sends a large history. If the new request is a separate task (or this one is at a natural stopping point), first finish and commit the current step, write SESSION_HANDOFF.md (what was done, evidence, state, next step, and a ready-to-paste prompt for a fresh session), then run tools/new-session.sh to start the fresh session in tmux and tell the owner in one line to switch to it and close this one. For queued or overnight work, add the task to tools/overnight/queue/ instead (each queued task runs in its own fresh session). Do not stop mid-change to do this.")
   }
 }'
 exit 0

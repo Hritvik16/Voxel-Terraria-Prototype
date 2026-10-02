@@ -21,11 +21,11 @@
 - Terrain review: https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7
 
 ## Next (in order, once the owner gives the go-ahead)
-1. Queue: `rm tools/overnight/PAUSE && tools/overnight/run-queue.sh`
-   (01 cliff before/after shot, 02 far-band wall colour).
+1. Queue: `tools/overnight/start.sh --resume` (removes PAUSE, runs in tmux session
+   `overnight`): 01 cliff before/after shot, 02 far-band wall colour.
 2. TAA step 1-2 if the owner ticks the boxes in the TAA proposal.
 
 ## Ready-to-paste prompt for a fresh session
-> Read SESSION_HANDOFF.md and tools/overnight/HANDOFF.md. Builds are approved again.
-> Run the overnight queue (`rm tools/overnight/PAUSE && tools/overnight/run-queue.sh`)
-> in the background, then report its results; don't start anything else.
+> Read SESSION_HANDOFF.md and tools/overnight/HANDOFF.md, then wait. Builds are PAUSED
+> until I say go. When I do, run `tools/overnight/start.sh --resume` and report when
+> the queue finishes; don't start anything else.
