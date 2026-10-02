@@ -32,6 +32,13 @@
 - Owner decisions 2026-10-02: keep cd28987 (wall rock); 2c; cliff pose yes;
   follow-up tasks OK; Unity 7 not yet (beta Dec 2026, release Q1 2027).
 
+## Owner decisions 2026-10-02 (later)
+- Task 03: answer (a), keep the slope rock rule; closed (4f2ce28).
+- TERRAIN DIRECTION PICKED: **B "Rules for play"** (terrain review section 13); the owner
+  counts D (the design brief) as done. Q2 (a): plan first, then TAA -> task
+  `04b-surface-rebuild-plan` (planning only, writes a Claude Doc, ends STOP_FOR_OWNER).
+  No implementation tasks until the owner approves that plan.
+
 ## Waiting on the owner
 - 03 BLOCKED (`tools/overnight/blocked/03-*.HANDOFF.md`, commit eac21bd): the far
   band already uses the voxels' rock rule (agrees with the voxel majority on ~93%
