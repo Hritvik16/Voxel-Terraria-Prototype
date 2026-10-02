@@ -3,7 +3,7 @@
 #   tools/overnight/watch-task.sh [NAME-prefix]   e.g. 04, 04-cliff-pose-band-ab; none = newest task
 # Task sessions are headless `claude -p` runs: nothing is on screen while they work, but
 # Claude Code writes their transcript to ~/.claude/projects/<project>/<session>.jsonl as they go.
-# Follows the file while that task is the one running (runner.log), then exits.
+# Follows the file while that task is the one running (runner.log), then exits; NOFOLLOW=1 prints and exits.
 # Do NOT `claude --resume` a task session to look at it: typing there starts a second agent.
 cd "$(dirname "$0")/../.." || exit 1
 PROJ=~/.claude/projects/$(pwd | sed 's#[^A-Za-z0-9]#-#g')
@@ -68,7 +68,7 @@ def show(d):
                 for l in r.strip().splitlines()[:3]: print(f"      {D}{l[:150]}{R}")
     sys.stdout.flush()
 
-follow = running(name)
+follow = running(name) and not os.environ.get("NOFOLLOW")
 with open(path) as f:
     while True:
         line = f.readline()
