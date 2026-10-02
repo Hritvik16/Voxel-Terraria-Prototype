@@ -103,8 +103,14 @@ real and separate reason — see the LOD-cascade finding in
   1.25x better score. Same memory, same mirror box. `-centredband` restores the
   V2 rule for A/B; `VerticalStreamingTests` covers both. QA: the cliff that
   needed it (cliff_foot_2, band 46 -> 48) is all voxels in
-  `FarBand/2026-10-01_213438_world`. The A/B shot with -centredband is MISSING
-  (that run's window was closed after ~1 min). Cliffs rising > ~64 m above the
+  `FarBand/2026-10-01_213438_world`. A/B (`-centredband`,
+  `FarBand/2026-10-01_234258_world`, repeat of `_231459`): cliff_foot_1/3 band 44
+  both ways; cliff_foot_2 band 46 (deficit 308 at golden, dense 359539) vs 48
+  (deficit 0, dense 442074) -- but every PNG, cliff_foot_2 golden and _band
+  included, is BYTE-IDENTICAL (md5) to the AFTER run: the frame is ~99% voxels
+  either way (a thin sky strip top-left, no far band, no streaks), so this pose
+  does NOT show the fix; a pose whose visible cliff tops out above layer 49 is
+  needed. Cliffs rising > ~64 m above the
   eye still fall back to the far band -- its walls take the top texel's colour
   (streaks); colouring far-band walls by the rock layers is the next fix.
   Pose QA lesson: cliff poses need the EXACT ground (texel 1); the 0.8 m sample
