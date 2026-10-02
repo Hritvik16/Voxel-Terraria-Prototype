@@ -1963,6 +1963,25 @@ float FarStartT(float3 O, float3 D, float tLimit)
     return tLimit;
 }
 
+// FAR WALL ROCK (2026-10-01): a far column stores ONE surface material, so a
+// side face more than FAR_WALL_LIP voxels below the top would be drawn in the
+// surface's colour (grass/snow streaks down cliffs). Below the soil every
+// biome's rock is its layer-0 STONE (DetailField.BiomeRock(biome, 0)), so map
+// the surface material to that. Engine ids = TG2_BASE (128) + GenMat; a
+// material that is not a soil/cover keeps itself.
+#define FAR_WALL_LIP 15.0
+uint FarWallMaterial(uint fm)
+{
+    switch (fm)
+    {
+        case 138u: case 148u: return 161u;   // Grass, Loam            -> Granite
+        case 140u: case 149u: return 170u;   // Sand, PackedSand       -> OrangeSandstone
+        case 141u: case 150u: return 182u;   // Snow, PackedIce        -> SilverSchist
+        case 139u: case 151u: return 188u;   // JungleGrass, Mud       -> KarstLimestone
+    }
+    return fm;
+}
+
 struct FarHit
 {
     bool  hit;
@@ -3104,6 +3123,8 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
         // visibility 1. The albedo hash is the TEXEL CENTRE, so each far column
         // is one flat-coloured block (§2.3: the far band stays blocky).
         uint fm = (fh.texel >> 16) & 0xFFu;
+        if (fh.normal.y == 0 && (float)(fh.texel & 0xFFFFu) - (rayStart.y + rayDir.y * fh.t) > FAR_WALL_LIP)
+            fm = FarWallMaterial(fm);
         int ftv = 8 << fh.level;
         int3 fvox = int3(fh.cell.x * ftv + (ftv >> 1), (int)(fh.texel & 0xFFFFu) - 1, fh.cell.y * ftv + (ftv >> 1));
         float3 nF = float3(fh.normal);

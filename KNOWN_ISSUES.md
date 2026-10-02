@@ -111,8 +111,21 @@ real and separate reason — see the LOD-cascade finding in
   either way (a thin sky strip top-left, no far band, no streaks), so this pose
   does NOT show the fix; a pose whose visible cliff tops out above layer 49 is
   needed. Cliffs rising > ~64 m above the
-  eye still fall back to the far band -- its walls take the top texel's colour
-  (streaks); colouring far-band walls by the rock layers is the next fix.
+  eye still fall back to the far band -- its walls took the top texel's colour
+  (streaks). FIXED 2026-10-02 (shader only, `Raymarch.compute`
+  `FarWallMaterial`): a far SIDE face > 15 voxels (1.5 m) below its column
+  top is shaded with the biome's layer-0 stone (grass/loam -> granite,
+  sand/packed sand -> orange sandstone, snow/packed ice -> silver schist,
+  jungle grass/mud -> karst limestone; BeachSand and rocks keep themselves);
+  the top 1.5 m keeps the surface material (grass lips). Evidence
+  (`FarBand/2026-10-02_001850_world` vs `_234258`): every `_band` view,
+  cliff_foot_1/2/3 and ledge_view byte-identical; changed pixels in
+  eye_level_2 golden 0.8% (green-dominant 3736 -> 487: the ridge's steep far
+  face is now dark rock, crest grass kept), eye_level_3 0.19%, peak_from_2km
+  0.06%. Only steep steps change: at F0 (0.8 m texels) a 30° slope steps
+  ~0.5 m per column, inside the lip, so gentle far slopes keep their colour.
+  Walk (Performance, `Logs/tg2world_20261002_003414.txt`): 30 s windows mean
+  11.0 ms vs 12.2 ms at 184713 -- unchanged within noise.
   Pose QA lesson: cliff poses need the EXACT ground (texel 1); the 0.8 m sample
   put the eye inside rock (two pure-black frames).
 - **The placeholder player can run up ~70° slopes** (3-voxel step-up on every
