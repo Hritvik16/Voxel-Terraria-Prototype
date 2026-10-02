@@ -16,7 +16,8 @@
 
 ## Documents (owner reads these)
 - Game Design Brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
-- TAA proposal (awaiting approval): https://claude.ai/code/artifact/6745ee4a-4af7-482f-b07d-822e46270918
+- Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
+- TAA proposal (steps 1-3 approved): https://claude.ai/code/artifact/6745ee4a-4af7-482f-b07d-822e46270918
 - Scope & ETA: https://claude.ai/code/artifact/e649e29b-82eb-42cb-b947-df23073ee081
 - Terrain review: https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7
 
@@ -38,7 +39,8 @@
   (a) keep as is / (b) rock from ~45 deg on both (generator change) / (c) from
   ~30 deg on both (~60% of land turns rock) / (d) far-only dither. Recommended:
   (a) now; decide slope colour with the movement bands in the surface rebuild.
-- No "Queue decisions" doc yet: the supervisor creates it (tools/overnight/SUPERVISOR.md).
+- Queue decisions doc (owner questions, done table, answers):
+  https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468 (created 2026-10-02; Q1 = task 03).
 
 ## Ready-to-paste prompt
 > Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the
