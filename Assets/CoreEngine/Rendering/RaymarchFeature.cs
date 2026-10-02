@@ -931,7 +931,11 @@ public class RaymarchFeature : ScriptableRendererFeature
                 builder.AllowPassCulling(false);
                 builder.SetRenderFunc((BlitPassData data, RasterGraphContext context) =>
                 {
-                    Blitter.BlitTexture(context.cmd, data.source, new Vector4(1, 1, 0, 0), 0, false);
+                    // BILINEAR (2026-10-01, owner: moire): 960 -> 1080 is a
+                    // 1.125x scale, and point sampling doubles every 8th row
+                    // and column -- a fixed grid that beats against the
+                    // terrain's own patterns (moire). Bilinear spreads it out.
+                    Blitter.BlitTexture(context.cmd, data.source, new Vector4(1, 1, 0, 0), 0, true);
                 });
             }
         }

@@ -41,9 +41,12 @@ public static class RenderPreset
 {
     public enum Kind { Quality, Balanced, Performance }
 
-    /// The Playground's default (see the header for the measurement behind it).
-    /// Performance: the only preset measured at >= 60 FPS (owner's target).
-    public static Kind Default = Kind.Performance;
+    /// The Playground's default. 2026-10-01, owner (game-design brief): 960x540
+    /// is the MINIMUM internal resolution, so Quality; the work is to make it
+    /// reach 60 FPS. Measured on the tg2 walk: 960 31.5-33.9 ms vs 480
+    /// 12.0-12.2 ms (CLAUDE.md known issues). Performance/Balanced stay
+    /// reachable with F3 and -renderpreset for measurement.
+    public static Kind Default = Kind.Quality;
     public static Kind Current { get; private set; } = Kind.Quality;
     private static VolumeProfile _empty;
     private static bool _applied;
