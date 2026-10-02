@@ -74,6 +74,17 @@ real and separate reason — see the LOD-cascade finding in
   (`FarBand/2026-10-02_111820_nearshimmer/eye_level_2_base.png`); every later
   run at the same eye sees an open valley (median hit 51 m). If it recurs it is
   stale CPU-store content after a jump. Re-run with `EXTRA=-noslope`.
+  NOT REPRODUCED (task 05c, 2026-10-02): two `-noslope` runs (direct
+  eye_level_1 -> eye_level_2 jump), one freshly built
+  (`Logs/nearshimmer_20261002_132001.txt`, shots `FarBand/2026-10-02_132546_nearshimmer/`)
+  and one on the same build (`Logs/nearshimmer_20261002_133003.txt`, shots
+  `FarBand/2026-10-02_133144_nearshimmer/`): eye_level_2 is an open valley in
+  both, median hit 51.4 m, depth bands identical to the baseline; the
+  screenshots match each other and show a cliff on the left and the valley
+  and river beyond. The first run also differed at eye_level_1 (<50 m 56.1% /
+  50-200 m 1.7%, against 46.6 / 15.7 in every later run), and it ran
+  uncommitted pre-`4d0d03c` code, so a difference in the code is a likelier
+  cause than the order of the jumps. Closed unless the wall shows up again.
 
 - **THE TG2 WORLD IS OVER THE 3 GB CAP BEFORE THE PLAYER BUILDS ANYTHING (found
   2026-09-26, NOT FIXED).** Peak phys_footprint 3,218-3,814 MB across four runs
