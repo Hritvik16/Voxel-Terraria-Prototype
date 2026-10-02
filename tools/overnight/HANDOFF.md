@@ -1,51 +1,61 @@
-STOP_FOR_OWNER -- task 04b: the surface rebuild plan is written. It needs your approval and
-11 answers before any B step is queued. Plan: https://claude.ai/code/artifact/f6222d44-1457-4a92-9460-3390d44e75fd
-
-Questions (verbatim from the plan's section 7; answer like "1a 2a 3b"):
-1. How many easy areas per world size? (a) Small 3, Medium 4, Large 6 · (b) 2 / 3 / 4, bigger areas · (c) 4 / 6 / 8, smaller areas
-2. Does biome count in "easy"? The brief is Leaning on land only. (a) Easy is land only, but the start prefers forest or savanna when scores are close · (b) Land only everywhere; the start ignores biome too · (c) Easy areas must also be a mild biome (forest or savanna)
-3. Which easy areas does a route join? (a) A spanning tree plus extra links, so every area has two ways out · (b) A spanning tree only: one way between any two areas · (c) Every area to its two nearest neighbours
-4. How much safer is a route? (a) A 60 m corridor, one danger tier lower, eased to Scramble at worst · (b) A 120 m corridor, one tier lower · (c) A 40 m corridor, two tiers lower
-5. How does a player find a route? (a) Routes follow valleys and passes with the next waypoint in sight. The record flags them so placement can add cairns or ruins later. · (b) A visible landmark at each end only · (c) A worn trail on the ground now (a surface-material change along the centre line)
-6. What replaces the "landmark in every direction within 1.5 km" rule (§2.5 rule 1, kept 2026-09-25)? (a) A signature feature visible within 3 km from 80% of land · (b) Keep the every-direction rule (needs a massif about every km) · (c) Report only, no gate
-7. The 40 inselbergs? (a) Remove them in v4; the pool replaces them · (b) Keep about 10 as minor landmarks · (c) Keep all 40
-8. Town and village sites on a Medium world (Small half, Large double)? (a) 12 towns and 24 villages · (b) 8 and 16 · (c) 20 and 40
-9. How gentle overall? (a) 50% of land in gentle landforms; under 15° at least 50%, steeper than 45° under 10% (the review's proposed targets) · (b) Gentler: 60%, at least 60%, under 5% · (c) Rougher: 40%, at least 40%, under 15%
-10. Savanna and badlands biomes (Decided as the next two)? (a) In this rebuild as B10, after B9, with palette colours for your sign-off · (b) After the rebuild, in their own plan · (c) Early, in B1, so easy land gets savanna from the start
-11. Approve and order? (a) Approve the plan; queue B0 now (EditMode only, no build), then B1 onward after the TAA tasks 05-08 · (b) Approve; all of B after TAA · (c) Approve; B before TAA · (d) Changes first (comment on the doc)
-
 # Overnight handoff
 
-**04b-surface-rebuild-plan: DONE (planning only). One new Claude Doc, "Surface rebuild plan".**
+**05-taa-shimmer-metric: DONE. Near-terrain shimmer metric built, baseline recorded, repeatable to +-0.01.**
+(The 04b STOP_FOR_OWNER questions -- surface rebuild plan, 11 questions -- are still open;
+see commit 82d4416's HANDOFF for them.)
 
-## What changed
-- New Claude Doc (link above). No code, no Unity, no builds, nothing under Assets/.
-- `tools/overnight/HANDOFF.md` (this file), committed on design-brief. No implementation tasks queued.
+## What changed (commit 4d0d03c on design-brief)
+- `Assets/Game/PlaygroundCapture.NearShimmer.cs` (new): `-nearshimmer` capture mode (`-noslope` skips the slope pose).
+- `PlaygroundCapture.FarBand.cs`: the eye-level pose math moved into `Tg2EyeLevelPoses` (same math, shared).
+  `-farshimmer` and its report are untouched.
+- `Playground.cs` / `PlaygroundCapture.cs`: flag added to the capture-flag lists and to the dispatcher.
+- `run-tg2world.sh`: `MODE=shimmer` (`-renderpreset quality`, i.e. the default 960 preset) runs
+  `tools/nearshimmer-report.py` and writes `Logs/nearshimmer_<run>.txt`.
+- `KNOWN_ISSUES.md`: new top entry "NEAR-TERRAIN SHIMMER BASELINE, BEFORE TAA" (full table). One index line in CLAUDE.md.
+- Queued `09-nearshimmer-eye2-wall-check.md` (evidence run only, see below).
 
-## The plan in brief
-- B rebuilds the surface layout-first as `TerrainSpec.mapVersion = 4` (an opt-in `BuildV4`).
-  v3 stays byte-identical. Nine rules, one number each: biome scale x3, gentle-landform
-  share 50%, easy land 10%, start (1 ha flat + water within 300 m), erosion 240 -> 60
-  iterations, the signature pool (S3/M5/L7), towns (M 12 + 24 villages), base danger
-  (altitude thirds + landform class + biome tier, 0-7), routes (corridor danger -1 tier, 60 m).
-- No walls and no distance zones (owner corrections). B6 gates on the danger-vs-distance
-  correlation being at most 0.3 in size.
-- World record: about 6 MB of CPU byte arrays per 8 m cell (landform + depth, biome,
-  water distance, danger + band, flags, site id) plus site lists. It is never saved and
-  regenerates from the seed.
-- Steps B0-B9: B0 = a report-only metrics harness that must reproduce the review's seed-42
-  numbers. B1-B8 = one rule each, gated on numbers over seeds 42/7/2026/31337 (+ a 20-seed
-  sweep at B4/B8). B9 = an in-engine walk/poses evidence run against v3.
-- "Do now" items: all three are done (abilities in the brief; memledger + thick layers + 750k
-  pool; walk measured). Before B1 there is one evidence run: a quiet-machine v3 `MODE=poses`
-  baseline (memory peak, dense bricks per pose).
+## The metric (what task 06 compares ON vs OFF)
+- Poses: eye_level_1..3, plus slope_walk (a candidate from the map, checked on the streamed voxels:
+  centre ray 68.7 m, a cliff 30-80 m away). Noon, clock paused, 960x540 gate, temporal shadows ON.
+- 4 nudges of a QUARTER GATE PIXEL (an offset in `cam.projectionMatrix`: m02/m12), each shot after
+  20 settle frames, plus an unmoved repeat (`_still`) as the noise floor.
+- Depth bands from a CPU DDA through the ChunkStore (1 ray per 4x4 px): near <50 m, mid 50-200 m,
+  far = no voxel hit (sky masked out by the band view, debug mode 9).
+- Report: mean |dL| on 0-255 luma, and % of pixels with |dL| > 24 (the far report's threshold).
 
 ## Evidence
-Sources read: the review's §3-7, §11, §13 and §14; the whole brief; the design doc §2 and
-§12-15; the KNOWN_ISSUES tg2 entries; `WorldMap.BuildV3` and `Regions`/`ShapeField.Biome`/
-`TerrainSpec` (grep). Not measured: every acceptance number in the plan is a target, not
-a result.
+- EditMode: PASS 626 FAIL 0 SKIP 3, 0 `error CS` (before and after). Build OK, 0 Shader error.
+- BASELINE `Logs/nearshimmer_20261002_113842.txt`, mean of poses: near **4.14 / 5.84%**,
+  mid 3.96 / 3.59%, far 6.38 / 8.36%, all non-sky **5.89 / 7.59%**.
+- Repeatability: run B, same build (`Logs/nearshimmer_20261002_114820.txt`), differs in 3 of 64 values, each by 0.01;
+  run 2, an earlier build (`..._112520`), matches too. Noise floor 0.00 everywhere: without TAA a
+  still frame repeats exactly. **The metric is not noisy run-to-run.**
+- Screenshots looked at: slope_walk_base (grass in front, a cliff at ~69 m, sky right); the
+  xP diff map (changes only at sub-pixel voxel edges on the cliff and the grass -- the shimmer);
+  eye_level_2 (open valley, a cliff close on the left); eye_level_3 (mountain, mostly far band).
+  slope_walk shows two small dark shapes floating off the cliff edge -- not investigated.
+- Memory peak 3210-3265 MB (the known tg2 over-3-GB issue, unchanged).
+
+## Bugs met and fixed inside the task
+- A 0.03 deg camera ROTATION never reached the frame (the nudged PNGs were byte-identical), so
+  the nudge is now a projection offset. That is also the jitter TAA uses.
+- Golden hour left the near ground almost black, so the measure moved to noon.
+- The sky colour in the band view is sRGB-encoded (38,38,48), so the mask accepts both encodings.
+- A 3000-frame streaming wait ran out at high FPS (deficit 763), so the wait is now capped in seconds.
+
+## Notes for task 06 (TAA)
+- With TAA ON, the floor will not be 0 (jitter phase). Compare the nudge numbers with the floor.
+- If TAA jitters through `cam.projectionMatrix`, it must ADD to the nudge offset, not replace it
+  (this mode sets the matrix, then calls `ResetProjectionMatrix`).
+- eye_level_1 is dim (low |dL| everywhere), and eye_level_3 is 86% beyond 200 m. The near-terrain
+  signal comes mostly from eye_level_2's near/mid bands and from slope_walk.
+
+## Unfinished / open
+- UNEXPLAINED: in the FIRST run (eye_level_1 -> eye_level_2 as a direct jump), eye_level_2 looked
+  into a wall 0.5-1.4 m away, in the frame AND in the CPU store's depth. That has not been seen since.
+  Task 09 re-runs with `EXTRA=-noslope` to see whether it comes back. If it does, it is stale
+  CPU-store content after a jump: a correctness bug.
+- The committed code adds `-noslope` after the baseline build. Without the flag, behaviour is unchanged.
 
 ## Next step
-Owner answers the 11 questions and approves. The supervisor then queues B0 (and the v3
-poses baseline) as separate tasks.
+Task 06 (TAA core): use `MODE=shimmer` ON vs OFF against this baseline. Task 09 can run first.
