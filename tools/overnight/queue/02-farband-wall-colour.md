@@ -29,3 +29,9 @@ Acceptance (all required; otherwise STOP_FOR_OWNER):
   ~10-15 ms (Performance preset; earlier walks: Logs/tg2world_20261001_18*.txt).
 Commit with the evidence in the message; update KNOWN_ISSUES.md's band entry
 ("Cliffs rising > ~64 m ... next fix") with the result.
+
+Note (2026-10-01 23:40): an earlier attempt was killed before verifying anything.
+Its UNVERIFIED shader edit is saved at
+`Logs/overnight/02-partial-attempt-raymarch.patch` (not applied). You may
+`git apply` it as a starting point, but check its material ids against
+FarField.GenToEngine / GenMat first, and it still needs every acceptance step.

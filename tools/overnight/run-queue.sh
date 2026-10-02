@@ -44,6 +44,7 @@ while [ "$n" -lt "$MAX_TASKS" ]; do
 ## YOUR TASK: $name
 
 $(cat "$task")"
+  hmt0="$(stat -f %m "$DIR/HANDOFF.md" 2>/dev/null || echo 0)"
   waits=0
   while :; do
     say "start $name"
@@ -57,6 +58,11 @@ $(cat "$task")"
     fi
     say "task $name FAILED (rc=$rc) -- stopping the queue; see $out.json / $out.err"; exit 1
   done
+  # A -p session that stops to "wait for a notification" exits with rc 0 and
+  # kills its background jobs (2026-10-01) -- unfinished, not done.
+  if [ "$(stat -f %m "$DIR/HANDOFF.md" 2>/dev/null || echo 0)" = "$hmt0" ]; then
+    say "task $name INCOMPLETE (HANDOFF.md not written) -- left queued; stopping. Result: $(jq -r '.result // ""' "$out.json" 2>/dev/null | head -c 200)"; exit 1
+  fi
   mv "$task" "$D/${ts}_${name}.md"
   say "done $name -- $(jq -r '.result // "no result text"' "$out.json" 2>/dev/null | head -c 300)"
   n=$((n + 1))
