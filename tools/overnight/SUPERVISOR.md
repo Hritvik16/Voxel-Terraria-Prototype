@@ -73,6 +73,13 @@ into SESSION_HANDOFF.md). Sections: Waiting on you (open questions, newest
 first), Done (one row per task), Answered (closed questions). Write findings in
 the doc, not in chat; tell the owner in one line when a new question lands.
 
+## Images in reports (owner, 2026-10-02)
+The owner wants pictures, not only numbers. Every task file that changes what is
+on screen or on the map asks for screenshots or map renders and their paths in
+HANDOFF. In the doc, a Done row names the key image paths, and the final summary
+embeds the few images that show the result (Claude Docs uploads: `guide`
+topic.uploads; look at each image before placing it).
+
 ## Session economy
 Every wake re-sends this session's history. When the size hook says so, or after
 ~10 events: update `SESSION_HANDOFF.md` (state, doc link, the prompt below),
