@@ -128,6 +128,17 @@ real and separate reason — see the LOD-cascade finding in
   11.0 ms vs 12.2 ms at 184713 -- unchanged within noise.
   Pose QA lesson: cliff poses need the EXACT ground (texel 1); the 0.8 m sample
   put the eye inside rock (two pure-black frames).
+  SLOPE RULE (task 03, 2026-10-02) -- NOT CHANGED, owner question open. The
+  bake (`FarField` fill job) already applies the voxel rule:
+  `DetailField.TopMaterial` with `MaxStep` at texel spacing, rock above 1.5.
+  `FarSlopeRockReport` (opt-in, FARSLOPE=1) measured 3000 land texels per
+  level on seed 42: the share of steep VOXEL columns (1-voxel step > 1.5,
+  detail included) in a texel's footprint is 1-3% at texel slope 0.5-0.7
+  (~30°), 20% at 1.0, crosses 50% at ~1.35 on F0, F1 and F2, and is 80%+ above
+  1.9. The bake's 1.5 agrees with the voxel majority on 93% of texels; the best
+  threshold (1.3-1.4) gains under 1 point. So green on a 30° far flank is what
+  the voxels there show too. Turning it to rock means changing the VOXEL rule
+  as well (~60% of land is steeper than 30°), which is an art/terrain decision.
 - **The placeholder player can run up ~70° slopes** (3-voxel step-up on every
   blocked move, no slope rule, `PlayerMotor.MoveAxisWithStepUp`). Terrain can't
   be judged as an obstacle until the character is designed -- the owner does
