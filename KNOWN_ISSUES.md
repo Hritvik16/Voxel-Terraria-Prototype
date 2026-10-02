@@ -161,7 +161,9 @@ real and separate reason — see the LOD-cascade finding in
   above layer 49 cannot be seen from the foot's layer. The shift loads 67k
   more dense bricks that nobody sees. The first AFTER run's cliff_foot_2
   golden read resident 685 / deficit 2462 (the ring was still filling after
-  the jump; noon 3087/0). The first shot after a jump depends on timing. Cliffs rising > ~64 m above the
+  the jump; noon 3087/0). The first shot after a jump depends on timing.
+  Pose dropped by the owner's call (2026-10-02, task 05a); the counts are the evidence.
+  Cliffs rising > ~64 m above the
   eye still fall back to the far band -- its walls took the top texel's colour
   (streaks). FIXED 2026-10-02 (shader only, `Raymarch.compute`
   `FarWallMaterial`): a far SIDE face > 15 voxels (1.5 m) below its column
