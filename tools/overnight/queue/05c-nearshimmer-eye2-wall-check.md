@@ -18,3 +18,5 @@ without BUILD. For each run, read the eye_level_2 line (median hit) in
   KNOWN_ISSUES near-shimmer entry. Done.
 - A wall: record it there with both runs' paths, then STOP_FOR_OWNER (do not
   try to fix streaming in this task).
+
+(Supervisor 2026-10-02: renamed from 09 to 05c so it runs before 06, as asked above.)
