@@ -324,6 +324,13 @@ real and separate reason — see the LOD-cascade finding in
   one-off 3,141 MB spike during the initial fill (`Logs/tg2world_20261001_182253_mem.txt`).
   That run's frame times are CONTAMINATED: load average 46, a WebKit process at
   112% CPU; even all-air poses slowed. Re-measure on a quiet machine.
+  **480 vs 960 internal, quiet machine, ABBA walk arms (2026-10-01,
+  `Logs/tg2world_20261001_18{3250,3741,4224,4713}.txt`, 750k pool):**
+  Performance (480) 12.0 / 12.2 ms mean of 30 s windows (10.0-15.8), <= 8.1
+  frames/1000 over 33 ms; Quality (960) 31.5 / 33.9 ms (24.9-43.4), 135-980
+  frames/1000 over 33 ms. 960 costs ~2.7x 480. The owner set 960 as the
+  minimum internal resolution (game-design brief) -- at 960 the M1 walks at
+  ~30 FPS, not 60.
 - **The placeholder player can run up ~70° slopes** (3-voxel step-up on every
   blocked move, no slope rule, `PlayerMotor.MoveAxisWithStepUp`). Terrain can't
   be judged as an obstacle until the character is designed -- the owner does
