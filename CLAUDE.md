@@ -319,6 +319,11 @@ real and separate reason — see the LOD-cascade finding in
   10.1-14.8 ms, worst window 11.3 frames/1000 > 33 ms. Footprint UNCHANGED
   (3,260 MB) as predicted -- the pool is still 1.0 M slots. Next lever: lower
   the pool cap to the measured need plus building headroom.
+  **Pool lowered 1.0 M -> 750k (2026-10-01):** mountain poses still deficit 0,
+  no evictions; walk steady state 2,931-3,005 MB (was ~3,250-3,330), with a
+  one-off 3,141 MB spike during the initial fill (`Logs/tg2world_20261001_182253_mem.txt`).
+  That run's frame times are CONTAMINATED: load average 46, a WebKit process at
+  112% CPU; even all-air poses slowed. Re-measure on a quiet machine.
 - **The placeholder player can run up ~70° slopes** (3-voxel step-up on every
   blocked move, no slope rule, `PlayerMotor.MoveAxisWithStepUp`). Terrain can't
   be judged as an obstacle until the character is designed -- the owner does

@@ -249,7 +249,13 @@ public static class EngineConfig
     /// at a 1.2 M cap. 1.0 M puts that peak under the §3.6 valve's 850k line
     /// and returns ~200 MB of the owner's 3 GB. The flat world keeps
     /// BRICK_POOL_CAP.
-    public const int TG2_BRICK_POOL_CAP = 1000000;
+    /// 2026-10-01: the striped strata became thick depth layers (DetailField);
+    /// the mountain poses' peak fell to 458-499k dense bricks
+    /// (Logs/tg2world_20261001_171115.txt). 750k puts the §3.6 valve line
+    /// (0.85 x cap = 637k) ~138k bricks above that peak -- headroom for player
+    /// building and digging inside the loaded band -- and returns another
+    /// ~256 MB (250k x 512 B x 2).
+    public const int TG2_BRICK_POOL_CAP = 750000;
     /// GPU mirror height for a vertically streamed world: 8 layers strictly
     /// contain the loaded band (StreamManager.V_LOAD_LAYERS = 3 -> 7 layers).
     public const int TG2_MIRROR_CHUNKS_Y = 8;
