@@ -42,6 +42,39 @@ real and separate reason — see the LOD-cascade finding in
 
 ## Known open issues (act on these, don't rediscover them)
 
+- **NEAR-TERRAIN SHIMMER BASELINE, BEFORE TAA (measured 2026-10-02, task 05).**
+  `MODE=shimmer ./run-tg2world.sh` (`-nearshimmer -renderpreset quality`: 960x540
+  gate, noon, temporal shadows ON, shadow level 0) -> `Logs/nearshimmer_<run>.txt`.
+  Per pose: |luma change| between the base frame and four QUARTER-GATE-PIXEL
+  nudges (an offset in the camera's projection matrix -- the jitter TAA itself
+  applies; a 0.03 deg camera rotation never reached the frame, the first try's
+  nudged frames were byte-identical), split by CPU-DDA depth through the
+  ChunkStore: near < 50 m, mid 50-200 m, far = no voxel hit in 200 m, sky masked
+  out via the band view. Threshold 24/255 as `tools/farshimmer-report.py`.
+  BASELINE (`Logs/nearshimmer_20261002_113842.txt`, mean |dL| / % > 24):
+
+  | pose | near | mid | far | all non-sky |
+  |---|---|---|---|---|
+  | eye_level_1 | 1.98 / 1.46 | 1.18 / 0.08 | 1.37 / 0.62 | 1.73 / 1.05 |
+  | eye_level_2 | 8.09 / 12.92 | 7.54 / 9.06 | 11.06 / 16.21 | 9.26 / 13.25 |
+  | eye_level_3 | 2.63 / 3.91 | (0% of frame) | 10.71 / 14.60 | 8.98 / 12.30 |
+  | slope_walk | 3.87 / 5.07 | 3.18 / 1.62 | 2.38 / 2.01 | 3.58 / 3.74 |
+  | MEAN of poses | 4.14 / 5.84 | 3.96 / 3.59 | 6.38 / 8.36 | 5.89 / 7.59 |
+
+  REPEATABILITY: three runs (two on the same build) agree to +-0.01 on every
+  value; the noise floor (base vs the unmoved repeat) is 0.00 everywhere --
+  without TAA a still frame is reproduced exactly. With TAA ON the floor will
+  not be 0 (jitter phase); read the nudge numbers against it. slope_walk is
+  confirmed on the voxels (centre ray 68.7 m, cliff 30-80 m away); eye_level_1
+  is 47% near terrain but dim (low |dL|); eye_level_3 is 86% beyond 200 m (a
+  far-band frame). Shots: `FarBand/2026-10-02_114151_nearshimmer/`.
+  UNEXPLAINED, NOT FOLLOWED UP: in the FIRST run (rotation nudges, no slope
+  search, so eye_level_1 -> eye_level_2 was a direct jump) eye_level_2 looked
+  into a wall 0.5-1.4 m away, in the frame AND in the CPU store's depth
+  (`FarBand/2026-10-02_111820_nearshimmer/eye_level_2_base.png`); every later
+  run at the same eye sees an open valley (median hit 51 m). If it recurs it is
+  stale CPU-store content after a jump. Re-run with `EXTRA=-noslope`.
+
 - **THE TG2 WORLD IS OVER THE 3 GB CAP BEFORE THE PLAYER BUILDS ANYTHING (found
   2026-09-26, NOT FIXED).** Peak phys_footprint 3,218-3,814 MB across four runs
   (`Logs/tg2world_*_mem.txt`). On mountain ground untouched terrain holds

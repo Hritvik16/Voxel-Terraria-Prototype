@@ -229,19 +229,7 @@ public partial class PlaygroundCapture
             // EYE LEVEL, where the voxel band and the far band meet: three dry
             // sites at 25 / 45 / 65% of the island radius, 1.7 m above the
             // ground, looking at the peak.
-            float[] fr = { 0.25f, 0.45f, 0.65f };
-            for (int k = 0; k < fr.Length; k++)
-            {
-                for (int a = 0; a < 36; a++)
-                {
-                    float ang = a * 0.1745f + k * 2.1f;
-                    float2 q = new float2(c, c) + new float2(math.cos(ang), math.sin(ang)) * spec.islandRadius * fr[k];
-                    float g = Ground(q.x, q.y);
-                    if (g < spec.seaLevelY + 150f) continue;
-                    Look($"eye_level_{k + 1}", E(q.x, g + 17f, q.y), E(pk.x, g + 17f + 0.05f * math.distance(q, pk), pk.y));
-                    break;
-                }
-            }
+            foreach (var (en, ee, ea) in Tg2EyeLevelPoses(map)) Look(en, E(ee.x, ee.y, ee.z), E(ea.x, ea.y, ea.z));
             // T5b: a CAP-ROCK LEDGE from 12 m away, eye at the gap's height. The
             // eye column must be open air there (a pose inside rock "measures"
             // a black frame -- CLAUDE.md), so the first of 8 directions whose
@@ -439,6 +427,31 @@ public partial class PlaygroundCapture
             }
         }
         return false;
+    }
+
+    /// The three EYE-LEVEL poses (tg2 voxels: eye, look-at), shared by
+    /// -farpreview and -nearshimmer: dry sites at 25 / 45 / 65% of the island
+    /// radius, 1.7 m above the ground, looking at the peak.
+    private static List<(string n, float3 eye, float3 at)> Tg2EyeLevelPoses(TerrainGen.WorldMap map)
+    {
+        var spec = map.Spec;
+        float c = spec.worldSizeVoxels * 0.5f;
+        float2 pk = map.PeakPosition;
+        var poses = new List<(string, float3, float3)>();
+        float[] fr = { 0.25f, 0.45f, 0.65f };
+        for (int k = 0; k < fr.Length; k++)
+        {
+            for (int a = 0; a < 36; a++)
+            {
+                float ang = a * 0.1745f + k * 2.1f;
+                float2 q = new float2(c, c) + new float2(math.cos(ang), math.sin(ang)) * spec.islandRadius * fr[k];
+                float g = TgGround(map, q.x, q.y);
+                if (g < spec.seaLevelY + 150f) continue;
+                poses.Add(($"eye_level_{k + 1}", new float3(q.x, g + 17f, q.y), new float3(pk.x, g + 17f + 0.05f * math.distance(q, pk), pk.y)));
+                break;
+            }
+        }
+        return poses;
     }
 
     /// Top-face Y (tg2 absolute voxels) of the sizeClass 2 column, or sea level.

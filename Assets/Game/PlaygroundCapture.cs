@@ -1467,6 +1467,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-farseams")) { yield return FarSeams(); yield break; }
         if (HasFlag("-lodpop")) { yield return LodPop(); yield break; }
         if (HasFlag("-farshimmer")) { yield return FarShimmer(); yield break; }
+        if (HasFlag("-nearshimmer")) { yield return NearShimmer(); yield break; }
         if (HasFlag("-fluidroster")) { yield return FluidRoster(); yield break; }
         if (HasFlag("-devmap")) { yield return DevMapShots(); yield break; }
         if (!HasFlag("-playgroundshots")) yield break;

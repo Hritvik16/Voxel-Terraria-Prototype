@@ -279,6 +279,7 @@ With live fluid they fail BY DESIGN -- never loosen them. Persistence evidence:
 Before touching streaming, rendering, fluids, memory or a rig, or quoting a
 number, read the matching entry in `KNOWN_ISSUES.md`. One line each:
 
+- NEAR-TERRAIN SHIMMER BASELINE before TAA (2026-10-02): `MODE=shimmer ./run-tg2world.sh`; mean of poses near 4.14 / 5.84%, all 5.89 / 7.59%.
 - THE TG2 WORLD IS OVER THE 3 GB CAP BEFORE THE PLAYER BUILDS ANYTHING (found 2026-09-26, NOT FIXED).
 - TG2 AT WALKING HEIGHT (first measured 2026-10-01, `MODE=walk ./run-tg2world.sh`: `-motion walk`, a 150 m circle round the spawn at 1.6 m eye...
 - TERRAIN-AWARE BAND PLACEMENT (2026-10-01; owner: near cliffs drawn by the far band -- streaks, stepped edges).
