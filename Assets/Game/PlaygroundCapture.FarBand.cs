@@ -247,6 +247,43 @@ public partial class PlaygroundCapture
             // ground is below the eye is used.
             if (TryLedgePose(spec, map, o, out Vector3 le, out Vector3 lt)) Look("ledge_view", E(le.x, le.y, le.z), E(lt.x, lt.y, lt.z));
             else L("ledge_view: no ledge with an open-air vantage found");
+            // CLIFF FEET (2026-10-01, owner: near cliffs drawn by the far band):
+            // up to three dry sites, >= 1 km apart, where the ground within ~56 m
+            // rises >= 60 m -- past the top of a band centred on the eye. Eye
+            // 1.7 m above the ground, looking at the cliff's upper part. Run
+            // with -centredband for the old placement (A/B).
+            {
+                int nC = spec.mapCells, cellV = spec.mapCellVoxels, found = 0;
+                var sites = new List<float2>();
+                for (int gz = nC / 4; gz < 3 * nC / 4 && found < 3; gz += 5)
+                for (int gx = nC / 4; gx < 3 * nC / 4 && found < 3; gx += 5)
+                {
+                    int i0 = gz * nC + gx;
+                    float h0 = map.Height[i0];
+                    if (h0 < 300f || (map.Water != null && map.Water[i0] > h0)) continue;
+                    float bh = h0; int bx = gx, bz = gz;
+                    for (int dz = -7; dz <= 7; dz++)
+                    for (int dx = -7; dx <= 7; dx++)
+                    {
+                        float h = map.Height[(gz + dz) * nC + gx + dx];
+                        if (h > bh) { bh = h; bx = gx + dx; bz = gz + dz; }
+                    }
+                    if (bh - h0 < 600f) continue;
+                    float2 sp = new float2((gx + 0.5f) * cellV, (gz + 0.5f) * cellV);
+                    bool near = false; foreach (var q in sites) if (math.distance(q, sp) < 10000f) near = true;
+                    if (near) continue;
+                    // EXACT ground (texel 1), not Ground()'s 0.8 m texel: at a cliff
+                    // foot the coarse sample sat under the real voxels and put the
+                    // eye inside rock (two black frames, 2026-10-01). The top solid
+                    // voxel is S's height by the LOD-0 contract, so above it is air.
+                    var exact = TerrainGen.ShapeField.Sample(in spec, map.View, in o, sp.x, sp.y, 1);
+                    float g = math.max(math.max(exact.height, exact.water), spec.seaLevelY) + 1;
+                    float2 tp = new float2((bx + 0.5f) * cellV, (bz + 0.5f) * cellV);
+                    Look($"cliff_foot_{found + 1}", E(sp.x, g + 17f, sp.y), E(tp.x, spec.seaLevelY + h0 + 0.7f * (bh - h0), tp.y));
+                    sites.Add(sp); found++;
+                }
+                L($"cliff feet found: {found}  (band placement: {(VoxelEngine.Streaming.StreamManager.TerrainAwareBand ? "terrain-aware" : "centred, -centredband")})");
+            }
         }
         for (int gz = 0, done = 0; gz < (spec.worldSizeVoxels >> TerrainGen.Stamps.CELL_SHIFT) && done == 0; gz++)
         for (int gx = 0; gx < (spec.worldSizeVoxels >> TerrainGen.Stamps.CELL_SHIFT) && done == 0; gx++)

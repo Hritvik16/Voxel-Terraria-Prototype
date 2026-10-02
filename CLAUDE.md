@@ -331,6 +331,27 @@ real and separate reason — see the LOD-cascade finding in
   frames/1000 over 33 ms. 960 costs ~2.7x 480. The owner set 960 as the
   minimum internal resolution (game-design brief) -- at 960 the M1 walks at
   ~30 FPS, not 60.
+  **Where the 960 walk's ~32 ms goes (2026-10-01, one arm each, -frametiming):**
+  shadows off 22 ms (shadows ~10 ms), fluid off 29.5 ms (~2.5 ms); from 480 vs
+  960 ~5 ms is fixed and ~27 ms scales with pixels traced. The 2.0-min window
+  is the worst in every arm: a heavy spot on the walk circle, not drift. TAA +
+  checkerboard proposal (owner approval pending):
+  https://claude.ai/code/artifact/6745ee4a-4af7-482f-b07d-822e46270918
+- **TERRAIN-AWARE BAND PLACEMENT (2026-10-01; owner: near cliffs drawn by the
+  far band -- streaks, stepped edges).** The 7-layer band no longer just centres
+  on the eye: `StreamManager.PlaceBand` scores the map's surface per chunk column
+  within the load radius and shifts the band (centre in [cy-3, cy+2], camera
+  layer and the one below always kept) toward the visible ground; centred
+  underground (> 8 m under the surface) or falling > 4 m/s; switches need a
+  1.25x better score. Same memory, same mirror box. `-centredband` restores the
+  V2 rule for A/B; `VerticalStreamingTests` covers both. QA: the cliff that
+  needed it (cliff_foot_2, band 46 -> 48) is all voxels in
+  `FarBand/2026-10-01_213438_world`. The A/B shot with -centredband is MISSING
+  (that run's window was closed after ~1 min). Cliffs rising > ~64 m above the
+  eye still fall back to the far band -- its walls take the top texel's colour
+  (streaks); colouring far-band walls by the rock layers is the next fix.
+  Pose QA lesson: cliff poses need the EXACT ground (texel 1); the 0.8 m sample
+  put the eye inside rock (two pure-black frames).
 - **The placeholder player can run up ~70° slopes** (3-voxel step-up on every
   blocked move, no slope rule, `PlayerMotor.MoveAxisWithStepUp`). Terrain can't
   be judged as an obstacle until the character is designed -- the owner does

@@ -264,9 +264,151 @@ namespace VoxelEngine.Streaming
             int3 c = CoordMath.VoxelToChunk(CoordMath.WorldToVoxel(camPos));
             if (!VerticalStreaming) { c.y = 0; return c; }
             int cy = math.clamp(c.y, 0, TopLayerChunkY);
-            if (_streamY == int.MinValue || math.abs(cy - _streamY) > V_STREAM_LAG) _streamY = cy;
+            if (!TerrainAwareBand) CentredBand(cy);
+            else PlaceBand(c, cy, camPos);
             c.y = _streamY;
             return c;
+        }
+
+        /// The V2 rule: the band centres on the camera's layer, with V_STREAM_LAG
+        /// of hysteresis.
+        private void CentredBand(int cy)
+        {
+            if (_streamY == int.MinValue || math.abs(cy - _streamY) > V_STREAM_LAG) _streamY = cy;
+        }
+
+        // =====================================================================
+        // TERRAIN-AWARE BAND PLACEMENT (2026-10-01; owner: near cliffs were drawn
+        // by the far band, "make sure to QA this and fix it").
+        //
+        // The band is a fixed 7 layers (memory, the GPU mirror's 8-layer box),
+        // and centring it on the eye spent ~38 m of it on solid rock under a
+        // walking player's feet, leaving ~38 m above: a plateau wall rising
+        // higher was drawn by the 2.5-D far band (streaks, stepped edges).
+        // Same 7 layers, same memory -- placed where the visible ground is:
+        //   - candidates keep the camera's layer AND the layer below it loaded
+        //     (walking, digging, collision), i.e. centre in [cy-3, cy+2];
+        //   - each candidate scores the ground surface it covers, per chunk
+        //     column within the load radius, weighted 1 / (1 + distance), from
+        //     the world map's surface heights (ground, still water, sea);
+        //   - a switch costs a whole layer of loads, so the band moves only
+        //     when it must (the camera left it) or a candidate scores
+        //     BAND_SWITCH_GAIN times the current one;
+        //   - underground (eye below the surface over it by more than
+        //     UNDERGROUND_MARGIN) or falling fast, the centred rule applies:
+        //     caves and falls need room below as much as above.
+        // Everything else (store ring, mirror box, raymarch floor/ceiling, far
+        // band residency) already follows _streamY, so nothing else changes.
+        // =====================================================================
+        public static bool TerrainAwareBand = true;
+        public const float BAND_SWITCH_GAIN = 1.25f;
+        public const int UNDERGROUND_MARGIN = 80;          // voxels (8 m)
+        public const float FALL_SPEED_CENTRED = 4f;         // m/s downward
+        private int3 _bandEvalAt = new int3(int.MinValue, 0, 0);
+        private float[] _spanLo, _spanHi;                   // per chunk column, surface Y (voxels)
+        public int BandSwitchesTotal { get; private set; }
+
+        private void PlaceBand(int3 c, int cy, float3 camPos)
+        {
+            bool valid = _streamY != int.MinValue && BandHolds(_streamY, cy);
+            if (valid && c.Equals(_bandEvalAt)) return;      // nothing moved by a chunk
+            _bandEvalAt = c;
+
+            float camY = camPos.y * 10f;
+            // The surface right under the camera (not the chunk centre: at a
+            // cliff foot that can be up on the cliff and read as "underground").
+            // Voxel-exact column (one sample per chunk crossing): an 8 m map cell
+            // at a cliff foot can average the cliff in.
+            var spec = _tgSource.Spec; var view = _tgSource.Map.View; var o = _tgSource.O;
+            var col = TerrainGen.ShapeField.Sample(in spec, in view, in o, camPos.x * 10f, camPos.z * 10f, 1);
+            float surfaceHere = math.max(math.max(col.height, col.water), spec.seaLevelY);
+            if (camY < surfaceHere - UNDERGROUND_MARGIN || _velocity.y < -FALL_SPEED_CENTRED)
+            {
+                if (!valid || math.abs(cy - _streamY) > V_STREAM_LAG) { if (_streamY != cy) BandSwitchesTotal++; _streamY = cy; }
+                return;
+            }
+
+            ColumnSpans(c);
+            int best = int.MinValue; float bestScore = -1f;
+            // Nearest-to-centred first, so ties keep the V2 placement.
+            for (int k = 0; k <= 5; k++)
+            {
+                int s = cy + ((k & 1) == 0 ? k / 2 : -(k + 1) / 2);   // cy, cy-1, cy+1, cy-2, cy+2, cy-3
+                if (s < 0 || s > TopLayerChunkY || !BandHolds(s, cy)) continue;
+                float sc = BandScore(s);
+                if (sc > bestScore) { bestScore = sc; best = s; }
+            }
+            if (best == int.MinValue) { CentredBand(cy); return; }
+            if (!valid) { if (_streamY != best) BandSwitchesTotal++; _streamY = best; return; }
+            if (best != _streamY && bestScore > BandScore(_streamY) * BAND_SWITCH_GAIN + 1e-3f)
+            { _streamY = best; BandSwitchesTotal++; }
+        }
+
+        /// The band centred on s holds the camera's layer and the one below it.
+        private bool BandHolds(int s, int cy)
+        {
+            int lo = math.max(0, s - V_LOAD_LAYERS), hi = math.min(TopLayerChunkY, s + V_LOAD_LAYERS);
+            return lo <= math.max(0, cy - 1) && cy <= hi;
+        }
+
+        private float BandScore(int s)
+        {
+            int lo = math.max(0, s - V_LOAD_LAYERS), hi = math.min(TopLayerChunkY, s + V_LOAD_LAYERS);
+            int r = _loadRadiusChunks, side = 2 * r + 1;
+            float score = 0f;
+            for (int dz = -r; dz <= r; dz++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                int i = (dz + r) * side + (dx + r);
+                int l0 = (int)math.floor(_spanLo[i]) >> 7, l1 = (int)math.floor(_spanHi[i]) >> 7;
+                int covered = math.min(l1, hi) - math.max(l0, lo) + 1;
+                if (covered <= 0) continue;
+                score += covered / (1f + math.sqrt(dx * dx + dz * dz));
+            }
+            return score;
+        }
+
+        /// The ground surface's vertical span over each chunk column within the
+        /// load radius: min and max of the map's surface over the map cells the
+        /// column covers.
+        private void ColumnSpans(int3 c)
+        {
+            int r = _loadRadiusChunks, side = 2 * r + 1;
+            if (_spanLo == null || _spanLo.Length != side * side) { _spanLo = new float[side * side]; _spanHi = new float[side * side]; }
+            int cell = _tgSource.Spec.mapCellVoxels, edge = EngineConfig.CHUNK_EDGE_VOXELS;
+            for (int dz = -r; dz <= r; dz++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                int x0 = (c.x + dx) * edge, z0 = (c.z + dz) * edge;
+                float lo = float.MaxValue, hi = float.MinValue;
+                int gz0 = FloorDiv(z0, cell), gz1 = FloorDiv(z0 + edge - 1, cell);
+                int gx0 = FloorDiv(x0, cell), gx1 = FloorDiv(x0 + edge - 1, cell);
+                for (int gz = gz0; gz <= gz1; gz++)
+                for (int gx = gx0; gx <= gx1; gx++)
+                {
+                    float y = SurfaceAtCell(gx, gz);
+                    lo = math.min(lo, y); hi = math.max(hi, y);
+                }
+                int i = (dz + r) * side + (dx + r);
+                _spanLo[i] = lo; _spanHi[i] = hi;
+            }
+        }
+
+        // Map cells are 80 voxels (not a power of two), so this is a true floor
+        // division, not a shift; negative inputs (off the map) floor correctly.
+        private static int FloorDiv(int a, int b) => a >= 0 ? a / b : -((-a + b - 1) / b);
+
+        /// Absolute voxel Y of the visible surface in a map cell: ground, still
+        /// water or the sea, whichever is highest. Outside the map: the sea.
+        private float SurfaceAtCell(int gx, int gz)
+        {
+            var map = _tgSource.Map; var spec = _tgSource.Spec;
+            int n = spec.mapCells;
+            if (gx < 0 || gz < 0 || gx >= n || gz >= n) return spec.seaLevelY;
+            int i = gz * n + gx;
+            float h = map.Water != null ? math.max(map.Height[i], map.Water[i]) : map.Height[i];
+            h = math.max(h, 0f);
+            return spec.seaLevelY + h;
         }
 
         // =====================================================================

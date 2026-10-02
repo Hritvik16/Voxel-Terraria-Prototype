@@ -215,6 +215,9 @@ public class Phase4Bootstrapper : MonoBehaviour
         // Edit-driven cascade rebuilds off the main thread (LODCascadeManager's
         // ASYNC REBUILD block). -cascadeasync 0 is the A/B.
         LODCascadeManager.AsyncRebuildEnabled = LODCascadeManager.AsyncRequestedByArgs();
+        // -centredband (2026-10-01): the V2 band centred on the eye, for A/B
+        // against the terrain-aware placement (StreamManager.TerrainAwareBand).
+        VoxelEngine.Streaming.StreamManager.TerrainAwareBand = Array.IndexOf(Environment.GetCommandLineArgs(), "-centredband") < 0;
         Cascades = new LODCascadeManager(mirrorChunks, tier => IsTg2World ? EngineConfig.Tg2CascadeTierPoolCap(tier)
                                                                           : EngineConfig.CascadeTierPoolCap(tier));
 
