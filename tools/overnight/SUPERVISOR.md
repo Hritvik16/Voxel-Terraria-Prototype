@@ -36,6 +36,9 @@ take over; ONE agent active on the project at any time.
 Wait with ONE background command that returns when `runner.log` gains a line
 matching `BLOCKED|done |queue runner end|FAILED|INCOMPLETE` (until-loop, sleep 60,
 `run_in_background`, timeout 7200000; re-arm on timeout). Do not poll otherwise.
+**Owner, 2026-10-02: a status update in the terminal every 5 minutes while a task
+runs.** So the wait also returns after 300 s; then run `tools/overnight/status.sh 8`
+and give 2-5 plain lines (what the task did, what it is waiting on, queue changes).
 On each event:
 - **done NAME**: `head -30 tools/overnight/HANDOFF.md`. One line into the doc's
   "Done" table (result, commit, where the evidence is).
