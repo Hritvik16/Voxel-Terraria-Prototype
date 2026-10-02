@@ -313,6 +313,12 @@ real and separate reason — see the LOD-cascade finding in
   **Pools are allocated at CAPACITY**, so fewer dense bricks (e.g. 3 m brick
   geology) saves memory only if the pool cap is then lowered to the measured
   need.
+  **Striped strata replaced by thick depth layers (2026-10-01, owner):**
+  mountain-pose dense bricks 849k -> 458-499k, deficit 870/322 -> 0, LRU
+  evictions 26,656 -> 0 (`Logs/tg2world_20261001_171115.txt`); walk
+  10.1-14.8 ms, worst window 11.3 frames/1000 > 33 ms. Footprint UNCHANGED
+  (3,260 MB) as predicted -- the pool is still 1.0 M slots. Next lever: lower
+  the pool cap to the measured need plus building headroom.
 - **The placeholder player can run up ~70° slopes** (3-voxel step-up on every
   blocked move, no slope rule, `PlayerMotor.MoveAxisWithStepUp`). Terrain can't
   be judged as an obstacle until the character is designed -- the owner does

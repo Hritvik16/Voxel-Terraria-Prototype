@@ -7,10 +7,17 @@
 //   surface / soil     per biome; steep faces expose the strata (cliffs read
 //                      as geology, §2.6); sand and powder snow only where the
 //                      top is STABLE AT REST (no neighbour > 1 voxel lower)
-//   strata             5 per biome, horizontal geology cut by the terrain,
-//                      boundaries are noisy surfaces with a regional tilt
-//   caverns            below sea - 150 m: CavernRock / Deepstone bands
-//   underworld         below sea - 400 m: ash, obsidian, magma crust; an open
+//   rock layers        THICK LAYERS BY DEPTH (2026-10-01, owner: "I don't like
+//                      the underground bands"; game-design brief, Underground
+//                      materials), each biome with its own rock in every layer:
+//                        stone        surface down to sea - 50 m (+-8 m wavy)
+//                        deep stone   down to sea - 150 m (the cavern top)
+//                        cavern rock  down to sea - 400 m (the underworld top)
+//                      The thin striped strata (5 bands cycling every 16.5 m)
+//                      are gone: they were a default nobody chose and they made
+//                      most underground bricks mixed (dense).
+//   underworld         below sea - 400 m, SHARED by every biome: ash (top 30 m),
+//                      obsidian, magma crust (20 m above the lava); an open
 //                      lava sea at rest
 //   caves              STRUCTURED (v3 T4, 2026-09-26; owner: no 3-D noise):
 //                      three layers of meandering tunnels (the zero-lines of
@@ -46,7 +53,7 @@ namespace TerrainGen
         /// overload below for each voxel; the result is identical by construction.
         public struct ColumnDetail
         {
-            public float strataOffset;    // added to y before the strata band lookup
+            public float deepOffset;      // added to y at the stone / deep-stone boundary (wavy)
             public float cavernOffset;
             public float underOffset;
             public int soilDepth;
@@ -64,16 +71,15 @@ namespace TerrainGen
             public int underLo, underHi;
         }
 
-        /// The geology terms only (strata, soil, band offsets): what the surface
-        /// and Strata need. No caves.
+        /// The geology terms only (layer boundary offsets, soil): what the
+        /// surface and LayerRock need. No caves.
         private static ColumnDetail PrepareGeology(in Offsets o, int x, int z)
         {
             float2 p = new float2(x, z);
-            // Regional tilt (dip) and a wavy boundary surface: the band index is
-            // a function of a displaced HEIGHT, not of displaced coordinates.
-            float2 dip = new float2(noise.snoise(p / 40000f + o.dip), noise.snoise(p / 40000f + o.dip + 50f)) * 0.05f;
+            // Each layer boundary is a wavy surface: the offset shifts the
+            // boundary's height, column by column.
             var cd = new ColumnDetail();
-            cd.strataOffset = dip.x * x + dip.y * z + 30f * noise.snoise(p / 2600f + o.strata);
+            cd.deepOffset = 80f * noise.snoise(p / 2600f + o.strata);
             cd.cavernOffset = 25f * noise.snoise(p / 3000f + o.strata + 90f);
             cd.underOffset = 20f * noise.snoise(p / 1800f + o.strata - 70f);
             float n = noise.snoise(p / 300f + o.soil) * 0.5f + 0.5f;
@@ -214,7 +220,7 @@ namespace TerrainGen
             // passing it in is exact. Without it (None) Material prepares it
             // per voxel, which the exactness tests use as the reference.
             public bool hasGeo;
-            public float geoStrata, geoCavern, geoUnder;
+            public float geoDeep, geoCavern, geoUnder;
             public static BrickCull None => default;
         }
 
@@ -241,7 +247,7 @@ namespace TerrainGen
             if (spec.brickGeologyDepth > 0)
             {
                 var g = PrepareGeology(in o, bx + BRICK / 2, bz + BRICK / 2);
-                r.hasGeo = true; r.geoStrata = g.strataOffset; r.geoCavern = g.cavernOffset; r.geoUnder = g.underOffset;
+                r.hasGeo = true; r.geoDeep = g.deepOffset; r.geoCavern = g.cavernOffset; r.geoUnder = g.underOffset;
             }
             return r;
         }
@@ -303,35 +309,31 @@ namespace TerrainGen
             }
             if (c.stampMat != 0 && y >= c.stampBodyLo) return c.stampMat;
 
-            // V0's opt-in brick geology (TerrainSpec.brickGeologyDepth): one band
-            // decision per 8^3 brick, from the brick centre's column detail. This
-            // form re-prepares that column per voxel -- fine for measuring; a
-            // chunk generator that adopts the rule passes the brick's detail in.
+            // V0's opt-in brick geology (TerrainSpec.brickGeologyDepth): one layer
+            // decision per 8^3 brick, from the brick centre's column detail, so a
+            // wavy layer boundary steps by whole bricks deep down. This form
+            // re-prepares that column per voxel -- fine for measuring; a chunk
+            // generator that adopts the rule passes the brick's detail in.
             if (spec.brickGeologyDepth > 0 && depth > spec.brickGeologyDepth)
             {
                 int gy = (y & ~(BRICK - 1)) + BRICK / 2;
-                float gStrata, gCavern, gUnder;
-                if (cull.hasGeo) { gStrata = cull.geoStrata; gCavern = cull.geoCavern; gUnder = cull.geoUnder; }
+                float gDeep, gCavern, gUnder;
+                if (cull.hasGeo) { gDeep = cull.geoDeep; gCavern = cull.geoCavern; gUnder = cull.geoUnder; }
                 else
                 {
                     var bd = PrepareGeology(in o, (x & ~(BRICK - 1)) + BRICK / 2, (z & ~(BRICK - 1)) + BRICK / 2);
-                    gStrata = bd.strataOffset; gCavern = bd.cavernOffset; gUnder = bd.underOffset;
+                    gDeep = bd.deepOffset; gCavern = bd.cavernOffset; gUnder = bd.underOffset;
                 }
-                if (gy < spec.UnderworldTopY) return UnderworldRock(gy + gUnder);
-                if (gy < spec.CavernTopY) return CavernBands(gy + gCavern);
-                return StrataBand(c.biome, gy + gStrata);
+                return LayerRock(in spec, c.biome, gy, gDeep, gCavern, gUnder);
             }
 
-            if (y < spec.UnderworldTopY) return UnderworldRock(y + cd.underOffset);
-            if (y < spec.CavernTopY) return CavernBands(y + cd.cavernOffset);
-
             bool steep = stepAtTop > 1.5f;
-            if (!steep)
+            if (!steep && y >= spec.CavernTopY)
             {
                 if (depth < SURFACE_THICKNESS) return Surface(in spec, in c, stepAtTop);
                 if (depth < cd.soilDepth) return Soil(c.biome);
             }
-            return StrataBand(c.biome, y + cd.strataOffset);
+            return LayerRock(in spec, c.biome, y, cd.deepOffset, cd.cavernOffset, cd.underOffset);
         }
 
         /// The material of the column's top voxel -- what the far band colours a
@@ -341,7 +343,7 @@ namespace TerrainGen
             if (c.height < spec.seaLevelY) return GenMat.Water;
             if (c.water > c.height) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
             if (c.stampMat != 0 && c.height >= c.stampBodyLo) return c.stampMat;
-            if (stepAtTop > 1.5f) return Strata(in o, c.biome, x, c.height, z);
+            if (stepAtTop > 1.5f) return Strata(in spec, in o, c.biome, x, c.height, z);
             return Surface(in spec, in c, stepAtTop);
         }
 
@@ -371,51 +373,49 @@ namespace TerrainGen
             }
         }
 
-        // Band thicknesses (voxels) of one strata cycle, top band first. Adjacent
-        // bands alternate light/dark in every biome's palette (§2.6).
-        private static int BandThickness(int i)
-        {
-            switch (i)
-            {
-                case 0: return 55;
-                case 1: return 22;
-                case 2: return 40;
-                case 3: return 18;
-                default: return 30;
-            }
-        }
-        private const int STRATA_PERIOD = 165;
+        /// Stone ends this far below sea level (voxels; the wavy deepOffset moves
+        /// the boundary +-8 m). Deep stone runs from there to the cavern top.
+        public const int STONE_BOTTOM_BELOW_SEA = 500;
 
-        public static byte Strata(in Offsets o, byte biome, int x, int y, int z)
+        /// The rock at height y in a column (no surface, soil or caves): the
+        /// thick depth layers, the biome's own rock in each, the shared
+        /// underworld at the bottom. Exposed cliffs show this too.
+        public static byte Strata(in TerrainSpec spec, in Offsets o, byte biome, int x, int y, int z)
         {
             var cd = PrepareGeology(in o, x, z);
-            return StrataBand(biome, y + cd.strataOffset);
+            return LayerRock(in spec, biome, y, cd.deepOffset, cd.cavernOffset, cd.underOffset);
         }
 
-        private static byte StrataBand(byte biome, float g)
+        private static byte LayerRock(in TerrainSpec spec, byte biome, float y, float deepOff, float cavernOff, float underOff)
         {
-            int gi = (int)math.floor(g);
-            int m = ((gi % STRATA_PERIOD) + STRATA_PERIOD) % STRATA_PERIOD;
-            int band = 0;
-            while (band < 4 && m >= BandThickness(band)) { m -= BandThickness(band); band++; }
+            if (y + underOff < spec.UnderworldTopY) return UnderworldRock(in spec, y + underOff);
+            if (y + cavernOff < spec.CavernTopY) return BiomeRock(biome, 2);
+            if (y + deepOff < spec.seaLevelY - STONE_BOTTOM_BELOW_SEA) return BiomeRock(biome, 1);
+            return BiomeRock(biome, 0);
+        }
+
+        /// Each biome's rock per layer (0 stone, 1 deep stone, 2 cavern rock),
+        /// from its palette-D set: a mid-tone stone near the surface, darker
+        /// rock below. The biome's other two rocks are kept for veins and
+        /// accents (object placement). Recolouring is a palette change only.
+        public static byte BiomeRock(byte biome, int layer)
+        {
             switch (biome)
             {
-                case GenBiome.Desert: return (byte)(GenMat.CreamSandstone + band);
-                case GenBiome.Snow: return (byte)(GenMat.BlueSlate + band);
-                case GenBiome.Jungle: return (byte)(GenMat.KarstLimestone + band);
-                default: return (byte)(GenMat.Limestone + band);
+                case GenBiome.Desert: return layer == 0 ? GenMat.OrangeSandstone : (layer == 1 ? GenMat.RedSandstone : GenMat.MaroonMudstone);
+                case GenBiome.Snow:   return layer == 0 ? GenMat.SilverSchist : (layer == 1 ? GenMat.BlueSlate : GenMat.Basalt);
+                case GenBiome.Jungle: return layer == 0 ? GenMat.KarstLimestone : (layer == 1 ? GenMat.MossRock : GenMat.BlackBasalt);
+                default:              return layer == 0 ? GenMat.Granite : (layer == 1 ? GenMat.Slate : GenMat.Shale);
             }
         }
 
-        private static byte CavernBands(float g)
+        /// The shared underworld (every biome): ash in its top 30 m, magma crust
+        /// in the 20 m above the lava sea, obsidian between.
+        private static byte UnderworldRock(in TerrainSpec spec, float g)
         {
-            return (((int)math.floor(g) >> 6) & 1) == 0 ? GenMat.CavernRock : GenMat.Deepstone;
-        }
-
-        private static byte UnderworldRock(float g)
-        {
-            int band = ((int)math.floor(g) >> 5) % 3;
-            return band == 0 ? GenMat.Ash : (band == 1 ? GenMat.Obsidian : GenMat.MagmaCrust);
+            if (g < spec.worldBottomY + LAVA_ABOVE_FLOOR + 200) return GenMat.MagmaCrust;
+            if (g >= spec.UnderworldTopY - 300) return GenMat.Ash;
+            return GenMat.Obsidian;
         }
 
         // ------------------------------------------------------------------
