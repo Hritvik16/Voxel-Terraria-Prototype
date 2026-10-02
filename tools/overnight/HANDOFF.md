@@ -1,8 +1,7 @@
 # Overnight handoff
 
 **05-taa-shimmer-metric: DONE. Near-terrain shimmer metric built, baseline recorded, repeatable to +-0.01.**
-(The 04b STOP_FOR_OWNER questions -- surface rebuild plan, 11 questions -- are still open;
-see commit 82d4416's HANDOFF for them.)
+(Still open from 04b: the surface rebuild plan's 11 questions -- see commit 82d4416's HANDOFF.)
 
 ## What changed (commit 4d0d03c on design-brief)
 - `Assets/Game/PlaygroundCapture.NearShimmer.cs` (new): `-nearshimmer` capture mode (`-noslope` skips the slope pose).
@@ -34,7 +33,6 @@ see commit 82d4416's HANDOFF for them.)
   xP diff map (changes only at sub-pixel voxel edges on the cliff and the grass -- the shimmer);
   eye_level_2 (open valley, a cliff close on the left); eye_level_3 (mountain, mostly far band).
   slope_walk shows two small dark shapes floating off the cliff edge -- not investigated.
-- Memory peak 3210-3265 MB (the known tg2 over-3-GB issue, unchanged).
 
 ## Bugs met and fixed inside the task
 - A 0.03 deg camera ROTATION never reached the frame (the nudged PNGs were byte-identical), so
