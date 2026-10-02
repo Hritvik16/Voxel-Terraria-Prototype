@@ -223,6 +223,7 @@ public partial class PlaygroundCapture
         if (TerrainGen.Stamps.WorldTreeEnabled) Look("world_tree_1km", E(treeSite.x - 9000f, Ground(treeSite.x - 9000f, treeSite.y) + 600f, treeSite.y - 2000f), E(treeSite.x, Ground(treeSite.x, treeSite.y) - 800f, treeSite.y));
         Look("geyser_basin", E(geySite.x - 2500f, Ground(geySite.x, geySite.y) + 1500f, geySite.y - 2500f), E(geySite.x, Ground(geySite.x, geySite.y), geySite.y));
         Look("rivers_oblique", E(c - 30000f, spec.seaLevelY + 26000f, c - 30000f), E(c, spec.seaLevelY, c));
+        bool rise = false; Vector3 riseEye = default, riseAt = default;   // cliff_rise_2, below
         if (world)
         {
             // EYE LEVEL, where the voxel band and the far band meet: three dry
@@ -280,6 +281,52 @@ public partial class PlaygroundCapture
                     float g = math.max(math.max(exact.height, exact.water), spec.seaLevelY) + 1;
                     float2 tp = new float2((bx + 0.5f) * cellV, (bz + 0.5f) * cellV);
                     Look($"cliff_foot_{found + 1}", E(sp.x, g + 17f, sp.y), E(tp.x, spec.seaLevelY + h0 + 0.7f * (bh - h0), tp.y));
+                    // CLIFF RISE (task 04, 2026-10-02): cliff_foot_2 shows no
+                    // band A/B -- its frame is all layers both bands cover.
+                    // Same site, eye kept in the foot's chunk layer (so the
+                    // centred band still tops out where it did at the foot),
+                    // moved 0-60 m in one of 8 directions until the cliff top
+                    // (2 m above the map top, <= 100 m away) is in clear sight,
+                    // aimed at it. First try (stepping straight back) climbed
+                    // 32 m, into the layer the shifted band uses: no A/B.
+                    // Fallback: the foot itself, aimed at the top. Added after
+                    // every other pose: their order (and numbers) is unchanged.
+                    if (found == 1)
+                    {
+                        float2 dir = math.normalizesafe(tp - sp, new float2(1, 0));
+                        float topY = spec.seaLevelY + bh;
+                        int footLayer = (int)math.floor(E(sp.x, g + 17f, sp.y).y / 12.8f);
+                        for (int b = 0; b <= 600 && !rise; b += 100)
+                        for (int d = 0; d < 8 && !rise; d++)
+                        {
+                            float ang = math.PI + (d == 0 ? 0f : ((d + 1) >> 1) * (math.PI / 4f) * ((d & 1) == 1 ? 1f : -1f));   // away first, then +-45, +-90, ...
+                            float2 ep = sp + new float2(dir.x * math.cos(ang) - dir.y * math.sin(ang), dir.x * math.sin(ang) + dir.y * math.cos(ang)) * b;
+                            if (math.distance(ep, tp) > 1000f) continue;
+                            var es = TerrainGen.ShapeField.Sample(in spec, map.View, in o, ep.x, ep.y, 1);
+                            if (es.water > es.height) continue;
+                            float ey = math.max(es.height, spec.seaLevelY) + 1 + 17f;
+                            if ((int)math.floor(E(ep.x, ey, ep.y).y / 12.8f) != footLayer) continue;
+                            float3 a = new float3(ep.x, ey, ep.y), z = new float3(tp.x, topY + 20f, tp.y);
+                            int steps = (int)(math.distance(a, z) / 10f);
+                            bool clear = true;
+                            for (int s = 1; s < steps - 10 && clear; s++)   // stop 1 m short of the top
+                            {
+                                float3 p = math.lerp(a, z, s / (float)steps);
+                                if (TerrainGen.ShapeField.Sample(in spec, map.View, in o, p.x, p.z, 1).height >= p.y) clear = false;
+                            }
+                            if (!clear) continue;
+                            riseEye = E(ep.x, ey, ep.y); riseAt = E(tp.x, topY, tp.y); rise = true;
+                            L($"cliff_rise_2: moved {b * 0.1f:F0} m (direction {d}, 0 = away from the cliff)");
+                        }
+                        if (!rise)
+                        {
+                            riseEye = E(sp.x, g + 17f, sp.y); riseAt = E(tp.x, topY, tp.y); rise = true;
+                            L("cliff_rise_2: no clear sight of the top in the foot's layer -- fallback: the foot, aimed at the top");
+                        }
+                        int cyE = (int)math.floor(riseEye.y / 12.8f);
+                        L($"cliff_rise_2: eye {riseEye.y:F1} m (layer {cyE}, foot layer {footLayer}), cliff top {riseAt.y:F1} m, " +
+                          $"{Vector2.Distance(new Vector2(riseEye.x, riseEye.z), new Vector2(riseAt.x, riseAt.z)):F0} m away; centred band top {(cyE + 4) * 12.8f:F1} m, shifted max {(cyE + 6) * 12.8f:F1} m");
+                    }
                     sites.Add(sp); found++;
                 }
                 L($"cliff feet found: {found}  (band placement: {(VoxelEngine.Streaming.StreamManager.TerrainAwareBand ? "terrain-aware" : "centred, -centredband")})");
@@ -295,6 +342,7 @@ public partial class PlaygroundCapture
             Look("crystal_cluster", E(st.pos.x - 350f, Ground(st.pos.x, st.pos.y) + 150f, st.pos.y - 200f), E(st.pos.x, Ground(st.pos.x, st.pos.y) + 20f, st.pos.y));
             done = 1;
         }
+        if (rise) Look("cliff_rise_2", riseEye, riseAt);
 
         foreach (var (n, pos, rot) in poses)
         {

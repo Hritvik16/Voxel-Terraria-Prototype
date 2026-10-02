@@ -110,7 +110,25 @@ real and separate reason — see the LOD-cascade finding in
   included, is BYTE-IDENTICAL (md5) to the AFTER run: the frame is ~99% voxels
   either way (a thin sky strip top-left, no far band, no streaks), so this pose
   does NOT show the fix; a pose whose visible cliff tops out above layer 49 is
-  needed. Cliffs rising > ~64 m above the
+  needed. TASK 04 (2026-10-02) tried one, `cliff_rise_2` (appended last, so the
+  older poses keep their order): the cliff_foot_2 site. Its map top is 649.3 m.
+  The centred band's top is 640.0 m and the shifted band's maximum top is 665.6 m.
+  Try 1 stepped 40 m straight back to get a clear sight line. The ground
+  there is 32 m higher (eye 624.2 m, layer 48), so the centred band is
+  48 as well. No A/B is possible there, so BEFORE was not run
+  (`FarBand/2026-10-02_092640_world`; band view ~90% voxels). Try 2 kept the
+  eye in the foot's layer 46 and searched 8 directions x 0-60 m. No spot
+  within 100 m of the top had a clear sight line to it, so the pose fell
+  back to the foot, aimed at the top. AFTER `_095000` band 48, deficit 0,
+  dense 442074. BEFORE (`-centredband`) `_100905` band 46, deficit 0, dense
+  374876. All three cliff_rise_2 PNGs and the cliff_foot_2 golden PNGs are
+  BYTE-IDENTICAL (md5) across the two runs. The frame is a dark-rock voxel
+  slope (~85%) up to a convex crest, with sky above. The crest is below 640 m, and
+  there is no far band, no streaks and no steps. So at this site, the cliff
+  above layer 49 cannot be seen from the foot's layer. The shift loads 67k
+  more dense bricks that nobody sees. The first AFTER run's cliff_foot_2
+  golden read resident 685 / deficit 2462 (the ring was still filling after
+  the jump; noon 3087/0). The first shot after a jump depends on timing. Cliffs rising > ~64 m above the
   eye still fall back to the far band -- its walls took the top texel's colour
   (streaks). FIXED 2026-10-02 (shader only, `Raymarch.compute`
   `FarWallMaterial`): a far SIDE face > 15 voxels (1.5 m) below its column
