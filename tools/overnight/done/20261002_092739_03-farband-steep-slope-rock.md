@@ -29,3 +29,6 @@ Acceptance (all required; otherwise STOP_FOR_OWNER):
 - `MODE=walk MINUTES=3 ./run-tg2world.sh`: mean of 30 s windows within noise of
   task 02's 11.0 ms (`Logs/tg2world_20261002_003414.txt`).
 Commit with the evidence in the message; update KNOWN_ISSUES.md's band entry.
+
+## Owner answer (2026-10-02)
+(a) Keep as is. Close the task; slope colour is decided with the movement bands in the surface rebuild. No requeue.
