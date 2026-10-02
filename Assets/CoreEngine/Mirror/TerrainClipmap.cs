@@ -93,6 +93,15 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
     private readonly List<int3> _dirtyOrdered = new List<int3>();
     private readonly List<int> _dirtyBrickSlots = new List<int>();
 
+    // --- TAA (task 06). ADDITIVE; nothing else reads these. Chunks whose GPU
+    // copy was rewritten since the renderer last cleared the list, nearest
+    // first (the dirty set is uploaded nearest-first), at most
+    // UploadedChunksCap. Recorded only while the renderer asks for it, so with
+    // TAA off the list never grows.
+    public static bool RecordUploadedChunks;
+    public const int UploadedChunksCap = 16;
+    public readonly List<int3> UploadedChunks = new List<int3>();
+
     private int3 _windowOrigin;
 
     public static bool UseLockBufferForAirMip = false;
@@ -495,6 +504,7 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
             // Dictionary<int3,long> insert per uploaded chunk, and int3
             // implements IEquatable so it does not box.
             _lastUploadEpoch[chunkCoord] = _uploadEpoch;
+            if (RecordUploadedChunks && UploadedChunks.Count < UploadedChunksCap) UploadedChunks.Add(chunkCoord);
             stats.chunksUploaded++;
             bytes += EngineConfig.CLIPMAP_BYTES_PER_CHUNK;
         }

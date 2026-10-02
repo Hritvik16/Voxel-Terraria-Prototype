@@ -240,6 +240,34 @@ public class RaymarchFeature : ScriptableRendererFeature
     private static Matrix4x4 _tsPrevVP;
     private static Vector3 _tsPrevCamVox;
 
+    /// TEMPORAL ANTI-ALIASING (Raymarch.compute's TAA block; overnight task 06).
+    /// OFF unless `-taa 1` (last match wins) or Playground's F4. Beauty view
+    /// only, main shader only; any other view, a resize, a light jump or a
+    /// teleport drops the history. Costs W*H*56 bytes of buffers while on
+    /// (29 MB at the 960x540 gate) plus one scratch colour target.
+    public static bool Taa = ReadIntArg("-taa", 0) != 0;
+    public static float TaaAlphaStill = 0.1f;     // weight of the new frame with the camera still
+    public static float TaaAlphaMoving = 0.4f;    // ... at TaaMotionPx of reprojected motion and beyond
+    public static float TaaMotionPx = 8f;
+    public static float TaaSharpenAmount = ReadIntArg("-taasharpen", 25) / 100f;
+    public const int TaaJitterCycle = 8;
+    public static Vector2 LastTaaJitter;
+    private static GraphicsBuffer _taaColA, _taaColB, _taaMetaA, _taaMetaB, _taaCur, _taaDummy4, _taaDummy2;
+    private static int _taaW, _taaH;
+    private static bool _taaValid;
+    private static uint _taaFrame;
+    private static Matrix4x4 _taaPrevVP;
+    private static Vector3 _taaPrevCamVox, _taaPrevSun;
+    private static int _taaPrevLightSig;
+    private static readonly Vector4[] _taaDirty = new Vector4[TerrainClipmap.UploadedChunksCap];
+
+    private static float Halton(int i, int b)
+    {
+        float f = 1f, r = 0f;
+        while (i > 0) { f /= b; r += f * (i % b); i /= b; }
+        return r;
+    }
+
     private static int ReadIntArg(string flag, int fallback)
     {
         string[] a = System.Environment.GetCommandLineArgs();
@@ -298,6 +326,14 @@ public class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer tsRead, tsWrite;
             public Matrix4x4 tsPrevVP;
             public Vector3 tsPrevCamVox;
+            public int taa, taaHistValid, taaDirtyCount;
+            public Vector2 taaJitter;
+            public Matrix4x4 taaPrevVP;
+            public Vector4 taaPrevCamVox, taaParams;
+            public Vector4[] taaDirty;
+            public GraphicsBuffer taaCur, taaMetaR, taaMetaW, taaColR, taaColW;
+            public TextureHandle taaScratch;
+            public int kTaaResolve, kTaaSharpen;
             public ComputeShader compute;
             public Camera cam;
             public Matrix4x4 invProjection;
@@ -445,6 +481,12 @@ public class RaymarchFeature : ScriptableRendererFeature
             LastDispatchResolution = new Vector2Int(dispatchW, dispatchH);
 
             TextureHandle target = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_RaymarchTarget", false);
+            var taaCam = cameraData.camera;
+            bool taaOn = Taa && !useStripped && !useMemoryProbe && _debugMode == 0
+                      && taaCam.cameraType == CameraType.Game;
+            TextureHandle taaScratch = taaOn
+                ? UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_RaymarchTaaCur", false)
+                : TextureHandle.nullHandle;
 
             using (var builder = renderGraph.AddComputePass<ComputePassData>("VoxelRaymarch_Compute", out var passData))
             {
@@ -488,6 +530,75 @@ public class RaymarchFeature : ScriptableRendererFeature
                     _tsValid = true;
                 }
                 else { passData.tsRead = _tsDummyR; passData.tsWrite = _tsDummyW; }
+
+                // TAA: ping-pong colour + "same surface?" history, previous
+                // unjittered camera, this frame's jitter.
+                if (_taaDummy4 == null)
+                {
+                    _taaDummy4 = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 16);
+                    _taaDummy2 = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 8);
+                }
+                TerrainClipmap.RecordUploadedChunks = taaOn;
+                passData.taa = taaOn ? 1 : 0;
+                passData.taaCur = _taaDummy4; passData.taaMetaW = _taaDummy2;
+                if (taaOn)
+                {
+                    if (_taaCur == null || _taaW != dispatchW || _taaH != dispatchH)
+                    {
+                        _taaColA?.Release(); _taaColB?.Release(); _taaMetaA?.Release(); _taaMetaB?.Release(); _taaCur?.Release();
+                        int n = dispatchW * dispatchH;
+                        _taaColA = new GraphicsBuffer(GraphicsBuffer.Target.Structured, n, 16);
+                        _taaColB = new GraphicsBuffer(GraphicsBuffer.Target.Structured, n, 16);
+                        _taaMetaA = new GraphicsBuffer(GraphicsBuffer.Target.Structured, n, 8);
+                        _taaMetaB = new GraphicsBuffer(GraphicsBuffer.Target.Structured, n, 8);
+                        _taaCur = new GraphicsBuffer(GraphicsBuffer.Target.Structured, n, 16);
+                        _taaW = dispatchW; _taaH = dispatchH; _taaValid = false;
+                    }
+                    Matrix4x4 proj = UseCameraDataProjection ? cameraData.GetProjectionMatrix(0) : taaCam.projectionMatrix;
+                    Matrix4x4 vp = proj * taaCam.worldToCameraMatrix;
+                    Vector3 camVox = taaCam.transform.position * 10f;
+                    Unity.Mathematics.float3 sdT = SunCycle.Direction;
+                    Vector3 sun = new Vector3(sdT.x, sdT.y, sdT.z).normalized;
+                    var cfgT = LightingConfig.Active;
+                    int lightSig = ShadowQualityLevel * 31 + (LookOverride >= 0 ? LookOverride : cfgT.look) * 7
+                                 + (TonemapOverride >= 0 ? TonemapOverride : cfgT.tonemap);
+                    // A LARGE LIGHT JUMP (the sun moving > ~1 deg in a frame, a
+                    // look / shadow-rung / tonemap switch) or a teleport (> 20 m)
+                    // invalidates every history colour at once.
+                    bool reset = !_taaValid
+                              || Vector3.Dot(sun, _taaPrevSun) < 0.99985f
+                              || lightSig != _taaPrevLightSig
+                              || (camVox - _taaPrevCamVox).sqrMagnitude > 200f * 200f;
+                    passData.taaHistValid = reset ? 0 : 1;
+                    passData.taaPrevVP = _taaPrevVP;
+                    passData.taaPrevCamVox = _taaPrevCamVox;
+                    int hi = (int)(_taaFrame++ % TaaJitterCycle) + 1;
+                    LastTaaJitter = new Vector2(Halton(hi, 2) - 0.5f, Halton(hi, 3) - 0.5f);
+                    passData.taaJitter = LastTaaJitter;
+                    passData.taaParams = new Vector4(TaaAlphaStill, TaaAlphaMoving, TaaMotionPx, TaaSharpenAmount);
+                    passData.taaCur = _taaCur;
+                    passData.taaMetaR = _taaMetaA; passData.taaMetaW = _taaMetaB;
+                    passData.taaColR = _taaColA; passData.taaColW = _taaColB;
+                    (_taaMetaA, _taaMetaB) = (_taaMetaB, _taaMetaA);
+                    (_taaColA, _taaColB) = (_taaColB, _taaColA);
+                    _taaPrevVP = vp; _taaPrevCamVox = camVox; _taaPrevSun = sun; _taaPrevLightSig = lightSig;
+                    _taaValid = true;
+
+                    var up = TerrainClipmap.Active.UploadedChunks;
+                    int nd = Mathf.Min(up.Count, _taaDirty.Length);
+                    for (int i = 0; i < nd; i++) _taaDirty[i] = new Vector4(up[i].x, up[i].y, up[i].z, 0f);
+                    up.Clear();
+                    passData.taaDirty = _taaDirty;
+                    passData.taaDirtyCount = nd;
+                    passData.taaScratch = taaScratch;
+                    passData.kTaaResolve = activeCompute.FindKernel("TaaResolve");
+                    passData.kTaaSharpen = activeCompute.FindKernel("TaaSharpen");
+                }
+                else
+                {
+                    _taaValid = false;
+                    TerrainClipmap.Active.UploadedChunks.Clear();
+                }
                 passData.clipmapBuffer = clip.ClipmapBuffer;
                 passData.brickDataBuffer = clip.BrickDataBuffer;
                 passData.debugBuffer = DebugBuffer;
@@ -704,6 +815,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                 }
 
                 builder.UseTexture(target, AccessFlags.Write);
+                if (passData.taa != 0) builder.UseTexture(passData.taaScratch, AccessFlags.ReadWrite);
                 builder.AllowPassCulling(false);
 
                 builder.SetRenderFunc((ComputePassData data, ComputeGraphContext context) =>
@@ -907,7 +1019,25 @@ public class RaymarchFeature : ScriptableRendererFeature
                     if (data.useMemoryProbe)
                         cmd.SetComputeIntParam(data.compute, "_ProbeIterations", data.probeIterations);
 
-                    cmd.SetComputeTextureParam(data.compute, 0, "ResultTexture", data.target);
+                    if (!data.useStripped && !data.useMemoryProbe)
+                    {
+                        cmd.SetComputeIntParam(data.compute, "_TaaEnabled", data.taa);
+                        cmd.SetComputeBufferParam(data.compute, 0, "TaaCur", data.taaCur);
+                        cmd.SetComputeBufferParam(data.compute, 0, "TaaMetaW", data.taaMetaW);
+                    }
+                    if (data.taa != 0)
+                    {
+                        cmd.SetComputeVectorParam(data.compute, "_TaaJitter", data.taaJitter);
+                        cmd.SetComputeIntParam(data.compute, "_TaaHistValid", data.taaHistValid);
+                        cmd.SetComputeMatrixParam(data.compute, "_TaaPrevViewProj", data.taaPrevVP);
+                        cmd.SetComputeVectorParam(data.compute, "_TaaPrevCamVox", data.taaPrevCamVox);
+                        cmd.SetComputeVectorParam(data.compute, "_TaaParams", data.taaParams);
+                        cmd.SetComputeVectorArrayParam(data.compute, "_TaaDirtyChunks", data.taaDirty);
+                        cmd.SetComputeIntParam(data.compute, "_TaaDirtyCount", data.taaDirtyCount);
+                    }
+                    // With TAA on, the primary ray writes the scratch target and
+                    // TaaSharpen writes the real one.
+                    cmd.SetComputeTextureParam(data.compute, 0, "ResultTexture", data.taa != 0 ? data.taaScratch : data.target);
 
                     int threadGroupsX = Mathf.CeilToInt(data.dispatchWidth / 8f);
                     int threadGroupsY = Mathf.CeilToInt(data.dispatchHeight / 8f);
@@ -920,6 +1050,21 @@ public class RaymarchFeature : ScriptableRendererFeature
                     cmd.BeginSample("VE.Raymarch.Primary");
                     cmd.DispatchCompute(data.compute, 0, threadGroupsX, threadGroupsY, 1);
                     cmd.EndSample("VE.Raymarch.Primary");
+
+                    if (data.taa != 0)
+                    {
+                        cmd.BeginSample("VE.Raymarch.Taa");
+                        cmd.SetComputeTextureParam(data.compute, data.kTaaResolve, "TaaCurColor", data.taaScratch);
+                        cmd.SetComputeBufferParam(data.compute, data.kTaaResolve, "TaaCur", data.taaCur);
+                        cmd.SetComputeBufferParam(data.compute, data.kTaaResolve, "TaaMetaR", data.taaMetaR);
+                        cmd.SetComputeBufferParam(data.compute, data.kTaaResolve, "TaaColR", data.taaColR);
+                        cmd.SetComputeBufferParam(data.compute, data.kTaaResolve, "TaaColW", data.taaColW);
+                        cmd.DispatchCompute(data.compute, data.kTaaResolve, threadGroupsX, threadGroupsY, 1);
+                        cmd.SetComputeBufferParam(data.compute, data.kTaaSharpen, "TaaColS", data.taaColW);
+                        cmd.SetComputeTextureParam(data.compute, data.kTaaSharpen, "ResultTexture", data.target);
+                        cmd.DispatchCompute(data.compute, data.kTaaSharpen, threadGroupsX, threadGroupsY, 1);
+                        cmd.EndSample("VE.Raymarch.Taa");
+                    }
                 });
             }
 
@@ -982,6 +1127,10 @@ public class RaymarchFeature : ScriptableRendererFeature
         _farDummy?.Release();
         _lightDummy?.Release(); _lightDummy = null;
         _farDummy = null;
+        _taaColA?.Release(); _taaColB?.Release(); _taaMetaA?.Release(); _taaMetaB?.Release(); _taaCur?.Release();
+        _taaDummy4?.Release(); _taaDummy2?.Release();
+        _taaColA = _taaColB = _taaMetaA = _taaMetaB = _taaCur = _taaDummy4 = _taaDummy2 = null;
+        _taaValid = false;
         base.Dispose(disposing);
     }
 }

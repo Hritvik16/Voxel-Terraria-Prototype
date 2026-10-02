@@ -198,6 +198,7 @@ public partial class PlaygroundCapture
 
         L(world ? $"SIZECLASS 2 WORLD (-world tg2: voxel band streamed in Y + the far band) -- {ts}"
                 : $"SIZECLASS 2 PREVIEW (TerrainGen via the far band) -- {ts}");
+        if (RaymarchFeature.Taa) L($"TAA ON (sharpen {RaymarchFeature.TaaSharpenAmount:F2}); every shot is taken after >= 90 still frames");
         L($"seed {spec.seed}: world {spec.worldSizeVoxels / 10000f:F0} km, sea at Y {spec.seaLevelY}, peak site {map.PeakPosition}, " +
           $"max top {far.MaxHeightVoxels} (engine voxels), ring initial fill {far.InitialFillMs:F0} ms");
         float c = spec.worldSizeVoxels * 0.5f;

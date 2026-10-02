@@ -469,6 +469,14 @@ public class Playground : MonoBehaviour
                       (next == RenderPreset.Kind.Quality ? ", nearest blit)" : ", FSR to the screen)") +
                       (RaymarchFeature.TemporalShadows ? " -- temporal shadows ON" : "");
         }));
+        // TAA (overnight task 06): OFF by default; `-taa 1` starts with it on.
+        Register(new Toy(KeyCode.F4, "TAA on/off", () =>
+        {
+            RaymarchFeature.Taa = !RaymarchFeature.Taa;
+            _status = RaymarchFeature.Taa
+                ? $"TAA ON (jitter {RaymarchFeature.TaaJitterCycle}-frame Halton, sharpen {RaymarchFeature.TaaSharpenAmount:F2}) -- F4 to compare"
+                : "TAA OFF -- F4 to compare";
+        }));
 
         // ================= PHASE 7 (§13, §6.5, §10.3) =================
         // THE THREE POSES THE OWNER HAS TO JUDGE IN MINUTES GET THEIR OWN KEYS.

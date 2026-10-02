@@ -86,6 +86,33 @@ real and separate reason — see the LOD-cascade finding in
   uncommitted pre-`4d0d03c` code, so a difference in the code is a likelier
   cause than the order of the jumps. Closed unless the wall shows up again.
 
+- **TAA EXISTS, OFF BY DEFAULT (task 06, 2026-10-02). STILLS ONLY ARE PROVEN;
+  MOTION, EDITS, FLUID AND COST ARE NOT (task 07).** `-taa 1` or Playground F4
+  (`RaymarchFeature.Taa`); `-taasharpen <percent>` (default 25). Raymarch.compute's
+  TAA block: Halton(2,3) 8-frame jitter of the primary ray, reprojection of the
+  exact hit point (far band and sky too) through the previous UNJITTERED
+  view-projection, a 4-tap history fetch that keeps only taps with the same
+  surface (distance within 2% + 2 voxels, widened by the local depth slope) and
+  drops a tap whose voxel is the same but whose material changed, YCoCg 3x3
+  variance clip, new-frame weight 0.1 still -> 0.4 at 8 px of motion,
+  luma-weighted blend, then a 0.25 cross sharpen clamped to its neighbours. The
+  history is reset by a resize, a non-Beauty view, a teleport (> 20 m), the sun
+  moving > ~1 deg in a frame, or a look / shadow-rung / tonemap change. Chunks
+  that `TerrainClipmap` re-uploaded this frame (nearest 16) take no history at
+  all: that is CHUNK granularity (12.8 m), so a live-fluid chunk never
+  accumulates. Buffers: W*H*56 B (29 MB at 960x540) plus one scratch target.
+  OFF is untouched: `MODE=poses` 55/56 shots md5-identical to the previous
+  commit (`FarBand/2026-10-02_150159_world` vs `_143337_world`); the 56th is the
+  minimap's underground slice, which is still streaming at capture. ON, same
+  build (`Logs/nearshimmer_20261002_154753.txt` vs `_155606.txt`, mean |dL| / % > 24):
+  near 4.14 / 5.84 -> 2.67 / 1.57, far 6.38 / 8.36 -> 3.55 / 2.50, all
+  5.89 / 7.59 -> 3.04 / 1.76. BUT the still-camera FLOOR is no longer 0: 0.73-3.18
+  mean |dL| per pose (the residual of the 8-frame jitter cycle at weight 0.1), so
+  a still TAA frame is not exactly reproducible and part of every ON nudge
+  number is that floor. Stills (`FarBand/2026-10-02_152951_world/eye_level_*`):
+  sub-pixel speckle on distant slopes and snow becomes smooth texture, near
+  blocks keep their edges but are visibly softer; no ghosting or holes.
+
 - **THE TG2 WORLD IS OVER THE 3 GB CAP BEFORE THE PLAYER BUILDS ANYTHING (found
   2026-09-26, NOT FIXED).** Peak phys_footprint 3,218-3,814 MB across four runs
   (`Logs/tg2world_*_mem.txt`). On mountain ground untouched terrain holds

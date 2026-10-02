@@ -89,6 +89,8 @@
 #pragma kernel BuildHeightLevel
 #pragma kernel FarScatter
 #pragma kernel FarMipBuild
+#pragma kernel TaaResolve
+#pragma kernel TaaSharpen
 
 #include "../Coord/CoordMath.hlsl"
 #include "../Memory/StructHeaders.hlsl"
@@ -209,6 +211,36 @@ int _TemporalShadows;
 int _ShadowHistValid;
 uint _ShadowFrame;
 uint2 _DebugPixel;
+
+// ---- TEMPORAL ANTI-ALIASING (overnight task 06, 2026-10-02) ----
+// Off unless _TaaEnabled (-taa 1 / Playground F4); with it 0 CSMain runs
+// exactly as before and the two TAA kernels are never dispatched. With it on:
+// every primary ray is jittered by _TaaJitter (gate pixels, Halton 2,3, set by
+// RaymarchFeature), CSMain writes this frame's colour to a scratch target and,
+// per pixel, WHERE ITS HIT WAS IN THE PREVIOUS FRAME (the exact hit point
+// projected through _PrevViewProj -- the temporal-shadow machinery's matrix;
+// no motion-vector pass) plus a "same surface?" key. TaaResolve blends it with
+// the reprojected history (clipped to the 3x3 neighbourhood in YCoCg) and
+// TaaSharpen writes the result, lightly sharpened, to the real target.
+int _TaaEnabled;
+float2 _TaaJitter;
+int _TaaHistValid;
+float4x4 _TaaPrevViewProj;      // previous frame's UNJITTERED view-projection (metres)
+float4 _TaaPrevCamVox;          // previous frame's camera, voxels
+float4 _TaaParams;              // x = current weight when still, y = when moving fast, z = motion (px) for y, w = sharpen
+float4 _TaaDirtyChunks[16];     // chunks the GPU mirror rewrote this frame (edits, streaming): no history there
+int _TaaDirtyCount;
+// x,y = previous-frame pixel position of this pixel's surface (pixel centres at
+// k + 0.5, this frame's jitter already removed); z = that point's distance from
+// the PREVIOUS camera in voxels (-2 = sky, -1 = no history allowed);
+// w = asfloat(key): voxel xyz & 0xFF | material << 24, 0xFFFFFFFF = no voxel.
+RWStructuredBuffer<float4> TaaCur;
+RWStructuredBuffer<float2> TaaMetaW;    // this frame: (distance from THIS camera, key) -- next frame's history meta
+StructuredBuffer<float2> TaaMetaR;      // previous frame's TaaMetaW
+StructuredBuffer<float4> TaaColR;       // previous frame's resolved colour (unsharpened)
+RWStructuredBuffer<float4> TaaColW;
+StructuredBuffer<float4> TaaColS;       // TaaSharpen's input: this frame's TaaColW
+Texture2D<float4> TaaCurColor;          // TaaResolve's input: CSMain's output this frame
 
 // 0=Beauty 1=StepHeat 2=UniformDense 3=Normals 4=NonExitHeat 5=VoxelGrain 6=LODTier
 int4 _DebugModePacked;
@@ -2138,6 +2170,7 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
     bool isDebugPixel = (id.x == _DebugPixel.x && id.y == _DebugPixel.y);
 
     float2 uv = float2((id.x + 0.5) / width, (id.y + 0.5) / height) * 2.0 - 1.0;
+    if (_TaaEnabled != 0) uv = float2((id.x + 0.5 + _TaaJitter.x) / width, (id.y + 0.5 + _TaaJitter.y) / height) * 2.0 - 1.0;
     float4 target = mul(_CameraInverseProjection, float4(uv.x, uv.y, 1, 1));
     float3 rayDir = mul(_CameraInverseView, float4(normalize(target.xyz / target.w), 0)).xyz;
 
@@ -3156,7 +3189,159 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
             color = float4(ApplyTonemap(shadedF), 1.0);
         }
     }
+
+    // TAA: where this pixel's surface was last frame, and what it was.
+    if (_TaaEnabled != 0 && inBounds)
+    {
+        float tHit = hit ? currentDist : (farHit ? fh.t : -1.0);
+        float3 P = rayStart + rayDir * max(tHit, 0.0);
+        // Sky reprojects as a point at infinity (w = 0): rotation only.
+        float4 pc = (tHit >= 0.0) ? mul(_TaaPrevViewProj, float4(P * 0.1, 1.0))
+                                  : mul(_TaaPrevViewProj, float4(rayDir, 0.0));
+        float expD = (tHit >= 0.0) ? length(P - _TaaPrevCamVox.xyz) : -2.0;
+        float2 prevPx = float2(-1e4, -1e4);
+        if (pc.w > 1e-6) prevPx = (pc.xy / pc.w * 0.5 + 0.5) * float2(width, height) - _TaaJitter;
+        else expD = -1.0;
+        // The voxel mirror rewrote this chunk this frame (an edit, a fluid tick,
+        // a streamed chunk): whatever history says about it may be stale.
+        if (hit)
+        {
+            float3 ch = float3(voxel >> 7);
+            for (int k = 0; k < _TaaDirtyCount; k++)
+                if (all(ch == _TaaDirtyChunks[k].xyz)) expD = -1.0;
+        }
+        uint key = hit ? (((uint)voxel.x & 0xFFu) | (((uint)voxel.y & 0xFFu) << 8) | (((uint)voxel.z & 0xFFu) << 16) | ((mat & 0xFFu) << 24))
+                       : 0xFFFFFFFFu;
+        uint pi = id.y * width + id.x;
+        TaaCur[pi] = float4(prevPx, expD, asfloat(key));
+        TaaMetaW[pi] = float2((tHit >= 0.0) ? length(P - rayStart) : -2.0, asfloat(key));
+    }
     if (inBounds) ResultTexture[id.xy] = color;
+}
+
+// ===========================================================================
+// TAA RESOLVE AND SHARPEN (task 06). Dispatched only with _TaaEnabled, after
+// CSMain, at the gate resolution: (w+7)/8 x (h+7)/8 groups of 8x8.
+// ===========================================================================
+float3 TaaToYCoCg(float3 c)
+{
+    return float3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b, -0.25 * c.r + 0.5 * c.g - 0.25 * c.b);
+}
+float3 TaaFromYCoCg(float3 y)
+{
+    return float3(y.x + y.y - y.z, y.x + y.z, y.x - y.y - y.z);
+}
+// Pull h toward the box centre until it lies inside (clip, not clamp: keeps
+// the history's hue instead of snapping each channel separately).
+float3 TaaClipAABB(float3 h, float3 bmin, float3 bmax)
+{
+    float3 c = 0.5 * (bmax + bmin);
+    float3 e = 0.5 * (bmax - bmin) + 1e-5;
+    float3 v = h - c;
+    float3 a = abs(v / e);
+    float m = max(a.x, max(a.y, a.z));
+    return (m > 1.0) ? c + v / m : h;
+}
+
+[numthreads(8, 8, 1)]
+void TaaResolve(uint3 id : SV_DispatchThreadID)
+{
+    uint width, height;
+    TaaCurColor.GetDimensions(width, height);
+    if (id.x >= width || id.y >= height) return;
+    int2 p = int2(id.xy);
+    int2 hiP = int2(width, height) - 1;
+    uint pi = id.y * width + id.x;
+
+    float3 cur = TaaCurColor[p].rgb;
+    float3 m1 = 0.0, m2 = 0.0, mn = 1e9, mx = -1e9;
+    for (int dy = -1; dy <= 1; dy++)
+    for (int dx = -1; dx <= 1; dx++)
+    {
+        float3 c = TaaToYCoCg(TaaCurColor[clamp(p + int2(dx, dy), 0, hiP)].rgb);
+        m1 += c; m2 += c * c; mn = min(mn, c); mx = max(mx, c);
+    }
+    float3 mu = m1 / 9.0;
+    float3 sigma = sqrt(max(0.0, m2 / 9.0 - mu * mu));
+    float3 bmin = max(mn, mu - 1.25 * sigma);
+    float3 bmax = min(mx, mu + 1.25 * sigma);
+
+    float4 rp = TaaCur[pi];
+    float3 outc = cur;
+    if (_TaaHistValid != 0 && rp.z != -1.0)
+    {
+        // "Same surface?" -- the temporal-shadow test (2% + 2 voxels), widened
+        // by the surface's own depth slope: on ground seen at a grazing angle
+        // one pixel spans far more than 2%. The slope is the SMALLER of the two
+        // one-sided differences per axis, so a silhouette (one side a cliff
+        // drop, the other continuous) does not widen it.
+        float tol = 0.0;
+        if (rp.z >= 0.0)
+        {
+            float zl = TaaCur[(uint)p.y * width + (uint)clamp(p.x - 1, 0, hiP.x)].z;
+            float zr = TaaCur[(uint)p.y * width + (uint)clamp(p.x + 1, 0, hiP.x)].z;
+            float zd = TaaCur[(uint)clamp(p.y - 1, 0, hiP.y) * width + (uint)p.x].z;
+            float zu = TaaCur[(uint)clamp(p.y + 1, 0, hiP.y) * width + (uint)p.x].z;
+            float gx = min(zl >= 0.0 ? abs(zl - rp.z) : 1e9, zr >= 0.0 ? abs(zr - rp.z) : 1e9);
+            float gy = min(zd >= 0.0 ? abs(zd - rp.z) : 1e9, zu >= 0.0 ? abs(zu - rp.z) : 1e9);
+            tol = min(max(2.0, rp.z * 0.02) + 1.5 * (min(gx, 1e6) + min(gy, 1e6)), max(2.0, rp.z * 0.5));
+        }
+        uint ck = asuint(rp.w);
+
+        float2 x = rp.xy - 0.5;
+        int2 b = int2(floor(x));
+        float2 f = x - float2(b);
+        float wsum = 0.0;
+        float3 hsum = 0.0;
+        for (int t = 0; t < 4; t++)
+        {
+            int2 o = int2(t & 1, t >> 1);
+            int2 q = b + o;
+            if (q.x < 0 || q.y < 0 || q.x > hiP.x || q.y > hiP.y) continue;
+            float w = (o.x ? f.x : 1.0 - f.x) * (o.y ? f.y : 1.0 - f.y);
+            uint qi = (uint)q.y * width + (uint)q.x;
+            float2 hm = TaaMetaR[qi];
+            bool ok = (rp.z < 0.0) ? (hm.x == -2.0) : (hm.x >= 0.0 && abs(hm.x - rp.z) <= tol);
+            // Same voxel, different material: it was edited (or flowed).
+            uint hk = asuint(hm.y);
+            if (ok && ck != 0xFFFFFFFFu && hk != 0xFFFFFFFFu && (hk & 0xFFFFFFu) == (ck & 0xFFFFFFu) && (hk >> 24) != (ck >> 24)) ok = false;
+            if (ok) { wsum += w; hsum += w * TaaColR[qi].rgb; }
+        }
+        if (wsum > 1e-3)
+        {
+            float3 hist = TaaFromYCoCg(TaaClipAABB(TaaToYCoCg(hsum / wsum), bmin, bmax));
+            float motion = length(rp.xy - (float2(p) + 0.5));
+            float alpha = lerp(_TaaParams.x, _TaaParams.y, saturate(motion / max(_TaaParams.z, 1e-3)));
+            // Part of the footprint was rejected (a disocclusion edge): trust the
+            // history less, down to none at all.
+            alpha = 1.0 - (1.0 - alpha) * saturate(wsum * 2.0);
+            // Luminance-weighted blend, so one bright sample cannot dominate.
+            float wc = alpha / (1.0 + dot(cur, float3(0.299, 0.587, 0.114)));
+            float wh = (1.0 - alpha) / (1.0 + dot(hist, float3(0.299, 0.587, 0.114)));
+            outc = (cur * wc + hist * wh) / max(wc + wh, 1e-6);
+        }
+    }
+    TaaColW[pi] = float4(outc, 1.0);
+}
+
+[numthreads(8, 8, 1)]
+void TaaSharpen(uint3 id : SV_DispatchThreadID)
+{
+    uint width, height;
+    ResultTexture.GetDimensions(width, height);
+    if (id.x >= width || id.y >= height) return;
+    int2 p = int2(id.xy);
+    int2 hiP = int2(width, height) - 1;
+    float3 c = TaaColS[id.y * width + id.x].rgb;
+    float3 l = TaaColS[(uint)p.y * width + (uint)clamp(p.x - 1, 0, hiP.x)].rgb;
+    float3 r = TaaColS[(uint)p.y * width + (uint)clamp(p.x + 1, 0, hiP.x)].rgb;
+    float3 d = TaaColS[(uint)clamp(p.y - 1, 0, hiP.y) * width + (uint)p.x].rgb;
+    float3 u = TaaColS[(uint)clamp(p.y + 1, 0, hiP.y) * width + (uint)p.x].rgb;
+    float3 s = c + _TaaParams.w * (c - 0.25 * (l + r + d + u));
+    // No overshoot: the sharpened value stays inside its cross neighbourhood.
+    float3 lo = min(c, min(min(l, r), min(d, u)));
+    float3 hi = max(c, max(max(l, r), max(d, u)));
+    ResultTexture[id.xy] = float4(clamp(s, lo, hi), 1.0);
 }
 
 // ===========================================================================
