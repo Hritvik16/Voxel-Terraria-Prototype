@@ -71,3 +71,6 @@ Finish: HANDOFF.md starting with `STOP_FOR_OWNER`, the plan doc's link, and the
 questions from item 7 copied verbatim (the supervisor moves them into the
 "Queue decisions" doc). Do not queue implementation tasks: the owner approves
 the plan first. Commit only HANDOFF.md (and SURFACE_REBUILD_PLAN.md if used).
+
+## Owner answer (2026-10-02)
+Plan approved (11a). Answers: 1a 2a 3a 4a 5a 6a 7a 8a, 9 undecided (test 40/50/60% with images), 10a, 11a; notes recorded in the plan doc section 8. Follow-up queued: 05b-surface-b0-metrics-harness.
