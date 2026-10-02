@@ -10,6 +10,12 @@ You are running UNATTENDED in a fresh headless session started by
 2. **Scope.** Do exactly the task below: one change, measured. Do not start
    the next queued task or anything not asked. Do not change frozen APIs,
    engine contracts or memory layout unless the task says so.
+   **Follow-ups (owner, 2026-10-02):** if your result names a low-risk follow-up
+   that needs no owner decision (a QA pose, an evidence run, a doc fix), you may
+   add ONE new task file for it at the END of `tools/overnight/queue/` (next free
+   number; a `Requires:` line if it depends on another task). No new design work
+   and no performance-changing code without the owner's approval written in a
+   task file.
 3. **Rules that still apply:** the shared Unity lock (`tools/unity-lock.sh` /
    `tools/with-unity-lock.sh`), EditMode suite before committing, one
    performance change per measurement, look at screenshots before concluding.
@@ -27,8 +33,10 @@ You are running UNATTENDED in a fresh headless session started by
    repeating until it has finished. Your final message comes only after step 8.
 6. **When the task needs the owner** (a design decision, a failed acceptance
    check you can't fix inside the task, anything destructive), stop: commit what
-   is safe, and put `STOP_FOR_OWNER` plus the question in HANDOFF.md. The queue
-   stops there.
+   is safe, and put `STOP_FOR_OWNER` plus the question at the TOP of
+   HANDOFF.md. The runner sets this task aside in `tools/overnight/blocked/`
+   (uncommitted edits are saved as a patch there and reverted) and goes on with
+   tasks that do not `Require:` it.
 7. **Usage is scarce.** No claude.ai docs or artifacts. Screenshots only where
    the task asks. Short tool outputs (grep/head/tail). No subagents unless the
    task says so.
