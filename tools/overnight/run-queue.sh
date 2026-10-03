@@ -93,6 +93,7 @@ while [ "$n" -lt "$MAX_TASKS" ]; do
     break
   fi
   name="$(basename "$task" .md)"
+  say "$(tools/power-status.sh "before $name")"   # task 12: power source + charge per task
 
   if [ "$IDLE_MIN" -gt 0 ]; then
     announced=0
