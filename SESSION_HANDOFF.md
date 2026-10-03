@@ -1,18 +1,25 @@
-# Session handoff -- 2026-10-03 14:45 (queue supervisor session; rebuild started)
+# Session handoff -- 2026-10-03 15:30 (queue supervisor session; B1 running)
 
 ## State
 - **Branch `surface-rebuild`** (from `main`). `main` was fast-forwarded to design-brief on
-  2026-10-03 14:40 after SUITE=all 618/0/12 (Logs/overnight/premerge_all.out). NOT pushed.
+  2026-10-03 14:40 after SUITE=all 618/0/12. NOT pushed (owner hasn't asked).
 - Runner alive in tmux `overnight` (IDLE_MIN=0, under caffeinate -ims). No PAUSE.
-  Running: 14 heavy-pause toggle (started 14:42). Next: 15 B1 (Requires 14).
+  Running: **15 B1** (started 15:21): map v4 opt-in + world record + biomes x3. It also renders
+  x2/x3/x4 maps for the owner's pick and runs the streaming A/B against v3.
+  Next: 16 pause gate in older multi-launch loop scripts (14b follow-up, tooling).
+- **Owner pause (tasks 14/14b done):** when the owner says "pause" or "resume", run
+  `tools/heavy.sh pause` or `tools/heavy.sh resume`. DRAIN semantics: running work finishes,
+  nothing new heavy starts. Use `tools/heavy.sh status` and tell the owner when it says idle.
+  Never freeze or kill (owner correction 2026-10-03).
 - Owner, 2026-10-03:
-  - No day/night windows. Task 14 builds `tools/heavy.sh pause|resume|status`. When the owner
-    says "pause"/"resume" in chat, run it. The agent keeps working; only Unity waits.
-  - The Q8 worker sweep goes with B9, not now.
-  - Every image gets a caption saying what to look at (PREAMBLE rule 8, memory).
-- Rebuild order + rules: SUPERVISOR.md backlog. Q5-Q9 answered (a) and moved under "Answered"
-  in the doc; nothing waiting on the owner.
-- EditMode: fast 605/0/12, all 618/0/12. `Assets/Scenes/Playground.unity` stays modified.
+  - The Q8 worker sweep goes with B9.
+  - Every image gets a caption saying what to look at (PREAMBLE rule 8).
+  - Rebuild order and rules: SUPERVISOR.md backlog. Copy the plan numbers INTO task files.
+- After B1: Done row in the doc with the x2/x3/x4 maps (captioned). Add "Owner pick: biome scale"
+  as a question. Then queue B2 (needs the plan's rule 2 + B2 row; render 40/50/60% gentle for
+  the owner's pick).
+- Doc: nothing waiting on the owner. EditMode fast 605/0/12, all 618/0/12.
+  `Assets/Scenes/Playground.unity` stays modified.
 
 ## Done this session (rows in the Queue decisions doc, "Done")
 05a pose dropped (0bbd1e6) · 05b metrics harness (0a80629, Q5 open) · 05c wall not reproduced
@@ -20,7 +27,7 @@
 · 08 TAA checkerboard, off, `-checker 1`: 30.8 -> 19.6 ms, misses 16.7 ms by 2.9 (ecb1027, Q7 open)
 · 09 tg2 fluid does simulate, no fault (3a99383) · 10 streaming baseline: CPU generation is the bottleneck (1c8e439, Q8 open)
 · 11 EditMode suite 14m50s -> fast 3m02s / all 9m23s (f1e8dc4) · 12 rig power guard (7f59fbc)
-· 13 fly pose: designed band limit at a cliff lip, not a bug (233562a, Q9 open, not blocking).
+· 13 fly pose: designed band limit (233562a) · 14 pause tool (74f263a) · 14b pause = drain (bc98a7b).
 
 ## Waiting on the owner (doc "Waiting on you")
 - **Q5** (05b): B1's biome-size target. Recommended (a): 297 m baseline, B1 >= 2.5x (~740 m).
@@ -49,7 +56,7 @@
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 231)
+  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 235)
 - Surface rebuild plan: https://claude.ai/code/artifact/f6222d44-1457-4a92-9460-3390d44e75fd
 - Game Design Brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
 - Terrain review: https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7
