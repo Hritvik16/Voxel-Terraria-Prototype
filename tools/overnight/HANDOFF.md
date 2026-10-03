@@ -1,62 +1,56 @@
 # Overnight handoff
 
-**10-streaming-perf-baseline: DONE (measurement only, no behaviour change).** The bottleneck is CPU chunk GENERATION throughput, not the GPU upload. Even walking outruns it: the deficit reaches ~2,700 of 3,087 chunks, and a chunk takes 12-13 s p50 from request to on-GPU. Also found: the fly pose draws no voxels at all, even fully loaded (queued as task 13).
+**11-editmode-suite-speedup: DONE.** Test code and runner only; no engine or generator change. Times:
+- Fast suite (the new default): **3m02s**.
+- `SUITE=all`: **9m23s**.
+- Before: **14m50s**.
 
-## What changed (one commit on design-brief, "Overnight 10")
-- `Assets/CoreEngine/Streaming/StreamTrace.cs` (new). An opt-in, observe-only per-chunk timeline: request, dispatch, worker gen/downsample, admit (transfer/cascade split), clipmap upload epoch, and "near" (within 64 m).
-- `StreamManager.cs`: hooks, each behind `if (StreamTrace.Enabled)`. Also added `WorkerCount` and `FrameIndex`, both additive.
-- `Assets/Game/PlaygroundCapture.StreamProbe.cs` (new), `-streamprobe`:
-  - `-streammotion walk|fly`, `-movespeed`.
-  - Settles at a still pose until fully loaded, timing the fill.
-  - At that pose: an isolated main-thread gen check, a CPU-store diagnostic, and still vs moving shots (beauty, tier view 6, band view 9).
-  - Writes a per-stage p50/p95/max report plus per-frame and per-chunk TSVs.
-- Wiring: `PlaygroundCapture.cs`, `Playground.cs` (capture lists), and `run-tg2world.sh MODE=stream`.
-- `tools/streamprobe-table.py` (side-by-side table).
-- Docs: `KNOWN_ISSUES.md` "STREAMING BASELINE v3" (the table is at its top) and a `CLAUDE.md` index line.
-- Follow-up queued: `tools/overnight/queue/13-fly-pose-no-voxels-check.md`.
+Both suites: 0 FAIL. `SUITE=all` runs the same 630 cases.
 
-## Evidence
-- EditMode: PASS 626 FAIL 0 SKIP 4 (`Logs/overnight/10_editmode.out`). Builds: 0 error CS, 0 Shader error.
-- No behaviour change: `MODE=poses` on HEAD (`FarBand/2026-10-03_062635_world`) vs after (`_074726_world`).
-  - 54 of 56 shots are md5-identical.
-  - The two minimap shots differ. They are taken a fixed 600 frames after a jump across the island; the BEFORE noon frame caught the cliff still loading (missing chunks). Load timing, not the trace.
-- Runs: 7 launches, all release, Performance preset, AC power. Logs: `Logs/overnight/10_*.out`. Reports: `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/StreamProbe/`.
-  - walk: `071515`, `073049`
-  - fly 56: `065909`, `070906`, `072436`
-  - fly 14: `073645`, `074205`
-  - `064931` is a discarded first try: its eye was over ridges and the settle had a frame cap.
-- Headline numbers, p50 (a range = spread across launches):
+## What changed (commit f1e8dc4 on design-brief)
+- **Shared maps.** `Assets/TerrainGen/Tests/SharedMaps.cs` (new) builds one WorldMap per whole `TerrainSpec` per run. Before, seed 42 was built 9 times per run.
+  - Cave, DetailCull, Hydrology, PaletteSample, Stamp, TerrainGen, V0DenseBrick and Region tests now use it.
+  - It also stores each build's time and `LastErosion`, so the Regions report still prints them.
+  - Determinism tests still build twice. `MapV3_IsDeterministic` and `Determinism_SameSeed...` compare a FRESH `WorldMap.Build` with the shared map, which was built earlier in the run. A test that mutated the shared map would fail there.
+  - The erosion-input dump in `Regions_VarietyAndReport` now needs `REGIONS_EROSION_DUMP=1`, which builds fresh. Nothing in the repo reads that dump.
+- **Opt-in reports.** `ReportOnly.cs` (new): without `REPORTS=1` these tests are Ignored (counted as SKIP). I checked each body and its helpers; none of them asserts anything:
+  - `HydrologyTests.Report_Hydrology`
+  - `PaletteSampleTests.Report_PaletteSamples` (86 s)
+  - `V0DenseBrickTests.Report_V2_MountainBandDenseBricks`
+  - `TerrainGenTests.Diagnose_BurstVsMonoIntermediates`
+  - `TerrainGenTests.Report_BurstVsEditorMono_ShapeMismatchRate`
+  - `TerrainGenTests.Report_ShapeAndDetailCostUnderBurst`
+  - `TerrainGenTests.Report_WriteWorldMapPng`
+  - `TerrainGenTests.Report_LandmarkInEveryDirection`
+- **13 tests tagged `[Category("Slow")]`** (> 10 s after the cache):
+  - RegionTests: `Regions_VarietyAndReport`, `MapV3_IsDeterministic`
+  - TerrainGenTests: `Determinism_SameSeed...`
+  - StampTests: `NoNeedles_OnTheMap`. It builds seed 7 itself when RegionTests is not in the run.
+  - VerticalStreamingTests: both tests. Their maps are built inside the engine's `TerrainGenChunkSource`, so they can't share without an engine change.
+  - ShadowRayTests: `Fuzz_Penumbra...`
+  - OccupancyMaskTests: 3 tests
+  - AirMipTests: 2 tests
+  - RaymarchMacroSkipTests: `O1_RandomizedFuzz`
+- **`run-editmode-tests.sh`.** Runs the fast suite (`-testCategory "!Slow"`) by default, or the whole suite with `SUITE=all`.
+  - The summary line is now `PASS n  FAIL n  SKIP n  suite=fast|all  wall=XmYYs`.
+  - A `SUITE=all` run also saves a copy as `TestResults_all.xml` (added to .gitignore). The fast suite compares against it and prints "left out N of M cases".
+- **CLAUDE.md "Commands"**: fast suite for every change; `SUITE=all` before any merge to main and on every terrain-generator change; the REPORTS / SharedMaps rules. I did not touch PREAMBLE.md or SUPERVISOR.md.
 
-  | | walk 5 m/s | fly 14 m/s | fly 56 m/s |
-  |---|---|---|---|
-  | solid chunk gen on a worker | 349-354 ms | 481-486 ms | 0.9-1.1 s |
-  | same chunk gen in isolation | 62-65 ms | 58-67 ms | 59-73 ms |
-  | chunks admitted / s | 24-25 | 20 | 7-11 |
-  | request -> on GPU | 11.7-13.2 s | 8.2-9.6 s | 2.8-3.0 s (survivor bias) |
-  | deficit | ~2,650-2,690 | ~2,915 | ~3,080 |
+## Evidence (scripts' own output)
+- **Before:** `Logs/overnight/10_editmode.out`, 08:11:18 -> 08:26:08 = **14m50s**, PASS 626 FAIL 0 SKIP 4. XML copy: `Logs/overnight/11/before_TestResults.xml`.
+- **SUITE=all:** `Logs/overnight/11_all.out`: `PASS 618 FAIL 0 SKIP 12 suite=all wall=9m23s`. XML: `Logs/overnight/11/all_TestResults.xml`.
+  - It has the same 630 full names as before: none removed, none added.
+  - Only 8 results changed, all Passed -> Skipped, and they are exactly the 8 opt-in reports. SKIP 12 = the old 4 + those 8.
+  - Total test-case time went from 660 s to 490 s. `Regions_VarietyAndReport` went from 109 s to 54 s; `NoNeedles` from 27 s to under 1 s.
+- **Fast:** `Logs/overnight/11_fast.out`: `PASS 605 FAIL 0 SKIP 12 suite=fast wall=3m02s`, "left out 13 of 630 cases".
+  - Test time 114 s. The slowest remaining case is CaveTests.StructuredCaves at 7.3 s.
+  - XML: `Logs/overnight/11/fast_TestResults.xml`.
+- 0 `error CS`. No screenshots: none were needed for this task.
 
-  - Main-thread admission is ~1 ms per chunk. Admitted -> mirror happens in the same frame.
-  - The upload pass is 0.3 ms p50 / 1.3 ms p95. Bytes peak at 3.41 MB vs the 3.0 MB cap on 1-2 frames, which are exempt chunks.
-  - The full table is in KNOWN_ISSUES.
-- Screenshots I opened:
-  - Walk still vs moving (`071515.../crops_horizon.png`):
-    - The tier 0->1 boundary sits at the visible horizon in both: BY DESIGN.
-    - Mid-walk, the left near-horizon turns into far F1 with a straight vertical edge where the still frame had voxels: SLOW LOADING.
-  - Fly still and moving (`065909`, `072436`): far band only. Tier view 0% hits, band view 0% voxel blue, F1 nearest, 3.9 ms frames.
-    - The CPU has ground 805.7 m under the 868.8 m eye, inside the band (793.6-883.2 m) and the mirror. Cause unknown → task 13.
-- Unified-memory "upload" (from the code; walk, frames that uploaded):
-  - There is no bus transfer. Our cost is CPU work in `TerrainClipmap.UploadDirty`.
-  - Format conversion: the 4096-handle staging table, `AirMip.RebuildRegion` and `AirMip.PackRegion`. ~0.12 ms p50 / 1.03 ms p95 (sum of phases), ~55-65%.
-  - SetData copies: `WriteClipmapChunk`, `WriteBrickRun`, and the whole ~300 KB packed air-mip each uploading frame. ~0.11 / 0.59 ms, ~35-45%.
-  - At admission: `CascadeTierPool.WriteChunkFromDownsampled` repacks tier 1/2 bricks and SetDatas them, 0.95 ms per chunk p50 (not split). The scratch->pool copy is 0.01 ms.
-  - Metal's own work after SetData is unmeasured (no GPU attribution in this workflow).
-
-## Not done / caveats
-- "Deficit" and "missing" include air and deep chunks; the probe cannot tell which would be visible.
-- Worker busy % is a lower bound: it counts only chunks that reached the GPU.
-- The 5-17x worker slowdown vs isolation is NOT attributed. Candidates: 7 workers on 4P+4E cores plus the main and render threads, E-core/QoS class, memory bandwidth.
-- `Assets/Scenes/Playground.unity` was regenerated by the build; not committed.
+## Notes / unfinished
+- About 1.5 of the fast suite's 3 minutes is Unity start-up and compile; the tests take ~2 min. The fast suite still builds the seed-42 map once (~27 s) because many of its terrain checks need it.
+- The supervisor still has to switch PREAMBLE/SUPERVISOR wording ("EditMode suite before committing") to the fast suite, plus `SUITE=all` for TerrainGen changes or merges.
+- The CLAUDE.md "Current state" line still quotes an old EditMode count (625/2). I left it alone; the supervisor can update it.
 
 ## Next step
-- Owner: should generation throughput (worker count/QoS, gen cost, band height, pending order) be a first-class constraint of the B1+ surface rebuild?
-- Queue continues with 11, 12, then 13 (why the fly pose draws no voxels).
+Next queued task. No follow-up task added.
