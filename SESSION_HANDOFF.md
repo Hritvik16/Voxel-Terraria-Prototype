@@ -1,11 +1,14 @@
-# Session handoff -- 2026-10-03 08:35 (queue supervisor session)
+# Session handoff -- 2026-10-03 08:55 (queue supervisor session; stopped at usage limit)
 
 ## State
 - Branch `design-brief`. Runner alive in tmux session `overnight` (IDLE_MIN=0, nice 10). No PAUSE.
-- Running: `11-editmode-suite-speedup` (started 08:30). Queue after it: 12 rig power guard (08
-  follow-up; the supervisor added: start.sh runs the runner under caffeinate), 13 fly pose draws no
-  voxels (10 follow-up, evidence only). Then B1 onward (needs Q5; Q8 may add a gen-time pass line).
-- After 11 lands: update PREAMBLE.md rule 3 (SUPERVISOR.md backlog).
+- Running: `12-rig-power-guard` (started 08:51). Queue after it: 13 fly pose draws no voxels (10
+  follow-up, evidence only). After 13 NOTHING is runnable without the owner: B1 needs Q5 (and
+  maybe Q8's pass line). Add 12 and 13's Done rows to the doc when the next session starts.
+- 11 done (f1e8dc4); PREAMBLE rule 3 updated (2198010). CLAUDE.md "Current state" still quotes an
+  old EditMode count (625/2); new: fast 605/0/12, all 618/0/12 -- leave for a task, not the supervisor.
+- Pre-B1 v3 poses baseline (04b plan) is effectively covered by task 10's reference run
+  `Logs/tg2world_20261003_062458.txt` (on AC, peak 3358 MB, dense bricks per pose).
 - The Mac ran out of battery at 21:44 on 10-02 and hibernated until 05:04. The supervisor started
   `caffeinate -ims -w <run-queue pid>` by hand; after a runner restart, start it again until task 12
   lands. Check `pmset -g batt` before trusting any cost number.
@@ -44,7 +47,7 @@
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 211)
+  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 214)
 - Surface rebuild plan: https://claude.ai/code/artifact/f6222d44-1457-4a92-9460-3390d44e75fd
 - Game Design Brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
 - Terrain review: https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7
