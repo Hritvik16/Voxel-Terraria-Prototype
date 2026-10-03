@@ -195,10 +195,11 @@ put `pgrep -f '<pattern>'` inline in a shell command: it matches that shell
 itself and deadlocks the queue (happened twice). **Never edit a `run-*.sh` while
 it is running** — bash reads scripts incrementally and the edit shifts what it
 executes next (happened 2026-09-24; harmless that time).
-**Owner pause (task 14):** `tools/heavy.sh pause` freezes running Unity/il2cpp/
-players and blocks new launches (HOLD `/tmp/voxel-unity.hold`); `pause --kill`
-terminates them (only that frees RAM); `resume`; `status`. Agents keep running.
-Rigs print `WARNING: PAUSED DURING RUN` -- such a run's timings are invalid.
+**Owner pause (tasks 14/14b):** `tools/heavy.sh pause` DRAINS: what is running
+finishes, new builds/tests/launches wait (HOLD `/tmp/voxel-unity.hold`) until
+`resume`; `status` shows the lock owner, waiters, "draining: N" then "idle".
+Nothing is ever signalled. Agents keep running. Rigs print `NOTE: owner paused
+during this run` -- the Mac was likely in use: rerun that arm.
 
 ## Commands
 

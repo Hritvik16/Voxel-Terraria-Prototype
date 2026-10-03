@@ -138,11 +138,9 @@ tools/power-status.sh end | tee -a "$LOG"
 if [ "${PIPESTATUS[0]}" != 0 ] && { [ "${MODE:-poses}" = "walk" ] || [ "${MODE:-poses}" = "orbit" ]; }; then
   echo "WARNING: ON BATTERY at the end of the run" | tee -a "$LOG"
 fi
-# 2026-10-03 (task 14): an owner pause (tools/heavy.sh pause) that overlapped
-# this run voids its timings; a `pause --kill` voids the run (exit 3).
+# 2026-10-03 (tasks 14/14b): an owner pause (tools/heavy.sh pause) that
+# overlapped this run means the Mac was likely in use: NOTE, rerun the arm.
 tools/heavy.sh overlap "$RUN_START" | tee -a "$LOG"
-PAUSE_RC=${PIPESTATUS[0]}
 echo "log: $LOG"
 echo TG2WORLD_DONE
-[ "$PAUSE_RC" = 3 ] && exit 3
 exit 0

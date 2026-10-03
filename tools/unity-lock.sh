@@ -12,12 +12,15 @@
 # inline `pgrep -f '<pattern>'` in a shell command matches that very shell,
 # which deadlocked a queue here twice.
 #
-# OWNER PAUSE (2026-10-03, task 14): while /tmp/voxel-unity.hold exists
-# (tools/heavy.sh pause), unity_lock_acquire waits and never takes the lock or
-# clears a "stale" one. heavy.sh finds the processes to freeze with
-# unity_core_pids below -- the same patterns unity_busy waits on.
+# OWNER PAUSE (2026-10-03, tasks 14/14b): while /tmp/voxel-unity.hold exists
+# (tools/heavy.sh pause), unity_lock_acquire waits -- no timeout -- and never
+# takes the lock or clears a "stale" one. Nothing running is signalled: the
+# current holder finishes ("drain"). Each waiter registers in UNITY_WAITERS so
+# `tools/heavy.sh status` can list it; heavy.sh counts what is still draining
+# with unity_core_pids below -- the same patterns unity_busy waits on.
 UNITY_LOCK=/tmp/voxel-unity.lock
 UNITY_HOLD=/tmp/voxel-unity.hold
+UNITY_WAITERS=/tmp/voxel-unity.waiters
 UNITY_LOCK_ME="voxel-terraria-1-byte"
 
 # Pids of Unity (editor/batchmode), il2cpp and any built player (Builds/*.app).
@@ -33,7 +36,10 @@ unity_busy() {
 unity_hold_wait() {
   [ -f "$UNITY_HOLD" ] || return 0
   echo "$(date +%H:%M:%S) held by owner pause -- waiting"
+  mkdir -p "$UNITY_WAITERS" 2>/dev/null
+  echo "$(date '+%H:%M:%S') $(ps -o command= -p $$ 2>/dev/null | cut -c1-160)" > "$UNITY_WAITERS/$$" 2>/dev/null
   while [ -f "$UNITY_HOLD" ]; do sleep 5; done
+  rm -f "$UNITY_WAITERS/$$"
   echo "$(date +%H:%M:%S) owner pause lifted"
 }
 

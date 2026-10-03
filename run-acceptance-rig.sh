@@ -26,8 +26,8 @@ RIG_OUTPUT_DIR="$HOME/Library/Application Support/DefaultCompany/Voxel Terraria 
 # waits on this script's pid) and log power source + charge at start and end.
 caffeinate -dimsu -w $$ &
 tools/power-status.sh start
-# 2026-10-03 (task 14): warn if an owner pause (tools/heavy.sh) overlapped the
-# run -- its timings are then invalid; a `pause --kill` voids it (exit 3).
+# 2026-10-03 (tasks 14/14b): NOTE if an owner pause (tools/heavy.sh) overlapped
+# the run -- the Mac was likely in use, so its timings may be contaminated.
 RUN_START=$(date +%s)
 
 echo "== Building (release, not development — see CommandLineBuild.cs) =="
@@ -79,5 +79,4 @@ echo "Screenshots from this run (read these directly if you need to look):"
 ls "${LATEST}"*.png 2>/dev/null
 echo
 tools/heavy.sh overlap "$RUN_START"
-[ $? = 3 ] && exit 3
 exit 0
