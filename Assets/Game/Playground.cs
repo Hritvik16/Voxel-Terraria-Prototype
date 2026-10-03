@@ -400,7 +400,7 @@ public class Playground : MonoBehaviour
             HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
             HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-looksweep") ||
             HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-nearshimmer") || HasArg("-fluidroster") ||
-            HasArg("-devmap") || HasArg("-taarisk") || HasArg("-fluidprobe") || HasArg("-streamprobe"))
+            HasArg("-devmap") || HasArg("-taarisk") || HasArg("-fluidprobe") || HasArg("-streamprobe") || HasArg("-flysweep"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
@@ -412,7 +412,7 @@ public class Playground : MonoBehaviour
         if (HasArg("-p7stress") || HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-phase7demo") || HasArg("-roofskipab") || HasArg("-upscaleab") ||
             HasArg("-lavalight") || HasArg("-looksweep") || HasArg("-farvisual") ||
-            HasArg("-farpreview") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-nearshimmer") || HasArg("-fluidroster") || HasArg("-taarisk") || HasArg("-streamprobe")) DebugHideUi = true;
+            HasArg("-farpreview") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-nearshimmer") || HasArg("-fluidroster") || HasArg("-taarisk") || HasArg("-streamprobe") || HasArg("-flysweep")) DebugHideUi = true;
 
         RegisterDefaultToys();
         // The dev map (O). Its own component: it owns the camera and the
@@ -433,7 +433,7 @@ public class Playground : MonoBehaviour
             if (a.StartsWith("-") && (a == "-sustained" || a == "-playgroundshots" || a == "-gputrace" || a == "-p7stress" ||
                 a == "-daysweep" || a == "-presetshots" || a == "-phase7demo" || a == "-roofskipab" || a == "-upscaleab" ||
                 a == "-lavalight" || a == "-looksweep" || a == "-farvisual" || a == "-farpreview" || a == "-flyfast" ||
-                a == "-farseams" || a == "-lodpop" || a == "-farshimmer" || a == "-nearshimmer" || a == "-fluidroster" || a == "-devmap" || a == "-taarisk" || a == "-streamprobe" ||
+                a == "-farseams" || a == "-lodpop" || a == "-farshimmer" || a == "-nearshimmer" || a == "-fluidroster" || a == "-devmap" || a == "-taarisk" || a == "-streamprobe" || a == "-flysweep" ||
                 a == "-stutterprobe" || a == "-lightingab" || a == "-shadowstats" || a == "-pitchsweep" || a == "-fluidbench"))
                 return true;
         return false;

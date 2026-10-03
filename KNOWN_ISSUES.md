@@ -95,9 +95,34 @@ real and separate reason — see the LOD-cascade finding in
     - Mid-walk, the left half of the near horizon becomes far F1, with a straight
       vertical edge where the still frame had voxels: SLOW LOADING.
   - So the owner sees both, and the moving pop is the deficit.
-  - **The fly pose draws NO voxels even fully loaded.** The CPU has ground 63 m
-    under the eye, inside the band and mirror; the tier and band views show 0% voxels.
-    Queued as task 13; cause unknown.
+  - **The fly pose draws NO voxels even fully loaded: a DESIGNED BOUNDARY, not a bug
+    (task 13, 2026-10-03).** The eye sits on a cliff lip (ground 805.8 m right below).
+    The view NE looks down onto a plain at ~752 m, 53 m lower, which is BELOW THE
+    BAND: band 62..68 = 793.6 m floor at the 63 m pose. `MODE=flysweep ./run-tg2world.sh`
+    (`-flysweep`, `PlaygroundCapture.FlySweep.cs`, `FlySweep/2026-10-03_105638_*`)
+    swept eye height 2/8/16/32/48/63 m x pitch 8/30. Voxel % of the frame:
+    0 everywhere except 16 m/30 deg 1.5, 8 m/30 deg 6.7, 2 m/30 deg 20.4 and
+    2 m/8 deg 1.5; that is only the near lip and the higher sides.
+    - Evidence for the boundary, per probe ray (shader debug pixel vs CPU oracles):
+      - Shader steps <= 44 of 1024; no iteration cap.
+      - The march leaves through the band floor and finds no hit. The CPU store
+        (`ChunkStore.GetVoxel`) holds no solid voxel on the same ray.
+      - The world map's surface on every probe ray is at 750-754 m: "in band False".
+      - Mirror check: lost 0, lag 0, stale 0.
+    - Why the band misses the plain:
+      - Vertically, `BandHolds` (`StreamManager.cs:348`) must keep the eye's layer and
+        the one below, so the 752 m plain (layer 58) can enter the band only with the
+        eye below ~832 m.
+      - Below that height, `BandScore` (`:354`, distance-weighted, ignores view
+        direction) chose 60..66 (768 m floor) over a band reaching layer 58.
+    - Horizontally, the 8 deg centre ray meets the ground 397-1504 m out, beyond
+      the +-128 m load square. That boundary is designed too.
+    - Owner's call: a view-aware band score or a taller band (memory) would change
+      it. Task 10's fly numbers stay valid as a streaming baseline; its fly still
+      just shows far band only.
+    - Capture-mode trap hit again: a new `-flag` missing from `Playground.cs`'s
+      three capture lists leaves the walk player driving the camera (it was at
+      796.2 m inside rock: black beauty, 100% "voxel" debug views).
 
   Unified-memory "upload" (walk, frames that uploaded, sums of phase p50 / p95):
   - Format conversion 0.12 / 1.03 ms: the staging table, `AirMip.RebuildRegion`, `PackRegion`.

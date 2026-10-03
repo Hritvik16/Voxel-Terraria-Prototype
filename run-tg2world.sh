@@ -74,6 +74,11 @@ elif [ "${MODE:-poses}" = "stream" ]; then
   START_MARK=$(mktemp)
   open -n "$APP" --args -world tg2 -streamprobe -streammotion "${MOTION:-fly}" -gateres 0 -renderpreset performance \
     -farshadow 1 -cleardeltas -tag "stream${MOTION:-fly}_${RUN_ID}" ${EXTRA:-}
+elif [ "${MODE:-poses}" = "flysweep" ]; then
+  # 2026-10-03 (task 13): still-pose height x pitch sweep at task 10's fly pose.
+  START_MARK=$(mktemp)
+  open -n "$APP" --args -world tg2 -flysweep -gateres 0 -renderpreset performance \
+    -farshadow 1 -cleardeltas -tag "flysweep_${RUN_ID}" ${EXTRA:-}
 elif [ "${MODE:-poses}" = "walk" ]; then
   open -n "$APP" --args -world tg2 -sustained -motion walk -orbitradius "${WALKR:-150}" -movespeed 5 -minutes "${MINUTES:-5}" \
     -gateres 0 -renderpreset performance -farshadow 1 -cleardeltas -tag "tg2walk_${RUN_ID}" ${EXTRA:-}
@@ -109,6 +114,9 @@ elif [ "${MODE:-poses}" = "taarisk" ]; then
 elif [ "${MODE:-poses}" = "stream" ]; then
   R=$(find "$DATA/StreamProbe" -maxdepth 1 -type d -name "*_stream*_${RUN_ID}" -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
   if [ -n "$R" ] && [ -f "$R/streamprobe.txt" ]; then cat "$R/streamprobe.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
+elif [ "${MODE:-poses}" = "flysweep" ]; then
+  R=$(find "$DATA/FlySweep" -maxdepth 1 -type d -name "*_flysweep_${RUN_ID}" -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
+  if [ -n "$R" ] && [ -f "$R/flysweep.txt" ]; then cat "$R/flysweep.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
 elif [ "${MODE:-poses}" = "fluidprobe" ]; then
   R=$(find "$DATA/FarBand" -maxdepth 1 -type d -name '*_fluidprobe_*' -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
   if [ -n "$R" ] && [ -f "$R/fluidprobe.txt" ]; then cat "$R/fluidprobe.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
