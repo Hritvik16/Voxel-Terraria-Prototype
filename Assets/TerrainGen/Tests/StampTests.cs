@@ -33,7 +33,7 @@ namespace TerrainGen.Tests
             if (_map != null) return;
             _spec = TerrainSpec.SizeClass2(42);
             _o = Offsets.For(42);
-            _map = WorldMap.Build(_spec);
+            _map = SharedMaps.Get(_spec);
         }
 
         private static ColumnSample S(float x, float z) { var v = _map.View; return ShapeField.Sample(in _spec, in v, in _o, x, z, 1); }
@@ -262,14 +262,14 @@ namespace TerrainGen.Tests
         public const float NEEDLE_DROP = 250f;   // voxels (25 m)
 
         [Test]
+        [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
         public void NoNeedles_OnTheMap()
         {
             var lines = new List<string>();
             foreach (uint seed in new[] { 42u, 7u })
             {
                 var spec = TerrainSpec.SizeClass2(seed);
-                var map = seed == 42u ? _map : WorldMap.Build(spec);
-                try
+                var map = SharedMaps.Get(spec);   // shared: never disposed here
                 {
                     int n = spec.mapCells, summits = 0;
                     var worst = new List<(float drop, int x, int z)>();
@@ -324,7 +324,6 @@ namespace TerrainGen.Tests
                     Assert.Less(worst.Count > 0 ? worst[0].drop : 0f, NEEDLE_DROP,
                         $"seed {seed}: a needle -- the summit at map cell ({worst[0].x},{worst[0].z}) falls {worst[0].drop / 10f:F1} m within 40 m on every side");
                 }
-                finally { if (seed != 42u) map.Dispose(); }
             }
             File.WriteAllLines(Path.Combine(Dir(), "needles.txt"), lines);
             Debug.Log("[Stamps] needle check\n" + string.Join("\n", lines));

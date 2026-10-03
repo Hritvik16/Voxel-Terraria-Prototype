@@ -8,6 +8,9 @@
 //                area and height range; and Logs/TerrainGen/regions/seed_N.bin
 //                (int32 n, then n*n float32 heights rel. sea, then n*n region
 //                bytes) for tools/region-map.py's relief map.
+//                The maps come from SharedMaps (built once per run). With
+//                REGIONS_EROSION_DUMP=1 each seed is built fresh instead, so the
+//                erosion inputs can be written to Logs/TerrainGen/regions/erosion_in_N.bin.
 using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
@@ -21,19 +24,22 @@ namespace TerrainGen.Tests
         private static readonly uint[] Seeds = { 42u, 7u, 2026u, 31337u };
 
         [Test]
+        [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
         public void Regions_VarietyAndReport()
         {
             string dir = Path.Combine(Directory.GetCurrentDirectory(), "Logs", "TerrainGen", "regions");
             Directory.CreateDirectory(dir);
             var lines = new List<string>();
-            WorldMap.DumpErosionInputsTo = Path.Combine(dir, "erosion_in");
+            bool dump = System.Environment.GetEnvironmentVariable("REGIONS_EROSION_DUMP") == "1";
+            if (dump) WorldMap.DumpErosionInputsTo = Path.Combine(dir, "erosion_in");
             foreach (uint seed in Seeds)
             {
                 var spec = TerrainSpec.SizeClass2(seed);
                 var sw = System.Diagnostics.Stopwatch.StartNew();
-                using var map = WorldMap.Build(spec);
-                double ms = sw.Elapsed.TotalMilliseconds;
-                var er = WorldMap.LastErosion;
+                var shared = dump ? null : SharedMaps.GetEntry(spec);
+                var map = dump ? WorldMap.Build(spec) : shared.Map;
+                double ms = dump ? sw.Elapsed.TotalMilliseconds : shared.BuildMs;
+                var er = dump ? WorldMap.LastErosion : shared.ErosionStats;
                 int n = spec.mapCells;
                 var area = new int[Regions.KINDS]; var lo = new float[Regions.KINDS]; var hi = new float[Regions.KINDS];
                 for (int k = 0; k < Regions.KINDS; k++) { lo[k] = float.MaxValue; hi[k] = float.MinValue; }
@@ -56,6 +62,7 @@ namespace TerrainGen.Tests
                     foreach (float v in map.Height) f.Write(v);
                     f.Write(map.Region);
                 }
+                if (dump) map.Dispose();
                 Assert.GreaterOrEqual(kinds, 7, $"seed {seed}: only {kinds} archetypes on land");
             }
             WorldMap.DumpErosionInputsTo = null;
@@ -64,11 +71,12 @@ namespace TerrainGen.Tests
         }
 
         [Test]
+        [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
         public void MapV3_IsDeterministic()
         {
             var spec = TerrainSpec.SizeClass2(7u);
-            using var a = WorldMap.Build(spec);
-            using var b = WorldMap.Build(spec);
+            var a = SharedMaps.Get(spec);       // one build (shared, built earlier in the run) ...
+            using var b = WorldMap.Build(spec); // ... and a second, fresh one
             int diff = 0;
             for (int i = 0; i < a.Height.Length; i++) if (a.Height[i] != b.Height[i] || a.Region[i] != b.Region[i]) diff++;
             Assert.AreEqual(0, diff, "two builds of the same seed differ");

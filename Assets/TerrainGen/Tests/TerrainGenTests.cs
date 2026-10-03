@@ -39,9 +39,9 @@ namespace TerrainGen.Tests
             if (_map != null) return;
             _spec = TerrainSpec.SizeClass2(SEED);
             _o = Offsets.For(SEED);
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            _map = WorldMap.Build(_spec);
-            Debug.Log($"[TerrainGen] world map {_spec.mapCells}^2 built in {sw.ElapsedMilliseconds} ms (managed)");
+            var shared = SharedMaps.GetEntry(_spec);
+            _map = shared.Map;
+            Debug.Log($"[TerrainGen] world map {_spec.mapCells}^2 built in {shared.BuildMs:F0} ms (managed)");
         }
 
         private static ColumnSample S(float x, float z, int texel = 1)
@@ -137,6 +137,7 @@ namespace TerrainGen.Tests
         }
 
         [Test]
+        [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
         public void Determinism_SameSeedSameWorld_DifferentSeedDifferent()
         {
             var a = WorldMap.Build(TerrainSpec.SizeClass2(SEED));
@@ -285,6 +286,7 @@ namespace TerrainGen.Tests
         [Test]
         public void Diagnose_BurstVsMonoIntermediates()
         {
+            ReportOnly.Require();
             const int n = 96; int texel = 1, stride = 37;
             int c = _spec.worldSizeVoxels / 2;
             int x0 = c - n / 2 * stride, z0 = c - n / 2 * stride;
@@ -336,6 +338,7 @@ namespace TerrainGen.Tests
         [Test]
         public void Report_BurstVsEditorMono_ShapeMismatchRate()
         {
+            ReportOnly.Require();
             const int n = 96;
             using var hA = new NativeArray<float>(_map.Height, Allocator.TempJob);
             using var rA = new NativeArray<float>(_map.Rough, Allocator.TempJob);
@@ -493,6 +496,7 @@ namespace TerrainGen.Tests
         [Test]
         public void Report_ShapeAndDetailCostUnderBurst()
         {
+            ReportOnly.Require();
             const int n = 256;
             using var hA = new NativeArray<float>(_map.Height, Allocator.TempJob);
             using var rA = new NativeArray<float>(_map.Rough, Allocator.TempJob);
@@ -527,6 +531,7 @@ namespace TerrainGen.Tests
         [Test]
         public void Report_WriteWorldMapPng()
         {
+            ReportOnly.Require();
             int n = _spec.mapCells;
             var tex = new Texture2D(n, n, TextureFormat.RGBA32, false);
             var px = new Color32[n * n];
@@ -572,6 +577,7 @@ namespace TerrainGen.Tests
         [Test]
         public void Report_LandmarkInEveryDirection()
         {
+            ReportOnly.Require();
             const int F = 4;                                    // 32 m analysis cells
             int n = _spec.mapCells / F;
             float cellM = _spec.mapCellVoxels * F / 10f;

@@ -359,6 +359,7 @@ public class RaymarchMacroSkipTests
     }
 
     [Test]
+    [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
     public void O1_RandomizedFuzz_AgreesWithReference()
     {
         // The real guard: many random rays over a random solid field. A

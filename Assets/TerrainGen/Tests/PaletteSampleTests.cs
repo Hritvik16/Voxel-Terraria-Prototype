@@ -5,7 +5,7 @@
 // ids come with V/H), so the fairest comparison colours the SAME generated
 // content with each palette. This report writes raw GenMat-id grids of the
 // sizeClass 2 island to Logs/TerrainGen/palette/*.bin; tools/palette-board.py
-// colours them. Asserts nothing.
+// colours them. Asserts nothing, so it is opt-in: REPORTS=1 (ReportOnly.cs).
 //   top.bin      the map from above: top material, height and water per 8 m cell
 //   peak.bin     a vertical section through the dominant peak (4 voxels / px)
 //   deep.bin     a section from the surface to the world floor (4 voxels / px)
@@ -29,7 +29,7 @@ namespace TerrainGen.Tests
             if (_map != null) return;
             _spec = TerrainSpec.SizeClass2(42);
             _o = Offsets.For(42);
-            _map = WorldMap.Build(_spec);
+            _map = SharedMaps.Get(_spec);
         }
 
         private static string Dir()
@@ -68,6 +68,7 @@ namespace TerrainGen.Tests
         [Test]
         public void Report_PaletteSamples()
         {
+            ReportOnly.Require();
             int n = _spec.mapCells;
             var top = new byte[n * n];
             var hgt = new byte[n * n * 2];

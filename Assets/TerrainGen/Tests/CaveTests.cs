@@ -29,7 +29,7 @@ namespace TerrainGen.Tests
             if (_map != null) return;
             _spec = TerrainSpec.SizeClass2(42);
             _o = Offsets.For(42);
-            _map = WorldMap.Build(_spec);
+            _map = SharedMaps.Get(_spec);
         }
 
         private static bool InPocket(int x, int y, int z)

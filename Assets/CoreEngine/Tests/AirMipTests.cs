@@ -75,6 +75,7 @@ public class AirMipTests
     // ---------------------------------------------------------------------
 
     [Test]
+    [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
     public void AllAir_EveryCellIsZero_AtEveryLevel()
     {
         AirMipData mips = AirMip.Build(AllAirL0(), L0Dims, 4);
@@ -181,6 +182,7 @@ public class AirMipTests
     // ---------------------------------------------------------------------
 
     [Test]
+    [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
     public void RebuildRegion_AfterClearingSolid_ReturnsAncestorsToAir()
     {
         uint[] l0 = AllAirL0();

@@ -35,7 +35,7 @@ namespace TerrainGen.Tests
             if (_map != null) return;
             _spec = TerrainSpec.SizeClass2(SEED);
             _o = Offsets.For(SEED);
-            _map = WorldMap.Build(_spec);
+            _map = SharedMaps.Get(_spec);
         }
 
         [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]

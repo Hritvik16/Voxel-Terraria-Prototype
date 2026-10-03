@@ -28,7 +28,7 @@ namespace TerrainGen.Tests
             if (_map != null) return;
             _spec = TerrainSpec.SizeClass2(42);
             _o = Offsets.For(42);
-            _map = WorldMap.Build(_spec);
+            _map = SharedMaps.Get(_spec);
             // Re-derive the drainage parents on the FINAL heights (the build keeps
             // only the products). Same function, same determinism.
             int n = _spec.mapCells;
@@ -146,6 +146,7 @@ namespace TerrainGen.Tests
         [Test]
         public void Report_Hydrology()
         {
+            ReportOnly.Require();
             var h = _map.Hydro;
             var lines = new List<string>
             {

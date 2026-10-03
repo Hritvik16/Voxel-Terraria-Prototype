@@ -108,6 +108,7 @@ InitTestScene*.unity*
 
 # Verification-harness run artifacts (regenerated every run, never source)
 /TestResults.xml
+/TestResults_all.xml
 /unity_test.log
 /build.log
 /em.log

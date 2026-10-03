@@ -198,13 +198,23 @@ executes next (happened 2026-09-24; harmless that time).
 
 ## Commands
 
-Run the EditMode suite before and after any change:
+Run the FAST EditMode suite before and after any change, and the WHOLE suite
+before any merge to `main` and on every terrain-generator change
+(`Assets/TerrainGen/`):
 
 ```
-./run-editmode-tests.sh
+./run-editmode-tests.sh             # fast: excludes [Category("Slow")], ~3 min
+SUITE=all ./run-editmode-tests.sh   # whole suite, 630 cases, ~9.5 min
+REPORTS=1 ...                       # also the report-only tests (opt-in)
 ```
 
-It prints a `PASS n FAIL n SKIP n` line and exits non-zero on any failure.
+It prints a `PASS n FAIL n SKIP n  suite=fast|all  wall=..` line and exits
+non-zero on any failure; the fast suite also says how many cases it left out
+(counted against the last `SUITE=all`'s `TestResults_all.xml`). Tag a test
+`[Category("Slow")]` when it takes > ~10 s. Report-only tests (assert nothing)
+call `ReportOnly.Require()` and are Ignored without `REPORTS=1`. TerrainGen
+tests take maps from `SharedMaps.Get(spec)` (one build per spec per run) --
+never Dispose or write into a shared map.
 Close the Editor first — a running Editor holds the project lock and the
 batchmode run will fail.
 

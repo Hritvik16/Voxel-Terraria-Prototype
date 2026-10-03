@@ -29,6 +29,7 @@ public class OccupancyMaskTests
     //  All-air world -> every occupancy byte is 0 at every level.
     // ---------------------------------------------------------------------
     [Test]
+    [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
     public void AllAir_EveryMaskIsZero_AtEveryLevel()
     {
         uint[] l0 = AllAirL0();
@@ -169,6 +170,7 @@ public class OccupancyMaskTests
     //  output, mirroring AirMipTests' own RebuildRegion coverage.
     // ---------------------------------------------------------------------
     [Test]
+    [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
     public void RebuildRegion_AfterClearingSolid_ReturnsMasksToZero()
     {
         uint[] l0 = AllAirL0();
@@ -206,6 +208,7 @@ public class OccupancyMaskTests
     //  L0 state - the maintenance path and the full builder must agree.
     // ---------------------------------------------------------------------
     [Test]
+    [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
     public void RebuildRegion_AfterAddingSolid_MatchesFromScratchBuild()
     {
         uint[] l0 = AllAirL0();

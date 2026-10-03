@@ -44,7 +44,7 @@ namespace TerrainGen.Tests
             if (_map != null) return;
             _spec = TerrainSpec.SizeClass2(SEED);
             _o = Offsets.For(SEED);
-            _map = WorldMap.Build(_spec);
+            _map = SharedMaps.Get(_spec);
         }
 
         [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]
@@ -201,6 +201,7 @@ namespace TerrainGen.Tests
         [Test]
         public void Report_V2_MountainBandDenseBricks()
         {
+            ReportOnly.Require();
             var view = _map.View;
             var pk = _map.PeakPosition;
             var lines = new List<string> { "V2 -- dense bricks per chunk on a 7-layer band, mountain sites, seed 42", "" };

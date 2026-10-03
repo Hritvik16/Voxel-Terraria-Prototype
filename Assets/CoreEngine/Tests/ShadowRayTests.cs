@@ -550,6 +550,7 @@ public class ShadowRayTests
     /// ever disagreed on `occluded`, the near-miss bookkeeping would be
     /// perturbing the walk.
     [Test]
+    [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
     public void Fuzz_PenumbraNeverChangesTheOcclusionAnswer()
     {
         var rng = new Unity.Mathematics.Random(0xBEEF77u);
