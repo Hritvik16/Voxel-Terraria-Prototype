@@ -70,6 +70,10 @@ frozen-API or memory-layout changes, anything the owner has not approved.
   time-to-visible, deficit, where the LOD hand-offs sit). Queue it BEFORE B1.
   Every B-step task file must re-run that measurement and report each stage
   against the baseline (better / worse / unchanged), next to its map metrics.
+- **Owner, 2026-10-02: task 11 splits the EditMode suite (fast / `SUITE=all`).**
+  When 11 is done, update PREAMBLE.md rule 3 (between tasks, never while one
+  starts): fast suite in every task; `SUITE=all` in every B step (generator
+  change) and before any merge to `main`.
 - Planning without code is allowed as a task that writes a Claude Doc (say so
   explicitly in the task file; the preamble otherwise forbids docs): e.g. the
   surface-rebuild plan ("direction B" of the terrain review) against the
