@@ -119,7 +119,8 @@ real and separate reason — see the LOD-cascade finding in
   (1) FLUID, PASS: arena chaos burst (water/sand/lava) falling and settling,
   three runs of 8 frames: no trails or doubled edges (`Screenshots/TaaRisk/arena/
   fluid_*`). Live-fluid chunks take no history, so TAA is effectively off there.
-  In tg2, fluid placed at y ~695 m never moved (queue task 09).
+  In tg2, fluid at y ~695 m looked frozen; task 09 found it DOES move, just
+  slowly (see "FLUID IN TG2 DOES SIMULATE" below).
   (2) EDIT, PASS: a 2 m dig is fully clean in the first frame that shows it;
   ghost index f0 0.07 ON vs 0.02 OFF, ON's floor 0.05 (`arena/edit_hole_crop.png`).
   (3) FAST TURNS / 60 m/s FLIGHT, PASS (soft, no smear trails): spin 1.5 and 6
@@ -531,3 +532,29 @@ real and separate reason — see the LOD-cascade finding in
   design's load-bearing claim, that the footprint does not move WITH THE
   RADIUS, is a separate assertion and was never in question. Rig is 19/19
   again. Background in `FLUID_TILE_CAP_RESULTS.md` §12.1.
+- **FLUID IN TG2 DOES SIMULATE: task 07's "never moved" was a misreading (task
+  09, 2026-10-03; no engine change).** `-fluidprobe` (`MODE=fluidprobe
+  ./run-tg2world.sh`; `PROBEWORLD=` for the default-world control) repeats task
+  07's placement and logs each stage. Water: 1029 voxels in a 7x21x7 box. Lava:
+  784 voxels. Camera at (4600, 695.4, 4000).
+  - **Every stage works in tg2.** The chunk's fluid-tile mask is set. The tiles
+    are acquired (4 -> 12 of 1024, 0 pool exhaustions). The box is inside the
+    mirror window (origin brick y 800, 128 bricks tall, so voxel y 6400-7423).
+    The wake requests are dispatched, with 0 rejections and 0 released stale.
+    The readback applies 52k ops, with 0 stale and 0 non-resident.
+  - **CPU store**, voxels still in the box (tg2 vs default-world control):
+    - water: 374 vs 345 at +45 frames, 0 vs 0 at +180.
+    - lava: 296 vs 244 at +225, 184 vs 123 at +400.
+  - **Why it looked frozen.** The CA ticks once per readback round trip:
+    0.16 ticks/frame in tg2, 0.20 in the control. That is
+    `FLUID_TICK_DIAGNOSIS.md`'s known 6-7 frames per tick (owner decision 11,
+    still open). Lava also acts only every 6th tick (§7.4), so in 225 frames it
+    takes ~6 steps (~0.6 m).
+  - Task 07's own stills agree:
+    - `fluid_b0` (+53 frames): the water column is mid-fall and sparse.
+    - `fluid_c0` (+240 frames): the water is gone into the hole, and the lava
+      column hangs only slightly lower.
+    - The arena looked alive only because the chaos burst and vents pour
+      continuously.
+  - Logs: `Logs/tg2world_20261003_055038.txt` (tg2) and `_055801.txt`
+    (control). Nothing to fix here beyond decision 11.

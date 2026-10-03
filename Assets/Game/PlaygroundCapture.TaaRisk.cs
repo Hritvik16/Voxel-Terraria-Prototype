@@ -187,8 +187,8 @@ public partial class PlaygroundCapture
     }
 
     /// Default world (no -world): edit and fluid at the Playground's fluid arena
-    /// (in tg2, fluid placed ~2-4 m above the ground at y ~695 m did not move in
-    /// 225 frames -- not investigated here). -playgroundshots' elevated arena
+    /// (in tg2 the fluid looked frozen; task 09's -fluidprobe showed it moves at
+    /// the usual ~6 frames per CA tick, lava every 6th tick). -playgroundshots' elevated arena
     /// vantage; a 2 m sphere dug in the basin floor; then the CHAOS BURST plus
     /// the vents (water, sand and lava pouring), three runs of 8 frames.
     private IEnumerator TaaRiskArena(Playground pg, ChunkStore store)

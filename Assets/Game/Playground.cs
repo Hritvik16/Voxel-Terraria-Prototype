@@ -400,7 +400,7 @@ public class Playground : MonoBehaviour
             HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
             HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-looksweep") ||
             HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-nearshimmer") || HasArg("-fluidroster") ||
-            HasArg("-devmap") || HasArg("-taarisk"))
+            HasArg("-devmap") || HasArg("-taarisk") || HasArg("-fluidprobe"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;

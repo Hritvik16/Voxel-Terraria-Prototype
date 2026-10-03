@@ -40,6 +40,9 @@ sleep 30
 # and sun-step frame sequences; run with EXTRA="-taa 0" and "-taa 1" and
 # compare with tools/taarisk-report.py. TAAWORLD= (empty) runs the default
 # Playground world instead: the edit and fluid checks at the fluid arena.
+# MODE=fluidprobe (2026-10-03, task 09): -fluidprobe -- task 07's tg2 fluid
+# placement with every sim stage logged (tiles, mirror, wake, readback, GPU
+# counters). PROBEWORLD= (empty) runs the default world's arena as control.
 if [ "${MODE:-poses}" = "orbit" ]; then
   open -n "$APP" --args -world tg2 -sustained -motion orbit -orbitheight "${ORBITH:-40}" -minutes "${MINUTES:-3}" \
     -gateres 0 -renderpreset performance -farshadow 1 -cleardeltas -tag "tg2orbit_${RUN_ID}" ${EXTRA:-}
@@ -49,6 +52,9 @@ elif [ "${MODE:-poses}" = "shimmer" ]; then
 elif [ "${MODE:-poses}" = "taarisk" ]; then
   START_MARK=$(mktemp)
   open -n "$APP" --args ${TAAWORLD--world tg2} -taarisk -renderpreset quality -farshadow 1 -cleardeltas ${EXTRA:-}
+elif [ "${MODE:-poses}" = "fluidprobe" ]; then
+  START_MARK=$(mktemp)
+  open -n "$APP" --args ${PROBEWORLD--world tg2} -fluidprobe -renderpreset quality -farshadow 1 -cleardeltas ${EXTRA:-}
 elif [ "${MODE:-poses}" = "walk" ]; then
   open -n "$APP" --args -world tg2 -sustained -motion walk -orbitradius "${WALKR:-150}" -movespeed 5 -minutes "${MINUTES:-5}" \
     -gateres 0 -renderpreset performance -farshadow 1 -cleardeltas -tag "tg2walk_${RUN_ID}" ${EXTRA:-}
@@ -81,6 +87,9 @@ if [ "${MODE:-poses}" = "orbit" ] || [ "${MODE:-poses}" = "walk" ]; then
 elif [ "${MODE:-poses}" = "taarisk" ]; then
   R=$(find "$DATA/FarBand" -maxdepth 1 -type d -name '*_taarisk_*' -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
   if [ -n "$R" ] && [ -f "$R/taarisk.txt" ]; then cat "$R/taarisk.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
+elif [ "${MODE:-poses}" = "fluidprobe" ]; then
+  R=$(find "$DATA/FarBand" -maxdepth 1 -type d -name '*_fluidprobe_*' -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
+  if [ -n "$R" ] && [ -f "$R/fluidprobe.txt" ]; then cat "$R/fluidprobe.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
 elif [ "${MODE:-poses}" = "shimmer" ]; then
   R=$(find "$DATA/FarBand" -maxdepth 1 -type d -name '*_nearshimmer' -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
   [ -n "$R" ] && R="$R/"
