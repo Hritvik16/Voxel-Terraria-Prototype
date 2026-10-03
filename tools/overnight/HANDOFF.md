@@ -1,57 +1,58 @@
 # Overnight handoff
 
-**07-taa-risk-checks: DONE. Fluid, edit, fast turns and far seams pass. Light lag found: the sun history reset is now 0.25 deg/frame instead of ~1 deg; a smaller lag remains at 0.2 deg/frame. Cost is 0.8-2 ms at 480 px; the noise is too large to say whether it is inside the ~1.5 ms budget. TAA stays OFF by default.**
+**08-taa-checkerboard: DONE. `-checker 1` (implies TAA, OFF by default) cuts the 960 walk from 30.81 to 19.61 ms (paired -11.26 ms). 16.7 ms is NOT reached: the mean is 2.9 ms over and the worst 30 s window 8.4 ms over. Softer than TAA-only, no checker pattern in stills.**
 
-## What changed (commit d6e97f1)
-- New `Assets/Game/PlaygroundCapture.TaaRisk.cs`: `-taarisk` captures consecutive frames, with every camera step done per frame, so frame k of the OFF run and frame k of the ON run share a pose.
-  - In tg2: spin, 60 m/s flight, and sun steps.
-  - In the default world: edit and fluid at the arena.
-  - Wired into `Playground.cs`'s camera-ownership and HUD lists. (The first run was useless until then: the player controller kept rewriting the camera.)
-- `run-tg2world.sh MODE=taarisk` (set `TAAWORLD=` empty for the default world), plus `tools/taarisk-report.py OFF ON OUT` for the numbers and OFF-over-ON sheets.
-- `RaymarchFeature.cs`: one TAA-local fix. `TaaSunResetDot` = cos 0.25 deg, which replaces 0.99985 (~1 deg). TAA OFF is untouched.
-- Docs: `KNOWN_ISSUES.md` (the TAA entry has the full results), the index line in `CLAUDE.md`, and queue task `09-tg2-fluid-not-moving-check.md`.
+## What changed (commit ecb1027; follow-up task queued in 1cb981c)
+- `Raymarch.compute`:
+  - New kernel `CSMainChecker`. CSMain's body became `CSMainBody(tid, gtid, bool checker)`; `CSMain` calls it with `false`, `CSMainChecker` with `true`, at half width. It traces the pixels with ((x + y) & 1) == parity, and the parity flips every frame.
+  - `TaaResolve`: a traced pixel uses only traced neighbours. New `TaaResolveMissing` fills each untraced pixel from history: it borrows a neighbour's reprojection, then clips to the 4-neighbour box. Where no history fits, it uses an edge-directed average, which never feeds the history.
+  - Temporal shadows: the tile turn advances every 2nd frame, and the history lookup also tries the horizontal neighbour.
+- `RaymarchFeature.cs`:
+  - New `TaaChecker` (`-checker`). Each jitter is held for 2 frames: otherwise each checker half sees only the odd or only the even Halton indices, a half-pixel bias.
+  - Every kernel-0 binding now goes through `data.kPrimary`.
+  - The TAA resolve now also gets `TaaMetaW` bound.
+- Capture logs label the arm (`chk`, "+ CHECKERBOARD").
+- `KNOWN_ISSUES.md` (TAA entry, full results), `CLAUDE.md` index line, queue task `12-rig-power-guard.md`.
+- **Why a separate kernel:** a runtime uniform inside CSMain changed TAA-off images by a few silhouette pixels (30/56 shots differed, ≤0.01% of pixels each). Metal recompiled the float maths.
 
-## Evidence (ON vs OFF, same binary per pair; EditMode PASS 626 FAIL 0 SKIP 4, `Logs/overnight/07_editmode.out`)
-1. **Fluid: PASS.** Arena chaos burst (water, sand and lava), three runs of 8 frames: no trails, no doubled edges. Live-fluid chunks take no history, so TAA is effectively off there.
-   - In tg2, the fluid I placed never moved at all (see task 09).
-2. **Edit: PASS.** A 2 m dig is clean in the very first frame that shows it. Ghost index (1 = old image still showing, 0 = clean hole): ON 0.07 at f0, against ON's own floor of 0.05 and OFF's 0.02.
-3. **Turns and flight: PASS.** Softer, but no trails. Edge energy is 0.58-0.61x OFF during the spins and 0.48-0.50x at rest.
-   - The flight ON-vs-OFF numbers are confounded by streaming: near chunks landed on different frames in the two runs, even though the poses were identical.
-4. **Light: FIXED, with a residual.** With the old ~1 deg reset, sun steps of 0.5 and 0.9 deg/frame made ON +2.6..+4 luma brighter than OFF, and edge energy fell to 0.32-0.38x (`Logs/taarisk_tg2_20261002_165730.txt`).
-   - The held time scrubber moves ~0.73 deg/frame at 60 fps, so it sat in that band.
-   - After the fix, 0.5 and 0.9 deg/frame reset the history: bias -0.04, edges 1.04x (`Logs/taarisk_tg2_20261002_171024.txt`).
-   - **Residual:** at 0.2 deg/frame ON is still +2.8..+3.1 luma brighter, with edges at 0.40-0.44x. The shipped 120 s day is ~0.1 deg/frame.
-5. **Far seams: PASS.** `-farseams` beauty shots (`FarBand/2026-10-02_171727_seams` OFF, `_171914_seams` ON) show no new seams. dL is 1.3-3.0, which is the jitter floor.
-6. **Shimmer**, mean of poses, mean |dL| / % of pixels over 24 (`Logs/nearshimmer_20261002_172129.txt` OFF, `_173032.txt` ON):
+## Evidence
+- EditMode PASS 626 FAIL 0 SKIP 4 (`Logs/overnight/08_editmode.out`). Build: 0 error CS, 0 Shader error.
+- **OFF is byte-identical:** `MODE=poses` gives 55/56 md5-identical to `FarBand/2026-10-02_150159_world` (`_195352_world`). The 56th is the minimap underground slice, as in task 06.
+- **Cost:** `MODE=walk MINUTES=3 EXTRA="-taa 1|-checker 1 -renderpreset quality"` (960x540, temporal shadows ON). Arms ABBAAB, then a clean ABBA on AC. Summary: `Logs/overnight/08_cost_summary.txt`.
+  - TAA-only (5 arms): 30.81 ms mean of 30 s windows, worst 39.74, 419 frames >33 ms per 1000.
+  - TAA+checker (4 arms): 19.61 ms mean, worst 25.09, best 15.34, 13 frames >33 ms per 1000.
+  - Paired differences: -11.19, -11.13, -11.55, -11.17 ms. The proposal estimated ~13 ms.
+  - Arms repeat within 0.5 ms. Far rays/frame halve (266k -> 133k), so the switch engages.
+  - **Excluded:** arms 6-8. The laptop was on BATTERY all session (39% at 16:43, 1% at 21:44, then "Low Power Sleep" and hibernate).
+    - Arm 6 (checker, ~1% battery) ran at TAA-only speed with half the rays.
+    - Arm 7 spans the sleep.
+    - Arm 8 was the first run after waking.
+  - Task 07's cost arms were on battery too.
+  - Peak footprint 3.0-3.3 GB in both arms (the known over-3 GB issue).
+- **Shimmer** (same binary), TAA-only -> checker, mean |dL| / % over 24 (OFF in task 05 was 5.89 / 7.59 all):
 
-   | band | OFF | ON |
-   |---|---|---|
-   | all | 5.89 / 7.59 (= task 05) | 3.01 / 1.66 |
-   | near | 4.14 / 5.84 | 2.66 / 1.52 |
+  | band | TAA-only | checker |
+  |---|---|---|
+  | all | 3.01 / 1.74 | 3.31 / 2.34 |
+  | near | 2.68 / 1.70 | 2.80 / 1.89 |
+  | far | 3.30 / 2.14 | 4.18 / 3.61 |
 
-7. **Cost: NOT RESOLVED** against the ~1.5 ms budget. `MODE=walk MINUTES=3`, 12 arms (ABBAAB, then BAABBA with 150 s cooling), Performance preset at 480 px internal.
-   - OFF 13.43 ms, ON 15.41 ms (mean of the arm means).
-   - Paired ON-OFF differences: +4.21, +7.00, -0.23, +2.94, -2.14, +0.05 ms. Mean +1.97 ms, SE 1.37.
-   - Medians: +1.2 ms (arm medians), +0.8 ms (per-window medians).
-   - The walk circle's own 30 s windows range from 8 to 26 ms, which swamps the difference.
-   - Not measured at the 960 gate, where TAA covers 4x the pixels.
-   - Logs: `Logs/overnight/07_cost_arm{1..12}_taa*.out`.
-   - Peak footprint 3008-3151 MB in both arms (the known over-3 GB issue).
-
-## Stills for the owner to open (top row OFF, bottom row ON; all in `Screenshots/TaaRisk/`)
-- `arena/edit_hole_crop.png`: pre, f0, f1, settled. The hole is clean at f0.
-- `arena/fluid_a_crop.png`, `arena/fluid_c_crop.png`: falling, then settling fluid.
-- `spin_crop.png`: at rest, slow spin, stop, fast spin. Shows the softness.
-- `light02_crop.png`: the remaining 0.2 deg/frame lag.
-- `farseams_h150_crop.png`: 150 m in flight. ON has no speckle and no seams.
-- `fly_full.png`: confounded by streaming, see check 3.
-- Full sequences: `FarBand/2026-10-02_164444/_164707_taarisk_*` (arena) and `_170533/_171024_taarisk_*` (tg2).
+  Logs: `Logs/nearshimmer_20261002_202848.txt` / `_203508.txt`.
+- **Stills I opened** (top row TAA-only, bottom row checker; under `Screenshots/Checker/`):
+  - `still_crops_taa_top_chk_bottom.png`: practically the same image. Checker is a little softer and has a few single bright specks on snow. No checker pattern: 2x2 checker energy relative to gradient is 0.14-0.23 in both arms.
+  - `arena/fluid_edit_zoom_*`: falling and settled fluid show no trails or doubled edges, but live-fluid chunks are visibly softer (half their pixels are filled every frame). The edit hole is clean at f0 (ghost 0.10 vs 0.11).
+  - `tg2/spin_zoom_*`: no smear. At rest it is smoother (less sand ripple). In the 6 deg/frame spin the sea/sky horizon shows small alternating-pixel teeth.
+- Risk reports: `Logs/overnight/08_risk_{arena,tg2}_report.txt`.
+  - Edges in motion are 0.83-0.86x TAA-only, still frames 0.74-0.82x.
+  - At sun 0.2 deg/frame the bias is +0.1 luma vs TAA-only: no extra lag.
 
 ## Not done / open
-- The 0.2 deg/frame light lag needs a light-aware history rejection. That is a tuning/design choice for the owner.
-- Cost at the 960 gate was not measured, and the 480 px number is not tight.
-- The tg2 fluid question is queued as task 09.
+- **16.7 ms not reached:** the mean is 2.9 ms over, and the two slow quarters of the circle stay at 24-25 ms. Step 4 (shadow tuning) was NOT started, as instructed.
+- Owner questions:
+  1. Are the softness and the fast-spin horizon teeth acceptable?
+  2. Should the checker's spatial fill in live-fluid chunks stay as it is?
 - `Assets/Scenes/Playground.unity` was regenerated by the builds again. It is not committed.
+- Untracked full-size sheets are in `Screenshots/Checker/{arena,tg2}/*_0/_1.png`.
 
 ## Next step
-- Owner: compare the stills above before switching TAA on. Nothing blocks 08 (checkerboard).
+- Owner: decide on step 4, or accept ~19.6 ms at 960. Task 12 (rig power guard: log battery state, caffeinate) is queued. Before quoting any cost number, check `pmset -g batt`.
