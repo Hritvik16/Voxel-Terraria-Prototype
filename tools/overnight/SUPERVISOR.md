@@ -65,6 +65,11 @@ frozen-API or memory-layout changes, anything the owner has not approved.
 - Follow-ups that finished tasks name in their handoff (QA poses, evidence
   runs, doc fixes) -- low risk, no design choices.
 - Already approved and queued: 04 cliff pose A/B, 05-08 TAA steps 1-3.
+- **Owner, 2026-10-02: the surface rebuild must account for performance.** Task 10
+  measures the v3 streaming baseline (chunk gen ms, admit ms, CPU->GPU upload,
+  time-to-visible, deficit, where the LOD hand-offs sit). Queue it BEFORE B1.
+  Every B-step task file must re-run that measurement and report each stage
+  against the baseline (better / worse / unchanged), next to its map metrics.
 - Planning without code is allowed as a task that writes a Claude Doc (say so
   explicitly in the task file; the preamble otherwise forbids docs): e.g. the
   surface-rebuild plan ("direction B" of the terrain review) against the
