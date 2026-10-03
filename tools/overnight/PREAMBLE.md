@@ -47,3 +47,5 @@ You are running UNATTENDED in a fresh headless session started by
    evidence (test counts, measured numbers with log paths, screenshots looked
    at and what they showed); anything left unfinished; the next step. If the
    owner must decide something, start the file with `STOP_FOR_OWNER`.
+   **Every image you cite gets a one-line caption saying what to look at**
+   (which panel/row, which part of the frame, what it shows) -- owner, 2026-10-03.
