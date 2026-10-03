@@ -36,12 +36,19 @@ sleep 30
 # MODE=shimmer (2026-10-02, TAA task 05): -nearshimmer -- the near-terrain
 # quarter-pixel nudge test at the default 960 (Quality) preset, eye-level and
 # slope poses; tools/nearshimmer-report.py writes Logs/nearshimmer_<run>.txt.
+# MODE=taarisk (2026-10-02, TAA task 07): -taarisk -- edit, fluid, spin, fly
+# and sun-step frame sequences; run with EXTRA="-taa 0" and "-taa 1" and
+# compare with tools/taarisk-report.py. TAAWORLD= (empty) runs the default
+# Playground world instead: the edit and fluid checks at the fluid arena.
 if [ "${MODE:-poses}" = "orbit" ]; then
   open -n "$APP" --args -world tg2 -sustained -motion orbit -orbitheight "${ORBITH:-40}" -minutes "${MINUTES:-3}" \
     -gateres 0 -renderpreset performance -farshadow 1 -cleardeltas -tag "tg2orbit_${RUN_ID}" ${EXTRA:-}
 elif [ "${MODE:-poses}" = "shimmer" ]; then
   START_MARK=$(mktemp)   # only a report folder written by THIS run counts
   open -n "$APP" --args -world tg2 -nearshimmer -renderpreset quality -farshadow 1 -cleardeltas ${EXTRA:-}
+elif [ "${MODE:-poses}" = "taarisk" ]; then
+  START_MARK=$(mktemp)
+  open -n "$APP" --args ${TAAWORLD--world tg2} -taarisk -renderpreset quality -farshadow 1 -cleardeltas ${EXTRA:-}
 elif [ "${MODE:-poses}" = "walk" ]; then
   open -n "$APP" --args -world tg2 -sustained -motion walk -orbitradius "${WALKR:-150}" -movespeed 5 -minutes "${MINUTES:-5}" \
     -gateres 0 -renderpreset performance -farshadow 1 -cleardeltas -tag "tg2walk_${RUN_ID}" ${EXTRA:-}
@@ -71,6 +78,9 @@ echo "peak phys_footprint: $PEAK   (owner cap 3 GB; samples in $MEM; breakdown a
 if [ "${MODE:-poses}" = "orbit" ] || [ "${MODE:-poses}" = "walk" ]; then
   S=$(ls -td "$DATA/Sustained"/*_tg2${MODE}_${RUN_ID}/ 2>/dev/null | head -n 1)
   if [ -n "$S" ]; then cat "${S}sustained.txt" | tee -a "$LOG"; echo "shots: $S" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
+elif [ "${MODE:-poses}" = "taarisk" ]; then
+  R=$(find "$DATA/FarBand" -maxdepth 1 -type d -name '*_taarisk_*' -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
+  if [ -n "$R" ] && [ -f "$R/taarisk.txt" ]; then cat "$R/taarisk.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
 elif [ "${MODE:-poses}" = "shimmer" ]; then
   R=$(find "$DATA/FarBand" -maxdepth 1 -type d -name '*_nearshimmer' -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
   [ -n "$R" ] && R="$R/"

@@ -249,6 +249,8 @@ public class RaymarchFeature : ScriptableRendererFeature
     public static float TaaAlphaStill = 0.1f;     // weight of the new frame with the camera still
     public static float TaaAlphaMoving = 0.4f;    // ... at TaaMotionPx of reprojected motion and beyond
     public static float TaaMotionPx = 8f;
+    /// cos(0.25 deg): a sun step larger than this in one frame resets the history.
+    private const float TaaSunResetDot = 0.99999048f;
     public static float TaaSharpenAmount = ReadIntArg("-taasharpen", 25) / 100f;
     public const int TaaJitterCycle = 8;
     public static Vector2 LastTaaJitter;
@@ -562,11 +564,16 @@ public class RaymarchFeature : ScriptableRendererFeature
                     var cfgT = LightingConfig.Active;
                     int lightSig = ShadowQualityLevel * 31 + (LookOverride >= 0 ? LookOverride : cfgT.look) * 7
                                  + (TonemapOverride >= 0 ? TonemapOverride : cfgT.tonemap);
-                    // A LARGE LIGHT JUMP (the sun moving > ~1 deg in a frame, a
+                    // A LARGE LIGHT JUMP (the sun moving > 0.25 deg in a frame, a
                     // look / shadow-rung / tonemap switch) or a teleport (> 20 m)
-                    // invalidates every history colour at once.
+                    // invalidates every history colour at once. The sun bound was
+                    // ~1 deg until task 07: at 0.5-0.9 deg/frame (the held time
+                    // scrubber, 3 h/s, is ~0.73 deg/frame at 60 fps) the history
+                    // lagged the light -- ON +2.6..+4 luma brighter than OFF while
+                    // the sun set, edges 0.32-0.38x (Logs/taarisk_tg2_20261002_165730.txt).
+                    // The shipped 120 s day is ~0.1 deg/frame and still accumulates.
                     bool reset = !_taaValid
-                              || Vector3.Dot(sun, _taaPrevSun) < 0.99985f
+                              || Vector3.Dot(sun, _taaPrevSun) < TaaSunResetDot
                               || lightSig != _taaPrevLightSig
                               || (camVox - _taaPrevCamVox).sqrMagnitude > 200f * 200f;
                     passData.taaHistValid = reset ? 0 : 1;

@@ -86,8 +86,8 @@ real and separate reason — see the LOD-cascade finding in
   uncommitted pre-`4d0d03c` code, so a difference in the code is a likelier
   cause than the order of the jumps. Closed unless the wall shows up again.
 
-- **TAA EXISTS, OFF BY DEFAULT (task 06, 2026-10-02). STILLS ONLY ARE PROVEN;
-  MOTION, EDITS, FLUID AND COST ARE NOT (task 07).** `-taa 1` or Playground F4
+- **TAA EXISTS, OFF BY DEFAULT (task 06, 2026-10-02). Risk checks done in
+  task 07 (results below); still OFF until the owner compares stills.** `-taa 1` or Playground F4
   (`RaymarchFeature.Taa`); `-taasharpen <percent>` (default 25). Raymarch.compute's
   TAA block: Halton(2,3) 8-frame jitter of the primary ray, reprojection of the
   exact hit point (far band and sky too) through the previous UNJITTERED
@@ -112,6 +112,40 @@ real and separate reason — see the LOD-cascade finding in
   number is that floor. Stills (`FarBand/2026-10-02_152951_world/eye_level_*`):
   sub-pixel speckle on distant slopes and snow becomes smooth texture, near
   blocks keep their edges but are visibly softer; no ghosting or holes.
+  **TASK 07 RISK CHECKS (2026-10-02), ON vs OFF, same binary per pair.**
+  `-taarisk` (`MODE=taarisk ./run-tg2world.sh`, `EXTRA="-taa 0|1"`,
+  `TAAWORLD=` for the default world) captures consecutive frames;
+  `tools/taarisk-report.py OFF ON OUT` writes numbers and OFF-over-ON sheets.
+  (1) FLUID, PASS: arena chaos burst (water/sand/lava) falling and settling,
+  three runs of 8 frames: no trails or doubled edges (`Screenshots/TaaRisk/arena/
+  fluid_*`). Live-fluid chunks take no history, so TAA is effectively off there.
+  In tg2, fluid placed at y ~695 m never moved (queue task 09).
+  (2) EDIT, PASS: a 2 m dig is fully clean in the first frame that shows it;
+  ghost index f0 0.07 ON vs 0.02 OFF, ON's floor 0.05 (`arena/edit_hole_crop.png`).
+  (3) FAST TURNS / 60 m/s FLIGHT, PASS (soft, no smear trails): spin 1.5 and 6
+  deg/frame, edges 0.58-0.61x OFF in motion vs 0.48-0.50x still. Flight ON-vs-OFF
+  numbers are CONFOUNDED by streaming: same poses, but near chunks landed on
+  different frames in the two runs (both show the same unloaded block).
+  (4) LIGHT, FIXED + RESIDUAL: below the old ~1 deg/frame sun reset, the history
+  lagged the light: at 0.5 and 0.9 deg/frame ON was +2.6..+4 luma brighter
+  than OFF while the sun set, edges 0.32-0.38x. The held time scrubber (3 h/s)
+  moves ~0.73 deg/frame at 60 fps, so it was in that band. The reset is now 0.25
+  deg/frame (`TaaSunResetDot`); 0.5/0.9 now reset (bias -0.04, edges 1.04x). The
+  RESIDUAL: 0.2 deg/frame still lags (+2.8..+3.1 luma, edges 0.40-0.44x).
+  The shipped 120 s day is ~0.1 deg/frame at 30 fps. Fixing it needs a
+  light-aware history rejection: a tuning/design call, not done.
+  (5) FAR SEAMS, PASS: `-farseams` beauty shots at 150/300/1000 m, settled and
+  in flight: no new seams or streaks; dL 1.3-3.0 (the jitter floor).
+  (6) SHIMMER, same build: OFF 5.89 / 7.59 (= task 05) -> ON 3.01 / 1.66 all;
+  near 4.14 / 5.84 -> 2.66 / 1.52 (`Logs/nearshimmer_20261002_172129.txt` /
+  `_173032.txt`).
+  (7) COST, NOT RESOLVED AGAINST THE ~1.5 ms BUDGET: `MODE=walk MINUTES=3` (the
+  Performance preset, 480 px internal), 12 arms ABBAAB + BAABBA. OFF 13.43
+  ms, ON 15.41 ms (means of arm means). Paired ON-OFF: +4.21 +7.00 -0.23 +2.94
+  -2.14 +0.05 = +1.97 ms, SE 1.37. Medians: +1.2 ms of arm medians, +0.8 ms
+  per window. So 0.8-2 ms, and the walk circle's own window spread (8-26 ms)
+  hides the rest. At the 960 Quality gate the TAA passes cover 4x the pixels;
+  not measured. Logs `Logs/overnight/07_cost_arm*_taa*.out`.
 
 - **THE TG2 WORLD IS OVER THE 3 GB CAP BEFORE THE PLAYER BUILDS ANYTHING (found
   2026-09-26, NOT FIXED).** Peak phys_footprint 3,218-3,814 MB across four runs
