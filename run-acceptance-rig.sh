@@ -26,6 +26,9 @@ RIG_OUTPUT_DIR="$HOME/Library/Application Support/DefaultCompany/Voxel Terraria 
 # waits on this script's pid) and log power source + charge at start and end.
 caffeinate -dimsu -w $$ &
 tools/power-status.sh start
+# 2026-10-03 (task 14): warn if an owner pause (tools/heavy.sh) overlapped the
+# run -- its timings are then invalid; a `pause --kill` voids it (exit 3).
+RUN_START=$(date +%s)
 
 echo "== Building (release, not development — see CommandLineBuild.cs) =="
 rm -f "$BUILD_LOG"
@@ -42,6 +45,7 @@ if [ ! -d "$APP_PATH" ]; then
   echo "BUILD FAILED. Tail of $BUILD_LOG:"
   echo "---"
   tail -n 80 "$BUILD_LOG"
+  tools/heavy.sh overlap "$RUN_START"
   exit 1
 fi
 
@@ -60,6 +64,7 @@ if [ -z "$LATEST" ]; then
   echo "No run folder found under: $RIG_OUTPUT_DIR"
   echo "Check Edit > Project Settings > Player > Company/Product Name and fix"
   echo "RIG_OUTPUT_DIR above if they differ from 'DefaultCompany' / this project name."
+  tools/heavy.sh overlap "$RUN_START"
   exit 1
 fi
 
@@ -72,3 +77,7 @@ echo "==========================================================="
 echo
 echo "Screenshots from this run (read these directly if you need to look):"
 ls "${LATEST}"*.png 2>/dev/null
+echo
+tools/heavy.sh overlap "$RUN_START"
+[ $? = 3 ] && exit 3
+exit 0

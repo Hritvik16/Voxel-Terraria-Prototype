@@ -16,6 +16,7 @@ LOG="Logs/tg2world_${RUN_ID}.txt"
 MEM="Logs/tg2world_${RUN_ID}_mem.txt"
 source tools/unity-lock.sh
 unity_lock_acquire
+RUN_START=$(date +%s)   # task 14: tools/heavy.sh overlap checks owner pauses since here
 echo "run $RUN_ID" | tee -a "$LOG"
 # 2026-10-03 (task 12): log power source + charge at start and end, and keep
 # the Mac awake while this script lives. The player is launched with `open -n`,
@@ -34,7 +35,7 @@ if [ "${BUILD:-0}" = "1" ]; then
   "$UNITY_BIN" -batchmode -quit -projectPath "$(pwd)" -executeMethod CommandLineBuild.BuildPlaygroundStandalone -logFile Logs/tg2world_build.log
   if grep -q "error CS" Logs/tg2world_build.log Logs/tg2world_scene.log; then grep -h "error CS" Logs/tg2world_*.log | sort -u | tee -a "$LOG"; exit 1; fi
   if grep -q "Shader error" Logs/tg2world_build.log; then grep "Shader error" Logs/tg2world_build.log | tee -a "$LOG"; exit 1; fi
-  [ -d "$APP" ] || { echo "BUILD FAILED" | tee -a "$LOG"; exit 1; }
+  [ -d "$APP" ] || { echo "BUILD FAILED" | tee -a "$LOG"; tools/heavy.sh overlap "$RUN_START" | tee -a "$LOG"; exit 1; }
   echo "build OK (0 error CS, 0 Shader error)" | tee -a "$LOG"
 fi
 sleep 30
@@ -137,5 +138,11 @@ tools/power-status.sh end | tee -a "$LOG"
 if [ "${PIPESTATUS[0]}" != 0 ] && { [ "${MODE:-poses}" = "walk" ] || [ "${MODE:-poses}" = "orbit" ]; }; then
   echo "WARNING: ON BATTERY at the end of the run" | tee -a "$LOG"
 fi
+# 2026-10-03 (task 14): an owner pause (tools/heavy.sh pause) that overlapped
+# this run voids its timings; a `pause --kill` voids the run (exit 3).
+tools/heavy.sh overlap "$RUN_START" | tee -a "$LOG"
+PAUSE_RC=${PIPESTATUS[0]}
 echo "log: $LOG"
 echo TG2WORLD_DONE
+[ "$PAUSE_RC" = 3 ] && exit 3
+exit 0

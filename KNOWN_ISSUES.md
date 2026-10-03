@@ -42,6 +42,7 @@ real and separate reason — see the LOD-cascade finding in
 
 ## Known open issues (act on these, don't rediscover them)
 
+- **OWNER PAUSE (`tools/heavy.sh pause|resume`, task 14, 2026-10-03).** Frozen processes keep their RAM (compressed/swapped; RSS drops but nothing is freed -- only `pause --kill` frees it); a run that printed `WARNING: PAUSED DURING RUN` has invalid timings, and one killed by `--kill` exits 3.
 - **STREAMING BASELINE v3 (2026-10-02, task 10; measured 2026-10-03).** The
   numbers every surface-rebuild step (B1 on) is compared against.
   `MODE=stream ./run-tg2world.sh` (`MOTION=walk|fly`, `EXTRA="-movespeed 14"`):
