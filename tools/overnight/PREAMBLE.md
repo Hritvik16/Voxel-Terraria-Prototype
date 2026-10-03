@@ -17,7 +17,9 @@ You are running UNATTENDED in a fresh headless session started by
    and no performance-changing code without the owner's approval written in a
    task file.
 3. **Rules that still apply:** the shared Unity lock (`tools/unity-lock.sh` /
-   `tools/with-unity-lock.sh`), EditMode suite before committing, one
+   `tools/with-unity-lock.sh`), EditMode suite before committing (the fast
+   suite, `./run-editmode-tests.sh`, ~3 min; `SUITE=all` when the task changes
+   terrain-generator code -- every B step -- or prepares a merge to `main`), one
    performance change per measurement, look at screenshots before concluding.
 4. **Git.** Commit on the branch that is checked out, never `main`, never push.
    End commit messages with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
