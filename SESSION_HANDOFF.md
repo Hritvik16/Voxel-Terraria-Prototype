@@ -1,16 +1,21 @@
-# Session handoff -- 2026-10-02 19:32 (queue supervisor session)
+# Session handoff -- 2026-10-03 05:52 (queue supervisor session)
 
 ## State
 - Branch `design-brief`. Runner alive in tmux session `overnight` (IDLE_MIN=0, nice 10). No PAUSE.
-- Running: `08-taa-checkerboard` (started 19:25). Queue after it: 09 tg2 fluid check (evidence
-  only), 10 streaming perf baseline (owner), 11 EditMode suite speed-up (owner). Then B1 onward.
+- Running: `09-tg2-fluid-not-moving-check` (started 05:45). Queue after it: 10 streaming perf
+  baseline (owner), 11 EditMode suite speed-up (owner), 12 rig power guard (08 follow-up; the
+  supervisor added: start.sh runs the runner under caffeinate). Then B1 onward (needs Q5).
+- The Mac ran out of battery at 21:44 on 10-02 and hibernated until 05:04. The supervisor started
+  `caffeinate -ims -w <run-queue pid>` by hand; after a runner restart, start it again until task 12
+  lands. Check `pmset -g batt` before trusting any cost number.
 - Blocked: `05b-surface-b0-metrics-harness` (done except Q5; harness committed 0a80629).
-- EditMode last: PASS 626 FAIL 0 SKIP 4 (task 07, 19:18). The 4th skip is the opt-in PlayMetricsReport.
+- EditMode last: PASS 626 FAIL 0 SKIP 4 (task 08, 20:24). The 4th skip is the opt-in PlayMetricsReport.
 - `Assets/Scenes/Playground.unity` stays modified (scene builds regenerate it); tasks leave it alone.
 
 ## Done this session (rows in the Queue decisions doc, "Done")
 05a pose dropped (0bbd1e6) · 05b metrics harness (0a80629, Q5 open) · 05c wall not reproduced
-(b2ab00a) · 06 TAA core, off by default, `-taa 1` / F4 (718dd03) · 07 TAA risk checks (d6e97f1).
+(b2ab00a) · 06 TAA core, off by default, `-taa 1` / F4 (718dd03) · 07 TAA risk checks (d6e97f1)
+· 08 TAA checkerboard, off, `-checker 1`: 30.8 -> 19.6 ms, misses 16.7 ms by 2.9 (ecb1027, Q7 open).
 
 ## Waiting on the owner (doc "Waiting on you")
 - **Q5** (05b): B1's biome-size target. Recommended (a): 297 m baseline, B1 >= 2.5x (~740 m).
@@ -18,6 +23,10 @@
 - **Q6** (07): TAA light lag at slow sun + unresolved cost. Recommended (a): owner compares the
   stills first, nothing queued. If they like the look: a 960 px cost run on an idle Mac
   (IDLE_MIN=15 / overnight), then a light-aware history rejection.
+
+- **Q7** (08): checkerboard misses 60 FPS by 2.9 ms. Recommended (a): compare pictures with Q6,
+  nothing queued. (c) = approve step 4 shadow tuning; (d) = fix horizon teeth / fluid softness.
+- Q6 got an update line: task 07's cost runs were on battery, so its cost figure is unreliable.
 
 ## Owner decisions this session (2026-10-02)
 - Over-3 GB memory: not now; fix pool sizes after the surface rebuild (pools are allocated at capacity).
@@ -31,7 +40,7 @@
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 203)
+  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 206)
 - Surface rebuild plan: https://claude.ai/code/artifact/f6222d44-1457-4a92-9460-3390d44e75fd
 - Game Design Brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
 - Terrain review: https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7
