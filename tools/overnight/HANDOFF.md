@@ -1,33 +1,48 @@
 # Overnight handoff
 
-**12-rig-power-guard: DONE.** This changes tooling only. No engine, shader or performance code changed. Commit `7f59fbc` on design-brief.
+**13-fly-pose-no-voxels-check: DONE. It is a DESIGNED BOUNDARY, not a bug.** The fly pose sits on a cliff lip. The ground it looks at is a plain at ~752 m, which is below the 7-layer band, so the far band draws it. Commit `233562a` on design-brief. There is no product behaviour change, and no fix is needed for correctness. A design question for the owner is below; it does not block anything.
 
 ## What changed
-- **`tools/power-status.sh` (new).** It prints one line: `power <label>: HH:MM:SS source=<AC Power|Battery Power> charge=<n%; state>`. It exits 0 on AC and 2 otherwise.
-- **`run-tg2world.sh`:**
-  - Runs `caffeinate -dimsu -w $$ &`. The player is started with `open -n`, so caffeinate waits on the script's own pid, which outlives the player.
-  - Logs `power start` and `power end` into the run log.
-  - For `MODE=walk|orbit` on battery, prints `WARNING: ON BATTERY ...` at start and end. The run still goes ahead.
-- **`run-acceptance-rig.sh`:** gets the same caffeinate wrapper, plus `power start` before the build and `power end` before the report. It has no warning; the task asked for one only for walk/orbit.
-- **`tools/overnight/start.sh`:** the tmux command is now `IDLE_MIN=.. caffeinate -ims nice -n 10 tools/overnight/run-queue.sh`. It takes effect at the next `start.sh`.
-- **`run-queue.sh` is NOT edited**, because it was running. **Supervisor:** apply `tools/overnight/run-queue-power.patch` between runs. It is one line: `say "$(tools/power-status.sh "before $name")"` after `name=` in the task loop. Apply it with `patch -p0 < tools/overnight/run-queue-power.patch` from the repo root, or add the line by hand.
-- **`KNOWN_ISSUES.md`:** added a GUARD note to the TAA/checkerboard entry's battery paragraph.
+- **`Assets/Game/PlaygroundCapture.FlySweep.cs` (new): the `-flysweep` probe.** It is observe-only. At task 10's pose XZ and heading, it sweeps eye height (2/8/16/32/48/63 m above the ground directly below) x pitch (8/30 deg down). For each pose it records:
+  - beauty, tier (6), band (9) and stop (11) views, with % of the frame per class;
+  - shader debug-pixel probes at 3 rows (ray pitch, hit, exit distance, steps/cap, maxDist);
+  - a CPU-store ray oracle and a world-map ray oracle (where the ray meets the surface; in band? in load square?);
+  - a mirror check after the first pose.
+- **Wiring:** `PlaygroundCapture.cs` dispatches the flag. `Playground.cs` has `-flysweep` in its three capture lists. `run-tg2world.sh` gains `MODE=flysweep`.
+- **Docs:** the KNOWN_ISSUES fly-pose bullet was rewritten with the finding. The CLAUDE.md index line was updated.
 
 ## Evidence
-- **Walk run:** `MODE=walk MINUTES=1 ./run-tg2world.sh`, log `Logs/tg2world_20261003_101235.txt`, stdout in `Logs/overnight/12-walk.out`. It showed:
-  - `caffeinate pid 8910 (-dimsu -w 8570)`
-  - `power start: 10:13:21 source=AC Power charge=100%; charged`
-  - `power end: 10:15:23 source=AC Power charge=100%; charged`
-  - It reached TG2WORLD_DONE. Caffeinate pid 8910 had exited after the script ended, so nothing lingers.
-- **The run was on AC, so no WARNING line printed.** I checked the warning branch separately: I extracted the start block from the script and ran it against a stub `power-status.sh` that exits 2. `MODE=walk` and `MODE=orbit` printed the WARNING line; `MODE=poses` did not.
-- **EditMode fast suite:** `PASS 605 FAIL 0 SKIP 12`, wall 3m04s.
-- I quote no frame-time numbers; this was not a performance run. The walk run's peak footprint was 3016 MB. That is the known over-the-cap issue (KNOWN_ISSUES), and nothing here changed it.
-- I looked at no screenshots; the task did not need them.
+- **Run:** `Logs/tg2world_20261003_105334.txt`; report and shots in `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FlySweep/2026-10-03_105638_flysweep_20261003_105334/`.
+- **Voxel % of the frame:** 0 at every pose except 16 m/30 deg (1.5), 8 m/30 deg (6.7), 2 m/30 deg (20.4) and 2 m/8 deg (1.5).
+- **Threshold:** voxels appear only when the eye is ≤16 m over the lip and pitched down. Even then they show only the near lip and the higher sides, never the plain.
+- **No GPU bug:**
+  - steps ≤44 of 1024 (no iteration cap);
+  - each ray leaves through the band floor with no hit, and the CPU store has no solid voxel on the same ray;
+  - mirror check: lost 0, lag 0, stale 0 (3087 chunks).
+- **The world-map oracle puts the visible surface at 750-754 m on every probe ray: "in band False".**
+- **Cause, from the code:**
+  - `BandHolds` (`StreamManager.cs:348`) keeps the eye's layer and the one below. So the plain (layer 58) can join the band only with the eye below ~832 m.
+  - Below that, `BandScore` (`:354`, distance-weighted, ignores view direction) picked 60..66 (768 m floor).
+  - The 8 deg centre rays meet the ground 397-1504 m out, beyond the ±128 m load square. That is also by design.
+- **Screenshots I looked at:**
+  - `h63_p08_beauty` reproduces task 10's frame.
+  - `h63_p08_band` has no blue: far band only, F1 nearest.
+  - `h02_p30_band` has blue only on the near lip and the sides; the drop to the plain is F0.
+- **Caveat:** the in-process classifier mislabels the graded far-level colours (F1 yellow is read as "F2"). Use voxel % and the far total only, not the per-level split.
+- **EditMode fast suite:** `PASS 605 FAIL 0 SKIP 12` (3m01s).
+- I quote no frame-time numbers.
 
-## Left unfinished / notes
-- The runner's per-task power line waits on the supervisor applying the patch above.
-- Caffeinate cannot prevent battery-critical hibernation (the 2026-10-02 21:44 event was Low Power Sleep at 1%). Only AC prevents that.
-- An earlier attempt at this task had already written these edits, uncommitted. I reviewed them, ran the acceptance checks and committed them as they were.
+## Gotchas hit (cost two extra runs)
+- **Run 1 (`10:31`) and run 2 (`10:47`) are INVALID.** `-flysweep` was missing from Playground's capture lists, so the walk player drove the camera at (4014, 796.2, 3999.6), inside rock. Beauty came out black and every debug view read 100% "voxel". Only rows that re-applied the pose each frame (the debug-pixel probes) were valid. This is the trap documented at `Playground.cs:393`; it is now in KNOWN_ISSUES too.
+- **Run 2's mirror check said stale 309.** That was with the camera jumping between two poses every frame, so it is not evidence. Run 3, stable, said stale 0.
+- **Peak footprint was 3200 MB** in run 1, the known over-the-cap issue. Nothing here changed it.
+
+## Owner decision (not blocking)
+Should the band reach ground you look DOWN onto from a ledge? Two options would change this, and both are design changes:
+- a view-aware `BandScore` (weight the columns in front of the camera);
+- a taller band (memory).
+
+Task 10's fly numbers stay valid as a streaming baseline. Its fly still simply shows the far band.
 
 ## Next step
-The next queued task. The supervisor should apply `run-queue-power.patch` and restart the runner via `start.sh` at the next quiet point, so the caffeinate wrapper is live.
+The next queued task, if any. If the owner wants a fly still that shows voxels, the QA fix is a fly line that does not run along a cliff lip, or the `-flyclear` eye rule measured from the ground directly below.
