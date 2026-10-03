@@ -1,56 +1,33 @@
 # Overnight handoff
 
-**11-editmode-suite-speedup: DONE.** Test code and runner only; no engine or generator change. Times:
-- Fast suite (the new default): **3m02s**.
-- `SUITE=all`: **9m23s**.
-- Before: **14m50s**.
+**12-rig-power-guard: DONE.** This changes tooling only. No engine, shader or performance code changed. Commit `7f59fbc` on design-brief.
 
-Both suites: 0 FAIL. `SUITE=all` runs the same 630 cases.
+## What changed
+- **`tools/power-status.sh` (new).** It prints one line: `power <label>: HH:MM:SS source=<AC Power|Battery Power> charge=<n%; state>`. It exits 0 on AC and 2 otherwise.
+- **`run-tg2world.sh`:**
+  - Runs `caffeinate -dimsu -w $$ &`. The player is started with `open -n`, so caffeinate waits on the script's own pid, which outlives the player.
+  - Logs `power start` and `power end` into the run log.
+  - For `MODE=walk|orbit` on battery, prints `WARNING: ON BATTERY ...` at start and end. The run still goes ahead.
+- **`run-acceptance-rig.sh`:** gets the same caffeinate wrapper, plus `power start` before the build and `power end` before the report. It has no warning; the task asked for one only for walk/orbit.
+- **`tools/overnight/start.sh`:** the tmux command is now `IDLE_MIN=.. caffeinate -ims nice -n 10 tools/overnight/run-queue.sh`. It takes effect at the next `start.sh`.
+- **`run-queue.sh` is NOT edited**, because it was running. **Supervisor:** apply `tools/overnight/run-queue-power.patch` between runs. It is one line: `say "$(tools/power-status.sh "before $name")"` after `name=` in the task loop. Apply it with `patch -p0 < tools/overnight/run-queue-power.patch` from the repo root, or add the line by hand.
+- **`KNOWN_ISSUES.md`:** added a GUARD note to the TAA/checkerboard entry's battery paragraph.
 
-## What changed (commit f1e8dc4 on design-brief)
-- **Shared maps.** `Assets/TerrainGen/Tests/SharedMaps.cs` (new) builds one WorldMap per whole `TerrainSpec` per run. Before, seed 42 was built 9 times per run.
-  - Cave, DetailCull, Hydrology, PaletteSample, Stamp, TerrainGen, V0DenseBrick and Region tests now use it.
-  - It also stores each build's time and `LastErosion`, so the Regions report still prints them.
-  - Determinism tests still build twice. `MapV3_IsDeterministic` and `Determinism_SameSeed...` compare a FRESH `WorldMap.Build` with the shared map, which was built earlier in the run. A test that mutated the shared map would fail there.
-  - The erosion-input dump in `Regions_VarietyAndReport` now needs `REGIONS_EROSION_DUMP=1`, which builds fresh. Nothing in the repo reads that dump.
-- **Opt-in reports.** `ReportOnly.cs` (new): without `REPORTS=1` these tests are Ignored (counted as SKIP). I checked each body and its helpers; none of them asserts anything:
-  - `HydrologyTests.Report_Hydrology`
-  - `PaletteSampleTests.Report_PaletteSamples` (86 s)
-  - `V0DenseBrickTests.Report_V2_MountainBandDenseBricks`
-  - `TerrainGenTests.Diagnose_BurstVsMonoIntermediates`
-  - `TerrainGenTests.Report_BurstVsEditorMono_ShapeMismatchRate`
-  - `TerrainGenTests.Report_ShapeAndDetailCostUnderBurst`
-  - `TerrainGenTests.Report_WriteWorldMapPng`
-  - `TerrainGenTests.Report_LandmarkInEveryDirection`
-- **13 tests tagged `[Category("Slow")]`** (> 10 s after the cache):
-  - RegionTests: `Regions_VarietyAndReport`, `MapV3_IsDeterministic`
-  - TerrainGenTests: `Determinism_SameSeed...`
-  - StampTests: `NoNeedles_OnTheMap`. It builds seed 7 itself when RegionTests is not in the run.
-  - VerticalStreamingTests: both tests. Their maps are built inside the engine's `TerrainGenChunkSource`, so they can't share without an engine change.
-  - ShadowRayTests: `Fuzz_Penumbra...`
-  - OccupancyMaskTests: 3 tests
-  - AirMipTests: 2 tests
-  - RaymarchMacroSkipTests: `O1_RandomizedFuzz`
-- **`run-editmode-tests.sh`.** Runs the fast suite (`-testCategory "!Slow"`) by default, or the whole suite with `SUITE=all`.
-  - The summary line is now `PASS n  FAIL n  SKIP n  suite=fast|all  wall=XmYYs`.
-  - A `SUITE=all` run also saves a copy as `TestResults_all.xml` (added to .gitignore). The fast suite compares against it and prints "left out N of M cases".
-- **CLAUDE.md "Commands"**: fast suite for every change; `SUITE=all` before any merge to main and on every terrain-generator change; the REPORTS / SharedMaps rules. I did not touch PREAMBLE.md or SUPERVISOR.md.
+## Evidence
+- **Walk run:** `MODE=walk MINUTES=1 ./run-tg2world.sh`, log `Logs/tg2world_20261003_101235.txt`, stdout in `Logs/overnight/12-walk.out`. It showed:
+  - `caffeinate pid 8910 (-dimsu -w 8570)`
+  - `power start: 10:13:21 source=AC Power charge=100%; charged`
+  - `power end: 10:15:23 source=AC Power charge=100%; charged`
+  - It reached TG2WORLD_DONE. Caffeinate pid 8910 had exited after the script ended, so nothing lingers.
+- **The run was on AC, so no WARNING line printed.** I checked the warning branch separately: I extracted the start block from the script and ran it against a stub `power-status.sh` that exits 2. `MODE=walk` and `MODE=orbit` printed the WARNING line; `MODE=poses` did not.
+- **EditMode fast suite:** `PASS 605 FAIL 0 SKIP 12`, wall 3m04s.
+- I quote no frame-time numbers; this was not a performance run. The walk run's peak footprint was 3016 MB. That is the known over-the-cap issue (KNOWN_ISSUES), and nothing here changed it.
+- I looked at no screenshots; the task did not need them.
 
-## Evidence (scripts' own output)
-- **Before:** `Logs/overnight/10_editmode.out`, 08:11:18 -> 08:26:08 = **14m50s**, PASS 626 FAIL 0 SKIP 4. XML copy: `Logs/overnight/11/before_TestResults.xml`.
-- **SUITE=all:** `Logs/overnight/11_all.out`: `PASS 618 FAIL 0 SKIP 12 suite=all wall=9m23s`. XML: `Logs/overnight/11/all_TestResults.xml`.
-  - It has the same 630 full names as before: none removed, none added.
-  - Only 8 results changed, all Passed -> Skipped, and they are exactly the 8 opt-in reports. SKIP 12 = the old 4 + those 8.
-  - Total test-case time went from 660 s to 490 s. `Regions_VarietyAndReport` went from 109 s to 54 s; `NoNeedles` from 27 s to under 1 s.
-- **Fast:** `Logs/overnight/11_fast.out`: `PASS 605 FAIL 0 SKIP 12 suite=fast wall=3m02s`, "left out 13 of 630 cases".
-  - Test time 114 s. The slowest remaining case is CaveTests.StructuredCaves at 7.3 s.
-  - XML: `Logs/overnight/11/fast_TestResults.xml`.
-- 0 `error CS`. No screenshots: none were needed for this task.
-
-## Notes / unfinished
-- About 1.5 of the fast suite's 3 minutes is Unity start-up and compile; the tests take ~2 min. The fast suite still builds the seed-42 map once (~27 s) because many of its terrain checks need it.
-- The supervisor still has to switch PREAMBLE/SUPERVISOR wording ("EditMode suite before committing") to the fast suite, plus `SUITE=all` for TerrainGen changes or merges.
-- The CLAUDE.md "Current state" line still quotes an old EditMode count (625/2). I left it alone; the supervisor can update it.
+## Left unfinished / notes
+- The runner's per-task power line waits on the supervisor applying the patch above.
+- Caffeinate cannot prevent battery-critical hibernation (the 2026-10-02 21:44 event was Low Power Sleep at 1%). Only AC prevents that.
+- An earlier attempt at this task had already written these edits, uncommitted. I reviewed them, ran the acceptance checks and committed them as they were.
 
 ## Next step
-Next queued task. No follow-up task added.
+The next queued task. The supervisor should apply `run-queue-power.patch` and restart the runner via `start.sh` at the next quiet point, so the caffeinate wrapper is live.
