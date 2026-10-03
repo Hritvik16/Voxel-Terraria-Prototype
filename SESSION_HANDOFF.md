@@ -1,18 +1,18 @@
-# Session handoff -- 2026-10-03 11:15 (queue supervisor session; queue empty, waiting on the owner)
+# Session handoff -- 2026-10-03 14:45 (queue supervisor session; rebuild started)
 
 ## State
-- Branch `design-brief`. **Queue EMPTY, runner NOT running** (ended 11:04, 2026-10-03). No PAUSE.
-  Nothing left that can run without the owner: the next work depends on Q5 (B1) and Q8.
-- Blocked: `05b-surface-b0-metrics-harness` (done except Q5; harness committed 0a80629).
-- EditMode: fast PASS 605 FAIL 0 SKIP 12 (task 13); all PASS 618 FAIL 0 SKIP 12 (task 11).
-  CLAUDE.md "Current state" still quotes an old count (625/2) -- leave for a task, not the supervisor.
-- Runner keep-awake: `start.sh` now runs `caffeinate -ims` around `run-queue.sh` (task 12), and
-  `run-queue.sh` logs `tools/power-status.sh` per task (patch applied d56d91e). Rigs log power and
-  caffeinate themselves. Only AC prevents the 1%-battery hibernation of 2026-10-02 21:44.
-- Pre-B1 v3 poses baseline (04b plan) is covered by task 10's reference run
-  `Logs/tg2world_20261003_062458.txt` (AC, peak 3358 MB, dense bricks per pose).
-- To restart when there is work: `tmux kill-session -t overnight 2>/dev/null; IDLE_MIN=0 tools/overnight/start.sh --resume`.
-- `Assets/Scenes/Playground.unity` stays modified (scene builds regenerate it); tasks leave it alone.
+- **Branch `surface-rebuild`** (from `main`). `main` was fast-forwarded to design-brief on
+  2026-10-03 14:40 after SUITE=all 618/0/12 (Logs/overnight/premerge_all.out). NOT pushed.
+- Runner alive in tmux `overnight` (IDLE_MIN=0, under caffeinate -ims). No PAUSE.
+  Running: 14 heavy-pause toggle (started 14:42). Next: 15 B1 (Requires 14).
+- Owner, 2026-10-03:
+  - No day/night windows. Task 14 builds `tools/heavy.sh pause|resume|status`. When the owner
+    says "pause"/"resume" in chat, run it. The agent keeps working; only Unity waits.
+  - The Q8 worker sweep goes with B9, not now.
+  - Every image gets a caption saying what to look at (PREAMBLE rule 8, memory).
+- Rebuild order + rules: SUPERVISOR.md backlog. Q5-Q9 answered (a) and moved under "Answered"
+  in the doc; nothing waiting on the owner.
+- EditMode: fast 605/0/12, all 618/0/12. `Assets/Scenes/Playground.unity` stays modified.
 
 ## Done this session (rows in the Queue decisions doc, "Done")
 05a pose dropped (0bbd1e6) · 05b metrics harness (0a80629, Q5 open) · 05c wall not reproduced
@@ -49,7 +49,7 @@
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 218)
+  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 231)
 - Surface rebuild plan: https://claude.ai/code/artifact/f6222d44-1457-4a92-9460-3390d44e75fd
 - Game Design Brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
 - Terrain review: https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7
