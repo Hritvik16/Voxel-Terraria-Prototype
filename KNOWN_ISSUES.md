@@ -42,6 +42,68 @@ real and separate reason — see the LOD-cascade finding in
 
 ## Known open issues (act on these, don't rediscover them)
 
+- **STREAMING BASELINE v3 (2026-10-02, task 10; measured 2026-10-03).** The
+  numbers every surface-rebuild step (B1 on) is compared against.
+  `MODE=stream ./run-tg2world.sh` (`MOTION=walk|fly`, `EXTRA="-movespeed 14"`):
+  `-streamprobe` (`PlaygroundCapture.StreamProbe.cs`) with `StreamTrace` (opt-in,
+  observe-only, per-chunk timeline). Side-by-side table:
+  `python3 tools/streamprobe-table.py <StreamProbe run dirs>`. Release standalone,
+  Performance preset (480), AC power, 7 workers, load radius 10 chunks (+-128 m),
+  7-layer band = 3,087 chunks. Cells are p50 / p95 / max. A range means the spread
+  across launches: walk 2, fly14 2, fly56 3.
+
+  | stage | walk 5 m/s | fly 14 m/s | fly 56 m/s |
+  |---|---|---|---|
+  | frame ms | 9.9-10.1 / 20.6-20.7 / 91-235 | 6.9 / 14.6-15.2 / 68-269 | 6.4-6.6 / 12.1-12.2 / 172-262 |
+  | 1 gen 1 solid chunk, worker ms | 349-354 / 644-708 / 1.3-2.0 s | 481-486 / 1120-1140 / 4.2-8.8 s | 895-1118 / 2429-2650 / 3.6-3.9 s |
+  | 1 same, isolated (main thread, workers idle) ms | 62-65 p50 | 58-67 p50 | 59-73 p50 |
+  | 1 chunks admitted / s | 24-25 | 20 | 7-11 |
+  | 1 request -> dispatch (pending queue) s | 11.0-12.6 / 27 / 51 | 7.4-9.3 / 17-18 / 36 | 1.7-2.5 / 3.4-4.4 / 6-9 |
+  | 2 admit 1 chunk, main ms | 1.07-1.11 / 4.4-4.5 / 10-16 | 1.00-1.07 / 4.1-4.3 / 9-13 | 0.90-0.98 / 3.6-4.4 / 9-12 |
+  | 3 admitted -> in mirror ms | 2.9 / 9.2-9.8 / 155-195 | 2.9-3.0 / 10-12 / 316-329 | 3.5-3.8 / 10-11.5 / 24-715 |
+  | 3 upload pass ms / frame | 0.32-0.34 / 1.32-1.37 / 10.7 | 0.27-0.28 / 1.25-1.39 / 10.5 | 0.37-0.38 / 1.34-1.87 / 10.3 |
+  | 3 bytes / frame (cap 3.0 MB) | 0 / 1.48 MB / 3.41 MB | 0 / 0.84 MB / 2.2 MB | 0 / 0-0.62 MB / 2.4 MB |
+  | 4 request -> in mirror s | 11.7-13.2 / 27.6-27.8 / 51 | 8.2-9.6 / 17.5-18.6 / 38 | 2.8-3.0 / 5.8-6.1 / 10-13 |
+  | 4 LATE: inside 64 m before arriving, for s | 3.8-4.1 / 10.4-10.7 / 18-22 | 3.4-3.6 / 16.5-17.8 / 29-30 | 1.3-1.5 / 4.8-5.1 / 8-11 |
+  | 5 deficit (of 3,087) | 2650-2690 / 2933-2952 | 2912-2915 / 3013-3028 | 3075-3081 / 3087 |
+  | fill of a fresh band at a still pose, s | 35-40 | 25-35 | 24-49 |
+
+  **The bottleneck is stage 1, generation throughput. The upload is not it.**
+  - Even WALKING outruns generation. Walk A's deficit climbs 136 -> ~2,900 within 60 s.
+  - The workers are saturated (busy >= 102%, a lower bound).
+  - A solid chunk costs 58-73 ms alone, but 350 ms (walk) to ~1 s (fly) on a
+    worker under load, i.e. 5-17x contention. The cause is NOT isolated: 7 workers
+    on 4P+4E cores plus the main and render threads, the E-core/QoS class, or memory
+    bandwidth.
+  - Stages 2-3 are cheap. Admission is ~1 ms per chunk, of which the cascade
+    repack + write is 0.95 ms and the scratch->pool copy 0.01 ms. A chunk reaches the
+    mirror in the same frame (0 frames p95). The upload pass is 0.3 / 1.3 ms.
+  - 1-2 frames per walk exceed the 3 MB cap (3.41 MB). These are exempt-radius
+    chunks, by §3.7's 8.4 invariant.
+  - fly56's short request->mirror time is survivor bias: 269k requests were dropped
+    because the camera moved on.
+  - "Deficit" and "missing" count air and deep chunks too. The probe cannot say which
+    of them would be visible. At the moving shot: walk A 19 and walk B 198 missing
+    inside 64 m.
+
+  **LOD hand-offs.** From the code (`LODConfig`, `FarField`): tier 0 (0.1 m) <= 64 m,
+  tier 1 <= 128 m, tier 2 <= 290 m. Voxel DATA exists only inside the +-128 m XZ load
+  square and the 89.6 m band. Beyond that the far band draws, F0..F4 at 0.8-12.8 m
+  texels, rings ~352 m x 2^L.
+  - Walk still vs moving (`StreamProbe/2026-10-03_071515_streamwalk_*`, `crops_horizon.png`):
+    - The tier 0->1 boundary sits at the visible horizon in both: a BOUNDARY BY DESIGN.
+    - Mid-walk, the left half of the near horizon becomes far F1, with a straight
+      vertical edge where the still frame had voxels: SLOW LOADING.
+  - So the owner sees both, and the moving pop is the deficit.
+  - **The fly pose draws NO voxels even fully loaded.** The CPU has ground 63 m
+    under the eye, inside the band and mirror; the tier and band views show 0% voxels.
+    Queued as task 13; cause unknown.
+
+  Unified-memory "upload" (walk, frames that uploaded, sums of phase p50 / p95):
+  - Format conversion 0.12 / 1.03 ms: the staging table, `AirMip.RebuildRegion`, `PackRegion`.
+  - SetData copies 0.11 / 0.59 ms.
+  - So ~55-65% is conversion, ~35-45% copy. Metal's work after SetData is unmeasured.
+
 - **NEAR-TERRAIN SHIMMER BASELINE, BEFORE TAA (measured 2026-10-02, task 05).**
   `MODE=shimmer ./run-tg2world.sh` (`-nearshimmer -renderpreset quality`: 960x540
   gate, noon, temporal shadows ON, shadow level 0) -> `Logs/nearshimmer_<run>.txt`.

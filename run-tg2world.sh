@@ -43,6 +43,10 @@ sleep 30
 # MODE=fluidprobe (2026-10-03, task 09): -fluidprobe -- task 07's tg2 fluid
 # placement with every sim stage logged (tiles, mirror, wake, readback, GPU
 # counters). PROBEWORLD= (empty) runs the default world's arena as control.
+# MODE=stream (2026-10-03, task 10): -streamprobe -- the streaming baseline.
+# MOTION=fly (default: straight ping-pong over the island, 56 m/s) or walk
+# (the MODE=walk circle); per-stage chunk timings, upload bytes, deficit, and
+# still vs moving shots of one pose. Performance preset, like MODE=walk.
 if [ "${MODE:-poses}" = "orbit" ]; then
   open -n "$APP" --args -world tg2 -sustained -motion orbit -orbitheight "${ORBITH:-40}" -minutes "${MINUTES:-3}" \
     -gateres 0 -renderpreset performance -farshadow 1 -cleardeltas -tag "tg2orbit_${RUN_ID}" ${EXTRA:-}
@@ -55,6 +59,10 @@ elif [ "${MODE:-poses}" = "taarisk" ]; then
 elif [ "${MODE:-poses}" = "fluidprobe" ]; then
   START_MARK=$(mktemp)
   open -n "$APP" --args ${PROBEWORLD--world tg2} -fluidprobe -renderpreset quality -farshadow 1 -cleardeltas ${EXTRA:-}
+elif [ "${MODE:-poses}" = "stream" ]; then
+  START_MARK=$(mktemp)
+  open -n "$APP" --args -world tg2 -streamprobe -streammotion "${MOTION:-fly}" -gateres 0 -renderpreset performance \
+    -farshadow 1 -cleardeltas -tag "stream${MOTION:-fly}_${RUN_ID}" ${EXTRA:-}
 elif [ "${MODE:-poses}" = "walk" ]; then
   open -n "$APP" --args -world tg2 -sustained -motion walk -orbitradius "${WALKR:-150}" -movespeed 5 -minutes "${MINUTES:-5}" \
     -gateres 0 -renderpreset performance -farshadow 1 -cleardeltas -tag "tg2walk_${RUN_ID}" ${EXTRA:-}
@@ -87,6 +95,9 @@ if [ "${MODE:-poses}" = "orbit" ] || [ "${MODE:-poses}" = "walk" ]; then
 elif [ "${MODE:-poses}" = "taarisk" ]; then
   R=$(find "$DATA/FarBand" -maxdepth 1 -type d -name '*_taarisk_*' -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
   if [ -n "$R" ] && [ -f "$R/taarisk.txt" ]; then cat "$R/taarisk.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
+elif [ "${MODE:-poses}" = "stream" ]; then
+  R=$(find "$DATA/StreamProbe" -maxdepth 1 -type d -name "*_stream*_${RUN_ID}" -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
+  if [ -n "$R" ] && [ -f "$R/streamprobe.txt" ]; then cat "$R/streamprobe.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
 elif [ "${MODE:-poses}" = "fluidprobe" ]; then
   R=$(find "$DATA/FarBand" -maxdepth 1 -type d -name '*_fluidprobe_*' -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
   if [ -n "$R" ] && [ -f "$R/fluidprobe.txt" ]; then cat "$R/fluidprobe.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi

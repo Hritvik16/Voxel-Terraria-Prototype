@@ -461,6 +461,8 @@ namespace VoxelEngine.Streaming
             public DeltaRejectReason rejectReason;
             public bool hadDeltaFile;
             public Exception error;
+            // StreamTrace only (zero when tracing is off): worker phase ticks.
+            public long traceGenTicks, traceDownTicks, traceDoneTs;
         }
 
         public StreamManager(
@@ -661,7 +663,12 @@ namespace VoxelEngine.Streaming
             LastCascadeMs = LastUploadMs - clipDone;
             LastUploadBytes = stats.bytesUploaded;
             LastUploadStats = stats;
+            if (StreamTrace.Enabled) StreamTrace.AfterUpload(_clipmap, camPos, (int)_frame);
         }
+
+        /// Chunk-generation worker threads (task 10's report quotes it).
+        public int WorkerCount => _maxConcurrentLoads;
+        public int FrameIndex => (int)_frame;
 
         private void SlideWindow(int3 camChunk)
         {
@@ -717,6 +724,7 @@ namespace VoxelEngine.Streaming
                     $"{_windowDims.y}-chunk-tall window. Raise EngineConfig.WINDOW_CHUNKS_Y.");
 
             LayerRange(out int layerLo, out int layerHi);
+            if (StreamTrace.Enabled) StreamTrace.BeginRebuild(_lastCameraPos);
             for (int cy = layerLo; cy <= layerHi; cy++)
             for (int dz = -r; dz <= r; dz++)
             for (int dx = -r; dx <= r; dx++)
@@ -730,7 +738,9 @@ namespace VoxelEngine.Streaming
 
                 _pending.Add(coord);
                 _pendingSet.Add(coord);
+                if (StreamTrace.Enabled) StreamTrace.OnRequest(coord, (int)_frame);
             }
+            if (StreamTrace.Enabled) StreamTrace.EndRebuild();
 
             // §4.3 prefetch ordering: "incoming edge chunks load by angular
             // proximity to the velocity vector." Nearest-first is the primary
@@ -786,6 +796,7 @@ namespace VoxelEngine.Streaming
                 // coord's ring slot -- checked via IsResident above plus the
                 // aliasing guard in ChunkStore.InsertChunk.
                 ChunkLifecycle.Transition(rec, ChunkState.Loading, conditionMet: true, context: "DispatchLoads");
+                if (StreamTrace.Enabled) StreamTrace.OnDispatch(coord, (int)_frame);
 
                 Interlocked.Increment(ref _inFlight);
                 _jobs.Add(new WorkItem { coord = coord, generation = rec.generation, scratch = scratch });
@@ -808,8 +819,11 @@ namespace VoxelEngine.Streaming
             var completion = new LoadCompletion { coord = coord, generation = generation, scratch = scratch };
             try
             {
+                bool trace = StreamTrace.Enabled;
+                long tw0 = trace ? StreamTrace.Now : 0;
                 var chunk = new Chunk();
                 GenerateBaseline(coord, chunk, scratch.allocator, scratch.pool);
+                if (trace) completion.traceGenTicks = StreamTrace.Now - tw0;
 
                 // §4.2: a delta, if present, replays the player's edits onto the
                 // freshly-regenerated baseline. Decode runs HERE, on the worker,
@@ -850,6 +864,7 @@ namespace VoxelEngine.Streaming
                 // it was being redone per tier, so every chunk paid it twice --
                 // pure duplicated worker CPU, on the threads whose contention
                 // with the main thread is what starves frames in the first place.
+                long tw1 = trace ? StreamTrace.Now : 0;
                 bool tier0Ready = LODDownsampler.PrepareTier0(chunk, scratch.pool, scratch.downsample);
                 for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
                 {
@@ -866,6 +881,7 @@ namespace VoxelEngine.Streaming
                 }
 
                 completion.chunk = chunk;
+                if (trace) { completion.traceDoneTs = StreamTrace.Now; completion.traceDownTicks = completion.traceDoneTs - tw1; }
             }
             catch (Exception e)
             {
@@ -885,6 +901,7 @@ namespace VoxelEngine.Streaming
             while (admitted < EngineConfig.MAX_CHUNK_LOADS_PER_FRAME && _completions.TryDequeue(out var c))
             {
                 bool discarded = false;
+                long ta0 = StreamTrace.Enabled ? StreamTrace.Now : 0;
                 try
                 {
                     if (!_table.TryGetValue(c.coord, out ChunkRecord rec)) continue;
@@ -918,6 +935,7 @@ namespace VoxelEngine.Streaming
                         ChunkLifecycle.Transition(rec, ChunkState.Unloaded, true, "discarded: out of range on arrival");
                         DiscardedOnArrivalTotal++;
                         discarded = true;
+                        if (StreamTrace.Enabled) StreamTrace.OnDrop(c.coord, evicted: false);
                         if (c.cascadeData != null)
                             for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++) ReturnCascadeArray(tier, c.cascadeData[tier - 1]);
                         continue;
@@ -934,6 +952,7 @@ namespace VoxelEngine.Streaming
                         ChunkLifecycle.Transition(rec, ChunkState.Resident, true, "generation failed -> air");
                         _store.InsertChunk(airChunk);
                         rec.residentSlot = 0;
+                        if (StreamTrace.Enabled) StreamTrace.OnDrop(c.coord, evicted: false);
                         continue;
                     }
 
@@ -954,7 +973,8 @@ namespace VoxelEngine.Streaming
                     // shared pool allocation happens for generated chunks.
                     long tt0 = System.Diagnostics.Stopwatch.GetTimestamp();
                     TransferToSharedPool(c.chunk, c.scratch);
-                    _transferTicks += System.Diagnostics.Stopwatch.GetTimestamp() - tt0;
+                    long tt1 = System.Diagnostics.Stopwatch.GetTimestamp();
+                    _transferTicks += tt1 - tt0;
 
                     // Loading -> Resident. Condition: "CRC passes (loaded) or
                     // generation done". Generation completed without throwing,
@@ -967,6 +987,7 @@ namespace VoxelEngine.Streaming
                     rec.lastTouchedFrame = _frame;
 
                     _clipmap.MarkDirty(c.coord);
+                    long tc0 = StreamTrace.Enabled ? StreamTrace.Now : 0;
                     if (c.cascadeData != null)
                         for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
                         {
@@ -978,6 +999,13 @@ namespace VoxelEngine.Streaming
 
                     ChunksAdmittedTotal++;
                     admitted++;
+                    if (StreamTrace.Enabled)
+                    {
+                        long ta1 = StreamTrace.Now;
+                        StreamTrace.OnAdmit(c.coord, (int)_frame, ta0, StreamTrace.Ms(c.traceGenTicks), StreamTrace.Ms(c.traceDownTicks),
+                                            c.traceDoneTs, StreamTrace.Ms(ta1 - ta0), StreamTrace.Ms(tt1 - tt0),
+                                            StreamTrace.Ms(ta1 - tc0), c.chunk.isUniform);
+                    }
                 }
                 finally
                 {
@@ -1197,6 +1225,7 @@ namespace VoxelEngine.Streaming
 
             _store.EvictChunk(coord);
             rec.residentSlot = ChunkRecord.NONE;
+            if (StreamTrace.Enabled) StreamTrace.OnDrop(coord, evicted: true);
 
             // Mark the mirrors dirty AFTER the store drops the chunk, so their
             // GetChunk returns null and they take the CLEAR path.

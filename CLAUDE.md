@@ -279,6 +279,7 @@ With live fluid they fail BY DESIGN -- never loosen them. Persistence evidence:
 Before touching streaming, rendering, fluids, memory or a rig, or quoting a
 number, read the matching entry in `KNOWN_ISSUES.md`. One line each:
 
+- STREAMING BASELINE v3 (2026-10-02, task 10): `MODE=stream ./run-tg2world.sh`; generation throughput is the bottleneck (walk deficit ~2,700/3,087, chunk 350 ms on a worker vs 62 ms alone), upload ~1 ms; the fly pose draws no voxels (task 13).
 - NEAR-TERRAIN SHIMMER BASELINE before TAA (2026-10-02): `MODE=shimmer ./run-tg2world.sh`; mean of poses near 4.14 / 5.84%, all 5.89 / 7.59%.
 - TAA EXISTS, OFF BY DEFAULT (`-taa 1` / F4): task 07 risk checks -- fluid/edit/turns/seams pass, sun reset lowered to 0.25 deg/frame (0.2 deg/frame still lags ~3 luma), cost 0.8-2 ms at 480 px (budget ~1.5 ms not resolved).
 - CHECKERBOARD EXISTS, OFF (`-checker 1`, implies TAA; task 08): walk at 960 30.8 -> 19.6 ms (-11.3 ms paired), 16.7 ms NOT reached (2.9 ms over); softer, horizon teeth in fast spins. Cost arms on battery at ~1% were wrong -- check `pmset -g batt`.

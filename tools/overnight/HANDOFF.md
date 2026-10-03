@@ -1,55 +1,62 @@
 # Overnight handoff
 
-**09-tg2-fluid-not-moving-check: DONE. Fluid DOES simulate in tg2. Task 07's "never moved" was a misreading: the CA's known ~6 frames per tick (owner decision 11, `FLUID_TICK_DIAGNOSIS.md`), plus lava acting only every 6th tick. tg2 has no fault of its own. No fix needed, no engine code changed.**
+**10-streaming-perf-baseline: DONE (measurement only, no behaviour change).** The bottleneck is CPU chunk GENERATION throughput, not the GPU upload. Even walking outruns it: the deficit reaches ~2,700 of 3,087 chunks, and a chunk takes 12-13 s p50 from request to on-GPU. Also found: the fly pose draws no voxels at all, even fully loaded (queued as task 13).
 
-## What changed (commit 3a99383)
-- New `Assets/Game/PlaygroundCapture.FluidProbe.cs` (`-fluidprobe`). It repeats task 07's placement: eye_level_1, a 1.5 m dig, 1029 water voxels 2-4 m above the hole, 784 lava voxels 3 m to the right. At +1 to +400 frames it logs every stage:
-  - CPU store counts in and below the boxes
-  - the chunk's fluid-tile mask
-  - tile residency: pool use, exhaustions, the Refresh stats
-  - the mirror window and the chunk's upload epoch (CSPromote samples the MIRROR)
-  - the wake queue, the readback's op counters, and `FluidGpuSimulation.DebugDump()`
-  - two stills
-- Without `-world` it runs the same boxes at the default world's arena, as a control.
-- Wiring:
-  - `PlaygroundCapture.cs` dispatch.
-  - `-fluidprobe` added to Playground's fly-mode capture list.
-  - `run-tg2world.sh` `MODE=fluidprobe` (`PROBEWORLD=` for the control).
-- Docs:
-  - `KNOWN_ISSUES.md`: the TAA entry is corrected, and a new entry "FLUID IN TG2 DOES SIMULATE".
-  - `CLAUDE.md`: one index line.
-  - The TaaRisk.cs doc comment is corrected.
+## What changed (one commit on design-brief, "Overnight 10")
+- `Assets/CoreEngine/Streaming/StreamTrace.cs` (new). An opt-in, observe-only per-chunk timeline: request, dispatch, worker gen/downsample, admit (transfer/cascade split), clipmap upload epoch, and "near" (within 64 m).
+- `StreamManager.cs`: hooks, each behind `if (StreamTrace.Enabled)`. Also added `WorkerCount` and `FrameIndex`, both additive.
+- `Assets/Game/PlaygroundCapture.StreamProbe.cs` (new), `-streamprobe`:
+  - `-streammotion walk|fly`, `-movespeed`.
+  - Settles at a still pose until fully loaded, timing the fill.
+  - At that pose: an isolated main-thread gen check, a CPU-store diagnostic, and still vs moving shots (beauty, tier view 6, band view 9).
+  - Writes a per-stage p50/p95/max report plus per-frame and per-chunk TSVs.
+- Wiring: `PlaygroundCapture.cs`, `Playground.cs` (capture lists), and `run-tg2world.sh MODE=stream`.
+- `tools/streamprobe-table.py` (side-by-side table).
+- Docs: `KNOWN_ISSUES.md` "STREAMING BASELINE v3" (the table is at its top) and a `CLAUDE.md` index line.
+- Follow-up queued: `tools/overnight/queue/13-fly-pose-no-voxels-check.md`.
 
 ## Evidence
-- EditMode: PASS 626 FAIL 0 SKIP 4 (`Logs/overnight/09_editmode.out`). Build: 0 error CS, 0 Shader error.
-- tg2 log: `Logs/tg2world_20261003_055038.txt`. Control: `Logs/tg2world_20261003_055801.txt`. On AC power.
-- **Every stage works in tg2:**
-  - The mask bit is set at +1 frame.
-  - Tiles go 4 -> 12 of 1024, with 0 pool exhaustions and 0 refused.
-  - The box is in the mirror window (brick y 800 + 128 = voxel y 6400-7423; the box is at 6941-6962).
-  - Wakes: 1813 dispatched at +3 frames, 0 rejected (region or full), 0 released stale.
-  - By +400: 52,239 ops, 104k writes applied, 0 stale or non-resident drops.
-- **Voxels still in the box, tg2 vs control:**
+- EditMode: PASS 626 FAIL 0 SKIP 4 (`Logs/overnight/10_editmode.out`). Builds: 0 error CS, 0 Shader error.
+- No behaviour change: `MODE=poses` on HEAD (`FarBand/2026-10-03_062635_world`) vs after (`_074726_world`).
+  - 54 of 56 shots are md5-identical.
+  - The two minimap shots differ. They are taken a fixed 600 frames after a jump across the island; the BEFORE noon frame caught the cliff still loading (missing chunks). Load timing, not the trace.
+- Runs: 7 launches, all release, Performance preset, AC power. Logs: `Logs/overnight/10_*.out`. Reports: `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/StreamProbe/`.
+  - walk: `071515`, `073049`
+  - fly 56: `065909`, `070906`, `072436`
+  - fly 14: `073645`, `074205`
+  - `064931` is a discarded first try: its eye was over ridges and the settle had a frame cap.
+- Headline numbers, p50 (a range = spread across launches):
 
-  | | tg2 | control |
-  |---|---|---|
-  | water at +45 | 374 | 345 |
-  | water at +90 | 204 | 158 |
-  | water at +180 | 0 | 0 |
-  | lava at +225 | 296 | 244 |
-  | lava at +400 | 184 | 123 |
+  | | walk 5 m/s | fly 14 m/s | fly 56 m/s |
+  |---|---|---|---|
+  | solid chunk gen on a worker | 349-354 ms | 481-486 ms | 0.9-1.1 s |
+  | same chunk gen in isolation | 62-65 ms | 58-67 ms | 59-73 ms |
+  | chunks admitted / s | 24-25 | 20 | 7-11 |
+  | request -> on GPU | 11.7-13.2 s | 8.2-9.6 s | 2.8-3.0 s (survivor bias) |
+  | deficit | ~2,650-2,690 | ~2,915 | ~3,080 |
 
-- **CA tick rate:** tg2 0.16 ticks/frame (64 ticks in 400 frames; also 263 in the 1604 frames before placement). Control 0.20 (79 in 400). This is the 6-7 frames per tick that `FLUID_TICK_DIAGNOSIS.md` already measured. Lava's tick interval is 6 (§7.4), so it takes ~6 steps (~0.6 m) in 225 frames.
-- **Stills I opened:**
-  - Task 07 `FarBand/2026-10-02_162607_taarisk_off/fluid_b0.png` (+53): the water column is sparse and falling.
-  - Task 07 `fluid_c0.png` (+240): no water left in view (it went into the hole). The lava column is still up, slightly lower.
-  - Probe `FarBand/2026-10-03_055550_fluidprobe_tg2/probe_45.png`, `probe_225.png`: the same, with a blue pile at the hole at +225.
-  - So task 07's "both columns stood" was true only of the lava, and that is the expected slow rate.
-- Caveat: the probe's blocking `DebugDump` readbacks stall a frame at each sample. The before-placement tick rate (no samples) is the same 0.16.
+  - Main-thread admission is ~1 ms per chunk. Admitted -> mirror happens in the same frame.
+  - The upload pass is 0.3 ms p50 / 1.3 ms p95. Bytes peak at 3.41 MB vs the 3.0 MB cap on 1-2 frames, which are exempt chunks.
+  - The full table is in KNOWN_ISSUES.
+- Screenshots I opened:
+  - Walk still vs moving (`071515.../crops_horizon.png`):
+    - The tier 0->1 boundary sits at the visible horizon in both: BY DESIGN.
+    - Mid-walk, the left near-horizon turns into far F1 with a straight vertical edge where the still frame had voxels: SLOW LOADING.
+  - Fly still and moving (`065909`, `072436`): far band only. Tier view 0% hits, band view 0% voxel blue, F1 nearest, 3.9 ms frames.
+    - The CPU has ground 805.7 m under the 868.8 m eye, inside the band (793.6-883.2 m) and the mirror. Cause unknown → task 13.
+- Unified-memory "upload" (from the code; walk, frames that uploaded):
+  - There is no bus transfer. Our cost is CPU work in `TerrainClipmap.UploadDirty`.
+  - Format conversion: the 4096-handle staging table, `AirMip.RebuildRegion` and `AirMip.PackRegion`. ~0.12 ms p50 / 1.03 ms p95 (sum of phases), ~55-65%.
+  - SetData copies: `WriteClipmapChunk`, `WriteBrickRun`, and the whole ~300 KB packed air-mip each uploading frame. ~0.11 / 0.59 ms, ~35-45%.
+  - At admission: `CascadeTierPool.WriteChunkFromDownsampled` repacks tier 1/2 bricks and SetDatas them, 0.95 ms per chunk p50 (not split). The scratch->pool copy is 0.01 ms.
+  - Metal's own work after SetData is unmeasured (no GPU attribution in this workflow).
 
-## Not done / open
-- Nothing to fix here. Fluid speed per second (fps / ~6) is owner decision 11, still open.
-- `Assets/Scenes/Playground.unity` was regenerated by the build again. It is not committed.
+## Not done / caveats
+- "Deficit" and "missing" include air and deep chunks; the probe cannot tell which would be visible.
+- Worker busy % is a lower bound: it counts only chunks that reached the GPU.
+- The 5-17x worker slowdown vs isolation is NOT attributed. Candidates: 7 workers on 4P+4E cores plus the main and render threads, E-core/QoS class, memory bandwidth.
+- `Assets/Scenes/Playground.unity` was regenerated by the build; not committed.
 
 ## Next step
-- Queue continues with 10 (streaming perf baseline). Owner: decision 11 (fluid tick period) decides whether fluid will ever look fast at tg2 frame rates.
+- Owner: should generation throughput (worker count/QoS, gen cost, band height, pending order) be a first-class constraint of the B1+ surface rebuild?
+- Queue continues with 11, 12, then 13 (why the fly pose draws no voxels).
