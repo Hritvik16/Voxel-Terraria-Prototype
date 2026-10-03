@@ -1,26 +1,26 @@
-# Session handoff -- 2026-10-03 08:55 (queue supervisor session; stopped at usage limit)
+# Session handoff -- 2026-10-03 11:15 (queue supervisor session; queue empty, waiting on the owner)
 
 ## State
-- Branch `design-brief`. Runner alive in tmux session `overnight` (IDLE_MIN=0, nice 10). No PAUSE.
-- Running: `12-rig-power-guard` (started 08:51). Queue after it: 13 fly pose draws no voxels (10
-  follow-up, evidence only). After 13 NOTHING is runnable without the owner: B1 needs Q5 (and
-  maybe Q8's pass line). Add 12 and 13's Done rows to the doc when the next session starts.
-- 11 done (f1e8dc4); PREAMBLE rule 3 updated (2198010). CLAUDE.md "Current state" still quotes an
-  old EditMode count (625/2); new: fast 605/0/12, all 618/0/12 -- leave for a task, not the supervisor.
-- Pre-B1 v3 poses baseline (04b plan) is effectively covered by task 10's reference run
-  `Logs/tg2world_20261003_062458.txt` (on AC, peak 3358 MB, dense bricks per pose).
-- The Mac ran out of battery at 21:44 on 10-02 and hibernated until 05:04. The supervisor started
-  `caffeinate -ims -w <run-queue pid>` by hand; after a runner restart, start it again until task 12
-  lands. Check `pmset -g batt` before trusting any cost number.
+- Branch `design-brief`. **Queue EMPTY, runner NOT running** (ended 11:04, 2026-10-03). No PAUSE.
+  Nothing left that can run without the owner: the next work depends on Q5 (B1) and Q8.
 - Blocked: `05b-surface-b0-metrics-harness` (done except Q5; harness committed 0a80629).
-- EditMode last: PASS 626 FAIL 0 SKIP 4 (task 08, 20:24). The 4th skip is the opt-in PlayMetricsReport.
+- EditMode: fast PASS 605 FAIL 0 SKIP 12 (task 13); all PASS 618 FAIL 0 SKIP 12 (task 11).
+  CLAUDE.md "Current state" still quotes an old count (625/2) -- leave for a task, not the supervisor.
+- Runner keep-awake: `start.sh` now runs `caffeinate -ims` around `run-queue.sh` (task 12), and
+  `run-queue.sh` logs `tools/power-status.sh` per task (patch applied d56d91e). Rigs log power and
+  caffeinate themselves. Only AC prevents the 1%-battery hibernation of 2026-10-02 21:44.
+- Pre-B1 v3 poses baseline (04b plan) is covered by task 10's reference run
+  `Logs/tg2world_20261003_062458.txt` (AC, peak 3358 MB, dense bricks per pose).
+- To restart when there is work: `tmux kill-session -t overnight 2>/dev/null; IDLE_MIN=0 tools/overnight/start.sh --resume`.
 - `Assets/Scenes/Playground.unity` stays modified (scene builds regenerate it); tasks leave it alone.
 
 ## Done this session (rows in the Queue decisions doc, "Done")
 05a pose dropped (0bbd1e6) · 05b metrics harness (0a80629, Q5 open) · 05c wall not reproduced
 (b2ab00a) · 06 TAA core, off by default, `-taa 1` / F4 (718dd03) · 07 TAA risk checks (d6e97f1)
 · 08 TAA checkerboard, off, `-checker 1`: 30.8 -> 19.6 ms, misses 16.7 ms by 2.9 (ecb1027, Q7 open)
-· 09 tg2 fluid does simulate, no fault (3a99383) · 10 streaming baseline: CPU generation is the bottleneck (1c8e439, Q8 open).
+· 09 tg2 fluid does simulate, no fault (3a99383) · 10 streaming baseline: CPU generation is the bottleneck (1c8e439, Q8 open)
+· 11 EditMode suite 14m50s -> fast 3m02s / all 9m23s (f1e8dc4) · 12 rig power guard (7f59fbc)
+· 13 fly pose: designed band limit at a cliff lip, not a bug (233562a, Q9 open, not blocking).
 
 ## Waiting on the owner (doc "Waiting on you")
 - **Q5** (05b): B1's biome-size target. Recommended (a): 297 m baseline, B1 >= 2.5x (~740 m).
@@ -33,6 +33,8 @@
   nothing queued. (c) = approve step 4 shadow tuning; (d) = fix horizon teeth / fluid softness.
 - **Q8** (10): generation throughput. Recommended (a): queue an evidence-only worker-count/QoS sweep
   (opt-in flag) AND make "gen ms not worse than baseline" a pass line of every B step.
+- **Q9** (13): band can't reach ground seen from a ledge. Recommended (a): no change; revisit after
+  the rebuild. Not blocking.
 - Q6 got an update line: task 07's cost runs were on battery, so its cost figure is unreliable.
 
 ## Owner decisions this session (2026-10-02)
@@ -47,7 +49,7 @@
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 214)
+  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 218)
 - Surface rebuild plan: https://claude.ai/code/artifact/f6222d44-1457-4a92-9460-3390d44e75fd
 - Game Design Brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
 - Terrain review: https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7
