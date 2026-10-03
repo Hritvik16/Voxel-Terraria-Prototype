@@ -172,7 +172,7 @@ public sealed class DevMap : MonoBehaviour
         {
             var m = far.Tg2Map;
             _spec = far.Tg2Spec;
-            _o = TerrainGen.Offsets.For(_spec.seed);
+            _o = TerrainGen.Offsets.For(_spec);
             _mapView = new TerrainGen.WorldMap(m.Spec, m.Height, m.Rough, m.PeakPosition, m.Water, m.Flow, m.Hydro, m.WaterClass);
             _off = far.Tg2OffsetVoxels;
             _seaShift = far.Tg2SeaShift;

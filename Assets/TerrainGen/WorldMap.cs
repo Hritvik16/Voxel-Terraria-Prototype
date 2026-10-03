@@ -52,6 +52,8 @@ namespace TerrainGen
         /// archetype (Regions.*; 255 = sea). Null / empty on a v2 map.
         public Regions.Layout RegionLayout { get; private set; }
         public byte[] Region { get; private set; }
+        /// v4 (B1): the per-cell world record. Null below v4.
+        public WorldRecord Record { get; private set; }
         private GCHandle _hH, _hR, _hW;
 
         public WorldMap(TerrainSpec spec, float[] height, float[] rough, float2 peak,
@@ -88,7 +90,28 @@ namespace TerrainGen
         // ------------------------------------------------------------------
         // Build
         // ------------------------------------------------------------------
-        public static WorldMap Build(TerrainSpec spec) => spec.mapVersion >= 3 ? BuildV3(spec) : BuildV2(spec);
+        public static WorldMap Build(TerrainSpec spec) =>
+            spec.mapVersion >= 4 ? BuildV4(spec) : spec.mapVersion >= 3 ? BuildV3(spec) : BuildV2(spec);
+
+        // ------------------------------------------------------------------
+        // v4 (surface rebuild B1, owner 2026-10-03): EXACTLY v3's map -- BuildV3
+        // reads no biome and no field B1 adds, so every array is byte-identical
+        // to the v3 map of the same seed (WorldRecordTests) -- plus the world
+        // record. The larger biomes are not in the map at all: they come from
+        // Offsets.For(spec).biomeScale in ShapeField.Biome.
+        // ------------------------------------------------------------------
+        private static WorldMap BuildV4(TerrainSpec spec)
+        {
+            // The record's biome plane is a function of the spec alone (~7 s in
+            // the Editor's Mono, measured 2026-10-03), so it runs on a worker
+            // while BuildV3 does: the array is the task's own until Result, and
+            // the values do not depend on the thread. What stays on the
+            // critical path is the two distance transforms.
+            var biomes = System.Threading.Tasks.Task.Run(() => WorldRecord.BiomePlane(spec));
+            var map = BuildV3(spec);
+            map.Record = WorldRecord.Build(map, biomes.Result);
+            return map;
+        }
 
         // ------------------------------------------------------------------
         // v3 (§13, T1 + T2): regions -> starting shapes -> erosion -> fine map.
@@ -808,10 +831,22 @@ namespace TerrainGen
         public float3 caveA, caveB, cavern, under;
         public float2 peakDir;
         public uint seed;
+        /// TerrainSpec.BiomeScale (map v4, B1). 1 from For(seed); 0 (a default
+        /// struct) is read as 1. A v4 world's Offsets MUST come from For(spec),
+        /// or its biomes silently fall back to v3's.
+        public float biomeScale;
+
+        /// The offsets for this spec: For(seed) plus the spec's biome scale.
+        public static Offsets For(in TerrainSpec spec)
+        {
+            var o = For(spec.seed);
+            o.biomeScale = spec.BiomeScale;
+            return o;
+        }
 
         public static Offsets For(uint seed)
         {
-            var o = new Offsets { seed = seed };
+            var o = new Offsets { seed = seed, biomeScale = 1f };
             uint s = seed * 747796405u + 2891336453u;
             o.coastA = Next2(ref s); o.coastB = Next2(ref s); o.low = Next2(ref s);
             o.range = Next2(ref s); o.ridge = Next2(ref s); o.plateau = Next2(ref s);

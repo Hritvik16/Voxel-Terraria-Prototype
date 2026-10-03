@@ -189,7 +189,7 @@ public partial class PlaygroundCapture
             File.WriteAllText(Path.Combine(_folder, "farpreview.txt"), _log.ToString());
             Application.Quit(2); yield break;
         }
-        var spec = far.Tg2Spec; var map = far.Tg2Map; var o = TerrainGen.Offsets.For(spec.seed);
+        var spec = far.Tg2Spec; var map = far.Tg2Map; var o = TerrainGen.Offsets.For(spec);
         int2 off = far.Tg2OffsetVoxels;
         int seaShift = far.Tg2SeaShift;
         // tg2 voxel (x, z) -> engine metres; tg2 absolute Y -> engine metres.
@@ -413,7 +413,7 @@ public partial class PlaygroundCapture
     {
         var spec = map.Spec;
         var view = map.View;
-        var o = TerrainGen.Offsets.For(spec.seed);
+        var o = TerrainGen.Offsets.For(spec);
         return math.max(TerrainGen.ShapeField.Sample(in spec, in view, in o, gx, gz, 8).height + 1, spec.seaLevelY + 1);
     }
 

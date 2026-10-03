@@ -49,6 +49,12 @@ namespace TerrainGen
         /// 2026-09-25), 3 = regions + erosion (TerrainGen v3, design doc §13).
         /// 0 is read as 2, so a spec built field by field keeps the old map.
         public int mapVersion;
+        /// Map v4 (surface rebuild B1, owner 2026-10-03): multiplies the two
+        /// climate-field wavelengths that drive ShapeField.Biome, so biomes get
+        /// larger without touching landform. 0 = the version's default (x3 on
+        /// v4). IGNORED below v4: v3 is x1 and byte-identical. Read it through
+        /// BiomeScale, never directly.
+        public float biomeScale;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -69,6 +75,20 @@ namespace TerrainGen
             worldBottomY = 120,              // 12 m of bedrock floor under the underworld
             mapVersion = 3,                  // regions + erosion (§13)
         };
+
+        /// sizeClass 2 at an explicit map version (4 = B1: v3 + the world
+        /// record + larger biomes). 0 or 3 is exactly SizeClass2(seed).
+        public static TerrainSpec SizeClass2(uint seed, int mapVersion)
+        {
+            var s = SizeClass2(seed);
+            if (mapVersion > 0) s.mapVersion = mapVersion;
+            return s;
+        }
+
+        public const float V4_BIOME_SCALE = 3f;
+
+        /// The biome wavelength multiplier actually in force (see biomeScale).
+        public float BiomeScale => mapVersion >= 4 ? (biomeScale > 0f ? biomeScale : V4_BIOME_SCALE) : 1f;
 
         public int CavernTopY => seaLevelY - cavernTopBelowSea;
         public int UnderworldTopY => seaLevelY - underworldTopBelowSea;

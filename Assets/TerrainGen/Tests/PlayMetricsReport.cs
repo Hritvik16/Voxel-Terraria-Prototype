@@ -11,6 +11,12 @@
 // top-down PNGs per seed. ~1 min per seed, so opt-in:
 //   PLAYMETRICS=1 tools/run-editmode-filter.sh PlayMetricsReport
 //   PLAYMETRICS_SEEDS=42,7 ... to choose seeds (default 42, 7, 2026, 31337).
+//   PLAYMETRICS_MAPV=3,4 ... map versions (default 3). Per seed the versions
+//   are built back to back, so build times compare on the same machine state.
+//   v3 writes playmetrics.txt and seed<N>_*.png exactly as before; v4 (B1)
+//   writes playmetrics_v4.txt, seed<N>_v4_*.png, a biome-scale strip per seed
+//   (seed<N>_biome_scales.png: v3 then x PLAYMETRICS_BIOMESCALES, default
+//   2,3,4) and, when both ran, b1_biome_scale.txt (the B1 acceptance table).
 //
 // Definitions (land = map height above sea; "8 m scale" = the map grid):
 //   slope        central differences over the 8 m map, degrees.
@@ -89,13 +95,24 @@ namespace TerrainGen.Tests
             public float lowThirdM, easyShare, gentleLowShare;
             public float biomeChangeM, biomeChange128M, regionChangeM, biomePatchMedianHa, biomePatchAreaMedianHa;
             public int biomePatches;
+            public int mapVersion; public float biomeScale;
+            public double recordMs; public long recordBytes; public ulong recordHash; public int recordBiomeMismatch;
+            public float biomePatchMedian1HaHa;
+            public List<(float scale, BiomeStats st)> scales = new List<(float, BiomeStats)>();
             public int towns; public string townRegions; public string townSweep;
             public float landmarkAll4At3, landmarkAll4At15; public int landmarks;
             public int caveMouths; public float mouthsPerKm2;
             public float riverKm; public int lakes;
         }
 
+        public struct BiomeStats
+        {
+            public float changeM, medianHa, areaMedianHa, median1HaHa;
+            public int patches;
+        }
+
         [Test]
+        [Timeout(3600000)]   // 8 map builds with PLAYMETRICS_MAPV=3,4 (~10 min)
         public void Report_PlayMetrics()
         {
             if (Environment.GetEnvironmentVariable("PLAYMETRICS") != "1")
@@ -104,33 +121,110 @@ namespace TerrainGen.Tests
             string env = Environment.GetEnvironmentVariable("PLAYMETRICS_SEEDS");
             if (!string.IsNullOrEmpty(env)) seeds = env.Split(',').Select(s => uint.Parse(s.Trim())).ToArray();
 
+            int[] versions = { 3 };
+            string envV = Environment.GetEnvironmentVariable("PLAYMETRICS_MAPV");
+            if (!string.IsNullOrEmpty(envV)) versions = envV.Split(',').Select(v => int.Parse(v.Trim())).ToArray();
+            float[] scales = { 2f, 3f, 4f };
+            string envS = Environment.GetEnvironmentVariable("PLAYMETRICS_BIOMESCALES");
+            if (!string.IsNullOrEmpty(envS)) scales = envS.Split(',').Select(v => float.Parse(v.Trim(), System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+
             string dir = Path.Combine(Directory.GetCurrentDirectory(), "Logs", "TerrainGen", "playmetrics");
             Directory.CreateDirectory(dir);
-            var all = new List<Metrics>();
-            var sb = new StringBuilder();
+            var byVersion = versions.ToDictionary(v => v, v => new List<Metrics>());
             foreach (uint seed in seeds)
+            foreach (int v in versions)
+                byVersion[v].Add(Measure(seed, v, scales, dir));
+            foreach (int v in versions)
             {
-                var m = Measure(seed, dir);
-                all.Add(m);
-                sb.Append(Describe(m));
+                var all = byVersion[v];
+                var sb = new StringBuilder();
+                foreach (var m in all) sb.Append(Describe(m));
+                sb.Append(Summary(all));
+                foreach (var m in all)
+                    if (m.seed == 42u && v == 3) sb.Append(Reproduction(m));
+                File.WriteAllText(Path.Combine(dir, v == 3 ? "playmetrics.txt" : $"playmetrics_v{v}.txt"), sb.ToString());
+                Debug.Log($"[PlayMetrics v{v}]\n" + sb);
             }
-            sb.Append(Summary(all));
-            foreach (var m in all)
-                if (m.seed == 42u) sb.Append(Reproduction(m));
-            File.WriteAllText(Path.Combine(dir, "playmetrics.txt"), sb.ToString());
-            Debug.Log("[PlayMetrics]\n" + sb);
+            if (byVersion.ContainsKey(3) && byVersion.ContainsKey(4))
+            {
+                string b1 = B1Table(byVersion[3], byVersion[4]);
+                File.WriteAllText(Path.Combine(dir, "b1_biome_scale.txt"), b1);
+                Debug.Log("[PlayMetrics B1]\n" + b1);
+            }
+        }
+
+        /// The B1 acceptance table (owner Q5, 2026-10-03): v4's biome change
+        /// walking east-west must be >= 2.5x the same seed's v3 value.
+        private static string B1Table(List<Metrics> v3, List<Metrics> v4)
+        {
+            var s = new StringBuilder("=== B1: map v4 (biome x3 + world record) against v3, same run\n");
+            s.AppendLine("  seed    biome m v3 -> v4   ratio  (>= 2.5x)   patch median ha v3 -> v4   area-wtd ha v3 -> v4   >=1ha median v3 -> v4   build s v3 -> v4 (delta)  record B / ms");
+            foreach (var a in v3)
+            {
+                var b = v4.FirstOrDefault(x => x.seed == a.seed);
+                if (b == null) continue;
+                float ratio = b.biomeChangeM / a.biomeChangeM;
+                s.AppendLine($"  {a.seed,-6}  {a.biomeChangeM,6:F0} -> {b.biomeChangeM,6:F0}  {ratio,5:F2}  {(ratio >= 2.5f ? "PASS" : "MISS"),-9}   " +
+                             $"{a.biomePatchMedianHa,7:F1} -> {b.biomePatchMedianHa,7:F1}        {a.biomePatchAreaMedianHa,6:F0} -> {b.biomePatchAreaMedianHa,6:F0}        " +
+                             $"{a.biomePatchMedian1HaHa,6:F1} -> {b.biomePatchMedian1HaHa,6:F1}        {a.buildMs / 1000:F1} -> {b.buildMs / 1000:F1} ({(b.buildMs - a.buildMs) / 1000:+0.0;-0.0})   " +
+                             $"{b.recordBytes} / {b.recordMs:F0}  hash {b.recordHash:X16}  record biome != ShapeField.Biome: {b.recordBiomeMismatch}");
+            }
+            s.AppendLine("\n  biome scale sweep (v4 map, biomeScale overridden; x1 is v3's biome field):");
+            s.AppendLine("  seed    scale  biome m  patches  median ha  area-wtd ha  >=1ha median ha");
+            foreach (var b in v4)
+                foreach (var (sc, st) in b.scales)
+                    s.AppendLine($"  {b.seed,-6}  x{sc,-4:0.#}  {st.changeM,7:F0}  {st.patches,7}  {st.medianHa,9:F1}  {st.areaMedianHa,11:F0}  {st.median1HaHa,15:F1}");
+            return s.ToString();
+        }
+
+        /// Biome change walking east-west and land patch sizes for one biome grid.
+        private static BiomeStats Biomes(int n, bool[] isLand, byte[] biome, float cellM)
+        {
+            var st = new BiomeStats();
+            long walked = 0; int changes = 0;
+            for (int z = 0; z < n; z += 4)
+            for (int x = 0; x + 1 < n; x++)
+            {
+                int a = z * n + x;
+                if (!isLand[a] || !isLand[a + 1]) continue;
+                walked++;
+                if (biome[a] != biome[a + 1]) changes++;
+            }
+            st.changeM = changes > 0 ? walked * cellM / changes : float.PositiveInfinity;
+            var patches = Components(n, i => isLand[i], (a, b) => biome[a] == biome[b]);
+            float haPerCell = cellM * cellM / 10000f;
+            st.patches = patches.Count;
+            var patchHa = patches.Select(p => p.Count * haPerCell).OrderBy(v => v).ToList();
+            st.medianHa = patchHa.Count > 0 ? patchHa[patchHa.Count / 2] : 0f;
+            st.areaMedianHa = AreaWeightedMedian(patchHa);
+            var big = patchHa.Where(v => v >= 1f).ToList();
+            st.median1HaHa = big.Count > 0 ? big[big.Count / 2] : 0f;
+            return st;
         }
 
         // ------------------------------------------------------------------ measure
 
-        private static Metrics Measure(uint seed, string dir)
+        private static Metrics Measure(uint seed, int mapVersion, float[] biomeScales, string dir)
         {
-            var m = new Metrics { seed = seed };
-            var spec = TerrainSpec.SizeClass2(seed);
-            var o = Offsets.For(seed);
+            var spec = TerrainSpec.SizeClass2(seed, mapVersion);
+            var m = new Metrics { seed = seed, mapVersion = spec.mapVersion, biomeScale = spec.BiomeScale };
+            string tag = spec.mapVersion == 3 ? "" : $"_v{spec.mapVersion}";
+            var o = Offsets.For(in spec);
             var sw = System.Diagnostics.Stopwatch.StartNew();
             using var map = WorldMap.Build(spec);
             m.buildMs = sw.Elapsed.TotalMilliseconds;
+            if (map.Record != null)
+            {
+                // the record's critical-path cost (its biome plane runs beside
+                // BuildV3), and a second build that must match it
+                var plane = WorldRecord.BiomePlane(spec);
+                sw.Restart();
+                var again = WorldRecord.Build(map, plane);
+                m.recordMs = sw.Elapsed.TotalMilliseconds;
+                m.recordBytes = map.Record.Bytes;
+                m.recordHash = map.Record.Hash();
+                Assert.AreEqual(m.recordHash, again.Hash(), "the world record must rebuild identically");
+            }
             sw.Restart();
             int n = spec.mapCells;
             float cellM = spec.mapCellVoxels / 10f;
@@ -159,6 +253,8 @@ namespace TerrainGen.Tests
             for (int z = 0; z < n; z++)
             for (int x = 0; x < n; x++)
                 biome[z * n + x] = ShapeField.Biome(in o, new float2((x + 0.5f) * spec.mapCellVoxels, (z + 0.5f) * spec.mapCellVoxels));
+            if (map.Record != null)
+                for (int i = 0; i < n * n; i++) if (map.Record.Data[i].Biome != biome[i]) m.recordBiomeMismatch++;
 
             // land height range -> lowest third
             float hiLand = 0f;
@@ -234,6 +330,8 @@ namespace TerrainGen.Tests
             var patchHa = patches.Select(p => p.Count * haPerCell).OrderBy(v => v).ToList();
             m.biomePatchMedianHa = patchHa.Count > 0 ? patchHa[patchHa.Count / 2] : 0f;
             m.biomePatchAreaMedianHa = AreaWeightedMedian(patchHa);
+            var bigPatches = patchHa.Where(v => v >= 1f).ToList();
+            m.biomePatchMedian1HaHa = bigPatches.Count > 0 ? bigPatches[bigPatches.Count / 2] : 0f;
 
             // town sites: land under the slope threshold, patches of 4 ha+
             int minCells = (int)math.ceil(TOWN_HA / haPerCell);
@@ -277,17 +375,45 @@ namespace TerrainGen.Tests
             m.lakes = map.Hydro.lakes;
             m.measureMs = sw.Elapsed.TotalMilliseconds;
 
-            WritePngs(dir, seed, n, h, isLand, slope, relief, biome, map.Region, map.WaterClass, easyMask, towns);
+            WritePngs(dir, $"seed{seed}{tag}", n, h, isLand, slope, relief, biome, map.Region, map.WaterClass, easyMask, towns);
+
+            // B1: the biome field at other scales on this same map (the map does
+            // not depend on biomes), as numbers and one strip: v3 (x1), then each.
+            if (spec.mapVersion >= 4)
+            {
+                var grids = new List<byte[]> { BiomeGrid(spec, 1f) };
+                m.scales.Add((1f, Biomes(n, isLand, grids[0], cellM)));
+                foreach (float sc in biomeScales)
+                {
+                    var g = BiomeGrid(spec, sc);
+                    grids.Add(g);
+                    m.scales.Add((sc, Biomes(n, isLand, g, cellM)));
+                }
+                WriteStrip(dir, $"seed{seed}_biome_scales.png", n, h, isLand, map.WaterClass,
+                           grids.Select(g => (Func<int, Color>)(i => BiomeCol[g[i]])).ToArray());
+            }
             // PLAYMETRICS_DUMP=1: the map behind these numbers, for offline checks
             // (int n; float height[n*n] in voxels rel. sea; byte region, water class, biome [n*n] each).
             if (Environment.GetEnvironmentVariable("PLAYMETRICS_DUMP") == "1")
-                using (var f = new BinaryWriter(File.Create(Path.Combine(dir, $"seed{seed}_map.bin"))))
+                using (var f = new BinaryWriter(File.Create(Path.Combine(dir, $"seed{seed}{tag}_map.bin"))))
                 {
                     f.Write(n);
                     foreach (float x in h) f.Write(x);
                     f.Write(map.Region); f.Write(map.WaterClass); f.Write(biome);
                 }
             return m;
+        }
+
+        private static byte[] BiomeGrid(TerrainSpec spec, float scale)
+        {
+            spec.biomeScale = scale;
+            var o = Offsets.For(in spec);
+            int n = spec.mapCells;
+            var g = new byte[n * n];
+            for (int z = 0; z < n; z++)
+            for (int x = 0; x < n; x++)
+                g[z * n + x] = ShapeField.Biome(in o, new float2((x + 0.5f) * spec.mapCellVoxels, (z + 0.5f) * spec.mapCellVoxels));
+            return g;
         }
 
         private static int Band(float s) => s < WALK ? 0 : s < SCRAMBLE ? 1 : s < CLIMB ? 2 : 3;
@@ -459,7 +585,8 @@ namespace TerrainGen.Tests
         private static string Describe(Metrics m)
         {
             var s = new StringBuilder();
-            s.AppendLine($"=== seed {m.seed} (sizeClass 2, map v3): map built in {m.buildMs / 1000:F1} s, measured in {m.measureMs / 1000:F1} s");
+            string ver = m.mapVersion >= 4 ? $"map v{m.mapVersion}, biome x{m.biomeScale:0.#}" : $"map v{m.mapVersion}";
+            s.AppendLine($"=== seed {m.seed} (sizeClass 2, {ver}): map built in {m.buildMs / 1000:F1} s, measured in {m.measureMs / 1000:F1} s");
             s.AppendLine($"  land {m.landKm2:F2} km^2; land height range 0..{m.lowThirdM * 3:F0} m, lowest third under {m.lowThirdM:F0} m");
             s.AppendLine($"  slope (8 m): median {m.medianSlope:F1} deg; under 15 deg {Pct(m.under15)}; steeper than 45 deg {Pct(m.over45)}");
             s.AppendLine($"  bands: Walk {Pct(m.bandShare[0])}, Scramble {Pct(m.bandShare[1])}, Climb {Pct(m.bandShare[2])}, Sheer {Pct(m.bandShare[3])}  (provisional 15/30/45 deg)");
@@ -472,6 +599,8 @@ namespace TerrainGen.Tests
             s.AppendLine($"  easy ground (Walk + gentle + lowest third): {Pct(m.easyShare)} of land (gentle + lowest third, any slope: {Pct(m.gentleLowShare)})");
             s.AppendLine($"  biome change walking east-west every {m.biomeChangeM:F0} m (sampled every 128 m: {m.biomeChange128M:F0} m); region change every {m.regionChangeM:F0} m");
             s.AppendLine($"  biome patches on land: {m.biomePatches}; median {m.biomePatchMedianHa:F1} ha; area-weighted median {m.biomePatchAreaMedianHa:F0} ha");
+            if (m.mapVersion >= 4)
+                s.AppendLine($"  biome patches of 1 ha+: median {m.biomePatchMedian1HaHa:F1} ha; world record {m.recordBytes} bytes, after the map (biome plane beside BuildV3) {m.recordMs:F0} ms, hash {m.recordHash:X16}");
             s.AppendLine($"  town sites (land under {TOWN_SLOPE:F0} deg, {TOWN_HA:F0} ha+): {m.towns}  [{m.townRegions}]");
             s.AppendLine($"     sweep of the slope threshold: {m.townSweep}");
             s.AppendLine($"  landmarks: {m.landmarks}; land with one in all 4 directions within 3 km {Pct(m.landmarkAll4At3)} (within 1.5 km {Pct(m.landmarkAll4At15)})");
@@ -481,7 +610,7 @@ namespace TerrainGen.Tests
 
         private static string Summary(List<Metrics> all)
         {
-            var s = new StringBuilder("\n=== baselines (v3)\n");
+            var s = new StringBuilder($"\n=== baselines (v{(all.Count > 0 ? all[0].mapVersion : 3)})\n");
             s.AppendLine("  seed    land km2  median  <15deg  >45deg  open   mount.  gentle  easy   biome m  region m  towns  landmark3km  mouths/km2  river km");
             foreach (var m in all)
                 s.AppendLine($"  {m.seed,-6}  {m.landKm2,8:F2}  {m.medianSlope,5:F1}d  {Pct(m.under15),6}  {Pct(m.over45),6}  {Pct(m.open),5}  {Pct(m.mountainous),6}  " +
@@ -519,7 +648,9 @@ namespace TerrainGen.Tests
 
         private const int PNG = 512;   // 16 m per pixel
 
-        private static void WritePngs(string dir, uint seed, int n, float[] h, bool[] isLand, float[] slope, float[] relief,
+        private static readonly Color[] BiomeCol = { new Color(0.25f, 0.55f, 0.25f), new Color(0.92f, 0.80f, 0.50f), new Color(0.92f, 0.94f, 0.98f), new Color(0.10f, 0.45f, 0.30f) };
+
+        private static void WritePngs(string dir, string prefix, int n, float[] h, bool[] isLand, float[] slope, float[] relief,
                                       byte[] biome, byte[] region, byte[] water, bool[] easy, List<List<int>> towns)
         {
             var townMask = new bool[n * n];
@@ -534,14 +665,14 @@ namespace TerrainGen.Tests
             }
             var classCol = new[] { new Color(0.55f, 0.78f, 0.40f), new Color(0.90f, 0.62f, 0.30f), new Color(0.62f, 0.55f, 0.70f) };
             var bandCol = new[] { new Color(0.45f, 0.75f, 0.35f), new Color(0.95f, 0.85f, 0.35f), new Color(0.92f, 0.50f, 0.25f), new Color(0.70f, 0.15f, 0.20f) };
-            var biomeCol = new[] { new Color(0.25f, 0.55f, 0.25f), new Color(0.92f, 0.80f, 0.50f), new Color(0.92f, 0.94f, 0.98f), new Color(0.10f, 0.45f, 0.30f) };
-            Write(dir, $"seed{seed}_landform_class.png", n, h, isLand, water, i => region[i] == 255 ? Color.gray : classCol[LandformClass(region[i])]);
-            Write(dir, $"seed{seed}_slope_bands.png", n, h, isLand, water, i => bandCol[Band(slope[i])]);
-            Write(dir, $"seed{seed}_relief.png", n, h, isLand, water,
+            var biomeCol = BiomeCol;
+            Write(dir, $"{prefix}_landform_class.png", n, h, isLand, water, i => region[i] == 255 ? Color.gray : classCol[LandformClass(region[i])]);
+            Write(dir, $"{prefix}_slope_bands.png", n, h, isLand, water, i => bandCol[Band(slope[i])]);
+            Write(dir, $"{prefix}_relief.png", n, h, isLand, water,
                   i => relief[i] < OPEN_M * 10f ? new Color(0.45f, 0.80f, 0.40f) : relief[i] > MOUNTAIN_M * 10f ? new Color(0.60f, 0.45f, 0.45f) : new Color(0.85f, 0.80f, 0.55f));
-            Write(dir, $"seed{seed}_easy_ground.png", n, h, isLand, water,
+            Write(dir, $"{prefix}_easy_ground.png", n, h, isLand, water,
                   i => TownEdge(i) ? new Color(0.95f, 0.20f, 0.85f) : easy[i] ? new Color(0.30f, 0.85f, 0.30f) : new Color(0.62f, 0.62f, 0.62f));
-            Write(dir, $"seed{seed}_biome.png", n, h, isLand, water, i => biomeCol[biome[i]]);
+            Write(dir, $"{prefix}_biome.png", n, h, isLand, water, i => biomeCol[biome[i]]);
         }
 
         /// Top-down, north (+z) up, 2x2 cells per pixel, tinted and hillshaded;
@@ -553,21 +684,36 @@ namespace TerrainGen.Tests
             var px = new Color32[PNG * PNG];
             for (int pz = 0; pz < PNG; pz++)
             for (int pxX = 0; pxX < PNG; pxX++)
-            {
-                int x = pxX * f, z = pz * f, i = z * n + x;
-                Color c;
-                if (!isLand[i]) c = new Color(0.10f, 0.18f, 0.35f);
-                else if (water[i] != Hydrology.DRY) c = new Color(0.35f, 0.60f, 0.90f);
-                else
-                {
-                    int x1 = math.min(x + 1, n - 1), z1 = math.min(z + 1, n - 1);
-                    float gx = (h[z * n + x1] - h[i]) / 80f, gz = (h[z1 * n + x] - h[i]) / 80f;
-                    var nrm = math.normalize(new float3(-gx, 1f, -gz));
-                    float shade = math.clamp(0.35f + 0.75f * math.dot(nrm, math.normalize(new float3(-0.5f, 0.75f, 0.45f))), 0.3f, 1.15f);
-                    c = tint(i) * shade;
-                }
-                px[pz * PNG + pxX] = c;
-            }
+                px[pz * PNG + pxX] = Pixel(n, h, isLand, water, tint, pxX * f, pz * f);
+            tex.SetPixels32(px); tex.Apply();
+            File.WriteAllBytes(Path.Combine(dir, name), tex.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(tex);
+        }
+
+        private static Color Pixel(int n, float[] h, bool[] isLand, byte[] water, Func<int, Color> tint, int x, int z)
+        {
+            int i = z * n + x;
+            if (!isLand[i]) return new Color(0.10f, 0.18f, 0.35f);
+            if (water[i] != Hydrology.DRY) return new Color(0.35f, 0.60f, 0.90f);
+            int x1 = math.min(x + 1, n - 1), z1 = math.min(z + 1, n - 1);
+            float gx = (h[z * n + x1] - h[i]) / 80f, gz = (h[z1 * n + x] - h[i]) / 80f;
+            var nrm = math.normalize(new float3(-gx, 1f, -gz));
+            float shade = math.clamp(0.35f + 0.75f * math.dot(nrm, math.normalize(new float3(-0.5f, 0.75f, 0.45f))), 0.3f, 1.15f);
+            return tint(i) * shade;
+        }
+
+        /// Several top-down panels of the same map side by side, 16 px white gap.
+        private static void WriteStrip(string dir, string name, int n, float[] h, bool[] isLand, byte[] water, Func<int, Color>[] tints)
+        {
+            const int GAP = 16;
+            int f = n / PNG, w = tints.Length * PNG + (tints.Length - 1) * GAP;
+            var tex = new Texture2D(w, PNG, TextureFormat.RGB24, false);
+            var px = new Color32[w * PNG];
+            for (int i = 0; i < px.Length; i++) px[i] = new Color32(255, 255, 255, 255);
+            for (int t = 0; t < tints.Length; t++)
+            for (int pz = 0; pz < PNG; pz++)
+            for (int pxX = 0; pxX < PNG; pxX++)
+                px[pz * w + t * (PNG + GAP) + pxX] = Pixel(n, h, isLand, water, tints[t], pxX * f, pz * f);
             tex.SetPixels32(px); tex.Apply();
             File.WriteAllBytes(Path.Combine(dir, name), tex.EncodeToPNG());
             UnityEngine.Object.DestroyImmediate(tex);

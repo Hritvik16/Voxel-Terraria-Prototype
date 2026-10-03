@@ -201,10 +201,10 @@ namespace VoxelEngine.Rendering
                 FarOnly = !Tg2World;
                 // A world's map carries its spec (with the chunk source's brick
                 // geology), so the dev map's slice reads what the chunks hold.
-                Tg2Spec = sharedTg2Map != null ? sharedTg2Map.Spec : TerrainGen.TerrainSpec.SizeClass2(meta.seed);
+                Tg2Spec = sharedTg2Map != null ? sharedTg2Map.Spec : TerrainGen.TerrainSpec.SizeClass2(meta.seed, VoxelEngine.WorldGen.TerrainGenChunkSource.MapVersionArg());
                 _ownsTg2Map = sharedTg2Map == null;
                 Tg2Map = sharedTg2Map ?? TerrainGen.WorldMap.Build(Tg2Spec);
-                _tgO = TerrainGen.Offsets.For(meta.seed);
+                _tgO = TerrainGen.Offsets.For(Tg2Spec);
                 _tgH = new NativeArray<float>(Tg2Map.Height, Allocator.Persistent);
                 _tgR = new NativeArray<float>(Tg2Map.Rough, Allocator.Persistent);
                 _tgW = new NativeArray<float>(Tg2Map.Water, Allocator.Persistent);
@@ -218,7 +218,7 @@ namespace VoxelEngine.Rendering
                 Tg2SeaShift = Tg2World ? 0 : Tg2Spec.seaLevelY - WorldGenConstants.SEA_LEVEL_VOXEL_Y;
                 _genToEngine = new NativeArray<byte>(256, Allocator.Persistent);
                 for (int i = 0; i < 256; i++) _genToEngine[i] = GenToEngine((byte)i);
-                Debug.Log($"[FarField] tg2 {(Tg2World ? "WORLD (aligned)" : "preview")}: world map built in {swm.ElapsedMilliseconds} ms, " +
+                Debug.Log($"[FarField] tg2 {(Tg2World ? "WORLD (aligned)" : "preview")}: world map v{Tg2Spec.mapVersion} (biome x{Tg2Spec.BiomeScale}{(Tg2Map.Record != null ? $", record {Tg2Map.Record.Bytes} B" : "")}) built in {swm.ElapsedMilliseconds} ms, " +
                           $"offset {Tg2OffsetVoxels}, sea shift {Tg2SeaShift}");
             }
             _surfaceByBiome = new NativeArray<byte>(256, Allocator.Persistent);

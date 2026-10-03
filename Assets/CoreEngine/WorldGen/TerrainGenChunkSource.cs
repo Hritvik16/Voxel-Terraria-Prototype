@@ -45,7 +45,22 @@ namespace VoxelEngine.WorldGen
         private NativeArray<float> _h, _r, _w;
         private NativeArray<byte> _toEngine;
 
-        public TerrainGenChunkSource(uint seed)
+        public TerrainGenChunkSource(uint seed) : this(seed, MapVersionArg()) { }
+
+        /// -mapversion N (surface rebuild B1): which TerrainGen map recipe a
+        /// tg2 world uses -- 4 = v3 + the world record + larger biomes. Absent
+        /// or unparsable = 0, the default (v3). Last match wins, like
+        /// PlaygroundCapture's ArgValue.
+        public static int MapVersionArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            int v = 0;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-mapversion" && int.TryParse(a[i + 1], out int p)) v = p;
+            return v;
+        }
+
+        public TerrainGenChunkSource(uint seed, int mapVersion)
         {
             // R1 BRICK GEOLOGY (V0, design doc §11/§15): below 20 m under the
             // column top, one strata decision per 8^3 brick instead of per
@@ -53,10 +68,10 @@ namespace VoxelEngine.WorldGen
             // underworld 993 -> 95. Only dug-out or cave walls deeper than 20 m
             // show it, as 0.8 m steps in the bands. It is what fits the band
             // in the owner's 3 GB.
-            var spec = TerrainGen.TerrainSpec.SizeClass2(seed);
+            var spec = TerrainGen.TerrainSpec.SizeClass2(seed, mapVersion);
             spec.brickGeologyDepth = BRICK_GEOLOGY_DEPTH;
             Spec = spec;
-            O = TerrainGen.Offsets.For(seed);
+            O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
             Map = TerrainGen.WorldMap.Build(Spec);
             _h = new NativeArray<float>(Map.Height, Allocator.Persistent);
             _r = new NativeArray<float>(Map.Rough, Allocator.Persistent);

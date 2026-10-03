@@ -197,10 +197,14 @@ namespace TerrainGen
         }
 
         /// Climate -> biome. Nearest climate centre in (temperature, moisture).
+        /// Map v4 multiplies both wavelengths by o.biomeScale (B1, larger
+        /// biomes); at 1 the products are exactly 15000f and 12000f, so v3 is
+        /// byte-identical.
         public static byte Biome(in Offsets o, float2 p)
         {
-            float t = Noise.Fbm(p / 15000f + o.tempA, 3) * 2.4f;
-            float m = Noise.Fbm(p / 12000f + o.moistA, 3) * 2.4f;
+            float s = o.biomeScale > 0f ? o.biomeScale : 1f;
+            float t = Noise.Fbm(p / (15000f * s) + o.tempA, 3) * 2.4f;
+            float m = Noise.Fbm(p / (12000f * s) + o.moistA, 3) * 2.4f;
             // centres: forest (0, 0), desert (0.8, -0.8), snow (-0.9, 0.1), jungle (0.8, 0.8)
             float df = t * t + m * m;
             float dd = (t - 0.8f) * (t - 0.8f) + (m + 0.8f) * (m + 0.8f);
