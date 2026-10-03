@@ -1,60 +1,57 @@
 # Overnight handoff
 
-**06-taa-core: DONE. TAA is in the raymarcher, OFF by default. With the switch OFF the output is unchanged. With it ON, stills shimmer much less and look softer. It has NOT been tested in motion, after edits, on fluid, or for cost: that is task 07.**
+**07-taa-risk-checks: DONE. Fluid, edit, fast turns and far seams pass. Light lag found: the sun history reset is now 0.25 deg/frame instead of ~1 deg; a smaller lag remains at 0.2 deg/frame. Cost is 0.8-2 ms at 480 px; the noise is too large to say whether it is inside the ~1.5 ms budget. TAA stays OFF by default.**
 
-## What changed (commit 718dd03)
-- `Raymarch.compute`:
-  - A TAA uniform block, and a jitter on the primary ray (only when `_TaaEnabled`).
-  - At the end of CSMain, each pixel writes its reprojection data: the previous-frame pixel of the exact hit point
-    (far band and sky included), that point's distance from the previous camera, and a voxel+material key.
-  - Two new kernels: `TaaResolve` and `TaaSharpen`.
-- `RaymarchFeature.cs`:
-  - `Taa` switch (`-taa 1`) and `-taasharpen <percent>` (default 25).
-  - Ping-pong buffers, the 8-frame Halton jitter, the previous unjittered view-projection, a scratch target, and the two
-    extra dispatches. With TAA off, dummy buffers are bound.
-  - History resets on: a resize, a non-Beauty view, a teleport over 20 m, the sun moving more than ~1 deg in a frame, or a
-    look / shadow-rung / tonemap change.
-- `TerrainClipmap.cs`: an additive `UploadedChunks` list (nearest 16 chunks, recorded only while TAA is on). The resolve
-  gives no history to pixels in those chunks.
-- `Playground.cs`: F4 toggles TAA.
-- The FarPreview and NearShimmer reports now state the TAA setting.
-- `KNOWN_ISSUES.md` has a new TAA entry, and the `CLAUDE.md` index has a line for it.
+## What changed (commit d6e97f1)
+- New `Assets/Game/PlaygroundCapture.TaaRisk.cs`: `-taarisk` captures consecutive frames, with every camera step done per frame, so frame k of the OFF run and frame k of the ON run share a pose.
+  - In tg2: spin, 60 m/s flight, and sun steps.
+  - In the default world: edit and fluid at the arena.
+  - Wired into `Playground.cs`'s camera-ownership and HUD lists. (The first run was useless until then: the player controller kept rewriting the camera.)
+- `run-tg2world.sh MODE=taarisk` (set `TAAWORLD=` empty for the default world), plus `tools/taarisk-report.py OFF ON OUT` for the numbers and OFF-over-ON sheets.
+- `RaymarchFeature.cs`: one TAA-local fix. `TaaSunResetDot` = cos 0.25 deg, which replaces 0.99985 (~1 deg). TAA OFF is untouched.
+- Docs: `KNOWN_ISSUES.md` (the TAA entry has the full results), the index line in `CLAUDE.md`, and queue task `09-tg2-fluid-not-moving-check.md`.
 
-## Evidence
-- EditMode: PASS 626, FAIL 0, SKIP 4 (`Logs/overnight/06_editmode.out`). The build had 0 error CS and 0 Shader error.
-- **Switch OFF, md5 check:** 55 of 56 `MODE=poses` shots are byte-identical to the previous commit (`FarBand/2026-10-02_150159_world` vs
-  `_143337_world`; hashes in `Logs/overnight/06_baseline2_md5.txt` and `06_off_md5.txt`).
-  - The 56th shot is `minimap_check_underground`. Its differences sit only in the minimap HUD's depth slice, which was still
-    streaming in when the shot was taken. I opened the crops. It is not the raymarcher.
-  - My first baseline (`_134244_world`) is INVALID: I edited Assets while that build was compiling. I rebuilt it clean from HEAD.
-- **Switch ON, poses** (`FarBand/2026-10-02_152951_world/`). Every shot is taken after at least 90 still frames. I opened
-  eye_level_1..3 noon ON vs OFF:
-  - Sub-pixel speckle and moire on distant slopes, cliffs and snow turn into smooth texture.
-  - Near blocks keep their edges, but are visibly softer.
-  - Edge energy falls 1.40 -> 1.08, 5.08 -> 2.58 and 4.44 -> 2.51 for eye_level_1, 2 and 3.
-  - I saw no ghosting and no holes. With a still camera, none was expected.
-- **Shimmer, same build** (`Logs/nearshimmer_20261002_154753.txt` ON vs `_155606.txt` OFF). The OFF run equals the task 05 baseline exactly.
-  Mean of poses, as mean |dL| / % of pixels over 24:
+## Evidence (ON vs OFF, same binary per pair; EditMode PASS 626 FAIL 0 SKIP 4, `Logs/overnight/07_editmode.out`)
+1. **Fluid: PASS.** Arena chaos burst (water, sand and lava), three runs of 8 frames: no trails, no doubled edges. Live-fluid chunks take no history, so TAA is effectively off there.
+   - In tg2, the fluid I placed never moved at all (see task 09).
+2. **Edit: PASS.** A 2 m dig is clean in the very first frame that shows it. Ghost index (1 = old image still showing, 0 = clean hole): ON 0.07 at f0, against ON's own floor of 0.05 and OFF's 0.02.
+3. **Turns and flight: PASS.** Softer, but no trails. Edge energy is 0.58-0.61x OFF during the spins and 0.48-0.50x at rest.
+   - The flight ON-vs-OFF numbers are confounded by streaming: near chunks landed on different frames in the two runs, even though the poses were identical.
+4. **Light: FIXED, with a residual.** With the old ~1 deg reset, sun steps of 0.5 and 0.9 deg/frame made ON +2.6..+4 luma brighter than OFF, and edge energy fell to 0.32-0.38x (`Logs/taarisk_tg2_20261002_165730.txt`).
+   - The held time scrubber moves ~0.73 deg/frame at 60 fps, so it sat in that band.
+   - After the fix, 0.5 and 0.9 deg/frame reset the history: bias -0.04, edges 1.04x (`Logs/taarisk_tg2_20261002_171024.txt`).
+   - **Residual:** at 0.2 deg/frame ON is still +2.8..+3.1 luma brighter, with edges at 0.40-0.44x. The shipped 120 s day is ~0.1 deg/frame.
+5. **Far seams: PASS.** `-farseams` beauty shots (`FarBand/2026-10-02_171727_seams` OFF, `_171914_seams` ON) show no new seams. dL is 1.3-3.0, which is the jitter floor.
+6. **Shimmer**, mean of poses, mean |dL| / % of pixels over 24 (`Logs/nearshimmer_20261002_172129.txt` OFF, `_173032.txt` ON):
 
-  | band | OFF | ON |
-  |---|---|---|
-  | near | 4.14 / 5.84 | 2.67 / 1.57 |
-  | far | 6.38 / 8.36 | 3.55 / 2.50 |
-  | all | 5.89 / 7.59 | 3.04 / 1.76 |
+   | band | OFF | ON |
+   |---|---|---|
+   | all | 5.89 / 7.59 (= task 05) | 3.01 / 1.66 |
+   | near | 4.14 / 5.84 | 2.66 / 1.52 |
 
-  - Worst pose: eye_level_2 all goes from 9.26 / 13.25 (OFF) to 4.12 / 2.01 (ON).
-  - CAVEAT: with TAA ON the still-camera floor is no longer 0. It is 0.73-3.18 mean |dL| per pose (eye_level_2: 2.74 / 0.87%).
-    That is the residual of the 8-frame jitter cycle at weight 0.1. So a still frame is not exactly repeatable, and part of
-    every ON nudge number is this floor.
-- No frame-time claim, as the task said.
+7. **Cost: NOT RESOLVED** against the ~1.5 ms budget. `MODE=walk MINUTES=3`, 12 arms (ABBAAB, then BAABBA with 150 s cooling), Performance preset at 480 px internal.
+   - OFF 13.43 ms, ON 15.41 ms (mean of the arm means).
+   - Paired ON-OFF differences: +4.21, +7.00, -0.23, +2.94, -2.14, +0.05 ms. Mean +1.97 ms, SE 1.37.
+   - Medians: +1.2 ms (arm medians), +0.8 ms (per-window medians).
+   - The walk circle's own 30 s windows range from 8 to 26 ms, which swamps the difference.
+   - Not measured at the 960 gate, where TAA covers 4x the pixels.
+   - Logs: `Logs/overnight/07_cost_arm{1..12}_taa*.out`.
+   - Peak footprint 3008-3151 MB in both arms (the known over-3 GB issue).
 
-## Not done / known limits
-- Not tested: moving camera, edits, fluid, light changes, far seams, cost. These are all task 07's checks.
-- Dirty-region rejection works per CHUNK (12.8 m), not per brick, and covers at most the 16 nearest chunks a frame.
-  A chunk with live fluid therefore never builds up history, so TAA is effectively off there.
-- The still floor could be lowered with a smaller still weight or a 16-frame cycle, at the cost of more ghosting. That is a
-  tuning question for task 07 or the owner.
-- `Assets/Scenes/Playground.unity` is still modified, because the BUILD=1 step regenerated it. Not committed, as before.
+## Stills for the owner to open (top row OFF, bottom row ON; all in `Screenshots/TaaRisk/`)
+- `arena/edit_hole_crop.png`: pre, f0, f1, settled. The hole is clean at f0.
+- `arena/fluid_a_crop.png`, `arena/fluid_c_crop.png`: falling, then settling fluid.
+- `spin_crop.png`: at rest, slow spin, stop, fast spin. Shows the softness.
+- `light02_crop.png`: the remaining 0.2 deg/frame lag.
+- `farseams_h150_crop.png`: 150 m in flight. ON has no speckle and no seams.
+- `fly_full.png`: confounded by streaming, see check 3.
+- Full sequences: `FarBand/2026-10-02_164444/_164707_taarisk_*` (arena) and `_170533/_171024_taarisk_*` (tg2).
+
+## Not done / open
+- The 0.2 deg/frame light lag needs a light-aware history rejection. That is a tuning/design choice for the owner.
+- Cost at the 960 gate was not measured, and the 480 px number is not tight.
+- The tg2 fluid question is queued as task 09.
+- `Assets/Scenes/Playground.unity` was regenerated by the builds again. It is not committed.
 
 ## Next step
-- Task 07 (TAA risk checks) can start. The flag is `-taa 1`; F4 works in the Playground. Nothing is blocked.
+- Owner: compare the stills above before switching TAA on. Nothing blocks 08 (checkerboard).
