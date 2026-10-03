@@ -77,8 +77,10 @@ frozen-API or memory-layout changes, anything the owner has not approved.
   Queue it alongside B9.
 - **Owner, 2026-10-03: no day/night windows; a pause toggle instead (task 14).**
   When the owner says "pause" / "resume" in chat, run `tools/heavy.sh pause` /
-  `resume` (`--kill` if they need the RAM back). The task agent keeps running;
-  only Unity waits. Heavy work may run at any time otherwise. IDLE_MIN=0.
+  `resume`. Owner correction 2026-10-03 (task 14b): pause = DRAIN -- whatever is
+  running finishes naturally, nothing new heavy starts (builds, tests, players)
+  until resume. Never freeze or kill. Tell the owner when `status` says idle.
+  The task agent keeps running. Heavy work may run at any time otherwise. IDLE_MIN=0.
 - **Surface rebuild order (approved 2026-10-02/03), one B step per task:**
   B1 (15) -> B2 (renders 40/50/60% gentle; owner picks) -> B3 (owner: "still
   natural?") -> B4 -> B5 -> B6 (record only, no streaming check needed) -> B7 (ask

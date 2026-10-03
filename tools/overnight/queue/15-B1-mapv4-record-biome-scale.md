@@ -1,6 +1,6 @@
 # 15-B1-mapv4-record-biome-scale
 
-Requires: 14-heavy-pause-toggle
+Requires: 14-heavy-pause-toggle 14b-pause-drain-only
 
 Surface rebuild step B1. Approval:
 - The plan was approved by the owner 2026-10-02 (rebuild plan Q11 (a)).
@@ -60,7 +60,7 @@ plus new tests:
     more than 5%.** If it is worse, say by how much and STOP_FOR_OWNER.
   - Then one `MODE=poses` run on v4. Read the screenshots for holes, floating geometry
     or a 90%-sea frame, and caption the ones you cite.
-  - Check `pmset -g batt` (task 12) and the PAUSED-DURING-RUN warning (task 14). Rerun
+  - Check `pmset -g batt` (task 12) and the owner-paused NOTE (tasks 14/14b). Rerun
     any arm that was on battery or paused.
 - Do not stop for the owner over the scale pick. Ship ×3, and put "Owner pick: biome
   scale ×2/×3/×4" with the image paths at the top of HANDOFF (no STOP_FOR_OWNER).
