@@ -91,6 +91,7 @@
 #pragma kernel FarMipBuild
 #pragma kernel TaaResolve
 #pragma kernel TaaSharpen
+#pragma kernel CSMainChecker
 
 #include "../Coord/CoordMath.hlsl"
 #include "../Memory/StructHeaders.hlsl"
@@ -230,6 +231,16 @@ float4 _TaaPrevCamVox;          // previous frame's camera, voxels
 float4 _TaaParams;              // x = current weight when still, y = when moving fast, z = motion (px) for y, w = sharpen
 float4 _TaaDirtyChunks[16];     // chunks the GPU mirror rewrote this frame (edits, streaming): no history there
 int _TaaDirtyCount;
+// CHECKERBOARD (task 08, -checker; only with _TaaEnabled). The kernel
+// CSMainChecker (CSMain's body with checker = true) is dispatched at half width
+// and thread (x, y) traces pixel (2x + ((y + parity) & 1), y): the pixels with
+// ((px + py) & 1) == _TaaCheckerParity, which flips every frame. TaaResolve
+// fills the other half from history (see TaaResolveMissing). CSMain itself is
+// the same body with checker = false, folded away at compile time, so the
+// shipped kernel's code is unchanged (a runtime uniform here moved the TAA-off
+// image by a few silhouette pixels: Metal recompiled the float maths).
+int _TaaChecker;
+uint _TaaCheckerParity;
 // x,y = previous-frame pixel position of this pixel's surface (pixel centres at
 // k + 0.5, this frame's jitter already removed); z = that point's distance from
 // the PREVIOUS camera in voxels (-2 = sky, -1 = no history allowed);
@@ -2146,9 +2157,11 @@ float HazeAmount(float distVoxels, float y0, float y1)
     return saturate(d * d * _LookHazeDensity);
 }
 
-[numthreads(8, 8, 1)]
-void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
+void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 {
+    // The pixel this thread traces. Without the checkerboard it IS the thread id.
+    uint3 id = tid;
+    if (checker) id.x = tid.x * 2u + ((tid.y + _TaaCheckerParity) & 1u);
     uint3 _WindowDimsBricks = _WindowDimsBricksPacked.xyz;
     int _DebugMode = _DebugModePacked.x;
 
@@ -2713,8 +2726,14 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
             // slowest ray (measured 2026-09-26: 74% fewer rays, only -9 ms). A
             // whole tile now traces on its frame and skips the branch on the
             // other three, apart from newly revealed pixels.
-            uint2 tile = id.xy >> 3u;
-            bool myTurn = (((tile.x & 1u) | ((tile.y & 1u) << 1u)) == (_ShadowFrame & 3u));
+            // Checkerboard: the tile is the THREAD group's (it covers 16x8
+            // pixels), and the turn advances every second frame -- a pixel is
+            // traced on alternate frames, so with the plain frame counter half
+            // the tiles would never get their turn on the frames their pixels
+            // are traced.
+            uint2 tile = tid.xy >> 3u;
+            uint sFrame = checker ? (_ShadowFrame >> 1u) : _ShadowFrame;
+            bool myTurn = (((tile.x & 1u) | ((tile.y & 1u) << 1u)) == (sFrame & 3u));
             if (!myTurn)
             {
                 float3 pv = float3(voxel) + 0.5;
@@ -2728,6 +2747,20 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
                         float2 hv = ShadowHistR[(uint)pp.y * width + (uint)pp.x];
                         float d = length(pv - _PrevCamVox.xyz);
                         if (hv.y >= 0.0 && abs(hv.y - d) < max(2.0, d * 0.02)) { histHit = true; histVis = hv.x; }
+                    }
+                    // Checkerboard: last frame wrote only ITS half of the pixels
+                    // (and, the buffers ping-ponging every frame, the other half of
+                    // this buffer is never written). Try the horizontal neighbour.
+                    if (checker && !histHit)
+                    {
+                        float2 ppf = (ndc * 0.5 + 0.5) * float2(width, height);
+                        pp.x += (ppf.x - pp.x >= 0.5) ? 1 : -1;
+                        if (pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
+                        {
+                            float2 hv = ShadowHistR[(uint)pp.y * width + (uint)pp.x];
+                            float d = length(pv - _PrevCamVox.xyz);
+                            if (hv.y >= 0.0 && abs(hv.y - d) < max(2.0, d * 0.02)) { histHit = true; histVis = hv.x; }
+                        }
                     }
                 }
             }
@@ -3219,6 +3252,18 @@ void CSMain(uint3 id : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
     if (inBounds) ResultTexture[id.xy] = color;
 }
 
+[numthreads(8, 8, 1)]
+void CSMain(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
+{
+    CSMainBody(tid, gtid, false);
+}
+
+[numthreads(8, 8, 1)]
+void CSMainChecker(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
+{
+    CSMainBody(tid, gtid, true);
+}
+
 // ===========================================================================
 // TAA RESOLVE AND SHARPEN (task 06). Dispatched only with _TaaEnabled, after
 // CSMain, at the gate resolution: (w+7)/8 x (h+7)/8 groups of 8x8.
@@ -3243,6 +3288,104 @@ float3 TaaClipAABB(float3 h, float3 bmin, float3 bmax)
     return (m > 1.0) ? c + v / m : h;
 }
 
+// ---- CHECKERBOARD MISSING PIXEL (task 08) ----
+// No sample of its own this frame. Its four cross neighbours were traced. Each
+// neighbour's reprojection is a candidate motion for this pixel; the candidate
+// whose history taps match that neighbour's surface (the same distance test as
+// below) wins, and its history, clipped to the neighbours' YCoCg box, is the
+// output. No match (disocclusion, a dirty chunk, a reset, an edit next door):
+// the edge-directed average of the neighbours, which never feeds the history
+// (meta distance -1), so a filled pixel cannot persist.
+static const int2 kTaaCross[4] = { int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) };
+
+void TaaResolveMissing(int2 p, uint width, uint height)
+{
+    int2 hiP = int2(width, height) - 1;
+    uint pi = (uint)p.y * width + (uint)p.x;
+    float3 nc[4];
+    float4 nr[4];
+    float nd[4];
+    bool nv[4];
+    float3 mn = 1e9, mx = -1e9, csum = 0.0;
+    float cnt = 0.0;
+    bool anyDirty = false;
+    for (int k = 0; k < 4; k++)
+    {
+        int2 q = p + kTaaCross[k];
+        nv[k] = (q.x >= 0 && q.y >= 0 && q.x <= hiP.x && q.y <= hiP.y);
+        nc[k] = 0.0; nr[k] = float4(0, 0, -1, 0); nd[k] = -1.0;
+        if (!nv[k]) continue;
+        uint qi = (uint)q.y * width + (uint)q.x;
+        nc[k] = TaaCurColor[q].rgb;
+        nr[k] = TaaCur[qi];
+        nd[k] = TaaMetaW[qi].x;
+        float3 c = TaaToYCoCg(nc[k]);
+        mn = min(mn, c); mx = max(mx, c); csum += nc[k]; cnt += 1.0;
+        if (nr[k].z == -1.0) anyDirty = true;
+    }
+
+    // Spatial fallback: average the pair (horizontal or vertical) that differs
+    // less, so an edge through this pixel is continued rather than blurred.
+    float3 fill = csum / max(cnt, 1.0);
+    if (nv[0] && nv[1] && nv[2] && nv[3])
+    {
+        float3 lw = float3(0.299, 0.587, 0.114);
+        float dh = abs(dot(nc[0] - nc[1], lw)), dv = abs(dot(nc[2] - nc[3], lw));
+        fill = (dh < dv) ? 0.5 * (nc[0] + nc[1]) : (dv < dh) ? 0.5 * (nc[2] + nc[3]) : fill;
+    }
+    float3 outc = fill;
+    float2 meta = float2(-1.0, asfloat(0xFFFFFFFFu));
+
+    if (_TaaHistValid != 0 && !anyDirty)
+    {
+        // The neighbours' depth slope (distance from the previous camera), per
+        // pixel: half the difference across this pixel on each axis.
+        float gx = (nv[0] && nv[1] && nr[0].z >= 0.0 && nr[1].z >= 0.0) ? 0.5 * abs(nr[0].z - nr[1].z) : 0.0;
+        float gy = (nv[2] && nv[3] && nr[2].z >= 0.0 && nr[3].z >= 0.0) ? 0.5 * abs(nr[2].z - nr[3].z) : 0.0;
+        float bestW = 0.0, bestD = 0.0;
+        int bestK = -1;
+        float3 bestH = 0.0;
+        uint bestKey = 0xFFFFFFFFu;
+        for (int k = 0; k < 4; k++)
+        {
+            if (!nv[k]) continue;
+            float z = nr[k].z;
+            float tol = (z >= 0.0) ? min(max(2.0, z * 0.02) + 1.5 * (gx + gy), max(2.0, z * 0.5)) : 0.0;
+            // This pixel's previous position if it moved like neighbour k.
+            float2 x = nr[k].xy - float2(kTaaCross[k]) - 0.5;
+            int2 b = int2(floor(x));
+            float2 f = x - float2(b);
+            float wsum = 0.0, dsum = 0.0, wtop = 0.0;
+            float3 hsum = 0.0;
+            uint ktop = 0xFFFFFFFFu;
+            for (int t = 0; t < 4; t++)
+            {
+                int2 o = int2(t & 1, t >> 1);
+                int2 q = b + o;
+                if (q.x < 0 || q.y < 0 || q.x > hiP.x || q.y > hiP.y) continue;
+                float w = (o.x ? f.x : 1.0 - f.x) * (o.y ? f.y : 1.0 - f.y);
+                uint qi = (uint)q.y * width + (uint)q.x;
+                float2 hm = TaaMetaR[qi];
+                bool ok = (z < 0.0) ? (hm.x == -2.0) : (hm.x >= 0.0 && abs(hm.x - z) <= tol);
+                if (!ok) continue;
+                wsum += w; dsum += w * hm.x; hsum += w * TaaColR[qi].rgb;
+                if (w > wtop) { wtop = w; ktop = asuint(hm.y); }
+            }
+            if (wsum > bestW) { bestW = wsum; bestK = k; bestH = hsum / wsum; bestD = dsum / wsum; bestKey = ktop; }
+        }
+        if (bestK >= 0 && bestW > 1e-3)
+        {
+            outc = TaaFromYCoCg(TaaClipAABB(TaaToYCoCg(bestH), mn, mx));
+            // Next frame's meta: the history's own distance, moved by the change
+            // the matching neighbour saw (previous camera -> this camera).
+            float z = nr[bestK].z;
+            meta = float2((z < 0.0) ? -2.0 : bestD + (nd[bestK] - z), asfloat(bestKey));
+        }
+    }
+    TaaColW[pi] = float4(outc, 1.0);
+    TaaMetaW[pi] = meta;
+}
+
 [numthreads(8, 8, 1)]
 void TaaResolve(uint3 id : SV_DispatchThreadID)
 {
@@ -3253,16 +3396,25 @@ void TaaResolve(uint3 id : SV_DispatchThreadID)
     int2 hiP = int2(width, height) - 1;
     uint pi = id.y * width + id.x;
 
+    // Checkerboard: a pixel CSMain did not trace this frame is filled; a traced
+    // one resolves below with its neighbourhood and slope taken from traced
+    // pixels only (itself + the 4 diagonals; +-2 along each axis).
+    bool checker = (_TaaChecker != 0);
+    if (checker && ((((uint)(p.x + p.y)) & 1u) != _TaaCheckerParity)) { TaaResolveMissing(p, width, height); return; }
+    int ss = checker ? 2 : 1;
+
     float3 cur = TaaCurColor[p].rgb;
     float3 m1 = 0.0, m2 = 0.0, mn = 1e9, mx = -1e9;
+    float nb = 0.0;
     for (int dy = -1; dy <= 1; dy++)
     for (int dx = -1; dx <= 1; dx++)
     {
+        if (checker && ((dx + dy) & 1) != 0) continue;
         float3 c = TaaToYCoCg(TaaCurColor[clamp(p + int2(dx, dy), 0, hiP)].rgb);
-        m1 += c; m2 += c * c; mn = min(mn, c); mx = max(mx, c);
+        m1 += c; m2 += c * c; mn = min(mn, c); mx = max(mx, c); nb += 1.0;
     }
-    float3 mu = m1 / 9.0;
-    float3 sigma = sqrt(max(0.0, m2 / 9.0 - mu * mu));
+    float3 mu = m1 / nb;
+    float3 sigma = sqrt(max(0.0, m2 / nb - mu * mu));
     float3 bmin = max(mn, mu - 1.25 * sigma);
     float3 bmax = min(mx, mu + 1.25 * sigma);
 
@@ -3278,12 +3430,15 @@ void TaaResolve(uint3 id : SV_DispatchThreadID)
         float tol = 0.0;
         if (rp.z >= 0.0)
         {
-            float zl = TaaCur[(uint)p.y * width + (uint)clamp(p.x - 1, 0, hiP.x)].z;
-            float zr = TaaCur[(uint)p.y * width + (uint)clamp(p.x + 1, 0, hiP.x)].z;
-            float zd = TaaCur[(uint)clamp(p.y - 1, 0, hiP.y) * width + (uint)p.x].z;
-            float zu = TaaCur[(uint)clamp(p.y + 1, 0, hiP.y) * width + (uint)p.x].z;
-            float gx = min(zl >= 0.0 ? abs(zl - rp.z) : 1e9, zr >= 0.0 ? abs(zr - rp.z) : 1e9);
-            float gy = min(zd >= 0.0 ? abs(zd - rp.z) : 1e9, zu >= 0.0 ? abs(zu - rp.z) : 1e9);
+            float zl = TaaCur[(uint)p.y * width + (uint)clamp(p.x - ss, 0, hiP.x)].z;
+            float zr = TaaCur[(uint)p.y * width + (uint)clamp(p.x + ss, 0, hiP.x)].z;
+            float zd = TaaCur[(uint)clamp(p.y - ss, 0, hiP.y) * width + (uint)p.x].z;
+            float zu = TaaCur[(uint)clamp(p.y + ss, 0, hiP.y) * width + (uint)p.x].z;
+            // (Checkerboard: a clamped +-2 tap at the border can land on an
+            // untraced pixel holding last frame's data; it only loosens the
+            // tolerance on the outermost column/row.)
+            float gx = min(zl >= 0.0 ? abs(zl - rp.z) : 1e9, zr >= 0.0 ? abs(zr - rp.z) : 1e9) / ss;
+            float gy = min(zd >= 0.0 ? abs(zd - rp.z) : 1e9, zu >= 0.0 ? abs(zu - rp.z) : 1e9) / ss;
             tol = min(max(2.0, rp.z * 0.02) + 1.5 * (min(gx, 1e6) + min(gy, 1e6)), max(2.0, rp.z * 0.5));
         }
         uint ck = asuint(rp.w);

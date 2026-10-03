@@ -245,7 +245,11 @@ public class RaymarchFeature : ScriptableRendererFeature
     /// only, main shader only; any other view, a resize, a light jump or a
     /// teleport drops the history. Costs W*H*56 bytes of buffers while on
     /// (29 MB at the 960x540 gate) plus one scratch colour target.
-    public static bool Taa = ReadIntArg("-taa", 0) != 0;
+    /// CHECKERBOARD (overnight task 08): with TAA on, trace only half the
+    /// primary rays each frame (alternating checker) and fill the other half
+    /// from TAA's history. OFF unless `-checker 1`, which also turns TAA on.
+    public static bool TaaChecker = ReadIntArg("-checker", 0) != 0;
+    public static bool Taa = ReadIntArg("-taa", 0) != 0 || TaaChecker;
     public static float TaaAlphaStill = 0.1f;     // weight of the new frame with the camera still
     public static float TaaAlphaMoving = 0.4f;    // ... at TaaMotionPx of reprojected motion and beyond
     public static float TaaMotionPx = 8f;
@@ -328,7 +332,7 @@ public class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer tsRead, tsWrite;
             public Matrix4x4 tsPrevVP;
             public Vector3 tsPrevCamVox;
-            public int taa, taaHistValid, taaDirtyCount;
+            public int taa, taaHistValid, taaDirtyCount, taaChecker, taaCheckerParity;
             public Vector2 taaJitter;
             public Matrix4x4 taaPrevVP;
             public Vector4 taaPrevCamVox, taaParams;
@@ -336,6 +340,7 @@ public class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer taaCur, taaMetaR, taaMetaW, taaColR, taaColW;
             public TextureHandle taaScratch;
             public int kTaaResolve, kTaaSharpen;
+            public int kPrimary;   // CSMain (0), or CSMainChecker with -checker
             public ComputeShader compute;
             public Camera cam;
             public Matrix4x4 invProjection;
@@ -543,6 +548,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                 TerrainClipmap.RecordUploadedChunks = taaOn;
                 passData.taa = taaOn ? 1 : 0;
                 passData.taaCur = _taaDummy4; passData.taaMetaW = _taaDummy2;
+                passData.kPrimary = 0;
                 if (taaOn)
                 {
                     if (_taaCur == null || _taaW != dispatchW || _taaH != dispatchH)
@@ -579,7 +585,16 @@ public class RaymarchFeature : ScriptableRendererFeature
                     passData.taaHistValid = reset ? 0 : 1;
                     passData.taaPrevVP = _taaPrevVP;
                     passData.taaPrevCamVox = _taaPrevCamVox;
-                    int hi = (int)(_taaFrame++ % TaaJitterCycle) + 1;
+                    // Checkerboard: each jitter is held for two frames, so both
+                    // halves of the checker see the whole 8-frame cycle (with one
+                    // jitter per frame a pixel traced on alternate frames would see
+                    // only the odd or only the even Halton indices -- for base 2,
+                    // all >= 0.5 or all < 0.5: a half-pixel bias between the halves).
+                    passData.taaChecker = TaaChecker ? 1 : 0;
+                    if (TaaChecker) passData.kPrimary = activeCompute.FindKernel("CSMainChecker");
+                    passData.taaCheckerParity = (int)(_taaFrame & 1u);
+                    int hi = (int)((TaaChecker ? (_taaFrame >> 1) : _taaFrame) % TaaJitterCycle) + 1;
+                    _taaFrame++;
                     LastTaaJitter = new Vector2(Halton(hi, 2) - 0.5f, Halton(hi, 3) - 0.5f);
                     passData.taaJitter = LastTaaJitter;
                     passData.taaParams = new Vector4(TaaAlphaStill, TaaAlphaMoving, TaaMotionPx, TaaSharpenAmount);
@@ -833,13 +848,13 @@ public class RaymarchFeature : ScriptableRendererFeature
                     cmd.SetComputeMatrixParam(data.compute, "_CameraInverseView", data.cam.cameraToWorldMatrix);
                     cmd.SetComputeVectorParam(data.compute, "_CameraPos", data.cam.transform.position);
 
-                    cmd.SetComputeBufferParam(data.compute, 0, "ClipmapBuffer", data.clipmapBuffer);
-                    cmd.SetComputeBufferParam(data.compute, 0, "BrickDataBuffer", data.brickDataBuffer);
+                    cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ClipmapBuffer", data.clipmapBuffer);
+                    cmd.SetComputeBufferParam(data.compute, data.kPrimary, "BrickDataBuffer", data.brickDataBuffer);
 
-                    cmd.SetComputeBufferParam(data.compute, 0, "AirMip1", data.airMip1);
-                    cmd.SetComputeBufferParam(data.compute, 0, "AirMip2", data.airMip2);
-                    cmd.SetComputeBufferParam(data.compute, 0, "AirMip3", data.airMip3);
-                    cmd.SetComputeBufferParam(data.compute, 0, "AirMip4", data.airMip4);
+                    cmd.SetComputeBufferParam(data.compute, data.kPrimary, "AirMip1", data.airMip1);
+                    cmd.SetComputeBufferParam(data.compute, data.kPrimary, "AirMip2", data.airMip2);
+                    cmd.SetComputeBufferParam(data.compute, data.kPrimary, "AirMip3", data.airMip3);
+                    cmd.SetComputeBufferParam(data.compute, data.kPrimary, "AirMip4", data.airMip4);
                     cmd.SetComputeIntParams(data.compute, "_AirMipDims0",
                         new int[] { data.airMipDims0.x, data.airMipDims0.y, data.airMipDims0.z, 0 });
                     cmd.SetComputeIntParams(data.compute, "_AirMipDims1",
@@ -851,7 +866,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                     cmd.SetComputeIntParam(data.compute, "_AirMipLevelCount", data.airMipLevelCount);
 
                     if (data.airMipPacked != null)
-                        cmd.SetComputeBufferParam(data.compute, 0, "AirMipPacked", data.airMipPacked);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "AirMipPacked", data.airMipPacked);
                     cmd.SetComputeVectorArrayParam(data.compute, "_MipInfo", data.mipInfo);
                     cmd.SetComputeIntParam(data.compute, "_UsePackedMips", data.usePackedMips);
                     cmd.SetComputeFloatParam(data.compute, "_MaxRayDistance", data.maxRayDistance);
@@ -870,10 +885,10 @@ public class RaymarchFeature : ScriptableRendererFeature
                     cmd.SetComputeIntParam(data.compute, "_ContentFloorVoxelY", data.contentFloorVoxelY);
                     cmd.SetComputeIntParam(data.compute, "_UniformFaceHue", data.uniformFaceHue);
 
-                    cmd.SetComputeBufferParam(data.compute, 0, "ClipmapBufferTier1", data.clipmapTier1);
-                    cmd.SetComputeBufferParam(data.compute, 0, "BrickDataBufferTier1", data.brickDataTier1);
-                    cmd.SetComputeBufferParam(data.compute, 0, "ClipmapBufferTier2", data.clipmapTier2);
-                    cmd.SetComputeBufferParam(data.compute, 0, "BrickDataBufferTier2", data.brickDataTier2);
+                    cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ClipmapBufferTier1", data.clipmapTier1);
+                    cmd.SetComputeBufferParam(data.compute, data.kPrimary, "BrickDataBufferTier1", data.brickDataTier1);
+                    cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ClipmapBufferTier2", data.clipmapTier2);
+                    cmd.SetComputeBufferParam(data.compute, data.kPrimary, "BrickDataBufferTier2", data.brickDataTier2);
                     cmd.SetComputeIntParams(data.compute, "_WindowDimsCoarseBricksTier1",
                         new int[] { data.windowDimsCoarseTier1.x, data.windowDimsCoarseTier1.y, data.windowDimsCoarseTier1.z, 0 });
                     cmd.SetComputeIntParams(data.compute, "_WindowDimsCoarseBricksTier2",
@@ -887,7 +902,7 @@ public class RaymarchFeature : ScriptableRendererFeature
 
                     if (!data.useStripped && !data.useMemoryProbe)
                     {
-                        cmd.SetComputeBufferParam(data.compute, 0, "DebugOut", data.debugBuffer);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "DebugOut", data.debugBuffer);
                         cmd.SetComputeIntParams(data.compute, "_DebugPixel",
                             new int[] { data.debugPixel.x, data.debugPixel.y });
                         cmd.SetComputeIntParams(data.compute, "_DebugModePacked",
@@ -913,7 +928,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                         // measure.
                         // ALWAYS bound: a dummy (with a light count of 0) when no
                         // driver provides one -- see _lightDummy.
-                        cmd.SetComputeBufferParam(data.compute, 0, "LightBuffer", data.lightBuffer ?? _lightDummy);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "LightBuffer", data.lightBuffer ?? _lightDummy);
                         cmd.SetComputeIntParam(data.compute, "_ActiveLightCount",
                             data.lightBuffer != null ? data.activeLightCount : 0);
                         cmd.SetComputeVectorParam(data.compute, "_SunDir", data.sunDir);
@@ -926,8 +941,8 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_ShadowFrame", (int)data.tsFrame);
                         cmd.SetComputeMatrixParam(data.compute, "_PrevViewProj", data.tsPrevVP);
                         cmd.SetComputeVectorParam(data.compute, "_PrevCamVox", data.tsPrevCamVox);
-                        cmd.SetComputeBufferParam(data.compute, 0, "ShadowHistR", data.tsRead);
-                        cmd.SetComputeBufferParam(data.compute, 0, "ShadowHistW", data.tsWrite);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShadowHistR", data.tsRead);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShadowHistW", data.tsWrite);
                         cmd.SetComputeIntParam(data.compute, "_MaxShadowSteps", data.maxShadowSteps);
                         cmd.SetComputeIntParam(data.compute, "_PointLightNdotL", data.pointLightNdotL);
                         cmd.SetComputeIntParam(data.compute, "_UseSkyProbeAmbient", data.useSkyProbeAmbient);
@@ -938,7 +953,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                         // RWStructuredBuffer is undefined even when unread) but
                         // only WRITTEN when the flag is set.
                         if (data.shadowStats != null)
-                            cmd.SetComputeBufferParam(data.compute, 0, "ShadowStats", data.shadowStats);
+                            cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShadowStats", data.shadowStats);
                         cmd.SetComputeIntParam(data.compute, "_CollectShadowStats", data.collectShadowStats);
                         cmd.SetComputeFloatParam(data.compute, "_ShadowMaxDistVoxels", data.shadowMaxDistVoxels);
                         cmd.SetComputeFloatParam(data.compute, "_Rung1DistVoxels", data.rung1DistVoxels);
@@ -962,7 +977,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_ShadowRoofSkip", data.roofSkip);
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsA", data.heightOffsetsA);
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsB", data.heightOffsetsB);
-                        cmd.SetComputeBufferParam(data.compute, 0, "HeightMip", data.heightMip);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "HeightMip", data.heightMip);
                         if (data.roofSkip != 0)
                         {
                             int gx = (data.windowDimsBricks.x + 7) / 8, gz = (data.windowDimsBricks.z + 7) / 8;
@@ -989,9 +1004,9 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeVectorArrayParam(data.compute, "_FarOrigin", data.farOrigins);
                         cmd.SetComputeVectorParam(data.compute, "_FarParams", data.farParams);
                         cmd.SetComputeFloatParam(data.compute, "_FarPixelAngle", data.farPixelAngle);
-                        cmd.SetComputeBufferParam(data.compute, 0, "FarTexels", data.farTexels);
-                        cmd.SetComputeBufferParam(data.compute, 0, "FarMips", data.farMips);
-                        cmd.SetComputeBufferParam(data.compute, 0, "FarResident", data.farResident);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarTexels", data.farTexels);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarMips", data.farMips);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarResident", data.farResident);
                         if (data.farEnabled != 0 && (data.farScatters.Length > 0 || data.farMipMask != 0))
                         {
                             cmd.BeginSample("VE.Raymarch.FarUpkeep");
@@ -1021,7 +1036,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                     }
 
                     if (!data.useMemoryProbe)
-                        cmd.SetComputeBufferParam(data.compute, 0, "BrickDataBuffer", data.brickDataBuffer);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "BrickDataBuffer", data.brickDataBuffer);
 
                     if (data.useMemoryProbe)
                         cmd.SetComputeIntParam(data.compute, "_ProbeIterations", data.probeIterations);
@@ -1029,8 +1044,9 @@ public class RaymarchFeature : ScriptableRendererFeature
                     if (!data.useStripped && !data.useMemoryProbe)
                     {
                         cmd.SetComputeIntParam(data.compute, "_TaaEnabled", data.taa);
-                        cmd.SetComputeBufferParam(data.compute, 0, "TaaCur", data.taaCur);
-                        cmd.SetComputeBufferParam(data.compute, 0, "TaaMetaW", data.taaMetaW);
+                        cmd.SetComputeIntParam(data.compute, "_TaaChecker", data.taa != 0 ? data.taaChecker : 0);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "TaaCur", data.taaCur);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "TaaMetaW", data.taaMetaW);
                     }
                     if (data.taa != 0)
                     {
@@ -1041,13 +1057,17 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeVectorParam(data.compute, "_TaaParams", data.taaParams);
                         cmd.SetComputeVectorArrayParam(data.compute, "_TaaDirtyChunks", data.taaDirty);
                         cmd.SetComputeIntParam(data.compute, "_TaaDirtyCount", data.taaDirtyCount);
+                        cmd.SetComputeIntParam(data.compute, "_TaaCheckerParity", data.taaCheckerParity);
                     }
                     // With TAA on, the primary ray writes the scratch target and
                     // TaaSharpen writes the real one.
-                    cmd.SetComputeTextureParam(data.compute, 0, "ResultTexture", data.taa != 0 ? data.taaScratch : data.target);
+                    cmd.SetComputeTextureParam(data.compute, data.kPrimary, "ResultTexture", data.taa != 0 ? data.taaScratch : data.target);
 
                     int threadGroupsX = Mathf.CeilToInt(data.dispatchWidth / 8f);
                     int threadGroupsY = Mathf.CeilToInt(data.dispatchHeight / 8f);
+                    // Checkerboard: the primary pass covers half the width.
+                    int primaryGroupsX = data.kPrimary != 0
+                        ? ((data.dispatchWidth + 1) / 2 + 7) / 8 : threadGroupsX;
                     // NAMED for GPU capture. CommandBuffer.BeginSample emits a
                     // Metal debug group, so this shows up in an Instruments
                     // "Metal System Trace" as a named encoder rather than an
@@ -1055,7 +1075,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                     // The name must match the one parsed by
                     // tools/parse-gpu-trace.py.
                     cmd.BeginSample("VE.Raymarch.Primary");
-                    cmd.DispatchCompute(data.compute, 0, threadGroupsX, threadGroupsY, 1);
+                    cmd.DispatchCompute(data.compute, data.kPrimary, primaryGroupsX, threadGroupsY, 1);
                     cmd.EndSample("VE.Raymarch.Primary");
 
                     if (data.taa != 0)
@@ -1066,6 +1086,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeBufferParam(data.compute, data.kTaaResolve, "TaaMetaR", data.taaMetaR);
                         cmd.SetComputeBufferParam(data.compute, data.kTaaResolve, "TaaColR", data.taaColR);
                         cmd.SetComputeBufferParam(data.compute, data.kTaaResolve, "TaaColW", data.taaColW);
+                        cmd.SetComputeBufferParam(data.compute, data.kTaaResolve, "TaaMetaW", data.taaMetaW);
                         cmd.DispatchCompute(data.compute, data.kTaaResolve, threadGroupsX, threadGroupsY, 1);
                         cmd.SetComputeBufferParam(data.compute, data.kTaaSharpen, "TaaColS", data.taaColW);
                         cmd.SetComputeTextureParam(data.compute, data.kTaaSharpen, "ResultTexture", data.target);

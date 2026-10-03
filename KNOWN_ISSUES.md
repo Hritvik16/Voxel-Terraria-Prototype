@@ -146,6 +146,40 @@ real and separate reason — see the LOD-cascade finding in
   per window. So 0.8-2 ms, and the walk circle's own window spread (8-26 ms)
   hides the rest. At the 960 Quality gate the TAA passes cover 4x the pixels;
   not measured. Logs `Logs/overnight/07_cost_arm*_taa*.out`.
+  **TASK 08 CHECKERBOARD (2026-10-03), `-checker 1` (implies TAA), OFF by
+  default.** Kernel `CSMainChecker` (CSMain's body with a compile-time
+  `checker = true`) runs at half width, tracing pixels with ((x + y) & 1) ==
+  parity, which flips every frame. TaaResolve: a traced pixel resolves as before
+  but uses only traced neighbours (itself + diagonals; +-2 for the depth slope);
+  a missing pixel borrows the reprojection of the cross neighbour whose history
+  matches, takes that history clipped to the 4 neighbours' box, and otherwise
+  (disocclusion, dirty chunk, reset) uses the edge-directed neighbour average,
+  which never feeds the history. The jitter is held 2 frames (else each half
+  sees only odd or only even Halton indices: a half-pixel bias); the
+  temporal-shadow turn advances every 2nd frame and its history lookup tries the
+  horizontal neighbour (each ping-pong buffer only ever holds one checker half).
+  A RUNTIME uniform inside CSMain moved TAA-off images by a few silhouette
+  pixels (Metal recompiled the float maths), hence the separate kernel.
+  OFF: `MODE=poses` 55/56 md5-identical to `FarBand/2026-10-02_150159_world`
+  (`_195352_world`; the 56th is the minimap underground slice, as in task 06).
+  COST, `MODE=walk MINUTES=3 EXTRA="... -renderpreset quality"` (960x540, the
+  owner's minimum), ABBAAB + ABBA: TAA-only 30.81 ms mean of 30 s windows (worst
+  39.74, 419 frames > 33 ms per 1000), TAA+checker 19.61 ms (worst 25.09, best
+  15.34, 13 per 1000). Paired: -11.19 -11.13 -11.55 -11.17 = **-11.26 ms**. 16.7 ms
+  is NOT reached: mean 2.9 ms over, worst window 8.4 ms over. Arms 6-8 excluded:
+  the laptop was on battery and hit 1% (Low Power Sleep at 21:44, then
+  hibernate); arm 6 (checker, ~1% battery) ran at TAA-only speed with half
+  the rays. Summary `Logs/overnight/08_cost_summary.txt`. ALL RIGS IN THIS
+  SESSION AND TASK 07 RAN ON BATTERY -- check `pmset -g batt` before a cost arm.
+  QUALITY vs TAA-only, same binary: shimmer all 3.01/1.74 -> 3.31/2.34, near
+  2.68/1.70 -> 2.80/1.89, far 3.30/2.14 -> 4.18/3.61 (OFF 5.89/7.59);
+  `Logs/nearshimmer_20261002_202848.txt` / `_203508.txt`. No checker pattern
+  in stills (gate-scale 2x2 checker energy / gradient 0.14-0.23 in both); 10-25%
+  less edge energy (softer), still frames 0.74-0.82x TAA-only's edges. Edit:
+  ghost f0 0.10 vs 0.11. Fluid: no trails; live-fluid chunks are visibly softer
+  (half their pixels are filled every frame). Spin: no trails; at 6 deg/frame
+  the sea/sky horizon shows small alternating-pixel teeth. Sun 0.2 deg/frame:
+  bias +0.1 luma vs TAA-only (no extra lag). Sheets `Screenshots/Checker/`.
 
 - **THE TG2 WORLD IS OVER THE 3 GB CAP BEFORE THE PLAYER BUILDS ANYTHING (found
   2026-09-26, NOT FIXED).** Peak phys_footprint 3,218-3,814 MB across four runs

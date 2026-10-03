@@ -65,7 +65,7 @@ public partial class PlaygroundCapture
         L($"NEAR SHIMMER -- {ts}  (quarter-gate-pixel PROJECTION nudges; gate {gw}x{gh}; noon; " +
           $"preset {(HasFlag("-renderpreset") ? RenderPreset.Current.ToString() : "not set (as shipped)")}; " +
           $"temporal shadows {(RaymarchFeature.TemporalShadows ? "ON" : "OFF")}; shadow level {RaymarchFeature.ShadowQualityLevel}; " +
-          $"TAA {(RaymarchFeature.Taa ? $"ON (sharpen {RaymarchFeature.TaaSharpenAmount:F2})" : "OFF")}; " +
+          $"TAA {(RaymarchFeature.Taa ? $"ON{(RaymarchFeature.TaaChecker ? " + CHECKERBOARD" : "")} (sharpen {RaymarchFeature.TaaSharpenAmount:F2})" : "OFF")}; " +
           $"settle {NearShimmerSettle} frames)");
         if (far == null || !far.UsesTg2 || !Phase4Bootstrapper.IsTg2World)
         {

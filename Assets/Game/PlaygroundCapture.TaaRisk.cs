@@ -44,7 +44,7 @@ public partial class PlaygroundCapture
         while (Phase4Bootstrapper.Store == null) yield return null;
         yield return Frames(300);
         string ts = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
-        string arm = RaymarchFeature.Taa ? "on" : "off";
+        string arm = RaymarchFeature.Taa ? (RaymarchFeature.TaaChecker ? "chk" : "on") : "off";
         _folder = Path.Combine(Application.persistentDataPath, "FarBand", ts + "_taarisk_" + arm);
         Directory.CreateDirectory(_folder);
         LightingDriver.ClockPaused = true;
@@ -56,7 +56,7 @@ public partial class PlaygroundCapture
         var cam = Camera.main;
         var sm = Phase4Bootstrapper.Streamer;
         var store = Phase4Bootstrapper.Store;
-        L($"TAA RISK FRAMES -- {ts}  TAA {(RaymarchFeature.Taa ? $"ON (sharpen {RaymarchFeature.TaaSharpenAmount:F2})" : "OFF")}; " +
+        L($"TAA RISK FRAMES -- {ts}  TAA {(RaymarchFeature.Taa ? $"ON{(RaymarchFeature.TaaChecker ? " + CHECKERBOARD" : "")} (sharpen {RaymarchFeature.TaaSharpenAmount:F2})" : "OFF")}; " +
           $"gate 960x540; preset {(HasFlag("-renderpreset") ? RenderPreset.Current.ToString() : "not set")}");
         if (pg != null && !Phase4Bootstrapper.IsTg2World)
         {
