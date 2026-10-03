@@ -17,6 +17,17 @@ MEM="Logs/tg2world_${RUN_ID}_mem.txt"
 source tools/unity-lock.sh
 unity_lock_acquire
 echo "run $RUN_ID" | tee -a "$LOG"
+# 2026-10-03 (task 12): log power source + charge at start and end, and keep
+# the Mac awake while this script lives. The player is launched with `open -n`,
+# which returns at once, so caffeinate waits on THIS script's pid (-w $$), which
+# outlives the player (the footprint loop below waits for it). Battery-critical
+# hibernation still wins over caffeinate -- hence the loud warning.
+caffeinate -dimsu -w $$ &
+echo "caffeinate pid $! (-dimsu -w $$)" | tee -a "$LOG"
+tools/power-status.sh start | tee -a "$LOG"
+if [ "${PIPESTATUS[0]}" != 0 ] && { [ "${MODE:-poses}" = "walk" ] || [ "${MODE:-poses}" = "orbit" ]; }; then
+  echo "WARNING: ON BATTERY -- frame times from this run are not comparable to AC runs (task 08: arm 6 at ~1% ran at half rate)" | tee -a "$LOG"
+fi
 if [ "${BUILD:-0}" = "1" ]; then
   rm -rf "$APP"
   "$UNITY_BIN" -batchmode -quit -nographics -projectPath "$(pwd)" -executeMethod Phase5aSceneBuilder.GeneratePlayground -logFile Logs/tg2world_scene.log
@@ -114,5 +125,9 @@ else
 fi
 PL="$HOME/Library/Logs/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Player.log"
 grep -E "VERTICAL STREAMING|PrimeWindow:|Total startup|tg2 WORLD|Exception|exhausted|error" "$PL" | head -20 | tee -a "$LOG"
+tools/power-status.sh end | tee -a "$LOG"
+if [ "${PIPESTATUS[0]}" != 0 ] && { [ "${MODE:-poses}" = "walk" ] || [ "${MODE:-poses}" = "orbit" ]; }; then
+  echo "WARNING: ON BATTERY at the end of the run" | tee -a "$LOG"
+fi
 echo "log: $LOG"
 echo TG2WORLD_DONE

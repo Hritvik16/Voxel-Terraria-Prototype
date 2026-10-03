@@ -22,6 +22,11 @@ BUILD_LOG="build.log"
 # Edit > Project Settings > Player, update this path to match.
 RIG_OUTPUT_DIR="$HOME/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Phase4Acceptance"
 
+# 2026-10-03 (task 12): keep the Mac awake for the whole build + run (caffeinate
+# waits on this script's pid) and log power source + charge at start and end.
+caffeinate -dimsu -w $$ &
+tools/power-status.sh start
+
 echo "== Building (release, not development — see CommandLineBuild.cs) =="
 rm -f "$BUILD_LOG"
 # No -nographics here: shader compilation for the build target sometimes wants
@@ -59,6 +64,7 @@ if [ -z "$LATEST" ]; then
 fi
 
 echo "Run folder: $LATEST"
+tools/power-status.sh end
 echo
 echo "=================== phase4_report.txt ==================="
 cat "${LATEST}phase4_report.txt"

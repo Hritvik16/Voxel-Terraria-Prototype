@@ -234,6 +234,11 @@ real and separate reason — see the LOD-cascade finding in
   hibernate); arm 6 (checker, ~1% battery) ran at TAA-only speed with half
   the rays. Summary `Logs/overnight/08_cost_summary.txt`. ALL RIGS IN THIS
   SESSION AND TASK 07 RAN ON BATTERY -- check `pmset -g batt` before a cost arm.
+  GUARD (2026-10-03, task 12): `run-tg2world.sh` and `run-acceptance-rig.sh` now
+  log `power start:/end: ... source=... charge=...` (`tools/power-status.sh`)
+  and run under `caffeinate -dimsu -w <script pid>`; `MODE=walk|orbit` prints
+  `WARNING: ON BATTERY` (still runs). Read that line before quoting a cost arm.
+  Caffeinate does NOT stop battery-critical hibernation -- keep the Mac on AC.
   QUALITY vs TAA-only, same binary: shimmer all 3.01/1.74 -> 3.31/2.34, near
   2.68/1.70 -> 2.80/1.89, far 3.30/2.14 -> 4.18/3.61 (OFF 5.89/7.59);
   `Logs/nearshimmer_20261002_202848.txt` / `_203508.txt`. No checker pattern
