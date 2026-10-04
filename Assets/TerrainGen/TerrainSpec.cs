@@ -55,6 +55,12 @@ namespace TerrainGen
         /// v4). IGNORED below v4: v3 is x1 and byte-identical. Read it through
         /// BiomeScale, never directly.
         public float biomeScale;
+        /// Map v4 (surface rebuild B2, plan rule 2; owner Q9 2026-10-03: "needs
+        /// testing", so a TUNABLE): the share of LAND whose region is of the
+        /// gentle landform class (Regions.ClassOf). Broken and steep split the
+        /// rest 3:2. 0 = the version's default (0.50 on v4). IGNORED below v4.
+        /// Read it through GentleShare, never directly.
+        public float gentleShare;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -89,6 +95,12 @@ namespace TerrainGen
 
         /// The biome wavelength multiplier actually in force (see biomeScale).
         public float BiomeScale => mapVersion >= 4 ? (biomeScale > 0f ? biomeScale : V4_BIOME_SCALE) : 1f;
+
+        public const float V4_GENTLE_SHARE = 0.50f;
+
+        /// The gentle-class land share in force (see gentleShare); 0 below v4,
+        /// where the region classes are not assigned to a share at all.
+        public float GentleShare => mapVersion >= 4 ? (gentleShare > 0f ? gentleShare : V4_GENTLE_SHARE) : 0f;
 
         public int CavernTopY => seaLevelY - cavernTopBelowSea;
         public int UnderworldTopY => seaLevelY - underworldTopBelowSea;

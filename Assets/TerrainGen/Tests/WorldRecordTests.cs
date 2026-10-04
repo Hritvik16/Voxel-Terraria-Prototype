@@ -4,14 +4,16 @@
 // larger biomes, OPT-IN.
 //   v3 untouched    Biome at scale 1 is the pre-B1 formula bit for bit; a v3
 //                   spec ignores biomeScale; a v3 map has no record.
-//   v4 = v3 + B1    every map array of a v4 build equals the v3 build's.
+//   v4 = v3 + B1    every map array of a v4 build equalled the v3 build's
+//                   until B2 (landform by flatness) changed v4's regions; now:
+//                   two v4 builds agree array for array, and differ from v3.
 //   Record          the size budget (<= 7 MB), what each field holds, that it
 //                   rebuilds to the same hash and differs across seeds, and its
 //                   cost (B1: map build <= v3 + 2 s; the record is the whole
 //                   difference).
 //   Larger biomes   biome change walking east-west >= 2.5x v3 (owner Q5) on all
-//                   four seeds, computed on the shared v3 maps (a v4 map's land
-//                   is the v3 map's, asserted above).
+//                   four seeds, computed on the shared v3 maps (the biome field
+//                   does not read the map; v4's coast is v3's).
 using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Mathematics;
@@ -64,20 +66,24 @@ namespace TerrainGen.Tests
 
         [Test]
         [Category("Slow")]   // two v4 builds + the shared v3 one
-        public void V4_IsV3MapPlusRecord_Deterministic_SeedDependent()
+        public void V4_Deterministic_SeedDependent_DiffersFromV3()
         {
             var v3 = SharedMaps.Get(TerrainSpec.SizeClass2(42u));
             Assert.IsNull(v3.Record, "a v3 map has no world record");
             var spec4 = TerrainSpec.SizeClass2(42u, 4);
             var a = SharedMaps.Get(spec4);
             Assert.IsNotNull(a.Record);
-            int diff = 0;
+            int fromV3 = 0;
             for (int i = 0; i < v3.Height.Length; i++)
-                if (v3.Height[i] != a.Height[i] || v3.Rough[i] != a.Rough[i] || v3.Water[i] != a.Water[i] ||
-                    v3.Flow[i] != a.Flow[i] || v3.WaterClass[i] != a.WaterClass[i] || v3.Region[i] != a.Region[i]) diff++;
-            Assert.AreEqual(0, diff, "v4's map must be v3's, cell for cell");
+                if (v3.Height[i] != a.Height[i] || v3.Region[i] != a.Region[i]) fromV3++;
+            Assert.Greater(fromV3, 0, "B2: v4's regions are dealt by landform class, so its map must differ from v3's");
 
             using var b = WorldMap.Build(spec4);
+            int diff = 0;
+            for (int i = 0; i < a.Height.Length; i++)
+                if (a.Height[i] != b.Height[i] || a.Rough[i] != b.Rough[i] || a.Water[i] != b.Water[i] ||
+                    a.Flow[i] != b.Flow[i] || a.WaterClass[i] != b.WaterClass[i] || a.Region[i] != b.Region[i]) diff++;
+            Assert.AreEqual(0, diff, "two v4 builds of one seed differ");
             ulong ha = a.Record.Hash(), hb = b.Record.Hash();
             Assert.AreEqual(ha, hb, "two v4 builds of one seed must give the same record");
 

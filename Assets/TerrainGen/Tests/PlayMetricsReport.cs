@@ -17,6 +17,10 @@
 //   writes playmetrics_v4.txt, seed<N>_v4_*.png, a biome-scale strip per seed
 //   (seed<N>_biome_scales.png: v3 then x PLAYMETRICS_BIOMESCALES, default
 //   2,3,4) and, when both ran, b1_biome_scale.txt (the B1 acceptance table).
+//   PLAYMETRICS_GENTLE=0.4,0.5,0.6 ... v4 gentle-class land shares (B2; default:
+//   the version default only). A non-default share writes playmetrics_v4_g<NN>.txt
+//   and seed<N>_v4_g<NN>_*.png; any v4 run writes b2_gentle_variants.txt, and a
+//   run with v3 and the default v4 writes b2_landform.txt (the B2 table).
 //
 // Definitions (land = map height above sea; "8 m scale" = the map grid):
 //   slope        central differences over the 8 m map, degrees.
@@ -71,15 +75,7 @@ namespace TerrainGen.Tests
         /// Plan rule 2: gentle = river plains, rolling highlands, wetland basin,
         /// plateau tops; broken = badlands, dunes, canyonlands; steep = alpine,
         /// sea cliffs, volcanic.
-        public static byte LandformClass(byte region)
-        {
-            switch (region)
-            {
-                case Regions.Plains: case Regions.Highlands: case Regions.Wetland: case Regions.Plateau: return Gentle;
-                case Regions.Badlands: case Regions.Dunes: case Regions.Canyonlands: return Broken;
-                default: return Steep;
-            }
-        }
+        public static byte LandformClass(byte region) => Regions.ClassOf(region);   // B2 moved it into the generator
 
         private sealed class Metrics
         {
@@ -96,6 +92,7 @@ namespace TerrainGen.Tests
             public float biomeChangeM, biomeChange128M, regionChangeM, biomePatchMedianHa, biomePatchAreaMedianHa;
             public int biomePatches;
             public int mapVersion; public float biomeScale;
+            public float gentleTarget; public int inselbergs; public string tag;
             public double recordMs; public long recordBytes; public ulong recordHash; public int recordBiomeMismatch;
             public float biomePatchMedian1HaHa;
             public List<(float scale, BiomeStats st)> scales = new List<(float, BiomeStats)>();
@@ -130,27 +127,94 @@ namespace TerrainGen.Tests
 
             string dir = Path.Combine(Directory.GetCurrentDirectory(), "Logs", "TerrainGen", "playmetrics");
             Directory.CreateDirectory(dir);
-            var byVersion = versions.ToDictionary(v => v, v => new List<Metrics>());
+            float[] gentles = { 0f };   // 0 = the version default
+            string envG = Environment.GetEnvironmentVariable("PLAYMETRICS_GENTLE");
+            if (!string.IsNullOrEmpty(envG)) gentles = envG.Split(',').Select(v => float.Parse(v.Trim(), System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+
+            // one list per output tag ("" = v3, "_v4" = v4 at its default share, "_v4_g40" ...)
+            var byTag = new Dictionary<string, List<Metrics>>();
+            var tagOrder = new List<string>();
             foreach (uint seed in seeds)
             foreach (int v in versions)
-                byVersion[v].Add(Measure(seed, v, scales, dir));
-            foreach (int v in versions)
+            foreach (float g in v >= 4 ? gentles : new[] { 0f })
             {
-                var all = byVersion[v];
+                var m = Measure(seed, v, g, scales, dir);
+                if (!byTag.ContainsKey(m.tag)) { byTag[m.tag] = new List<Metrics>(); tagOrder.Add(m.tag); }
+                byTag[m.tag].Add(m);
+            }
+            foreach (string tag in tagOrder)
+            {
+                var all = byTag[tag];
                 var sb = new StringBuilder();
                 foreach (var m in all) sb.Append(Describe(m));
                 sb.Append(Summary(all));
                 foreach (var m in all)
-                    if (m.seed == 42u && v == 3) sb.Append(Reproduction(m));
-                File.WriteAllText(Path.Combine(dir, v == 3 ? "playmetrics.txt" : $"playmetrics_v{v}.txt"), sb.ToString());
-                Debug.Log($"[PlayMetrics v{v}]\n" + sb);
+                    if (m.seed == 42u && tag == "") sb.Append(Reproduction(m));
+                File.WriteAllText(Path.Combine(dir, $"playmetrics{tag}.txt"), sb.ToString());
+                Debug.Log($"[PlayMetrics{tag}]\n" + sb);
             }
-            if (byVersion.ContainsKey(3) && byVersion.ContainsKey(4))
+            if (byTag.ContainsKey("") && byTag.ContainsKey("_v4"))
             {
-                string b1 = B1Table(byVersion[3], byVersion[4]);
+                string b1 = B1Table(byTag[""], byTag["_v4"]);
                 File.WriteAllText(Path.Combine(dir, "b1_biome_scale.txt"), b1);
                 Debug.Log("[PlayMetrics B1]\n" + b1);
+                string b2 = B2Table(byTag[""], byTag["_v4"]);
+                File.WriteAllText(Path.Combine(dir, "b2_landform.txt"), b2);
+                Debug.Log("[PlayMetrics B2]\n" + b2);
             }
+            var v4All = tagOrder.Where(t => t.StartsWith("_v4")).SelectMany(t => byTag[t]).ToList();
+            if (v4All.Count > 0)
+            {
+                string gv = GentleVariants(v4All, byTag.TryGetValue("", out var v3l) ? v3l : new List<Metrics>());
+                File.WriteAllText(Path.Combine(dir, "b2_gentle_variants.txt"), gv);
+                Debug.Log("[PlayMetrics B2 variants]\n" + gv);
+            }
+        }
+
+        /// The B2 acceptance table (plan rule 2): v4's gentle-class share of land
+        /// 50 +- 5 points at the default, all three classes, no inselbergs, map
+        /// build <= v3 + 2 s; slopes reported beside v3, not gated.
+        private static string B2Table(List<Metrics> v3, List<Metrics> v4)
+        {
+            var s = new StringBuilder("=== B2: map v4 (landform by flatness, no inselbergs) against v3, same run\n");
+            s.AppendLine("  seed    gentle v3 -> v4 (target)        broken v3 -> v4   steep v3 -> v4   classes  inselbergs v3 -> v4   build s v3 -> v4 (delta, <= +2)   record hash");
+            foreach (var a in v3)
+            {
+                var b = v4.FirstOrDefault(x => x.seed == a.seed);
+                if (b == null) continue;
+                bool gOk = math.abs(b.classShare[0] - b.gentleTarget) <= 0.05f;
+                bool all3 = b.classShare[0] > 0f && b.classShare[1] > 0f && b.classShare[2] > 0f;
+                double dt = (b.buildMs - a.buildMs) / 1000;
+                s.AppendLine($"  {a.seed,-6}  {Pct(a.classShare[0]),6} -> {Pct(b.classShare[0]),6} ({Pct(b.gentleTarget)}) {(gOk ? "PASS" : "MISS")}   " +
+                             $"{Pct(a.classShare[1]),6} -> {Pct(b.classShare[1]),6}   {Pct(a.classShare[2]),6} -> {Pct(b.classShare[2]),6}   {(all3 ? "PASS" : "MISS"),-7}  " +
+                             $"{a.inselbergs,3} -> {b.inselbergs,3} {(b.inselbergs == 0 ? "PASS" : "MISS")}       " +
+                             $"{a.buildMs / 1000:F1} -> {b.buildMs / 1000:F1} ({dt:+0.0;-0.0}) {(dt <= 2.0 ? "PASS" : "MISS")}          {b.recordHash:X16}");
+            }
+            s.AppendLine("\n  slopes, reported not gated (v3 -> v4):");
+            s.AppendLine("  seed    median deg      <15 deg          >45 deg          open (<20 m)     mountainous      easy ground      class median slope g/b/s v3 -> v4");
+            foreach (var a in v3)
+            {
+                var b = v4.FirstOrDefault(x => x.seed == a.seed);
+                if (b == null) continue;
+                s.AppendLine($"  {a.seed,-6}  {a.medianSlope,4:F1} -> {b.medianSlope,4:F1}    {Pct(a.under15),6} -> {Pct(b.under15),6}  {Pct(a.over45),6} -> {Pct(b.over45),6}  " +
+                             $"{Pct(a.open),6} -> {Pct(b.open),6}  {Pct(a.mountainous),6} -> {Pct(b.mountainous),6}  {Pct(a.easyShare),6} -> {Pct(b.easyShare),6}  " +
+                             $"{a.classMedianSlope[0]:F0}/{a.classMedianSlope[1]:F0}/{a.classMedianSlope[2]:F0} -> {b.classMedianSlope[0]:F0}/{b.classMedianSlope[1]:F0}/{b.classMedianSlope[2]:F0}");
+            }
+            return s.ToString();
+        }
+
+        /// The owner's pick (Q9): every v4 gentle share measured, with v3 beside.
+        private static string GentleVariants(List<Metrics> v4, List<Metrics> v3)
+        {
+            var s = new StringBuilder("=== B2: gentle-share variants (owner Q9: 40 / 50 / 60%)\n");
+            s.AppendLine("  seed    map          gentle  broken  steep   median  <15deg  >45deg  open    mount.  easy    inselbergs  build s  pngs");
+            foreach (var m in v3.Concat(v4).OrderBy(x => x.seed).ThenBy(x => x.mapVersion).ThenBy(x => x.gentleTarget))
+            {
+                string name = m.mapVersion >= 4 ? $"v4 g{m.gentleTarget * 100:0}" : "v3";
+                s.AppendLine($"  {m.seed,-6}  {name,-11}  {Pct(m.classShare[0]),6}  {Pct(m.classShare[1]),6}  {Pct(m.classShare[2]),6}  {m.medianSlope,5:F1}d  " +
+                             $"{Pct(m.under15),6}  {Pct(m.over45),6}  {Pct(m.open),6}  {Pct(m.mountainous),6}  {Pct(m.easyShare),6}  {m.inselbergs,10}  {m.buildMs / 1000,7:F1}  seed{m.seed}{m.tag}_*.png");
+            }
+            return s.ToString();
         }
 
         /// The B1 acceptance table (owner Q5, 2026-10-03): v4's biome change
@@ -204,15 +268,18 @@ namespace TerrainGen.Tests
 
         // ------------------------------------------------------------------ measure
 
-        private static Metrics Measure(uint seed, int mapVersion, float[] biomeScales, string dir)
+        private static Metrics Measure(uint seed, int mapVersion, float gentle, float[] biomeScales, string dir)
         {
             var spec = TerrainSpec.SizeClass2(seed, mapVersion);
-            var m = new Metrics { seed = seed, mapVersion = spec.mapVersion, biomeScale = spec.BiomeScale };
-            string tag = spec.mapVersion == 3 ? "" : $"_v{spec.mapVersion}";
+            if (spec.mapVersion >= 4 && gentle > 0f && gentle != TerrainSpec.V4_GENTLE_SHARE) spec.gentleShare = gentle;
+            bool defaultV4 = spec.mapVersion >= 4 && spec.gentleShare == 0f;
+            string tag = spec.mapVersion == 3 ? "" : $"_v{spec.mapVersion}" + (spec.gentleShare > 0f ? $"_g{math.round(spec.gentleShare * 100f):0}" : "");
+            var m = new Metrics { seed = seed, mapVersion = spec.mapVersion, biomeScale = spec.BiomeScale, gentleTarget = spec.GentleShare, tag = tag };
             var o = Offsets.For(in spec);
             var sw = System.Diagnostics.Stopwatch.StartNew();
             using var map = WorldMap.Build(spec);
             m.buildMs = sw.Elapsed.TotalMilliseconds;
+            m.inselbergs = map.InselbergCount;
             if (map.Record != null)
             {
                 // the record's critical-path cost (its biome plane runs beside
@@ -379,7 +446,7 @@ namespace TerrainGen.Tests
 
             // B1: the biome field at other scales on this same map (the map does
             // not depend on biomes), as numbers and one strip: v3 (x1), then each.
-            if (spec.mapVersion >= 4)
+            if (defaultV4)
             {
                 var grids = new List<byte[]> { BiomeGrid(spec, 1f) };
                 m.scales.Add((1f, Biomes(n, isLand, grids[0], cellM)));
@@ -591,6 +658,10 @@ namespace TerrainGen.Tests
             s.AppendLine($"  slope (8 m): median {m.medianSlope:F1} deg; under 15 deg {Pct(m.under15)}; steeper than 45 deg {Pct(m.over45)}");
             s.AppendLine($"  bands: Walk {Pct(m.bandShare[0])}, Scramble {Pct(m.bandShare[1])}, Climb {Pct(m.bandShare[2])}, Sheer {Pct(m.bandShare[3])}  (provisional 15/30/45 deg)");
             s.AppendLine($"  relief in a 250 m square: open (< 20 m) {Pct(m.open)}, mountainous (> 80 m) {Pct(m.mountainous)}");
+            if (m.mapVersion >= 4)
+                s.AppendLine($"  B2: gentle-class share target {Pct(m.gentleTarget)} of land (broken : steep 3 : 2 of the rest); inselbergs {m.inselbergs}");
+            else
+                s.AppendLine($"  inselbergs (T6): {m.inselbergs}");
             s.AppendLine($"  landform class share of land: gentle {Pct(m.classShare[0])}, broken {Pct(m.classShare[1])}, steep {Pct(m.classShare[2])}; " +
                          $"median slope {m.classMedianSlope[0]:F0} / {m.classMedianSlope[1]:F0} / {m.classMedianSlope[2]:F0} deg");
             s.AppendLine("  by region (share of land, median slope): " + string.Join(", ",

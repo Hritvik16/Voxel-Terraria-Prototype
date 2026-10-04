@@ -266,9 +266,12 @@ namespace TerrainGen.Tests
         public void NoNeedles_OnTheMap()
         {
             var lines = new List<string>();
+            // B2 (2026-10-03): map v4 deals regions by landform class, so the
+            // guard runs on v4 too.
+            foreach (int ver in new[] { 3, 4 })
             foreach (uint seed in new[] { 42u, 7u })
             {
-                var spec = TerrainSpec.SizeClass2(seed);
+                var spec = TerrainSpec.SizeClass2(seed, ver);
                 var map = SharedMaps.Get(spec);   // shared: never disposed here
                 {
                     int n = spec.mapCells, summits = 0;
@@ -294,7 +297,7 @@ namespace TerrainGen.Tests
                         worst.Add((c - ring, x, z));
                     }
                     worst.Sort((a, b) => b.drop.CompareTo(a.drop));
-                    lines.Add($"seed {seed}: {summits} summits on land; worst drops 40 m from a summit:");
+                    lines.Add($"seed {seed} v{ver}: {summits} summits on land; worst drops 40 m from a summit:");
                     var o = Offsets.For(seed);
                     for (int i = 0; i < math.min(8, worst.Count); i++)
                     {
@@ -320,9 +323,9 @@ namespace TerrainGen.Tests
                                   $"   macro alone: summit {mh / 10f:F0} m, drop {(mh - mRing) / 10f:F1} m   valley field {vf:F3} (cut < 0.070)" +
                                   $"   plateau {pf:F3}  range {range:F2}  {peakD:F0} m from the peak");
                     }
-                    File.WriteAllLines(Path.Combine(Dir(), $"needles_{seed}.txt"), lines);
+                    File.WriteAllLines(Path.Combine(Dir(), ver == 3 ? $"needles_{seed}.txt" : $"needles_{seed}_v{ver}.txt"), lines);
                     Assert.Less(worst.Count > 0 ? worst[0].drop : 0f, NEEDLE_DROP,
-                        $"seed {seed}: a needle -- the summit at map cell ({worst[0].x},{worst[0].z}) falls {worst[0].drop / 10f:F1} m within 40 m on every side");
+                        $"seed {seed} v{ver}: a needle -- the summit at map cell ({worst[0].x},{worst[0].z}) falls {worst[0].drop / 10f:F1} m within 40 m on every side");
                 }
             }
             File.WriteAllLines(Path.Combine(Dir(), "needles.txt"), lines);

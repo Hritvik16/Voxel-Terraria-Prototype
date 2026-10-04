@@ -16,6 +16,7 @@
 // levels (6.4, 12.8 m texels) a cliff is 2-5 texels wide, so it is resolved,
 // not aliased -- but it is the part of the map closest to the limit.
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Unity.Mathematics;
 
@@ -54,6 +55,9 @@ namespace TerrainGen
         public byte[] Region { get; private set; }
         /// v4 (B1): the per-cell world record. Null below v4.
         public WorldRecord Record { get; private set; }
+        /// T6 inselbergs that raised at least one erosion-grid cell (v3: ~15-40
+        /// per seed; v4: 0, owner Q7 (a)).
+        public int InselbergCount { get; private set; }
         private GCHandle _hH, _hR, _hW;
 
         public WorldMap(TerrainSpec spec, float[] height, float[] rough, float2 peak,
@@ -94,11 +98,14 @@ namespace TerrainGen
             spec.mapVersion >= 4 ? BuildV4(spec) : spec.mapVersion >= 3 ? BuildV3(spec) : BuildV2(spec);
 
         // ------------------------------------------------------------------
-        // v4 (surface rebuild B1, owner 2026-10-03): EXACTLY v3's map -- BuildV3
-        // reads no biome and no field B1 adds, so every array is byte-identical
-        // to the v3 map of the same seed (WorldRecordTests) -- plus the world
-        // record. The larger biomes are not in the map at all: they come from
-        // Offsets.For(spec).biomeScale in ShapeField.Biome.
+        // v4 (surface rebuild): v3's recipe with the B steps switched on by
+        // spec.mapVersion >= 4 inside BuildV3, plus the world record.
+        //   B1 (owner 2026-10-03): the record; larger biomes, which are not in
+        //      the map at all (Offsets.For(spec).biomeScale in ShapeField.Biome).
+        //   B2 (plan rule 2): region archetypes dealt by landform class to hit
+        //      spec.GentleShare of the land (Regions.AssignByFlatness); no T6
+        //      inselbergs (owner Q7 (a)).
+        // A v3 spec takes none of these branches and stays byte-identical.
         // ------------------------------------------------------------------
         private static WorldMap BuildV4(TerrainSpec spec)
         {
@@ -128,6 +135,8 @@ namespace TerrainGen
             float2 peak = PeakSite(spec, o);
             var L = Regions.Build(in spec, in o);
             var w = new float[Regions.KINDS];
+            bool inselbergs = spec.mapVersion < 4;   // B2: none on v4 (owner Q7 (a))
+            var inselbergIds = new HashSet<int2>();
 
             // ---- starting shapes on the coarse (erosion) grid ----
             var hc = new float[m * m]; var ec = new float[m * m]; var tc = new float[m * m]; var lc = new bool[m * m];
@@ -167,10 +176,14 @@ namespace TerrainGen
                 // needs its own. In the layered regions the fine map's terracing
                 // turns the dome into a stepped butte.)
                 float open = 1f - w[Regions.Alpine] - w[Regions.Volcanic];
-                if (open > 0.3f && coast > 0.15f)
+                if (inselbergs && open > 0.3f && coast > 0.15f)
                 {
-                    float ib = Inselberg(in o, p, out float hard);
-                    if (ib > 0f) { hc[i] += ib * open; E *= math.lerp(1f, 0.1f, hard); T = math.max(T, math.lerp(T, 2.5f, hard)); }
+                    float ib = Inselberg(in o, p, out float hard, out int2 ibCell);
+                    if (ib > 0f)
+                    {
+                        hc[i] += ib * open; E *= math.lerp(1f, 0.1f, hard); T = math.max(T, math.lerp(T, 2.5f, hard));
+                        inselbergIds.Add(ibCell);
+                    }
                 }
                 ec[i] = E; tc[i] = T; lc[i] = lay > 0.5f;
             }
@@ -240,7 +253,7 @@ namespace TerrainGen
             var cls = new byte[n * n];
             var hydro = Hydrology.Run(n, h, r, water, flow, cls, lakeMin);
             ClearCalderaLake(in spec, in o, water, cls);
-            return new WorldMap(spec, h, r, peak, water, flow, hydro, cls) { RegionLayout = L, Region = reg };
+            return new WorldMap(spec, h, r, peak, water, flow, hydro, cls) { RegionLayout = L, Region = reg, InselbergCount = inselbergIds.Count };
         }
 
         /// TUNING SEAM (tools/erosion-lab.c): when set, BuildV3 writes the erosion
@@ -270,9 +283,12 @@ namespace TerrainGen
         // ------------------------------------------------------------------
         public const float INSELBERG_CELL = 11000f;
 
-        public static float Inselberg(in Offsets o, float2 p, out float hard)
+        public static float Inselberg(in Offsets o, float2 p, out float hard) => Inselberg(in o, p, out hard, out _);
+
+        /// `cell`: the INSELBERG_CELL holding the tallest dome at p (its id).
+        public static float Inselberg(in Offsets o, float2 p, out float hard, out int2 cell)
         {
-            hard = 0f;
+            hard = 0f; cell = int2.zero;
             int cx = (int)math.floor(p.x / INSELBERG_CELL), cz = (int)math.floor(p.y / INSELBERG_CELL);
             float best = 0f;
             for (int j = -1; j <= 1; j++)
@@ -291,7 +307,7 @@ namespace TerrainGen
                 // Steep walls, rounded top: sqrt(1 - x^4).
                 float x2 = x * x;
                 float t = math.sqrt(math.max(0f, 1f - x2 * x2));
-                if (H * t > best) { best = H * t; hard = Noise.SmoothStep(1f, 0.85f, x); }
+                if (H * t > best) { best = H * t; hard = Noise.SmoothStep(1f, 0.85f, x); cell = new int2(gx, gz); }
             }
             return best;
         }

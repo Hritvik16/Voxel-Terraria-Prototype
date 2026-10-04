@@ -18,6 +18,10 @@
 // straight lines) and blended over ~150 m, so an archetype change reads as a
 // pass, an escarpment or a valley rather than a seam.
 //
+// Map v4 (surface rebuild B2, plan rule 2): the seeds are the same, but the
+// archetypes are dealt by LANDFORM CLASS (gentle / broken / steep) so that the
+// gentle class covers spec.GentleShare of the land (AssignByFlatness).
+//
 // No 3-D noise (owner constraint). Only +, -, *, /, sqrt, floor and 2-D noise,
 // per the determinism contract (TerrainSpec.cs): the map is built by managed
 // code in both the Editor (Mono) and the player (IL2CPP).
@@ -88,7 +92,112 @@ namespace TerrainGen
                 bool nearCoast = WorldMap.Coast(in spec, in o, seeds[s]) < 0.33f;
                 kind[s] = nearCoast ? coastal[ci++ % coastal.Length] : inland[ii++ % inland.Length];
             }
-            return new Layout { seeds = seeds.ToArray(), kind = kind };
+            var L = new Layout { seeds = seeds.ToArray(), kind = kind };
+            if (spec.mapVersion >= 4) AssignByFlatness(in spec, in o, L);
+            return L;
+        }
+
+        // ------------------------------------------------------------------
+        // LANDFORM CLASSES (surface rebuild plan rule 2, map v4 / B2). How
+        // walkable a region's land is meant to be: gentle = river plains,
+        // rolling highlands, wetland basin, plateau tops; broken = eroded
+        // breaks (badlands), dunes, canyonlands; steep = alpine, sea cliffs,
+        // volcanic.
+        // ------------------------------------------------------------------
+        public const byte Gentle = 0, Broken = 1, Steep = 2;
+        public const int CLASSES = 3;
+        /// Broken : steep split of the land the gentle class does not cover.
+        public const float BROKEN_OF_REST = 0.6f;
+
+        public static byte ClassOf(byte k)
+        {
+            switch (k)
+            {
+                case Plains: case Highlands: case Wetland: case Plateau: return Gentle;
+                case Badlands: case Dunes: case Canyonlands: return Broken;
+                default: return Steep;
+            }
+        }
+
+        /// Land-share estimate grid (per edge, over the whole map): every 4th
+        /// map cell, 32 m. Region areas are ~1-3 km^2, so its error is well
+        /// under a point of share.
+        public const int CLASS_GRID = 256;
+        /// Coast value past which a cell is land on the final map (the beach
+        /// in BuildV3 dips the first ~0.02 of the coast field under the sea).
+        public const float LAND_COAST = 0.02f;
+
+        /// Each region's land area, in CLASS_GRID cells: the same nearest-seed
+        /// rule (warped Voronoi) that writes WorldMap.Region.
+        public static int[] LandCells(in TerrainSpec spec, in Offsets o, Layout L)
+        {
+            var area = new int[L.Count];
+            float step = (float)spec.mapCells * spec.mapCellVoxels / CLASS_GRID;
+            for (int z = 0; z < CLASS_GRID; z++)
+            for (int x = 0; x < CLASS_GRID; x++)
+            {
+                float2 p = new float2((x + 0.5f) * step, (z + 0.5f) * step);
+                if (WorldMap.Coast(in spec, in o, p) <= LAND_COAST) continue;
+                area[Nearest(L, Warp(in o, p), out _)]++;
+            }
+            return area;
+        }
+
+        /// v4: deal every free region (all but the pinned alpine peak and
+        /// volcano, which stay steep) a class so the land shares come nearest
+        /// gentle = G, broken = 0.6 (1 - G), steep = 0.4 (1 - G), with at least
+        /// one gentle and one broken region; then an archetype of that class,
+        /// coastal or inland as v3 chooses. Exhaustive over 3^free (<= 3^10 =
+        /// 59,049 sums of <= 10 integers). The gentle error weighs 4x: it is
+        /// the acceptance number. Ties keep the first assignment in counting
+        /// order, so the result is a pure function of the seed and the share.
+        public static void AssignByFlatness(in TerrainSpec spec, in Offsets o, Layout L)
+        {
+            int[] area = LandCells(in spec, in o, L);
+            int free = L.Count - 2;
+            if (free <= 0) return;
+            long total = 0; foreach (int a in area) total += a;
+            float G = spec.GentleShare * total, B = BROKEN_OF_REST * (1f - spec.GentleShare) * total;
+            float S = total - G - B;
+            int combos = 1; for (int i = 0; i < free; i++) combos *= CLASSES;
+            int best = 0; float bestCost = float.MaxValue;
+            var cls = new int[free];
+            for (int c = 0; c < combos; c++)
+            {
+                int r = c; long g = 0, b = 0, st = area[0] + area[1]; int ng = 0, nb = 0;
+                for (int i = 0; i < free; i++)
+                {
+                    int k = r % CLASSES; r /= CLASSES;
+                    if (k == Gentle) { g += area[i + 2]; ng++; }
+                    else if (k == Broken) { b += area[i + 2]; nb++; }
+                    else st += area[i + 2];
+                }
+                if (ng == 0 || (nb == 0 && free > 1)) continue;
+                float cost = 4f * math.abs(g - G) + math.abs(b - B) + math.abs(st - S);
+                if (cost < bestCost) { bestCost = cost; best = c; }
+            }
+            for (int i = 0; i < free; i++) { cls[i] = best % CLASSES; best /= CLASSES; }
+
+            // Archetypes within a class, per-seed shuffled lists as in v3.
+            byte[][] coastal =
+            {
+                Shuffle(new[] { Plains, Wetland, Plains, Highlands }, spec.seed + 521u),
+                Shuffle(new[] { Dunes, Badlands, Dunes }, spec.seed + 522u),
+                new[] { CoastalCliffs },
+            };
+            byte[][] inland =
+            {
+                Shuffle(new[] { Highlands, Plateau, Plains, Highlands, Plateau }, spec.seed + 523u),
+                Shuffle(new[] { Canyonlands, Badlands, Dunes, Canyonlands }, spec.seed + 524u),
+                new[] { Alpine },
+            };
+            var ci = new int[CLASSES]; var ii = new int[CLASSES];
+            for (int i = 0; i < free; i++)
+            {
+                int s = i + 2, k = cls[i];
+                bool nearCoast = WorldMap.Coast(in spec, in o, L.seeds[s]) < 0.33f;
+                L.kind[s] = nearCoast ? coastal[k][ci[k]++ % coastal[k].Length] : inland[k][ii[k]++ % inland[k].Length];
+            }
         }
 
         private static byte[] Shuffle(byte[] a, uint seed)
@@ -101,18 +210,27 @@ namespace TerrainGen
             return a;
         }
 
-        /// Per-archetype weights at p (sum 1) and the nearest region's index.
-        /// `w` must hold KINDS floats.
-        public static int Weights(Layout L, in Offsets o, float2 p, float[] w)
+        /// Organic borders: bend the sample position with a 2-D warp.
+        private static float2 Warp(in Offsets o, float2 p) =>
+            p + new float2(Noise.Fbm(p / 7000f + o.coastB + 17f, 3), Noise.Fbm(p / 7000f + o.coastA + 29f, 3)) * WARP;
+
+        private static int Nearest(Layout L, float2 q, out float dmin)
         {
-            // Organic borders: bend the sample position with a 2-D warp.
-            float2 q = p + new float2(Noise.Fbm(p / 7000f + o.coastB + 17f, 3), Noise.Fbm(p / 7000f + o.coastA + 29f, 3)) * WARP;
-            float dmin = float.MaxValue; int nearest = 0;
+            dmin = float.MaxValue; int nearest = 0;
             for (int i = 0; i < L.Count; i++)
             {
                 float d = math.distance(q, L.seeds[i]);
                 if (d < dmin) { dmin = d; nearest = i; }
             }
+            return nearest;
+        }
+
+        /// Per-archetype weights at p (sum 1) and the nearest region's index.
+        /// `w` must hold KINDS floats.
+        public static int Weights(Layout L, in Offsets o, float2 p, float[] w)
+        {
+            float2 q = Warp(in o, p);
+            int nearest = Nearest(L, q, out float dmin);
             for (int k = 0; k < KINDS; k++) w[k] = 0f;
             float sum = 0f;
             for (int i = 0; i < L.Count; i++)
