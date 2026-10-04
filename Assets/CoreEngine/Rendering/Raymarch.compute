@@ -1978,8 +1978,13 @@ bool FarChunkResident(int2 rc)
 // point, before tLimit, at which the ray enters a NON-resident chunk column of
 // the window (the voxel march saw such columns as air). 2D DDA over chunk
 // columns, at most ~64 cells for a 32x32 window. Returns tLimit if none.
+// The cell is stepped as an INTEGER (Amanatides-Woo), never re-derived from a
+// float point: at x ~ 40000 a float step (0.0039) is wider than a fixed t
+// nudge moves the point, so floor() returned the same chunk after a -x/-z
+// face and the walk stalled to its cap (task 19, the coast black bar).
 float FarStartT(float3 O, float3 D, float tLimit)
 {
+    D = FarSafeDir(D);
     int2 oc = _WindowOriginBricksPacked.xz >> 4;
     int2 dims = int2(_WindowDimsChunksPacked.xz);
     float2 wmin = float2(oc * 128);
@@ -1990,18 +1995,20 @@ float FarStartT(float3 O, float3 D, float tLimit)
     float t0 = max(max(tlo.x, tlo.y), 0.0);
     float t1 = min(min(thi.x, thi.y), tLimit);
     if (t0 >= t1) return tLimit;
-    float t = t0 + 1e-3;
+    int2 rc = clamp(int2(floor((O.xz + D.xz * t0) / 128.0)) - oc, int2(0, 0), dims - 1);
+    int2 s = int2(D.x > 0.0 ? 1 : -1, D.z > 0.0 ? 1 : -1);
+    float tEnter = t0;
     [loop]
     for (int i = 0; i < 96; i++)
     {
-        float2 p = O.xz + D.xz * t;
-        int2 cc = int2(floor(p / 128.0));
-        if (!FarChunkResident(cc - oc)) return max(t - 1e-3, 0.0);
-        float2 bmin = float2(cc * 128);
+        if (!FarChunkResident(rc)) return tEnter;
+        float2 bmin = float2((rc + oc) * 128);
         float2 bmax = bmin + 128.0;
-        float2 tE = (float2(D.x > 0.0 ? bmax.x : bmin.x, D.z > 0.0 ? bmax.y : bmin.y) - O.xz) * invD;
-        t = min(tE.x, tE.y) + 1e-3;
-        if (t >= t1) return tLimit;
+        float2 tE = (float2(s.x > 0 ? bmax.x : bmin.x, s.y > 0 ? bmax.y : bmin.y) - O.xz) * invD;
+        if (tE.x < tE.y) { tEnter = tE.x; rc.x += s.x; }
+        else             { tEnter = tE.y; rc.y += s.y; }
+        // Leaving the window is not entering a non-resident column of it.
+        if (tEnter >= t1 || any(rc < 0) || any(rc >= dims)) return tLimit;
     }
     return tLimit;
 }

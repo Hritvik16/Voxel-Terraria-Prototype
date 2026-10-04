@@ -48,7 +48,7 @@ real and separate reason — see the LOD-cascade finding in
   - Any `SetVoxel` sets `deltaDirty`, so fluid moving near the start pose is the likely source. On v4 that leaves more than 4 such chunks.
   - `TerrainClipmap.UploadDirty` writes a resident chunk into its toroidal slot without checking that the chunk is inside the mirror box. A stray chunk therefore overwrites an in-box chunk ("lost") or fills a non-resident box position ("stale").
   - Golden screenshots of the two poses show no visible hole.
-- **BLACK BAR OVER THE SEA AT `coast_from_sea_30m` = `FarStartT`'s CHUNK DDA STALLS ON A -x CROSSING (task 18 located it, task 19 PINNED it 2026-10-04; NOT FIXED -- fix queued as `22-farstartt-integer-dda`, waits for owner approval).**
+- **BLACK BAR OVER THE SEA AT `coast_from_sea_30m` = `FarStartT`'s CHUNK DDA STALLS ON A -x CROSSING (task 18 located it, task 19 PINNED it 2026-10-04; FIXED by task 22, 2026-10-04 -- see the last sub-bullet).**
   - Seen in every `-world tg2` poses run since 2026-09-26 (v3 and v4). The dark arcs below the bar are a SEPARATE thing: voxel LOD tier seams (view 6).
   - **Mechanism (measured, task 19 pixel probe, `-coastprobe`, `Logs/tg2world_20261004_001514.txt`):**
     - `FarStartT` (`Raymarch.compute`) re-derives the chunk from a float point after a fixed `t += 1e-3` nudge: `cc = floor((O.xz + D.xz*t)/128)`.
@@ -64,7 +64,9 @@ real and separate reason — see the LOD-cascade finding in
     - Rays exit the camera's chunk through its -x face before the strip when |D.x/D.z| > 64/1376. Predicted bar edge at x 916; measured 915-916.
     - Same pose +12.8 m in x (camera again mid-chunk): the same edge, 915.
     - Yawed 180 deg: the bar moves to screen RIGHT (world -x), starting at x 1006-1007 (predicted 1006). Shots: `FarBand/2026-10-04_002102_world/`; composite `Logs/overnight/19_coast/coast_three_poses_noon.png`.
-  - Fix (queued, NOT applied): step the integer cell (Amanatides-Woo) in `FarStartT` only. `FarMarch`'s `tExit + 1e-3*cs` has the same nudge pattern (scaled by the cell size); not measured, to be checked in 22.
+  - **FIXED (task 22):** `FarStartT` now steps the INTEGER chunk cell (Amanatides-Woo), clamped into the window; leaving the window returns tLimit. Probe `Logs/tg2world_20261004_063855.txt`: bar pixel (500,720) `FarStartT` 230.9 -> 155.1 m, far hit normal (0,1,0) at 190.4 m. Dark run (R<12,G<20,B<35) in rows 700-740: 916 px before, 0-2 px after, in all three coast poses.
+    - Also fixed by the same change: a black slab over the lake in `eye_level_2` and `minimap_check_noon` (now blue water). Full poses run `Logs/tg2world_20261004_064339.txt`: 52 of 61 shots are pixel-identical to the pre-fix v4 run `2026-10-04_021148_world`; no new seam or hole.
+    - `FarMarch`'s `tn = tExit + 1e-3*cs` CANNOT hard-stall: it sets `t = tn` and `tExit = max(..., t)`, so t grows >= 0.008 voxels per step. A crossing that rounds back costs extra steps instead, about 0.24/|D.axis| of them at cs = 8, x ~ 40000. That only matters for near-grazing rays. Not changed. The probe pixels took 13-17 far steps.
   - **Images** (all in `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FarBand/2026-10-03_181049_world/`):
     - `coast_from_sea_30m_noon.png`: the black bar is left of centre, about 2/3 down, over the sea. The two thin dark arcs below it are the tier seams.
     - `coast_from_sea_30m_noon_farshadowoff.png`: the same frame with far shadows off. The bar is unchanged.
