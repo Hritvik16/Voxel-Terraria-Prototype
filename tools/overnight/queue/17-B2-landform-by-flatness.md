@@ -1,6 +1,6 @@
 # 17-B2-landform-by-flatness
 
-Requires: 15-B1-mapv4-record-biome-scale
+Requires: 15-B1-mapv4-record-biome-scale 16b-streaming-requirement-derived
 
 Surface rebuild step B2. Approval:
 - The plan was approved by the owner 2026-10-02 (rebuild plan Q11 (a)).
@@ -8,7 +8,9 @@ Surface rebuild step B2. Approval:
   Q7 (a) remove the inselbergs in v4; Q9 "not decided, needs testing": make
   gentleness a TUNABLE number, render 40% / 50% / 60% versions with images and
   numbers, and the owner picks. 50% is only the starting value.
-- The generation pass line is Q8 (a), 2026-10-03.
+- Streaming: the owner REMOVED the 5% relative pass line on 2026-10-03 ("a bad
+  rule ... should be mathematically derived"). B2 reports against the derived
+  requirement from task 16b instead (see the streaming section below).
 - Queued by the supervisor 2026-10-03 after B1, per SUPERVISOR.md's rebuild order.
 
 Branch `surface-rebuild`. This is a terrain-generator change, so run `SUITE=all`.
@@ -49,13 +51,15 @@ Seeds 42, 7, 2026 and 31337, from `PlayMetricsReport` (`REPORTS=1`) plus new tes
   Every image gets a caption in HANDOFF saying what to look at.
 - **Walk poses in each class:** one screenshot at walking height in a gentle, a
   broken and a steep region on v4 (seed 42), captioned. Read them before concluding.
-- **Streaming re-measure (heavy, player builds; owner Q8).**
+- **Streaming re-measure (heavy, player builds).**
   - Task 10's `MODE=stream` probe: walk x2 and fly 14 m/s x2 on v4, back to back on
     the SAME build with the same arms on v3 (`MAPV=4` vs default).
-  - Report every stage against v3 as better / worse / unchanged: worker gen p50/p95,
-    isolated gen, chunks/s, request->on-GPU, deficit, upload.
-  - **Pass line: worker chunk-gen p50 on v4 no worse than v3 on the same build by
-    more than 5%.** If worse, say by how much and STOP_FOR_OWNER.
+  - Report every stage AGAINST THE DERIVED REQUIREMENT from task 16b (KNOWN_ISSUES
+    "STREAMING REQUIREMENT"; the probe prints REQUIRED / MEASURED / MET or NOT MET):
+    worker gen p50/p95, isolated gen, chunks/s, request->on-GPU, deficit, upload.
+    Show v3 beside v4, and say whether each run was in the fast or slow worker mode.
+  - No relative 5% line (removed by the owner). Do NOT stop for the owner over
+    streaming numbers: meeting the requirement is its own track after 16b.
   - Then one `MODE=poses` run on v4. Read the screenshots for holes, floating
     geometry or a 90%-sea frame; caption the ones you cite.
   - Check `pmset -g batt` (task 12) and the owner-paused NOTE (tasks 14/14b). Rerun

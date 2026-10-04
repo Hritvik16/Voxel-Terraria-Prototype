@@ -70,11 +70,15 @@ frozen-API or memory-layout changes, anything the owner has not approved.
   time-to-visible, deficit, where the LOD hand-offs sit). Queue it BEFORE B1.
   Every B-step task file must re-run that measurement and report each stage
   against the baseline (better / worse / unchanged), next to its map metrics.
-  **Owner Q8 (a), 2026-10-03:** pass line in every B step = worker chunk-gen p50 on
-  v4 no worse than v3 (same build, back to back) by more than 5%. The worker-count /
-  QoS evidence sweep is NOT queued now: owner, 2026-10-03, "do it after or during
-  the overhaul" (no point measuring, changing the terrain, and measuring again).
-  Queue it alongside B9.
+  **Owner, 2026-10-03 18:3x: the 5% relative pass line (Q8 (a)) is REMOVED** --
+  "a bad rule ... how fast chunks load and unload should be mathematically derived,
+  not set arbitrarily ... and we want to ensure that this metric is met." Task 16b
+  derives the absolute requirement (deficit 0 inside the voxel-detail radius at
+  5 m/s, 14 m/s and the brief's 60 m/s flight) and the gap. Every B step reports
+  against it (REQUIRED / MEASURED / MET), v3 beside v4; no B step stops over it.
+  MEETING it is its own track: after 16b, turn its ranked fixes into an owner
+  question, then queue the approved fix one change per task (CLAUDE.md measurement
+  rules). The worker-count / QoS sweep belongs to that track now, not to B9.
 - **Owner, 2026-10-03: no day/night windows; a pause toggle instead (task 14).**
   When the owner says "pause" / "resume" in chat, run `tools/heavy.sh pause` /
   `resume`. Owner correction 2026-10-03 (task 14b): pause = DRAIN -- whatever is
@@ -84,7 +88,7 @@ frozen-API or memory-layout changes, anything the owner has not approved.
 - **Surface rebuild order (approved 2026-10-02/03), one B step per task:**
   B1 (15) -> B2 (renders 40/50/60% gentle; owner picks) -> B3 (owner: "still
   natural?") -> B4 -> B5 -> B6 (record only, no streaming check needed) -> B7 (ask
-  the owner first: town vs village difference) -> B8 -> B9 (+ the Q8 sweep) -> B10
+  the owner first: town vs village difference) -> B8 -> B9 -> B10
   (savanna + badlands; palette sign-off). Specs: the rebuild plan doc sections 1, 3
   and 4 plus its section 8 answers. Copy the numbers INTO the task file: task
   sessions cannot read claude.ai docs.
