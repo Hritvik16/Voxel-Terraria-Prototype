@@ -73,7 +73,7 @@ frozen-API or memory-layout changes, anything the owner has not approved.
   **Owner, 2026-10-03 18:3x: the 5% relative pass line (Q8 (a)) is REMOVED** --
   "a bad rule ... how fast chunks load and unload should be mathematically derived,
   not set arbitrarily ... and we want to ensure that this metric is met." Task 16b
-  derives the absolute requirement (deficit 0 inside the voxel-detail radius at
+  derives ONE absolute WORST-CASE requirement (owner: "calculate the worst case and go from there"; deficit 0 inside the voxel-detail radius at the fastest movement, worst heading, ground-skimming, worst gen cost, worst recentre timing; was: at
   5 m/s, 14 m/s and the brief's 60 m/s flight) and the gap. Every B step reports
   against it (REQUIRED / MEASURED / MET), v3 beside v4; no B step stops over it.
   MEETING it is its own track: after 16b, turn its ranked fixes into an owner
