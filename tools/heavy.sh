@@ -13,8 +13,8 @@
 #
 # HOLD = /tmp/voxel-unity.hold, next to the shared lock, so the sibling repo can honour it.
 # While it exists, unity_lock_acquire (tools/unity-lock.sh) waits, with no timeout. Nothing
-# is ever signalled. A script that takes the lock ONCE and launches several players in a
-# loop drains to its end; one that takes it per launch stops at the next launch boundary.
+# is ever signalled. Every script stops at its next launch boundary: per-launch callers in
+# unity_lock_acquire, lock-once loop scripts in unity_hold_wait before each launch (task 16).
 # Pauses are logged as "pause <epoch>" / "resume <epoch>" in Logs/heavy-pauses.log.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

@@ -25,6 +25,7 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
   rm -rf "$APP"
   "$UNITY_BIN" -batchmode -quit -nographics -projectPath "$(pwd)" \
     -executeMethod Phase5aSceneBuilder.GeneratePlayground -logFile Logs/upscale_scene.log
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   "$UNITY_BIN" -batchmode -quit -projectPath "$(pwd)" \
     -executeMethod CommandLineBuild.BuildPlaygroundStandalone -logFile Logs/upscale_build.log
   if grep -q "Shader error" Logs/upscale_build.log; then
@@ -35,6 +36,7 @@ fi
 
 if [ "${SKIP_QUALITY:-0}" != "1" ]; then
   echo "== 1. quality: 17 configs vs native 1920x1080 ==" | tee -a "$LOG"
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   caffeinate -dims open -n -W "$APP" --args -upscaleab -cleardeltas
   R=$(ls -td "$DATA/UpscaleAB"/*/ | head -n 1); cat "${R}upscale_ab.txt" | tee -a "$LOG"
   echo "images: $R" | tee -a "$LOG"
@@ -45,6 +47,7 @@ echo "== 2. sustained, ${MINUTES} min per arm: $ARMS ==" | tee -a "$LOG"
 i=0
 for arm in $ARMS; do
   f=${arm%%:*}; w=${arm##*:}; i=$((i + 1))
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   sleep 60
   echo "-- arm $i: $f @ $w   load: $(uptime | sed 's/.*load averages*: //')" | tee -a "$LOG"
   caffeinate -dims open -n -W "$APP" --args -sustained -motion orbit -gateres 0 -shadowlevel 0 \

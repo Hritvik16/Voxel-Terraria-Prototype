@@ -50,6 +50,9 @@ GATES="${GATES:-960 1920}"
 REPS="${REPS:-2}"          # 2 = counterbalanced (forward pass, then reverse)
 SECONDS_PER_RUN="${SECONDS_PER_RUN:-60}"
 mkdir -p Logs "$OUT"
+# No lock of its own (run it under tools/with-unity-lock.sh); sourced for unity_hold_wait,
+# so an owner pause (tools/heavy.sh pause) stops the matrix at the next launch (task 16).
+source tools/unity-lock.sh
 
 TS=$(date +%Y-%m-%d_%H%M%S)
 REPORT="$OUT/ab_${TS}.txt"
@@ -80,6 +83,7 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
     -executeMethod Phase5aSceneBuilder.GeneratePlayground -logFile Logs/phase7_ab_scene.log || {
       say "SCENE GEN FAILED"; tail -30 Logs/phase7_ab_scene.log; exit 1; }
   rm -rf "$APP"
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   "$UNITY" -batchmode -quit -projectPath "$(pwd)" \
     -executeMethod CommandLineBuild.BuildPlaygroundStandalone -logFile Logs/phase7_ab_build.log
   if grep -q "Shader error" Logs/phase7_ab_build.log; then
@@ -95,6 +99,7 @@ if echo "$ARMS" | grep -qw A && [ "${SKIP_BUILD:-0}" != "1" ]; then
   BASE_REF="${BASE_REF:-$(git rev-list -n1 --grep='Phase 6' HEAD 2>/dev/null || echo main)}"
   say "== Building arm A from the pre-Phase-7 commit ($BASE_REF) =="
   rm -rf .phase7-baseline
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   if git worktree add -f --detach .phase7-baseline "$BASE_REF" >>Logs/phase7_ab_build.log 2>&1; then
     ( cd .phase7-baseline && \
       "$UNITY" -batchmode -quit -nographics -projectPath "$(pwd)" \
@@ -150,6 +155,8 @@ run_one() {   # arm scenario gate rep
 
   local free; free=$(df -g . | tail -1 | awk '{print $4}')
   if [ "$free" -lt 5 ]; then say "!! ${free}GB free, below the 5GB floor -- stopping"; exit 2; fi
+
+  unity_hold_wait   # owner pause stops here, before the cooldown and launch (task 16)
 
   say ""
   say "---- arm $arm  scenario $scen  gate $gate  rep $rep   (cooling ${COOL}s, ${free}GB free) ----"

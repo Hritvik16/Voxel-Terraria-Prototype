@@ -45,6 +45,7 @@ if has build && [ "${SKIP_BUILD:-0}" != "1" ]; then
   rm -rf "$APP"
   "$UNITY_BIN" -batchmode -quit -nographics -projectPath "$(pwd)" \
     -executeMethod Phase5aSceneBuilder.GeneratePlayground -logFile Logs/flyfast_scene.log
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   "$UNITY_BIN" -batchmode -quit -projectPath "$(pwd)" \
     -executeMethod CommandLineBuild.BuildPlaygroundStandalone -logFile Logs/flyfast_build.log
   if grep -q "error CS" Logs/flyfast_build.log Logs/flyfast_scene.log; then
@@ -59,6 +60,7 @@ fi
 
 if has seams; then
   echo "" | tee -a "$LOG"; echo "== seams at altitude ==" | tee -a "$LOG"
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   caffeinate -dims open -n -W "$APP" --args -farseams -farband 1 -farshadow 1 -cleardeltas
   R=$(ls -td "$DATA/FarBand"/*_seams/ 2>/dev/null | head -n 1)
   if [ -n "$R" ] && [ -f "${R}farseams.txt" ]; then cat "${R}farseams.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"
@@ -68,6 +70,7 @@ fi
 fly() {  # fly <scenario> <label> <extra args...>
   local scen="$1" label="$2"; shift 2
   local tag="ff_${RUN_ID}_${scen}_${label}"
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   sleep 60
   echo "-- $scen arm $label  load: $(uptime | sed 's/.*load averages*: //')" | tee -a "$LOG"
   caffeinate -dims open -n -W "$APP" --args -flyfast -gateres 960 -shadowlevel 0 -seconds "$SECS" \
@@ -102,6 +105,7 @@ has hud && fly_scenario hud "A H H A" -flyheight 20
 orbit() {  # orbit <label> <extra args...>
   local label="$1"; shift
   local tag="ffo_${RUN_ID}_low8_${label}"
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   sleep 60
   echo "-- low8 arm $label  load: $(uptime | sed 's/.*load averages*: //')" | tee -a "$LOG"
   caffeinate -dims open -n -W "$APP" --args -sustained -motion orbit -gateres 960 -shadowlevel 0 \

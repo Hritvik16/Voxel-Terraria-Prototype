@@ -35,6 +35,7 @@ echo "run $RUN_ID  order: $ORDER  minutes/arm: $MINUTES" | tee -a "$LOG"
 if [ "${BUILD:-0}" = "1" ]; then
   rm -rf "$APP"
   "$UNITY_BIN" -batchmode -quit -nographics -projectPath "$(pwd)" -executeMethod Phase5aSceneBuilder.GeneratePlayground -logFile Logs/perf60_scene.log
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   "$UNITY_BIN" -batchmode -quit -projectPath "$(pwd)" -executeMethod CommandLineBuild.BuildPlaygroundStandalone -logFile Logs/perf60_build.log
   if grep -q "error CS" Logs/perf60_build.log Logs/perf60_scene.log; then grep -h "error CS" Logs/perf60_*.log | sort -u | tee -a "$LOG"; exit 1; fi
   if grep -q "Shader error" Logs/perf60_build.log; then grep "Shader error" Logs/perf60_build.log | tee -a "$LOG"; exit 1; fi
@@ -44,6 +45,7 @@ fi
 arm() {  # arm <label> <extra args...>
   local label="$1"; shift
   local tag="p60_${RUN_ID}_${label}"
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   sleep 60
   echo "-- arm $label  load: $(uptime | sed 's/.*load averages*: //')" | tee -a "$LOG"
   caffeinate -dims open -n -W "$APP" --args -sustained -motion orbit -gateres 960 -shadowlevel 0 \

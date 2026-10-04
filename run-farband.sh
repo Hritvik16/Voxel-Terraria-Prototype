@@ -41,6 +41,7 @@ if has build && [ "${SKIP_BUILD:-0}" != "1" ]; then
   rm -rf "$APP"
   "$UNITY_BIN" -batchmode -quit -nographics -projectPath "$(pwd)" \
     -executeMethod Phase5aSceneBuilder.GeneratePlayground -logFile Logs/farband_scene.log
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   "$UNITY_BIN" -batchmode -quit -projectPath "$(pwd)" \
     -executeMethod CommandLineBuild.BuildPlaygroundStandalone -logFile Logs/farband_build.log
   if grep -q "error CS" Logs/farband_build.log Logs/farband_scene.log; then
@@ -55,6 +56,7 @@ fi
 
 if has visual; then
   echo "" | tee -a "$LOG"; echo "== visual A/B ==" | tee -a "$LOG"
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   caffeinate -dims open -n -W "$APP" --args -farvisual -farband 1 -farshadow 1 -cleardeltas
   R=$(ls -td "$DATA/FarBand"/*/ 2>/dev/null | head -n 1)
   if [ -n "$R" ] && [ -f "${R}farvisual.txt" ]; then cat "${R}farvisual.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"
@@ -63,6 +65,7 @@ fi
 
 if has preview; then
   echo "" | tee -a "$LOG"; echo "== sizeClass 2 preview (TerrainGen through the far band) ==" | tee -a "$LOG"
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   caffeinate -dims open -n -W "$APP" --args -farpreview -farband 1 -farsource tg2 -farshadow 1 -cleardeltas
   R=$(ls -td "$DATA/FarBand"/*_preview/ 2>/dev/null | head -n 1)
   if [ -n "$R" ] && [ -f "${R}farpreview.txt" ]; then cat "${R}farpreview.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"
@@ -72,6 +75,7 @@ fi
 arm() {  # arm <scenario> <label> <extra args...>
   local scen="$1" label="$2"; shift 2
   local tag="fb_${RUN_ID}_${scen}_${label}"
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   sleep 60   # let the machine settle between launches
   echo "-- $scen arm $label  load: $(uptime | sed 's/.*load averages*: //')" | tee -a "$LOG"
   caffeinate -dims open -n -W "$APP" --args -sustained -motion orbit -gateres 960 -shadowlevel 0 \

@@ -27,6 +27,7 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
   rm -rf "$APP"
   "$UNITY_BIN" -batchmode -quit -nographics -projectPath "$(pwd)" \
     -executeMethod Phase5aSceneBuilder.GeneratePlayground -logFile Logs/lavalight_scene.log
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   "$UNITY_BIN" -batchmode -quit -projectPath "$(pwd)" \
     -executeMethod CommandLineBuild.BuildPlaygroundStandalone -logFile Logs/lavalight_build.log
   if grep -q "Shader error" Logs/lavalight_build.log; then
@@ -37,6 +38,7 @@ fi
 
 if [ "${SKIP_SHOTS:-0}" != "1" ]; then
   echo "== 1. ON/OFF screenshot pairs ==" | tee -a "$LOG"
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   caffeinate -dims open -n -W "$APP" --args -lavalight -cleardeltas
   R=$(ls -td "$DATA/LavaLight"/*/ | head -n 1); cat "${R}lavalight.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"
 fi
@@ -45,6 +47,7 @@ fi
 echo "" | tee -a "$LOG"
 echo "== 2. sustained, ${MINUTES} min per arm, counterbalanced ==" | tee -a "$LOG"
 for arm in "$SHARE" 0 0 "$SHARE"; do
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   sleep 60   # let the machine settle between launches
   echo "-- arm lavaslots=$arm  load: $(uptime | sed 's/.*load averages*: //')" | tee -a "$LOG"
   caffeinate -dims open -n -W "$APP" --args -sustained -motion orbit -gateres 960 -shadowlevel 0 \
