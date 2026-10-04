@@ -340,7 +340,8 @@ public class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer taaCur, taaMetaR, taaMetaW, taaColR, taaColW;
             public TextureHandle taaScratch;
             public int kTaaResolve, kTaaSharpen;
-            public int kPrimary;   // CSMain (0), or CSMainChecker with -checker
+            public int kPrimary;   // CSMain (0), or CSMainChecker with -checker, or CSMainDetail (task 24)
+            public bool primaryChecker;   // kPrimary is CSMainChecker: dispatch half the width
             public ComputeShader compute;
             public Camera cam;
             public Matrix4x4 invProjection;
@@ -550,6 +551,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.taa = taaOn ? 1 : 0;
                 passData.taaCur = _taaDummy4; passData.taaMetaW = _taaDummy2;
                 passData.kPrimary = 0;
+                passData.primaryChecker = false;
                 if (taaOn)
                 {
                     if (_taaCur == null || _taaW != dispatchW || _taaH != dispatchH)
@@ -592,7 +594,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                     // only the odd or only the even Halton indices -- for base 2,
                     // all >= 0.5 or all < 0.5: a half-pixel bias between the halves).
                     passData.taaChecker = TaaChecker ? 1 : 0;
-                    if (TaaChecker) passData.kPrimary = activeCompute.FindKernel("CSMainChecker");
+                    if (TaaChecker) { passData.kPrimary = activeCompute.FindKernel("CSMainChecker"); passData.primaryChecker = true; }
                     passData.taaCheckerParity = (int)(_taaFrame & 1u);
                     int hi = (int)((TaaChecker ? (_taaFrame >> 1) : _taaFrame) % TaaJitterCycle) + 1;
                     _taaFrame++;
@@ -1077,7 +1079,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                     int threadGroupsX = Mathf.CeilToInt(data.dispatchWidth / 8f);
                     int threadGroupsY = Mathf.CeilToInt(data.dispatchHeight / 8f);
                     // Checkerboard: the primary pass covers half the width.
-                    int primaryGroupsX = data.kPrimary != 0
+                    int primaryGroupsX = data.primaryChecker
                         ? ((data.dispatchWidth + 1) / 2 + 7) / 8 : threadGroupsX;
                     // NAMED for GPU capture. CommandBuffer.BeginSample emits a
                     // Metal debug group, so this shows up in an Instruments
