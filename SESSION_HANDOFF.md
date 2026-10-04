@@ -1,10 +1,10 @@
-# Session handoff -- 2026-10-04 03:00 (queue supervisor session; 23 running)
+# Session handoff -- 2026-10-04 03:15 (queue supervisor session; 25 running, then nothing runnable)
 
 ## State
 - **Branch `surface-rebuild`** (from `main`). `main` was fast-forwarded on 2026-10-03 14:40
   after SUITE=all 618/0/12. NOT pushed (owner hasn't asked).
 - Runner alive in tmux `overnight` (IDLE_MIN=0, under caffeinate). No PAUSE.
-  Running: **23** coarse-first plan (started 02:51, planning only). Done tonight: 20 (76a717a),
+  Running: **25** gen contention attribution (started 03:04). Done tonight: 23 (4fecdf6, plan), 20 (76a717a),
   21 (7d2125a, closed to done/ by the supervisor: report complete, fix = 26). Queue:
   **22** FarStartT integer DDA = coast black-bar fix (queued by 19; runner HOLDS it until
   `OWNER-APPROVES-22` is deleted from its Requires line -> owner Q16), **23** coarse-first plan
@@ -16,7 +16,9 @@
   Task agents number follow-ups after the last file they see: re-check `ls queue` before
   numbering a new supervisor task, and renumber on a clash.
   After 24: owner question "switch -detailspeed on?" with its off/on pictures.
-  After 23: publish PLAN_COARSE_FIRST_GEN.md's decisions as an owner question.
+  23's decisions are Q18 (order; (a) = column-pass sharing first -> queue it as the next
+  streaming task, SUITE=all + MODE=stream section 7) and Q19 (coarse-first details, later).
+  After 25 NOTHING is runnable without the owner: 22/26 held, 24 needs 22, B3 needs Q15.
 - **Owner pause:** "pause"/"resume" -> `tools/heavy.sh pause|resume` (DRAIN: running work
   finishes, nothing new heavy starts). Tell the owner when `status` says idle. Never kill.
 - B3 waits on **Q15** (B2's gentle share 40/50/60%, +cliffs option). Answer -> queue B3 from the
@@ -30,7 +32,8 @@ b88820b) · 16 pause gate in loop scripts (28455ec) · 18 coast black bar diagno
 diagonal dive), measured 13.9-16.2/s walking (141-164x short), latency budget 0 s by
 construction (far hand-over = residency edge). Details: KNOWN_ISSUES "STREAMING REQUIREMENT".
 
-## Waiting on the owner (doc "Waiting on you", rev 273)
+## Waiting on the owner (doc "Waiting on you", rev 276)
+- **Q18/Q19** (23): see above. Q18 (a) recommended.
 - **Q17** (21): approve 26 (retry save-capped evictions every frame). Recommended (a). On (a):
   delete `OWNER-APPROVES-26` from 26's Requires line, commit by path.
 - **Q16** (19): approve 22 (FarStartT integer DDA). Recommended (a). On (a): delete
@@ -41,7 +44,7 @@ construction (far hand-over = residency edge). Details: KNOWN_ISSUES "STREAMING 
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 273)
+  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 276)
 - Surface rebuild plan: https://claude.ai/code/artifact/f6222d44-1457-4a92-9460-3390d44e75fd
 - Game Design Brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
 - Terrain review: https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7
