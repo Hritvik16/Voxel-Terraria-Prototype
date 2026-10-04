@@ -27,6 +27,7 @@
 // moved on), a completion discarded on arrival, and an admitted chunk evicted
 // before its upload are dropped from the timeline and counted.
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using Unity.Mathematics;
 
 namespace VoxelEngine.Streaming
@@ -41,6 +42,11 @@ namespace VoxelEngine.Streaming
             public long tRequest, tDispatch, tWorkerDone, tAdmit, tUpload, tNear;
             public int fRequest, fDispatch, fAdmit, fUpload, fNear;
             public double genMs, downMs, admitMs, transferMs, cascadeMs;
+            // Task 25: the worker thread's own CPU time for the same two calls
+            // (-1 when the platform clock is unavailable), and how many GC
+            // collections (gen 0 count) started while the worker ran them.
+            public double genCpuMs, downCpuMs;
+            public int gcDuringWork;
             public bool uniform;
             public float distRequestM, distUploadM;
             internal int stamp;
@@ -65,6 +71,26 @@ namespace VoxelEngine.Streaming
         }
 
         public static long Now => System.Diagnostics.Stopwatch.GetTimestamp();
+
+        // ---- task 25 (2026-10-04): per-thread CPU time, diagnostic only ----
+        // wall >> CPU on a worker = it was not running (descheduled or stopped
+        // by the GC); CPU itself rising = it ran slower. macOS only; elsewhere
+        // (or if the call fails once) ThreadCpuNs returns -1.
+#if UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
+        [DllImport("/usr/lib/libSystem.B.dylib")]
+        private static extern ulong clock_gettime_nsec_np(int clockId);
+        private const int CLOCK_THREAD_CPUTIME_ID = 16; // <time.h>, macOS
+        private static bool _cpuClockOk = true;
+        public static long ThreadCpuNs()
+        {
+            if (!_cpuClockOk) return -1;
+            try { return (long)clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID); }
+            catch (System.Exception) { _cpuClockOk = false; return -1; }
+        }
+#else
+        public static long ThreadCpuNs() => -1;
+#endif
+        public static double CpuMs(long ns0, long ns1) => (ns0 < 0 || ns1 < 0) ? -1 : (ns1 - ns0) / 1e6;
         public static double Ms(long ticks) => ticks * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
 
         /// Nearest point of the chunk's box to the camera, metres (3D).
@@ -104,11 +130,13 @@ namespace VoxelEngine.Streaming
         }
 
         internal static void OnAdmit(int3 c, int frame, long tAdmit, double genMs, double downMs, long tWorkerDone,
-                                     double admitMs, double transferMs, double cascadeMs, bool uniform)
+                                     double admitMs, double transferMs, double cascadeMs, bool uniform,
+                                     double genCpuMs, double downCpuMs, int gcDuringWork)
         {
             if (!_open.TryGetValue(c, out var e) || e.stage != 1) return;
             e.tAdmit = tAdmit; e.fAdmit = frame; e.stage = 2;
             e.genMs = genMs; e.downMs = downMs; e.tWorkerDone = tWorkerDone;
+            e.genCpuMs = genCpuMs; e.downCpuMs = downCpuMs; e.gcDuringWork = gcDuringWork;
             e.admitMs = admitMs; e.transferMs = transferMs; e.cascadeMs = cascadeMs; e.uniform = uniform;
             _open[c] = e;
         }

@@ -469,6 +469,8 @@ namespace VoxelEngine.Streaming
             public Exception error;
             // StreamTrace only (zero when tracing is off): worker phase ticks.
             public long traceGenTicks, traceDownTicks, traceDoneTs;
+            public double traceGenCpuMs, traceDownCpuMs; // task 25: thread CPU time, -1 if unavailable
+            public int traceGcDuringWork;
         }
 
         public StreamManager(
@@ -828,10 +830,14 @@ namespace VoxelEngine.Streaming
             try
             {
                 bool trace = StreamTrace.Enabled;
+                int gc0 = trace ? System.GC.CollectionCount(0) : 0;
+                long cpu0 = trace ? StreamTrace.ThreadCpuNs() : 0;
                 long tw0 = trace ? StreamTrace.Now : 0;
                 var chunk = new Chunk();
                 GenerateBaseline(coord, chunk, scratch.allocator, scratch.pool);
                 if (trace) completion.traceGenTicks = StreamTrace.Now - tw0;
+                long cpu1 = trace ? StreamTrace.ThreadCpuNs() : 0;
+                if (trace) completion.traceGenCpuMs = StreamTrace.CpuMs(cpu0, cpu1);
 
                 // §4.2: a delta, if present, replays the player's edits onto the
                 // freshly-regenerated baseline. Decode runs HERE, on the worker,
@@ -873,6 +879,7 @@ namespace VoxelEngine.Streaming
                 // pure duplicated worker CPU, on the threads whose contention
                 // with the main thread is what starves frames in the first place.
                 long tw1 = trace ? StreamTrace.Now : 0;
+                long cpu2 = trace ? StreamTrace.ThreadCpuNs() : 0;
                 bool tier0Ready = LODDownsampler.PrepareTier0(chunk, scratch.pool, scratch.downsample);
                 for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
                 {
@@ -889,7 +896,12 @@ namespace VoxelEngine.Streaming
                 }
 
                 completion.chunk = chunk;
-                if (trace) { completion.traceDoneTs = StreamTrace.Now; completion.traceDownTicks = completion.traceDoneTs - tw1; }
+                if (trace)
+                {
+                    completion.traceDoneTs = StreamTrace.Now; completion.traceDownTicks = completion.traceDoneTs - tw1;
+                    completion.traceDownCpuMs = StreamTrace.CpuMs(cpu2, StreamTrace.ThreadCpuNs());
+                    completion.traceGcDuringWork = System.GC.CollectionCount(0) - gc0;
+                }
             }
             catch (Exception e)
             {
@@ -1012,7 +1024,8 @@ namespace VoxelEngine.Streaming
                         long ta1 = StreamTrace.Now;
                         StreamTrace.OnAdmit(c.coord, (int)_frame, ta0, StreamTrace.Ms(c.traceGenTicks), StreamTrace.Ms(c.traceDownTicks),
                                             c.traceDoneTs, StreamTrace.Ms(ta1 - ta0), StreamTrace.Ms(tt1 - tt0),
-                                            StreamTrace.Ms(ta1 - tc0), c.chunk.isUniform);
+                                            StreamTrace.Ms(ta1 - tc0), c.chunk.isUniform,
+                                            c.traceGenCpuMs, c.traceDownCpuMs, c.traceGcDuringWork);
                     }
                 }
                 finally
