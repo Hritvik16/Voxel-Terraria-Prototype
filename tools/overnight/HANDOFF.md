@@ -1,59 +1,41 @@
-Owner, still pending from earlier tasks: approve 26 (eviction retry) and 22 (coast bar) by deleting `OWNER-APPROVES-26` / `OWNER-APPROVES-22` from their Requires lines. Task 23 needs a plan decision (below). It blocks nothing in the queue.
+Owner, still pending from earlier tasks: approve 26 (eviction retry) and 22 (coast bar) by deleting `OWNER-APPROVES-26` / `OWNER-APPROVES-22` from their Requires lines. Task 23's plan decisions are in its commit 4fecdf6 / `PLAN_COARSE_FIRST_GEN.md`.
 
-# 23-coarse-first-gen-plan: DONE (plan only). Coarse-first is worth ~1.5-2x at the worst case, not 10x. An exact alternative found while planning (column-pass sharing, ~1.66x) should go first. The two stack to ~3x. Neither closes the gap alone.
+# 25-gen-contention-attribution: DONE. Workers mostly RUN SLOWER (thread CPU time x2.1 from 1 to 4 workers, flat to 7). Descheduling adds ~1.35x on top at 7 workers. GC is negligible.
 
-## What changed (no code, no builds, no Unity runs)
-- New `PLAN_COARSE_FIRST_GEN.md` (240 lines): what changes, a contracts table with REDESIGN flags, the gain estimate, risks, steps 0-5 and alternatives.
-- `KNOWN_ISSUES.md`: one sub-bullet under STREAMING REQUIREMENT ("Where a chunk's cost goes"). Commit 4fecdf6.
+## What changed
+- `StreamTrace` / `StreamManager.GenerateOnWorker`, trace-only (off unless the streamprobe runs). The probe now records the worker's thread CPU time for generate and downsample, via `clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)` (P/Invoke into libSystem; it works under IL2CPP). It also records how many GC collections started during each chunk's work.
+- The streamprobe report gives CPU, wall-CPU and wall/CPU per chunk, plus the walk's GC counts, the mono heap and one timed `GC.Collect()` after the walk. The TSV gains `genCpuMs downCpuMs gcN`.
+- Commit a909953 (code). Second commit: `tools/streamprobe-pair.py` pairs the CPU columns; a KNOWN_ISSUES sub-bullet under "Why a worker chunk costs 3x"; queue task 27.
+- Not available: cumulative allocated bytes (`GC.GetTotalAllocatedBytes` is not in Unity's API profile).
 
 ## Evidence
-All from existing data: the per-chunk TSVs of task 20's 8 walk launches, plus `Logs/TerrainGen/{cost,v2_chunk_cost,detail_cull}.txt`. The TSVs are in `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/StreamProbe/2026-10-04_*_streamwalk_*/streamprobe_chunks.tsv`.
+- Fast suite: PASS 611 FAIL 0 SKIP 12 (`Logs/overnight/25_suite_fast.out`).
+- 6 launches: `MODE=stream MOTION=walk EXTRA="-genworkers N"`, N = 1,4,7,7,4,1, map v3. All on AC at 100%, no owner pause, no slow mode. Driver: `Logs/overnight/25_driver.{sh,out}`. Runs 20261004_031133 / 032327 / 032921 / 033500 / 034041 / 034625.
+- Paired results, 971 non-uniform chunks common to all six launches (`Logs/overnight/25_pair.out`):
 
-**Premise corrected.** The 64-128 m ring is drawn at tier 1 (0.2 m, 1/8 of the voxels), not tier 2 (`LODConfig.cs:64`; `SelectLODTier` uses Euclidean distance). So the coarse level must be tier 1. A tier-2-first level saves little: 84% of the flux is inside 128 m.
+| N | wall p50 | thread CPU p50 | wall-CPU p50 | wall/CPU p50 | capacity /s |
+|---|---|---|---|---|---|
+| 1 | 72 / 62 | 70 / 61 | 0.9 / 0.3 | 1.01 / 1.00 | 7.9 / 10.9 |
+| 4 | 140 / 181 | 131 / 139 | 7.8 / 35 | 1.06 / 1.25 | 35.5 / 20.0 |
+| 7 | 191 / 177 | 136 / 135 | 54 / 43 | 1.39 / 1.33 | 37.8 / 36.2 |
 
-**Stage split, newly measured.** Air-fast-path chunks run only the column pass. Pairing them with non-uniform chunks in the same (cx,cz) column gives:
-- column pass = 0.60-0.63 of `Generate` (p25-p75 0.52-0.75), at both 1 and 7 workers;
-- voxel pass about 0.40;
-- downsample about 0.21 x gen on top.
-- The Editor's single-thread figure agrees: 24 of 41-46 ms.
-
-**Coarse chunk cost (estimate).**
-- Exact point-sample: 0.30 of a full chunk (3.4x cheaper).
-- Approximate MaxStep: 0.18 (5.4x cheaper).
-- The split inside the column pass (`PrepareColumn` ~1.1 us/column) is inferred by subtraction and is flagged as a guess in the plan.
-
-**Full-detail flux (derived from geometry).** The R_f = 76.8 m sphere still takes 870 /s of the 2,285 /s worst case (673 /s at 64 m, 416 /s at 44.8 m). The band is only 89.6 m tall, so the sphere covers most of it.
-
-**Result.**
-| option | gain | short of 2,285 /s with ideal workers |
-|---|---|---|
-| coarse-first (exact, R_f 76.8) | 1.47x | 12.8x |
-| coarse-first (approx, R_f 76.8) | 1.77x | 10.7x |
-| column sharing | 1.66x | 11.4x |
-| both, R_f 76.8 | 2.96x | 6.4x |
-| both, R_f 44.8 (detail radius at speed) | 4.6x | 4.1x |
-| same, dive capped | -- | 2.5x |
-
-With measured contention (33 /s), multiply each shortfall by ~3.7.
-
-**Column-pass repeat, measured.** ColumnJob ran 5.0 / 4.8 times per chunk column at 7 workers (6,388 runs over 1,275 columns) and 3.6 at 1 worker.
-
-**Main thread gets worse.** A coarse admit still writes the cascade (~1.0 ms of today's 1.22 ms admit), so the worst case is ~56 ms/frame vs 46.6 today. 16b's fix 3 becomes a prerequisite.
-
-## Contracts (detail in the plan's section 2)
-- **Unchanged:** `GetVoxel`, `SetVoxel`, `Generate`, D.1, the §4.4 table and the tier-0 uploader. A coarse chunk never enters `ChunkStore`; it is render-only, like the far band.
-- **REDESIGN, owner:**
-  - §6.4 + 8.9: "LOD0 0-128 m = physics boundary" and "tiers populated by majority vote". Physics, edits and CPU queries shrink to ~77 m, and tiers hold point-sampled data until refine.
-  - The §7.4 fluid wake radius must drop from 128 m to ~64 m (PHASE_5C §9.4 mass-loss precedent).
-- **Prerequisite:** downgrade (the memory step) inherits task 21's save-cap bug, so task 26 must land first.
+- **GC: ruled out.**
+  - 13-16 collections per 180 s walk at every N (gen0 = gen1 = gen2, since Boehm is not generational; incremental is on).
+  - A forced full collection pauses for 3-10 ms.
+  - Only 1-2.6% of chunks span a collection. Even 16 x 10 ms is under 0.1% of the walk.
+- **Classification per N:**
+  - N=1: wall = CPU (not descheduled).
+  - N=4: CPU x2.1 (slower while running), plus a run-dependent descheduling gap. Run B had 35 ms and capacity 20 /s vs run A's 35.5. Task 20 also saw ~17-19 /s at N=4, so A may be the outlier.
+  - N=7: CPU flat vs N=4. The extra wall time is descheduling: 7 threads x 61% CPU share is about 4.3 cores' worth.
+- **The slow state is a ~2.2x per-thread speed step, not gradual sharing** (`Logs/overnight/25_modes.out`).
+  - In both N=1 launches the worker switches to it about halfway through the walk. The CPU-time deciles go from 55 ms to 145-195 ms.
+  - Chunks that were slow at N=1 cost the same at N=4 (ratio 0.93). Chunks that were fast at N=1 slow down x2.19.
+  - The content difference between the two groups is only ~1.3x (both measured at N=4).
+  - So it is a machine speed state, not worker-vs-worker cache or bandwidth sharing, which a single worker cannot cause.
+  - What remains is **efficiency-core placement or thermal frequency.** This machine is an M1 MacBook Air: fanless, 4 performance + 4 efficiency cores. The capacity plateau at about 4 cores fits either explanation.
+- No screenshots: this task was numbers-only, so none were looked at.
 
 ## Unfinished / next
-- No follow-up queued: every step changes performance, so each needs owner approval.
-- Next: the supervisor turns the decisions below into an approval question. If 1(a) is chosen, the next task is step 0 (column sharing; `SUITE=all`; section 7 capacity).
-
-## Decisions for the owner (recommendation first)
-1. Order: (a) column-pass sharing first (exact, no contract change), then coarse-first step 1 / (b) coarse-first only / (c) shelve coarse-first and move the worst case first (16b item 4).
-2. The §6.4/8.9 redesign (full detail and physics only within ~77 m; point-sampled tiers until refine): (a) accept behind `-coarsefirst`, OFF by default, and judge the pop from pictures / (b) accept only if step 1 shows < X% differing tier-1 voxels / (c) reject.
-3. Fluid wake radius under the flag: (a) shrink to ~64 m (distant water stops ticking) / (b) keep 128 m and always refine water chunks (loses much of the gain near coasts) / (c) decide after step 3a.
-4. Coarse sampling: (a) exact point-sample (3.4x cheaper, bit-exact test) / (b) approximate MaxStep (5.4x, no exactness test).
-5. Downgrade to bound memory: (a) as step 5, after task 26, with the pool cap re-derived from PeakUsed / (b) never (simpler, no memory gain) / (c) now.
+- Efficiency cores vs thermal is not separated. Queued **27** (evidence only): a worker-start-time column, plus N=1 cold-vs-warm launches in ABBA order. If the onset comes earlier when warm, the cause is thermal.
+- A direct efficiency-core test would set the workers' QoS (`pthread_set_qos_class_self_np`) behind a flag. That changes priority, so it needs the owner's OK. It is not queued.
+- Peak memory (MB): N=1 2,990 / 2,969; N=4 2,964 / 3,195; N=7 3,215 / 3,239. The 3 GB cap is exceeded at N=7 (a known issue).
