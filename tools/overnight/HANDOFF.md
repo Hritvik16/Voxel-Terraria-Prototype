@@ -42,14 +42,13 @@ Still waiting on the owner from earlier: 15 (B1, accept v4's gen cost or A/B?), 
    - Gain: roughly an order of magnitude on most of the band.
    - This is the only lever on the list that plausibly closes the ~19x left after fix 1.
 3. **Main thread and upload** (2-4x short): raise or derive `MAX_CHUNK_LOADS_PER_FRAME` and `MAX_CLIPMAP_CHUNKS_PER_FRAME` from A_max, and cut admit cost (~1 ms, most of it cascade writes).
-   - Only matters after 1 and 2.
+   - Only matters after 1 and 2. (Generation order is already nearest-first plus heading; it cannot fix a throughput gap.)
 4. **Change the worst case (owner):**
    - (a) Detail radius at speed, e.g. 7 chunks at 60 m/s with requests still at 10: M = 38.4 m, L_min = 0.62 s, A_max unchanged.
    - (b) Request to 13, the most a 32-chunk window allows, with detail at 10: same 0.62 s, but A_max becomes 3,640 /s.
    - (c) Cap vertical flight speed: the dive is 57% of A_max. Level-only is 974 /s.
    - (d) Fewer band layers at speed.
    - (a) or (b) also needs the far hand-over decoupled from residency.
-- Generation order is already nearest-first plus heading. It cannot fix a throughput gap.
 
 ## Left / notes
 - The "slow worker mode" p99 used is from the walk arms. The worst observed (fly 56, p99 3,230 ms) is also tabled.
