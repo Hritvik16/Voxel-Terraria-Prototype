@@ -4,8 +4,7 @@ Owner, still pending from earlier tasks: approve 26 (eviction retry) and 22 (coa
 
 ## What changed (no code, no builds, no Unity runs)
 - New `PLAN_COARSE_FIRST_GEN.md` (240 lines): what changes, a contracts table with REDESIGN flags, the gain estimate, risks, steps 0-5 and alternatives.
-- `KNOWN_ISSUES.md`: one sub-bullet under STREAMING REQUIREMENT ("Where a chunk's cost goes").
-- Commit: see `git log -1` (task 23).
+- `KNOWN_ISSUES.md`: one sub-bullet under STREAMING REQUIREMENT ("Where a chunk's cost goes"). Commit 4fecdf6.
 
 ## Evidence
 All from existing data: the per-chunk TSVs of task 20's 8 walk launches, plus `Logs/TerrainGen/{cost,v2_chunk_cost,detail_cull}.txt`. The TSVs are in `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/StreamProbe/2026-10-04_*_streamwalk_*/streamprobe_chunks.tsv`.
@@ -40,8 +39,6 @@ With measured contention (33 /s), multiply each shortfall by ~3.7.
 **Column-pass repeat, measured.** ColumnJob ran 5.0 / 4.8 times per chunk column at 7 workers (6,388 runs over 1,275 columns) and 3.6 at 1 worker.
 
 **Main thread gets worse.** A coarse admit still writes the cascade (~1.0 ms of today's 1.22 ms admit), so the worst case is ~56 ms/frame vs 46.6 today. 16b's fix 3 becomes a prerequisite.
-
-No screenshots: a planning task, none asked for.
 
 ## Contracts (detail in the plan's section 2)
 - **Unchanged:** `GetVoxel`, `SetVoxel`, `Generate`, D.1, the §4.4 table and the tier-0 uploader. A coarse chunk never enters `ChunkStore`; it is render-only, like the far band.
