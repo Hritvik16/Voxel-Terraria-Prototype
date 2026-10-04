@@ -481,8 +481,12 @@ public partial class PlaygroundCapture
         }
         L("");
         L("per-frame rows: streamprobe_frames.tsv; per-chunk rows: streamprobe_chunks.tsv");
+        // task 27: workStartS = the worker's start on the chunk, s since launch (the Stopwatch
+        // clock re-zeroed on realtimeSinceStartup's); the "walk start" line gives the walk's t0 on that scale.
+        L($"walk start {runStart:F2} s since launch, s0 {s0:F1} m, {speed:F1} m/s -- chunks' workStartS is on the same scale");
+        long launchTick = System.Diagnostics.Stopwatch.GetTimestamp() - (long)(Time.realtimeSinceStartupAsDouble * System.Diagnostics.Stopwatch.Frequency);
         var cr = new StringBuilder(done.Count * 100);
-        cr.Append("cx\tcy\tcz\tuniform\tgenMs\tdownMs\treqDispMs\tjobWaitMs\tcomplWaitMs\tadmitMs\ttransferMs\tcascadeMs\tadmUpMs\treqUpMs\treqUpFrames\tdistReqM\tdistUpM\tlateMs\tgenCpuMs\tdownCpuMs\tgcN\n");
+        cr.Append("cx\tcy\tcz\tuniform\tgenMs\tdownMs\treqDispMs\tjobWaitMs\tcomplWaitMs\tadmitMs\ttransferMs\tcascadeMs\tadmUpMs\treqUpMs\treqUpFrames\tdistReqM\tdistUpM\tlateMs\tgenCpuMs\tdownCpuMs\tgcN\tworkStartS\n");
         foreach (var e in done)
         {
             long workStart = e.tWorkerDone - (long)((e.genMs + e.downMs) * System.Diagnostics.Stopwatch.Frequency / 1000.0);
@@ -494,7 +498,8 @@ public partial class PlaygroundCapture
               .Append(StreamTrace.Ms(e.tUpload - e.tAdmit).ToString("F2")).Append('\t').Append(StreamTrace.Ms(e.tUpload - e.tRequest).ToString("F2")).Append('\t')
               .Append(e.fUpload - e.fRequest).Append('\t').Append(e.distRequestM.ToString("F1")).Append('\t').Append(e.distUploadM.ToString("F1")).Append('\t')
               .Append(e.fNear >= 0 ? StreamTrace.Ms(e.tUpload - e.tNear).ToString("F2") : "").Append('\t')
-              .Append(e.genCpuMs.ToString("F3")).Append('\t').Append(e.downCpuMs.ToString("F3")).Append('\t').Append(e.gcDuringWork).Append('\n');
+              .Append(e.genCpuMs.ToString("F3")).Append('\t').Append(e.downCpuMs.ToString("F3")).Append('\t').Append(e.gcDuringWork).Append('\t')
+              .Append((StreamTrace.Ms(workStart - launchTick) / 1000.0).ToString("F3")).Append('\n');
         }
         File.WriteAllText(Path.Combine(_folder, "streamprobe_chunks.tsv"), cr.ToString());
         File.WriteAllText(Path.Combine(_folder, "streamprobe_frames.tsv"), rows.ToString());
