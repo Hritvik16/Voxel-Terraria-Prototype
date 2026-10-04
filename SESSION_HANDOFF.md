@@ -1,4 +1,4 @@
-# Session handoff -- 2026-10-04 07:15 (queue supervisor session; 24 running; builds PAUSED until 08:30)
+# Session handoff -- 2026-10-04 07:15 (queue supervisor session; 24 running; builds PAUSED 08:35, drain + 30 min)
 
 ## State
 - **Branch `surface-rebuild`** (from `main`). `main` was fast-forwarded on 2026-10-03 14:40
@@ -9,8 +9,8 @@
   retry -> **29** B3 light erosion (60 iterations; plan's B3 targets; owner render check) ->
   **30** column-pass sharing (bit-identical; records Q19 = 2a 3a 4a 5a in the plan).
 - **Owner paused builds 07:04 for an hour.** A detached job runs `tools/heavy.sh resume` at
-  08:30 (owner moved it from 08:05; no PAUSE file this time, so the runner keeps going and its builds wait). Check
-  `tools/heavy.sh status` after 08:31; if it still says PAUSED, run `tools/heavy.sh resume`.
+  "idle + 30 min" (owner re-paused 08:35: let the running player finish, then 30 min; no PAUSE file this time, so the runner keeps going and its builds wait). Check
+  `tools/heavy.sh status` ~35 min after the drain; if it still says PAUSED, run `tools/heavy.sh resume`.
 - **PREAMBLE rule 9 (owner Q20 (a)):** performance at WARM STEADY STATE: one discarded warm-up
   launch, then measured arms back to back, ABBA.
 - After 24: owner question "switch -detailspeed on?" with off/on pictures. After 29: owner
