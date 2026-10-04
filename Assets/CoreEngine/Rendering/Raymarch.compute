@@ -2056,7 +2056,9 @@ struct FarHit
 // fpBase: the camera distance (voxels) of the ray's ORIGIN -- 0 for a primary
 // ray, the hit's distance for a far shadow ray -- so the footprint level
 // follows the camera distance of every sample, as the near cascade's 8.2 rule.
-FarHit FarMarch(float3 O, float3 D, float tStart, int stepCap, bool skipWindow, float fpBase)
+// tVoxelEnd (task 24): the voxel march owns a resident column only at t below
+// this (the detail square's exit); 3.0e38 = everywhere, as before.
+FarHit FarMarch(float3 O, float3 D, float tStart, int stepCap, bool skipWindow, float fpBase, float tVoxelEnd)
 {
     FarHit r;
     r.hit = false; r.t = 0.0; r.normal = int3(0, 1, 0); r.texel = 0u; r.level = 0; r.cell = int2(0, 0); r.steps = 0;
@@ -2123,7 +2125,7 @@ FarHit FarMarch(float3 O, float3 D, float tStart, int stepCap, bool skipWindow, 
                        && c.x * tv >= wMin.x && (c.x + 1) * tv <= wMax.x
                        && c.y * tv >= wMin.z && (c.y + 1) * tv <= wMax.z
                        && FarChunkResident(((c * tv) >> 7) - (wMin.xz >> 7))
-                       && (_DetailRadiusVoxels <= 0.0 || cheb < _DetailRadiusVoxels))
+                       && t < tVoxelEnd)
         {
             t = tExit + 1e-3 * (float)cs;
             continue;
@@ -2643,12 +2645,12 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         float tFar = (_FarEnabled == 2) ? 0.0 : FarStartT(rayStart, rayDir, skipVoxel ? 0.0 : min(currentDist, tDetail));
         if (skipVoxel && _FarEnabled == 1) tFar = 0.0;
         tFarDbg = tFar;
-        fh = FarMarch(rayStart, rayDir, tFar, (int)_FarParams.z, _FarEnabled == 1, 0.0);
+        fh = FarMarch(rayStart, rayDir, tFar, (int)_FarParams.z, _FarEnabled == 1, 0.0, tDetail);
         farHit = fh.hit;
         if (farHit && _SunDir.y > 0.0 && _FarShadow != 0 && _ShadowQualityLevel < 3)
         {
             float3 hp = rayStart + rayDir * fh.t + float3(fh.normal) * 0.05;
-            FarHit fs = FarMarch(hp, FarSafeDir(normalize(_SunDir)), 0.0, (int)_FarParams.w, false, fh.t);
+            FarHit fs = FarMarch(hp, FarSafeDir(normalize(_SunDir)), 0.0, (int)_FarParams.w, false, fh.t, 3.0e38);
             farSunVis = fs.hit ? 0.0 : 1.0;
             farShadowSteps = fs.steps;
         }
