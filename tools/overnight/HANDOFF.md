@@ -28,8 +28,7 @@ Still waiting on the owner from earlier: 15 (B1, accept v4's gen cost or A/B?), 
   - Ideal (isolated 58 ms x 7 threads): ~121 /s, still 19x short.
 - 2 confirming launches (walk, AC power, no owner-pause NOTE, one build):
   - v3 `Logs/tg2world_20261003_201553.txt`: CAPACITY 16.2 /s, NOT MET (141x); p99 7.5 /s (303x). Latency p99 34.1 s against 0. Main thread 41.0 ms against 16.7.
-  - v4 `Logs/tg2world_20261003_202723.txt`: 13.9 /s (164x), p99 6.8 /s (334x), 35.4 s, 37.8 ms.
-  - Peak footprint 3175 / 3155 MB (over the 3 GB cap, as known).
+  - v4 `Logs/tg2world_20261003_202723.txt`: 13.9 /s (164x), p99 6.8 /s (334x), 35.4 s, 37.8 ms. Peak footprint 3175 / 3155 MB (over the 3 GB cap, as known).
 - Other lines, from existing data:
   - Admission cap 16/frame vs 38 needed. Clipmap 16 chunks/frame vs 38. About 9.9 MB/frame vs the 3 MB cap (estimate).
   - Eviction about 0.12 / 0.52 ms per chunk (estimate): 4.5 / 20 ms per frame.
