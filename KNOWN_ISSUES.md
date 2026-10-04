@@ -68,8 +68,65 @@ real and separate reason — see the LOD-cascade finding in
     - `coast_from_sea_30m_golden_view10.png` (far step heat): the blue rectangle at the bar's position = an immediate far hit. The rest of the sea is yellow.
     - `coast_from_sea_30m_golden_view11.png` (voxel stop): all green or blue, with no magenta or red. The voxel march was not capped over resident terrain.
     - `coast_from_sea_30m_golden_view6.png` (voxel tier): the red/green and green/blue boundaries lie exactly on the two dark arcs of the noon shot.
+- **STREAMING REQUIREMENT (worst case, derived 2026-10-03, task 16b). It REPLACES
+  B1's "no more than 5% worse than v3" pass line (owner removed it 2026-10-03).**
+  Code: `StreamingRequirement.cs` (pure, live constants), pinned by
+  `StreamingRequirementTests`. `MODE=stream ./run-tg2world.sh` prints it as
+  report section 7: `REQUIRED x/s, CAPACITY y/s -> MET / NOT MET (short by fx)`,
+  plus latency and main-thread lines. `tools/streamprobe-table.py` tabulates them.
+  **Today: NOT MET on every line, and the latency line CANNOT be met at any
+  throughput. The latency line is a design choice for the owner, not engine speed.**
+  - **Constants.**
+    - Chunk edge E = 12.8 m: `CHUNK_EDGE_VOXELS` = 128 (`EngineConfig.cs:465`), x 0.1 m (`CoordMath.cs:12`).
+    - Load radius r = 10 (`EngineConfig.cs:268` `TG2_LOAD_RADIUS_CHUNKS`). Side 21. Chebyshev square round the camera's chunk (`StreamManager.cs:696-740`).
+    - Band L = 7 layers = 2 x `V_LOAD_LAYERS` 3 + 1 (`StreamManager.cs:235`). Y recentre moves `V_STREAM_LAG` + 1 = 2 layers at once (`StreamManager.cs:236`, `CentredBand` :275; a fast fall uses it, `FALL_SPEED_CENTRED` 4 m/s, :306).
+    - Window 32 x 16 x 32 (`EngineConfig.cs:70-71`); evict radius 12 = r + `HYSTERESIS_RING_CHUNKS` 2 (`EngineConfig.cs:82`); max evict radius 15 (`StreamManager.cs:432`). GPU mirror 32 x 8 x 32 (`EngineConfig.cs:261`).
+    - **R_d (where voxels hand over to the far band) = the residency edge**: `FarStartT` hands a ray to the far band at the first NON-resident chunk column (`Raymarch.compute:1977-2003`). So R_d = r x E = 128 m (to 140.8 m, by where the camera is in its chunk).
+    - **Recentre rule: no request-side hysteresis in X/Z.** A chunk is requested in the Update of the frame the camera crosses a chunk plane (`StreamManager.cs:596-604`), so up to one frame late. Its near face is then exactly r x E = 128 m away, i.e. already ON R_d.
+    - Prefetch margin M = (request radius - R_d) x E = **0**.
+    - Hysteresis exists only for EVICTION. The window's 3 spare chunks (15 - 12) are unused by requests.
+  - **The worst case, factor by factor.**
+    - v = 60 m/s: the brief's Decided "late-game flight". Nothing in the game is faster: terminal fall 55 m/s (`PlayerConfig.cs:86`) + 5.2 m/s run (:53). The dev fly camera (up to 120 x4, `PlaygroundFlyCamera.cs:22-25`) is a tool.
+    - Heading: an X or Z plane crossing adds side x L = 147 chunks; a Y layer adds side^2 = 441. Rate = ((|vx|+|vz|) x 147 + |vy| x 441) / E. By Cauchy-Schwarz the max is v/E x sqrt(2 x 147^2 + 441^2): a diagonal DIVE about 65 deg down a mountainside (tg2 has 70 deg slopes; a fast fall takes the centred band).
+    - Terrain: skimming the ground, so every chunk is full cost (no uniform/air fast path).
+    - Latency-worst heading: along an axis (closing speed v on the face).
+  - **Requirement table** (r 10, L 7, E 12.8, v 60, 60 Hz):
+    | line | formula | number |
+    |---|---|---|
+    | A_max, worst heading | v/E x sqrt(2(side L)^2 + side^4) | **2,285 chunks/s** |
+    | level diagonal only | sqrt2 v side L / E | 974 /s |
+    | straight dive only | v side^2 / E | 2,067 /s |
+    | brief's estimate (axis, level) | v side L / E | 689 /s (= its "~700") |
+    | burst per crossing | side L; (2 side - 1) L; 2 side^2 | 147; 287 corner; 882 per Y recentre |
+    | L_min, request -> on GPU p99 | M / v - 1 frame | **0 s: M = 0, unmeetable** |
+    | per-chunk gen time at W workers | <= W / A_max | 3.1 ms (7 workers), 1.75 ms (4 P-cores) |
+    | main thread | A_max / 60 x admit ms <= 16.7 ms | 38.1 admits/frame |
+    | unload | = A_max | 38.1 evictions/frame |
+    | cold start / teleport | band / A_max | 3,087 chunks -> 1.35 s. **PROPOSED** target 2 s (behind a fade); met by construction if A_max is |
+  - **The gap** (existing data: task 10 + B1, 21 arms; non-uniform chunks; 7 workers;
+    capacity = 7 x 1000 / (gen + downsample ms)):
+    | mode | gen+down p50 / p99 ms | capacity p50 / p99 /s | short of 2,285 by | worst-case speed sustained |
+    |---|---|---|---|---|
+    | fly 56 m/s (worst observed) | 984 / 3,230 | 7.1 / 2.2 | 322x / 1,053x | 0.19 m/s |
+    | walk, slow mode, v3 | 437 / 1,154 | 16.0 / 6.1 | 143x / 377x | 0.42 m/s |
+    | walk, slow mode, v4 (4 of 4 runs) | 462 / 1,010 | 15.2 / 6.9 | 150x / 330x | 0.40 m/s |
+    | walk, fast mode, v3 (3 of 7 v3 runs) | 241 / 754 | 29.0 / 9.3 | 79x / 246x | 0.76 m/s |
+    | isolated (main thread, workers idle) x 7, ideal | 49-65 p50 | ~121 | 19x | 3.2 m/s (7.4 m/s level) |
+    - Measured admitted rate (incl. 37-86% uniform chunks): 20-53 chunks/s.
+    - Latency: request -> on GPU p99 8.8 s (fly 56) to 33.6 s (walk) vs a 0 s budget.
+    - Main thread: 38.1 x admit p50 0.86-1.97 ms = 33-75 ms per frame (2-4.5x over 16.7 ms). Admission cap `MAX_CHUNK_LOADS_PER_FRAME` = 16 (`EngineConfig.cs:177`), 2.4x under.
+    - Upload: `MAX_CLIPMAP_CHUNKS_PER_FRAME` = 16 (`EngineConfig.cs:161`), 2.4x under. Mean ~260 KB per uploaded chunk -> ~9.9 MB/frame vs the 3 MB cap (`:150`), 3.3x (estimate: bytes/frame are not linear in chunks).
+    - Unload: ~0.12 ms p50 / 0.52 ms p99 per evicted chunk (estimate: frames with >= 20 evictions and no admission; includes slide + pending rebuild). x 38.1 = 4.5 / 20 ms: fits at p50, not at p99.
+    - **Stage that limits: generation**, by 19x even with perfect 7-thread scaling of the isolated cost. Admission and upload are 2-4x short behind it.
+    - Section 7 confirmed on 2 walk launches, AC, no owner pause (one build, 2026-10-03 20:16). v3 (`Logs/tg2world_20261003_201553.txt`): capacity 16.2 / 7.5 /s, short 141x / 303x; latency p99 34.1 s; main thread 41.0 ms. v4 (`Logs/tg2world_20261003_202723.txt`): 13.9 / 6.8 /s, short 164x / 334x; 35.4 s; 37.8 ms.
+  - **The latency line needs a design change.**
+    - Because R_d IS the load radius, every newly requested chunk is already inside R_d. Even walking fails it.
+    - Any budget needs request radius > detail radius. Examples: at 60 m/s, request 10 / detail 7, or request 13 / detail 10 (the most today's window allows: `MaxLoadRadiusChunks(32)` = 13). Either gives M = 38.4 m -> L_min = 0.62 s.
+    - Request 13 also raises A_max to 3,640/s (side 27). Detail 7 at speed keeps 2,285/s.
+    - Both need the far hand-over decoupled from residency, or a speed-dependent detail radius.
 - **STREAMING BASELINE v3 (2026-10-02, task 10; measured 2026-10-03).** The
-  numbers every surface-rebuild step (B1 on) is compared against.
+  numbers every surface-rebuild step (B1 on) is compared against. (Since task 16b
+  the PASS LINE is the STREAMING REQUIREMENT entry above, not a % vs this table.)
   `MODE=stream ./run-tg2world.sh` (`MOTION=walk|fly`, `EXTRA="-movespeed 14"`):
   `-streamprobe` (`PlaygroundCapture.StreamProbe.cs`) with `StreamTrace` (opt-in,
   observe-only, per-chunk timeline). Side-by-side table:
