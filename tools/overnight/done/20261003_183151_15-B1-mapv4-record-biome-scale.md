@@ -74,3 +74,7 @@ this metric is met."
 streaming requirement and the gap; B2 (17) reports against it. Q11 (patch-median
 reading) and Q12 (biome scale pick) stay open in the Queue decisions doc; neither blocks.
 Closed by the supervisor; moved to done/.
+
+## Owner answers (2026-10-03 ~20:00, Queue decisions doc)
+- Q11 (a): "median biome patch >= 50 ha" is read as the AREA-WEIGHTED median. B1 passes.
+- Q12 (a): biome scale x3 stays (the v4 default B1 shipped). No change needed.
