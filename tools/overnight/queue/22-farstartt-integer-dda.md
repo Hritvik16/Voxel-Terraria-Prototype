@@ -1,8 +1,9 @@
 # 22-farstartt-integer-dda
 
-Requires: 19-coast-bar-pixel-probe OWNER-APPROVES-22
-**NEEDS OWNER APPROVAL** (it changes rendering code). The runner holds this task
-until `OWNER-APPROVES-22` is deleted from the Requires line (no such task exists).
+Requires: 19-coast-bar-pixel-probe
+**APPROVED by the owner 2026-10-04 (Queue decisions Q16 (a)).** It changes rendering code.
+Also, doc only (owner Q20 (a), 2026-10-04): add PREAMBLE.md rule 9 (warm steady state) as one
+bullet to CLAUDE.md "Measurement discipline", in the same words, in this task's commit.
 
 Fix the coast black bar (KNOWN_ISSUES "BLACK BAR OVER THE SEA", pinned by task 19).
 

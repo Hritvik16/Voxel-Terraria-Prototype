@@ -1,8 +1,7 @@
 # 26-deferred-eviction-retry
 
-Requires: 21-poses-mirror-lost-check OWNER-APPROVES-26
-**NEEDS OWNER APPROVAL** (it changes streaming eviction, §4.5). The runner holds this
-task until `OWNER-APPROVES-26` is deleted from the Requires line (no such task exists).
+Requires: 21-poses-mirror-lost-check
+**APPROVED by the owner 2026-10-04 (Queue decisions Q17 (a)).** It changes streaming eviction, §4.5.
 
 Fix the MIRROR lost/stale counts at the first poses of a `MAPV=4` poses run
 (KNOWN_ISSUES "SAVE-CAPPED EVICTIONS ARE NEVER RETRIED", found by task 21).
