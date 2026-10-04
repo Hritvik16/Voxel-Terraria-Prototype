@@ -2612,10 +2612,12 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     bool farHit = false;
     float farSunVis = 1.0;
     int farShadowSteps = 0;
+    float tFarDbg = -1.0;   // task 19 probe only
     if (_FarEnabled != 0 && !hit)
     {
         float tFar = (_FarEnabled == 2) ? 0.0 : FarStartT(rayStart, rayDir, skipVoxel ? 0.0 : currentDist);
         if (skipVoxel && _FarEnabled == 1) tFar = 0.0;
+        tFarDbg = tFar;
         fh = FarMarch(rayStart, rayDir, tFar, (int)_FarParams.z, _FarEnabled == 1, 0.0);
         farHit = fh.hit;
         if (farHit && _SunDir.y > 0.0 && _FarShadow != 0 && _ShadowQualityLevel < 3)
@@ -2631,6 +2633,51 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             InterlockedAdd(ShadowStats[6], (uint)(fh.steps + farShadowSteps));
             if (farHit) InterlockedAdd(ShadowStats[7], 1u);
         }
+    }
+    // TASK 19 (2026-10-04, DIAGNOSTIC ONLY): the far hand-off at the ONE debug
+    // pixel (the coast black bar). Writes DebugOut 46-87 and nothing else; no
+    // other pixel's state or shading is touched. Read by -coastprobe.
+    if (isDebugPixel)
+    {
+        DebugOut[46] = currentDist;
+        DebugOut[47] = (float)steps;
+        DebugOut[48] = maxDist;
+        DebugOut[49] = tFarDbg;                     // FarStartT's result as used (-1: far not run)
+        DebugOut[50] = fh.t;
+        DebugOut[51] = (float)fh.normal.x; DebugOut[52] = (float)fh.normal.y; DebugOut[53] = (float)fh.normal.z;
+        DebugOut[54] = (float)fh.level;
+        DebugOut[55] = fh.hit ? 1.0 : 0.0;
+        DebugOut[56] = (float)fh.steps;
+        DebugOut[57] = hit ? 1.0 : 0.0;
+        DebugOut[58] = skipVoxel ? 1.0 : 0.0;
+        DebugOut[59] = (float)_FarEnabled;
+        DebugOut[60] = rayStart.y + rayDir.y * max(tFarDbg, 0.0);   // ray height at the far start
+        DebugOut[61] = (float)(fh.texel & 0xFFFFu);                 // hit texel's top
+        DebugOut[62] = (float)fh.cell.x; DebugOut[63] = (float)fh.cell.y;
+        // The strip column this ray crosses, 3 chunk rows in from the window's
+        // far edge along the view (+z: row dims.z-3 = z chunk 44 at the coast pose).
+        int2 ocD = _WindowOriginBricksPacked.xz >> 4;
+        int dzD = (int)_WindowDimsChunksPacked.z;
+        int rowD = (rayDir.z > 0.0) ? dzD - 3 : 2;
+        float zMidD = (float)((ocD.y + rowD) * 128 + 64);
+        float tzD = (zMidD - rayStart.z) / rayDir.z;
+        int cxD = (int)floor((rayStart.x + rayDir.x * tzD) / 128.0) - ocD.x;
+        DebugOut[64] = tzD;
+        DebugOut[65] = (float)rowD;
+        DebugOut[66] = (float)cxD;
+        DebugOut[67] = FarChunkResident(int2(cxD, rowD)) ? 1.0 : 0.0;
+        [unroll] for (int wD = 0; wD < 5; wD++)
+        {
+            uint wordD = FarResident[(uint)(dzD - 5 + wD)];   // rows dims.z-5 .. dims.z-1, one 32-bit word each
+            DebugOut[68 + 2 * wD] = (float)(wordD & 0xFFFFu);
+            DebugOut[69 + 2 * wD] = (float)(wordD >> 16);
+        }
+        DebugOut[78] = (float)_WindowOriginBricksPacked.x; DebugOut[79] = (float)_WindowOriginBricksPacked.y; DebugOut[80] = (float)_WindowOriginBricksPacked.z;
+        DebugOut[81] = (float)_WindowDimsChunksPacked.x; DebugOut[82] = (float)_WindowDimsChunksPacked.y; DebugOut[83] = (float)_WindowDimsChunksPacked.z;
+        DebugOut[84] = (float)_ContentFloorVoxelY; DebugOut[85] = (float)_ContentCeilingVoxelY;
+        // FarStartT with no limit: where the strip entry WOULD be.
+        DebugOut[86] = FarStartT(rayStart, rayDir, 1.0e9);
+        DebugOut[87] = _FarParams.x;
     }
 
     // =======================================================================

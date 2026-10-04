@@ -285,6 +285,19 @@ public partial class PlaygroundCapture
             done = 1;
         }
 
+        // TASK 19 (2026-10-04): -coastprobe keeps only the coast pose, plus the
+        // same pose moved +1 chunk (+12.8 m) in x and the same pose yawed 180
+        // deg, and dumps the far hand-off at a bar pixel and a control pixel.
+        bool coastProbe = HasFlag("-coastprobe");
+        if (coastProbe)
+        {
+            var cp = poses.Find(q => q.Item1 == "coast_from_sea_30m");
+            poses.Clear();
+            poses.Add(cp);
+            poses.Add(("coast_x1chunk", cp.Item2 + new Vector3(12.8f, 0f, 0f), cp.Item3));
+            poses.Add(("coast_yaw180", cp.Item2, Quaternion.Euler(0f, 180f, 0f) * cp.Item3));
+            L("COAST PROBE (-coastprobe, task 19): 3 poses; pixels in screenshot coords (1920x1080 frame, top-left origin)");
+        }
         foreach (var (n, pos, rot) in poses)
         {
             foreach (float hours in new[] { SunCycle.GoldenHourHours, 12f })
@@ -304,6 +317,17 @@ public partial class PlaygroundCapture
                 double ms = 0; for (int i = 0; i < 60; i++) { yield return null; ms += Time.unscaledDeltaTime * 1000.0; }
                 string tn = hours == 12f ? "noon" : "golden";
                 yield return CaptureTo($"{n}_{tn}");
+                if (coastProbe)
+                {
+                    L($"[task19] {n} {tn}");
+                    yield return CoastProbe(cam, new Vector2Int(500, 720), "bar");
+                    yield return CoastProbe(cam, new Vector2Int(1400, 720), "control");
+                    if (n == "coast_yaw180")
+                    {
+                        yield return CoastProbe(cam, new Vector2Int(1400, 720), "mirror-bar");
+                        yield return CoastProbe(cam, new Vector2Int(500, 720), "mirror-control");
+                    }
+                }
                 if (hours != 12f)
                 {
                     RaymarchFeature.DebugViewOverride = (RaymarchFeature.DebugMode)9;
@@ -375,6 +399,65 @@ public partial class PlaygroundCapture
         Debug.Log("[farpreview]\n" + _log);
         yield return null;
         Application.Quit(0);
+    }
+
+    /// TASK 19 probe: one pixel (screenshot coords, top-left origin, scaled
+    /// from a 1920x1080 frame) -> the dispatch pixel. Both Y conventions are
+    /// tried and the GPU's own rayDir is compared with the camera's
+    /// (Phase3AcceptanceRig: the mapping is validated, not assumed). Then the
+    /// shader's far hand-off slots (46-87) and the CPU residency words.
+    private IEnumerator CoastProbe(Camera cam, Vector2Int shot, string label)
+    {
+        var res = RaymarchFeature.LastDispatchResolution;
+        if (res.x <= 0 || RaymarchFeature.DebugBuffer == null) { L($"  {label}: no dispatch resolution / debug buffer"); yield break; }
+        float fx = shot.x / 1920f, fyTop = shot.y / 1080f;
+        Vector3 want = cam.ScreenPointToRay(new Vector3((fx) * Screen.width, (1f - fyTop) * Screen.height, 0f)).direction.normalized;
+        int px = Mathf.Clamp(Mathf.RoundToInt(fx * res.x), 0, res.x - 1);
+        var cands = new[] { ("Y-flipped", new Vector2Int(px, Mathf.Clamp(Mathf.RoundToInt((1f - fyTop) * res.y), 0, res.y - 1))),
+                            ("Y-as-is", new Vector2Int(px, Mathf.Clamp(Mathf.RoundToInt(fyTop * res.y), 0, res.y - 1))) };
+        float[] best = null; string bestName = null; float bestDot = -2f; Vector2Int bestPx = default;
+        string dots = "";
+        foreach (var (cn, dp) in cands)
+        {
+            RaymarchFeature.DebugPixel = dp;
+            yield return Frames(4);
+            yield return new WaitForEndOfFrame();
+            var d = new float[128];
+            RaymarchFeature.DebugBuffer.GetData(d);
+            float dot = Vector3.Dot(new Vector3(d[0], d[1], d[2]).normalized, want);
+            dots += $" {cn} dot {dot:F6}";
+            if (dot > bestDot) { bestDot = dot; best = d; bestName = cn; bestPx = dp; }
+        }
+        var o = best;
+        string ok = bestDot > 0.9999f ? "VALIDATED" : "NOT VALIDATED -- do not trust";
+        L($"  {label} shot ({shot.x},{shot.y}) -> dispatch {bestPx.x},{bestPx.y} of {res.x}x{res.y} [{bestName}, {ok};{dots}]");
+        L($"    rayDir ({o[0]:F4},{o[1]:F4},{o[2]:F4})  voxel hit {o[57]:F0}  currentDist {o[46] * 0.1f:F1} m  steps {o[47]:F0}  maxDist {o[48] * 0.1f:F1} m  skipVoxel {o[58]:F0} farEnabled {o[59]:F0}");
+        L($"    FarStartT used {o[49] * 0.1f:F1} m (unlimited {o[86] * 0.1f:F1} m)  ray Y there {o[60]:F0} vox  | far hit {o[55]:F0} t {o[50] * 0.1f:F1} m  normal ({o[51]:F0},{o[52]:F0},{o[53]:F0})  level {o[54]:F0}  cell ({o[62]:F0},{o[63]:F0})  texel top {o[61]:F0}  steps {o[56]:F0}  maxH {o[87]:F0}");
+        L($"    strip column: row {o[65]:F0} (z chunk {o[80] / 16f + o[65]:F0}), ray at t {o[64] * 0.1f:F1} m -> window x {o[66]:F0} (x chunk {o[78] / 16f + o[66]:F0})  FarChunkResident {o[67]:F0}");
+        string gw = "";
+        for (int w = 0; w < 5; w++) gw += $" {((uint)o[69 + 2 * w] << 16) | (uint)o[68 + 2 * w]:X8}";
+        L($"    shader: WindowOriginBricksPacked ({o[78]:F0},{o[79]:F0},{o[80]:F0}) = chunks ({o[78] / 16f:F2},{o[79] / 16f:F2},{o[80] / 16f:F2})  dims chunks ({o[81]:F0},{o[82]:F0},{o[83]:F0})  content Y [{o[84]:F0},{o[85]:F0})  FarResident words {o[83] - 5:F0}..{o[83] - 1:F0}:{gw}");
+        var far = FarField.Active; var clip = Phase4Bootstrapper.Clipmap; var store = Phase4Bootstrapper.Store;
+        if (far != null && clip != null && store != null)
+        {
+            string cw = "", lw = "";
+            for (int w = 27; w < 32; w++) cw += $" {far.ResidentWord(w):X8}";
+            for (int w = 0; w < 6; w++) lw += $" {far.ResidentWord(w):X8}";
+            L($"    CPU: UpdateResidency origin {far.LastResidencyOrigin} dims {far.LastResidencyDims} layers {far.LastResidencyLayers} | Clipmap origin bricks {clip.WindowOriginBricks} dims chunks {clip.WindowDimsChunks} | Store origin {store.WindowOrigin} | words 27..31:{cw} | words 0..5:{lw}");
+            // The store itself, per strip row: resident chunks at any layer, left/right of the camera's chunk.
+            int3 oc = far.LastResidencyOrigin, dc = far.LastResidencyDims;
+            int camCx = (int)math.floor(cam.transform.position.x / 12.8f) - oc.x;
+            string rows = "";
+            for (int rz = 0; rz < dc.z; rz++)
+            {
+                int left = 0, right = 0;
+                for (int rx = 0; rx < dc.x; rx++)
+                for (int cy = far.LastResidencyLayers.x; cy <= far.LastResidencyLayers.y; cy++)
+                    if (store.IsResident(new int3(oc.x + rx, cy, oc.z + rz))) { if (rx < camCx) left++; else right++; }
+                if (rz < 6 || rz >= dc.z - 5) rows += $" r{rz}:{left}/{right}";
+            }
+            L($"    store resident chunks per row (left/right of camera window x {camCx}):{rows}");
+        }
     }
 
     /// A ledge column near the island centre and an open-air eye 12 m from it

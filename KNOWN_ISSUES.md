@@ -43,24 +43,23 @@ real and separate reason — see the LOD-cascade finding in
 ## Known open issues (act on these, don't rediscover them)
 
 - **OWNER PAUSE (`tools/heavy.sh pause|resume|status`, tasks 14/14b, 2026-10-03) DRAINS, it does not freeze.** The current lock holder runs to completion; every new `unity_lock_acquire` waits (no timeout) until `resume`, then the usual 45 s clear check. It takes effect at the next LOCK ACQUISITION or, since task 16, at the next LAUNCH of a script that takes the lock once and loops (`run-lavalight-ab`, `run-upscale-ab`, `run-roofskip-ab`, `run-perf60`, `run-looksweep`, `run-overhaul-batch`, `run-flyfast`, `run-farband`, `run-phase7-lighting-ab`): each calls `unity_hold_wait` before every player launch / build step / sub-rig, KEEPING the lock while it waits (`resume` touches it), and before the `sleep 60` / `COOL` settle, so the settle follows the pause. Those in-loop waits skip the 45 s clear check (the script owns the lock). Proven 2026-10-03 on `ORDER="S S" MINUTES=1 ./run-perf60.sh` (`Logs/overnight/16_perf60_pause.out`): launch 1 finished, `held by owner pause -- waiting`, listed under "waiting on the pause", ran arm 2 after `resume`. A NEW looping script must do the same or it drains to its end; per-launch callers (`run-tg2world.sh` loops) stop at the next launch. A run that printed `NOTE: owner paused during this run` may have contaminated timings (Mac likely in use) -- rerun that arm. Nothing frees RAM early any more (the owner dropped `--kill`).
-- **BLACK BAR OVER THE SEA AT `coast_from_sea_30m` = A FAR-BAND HAND-OFF FAULT IN THE NON-RESIDENT STRIP OF THE WINDOW (task 18, 2026-10-03; DIAGNOSED, MECHANISM NOT PINNED, NOT FIXED).**
-  - Seen in every `-world tg2` poses run since 2026-09-26 (pixel-identical in v3 07:47 and v4 16:16, so NOT from B1). It is in none of the `-farpreview` (far-band-only) runs, so the voxel window is involved.
-  - The dark arcs below the bar are a SEPARATE thing. They are the voxel LOD tier boundaries: the dark rows equal the tier changes of view 6 in every column tested (rows 777/840 for tier 1->2, 1048 for 0->1). This is a tier seam on flat water, not this bug.
-  - **What the bar is (measured):**
-    - Every bar pixel is a far-band F0 hit (view 9, green), not a voxel hit.
-    - It is not a far shadow: it is identical with `far.ShadowsOn = false`.
-    - The voxel march was not capped over resident terrain (view 11 all green).
-    - The far march hits within a few steps there: the only low-step (blue) patch below the horizon in view 10.
-    - Its colour is water albedo on an unlit face, RGB (1,5,13).
-  - **Where it is (measured):**
-    - Pose eye (4000, 542, 400) m. Window origin chunks (296, 34, 15), 32x32. Resident = the +-10-chunk (128 m) load square, 3087 = 21x21x7.
-    - Bar bottom (row ~754) = the far edge of the load square, 137.6 m out.
-    - Bar top (row ~692, 60 deg FOV, 0.8 deg pitch) = rays that reach the WINDOW's far edge (z chunk 47, 201.6 m) exactly at sea level.
-    - So the bar is the in-window, NON-resident strip (z chunks 42-46). It is drawn only for chunk columns x < 312 (left of the camera's chunk, right edge at screen x 915). The same strip right of x = 312 draws normal sea.
-  - **Most likely mechanism (fits the geometry exactly, code path not pinned):** for those rays the far march starts at the voxel march's end (about the window edge), not at the strip entry (`FarStartT`). There the ray is already below the far sea top (`seaLevelY + 1`), so `FarMarch`'s first test `y0 <= H` returns a -z SIDE-FACE hit on the first water texel outside the window: a dark water wall.
-    - `FarStartT` can only skip the strip if it reads those columns as resident. The CPU bitmap (`FarField.UpdateResidency`, store identity-checked) should be 0 there, so the left-only extent is unexplained.
-    - The alternative (wrong far texels about 10 m above sea at the strip entry) fits only by coincidence, and the preview runs argue against it.
-  - Pinning it is queued as an evidence task: `tools/overnight/queue/19-coast-bar-pixel-probe.md`. A fix (likely in `FarStartT` / the residency bits, or clamping a below-surface far start) waits for that and for the owner.
+- **BLACK BAR OVER THE SEA AT `coast_from_sea_30m` = `FarStartT`'s CHUNK DDA STALLS ON A -x CROSSING (task 18 located it, task 19 PINNED it 2026-10-04; NOT FIXED -- fix queued as `22-farstartt-integer-dda`, waits for owner approval).**
+  - Seen in every `-world tg2` poses run since 2026-09-26 (v3 and v4). The dark arcs below the bar are a SEPARATE thing: voxel LOD tier seams (view 6).
+  - **Mechanism (measured, task 19 pixel probe, `-coastprobe`, `Logs/tg2world_20261004_001514.txt`):**
+    - `FarStartT` (`Raymarch.compute`) re-derives the chunk from a float point after a fixed `t += 1e-3` nudge: `cc = floor((O.xz + D.xz*t)/128)`.
+    - At x = 40000 voxels a float32 step is 0.0039 voxels, but the nudge moves x by only |D.x|*1e-3 = 0.00043. So after a -x face the point rounds back onto the face (39936.0) and floor() returns the same chunk. The loop repeats to its 96 cap and returns tLimit.
+    - Reproduced step for step in a float32 model (t sticks at 147.40, p.x = 39936.0).
+    - Rays with D.x > 0 land on the next chunk's minimum and work.
+  - **Numbers (bar pixel (500,720) vs control (1400,720)):**
+    - Both pixel mappings were checked against the GPU's own rayDir (dot 0.999999; Y-flipped; dispatch 960x540).
+    - Bar pixel: `FarStartT` = 230.9 m, which equals the voxel march's end (currentDist). With no limit it returns 1e8 m, i.e. "none found". The far march starts at ray Y 5057 vox, under the sea top (texel 5121), and hits immediately: normal (0,0,-1), a water SIDE face.
+    - Control pixel: 154.0 m (the strip entry), ray Y 5176. It hits the top face (0,1,0) at 189.0 m.
+    - Residency is CORRECT: the CPU words 27..31 and the shader's `FarResident` words are all 0. The column the ray crosses at z chunk 44 reads `FarChunkResident` 0. The CPU origin/dims passed to `UpdateResidency` = (296,38,15)/(32,8,32) = the shader's `_WindowOriginBricksPacked` (4736,608,240) >> 4.
+  - **Extent follows the camera's chunk and WORLD -x:**
+    - Rays exit the camera's chunk through its -x face before the strip when |D.x/D.z| > 64/1376. Predicted bar edge at x 916; measured 915-916.
+    - Same pose +12.8 m in x (camera again mid-chunk): the same edge, 915.
+    - Yawed 180 deg: the bar moves to screen RIGHT (world -x), starting at x 1006-1007 (predicted 1006). Shots: `FarBand/2026-10-04_002102_world/`; composite `Logs/overnight/19_coast/coast_three_poses_noon.png`.
+  - Fix (queued, NOT applied): step the integer cell (Amanatides-Woo) in `FarStartT` only. `FarMarch`'s `tExit + 1e-3*cs` has the same nudge pattern (scaled by the cell size); not measured, to be checked in 22.
   - **Images** (all in `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FarBand/2026-10-03_181049_world/`):
     - `coast_from_sea_30m_noon.png`: the black bar is left of centre, about 2/3 down, over the sea. The two thin dark arcs below it are the tier seams.
     - `coast_from_sea_30m_noon_farshadowoff.png`: the same frame with far shadows off. The bar is unchanged.

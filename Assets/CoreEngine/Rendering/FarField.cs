@@ -257,6 +257,12 @@ namespace VoxelEngine.Rendering
             return new int2(((cx - EDGE / 2) >> 5) << 5, ((cz - EDGE / 2) >> 5) << 5);
         }
 
+        /// Task 19 probe (diagnostic): the bitmap word last uploaded, and the
+        /// window/band it was built for.
+        public uint ResidentWord(int i) => i >= 0 && i < _residentBits.Length ? _residentBits[i] : 0u;
+        public int3 LastResidencyOrigin, LastResidencyDims;
+        public int2 LastResidencyLayers;
+
         /// Rebuilds the residency bitmap from the store (1024 lookups for a
         /// 32x32 window; uploaded every frame, 128 bytes).
         public void UpdateResidency(ChunkStore store, int3 windowOriginChunks, int3 windowDimsChunks)
@@ -289,6 +295,8 @@ namespace VoxelEngine.Rendering
                 Resident = new GraphicsBuffer(GraphicsBuffer.Target.Structured, words, sizeof(uint));
             }
             Resident.SetData(_residentBits, 0, 0, words);
+            LastResidencyOrigin = windowOriginChunks; LastResidencyDims = windowDimsChunks;
+            LastResidencyLayers = new int2(layerLo, layerHi);
             LastFrame.residencyMs = (float)((System.Diagnostics.Stopwatch.GetTimestamp() - r0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency);
         }
 
