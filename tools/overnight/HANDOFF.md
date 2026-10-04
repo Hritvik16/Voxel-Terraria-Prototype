@@ -1,8 +1,6 @@
 STOP_FOR_OWNER -- B1's streaming pass line is NOT met on the walk arm. Worker chunk-gen p50 is v4 373-389 ms vs v3 187-372 ms on the same build: +79% against v3's median (210 ms), +3% against v3's slowest arm. Fly 14 m/s passes (v4 463-498 vs v3 314-542). Question: (a) accept B1 (my read: v3 has a run-level "fast mode" v4 has not hit yet, not a per-chunk v4 cost -- evidence below), (b) approve a diagnostic -- a `-biomescale` player flag and an A/B of v4 x1 vs v4 x3 on one build -- or (c) something else?
 Owner pick: biome scale x2/x3/x4 (shipped x3) -- Logs/overnight/b1_maps/seed{42,7,2026,31337}_biome_scales.png
-
 # 15-B1-mapv4-record-biome-scale: code done and committed; maps pass; streaming walk fails the 5% line (owner call)
-
 ## What changed (commit d1e5587 on surface-rebuild)
 - `TerrainSpec.biomeScale` (0 = version default: x3 on v4, ignored below v4) and `SizeClass2(seed, mapVersion)`. `Offsets.biomeScale` and `Offsets.For(spec)`. `ShapeField.Biome` divides by `15000f*s` and `12000f*s`.
 - `WorldMap.BuildV4` = `BuildV3` + the new `WorldRecord.cs`: 6 B/cell, 1024^2 cells = **6,291,456 B**.
@@ -14,7 +12,6 @@ Owner pick: biome scale x2/x3/x4 (shipped x3) -- Logs/overnight/b1_maps/seed{42,
 - `PlayMetricsReport`: `PLAYMETRICS_MAPV=3,4` (versions built back to back), biome-scale strips, `b1_biome_scale.txt`, and `[Timeout]` (8 builds take more than 180 s).
 - New `WorldRecordTests` (4 tests): v3 biome equals the pre-B1 formula; v4 map equals the v3 map cell for cell; the record is deterministic, differs by seed and is <= 7 MB; biome change >= 2.5x.
 - Queued `18-coast-pose-black-bar-check.md`. It is pre-existing, see below.
-
 ## Evidence -- maps (EditMode; Logs/overnight/b1_maps/, also Logs/TerrainGen/playmetrics/)
 - `SUITE=all` **PASS 622 FAIL 0 SKIP 12** (630 + 4 new): `Logs/overnight/b1_suite_all.out`.
 - **v3 unchanged.** Against the 2026-10-02 files (copies in `Logs/overnight/b1_v3_ref/`):
@@ -28,13 +25,11 @@ Owner pick: biome scale x2/x3/x4 (shipped x3) -- Logs/overnight/b1_maps/seed{42,
   - The median of patches of 1 ha or more is 5.5-9.3 ha. If you meant the count median, this check fails.
 - **Record:** 6,291,456 B (<= 7 MB). Hashes: 42 `8E63407409FB4CE4`, 7 `7CFE2DD0EE320F75`, 2026 `E196E2AD581CC5EC`, 31337 `A72DAE0F99DE7C24`. Rebuilds match; seeds differ; 0 cells differ from ShapeField.Biome.
 - **Build time v3 -> v4, same run:** +0.3 / -0.4 / +0.1 / -0.1 s. The limit was +2 s. A single-threaded first version measured +7 s, which is why the biome plane moved to a worker.
-
 ## Images (each strip, left to right: v3 (x1) | x2 | x3 | x4; desert sand-yellow, snow white, forest light green, jungle dark green)
 - `b1_maps/seed42_biome_scales.png`: v3 is dozens of interleaved ~300 m patches. At x3 one desert band runs from the west coast diagonally through the centre to the south. Snow holds the north, east and south-west, with forest between. At x4 snow takes the western half and desert the north-east.
 - `seed7_biome_scales.png`: at x3 forest fills the centre and east, snow the west and north-east coasts, desert the south. x4 adds a big northern snow cap.
 - `seed2026_biome_scales.png`: at x3 desert covers the north-west third plus a strip past the volcano (east-centre). Forest is centre/south-west, snow only the south tip.
 - `seed31337_biome_scales.png`: at x3 snow is about half the island. **At x4 it is about two-thirds snow**: the clearest case of x4 letting one biome own a world.
-
 ## Evidence -- streaming (one player build; 14 launches; AC 100%, no owner-pause NOTE on any arm)
 - Full tables: `Logs/overnight/b1_stream_summary.txt`. Arm logs: `Logs/overnight/b1_arm_*.out`.
 - **Walk 5 m/s, p50, v3 x4 reps | v4 x4 reps** (reps 3-4 added to chase an outlier):
@@ -58,6 +53,5 @@ Owner pick: biome scale x2/x3/x4 (shipped x3) -- Logs/overnight/b1_maps/seed{42,
   - `map_7000m_noon.png`: the island from above shows the x3 seed-42 layout (desert diagonal W->S, snow N/E/SW). The dark disc with an orange dot at right is the volcano's ash and caldera, the same as in v3's `2026-10-03_074726_world`. No holes and no floating geometry.
   - `eye_level_1_noon.png`: dark ash foreground, with a lit summit centre-top that has a desert-orange rim. The frame is otherwise the same as v3's.
   - `coast_from_sea_30m_noon.png`: about 50% sea. **A black horizontal bar sits on the water left of centre, about 2/3 down, with two dark arcs below it.** It is identical in v3's 07:47 run, so it predates B1 and is not in KNOWN_ISSUES. Queued as task 18.
-
 ## Next
 Your answer on the streaming line decides whether 17 (B2) proceeds on v4. If (b): add `-biomescale` (one arg read next to `-mapversion`), rebuild, and run walk v4 x1 vs v4 x3 vs v3, 2 reps each, interleaved.
