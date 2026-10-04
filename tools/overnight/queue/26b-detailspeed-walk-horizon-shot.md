@@ -1,8 +1,8 @@
-# 31-detailspeed-walk-horizon-shot
+# 26b-detailspeed-walk-horizon-shot
 
 Requires: 24-detail-radius-at-speed
 
-Queued by task 24 (low-risk QA follow-up, no owner decision, no performance change).
+Queued by task 24 (low-risk QA follow-up, no owner decision, no performance change). Renumbered 31 -> 26b by the supervisor (2026-10-04 13:20) so the owner's Q21 (detailspeed on?) can be answered before the long B3 task.
 
 ## Why
 Task 24 asked "is the voxel/far hand-over visible at walking speed?" The stream probe's

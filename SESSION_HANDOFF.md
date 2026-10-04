@@ -1,4 +1,4 @@
-# Session handoff -- 2026-10-04 07:15 (queue supervisor session; 24 running; builds PAUSED 08:35, drain + 30 min)
+# Session handoff -- 2026-10-04 13:20 (queue supervisor session; 26 running; builds running)
 
 ## State
 - **Branch `surface-rebuild`** (from `main`). `main` was fast-forwarded on 2026-10-03 14:40
@@ -30,7 +30,9 @@ state is heat-triggered (c2bd8cb) · 28 four workers heat the chip themselves (2
 Owner: paused builds 21:52-22:52 (auto-resumed); answered Q13 (a), Q14 (a) -> tasks 24, 23.
 
 ## Waiting on the owner
-- Nothing (doc rev 297). Q6/Q7 (TAA/checker stills) still the owner's to look at; nothing queued.
+- **Q21 (doc rev 298): switch `-detailspeed` on by default?** Recommended (a): wait for 26b's walking
+  shot. 24 DONE 13:15 (4b03fe9). Its follow-up 31 was renumbered 26b (runs after 26) so Q21 can close sooner.
+- Older: Q6/Q7 (TAA/checker stills) still the owner's to look at; nothing queued.
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
