@@ -1,6 +1,6 @@
-# 22-detail-radius-at-speed
+# 24-detail-radius-at-speed
 
-Requires: 19-coast-bar-pixel-probe
+Requires: 22-farstartt-integer-dda
 
 Approval: owner, 2026-10-04 ~00:00, Queue decisions doc Q13, answer (a). Q13 asked
 how the game should buy time to load chunks at speed. Option (a), as approved:
@@ -8,7 +8,7 @@ how the game should buy time to load chunks at speed. Option (a), as approved:
 still loading out to 10 (128 m). Each chunk gets 0.62 s to build; the rate needed
 stays 2,285 chunks/s. Cost: while flying fast, voxel detail ends closer and the far
 band starts nearer. The far-band hand-over must be separated from residency (an
-engine change, its own task)." This is that task. Queued by the supervisor.
+engine change, its own task)." This is that task (first numbered 22). Queued by the supervisor.
 
 ## Why
 Read KNOWN_ISSUES "STREAMING REQUIREMENT" first (task 16b). Voxels hand over to the
@@ -35,8 +35,10 @@ R_d from residency, and pulling R_d in as speed rises, makes M > 0.
 3. Opt-in, OFF by default: `-detailspeed 1` (and a Playground key if one is free).
    Off must be byte-identical to today: run `MODE=poses` with BUILD=1 and compare
    every shot with the previous poses run.
-4. Task 19 runs first and touches the same function. Do NOT fix anything 19 found.
-   Do report whether the coast-pose black bar changes with the flag on.
+4. Task 22 (owner-gated) rewrites `FarStartT`'s chunk walk as an integer DDA first;
+   build on that loop, do not reintroduce the float re-derivation. Renumbered from 22
+   on 2026-10-04 because task 19 queued 22. Report whether the coast pose changes with
+   the flag on.
 
 ## Measure (one player build, AC power, check pmset and the owner-pause NOTE)
 - `MODE=stream` on map v4, flag off vs on, 2 launches each: walk, fly 14 m/s, and
