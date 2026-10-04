@@ -86,12 +86,16 @@ frozen-API or memory-layout changes, anything the owner has not approved.
   until resume. Never freeze or kill. Tell the owner when `status` says idle.
   The task agent keeps running. Heavy work may run at any time otherwise. IDLE_MIN=0.
 - **Surface rebuild order (approved 2026-10-02/03), one B step per task:**
-  B1 (15) -> B2 (renders 40/50/60% gentle; owner picks) -> B3 (owner: "still
-  natural?") -> B4 -> B5 -> B6 (record only, no streaming check needed) -> B7 (ask
-  the owner first: town vs village difference) -> B8 -> B9 -> B10
-  (savanna + badlands; palette sign-off). Specs: the rebuild plan doc sections 1, 3
-  and 4 plus its section 8 answers. Copy the numbers INTO the task file: task
-  sessions cannot read claude.ai docs.
+  B1 (15) -> B2 (17) -> B3 (29; owner: "still natural?") -> B4 EASY AREAS ONLY -> B5 ->
+  B6 (record only, no streaming check needed) -> B8 -> B9 -> B10 (savanna + badlands;
+  palette sign-off). Specs: the rebuild plan doc sections 1, 3 and 4 plus its section 8
+  answers. Copy the numbers INTO the task file: task sessions cannot read claude.ai docs.
+  **Owner, 2026-10-04: NO placement until the terrain overhaul is done.** Do NOT queue B7
+  (towns/villages), B4's start-position half, or any object placement. After B10 those need
+  a proper planning round: ask the owner a batch of specific questions (AskUserQuestion /
+  the doc) to build context first, then a plan doc for approval -- not a one-line question.
+  B4 (easy areas as terrain), B6 (danger map in the record) and B8 (routes) DO stay in the
+  terrain overhaul (owner, same day).
 - **Owner, 2026-10-02: task 11 split the EditMode suite (fast / `SUITE=all`).**
   Done 2026-10-03: PREAMBLE.md rule 3 says fast suite in every task, `SUITE=all`
   in every B step (generator change) and before any merge to `main`. B-step task
