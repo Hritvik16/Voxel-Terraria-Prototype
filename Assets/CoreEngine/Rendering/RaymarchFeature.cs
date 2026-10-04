@@ -719,6 +719,11 @@ public class RaymarchFeature : ScriptableRendererFeature
                 if (cameraData.camera.cameraType == CameraType.Game)
                     VoxelEngine.Streaming.DetailRadius.Tick(Time.frameCount, Time.realtimeSinceStartup, cameraData.camera.transform.position);
                 passData.detailRadiusVoxels = farOn ? VoxelEngine.Streaming.DetailRadius.ShaderRadiusVoxels : 0f;
+                // Only the CSMainDetail kernel reads it (VE_DETAIL_SPEED); CSMain and
+                // CSMainChecker are the pre-task code, so OFF and a still camera are
+                // byte-identical. Not combined with the checkerboard (CSMainChecker wins).
+                if (passData.detailRadiusVoxels > 0f && passData.kPrimary == 0)
+                    passData.kPrimary = activeCompute.FindKernel("CSMainDetail");
                 passData.farShadow = farOn && far.ShadowsOn ? 1 : 0;
                 passData.farTexels = farOn ? far.Texels : _farDummy;
                 passData.farMips = farOn ? far.Mips : _farDummy;

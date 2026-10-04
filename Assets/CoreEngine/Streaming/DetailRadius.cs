@@ -2,6 +2,8 @@
 //
 // TASK 24 (owner Q13 (a), 2026-10-04): the voxel-detail radius at speed.
 // OPT-IN, OFF by default (`-detailspeed 1`, last match wins; Playground F5).
+// Shader: kernel CSMainDetail (VE_DETAIL_SPEED), dispatched only while the
+// square is active; not combined with -checker (CSMainChecker wins).
 // With it on, Raymarch.compute hands a ray to the far band at
 // min(first non-resident chunk column, the camera-centred XZ square of
 // half-width R_d(v)) and stops the voxel march at that square, so a chunk

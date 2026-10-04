@@ -92,6 +92,11 @@
 #pragma kernel TaaResolve
 #pragma kernel TaaSharpen
 #pragma kernel CSMainChecker
+// TASK 24: CSMain + the voxel-detail square (DetailRadius.cs). Every task-24
+// line is under #ifdef VE_DETAIL_SPEED, so CSMain/CSMainChecker compile from
+// exactly the pre-task code; RaymarchFeature dispatches this kernel only
+// while the square is active (-detailspeed 1 and the camera moving).
+#pragma kernel CSMainDetail VE_DETAIL_SPEED
 
 #include "../Coord/CoordMath.hlsl"
 #include "../Memory/StructHeaders.hlsl"
@@ -1925,7 +1930,16 @@ float  _FarPixelAngle;    // radians per pixel at screen centre; 0 = footprint l
 // TASK 24 (opt-in, -detailspeed 1; DetailRadius.cs): half-width (voxels) of the
 // camera-centred XZ square inside which voxels own a ray. 0 = no square: the
 // hand-over is the first non-resident chunk column, exactly as before.
+#ifdef VE_DETAIL_SPEED
 float  _DetailRadiusVoxels;
+#define FAR_VOXEL_END_PARAM , float tVoxelEnd
+#define FAR_VOXEL_END_TEST && t < tVoxelEnd
+#define FAR_VOXEL_END_ARG(x) , x
+#else
+#define FAR_VOXEL_END_PARAM
+#define FAR_VOXEL_END_TEST
+#define FAR_VOXEL_END_ARG(x)
+#endif
 int4   _FarScatter;       // x0, z0, w, h  (texel coords of the strip)
 int    _FarScatterLevel;
 int    _FarMipLevel;
@@ -2056,9 +2070,9 @@ struct FarHit
 // fpBase: the camera distance (voxels) of the ray's ORIGIN -- 0 for a primary
 // ray, the hit's distance for a far shadow ray -- so the footprint level
 // follows the camera distance of every sample, as the near cascade's 8.2 rule.
-// tVoxelEnd (task 24): the voxel march owns a resident column only at t below
-// this (the detail square's exit); 3.0e38 = everywhere, as before.
-FarHit FarMarch(float3 O, float3 D, float tStart, int stepCap, bool skipWindow, float fpBase, float tVoxelEnd)
+// tVoxelEnd (task 24, VE_DETAIL_SPEED only): the voxel march owns a resident
+// column only at t below this (the detail square's exit); 3.0e38 = everywhere.
+FarHit FarMarch(float3 O, float3 D, float tStart, int stepCap, bool skipWindow, float fpBase FAR_VOXEL_END_PARAM)
 {
     FarHit r;
     r.hit = false; r.t = 0.0; r.normal = int3(0, 1, 0); r.texel = 0u; r.level = 0; r.cell = int2(0, 0); r.steps = 0;
@@ -2125,7 +2139,7 @@ FarHit FarMarch(float3 O, float3 D, float tStart, int stepCap, bool skipWindow, 
                        && c.x * tv >= wMin.x && (c.x + 1) * tv <= wMax.x
                        && c.y * tv >= wMin.z && (c.y + 1) * tv <= wMax.z
                        && FarChunkResident(((c * tv) >> 7) - (wMin.xz >> 7))
-                       && t < tVoxelEnd)
+                       FAR_VOXEL_END_TEST)
         {
             t = tExit + 1e-3 * (float)cs;
             continue;
@@ -2286,15 +2300,17 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         }
     }
 
+#ifdef VE_DETAIL_SPEED
     // TASK 24: with the detail square on, the voxel march ends where the ray
     // leaves it (the camera is its centre, so t = R / max|D.xz|), and the far
-    // band owns everything beyond. Off (0): tDetail is unbounded, nothing changes.
+    // band owns everything beyond. 0: tDetail is unbounded, nothing changes.
     float tDetail = 3.0e38;
     if (_FarEnabled == 1 && _DetailRadiusVoxels > 0.0)
     {
         tDetail = _DetailRadiusVoxels / max(abs(rayDir.x), abs(rayDir.z));
         maxDist = min(maxDist, tDetail);
     }
+#endif
 
     while (!skipVoxel && currentDist < maxDist && steps < _iterCap)
     {
@@ -2637,20 +2653,25 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     float farSunVis = 1.0;
     int farShadowSteps = 0;
     float tFarDbg = -1.0;   // task 19 probe only
+#ifdef VE_DETAIL_SPEED
     // TASK 24: a leap or brick step can overshoot maxDist by a little; a voxel
     // hit entered past the detail square is the far band's.
     if (hit && currentDist > tDetail) hit = false;
+    float tVoxelLimit = min(currentDist, tDetail);
+#else
+    float tVoxelLimit = currentDist;
+#endif
     if (_FarEnabled != 0 && !hit)
     {
-        float tFar = (_FarEnabled == 2) ? 0.0 : FarStartT(rayStart, rayDir, skipVoxel ? 0.0 : min(currentDist, tDetail));
+        float tFar = (_FarEnabled == 2) ? 0.0 : FarStartT(rayStart, rayDir, skipVoxel ? 0.0 : tVoxelLimit);
         if (skipVoxel && _FarEnabled == 1) tFar = 0.0;
         tFarDbg = tFar;
-        fh = FarMarch(rayStart, rayDir, tFar, (int)_FarParams.z, _FarEnabled == 1, 0.0, tDetail);
+        fh = FarMarch(rayStart, rayDir, tFar, (int)_FarParams.z, _FarEnabled == 1, 0.0 FAR_VOXEL_END_ARG(tDetail));
         farHit = fh.hit;
         if (farHit && _SunDir.y > 0.0 && _FarShadow != 0 && _ShadowQualityLevel < 3)
         {
             float3 hp = rayStart + rayDir * fh.t + float3(fh.normal) * 0.05;
-            FarHit fs = FarMarch(hp, FarSafeDir(normalize(_SunDir)), 0.0, (int)_FarParams.w, false, fh.t, 3.0e38);
+            FarHit fs = FarMarch(hp, FarSafeDir(normalize(_SunDir)), 0.0, (int)_FarParams.w, false, fh.t FAR_VOXEL_END_ARG(3.0e38));
             farSunVis = fs.hit ? 0.0 : 1.0;
             farShadowSteps = fs.steps;
         }
@@ -3336,6 +3357,13 @@ void CSMain(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
 void CSMainChecker(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
 {
     CSMainBody(tid, gtid, true);
+}
+
+// TASK 24: compiled with VE_DETAIL_SPEED (the #pragma kernel line above).
+[numthreads(8, 8, 1)]
+void CSMainDetail(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
+{
+    CSMainBody(tid, gtid, false);
 }
 
 // ===========================================================================
