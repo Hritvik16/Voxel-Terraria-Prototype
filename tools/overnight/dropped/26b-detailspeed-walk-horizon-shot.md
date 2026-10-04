@@ -25,3 +25,6 @@ the residency edge (128-140.8 m) with the flag off.
 
 ## Do not
 - Change the detail radius, the filter, the shader or the streaming. Measure and report.
+
+## Dropped (owner, 2026-10-04 ~14:00)
+Not run. The owner decided -detailspeed breaks the LOD pixel rule (amendment 8.9) by design and will not become the default (Q22), so a walking shot to decide it has nothing left to decide.
