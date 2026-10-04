@@ -1,11 +1,14 @@
-# Session handoff -- 2026-10-04 15:35 (queue supervisor session; 26c running; builds running)
+# Session handoff -- 2026-10-04 16:15 (queue supervisor session; 29 running)
 
 ## State
 - **Branch `surface-rebuild`** (from `main`). `main` was fast-forwarded on 2026-10-03 14:40
   after SUITE=all 618/0/12. NOT pushed (owner hasn't asked).
 - Runner alive in tmux `overnight` (IDLE_MIN=0) since 06:29. Queue, in order:
-  **26c** (running since 15:29) palette-brick design + material histogram (no engine code) ->
-  **29** B3 light erosion (owner render check after) -> **30** column-pass sharing.
+  **29** B3 light erosion (running since 16:06; owner render check after) -> **30** column-pass sharing.
+- **26c done** (5449ab6): AMENDMENT_8_13 (DRAFT) + histogram; 1,194 -> 232 MB brick bodies (derived).
+  Put to the owner as **Q24** (adopt + 5 choices). Its follow-up 31 (memledger peaks, measure-only)
+  PARKED in `dropped/` (7e7ac31) = Q24 item 5. If Q24 item 0 = (a): queue T1 from the amendment's
+  section 12 spec after 30, renumbered (31 is taken).
 - Done this session: **24** detail radius at speed (4b03fe9; -detailspeed OFF), **26** deferred
   eviction retry (d4165c9; MIRROR 0/0/0 on all v4 poses; rig PASS 52 FAIL 2, known upload p99).
 - Owner decisions in chat today (recorded in the doc):
@@ -25,7 +28,8 @@
 - Fast EditMode 618/0/12 (26). SUITE=all 629/0/12 (B2). `Assets/Scenes/Playground.unity`
   stays modified (build side effect).
 
-## Waiting on the owner (Queue decisions doc, rev 311)
+## Waiting on the owner (Queue decisions doc, rev 312)
+- **Q24** (16:10): adopt palette bricks (8.13)? items 0-5, recommended (a) each.
 - **Q22** items 2-3: far band starts ~2x too close at 128 m even standing still (rec. (a)
   evidence task on the memory cost of a 0.4 m tier to ~256 m); coarse-first = main track for
   speed (rec. (a) queue step 1 after 30). Item 1 decided (detailspeed retired).
@@ -37,7 +41,7 @@
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 311;
+  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 312;
   Done table id mk2vq5dkmp6.1424, header row mk2vq5dkmp6.1425; "Running now" paragraph
   mk2vq5dkmp6.55626; "Waiting on you" lead paragraph mk2vq5dkmp6.27623)
 - Surface rebuild plan: https://claude.ai/code/artifact/f6222d44-1457-4a92-9460-3390d44e75fd
