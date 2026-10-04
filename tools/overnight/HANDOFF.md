@@ -3,7 +3,7 @@
 Previous handoffs still waiting on the owner:
 - 15 (B1): accept v4's walk worker-gen p50 (373-389 ms vs 187-372 ms), or approve a `-biomescale` A/B? The full text is in d6f0abc's HANDOFF.md.
 
-## What changed (commit on surface-rebuild, see `git log -1`)
+## What changed (1ac6e94 on surface-rebuild)
 - `Assets/Game/PlaygroundCapture.FarBand.cs`: diagnostic captures for `coast_from_sea_30m` only.
   - Golden: views 11 (voxel stop), 10 (far heat) and 6 (voxel tier).
   - Both times of day: a `_farshadowoff` beauty shot.
