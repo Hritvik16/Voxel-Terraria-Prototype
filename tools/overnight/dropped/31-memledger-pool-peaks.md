@@ -23,3 +23,7 @@ peaks agree with 26c's histogram counts (tier 0 ~473-499k, tier 1 ~92k, tier 2 ~
 
 ## Do not
 Change any cap, pool, allocator or engine code. No performance claims.
+
+## Supervisor, 2026-10-04 16:10
+Parked: measure-only (owner 2026-10-04: "diagnostics and analysis later", no memory-ledger
+work unless asked). Put to the owner as Q24 item 5 in the Queue decisions doc.
