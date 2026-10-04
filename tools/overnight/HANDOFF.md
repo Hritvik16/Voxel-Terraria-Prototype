@@ -1,59 +1,59 @@
-Owner: approve a fix. Also choose a prefetch margin or detail radius at speed: the latency line cannot be met by any engine speed.
+Owner pick: gentle share 40/50/60% (shipped 50%). Strips are `Logs/overnight/b2_maps/seed42_landform_class_v3_40_50_60.png` and `seed42_slope_bands_v3_40_50_60.png`. Full table: `Logs/TerrainGen/playmetrics/b2_gentle_variants.txt`.
+| seed 42 | gentle | broken | steep | median slope | <15 deg | >45 deg | open | mountainous | easy ground |
+|---|---|---|---|---|---|---|---|---|---|
+| v3 | 26.7% | 32.4% | 40.8% | 30.1 | 29.5% | 29.1% | 4.1% | 73.3% | 16.4% |
+| v4 40% | 38.7% | 36.8% | 24.5% | 23.7 | 33.2% | 14.6% | 3.6% | 50.4% | 20.8% |
+| **v4 50%** | 49.4% | 29.8% | 20.8% | 19.8 | 42.5% | 15.1% | 11.2% | 49.7% | 28.2% |
+| v4 60% | 59.4% | 26.3% | 14.3% | 19.0 | 42.8% | 7.8% | 13.6% | 38.4% | 32.2% |
+- Images, each strip left to right v3 | 40 | 50 | 60:
+  - `seed42_landform_class_...png`: green = gentle, orange = broken, lilac = steep. Look at the lilac. At 50% and 60% it is only the CENTRE: the alpine peak region and the volcano (pinned, always steep). Every sea cliff region of v3 (the lilac west and south-west coast) is gone.
+  - `seed42_slope_bands_...png`: green < 15 deg, yellow 15-30, orange 30-45, red > 45. Look at the red. In v3 it rings the west coast. At 50% it is confined to the peak massif and some terrace edges north of it. At 60% it is almost only the peak.
+- **Note for the pick:** at 50% the pinned alpine + volcano regions already fill most of the steep share (about 20%). Seeds 42 and 31337 have NO sea cliffs and no second alpine range. Seeds 7 and 2026 keep one sea-cliff region (6.3% / 4.1% of land). To bring sea cliffs back: unpin, a lower gentle share, or count cliffs separately.
 
-# 16b-streaming-requirement-derived: DONE. Worst case = 2,285 chunks/s with a 0 s latency budget; today's capacity is 7-16 /s (141-334x short); nothing implemented
-
-Still waiting on the owner from earlier: 15 (B1, accept v4's gen cost or A/B?), which blocks 17 (B2).
-
-## What changed (surface-rebuild: c8807c2, 0723fc8)
-- `Assets/CoreEngine/Streaming/StreamingRequirement.cs`: pure function, no runtime effect. It computes A_max, the bursts, L_min, admits per frame and the cold fill from the live constants.
-- `Assets/CoreEngine/Tests/StreamingRequirementTests.cs` (5 tests): pin it on hand-worked cases, plus the live inputs.
-- `PlaygroundCapture.StreamProbe.cs`: new report section 7, `REQUIRED x/s, CAPACITY y/s -> MET / NOT MET (short by fx)` at gen p50 and p99, plus latency, main-thread, bursts and the sustained speed. `run-tg2world.sh`: comment only. `tools/streamprobe-table.py`: parses the section-7 lines.
-- `KNOWN_ISSUES.md`: new entry "STREAMING REQUIREMENT", with the worst case, formulas, constants (file:line), requirement table and gap. `CLAUDE.md`: one index line.
-- Queued `20-worker-contention-probe.md` (evidence only, for fix 1).
-
-## The worst case, and the key finding
-- The worst case is 60 m/s (the brief; terminal fall is 55 m/s), heading in a diagonal dive about 65 deg down a mountainside. A Y layer adds 441 chunks, against 147 for an X/Z plane. Every chunk is full cost.
-  - A_max = 2,285 /s: 974 level diagonal plus the dive. The brief's ~700 is the level, axis-aligned case.
-  - That is 38 admits and 38 evictions per frame.
-  - Bursts: 147 per plane, 287 at a corner, 882 per Y recentre.
-- **The latency budget is 0.** Voxels hand over to the far band at the residency edge (`FarStartT`), so R_d = the load radius. A chunk is requested in the frame its near face reaches r x E = 128 m, which is already R_d.
-  - There is no request-side hysteresis in X/Z. The task assumed one; the code has none.
-  - So no throughput meets the line, even at a walk.
-- Cold start or teleport: 3,087 chunks, 1.35 s at A_max. A 2 s target is PROPOSED, not set.
-
-## Evidence
-- Fast EditMode: **PASS 611 FAIL 0 SKIP 12** (`Logs/overnight/16b_editmode.out`); all 5 new tests pass.
-- Existing data first: task 10 + B1, 21 arms, per-chunk TSVs. Capacity = 7 x 1000 / (gen + downsample), non-uniform chunks:
-  - fly 56: 7.1 /s at p50, 2.2 /s at p99. Walk slow mode v3: 16.0 / 6.1. v4: 15.2 / 6.9. Walk fast mode (v3 only): 29.0 / 9.3.
-  - Ideal (isolated 58 ms x 7 threads): ~121 /s, still 19x short.
-- 2 confirming launches (walk, AC power, no owner-pause NOTE, one build):
-  - v3 `Logs/tg2world_20261003_201553.txt`: CAPACITY 16.2 /s, NOT MET (141x); p99 7.5 /s (303x). Latency p99 34.1 s against 0. Main thread 41.0 ms against 16.7.
-  - v4 `Logs/tg2world_20261003_202723.txt`: 13.9 /s (164x), p99 6.8 /s (334x), 35.4 s, 37.8 ms. Peak footprint 3175 / 3155 MB (over the 3 GB cap, as known).
-- Other lines, from existing data:
-  - Admission cap 16/frame vs 38 needed. Clipmap 16 chunks/frame vs 38. About 9.9 MB/frame vs the 3 MB cap (estimate).
-  - Eviction about 0.12 / 0.52 ms per chunk (estimate): 4.5 / 20 ms per frame.
-- No screenshots: this task did not ask for any, so none were opened.
-
-## Ranked fixes (none implemented)
-1. **Worker contention.** A chunk costs 49-65 ms alone but 190-460 ms p50 (up to 3.2 s p99) on a worker, and the fast/slow mode is unexplained.
-   - Gain up to 6x (slow walk) to 17x (fly): about 120 /s.
-   - Task 20 measures this first (gen ms vs 1/2/4/7 workers). Suspects: oversubscription (7 workers + `SetMinThreads(ProcessorCount*2)` + Unity jobs on 4P+4E), memory bandwidth, allocation/GC.
-2. **Coarse-first generation for the outer ring** (design; changes the chunk content contract). At 64-128 m the chunk is drawn at tier 2 (0.4 m), which is 1/64 of the voxels.
-   - Gain: roughly an order of magnitude on most of the band.
-   - This is the only lever on the list that plausibly closes the ~19x left after fix 1.
-3. **Main thread and upload** (2-4x short): raise or derive `MAX_CHUNK_LOADS_PER_FRAME` and `MAX_CLIPMAP_CHUNKS_PER_FRAME` from A_max, and cut admit cost (~1 ms, most of it cascade writes).
-   - Only matters after 1 and 2. (Generation order is already nearest-first plus heading; it cannot fix a throughput gap.)
-4. **Change the worst case (owner):**
-   - (a) Detail radius at speed, e.g. 7 chunks at 60 m/s with requests still at 10: M = 38.4 m, L_min = 0.62 s, A_max unchanged.
-   - (b) Request to 13, the most a 32-chunk window allows, with detail at 10: same 0.62 s, but A_max becomes 3,640 /s.
-   - (c) Cap vertical flight speed: the dive is 57% of A_max. Level-only is 974 /s.
-   - (d) Fewer band layers at speed.
-   - (a) or (b) also needs the far hand-over decoupled from residency.
-
-## Left / notes
-- The "slow worker mode" p99 used is from the walk arms. The worst observed (fly 56, p99 3,230 ms) is also tabled.
-- The air discount is excluded by the worst case. Real terrain is 37-86% uniform (nearly free) chunks, so measured admission (20-53 /s) runs above non-uniform capacity.
-- `Assets/Scenes/Playground.unity` (build side effect) and the queue files deleted by the runner are left as found.
-
-## Next step
-The owner picks a 4(a)-(d) worst-case lever and approves task 20's result → fix 1. After any change, `MODE=stream ./run-tg2world.sh` section 7 is the verdict.
+# 17-B2-landform-by-flatness: DONE. Every map acceptance passes; v3 byte-identical; streaming NOT MET (as 16b predicted), v4 faster than v3
+## What changed (surface-rebuild 2855a36)
+- `TerrainSpec.gentleShare` (0 = 0.50 on v4, ignored below v4) and `GentleShare`.
+- `Regions.ClassOf`, `LandCells`, `AssignByFlatness` (v4 only):
+  - Seeds are as in v3; alpine peak and volcano stay pinned.
+  - Every free region gets a class by exhaustive search (3^10). The target is gentle G, broken 0.6(1-G), steep 0.4(1-G). Area is measured on a 256^2 grid, with at least 1 gentle and 1 broken region.
+  - Then an archetype of that class: coastal or inland, from shuffled lists.
+  - Warp and nearest-region were factored out of `Weights` (same arithmetic).
+- `WorldMap`: no inselbergs on v4; `InselbergCount`. The record archetype is read from `map.Region`, so it follows the new deal (`V4Record_HoldsWhatTheMapSays` passes).
+- Tests: new `LandformClassTests` (2, Slow). `NoNeedles_OnTheMap` now runs on v3 and v4. The B1 test is now `V4_Deterministic_SeedDependent_DiffersFromV3` (v4 is no longer v3 cell for cell).
+- `PlayMetricsReport`: `PLAYMETRICS_GENTLE=0.4,0.5,0.6`, the B2 tables, and an inselberg count.
+## Evidence -- maps (`Logs/TerrainGen/playmetrics/b2_landform.txt`, one run)
+- `SUITE=all` **PASS 629 FAIL 0 SKIP 12** (`Logs/overnight/17_suite_all.out`).
+- **Gentle share, 50 +- 5:** 49.4 / 48.7 / 48.8 / 49.2% (seeds 42 / 7 / 2026 / 31337). PASS. All three classes are present on every seed. The estimate grid hits 40/50/60 within 0.3 points.
+- **Inselbergs v3 -> v4:** 15/17/17/12 -> 0. (The task's "40" is the landmark count; 15 domes actually raised land on seed 42.)
+- **Needle guard on v4:** the worst 40 m drop is 17.1 m (seed 42) and 15.3 m (seed 7), under the 25 m limit. v3: 22.0 / 18.9 m.
+- **Build time v3 -> v4:** +0.5 / +1.0 / +0.7 / +0.7 s. PASS (<= +2 s).
+- **Record hashes** (v4): A2185B5C0F77F4A6 / 870D49600DDE9492 / CA300216029599C4 / CC1DEAF667A7AB5E. Two builds match and the seeds differ (test).
+- **v3 unchanged:** the map.bin dumps and all 20 PNGs of all four seeds are byte-identical to the pre-B2 copies (`Logs/overnight/b2_v3_ref/`).
+- **Slopes v3 -> v4 at 50%** (median deg, then >45 deg): 30.1->19.8, 29.1->15.1% | 27.8->20.8, 23.8->14.9% | 26.3->20.0, 22.9->9.7% | 28.9->20.7, 24.9->7.2%. Mountainous 73->50%, 68->49%, 72->40%, 72->38%.
+- `b2_maps/four_seeds_v4_50_landform_class.png` shows the four seeds at 50%, left to right 42/7/2026/31337.
+  - On 42 and 31337, the lilac (steep) is just two radial cones in the middle. Seed 7 and 2026 also have a lilac sea-cliff strip on the north-east and east coast.
+  - Seed 2026: orange dunes in the south, striped with long thin interdune lakes.
+  - Seed 31337: a large lake (~1 km) in the north-centre gentle land. Worth a look in B3.
+## Evidence -- streaming (one build; `Logs/overnight/b2_stream_summary.txt`, arms in `b2_arm_*.out`)
+- All arms ran on AC. `walk_v3_1` overlapped the owner pause and ended on battery. It is shown but not used, and was rerun as `walk_v3_3`.
+- Every arm is in the **fast** walk mode (gen p50 about 150-210 ms; B1's slow mode was about 370-390).
+- p50 numbers, v3 -> v4; section 7 is NOT MET on every arm:
+  - **Walk:** worker gen 181/208 -> 153/183 ms. Isolated 53/61 -> 51/70 ms. Admitted 52/40 -> 85/71 /s. Capacity 31.7/27.7 -> 37.8/31.4 /s against REQUIRED 2,285 /s (short 60-83x). Request->GPU p50 7.9/10.0 -> 4.4/6.4 s. Latency p99 32-33 -> 25-28 s against 0 s. Deficit 1945/2141 -> 1447/1704. Upload pass 0.28/0.25 -> 0.38/0.51 ms.
+  - **Fly 14 m/s:** worker gen 288/308 -> 181/217 ms. Admitted 39/38 -> 56/47 /s. Capacity 20.7/19.7 -> 31.8/27.2 /s (short 72-116x). Latency p99 19-22 -> 10 s. Deficit 2716/2780 -> 2681/2738. Frame p95 18.8/18.5 -> 30.1/28.2 ms. Upload bytes/frame p95 0.9 -> 1.9-2.2 MB (more admits).
+- Peak footprint on the stream arms: 2.9-3.2 GB on both versions. All are over the 3 GB cap, as known.
+## Evidence -- poses (`b2_arm_poses_v4.out`; shots in ~/Library/.../FarBand/2026-10-03_212657_world/)
+- **NEW: `MIRROR lost 12232` (peak_from_2km_ground) and `5249` (summit_view).** stale 2/2/1 on the first three poses, 0 after. B1's v4 poses run had 0. Peak footprint 3763 MB vs B1's 3414 (Untagged +372 MB). Engine code is unchanged, so this is queued as **21-poses-mirror-lost-check** (evidence only).
+- Images from this run:
+  - `peak_from_2km_ground_golden.png`: a green hill fills the right half, with grey and brown peaks on the left. No holes. A flat tan wall sits lower left.
+  - `summit_view_golden.png`: a red-brown slope fills about 80% of the frame, with the sea at the right edge. No holes.
+  - `map_7000m_noon.png`: the whole island from above. Biomes are large (snow north and south-west, desert centre-west); the volcano is a dark disc. Not a 90% sea frame; nothing floating.
+  - `coast_from_sea_30m_golden.png`: the known task-18 black bar is lower left over the sea; the island is on the horizon.
+  - `eye_level_1_noon.png`: a fixed pose now on the volcano's flank, facing dark basalt steps. Terrain, not a hole.
+- Walk poses (v4 seed 42, eye 2 m, pitch 5 deg down, `FlySweep/<ts>/h02_p05_beauty.png`):
+  - Gentle (plains, 4772,5580), `2026-10-03_233207_...`: rolling green ground to a sea horizon, with a beach strip at the right.
+  - Broken (canyonlands, 4428,2764), `2026-10-03_233911_...`: stepped sandstone walls rising about 30 m, with terraces.
+  - Steep (alpine, 3948,3932), `2026-10-04_000203_...`: a dark, mossy mountainside climbing from a lake shore. The lower ~45% of the frame is the lake.
+  - The first steep try (3908,3620) put the eye INSIDE rock: the ground is 914 m, above the sweep's fixed 868.8 m start. Discarded.
+## Left / next
+- The owner picks 40/50/60 (and decides whether sea cliffs must come back). Then B3 (erosion; "still natural?").
+- Queued **21-poses-mirror-lost-check**. `Assets/Scenes/Playground.unity` (a build side effect) is left as found.
