@@ -1,0 +1,120 @@
+Distinct materials per dense brick (air counts), map v4 seed 42, TerrainGenChunkSource (Editor, Burst)
+chunk set per site: 21x21 columns x 7 layers centred on the site's ground layer; 2026-10-04 15:44
+formats: 1b 68 B, 2b 132 B, 4b 272 B (palette words in front of packed indices), 8b 512 B
+
+SITE spawn: centre chunk int3(312, 52, 312), ground Y 6672; 3087 chunks, 661 uniform, 2426 populated; 177 s so far
+  tier 0: 334,036 dense bricks
+    distinct  1:   0.00%   2:  59.83%   3-4:  39.91%   5-16:   0.26%   17+:   0.00%
+    fine: 2=199843 3=48756 4=84570 5=867
+    holds air: 46.50%   2-material bricks that are air + one: 38.27% of 2s
+    8b only (today)      mean  512.0 B/brick = 100.0% of 512 B
+    4b + 8b              mean  272.0 B/brick =  53.1% of 512 B
+    2b + 8b              mean  133.0 B/brick =  26.0% of 512 B
+    2b + 4b + 8b         mean  132.4 B/brick =  25.9% of 512 B
+    1b + 2b + 4b + 8b    mean   94.1 B/brick =  18.4% of 512 B
+  tier 1: 65,648 dense bricks
+    distinct  1:   0.00%   2:  48.42%   3-4:  50.53%   5-16:   1.04%   17+:   0.00%
+    fine: 2=31788 3=6925 4=26249 5=686
+    holds air: 57.52%   2-material bricks that are air + one: 50.45% of 2s
+    8b only (today)      mean  512.0 B/brick = 100.0% of 512 B
+    4b + 8b              mean  272.0 B/brick =  53.1% of 512 B
+    2b + 8b              mean  136.0 B/brick =  26.6% of 512 B
+    2b + 4b + 8b         mean  133.5 B/brick =  26.1% of 512 B
+    1b + 2b + 4b + 8b    mean  102.5 B/brick =  20.0% of 512 B
+  tier 2: 13,748 dense bricks
+    distinct  1:   0.00%   2:  39.92%   3-4:  58.08%   5-16:   2.00%   17+:   0.00%
+    fine: 2=5488 3=1179 4=6806 5=275
+    holds air: 66.10%   2-material bricks that are air + one: 63.58% of 2s
+    8b only (today)      mean  512.0 B/brick = 100.0% of 512 B
+    4b + 8b              mean  272.0 B/brick =  53.1% of 512 B
+    2b + 8b              mean  139.6 B/brick =  27.3% of 512 B
+    2b + 4b + 8b         mean  134.8 B/brick =  26.3% of 512 B
+    1b + 2b + 4b + 8b    mean  109.3 B/brick =  21.3% of 512 B
+
+SITE peak: centre chunk int3(296, 82, 254), ground Y 10574; 3087 chunks, 764 uniform, 2323 populated; 323 s so far
+  tier 0: 473,347 dense bricks
+    distinct  1:   0.00%   2:  56.10%   3-4:  43.85%   5-16:   0.05%   17+:   0.00%
+    fine: 2=265548 3=68496 4=139070 5=106 6=63 7=64
+    holds air: 57.21%   2-material bricks that are air + one: 32.98% of 2s
+    8b only (today)      mean  512.0 B/brick = 100.0% of 512 B
+    4b + 8b              mean  272.0 B/brick =  53.1% of 512 B
+    2b + 8b              mean  132.2 B/brick =  25.8% of 512 B
+    2b + 4b + 8b         mean  132.1 B/brick =  25.8% of 512 B
+    1b + 2b + 4b + 8b    mean   96.2 B/brick =  18.8% of 512 B
+  tier 1: 92,231 dense bricks
+    distinct  1:   0.00%   2:  43.73%   3-4:  56.13%   5-16:   0.14%   17+:   0.00%
+    fine: 2=40335 3=9663 4=42108 5=40 6=38 7=47
+    holds air: 70.35%   2-material bricks that are air + one: 41.37% of 2s
+    8b only (today)      mean  512.0 B/brick = 100.0% of 512 B
+    4b + 8b              mean  272.0 B/brick =  53.1% of 512 B
+    2b + 8b              mean  132.5 B/brick =  25.9% of 512 B
+    2b + 4b + 8b         mean  132.2 B/brick =  25.8% of 512 B
+    1b + 2b + 4b + 8b    mean  104.2 B/brick =  20.4% of 512 B
+  tier 2: 19,295 dense bricks
+    distinct  1:   0.00%   2:  33.99%   3-4:  65.72%   5-16:   0.29%   17+:   0.00%
+    fine: 2=6559 3=1651 4=11030 5=14 6=13 7=28
+    holds air: 80.36%   2-material bricks that are air + one: 50.50% of 2s
+    8b only (today)      mean  512.0 B/brick = 100.0% of 512 B
+    4b + 8b              mean  272.0 B/brick =  53.1% of 512 B
+    2b + 8b              mean  133.1 B/brick =  26.0% of 512 B
+    2b + 4b + 8b         mean  132.4 B/brick =  25.9% of 512 B
+    1b + 2b + 4b + 8b    mean  110.6 B/brick =  21.6% of 512 B
+
+SITE from2k: centre chunk int3(337, 42, 405), ground Y 5452; 3087 chunks, 1306 uniform, 1781 populated; 435 s so far
+  tier 0: 401,621 dense bricks
+    distinct  1:   0.00%   2:  70.50%   3-4:  29.48%   5-16:   0.01%   17+:   0.00%
+    fine: 2=283160 3=105442 4=12964 5=55
+    holds air: 47.72%   2-material bricks that are air + one: 31.67% of 2s
+    8b only (today)      mean  512.0 B/brick = 100.0% of 512 B
+    4b + 8b              mean  272.0 B/brick =  53.1% of 512 B
+    2b + 8b              mean  132.1 B/brick =  25.8% of 512 B
+    2b + 4b + 8b         mean  132.0 B/brick =  25.8% of 512 B
+    1b + 2b + 4b + 8b    mean   86.9 B/brick =  17.0% of 512 B
+  tier 1: 83,089 dense bricks
+    distinct  1:   0.00%   2:  54.66%   3-4:  45.17%   5-16:   0.16%   17+:   0.00%
+    fine: 2=45418 3=27214 4=10320 5=137
+    holds air: 57.94%   2-material bricks that are air + one: 40.92% of 2s
+    8b only (today)      mean  512.0 B/brick = 100.0% of 512 B
+    4b + 8b              mean  272.0 B/brick =  53.1% of 512 B
+    2b + 8b              mean  132.6 B/brick =  25.9% of 512 B
+    2b + 4b + 8b         mean  132.2 B/brick =  25.8% of 512 B
+    1b + 2b + 4b + 8b    mean   97.2 B/brick =  19.0% of 512 B
+  tier 2: 16,559 dense bricks
+    distinct  1:   0.00%   2:  42.35%   3-4:  56.04%   5-16:   1.61%   17+:   0.00%
+    fine: 2=7012 3=3828 4=5452 5=267
+    holds air: 70.55%   2-material bricks that are air + one: 54.93% of 2s
+    8b only (today)      mean  512.0 B/brick = 100.0% of 512 B
+    4b + 8b              mean  272.0 B/brick =  53.1% of 512 B
+    2b + 8b              mean  138.1 B/brick =  27.0% of 512 B
+    2b + 4b + 8b         mean  134.3 B/brick =  26.2% of 512 B
+    1b + 2b + 4b + 8b    mean  107.2 B/brick =  20.9% of 512 B
+
+ALL SITES
+  tier 0: 1,209,004 dense bricks
+    distinct  1:   0.00%   2:  61.91%   3-4:  37.99%   5-16:   0.10%   17+:   0.00%
+    fine: 2=748551 3=222694 4=236604 5=1028 6=63 7=64
+    holds air: 51.10%   2-material bricks that are air + one: 33.90% of 2s
+    8b only (today)      mean  512.0 B/brick = 100.0% of 512 B
+    4b + 8b              mean  272.0 B/brick =  53.1% of 512 B
+    2b + 8b              mean  132.4 B/brick =  25.9% of 512 B
+    2b + 4b + 8b         mean  132.1 B/brick =  25.8% of 512 B
+    1b + 2b + 4b + 8b    mean   92.5 B/brick =  18.1% of 512 B
+  tier 1: 240,968 dense bricks
+    distinct  1:   0.00%   2:  48.78%   3-4:  50.83%   5-16:   0.39%   17+:   0.00%
+    fine: 2=117541 3=43802 4=78677 5=863 6=38 7=47
+    holds air: 62.58%   2-material bricks that are air + one: 43.65% of 2s
+    8b only (today)      mean  512.0 B/brick = 100.0% of 512 B
+    4b + 8b              mean  272.0 B/brick =  53.1% of 512 B
+    2b + 8b              mean  133.5 B/brick =  26.1% of 512 B
+    2b + 4b + 8b         mean  132.6 B/brick =  25.9% of 512 B
+    1b + 2b + 4b + 8b    mean  101.3 B/brick =  19.8% of 512 B
+  tier 2: 49,602 dense bricks
+    distinct  1:   0.00%   2:  38.42%   3-4:  60.37%   5-16:   1.20%   17+:   0.00%
+    fine: 2=19059 3=6658 4=23288 5=556 6=13 7=28
+    holds air: 73.13%   2-material bricks that are air + one: 55.89% of 2s
+    8b only (today)      mean  512.0 B/brick = 100.0% of 512 B
+    4b + 8b              mean  272.0 B/brick =  53.1% of 512 B
+    2b + 8b              mean  136.6 B/brick =  26.7% of 512 B
+    2b + 4b + 8b         mean  133.7 B/brick =  26.1% of 512 B
+    1b + 2b + 4b + 8b    mean  109.1 B/brick =  21.3% of 512 B
+wall 435 s

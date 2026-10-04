@@ -1,45 +1,57 @@
-# 26-deferred-eviction-retry: DONE. Save-capped evictions are now retried every frame while any is deferred. v4 poses MIRROR lost/lag/stale is 0/0/0 on all 18 poses in 2 of 2 valid runs (was 12232/5249 lost at the first two). Resident never exceeds 3087.
+# 26c-palette-brick-design: DONE. Histogram measured; `AMENDMENT_8_13_PALETTE_BRICKS.md` written, DRAFT, NOT ADOPTED. With all four formats (1b/2b/4b/RAW), a tier-0 dense brick averages 92.5 B (18.1% of 512 B). Brick bodies at today's caps would drop from 1,194 to 232 MB (CPU+GPU; derived, not measured).
 
-## What changed
-- Commit d4165c9, `StreamManager.cs` (§4.5):
-  - `EvictOutOfRange` sets `_evictDeferred` when the `MAX_CHUNK_SAVES_PER_FRAME` cap skips a dirty chunk.
-  - `Update` has a new `else if (_evictDeferred)` branch: on a frame with no camera-chunk change, it calls `EvictOutOfRange(_lastCameraChunk)`. The cap stays 4/frame. That frame skips the drained-queue re-sweep, which runs on the next frame.
-  - `EvictionDeferred` is a read-only test hook.
-- New `Assets/CoreEngine/Tests/DeferredEvictionTests.cs` (fast, flat world, load radius 2): dirties 10 chunks, teleports 2 km and holds still. Asserts saves of 4, then <= 4 per still frame, all 10 saved, none left resident, and the destination square fully resident. Log: `10 dirty chunks saved over 1 + 2 frames at cap 4`.
-- `TerrainClipmap.UploadDirty` is untouched (no in-box test, per the task).
-- `KNOWN_ISSUES.md` entry marked FIXED with a fix sub-bullet. The `CLAUDE.md` index line is updated.
+## What changed (commit below; no engine code)
+- `Assets/CoreEngine/Tests/PaletteHistogramReport.cs`: new report-only test (`REPORTS=1`, `[Category("Slow")]`, Timeout 1 h; asserts nothing).
+- `AMENDMENT_8_13_PALETTE_BRICKS.md`: the design.
+- `AMENDMENT_8_13_PALETTE_BRICKS_histogram.txt`: a copy of the full output, because `Logs/` is gitignored.
+- `tools/overnight/queue/31-memledger-pool-peaks.md`: one follow-up (diagnostics only).
 
 ## Evidence
-- **Fast EditMode suite:** PASS 618 FAIL 0 SKIP 12, i.e. 617 + 1 new (`Logs/overnight/26/suite1.out`). Since then only docs changed.
-- **`MAPV=4 MODE=poses`, run 1 (BUILD=1, d4165c9):**
-  - Logs: `Logs/overnight/26/poses1.out`, `Logs/tg2world_20261004_132136.txt`. Shots: `FarBand/2026-10-04_132705_world/`.
-  - MIRROR is 0/0/0 on every pose. Resident is 3087, or 1764 at the band-91 poses (top layer clipped).
-  - Pixel-identical to task 24's run (`095643_world`) on 59/61 shots. The 2 minimap_check shots are known run-to-run noise. As expected, the fix changes no rendered pixel: task 21 already saw no visible hole.
-- **Run 2:**
-  - Logs: `Logs/overnight/26/poses2.out`, `Logs/tg2world_20261004_135346.txt`. Shots: `FarBand/2026-10-04_145512_world/`.
-  - MIRROR is 0/0/0 on all 18 poses, with the same bands and residents as run 1.
-  - 60/61 shots are pixel-identical to run 1. Only minimap_check_noon differs (noise).
-  - It waited 13:53-14:54 on the owner pause.
-- **Discarded attempt:** `Logs/overnight/26/invalid_devmap_open/poses2.out` (shots `134809_world`). The DEV MAP was open from pose 2 on (someone at the Mac). The camera sat ~5.7 km up, so every band was 91. MIRROR was still 0/0/0, but the shots are meaningless.
-- Looked at `145512_world/peak_from_2km_ground_golden.png` (the pose that had 12232 lost): a grass slope fills the right half, with rock peaks and a red-capped summit on the left horizon. No holes, nothing floating.
-- **`./run-acceptance-rig.sh`, warm steady state:**
-  - Warm-up (discarded): `Logs/overnight/26/warmup.out` -> `Logs/tg2world_20261004_151746.txt`. The rig ran right after it: `Logs/overnight/26/rig.out`, report in `Phase4Acceptance/2026-10-04_152558/`.
-  - **PASS 52 FAIL 2**, the same set as the previous report (`2026-09-25_145426`). The 2 FAILs are the known §4.3 steady-state upload p99 checks (1.956 and 1.680 ms vs 1.355 and 1.704 before).
-  - Persistence: 0 save failures, 0 LOST UPDATES, 0 reload hash mismatches. Resident stays between the load and evict squares (729 <= 756 <= 961). Deficit inside 128 m is 0.
-  - Moved vs 09-25:
+- **Histogram command:** `REPORTS=1 tools/run-editmode-filter.sh PaletteHistogramReport`. Log `Logs/overnight/26c/hist.out` (PASS 1); output `Logs/TerrainGen/palette_histogram.txt`; 435 s.
+- **Chunk set:** map v4, seed 42, the real `TerrainGenChunkSource`. Three sites, each 21×21 columns × 7 layers centred on the ground layer = 3,087 chunks: spawn (`Tg2Spawn`'s spiral), peak (summit_view), from2k (peak_from_2km_ground). The real band is terrain-aware and can sit a layer off.
+- **Distinct materials per dense brick** (air counted):
 
-    | | 09-25 | now |
-    |---|---|---|
-    | Gate C frame total p50 / p99 | 19.07 / 129.69 ms | 22.03 / 204.03 ms |
-    | Gate D frame total p50 / p99 | 19.91 / 138.89 ms | 23.16 / 255.00 ms |
-    | Deficit 128-166 m, p50 | 9 | 88 |
+  | | 1 | 2 | 3-4 | 5-16 | 17+ | dense |
+  |---|---|---|---|---|---|---|
+  | tier 0, all sites | 0% | 61.91% | 37.99% | 0.10% | 0% | 1,209,004 |
+  | tier 0, peak | 0% | 56.10% | 43.85% | 0.05% | 0% | 473,347 |
+  | tier 1 (0.2 m) | 0% | 48.78% | 50.83% | 0.39% | 0% | 240,968 |
+  | tier 2 (0.4 m) | 0% | 38.42% | 60.37% | 1.20% | 0% | 49,602 |
 
-  - **Not attributable to task 26.** The baseline is 9 days and many commits old (Phase 7 and later), and it was not warm. The retry only runs on frames after a capped eviction. A same-day A/B would be needed to attribute any of this.
-  - Screenshot quad (`/tmp/rig26.png`, rebuild from the run folder): top-left `GateB_Initial_Beauty`, top-right `Traverse_49`, bottom row `GateC_AfterReturn` / `GateD_AfterPersistence`.
-    - Top-left: snow plain with contour lines, green hills and a dark peak on the horizon.
-    - Top-right: grass and sand, peaks on the horizon.
-    - Bottom row: the same view as Gate B. Nothing floating, no holes, mostly terrain.
+  - No brick has more than 7 distinct values.
+  - Only 34% of 2-value bricks are air + one material. Most are solid/solid boundaries, so the format must not assume air is one of the palette entries.
+- **Expected savings** (decimal MB, CPU and GPU each; amendment §8):
 
-## Unfinished / next
-- `TerrainClipmap.UploadDirty` still uploads any resident chunk into its toroidal slot with no "inside the mirror box" test. A defensive check (skip or assert) is a separate change and needs the owner's approval. Not queued.
-- The rig's frame-total rise since 09-25 has never been bisected. If it matters, it needs a warm same-day A/B, not this task.
+  | | at today's cap | palette, same brick cap | at measured need (palette) |
+  |---|---|---|---|
+  | tier 0 (750k) | 384.0 | 72.2 | 255.5 -> 48.0 (499k) |
+  | tier 1 (320k) | 163.8 | 33.3 | 47.2 -> 9.6 (92k) |
+  | tier 2 (96k) | 49.2 | 10.6 | 9.9 -> 2.1 (19k) |
+  | CPU+GPU total | 1,194 | 232 | 625 -> 119 |
+
+  - The brick counts and caps are MEASURED. The MB are DERIVED. The phys_footprint change is NOT measured.
+  - Memory comes back only when the caps are set in words (amendment T4 and T6).
+- **Fast EditMode suite:** PASS 618 FAIL 0 SKIP 12, identical to task 26 (the new test is Slow, so it is excluded). Log `Logs/overnight/26c/suite.out`.
+- No player build and no screenshots: the task needed neither. No performance claims.
+- **Found while reading the code:**
+  - The A.3 Volatile bit [30] is not implemented anywhere.
+  - The shipped clipmap entry copies the CPU handle polarity ([31] = 1 means dense), which is the opposite of what A.8 says.
+  - The tg2 cascade caps are 3.5-5× the band's measured need, even at 512 B per brick. That is a lever of ~200 MB independent of palettes; it needs a real `PeakUsed` first (task 31).
+
+## Design summary (amendment §3-§7)
+- **Handle and clipmap entry:** bits [29:28] are the format code (0 = RAW, today's body; 1/2/3 = 1/2/4-bit). Bits [27:0] are the body base in 4-byte words. Both stay 4 B.
+- **Bodies:** 68 / 132 / 272 / 512 B, with the palette words in front of the indices. All decode math is shifts and masks.
+- **Allocation:** each chunk still gets one contiguous run (in words). Cascade pools get one range per chunk per tier.
+- **Frozen contracts unchanged:** `GetVoxel`, `SetVoxel`, D.1 (it expands to 512 B at the codec boundary) and §4.4. `ChunkContentHash` values are unchanged.
+- **Persistence:** saves never contain the in-memory format.
+
+## Owner choices (amendment §10; recommended option first)
+1. Tier-0 cap after T3: (c) need + 251k headroom at 132 B, ~81 MB per side / (a) 72 MB / (b) 177 MB.
+2. Formats: all four (one decode) / drop 1-bit (+40 B per brick).
+3. Cascade pool full: write a uniform-majority coarse brick (changes 8.9's behaviour) / keep throwing and size at worst case.
+4. Ship behind `-palettebricks 1`, off by default until T3's evidence is in / default on once green.
+
+## Next step
+- The supervisor turns the amendment into an owner question.
+- Once it is adopted, queue **T1**. The ready spec is the amendment's §12: `31-T1-brickbody-codec`. Renumber it, because 31 is now taken by the memledger task. T1 is a CPU codec plus tests, not wired into anything.
+- Plan after T1: T2 re-index only (RAW), T3 palette live behind the flag, T4 tier-0 cap, T5 cascades, T6 cascade caps, T7 an optional shader palette cache.
