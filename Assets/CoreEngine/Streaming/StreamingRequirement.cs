@@ -50,6 +50,7 @@ namespace VoxelEngine.Streaming
             public float chunkEdgeM;          // E
             public int requestRadiusChunks;   // Chebyshev radius chunks are requested to
             public int detailRadiusChunks;    // R_d in chunks: where the far band takes over
+            public double detailRadiusM;      // task 24: R_d in metres if > 0 (overrides detailRadiusChunks)
             public int bandLayers;            // L: generated Y layers
             public int verticalShiftLayers;   // layers one Y recentre adds at once
             public float frameHz;
@@ -81,6 +82,10 @@ namespace VoxelEngine.Streaming
             // FarStartT hands rays to the far band at the residency edge, so the
             // detail radius IS the load radius until something decouples them.
             detailRadiusChunks = EngineConfig.TG2_LOAD_RADIUS_CHUNKS,
+            // Task 24: with -detailspeed 1 the hand-over is DetailRadiusM(v) instead.
+            detailRadiusM = DetailRadius.Enabled
+                ? DetailRadiusM(V_MAX_MPS, EngineConfig.TG2_LOAD_RADIUS_CHUNKS * (EngineConfig.CHUNK_EDGE_VOXELS / VOXELS_PER_METRE), FRAME_HZ)
+                : 0.0,
             bandLayers = 2 * StreamManager.V_LOAD_LAYERS + 1,
             verticalShiftLayers = StreamManager.V_STREAM_LAG + 1,
             frameHz = FRAME_HZ,
@@ -101,7 +106,8 @@ namespace VoxelEngine.Streaming
             r.cornerBurst = (2 * side - 1) * i.bandLayers;
             r.verticalBurst = i.verticalShiftLayers * side * side;
             r.bandChunks = side * side * i.bandLayers;
-            r.marginM = (i.requestRadiusChunks - i.detailRadiusChunks) * (double)i.chunkEdgeM;
+            double detailM = i.detailRadiusM > 0.0 ? i.detailRadiusM : i.detailRadiusChunks * (double)i.chunkEdgeM;
+            r.marginM = i.requestRadiusChunks * (double)i.chunkEdgeM - detailM;
             // The latency-worst heading is along an axis (closing speed v on the
             // face); the request can be one frame late.
             double budget = r.marginM / i.vMaxMps - 1.0 / i.frameHz;
@@ -110,6 +116,44 @@ namespace VoxelEngine.Streaming
             r.admitsPerFrame = r.aMax / i.frameHz;
             r.coldFillS = r.bandChunks / r.aMax;
             return r;
+        }
+
+        // ---- TASK 24: THE VOXEL-DETAIL RADIUS AT SPEED (owner Q13 (a), 2026-10-04) ----
+        // A chunk is requested when its near face is r x E from the camera (one
+        // frame late at worst). If voxels hand over to the far band at R_d < r x E,
+        // the chunk has M = r x E - R_d metres of closing distance, i.e. M / v - 1
+        // frame seconds, to load before the hand-over reaches it. Choosing the
+        // budget L_target and solving: M(v) = v (L_target + 1 frame),
+        // R_d(v) = r x E - M(v), clamped to [DETAIL_FLOOR_M, r x E].
+        //   v = 0      -> M = 0, R_d = r x E = 128 m: today's R_d exactly.
+        //   v = 5.2    -> M = 3.31 m, R_d = 124.7 m (walk)
+        //   v = 60     -> M = 38.2 m, R_d = 89.8 m = 7.0 chunks (the approved case)
+        // FLOOR 64 m (5 chunks): half the load radius, the stream probe's "LATE:
+        // inside 64 m" full-detail ring. It binds only above
+        // (128 - 64) / 0.6367 = 100.5 m/s, i.e. never for a game movement (fastest
+        // 60 m/s); only the dev fly camera reaches it. Below the floor the budget
+        // shrinks again (M / v - 1 frame < L_target) instead of voxel detail
+        // collapsing toward the camera.
+        public const double DETAIL_LATENCY_TARGET_S = 0.62;
+        public const double DETAIL_FLOOR_M = 64.0;
+
+        /// The voxel/far-band hand-over radius (metres, Chebyshev in XZ round the
+        /// camera) at smoothed horizontal speed vMps. Continuous in v.
+        public static double DetailRadiusM(double vMps, double loadRadiusM, double frameHz,
+                                           double latencyS = DETAIL_LATENCY_TARGET_S, double floorM = DETAIL_FLOOR_M)
+        {
+            if (!(vMps > 0.0)) return loadRadiusM;
+            double m = vMps * (latencyS + 1.0 / frameHz);
+            return System.Math.Max(System.Math.Min(floorM, loadRadiusM), System.Math.Min(loadRadiusM, loadRadiusM - m));
+        }
+
+        /// The request -> GPU budget a hand-over at detailRadiusM leaves at speed v
+        /// (closing speed v on an axis-aligned face, request one frame late). 0 if none.
+        public static double LatencyBudgetS(double vMps, double loadRadiusM, double detailRadiusM, double frameHz)
+        {
+            if (!(vMps > 0.0)) return double.PositiveInfinity;
+            double b = (loadRadiusM - detailRadiusM) / vMps - 1.0 / frameHz;
+            return b > 0.0 ? b : 0.0;
         }
 
         /// The largest speed the worst-case heading sustains at a given throughput

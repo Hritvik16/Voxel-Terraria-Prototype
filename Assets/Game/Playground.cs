@@ -477,6 +477,14 @@ public class Playground : MonoBehaviour
                 ? $"TAA ON (jitter {RaymarchFeature.TaaJitterCycle}-frame Halton, sharpen {RaymarchFeature.TaaSharpenAmount:F2}) -- F4 to compare"
                 : "TAA OFF -- F4 to compare";
         }));
+        // Detail radius at speed (overnight task 24): OFF by default; `-detailspeed 1` starts with it on.
+        Register(new Toy(KeyCode.F5, "voxel detail radius at speed on/off", () =>
+        {
+            VoxelEngine.Streaming.DetailRadius.Enabled = !VoxelEngine.Streaming.DetailRadius.Enabled;
+            _status = VoxelEngine.Streaming.DetailRadius.Enabled
+                ? $"DETAIL RADIUS AT SPEED ON (now {VoxelEngine.Streaming.DetailRadius.RadiusM:F0} m at {VoxelEngine.Streaming.DetailRadius.SpeedMps:F1} m/s) -- F5 to compare"
+                : "DETAIL RADIUS AT SPEED OFF (hand-over at the residency edge) -- F5 to compare";
+        }));
 
         // ================= PHASE 7 (§13, §6.5, §10.3) =================
         // THE THREE POSES THE OWNER HAS TO JUDGE IN MINUTES GET THEIR OWN KEYS.

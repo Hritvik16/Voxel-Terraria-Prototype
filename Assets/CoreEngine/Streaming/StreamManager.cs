@@ -1516,6 +1516,28 @@ namespace VoxelEngine.Streaming
         /// 128m is §4.3's LOD0 radius, the figure §13's assertion refers to.
         public const float POPIN_CRITERION_METRES = 128f;
 
+        /// Task 24 (observe-only): non-resident chunks of the load square + band
+        /// that reach INSIDE the camera-centred XZ square of half-width radiusM
+        /// (the voxel-detail square, DetailRadius): nearest point, Chebyshev.
+        public int LoadDeficitInsideSquare(float3 camPosM, float radiusM)
+        {
+            int n = 0;
+            int r = _loadRadiusChunks;
+            const float CH = 12.8f;
+            LayerRange(out int lo, out int hi);
+            for (int cy = lo; cy <= hi; cy++)
+            for (int dz = -r; dz <= r; dz++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                int cx = _lastCameraChunk.x + dx, cz = _lastCameraChunk.z + dz;
+                float nx = Math.Max(0f, Math.Max(cx * CH - camPosM.x, camPosM.x - (cx + 1) * CH));
+                float nz = Math.Max(0f, Math.Max(cz * CH - camPosM.z, camPosM.z - (cz + 1) * CH));
+                if (Math.Max(nx, nz) >= radiusM) continue;
+                if (!_store.IsResident(new int3(cx, cy, cz))) n++;
+            }
+            return n;
+        }
+
         public void LoadDeficitSplit(out int inside128, out int outside128)
         {
             inside128 = 0; outside128 = 0;

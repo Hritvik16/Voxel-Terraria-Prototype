@@ -256,6 +256,7 @@ public partial class PlaygroundCapture
         var phBrick = new List<float>(); var phPackUp = new List<float>(); var phSort = new List<float>(); var phCasc = new List<float>(); var phTransfer = new List<float>();
         var phUploadTotal = new List<float>();
         var deficits = new List<float>(); var deficits128 = new List<float>(); var missIn64 = new List<float>(); var missGpu = new List<float>();
+        var deficitsRd = new List<float>(); var rdM = new List<float>(); var rdSpeed = new List<float>();   // task 24
         int overBudget = 0, frames = 0, bandSwitches0 = streamer.BandSwitchesTotal;
         long admitted0 = streamer.ChunksAdmittedTotal, discarded0 = streamer.DiscardedOnArrivalTotal;
         var winMs = new List<float>(); var winDef = new List<int>(); var winAdm = new List<int>();
@@ -293,6 +294,8 @@ public partial class PlaygroundCapture
                 streamer.LoadDeficitSplit(out int i128, out int o128);
                 lastDef = i128 + o128; lastDef128 = i128;
                 deficits.Add(lastDef); deficits128.Add(lastDef128);
+                deficitsRd.Add(streamer.LoadDeficitInsideSquare(cp, DetailRadius.RadiusM));
+                rdM.Add(DetailRadius.RadiusM); rdSpeed.Add(DetailRadius.SpeedMps);
                 winDef.Add(lastDef);
             }
             winMs.Add(f);
@@ -447,6 +450,10 @@ public partial class PlaygroundCapture
         L("5. LOAD DEFICIT (chunks in the load square + band not resident; every 10th frame)");
         L(Row("deficit", deficits, "", "F0"));
         L(Row("deficit, nearest point inside 128 m", deficits128, "", "F0"));
+        L($"  task 24: detail radius at speed {(DetailRadius.Enabled ? "ON (-detailspeed 1): voxels hand over at R_d(v)" : "OFF: voxels hand over at the residency edge; R_d(v) below is what ON would use")}");
+        L(Row("  smoothed horizontal speed (0.5 s window)", rdSpeed, "m/s", "F1"));
+        L(Row("  R_d(v)", rdM, "m", "F1"));
+        L(Row("deficit, nearest point inside the R_d(v) square (Chebyshev)", deficitsRd, "", "F0"));
         L($"  band switches {streamer.BandSwitchesTotal - bandSwitches0}, discarded on arrival {streamer.DiscardedOnArrivalTotal - discarded0}");
         L("  10 s windows:");
         _log.Append(windows);
@@ -469,6 +476,21 @@ public partial class PlaygroundCapture
             L($"  throughput (gen p50 {g50:F0} ms, {w} workers): {StreamingRequirement.Verdict(rq.aMax, cap50, "/s")}");
             L($"  throughput (gen p99 {g99:F0} ms, {w} workers): {StreamingRequirement.Verdict(rq.aMax, cap99, "/s")}");
             L($"    level flight only (no dive): REQUIRED {rq.aHorizontal:F1}/s; measured admitted this run {admittedRun / runSeconds:F1}/s (incl. {uniformN} uniform chunks)");
+            {
+                // Task 24: the budget the speed-dependent hand-over leaves, at the
+                // worst-case speed and at this arm's measured speed.
+                double loadM = DetailRadius.LoadRadiusM;
+                double rd60 = StreamingRequirement.DetailRadiusM(req.vMaxMps, loadM, req.frameHz);
+                double b60 = StreamingRequirement.LatencyBudgetS(req.vMaxMps, loadM, rd60, req.frameHz);
+                rdSpeed.Sort(); double vArm = Pct(rdSpeed, 0.5);
+                double rdArm = StreamingRequirement.DetailRadiusM(vArm, loadM, req.frameHz);
+                double bArm = StreamingRequirement.LatencyBudgetS(vArm, loadM, rdArm, req.frameHz);
+                string Vs(double b) => double.IsInfinity(b) ? "no deadline (still)" : (up99 <= b ? "MET" : (b > 0 ? $"NOT MET (short by {up99 / b:F1}x)" : "NOT MET (budget 0)"));
+                L($"  latency WITH the detail radius at speed (task 24, {(DetailRadius.Enabled ? "ON this run" : "OFF this run -- what ON would require")}):");
+                L($"    at {req.vMaxMps:F0} m/s: R_d {rd60:F1} m (margin {loadM - rd60:F1} m): REQUIRED request->GPU p99 <= {b60:F3} s, MEASURED p99 {up99:F3} s -> {Vs(b60)}");
+                L($"    at this arm's speed p50 {vArm:F1} m/s: R_d {rdArm:F1} m (margin {loadM - rdArm:F1} m): REQUIRED p99 <= " +
+                  $"{(double.IsInfinity(bArm) ? "inf" : bArm.ToString("F3"))} s, MEASURED p99 {up99:F3} s -> {Vs(bArm)}");
+            }
             L(rq.latencyMeetable
                 ? $"  latency: REQUIRED request->GPU p99 <= {rq.latencyBudgetS:F3} s, MEASURED p99 {up99:F3} s -> {(up99 <= rq.latencyBudgetS ? "MET" : $"NOT MET (short by {up99 / rq.latencyBudgetS:F1}x)")}"
                 : $"  latency: REQUIRED request->GPU p99 <= 0 s (margin {rq.marginM:F1} m), MEASURED p99 {up99:F3} s -> NOT MET (no throughput can meet a zero budget: the worst case itself must change)");

@@ -89,4 +89,101 @@ public class StreamingRequirementTests
             StreamingRequirement.Verdict(100, 25, "/s"));
         Assert.AreEqual("REQUIRED 10.0/s, CAPACITY 25.0/s -> MET", StreamingRequirement.Verdict(10, 25, "/s"));
     }
+
+    // ---- Task 24: the voxel-detail radius at speed ----
+    // Hand-worked (load radius 128 m, L_target 0.62 s, 60 Hz -> 0.636667 s per m/s):
+    //   v = 0     M = 0                    R_d = 128 m (today's, exactly)
+    //   v = 5.2   M = 5.2 x 0.636667 = 3.3107   R_d = 124.6893 m
+    //   v = 14    M = 8.9133                    R_d = 119.0867 m
+    //   v = 56    M = 35.6533                   R_d = 92.3467 m
+    //   v = 60    M = 38.2                      R_d = 89.8 m = 7.0156 chunks (approved: ~7, ~90 m)
+    //   v = 120   M = 76.4 -> 51.6 < floor      R_d = 64 m; budget 64/120 - 1/60 = 0.51667 s
+    private const double LOAD_M = 128.0;
+
+    [Test]
+    public void DetailRadius_AtRest_IsTodaysExactly()
+    {
+        Assert.AreEqual(LOAD_M, StreamingRequirement.DetailRadiusM(0.0, LOAD_M, 60.0));
+        Assert.AreEqual(LOAD_M, StreamingRequirement.DetailRadiusM(-1.0, LOAD_M, 60.0));
+        Assert.AreEqual(LOAD_M, StreamingRequirement.DetailRadiusM(double.NaN, LOAD_M, 60.0));
+        // ...and that is the Live() R_d with the flag off (no margin).
+        var r = StreamingRequirement.Compute(Case(10, 10));
+        Assert.AreEqual(10 * 12.8, LOAD_M - r.marginM, 1e-4);
+    }
+
+    [Test]
+    public void DetailRadius_HandWorked()
+    {
+        Assert.AreEqual(124.6893, StreamingRequirement.DetailRadiusM(5.2, LOAD_M, 60.0), 1e-3);
+        Assert.AreEqual(119.0867, StreamingRequirement.DetailRadiusM(14.0, LOAD_M, 60.0), 1e-3);
+        Assert.AreEqual(92.3467, StreamingRequirement.DetailRadiusM(56.0, LOAD_M, 60.0), 1e-3);
+        double rd60 = StreamingRequirement.DetailRadiusM(60.0, LOAD_M, 60.0);
+        Assert.AreEqual(89.8, rd60, 1e-6);
+        Assert.AreEqual(7.0156, rd60 / 12.8, 1e-3);
+        Assert.AreEqual(64.0, StreamingRequirement.DetailRadiusM(120.0, LOAD_M, 60.0), 1e-9, "floor");
+        // Continuous and monotone: walking barely moves it.
+        Assert.Less(LOAD_M - StreamingRequirement.DetailRadiusM(5.2, LOAD_M, 60.0), 3.4);
+    }
+
+    [Test]
+    public void DetailRadius_LeavesTheTargetBudget()
+    {
+        foreach (double v in new[] { 1.0, 5.2, 14.0, 56.0, 60.0, 100.0 })
+        {
+            double rd = StreamingRequirement.DetailRadiusM(v, LOAD_M, 60.0);
+            Assert.AreEqual(StreamingRequirement.DETAIL_LATENCY_TARGET_S,
+                StreamingRequirement.LatencyBudgetS(v, LOAD_M, rd, 60.0), 1e-9, $"v {v}");
+        }
+        Assert.AreEqual(0.51667, StreamingRequirement.LatencyBudgetS(120.0, LOAD_M, 64.0, 60.0), 1e-4, "below the floor the budget shrinks");
+        Assert.AreEqual(0.0, StreamingRequirement.LatencyBudgetS(60.0, LOAD_M, LOAD_M, 60.0), "today: no budget");
+        // Compute() with the metre override: margin 38.2 m, budget 0.62 s.
+        var i = Case(10, 10);
+        i.detailRadiusM = 89.8;
+        var r = StreamingRequirement.Compute(i);
+        Assert.AreEqual(38.2, r.marginM, 1e-4);
+        Assert.IsTrue(r.latencyMeetable);
+        Assert.AreEqual(0.62, r.latencyBudgetS, 1e-6);
+    }
+
+    [Test]
+    public void DetailSpeedFilter_StillIsExactlyZero()
+    {
+        var f = new DetailSpeedFilter();
+        float t = 0f;
+        for (int k = 0; k < 200; k++) { t += (k % 3 == 0) ? 0.031f : 0.012f; f.Push(t, new Unity.Mathematics.float2(4000.25f, -812.5f)); }
+        Assert.AreEqual(0f, f.SpeedMps);
+    }
+
+    [Test]
+    public void DetailSpeedFilter_IgnoresFrameJitter()
+    {
+        // 60 m/s along a line with frame times alternating 8 / 33 ms: distance
+        // follows time, so every window reads 60 exactly (to float rounding).
+        var f = new DetailSpeedFilter();
+        double t = 0, x = 0;
+        for (int k = 0; k < 300; k++)
+        {
+            double dt = (k & 1) == 0 ? 0.008 : 0.033;
+            t += dt; x += 60.0 * dt;
+            f.Push((float)t, new Unity.Mathematics.float2((float)x, 0f));
+            if (k > 2) Assert.AreEqual(60f, f.SpeedMps, 0.05f, $"frame {k}");
+        }
+    }
+
+    [Test]
+    public void DetailSpeedFilter_OneFastFrameIsBounded()
+    {
+        // Walking 5.2 m/s at 60 Hz, then ONE frame jumps 2 m (e.g. a step-up snap):
+        // the mean rises by at most ~2 m / 0.5 s = 4 m/s, and only for 0.5 s.
+        var f = new DetailSpeedFilter();
+        float t = 0f, x = 0f;
+        for (int k = 0; k < 120; k++) { t += 1f / 60f; x += 5.2f / 60f; f.Push(t, new Unity.Mathematics.float2(x, 0f)); }
+        t += 1f / 60f; x += 2f; f.Push(t, new Unity.Mathematics.float2(x, 0f));
+        Assert.Less(f.SpeedMps, 5.2f + 4.1f);
+        for (int k = 0; k < 40; k++) { t += 1f / 60f; x += 5.2f / 60f; f.Push(t, new Unity.Mathematics.float2(x, 0f)); }
+        Assert.AreEqual(5.2f, f.SpeedMps, 0.01f, "the spike has left the window");
+        // A teleport (one frame > 128 m) restarts the window instead of reading 7,000 m/s.
+        t += 1f / 60f; x += 500f; f.Push(t, new Unity.Mathematics.float2(x, 0f));
+        Assert.AreEqual(0f, f.SpeedMps);
+    }
 }

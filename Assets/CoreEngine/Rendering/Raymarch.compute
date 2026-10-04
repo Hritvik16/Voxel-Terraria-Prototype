@@ -1922,6 +1922,10 @@ int    _FarShadow;
 float4 _FarOrigin[5];     // .xy ring min corner (texels), unused otherwise
 float4 _FarParams;        // x max top height (voxels), y haze range (voxels), z primary step cap, w shadow step cap
 float  _FarPixelAngle;    // radians per pixel at screen centre; 0 = footprint level selection off (-farfootprint 0)
+// TASK 24 (opt-in, -detailspeed 1; DetailRadius.cs): half-width (voxels) of the
+// camera-centred XZ square inside which voxels own a ray. 0 = no square: the
+// hand-over is the first non-resident chunk column, exactly as before.
+float  _DetailRadiusVoxels;
 int4   _FarScatter;       // x0, z0, w, h  (texel coords of the strip)
 int    _FarScatterLevel;
 int    _FarMipLevel;
@@ -2118,7 +2122,8 @@ FarHit FarMarch(float3 O, float3 D, float tStart, int stepCap, bool skipWindow, 
         if (skipWindow && hitY >= (float)_ContentFloorVoxelY && hitY < (float)_ContentCeilingVoxelY
                        && c.x * tv >= wMin.x && (c.x + 1) * tv <= wMax.x
                        && c.y * tv >= wMin.z && (c.y + 1) * tv <= wMax.z
-                       && FarChunkResident(((c * tv) >> 7) - (wMin.xz >> 7)))
+                       && FarChunkResident(((c * tv) >> 7) - (wMin.xz >> 7))
+                       && (_DetailRadiusVoxels <= 0.0 || cheb < _DetailRadiusVoxels))
         {
             t = tExit + 1e-3 * (float)cs;
             continue;
@@ -2277,6 +2282,16 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 maxDist += te;
             }
         }
+    }
+
+    // TASK 24: with the detail square on, the voxel march ends where the ray
+    // leaves it (the camera is its centre, so t = R / max|D.xz|), and the far
+    // band owns everything beyond. Off (0): tDetail is unbounded, nothing changes.
+    float tDetail = 3.0e38;
+    if (_FarEnabled == 1 && _DetailRadiusVoxels > 0.0)
+    {
+        tDetail = _DetailRadiusVoxels / max(abs(rayDir.x), abs(rayDir.z));
+        maxDist = min(maxDist, tDetail);
     }
 
     while (!skipVoxel && currentDist < maxDist && steps < _iterCap)
@@ -2620,9 +2635,12 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     float farSunVis = 1.0;
     int farShadowSteps = 0;
     float tFarDbg = -1.0;   // task 19 probe only
+    // TASK 24: a leap or brick step can overshoot maxDist by a little; a voxel
+    // hit entered past the detail square is the far band's.
+    if (hit && currentDist > tDetail) hit = false;
     if (_FarEnabled != 0 && !hit)
     {
-        float tFar = (_FarEnabled == 2) ? 0.0 : FarStartT(rayStart, rayDir, skipVoxel ? 0.0 : currentDist);
+        float tFar = (_FarEnabled == 2) ? 0.0 : FarStartT(rayStart, rayDir, skipVoxel ? 0.0 : min(currentDist, tDetail));
         if (skipVoxel && _FarEnabled == 1) tFar = 0.0;
         tFarDbg = tFar;
         fh = FarMarch(rayStart, rayDir, tFar, (int)_FarParams.z, _FarEnabled == 1, 0.0);

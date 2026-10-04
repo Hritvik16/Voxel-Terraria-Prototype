@@ -402,6 +402,7 @@ public class RaymarchFeature : ScriptableRendererFeature
             public Vector4[] farOrigins;
             public Vector4 farParams;
             public float farPixelAngle;
+            public float detailRadiusVoxels;   // task 24: 0 = hand-over at the residency edge (today)
             public VoxelEngine.Rendering.FarField.Scatter[] farScatters;
             public int farMipMask;
             public int kFarScatter = -1, kFarMip = -1;
@@ -714,6 +715,10 @@ public class RaymarchFeature : ScriptableRendererFeature
                 var far = VoxelEngine.Rendering.FarField.Active;
                 bool farOn = far != null && far.Ready && VoxelEngine.Rendering.FarField.RenderEnabled && !useStripped && !useMemoryProbe;
                 passData.farEnabled = farOn ? (far.FarOnly ? 2 : 1) : 0;
+                // Task 24: speed-dependent voxel-detail radius (opt-in, -detailspeed 1).
+                if (cameraData.camera.cameraType == CameraType.Game)
+                    VoxelEngine.Streaming.DetailRadius.Tick(Time.frameCount, Time.realtimeSinceStartup, cameraData.camera.transform.position);
+                passData.detailRadiusVoxels = farOn ? VoxelEngine.Streaming.DetailRadius.ShaderRadiusVoxels : 0f;
                 passData.farShadow = farOn && far.ShadowsOn ? 1 : 0;
                 passData.farTexels = farOn ? far.Texels : _farDummy;
                 passData.farMips = farOn ? far.Mips : _farDummy;
@@ -1004,6 +1009,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeVectorArrayParam(data.compute, "_FarOrigin", data.farOrigins);
                         cmd.SetComputeVectorParam(data.compute, "_FarParams", data.farParams);
                         cmd.SetComputeFloatParam(data.compute, "_FarPixelAngle", data.farPixelAngle);
+                        cmd.SetComputeFloatParam(data.compute, "_DetailRadiusVoxels", data.detailRadiusVoxels);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarTexels", data.farTexels);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarMips", data.farMips);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarResident", data.farResident);
