@@ -1,4 +1,4 @@
-# 24-gen-contention-attribution
+# 25-gen-contention-attribution (renumbered from 24 by the supervisor: 24 was taken)
 
 Queued by task 20 as its one low-risk follow-up (evidence only, no default change).
 Requires: 20-worker-contention-probe
