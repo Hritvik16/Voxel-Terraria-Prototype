@@ -36,9 +36,14 @@ take over; ONE agent active on the project at any time.
 Wait with ONE background command that returns when `runner.log` gains a line
 matching `BLOCKED|done |queue runner end|FAILED|INCOMPLETE` (until-loop, sleep 60,
 `run_in_background`, timeout 7200000; re-arm on timeout). Do not poll otherwise.
-**Owner, 2026-10-02: a status update in the terminal every 5 minutes while a task
-runs.** So the wait also returns after 300 s; then run `tools/overnight/status.sh 8`
-and give 2-5 plain lines (what the task did, what it is waiting on, queue changes).
+**Owner, 2026-10-04 (replaces the 5-minute rule): NO periodic status updates** -- each
+turn resends the whole conversation and drains the weekly allowance. Speak only when a
+task starts or finishes, blocks, or needs the owner. The owner watches the running
+worker in a Terminal tab (a loop of `tools/overnight/watch-task.sh` that moves to each
+new task; open it with osascript at session start if it is not already open).
+**Keep supervisor sessions short:** after ~3-4 finished tasks, or whenever the session
+feels long, write SESSION_HANDOFF.md, commit it, start the successor with
+`tools/new-session.sh`, and tell the owner to switch to it and close the old one.
 On each event:
 - **done NAME**: `head -30 tools/overnight/HANDOFF.md`. One line into the doc's
   "Done" table (result, commit, where the evidence is).

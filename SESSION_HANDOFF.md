@@ -1,4 +1,4 @@
-# Session handoff -- 2026-10-04 07:10 (queue supervisor session; 24 running)
+# Session handoff -- 2026-10-04 07:15 (queue supervisor session; 24 running; builds PAUSED until ~08:05)
 
 ## State
 - **Branch `surface-rebuild`** (from `main`). `main` was fast-forwarded on 2026-10-03 14:40
@@ -8,6 +8,9 @@
   Queue, in order: **24** (running since 07:03) detail radius at speed (opt-in) -> **26** eviction
   retry -> **29** B3 light erosion (60 iterations; plan's B3 targets; owner render check) ->
   **30** column-pass sharing (bit-identical; records Q19 = 2a 3a 4a 5a in the plan).
+- **Owner paused builds 07:04 for an hour.** A detached job runs `tools/heavy.sh resume` at
+  ~08:05 (no PAUSE file this time, so the runner keeps going and its builds wait). Check
+  `tools/heavy.sh status` after 08:06; if it still says PAUSED, run `tools/heavy.sh resume`.
 - **PREAMBLE rule 9 (owner Q20 (a)):** performance at WARM STEADY STATE: one discarded warm-up
   launch, then measured arms back to back, ABBA.
 - After 24: owner question "switch -detailspeed on?" with off/on pictures. After 29: owner
@@ -38,11 +41,16 @@ Owner: paused builds 21:52-22:52 (auto-resumed); answered Q13 (a), Q14 (a) -> ta
 - TAA proposal (steps 1-3 approved): https://claude.ai/code/artifact/6745ee4a-4af7-482f-b07d-822e46270918
 
 ## Notes
-- Status updates every 5 min while a task runs (one background wait: 300 s or a runner event).
+- **Owner 2026-10-04: NO 5-minute updates** (each turn resends the whole conversation). Speak only
+  when a task starts/finishes/blocks or the owner is needed. The owner watches the running worker
+  in a Terminal tab titled "running worker" (opened 07:12; it follows each new task by itself).
+- Keep supervisor sessions short: after ~3-4 finished tasks, hand off and start a fresh one
+  with `tools/new-session.sh` (SUPERVISOR.md "The loop").
 - This Mac is a fanless M1 Air: back-to-back performance runs get slower (tasks 27/28).
 
 ## Ready-to-paste prompt
 > Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the overnight
 > queue as described there until nothing is left that can run without me. Only one agent
 > works on the project at a time; you do no engineering yourself. Put every question for me
-> in the "Queue decisions" doc. Give me a short status update every 5 minutes while a task runs.
+> in the "Queue decisions" doc. No periodic status updates: tell me only when a task starts or
+> finishes, blocks, or needs me. When this session gets long, hand off to a fresh one yourself.
