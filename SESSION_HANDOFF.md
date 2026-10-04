@@ -1,17 +1,18 @@
-# Session handoff -- 2026-10-04 01:35 (queue supervisor session; 21 running)
+# Session handoff -- 2026-10-04 03:00 (queue supervisor session; 23 running)
 
 ## State
 - **Branch `surface-rebuild`** (from `main`). `main` was fast-forwarded on 2026-10-03 14:40
   after SUITE=all 618/0/12. NOT pushed (owner hasn't asked).
 - Runner alive in tmux `overnight` (IDLE_MIN=0, under caffeinate). No PAUSE.
-  Running: **21** poses mirror-lost check (started 01:28). 20 done (76a717a: contention, not
-  oversubscription; 7 workers still fastest). Then
+  Running: **23** coarse-first plan (started 02:51, planning only). Done tonight: 20 (76a717a),
+  21 (7d2125a, closed to done/ by the supervisor: report complete, fix = 26). Queue:
   **22** FarStartT integer DDA = coast black-bar fix (queued by 19; runner HOLDS it until
   `OWNER-APPROVES-22` is deleted from its Requires line -> owner Q16), **23** coarse-first plan
   (owner Q14 (a); planning only; Requires 20), **24** detail radius at speed (owner Q13 (a);
   opt-in `-detailspeed 1`; renumbered from 22; Requires 22-farstartt-integer-dda). If the owner
   answers Q16 (b), change 24's Requires to 19-coast-bar-pixel-probe.
   **25** gen contention attribution (from 20, evidence; renumbered from 24).
+  **26** deferred eviction retry (queued by 21; HELD until `OWNER-APPROVES-26` is deleted -> Q17).
   Task agents number follow-ups after the last file they see: re-check `ls queue` before
   numbering a new supervisor task, and renumber on a clash.
   After 24: owner question "switch -detailspeed on?" with its off/on pictures.
@@ -29,7 +30,9 @@ b88820b) · 16 pause gate in loop scripts (28455ec) · 18 coast black bar diagno
 diagonal dive), measured 13.9-16.2/s walking (141-164x short), latency budget 0 s by
 construction (far hand-over = residency edge). Details: KNOWN_ISSUES "STREAMING REQUIREMENT".
 
-## Waiting on the owner (doc "Waiting on you", rev 269)
+## Waiting on the owner (doc "Waiting on you", rev 273)
+- **Q17** (21): approve 26 (retry save-capped evictions every frame). Recommended (a). On (a):
+  delete `OWNER-APPROVES-26` from 26's Requires line, commit by path.
 - **Q16** (19): approve 22 (FarStartT integer DDA). Recommended (a). On (a): delete
   `OWNER-APPROVES-22` from 22's Requires line, commit by path.
 - **Q15** (B2): gentle share. Recommended (a) keep 50%; (b) 60%; (c) 40%; "+cliffs" = keep a
@@ -38,7 +41,7 @@ construction (far hand-over = residency edge). Details: KNOWN_ISSUES "STREAMING 
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 269)
+  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 273)
 - Surface rebuild plan: https://claude.ai/code/artifact/f6222d44-1457-4a92-9460-3390d44e75fd
 - Game Design Brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
 - Terrain review: https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7
