@@ -14,6 +14,9 @@
 //   5. load deficit over time
 //   6. shots of the same pose fully loaded (still) and mid-motion, each in
 //      beauty, the LOD-tier view (6) and the band view (9)
+//   7. (task 16b) measured capacity vs the WORST-CASE requirement
+//      (StreamingRequirement): REQUIRED / CAPACITY -> MET / NOT MET. This
+//      replaced B1's "no more than 5% worse than v3" comparison.
 //
 // -streammotion walk : the MODE=walk circle (-orbitradius, default 150 m) at
 //                      1.6 m eye, -movespeed default 5 m/s.
@@ -346,11 +349,12 @@ public partial class PlaygroundCapture
         var transfer = new List<float>(); var casc = new List<float>(); var reqDisp = new List<float>(); var jobWait = new List<float>();
         var complWait = new List<float>(); var admUp = new List<float>(); var admUpF = new List<float>(); var reqUp = new List<float>();
         var reqUpF = new List<float>(); var distReq = new List<float>(); var distUp = new List<float>(); var late = new List<float>(); var lateF = new List<float>();
+        var genDownSolid = new List<float>();
         int uniformN = 0;
         double workerMsSum = 0;
         foreach (var e in done)
         {
-            gen.Add((float)e.genMs); down.Add((float)e.downMs); if (!e.uniform) genSolid.Add((float)e.genMs); else uniformN++;
+            gen.Add((float)e.genMs); down.Add((float)e.downMs); if (!e.uniform) { genSolid.Add((float)e.genMs); genDownSolid.Add((float)(e.genMs + e.downMs)); } else uniformN++;
             workerMsSum += e.genMs + e.downMs;
             admitMs.Add((float)e.admitMs); transfer.Add((float)e.transferMs); casc.Add((float)e.cascadeMs);
             reqDisp.Add((float)StreamTrace.Ms(e.tDispatch - e.tRequest));
@@ -414,6 +418,35 @@ public partial class PlaygroundCapture
         L($"  band switches {streamer.BandSwitchesTotal - bandSwitches0}, discarded on arrival {streamer.DiscardedOnArrivalTotal - discarded0}");
         L("  10 s windows:");
         _log.Append(windows);
+        // 7. Task 16b: the worst case (KNOWN_ISSUES "STREAMING REQUIREMENT").
+        // Capacity = workers x 1000 / (generate + downsample) per NON-uniform
+        // chunk -- the worst case has no air fast path -- at p50 (sustained)
+        // and p99 (worst observed).
+        {
+            var req = StreamingRequirement.Live();
+            var rq = StreamingRequirement.Compute(req);
+            genDownSolid.Sort(); reqUp.Sort(); admitMs.Sort();
+            int w = streamer.WorkerCount;
+            double g50 = Pct(genDownSolid, 0.5), g99 = Pct(genDownSolid, 0.99);
+            double cap50 = g50 > 0 ? w * 1000.0 / g50 : 0, cap99 = g99 > 0 ? w * 1000.0 / g99 : 0;
+            double up99 = Pct(reqUp, 0.99) / 1000.0, adm50 = Pct(admitMs, 0.5);
+            double frameMs = 1000.0 / req.frameHz, mainMs = rq.admitsPerFrame * adm50;
+            L("7. WORST-CASE REQUIREMENT (StreamingRequirement; KNOWN_ISSUES \"STREAMING REQUIREMENT\")");
+            L($"  worst case: {req.vMaxMps:F0} m/s, diagonal dive (worst 3-D heading), {rq.side}x{rq.side} chunks x {req.bandLayers} layers, " +
+              $"every chunk full cost; prefetch margin {rq.marginM:F1} m (request radius {req.requestRadiusChunks}, detail radius {req.detailRadiusChunks})");
+            L($"  throughput (gen p50 {g50:F0} ms, {w} workers): {StreamingRequirement.Verdict(rq.aMax, cap50, "/s")}");
+            L($"  throughput (gen p99 {g99:F0} ms, {w} workers): {StreamingRequirement.Verdict(rq.aMax, cap99, "/s")}");
+            L($"    level flight only (no dive): REQUIRED {rq.aHorizontal:F1}/s; measured admitted this run {admittedRun / runSeconds:F1}/s (incl. {uniformN} uniform chunks)");
+            L(rq.latencyMeetable
+                ? $"  latency: REQUIRED request->GPU p99 <= {rq.latencyBudgetS:F3} s, MEASURED p99 {up99:F3} s -> {(up99 <= rq.latencyBudgetS ? "MET" : $"NOT MET (short by {up99 / rq.latencyBudgetS:F1}x)")}"
+                : $"  latency: REQUIRED request->GPU p99 <= 0 s (margin {rq.marginM:F1} m), MEASURED p99 {up99:F3} s -> NOT MET (no throughput can meet a zero budget: the worst case itself must change)");
+            L($"  main thread: {rq.admitsPerFrame:F1} admits/frame x admit p50 {adm50:F2} ms = {mainMs:F1} ms vs a {frameMs:F1} ms frame -> {(mainMs <= frameMs ? "MET" : $"NOT MET (short by {mainMs / frameMs:F1}x)")}" +
+              $"; MAX_CHUNK_LOADS_PER_FRAME {EngineConfig.MAX_CHUNK_LOADS_PER_FRAME}");
+            L($"  bursts: X/Z plane {rq.faceBurst}, corner {rq.cornerBurst}, Y recentre {rq.verticalBurst} chunks; cold start / teleport {rq.bandChunks} chunks " +
+              $"-> {rq.coldFillS:F2} s at the required rate (PROPOSED target, not set)");
+            L($"  largest worst-case speed sustained at this capacity: {StreamingRequirement.SustainedSpeedMps(req, cap50):F2} m/s (p50), " +
+              $"{StreamingRequirement.SustainedSpeedMps(req, cap99):F2} m/s (p99) -- information only");
+        }
         L("");
         L("per-frame rows: streamprobe_frames.tsv; per-chunk rows: streamprobe_chunks.tsv");
         var cr = new StringBuilder(done.Count * 100);

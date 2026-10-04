@@ -23,6 +23,10 @@ ROWS = [
     ("of which inside 64 m (full-detail ring)", "4 missing in 64 m /frame"),
     ("deficit                                      n", "5 deficit"),
     ("settle at the shot pose", "fill fresh band s"),
+    # task 16b: measured vs the worst-case requirement (StreamingRequirement)
+    ("throughput (gen p50", "7 cap vs REQUIRED (p50)"),
+    ("throughput (gen p99", "7 cap vs REQUIRED (p99)"),
+    ("  latency: REQUIRED", "7 latency p99 vs REQUIRED"),
 ]
 
 
@@ -42,6 +46,14 @@ def parse(path):
             if key == "isolated generate":
                 m = re.search(r"p50 ([\d.]+) ms\s+max ([\d.]+)", ln)
                 out[label] = f"{m.group(1)} / - / {m.group(2)}" if m else "?"
+                break
+            if key.startswith("throughput (gen"):
+                m = re.search(r"REQUIRED ([\d.]+)/s, CAPACITY ([\d.]+)/s -> (MET|NOT MET \(short by ([\d.]+)x\))", ln)
+                out[label] = (f"{m.group(2)} of {m.group(1)}/s " + ("MET" if m.group(3) == "MET" else f"short {m.group(4)}x")) if m else "?"
+                break
+            if key == "  latency: REQUIRED":
+                m = re.search(r"<= ([\d.]+) s.*MEASURED p99 ([\d.]+) s -> (MET|NOT MET)", ln)
+                out[label] = f"{m.group(2)} s vs {m.group(1)} s {m.group(3)}" if m else "?"
                 break
             if key == "settle at the shot pose":
                 m = re.search(r"\): ([\d.]+) s", ln)

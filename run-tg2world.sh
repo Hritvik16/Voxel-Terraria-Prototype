@@ -62,6 +62,10 @@ sleep 30
 # MOTION=fly (default: straight ping-pong over the island, 56 m/s) or walk
 # (the MODE=walk circle); per-stage chunk timings, upload bytes, deficit, and
 # still vs moving shots of one pose. Performance preset, like MODE=walk.
+# Section 7 of its report (task 16b) is every B step's streaming verdict:
+# measured capacity and latency vs the derived WORST-CASE requirement
+# (StreamingRequirement.cs; KNOWN_ISSUES "STREAMING REQUIREMENT"). It replaced
+# the old "no more than 5% worse than v3" comparison.
 if [ "${MODE:-poses}" = "orbit" ]; then
   open -n "$APP" --args -world tg2 -sustained -motion orbit -orbitheight "${ORBITH:-40}" -minutes "${MINUTES:-3}" \
     -gateres 0 -renderpreset performance -farshadow 1 -cleardeltas -tag "tg2orbit_${RUN_ID}" ${EXTRA:-}
