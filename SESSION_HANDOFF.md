@@ -30,8 +30,10 @@ state is heat-triggered (c2bd8cb) · 28 four workers heat the chip themselves (2
 Owner: paused builds 21:52-22:52 (auto-resumed); answered Q13 (a), Q14 (a) -> tasks 24, 23.
 
 ## Waiting on the owner
-- **Q21 (doc rev 298): switch `-detailspeed` on by default?** Recommended (a): wait for 26b's walking
-  shot. 24 DONE 13:15 (4b03fe9). Its follow-up 31 was renumbered 26b (runs after 26) so Q21 can close sooner.
+- **Q22 (doc rev 304): LOD pixel rule** (amendment 8.9: nothing coarser than its distance allows). Item 1
+  decided in chat: -detailspeed retired (OFF, never default), 26b dropped to tools/overnight/dropped/.
+  Open: item 2 (far band starts ~2x too close at 128 m; rec. (a) memory-cost evidence task),
+  item 3 (coarse-first = main track for speed; rec. (a) queue step 1 after 30). Q21 superseded.
 - Older: Q6/Q7 (TAA/checker stills) still the owner's to look at; nothing queued.
 
 ## Documents
