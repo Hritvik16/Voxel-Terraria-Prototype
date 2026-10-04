@@ -1,11 +1,11 @@
-# Session handoff -- 2026-10-04 04:00 (queue supervisor session; 27 running, then nothing runnable)
+# Session handoff -- 2026-10-04 05:10 (queue supervisor session; 28 running, then nothing runnable)
 
 ## State
 - **Branch `surface-rebuild`** (from `main`). `main` was fast-forwarded on 2026-10-03 14:40
   after SUITE=all 618/0/12. NOT pushed (owner hasn't asked).
 - Runner alive in tmux `overnight` (IDLE_MIN=0, under caffeinate). No PAUSE.
-  Running: **27** slow speed state: thermal or E-core (from 25, evidence; started 03:56). Done
-  tonight: 25 (a909953: GC ruled out; per-thread 2.2x speed step on the fanless M1 Air),
+  Running: **28** N=4 cold vs warm (from 27, evidence; started 05:06). Done tonight: 27 (c2bd8cb:
+  slow state is HEAT-triggered on the fanless M1 Air; capacity numbers so far were warm), 25 (a909953: GC ruled out; per-thread 2.2x speed step on the fanless M1 Air),
   23 (4fecdf6, plan), 20 (76a717a),
   21 (7d2125a, closed to done/ by the supervisor: report complete, fix = 26). Queue:
   **22** FarStartT integer DDA = coast black-bar fix (queued by 19; runner HOLDS it until
@@ -20,7 +20,7 @@
   After 24: owner question "switch -detailspeed on?" with its off/on pictures.
   23's decisions are Q18 (order; (a) = column-pass sharing first -> queue it as the next
   streaming task, SUITE=all + MODE=stream section 7) and Q19 (coarse-first details, later).
-  After 27 NOTHING is runnable without the owner: 22/26 held, 24 needs 22, B3 needs Q15.
+  After 28 NOTHING is runnable without the owner: 22/26 held, 24 needs 22, B3 needs Q15.
 - **Owner pause:** "pause"/"resume" -> `tools/heavy.sh pause|resume` (DRAIN: running work
   finishes, nothing new heavy starts). Tell the owner when `status` says idle. Never kill.
 - B3 waits on **Q15** (B2's gentle share 40/50/60%, +cliffs option). Answer -> queue B3 from the
@@ -35,6 +35,9 @@ diagonal dive), measured 13.9-16.2/s walking (141-164x short), latency budget 0 
 construction (far hand-over = residency edge). Details: KNOWN_ISSUES "STREAMING REQUIREMENT".
 
 ## Waiting on the owner (doc "Waiting on you", rev 276)
+- **Q20** (27): measure performance warm (recommended) / cold / both; "+QoS" approves a
+  worker QoS diagnostic flag. On an answer: add the rule to PREAMBLE.md / CLAUDE.md measurement
+  discipline (owner-approved) and to every perf task file.
 - **Q18/Q19** (23): see above. Q18 (a) recommended.
 - **Q17** (21): approve 26 (retry save-capped evictions every frame). Recommended (a). On (a):
   delete `OWNER-APPROVES-26` from 26's Requires line, commit by path.
@@ -46,7 +49,7 @@ construction (far hand-over = residency edge). Details: KNOWN_ISSUES "STREAMING 
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 278)
+  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 281)
 - Surface rebuild plan: https://claude.ai/code/artifact/f6222d44-1457-4a92-9460-3390d44e75fd
 - Game Design Brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
 - Terrain review: https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7
