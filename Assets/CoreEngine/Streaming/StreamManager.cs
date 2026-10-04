@@ -301,6 +301,12 @@ namespace VoxelEngine.Streaming
         // band residency) already follows _streamY, so nothing else changes.
         // =====================================================================
         public static bool TerrainAwareBand = true;
+
+        // DIAGNOSTIC (task 20, 2026-10-04): `-genworkers N` overrides
+        // EngineConfig.CHUNK_GEN_WORKER_THREADS for one launch, for the worker
+        // contention probe. 0 = no override (the default is unchanged). Read
+        // once, in the constructor; set it before constructing.
+        public static int GenWorkersOverride = 0;
         public const float BAND_SWITCH_GAIN = 1.25f;
         public const int UNDERGROUND_MARGIN = 80;          // voxels (8 m)
         public const float FALL_SPEED_CENTRED = 4f;         // m/s downward
@@ -534,11 +540,13 @@ namespace VoxelEngine.Streaming
             // up. Default therefore stays on the historical derivation; the
             // topology is queried and logged because it is genuinely useful
             // diagnostic context, not because it should pick this number.
-            _maxConcurrentLoads = EngineConfig.CHUNK_GEN_WORKER_THREADS > 0
-                ? EngineConfig.CHUNK_GEN_WORKER_THREADS
-                : math.max(2, Environment.ProcessorCount - 1);
+            _maxConcurrentLoads = GenWorkersOverride > 0
+                ? GenWorkersOverride
+                : EngineConfig.CHUNK_GEN_WORKER_THREADS > 0
+                    ? EngineConfig.CHUNK_GEN_WORKER_THREADS
+                    : math.max(2, Environment.ProcessorCount - 1);
 
-            Debug.Log($"[StreamManager] chunk-gen workers: {_maxConcurrentLoads}  " +
+            Debug.Log($"[StreamManager] chunk-gen workers: {_maxConcurrentLoads}{(GenWorkersOverride > 0 ? " (-genworkers override)" : "")}  " +
                       $"(cpu topology: {VoxelEngine.Diagnostics.CpuTopology.Describe()})");
 
             // Prime the ThreadPool so PrimeWindow's Parallel.For gets real

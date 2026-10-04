@@ -218,6 +218,14 @@ public class Phase4Bootstrapper : MonoBehaviour
         // -centredband (2026-10-01): the V2 band centred on the eye, for A/B
         // against the terrain-aware placement (StreamManager.TerrainAwareBand).
         VoxelEngine.Streaming.StreamManager.TerrainAwareBand = Array.IndexOf(Environment.GetCommandLineArgs(), "-centredband") < 0;
+        // -genworkers N (task 20, diagnostic): chunk-gen worker count for this
+        // launch only; absent or 0 = EngineConfig's derivation, unchanged.
+        {
+            string[] args = Environment.GetCommandLineArgs();
+            int gi = Array.LastIndexOf(args, "-genworkers");
+            VoxelEngine.Streaming.StreamManager.GenWorkersOverride =
+                gi >= 0 && gi + 1 < args.Length && int.TryParse(args[gi + 1], out int gw) && gw > 0 ? gw : 0;
+        }
         Cascades = new LODCascadeManager(mirrorChunks, tier => IsTg2World ? EngineConfig.Tg2CascadeTierPoolCap(tier)
                                                                           : EngineConfig.CascadeTierPoolCap(tier));
 

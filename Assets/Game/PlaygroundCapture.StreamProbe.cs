@@ -181,7 +181,7 @@ public partial class PlaygroundCapture
         L($"device {SystemInfo.graphicsDeviceName}  {Screen.width}x{Screen.height}  {(Screen.fullScreen ? "FULLSCREEN" : "WINDOWED")}  " +
           $"{(Debug.isDebugBuild ? "DEVELOPMENT" : "RELEASE")}  preset {(HasFlag("-renderpreset") ? RenderPreset.Current.ToString() : "as shipped")}  " +
           $"gate {gate}  shadow rung {RaymarchFeature.ShadowQualityLevel}  HUD OFF  fluid not opened  clock {SunCycle.ClockString()}");
-        L($"streamer: {streamer.WorkerCount} chunk-gen workers, load radius {streamer.LoadRadiusChunks} chunks ({streamer.LoadRadiusChunks * 12.8f:F1} m), " +
+        L($"streamer: {streamer.WorkerCount} chunk-gen workers ({(StreamManager.GenWorkersOverride > 0 ? "-genworkers override" : "default")}, ProcessorCount {System.Environment.ProcessorCount}), load radius {streamer.LoadRadiusChunks} chunks ({streamer.LoadRadiusChunks * 12.8f:F1} m), " +
           $"evict {streamer.EvictRadiusChunks}, band layers {StreamManager.V_LOAD_LAYERS * 2 + 1}, admit cap {EngineConfig.MAX_CHUNK_LOADS_PER_FRAME}/frame, " +
           $"clipmap cap {EngineConfig.MAX_CLIPMAP_CHUNKS_PER_FRAME} chunks / {EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME / 1048576.0:F1} MB per frame (exempt radius {EngineConfig.UPLOAD_EXEMPT_RADIUS_CHUNKS})");
         L(fly ? $"motion FLY: straight ping-pong {leg:F0} m through spawn ({spawn.x:F0}, {spawn.z:F0}) heading ({dir.x:F2}, {dir.z:F2}), land {landFrac * 100f:F0}% of the line, relief {relief:F0} m, " +
