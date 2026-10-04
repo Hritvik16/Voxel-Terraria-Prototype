@@ -1,11 +1,11 @@
-# Session handoff -- 2026-10-04 06:35 (queue supervisor session; 22 running)
+# Session handoff -- 2026-10-04 07:10 (queue supervisor session; 24 running)
 
 ## State
 - **Branch `surface-rebuild`** (from `main`). `main` was fast-forwarded on 2026-10-03 14:40
   after SUITE=all 618/0/12. NOT pushed (owner hasn't asked).
 - Owner answered Q15-Q20 all (a) on 2026-10-04 (16e9330). Runner restarted 06:29 in tmux
-  `overnight` (IDLE_MIN=0). Queue, in order: **22** FarStartT integer DDA (running; also adds
-  PREAMBLE rule 9 to CLAUDE.md) -> **24** detail radius at speed (opt-in) -> **26** eviction
+  `overnight` (IDLE_MIN=0). Done: **22** coast black bar FIXED (e89501f; CLAUDE.md has rule 9).
+  Queue, in order: **24** (running since 07:03) detail radius at speed (opt-in) -> **26** eviction
   retry -> **29** B3 light erosion (60 iterations; plan's B3 targets; owner render check) ->
   **30** column-pass sharing (bit-identical; records Q19 = 2a 3a 4a 5a in the plan).
 - **PREAMBLE rule 9 (owner Q20 (a)):** performance at WARM STEADY STATE: one discarded warm-up
@@ -27,11 +27,11 @@ state is heat-triggered (c2bd8cb) · 28 four workers heat the chip themselves (2
 Owner: paused builds 21:52-22:52 (auto-resumed); answered Q13 (a), Q14 (a) -> tasks 24, 23.
 
 ## Waiting on the owner
-- Nothing (doc rev 296). Q6/Q7 (TAA/checker stills) still the owner's to look at; nothing queued.
+- Nothing (doc rev 297). Q6/Q7 (TAA/checker stills) still the owner's to look at; nothing queued.
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 296)
+  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 297)
 - Surface rebuild plan: https://claude.ai/code/artifact/f6222d44-1457-4a92-9460-3390d44e75fd
 - Game Design Brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
 - Terrain review: https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7
