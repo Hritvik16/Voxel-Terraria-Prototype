@@ -1,6 +1,6 @@
 # 26c-palette-brick-design: DONE. Histogram measured; `AMENDMENT_8_13_PALETTE_BRICKS.md` written, DRAFT, NOT ADOPTED. With all four formats (1b/2b/4b/RAW), a tier-0 dense brick averages 92.5 B (18.1% of 512 B). Brick bodies at today's caps would drop from 1,194 to 232 MB (CPU+GPU; derived, not measured).
 
-## What changed (commit below; no engine code)
+## What changed (commit 5449ab6; no engine code)
 - `Assets/CoreEngine/Tests/PaletteHistogramReport.cs`: new report-only test (`REPORTS=1`, `[Category("Slow")]`, Timeout 1 h; asserts nothing).
 - `AMENDMENT_8_13_PALETTE_BRICKS.md`: the design.
 - `AMENDMENT_8_13_PALETTE_BRICKS_histogram.txt`: a copy of the full output, because `Logs/` is gitignored.
