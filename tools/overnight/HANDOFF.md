@@ -1,51 +1,56 @@
-Owner (carried over from 19): to fix the coast black bar, approve task 22 by deleting `OWNER-APPROVES-22` from the Requires line in `tools/overnight/queue/22-farstartt-integer-dda.md`.
+STOP_FOR_OWNER -- task 21 found the cause of the v4 MIRROR lost counts. The fix changes streaming eviction (§4.5), so it is not a mirror-only fix and is not applied. Approve it by deleting `OWNER-APPROVES-26` from the Requires line of `tools/overnight/queue/26-deferred-eviction-retry.md`.
+Still waiting from 19: approve task 22 (coast black bar) the same way, by deleting `OWNER-APPROVES-22`.
 
-# 20-worker-contention-probe: DONE. Cause class: shared-resource CONTENTION. Per-chunk cost rises from 1 to 4 workers, then stays flat to 7. Capacity keeps rising, so there is no oversubscription up to 7. Default unchanged.
+# 21-poses-mirror-lost-check: DONE (report only). The lost counts are deterministic and only on map v4.
 
-## What changed (surface-rebuild 76a717a)
-- `-genworkers N` is diagnostic only. It sets `StreamManager.GenWorkersOverride` (set in `Phase4Bootstrapper`) and overrides `CHUNK_GEN_WORKER_THREADS` for that launch. Without it the derivation is unchanged (7 workers here).
-- The streamprobe header now says `N chunk-gen workers (-genworkers override|default, ProcessorCount 8)`.
-- New `tools/streamprobe-pair.py`: per-launch non-uniform gen+down p50/p99, plus the same chunks paired across launches by (cx,cy,cz).
-- KNOWN_ISSUES has a new sub-bullet under STREAMING REQUIREMENT. Follow-up `24-gen-contention-attribution` is queued (evidence only).
+Cause (from the code, not instrumented):
+- `EvictOutOfRange` evicts at most 4 dirty chunks per call and runs only when the camera moves a chunk. Skipped chunks are not retried.
+- So after a teleport they stay resident outside the band.
+- `UploadDirty` does not check that a resident chunk is inside the mirror box, so these chunks write into the slots of in-box chunks.
+
+## What changed (no engine code)
+- `KNOWN_ISSUES.md`: new entry "SAVE-CAPPED EVICTIONS ARE NEVER RETRIED".
+- `CLAUDE.md`: one index line for it.
+- New queue task `26-deferred-eviction-retry` (needs owner approval).
 
 ## Evidence
-- Fast suite: **PASS 611 FAIL 0 SKIP 12** (`Logs/overnight/20_suite_fast.out`).
-- Runs: 8 x `MODE=stream MOTION=walk EXTRA="-genworkers N" ./run-tg2world.sh`, all on map v3, one build. ABBA order (7,4,2,1,1,2,4,7). Driver: `Logs/overnight/20_driver.out`.
-- Machine state for all 8 launches:
-  - AC power, 100% charged.
-  - `pmset -g therm`: no thermal, performance or CPU-power warning recorded, before or after any launch.
-  - No owner-pause NOTE.
-  - Swap ~5.0 GB used throughout (`Logs/overnight/20_swap.txt`).
+- One build, four `MODE=poses` runs, interleaved v4 / v3 / v4 / v3.
+- Driver log: `Logs/overnight/21_driver.out`. Per-run logs: `Logs/overnight/21_arm{1..4}_v{4,3}.out`. Player logs: `21_arm{1,2,3}_player.log`.
+- Machine state for all four runs: AC power, 100% charged. No owner-pause NOTE in any run.
 
-| N | launch (Logs/tg2world_20261004_*) | gen+down p50/p99 ms (non-uniform) | capacity N*1000/p50 /s | admitted /s | section 7 verdict | frame p50/p95 ms |
-|---|---|---|---|---|---|---|
-| 7 | 003351 / 012052 | 210/386, 239/514 | 33.2 / 29.2 | 57.0 / 45.7 | NOT MET, short 68.9x / 78.3x | 10.6/21.2, 10.5/21.0 |
-| 4 | 004116 / 011459 | 211/386, 236/449 | 19.0 / 16.9 | 31.4 / 25.8 | NOT MET, 120.6x / 135.1x | 10.5/20.8, 10.1/20.3 |
-| 2 | 004714 / 010830 | 152/318, 191/338 | 13.2 / 10.5 | 19.1 / 16.3 | NOT MET, 173.2x / 218.7x | 9.4/19.8, 9.8/19.3 |
-| 1 | 005336 / 010102 | 83/273, 101/291 | 12.0 / 9.9 | 12.0 / 10.6 | NOT MET, 190.1x / 231.1x | 8.6/18.9, 9.3/19.4 |
+| run | map | peak_from_2km_ground | summit_view | glide_400m | other 15 poses | peak footprint | Untagged / IOAccel(graphics) |
+|---|---|---|---|---|---|---|---|
+| 1 (012919) | v4 | lost 12232 lag 0 stale 2 | 5249/0/2 | 0/0/1 | 0/0/0 | 3770 MB | 2099 / 1445 MB |
+| 2 (015047) | v3 | 0/0/0 | 0/0/0 | 0/0/0 | 0/0/0 | 3385 MB | 1717 / 1444 MB |
+| 3 (020959) | v4 | 12232/0/2 | 5249/0/2 | 0/0/1 | 0/0/0 | 3495 MB | 1824 / 1445 MB |
+| 4 (023103) | v3 | 0/0/0 | 0/0/0 | 0/0/0 | 0/0/0 | 3550 MB | 1889 / 1444 MB |
 
-- **Same-chunk paired gen p50** removes the chunk-mix confound (fewer workers generate a different subset). 1,245 chunks are common to all 8 launches (`Logs/overnight/20_pair.out`):
-  - N=1: 70 / 82 ms
-  - N=2: 122 / 148 ms
-  - N=4: 167 / 185 ms
-  - N=7: 164 / 187 ms
-- The isolated figure (main thread, workers idle) was 56-70 ms in every launch. It is right for 1 worker, so it is not "misleading". It just does not apply when several workers run.
-- **Classification:**
-  - Cost per chunk rises with N, about 2.4x from 1 to 4, while capacity still rises. By the task's rule that is shared-resource contention.
-  - From 4 to 7 the cost is flat and capacity rises 1.7x for 1.75x the threads, so extra threads past 4 are almost free.
-  - Capacity never falls, so there is no oversubscription up to 7.
-  - Fewer workers make frames slightly smoother: frame p50 ~1-2 ms lower at N=1 than at N=7.
-- **Not separated:** which resource it is. Candidates: Mono GC stop-the-world, memory bandwidth, P-cores shared with the main and render threads, or descheduling. That is task 24 (worker thread CPU time vs wall time, plus GC counts).
-- **Drift:** the second pass was 10-20% slower than the first at EVERY N (paired p50 +12 to +25 ms), with no thermal warning. Arms measured hours apart are not directly comparable to each other.
-- **Fast vs slow mode:** slow mode (7-worker gen p50 416-503 ms) did NOT appear in any of the 8 launches.
-  - In the logs it was 3 consecutive launches on 2026-10-03 between 20:15 and 21:57. Everything before and after was fast. So it comes in a time cluster, not alternating per launch.
-  - It does not follow charging state (both charging and charged runs were slow).
-  - Swap is not the trigger: today's fast runs had 5 GB swapped.
-  - The isolated main-thread cost stayed normal in 2 of the 3 slow runs (48 and 62 ms; one was 143). So whatever it is hits the multi-worker case, not single-core speed.
-  - The likeliest cause is an external or system load in that window. **Unproven.**
-- Screenshots: none looked at. This task measures generation timing only, and the task did not ask for images.
+**The v4 numbers repeat exactly.** Both v4 runs, and B2's run, give the same counts and the same stale examples:
+- `int3(348,43,406)` at peak_from_2km_ground;
+- `int3(284,83,246)` at summit_view;
+- `int3(189,67,182)` (uniform material 6) at glide_400m.
 
-## Left / next
-- 24 (attribution) runs after 21. The queue order is unchanged: 21, then 22 (owner-gated), 23, 24.
-- For 16b's fix #1: adding workers still helps up to 7, but each one past 1 costs 2-2.7x per chunk. Even 7 perfectly isolated workers (~121/s) would be 19x short of 2,285/s, so the worker count alone cannot meet the requirement.
-- `Assets/Scenes/Playground.unity` is a build side effect, left as found.
+All three have `dirty=False`. So this is not timing.
+
+**The mechanism shows in the resident count.** On v4 it is 3096 / 3092 / 3088 / 3087 over the first four poses. The full box is 21x21x7 = 3087, so the extras are 9 / 5 / 1 / 0, meaning 4 more are evicted at each teleport. That matches `MAX_CHUNK_SAVES_PER_FRAME` = 4. On v3 the count never goes above 3087.
+
+**Which chunks:**
+- The validator names only one stale example per pose. It gives no coordinates for lost chunks, and I did not change it (the task said not to).
+- 12232 lost bricks is about 3 chunks' worth (4096 bricks per chunk).
+- The stray chunks are the 9 that were dirty when the camera left its starting window. Every `SetVoxel` sets `deltaDirty`, so moving fluid there is the likely source; this is not proven.
+
+**Is only the first pose affected?** No. The first three poses after the initial fill are affected, and the effect fades as each teleport evicts 4 more.
+
+**Screenshots** (`~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FarBand/2026-10-04_013142_world/`):
+- `peak_from_2km_ground_golden.png`: a dark green voxel hillside fills the right two-thirds, with mountains on the left horizon. Look at the hillside: no hole and no misplaced chunk.
+- `peak_from_2km_ground_golden_band.png`: the voxel region (blue) is the whole foreground. Far-band tiers (green/yellow/orange/red) appear only on the left horizon, with no gaps.
+- `summit_view_golden.png`: a red-brown slope fills about 85% of the frame, with sea at the right edge. Nothing is visibly wrong.
+- `summit_view_golden_band.png`: blue voxels cover the slope, a thin green tier runs along the ridge top, and far tiers show only at the lower right.
+
+**Memory: the B2 vs B1 footprint gap was run-to-run spread, not v4.** Peak footprint was 3495-3770 MB on v4 and 3385-3550 MB on v3. The two ranges overlap, and all of the spread is in Untagged (1717-2099 MB). IOAccelerator stayed flat at ~1445 MB.
+
+The EditMode suite was not run because no engine code changed.
+
+## Next step
+- If the owner approves 26: retry the deferred evictions every frame until none are left, then re-run v4 poses and expect 0/0/0 everywhere.
+- A separate, optional defensive fix: an in-box test in `UploadDirty`. It is not queued because it touches the mirror's upload contract.
