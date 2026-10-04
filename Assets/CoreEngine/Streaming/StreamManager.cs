@@ -613,6 +613,19 @@ namespace VoxelEngine.Streaming
                 RebuildPendingSet(camChunk);
                 EvictOutOfRange(camChunk);
             }
+            else if (_evictDeferred)
+            {
+                // SAVE-CAPPED EVICTIONS ARE RETRIED (task 26, KNOWN_ISSUES
+                // "STRAY RESIDENT CHUNKS"). EvictOutOfRange saves at most
+                // MAX_CHUNK_SAVES_PER_FRAME dirty chunks per call and skips the
+                // rest. It used to run only on a camera-chunk change, so after a
+                // teleport-and-hold the skipped chunks stayed resident outside
+                // the band and their uploads aliased into in-box mirror slots.
+                // Retry against the window's own centre until none is deferred;
+                // the per-frame save cap still holds. The re-sweep below waits
+                // for the next frame.
+                EvictOutOfRange(_lastCameraChunk);
+            }
             else if (_pending.Count == 0 && _inFlight == 0 && _completions.Count == 0)
             {
                 // Re-sweep whenever the queue drains, not only when the camera
@@ -1204,13 +1217,19 @@ namespace VoxelEngine.Streaming
             }
 
             int saves = 0;
+            _evictDeferred = false;
             foreach (var coord in _evictScratch)
             {
-                if (saves >= EngineConfig.MAX_CHUNK_SAVES_PER_FRAME && NeedsSave(coord)) continue;
+                if (saves >= EngineConfig.MAX_CHUNK_SAVES_PER_FRAME && NeedsSave(coord)) { _evictDeferred = true; continue; }
                 if (EvictChunk(coord)) saves++;
             }
         }
         private readonly List<int3> _evictScratch = new List<int3>();
+        /// The last EvictOutOfRange left an out-of-range chunk resident because
+        /// the save cap was reached; Update retries every frame until it clears.
+        private bool _evictDeferred;
+        /// Test hook: an out-of-range chunk is still waiting for its save.
+        public bool EvictionDeferred => _evictDeferred;
 
         private bool NeedsSave(int3 coord)
         {
