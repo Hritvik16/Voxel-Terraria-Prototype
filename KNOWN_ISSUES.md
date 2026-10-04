@@ -43,6 +43,31 @@ real and separate reason — see the LOD-cascade finding in
 ## Known open issues (act on these, don't rediscover them)
 
 - **OWNER PAUSE (`tools/heavy.sh pause|resume|status`, tasks 14/14b, 2026-10-03) DRAINS, it does not freeze.** The current lock holder runs to completion; every new `unity_lock_acquire` waits (no timeout) until `resume`, then the usual 45 s clear check. It takes effect at the next LOCK ACQUISITION or, since task 16, at the next LAUNCH of a script that takes the lock once and loops (`run-lavalight-ab`, `run-upscale-ab`, `run-roofskip-ab`, `run-perf60`, `run-looksweep`, `run-overhaul-batch`, `run-flyfast`, `run-farband`, `run-phase7-lighting-ab`): each calls `unity_hold_wait` before every player launch / build step / sub-rig, KEEPING the lock while it waits (`resume` touches it), and before the `sleep 60` / `COOL` settle, so the settle follows the pause. Those in-loop waits skip the 45 s clear check (the script owns the lock). Proven 2026-10-03 on `ORDER="S S" MINUTES=1 ./run-perf60.sh` (`Logs/overnight/16_perf60_pause.out`): launch 1 finished, `held by owner pause -- waiting`, listed under "waiting on the pause", ran arm 2 after `resume`. A NEW looping script must do the same or it drains to its end; per-launch callers (`run-tg2world.sh` loops) stop at the next launch. A run that printed `NOTE: owner paused during this run` may have contaminated timings (Mac likely in use) -- rerun that arm. Nothing frees RAM early any more (the owner dropped `--kill`).
+- **BLACK BAR OVER THE SEA AT `coast_from_sea_30m` = A FAR-BAND HAND-OFF FAULT IN THE NON-RESIDENT STRIP OF THE WINDOW (task 18, 2026-10-03; DIAGNOSED, MECHANISM NOT PINNED, NOT FIXED).**
+  - Seen in every `-world tg2` poses run since 2026-09-26 (pixel-identical in v3 07:47 and v4 16:16, so NOT from B1). It is in none of the `-farpreview` (far-band-only) runs, so the voxel window is involved.
+  - The dark arcs below the bar are a SEPARATE thing. They are the voxel LOD tier boundaries: the dark rows equal the tier changes of view 6 in every column tested (rows 777/840 for tier 1->2, 1048 for 0->1). This is a tier seam on flat water, not this bug.
+  - **What the bar is (measured):**
+    - Every bar pixel is a far-band F0 hit (view 9, green), not a voxel hit.
+    - It is not a far shadow: it is identical with `far.ShadowsOn = false`.
+    - The voxel march was not capped over resident terrain (view 11 all green).
+    - The far march hits within a few steps there: the only low-step (blue) patch below the horizon in view 10.
+    - Its colour is water albedo on an unlit face, RGB (1,5,13).
+  - **Where it is (measured):**
+    - Pose eye (4000, 542, 400) m. Window origin chunks (296, 34, 15), 32x32. Resident = the +-10-chunk (128 m) load square, 3087 = 21x21x7.
+    - Bar bottom (row ~754) = the far edge of the load square, 137.6 m out.
+    - Bar top (row ~692, 60 deg FOV, 0.8 deg pitch) = rays that reach the WINDOW's far edge (z chunk 47, 201.6 m) exactly at sea level.
+    - So the bar is the in-window, NON-resident strip (z chunks 42-46). It is drawn only for chunk columns x < 312 (left of the camera's chunk, right edge at screen x 915). The same strip right of x = 312 draws normal sea.
+  - **Most likely mechanism (fits the geometry exactly, code path not pinned):** for those rays the far march starts at the voxel march's end (about the window edge), not at the strip entry (`FarStartT`). There the ray is already below the far sea top (`seaLevelY + 1`), so `FarMarch`'s first test `y0 <= H` returns a -z SIDE-FACE hit on the first water texel outside the window: a dark water wall.
+    - `FarStartT` can only skip the strip if it reads those columns as resident. The CPU bitmap (`FarField.UpdateResidency`, store identity-checked) should be 0 there, so the left-only extent is unexplained.
+    - The alternative (wrong far texels about 10 m above sea at the strip entry) fits only by coincidence, and the preview runs argue against it.
+  - Pinning it is queued as an evidence task: `tools/overnight/queue/19-coast-bar-pixel-probe.md`. A fix (likely in `FarStartT` / the residency bits, or clamping a below-surface far start) waits for that and for the owner.
+  - **Images** (all in `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FarBand/2026-10-03_181049_world/`):
+    - `coast_from_sea_30m_noon.png`: the black bar is left of centre, about 2/3 down, over the sea. The two thin dark arcs below it are the tier seams.
+    - `coast_from_sea_30m_noon_farshadowoff.png`: the same frame with far shadows off. The bar is unchanged.
+    - `coast_from_sea_30m_golden_band.png` (view 9): the bar's rows are green (F0). Blue (voxel) starts at row 754 across the whole width.
+    - `coast_from_sea_30m_golden_view10.png` (far step heat): the blue rectangle at the bar's position = an immediate far hit. The rest of the sea is yellow.
+    - `coast_from_sea_30m_golden_view11.png` (voxel stop): all green or blue, with no magenta or red. The voxel march was not capped over resident terrain.
+    - `coast_from_sea_30m_golden_view6.png` (voxel tier): the red/green and green/blue boundaries lie exactly on the two dark arcs of the noon shot.
 - **STREAMING BASELINE v3 (2026-10-02, task 10; measured 2026-10-03).** The
   numbers every surface-rebuild step (B1 on) is compared against.
   `MODE=stream ./run-tg2world.sh` (`MOTION=walk|fly`, `EXTRA="-movespeed 14"`):

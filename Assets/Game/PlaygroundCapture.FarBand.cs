@@ -310,7 +310,31 @@ public partial class PlaygroundCapture
                     RaymarchFeature.UseDebugViewOverride = true;
                     yield return Frames(6);
                     yield return CaptureTo($"{n}_{tn}_band");
+                    if (n == "coast_from_sea_30m")
+                    {
+                        // Task 18 (2026-10-03): the black bar over the sea. Why the
+                        // voxel march stopped, far step heat, voxel LOD tier.
+                        foreach (int dv in new[] { 11, 10, 6 })
+                        {
+                            RaymarchFeature.DebugViewOverride = (RaymarchFeature.DebugMode)dv;
+                            yield return Frames(6);
+                            yield return CaptureTo($"{n}_{tn}_view{dv}");
+                        }
+                    }
                     RaymarchFeature.UseDebugViewOverride = false;
+                }
+                if (n == "coast_from_sea_30m")
+                {
+                    // Task 18: the same frame with far-band shadow rays off, and
+                    // the voxel window / content band it was drawn against.
+                    bool fs0 = far.ShadowsOn;
+                    far.ShadowsOn = false;
+                    yield return Frames(6);
+                    yield return CaptureTo($"{n}_{tn}_farshadowoff");
+                    far.ShadowsOn = fs0;
+                    yield return Frames(6);
+                    if (Phase4Bootstrapper.Store != null)
+                        L($"  [task18] window origin {Phase4Bootstrapper.Store.WindowOrigin} dims {Phase4Bootstrapper.Store.WindowDims}  content Y [{RaymarchFeature.ContentFloorVoxelY}, {RaymarchFeature.ContentCeilingVoxelY})  sun {SunCycle.Direction}");
                 }
                 string mirrorCheck = "";
                 if (world && hours != 12f && Phase4Bootstrapper.Clipmap != null)
