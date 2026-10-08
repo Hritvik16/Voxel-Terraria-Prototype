@@ -67,3 +67,5 @@ following B steps from the surface rebuild plan, each WITHOUT streaming/perf arm
 > works on the project at a time; you do no engineering yourself. Put every question for me
 > in the "Queue decisions" doc. No periodic status updates: tell me only when a task starts or
 > finishes, blocks, or needs me. When this session gets long, hand off to a fresh one yourself.
+> Start by telling me why this new session started and what the previous chat covered
+> (SESSION_HANDOFF.md, "For the owner").

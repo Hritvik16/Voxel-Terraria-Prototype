@@ -165,6 +165,13 @@ current numbers before reasoning about what's slow.
   and close this one. The owner is on the $20 Pro plan.
   A `UserPromptSubmit` hook (`tools/session-size-hint.sh`) adds this reminder
   automatically each time the transcript grows another 8 MB.
+- **A new session opens by orienting the owner** (owner, 2026-10-08: "so I don't
+  feel so lost"). The handoff starts with a `## For the owner` section written in
+  plain words: why the switch happened (size, task switch, ...), a short summary of
+  the previous chat (what the owner asked, what was decided, what changed, commits),
+  what is running now, and what is still open or waiting on the owner. The new
+  session's FIRST message relays it, plus which terminal tabs / tmux windows to
+  close. Only then does it start working.
 - **Unattended / overnight work goes in the queue**, one task per file in
   `tools/overnight/queue/`; `tools/overnight/run-queue.sh` (in tmux via `tools/overnight/start.sh`) runs each in its own
   fresh headless session (`--permission-mode auto`), passes

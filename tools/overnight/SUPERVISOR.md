@@ -24,6 +24,10 @@ take over; ONE agent active on the project at any time.
   no builds, no rigs.
 
 ## Start-up (cheap: tails and heads, not whole files)
+0. **First message to the owner (owner, 2026-10-08):** relay SESSION_HANDOFF.md's
+   `## For the owner` section in plain words -- why this new session started, a short
+   summary of the previous chat (asked / decided / changed), what is running, what is
+   open -- and name the old session's tmux window to close. Then do the steps below.
 1. `tail -20 Logs/overnight/runner.log`; `ls tools/overnight/queue tools/overnight/blocked`;
    `tmux ls`; is a `run-queue.sh` process alive (`ps -axo pid,command | grep '[r]un-queue'`)?
 2. If the runner is not alive, the queue has runnable tasks and there is no
@@ -41,6 +45,9 @@ turn resends the whole conversation and drains the weekly allowance. Speak only 
 task starts or finishes, blocks, or needs the owner. The owner watches the running
 worker in a Terminal tab (a loop of `tools/overnight/watch-task.sh` that moves to each
 new task; open it with osascript at session start if it is not already open).
+Detect it with `ps -axo command | grep -c '[P]ython.*Logs/overnight/runner.log'` --
+the script execs python3, so grepping for `watch-task` finds nothing and opens a
+duplicate tab (happened 2026-10-08).
 **Keep supervisor sessions short:** after ~3-4 finished tasks, or whenever the session
 feels long, write SESSION_HANDOFF.md, commit it, start the successor with
 `tools/new-session.sh`, and tell the owner to switch to it and close the old one.
@@ -141,9 +148,15 @@ topic.uploads; look at each image before placing it).
 Every wake re-sends this session's history. When the size hook says so, or after
 ~10 events: update `SESSION_HANDOFF.md` (state, doc link, the prompt below),
 commit it by path, start a fresh session with `tools/new-session.sh`, and stop.
+The handoff STARTS with `## For the owner`: why you are handing off, a summary of
+this chat (what the owner asked, what was decided, what changed + commits), what is
+running, what is open. Tell the owner in chat which tmux window is the new session
+and which (this one) to close.
 
 ## Ready-to-paste prompt
 > Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the
 > overnight queue as described there until nothing is left that can run without
 > me. Only one agent works on the project at a time; you do no engineering
-> yourself. Put every question for me in the "Queue decisions" doc.
+> yourself. Put every question for me in the "Queue decisions" doc. Start by
+> telling me why this new session started and what the previous chat covered
+> (SESSION_HANDOFF.md, "For the owner").
