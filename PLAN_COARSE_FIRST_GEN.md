@@ -1,5 +1,19 @@
 # Plan: coarse-first chunk generation (task 23, 2026-10-04) -- PLANNING ONLY
 
+Order and scope: ROADMAP.md (E2/E3) overrides this plan where they differ.
+
+## Owner decisions 2026-10-04 (Queue decisions Q18, Q19; recorded by task 30)
+- **Q18 (a):** column-pass sharing first (exact, no rule change), then coarse-first step 1.
+  Step 0 DONE in task 30 (`TerrainGenChunkSource.ColumnPass`, StreamManager column
+  batches): byte-identical, EditMode isolated check 1.76x per column, 4.67 -> 1.00
+  column-job runs per column (`Logs/TerrainGen/column_pass_sharing.txt`).
+- **Q19 (a) to every part:**
+  - 2a: allow coarse-first behind `-coarsefirst`, OFF by default, judged from pictures.
+  - 3a: water beyond ~64 m stops ticking under the flag. **SUPERSEDED by ROADMAP.md E7**
+    (owner 2026-10-08: active fluid keeps simulating wherever it is). Do not implement 3a.
+  - 4a: exact point-sample (the coarse voxel is the tier-0 voxel at its corner, no vote).
+  - 5a: downgrade later, after task 26 (the save-cap retry; done 2026-10-04).
+
 Status: **proposal for the owner. No code, no builds, no defaults changed.**
 Inputs: KNOWN_ISSUES "STREAMING REQUIREMENT" (16b), task 20's contention result,
 the per-chunk TSVs of task 20's 8 walk launches, `Logs/TerrainGen/{cost,detail_cull,
@@ -189,7 +203,8 @@ step; `SUITE=all` for any TerrainGen file.
 
 - **0 (recommended first; separate from coarse-first): column-pass sharing.** Exact,
   bit-identical, no contract change.
-  - Measure section 7 capacity, then stop.
+  - DONE, task 30 (2026-10-08). Checked by a byte-compare test and one isolated timing check
+    instead of the stream measurement (supervisor edit, owner 2026-10-08).
 - **1. Coarse sampler + exactness/cost report** (pure function, no runtime effect).
   - Tests: coarse == every 2nd voxel of `Generate` (exact variant) on 32 chunks covering
     landforms and cave layers.
