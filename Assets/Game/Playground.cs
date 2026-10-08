@@ -302,6 +302,10 @@ public class Playground : MonoBehaviour
         else if (HasArg("-renderpreset")) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Kind.Quality));
         // The minimap (owner, 2026-09-26: "always in the corner"). F4 hides it.
         if (GetComponent<Minimap>() == null) gameObject.AddComponent<Minimap>();
+        // -playshot S (task 32b, run-play.sh SHOT=S): one screenshot of the
+        // interactive session S seconds after startup. Not a capture mode --
+        // the preset, HUD and controls stay exactly as a player gets them.
+        if (!IsCaptureRun()) StartCoroutine(PlayShot());
 
         if (!TryFindNaturalBasin(out _arenaCentre))
         {
@@ -444,6 +448,40 @@ public class Playground : MonoBehaviour
         foreach (string a in Environment.GetCommandLineArgs())
             if (string.Equals(a, flag, StringComparison.OrdinalIgnoreCase)) return true;
         return false;
+    }
+
+    /// -playshot S: wait S unscaled seconds, write one PNG under
+    /// persistentDataPath/PlayShots, log its path. Last match wins (like
+    /// PlaygroundCapture's ArgValue).
+    private IEnumerator PlayShot()
+    {
+        string[] a = Environment.GetCommandLineArgs();
+        float s = -1f;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == "-playshot" && float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float,
+                                                      System.Globalization.CultureInfo.InvariantCulture, out float p)) s = p;
+        if (s < 0f) yield break;
+        float t0 = Time.unscaledTime;
+        while (Time.unscaledTime - t0 < s) yield return null;
+        yield return new WaitForEndOfFrame();
+        string dir = System.IO.Path.Combine(Application.persistentDataPath, "PlayShots");
+        System.IO.Directory.CreateDirectory(dir);
+        string path = System.IO.Path.Combine(dir, $"play_{DateTime.Now:yyyyMMdd_HHmmss}.png");
+        Texture2D tex = ScreenCapture.CaptureScreenshotAsTexture();
+        System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+        Destroy(tex);
+        // What the eye is in (a black frame at the start pose: task 32b).
+        Camera cam = Camera.main;
+        string eye = "no camera";
+        if (cam != null)
+        {
+            Vector3 e = cam.transform.position;
+            int3 v = CoordMath.WorldToVoxel(new float3(e.x, e.y, e.z));
+            byte m = _store != null ? _store.GetVoxel(v) : (byte)255;
+            eye = $"eye {e.x:F1},{e.y:F1},{e.z:F1} m = voxel {v} material {m}" +
+                  (m == Materials.Air ? " (air)" : m == Materials.Water ? " (WATER)" : " (solid/other)") + $", mode {_mode}";
+        }
+        Debug.Log($"[Playground] -playshot: {path}  {eye}");
     }
 
     private void RegisterDefaultToys()

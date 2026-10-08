@@ -226,6 +226,9 @@ during this run` -- the Mac was likely in use: rerun that arm.
 
 ## Commands
 
+To PLAY the newest world (tg2 on map v4 + far band, interactive preset, keys listed):
+`./run-play.sh` (`MAPV=3` old generator, `BUILD=1` rebuild first; holds the lock).
+
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
 (`Assets/TerrainGen/`):
