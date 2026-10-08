@@ -68,25 +68,25 @@ On each event:
 One change, with acceptance steps (see the existing files for the
 shape). Number it after the last file in queue/done/blocked. `Requires:` line
 for real dependencies only. State who approved it and when. Never queue:
-terrain-generator code (no direction picked yet), TAA step 4 (shadow tuning,
+terrain-generator code outside the approved B steps, TAA step 4 (shadow tuning,
 not approved), switching TAA/checkerboard ON by default (owner compares first),
 frozen-API or memory-layout changes, anything the owner has not approved.
 
 ## Backlog (what may be queued without asking)
-- Follow-ups that finished tasks name in their handoff (QA poses, evidence
-  runs, doc fixes) -- low risk, no design choices.
+- Follow-ups that finished tasks name in their handoff (QA poses, doc fixes, small
+  fixes) -- low risk, no design choices. NOT measure-only tasks (owner, 2026-10-08).
 - Already approved and queued: 04 cliff pose A/B, 05-08 TAA steps 1-3.
 - **Owner, 2026-10-02: the surface rebuild must account for performance.** Task 10
   measures the v3 streaming baseline (chunk gen ms, admit ms, CPU->GPU upload,
   time-to-visible, deficit, where the LOD hand-offs sit). Queue it BEFORE B1.
-  Every B-step task file must re-run that measurement and report each stage
-  against the baseline (better / worse / unchanged), next to its map metrics.
+  **SUPERSEDED 2026-10-08 (owner): B steps carry NO streaming/perf measurement**
+  (PREAMBLE rule 10). Performance is checked ONCE at the milestone after B10.
   **Owner, 2026-10-03 18:3x: the 5% relative pass line (Q8 (a)) is REMOVED** --
   "a bad rule ... how fast chunks load and unload should be mathematically derived,
   not set arbitrarily ... and we want to ensure that this metric is met." Task 16b
   derives ONE absolute WORST-CASE requirement (owner: "calculate the worst case and go from there"; deficit 0 inside the voxel-detail radius at the fastest movement, worst heading, ground-skimming, worst gen cost, worst recentre timing; was: at
-  5 m/s, 14 m/s and the brief's 60 m/s flight) and the gap. Every B step reports
-  against it (REQUIRED / MEASURED / MET), v3 beside v4; no B step stops over it.
+  5 m/s, 14 m/s and the brief's 60 m/s flight) and the gap. (B steps no longer report
+  against it, 2026-10-08.)
   MEETING it is its own track: after 16b, turn its ranked fixes into an owner
   question, then queue the approved fix one change per task (CLAUDE.md measurement
   rules). The worker-count / QoS sweep belongs to that track now, not to B9.
@@ -107,6 +107,14 @@ frozen-API or memory-layout changes, anything the owner has not approved.
   the doc) to build context first, then a plan doc for approval -- not a one-line question.
   B4 (easy areas as terrain), B6 (danger map in the record) and B8 (routes) DO stay in the
   terrain overhaul (owner, same day).
+- **Owner, 2026-10-08: features over measurement. Roadmap:** 29 -> 30 -> UploadDirty box
+  check (Q23-2) -> B4..B10 back to back -> owner review packs AFTER B5 and AFTER B10 (no
+  per-step "still natural?" wait; a step whose own renders look clearly broken still stops)
+  -> v4 default + merge to main + ONE milestone perf check -> movement-abilities question
+  batch (owner wants very fast movement; get a top speed) -> coarse-first step 1 ->
+  placement planning round. Deferred: 0.4 m tier evidence + palette bricks (together, after
+  placement). Parked: rig bisect. A review pack = one doc section of captioned renders
+  (B2 vs current, per-class slope table), asked as one batch of questions.
 - **Owner, 2026-10-02: task 11 split the EditMode suite (fast / `SUITE=all`).**
   Done 2026-10-03: PREAMBLE.md rule 3 says fast suite in every task, `SUITE=all`
   in every B step (generator change) and before any merge to `main`. B-step task
