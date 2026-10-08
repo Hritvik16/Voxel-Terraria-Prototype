@@ -53,3 +53,11 @@ Targets from the plan's B3 row (v3 seed-42 values in brackets; B2 v4 at 50% in b
   the same arms on v3, one build. Report section 7 (REQUIRED / CAPACITY / MET) and every
   stage, v3 beside v4. Do not stop for the owner over streaming numbers.
 - Check `pmset -g batt` and the owner-pause NOTE; rerun any arm on battery or paused.
+
+## Restart note (supervisor, 2026-10-08)
+The first run (4 Oct 16:06) was cut off by the weekly usage limit after ~9 minutes, before
+building or testing anything. Its uncommitted start is saved at
+`Logs/overnight/b3/29-first-attempt.patch` (v4 only: `EROSION_ITERATIONS_V4 = 60`,
+`EROSION_START_V4 = 0.6` -- land starts at 0.6 of its target instead of 0.2, half the
+uplift). Read it and use it if it is sound; it is untested. `Logs/overnight/b3/b2_ref/`
+may hold B2 reference output from that run. Owner, 8 Oct: run this task as written.

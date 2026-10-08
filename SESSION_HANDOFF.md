@@ -1,43 +1,33 @@
-# Session handoff -- 2026-10-04 16:15 (queue supervisor session; 29 running)
+# Session handoff -- 2026-10-08 (owner chat; queue restarted, 29 running)
 
-## State
-- **Branch `surface-rebuild`** (from `main`). `main` was fast-forwarded on 2026-10-03 14:40
-  after SUITE=all 618/0/12. NOT pushed (owner hasn't asked).
-- Runner alive in tmux `overnight` (IDLE_MIN=0) since 06:29. Queue, in order:
-  **29** B3 light erosion (running since 16:06; owner render check after) -> **30** column-pass sharing.
-- **26c done** (5449ab6): AMENDMENT_8_13 (DRAFT) + histogram; 1,194 -> 232 MB brick bodies (derived).
-  Put to the owner as **Q24** (adopt + 5 choices). Its follow-up 31 (memledger peaks, measure-only)
-  PARKED in `dropped/` (7e7ac31) = Q24 item 5. If Q24 item 0 = (a): queue T1 from the amendment's
-  section 12 spec after 30, renumbered (31 is taken).
-- Done this session: **24** detail radius at speed (4b03fe9; -detailspeed OFF), **26** deferred
-  eviction retry (d4165c9; MIRROR 0/0/0 on all v4 poses; rig PASS 52 FAIL 2, known upload p99).
-- Owner decisions in chat today (recorded in the doc):
-  - **-detailspeed RETIRED** (stays OFF, never default): it breaks the LOD pixel rule (amendment
-    8.9: nothing coarser than its distance allows). 26b (walk shot) dropped to
-    `tools/overnight/dropped/`. Coarse-first generation is the rule-respecting route.
-  - **Terrain memory: per-brick material palettes approved to TRY** (not surface-only tickets,
-    which would make saves depend on a changing generator). 26c drafts
-    `AMENDMENT_8_13_PALETTE_BRICKS.md` (DRAFT, NOT ADOPTED). When 26c is done: put the amendment,
-    the histogram and the savings table in the doc as an owner approval question; no code until
-    the owner adopts it. Then queue its implementation one change per task.
-  - Owner: "diagnostics and analysis later" -- do not queue measure-only work (memory ledger,
-    rig bisect) unless the owner asks; terrain-memory REDUCTION is wanted soon.
-  - SVO comparison (`../VoxelTerraria_compare`): owner wants it "much later". Not queued.
-- Owner pauses today: 07:04-08:46, 08:35 drain, 13:53-14:54. Use `tools/heavy.sh pause` +
-  a detached `until status idle; sleep N; resume` job when asked for a timed pause.
-- Fast EditMode 618/0/12 (26). SUITE=all 629/0/12 (B2). `Assets/Scenes/Playground.unity`
-  stays modified (build side effect).
+## State (2026-10-08, owner chat)
+- **Branch `surface-rebuild`** (from `main`). NOT pushed. `Assets/Scenes/Playground.unity` stays modified (build side effect).
+- The 4-5 Oct queue run stopped without engineering: 29 hit the WEEKLY usage limit after ~9 min
+  (reset 8 Oct 06:00 PT), then 30 failed on an expired OAuth login (owner re-logged in 8 Oct).
+  Both were requeued on 8 Oct; 29's untested partial patch is `Logs/overnight/b3/29-first-attempt.patch`
+  (restart note appended to the task). Runner restarted in tmux `overnight` (IDLE_MIN=0).
+- Queue: **29** B3 light erosion (owner, 8 Oct: run AS WRITTEN; owner then checks "still natural?")
+  -> **30** column-pass sharing. Nothing after 30 yet.
+- Last suites: fast 618/0/12 (task 26), SUITE=all 629/0/12 (B2).
 
-## Waiting on the owner (Queue decisions doc, rev 312)
-- **Q24** (16:10): adopt palette bricks (8.13)? items 0-5, recommended (a) each.
-- **Q22** items 2-3: far band starts ~2x too close at 128 m even standing still (rec. (a)
-  evidence task on the memory cost of a 0.4 m tier to ~256 m); coarse-first = main track for
-  speed (rec. (a) queue step 1 after 30). Item 1 decided (detailspeed retired).
-- **Q23**: (1) rig frame time worse than 25 Sep (rec. (a) bisect later, after the B steps);
-  (2) `UploadDirty` inside-the-box safety check (rec. (a) small task after 30).
-- After 29: owner "still natural?" check with B2/B3 renders, then B4 (easy areas only).
-- After 30: coarse-first step 1 (if Q22 item 3 = (a); plan section 5 of PLAN_COARSE_FIRST_GEN.md).
-- Q6/Q7 (TAA/checker stills) still the owner's to look at; nothing queued.
+## Owner answers 8 Oct (recorded in the Queue decisions doc, rev 314)
+- **Q24 palette bricks: (c) NOT NOW.** The world design is not done (placement, ores, overhaul
+  unseen), so counts/savings/caps would be measured on terrain that will change. Revisit after the
+  terrain overhaul and placement. Item 5 (cascade cap shrink / task 31) waits too. Do NOT queue T1.
+- **Q23: (a, a)** -- rig frame-time bisect LATER (after the B steps); `UploadDirty` inside-the-box
+  check (skip and count) as a small task after 30. NOT YET WRITTEN.
+- **Q22 (answered 4 Oct, a, a)** -- (2) an evidence task: memory cost of a 0.4 m voxel tier to
+  ~256 m vs pushing the far band out; (3) coarse-first step 1 after 30 (PLAN_COARSE_FIRST_GEN.md
+  section 5, plus the owner decisions 30 records there). NEITHER WRITTEN YET.
+- Q6/Q7 answered (a): owner looks at the TAA/checker stills; nothing queued.
+- Owner pushed back on B3 ("does 60 passes make terrain more controllable?"): B2's per-class medians
+  vary by seed (gentle 8-15 deg), and 29 measures only island-wide totals. The owner chose to run it
+  as written anyway. When 29 reports, quote the "class median slope g/b/s" column beside the totals.
+- Owner asked about per-task models: `run-queue.sh` takes one `MODEL=` for the whole queue only.
+
+## Next for the supervisor
+Write and queue, after 30: the UploadDirty box check (Q23-2), coarse-first step 1 (Q22-3), and the
+0.4 m tier memory evidence task (Q22-2). Re-check `ls queue done blocked dropped` before numbering (31 is taken).
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
