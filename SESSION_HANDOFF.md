@@ -25,6 +25,17 @@
   as written anyway. When 29 reports, quote the "class median slope g/b/s" column beside the totals.
 - Owner asked about per-task models: `run-queue.sh` takes one `MODEL=` for the whole queue only.
 
+## Owner, 8 Oct (later): ways of working (CLAUDE.md, PREAMBLE rule 10, SUPERVISOR.md; commit 0785a7e)
+- Opus only, no per-task models. Measure performance ONLY in performance tasks; milestone checks.
+- Recommended option is the default for reversible choices ("going ahead unless you object").
+- Owner's biggest issue: we measure more than we build. Focus on shipping features.
+- **Terrain reviews: ONE review pack after B5 and one at the end of the B steps.** B steps run back
+  to back (tests + metrics + renders each); a step whose own renders look clearly broken still
+  stops. 29's "still natural?" check folds into the B5 pack.
+- Pending (asked in chat, owner wanted a plain explanation): park the engine-performance track
+  (coarse-first, 0.4 m tier evidence, rig bisect, UploadDirty check) until after the surface
+  rebuild + placement, keeping 30.
+
 ## Next for the supervisor
 Write and queue, after 30: the UploadDirty box check (Q23-2), coarse-first step 1 (Q22-3), and the
 0.4 m tier memory evidence task (Q22-2). Re-check `ls queue done blocked dropped` before numbering (31 is taken).
