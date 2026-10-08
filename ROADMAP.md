@@ -34,3 +34,12 @@ after placement" -- both move INTO step 3. "Performance only at a milestone" now
 | E8 | Fluid levelling | Whole-cell CA; a pour can leave a mound; cells sleep after 8 still ticks | Water always settles flat however much is poured (levelling rule; no sleep while lower ground is near). |
 | E9 | Lighting | 32 active point lights (furthest dropped), torch reach a few metres, no lights in the far band, no bounce light, torch leaks through walls (Phase 7 flag) | At least Terraria-in-3D: effectively unlimited lights (light propagation grid), coloured light, lights visible across the island at night, dark caves you must light, some form of GI. Phase 7 flags (shadow rung, torch-through-wall, lava light) are folded in here. |
 | E10 | Memory | Over the 3 GB cap before the player builds anything | Every item above fits the 3 GB cap. |
+
+## Notes
+- **Coarse shells without a CPU copy (E2) and far edits (E5) fit together:** the truth stays on the
+  CPU as seed + an edit OPERATION log ("sphere r at x,y,z"); coarse shells and the far band are
+  derived from it, like the far band is today. A full 0.1 m CPU copy is needed only where things
+  are SIMULATED (player, fluid, debris, drops), not wherever an edit lands. A far crater's debris
+  or released fluid simulates when that area loads (or E7's far simulation loads it).
+  FLAG: an op log beside the frozen D.1 delta format is a redesign -- it needs an amendment and
+  owner approval before any code.

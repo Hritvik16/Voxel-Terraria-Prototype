@@ -28,14 +28,20 @@ about 1.66x on the measured walk, bit-identical output.
 - Output must be bit-identical: chunk voxels, hashes and goldens unchanged. Add an EditMode
   test that generates a column's layers both ways and compares bytes.
 
-## Measure (PREAMBLE rule 9: warm steady state)
-- `SUITE=all` (TerrainGen/WorldGen code), 0 FAIL.
-- One build, one warm-up launch, then `MODE=stream MOTION=walk` on map v4, before vs after
-  interleaved ABBA (the "before" arm = this branch's previous commit, or a diagnostic
-  `-columnshare 0` switch if you add one; say which). Report section 7 capacity, the LATE
-  line (section 4), ColumnJob runs per column, worker gen p50/p99, peak footprint.
+## Check (supervisor edit, owner 2026-10-08 -- replaces the warm ABBA streaming measurement)
+The output is byte-identical, so any speed-up is kept whatever its size; the only result that
+would change what we do is "slower". So NO warm-up, NO `MODE=stream` ABBA arms:
+- `SUITE=all` (TerrainGen/WorldGen code), 0 FAIL, with the new both-ways byte-compare test.
+- ONE isolated timing check (EditMode or a single short launch, cold is fine): generate the same
+  set of column layers both ways, report ms per column and ColumnJob runs per column, plus the
+  bounded cache's peak bytes. Revert if sharing is slower.
 - `MODE=poses` once: byte-identical shots vs the previous poses run (bit-identical terrain).
-- Stop after measuring (CLAUDE.md: one performance change, then report).
+
+## ROADMAP.md (owner 2026-10-08) overrides part of Q19
+When you record the 2026-10-04 owner decisions in `PLAN_COARSE_FIRST_GEN.md`, mark Q19 3a
+("water beyond ~64 m stops ticking under the flag") as SUPERSEDED by ROADMAP.md E7 (active fluid
+should keep simulating wherever it is). Add one line at the top of that plan: "Order and scope:
+ROADMAP.md (E2/E3) overrides this plan where they differ."
 
 ## Do not
 Start coarse-first step 1, change worker count or thread priority, or change generator output.
