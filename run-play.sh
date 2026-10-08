@@ -7,8 +7,9 @@
 #                            v3 and v4 share one delta folder, so edits would cross over)
 #   SHOT=60 ./run-play.sh    one screenshot 60 s after startup (-playshot; path printed at exit)
 #   EXTRA="-taa 1" ...       extra player flags (e.g. -taa 1, -detailspeed 1)
-# KNOWN (task 32b): the session starts at the fluid arena, which on tg2 v4 is UNDER
-# lake water (eye in water -> black frame). Tab (fly) then hold E to rise out of it.
+# Start pose (task 32d): the fluid arena's basin can be a lake bed (v4) or the pose can
+# sit inside a hill (v3), so a tg2 session stands on the nearest dry column instead;
+# the Player.log "[Playground] start pose" lines say where, and what the eye is in.
 # Interactive: no capture flags, so Playground applies the interactive render
 # preset (RenderPreset.Default) exactly as a player session would. Holds the
 # shared Unity lock while the player is open (like run-demo.sh).
@@ -76,4 +77,4 @@ DELTA="-cleardeltas"; [ "${KEEP:-0}" = "1" ] && DELTA="-keepdeltas"
 SHOTARG=""; [ -n "${SHOT:-}" ] && SHOTARG="-playshot $SHOT"
 open -n -W "$APP" --args -world tg2 -mapversion "$MAPV" -farband 1 -farshadow 1 $DELTA $SHOTARG ${EXTRA:-}
 PL="$HOME/Library/Logs/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Player.log"
-grep -E "\[FarField\] tg2 WORLD|\[Playground\] -playshot" "$PL" 2>/dev/null | cut -c1-200
+grep -E "\[FarField\] tg2 WORLD|\[Playground\] (-playshot|start pose)" "$PL" 2>/dev/null | cut -c1-200

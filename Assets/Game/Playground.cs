@@ -426,6 +426,12 @@ public class Playground : MonoBehaviour
         _ready = true;
         TeleportToArena();
         _status = $"arena at {_arenaCentre} — fluid is FIXED here and does not follow you";
+        // TASK 32d: on tg2 the arena pose put the eye in a LAKE (the basin
+        // search's water skip tests the voxel SurfaceY returns, which is solid
+        // by construction, so the lowest lake bed wins) or in a hillside 3.2 m
+        // off the basin. An interactive tg2 session stands on the nearest dry
+        // column instead. Capture runs and the old world keep the arena pose.
+        if (Phase4Bootstrapper.IsTg2World && !IsCaptureRun()) StartCoroutine(SettleStartPose());
     }
 
     /// For overlays (Minimap) that must stay out of capture frames.
@@ -471,17 +477,88 @@ public class Playground : MonoBehaviour
         System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
         Destroy(tex);
         // What the eye is in (a black frame at the start pose: task 32b).
+        Debug.Log($"[Playground] -playshot: {path}  {EyeReport()}");
+    }
+
+    private string EyeReport()
+    {
         Camera cam = Camera.main;
-        string eye = "no camera";
-        if (cam != null)
+        if (cam == null) return "no camera";
+        Vector3 e = cam.transform.position;
+        int3 v = CoordMath.WorldToVoxel(new float3(e.x, e.y, e.z));
+        byte m = _store != null ? _store.GetVoxel(v) : (byte)255;
+        return $"eye {e.x:F1},{e.y:F1},{e.z:F1} m = voxel {v} material {m}" +
+               (m == Materials.Air ? " (air)" : m == Materials.Water ? " (WATER)" : " (solid/other)") + $", mode {_mode}";
+    }
+
+    /// Interactive tg2 start (task 32d): feet on the nearest column whose
+    /// topmost non-air voxel in the loaded band is SOLID (not fluid), every
+    /// chunk above it resident, so the eye is in open air. Waits while the
+    /// columns are still streaming in.
+    private IEnumerator SettleStartPose()
+    {
+        Camera cam = Camera.main;
+        if (cam == null) yield break;
+        Vector3 a = cam.transform.position;
+        int3 from = CoordMath.WorldToVoxel(new float3(a.x, a.y, a.z));
+        string before = EyeReport();
+        int3 col = default;
+        bool found = false;
+        for (int f = 0; f < 900 && !(found = TryFindDryColumn(from, out col)); f++) yield return null;
+        if (!found)
         {
-            Vector3 e = cam.transform.position;
-            int3 v = CoordMath.WorldToVoxel(new float3(e.x, e.y, e.z));
-            byte m = _store != null ? _store.GetVoxel(v) : (byte)255;
-            eye = $"eye {e.x:F1},{e.y:F1},{e.z:F1} m = voxel {v} material {m}" +
-                  (m == Materials.Air ? " (air)" : m == Materials.Water ? " (WATER)" : " (solid/other)") + $", mode {_mode}";
+            Debug.LogWarning($"[Playground] start pose: no dry resident column within 32 m of {from} -- left at {before}");
+            yield break;
         }
-        Debug.Log($"[Playground] -playshot: {path}  {eye}");
+        bool basinWet = MaterialRules.IsFluidMaterial(_store.GetVoxel(_arenaCentre + new int3(0, 1, 0)));
+        cam.transform.position = new Vector3(col.x * 0.1f + 0.05f, (col.y + 1) * 0.1f + 0.02f + 1.6f, col.z * 0.1f + 0.05f);
+        if (_mode == MoveMode.Walk) SnapPlayerToCamera();
+        _status = "standing on dry ground near the fluid arena";
+        Debug.Log($"[Playground] start pose: arena {before}; basin {_arenaCentre} under fluid: {basinWet}; " +
+                  $"moved to dry column ({col.x}, {col.z}) top {col.y} {MaterialName(_store.GetVoxel(col))} -> {EyeReport()}");
+        float t0 = Time.unscaledTime;
+        while (Time.unscaledTime - t0 < 5f) yield return null;
+        Debug.Log($"[Playground] start pose after 5 s: {EyeReport()}");
+    }
+
+    /// Nearest column to `from` (8-voxel grid, square rings out to 32 m) whose
+    /// top in the loaded band is dry ground; col.y is that top voxel.
+    private bool TryFindDryColumn(int3 from, out int3 col)
+    {
+        col = default;
+        for (int r = 0; r <= 320; r += 8)
+        {
+            long best = long.MaxValue;
+            for (int dz = -r; dz <= r; dz += 8)
+            for (int dx = -r; dx <= r; dx += 8)
+            {
+                if (math.max(math.abs(dx), math.abs(dz)) != r) continue;
+                long d2 = (long)dx * dx + (long)dz * dz;
+                if (d2 >= best) continue;
+                int t = DryTopY(from.x + dx, from.z + dz);
+                if (t < 0) continue;
+                best = d2;
+                col = new int3(from.x + dx, t, from.z + dz);
+            }
+            if (best != long.MaxValue) return true;
+        }
+        return false;
+    }
+
+    /// Topmost non-air voxel of the column in the loaded band if it is solid,
+    /// else -1 (fluid on top, the band's ceiling is solid, or not resident).
+    private int DryTopY(int x, int z)
+    {
+        int yTop = RaymarchFeature.ContentCeilingVoxelY - 1, yBot = RaymarchFeature.ContentFloorVoxelY;
+        for (int y = yTop; y >= yBot; y--)
+        {
+            int3 v = new int3(x, y, z);
+            if (!_store.IsResident(CoordMath.VoxelToChunk(v))) return -1;
+            byte m = _store.GetVoxel(v);
+            if (m == Materials.Air) continue;
+            return y == yTop || MaterialRules.IsFluidMaterial(m) ? -1 : y;
+        }
+        return -1;
     }
 
     private void RegisterDefaultToys()
@@ -490,7 +567,8 @@ public class Playground : MonoBehaviour
         Register(new Toy(KeyCode.V, "vent here", OpenVentAtTarget));
         Register(new Toy(KeyCode.Alpha0, "stop vents", () =>
             { _waterLeft = _sandLeft = _lavaLeft = _otherLeft = 0; _status = "vents closed"; }));
-        Register(new Toy(KeyCode.F, "go to arena", TeleportToArena));
+        Register(new Toy(KeyCode.F, "go to arena", () =>
+            { TeleportToArena(); if (Phase4Bootstrapper.IsTg2World) StartCoroutine(SettleStartPose()); }));
         Register(new Toy(KeyCode.R, "respawn on ground", Respawn));
         Register(new Toy(KeyCode.B, "bomb", DetonateAtTarget));
         Register(new Toy(KeyCode.G, "CHAOS BURST", StartChaosBurst));
