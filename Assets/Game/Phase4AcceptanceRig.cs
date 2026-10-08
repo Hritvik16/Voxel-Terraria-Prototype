@@ -1667,6 +1667,9 @@ public class Phase4AcceptanceRig : MonoBehaviour
                            $"{(MaxOf(_brickSlots) > 0 ? MaxOf(_brickRuns) / MaxOf(_brickSlots) : 0):F3} " +
                            $"(1.000 = every slot its own SetData call)");
         _report.AppendLine($"    max clipmap dirty backlog: {MaxOf(_dirtyRemaining)} chunks");
+        if (Phase4Bootstrapper.Clipmap != null)
+            _report.AppendLine($"    resident dirty chunks skipped OUTSIDE the mirror box (total): " +
+                               $"{Phase4Bootstrapper.Clipmap.SkippedOutOfBoxTotal} (expected 0)");
         _report.AppendLine($"    load deficit INSIDE 128m (§13's actual criterion): " +
                            $"p50 {Pct(ToD(_deficitIn128), 0.5f):F0}, p99 {Pct(ToD(_deficitIn128), 0.99f):F0}, " +
                            $"max {MaxOf(_deficitIn128):F0} chunks");

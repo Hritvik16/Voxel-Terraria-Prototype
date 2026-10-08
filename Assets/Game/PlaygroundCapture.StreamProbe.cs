@@ -249,7 +249,7 @@ public partial class PlaygroundCapture
         var rows = new StringBuilder(cap * 120);
         rows.Append("frame\tt\tms\tstreamMs\tadmitted\tevicted\tpending\tinflight\tuploadBytes\tchunksUp\tdeferred\tdirtyLeft\t" +
                     "sortMs\tstagingMs\tclipSetMs\tmipMs\tpackMs\tbrickSetMs\tpackUpMs\tcascadeMs\ttransferMs\tdrainMs\t" +
-                    "missingGpu\tmissingIn64\tdeficit\tdeficitIn128\tband\tcamY\n");
+                    "missingGpu\tmissingIn64\tdeficit\tdeficitIn128\tband\tcamY\toutOfBox\n");
         var ms = new List<float>(cap);
         var upBytes = new List<float>(cap); var upChunks = new List<float>(cap);
         var phStage = new List<float>(); var phClip = new List<float>(); var phMip = new List<float>(); var phPack = new List<float>();
@@ -309,7 +309,7 @@ public partial class PlaygroundCapture
                 .Append(us.packUploadMs.ToString("F3")).Append('\t').Append(streamer.LastCascadeMs.ToString("F3")).Append('\t')
                 .Append(streamer.LastTransferMs.ToString("F3")).Append('\t').Append(streamer.LastDrainCompletionsMs.ToString("F3")).Append('\t')
                 .Append(open).Append('\t').Append(in64).Append('\t').Append(lastDef).Append('\t').Append(lastDef128).Append('\t')
-                .Append(streamer.StreamLayer).Append('\t').Append(cp.y.ToString("F1")).Append('\n');
+                .Append(streamer.StreamLayer).Append('\t').Append(cp.y.ToString("F1")).Append('\t').Append(us.skippedOutOfBox).Append('\n');
             frames++;
             if (t - winStart >= 10f)
             {

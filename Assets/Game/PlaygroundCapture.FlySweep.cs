@@ -137,7 +137,8 @@ public partial class PlaygroundCapture
                     _sweepValidated = true;
                     var vr = ClipmapValidator.ValidateRegion(clip, Phase4Bootstrapper.Pool, store, maxChunks: 4096, validateBrickBodies: false);
                     int stale = ClipmapValidator.CountStaleSlots(clip, store, out string ex);
-                    L($"   MIRROR CHECK: {vr.chunksChecked} resident chunks, lost {vr.mismatchesInCleanChunks}, lag {vr.mismatchesInDirtyChunks}, stale {stale}" + (ex != null ? $" [{ex}]" : ""));
+                    L($"   MIRROR CHECK: {vr.chunksChecked} resident chunks, lost {vr.mismatchesInCleanChunks}, lag {vr.mismatchesInDirtyChunks}, stale {stale}" + (ex != null ? $" [{ex}]" : "") +
+                      $", outOfBox {clip.SkippedOutOfBoxTotal}");
                 }
 
                 var res = RaymarchFeature.LastDispatchResolution;
