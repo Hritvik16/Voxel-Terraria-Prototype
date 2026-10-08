@@ -13,13 +13,11 @@
   - Easy ground means: Walk (8 m slope < 15°), gentle class, under 1/3 of the highest land, and dry. Biome does not count (Q2 (a)).
 - **Record:** `FLAG_EASY` = flags bit 0. `EasyAreaList` holds the centre, ha, radius, mean height and cells. `WorldRecord.MapVersion` is new.
   `WorldMap.EasySites` holds all 6 sites.
-- **Size class:** sizeClass 2 (the 8 km tg2 island) is **Medium = 4 areas**, the same reading as the B5 queue entry. Small is under 8 km, Large is over 12 km (`EasyAreas.CountFor`).
-- **No start position, start flag or start list** (owner 2026-10-04). `Tg2Spawn` is untouched.
+- **Size class:** sizeClass 2 (8 km tg2) is **Medium = 4**, as in the B5 queue entry (`EasyAreas.CountFor`). No start position, flag or list (owner 2026-10-04); `Tg2Spawn` untouched.
 - **Tests:** new `EasyAreaTests`: a seed-42 gate (Slow), plus an opt-in 20-seed sweep (`EASYSWEEP=1 tools/run-editmode-filter.sh EasyAreaTests`) that fails naming every failing seed.
   `WorldRecordTests` now allows the easy bit. `PlayMetricsReport` writes the `b4_easy_areas.txt` table and `seed<N>_v4_easy_areas.png`.
 - **`PlaygroundCapture.FlySweep`** (evidence tool):
-  - The eye now stands over the **exact voxel ground**. Before, it fell back to the map height when the column below the start eye was not loaded, which B3's walk poses did.
-  - It also logs the player's own easy-area list.
+  - The eye now stands over the **exact voxel ground** (it used to fall back to the map height, as in B3's walk poses), and it logs the player's own easy-area list.
 
 ## Evidence (no performance arms, rule 10)
 - `SUITE=all` **PASS 642 FAIL 0 SKIP 15** (`Logs/overnight/b4/suite_all.out`).
@@ -58,6 +56,4 @@
 - **The task's "easy ground 8-12%" is read as the record's flagged cells.** Easy ground anywhere (the old PlayMetrics line) is ~32-35% of v4 land, which is far over 12%. Only the seeded areas can meet the band.
 - **Some areas touch:** seed 2026's NW cluster, seed 42's west pair. `SPREAD` (0.05) is the knob. A larger value spreads areas more but pushes them onto higher or rougher ground.
 - The flagged areas are near-round (nearest cells first). The pressed terrain under them has a noise-bent edge.
-
-## Next step
-- Task 34 (B5) as queued.
+- **Next step:** task 34 (B5) as queued.
