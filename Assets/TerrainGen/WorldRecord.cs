@@ -20,8 +20,11 @@
 //   freshWater distance to the nearest LAKE or RIVER cell (WorldMap.WaterClass,
 //              kept as is), WATER_STEP_M steps; WATER_FAR (250) = 4 km or more
 //   hazard     bits 0-2 base danger (B6), bits 3-4 movement band (B6) -- zero
-//   flags      B4-B8 -- zero
+//   flags      bit 0 FLAG_EASY (B4: the cell is easy ground inside a seeded
+//              easy area, EasyAreas.cs); bits 1-7 B5-B8 -- zero
 //   site       B5-B8 -- zero
+//
+// LISTS beside the cells (each carries MapVersion): EasyAreaList (B4).
 using System.Runtime.InteropServices;
 using Unity.Mathematics;
 
@@ -44,6 +47,7 @@ namespace TerrainGen
         public int FreshWaterM => freshWater * WorldRecord.WATER_STEP_M;
         public int Danger => hazard & 7;
         public int MoveBand => (hazard >> 3) & 3;
+        public bool IsEasy => (flags & WorldRecord.FLAG_EASY) != 0;
     }
 
     public sealed class WorldRecord
@@ -53,6 +57,13 @@ namespace TerrainGen
         public const int DEPTH_STEP_M = 32;
         public const int WATER_STEP_M = 16;
         public const byte WATER_FAR = 250;          // 250 x 16 m = 4 km
+        public const byte FLAG_EASY = 1;
+
+        /// The map version this record was built for (4 today).
+        public readonly int MapVersion;
+        /// B4: the easy areas, in seeding order (lowest-scored site first);
+        /// empty when none was seeded.
+        public EasyArea[] EasyAreaList = new EasyArea[0];
 
         public readonly int Cells;                  // per edge
         public readonly int CellVoxels;
@@ -60,9 +71,9 @@ namespace TerrainGen
 
         public long Bytes => (long)Data.Length * BYTES_PER_CELL;
 
-        private WorldRecord(int cells, int cellVoxels)
+        private WorldRecord(int cells, int cellVoxels, int mapVersion)
         {
-            Cells = cells; CellVoxels = cellVoxels;
+            Cells = cells; CellVoxels = cellVoxels; MapVersion = mapVersion;
             Data = new RecordCell[cells * cells];
         }
 
@@ -96,7 +107,7 @@ namespace TerrainGen
         {
             var spec = map.Spec;
             int n = spec.mapCells;
-            var rec = new WorldRecord(n, spec.mapCellVoxels);
+            var rec = new WorldRecord(n, spec.mapCellVoxels, spec.mapVersion);
             byte[] region = map.Region;
             var arch = new byte[n * n];
             for (int i = 0; i < arch.Length; i++) arch[i] = region[i] == 255 ? SEA : region[i];
@@ -127,6 +138,7 @@ namespace TerrainGen
                 rec.Data[i].freshWater = (byte)math.min(WATER_FAR, d[i] / waterUnits);
 
             for (int i = 0; i < d.Length; i++) rec.Data[i].biome = biomes[i];
+            EasyAreas.Mark(map, rec);
             return rec;
         }
 

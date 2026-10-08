@@ -34,6 +34,9 @@
 //   bands        Walk < 15, Scramble 15-30, Climb 30-45, Sheer > 45 deg.
 //                PROVISIONAL: the plan names the bands but not their angles;
 //                these use the review's own 15/45 cut points. B6 fixes them.
+//   easy areas   (B4, v4) the world record's FLAG_EASY cells: easy ground (next
+//                entry) inside the seeded easy areas only (EasyAreas.cs). This is
+//                B4's acceptance share; easy ground anywhere is ~25% of v4 land.
 //   easy ground  Walk band + gentle landform + lowest third of the land's
 //                height range (plan rule 3, "from the land alone").
 //   town site    a 4-connected patch of land (rivers and lakes included) under
@@ -100,6 +103,9 @@ namespace TerrainGen.Tests
             public float landmarkAll4At3, landmarkAll4At15; public int landmarks;
             public int caveMouths; public float mouthsPerKm2;
             public float riverKm; public int lakes;
+            // B4 (v4): the record's easy areas
+            public float easyFlagShare; public int easyAreaCount, easyAreaWant, easyFlagNotEasy;
+            public float[] easyAreaHa = new float[0]; public string easyAreaDesc = "";
         }
 
         public struct BiomeStats
@@ -162,6 +168,12 @@ namespace TerrainGen.Tests
                 File.WriteAllText(Path.Combine(dir, "b2_landform.txt"), b2);
                 Debug.Log("[PlayMetrics B2]\n" + b2);
             }
+            if (byTag.ContainsKey("_v4"))
+            {
+                string b4 = B4Table(byTag.TryGetValue("", out var v3b) ? v3b : new List<Metrics>(), byTag["_v4"]);
+                File.WriteAllText(Path.Combine(dir, "b4_easy_areas.txt"), b4);
+                Debug.Log("[PlayMetrics B4]\n" + b4);
+            }
             var v4All = tagOrder.Where(t => t.StartsWith("_v4")).SelectMany(t => byTag[t]).ToList();
             if (v4All.Count > 0)
             {
@@ -199,6 +211,40 @@ namespace TerrainGen.Tests
                 s.AppendLine($"  {a.seed,-6}  {a.medianSlope,4:F1} -> {b.medianSlope,4:F1}    {Pct(a.under15),6} -> {Pct(b.under15),6}  {Pct(a.over45),6} -> {Pct(b.over45),6}  " +
                              $"{Pct(a.open),6} -> {Pct(b.open),6}  {Pct(a.mountainous),6} -> {Pct(b.mountainous),6}  {Pct(a.easyShare),6} -> {Pct(b.easyShare),6}  " +
                              $"{a.classMedianSlope[0]:F0}/{a.classMedianSlope[1]:F0}/{a.classMedianSlope[2]:F0} -> {b.classMedianSlope[0]:F0}/{b.classMedianSlope[1]:F0}/{b.classMedianSlope[2]:F0}");
+            }
+            return s.ToString();
+        }
+
+        /// The B4 acceptance table (plan rule 3; owner Q1 (a), Q2 (a)): the
+        /// record's easy ground 8-12% of land, the size's area count, every area
+        /// >= 25 ha; B2/B3 still green; slopes beside v3 (B3's own numbers are in
+        /// its report, Logs/overnight/b3/b3_i60_s06/playmetrics_v4.txt).
+        private static string B4Table(List<Metrics> v3, List<Metrics> v4)
+        {
+            var s = new StringBuilder("=== B4: easy areas on map v4 (record flag + list)\n");
+            s.AppendLine("  seed    easy share (8-12%)   areas (want)   area ha (>= 25 each)            flagged-but-not-easy  gentle (50+-5)  inselbergs  build s (v3)   record hash");
+            foreach (var b in v4)
+            {
+                var a = v3.FirstOrDefault(x => x.seed == b.seed);
+                bool share = b.easyFlagShare >= 0.08f && b.easyFlagShare <= 0.12f;
+                bool cnt = b.easyAreaCount == b.easyAreaWant;
+                bool size = b.easyAreaHa.Length > 0 && b.easyAreaHa.All(x => x >= EasyAreas.MIN_HA);
+                bool g = math.abs(b.classShare[0] - b.gentleTarget) <= 0.05f && b.classShare[1] > 0f && b.classShare[2] > 0f;
+                string build = a != null ? $"{b.buildMs / 1000:F1} ({a.buildMs / 1000:F1}, {(b.buildMs - a.buildMs) / 1000:+0.0;-0.0}) {((b.buildMs - a.buildMs) <= 2000 ? "PASS" : "MISS")}" : $"{b.buildMs / 1000:F1}";
+                s.AppendLine($"  {b.seed,-6}  {Pct(b.easyFlagShare),6} {(share ? "PASS" : "MISS"),-12}  {b.easyAreaCount} ({b.easyAreaWant}) {(cnt ? "PASS" : "MISS")}     " +
+                             $"{string.Join(" ", b.easyAreaHa.Select(x => x.ToString("F0"))),-22} {(size ? "PASS" : "MISS")}    {b.easyFlagNotEasy,5}                 " +
+                             $"{Pct(b.classShare[0]),6} {(g ? "PASS" : "MISS")}   {b.inselbergs,3} {(b.inselbergs == 0 ? "PASS" : "MISS")}    {build}   {b.recordHash:X16}");
+            }
+            s.AppendLine("\n  areas: centre (voxels), ha, farthest flagged cell from the centre, mean height (rel. sea), dominant archetype");
+            foreach (var b in v4) s.Append($"  seed {b.seed}:\n{b.easyAreaDesc}");
+            s.AppendLine("\n  slopes (B3 targets, reported not gated)  v3 -> v4:");
+            s.AppendLine("  seed    median deg      <15 deg          >45 deg          open (<20 m)     river km        gentle-low Walk anywhere (old 'easy')");
+            foreach (var b in v4)
+            {
+                var a = v3.FirstOrDefault(x => x.seed == b.seed);
+                string A(Func<Metrics, string> f) => a != null ? f(a) : "  -  ";
+                s.AppendLine($"  {b.seed,-6}  {A(x => x.medianSlope.ToString("F1")),4} -> {b.medianSlope,4:F1}    {A(x => Pct(x.under15)),6} -> {Pct(b.under15),6}  " +
+                             $"{A(x => Pct(x.over45)),6} -> {Pct(b.over45),6}  {A(x => Pct(x.open)),6} -> {Pct(b.open),6}  {A(x => x.riverKm.ToString("F1")),5} -> {b.riverKm,5:F1}    {Pct(b.easyShare)}");
             }
             return s.ToString();
         }
@@ -366,6 +412,36 @@ namespace TerrainGen.Tests
             for (int k = 0; k < Regions.KINDS; k++) { m.regionShare[k] = regionN[k] / L; m.regionMedianSlope[k] = Median(regionSlopes[k]); }
             m.easyShare = easy / L; m.gentleLowShare = gentleLow / L;
 
+            // B4: the record's easy areas (flag + list); each flagged cell is
+            // re-checked against this report's own definition (atan slope).
+            bool[] easyFlag = null;
+            if (map.Record != null)
+            {
+                easyFlag = new bool[n * n];
+                int flagged = 0;
+                for (int i = 0; i < n * n; i++)
+                {
+                    if (!map.Record.Data[i].IsEasy) continue;
+                    easyFlag[i] = true;
+                    if (isLand[i]) flagged++;
+                    if (!isLand[i] || !easyMask[i] || map.WaterClass[i] != Hydrology.DRY) m.easyFlagNotEasy++;
+                }
+                m.easyFlagShare = flagged / L;
+                var areas = map.Record.EasyAreaList;
+                m.easyAreaWant = EasyAreas.CountFor(in spec);
+                m.easyAreaHa = areas.Select(a => a.hectares).ToArray();
+                m.easyAreaCount = areas.Count(a => a.cellCount > 0);
+                var d = new StringBuilder();
+                foreach (var a in areas)
+                {
+                    var votes = new int[256];
+                    foreach (int i in a.cells) votes[map.Region[i]]++;
+                    int best = 0; for (int k = 1; k < 256; k++) if (votes[k] > votes[best]) best = k;
+                    d.AppendLine($"    ({a.centre.x}, {a.centre.y})  {a.hectares,5:F1} ha  r {a.radiusM,4:F0} m  {a.meanHeightM,5:F1} m  {(best == 255 ? "sea" : Regions.Name((byte)best))}");
+                }
+                m.easyAreaDesc = d.ToString();
+            }
+
             // biome / region change walking east-west, rows every 32 m
             long walked = 0; int bChanges = 0, rChanges = 0;
             for (int z = 0; z < n; z += 4)
@@ -442,7 +518,7 @@ namespace TerrainGen.Tests
             m.lakes = map.Hydro.lakes;
             m.measureMs = sw.Elapsed.TotalMilliseconds;
 
-            WritePngs(dir, $"seed{seed}{tag}", n, h, isLand, slope, relief, biome, map.Region, map.WaterClass, easyMask, towns);
+            WritePngs(dir, $"seed{seed}{tag}", n, h, isLand, slope, relief, biome, map.Region, map.WaterClass, easyMask, towns, easyFlag);
 
             // B1: the biome field at other scales on this same map (the map does
             // not depend on biomes), as numbers and one strip: v3 (x1), then each.
@@ -668,6 +744,9 @@ namespace TerrainGen.Tests
                 Enumerable.Range(0, Regions.KINDS).Where(k => m.regionShare[k] > 0f).OrderBy(k => m.regionMedianSlope[k])
                     .Select(k => $"{Regions.Name((byte)k)} {Pct(m.regionShare[k])} {m.regionMedianSlope[k]:F0}deg")));
             s.AppendLine($"  easy ground (Walk + gentle + lowest third): {Pct(m.easyShare)} of land (gentle + lowest third, any slope: {Pct(m.gentleLowShare)})");
+            if (m.mapVersion >= 4)
+                s.AppendLine($"  B4 easy areas (record flag): {Pct(m.easyFlagShare)} of land in {m.easyAreaCount} areas (want {m.easyAreaWant}): " +
+                             $"{string.Join(", ", m.easyAreaHa.Select(x => x.ToString("F0") + " ha"))}; flagged cells failing the definition {m.easyFlagNotEasy}");
             s.AppendLine($"  biome change walking east-west every {m.biomeChangeM:F0} m (sampled every 128 m: {m.biomeChange128M:F0} m); region change every {m.regionChangeM:F0} m");
             s.AppendLine($"  biome patches on land: {m.biomePatches}; median {m.biomePatchMedianHa:F1} ha; area-weighted median {m.biomePatchAreaMedianHa:F0} ha");
             if (m.mapVersion >= 4)
@@ -722,7 +801,7 @@ namespace TerrainGen.Tests
         private static readonly Color[] BiomeCol = { new Color(0.25f, 0.55f, 0.25f), new Color(0.92f, 0.80f, 0.50f), new Color(0.92f, 0.94f, 0.98f), new Color(0.10f, 0.45f, 0.30f) };
 
         private static void WritePngs(string dir, string prefix, int n, float[] h, bool[] isLand, float[] slope, float[] relief,
-                                      byte[] biome, byte[] region, byte[] water, bool[] easy, List<List<int>> towns)
+                                      byte[] biome, byte[] region, byte[] water, bool[] easy, List<List<int>> towns, bool[] easyFlag)
         {
             var townMask = new bool[n * n];
             foreach (var c in towns) foreach (int i in c) townMask[i] = true;
@@ -744,6 +823,10 @@ namespace TerrainGen.Tests
             Write(dir, $"{prefix}_easy_ground.png", n, h, isLand, water,
                   i => TownEdge(i) ? new Color(0.95f, 0.20f, 0.85f) : easy[i] ? new Color(0.30f, 0.85f, 0.30f) : new Color(0.62f, 0.62f, 0.62f));
             Write(dir, $"{prefix}_biome.png", n, h, isLand, water, i => biomeCol[biome[i]]);
+            // B4: the record's easy cells (bright yellow) over the region-class map
+            if (easyFlag != null)
+                Write(dir, $"{prefix}_easy_areas.png", n, h, isLand, water,
+                      i => easyFlag[i] ? new Color(1f, 0.92f, 0.10f) : region[i] == 255 ? Color.gray : classCol[LandformClass(region[i])] * 0.8f);
         }
 
         /// Top-down, north (+z) up, 2x2 cells per pixel, tinted and hillshaded;

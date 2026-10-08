@@ -85,6 +85,16 @@ public partial class PlaygroundCapture
         for (int y = (int)math.floor(pos.y * 10f); y > (int)math.floor(pos.y * 10f) - 2000; y--)
             if (store.GetVoxel(new int3(v0.x, y, v0.z)) != Materials.Air) { top = y; break; }
         GroundTopM(px, pz, out float mapTop);
+        // B4 (2026-10-08): ground far below the start eye is not resident, so
+        // stand at the map ground first and read the voxel top there -- the eye
+        // heights are then over the exact ground, not over the map's 8 m surface.
+        if (top == int.MinValue)
+        {
+            pos = new Vector3(px, mapTop + 2f, pz);
+            yield return Settle();
+            for (int y = (int)math.floor((mapTop + 30f) * 10f); y > (int)math.floor((mapTop - 30f) * 10f); y--)
+                if (store.GetVoxel(new int3(v0.x, y, v0.z)) != Materials.Air) { top = y; break; }
+        }
         float ground = top == int.MinValue ? mapTop : (top + 1) * 0.1f;
 
         L($"FLY SWEEP -- task 13 -- {ts}");
@@ -93,6 +103,14 @@ public partial class PlaygroundCapture
           $"dispatch {RaymarchFeature.LastDispatchResolution.x}x{RaymarchFeature.LastDispatchResolution.y}  fov {cam.fieldOfView:F1}  " +
           $"iter cap {RaymarchFeature.MaxOuterIterations}  cascade {(RaymarchFeature.UseLODCascade ? "ON" : "OFF")}  clock {SunCycle.ClockString()}");
         L($"pose XZ ({px:F1}, {pz:F1}) m, heading ({dir.x:F2}, 0, {dir.z:F2}); ground directly below: CPU store top {(top == int.MinValue ? "none" : (ground).ToString("F1") + " m")}, map {mapTop:F1} m");
+        var easyRec = streamer.TerrainGenSource.Map.Record;
+        if (easyRec != null)
+        {
+            var easySb = new System.Text.StringBuilder($"easy areas (this player's map v{easyRec.MapVersion}, B4):");
+            foreach (var ea in easyRec.EasyAreaList) easySb.Append($"  ({ea.centre.x * 0.1f:F1}, {ea.centre.y * 0.1f:F1}) m {ea.hectares:F1} ha");
+            var easyHere = easyRec.At((int)math.floor(px * 10f), (int)math.floor(pz * 10f));
+            L(easySb + $"; pose cell easy flag {easyHere.IsEasy}");
+        }
         L($"mirror box {clip.WindowDimsChunks} chunks; load radius {streamer.LoadRadiusChunks} chunks (+-{streamer.LoadRadiusChunks * 12.8f:F0} m XZ)");
         foreach (var c in Camera.allCameras)
             L($"camera '{c.name}' enabled {c.enabled} depth {c.depth} target {(c.targetTexture != null ? c.targetTexture.name : "screen")} pos {c.transform.position} main {c == cam}");

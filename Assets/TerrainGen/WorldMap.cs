@@ -58,6 +58,9 @@ namespace TerrainGen
         /// T6 inselbergs that raised at least one erosion-grid cell (v3: ~15-40
         /// per seed; v4: 0, owner Q7 (a)).
         public int InselbergCount { get; private set; }
+        /// Map v4 (B4): the seeded easy-area sites; null below v4. The flagged
+        /// cells and the area list are in Record (EasyAreas.Mark).
+        public EasyAreas.Site[] EasySites { get; private set; }
         private GCHandle _hH, _hR, _hW;
 
         public WorldMap(TerrainSpec spec, float[] height, float[] rough, float2 peak,
@@ -105,6 +108,9 @@ namespace TerrainGen
         //   B2 (plan rule 2): region archetypes dealt by landform class to hit
         //      spec.GentleShare of the land (Regions.AssignByFlatness); no T6
         //      inselbergs (owner Q7 (a)).
+        //   B3 (plan rule 5): erosion as a light valley pass.
+        //   B4 (plan rule 3): easy areas seeded before erosion (EasyAreas.cs),
+        //      flagged in the record with their list.
         // A v3 spec takes none of these branches and stays byte-identical.
         // ------------------------------------------------------------------
         private static WorldMap BuildV4(TerrainSpec spec)
@@ -147,13 +153,18 @@ namespace TerrainGen
 
             // ---- starting shapes on the coarse (erosion) grid ----
             var hc = new float[m * m]; var ec = new float[m * m]; var tc = new float[m * m]; var lc = new bool[m * m];
+            // B4 (v4): what EasyAreas.Pick reads -- gentle-class weight (the
+            // wetland basin left out: it is shaped to hold lakes), and the
+            // cells no easy area may cover (sea, coast, peak or volcano raised).
+            bool easy = spec.mapVersion >= 4;
+            var gw = easy ? new float[m * m] : null; var bad = easy ? new bool[m * m] : null;
             for (int z = 0; z < m; z++)
             for (int x = 0; x < m; x++)
             {
                 int i = z * m + x;
                 float2 p = new float2((x + 0.5f) * cm, (z + 0.5f) * cm);
                 float coast = Coast(in spec, in o, p);
-                if (coast <= 0f) { hc[i] = OceanFloor(in spec, coast); tc[i] = 1f; continue; }
+                if (coast <= 0f) { hc[i] = OceanFloor(in spec, coast); tc[i] = 1f; if (easy) bad[i] = true; continue; }
                 Regions.Weights(L, in o, p, w);
                 float H = 0f, E = 0f, T = 0f, lay = 0f;
                 for (byte k = 0; k < Regions.KINDS; k++)
@@ -163,6 +174,7 @@ namespace TerrainGen
                     H += w[k] * Regions.Shape(k, in spec, in o, p);
                     E += w[k] * pr.erodibility; T += w[k] * pr.talus; if (pr.layered) lay += w[k];
                 }
+                float shaped = H;   // B4: before the peak and the volcano raise it
                 // The dominant peak (§2.2), broad, in its alpine region. Started
                 // PEAK_ALLOWANCE above its target: erosion takes ~10% off a summit
                 // (541 m of 600 at the tuned erodibility, TerrainGenTests.Targets).
@@ -172,6 +184,12 @@ namespace TerrainGen
                 // The volcano's cone everywhere it reaches (it is wider than a region
                 // is apart from its neighbours, so a region blend would clip it).
                 H = math.max(H, Stamps.VolcanoHeight(in spec, in o, p, out _, out _));
+                if (easy)
+                {
+                    for (byte k = 0; k < Regions.KINDS; k++)
+                        if (w[k] > 0f && Regions.ClassOf(k) == Regions.Gentle && k != Regions.Wetland) gw[i] += w[k];
+                    bad[i] = coast <= EasyAreas.COAST_MIN || H > shaped;
+                }
                 // Island envelope: land rises from the shore; sea cliffs rise sharply.
                 float env = math.lerp(math.saturate(coast * 5f), math.saturate(coast * 14f), w[Regions.CoastalCliffs]);
                 // A little jitter so flats never drain in ruler-straight lines.
@@ -193,6 +211,22 @@ namespace TerrainGen
                     }
                 }
                 ec[i] = E; tc[i] = T; lc[i] = lay > 0.5f;
+            }
+            // B4 (plan rule 3): seed the easy areas and press their starting relief.
+            EasyAreas.Site[] easySites = null;
+            if (easy)
+            {
+                easySites = EasyAreas.Pick(in spec, m, cm, hc, gw, bad);
+                for (int z = 0; z < m; z++)
+                for (int x = 0; x < m; x++)
+                {
+                    int i = z * m + x;
+                    float t = EasyAreas.Weight(easySites, in o, new float2((x + 0.5f) * cm, (z + 0.5f) * cm), out int site);
+                    if (t <= 0f) continue;
+                    hc[i] = EasyAreas.Press(hc[i], easySites[site].level, t);
+                    tc[i] = math.lerp(tc[i], EasyAreas.TALUS, t);
+                    if (t > 0.5f) lc[i] = false;
+                }
             }
             if (DumpErosionInputsTo != null) DumpErosionInputs(DumpErosionInputsTo + $"_{spec.seed}.bin", m, hc, ec, tc, lc);
             LastErosion = spec.mapVersion >= 4
@@ -228,10 +262,17 @@ namespace TerrainGen
                     rough += w[k] * pr.rough; minLake += w[k] * pr.minLake;
                     if (pr.layered) layered += w[k];
                 }
+                // B4: an easy area is smooth -- a wetland's detail, no benches, no dunes.
+                float et = easy ? EasyAreas.Weight(easySites, in o, p, out _) : 0f;
+                if (et > 0f)
+                {
+                    rough = math.lerp(rough, EasyAreas.ROUGH, et); layered *= 1f - et;
+                    minLake = math.lerp(minLake, math.max(minLake, EasyAreas.MIN_LAKE), et);
+                }
                 // Canyonlands and plateaus: benches and cliff bands.
                 if (layered > 0f && hh > 20f) hh = math.lerp(hh, Regions.Terrace(hh), layered);
                 lakeMin[i] = minLake;
-                if (w[Regions.Dunes] > 0f) hh += w[Regions.Dunes] * DuneField(in o, p);
+                if (w[Regions.Dunes] > 0f) hh += (et > 0f ? w[Regions.Dunes] * (1f - et) : w[Regions.Dunes]) * DuneField(in o, p);
                 // Beaches: the last metres at the waterline (not under sea cliffs).
                 float shore = math.saturate(coast * 12f);
                 float beach = math.max(8f, hh) * shore + 8f * (1f - shore) - 10f * (1f - math.saturate(coast * 5f));
@@ -262,7 +303,7 @@ namespace TerrainGen
             var cls = new byte[n * n];
             var hydro = Hydrology.Run(n, h, r, water, flow, cls, lakeMin);
             ClearCalderaLake(in spec, in o, water, cls);
-            return new WorldMap(spec, h, r, peak, water, flow, hydro, cls) { RegionLayout = L, Region = reg, InselbergCount = inselbergIds.Count };
+            return new WorldMap(spec, h, r, peak, water, flow, hydro, cls) { RegionLayout = L, Region = reg, InselbergCount = inselbergIds.Count, EasySites = easySites };
         }
 
         /// TUNING SEAM (tools/erosion-lab.c): when set, BuildV3 writes the erosion
