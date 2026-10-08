@@ -45,9 +45,12 @@ turn resends the whole conversation and drains the weekly allowance. Speak only 
 task starts or finishes, blocks, or needs the owner. The owner watches the running
 worker in a Terminal tab (a loop of `tools/overnight/watch-task.sh` that moves to each
 new task; open it with osascript at session start if it is not already open).
-Detect it with `ps -axo command | grep -c '[P]ython.*Logs/overnight/runner.log'` --
-the script execs python3, so grepping for `watch-task` finds nothing and opens a
-duplicate tab (happened 2026-10-08).
+**Owner, 2026-10-08: ALWAYS keep a Terminal tab open on the running task.** Check at session
+start AND at every event (a done/blocked line means the next task is starting):
+`ps -axo tty,command | grep -c '^ttys.*[w]atch-task.sh; sleep'` -- 0 means open one:
+`osascript -e "tell application \"Terminal\" to do script \"cd '<repo>' && exec bash -c 'while true; do tools/overnight/watch-task.sh; sleep 20; done'\""`
+(the `bash -c` keeps the loop visible to ps; the script itself execs python3, so grepping for
+`watch-task` alone matches tool shells, not the tab). One tab follows every task in turn.
 **Keep supervisor sessions short:** after ~3-4 finished tasks, or whenever the session
 feels long, write SESSION_HANDOFF.md, commit it, start the successor with
 `tools/new-session.sh`, and tell the owner to switch to it and close the old one.
