@@ -32,13 +32,16 @@
 - **Terrain reviews: ONE review pack after B5 and one at the end of the B steps.** B steps run back
   to back (tests + metrics + renders each); a step whose own renders look clearly broken still
   stops. 29's "still natural?" check folds into the B5 pack.
-- Pending (asked in chat, owner wanted a plain explanation): park the engine-performance track
-  (coarse-first, 0.4 m tier evidence, rig bisect, UploadDirty check) until after the surface
-  rebuild + placement, keeping 30.
+- **Roadmap (owner, 8 Oct):** 29 -> 30 -> UploadDirty box check (Q23-2, small fix) -> B4..B8 back
+  to back -> review packs (after B5, at end) -> v4 default + merge + ONE milestone perf check ->
+  movement-abilities question batch (owner wants VERY FAST movement; get a top speed) ->
+  coarse-first step 1 (Q22-3, deferred, NOT dropped) -> placement (ores, objects, towns).
+  The 0.4 m tier memory evidence (Q22-2; owner: matters so 0.1 m detail can shine) is done with
+  palette bricks (Q24) after placement. Rig bisect (Q23-1) PARKED -- owner: "the worst thing to do".
 
 ## Next for the supervisor
-Write and queue, after 30: the UploadDirty box check (Q23-2), coarse-first step 1 (Q22-3), and the
-0.4 m tier memory evidence task (Q22-2). Re-check `ls queue done blocked dropped` before numbering (31 is taken).
+Write and queue, after 30: the UploadDirty box check (Q23-2), then B4 (easy areas only) and the
+following B steps from the surface rebuild plan, each WITHOUT streaming/perf arms (PREAMBLE rule 10). Re-check `ls queue done blocked dropped` before numbering (31 is taken).
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
