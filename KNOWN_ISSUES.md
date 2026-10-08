@@ -519,6 +519,13 @@ real and separate reason — see the LOD-cascade finding in
   existing "Burst == Mono" benchmark runs in the IL2CPP player, not the Editor.
   TerrainGen's gate is therefore Burst self-consistency (one compiled path for
   every authoritative evaluation), with the Editor-Mono rate reported.
+  **The PLAYER'S WORLD MAP IS NOT THE EDITOR'S (found 2026-10-08, task 32c, NOT FIXED).**
+  seed 42 v4 `WorldMap.Height` FNV: IL2CPP player `B387F054A29997D4`, Editor/tests
+  `BD4343C5D13F55BF`; cell (613,259) 1169.15 vs 1160.16 voxels. Erosion amplifies the
+  float differences. So EditMode map tests and `PlayMetricsReport` check a map that
+  differs in detail from the one the player draws -- e.g. a cap-rock ledge at
+  cliff_foot_1 exists only in the player's map. Owner's call whether to make the map
+  build bit-exact (Burst, one compiled path) or accept it.
 
 - **EVERY PLAYGROUND PROBE HAS BEEN MEASURING INSIDE A HOLE. This is the biggest
   measurement defect found in this project so far.** `TeleportToArena` -- where
