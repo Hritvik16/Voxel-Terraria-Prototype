@@ -1,43 +1,46 @@
-# 32-uploaddirty-box-check: DONE. `UploadDirty` now skips and counts any resident chunk outside the mirror box, and parks it. Fast suite green. v4 poses: `MIRROR 0/0/0 outOfBox 0` on all 18 poses.
+# 32b-play-launcher: DONE. `./run-play.sh` opens the newest world (tg2, map v4). FOUND: the start pose is under lake water, so the first frame is black. Fix queued as task 38.
 
-## What changed (commit `3cb76d1`, docs in the next commit)
-- `Assets/CoreEngine/Mirror/TerrainClipmap.cs`:
-  - New `InMirrorBox(coord)`: `(coord - _windowOrigin) & ~_chunkMask == 0` on each axis. Integer and bitwise only; a negative offset sets the high bits, so it counts as outside.
-  - In the `UploadDirty` loop, a RESIDENT chunk outside the box is not staged or uploaded. It is removed from the dirty set, counted in the new field `UploadStats.skippedOutOfBox` and the new property `SkippedOutOfBoxTotal`, and added to `_parkedOutOfBox`.
-  - Evicted chunks keep the existing clear path and its owner test, unchanged.
-  - The skip happens before the budget test, so a stray costs no budget.
-  - Additive accessor `CpuMirrorHandle(coord, localBrick)` reads the CPU copy of the clipmap. The tests need it because the suite runs `-nographics`.
-  - No public signature changed.
-- **Re-dirty on re-entry (checked in code).**
-  - The normal admission path re-dirties a chunk only after evict + reload (`StreamManager.DrainCompletions` -> `_clipmap.MarkDirty`, StreamManager.cs ~1094).
-  - A stray is always outside the load range: the box contains the load square in XZ, and in Y the mirror covers stream -4..+3, which contains the band (+-3). So a stray is always waiting for eviction. Once evicted, it comes back only by readmission, which marks it dirty.
-  - The gap is a box that returns to the chunk BEFORE that eviction. Admission does not run (the chunk is still resident), so nothing would re-dirty it. The parked set closes that gap: at the start of each `UploadDirty`, a parked chunk that is in the box and still resident goes back into the dirty set. A parked chunk that has been evicted is dropped (the eviction marks it dirty itself).
-- The count is printed:
-  - on the poses `MIRROR` line as `outOfBox N` (`PlaygroundCapture.FarBand.cs`)
-  - on the flysweep MIRROR CHECK
-  - as the stream-probe TSV's new LAST column `outOfBox`
-  - as a line in the acceptance report (`Phase4AcceptanceRig.cs`)
-- `UploadDirtyBoxTests.cs` (new). An 8x4x8 mirror inside the 32x16x32 store ring, so chunk (9,0,1) shares the mirror slot of (1,0,1) but has its own store slot. Three tests:
-  1. An in-box chunk uploads as before: uploaded 1, skipped 0, epoch set, slot = Stone.
-  2. A stray: `skippedOutOfBox == 1`, total 1, uploaded 0, not dirty, never uploaded (epoch -1), and the in-box slot is still Stone.
-  3. After sliding the origin to (8,0,0), the parked stray uploads (slot = Sand). The pass after that uploads 0.
-- `KNOWN_ISSUES.md` (STRAY RESIDENT CHUNKS entry: the "STILL OPEN" line now points to a new task-32 sub-bullet) and the `CLAUDE.md` index line are updated.
+## What changed (commit `252c00a`)
+- `run-play.sh` (new) launches `Builds/Playground.app` interactively with
+  `-world tg2 -mapversion 4 -farband 1 -farshadow 1`. It passes no capture flag, so
+  Playground applies `RenderPreset.Default` the way a player session does.
+  - Holds the Unity lock for the whole session (`unity_lock_acquire`, like run-demo.sh).
+  - `MAPV=3` opens the old generator.
+  - `BUILD=1` rebuilds the scene and the player first (logs: `Logs/play_scene.log`, `Logs/play_build.log`).
+  - `KEEP=1` passes `-keepdeltas`. The default is `-cleardeltas`, because v3 and v4 share the delta folder `Phase4World_tg2`.
+  - `SHOT=S` takes one screenshot S s after startup. `EXTRA` passes extra flags through.
+  - On start it prints the build's commit, date and DIRTY/clean from `Builds/Playground.app.buildinfo.txt`. If the build is older than HEAD, it warns with the number of commits behind (and how many touch Assets/Packages/ProjectSettings).
+  - It prints the in-game keys, read from the code: `Playground.RegisterDefaultToys`, `PlaygroundFlyCamera`, `PlaygroundHud` (F1), `Minimap`, `DevMap`. At exit it greps the `[FarField] tg2 WORLD ... map vN` line and the `-playshot` line from Player.log.
+- `Assets/Game/Playground.cs`: new opt-in flag `-playshot S`.
+  - I needed it because `screencapture` fails in a headless session ("could not create image from display").
+  - It is not a capture mode: not in `IsCaptureRun`, so the preset, HUD and controls are unchanged.
+  - It writes one PNG to `persistentDataPath/PlayShots/` and logs the eye position and the voxel material at the eye.
+  - Without the flag it does nothing.
+- One line in `CLAUDE.md` "Commands"; one line in `run-demo.sh`'s header.
 
 ## Evidence
-- Fast EditMode suite: `PASS 622 FAIL 0 SKIP 12 suite=fast` (`Logs/overnight/32/editmode_fast.out`). All 3 new tests passed, 0 `error CS`.
-  - No EditMode test calls `ClipmapValidator.CountStaleSlots`: the suite runs `-nographics`, so it cannot read the GPU back. The task's "CountStaleSlots-based tests green" therefore rests on the poses run below.
-- `BUILD=1 MAPV=4 MODE=poses ./run-tg2world.sh` (pictures, not timing): `Logs/overnight/32/poses.out`, `Logs/tg2world_20261008_120302.txt`.
-  - All 18 poses: `MIRROR lost 0 lag 0 stale 0  outOfBox 0`.
-  - Resident: 3087 on 14 poses, 1764 on oblique_3000m / map_7000m / caldera_above / rivers_oblique. Identical to task 26's run.
-  - My first launch ran the OLD player (no `BUILD=1`). I stopped it partway; its log is `Logs/overnight/32/poses_oldbuild_discarded.out` (shots in `FarBand/2026-10-08_115411_world`, incomplete). Ignore both.
-- Shots: `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FarBand/2026-10-08_120657_world/`. 59 of 61 are pixel-identical (`cmp`) to today's 09:08 and 11:14 v4 runs. The 2 that differ are `minimap_check_*`, which are known noise.
-  - `peak_from_2km_ground_golden.png` (one of the two poses that showed `lost 12232` in task 21): look at the green hill filling the right half and the peaks on the left horizon. Continuous terrain, no holes, nothing floating.
-  - `summit_view_golden.png` (the other one, `lost 5249` in task 21): look at the red-brown slope filling the frame and the sea at right. No chunk-shaped holes.
-  - `cliff_foot_1_golden.png`: look at the ridge line near the top centre. The thin upright slab task 29 flagged is still there, unchanged. It is the far band, not voxels, and NOT related to this task.
+- Fast EditMode suite, before and after the code change: `PASS 622 FAIL 0 SKIP 12` both times
+  (`Logs/overnight/32b/editmode_fast.out`, `editmode_fast2.out`).
+- `BUILD=1 SHOT=45 ./run-play.sh`, launched 3 times through the lock, quit with SIGTERM (`Logs/overnight/32b/play*.out`):
+  - The build-provenance line printed correctly: `commit ad67110, ..., DIRTY`.
+  - Player.log: `[FarField] tg2 WORLD (aligned): world map v4 (biome x3, record 6291456 B)`, so this IS the v4 world.
+  - `[Playground] -playshot: ... eye 4004.4,655.4,3974.8 m = voxel int3(40044, 6553, 39748) material 6 (WATER), mode Walk`.
+- `Screenshots/Play/spawn_v4.png`: the spawn shot, 1920x1080.
+  Caption: the whole 3D view is BLACK behind the HUD panels because the camera is under water. Look at the minimap
+  (top right): the yellow player marker sits in a dark-blue lake. Left panel: "buoyancy 100% submerged
+  in water". The yellow lines are the fluid wake-radius box. The F2 help panel is open in the centre.
+- The `run-play.sh` header documents the workaround: Tab (fly), then hold E to rise out of the water.
 
-## Not changed (gaps named, no owner decision needed yet)
-- A CLEAN resident chunk that leaves the box and comes back before it is evicted is never re-uploaded: its slot still holds what the in-box chunk wrote. This was already true before this task. Only deltaDirty chunks can become strays (clean ones are evicted at once), so it needs a teleport and back inside the 4-saves-per-frame window. A full fix would re-dirty newly in-box resident chunks when the window slides.
-- `ClipmapValidator.ValidateRegion` walks every resident chunk, so a stray would show up as `lost`. Read it next to `outOfBox`.
+## Found, not fixed (outside one change)
+- **Black start on tg2.** Interactive Start always ends in `TeleportToArena()`, and on tg2 v4 (seed 42)
+  that arena pose has the eye inside water. Task 38 (`tools/overnight/queue/38-play-start-pose.md`)
+  will find out why (a natural lake bed passing `TryFindNaturalBasin`, or the arena's own vents filling
+  the basin) and lift the pose into air.
+- **F4 does two things.** `Minimap` toggles itself on F4 AND the F4 toy toggles TAA. `run-play.sh` says so.
+- **The in-game F2 help is out of date.** It says "1-6 / scroll pick item" (there are 15 items; the number keys
+  reach 1-9) and "F4 minimap" (F4 is also TAA). It does not list F5.
+- The serialized `PlayerController._spawnM` (1280, 40, 1268) is from the old world. On tg2 it logs
+  "could not free the spawn"; this is harmless because the arena teleport moves the player afterwards. Noted in task 38.
 
 ## Next step
-- The next queued task. Task 29's open item is still waiting on the owner: which lever to try next for the slopes, and the `cliff_foot_1` far-band slab.
+- Run task 38. Then `SHOT=45 ./run-play.sh` should show terrain, and the `-playshot` line should say `(air)`.
