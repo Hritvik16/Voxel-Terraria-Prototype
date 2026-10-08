@@ -120,6 +120,10 @@ frozen-API or memory-layout changes, anything the owner has not approved.
 - **`ROADMAP.md` (owner, 2026-10-08, later) overrides the roadmap below where they differ:** after
   B10 + merge comes an engine capability + performance phase (plan doc first), and only then the
   player and placement. Do not queue backlog items E1-E10 without an approved plan.
+  **The engine-phase plan doc must include (owner, 2026-10-08, Q26 (a)):** ONE compiled
+  world-map generator path (e.g. Burst in both Editor and player), so the EditMode map tests,
+  PlayMetricsReport and review renders describe the world the IL2CPP player builds (task 32c:
+  seed 42 v4 Height FNV differs; KNOWN_ISSUES "Burst vs the EDITOR's Mono"). Accepted until then.
 - **Owner, 2026-10-08: features over measurement. Roadmap:** 29 -> 30 -> UploadDirty box
   check (Q23-2) -> B4..B10 back to back -> owner review packs AFTER B5 and AFTER B10 (no
   per-step "still natural?" wait; a step whose own renders look clearly broken still stops)
