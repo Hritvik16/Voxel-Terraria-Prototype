@@ -40,8 +40,11 @@
   palette bricks (Q24) after placement. Rig bisect (Q23-1) PARKED -- owner: "the worst thing to do".
 
 ## Next for the supervisor
-Write and queue, after 30: the UploadDirty box check (Q23-2), then B4 (easy areas only) and the
-following B steps from the surface rebuild plan, each WITHOUT streaming/perf arms (PREAMBLE rule 10). Re-check `ls queue done blocked dropped` before numbering (31 is taken).
+QUEUED 8 Oct (commit 88a0c00): 32 UploadDirty box check, 33 B4 easy areas (no start), 34 B5
+(builds the B5 review pack), 35 B6, 36 B8, 37 B10 (B10 review pack + palette pick). B7 and B9
+are not queued (placement deferred; perf only at the milestone). When 34 finishes: put the B5
+review pack in the Queue decisions doc as one batch of questions. After 37: B10 pack, then ask
+about v4 default + merge + the ONE milestone perf check.
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
