@@ -1,46 +1,63 @@
-# 32b-play-launcher: DONE. `./run-play.sh` opens the newest world (tg2, map v4). FOUND: the start pose is under lake water, so the first frame is black. Fix queued as task 38.
+# 33-B4-easy-areas: DONE, every acceptance check PASSES. Map v4 seeds 4 easy areas before shaping (Medium, Q1 (a)), 10.0% of land, flagged in the record with a list. Code `d6ee1c1`.
 
-## What changed (commit `252c00a`)
-- `run-play.sh` (new) launches `Builds/Playground.app` interactively with
-  `-world tg2 -mapversion 4 -farband 1 -farshadow 1`. It passes no capture flag, so
-  Playground applies `RenderPreset.Default` the way a player session does.
-  - Holds the Unity lock for the whole session (`unity_lock_acquire`, like run-demo.sh).
-  - `MAPV=3` opens the old generator.
-  - `BUILD=1` rebuilds the scene and the player first (logs: `Logs/play_scene.log`, `Logs/play_build.log`).
-  - `KEEP=1` passes `-keepdeltas`. The default is `-cleardeltas`, because v3 and v4 share the delta folder `Phase4World_tg2`.
-  - `SHOT=S` takes one screenshot S s after startup. `EXTRA` passes extra flags through.
-  - On start it prints the build's commit, date and DIRTY/clean from `Builds/Playground.app.buildinfo.txt`. If the build is older than HEAD, it warns with the number of commits behind (and how many touch Assets/Packages/ProjectSettings).
-  - It prints the in-game keys, read from the code: `Playground.RegisterDefaultToys`, `PlaygroundFlyCamera`, `PlaygroundHud` (F1), `Minimap`, `DevMap`. At exit it greps the `[FarField] tg2 WORLD ... map vN` line and the `-playshot` line from Player.log.
-- `Assets/Game/Playground.cs`: new opt-in flag `-playshot S`.
-  - I needed it because `screencapture` fails in a headless session ("could not create image from display").
-  - It is not a capture mode: not in `IsCaptureRun`, so the preset, HUD and controls are unchanged.
-  - It writes one PNG to `persistentDataPath/PlayShots/` and logs the eye position and the voxel material at the eye.
-  - Without the flag it does nothing.
-- One line in `CLAUDE.md` "Commands"; one line in `run-demo.sh`'s header.
+## What changed (v4 only; v3 byte-identical)
+- **New `Assets/TerrainGen/EasyAreas.cs`.** The pass runs in three steps.
+  1. **Pick** runs on the 16 m starting shapes, before erosion. A site is scored on a 640 m square: low mean height + low spread.
+     It costs extra for non-gentle land, for being a basin floor, and for being a predicted lake (`Hydrology.Flood` run on the starting shapes).
+     Sites must avoid the beach, the peak and the volcano, and the wetland basin does not count as gentle here (it is shaped to hold lakes).
+     The pick is greedy, with a spread bonus (`SPREAD`: 2 km is worth 100 m of score). It seeds 4 + 2 spare sites, with looser passes if too few fit.
+  2. **Press:** inside 400 m, with a 350 m fade, starting relief keeps 20% around the site's mean. Talus is 0.15 and detail is a wetland's.
+     There are no terraces or dunes, and a hollow needs 3 m before it becomes a lake.
+  3. **Mark** runs in `WorldRecord.Build`. It keeps the 4 sites with the most easy ground. Each area takes 10% of land / 4 cells, nearest first.
+     Areas grow round-robin, so ground that two areas both reach is split by nearness. An area that comes up short is made up by the others (each up to +50%).
+  - Easy ground means: Walk (8 m slope < 15°), gentle class, under 1/3 of the highest land, and dry. Biome does not count (Q2 (a)).
+- **Record:** `FLAG_EASY` = flags bit 0. `EasyAreaList` holds the centre, ha, radius, mean height and cells. `WorldRecord.MapVersion` is new.
+  `WorldMap.EasySites` holds all 6 sites.
+- **Size class:** sizeClass 2 (the 8 km tg2 island) is **Medium = 4 areas**, the same reading as the B5 queue entry. Small is under 8 km, Large is over 12 km (`EasyAreas.CountFor`).
+- **No start position, start flag or start list** (owner 2026-10-04). `Tg2Spawn` is untouched.
+- **Tests:** new `EasyAreaTests`: a seed-42 gate (Slow), plus an opt-in 20-seed sweep (`EASYSWEEP=1 tools/run-editmode-filter.sh EasyAreaTests`) that fails naming every failing seed.
+  `WorldRecordTests` now allows the easy bit. `PlayMetricsReport` writes the `b4_easy_areas.txt` table and `seed<N>_v4_easy_areas.png`.
+- **`PlaygroundCapture.FlySweep`** (evidence tool):
+  - The eye now stands over the **exact voxel ground**. Before, it fell back to the map height when the column below the start eye was not loaded, which B3's walk poses did.
+  - It also logs the player's own easy-area list.
 
-## Evidence
-- Fast EditMode suite, before and after the code change: `PASS 622 FAIL 0 SKIP 12` both times
-  (`Logs/overnight/32b/editmode_fast.out`, `editmode_fast2.out`).
-- `BUILD=1 SHOT=45 ./run-play.sh`, launched 3 times through the lock, quit with SIGTERM (`Logs/overnight/32b/play*.out`):
-  - The build-provenance line printed correctly: `commit ad67110, ..., DIRTY`.
-  - Player.log: `[FarField] tg2 WORLD (aligned): world map v4 (biome x3, record 6291456 B)`, so this IS the v4 world.
-  - `[Playground] -playshot: ... eye 4004.4,655.4,3974.8 m = voxel int3(40044, 6553, 39748) material 6 (WATER), mode Walk`.
-- `Screenshots/Play/spawn_v4.png`: the spawn shot, 1920x1080.
-  Caption: the whole 3D view is BLACK behind the HUD panels because the camera is under water. Look at the minimap
-  (top right): the yellow player marker sits in a dark-blue lake. Left panel: "buoyancy 100% submerged
-  in water". The yellow lines are the fluid wake-radius box. The F2 help panel is open in the centre.
-- The `run-play.sh` header documents the workaround: Tab (fly), then hold E to rise out of the water.
+## Evidence (no performance arms, rule 10)
+- `SUITE=all` **PASS 642 FAIL 0 SKIP 15** (`Logs/overnight/b4/suite_all.out`).
+- **20-seed sweep: 20 of 20**, every seed 10.0%, 4 areas, smallest area 36 ha (`Logs/overnight/b4/easysweep_20of20.txt`).
+- PlayMetrics (`Logs/overnight/b4/maps/b4_easy_areas.txt`, `playmetrics_v4.txt`). The full table:
 
-## Found, not fixed (outside one change)
-- **Black start on tg2.** Interactive Start always ends in `TeleportToArena()`, and on tg2 v4 (seed 42)
-  that arena pose has the eye inside water. Task 38 (`tools/overnight/queue/38-play-start-pose.md`)
-  will find out why (a natural lake bed passing `TryFindNaturalBasin`, or the arena's own vents filling
-  the basin) and lift the pose into air.
-- **F4 does two things.** `Minimap` toggles itself on F4 AND the F4 toy toggles TAA. `run-play.sh` says so.
-- **The in-game F2 help is out of date.** It says "1-6 / scroll pick item" (there are 15 items; the number keys
-  reach 1-9) and "F4 minimap" (F4 is also TAA). It does not list F5.
-- The serialized `PlayerController._spawnM` (1280, 40, 1268) is from the old world. On tg2 it logs
-  "could not free the spawn"; this is harmless because the arena teleport moves the player afterwards. Noted in task 38.
+| seed | easy share | areas, ha | gentle | inselbergs | build s v4 (v3) | median ° B3→B4 | <15° B3→B4 | >45° B3→B4 | open B3→B4 | river km |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 42 | 10.0% | 4: 44 44 44 44 | 49.6% | 0 | 21.9 (27.0) | 18.8→16.6 | 44.3→47.1% | 13.3→11.2% | 12.1→11.5% | 26.1 |
+| 7 | 10.0% | 4: 43 ×4 | 49.0% | 0 | 21.9 (26.4) | 19.6→15.4 | 41.2→49.3% | 13.2→12.6% | 8.6→10.3% | 27.2 |
+| 2026 | 10.0% | 4: 45 ×4 | 48.9% | 0 | 22.3 (26.7) | 19.4→14.3 | 39.1→51.6% | 8.2→7.2% | 5.1→11.4% | 30.0 |
+| 31337 | 10.0% | 4: 47 47 41 36 | 49.3% | 0 | 21.9 (26.5) | 20.4→16.2 | 35.2→47.7% | 6.4→6.5% | 6.4→10.8% | 23.0 |
+
+- Other checks:
+  - Flagged cells that fail the report's own definition: 0.
+  - The record rebuilds to the same hash. Hashes differ per seed (42 `C6540AEA5F6324D9`, 7 `24A408B86C236814`).
+  - v3 is unchanged: every v3 metric is identical to B3's v3 run (diff, timings aside).
+  - **The player's map has the same 4 areas as the Editor's** (same centres, 43.7 ha each; flysweep log), despite the known Editor/IL2CPP map difference.
+- **Pictures** (all in `Logs/overnight/b4/maps/`):
+  - `easy_areas_4seeds.png`: 2×2, seeds 42/7/2026/31337. Yellow = flagged easy cells, over the class map (green gentle, orange broken, purple steep).
+    Look for: every yellow area sits on green, away from the purple mountains.
+    Seed 31337 (bottom right): one area bends round the big central lake. Seed 2026 (bottom left): all four areas cluster in the north-west.
+  - `easy_walkposes_seed42.png`: 2×2, a 2 m eye over the real voxel ground at each seed-42 area centre, 5° down, facing north-east.
+    - A, top left: flat pale ground with green plain behind.
+    - B, top right (plateau): flat ground beside a pond.
+    - C, bottom left: green gentle rolling plain.
+    - D, bottom right: flat sand, with terraced canyon cliffs outside the area.
+    No holes, nothing floating, no eye in rock.
+  - `poses_v4_b4_sheet.png`: 9 `MODE=poses` v4 shots (all 18 poses MIRROR 0/0/0, outOfBox 0; `arm_poses_v4.out`). No holes, no floating geometry; the coast frame is about half sea.
+    Known issues that are not new: `eye_level_1` is black (a capture pose, from 32c), and `cliff_foot_2` has a dark blade on the left.
+  - `b3_vs_b4_cliff_map.png`: top row B3, bottom row B4. `cliff_foot_2`'s blade and the dark caldera disc in `map_7000m` are identical in B3, so they are not new. The `cliff_foot_1` slab is gone (32c).
+
+## Read this (owner, for the B5 review pack)
+- **B4 also made v4 gentler overall.** Seed 42 median is 16.6° (B3 18.8°); seeds 7 and 2026 are at or near B3's ≤ 15° target.
+  The reason is that 6 pressed sites with their fades cover a large part of the land. If that is too much flattening, shrink `FADE`/`SPREAD` or drop the spares.
+- **The task's "easy ground 8-12%" is read as the record's flagged cells.** Easy ground anywhere (the old PlayMetrics line) is ~32-35% of v4 land, which is far over 12%. Only the seeded areas can meet the band.
+- **Some areas touch:** seed 2026's NW cluster, seed 42's west pair. `SPREAD` (0.05) is the knob. A larger value spreads areas more but pushes them onto higher or rougher ground.
+- The flagged areas are near-round (nearest cells first). The pressed terrain under them has a noise-bent edge.
 
 ## Next step
-- Run task 38. Then `SHOT=45 ./run-play.sh` should show terrain, and the `-playshot` line should say `(air)`.
+- Task 34 (B5) as queued.
