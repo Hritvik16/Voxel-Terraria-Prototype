@@ -126,6 +126,11 @@ current numbers before reasoning about what's slow.
   "let's find out" over "let's guess and check."
 - Keep "correctness proven" (EditMode tests), "performance proven" (a rig
   run), and "not yet tested" distinct. Don't blur them into "it works."
+- **Measure performance only in performance tasks** (owner, 2026-10-08). Feature,
+  terrain, visual and bug-fix work is accepted on tests, metrics reports and
+  screenshots; no stream/rig/frame-time arms. Performance is checked at milestones.
+  Before any measurement, write what each possible result would make us do; if every
+  outcome leads to the same action, skip the measurement and do the action.
 - **Performance is quoted at WARM STEADY STATE** (owner, 2026-10-04, Q20 (a)). This Mac is
   a fanless M1 Air: a warm chip runs chunk generation up to ~2.2x slower (tasks 27/28), and
   4+ workers heat it within ~100 s even from cold. So every timed measurement (stream probe,

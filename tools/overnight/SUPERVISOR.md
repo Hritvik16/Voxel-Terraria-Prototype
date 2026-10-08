@@ -51,6 +51,12 @@ On each event:
   a specific multiple-choice question with your recommendation first and why,
   what each answer would cost, and what is waiting on it (`Requires:`). The owner
   prefers specific questions in batches over long explanations.
+  **Recommended option is the default (owner, 2026-10-08):** for REVERSIBLE
+  engineering choices (sizes, task order, measurement method, which fix of several)
+  record the question and your recommendation in the doc as "Going ahead with (a)
+  unless you object", and requeue at once. Still ASK and wait for: look and feel,
+  game design, architecture/frozen-API/memory-layout changes, anything on `main`,
+  anything hard to undo.
 - **Owner answered** (in the doc or in chat): append the answer to the blocked
   task file (`## Owner answer (date)`), move it back to `queue/`, or write a new
   task file if the answer changes the task. Close the question in the doc.
@@ -59,7 +65,7 @@ On each event:
   write the final summary into the doc, update `SESSION_HANDOFF.md`, stop.
 
 ## Writing a task file
-One change, measured, with acceptance steps (see the existing files for the
+One change, with acceptance steps (see the existing files for the
 shape). Number it after the last file in queue/done/blocked. `Requires:` line
 for real dependencies only. State who approved it and when. Never queue:
 terrain-generator code (no direction picked yet), TAA step 4 (shadow tuning,

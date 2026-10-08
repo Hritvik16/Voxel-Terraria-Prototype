@@ -7,13 +7,15 @@ You are running UNATTENDED in a fresh headless session started by
    previous task's report) and, before touching streaming, rendering, fluids,
    memory or a rig, the matching entry in `KNOWN_ISSUES.md`. Use grep and
    targeted reads -- never read large files whole.
-2. **Scope.** Do exactly the task below: one change, measured. Do not start
+2. **Scope.** Do exactly the task below: one change. Do not start
    the next queued task or anything not asked. Do not change frozen APIs,
    engine contracts or memory layout unless the task says so.
    **Follow-ups (owner, 2026-10-02):** if your result names a low-risk follow-up
    that needs no owner decision (a QA pose, an evidence run, a doc fix), you may
    add ONE new task file for it at the END of `tools/overnight/queue/` (next free
-   number; a `Requires:` line if it depends on another task). No new design work
+   number; a `Requires:` line if it depends on another task). **Not a measure-only
+   task** (owner, 2026-10-08): no probes, evidence runs or re-measures as follow-ups;
+   name them in HANDOFF instead. No new design work
    and no performance-changing code without the owner's approval written in a
    task file.
 3. **Rules that still apply:** the shared Unity lock (`tools/unity-lock.sh` /
@@ -56,3 +58,8 @@ You are running UNATTENDED in a fresh headless session started by
    (`MODE=stream MOTION=walk ./run-tg2world.sh`, ~6 min), then runs the measured arms back to
    back (no idle gap over ~2 min; interleave A and B, e.g. ABBA). Report "warm steady state"
    and the warm-up's log path. Cold numbers may be shown beside them, never as the result.
+10. **Measure performance ONLY in a performance task** (owner, 2026-10-08). A task whose
+   purpose is a feature, terrain, visuals or a bug fix proves itself with tests, metrics
+   reports and screenshots -- no stream probe, acceptance rig or frame-time arms, even if
+   its file asks for a "re-measure" (older task files do). Performance is checked at
+   milestones by a dedicated task. Rule 9 applies only when a timed measurement runs.
