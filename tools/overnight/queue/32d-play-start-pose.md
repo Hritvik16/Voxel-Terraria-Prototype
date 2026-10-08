@@ -24,3 +24,17 @@ Also in the log: `[PlayerController] could not free the spawn at (1280.00, 9.50,
 ## Acceptance
 - `SHOT=45 ./run-play.sh` -> the `-playshot` line says `(air)`, and the shot shows terrain.
   `MAPV=3` likewise. Fast EditMode suite green. Caption both shots in HANDOFF.
+
+## Owner report (2026-10-08 ~12:55, chat) -- widens the scope
+Owner: "Playground seems to spawn me in the middle of terrain and everything is black."
+So the bad start is not only "eye in lake water": the owner sees the eye INSIDE SOLID
+terrain. The newest Player.log (12:52) shows only
+`[PlayerController] could not free the spawn at (1280.00, 9.50, 1268.00) within 64 voxels`
+and NO arena/-playshot line -- check whether `TeleportToArena()` ran at all in a plain
+`./run-play.sh` launch (no SHOT), or ran before the column was resident and left the
+player at the old-world `_spawnM` deep in rock.
+- The fix must guarantee the eye ends in AIR above the surface column on tg2, for BOTH
+  cases (water and solid), in a plain launch with no capture flags -- e.g. after the spawn
+  column is resident, raise the pose to the first air voxel above the top solid/fluid voxel.
+- Acceptance adds: one plain `./run-play.sh` launch (SHOT=45 only adds the shot) whose
+  log shows where the player ended up and that the eye material is air.
