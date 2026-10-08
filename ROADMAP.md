@@ -43,3 +43,20 @@ after placement" -- both move INTO step 3. "Performance only at a milestone" now
   or released fluid simulates when that area loads (or E7's far simulation loads it).
   FLAG: an op log beside the frozen D.1 delta format is a redesign -- it needs an amendment and
   owner approval before any code.
+
+## Tensions the step-3 plan must resolve (supervisor, 2026-10-08; none blocks the B steps)
+1. **Top speed.** E3 needs a design speed, but movement design waits until after step 3. The only
+   number on record is the brief's Decided late-game flight, 60 m/s (KNOWN_ISSUES, task 16b). Ask the
+   owner for the top speed ONLY (one question), not the movement design.
+2. **Memory.** E2 (~150-250 MB estimated even with GPU-only + palette shells) and E7 (resident chunks
+   around far active fluid) add memory while E10 says we are already at the cap. Reclaim first:
+   palette bricks (8.13 draft), tg2 cascade caps at 3.5-5x measured need (~200 MB, task 26c), pool size.
+3. **Invariants.** Coarse shells generated ON THE GPU would break "the CPU is the sole terrain writer"
+   (generate them on the CPU with Burst and upload, or amend). An edit op log sits beside the frozen
+   D.1 delta format (amendment). New LOD boundaries change 8.9's adopted values (amendment).
+4. **Far fluid vs GPU-only shells.** E7 needs 0.1 m CPU chunks wherever fluid moves; E2's coarse
+   shells keep none. The plan says how a far active region gets its small resident patch.
+5. **The speed-dependent detail radius** (task 24, `-detailspeed`, OFF) shrinks full detail at speed,
+   which contradicts the owner's "never see blocks coarser than the screen resolves". Keep it off;
+   retire it when E2/E3 land.
+6. **E2 depends on E1:** the shell distances come from the resolution decision (720 vs 540 rows).
