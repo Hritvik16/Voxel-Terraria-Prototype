@@ -114,6 +114,9 @@ frozen-API or memory-layout changes, anything the owner has not approved.
   the doc) to build context first, then a plan doc for approval -- not a one-line question.
   B4 (easy areas as terrain), B6 (danger map in the record) and B8 (routes) DO stay in the
   terrain overhaul (owner, same day).
+- **`ROADMAP.md` (owner, 2026-10-08, later) overrides the roadmap below where they differ:** after
+  B10 + merge comes an engine capability + performance phase (plan doc first), and only then the
+  player and placement. Do not queue backlog items E1-E10 without an approved plan.
 - **Owner, 2026-10-08: features over measurement. Roadmap:** 29 -> 30 -> UploadDirty box
   check (Q23-2) -> B4..B10 back to back -> owner review packs AFTER B5 and AFTER B10 (no
   per-step "still natural?" wait; a step whose own renders look clearly broken still stops)

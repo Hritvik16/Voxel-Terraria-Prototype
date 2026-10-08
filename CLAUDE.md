@@ -36,6 +36,10 @@
 
 ## Current state (verify, don't trust this note)
 
+**Order of future work: `ROADMAP.md` (owner, 2026-10-08) overrides older future plans.**
+Engine capability + performance (lighting, LOD shells, resolution, streaming, fluids) come
+BEFORE the player and placement.
+
 Phases 1-7 are CLOSED and merged (Phase 7: `9b3ee50`, 2026-09-24). The
 large-world / terrain-overhaul work -- TerrainGen v3, the far band, and the
 walkable sizeClass 2 island (`-world tg2`), design doc §12-15 -- was merged to
