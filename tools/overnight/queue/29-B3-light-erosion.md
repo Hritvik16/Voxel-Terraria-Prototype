@@ -61,3 +61,22 @@ building or testing anything. Its uncommitted start is saved at
 `EROSION_START_V4 = 0.6` -- land starts at 0.6 of its target instead of 0.2, half the
 uplift). Read it and use it if it is sound; it is untested. `Logs/overnight/b3/b2_ref/`
 may hold B2 reference output from that run. Owner, 8 Oct: run this task as written.
+
+## Restart note 2 (supervisor, 2026-10-08 10:30, owner approved: "restart with new rules")
+The 08:37 run was STOPPED on purpose by the supervisor (rc=143), not a failure. It had finished
+the vital part; it was waiting for AC power to redo battery-tainted streaming arms. PREAMBLE rule
+10 (owner, 8 Oct) now applies: **NO streaming / fly / walk timing arms. Do not rerun any.**
+Already done -- reuse, do not redo:
+- Code committed: `469ce00` (v4: 60 erosion iterations, land starts at 0.6 of its target = half
+  the uplift). `SUITE=all` PASS 636 FAIL 0 SKIP 13 (`Logs/overnight/b3/suite_all.out`, 09:05) --
+  rerun only if HEAD's TerrainGen code differs from 469ce00 (the supervisor's later commits touch
+  only docs and task files).
+- Metrics: `Logs/overnight/b3/pm_b3.out`, `pm_alt.out`, `b3_i60_s06/`, `b3_i60_s10/` (the second
+  uplift value). Poses: `arm_poses_v4.out`, `maps/poses_v4_b3_sheet.png`. Maps and walk poses:
+  `Logs/overnight/b3/maps/` (B2 vs B3 class, slope, relief, walk poses).
+- Ignore every `arm_walk_*`, `arm_fly14_*`, `arm_warmup*` file (timing; discarded).
+Left to do: check the metrics against the targets above (if `pm_b3.out` is incomplete, rerun
+`PlayMetricsReport` with `REPORTS=1` -- EditMode only), read the pictures, and write HANDOFF:
+the targets table (with B2 and v3 beside B3, and the "class median slope g/b/s" column the owner
+asked for), the captioned image paths, and "Owner check: does it still look natural?" at the top
+(it folds into the B5 review pack; no STOP_FOR_OWNER). No player builds unless a picture is missing.
