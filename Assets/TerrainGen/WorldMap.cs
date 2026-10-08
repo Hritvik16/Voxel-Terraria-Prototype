@@ -124,6 +124,13 @@ namespace TerrainGen
         // v3 (§13, T1 + T2): regions -> starting shapes -> erosion -> fine map.
         // ------------------------------------------------------------------
         public const int EROSION_ITERATIONS = 240;
+        /// B3 (plan rule 5): on v4 erosion is a light valley pass -- a quarter of
+        /// the iterations, and the land starts at EROSION_START_V4 of its target
+        /// instead of 0.2, so it rises 40% of its height during the pass instead
+        /// of 80% (half the uplift). Rivers still cut valleys and channels; the
+        /// slopes between them are no longer dissected by uplift.
+        public const int EROSION_ITERATIONS_V4 = 60;
+        public const float EROSION_START_V4 = 0.6f;
         public const float PEAK_ALLOWANCE = 1.12f;
         public static Erosion.Stats LastErosion;
 
@@ -188,7 +195,9 @@ namespace TerrainGen
                 ec[i] = E; tc[i] = T; lc[i] = lay > 0.5f;
             }
             if (DumpErosionInputsTo != null) DumpErosionInputs(DumpErosionInputsTo + $"_{spec.seed}.bin", m, hc, ec, tc, lc);
-            LastErosion = Erosion.Run(m, hc, ec, tc, lc, cm, EROSION_ITERATIONS);
+            LastErosion = spec.mapVersion >= 4
+                ? Erosion.Run(m, hc, ec, tc, lc, cm, EROSION_ITERATIONS_V4, EROSION_START_V4)
+                : Erosion.Run(m, hc, ec, tc, lc, cm, EROSION_ITERATIONS);
 
             // ---- the fine map: upsample, then per-cell detail ----
             var h = new float[n * n]; var r = new float[n * n]; var reg = new byte[n * n];
