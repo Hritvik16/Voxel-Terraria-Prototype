@@ -1,50 +1,56 @@
-# Session handoff -- 2026-10-08 (owner chat; queue restarted, 29 running)
+# Session handoff -- 2026-10-08 12:25 (supervisor; queue running, 32b in progress)
 
-## State (2026-10-08, owner chat)
-- **Branch `surface-rebuild`** (from `main`). NOT pushed. `Assets/Scenes/Playground.unity` stays modified (build side effect).
-- The 4-5 Oct queue run stopped without engineering: 29 hit the WEEKLY usage limit after ~9 min
-  (reset 8 Oct 06:00 PT), then 30 failed on an expired OAuth login (owner re-logged in 8 Oct).
-  Both were requeued on 8 Oct; 29's untested partial patch is `Logs/overnight/b3/29-first-attempt.patch`
-  (restart note appended to the task). Runner restarted in tmux `overnight` (IDLE_MIN=0).
-- Queue: **29** B3 light erosion (owner, 8 Oct: run AS WRITTEN; owner then checks "still natural?")
-  -> **30** column-pass sharing. Nothing after 30 yet.
-- Last suites: fast 618/0/12 (task 26), SUITE=all 629/0/12 (B2).
+## For the owner
+**Why a new session:** the 08:52 supervisor session grew long (three finished tasks plus a long
+discussion about engine capabilities), and every turn re-sends the whole history. Handing off at a
+quiet point (32b running) keeps the cost down. Nothing is waiting on you except Q25.
 
-## Owner answers 8 Oct (recorded in the Queue decisions doc, rev 314)
-- **Q24 palette bricks: (c) NOT NOW.** The world design is not done (placement, ores, overhaul
-  unseen), so counts/savings/caps would be measured on terrain that will change. Revisit after the
-  terrain overhaul and placement. Item 5 (cascade cap shrink / task 31) waits too. Do NOT queue T1.
-- **Q23: (a, a)** -- rig frame-time bisect LATER (after the B steps); `UploadDirty` inside-the-box
-  check (skip and count) as a small task after 30. NOT YET WRITTEN.
-- **Q22 (answered 4 Oct, a, a)** -- (2) an evidence task: memory cost of a 0.4 m voxel tier to
-  ~256 m vs pushing the far band out; (3) coarse-first step 1 after 30 (PLAN_COARSE_FIRST_GEN.md
-  section 5, plus the owner decisions 30 records there). NEITHER WRITTEN YET.
-- Q6/Q7 answered (a): owner looks at the TAA/checker stills; nothing queued.
-- Owner pushed back on B3 ("does 60 passes make terrain more controllable?"): B2's per-class medians
-  vary by seed (gentle 8-15 deg), and 29 measures only island-wide totals. The owner chose to run it
-  as written anyway. When 29 reports, quote the "class median slope g/b/s" column beside the totals.
-- Owner asked about per-task models: `run-queue.sh` takes one `MODEL=` for the whole queue only.
+**What the previous chat covered (8 Oct, 08:52-12:25):**
+- You asked why sessions restart without explanation. New rule (b2fd5f5): every new session opens
+  with this section -- why it started, what the last chat covered, what is running, what is open.
+- Queued the rest of your 8 Oct roadmap: 32 UploadDirty fix, 32b `run-play.sh` launcher (newest world
+  in one command), 33 B4 easy areas, 34 B5 features (your B5 review pack), 35 B6 danger, 36 B8 routes,
+  37 B10 savanna + badlands (your B10 review pack + palette pick). B7 and B9 not queued.
+- Engine rundown and your verdict: lighting far short of Terraria-in-3D; 480x270 unacceptable; LOD
+  steps visible; generation speed and frame time "not good / abysmal"; fluid tick tied to frame rate;
+  fluid freezes beyond 128 m; water must always settle flat; far bombs are refused. **You decided:
+  player and placement wait until an engine capability + performance phase is done.** Recorded in
+  `ROADMAP.md` (5cbc9df, 24d99ec): order, backlog E1-E10, and six tensions the phase plan must
+  resolve (top speed, memory, engine rules, far fluid, the detailspeed workaround, E1 before E2).
+  `ROADMAP.md` overrides older future plans. Nothing from it is queued; it starts with a plan doc
+  after B10.
+- Task 29 (B3) was stopped mid-measurement with your OK and restarted as finish-and-report; task 30
+  dropped its streaming runs (output byte-identical, so speed is kept regardless).
+- Watcher tab rule (ffa23c5): a Terminal tab always follows the running task; open one if missing.
+- Your questions answered in chat: time estimate (~20 h of queue, B5 pack ~tonight, B10 ~tomorrow,
+  usage limits may stretch it), what 30's 1.76x means (CPU time to generate one 7-layer column,
+  isolated test, not frame time), the shell memory trade (~1.8 GB naive, ~150-250 MB estimated with
+  GPU-only + compressed shells; unmeasured), resolution (recommended dynamic 540-720p internal +
+  temporal upscaler to 1080p; shell distances for 720 rows: 0.2 m 125 m, 0.4 m 249 m, 0.8 m 499 m,
+  1.6 m 1 km, 3.2 m 2 km).
 
-## Owner, 8 Oct (later): ways of working (CLAUDE.md, PREAMBLE rule 10, SUPERVISOR.md; commit 0785a7e)
-- Opus only, no per-task models. Measure performance ONLY in performance tasks; milestone checks.
-- Recommended option is the default for reversible choices ("going ahead unless you object").
-- Owner's biggest issue: we measure more than we build. Focus on shipping features.
-- **Terrain reviews: ONE review pack after B5 and one at the end of the B steps.** B steps run back
-  to back (tests + metrics + renders each); a step whose own renders look clearly broken still
-  stops. 29's "still natural?" check folds into the B5 pack.
-- **Roadmap (owner, 8 Oct):** 29 -> 30 -> UploadDirty box check (Q23-2, small fix) -> B4..B8 back
-  to back -> review packs (after B5, at end) -> v4 default + merge + ONE milestone perf check ->
-  movement-abilities question batch (owner wants VERY FAST movement; get a top speed) ->
-  coarse-first step 1 (Q22-3, deferred, NOT dropped) -> placement (ores, objects, towns).
-  The 0.4 m tier memory evidence (Q22-2; owner: matters so 0.1 m detail can shine) is done with
-  palette bricks (Q24) after placement. Rig bisect (Q23-1) PARKED -- owner: "the worst thing to do".
+**Finished today:** 30 column sharing (e4fa714, 1.76x per column, byte-identical); 29 B3 (469ce00,
+slope targets MISSED -> Q25); 32 UploadDirty box check (3cb76d1).
+**Running:** 32b launcher. **Next:** 32c slab bug, then B4 -> B5 -> B6 -> B8 -> B10.
+**Open for you:** Q25 in the Queue decisions doc (which lever for slopes: (a) soften region shapes
+that do not match their class -- recommended; nothing waits on it). Also still yours: the resolution
+target (720p / 540p / dynamic) when the engine-phase plan starts. Old tmux windows to close: the
+previous supervisor windows in tmux session `0` (`claude-fresh` = the 08:52 session; window 0 = the
+07:31 one if still open).
+
+## State
+- Branch `surface-rebuild`, not pushed. `Assets/Scenes/Playground.unity` stays modified (build side
+  effect). Runner alive in tmux `overnight` (IDLE_MIN=0). Watcher tab open (bash -c loop).
+- Queue: 32b (running), 32c, 33, 34, 35, 36, 37. Blocked: none.
+- Last suites: SUITE=all 637/0/14 (task 30), fast 622/0/12 (task 32).
 
 ## Next for the supervisor
-QUEUED 8 Oct (commit 88a0c00): 32 UploadDirty box check, 33 B4 easy areas (no start), 34 B5
-(builds the B5 review pack), 35 B6, 36 B8, 37 B10 (B10 review pack + palette pick). B7 and B9
-are not queued (placement deferred; perf only at the milestone). When 34 finishes: put the B5
-review pack in the Queue decisions doc as one batch of questions. After 37: B10 pack, then ask
-about v4 default + merge + the ONE milestone perf check.
+- On each done: one row in the doc's Done table (insert after header row mk2vq5dkmp6.1425).
+- When 34 (B5) finishes: build the **B5 review pack** in the doc as one batch of questions (its
+  HANDOFF top section has the images + per-class slope table; include B3's "still natural?" images
+  from `Logs/overnight/b3/maps/`). When 37 finishes: the B10 pack + palette pick, then ask about v4
+  default + merge, then start the engine-phase plan doc (ROADMAP.md step 3).
+- If the owner answers Q25 (a)/(b): write ONE B-step task for it (after 37 unless they say sooner).
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
