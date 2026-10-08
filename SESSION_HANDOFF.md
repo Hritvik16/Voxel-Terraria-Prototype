@@ -54,7 +54,7 @@ previous supervisor windows in tmux session `0` (`claude-fresh` = the 08:52 sess
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 312;
+  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 320;
   Done table id mk2vq5dkmp6.1424, header row mk2vq5dkmp6.1425; "Running now" paragraph
   mk2vq5dkmp6.55626; "Waiting on you" lead paragraph mk2vq5dkmp6.27623)
 - Surface rebuild plan: https://claude.ai/code/artifact/f6222d44-1457-4a92-9460-3390d44e75fd
