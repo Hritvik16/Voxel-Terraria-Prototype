@@ -597,6 +597,7 @@ namespace VoxelEngine.Rendering
                 int half = texelVoxels >> 1;
                 float gx = tx * texelVoxels + half + offset.x, gz = tz * texelVoxels + half + offset.y;
                 var c = TerrainGen.ShapeField.Sample(in spec, in map, in o, gx, gz, texelVoxels);
+                TerrainGen.ShapeField.FarColumn(in spec, ref c);   // v4: a ledge is drawn at its floor, not as a filled pillar
                 float step = TerrainGen.ShapeField.MaxStep(in spec, in map, in o, gx, gz, texelVoxels, c.height) ;
                 // MaxStep is per voxel at this spacing; the surface rules want the
                 // per-voxel step, so it is directly comparable.

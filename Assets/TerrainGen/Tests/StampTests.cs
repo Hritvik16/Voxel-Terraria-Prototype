@@ -125,6 +125,38 @@ namespace TerrainGen.Tests
             Assert.Greater(ledges, 20, "almost no ledges on the island");
         }
 
+        /// Task 32c: the far band (a heightfield) must not fill the air under a
+        /// cap-rock ledge -- drawn solid, a ledge is a pillar standing at the
+        /// cliff foot. On map v4 every ledge texel the far band would draw sits
+        /// at or under the ledge's floor; v3's far band is unchanged. Far-band
+        /// evaluation (texel 8), on the same 16 m grid as the test above.
+        [Test]
+        public void FarBand_DoesNotFillLedgeUndercuts()
+        {
+            foreach (int ver in new[] { 3, 4 })
+            {
+                var spec = TerrainSpec.SizeClass2(42u, ver);
+                var view = SharedMaps.Get(spec).View;   // shared: never disposed here
+                var o = Offsets.For(in spec);
+                int ledges = 0;
+                float c0 = spec.worldSizeVoxels * 0.5f;
+                for (int gz = -200; gz < 200; gz++)
+                for (int gx = -200; gx < 200; gx++)
+                {
+                    float x = (int)c0 + gx * 160 + 4, z = (int)c0 + gz * 160 + 4;
+                    var c = ShapeField.Sample(in spec, in view, in o, x, z, 8);
+                    if (c.open3Hi <= c.open3Lo) continue;
+                    ledges++;
+                    var f = c;
+                    ShapeField.FarColumn(in spec, ref f);
+                    if (ver >= 4) Assert.Less(f.height, c.open3Lo, $"v4: the far band fills the undercut of the ledge at ({x},{z}): top {f.height}, gap [{c.open3Lo},{c.open3Hi})");
+                    else Assert.AreEqual(c.height, f.height, $"v3: the far column changed at ({x},{z})");
+                }
+                Debug.Log($"[FarLedges] v{ver}: {ledges} ledge texels on the 16 m grid");
+                Assert.Greater(ledges, 20, $"v{ver}: almost no ledges, the test proves nothing");
+            }
+        }
+
         [Test]
         public void Arch_HasAnOpening_UnderASolidDeck()
         {

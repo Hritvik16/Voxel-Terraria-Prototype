@@ -169,6 +169,19 @@ namespace TerrainGen
             c.height = top;
         }
 
+        /// The column as the FAR BAND draws it. The far band is a 2.5D heightfield
+        /// (one top per texel), so a ledge column drawn at its top fills the
+        /// undercut down to the ground: a pillar up to ~10 m tall at the cliff
+        /// foot (task 32c: the slab at the v4 pose cliff_foot_1). From map v4 the
+        /// far band draws the ground under the ledge instead; the cliff behind it
+        /// keeps its own columns, and the voxels keep the ledge. v3 is unchanged.
+        public static void FarColumn(in TerrainSpec spec, ref ColumnSample c)
+        {
+            if (spec.mapVersion < 4 || c.open3Hi <= c.open3Lo) return;
+            c.height = c.open3Lo - 1;   // Ledge: open3Lo is the column's own ground + 1
+            c.open3Lo = c.open3Hi = 0;
+        }
+
         private static float DirX(int k) => k == 0 ? 1f : k == 1 ? 0.7071f : k == 2 ? 0f : k == 3 ? -0.7071f : k == 4 ? -1f : k == 5 ? -0.7071f : k == 6 ? 0f : 0.7071f;
         private static float DirZ(int k) => DirX((k + 6) & 7);
 
