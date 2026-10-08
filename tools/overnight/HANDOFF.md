@@ -1,59 +1,41 @@
-# 33-B4-easy-areas: DONE, every acceptance check PASSES. Map v4 seeds 4 easy areas before shaping (Medium, Q1 (a)), 10.0% of land, flagged in the record with a list. Code `d6ee1c1`.
+# 33a-lock-wait-message: DONE. `./run-play.sh` (and any lock user) now really waits for a queue task's lock and says who it is waiting for. Code `fd18224`.
 
-## What changed (v4 only; v3 byte-identical)
-- **New `Assets/TerrainGen/EasyAreas.cs`.** The pass runs in three steps.
-  1. **Pick** runs on the 16 m starting shapes, before erosion. A site is scored on a 640 m square: low mean height + low spread.
-     It costs extra for non-gentle land, for being a basin floor, and for being a predicted lake (`Hydrology.Flood` run on the starting shapes).
-     Sites must avoid the beach, the peak and the volcano, and the wetland basin does not count as gentle here (it is shaped to hold lakes).
-     The pick is greedy, with a spread bonus (`SPREAD`: 2 km is worth 100 m of score). It seeds 4 + 2 spare sites, with looser passes if too few fit.
-  2. **Press:** inside 400 m, with a 350 m fade, starting relief keeps 20% around the site's mean. Talus is 0.15 and detail is a wetland's.
-     There are no terraces or dunes, and a hollow needs 3 m before it becomes a lake.
-  3. **Mark** runs in `WorldRecord.Build`. It keeps the 4 sites with the most easy ground. Each area takes 10% of land / 4 cells, nearest first.
-     Areas grow round-robin, so ground that two areas both reach is split by nearness. An area that comes up short is made up by the others (each up to +50%).
-  - Easy ground means: Walk (8 m slope < 15°), gentle class, under 1/3 of the highest land, and dry. Biome does not count (Q2 (a)).
-- **Record:** `FLAG_EASY` = flags bit 0. `EasyAreaList` holds the centre, ha, radius, mean height and cells. `WorldRecord.MapVersion` is new.
-  `WorldMap.EasySites` holds all 6 sites.
-- **Size class:** sizeClass 2 (8 km tg2) is **Medium = 4**, as in the B5 queue entry (`EasyAreas.CountFor`). No start position, flag or list (owner 2026-10-04); `Tg2Spawn` untouched.
-- **Tests:** new `EasyAreaTests`: a seed-42 gate (Slow), plus an opt-in 20-seed sweep (`EASYSWEEP=1 tools/run-editmode-filter.sh EasyAreaTests`) that fails naming every failing seed.
-  `WorldRecordTests` now allows the easy bit. `PlayMetricsReport` writes the `b4_easy_areas.txt` table and `seed<N>_v4_easy_areas.png`.
-- **`PlaygroundCapture.FlySweep`** (evidence tool):
-  - The eye now stands over the **exact voxel ground** (it used to fall back to the map height, as in B3's walk poses), and it logs the player's own easy-area list.
+## What changed (`tools/unity-lock.sh`, new `tools/test-unity-lock.sh`)
+- **The bug:** `unity_lock_acquire` treated any lock whose owner NAME was `voxel-terraria-1-byte` as "an outer script of ours holds it".
+  Queue tasks and the owner's `run-play.sh` share that name. So run-play.sh printed nothing,
+  then returned without owning the lock the moment no Unity process was alive. That could put two Unity processes on the Mac at once.
+- **Now the shortcut needs proof:** the lock's `pid` (already written into the lock line) must be `$$` or an ancestor of it.
+  It also counts if the pid equals an exported `UNITY_LOCK_HELD_BY` (set on take, so a detached child still counts) and that pid is alive.
+  Otherwise it waits like for any holder.
+- **Waiting lines:** printed at once, then about once a minute (or when the holder changes):
+  - `16:30:04 waiting for the Unity lock: held by voxel-terraria-1-byte since 16:30:04 (pid 73048: <its command>) -- your command starts when it is free`
+  - `still waiting for the Unity lock: held by ...` every ~60 s.
+  - Owner pause: `waiting for the Unity lock: owner pause is on (tools/heavy.sh resume lifts it) ...`, then `still waiting: owner pause is on` each minute.
+  - Clear wait: `lock is free; waiting for the Mac to be clear of Unity for 45 s` (with `running: pid N: <cmd>` while a Unity process is alive).
+  - Nested call waiting on a straggler: `lock is ours (pid N); waiting for a Unity process to exit (...)`.
+- **Clear-wait fix:** if the lock is taken or paused during the 45 s wait, it goes back to the outer loop, which names the holder.
+  Before, it looped silently.
+- **Dead-pid lock:** a lock with OUR name whose pid no longer runs is removed with a message.
+  Without this, the stricter check would have turned an orphaned lock (killed holder) from "ignored" into a 2 h block.
+  It re-reads the line before removing it. Sibling locks are untouched.
+- **Unchanged:** the sibling protocol (same lock file, same owner names, same line format, 2 h stale rule, noclobber take).
+- Test knobs `UNITY_LOCK_CLEAR_S/POLL_S/SAY_S` (45/5/60) are plain variables; the test reassigns them after sourcing.
 
-## Evidence (no performance arms, rule 10)
-- `SUITE=all` **PASS 642 FAIL 0 SKIP 15** (`Logs/overnight/b4/suite_all.out`).
-- **20-seed sweep: 20 of 20**, every seed 10.0%, 4 areas, smallest area 36 ha (`Logs/overnight/b4/easysweep_20of20.txt`).
-- PlayMetrics (`Logs/overnight/b4/maps/b4_easy_areas.txt`, `playmetrics_v4.txt`). The full table:
+## Evidence
+- `tools/test-unity-lock.sh` (no Unity, ~20 s, private temp lock + `unity_busy` stubbed false, so it never touches `/tmp/voxel-unity.lock`):
+  **ALL PASS**, 11 checks.
+  1. A fake task holds the lock. An unrelated shell prints the waiting line naming the task's pid, repeats it, and is still waiting after 8 s.
+     It acquires only after the release, and the lock is released on exit.
+  2. Nested: the outer script holds the lock. A child acquire returns in 0 s with no waiting line, twice: once via the ancestor check alone (env var unset).
+     The outer's lock is intact afterwards.
+  3. A lock of ours with a dead pid is removed and taken.
+- **Fast EditMode suite through the new lock:** `tools/with-unity-lock.sh ./run-editmode-tests.sh` gave **PASS 623 FAIL 0 SKIP 13** (`Logs/overnight/33a/editmode_fast.out`).
+  Its first line shows the new clear-wait message. No performance arms (rule 10). No screenshots (tooling task).
 
-| seed | easy share | areas, ha | gentle | inselbergs | build s v4 (v3) | median ° B3→B4 | <15° B3→B4 | >45° B3→B4 | open B3→B4 | river km |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 42 | 10.0% | 4: 44 44 44 44 | 49.6% | 0 | 21.9 (27.0) | 18.8→16.6 | 44.3→47.1% | 13.3→11.2% | 12.1→11.5% | 26.1 |
-| 7 | 10.0% | 4: 43 ×4 | 49.0% | 0 | 21.9 (26.4) | 19.6→15.4 | 41.2→49.3% | 13.2→12.6% | 8.6→10.3% | 27.2 |
-| 2026 | 10.0% | 4: 45 ×4 | 48.9% | 0 | 22.3 (26.7) | 19.4→14.3 | 39.1→51.6% | 8.2→7.2% | 5.1→11.4% | 30.0 |
-| 31337 | 10.0% | 4: 47 47 41 36 | 49.3% | 0 | 21.9 (26.5) | 20.4→16.2 | 35.2→47.7% | 6.4→6.5% | 6.4→10.8% | 23.0 |
+## How to run the test
+`tools/test-unity-lock.sh` prints PASS/FAIL per check and exits non-zero on any FAIL. It is safe while a real build runs.
 
-- Other checks:
-  - Flagged cells that fail the report's own definition: 0.
-  - The record rebuilds to the same hash. Hashes differ per seed (42 `C6540AEA5F6324D9`, 7 `24A408B86C236814`).
-  - v3 is unchanged: every v3 metric is identical to B3's v3 run (diff, timings aside).
-  - **The player's map has the same 4 areas as the Editor's** (same centres, 43.7 ha each; flysweep log), despite the known Editor/IL2CPP map difference.
-- **Pictures** (all in `Logs/overnight/b4/maps/`):
-  - `easy_areas_4seeds.png`: 2×2, seeds 42/7/2026/31337. Yellow = flagged easy cells, over the class map (green gentle, orange broken, purple steep).
-    Look for: every yellow area sits on green, away from the purple mountains.
-    Seed 31337 (bottom right): one area bends round the big central lake. Seed 2026 (bottom left): all four areas cluster in the north-west.
-  - `easy_walkposes_seed42.png`: 2×2, a 2 m eye over the real voxel ground at each seed-42 area centre, 5° down, facing north-east.
-    - A, top left: flat pale ground with green plain behind.
-    - B, top right (plateau): flat ground beside a pond.
-    - C, bottom left: green gentle rolling plain.
-    - D, bottom right: flat sand, with terraced canyon cliffs outside the area.
-    No holes, nothing floating, no eye in rock.
-  - `poses_v4_b4_sheet.png`: 9 `MODE=poses` v4 shots (all 18 poses MIRROR 0/0/0, outOfBox 0; `arm_poses_v4.out`). No holes, no floating geometry; the coast frame is about half sea.
-    Known issues that are not new: `eye_level_1` is black (a capture pose, from 32c), and `cliff_foot_2` has a dark blade on the left.
-  - `b3_vs_b4_cliff_map.png`: top row B3, bottom row B4. `cliff_foot_2`'s blade and the dark caldera disc in `map_7000m` are identical in B3, so they are not new. The `cliff_foot_1` slab is gone (32c).
-
-## Read this (owner, for the B5 review pack)
-- **B4 also made v4 gentler overall.** Seed 42 median is 16.6° (B3 18.8°); seeds 7 and 2026 are at or near B3's ≤ 15° target.
-  The reason is that 6 pressed sites with their fades cover a large part of the land. If that is too much flattening, shrink `FADE`/`SPREAD` or drop the spares.
-- **The task's "easy ground 8-12%" is read as the record's flagged cells.** Easy ground anywhere (the old PlayMetrics line) is ~32-35% of v4 land, which is far over 12%. Only the seeded areas can meet the band.
-- **Some areas touch:** seed 2026's NW cluster, seed 42's west pair. `SPREAD` (0.05) is the knob. A larger value spreads areas more but pushes them onto higher or rougher ground.
-- The flagged areas are near-round (nearest cells first). The pressed terrain under them has a noise-bent edge.
-- **Next step:** task 34 (B5) as queued.
+## Left / next
+- `../VoxelTerraria_compare/tools/unity-lock.sh` is a separate file. It was not touched, and its protocol is unchanged.
+- Older scripts that do NOT take the lock (`run-editmode-tests.sh`, `run-acceptance-rig.sh`, ...) still need `tools/with-unity-lock.sh`, as before.
+- Next: the next queued task.
