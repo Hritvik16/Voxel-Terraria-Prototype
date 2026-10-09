@@ -51,6 +51,13 @@ when 34 finishes. Still yours later: the resolution target when the engine-phase
     each image first; side-by-sides via PIL in the scratchpad.
 - When 37 finishes: the B10 pack + palette pick, then ask about v4 default + merge, then start the
   engine-phase plan doc (ROADMAP.md step 3; include Q26's item, see SUPERVISOR.md).
+- Owner played tg2, 2026-10-08 ~19:30 (`~/Desktop/Bugs?/`). Queued 38 (shadow dots) and 39 (fluid
+  pool FULL) AFTER 37, owner's wish. TAA (F4) verdict: removes the moire but too soft/blurry,
+  silhouettes jitter constantly, shimmer elsewhere; no FPS difference felt. So TAA stays OFF.
+  Supervisor recommendation (told to owner): don't tune the home-made TAA; make "sharp, no
+  silhouette jitter, no shimmer, no moire" acceptance criteria of E1 (1080p from 540/720 via
+  MetalFX/STP) in the engine-phase plan. Also there: roadmap says play = 480+FSR, code default is
+  Quality 960x540 nearest (`RenderPreset.cs:49`).
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
