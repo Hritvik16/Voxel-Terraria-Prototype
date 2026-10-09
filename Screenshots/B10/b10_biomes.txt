@@ -1,0 +1,9 @@
+=== B10: map v4 with six biomes (biomeSet 6, x3.25, one-octave climate) against B8's four (biomeSet 4, x3)
+Land = map height > 0. Change = land metres walked east-west per biome change (rows every 32 m). Patch = 4-connected land of one biome; median is area-weighted (B1's reading).
+  seed    change m B8 -> B10   area-wtd median ha B8 -> B10   shares of land (forest desert snow jungle savanna badlands)   biome plane ms B8 / B10   map build s v3 / v4
+  42         861 ->   1001             247 ->    320                 16.6% 32.5% 29.6%  4.4%  8.9%  8.0%                 6898 /  2337             26.8 / 26.7
+  7          757 ->    996             186 ->    153                 27.1%  7.8% 25.6% 17.0% 11.4% 11.0%                 6908 /  2335             26.4 / 28.8
+  2026       850 ->   1031             316 ->    245                 12.3% 33.7%  4.9% 14.2% 19.7% 15.3%                 6905 /  2331             27.3 / 26.3
+  31337     1005 ->   1074             865 ->    226                 17.0%  1.0% 37.3%  8.8%  4.0% 31.9%                 6934 /  2331             26.3 / 24.0
+savanna present (>= 1% of land) on 4 of 4 seeds, badlands on 4 of 4 (want >= 3 each)
+PASS
