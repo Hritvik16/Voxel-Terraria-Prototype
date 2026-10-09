@@ -28,3 +28,5 @@ to install + log in to Gemini CLI, and a small runner change. Not for B steps / 
 
 ## Fixed
 (move rows here with the commit when done)
+
+- **37e's EditMode run ballooned Unity to 22.5 GB footprint (peak 23.1 GB, "Untagged" dirty memory), swap 14.8/15.4 GB** (2026-10-09 15:53, supervisor killed it; the 15:2x hard power-off happened while the same task's first attempt was running, so it was most likely the same run). Suspect: the new untracked `Assets/TerrainGen/Tests/LakeRestTests.cs` (RestJob over 4 seeds' lake cells via `LakeRestHook`) or the generator hook it calls -- NOT proven. 37e is in `tools/overnight/blocked/`, queue PAUSEd. Before re-queueing: find the allocation (one seed, watch `footprint <pid>`), and add a memory watchdog to the runner (kill Unity when swap free < 2 GB).
