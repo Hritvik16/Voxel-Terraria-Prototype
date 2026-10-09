@@ -732,6 +732,32 @@ real and separate reason — see the LOD-cascade finding in
   design's load-bearing claim, that the footprint does not move WITH THE
   RADIUS, is a separate assertion and was never in question. Rig is 19/19
   again. Background in `FLUID_TILE_CAP_RESULTS.md` §12.1.
+- **"POOL FULL" / "live 750,000" ON THE PLAYGROUND HUD IN TG2 (task 39, 2026-10-09; FIXED in part).**
+  `MODE=poolprobe MAPV=4 ./run-tg2world.sh` (`EXTRA="-poolfix 0"` = the old behaviour) walks
+  start -> lake shore -> sea coast and places water; reports + stills in `Screenshots/Task39/`.
+  - **What fills the 1,024-tile pool: the COAST, not lakes.** At the lake 488 tiles are wanted
+    (the pool has room). At the coast 3,845 are wanted inside 128 m: tg2 BEACH SAND (material
+    142, a falling solid) on every beach tile, plus sea water (320 all-water interior tiles).
+  - **FIXED -- the near tiles lost.** Admission followed the chunk scan order, so at the coast
+    tiles 128 m away stayed resident while tiles 46-50 m away (and the tile of water the player
+    had just placed) were refused. Placed water froze: 1,029 voxels unmoved for 480 frames, and
+    the vent's water hung in mid-air. Now `FluidTileResidency.Refresh` keeps the NEAREST tiles
+    (displacing a strictly farther one) and `FluidGpuSimulation.RequestWake` does the same for a
+    wake (`TryDisplaceForWake`). At the coast the frontier is now 61.2 / 61.2 m and the placed
+    box flows (1,029 -> 722 in 8 s).
+  - **The HUD counter was not a tile count.** About 97% of `PoolExhaustionsTotal` is per-VOXEL
+    wake retries: op neighbourhoods and the vent re-asking every frame (+300k in 8 s at the
+    coast). The HUD now shows the last pass's refused TILES; the cumulative count is in grey.
+  - **"live 750,000" was the slot HIGH-WATER mark** (Counters[0]), which never comes down. It is
+    real in the sense that the cap was hit. Disturbing a tg2 lake (the placement's re-centre
+    seed) took the high-water from 26k to 673k. The probe finds 85k-90k lake water cells with AIR
+    diagonally below them, i.e. stepped, not-at-rest lake surfaces: each seed makes the lake
+    flow. The HUD now prints live (= high-water - free list) and the high-water separately.
+  - **NOT FIXED, owner/next task:** (1) the pool is ~4x too small for a coast at a 128 m radius
+    (bigger pool, beach sand static, or a smaller radius are owner calls; 0.5 MiB per tile).
+    (2) Stepped tg2 lake surfaces wake ~500k slots when touched (terrain generator).
+    (3) At the coast the WAKE QUEUE (capacity = maxOpsPerFrame) is full of op wakes, so the
+    placed box's own 1,029 wakes were dropped and it flowed slowly.
 - **FLUID IN TG2 DOES SIMULATE: task 07's "never moved" was a misreading (task
   09, 2026-10-03; no engine change).** `-fluidprobe` (`MODE=fluidprobe
   ./run-tg2world.sh`; `PROBEWORLD=` for the default-world control) repeats task

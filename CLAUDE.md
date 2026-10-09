@@ -327,6 +327,7 @@ number, read the matching entry in `KNOWN_ISSUES.md`. One line each:
 - NEAR-TERRAIN SHIMMER BASELINE before TAA (2026-10-02): `MODE=shimmer ./run-tg2world.sh`; mean of poses near 4.14 / 5.84%, all 5.89 / 7.59%.
 - TAA EXISTS, OFF BY DEFAULT (`-taa 1` / F4): task 07 risk checks -- fluid/edit/turns/seams pass, sun reset lowered to 0.25 deg/frame (0.2 deg/frame still lags ~3 luma), cost 0.8-2 ms at 480 px (budget ~1.5 ms not resolved).
 - CHECKERBOARD EXISTS, OFF (`-checker 1`, implies TAA; task 08): walk at 960 30.8 -> 19.6 ms (-11.3 ms paired), 16.7 ms NOT reached (2.9 ms over); softer, horizon teeth in fast spins. Cost arms on battery at ~1% were wrong -- check `pmset -g batt`.
+- POOL FULL / live 750,000 in tg2 (task 39): coast beach sand + sea overflow the 1,024-tile pool; nearest tiles now win (fixed); HUD readouts fixed; pool size / lake surfaces / wake queue open; `MODE=poolprobe`.
 - FLUID IN TG2 DOES SIMULATE (task 09): "frozen" = 6-frame CA tick (decision 11) + lava every 6th tick; `MODE=fluidprobe`.
 - THE TG2 WORLD IS OVER THE 3 GB CAP BEFORE THE PLAYER BUILDS ANYTHING (found 2026-09-26, NOT FIXED).
 - TG2 AT WALKING HEIGHT (first measured 2026-10-01, `MODE=walk ./run-tg2world.sh`: `-motion walk`, a 150 m circle round the spawn at 1.6 m eye...

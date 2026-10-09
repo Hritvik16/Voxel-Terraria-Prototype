@@ -58,6 +58,8 @@ sleep 30
 # MODE=fluidprobe (2026-10-03, task 09): -fluidprobe -- task 07's tg2 fluid
 # placement with every sim stage logged (tiles, mirror, wake, readback, GPU
 # counters). PROBEWORLD= (empty) runs the default world's arena as control.
+# MODE=poolprobe (2026-10-08, task 39): -poolprobe -- what fills the fluid tile
+# pool on a walk start -> lake shore -> coast; water placed at the shore.
 # MODE=stream (2026-10-03, task 10): -streamprobe -- the streaming baseline.
 # MOTION=fly (default: straight ping-pong over the island, 56 m/s) or walk
 # (the MODE=walk circle); per-stage chunk timings, upload bytes, deficit, and
@@ -78,6 +80,9 @@ elif [ "${MODE:-poses}" = "taarisk" ]; then
 elif [ "${MODE:-poses}" = "fluidprobe" ]; then
   START_MARK=$(mktemp)
   open -n "$APP" --args ${PROBEWORLD--world tg2} -fluidprobe -renderpreset quality -farshadow 1 -cleardeltas ${EXTRA:-}
+elif [ "${MODE:-poses}" = "poolprobe" ]; then
+  START_MARK=$(mktemp)
+  open -n "$APP" --args -world tg2 -poolprobe -renderpreset quality -farshadow 1 -cleardeltas ${EXTRA:-}
 elif [ "${MODE:-poses}" = "stream" ]; then
   START_MARK=$(mktemp)
   open -n "$APP" --args -world tg2 -streamprobe -streammotion "${MOTION:-fly}" -gateres 0 -renderpreset performance \
@@ -125,6 +130,9 @@ elif [ "${MODE:-poses}" = "stream" ]; then
 elif [ "${MODE:-poses}" = "flysweep" ]; then
   R=$(find "$DATA/FlySweep" -maxdepth 1 -type d -name "*_flysweep_${RUN_ID}" -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
   if [ -n "$R" ] && [ -f "$R/flysweep.txt" ]; then cat "$R/flysweep.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
+elif [ "${MODE:-poses}" = "poolprobe" ]; then
+  R=$(find "$DATA/FarBand" -maxdepth 1 -type d -name '*_poolprobe' -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
+  if [ -n "$R" ] && [ -f "$R/poolprobe.txt" ]; then cat "$R/poolprobe.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
 elif [ "${MODE:-poses}" = "fluidprobe" ]; then
   R=$(find "$DATA/FarBand" -maxdepth 1 -type d -name '*_fluidprobe_*' -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
   if [ -n "$R" ] && [ -f "$R/fluidprobe.txt" ]; then cat "$R/fluidprobe.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi

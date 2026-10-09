@@ -408,7 +408,7 @@ public class Playground : MonoBehaviour
             HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
             HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-looksweep") ||
             HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-nearshimmer") || HasArg("-fluidroster") ||
-            HasArg("-devmap") || HasArg("-taarisk") || HasArg("-fluidprobe") || HasArg("-streamprobe") || HasArg("-flysweep"))
+            HasArg("-devmap") || HasArg("-taarisk") || HasArg("-fluidprobe") || HasArg("-poolprobe") || HasArg("-streamprobe") || HasArg("-flysweep"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
@@ -450,7 +450,7 @@ public class Playground : MonoBehaviour
             if (a.StartsWith("-") && (a == "-sustained" || a == "-playgroundshots" || a == "-gputrace" || a == "-p7stress" ||
                 a == "-daysweep" || a == "-presetshots" || a == "-phase7demo" || a == "-roofskipab" || a == "-upscaleab" ||
                 a == "-lavalight" || a == "-looksweep" || a == "-farvisual" || a == "-farpreview" || a == "-flyfast" ||
-                a == "-farseams" || a == "-lodpop" || a == "-farshimmer" || a == "-nearshimmer" || a == "-fluidroster" || a == "-devmap" || a == "-taarisk" || a == "-streamprobe" || a == "-flysweep" ||
+                a == "-farseams" || a == "-lodpop" || a == "-farshimmer" || a == "-nearshimmer" || a == "-fluidroster" || a == "-devmap" || a == "-taarisk" || a == "-streamprobe" || a == "-flysweep" || a == "-poolprobe" ||
                 a == "-stutterprobe" || a == "-lightingab" || a == "-shadowstats" || a == "-pitchsweep" || a == "-fluidbench"))
                 return true;
         return false;
@@ -1121,8 +1121,11 @@ public class Playground : MonoBehaviour
         // nothing simulates. The dense path needed no equivalent, which is
         // exactly the kind of step that goes missing in a port.
         if ((_residencyTick++ % 20) == 0)
-            FluidTileResidency.Refresh(_store, _tiles, centre,
+        {
+            DebugLastResidency = FluidTileResidency.Refresh(_store, _tiles, centre,
                                        _fluid.ActiveRadiusVoxels, _fluid.SleepRadiusVoxels);
+            DebugResidencyRefreshes++;
+        }
 
         // MEASUREMENT SEAM, not a configuration. DebugSuspendFluidSim lets a
         // probe run the scene with the CA's per-tick dispatch removed while
@@ -1493,6 +1496,13 @@ public class Playground : MonoBehaviour
     internal byte DebugBrushMaterial => _brushes[_brush];
     internal string DebugBrushName => _brushNames[_brush];
     internal void DebugSetBrush(int i) => SetBrush(i);
+    /// -poolprobe (task 39): the tile pool, the last residency pass, and the
+    /// V key's water vent at a given cell.
+    internal FluidTileMap DebugTiles => _tiles;
+    internal FluidTileResidency.Stats DebugLastResidency;
+    internal long DebugResidencyRefreshes;
+    internal void DebugOpenWaterVent(int3 cell) { _waterSrc = cell; _waterLeft = _waterBudget; }
+    internal void DebugCloseVents() => _waterLeft = _sandLeft = _lavaLeft = _otherLeft = 0;
 
     internal void DebugTickFluid()
     {
@@ -1821,13 +1831,21 @@ public class Playground : MonoBehaviour
             _fluidCounterCountdown = FluidCounterRefreshFrames;
         }
         uint liveSlots = _fluid.LastLiveSlots;
+        var lastPass = DebugLastResidency;
 
         sb.AppendLine("<b><color=#ffd479>── FLUID (§7.2 tiles / §7.4 radius) ───</color></b>");
         sb.Append(Row("tiles", $"{_tiles.ResidentTiles} / {_tiles.TileCapacity} resident   " +
-            (_tiles.PoolExhaustionsTotal > 0
-                ? $"<color=#ffc64a>pool FULL {_tiles.PoolExhaustionsTotal:N0}x (refused cleanly)</color>"
-                : "<color=#8fd98f>pool has room</color>")));
-        sb.Append(Row("live", $"{liveSlots:N0} slots simulating   " +
+            (lastPass.TilesRefusedPoolFull > 0
+                ? $"<color=#ffc64a>pool FULL: {lastPass.TilesRefusedPoolFull:N0} far tiles left asleep</color> " +
+                  $"<color=#b9cfe4>(nearest kept; {_tiles.PoolExhaustionsTotal:N0} refusals since start)</color>"
+                : _tiles.PoolExhaustionsTotal > 0
+                    ? $"<color=#8fd98f>pool has room</color> <color=#b9cfe4>({_tiles.PoolExhaustionsTotal:N0} refusals since start)</color>"
+                    : "<color=#8fd98f>pool has room</color>")));
+        // LIVE = high-water minus the free list. The high-water mark alone
+        // (what this row printed until task 39) never comes down, so it read
+        // "750,000 slots simulating" for the rest of a session once it hit the cap.
+        sb.Append(Row("live", $"{liveSlots:N0} slots simulating " +
+            $"<color=#b9cfe4>(high-water {_fluid.LastSlotHighWater:N0} / {_fluid.SlotCapacity:N0})</color>   " +
             $"<color=#b9cfe4>active set</color> {_fluid.GpuActiveSetBytes() / 1048576.0:F0} MB " +
             "<color=#b9cfe4>(fixed — does not grow with the radius)</color>"));
         // METRES BESIDE VOXELS, ALWAYS. 1280v and 128v differ by 10x and read

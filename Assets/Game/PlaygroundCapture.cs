@@ -1470,6 +1470,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-nearshimmer")) { yield return NearShimmer(); yield break; }
         if (HasFlag("-taarisk")) { yield return TaaRisk(); yield break; }
         if (HasFlag("-fluidprobe")) { yield return FluidProbe(); yield break; }
+        if (HasFlag("-poolprobe")) { yield return PoolProbe(); yield break; }
         if (HasFlag("-streamprobe")) { yield return StreamProbe(); yield break; }
         if (HasFlag("-flysweep")) { yield return FlySweep(); yield break; }
         if (HasFlag("-fluidroster")) { yield return FluidRoster(); yield break; }
