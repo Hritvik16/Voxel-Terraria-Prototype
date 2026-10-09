@@ -64,6 +64,11 @@ namespace TerrainGen
         /// Map v4 (B5): the signature features drawn from the pool, in slot
         /// order (Features.cs); null below v4. The record flags their cells.
         public Feature[] SignatureFeatures { get; private set; }
+        /// Map v4 (B8): the routes between the easy areas (Routes.cs); null
+        /// below v4. The map is already eased along them; the record flags them.
+        public Route[] Routes { get; private set; }
+        /// Routes.LastBuild for this map (diagnostics: links, cut and fill cells).
+        public string RouteBuild { get; private set; }
         private GCHandle _hH, _hR, _hW;
 
         public WorldMap(TerrainSpec spec, float[] height, float[] rough, float2 peak,
@@ -117,6 +122,10 @@ namespace TerrainGen
         //   B5 (plan rule 6): no pinned peak or volcano; signature features
         //      drawn from the pool and placed (Features.cs), listed and flagged
         //      in the record.
+        //   B8 (plan rule 9): routes between the easy areas, found on a first
+        //      record (its easy areas, danger and bands), eased into the map
+        //      (Routes.cs); the record is then built again on the eased map,
+        //      keeping the first record's easy areas, and flags the corridors.
         // A v3 spec takes none of these branches and stays byte-identical.
         // ------------------------------------------------------------------
         private static WorldMap BuildV4(TerrainSpec spec)
@@ -129,6 +138,9 @@ namespace TerrainGen
             var biomes = System.Threading.Tasks.Task.Run(() => WorldRecord.BiomePlane(spec));
             var map = BuildV3(spec);
             map.Record = WorldRecord.Build(map, biomes.Result);
+            map.Routes = TerrainGen.Routes.Build(map, map.Record);
+            map.RouteBuild = TerrainGen.Routes.LastBuild;
+            if (map.Routes != null) map.Record = WorldRecord.Build(map, biomes.Result, map.Record);
             return map;
         }
 

@@ -22,16 +22,18 @@
 //   hazard     B6 (Danger.cs): bits 0-2 base danger 0-7 (altitude + landform
 //              + biome tier, from Danger's data table), bits 3-4 movement band
 //              (Walk / Scramble / Climb / Sheer from the 8 m map slope); 0 on
-//              sea cells; bits 5-7 zero
+//              sea cells; bits 5-7 zero. B8: on a FLAG_ROUTE cell bits 0-2
+//              hold the base danger one tier lower (never below 0)
 //   flags      bit 0 FLAG_EASY (B4: the cell is easy ground inside a seeded
 //              easy area, EasyAreas.cs); bit 1 FLAG_FEATURE (B5: the cell is
 //              on a signature feature's footprint, Features.cs; never both);
-//              bits 2-7 B6-B8 -- zero
+//              bit 2 FLAG_ROUTE (B8: inside a route's corridor, Routes.cs; may
+//              sit on easy or feature cells); bits 3-7 zero
 //   site       B5: on a FLAG_FEATURE cell, the feature's index in FeatureList
 //              + 1 (ids 1-15 are features); 0 elsewhere. B7-B8 take ids >= 16.
 //
 // LISTS beside the cells (each carries MapVersion): EasyAreaList (B4),
-// FeatureList (B5).
+// FeatureList (B5), RouteList (B8).
 using System.Runtime.InteropServices;
 using Unity.Mathematics;
 
@@ -56,6 +58,7 @@ namespace TerrainGen
         public int MoveBand => (hazard >> 3) & 3;
         public bool IsEasy => (flags & WorldRecord.FLAG_EASY) != 0;
         public bool IsFeature => (flags & WorldRecord.FLAG_FEATURE) != 0;
+        public bool IsRoute => (flags & WorldRecord.FLAG_ROUTE) != 0;
     }
 
     public sealed class WorldRecord
@@ -67,6 +70,7 @@ namespace TerrainGen
         public const byte WATER_FAR = 250;          // 250 x 16 m = 4 km
         public const byte FLAG_EASY = 1;
         public const byte FLAG_FEATURE = 2;
+        public const byte FLAG_ROUTE = 4;
 
         /// The map version this record was built for (4 today).
         public readonly int MapVersion;
@@ -76,6 +80,10 @@ namespace TerrainGen
         /// B5: the signature features in slot order (Features.cs); each
         /// carries its own mapVersion. Empty when none was placed.
         public Feature[] FeatureList = new Feature[0];
+        /// B8: the routes between the easy areas (Routes.cs; centre line,
+        /// width, ends, passes, corridor cells, mapVersion). Empty before the
+        /// map's routes exist (WorldMap.BuildV4's first record).
+        public Route[] RouteList = new Route[0];
 
         public readonly int Cells;                  // per edge
         public readonly int CellVoxels;
@@ -115,7 +123,10 @@ namespace TerrainGen
         public static WorldRecord Build(WorldMap map) => Build(map, BiomePlane(map.Spec));
 
         /// `biomes`: BiomePlane(map.Spec), computed ahead (WorldMap.BuildV4).
-        public static WorldRecord Build(WorldMap map, byte[] biomes)
+        /// `easyFrom` (B8): the record the routes were found on; its easy areas
+        /// are kept as they are (their cells are never eased) instead of being
+        /// grown again on the eased map, so the routes join the same areas.
+        public static WorldRecord Build(WorldMap map, byte[] biomes, WorldRecord easyFrom = null)
         {
             var spec = map.Spec;
             int n = spec.mapCells;
@@ -151,8 +162,15 @@ namespace TerrainGen
 
             for (int i = 0; i < d.Length; i++) rec.Data[i].biome = biomes[i];
             Features.Mark(map, rec);   // before the easy areas: they skip feature cells
-            EasyAreas.Mark(map, rec);
+            if (easyFrom == null) EasyAreas.Mark(map, rec);
+            else
+            {
+                foreach (var a in easyFrom.EasyAreaList)
+                    foreach (int i in a.cells) rec.Data[i].flags |= FLAG_EASY;
+                rec.EasyAreaList = easyFrom.EasyAreaList;
+            }
             Danger.Mark(map, rec);
+            Routes.Mark(map, rec);   // B8: after the danger it lowers
             return rec;
         }
 

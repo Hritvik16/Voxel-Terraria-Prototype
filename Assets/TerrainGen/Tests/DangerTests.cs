@@ -89,7 +89,10 @@ namespace TerrainGen.Tests
                     if (map.Region[i] == 255) region255++;
                     int third = Danger.AltitudeThird(h[i], hi), cls = Danger.LandformClassOf(map.Region[i]);
                     float t2 = Danger.SlopeTan2(h, n, cv, i);
-                    if (c.hazard != Danger.Pack(Danger.Of(t, third, cls, c.Biome), Danger.BandOfTan2(t2))) recomputeBad++;
+                    // B8: a route corridor cell stores the base danger one tier lower
+                    int want = Danger.Of(t, third, cls, c.Biome);
+                    if (c.IsRoute) want = math.max(0, want - 1);
+                    if (c.hazard != Danger.Pack(want, Danger.BandOfTan2(t2))) recomputeBad++;
                     if (Danger.BandOfDegrees(math.degrees(math.atan(math.sqrt(t2)))) != c.MoveBand) atanBand++;
                     hist[c.Danger]++; bands[c.MoveBand]++;
                     if (c.IsEasy)

@@ -129,7 +129,7 @@ namespace TerrainGen.Tests
                 if (fresh && c.freshWater != 0) waterBad++;
                 // B5: FLAG_FEATURE and site (the feature's index + 1) go together
                 bool siteOk = c.IsFeature ? c.site >= 1 && c.site <= rec.FeatureList.Length : c.site == 0;
-                if ((c.hazard >> 5) != 0 || (c.flags & ~(WorldRecord.FLAG_EASY | WorldRecord.FLAG_FEATURE)) != 0 || !siteOk || (c.biome >> 4) != 0) reserved++;
+                if ((c.hazard >> 5) != 0 || (c.flags & ~(WorldRecord.FLAG_EASY | WorldRecord.FLAG_FEATURE | WorldRecord.FLAG_ROUTE)) != 0 || !siteOk || (c.biome >> 4) != 0) reserved++;
                 bool border = (x > 0 && rec.Data[i - 1].Archetype != c.Archetype) || (x < n - 1 && rec.Data[i + 1].Archetype != c.Archetype)
                            || (z > 0 && rec.Data[i - n].Archetype != c.Archetype) || (z < n - 1 && rec.Data[i + n].Archetype != c.Archetype);
                 if (border && c.Depth != 0) depthBad++;
@@ -138,7 +138,7 @@ namespace TerrainGen.Tests
             Assert.AreEqual(0, biomeBad, "record biome != ShapeField.Biome at the cell centre");
             Assert.AreEqual(0, archBad, "record archetype != map.Region");
             Assert.AreEqual(0, waterBad, "lake/river cells must read 0 m to fresh water");
-            Assert.AreEqual(0, reserved, "fields reserved for B7-B8 must be zero (B4's easy flag, B5's feature flag + site and B6's hazard bits 0-4 aside)");
+            Assert.AreEqual(0, reserved, "reserved fields must be zero (B4's easy flag, B5's feature flag + site, B6's hazard bits 0-4 and B8's route flag aside)");
             Assert.AreEqual(0, depthBad, "a cell on an archetype border must have depth 0");
             Assert.GreaterOrEqual(depthSeen.Count, 12, "land depths should span the 0-15 range");
 
