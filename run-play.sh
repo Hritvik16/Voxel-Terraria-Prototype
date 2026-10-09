@@ -10,6 +10,8 @@
 # Start pose (task 32d): the fluid arena's basin can be a lake bed (v4) or the pose can
 # sit inside a hill (v3), so a tg2 session stands on the nearest dry column instead;
 # the Player.log "[Playground] start pose" lines say where, and what the eye is in.
+# Start view (task 33b): -startview also sets the clock to noon (the M key) and levels
+# the camera (yaw kept); the clock runs on from there. Only this script passes it.
 # Interactive: no capture flags, so Playground applies the interactive render
 # preset (RenderPreset.Default) exactly as a player session would. Holds the
 # shared Unity lock while the player is open (like run-demo.sh).
@@ -75,6 +77,6 @@ KEYS
 
 DELTA="-cleardeltas"; [ "${KEEP:-0}" = "1" ] && DELTA="-keepdeltas"
 SHOTARG=""; [ -n "${SHOT:-}" ] && SHOTARG="-playshot $SHOT"
-open -n -W "$APP" --args -world tg2 -mapversion "$MAPV" -farband 1 -farshadow 1 $DELTA $SHOTARG ${EXTRA:-}
+open -n -W "$APP" --args -world tg2 -mapversion "$MAPV" -farband 1 -farshadow 1 -startview $DELTA $SHOTARG ${EXTRA:-}
 PL="$HOME/Library/Logs/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Player.log"
 grep -E "\[FarField\] tg2 WORLD|\[Playground\] (-playshot|start pose)" "$PL" 2>/dev/null | cut -c1-200

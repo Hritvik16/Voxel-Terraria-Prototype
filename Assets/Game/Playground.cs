@@ -431,7 +431,10 @@ public class Playground : MonoBehaviour
         // by construction, so the lowest lake bed wins) or in a hillside 3.2 m
         // off the basin. An interactive tg2 session stands on the nearest dry
         // column instead. Capture runs and the old world keep the arena pose.
-        if (Phase4Bootstrapper.IsTg2World && !IsCaptureRun()) StartCoroutine(SettleStartPose());
+        // TASK 33b: run-play.sh passes -startview, and only then does that
+        // start also go to noon with a level camera (the arena's 18 deg
+        // look-down under the start-up light was dim). The F key does not.
+        if (Phase4Bootstrapper.IsTg2World && !IsCaptureRun()) StartCoroutine(SettleStartPose(HasArg("-startview")));
     }
 
     /// For overlays (Minimap) that must stay out of capture frames.
@@ -477,7 +480,7 @@ public class Playground : MonoBehaviour
         System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
         Destroy(tex);
         // What the eye is in (a black frame at the start pose: task 32b).
-        Debug.Log($"[Playground] -playshot: {path}  {EyeReport()}");
+        Debug.Log($"[Playground] -playshot: {path}  {EyeReport()}, t {Time.unscaledTime:F1} s, clock {SunCycle.ClockString()}");
     }
 
     private string EyeReport()
@@ -495,7 +498,7 @@ public class Playground : MonoBehaviour
     /// topmost non-air voxel in the loaded band is SOLID (not fluid), every
     /// chunk above it resident, so the eye is in open air. Waits while the
     /// columns are still streaming in.
-    private IEnumerator SettleStartPose()
+    private IEnumerator SettleStartPose(bool startView = false)
     {
         Camera cam = Camera.main;
         if (cam == null) yield break;
@@ -512,13 +515,47 @@ public class Playground : MonoBehaviour
         }
         bool basinWet = MaterialRules.IsFluidMaterial(_store.GetVoxel(_arenaCentre + new int3(0, 1, 0)));
         cam.transform.position = new Vector3(col.x * 0.1f + 0.05f, (col.y + 1) * 0.1f + 0.02f + 1.6f, col.z * 0.1f + 0.05f);
+        if (startView)
+        {
+            // The M key's noon; the clock keeps running from here.
+            SunCycle.SetHours(SunCycle.NoonHours);
+            if (_cam == null) _cam = cam.GetComponent<PlaygroundFlyCamera>();
+            float yaw = MostOpenYaw(cam.transform.position, cam.transform.rotation.eulerAngles.y);
+            if (_cam != null) _cam.SetLook(yaw, 0f);
+            else cam.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+        }
         if (_mode == MoveMode.Walk) SnapPlayerToCamera();
         _status = "standing on dry ground near the fluid arena";
         Debug.Log($"[Playground] start pose: arena {before}; basin {_arenaCentre} under fluid: {basinWet}; " +
-                  $"moved to dry column ({col.x}, {col.z}) top {col.y} {MaterialName(_store.GetVoxel(col))} -> {EyeReport()}");
+                  $"moved to dry column ({col.x}, {col.z}) top {col.y} {MaterialName(_store.GetVoxel(col))} -> {EyeReport()}" +
+                  (startView ? $"; -startview: noon, level look (yaw {cam.transform.rotation.eulerAngles.y:F0}) at t {Time.unscaledTime:F1} s" : ""));
         float t0 = Time.unscaledTime;
         while (Time.unscaledTime - t0 < 5f) yield return null;
         Debug.Log($"[Playground] start pose after 5 s: {EyeReport()}");
+    }
+
+    /// Of 16 level headings starting at `yaw`, the one whose eye-height ray
+    /// runs furthest (to 64 m, or the first non-resident chunk) before it
+    /// meets a non-air voxel; ties keep the earlier heading.
+    private float MostOpenYaw(Vector3 eye, float yaw)
+    {
+        float bestYaw = yaw;
+        int best = -1;
+        for (int i = 0; i < 16; i++)
+        {
+            float y = yaw + i * 22.5f;
+            float r = y * Mathf.Deg2Rad;
+            float dx = Mathf.Sin(r), dz = Mathf.Cos(r);
+            int run = 0;
+            for (; run < 640; run += 4)
+            {
+                int3 v = CoordMath.WorldToVoxel(new float3(eye.x + dx * run * 0.1f, eye.y, eye.z + dz * run * 0.1f));
+                if (!_store.IsResident(CoordMath.VoxelToChunk(v))) { run = 640; break; }
+                if (_store.GetVoxel(v) != Materials.Air) break;
+            }
+            if (run > best) { best = run; bestYaw = y; }
+        }
+        return Mathf.Repeat(bestYaw, 360f);
     }
 
     /// Nearest column to `from` (8-voxel grid, square rings out to 32 m) whose
