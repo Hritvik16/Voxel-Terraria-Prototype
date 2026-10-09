@@ -11,7 +11,9 @@
 // WHERE each kind of land is and what it starts as.
 //
 // Placement: the dominant peak's region is ALPINE and the volcano's is
-// VOLCANIC (both pinned to their sites); the rest are dart-thrown over the
+// VOLCANIC (both pinned to their sites; on map v4 the peak and the volcano
+// themselves are drawn from the feature pool (B5, Features.cs) and placed
+// elsewhere, but these two region seeds keep v3's sites); the rest are dart-thrown over the
 // island. Seeds near the coast draw from the coastal archetypes, inland seeds
 // from the inland ones, each list shuffled per seed so every island differs.
 // Borders are the seeds' Voronoi edges bent by a 2-D noise warp (organic, no
@@ -71,7 +73,7 @@ namespace TerrainGen
         public static Layout Build(in TerrainSpec spec, in Offsets o)
         {
             float c = spec.worldSizeVoxels * 0.5f, R = spec.islandRadius;
-            var seeds = new List<float2> { WorldMap.PeakSite(in spec, in o), Stamps.VolcanoSite(in spec, in o) };
+            var seeds = new List<float2> { WorldMap.PeakSite(in spec, in o), Stamps.VolcanoSiteV3(in spec, in o) };
             for (int i = 0; i < 800 && seeds.Count < TARGET_REGIONS; i++)
             {
                 float2 p = new float2(c, c) + new float2(Noise.Hash01(i, 1, 7, spec.seed + 501u) - 0.5f,

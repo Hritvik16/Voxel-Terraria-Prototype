@@ -87,7 +87,15 @@ namespace TerrainGen
         private static float2 Perp(float2 d) => new float2(-d.y, d.x);
 
         // ---- singleton sites: three directions around the island, away from the peak ----
+        /// Map v4 (B5): the volcano is drawn from the feature pool and its site
+        /// is in the offsets (Offsets.For(spec)); a v4 world that did not draw
+        /// one -- or offsets made by For(seed) -- has it far off the map, so
+        /// VolcanoHeight is 0 everywhere. v3: the pinned site, unchanged.
         public static float2 VolcanoSite(in TerrainSpec spec, in Offsets o)
+            => spec.mapVersion >= 4 ? (o.v4Sites != 0 ? o.volcanoV4 : new float2(Features.NO_SITE_XZ, Features.NO_SITE_XZ))
+                                    : VolcanoSiteV3(in spec, in o);
+        /// v3's pinned volcano site; on v4 still the volcanic REGION's seed.
+        public static float2 VolcanoSiteV3(in TerrainSpec spec, in Offsets o)
             => Centre(spec) + Perp(o.peakDir) * (spec.islandRadius * 0.46f);
         public static float2 TreeSite(in TerrainSpec spec, in Offsets o)
             => Centre(spec) - Perp(o.peakDir) * (spec.islandRadius * 0.40f);

@@ -219,8 +219,14 @@ public partial class PlaygroundCapture
         var volcSite = TerrainGen.Stamps.VolcanoSite(in spec, in o);
         var treeSite = TerrainGen.Stamps.TreeSite(in spec, in o);
         var geySite = TerrainGen.Stamps.GeyserSite(in spec, in o);
-        Look("volcano_from_2km", E(volcSite.x - 20000f, spec.seaLevelY + 5000f, volcSite.y - 6000f), E(volcSite.x, spec.seaLevelY + 2600f, volcSite.y));
-        Look("caldera_above", E(volcSite.x - 3000f, spec.seaLevelY + 9000f, volcSite.y - 3000f), E(volcSite.x, spec.seaLevelY + 2000f, volcSite.y));
+        // Map v4 (B5): the volcano is drawn from the feature pool; a world
+        // without one has its site off the map -- no volcano poses then.
+        if (volcSite.x > TerrainGen.Features.NO_SITE_XZ)
+        {
+            Look("volcano_from_2km", E(volcSite.x - 20000f, spec.seaLevelY + 5000f, volcSite.y - 6000f), E(volcSite.x, spec.seaLevelY + 2600f, volcSite.y));
+            Look("caldera_above", E(volcSite.x - 3000f, spec.seaLevelY + 9000f, volcSite.y - 3000f), E(volcSite.x, spec.seaLevelY + 2000f, volcSite.y));
+        }
+        else L("volcano_from_2km, caldera_above: this world drew no volcano (map v4 feature pool) -- skipped");
         if (TerrainGen.Stamps.WorldTreeEnabled) Look("world_tree_1km", E(treeSite.x - 9000f, Ground(treeSite.x - 9000f, treeSite.y) + 600f, treeSite.y - 2000f), E(treeSite.x, Ground(treeSite.x, treeSite.y) - 800f, treeSite.y));
         Look("geyser_basin", E(geySite.x - 2500f, Ground(geySite.x, geySite.y) + 1500f, geySite.y - 2500f), E(geySite.x, Ground(geySite.x, geySite.y), geySite.y));
         Look("rivers_oblique", E(c - 30000f, spec.seaLevelY + 26000f, c - 30000f), E(c, spec.seaLevelY, c));

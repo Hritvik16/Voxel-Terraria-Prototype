@@ -62,6 +62,14 @@ public partial class PlaygroundCapture
 
         float px = ArgFloat("-sweepx", 4014.0f), pz = ArgFloat("-sweepz", 3999.6f);
         Vector3 dir = new Vector3(0.70710678f, 0f, 0.70710678f);
+        // B5 (2026-10-08): -lookx/-lookz (metres) turn the heading toward a
+        // point, for a feature photographed from ~2 km.
+        float lookX = ArgFloat("-lookx", float.NaN), lookZ = ArgFloat("-lookz", float.NaN);
+        if (!float.IsNaN(lookX) && !float.IsNaN(lookZ))
+        {
+            var toLook = new Vector3(lookX - px, 0f, lookZ - pz);
+            if (toLook.sqrMagnitude > 1f) dir = toLook.normalized;
+        }
         float[] heights = ParseFloats(ArgValue("-heights") ?? "63 48 32 16 8 2");
         float[] pitches = ParseFloats(ArgValue("-pitches") ?? "8 30");
 

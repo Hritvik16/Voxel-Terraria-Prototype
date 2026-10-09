@@ -238,7 +238,7 @@ namespace TerrainGen
             {
                 int cx = (int)math.floor(sites[k].centre.x / cv), cz = (int)math.floor(sites[k].centre.y / cv);
                 var keys = new System.Collections.Generic.List<long>();
-                var fails = new int[6];
+                var fails = new int[7];
                 for (int z = math.max(0, cz - g); z <= math.min(n - 1, cz + g); z++)
                 for (int x = math.max(0, cx - g); x <= math.min(n - 1, cx + g); x++)
                 {
@@ -246,12 +246,13 @@ namespace TerrainGen
                     if (d2 > g * g) continue;
                     int i = z * n + x;
                     int f = Fails(map, i, lowThird);
+                    if (f == 0 && rec.Data[i].IsFeature) f = 6;   // B5: never on a signature feature
                     fails[f]++;
                     if (f == 0) keys.Add(d2 * nn + i);
                 }
                 keys.Sort();
                 sorted[k] = keys.ToArray();
-                why.Append($"[{k}] easy {fails[0]} sea {fails[1]} high {fails[2]} not-gentle {fails[3]} water {fails[4]} steep {fails[5]}; ");
+                why.Append($"[{k}] easy {fails[0]} sea {fails[1]} high {fails[2]} not-gentle {fails[3]} water {fails[4]} steep {fails[5]} feature {fails[6]}; ");
             }
             // the `count` sites with the most easy ground become the areas (in
             // seeding order); the spares stay pressed flat but unflagged

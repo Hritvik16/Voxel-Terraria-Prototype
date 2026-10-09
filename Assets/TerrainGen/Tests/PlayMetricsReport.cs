@@ -106,6 +106,10 @@ namespace TerrainGen.Tests
             // B4 (v4): the record's easy areas
             public float easyFlagShare; public int easyAreaCount, easyAreaWant, easyFlagNotEasy;
             public float[] easyAreaHa = new float[0]; public string easyAreaDesc = "";
+            // B5 (v4): signature features
+            public bool hasFeatures; public string featNumbers = "", featFails = "", featDesc = "", featShots = "";
+            public int featCount, featWant, featRare, featWayDown; public float featVisible, featHiddenNear, featMinSepM;
+            public string peakBroad = "-";
         }
 
         public struct BiomeStats
@@ -173,6 +177,14 @@ namespace TerrainGen.Tests
                 string b4 = B4Table(byTag.TryGetValue("", out var v3b) ? v3b : new List<Metrics>(), byTag["_v4"]);
                 File.WriteAllText(Path.Combine(dir, "b4_easy_areas.txt"), b4);
                 Debug.Log("[PlayMetrics B4]\n" + b4);
+            }
+            if (byTag.ContainsKey("_v4"))
+            {
+                string b5 = B5Table(byTag.TryGetValue("", out var v3c) ? v3c : new List<Metrics>(), byTag["_v4"]);
+                File.WriteAllText(Path.Combine(dir, "b5_features.txt"), b5);
+                Debug.Log("[PlayMetrics B5]\n" + b5);
+                foreach (var m5 in byTag["_v4"])
+                    if (m5.featShots.Length > 0) File.WriteAllText(Path.Combine(dir, $"b5_shots_seed{m5.seed}.txt"), m5.featShots);
             }
             var v4All = tagOrder.Where(t => t.StartsWith("_v4")).SelectMany(t => byTag[t]).ToList();
             if (v4All.Count > 0)
@@ -245,6 +257,44 @@ namespace TerrainGen.Tests
                 string A(Func<Metrics, string> f) => a != null ? f(a) : "  -  ";
                 s.AppendLine($"  {b.seed,-6}  {A(x => x.medianSlope.ToString("F1")),4} -> {b.medianSlope,4:F1}    {A(x => Pct(x.under15)),6} -> {Pct(b.under15),6}  " +
                              $"{A(x => Pct(x.over45)),6} -> {Pct(b.over45),6}  {A(x => Pct(x.open)),6} -> {Pct(b.open),6}  {A(x => x.riverKm.ToString("F1")),5} -> {b.riverKm,5:F1}    {Pct(b.easyShare)}");
+            }
+            return s.ToString();
+        }
+
+        /// The B5 acceptance table (plan rule 6; owner Q6 (a)): Medium 5
+        /// features, <= 1 rare wonder, >= 1 way down, centres >= 1.2 km apart,
+        /// >= 80% of land sees one within 3 km; B4 still green; slopes beside v3.
+        private static string B5Table(List<Metrics> v3, List<Metrics> v4)
+        {
+            var s = new StringBuilder("=== B5: signature features on map v4 (pool draw, record list + FLAG_FEATURE)\n");
+            s.AppendLine("  visibility: eyes on a 128 m grid of land (every 16th 8 m cell), 2 m above the map ground; per feature its targets");
+            s.AppendLine("  (summit area + upper flanks / caldera rim + upper cone / mesa top edge / crater rim / canyon walls at mid-height), one ray each to the target");
+            s.AppendLine("  surface + 1 m, sampled every 8 m cell against the ground or the water surface; seen = any ray clear within 3 km,");
+            s.AppendLine("  or the eye stands on the feature's footprint. Eyes on a lake or river stand 2 m above its surface.");
+            s.AppendLine("  seed    features (want)  rare  way down  min spacing (>= 1200 m)  sees one in 3 km (>= 80%)  hidden-near  easy share / areas   gentle  build s (v3)   record hash   checks");
+            foreach (var b in v4)
+            {
+                if (!b.hasFeatures) continue;
+                var a = v3.FirstOrDefault(x => x.seed == b.seed);
+                bool cnt = b.featCount == b.featWant, rare = b.featRare <= 1, way = b.featWayDown >= 1, sep = b.featMinSepM >= 1200f, vis = b.featVisible >= 0.80f;
+                bool easy = b.easyFlagShare >= 0.08f && b.easyFlagShare <= 0.12f && b.easyAreaCount == b.easyAreaWant && b.easyAreaHa.All(x => x >= EasyAreas.MIN_HA);
+                string build = a != null ? $"{b.buildMs / 1000:F1} ({a.buildMs / 1000:F1}, {(b.buildMs - a.buildMs) / 1000:+0.0;-0.0}) {((b.buildMs - a.buildMs) <= 2000 ? "PASS" : "MISS")}" : $"{b.buildMs / 1000:F1}";
+                s.AppendLine($"  {b.seed,-6}  {b.featCount} ({b.featWant}) {(cnt ? "PASS" : "MISS")}      {b.featRare} {(rare ? "PASS" : "MISS")}  {b.featWayDown} {(way ? "PASS" : "MISS")}    " +
+                             $"{b.featMinSepM,5:F0} m {(sep ? "PASS" : "MISS")}               {Pct(b.featVisible),6} {(vis ? "PASS" : "MISS")}                {Pct(b.featHiddenNear),6}      " +
+                             $"{Pct(b.easyFlagShare)} / {b.easyAreaCount} {(easy ? "PASS" : "MISS")}     {Pct(b.classShare[0]),6}  {build}   {b.recordHash:X16}   {(b.featFails.Length == 0 ? "all PASS" : b.featFails)}");
+            }
+            s.AppendLine("\n  features per seed (slot order; footprint = the record's FLAG_FEATURE cells):");
+            foreach (var b in v4) if (b.hasFeatures) s.Append($"  seed {b.seed}: great peak {b.peakBroad}\n{b.featDesc}");
+            s.AppendLine("\n  slopes by landform class, v3 -> v4 (reported, not gated):");
+            s.AppendLine("  seed    gentle med deg   broken med deg   steep med deg    median deg      <15 deg          >45 deg          open (<20 m)     easy ground      easy areas");
+            foreach (var b in v4)
+            {
+                var a = v3.FirstOrDefault(x => x.seed == b.seed);
+                string A(Func<Metrics, string> f) => a != null ? f(a) : "  -  ";
+                s.AppendLine($"  {b.seed,-6}  {A(x => x.classMedianSlope[0].ToString("F0")),3} -> {b.classMedianSlope[0],3:F0}       {A(x => x.classMedianSlope[1].ToString("F0")),3} -> {b.classMedianSlope[1],3:F0}       " +
+                             $"{A(x => x.classMedianSlope[2].ToString("F0")),3} -> {b.classMedianSlope[2],3:F0}       {A(x => x.medianSlope.ToString("F1")),4} -> {b.medianSlope,4:F1}    " +
+                             $"{A(x => Pct(x.under15)),6} -> {Pct(b.under15),6}  {A(x => Pct(x.over45)),6} -> {Pct(b.over45),6}  {A(x => Pct(x.open)),6} -> {Pct(b.open),6}  " +
+                             $"{A(x => Pct(x.easyShare)),6} -> {Pct(b.easyShare),6}  {Pct(b.easyFlagShare)}");
             }
             return s.ToString();
         }
@@ -441,6 +491,55 @@ namespace TerrainGen.Tests
                 }
                 m.easyAreaDesc = d.ToString();
             }
+            // B5: the signature features (FeatureTests' acceptance, the shot list)
+            byte[] featKind = null, featEye = null;
+            if (map.SignatureFeatures != null && map.Record != null)
+            {
+                var ff = map.SignatureFeatures;
+                m.hasFeatures = true;
+                m.featFails = string.Join("; ", FeatureTests.Check(map, out m.featNumbers, out var vis));
+                m.featCount = ff.Length; m.featWant = Features.CountFor(in spec);
+                m.featRare = ff.Count(x => x.tier == Features.Rare); m.featWayDown = ff.Count(x => x.wayDown);
+                m.featVisible = vis.Share; m.featHiddenNear = vis.HiddenNear;
+                m.featMinSepM = float.MaxValue;
+                for (int a = 0; a < ff.Length; a++)
+                for (int b = a + 1; b < ff.Length; b++)
+                    m.featMinSepM = math.min(m.featMinSepM, math.distance((float2)ff[a].centre, (float2)ff[b].centre) / 10f);
+                featKind = new byte[n * n];
+                featEye = new byte[n * n];   // 1 an eye that sees a feature within 3 km, 2 one that sees none
+                for (int e = 0; e < vis.eyeCell.Count; e++)
+                {
+                    int ec = vis.eyeCell[e], ex = ec % n, ez = ec / n;
+                    for (int dz = -3; dz <= 3; dz++) for (int dx = -3; dx <= 3; dx++)
+                    {
+                        int xx = ex + dx, zz = ez + dz;
+                        if (xx >= 0 && zz >= 0 && xx < n && zz < n) featEye[zz * n + xx] = (byte)(vis.eyeSees[e] ? 1 : 2);
+                    }
+                }
+                for (int i = 0; i < n * n; i++) { var c = map.Record.Data[i]; if (c.IsFeature) featKind[i] = ff[c.site - 1].kind; }
+                var d = new StringBuilder();
+                var shots = new StringBuilder("# B5 shots (metres): name eyeX eyeZ lookX lookZ -- eye on dry land, 2 m eye, most targets in sight\n");
+                for (int k = 0; k < ff.Length; k++)
+                {
+                    var f = ff[k];
+                    d.AppendLine($"    [{k + 1}] {Features.Name(f.kind),-12} {(f.tier == Features.Common ? "common" : f.tier == Features.Uncommon ? "uncommon" : "RARE"),-8} " +
+                                 $"centre ({f.centre.x / 10f:F0}, {f.centre.y / 10f:F0}) m  footprint r {f.radiusM:F0} m  {f.cellCount} cells ({f.cellCount * 0.0064f:F0} ha)" +
+                                 $"{(f.wayDown ? "  WAY DOWN" : "")}  seen by {vis.seenBy[k]} of {vis.eyes} eyes" +
+                                 (f.kind == Features.Mesa ? $"  top {(f.baseH + f.rise) / 10f:F0} m (rise {f.rise / 10f:F0} m)" :
+                                  f.kind == Features.CraterLake ? $"  bowl r {f.R / 10f:F0} m depth {f.B / 10f:F0} m rim {f.rise / 10f:F0} m" :
+                                  f.kind == Features.GreatCanyon ? $"  length {(f.path.Length - 1) * Features.CANYON_STEP / 10f:F0} m, floor {f.floor[0] / 10f:F0} -> {f.floor[f.floor.Length - 1] / 10f:F0} m" : ""));
+                    if (Shot(map, f, 20000f, out float2 eye, out int seen))
+                        shots.AppendLine($"f{k + 1}_{Features.Name(f.kind).Replace(' ', '_')} {eye.x / 10f:F1} {eye.y / 10f:F1} {f.centre.x / 10f:F1} {f.centre.y / 10f:F1}  # {seen} targets in sight, 2 km");
+                    else shots.AppendLine($"# f{k + 1} {Features.Name(f.kind)}: no dry vantage 2 km out with a target in sight");
+                }
+                // the far-band shot: the tallest raised feature from ~4.5 km
+                var tall = ff.Where(x => x.kind == Features.GreatPeak).Concat(ff.Where(x => x.kind == Features.Volcano)).Concat(ff.Where(x => x.kind == Features.Mesa)).FirstOrDefault();
+                if (tall != null && Shot(map, tall, 45000f, out float2 fe, out int fs))
+                    shots.AppendLine($"far_{Features.Name(tall.kind).Replace(' ', '_')} {fe.x / 10f:F1} {fe.y / 10f:F1} {tall.centre.x / 10f:F1} {tall.centre.y / 10f:F1}  # {fs} targets in sight, 4.5 km");
+                m.featDesc = d.ToString(); m.featShots = shots.ToString();
+                var pk = ff.FirstOrDefault(x => x.kind == Features.GreatPeak);
+                if (pk != null) m.peakBroad = PeakBroadness(map, pk);
+            }
 
             // biome / region change walking east-west, rows every 32 m
             long walked = 0; int bChanges = 0, rChanges = 0;
@@ -518,7 +617,7 @@ namespace TerrainGen.Tests
             m.lakes = map.Hydro.lakes;
             m.measureMs = sw.Elapsed.TotalMilliseconds;
 
-            WritePngs(dir, $"seed{seed}{tag}", n, h, isLand, slope, relief, biome, map.Region, map.WaterClass, easyMask, towns, easyFlag);
+            WritePngs(dir, $"seed{seed}{tag}", n, h, isLand, slope, relief, biome, map.Region, map.WaterClass, easyMask, towns, easyFlag, featKind, featEye);
 
             // B1: the biome field at other scales on this same map (the map does
             // not depend on biomes), as numbers and one strip: v3 (x1), then each.
@@ -747,6 +846,9 @@ namespace TerrainGen.Tests
             if (m.mapVersion >= 4)
                 s.AppendLine($"  B4 easy areas (record flag): {Pct(m.easyFlagShare)} of land in {m.easyAreaCount} areas (want {m.easyAreaWant}): " +
                              $"{string.Join(", ", m.easyAreaHa.Select(x => x.ToString("F0") + " ha"))}; flagged cells failing the definition {m.easyFlagNotEasy}");
+            if (m.hasFeatures)
+                s.AppendLine($"  B5 signature features: {m.featCount} (want {m.featWant}), way down {m.featWayDown}, rare {m.featRare}; min spacing {m.featMinSepM:F0} m; " +
+                             $"land seeing one within 3 km {Pct(m.featVisible)} (hidden-near {Pct(m.featHiddenNear)}); {(m.featFails.Length == 0 ? "checks PASS" : "FAILS: " + m.featFails)}");
             s.AppendLine($"  biome change walking east-west every {m.biomeChangeM:F0} m (sampled every 128 m: {m.biomeChange128M:F0} m); region change every {m.regionChangeM:F0} m");
             s.AppendLine($"  biome patches on land: {m.biomePatches}; median {m.biomePatchMedianHa:F1} ha; area-weighted median {m.biomePatchAreaMedianHa:F0} ha");
             if (m.mapVersion >= 4)
@@ -801,7 +903,7 @@ namespace TerrainGen.Tests
         private static readonly Color[] BiomeCol = { new Color(0.25f, 0.55f, 0.25f), new Color(0.92f, 0.80f, 0.50f), new Color(0.92f, 0.94f, 0.98f), new Color(0.10f, 0.45f, 0.30f) };
 
         private static void WritePngs(string dir, string prefix, int n, float[] h, bool[] isLand, float[] slope, float[] relief,
-                                      byte[] biome, byte[] region, byte[] water, bool[] easy, List<List<int>> towns, bool[] easyFlag)
+                                      byte[] biome, byte[] region, byte[] water, bool[] easy, List<List<int>> towns, bool[] easyFlag, byte[] featKind = null, byte[] featEye = null)
         {
             var townMask = new bool[n * n];
             foreach (var c in towns) foreach (int i in c) townMask[i] = true;
@@ -827,6 +929,66 @@ namespace TerrainGen.Tests
             if (easyFlag != null)
                 Write(dir, $"{prefix}_easy_areas.png", n, h, isLand, water,
                       i => easyFlag[i] ? new Color(1f, 0.92f, 0.10f) : region[i] == 255 ? Color.gray : classCol[LandformClass(region[i])] * 0.8f);
+            // B5: the feature footprints (FeatCol by kind) and the easy areas (yellow) over the region-class map
+            if (featKind != null)
+                Write(dir, $"{prefix}_features.png", n, h, isLand, water,
+                      i => featKind[i] != 0 ? FeatCol[featKind[i]] : easyFlag != null && easyFlag[i] ? new Color(1f, 0.92f, 0.10f)
+                         : region[i] == 255 ? Color.gray : classCol[LandformClass(region[i])] * 0.7f);
+            // B5: the visibility rule's eyes -- green sees a feature within 3 km, red sees none
+            if (featKind != null && featEye != null)
+                Write(dir, $"{prefix}_feature_view.png", n, h, isLand, water,
+                      i => featEye[i] == 1 ? new Color(0.20f, 0.85f, 0.25f) : featEye[i] == 2 ? new Color(0.95f, 0.10f, 0.10f)
+                         : featKind[i] != 0 ? FeatCol[featKind[i]] : new Color(0.55f, 0.55f, 0.55f));
+        }
+
+        /// B5 footprint colours: peak white, canyon red, mesa brown, volcano black, crater lake cyan.
+        private static readonly Color[] FeatCol =
+        {
+            Color.gray, new Color(0.97f, 0.97f, 0.97f), new Color(0.90f, 0.12f, 0.10f), new Color(0.62f, 0.36f, 0.18f),
+            new Color(0.12f, 0.10f, 0.12f), new Color(0.15f, 0.85f, 0.90f),
+        };
+
+        /// A dry vantage `dist` voxels from the feature (24 directions) with a
+        /// 2 m eye that sees the most of its targets; the canyon from its middle.
+        private static bool Shot(WorldMap map, Feature f, float dist, out float2 eye, out int seen)
+        {
+            eye = default; seen = 0;
+            var tg = Features.Targets(f, map);
+            int n = map.Spec.mapCells, cv = map.Spec.mapCellVoxels;
+            for (int a = 0; a < 24; a++)
+            {
+                float ang = a * 2f * math.PI / 24f;
+                float2 e = (float2)f.centre + new float2(math.cos(ang), math.sin(ang)) * dist;
+                int x = (int)(e.x / cv), z = (int)(e.y / cv);
+                if (x < 1 || z < 1 || x >= n - 1 || z >= n - 1) continue;
+                int i = z * n + x;
+                if (map.Height[i] <= 50f || map.WaterClass[i] != Hydrology.DRY || map.Record.Data[i].IsFeature) continue;
+                int c = 0;
+                foreach (var t in tg)
+                {
+                    int tx = math.clamp((int)(t.x / cv), 0, n - 1), tz = math.clamp((int)(t.y / cv), 0, n - 1);
+                    if (Features.LineOfSight(map, e, map.Height[i] + 20f, t, Features.Surface(map, tz * n + tx) + 10f)) c++;
+                }
+                if (c > seen) { seen = c; eye = e; }
+            }
+            return seen > 0;
+        }
+
+        /// "Signature peaks stay broad": the summit, and the mean ground 150 /
+        /// 300 / 600 m out (16 directions), in metres above sea.
+        private static string PeakBroadness(WorldMap map, Feature pk)
+        {
+            var tg = Features.Targets(pk, map);
+            float2 top = tg[0];
+            int n = map.Spec.mapCells, cv = map.Spec.mapCellVoxels;
+            float H(float2 p) { int x = math.clamp((int)(p.x / cv), 0, n - 1), z = math.clamp((int)(p.y / cv), 0, n - 1); return map.Height[z * n + x] / 10f; }
+            string Ring(float r)
+            {
+                float sum = 0f;
+                for (int a = 0; a < 16; a++) { float ang = a * 2f * math.PI / 16f; sum += H(top + new float2(math.cos(ang), math.sin(ang)) * r); }
+                return (sum / 16f).ToString("F0");
+            }
+            return $"summit {H(top):F0} m, mean ground 150/300/600 m out {Ring(1500f)}/{Ring(3000f)}/{Ring(6000f)} m";
         }
 
         /// Top-down, north (+z) up, 2x2 cells per pixel, tinted and hillshaded;
