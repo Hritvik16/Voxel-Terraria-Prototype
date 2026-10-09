@@ -128,7 +128,8 @@ public static class MaterialRules
         // Acid eats natural rock and soil; the special minerals, obsidian,
         // bedrock and crystals are acid-proof, like obsidian and torches above.
         foreach (byte g in new byte[] { 13, 10, 11, 20, 21, 22, 23, 30, 31, 32, 33, 34, 40, 41, 42, 43, 44,
-                                        50, 51, 52, 53, 54, 60, 61, 62, 63, 64, 70, 71, 72, 91, 92 })
+                                        50, 51, 52, 53, 54, 60, 61, 62, 63, 64, 70, 71, 72, 91, 92,
+                                        15, 16, 24, 25, 35, 36, 37, 45, 46, 47, 48, 49 })   // B10 savanna, badlands
             _flags[Materials.FromTg2(g)] |= Dissolves;
         // Crystals, meteor ore and magma crust are palette-D-bright but NOT
         // IsEmissive yet: every emissive voxel registers as a point light
@@ -605,8 +606,8 @@ public static class MaterialPalette
             0.760f, 0.603f, 0.347f,   // 140 sand
             0.739f, 0.748f, 0.760f,   // 141 snow
             0.760f, 0.676f, 0.496f,   // 142 beach sand
-            -1f, -1f, -1f,   // 143
-            -1f, -1f, -1f,   // 144
+            0.760f, 0.628f, 0.242f,   // 143 savanna grass
+            0.760f, 0.522f, 0.393f,   // 144 badlands clay
             -1f, -1f, -1f,   // 145
             -1f, -1f, -1f,   // 146
             -1f, -1f, -1f,   // 147
@@ -614,8 +615,8 @@ public static class MaterialPalette
             0.760f, 0.548f, 0.299f,   // 149 packed sand
             0.521f, 0.681f, 0.760f,   // 150 packed ice
             0.353f, 0.227f, 0.141f,   // 151 mud
-            -1f, -1f, -1f,   // 152
-            -1f, -1f, -1f,   // 153
+            0.643f, 0.325f, 0.180f,   // 152 red earth
+            0.627f, 0.392f, 0.290f,   // 153 hardpan
             -1f, -1f, -1f,   // 154
             -1f, -1f, -1f,   // 155
             -1f, -1f, -1f,   // 156
@@ -625,9 +626,9 @@ public static class MaterialPalette
             0.760f, 0.526f, 0.163f,   // 160 ochre clay
             0.639f, 0.573f, 0.541f,   // 161 granite
             0.231f, 0.204f, 0.251f,   // 162 shale
-            -1f, -1f, -1f,   // 163
-            -1f, -1f, -1f,   // 164
-            -1f, -1f, -1f,   // 165
+            0.760f, 0.642f, 0.548f,   // 163 kopje granite
+            0.431f, 0.204f, 0.141f,   // 164 ironstone
+            0.478f, 0.439f, 0.416f,   // 165 gneiss
             -1f, -1f, -1f,   // 166
             -1f, -1f, -1f,   // 167
             0.760f, 0.687f, 0.532f,   // 168 cream sandstone
@@ -635,11 +636,11 @@ public static class MaterialPalette
             0.760f, 0.418f, 0.181f,   // 170 orange sandstone
             0.431f, 0.165f, 0.149f,   // 171 maroon mudstone
             0.760f, 0.539f, 0.483f,   // 172 pink siltstone
-            -1f, -1f, -1f,   // 173
-            -1f, -1f, -1f,   // 174
-            -1f, -1f, -1f,   // 175
-            -1f, -1f, -1f,   // 176
-            -1f, -1f, -1f,   // 177
+            0.760f, 0.341f, 0.227f,   // 173 red band
+            0.760f, 0.685f, 0.572f,   // 174 cream band
+            0.760f, 0.523f, 0.215f,   // 175 ochre band
+            0.369f, 0.227f, 0.157f,   // 176 umber mudstone
+            0.361f, 0.212f, 0.267f,   // 177 plum shale
             0.247f, 0.373f, 0.600f,   // 178 blue slate
             0.760f, 0.750f, 0.727f,   // 179 marble
             0.173f, 0.192f, 0.251f,   // 180 basalt
@@ -757,8 +758,8 @@ public static class MaterialPalette
             0.910f, 0.722f, 0.416f,   // 140 sand
             0.924f, 0.935f, 0.950f,   // 141 snow
             0.925f, 0.824f, 0.604f,   // 142 beach sand
-            -1f, -1f, -1f,   // 143
-            -1f, -1f, -1f,   // 144
+            0.788f, 0.651f, 0.251f,   // 143 savanna grass
+            0.788f, 0.541f, 0.408f,   // 144 badlands clay
             -1f, -1f, -1f,   // 145
             -1f, -1f, -1f,   // 146
             -1f, -1f, -1f,   // 147
@@ -766,8 +767,8 @@ public static class MaterialPalette
             0.788f, 0.569f, 0.310f,   // 149 packed sand
             0.624f, 0.816f, 0.910f,   // 150 packed ice
             0.353f, 0.227f, 0.141f,   // 151 mud
-            -1f, -1f, -1f,   // 152
-            -1f, -1f, -1f,   // 153
+            0.643f, 0.325f, 0.180f,   // 152 red earth
+            0.627f, 0.392f, 0.290f,   // 153 hardpan
             -1f, -1f, -1f,   // 154
             -1f, -1f, -1f,   // 155
             -1f, -1f, -1f,   // 156
@@ -777,9 +778,9 @@ public static class MaterialPalette
             0.788f, 0.545f, 0.169f,   // 160 ochre clay
             0.639f, 0.573f, 0.541f,   // 161 granite
             0.231f, 0.204f, 0.251f,   // 162 shale
-            -1f, -1f, -1f,   // 163
-            -1f, -1f, -1f,   // 164
-            -1f, -1f, -1f,   // 165
+            0.761f, 0.643f, 0.549f,   // 163 kopje granite
+            0.431f, 0.204f, 0.141f,   // 164 ironstone
+            0.478f, 0.439f, 0.416f,   // 165 gneiss
             -1f, -1f, -1f,   // 166
             -1f, -1f, -1f,   // 167
             0.941f, 0.851f, 0.659f,   // 168 cream sandstone
@@ -787,11 +788,11 @@ public static class MaterialPalette
             0.871f, 0.478f, 0.208f,   // 170 orange sandstone
             0.431f, 0.165f, 0.149f,   // 171 maroon mudstone
             0.851f, 0.604f, 0.541f,   // 172 pink siltstone
-            -1f, -1f, -1f,   // 173
-            -1f, -1f, -1f,   // 174
-            -1f, -1f, -1f,   // 175
-            -1f, -1f, -1f,   // 176
-            -1f, -1f, -1f,   // 177
+            0.761f, 0.341f, 0.227f,   // 173 red band
+            0.918f, 0.827f, 0.690f,   // 174 cream band
+            0.831f, 0.573f, 0.235f,   // 175 ochre band
+            0.369f, 0.227f, 0.157f,   // 176 umber mudstone
+            0.361f, 0.212f, 0.267f,   // 177 plum shale
             0.247f, 0.373f, 0.600f,   // 178 blue slate
             0.902f, 0.890f, 0.863f,   // 179 marble
             0.173f, 0.192f, 0.251f,   // 180 basalt

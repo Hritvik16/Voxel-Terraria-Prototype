@@ -358,6 +358,8 @@ namespace TerrainGen
                 case GenBiome.Desert: return stable ? GenMat.Sand : GenMat.PackedSand;
                 case GenBiome.Snow: return stable ? GenMat.Snow : GenMat.PackedIce;
                 case GenBiome.Jungle: return GenMat.JungleGrass;
+                case GenBiome.Savanna: return GenMat.SavannaGrass;
+                case GenBiome.Badlands: return GenMat.BadlandsClay;
                 default: return GenMat.Grass;
             }
         }
@@ -369,6 +371,8 @@ namespace TerrainGen
                 case GenBiome.Desert: return GenMat.PackedSand;
                 case GenBiome.Snow: return GenMat.PackedIce;
                 case GenBiome.Jungle: return GenMat.Mud;
+                case GenBiome.Savanna: return GenMat.RedEarth;
+                case GenBiome.Badlands: return GenMat.Hardpan;
                 default: return GenMat.Loam;
             }
         }
@@ -391,7 +395,22 @@ namespace TerrainGen
             if (y + underOff < spec.UnderworldTopY) return UnderworldRock(in spec, y + underOff);
             if (y + cavernOff < spec.CavernTopY) return BiomeRock(biome, 2);
             if (y + deepOff < spec.seaLevelY - STONE_BOTTOM_BELOW_SEA) return BiomeRock(biome, 1);
+            if (biome == GenBiome.Badlands) return BadlandsBand((int)y);
             return BiomeRock(biome, 0);
+        }
+
+        /// Badlands' exposed rock (B10): flat bands by height, 3.2 m each
+        /// (y >> 5), in an 8-band, 25.6 m cycle: red, red, cream, ochre,
+        /// ochre, red, cream, red. Cliffs and the far band's steep texels
+        /// (TopMaterial -> Strata) show the stripes.
+        public static byte BadlandsBand(int y)
+        {
+            switch ((y >> 5) & 7)
+            {
+                case 2: case 6: return GenMat.CreamBand;
+                case 3: case 4: return GenMat.OchreBand;
+                default: return GenMat.RedBand;
+            }
         }
 
         /// Each biome's rock per layer (0 stone, 1 deep stone, 2 cavern rock),
@@ -405,6 +424,8 @@ namespace TerrainGen
                 case GenBiome.Desert: return layer == 0 ? GenMat.OrangeSandstone : (layer == 1 ? GenMat.RedSandstone : GenMat.MaroonMudstone);
                 case GenBiome.Snow:   return layer == 0 ? GenMat.SilverSchist : (layer == 1 ? GenMat.BlueSlate : GenMat.Basalt);
                 case GenBiome.Jungle: return layer == 0 ? GenMat.KarstLimestone : (layer == 1 ? GenMat.MossRock : GenMat.BlackBasalt);
+                case GenBiome.Savanna: return layer == 0 ? GenMat.KopjeGranite : (layer == 1 ? GenMat.Ironstone : GenMat.Gneiss);
+                case GenBiome.Badlands: return layer == 0 ? GenMat.RedBand : (layer == 1 ? GenMat.UmberMudstone : GenMat.PlumShale);
                 default:              return layer == 0 ? GenMat.Granite : (layer == 1 ? GenMat.Slate : GenMat.Shale);
             }
         }

@@ -908,7 +908,8 @@ namespace TerrainGen.Tests
 
         private const int PNG = 512;   // 16 m per pixel
 
-        private static readonly Color[] BiomeCol = { new Color(0.25f, 0.55f, 0.25f), new Color(0.92f, 0.80f, 0.50f), new Color(0.92f, 0.94f, 0.98f), new Color(0.10f, 0.45f, 0.30f) };
+        private static readonly Color[] BiomeCol = { new Color(0.25f, 0.55f, 0.25f), new Color(0.92f, 0.80f, 0.50f), new Color(0.92f, 0.94f, 0.98f), new Color(0.10f, 0.45f, 0.30f),
+                                                     new Color(0.79f, 0.65f, 0.25f), new Color(0.76f, 0.34f, 0.23f) };   // B10: savanna gold, badlands terracotta
 
         private static void WritePngs(string dir, string prefix, int n, float[] h, bool[] isLand, float[] slope, float[] relief,
                                       byte[] biome, byte[] region, byte[] water, bool[] easy, List<List<int>> towns, bool[] easyFlag, byte[] featKind = null, byte[] featEye = null)

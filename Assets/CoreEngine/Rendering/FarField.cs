@@ -218,7 +218,7 @@ namespace VoxelEngine.Rendering
                 Tg2SeaShift = Tg2World ? 0 : Tg2Spec.seaLevelY - WorldGenConstants.SEA_LEVEL_VOXEL_Y;
                 _genToEngine = new NativeArray<byte>(256, Allocator.Persistent);
                 for (int i = 0; i < 256; i++) _genToEngine[i] = GenToEngine((byte)i);
-                Debug.Log($"[FarField] tg2 {(Tg2World ? "WORLD (aligned)" : "preview")}: world map v{Tg2Spec.mapVersion} (biome x{Tg2Spec.BiomeScale}{(Tg2Map.Record != null ? $", record {Tg2Map.Record.Bytes} B" : "")}) built in {swm.ElapsedMilliseconds} ms, " +
+                Debug.Log($"[FarField] tg2 {(Tg2World ? "WORLD (aligned)" : "preview")}: world map v{Tg2Spec.mapVersion} (biome x{Tg2Spec.BiomeScale}, {Tg2Spec.BiomeSet} biomes{(Tg2Map.Record != null ? $", record {Tg2Map.Record.Bytes} B" : "")}) built in {swm.ElapsedMilliseconds} ms, " +
                           $"offset {Tg2OffsetVoxels}, sea shift {Tg2SeaShift}");
             }
             _surfaceByBiome = new NativeArray<byte>(256, Allocator.Persistent);

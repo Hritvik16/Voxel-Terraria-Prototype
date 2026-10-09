@@ -424,11 +424,13 @@ namespace TerrainGen.Tests
             Assert.That(widthKm, Is.InRange(5.0f, 7.5f), "§2.2: an island ~6 km across");
             Assert.AreEqual(0, edgeLand, "§2.2: ocean all the way to the world edge");
 
-            var counts = new int[GenBiome.Count]; int samples = 0;
+            var counts = new int[GenBiome.Count]; int samples = 0;   // a v3 world: the first V3Count only
             foreach (var c in LandColumns(4000, 3)) { counts[S(c.x + 0.5f, c.y + 0.5f).biome]++; samples++; }
-            string mix = string.Join(", ", Enumerable.Range(0, GenBiome.Count).Select(b => $"{BiomeName(b)} {100.0 * counts[b] / samples:F0}%"));
+            string mix = string.Join(", ", Enumerable.Range(0, GenBiome.V3Count).Select(b => $"{BiomeName(b)} {100.0 * counts[b] / samples:F0}%"));
             Debug.Log($"[TerrainGen] biome mix over land: {mix}");
-            for (int b = 0; b < GenBiome.Count; b++)
+            for (int b = GenBiome.V3Count; b < GenBiome.Count; b++)
+                Assert.AreEqual(0, counts[b], $"v3 produced B10 biome {b}");
+            for (int b = 0; b < GenBiome.V3Count; b++)
                 Assert.That(100.0 * counts[b] / samples, Is.InRange(8.0, 50.0), $"biome {BiomeName(b)} share out of range: {mix}");
         }
 
@@ -710,9 +712,10 @@ namespace TerrainGen.Tests
             File.WriteAllLines(Path.Combine(dir, name), lines);
         }
 
-        private static string BiomeName(int b) => b == 0 ? "forest" : b == 1 ? "desert" : b == 2 ? "snow" : "jungle";
+        private static string BiomeName(int b) => b == 0 ? "forest" : b == 1 ? "desert" : b == 2 ? "snow" : b == 3 ? "jungle" : b == 4 ? "savanna" : "badlands";
         private static Color BiomeColour(byte b) => b == GenBiome.Forest ? new Color(0.36f, 0.62f, 0.24f)
             : b == GenBiome.Desert ? new Color(0.89f, 0.76f, 0.50f)
-            : b == GenBiome.Snow ? new Color(0.90f, 0.93f, 0.97f) : new Color(0.20f, 0.52f, 0.20f);
+            : b == GenBiome.Snow ? new Color(0.90f, 0.93f, 0.97f) : b == GenBiome.Savanna ? new Color(0.79f, 0.65f, 0.25f)
+            : b == GenBiome.Badlands ? new Color(0.76f, 0.34f, 0.23f) : new Color(0.20f, 0.52f, 0.20f);
     }
 }

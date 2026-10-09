@@ -24,18 +24,27 @@ namespace TerrainGen
         public const byte Sand = 12;          // falling solid: only on slopes <= 45 deg
         public const byte Snow = 13;          // powder snow: falling solid, same rule
         public const byte BeachSand = 14;
+        public const byte SavannaGrass = 15;  // B10 (map v4): dry golden grass
+        public const byte BadlandsClay = 16;  // B10: bare cracked clay on gentle badlands ground
 
         // ---- soils ----
         public const byte Loam = 20;
         public const byte PackedSand = 21;
         public const byte PackedIce = 22;
         public const byte Mud = 23;
+        public const byte RedEarth = 24;      // B10: savanna soil
+        public const byte Hardpan = 25;       // B10: badlands soil
 
         // ---- strata, per biome (§2.6), 5 each, top of the band cycle first ----
         public const byte Limestone = 30, Slate = 31, OchreClay = 32, Granite = 33, Shale = 34;             // forest
         public const byte CreamSandstone = 40, RedSandstone = 41, OrangeSandstone = 42, MaroonMudstone = 43, PinkSiltstone = 44; // desert
         public const byte BlueSlate = 50, Marble = 51, Basalt = 52, TealQuartzite = 53, SilverSchist = 54;  // snow
         public const byte KarstLimestone = 60, BlackBasalt = 61, Laterite = 62, MossRock = 63, JadeSerpentine = 64; // jungle
+        // B10 (map v4), in the gaps after forest's and desert's sets: savanna's rock per
+        // depth layer, and badlands' three exposed bands (layer 0 cycles them by height)
+        // plus its deep and cavern rock.
+        public const byte KopjeGranite = 35, Ironstone = 36, Gneiss = 37;                                    // savanna
+        public const byte RedBand = 45, CreamBand = 46, OchreBand = 47, UmberMudstone = 48, PlumShale = 49; // badlands
 
         // ---- depth layers, shared by every biome (§2.2) ----
         public const byte Deepstone = 70;
@@ -62,6 +71,10 @@ namespace TerrainGen
     public static class GenBiome
     {
         public const byte Forest = 0, Desert = 1, Snow = 2, Jungle = 3;
-        public const int Count = 4;
+        /// B10 (map v4 only, TerrainSpec.BiomeSet 6): v3 never produces them.
+        public const byte Savanna = 4, Badlands = 5;
+        public const int Count = 6;
+        /// The biomes a v3 world (and a v4 world on BiomeSet 4) can contain.
+        public const int V3Count = 4;
     }
 }

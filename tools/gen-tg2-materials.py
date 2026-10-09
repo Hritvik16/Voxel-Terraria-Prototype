@@ -21,13 +21,17 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from palette_defs import PALETTES, NAMES  # noqa: E402
+from palette_defs import PALETTES, NAMES, B10_CANDIDATES  # noqa: E402
 
 TG2_BASE = 128
 CAP = 0.76        # MaterialPalette (look 0, linear-authored mid values)
 CAP_LOOK = 0.95   # the look-1 palette (display space; its snow is 0.93)
 FLUIDS = {1, 2, 3, 4, 5, 6, 7}
-D = PALETTES["D"][2]
+D = dict(PALETTES["D"][2])
+# --b10 <key>: write a B10 savanna/badlands colour candidate instead of the
+# shipped one (palette_defs.B10_SHIPPED), to render it in the engine.
+if "--b10" in sys.argv:
+    D.update(B10_CANDIDATES[sys.argv[sys.argv.index("--b10") + 1]][1])
 
 
 def capped(rgb, cap):

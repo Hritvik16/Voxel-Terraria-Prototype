@@ -61,6 +61,13 @@ namespace TerrainGen
         /// rest 3:2. 0 = the version's default (0.50 on v4). IGNORED below v4.
         /// Read it through GentleShare, never directly.
         public float gentleShare;
+        /// Map v4 (surface rebuild B10, owner Q10 (a)): which biome field. 6 =
+        /// forest, desert, snow, jungle, savanna, badlands on a one-octave
+        /// climate (ShapeField.Biome); 4 = B1-B8's four-biome field, kept so
+        /// the change is reversible and B8's maps can be redrawn. 0 = the
+        /// version's default (6 on v4). IGNORED below v4. Read it through
+        /// BiomeSet, never directly.
+        public int biomeSet;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -92,9 +99,17 @@ namespace TerrainGen
         }
 
         public const float V4_BIOME_SCALE = 3f;
+        /// B10: six biomes on a one-octave climate need x3.25 to keep a biome
+        /// change walking east-west >= 900 m on seeds 42/7/2026/31337.
+        public const float V4_BIOME_SCALE_6 = 3.25f;
+        public const int V4_BIOME_SET = 6;
+
+        /// The biome field in force (see biomeSet): 4 below v4.
+        public int BiomeSet => mapVersion >= 4 ? (biomeSet > 0 ? biomeSet : V4_BIOME_SET) : 4;
 
         /// The biome wavelength multiplier actually in force (see biomeScale).
-        public float BiomeScale => mapVersion >= 4 ? (biomeScale > 0f ? biomeScale : V4_BIOME_SCALE) : 1f;
+        public float BiomeScale => mapVersion >= 4
+            ? (biomeScale > 0f ? biomeScale : (BiomeSet == 6 ? V4_BIOME_SCALE_6 : V4_BIOME_SCALE)) : 1f;
 
         public const float V4_GENTLE_SHARE = 0.50f;
 

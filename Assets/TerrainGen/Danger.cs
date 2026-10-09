@@ -17,9 +17,9 @@
 //   landform  Regions.ClassOf: gentle 0, broken 1, steep 2
 //   biome     per GenBiome id. The plan's rows: forest, savanna 0; alpine taiga,
 //             badlands 1; jungle, desert, snow 2; volcanic ashlands 3. Savanna and
-//             badlands (B10), alpine taiga and ashlands have no GenBiome id yet;
-//             they take their row when they get one. A biome with no row throws:
-//             a new biome must be given a tier.
+//             badlands got ids in B10; alpine taiga and ashlands have none yet and
+//             take their row when they get one. A biome with no row throws: a new
+//             biome must be given a tier.
 // Sea cells (map height <= 0) carry hazard 0: read the archetype (IsSea) first.
 // Lakes and rivers are land and are rated like the ground under them; a land
 // cell the layout left outside every region (Region 255) rates as gentle.
@@ -60,9 +60,10 @@ namespace TerrainGen
             altitude = new byte[] { 0, 1, 2 },
             landform = new byte[] { 0, 1, 2 },
             biome = BiomeRows(
-                (GenBiome.Forest, 0),              // savanna 0 when it gets an id (B10)
+                (GenBiome.Forest, 0), (GenBiome.Savanna, 0),
+                (GenBiome.Badlands, 1),            // alpine taiga 1 when it gets an id
                 (GenBiome.Jungle, 2), (GenBiome.Desert, 2), (GenBiome.Snow, 2)),
-                                                   // alpine taiga 1, badlands 1 (B10), volcanic ashlands 3
+                                                   // volcanic ashlands 3
         };
 
         private static byte[] BiomeRows(params (byte id, byte tier)[] rows)

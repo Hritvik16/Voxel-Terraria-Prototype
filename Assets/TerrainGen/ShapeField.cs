@@ -216,6 +216,7 @@ namespace TerrainGen
         public static byte Biome(in Offsets o, float2 p)
         {
             float s = o.biomeScale > 0f ? o.biomeScale : 1f;
+            if (o.biomeSet == 6) return Biome6(in o, p, s);
             float t = Noise.Fbm(p / (15000f * s) + o.tempA, 3) * 2.4f;
             float m = Noise.Fbm(p / (12000f * s) + o.moistA, 3) * 2.4f;
             // centres: forest (0, 0), desert (0.8, -0.8), snow (-0.9, 0.1), jungle (0.8, 0.8)
@@ -227,6 +228,34 @@ namespace TerrainGen
             if (dd < best) { best = dd; b = GenBiome.Desert; }
             if (ds < best) { best = ds; b = GenBiome.Snow; }
             if (dj < best) { b = GenBiome.Jungle; }
+            return b;
+        }
+
+        /// Map v4's six biomes (B10, TerrainSpec.BiomeSet 6). One octave of
+        /// climate (the 2nd and 3rd octaves only added km-scale meanders --
+        /// extra biome changes -- at x3, never detail a player sees at 100 m)
+        /// at amplitude 1.6, so the climate stays nearer the forest centre than
+        /// v3's 2.4 three-octave field. The four old centres are unchanged;
+        ///   savanna  (0.8, 0)     hot, between desert's dryness and jungle's wet
+        ///   badlands (-0.3, -0.8) dry and cool-temperate: the cold side of desert
+        /// Shares on land at x3.25 (seeds 42/7/2026/31337): savanna 9/11/20/4%,
+        /// badlands 8/11/15/32%.
+        private static byte Biome6(in Offsets o, float2 p, float s)
+        {
+            float t = Noise.Fbm(p / (15000f * s) + o.tempA, 1) * 1.6f;
+            float m = Noise.Fbm(p / (12000f * s) + o.moistA, 1) * 1.6f;
+            float df = t * t + m * m;
+            float dd = (t - 0.8f) * (t - 0.8f) + (m + 0.8f) * (m + 0.8f);
+            float ds = (t + 0.9f) * (t + 0.9f) + (m - 0.1f) * (m - 0.1f);
+            float dj = (t - 0.8f) * (t - 0.8f) + (m - 0.8f) * (m - 0.8f);
+            float dv = (t - 0.8f) * (t - 0.8f) + m * m;
+            float db = (t + 0.3f) * (t + 0.3f) + (m + 0.8f) * (m + 0.8f);
+            byte b = GenBiome.Forest; float best = df;
+            if (dd < best) { best = dd; b = GenBiome.Desert; }
+            if (ds < best) { best = ds; b = GenBiome.Snow; }
+            if (dj < best) { best = dj; b = GenBiome.Jungle; }
+            if (dv < best) { best = dv; b = GenBiome.Savanna; }
+            if (db < best) { b = GenBiome.Badlands; }
             return b;
         }
 

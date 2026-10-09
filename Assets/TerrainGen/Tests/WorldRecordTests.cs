@@ -14,7 +14,13 @@
 //   Larger biomes   biome change walking east-west >= 2.5x v3 (owner Q5) on all
 //                   four seeds, computed on the shared v3 maps (the biome field
 //                   does not read the map; v4's coast is v3's).
+//   Six biomes      B10 (owner Q10 (a)): savanna and badlands on v4. B1's numbers
+//                   for the new set -- change walking E-W >= 900 m, area-weighted
+//                   median patch >= 50 ha -- each new biome on >= 3 of 4 seeds,
+//                   v4 on biomeSet 4 is B8's field exactly. Report + B8|B10 PNGs.
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using NUnit.Framework;
 using Unity.Mathematics;
 
@@ -60,7 +66,13 @@ namespace TerrainGen.Tests
                 }
                 Assert.AreEqual(0, diff, $"seed {seed}: v3 biomes changed");
             }
-            Assert.AreEqual(3f, TerrainSpec.SizeClass2(1u, 4).BiomeScale, "v4 default is x3");
+            var v4 = TerrainSpec.SizeClass2(1u, 4);
+            Assert.AreEqual(6, v4.BiomeSet, "v4 default is B10's six biomes");
+            Assert.AreEqual(3.25f, v4.BiomeScale, "v4's six-biome default is x3.25");
+            v4.biomeSet = 4;
+            Assert.AreEqual(3f, v4.BiomeScale, "v4 on B1-B8's four biomes stays x3");
+            var v3b = TerrainSpec.SizeClass2(1u); v3b.biomeSet = 6;
+            Assert.AreEqual(4, v3b.BiomeSet, "biomeSet is ignored below v4");
             Assert.AreEqual(3, TerrainSpec.SizeClass2(1u, 0).mapVersion, "mapVersion 0 keeps the default (v3)");
         }
 
@@ -164,6 +176,154 @@ namespace TerrainGen.Tests
                 Assert.GreaterOrEqual(m4, 2.5f * m3, $"seed {seed}: v4 biome change {m4:F0} m < 2.5 x v3's {m3:F0} m");
             }
             UnityEngine.Debug.Log("[WorldRecord] biome change E-W\n" + string.Join("\n", lines));
+        }
+
+        [Test]
+        [Category("Slow")]   // the four shared v4 maps
+        public void V4SixBiomes_B10Gates()
+        {
+            const float PRESENT = 0.01f;   // a biome is present on a seed with >= 1% of its land
+            var report = new System.Text.StringBuilder();
+            report.AppendLine("=== B10: map v4 with six biomes (biomeSet 6, x3.25, one-octave climate) against B8's four (biomeSet 4, x3)");
+            report.AppendLine("Land = map height > 0. Change = land metres walked east-west per biome change (rows every 32 m). Patch = 4-connected land of one biome; median is area-weighted (B1's reading).");
+            report.AppendLine("  seed    change m B8 -> B10   area-wtd median ha B8 -> B10   shares of land (forest desert snow jungle savanna badlands)   biome plane ms B8 / B10   map build s v3 / v4");
+            var fails = new System.Text.StringBuilder();
+            int savSeeds = 0, badSeeds = 0;
+            string dir = Path.Combine(Directory.GetCurrentDirectory(), "Logs", "TerrainGen", "playmetrics");
+            Directory.CreateDirectory(dir);
+            foreach (uint seed in Seeds)
+            {
+                var spec6 = TerrainSpec.SizeClass2(seed, 4);
+                var e4 = SharedMaps.GetEntry(spec6);
+                var map = e4.Map;
+                var spec4 = spec6; spec4.biomeSet = 4;
+                int n = spec6.mapCells;
+
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                byte[] b8 = WorldRecord.BiomePlane(spec4);
+                double ms8 = sw.Elapsed.TotalMilliseconds; sw.Restart();
+                byte[] b10 = WorldRecord.BiomePlane(spec6);
+                double ms10 = sw.Elapsed.TotalMilliseconds;
+
+                // the record carries the B10 field; biomeSet 4 is B8's formula
+                int recBad = 0, b8Bad = 0;
+                var o4 = Offsets.For(in spec4);
+                for (int i = 0; i < n * n; i++)
+                {
+                    if (map.Record.Data[i].Biome != b10[i]) recBad++;
+                    if ((i & 63) == 0 && b8[i] != BiomeFour(in o4, new float2(((i % n) + 0.5f) * spec6.mapCellVoxels, ((i / n) + 0.5f) * spec6.mapCellVoxels))) b8Bad++;
+                }
+                if (recBad > 0) fails.AppendLine($"seed {seed}: {recBad} record cells differ from the B10 biome plane");
+                if (b8Bad > 0) fails.AppendLine($"seed {seed}: biomeSet 4 differs from B8's four-biome field at {b8Bad} cells");
+
+                var isLand = new bool[n * n]; long land = 0;
+                for (int i = 0; i < n * n; i++) { isLand[i] = map.Height[i] > 0f; if (isLand[i]) land++; }
+                float c8 = Change(isLand, b8, n, spec6.mapCellVoxels / 10f), c10 = Change(isLand, b10, n, spec6.mapCellVoxels / 10f);
+                float p8 = AreaMedianHa(isLand, b8, n, spec6.mapCellVoxels / 10f), p10 = AreaMedianHa(isLand, b10, n, spec6.mapCellVoxels / 10f);
+                var share = new double[GenBiome.Count];
+                for (int i = 0; i < n * n; i++) if (isLand[i]) share[b10[i]]++;
+                for (int k = 0; k < share.Length; k++) share[k] /= land;
+                if (share[GenBiome.Savanna] >= PRESENT) savSeeds++;
+                if (share[GenBiome.Badlands] >= PRESENT) badSeeds++;
+                double build3 = SharedMaps.GetEntry(TerrainSpec.SizeClass2(seed)).BuildMs / 1000.0, build4 = e4.BuildMs / 1000.0;
+
+                report.AppendLine($"  {seed,-6}  {c8,6:F0} -> {c10,6:F0}          {p8,6:F0} -> {p10,6:F0}                 " +
+                                  string.Join(" ", share.Select(v => $"{100 * v,4:F1}%")) + $"                {ms8,5:F0} / {ms10,5:F0}             {build3:F1} / {build4:F1}");
+                if (c10 < 900f) fails.AppendLine($"seed {seed}: biome change walking east-west {c10:F0} m < 900 m");
+                if (p10 < 50f) fails.AppendLine($"seed {seed}: area-weighted median biome patch {p10:F0} ha < 50 ha");
+                if (map.Record.Bytes > 7L * 1000 * 1000) fails.AppendLine($"seed {seed}: record {map.Record.Bytes} B > 7 MB");
+
+                WriteB8B10(Path.Combine(dir, $"seed{seed}_b8_b10_biome.png"), n, isLand, map.WaterClass, b8, b10);
+            }
+            report.AppendLine($"savanna present (>= {100 * PRESENT:F0}% of land) on {savSeeds} of 4 seeds, badlands on {badSeeds} of 4 (want >= 3 each)");
+            if (savSeeds < 3) fails.AppendLine($"savanna present on only {savSeeds} of 4 seeds");
+            if (badSeeds < 3) fails.AppendLine($"badlands present on only {badSeeds} of 4 seeds");
+            File.WriteAllText(Path.Combine(dir, "b10_biomes.txt"), report.ToString() + (fails.Length > 0 ? "FAIL\n" + fails : "PASS\n"));
+            UnityEngine.Debug.Log("[WorldRecord] B10\n" + report);
+            Assert.AreEqual("", fails.ToString(), fails.ToString());
+        }
+
+        /// ShapeField.Biome's four-biome formula at a given scale (B1-B8).
+        private static byte BiomeFour(in Offsets o, float2 p)
+        {
+            float s = o.biomeScale;
+            float t = Noise.Fbm(p / (15000f * s) + o.tempA, 3) * 2.4f;
+            float m = Noise.Fbm(p / (12000f * s) + o.moistA, 3) * 2.4f;
+            float df = t * t + m * m;
+            float dd = (t - 0.8f) * (t - 0.8f) + (m + 0.8f) * (m + 0.8f);
+            float ds = (t + 0.9f) * (t + 0.9f) + (m - 0.1f) * (m - 0.1f);
+            float dj = (t - 0.8f) * (t - 0.8f) + (m - 0.8f) * (m - 0.8f);
+            byte b = GenBiome.Forest; float best = df;
+            if (dd < best) { best = dd; b = GenBiome.Desert; }
+            if (ds < best) { best = ds; b = GenBiome.Snow; }
+            if (dj < best) { b = GenBiome.Jungle; }
+            return b;
+        }
+
+        private static float Change(bool[] isLand, byte[] biome, int n, float cellM)
+        {
+            long walked = 0; int changes = 0;
+            for (int z = 0; z < n; z += 4)
+            for (int x = 0; x + 1 < n; x++)
+            {
+                int a = z * n + x;
+                if (!isLand[a] || !isLand[a + 1]) continue;
+                walked++;
+                if (biome[a] != biome[a + 1]) changes++;
+            }
+            return changes > 0 ? walked * cellM / changes : float.PositiveInfinity;
+        }
+
+        /// Area-weighted median of 4-connected same-biome land patches, in ha.
+        private static float AreaMedianHa(bool[] isLand, byte[] biome, int n, float cellM)
+        {
+            var seen = new bool[n * n]; var sizes = new List<int>(); var stack = new Stack<int>();
+            for (int s0 = 0; s0 < n * n; s0++)
+            {
+                if (!isLand[s0] || seen[s0]) continue;
+                int count = 0; seen[s0] = true; stack.Push(s0);
+                while (stack.Count > 0)
+                {
+                    int i = stack.Pop(); count++;
+                    int x = i % n, z = i / n;
+                    void Try(int j) { if (isLand[j] && !seen[j] && biome[j] == biome[i]) { seen[j] = true; stack.Push(j); } }
+                    if (x > 0) Try(i - 1); if (x < n - 1) Try(i + 1); if (z > 0) Try(i - n); if (z < n - 1) Try(i + n);
+                }
+                sizes.Add(count);
+            }
+            sizes.Sort();
+            double total = sizes.Sum(v => (double)v), acc = 0, ha = cellM * cellM / 10000.0;
+            foreach (int v in sizes) { acc += v; if (acc >= total * 0.5) return (float)(v * ha); }
+            return 0f;
+        }
+
+        private static readonly UnityEngine.Color[] B10Col =
+        {
+            new UnityEngine.Color(0.25f, 0.55f, 0.25f), new UnityEngine.Color(0.92f, 0.80f, 0.50f), new UnityEngine.Color(0.92f, 0.94f, 0.98f),
+            new UnityEngine.Color(0.10f, 0.45f, 0.30f), new UnityEngine.Color(0.79f, 0.65f, 0.25f), new UnityEngine.Color(0.76f, 0.34f, 0.23f),
+        };
+
+        /// Left B8 (four biomes), right B10 (six), 512 px each (16 m / px); sea
+        /// dark blue, lakes and rivers light blue.
+        private static void WriteB8B10(string path, int n, bool[] isLand, byte[] waterClass, byte[] b8, byte[] b10)
+        {
+            const int P = 512, GAP = 8; int k = n / P;
+            var tex = new UnityEngine.Texture2D(2 * P + GAP, P, UnityEngine.TextureFormat.RGB24, false);
+            var px = new UnityEngine.Color32[(2 * P + GAP) * P];
+            for (int i = 0; i < px.Length; i++) px[i] = new UnityEngine.Color32(255, 255, 255, 255);
+            for (int panel = 0; panel < 2; panel++)
+            for (int y = 0; y < P; y++)
+            for (int x = 0; x < P; x++)
+            {
+                int i = (y * k) * n + x * k;
+                UnityEngine.Color c = !isLand[i] ? new UnityEngine.Color(0.10f, 0.20f, 0.35f)
+                    : (waterClass[i] == Hydrology.LAKE || waterClass[i] == Hydrology.RIVER) ? new UnityEngine.Color(0.45f, 0.65f, 0.90f)
+                    : B10Col[(panel == 0 ? b8 : b10)[i]];
+                px[y * (2 * P + GAP) + panel * (P + GAP) + x] = c;
+            }
+            tex.SetPixels32(px); tex.Apply();
+            File.WriteAllBytes(path, UnityEngine.ImageConversion.EncodeToPNG(tex));
+            UnityEngine.Object.DestroyImmediate(tex);
         }
 
         /// PlayMetricsReport's metric: land metres walked east-west per biome

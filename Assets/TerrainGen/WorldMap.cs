@@ -959,6 +959,9 @@ namespace TerrainGen
         /// struct) is read as 1. A v4 world's Offsets MUST come from For(spec),
         /// or its biomes silently fall back to v3's.
         public float biomeScale;
+        /// TerrainSpec.BiomeSet (B10): 6 = the six-biome field; anything else
+        /// (0 from For(seed) or a default struct) = the four-biome field.
+        public int biomeSet;
         /// Map v4 (B5): the drawn volcano's site (Features.VolcanoSite; off the
         /// map when none was drawn), valid when v4Sites != 0. Only For(spec)
         /// sets it: Stamps.Column reads it per voxel column under Burst.
@@ -971,6 +974,7 @@ namespace TerrainGen
         {
             var o = For(spec.seed);
             o.biomeScale = spec.BiomeScale;
+            o.biomeSet = spec.BiomeSet;
             if (spec.mapVersion >= 4) { o.volcanoV4 = Features.VolcanoSite(in spec, in o); o.v4Sites = 1; }
             return o;
         }

@@ -135,10 +135,18 @@ namespace TerrainGen
         /// Voxels round an S-level stamp's site a route keeps out of: the
         /// stamp's reach in Stamps.Column plus one 8 m cell; 0 = a map-level
         /// stamp (the crater's bowl is in the map, so in the cost already).
+        /// A fossil reaches past its skull (200): ribs out to 1,000 along +dir,
+        /// +-240 across (Stamps.Column), so its disc is centred 400 along the
+        /// axis (B10: a re-routed seed 42 link ran under the ribs 64 m from
+        /// the skull, which the old 280 round the site missed).
         public static float StampKeepOut(byte kind) =>
             kind == Stamps.CaveMouth ? 150f : kind == Stamps.Fissure ? 680f : kind == Stamps.Arch ? 330f
           : kind == Stamps.Hoop ? 280f : kind == Stamps.StoneRing ? 360f : kind == Stamps.CrystalCluster ? 300f
-          : kind == Stamps.Fossil ? 280f : 0f;
+          : kind == Stamps.Fossil ? 730f : 0f;
+
+        /// The centre of StampKeepOut's disc: the site, or a fossil's rib cage.
+        public static float2 StampKeepOutCentre(in Stamps.Stamp s) =>
+            s.kind == Stamps.Fossil ? s.pos + s.dir * 400f : s.pos;
 
         /// Diagnostics of the last Build.
         public static string LastBuild = "";
@@ -193,7 +201,7 @@ namespace TerrainGen
             int sc = spec.worldSizeVoxels >> Stamps.CELL_SHIFT;
             for (int gz = 0; gz <= sc; gz++)
             for (int gx = 0; gx <= sc; gx++)
-                if (Stamps.CellStamp(in o2, gx, gz, out var st) && StampKeepOut(st.kind) > 0f) KeepOut(st.pos, StampKeepOut(st.kind));
+                if (Stamps.CellStamp(in o2, gx, gz, out var st) && StampKeepOut(st.kind) > 0f) KeepOut(StampKeepOutCentre(in st), StampKeepOut(st.kind));
             for (int j = 0; j < 9; j++) KeepOut(Stamps.PoolCentre(in spec, in o2, j), POOL_KEEP_OUT);
 
             // ---- 2. what sees each area; one search per pair ----
