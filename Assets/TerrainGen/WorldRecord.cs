@@ -19,7 +19,10 @@
 //   biome      lo nibble GenBiome (4 today, room for 16); hi nibble spare
 //   freshWater distance to the nearest LAKE or RIVER cell (WorldMap.WaterClass,
 //              kept as is), WATER_STEP_M steps; WATER_FAR (250) = 4 km or more
-//   hazard     bits 0-2 base danger (B6), bits 3-4 movement band (B6) -- zero
+//   hazard     B6 (Danger.cs): bits 0-2 base danger 0-7 (altitude + landform
+//              + biome tier, from Danger's data table), bits 3-4 movement band
+//              (Walk / Scramble / Climb / Sheer from the 8 m map slope); 0 on
+//              sea cells; bits 5-7 zero
 //   flags      bit 0 FLAG_EASY (B4: the cell is easy ground inside a seeded
 //              easy area, EasyAreas.cs); bit 1 FLAG_FEATURE (B5: the cell is
 //              on a signature feature's footprint, Features.cs; never both);
@@ -149,6 +152,7 @@ namespace TerrainGen
             for (int i = 0; i < d.Length; i++) rec.Data[i].biome = biomes[i];
             Features.Mark(map, rec);   // before the easy areas: they skip feature cells
             EasyAreas.Mark(map, rec);
+            Danger.Mark(map, rec);
             return rec;
         }
 

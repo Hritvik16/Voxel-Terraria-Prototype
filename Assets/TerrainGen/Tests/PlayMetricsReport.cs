@@ -31,9 +31,9 @@
 //                (a +-250 m window gives 0.1% / 94.7%, clamping the sea floor
 //                to sea level 3.3% / 85.6%).
 //   landform     the plan's rule 2 classes of Regions' archetypes.
-//   bands        Walk < 15, Scramble 15-30, Climb 30-45, Sheer > 45 deg.
-//                PROVISIONAL: the plan names the bands but not their angles;
-//                these use the review's own 15/45 cut points. B6 fixes them.
+//   bands        Walk < 15, Scramble 15-30, Climb 30-45, Sheer >= 45 deg: the
+//                review's own 15/45 cut points, fixed by B6 in Danger.cs (the
+//                one place they live; the record's band compares tan^2 there).
 //   easy areas   (B4, v4) the world record's FLAG_EASY cells: easy ground (next
 //                entry) inside the seeded easy areas only (EasyAreas.cs). This is
 //                B4's acceptance share; easy ground anywhere is ~25% of v4 land.
@@ -67,7 +67,7 @@ namespace TerrainGen.Tests
     {
         private static readonly uint[] DefaultSeeds = { 42u, 7u, 2026u, 31337u };
 
-        private const float WALK = 15f, SCRAMBLE = 30f, CLIMB = 45f;   // band upper edges, degrees
+        private const float WALK = Danger.WALK_DEG, SCRAMBLE = Danger.SCRAMBLE_DEG, CLIMB = Danger.CLIMB_DEG;   // band upper edges, degrees
         private const float OPEN_M = 20f, MOUNTAIN_M = 80f, RELIEF_WINDOW_M = 250f;
         private const float TOWN_SLOPE = 8f, TOWN_HA = 4f;
         private static readonly float[] TownSlopeSweep = { 5f, 6f, 7f, 8f, 10f };
@@ -666,7 +666,7 @@ namespace TerrainGen.Tests
             return g;
         }
 
-        private static int Band(float s) => s < WALK ? 0 : s < SCRAMBLE ? 1 : s < CLIMB ? 2 : 3;
+        private static int Band(float s) => Danger.BandOfDegrees(s);
 
         private static float Median(List<float> v)
         {

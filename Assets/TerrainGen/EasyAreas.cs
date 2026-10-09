@@ -89,8 +89,8 @@ namespace TerrainGen
         /// are meant to lie apart.
         public const float SPREAD = 0.05f;
         public const float SPREAD_CAP = 30000f;
-        /// Walk band: tan(15 deg)^2, compared against the squared 8 m gradient.
-        public const float WALK_TAN2 = 0.0717967697f;
+        /// Walk band: tan(15 deg)^2, compared against the squared 8 m gradient (Danger.cs holds the bands).
+        public const float WALK_TAN2 = Danger.WALK_TAN2;
 
         public struct Site { public float2 centre; public float level; }
 
@@ -337,12 +337,7 @@ namespace TerrainGen
             byte reg = map.Region[i];
             if (reg == 255 || Regions.ClassOf(reg) != Regions.Gentle) return 3;
             if (map.WaterClass[i] != Hydrology.DRY) return 4;
-            int n = map.Spec.mapCells, x = i & (n - 1), z = i / n;
-            int x0 = math.max(x - 1, 0), x1 = math.min(x + 1, n - 1);
-            int z0 = math.max(z - 1, 0), z1 = math.min(z + 1, n - 1);
-            float gx = (h[z * n + x1] - h[z * n + x0]) / ((x1 - x0) * map.Spec.mapCellVoxels);
-            float gz = (h[z1 * n + x] - h[z0 * n + x]) / ((z1 - z0) * map.Spec.mapCellVoxels);
-            return gx * gx + gz * gz < WALK_TAN2 ? 0 : 5;
+            return Danger.SlopeTan2(h, map.Spec.mapCells, map.Spec.mapCellVoxels, i) < WALK_TAN2 ? 0 : 5;
         }
     }
 }
