@@ -96,8 +96,12 @@ public partial class PlaygroundCapture
         // B4 (2026-10-08): ground far below the start eye is not resident, so
         // stand at the map ground first and read the voxel top there -- the eye
         // heights are then over the exact ground, not over the map's 8 m surface.
-        if (top == int.MinValue)
+        // B5 (2026-10-08): a fixed start height can be INSIDE a mountain (the
+        // store's top found there is rock, not the ground): stand at the map
+        // ground then too.
+        if (top == int.MinValue || mapTop > (top + 1) * 0.1f + 5f)
         {
+            top = int.MinValue;
             pos = new Vector3(px, mapTop + 2f, pz);
             yield return Settle();
             for (int y = (int)math.floor((mapTop + 30f) * 10f); y > (int)math.floor((mapTop - 30f) * 10f); y--)

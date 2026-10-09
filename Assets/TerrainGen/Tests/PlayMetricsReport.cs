@@ -527,10 +527,18 @@ namespace TerrainGen.Tests
                                  $"{(f.wayDown ? "  WAY DOWN" : "")}  seen by {vis.seenBy[k]} of {vis.eyes} eyes" +
                                  (f.kind == Features.Mesa ? $"  top {(f.baseH + f.rise) / 10f:F0} m (rise {f.rise / 10f:F0} m)" :
                                   f.kind == Features.CraterLake ? $"  bowl r {f.R / 10f:F0} m depth {f.B / 10f:F0} m rim {f.rise / 10f:F0} m" :
-                                  f.kind == Features.GreatCanyon ? $"  length {(f.path.Length - 1) * Features.CANYON_STEP / 10f:F0} m, floor {f.floor[0] / 10f:F0} -> {f.floor[f.floor.Length - 1] / 10f:F0} m" : ""));
-                    if (Shot(map, f, 20000f, out float2 eye, out int seen))
-                        shots.AppendLine($"f{k + 1}_{Features.Name(f.kind).Replace(' ', '_')} {eye.x / 10f:F1} {eye.y / 10f:F1} {f.centre.x / 10f:F1} {f.centre.y / 10f:F1}  # {seen} targets in sight, 2 km");
-                    else shots.AppendLine($"# f{k + 1} {Features.Name(f.kind)}: no dry vantage 2 km out with a target in sight");
+                                  f.kind == Features.GreatCanyon ? CanyonText(f, map) : ""));
+                    string fn = $"f{k + 1}_{Features.Name(f.kind).Replace(' ', '_')}";
+                    if (f.path != null && RimShot(map, f, out float2 re, out float2 rl, out float rd))
+                        shots.AppendLine($"{fn}_rim {re.x / 10f:F1} {re.y / 10f:F1} {rl.x / 10f:F1} {rl.y / 10f:F1}  # on the rim at its deepest ({rd:F0} m), looking at the far wall");
+                    bool any = false;
+                    foreach (float dist in new[] { 20000f, 17500f, 22500f, 15000f, 25000f })
+                        if (Shot(map, f, dist, out float2 eye, out int seen) && seen >= 3)
+                        {
+                            shots.AppendLine($"{fn} {eye.x / 10f:F1} {eye.y / 10f:F1} {f.centre.x / 10f:F1} {f.centre.y / 10f:F1}  # {seen} targets in sight, {dist / 10000f:F2} km");
+                            any = true; break;
+                        }
+                    if (!any) shots.AppendLine($"# {fn}: no dry vantage 1.5-2.5 km out with 3+ targets in sight");
                 }
                 // the far-band shot: the tallest raised feature from ~4.5 km
                 var tall = ff.Where(x => x.kind == Features.GreatPeak).Concat(ff.Where(x => x.kind == Features.Volcano)).Concat(ff.Where(x => x.kind == Features.Mesa)).FirstOrDefault();
@@ -972,6 +980,32 @@ namespace TerrainGen.Tests
                 if (c > seen) { seen = c; eye = e; }
             }
             return seen > 0;
+        }
+
+        private static string CanyonText(Feature f, WorldMap map)
+        {
+            Features.CanyonDepth(f, map, out float mx, out float md);
+            return $"  length {(f.path.Length - 1) * Features.CANYON_STEP / 10f:F0} m, floor {f.floor[0] / 10f:F0} -> {f.floor[f.floor.Length - 1] / 10f:F0} m, depth max {mx:F0} m median {md:F0} m";
+        }
+
+        /// A canyon from its rim: at the deepest path point, the eye on the
+        /// higher rim (60 m past the half width), looking across at the far wall.
+        private static bool RimShot(WorldMap map, Feature f, out float2 eye, out float2 look, out float depthM)
+        {
+            eye = default; look = default; depthM = 0f;
+            int n = map.Spec.mapCells, cv = map.Spec.mapCellVoxels;
+            int I(float2 p) => math.clamp((int)(p.y / cv), 0, n - 1) * n + math.clamp((int)(p.x / cv), 0, n - 1);
+            for (int k = 0; k + 3 < f.path.Length; k++)
+            {
+                float2 a = f.path[k], dir = math.normalizesafe(f.path[k + 1] - a), side = new float2(-dir.y, dir.x);
+                float2 l = a + side * (f.halfW[k] + 600f), r = a - side * (f.halfW[k] + 600f);
+                bool left = map.Height[I(l)] >= map.Height[I(r)];
+                float2 e = left ? l : r;
+                float d = (map.Height[I(e)] - map.Height[I(a)]) / 10f;
+                if (d > depthM && map.WaterClass[I(e)] == Hydrology.DRY && !map.Record.Data[I(e)].IsEasy)
+                { depthM = d; eye = e; look = a - (left ? side : -side) * f.halfW[k]; }
+            }
+            return depthM > 0f;
         }
 
         /// "Signature peaks stay broad": the summit, and the mean ground 150 /

@@ -99,7 +99,8 @@ namespace TerrainGen.Tests
                 if (perSite[k + 1] != f[k].cellCount) fail.Add($"site {k + 1}: {perSite[k + 1]} cells, list says {f[k].cellCount}");
             vis = Features.VisibleShare(map);
             if (vis.Share < VISIBLE_MIN) fail.Add($"{vis.Share * 100f:F1}% of land sees a feature within 3 km (< 80%)");
-            numbers = $"{string.Join(", ", f.Select(x => $"{Features.Name(x.kind)} ({x.centre.x / 10}, {x.centre.y / 10}) m r {x.radiusM:F0} m {x.cellCount} cells"))}; " +
+            string Depth(Feature x) { if (x.path == null) return ""; Features.CanyonDepth(x, map, out float mx, out float md); return $" depth max {mx:F0} median {md:F0} m"; }
+            numbers = $"{string.Join(", ", f.Select(x => $"{Features.Name(x.kind)} ({x.centre.x / 10}, {x.centre.y / 10}) m r {x.radiusM:F0} m {x.cellCount} cells{Depth(x)}"))}; " +
                       $"min spacing {minSep / 10f:F0} m; visible {vis.Share * 100f:F1}% of {vis.eyes} eyes, hidden-near {vis.HiddenNear * 100f:F1}%";
             return fail;
         }

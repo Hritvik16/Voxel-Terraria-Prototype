@@ -112,6 +112,11 @@ namespace TerrainGen
         /// visibility rule comes first (0.25 left seeds at 76-78%).
         public const float HIDE_BONUS = 0.1f;
         public const float CANYON_WANDER = 1500f;
+        /// A canyon's head stands this high on the starting shapes (voxels). 70 m
+        /// lets some canyons run mostly through lowland (seed 2026: 35 m deep at
+        /// most); 100 m plus a score for upland paths (tried 2026-10-08) left
+        /// seed 2026 no canyon and broke B4 on seeds 42 and 31337.
+        public const float CANYON_HEAD_MIN = 700f;
         public const float HALF_FLOOR = 200f, WALL = 2f, CANYON_CUT = 2200f, CANYON_HALF_MAX = 1400f;
 
         public static string Name(byte k)
@@ -560,7 +565,7 @@ namespace TerrainGen
         private static Feature Canyon(Ctx c, float2 p, int x, int z, int slot)
         {
             uint s = c.spec.seed + 961u + (uint)slot * 7u;
-            if (c.Coast(p) < 0.35f || c.H(p) < 700f) { c.rej[0]++; return null; }
+            if (c.Coast(p) < 0.35f || c.H(p) < CANYON_HEAD_MIN) { c.rej[0]++; return null; }
             float2 off = new float2(Noise.Hash01(x, 1, z, s), Noise.Hash01(x, 2, z, s)) * 100f;
             // toward the nearest sea of 12 headings that is at least CANYON_MIN_LEN away
             float bestD = float.MaxValue; int bestA = -1;
@@ -878,6 +883,23 @@ namespace TerrainGen
         {
             float w = map.Water[i];
             return math.max(math.max(map.Height[i], 0f), w != Hydrology.NO_WATER ? w : 0f);
+        }
+
+        /// A canyon's depth on the final map (metres): at every path point the
+        /// higher of the two rims (ground 40 m past its half width) less the
+        /// floor there; the deepest and the median, mouth excluded.
+        public static void CanyonDepth(Feature f, WorldMap map, out float maxM, out float medianM)
+        {
+            int n = map.Spec.mapCells; float cv = map.Spec.mapCellVoxels;
+            float H(float2 p) { int x = math.clamp((int)(p.x / cv), 0, n - 1), z = math.clamp((int)(p.y / cv), 0, n - 1); return map.Height[z * n + x]; }
+            var d = new List<float>();
+            for (int k = 0; k + 3 < f.path.Length; k++)
+            {
+                float2 a = f.path[k], dir = math.normalizesafe(f.path[k + 1] - a), side = new float2(-dir.y, dir.x) * (f.halfW[k] + 400f);
+                d.Add((math.max(H(a + side), H(a - side)) - H(a)) / 10f);
+            }
+            d.Sort();
+            maxM = d.Count > 0 ? d[d.Count - 1] : 0f; medianM = d.Count > 0 ? d[d.Count / 2] : 0f;
         }
 
         public struct Visibility

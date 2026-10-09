@@ -1,0 +1,43 @@
+=== B5: signature features on map v4 (pool draw, record list + FLAG_FEATURE)
+  visibility: eyes on a 128 m grid of land (every 16th 8 m cell), 2 m above the map ground; per feature its targets
+  (summit area + upper flanks / caldera rim + upper cone / mesa top edge / crater rim / canyon walls at mid-height), one ray each to the target
+  surface + 1 m, sampled every 8 m cell against the ground or the water surface; seen = any ray clear within 3 km,
+  or the eye stands on the feature's footprint. Eyes on a lake or river stand 2 m above its surface.
+  seed    features (want)  rare  way down  min spacing (>= 1200 m)  sees one in 3 km (>= 80%)  hidden-near  easy share / areas   gentle  build s (v3)   record hash   checks
+  42      5 (5) PASS      0 PASS  2 PASS     1219 m PASS                82.1% PASS                 17.9%      10.0% / 4 PASS      49.6%  25.2 (26.8, -1.6) PASS   E14BB8B2EFB48009   all PASS
+  7       5 (5) PASS      0 PASS  2 PASS     1319 m PASS                85.8% PASS                 14.2%      10.0% / 4 PASS      49.0%  28.0 (26.6, +1.4) PASS   AF9BCC1FEDE9E44E   all PASS
+  2026    5 (5) PASS      0 PASS  2 PASS     1370 m PASS                93.4% PASS                  6.6%      10.0% / 4 PASS      49.0%  25.9 (26.8, -0.9) PASS   258C629D3157F9DD   all PASS
+  31337   5 (5) PASS      0 PASS  1 PASS     1252 m PASS                91.3% PASS                  8.7%      10.0% / 4 PASS      49.5%  23.4 (26.5, -3.0) PASS   A0311666C8BA3225   all PASS
+
+  features per seed (slot order; footprint = the record's FLAG_FEATURE cells):
+  seed 42: great peak summit 586 m, mean ground 150/300/600 m out 501/414/186 m
+    [1] great peak   common   centre (3900, 3700) m  footprint r 840 m  34609 cells (221 ha)  seen by 792 of 1061 eyes
+    [2] great canyon common   centre (2563, 4880) m  footprint r 1260 m  3060 cells (20 ha)  WAY DOWN  seen by 220 of 1061 eyes  length 2240 m, floor 28 -> 2 m
+    [3] great canyon common   centre (5302, 3825) m  footprint r 1080 m  3914 cells (25 ha)  WAY DOWN  seen by 102 of 1061 eyes  length 1880 m, floor 24 -> 2 m
+    [4] mesa         common   centre (3600, 5520) m  footprint r 485 m  8380 cells (54 ha)  seen by 202 of 1061 eyes  top 192 m (rise 148 m)
+    [5] mesa         common   centre (4880, 5040) m  footprint r 401 m  5763 cells (37 ha)  seen by 209 of 1061 eyes  top 189 m (rise 173 m)
+  seed 7: great peak summit 565 m, mean ground 150/300/600 m out 498/402/178 m
+    [1] great peak   common   centre (4700, 3700) m  footprint r 840 m  34609 cells (221 ha)  seen by 823 of 1058 eyes
+    [2] great canyon common   centre (3560, 5603) m  footprint r 1460 m  5932 cells (38 ha)  WAY DOWN  seen by 124 of 1058 eyes  length 2640 m, floor 33 -> 2 m
+    [3] mesa         common   centre (3280, 3600) m  footprint r 395 m  4397 cells (28 ha)  seen by 153 of 1058 eyes  top 149 m (rise 134 m)
+    [4] mesa         common   centre (2000, 3920) m  footprint r 437 m  5892 cells (38 ha)  seen by 230 of 1058 eyes  top 174 m (rise 141 m)
+    [5] great canyon common   centre (5480, 4785) m  footprint r 900 m  3692 cells (24 ha)  WAY DOWN  seen by 139 of 1058 eyes  length 1520 m, floor 20 -> 2 m
+  seed 2026: great peak summit 596 m, mean ground 150/300/600 m out 508/409/175 m
+    [1] volcano      uncommon centre (4912, 4697) m  footprint r 900 m  39695 cells (254 ha)  seen by 706 of 1094 eyes
+    [2] great peak   common   centre (3900, 3100) m  footprint r 840 m  34609 cells (221 ha)  seen by 891 of 1094 eyes
+    [3] great canyon common   centre (2753, 5578) m  footprint r 1100 m  2518 cells (16 ha)  WAY DOWN  seen by 215 of 1094 eyes  length 1920 m, floor 25 -> 2 m
+    [4] great canyon common   centre (2665, 3693) m  footprint r 960 m  3014 cells (19 ha)  WAY DOWN  seen by 60 of 1094 eyes  length 1640 m, floor 21 -> 2 m
+    [5] mesa         common   centre (5680, 3440) m  footprint r 472 m  6130 cells (39 ha)  seen by 60 of 1094 eyes  top 194 m (rise 171 m)
+  seed 31337: great peak summit 600 m, mean ground 150/300/600 m out 483/314/116 m
+    [1] volcano      uncommon centre (3402, 3372) m  footprint r 900 m  39658 cells (254 ha)  seen by 708 of 1048 eyes
+    [2] great peak   common   centre (5100, 2500) m  footprint r 840 m  26412 cells (169 ha)  seen by 652 of 1048 eyes
+    [3] great canyon common   centre (5274, 5043) m  footprint r 900 m  2482 cells (16 ha)  WAY DOWN  seen by 33 of 1048 eyes  length 1520 m, floor 20 -> 2 m
+    [4] crater lake  uncommon centre (3920, 5680) m  footprint r 488 m  11377 cells (73 ha)  seen by 343 of 1048 eyes  bowl r 271 m depth 51 m rim 26 m
+    [5] mesa         common   centre (4720, 3920) m  footprint r 405 m  5476 cells (35 ha)  seen by 340 of 1048 eyes  top 197 m (rise 180 m)
+
+  slopes by landform class, v3 -> v4 (reported, not gated):
+  seed    gentle med deg   broken med deg   steep med deg    median deg      <15 deg          >45 deg          open (<20 m)     easy ground      easy areas
+  42        9 ->   9        27 ->  21        42 ->  34       30.1 -> 14.3     29.5% ->  51.7%   29.1% ->  11.9%    4.1% ->  11.3%   16.4% ->  36.5%  10.0%
+  7        20 ->   9        24 ->  18        41 ->  38       27.8 -> 13.0     25.6% ->  55.7%   23.8% ->  14.7%    1.3% ->  11.3%   15.3% ->  37.6%  10.0%
+  2026     14 ->  10        23 ->  20        43 ->  29       26.3 -> 13.3     32.1% ->  55.4%   22.9% ->   8.9%    4.0% ->   5.9%   20.9% ->  38.8%  10.0%
+  31337    16 ->  11        21 ->  19        40 ->  28       28.9 -> 13.9     26.8% ->  54.1%   24.9% ->   7.4%    2.0% ->   7.2%   13.1% ->  35.9%  10.0%

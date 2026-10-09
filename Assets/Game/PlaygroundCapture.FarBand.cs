@@ -209,7 +209,10 @@ public partial class PlaygroundCapture
         var poses = new List<(string, Vector3, Quaternion)>();
         void Look(string n, Vector3 eye, Vector3 at) => poses.Add((n, eye, Quaternion.LookRotation((at - eye).normalized, Vector3.up)));
         Look("peak_from_2km_ground", E(from2k.x, Ground(from2k.x, from2k.y) + 25f, from2k.y), E(pk.x, pkTop - 400f, pk.y));
-        Look("summit_view", E(pk.x - toC.x * 300f, pkTop + 250f, pk.y - toC.y * 300f), E(pk.x + toC.x * 40000f, spec.seaLevelY, pk.y + toC.y * 40000f));
+        // B5 (2026-10-08): map v4's great peak need not top out at PeakPosition,
+        // so the eye 30 m out can be inside rock -- stand 25 m over the higher one.
+        float2 sv = pk - toC * 300f;
+        Look("summit_view", E(sv.x, math.max(pkTop, Ground(sv.x, sv.y)) + 250f, sv.y), E(pk.x + toC.x * 40000f, spec.seaLevelY, pk.y + toC.y * 40000f));
         Look("glide_400m", E(c - 16000f, spec.seaLevelY + 4000f, c - 16000f), E(pk.x, pkTop - 800f, pk.y));
         Look("coast_from_sea_30m", E(c, spec.seaLevelY + 300f, c - 36000f), E(c, spec.seaLevelY + 800f, c));
         Look("oblique_3000m", E(c, spec.seaLevelY + 30000f, c - 22000f), E(c, spec.seaLevelY, c + 6000f));

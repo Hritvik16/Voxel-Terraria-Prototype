@@ -1,0 +1,19 @@
+=== B5: signature features on map v4 (pool draw, record list + FLAG_FEATURE)
+  visibility: eyes on a 128 m grid of land (every 16th 8 m cell), 2 m above the map ground; per feature its targets
+  (summit area + upper flanks / caldera rim + upper cone / mesa top edge / crater rim / canyon walls at mid-height), one ray each to the target
+  surface + 1 m, sampled every 8 m cell against the ground or the water surface; seen = any ray clear within 3 km,
+  or the eye stands on the feature's footprint. Eyes on a lake or river stand 2 m above its surface.
+  seed    features (want)  rare  way down  min spacing (>= 1200 m)  sees one in 3 km (>= 80%)  hidden-near  easy share / areas   gentle  build s (v3)   record hash   checks
+  42      5 (5) PASS      0 PASS  2 PASS     1219 m PASS                82.1% PASS                 17.9%      10.0% / 4 PASS      49.6%  25.4   E14BB8B2EFB48009   all PASS
+
+  features per seed (slot order; footprint = the record's FLAG_FEATURE cells):
+  seed 42: great peak summit 586 m, mean ground 150/300/600 m out 501/414/186 m
+    [1] great peak   common   centre (3900, 3700) m  footprint r 840 m  34609 cells (221 ha)  seen by 792 of 1061 eyes
+    [2] great canyon common   centre (2563, 4880) m  footprint r 1260 m  3060 cells (20 ha)  WAY DOWN  seen by 220 of 1061 eyes  length 2240 m, floor 28 -> 2 m, depth max 61 m median 9 m
+    [3] great canyon common   centre (5302, 3825) m  footprint r 1080 m  3914 cells (25 ha)  WAY DOWN  seen by 102 of 1061 eyes  length 1880 m, floor 24 -> 2 m, depth max 159 m median 27 m
+    [4] mesa         common   centre (3600, 5520) m  footprint r 485 m  8380 cells (54 ha)  seen by 202 of 1061 eyes  top 192 m (rise 148 m)
+    [5] mesa         common   centre (4880, 5040) m  footprint r 401 m  5763 cells (37 ha)  seen by 209 of 1061 eyes  top 189 m (rise 173 m)
+
+  slopes by landform class, v3 -> v4 (reported, not gated):
+  seed    gentle med deg   broken med deg   steep med deg    median deg      <15 deg          >45 deg          open (<20 m)     easy ground      easy areas
+  42        -   ->   9         -   ->  21         -   ->  34         -   -> 14.3       -   ->  51.7%     -   ->  11.9%     -   ->  11.3%     -   ->  36.5%  10.0%
