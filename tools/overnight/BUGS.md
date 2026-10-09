@@ -20,5 +20,11 @@ owner-facing to-do. One line each: what, where seen, task file (if written), sug
 - `later/37c-B3c-highland-variation.md` -- knolls and dells in rolling highlands (B5 review
   follow-up). Deferred 2026-10-09 to end the terrain phase sooner; revisit after placement.
 
+## Idea for the bugs batch (owner, 2026-10-09; not queued)
+Owner has Google AI Pro (Gemini). Trial: when the runner hits a Claude usage limit, hand a BUGS.md
+task to Gemini CLI headless (same task file + PREAMBLE, same Unity lock, one agent at a time), on
+its own branch, "made by Gemini" in HANDOFF; the supervisor reviews before merging. Needs the owner
+to install + log in to Gemini CLI, and a small runner change. Not for B steps / engine steps.
+
 ## Fixed
 (move rows here with the commit when done)
