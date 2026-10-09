@@ -74,6 +74,15 @@ On each event:
   below that needs no owner decision; restart the runner. If nothing is left,
   write the final summary into the doc, update `SESSION_HANDOFF.md`, stop.
 
+## Usage budget (owner, 2026-10-09)
+$20 Pro plan; NEVER suggest paid options (credits, upgrades). The WEEKLY limit (resets Thu 06:00 PT)
+binds, not the 5-hour window. The supervisor paces the queue itself: keep ~10% of the week in
+reserve for the owner's questions, review packs and a blocker fix. The owner cannot tell when to
+send a usage screenshot (Claude app > Usage): ASK for one at each phase boundary and before
+queueing a big task (B5/B10-sized, ~20-40M tokens) late in the week. Calibration: 47% at Fri
+2026-10-09 10:17 (~28 h into the week); ~3/4 workers, ~1/4 supervisors. Supervisor economy: one doc
+edit per event, image reads only for review packs, hand off early.
+
 ## Bugs list (owner, 2026-10-09)
 A bug that does not block the current phase goes into `tools/overnight/BUGS.md` (one row), not
 into `queue/`; a ready task file for it waits in `tools/overnight/later/`. Only a blocker is
