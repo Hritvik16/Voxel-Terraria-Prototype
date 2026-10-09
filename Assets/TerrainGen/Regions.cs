@@ -277,6 +277,28 @@ namespace TerrainGen
             }
         }
 
+        /// B3b (map v4, owner Q25 (a), 2026-10-08): soften the regions whose
+        /// slope did not match their class. The slope is set by erosion's
+        /// limits, not the starting amplitude (halving the highlands' or
+        /// badlands' noise amplitude moved their median slope by <= 1 deg):
+        /// the talus pass holds a slope at its talus, and stream power wears
+        /// the uplifted land down (LESS erodibility left badlands steeper).
+        /// Highlands: talus 0.55 -> 0.1925 (29 -> 11 deg), E x2 (seed 42
+        /// median 25 -> 15 deg). Canyonlands: talus 0.80 -> 0.52 (27 -> 22).
+        /// Badlands: E x1.3. The steep class (alpine, volcanic) is untouched.
+        public static Params P(byte k, int mapVersion)
+        {
+            var pr = P(k);
+            if (mapVersion < 4) return pr;
+            switch (k)
+            {
+                case Highlands:   pr.talus = 0.1925f; pr.erodibility = 0.140f; break;
+                case Canyonlands: pr.talus = 0.520f; break;
+                case Badlands:    pr.erodibility = 0.169f; break;
+            }
+            return pr;
+        }
+
         /// Starting height of archetype k at p (voxels rel. sea), before the
         /// coast envelope. 2-D noise only.
         public static float Shape(byte k, in TerrainSpec spec, in Offsets o, float2 p)

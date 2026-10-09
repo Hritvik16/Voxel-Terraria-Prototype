@@ -170,7 +170,7 @@ namespace TerrainGen
                 for (byte k = 0; k < Regions.KINDS; k++)
                 {
                     if (w[k] <= 0f) continue;
-                    var pr = Regions.P(k);
+                    var pr = Regions.P(k, spec.mapVersion);   // B3b: v4 region softening
                     H += w[k] * Regions.Shape(k, in spec, in o, p);
                     E += w[k] * pr.erodibility; T += w[k] * pr.talus; if (pr.layered) lay += w[k];
                 }
