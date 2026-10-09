@@ -252,17 +252,20 @@ namespace TerrainGen
                 ec[i] = E; tc[i] = T; lc[i] = lay > 0.5f;
             }
             // B5 (plan rule 6): canyons, mesas and crater lakes, placed before the
-            // easy areas, which are then seeded outside every footprint.
+            // easy areas, which are then seeded outside every footprint (all but
+            // EasyAreas.FEATURE_PASS, the last resort: task 37d).
+            bool[] featBad = null;
             if (feat)
             {
                 Features.PlaceLate(in spec, in o, m, cm, hc, gw, bad, kinds, feats);
-                Features.MarkBad(feats, m, cm, bad);
+                featBad = new bool[m * m];
+                Features.MarkBad(feats, m, cm, featBad);
             }
             // B4 (plan rule 3): seed the easy areas and press their starting relief.
             EasyAreas.Site[] easySites = null;
             if (easy)
             {
-                easySites = EasyAreas.Pick(in spec, m, cm, hc, gw, bad);
+                easySites = EasyAreas.Pick(in spec, m, cm, hc, gw, bad, featBad);
                 for (int z = 0; z < m; z++)
                 for (int x = 0; x < m; x++)
                 {

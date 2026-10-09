@@ -36,7 +36,8 @@
 //                 eroded ground.
 //   Every feature: centres >= MIN_SEP (1.2 km) apart and footprints GAP apart,
 //   footprint on land and off the geyser basin. B4's easy areas are seeded
-//   AFTER, outside every footprint (MarkBad -> EasyAreas.Pick's `bad`), and
+//   AFTER, outside every footprint (MarkBad -> EasyAreas.Pick's featureBad;
+//   only its last-resort EDGE_PASS may touch a footprint's margin), and
 //   EasyAreas.Mark skips feature cells: no cell is ever both easy and feature.
 //   (Placing features after the easy areas, the first try, fitted 2-3 of 5:
 //   six pressed sites and their margins cover most of an ~17 km^2 island.)

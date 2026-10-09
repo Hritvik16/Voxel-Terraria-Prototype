@@ -11,7 +11,9 @@
 //      gentle-class land (not the wetland basin, which is shaped to hold lakes),
 //      off the beach, the peak and the volcano, and are not the floor of a
 //      basin (that fills with a lake). Greedy, lowest score first, centres at
-//      least MIN_SEP apart; relaxed passes if the strict one seats too few.
+//      least MIN_SEP apart; relaxed passes if the strict one seats too few,
+//      then (task 37d) an EDGE pass that may touch a feature margin or the
+//      beach, and takes windows above the predicted lowest third last.
 //   2. Shape (BuildV3): inside an area the starting relief is pressed toward
 //      the area's own mean height (KEEP of it stays, so drainage keeps its
 //      direction), its stable slope is a plain's, there is no terracing or
@@ -89,6 +91,24 @@ namespace TerrainGen
         /// are meant to lie apart.
         public const float SPREAD = 0.05f;
         public const float SPREAD_CAP = 30000f;
+        /// Task 37d: the lowest-third line is a third of the world's OWN highest
+        /// land, so on a low world (no great peak: seeds 1, 12, 123 top out near
+        /// 300 m) it sits under LEVEL_MAX's 100 m. Pick predicts it as THIRD_SAFE
+        /// of a third of the starting shapes' highest land (the final line was
+        /// 0.75-0.94 of that on the 20 sweep seeds), caps the press level there,
+        /// and charges HIGH_COST per voxel a window's pressed height stands over
+        /// it; such a window waits for the EDGE_PASS. On a world with a peak the
+        /// line is far above 100 m: no change.
+        public const float THIRD_SAFE = 0.7f, HIGH_COST = 10f;
+        /// Task 37d: the EDGE pass, last, run only when the RELAX passes seated
+        /// too few sites: a window may touch a feature's footprint margin
+        /// (Features.MarkBad) on up to .z of its cells and `bad` (the beach, the
+        /// sea) on up to .w, each such cell costing like non-gentle land;
+        /// non-gentle share and spacing as RELAX's .x and .y. Mark still never
+        /// flags a feature or sea cell. (B5's footprints left seed 65537 three
+        /// sites of six and seed 11 a fourth on 82% non-gentle land; seed 12,
+        /// a low world, has its lowest-third gentle land only near the shore.)
+        public static readonly float4 EDGE_PASS = new float4(0.5f, 0.8f, 0.35f, 0.15f);
         /// Walk band: tan(15 deg)^2, compared against the squared 8 m gradient (Danger.cs holds the bands).
         public const float WALK_TAN2 = Danger.WALK_TAN2;
 
@@ -111,7 +131,9 @@ namespace TerrainGen
         /// touches a bad cell never qualifies. Greedy, lowest score first; if
         /// the strict pass seats fewer than the count, RELAX passes allow more
         /// non-gentle land and closer centres (the sweep shows which pass).
-        public static Site[] Pick(in TerrainSpec spec, int m, float cm, float[] hc, float[] gentle, bool[] bad)
+        /// featureBad (optional): feature footprints, kept out of the RELAX
+        /// passes like `bad` and allowed in part in the EDGE_PASS only.
+        public static Site[] Pick(in TerrainSpec spec, int m, float cm, float[] hc, float[] gentle, bool[] bad, bool[] featureBad = null)
         {
             // Predicted lakes: the starting shape's own depressions (Hydrology's
             // priority flood). Erosion moves them a little, but a hollow this
@@ -120,7 +142,10 @@ namespace TerrainGen
             Hydrology.Flood(m, hc, 0f, spill, new int[m * m], new int[m * m]);
             // summed-area tables, (m+1)^2
             int s = m + 1;
-            var nBad = new int[s * s]; var nRough = new int[s * s]; var nWet = new int[s * s];
+            var nBad = new int[s * s]; var nRough = new int[s * s]; var nWet = new int[s * s]; var nFeat = new int[s * s];
+            float top = 0f;
+            for (int i = 0; i < hc.Length; i++) top = math.max(top, hc[i]);
+            float third = THIRD_SAFE * top / 3f, levelMax = math.min(LEVEL_MAX, third);
             var sH = new double[s * s]; var sH2 = new double[s * s];
             for (int z = 0; z < m; z++)
             for (int x = 0; x < m; x++)
@@ -130,20 +155,24 @@ namespace TerrainGen
                 nBad[a] = (bad[i] ? 1 : 0) + nBad[a - 1] + nBad[a - s] - nBad[a - s - 1];
                 nRough[a] = (gentle[i] < 0.5f ? 1 : 0) + nRough[a - 1] + nRough[a - s] - nRough[a - s - 1];
                 nWet[a] = (spill[i] - hc[i] > WET_DEPTH ? 1 : 0) + nWet[a - 1] + nWet[a - s] - nWet[a - s - 1];
+                nFeat[a] = (featureBad != null && featureBad[i] ? 1 : 0) + nFeat[a - 1] + nFeat[a - s] - nFeat[a - s - 1];
                 sH[a] = h + sH[a - 1] + sH[a - s] - sH[a - s - 1];
                 sH2[a] = h * h + sH2[a - 1] + sH2[a - s] - sH2[a - s - 1];
             }
             int r = (int)(WINDOW / cm), cellsW = (2 * r + 1) * (2 * r + 1);
             int count = CountFor(in spec) + SPARE;
-            var cand = new System.Collections.Generic.List<(float score, int x, int z, float mean, float rough)>();
-            int tried = 0, offBad = 0;
+            var cand = new System.Collections.Generic.List<(float score, int x, int z, float mean, float rough, bool late)>();
+            int tried = 0, offBad = 0, offFeat = 0;
             for (int z = r; z < m - r; z += 2)
             for (int x = r; x < m - r; x += 2)
             {
                 int x0 = x - r, z0 = z - r, x1 = x + r + 1, z1 = z + r + 1;
                 int A = z0 * s + x0, B = z0 * s + x1, C = z1 * s + x0, D = z1 * s + x1;
                 tried++;
-                if (nBad[D] - nBad[B] - nBad[C] + nBad[A] > 0) { offBad++; continue; }
+                float eb = (nBad[D] - nBad[B] - nBad[C] + nBad[A]) / (float)cellsW;
+                if (eb > 0f && (featureBad == null || eb > EDGE_PASS.w)) { offBad++; continue; }
+                float fb = (nFeat[D] - nFeat[B] - nFeat[C] + nFeat[A]) / (float)cellsW;
+                if (fb > EDGE_PASS.z) { offFeat++; continue; }
                 float rough = (nRough[D] - nRough[B] - nRough[C] + nRough[A]) / (float)cellsW;
                 if (rough > RELAX[RELAX.Length - 1].x) continue;
                 float wet = (nWet[D] - nWet[B] - nWet[C] + nWet[A]) / (float)cellsW;
@@ -157,24 +186,28 @@ namespace TerrainGen
                 int bigN = (X1 - X0) * (Z1 - Z0);
                 double ring = (big - mean * cellsW) / (bigN - cellsW);
                 float basin = (float)math.max(0.0, ring - mean);
-                cand.Add(((float)mean + sd + NON_GENTLE_COST * (rough + wet) + BASIN_COST * basin, x, z, (float)mean, rough));
+                float pressed = (float)mean <= levelMax ? (float)mean : levelMax + KEEP * ((float)mean - levelMax);
+                float high = math.max(0f, pressed - third);
+                cand.Add(((float)mean + sd + NON_GENTLE_COST * (rough + wet + fb + eb) + BASIN_COST * basin + HIGH_COST * high, x, z, (float)mean, rough, fb + eb > 0f || (high > 0f && featureBad != null)));
             }
             // Greedy: each step seats the candidate with the lowest score less a
             // bonus for distance from the sites already seated (SPREAD), so the
             // areas spread over the island instead of filling one lowland. Ties
             // keep grid order.
             var sites = new System.Collections.Generic.List<Site>();
-            var perPass = new int[RELAX.Length];
-            for (int pass = 0; pass < RELAX.Length && sites.Count < count; pass++)
+            int passes = RELAX.Length + (featureBad != null ? 1 : 0);
+            var perPass = new int[passes];
+            for (int pass = 0; pass < passes && sites.Count < count; pass++)
             {
-                float maxRough = RELAX[pass].x, sep = MIN_SEP * RELAX[pass].y;
+                bool edgePass = pass == RELAX.Length;
+                float maxRough = edgePass ? EDGE_PASS.x : RELAX[pass].x, sep = MIN_SEP * (edgePass ? EDGE_PASS.y : RELAX[pass].y);
                 while (sites.Count < count)
                 {
                     int best = -1; float bestCost = float.MaxValue; float2 bestP = default;
                     for (int k = 0; k < cand.Count; k++)
                     {
                         var c = cand[k];
-                        if (c.rough > maxRough) continue;
+                        if (c.rough > maxRough || (c.late && !edgePass)) continue;
                         float2 p = new float2((c.x + 0.5f) * cm, (c.z + 0.5f) * cm);
                         float dmin = SPREAD_CAP;
                         foreach (var t in sites) dmin = math.min(dmin, math.distance(t.centre, p));
@@ -183,12 +216,12 @@ namespace TerrainGen
                         if (cost < bestCost) { bestCost = cost; best = k; bestP = p; }
                     }
                     if (best < 0) break;
-                    sites.Add(new Site { centre = bestP, level = math.clamp(cand[best].mean, LEVEL_MIN, LEVEL_MAX) });
+                    sites.Add(new Site { centre = bestP, level = math.clamp(cand[best].mean, LEVEL_MIN, math.max(LEVEL_MIN, levelMax)) });
                     perPass[pass]++;
                 }
             }
-            LastPick = $"windows {tried}: {offBad} touch sea/beach/peak/volcano, {cand.Count} within the loosest non-gentle limit; " +
-                       $"sites {sites.Count} of {count} (incl. {SPARE} spare), per relax pass {string.Join("/", perPass)}";
+            LastPick = $"windows {tried}: {offBad} touch sea/beach/peak/volcano{(featureBad != null ? $" over {EDGE_PASS.w:P0}" : "")}, {offFeat} over {EDGE_PASS.z:P0} feature, {cand.Count} within the loosest non-gentle limit; " +
+                       $"sites {sites.Count} of {count} (incl. {SPARE} spare), per relax pass {string.Join("/", perPass)}; lowest third predicted {third / 10f:F0} m";
             return sites.ToArray();
         }
 

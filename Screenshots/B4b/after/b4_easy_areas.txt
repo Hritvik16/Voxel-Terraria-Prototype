@@ -1,0 +1,35 @@
+=== B4: easy areas on map v4 (record flag + list)
+  seed    easy share (8-12%)   areas (want)   area ha (>= 25 each)            flagged-but-not-easy  gentle (50+-5)  inselbergs  build s (v3)   record hash
+  11       10.0% PASS          4 (4) PASS     44 44 44 44            PASS        0                  49.1% PASS     0 PASS    25.2   B714E44F636C6DCA
+  12       10.0% PASS          4 (4) PASS     44 44 44 44            PASS        0                  49.7% PASS     0 PASS    28.9   2498AB50A2A7F787
+  65537    10.0% PASS          4 (4) PASS     44 44 44 44            PASS        0                  50.1% PASS     0 PASS    28.1   5553808BFE1B6E0D
+  42       10.0% PASS          4 (4) PASS     44 44 44 44            PASS        0                  50.0% PASS     0 PASS    27.5   30D8356A7FBC4355
+
+  areas: centre (voxels), ha, farthest flagged cell from the centre, mean height (rel. sea), dominant archetype
+  seed 11:
+    (28240, 30160)   43.6 ha  r  442 m   13.6 m  river plains
+    (41360, 55440)   43.6 ha  r  422 m   41.3 m  rolling highlands
+    (56720, 34000)   43.6 ha  r  510 m   21.3 m  river plains
+    (31120, 23120)   43.6 ha  r  727 m   16.1 m  river plains
+  seed 12:
+    (57680, 36240)   44.3 ha  r  384 m   45.0 m  rolling highlands
+    (42640, 55440)   44.3 ha  r  390 m   14.4 m  river plains
+    (36880, 60560)   44.3 ha  r  395 m   10.9 m  river plains
+    (21200, 45200)   44.3 ha  r  480 m   70.6 m  rolling highlands
+  seed 65537:
+    (56080, 40080)   43.6 ha  r  386 m   44.9 m  rolling highlands
+    (34640, 52880)   43.6 ha  r  390 m  118.4 m  high plateau
+    (50640, 26000)   43.6 ha  r  390 m   13.4 m  river plains
+    (57680, 28880)   43.6 ha  r  400 m   24.6 m  river plains
+  seed 42:
+    (47760, 57680)   44.1 ha  r  386 m   11.1 m  river plains
+    (26640, 30160)   44.1 ha  r  408 m  118.6 m  high plateau
+    (37200, 22800)   44.1 ha  r  385 m   27.7 m  river plains
+    (56080, 50320)   44.1 ha  r  422 m   15.7 m  river plains
+
+  slopes (B3 targets, reported not gated)  v3 -> v4:
+  seed    median deg      <15 deg          >45 deg          open (<20 m)     river km        gentle-low Walk anywhere (old 'easy')
+  11        -   -> 13.5       -   ->  53.8%     -   ->  10.4%     -   ->   9.3%    -   ->  22.9    36.6%
+  12        -   -> 13.4       -   ->  55.8%     -   ->   8.7%     -   ->   6.4%    -   ->  24.7    25.4%
+  65537     -   -> 17.7       -   ->  45.4%     -   ->  19.1%     -   ->   5.4%    -   ->  24.9    30.4%
+  42        -   -> 14.2       -   ->  51.7%     -   ->  13.7%     -   ->   9.3%    -   ->  26.9    35.3%
