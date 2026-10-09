@@ -306,6 +306,10 @@ public class Playground : MonoBehaviour
         // interactive session S seconds after startup. Not a capture mode --
         // the preset, HUD and controls stay exactly as a player gets them.
         if (!IsCaptureRun()) StartCoroutine(PlayShot());
+        // -daylength S (task 33b, run-play.sh: 1200 = a 20-minute day). Only an
+        // interactive run reads it; LightingConfig's own 120 s is left alone.
+        if (!IsCaptureRun() && TryArgFloat("-daylength", out float dayLen) && dayLen >= 1f)
+            SunCycle.DayLengthOverrideSeconds = dayLen;
 
         if (!TryFindNaturalBasin(out _arenaCentre))
         {
@@ -452,6 +456,18 @@ public class Playground : MonoBehaviour
         return false;
     }
 
+    /// Last match wins, like PlaygroundCapture's ArgFloat.
+    private static bool TryArgFloat(string flag, out float value)
+    {
+        value = 0f;
+        bool found = false;
+        string[] a = Environment.GetCommandLineArgs();
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == flag && float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float,
+                                               System.Globalization.CultureInfo.InvariantCulture, out float p)) { value = p; found = true; }
+        return found;
+    }
+
     private static bool HasArg(string flag)
     {
         foreach (string a in Environment.GetCommandLineArgs())
@@ -480,7 +496,7 @@ public class Playground : MonoBehaviour
         System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
         Destroy(tex);
         // What the eye is in (a black frame at the start pose: task 32b).
-        Debug.Log($"[Playground] -playshot: {path}  {EyeReport()}, t {Time.unscaledTime:F1} s, clock {SunCycle.ClockString()}");
+        Debug.Log($"[Playground] -playshot: {path}  {EyeReport()}, t {Time.unscaledTime:F1} s, clock {SunCycle.ClockString()}, day {SunCycle.DayLengthSeconds:F0} s");
     }
 
     private string EyeReport()
@@ -528,7 +544,8 @@ public class Playground : MonoBehaviour
         _status = "standing on dry ground near the fluid arena";
         Debug.Log($"[Playground] start pose: arena {before}; basin {_arenaCentre} under fluid: {basinWet}; " +
                   $"moved to dry column ({col.x}, {col.z}) top {col.y} {MaterialName(_store.GetVoxel(col))} -> {EyeReport()}" +
-                  (startView ? $"; -startview: noon, level look (yaw {cam.transform.rotation.eulerAngles.y:F0}) at t {Time.unscaledTime:F1} s" : ""));
+                  (startView ? $"; -startview: noon, level look (yaw {cam.transform.rotation.eulerAngles.y:F0}) at t {Time.unscaledTime:F1} s" : "") +
+                  $"; day {SunCycle.DayLengthSeconds:F0} s");
         float t0 = Time.unscaledTime;
         while (Time.unscaledTime - t0 < 5f) yield return null;
         Debug.Log($"[Playground] start pose after 5 s: {EyeReport()}");
@@ -658,7 +675,7 @@ public class Playground : MonoBehaviour
                 !VoxelEngine.Rendering.LightingDriver.ClockPaused;
             _status = VoxelEngine.Rendering.LightingDriver.ClockPaused
                 ? $"clock PAUSED at {SunCycle.ClockString()} — , and . still scrub"
-                : $"clock RUNNING — a full day takes {LightingConfig.Active.dayLengthSeconds:F0} s";
+                : $"clock RUNNING — a full day takes {SunCycle.DayLengthSeconds:F0} s";
         }));
         Register(new Toy(KeyCode.J, "shadow quality 0-3", () =>
         {

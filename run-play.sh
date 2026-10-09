@@ -12,6 +12,8 @@
 # the Player.log "[Playground] start pose" lines say where, and what the eye is in.
 # Start view (task 33b): -startview also sets the clock to noon (the M key) and levels
 # the camera (yaw kept); the clock runs on from there. Only this script passes it.
+# Day length (task 33b, owner Q28 (b)): -daylength 1200, a 20-minute day; rigs and
+# capture runs keep LightingConfig's 120 s (the player ignores the flag in them).
 # Interactive: no capture flags, so Playground applies the interactive render
 # preset (RenderPreset.Default) exactly as a player session would. Holds the
 # shared Unity lock while the player is open (like run-demo.sh).
@@ -77,6 +79,6 @@ KEYS
 
 DELTA="-cleardeltas"; [ "${KEEP:-0}" = "1" ] && DELTA="-keepdeltas"
 SHOTARG=""; [ -n "${SHOT:-}" ] && SHOTARG="-playshot $SHOT"
-open -n -W "$APP" --args -world tg2 -mapversion "$MAPV" -farband 1 -farshadow 1 -startview $DELTA $SHOTARG ${EXTRA:-}
+open -n -W "$APP" --args -world tg2 -mapversion "$MAPV" -farband 1 -farshadow 1 -startview -daylength 1200 $DELTA $SHOTARG ${EXTRA:-}
 PL="$HOME/Library/Logs/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Player.log"
 grep -E "\[FarField\] tg2 WORLD|\[Playground\] (-playshot|start pose)" "$PL" 2>/dev/null | cut -c1-200
