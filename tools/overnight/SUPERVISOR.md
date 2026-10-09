@@ -28,6 +28,12 @@ take over; ONE agent active on the project at any time.
    `## For the owner` section in plain words -- why this new session started, a short
    summary of the previous chat (asked / decided / changed), what is running, what is
    open -- and name the old session's tmux window to close. Then do the steps below.
+   **At most TWO Claude sessions (owner, 2026-10-09, after a 17 GB memory blow-up that
+   forced a hard power-off with 7 stale supervisor sessions alive):** this supervisor and
+   the queue's headless worker. The task-watcher window (`watch-task.sh`) is not a session.
+   Once your first message is out, close the OLD supervisor yourself
+   (`tmux kill-window -t <its window>`; it is idle after its handoff), and close any
+   other stale Claude windows you find. Never leave two supervisors running.
 1. `tail -20 Logs/overnight/runner.log`; `ls tools/overnight/queue tools/overnight/blocked`;
    `tmux ls`; is a `run-queue.sh` process alive (`ps -axo pid,command | grep '[r]un-queue'`)?
 2. If the runner is not alive, the queue has runnable tasks and there is no
