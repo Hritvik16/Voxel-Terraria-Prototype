@@ -237,11 +237,16 @@ namespace TerrainGen.Tests
                 // the pose for a picture: the middle of the line, looking ~150 m along it
                 int km = L / 2, ka = km; float ahead = 0f;
                 while (ka < L - 1 && ahead < 1500f) { ahead += seg[ka + 1]; ka++; }
+                // and the deepest cut, seen from ~80 m back along the line
+                int kc = 0; for (int k = 1; k < L; k++) if (rt.cut[k] > rt.cut[kc]) kc = k;
+                int kb = kc; float back = 0f;
+                while (kb > 0 && back < 800f) { back += seg[kb]; kb--; }
                 sb.AppendLine($"    route {rt.areaA}-{rt.areaB}{(rt.tree ? "" : " (extra)")}: {rt.lengthM:F0} m (straight {rt.straightM:F0} m, {detour:F2}x), width {rt.widthM:F0} m, overlap {rt.overlap * 100f:F0}%, " +
                               $"W/S/C/Sh/ford {Pct(rb[0], rb)}/{Pct(rb[1], rb)}/{Pct(rb[2], rb)}/{Pct(rb[3], rb)}/{Pct(rb[4], rb)}, Sheer {rb[3]:F1} m, " +
                               $"safer strict {100 * rs / math.max(1e-6, rl - rn):F0}% floored {100 * rf / math.max(1e-6, rl - rn):F0}%, in sight {100 * sw / math.max(1e-6, sl):F0}% (any landmark {100 * sa / math.max(1e-6, sl):F0}%), " +
                               $"passes {rt.passes.Length} cut m [{string.Join(" ", cutsAtPasses)}], deepest cut {rc / 10f:F1} m, " +
-                              $"mid {rt.line[km].x / 10f:F1},{rt.line[km].y / 10f:F1} look {rt.line[ka].x / 10f:F1},{rt.line[ka].y / 10f:F1}");
+                              $"mid {rt.line[km].x / 10f:F1},{rt.line[km].y / 10f:F1} look {rt.line[ka].x / 10f:F1},{rt.line[ka].y / 10f:F1}, " +
+                              $"deepest cut at {rt.line[kc].x / 10f:F1},{rt.line[kc].y / 10f:F1} (from {rt.line[kb].x / 10f:F1},{rt.line[kb].y / 10f:F1})");
             }
             double bl = bandM.Sum();
             float easyBands = (float)((bandM[0] + bandM[1]) / bl);

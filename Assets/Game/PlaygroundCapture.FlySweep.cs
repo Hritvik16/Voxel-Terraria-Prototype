@@ -72,6 +72,10 @@ public partial class PlaygroundCapture
         }
         float[] heights = ParseFloats(ArgValue("-heights") ?? "63 48 32 16 8 2");
         float[] pitches = ParseFloats(ArgValue("-pitches") ?? "8 30");
+        // B8 (2026-10-09): -tod pins the clock (hours), as the other captures do,
+        // so a ground pose can be shot in daylight.
+        float tod = ArgFloat("-tod", -1f);
+        if (tod >= 0f) { SunCycle.SetHours(tod); VoxelEngine.Rendering.LightingDriver.ClockPaused = true; }
 
         Vector3 pos = new Vector3(px, 868.8f, pz);
         float pitch0 = 8f;
