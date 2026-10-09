@@ -106,7 +106,10 @@ namespace TerrainGen.Tests
             // BuildV3 (WorldMap.BuildV4); the rest is on the critical path.
             var plane = WorldRecord.BiomePlane(spec4);
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            var again = WorldRecord.Build(a, plane);
+            // rebuilt as WorldMap builds it: after the routes, the easy areas the
+            // routes were found on are kept (a fresh growth on the eased map can
+            // differ by a few cells -- 2 on seed 42 after B5b; WorldMap never does that)
+            var again = WorldRecord.Build(a, plane, a.Routes != null ? a.Record : null);
             double ms = sw.Elapsed.TotalMilliseconds;
             Assert.AreEqual(ha, again.Hash());
             Assert.Less(ms, 2000.0, $"record build after the map {ms:F0} ms: B1 allows the map 2 s over v3");

@@ -382,7 +382,7 @@ namespace TerrainGen.Tests
                 // BuildV3), and a second build that must match it
                 var plane = WorldRecord.BiomePlane(spec);
                 sw.Restart();
-                var again = WorldRecord.Build(map, plane);
+                var again = WorldRecord.Build(map, plane, map.Routes != null ? map.Record : null);   // as WorldMap builds it (WorldRecordTests)
                 m.recordMs = sw.Elapsed.TotalMilliseconds;
                 m.recordBytes = map.Record.Bytes;
                 m.recordHash = map.Record.Hash();
@@ -985,8 +985,11 @@ namespace TerrainGen.Tests
 
         private static string CanyonText(Feature f, WorldMap map)
         {
-            Features.CanyonDepth(f, map, out float mx, out float md);
-            return $"  length {(f.path.Length - 1) * Features.CANYON_STEP / 10f:F0} m, floor {f.floor[0] / 10f:F0} -> {f.floor[f.floor.Length - 1] / 10f:F0} m, depth max {mx:F0} m median {md:F0} m";
+            Features.CanyonDepth(f, map, out float mx, out float md, out string prof);
+            Features.CanyonWalls(f, map, out int wc, out float ws);
+            return $"  length {(f.path.Length - 1) * Features.CANYON_STEP / 10f:F0} m, floor {f.floor[0] / 10f:F0} -> {f.floor[f.floor.Length - 1] / 10f:F0} m, depth max {mx:F0} m median {md:F0} m" +
+                   $", walls {wc} cells {ws * 100f:F0}% > 45 deg, full bank {(f.highSide > 0f ? "L" : "R")}" +
+                   $"\n        rims above the floor L|R (m), head to mouth by tenths: {prof}";
         }
 
         /// A canyon from its rim: at the deepest path point, the eye on the

@@ -333,7 +333,7 @@ namespace TerrainGen
                     hh = math.lerp(hh, v, t);
                 }
                 hh = Stamps.CraterApply(in spec, in o, p, hh, math.saturate(coast * 5f));
-                if (feat) hh = Features.Apply(feats, p, hh);   // B5, fresh like the craters
+                if (feat) hh = Features.Apply(feats, p, hh, Noise.SmoothStep(0f, Features.BANK_SHORE, coast) * (1f - et));   // B5, fresh like the craters
                 h[i] = hh; r[i] = rough;
             }
             // Rock shows where the eroded land is steep.

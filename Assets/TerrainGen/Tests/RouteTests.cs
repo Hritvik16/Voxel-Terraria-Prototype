@@ -18,7 +18,7 @@
 //   detour       centre-line length <= 1.6 x the straight line between its ends
 //   in sight     the next waypoint (a pass, a signature feature within 300 m of
 //                the route, the destination's end) is in line of sight (2 m eye
-//                over the map surface) from 70%+ of route length, both ways
+//                over the map surface) from 65%+ of route length (was 70%, owner Q33 (a)), both ways
 //   passes       lowered <= 20 m; second crossings of Climb/Sheer bands within
 //                500 m REPORTED only
 //   build        the map (with the record twice and the routes) <= 32 s
@@ -39,7 +39,8 @@ namespace TerrainGen.Tests
     public class RouteTests
     {
         private static readonly uint[] Seeds = { 42u, 7u, 2026u, 31337u };
-        public const float MIN_SAFER = 0.80f, MIN_EASY_BANDS = 0.85f, MAX_DETOUR = 1.6f, MIN_IN_SIGHT = 0.70f;
+        // MIN_IN_SIGHT was 0.70f. owner Q33 (a) 2026-10-09: canyon tablelands lengthen routes; seed 42 = 66.3%
+        public const float MIN_SAFER = 0.80f, MIN_EASY_BANDS = 0.85f, MAX_DETOUR = 1.6f, MIN_IN_SIGHT = 0.65f;
         public const double MAX_BUILD_MS = 32000.0;
 
         // ------------------------------------------------------------ fast tests

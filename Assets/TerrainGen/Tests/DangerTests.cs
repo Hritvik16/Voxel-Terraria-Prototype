@@ -112,7 +112,7 @@ namespace TerrainGen.Tests
                 var diag = new StringBuilder("          corr with distance from the centre:");
                 for (int k = 0; k < dn.Length; k++) diag.Append($" {dn[k]} {dp[k].R:F3};");
                 double mean = 0; for (int d = 0; d < 8; d++) mean += d * hist[d]; mean /= land;
-                ulong rh = rec.Hash(), rh2 = WorldRecord.Build(map).Hash();
+                ulong rh = rec.Hash(), rh2 = WorldRecord.Build(map, WorldRecord.BiomePlane(map.Spec), map.Routes != null ? map.Record : null).Hash();   // as WorldMap builds it (WorldRecordTests)
                 string Pc(long v) => $"{100.0 * v / land,4:F1}";
                 report.AppendLine($"  {seed,-6}  {string.Join(" / ", Array.ConvertAll(hist, Pc))}%   {mean:F2}   {string.Join(" / ", Array.ConvertAll(bands, Pc))}%   {rs,6:F3}       {rc,6:F3}        {easyMax} ({easyN} cells)    {rh:X16}  {HashWithoutHazard(rec):X16}   {MapHash(map):X16}");
                 report.AppendLine($"          spawn cell ({spawn.x:F0}, {spawn.y:F0}), centre ({centre.x:F0}, {centre.y:F0}); highest land {hi / 10f:F0} m, thirds at {hi / 30f:F0} / {2f * hi / 30f:F0} m; land outside every region {region255}; band by atan != record {atanBand}");
