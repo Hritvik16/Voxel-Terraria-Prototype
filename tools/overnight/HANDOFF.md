@@ -1,59 +1,45 @@
-# 36-B8-routes: DONE. Map v4 links its easy areas by routes (a spanning tree plus extra links, 2+ per area) and eases a 60 m corridor one danger tier lower. All acceptance gates pass on seeds 42/7/2026/31337, and the 20-seed sweep is 20/20. Commits 7b1ba3b (code) and a1a1b38 (evidence).
+# 37d-B4b-easy-area-sweep: DONE. B4's 20-seed easy-area sweep is 20/20 again (c44381a); SUITE=all PASS 654 FAIL 0 SKIP 17.
+The first attempt (12:31) hit the usage limit while diagnosing. This session reverted its DIAG code and finished the task.
 
-## What changed
-- **New `Assets/TerrainGen/Routes.cs` (plan rule 9).**
-  - **Search:** one multi-source Dijkstra per pair of easy areas, on the 8 m map. Cost per cell = band (W1/S2/C6/Sh30) x (1 + danger), x1.5 where neither end area is in sight.
-  - **Things the search avoids:**
-    - S-level stamps (arches, rings, crystal clusters, fossils, cave mouths, fissures) cost Sheer, and so do the geyser pools. They are voxel-only steps that the map cannot see.
-    - Lakes cost Sheer; a river crossing costs 4x (a ford); a feature footprint costs 3x.
-  - **Links:** Kruskal's spanning tree, then extra links priced up by how much they overlap a route already taken. The centre line is smoothed.
-  - **Easing:**
-    - Along the line, slopes are held under tan 0.4. The 20 m cut cap is read on the line AND on the cells beside it, and the foot of a capped step gets a scree fill of at most 25 m.
-    - Sideways, a flared cone. It is built on the uncapped profile; the capped profile made neighbouring cones contradict each other.
-    - Detail roughness is eased too.
-  - **Never touched:** easy areas plus a one-cell collar round them, features, water, and the noise wobble of the corridor's edge (the core does not wobble).
-- **`WorldMap.BuildV4`:** builds the record, then the routes, then the record again on the eased map, keeping the FIRST record's easy areas. Reseeding them on the eased map moved them (seed 12: 44 x4 ha became 66/9/39/37).
-- **`WorldRecord`:** new `FLAG_ROUTE` (flags bit 2); a corridor cell's base danger is 1 tier lower; new `RouteList` (line, width, ends, passes, cut/fill, corridor cells, `mapVersion`).
-- `DangerTests` and `WorldRecordTests` now allow the route flag and the danger drop.
-- **New `RouteTests`:** the 4-seed gate (Slow), plus `ROUTESWEEP=1` for the 20-seed sweep. Its report is `Logs/TerrainGen/routes/b8_routes.txt`; a copy, with the PNGs, is in `Screenshots/B8/`.
-- `FlySweep` now accepts `-tod`.
-- v3 is untouched: the code runs on the v4 path only.
+## Why each seed failed (at HEAD 7cb9b26, before the fix)
+- **11 (an area of 22.7 ha) and 65537 (3 areas, plus one of 21.9 ha).** Too few sites. `Features.MarkBad` marked feature footprints as `bad`, and `Pick` rejects any window that touches even one bad cell.
+  - Long canyons rule out a band ~800 m wide, which cut the candidate windows by about half (seed 11: 1077 -> 391).
+  - So Pick seated 4 of 6 sites on seed 11 (the 4th was 82% non-gentle and 0.8 km from area 0, so they shared cells) and 3 of 6 on 65537.
+  - Evidence: with MarkBad switched off (diagnostic run), both seeds pass.
+- **12 (an area of 8.7 ha).** The lowest-third rule. B5 took away the pinned peak, so a world without a great peak (seeds 1, 12, 123) tops out near 300 m and its lowest-third line falls under 97 m.
+  - `LEVEL_MAX` (an absolute 100 m) then pressed seed 12's plateau sites (237/215/146 m starting means) to cores of 106-121 m, all above the line. 4 of 6 sites had under 1,400 easy cells.
+  - Seeds 1 and 123 passed only narrowly for the same reason.
+
+## The change (v4 only; `EasyAreas.Pick` + `WorldMap.BuildV3`)
+- Feature footprints now go to their own `featureBad` array.
+  - RELAX passes 0-3 still exclude them exactly as before.
+  - A new last **EDGE pass** runs only if those passes seated fewer than 6 sites. A window there may touch a feature margin (<= 35% of its cells) or the beach/sea (<= 15%), and each such cell costs like non-gentle land.
+  - Mark still never flags a feature cell or a sea cell.
+- **Lowest-third prediction:** 0.7 x (the highest starting-shape land / 3).
+  - The press level is capped at the predicted line.
+  - A window whose pressed height is above the line costs 10 per voxel over it and waits for the EDGE pass.
+  - On worlds with a peak the line is over 140 m, so nothing changes there.
+- `Features.PlaceLate`'s seat check calls Pick without `featureBad`, so feature placement uses the old rule.
+- v3 is untouched: the code runs only on the v4 path, and the v3 hash tests pass.
 
 ## Evidence
-- **Tests:** `SUITE=all` PASS 653 FAIL 0 SKIP 17 (`Logs/overnight/b8/suite_all.out`); fast suite after the evidence commit PASS 631 FAIL 0 SKIP 14.
-  - `V4_Deterministic_SeedDependent_DiffersFromV3`, `MapV3_IsDeterministic` and `NoNeedles_OnTheMap` all pass.
-- **Per seed** (`b8_routes.txt`; Walk+Scramble is on the voxel ground, sampled every 0.5 m along the centre line):
+- `EASYSWEEP=1`: **20/20**, every area 42-45 ha. Before: 3 seeds failed, and seeds 8/99/123 had uneven areas of 26-38 ha. Reports: `Screenshots/B4b/easysweep_before.txt`, `easysweep_after.txt`.
+- `ROUTESWEEP=1`: 20/20, 2+ links per area, 0 m Sheer (`Screenshots/B4b/routesweep_after.txt`). Seed 42's route in-sight share is now 84.5% (it was 66.3%; the gate is 65%).
+- `SUITE=all`: PASS 654 FAIL 0 SKIP 17, the same 17 report-only tests as before (`Logs/overnight/b4b/suite_all.out`). This covers B5 (5 features, a canyon, >= 1.2 km), B6 danger, the B8 4-seed gate, B2/B3, and the hashes. After that run, the only edits were two header comments.
+- B5 report: features 5/5 and spacing pass on 11/12/65537/42. Seed 42 sees a feature: 81.4% (80.4% after 37b).
+  - Seeds 12 and 65537 show 55.0% and 79.9% MISS on that report-only line (its >= 80% target is for the 4 default seeds).
+  - I have no before number for those two: it was NOT compared.
+- No performance runs (rule 10).
 
-  | seed | links / area | Walk+Scramble | Sheer | detour max | in sight | safer (floored / strict) | deepest cut | build |
-  |---|---|---|---|---|---|---|---|---|
-  | 42 | 2 2 2 2 | 92.0% | 0 m | 1.23x | 72.8% | 99.0 / 86.5% | 20.0 m | 26.5 s |
-  | 7 | 3 2 2 3 | 96.4% | 0 m | 1.16x | 74.5% | 100 / 81.3% | 0 m | 28.8 s |
-  | 2026 | 2 3 3 2 | 99.0% | 0 m | 1.08x | 86.2% | 100 / 96.1% | 0 m | 26.3 s |
-  | 31337 | 3 2 3 2 | 95.8% | 0 m | 1.05x | 71.4% | 98.2 / **50.6%** | 0 m | 24.3 s |
+## Pictures (Screenshots/B4b/)
+- `easy_areas_before_after.png`: one row per seed (11, 12, 65537 from top to bottom), before on the left, after on the right. Yellow = flagged easy cells.
+  - Row 1: the small 4th area of 22.7 ha is gone; there are now 4 areas of 44 ha (a new one in the east).
+  - Row 2: seed 12's two ragged coastal patches (66 ha and 9 ha) become 4 round 44 ha areas: two in the north, one west, one east.
+  - Row 3: the 3 areas become 4, two of them close together in the south-east.
+- `after/seed42_v4_easy_areas.png`: seed 42 now keeps a spare at the NE coast in place of its old 4th area (202 m mean, 20% non-gentle). The 4 areas: two at the NE coast, one west, one south. **This changes the play world's areas.**
+- `before/`, `after/`: the single PNGs plus `b4_easy_areas.txt`.
 
-- **Climb/Sheer crossings (report only):** seed 42 has 13, and 12 of them have a second crossing within 500 m; 2026 has 3 of 3.
-- **20-seed sweep:** graph connected on 20/20, every area has 2+ links, no B4 per-cell failures (`Screenshots/B8/routesweep.txt`).
-- **How the Sheer reached 0 m on seed 42:** 6.6 m -> 5.6 m (keeping out of the geyser pools; their rims are 2.5 m steps) -> 0 m (the cut cap read on the cells beside the line, and the cones on the uncapped profile).
-
-## Pictures (`Screenshots/B8/`)
-- `routes_seed42.png` (likewise 7, 2026, 31337):
-  - Black lines are the routes, with the cyan corridor under them; green discs are the easy areas, magenta shapes the features, red squares the passes, white squares the route ends.
-  - On seed 42 the routes curve round the big central feature along the valleys. No straight segments.
-- `b8r12cut.png` (route 1-2's 20 m cut, seen from 80 m back at 11:00): a smooth grassy saddle rising ahead. There are no trench walls and no ruled edge. **Natural, not constructed.**
-- `route_1-2_mid_seed42_dusk.png` (the same spot, looking along the route at 17:35): a green valley running down to the sea with a stream; layered red cliffs on the left.
-- `route_0-3_mid_seed42.png`: open grass rising to a saddle between a rocky peak (left) and a rounded hill. The next waypoint is in sight.
-- `b8r02mid.png` (route 0-2's middle): a snowy valley with a lake, green and red cliffs ahead.
-- `b8r02cut.png` (route 0-2's deepest cut, from 80 m back): a steep grey stony slope fills the top two-thirds of the frame, with grass on the right. **This is the weak spot:** it does not look built, but it is a hard climb.
-- `poses_v4_contact.png` (MODE=poses on v4; rows: map/oblique/eye_level_3, ledge/geyser/eye_level_2, cliff_foot_1/coast/peak):
-  - No holes and no floating geometry.
-  - Only the coast pose is mostly sea, as it is designed to be; the dark arc at its bottom is the known LOD tier seam.
-- `ledge_view_before_after.png` (left: before B8, 8 Oct; right: now): identical. The black oval is the ledge's dark underside and was there before B8. It is already queued as task 40.
-
-## For the owner (no stop)
-1. **The "safer" gate is read FLOORED.** A danger-0 corridor beside danger-0 land counts, because it cannot go lower. Read STRICT, seed 31337 has only 50.6% (most of its routes run through danger-0 land). Keep the floored reading?
-2. **B4's opt-in sweep was ALREADY red at HEAD before B8**, on three seeds (11: 24.8 ha; 12: 8.7 ha; 65537: 3 areas, want 4). These are list properties of the first record, which B8 does not change. B4's 20/20 sweep dates from before B5, which probably caused this. Worth a fix task.
-3. **The scree fill is capped at 25 m.** That number is mine; the plan caps only the lowering (20 m).
-4. **Only 4 easy areas per world**, so the graphs are small. Some links are 8 m long because two areas touch (seed 42's 1-3).
-
-## Next
-Task 37-B10-savanna-badlands (37b and 37c require it).
+## Left open / next
+- Areas that touch each other (8 m routes) predate this change: 14 in B8's sweep, 12 now. Spacing in the last passes is 0.8 x MIN_SEP.
+- Not compared: "sees a feature" on seeds 12/65537 before vs after.
+- Task 37e (lake flat water) is next in the queue.
