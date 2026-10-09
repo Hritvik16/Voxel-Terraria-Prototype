@@ -74,6 +74,11 @@ On each event:
   below that needs no owner decision; restart the runner. If nothing is left,
   write the final summary into the doc, update `SESSION_HANDOFF.md`, stop.
 
+## Bugs list (owner, 2026-10-09)
+A bug that does not block the current phase goes into `tools/overnight/BUGS.md` (one row), not
+into `queue/`; a ready task file for it waits in `tools/overnight/later/`. Only a blocker is
+queued at once. Bugs are fixed in a batch next to related work (e.g. inside the engine phase).
+
 ## Writing a task file
 One change, with acceptance steps (see the existing files for the
 shape). Number it after the last file in queue/done/blocked. `Requires:` line
