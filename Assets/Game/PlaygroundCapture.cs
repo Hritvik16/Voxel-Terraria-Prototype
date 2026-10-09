@@ -1824,6 +1824,10 @@ public partial class PlaygroundCapture : MonoBehaviour
         int lookGrade = ArgInt("-lookgrade", -1);
         if (lookGrade >= 0) SunCycle.LookGradeOverride = lookGrade;
 
+        // -emissivebleed 0|1: faces next to lava/torches pick up their glow.
+        int emissiveBleed = ArgInt("-emissivebleed", -1);
+        if (emissiveBleed >= 0) RaymarchFeature.EmissiveBleedOverride = emissiveBleed > 0 ? 1 : 0;
+
         // The shadow-distance clamp, re-exposed here because §F.4 "disproved" it
         // AT THE WRONG POSE. That sweep ran inside the arena pit, where almost
         // nothing is sunlit and almost no shadow ray is traced, so a 12x change
@@ -1901,7 +1905,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         L($"lava light share {LightingConfig.Active.lavaLightMaxSlots} of {EngineConfig.MAX_ACTIVE_LIGHTS} slots   " +
           $"look grade {(SunCycle.LookGradeOverride >= 0 ? SunCycle.LookGradeOverride : LightingConfig.Active.lookGrade)} " +
           $"(amount {SunCycle.LookGradeAmountAt(SunCycle.Hours):F2} at this hour)   maxQueuedFrames {QualitySettings.maxQueuedFrames}");
-        L($"shadow roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}   look {(RaymarchFeature.LookOverride >= 0 ? RaymarchFeature.LookOverride : LightingConfig.Active.look)}");
+        L($"shadow roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}   look {(RaymarchFeature.LookOverride >= 0 ? RaymarchFeature.LookOverride : LightingConfig.Active.look)}   emissive bleed {(RaymarchFeature.EmissiveBleedOverride >= 0 ? RaymarchFeature.EmissiveBleedOverride : LightingConfig.Active.emissiveBleed)}");
         var farBand = VoxelEngine.Rendering.FarField.Active;
         L($"FAR BAND {(farBand != null ? "ON" : "OFF")}" +
           (farBand != null ? $"  far shadows {(farBand.ShadowsOn ? "ON" : "OFF")}  haze {farBand.HazeRangeMetres:F0} m  " +

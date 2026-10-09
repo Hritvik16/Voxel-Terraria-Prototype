@@ -310,6 +310,10 @@ public sealed class LightingConfig
     /// the Brickmap ships 2.5.
     public float hazeDensity = 1.2f;
 
+    /// Emissive bleed: faces next to an emitting voxel (torch, lava) pick up
+    /// its glow. 0 = off (default), 1 = on.
+    public int emissiveBleed = 0;
+
     // ---------------------------------------------------------------------
     // THE CINEMATIC GRADE (owner decisions 2-4, 2026-09-24) -- look 1 only.
     //
@@ -432,6 +436,8 @@ public sealed class LightingConfig
         hazeDensity = Fix(hazeDensity, 0f, 16f, 1.2f, nameof(hazeDensity), notes);
         if (lookGrade < 0 || lookGrade > 1)
         { notes.Append($"{nameof(lookGrade)} {lookGrade}->1; "); lookGrade = 1; }
+        if (emissiveBleed < 0 || emissiveBleed > 1)
+        { notes.Append($"{nameof(emissiveBleed)} {emissiveBleed}->0; "); emissiveBleed = 0; }
         gradeFromDeg = Fix(gradeFromDeg, -90f, 90f, 8f, nameof(gradeFromDeg), notes);
         gradeToDeg = Fix(gradeToDeg, -90f, 90f, 40f, nameof(gradeToDeg), notes);
         if (gradeToDeg <= gradeFromDeg)
