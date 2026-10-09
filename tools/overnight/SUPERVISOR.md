@@ -34,6 +34,10 @@ take over; ONE agent active on the project at any time.
    Once your first message is out, close the OLD supervisor yourself
    (`tmux kill-window -t <its window>`; it is idle after its handoff), and close any
    other stale Claude windows you find. Never leave two supervisors running.
+   Exception (owner, 2026-10-09): ONE short-lived side session the owner asks for (e.g. reviewing
+   Gemini's branch, `tools/overnight/REVIEW_GEMINI.md`) may run beside them. It never runs Unity,
+   talks to the owner directly, and is closed when done. The supervisor stays on supervision
+   and design discussion.
 1. `tail -20 Logs/overnight/runner.log`; `ls tools/overnight/queue tools/overnight/blocked`;
    `tmux ls`; is a `run-queue.sh` process alive (`ps -axo pid,command | grep '[r]un-queue'`)?
 2. If the runner is not alive, the queue has runnable tasks and there is no
