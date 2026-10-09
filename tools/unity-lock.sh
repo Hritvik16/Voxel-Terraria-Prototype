@@ -23,6 +23,8 @@ UNITY_LOCK=/tmp/voxel-unity.lock
 UNITY_HOLD=/tmp/voxel-unity.hold
 UNITY_WAITERS=/tmp/voxel-unity.waiters
 UNITY_LOCK_ME="voxel-terraria-1-byte"
+# Directory of this file, for tools/mem-watchdog.sh (2026-10-09).
+UNITY_LOCK_TOOLS="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # Test knobs (tools/test-unity-lock.sh reassigns them after sourcing).
 UNITY_LOCK_CLEAR_S=45   # seconds with no Unity process before taking the lock
 UNITY_LOCK_POLL_S=5     # poll step of every wait loop
@@ -100,6 +102,8 @@ unity_lock_release() {
 # UNITY_LOCK_HELD_BY (a detached child keeps it) and still alive.
 unity_lock_acquire() {
   local said=-1 last_who=""
+  # Memory watchdog (owner, 2026-10-09): kills a Unity that outgrows the Mac.
+  [ -x "$UNITY_LOCK_TOOLS/mem-watchdog.sh" ] && "$UNITY_LOCK_TOOLS/mem-watchdog.sh" --ensure
   while true; do
     unity_hold_wait
     if [ -f "$UNITY_LOCK" ]; then
