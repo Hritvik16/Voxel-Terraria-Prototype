@@ -770,6 +770,18 @@ real and separate reason — see the LOD-cascade finding in
     (2) Stepped tg2 lake surfaces wake ~500k slots when touched (terrain generator).
     (3) At the coast the WAKE QUEUE (capacity = maxOpsPerFrame) is full of op wakes, so the
     placed box's own 1,029 wakes were dropped and it flowed slowly.
+  - **TASK 54 (2026-10-10): tiles only for AWAKE fluid** (`FluidTileMap.AwakeOnly`, on in
+    Playground; `-awakeonly 0` = the mask policy above, a measurement seam). Resting sea, lakes
+    and sand take no tile; a tile is admitted by a wake or an applied op (plus the tiles across
+    any face the op touches) and released after `QuietTicks` (488) ticks with no op or wake. A
+    tile released while still active is remembered and re-admitted (with the recentre seed)
+    when the player returns. Coast poolprobe, same build: refused tiles 2,037,814 -> 0, pool
+    peak 1024 -> 32, placed box's wakes dropped 1,029 -> 0, box 1029 -> 3 voxels in 480 frames
+    (was 416 left). Items (1) and (3) above are closed in Playground; the 1,024-tile pool is
+    still ALLOCATED (512 MB) -- resizing it is the open follow-up. NEW VISIBLE CONSEQUENCE: a
+    generated water surface with an open side (stepped sea/lake, item (2)) now stands as a
+    vertical water face until touched (§5.5 static water) instead of spilling on approach.
+    The older rigs (fluid-tiled, siege, chaos, acceptance...) still run the mask policy.
 - **FLUID IN TG2 DOES SIMULATE: task 07's "never moved" was a misreading (task
   09, 2026-10-03; no engine change).** `-fluidprobe` (`MODE=fluidprobe
   ./run-tg2world.sh`; `PROBEWORLD=` for the default-world control) repeats task

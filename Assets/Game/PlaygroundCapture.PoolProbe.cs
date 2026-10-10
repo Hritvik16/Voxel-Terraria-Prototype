@@ -59,6 +59,7 @@ public partial class PlaygroundCapture
         FluidTileResidency.LegacyScanOrder = !fix;
         fl.DisplaceForWakes = fix;
         L($"-poolfix {(fix ? "1: nearest-first residency + wakes displace farther tiles (task 39)" : "0: the OLD behaviour (scan-order residency, wakes into a full pool refused)")}");
+        L($"-awakeonly {(tiles.AwakeOnly ? $"1: tiles only for AWAKE fluid (task 54); quiet after {tiles.QuietTicks} ticks" : "0: the mask policy (every fluid tile in the radius)")}");
         var map = far.Tg2Map;
         int2 off = far.Tg2OffsetVoxels;
         int seaShift = far.Tg2SeaShift;
@@ -144,6 +145,9 @@ public partial class PlaygroundCapture
 
         L(""); L($"END: wake displacements {fl.WakeTilesDisplacedTotal:N0}; refusals total {tiles.PoolExhaustionsTotal:N0} over {pg.DebugResidencyRefreshes} residency passes; " +
                  $"acquired {tiles.TilesAcquiredTotal:N0} released {tiles.TilesReleasedTotal:N0} peak {tiles.PeakResidentTiles}");
+        L($"     awake-only: unsettled remembered {tiles.UnsettledRememberedTotal:N0}, re-admitted {tiles.UnsettledReadmittedTotal:N0}, " +
+          $"dropped {tiles.UnsettledDroppedTotal:N0}, waiting {tiles.UnsettledCount:N0}; op face-tiles refused {fl.OpTilesRefusedTotal:N0}; " +
+          $"unsettled seeds {fl.UnsettledSeedsTotal:N0}; wakes rejected full {fl.WakeRejectedFull:N0}");
         MemLedgerIfAsked();
         File.WriteAllText(Path.Combine(_folder, "poolprobe.txt"), _log.ToString());
         Debug.Log($"[poolprobe] report {_folder}");
@@ -171,7 +175,7 @@ public partial class PlaygroundCapture
         Vector3 dir = new Vector3(to.x - from.x, 0f, to.z - from.z).normalized;
         cam.transform.rotation = Quaternion.LookRotation(dir, Vector3.up);
         L(""); L($"---- WALK to {name}: {from:F1} -> {to:F1}, {dist:F0} m at 12 m/s ----");
-        L("  frame   along_m  resident  chunks  inR_cand  acq  already  REFUSED  relR  relO  displ  exhaustions_total");
+        L("  frame   along_m  resident  chunks  inR_cand  acq  already  REFUSED  relR  relO  displ  relQ  unsettled  exhaustions_total");
         long lastPass = pg.DebugResidencyRefreshes;
         float t = 0f;
         while (true)
@@ -188,7 +192,7 @@ public partial class PlaygroundCapture
                 var st = pg.DebugLastResidency;
                 int cand = st.TilesAcquired + st.TilesAlreadyResident + st.TilesRefusedPoolFull;
                 L($"  {Time.frameCount,6}  {along,7:F0}  {tiles.ResidentTiles,8}  {st.ChunksScanned,6}  {cand,8}  {st.TilesAcquired,3}  {st.TilesAlreadyResident,7}  " +
-                  $"{st.TilesRefusedPoolFull,7}  {st.TilesReleasedByRadius,4}  {st.TilesReleasedOrphaned,4}  {st.TilesDisplaced,5}  {tiles.PoolExhaustionsTotal,10:N0}");
+                  $"{st.TilesRefusedPoolFull,7}  {st.TilesReleasedByRadius,4}  {st.TilesReleasedOrphaned,4}  {st.TilesDisplaced,5}  {st.TilesReleasedQuiet,4}  {tiles.UnsettledCount,9}  {tiles.PoolExhaustionsTotal,10:N0}");
             }
             if (along >= dist) break;
         }
@@ -344,12 +348,12 @@ public partial class PlaygroundCapture
           $"vent at {vent} (tile {tiles.TileOf(vent)}, resident {tiles.TryGetSlot(tiles.TileOf(vent)) != FluidTileMap.NO_TILE}); " +
           $"pool {tiles.ResidentTiles}/{tiles.TileCapacity}, refusals {tiles.PoolExhaustionsTotal:N0}");
         yield return CaptureTo(tag + "_before");
-        long q0 = fl.WakeRequestsQueuedTotal, r0 = fl.WakeRejectedOutOfRegion;
+        long q0 = fl.WakeRequestsQueuedTotal, r0 = fl.WakeRejectedOutOfRegion, j0 = fl.WakeRejectedFull;
         int nW = pg.DebugEdits.SetBox(wLo, wHi, Materials.Water);
         pg.DebugOpenWaterVent(vent);
         int f0 = Time.frameCount;
         L($"  PLACED water {nW} voxels + vent open, frame {f0}: wakes queued +{fl.WakeRequestsQueuedTotal - q0}, " +
-          $"refused (no tile) +{fl.WakeRejectedOutOfRegion - r0}; box tile resident now {tiles.TryGetSlot(tc) != FluidTileMap.NO_TILE}");
+          $"refused (no tile) +{fl.WakeRejectedOutOfRegion - r0}, dropped (wake queue full) +{fl.WakeRejectedFull - j0}; box tile resident now {tiles.TryGetSlot(tc) != FluidTileMap.NO_TILE}");
         int3 vLo = vent + new int3(-12, -4, -12), vHi = vent + new int3(12, 4, 12);
         L("    +frames  box_water  vent_layer_water  box_tile_res  vent_tile_res  pool  refusals  wake_refused");
         foreach (int k in new[] { 1, 20, 60, 120, 240, 480 })

@@ -494,6 +494,9 @@ namespace VoxelEngine.Simulation
                         OnVoxelApplied?.Invoke(op.Src);
                         AppliedVoxelWrites++;
                     }
+                    // AwakeOnly tile bookkeeping (task 54): no-op otherwise.
+                    _sim.NoteOpApplied(op.Dst);
+                    if (op.HasSrc) _sim.NoteOpApplied(op.Src);
                     bool wake = op.Wake;
 
                     // §8.3's wake scan, run for the SAME reason an edit runs it:

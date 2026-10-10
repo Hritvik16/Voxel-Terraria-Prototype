@@ -52,6 +52,12 @@ namespace VoxelEngine.Simulation
             /// Resident tiles released to make room for a NEARER wanted tile
             /// while the pool was full. See the priority note in Refresh.
             public int TilesDisplaced;
+            /// AwakeOnly: tiles released because nothing moved in them for
+            /// QuietTicks (settled; not remembered). See FluidTileMap.
+            public int TilesReleasedQuiet;
+            /// AwakeOnly: remembered-unsettled tiles still waiting (outside the
+            /// wake radius, chunk not resident, or refused).
+            public int UnsettledWaiting;
         }
 
         // Scratch for the full-pool path. Main thread only (the single-writer
@@ -103,6 +109,16 @@ namespace VoxelEngine.Simulation
             st.TilesReleasedByRadius = ReleaseBeyondSleep(tiles, centreVoxel, sleepRadiusVoxels);
             if (releaseOrphaned) st.TilesReleasedOrphaned = ReleaseOrphaned(store, tiles);
 
+            // AWAKE-ONLY (task 54): no mask scan. Resting generated fluid is
+            // plain terrain; tiles come from wakes (FluidGpuSimulation) and from
+            // the tiles released mid-flow that FluidTileMap remembered.
+            if (tiles.AwakeOnly)
+            {
+                st.TilesReleasedQuiet = tiles.ReleaseQuietTiles();
+                AdmitUnsettled(store, tiles, centreVoxel, wakeRadiusVoxels, ref st);
+                return st;
+            }
+
             int3 lo = CoordMath.VoxelToChunk(centreVoxel - wakeRadiusVoxels);
             int3 hi = CoordMath.VoxelToChunk(centreVoxel + wakeRadiusVoxels);
             long wake2 = (long)wakeRadiusVoxels * wakeRadiusVoxels;
@@ -148,6 +164,38 @@ namespace VoxelEngine.Simulation
 
             AdmitNearestFirst(tiles, centreVoxel, ref st);
             return st;
+        }
+
+        private static readonly System.Collections.Generic.List<int3> s_unsettled = new System.Collections.Generic.List<int3>();
+
+        /// AwakeOnly admission: the remembered-unsettled tiles inside the wake
+        /// radius whose chunk is resident (gate 1) and still holds mobile
+        /// material (gate 2, the same one ulong). A tile whose fluid has gone is
+        /// forgotten. Nearest-first, exactly as the mask path admits.
+        private static void AdmitUnsettled(ChunkStore store, FluidTileMap tiles, int3 centreVoxel,
+                                           int wakeRadiusVoxels, ref Stats st)
+        {
+            long wake2 = (long)wakeRadiusVoxels * wakeRadiusVoxels;
+            int edge = tiles.TileEdge;
+            s_wanted.Clear(); s_wantedD2.Clear();
+            tiles.CopyUnsettled(s_unsettled);
+            for (int i = 0; i < s_unsettled.Count; i++)
+            {
+                int3 coord = s_unsettled[i];
+                int3 tLo = coord * edge;
+                Chunk chunk = store.GetChunk(CoordMath.VoxelToChunk(tLo));
+                if (chunk == null) { st.ChunksSkippedNonResident++; continue; }
+                if ((chunk.fluidTileMask & ChunkFluidMask.BitFor(tLo)) == 0UL)
+                { tiles.ForgetUnsettled(coord); continue; }
+                st.TilesWithFluid++;
+                if (tiles.TryGetSlot(coord) != FluidTileMap.NO_TILE)
+                { tiles.ForgetUnsettled(coord); st.TilesAlreadyResident++; continue; }
+                long d2 = DistSqToBox(centreVoxel, tLo, tLo + new int3(edge - 1, edge - 1, edge - 1));
+                if (d2 > wake2) continue;
+                s_wanted.Add(coord); s_wantedD2.Add(d2);
+            }
+            AdmitNearestFirst(tiles, centreVoxel, ref st);
+            st.UnsettledWaiting = tiles.UnsettledCount;
         }
 
         /// Acquires this pass's wanted tiles. When they do not all fit, the

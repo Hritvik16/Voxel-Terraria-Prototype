@@ -58,6 +58,7 @@ namespace VoxelEngine.Simulation
         private readonly int3[] _ringCoord;    // ring index -> the tile coord that owns the entry
         private readonly int3[] _slotCoord;    // slot -> its tile coord
         private readonly int[] _slotLive;      // slot -> live fluid cells (the §3.10 count)
+        private readonly long[] _slotLastActive; // slot -> Clock of the last op/wake in it (AwakeOnly)
         private readonly int[] _freeSlots;
         private int _freeCount;
 
@@ -107,6 +108,7 @@ namespace VoxelEngine.Simulation
 
             _slotCoord = new int3[tileCapacity];
             _slotLive = new int[tileCapacity];
+            _slotLastActive = new long[tileCapacity];
             _freeSlots = new int[tileCapacity];
             for (int i = 0; i < tileCapacity; i++) _freeSlots[i] = tileCapacity - 1 - i;
             _freeCount = tileCapacity;
@@ -193,6 +195,8 @@ namespace VoxelEngine.Simulation
             int slot = _freeSlots[--_freeCount];
             _slotCoord[slot] = tileCoord;
             _slotLive[slot] = 0;
+            _slotLastActive[slot] = Clock;
+            if (_unsettled.Remove(tileCoord)) { UnsettledReadmittedTotal++; SeedRequested = true; }
             _ringSlot[r] = slot;
             _ringCoord[r] = tileCoord;
             ResidentTiles++;
@@ -207,6 +211,7 @@ namespace VoxelEngine.Simulation
             int slot = _ringSlot[r];
             if (slot == NO_TILE || !_ringCoord[r].Equals(tileCoord)) return false;
 
+            if (AwakeOnly && !IsQuiet(slot)) RememberUnsettled(tileCoord);
             _ringSlot[r] = NO_TILE;
             _ringCoord[r] = default;
             _slotLive[slot] = 0;
@@ -214,6 +219,103 @@ namespace VoxelEngine.Simulation
             ResidentTiles--;
             TilesReleasedTotal++;
             return true;
+        }
+
+        // =====================================================================
+        // AWAKE-ONLY RESIDENCY (task 54, engine plan step 5; BUGS #3)
+        // =====================================================================
+        //
+        // WHY. Under the mask policy (FluidTileResidency's scan) EVERY tile that
+        // holds a fluid-capable voxel inside the wake radius is resident. At a
+        // tg2 coast that is ~4,700 tiles of resting sea and beach sand against a
+        // 1,024-tile pool: the pool is full of fluid that never moves, and the
+        // tiles the player disturbs lose. §7.4 says dormant fluid is "zero GPU
+        // slots, zero sim cost"; DESIGN_NOTE_7_2 §4.4 says a tile is freed when
+        // its live count reaches zero. AwakeOnly makes the tile pool follow that:
+        //
+        //   ADMIT   only from a wake (an edit, an applied op's neighbourhood, a
+        //           flow reaching a tile face) or from the unsettled memory below
+        //           -- never because generated water or sand is merely present.
+        //   RELEASE a tile QUIET for QuietTicks: no op and no wake touched it, so
+        //           every slot in it has slept (CSSweep frees a slot after
+        //           FLUID_SLEEP_TICKS evaluated ticks without a descent; a
+        //           viscous one is evaluated every TickInterval ticks, hence the
+        //           product). No GPU readback is needed to know it is empty.
+        //   REMEMBER a tile released while NOT quiet (radius, orphan, displaced):
+        //           it may hold fluid that stopped mid-flow (force-demote beyond
+        //           the sleep radius). DESIGN_NOTE_7_2 §9's "a sparse set does
+        //           not know where dormant fluid is" -- here it only has to know
+        //           where DISTURBED fluid was left, which is this set. Refresh
+        //           re-admits it inside the wake radius and Acquire asks the sim
+        //           for its recentre seed, which wakes the cells with air below.
+        //
+        // BOOKKEEPING ONLY: no struct layout, no shader, no tick-rate change.
+
+        /// The policy switch. False = the mask policy every proven rig uses.
+        public bool AwakeOnly { get; set; }
+
+        /// Ticks without an op or wake before a resident tile counts as settled.
+        /// Set from FluidGpuSimulation.QuietTicksFor (sleep ticks x the slowest
+        /// material's interval, plus the readback lag).
+        public int QuietTicks { get; set; } = 64;
+
+        /// The CA tick count, advanced by FluidGpuSimulation.Tick.
+        public long Clock { get; set; }
+
+        /// Set when a remembered-unsettled tile is re-acquired; the sim consumes
+        /// it to run its recentre seed over the (small) awake set.
+        public bool SeedRequested { get; set; }
+
+        /// Bound on the unsettled memory, so a long session cannot grow it
+        /// without limit. 12 B per entry; beyond this a tile is forgotten (its
+        /// fluid stays terrain, as it would after a save).
+        public const int UNSETTLED_CAP = 65536;
+        private readonly System.Collections.Generic.HashSet<int3> _unsettled =
+            new System.Collections.Generic.HashSet<int3>();
+        public int UnsettledCount => _unsettled.Count;
+        public long UnsettledRememberedTotal { get; private set; }
+        public long UnsettledReadmittedTotal { get; private set; }
+        public long UnsettledDroppedTotal { get; private set; }
+
+        /// Snapshot of the remembered tiles (callers acquire while iterating).
+        public void CopyUnsettled(System.Collections.Generic.List<int3> into)
+        {
+            into.Clear();
+            foreach (int3 c in _unsettled) into.Add(c);
+        }
+
+        public void ForgetUnsettled(int3 tileCoord) => _unsettled.Remove(tileCoord);
+
+        private void RememberUnsettled(int3 tileCoord)
+        {
+            if (_unsettled.Contains(tileCoord)) return;
+            if (_unsettled.Count >= UNSETTLED_CAP) { UnsettledDroppedTotal++; return; }
+            _unsettled.Add(tileCoord);
+            UnsettledRememberedTotal++;
+        }
+
+        /// Stamps the tile holding `voxel` as active now, if it is resident.
+        public void NoteActivity(int3 voxel)
+        {
+            int slot = SlotForVoxel(voxel);
+            if (slot != NO_TILE) _slotLastActive[slot] = Clock;
+        }
+
+        public bool IsQuiet(int slot) => Clock - _slotLastActive[slot] >= QuietTicks;
+
+        /// Releases every resident tile that has been quiet for QuietTicks.
+        /// Quiet tiles are settled, so they are NOT remembered. O(TileCapacity)
+        /// over the slots, not O(ring) (the ring is 2M entries).
+        public int ReleaseQuietTiles()
+        {
+            int freed = 0;
+            for (int s = 0; s < TileCapacity; s++)
+            {
+                int3 c = _slotCoord[s];
+                if (TryGetSlot(c) != s || !IsQuiet(s)) continue;   // a free slot keeps its old coord
+                if (Release(c)) freed++;
+            }
+            return freed;
         }
 
         // =====================================================================

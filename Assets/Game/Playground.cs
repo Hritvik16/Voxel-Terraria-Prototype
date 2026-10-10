@@ -340,7 +340,14 @@ public class Playground : MonoBehaviour
         // §7.4's ACTIVE RADIUS around you, not a region you can stand outside
         // of. _arenaEdge now only sizes the basin search and the HUD's old
         // arena marker; it no longer sizes any allocation.
-        _tiles = new FluidTileMap(ChunkFluidMask.TILE_EDGE, new int3(128, 128, 128), _tilePoolCap);
+        _tiles = new FluidTileMap(ChunkFluidMask.TILE_EDGE, new int3(128, 128, 128), _tilePoolCap)
+        {
+            // ENGINE PLAN STEP 5 (task 54): tiles only for AWAKE fluid. Resting
+            // sea, lakes and supported sand are plain terrain until disturbed
+            // (§7.4 "dormant = zero GPU slots"). "-awakeonly 0" is a MEASUREMENT
+            // SEAM restoring the mask policy (every fluid tile in the radius).
+            AwakeOnly = !(TryArgFloat("-awakeonly", out float awakeOnlyArg) && awakeOnlyArg == 0f),
+        };
         _fluid = new FluidGpuSimulation(_fluidCA,
             new int3(64, 64, 64), _slotCapacity, _maxOpsPerFrame, _tiles)
         {
@@ -1847,7 +1854,8 @@ public class Playground : MonoBehaviour
         var lastPass = DebugLastResidency;
 
         sb.AppendLine("<b><color=#ffd479>── FLUID (§7.2 tiles / §7.4 radius) ───</color></b>");
-        sb.Append(Row("tiles", $"{_tiles.ResidentTiles} / {_tiles.TileCapacity} resident   " +
+        sb.Append(Row("tiles", $"{_tiles.ResidentTiles} / {_tiles.TileCapacity} resident" +
+            (_tiles.AwakeOnly ? " <color=#b9cfe4>(awake fluid only)</color>   " : "   ") +
             (lastPass.TilesRefusedPoolFull > 0
                 ? $"<color=#ffc64a>pool FULL: {lastPass.TilesRefusedPoolFull:N0} far tiles left asleep</color> " +
                   $"<color=#b9cfe4>(nearest kept; {_tiles.PoolExhaustionsTotal:N0} refusals since start)</color>"

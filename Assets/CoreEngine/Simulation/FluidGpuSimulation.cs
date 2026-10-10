@@ -469,6 +469,7 @@ namespace VoxelEngine.Simulation
             RequirePow2(regionDims.z, "regionDims.z");
 
             Tiles = tiles;
+            if (tiles != null) tiles.QuietTicks = QuietTicksFor();
             _regionDims = regionDims;
             _regionCellCount = regionDims.x * regionDims.y * regionDims.z;
             _shiftX = Log2(regionDims.x);
@@ -693,6 +694,7 @@ namespace VoxelEngine.Simulation
                     WakeRejectedOutOfRegion++;
                     return;
                 }
+                Tiles.NoteActivity(worldVoxel);
             }
             else if (!InRegion(worldVoxel)) { WakeRejectedOutOfRegion++; return; }
 
@@ -743,6 +745,53 @@ namespace VoxelEngine.Simulation
             for (int dy = -1; dy <= 1; dy++)
             for (int dx = -1; dx <= 1; dx++)
                 RequestWake(worldVoxel + new int3(dx, dy, dz));
+        }
+
+        /// AWAKE-ONLY: an applied op keeps its tile awake, and pulls in the
+        /// tiles across any face it touches (task 54).
+        ///
+        /// WHY THE FACE TILES. The CA can only move into a cell whose tile is
+        /// resident (InRegion). Under the mask policy a neighbouring tile of
+        /// beach sand or lake water was resident anyway; under AwakeOnly it is
+        /// not, and a LATERAL op carries no wake flag (PHASE_5A §5.2), so water
+        /// spreading over a beach would stop dead at every 32-voxel tile face.
+        /// So every applied op makes sure the tiles of its 3x3x3 neighbourhood
+        /// exist -- one tile almost always, up to 8 at a tile corner. A pool-full
+        /// refusal is the same guarded no-op as a refused wake (§7.7).
+        public void NoteOpApplied(int3 worldVoxel)
+        {
+            if (Tiles == null || !Tiles.AwakeOnly) return;
+            int3 lo = Tiles.TileOf(worldVoxel - 1), hi = Tiles.TileOf(worldVoxel + 1);
+            for (int tz = lo.z; tz <= hi.z; tz++)
+            for (int ty = lo.y; ty <= hi.y; ty++)
+            for (int tx = lo.x; tx <= hi.x; tx++)
+            {
+                int3 tc = new int3(tx, ty, tz);
+                if (Tiles.TryGetSlot(tc) == FluidTileMap.NO_TILE &&
+                    !TryDisplaceForWake(tc) &&
+                    Tiles.Acquire(tc) == FluidTileMap.NO_TILE)
+                { OpTilesRefusedTotal++; continue; }
+                Tiles.NoteActivity(tc << Tiles.TileShift);
+            }
+        }
+
+        /// Face tiles an applied op could not get (pool full). AwakeOnly only.
+        public long OpTilesRefusedTotal { get; private set; }
+        /// Recentre seeds run because a remembered-unsettled tile came back.
+        public long UnsettledSeedsTotal { get; private set; }
+
+        /// Ticks without an op or wake after which every slot in a tile has
+        /// slept: CSSweep frees a slot after FLUID_SLEEP_TICKS EVALUATED ticks
+        /// without a descent, and a viscous material is evaluated once per
+        /// TickInterval ticks -- so the slowest mobile material sets the bound.
+        /// Plus RING ticks for ops still in flight on the readback, doubled.
+        public static int QuietTicksFor()
+        {
+            uint maxInterval = 1;
+            for (int m = 0; m < 256; m++)
+                if (MaterialRules.IsMobile((byte)m))
+                    maxInterval = Math.Max(maxInterval, MaterialRules.TickInterval((byte)m));
+            return EngineConfig.FLUID_SLEEP_TICKS * (int)maxInterval + 2 * RING;
         }
 
         public void RequestWakeRegionCell(int regionCell)
@@ -845,6 +894,20 @@ namespace VoxelEngine.Simulation
         {
             if (clipmap == null) throw new ArgumentNullException(nameof(clipmap));
             TickCount++;
+
+            // AwakeOnly bookkeeping (task 54): the tile pool's clock is the CA
+            // tick, and a re-admitted unsettled tile asks for the recentre seed
+            // so its stopped cells (air below) are promoted again.
+            if (Tiles != null)
+            {
+                Tiles.Clock = TickCount;
+                if (Tiles.SeedRequested)
+                {
+                    Tiles.SeedRequested = false;
+                    _recentreSeedTicks = Math.Max(_recentreSeedTicks, RecentreSeedTicks);
+                    UnsettledSeedsTotal++;
+                }
+            }
 
             // Release only the requests the GPU can actually act on. When the
             // mirror is already current -- every rig and every existing test --
