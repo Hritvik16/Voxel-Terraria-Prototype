@@ -170,6 +170,7 @@ namespace VoxelEngine.Rendering
 
         private readonly int2[] _origin = new int2[LEVELS];
         private NativeArray<float> _tgH, _tgR, _tgW;
+        private NativeArray<byte> _tgCls;   // map water class: ShapeField's lake rims (v4)
         private NativeArray<byte> _genToEngine;
         private TerrainGen.Offsets _tgO;
         private ColumnSampler.State _st;
@@ -208,6 +209,7 @@ namespace VoxelEngine.Rendering
                 _tgH = new NativeArray<float>(Tg2Map.Height, Allocator.Persistent);
                 _tgR = new NativeArray<float>(Tg2Map.Rough, Allocator.Persistent);
                 _tgW = new NativeArray<float>(Tg2Map.Water, Allocator.Persistent);
+                _tgCls = new NativeArray<byte>(Tg2Map.WaterClass, Allocator.Persistent);
                 // PREVIEW: put today's camera over the new island's centre,
                 // texel-aligned, and map its sea onto today's. A real world is
                 // already in the island's own frame.
@@ -427,7 +429,7 @@ namespace VoxelEngine.Rendering
             if (UsesTg2)
                 return new FillTg2Job
                 {
-                    h = _tgH, r = _tgR, wat = _tgW, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
+                    h = _tgH, r = _tgR, wat = _tgW, cls = _tgCls, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
                     seaShift = Tg2SeaShift,
                     texelVoxels = texelVoxels, x0 = x0, z0 = z0, w = w, ringOrder = ringOrder, ringOrigin = ringOrigin, output = output,
                 }.Schedule(count, batch);
@@ -519,6 +521,7 @@ namespace VoxelEngine.Rendering
             if (_tgH.IsCreated) _tgH.Dispose();
             if (_tgR.IsCreated) _tgR.Dispose();
             if (_tgW.IsCreated) _tgW.Dispose();
+            if (_tgCls.IsCreated) _tgCls.Dispose();
             if (_genToEngine.IsCreated) _genToEngine.Dispose();
             if (_ownsTg2Map) Tg2Map?.Dispose();
             if (Active == this) Active = null;
@@ -567,6 +570,7 @@ namespace VoxelEngine.Rendering
         private struct FillTg2Job : IJobParallelFor
         {
             [ReadOnly] public NativeArray<float> h, r, wat;
+            [ReadOnly] public NativeArray<byte> cls;
             [ReadOnly] public NativeArray<byte> genToEngine;
             public TerrainGen.TerrainSpec spec;
             public TerrainGen.Offsets o;
@@ -592,6 +596,7 @@ namespace VoxelEngine.Rendering
                     height = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(h),
                     rough = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(r),
                     water = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(wat),
+                    waterClass = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(cls),
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 int half = texelVoxels >> 1;

@@ -33,6 +33,9 @@ namespace TerrainGen
         /// Still-water level per cell (voxels rel. sea) or Hydrology.NO_WATER.
         /// OPTIONAL: null means a dry map (every job that predates map v2).
         public float* water;
+        /// Hydrology.DRY / LAKE / RIVER per cell (WorldMap.WaterClass).
+        /// OPTIONAL: null = no lake rims (ShapeField.LakeRim; map v4 only).
+        public byte* waterClass;
         public int cells;
         public float cellVoxels;
     }
@@ -69,7 +72,7 @@ namespace TerrainGen
         public Route[] Routes { get; private set; }
         /// Routes.LastBuild for this map (diagnostics: links, cut and fill cells).
         public string RouteBuild { get; private set; }
-        private GCHandle _hH, _hR, _hW;
+        private GCHandle _hH, _hR, _hW, _hC;
 
         public WorldMap(TerrainSpec spec, float[] height, float[] rough, float2 peak,
                         float[] water = null, float[] flow = null, Hydrology.Stats hydro = default, byte[] waterClass = null)
@@ -82,6 +85,7 @@ namespace TerrainGen
             _hH = GCHandle.Alloc(Height, GCHandleType.Pinned);
             _hR = GCHandle.Alloc(Rough, GCHandleType.Pinned);
             _hW = GCHandle.Alloc(Water, GCHandleType.Pinned);
+            _hC = GCHandle.Alloc(WaterClass, GCHandleType.Pinned);
         }
 
         private static float[] Filled(int n, float v) { var a = new float[n]; for (int i = 0; i < n; i++) a[i] = v; return a; }
@@ -91,6 +95,7 @@ namespace TerrainGen
             height = (float*)_hH.AddrOfPinnedObject(),
             rough = (float*)_hR.AddrOfPinnedObject(),
             water = (float*)_hW.AddrOfPinnedObject(),
+            waterClass = (byte*)_hC.AddrOfPinnedObject(),
             cells = Spec.mapCells,
             cellVoxels = Spec.mapCellVoxels,
         };
@@ -100,6 +105,7 @@ namespace TerrainGen
             if (_hH.IsAllocated) _hH.Free();
             if (_hR.IsAllocated) _hR.Free();
             if (_hW.IsAllocated) _hW.Free();
+            if (_hC.IsAllocated) _hC.Free();
         }
 
         // ------------------------------------------------------------------

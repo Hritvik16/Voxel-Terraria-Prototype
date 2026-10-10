@@ -269,7 +269,11 @@ namespace TerrainGen
 
             // §2.5 stamp openings (arches, hoops, ribs, under the tree's canopy).
             // Never the top voxel (Stamps.cs header), so S stays the top solid.
-            if ((y >= c.open1Lo && y < c.open1Hi) || (y >= c.open2Lo && y < c.open2Hi) || (y >= c.open3Lo && y < c.open3Hi)) return GenMat.Air;
+            // Map v4 (task 37e): an opening below the column's still-water level
+            // holds that water -- a hoop or arch standing in a lake has water
+            // under it, not an air pocket the lake drains into.
+            if ((y >= c.open1Lo && y < c.open1Hi) || (y >= c.open2Lo && y < c.open2Hi) || (y >= c.open3Lo && y < c.open3Hi))
+                return spec.mapVersion >= 4 && y <= c.water ? (c.waterKind == 1 ? GenMat.Lava : GenMat.Water) : GenMat.Air;
             if (c.stamp3D)
             {
                 byte st = Stamps.Carve3D(in spec, in o, in c, x, y, z);
@@ -282,7 +286,10 @@ namespace TerrainGen
             // counts as 15 m deep and gets carved away (LedgesTest found it).
             int hg = (c.open3Hi > c.open3Lo && y < c.open3Lo) ? c.open3Lo - 1 : h;
             int depth = hg - y;
-            if (depth > CARVE_MIN_DEPTH)
+            // Map v4 (task 37e): a lake rim's fill is not ground to carve; caves
+            // go by the ground under it (ColumnSample.rimGround).
+            int hc = c.rimGround != 0 ? math.min(hg, c.rimGround) : hg;
+            if (hc - y > CARVE_MIN_DEPTH)
             {
                 bool inShell = false;
                 if (!cull.noPocket)
@@ -302,7 +309,7 @@ namespace TerrainGen
                     if (y < spec.UnderworldTopY && y >= cd.underLo && y < cd.underHi)
                         return y <= spec.worldBottomY + LAVA_ABOVE_FLOOR ? GenMat.Lava : GenMat.Air;
                     // Tunnels: an elliptical passage around each layer's centre line.
-                    if (InTunnel(cd.tun0, hg - cd.tunY0, cd.tunH0, y) || InTunnel(cd.tun1, cd.tunY1, cd.tunH1, y) ||
+                    if (InTunnel(cd.tun0, hc - cd.tunY0, cd.tunH0, y) || InTunnel(cd.tun1, cd.tunY1, cd.tunH1, y) ||
                         InTunnel(cd.tun2, cd.tunY2, cd.tunH2, y) || InTunnel(cd.tun3, c.regional - cd.tunY3, cd.tunH3, y))
                         return GenMat.Air;
                 }

@@ -51,6 +51,11 @@ namespace TerrainGen
         /// +-120 m. D runs a passage layer below it; where a valley or cliff cuts
         /// under that level, the passage breaks out through the wall.
         public float regional;
+        /// Map v4 (task 37e): the column's ground BEFORE a lake rim or shore
+        /// shelf raised it (ShapeField.LakeRim), or 0 = not raised. D carves
+        /// caves by depth under THIS ground, so the fill is never carved and
+        /// the caves under it stay where they were.
+        public int rimGround;
         /// v3 T5b: the air under a CAP-ROCK LEDGE, [lo, hi). Like the stamp
         /// intervals, never contains the top voxel (the ledge IS the top).
         public int open3Lo, open3Hi;
@@ -119,6 +124,7 @@ namespace TerrainGen
             }
             float wl = SampleWater(in map, x, z);
             c.water = wl > Hydrology.NO_WATER * 0.5f ? spec.seaLevelY + (int)math.floor(wl) : ColumnSample.NO_WATER_Y;
+            if (map.waterClass != null && spec.mapVersion >= 4) LakeRim(in spec, in map, x, z, ref c);   // v4: lakes at rest
             // §2.5 stamps. Skipped for a dry (pre-v2) map view, which is what
             // every older job builds -- they keep their exact prior output.
             if (map.water != null) Stamps.Column(in spec, in map, in o, p, texelVoxels, ref c);
@@ -277,6 +283,114 @@ namespace TerrainGen
                 w = math.max(w, map.water[cz * n + cx]);
             }
             return w;
+        }
+
+        // ------------------------------------------------------------------
+        // Map v4 LAKE RIMS (task 37e, owner Q31 part 2 (a), 2026-10-09): every
+        // lake is at rest at ONE level. A column's water is its 2x2 cells' max
+        // level (SampleWater), but its ground is the Catmull-Rom map plus the
+        // detail octaves, so next to a lake the ground of a DRY column dipped
+        // below the lake's level (detail noise, the basin's shallow fringe that
+        // Hydrology leaves dry, the spill point): water stood beside air, and
+        // the first wake drained the lake (task 39: 85-90k such cells at seed
+        // 42's shore). The level is right (the map's spill level); the RIM was
+        // low, so the rim is raised: a column within RIM_FULL of a lake cell's
+        // centre stands at least at that lake's level unless its own water does,
+        // falling away at RIM_SLOPE beyond. Every neighbour of a lake-water
+        // column is within RIM_FULL of that lake cell (a column is < cv*sqrt(2)
+        // from each of its 2x2 cells, plus one voxel), so no lake voxel has air
+        // beside or diagonally below it -- by construction, per column, with no
+        // pass over the voxels. Lowering the level instead would need every
+        // shore column's S at map build (non-local). Rivers keep their levels:
+        // a river column lower than a lake's rim there becomes rim (the outlet
+        // gets a sill).
+        //   The SHORE SHELF: the lake's own columns keep their ground except in
+        // the first SHELF_W voxels in from the water's edge (the edge of the
+        // 2x2 rule's wet area), where the bed rises at SHELF_SLOPE to the level.
+        // Without it the raised rim stood at the level right beside a bed up to
+        // ~1.5 m lower -- a vertical bank (B8's route gate read it as Sheer).
+        // Both slopes are under 30 degrees (Danger's Scramble band).
+        // ------------------------------------------------------------------
+        public const float RIM_FULL = 1.5f;     // map cells: the rim's full-height radius around a lake cell
+        public const float RIM_SLOPE = 0.5f;    // voxels down per voxel beyond it (27 degrees)
+        public const float SHELF_W = 40f;       // voxels: the shelf's width in from the water's edge
+        public const float SHELF_SLOPE = 0.5f;  // voxels down per voxel (27 degrees; 2 m deep at its end)
+
+        private static unsafe void LakeRim(in TerrainSpec spec, in MapView map, float x, float z, ref ColumnSample c)
+        {
+            int ry = LakeRimY(in spec, in map, x, z, out _);
+            if (ry == int.MinValue) return;
+            if (c.water < ry) { if (c.height < ry) { c.rimGround = c.height; c.height = ry; } return; }
+            if (c.water <= c.height) return;
+
+            // The shelf -- only in a column whose water IS a lake's (its 2x2
+            // cells' highest lake level), never a river's.
+            float cv = map.cellVoxels;
+            int ix = (int)math.floor(x / cv - 0.5f), iz = (int)math.floor(z / cv - 0.5f), n = map.cells;
+            float lv = Hydrology.NO_WATER;
+            for (int j = 0; j <= 1; j++)
+            for (int i = 0; i <= 1; i++)
+            {
+                int k = math.clamp(iz + j, 0, n - 1) * n + math.clamp(ix + i, 0, n - 1);
+                if (map.waterClass[k] == Hydrology.LAKE) lv = math.max(lv, map.water[k]);
+            }
+            if (lv <= Hydrology.NO_WATER * 0.5f || c.water != spec.seaLevelY + (int)math.floor(lv)) return;
+            // Distance to the dry side: the nearest of the 8 neighbouring 2x2
+            // squares with no lake corner and no water at or above this lake's
+            // level (the wet area is the union of the other squares; SHELF_W <
+            // one cell, so 8 are enough). A river inlet higher than the lake is
+            // NOT a dry side: its water covers the shared bed, and a shelf there
+            // stood at the level beside the river's bed (seed 7: a 1.5 m wall).
+            float e = SHELF_W;
+            for (int b = iz - 1; b <= iz + 1; b++)
+            for (int a = ix - 1; a <= ix + 1; a++)
+            {
+                if (a == ix && b == iz) continue;
+                bool wet = false;
+                for (int j = 0; j <= 1 && !wet; j++)
+                for (int i = 0; i <= 1; i++)
+                {
+                    int k = math.clamp(b + j, 0, n - 1) * n + math.clamp(a + i, 0, n - 1);
+                    if (map.waterClass[k] == Hydrology.LAKE || (map.waterClass[k] != Hydrology.DRY && map.water[k] >= lv)) { wet = true; break; }
+                }
+                if (wet) continue;
+                float dx = math.max(0f, math.max((a + 0.5f) * cv - x, x - (a + 1.5f) * cv));
+                float dz = math.max(0f, math.max((b + 0.5f) * cv - z, z - (b + 1.5f) * cv));
+                e = math.min(e, math.sqrt(dx * dx + dz * dz));
+            }
+            if (e >= SHELF_W) return;
+            int bed = c.water - (int)math.floor(SHELF_SLOPE * e);
+            if (c.height < bed) { c.rimGround = c.height; c.height = bed; }
+        }
+
+        /// The lake rim's absolute Y at (x, z) (see above), or int.MinValue
+        /// when no lake is near or the map has no water classes / is pre-v4.
+        /// `nearest`: the distance (voxels) to the nearest lake cell's centre,
+        /// exact up to 4 cells (float.MaxValue when none is that near).
+        public static unsafe int LakeRimY(in TerrainSpec spec, in MapView map, float x, float z, out float nearest)
+        {
+            nearest = float.MaxValue;
+            if (map.waterClass == null || spec.mapVersion < 4) return int.MinValue;
+            float cv = map.cellVoxels;
+            float gx = x / cv - 0.5f, gz = z / cv - 0.5f;
+            int ix = (int)math.floor(gx), iz = (int)math.floor(gz);
+            int n = map.cells;
+            float full = RIM_FULL * cv, rim = Hydrology.NO_WATER;
+            // Cells beyond this window are >= 4 cells away: past the slope's reach
+            // unless the ground is > (4 - RIM_FULL) x RIM_SLOPE cells (10 m)
+            // below the lake there.
+            for (int j = -3; j <= 4; j++)
+            for (int i = -3; i <= 4; i++)
+            {
+                int cx = math.clamp(ix + i, 0, n - 1), cz = math.clamp(iz + j, 0, n - 1);
+                int k = cz * n + cx;
+                if (map.waterClass[k] != Hydrology.LAKE) continue;
+                float dx = (cx + 0.5f) * cv - x, dz = (cz + 0.5f) * cv - z;
+                float d = math.sqrt(dx * dx + dz * dz);
+                nearest = math.min(nearest, d);
+                rim = math.max(rim, map.water[k] - math.max(0f, d - full) * RIM_SLOPE);
+            }
+            return rim <= Hydrology.NO_WATER * 0.5f ? int.MinValue : spec.seaLevelY + (int)math.floor(rim);
         }
 
         /// Catmull-Rom over the map (C1: no creases along 8 m cell edges).
