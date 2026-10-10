@@ -8,18 +8,18 @@
 //
 // BOUNDED BY CONSTRUCTION (the first version of this test grew Unity to 22.5 GB;
 // rewritten from scratch, owner 2026-10-09). One seed per test case. The MAP
-// picks the work: a column's water comes from the max over the 2x2 map cells
-// around it (ShapeField.SampleWater), so the columns are tiled exactly by those
-// 2x2 "dual cells", and only a tile that has a LAKE corner and whose 4x4 window
-// is not one lake at one level (a lake's shore, or two levels meeting) can hold
-// an unsettled lake voxel. Per tile, S is sampled once on its (cv + 2)^2
+// picks the work: the columns are tiled by the 2x2 "dual cells" of the map
+// (ShapeField.SampleWater), lake water reaches at most ShapeField.REACH_MAX
+// (< 1.5 cells) from a lake cell's centre (task 42), so only a tile whose 4x4
+// cell window holds a LAKE cell and is not one lake at one level (a lake's
+// shore, or two levels meeting) can hold an unsettled lake voxel. Per tile, S is sampled once on its (cv + 2)^2
 // columns into stack buffers; voxels are classed from those column samples
 // (air above max(ground, water, sea), solid at or below the ground) and
 // DetailField.Material is called only where a voxel COULD be carved: a column
 // with a stamp opening / 3-D stamp, or a voxel more than CARVE_MIN_DEPTH under
 // its column top (caves). Nothing scales with lake cells x voxel height.
 //
-// Kinds: "lake" = the column's water is a LAKE cell's level (from its 2x2);
+// Kinds: "lake" = the column's water is the lake water there (ShapeField.LakeWaterY);
 // "geyser" = the geyser basin's sinter pools (Stamps.Column; reported, gated
 // too). Rivers are not at rest by design (Hydrology.cs header) and the
 // volcano's lava lake is not covered. Report: Logs/TerrainGen/lake_level_<seed>.txt.
@@ -77,7 +77,7 @@ namespace TerrainGen.Tests
                     if (c.open1Hi > c.open1Lo || c.open2Hi > c.open2Lo || c.open3Hi > c.open3Lo || c.stamp3D || c.carvesTop) f |= 4;
                     if (c.water > c.height && c.waterKind == 0)
                     {
-                        if (c.water == spec.seaLevelY + (int)math.floor(LakeLevel2x2(in map, n, x + 0.5f, z + 0.5f))) f |= 1;
+                        if (c.water == ShapeField.LakeWaterY(in spec, in map, in o, x + 0.5f, z + 0.5f)) f |= 1;
                         else if (c.stampMat == GenMat.Sinter) f |= 2;
                     }
                     fl[gi] = f;
@@ -135,22 +135,6 @@ namespace TerrainGen.Tests
             }
         }
 
-        /// The highest LAKE level among the 2x2 cells around (x, z) -- the cells
-        /// ShapeField.SampleWater takes its max over -- or NO_WATER.
-        private static unsafe float LakeLevel2x2(in MapView map, int n, float x, float z)
-        {
-            float gx = x / map.cellVoxels - 0.5f, gz = z / map.cellVoxels - 0.5f;
-            int ix = (int)math.floor(gx), iz = (int)math.floor(gz);
-            float lv = Hydrology.NO_WATER;
-            for (int j = 0; j <= 1; j++)
-            for (int i = 0; i <= 1; i++)
-            {
-                int c = math.clamp(iz + j, 0, n - 1) * n + math.clamp(ix + i, 0, n - 1);
-                if (map.waterClass[c] == Hydrology.LAKE) lv = math.max(lv, map.water[c]);
-            }
-            return lv;
-        }
-
         /// On a failure, for the report: in the worst tile, the first few lake
         /// columns with a low neighbour (open sky), a carved neighbour voxel or
         /// a carved voxel under them, with the samples and the stamp there.
@@ -164,7 +148,7 @@ namespace TerrainGen.Tests
             {
                 int x = x0 + i, z = z0 + k;
                 var c = ShapeField.Sample(in spec, in map, in o, x + 0.5f, z + 0.5f, 1);
-                if (c.water <= c.height || c.water != spec.seaLevelY + (int)math.floor(LakeLevel2x2(in map, n, x + 0.5f, z + 0.5f))) continue;
+                if (c.water <= c.height || c.water != ShapeField.LakeWaterY(in spec, in map, in o, x + 0.5f, z + 0.5f)) continue;
                 if ((c.carvesTop || c.stamp3D || c.open1Hi > c.open1Lo || c.open2Hi > c.open2Lo || c.open3Hi > c.open3Lo) && belowHits < 3
                     && DetailField.Material(in spec, in o, in c, 0f, x, c.height, z) == GenMat.Air)
                 {
@@ -221,20 +205,16 @@ namespace TerrainGen.Tests
             for (int iz = 0; iz < n - 1; iz++)
             for (int ix = 0; ix < n - 1; ix++)
             {
-                bool lakeCorner = false;
-                for (int j = 0; j <= 1 && !lakeCorner; j++)
-                for (int i = 0; i <= 1; i++)
-                    if (map.WaterClass[(iz + j) * n + ix + i] == Hydrology.LAKE) { lakeCorner = true; break; }
-                if (!lakeCorner) continue;
+                bool lakeNear = false, uniform = true;
                 float lv = map.Water[iz * n + ix];
-                bool uniform = true;
-                for (int j = -1; j <= 2 && uniform; j++)
+                for (int j = -1; j <= 2; j++)
                 for (int i = -1; i <= 2; i++)
                 {
                     int cx = math.clamp(ix + i, 0, n - 1), cz = math.clamp(iz + j, 0, n - 1), c = cz * n + cx;
-                    if (map.WaterClass[c] != Hydrology.LAKE || map.Water[c] != lv) { uniform = false; break; }
+                    if (map.WaterClass[c] == Hydrology.LAKE) lakeNear = true;
+                    if (map.WaterClass[c] != Hydrology.LAKE || map.Water[c] != lv) uniform = false;
                 }
-                if (!uniform) { list.Add(new int2(ix, iz)); lakeTiles++; }
+                if (lakeNear && !uniform) { list.Add(new int2(ix, iz)); lakeTiles++; }
             }
             int geyserTiles = 0;
             var seen = new System.Collections.Generic.HashSet<int>();
