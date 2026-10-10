@@ -15,9 +15,10 @@
 //                    and 720 in 36-row steps on smoothed frame time (target
 //                    16.7 ms) and logs every step.
 //
-// NEITHER FLAG GIVEN = NOTHING CHANGES: RenderPreset / the shipped gate stay in
-// charge (owner compares before any default moves). Either flag alone turns
-// this on (defaults: none, 540). Last match wins, like PlaygroundCapture.
+// Either flag alone turns this on (defaults: none, 540). Last match wins, like
+// PlaygroundCapture. NEITHER FLAG GIVEN: capture/rig runs keep RenderPreset /
+// the shipped gate; an interactive run (task 52, owner Q38 (a)) starts with
+// fsr3 dyn unless it passes -renderpreset, -taa or -checker (Playground.Start).
 // RenderPreset.Apply (F3) hands control back (Deactivate).
 using System;
 using UnityEngine;

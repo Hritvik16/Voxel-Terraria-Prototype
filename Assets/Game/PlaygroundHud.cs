@@ -147,7 +147,7 @@ public class PlaygroundHud : MonoBehaviour
         sb.AppendLine($"GPU        {_gpuSmoothed,7:F2} ms   *** INFLATED ~2.6-2.7x on this Mac (Amdt 8.10) — relative signal only ***");
         sb.AppendLine($"CPU MAIN   {_cpuMainSmoothed,7:F2} ms   main-thread WORK, not wall time");
         sb.AppendLine($"render     {RaymarchFeature.LastDispatchResolution.x}x{RaymarchFeature.LastDispatchResolution.y}" +
-                      $"   window {Screen.width}x{Screen.height}");
+                      $"   window {Screen.width}x{Screen.height}   upscaler {UpscalerTag()}");
 
         ChunkStore store = Phase4Bootstrapper.Store;
         BrickDataPool pool = Phase4Bootstrapper.Pool;
@@ -249,6 +249,13 @@ public class PlaygroundHud : MonoBehaviour
     /// CLAUDE.md is explicit that the only trusted frame-time source is the
     /// rig's own report from a release standalone. It is a live indicator, and
     /// the strip says so rather than letting the number look authoritative.
+    /// Task 52: the active upscaler and its internal rows ("fsr3 dyn 540"), or
+    /// the render preset's path when none is active (F3 took the frame back).
+    private static string UpscalerTag() =>
+        UpscalerSelect.Active
+            ? $"{UpscalerSelect.Name(UpscalerSelect.Current)}{(UpscalerSelect.Dynamic ? " dyn" : "")} {UpscalerSelect.Rows}"
+            : $"off ({RenderPreset.Current})";
+
     private void DrawMinimalStrip()
     {
         var pg = FindAnyObjectByType<Playground>();
@@ -268,6 +275,7 @@ public class PlaygroundHud : MonoBehaviour
 
         string text =
             $"<b>PRESET</b> {preset}   <b>SHADOWS</b> {ShadowRungPlain(RaymarchFeature.ShadowQualityLevel)}   " +
+            $"<b>UPSCALE</b> {UpscalerTag()}   " +
             $"<color={fpsCol}><b>{fps:F0} fps</b> ({ms:F1} ms)</color>" +
             $"   <color=#7f93a3>F1 detail</color>";
 

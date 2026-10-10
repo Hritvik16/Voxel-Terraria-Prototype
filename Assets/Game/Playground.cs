@@ -300,8 +300,14 @@ public class Playground : MonoBehaviour
         // world's first run lost its preset exactly that way.
         if (!IsCaptureRun()) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Default));
         else if (HasArg("-renderpreset")) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Kind.Quality));
-        // -upscaler / -renderrows (task 47, UpscalerSelect.cs): only when asked, in any mode.
+        // -upscaler / -renderrows (task 47, UpscalerSelect.cs): when asked, in any mode.
+        // Task 52 (owner Q38 (a), 2026-10-10): an INTERACTIVE run that names no
+        // upscaler starts with FSR 3 dynamic, exactly as `-upscaler fsr3 -renderrows dyn`.
+        // -renderpreset / -taa / -checker ask for the old frame path and keep it
+        // (the -fluidprobe rig passes -renderpreset and is not a capture run).
         if (UpscalerSelect.FromArgs(out var upsKind, out int upsRows, out bool upsDyn)) UpscalerSelect.Apply(upsKind, upsRows, upsDyn);
+        else if (!IsCaptureRun() && !HasArg("-renderpreset") && !HasArg("-taa") && !HasArg("-checker"))
+            UpscalerSelect.Apply(UpscalerSelect.Kind.Fsr3, UpscalerSelect.MinRows, true);
         // The minimap (owner, 2026-09-26: "always in the corner"). F4 hides it.
         if (GetComponent<Minimap>() == null) gameObject.AddComponent<Minimap>();
         // -playshot S (task 32b, run-play.sh SHOT=S): one screenshot of the
@@ -641,13 +647,17 @@ public class Playground : MonoBehaviour
                       (next == RenderPreset.Kind.Quality ? ", nearest blit)" : ", FSR to the screen)") +
                       (RaymarchFeature.TemporalShadows ? " -- temporal shadows ON" : "");
         }));
-        // TAA (overnight task 06): OFF by default; `-taa 1` starts with it on.
+        // TAA (overnight task 06): OFF on the preset path; `-taa 1` starts with it on.
+        // Under the FSR 3 / STP default (task 52) their own resolve replaces ours,
+        // so the toggle has no visible effect until F3 hands the frame back.
         Register(new Toy(KeyCode.F4, "TAA on/off", () =>
         {
             RaymarchFeature.Taa = !RaymarchFeature.Taa;
             _status = RaymarchFeature.Taa
                 ? $"TAA ON (jitter {RaymarchFeature.TaaJitterCycle}-frame Halton, sharpen {RaymarchFeature.TaaSharpenAmount:F2}) -- F4 to compare"
                 : "TAA OFF -- F4 to compare";
+            if (RaymarchFeature.UpscaleInputs != RaymarchFeature.UpscalerInputMode.Off)
+                _status += $" (no visible effect: {UpscalerSelect.Name(UpscalerSelect.Current)} resolves the frame; F3 for the presets)";
         }));
         // Detail radius at speed (overnight task 24): OFF by default; `-detailspeed 1` starts with it on.
         Register(new Toy(KeyCode.F5, "voxel detail radius at speed on/off", () =>

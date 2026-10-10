@@ -51,7 +51,8 @@ owner's calls.
 
 **Surface rebuild DONE (2026-10-09).** The terrain overhaul B1-B10 (plus lake
 fixes 37e/42) is finished; map v4 is the DEFAULT tg2 world (owner Q35 6a;
-`-mapversion 3` / `MAPV=3` still gives the byte-identical pre-rebuild map), and
+`-mapversion 3` / `MAPV=3` still gives the pre-rebuild generator: same shapes, but
+since task 45 built with Burst floats, so not byte-identical to the old map), and
 `surface-rebuild` was merged to `main` on 2026-10-09 (queue task 43). Whole suite
 `PASS 662 FAIL 0 SKIP 18` (2026-10-09). **Next: ROADMAP.md step 3, the
 engine capability + performance phase, starting with its ONE plan doc.** The
@@ -236,6 +237,9 @@ during this run` -- the Mac was likely in use: rerun that arm.
 
 To PLAY the newest world (tg2 on map v4 + far band, interactive preset, keys listed):
 `./run-play.sh` (`MAPV=3` old generator, `BUILD=1` rebuild first; holds the lock).
+Play starts with FSR 3 dynamic (task 52, owner Q38 (a): 1080p from 540-720 rows);
+`EXTRA="-upscaler none|taa|fsr1|stp|fsr3 -renderrows 540|720|dyn"` or `-renderpreset quality`
+override it. Rigs and capture modes are unchanged (no upscaler unless they pass the flags).
 
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
@@ -333,8 +337,8 @@ number, read the matching entry in `KNOWN_ISSUES.md`. One line each:
 - STREAMING REQUIREMENT, WORST CASE (task 16b, 2026-10-03; replaces the 5% pass line): 60 m/s diagonal dive, every chunk full cost -> 2,285 chunks/s, 38 admits/frame; capacity today 2-29/s (79-1,053x short, generation limits); the latency budget is ZERO because voxels hand over to the far band at the residency edge (request point = R_d) -- owner must choose a prefetch margin / detail radius at speed. `StreamingRequirement.cs`, `-streamprobe` section 7. Task 24: `-detailspeed 1` (OFF by default, kernel `CSMainDetail`) gives a 0.62 s budget; still NOT MET (fly 56 p99 3.3-3.8 s).
 - STREAMING BASELINE v3 (2026-10-02, task 10): `MODE=stream ./run-tg2world.sh`; generation throughput is the bottleneck (walk deficit ~2,700/3,087, chunk 350 ms on a worker vs 62 ms alone), upload ~1 ms; the fly pose draws no voxels BY DESIGN: its visible plain is below the 7-layer band (task 13, `MODE=flysweep`).
 - NEAR-TERRAIN SHIMMER BASELINE before TAA (2026-10-02): `MODE=shimmer ./run-tg2world.sh`; mean of poses near 4.14 / 5.84%, all 5.89 / 7.59%.
-- TAA EXISTS, OFF BY DEFAULT (`-taa 1` / F4): task 07 risk checks -- fluid/edit/turns/seams pass, sun reset lowered to 0.25 deg/frame (0.2 deg/frame still lags ~3 luma), cost 0.8-2 ms at 480 px (budget ~1.5 ms not resolved).
-- CHECKERBOARD EXISTS, OFF (`-checker 1`, implies TAA; task 08): walk at 960 30.8 -> 19.6 ms (-11.3 ms paired), 16.7 ms NOT reached (2.9 ms over); softer, horizon teeth in fast spins. Cost arms on battery at ~1% were wrong -- check `pmset -g batt`.
+- TAA EXISTS, OFF on the preset path (`-taa 1` / F4; play defaults to FSR 3 dyn since task 52, which replaces our resolve): task 07 risk checks -- fluid/edit/turns/seams pass, sun reset lowered to 0.25 deg/frame (0.2 deg/frame still lags ~3 luma), cost 0.8-2 ms at 480 px (budget ~1.5 ms not resolved).
+- CHECKERBOARD EXISTS, OFF (`-checker 1`, implies TAA and keeps the preset path, no FSR 3; task 08): walk at 960 30.8 -> 19.6 ms (-11.3 ms paired), 16.7 ms NOT reached (2.9 ms over); softer, horizon teeth in fast spins. Cost arms on battery at ~1% were wrong -- check `pmset -g batt`.
 - POOL FULL / live 750,000 in tg2 (task 39): coast beach sand + sea overflow the 1,024-tile pool; nearest tiles now win (fixed); HUD readouts fixed; pool size / lake surfaces / wake queue open; `MODE=poolprobe`.
 - FLUID IN TG2 DOES SIMULATE (task 09): "frozen" = 6-frame CA tick (decision 11) + lava every 6th tick; `MODE=fluidprobe`.
 - THE TG2 WORLD IS OVER THE 3 GB CAP BEFORE THE PLAYER BUILDS ANYTHING (found 2026-09-26, NOT FIXED).

@@ -274,8 +274,11 @@ real and separate reason — see the LOD-cascade finding in
   uncommitted pre-`4d0d03c` code, so a difference in the code is a likelier
   cause than the order of the jumps. Closed unless the wall shows up again.
 
-- **TAA EXISTS, OFF BY DEFAULT (task 06, 2026-10-02). Risk checks done in
-  task 07 (results below); still OFF until the owner compares stills.** `-taa 1` or Playground F4
+- **TAA EXISTS, OFF BY DEFAULT on the preset path (task 06, 2026-10-02). Risk checks done in
+  task 07 (results below). Task 52 (2026-10-10, owner Q38 (a), after comparing tasks 48/50/51):
+  interactive play now starts with FSR 3 dyn (`UpscalerSelect`), whose resolve replaces this one;
+  `-taa 1`, `-checker 1` or `-renderpreset` keep the old preset path, `-upscaler taa` is TAA at
+  540/720 rows. Rigs and capture modes are unchanged.** `-taa 1` or Playground F4
   (`RaymarchFeature.Taa`); `-taasharpen <percent>` (default 25). Raymarch.compute's
   TAA block: Halton(2,3) 8-frame jitter of the primary ray, reprojection of the
   exact hit point (far band and sky too) through the previous UNJITTERED
@@ -336,7 +339,7 @@ real and separate reason — see the LOD-cascade finding in
   hides the rest. At the 960 Quality gate the TAA passes cover 4x the pixels;
   not measured. Logs `Logs/overnight/07_cost_arm*_taa*.out`.
   **TASK 08 CHECKERBOARD (2026-10-03), `-checker 1` (implies TAA), OFF by
-  default.** Kernel `CSMainChecker` (CSMain's body with a compile-time
+  default** (and `-checker 1` keeps play on the preset path, not task 52's FSR 3 default). Kernel `CSMainChecker` (CSMain's body with a compile-time
   `checker = true`) runs at half width, tracing pixels with ((x + y) & 1) ==
   parity, which flips every frame. TaaResolve: a traced pixel resolves as before
   but uses only traced neighbours (itself + diagonals; +-2 for the depth slope);

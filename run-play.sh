@@ -6,7 +6,12 @@
 #   KEEP=1 ./run-play.sh     keep your edits from the last session (default: fresh world;
 #                            v3 and v4 share one delta folder, so edits would cross over)
 #   SHOT=60 ./run-play.sh    one screenshot 60 s after startup (-playshot; path printed at exit)
-#   EXTRA="-taa 1" ...       extra player flags (e.g. -taa 1, -detailspeed 1)
+#   EXTRA="-upscaler fsr1 -renderrows 540" ...   extra player flags (e.g. -detailspeed 1)
+# Upscaler (task 52, owner Q38 (a)): play STARTS WITH FSR 3 DYNAMIC -- 1080p output from
+# 540-720 internal rows chosen on frame time, as `-upscaler fsr3 -renderrows dyn`. Override
+# with EXTRA="-upscaler none|taa|fsr1|stp|fsr3 -renderrows 540|720|dyn"; EXTRA="-renderpreset
+# quality" (or -taa 1 / -checker 1) gives the old preset path. F3 leaves the upscaler for
+# the presets (restart to get it back). The F1 HUD and the strip show "UPSCALE fsr3 dyn <rows>".
 # Start pose (task 32d): the fluid arena's basin can be a lake bed (v4) or the pose can
 # sit inside a hill (v3), so a tg2 session stands on the nearest dry column instead;
 # the Player.log "[Playground] start pose" lines say where, and what the eye is in.
@@ -15,7 +20,7 @@
 # Day length (task 33b, owner Q28 (b)): -daylength 1200, a 20-minute day; rigs and
 # capture runs keep LightingConfig's 120 s (the player ignores the flag in them).
 # Interactive: no capture flags, so Playground applies the interactive render
-# preset (RenderPreset.Default) exactly as a player session would. Holds the
+# preset (RenderPreset.Default) and then FSR 3 dyn, exactly as a player session would. Holds the
 # shared Unity lock while the player is open (like run-demo.sh).
 set -uo pipefail
 UNITY_BIN="/Applications/6000.3.10f1/Unity.app/Contents/MacOS/Unity"
@@ -67,8 +72,8 @@ keys (Playground.cs RegisterDefaultToys, PlaygroundFlyCamera, PlaygroundHud, Min
   mouse L / R   dig (held) / place the held item (held)    wheel or 1-9  pick item
   Z / X         dig tool smaller / larger
   V vent here (pours the held fluid or sand)   0 stop vents   B bomb   G chaos burst   T shoot
-  F1 HUD   F2 help   F3 render preset quality/balanced/performance
-  F4 TAA on/off (also hides/shows the minimap -- both listen to F4)
+  F1 HUD   F2 help   F3 render preset quality/balanced/performance (leaves the FSR 3 default)
+  F4 TAA on/off, preset path only (also hides/shows the minimap -- both listen to F4)
   F5 voxel detail radius at speed on/off
   C far band on/off   I far band view (beauty -> bands -> far step heat)
   O dev map (whole island + underground slice; Esc/O closes)
@@ -82,3 +87,4 @@ SHOTARG=""; [ -n "${SHOT:-}" ] && SHOTARG="-playshot $SHOT"
 open -n -W "$APP" --args -world tg2 -mapversion "$MAPV" -farband 1 -farshadow 1 -startview -daylength 1200 $DELTA $SHOTARG ${EXTRA:-}
 PL="$HOME/Library/Logs/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Player.log"
 grep -E "\[FarField\] tg2 WORLD|\[Playground\] (-playshot|start pose)" "$PL" 2>/dev/null | cut -c1-200
+grep "\[UpscalerSelect\]" "$PL" 2>/dev/null | sed -n '1p;$p' | cut -c1-200   # the start and the last dyn step
