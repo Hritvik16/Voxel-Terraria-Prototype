@@ -50,7 +50,7 @@ ENCLOG=Logs/upscalerclips_encode_tmp.txt; : > "$ENCLOG"
     sleep 5
   done ) >> "$ENCLOG" 2>&1 &
 ENCPID=$!
-caffeinate -dims open -n -W "$APP" --args -world tg2 -upscalerclips -renderpreset quality -farshadow 1 -cleardeltas ${EXTRA:-}
+caffeinate -dims open -n -W "$APP" --args -world tg2 -upscalerclips -screen-fullscreen 0 -screen-width 1920 -screen-height 1080 -renderpreset quality -farshadow 1 -cleardeltas ${EXTRA:-}
 touch "$EXITED"
 wait $ENCPID
 R=$(find "$DATA/UpscalerClips" -mindepth 1 -maxdepth 1 -type d -newer "$STAMP" | sort | tail -n 1)

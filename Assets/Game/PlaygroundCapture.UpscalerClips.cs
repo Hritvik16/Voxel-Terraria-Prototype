@@ -25,7 +25,8 @@
 // transform stands in for Camera.main) and the run waits until nothing is
 // loading, uploading or baking; then the frame renders. A disabled camera
 // renders nothing, so no upscaler history sees the wait. Deficit at render is
-// logged per frame; an arm that rendered with deficit > 0 is recorded once
+// logged per frame (and the frames rendered while the far band was still
+// baking -- that work runs in the render pass, so it is not waited for); an arm that rendered with deficit > 0 is recorded once
 // more, and the log says so.
 // Frames: JPEG q95 in <data>/UpscalerClips/<ts>/<path>/<arm>/f0000.jpg;
 // <path>/DONE when a path's arms are all written. The wrapper encodes and
@@ -59,7 +60,7 @@ public partial class PlaygroundCapture
 
     private IEnumerator UpscalerClips()
     {
-        Screen.SetResolution(1920, 1080, false);
+        Screen.SetResolution(1920, 1080, FullScreenMode.Windowed);
         QualitySettings.vSyncCount = 0;
         Application.targetFrameRate = -1;
         var pg = FindAnyObjectByType<Playground>();
@@ -84,6 +85,27 @@ public partial class PlaygroundCapture
         L($"device {SystemInfo.graphicsDeviceName}  screen {Screen.width}x{Screen.height}  " +
           $"{(Debug.isDebugBuild ? "DEVELOPMENT" : "RELEASE")}  preset {(HasFlag("-renderpreset") ? RenderPreset.Current.ToString() : "not set")}  " +
           $"temporal shadows {(RaymarchFeature.TemporalShadows ? "ON" : "OFF")}");
+        // the frames must BE 1920x1080: a first run came up fullscreen at the
+        // panel's 2880x1800 although Screen.width said 1920 -- check a real capture
+        {
+            int w = 0, h = 0;
+            for (int tries = 0; tries < 5; tries++)
+            {
+                yield return new WaitForEndOfFrame();
+                Texture2D t = ScreenCapture.CaptureScreenshotAsTexture();
+                w = t.width; h = t.height; Destroy(t);
+                if (w == 1920 && h == 1080) break;
+                Screen.SetResolution(1920, 1080, FullScreenMode.Windowed);
+                yield return Frames(60);
+            }
+            L($"captured frame {w}x{h} (Screen {Screen.width}x{Screen.height}, {Screen.fullScreenMode})");
+            if (w != 1920 || h != 1080)
+            {
+                L("NOT 1920x1080 -- stopping");
+                File.WriteAllText(Path.Combine(root, "upscalerclips.txt"), _log.ToString());
+                Application.Quit(3); yield break;
+            }
+        }
         L($"bootstrapper transform: {boot?.transform.childCount ?? -1} children, camera is child: {(boot != null && cam.transform.IsChildOf(boot.transform))}");
         if (far == null || !far.UsesTg2 || !Phase4Bootstrapper.IsTg2World || pg == null || boot == null)
         {
@@ -221,7 +243,7 @@ public partial class PlaygroundCapture
                     var d = RaymarchFeature.LastDispatchResolution;
                     L($"  {arm,-9} dispatch {d.x}x{d.y}  traced {RaymarchFeature.PrimaryDispatchCount - d0}/{Time.frameCount - f0}  " +
                       $"rows {st.rowsMin}-{st.rowsMax}  written {st.written}  resident {st.residentStart}->{store.ResidentCount}  " +
-                      $"deficit@render max {st.maxDeficit} ({st.framesWithDeficit} frames)  waits {st.waits} ({st.waitSeconds:F0} s, {st.timeouts} timeouts)  " +
+                      $"deficit@render max {st.maxDeficit} ({st.framesWithDeficit} frames)  far band busy {st.farBusyFrames} frames  waits {st.waits} ({st.waitSeconds:F0} s, {st.timeouts} timeouts)  " +
                       $"in rock {st.inRock}{(attempt > 0 ? "  [RE-RECORDED]" : "")}");
                     if (st.framesWithDeficit == 0 || attempt == 1)
                     {
@@ -248,7 +270,7 @@ public partial class PlaygroundCapture
 
     private sealed class ClipArmStats
     {
-        public int waits, waitFrames, timeouts, maxDeficit, framesWithDeficit, written, inRock, residentStart;
+        public int waits, waitFrames, timeouts, farBusyFrames, maxDeficit, framesWithDeficit, written, inRock, residentStart;
         public float waitSeconds;
         public int rowsMin = int.MaxValue, rowsMax;
     }
@@ -258,10 +280,13 @@ public partial class PlaygroundCapture
     private IEnumerator ClipRun(ClipPath path, string dir, Camera cam, Phase4Bootstrapper boot, StreamManager sm,
                                 FarField far, ChunkStore store, ClipArmStats st)
     {
-        // after two timeouts in one run, stop waiting (logged): a stuck
-        // counter must not turn 270 frames into 270 timeouts
+        // Not far.Busy: the far band finishes its strips IN the render pass, so
+        // it can never clear with the camera off (first run: every wait timed
+        // out on it). Frames rendered while it is busy are counted instead.
+        // After two timeouts in one run, stop waiting (logged): a stuck
+        // counter must not turn 270 frames into 270 timeouts.
         bool Busy() => st.timeouts < 2 && (sm.PendingLoads > 0 || sm.InFlightLoads > 0 || sm.LoadDeficit() > 0 ||
-                                          sm.ClipmapDirtyRemaining > 0 || far.Busy);
+                                          sm.ClipmapDirtyRemaining > 0);
         int3 lastChunk = ClipChunk(path.pos[0]);
         for (int f = 0; f < ClipFrames; f++)
         {
@@ -295,6 +320,7 @@ public partial class PlaygroundCapture
             if (store.GetVoxel(CoordMath.WorldToVoxel(new float3(p.x, p.y, p.z))) != 0) st.inRock++;
             if (dir == null || f < ClipLead) { yield return null; continue; }
             int def = sm.LoadDeficit();
+            if (far.Busy) st.farBusyFrames++;
             if (def > 0) st.framesWithDeficit++;
             st.maxDeficit = Math.Max(st.maxDeficit, def);
             st.rowsMin = Math.Min(st.rowsMin, UpscalerSelect.Rows);
