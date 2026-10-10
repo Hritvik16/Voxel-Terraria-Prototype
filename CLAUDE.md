@@ -49,6 +49,14 @@ tree is off). `./run-phase7-rig.sh` last reported `PASS 32 FAIL 0` (2026-09-24).
 Phase 7's §10 flags (shadow rung, torch-through-wall, lava light) are still the
 owner's calls.
 
+**Surface rebuild DONE (2026-10-09).** The terrain overhaul B1-B10 (plus lake
+fixes 37e/42) is finished; map v4 is the DEFAULT tg2 world (owner Q35 6a;
+`-mapversion 3` / `MAPV=3` still gives the byte-identical pre-rebuild map), and
+`surface-rebuild` was merged to `main` on 2026-10-09 (queue task 43). Whole suite
+`PASS 662 FAIL 0 SKIP 18` (2026-10-09). **Next: ROADMAP.md step 3, the
+engine capability + performance phase, starting with its ONE plan doc.** The
+2026-10-01 paragraph below is history (the direction was picked: B).
+
 **Where the project is (2026-10-01).** Owner review:
 https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7 . The tg2
 terrain looks good but is not shaped for play (seed 42: median slope 30°, 73% of

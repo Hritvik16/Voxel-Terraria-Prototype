@@ -37,7 +37,7 @@ namespace TerrainGen.Tests
         public void BuildOnce()
         {
             if (_map != null) return;
-            _spec = TerrainSpec.SizeClass2(SEED);
+            _spec = TerrainSpec.SizeClass2(SEED, 3);
             _o = Offsets.For(SEED);
             var shared = SharedMaps.GetEntry(_spec);
             _map = shared.Map;
@@ -140,8 +140,8 @@ namespace TerrainGen.Tests
         [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
         public void Determinism_SameSeedSameWorld_DifferentSeedDifferent()
         {
-            var a = WorldMap.Build(TerrainSpec.SizeClass2(SEED));
-            var b = WorldMap.Build(TerrainSpec.SizeClass2(SEED + 1));
+            var a = WorldMap.Build(TerrainSpec.SizeClass2(SEED, 3));
+            var b = WorldMap.Build(TerrainSpec.SizeClass2(SEED + 1, 3));
             try
             {
                 Assert.IsTrue(a.Height.SequenceEqual(_map.Height), "same seed must rebuild the identical map");

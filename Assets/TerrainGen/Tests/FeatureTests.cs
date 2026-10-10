@@ -46,7 +46,7 @@ namespace TerrainGen.Tests
             Assert.Less(tally[Features.Volcano], 40, "the volcano is not a fixture");
 
             // v3: the pinned site, and offsets with no v4 site
-            var v3 = TerrainSpec.SizeClass2(42u);
+            var v3 = TerrainSpec.SizeClass2(42u, 3);
             var o3 = Offsets.For(in v3);
             Assert.AreEqual(0, o3.v4Sites);
             Assert.AreEqual(Stamps.VolcanoSiteV3(in v3, in o3), Stamps.VolcanoSite(in v3, in o3));
@@ -121,7 +121,7 @@ namespace TerrainGen.Tests
             }
             UnityEngine.Debug.Log("[Features]\n" + string.Join("\n", lines));
             Assert.IsEmpty(fails, string.Join("\n", fails));
-            Assert.IsNull(SharedMaps.Get(TerrainSpec.SizeClass2(42u)).SignatureFeatures, "v3 has no feature list");
+            Assert.IsNull(SharedMaps.Get(TerrainSpec.SizeClass2(42u, 3)).SignatureFeatures, "v3 has no feature list");
         }
     }
 }

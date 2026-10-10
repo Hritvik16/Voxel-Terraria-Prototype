@@ -26,7 +26,7 @@ namespace TerrainGen.Tests
         public void BuildOnce()
         {
             if (_map != null) return;
-            _spec = TerrainSpec.SizeClass2(42);
+            _spec = TerrainSpec.SizeClass2(42, 3);
             _o = Offsets.For(42);
             _map = SharedMaps.Get(_spec);
             // Re-derive the drainage parents on the FINAL heights (the build keeps

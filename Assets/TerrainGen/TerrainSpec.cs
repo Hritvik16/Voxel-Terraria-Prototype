@@ -86,11 +86,12 @@ namespace TerrainGen
             cavernTopBelowSea = 1500,        // 150 m
             underworldTopBelowSea = 4000,    // 400 m
             worldBottomY = 120,              // 12 m of bedrock floor under the underworld
-            mapVersion = 3,                  // regions + erosion (§13)
+            mapVersion = 4,                  // v4 = surface rebuild B1-B10 (owner 2026-10-09, Q35 6a); 3 = regions + erosion (§13), via -mapversion 3
         };
 
         /// sizeClass 2 at an explicit map version (4 = B1: v3 + the world
-        /// record + larger biomes). 0 or 3 is exactly SizeClass2(seed).
+        /// record + larger biomes). 0 or 4 is exactly SizeClass2(seed); 3 is the
+        /// pre-rebuild map (byte-identical, still reachable).
         public static TerrainSpec SizeClass2(uint seed, int mapVersion)
         {
             var s = SizeClass2(seed);

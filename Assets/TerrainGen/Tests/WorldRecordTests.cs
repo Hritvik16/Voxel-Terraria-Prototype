@@ -51,7 +51,7 @@ namespace TerrainGen.Tests
         {
             foreach (uint seed in Seeds)
             {
-                var v3 = TerrainSpec.SizeClass2(seed);
+                var v3 = TerrainSpec.SizeClass2(seed, 3);
                 v3.biomeScale = 5f;                                   // must be ignored below v4
                 Assert.AreEqual(1f, v3.BiomeScale);
                 var oSeed = Offsets.For(seed);
@@ -71,16 +71,17 @@ namespace TerrainGen.Tests
             Assert.AreEqual(3.25f, v4.BiomeScale, "v4's six-biome default is x3.25");
             v4.biomeSet = 4;
             Assert.AreEqual(3f, v4.BiomeScale, "v4 on B1-B8's four biomes stays x3");
-            var v3b = TerrainSpec.SizeClass2(1u); v3b.biomeSet = 6;
+            var v3b = TerrainSpec.SizeClass2(1u, 3); v3b.biomeSet = 6;
             Assert.AreEqual(4, v3b.BiomeSet, "biomeSet is ignored below v4");
-            Assert.AreEqual(3, TerrainSpec.SizeClass2(1u, 0).mapVersion, "mapVersion 0 keeps the default (v3)");
+            Assert.AreEqual(4, TerrainSpec.SizeClass2(1u, 0).mapVersion, "mapVersion 0 keeps the default (v4 since owner Q35 6a, 2026-10-09)");
+            Assert.AreEqual(4, TerrainSpec.SizeClass2(1u).mapVersion, "the default world is map v4");
         }
 
         [Test]
         [Category("Slow")]   // two v4 builds + the shared v3 one
         public void V4_Deterministic_SeedDependent_DiffersFromV3()
         {
-            var v3 = SharedMaps.Get(TerrainSpec.SizeClass2(42u));
+            var v3 = SharedMaps.Get(TerrainSpec.SizeClass2(42u, 3));
             Assert.IsNull(v3.Record, "a v3 map has no world record");
             var spec4 = TerrainSpec.SizeClass2(42u, 4);
             var a = SharedMaps.Get(spec4);
@@ -171,7 +172,7 @@ namespace TerrainGen.Tests
             var lines = new List<string>();
             foreach (uint seed in Seeds)
             {
-                var v3 = TerrainSpec.SizeClass2(seed);
+                var v3 = TerrainSpec.SizeClass2(seed, 3);
                 var map = SharedMaps.Get(v3);   // v4's land is this, cell for cell
                 float m3 = ChangeM(map, Offsets.For(in v3));
                 float m4 = ChangeM(map, Offsets.For(TerrainSpec.SizeClass2(seed, 4)));
@@ -228,7 +229,7 @@ namespace TerrainGen.Tests
                 for (int k = 0; k < share.Length; k++) share[k] /= land;
                 if (share[GenBiome.Savanna] >= PRESENT) savSeeds++;
                 if (share[GenBiome.Badlands] >= PRESENT) badSeeds++;
-                double build3 = SharedMaps.GetEntry(TerrainSpec.SizeClass2(seed)).BuildMs / 1000.0, build4 = e4.BuildMs / 1000.0;
+                double build3 = SharedMaps.GetEntry(TerrainSpec.SizeClass2(seed, 3)).BuildMs / 1000.0, build4 = e4.BuildMs / 1000.0;
 
                 report.AppendLine($"  {seed,-6}  {c8,6:F0} -> {c10,6:F0}          {p8,6:F0} -> {p10,6:F0}                 " +
                                   string.Join(" ", share.Select(v => $"{100 * v,4:F1}%")) + $"                {ms8,5:F0} / {ms10,5:F0}             {build3:F1} / {build4:F1}");

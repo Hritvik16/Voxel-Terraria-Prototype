@@ -64,7 +64,7 @@ namespace TerrainGen.Tests
             var fail = Check(map, out string numbers);
             UnityEngine.Debug.Log($"[EasyAreas] seed 42 v4: {numbers}");
             Assert.IsEmpty(fail, "seed 42: " + string.Join("; ", fail));
-            Assert.IsNull(SharedMaps.Get(TerrainSpec.SizeClass2(42u)).EasySites, "a v3 map seeds no easy areas");
+            Assert.IsNull(SharedMaps.Get(TerrainSpec.SizeClass2(42u, 3)).EasySites, "a v3 map seeds no easy areas");
         }
 
         [Test]

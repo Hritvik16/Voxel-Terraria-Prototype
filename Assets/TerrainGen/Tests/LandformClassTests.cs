@@ -51,7 +51,7 @@ namespace TerrainGen.Tests
             UnityEngine.Debug.Log("[LandformClass] estimate grid\n" + string.Join("\n", lines));
 
             // v3 ignores gentleShare: its layout is the v3 deal whatever the field says.
-            var v3 = TerrainSpec.SizeClass2(42u);
+            var v3 = TerrainSpec.SizeClass2(42u, 3);
             var o3 = Offsets.For(in v3);
             var a = Regions.Build(in v3, in o3);
             v3.gentleShare = 0.9f;
@@ -84,7 +84,7 @@ namespace TerrainGen.Tests
                 Assert.Greater(s, 0.01f, $"seed {seed}: steep class missing");
                 Assert.AreEqual(0, map.InselbergCount, $"seed {seed}: v4 must raise no inselbergs (owner Q7 (a))");
             }
-            int v3Insel = SharedMaps.Get(TerrainSpec.SizeClass2(42u)).InselbergCount;
+            int v3Insel = SharedMaps.Get(TerrainSpec.SizeClass2(42u, 3)).InselbergCount;
             lines.Add($"seed 42 v3: inselbergs {v3Insel}");
             Assert.Greater(v3Insel, 0, "v3 keeps its inselbergs");
             UnityEngine.Debug.Log("[LandformClass] maps\n" + string.Join("\n", lines));

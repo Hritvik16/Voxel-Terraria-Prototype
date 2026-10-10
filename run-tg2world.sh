@@ -19,7 +19,8 @@ unity_lock_acquire
 RUN_START=$(date +%s)   # task 14: tools/heavy.sh overlap checks owner pauses since here
 echo "run $RUN_ID" | tee -a "$LOG"
 # 2026-10-03 (B1): MAPV=4 runs the tg2 world on map v4 (v3 + world record +
-# larger biomes); unset = the player's default (v3).
+# larger biomes); unset = the player's default, v4 since 2026-10-09 (owner
+# Q35 6a); MAPV=3 = the pre-rebuild map.
 if [ -n "${MAPV:-}" ]; then EXTRA="${EXTRA:-} -mapversion $MAPV"; echo "map version $MAPV (-mapversion)" | tee -a "$LOG"; fi
 # 2026-10-03 (task 12): log power source + charge at start and end, and keep
 # the Mac awake while this script lives. The player is launched with `open -n`,

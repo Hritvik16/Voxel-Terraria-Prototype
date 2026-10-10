@@ -54,7 +54,8 @@ namespace VoxelEngine.WorldGen
 
         /// -mapversion N (surface rebuild B1): which TerrainGen map recipe a
         /// tg2 world uses -- 4 = v3 + the world record + larger biomes. Absent
-        /// or unparsable = 0, the default (v3). Last match wins, like
+        /// or unparsable = 0, the default (v4 since 2026-10-09, owner Q35 6a;
+        /// -mapversion 3 = the pre-rebuild map). Last match wins, like
         /// PlaygroundCapture's ArgValue.
         public static int MapVersionArg()
         {

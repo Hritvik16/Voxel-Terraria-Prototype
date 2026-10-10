@@ -80,7 +80,7 @@ namespace TerrainGen.Tests
         {
             Directory.CreateDirectory(dir);
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            var spec = TerrainSpec.SizeClass2(seed);
+            var spec = TerrainSpec.SizeClass2(seed, 3);
             var ctx = new Ctx { spec = spec, o = Offsets.For(seed), map = WorldMap.Build(spec), dir = dir, log = log, manifest = new StringBuilder() };
             log.AppendLine($"seed {seed}: map built in {sw.ElapsedMilliseconds} ms, peak {ctx.map.PeakPosition}");
             ctx.manifest.Append("{\"seed\": ").Append(seed).Append(", \"seaLevelY\": ").Append(spec.seaLevelY)
