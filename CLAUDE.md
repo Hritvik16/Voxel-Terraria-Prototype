@@ -36,6 +36,10 @@
 
 ## Current state (verify, don't trust this note)
 
+**Order of future work: `ROADMAP.md` (owner, 2026-10-08) overrides older future plans.**
+Engine capability + performance (lighting, LOD shells, resolution, streaming, fluids) come
+BEFORE the player and placement.
+
 Phases 1-7 are CLOSED and merged (Phase 7: `9b3ee50`, 2026-09-24). The
 large-world / terrain-overhaul work -- TerrainGen v3, the far band, and the
 walkable sizeClass 2 island (`-world tg2`), design doc §12-15 -- was merged to
@@ -44,6 +48,14 @@ the report-only PaletteSceneExport and the world-tree test, parked while the
 tree is off). `./run-phase7-rig.sh` last reported `PASS 32 FAIL 0` (2026-09-24).
 Phase 7's §10 flags (shadow rung, torch-through-wall, lava light) are still the
 owner's calls.
+
+**Surface rebuild DONE (2026-10-09).** The terrain overhaul B1-B10 (plus lake
+fixes 37e/42) is finished; map v4 is the DEFAULT tg2 world (owner Q35 6a;
+`-mapversion 3` / `MAPV=3` still gives the byte-identical pre-rebuild map), and
+`surface-rebuild` was merged to `main` on 2026-10-09 (queue task 43). Whole suite
+`PASS 662 FAIL 0 SKIP 18` (2026-10-09). **Next: ROADMAP.md step 3, the
+engine capability + performance phase, starting with its ONE plan doc.** The
+2026-10-01 paragraph below is history (the direction was picked: B).
 
 **Where the project is (2026-10-01).** Owner review:
 https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7 . The tg2
@@ -126,6 +138,18 @@ current numbers before reasoning about what's slow.
   "let's find out" over "let's guess and check."
 - Keep "correctness proven" (EditMode tests), "performance proven" (a rig
   run), and "not yet tested" distinct. Don't blur them into "it works."
+- **Measure performance only in performance tasks** (owner, 2026-10-08). Feature,
+  terrain, visual and bug-fix work is accepted on tests, metrics reports and
+  screenshots; no stream/rig/frame-time arms. Performance is checked at milestones.
+  Before any measurement, write what each possible result would make us do; if every
+  outcome leads to the same action, skip the measurement and do the action.
+- **Performance is quoted at WARM STEADY STATE** (owner, 2026-10-04, Q20 (a)). This Mac is
+  a fanless M1 Air: a warm chip runs chunk generation up to ~2.2x slower (tasks 27/28), and
+  4+ workers heat it within ~100 s even from cold. So every timed measurement (stream probe,
+  acceptance rig, frame-time A/B) starts with ONE warm-up launch whose numbers are discarded
+  (`MODE=stream MOTION=walk ./run-tg2world.sh`, ~6 min), then runs the measured arms back to
+  back (no idle gap over ~2 min; interleave A and B, e.g. ABBA). Report "warm steady state"
+  and the warm-up's log path. Cold numbers may be shown beside them, never as the result.
 
 ## Working style
 
@@ -153,6 +177,13 @@ current numbers before reasoning about what's slow.
   and close this one. The owner is on the $20 Pro plan.
   A `UserPromptSubmit` hook (`tools/session-size-hint.sh`) adds this reminder
   automatically each time the transcript grows another 8 MB.
+- **A new session opens by orienting the owner** (owner, 2026-10-08: "so I don't
+  feel so lost"). The handoff starts with a `## For the owner` section written in
+  plain words: why the switch happened (size, task switch, ...), a short summary of
+  the previous chat (what the owner asked, what was decided, what changed, commits),
+  what is running now, and what is still open or waiting on the owner. The new
+  session's FIRST message relays it, plus which terminal tabs / tmux windows to
+  close. Only then does it start working.
 - **Unattended / overnight work goes in the queue**, one task per file in
   `tools/overnight/queue/`; `tools/overnight/run-queue.sh` (in tmux via `tools/overnight/start.sh`) runs each in its own
   fresh headless session (`--permission-mode auto`), passes
@@ -195,8 +226,16 @@ put `pgrep -f '<pattern>'` inline in a shell command: it matches that shell
 itself and deadlocks the queue (happened twice). **Never edit a `run-*.sh` while
 it is running** — bash reads scripts incrementally and the edit shifts what it
 executes next (happened 2026-09-24; harmless that time).
+**Owner pause (tasks 14/14b):** `tools/heavy.sh pause` DRAINS: what is running
+finishes, new builds/tests/launches wait (HOLD `/tmp/voxel-unity.hold`) until
+`resume`; `status` shows the lock owner, waiters, "draining: N" then "idle".
+Nothing is ever signalled. Agents keep running. Rigs print `NOTE: owner paused
+during this run` -- the Mac was likely in use: rerun that arm.
 
 ## Commands
+
+To PLAY the newest world (tg2 on map v4 + far band, interactive preset, keys listed):
+`./run-play.sh` (`MAPV=3` old generator, `BUILD=1` rebuild first; holds the lock).
 
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
@@ -289,10 +328,14 @@ With live fluid they fail BY DESIGN -- never loosen them. Persistence evidence:
 Before touching streaming, rendering, fluids, memory or a rig, or quoting a
 number, read the matching entry in `KNOWN_ISSUES.md`. One line each:
 
+- STRAY RESIDENT CHUNKS ALIAS INTO THE MIRROR (task 21; FIXED task 26, 2026-10-04): save-capped evictions (4/frame) were retried only when the camera changed chunk; now retried every frame while any is deferred. v4 poses MIRROR 0/0/0. Task 32 (3cb76d1): `UploadDirty` skips, counts (`skippedOutOfBox`, poses `outOfBox`) and parks resident chunks outside the mirror box.
+- BLACK BAR OVER THE SEA at `coast_from_sea_30m` (PINNED task 19, FIXED task 22 2026-10-04: integer-cell DDA in `FarStartT`): `FarStartT`'s chunk DDA stalls after a -x face crossing (a fixed 1e-3 t-nudge is below one float step at x ~ 40000 voxels, so floor() keeps the same chunk), returns tLimit, and the far march starts under the sea -> water side face. Residency bits are correct. The dark arcs below it are voxel LOD tier seams.
+- STREAMING REQUIREMENT, WORST CASE (task 16b, 2026-10-03; replaces the 5% pass line): 60 m/s diagonal dive, every chunk full cost -> 2,285 chunks/s, 38 admits/frame; capacity today 2-29/s (79-1,053x short, generation limits); the latency budget is ZERO because voxels hand over to the far band at the residency edge (request point = R_d) -- owner must choose a prefetch margin / detail radius at speed. `StreamingRequirement.cs`, `-streamprobe` section 7. Task 24: `-detailspeed 1` (OFF by default, kernel `CSMainDetail`) gives a 0.62 s budget; still NOT MET (fly 56 p99 3.3-3.8 s).
 - STREAMING BASELINE v3 (2026-10-02, task 10): `MODE=stream ./run-tg2world.sh`; generation throughput is the bottleneck (walk deficit ~2,700/3,087, chunk 350 ms on a worker vs 62 ms alone), upload ~1 ms; the fly pose draws no voxels BY DESIGN: its visible plain is below the 7-layer band (task 13, `MODE=flysweep`).
 - NEAR-TERRAIN SHIMMER BASELINE before TAA (2026-10-02): `MODE=shimmer ./run-tg2world.sh`; mean of poses near 4.14 / 5.84%, all 5.89 / 7.59%.
 - TAA EXISTS, OFF BY DEFAULT (`-taa 1` / F4): task 07 risk checks -- fluid/edit/turns/seams pass, sun reset lowered to 0.25 deg/frame (0.2 deg/frame still lags ~3 luma), cost 0.8-2 ms at 480 px (budget ~1.5 ms not resolved).
 - CHECKERBOARD EXISTS, OFF (`-checker 1`, implies TAA; task 08): walk at 960 30.8 -> 19.6 ms (-11.3 ms paired), 16.7 ms NOT reached (2.9 ms over); softer, horizon teeth in fast spins. Cost arms on battery at ~1% were wrong -- check `pmset -g batt`.
+- POOL FULL / live 750,000 in tg2 (task 39): coast beach sand + sea overflow the 1,024-tile pool; nearest tiles now win (fixed); HUD readouts fixed; pool size / lake surfaces / wake queue open; `MODE=poolprobe`.
 - FLUID IN TG2 DOES SIMULATE (task 09): "frozen" = 6-frame CA tick (decision 11) + lava every 6th tick; `MODE=fluidprobe`.
 - THE TG2 WORLD IS OVER THE 3 GB CAP BEFORE THE PLAYER BUILDS ANYTHING (found 2026-09-26, NOT FIXED).
 - TG2 AT WALKING HEIGHT (first measured 2026-10-01, `MODE=walk ./run-tg2world.sh`: `-motion walk`, a 150 m circle round the spawn at 1.6 m eye...

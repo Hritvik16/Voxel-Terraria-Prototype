@@ -302,6 +302,14 @@ public class Playground : MonoBehaviour
         else if (HasArg("-renderpreset")) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Kind.Quality));
         // The minimap (owner, 2026-09-26: "always in the corner"). F4 hides it.
         if (GetComponent<Minimap>() == null) gameObject.AddComponent<Minimap>();
+        // -playshot S (task 32b, run-play.sh SHOT=S): one screenshot of the
+        // interactive session S seconds after startup. Not a capture mode --
+        // the preset, HUD and controls stay exactly as a player gets them.
+        if (!IsCaptureRun()) StartCoroutine(PlayShot());
+        // -daylength S (task 33b, run-play.sh: 1200 = a 20-minute day). Only an
+        // interactive run reads it; LightingConfig's own 120 s is left alone.
+        if (!IsCaptureRun() && TryArgFloat("-daylength", out float dayLen) && dayLen >= 1f)
+            SunCycle.DayLengthOverrideSeconds = dayLen;
 
         if (!TryFindNaturalBasin(out _arenaCentre))
         {
@@ -400,7 +408,7 @@ public class Playground : MonoBehaviour
             HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
             HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-looksweep") ||
             HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-nearshimmer") || HasArg("-fluidroster") ||
-            HasArg("-devmap") || HasArg("-taarisk") || HasArg("-fluidprobe") || HasArg("-streamprobe") || HasArg("-flysweep"))
+            HasArg("-devmap") || HasArg("-taarisk") || HasArg("-fluidprobe") || HasArg("-poolprobe") || HasArg("-streamprobe") || HasArg("-flysweep"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
@@ -422,6 +430,15 @@ public class Playground : MonoBehaviour
         _ready = true;
         TeleportToArena();
         _status = $"arena at {_arenaCentre} — fluid is FIXED here and does not follow you";
+        // TASK 32d: on tg2 the arena pose put the eye in a LAKE (the basin
+        // search's water skip tests the voxel SurfaceY returns, which is solid
+        // by construction, so the lowest lake bed wins) or in a hillside 3.2 m
+        // off the basin. An interactive tg2 session stands on the nearest dry
+        // column instead. Capture runs and the old world keep the arena pose.
+        // TASK 33b: run-play.sh passes -startview, and only then does that
+        // start also go to noon with a level camera (the arena's 18 deg
+        // look-down under the start-up light was dim). The F key does not.
+        if (Phase4Bootstrapper.IsTg2World && !IsCaptureRun()) StartCoroutine(SettleStartPose(HasArg("-startview")));
     }
 
     /// For overlays (Minimap) that must stay out of capture frames.
@@ -433,10 +450,22 @@ public class Playground : MonoBehaviour
             if (a.StartsWith("-") && (a == "-sustained" || a == "-playgroundshots" || a == "-gputrace" || a == "-p7stress" ||
                 a == "-daysweep" || a == "-presetshots" || a == "-phase7demo" || a == "-roofskipab" || a == "-upscaleab" ||
                 a == "-lavalight" || a == "-looksweep" || a == "-farvisual" || a == "-farpreview" || a == "-flyfast" ||
-                a == "-farseams" || a == "-lodpop" || a == "-farshimmer" || a == "-nearshimmer" || a == "-fluidroster" || a == "-devmap" || a == "-taarisk" || a == "-streamprobe" || a == "-flysweep" ||
+                a == "-farseams" || a == "-lodpop" || a == "-farshimmer" || a == "-nearshimmer" || a == "-fluidroster" || a == "-devmap" || a == "-taarisk" || a == "-streamprobe" || a == "-flysweep" || a == "-poolprobe" ||
                 a == "-stutterprobe" || a == "-lightingab" || a == "-shadowstats" || a == "-pitchsweep" || a == "-fluidbench"))
                 return true;
         return false;
+    }
+
+    /// Last match wins, like PlaygroundCapture's ArgFloat.
+    private static bool TryArgFloat(string flag, out float value)
+    {
+        value = 0f;
+        bool found = false;
+        string[] a = Environment.GetCommandLineArgs();
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == flag && float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float,
+                                               System.Globalization.CultureInfo.InvariantCulture, out float p)) { value = p; found = true; }
+        return found;
     }
 
     private static bool HasArg(string flag)
@@ -446,13 +475,154 @@ public class Playground : MonoBehaviour
         return false;
     }
 
+    /// -playshot S: wait S unscaled seconds, write one PNG under
+    /// persistentDataPath/PlayShots, log its path. Last match wins (like
+    /// PlaygroundCapture's ArgValue).
+    private IEnumerator PlayShot()
+    {
+        string[] a = Environment.GetCommandLineArgs();
+        float s = -1f;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == "-playshot" && float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float,
+                                                      System.Globalization.CultureInfo.InvariantCulture, out float p)) s = p;
+        if (s < 0f) yield break;
+        float t0 = Time.unscaledTime;
+        while (Time.unscaledTime - t0 < s) yield return null;
+        yield return new WaitForEndOfFrame();
+        string dir = System.IO.Path.Combine(Application.persistentDataPath, "PlayShots");
+        System.IO.Directory.CreateDirectory(dir);
+        string path = System.IO.Path.Combine(dir, $"play_{DateTime.Now:yyyyMMdd_HHmmss}.png");
+        Texture2D tex = ScreenCapture.CaptureScreenshotAsTexture();
+        System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+        Destroy(tex);
+        // What the eye is in (a black frame at the start pose: task 32b).
+        Debug.Log($"[Playground] -playshot: {path}  {EyeReport()}, t {Time.unscaledTime:F1} s, clock {SunCycle.ClockString()}, day {SunCycle.DayLengthSeconds:F0} s");
+    }
+
+    private string EyeReport()
+    {
+        Camera cam = Camera.main;
+        if (cam == null) return "no camera";
+        Vector3 e = cam.transform.position;
+        int3 v = CoordMath.WorldToVoxel(new float3(e.x, e.y, e.z));
+        byte m = _store != null ? _store.GetVoxel(v) : (byte)255;
+        return $"eye {e.x:F1},{e.y:F1},{e.z:F1} m = voxel {v} material {m}" +
+               (m == Materials.Air ? " (air)" : m == Materials.Water ? " (WATER)" : " (solid/other)") + $", mode {_mode}";
+    }
+
+    /// Interactive tg2 start (task 32d): feet on the nearest column whose
+    /// topmost non-air voxel in the loaded band is SOLID (not fluid), every
+    /// chunk above it resident, so the eye is in open air. Waits while the
+    /// columns are still streaming in.
+    private IEnumerator SettleStartPose(bool startView = false)
+    {
+        Camera cam = Camera.main;
+        if (cam == null) yield break;
+        Vector3 a = cam.transform.position;
+        int3 from = CoordMath.WorldToVoxel(new float3(a.x, a.y, a.z));
+        string before = EyeReport();
+        int3 col = default;
+        bool found = false;
+        for (int f = 0; f < 900 && !(found = TryFindDryColumn(from, out col)); f++) yield return null;
+        if (!found)
+        {
+            Debug.LogWarning($"[Playground] start pose: no dry resident column within 32 m of {from} -- left at {before}");
+            yield break;
+        }
+        bool basinWet = MaterialRules.IsFluidMaterial(_store.GetVoxel(_arenaCentre + new int3(0, 1, 0)));
+        cam.transform.position = new Vector3(col.x * 0.1f + 0.05f, (col.y + 1) * 0.1f + 0.02f + 1.6f, col.z * 0.1f + 0.05f);
+        if (startView)
+        {
+            // The M key's noon; the clock keeps running from here.
+            SunCycle.SetHours(SunCycle.NoonHours);
+            if (_cam == null) _cam = cam.GetComponent<PlaygroundFlyCamera>();
+            float yaw = MostOpenYaw(cam.transform.position, cam.transform.rotation.eulerAngles.y);
+            if (_cam != null) _cam.SetLook(yaw, 0f);
+            else cam.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
+        }
+        if (_mode == MoveMode.Walk) SnapPlayerToCamera();
+        _status = "standing on dry ground near the fluid arena";
+        Debug.Log($"[Playground] start pose: arena {before}; basin {_arenaCentre} under fluid: {basinWet}; " +
+                  $"moved to dry column ({col.x}, {col.z}) top {col.y} {MaterialName(_store.GetVoxel(col))} -> {EyeReport()}" +
+                  (startView ? $"; -startview: noon, level look (yaw {cam.transform.rotation.eulerAngles.y:F0}) at t {Time.unscaledTime:F1} s" : "") +
+                  $"; day {SunCycle.DayLengthSeconds:F0} s");
+        float t0 = Time.unscaledTime;
+        while (Time.unscaledTime - t0 < 5f) yield return null;
+        Debug.Log($"[Playground] start pose after 5 s: {EyeReport()}");
+    }
+
+    /// Of 16 level headings starting at `yaw`, the one whose eye-height ray
+    /// runs furthest (to 64 m, or the first non-resident chunk) before it
+    /// meets a non-air voxel; ties keep the earlier heading.
+    private float MostOpenYaw(Vector3 eye, float yaw)
+    {
+        float bestYaw = yaw;
+        int best = -1;
+        for (int i = 0; i < 16; i++)
+        {
+            float y = yaw + i * 22.5f;
+            float r = y * Mathf.Deg2Rad;
+            float dx = Mathf.Sin(r), dz = Mathf.Cos(r);
+            int run = 0;
+            for (; run < 640; run += 4)
+            {
+                int3 v = CoordMath.WorldToVoxel(new float3(eye.x + dx * run * 0.1f, eye.y, eye.z + dz * run * 0.1f));
+                if (!_store.IsResident(CoordMath.VoxelToChunk(v))) { run = 640; break; }
+                if (_store.GetVoxel(v) != Materials.Air) break;
+            }
+            if (run > best) { best = run; bestYaw = y; }
+        }
+        return Mathf.Repeat(bestYaw, 360f);
+    }
+
+    /// Nearest column to `from` (8-voxel grid, square rings out to 32 m) whose
+    /// top in the loaded band is dry ground; col.y is that top voxel.
+    private bool TryFindDryColumn(int3 from, out int3 col)
+    {
+        col = default;
+        for (int r = 0; r <= 320; r += 8)
+        {
+            long best = long.MaxValue;
+            for (int dz = -r; dz <= r; dz += 8)
+            for (int dx = -r; dx <= r; dx += 8)
+            {
+                if (math.max(math.abs(dx), math.abs(dz)) != r) continue;
+                long d2 = (long)dx * dx + (long)dz * dz;
+                if (d2 >= best) continue;
+                int t = DryTopY(from.x + dx, from.z + dz);
+                if (t < 0) continue;
+                best = d2;
+                col = new int3(from.x + dx, t, from.z + dz);
+            }
+            if (best != long.MaxValue) return true;
+        }
+        return false;
+    }
+
+    /// Topmost non-air voxel of the column in the loaded band if it is solid,
+    /// else -1 (fluid on top, the band's ceiling is solid, or not resident).
+    private int DryTopY(int x, int z)
+    {
+        int yTop = RaymarchFeature.ContentCeilingVoxelY - 1, yBot = RaymarchFeature.ContentFloorVoxelY;
+        for (int y = yTop; y >= yBot; y--)
+        {
+            int3 v = new int3(x, y, z);
+            if (!_store.IsResident(CoordMath.VoxelToChunk(v))) return -1;
+            byte m = _store.GetVoxel(v);
+            if (m == Materials.Air) continue;
+            return y == yTop || MaterialRules.IsFluidMaterial(m) ? -1 : y;
+        }
+        return -1;
+    }
+
     private void RegisterDefaultToys()
     {
         Register(new Toy(KeyCode.Tab, "walk/fly", ToggleMode));
         Register(new Toy(KeyCode.V, "vent here", OpenVentAtTarget));
         Register(new Toy(KeyCode.Alpha0, "stop vents", () =>
             { _waterLeft = _sandLeft = _lavaLeft = _otherLeft = 0; _status = "vents closed"; }));
-        Register(new Toy(KeyCode.F, "go to arena", TeleportToArena));
+        Register(new Toy(KeyCode.F, "go to arena", () =>
+            { TeleportToArena(); if (Phase4Bootstrapper.IsTg2World) StartCoroutine(SettleStartPose()); }));
         Register(new Toy(KeyCode.R, "respawn on ground", Respawn));
         Register(new Toy(KeyCode.B, "bomb", DetonateAtTarget));
         Register(new Toy(KeyCode.G, "CHAOS BURST", StartChaosBurst));
@@ -477,6 +647,14 @@ public class Playground : MonoBehaviour
                 ? $"TAA ON (jitter {RaymarchFeature.TaaJitterCycle}-frame Halton, sharpen {RaymarchFeature.TaaSharpenAmount:F2}) -- F4 to compare"
                 : "TAA OFF -- F4 to compare";
         }));
+        // Detail radius at speed (overnight task 24): OFF by default; `-detailspeed 1` starts with it on.
+        Register(new Toy(KeyCode.F5, "voxel detail radius at speed on/off", () =>
+        {
+            VoxelEngine.Streaming.DetailRadius.Enabled = !VoxelEngine.Streaming.DetailRadius.Enabled;
+            _status = VoxelEngine.Streaming.DetailRadius.Enabled
+                ? $"DETAIL RADIUS AT SPEED ON (now {VoxelEngine.Streaming.DetailRadius.RadiusM:F0} m at {VoxelEngine.Streaming.DetailRadius.SpeedMps:F1} m/s) -- F5 to compare"
+                : "DETAIL RADIUS AT SPEED OFF (hand-over at the residency edge) -- F5 to compare";
+        }));
 
         // ================= PHASE 7 (§13, §6.5, §10.3) =================
         // THE THREE POSES THE OWNER HAS TO JUDGE IN MINUTES GET THEIR OWN KEYS.
@@ -497,7 +675,7 @@ public class Playground : MonoBehaviour
                 !VoxelEngine.Rendering.LightingDriver.ClockPaused;
             _status = VoxelEngine.Rendering.LightingDriver.ClockPaused
                 ? $"clock PAUSED at {SunCycle.ClockString()} — , and . still scrub"
-                : $"clock RUNNING — a full day takes {LightingConfig.Active.dayLengthSeconds:F0} s";
+                : $"clock RUNNING — a full day takes {SunCycle.DayLengthSeconds:F0} s";
         }));
         Register(new Toy(KeyCode.J, "shadow quality 0-3", () =>
         {
@@ -943,8 +1121,11 @@ public class Playground : MonoBehaviour
         // nothing simulates. The dense path needed no equivalent, which is
         // exactly the kind of step that goes missing in a port.
         if ((_residencyTick++ % 20) == 0)
-            FluidTileResidency.Refresh(_store, _tiles, centre,
+        {
+            DebugLastResidency = FluidTileResidency.Refresh(_store, _tiles, centre,
                                        _fluid.ActiveRadiusVoxels, _fluid.SleepRadiusVoxels);
+            DebugResidencyRefreshes++;
+        }
 
         // MEASUREMENT SEAM, not a configuration. DebugSuspendFluidSim lets a
         // probe run the scene with the CA's per-tick dispatch removed while
@@ -1315,6 +1496,13 @@ public class Playground : MonoBehaviour
     internal byte DebugBrushMaterial => _brushes[_brush];
     internal string DebugBrushName => _brushNames[_brush];
     internal void DebugSetBrush(int i) => SetBrush(i);
+    /// -poolprobe (task 39): the tile pool, the last residency pass, and the
+    /// V key's water vent at a given cell.
+    internal FluidTileMap DebugTiles => _tiles;
+    internal FluidTileResidency.Stats DebugLastResidency;
+    internal long DebugResidencyRefreshes;
+    internal void DebugOpenWaterVent(int3 cell) { _waterSrc = cell; _waterLeft = _waterBudget; }
+    internal void DebugCloseVents() => _waterLeft = _sandLeft = _lavaLeft = _otherLeft = 0;
 
     internal void DebugTickFluid()
     {
@@ -1643,13 +1831,21 @@ public class Playground : MonoBehaviour
             _fluidCounterCountdown = FluidCounterRefreshFrames;
         }
         uint liveSlots = _fluid.LastLiveSlots;
+        var lastPass = DebugLastResidency;
 
         sb.AppendLine("<b><color=#ffd479>── FLUID (§7.2 tiles / §7.4 radius) ───</color></b>");
         sb.Append(Row("tiles", $"{_tiles.ResidentTiles} / {_tiles.TileCapacity} resident   " +
-            (_tiles.PoolExhaustionsTotal > 0
-                ? $"<color=#ffc64a>pool FULL {_tiles.PoolExhaustionsTotal:N0}x (refused cleanly)</color>"
-                : "<color=#8fd98f>pool has room</color>")));
-        sb.Append(Row("live", $"{liveSlots:N0} slots simulating   " +
+            (lastPass.TilesRefusedPoolFull > 0
+                ? $"<color=#ffc64a>pool FULL: {lastPass.TilesRefusedPoolFull:N0} far tiles left asleep</color> " +
+                  $"<color=#b9cfe4>(nearest kept; {_tiles.PoolExhaustionsTotal:N0} refusals since start)</color>"
+                : _tiles.PoolExhaustionsTotal > 0
+                    ? $"<color=#8fd98f>pool has room</color> <color=#b9cfe4>({_tiles.PoolExhaustionsTotal:N0} refusals since start)</color>"
+                    : "<color=#8fd98f>pool has room</color>")));
+        // LIVE = high-water minus the free list. The high-water mark alone
+        // (what this row printed until task 39) never comes down, so it read
+        // "750,000 slots simulating" for the rest of a session once it hit the cap.
+        sb.Append(Row("live", $"{liveSlots:N0} slots simulating " +
+            $"<color=#b9cfe4>(high-water {_fluid.LastSlotHighWater:N0} / {_fluid.SlotCapacity:N0})</color>   " +
             $"<color=#b9cfe4>active set</color> {_fluid.GpuActiveSetBytes() / 1048576.0:F0} MB " +
             "<color=#b9cfe4>(fixed — does not grow with the radius)</color>"));
         // METRES BESIDE VOXELS, ALWAYS. 1280v and 128v differ by 10x and read

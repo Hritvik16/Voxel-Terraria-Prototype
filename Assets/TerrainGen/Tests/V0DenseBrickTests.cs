@@ -42,7 +42,7 @@ namespace TerrainGen.Tests
         public void BuildOnce()
         {
             if (_map != null) return;
-            _spec = TerrainSpec.SizeClass2(SEED);
+            _spec = TerrainSpec.SizeClass2(SEED, 3);
             _o = Offsets.For(SEED);
             _map = SharedMaps.Get(_spec);
         }

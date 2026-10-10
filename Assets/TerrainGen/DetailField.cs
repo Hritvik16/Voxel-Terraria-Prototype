@@ -269,7 +269,11 @@ namespace TerrainGen
 
             // §2.5 stamp openings (arches, hoops, ribs, under the tree's canopy).
             // Never the top voxel (Stamps.cs header), so S stays the top solid.
-            if ((y >= c.open1Lo && y < c.open1Hi) || (y >= c.open2Lo && y < c.open2Hi) || (y >= c.open3Lo && y < c.open3Hi)) return GenMat.Air;
+            // Map v4 (task 37e): an opening below the column's still-water level
+            // holds that water -- a hoop or arch standing in a lake has water
+            // under it, not an air pocket the lake drains into.
+            if ((y >= c.open1Lo && y < c.open1Hi) || (y >= c.open2Lo && y < c.open2Hi) || (y >= c.open3Lo && y < c.open3Hi))
+                return spec.mapVersion >= 4 && y <= c.water ? (c.waterKind == 1 ? GenMat.Lava : GenMat.Water) : GenMat.Air;
             if (c.stamp3D)
             {
                 byte st = Stamps.Carve3D(in spec, in o, in c, x, y, z);
@@ -282,7 +286,10 @@ namespace TerrainGen
             // counts as 15 m deep and gets carved away (LedgesTest found it).
             int hg = (c.open3Hi > c.open3Lo && y < c.open3Lo) ? c.open3Lo - 1 : h;
             int depth = hg - y;
-            if (depth > CARVE_MIN_DEPTH)
+            // Map v4 (task 37e): a lake rim's fill is not ground to carve; caves
+            // go by the ground under it (ColumnSample.rimGround).
+            int hc = c.rimGround != 0 ? math.min(hg, c.rimGround) : hg;
+            if (hc - y > CARVE_MIN_DEPTH)
             {
                 bool inShell = false;
                 if (!cull.noPocket)
@@ -302,7 +309,7 @@ namespace TerrainGen
                     if (y < spec.UnderworldTopY && y >= cd.underLo && y < cd.underHi)
                         return y <= spec.worldBottomY + LAVA_ABOVE_FLOOR ? GenMat.Lava : GenMat.Air;
                     // Tunnels: an elliptical passage around each layer's centre line.
-                    if (InTunnel(cd.tun0, hg - cd.tunY0, cd.tunH0, y) || InTunnel(cd.tun1, cd.tunY1, cd.tunH1, y) ||
+                    if (InTunnel(cd.tun0, hc - cd.tunY0, cd.tunH0, y) || InTunnel(cd.tun1, cd.tunY1, cd.tunH1, y) ||
                         InTunnel(cd.tun2, cd.tunY2, cd.tunH2, y) || InTunnel(cd.tun3, c.regional - cd.tunY3, cd.tunH3, y))
                         return GenMat.Air;
                 }
@@ -358,6 +365,8 @@ namespace TerrainGen
                 case GenBiome.Desert: return stable ? GenMat.Sand : GenMat.PackedSand;
                 case GenBiome.Snow: return stable ? GenMat.Snow : GenMat.PackedIce;
                 case GenBiome.Jungle: return GenMat.JungleGrass;
+                case GenBiome.Savanna: return GenMat.SavannaGrass;
+                case GenBiome.Badlands: return GenMat.BadlandsClay;
                 default: return GenMat.Grass;
             }
         }
@@ -369,6 +378,8 @@ namespace TerrainGen
                 case GenBiome.Desert: return GenMat.PackedSand;
                 case GenBiome.Snow: return GenMat.PackedIce;
                 case GenBiome.Jungle: return GenMat.Mud;
+                case GenBiome.Savanna: return GenMat.RedEarth;
+                case GenBiome.Badlands: return GenMat.Hardpan;
                 default: return GenMat.Loam;
             }
         }
@@ -391,7 +402,22 @@ namespace TerrainGen
             if (y + underOff < spec.UnderworldTopY) return UnderworldRock(in spec, y + underOff);
             if (y + cavernOff < spec.CavernTopY) return BiomeRock(biome, 2);
             if (y + deepOff < spec.seaLevelY - STONE_BOTTOM_BELOW_SEA) return BiomeRock(biome, 1);
+            if (biome == GenBiome.Badlands) return BadlandsBand((int)y);
             return BiomeRock(biome, 0);
+        }
+
+        /// Badlands' exposed rock (B10): flat bands by height, 3.2 m each
+        /// (y >> 5), in an 8-band, 25.6 m cycle: red, red, cream, ochre,
+        /// ochre, red, cream, red. Cliffs and the far band's steep texels
+        /// (TopMaterial -> Strata) show the stripes.
+        public static byte BadlandsBand(int y)
+        {
+            switch ((y >> 5) & 7)
+            {
+                case 2: case 6: return GenMat.CreamBand;
+                case 3: case 4: return GenMat.OchreBand;
+                default: return GenMat.RedBand;
+            }
         }
 
         /// Each biome's rock per layer (0 stone, 1 deep stone, 2 cavern rock),
@@ -405,6 +431,8 @@ namespace TerrainGen
                 case GenBiome.Desert: return layer == 0 ? GenMat.OrangeSandstone : (layer == 1 ? GenMat.RedSandstone : GenMat.MaroonMudstone);
                 case GenBiome.Snow:   return layer == 0 ? GenMat.SilverSchist : (layer == 1 ? GenMat.BlueSlate : GenMat.Basalt);
                 case GenBiome.Jungle: return layer == 0 ? GenMat.KarstLimestone : (layer == 1 ? GenMat.MossRock : GenMat.BlackBasalt);
+                case GenBiome.Savanna: return layer == 0 ? GenMat.KopjeGranite : (layer == 1 ? GenMat.Ironstone : GenMat.Gneiss);
+                case GenBiome.Badlands: return layer == 0 ? GenMat.RedBand : (layer == 1 ? GenMat.UmberMudstone : GenMat.PlumShale);
                 default:              return layer == 0 ? GenMat.Granite : (layer == 1 ? GenMat.Slate : GenMat.Shale);
             }
         }

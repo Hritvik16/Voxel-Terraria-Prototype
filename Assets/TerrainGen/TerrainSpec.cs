@@ -49,6 +49,25 @@ namespace TerrainGen
         /// 2026-09-25), 3 = regions + erosion (TerrainGen v3, design doc §13).
         /// 0 is read as 2, so a spec built field by field keeps the old map.
         public int mapVersion;
+        /// Map v4 (surface rebuild B1, owner 2026-10-03): multiplies the two
+        /// climate-field wavelengths that drive ShapeField.Biome, so biomes get
+        /// larger without touching landform. 0 = the version's default (x3 on
+        /// v4). IGNORED below v4: v3 is x1 and byte-identical. Read it through
+        /// BiomeScale, never directly.
+        public float biomeScale;
+        /// Map v4 (surface rebuild B2, plan rule 2; owner Q9 2026-10-03: "needs
+        /// testing", so a TUNABLE): the share of LAND whose region is of the
+        /// gentle landform class (Regions.ClassOf). Broken and steep split the
+        /// rest 3:2. 0 = the version's default (0.50 on v4). IGNORED below v4.
+        /// Read it through GentleShare, never directly.
+        public float gentleShare;
+        /// Map v4 (surface rebuild B10, owner Q10 (a)): which biome field. 6 =
+        /// forest, desert, snow, jungle, savanna, badlands on a one-octave
+        /// climate (ShapeField.Biome); 4 = B1-B8's four-biome field, kept so
+        /// the change is reversible and B8's maps can be redrawn. 0 = the
+        /// version's default (6 on v4). IGNORED below v4. Read it through
+        /// BiomeSet, never directly.
+        public int biomeSet;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -67,8 +86,37 @@ namespace TerrainGen
             cavernTopBelowSea = 1500,        // 150 m
             underworldTopBelowSea = 4000,    // 400 m
             worldBottomY = 120,              // 12 m of bedrock floor under the underworld
-            mapVersion = 3,                  // regions + erosion (§13)
+            mapVersion = 4,                  // v4 = surface rebuild B1-B10 (owner 2026-10-09, Q35 6a); 3 = regions + erosion (§13), via -mapversion 3
         };
+
+        /// sizeClass 2 at an explicit map version (4 = B1: v3 + the world
+        /// record + larger biomes). 0 or 4 is exactly SizeClass2(seed); 3 is the
+        /// pre-rebuild map (byte-identical, still reachable).
+        public static TerrainSpec SizeClass2(uint seed, int mapVersion)
+        {
+            var s = SizeClass2(seed);
+            if (mapVersion > 0) s.mapVersion = mapVersion;
+            return s;
+        }
+
+        public const float V4_BIOME_SCALE = 3f;
+        /// B10: six biomes on a one-octave climate need x3.25 to keep a biome
+        /// change walking east-west >= 900 m on seeds 42/7/2026/31337.
+        public const float V4_BIOME_SCALE_6 = 3.25f;
+        public const int V4_BIOME_SET = 6;
+
+        /// The biome field in force (see biomeSet): 4 below v4.
+        public int BiomeSet => mapVersion >= 4 ? (biomeSet > 0 ? biomeSet : V4_BIOME_SET) : 4;
+
+        /// The biome wavelength multiplier actually in force (see biomeScale).
+        public float BiomeScale => mapVersion >= 4
+            ? (biomeScale > 0f ? biomeScale : (BiomeSet == 6 ? V4_BIOME_SCALE_6 : V4_BIOME_SCALE)) : 1f;
+
+        public const float V4_GENTLE_SHARE = 0.50f;
+
+        /// The gentle-class land share in force (see gentleShare); 0 below v4,
+        /// where the region classes are not assigned to a share at all.
+        public float GentleShare => mapVersion >= 4 ? (gentleShare > 0f ? gentleShare : V4_GENTLE_SHARE) : 0f;
 
         public int CavernTopY => seaLevelY - cavernTopBelowSea;
         public int UnderworldTopY => seaLevelY - underworldTopBelowSea;

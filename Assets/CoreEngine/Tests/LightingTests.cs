@@ -977,6 +977,30 @@ public class LightingTests
         Assert.AreEqual(0f, SunCycle.Hours, 0.05f);
     }
 
+    /// Task 33b: run-play.sh's -daylength 1200 is a session override; with
+    /// none set (every rig and capture run) the clock uses the config's 120 s.
+    [Test]
+    public void Sun_DayLengthOverride_OnlyWhenSet_DefaultStaysConfig120()
+    {
+        float saved = SunCycle.DayLengthOverrideSeconds;
+        try
+        {
+            LightingConfig.DebugSetActive(new LightingConfig());
+            SunCycle.DayLengthOverrideSeconds = 0f;
+            Assert.AreEqual(120f, SunCycle.DayLengthSeconds, 1e-6f, "no override: the config's default day");
+            SunCycle.DebugReset(12f);
+            SunCycle.Advance(10f);
+            Assert.AreEqual(14f, SunCycle.Hours, 1e-3f, "10 s of a 120 s day is 2 h");
+
+            SunCycle.DayLengthOverrideSeconds = 1200f;
+            Assert.AreEqual(1200f, SunCycle.DayLengthSeconds, 1e-6f);
+            SunCycle.DebugReset(12f);
+            SunCycle.Advance(45f);
+            Assert.AreEqual(12.9f, SunCycle.Hours, 1e-3f, "45 s of a 1200 s day is 0.9 h");
+        }
+        finally { SunCycle.DayLengthOverrideSeconds = saved; }
+    }
+
     // =====================================================================
     // §8.1's contract, transposed -- LightingConfig
     // =====================================================================

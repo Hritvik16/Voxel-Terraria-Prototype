@@ -26,7 +26,7 @@ namespace TerrainGen.Tests
         {
             if (Environment.GetEnvironmentVariable("FARSLOPE") != "1")
                 Assert.Ignore("report only: set FARSLOPE=1 (tools/run-editmode-filter.sh FarSlopeRockReport)");
-            var spec = TerrainSpec.SizeClass2(42);
+            var spec = TerrainSpec.SizeClass2(42, 3);
             var o = Offsets.For(42);
             var map = WorldMap.Build(spec);
             var v = map.View;

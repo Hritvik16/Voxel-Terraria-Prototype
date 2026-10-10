@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 SRC = os.path.join("Logs", "TerrainGen", "regions")
 NAMES = ["alpine range", "rolling highlands", "canyonlands", "volcanic", "river plains",
-         "badlands", "dune sea", "sea cliffs", "high plateau", "wetland basin"]
+         "breaks", "dune sea", "sea cliffs", "high plateau", "wetland basin"]
 TINT = [(0.80, 0.84, 0.92), (0.55, 0.72, 0.42), (0.86, 0.52, 0.30), (0.35, 0.30, 0.32), (0.62, 0.78, 0.45),
         (0.78, 0.55, 0.45), (0.93, 0.80, 0.52), (0.60, 0.66, 0.60), (0.72, 0.66, 0.50), (0.42, 0.60, 0.50)]
 

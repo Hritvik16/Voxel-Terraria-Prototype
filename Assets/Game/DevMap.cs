@@ -172,7 +172,7 @@ public sealed class DevMap : MonoBehaviour
         {
             var m = far.Tg2Map;
             _spec = far.Tg2Spec;
-            _o = TerrainGen.Offsets.For(_spec.seed);
+            _o = TerrainGen.Offsets.For(_spec);
             _mapView = new TerrainGen.WorldMap(m.Spec, m.Height, m.Rough, m.PeakPosition, m.Water, m.Flow, m.Hydro, m.WaterClass);
             _off = far.Tg2OffsetVoxels;
             _seaShift = far.Tg2SeaShift;
@@ -647,8 +647,8 @@ public sealed class DevMap : MonoBehaviour
         {
             var view = _mapView.View;
             var cs = TerrainGen.ShapeField.Sample(in _spec, in view, in _o, tg.x, tg.y, 8);
-            string[] bn = { "forest", "desert", "snow", "jungle" };
-            biome = $"  ground {(cs.height - _spec.seaLevelY) * 0.1f:F0} m  biome {(cs.biome < 4 ? bn[cs.biome] : "?")}";
+            string[] bn = { "forest", "desert", "snow", "jungle", "savanna", "badlands" };
+            biome = $"  ground {(cs.height - _spec.seaLevelY) * 0.1f:F0} m  biome {(cs.biome < bn.Length ? bn[cs.biome] : "?")}";
         }
         sb.AppendLine($"camera {cam.transform.position.y - WorldGenConstants.SEA_LEVEL_VOXEL_Y * 0.1f:F0} m above sea, {_dist:F0} m from the target");
         sb.AppendLine(_tg2 ? $"target tg2 voxel ({tg.x:F0}, {tg.y:F0}){biome}" : $"target ({_target.x:F0}, {_target.z:F0}) m");

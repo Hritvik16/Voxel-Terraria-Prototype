@@ -62,9 +62,18 @@ public static class SunCycle
     /// division cannot blow up on a hand-edited zero.
     public static void Advance(float realDeltaSeconds)
     {
-        float dayLength = LightingConfig.Active.dayLengthSeconds;
-        SetHours(Hours + 24f * (realDeltaSeconds / dayLength));
+        SetHours(Hours + 24f * (realDeltaSeconds / DayLengthSeconds));
     }
+
+    /// Session override of the day length in real seconds; 0 (the default)
+    /// means LightingConfig.dayLengthSeconds. Only the interactive Playground
+    /// sets it (run-play.sh's -daylength, task 33b: a 20-minute day for play);
+    /// rigs and capture runs leave it at 0 and keep the config's 120 s.
+    public static float DayLengthOverrideSeconds { get; set; }
+
+    /// The day length the clock actually advances by.
+    public static float DayLengthSeconds =>
+        DayLengthOverrideSeconds >= 1f ? DayLengthOverrideSeconds : LightingConfig.Active.dayLengthSeconds;
 
     /// Jump the clock. The scrubber (§10.3, §13's "time scrubber") and the
     /// Playground's golden-hour / noon / midnight keys both come through here,

@@ -230,12 +230,22 @@ namespace VoxelEngine.Simulation
             AsyncGPUReadback.Request(_counters, req =>
             {
                 _counterReadInFlight = false;
-                if (!req.hasError) LastLiveSlots = req.GetData<uint>()[0];
+                if (req.hasError) return;
+                var c = req.GetData<uint>();
+                LastSlotHighWater = c[0];
+                LastFreeSlots = Math.Min(c[2], c[0]);
             });
         }
         private bool _counterReadInFlight;
-        /// highWater from the most recent landed RequestSlotCountersAsync.
-        public uint LastLiveSlots { get; private set; }
+        /// From the most recent landed RequestSlotCountersAsync: the highest
+        /// slot index ever bound (Counters[0]). It NEVER comes down -- it is how
+        /// far CSIntent/CSSweep scan, not how many slots are live. The HUD
+        /// printed it as "slots simulating" until task 39.
+        public uint LastSlotHighWater { get; private set; }
+        /// Slots below the high-water mark sitting in A.5's free list (Counters[2]).
+        public uint LastFreeSlots { get; private set; }
+        /// Live (bound, not recycled) slots: high-water minus the free list.
+        public uint LastLiveSlots => LastSlotHighWater - LastFreeSlots;
 
         /// Slot indices currently sitting in A.5's free list, waiting to be
         /// reused. With recycling working, a region that has settled should show
@@ -675,6 +685,7 @@ namespace VoxelEngine.Simulation
             {
                 int3 tc = Tiles.TileOf(worldVoxel);
                 if (Tiles.TryGetSlot(tc) == FluidTileMap.NO_TILE &&
+                    !TryDisplaceForWake(tc) &&
                     Tiles.Acquire(tc) == FluidTileMap.NO_TILE)
                 {
                     // Pool full: §7.7's guarded no-op. The material stays in
@@ -688,6 +699,42 @@ namespace VoxelEngine.Simulation
             if (!_wakePending.Add(worldVoxel, CurrentMirrorStamp)) { WakeRejectedFull++; return; }
             WakeRequestsQueuedTotal++;
         }
+
+        /// A FULL POOL MAKES ROOM FOR A WAKE NEARER THE PLAYER (task 39). The
+        /// wake is not replayed if refused, so before this a full pool froze
+        /// fluid the player placed right in front of them (tg2's coast: 1029
+        /// placed voxels unmoved for 480 frames) while tiles 128 m away stayed
+        /// resident. Same rule as FluidTileResidency's nearest-first admission:
+        /// the farthest resident tile is released only if STRICTLY farther
+        /// than the tile asking. Returns true if it freed a slot.
+        ///
+        /// THE FARTHEST TILE IS CACHED, keyed on the pool's acquire/release
+        /// totals and the centre, so the common refusal -- an op's neighbour
+        /// just past the resident frontier, hundreds of thousands per minute at
+        /// a coast -- costs one compare, not a scan of the pool.
+        private bool TryDisplaceForWake(int3 tileCoord)
+        {
+            if (!DisplaceForWakes || Tiles.ResidentTiles < Tiles.TileCapacity) return false;
+            long a = Tiles.TilesAcquiredTotal, r = Tiles.TilesReleasedTotal;
+            if (a != _farA || r != _farR || !PlayerVoxel.Equals(_farCentre))
+            {
+                _farValid = Tiles.TryFarthestResident(PlayerVoxel, out _farCoord, out _farD2);
+                _farA = a; _farR = r; _farCentre = PlayerVoxel;
+            }
+            if (!_farValid || _farD2 <= Tiles.TileDistSq(tileCoord, PlayerVoxel)) return false;
+            if (!Tiles.Release(_farCoord)) return false;
+            WakeTilesDisplacedTotal++;
+            return true;
+        }
+        private long _farA = -1, _farR = -1, _farD2;
+        private int3 _farCoord, _farCentre;
+        private bool _farValid;
+
+        /// MEASUREMENT SEAM (task 39's -poolfix 0), not a configuration: false
+        /// restores refusing every wake into a full pool. Shipped code leaves it true.
+        public bool DisplaceForWakes { get; set; } = true;
+        /// Resident tiles released so a wake nearer the player could have their slot.
+        public long WakeTilesDisplacedTotal { get; private set; }
 
         /// §8.3's "scan 26-neighborhood for fluid/falling materials -> wake slots".
         public void RequestWakeNeighbourhood(int3 worldVoxel)

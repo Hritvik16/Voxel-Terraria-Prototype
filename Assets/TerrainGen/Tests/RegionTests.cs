@@ -34,7 +34,7 @@ namespace TerrainGen.Tests
             if (dump) WorldMap.DumpErosionInputsTo = Path.Combine(dir, "erosion_in");
             foreach (uint seed in Seeds)
             {
-                var spec = TerrainSpec.SizeClass2(seed);
+                var spec = TerrainSpec.SizeClass2(seed, 3);
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 var shared = dump ? null : SharedMaps.GetEntry(spec);
                 var map = dump ? WorldMap.Build(spec) : shared.Map;
@@ -74,7 +74,7 @@ namespace TerrainGen.Tests
         [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
         public void MapV3_IsDeterministic()
         {
-            var spec = TerrainSpec.SizeClass2(7u);
+            var spec = TerrainSpec.SizeClass2(7u, 3);
             var a = SharedMaps.Get(spec);       // one build (shared, built earlier in the run) ...
             using var b = WorldMap.Build(spec); // ... and a second, fresh one
             int diff = 0;

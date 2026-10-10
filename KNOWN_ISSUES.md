@@ -42,8 +42,109 @@ real and separate reason — see the LOD-cascade finding in
 
 ## Known open issues (act on these, don't rediscover them)
 
+- **OWNER PAUSE (`tools/heavy.sh pause|resume|status`, tasks 14/14b, 2026-10-03) DRAINS, it does not freeze.** The current lock holder runs to completion; every new `unity_lock_acquire` waits (no timeout) until `resume`, then the usual 45 s clear check. It takes effect at the next LOCK ACQUISITION or, since task 16, at the next LAUNCH of a script that takes the lock once and loops (`run-lavalight-ab`, `run-upscale-ab`, `run-roofskip-ab`, `run-perf60`, `run-looksweep`, `run-overhaul-batch`, `run-flyfast`, `run-farband`, `run-phase7-lighting-ab`): each calls `unity_hold_wait` before every player launch / build step / sub-rig, KEEPING the lock while it waits (`resume` touches it), and before the `sleep 60` / `COOL` settle, so the settle follows the pause. Those in-loop waits skip the 45 s clear check (the script owns the lock). Proven 2026-10-03 on `ORDER="S S" MINUTES=1 ./run-perf60.sh` (`Logs/overnight/16_perf60_pause.out`): launch 1 finished, `held by owner pause -- waiting`, listed under "waiting on the pause", ran arm 2 after `resume`. A NEW looping script must do the same or it drains to its end; per-launch callers (`run-tg2world.sh` loops) stop at the next launch. A run that printed `NOTE: owner paused during this run` may have contaminated timings (Mac likely in use) -- rerun that arm. Nothing frees RAM early any more (the owner dropped `--kill`).
+- **SAVE-CAPPED EVICTIONS ARE NEVER RETRIED UNTIL THE CAMERA MOVES A CHUNK -> stray resident chunks alias into the GPU mirror box (task 21, 2026-10-04; FIXED by task 26, 2026-10-04 -- see the last sub-bullet).** `MAPV=4 MODE=poses`: the validator reports `MIRROR lost 12232 / 5249 / 0` and `stale 2 / 2 / 1` at `peak_from_2km_ground` / `summit_view` / `glide_400m`, and 0/0/0 from `coast_from_sea_30m` on. The counts and the stale example coordinates are identical in all 3 v4 runs (B2 run, `Logs/overnight/21_arm1_v4.out`, `21_arm3_v4.out`), so this is deterministic, not timing. Map v3 shows 0 on every pose (`21_arm2_v3.out`, `21_arm4_v3.out`). The pattern is the 4-per-frame save cap: resident count is 3096 / 3092 / 3088 / 3087 = the 21x21x7 box + 9 / 5 / 1 / 0. Each teleport evicts 4 more. Cause (read from the code, not instrumented):
+  - `StreamManager.EvictOutOfRange` runs only on camera-chunk change. It `continue`s past out-of-range `deltaDirty` chunks once `MAX_CHUNK_SAVES_PER_FRAME` (4) saves are done, and nothing retries them while the camera holds still.
+  - Any `SetVoxel` sets `deltaDirty`, so fluid moving near the start pose is the likely source. On v4 that leaves more than 4 such chunks.
+  - `TerrainClipmap.UploadDirty` writes a resident chunk into its toroidal slot without checking that the chunk is inside the mirror box. A stray chunk therefore overwrites an in-box chunk ("lost") or fills a non-resident box position ("stale").
+  - Golden screenshots of the two poses show no visible hole.
+  - **FIX (task 26, commit d4165c9):** `EvictOutOfRange` sets `_evictDeferred` when the save cap skips a chunk, and `Update` re-runs it against `_lastCameraChunk` every frame while that is set (the cap stays 4/frame; that frame skips the drained-queue re-sweep, which runs on the next one). `DeferredEvictionTests` (flat world, 10 dirty chunks, teleport + hold: 4 + 4 + 2 saves). v4 poses after the fix: `MIRROR 0/0/0` on all 18 poses, resident <= 3087 (`Logs/overnight/26/poses1.out`, `poses2.out`; an earlier second run had the dev map open from pose 2 on (someone at the Mac) and was discarded, `Logs/overnight/26/invalid_devmap_open/`). Shots pixel-identical to task 24's run on 59/61 (the 2 minimap shots are known noise). The defensive in-box check followed in task 32 (next sub-bullet).
+  - **DEFENSIVE CHECK (task 32, commit 3cb76d1):** `TerrainClipmap.UploadDirty` now tests a RESIDENT dirty chunk against the current mirror box (`InMirrorBox`: `(coord - origin) & ~mask == 0` per axis, integer only) before staging it. Outside: not uploaded, removed from the dirty set, counted (`UploadStats.skippedOutOfBox`, cumulative `SkippedOutOfBoxTotal`; printed on the poses `MIRROR` line as `outOfBox`, the flysweep MIRROR CHECK, the stream-probe TSV's last column and the acceptance report), and PARKED. Re-entry: the admission path re-dirties a chunk only after evict + reload (`DrainCompletions` -> `MarkDirty`), and a stray is always outside the load range (box contains the load square and the band), so it is awaiting eviction; if the box comes back to it BEFORE that eviction, the parked set re-dirties it at the start of the next `UploadDirty` (evicted parked chunks are forgotten -- the eviction marks them dirty itself). Evicted chunks keep the existing clear path and its owner test. `UploadDirtyBoxTests` (3 cases). Remaining gap, NOT changed: a CLEAN resident chunk that leaves the box and comes back before eviction is never re-uploaded (its slot holds whatever the in-box chunk wrote); only deltaDirty chunks can be strays (clean ones evict at once), so this needs a teleport-and-back inside the save-cap window. Also: `ClipmapValidator.ValidateRegion` walks every resident chunk, so a stray would show as `lost` -- read it beside `outOfBox`.
+- **BLACK BAR OVER THE SEA AT `coast_from_sea_30m` = `FarStartT`'s CHUNK DDA STALLS ON A -x CROSSING (task 18 located it, task 19 PINNED it 2026-10-04; FIXED by task 22, 2026-10-04 -- see the last sub-bullet).**
+  - Seen in every `-world tg2` poses run since 2026-09-26 (v3 and v4). The dark arcs below the bar are a SEPARATE thing: voxel LOD tier seams (view 6).
+  - **Mechanism (measured, task 19 pixel probe, `-coastprobe`, `Logs/tg2world_20261004_001514.txt`):**
+    - `FarStartT` (`Raymarch.compute`) re-derives the chunk from a float point after a fixed `t += 1e-3` nudge: `cc = floor((O.xz + D.xz*t)/128)`.
+    - At x = 40000 voxels a float32 step is 0.0039 voxels, but the nudge moves x by only |D.x|*1e-3 = 0.00043. So after a -x face the point rounds back onto the face (39936.0) and floor() returns the same chunk. The loop repeats to its 96 cap and returns tLimit.
+    - Reproduced step for step in a float32 model (t sticks at 147.40, p.x = 39936.0).
+    - Rays with D.x > 0 land on the next chunk's minimum and work.
+  - **Numbers (bar pixel (500,720) vs control (1400,720)):**
+    - Both pixel mappings were checked against the GPU's own rayDir (dot 0.999999; Y-flipped; dispatch 960x540).
+    - Bar pixel: `FarStartT` = 230.9 m, which equals the voxel march's end (currentDist). With no limit it returns 1e8 m, i.e. "none found". The far march starts at ray Y 5057 vox, under the sea top (texel 5121), and hits immediately: normal (0,0,-1), a water SIDE face.
+    - Control pixel: 154.0 m (the strip entry), ray Y 5176. It hits the top face (0,1,0) at 189.0 m.
+    - Residency is CORRECT: the CPU words 27..31 and the shader's `FarResident` words are all 0. The column the ray crosses at z chunk 44 reads `FarChunkResident` 0. The CPU origin/dims passed to `UpdateResidency` = (296,38,15)/(32,8,32) = the shader's `_WindowOriginBricksPacked` (4736,608,240) >> 4.
+  - **Extent follows the camera's chunk and WORLD -x:**
+    - Rays exit the camera's chunk through its -x face before the strip when |D.x/D.z| > 64/1376. Predicted bar edge at x 916; measured 915-916.
+    - Same pose +12.8 m in x (camera again mid-chunk): the same edge, 915.
+    - Yawed 180 deg: the bar moves to screen RIGHT (world -x), starting at x 1006-1007 (predicted 1006). Shots: `FarBand/2026-10-04_002102_world/`; composite `Logs/overnight/19_coast/coast_three_poses_noon.png`.
+  - **FIXED (task 22):** `FarStartT` now steps the INTEGER chunk cell (Amanatides-Woo), clamped into the window; leaving the window returns tLimit. Probe `Logs/tg2world_20261004_063855.txt`: bar pixel (500,720) `FarStartT` 230.9 -> 155.1 m, far hit normal (0,1,0) at 190.4 m. Dark run (R<12,G<20,B<35) in rows 700-740: 916 px before, 0-2 px after, in all three coast poses.
+    - Also fixed by the same change: a black slab over the lake in `eye_level_2` and `minimap_check_noon` (now blue water). Full poses run `Logs/tg2world_20261004_064339.txt`: 52 of 61 shots are pixel-identical to the pre-fix v4 run `2026-10-04_021148_world`; no new seam or hole.
+    - `FarMarch`'s `tn = tExit + 1e-3*cs` CANNOT hard-stall: it sets `t = tn` and `tExit = max(..., t)`, so t grows >= 0.008 voxels per step. A crossing that rounds back costs extra steps instead, about 0.24/|D.axis| of them at cs = 8, x ~ 40000. That only matters for near-grazing rays. Not changed. The probe pixels took 13-17 far steps.
+  - **Images** (all in `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FarBand/2026-10-03_181049_world/`):
+    - `coast_from_sea_30m_noon.png`: the black bar is left of centre, about 2/3 down, over the sea. The two thin dark arcs below it are the tier seams.
+    - `coast_from_sea_30m_noon_farshadowoff.png`: the same frame with far shadows off. The bar is unchanged.
+    - `coast_from_sea_30m_golden_band.png` (view 9): the bar's rows are green (F0). Blue (voxel) starts at row 754 across the whole width.
+    - `coast_from_sea_30m_golden_view10.png` (far step heat): the blue rectangle at the bar's position = an immediate far hit. The rest of the sea is yellow.
+    - `coast_from_sea_30m_golden_view11.png` (voxel stop): all green or blue, with no magenta or red. The voxel march was not capped over resident terrain.
+    - `coast_from_sea_30m_golden_view6.png` (voxel tier): the red/green and green/blue boundaries lie exactly on the two dark arcs of the noon shot.
+- **STREAMING REQUIREMENT (worst case, derived 2026-10-03, task 16b). It REPLACES
+  B1's "no more than 5% worse than v3" pass line (owner removed it 2026-10-03).**
+  Code: `StreamingRequirement.cs` (pure, live constants), pinned by
+  `StreamingRequirementTests`. `MODE=stream ./run-tg2world.sh` prints it as
+  report section 7: `REQUIRED x/s, CAPACITY y/s -> MET / NOT MET (short by fx)`,
+  plus latency and main-thread lines. `tools/streamprobe-table.py` tabulates them.
+  **Today: NOT MET on every line, and the latency line CANNOT be met at any
+  throughput. The latency line is a design choice for the owner, not engine speed.**
+  - **Constants.**
+    - Chunk edge E = 12.8 m: `CHUNK_EDGE_VOXELS` = 128 (`EngineConfig.cs:465`), x 0.1 m (`CoordMath.cs:12`).
+    - Load radius r = 10 (`EngineConfig.cs:268` `TG2_LOAD_RADIUS_CHUNKS`). Side 21. Chebyshev square round the camera's chunk (`StreamManager.cs:696-740`).
+    - Band L = 7 layers = 2 x `V_LOAD_LAYERS` 3 + 1 (`StreamManager.cs:235`). Y recentre moves `V_STREAM_LAG` + 1 = 2 layers at once (`StreamManager.cs:236`, `CentredBand` :275; a fast fall uses it, `FALL_SPEED_CENTRED` 4 m/s, :306).
+    - Window 32 x 16 x 32 (`EngineConfig.cs:70-71`); evict radius 12 = r + `HYSTERESIS_RING_CHUNKS` 2 (`EngineConfig.cs:82`); max evict radius 15 (`StreamManager.cs:432`). GPU mirror 32 x 8 x 32 (`EngineConfig.cs:261`).
+    - **R_d (where voxels hand over to the far band) = the residency edge**: `FarStartT` hands a ray to the far band at the first NON-resident chunk column (`Raymarch.compute:1977-2003`). So R_d = r x E = 128 m (to 140.8 m, by where the camera is in its chunk).
+    - **Recentre rule: no request-side hysteresis in X/Z.** A chunk is requested in the Update of the frame the camera crosses a chunk plane (`StreamManager.cs:596-604`), so up to one frame late. Its near face is then exactly r x E = 128 m away, i.e. already ON R_d.
+    - Prefetch margin M = (request radius - R_d) x E = **0**.
+    - Hysteresis exists only for EVICTION. The window's 3 spare chunks (15 - 12) are unused by requests.
+  - **The worst case, factor by factor.**
+    - v = 60 m/s: the brief's Decided "late-game flight". Nothing in the game is faster: terminal fall 55 m/s (`PlayerConfig.cs:86`) + 5.2 m/s run (:53). The dev fly camera (up to 120 x4, `PlaygroundFlyCamera.cs:22-25`) is a tool.
+    - Heading: an X or Z plane crossing adds side x L = 147 chunks; a Y layer adds side^2 = 441. Rate = ((|vx|+|vz|) x 147 + |vy| x 441) / E. By Cauchy-Schwarz the max is v/E x sqrt(2 x 147^2 + 441^2): a diagonal DIVE about 65 deg down a mountainside (tg2 has 70 deg slopes; a fast fall takes the centred band).
+    - Terrain: skimming the ground, so every chunk is full cost (no uniform/air fast path).
+    - Latency-worst heading: along an axis (closing speed v on the face).
+  - **Requirement table** (r 10, L 7, E 12.8, v 60, 60 Hz):
+    | line | formula | number |
+    |---|---|---|
+    | A_max, worst heading | v/E x sqrt(2(side L)^2 + side^4) | **2,285 chunks/s** |
+    | level diagonal only | sqrt2 v side L / E | 974 /s |
+    | straight dive only | v side^2 / E | 2,067 /s |
+    | brief's estimate (axis, level) | v side L / E | 689 /s (= its "~700") |
+    | burst per crossing | side L; (2 side - 1) L; 2 side^2 | 147; 287 corner; 882 per Y recentre |
+    | L_min, request -> on GPU p99 | M / v - 1 frame | **0 s: M = 0, unmeetable** |
+    | per-chunk gen time at W workers | <= W / A_max | 3.1 ms (7 workers), 1.75 ms (4 P-cores) |
+    | main thread | A_max / 60 x admit ms <= 16.7 ms | 38.1 admits/frame |
+    | unload | = A_max | 38.1 evictions/frame |
+    | cold start / teleport | band / A_max | 3,087 chunks -> 1.35 s. **PROPOSED** target 2 s (behind a fade); met by construction if A_max is |
+  - **The gap** (existing data: task 10 + B1, 21 arms; non-uniform chunks; 7 workers;
+    capacity = 7 x 1000 / (gen + downsample ms)):
+    | mode | gen+down p50 / p99 ms | capacity p50 / p99 /s | short of 2,285 by | worst-case speed sustained |
+    |---|---|---|---|---|
+    | fly 56 m/s (worst observed) | 984 / 3,230 | 7.1 / 2.2 | 322x / 1,053x | 0.19 m/s |
+    | walk, slow mode, v3 | 437 / 1,154 | 16.0 / 6.1 | 143x / 377x | 0.42 m/s |
+    | walk, slow mode, v4 (4 of 4 runs) | 462 / 1,010 | 15.2 / 6.9 | 150x / 330x | 0.40 m/s |
+    | walk, fast mode, v3 (3 of 7 v3 runs) | 241 / 754 | 29.0 / 9.3 | 79x / 246x | 0.76 m/s |
+    | isolated (main thread, workers idle) x 7, ideal | 49-65 p50 | ~121 | 19x | 3.2 m/s (7.4 m/s level) |
+    - Measured admitted rate (incl. 37-86% uniform chunks): 20-53 chunks/s.
+    - Latency: request -> on GPU p99 8.8 s (fly 56) to 33.6 s (walk) vs a 0 s budget.
+    - Main thread: 38.1 x admit p50 0.86-1.97 ms = 33-75 ms per frame (2-4.5x over 16.7 ms). Admission cap `MAX_CHUNK_LOADS_PER_FRAME` = 16 (`EngineConfig.cs:177`), 2.4x under.
+    - Upload: `MAX_CLIPMAP_CHUNKS_PER_FRAME` = 16 (`EngineConfig.cs:161`), 2.4x under. Mean ~260 KB per uploaded chunk -> ~9.9 MB/frame vs the 3 MB cap (`:150`), 3.3x (estimate: bytes/frame are not linear in chunks).
+    - Unload: ~0.12 ms p50 / 0.52 ms p99 per evicted chunk (estimate: frames with >= 20 evictions and no admission; includes slide + pending rebuild). x 38.1 = 4.5 / 20 ms: fits at p50, not at p99.
+    - **Stage that limits: generation**, by 19x even with perfect 7-thread scaling of the isolated cost. Admission and upload are 2-4x short behind it.
+    - **Why a worker chunk costs 3x the isolated one (task 20, 2026-10-04): shared-resource CONTENTION, not oversubscription.** `-genworkers N` (diagnostic, default unchanged), walk, v3, 2 launches per N in ABBA order, AC, no owner pause. Same-chunk paired gen p50 (1,245 chunks common to all 8 launches): N=1 70/82 ms (= the isolated 56-70 ms), N=2 122/148, N=4 167/185, N=7 164/187. Capacity (section 7) 12.0/9.9, 13.2/10.5, 19.0/16.9, 33.2/29.2 /s -- still rising at 7, so no oversubscription up to 7. The cost rise is all between 1 and 4 workers; 4 -> 7 adds threads at flat cost. Mechanism (GC stop-the-world, memory bandwidth, P-cores shared with main+render, descheduling) NOT separated: follow-up 25 (thread CPU time vs wall). Slow mode (gen p50 416-503 ms at 7) did not occur in these 8 launches; in history it was 3 consecutive launches (2026-10-03 20:15-21:57), not alternating, unrelated to charging, with the isolated cost normal -- an external/system condition is the likeliest, unproven. Logs `Logs/tg2world_20261004_0033..0120*.txt`, `Logs/overnight/20_pair.out` (script `tools/streamprobe-pair.py`).
+    - **Attribution (task 25, 2026-10-04): mostly SLOWER WHILE RUNNING, then descheduling at 7; NOT GC.** The streamprobe now records each worker's thread CPU time (`clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)`) and GC counts. 6 launches N=1,4,7,7,4,1, v3 walk, AC, no pause; 971 chunks paired. Thread CPU p50: N=1 70/61 ms, N=4 131/139, N=7 136/135 -> CPU itself x2.1 from 1 to 4, flat to 7. Wall/CPU p50: N=1 1.01/1.00, N=4 1.06/1.25, N=7 1.39/1.33 (wall-CPU p50 43-54 ms at 7). GC: 13-16 collections per 180 s at every N (Boehm, incremental), forced full pause 3-10 ms, 1-2.6% of chunks span one -> negligible. The slow state is a ~2.2x per-thread speed step that also appears at N=1 halfway through the walk (CPU deciles 55 -> 160-195 ms in both N=1 launches; chunks slow at N=1 do NOT slow further at N=4). So it is not cache/bandwidth sharing between workers. The two candidates left are efficiency-core placement and thermal frequency (M1 MacBook Air, fanless); they are not separated yet (follow-up 27). Capacity flat 4 -> 7 (35.5/37.8/36.2 /s; N=4 B 20.0) = ~4.3 cores' worth. Logs `Logs/overnight/25_{driver,pair,modes}.out`.
+    - **The N=1 slow state is triggered by HEAT (task 27, 2026-10-04).** 4 launches at N=1, v3 walk, AC, no owner pause, order W C C W (W = right after a `-genworkers 7` launch, C = after 600 s with no heavy process). Cold: no slow episode in 180 s in either launch (content-normalised speed factor p50 1.04 / 1.00, CPU p50 54.5 / 52.9 ms, 2,240 / 2,382 chunks). Warm: slow from walk +45 s (W1, factor 1.66, CPU 85.3 ms, 1,331 chunks) and episodes from +60 s, sustained from +135 s (W2, factor 1.21, 62.7 ms, 1,778 chunks). Episodes come and go (W1 slow +60-90 s, fast +105-120 s, slow +135 s). Both warm launches were slow at +60 s and +135 s, so extra load at those walk positions may tip a warm chip over. A cold chip never slows there. `pmset -g therm` recorded no warning level at any point. NOT separated: whether the slow state is a P-core frequency cap or the scheduler moving the thread to an efficiency core. ~2.2x fits E-core speed better, but this is inference. The task 25/20 capacity figures were measured warm (back-to-back launches). Logs `Logs/overnight/27_{driver,onset,pair}.out`, `tools/streamprobe-onset.py`.
+    - **At N=4 the slow state comes even when cold (task 28, 2026-10-04).** Same W C C W design as task 27 with the measured arms at `-genworkers 4`, v3 walk, AC, no owner pause, no `pmset` thermal warning. Paired over the 1,852 chunks common to these 4 and task 27's two cold N=1 launches (CPU p50 55.4 / 53.8 ms, factor 1.04 / 1.00). Cold N=4 (C1 / C2): CPU p50 126.5 / 105.2 ms, factor 2.17 / 1.82; fast-ish for the first ~45 s of the walk (bin CPU p50 65-92 ms, ~1.3x the N=1 figure), then slow from ~100 s after launch (walk +45 s) to the end (bin CPU p50 104-157 ms); capacity 39.4 / 50.2 chunks/s (50-70/s in the first 30 s, 23-34/s in the slow middle). Warm N=4 (W1 / W2): slow from walk +0 s, factor 2.89 / 2.55, CPU p50 152.6 / 135.8 ms, capacity 18.0 / 36.9 /s. W1 (straight after the build) was also descheduled (wall/CPU 1.51, CPU share of wall 54%; the other N=4 arms 1.03-1.09), cause not found -- probably post-build background load; W1 is the least trustworthy arm. So four workers heat the chip themselves within ~100 s: quote a multi-worker capacity at thermal steady state (~23-37 /s at N=4 on this Mac), not the cold first minute. NOT separated: in both cold arms ~100 s since launch and walk +45 s coincide (task 27's warm N=1 W1 also tipped at walk +45 s). Peak memory 3,135-3,234 MB, over the 3 GB cap. Logs `Logs/overnight/28_{driver,onset,pair}.out`.
+    - **Where a chunk's cost goes (task 23, 2026-10-04, from task 20's TSVs, no new runs).** The column pass (`ColumnJob`: S + MaxStep + `PrepareColumn` over 128^2 columns) is ~0.60 of `Generate` (air-fast-path chunks paired with the same column's non-uniform chunks: p50 0.60-0.63 at 1 and 7 workers); voxel pass + copy ~0.40; worker downsample ~0.21 of `Generate` on top. The column pass depends only on (x, z) but runs once PER LAYER: ~5 times per chunk column at 7 workers (6,388 runs / 1,275 columns). Also: the 64-128 m ring is drawn at tier 1 (0.2 m), not tier 2 (`LODConfig.cs:64`). Coarse-first estimate and the column-sharing alternative: `PLAN_COARSE_FIRST_GEN.md` (owner-gated).
+    - Section 7 confirmed on 2 walk launches, AC, no owner pause (one build, 2026-10-03 20:16). v3 (`Logs/tg2world_20261003_201553.txt`): capacity 16.2 / 7.5 /s, short 141x / 303x; latency p99 34.1 s; main thread 41.0 ms. v4 (`Logs/tg2world_20261003_202723.txt`): 13.9 / 6.8 /s, short 164x / 334x; 35.4 s; 37.8 ms.
+  - **The latency line needs a design change.**
+    - Because R_d IS the load radius, every newly requested chunk is already inside R_d. Even walking fails it.
+    - Any budget needs request radius > detail radius. Examples: at 60 m/s, request 10 / detail 7, or request 13 / detail 10 (the most today's window allows: `MaxLoadRadiusChunks(32)` = 13). Either gives M = 38.4 m -> L_min = 0.62 s.
+    - Request 13 also raises A_max to 3,640/s (side 27). Detail 7 at speed keeps 2,285/s.
+    - Both need the far hand-over decoupled from residency, or a speed-dependent detail radius.
+  - **Speed-dependent detail radius EXISTS, OFF by default (task 24, 2026-10-04; owner Q13 (a)).** `-detailspeed 1` / Playground F5.
+    - R_d(v) = 128 m - v (0.62 s + 1 frame), clamped to [64 m, 128 m] (`StreamingRequirement.DetailRadiusM`): walk 5 -> 124.8 m, fly 14 -> 119.1, fly 56 -> 92.4, 60 -> 89.8 m (7.0 chunks). The budget is then 0.62 s at any v up to the floor (100.5 m/s). v = XZ path speed over a 0.5 s window (`DetailSpeedFilter`); a still camera reads exactly 0 -> no clamp.
+    - Shader: camera-centred XZ square; the voxel march stops at it, `FarStartT` gets min(currentDist, tDetail), `FarMarch` skips a resident column only for t < tDetail. All under `#ifdef VE_DETAIL_SPEED` in its own kernel `CSMainDetail`, dispatched only while the radius is active. Residency/requests/eviction unchanged. Not combined with `-checker`.
+    - **Codegen trap:** with the same branches compiled into CSMain (uniform = 0), flag-OFF poses still differed (rivers_oblique 2,132 px on a far-ring boundary). Hence the separate kernel. Second trap: the dispatch treated ANY kernel != 0 as the half-width checkerboard (fixed: `primaryChecker`).
+    - Evidence: flag OFF and flag ON at still poses: 59/61 v4 pose shots pixel-identical to the 06:45 task-22 run (the 2 minimap_check shots vary between runs of identical code). Warm steady state, 12 stream arms ABBA, v4, AC, no owner pause (`Logs/overnight/24/table.md`): latency NOT MET everywhere against the new 0.62 s budget (p99 3.3-3.8 s fly 56 = 5.3-6.1x; 10.4-12.2 s fly 14; 35-37 s walk); the deficit inside the R_d square is ~the whole square (fly 56: 1,537-1,563). Frame p50 ON vs OFF: walk 12.6/11.9 vs 12.6/12.6 ms, fly 14 8.5/8.5 vs 13.6/12.7, fly 56 9.2/9.6 vs 11.2/10.8. Fly-14 capacity ON 17.8/18.1 vs OFF 31.4/27.7 /s -- NOT explained (fly 56 and walk show no such drop).
 - **STREAMING BASELINE v3 (2026-10-02, task 10; measured 2026-10-03).** The
-  numbers every surface-rebuild step (B1 on) is compared against.
+  numbers every surface-rebuild step (B1 on) is compared against. (Since task 16b
+  the PASS LINE is the STREAMING REQUIREMENT entry above, not a % vs this table.)
   `MODE=stream ./run-tg2world.sh` (`MOTION=walk|fly`, `EXTRA="-movespeed 14"`):
   `-streamprobe` (`PlaygroundCapture.StreamProbe.cs`) with `StreamTrace` (opt-in,
   observe-only, per-chunk timeline). Side-by-side table:
@@ -418,6 +519,13 @@ real and separate reason — see the LOD-cascade finding in
   existing "Burst == Mono" benchmark runs in the IL2CPP player, not the Editor.
   TerrainGen's gate is therefore Burst self-consistency (one compiled path for
   every authoritative evaluation), with the Editor-Mono rate reported.
+  **The PLAYER'S WORLD MAP IS NOT THE EDITOR'S (found 2026-10-08, task 32c, NOT FIXED).**
+  seed 42 v4 `WorldMap.Height` FNV: IL2CPP player `B387F054A29997D4`, Editor/tests
+  `BD4343C5D13F55BF`; cell (613,259) 1169.15 vs 1160.16 voxels. Erosion amplifies the
+  float differences. So EditMode map tests and `PlayMetricsReport` check a map that
+  differs in detail from the one the player draws -- e.g. a cap-rock ledge at
+  cliff_foot_1 exists only in the player's map. Owner's call whether to make the map
+  build bit-exact (Burst, one compiled path) or accept it.
 
 - **EVERY PLAYGROUND PROBE HAS BEEN MEASURING INSIDE A HOLE. This is the biggest
   measurement defect found in this project so far.** `TeleportToArena` -- where
@@ -624,6 +732,32 @@ real and separate reason — see the LOD-cascade finding in
   design's load-bearing claim, that the footprint does not move WITH THE
   RADIUS, is a separate assertion and was never in question. Rig is 19/19
   again. Background in `FLUID_TILE_CAP_RESULTS.md` §12.1.
+- **"POOL FULL" / "live 750,000" ON THE PLAYGROUND HUD IN TG2 (task 39, 2026-10-09; FIXED in part).**
+  `MODE=poolprobe MAPV=4 ./run-tg2world.sh` (`EXTRA="-poolfix 0"` = the old behaviour) walks
+  start -> lake shore -> sea coast and places water; reports + stills in `Screenshots/Task39/`.
+  - **What fills the 1,024-tile pool: the COAST, not lakes.** At the lake 488 tiles are wanted
+    (the pool has room). At the coast 3,845 are wanted inside 128 m: tg2 BEACH SAND (material
+    142, a falling solid) on every beach tile, plus sea water (320 all-water interior tiles).
+  - **FIXED -- the near tiles lost.** Admission followed the chunk scan order, so at the coast
+    tiles 128 m away stayed resident while tiles 46-50 m away (and the tile of water the player
+    had just placed) were refused. Placed water froze: 1,029 voxels unmoved for 480 frames, and
+    the vent's water hung in mid-air. Now `FluidTileResidency.Refresh` keeps the NEAREST tiles
+    (displacing a strictly farther one) and `FluidGpuSimulation.RequestWake` does the same for a
+    wake (`TryDisplaceForWake`). At the coast the frontier is now 61.2 / 61.2 m and the placed
+    box flows (1,029 -> 722 in 8 s).
+  - **The HUD counter was not a tile count.** About 97% of `PoolExhaustionsTotal` is per-VOXEL
+    wake retries: op neighbourhoods and the vent re-asking every frame (+300k in 8 s at the
+    coast). The HUD now shows the last pass's refused TILES; the cumulative count is in grey.
+  - **"live 750,000" was the slot HIGH-WATER mark** (Counters[0]), which never comes down. It is
+    real in the sense that the cap was hit. Disturbing a tg2 lake (the placement's re-centre
+    seed) took the high-water from 26k to 673k. The probe finds 85k-90k lake water cells with AIR
+    diagonally below them, i.e. stepped, not-at-rest lake surfaces: each seed makes the lake
+    flow. The HUD now prints live (= high-water - free list) and the high-water separately.
+  - **NOT FIXED, owner/next task:** (1) the pool is ~4x too small for a coast at a 128 m radius
+    (bigger pool, beach sand static, or a smaller radius are owner calls; 0.5 MiB per tile).
+    (2) Stepped tg2 lake surfaces wake ~500k slots when touched (terrain generator).
+    (3) At the coast the WAKE QUEUE (capacity = maxOpsPerFrame) is full of op wakes, so the
+    placed box's own 1,029 wakes were dropped and it flowed slowly.
 - **FLUID IN TG2 DOES SIMULATE: task 07's "never moved" was a misreading (task
   09, 2026-10-03; no engine change).** `-fluidprobe` (`MODE=fluidprobe
   ./run-tg2world.sh`; `PROBEWORLD=` for the default-world control) repeats task

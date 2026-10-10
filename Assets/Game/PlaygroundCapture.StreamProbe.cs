@@ -14,6 +14,9 @@
 //   5. load deficit over time
 //   6. shots of the same pose fully loaded (still) and mid-motion, each in
 //      beauty, the LOD-tier view (6) and the band view (9)
+//   7. (task 16b) measured capacity vs the WORST-CASE requirement
+//      (StreamingRequirement): REQUIRED / CAPACITY -> MET / NOT MET. This
+//      replaced B1's "no more than 5% worse than v3" comparison.
 //
 // -streammotion walk : the MODE=walk circle (-orbitradius, default 150 m) at
 //                      1.6 m eye, -movespeed default 5 m/s.
@@ -178,7 +181,7 @@ public partial class PlaygroundCapture
         L($"device {SystemInfo.graphicsDeviceName}  {Screen.width}x{Screen.height}  {(Screen.fullScreen ? "FULLSCREEN" : "WINDOWED")}  " +
           $"{(Debug.isDebugBuild ? "DEVELOPMENT" : "RELEASE")}  preset {(HasFlag("-renderpreset") ? RenderPreset.Current.ToString() : "as shipped")}  " +
           $"gate {gate}  shadow rung {RaymarchFeature.ShadowQualityLevel}  HUD OFF  fluid not opened  clock {SunCycle.ClockString()}");
-        L($"streamer: {streamer.WorkerCount} chunk-gen workers, load radius {streamer.LoadRadiusChunks} chunks ({streamer.LoadRadiusChunks * 12.8f:F1} m), " +
+        L($"streamer: {streamer.WorkerCount} chunk-gen workers ({(StreamManager.GenWorkersOverride > 0 ? "-genworkers override" : "default")}, ProcessorCount {System.Environment.ProcessorCount}), load radius {streamer.LoadRadiusChunks} chunks ({streamer.LoadRadiusChunks * 12.8f:F1} m), " +
           $"evict {streamer.EvictRadiusChunks}, band layers {StreamManager.V_LOAD_LAYERS * 2 + 1}, admit cap {EngineConfig.MAX_CHUNK_LOADS_PER_FRAME}/frame, " +
           $"clipmap cap {EngineConfig.MAX_CLIPMAP_CHUNKS_PER_FRAME} chunks / {EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME / 1048576.0:F1} MB per frame (exempt radius {EngineConfig.UPLOAD_EXEMPT_RADIUS_CHUNKS})");
         L(fly ? $"motion FLY: straight ping-pong {leg:F0} m through spawn ({spawn.x:F0}, {spawn.z:F0}) heading ({dir.x:F2}, {dir.z:F2}), land {landFrac * 100f:F0}% of the line, relief {relief:F0} m, " +
@@ -238,18 +241,22 @@ public partial class PlaygroundCapture
 
         // ---- measure ----
         StreamTrace.Reset();
+        // Task 25: GC activity over the measured walk (start/end counters).
+        int[] gcN0 = { System.GC.CollectionCount(0), System.GC.CollectionCount(1), System.GC.CollectionCount(2) };
+        long monoUsed0 = UnityEngine.Profiling.Profiler.GetMonoUsedSizeLong(), monoHeap0 = UnityEngine.Profiling.Profiler.GetMonoHeapSizeLong();
         StreamTrace.Enabled = true;
         int cap = seconds * 300;
         var rows = new StringBuilder(cap * 120);
         rows.Append("frame\tt\tms\tstreamMs\tadmitted\tevicted\tpending\tinflight\tuploadBytes\tchunksUp\tdeferred\tdirtyLeft\t" +
                     "sortMs\tstagingMs\tclipSetMs\tmipMs\tpackMs\tbrickSetMs\tpackUpMs\tcascadeMs\ttransferMs\tdrainMs\t" +
-                    "missingGpu\tmissingIn64\tdeficit\tdeficitIn128\tband\tcamY\n");
+                    "missingGpu\tmissingIn64\tdeficit\tdeficitIn128\tband\tcamY\toutOfBox\n");
         var ms = new List<float>(cap);
         var upBytes = new List<float>(cap); var upChunks = new List<float>(cap);
         var phStage = new List<float>(); var phClip = new List<float>(); var phMip = new List<float>(); var phPack = new List<float>();
         var phBrick = new List<float>(); var phPackUp = new List<float>(); var phSort = new List<float>(); var phCasc = new List<float>(); var phTransfer = new List<float>();
         var phUploadTotal = new List<float>();
         var deficits = new List<float>(); var deficits128 = new List<float>(); var missIn64 = new List<float>(); var missGpu = new List<float>();
+        var deficitsRd = new List<float>(); var rdM = new List<float>(); var rdSpeed = new List<float>();   // task 24
         int overBudget = 0, frames = 0, bandSwitches0 = streamer.BandSwitchesTotal;
         long admitted0 = streamer.ChunksAdmittedTotal, discarded0 = streamer.DiscardedOnArrivalTotal;
         var winMs = new List<float>(); var winDef = new List<int>(); var winAdm = new List<int>();
@@ -287,6 +294,8 @@ public partial class PlaygroundCapture
                 streamer.LoadDeficitSplit(out int i128, out int o128);
                 lastDef = i128 + o128; lastDef128 = i128;
                 deficits.Add(lastDef); deficits128.Add(lastDef128);
+                deficitsRd.Add(streamer.LoadDeficitInsideSquare(cp, DetailRadius.RadiusM));
+                rdM.Add(DetailRadius.RadiusM); rdSpeed.Add(DetailRadius.SpeedMps);
                 winDef.Add(lastDef);
             }
             winMs.Add(f);
@@ -300,7 +309,7 @@ public partial class PlaygroundCapture
                 .Append(us.packUploadMs.ToString("F3")).Append('\t').Append(streamer.LastCascadeMs.ToString("F3")).Append('\t')
                 .Append(streamer.LastTransferMs.ToString("F3")).Append('\t').Append(streamer.LastDrainCompletionsMs.ToString("F3")).Append('\t')
                 .Append(open).Append('\t').Append(in64).Append('\t').Append(lastDef).Append('\t').Append(lastDef128).Append('\t')
-                .Append(streamer.StreamLayer).Append('\t').Append(cp.y.ToString("F1")).Append('\n');
+                .Append(streamer.StreamLayer).Append('\t').Append(cp.y.ToString("F1")).Append('\t').Append(us.skippedOutOfBox).Append('\n');
             frames++;
             if (t - winStart >= 10f)
             {
@@ -337,6 +346,8 @@ public partial class PlaygroundCapture
         }
         RaymarchFeature.UseDebugViewOverride = false;
         StreamTrace.Enabled = false;
+        int[] gcN1 = { System.GC.CollectionCount(0), System.GC.CollectionCount(1), System.GC.CollectionCount(2) };
+        long monoUsed1 = UnityEngine.Profiling.Profiler.GetMonoUsedSizeLong(), monoHeap1 = UnityEngine.Profiling.Profiler.GetMonoHeapSizeLong();
         L($"moving_beauty/tier/band.png -- the still pose, mid-motion at {speed:F0} m/s (3 consecutive frames, camera moving); " +
           $"deficit {defAtShot}, chunks missing on the GPU inside 64 m {missing64AtShot}");
 
@@ -346,11 +357,12 @@ public partial class PlaygroundCapture
         var transfer = new List<float>(); var casc = new List<float>(); var reqDisp = new List<float>(); var jobWait = new List<float>();
         var complWait = new List<float>(); var admUp = new List<float>(); var admUpF = new List<float>(); var reqUp = new List<float>();
         var reqUpF = new List<float>(); var distReq = new List<float>(); var distUp = new List<float>(); var late = new List<float>(); var lateF = new List<float>();
+        var genDownSolid = new List<float>();
         int uniformN = 0;
         double workerMsSum = 0;
         foreach (var e in done)
         {
-            gen.Add((float)e.genMs); down.Add((float)e.downMs); if (!e.uniform) genSolid.Add((float)e.genMs); else uniformN++;
+            gen.Add((float)e.genMs); down.Add((float)e.downMs); if (!e.uniform) { genSolid.Add((float)e.genMs); genDownSolid.Add((float)(e.genMs + e.downMs)); } else uniformN++;
             workerMsSum += e.genMs + e.downMs;
             admitMs.Add((float)e.admitMs); transfer.Add((float)e.transferMs); casc.Add((float)e.cascadeMs);
             reqDisp.Add((float)StreamTrace.Ms(e.tDispatch - e.tRequest));
@@ -374,6 +386,33 @@ public partial class PlaygroundCapture
         L(Row("generate (GenerateBaseline), all", gen));
         L(Row("generate, non-uniform chunks only", genSolid));
         L(Row("cascade downsample on the worker", down));
+        {
+            // Task 25: wall vs the worker thread's own CPU time, non-uniform chunks.
+            var cpuG = new List<float>(); var ratio = new List<float>(); var stall = new List<float>();
+            int gcHit = 0, nonUni = 0; var wallGcHit = new List<float>(); var wallGcNone = new List<float>();
+            foreach (var e in done)
+            {
+                if (e.uniform) continue;
+                nonUni++;
+                if (e.gcDuringWork > 0) { gcHit++; wallGcHit.Add((float)e.genMs); } else wallGcNone.Add((float)e.genMs);
+                if (e.genCpuMs < 0) continue;
+                cpuG.Add((float)e.genCpuMs); stall.Add((float)(e.genMs - e.genCpuMs));
+                if (e.genCpuMs > 0) ratio.Add((float)(e.genMs / e.genCpuMs));
+            }
+            L(Row("generate, non-uniform: worker THREAD CPU", cpuG) + (cpuG.Count == 0 ? "   (thread CPU clock unavailable)" : ""));
+            L(Row("generate, non-uniform: wall - CPU (not running)", stall));
+            L(Row("generate, non-uniform: wall / CPU", ratio, "x"));
+            L(Row("generate, non-uniform, no GC during the work", wallGcNone));
+            L(Row("generate, non-uniform, >=1 GC during the work", wallGcHit) + $"   ({gcHit} of {nonUni} chunks)");
+            L($"  GC over the walk: collections gen0/1/2 {gcN1[0] - gcN0[0]}/{gcN1[1] - gcN0[1]}/{gcN1[2] - gcN0[2]}" +
+              $" ({(gcN1[0] - gcN0[0]) / runSeconds:F2}/s; cumulative allocated bytes: not in Unity's GC API)" +
+              $", mono used {monoUsed0 / 1048576.0:F0} -> {monoUsed1 / 1048576.0:F0} MB, heap {monoHeap0 / 1048576.0:F0} -> {monoHeap1 / 1048576.0:F0} MB" +
+              $", incremental GC {UnityEngine.Scripting.GarbageCollector.isIncremental}");
+            // One forced full collection AFTER the measurement, timed: the
+            // stop-the-world pause a non-incremental collection of this heap costs.
+            long g0 = StreamTrace.Now; System.GC.Collect(); long g1 = StreamTrace.Now;
+            L($"  forced full GC.Collect after the walk (pause estimate, not during it): {StreamTrace.Ms(g1 - g0):F1} ms");
+        }
         L(Row("request -> dispatch (pending queue)", reqDisp));
         L(Row("dispatch -> worker start (job queue)", jobWait));
         L($"  admitted {admittedRun} in {runSeconds:F0} s = {admittedRun / runSeconds:F1} chunks/s; worker busy {workerMsSum / 1000.0 / (runSeconds * streamer.WorkerCount) * 100:F0}% of {streamer.WorkerCount} threads (lower bound: counts only chunks that reached the GPU)");
@@ -411,13 +450,65 @@ public partial class PlaygroundCapture
         L("5. LOAD DEFICIT (chunks in the load square + band not resident; every 10th frame)");
         L(Row("deficit", deficits, "", "F0"));
         L(Row("deficit, nearest point inside 128 m", deficits128, "", "F0"));
+        L($"  task 24: detail radius at speed {(DetailRadius.Enabled ? "ON (-detailspeed 1): voxels hand over at R_d(v)" : "OFF: voxels hand over at the residency edge; R_d(v) below is what ON would use")}");
+        L(Row("  smoothed horizontal speed (0.5 s window)", rdSpeed, "m/s", "F1"));
+        L(Row("  R_d(v)", rdM, "m", "F1"));
+        L(Row("deficit, nearest point inside the R_d(v) square (Chebyshev)", deficitsRd, "", "F0"));
         L($"  band switches {streamer.BandSwitchesTotal - bandSwitches0}, discarded on arrival {streamer.DiscardedOnArrivalTotal - discarded0}");
         L("  10 s windows:");
         _log.Append(windows);
+        // 7. Task 16b: the worst case (KNOWN_ISSUES "STREAMING REQUIREMENT").
+        // Capacity = workers x 1000 / (generate + downsample) per NON-uniform
+        // chunk -- the worst case has no air fast path -- at p50 (sustained)
+        // and p99 (worst observed).
+        {
+            var req = StreamingRequirement.Live();
+            var rq = StreamingRequirement.Compute(req);
+            genDownSolid.Sort(); reqUp.Sort(); admitMs.Sort();
+            int w = streamer.WorkerCount;
+            double g50 = Pct(genDownSolid, 0.5), g99 = Pct(genDownSolid, 0.99);
+            double cap50 = g50 > 0 ? w * 1000.0 / g50 : 0, cap99 = g99 > 0 ? w * 1000.0 / g99 : 0;
+            double up99 = Pct(reqUp, 0.99) / 1000.0, adm50 = Pct(admitMs, 0.5);
+            double frameMs = 1000.0 / req.frameHz, mainMs = rq.admitsPerFrame * adm50;
+            L("7. WORST-CASE REQUIREMENT (StreamingRequirement; KNOWN_ISSUES \"STREAMING REQUIREMENT\")");
+            L($"  worst case: {req.vMaxMps:F0} m/s, diagonal dive (worst 3-D heading), {rq.side}x{rq.side} chunks x {req.bandLayers} layers, " +
+              $"every chunk full cost; prefetch margin {rq.marginM:F1} m (request radius {req.requestRadiusChunks}, detail radius {req.detailRadiusChunks})");
+            L($"  throughput (gen p50 {g50:F0} ms, {w} workers): {StreamingRequirement.Verdict(rq.aMax, cap50, "/s")}");
+            L($"  throughput (gen p99 {g99:F0} ms, {w} workers): {StreamingRequirement.Verdict(rq.aMax, cap99, "/s")}");
+            L($"    level flight only (no dive): REQUIRED {rq.aHorizontal:F1}/s; measured admitted this run {admittedRun / runSeconds:F1}/s (incl. {uniformN} uniform chunks)");
+            {
+                // Task 24: the budget the speed-dependent hand-over leaves, at the
+                // worst-case speed and at this arm's measured speed.
+                double loadM = DetailRadius.LoadRadiusM;
+                double rd60 = StreamingRequirement.DetailRadiusM(req.vMaxMps, loadM, req.frameHz);
+                double b60 = StreamingRequirement.LatencyBudgetS(req.vMaxMps, loadM, rd60, req.frameHz);
+                rdSpeed.Sort(); double vArm = Pct(rdSpeed, 0.5);
+                double rdArm = StreamingRequirement.DetailRadiusM(vArm, loadM, req.frameHz);
+                double bArm = StreamingRequirement.LatencyBudgetS(vArm, loadM, rdArm, req.frameHz);
+                string Vs(double b) => double.IsInfinity(b) ? "no deadline (still)" : (up99 <= b ? "MET" : (b > 0 ? $"NOT MET (short by {up99 / b:F1}x)" : "NOT MET (budget 0)"));
+                L($"  latency WITH the detail radius at speed (task 24, {(DetailRadius.Enabled ? "ON this run" : "OFF this run -- what ON would require")}):");
+                L($"    at {req.vMaxMps:F0} m/s: R_d {rd60:F1} m (margin {loadM - rd60:F1} m): REQUIRED request->GPU p99 <= {b60:F3} s, MEASURED p99 {up99:F3} s -> {Vs(b60)}");
+                L($"    at this arm's speed p50 {vArm:F1} m/s: R_d {rdArm:F1} m (margin {loadM - rdArm:F1} m): REQUIRED p99 <= " +
+                  $"{(double.IsInfinity(bArm) ? "inf" : bArm.ToString("F3"))} s, MEASURED p99 {up99:F3} s -> {Vs(bArm)}");
+            }
+            L(rq.latencyMeetable
+                ? $"  latency: REQUIRED request->GPU p99 <= {rq.latencyBudgetS:F3} s, MEASURED p99 {up99:F3} s -> {(up99 <= rq.latencyBudgetS ? "MET" : $"NOT MET (short by {up99 / rq.latencyBudgetS:F1}x)")}"
+                : $"  latency: REQUIRED request->GPU p99 <= 0 s (margin {rq.marginM:F1} m), MEASURED p99 {up99:F3} s -> NOT MET (no throughput can meet a zero budget: the worst case itself must change)");
+            L($"  main thread: {rq.admitsPerFrame:F1} admits/frame x admit p50 {adm50:F2} ms = {mainMs:F1} ms vs a {frameMs:F1} ms frame -> {(mainMs <= frameMs ? "MET" : $"NOT MET (short by {mainMs / frameMs:F1}x)")}" +
+              $"; MAX_CHUNK_LOADS_PER_FRAME {EngineConfig.MAX_CHUNK_LOADS_PER_FRAME}");
+            L($"  bursts: X/Z plane {rq.faceBurst}, corner {rq.cornerBurst}, Y recentre {rq.verticalBurst} chunks; cold start / teleport {rq.bandChunks} chunks " +
+              $"-> {rq.coldFillS:F2} s at the required rate (PROPOSED target, not set)");
+            L($"  largest worst-case speed sustained at this capacity: {StreamingRequirement.SustainedSpeedMps(req, cap50):F2} m/s (p50), " +
+              $"{StreamingRequirement.SustainedSpeedMps(req, cap99):F2} m/s (p99) -- information only");
+        }
         L("");
         L("per-frame rows: streamprobe_frames.tsv; per-chunk rows: streamprobe_chunks.tsv");
+        // task 27: workStartS = the worker's start on the chunk, s since launch (the Stopwatch
+        // clock re-zeroed on realtimeSinceStartup's); the "walk start" line gives the walk's t0 on that scale.
+        L($"walk start {runStart:F2} s since launch, s0 {s0:F1} m, {speed:F1} m/s -- chunks' workStartS is on the same scale");
+        long launchTick = System.Diagnostics.Stopwatch.GetTimestamp() - (long)(Time.realtimeSinceStartupAsDouble * System.Diagnostics.Stopwatch.Frequency);
         var cr = new StringBuilder(done.Count * 100);
-        cr.Append("cx\tcy\tcz\tuniform\tgenMs\tdownMs\treqDispMs\tjobWaitMs\tcomplWaitMs\tadmitMs\ttransferMs\tcascadeMs\tadmUpMs\treqUpMs\treqUpFrames\tdistReqM\tdistUpM\tlateMs\n");
+        cr.Append("cx\tcy\tcz\tuniform\tgenMs\tdownMs\treqDispMs\tjobWaitMs\tcomplWaitMs\tadmitMs\ttransferMs\tcascadeMs\tadmUpMs\treqUpMs\treqUpFrames\tdistReqM\tdistUpM\tlateMs\tgenCpuMs\tdownCpuMs\tgcN\tworkStartS\n");
         foreach (var e in done)
         {
             long workStart = e.tWorkerDone - (long)((e.genMs + e.downMs) * System.Diagnostics.Stopwatch.Frequency / 1000.0);
@@ -428,7 +519,9 @@ public partial class PlaygroundCapture
               .Append(e.transferMs.ToString("F3")).Append('\t').Append(e.cascadeMs.ToString("F3")).Append('\t')
               .Append(StreamTrace.Ms(e.tUpload - e.tAdmit).ToString("F2")).Append('\t').Append(StreamTrace.Ms(e.tUpload - e.tRequest).ToString("F2")).Append('\t')
               .Append(e.fUpload - e.fRequest).Append('\t').Append(e.distRequestM.ToString("F1")).Append('\t').Append(e.distUploadM.ToString("F1")).Append('\t')
-              .Append(e.fNear >= 0 ? StreamTrace.Ms(e.tUpload - e.tNear).ToString("F2") : "").Append('\n');
+              .Append(e.fNear >= 0 ? StreamTrace.Ms(e.tUpload - e.tNear).ToString("F2") : "").Append('\t')
+              .Append(e.genCpuMs.ToString("F3")).Append('\t').Append(e.downCpuMs.ToString("F3")).Append('\t').Append(e.gcDuringWork).Append('\t')
+              .Append((StreamTrace.Ms(workStart - launchTick) / 1000.0).ToString("F3")).Append('\n');
         }
         File.WriteAllText(Path.Combine(_folder, "streamprobe_chunks.tsv"), cr.ToString());
         File.WriteAllText(Path.Combine(_folder, "streamprobe_frames.tsv"), rows.ToString());

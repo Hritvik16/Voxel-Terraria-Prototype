@@ -193,6 +193,30 @@ public class FluidTileMapTests
     }
 
     [Test]
+    public void FarthestResident_IgnoresFreedSlots_AndUsesTheNearestPointOfEachTile()
+    {
+        // Task 39: a wake into a full pool displaces this tile, so a freed slot
+        // (which keeps its old coord) must never be reported as resident.
+        var m = Map(tileEdge: 8, ring: 16, cap: 4);
+        int3 centre = new int3(4, 4, 4);                      // inside tile (0,0,0)
+        Assert.IsFalse(m.TryFarthestResident(centre, out _, out _), "empty pool");
+        m.Acquire(new int3(0, 0, 0));
+        m.Acquire(new int3(1, 0, 0));
+        m.Acquire(new int3(5, 0, 0));
+        m.Acquire(new int3(0, 2, 0));
+        Assert.AreEqual(0, m.TileDistSq(new int3(0, 0, 0), centre), "the tile you are in is at distance 0");
+        Assert.AreEqual(16L, m.TileDistSq(new int3(1, 0, 0), centre), "nearest face at x=8: 4 voxels");
+
+        Assert.IsTrue(m.TryFarthestResident(centre, out int3 far, out long d2));
+        Assert.AreEqual(new int3(5, 0, 0), far);
+        Assert.AreEqual(36L * 36L, d2);
+
+        m.Release(new int3(5, 0, 0));
+        Assert.IsTrue(m.TryFarthestResident(centre, out far, out _));
+        Assert.AreEqual(new int3(0, 2, 0), far, "the freed slot's stale coord is not resident");
+    }
+
+    [Test]
     public void PoolExhaustionIsAGuardedNoOp_AndIsCounted()
     {
         // §7.7: "Underflow on promotion is a guarded no-op -- retry next tick.

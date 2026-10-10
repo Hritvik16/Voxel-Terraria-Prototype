@@ -22,6 +22,7 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
   rm -rf "$APP"
   "$UNITY_BIN" -batchmode -quit -nographics -projectPath "$(pwd)" \
     -executeMethod Phase5aSceneBuilder.GeneratePlayground -logFile Logs/roofskip_scene.log
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   "$UNITY_BIN" -batchmode -quit -projectPath "$(pwd)" \
     -executeMethod CommandLineBuild.BuildPlaygroundStandalone -logFile Logs/roofskip_build.log
   if grep -q "Shader error" Logs/roofskip_build.log; then
@@ -31,12 +32,14 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
 fi
 
 echo "== 1. pixel + counter A/B ==" | tee -a "$LOG"
+unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
 caffeinate -dims open -n -W "$APP" --args -roofskipab -cleardeltas
 R=$(ls -td "$DATA/RoofSkipAB"/*/ | head -n 1); cat "${R}roofskip_ab.txt" | tee -a "$LOG"
 
 echo "" | tee -a "$LOG"
 echo "== 2. sustained, ${MINUTES} min per arm, counterbalanced ==" | tee -a "$LOG"
 for arm in 0 1 1 0; do
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   sleep 60   # let the machine settle between launches
   echo "-- arm roofskip=$arm  load: $(uptime | sed 's/.*load averages*: //')" | tee -a "$LOG"
   caffeinate -dims open -n -W "$APP" --args -sustained -motion orbit -gateres 960 -shadowlevel 0 \

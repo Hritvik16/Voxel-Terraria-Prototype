@@ -26,6 +26,7 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
   rm -rf "$APP"
   "$UNITY_BIN" -batchmode -quit -nographics -projectPath "$(pwd)" \
     -executeMethod Phase5aSceneBuilder.GeneratePlayground -logFile Logs/looksweep_scene.log
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   "$UNITY_BIN" -batchmode -quit -projectPath "$(pwd)" \
     -executeMethod CommandLineBuild.BuildPlaygroundStandalone -logFile Logs/looksweep_build.log
   if grep -q "Shader error" Logs/looksweep_build.log; then
@@ -36,6 +37,7 @@ fi
 
 if [ "${SKIP_SWEEP:-0}" != "1" ]; then
   echo "== 1. day sweep, before/after ==" | tee -a "$LOG"
+  unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
   caffeinate -dims open -n -W "$APP" --args -looksweep -cleardeltas
   R=$(ls -td "$DATA/LookSweep"/*/ | head -n 1); cat "${R}looksweep.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"
 fi
@@ -44,6 +46,7 @@ if [ "${GRADE_AB:-0}" = "1" ]; then
   echo "" | tee -a "$LOG"
   echo "== 2. grade frame cost at noon, ${MINUTES} min per arm, counterbalanced ==" | tee -a "$LOG"
   for arm in 1 0 0 1; do
+    unity_hold_wait   # owner pause stops here, at the launch boundary (task 16)
     sleep 60
     echo "-- arm lookgrade=$arm  load: $(uptime | sed 's/.*load averages*: //')" | tee -a "$LOG"
     caffeinate -dims open -n -W "$APP" --args -sustained -motion orbit -gateres 960 -shadowlevel 0 \

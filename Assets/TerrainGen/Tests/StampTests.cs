@@ -31,7 +31,7 @@ namespace TerrainGen.Tests
         public void BuildOnce()
         {
             if (_map != null) return;
-            _spec = TerrainSpec.SizeClass2(42);
+            _spec = TerrainSpec.SizeClass2(42, 3);
             _o = Offsets.For(42);
             _map = SharedMaps.Get(_spec);
         }
@@ -123,6 +123,38 @@ namespace TerrainGen.Tests
             System.IO.File.WriteAllLines(System.IO.Path.Combine(dir, "ledges.txt"), lines);
             Debug.Log("[Ledges] " + lines[0]);
             Assert.Greater(ledges, 20, "almost no ledges on the island");
+        }
+
+        /// Task 32c: the far band (a heightfield) must not fill the air under a
+        /// cap-rock ledge -- drawn solid, a ledge is a pillar standing at the
+        /// cliff foot. On map v4 every ledge texel the far band would draw sits
+        /// at or under the ledge's floor; v3's far band is unchanged. Far-band
+        /// evaluation (texel 8), on the same 16 m grid as the test above.
+        [Test]
+        public void FarBand_DoesNotFillLedgeUndercuts()
+        {
+            foreach (int ver in new[] { 3, 4 })
+            {
+                var spec = TerrainSpec.SizeClass2(42u, ver);
+                var view = SharedMaps.Get(spec).View;   // shared: never disposed here
+                var o = Offsets.For(in spec);
+                int ledges = 0;
+                float c0 = spec.worldSizeVoxels * 0.5f;
+                for (int gz = -200; gz < 200; gz++)
+                for (int gx = -200; gx < 200; gx++)
+                {
+                    float x = (int)c0 + gx * 160 + 4, z = (int)c0 + gz * 160 + 4;
+                    var c = ShapeField.Sample(in spec, in view, in o, x, z, 8);
+                    if (c.open3Hi <= c.open3Lo) continue;
+                    ledges++;
+                    var f = c;
+                    ShapeField.FarColumn(in spec, ref f);
+                    if (ver >= 4) Assert.Less(f.height, c.open3Lo, $"v4: the far band fills the undercut of the ledge at ({x},{z}): top {f.height}, gap [{c.open3Lo},{c.open3Hi})");
+                    else Assert.AreEqual(c.height, f.height, $"v3: the far column changed at ({x},{z})");
+                }
+                Debug.Log($"[FarLedges] v{ver}: {ledges} ledge texels on the 16 m grid");
+                Assert.Greater(ledges, 20, $"v{ver}: almost no ledges, the test proves nothing");
+            }
         }
 
         [Test]
@@ -266,9 +298,12 @@ namespace TerrainGen.Tests
         public void NoNeedles_OnTheMap()
         {
             var lines = new List<string>();
+            // B2 (2026-10-03): map v4 deals regions by landform class, so the
+            // guard runs on v4 too.
+            foreach (int ver in new[] { 3, 4 })
             foreach (uint seed in new[] { 42u, 7u })
             {
-                var spec = TerrainSpec.SizeClass2(seed);
+                var spec = TerrainSpec.SizeClass2(seed, ver);
                 var map = SharedMaps.Get(spec);   // shared: never disposed here
                 {
                     int n = spec.mapCells, summits = 0;
@@ -294,7 +329,7 @@ namespace TerrainGen.Tests
                         worst.Add((c - ring, x, z));
                     }
                     worst.Sort((a, b) => b.drop.CompareTo(a.drop));
-                    lines.Add($"seed {seed}: {summits} summits on land; worst drops 40 m from a summit:");
+                    lines.Add($"seed {seed} v{ver}: {summits} summits on land; worst drops 40 m from a summit:");
                     var o = Offsets.For(seed);
                     for (int i = 0; i < math.min(8, worst.Count); i++)
                     {
@@ -320,9 +355,9 @@ namespace TerrainGen.Tests
                                   $"   macro alone: summit {mh / 10f:F0} m, drop {(mh - mRing) / 10f:F1} m   valley field {vf:F3} (cut < 0.070)" +
                                   $"   plateau {pf:F3}  range {range:F2}  {peakD:F0} m from the peak");
                     }
-                    File.WriteAllLines(Path.Combine(Dir(), $"needles_{seed}.txt"), lines);
+                    File.WriteAllLines(Path.Combine(Dir(), ver == 3 ? $"needles_{seed}.txt" : $"needles_{seed}_v{ver}.txt"), lines);
                     Assert.Less(worst.Count > 0 ? worst[0].drop : 0f, NEEDLE_DROP,
-                        $"seed {seed}: a needle -- the summit at map cell ({worst[0].x},{worst[0].z}) falls {worst[0].drop / 10f:F1} m within 40 m on every side");
+                        $"seed {seed} v{ver}: a needle -- the summit at map cell ({worst[0].x},{worst[0].z}) falls {worst[0].drop / 10f:F1} m within 40 m on every side");
                 }
             }
             File.WriteAllLines(Path.Combine(Dir(), "needles.txt"), lines);

@@ -1,0 +1,27 @@
+=== B4: easy areas on map v4 (record flag + list)
+  seed    easy share (8-12%)   areas (want)   area ha (>= 25 each)            flagged-but-not-easy  gentle (50+-5)  inselbergs  build s (v3)   record hash
+  11       10.0% PASS          4 (4) PASS     50 50 50 23            MISS        0                  48.8% PASS     0 PASS    25.4   A81496F74C9F8460
+  12        8.5% PASS          4 (4) PASS     66 9 39 36             MISS        0                  49.6% PASS     0 PASS    28.6   78CCF48462B5FAC1
+  65537     8.3% PASS          3 (4) MISS     65 58 22               MISS        0                  49.8% PASS     0 PASS    27.8   3FC925FA4045A2B1
+
+  areas: centre (voxels), ha, farthest flagged cell from the centre, mean height (rel. sea), dominant archetype
+  seed 11:
+    (28240, 30160)   50.3 ha  r  527 m   13.3 m  river plains
+    (49040, 24720)   50.3 ha  r  716 m  112.6 m  high plateau
+    (41360, 55440)   50.3 ha  r  466 m   40.0 m  rolling highlands
+    (35600, 31760)   22.7 ha  r  752 m   24.0 m  river plains
+  seed 12:
+    (57680, 36240)   66.3 ha  r  623 m   38.9 m  rolling highlands
+    (31760, 35280)    8.7 ha  r  752 m   78.8 m  rolling highlands
+    (22800, 44560)   39.1 ha  r  752 m   56.9 m  rolling highlands
+    (50000, 32400)   35.9 ha  r  752 m   48.3 m  rolling highlands
+  seed 65537:
+    (56080, 40080)   65.0 ha  r  528 m   44.0 m  rolling highlands
+    (34640, 52880)   57.7 ha  r  752 m  126.3 m  high plateau
+    (33040, 45520)   21.9 ha  r  752 m  112.9 m  high plateau
+
+  slopes (B3 targets, reported not gated)  v3 -> v4:
+  seed    median deg      <15 deg          >45 deg          open (<20 m)     river km        gentle-low Walk anywhere (old 'easy')
+  11        -   -> 14.1       -   ->  52.3%     -   ->  11.3%     -   ->   9.0%    -   ->  23.1    35.8%
+  12        -   -> 13.3       -   ->  56.8%     -   ->   5.9%     -   ->   7.1%    -   ->  24.6    22.9%
+  65537     -   -> 17.9       -   ->  44.4%     -   ->  19.2%     -   ->   4.4%    -   ->  24.5    28.9%

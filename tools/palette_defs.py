@@ -16,10 +16,15 @@ NAMES = {1: "water", 2: "lava", 3: "honey", 4: "oil", 5: "acid", 6: "sludge", 7:
          70: "deepstone", 71: "cavern rock", 72: "ash", 73: "obsidian", 74: "magma crust", 75: "bedrock",
          80: "sinter", 81: "crystal blue", 82: "crystal amber", 83: "crystal rose", 84: "crystal green",
          85: "bone", 86: "meteor ore", 87: "bark", 88: "leaves", 89: "mushroom stem", 90: "mushroom cap",
-         91: "volcanic rock", 92: "standing stone"}
+         91: "volcanic rock", 92: "standing stone",
+         # B10 (map v4): savanna and badlands
+         15: "savanna grass", 16: "badlands clay", 24: "red earth", 25: "hardpan",
+         35: "kopje granite", 36: "ironstone", 37: "gneiss",
+         45: "red band", 46: "cream band", 47: "ochre band", 48: "umber mudstone", 49: "plum shale"}
 
 BIOMES = [("Forest", [10, 20, 30, 31, 32, 33, 34]), ("Desert", [12, 21, 40, 41, 42, 43, 44]),
           ("Snow", [13, 22, 50, 51, 52, 53, 54]), ("Jungle", [11, 23, 60, 61, 62, 63, 64]),
+          ("Savanna", [15, 24, 35, 36, 37]), ("Badlands", [16, 25, 45, 46, 47, 48, 49]),
           ("Depths", [70, 71, 72, 73, 74, 75]), ("Fluids", [1, 2, 3, 4, 5, 6, 7]),
           ("Landmarks", [80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92])]
 
@@ -89,5 +94,24 @@ PALETTES = {
         85: "ece0c0", 86: "ff3f7a", 87: "6e4a2e", 88: "3f8f35", 89: "e8dcc6", 90: "c2407a",
         91: "3a3030", 92: "9a958c"})),
 }
+
+# B10 (owner Q10 (a), 2026-10-02): savanna and badlands colour CANDIDATES, in D's
+# register, for the owner's sign-off. Only D carries the new materials; "a" ships
+# (merged into D below). gen-tg2-materials.py --b10 b|c writes another one into
+# the engine, so every candidate can be rendered in the real renderer at the
+# same poses.
+B10_CANDIDATES = {
+    "a": ("Golden straw / Terracotta", hexes({
+        15: "c9a640", 24: "a4532e", 35: "c2a48c", 36: "6e3424", 37: "7a706a",
+        16: "c98a68", 25: "a0644a", 45: "c2573a", 46: "ead3b0", 47: "d4923c", 48: "5e3a28", 49: "5c3644"})),
+    "b": ("Olive savanna / Painted hills", hexes({
+        15: "a8a24a", 24: "9a4a2c", 35: "b8a58f", 36: "6e3424", 37: "7a706a",
+        16: "b8735a", 25: "8c5038", 45: "a83a2a", 46: "e0c9a0", 47: "c9a040", 48: "4a3028", 49: "4e2e3e"})),
+    "c": ("Tawny / Pale clay", hexes({
+        15: "d39a4a", 24: "b0582f", 35: "c9ab92", 36: "7a3c28", 37: "807670",
+        16: "dcc0a0", 25: "b08a68", 45: "b5654a", 46: "f0e2c8", 47: "d8a868", 48: "6e4a36", 49: "6a4652"})),
+}
+B10_SHIPPED = "a"
+PALETTES["D"][2].update(B10_CANDIDATES[B10_SHIPPED][1])
 
 ROUND2 = ["A", "C", "D"]

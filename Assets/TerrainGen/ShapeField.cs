@@ -51,6 +51,11 @@ namespace TerrainGen
         /// +-120 m. D runs a passage layer below it; where a valley or cliff cuts
         /// under that level, the passage breaks out through the wall.
         public float regional;
+        /// Map v4 (task 37e): the column's ground BEFORE a lake rim or shore
+        /// shelf raised it (ShapeField.LakeRim), or 0 = not raised. D carves
+        /// caves by depth under THIS ground, so the fill is never carved and
+        /// the caves under it stay where they were.
+        public int rimGround;
         /// v3 T5b: the air under a CAP-ROCK LEDGE, [lo, hi). Like the stamp
         /// intervals, never contains the top voxel (the ledge IS the top).
         public int open3Lo, open3Hi;
@@ -119,6 +124,7 @@ namespace TerrainGen
             }
             float wl = SampleWater(in map, x, z);
             c.water = wl > Hydrology.NO_WATER * 0.5f ? spec.seaLevelY + (int)math.floor(wl) : ColumnSample.NO_WATER_Y;
+            if (map.waterClass != null && spec.mapVersion >= 4) LakeRim(in spec, in map, in o, x, z, ref c);   // v4: lakes at rest
             // §2.5 stamps. Skipped for a dry (pre-v2) map view, which is what
             // every older job builds -- they keep their exact prior output.
             if (map.water != null) Stamps.Column(in spec, in map, in o, p, texelVoxels, ref c);
@@ -169,6 +175,19 @@ namespace TerrainGen
             c.height = top;
         }
 
+        /// The column as the FAR BAND draws it. The far band is a 2.5D heightfield
+        /// (one top per texel), so a ledge column drawn at its top fills the
+        /// undercut down to the ground: a pillar up to ~10 m tall at the cliff
+        /// foot (task 32c: the slab at the v4 pose cliff_foot_1). From map v4 the
+        /// far band draws the ground under the ledge instead; the cliff behind it
+        /// keeps its own columns, and the voxels keep the ledge. v3 is unchanged.
+        public static void FarColumn(in TerrainSpec spec, ref ColumnSample c)
+        {
+            if (spec.mapVersion < 4 || c.open3Hi <= c.open3Lo) return;
+            c.height = c.open3Lo - 1;   // Ledge: open3Lo is the column's own ground + 1
+            c.open3Lo = c.open3Hi = 0;
+        }
+
         private static float DirX(int k) => k == 0 ? 1f : k == 1 ? 0.7071f : k == 2 ? 0f : k == 3 ? -0.7071f : k == 4 ? -1f : k == 5 ? -0.7071f : k == 6 ? 0f : 0.7071f;
         private static float DirZ(int k) => DirX((k + 6) & 7);
 
@@ -197,10 +216,15 @@ namespace TerrainGen
         }
 
         /// Climate -> biome. Nearest climate centre in (temperature, moisture).
+        /// Map v4 multiplies both wavelengths by o.biomeScale (B1, larger
+        /// biomes); at 1 the products are exactly 15000f and 12000f, so v3 is
+        /// byte-identical.
         public static byte Biome(in Offsets o, float2 p)
         {
-            float t = Noise.Fbm(p / 15000f + o.tempA, 3) * 2.4f;
-            float m = Noise.Fbm(p / 12000f + o.moistA, 3) * 2.4f;
+            float s = o.biomeScale > 0f ? o.biomeScale : 1f;
+            if (o.biomeSet == 6) return Biome6(in o, p, s);
+            float t = Noise.Fbm(p / (15000f * s) + o.tempA, 3) * 2.4f;
+            float m = Noise.Fbm(p / (12000f * s) + o.moistA, 3) * 2.4f;
             // centres: forest (0, 0), desert (0.8, -0.8), snow (-0.9, 0.1), jungle (0.8, 0.8)
             float df = t * t + m * m;
             float dd = (t - 0.8f) * (t - 0.8f) + (m + 0.8f) * (m + 0.8f);
@@ -210,6 +234,34 @@ namespace TerrainGen
             if (dd < best) { best = dd; b = GenBiome.Desert; }
             if (ds < best) { best = ds; b = GenBiome.Snow; }
             if (dj < best) { b = GenBiome.Jungle; }
+            return b;
+        }
+
+        /// Map v4's six biomes (B10, TerrainSpec.BiomeSet 6). One octave of
+        /// climate (the 2nd and 3rd octaves only added km-scale meanders --
+        /// extra biome changes -- at x3, never detail a player sees at 100 m)
+        /// at amplitude 1.6, so the climate stays nearer the forest centre than
+        /// v3's 2.4 three-octave field. The four old centres are unchanged;
+        ///   savanna  (0.8, 0)     hot, between desert's dryness and jungle's wet
+        ///   badlands (-0.3, -0.8) dry and cool-temperate: the cold side of desert
+        /// Shares on land at x3.25 (seeds 42/7/2026/31337): savanna 9/11/20/4%,
+        /// badlands 8/11/15/32%.
+        private static byte Biome6(in Offsets o, float2 p, float s)
+        {
+            float t = Noise.Fbm(p / (15000f * s) + o.tempA, 1) * 1.6f;
+            float m = Noise.Fbm(p / (12000f * s) + o.moistA, 1) * 1.6f;
+            float df = t * t + m * m;
+            float dd = (t - 0.8f) * (t - 0.8f) + (m + 0.8f) * (m + 0.8f);
+            float ds = (t + 0.9f) * (t + 0.9f) + (m - 0.1f) * (m - 0.1f);
+            float dj = (t - 0.8f) * (t - 0.8f) + (m - 0.8f) * (m - 0.8f);
+            float dv = (t - 0.8f) * (t - 0.8f) + m * m;
+            float db = (t + 0.3f) * (t + 0.3f) + (m + 0.8f) * (m + 0.8f);
+            byte b = GenBiome.Forest; float best = df;
+            if (dd < best) { best = dd; b = GenBiome.Desert; }
+            if (ds < best) { best = ds; b = GenBiome.Snow; }
+            if (dj < best) { best = dj; b = GenBiome.Jungle; }
+            if (dv < best) { best = dv; b = GenBiome.Savanna; }
+            if (db < best) { b = GenBiome.Badlands; }
             return b;
         }
 
@@ -231,6 +283,205 @@ namespace TerrainGen
                 w = math.max(w, map.water[cz * n + cx]);
             }
             return w;
+        }
+
+        // ------------------------------------------------------------------
+        // Map v4 LAKE RIMS (task 37e, owner Q31 part 2 (a), 2026-10-09): every
+        // lake is at rest at ONE level. The map's 2x2 water rule (SampleWater)
+        // ends a lake on the 8 m grid while its ground is the Catmull-Rom map
+        // plus the detail octaves, so next to a lake the ground of a DRY column
+        // dipped below the lake's level (detail noise, the basin's shallow fringe
+        // that Hydrology leaves dry, the spill point): water stood beside air,
+        // and the first wake drained the lake (task 39: 85-90k such cells at
+        // seed 42's shore). The level is right (the map's spill level); the RIM
+        // was low. Lowering the level instead would need every shore column's S
+        // at map build (non-local).
+        //   NATURAL SHORES (task 42, owner Q35 3 (a)): 37e kept the 2x2 wet area
+        // and ended it with a shelf, so the shore WAS the 8 m grid (seed 42's
+        // lake a rectangle). Now a lake's water is not the 2x2 rule's: a column
+        // within LakeReach (72-104 voxels, noise-varied) of a lake cell's centre
+        // is that lake's water wherever its ground is below the level, so the
+        // shoreline is the ground's own contour. Near the reach the bed rises at
+        // SHELF_SLOPE to the level (a gentle shelf where the ground is low there,
+        // a spill point or the dry fringe), so no deep water stands beside the
+        // raised rim (B8 read such a bank as Sheer). The shelf is gentle for its
+        // first SHELF_W, then steepens (SHELF_CURVE), so a lake keeps its depth a
+        // few metres in; the bound's dry-cell part gives every lake bank that
+        // wadeable first SHELF_W.
+        //   Beyond the reach, a column within RIM_FULL of a lake cell stands at
+        // least at that lake's level (falling away at RIM_SLOPE beyond; a dip
+        // under it is folded up, RIM_FOLD, not clamped into a flat plain); a
+        // 2x2 lake column out of reach becomes rim too. A neighbour of a lake
+        // water column is within REACH_MAX + 1.5 < RIM_FULL of that lake cell,
+        // so it is lake water at the level or ground at or above it: no lake
+        // voxel has air beside or diagonally below it -- per column, no pass
+        // over the voxels. Rivers keep their levels: one higher than the lake
+        // stays as it is (an inlet), a lower one within reach is lake, beyond
+        // reach rim (the outlet gets a sill). Under a HIGHER lake's rim the
+        // column is rim, never a lower lake's water (two levels never touch).
+        // ------------------------------------------------------------------
+        public const float RIM_FULL = 1.5f;     // map cells: the rim's full-height radius around a lake cell
+        public const float RIM_SLOPE = 0.5f;    // voxels down per voxel beyond it (27 degrees)
+        public const int RIM_FOLD = 8;          // voxels: the highest bump a folded dip makes over the rim
+        public const float REACH_MAX = 104f;    // voxels: lake water's furthest reach from a lake cell's centre
+        public const float REACH_VAR = 32f;     // voxels: the noise takes up to this off it
+        public const float SHELF_SLOPE = 0.4f;  // voxels up per voxel toward the reach (22 degrees before the noise's tilt)
+        public const float SHELF_W = 40f;       // voxels: the gentle part's width; beyond it the shelf steepens
+        public const float SHELF_CURVE = 0.02f; // voxels per voxel^2 beyond SHELF_W (70 degrees 6 m further in): no depth cap
+
+        /// Map v4: how far (voxels) lake water reaches from a lake cell's centre
+        /// at (x, z): REACH_MAX less a noise share of REACH_VAR, so the edge of a
+        /// lake's low ground follows no grid. Always > 0.71 cell + 1.5 voxels (a
+        /// column inside one lake's 2x2 cells is that lake's water).
+        public static float LakeReach(in Offsets o, float x, float z)
+        {
+            float2 p = new float2(x, z);
+            float nz = 0.8f * noise.snoise(p / 112f + o.detail + new float2(71.3f, -23.9f))
+                     + 0.2f * noise.snoise(p / 40f + o.detail + new float2(-17.1f, 55.7f));
+            return REACH_MAX - REACH_VAR * math.saturate(0.5f + 0.5f * nz);
+        }
+
+        private static unsafe void LakeRim(in TerrainSpec spec, in MapView map, in Offsets o, float x, float z, ref ColumnSample c)
+        {
+            float reach = LakeReach(in o, x, z);
+            LakeNear(in map, x, z, reach, out float rim, out float level, out float dl, out float nearest);
+            if (rim <= Hydrology.NO_WATER * 0.5f) return;
+            int ry = spec.seaLevelY + (int)math.floor(rim);
+            int wy = level > Hydrology.NO_WATER * 0.5f ? spec.seaLevelY + (int)math.floor(level) : int.MinValue;
+            if (wy == ry && c.water <= wy)
+            {
+                // The lake's own water, over a shelf that meets the level at the
+                // reach. Its width is a LOWER bound on the distance to the reach's
+                // edge (so the bed is never left below a raised rim): the nearest
+                // disc's edge, or the nearest dry-side cell square -- every point
+                // out of reach lies in one (its nearest cell centre is < 0.71 cell
+                // away and is no lake cell). The second keeps a lake's middle at
+                // its own depth.
+                float e = math.max(reach - dl, DrySideDistance(in map, x, z, level));
+                float steep = math.max(0f, e - SHELF_W);
+                int bed = wy - (int)math.floor(SHELF_SLOPE * e + SHELF_CURVE * steep * steep);
+                if (c.height < bed) { c.rimGround = c.height; c.height = bed; }
+                if (c.height < wy) { c.water = wy; c.waterKind = 0; }
+                return;
+            }
+            // Rim: out of reach, or under a higher lake's rim. Higher water (a
+            // river inlet) keeps its own; so does a river exactly at the level.
+            if (c.water > ry) return;
+            if (c.water == ry && c.water != spec.seaLevelY + (int)math.floor(LakeLevel2x2(in map, x, z))) return;
+            // FOLDED up, not clamped: a dip of d under the rim becomes a bump of
+            // d/2 (at most RIM_FOLD) over it, so the raised ground keeps its
+            // texture instead of a flat plain at the level. The bump grows in at
+            // SHELF_SLOPE past the reach: no step beside the shelf's top.
+            if (c.height < ry)
+            {
+                int fold = math.min(math.min((ry - c.height) >> 1, RIM_FOLD), (int)math.floor(SHELF_SLOPE * math.max(0f, nearest - reach)));
+                c.rimGround = c.height; c.height = ry + fold;
+            }
+        }
+
+        /// Map v4: the level (absolute Y) of the lake whose water the column at
+        /// (x, z) is wherever its ground is below it (LakeRim's lake branch), or
+        /// int.MinValue (out of every lake's reach, under a higher lake's rim,
+        /// no water classes, pre-v4). A river at the same level is not this.
+        public static unsafe int LakeWaterY(in TerrainSpec spec, in MapView map, in Offsets o, float x, float z)
+        {
+            if (map.waterClass == null || spec.mapVersion < 4) return int.MinValue;
+            LakeNear(in map, x, z, LakeReach(in o, x, z), out float rim, out float level, out _, out _);
+            if (level <= Hydrology.NO_WATER * 0.5f) return int.MinValue;
+            int wy = spec.seaLevelY + (int)math.floor(level);
+            return wy == spec.seaLevelY + (int)math.floor(rim) ? wy : int.MinValue;
+        }
+
+        /// The distance (voxels) from (x, z) to the nearest DRY-SIDE map cell's
+        /// square for the lake at `level`: a cell that is not that lake's and
+        /// holds no water at or above its level (a river inlet higher than the
+        /// lake is not a dry side: its water covers the shared bed -- seed 7's
+        /// 1.5 m wall, task 37e). At most 3.5 cells: every cell past the window
+        /// is at least that far, so it stays a lower bound (the shelf's drop at
+        /// that width is over 100 m: no lake is capped by it).
+        private static unsafe float DrySideDistance(in MapView map, float x, float z, float level)
+        {
+            float cv = map.cellVoxels;
+            int ix = (int)math.floor(x / cv - 0.5f), iz = (int)math.floor(z / cv - 0.5f), n = map.cells;
+            float best = 3.5f * cv;
+            for (int j = -3; j <= 4; j++)
+            for (int i = -3; i <= 4; i++)
+            {
+                int cx = ix + i, cz = iz + j;
+                if (cx < 0 || cz < 0 || cx >= n || cz >= n) continue;
+                int k = cz * n + cx;
+                byte wc = map.waterClass[k];
+                if (wc == Hydrology.LAKE && map.water[k] == level) continue;
+                if (wc != Hydrology.DRY && map.water[k] >= level) continue;
+                float dx = math.max(0f, math.max(cx * cv - x, x - (cx + 1) * cv));
+                float dz = math.max(0f, math.max(cz * cv - z, z - (cz + 1) * cv));
+                best = math.min(best, math.sqrt(dx * dx + dz * dz));
+            }
+            return best;
+        }
+
+        /// The highest LAKE level among the 2x2 cells SampleWater takes its max
+        /// over at (x, z), or NO_WATER.
+        private static unsafe float LakeLevel2x2(in MapView map, float x, float z)
+        {
+            float cv = map.cellVoxels;
+            int ix = (int)math.floor(x / cv - 0.5f), iz = (int)math.floor(z / cv - 0.5f), n = map.cells;
+            float lv = Hydrology.NO_WATER;
+            for (int j = 0; j <= 1; j++)
+            for (int i = 0; i <= 1; i++)
+            {
+                int k = math.clamp(iz + j, 0, n - 1) * n + math.clamp(ix + i, 0, n - 1);
+                if (map.waterClass[k] == Hydrology.LAKE) lv = math.max(lv, map.water[k]);
+            }
+            return lv;
+        }
+
+        /// One pass over the lake cells near (x, z): `rim` the highest of each
+        /// lake cell's level, full within RIM_FULL and falling at RIM_SLOPE beyond
+        /// (map units, or NO_WATER); `level` the highest level of a lake cell
+        /// closer than `reach` and `dl` the distance to its nearest such cell;
+        /// `nearest` the distance to the nearest lake cell (exact up to 4 cells).
+        private static unsafe void LakeNear(in MapView map, float x, float z, float reach,
+                                            out float rim, out float level, out float dl, out float nearest)
+        {
+            rim = level = Hydrology.NO_WATER; dl = nearest = float.MaxValue;
+            float cv = map.cellVoxels;
+            int ix = (int)math.floor(x / cv - 0.5f), iz = (int)math.floor(z / cv - 0.5f);
+            int n = map.cells;
+            float full = RIM_FULL * cv;
+            // Cells beyond this window are >= 4 cells away: past the slope's reach
+            // unless the ground is > (4 - RIM_FULL) x RIM_SLOPE cells (10 m)
+            // below the lake there.
+            for (int j = -3; j <= 4; j++)
+            for (int i = -3; i <= 4; i++)
+            {
+                int cx = math.clamp(ix + i, 0, n - 1), cz = math.clamp(iz + j, 0, n - 1);
+                int k = cz * n + cx;
+                if (map.waterClass[k] != Hydrology.LAKE) continue;
+                float dx = (cx + 0.5f) * cv - x, dz = (cz + 0.5f) * cv - z;
+                float d = math.sqrt(dx * dx + dz * dz);
+                float lk = map.water[k];
+                nearest = math.min(nearest, d);
+                rim = math.max(rim, lk - math.max(0f, d - full) * RIM_SLOPE);
+                if (d < reach)
+                {
+                    if (lk > level) { level = lk; dl = d; }
+                    else if (lk == level) dl = math.min(dl, d);
+                }
+            }
+        }
+
+        /// The lake rim's absolute Y at (x, z) (see above), or int.MinValue
+        /// when no lake is near or the map has no water classes / is pre-v4.
+        /// Lake water (LakeRim) always stands exactly at this Y. `nearest`: the
+        /// distance (voxels) to the nearest lake cell's centre, exact up to 4
+        /// cells (float.MaxValue when none is that near).
+        public static unsafe int LakeRimY(in TerrainSpec spec, in MapView map, float x, float z, out float nearest)
+        {
+            nearest = float.MaxValue;
+            if (map.waterClass == null || spec.mapVersion < 4) return int.MinValue;
+            LakeNear(in map, x, z, 0f, out float rim, out _, out _, out nearest);
+            return rim <= Hydrology.NO_WATER * 0.5f ? int.MinValue : spec.seaLevelY + (int)math.floor(rim);
         }
 
         /// Catmull-Rom over the map (C1: no creases along 8 m cell edges).

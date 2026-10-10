@@ -16,7 +16,12 @@ LOG="Logs/tg2world_${RUN_ID}.txt"
 MEM="Logs/tg2world_${RUN_ID}_mem.txt"
 source tools/unity-lock.sh
 unity_lock_acquire
+RUN_START=$(date +%s)   # task 14: tools/heavy.sh overlap checks owner pauses since here
 echo "run $RUN_ID" | tee -a "$LOG"
+# 2026-10-03 (B1): MAPV=4 runs the tg2 world on map v4 (v3 + world record +
+# larger biomes); unset = the player's default, v4 since 2026-10-09 (owner
+# Q35 6a); MAPV=3 = the pre-rebuild map.
+if [ -n "${MAPV:-}" ]; then EXTRA="${EXTRA:-} -mapversion $MAPV"; echo "map version $MAPV (-mapversion)" | tee -a "$LOG"; fi
 # 2026-10-03 (task 12): log power source + charge at start and end, and keep
 # the Mac awake while this script lives. The player is launched with `open -n`,
 # which returns at once, so caffeinate waits on THIS script's pid (-w $$), which
@@ -34,7 +39,7 @@ if [ "${BUILD:-0}" = "1" ]; then
   "$UNITY_BIN" -batchmode -quit -projectPath "$(pwd)" -executeMethod CommandLineBuild.BuildPlaygroundStandalone -logFile Logs/tg2world_build.log
   if grep -q "error CS" Logs/tg2world_build.log Logs/tg2world_scene.log; then grep -h "error CS" Logs/tg2world_*.log | sort -u | tee -a "$LOG"; exit 1; fi
   if grep -q "Shader error" Logs/tg2world_build.log; then grep "Shader error" Logs/tg2world_build.log | tee -a "$LOG"; exit 1; fi
-  [ -d "$APP" ] || { echo "BUILD FAILED" | tee -a "$LOG"; exit 1; }
+  [ -d "$APP" ] || { echo "BUILD FAILED" | tee -a "$LOG"; tools/heavy.sh overlap "$RUN_START" | tee -a "$LOG"; exit 1; }
   echo "build OK (0 error CS, 0 Shader error)" | tee -a "$LOG"
 fi
 sleep 30
@@ -54,10 +59,16 @@ sleep 30
 # MODE=fluidprobe (2026-10-03, task 09): -fluidprobe -- task 07's tg2 fluid
 # placement with every sim stage logged (tiles, mirror, wake, readback, GPU
 # counters). PROBEWORLD= (empty) runs the default world's arena as control.
+# MODE=poolprobe (2026-10-08, task 39): -poolprobe -- what fills the fluid tile
+# pool on a walk start -> lake shore -> coast; water placed at the shore.
 # MODE=stream (2026-10-03, task 10): -streamprobe -- the streaming baseline.
 # MOTION=fly (default: straight ping-pong over the island, 56 m/s) or walk
 # (the MODE=walk circle); per-stage chunk timings, upload bytes, deficit, and
 # still vs moving shots of one pose. Performance preset, like MODE=walk.
+# Section 7 of its report (task 16b) is every B step's streaming verdict:
+# measured capacity and latency vs the derived WORST-CASE requirement
+# (StreamingRequirement.cs; KNOWN_ISSUES "STREAMING REQUIREMENT"). It replaced
+# the old "no more than 5% worse than v3" comparison.
 if [ "${MODE:-poses}" = "orbit" ]; then
   open -n "$APP" --args -world tg2 -sustained -motion orbit -orbitheight "${ORBITH:-40}" -minutes "${MINUTES:-3}" \
     -gateres 0 -renderpreset performance -farshadow 1 -cleardeltas -tag "tg2orbit_${RUN_ID}" ${EXTRA:-}
@@ -70,6 +81,9 @@ elif [ "${MODE:-poses}" = "taarisk" ]; then
 elif [ "${MODE:-poses}" = "fluidprobe" ]; then
   START_MARK=$(mktemp)
   open -n "$APP" --args ${PROBEWORLD--world tg2} -fluidprobe -renderpreset quality -farshadow 1 -cleardeltas ${EXTRA:-}
+elif [ "${MODE:-poses}" = "poolprobe" ]; then
+  START_MARK=$(mktemp)
+  open -n "$APP" --args -world tg2 -poolprobe -renderpreset quality -farshadow 1 -cleardeltas ${EXTRA:-}
 elif [ "${MODE:-poses}" = "stream" ]; then
   START_MARK=$(mktemp)
   open -n "$APP" --args -world tg2 -streamprobe -streammotion "${MOTION:-fly}" -gateres 0 -renderpreset performance \
@@ -117,6 +131,9 @@ elif [ "${MODE:-poses}" = "stream" ]; then
 elif [ "${MODE:-poses}" = "flysweep" ]; then
   R=$(find "$DATA/FlySweep" -maxdepth 1 -type d -name "*_flysweep_${RUN_ID}" -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
   if [ -n "$R" ] && [ -f "$R/flysweep.txt" ]; then cat "$R/flysweep.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
+elif [ "${MODE:-poses}" = "poolprobe" ]; then
+  R=$(find "$DATA/FarBand" -maxdepth 1 -type d -name '*_poolprobe' -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
+  if [ -n "$R" ] && [ -f "$R/poolprobe.txt" ]; then cat "$R/poolprobe.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
 elif [ "${MODE:-poses}" = "fluidprobe" ]; then
   R=$(find "$DATA/FarBand" -maxdepth 1 -type d -name '*_fluidprobe_*' -newer "$START_MARK" 2>/dev/null | sort | tail -n 1)
   if [ -n "$R" ] && [ -f "$R/fluidprobe.txt" ]; then cat "$R/fluidprobe.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
@@ -137,5 +154,9 @@ tools/power-status.sh end | tee -a "$LOG"
 if [ "${PIPESTATUS[0]}" != 0 ] && { [ "${MODE:-poses}" = "walk" ] || [ "${MODE:-poses}" = "orbit" ]; }; then
   echo "WARNING: ON BATTERY at the end of the run" | tee -a "$LOG"
 fi
+# 2026-10-03 (tasks 14/14b): an owner pause (tools/heavy.sh pause) that
+# overlapped this run means the Mac was likely in use: NOTE, rerun the arm.
+tools/heavy.sh overlap "$RUN_START" | tee -a "$LOG"
 echo "log: $LOG"
 echo TG2WORLD_DONE
+exit 0

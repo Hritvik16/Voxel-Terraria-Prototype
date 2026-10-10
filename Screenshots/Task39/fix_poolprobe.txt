@@ -1,0 +1,190 @@
+POOL PROBE -- 2026-10-09_004059
+-poolfix 1: nearest-first residency + wakes displace farther tiles (task 39)
+pool: 1024 tiles of 32^3, GPU 520 MiB; wake 1280v sleep 1472v; slot cap 750000
+start (4017.2, 887.3, 4018.8) (map cell int2(502, 502)); lake cell int2(482, 546), shore int2(482, 545) 379 m; sea cell int2(364, 647), shore int2(367, 644) 1566 m
+
+==== STOP start ====
+  [start] centre voxel int3(40172, 8914, 40188); resident 0/1024; refusals total 0; slots: high-water 0 ever-allocated 0 free-list 0 -> live ~0 (cap 750,000)
+    band_m      cand  resident  water  sand  mixed  lava  other  mobile-between-samples  all-512-mobile
+      0- 16         0         0      0     0      0     0      0                       0               0
+     16- 32         0         0      0     0      0     0      0                       0               0
+     32- 64         0         0      0     0      0     0      0                       0               0
+     64- 96         0         0      0     0      0     0      0                       0               0
+     96-128         0         0      0     0      0     0      0                       0               0
+    total            0         0   nearest NON-resident none, farthest resident 0.0 m
+    seed-eligible cells now (CPU store): water 0 (of which only a DIAGONAL below is air: 0), sand 0, other
+
+---- WALK to lake: (4017.2, 891.4, 4018.8) -> (3860.0, 621.5, 4364.0), 379 m at 12 m/s ----
+  frame   along_m  resident  chunks  inR_cand  acq  already  REFUSED  relR  relO  displ  exhaustions_total
+     872        7         0    3070         0    0        0        0     0     0      0           0
+     892       17         0    3004         0    0        0        0     0     0      0           0
+     912       27         0    2940         0    0        0        0     0     0      0           0
+     932       36         0    2954         0    0        0        0     0     0      0           0
+     952       47         0    2149         0    0        0        0     0     0      0           0
+     972       56         0    2225         0    0        0        0     0     0      0           0
+     992       65         0    2094         0    0        0        0     0     0      0           0
+    1012       75         0    2093         0    0        0        0     0     0      0           0
+    1032       82         0    2188         0    0        0        0     0     0      0           0
+    1052       90         0    2154         0    0        0        0     0     0      0           0
+    1072       98         0    2375         0    0        0        0     0     0      0           0
+    1092      106         0    2537         0    0        0        0     0     0      0           0
+    1112      113         0    2585         0    0        0        0     0     0      0           0
+    1132      120         0    2719         0    0        0        0     0     0      0           0
+    1152      127         0    2852         0    0        0        0     0     0      0           0
+    1172      133         0    2842         0    0        0        0     0     0      0           0
+    1192      139         0    3020         0    0        0        0     0     0      0           0
+    1212      144         0    2932         0    0        0        0     0     0      0           0
+    1232      151         0    2919         0    0        0        0     0     0      0           0
+    1252      158         0    2099         0    0        0        0     0     0      0           0
+    1272      165         0    2138         0    0        0        0     0     0      0           0
+    1292      170         0    2087         0    0        0        0     0     0      0           0
+    1312      176         0    2159         0    0        0        0     0     0      0           0
+    1332      181         0    2128         0    0        0        0     0     0      0           0
+    1352      186         0    1359         0    0        0        0     0     0      0           0
+    1372      192         0    1397         0    0        0        0     0     0      0           0
+    1392      198         0    1385         0    0        0        0     0     0      0           0
+    1412      203         0     758         0    0        0        0     0     0      0           0
+    1432      209         0     791         0    0        0        0     0     0      0           0
+    1452      215         0     788         0    0        0        0     0     0      0           0
+    1472      221         0     907         0    0        0        0     0     0      0           0
+    1492      226         0     971         0    0        0        0     0     0      0           0
+    1512      232         0     607         0    0        0        0     0     0      0           0
+    1532      238         0     640         0    0        0        0     0     0      0           0
+    1552      243         0     688         0    0        0        0     0     0      0           0
+    1572      249         0     461         0    0        0        0     0     0      0           0
+    1592      256         0     494         0    0        0        0     0     0      0           0
+    1612      262         0     575         0    0        0        0     0     0      0           0
+    1632      269         0     677         0    0        0        0     0     0      0           0
+    1652      275         0     853         0    0        0        0     0     0      0           0
+    1672      281         0     988         0    0        0        0     0     0      0           0
+    1692      287         0     721         0    0        0        0     0     0      0           0
+    1712      292         0     759         0    0        0        0     0     0      0           0
+    1732      298         0     811         0    0        0        0     0     0      0           0
+    1752      304         0     535         0    0        0        0     0     0      0           0
+    1772      311         0     559         0    0        0        0     0     0      0           0
+    1792      317         0     606         0    0        0        0     0     0      0           0
+    1812      322         0     366         0    0        0        0     0     0      0           0
+    1832      329         0     405         0    0        0        0     0     0      0           0
+    1852      336         0     434         0    0        0        0     0     0      0           0
+    1872      343         5     255         5    5        0        0     0     0      0           0
+    1892      351        32     302        32   26        6        0     0     0      0           0
+    1912      360        35     337        35    3       32        0     0     0      0           0
+    1932      368        35     388        35    0       35        0     0     0      0           0
+    1952      375        35     472        35    0       35        0     0     0      0           0
+
+==== STOP lake shore ====
+  [lake] centre voxel int3(38604, 6211, 43629); resident 488/1024; refusals total 0; slots: high-water 34,403 ever-allocated 34,403 free-list 6,501 -> live ~27,902 (cap 750,000)
+    band_m      cand  resident  water  sand  mixed  lava  other  mobile-between-samples  all-512-mobile
+      0- 16        47        47     40     0      0     0      0                       7               0
+     16- 32         0         0      0     0      0     0      0                       0               0
+     32- 64         0         0      0     0      0     0      0                       0               0
+     64- 96        85        85     80     0      0     0      0                       5               0
+     96-128       353       353    327     0      0     0      0                      26               0
+    total          485       485   nearest NON-resident none, farthest resident 128.0 m
+    seed-eligible cells now (CPU store): water 89,590 (of which only a DIAGONAL below is air: 86,596), sand 0, other
+  place: ground 620.6 m at int3(38600, 6206, 43660); water box int3(38597, 6226, 43657)..int3(38603, 6246, 43663) (tile int3(1206, 194, 1364), resident False); vent at int3(38660, 6224, 43660) (tile int3(1208, 194, 1364), resident False); pool 496/1024, refusals 0
+  PLACED water 1029 voxels + vent open, frame 3536: wakes queued +1029, refused (no tile) +0; box tile resident now True
+    +frames  box_water  vent_layer_water  box_tile_res  vent_tile_res  pool  refusals  wake_refused
+          1       1029                 0          True          False   500         0             0
+         20       1029               460          True           True   507         0             0
+         60       1029              1035          True           True   509         0             0
+        120        500              1600          True           True   509         0             0
+        240        623              2060          True           True   510         0             0
+        480        407              2417          True           True   515         0             0
+  [lake, after placing] centre voxel int3(38630, 6246, 43570); resident 515/1024; refusals total 0; slots: high-water 682,258 ever-allocated 682,258 free-list 164,469 -> live ~517,789 (cap 750,000)
+    band_m      cand  resident  water  sand  mixed  lava  other  mobile-between-samples  all-512-mobile
+      0- 16        48        48     42     0      0     0      0                       6               0
+     16- 32        12        12     11     0      0     0      0                       1               0
+     32- 64         0         0      0     0      0     0      0                       0               0
+     64- 96        66        66     63     0      0     0      0                       3               0
+     96-128       332       332    309     0      0     0      0                      23               0
+    total          458       458   nearest NON-resident none, farthest resident 128.0 m
+    seed-eligible cells now (CPU store): water 263,318 (of which only a DIAGONAL below is air: 188,212), sand 0, other
+  teleported to (3348.3, 516.3, 4802.6) (681 m), settling
+
+---- WALK to coast: (3348.3, 516.3, 4802.6) -> (2940.0, 515.3, 5156.0), 540 m at 12 m/s ----
+  frame   along_m  resident  chunks  inR_cand  acq  already  REFUSED  relR  relO  displ  exhaustions_total
+    5232        7       986    3087       956   47      909        0     0     0      0           0
+    5252       16      1024    2990       990   67      923        0     0     0     43           0
+    5272       23      1024    2900      1028   43      962       23     0     0     43          23
+    5292       30      1024    2811      1053   42      971       40     0     0     42         189
+    5312       37      1024    2728      1059   43      980       36     0     0     43         225
+    5332       45      1024    2661      1067   38      986       43     0     0     38         403
+    5352       52      1024    2719      1061   28      990       43     0     0     28         446
+    5372       60      1024    2640      1104   33      992       79     0     0     33         876
+    5392       71      1024    2591      1135   35     1000      100     0     0     35         976
+    5412       81      1024    2421      1183   42     1004      137     0     0     42       1,302
+    5432       88      1024    2484      1253   37     1016      200     0     0     37       1,502
+    5452       98      1024    2317      1348   55     1023      270     0     0     55       1,799
+    5472      105      1024    2382      1433   37     1023      373     0     0     37       2,172
+    5492      115      1024    2238      1488   52     1024      412     0     0     52       2,584
+    5512      123      1024    2301      1589   40     1024      525     0     0     40       3,133
+    5532      133      1024    2271      1632   41     1024      567     0     0     41       3,736
+    5552      140      1024    2234      1650   56     1024      570     0     0     56       5,890
+    5572      150      1024    2203      1713   69     1024      620     0     0     69       6,573
+    5592      158      1024    2173      1765   47     1024      694     0     0     47       7,267
+    5612      169      1024    2143      1804   56     1024      724     0     0     56      78,128
+    5632      178      1024    2108      1811   62     1024      725     0     0     62      78,871
+    5652      189      1024    2082      1857   90     1024      743     0     0     90      89,037
+    5672      200      1024    1975      1881   91     1024      766     0     0     91     143,526
+    5692      208      1024    2028      1903   76     1024      803     0     0     76     156,803
+    5712      219      1024    1918      1888  106     1024      758     0     0    106     172,204
+    5732      228      1024    1976      1918   83     1024      811     0     0     83     184,841
+    5752      241      1024    1875      1922   88     1024      810     0     0     88     185,759
+    5772      252      1024    1751      1903   68     1024      811     0     0     68     232,488
+    5792      261      1024    1804      1836   65     1024      747     0     0     65     233,235
+    5812      272      1024    1677      1729   77     1024      628     0     0     77     294,937
+    5832      286      1024    1649      1629   98     1024      507     0     0     98     295,444
+    5852      299      1024    1552      1531   88     1024      419     0     0     88     419,595
+    5872      311      1024    1515      1453   49     1024      380     0     0     49     419,975
+    5892      324      1024    1484      1383   54     1024      305     0     0     54     529,801
+    5912      342      1024    1406      1287   76     1023      188     0     1     75     529,989
+    5932      359      1024    1324      1163   57     1024       82     0     0     57     565,315
+    5952      376      1024    1243       968   38      930        0     0     1     37     600,028
+    5972      387      1024    1216       848   14      834        0     0     3     11     634,156
+    5992      400       897    1129       698    0      698        0   129     0      0     635,182
+    6012      413       739    1103       595    0      595        0   169     3      0     635,182
+    6032      425       634    1086       545   12      533        0   129     3      0     635,182
+    6052      442       544    1024       486    0      486        0    91     5      0     635,182
+    6072      458       486     977       400    0      400        0    59     1      0     635,182
+    6092      473       436     946       334   28      306        0    80     1      0     635,182
+    6112      482       438     996       340   57      283        0    56     2      0     635,182
+    6132      495       457     961       384   94      290        0    77     2      0     635,182
+    6152      503       526     957       464  111      353        0    45     2      0     635,182
+    6172      513       646     981       583  156      427        0    38     1      0     635,182
+    6192      521       776     982       715  157      558        0    31     1      0     635,182
+    6212      530       929    1008       863  189      674        0    36     1      0     635,182
+    6232      538      1024    1024      1043  221      822        0    36     0     94     635,182
+
+==== STOP coast ====
+  [coast] centre voxel int3(29402, 5153, 51557); resident 1024/1024; refusals total 745,420; slots: high-water 682,258 ever-allocated 682,258 free-list 598,440 -> live ~83,818 (cap 750,000)
+    band_m      cand  resident  water  sand  mixed  lava  other  mobile-between-samples  all-512-mobile
+      0- 16       122       122      8     0     17     0     89                       8               0
+     16- 32       264       264     27     0     67     0    150                      20               0
+     32- 64       702       638     42     0    190     0    383                      87               0
+     64- 96       987         0    185     0    230     0    471                     101              11
+     96-128      1770         0   1052     0    259     0    384                      75             316
+    total         3845      1024   nearest NON-resident 61.2 m, farthest resident 61.2 m
+    seed-eligible cells now (CPU store): water 17,019 (of which only a DIAGONAL below is air: 11,934), sand 0, other
+    other mobile materials (samples): 142x89276
+  place: ground 513.4 m at int3(29385, 5134, 51574); water box int3(29382, 5154, 51571)..int3(29388, 5174, 51577) (tile int3(918, 161, 1611), resident False); vent at int3(29427, 5152, 51616) (tile int3(919, 161, 1613), resident False); pool 1024/1024, refusals 756,254
+  PLACED water 1029 voxels + vent open, frame 7251: wakes queued +0, refused (no tile) +0; box tile resident now True
+    +frames  box_water  vent_layer_water  box_tile_res  vent_tile_res  pool  refusals  wake_refused
+          1       1029                 0          True          False  1024   758,730             0
+         20       1029               250          True           True  1024   774,111         15381
+         60       1029               785          True           True  1024   779,440         15741
+        120       1022              1207          True           True  1024   787,048         15894
+        240        937              1336          True           True  1024   802,300         16236
+        480        722              2060          True           True  1024   832,588         16704
+  [coast, after placing] centre voxel int3(29470, 5174, 51531); resident 1024/1024; refusals total 832,588; slots: high-water 682,258 ever-allocated 682,258 free-list 526,840 -> live ~155,418 (cap 750,000)
+    band_m      cand  resident  water  sand  mixed  lava  other  mobile-between-samples  all-512-mobile
+      0- 16       105       105     12     0     16     0     72                       5               0
+     16- 32       212       212     27     0     44     0    130                      11               0
+     32- 64       663       663     36     0    196     0    343                      88               0
+     64- 96       887        44    130     0    203     0    456                      98               0
+     96-128      1642         0    839     0    266     0    466                      71             224
+    total         3509      1024   nearest NON-resident 66.2 m, farthest resident 66.1 m
+    seed-eligible cells now (CPU store): water 50,757 (of which only a DIAGONAL below is air: 14,826), sand 0, other
+    other mobile materials (samples): 142x87624
+
+END: wake displacements 79; refusals total 838,269 over 387 residency passes; acquired 4,916 released 3,892 peak 1024

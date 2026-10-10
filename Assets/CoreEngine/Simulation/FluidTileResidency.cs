@@ -49,7 +49,18 @@ namespace VoxelEngine.Simulation
             /// Tiles released because their backing chunk stopped being
             /// resident. See ReleaseOrphaned.
             public int TilesReleasedOrphaned;
+            /// Resident tiles released to make room for a NEARER wanted tile
+            /// while the pool was full. See the priority note in Refresh.
+            public int TilesDisplaced;
         }
+
+        // Scratch for the full-pool path. Main thread only (the single-writer
+        // rule: Refresh mutates the tile pool, so it never runs on a worker).
+        private static readonly System.Collections.Generic.List<long> s_wantedD2 = new System.Collections.Generic.List<long>();
+        private static readonly System.Collections.Generic.List<int3> s_wanted = new System.Collections.Generic.List<int3>();
+        private static readonly System.Collections.Generic.List<long> s_residentD2 = new System.Collections.Generic.List<long>();
+        private static readonly System.Collections.Generic.List<int3> s_resident = new System.Collections.Generic.List<int3>();
+        private static int[] s_order = new int[0];
 
         /// Squared distance from `p` to the closest point of the inclusive box.
         /// Integer throughout (§0): no float distance, no sqrt.
@@ -95,6 +106,7 @@ namespace VoxelEngine.Simulation
             int3 lo = CoordMath.VoxelToChunk(centreVoxel - wakeRadiusVoxels);
             int3 hi = CoordMath.VoxelToChunk(centreVoxel + wakeRadiusVoxels);
             long wake2 = (long)wakeRadiusVoxels * wakeRadiusVoxels;
+            s_wanted.Clear(); s_wantedD2.Clear();
 
             for (int cz = lo.z; cz <= hi.z; cz++)
             for (int cy = lo.y; cy <= hi.y; cy++)
@@ -123,19 +135,101 @@ namespace VoxelEngine.Simulation
 
                     // GATE 3 -- §7.4, nearest point, so a tile straddling the
                     // boundary is admitted rather than missed.
-                    if (DistSqToBox(centreVoxel, tLo, tHi) > wake2) continue;
+                    long d2 = DistSqToBox(centreVoxel, tLo, tHi);
+                    if (d2 > wake2) continue;
 
                     int3 abs = ChunkFluidMask.AbsoluteTile(cc, tileInChunk);
                     if (tiles.TryGetSlot(abs) != FluidTileMap.NO_TILE)
                     { st.TilesAlreadyResident++; continue; }
 
-                    // §7.7: underflow on promotion is a guarded no-op, retry
-                    // next tick. Counted, never silent.
-                    if (tiles.Acquire(abs) == FluidTileMap.NO_TILE) st.TilesRefusedPoolFull++;
-                    else st.TilesAcquired++;
+                    s_wanted.Add(abs); s_wantedD2.Add(d2);
                 }
             }
+
+            AdmitNearestFirst(tiles, centreVoxel, ref st);
             return st;
+        }
+
+        /// Acquires this pass's wanted tiles. When they do not all fit, the
+        /// NEAREST win: wanted tiles go in nearest-first, and a wanted tile
+        /// displaces the farthest resident tile if that one is strictly
+        /// farther from the player.
+        ///
+        /// WHY (task 39, 2026-10-08). The scan above visits chunks in z,y,x
+        /// order from the radius box's low corner, and admission used to follow
+        /// it. In tg2 the radius holds far more water/sand tiles than the pool
+        /// (a sea or a lake inside 128 m), so the pool filled with whatever the
+        /// scan met first -- typically far tiles on the -z side -- and stayed
+        /// full under hysteresis, while the tiles at the player's feet, and
+        /// fluid the player had just placed, were refused every pass.
+        ///
+        /// STABLE: displacement needs a STRICTLY farther victim, so with the
+        /// player still a refused tile never evicts its equal and the next pass
+        /// changes nothing. A displaced tile is released exactly as the radius
+        /// release does (§7.7: the terrain byte is authoritative; it re-acquires
+        /// when it is near enough again).
+        /// A MEASUREMENT SEAM, NOT A CONFIGURATION (like Refresh's
+        /// releaseOrphaned): true restores the pre-task-39 scan-order admission
+        /// so -poolprobe can show both in one build. Shipped code leaves it false.
+        public static bool LegacyScanOrder;
+
+        private static void AdmitNearestFirst(FluidTileMap tiles, int3 centreVoxel, ref Stats st)
+        {
+            int n = s_wanted.Count;
+            if (n == 0) return;
+            int free = tiles.TileCapacity - tiles.ResidentTiles;
+            if (n <= free || LegacyScanOrder)
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    if (tiles.Acquire(s_wanted[i]) == FluidTileMap.NO_TILE) st.TilesRefusedPoolFull++;
+                    else st.TilesAcquired++;
+                }
+                return;
+            }
+
+            if (s_order.Length < n) s_order = new int[math.max(n, s_order.Length * 2)];
+            for (int i = 0; i < n; i++) s_order[i] = i;
+            System.Array.Sort(s_order, 0, n, Comparer.Wanted);
+
+            // Resident tiles, farthest first, as displacement victims.
+            s_resident.Clear(); s_residentD2.Clear();
+            int edge = tiles.TileEdge;
+            foreach (int3 coord in tiles.ResidentTileCoords())
+            {
+                int3 tLo = coord * edge;
+                s_resident.Add(coord);
+                s_residentD2.Add(DistSqToBox(centreVoxel, tLo, tLo + new int3(edge - 1, edge - 1, edge - 1)));
+            }
+            int rn = s_resident.Count;
+            var victims = new int[rn];
+            for (int i = 0; i < rn; i++) victims[i] = i;
+            System.Array.Sort(victims, Comparer.ResidentFarthestFirst);
+            int v = 0;
+
+            for (int k = 0; k < n; k++)
+            {
+                int w = s_order[k];
+                if (tiles.ResidentTiles >= tiles.TileCapacity && v < rn &&
+                    s_residentD2[victims[v]] > s_wantedD2[w] && tiles.Release(s_resident[victims[v]]))
+                {
+                    v++;
+                    st.TilesDisplaced++;
+                }
+                if (tiles.Acquire(s_wanted[w]) == FluidTileMap.NO_TILE) st.TilesRefusedPoolFull++;
+                else st.TilesAcquired++;
+            }
+        }
+
+        private sealed class Comparer : System.Collections.Generic.IComparer<int>
+        {
+            public static readonly Comparer Wanted = new Comparer(false);
+            public static readonly Comparer ResidentFarthestFirst = new Comparer(true);
+            private readonly bool _resident;
+            private Comparer(bool resident) { _resident = resident; }
+            public int Compare(int a, int b) => _resident
+                ? s_residentD2[b].CompareTo(s_residentD2[a])
+                : s_wantedD2[a].CompareTo(s_wantedD2[b]);
         }
 
         /// Releases tiles whose backing chunk is no longer resident.

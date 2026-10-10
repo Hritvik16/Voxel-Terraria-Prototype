@@ -1,0 +1,35 @@
+=== B4: easy areas on map v4 (record flag + list)
+  seed    easy share (8-12%)   areas (want)   area ha (>= 25 each)            flagged-but-not-easy  gentle (50+-5)  inselbergs  build s (v3)   record hash
+  42       10.0% PASS          4 (4) PASS     44 44 44 44            PASS        0                  49.7% PASS     0 PASS    26.9 (27.1, -0.2) PASS   42F5F18B40DDF704
+  7        10.0% PASS          4 (4) PASS     43 43 43 43            PASS        0                  48.9% PASS     0 PASS    29.7 (26.7, +3.0) MISS   0C799B4E613B8D36
+  2026     10.0% PASS          4 (4) PASS     45 45 45 45            PASS        0                  49.1% PASS     0 PASS    27.2 (27.1, +0.1) PASS   7D0402AE81B08777
+  31337    10.0% PASS          4 (4) PASS     43 43 43 43            PASS        0                  49.4% PASS     0 PASS    24.9 (26.7, -1.8) PASS   4FB7CD708F7081E1
+
+  areas: centre (voxels), ha, farthest flagged cell from the centre, mean height (rel. sea), dominant archetype
+  seed 42:
+    (47760, 57680)   43.8 ha  r  386 m   11.1 m  river plains
+    (26640, 30160)   43.8 ha  r  439 m  118.2 m  high plateau
+    (37200, 22800)   43.8 ha  r  383 m   27.7 m  river plains
+    (28880, 37520)   43.8 ha  r  639 m  103.7 m  high plateau
+  seed 7:
+    (32400, 28560)   43.1 ha  r  445 m   15.9 m  river plains
+    (26640, 40080)   43.1 ha  r  423 m   49.5 m  rolling highlands
+    (46160, 25680)   43.1 ha  r  384 m   44.8 m  rolling highlands
+    (35600, 21520)   43.1 ha  r  376 m   11.2 m  wetland basin
+  seed 2026:
+    (39440, 51600)   44.8 ha  r  458 m   38.2 m  rolling highlands
+    (30480, 48080)   44.8 ha  r  386 m   55.5 m  rolling highlands
+    (50960, 27280)   44.8 ha  r  465 m   17.6 m  river plains
+    (24080, 42320)   44.8 ha  r  381 m   46.1 m  rolling highlands
+  seed 31337:
+    (34640, 49040)   43.0 ha  r  377 m   46.7 m  rolling highlands
+    (24720, 46800)   43.0 ha  r  377 m   52.2 m  rolling highlands
+    (27600, 37840)   43.0 ha  r  662 m   51.9 m  rolling highlands
+    (45520, 52240)   43.0 ha  r  740 m   31.1 m  river plains
+
+  slopes (B3 targets, reported not gated)  v3 -> v4:
+  seed    median deg      <15 deg          >45 deg          open (<20 m)     river km        gentle-low Walk anywhere (old 'easy')
+  42      30.1 -> 15.1     29.5% ->  49.8%   29.1% ->  13.7%    4.1% ->   7.9%   22.7 ->  26.4    34.1%
+  7       27.8 -> 12.7     25.6% ->  56.4%   23.8% ->  15.9%    1.3% ->  10.7%   25.4 ->  28.4    37.6%
+  2026    26.3 -> 14.2     32.1% ->  52.1%   22.9% ->  10.5%    4.0% ->   4.4%   23.8 ->  27.2    35.7%
+  31337   28.9 -> 13.8     26.8% ->  54.5%   24.9% ->   8.0%    2.0% ->   7.3%   23.5 ->  24.4    35.9%

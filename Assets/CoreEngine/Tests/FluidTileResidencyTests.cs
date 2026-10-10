@@ -237,6 +237,91 @@ public class FluidTileResidencyTests
         Assert.Greater(tiles.PoolExhaustionsTotal, 0);
     }
 
+    // =====================================================================
+    // A full pool keeps the NEAREST tiles (task 39)
+    //
+    // tg2's coast put ~3,800 wanted tiles inside the radius against a 1,024
+    // pool. Admission followed the chunk scan's z,y,x order, so tiles 128 m
+    // away were resident while tiles 46 m from the player -- and fluid the
+    // player had just placed -- were refused every pass.
+    // =====================================================================
+
+    private static long TileDistSq(int3 tile, int3 centre)
+    {
+        int3 lo = tile * ChunkFluidMask.TILE_EDGE, hi = lo + (ChunkFluidMask.TILE_EDGE - 1);
+        int3 d = math.max(math.max(lo - centre, centre - hi), 0);
+        return (long)d.x * d.x + (long)d.y * d.y + (long)d.z * d.z;
+    }
+
+    [Test]
+    public void FullPool_AdmitsTheNearestTiles_NotTheScanOrder()
+    {
+        // One all-water chunk = 64 wanted tiles; the player at its HIGH corner,
+        // so the scan (which starts at the low corner) meets the far tiles first.
+        _store.InsertChunk(new Chunk { coord = int3.zero, isUniform = true, uniformMaterial = Materials.Water });
+        var tiles = Tiles(cap: 10);
+        int3 centre = new int3(127, 127, 127);
+
+        var st = FluidTileResidency.Refresh(_store, tiles, centre, 512, 640);
+
+        Assert.AreEqual(10, tiles.ResidentTiles);
+        Assert.AreEqual(54, st.TilesRefusedPoolFull, "the rest are refused, and counted");
+        long farthestResident = 0, nearestRefused = long.MaxValue;
+        for (int i = 0; i < 64; i++)
+        {
+            int3 t = new int3(i & 3, (i >> 2) & 3, i >> 4);
+            long d2 = TileDistSq(t, centre);
+            if (tiles.TryGetSlot(t) != FluidTileMap.NO_TILE) farthestResident = math.max(farthestResident, d2);
+            else nearestRefused = math.min(nearestRefused, d2);
+        }
+        Assert.LessOrEqual(farthestResident, nearestRefused,
+            "a refused tile must never be nearer the player than a resident one");
+        Assert.AreNotEqual(FluidTileMap.NO_TILE, tiles.TryGetSlot(new int3(3, 3, 3)),
+            "the tile the player stands in is resident");
+    }
+
+    [Test]
+    public void FullPool_ANearerTileDisplacesTheFarthestResident()
+    {
+        // Fill the pool from one spot, then walk to the far corner: the tiles
+        // admitted first are now the far ones, and the hysteresis band (sleep
+        // radius > the whole chunk) would otherwise keep them forever.
+        _store.InsertChunk(new Chunk { coord = int3.zero, isUniform = true, uniformMaterial = Materials.Water });
+        var tiles = Tiles(cap: 10);
+        FluidTileResidency.Refresh(_store, tiles, int3.zero, 512, 640);
+        Assert.AreNotEqual(FluidTileMap.NO_TILE, tiles.TryGetSlot(int3.zero), "precondition");
+        Assert.AreEqual(FluidTileMap.NO_TILE, tiles.TryGetSlot(new int3(3, 3, 3)), "precondition");
+
+        int3 centre = new int3(127, 127, 127);
+        var st = FluidTileResidency.Refresh(_store, tiles, centre, 512, 640);
+
+        Assert.AreEqual(0, st.TilesReleasedByRadius, "nothing left the sleep radius: this is displacement");
+        Assert.AreEqual(10, st.TilesDisplaced);
+        Assert.AreEqual(10, tiles.ResidentTiles, "never over the cap");
+        Assert.AreNotEqual(FluidTileMap.NO_TILE, tiles.TryGetSlot(new int3(3, 3, 3)));
+        Assert.AreEqual(FluidTileMap.NO_TILE, tiles.TryGetSlot(int3.zero), "the far corner gave its slot up");
+    }
+
+    [Test]
+    public void FullPool_AStationaryPlayerDoesNotChurn()
+    {
+        // Displacement needs a STRICTLY farther victim, so equal-distance
+        // tiles cannot evict each other pass after pass.
+        _store.InsertChunk(new Chunk { coord = int3.zero, isUniform = true, uniformMaterial = Materials.Water });
+        var tiles = Tiles(cap: 10);
+        int3 centre = new int3(64, 64, 64);   // the chunk centre: many ties
+        FluidTileResidency.Refresh(_store, tiles, centre, 512, 640);
+        long acquired = tiles.TilesAcquiredTotal, released = tiles.TilesReleasedTotal;
+
+        for (int i = 0; i < 10; i++)
+        {
+            var st = FluidTileResidency.Refresh(_store, tiles, centre, 512, 640);
+            Assert.AreEqual(0, st.TilesDisplaced, $"pass {i}");
+        }
+        Assert.AreEqual(acquired, tiles.TilesAcquiredTotal);
+        Assert.AreEqual(released, tiles.TilesReleasedTotal);
+    }
+
     [Test]
     public void RefreshIsIdempotent_SoRepeatedTicksDoNotChurnThePool()
     {

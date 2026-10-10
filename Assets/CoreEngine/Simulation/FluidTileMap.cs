@@ -262,6 +262,30 @@ namespace VoxelEngine.Simulation
             return freed;
         }
 
+        /// Squared distance from `centreVoxel` to the NEAREST voxel of a tile --
+        /// the metric FluidTileResidency admits by. Integer (§0).
+        public long TileDistSq(int3 tileCoord, int3 centreVoxel)
+        {
+            int3 lo = tileCoord << TileShift, hi = lo + (TileEdge - 1);
+            int3 d = math.max(math.max(lo - centreVoxel, centreVoxel - hi), 0);
+            return (long)d.x * d.x + (long)d.y * d.y + (long)d.z * d.z;
+        }
+
+        /// The resident tile farthest from `centreVoxel` (TileDistSq), or false
+        /// if none is resident. O(TileCapacity) over the slots, not O(ring).
+        public bool TryFarthestResident(int3 centreVoxel, out int3 coord, out long distSq)
+        {
+            coord = default; distSq = -1;
+            for (int s = 0; s < TileCapacity; s++)
+            {
+                int3 c = _slotCoord[s];
+                if (TryGetSlot(c) != s) continue;            // a free slot keeps its old coord
+                long d2 = TileDistSq(c, centreVoxel);
+                if (d2 > distSq) { distSq = d2; coord = c; }
+            }
+            return distSq >= 0;
+        }
+
         /// The coords of every resident tile, snapshotted.
         ///
         /// SNAPSHOTTED ON PURPOSE: callers release while iterating, and Release

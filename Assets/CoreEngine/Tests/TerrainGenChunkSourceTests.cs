@@ -215,4 +215,139 @@ public class TerrainGenChunkSourceTests
         System.IO.File.WriteAllLines(System.IO.Path.Combine(dir, "v2_chunk_cost.txt"), lines);
         UnityEngine.Debug.Log("[V2]\n" + string.Join("\n", lines));
     }
+
+    /// Bytes of two generated chunks: uniformity, every brick handle's kind,
+    /// every uniform brick's material and every dense body's 512 bytes.
+    private static string FirstDifference(Chunk a, BrickDataPool pa, Chunk b, BrickDataPool pb)
+    {
+        if (a.isUniform != b.isUniform) return $"isUniform {a.isUniform} vs {b.isUniform}";
+        if (a.isUniform) return a.uniformMaterial == b.uniformMaterial ? null : $"uniform {a.uniformMaterial} vs {b.uniformMaterial}";
+        for (int bi = 0; bi < EngineConfig.BRICKS_PER_CHUNK; bi++)
+        {
+            uint da = a.bricks[bi].data, db = b.bricks[bi].data;
+            bool dense = (da & 0x80000000u) != 0;
+            if (dense != ((db & 0x80000000u) != 0)) return $"brick {bi}: dense {dense} vs {!dense}";
+            if (!dense) { if (da != db) return $"brick {bi}: uniform {da} vs {db}"; continue; }
+            int sa = (int)(da & 0x7FFFFFFFu) * 512, sb = (int)(db & 0x7FFFFFFFu) * 512;
+            for (int v = 0; v < 512; v++)
+                if (pa.RawData[sa + v] != pb.RawData[sb + v]) return $"brick {bi} voxel {v}: {pa.RawData[sa + v]} vs {pb.RawData[sb + v]}";
+        }
+        return null;
+    }
+
+    /// The band layers of chunk column (cx, cz) the tests use: 4 below the
+    /// surface layer, 2 above it, plus a cavern and an underworld layer.
+    private static int3[] ColumnLayers(int3 surface)
+    {
+        var l = new System.Collections.Generic.List<int3>();
+        for (int dy = -4; dy <= 2; dy++) l.Add(surface + new int3(0, dy, 0));
+        l.Add(new int3(surface.x, 16, surface.z));
+        l.Add(new int3(surface.x, 2, surface.z));
+        return l.ToArray();
+    }
+
+    /// COLUMN-PASS SHARING (task 30): a column's layers generated through ONE
+    /// ColumnPass are byte-identical to the same layers generated one by one
+    /// with a private pass each (the old path), and the shared pass runs the
+    /// column job once per column -- refilled, not reused, on a new column.
+    [Test]
+    public void ColumnPassSharing_IsByteIdentical()
+    {
+        int3 cc = SurfaceChunk(out _);
+        int3[] colA = ColumnLayers(cc);
+        int3[] colB = { cc + new int3(1, 0, 0), cc + new int3(1, -1, 0), cc + new int3(1, 2, 0) };
+        var pass = new TerrainGenChunkSource.ColumnPass();
+        try
+        {
+            int dense = 0, uniformChunks = 0;
+            foreach (var col in new[] { colA, colB })
+            {
+                int runs0 = pass.Runs;
+                foreach (int3 c in col)
+                {
+                    var pa = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
+                    var pb = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
+                    try
+                    {
+                        var a = new Chunk(); var b = new Chunk();
+                        _src.Generate(c, a, new ChunkHandleAllocator(2), pa, null);              // private pass
+                        _src.Generate(c, b, new ChunkHandleAllocator(2), pb, null, pass);        // shared pass
+                        string diff = FirstDifference(a, pa, b, pb);
+                        Assert.IsNull(diff, $"layer {c}: shared column pass differs: {diff}");
+                        Assert.AreEqual(ChunkContentHash.Hash(a, pa), ChunkContentHash.Hash(b, pb), $"layer {c}: hash");
+                        if (a.isUniform) uniformChunks++;
+                        else for (int bi = 0; bi < EngineConfig.BRICKS_PER_CHUNK; bi++) if ((a.bricks[bi].data & 0x80000000u) != 0) dense++;
+                    }
+                    finally { pa.Dispose(); pb.Dispose(); }
+                }
+                Assert.AreEqual(1, pass.Runs - runs0, "the shared pass must run the column job once per column");
+            }
+            UnityEngine.Debug.Log($"[task 30] column pass sharing: {colA.Length + colB.Length} layers byte-identical " +
+                                  $"({dense} dense bricks, {uniformChunks} uniform chunks); pass {TerrainGenChunkSource.ColumnPass.Bytes} B");
+            Assert.Greater(dense, 1000, "the compared layers must include real terrain");
+        }
+        finally { pass.Dispose(); }
+    }
+
+    /// REPORT ONLY (REPORTS=1): task 30's isolated timing check. Generates the
+    /// same column layers both ways -- one shared ColumnPass per column vs a
+    /// private pass per layer, the old path -- and writes ms per column,
+    /// column-job runs per column and the pass's bytes to
+    /// Logs/TerrainGen/column_pass_sharing.txt. The SHARED arm runs FIRST on
+    /// each column, so the private arm then finds the air memo filled: that
+    /// favours the old path, so the reported gain is a lower bound. Editor
+    /// Burst, cold Mac: a direction check, not a frame-time claim.
+    [Test, Category("Slow")]
+    public void ColumnPassSharing_TimingReport()
+    {
+        if (System.Environment.GetEnvironmentVariable("REPORTS") != "1") Assert.Ignore("report only: set REPORTS=1");
+        int3 cc = SurfaceChunk(out _);
+        var pass = new TerrainGenChunkSource.ColumnPass();
+        var pool = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
+        try
+        {
+            // Warm Burst on both paths on a column the arms do not use.
+            foreach (int3 c in new[] { cc + new int3(-8, 0, 0), cc + new int3(-8, -1, 0) })
+            {
+                pool.Reset(); _src.Generate(c, new Chunk(), new ChunkHandleAllocator(2), pool, null);
+                pool.Reset(); _src.Generate(c, new Chunk(), new ChunkHandleAllocator(2), pool, null, pass);
+            }
+            const int COLS = 6;
+            double msShared = 0, msPrivate = 0; int runsShared = 0, runsPrivate = 0, layers = 0;
+            for (int k = 0; k < COLS; k++)
+            {
+                int3 s = cc + new int3(k * 3 - 6, 0, 2);
+                int3[] col = new int3[7];
+                for (int d = 0; d < 7; d++) col[d] = s + new int3(0, d - 4, 0);   // the band: 4 below, 2 above
+                layers += col.Length;
+                int r0 = _src.ColumnPassTotal;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                foreach (int3 c in col) { pool.Reset(); _src.Generate(c, new Chunk(), new ChunkHandleAllocator(2), pool, null, pass); }
+                msShared += sw.Elapsed.TotalMilliseconds;
+                int r1 = _src.ColumnPassTotal; runsShared += r1 - r0;
+                sw.Restart();
+                foreach (int3 c in col) { pool.Reset(); _src.Generate(c, new Chunk(), new ChunkHandleAllocator(2), pool, null); }
+                msPrivate += sw.Elapsed.TotalMilliseconds;
+                runsPrivate += _src.ColumnPassTotal - r1;
+            }
+            int workers = EngineConfig.CHUNK_GEN_WORKER_THREADS > 0 ? EngineConfig.CHUNK_GEN_WORKER_THREADS
+                                                                    : System.Math.Max(2, System.Environment.ProcessorCount - 1);
+            var lines = new System.Collections.Generic.List<string>
+            {
+                $"Task 30 column-pass sharing, seed 42 map v{_src.Spec.mapVersion}, {COLS} columns x 7 band layers ({layers} chunks) round surface chunk {cc}",
+                "Editor Burst, cold, single thread; shared arm first on each column (lower bound on the gain)",
+                "",
+                $"private pass per layer (old):  {msPrivate / COLS,8:F1} ms per column   {(double)runsPrivate / COLS:F2} column-job runs per column",
+                $"one shared pass per column:    {msShared / COLS,8:F1} ms per column   {(double)runsShared / COLS:F2} column-job runs per column",
+                $"speed-up {msPrivate / msShared:F2}x",
+                $"ColumnPass bytes: {TerrainGenChunkSource.ColumnPass.Bytes} per pass; the stream holds one per worker " +
+                $"({workers} workers = {TerrainGenChunkSource.ColumnPass.Bytes * workers / 1e6:F1} MB, held for the stream's lifetime)",
+            };
+            string dir = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "Logs", "TerrainGen");
+            System.IO.Directory.CreateDirectory(dir);
+            System.IO.File.WriteAllLines(System.IO.Path.Combine(dir, "column_pass_sharing.txt"), lines);
+            UnityEngine.Debug.Log("[task 30]\n" + string.Join("\n", lines));
+        }
+        finally { pass.Dispose(); pool.Dispose(); }
+    }
 }

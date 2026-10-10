@@ -87,7 +87,15 @@ namespace TerrainGen
         private static float2 Perp(float2 d) => new float2(-d.y, d.x);
 
         // ---- singleton sites: three directions around the island, away from the peak ----
+        /// Map v4 (B5): the volcano is drawn from the feature pool and its site
+        /// is in the offsets (Offsets.For(spec)); a v4 world that did not draw
+        /// one -- or offsets made by For(seed) -- has it far off the map, so
+        /// VolcanoHeight is 0 everywhere. v3: the pinned site, unchanged.
         public static float2 VolcanoSite(in TerrainSpec spec, in Offsets o)
+            => spec.mapVersion >= 4 ? (o.v4Sites != 0 ? o.volcanoV4 : new float2(Features.NO_SITE_XZ, Features.NO_SITE_XZ))
+                                    : VolcanoSiteV3(in spec, in o);
+        /// v3's pinned volcano site; on v4 still the volcanic REGION's seed.
+        public static float2 VolcanoSiteV3(in TerrainSpec spec, in Offsets o)
             => Centre(spec) + Perp(o.peakDir) * (spec.islandRadius * 0.46f);
         public static float2 TreeSite(in TerrainSpec spec, in Offsets o)
             => Centre(spec) - Perp(o.peakDir) * (spec.islandRadius * 0.40f);
@@ -249,6 +257,10 @@ namespace TerrainGen
                 int flat = (int)math.round(math.lerp(c.height, h0, w));
                 if (h0 > spec.seaLevelY + 20)
                 {
+                    // v4 (task 37e): the transition ring keeps a nearby lake's
+                    // rim (ShapeField.LakeRim), or the lake outside the basin
+                    // stands beside the flattened ground and drains into it.
+                    if (w < 1f) flat = math.max(flat, ShapeField.LakeRimY(in spec, in map, p.x, p.y, out _));
                     c.height = flat;
                     // The basin owns its water: a map lake or river computed for
                     // the UNflattened ground would stand above the terrace.
@@ -298,7 +310,7 @@ namespace TerrainGen
 
             if (s.kind == CaveMouth || s.kind == Fissure)
             {
-                if (dist > 1100f) return;
+                if (dist > 1100f || NearLake(in spec, in map, p)) return;
                 c.stamp3D = true;
                 c.stampGround = siteGround;
                 c.carvesTop = SurfaceCarve(in s, siteGround, (int)math.floor(p.x), c.height, (int)math.floor(p.y), c.height);
@@ -401,6 +413,7 @@ namespace TerrainGen
                     float x = dist / Rs;
                     c.height = ground + (int)math.floor(180f * math.sqrt(1f - x * x));
                     c.stampMat = GenMat.Bone; c.stampBodyLo = ground + 1;
+                    if (NearLake(in spec, in map, p)) return;   // the dome stays, no cave
                     c.stamp3D = true;                    // the skull cave
                     c.stampGround = siteGround;
                     c.carvesTop = SurfaceCarve(in s, siteGround, (int)math.floor(p.x), c.height, (int)math.floor(p.y), c.height);
@@ -447,6 +460,19 @@ namespace TerrainGen
         // ================================================================
         // D LEVEL: 3D
         // ================================================================
+        /// Map v4 (task 37e): no surface opening (cave mouth, fissure, the skull's
+        /// cave) is carved within LAKE_KEEP_OUT of a lake cell's centre -- an
+        /// opening under or beside lake water drains the lake. Every column next
+        /// to lake water is within ShapeField.RIM_FULL (1.5 cells) of one; the
+        /// extra cell keeps the carve's own 3-D reach off the shore.
+        public const float LAKE_KEEP_OUT = 2.5f;   // map cells
+
+        private static bool NearLake(in TerrainSpec spec, in MapView map, float2 p)
+        {
+            ShapeField.LakeRimY(in spec, in map, p.x, p.y, out float d);
+            return d < LAKE_KEEP_OUT * map.cellVoxels;
+        }
+
         /// Is (x, y, z) inside a cave-mouth / fissure / skull-cave opening of
         /// stamp s? `siteGround` is the stamp site's map ground (absolute Y, S
         /// stores it in ColumnSample.stampGround); `colTop` the column's top.

@@ -62,8 +62,20 @@ public partial class PlaygroundCapture
 
         float px = ArgFloat("-sweepx", 4014.0f), pz = ArgFloat("-sweepz", 3999.6f);
         Vector3 dir = new Vector3(0.70710678f, 0f, 0.70710678f);
+        // B5 (2026-10-08): -lookx/-lookz (metres) turn the heading toward a
+        // point, for a feature photographed from ~2 km.
+        float lookX = ArgFloat("-lookx", float.NaN), lookZ = ArgFloat("-lookz", float.NaN);
+        if (!float.IsNaN(lookX) && !float.IsNaN(lookZ))
+        {
+            var toLook = new Vector3(lookX - px, 0f, lookZ - pz);
+            if (toLook.sqrMagnitude > 1f) dir = toLook.normalized;
+        }
         float[] heights = ParseFloats(ArgValue("-heights") ?? "63 48 32 16 8 2");
         float[] pitches = ParseFloats(ArgValue("-pitches") ?? "8 30");
+        // B8 (2026-10-09): -tod pins the clock (hours), as the other captures do,
+        // so a ground pose can be shot in daylight.
+        float tod = ArgFloat("-tod", -1f);
+        if (tod >= 0f) { SunCycle.SetHours(tod); VoxelEngine.Rendering.LightingDriver.ClockPaused = true; }
 
         Vector3 pos = new Vector3(px, 868.8f, pz);
         float pitch0 = 8f;
@@ -85,6 +97,20 @@ public partial class PlaygroundCapture
         for (int y = (int)math.floor(pos.y * 10f); y > (int)math.floor(pos.y * 10f) - 2000; y--)
             if (store.GetVoxel(new int3(v0.x, y, v0.z)) != Materials.Air) { top = y; break; }
         GroundTopM(px, pz, out float mapTop);
+        // B4 (2026-10-08): ground far below the start eye is not resident, so
+        // stand at the map ground first and read the voxel top there -- the eye
+        // heights are then over the exact ground, not over the map's 8 m surface.
+        // B5 (2026-10-08): a fixed start height can be INSIDE a mountain (the
+        // store's top found there is rock, not the ground): stand at the map
+        // ground then too.
+        if (top == int.MinValue || mapTop > (top + 1) * 0.1f + 5f)
+        {
+            top = int.MinValue;
+            pos = new Vector3(px, mapTop + 2f, pz);
+            yield return Settle();
+            for (int y = (int)math.floor((mapTop + 30f) * 10f); y > (int)math.floor((mapTop - 30f) * 10f); y--)
+                if (store.GetVoxel(new int3(v0.x, y, v0.z)) != Materials.Air) { top = y; break; }
+        }
         float ground = top == int.MinValue ? mapTop : (top + 1) * 0.1f;
 
         L($"FLY SWEEP -- task 13 -- {ts}");
@@ -93,6 +119,14 @@ public partial class PlaygroundCapture
           $"dispatch {RaymarchFeature.LastDispatchResolution.x}x{RaymarchFeature.LastDispatchResolution.y}  fov {cam.fieldOfView:F1}  " +
           $"iter cap {RaymarchFeature.MaxOuterIterations}  cascade {(RaymarchFeature.UseLODCascade ? "ON" : "OFF")}  clock {SunCycle.ClockString()}");
         L($"pose XZ ({px:F1}, {pz:F1}) m, heading ({dir.x:F2}, 0, {dir.z:F2}); ground directly below: CPU store top {(top == int.MinValue ? "none" : (ground).ToString("F1") + " m")}, map {mapTop:F1} m");
+        var easyRec = streamer.TerrainGenSource.Map.Record;
+        if (easyRec != null)
+        {
+            var easySb = new System.Text.StringBuilder($"easy areas (this player's map v{easyRec.MapVersion}, B4):");
+            foreach (var ea in easyRec.EasyAreaList) easySb.Append($"  ({ea.centre.x * 0.1f:F1}, {ea.centre.y * 0.1f:F1}) m {ea.hectares:F1} ha");
+            var easyHere = easyRec.At((int)math.floor(px * 10f), (int)math.floor(pz * 10f));
+            L(easySb + $"; pose cell easy flag {easyHere.IsEasy}");
+        }
         L($"mirror box {clip.WindowDimsChunks} chunks; load radius {streamer.LoadRadiusChunks} chunks (+-{streamer.LoadRadiusChunks * 12.8f:F0} m XZ)");
         foreach (var c in Camera.allCameras)
             L($"camera '{c.name}' enabled {c.enabled} depth {c.depth} target {(c.targetTexture != null ? c.targetTexture.name : "screen")} pos {c.transform.position} main {c == cam}");
@@ -137,7 +171,8 @@ public partial class PlaygroundCapture
                     _sweepValidated = true;
                     var vr = ClipmapValidator.ValidateRegion(clip, Phase4Bootstrapper.Pool, store, maxChunks: 4096, validateBrickBodies: false);
                     int stale = ClipmapValidator.CountStaleSlots(clip, store, out string ex);
-                    L($"   MIRROR CHECK: {vr.chunksChecked} resident chunks, lost {vr.mismatchesInCleanChunks}, lag {vr.mismatchesInDirtyChunks}, stale {stale}" + (ex != null ? $" [{ex}]" : ""));
+                    L($"   MIRROR CHECK: {vr.chunksChecked} resident chunks, lost {vr.mismatchesInCleanChunks}, lag {vr.mismatchesInDirtyChunks}, stale {stale}" + (ex != null ? $" [{ex}]" : "") +
+                      $", outOfBox {clip.SkippedOutOfBoxTotal}");
                 }
 
                 var res = RaymarchFeature.LastDispatchResolution;

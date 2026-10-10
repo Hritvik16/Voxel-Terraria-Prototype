@@ -1446,6 +1446,10 @@ public partial class PlaygroundCapture : MonoBehaviour
 
     IEnumerator Start()
     {
+        // -emissivebleed 0|1: faces next to lava/torches pick up their glow.
+        // Parsed here so every mode (-lavalight, -sustained, ...) honours it.
+        int emissiveBleed = ArgInt("-emissivebleed", -1);
+        if (emissiveBleed >= 0) RaymarchFeature.EmissiveBleedOverride = emissiveBleed > 0 ? 1 : 0;
         if (HasFlag("-pitchsweep")) { yield return PitchSweep(); yield break; }
         if (HasFlag("-stutterprobe")) { yield return StutterProbe(); yield break; }
         if (HasFlag("-gputrace")) { yield return GpuTraceLoad(); yield break; }
@@ -1470,6 +1474,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-nearshimmer")) { yield return NearShimmer(); yield break; }
         if (HasFlag("-taarisk")) { yield return TaaRisk(); yield break; }
         if (HasFlag("-fluidprobe")) { yield return FluidProbe(); yield break; }
+        if (HasFlag("-poolprobe")) { yield return PoolProbe(); yield break; }
         if (HasFlag("-streamprobe")) { yield return StreamProbe(); yield break; }
         if (HasFlag("-flysweep")) { yield return FlySweep(); yield break; }
         if (HasFlag("-fluidroster")) { yield return FluidRoster(); yield break; }
@@ -1900,7 +1905,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         L($"lava light share {LightingConfig.Active.lavaLightMaxSlots} of {EngineConfig.MAX_ACTIVE_LIGHTS} slots   " +
           $"look grade {(SunCycle.LookGradeOverride >= 0 ? SunCycle.LookGradeOverride : LightingConfig.Active.lookGrade)} " +
           $"(amount {SunCycle.LookGradeAmountAt(SunCycle.Hours):F2} at this hour)   maxQueuedFrames {QualitySettings.maxQueuedFrames}");
-        L($"shadow roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}   look {(RaymarchFeature.LookOverride >= 0 ? RaymarchFeature.LookOverride : LightingConfig.Active.look)}");
+        L($"shadow roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}   look {(RaymarchFeature.LookOverride >= 0 ? RaymarchFeature.LookOverride : LightingConfig.Active.look)}   emissive bleed {(RaymarchFeature.EmissiveBleedOverride >= 0 ? RaymarchFeature.EmissiveBleedOverride : LightingConfig.Active.emissiveBleed)}");
         var farBand = VoxelEngine.Rendering.FarField.Active;
         L($"FAR BAND {(farBand != null ? "ON" : "OFF")}" +
           (farBand != null ? $"  far shadows {(farBand.ShadowsOn ? "ON" : "OFF")}  haze {farBand.HazeRangeMetres:F0} m  " +

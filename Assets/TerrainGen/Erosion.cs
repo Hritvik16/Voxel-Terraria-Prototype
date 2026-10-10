@@ -52,11 +52,14 @@ namespace TerrainGen
         /// stable rise-over-run, `layered` the hard/soft-layer archetypes.
         /// Cells with target <= 0 are sea: fixed base level. Returns the final
         /// heights in `target`'s place.
-        public static Stats Run(int n, float[] target, float[] erod, float[] talus, bool[] layered, float cellVoxels, int iterations)
+        /// `start` is the fraction of the target the land starts at (v3: 0.2,
+        /// so it rises 80% of its height while rivers cut); a higher start is
+        /// LESS uplift during the pass (v4, B3: a light valley pass).
+        public static Stats Run(int n, float[] target, float[] erod, float[] talus, bool[] layered, float cellVoxels, int iterations, float start = 0.2f)
         {
             int N = n * n;
             var h = new float[N];
-            for (int i = 0; i < N; i++) h[i] = target[i] <= 0f ? target[i] : target[i] * 0.2f;
+            for (int i = 0; i < N; i++) h[i] = target[i] <= 0f ? target[i] : target[i] * start;
             var order = new int[N];
             var parent = new int[N];
             var recv = new int[N];

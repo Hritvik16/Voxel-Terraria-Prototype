@@ -170,6 +170,7 @@ namespace VoxelEngine.Rendering
 
         private readonly int2[] _origin = new int2[LEVELS];
         private NativeArray<float> _tgH, _tgR, _tgW;
+        private NativeArray<byte> _tgCls;   // map water class: ShapeField's lake rims (v4)
         private NativeArray<byte> _genToEngine;
         private TerrainGen.Offsets _tgO;
         private ColumnSampler.State _st;
@@ -201,13 +202,14 @@ namespace VoxelEngine.Rendering
                 FarOnly = !Tg2World;
                 // A world's map carries its spec (with the chunk source's brick
                 // geology), so the dev map's slice reads what the chunks hold.
-                Tg2Spec = sharedTg2Map != null ? sharedTg2Map.Spec : TerrainGen.TerrainSpec.SizeClass2(meta.seed);
+                Tg2Spec = sharedTg2Map != null ? sharedTg2Map.Spec : TerrainGen.TerrainSpec.SizeClass2(meta.seed, VoxelEngine.WorldGen.TerrainGenChunkSource.MapVersionArg());
                 _ownsTg2Map = sharedTg2Map == null;
                 Tg2Map = sharedTg2Map ?? TerrainGen.WorldMap.Build(Tg2Spec);
-                _tgO = TerrainGen.Offsets.For(meta.seed);
+                _tgO = TerrainGen.Offsets.For(Tg2Spec);
                 _tgH = new NativeArray<float>(Tg2Map.Height, Allocator.Persistent);
                 _tgR = new NativeArray<float>(Tg2Map.Rough, Allocator.Persistent);
                 _tgW = new NativeArray<float>(Tg2Map.Water, Allocator.Persistent);
+                _tgCls = new NativeArray<byte>(Tg2Map.WaterClass, Allocator.Persistent);
                 // PREVIEW: put today's camera over the new island's centre,
                 // texel-aligned, and map its sea onto today's. A real world is
                 // already in the island's own frame.
@@ -218,7 +220,7 @@ namespace VoxelEngine.Rendering
                 Tg2SeaShift = Tg2World ? 0 : Tg2Spec.seaLevelY - WorldGenConstants.SEA_LEVEL_VOXEL_Y;
                 _genToEngine = new NativeArray<byte>(256, Allocator.Persistent);
                 for (int i = 0; i < 256; i++) _genToEngine[i] = GenToEngine((byte)i);
-                Debug.Log($"[FarField] tg2 {(Tg2World ? "WORLD (aligned)" : "preview")}: world map built in {swm.ElapsedMilliseconds} ms, " +
+                Debug.Log($"[FarField] tg2 {(Tg2World ? "WORLD (aligned)" : "preview")}: world map v{Tg2Spec.mapVersion} (biome x{Tg2Spec.BiomeScale}, {Tg2Spec.BiomeSet} biomes{(Tg2Map.Record != null ? $", record {Tg2Map.Record.Bytes} B" : "")}) built in {swm.ElapsedMilliseconds} ms, " +
                           $"offset {Tg2OffsetVoxels}, sea shift {Tg2SeaShift}");
             }
             _surfaceByBiome = new NativeArray<byte>(256, Allocator.Persistent);
@@ -257,6 +259,12 @@ namespace VoxelEngine.Rendering
             return new int2(((cx - EDGE / 2) >> 5) << 5, ((cz - EDGE / 2) >> 5) << 5);
         }
 
+        /// Task 19 probe (diagnostic): the bitmap word last uploaded, and the
+        /// window/band it was built for.
+        public uint ResidentWord(int i) => i >= 0 && i < _residentBits.Length ? _residentBits[i] : 0u;
+        public int3 LastResidencyOrigin, LastResidencyDims;
+        public int2 LastResidencyLayers;
+
         /// Rebuilds the residency bitmap from the store (1024 lookups for a
         /// 32x32 window; uploaded every frame, 128 bytes).
         public void UpdateResidency(ChunkStore store, int3 windowOriginChunks, int3 windowDimsChunks)
@@ -289,6 +297,8 @@ namespace VoxelEngine.Rendering
                 Resident = new GraphicsBuffer(GraphicsBuffer.Target.Structured, words, sizeof(uint));
             }
             Resident.SetData(_residentBits, 0, 0, words);
+            LastResidencyOrigin = windowOriginChunks; LastResidencyDims = windowDimsChunks;
+            LastResidencyLayers = new int2(layerLo, layerHi);
             LastFrame.residencyMs = (float)((System.Diagnostics.Stopwatch.GetTimestamp() - r0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency);
         }
 
@@ -419,7 +429,7 @@ namespace VoxelEngine.Rendering
             if (UsesTg2)
                 return new FillTg2Job
                 {
-                    h = _tgH, r = _tgR, wat = _tgW, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
+                    h = _tgH, r = _tgR, wat = _tgW, cls = _tgCls, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
                     seaShift = Tg2SeaShift,
                     texelVoxels = texelVoxels, x0 = x0, z0 = z0, w = w, ringOrder = ringOrder, ringOrigin = ringOrigin, output = output,
                 }.Schedule(count, batch);
@@ -511,6 +521,7 @@ namespace VoxelEngine.Rendering
             if (_tgH.IsCreated) _tgH.Dispose();
             if (_tgR.IsCreated) _tgR.Dispose();
             if (_tgW.IsCreated) _tgW.Dispose();
+            if (_tgCls.IsCreated) _tgCls.Dispose();
             if (_genToEngine.IsCreated) _genToEngine.Dispose();
             if (_ownsTg2Map) Tg2Map?.Dispose();
             if (Active == this) Active = null;
@@ -559,6 +570,7 @@ namespace VoxelEngine.Rendering
         private struct FillTg2Job : IJobParallelFor
         {
             [ReadOnly] public NativeArray<float> h, r, wat;
+            [ReadOnly] public NativeArray<byte> cls;
             [ReadOnly] public NativeArray<byte> genToEngine;
             public TerrainGen.TerrainSpec spec;
             public TerrainGen.Offsets o;
@@ -584,11 +596,13 @@ namespace VoxelEngine.Rendering
                     height = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(h),
                     rough = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(r),
                     water = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(wat),
+                    waterClass = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(cls),
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 int half = texelVoxels >> 1;
                 float gx = tx * texelVoxels + half + offset.x, gz = tz * texelVoxels + half + offset.y;
                 var c = TerrainGen.ShapeField.Sample(in spec, in map, in o, gx, gz, texelVoxels);
+                TerrainGen.ShapeField.FarColumn(in spec, ref c);   // v4: a ledge is drawn at its floor, not as a filled pillar
                 float step = TerrainGen.ShapeField.MaxStep(in spec, in map, in o, gx, gz, texelVoxels, c.height) ;
                 // MaxStep is per voxel at this spacing; the surface rules want the
                 // per-voxel step, so it is directly comparable.

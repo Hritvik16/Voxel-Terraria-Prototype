@@ -1,67 +1,97 @@
-# Session handoff -- 2026-10-03 11:15 (queue supervisor session; queue empty, waiting on the owner)
+# Session handoff -- 2026-10-09 19:00 (supervisor; queue running 37e, then 41)
+
+## For the owner
+**Why a new session:** this supervisor chat got very long (12:35 to 19:00, a crash in the middle),
+and every message re-sent all of it -- one of the biggest costs on a day that used 15% of the week.
+You asked for the handoff at 18:50.
+
+**What the previous chat covered:**
+- **SVO look.** Compared Gemini's SVO shots with ours (`Screenshots/SVOLook/`). Our lava renders pale
+  gold (LOOK 1's self-lit formula); our days are darker mainly because of the noon "cinematic grade"
+  (owner decisions 2-4, Sep 24); you can try `EXTRA="-lookgrade 0" ./run-play.sh`. You parked the
+  grade question "for now".
+- **The Mac crash (hard power-off ~15:2x) was a Unity test run,** not Claude/Terminal: 37e's new test
+  grew Unity to a 22.5 GB footprint (seen again at 15:53 and killed). Fixes: `tools/mem-watchdog.sh`
+  (64e7c6a; started by every locked Unity run; kills Unity past 8 GB footprint or 10 GB swap and
+  PAUSEs the queue), 37e re-queued to rewrite its test from scratch, small and bounded.
+- **Sessions:** at most supervisor + queue worker, plus ONE short side session you ask for
+  (SUPERVISOR.md step 0). Closing a Terminal tab does NOT always end its Claude -- type `/exit` first.
+  The new supervisor closes the old one's window itself.
+- **Gemini** (your Google plan; shell disabled because Gemini CLI 0.63.0 forces approval prompts on
+  any command reusing a flag seen in earlier output, even in YOLO):
+  - lava-look port on branch `gemini/lava-look` (worktree `../VT_gemini`), reviewed and fixed by a
+    Claude side session (73a625b: it had changed torches/sludge too, wrote the wrong config object).
+  - test-memory audit (`../VT_gemini2`, 62a5266): reviewer verdict -- missed the real 37e mechanism
+    and inflated severities; some hygiene findings real (undisposed pools in LOD/cascade/fluid tests).
+  - Verdict so far: OK for code-only ports from a clear reference, with review; not for analysis or
+    builds yet. The "Gemini runs builds" trial (plain-word wrapper commands + APFS-cloned Library) is
+    an idea only, not built.
+- **Usage:** weekly 62% at Fri 18:48 (resets Thu 05:59); with the ~10% reserve ~28% is left, about
+  4%/day. Plan you agreed: only 37e and 41 run, then the queue stops until you review 41; no new side
+  sessions or Gemini reviews this week unless you ask.
+
+**Running:** 37e (flat lake water) -- it hit the 5-hour limit at 17:17; retries every 20 min, the
+window reset 18:40. Then 41 (merge Gemini's lava branch, compile check, before/after lava shots,
+STOP_FOR_OWNER with pictures).
+**Open for you:** nothing until 41's pictures; then the B10 review pack.
+**Close:** this old supervisor is closed by the new one (it is the claude process whose window shows
+this conversation). Also `/exit` any leftover side-session tab.
 
 ## State
-- Branch `design-brief`. **Queue EMPTY, runner NOT running** (ended 11:04, 2026-10-03). No PAUSE.
-  Nothing left that can run without the owner: the next work depends on Q5 (B1) and Q8.
-- Blocked: `05b-surface-b0-metrics-harness` (done except Q5; harness committed 0a80629).
-- EditMode: fast PASS 605 FAIL 0 SKIP 12 (task 13); all PASS 618 FAIL 0 SKIP 12 (task 11).
-  CLAUDE.md "Current state" still quotes an old count (625/2) -- leave for a task, not the supervisor.
-- Runner keep-awake: `start.sh` now runs `caffeinate -ims` around `run-queue.sh` (task 12), and
-  `run-queue.sh` logs `tools/power-status.sh` per task (patch applied d56d91e). Rigs log power and
-  caffeinate themselves. Only AC prevents the 1%-battery hibernation of 2026-10-02 21:44.
-- Pre-B1 v3 poses baseline (04b plan) is covered by task 10's reference run
-  `Logs/tg2world_20261003_062458.txt` (AC, peak 3358 MB, dense bricks per pose).
-- To restart when there is work: `tmux kill-session -t overnight 2>/dev/null; IDLE_MIN=0 tools/overnight/start.sh --resume`.
-- `Assets/Scenes/Playground.unity` stays modified (scene builds regenerate it); tasks leave it alone.
+- Branch `surface-rebuild`, not pushed. Runner in tmux `overnight` (IDLE_MIN=0, started 15:59).
+- Queue: 37e (running; uncommitted edits in FarField.cs, TerrainGenChunkSource.cs, DetailField.cs,
+  ShapeField.cs from its first session -- the retry continues from them), 41-lava-look-shots
+  (Requires 37e). Blocked: `blocked/37e-lake-flat-water.HANDOFF.md` + the LEAKED test (reference
+  only). Later: 37c, 38, 40. Last suite SUITE=all 654/0/17 (37d, c44381a).
+- After 41: STOP the queue (it ends by itself if nothing else is queued; queue nothing new).
+- Gemini worktrees: `../VT_gemini` (gemini/lava-look, merged by task 41), `../VT_gemini2`
+  (gemini/test-memory-audit, report only -- never merge; delete the worktree when the owner agrees).
+- Watchdog log: `Logs/overnight/watchdog.log`. Bugs list: `tools/overnight/BUGS.md` (37e memory entry).
+- Handoffs of finished tasks that later tasks overwrite are copied to `tools/overnight/done/NAME.HANDOFF.md`
+  (35, 37 B10, 37b). The B10 pack needs `done/37-B10-savanna-badlands.HANDOFF.md`.
 
-## Done this session (rows in the Queue decisions doc, "Done")
-05a pose dropped (0bbd1e6) · 05b metrics harness (0a80629, Q5 open) · 05c wall not reproduced
-(b2ab00a) · 06 TAA core, off by default, `-taa 1` / F4 (718dd03) · 07 TAA risk checks (d6e97f1)
-· 08 TAA checkerboard, off, `-checker 1`: 30.8 -> 19.6 ms, misses 16.7 ms by 2.9 (ecb1027, Q7 open)
-· 09 tg2 fluid does simulate, no fault (3a99383) · 10 streaming baseline: CPU generation is the bottleneck (1c8e439, Q8 open)
-· 11 EditMode suite 14m50s -> fast 3m02s / all 9m23s (f1e8dc4) · 12 rig power guard (7f59fbc)
-· 13 fly pose: designed band limit at a cliff lip, not a bug (233562a, Q9 open, not blocking).
-
-## Waiting on the owner (doc "Waiting on you")
-- **Q5** (05b): B1's biome-size target. Recommended (a): 297 m baseline, B1 >= 2.5x (~740 m).
-  When answered: append to `blocked/05b...md`, close the question; B1's gate quotes the number.
-- **Q6** (07): TAA light lag at slow sun + unresolved cost. Recommended (a): owner compares the
-  stills first, nothing queued. If they like the look: a 960 px cost run on an idle Mac
-  (IDLE_MIN=15 / overnight), then a light-aware history rejection.
-
-- **Q7** (08): checkerboard misses 60 FPS by 2.9 ms. Recommended (a): compare pictures with Q6,
-  nothing queued. (c) = approve step 4 shadow tuning; (d) = fix horizon teeth / fluid softness.
-- **Q8** (10): generation throughput. Recommended (a): queue an evidence-only worker-count/QoS sweep
-  (opt-in flag) AND make "gen ms not worse than baseline" a pass line of every B step.
-- **Q9** (13): band can't reach ground seen from a ledge. Recommended (a): no change; revisit after
-  the rebuild. Not blocking.
-- Q6 got an update line: task 07's cost runs were on battery, so its cost figure is unreliable.
-
-## Owner decisions this session (2026-10-02)
-- Over-3 GB memory: not now; fix pool sizes after the surface rebuild (pools are allocated at capacity).
-- Entity physics (PhysX cages vs voxel motor): recorded as Open question 13 in the brief, NOT queued.
-- Surface rebuild must account for performance: task 10 = v3 streaming baseline; EVERY B step
-  re-measures it (SUPERVISOR.md backlog).
-- Task 11 approved, incl. "slow group runs only before merges and on generator changes".
-  After 11 lands: update PREAMBLE.md rule 3 (SUPERVISOR.md backlog says how).
-- B1 onward: queued by the supervisor after TAA 08 (and after 10/11), one step per task, from the
-  plan's section 4 with section 8's answers; needs Q5 for B1's gate.
+## Next for the supervisor
+- On each done: one Done row in the doc (insert after header row mk2vq5dkmp6.1425; 5 cells: time,
+  task, result, commits, evidence) and replace "Running now" mk2vq5dkmp6.55626 (last h 96f3f861 at
+  rev 408).
+- **B10 review pack after 37e** (one doc section, captioned images, ONE batch of questions):
+  1. Palette pick a/b/c per biome for savanna + badlands (`Screenshots/B10/candidates_noon.png`,
+     `candidates_golden.png`, `palette_candidates_swatches.png`).
+  2. Seed 42's diagonal biome stripes OK, or an edge-blend/boundary-warp step? (`seed42_b8_b10_biome.png`)
+  3. Hard straight biome borders in the far band (`far_views_a.png`).
+  4. Canyon tablelands look (`Screenshots/B5b/`; the rim poses were poor -- say so).
+  5. Rename the landform "Badlands" (e.g. "breaks") vs the biome.
+  6. 37e's lake pictures.
+  Then ask about the v4 default + merge to `main` (SUITE=all
+  first), then start the engine-phase plan doc (SUPERVISOR.md / ROADMAP.md: Q26's one compiled
+  generator, E1's pass conditions from the TAA verdict, the fluid notes, the bugs list).
+- Watcher race (tooling, low priority, add to BUGS.md if it recurs): when the watcher loop restarts
+  in the seconds before a new task's transcript exists, it follows the OLD task's file until that
+  task ends. Fix by hand: kill the watcher's python child (`ps -axo pid,ppid | awk '$2==<loop pid>'`);
+  the loop restarts in 20 s.
+- Images in the doc: Artifact publish (url = doc link, asset true, file_paths) -> Docs `batch` with
+  `{"verb":"create","object":"blob","engine":"blob","payload":{"asset":"<id>"}}` -> `![alt](blob/<minted>)`
+  plus an italic caption line below (alt text is not shown as a caption).
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 218)
+  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 408;
+  "Waiting on you" lead mk2vq5dkmp6.27623; Q31/Q32/Q33 sections below it, all answered)
 - Surface rebuild plan: https://claude.ai/code/artifact/f6222d44-1457-4a92-9460-3390d44e75fd
 - Game Design Brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
 - Terrain review: https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7
-- TAA proposal (steps 1-3 approved): https://claude.ai/code/artifact/6745ee4a-4af7-482f-b07d-822e46270918
 
 ## Notes
-- Status updates every 5 min while a task runs (one background wait: 300 s or a runner event).
-- Claude Code auto-updated at 17:02; the binary is fine.
+- No periodic updates; speak only when a task starts/finishes/blocks or the owner is needed.
+- Unblocking a STOP_FOR_OWNER task needs the owner's answer (the auto-mode classifier refused a
+  supervisor default on 9 Oct).
+- A `Requires:` line must name real task files only. Name order = run order.
 
 ## Ready-to-paste prompt
-> Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the
-> overnight queue as described there until nothing is left that can run without
-> me. Only one agent works on the project at a time; you do no engineering
-> yourself. Put every question for me in the "Queue decisions" doc. Give me a short
-> status update here every 5 minutes while a task runs (see SESSION_HANDOFF.md).
+> Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the overnight
+> queue as described there until nothing is left that can run without me. Only one agent
+> works on the project at a time; you do no engineering yourself. Put every question for me
+> in the "Queue decisions" doc. No periodic status updates: tell me only when a task starts or
+> finishes, blocks, or needs me. When this session gets long, hand off to a fresh one yourself.
+> Start by telling me why this new session started and what the previous chat covered
+> (SESSION_HANDOFF.md, "For the owner").

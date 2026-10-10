@@ -16,6 +16,7 @@
 // levels (6.4, 12.8 m texels) a cliff is 2-5 texels wide, so it is resolved,
 // not aliased -- but it is the part of the map closest to the limit.
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Unity.Mathematics;
 
@@ -32,6 +33,9 @@ namespace TerrainGen
         /// Still-water level per cell (voxels rel. sea) or Hydrology.NO_WATER.
         /// OPTIONAL: null means a dry map (every job that predates map v2).
         public float* water;
+        /// Hydrology.DRY / LAKE / RIVER per cell (WorldMap.WaterClass).
+        /// OPTIONAL: null = no lake rims (ShapeField.LakeRim; map v4 only).
+        public byte* waterClass;
         public int cells;
         public float cellVoxels;
     }
@@ -52,7 +56,23 @@ namespace TerrainGen
         /// archetype (Regions.*; 255 = sea). Null / empty on a v2 map.
         public Regions.Layout RegionLayout { get; private set; }
         public byte[] Region { get; private set; }
-        private GCHandle _hH, _hR, _hW;
+        /// v4 (B1): the per-cell world record. Null below v4.
+        public WorldRecord Record { get; private set; }
+        /// T6 inselbergs that raised at least one erosion-grid cell (v3: ~15-40
+        /// per seed; v4: 0, owner Q7 (a)).
+        public int InselbergCount { get; private set; }
+        /// Map v4 (B4): the seeded easy-area sites; null below v4. The flagged
+        /// cells and the area list are in Record (EasyAreas.Mark).
+        public EasyAreas.Site[] EasySites { get; private set; }
+        /// Map v4 (B5): the signature features drawn from the pool, in slot
+        /// order (Features.cs); null below v4. The record flags their cells.
+        public Feature[] SignatureFeatures { get; private set; }
+        /// Map v4 (B8): the routes between the easy areas (Routes.cs); null
+        /// below v4. The map is already eased along them; the record flags them.
+        public Route[] Routes { get; private set; }
+        /// Routes.LastBuild for this map (diagnostics: links, cut and fill cells).
+        public string RouteBuild { get; private set; }
+        private GCHandle _hH, _hR, _hW, _hC;
 
         public WorldMap(TerrainSpec spec, float[] height, float[] rough, float2 peak,
                         float[] water = null, float[] flow = null, Hydrology.Stats hydro = default, byte[] waterClass = null)
@@ -65,6 +85,7 @@ namespace TerrainGen
             _hH = GCHandle.Alloc(Height, GCHandleType.Pinned);
             _hR = GCHandle.Alloc(Rough, GCHandleType.Pinned);
             _hW = GCHandle.Alloc(Water, GCHandleType.Pinned);
+            _hC = GCHandle.Alloc(WaterClass, GCHandleType.Pinned);
         }
 
         private static float[] Filled(int n, float v) { var a = new float[n]; for (int i = 0; i < n; i++) a[i] = v; return a; }
@@ -74,6 +95,7 @@ namespace TerrainGen
             height = (float*)_hH.AddrOfPinnedObject(),
             rough = (float*)_hR.AddrOfPinnedObject(),
             water = (float*)_hW.AddrOfPinnedObject(),
+            waterClass = (byte*)_hC.AddrOfPinnedObject(),
             cells = Spec.mapCells,
             cellVoxels = Spec.mapCellVoxels,
         };
@@ -83,17 +105,62 @@ namespace TerrainGen
             if (_hH.IsAllocated) _hH.Free();
             if (_hR.IsAllocated) _hR.Free();
             if (_hW.IsAllocated) _hW.Free();
+            if (_hC.IsAllocated) _hC.Free();
         }
 
         // ------------------------------------------------------------------
         // Build
         // ------------------------------------------------------------------
-        public static WorldMap Build(TerrainSpec spec) => spec.mapVersion >= 3 ? BuildV3(spec) : BuildV2(spec);
+        public static WorldMap Build(TerrainSpec spec) =>
+            spec.mapVersion >= 4 ? BuildV4(spec) : spec.mapVersion >= 3 ? BuildV3(spec) : BuildV2(spec);
+
+        // ------------------------------------------------------------------
+        // v4 (surface rebuild): v3's recipe with the B steps switched on by
+        // spec.mapVersion >= 4 inside BuildV3, plus the world record.
+        //   B1 (owner 2026-10-03): the record; larger biomes, which are not in
+        //      the map at all (Offsets.For(spec).biomeScale in ShapeField.Biome).
+        //   B2 (plan rule 2): region archetypes dealt by landform class to hit
+        //      spec.GentleShare of the land (Regions.AssignByFlatness); no T6
+        //      inselbergs (owner Q7 (a)).
+        //   B3 (plan rule 5): erosion as a light valley pass.
+        //   B4 (plan rule 3): easy areas seeded before erosion (EasyAreas.cs),
+        //      flagged in the record with their list.
+        //   B5 (plan rule 6): no pinned peak or volcano; signature features
+        //      drawn from the pool and placed (Features.cs), listed and flagged
+        //      in the record.
+        //   B8 (plan rule 9): routes between the easy areas, found on a first
+        //      record (its easy areas, danger and bands), eased into the map
+        //      (Routes.cs); the record is then built again on the eased map,
+        //      keeping the first record's easy areas, and flags the corridors.
+        // A v3 spec takes none of these branches and stays byte-identical.
+        // ------------------------------------------------------------------
+        private static WorldMap BuildV4(TerrainSpec spec)
+        {
+            // The record's biome plane is a function of the spec alone (~7 s in
+            // the Editor's Mono, measured 2026-10-03), so it runs on a worker
+            // while BuildV3 does: the array is the task's own until Result, and
+            // the values do not depend on the thread. What stays on the
+            // critical path is the two distance transforms.
+            var biomes = System.Threading.Tasks.Task.Run(() => WorldRecord.BiomePlane(spec));
+            var map = BuildV3(spec);
+            map.Record = WorldRecord.Build(map, biomes.Result);
+            map.Routes = TerrainGen.Routes.Build(map, map.Record);
+            map.RouteBuild = TerrainGen.Routes.LastBuild;
+            if (map.Routes != null) map.Record = WorldRecord.Build(map, biomes.Result, map.Record);
+            return map;
+        }
 
         // ------------------------------------------------------------------
         // v3 (§13, T1 + T2): regions -> starting shapes -> erosion -> fine map.
         // ------------------------------------------------------------------
         public const int EROSION_ITERATIONS = 240;
+        /// B3 (plan rule 5): on v4 erosion is a light valley pass -- a quarter of
+        /// the iterations, and the land starts at EROSION_START_V4 of its target
+        /// instead of 0.2, so it rises 40% of its height during the pass instead
+        /// of 80% (half the uplift). Rivers still cut valleys and channels; the
+        /// slopes between them are no longer dissected by uplift.
+        public const int EROSION_ITERATIONS_V4 = 60;
+        public const float EROSION_START_V4 = 0.6f;
         public const float PEAK_ALLOWANCE = 1.12f;
         public static Erosion.Stats LastErosion;
 
@@ -101,29 +168,43 @@ namespace TerrainGen
         {
             int n = spec.mapCells, m = n / 2;
             float cm = spec.mapCellVoxels * 2f;
-            var o = Offsets.For(spec.seed);
-            float2 peak = PeakSite(spec, o);
+            var o = Offsets.For(in spec);   // v3: exactly For(seed); v4 adds the drawn volcano (B5)
             var L = Regions.Build(in spec, in o);
+            // B5 (v4): the pool's draw; the volcano (its site is in o) and the
+            // great peak are placed now, the rest after erosion.
+            bool feat = spec.mapVersion >= 4;
+            byte[] kinds = feat ? Features.Draw(in spec) : null;
+            var feats = feat ? new List<Feature>() : null;
+            float2 peak = feat ? Features.PlaceEarly(in spec, in o, L, kinds, feats) : PeakSite(spec, o);
+            float2 vs = Stamps.VolcanoSite(in spec, in o);
             var w = new float[Regions.KINDS];
+            bool inselbergs = spec.mapVersion < 4;   // B2: none on v4 (owner Q7 (a))
+            var inselbergIds = new HashSet<int2>();
 
             // ---- starting shapes on the coarse (erosion) grid ----
             var hc = new float[m * m]; var ec = new float[m * m]; var tc = new float[m * m]; var lc = new bool[m * m];
+            // B4 (v4): what EasyAreas.Pick reads -- gentle-class weight (the
+            // wetland basin left out: it is shaped to hold lakes), and the
+            // cells no easy area may cover (sea, coast, peak or volcano raised).
+            bool easy = spec.mapVersion >= 4;
+            var gw = easy ? new float[m * m] : null; var bad = easy ? new bool[m * m] : null;
             for (int z = 0; z < m; z++)
             for (int x = 0; x < m; x++)
             {
                 int i = z * m + x;
                 float2 p = new float2((x + 0.5f) * cm, (z + 0.5f) * cm);
                 float coast = Coast(in spec, in o, p);
-                if (coast <= 0f) { hc[i] = OceanFloor(in spec, coast); tc[i] = 1f; continue; }
+                if (coast <= 0f) { hc[i] = OceanFloor(in spec, coast); tc[i] = 1f; if (easy) bad[i] = true; continue; }
                 Regions.Weights(L, in o, p, w);
                 float H = 0f, E = 0f, T = 0f, lay = 0f;
                 for (byte k = 0; k < Regions.KINDS; k++)
                 {
                     if (w[k] <= 0f) continue;
-                    var pr = Regions.P(k);
+                    var pr = Regions.P(k, spec.mapVersion);   // B3b: v4 region softening
                     H += w[k] * Regions.Shape(k, in spec, in o, p);
                     E += w[k] * pr.erodibility; T += w[k] * pr.talus; if (pr.layered) lay += w[k];
                 }
+                float shaped = H;   // B4: before the peak and the volcano raise it
                 // The dominant peak (§2.2), broad, in its alpine region. Started
                 // PEAK_ALLOWANCE above its target: erosion takes ~10% off a summit
                 // (541 m of 600 at the tuned erodibility, TerrainGenTests.Targets).
@@ -133,6 +214,27 @@ namespace TerrainGen
                 // The volcano's cone everywhere it reaches (it is wider than a region
                 // is apart from its neighbours, so a region blend would clip it).
                 H = math.max(H, Stamps.VolcanoHeight(in spec, in o, p, out _, out _));
+                if (feat)
+                {
+                    // B5: a drawn peak or volcano brings its own rock wherever it
+                    // stands (the alpine / volcanic erodibility and talus that
+                    // v3's pinned regions under them gave), and no cap-rock layers.
+                    float2 vq = p - vs;
+                    float wv = math.saturate((Stamps.VOLCANO_BASE_R - math.sqrt(vq.x * vq.x + vq.y * vq.y)) / (0.3f * Stamps.VOLCANO_BASE_R));
+                    float wp = math.saturate(pd * 3f);
+                    var ap = Regions.P(Regions.Alpine, spec.mapVersion); var vp = Regions.P(Regions.Volcanic, spec.mapVersion);
+                    E = math.lerp(math.lerp(E, ap.erodibility, wp), vp.erodibility, wv);
+                    T = math.lerp(math.lerp(T, ap.talus, wp), vp.talus, wv);
+                    lay *= 1f - math.max(wp, wv);
+                }
+                if (easy)
+                {
+                    for (byte k = 0; k < Regions.KINDS; k++)
+                        if (w[k] > 0f && Regions.ClassOf(k) == Regions.Gentle && k != Regions.Wetland) gw[i] += w[k];
+                    // B5: only where the peak or the volcano raises the land 30 m+
+                    // (their whole footprints left no room for the easy areas)
+                    bad[i] = coast <= EasyAreas.COAST_MIN || H > shaped + (feat ? Features.BAD_RAISE : 0f);
+                }
                 // Island envelope: land rises from the shore; sea cliffs rise sharply.
                 float env = math.lerp(math.saturate(coast * 5f), math.saturate(coast * 14f), w[Regions.CoastalCliffs]);
                 // A little jitter so flats never drain in ruler-straight lines.
@@ -144,21 +246,54 @@ namespace TerrainGen
                 // needs its own. In the layered regions the fine map's terracing
                 // turns the dome into a stepped butte.)
                 float open = 1f - w[Regions.Alpine] - w[Regions.Volcanic];
-                if (open > 0.3f && coast > 0.15f)
+                if (inselbergs && open > 0.3f && coast > 0.15f)
                 {
-                    float ib = Inselberg(in o, p, out float hard);
-                    if (ib > 0f) { hc[i] += ib * open; E *= math.lerp(1f, 0.1f, hard); T = math.max(T, math.lerp(T, 2.5f, hard)); }
+                    float ib = Inselberg(in o, p, out float hard, out int2 ibCell);
+                    if (ib > 0f)
+                    {
+                        hc[i] += ib * open; E *= math.lerp(1f, 0.1f, hard); T = math.max(T, math.lerp(T, 2.5f, hard));
+                        inselbergIds.Add(ibCell);
+                    }
                 }
                 ec[i] = E; tc[i] = T; lc[i] = lay > 0.5f;
             }
+            // B5 (plan rule 6): canyons, mesas and crater lakes, placed before the
+            // easy areas, which are then seeded outside every footprint (all but
+            // EasyAreas.FEATURE_PASS, the last resort: task 37d).
+            bool[] featBad = null;
+            if (feat)
+            {
+                Features.PlaceLate(in spec, in o, m, cm, hc, gw, bad, kinds, feats);
+                featBad = new bool[m * m];
+                Features.MarkBad(feats, m, cm, featBad);
+            }
+            // B4 (plan rule 3): seed the easy areas and press their starting relief.
+            EasyAreas.Site[] easySites = null;
+            if (easy)
+            {
+                easySites = EasyAreas.Pick(in spec, m, cm, hc, gw, bad, featBad);
+                for (int z = 0; z < m; z++)
+                for (int x = 0; x < m; x++)
+                {
+                    int i = z * m + x;
+                    float t = EasyAreas.Weight(easySites, in o, new float2((x + 0.5f) * cm, (z + 0.5f) * cm), out int site);
+                    if (t <= 0f) continue;
+                    hc[i] = EasyAreas.Press(hc[i], easySites[site].level, t);
+                    tc[i] = math.lerp(tc[i], EasyAreas.TALUS, t);
+                    if (t > 0.5f) lc[i] = false;
+                }
+            }
             if (DumpErosionInputsTo != null) DumpErosionInputs(DumpErosionInputsTo + $"_{spec.seed}.bin", m, hc, ec, tc, lc);
-            LastErosion = Erosion.Run(m, hc, ec, tc, lc, cm, EROSION_ITERATIONS);
+            LastErosion = spec.mapVersion >= 4
+                ? Erosion.Run(m, hc, ec, tc, lc, cm, EROSION_ITERATIONS_V4, EROSION_START_V4)
+                : Erosion.Run(m, hc, ec, tc, lc, cm, EROSION_ITERATIONS);
+            // B5: the features' heights on the eroded ground.
+            if (feat) Features.Finish(in spec, m, cm, hc, feats);
 
             // ---- the fine map: upsample, then per-cell detail ----
             var h = new float[n * n]; var r = new float[n * n]; var reg = new byte[n * n];
             var lakeMin = new float[n * n];
             for (int i = 0; i < lakeMin.Length; i++) lakeMin[i] = Hydrology.LAKE_MIN_DEPTH;
-            float2 vs = Stamps.VolcanoSite(in spec, in o);
             for (int z = 0; z < n; z++)
             for (int x = 0; x < n; x++)
             {
@@ -183,10 +318,17 @@ namespace TerrainGen
                     rough += w[k] * pr.rough; minLake += w[k] * pr.minLake;
                     if (pr.layered) layered += w[k];
                 }
+                // B4: an easy area is smooth -- a wetland's detail, no benches, no dunes.
+                float et = easy ? EasyAreas.Weight(easySites, in o, p, out _) : 0f;
+                if (et > 0f)
+                {
+                    rough = math.lerp(rough, EasyAreas.ROUGH, et); layered *= 1f - et;
+                    minLake = math.lerp(minLake, math.max(minLake, EasyAreas.MIN_LAKE), et);
+                }
                 // Canyonlands and plateaus: benches and cliff bands.
                 if (layered > 0f && hh > 20f) hh = math.lerp(hh, Regions.Terrace(hh), layered);
                 lakeMin[i] = minLake;
-                if (w[Regions.Dunes] > 0f) hh += w[Regions.Dunes] * DuneField(in o, p);
+                if (w[Regions.Dunes] > 0f) hh += (et > 0f ? w[Regions.Dunes] * (1f - et) : w[Regions.Dunes]) * DuneField(in o, p);
                 // Beaches: the last metres at the waterline (not under sea cliffs).
                 float shore = math.saturate(coast * 12f);
                 float beach = math.max(8f, hh) * shore + 8f * (1f - shore) - 10f * (1f - math.saturate(coast * 5f));
@@ -200,6 +342,7 @@ namespace TerrainGen
                     hh = math.lerp(hh, v, t);
                 }
                 hh = Stamps.CraterApply(in spec, in o, p, hh, math.saturate(coast * 5f));
+                if (feat) hh = Features.Apply(feats, p, hh, Noise.SmoothStep(0f, Features.BANK_SHORE, coast) * (1f - et));   // B5, fresh like the craters
                 h[i] = hh; r[i] = rough;
             }
             // Rock shows where the eroded land is steep.
@@ -217,7 +360,17 @@ namespace TerrainGen
             var cls = new byte[n * n];
             var hydro = Hydrology.Run(n, h, r, water, flow, cls, lakeMin);
             ClearCalderaLake(in spec, in o, water, cls);
-            return new WorldMap(spec, h, r, peak, water, flow, hydro, cls) { RegionLayout = L, Region = reg };
+            if (feat && peak.x <= Features.NO_SITE_XZ)
+            {
+                // no great peak drawn: PeakPosition (poses, the minimap) is the highest cell
+                int bi = 0;
+                for (int i = 1; i < h.Length; i++) if (h[i] > h[bi]) bi = i;
+                peak = new float2((bi % n + 0.5f) * spec.mapCellVoxels, (bi / n + 0.5f) * spec.mapCellVoxels);
+            }
+            return new WorldMap(spec, h, r, peak, water, flow, hydro, cls)
+            {
+                RegionLayout = L, Region = reg, InselbergCount = inselbergIds.Count, EasySites = easySites, SignatureFeatures = feats?.ToArray(),
+            };
         }
 
         /// TUNING SEAM (tools/erosion-lab.c): when set, BuildV3 writes the erosion
@@ -247,9 +400,12 @@ namespace TerrainGen
         // ------------------------------------------------------------------
         public const float INSELBERG_CELL = 11000f;
 
-        public static float Inselberg(in Offsets o, float2 p, out float hard)
+        public static float Inselberg(in Offsets o, float2 p, out float hard) => Inselberg(in o, p, out hard, out _);
+
+        /// `cell`: the INSELBERG_CELL holding the tallest dome at p (its id).
+        public static float Inselberg(in Offsets o, float2 p, out float hard, out int2 cell)
         {
-            hard = 0f;
+            hard = 0f; cell = int2.zero;
             int cx = (int)math.floor(p.x / INSELBERG_CELL), cz = (int)math.floor(p.y / INSELBERG_CELL);
             float best = 0f;
             for (int j = -1; j <= 1; j++)
@@ -268,7 +424,7 @@ namespace TerrainGen
                 // Steep walls, rounded top: sqrt(1 - x^4).
                 float x2 = x * x;
                 float t = math.sqrt(math.max(0f, 1f - x2 * x2));
-                if (H * t > best) { best = H * t; hard = Noise.SmoothStep(1f, 0.85f, x); }
+                if (H * t > best) { best = H * t; hard = Noise.SmoothStep(1f, 0.85f, x); cell = new int2(gx, gz); }
             }
             return best;
         }
@@ -808,10 +964,33 @@ namespace TerrainGen
         public float3 caveA, caveB, cavern, under;
         public float2 peakDir;
         public uint seed;
+        /// TerrainSpec.BiomeScale (map v4, B1). 1 from For(seed); 0 (a default
+        /// struct) is read as 1. A v4 world's Offsets MUST come from For(spec),
+        /// or its biomes silently fall back to v3's.
+        public float biomeScale;
+        /// TerrainSpec.BiomeSet (B10): 6 = the six-biome field; anything else
+        /// (0 from For(seed) or a default struct) = the four-biome field.
+        public int biomeSet;
+        /// Map v4 (B5): the drawn volcano's site (Features.VolcanoSite; off the
+        /// map when none was drawn), valid when v4Sites != 0. Only For(spec)
+        /// sets it: Stamps.Column reads it per voxel column under Burst.
+        public float2 volcanoV4;
+        public int v4Sites;
+
+        /// The offsets for this spec: For(seed) plus the spec's biome scale
+        /// and, on v4, the drawn volcano's site.
+        public static Offsets For(in TerrainSpec spec)
+        {
+            var o = For(spec.seed);
+            o.biomeScale = spec.BiomeScale;
+            o.biomeSet = spec.BiomeSet;
+            if (spec.mapVersion >= 4) { o.volcanoV4 = Features.VolcanoSite(in spec, in o); o.v4Sites = 1; }
+            return o;
+        }
 
         public static Offsets For(uint seed)
         {
-            var o = new Offsets { seed = seed };
+            var o = new Offsets { seed = seed, biomeScale = 1f };
             uint s = seed * 747796405u + 2891336453u;
             o.coastA = Next2(ref s); o.coastB = Next2(ref s); o.low = Next2(ref s);
             o.range = Next2(ref s); o.ridge = Next2(ref s); o.plateau = Next2(ref s);

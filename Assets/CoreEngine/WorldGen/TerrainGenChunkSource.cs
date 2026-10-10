@@ -22,9 +22,13 @@
 // (the far band's mapping, FarField.GenToEngine) -- the ~45 palette-D strata,
 // soil and stamp materials are V1b and change only that table.
 //
+// The column pass depends only on (x, z): StreamManager hands a column's layers
+// to one worker, which reuses its own ColumnPass across them (task 30).
+//
 // THREADING: Generate runs on StreamManager's worker threads concurrently. The
-// map arrays are shared READ-ONLY; each call owns its job buffers; the pool and
-// allocator it writes are the worker's own scratch (single-writer, CLAUDE.md).
+// map arrays are shared READ-ONLY; each call owns its job buffers (or its
+// thread's ColumnPass); the pool and allocator it writes are the worker's own
+// scratch (single-writer, CLAUDE.md).
 using System;
 using Unity.Burst;
 using Unity.Collections;
@@ -43,9 +47,26 @@ namespace VoxelEngine.WorldGen
         public readonly TerrainGen.Offsets O;
         public readonly TerrainGen.WorldMap Map;
         private NativeArray<float> _h, _r, _w;
+        private NativeArray<byte> _cls;   // map water class: ShapeField's lake rims (v4)
         private NativeArray<byte> _toEngine;
 
-        public TerrainGenChunkSource(uint seed)
+        public TerrainGenChunkSource(uint seed) : this(seed, MapVersionArg()) { }
+
+        /// -mapversion N (surface rebuild B1): which TerrainGen map recipe a
+        /// tg2 world uses -- 4 = v3 + the world record + larger biomes. Absent
+        /// or unparsable = 0, the default (v4 since 2026-10-09, owner Q35 6a;
+        /// -mapversion 3 = the pre-rebuild map). Last match wins, like
+        /// PlaygroundCapture's ArgValue.
+        public static int MapVersionArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            int v = 0;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-mapversion" && int.TryParse(a[i + 1], out int p)) v = p;
+            return v;
+        }
+
+        public TerrainGenChunkSource(uint seed, int mapVersion)
         {
             // R1 BRICK GEOLOGY (V0, design doc §11/§15): below 20 m under the
             // column top, one strata decision per 8^3 brick instead of per
@@ -53,14 +74,15 @@ namespace VoxelEngine.WorldGen
             // underworld 993 -> 95. Only dug-out or cave walls deeper than 20 m
             // show it, as 0.8 m steps in the bands. It is what fits the band
             // in the owner's 3 GB.
-            var spec = TerrainGen.TerrainSpec.SizeClass2(seed);
+            var spec = TerrainGen.TerrainSpec.SizeClass2(seed, mapVersion);
             spec.brickGeologyDepth = BRICK_GEOLOGY_DEPTH;
             Spec = spec;
-            O = TerrainGen.Offsets.For(seed);
+            O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
             Map = TerrainGen.WorldMap.Build(Spec);
             _h = new NativeArray<float>(Map.Height, Allocator.Persistent);
             _r = new NativeArray<float>(Map.Rough, Allocator.Persistent);
             _w = new NativeArray<float>(Map.Water, Allocator.Persistent);
+            _cls = new NativeArray<byte>(Map.WaterClass, Allocator.Persistent);
             _toEngine = new NativeArray<byte>(256, Allocator.Persistent);
             for (int i = 0; i < 256; i++) _toEngine[i] = VoxelEngine.Rendering.FarField.GenToEngine((byte)i);
 
@@ -87,6 +109,7 @@ namespace VoxelEngine.WorldGen
             if (_h.IsCreated) _h.Dispose();
             if (_r.IsCreated) _r.Dispose();
             if (_w.IsCreated) _w.Dispose();
+            if (_cls.IsCreated) _cls.Dispose();
             if (_toEngine.IsCreated) _toEngine.Dispose();
             Map?.Dispose();
         }
@@ -120,41 +143,110 @@ namespace VoxelEngine.WorldGen
             chunk.uniformMaterial = Materials.Air;
         }
 
+        /// ColumnJob runs since construction (task 30's "ColumnJob runs per
+        /// column" diagnostic; a shared pass is not counted again).
+        public int ColumnPassTotal => _columnPasses;
+        private int _columnPasses;
+
+        /// COLUMN-PASS SHARING (task 30; PLAN_COARSE_FIRST_GEN.md section 6).
+        /// ColumnJob's output depends only on the chunk COLUMN (cx, cz) -- it
+        /// reads origin.x and origin.z, never y -- yet it was ~0.60 of a
+        /// chunk's Generate and ran once per LAYER. A ColumnPass holds ONE
+        /// column's result so every layer of that column reuses it.
+        /// OWNED BY ONE THREAD (a stream worker for its lifetime, or a test):
+        /// never shared, so no lock and no publication race. Bound: one column,
+        /// Bytes (~2.6 MB), per owner. Bit-identical by construction -- the same
+        /// Burst job writes the same arrays; ColumnPassSharing_IsByteIdentical
+        /// checks it.
+        public sealed class ColumnPass : IDisposable
+        {
+            internal NativeArray<TerrainGen.ColumnSample> colS;
+            internal NativeArray<float> colSt;
+            internal NativeArray<TerrainGen.DetailField.ColumnDetail> colCd;
+            internal NativeArray<int> top;
+            internal bool valid;
+            internal int cx, cz;
+            /// ColumnJob runs into this pass (diagnostics).
+            public int Runs;
+
+            public ColumnPass(Allocator a = Allocator.Persistent)
+            {
+                const int E = EngineConfig.CHUNK_EDGE_VOXELS;
+                colS = new NativeArray<TerrainGen.ColumnSample>(E * E, a, NativeArrayOptions.UninitializedMemory);
+                colSt = new NativeArray<float>(E * E, a, NativeArrayOptions.UninitializedMemory);
+                colCd = new NativeArray<TerrainGen.DetailField.ColumnDetail>(E * E, a, NativeArrayOptions.UninitializedMemory);
+                top = new NativeArray<int>(1, a);
+            }
+
+            public bool Holds(int3 coord) => valid && cx == coord.x && cz == coord.z;
+
+            /// Bytes one pass holds.
+            public static long Bytes
+            {
+                get
+                {
+                    const int E = EngineConfig.CHUNK_EDGE_VOXELS;
+                    return (long)E * E * (UnsafeUtility.SizeOf<TerrainGen.ColumnSample>() + sizeof(float)
+                                          + UnsafeUtility.SizeOf<TerrainGen.DetailField.ColumnDetail>()) + sizeof(int);
+                }
+            }
+
+            public void Dispose()
+            {
+                valid = false;
+                if (colS.IsCreated) colS.Dispose();
+                if (colSt.IsCreated) colSt.Dispose();
+                if (colCd.IsCreated) colCd.Dispose();
+                if (top.IsCreated) top.Dispose();
+            }
+        }
+
         public void Generate(int3 coord, Chunk chunk, ChunkHandleAllocator allocator, BrickDataPool pool, object allocLock)
+            => Generate(coord, chunk, allocator, pool, allocLock, null);
+
+        /// `pass` (may be null = a private one-shot pass, the old behaviour):
+        /// reused when it already holds coord's column, refilled otherwise.
+        public void Generate(int3 coord, Chunk chunk, ChunkHandleAllocator allocator, BrickDataPool pool, object allocLock, ColumnPass pass)
         {
             const int E = EngineConfig.CHUNK_EDGE_VOXELS;
             chunk.coord = coord;
             chunk.isUniform = false;
 
-            if (_columnTop.TryGetValue(ColumnKey(coord), out int knownTop) && coord.y * E > knownTop)
+            bool shared = pass != null && pass.Holds(coord);
+            if (!shared && _columnTop.TryGetValue(ColumnKey(coord), out int knownTop) && coord.y * E > knownTop)
             {
                 MakeAir(chunk);
                 System.Threading.Interlocked.Increment(ref _airFast);
                 return;
             }
 
-            var colS = new NativeArray<TerrainGen.ColumnSample>(E * E, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-            var colSt = new NativeArray<float>(E * E, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-            var colCd = new NativeArray<TerrainGen.DetailField.ColumnDetail>(E * E, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
-            var top = new NativeArray<int>(1, Allocator.TempJob);
+            ColumnPass own = pass == null ? new ColumnPass(Allocator.TempJob) : null;
+            var cp = pass ?? own;
             NativeArray<byte> mats = default, uniform = default;
             NativeArray<bool> isUniform = default;
             try
             {
-                new ColumnJob
+                if (!shared)
                 {
-                    h = _h, r = _r, w = _w, spec = Spec, o = O, origin = coord * E,
-                    colS = colS, colSt = colSt, colCd = colCd, top = top,
-                }.Run();
+                    cp.valid = false;
+                    new ColumnJob
+                    {
+                        h = _h, r = _r, w = _w, cls = _cls, spec = Spec, o = O, origin = coord * E,
+                        colS = cp.colS, colSt = cp.colSt, colCd = cp.colCd, top = cp.top,
+                    }.Run();
+                    cp.cx = coord.x; cp.cz = coord.z; cp.valid = true; cp.Runs++;
+                    System.Threading.Interlocked.Increment(ref _columnPasses);
+                    if (_columnTop.Count > COLUMN_TOP_MEMO_MAX) _columnTop.Clear();
+                    _columnTop[ColumnKey(coord)] = cp.top[0];
+                }
+                var colS = cp.colS; var colSt = cp.colSt; var colCd = cp.colCd;
 
                 // V2 AIR FAST PATH. Above a column's top solid voxel D returns only
                 // air or water (DetailField.Material's first block), so a chunk
                 // wholly above every column's max(ground, still water, sea) is
                 // uniform air by construction -- no voxel pass, no brick table.
                 // Most of a vertically streamed ring is exactly this.
-                if (_columnTop.Count > COLUMN_TOP_MEMO_MAX) _columnTop.Clear();
-                _columnTop[ColumnKey(coord)] = top[0];
-                if (coord.y * E > top[0])
+                if (coord.y * E > cp.top[0])
                 {
                     MakeAir(chunk);
                     System.Threading.Interlocked.Increment(ref _airFast);
@@ -194,7 +286,7 @@ namespace VoxelEngine.WorldGen
             }
             finally
             {
-                colS.Dispose(); colSt.Dispose(); colCd.Dispose(); top.Dispose();
+                own?.Dispose();
                 if (mats.IsCreated) mats.Dispose();
                 if (uniform.IsCreated) uniform.Dispose();
                 if (isUniform.IsCreated) isUniform.Dispose();
@@ -205,6 +297,7 @@ namespace VoxelEngine.WorldGen
         private struct ColumnJob : IJob
         {
             [ReadOnly] public NativeArray<float> h, r, w;
+            [ReadOnly] public NativeArray<byte> cls;
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
             public NativeArray<TerrainGen.ColumnSample> colS;
@@ -218,7 +311,8 @@ namespace VoxelEngine.WorldGen
                 var map = new TerrainGen.MapView
                 {
                     height = (float*)h.GetUnsafeReadOnlyPtr(), rough = (float*)r.GetUnsafeReadOnlyPtr(),
-                    water = (float*)w.GetUnsafeReadOnlyPtr(), cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
+                    water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(),
+                    cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 // S on a 130^2 grid (the chunk's columns plus a one-column
                 // border). MaxStep(x, z, 1) is max |S(neighbour) - S(centre)|

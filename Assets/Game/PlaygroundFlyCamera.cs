@@ -48,6 +48,15 @@ public class PlaygroundFlyCamera : MonoBehaviour
     public float Yaw => _yaw;
     public float Pitch => _pitch;
 
+    /// Point the camera and the angles the mouse keeps adding to (the
+    /// play start's level view, task 33b). Start only reads them once.
+    public void SetLook(float yaw, float pitch)
+    {
+        _yaw = yaw;
+        _pitch = Mathf.Clamp(pitch, -89f, 89f);
+        transform.rotation = Quaternion.Euler(_pitch, _yaw, 0f);
+    }
+
     void Start()
     {
         Vector3 e = transform.rotation.eulerAngles;

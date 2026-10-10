@@ -1,0 +1,22 @@
+DECISION 8 -- LAVA AS A LIGHT, one aggregate per 32-voxel tile -- 2026-10-09_194703
+device Apple M1  1920x1080  RELEASE
+lava share 8 of 32 slots   intensity 1   fullCount 96   rangeScale 1.6   lift 0.6 m
+
+cavern at int3(13140, 16, 12762): 35057 voxels carved, 9315 lava voxels placed
+  -> 9315 lava voxels in 6 tile aggregates; 0 point lights registered (expected 0: lava is never per-voxel)
+1_cavern_wide_A_lava_light_ON.png — eye int3(13110, 20, 12762) -> int3(13160, 8, 12762)
+1_cavern_wide_B_lava_light_OFF.png — eye int3(13110, 20, 12762) -> int3(13160, 8, 12762)
+2_wall_beside_lava_A_lava_light_ON.png — eye int3(13124, 12, 12762) -> int3(13124, 14, 12774)
+2_wall_beside_lava_B_lava_light_OFF.png — eye int3(13124, 12, 12762) -> int3(13124, 14, 12774)
+3_cavern_from_the_far_end_A_lava_light_ON.png — eye int3(13170, 18, 12756) -> int3(13140, 10, 12772)
+3_cavern_from_the_far_end_B_lava_light_OFF.png — eye int3(13170, 18, 12756) -> int3(13140, 10, 12772)
+4_torches_AND_lava_ON.png — eye int3(13110, 20, 12762) -> int3(13160, 12, 12762)
+
+STARVATION CHECK: 40 torches placed + lava in 6 tiles, player beside both
+  active 32 of cap 32: torches 26, lava 6 (torches are guaranteed 24)
+
+night pool at int3(13240, 46, 12712): 441 lava voxels on the surface, 3 tiles
+5_surface_pool_at_night_A_lava_light_ON.png — eye int3(13180, 76, 12652) -> int3(13240, 46, 12712)
+5_surface_pool_at_night_B_lava_light_OFF.png — eye int3(13180, 76, 12652) -> int3(13240, 46, 12712)
+6_surface_pool_golden_hour_A_lava_light_ON.png — eye int3(13180, 76, 12652) -> int3(13240, 46, 12712)
+6_surface_pool_golden_hour_B_lava_light_OFF.png — eye int3(13180, 76, 12652) -> int3(13240, 46, 12712)

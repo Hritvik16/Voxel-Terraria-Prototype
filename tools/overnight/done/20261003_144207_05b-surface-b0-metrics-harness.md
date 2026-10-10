@@ -24,3 +24,8 @@ Acceptance: EditMode 0 FAIL; the harness reproduces the review's seed-42 numbers
 within the plan's tolerance (show both side by side in HANDOFF); runs on seeds
 42/7/2026/31337 and reports them; PNGs written and looked at. Commit. Do NOT start
 B1: B1 onward is queued by the supervisor after the TAA tasks.
+
+## Owner answer (2026-10-03)
+Q5 (a): v3 seed 42 biome change is 297 m (this harness). B1's gate is at least 2.5x
+each seed's own v3 value (seed 42: >= 740 m). Built into task 15. Nothing left to do
+here: closed as done.

@@ -82,6 +82,18 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
 
     private readonly HashSet<int3> _dirtyChunks = new HashSet<int3>();
 
+    // --- Out-of-box skips (task 32). A RESIDENT dirty chunk outside the
+    // current mirror box is not uploaded: its toroidal slot belongs to the
+    // in-box chunk it aliases. It is parked here instead of forgotten, so that
+    // if the box comes back to it BEFORE it is evicted it is re-dirtied (the
+    // admission path re-dirties it only after an evict + reload). Normally
+    // empty: a stray is a save-capped eviction (KNOWN_ISSUES, task 21/26).
+    private readonly HashSet<int3> _parkedOutOfBox = new HashSet<int3>();
+    private readonly List<int3> _parkedScratch = new List<int3>();
+    /// Resident dirty chunks skipped because they were outside the mirror box,
+    /// summed over every UploadDirty pass. Per pass: UploadStats.skippedOutOfBox.
+    public long SkippedOutOfBoxTotal { get; private set; }
+
     // --- Upload epochs. ADDITIVE (Phase 5c); nothing existing reads these.
     // "Is this chunk dirty?" cannot answer "has the GPU seen my edit yet?" for
     // a chunk that is edited EVERY frame -- it is dirty at every tick, was
@@ -144,6 +156,10 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         /// Evicted chunks whose clear was skipped because a resident chunk
         /// now owns their toroidal slot (the lost-update fix, 2026-09-25).
         public int evictClearsSkipped;
+        /// Resident dirty chunks NOT uploaded because they lie outside the
+        /// current mirror box (task 32): writing one would overwrite the
+        /// in-box chunk sharing its toroidal slot. Expected 0.
+        public int skippedOutOfBox;
 
         // PER-PHASE TIMING. The previous run reported a single upload_ms of
         // 44.9ms median against a 1.0ms budget and gave no way to attribute it.
@@ -320,6 +336,15 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
 
     /// Brick-linear index into the CPU-side mirror that feeds AirMip. NOT the
     /// GPU layout -- keep the two straight, they are deliberately different.
+    /// Inside the CURRENT mirror box [origin, origin + dims) on all three axes.
+    /// Integer and bitwise: dims are powers of two, so an offset is in range
+    /// exactly when no bit above the mask is set (a negative offset sets them all).
+    private bool InMirrorBox(int3 chunkCoord)
+    {
+        int3 d = chunkCoord - _windowOrigin;
+        return ((d.x & ~_chunkMask.x) | (d.y & ~_chunkMask.y) | (d.z & ~_chunkMask.z)) == 0;
+    }
+
     private int BrickLinearIndex(int3 worldBrick)
     {
         int3 w = worldBrick & _brickMask;
@@ -343,6 +368,20 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         // One pass = one epoch, advanced BEFORE the early-out so a pass with
         // nothing to do still moves time forward for anyone waiting on it.
         _uploadEpoch++;
+
+        // Parked out-of-box chunks: back in the box and still resident -> dirty
+        // again; evicted -> forget (the eviction marked it dirty itself).
+        if (_parkedOutOfBox.Count > 0)
+        {
+            _parkedScratch.Clear();
+            _parkedScratch.AddRange(_parkedOutOfBox);
+            foreach (int3 c in _parkedScratch)
+            {
+                if (store.GetChunk(c) == null) _parkedOutOfBox.Remove(c);
+                else if (InMirrorBox(c)) { _parkedOutOfBox.Remove(c); _dirtyChunks.Add(c); }
+            }
+        }
+
         if (_dirtyChunks.Count == 0) return stats;
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -386,6 +425,22 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         foreach (int3 chunkCoord in _dirtyOrdered)
         {
             Chunk chunk = store.GetChunk(chunkCoord);
+
+            // A RESIDENT chunk outside the mirror box must not reach its slot:
+            // the slot is (chunkCoord & mask), which it shares with the in-box
+            // chunk the shader reads there. Uploading it overwrote that chunk
+            // ("lost") or drew it at a non-resident box position ("stale") --
+            // KNOWN_ISSUES' stray-resident-chunk entry. Skip, park, count.
+            // Evicted chunks keep the clear path below (its owner test covers them).
+            if (chunk != null && !InMirrorBox(chunkCoord))
+            {
+                _dirtyChunks.Remove(chunkCoord);
+                _parkedOutOfBox.Add(chunkCoord);
+                stats.skippedOutOfBox++;
+                SkippedOutOfBoxTotal++;
+                continue;
+            }
+
             bool exempt = ChebyshevXZ(chunkCoord, cameraChunk) <= exemptRadiusChunks;
 
             // Deferred chunks stay in _dirtyChunks and upload on a later frame
@@ -669,6 +724,13 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
     /// and only the first two happened to agree").
     public int GpuIndexOf(int3 chunkCoord, int3 localBrick)
         => ChunkSlot(chunkCoord) * EngineConfig.BRICKS_PER_CHUNK + CoordMath.LocalBrickIndex(localBrick);
+
+    /// The CPU copy of a clipmap entry (the brick-linear mirror that feeds
+    /// AirMip). Written in the same loop as the GPU staging, so tests that run
+    /// without a GPU (-nographics) can read what a slot was given. Aliases like
+    /// the GPU slot does: any chunk sharing the toroidal slot reads the same entry.
+    public uint CpuMirrorHandle(int3 chunkCoord, int3 localBrick)
+        => _clipmapLocal[BrickLinearIndex(chunkCoord * EngineConfig.CHUNK_EDGE_BRICKS + localBrick)];
 
     public void Dispose()
     {

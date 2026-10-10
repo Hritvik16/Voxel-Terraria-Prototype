@@ -190,6 +190,8 @@ public class RaymarchFeature : ScriptableRendererFeature
     /// >= 0 forces LightingConfig.look without touching the file (the
     /// Playground's U key and the -phase7demo A/B shots). -1 = use the config.
     public static int LookOverride = -1;
+    /// >= 0 forces LightingConfig.emissiveBleed without touching the file. -1 = use the config.
+    public static int EmissiveBleedOverride = -1;
 
     /// SHADOW ROOF SKIP (Raymarch.compute's HeightMip block): exact by
     /// construction, so it changes cost, not pixels. OFF until measured;
@@ -340,7 +342,8 @@ public class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer taaCur, taaMetaR, taaMetaW, taaColR, taaColW;
             public TextureHandle taaScratch;
             public int kTaaResolve, kTaaSharpen;
-            public int kPrimary;   // CSMain (0), or CSMainChecker with -checker
+            public int kPrimary;   // CSMain (0), or CSMainChecker with -checker, or CSMainDetail (task 24)
+            public bool primaryChecker;   // kPrimary is CSMainChecker: dispatch half the width
             public ComputeShader compute;
             public Camera cam;
             public Matrix4x4 invProjection;
@@ -395,6 +398,7 @@ public class RaymarchFeature : ScriptableRendererFeature
             public Vector4 lookSkyZenith, lookSkyHorizon, lookSkyHalo, lookSun, lookAmbient, lookMoon;
             public float lookShadowDarkness, lookHazeDensity;
             public Vector4 lookGrade;
+            public int emissiveBleed;
 
             // ---- far band (FarField.cs) ----
             public int farEnabled, farShadow;
@@ -402,6 +406,7 @@ public class RaymarchFeature : ScriptableRendererFeature
             public Vector4[] farOrigins;
             public Vector4 farParams;
             public float farPixelAngle;
+            public float detailRadiusVoxels;   // task 24: 0 = hand-over at the residency edge (today)
             public VoxelEngine.Rendering.FarField.Scatter[] farScatters;
             public int farMipMask;
             public int kFarScatter = -1, kFarMip = -1;
@@ -549,6 +554,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.taa = taaOn ? 1 : 0;
                 passData.taaCur = _taaDummy4; passData.taaMetaW = _taaDummy2;
                 passData.kPrimary = 0;
+                passData.primaryChecker = false;
                 if (taaOn)
                 {
                     if (_taaCur == null || _taaW != dispatchW || _taaH != dispatchH)
@@ -568,8 +574,9 @@ public class RaymarchFeature : ScriptableRendererFeature
                     Unity.Mathematics.float3 sdT = SunCycle.Direction;
                     Vector3 sun = new Vector3(sdT.x, sdT.y, sdT.z).normalized;
                     var cfgT = LightingConfig.Active;
+                    int bleedSig = EmissiveBleedOverride >= 0 ? EmissiveBleedOverride : cfgT.emissiveBleed;
                     int lightSig = ShadowQualityLevel * 31 + (LookOverride >= 0 ? LookOverride : cfgT.look) * 7
-                                 + (TonemapOverride >= 0 ? TonemapOverride : cfgT.tonemap);
+                                 + (TonemapOverride >= 0 ? TonemapOverride : cfgT.tonemap) + bleedSig * 13;
                     // A LARGE LIGHT JUMP (the sun moving > 0.25 deg in a frame, a
                     // look / shadow-rung / tonemap switch) or a teleport (> 20 m)
                     // invalidates every history colour at once. The sun bound was
@@ -591,7 +598,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                     // only the odd or only the even Halton indices -- for base 2,
                     // all >= 0.5 or all < 0.5: a half-pixel bias between the halves).
                     passData.taaChecker = TaaChecker ? 1 : 0;
-                    if (TaaChecker) passData.kPrimary = activeCompute.FindKernel("CSMainChecker");
+                    if (TaaChecker) { passData.kPrimary = activeCompute.FindKernel("CSMainChecker"); passData.primaryChecker = true; }
                     passData.taaCheckerParity = (int)(_taaFrame & 1u);
                     int hi = (int)((TaaChecker ? (_taaFrame >> 1) : _taaFrame) % TaaJitterCycle) + 1;
                     _taaFrame++;
@@ -694,6 +701,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                 passData.lookHazeDensity = cfg.hazeDensity;
                 Unity.Mathematics.float4 g = SunCycle.LookGradeAt(hrs);
                 passData.lookGrade = new Vector4(g.x, g.y, g.z, g.w);
+                passData.emissiveBleed = EmissiveBleedOverride >= 0 ? EmissiveBleedOverride : cfg.emissiveBleed;
 
                 // Shadow roof skip. The buffer is bound on EVERY frame, on or
                 // off: an HLSL-declared buffer left unbound is undefined on Metal.
@@ -714,6 +722,15 @@ public class RaymarchFeature : ScriptableRendererFeature
                 var far = VoxelEngine.Rendering.FarField.Active;
                 bool farOn = far != null && far.Ready && VoxelEngine.Rendering.FarField.RenderEnabled && !useStripped && !useMemoryProbe;
                 passData.farEnabled = farOn ? (far.FarOnly ? 2 : 1) : 0;
+                // Task 24: speed-dependent voxel-detail radius (opt-in, -detailspeed 1).
+                if (cameraData.camera.cameraType == CameraType.Game)
+                    VoxelEngine.Streaming.DetailRadius.Tick(Time.frameCount, Time.realtimeSinceStartup, cameraData.camera.transform.position);
+                passData.detailRadiusVoxels = farOn ? VoxelEngine.Streaming.DetailRadius.ShaderRadiusVoxels : 0f;
+                // Only the CSMainDetail kernel reads it (VE_DETAIL_SPEED); CSMain and
+                // CSMainChecker are the pre-task code, so OFF and a still camera are
+                // byte-identical. Not combined with the checkerboard (CSMainChecker wins).
+                if (passData.detailRadiusVoxels > 0f && passData.kPrimary == 0)
+                    passData.kPrimary = activeCompute.FindKernel("CSMainDetail");
                 passData.farShadow = farOn && far.ShadowsOn ? 1 : 0;
                 passData.farTexels = farOn ? far.Texels : _farDummy;
                 passData.farMips = farOn ? far.Mips : _farDummy;
@@ -973,6 +990,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeFloatParam(data.compute, "_LookShadowDarkness", data.lookShadowDarkness);
                         cmd.SetComputeFloatParam(data.compute, "_LookHazeDensity", data.lookHazeDensity);
                         cmd.SetComputeVectorParam(data.compute, "_LookGrade", data.lookGrade);
+                        cmd.SetComputeIntParam(data.compute, "_EmissiveBleed", data.emissiveBleed);
 
                         cmd.SetComputeIntParam(data.compute, "_ShadowRoofSkip", data.roofSkip);
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsA", data.heightOffsetsA);
@@ -1004,6 +1022,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeVectorArrayParam(data.compute, "_FarOrigin", data.farOrigins);
                         cmd.SetComputeVectorParam(data.compute, "_FarParams", data.farParams);
                         cmd.SetComputeFloatParam(data.compute, "_FarPixelAngle", data.farPixelAngle);
+                        cmd.SetComputeFloatParam(data.compute, "_DetailRadiusVoxels", data.detailRadiusVoxels);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarTexels", data.farTexels);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarMips", data.farMips);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarResident", data.farResident);
@@ -1066,7 +1085,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                     int threadGroupsX = Mathf.CeilToInt(data.dispatchWidth / 8f);
                     int threadGroupsY = Mathf.CeilToInt(data.dispatchHeight / 8f);
                     // Checkerboard: the primary pass covers half the width.
-                    int primaryGroupsX = data.kPrimary != 0
+                    int primaryGroupsX = data.primaryChecker
                         ? ((data.dispatchWidth + 1) / 2 + 7) / 8 : threadGroupsX;
                     // NAMED for GPU capture. CommandBuffer.BeginSample emits a
                     // Metal debug group, so this shows up in an Instruments
