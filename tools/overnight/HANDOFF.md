@@ -1,59 +1,72 @@
-# 50-engine-3c-upscaler-clips: DONE. 6 paths x 6 arms recorded on identical fixed-step frames; 48 MP4s in `Screenshots/Engine03/clips/` (uncommitted).
+# 51-engine-3d-upscaler-fps-realrate-clips: DONE. Frame rate per arm timed (warm, ABBA, 0 streaming frames); 3 real-rate clips + 2 lit 30 fps clips. No default changed.
 
-(Q38 is still the owner's pick. No default changed. A visual task: no frame-time numbers.)
-
-## What changed (branch `engine-phase`: 5c2eca3, 5edd63a, 17dd406, c54fe00)
-- `Assets/Game/PlaygroundCapture.UpscalerClips.cs` (`-upscalerclips`, `-clippaths a,b`): the poses are computed once from the tg2 map. Each path is 30 lead-in + 240 recorded frames at `Time.captureFramerate = 30`. Arms run in process via 48's `ApplyCompareArm`. History is reset per arm x path with 2 native frames + URP `resetHistory`.
-  Streaming never reaches a recorded frame: on a chunk change, or while loads/uploads are pending, the camera is switched OFF (so no upscaler history moves), the streamer gets the pose, and the run waits.
-  `far.Busy` is NOT waited for, because it only clears in the render pass. Those frames are counted instead.
-- `run-upscaler-clips.sh`: fullscreen 1920x1080, holds the Unity lock. A background loop encodes each finished path (`tools/upscaler-clips-encode.sh`).
-- `tools/frames-to-mp4.swift` (AVFoundation H.264: encode / info / frame), `tools/upscaler-clip-grids.py` (3x2 grid + 1:1 crops).
-- `Playground.cs` / `PlaygroundCapture.cs`: flag wiring only.
+## What changed (branch `engine-phase`: 0624152, 3fe865a, e71ec70)
+- New `Assets/Game/PlaygroundCapture.UpscalerRealRate.cs`, run as `-upscalerclips -realrate` by the new `run-upscaler-realrate.sh`. Each step:
+  - **Light:** noon, sun at 78 deg elevation toward +Z. The eyes stand on the sun's side of the peak and look at it. A path is kept if its first frame has terrain luma >= 70 and sky <= 1/3 (a CPU ray per cell against the map).
+  - **Timing:** per path, the arms run A..F then F..A, each 3 s settle + 20 s timed. The camera follows the path in real time. No capture, no HUD, fluid on.
+  - **Clips:** recorded at `captureDeltaTime` = the arm's pooled p50. fsr3_dyn is held at its timed rows (`UpscalerSelect.HoldDynRows`).
+  - **Encode:** 60 fps sample-and-hold. `tools/upscaler-clip-grids.py` has a real-rate mode; `tools/upscaler-realrate-encode.sh` drives it.
+- `Phase4Bootstrapper.DebugStreamCentre`: a measurement seam, null (off) by default. Timing pins streaming at the path's middle pose.
+  - Why: in the first launch the window recentred on every chunk and Y layer the walk crossed. Every timed frame streamed (resident 3591 -> 2650), so walk taa read 59 ms in pass 1 and 81 ms in pass 2.
+  - That launch's log is `Logs/overnight/51_run1_streaming_aborted.txt`. Its walk numbers are "while streaming" evidence only.
+- `-raterecord <path>:<arm>=<ms>,...` re-records single arms. During fly's fsr1 and stp recordings the Metal surface jumped to 2880x1800 (Player.log RecreateSurface, as in task 50), so I re-recorded those two arms and merged them.
+- Refactors that keep behaviour: task 50's per-arm loop is now `ClipRecordArm`; `ClipRun` takes any length and lead; spin_stop is `ClipSpinStop`; `FindCliffFoot` uses the new `FindCliffFeet`.
 
 ## Evidence
-- Fast suite PASS 634 FAIL 0 SKIP 14 (`Logs/overnight/50_fast4.out`, after the last code change).
-- Logs: `Logs/upscalerclips_2026-10-10_110613.txt` (all paths) and `..._115738.txt` (walk_cliff re-record). Encoder logs: `..._encode.txt`. Combined copy: `Screenshots/Engine03/clips/upscalerclips.txt`.
-- **Every arm of every path: deficit at render 0 on all 240 frames, 0 wait timeouts, 0 frames in rock, 0 re-records.**
-  - Resident chunks: walk 3675, pan/spin/water/night 3087, fly 3087 -> 3562 (about 47 camera-off waits per arm, ~70 s).
-  - Far band still baking while a frame rendered: walk 7 frames, fly 15, others 0. I saw no pop in the frames I looked at.
-- Every MP4 was checked with AVFoundation: 240 frames, 8.000 s, 30 fps.
-- I looked at extracted frames (first/mid/last native per path; crop grids at 2.0/4.0/5.0 s). Every tile shows the same view, labels are right, and there are no black or garbled tiles.
-- Two aborted runs, both fixed:
-  - Run 1: windowed, the surface jumped to 2880x1800. Fix: fullscreen, plus a size check on every frame.
-  - Run 1 also hit `far.Busy` wait timeouts. Logs: `Logs/overnight/50_run1_aborted.txt` and `50_run2_aborted.txt`.
-- **dyn caveat:** fsr3_dyn's controller timed capture-slowed frames and the fast camera-off frames. Rows were 540 on the still paths, 540-720 on walk_cliff and 684-720 on fly. This is NOT what dyn would do in play.
-- Crop windows (`crop_<path>.json`):
-  - Automatic: spin_stop (slope edge on the red peak), fly (sand mid-ground).
-  - Set by hand after looking (`crop_<path>.xy`): walk_cliff 640,0 (ridge), pan_horizon 640,240 (peak silhouette), water 640,460 (lakes + sea horizon), night_torches 640,400 (torch ring).
-- Disk: raw JPEGs peaked at 4.9 GB, over the ~3 GB plan, because I kept them for the crop re-cuts. 29 GB was free. All raw frames and player data folders are deleted. Clips total **549 MB** (over ~400): the six singles per path (10 Mbit/s, ~10 MB each) are 2/3 of it.
+- Fast suite PASS 634 FAIL 0 SKIP 14 after the last change (`Logs/overnight/51_fast3.out`).
+- **Warm steady state.** Warm-up `Logs/tg2world_20261010_125624.txt`, then the measured launch at once (45 s lock gap). On AC, 100% charged before and after; owner hold no/no.
+- Measured log: `Logs/upscalerrealrate_2026-10-10_130258.txt`, copied to `Screenshots/Engine03/clips_realrate/upscalerrealrate.txt`. Fly re-record: `Logs/upscalerrealrate_fly_rerecord.txt`.
+- **Timing quality:**
+  - Streaming frames (deficit > 0) while timing: 0 on every arm. Resident stayed at 3087.
+  - Pass 1 vs pass 2 p50 within 2% except fly: taa 13.2/14.6 (10%), fsr1 12.6/14.1 (12%, over 10%: not averaged away, shown pooled), native 6%, stp 6%.
+- **Fly caveat:** the fly path reaches 200 m from the pinned centre, past the voxel window, so the far band draws its ends while timing. Real 40 m/s flight streams all the time (KNOWN_ISSUES streaming), so real fly runs slower.
+- **Spikes in every arm:** p95 is 140-160 ms on walk/spin even for 540-row arms, about +100 ms on top of p50 whatever the upscaler. Mean fps is far below p50 fps (fly fsr1 39 mean vs 74 at p50).
+  - Not isolated. Fluid was on (6-frame tick), so it is the first suspect.
+  - The clips use p50, so they show the smooth part, not the hitches.
+- **Clips:** every recorded frame had deficit 0, 0 timeouts, 0 in rock, and was 1920x1080 after the re-record.
+  - Real-rate MP4s: 480 frames, 8.000 s, 60 fps each.
+  - Lit MP4s: 240 frames, 8.000 s, 30 fps each.
+- **Light check:**
+  - walk_cliff: cliff 3 of 10 with pitch +25 deg, luma 73, sky 11%. Task 50's walk_cliff frames had mean luma 30 and 19.
+  - spin_stop: r0.45_d0 pitch +15, luma 77, sky 0%. fly: r0.45_d0, luma 74, sky 1%. pan_horizon_lit: r0.65_d-30, luma 76, sky 28%.
+  - Task 50's walk_cliff (near-black, backlit) and pan_horizon (dark peak at 4 s) both needed the `_lit` re-record. Done.
+- Frames I looked at:
+  - walk grid at 2.0 s: the snow slope is sunlit, but the cliff wall itself is still grey and shaded, because a 78 deg sun barely lights a wall.
+  - spin grid and crops at 2.0 and 5.0 s; fly crop at 4.0 s; lit walk at 1.0 s and lit pan at 4.0 s (well lit).
+- Disk: raw frames peaked at 4.7 GB (fly's refused 3.8 GB was held for the re-record), over the ~3 GB plan; 22 GB was free. All raw frames and run folders are deleted. `clips_realrate/` is 138 MB; the 4 `_lit` MP4s are 68 MB. Per-arm singles were skipped (`NOSINGLES=1`).
 
-## What I saw (plain observations; the owner decides)
-- spin_stop, frame-to-frame luma change while stopped (whole frame, 0-255; t 3.97-4.13 / 4.5-5 / 6-8 s):
-  native 0.01/0.01/0.01, fsr1 0/0/0, taa 1.77/1.54/1.53, stp 2.78/1.62/1.53, fsr3_dyn 1.27/0.86/0.86, fsr3_720 1.33/0.86/0.87.
-  fsr3 settles within ~0.2 s. taa and stp keep shimmering at rest.
-- **taa** smears in every moving clip: water pan, fly, night pan. 1 s after the spin stops it is still soft, with a hazy band at the slope foot.
-- **fsr1**: chevron moiré on the sand, black speckle on the snow and sea, and a greyer sky (48's tone shift).
-- **stp**: clean and coherent, a little soft.
-- **fsr3_720**: the sharpest moving arm. fsr3_dyn showed stronger moiré rings than fsr3_720 in the fly crop at 4.0 s.
-
-## Unfinished / next
-- Nothing open in the task. The supervisor builds the viewing page, then the owner answers Q38.
-- To save disk, the per-arm singles can go; the grid/crop files carry the comparison.
+## Not done / next
+- night_torches was not re-recorded (not one of this task's paths).
+- `run-upscaler-realrate.sh` copies each run's log to `clips_realrate/upscalerrealrate.txt`, so a `-raterecord` run overwrites it (I restored it by hand).
+- Suggested follow-up (owner's call, not queued because it is a measurement): find the cause of the ~100 ms hitches every few frames (fluid tick?). They cost more than any upscaler choice.
+- `tools/overnight/PAUSE` exists (14:04, not mine). The queue will stop after this task.
 
 ## For the doc
-- Videos in `Screenshots/Engine03/clips/` (all 240 frames / 8 s / 30 fps):
-  - `grid_<path>.mp4`: 2880x1080, 17-19 MB.
-  - `crop_<path>.mp4`: 1920x720, 1:1 crops, 11-17 MB.
-  - `<path>__<arm>.mp4`: 1920x1080, 6-11 MB.
-  - Paths: walk_cliff, pan_horizon, spin_stop, fly, water, night_torches. Arms: native, taa_540, fsr1_540, stp_540, fsr3_dyn, fsr3_720. Total 549 MB.
-- What to watch, per path:
-  - walk_cliff: the ridge line against the sky at 0-2 s and 6-8 s (crop). At 3-5 s the view faces the dark, shadowed wall.
-  - pan_horizon: the peak silhouette crawling across the crop at 2-6 s; distant ridge flicker.
-  - spin_stop: 0-4 s spinning (the same view returns every 2 s), dead stop at 4.0 s. Watch 4.0-5.0 s for how fast each tile goes still.
-  - fly: the sand moiré, and taa's streaks, from 1 s on.
-  - water: lakes and sea at 2-6 s. taa blurs; fsr1 speckles the snow.
-  - night_torches: the torch glow and sand at 3-5 s.
-- Numbers: deficit at render 0/240 on every arm x path. Still-frame luma change after the stop: fsr3 0.86, taa 1.53, stp 1.53 (from 2.78 at the stop), native/fsr1 0.
-- `Screenshots/Engine03/clips/stills/spin_stop_crop_t5.0_1s_after_stop.png`: 1 s after the stop. Top middle (taa): soft, hazy band at the slope foot. Top right (fsr1): chevron moiré on the sand. Bottom row (stp, fsr3 dyn, fsr3 720): crisp.
-- `Screenshots/Engine03/clips/stills/water_crop_t4.0_midpan.png`: mid-pan. taa (top middle) blurs the lakes and the cliff. fsr1 (top right) puts black speckle on the snow and sea. fsr3 (bottom middle/right) is sharp and clean.
-- `Screenshots/Engine03/clips/stills/fly_crop_t4.0.png`: at 40 m/s. taa (top middle) warps the sand into streaks. fsr1 (top right) shows blotches. stp (bottom left) is soft but coherent. fsr3_dyn (bottom middle) has moiré rings; fsr3_720 (bottom right) has fewer.
+| arm | walk fps (p50 / p95 ms) | spin fps (p50 / p95) | fly fps (p50 / p95) | dyn rows | notes |
+|---|---|---|---|---|---|
+| native 1080p | 5.9 (170 / 271) | 7.3 (138 / 236) | 25.0 (40 / 144) | - | slowest by ~3x |
+| taa_540 | 16.9 (59 / 156) | 22.9 (44 / 141) | 71.7 (13.9 / 64) | - | fly passes 13.2 / 14.6 |
+| fsr1_540 | 17.3 (58 / 160) | 23.4 (43 / 143) | 74.4 (13.4 / 57) | - | fastest; fly passes differ 12% |
+| stp_540 | 16.7 (60 / 163) | 22.1 (45 / 146) | 63.8 (15.7 / 54) | - | |
+| fsr3_dyn | 16.0 (62 / 163) | 20.7 (48 / 153) | 54.4 (18.4 / 98) | 540; fly 540-576 | sat at 540 |
+| fsr3_720 | 10.4 (96 / 195) | 13.3 (75 / 174) | 37.3 (26.8 / 125) | - | 720 rows cost +36 ms on walk |
+
+**Plainly: on this Mac no arm reaches 30 fps at eye level** (walk and spin). The 540-row arms run 16-23 fps there, fsr3_720 10-13, native 6-7.
+Only the fly view, looking down at ground 30 m below, is faster: the 540 arms reach 30 at p50 (54-74), fsr3_720 37, native 25. Their p50 is over 60 for taa, fsr1 and stp, but mean fps on fly is only 31-39 because of the hitches, so **nothing holds 60**.
+
+Videos in `Screenshots/Engine03/clips_realrate/` (`grid_<path>.mp4` 3x2 960x540 tiles, 24 MB; `crop_<path>.mp4` 1:1 crops, 20 MB). Each tile is labelled "<arm>  <fps> fps (<ms> ms)".
+- **walk_cliff:** a new, sunlit cliff and view. native visibly steps (each frame held ~0.17 s). The 540 arms step about 17 times a second and move 0.3 m per frame (task 50: 0.17 m), so expect more smear than in task 50.
+- **spin_stop:** a new view (lit sand and lake). At ~22 fps the 540 arms turn 8 deg per frame (task 50: 6 deg); native turns 25 deg per frame and jumps.
+- **fly:** the 540 arms run 54-74 fps, so they move 0.5-0.7 m per frame against task 50's 1.3 m. They should smear less than in task 50; native is close to task 50.
+- Well-lit 30 fps versions of task 50's dark paths: `Screenshots/Engine03/clips/{grid,crop}_{walk_cliff,pan_horizon}_lit.mp4`.
+
+Images:
+- `Screenshots/Engine03/clips_realrate/stills/spin_stop_crop_t2.0_midspin.png`: real rate, mid-spin, the far lake shore.
+  - Top middle (taa): the bright shoreline band is smeared into a soft blur.
+  - Top right (fsr1): broken bright fragments and speckled water.
+  - Bottom row (stp, fsr3): crisper.
+  - Each tile shows its own last frame, so the views differ slightly.
+- `Screenshots/Engine03/clips_realrate/stills/task50_fixed30_spin_stop_crop_t2.0_midspin.png`: task 50's fixed-30 mid-spin, a different (old, dimmer) view of a sand slope. Compare how much taa (top middle) blurs the dune ripples there with the real-rate still above.
+- `Screenshots/Engine03/clips_realrate/stills/lit_native_walk_t1.0_pan_t4.0.png`: the new light, native.
+  - Left (walk_cliff_lit): sunlit snow terraces in front, but the cliff wall is still shaded grey.
+  - Right (pan_horizon_lit): the peak, sand and river fully lit, sun behind.
