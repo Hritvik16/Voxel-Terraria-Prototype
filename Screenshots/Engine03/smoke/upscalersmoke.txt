@@ -1,0 +1,31 @@
+UPSCALER SMOKE -- 2026-10-10_061539
+device Apple M1 (Metal)  screen 1920x1080  RELEASE  world tg2
+pose (4000.00, 916.30, 4000.00) euler (8, 30, 0), 11:00, clock paused.  dark = share of pixels with max(r,g,b) < 8
+
+config          dispatch      screen           meanRGB    dark  file  (traced = raymarch dispatches / frames; must be ~all)
+none_540         960x540   1920x1080       (79,95,115)    1.0%  none_540.png  traced 90/90 frames
+none_720        1280x720   1920x1080       (78,95,115)    1.1%  none_720.png  traced 89/90 frames
+taa_540          960x540   1920x1080       (78,94,114)    0.8%  taa_540.png  traced 89/90 frames
+taa_720         1280x720   1920x1080       (78,94,114)    0.9%  taa_720.png  traced 89/90 frames
+fsr1_540         960x540   1920x1080       (71,88,102)    1.6%  fsr1_540.png  traced 89/90 frames
+fsr1_720        1280x720   1920x1080       (70,87,102)    1.7%  fsr1_720.png  traced 89/90 frames
+stp_540          960x540   1920x1080       (71,88,102)    1.5%  stp_540.png  traced 89/90 frames
+stp_720         1280x720   1920x1080       (71,87,102)    1.5%  stp_720.png  traced 89/90 frames
+fsr3_540         960x540   1920x1080       (77,94,114)    1.0%  fsr3_540.png  traced 89/90 frames
+fsr3_720        1280x720   1920x1080       (78,94,114)    1.2%  fsr3_720.png  traced 89/90 frames
+diag_urppost_linear_540     960x540   1920x1080       (76,93,106)    1.0%  diag_urppost_linear_540.png
+
+DYN (600 frames each, from 540 rows; target 16.7 ms, dead band 15-18 ms)
+none_dyn         960x540   1920x1080       (79,95,115)    1.0%  none_dyn.png
+  none: settled at 540 rows (stable 600 frames, 0 steps, smoothed 43.5 ms; raymarch dispatches 599 in 600 frames)
+taa_dyn          960x540   1920x1080       (78,94,114)    0.8%  taa_dyn.png
+  taa: settled at 540 rows (stable 600 frames, 0 steps, smoothed 44.0 ms; raymarch dispatches 599 in 600 frames)
+fsr1_dyn         960x540   1920x1080       (71,88,102)    1.6%  fsr1_dyn.png
+  fsr1: settled at 540 rows (stable 600 frames, 0 steps, smoothed 42.7 ms; raymarch dispatches 599 in 600 frames)
+stp_dyn          960x540   1920x1080       (71,87,102)    1.4%  stp_dyn.png
+  stp: settled at 540 rows (stable 600 frames, 0 steps, smoothed 45.9 ms; raymarch dispatches 599 in 600 frames)
+fsr3_dyn         960x540   1920x1080       (77,93,113)    1.3%  fsr3_dyn.png
+  fsr3: settled at 540 rows (stable 600 frames, 0 steps, smoothed 48.1 ms; raymarch dispatches 599 in 600 frames)
+
+FSR 3: context 1280x720 -> 1920x1080, flags EnableDynamicResolution +DepthInverted
+STP inputs: _CameraDepthTexture D32_SFloat_S8_UInt (SV_Depth write)

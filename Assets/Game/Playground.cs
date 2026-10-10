@@ -300,6 +300,8 @@ public class Playground : MonoBehaviour
         // world's first run lost its preset exactly that way.
         if (!IsCaptureRun()) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Default));
         else if (HasArg("-renderpreset")) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Kind.Quality));
+        // -upscaler / -renderrows (task 47, UpscalerSelect.cs): only when asked, in any mode.
+        if (UpscalerSelect.FromArgs(out var upsKind, out int upsRows, out bool upsDyn)) UpscalerSelect.Apply(upsKind, upsRows, upsDyn);
         // The minimap (owner, 2026-09-26: "always in the corner"). F4 hides it.
         if (GetComponent<Minimap>() == null) gameObject.AddComponent<Minimap>();
         // -playshot S (task 32b, run-play.sh SHOT=S): one screenshot of the
@@ -406,7 +408,7 @@ public class Playground : MonoBehaviour
         if (HasArg("-playgroundshots") || HasArg("-gputrace") || HasArg("-p7stress") ||
             HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
-            HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-torchshadowshots") || HasArg("-looksweep") ||
+            HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-torchshadowshots") || HasArg("-upscalersmoke") || HasArg("-looksweep") ||
             HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-nearshimmer") || HasArg("-fluidroster") ||
             HasArg("-devmap") || HasArg("-taarisk") || HasArg("-fluidprobe") || HasArg("-poolprobe") || HasArg("-streamprobe") || HasArg("-flysweep"))
         {
@@ -419,7 +421,7 @@ public class Playground : MonoBehaviour
         // panel and a hotbar across them defeats the point.
         if (HasArg("-p7stress") || HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-phase7demo") || HasArg("-roofskipab") || HasArg("-upscaleab") ||
-            HasArg("-lavalight") || HasArg("-torchshadowshots") || HasArg("-looksweep") || HasArg("-farvisual") ||
+            HasArg("-lavalight") || HasArg("-torchshadowshots") || HasArg("-upscalersmoke") || HasArg("-looksweep") || HasArg("-farvisual") ||
             HasArg("-farpreview") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-nearshimmer") || HasArg("-fluidroster") || HasArg("-taarisk") || HasArg("-streamprobe") || HasArg("-flysweep")) DebugHideUi = true;
 
         RegisterDefaultToys();
@@ -449,7 +451,7 @@ public class Playground : MonoBehaviour
         foreach (string a in Environment.GetCommandLineArgs())
             if (a.StartsWith("-") && (a == "-sustained" || a == "-playgroundshots" || a == "-gputrace" || a == "-p7stress" ||
                 a == "-daysweep" || a == "-presetshots" || a == "-phase7demo" || a == "-roofskipab" || a == "-upscaleab" ||
-                a == "-lavalight" || a == "-torchshadowshots" || a == "-looksweep" || a == "-farvisual" || a == "-farpreview" || a == "-flyfast" ||
+                a == "-lavalight" || a == "-torchshadowshots" || a == "-upscalersmoke" || a == "-looksweep" || a == "-farvisual" || a == "-farpreview" || a == "-flyfast" ||
                 a == "-farseams" || a == "-lodpop" || a == "-farshimmer" || a == "-nearshimmer" || a == "-fluidroster" || a == "-devmap" || a == "-taarisk" || a == "-streamprobe" || a == "-flysweep" || a == "-poolprobe" ||
                 a == "-stutterprobe" || a == "-lightingab" || a == "-shadowstats" || a == "-pitchsweep" || a == "-fluidbench"))
                 return true;
@@ -1058,6 +1060,7 @@ public class Playground : MonoBehaviour
         if (!_ready) return;
         if (_cam == null && Camera.main != null) _cam = Camera.main.GetComponent<PlaygroundFlyCamera>();
         RenderPreset.Tick();
+        UpscalerSelect.Tick();
 
         float dt = Time.deltaTime;
         _actAge += dt;

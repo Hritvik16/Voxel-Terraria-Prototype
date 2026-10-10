@@ -57,7 +57,7 @@ public static class RenderPreset
     /// switch that lands a frame after Start).
     public static void Tick()
     {
-        if (_applied && Current != Kind.Quality && Screen.width > 0 && Screen.width != _appliedWidth) Apply(Current);
+        if (_applied && Current != Kind.Quality && !UpscalerSelect.Active && Screen.width > 0 && Screen.width != _appliedWidth) Apply(Current);
     }
 
     public static Kind FromArgs(Kind fallback)
@@ -87,6 +87,7 @@ public static class RenderPreset
 
     public static void Apply(Kind k)
     {
+        UpscalerSelect.Deactivate();    // F3 takes the frame back from -upscaler (task 47)
         Current = k;
         _applied = true;
         _appliedWidth = Screen.width;
