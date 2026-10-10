@@ -1,74 +1,70 @@
-# Session handoff -- 2026-10-09 22:30 (supervisor; queue STOPPED, waiting on the engine plan)
+# Session handoff -- 2026-10-10 07:30 (supervisor; queue RUNNING task 49)
 
 ## For the owner
-**Why a new session:** this supervisor chat reached ~8 MB (the size hook fired), and it is a natural
-stopping point: the terrain phase is closed and the queue is stopped waiting for your approval of the
-engine phase plan.
+**Why a new session:** four tasks finished in this supervisor chat (the rule is to hand off after
+3-4), and the chat has grown. Nothing is lost: everything is in the Queue decisions doc.
 
-**What the previous chat covered (19:00-22:30):**
-- **37e flat lake water** finished: every lake sits still at one level. It made rectangular shores,
-  so you picked a fix (Q35 3a) -> **42** made shores follow the ground (grid-aligned shore 25-36% ->
-  8.5-10%) and renamed the landform Badlands -> **Breaks**.
-- **41 lava look:** Gemini's lava merged; you answered Q34 a/a/a (keep it; emissive bleed off until
-  measured; lava ignores torch light). You said what you liked in the SVO is "how light reacts to its
-  surroundings".
-- **Gemini** did the lava-ignores-torch fix + a written SVO-vs-ours lighting comparison (branch
-  `gemini/lava-torch-light`, bd60a30, in `../VT_gemini`). Code fix correct; the notes' line numbers were
-  wrong, but the main finding holds: the SVO's torches cast shadows, ours shine through walls; the
-  SVO has bleed on. Both went to BUGS.md #4 and into the engine plan.
-- **B10 review pack (Q35):** 1a keep the shipped savanna/badlands colours; 2a park the straight
-  biome borders (BUGS deferred); 3a fix the lake shores (42); 4a rename (42); 5a biome size fine;
-  6a v4 default + merge.
-- **43:** map v4 is the default world; `surface-rebuild` merged into LOCAL `main` (884e993). Nothing
-  pushed -- main is 137+ commits ahead of origin; pushing is your call. The perf check was dropped
-  (ROADMAP step 3 replaces it).
-- **44 engine phase plan** written: https://claude.ai/code/artifact/62d9391e-b05a-42d0-83c2-34d9bfeb04f7
-- Usage: 64% of the week at Fri 20:11 (resets Thu 06:00). Your usage page shows a FREE "Full reset"
-  (expires Oct 22) -- worth keeping for when the week runs out early.
+**What the previous chat covered (9 Oct 23:00 - 10 Oct 07:30):**
+- You gave the engine plan the green light (Q36). Q1 a, Q2 a, Q5-Q8 a. **Q3:** compare all three
+  resolutions. **Q4:** you asked for ready-made upscalers instead of building our own, so step 3 became
+  "plug in FSR 1 / STP / FSR 3 port and compare".
+- You said the doc was hard to navigate and asked for a report after every task. The Queue decisions doc
+  now has tabs: **Now** (running / waiting on you / Done table), **Task reports** (numbers + pictures per
+  task, newest first), **Answered**, **Archive (to 9 Oct)**. Tasks must now end their handoff with a
+  "For the doc" block (PREAMBLE rule 8); SUPERVISOR.md's done-rule copies it into the doc.
+- **45** one world-map generator: the Editor map now equals the game's (same hash), map build 27.5 -> 1.5 s,
+  suite 665/0; Gemini's lava-torch fix merged.
+- **46** torch shadows: no light through walls (0.061 -> 0.000), emissive bleed on, Phase 7 rig 37/0.
+  Q37 (black recesses in the lava cavern): going ahead with (a) accept until the light grid, unless you object.
+- **47** upscalers plugged in: none / TAA / FSR 1 / STP / FSR 3 all work; fixed STP drawing nothing in builds.
+- **48** comparison: stopped for your pick, **Q38** (recommended FSR 3 at dynamic 540-720).
+- All on branch `engine-phase`; `main` untouched, nothing pushed.
+- Usage: 70% of the week at Fri 22:57 (resets Thu 06:00).
 
-**Running:** nothing. The queue is stopped.
-**Open for you:** Q36 = the engine plan's Q1-Q8 (answer in the plan doc or the Queue decisions doc;
-"all (a)" approves it as written). Also BUGS.md #5 (river water steps into lakes behind grid squares)
-is your call some day.
-**Close:** the old supervisor's window (tmux `claude-retry-4036-1791585229869`, window 1 -- the one
-titled with this handoff); the new supervisor closes it.
+**Running:** task 49 (engine step 4: memory ledger -- counts how full each memory pool gets). Started 07:21.
+**Open for you:** Q38 upscaler pick; the disk is 97% full (6.4 GB free) -- OK to delete task 48's 190 MB
+of raw stills?; a usage screenshot before steps 5-6 are queued.
+**Close:** the old supervisor's tmux window (`claude-retry-4036-1791585229869`, window 0, titled
+"Overnight queue supervisor handoff"); the new supervisor closes it.
 
 ## State
-- Branch `surface-rebuild` = `main` + supervisor/44 commits (tree clean but for Playground.unity churn
-  and HANDOFF.md). Runner idle (tmux `overnight`, ended). Queue empty.
-- Blocked: `44-engine-phase-plan-doc` (STOP_FOR_OWNER, waiting on Q36); `37e` leftovers are reference only.
-- Later: `later/37c`, `38` (shadow dots -> plan step 8), `40` (ledge crescent -> plan step 11b).
-- BUGS.md open rows 1-5. Last suite SUITE=all 662/0/18 (task 43).
-- Gemini worktrees: `../VT_gemini` (gemini/lava-torch-light bd60a30 -- engine plan step 1 merges it),
-  `../VT_gemini2` (audit report only; never merge; delete when the owner agrees).
+- Branch `engine-phase` (from `surface-rebuild`): 45 `5410b23`, 46 `cd5266e`, 47 `a14b0f4`, 48 `f792468`.
+- Queue: 49 running. Blocked: `48-engine-3b-upscaler-compare` (STOP_FOR_OWNER Q38); `37e` leftovers are
+  reference only.
+- Runner in tmux `overnight`; task-watcher Terminal tab is open.
+- Last suites: SUITE=all 665/0/18 (task 45); fast 634/0/14 (task 48). Phase 7 rig 37/0 (46).
 
 ## Next for the supervisor
-1. On the owner's Q36 answers: record them (Answered), write plan step 1's task file from
-   `ENGINE_PHASE_PLAN.md` (one compiled world-map generator path; first commit merges
-   `gemini/lava-torch-light` bd60a30 and compile-checks + reshoots lava pose 4 under torches), and
-   steps 2-3 per Q6. Copy every number the task needs INTO the task file. Engine steps are
-   performance work: CLAUDE.md measurement rules apply only to the [measure] steps.
-2. Ask for a usage screenshot before queueing big steps late in the week.
+1. Arm the runner-event wait (SUPERVISOR.md "The loop"). On 49 done: report into the Task reports tab
+   (49 has no images -- a table only) and the Now tab.
+2. Before queueing steps 5 (fluid tiles for awake fluid only, BUGS #3) and 6 (cascade caps from 49's
+   PeakUsed), ask the owner for a usage screenshot (both are M/S; the week was at 70% Fri night).
+   Copy 49's measured peaks INTO those task files.
+3. On Q38: record it in the Answered tab; write a small task that makes the pick the default in play
+   (the old "TAA on by default" rule is satisfied: the owner compared), then step 7 (frame-time
+   milestone, warm ABBA, CLAUDE.md measurement rules) -- requires 2, 3 done.
+4. If the owner OKs the disk cleanup: `rm Screenshots/Engine03/compare/*__*.png` (uncommitted raw stills).
+5. CLAUDE.md line ~54 says `MAPV=3` is "byte-identical pre-rebuild map": no longer true after 45 (same
+   shapes, Burst floats). Fold the fix into the next task that edits CLAUDE.md, or tell the owner.
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 448;
-  "Waiting on you" lead mk2vq5dkmp6.27623 -- Q36 sits right below it; Done table header row
-  mk2vq5dkmp6.1425 (insert rows after it, 5 cells); "Running now" paragraph mk2vq5dkmp6.55626
-  (edit it with a `find` replace of its text, no guard needed))
-- Engine phase plan: https://claude.ai/code/artifact/62d9391e-b05a-42d0-83c2-34d9bfeb04f7 (repo copy ENGINE_PHASE_PLAN.md)
-- Surface rebuild plan: https://claude.ai/code/artifact/f6222d44-1457-4a92-9460-3390d44e75fd
+  Tabs: Now = body node `3b5fd194-f74f` (rev 16; "Running" paragraph `mk2vq5dkmp6.121`, "Next up"
+  `mk2vq5dkmp6.357`, Q38 `mk2vq5dkmp6.2876`, Q37 `mk2vq5dkmp6.1933`, Done table `mk2vq5dkmp6.886` --
+  insert rows as `"as":"blocks"` row JSON, 4 cells; Usage paragraph `mk2vq5dkmp6.700`).
+  Task reports = body `d611dfba-5116` (rev 5; insert new reports AFTER the intro `mk2vq5dkmp6.13`).
+  Answered = body `4e4a30eb-dbfc`. Archive = body `8460ce71-6ba5`.
+- Engine phase plan: https://claude.ai/code/artifact/62d9391e-b05a-42d0-83c2-34d9bfeb04f7 (repo copy
+  ENGINE_PHASE_PLAN.md, now marked APPROVED)
 - Game Design Brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
 
 ## Notes
-- Images in the doc: Artifact publish (url = doc link, asset true, file_path[s]) -> Docs `batch`
+- Images: Artifact publish (url = doc link, asset true, file_path[s]) -> Docs `batch`
   `{"verb":"create","object":"blob","engine":"blob","payload":{"asset":"<id>"}}` -> `![alt](blob/<minted>)`
-  plus an italic caption line.
-- Gemini runs in `../VT_gemini` with shell disabled and cannot read outside its folder: copy reference
-  files into it (e.g. `SVO_REF/`) and point the brief at them. Gemini cannot commit; the supervisor
-  reviews and commits on its branch.
-- Owner answers in the doc as bare "a" paragraphs under each question -- read with `sinceRev`; a
-  missing answer = ask in chat (Q2/Q6 were missed once).
+  plus an italic caption. Look at each image before placing it.
+- Owner answers arrive as short paragraphs under questions; read each tab with `sinceRev`.
+- The 5-hour window can bind too (97% at 22:57 Fri): if a screenshot shows it near full, delay the runner
+  start until its reset (a background `until [ $(date +%H%M) -ge HHMM ]` loop, then start.sh).
 
 ## Ready-to-paste prompt
 > Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the overnight
