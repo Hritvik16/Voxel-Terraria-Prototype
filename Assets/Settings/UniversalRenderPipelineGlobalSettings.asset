@@ -75,6 +75,7 @@ MonoBehaviour:
       - rid: 6852985685364965381
       - rid: 6852985685364965384
       - rid: 6852985685364965385
+      - rid: 6852985685364965387
       - rid: 6852985685364965392
       - rid: 6852985685364965394
       - rid: 8712630790384254976
@@ -387,8 +388,8 @@ MonoBehaviour:
       data:
         m_version: 0
         m_IncludeReferencedInScenes: 0
-        m_IncludeAssetsByLabel: 0
-        m_LabelToInclude: 
+        m_IncludeAssetsByLabel: 1
+        m_LabelToInclude: VoxelBuildInclude
     - rid: 6852985685364965392
       type: {class: ShaderStrippingSetting, ns: UnityEngine.Rendering, asm: Unity.RenderPipelines.Core.Runtime}
       data:

@@ -14,7 +14,7 @@ using UnityEngine.Rendering.Universal;
 using UnityEngine.Rendering.RenderGraphModule;
 using VoxelEngine.Mirror;
 
-public class RaymarchFeature : ScriptableRendererFeature
+public partial class RaymarchFeature : ScriptableRendererFeature
 {
     public enum DebugMode
     {
@@ -164,6 +164,9 @@ public class RaymarchFeature : ScriptableRendererFeature
     public static bool UseDebugViewOverride = false;
 
     public static Vector2Int LastDispatchResolution = new Vector2Int(0, 0);
+    /// Primary raymarch dispatches executed so far (task 47's smoke checks
+    /// that every path really traces a new image every frame).
+    public static int PrimaryDispatchCount;
 
     /// Stage F's branch-engagement counters. Off by default: the per-pixel
     /// InterlockedAdd that fills them is expensive and would contaminate any
@@ -345,6 +348,10 @@ public class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer taaCur, taaMetaR, taaMetaW, taaColR, taaColW;
             public TextureHandle taaScratch;
             public int kTaaResolve, kTaaSharpen;
+            // Task 47: taa != 0 with taaResolve == 0 = TAA's jitter and history
+            // buffers only, for an external upscaler (RaymarchFeature.Upscalers.cs).
+            public int taaResolve;
+            public UpsComputeData ups;
             public int kPrimary;   // CSMain (0), or CSMainChecker with -checker, or CSMainDetail (task 24)
             public bool primaryChecker;   // kPrimary is CSMainChecker: dispatch half the width
             public ComputeShader compute;
@@ -498,9 +505,14 @@ public class RaymarchFeature : ScriptableRendererFeature
 
             TextureHandle target = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_RaymarchTarget", false);
             var taaCam = cameraData.camera;
-            bool taaOn = Taa && !useStripped && !useMemoryProbe && _debugMode == 0
+            // Task 47: STP / FSR 3 take TAA's jitter, depth and reprojection but
+            // replace its resolve. Off (the default) leaves taaOn exactly as before.
+            bool upsIn = UpscaleInputs != UpscalerInputMode.Off && !useStripped && !useMemoryProbe && _debugMode == 0
                       && taaCam.cameraType == CameraType.Game;
-            TextureHandle taaScratch = taaOn
+            bool taaOn = (Taa || upsIn) && !useStripped && !useMemoryProbe && _debugMode == 0
+                      && taaCam.cameraType == CameraType.Game;
+            bool taaResolve = taaOn && !upsIn;
+            TextureHandle taaScratch = taaResolve
                 ? UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_RaymarchTaaCur", false)
                 : TextureHandle.nullHandle;
 
@@ -556,6 +568,8 @@ public class RaymarchFeature : ScriptableRendererFeature
                 }
                 TerrainClipmap.RecordUploadedChunks = taaOn;
                 passData.taa = taaOn ? 1 : 0;
+                passData.taaResolve = taaResolve ? 1 : 0;
+                passData.ups = null;
                 passData.taaCur = _taaDummy4; passData.taaMetaW = _taaDummy2;
                 passData.kPrimary = 0;
                 passData.primaryChecker = false;
@@ -572,7 +586,8 @@ public class RaymarchFeature : ScriptableRendererFeature
                         _taaCur = new GraphicsBuffer(GraphicsBuffer.Target.Structured, n, 16);
                         _taaW = dispatchW; _taaH = dispatchH; _taaValid = false;
                     }
-                    Matrix4x4 proj = UseCameraDataProjection ? cameraData.GetProjectionMatrix(0) : taaCam.projectionMatrix;
+                    // An upscaler's motion vectors are measured between UNJITTERED cameras.
+                    Matrix4x4 proj = UseCameraDataProjection && !upsIn ? cameraData.GetProjectionMatrix(0) : taaCam.projectionMatrix;
                     Matrix4x4 vp = proj * taaCam.worldToCameraMatrix;
                     Vector3 camVox = taaCam.transform.position * 10f;
                     Unity.Mathematics.float3 sdT = SunCycle.Direction;
@@ -603,12 +618,13 @@ public class RaymarchFeature : ScriptableRendererFeature
                     // jitter per frame a pixel traced on alternate frames would see
                     // only the odd or only the even Halton indices -- for base 2,
                     // all >= 0.5 or all < 0.5: a half-pixel bias between the halves).
-                    passData.taaChecker = TaaChecker ? 1 : 0;
-                    if (TaaChecker) { passData.kPrimary = activeCompute.FindKernel("CSMainChecker"); passData.primaryChecker = true; }
+                    passData.taaChecker = TaaChecker && !upsIn ? 1 : 0;
+                    if (TaaChecker && !upsIn) { passData.kPrimary = activeCompute.FindKernel("CSMainChecker"); passData.primaryChecker = true; }
                     passData.taaCheckerParity = (int)(_taaFrame & 1u);
                     int hi = (int)((TaaChecker ? (_taaFrame >> 1) : _taaFrame) % TaaJitterCycle) + 1;
+                    LastTaaJitter = upsIn ? UpsJitter(_taaFrame, dispatchW, dispatchH, cameraData)
+                                          : new Vector2(Halton(hi, 2) - 0.5f, Halton(hi, 3) - 0.5f);
                     _taaFrame++;
-                    LastTaaJitter = new Vector2(Halton(hi, 2) - 0.5f, Halton(hi, 3) - 0.5f);
                     passData.taaJitter = LastTaaJitter;
                     passData.taaParams = new Vector4(TaaAlphaStill, TaaAlphaMoving, TaaMotionPx, TaaSharpenAmount);
                     passData.taaCur = _taaCur;
@@ -628,6 +644,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                     passData.taaScratch = taaScratch;
                     passData.kTaaResolve = activeCompute.FindKernel("TaaResolve");
                     passData.kTaaSharpen = activeCompute.FindKernel("TaaSharpen");
+                    if (upsIn) passData.ups = UpsPrepare(renderGraph, frameData, dispatchW, dispatchH, reset);
                 }
                 else
                 {
@@ -862,7 +879,8 @@ public class RaymarchFeature : ScriptableRendererFeature
                 }
 
                 builder.UseTexture(target, AccessFlags.Write);
-                if (passData.taa != 0) builder.UseTexture(passData.taaScratch, AccessFlags.ReadWrite);
+                if (passData.taaResolve != 0) builder.UseTexture(passData.taaScratch, AccessFlags.ReadWrite);
+                if (passData.ups != null) { builder.UseTexture(passData.ups.motion, AccessFlags.Write); builder.UseTexture(passData.ups.depth, AccessFlags.Write); }
                 builder.AllowPassCulling(false);
 
                 builder.SetRenderFunc((ComputePassData data, ComputeGraphContext context) =>
@@ -1089,7 +1107,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                     }
                     // With TAA on, the primary ray writes the scratch target and
                     // TaaSharpen writes the real one.
-                    cmd.SetComputeTextureParam(data.compute, data.kPrimary, "ResultTexture", data.taa != 0 ? data.taaScratch : data.target);
+                    cmd.SetComputeTextureParam(data.compute, data.kPrimary, "ResultTexture", data.taaResolve != 0 ? data.taaScratch : data.target);
 
                     int threadGroupsX = Mathf.CeilToInt(data.dispatchWidth / 8f);
                     int threadGroupsY = Mathf.CeilToInt(data.dispatchHeight / 8f);
@@ -1105,8 +1123,10 @@ public class RaymarchFeature : ScriptableRendererFeature
                     cmd.BeginSample("VE.Raymarch.Primary");
                     cmd.DispatchCompute(data.compute, data.kPrimary, primaryGroupsX, threadGroupsY, 1);
                     cmd.EndSample("VE.Raymarch.Primary");
+                    PrimaryDispatchCount++;
 
-                    if (data.taa != 0)
+                    if (data.ups != null) UpsDispatch(cmd, data.ups, data.taaCur, data.taaMetaW);
+                    if (data.taaResolve != 0)
                     {
                         cmd.BeginSample("VE.Raymarch.Taa");
                         cmd.SetComputeTextureParam(data.compute, data.kTaaResolve, "TaaCurColor", data.taaScratch);
@@ -1124,10 +1144,15 @@ public class RaymarchFeature : ScriptableRendererFeature
                 });
             }
 
+            // FSR 3 upscales the gate image to the camera target's size; the blit
+            // below then copies 1:1.
+            TextureHandle blitSource = target;
+            if (upsIn && UpscaleInputs == UpscalerInputMode.Fsr3)
+                blitSource = UpsRecordFsr3(renderGraph, frameData, target, cameraData);
             using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("VoxelRaymarch_Blit", out var blitData))
             {
-                blitData.source = target;
-                builder.UseTexture(target, AccessFlags.Read);
+                blitData.source = blitSource;
+                builder.UseTexture(blitSource, AccessFlags.Read);
                 builder.SetRenderAttachment(activeColor, 0, AccessFlags.Write);
                 builder.AllowPassCulling(false);
                 builder.SetRenderFunc((BlitPassData data, RasterGraphContext context) =>
@@ -1171,6 +1196,11 @@ public class RaymarchFeature : ScriptableRendererFeature
             _pass.SetGateResolution(forceRes, gw, gh);
 
             renderer.EnqueuePass(_pass);
+            if (UpscaleInputs == UpscalerInputMode.Stp)
+            {
+                if (_stpInputsPass == null) _stpInputsPass = new StpInputsPass();
+                renderer.EnqueuePass(_stpInputsPass);
+            }
         }
     }
 
@@ -1187,6 +1217,7 @@ public class RaymarchFeature : ScriptableRendererFeature
         _taaDummy4?.Release(); _taaDummy2?.Release();
         _taaColA = _taaColB = _taaMetaA = _taaMetaB = _taaCur = _taaDummy4 = _taaDummy2 = null;
         _taaValid = false;
+        UpsDispose();
         base.Dispose(disposing);
     }
 }
