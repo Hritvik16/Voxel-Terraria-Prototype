@@ -20,6 +20,10 @@ owner-facing to-do. One line each: what, where seen, task file (if written), sug
 - `later/37c-B3c-highland-variation.md` -- knolls and dells in rolling highlands (B5 review
   follow-up). Deferred 2026-10-09 to end the terrain phase sooner; revisit after placement.
 
+- Straight biome borders: seed 42's diagonal biome stripes and hard straight colour borders in the
+  far band (`Screenshots/B10/seed42_b8_b10_biome.png`, `far_views_a.png`). Q35 2 (a) default
+  2026-10-09: parked, revisit after placement (border warp + colour blend; recheck the 900 m rule).
+
 ## Idea for the bugs batch (owner, 2026-10-09; not queued)
 Owner has Google AI Pro (Gemini). Trial: when the runner hits a Claude usage limit, hand a BUGS.md
 task to Gemini CLI headless (same task file + PREAMBLE, same Unity lock, one agent at a time), on
