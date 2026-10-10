@@ -1,6 +1,6 @@
 # 53-engine-6-cascade-caps: DONE. tg2 cascade caps set from task 49's PeakUsed x 1.25: tier 1 320,000 -> 104,000, tier 2 96,000 -> 21,000. Ledger -285 MB, 0 exhaustion in poses/walk/poolprobe.
 
-## What changed (branch `engine-phase`)
+## What changed (branch `engine-phase`, commit b0e15ff)
 - `Assets/ContentModules/Config/EngineConfig.cs`: `Tg2CascadeTierPoolCap` is no longer `2 x CascadeTierPoolCap`. It is a switch: tier 1 104,000 (82,641 x 1.25 = 103,301, rounded up), tier 2 21,000 (16,437 x 1.25 = 20,546). Other tiers keep 2x (there are none: `TIER_COUNT` = 3). The comment records the source numbers.
 - No alignment rule applies. `BrickDataPool` takes any count, and the GPU body buffer is cap x 128 uints. No format or allocator change. The flat world's `CascadeTierPoolCap` (160k/48k) is unchanged.
 - Note: `ENGINE_PHASE_PLAN.md` line 51 says "2x the measured need". This task file set 1.25x, and I followed the task file. The plan doc is not edited.
