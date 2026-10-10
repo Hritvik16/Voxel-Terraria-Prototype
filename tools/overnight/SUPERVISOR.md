@@ -65,7 +65,11 @@ start AND at every event (a done/blocked line means the next task is starting):
 feels long, write SESSION_HANDOFF.md, commit it, start the successor with
 `tools/new-session.sh`, and tell the owner to switch to it and close the old one.
 On each event:
-- **done NAME**: read HANDOFF.md's `
+- **done NAME**: read HANDOFF.md's `## For the doc` block. Owner, 2026-10-09: EVERY finished task
+  gets a short report section in the doc's "Task reports" tab (newest first): one-line result,
+  the before -> after numbers, and its 1-3 images uploaded and captioned (look at each first).
+  Plus one row in the Done table on the "Now" tab. Keep the "Now" tab short (running, waiting
+  on you, next up); move closed questions to "Answered" (owner: the doc got hard to navigate).
 - **BLOCKED NAME**: read `blocked/NAME.HANDOFF.md`. Add its question to the doc:
   a specific multiple-choice question with your recommendation first and why,
   what each answer would cost, and what is waiting on it (`Requires:`). The owner
