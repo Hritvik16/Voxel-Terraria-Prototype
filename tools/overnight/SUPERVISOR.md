@@ -65,8 +65,7 @@ start AND at every event (a done/blocked line means the next task is starting):
 feels long, write SESSION_HANDOFF.md, commit it, start the successor with
 `tools/new-session.sh`, and tell the owner to switch to it and close the old one.
 On each event:
-- **done NAME**: `head -30 tools/overnight/HANDOFF.md`. One line into the doc's
-  "Done" table (result, commit, where the evidence is).
+- **done NAME**: read HANDOFF.md's `
 - **BLOCKED NAME**: read `blocked/NAME.HANDOFF.md`. Add its question to the doc:
   a specific multiple-choice question with your recommendation first and why,
   what each answer would cost, and what is waiting on it (`Requires:`). The owner

@@ -51,6 +51,10 @@ You are running UNATTENDED in a fresh headless session started by
    owner must decide something, start the file with `STOP_FOR_OWNER`.
    **Every image you cite gets a one-line caption saying what to look at**
    (which panel/row, which part of the frame, what it shows) -- owner, 2026-10-03.
+   **End HANDOFF with a `## For the doc` block** (owner, 2026-10-09): the 3-6 numbers that show
+   what this task changed (before -> after, with units and the log/report path), and 1-3 image paths
+   with captions (a before/after pair or contact sheet if anything visible changed). The supervisor
+   copies it into the owner's doc as this task's report. A task with nothing to show says why.
 9. **Performance is quoted at WARM STEADY STATE** (owner, 2026-10-04, Q20 (a)). This Mac is
    a fanless M1 Air: a warm chip runs chunk generation up to ~2.2x slower (tasks 27/28), and
    4+ workers heat it within ~100 s even from cold. So every timed measurement (stream probe,
