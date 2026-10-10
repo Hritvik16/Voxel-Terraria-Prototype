@@ -76,7 +76,7 @@ namespace TerrainGen.Tests
         private static readonly string[] ClassNames = { "gentle", "broken", "steep" };
 
         /// Plan rule 2: gentle = river plains, rolling highlands, wetland basin,
-        /// plateau tops; broken = badlands, dunes, canyonlands; steep = alpine,
+        /// plateau tops; broken = breaks, dunes, canyonlands; steep = alpine,
         /// sea cliffs, volcanic.
         public static byte LandformClass(byte region) => Regions.ClassOf(region);   // B2 moved it into the generator
 

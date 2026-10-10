@@ -35,7 +35,7 @@ namespace TerrainGen
     public static class Regions
     {
         public const byte Alpine = 0, Highlands = 1, Canyonlands = 2, Volcanic = 3, Plains = 4,
-                          Badlands = 5, Dunes = 6, CoastalCliffs = 7, Plateau = 8, Wetland = 9;
+                          Breaks = 5, Dunes = 6, CoastalCliffs = 7, Plateau = 8, Wetland = 9;
         public const int KINDS = 10;
         public const int TARGET_REGIONS = 12;
         /// Seeds closer than this fraction of the island radius are rejected.
@@ -53,7 +53,7 @@ namespace TerrainGen
                 case Canyonlands: return "canyonlands";
                 case Volcanic: return "volcanic";
                 case Plains: return "river plains";
-                case Badlands: return "badlands";
+                case Breaks: return "breaks";
                 case Dunes: return "dune sea";
                 case CoastalCliffs: return "sea cliffs";
                 case Plateau: return "high plateau";
@@ -87,7 +87,7 @@ namespace TerrainGen
             var kind = new byte[seeds.Count];
             kind[0] = Alpine; kind[1] = Volcanic;
             byte[] coastal = Shuffle(new[] { CoastalCliffs, Plains, Dunes, Wetland, CoastalCliffs, Plains }, spec.seed + 511u);
-            byte[] inland = Shuffle(new[] { Highlands, Canyonlands, Plateau, Badlands, Alpine, Highlands, Canyonlands, Badlands }, spec.seed + 512u);
+            byte[] inland = Shuffle(new[] { Highlands, Canyonlands, Plateau, Breaks, Alpine, Highlands, Canyonlands, Breaks }, spec.seed + 512u);
             int ci = 0, ii = 0;
             for (int s = 2; s < seeds.Count; s++)
             {
@@ -103,7 +103,7 @@ namespace TerrainGen
         // LANDFORM CLASSES (surface rebuild plan rule 2, map v4 / B2). How
         // walkable a region's land is meant to be: gentle = river plains,
         // rolling highlands, wetland basin, plateau tops; broken = eroded
-        // breaks (badlands), dunes, canyonlands; steep = alpine, sea cliffs,
+        // breaks, dunes, canyonlands; steep = alpine, sea cliffs,
         // volcanic.
         // ------------------------------------------------------------------
         public const byte Gentle = 0, Broken = 1, Steep = 2;
@@ -116,7 +116,7 @@ namespace TerrainGen
             switch (k)
             {
                 case Plains: case Highlands: case Wetland: case Plateau: return Gentle;
-                case Badlands: case Dunes: case Canyonlands: return Broken;
+                case Breaks: case Dunes: case Canyonlands: return Broken;
                 default: return Steep;
             }
         }
@@ -184,13 +184,13 @@ namespace TerrainGen
             byte[][] coastal =
             {
                 Shuffle(new[] { Plains, Wetland, Plains, Highlands }, spec.seed + 521u),
-                Shuffle(new[] { Dunes, Badlands, Dunes }, spec.seed + 522u),
+                Shuffle(new[] { Dunes, Breaks, Dunes }, spec.seed + 522u),
                 new[] { CoastalCliffs },
             };
             byte[][] inland =
             {
                 Shuffle(new[] { Highlands, Plateau, Plains, Highlands, Plateau }, spec.seed + 523u),
-                Shuffle(new[] { Canyonlands, Badlands, Dunes, Canyonlands }, spec.seed + 524u),
+                Shuffle(new[] { Canyonlands, Breaks, Dunes, Canyonlands }, spec.seed + 524u),
                 new[] { Alpine },
             };
             var ci = new int[CLASSES]; var ii = new int[CLASSES];
@@ -270,7 +270,7 @@ namespace TerrainGen
                 case Canyonlands:   return new Params { erodibility = 0.050f, talus = 0.80f, rough = 0.65f, minLake = 20f, layered = true };
                 case Volcanic:      return new Params { erodibility = 0.045f, talus = 0.90f, rough = 0.70f, minLake = 12f };
                 case Plains:        return new Params { erodibility = 0.080f, talus = 0.25f, rough = 0.30f, minLake = 30f };
-                case Badlands:      return new Params { erodibility = 0.130f, talus = 1.10f, rough = 0.85f, minLake = 30f };
+                case Breaks:      return new Params { erodibility = 0.130f, talus = 1.10f, rough = 0.85f, minLake = 30f };
                 case Dunes:         return new Params { erodibility = 0.020f, talus = 0.60f, rough = 0.35f, minLake = 60f };
                 case CoastalCliffs: return new Params { erodibility = 0.035f, talus = 1.80f, rough = 0.90f, minLake = 12f };
                 case Plateau:       return new Params { erodibility = 0.025f, talus = 0.80f, rough = 0.50f, minLake = 20f, layered = true };
@@ -282,12 +282,12 @@ namespace TerrainGen
         /// B3b (map v4, owner Q25 (a), 2026-10-08): soften the regions whose
         /// slope did not match their class. The slope is set by erosion's
         /// limits, not the starting amplitude (halving the highlands' or
-        /// badlands' noise amplitude moved their median slope by <= 1 deg):
+        /// breaks' noise amplitude moved their median slope by <= 1 deg):
         /// the talus pass holds a slope at its talus, and stream power wears
-        /// the uplifted land down (LESS erodibility left badlands steeper).
+        /// the uplifted land down (LESS erodibility left the breaks steeper).
         /// Highlands: talus 0.55 -> 0.1925 (29 -> 11 deg), E x2 (seed 42
         /// median 25 -> 15 deg). Canyonlands: talus 0.80 -> 0.52 (27 -> 22).
-        /// Badlands: E x1.3. The steep class (alpine, volcanic) is untouched.
+        /// Breaks: E x1.3. The steep class (alpine, volcanic) is untouched.
         public static Params P(byte k, int mapVersion)
         {
             var pr = P(k);
@@ -296,7 +296,7 @@ namespace TerrainGen
             {
                 case Highlands:   pr.talus = 0.1925f; pr.erodibility = 0.140f; break;
                 case Canyonlands: pr.talus = 0.520f; break;
-                case Badlands:    pr.erodibility = 0.169f; break;
+                case Breaks:    pr.erodibility = 0.169f; break;
             }
             return pr;
         }
@@ -321,7 +321,7 @@ namespace TerrainGen
                 }
                 case Plains:
                     return 60f + 220f * u(p / 9000f + o.low + 13f, 3);
-                case Badlands:
+                case Breaks:
                     return 550f + 800f * u(p / 5000f + o.valley, 4);
                 case Dunes:
                     return 110f + 220f * u(p / 12000f + o.low + 41f, 2);
