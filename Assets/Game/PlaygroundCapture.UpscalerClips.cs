@@ -60,7 +60,7 @@ public partial class PlaygroundCapture
 
     private IEnumerator UpscalerClips()
     {
-        Screen.SetResolution(1920, 1080, FullScreenMode.Windowed);
+        Screen.SetResolution(1920, 1080, FullScreenMode.FullScreenWindow);
         QualitySettings.vSyncCount = 0;
         Application.targetFrameRate = -1;
         var pg = FindAnyObjectByType<Playground>();
@@ -85,8 +85,11 @@ public partial class PlaygroundCapture
         L($"device {SystemInfo.graphicsDeviceName}  screen {Screen.width}x{Screen.height}  " +
           $"{(Debug.isDebugBuild ? "DEVELOPMENT" : "RELEASE")}  preset {(HasFlag("-renderpreset") ? RenderPreset.Current.ToString() : "not set")}  " +
           $"temporal shadows {(RaymarchFeature.TemporalShadows ? "ON" : "OFF")}");
-        // the frames must BE 1920x1080: a first run came up fullscreen at the
-        // panel's 2880x1800 although Screen.width said 1920 -- check a real capture
+        // the frames must BE 1920x1080. Windowed, the surface twice went to the
+        // panel's 2880x1800 mid-run (Player.log "RecreateSurface"), cause not
+        // found; fullscreen 1920x1080 is what every other rig uses. Checked on a
+        // real capture here, and on every recorded frame (an arm with a wrong-size
+        // frame is recorded again).
         {
             int w = 0, h = 0;
             for (int tries = 0; tries < 5; tries++)
@@ -95,7 +98,7 @@ public partial class PlaygroundCapture
                 Texture2D t = ScreenCapture.CaptureScreenshotAsTexture();
                 w = t.width; h = t.height; Destroy(t);
                 if (w == 1920 && h == 1080) break;
-                Screen.SetResolution(1920, 1080, FullScreenMode.Windowed);
+                Screen.SetResolution(1920, 1080, FullScreenMode.FullScreenWindow);
                 yield return Frames(60);
             }
             L($"captured frame {w}x{h} (Screen {Screen.width}x{Screen.height}, {Screen.fullScreenMode})");
@@ -244,13 +247,16 @@ public partial class PlaygroundCapture
                     L($"  {arm,-9} dispatch {d.x}x{d.y}  traced {RaymarchFeature.PrimaryDispatchCount - d0}/{Time.frameCount - f0}  " +
                       $"rows {st.rowsMin}-{st.rowsMax}  written {st.written}  resident {st.residentStart}->{store.ResidentCount}  " +
                       $"deficit@render max {st.maxDeficit} ({st.framesWithDeficit} frames)  far band busy {st.farBusyFrames} frames  waits {st.waits} ({st.waitSeconds:F0} s, {st.timeouts} timeouts)  " +
-                      $"in rock {st.inRock}{(attempt > 0 ? "  [RE-RECORDED]" : "")}");
-                    if (st.framesWithDeficit == 0 || attempt == 1)
+                      $"in rock {st.inRock}{(st.badSize > 0 ? $"  NOT 1920x1080: {st.badSize} frames (screen {Screen.width}x{Screen.height})" : "")}{(attempt > 0 ? "  [RE-RECORDED]" : "")}");
+                    if ((st.framesWithDeficit == 0 && st.badSize == 0) || attempt == 1)
                     {
                         if (st.framesWithDeficit > 0) L($"  {arm}: STREAMED MID-CLIP twice -- kept, flagged");
+                        if (st.badSize > 0) L($"  {arm}: WRONG FRAME SIZE twice -- kept, flagged (the encoder will refuse this path)");
                         break;
                     }
-                    L($"  {arm}: streamed mid-clip -- recording again");
+                    L($"  {arm}: {(st.badSize > 0 ? "wrong frame size" : "streamed mid-clip")} -- recording again");
+                    if (st.badSize > 0) { Screen.SetResolution(1920, 1080, FullScreenMode.FullScreenWindow); yield return Frames(60); }
+                    Directory.Delete(adir, true);
                 }
             }
             File.WriteAllText(Path.Combine(pdir, "DONE"), path.name);
@@ -270,7 +276,7 @@ public partial class PlaygroundCapture
 
     private sealed class ClipArmStats
     {
-        public int waits, waitFrames, timeouts, farBusyFrames, maxDeficit, framesWithDeficit, written, inRock, residentStart;
+        public int waits, waitFrames, timeouts, farBusyFrames, badSize, maxDeficit, framesWithDeficit, written, inRock, residentStart;
         public float waitSeconds;
         public int rowsMin = int.MaxValue, rowsMax;
     }
@@ -326,6 +332,7 @@ public partial class PlaygroundCapture
             st.rowsMin = Math.Min(st.rowsMin, UpscalerSelect.Rows);
             st.rowsMax = Math.Max(st.rowsMax, UpscalerSelect.Rows);
             Texture2D t = ScreenCapture.CaptureScreenshotAsTexture();
+            if (t.width != 1920 || t.height != 1080) st.badSize++;
             try { File.WriteAllBytes(Path.Combine(dir, $"f{f - ClipLead:D4}.jpg"), t.EncodeToJPG(95)); }
             finally { Destroy(t); }
             st.written++;
