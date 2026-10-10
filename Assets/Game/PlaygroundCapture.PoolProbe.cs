@@ -144,6 +144,7 @@ public partial class PlaygroundCapture
 
         L(""); L($"END: wake displacements {fl.WakeTilesDisplacedTotal:N0}; refusals total {tiles.PoolExhaustionsTotal:N0} over {pg.DebugResidencyRefreshes} residency passes; " +
                  $"acquired {tiles.TilesAcquiredTotal:N0} released {tiles.TilesReleasedTotal:N0} peak {tiles.PeakResidentTiles}");
+        MemLedgerIfAsked();
         File.WriteAllText(Path.Combine(_folder, "poolprobe.txt"), _log.ToString());
         Debug.Log($"[poolprobe] report {_folder}");
         Application.Quit(0);

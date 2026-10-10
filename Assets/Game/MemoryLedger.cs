@@ -84,6 +84,51 @@ public static class MemoryLedger
                   $"reserved {MB(UnityEngine.Profiling.Profiler.GetTotalReservedMemoryLong())} MB, " +
                   $"graphics driver {MB(UnityEngine.Profiling.Profiler.GetAllocatedMemoryForGraphicsDriver())} MB, " +
                   $"managed heap {MB(GC.GetTotalMemory(false))} MB  (Profiler figures may read 0 in a release player)");
+        lines.AddRange(PoolReport());
+        return lines;
+    }
+
+    /// POOL PEAKS (2026-10-10, engine plan step 4). Capacity, in-use and the
+    /// high-water mark of every fixed pool, plus what each would cost if its
+    /// cap were set to peak x 1.25 -- the numbers steps 5 (fluid tiles) and 6
+    /// (cascade caps) size against. Reads counters only; changes nothing.
+    /// Bytes per unit: a brick is 512 B of CPU array + 512 B of GPU mirror
+    /// (BrickDataPool / TerrainClipmap / CascadeTierPool all allocate
+    /// capacity * 512 B). A fluid tile is its cells in the four per-cell GPU
+    /// buffers (claim, slotAt, reacted, wakeMark: 16 B/cell) plus 40 B of
+    /// per-tile directory (tileCoords 16 + activeTileSlots 4, GPU and CPU).
+    public static List<string> PoolReport()
+    {
+        var lines = new List<string>
+        {
+            "",
+            "  --- POOL PEAKS (capacity / in use / peak since start; MB = whole cap and cap at peak x 1.25) ---",
+            $"  {"pool",-22}{"capacity",10}{"in use",10}{"peak",10}{"peak/cap",10}{"B/unit",8}{"cap MB",9}{"1.25pk MB",11}",
+        };
+        void Row(string name, int cap, int inUse, int peak, long bytesPerUnit)
+        {
+            long at125 = (long)Math.Ceiling(peak * 1.25);
+            lines.Add($"  {name,-22}{cap,10}{inUse,10}{peak,10}{(cap > 0 ? 100.0 * peak / cap : 0),9:F1}%{bytesPerUnit,8}" +
+                      $"{MB(cap * bytesPerUnit),9}{MB(at125 * bytesPerUnit),11}");
+        }
+        void BrickRow(string name, VoxelEngine.Memory.BrickDataPool p)
+        {
+            if (p == null) { lines.Add($"  {name,-22}  (not present)"); return; }
+            Row(name, p.Capacity, p.InUse, p.PeakUsed, 1024);
+        }
+        BrickRow("tier0 bricks", Phase4Bootstrapper.Pool);
+        var casc = Phase4Bootstrapper.Cascades;
+        for (int t = 1; t < LODConfig.TIER_COUNT; t++)
+            BrickRow($"cascade tier {t}", casc?.TierPool(t)?.BrickPool);
+        var tiles = UnityEngine.Object.FindAnyObjectByType<Playground>()?.DebugTiles;
+        if (tiles == null) lines.Add($"  {"fluid tiles",-22}  (not present)");
+        else
+        {
+            Row($"fluid tiles ({tiles.TileEdge}^3)", tiles.TileCapacity, tiles.ResidentTiles, tiles.PeakResidentTiles,
+                (long)tiles.TileCells * 16 + 40);
+            lines.Add($"  fluid tiles refused (pool full, since start): {tiles.PoolExhaustionsTotal:N0}   " +
+                      $"acquired {tiles.TilesAcquiredTotal:N0}  released {tiles.TilesReleasedTotal:N0}");
+        }
         return lines;
     }
 

@@ -407,6 +407,7 @@ public partial class PlaygroundCapture
             }
         }
         L($"ring upkeep: {far.StripsApplied} strips, {far.FullRefills} refills, {far.BytesUploaded / 1048576.0:F1} MB uploaded");
+        MemLedgerIfAsked();
         File.WriteAllText(Path.Combine(_folder, "farpreview.txt"), _log.ToString());
         Debug.Log("[farpreview]\n" + _log);
         yield return null;

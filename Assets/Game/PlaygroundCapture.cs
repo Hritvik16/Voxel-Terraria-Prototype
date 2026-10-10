@@ -1798,6 +1798,18 @@ public partial class PlaygroundCapture : MonoBehaviour
         return (top + 1) * 0.1f + 1.6f;
     }
 
+    /// -memledger (2026-10-01): who owns the memory, by engine object, then
+    /// every pool's capacity / in use / peak (MemoryLedger.cs). Called at the
+    /// END of -sustained, -farpreview and -poolprobe, after any timed loop, so
+    /// the walk's own cost never lands in a measured window.
+    private void MemLedgerIfAsked()
+    {
+        if (!HasFlag("-memledger")) return;
+        L("");
+        L("  --- MEMORY LEDGER (end of run; GPU = Metal buffers, native = NativeArray, managed = arrays) ---");
+        foreach (var line in MemoryLedger.Report()) L(line);
+    }
+
     private IEnumerator Sustained()
     {
         Screen.SetResolution(1920, 1080, !HasFlag("-windowed"));
@@ -2053,12 +2065,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         // -memledger (2026-10-01): who owns the memory, by engine object
         // (MemoryLedger.cs). Taken after the timed loop so the walk's own cost
         // never lands in a measured window.
-        if (HasFlag("-memledger"))
-        {
-            L("");
-            L("  --- MEMORY LEDGER (end of run; GPU = Metal buffers, native = NativeArray, managed = arrays) ---");
-            foreach (var line in MemoryLedger.Report()) L(line);
-        }
+        MemLedgerIfAsked();
 
         if (wantShot)
         {
