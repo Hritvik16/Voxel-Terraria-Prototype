@@ -291,7 +291,23 @@ public static class EngineConfig
     /// mirror instead of the flat world's one content layer. A cascade pool has
     /// no valve (exhaustion throws), so FIRST SIZING is 2x the flat world's
     /// measured-and-padded caps; the run's PeakUsed sets the real number.
-    public static int Tg2CascadeTierPoolCap(int tier) => 2 * CascadeTierPoolCap(tier);
+    /// SET FROM PeakUsed (task 53, engine plan step 6; peaks from task 49, tg2
+    /// map v4, -memledger; worst of poses / walk / coast poolprobe):
+    ///   tier 1 peak 82,641 (poses) x 1.25 = 103,301 -> 104,000 (was 320,000)
+    ///   tier 2 peak 16,437 (poses) x 1.25 =  20,546 ->  21,000 (was  96,000)
+    /// No alignment rule: BrickDataPool takes any count, the GPU body buffer is
+    /// cap x 128 uints. Saves (216,000 + 75,000) x 512 B x 2 (CPU + GPU) = 284 MB.
+    /// Exhaustion still THROWS ("BrickDataPool exhausted") out of the chunk
+    /// admission that overflowed; if that line ever appears, raise these.
+    public static int Tg2CascadeTierPoolCap(int tier)
+    {
+        switch (tier)
+        {
+            case 1: return 104000;
+            case 2: return 21000;
+            default: return 2 * CascadeTierPoolCap(tier);
+        }
+    }
 
     public static int CascadeTierPoolCap(int tier)
     {
