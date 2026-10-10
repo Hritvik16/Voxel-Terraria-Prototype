@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""upscaler-clip-grids.py <path dir> <grid out dir> <crop out dir> -- task 50.
+"""upscaler-clip-grids.py <path dir> <grid out dir> <crop out dir> [crop x y] -- task 50.
 <path dir> holds one folder per arm (-upscalerclips: <arm>/f0000.jpg ..., 1920x1080).
 Writes, frame by frame (JPEG q95, for tools/frames-to-mp4):
   grid: 3x2 of all arms, each tile scaled to 960x540 (2880x1080), arm label
         top-left, the clip time on the first tile.
   crop: 3x2 of 1:1 pixel crops, 640x360 each (1920x720), NOT rescaled, labelled.
-        The window is picked once per path: the 640x360 window with the most
-        edge (mean |gradient|) in the native arm, over 10 frames spread across
-        the clip -- where the cliff edge, the ridge silhouette or the torch light is.
+        The window is picked once per path (unless given): the 640x360 window with
+        the most strong edges (luma step > 24) in the native arm, over 10 frames
+        spread across the clip -- where the ridge silhouette or the torch light is.
 Writes crop.json (window, arms, frame count) into <path dir>. Exits non-zero if an
 arm is missing or the arms disagree on the frame count."""
 import json, os, sys
@@ -29,14 +29,20 @@ def label(d, x, y, s, f):
     d.rectangle([x, y, x + r - l + 12, y + b - t + 10], fill=(0, 0, 0))
     d.text((x + 6 - l, y + 5 - t), s, font=f, fill=(255, 230, 0))
 
-def pick_crop(src, n):
+def pick_crop(files):
+    """The 640x360 window holding the most STRONG edges (luma step > 24 to a
+    neighbour), summed over the given frames. Strong edges are silhouettes
+    against the sky, block edges in light, torches; a plain sum of |gradient|
+    picked dark near ground full of faint texture (task 50, walk_cliff)."""
     acc = None
-    for i in np.linspace(0, n - 1, 10).astype(int):
-        g = np.asarray(Image.open(os.path.join(src, "native", f"f{i:04d}.jpg")).convert("L"), dtype=np.float32)
+    for fn in files:
+        g = np.asarray(Image.open(fn).convert("L"), dtype=np.float32)
         e = np.zeros_like(g)
-        e[:, 1:] += np.abs(np.diff(g, axis=1)); e[1:, :] += np.abs(np.diff(g, axis=0))
+        e[:, 1:] = np.maximum(e[:, 1:], np.abs(np.diff(g, axis=1)))
+        e[1:, :] = np.maximum(e[1:, :], np.abs(np.diff(g, axis=0)))
+        e = (e > 24).astype(np.float32)
         acc = e if acc is None else acc + e
-    s = acc.reshape(H // 8, 8, W // 8, 8).sum(axis=(1, 3))          # 240x135 cells of 8 px
+    s = acc.reshape(H // 8, 8, W // 8, 8).sum(axis=(1, 3))          # 135x240 cells of 8 px
     ii = np.pad(s.cumsum(0).cumsum(1), ((1, 0), (1, 0)))
     cw, ch = CW // 8, CH // 8
     best, bx, by = -1.0, 0, 0
@@ -55,7 +61,8 @@ def main():
     n = min(counts.values())
     if n == 0 or len(set(counts.values())) != 1:
         print(f"frame counts differ or zero: {counts}"); sys.exit(1)
-    cx, cy = pick_crop(src, n)
+    if len(sys.argv) > 5: cx, cy = int(sys.argv[4]), int(sys.argv[5])      # a window given by hand
+    else: cx, cy = pick_crop([os.path.join(src, "native", f"f{i:04d}.jpg") for i in np.linspace(0, n - 1, 10).astype(int)])
     json.dump({"crop_x": cx, "crop_y": cy, "w": CW, "h": CH, "arms": ARMS, "frames": n}, open(os.path.join(src, "crop.json"), "w"))
     print(f"{os.path.basename(src.rstrip('/'))}: {n} frames per arm, crop window x {cx}..{cx + CW} y {cy}..{cy + CH}")
     os.makedirs(gdir, exist_ok=True); os.makedirs(cdir, exist_ok=True)

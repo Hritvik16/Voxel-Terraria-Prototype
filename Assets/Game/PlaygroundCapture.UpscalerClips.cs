@@ -16,6 +16,7 @@
 //                  ground ahead, pitched 12 deg down
 //   water          spawn_day (48's pose), +-40 deg pan
 //   night_torches  48's 8-torch ring at eye_level_2, 23:00, +-36 deg pan
+// -clippaths walk_cliff,fly records only those (default: all six).
 // IDENTICAL FRAMES: Time.captureFramerate = 30; every frame of an arm is
 // rendered in sequence. History reset at each arm x path start: two native
 // frames (our TAA / FSR 3 see !_taaValid on the next frame) + URP's
@@ -167,6 +168,14 @@ public partial class PlaygroundCapture
             paths.Add(p);
         }
         paths.Add(new ClipPath { name = "night_torches", hours = 23f, note = "built below, after the torches are placed" });
+        // -clippaths a,b: only those paths (a re-record); default all six
+        string only = ArgValue("-clippaths");
+        if (!string.IsNullOrEmpty(only))
+        {
+            var keep = new HashSet<string>(only.Split(','));
+            paths.RemoveAll(cp => !keep.Contains(cp.name));
+            L($"-clippaths {only}: recording {paths.Count} path(s)");
+        }
 
         L("");
         L($"PATHS: {ClipLead} lead-in + {ClipRec} recorded frames each, Time.captureFramerate 30; arms {string.Join(" ", ClipArms)}");
