@@ -1,70 +1,58 @@
-# Session handoff -- 2026-10-10 07:30 (supervisor; queue RUNNING task 49)
+# Session handoff -- 2026-10-10 15:00 (supervisor; queue PAUSED, nothing running)
 
 ## For the owner
-**Why a new session:** four tasks finished in this supervisor chat (the rule is to hand off after
-3-4), and the chat has grown. Nothing is lost: everything is in the Queue decisions doc.
+**Why a new session:** three tasks finished in this chat (49, 50, 51) and the week's usage is nearly gone;
+a fresh session is cheaper per turn. Everything is in the Queue decisions doc.
 
-**What the previous chat covered (9 Oct 23:00 - 10 Oct 07:30):**
-- You gave the engine plan the green light (Q36). Q1 a, Q2 a, Q5-Q8 a. **Q3:** compare all three
-  resolutions. **Q4:** you asked for ready-made upscalers instead of building our own, so step 3 became
-  "plug in FSR 1 / STP / FSR 3 port and compare".
-- You said the doc was hard to navigate and asked for a report after every task. The Queue decisions doc
-  now has tabs: **Now** (running / waiting on you / Done table), **Task reports** (numbers + pictures per
-  task, newest first), **Answered**, **Archive (to 9 Oct)**. Tasks must now end their handoff with a
-  "For the doc" block (PREAMBLE rule 8); SUPERVISOR.md's done-rule copies it into the doc.
-- **45** one world-map generator: the Editor map now equals the game's (same hash), map build 27.5 -> 1.5 s,
-  suite 665/0; Gemini's lava-torch fix merged.
-- **46** torch shadows: no light through walls (0.061 -> 0.000), emissive bleed on, Phase 7 rig 37/0.
-  Q37 (black recesses in the lava cavern): going ahead with (a) accept until the light grid, unless you object.
-- **47** upscalers plugged in: none / TAA / FSR 1 / STP / FSR 3 all work; fixed STP drawing nothing in builds.
-- **48** comparison: stopped for your pick, **Q38** (recommended FSR 3 at dynamic 540-720).
-- All on branch `engine-phase`; `main` untouched, nothing pushed.
-- Usage: 70% of the week at Fri 22:57 (resets Thu 06:00).
+**What the previous chat covered (10 Oct 07:20 - 15:00):**
+- **49** memory ledger: brick pools ~2x too big (~535 MB could go), fluid pool always full, every run over 3 GB.
+- You said the upscaler stills were not enough and too dark, and asked for something automated comparing
+  looks AND fps. **50** recorded every option on identical frames; **51** timed each option warm and
+  re-recorded the motion clips at real rate, in midday light. Both are on the page
+  [Upscaler Clips](https://claude.ai/artifact/CDAhSF142yvbD25AVeREWX) (sets: Same frames 30 fps / Real frame rate).
+- **51's key number:** no option reaches 30 fps at eye level on this Mac (540-row options 16-23 fps,
+  FSR 3 720 10-13, native 6-7).
+- Disk clean-up (your OK): 7.1 -> 31 GB free (build debug folders, old run frames, palette voxel exports, Unity cache).
+- Usage: 94% of the week at Sat 14:03 (resets Thu 06:00). You will press the free "Full reset" (expires 22 Oct)
+  when it hits 100%. Queue paused (`tools/overnight/PAUSE`).
 
-**Running:** task 49 (engine step 4: memory ledger -- counts how full each memory pool gets). Started 07:21.
-**Open for you:** Q38 upscaler pick; the disk is 97% full (6.4 GB free) -- OK to delete task 48's 190 MB
-of raw stills?; a usage screenshot before steps 5-6 are queued.
-**Close:** the old supervisor's tmux window (`claude-retry-4036-1791585229869`, window 0, titled
-"Overnight queue supervisor handoff"); the new supervisor closes it.
+**Running:** nothing. **Open for you:** Q38 final pick (you lean FSR 3 720 vs STP 540; 720 is unaffordable today,
+see below); then lift the pause.
 
 ## State
-- Branch `engine-phase` (from `surface-rebuild`): 45 `5410b23`, 46 `cd5266e`, 47 `a14b0f4`, 48 `f792468`.
-- Queue: 49 running. Blocked: `48-engine-3b-upscaler-compare` (STOP_FOR_OWNER Q38); `37e` leftovers are
-  reference only.
-- Runner in tmux `overnight`; task-watcher Terminal tab is open.
-- Last suites: SUITE=all 665/0/18 (task 45); fast 634/0/14 (task 48). Phase 7 rig 37/0 (46).
+- Branch `engine-phase`: 49 `1fcfcb8`, 50 `5c2eca3`.., 51 `0624152`/`3fe865a`/`e71ec70`. main untouched, nothing pushed.
+- Queue empty; PAUSE file present. Blocked: 48 (Q38). Runner ended 14:46.
+- Clips: raw in `Screenshots/Engine03/clips{,_realrate}/`; web re-encodes (avconvert Preset1920x1080, H.264,
+  <=15 MB per file, the page's per-file limit) in `Screenshots/Engine03/clips_web/` with the page source
+  `upscaler-clips.html` (republish with `root` = that folder). All uncommitted.
+- Task 48's 190 MB raw stills: delete after Q38 (owner OK'd in principle).
+
+## Q38 as it stands (supervisor's read, posted in the doc under your answer)
+STP 540 and FSR 3 720 look closest to native. FSR 3 720 costs +36 ms/frame (10 fps walk) -- not affordable now.
+At equal cost (540): STP is sharper but greyer and restless when still (task 48 flagged this may be our
+integration); FSR 3 is steadier, true colour, softer. Options to offer: (a) FSR 3 dynamic, climbing to 720 as the
+engine phase frees frame time; (b) STP 540 + a small task to fix its tone / rest shimmer first.
 
 ## Next for the supervisor
-1. Arm the runner-event wait (SUPERVISOR.md "The loop"). On 49 done: report into the Task reports tab
-   (49 has no images -- a table only) and the Now tab.
-2. Before queueing steps 5 (fluid tiles for awake fluid only, BUGS #3) and 6 (cascade caps from 49's
-   PeakUsed), ask the owner for a usage screenshot (both are M/S; the week was at 70% Fri night).
-   Copy 49's measured peaks INTO those task files.
-3. On Q38: record it in the Answered tab; write a small task that makes the pick the default in play
-   (the old "TAA on by default" rule is satisfied: the owner compared), then step 7 (frame-time
-   milestone, warm ABBA, CLAUDE.md measurement rules) -- requires 2, 3 done.
-4. If the owner OKs the disk cleanup: `rm Screenshots/Engine03/compare/*__*.png` (uncommitted raw stills).
-5. CLAUDE.md line ~54 says `MAPV=3` is "byte-identical pre-rebuild map": no longer true after 45 (same
-   shapes, Burst floats). Fold the fix into the next task that edits CLAUDE.md, or tell the owner.
+1. On Q38: record it (Answered tab), close task 48 (move to done), write the "make the pick the default in play"
+   task, then steps 5 (fluid tiles for awake fluid; 49: coast wants 4,667 tiles vs 1,024) and 6 (cascade caps at
+   peak x 1.25: tier1 82,641, tier2 16,437 -> caps ~103k / ~21k; tier0 395k) -- copy 49's numbers in. Remove PAUSE.
+2. Owner-level flag worth raising once: 16-23 fps at eye level is far below 30; plan step 7 (frame-time milestone)
+   and the engine-phase perf steps matter more than the upscaler pick.
+3. CLAUDE.md `MAPV=3` "byte-identical" note is stale since 45 (fold into the next CLAUDE.md edit).
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  Tabs: Now = body node `3b5fd194-f74f` (rev 16; "Running" paragraph `mk2vq5dkmp6.121`, "Next up"
-  `mk2vq5dkmp6.357`, Q38 `mk2vq5dkmp6.2876`, Q37 `mk2vq5dkmp6.1933`, Done table `mk2vq5dkmp6.886` --
-  insert rows as `"as":"blocks"` row JSON, 4 cells; Usage paragraph `mk2vq5dkmp6.700`).
-  Task reports = body `d611dfba-5116` (rev 5; insert new reports AFTER the intro `mk2vq5dkmp6.13`).
-  Answered = body `4e4a30eb-dbfc`. Archive = body `8460ce71-6ba5`.
-- Engine phase plan: https://claude.ai/code/artifact/62d9391e-b05a-42d0-83c2-34d9bfeb04f7 (repo copy
-  ENGINE_PHASE_PLAN.md, now marked APPROVED)
-- Game Design Brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
+  Now = body `3b5fd194-f74f` (rev 98; Running `mk2vq5dkmp6.121`, Next up `mk2vq5dkmp6.357`, Q38 `mk2vq5dkmp6.2876`,
+  clips note `mk2vq5dkmp6.4002`, owner's Q38 answer `mc1batkm7es.1`, Usage `mk2vq5dkmp6.700`, Done table
+  `mk2vq5dkmp6.886`: append rows with `"side":"end"`, `"as":"blocks"`, 4 cells).
+  Task reports = body `d611dfba-5116` (rev 8; insert after `mk2vq5dkmp6.13`). Answered = `4e4a30eb-dbfc`.
+- Upscaler Clips page: https://claude.ai/artifact/CDAhSF142yvbD25AVeREWX
+- Engine phase plan: https://claude.ai/code/artifact/62d9391e-b05a-42d0-83c2-34d9bfeb04f7
 
 ## Notes
-- Images: Artifact publish (url = doc link, asset true, file_path[s]) -> Docs `batch`
-  `{"verb":"create","object":"blob","engine":"blob","payload":{"asset":"<id>"}}` -> `![alt](blob/<minted>)`
-  plus an italic caption. Look at each image before placing it.
-- Owner answers arrive as short paragraphs under questions; read each tab with `sinceRev`.
-- The 5-hour window can bind too (97% at 22:57 Fri): if a screenshot shows it near full, delay the runner
-  start until its reset (a background `until [ $(date +%H%M) -ge HHMM ]` loop, then start.sh).
+- Owner's usage screenshot arrives as a doc image: read the blob -> asset id -> Artifact read `path` = asset id.
+- Comparison images/clips: midday, sun behind camera (memory `comparison-images-well-lit`).
 
 ## Ready-to-paste prompt
 > Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the overnight
