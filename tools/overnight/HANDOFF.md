@@ -30,8 +30,7 @@
 - Disk: raw frames peaked at 4.7 GB (fly's refused 3.8 GB was held for the re-record), over the ~3 GB plan; 22 GB was free. All raw frames and run folders are deleted. `clips_realrate/` is 138 MB; the 4 `_lit` MP4s are 68 MB. Per-arm singles were skipped (`NOSINGLES=1`).
 
 ## Not done / next
-- night_torches was not re-recorded (not one of this task's paths).
-- `run-upscaler-realrate.sh` copies each run's log to `clips_realrate/upscalerrealrate.txt`, so a `-raterecord` run overwrites it (I restored it by hand).
+- night_torches not re-recorded (not this task's path). A `-raterecord` run overwrites `clips_realrate/upscalerrealrate.txt` (restored by hand).
 - Suggested follow-up (owner's call, not queued because it is a measurement): find the cause of the ~100 ms hitches every few frames (fluid tick?). They cost more than any upscaler choice.
 - `tools/overnight/PAUSE` exists (14:04, not mine). The queue will stop after this task.
 
@@ -59,6 +58,4 @@ Images:
   - Top middle (taa): the bright shoreline band is smeared into a soft blur.
   - Top right (fsr1): broken bright fragments and speckled water. Bottom row (stp, fsr3): crisper.
 - `Screenshots/Engine03/clips_realrate/stills/task50_fixed30_spin_stop_crop_t2.0_midspin.png`: task 50's fixed-30 mid-spin, a different (old, dimmer) view of a sand slope. Compare how much taa (top middle) blurs the dune ripples there with the real-rate still above.
-- `Screenshots/Engine03/clips_realrate/stills/lit_native_walk_t1.0_pan_t4.0.png`: the new light, native.
-  - Left (walk_cliff_lit): sunlit snow terraces in front, but the cliff wall is still shaded grey.
-  - Right (pan_horizon_lit): the peak, sand and river fully lit, sun behind.
+- `Screenshots/Engine03/clips_realrate/stills/lit_native_walk_t1.0_pan_t4.0.png`: the new light, native. Left (walk_cliff_lit): sunlit snow terraces, cliff wall still shaded grey. Right (pan_horizon_lit): peak, sand and river fully lit.
