@@ -1,36 +1,59 @@
-STOP_FOR_OWNER: Engine phase plan ready for approval.
-Doc: https://claude.ai/code/artifact/62d9391e-b05a-42d0-83c2-34d9bfeb04f7
-(repo copy for task sessions: `ENGINE_PHASE_PLAN.md`). Answer section 5; "all (a)" approves it as written.
+# 45-engine-1-one-generator-path: DONE. Editor map == player map (Burst both sides), SUITE=all 665/0/18.
 
-Questions (option (a) is recommended in each):
-- Q1 Design top speed, one number: (a) 60 m/s (on record) / (b) 30 / (c) 15.
-- Q2 When generation falls behind at top speed: (a) show the next coarser shell until detail arrives / (b) game limits speed later / (c) GPU-built render shells (L + amendment).
-- Q3 E1 internal resolution: (a) 540 fixed + upsample to 1080p / (b) dynamic 540-720 (shells sized for 720) / (c) 720 fixed.
-- Q4 Upscaler: (a) extend our own TAA to TAA-upsampling / (b) URP STP / (c) MetalFX.
-- Q5 Torch-through-wall (E9): (a) torch shadow rays first, then a light-propagation grid; emissive bleed ON / (b) shadow rays only / (c) light grid only.
-- Q6 First 3 tasks: (a) generator path + lava merge, torch shadows, TAA-upsampling / (b) memory first / (c) shells first.
-- Q7 Coast fills the fluid pool: (a) only awake fluid takes tiles / (b) 4x pool (+1.5 GB) / (c) smaller sim radius.
-- Q8 Palette bricks (8.13): (a) stay deferred, decide after the window shrink / (b) do now (~6 tasks) / (c) drop.
-
-# 44-engine-phase-plan-doc: DONE (planning only). Plan written, needs the owner's approval.
-
-## What changed
-- New `ENGINE_PHASE_PLAN.md` (repo root): the same text as the Claude Doc. It has 6 sections: targets E1-E10, memory budget, 23 ordered steps, amendments, Q1-Q8, and a usage estimate.
-- This HANDOFF. No code, no Unity, no builds, no rigs, nothing measured.
-
-## What the plan says (short)
-- Order: 1 one compiled world-map generator path (Burst in Editor + player; the first commit merges `gemini/lava-torch-light` bd60a30). 2 torch shadow rays (BUGS #4). 3 TAA-upsampling. 4-6 memory ledger `PeakUsed`, awake-only fluid tiles (BUGS #3), cascade caps. 7 [measure] frame time. 8 shadow cost / dots (BUGS #1). 9 amendment 8.14 draft (shells + op log, STOP). 10-16 coarse-first gen, shells (BUGS #2 in 11b), hand-over, far edits, window shrink, gen speed, [measure] streaming. 17-19 fluids E6/E8/E7 (BUGS #5 checked after 18; any terrain fix is the owner's call). 20-22 light grid, far lights, GI. 23 milestone.
-- Memory: peak today 3,343 MB (`Logs/tg2world_20261009_210348_mem.txt`). The last ledger is old (2026-10-01, 3,259 MB). Reclaim first: fluid tiles (~-300 MB est.), then cascade caps (~-200 MB, 8.13 §8). Shells replace the cascades. The 0.1 m window shrinks after far edits land. Engine target is ~2,000 MB est., leaving ≥ 500 MB for the game.
-- Key finding: today's generation does not keep up even at walking pace. Shells cut the full-detail radius to ~52-70 m. At 60 m/s level flight it is still ~3x short (est.), hence Q1/Q2. Step 16 measures it, because the next action depends on the result.
-- Every number in the doc carries a date and source. Pre-2026-10-04 frame times are marked old. Estimates are marked (est.).
+## What changed (branch `engine-phase`, made from `surface-rebuild` HEAD)
+- `1def456` merge `gemini/lava-torch-light` (bd60a30; code reviewed: lava's combine drops pointTerm/UniformFaceHue only).
+- `5410b23` the port. The WHOLE map build (regions, feature draw + placement search, easy areas, erosion, fine map,
+  hydrology, world record, routes, `Offsets.For`'s drawn volcano) runs in ONE Burst job (Strict/High,
+  CompileSynchronously) in Editor and player. Same algorithms; arrays became `MapArena` pointers.
+  - `TerrainGen` keeps its portability contract (TerrainSpec.cs, Unity.Mathematics only; test still green): the IJob
+    is in a new companion assembly `Assets/TerrainGen/Burst/` (`TerrainGen.Burst`, registers itself at load).
+    `MapJob.cs` = job body + conversions to WorldMap/WorldRecord/Feature/Route/EasyArea. Public APIs unchanged
+    (`WorldMap.Build`, `WorldRecord.Build/BiomePlane`, `Offsets.For`, `Regions.Build/LandCells`, `Features.Draw` all
+    run through the job).
+  - No managed fallback: a `[BurstDiscard]` probe + MapJobs.Run THROW if the job ran managed or no runner is
+    registered (test `ManagedRun_Throws`). Nothing could not be Bursted.
+  - `MapArena`: one block, scratch freed per stage; seed 42 v4 peak 69 MB. On macOS the block is mmap'd: a freed
+    malloc block stayed resident (C test: 100 MB touched, freed, still 101 MB; player Malloc Large 23 -> 104 MB).
+  - Diagnostics strings (LastPlace/LastPick/LastMark/RouteBuild) are rebuilt from numbers; RouteBuild's
+    "search N ms, all N ms" is now "map build N ms (Burst)".
+  - `WorldRecordTests.V4SixBiomes_B10Gates`: its B8 reference formula now runs in a test Burst job (Mono differed
+    at 1 boundary cell of every-64th sample) -- the only test edit besides the new one.
+  - Player tg2 report prints `map v4 Height FNV <hash>` (PlaygroundCapture.FarBand.cs). KNOWN_ISSUES entry marked FIXED.
 
 ## Evidence
-- Read: ROADMAP.md, BUGS.md, KNOWN_ISSUES (16b, TAA, checker, 3 GB, walk ledger, Burst vs Mono, pool full), SUPERVISOR.md Q26 bullet, 8.13 §8, 8.9 §2, LODConfig, task 30 commit e4fa714, and the gemini branch's SVO_LIGHTING_NOTES review header.
-- No screenshots used. No existing image showed a target problem better than words.
+- Height FNV seed 42 v4 BEFORE (current code, task start): Editor/Mono `7A07FA71CAF75226` cell(613,259) 1070.521
+  (`Logs/overnight/45/editor_before.out`) vs player/IL2CPP `E95115D99DDADE63` 1068.809 (`Logs/tg2world_20261010_000003.txt`).
+  (32c's `B387F054...` was the Oct-8 code, before B4-B10.)
+- AFTER: Editor `639552DD962C4B28` 1068.809 == player `639552DD962C4B28` 1068.809 (`Logs/tg2world_20261010_005419.txt`,
+  and again with the mmap arena `Logs/tg2world_20261010_011501.txt`). Pinned in `WorldMapBurstTests.PLAYER_V4_SEED42`.
+- Suites: fast 631/0/14 after the merge (`Logs/overnight/45/fast_step1.out`); SUITE=all 665/0/18 at the end
+  (`Logs/overnight/45/all2.out`; was 662/0/18, +3 new tests). Re-pinned hashes: 0 (the suite pins none); new pins: 1.
+- Lava step 1: player build 0 `Shader error`, 0 `error CS` (`Logs/lavalight_build.log`); pose 4 lava patch mean RGB
+  (225,103,32) under 26 torches vs (224,103,32) without (pose 1) -- unchanged; Sep-24 pre-look shot was (249,196,83).
+- PlayMetricsReport seed 42 v4 (`Logs/overnight/45/before|after/playmetrics_v4.txt`): every metric within 1% except
+  biome patch COUNT 93 -> 95 (+2%; area-weighted median unchanged 327 ha). Same 5 features, same sites, same 4 easy
+  areas (44 ha each), all gates PASS. Record hash (unpinned) 30D8356A7FBC4355 -> D780DC3C18291CAE.
+- Not a measurement (single cold poses runs): footprint mean over 66 shared samples 3263 -> 3260 MB; peaks 3403 / 3483 MB.
 
 ## Notes for the supervisor
-- The lava fix `bd60a30` is NOT on main yet. Step 1 merges it first.
-- The parked task 31 (memledger) becomes step 4. `later/38` and `later/40` are attached to steps 8 and 11b.
+- CLAUDE.md says `MAPV=3` gives the "byte-identical pre-rebuild map": v3 now also comes from Burst, so it differs from
+  the pre-task v3 at float level (same shapes). Worth updating that line.
+- Still Mono-vs-IL2CPP (not the map): managed `ShapeField.Sample` calls outside jobs (StreamManager spawn sample,
+  FarBand capture probes). Named in KNOWN_ISSUES; not queued.
+- Left untouched (pre-existing): `Assets/Scenes/Playground.unity` modification, `queue/44` deletion in the worktree.
 
 ## Next step
-Owner answers Q1-Q8. Then the supervisor writes step 1's task file (and steps 2-3 per Q6).
+Engine plan step 2 (torch shadow rays, BUGS #4) on `engine-phase`.
+
+## For the doc
+- Editor vs player seed 42 v4 Height FNV: BEFORE `7A07FA71CAF75226` vs `E95115D99DDADE63` (differ; cell(613,259)
+  1070.52 vs 1068.81 voxels) -> AFTER `639552DD962C4B28` == `639552DD962C4B28` (`Logs/tg2world_20261010_005419.txt`).
+- Tests: SUITE=all 662/0/18 -> 665/0/18 (`Logs/overnight/45/all2.out`); 0 hashes re-pinned, 1 new pin.
+- Editor map build 27.5 s -> 1.5 s (PlayMetricsReport, `Logs/overnight/45/after/playmetrics_v4.txt`).
+- Metrics seed 42 v4 before -> after: median slope 14.2 -> 14.2 deg (0%); mountainous 52.5 -> 52.6% (+0.1 pt);
+  open 9.3 -> 9.3%; lakes 90 -> 90; river 26.9 -> 26.8 km (-0.4%).
+- `Screenshots/Engine01/seed42_v4_relief_before_after.png` -- left: the Editor's old Mono map; middle: the Burst map
+  (= the player's); right: the difference x8. Look at the right panel: black except faint specks on the steep central
+  mountains (3.7% of pixels differ, 0.1% by >16 levels). No visible change.
+- `Screenshots/Engine01/lava_torch_pair.png` -- left: pose 1, lava, no torches; right: pose 4, 26 torches + lava.
+  Look at the lava floor: the same deep orange in both (mean RGB 224/225,103,32) while the torches light the walls.
