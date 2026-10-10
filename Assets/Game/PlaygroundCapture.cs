@@ -1446,6 +1446,10 @@ public partial class PlaygroundCapture : MonoBehaviour
 
     IEnumerator Start()
     {
+        // -emissivebleed 0|1: faces next to lava/torches pick up their glow.
+        // Parsed here so every mode (-lavalight, -sustained, ...) honours it.
+        int emissiveBleed = ArgInt("-emissivebleed", -1);
+        if (emissiveBleed >= 0) RaymarchFeature.EmissiveBleedOverride = emissiveBleed > 0 ? 1 : 0;
         if (HasFlag("-pitchsweep")) { yield return PitchSweep(); yield break; }
         if (HasFlag("-stutterprobe")) { yield return StutterProbe(); yield break; }
         if (HasFlag("-gputrace")) { yield return GpuTraceLoad(); yield break; }
@@ -1823,10 +1827,6 @@ public partial class PlaygroundCapture : MonoBehaviour
         // would compare the shipped frame with itself.
         int lookGrade = ArgInt("-lookgrade", -1);
         if (lookGrade >= 0) SunCycle.LookGradeOverride = lookGrade;
-
-        // -emissivebleed 0|1: faces next to lava/torches pick up their glow.
-        int emissiveBleed = ArgInt("-emissivebleed", -1);
-        if (emissiveBleed >= 0) RaymarchFeature.EmissiveBleedOverride = emissiveBleed > 0 ? 1 : 0;
 
         // The shadow-distance clamp, re-exposed here because §F.4 "disproved" it
         // AT THE WRONG POSE. That sweep ran inside the arena pit, where almost

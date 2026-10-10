@@ -1,56 +1,47 @@
-# 37e-lake-flat-water: DONE. Every v4 lake now sits still at one level: 0 unsettled lake cells on seeds 42/7/2026/31337 (e4b6a02); SUITE=all PASS 658 FAIL 0 SKIP 17.
-**OWNER, PLEASE LOOK (not a blocker):** the seed 42 lake now has a **straight-edged shore** with a flat sand beach (picture below). It looks man-made. See "Left open".
+STOP_FOR_OWNER -- 41-lava-look-shots: is the new lava right, and should emissive bleed stay on?
+Look at `Screenshots/LavaLook/contact_sheet.png` (rows = 6 poses; columns = BEFORE / bleed 0 / bleed 1 / SVO reference on the night-pool row).
+Questions: (1) Keep the new lava look? (2) Turn bleed on by default (`LightingConfig.emissiveBleed = 1`)? (3) Fix the pale lava under torches (pose 4, below) by dropping `pointTerm` on lava faces? Not done; it needs your OK.
 
-This was the third attempt. The 16:00 attempt wrote the fix and the new test, then hit the usage limit with one gate red. This session fixed that gate and finished the task.
+# 41-lava-look-shots: DONE. gemini/lava-look merged, compiles, fast suite green, three arms shot.
 
-## The change (map v4 only; v3 is byte-identical and its hash tests pass)
-- **I raised the rim; I did not lower the level.** The map's lake level is right (it is the spill level). What was wrong was the ground around the lake: dry columns next to a lake dipped below its level.
-  - Why not lower the level: that needs every shore column's voxel ground when the map is built, which is not local.
-- `ShapeField.LakeRim`:
-  - Any dry column within 1.5 map cells of a lake cell is raised to that lake's level. Beyond that it falls away at 27°.
-  - Inside the lake, a 4 m **shore shelf** raises the bed toward the level near the water's edge. Without it the raised rim stood as a vertical bank beside the bed.
-- **This session's fix (seed 7's red route gate):** the shelf counted a river inlet as dry shore. It stood at the lake level right beside the river bed, a 1.5 m wall at (2996, 2412) m on route 2-3.
-  - Now a square with a lake corner, or with water at or above this lake's level, counts as wet.
-- `Stamps`: no cave mouth, fissure or skull cave is carved within 2.5 cells of a lake. The basin flatten ring keeps the rim.
-- `DetailField`: a stamp opening below still water holds water instead of air. Caves are carved by depth below the ground as it was before the rim raised it.
-- `MapView.waterClass` is passed through by `WorldMap`, `FarField` and `TerrainGenChunkSource`.
-- Covered: lakes, and the geyser pools (they were already at rest). Not covered: rivers (they are not at rest by design) and the volcano's lava lake (not checked).
+## What changed
+- Merge commit of `gemini/lava-look` (73a625b) into `surface-rebuild`. No conflicts. Pre-merge "before" HEAD = 478237d.
+- One fix inside the merged code, `Assets/Game/PlaygroundCapture.cs`: `-emissivebleed` was parsed only inside `Sustained()`, so `-lavalight` ignored it. It is now parsed at the top of `Start()`, so every mode honours it. Same line, moved.
+- Shots: `Screenshots/LavaLook/{before,bleed0,bleed1}/` (the 6 lava-light-ON shots + `lavalight.txt` each), plus `contact_sheet.png`.
 
-## Evidence
-- **New test `LakeLevelTests.LakeWater_IsAtRest(seed)`**, one seed per case. It counts lake water voxels with air beside, directly below, or diagonally below them.
-  - Unity peaked at about 1.9 GB (`Logs/overnight/37e/after4.mem`). The memory watchdog killed nothing.
+## Evidence (correctness only; no performance arms, rule 10)
+- Fast EditMode: **PASS 631 FAIL 0 SKIP 14** (`Logs/overnight/41/suite.out`), 0 `error CS`.
+- `ShaderCompileCheck.CheckAll`: every shader OK, Raymarch.compute OK (`Logs/overnight/41/shadercheck.log`).
+- Player build (`Logs/lavalight_build.log`, 19:44): "Compiling compute shader Raymarch" present, **0 `Shader error`**, 0 `error CS`.
+- BEFORE used the 19:26 build. That build is HEAD 478237d: no Assets change since e4b6a02 (19:21), and it used the same scene builder and build method.
+- Arms: before `Logs/lavalight_ab_20261009_193521.txt`; bleed 0 `Logs/lavalight_ab_20261009_194243.txt`; bleed 1 launched by hand (`-lavalight -cleardeltas -emissivebleed 1`), data `.../LavaLight/2026-10-09_194703/`.
+- Pixel diff, share of pixels changed by more than 8 levels:
 
-| seed | unsettled before | unsettled after | lake water area before -> after |
-|---|---|---|---|
-| 42 | 666,196 | **0** | 27.30 -> 27.14 ha |
-| 7 | 885,872 | **0** | 29.39 -> 29.20 ha |
-| 2026 | 1,039,211 | **0** | 44.11 -> 43.87 ha |
-| 31337 | 607,546 | **0** | 17.54 -> 17.41 ha |
+| pose | before vs bleed 0 | bleed 0 vs bleed 1 |
+|---|---|---|
+| 1 cavern wide | 27.7% | 3.6% |
+| 2 wall beside lava | 12.7% | 7.7% |
+| 3 cavern far end | 37.2% | 3.9% |
+| 4 torches + lava | 21.8% | 5.2% |
+| 5 night pool | 0.7% | 0.01% |
+| 6 golden hour | 0.7% | 0.01% |
 
-  - Map lakes are unchanged: 90/86/84/50 lakes, 41.1/40.0/76.4/59.6 ha of lake cells. The map itself is not touched.
-  - Geyser pools: 0 unsettled before and after.
-  - Logs: `Logs/overnight/37e/before4.log`, `fix5.log`.
-- **Route gate:** B8 `V4_FourSeeds_RoutesJoinTheEasyAreas` passes on all 4 seeds with 0.0 m Sheer. Seed 7 was 0.5 m before this session's fix (`fix5.log`).
-- **`SUITE=all`: PASS 658 FAIL 0 SKIP 17** (`Logs/overnight/37e/suite_all3.out`). That is the 654 from before plus the 4 new cases. It covers B4/B5/B6/B8/B10, v3 hashes, and v4 hash stability and seed-dependence.
-- **Pool probe** (`MODE=poolprobe MAPV=4`, log `Logs/tg2world_*` from 19:21; report `Screenshots/37e/new_poolprobe.txt`). Not a gate.
-  - Lake stop, water that could start flowing: 89,590 cells (86,596 with air diagonally below) -> **21**. Those 21 are not identified; the probe also counts river water.
-  - Slot high-water on arrival: 34,403 -> 87.
-  - Slot high-water after placing water at the lake: 682,258 -> 116,186.
-  - The probe's start and coast poses moved since task 39 (the map changed in 37b/37d), so its coast numbers are not comparable.
-- No performance runs (rule 10).
+  For poses 1 and 4, the masks show the before-vs-bleed-0 change covers exactly the lava area. Walls, floor and torches are identical.
 
-## Pictures (`Screenshots/37e/`)
-- `lake_before_after.png`: a 2x2 sheet. Top row is before (task 39's shots, 00:40), bottom row is after. Left column has no edit; right column is 2 s after placing water.
-  - **Top left:** the near half of the lake is a speckled staircase of water steps. That is the unsettled surface.
-  - **Bottom left:** one flat blue sheet with a clean shore. **But the near shore is a dead-straight east-west line and the right shore a straight diagonal, with a flat sand beach at lake level.**
-  - **Bottom right:** the placed water falls onto the beach and spreads. The lake surface around it stays flat, and no holes open in it.
-  - The grass in the top row turning to sand in the bottom row is the later biome work (B10/37b), not this task.
-- `new_lake_after_8s.png` and `old_lake_after_2s.png` are the single frames.
-- I did not take a separate "no edit for a few seconds" shot. The 87-slot high-water on arrival says the lake does not wake by itself.
+## What I SEE
+- **Cavern lava (poses 1-3) IS deep orange at bleed 0**, the same orange as the night pool. Before, it was pale gold. The lava aggregate lights do NOT wash it out.
+  - Contact sheet rows 1-3, columns 1 vs 2: the lava floor goes from pale gold to orange.
+- **BUT under torches (pose 4, 40 torches) the lava goes PALE YELLOW**, paler than before.
+  - The cause is `baseColor * faceLight`: faceLight carries the torch point light, so strong torch light now bleaches lava.
+  - The candidate fix is the one the review named: drop `pointTerm` (or at least the torch part) on lava faces. NOT done.
+  - Contact sheet row 4: compare the lava strip in column 1 (orange) with columns 2-3 (pale yellow with orange specks).
+- **Nothing but lava differs between BEFORE and bleed 0.** The diff masks show only lava pixels, and the torch-lit walls in pose 4 are identical.
+- **Bleed 1** adds a one-voxel glowing rim on the faces that touch lava: the floor edge in poses 1/3, and the wall foot in pose 2 (row 2, column 3, bottom edge).
+  - It reaches only edge-neighbours of an emitter; walls further away are not warmer.
+  - Torches are lit as before, but the pose-4 torch walls are already near white, so no visible change there.
+- Night pool (row 5): orange with bleed 0, closer to the SVO's orange (far right) than the old gold. The SVO's lava is broken up with dark crust and obsidian; ours is one flat orange disc.
+- Pose 4 bleed 0 vs bleed 1 also differs at scattered single lava voxels. Bleed is gated off on emitters, so this is probably the lava itself changing between launches (hot/cool or fluid). Not chased.
 
 ## Left open / next
-- **Straight shores (owner's call).** The shelf ends exactly at the edge of the 2x2 map squares that touch a lake, so the shoreline follows the 8 m map grid instead of the terrain. A fix would make the shelf (or the wet area) follow the ground: for example, only raise the bed where the dry rim needs it, or blend the edge with noise.
-  - That is new terrain-design work, so I did not queue it.
-- The volcano's lava lake was not checked for the same defect.
-- The 21 water cells at the lake stop could be counted by water kind (lake vs river) in a later probe.
-- Next in the queue: 41 (lava-look shots).
+- Owner decisions above. Far-band lava keeps its old colour (not shaded by this block).
+- The bleed's cost (4 extra window reads per pixel when on) is unmeasured; it is due at the engine milestone.
