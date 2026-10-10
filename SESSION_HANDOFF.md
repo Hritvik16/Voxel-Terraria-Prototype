@@ -1,4 +1,4 @@
-# Session handoff -- 2026-10-10 15:00 (supervisor; queue PAUSED, nothing running)
+# Session handoff -- 2026-10-10 15:10 (supervisor; queue RUNNING task 52)
 
 ## For the owner
 **Why a new session:** three tasks finished in this chat (49, 50, 51) and the week's usage is nearly gone;
@@ -16,12 +16,17 @@ a fresh session is cheaper per turn. Everything is in the Queue decisions doc.
 - Usage: 94% of the week at Sat 14:03 (resets Thu 06:00). You will press the free "Full reset" (expires 22 Oct)
   when it hits 100%. Queue paused (`tools/overnight/PAUSE`).
 
-**Running:** nothing. **Open for you:** Q38 final pick (you lean FSR 3 720 vs STP 540; 720 is unaffordable today,
-see below); then lift the pause.
+- **Q38 answered 15:05: (a) FSR 3 dynamic** (540-720 rows). Queued 52 (make it the play default; also deletes
+  task 48's raw stills and fixes the stale CLAUDE.md MAPV=3 line), 53 (engine step 6: cascade caps from 49's
+  peaks), 54 (engine step 5: fluid tiles for awake fluid only; stops for you first if it needs a contract change).
+  Pause lifted, runner restarted 15:07.
+
+**Running:** task 52 (started 15:07). **Open for you:** press the free "Full reset" when the week hits 100%
+(the runner retries every 20 min for up to 6 h, then sets the task aside).
 
 ## State
 - Branch `engine-phase`: 49 `1fcfcb8`, 50 `5c2eca3`.., 51 `0624152`/`3fe865a`/`e71ec70`. main untouched, nothing pushed.
-- Queue empty; PAUSE file present. Blocked: 48 (Q38). Runner ended 14:46.
+- Queue: 52 running, then 53, 54. No PAUSE. Task 48 moved to done/ (Q38 answered).
 - Clips: raw in `Screenshots/Engine03/clips{,_realrate}/`; web re-encodes (avconvert Preset1920x1080, H.264,
   <=15 MB per file, the page's per-file limit) in `Screenshots/Engine03/clips_web/` with the page source
   `upscaler-clips.html` (republish with `root` = that folder). All uncommitted.
@@ -34,12 +39,15 @@ integration); FSR 3 is steadier, true colour, softer. Options to offer: (a) FSR 
 engine phase frees frame time; (b) STP 540 + a small task to fix its tone / rest shimmer first.
 
 ## Next for the supervisor
-1. On Q38: record it (Answered tab), close task 48 (move to done), write the "make the pick the default in play"
-   task, then steps 5 (fluid tiles for awake fluid; 49: coast wants 4,667 tiles vs 1,024) and 6 (cascade caps at
-   peak x 1.25: tier1 82,641, tier2 16,437 -> caps ~103k / ~21k; tier0 395k) -- copy 49's numbers in. Remove PAUSE.
+1. Arm the runner-event wait. Report 52, 53, 54 as they finish (Task reports tab + Done row). Move Q38's text to
+   the Answered tab when convenient (it is marked ANSWERED in place on the Now tab).
+   After 54: plan step 7 (frame-time milestone). Task 51 already shows ~60 ms walk p50 at the quality preset
+   (target 16.7), so step 7 is very likely red -> step 8 (shadow cost). Ask the owner whether to skip step 7's
+   measurement and go straight to step 8 (CLAUDE.md: skip a measurement whose every outcome leads to the same
+   action) -- recommend skipping.
 2. Owner-level flag worth raising once: 16-23 fps at eye level is far below 30; plan step 7 (frame-time milestone)
    and the engine-phase perf steps matter more than the upscaler pick.
-3. CLAUDE.md `MAPV=3` "byte-identical" note is stale since 45 (fold into the next CLAUDE.md edit).
+3. (CLAUDE.md MAPV=3 wording: folded into task 52.)
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
