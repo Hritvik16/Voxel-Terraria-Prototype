@@ -11,8 +11,11 @@
 //           its terrain mean luma >= 70/255 and sky <= 1/3 of the frame (sky =
 //           a CPU ray per 40x40-px cell that meets no ground in the tg2 map
 //           within 16 km); else the next candidate or 8/15 deg more pitch down.
-//   PART 1  per path (walk_cliff, spin_stop, fly): the path streamed once
-//           (task 50's ClipRun, waits included), then the arms A..F F..A, each
+//   PART 1  per path (walk_cliff, spin_stop, fly): streaming PINNED at the
+//           path's middle pose (Phase4Bootstrapper.DebugStreamCentre) and
+//           settled there, so nothing streams while timing (a moving window
+//           recentred on every chunk the walk crossed and every frame
+//           streamed); then the arms A..F F..A, each
 //           3 s settle + 20 s timed, the camera on the path by REAL time
 //           (Time.unscaledDeltaTime; the 8 s path played forward and back),
 //           no capture of any kind, fluid simulating as in play. Frame time
@@ -90,7 +93,10 @@ public partial class PlaygroundCapture
         ApplyCompareArm("native");
         ClipPath walk = null, spin = null, fly = null, pan = null;
         var pick = new ClipPath[1];
-        yield return RatePick("walk_cliff", walks, pick, cam, far, sm, map); walk = pick[0];
+        // walk_cliff looks UP a steep face (pitch ~-30 deg), which a 78 deg sun
+        // barely lights (first launch: best of 6 feet luma 58): more feet, and
+        // one more pitch step down
+        yield return RatePick("walk_cliff", walks, pick, cam, far, sm, map, 10, new[] { 0f, 8f, 15f, 25f }); walk = pick[0];
         yield return RatePick("spin_stop", spins, pick, cam, far, sm, map); spin = pick[0];
         yield return RatePick("fly", flies, pick, cam, far, sm, map); fly = pick[0];
         // pan_horizon was task 50's eye_level_3 (its furthest ring): far eyes first
@@ -110,11 +116,16 @@ public partial class PlaygroundCapture
         {
             L("");
             L($"== {path.name}: {path.note}");
-            cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
+            // streaming pinned at the path's middle pose for the whole timing
+            // (first launch: the window recentred on every chunk / Y-layer the
+            // walk crossed, so every timed frame streamed)
+            RatePose(path, RatePathSeconds * 0.5f, out Vector3 mid, out _);
+            Phase4Bootstrapper.DebugStreamCentre = mid;
+            cam.transform.position = mid; cam.transform.rotation = path.rot[path.lead];
             yield return NearSettle(far, sm);
-            var pre = new ClipArmStats();
-            yield return ClipRun(path, null, cam, boot, sm, far, store, pre);
-            L($"  stream pass: resident {store.ResidentCount}, {pre.waits} waits ({pre.waitSeconds:F0} s, {pre.timeouts} timeouts), in rock {pre.inRock} frames");
+            float span = 0f;
+            for (int f = 0; f < path.pos.Length; f++) span = math.max(span, Vector3.Distance(path.pos[f], mid));
+            L($"  streaming pinned at the middle pose {mid:F1} (path reaches {span:F0} m from it): resident {store.ResidentCount}, deficit {sm.LoadDeficit()}");
             var res = new Dictionary<string, RateArm>();
             foreach (string arm in ClipArms) res[arm] = new RateArm();
             results[path.name] = res;
@@ -128,9 +139,10 @@ public partial class PlaygroundCapture
                 yield return RateTime(path, arm, pass, res[arm], cam, acd, sm, far);
                 var ms = res[arm].ms[pass];
                 L($"  pass {pass + 1} {arm,-9} frames {ms.Count,4}  p50 {Pct(ms, 0.5f),5:F1}  p95 {Pct(ms, 0.95f),5:F1}  p99 {Pct(ms, 0.99f),5:F1} ms  " +
-                  $"rows now {UpscalerSelect.Rows}  streaming frames (deficit > 0) {res[arm].deficitFrames}  far busy {res[arm].farBusyFrames}  resident {store.ResidentCount}");
+                  $"rows now {UpscalerSelect.Rows}  streaming frames (deficit > 0, both passes so far) {res[arm].deficitFrames}  far busy {res[arm].farBusyFrames}  resident {store.ResidentCount}");
                 File.WriteAllText(Path.Combine(root, "upscalerclips.txt"), _log.ToString());
             }
+            Phase4Bootstrapper.DebugStreamCentre = null;
         }
         var table = new StringBuilder();
         table.AppendLine("arm       path        pooled p50   p95   p99 ms   fps@p50  pass1 p50  pass2 p50  spread  rows");
@@ -290,15 +302,16 @@ public partial class PlaygroundCapture
     /// the best seen (sky check first, then luma), logged as such. At most 6
     /// candidates are rendered.
     private IEnumerator RatePick(string name, List<Func<ClipPath>> cands, ClipPath[] outPath, Camera cam,
-                                 FarField far, StreamManager sm, TerrainGen.WorldMap map)
+                                 FarField far, StreamManager sm, TerrainGen.WorldMap map, int maxCands = 6, float[] pitches = null)
     {
+        pitches ??= new[] { 0f, 8f, 15f };
         outPath[0] = null;
         ClipPath best = null; float bestScore = float.MinValue; string bestWhy = "";
         var lc = new LightCheck();
-        for (int i = 0; i < cands.Count && i < 6; i++)
+        for (int i = 0; i < cands.Count && i < maxCands; i++)
         {
             ClipPath basePath = cands[i]();
-            foreach (float dp in new[] { 0f, 8f, 15f })
+            foreach (float dp in pitches)
             {
                 ClipPath p = dp == 0f ? basePath : ClipPitched(basePath, dp);
                 cam.transform.position = p.pos[p.lead]; cam.transform.rotation = p.rot[p.lead];
@@ -414,7 +427,7 @@ public partial class PlaygroundCapture
 
     /// Cliff feet (FindCliffFeet) whose view of the cliff points within 60 deg
     /// of straight away from the sun, so the cliff face is sunlit; at least
-    /// 200 m apart; at most 6.
+    /// 200 m apart; at most 10.
     private static List<(float3 eye, float3 at)> RateLitCliffFeet(TerrainGen.WorldMap map, float sunYaw)
     {
         var keep = new List<(float3, float3)>();
@@ -427,7 +440,7 @@ public partial class PlaygroundCapture
             foreach (var (k, _) in keep) near |= math.distance(k.xz, e.xz) < 2000f;
             if (near) continue;
             keep.Add((e, a));
-            if (keep.Count == 6) break;
+            if (keep.Count == 10) break;
         }
         return keep;
     }

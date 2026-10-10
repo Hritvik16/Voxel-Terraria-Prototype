@@ -53,6 +53,11 @@ public class Phase4Bootstrapper : MonoBehaviour
     }
     public static bool IsTg2World { get; private set; }
 
+    /// MEASUREMENT SEAM (task 51), not a configuration: while set, streaming
+    /// and the far band centre on this point instead of the camera, so a timed
+    /// camera path that fits inside the window streams nothing. Off by default.
+    internal static Vector3? DebugStreamCentre;
+
     /// Spawn point for this world's size class, in METRES, derived from the same
     /// island geometry generation uses -- so it cannot drift out of sync with
     /// the world the way a hardcoded literal did.
@@ -332,7 +337,7 @@ public class Phase4Bootstrapper : MonoBehaviour
     void LateUpdate()
     {
         if (Streamer == null) return;
-        Vector3 camPos = Camera.main != null ? Camera.main.transform.position : transform.position;
+        Vector3 camPos = DebugStreamCentre ?? (Camera.main != null ? Camera.main.transform.position : transform.position);
 
         // TIMED, because the whole streaming system runs HERE, in LateUpdate.
         // FrameGapProbe splits the frame at its own LateUpdate, and Unity's
