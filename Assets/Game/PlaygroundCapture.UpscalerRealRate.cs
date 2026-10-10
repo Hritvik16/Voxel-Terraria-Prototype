@@ -93,17 +93,36 @@ public partial class PlaygroundCapture
         ApplyCompareArm("native");
         ClipPath walk = null, spin = null, fly = null, pan = null;
         var pick = new ClipPath[1];
+        // -raterecord fly:fsr1_540=13.44,stp_540=15.68 -- a RE-RECORD of those
+        // arms of that path at those steps (ms, from an earlier run's table):
+        // only that path is picked, no timing, no lit clips
+        string reRec = ArgValue("-raterecord");
+        string rrPath = null;
+        var rrArms = new Dictionary<string, float>();
+        if (!string.IsNullOrEmpty(reRec))
+        {
+            int c = reRec.IndexOf(':');
+            rrPath = reRec.Substring(0, c);
+            foreach (string kv in reRec.Substring(c + 1).Split(','))
+            {
+                string[] two = kv.Split('=');
+                rrArms[two[0]] = float.Parse(two[1], inv);
+            }
+            L($"-raterecord: path {rrPath}, arms {string.Join(" ", rrArms.Keys)} -- no timing");
+        }
+        bool Want(string n) => rrPath == null || rrPath == n;
+        if (Want("walk_cliff"))
         // walk_cliff looks UP a steep face (pitch ~-30 deg), which a 78 deg sun
         // barely lights (first launch: best of 6 feet luma 58): more feet, and
         // one more pitch step down
-        yield return RatePick("walk_cliff", walks, pick, cam, far, sm, map, 10, new[] { 0f, 8f, 15f, 25f }); walk = pick[0];
-        yield return RatePick("spin_stop", spins, pick, cam, far, sm, map); spin = pick[0];
-        yield return RatePick("fly", flies, pick, cam, far, sm, map); fly = pick[0];
+        { yield return RatePick("walk_cliff", walks, pick, cam, far, sm, map, 10, new[] { 0f, 8f, 15f, 25f }); walk = pick[0]; }
+        if (Want("spin_stop")) { yield return RatePick("spin_stop", spins, pick, cam, far, sm, map); spin = pick[0]; }
+        if (Want("fly")) { yield return RatePick("fly", flies, pick, cam, far, sm, map); fly = pick[0]; }
         // pan_horizon was task 50's eye_level_3 (its furthest ring): far eyes first
         var pansFar = new List<Func<ClipPath>>();
         for (int i = 0; i < pans.Count; i++) if (eyes[i].n.StartsWith("r0.65")) pansFar.Add(pans[i]);
         for (int i = 0; i < pans.Count; i++) if (!eyes[i].n.StartsWith("r0.65")) pansFar.Add(pans[i]);
-        yield return RatePick("pan_horizon_lit", pansFar, pick, cam, far, sm, map); pan = pick[0];
+        if (rrPath == null) { yield return RatePick("pan_horizon_lit", pansFar, pick, cam, far, sm, map); pan = pick[0]; }
         File.WriteAllText(Path.Combine(root, "upscalerclips.txt"), _log.ToString());
 
         // ---- PART 1: frame rate per arm, warm, ABBA ----
@@ -112,6 +131,17 @@ public partial class PlaygroundCapture
         var results = new Dictionary<string, Dictionary<string, RateArm>>();
         L("");
         L("PART 1 -- frame time per arm (ms; Time.unscaledDeltaTime of every frame in the 20 s window)");
+        if (rrPath != null)
+        {
+            // the given steps stand in for the timing
+            foreach (var path in timed)
+            {
+                var res = new Dictionary<string, RateArm>();
+                foreach (var kv in rrArms) { var r = new RateArm(); r.ms[0].Add(kv.Value); res[kv.Key] = r; }
+                results[path.name] = res;
+            }
+            timed.Clear();
+        }
         foreach (var path in timed)
         {
             L("");
@@ -163,8 +193,8 @@ public partial class PlaygroundCapture
 
         // ---- PART 2 (real-rate clips) + the two lit 30 fps clips ----
         var jobs = new List<(string dir, ClipPath path, bool real)>();
-        foreach (var p in timed) jobs.Add(("rr_" + p.name, p, true));
-        if (walk != null) jobs.Add(("walk_cliff_lit", walk, false));
+        foreach (var p in new[] { walk, spin, fly }) if (p != null && results.ContainsKey(p.name)) jobs.Add(("rr_" + p.name, p, true));
+        if (walk != null && rrPath == null) jobs.Add(("walk_cliff_lit", walk, false));
         if (pan != null) jobs.Add(("pan_horizon_lit", pan, false));
         L("");
         L($"PART 2 -- clips: {string.Join(" ", jobs.ConvertAll(j => j.dir))}");
@@ -194,6 +224,7 @@ public partial class PlaygroundCapture
             var rates = new StringBuilder("{\"seconds\": 8, \"arms\": {");
             foreach (string arm in ClipArms)
             {
+                if (rrPath != null && !rrArms.ContainsKey(arm)) continue;
                 ClipPath clip = path;
                 Action hold = null;
                 if (real)
@@ -212,8 +243,8 @@ public partial class PlaygroundCapture
                 yield return ClipRecordArm(clip, arm, Path.Combine(pdir, arm), hold, cam, acd, boot, sm, far, store);
                 Time.captureDeltaTime = 0f;
             }
-            if (real) File.WriteAllText(Path.Combine(pdir, "rates.json"), rates.Append("}}").ToString());
-            File.WriteAllText(Path.Combine(pdir, "DONE"), dname);
+            if (real && rrPath == null) File.WriteAllText(Path.Combine(pdir, "rates.json"), rates.Append("}}").ToString());
+            if (rrPath == null) File.WriteAllText(Path.Combine(pdir, "DONE"), dname);    // a re-record is merged by hand
             File.WriteAllText(Path.Combine(root, "upscalerclips.txt"), _log.ToString());
         }
         Time.captureDeltaTime = 0f;
