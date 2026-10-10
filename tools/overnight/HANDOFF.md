@@ -7,10 +7,8 @@
   - **Clips:** recorded at `captureDeltaTime` = the arm's pooled p50. fsr3_dyn is held at its timed rows (`UpscalerSelect.HoldDynRows`).
   - **Encode:** 60 fps sample-and-hold. `tools/upscaler-clip-grids.py` has a real-rate mode; `tools/upscaler-realrate-encode.sh` drives it.
 - `Phase4Bootstrapper.DebugStreamCentre`: a measurement seam, null (off) by default. Timing pins streaming at the path's middle pose.
-  - Why: in the first launch the window recentred on every chunk and Y layer the walk crossed. Every timed frame streamed (resident 3591 -> 2650), so walk taa read 59 ms in pass 1 and 81 ms in pass 2.
-  - That launch's log is `Logs/overnight/51_run1_streaming_aborted.txt`. Its walk numbers are "while streaming" evidence only.
+  - Why: in the first launch the window recentred on every chunk and Y layer the walk crossed, so every timed frame streamed (resident 3591 -> 2650; walk taa 59 then 81 ms). Log: `Logs/overnight/51_run1_streaming_aborted.txt`, "while streaming" evidence only.
 - `-raterecord <path>:<arm>=<ms>,...` re-records single arms. During fly's fsr1 and stp recordings the Metal surface jumped to 2880x1800 (Player.log RecreateSurface, as in task 50), so I re-recorded those two arms and merged them.
-- Refactors that keep behaviour: task 50's per-arm loop is now `ClipRecordArm`; `ClipRun` takes any length and lead; spin_stop is `ClipSpinStop`; `FindCliffFoot` uses the new `FindCliffFeet`.
 
 ## Evidence
 - Fast suite PASS 634 FAIL 0 SKIP 14 after the last change (`Logs/overnight/51_fast3.out`).
@@ -21,18 +19,14 @@
   - Pass 1 vs pass 2 p50 within 2% except fly: taa 13.2/14.6 (10%), fsr1 12.6/14.1 (12%, over 10%: not averaged away, shown pooled), native 6%, stp 6%.
 - **Fly caveat:** the fly path reaches 200 m from the pinned centre, past the voxel window, so the far band draws its ends while timing. Real 40 m/s flight streams all the time (KNOWN_ISSUES streaming), so real fly runs slower.
 - **Spikes in every arm:** p95 is 140-160 ms on walk/spin even for 540-row arms, about +100 ms on top of p50 whatever the upscaler. Mean fps is far below p50 fps (fly fsr1 39 mean vs 74 at p50).
-  - Not isolated. Fluid was on (6-frame tick), so it is the first suspect.
-  - The clips use p50, so they show the smooth part, not the hitches.
+  - Not isolated; fluid was on (6-frame tick), the first suspect. The clips use p50, so they show the smooth part, not the hitches.
 - **Clips:** every recorded frame had deficit 0, 0 timeouts, 0 in rock, and was 1920x1080 after the re-record.
-  - Real-rate MP4s: 480 frames, 8.000 s, 60 fps each.
-  - Lit MP4s: 240 frames, 8.000 s, 30 fps each.
+  - Real-rate MP4s: 480 frames, 8.000 s, 60 fps each. Lit MP4s: 240 frames, 8.000 s, 30 fps each.
 - **Light check:**
-  - walk_cliff: cliff 3 of 10 with pitch +25 deg, luma 73, sky 11%. Task 50's walk_cliff frames had mean luma 30 and 19.
+  - walk_cliff: cliff 3 of 10 with pitch +25 deg, luma 73, sky 11% (task 50's: mean luma 30 and 19, backlit; its pan_horizon had a dark peak at 4 s, so both got `_lit` re-records).
   - spin_stop: r0.45_d0 pitch +15, luma 77, sky 0%. fly: r0.45_d0, luma 74, sky 1%. pan_horizon_lit: r0.65_d-30, luma 76, sky 28%.
-  - Task 50's walk_cliff (near-black, backlit) and pan_horizon (dark peak at 4 s) both needed the `_lit` re-record. Done.
 - Frames I looked at:
-  - walk grid at 2.0 s: the snow slope is sunlit, but the cliff wall itself is still grey and shaded, because a 78 deg sun barely lights a wall.
-  - spin grid and crops at 2.0 and 5.0 s; fly crop at 4.0 s; lit walk at 1.0 s and lit pan at 4.0 s (well lit).
+  - walk grid at 2.0 s: the snow slope is sunlit, but the cliff wall is still grey and shaded (a 78 deg sun barely lights a wall). Also spin at 2.0/5.0 s, fly at 4.0 s, lit walk/pan.
 - Disk: raw frames peaked at 4.7 GB (fly's refused 3.8 GB was held for the re-record), over the ~3 GB plan; 22 GB was free. All raw frames and run folders are deleted. `clips_realrate/` is 138 MB; the 4 `_lit` MP4s are 68 MB. Per-arm singles were skipped (`NOSINGLES=1`).
 
 ## Not done / next
@@ -63,9 +57,7 @@ Videos in `Screenshots/Engine03/clips_realrate/` (`grid_<path>.mp4` 3x2 960x540 
 Images:
 - `Screenshots/Engine03/clips_realrate/stills/spin_stop_crop_t2.0_midspin.png`: real rate, mid-spin, the far lake shore.
   - Top middle (taa): the bright shoreline band is smeared into a soft blur.
-  - Top right (fsr1): broken bright fragments and speckled water.
-  - Bottom row (stp, fsr3): crisper.
-  - Each tile shows its own last frame, so the views differ slightly.
+  - Top right (fsr1): broken bright fragments and speckled water. Bottom row (stp, fsr3): crisper.
 - `Screenshots/Engine03/clips_realrate/stills/task50_fixed30_spin_stop_crop_t2.0_midspin.png`: task 50's fixed-30 mid-spin, a different (old, dimmer) view of a sand slope. Compare how much taa (top middle) blurs the dune ripples there with the real-rate still above.
 - `Screenshots/Engine03/clips_realrate/stills/lit_native_walk_t1.0_pan_t4.0.png`: the new light, native.
   - Left (walk_cliff_lit): sunlit snow terraces in front, but the cliff wall is still shaded grey.
