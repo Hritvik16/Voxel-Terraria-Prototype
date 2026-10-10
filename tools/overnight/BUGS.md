@@ -16,6 +16,7 @@ owner-facing to-do. One line each: what, where seen, task file (if written), sug
 | 2 | Black crescent/oval under the ledge at the `ledge_view` pose | task 34 B5 contact sheet; still there after B8/B10 | `later/40-bug-ledge-view-crescent.md` | engine phase, LOD seam / render work |
 | 3 | Coast fills the fluid pool (falling beach sand + sea); sea beyond ~61 m sleeps | task 39, Q31 part 1 (open) | -- | engine phase, fluids (wake on disturbance) |
 | 4 | Torch light passes through walls: no point-light occlusion (`Raymarch.compute:1856`); the SVO traces shadow rays for the nearest torches. Owner 2026-10-09: what they liked in the SVO is "how light reacts to its surroundings". Also: merge branch `gemini/lava-torch-light` (bd60a30: lava ignores torch light, Q34 3a; `SVO_LIGHTING_NOTES.md`, line refs wrong) | Gemini SVO lighting notes, Phase 7 §10 flag | -- | engine phase, lighting (first task that builds) |
+| 5 | River water steps down into a lake behind grid-edged 2x2 squares (0.2-1 m above the lake; flows in game). Older than 37e/42; rivers are outside the at-rest tests. Also: volcano lava lake never checked for 37e's defect | task 42, `Screenshots/42/seed7_lake_top.png` | -- | terrain follow-up (river/lake design: e.g. end a river at the lake's reach) -- owner decides |
 
 ## Deferred (not bugs, parked by the owner)
 - `later/37c-B3c-highland-variation.md` -- knolls and dells in rolling highlands (B5 review
