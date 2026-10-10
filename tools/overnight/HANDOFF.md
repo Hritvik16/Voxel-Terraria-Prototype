@@ -1,47 +1,36 @@
-STOP_FOR_OWNER -- 41-lava-look-shots: is the new lava right, and should emissive bleed stay on?
-Look at `Screenshots/LavaLook/contact_sheet.png` (rows = 6 poses; columns = BEFORE / bleed 0 / bleed 1 / SVO reference on the night-pool row).
-Questions: (1) Keep the new lava look? (2) Turn bleed on by default (`LightingConfig.emissiveBleed = 1`)? (3) Fix the pale lava under torches (pose 4, below) by dropping `pointTerm` on lava faces? Not done; it needs your OK.
+STOP_FOR_OWNER: Engine phase plan ready for approval.
+Doc: https://claude.ai/code/artifact/62d9391e-b05a-42d0-83c2-34d9bfeb04f7
+(repo copy for task sessions: `ENGINE_PHASE_PLAN.md`). Answer section 5; "all (a)" approves it as written.
 
-# 41-lava-look-shots: DONE. gemini/lava-look merged, compiles, fast suite green, three arms shot.
+Questions (option (a) is recommended in each):
+- Q1 Design top speed, one number: (a) 60 m/s (on record) / (b) 30 / (c) 15.
+- Q2 When generation falls behind at top speed: (a) show the next coarser shell until detail arrives / (b) game limits speed later / (c) GPU-built render shells (L + amendment).
+- Q3 E1 internal resolution: (a) 540 fixed + upsample to 1080p / (b) dynamic 540-720 (shells sized for 720) / (c) 720 fixed.
+- Q4 Upscaler: (a) extend our own TAA to TAA-upsampling / (b) URP STP / (c) MetalFX.
+- Q5 Torch-through-wall (E9): (a) torch shadow rays first, then a light-propagation grid; emissive bleed ON / (b) shadow rays only / (c) light grid only.
+- Q6 First 3 tasks: (a) generator path + lava merge, torch shadows, TAA-upsampling / (b) memory first / (c) shells first.
+- Q7 Coast fills the fluid pool: (a) only awake fluid takes tiles / (b) 4x pool (+1.5 GB) / (c) smaller sim radius.
+- Q8 Palette bricks (8.13): (a) stay deferred, decide after the window shrink / (b) do now (~6 tasks) / (c) drop.
+
+# 44-engine-phase-plan-doc: DONE (planning only). Plan written, needs the owner's approval.
 
 ## What changed
-- Merge commit of `gemini/lava-look` (73a625b) into `surface-rebuild`. No conflicts. Pre-merge "before" HEAD = 478237d.
-- One fix inside the merged code, `Assets/Game/PlaygroundCapture.cs`: `-emissivebleed` was parsed only inside `Sustained()`, so `-lavalight` ignored it. It is now parsed at the top of `Start()`, so every mode honours it. Same line, moved.
-- Shots: `Screenshots/LavaLook/{before,bleed0,bleed1}/` (the 6 lava-light-ON shots + `lavalight.txt` each), plus `contact_sheet.png`.
+- New `ENGINE_PHASE_PLAN.md` (repo root): the same text as the Claude Doc. It has 6 sections: targets E1-E10, memory budget, 23 ordered steps, amendments, Q1-Q8, and a usage estimate.
+- This HANDOFF. No code, no Unity, no builds, no rigs, nothing measured.
 
-## Evidence (correctness only; no performance arms, rule 10)
-- Fast EditMode: **PASS 631 FAIL 0 SKIP 14** (`Logs/overnight/41/suite.out`), 0 `error CS`.
-- `ShaderCompileCheck.CheckAll`: every shader OK, Raymarch.compute OK (`Logs/overnight/41/shadercheck.log`).
-- Player build (`Logs/lavalight_build.log`, 19:44): "Compiling compute shader Raymarch" present, **0 `Shader error`**, 0 `error CS`.
-- BEFORE used the 19:26 build. That build is HEAD 478237d: no Assets change since e4b6a02 (19:21), and it used the same scene builder and build method.
-- Arms: before `Logs/lavalight_ab_20261009_193521.txt`; bleed 0 `Logs/lavalight_ab_20261009_194243.txt`; bleed 1 launched by hand (`-lavalight -cleardeltas -emissivebleed 1`), data `.../LavaLight/2026-10-09_194703/`.
-- Pixel diff, share of pixels changed by more than 8 levels:
+## What the plan says (short)
+- Order: 1 one compiled world-map generator path (Burst in Editor + player; the first commit merges `gemini/lava-torch-light` bd60a30). 2 torch shadow rays (BUGS #4). 3 TAA-upsampling. 4-6 memory ledger `PeakUsed`, awake-only fluid tiles (BUGS #3), cascade caps. 7 [measure] frame time. 8 shadow cost / dots (BUGS #1). 9 amendment 8.14 draft (shells + op log, STOP). 10-16 coarse-first gen, shells (BUGS #2 in 11b), hand-over, far edits, window shrink, gen speed, [measure] streaming. 17-19 fluids E6/E8/E7 (BUGS #5 checked after 18; any terrain fix is the owner's call). 20-22 light grid, far lights, GI. 23 milestone.
+- Memory: peak today 3,343 MB (`Logs/tg2world_20261009_210348_mem.txt`). The last ledger is old (2026-10-01, 3,259 MB). Reclaim first: fluid tiles (~-300 MB est.), then cascade caps (~-200 MB, 8.13 §8). Shells replace the cascades. The 0.1 m window shrinks after far edits land. Engine target is ~2,000 MB est., leaving ≥ 500 MB for the game.
+- Key finding: today's generation does not keep up even at walking pace. Shells cut the full-detail radius to ~52-70 m. At 60 m/s level flight it is still ~3x short (est.), hence Q1/Q2. Step 16 measures it, because the next action depends on the result.
+- Every number in the doc carries a date and source. Pre-2026-10-04 frame times are marked old. Estimates are marked (est.).
 
-| pose | before vs bleed 0 | bleed 0 vs bleed 1 |
-|---|---|---|
-| 1 cavern wide | 27.7% | 3.6% |
-| 2 wall beside lava | 12.7% | 7.7% |
-| 3 cavern far end | 37.2% | 3.9% |
-| 4 torches + lava | 21.8% | 5.2% |
-| 5 night pool | 0.7% | 0.01% |
-| 6 golden hour | 0.7% | 0.01% |
+## Evidence
+- Read: ROADMAP.md, BUGS.md, KNOWN_ISSUES (16b, TAA, checker, 3 GB, walk ledger, Burst vs Mono, pool full), SUPERVISOR.md Q26 bullet, 8.13 §8, 8.9 §2, LODConfig, task 30 commit e4fa714, and the gemini branch's SVO_LIGHTING_NOTES review header.
+- No screenshots used. No existing image showed a target problem better than words.
 
-  For poses 1 and 4, the masks show the before-vs-bleed-0 change covers exactly the lava area. Walls, floor and torches are identical.
+## Notes for the supervisor
+- The lava fix `bd60a30` is NOT on main yet. Step 1 merges it first.
+- The parked task 31 (memledger) becomes step 4. `later/38` and `later/40` are attached to steps 8 and 11b.
 
-## What I SEE
-- **Cavern lava (poses 1-3) IS deep orange at bleed 0**, the same orange as the night pool. Before, it was pale gold. The lava aggregate lights do NOT wash it out.
-  - Contact sheet rows 1-3, columns 1 vs 2: the lava floor goes from pale gold to orange.
-- **BUT under torches (pose 4, 40 torches) the lava goes PALE YELLOW**, paler than before.
-  - The cause is `baseColor * faceLight`: faceLight carries the torch point light, so strong torch light now bleaches lava.
-  - The candidate fix is the one the review named: drop `pointTerm` (or at least the torch part) on lava faces. NOT done.
-  - Contact sheet row 4: compare the lava strip in column 1 (orange) with columns 2-3 (pale yellow with orange specks).
-- **Nothing but lava differs between BEFORE and bleed 0.** The diff masks show only lava pixels, and the torch-lit walls in pose 4 are identical.
-- **Bleed 1** adds a one-voxel glowing rim on the faces that touch lava: the floor edge in poses 1/3, and the wall foot in pose 2 (row 2, column 3, bottom edge).
-  - It reaches only edge-neighbours of an emitter; walls further away are not warmer.
-  - Torches are lit as before, but the pose-4 torch walls are already near white, so no visible change there.
-- Night pool (row 5): orange with bleed 0, closer to the SVO's orange (far right) than the old gold. The SVO's lava is broken up with dark crust and obsidian; ours is one flat orange disc.
-- Pose 4 bleed 0 vs bleed 1 also differs at scattered single lava voxels. Bleed is gated off on emitters, so this is probably the lava itself changing between launches (hot/cool or fluid). Not chased.
-
-## Left open / next
-- Owner decisions above. Far-band lava keeps its old colour (not shaded by this block).
-- The bleed's cost (4 extra window reads per pixel when on) is unmeasured; it is due at the engine milestone.
+## Next step
+Owner answers Q1-Q8. Then the supervisor writes step 1's task file (and steps 2-3 per Q6).
