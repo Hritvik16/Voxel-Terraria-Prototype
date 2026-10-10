@@ -1,45 +1,56 @@
-# 37d-B4b-easy-area-sweep: DONE. B4's 20-seed easy-area sweep is 20/20 again (c44381a); SUITE=all PASS 654 FAIL 0 SKIP 17.
-The first attempt (12:31) hit the usage limit while diagnosing. This session reverted its DIAG code and finished the task.
+# 37e-lake-flat-water: DONE. Every v4 lake now sits still at one level: 0 unsettled lake cells on seeds 42/7/2026/31337 (e4b6a02); SUITE=all PASS 658 FAIL 0 SKIP 17.
+**OWNER, PLEASE LOOK (not a blocker):** the seed 42 lake now has a **straight-edged shore** with a flat sand beach (picture below). It looks man-made. See "Left open".
 
-## Why each seed failed (at HEAD 7cb9b26, before the fix)
-- **11 (an area of 22.7 ha) and 65537 (3 areas, plus one of 21.9 ha).** Too few sites. `Features.MarkBad` marked feature footprints as `bad`, and `Pick` rejects any window that touches even one bad cell.
-  - Long canyons rule out a band ~800 m wide, which cut the candidate windows by about half (seed 11: 1077 -> 391).
-  - So Pick seated 4 of 6 sites on seed 11 (the 4th was 82% non-gentle and 0.8 km from area 0, so they shared cells) and 3 of 6 on 65537.
-  - Evidence: with MarkBad switched off (diagnostic run), both seeds pass.
-- **12 (an area of 8.7 ha).** The lowest-third rule. B5 took away the pinned peak, so a world without a great peak (seeds 1, 12, 123) tops out near 300 m and its lowest-third line falls under 97 m.
-  - `LEVEL_MAX` (an absolute 100 m) then pressed seed 12's plateau sites (237/215/146 m starting means) to cores of 106-121 m, all above the line. 4 of 6 sites had under 1,400 easy cells.
-  - Seeds 1 and 123 passed only narrowly for the same reason.
+This was the third attempt. The 16:00 attempt wrote the fix and the new test, then hit the usage limit with one gate red. This session fixed that gate and finished the task.
 
-## The change (v4 only; `EasyAreas.Pick` + `WorldMap.BuildV3`)
-- Feature footprints now go to their own `featureBad` array.
-  - RELAX passes 0-3 still exclude them exactly as before.
-  - A new last **EDGE pass** runs only if those passes seated fewer than 6 sites. A window there may touch a feature margin (<= 35% of its cells) or the beach/sea (<= 15%), and each such cell costs like non-gentle land.
-  - Mark still never flags a feature cell or a sea cell.
-- **Lowest-third prediction:** 0.7 x (the highest starting-shape land / 3).
-  - The press level is capped at the predicted line.
-  - A window whose pressed height is above the line costs 10 per voxel over it and waits for the EDGE pass.
-  - On worlds with a peak the line is over 140 m, so nothing changes there.
-- `Features.PlaceLate`'s seat check calls Pick without `featureBad`, so feature placement uses the old rule.
-- v3 is untouched: the code runs only on the v4 path, and the v3 hash tests pass.
+## The change (map v4 only; v3 is byte-identical and its hash tests pass)
+- **I raised the rim; I did not lower the level.** The map's lake level is right (it is the spill level). What was wrong was the ground around the lake: dry columns next to a lake dipped below its level.
+  - Why not lower the level: that needs every shore column's voxel ground when the map is built, which is not local.
+- `ShapeField.LakeRim`:
+  - Any dry column within 1.5 map cells of a lake cell is raised to that lake's level. Beyond that it falls away at 27°.
+  - Inside the lake, a 4 m **shore shelf** raises the bed toward the level near the water's edge. Without it the raised rim stood as a vertical bank beside the bed.
+- **This session's fix (seed 7's red route gate):** the shelf counted a river inlet as dry shore. It stood at the lake level right beside the river bed, a 1.5 m wall at (2996, 2412) m on route 2-3.
+  - Now a square with a lake corner, or with water at or above this lake's level, counts as wet.
+- `Stamps`: no cave mouth, fissure or skull cave is carved within 2.5 cells of a lake. The basin flatten ring keeps the rim.
+- `DetailField`: a stamp opening below still water holds water instead of air. Caves are carved by depth below the ground as it was before the rim raised it.
+- `MapView.waterClass` is passed through by `WorldMap`, `FarField` and `TerrainGenChunkSource`.
+- Covered: lakes, and the geyser pools (they were already at rest). Not covered: rivers (they are not at rest by design) and the volcano's lava lake (not checked).
 
 ## Evidence
-- `EASYSWEEP=1`: **20/20**, every area 42-45 ha. Before: 3 seeds failed, and seeds 8/99/123 had uneven areas of 26-38 ha. Reports: `Screenshots/B4b/easysweep_before.txt`, `easysweep_after.txt`.
-- `ROUTESWEEP=1`: 20/20, 2+ links per area, 0 m Sheer (`Screenshots/B4b/routesweep_after.txt`). Seed 42's route in-sight share is now 84.5% (it was 66.3%; the gate is 65%).
-- `SUITE=all`: PASS 654 FAIL 0 SKIP 17, the same 17 report-only tests as before (`Logs/overnight/b4b/suite_all.out`). This covers B5 (5 features, a canyon, >= 1.2 km), B6 danger, the B8 4-seed gate, B2/B3, and the hashes. After that run, the only edits were two header comments.
-- B5 report: features 5/5 and spacing pass on 11/12/65537/42. Seed 42 sees a feature: 81.4% (80.4% after 37b).
-  - Seeds 12 and 65537 show 55.0% and 79.9% MISS on that report-only line (its >= 80% target is for the 4 default seeds).
-  - I have no before number for those two: it was NOT compared.
+- **New test `LakeLevelTests.LakeWater_IsAtRest(seed)`**, one seed per case. It counts lake water voxels with air beside, directly below, or diagonally below them.
+  - Unity peaked at about 1.9 GB (`Logs/overnight/37e/after4.mem`). The memory watchdog killed nothing.
+
+| seed | unsettled before | unsettled after | lake water area before -> after |
+|---|---|---|---|
+| 42 | 666,196 | **0** | 27.30 -> 27.14 ha |
+| 7 | 885,872 | **0** | 29.39 -> 29.20 ha |
+| 2026 | 1,039,211 | **0** | 44.11 -> 43.87 ha |
+| 31337 | 607,546 | **0** | 17.54 -> 17.41 ha |
+
+  - Map lakes are unchanged: 90/86/84/50 lakes, 41.1/40.0/76.4/59.6 ha of lake cells. The map itself is not touched.
+  - Geyser pools: 0 unsettled before and after.
+  - Logs: `Logs/overnight/37e/before4.log`, `fix5.log`.
+- **Route gate:** B8 `V4_FourSeeds_RoutesJoinTheEasyAreas` passes on all 4 seeds with 0.0 m Sheer. Seed 7 was 0.5 m before this session's fix (`fix5.log`).
+- **`SUITE=all`: PASS 658 FAIL 0 SKIP 17** (`Logs/overnight/37e/suite_all3.out`). That is the 654 from before plus the 4 new cases. It covers B4/B5/B6/B8/B10, v3 hashes, and v4 hash stability and seed-dependence.
+- **Pool probe** (`MODE=poolprobe MAPV=4`, log `Logs/tg2world_*` from 19:21; report `Screenshots/37e/new_poolprobe.txt`). Not a gate.
+  - Lake stop, water that could start flowing: 89,590 cells (86,596 with air diagonally below) -> **21**. Those 21 are not identified; the probe also counts river water.
+  - Slot high-water on arrival: 34,403 -> 87.
+  - Slot high-water after placing water at the lake: 682,258 -> 116,186.
+  - The probe's start and coast poses moved since task 39 (the map changed in 37b/37d), so its coast numbers are not comparable.
 - No performance runs (rule 10).
 
-## Pictures (Screenshots/B4b/)
-- `easy_areas_before_after.png`: one row per seed (11, 12, 65537 from top to bottom), before on the left, after on the right. Yellow = flagged easy cells.
-  - Row 1: the small 4th area of 22.7 ha is gone; there are now 4 areas of 44 ha (a new one in the east).
-  - Row 2: seed 12's two ragged coastal patches (66 ha and 9 ha) become 4 round 44 ha areas: two in the north, one west, one east.
-  - Row 3: the 3 areas become 4, two of them close together in the south-east.
-- `after/seed42_v4_easy_areas.png`: seed 42 now keeps a spare at the NE coast in place of its old 4th area (202 m mean, 20% non-gentle). The 4 areas: two at the NE coast, one west, one south. **This changes the play world's areas.**
-- `before/`, `after/`: the single PNGs plus `b4_easy_areas.txt`.
+## Pictures (`Screenshots/37e/`)
+- `lake_before_after.png`: a 2x2 sheet. Top row is before (task 39's shots, 00:40), bottom row is after. Left column has no edit; right column is 2 s after placing water.
+  - **Top left:** the near half of the lake is a speckled staircase of water steps. That is the unsettled surface.
+  - **Bottom left:** one flat blue sheet with a clean shore. **But the near shore is a dead-straight east-west line and the right shore a straight diagonal, with a flat sand beach at lake level.**
+  - **Bottom right:** the placed water falls onto the beach and spreads. The lake surface around it stays flat, and no holes open in it.
+  - The grass in the top row turning to sand in the bottom row is the later biome work (B10/37b), not this task.
+- `new_lake_after_8s.png` and `old_lake_after_2s.png` are the single frames.
+- I did not take a separate "no edit for a few seconds" shot. The 87-slot high-water on arrival says the lake does not wake by itself.
 
 ## Left open / next
-- Areas that touch each other (8 m routes) predate this change: 14 in B8's sweep, 12 now. Spacing in the last passes is 0.8 x MIN_SEP.
-- Not compared: "sees a feature" on seeds 12/65537 before vs after.
-- Task 37e (lake flat water) is next in the queue.
+- **Straight shores (owner's call).** The shelf ends exactly at the edge of the 2x2 map squares that touch a lake, so the shoreline follows the 8 m map grid instead of the terrain. A fix would make the shelf (or the wet area) follow the ground: for example, only raise the bed where the dry rim needs it, or blend the edge with noise.
+  - That is new terrain-design work, so I did not queue it.
+- The volcano's lava lake was not checked for the same defect.
+- The 21 water cells at the lake stop could be counted by water kind (lake vs river) in a later probe.
+- Next in the queue: 41 (lava-look shots).
