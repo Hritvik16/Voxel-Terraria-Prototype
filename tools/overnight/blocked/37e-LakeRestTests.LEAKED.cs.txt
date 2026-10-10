@@ -1,0 +1,262 @@
+// Assets/TerrainGen/Tests/LakeRestTests.cs
+//
+// Task 37e (owner Q31 part 2 (a), 2026-10-09): every generated LAKE has one flat
+// water level and is AT REST -- no still-water voxel has air beside it, directly
+// below it, or diagonally below it (the four cells beside the one below), which
+// is what task 39's -poolprobe counted (85-90k stepped lake cells at seed 42's
+// lake shore; touching such a lake woke ~500k fluid slots).
+//
+// Counts over the GENERATED voxels (ShapeField.Sample + DetailField.Material,
+// unculled, under Burst) of every map cell within 2 cells of a lake cell, plus
+// the geyser basin and the volcano's caldera. Each still-water voxel (above sea
+// level, over its column's top) is classed by where its water comes from:
+//   lake    the column's level is a LAKE cell's level (map cell in its 2x2)
+//   river   any other map water (rivers are not at rest by design; reported)
+//   geyser  the geyser basin's stamp pools (reported)
+//   lava    the caldera's lava lake (waterKind 1; reported)
+// Gate: lake == 0 on seeds 42, 7, 2026, 31337 (v4). Report:
+// Logs/TerrainGen/lake_rest.txt.
+using System.Collections.Generic;
+using System.IO;
+using NUnit.Framework;
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Jobs;
+using Unity.Mathematics;
+using UnityEngine;
+
+namespace TerrainGen.Tests
+{
+    public class LakeRestTests
+    {
+        private static readonly uint[] Seeds = { 42u, 7u, 2026u, 31337u };
+        private const int KINDS = 4, LAKE = 0, RIVER = 1, GEYSER = 2, LAVA = 3;
+        // Per kind: 0 water cells, 1 unsettled (any), 2 air beside, 3 air directly
+        // below, 4 air diagonally below, 5 unsettled by CARVED air (y <= the
+        // neighbour's top), 6 wet columns.
+        private const int K = 7, SLOTS = KINDS * K;
+        private static readonly string[] KindName = { "lake", "river", "geyser", "lava" };
+
+        [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]
+        private struct RestJob : IJobParallelFor
+        {
+            [ReadOnly] public NativeArray<float> h, r, w, lk;
+            [ReadOnly] public NativeArray<byte> cls;
+            [ReadOnly] public NativeArray<int2> cells;
+            public bool hasLake;
+            public TerrainSpec spec; public Offsets o;
+            public float2 geyser;
+            [NativeDisableParallelForRestriction] public NativeArray<int> outCounts;
+
+            public unsafe void Execute(int idx)
+            {
+                const int E = 80, G = E + 2;
+                var map = new MapView
+                {
+                    height = (float*)h.GetUnsafeReadOnlyPtr(), rough = (float*)r.GetUnsafeReadOnlyPtr(),
+                    water = (float*)w.GetUnsafeReadOnlyPtr(), cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
+                };
+                LakeRestHook.Attach(ref map, hasLake ? (float*)lk.GetUnsafeReadOnlyPtr() : null);
+                int2 cell = cells[idx];
+                int x0 = cell.x * E, z0 = cell.y * E;
+                var S = new NativeArray<ColumnSample>(G * G, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+                var CD = new NativeArray<DetailField.ColumnDetail>(G * G, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+                var hasCd = new NativeArray<bool>(G * G, Allocator.Temp, NativeArrayOptions.ClearMemory);
+                for (int k = -1; k <= E; k++)
+                for (int i = -1; i <= E; i++)
+                    S[(k + 1) * G + i + 1] = ShapeField.Sample(in spec, in map, in o, x0 + i + 0.5f, z0 + k + 0.5f, 1);
+
+                int sea = spec.seaLevelY, n = spec.mapCells;
+                int* acc = stackalloc int[SLOTS];
+                for (int s = 0; s < SLOTS; s++) acc[s] = 0;
+                for (int k = 0; k < E; k++)
+                for (int i = 0; i < E; i++)
+                {
+                    int gi = (k + 1) * G + i + 1;
+                    var c = S[gi];
+                    if (c.water <= c.height || c.water <= sea) continue;
+                    int x = x0 + i, z = z0 + k;
+                    int kind;
+                    if (c.waterKind == 1) kind = LAVA;
+                    else
+                    {
+                        kind = RIVER;
+                        float gx = (x + 0.5f) / spec.mapCellVoxels - 0.5f, gz = (z + 0.5f) / spec.mapCellVoxels - 0.5f;
+                        int ix = (int)math.floor(gx), iz = (int)math.floor(gz);
+                        for (int j = 0; j <= 1; j++)
+                        for (int q = 0; q <= 1; q++)
+                        {
+                            int ci = math.clamp(iz + j, 0, n - 1) * n + math.clamp(ix + q, 0, n - 1);
+                            if (cls[ci] == Hydrology.LAKE && sea + (int)math.floor(w[ci]) == c.water) kind = LAKE;
+                        }
+                        if (kind != LAKE && math.distancesq(new float2(x, z), geyser) < 1200f * 1200f) kind = GEYSER;
+                    }
+                    int b = kind * K;
+                    acc[b + 6]++;
+                    for (int y = math.max(c.height, sea) + 1; y <= c.water; y++)
+                    {
+                        acc[b + 0]++;
+                        bool carved = false;
+                        bool below = y - 1 <= c.height && Air(gi, x, y - 1, z, ref S, ref CD, ref hasCd, ref carved);
+                        bool beside = false, diag = false;
+                        for (int d = 0; d < 4; d++)
+                        {
+                            int dx = d == 0 ? -1 : d == 1 ? 1 : 0, dz = d == 2 ? -1 : d == 3 ? 1 : 0;
+                            int ni = gi + dz * G + dx;
+                            beside |= Air(ni, x + dx, y, z + dz, ref S, ref CD, ref hasCd, ref carved);
+                            diag |= Air(ni, x + dx, y - 1, z + dz, ref S, ref CD, ref hasCd, ref carved);
+                        }
+                        if (beside || below || diag) acc[b + 1]++;
+                        if (beside) acc[b + 2]++;
+                        if (below) acc[b + 3]++;
+                        if (diag) acc[b + 4]++;
+                        if (carved) acc[b + 5]++;
+                    }
+                }
+                for (int s = 0; s < SLOTS; s++) outCounts[idx * SLOTS + s] = acc[s];
+                S.Dispose(); CD.Dispose(); hasCd.Dispose();
+            }
+
+            private bool Air(int gi, int x, int y, int z, ref NativeArray<ColumnSample> S,
+                             ref NativeArray<DetailField.ColumnDetail> CD, ref NativeArray<bool> hasCd, ref bool carved)
+            {
+                var c = S[gi];
+                if (y > c.height) return y > spec.seaLevelY && y > c.water;
+                if (!hasCd[gi]) { CD[gi] = DetailField.PrepareColumn(in spec, in o, x, z); hasCd[gi] = true; }
+                var cd = CD[gi];
+                bool air = DetailField.Material(in spec, in o, in c, in cd, 0f, x, y, z) == GenMat.Air;
+                carved |= air;
+                return air;
+            }
+        }
+
+        private struct Result
+        {
+            public long[] counts;
+            public int lakes, lakeCells, checkedCells;
+            public double ms;
+        }
+
+        private static Result Measure(uint seed)
+        {
+            var spec = TerrainSpec.SizeClass2(seed, 4);
+            var map = SharedMaps.Get(spec);
+            var o = Offsets.For(in spec);
+            int n = spec.mapCells;
+            var res = new Result { counts = new long[SLOTS] };
+
+            // Lakes: 8-connected cells of one level (Hydrology.CountLakes' rule).
+            var seen = new bool[n * n];
+            var stack = new Stack<int>();
+            for (int i0 = 0; i0 < n * n; i0++)
+            {
+                if (seen[i0] || map.WaterClass[i0] != Hydrology.LAKE) continue;
+                res.lakes++;
+                seen[i0] = true; stack.Push(i0);
+                while (stack.Count > 0)
+                {
+                    int c = stack.Pop(); res.lakeCells++;
+                    for (int dz = -1; dz <= 1; dz++)
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        int xx = c % n + dx, zz = c / n + dz;
+                        if (xx < 0 || zz < 0 || xx >= n || zz >= n) continue;
+                        int nb = zz * n + xx;
+                        if (seen[nb] || map.WaterClass[nb] != Hydrology.LAKE || map.Water[nb] != map.Water[c]) continue;
+                        seen[nb] = true; stack.Push(nb);
+                    }
+                }
+            }
+
+            // Cells to check: lakes dilated by 2, the geyser basin, the caldera.
+            var pick = new bool[n * n];
+            for (int i = 0; i < n * n; i++)
+            {
+                if (map.WaterClass[i] != Hydrology.LAKE) continue;
+                int cx = i % n, cz = i / n;
+                for (int dz = -2; dz <= 2; dz++)
+                for (int dx = -2; dx <= 2; dx++)
+                {
+                    int xx = cx + dx, zz = cz + dz;
+                    if (xx >= 0 && zz >= 0 && xx < n && zz < n) pick[zz * n + xx] = true;
+                }
+            }
+            float2 gs = Stamps.GeyserSite(in spec, in o), vs = Stamps.VolcanoSite(in spec, in o);
+            float cv = spec.mapCellVoxels;
+            for (int i = 0; i < n * n; i++)
+            {
+                float2 p = new float2((i % n + 0.5f) * cv, (i / n + 0.5f) * cv);
+                if (math.distance(p, gs) < 1300f) pick[i] = true;
+                if (vs.x > Features.NO_SITE_XZ && math.distance(p, vs) < Stamps.CALDERA_R * 1.1f + 2f * cv) pick[i] = true;
+            }
+            var list = new List<int2>();
+            for (int i = 0; i < n * n; i++) if (pick[i]) list.Add(new int2(i % n, i / n));
+            res.checkedCells = list.Count;
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var lakeArr = LakeRestHook.LakeArray(map);
+            var hA = new NativeArray<float>(map.Height, Allocator.TempJob);
+            var rA = new NativeArray<float>(map.Rough, Allocator.TempJob);
+            var wA = new NativeArray<float>(map.Water, Allocator.TempJob);
+            var lA = new NativeArray<float>(lakeArr ?? new float[1], Allocator.TempJob);
+            var cA = new NativeArray<byte>(map.WaterClass, Allocator.TempJob);
+            var cellA = new NativeArray<int2>(list.ToArray(), Allocator.TempJob);
+            var outA = new NativeArray<int>(list.Count * SLOTS, Allocator.TempJob);
+            try
+            {
+                new RestJob
+                {
+                    h = hA, r = rA, w = wA, lk = lA, cls = cA, cells = cellA, hasLake = lakeArr != null,
+                    spec = spec, o = o, geyser = gs, outCounts = outA,
+                }.Schedule(list.Count, 4).Complete();
+                for (int j = 0; j < list.Count; j++)
+                for (int s = 0; s < SLOTS; s++) res.counts[s] += outA[j * SLOTS + s];
+            }
+            finally
+            {
+                hA.Dispose(); rA.Dispose(); wA.Dispose(); lA.Dispose(); cA.Dispose(); cellA.Dispose(); outA.Dispose();
+            }
+            res.ms = sw.Elapsed.TotalMilliseconds;
+            return res;
+        }
+
+        [Test, Category("Slow")]
+        public void Lakes_AreFlat_AndAtRest_V4()
+        {
+            var lines = new List<string>
+            {
+                "Task 37e: generated still water with AIR beside / directly below / diagonally below it (v4)",
+                "  per kind: water cells | unsettled (any) | beside | below | diag below | by carved air | wet columns",
+            };
+            var fails = new List<string>();
+            foreach (uint seed in Seeds)
+            {
+                var r = Measure(seed);
+                lines.Add($"seed {seed}: lakes {r.lakes}, lake cells {r.lakeCells:N0} ({r.lakeCells * 64 / 1e6:F3} km^2); " +
+                          $"checked {r.checkedCells:N0} map cells in {r.ms / 1000:F1} s");
+                for (int k = 0; k < KINDS; k++)
+                {
+                    int b = k * K;
+                    lines.Add($"  {KindName[k],-6} {r.counts[b]:N0} | {r.counts[b + 1]:N0} | {r.counts[b + 2]:N0} | {r.counts[b + 3]:N0} | " +
+                              $"{r.counts[b + 4]:N0} | {r.counts[b + 5]:N0} | {r.counts[b + 6]:N0}");
+                }
+                if (r.counts[LAKE * K + 1] != 0) fails.Add($"seed {seed}: {r.counts[LAKE * K + 1]:N0} unsettled lake cells");
+                if (r.lakes == 0) fails.Add($"seed {seed}: no lakes");
+            }
+            string dir = Path.Combine(Directory.GetCurrentDirectory(), "Logs", "TerrainGen");
+            Directory.CreateDirectory(dir);
+            File.WriteAllLines(Path.Combine(dir, "lake_rest.txt"), lines);
+            Debug.Log("[LakeRest]\n" + string.Join("\n", lines));
+            Assert.IsEmpty(fails, string.Join("; ", fails));
+        }
+    }
+
+    /// The seam between this test and the v4 lake field (37e). Before the
+    /// fix there is no lake field: Attach does nothing and LakeArray is null.
+    internal static unsafe class LakeRestHook
+    {
+        public static void Attach(ref MapView map, float* lake) { }
+        public static float[] LakeArray(WorldMap map) => null;
+    }
+}

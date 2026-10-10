@@ -2,8 +2,8 @@
 
 2026-10-09 · task 44 (planning only). Markdown copy of the Claude Doc
 https://claude.ai/code/artifact/62d9391e-b05a-42d0-83c2-34d9bfeb04f7 -- the doc is
-the version the owner comments on. **STATUS: NOT APPROVED.** No engine task may be queued
-from this file until the owner answers section 5 (ROADMAP.md step 3).
+the version the owner comments on. **STATUS: APPROVED 2026-10-09 (Q36 "a"): Q1 a, Q2 a, Q3 compare all three,
+Q4 = plug in FSR1 / STP / FSR3-port and compare (tasks 47-48, not our own upsampler), Q5-Q8 a.**
 
 ## In short
 
