@@ -3158,13 +3158,14 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             // orange. The old self-lit cheat, saturate(base * 1.35 + 0.06) + tint
             // * 0.55, clipped red at 1 and let green climb to ~0.76: pale gold.
             // Per-voxel hot/cool: +/-0.05 red, +/-0.025 green around the albedo.
+            // Lava is self-lit and must ignore point light (owner 2026-10-09, Q34 3a).
             // Every other material keeps the previous combine, unchanged.
             float3 lit;
             if (lm == 11u)
             {
                 float hot = VoxelHash(voxel) - 0.5;
                 float3 albedo = MaterialAlbedoLook(lm) + float3(hot * 0.10, hot * 0.05, -hot * 0.02);
-                lit = baseColor * faceLight + albedo * (MaterialEmissive(lm) * 2.0);
+                lit = baseColor * ((direct + ambient) * _LookGrade.x) + albedo * (MaterialEmissive(lm) * 2.0);
             }
             else
             {
