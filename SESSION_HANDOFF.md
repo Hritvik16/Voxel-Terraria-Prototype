@@ -1,41 +1,52 @@
-# Session handoff -- 2026-10-09 12:35 (supervisor; queue running, 37d in progress)
+# Session handoff -- 2026-10-09 19:00 (supervisor; queue running 37e, then 41)
 
 ## For the owner
-**Why a new session:** this supervisor chat got long (the whole night plus this morning's
-questions), and 37b had just finished, a natural stopping point. 37d is running; nothing waits on you.
+**Why a new session:** this supervisor chat got very long (12:35 to 19:00, a crash in the middle),
+and every message re-sent all of it -- one of the biggest costs on a day that used 15% of the week.
+You asked for the handoff at 18:50.
 
-**What the previous chat covered (8 Oct 23:55 - 9 Oct 12:35):**
-- **Q30 (B6 danger vs distance): you said (a).** The check only reports until a real start
-  exists. 35 B6 was closed as done.
-- **Tasks done:** 35 B6 danger record, 39 fluid "pool FULL" bug (nearest tiles win; the HUD
-  readouts were fixed), 36 B8 routes, 37 B10 savanna + badlands, 37b deeper canyons (your Q33 (a):
-  a tableland, route-sight check lowered to 65%).
-- **Q31 fluids:** part 2 (a) became task 37e, flat lake surfaces. Part 1 (coast capacity) was
-  deferred to the engine phase. Your fluid thoughts (only water in the world; fluids should
-  sleep until disturbed; Noita-level fluids) are written in the doc as notes, not queued.
-- **Q32 (small B8 calls):** going ahead by default. Added 37d, the easy-area sweep fix.
-- **Pictures** are now in the doc's questions, with captions.
-- **To end the terrain phase sooner** you agreed to park 37c (highland knolls), 38 (shadow dots)
-  and 40 (black crescent). They wait in `tools/overnight/later/`. There is a new **bugs list**,
-  `tools/overnight/BUGS.md`: bugs that don't block go there, not into the queue.
-- **Usage:** the WEEKLY limit is what runs out, not the 5-hour window. You were at 47% on Fri
-  10:17, and the week resets Thu 06:00. The supervisor keeps a ~10% reserve, asks you for a
-  usage screenshot at phase boundaries, and never suggests paid options.
-- **Gemini:** it can't run unattended. Its shell check asks for approval even in YOLO mode.
-  There is a read-only copy of this project in `../VoxelTerraria_compare/results/reference/`,
-  plus `GEMINI.md` there; you were letting it write `docs/PORT_PLAN.md` and then quitting it.
+**What the previous chat covered:**
+- **SVO look.** Compared Gemini's SVO shots with ours (`Screenshots/SVOLook/`). Our lava renders pale
+  gold (LOOK 1's self-lit formula); our days are darker mainly because of the noon "cinematic grade"
+  (owner decisions 2-4, Sep 24); you can try `EXTRA="-lookgrade 0" ./run-play.sh`. You parked the
+  grade question "for now".
+- **The Mac crash (hard power-off ~15:2x) was a Unity test run,** not Claude/Terminal: 37e's new test
+  grew Unity to a 22.5 GB footprint (seen again at 15:53 and killed). Fixes: `tools/mem-watchdog.sh`
+  (64e7c6a; started by every locked Unity run; kills Unity past 8 GB footprint or 10 GB swap and
+  PAUSEs the queue), 37e re-queued to rewrite its test from scratch, small and bounded.
+- **Sessions:** at most supervisor + queue worker, plus ONE short side session you ask for
+  (SUPERVISOR.md step 0). Closing a Terminal tab does NOT always end its Claude -- type `/exit` first.
+  The new supervisor closes the old one's window itself.
+- **Gemini** (your Google plan; shell disabled because Gemini CLI 0.63.0 forces approval prompts on
+  any command reusing a flag seen in earlier output, even in YOLO):
+  - lava-look port on branch `gemini/lava-look` (worktree `../VT_gemini`), reviewed and fixed by a
+    Claude side session (73a625b: it had changed torches/sludge too, wrote the wrong config object).
+  - test-memory audit (`../VT_gemini2`, 62a5266): reviewer verdict -- missed the real 37e mechanism
+    and inflated severities; some hygiene findings real (undisposed pools in LOD/cascade/fluid tests).
+  - Verdict so far: OK for code-only ports from a clear reference, with review; not for analysis or
+    builds yet. The "Gemini runs builds" trial (plain-word wrapper commands + APFS-cloned Library) is
+    an idea only, not built.
+- **Usage:** weekly 62% at Fri 18:48 (resets Thu 05:59); with the ~10% reserve ~28% is left, about
+  4%/day. Plan you agreed: only 37e and 41 run, then the queue stops until you review 41; no new side
+  sessions or Gemini reviews this week unless you ask.
 
-**Running:** 37d easy-area fix (started 12:31). **Next:** 37e flat lakes, then the **B10 review
-pack** for you (colour pick, striped biomes, hard biome edges, canyon tablelands, naming), plus a
-usage screenshot. After that: v4 default + merge decision, then the engine-phase plan doc.
-**Open for you:** nothing right now.
-**Close:** tmux session `0`, window 5 (this session). Windows 1-4 too, if still open.
+**Running:** 37e (flat lake water) -- it hit the 5-hour limit at 17:17; retries every 20 min, the
+window reset 18:40. Then 41 (merge Gemini's lava branch, compile check, before/after lava shots,
+STOP_FOR_OWNER with pictures).
+**Open for you:** nothing until 41's pictures; then the B10 review pack.
+**Close:** this old supervisor is closed by the new one (it is the claude process whose window shows
+this conversation). Also `/exit` any leftover side-session tab.
 
 ## State
-- Branch `surface-rebuild`, not pushed. `Assets/Scenes/Playground.unity` stays modified (build side
-  effect). Runner alive in tmux `overnight` (IDLE_MIN=0). Watcher tab open (bash -c loop, pid 68703).
-- Queue: 37d (running), 37e (Requires 37d). Blocked: none. Later: 37c, 38, 40. Last suite:
-  SUITE=all 654/0/17 (37b, 7cb9b26).
+- Branch `surface-rebuild`, not pushed. Runner in tmux `overnight` (IDLE_MIN=0, started 15:59).
+- Queue: 37e (running; uncommitted edits in FarField.cs, TerrainGenChunkSource.cs, DetailField.cs,
+  ShapeField.cs from its first session -- the retry continues from them), 41-lava-look-shots
+  (Requires 37e). Blocked: `blocked/37e-lake-flat-water.HANDOFF.md` + the LEAKED test (reference
+  only). Later: 37c, 38, 40. Last suite SUITE=all 654/0/17 (37d, c44381a).
+- After 41: STOP the queue (it ends by itself if nothing else is queued; queue nothing new).
+- Gemini worktrees: `../VT_gemini` (gemini/lava-look, merged by task 41), `../VT_gemini2`
+  (gemini/test-memory-audit, report only -- never merge; delete the worktree when the owner agrees).
+- Watchdog log: `Logs/overnight/watchdog.log`. Bugs list: `tools/overnight/BUGS.md` (37e memory entry).
 - Handoffs of finished tasks that later tasks overwrite are copied to `tools/overnight/done/NAME.HANDOFF.md`
   (35, 37 B10, 37b). The B10 pack needs `done/37-B10-savanna-badlands.HANDOFF.md`.
 
@@ -51,7 +62,7 @@ usage screenshot. After that: v4 default + merge decision, then the engine-phase
   4. Canyon tablelands look (`Screenshots/B5b/`; the rim poses were poor -- say so).
   5. Rename the landform "Badlands" (e.g. "breaks") vs the biome.
   6. 37e's lake pictures.
-  Also ask for a usage screenshot. Then ask about the v4 default + merge to `main` (SUITE=all
+  Then ask about the v4 default + merge to `main` (SUITE=all
   first), then start the engine-phase plan doc (SUPERVISOR.md / ROADMAP.md: Q26's one compiled
   generator, E1's pass conditions from the TAA verdict, the fluid notes, the bugs list).
 - Watcher race (tooling, low priority, add to BUGS.md if it recurs): when the watcher loop restarts
