@@ -1,60 +1,55 @@
-# 46-engine-2-torch-shadow-rays: DONE. Torches no longer light through walls; emissive bleed ON. Rig 37/0, fast 634/0/14.
+# 47-engine-3a-upscalers-plugin: DONE. All 5 paths (none, taa, fsr1, stp, fsr3) x 540/720/dyn draw sane frames. Fast 634/0/14.
 
-## What changed (branch `engine-phase`, commit `cd5266e`)
-- `Raymarch.compute`: `SumPointLightsShadowed` + `TorchRayBlocked`. Each lit pixel whose hit is in tier 0 finds its N
-  nearest in-range lights (insertion into a sorted list) and traces one occlusion ray to each. The ray reuses the sun
-  shadow ray's tier-0 walk (air-mip leaps, uniform-brick leaps, dense DDA). It starts from the air cell in front of the
-  face, at its centre (§6.5 origin rule, no bias). It counts as VISIBLE once it enters the light's own voxel (an integer
-  int3 compare) or passes the light. Leaving the window or hitting the 256-step cap also counts as visible (the old
-  behaviour). The other in-range lights are scaled by seen/traced (the SVO's form). The UniformFaceHue omni term uses the
-  same visibility, so a hidden torch can't tint a face either. N = 0, tier >= 1 hits and self-lit (lava) faces use the
-  old `SumPointLights`, unchanged. Lava aggregate lights are point lights too, so they are now shadowed as well.
-- `LightingConfig.torchShadowRays = 4` (cap `MaxTorchShadowRays = 8`), `-torchshadows N` (PlaygroundCapture),
-  `RaymarchFeature.TorchShadowsOverride`, part of the TAA light signature. `emissiveBleed` default 0 -> 1 (owner Q5 (a)).
-- `Phase7CycleRig.cs`: new **Gate 1b** replaces the unasserted `04_torch_through_wall_FLAGGED` shot (see below).
-- `-torchshadowshots` mode (`PlaygroundCapture.TorchShadows.cs`, added to Playground's capture/fly/hide-UI lists) +
-  `run-torchshadow-shots.sh`. `PHASE_7_COMPLETION.md` §10.1 marked DONE.
+## What changed (branch `engine-phase`)
+- `82b968a` 47a: vendored **AMD FSR 3.1.3 upscaler, MIT Unity port** (`fidelityfx.fsr` 1.0.1, github ndepoel/FSR3Unity
+  @ `71879e7`) in `Assets/ThirdParty/FidelityFX.FSR/` with LICENSE.md and a README (FSR 2 removed, shaders under Resources/).
+- `f000e2d` 47b: `RaymarchFeature.Upscalers.cs` + `Resources/VoxelUpscaleInputs.compute`: with `UpscaleInputs` = Stp/Fsr3,
+  CSMain's TAA block runs (jitter + TaaCur/TaaMetaW), our TAA resolve is skipped, and a SEPARATE kernel turns those buffers
+  into URP-convention motion vectors (current - previous, UV) and device depth (reversed Z). CSMain's code is unchanged.
+  STP: `StpInputsPass` (BeforeRenderingPostProcessing) overwrites `_MotionVectorTexture` and `_CameraDepthTexture` (D32 here,
+  so an SV_Depth shader `VoxelUpscaleDepthWrite`). Rays use URP's jittered projection; the motion offset removes the jitter.
+  FSR 3: FSR's own jitter through `_TaaJitter`, an unsafe-pass dispatch to the camera-target size, then the usual blit.
+  **Bug found and fixed:** in a player, STP threw an NRE in `STP.Execute` on EVERY frame and the raymarch never ran (0
+  dispatches in 600 frames; the stills were stale frames that looked fine). Cause: `STPResourceStripper` removes STP's
+  compute shaders unless a build pipeline asset selects STP. Fix: `Assets/Settings/PC_RPAsset_STPInclude.asset` (a PC_RPAsset
+  copy with STP selected, never active), pulled into builds by the label `VoxelBuildInclude` (global settings
+  `IncludeAdditionalRPAssets`). Unity also re-listed the STP resources entry in the global settings.
+- `a14b0f4` 47c: `Assets/Game/UpscalerSelect.cs`: `-upscaler none|taa|fsr1|stp|fsr3`, `-renderrows 540|720|dyn` (last match
+  wins). **Neither flag = nothing changes.** fsr1/stp use URP render scale (empty volume profile, as RenderPreset does);
+  none/taa/fsr3 use the forced gate. dyn = 36-row steps on smoothed frame time, 15-18 ms dead band. F3 hands control back.
+  `-upscalersmoke` (PlaygroundCapture.UpscalerSmoke.cs) + `run-upscaler-smoke.sh`.
 
 ## Evidence
-- Gate 1b design: a 2-voxel stone partition across Gate 1's sealed chamber, 5 voxels from the torch. The camera is on the
-  far side with its back to the wall. Point lights use N.L (`PointLightNdotL = true`), so the partition's own far face can
-  never show a leak (the first rig run looked at that face: all three readings were 0.0000 and the leak precondition
-  FAILED as designed). Pass rules: leak - base >= 0.010 (otherwise the gate proves nothing), and |after - base| <= **0.005**
-  mean luma (~1.3/255).
-- `run-phase7-rig.sh`: **PASS 37 FAIL 0** (`Logs/overnight/46/p7rig2.out`, run `Phase7Cycle/2026-10-10_051800`). Far-side
-  luma: no torch 0.0000 / rays OFF 0.0610 / rays ON 0.0000. Torch side with rays on 0.1701. Gates 0-5 stay green, and
-  Gate 1 (falloff) now runs with rays on. Last recorded count was 32/0 (2026-09-24). Gate 1b adds 4 assertions and the
-  rest of the difference comes from gates added since then.
-- Fast EditMode suite: 634/0/14 before the commit (`Logs/overnight/46/fast2.out`; also 634/0/14 after the shader change,
-  `fast1.out`). Player builds: 0 `Shader error` (`Logs/phase7_build.log`, `Logs/torchshadow_build.log`).
-- Screenshots I looked at: the rig's 04a-04d (black / far wall lit / black / torch side lit with shadow detail) and every
-  row of the contact sheet below.
+- Fast suite PASS 634 FAIL 0 SKIP 14 before commit (`Logs/overnight/47/fast2.out`; also `fast1.out`).
+- Player build: 0 `Shader error` (`Logs/upscalersmoke_build.log`). The first build had one (my depth shader lacked URP
+  Core.hlsl), fixed. Player.log of the final run: 0 exceptions; FSR 3 contexts 960x540 / 1280x720 / 1280x720 + dynamic.
+- Smoke (`Logs/overnight/47/smoke4.out`, `Screenshots/Engine03/smoke/upscalersmoke.txt`): every config traced 89-90 of 90
+  frames (1 = the switch frame); dark-pixel share 0.8-1.7%. I looked at all 15 frames plus native-pixel crops: same view in
+  every one, nothing black or garbled.
+- dyn settled at **540 rows for every upscaler** (smoothed 43-49 ms, far over 16.7 ms; 0 steps). Before the STP fix, STP
+  "settled" at 720 with 9-10 ms frames, which is how the dead path showed up.
+- Defaults: unchanged by construction (UpscaleInputs Off = same taaOn, same passes). The only new default-path code is a
+  C# dispatch counter, and the build now also includes the never-active STP asset. NOT image-diffed against an old build.
 
-## Notes / open
-- The BEFORE column is `TorchShadowsOverride=0 + EmissiveBleedOverride=0` set inside one process, which is exactly what
-  `-torchshadows 0 -emissivebleed 0` select. Doing it in-process keeps the same scene and lights for both columns. The
-  rig row (contact sheet row 3) is rays off/on with bleed left at its default.
-- Shot sites sit in the Playground arena, which has a low surface (~y 40), so they clamp to y=20. The lava cavern roof is
-  only 6 voxels, but it stays sealed.
-- For the owner to look at: in the lava cavern AFTER, some wall recesses go fully black. Those faces are hidden from every
-  torch and from the lava light, which sits 0.6 m above the lava's centroid. Before this task the lava lit them
-  uniformly. The cause is the per-voxel origin (one colour per face). This is not a bug, but worth a look.
-- CLAUDE.md still lists "torch-through-wall" among Phase 7's open §10 flags, and ROADMAP E9 says the same. Both can now
-  be marked done (supervisor).
-- No frame-time claim (plan step 7 measures the cost of 4 rays + bleed).
+## For task 48 (compare) / the owner
+- **Tone shift in URP's post path:** fsr1 and stp come out greyer than the others. Mean RGB: none (79,95,115), fsr3
+  (77,94,114), URP post + bilinear diagnostic (76,93,106), fsr1/stp (71,88,102). So it is mostly URP's post chain (with
+  the empty profile), plus a little from the URP FSR/STP passes. Compare like for like, or fix the tone first.
+- FSR 3's motion/jitter signs are derived and look right on still frames. Motion is NOT checked yet (48's motion test).
+- The 16 raw stills (46 MB) are on disk in `Screenshots/Engine03/smoke/`, NOT committed; only the sheets and the log are.
 
 ## Next step
-Engine plan step 3 on `engine-phase`.
+Task 48: compare the upscalers (quality + motion, then frame time per the milestone rules).
 
 ## For the doc
-- Gate 1b far-side mean luma: no torch **0.0000**; torch with rays OFF (the old shader) **0.0610**; torch with rays ON
-  (N=4) **0.0000**. Margin 0.005, met with no measurable difference (`Logs/overnight/46/p7rig2.out`).
-- Phase 7 rig 32/0 (2026-09-24) -> **37/0**. Fast suite **634/0/14**.
-- Mean frame RGB, before -> after: cave with 4 torches (19,16,12) -> (12,10,8), darker because of pillar and bump
-  shadows. Lava cavern (120,71,38) -> (117,68,35). Night pool (42,43,76) -> (41,43,76), unchanged
-  (`Screenshots/Engine02/torchshadows.txt`).
-- `Screenshots/Engine02/contact_sheet.png`: left column BEFORE, right column AFTER. Row 1, torch side of the wall: same
-  light, plus the bleed "+" glow on faces touching the torch. Row 2, far side: a faint glow on the end wall BEFORE, black
-  AFTER. Row 3, the rig's closer torch: the far wall is clearly lit with rays off and black with rays on. Row 4, the cave:
-  look at the pillars and wall bumps, which now cast shadows. Row 5, the lava cavern: a hot rim along the lava edge (bleed)
-  and shadowed recesses on the right wall. Row 6, the night lava pool: practically identical.
+- Upscalers working in the player (yes/no): **none yes, taa yes, fsr1 yes, stp yes** (after the stripping fix), **fsr3
+  yes** (FSR 3.1.3, MIT port `fidelityfx.fsr` 1.0.1, ndepoel/FSR3Unity, compiles and runs on Metal here).
+- Added for the temporal ones: per-pixel device depth + camera motion vectors from the raymarch's TAA buffers (no change to
+  the main kernel), URP STP input pass, FSR 3 dispatch, plus an STP-selected pipeline asset so STP survives the build.
+- Raymarch dispatches per frame under STP: **0/600 -> 599/600** (the stripping fix). Every config: 89-90/90.
+- dyn settled rows: **540** for all five (smoothed 43-49 ms at this pose; no headroom for 720).
+- Mean frame RGB: none (79,95,115) / fsr3 (77,94,114) / fsr1 + stp (71,88,102), a URP post-chain tone shift (above).
+- `Screenshots/Engine03/smoke/contact_sheet.png`: rows none, taa, fsr1, stp, fsr3; columns 540 / 720 rows; the tg2 spawn
+  at 11:00. Look for the same view in every tile, and the greyer sky in rows 3-4 (fsr1, stp).
+- `Screenshots/Engine03/smoke/contact_sheet_crops.png`: the same grid at native pixels (bottom-left of the frame). Look at
+  the hill texture and the edges of the near voxels: none aliased, taa soft, fsr1 sharpened speckle, stp and fsr3 cleanest.
