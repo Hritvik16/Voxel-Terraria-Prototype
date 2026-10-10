@@ -17,6 +17,7 @@
 //   water          spawn_day (48's pose), +-40 deg pan
 //   night_torches  48's 8-torch ring at eye_level_2, 23:00, +-36 deg pan
 // -clippaths walk_cliff,fly records only those (default: all six).
+// -realrate: task 51's mode instead (PlaygroundCapture.UpscalerRealRate.cs).
 // IDENTICAL FRAMES: Time.captureFramerate = 30; every frame of an arm is
 // rendered in sequence. History reset at each arm x path start: two native
 // frames (our TAA / FSR 3 see !_taaValid on the next frame) + URP's
@@ -55,6 +56,7 @@ public partial class PlaygroundCapture
         public string name, note;
         public float hours = 11f;
         public bool moving;
+        public int lead = ClipLead;                     // frames before the first recorded one
         public Vector3[] pos = new Vector3[ClipFrames];
         public Quaternion[] rot = new Quaternion[ClipFrames];
     }
@@ -123,6 +125,8 @@ public partial class PlaygroundCapture
         Vector3 E(float3 g) => new Vector3((g.x - off.x) * 0.1f, (g.y - seaShift) * 0.1f, (g.z - off.y) * 0.1f);
         var eyes = Tg2EyeLevelPoses(map);
         if (eyes.Count < 3) { L($"only {eyes.Count} eye-level poses"); }
+        // -realrate (task 51): per-arm frame rate, then clips at that rate
+        if (HasFlag("-realrate")) { yield return UpscalerRealRate(root, pg, far, cam, sm, store, boot, acd, map, E); yield break; }
 
         // ---- the paths (poses fixed here, before any arm) ----
         var paths = new List<ClipPath>();
@@ -139,16 +143,7 @@ public partial class PlaygroundCapture
         }
         {
             var (_, e, a) = eyes[Math.Min(1, eyes.Count - 1)];
-            var p = new ClipPath { name = "spin_stop", note = "eye_level_2" };
-            Vector3 ee = E(e);
-            Vector3 eul = Quaternion.LookRotation((E(a) - ee).normalized, Vector3.up).eulerAngles;
-            for (int f = 0; f < ClipFrames; f++)
-            {
-                int k = math.clamp(f - ClipLead + 1, 0, 120);        // 120 frames x 6 deg = 720 deg
-                p.pos[f] = ee;
-                p.rot[f] = Quaternion.Euler(eul.x, eul.y + 6f * k, 0f);
-            }
-            p.note += $"; spin frames {ClipLead}..{ClipLead + 119} (recorded 0.0-4.0 s), stopped from 4.0 s";
+            var p = ClipSpinStop(E(e), E(a), "eye_level_2");
             paths.Add(p);
         }
         {
@@ -237,37 +232,7 @@ public partial class PlaygroundCapture
 
             string pdir = Path.Combine(root, path.name);
             foreach (string arm in ClipArms)
-            {
-                string adir = Path.Combine(pdir, arm);
-                for (int attempt = 0; attempt < 2; attempt++)
-                {
-                    Directory.CreateDirectory(adir);
-                    cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
-                    yield return NearSettle(far, sm);
-                    // history reset: two native frames, then the arm with URP's reset
-                    ApplyCompareArm("native");
-                    yield return Frames(2);
-                    ApplyCompareArm(arm);
-                    acd.resetHistory = true;
-                    var st = new ClipArmStats { residentStart = store.ResidentCount };
-                    int f0 = Time.frameCount, d0 = RaymarchFeature.PrimaryDispatchCount;
-                    yield return ClipRun(path, adir, cam, boot, sm, far, store, st);
-                    var d = RaymarchFeature.LastDispatchResolution;
-                    L($"  {arm,-9} dispatch {d.x}x{d.y}  traced {RaymarchFeature.PrimaryDispatchCount - d0}/{Time.frameCount - f0}  " +
-                      $"rows {st.rowsMin}-{st.rowsMax}  written {st.written}  resident {st.residentStart}->{store.ResidentCount}  " +
-                      $"deficit@render max {st.maxDeficit} ({st.framesWithDeficit} frames)  far band busy {st.farBusyFrames} frames  waits {st.waits} ({st.waitSeconds:F0} s, {st.timeouts} timeouts)  " +
-                      $"in rock {st.inRock}{(st.badSize > 0 ? $"  NOT 1920x1080: {st.badSize} frames (screen {Screen.width}x{Screen.height})" : "")}{(attempt > 0 ? "  [RE-RECORDED]" : "")}");
-                    if ((st.framesWithDeficit == 0 && st.badSize == 0) || attempt == 1)
-                    {
-                        if (st.framesWithDeficit > 0) L($"  {arm}: STREAMED MID-CLIP twice -- kept, flagged");
-                        if (st.badSize > 0) L($"  {arm}: WRONG FRAME SIZE twice -- kept, flagged (the encoder will refuse this path)");
-                        break;
-                    }
-                    L($"  {arm}: {(st.badSize > 0 ? "wrong frame size" : "streamed mid-clip")} -- recording again");
-                    if (st.badSize > 0) { Screen.SetResolution(1920, 1080, FullScreenMode.FullScreenWindow); yield return Frames(60); }
-                    Directory.Delete(adir, true);
-                }
-            }
+                yield return ClipRecordArm(path, arm, Path.Combine(pdir, arm), null, cam, acd, boot, sm, far, store);
             File.WriteAllText(Path.Combine(pdir, "DONE"), path.name);
             done.Add(path.name);
             File.WriteAllText(Path.Combine(root, "upscalerclips.txt"), _log.ToString());
@@ -283,6 +248,45 @@ public partial class PlaygroundCapture
         Application.Quit(0);
     }
 
+    /// One arm of one path into adir (JPEGs), task 50's way: settle at pose 0,
+    /// history reset (two native frames + URP's resetHistory), the path in
+    /// sequence; an arm that rendered with deficit > 0 or a wrong-size frame is
+    /// recorded once more. afterApply runs right after the arm is applied.
+    private IEnumerator ClipRecordArm(ClipPath path, string arm, string adir, Action afterApply, Camera cam,
+                                      UniversalAdditionalCameraData acd, Phase4Bootstrapper boot, StreamManager sm,
+                                      FarField far, ChunkStore store)
+    {
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            Directory.CreateDirectory(adir);
+            cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
+            yield return NearSettle(far, sm);
+            // history reset: two native frames, then the arm with URP's reset
+            ApplyCompareArm("native");
+            yield return Frames(2);
+            ApplyCompareArm(arm);
+            afterApply?.Invoke();
+            acd.resetHistory = true;
+            var st = new ClipArmStats { residentStart = store.ResidentCount };
+            int f0 = Time.frameCount, d0 = RaymarchFeature.PrimaryDispatchCount;
+            yield return ClipRun(path, adir, cam, boot, sm, far, store, st);
+            var d = RaymarchFeature.LastDispatchResolution;
+            L($"  {arm,-9} dispatch {d.x}x{d.y}  traced {RaymarchFeature.PrimaryDispatchCount - d0}/{Time.frameCount - f0}  " +
+              $"rows {st.rowsMin}-{st.rowsMax}  written {st.written}  resident {st.residentStart}->{store.ResidentCount}  " +
+              $"deficit@render max {st.maxDeficit} ({st.framesWithDeficit} frames)  far band busy {st.farBusyFrames} frames  waits {st.waits} ({st.waitSeconds:F0} s, {st.timeouts} timeouts)  " +
+              $"in rock {st.inRock}{(st.badSize > 0 ? $"  NOT 1920x1080: {st.badSize} frames (screen {Screen.width}x{Screen.height})" : "")}{(attempt > 0 ? "  [RE-RECORDED]" : "")}");
+            if ((st.framesWithDeficit == 0 && st.badSize == 0) || attempt == 1)
+            {
+                if (st.framesWithDeficit > 0) L($"  {arm}: STREAMED MID-CLIP twice -- kept, flagged");
+                if (st.badSize > 0) L($"  {arm}: WRONG FRAME SIZE twice -- kept, flagged (the encoder will refuse this path)");
+                break;
+            }
+            L($"  {arm}: {(st.badSize > 0 ? "wrong frame size" : "streamed mid-clip")} -- recording again");
+            if (st.badSize > 0) { Screen.SetResolution(1920, 1080, FullScreenMode.FullScreenWindow); yield return Frames(60); }
+            Directory.Delete(adir, true);
+        }
+    }
+
     private sealed class ClipArmStats
     {
         public int waits, waitFrames, timeouts, farBusyFrames, badSize, maxDeficit, framesWithDeficit, written, inRock, residentStart;
@@ -290,7 +294,7 @@ public partial class PlaygroundCapture
         public int rowsMin = int.MaxValue, rowsMax;
     }
 
-    /// Plays the path's 270 poses in sequence; writes frames >= ClipLead to
+    /// Plays the path's poses in sequence; writes frames >= path.lead to
     /// dir (null = the stream pass, nothing written).
     private IEnumerator ClipRun(ClipPath path, string dir, Camera cam, Phase4Bootstrapper boot, StreamManager sm,
                                 FarField far, ChunkStore store, ClipArmStats st)
@@ -303,7 +307,7 @@ public partial class PlaygroundCapture
         bool Busy() => st.timeouts < 2 && (sm.PendingLoads > 0 || sm.InFlightLoads > 0 || sm.LoadDeficit() > 0 ||
                                           sm.ClipmapDirtyRemaining > 0);
         int3 lastChunk = ClipChunk(path.pos[0]);
-        for (int f = 0; f < ClipFrames; f++)
+        for (int f = 0; f < path.pos.Length; f++)
         {
             Vector3 p = path.pos[f];
             int3 ch = ClipChunk(p);
@@ -333,7 +337,7 @@ public partial class PlaygroundCapture
             cam.transform.position = p; cam.transform.rotation = path.rot[f];
             yield return new WaitForEndOfFrame();
             if (store.GetVoxel(CoordMath.WorldToVoxel(new float3(p.x, p.y, p.z))) != 0) st.inRock++;
-            if (dir == null || f < ClipLead) { yield return null; continue; }
+            if (dir == null || f < path.lead) { yield return null; continue; }
             int def = sm.LoadDeficit();
             if (far.Busy) st.farBusyFrames++;
             if (def > 0) st.framesWithDeficit++;
@@ -342,7 +346,7 @@ public partial class PlaygroundCapture
             st.rowsMax = Math.Max(st.rowsMax, UpscalerSelect.Rows);
             Texture2D t = ScreenCapture.CaptureScreenshotAsTexture();
             if (t.width != 1920 || t.height != 1080) st.badSize++;
-            try { File.WriteAllBytes(Path.Combine(dir, $"f{f - ClipLead:D4}.jpg"), t.EncodeToJPG(95)); }
+            try { File.WriteAllBytes(Path.Combine(dir, $"f{f - path.lead:D4}.jpg"), t.EncodeToJPG(95)); }
             finally { Destroy(t); }
             st.written++;
             yield return null;

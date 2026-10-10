@@ -80,10 +80,22 @@ public static class UpscalerSelect
         Active = true;
         Current = k;
         Dynamic = dyn;
+        DynHeld = false;
         DynStableFrames = 0; DynChanges = 0; DynSmoothedMs = 0f;
         Rows = dyn ? MinRows : Mathf.Clamp(rows, MinRows, MaxRows);
         ApplyRows();
         Debug.Log($"[UpscalerSelect] {Describe()}");
+    }
+
+    /// Task 51's real-rate clips: the dynamic controller frozen at `rows` (the
+    /// rows it ran at when timed), so capture-slowed frames cannot walk it down.
+    /// Cleared by Apply.
+    public static bool DynHeld { get; private set; }
+    public static void HoldDynRows(int rows)
+    {
+        Rows = Mathf.Clamp(rows, MinRows, MaxRows);
+        DynHeld = true;
+        ApplyRows();
     }
 
     public static string Describe() =>
@@ -112,7 +124,7 @@ public static class UpscalerSelect
     public static void Tick()
     {
         if (!Active) return;
-        if (Dynamic)
+        if (Dynamic && !DynHeld)
         {
             float ms = Time.unscaledDeltaTime * 1000f;
             DynSmoothedMs = DynSmoothedMs <= 0f ? ms : Mathf.Lerp(DynSmoothedMs, ms, 0.05f);

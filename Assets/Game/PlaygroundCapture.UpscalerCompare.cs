@@ -327,6 +327,16 @@ public partial class PlaygroundCapture
     /// the exact ground, look-at 70% up the cliff). Not an iterator (map.View).
     private static bool FindCliffFoot(TerrainGen.WorldMap map, out float3 eye, out float3 at)
     {
+        var feet = FindCliffFeet(map, 1);
+        eye = feet.Count > 0 ? feet[0].eye : float3.zero;
+        at = feet.Count > 0 ? feet[0].at : float3.zero;
+        return feet.Count > 0;
+    }
+
+    /// The first `max` cliff feet of -farpreview's search, in its scan order.
+    private static List<(float3 eye, float3 at)> FindCliffFeet(TerrainGen.WorldMap map, int max)
+    {
+        var feet = new List<(float3, float3)>();
         var spec = map.Spec;
         var o = TerrainGen.Offsets.For(spec);
         int nC = spec.mapCells, cellV = spec.mapCellVoxels;
@@ -347,11 +357,10 @@ public partial class PlaygroundCapture
             float2 sp = new float2((gx + 0.5f) * cellV, (gz + 0.5f) * cellV);
             var exact = TerrainGen.ShapeField.Sample(in spec, map.View, in o, sp.x, sp.y, 1);
             float g = math.max(math.max(exact.height, exact.water), spec.seaLevelY) + 1;
-            eye = new float3(sp.x, g + 17f, sp.y);
-            at = new float3((bx + 0.5f) * cellV, spec.seaLevelY + h0 + 0.7f * (bh - h0), (bz + 0.5f) * cellV);
-            return true;
+            feet.Add((new float3(sp.x, g + 17f, sp.y),
+                      new float3((bx + 0.5f) * cellV, spec.seaLevelY + h0 + 0.7f * (bh - h0), (bz + 0.5f) * cellV)));
+            if (feet.Count >= max) return feet;
         }
-        eye = at = float3.zero;
-        return false;
+        return feet;
     }
 }
