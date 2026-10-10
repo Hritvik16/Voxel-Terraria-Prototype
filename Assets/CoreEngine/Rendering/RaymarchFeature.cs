@@ -192,6 +192,9 @@ public class RaymarchFeature : ScriptableRendererFeature
     public static int LookOverride = -1;
     /// >= 0 forces LightingConfig.emissiveBleed without touching the file. -1 = use the config.
     public static int EmissiveBleedOverride = -1;
+    /// >= 0 forces LightingConfig.torchShadowRays (-torchshadows N; 0 = no
+    /// occlusion rays, the pre-task-46 leak). -1 = use the config.
+    public static int TorchShadowsOverride = -1;
 
     /// SHADOW ROOF SKIP (Raymarch.compute's HeightMip block): exact by
     /// construction, so it changes cost, not pixels. OFF until measured;
@@ -399,6 +402,7 @@ public class RaymarchFeature : ScriptableRendererFeature
             public float lookShadowDarkness, lookHazeDensity;
             public Vector4 lookGrade;
             public int emissiveBleed;
+            public int torchShadowRays;
 
             // ---- far band (FarField.cs) ----
             public int farEnabled, farShadow;
@@ -575,8 +579,10 @@ public class RaymarchFeature : ScriptableRendererFeature
                     Vector3 sun = new Vector3(sdT.x, sdT.y, sdT.z).normalized;
                     var cfgT = LightingConfig.Active;
                     int bleedSig = EmissiveBleedOverride >= 0 ? EmissiveBleedOverride : cfgT.emissiveBleed;
+                    int torchSig = TorchShadowsOverride >= 0 ? TorchShadowsOverride : cfgT.torchShadowRays;
                     int lightSig = ShadowQualityLevel * 31 + (LookOverride >= 0 ? LookOverride : cfgT.look) * 7
-                                 + (TonemapOverride >= 0 ? TonemapOverride : cfgT.tonemap) + bleedSig * 13;
+                                 + (TonemapOverride >= 0 ? TonemapOverride : cfgT.tonemap) + bleedSig * 13
+                                 + torchSig * 97;
                     // A LARGE LIGHT JUMP (the sun moving > 0.25 deg in a frame, a
                     // look / shadow-rung / tonemap switch) or a teleport (> 20 m)
                     // invalidates every history colour at once. The sun bound was
@@ -702,6 +708,8 @@ public class RaymarchFeature : ScriptableRendererFeature
                 Unity.Mathematics.float4 g = SunCycle.LookGradeAt(hrs);
                 passData.lookGrade = new Vector4(g.x, g.y, g.z, g.w);
                 passData.emissiveBleed = EmissiveBleedOverride >= 0 ? EmissiveBleedOverride : cfg.emissiveBleed;
+                passData.torchShadowRays = Mathf.Clamp(TorchShadowsOverride >= 0 ? TorchShadowsOverride : cfg.torchShadowRays,
+                                                       0, LightingConfig.MaxTorchShadowRays);
 
                 // Shadow roof skip. The buffer is bound on EVERY frame, on or
                 // off: an HLSL-declared buffer left unbound is undefined on Metal.
@@ -991,6 +999,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeFloatParam(data.compute, "_LookHazeDensity", data.lookHazeDensity);
                         cmd.SetComputeVectorParam(data.compute, "_LookGrade", data.lookGrade);
                         cmd.SetComputeIntParam(data.compute, "_EmissiveBleed", data.emissiveBleed);
+                        cmd.SetComputeIntParam(data.compute, "_TorchShadowRays", data.torchShadowRays);
 
                         cmd.SetComputeIntParam(data.compute, "_ShadowRoofSkip", data.roofSkip);
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsA", data.heightOffsetsA);

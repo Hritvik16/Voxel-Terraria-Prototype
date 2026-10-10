@@ -406,7 +406,7 @@ public class Playground : MonoBehaviour
         if (HasArg("-playgroundshots") || HasArg("-gputrace") || HasArg("-p7stress") ||
             HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
-            HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-looksweep") ||
+            HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-torchshadowshots") || HasArg("-looksweep") ||
             HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-nearshimmer") || HasArg("-fluidroster") ||
             HasArg("-devmap") || HasArg("-taarisk") || HasArg("-fluidprobe") || HasArg("-poolprobe") || HasArg("-streamprobe") || HasArg("-flysweep"))
         {
@@ -419,7 +419,7 @@ public class Playground : MonoBehaviour
         // panel and a hotbar across them defeats the point.
         if (HasArg("-p7stress") || HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-phase7demo") || HasArg("-roofskipab") || HasArg("-upscaleab") ||
-            HasArg("-lavalight") || HasArg("-looksweep") || HasArg("-farvisual") ||
+            HasArg("-lavalight") || HasArg("-torchshadowshots") || HasArg("-looksweep") || HasArg("-farvisual") ||
             HasArg("-farpreview") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-nearshimmer") || HasArg("-fluidroster") || HasArg("-taarisk") || HasArg("-streamprobe") || HasArg("-flysweep")) DebugHideUi = true;
 
         RegisterDefaultToys();
@@ -449,7 +449,7 @@ public class Playground : MonoBehaviour
         foreach (string a in Environment.GetCommandLineArgs())
             if (a.StartsWith("-") && (a == "-sustained" || a == "-playgroundshots" || a == "-gputrace" || a == "-p7stress" ||
                 a == "-daysweep" || a == "-presetshots" || a == "-phase7demo" || a == "-roofskipab" || a == "-upscaleab" ||
-                a == "-lavalight" || a == "-looksweep" || a == "-farvisual" || a == "-farpreview" || a == "-flyfast" ||
+                a == "-lavalight" || a == "-torchshadowshots" || a == "-looksweep" || a == "-farvisual" || a == "-farpreview" || a == "-flyfast" ||
                 a == "-farseams" || a == "-lodpop" || a == "-farshimmer" || a == "-nearshimmer" || a == "-fluidroster" || a == "-devmap" || a == "-taarisk" || a == "-streamprobe" || a == "-flysweep" || a == "-poolprobe" ||
                 a == "-stutterprobe" || a == "-lightingab" || a == "-shadowstats" || a == "-pitchsweep" || a == "-fluidbench"))
                 return true;

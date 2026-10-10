@@ -869,7 +869,7 @@ float4 _LookMoon;
 float  _LookShadowDarkness;
 float  _LookHazeDensity;
 float4 _LookGrade;         // CINEMATIC GRADE: x exposure (sun+ambient), y saturation, z shoulder knee, w amount
-int    _EmissiveBleed;     // 0 = off (default), 1 = faces next to lava/torches get glow
+int    _EmissiveBleed;     // 1 = faces next to lava/torches get glow (default), 0 = off
 
 float3 LookToLinear(float3 c) { return pow(saturate(c), 2.2); }
 
@@ -1859,6 +1859,10 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
 // is screenshotted; the ambiguity and the cost of the alternative are flagged
 // in PHASE_7_COMPLETION.md for the owner. No per-light shadow rays were added.
 //
+// TASK 46 (owner Q5 (a)): that leak is now fixed by SumPointLightsShadowed
+// below -- capped per-pixel occlusion rays. This function stays as the
+// _TorchShadowRays == 0 path (and for tier >= 1 hits), unchanged.
+//
 // The loop is bounded by _ActiveLightCount, which the CPU caps at
 // MAX_ACTIVE_LIGHTS -- that cap is the entire defence against §3.8's
 // "per-pixel light death spiral", so the bound is load-bearing, not hygiene.
@@ -1928,6 +1932,194 @@ float3 UniformFaceHue(float3 faceLight, float3 hueSource)
     float h = dot(hueSource, W);
     if (h <= 1e-5) return faceLight;
     return hueSource * (dot(faceLight, W) / h);
+}
+
+// ===========================================================================
+// TORCH SHADOW RAYS (task 46, owner Q5 (a); fixes "torches shine through walls")
+//
+// §6.5 says "a torch behind a wall does not light the far side", but C.11 as
+// first shipped had no occlusion test, so it did (the FLAG in
+// PHASE_7_COMPLETION.md). This is the SVO build's capped form: each lit tier-0
+// pixel traces one occlusion ray to each of its _TorchShadowRays NEAREST
+// in-range lights; every other in-range light is scaled by the traced share
+// (seen / traced). That keeps §3.8's bound -- the ray count per pixel is capped
+// by _TorchShadowRays, not by _ActiveLightCount. 0 = no rays, the old leak.
+//
+// The ray is the sun shadow ray's tier-0 walk (air-mip leaps, uniform-brick
+// leaps, dense micro-steps) from §6.5's origin -- the air cell in front of the
+// hit face, at its centre, no bias -- to the light. It ends, VISIBLE, on
+// entering the light's own voxel (a torch is solid) or passing the light; any
+// solid voxel before that occludes. Leaving the tier-0 window or the step cap
+// also counts as visible: the pre-task behaviour, never a black pixel.
+// ===========================================================================
+int _TorchShadowRays;
+#define TORCH_SHADOW_MAX   8      // LightingConfig.MaxTorchShadowRays
+#define TORCH_SHADOW_STEPS 256    // outer iterations; 8 m range = 80 voxels/axis
+
+bool TorchRayBlocked(int3 fromCell, float3 lightVox, uint3 windowDimsBricks)
+{
+    int3 target = int3(floor(lightVox));
+    int3 voxel = fromCell;
+    if (all(voxel == target)) return false;
+
+    float3 rayStart = (float3)voxel + 0.5;
+    float3 toL = lightVox - rayStart;
+    float tEnd = length(toL);
+    float3 dir = toL / max(tEnd, 1e-6);
+    dir.x = abs(dir.x) < 1e-6 ? (dir.x >= 0 ? 1e-6 : -1e-6) : dir.x;
+    dir.y = abs(dir.y) < 1e-6 ? (dir.y >= 0 ? 1e-6 : -1e-6) : dir.y;
+    dir.z = abs(dir.z) < 1e-6 ? (dir.z >= 0 ? 1e-6 : -1e-6) : dir.z;
+
+    int3 step = int3(sign(dir.x), sign(dir.y), sign(dir.z));
+    float3 tDelta = abs(1.0 / dir);
+    float3 tMax = 0.5 * tDelta;                 // the ray starts at the cell centre
+    float currentDist = 0.0;
+
+    int3 nrm = int3(0, 0, 0);                   // the leap helpers want these; unused here
+    int exitIters = 0, nonExitIters = 0;
+
+    [loop]
+    for (int it = 0; it < TORCH_SHADOW_STEPS && currentDist < tEnd; it++)
+    {
+        if (all(voxel == target)) return false;
+
+        int3 brickCoord = VoxelToBrick(voxel);
+        int3 rel = brickCoord - _WindowOriginBricksPacked.xyz;
+        if (rel.x < 0 || rel.y < 0 || rel.z < 0 ||
+            rel.x >= (int)windowDimsBricks.x ||
+            rel.y >= (int)windowDimsBricks.y ||
+            rel.z >= (int)windowDimsBricks.z) return false;
+
+        bool leapt = false;
+        [loop]
+        for (int k = (int)_AirMipLevelCount; k >= 1; k--)
+        {
+            int shift = 3 + k;
+            int3 cell = voxel >> shift;
+            if (ReadAirMip(k, cell) == 0u)
+            {
+                LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart,
+                                         cell << shift, 8 << k, nrm, exitIters, nonExitIters);
+                leapt = true;
+                break;
+            }
+        }
+        if (leapt) continue;
+
+        uint handle = ReadClipmap(brickCoord, windowDimsBricks);
+        if ((handle & 0x80000000u) != 0u)
+        {
+            uint poolIdx = handle & 0x3FFFFFFFu;
+            uint vIdx = (uint)LocalVoxelIndex(LocalVoxelIndex3D(voxel));
+            uint packed = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
+            if (((packed >> ((vIdx & 3u) * 8u)) & 0xFFu) != 0u) return true;
+
+            if (tMax.x < tMax.y)
+            {
+                if (tMax.x < tMax.z) { voxel.x += step.x; currentDist = tMax.x; tMax.x += tDelta.x; }
+                else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; }
+            }
+            else
+            {
+                if (tMax.y < tMax.z) { voxel.y += step.y; currentDist = tMax.y; tMax.y += tDelta.y; }
+                else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; }
+            }
+            continue;
+        }
+
+        if ((handle & 0xFFu) != 0u) return true;   // uniform solid brick
+
+        LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart,
+                                 brickCoord * 8, 8, nrm, exitIters, nonExitIters);
+    }
+    return false;
+}
+
+/// SumPointLights with torch shadow rays. `airCell` is the air voxel in front of
+/// the hit face; `omni` returns SumPointLightsOmni(omniPosM) under the SAME
+/// per-light visibility, so a hidden torch cannot tint a face's hue either.
+float3 SumPointLightsShadowed(float3 posM, float3 nrmF, int3 airCell, float3 omniPosM,
+                              uint3 windowDimsBricks, out float3 omni)
+{
+    int n = min(_TorchShadowRays, TORCH_SHADOW_MAX);
+    float nearD2[TORCH_SHADOW_MAX];
+    uint  nearIdx[TORCH_SHADOW_MAX];
+    [unroll]
+    for (int s0 = 0; s0 < TORCH_SHADOW_MAX; s0++) { nearD2[s0] = 3.0e38; nearIdx[s0] = 0xFFFFFFFFu; }
+
+    // Pass 1: every light's unshadowed contribution, and the n nearest lights
+    // that contribute anything (insertion into a sorted list of n).
+    float3 total = float3(0.0, 0.0, 0.0);
+    float3 omniTotal = float3(0.0, 0.0, 0.0);
+    [loop]
+    for (uint i = 0u; i < _ActiveLightCount; i++)
+    {
+        LightSource L = LightBuffer[i];
+        float3 lp = float3(L.x, L.y, L.z);
+        float3 lc = float3(L.r, L.g, L.b);
+        float r2 = L.range * L.range;
+
+        float3 dO = lp - omniPosM;
+        float dO2 = dot(dO, dO);
+        if (dO2 <= r2) omniTotal += lc / (1.0 + dO2 * L.k);
+
+        float3 d = lp - posM;
+        float dist2 = dot(d, d);
+        if (dist2 > r2) continue;
+        float atten = 1.0 / (1.0 + dist2 * L.k);
+        if (_PointLightNdotL != 0)
+            atten *= max(0.0, dot(nrmF, normalize(d + 1e-6)));
+        if (atten <= 0.0) continue;
+        total += lc * atten;
+
+        float cd = dist2;
+        uint ci = i;
+        [unroll]
+        for (int s = 0; s < TORCH_SHADOW_MAX; s++)
+        {
+            if (s < n && cd < nearD2[s])
+            {
+                float td = nearD2[s]; nearD2[s] = cd; cd = td;
+                uint ti = nearIdx[s]; nearIdx[s] = ci; ci = ti;
+            }
+        }
+    }
+
+    // Pass 2: trace the n nearest.
+    float3 vis = float3(0.0, 0.0, 0.0), tracedSum = float3(0.0, 0.0, 0.0);
+    float3 omniVis = float3(0.0, 0.0, 0.0), omniTraced = float3(0.0, 0.0, 0.0);
+    int traced = 0, seen = 0;
+    [loop]
+    for (int t = 0; t < n; t++)
+    {
+        uint li = nearIdx[t];
+        if (li == 0xFFFFFFFFu) break;
+        LightSource L = LightBuffer[li];
+        float3 lp = float3(L.x, L.y, L.z);
+        float3 lc = float3(L.r, L.g, L.b);
+
+        float3 d = lp - posM;
+        float atten = 1.0 / (1.0 + dot(d, d) * L.k);
+        if (_PointLightNdotL != 0)
+            atten *= max(0.0, dot(nrmF, normalize(d + 1e-6)));
+        float3 dO = lp - omniPosM;
+        float dO2 = dot(dO, dO);
+        float3 oc = (dO2 <= L.range * L.range) ? lc / (1.0 + dO2 * L.k) : float3(0.0, 0.0, 0.0);
+
+        traced++;
+        tracedSum += lc * atten;
+        omniTraced += oc;
+        if (!TorchRayBlocked(airCell, lp * 10.0, windowDimsBricks))
+        {
+            seen++;
+            vis += lc * atten;
+            omniVis += oc;
+        }
+    }
+
+    float share = traced > 0 ? (float)seen / (float)traced : 1.0;
+    omni = omniVis + max(omniTotal - omniTraced, 0.0) * share;
+    return vis + max(total - tracedSum, 0.0) * share;
 }
 
 
@@ -3146,12 +3338,20 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             float3 ambient = _LookAmbient.rgb * skyOpen * vao;
 
             float3 hitPosM = hitP * 0.1;
-            float3 pointTerm = SumPointLights(hitPosM, nF);
+            float3 pointTerm, omniTerm = float3(0.0, 0.0, 0.0);
+            if (_TorchShadowRays > 0 && tierAtHit == 0 && !selfLit)
+                pointTerm = SumPointLightsShadowed(hitPosM, nF, voxel + normal, (float3(voxel) + 0.5) * 0.1,
+                                                   _WindowDimsBricks, omniTerm);
+            else
+            {
+                pointTerm = SumPointLights(hitPosM, nF);
+                if (_UniformFaceHue != 0) omniTerm = SumPointLightsOmni((float3(voxel) + 0.5) * 0.1);
+            }
 
             float3 faceLight = (direct + ambient) * _LookGrade.x + pointTerm;
             if (_UniformFaceHue != 0)
                 faceLight = UniformFaceHue(faceLight, (_LookSun.rgb * 0.6 + _LookMoon.rgb * 0.6 + _LookAmbient.rgb) * _LookGrade.x
-                                                      + SumPointLightsOmni((float3(voxel) + 0.5) * 0.1));
+                                                      + omniTerm);
 
             // LAVA (owner 2026-10-09): the SVO build's emissive form,
             // baseColor * light + albedo * emission * 2, which keeps lava deep
@@ -3174,12 +3374,12 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 lit += MaterialEmissiveTint(lm) * MaterialEmissive(lm);
             }
 
-            // EMISSIVE BLEED (opt-in, _EmissiveBleed, default 0): a non-emitting
+            // EMISSIVE BLEED (_EmissiveBleed, ON by default since task 46, owner
+            // Q5 (a); -emissivebleed 0 turns it off): a non-emitting
             // tier-0 face picks up the look albedo of an emitter on one of the
             // four edge neighbours of its air cell, fading across the face --
             // the SVO RayTracer.compute's bleed, term for term. Four extra
-            // window reads per pixel, so it stays off until the engine
-            // milestone measures it.
+            // window reads per pixel; engine plan step 7 measures the cost.
             if (_EmissiveBleed != 0 && tierAtHit == 0 && MaterialEmissive(lm) <= 0.0)
             {
                 int3 fa = voxel + normal;
@@ -3295,7 +3495,15 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             float3 sunTerm = _SunColor * sunVis * ndl;
 
             float3 hitPosM = (rayStart + rayDir * currentDist) * 0.1;
-            float3 pointTerm = SumPointLights(hitPosM, float3(normal));
+            float3 pointTerm, omniTerm = float3(0.0, 0.0, 0.0);
+            if (_TorchShadowRays > 0 && tierAtHit == 0 && !selfLit)
+                pointTerm = SumPointLightsShadowed(hitPosM, float3(normal), voxel + normal, (float3(voxel) + 0.5) * 0.1,
+                                                   _WindowDimsBricks, omniTerm);
+            else
+            {
+                pointTerm = SumPointLights(hitPosM, float3(normal));
+                if (_UniformFaceHue != 0) omniTerm = SumPointLightsOmni((float3(voxel) + 0.5) * 0.1);
+            }
 
             // ambientSky, modulated by sky visibility so a sealed cave is dark
             // and a cave mouth is not (§6.5). With the probe off this collapses
@@ -3315,7 +3523,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             {
                 float3 faceLight = sunTerm + pointTerm + ambientTerm;
                 if (_UniformFaceHue != 0)
-                    faceLight = UniformFaceHue(faceLight, _SunColor * 0.6 + _AmbientColor + SumPointLightsOmni((float3(voxel) + 0.5) * 0.1));
+                    faceLight = UniformFaceHue(faceLight, _SunColor * 0.6 + _AmbientColor + omniTerm);
                 shaded = shaded * faceLight;
             }
 

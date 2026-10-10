@@ -311,8 +311,18 @@ public sealed class LightingConfig
     public float hazeDensity = 1.2f;
 
     /// Emissive bleed: faces next to an emitting voxel (torch, lava) pick up
-    /// its glow. 0 = off (default), 1 = on.
-    public int emissiveBleed = 0;
+    /// its glow. 1 = on (default since task 46, owner Q5 (a), as in the SVO
+    /// build), 0 = off (-emissivebleed 0).
+    public int emissiveBleed = 1;
+
+    /// TORCH SHADOW RAYS (task 46, owner Q5 (a); fixes "torches shine through
+    /// walls"). Each lit tier-0 pixel traces an occlusion ray to its N nearest
+    /// in-range point lights; the remaining in-range lights are scaled by the
+    /// traced share (the fraction of the N that were visible) -- the SVO
+    /// build's form. 0 = no rays, every light leaks through walls as before.
+    /// -torchshadows N overrides. Capped at MaxTorchShadowRays.
+    public int torchShadowRays = 4;
+    public const int MaxTorchShadowRays = 8;
 
     // ---------------------------------------------------------------------
     // THE CINEMATIC GRADE (owner decisions 2-4, 2026-09-24) -- look 1 only.
@@ -437,7 +447,9 @@ public sealed class LightingConfig
         if (lookGrade < 0 || lookGrade > 1)
         { notes.Append($"{nameof(lookGrade)} {lookGrade}->1; "); lookGrade = 1; }
         if (emissiveBleed < 0 || emissiveBleed > 1)
-        { notes.Append($"{nameof(emissiveBleed)} {emissiveBleed}->0; "); emissiveBleed = 0; }
+        { notes.Append($"{nameof(emissiveBleed)} {emissiveBleed}->1; "); emissiveBleed = 1; }
+        if (torchShadowRays < 0 || torchShadowRays > MaxTorchShadowRays)
+        { notes.Append($"{nameof(torchShadowRays)} {torchShadowRays}->4; "); torchShadowRays = 4; }
         gradeFromDeg = Fix(gradeFromDeg, -90f, 90f, 8f, nameof(gradeFromDeg), notes);
         gradeToDeg = Fix(gradeToDeg, -90f, 90f, 40f, nameof(gradeToDeg), notes);
         if (gradeToDeg <= gradeFromDeg)

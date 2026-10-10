@@ -305,24 +305,102 @@ public class Phase7CycleRig : MonoBehaviour
         Check(lums[0] > lums[1] && lums[1] > lums[2],
             "torch brightness falls off monotonically with distance (C.11)");
         yield return Shot("03_torch_falloff_6m");
+        L("");
 
-        // --- the §6.5 / §13 AMBIGUITY, screenshotted rather than argued ---
-        // §6.5 specifies pure attenuation with NO per-light occlusion ray, so a
-        // torch behind a wall lights the far side. That is what ships, and this
-        // is the picture of it.
-        var wallAt = torchAt + new int3(3, 0, 0);
-        for (int dy = -4; dy <= 4; dy++)
-        for (int dz = -4; dz <= 4; dz++)
-            _edits.TrySetVoxel(wallAt + new int3(0, dy, dz), Materials.Stone);
+        yield return Gate1b_TorchBehindWall(torchAt);
+    }
+
+    // =====================================================================
+    // GATE 1b -- a torch behind a solid wall leaves the far side dark
+    // =====================================================================
+
+    /// TASK 46 (owner Q5 (a), BUGS #4). Replaces the old "04_torch_through_wall_
+    /// FLAGGED" picture with an assertion. §6.5: "a torch behind a wall does not
+    /// light the far side." A two-voxel stone partition is built right across
+    /// Gate 1's sealed chamber, 5 voxels from the torch; the camera stands on
+    /// the OTHER side, its back to the partition. Three readings at one pose:
+    ///   base  -- torch removed (the far side's own darkness),
+    ///   leak  -- torch back, torch shadow rays OFF (the pre-task-46 shader),
+    ///   after -- torch back, the shipped default (rays on).
+    /// leak must clear base by LeakMin, or the pose cannot see the torch's
+    /// reach and the gate would be vacuous; after must sit within Margin of base.
+    /// Margin 0.005 mean luminance (about 1.3 of 255 levels): with the wall
+    /// fully occluding, after and base differ only by the torch's own light,
+    /// which must be zero, so any real leak shows up above it.
+    private IEnumerator Gate1b_TorchBehindWall(int3 torchAt)
+    {
+        const float Margin = 0.005f, LeakMin = 0.01f;
+        L("GATE 1b -- §6.5: \"a torch behind a wall does not light the far side\" (task 46)");
+        var cam = Camera.main;
+
+        int wallX = torchAt.x + 5;
+        int filled = 0;
+        for (int x = wallX; x <= wallX + 1; x++)
+        for (int dy = -16; dy <= 16; dy++)
+        for (int dz = -16; dz <= 16; dz++)
+        {
+            var c = new int3(x, _chamberCentre.y + dy, _chamberCentre.z + dz);
+            if (Store.GetVoxel(c) == Materials.Stone) continue;
+            if (_edits.TrySetVoxel(c, Materials.Stone)) filled++;
+        }
+        Note($"built a 2-voxel stone partition at x={wallX}..{wallX + 1} across the chamber " +
+             $"({filled} voxels filled), 5 voxels from the torch at {torchAt}");
+
+        // The camera stands just off the partition's far face and looks AWAY
+        // from it (+x), at the far half of the chamber. Point lights take N.L
+        // (RaymarchFeature.PointLightNdotL), so the partition's own far face,
+        // turned away from the torch, is dark even with no occlusion at all;
+        // the faces that show a leak are the ones turned TOWARD the torch --
+        // the chamber's far wall and floor, which is what this pose sees.
+        var camAt = _chamberCentre + new int3(8, 2, 0);
+        cam.transform.position = new Vector3(camAt.x * 0.1f, camAt.y * 0.1f, camAt.z * 0.1f);
+        cam.transform.rotation = Quaternion.Euler(15f, 90f, 0f);       // facing +x, the partition behind
         for (int i = 0; i < 20; i++) yield return null;
-        PoseLookingAt(cam, wallAt + new int3(3, 0, 0), 2.5f);
-        for (int i = 0; i < 12; i++) yield return null;
-        yield return Shot("04_torch_through_wall_FLAGGED");
-        Note("04_torch_through_wall_FLAGGED.png: §6.5 and §3.8 specify pure attenuation with NO");
-        Note("  per-light occlusion ray, so a torch behind a wall LIGHTS THE FAR SIDE. That is");
-        Note("  leaking, not bending, and it is in tension with §13's acceptance wording. The");
-        Note("  literal reading is what ships; this is the consequence; the decision is flagged");
-        Note("  for the owner in PHASE_7_COMPLETION.md. NOT asserted either way.");
+        byte at = Store.GetVoxel(camAt);
+        Check(at == Materials.Air,
+            $"PRECONDITION: the far-side camera stands in air (material {at})");
+
+        int prevOverride = RaymarchFeature.TorchShadowsOverride;
+        RaymarchFeature.TorchShadowsOverride = -1;
+
+        // base: no torch at all.
+        _edits.TrySetVoxel(torchAt, Materials.Air);
+        for (int i = 0; i < 20; i++) yield return null;
+        yield return Shot("04a_wall_far_side_no_torch");
+        float baseLum = AverageLuminance();
+
+        // leak: the torch back, rays off -- what shipped before task 46.
+        bool rewrote = _edits.TrySetVoxel(torchAt, Materials.Torch);
+        RaymarchFeature.TorchShadowsOverride = 0;
+        for (int i = 0; i < 20; i++) yield return null;
+        yield return Shot("04b_wall_far_side_torch_rays_off");
+        float leakLum = AverageLuminance();
+
+        // after: the shipped default.
+        RaymarchFeature.TorchShadowsOverride = -1;
+        for (int i = 0; i < 20; i++) yield return null;
+        yield return Shot("04c_wall_far_side_torch_rays_on");
+        float afterLum = AverageLuminance();
+        RaymarchFeature.TorchShadowsOverride = prevOverride;
+
+        Check(rewrote, "the torch was written back for the leak/after readings");
+        Note($"far-side mean luminance: no torch {baseLum:F4}   torch, rays OFF {leakLum:F4}   " +
+             $"torch, rays ON (N={LightingConfig.Active.torchShadowRays}) {afterLum:F4}");
+        Check(leakLum - baseLum >= LeakMin,
+            $"PRECONDITION: with rays off the torch visibly leaks through the wall " +
+            $"({baseLum:F4} -> {leakLum:F4}, need +{LeakMin:F3}) -- else this pose cannot see the bug");
+        Check(Mathf.Abs(afterLum - baseLum) <= Margin,
+            $"torch behind a wall leaves the far side dark: |{afterLum:F4} - {baseLum:F4}| = " +
+            $"{Mathf.Abs(afterLum - baseLum):F4} <= {Margin:F3}");
+
+        // The torch's own side is still lit with rays on (the rays did not black out everything).
+        PoseLookingAlong(cam, torchAt, new int3(-1, 0, 0), 0.4f, 0.3f);
+        for (int i = 0; i < 20; i++) yield return null;
+        yield return Shot("04d_wall_torch_side_rays_on");
+        float nearLum = AverageLuminance();
+        Note($"torch-side mean luminance with rays on: {nearLum:F4}");
+        Check(nearLum > baseLum + LeakMin,
+            $"the torch still lights its own side of the wall with rays on ({nearLum:F4} > {baseLum:F4} + {LeakMin:F3})");
         L("");
     }
 
@@ -726,9 +804,8 @@ public class Phase7CycleRig : MonoBehaviour
         L("                       \"crisp\", whether the penumbra width is pleasing, whether golden");
         L("                       hour looks like golden hour, and whether the cave is dark in an");
         L("                       atmospheric rather than merely dim way are the owner's judgement.");
-        L("                       Screenshots 01-15 are the evidence to look at, and");
-        L("                       04_torch_through_wall_FLAGGED.png in particular is a DECISION, not");
-        L("                       a defect.");
+        L("                       Screenshots 01-15 are the evidence to look at. 04a-04d are Gate 1b's");
+        L("                       torch-behind-a-wall readings (task 46: torch shadow rays).");
         L("");
         L(_fail == 0
             ? "  => Correctness gate GREEN. The remaining questions are the owner's: the shipping"
