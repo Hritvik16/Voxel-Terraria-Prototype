@@ -1,60 +1,50 @@
-STOP_FOR_OWNER -- Which upscaler + which internal resolution?
-**Recommendation: FSR 3 at dyn (540-720 rows; on this Mac it sits at 540 today).** Edges are the cleanest of any arm,
-with no tone shift. It is sharp in motion where our TAA smears (edge ratio vs taa 1.2-1.9x), and its shimmer is second only to
-taa: all-band mean|dL| 4.81 / 4.91% at 540 vs no-AA 7.27 / 9.82%. The crop that shows it: `sheet_crops.png`, column 5
-(smooth cliff and peak silhouettes) vs column 1 (native: stairs) and 2 (taa: blur). Alternatives: taa (lowest shimmer
-3.80 / 2.74%, but visibly soft), stp (sharp, but greyer and never settles at rest: still-frame floor 2-7.5%).
+# 49-engine-4-memledger-pool-peaks: DONE. `-memledger` now prints every pool's capacity / in use / peak (+ fluid refusals); 3 evidence runs.
 
-# 48-engine-3b-upscaler-compare: DONE. 5 arms x 540/720/dyn on 6 poses, shimmer per arm, risk set per temporal upscaler.
+(Task 48 is still blocked on the owner's upscaler pick. This task changed no upscaler or default.)
 
-## What changed (branch `engine-phase`, `f792468`)
-- `Assets/Game/PlaygroundCapture.UpscalerCompare.cs` (`-upscalercompare`, `run-upscaler-compare.sh`): one launch,
-  each pose streamed once, every arm applied in process via UpscalerSelect.Apply. Shimmer first (no edits):
-  -nearshimmer's poses and protocol, with the nudge fixed at a quarter 960x540 pixel for every arm (= the baseline's).
-  Then the stills. Native = raymarch at 1920x1080, no AA.
-- `PlaygroundCapture.TaaRisk.cs`: with `-upscaler`, it keeps UpscalerSelect's resolution (no forced 960 gate), and the folder is named after the arm.
-- `tools/upscaler-compare-sheets.py` builds the contact sheets. No defaults changed.
+## What changed (branch `engine-phase`, `1fcfcb8`)
+- `Assets/Game/MemoryLedger.cs`: new `PoolReport()`, appended to `Report()`. For tier-0 bricks, cascade tiers 1 and 2, and
+  fluid tiles it prints capacity, in use, peak, peak/cap, bytes/unit, MB of the whole cap, and MB if the cap were peak x 1.25.
+  It also prints the fluid refused-tile total (`FluidTileMap.PoolExhaustionsTotal`). It only reads counters.
+  Bytes/unit: a brick is 512 B CPU + 512 B GPU mirror. A fluid tile is 32^3 cells x 16 B (claim, slotAt, reacted, wakeMark) + 40 B.
+- `PlaygroundCapture.cs`: new helper `MemLedgerIfAsked()`. The ledger already printed at the end of `-sustained`; it now also
+  prints at the end of `-farpreview` (MODE=poses) and `-poolprobe`, which never printed it before.
+- No cap, pool, allocator or engine change.
 
 ## Evidence
-- Fast suite PASS 634 FAIL 0 SKIP 14 (`Logs/overnight/48_fast.out`). Build: 0 `error CS` / `Shader error`.
-- Compare run `Logs/upscalercompare_2026-10-10_063429.txt`: every arm traced 190/190 (shimmer) and 90/90 (stills)
-  frames. All poses were in air with deficit 0. **dyn settled at 540 rows in all 24 pose x arm cases** (smoothed 34-62 ms, 0 steps),
-  so the dyn column equals 540 today. Frame time per arm: **not measured** (plan step 7).
-- Risk runs (`Logs/tg2world_20261010_070208/070603/071018.txt`; reports `Screenshots/Engine03/compare/risk_*/report.txt`).
-- I looked at sheet_540, sheet_crops, sheet_motion_crops, and the risk fly sheets for stp and fsr3. Same view in every tile; no black or garbled frames.
-- Pose notes: tg2 has NO vegetation (the world tree is off), so slope_detail (a sub-pixel grass slope at 56 m)
-  stands in for "forest edge". In fluid_pools only the lava pool is in view (it reads as an orange box on the slope);
-  water is in spawn_day (lakes, sea).
-
-## Risk-set findings (each vs taa_540, same frames)
-- Ghosting: none visible in the fly / fast-spin / stop crops for stp or fsr3. Both are sharper than taa in motion, and taa
-  is the one that smears (edge ON/OFF: fsr3 1.22 still, 1.46-1.9 moving; stp 1.14-1.7).
-- **Not judged:** edits (the dig changed only 142 px, so the ghost ratio is noise) and fluid (no motion in view across
-  frames, as in task 07/09). A dedicated edit/fluid pose is needed if the owner wants these checked.
-- stp: tone bias -1.6 to -10 luma (URP post chain, see 47), and a still-frame shimmer floor of 2-7.5% (fsr3 0.4-1.7%).
-  STP does not settle at rest. This may be our input integration rather than STP itself; NOT investigated.
+- Fast suite: PASS 634 FAIL 0 SKIP 14 (`Logs/overnight/49_fast.out`). Build: 0 `error CS`, 0 Shader error.
+- Runs measured memory counts only. No timing was taken and none is claimed. Map v4, AC power, no owner-pause note.
+  - poses: `Logs/tg2world_20261010_072648.txt` (copy `Logs/overnight/49_poses.out`)
+  - walk: `Logs/tg2world_20261010_074313.txt` (`Logs/overnight/49_walk.out`)
+  - poolprobe: `Logs/tg2world_20261010_075028.txt` (`Logs/overnight/49_pool.out`)
+- **Comparison with 26c.** 26c's histogram counted dense bricks at the peak pose: tier 0 473-499k, tier 1 ~92k, tier 2 ~19k.
+  The measured PeakUsed is 395k / 82.6k / 16.4k (poses). The two agree in size: every measured peak is 10-20% lower.
+  A likely cause is that 26c used the map before the rebuild (v3) and v4 terrain is gentler. I did not verify that.
+  The conclusion does not change: the tier-1 cap is 3.9x its peak and the tier-2 cap is 5.8x.
+- **The fluid pool is full in all three runs** (1024/1024 tiles, peak = cap). This means its "peak" is set by the cap, not by demand.
+  - Demand at the coast stop: the residency radius wants **4,667 tiles within 128 m**, and the pool holds 1,024.
+  - Of the 3,643 wanted tiles left out, at least 2,228 are "other" in the census (64-128 m bands). No tile in any band is all-mobile (column `all-512-mobile` = 0).
+  - So "peak x 1.25" is not a valid size for fluid tiles. Step 5 (tiles only for awake fluid) has to set it.
+  - The fluid slot high-water mark at the coast was 426,866-500,291 slots. That is a separate pool and is not in the table.
+- Disk: I deleted the runs' player folders (FarBand x2, Sustained x1, 83 MB). The poses report text is kept at
+  `Logs/overnight/49_poses_farpreview.txt`. 7.1 GB free at the end.
 
 ## Unfinished / next
-- The owner picks. Then plan step 7 measures frame time warm. Open follow-ups (not queued): the fsr1/stp tone shift;
-  STP's unsettled floor; an edit/fluid risk pose that the dig and the flow actually reach.
-- The raw stills (190 MB) are uncommitted in `Screenshots/Engine03/compare/*__*.png`; shimmer frames are in the player's data folder `UpscalerCompare/2026-10-10_063429/`.
-  Disk was at 97% (6.7 GB free) before the run.
+- Nothing is left in this task. Next is engine plan step 5 (fluid tiles only for awake fluid), then step 6 (cascade caps sized
+  from this table). Both need their own task files. I added no follow-up.
 
 ## For the doc
-Shimmer, mean |dL| (0-255 luma) / % of pixels > 24, under quarter-pixel nudges, lower = steadier (blur also lowers it):
-| arm | near 540 | all 540 | near 720 | all 720 |
-|---|---|---|---|---|
-| native 1080 (no AA) | 3.80 / 2.83 | 7.91 / 6.82 | -- | -- |
-| none (bilinear, old baseline path) | 3.61 / 4.35 | 7.27 / 9.82 | -- | -- |
-| taa | 2.48 / 1.65 | 3.80 / 2.74 | 2.39 / 1.86 | 4.07 / 3.83 |
-| fsr1 | 4.62 / 4.65 | 8.59 / 9.75 | 4.56 / 4.55 | 8.54 / 9.70 |
-| stp | 3.38 / 3.93 | 6.19 / 7.93 | 3.39 / 3.79 | 6.29 / 7.97 |
-| fsr3 | 3.06 / 3.16 | 4.81 / 4.91 | 3.31 / 3.65 | 5.51 / 6.60 |
-(2026-10-02 baseline was near 4.14 / 5.84, all 5.89 / 7.59, but on the older map; none_540 is this run's like-for-like reference.)
-- `Screenshots/Engine03/compare/sheet_540.png`: rows are spawn_day, near_cliff, horizon, slope_detail, fluid_pools and night_torches; columns
-  native / taa / fsr1 / stp / fsr3. Look at the greyer sky in columns 3-4 (fsr1, stp), and the same view in every tile.
-  `sheet_720.png` and `sheet_dyn.png` have the same layout (dyn = 540 today).
-- `Screenshots/Engine03/compare/sheet_crops.png`: the cliff silhouette (rows 1-2) and the peak ridge (rows 3-4) at 3x, at 540
-  and 720. Compare the edges: native stair-steps, taa blurs, fsr1 is sharpened but stepped, stp is crisp, fsr3 is smooth and clean.
-- `Screenshots/Engine03/compare/sheet_motion_crops.png`: taa / stp / fsr3 at 540 in motion (fly, fast spin, the first frame
-  after the stop, the edit view) at 2x. Look at the pillars and the ridge: taa smears, stp and fsr3 stay sharp, no trails.
+Pool peaks, tg2 map v4. Peak = high-water mark since start. MB = CPU + GPU, in MiB.
+
+| pool | capacity | peak used (poses) | peak used (walk) | peak/capacity (max) | MB now | MB if cap = peak x 1.25 |
+|---|---|---|---|---|---|---|
+| tier-0 bricks | 750,000 | 395,423 | 312,681 | 52.7% | 732.4 | 482.7 |
+| cascade tier 1 | 320,000 | 82,641 | 62,000 | 25.8% | 312.5 | 100.9 |
+| cascade tier 2 | 96,000 | 16,437 | 13,342 | 17.1% | 93.8 | 20.1 |
+| fluid tiles (32^3) | 1,024 | 1,024 (full) | 1,024 (full) | 100% | 512.0 | n/a (peak = cap; coast demand 4,667 tiles) |
+
+- poolprobe (coast) peaks: tier 0 379,529, tier 1 76,150, tier 2 16,044. Every probe ended with the fluid pool full.
+- **Brick caps at peak x 1.25 would save about 535 MB** (CPU+GPU), from 1,138.7 to 603.7 MB. Of that, tier 1 alone is 212 MB.
+- **phys_footprint peak:** poses 3,353 MB, walk 3,027 MB, poolprobe 3,085 MB. The cap is 3 GB, and all three runs are over it.
+- **Fluid tiles refused since start** (pool full): poses 1,034,672, walk 994,060, poolprobe 3,347,356.
+- No images. This task changes nothing visible, so the report is numbers only.
