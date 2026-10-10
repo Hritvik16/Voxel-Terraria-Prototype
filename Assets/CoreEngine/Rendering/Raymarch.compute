@@ -869,6 +869,7 @@ float4 _LookMoon;
 float  _LookShadowDarkness;
 float  _LookHazeDensity;
 float4 _LookGrade;         // CINEMATIC GRADE: x exposure (sun+ambient), y saturation, z shoulder knee, w amount
+int    _EmissiveBleed;     // 0 = off (default), 1 = faces next to lava/torches get glow
 
 float3 LookToLinear(float3 c) { return pow(saturate(c), 2.2); }
 
@@ -1095,6 +1096,30 @@ bool AoSolidAt(int3 voxel, uint3 windowDimsBricks)
     uint vIdx = (uint)LocalVoxelIndex(LocalVoxelIndex3D(voxel));
     uint packed = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
     return (((packed >> ((vIdx & 3u) * 8u)) & 0xFFu) != 0u);
+}
+
+/// Read material id at voxel. Tier-0 clipmap only.
+uint VoxelMaterialAt(int3 voxel, uint3 windowDimsBricks)
+{
+    int3 rel = VoxelToBrick(voxel) - _WindowOriginBricksPacked.xyz;
+    if (rel.x < 0 || rel.y < 0 || rel.z < 0 ||
+        rel.x >= (int)windowDimsBricks.x ||
+        rel.y >= (int)windowDimsBricks.y ||
+        rel.z >= (int)windowDimsBricks.z) return 0u;
+
+    uint handle = ReadClipmap(VoxelToBrick(voxel), windowDimsBricks);
+    if ((handle & 0x80000000u) == 0u) return handle & 0xFFu;   // uniform brick
+    uint poolIdx = handle & 0x3FFFFFFFu;
+    uint vIdx = (uint)LocalVoxelIndex(LocalVoxelIndex3D(voxel));
+    uint packed = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
+    return (packed >> ((vIdx & 3u) * 8u)) & 0xFFu;
+}
+
+/// SVO/Brickmap emissive color: an emitting material glows in its own look albedo.
+float3 LookEmitColor(int3 voxel, uint3 windowDimsBricks)
+{
+    uint m = VoxelMaterialAt(voxel, windowDimsBricks);
+    return MaterialEmissive(m) > 0.0 ? MaterialAlbedoLook(m) : float3(0.0, 0.0, 0.0);
 }
 
 /// Classic voxel corner-darkening. For each of the four corners of the hit
@@ -3108,27 +3133,67 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             float moonLight = saturate(dot(nF, -sd) * 0.8 + 0.2);
             direct += _LookMoon.rgb * moonLight * softened * skyOpen;
 
+            float3 hitP = rayStart + rayDir * currentDist;
+
             // VAO on the ambient term only, with the Brickmap's remap.
             float vao = 1.0;
             if (_ShadeAO != 0 && !selfLit)
             {
-                float3 hitP = rayStart + rayDir * currentDist;
                 float3 inVoxel = hitP - (float3(voxel) + 0.5);
                 vao = FaceAO(voxel, normal, inVoxel, _WindowDimsBricks);
                 vao = lerp(0.15, 1.0, pow(smoothstep(0.0, 1.0, vao), 1.2));
             }
             float3 ambient = _LookAmbient.rgb * skyOpen * vao;
 
-            float3 hitPosM = (rayStart + rayDir * currentDist) * 0.1;
+            float3 hitPosM = hitP * 0.1;
             float3 pointTerm = SumPointLights(hitPosM, nF);
 
             float3 faceLight = (direct + ambient) * _LookGrade.x + pointTerm;
             if (_UniformFaceHue != 0)
                 faceLight = UniformFaceHue(faceLight, (_LookSun.rgb * 0.6 + _LookMoon.rgb * 0.6 + _LookAmbient.rgb) * _LookGrade.x
                                                       + SumPointLightsOmni((float3(voxel) + 0.5) * 0.1));
-            float3 lit = selfLit ? saturate(baseColor * 1.35 + 0.06)
-                                 : baseColor * faceLight;
-            lit += MaterialEmissiveTint(lm) * MaterialEmissive(lm);
+
+            // LAVA (owner 2026-10-09): the SVO build's emissive form,
+            // baseColor * light + albedo * emission * 2, which keeps lava deep
+            // orange. The old self-lit cheat, saturate(base * 1.35 + 0.06) + tint
+            // * 0.55, clipped red at 1 and let green climb to ~0.76: pale gold.
+            // Per-voxel hot/cool: +/-0.05 red, +/-0.025 green around the albedo.
+            // Every other material keeps the previous combine, unchanged.
+            float3 lit;
+            if (lm == 11u)
+            {
+                float hot = VoxelHash(voxel) - 0.5;
+                float3 albedo = MaterialAlbedoLook(lm) + float3(hot * 0.10, hot * 0.05, -hot * 0.02);
+                lit = baseColor * faceLight + albedo * (MaterialEmissive(lm) * 2.0);
+            }
+            else
+            {
+                lit = selfLit ? saturate(baseColor * 1.35 + 0.06)
+                              : baseColor * faceLight;
+                lit += MaterialEmissiveTint(lm) * MaterialEmissive(lm);
+            }
+
+            // EMISSIVE BLEED (opt-in, _EmissiveBleed, default 0): a non-emitting
+            // tier-0 face picks up the look albedo of an emitter on one of the
+            // four edge neighbours of its air cell, fading across the face --
+            // the SVO RayTracer.compute's bleed, term for term. Four extra
+            // window reads per pixel, so it stays off until the engine
+            // milestone measures it.
+            if (_EmissiveBleed != 0 && tierAtHit == 0 && MaterialEmissive(lm) <= 0.0)
+            {
+                int3 fa = voxel + normal;
+                int3 e1, e2;
+                float3 lh = saturate(hitP - float3(voxel));
+                float2 uv;
+                if (normal.x != 0)      { e1 = int3(0, 1, 0); e2 = int3(0, 0, 1); uv = lh.yz; }
+                else if (normal.y != 0) { e1 = int3(1, 0, 0); e2 = int3(0, 0, 1); uv = lh.xz; }
+                else                    { e1 = int3(1, 0, 0); e2 = int3(0, 1, 0); uv = lh.xy; }
+                float3 bleed = max(max(LookEmitColor(fa - e1, _WindowDimsBricks) * (1.0 - uv.x),
+                                       LookEmitColor(fa + e1, _WindowDimsBricks) * uv.x),
+                                   max(LookEmitColor(fa - e2, _WindowDimsBricks) * (1.0 - uv.y),
+                                       LookEmitColor(fa + e2, _WindowDimsBricks) * uv.y));
+                lit += bleed * 2.0;
+            }
 
             // Squared distance haze into the sky behind the pixel.
             if (_ShadeFog != 0)
