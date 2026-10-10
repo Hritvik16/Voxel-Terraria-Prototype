@@ -15,6 +15,7 @@ owner-facing to-do. One line each: what, where seen, task file (if written), sug
 | 1 | Shadow dots on grass slopes / sand lake shores at low sun | owner play notes 2026-10-08, `~/Desktop/Bugs?/` | `later/38-bug-shadow-dots.md` | engine phase, shadow work |
 | 2 | Black crescent/oval under the ledge at the `ledge_view` pose | task 34 B5 contact sheet; still there after B8/B10 | `later/40-bug-ledge-view-crescent.md` | engine phase, LOD seam / render work |
 | 3 | Coast fills the fluid pool (falling beach sand + sea); sea beyond ~61 m sleeps | task 39, Q31 part 1 (open) | -- | engine phase, fluids (wake on disturbance) |
+| 4 | Torch light passes through walls: no point-light occlusion (`Raymarch.compute:1856`); the SVO traces shadow rays for the nearest torches. Owner 2026-10-09: what they liked in the SVO is "how light reacts to its surroundings". Also: merge branch `gemini/lava-torch-light` (bd60a30: lava ignores torch light, Q34 3a; `SVO_LIGHTING_NOTES.md`, line refs wrong) | Gemini SVO lighting notes, Phase 7 §10 flag | -- | engine phase, lighting (first task that builds) |
 
 ## Deferred (not bugs, parked by the owner)
 - `later/37c-B3c-highland-variation.md` -- knolls and dells in rolling highlands (B5 review
