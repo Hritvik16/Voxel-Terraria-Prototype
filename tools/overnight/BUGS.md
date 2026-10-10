@@ -17,6 +17,7 @@ owner-facing to-do. One line each: what, where seen, task file (if written), sug
 | 3 | Coast fills the fluid pool (falling beach sand + sea); sea beyond ~61 m sleeps | task 39, Q31 part 1 (open) | -- | engine phase, fluids (wake on disturbance) |
 | 4 | Torch light passes through walls: no point-light occlusion (`Raymarch.compute:1856`); the SVO traces shadow rays for the nearest torches. Owner 2026-10-09: what they liked in the SVO is "how light reacts to its surroundings". Also: merge branch `gemini/lava-torch-light` (bd60a30: lava ignores torch light, Q34 3a; `SVO_LIGHTING_NOTES.md`, line refs wrong) | Gemini SVO lighting notes, Phase 7 §10 flag | -- | engine phase, lighting (first task that builds) |
 | 5 | River water steps down into a lake behind grid-edged 2x2 squares (0.2-1 m above the lake; flows in game). Older than 37e/42; rivers are outside the at-rest tests. Also: volcano lava lake never checked for 37e's defect | task 42, `Screenshots/42/seed7_lake_top.png` | -- | terrain follow-up (river/lake design: e.g. end a river at the lake's reach) -- owner decides |
+| 6 | Play help panel (F2) prints HTML entities: "BUILD &amp;amp; DIG", "FLUID &amp;amp; DESTRUCTION", "beauty -&amp;gt; sun visibility" (text is HTML-escaped twice, or escaped for a renderer that does not decode) | task 52 still `Screenshots/Engine03/play52/play_fsr3dyn_default.png` | -- | any UI/play task; trivial |
 
 ## Deferred (not bugs, parked by the owner)
 - `later/37c-B3c-highland-variation.md` -- knolls and dells in rolling highlands (B5 review
