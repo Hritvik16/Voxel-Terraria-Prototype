@@ -1,91 +1,74 @@
-# Session handoff -- 2026-10-09 19:00 (supervisor; queue running 37e, then 41)
+# Session handoff -- 2026-10-09 22:30 (supervisor; queue STOPPED, waiting on the engine plan)
 
 ## For the owner
-**Why a new session:** this supervisor chat got very long (12:35 to 19:00, a crash in the middle),
-and every message re-sent all of it -- one of the biggest costs on a day that used 15% of the week.
-You asked for the handoff at 18:50.
+**Why a new session:** this supervisor chat reached ~8 MB (the size hook fired), and it is a natural
+stopping point: the terrain phase is closed and the queue is stopped waiting for your approval of the
+engine phase plan.
 
-**What the previous chat covered:**
-- **SVO look.** Compared Gemini's SVO shots with ours (`Screenshots/SVOLook/`). Our lava renders pale
-  gold (LOOK 1's self-lit formula); our days are darker mainly because of the noon "cinematic grade"
-  (owner decisions 2-4, Sep 24); you can try `EXTRA="-lookgrade 0" ./run-play.sh`. You parked the
-  grade question "for now".
-- **The Mac crash (hard power-off ~15:2x) was a Unity test run,** not Claude/Terminal: 37e's new test
-  grew Unity to a 22.5 GB footprint (seen again at 15:53 and killed). Fixes: `tools/mem-watchdog.sh`
-  (64e7c6a; started by every locked Unity run; kills Unity past 8 GB footprint or 10 GB swap and
-  PAUSEs the queue), 37e re-queued to rewrite its test from scratch, small and bounded.
-- **Sessions:** at most supervisor + queue worker, plus ONE short side session you ask for
-  (SUPERVISOR.md step 0). Closing a Terminal tab does NOT always end its Claude -- type `/exit` first.
-  The new supervisor closes the old one's window itself.
-- **Gemini** (your Google plan; shell disabled because Gemini CLI 0.63.0 forces approval prompts on
-  any command reusing a flag seen in earlier output, even in YOLO):
-  - lava-look port on branch `gemini/lava-look` (worktree `../VT_gemini`), reviewed and fixed by a
-    Claude side session (73a625b: it had changed torches/sludge too, wrote the wrong config object).
-  - test-memory audit (`../VT_gemini2`, 62a5266): reviewer verdict -- missed the real 37e mechanism
-    and inflated severities; some hygiene findings real (undisposed pools in LOD/cascade/fluid tests).
-  - Verdict so far: OK for code-only ports from a clear reference, with review; not for analysis or
-    builds yet. The "Gemini runs builds" trial (plain-word wrapper commands + APFS-cloned Library) is
-    an idea only, not built.
-- **Usage:** weekly 62% at Fri 18:48 (resets Thu 05:59); with the ~10% reserve ~28% is left, about
-  4%/day. Plan you agreed: only 37e and 41 run, then the queue stops until you review 41; no new side
-  sessions or Gemini reviews this week unless you ask.
+**What the previous chat covered (19:00-22:30):**
+- **37e flat lake water** finished: every lake sits still at one level. It made rectangular shores,
+  so you picked a fix (Q35 3a) -> **42** made shores follow the ground (grid-aligned shore 25-36% ->
+  8.5-10%) and renamed the landform Badlands -> **Breaks**.
+- **41 lava look:** Gemini's lava merged; you answered Q34 a/a/a (keep it; emissive bleed off until
+  measured; lava ignores torch light). You said what you liked in the SVO is "how light reacts to its
+  surroundings".
+- **Gemini** did the lava-ignores-torch fix + a written SVO-vs-ours lighting comparison (branch
+  `gemini/lava-torch-light`, bd60a30, in `../VT_gemini`). Code fix correct; the notes' line numbers were
+  wrong, but the main finding holds: the SVO's torches cast shadows, ours shine through walls; the
+  SVO has bleed on. Both went to BUGS.md #4 and into the engine plan.
+- **B10 review pack (Q35):** 1a keep the shipped savanna/badlands colours; 2a park the straight
+  biome borders (BUGS deferred); 3a fix the lake shores (42); 4a rename (42); 5a biome size fine;
+  6a v4 default + merge.
+- **43:** map v4 is the default world; `surface-rebuild` merged into LOCAL `main` (884e993). Nothing
+  pushed -- main is 137+ commits ahead of origin; pushing is your call. The perf check was dropped
+  (ROADMAP step 3 replaces it).
+- **44 engine phase plan** written: https://claude.ai/code/artifact/62d9391e-b05a-42d0-83c2-34d9bfeb04f7
+- Usage: 64% of the week at Fri 20:11 (resets Thu 06:00). Your usage page shows a FREE "Full reset"
+  (expires Oct 22) -- worth keeping for when the week runs out early.
 
-**Running:** 37e (flat lake water) -- it hit the 5-hour limit at 17:17; retries every 20 min, the
-window reset 18:40. Then 41 (merge Gemini's lava branch, compile check, before/after lava shots,
-STOP_FOR_OWNER with pictures).
-**Open for you:** nothing until 41's pictures; then the B10 review pack.
-**Close:** this old supervisor is closed by the new one (it is the claude process whose window shows
-this conversation). Also `/exit` any leftover side-session tab.
+**Running:** nothing. The queue is stopped.
+**Open for you:** Q36 = the engine plan's Q1-Q8 (answer in the plan doc or the Queue decisions doc;
+"all (a)" approves it as written). Also BUGS.md #5 (river water steps into lakes behind grid squares)
+is your call some day.
+**Close:** the old supervisor's window (tmux `claude-retry-4036-1791585229869`, window 1 -- the one
+titled with this handoff); the new supervisor closes it.
 
 ## State
-- Branch `surface-rebuild`, not pushed. Runner in tmux `overnight` (IDLE_MIN=0, started 15:59).
-- Queue: 37e (running; uncommitted edits in FarField.cs, TerrainGenChunkSource.cs, DetailField.cs,
-  ShapeField.cs from its first session -- the retry continues from them), 41-lava-look-shots
-  (Requires 37e). Blocked: `blocked/37e-lake-flat-water.HANDOFF.md` + the LEAKED test (reference
-  only). Later: 37c, 38, 40. Last suite SUITE=all 654/0/17 (37d, c44381a).
-- After 41: STOP the queue (it ends by itself if nothing else is queued; queue nothing new).
-- Gemini worktrees: `../VT_gemini` (gemini/lava-look, merged by task 41), `../VT_gemini2`
-  (gemini/test-memory-audit, report only -- never merge; delete the worktree when the owner agrees).
-- Watchdog log: `Logs/overnight/watchdog.log`. Bugs list: `tools/overnight/BUGS.md` (37e memory entry).
-- Handoffs of finished tasks that later tasks overwrite are copied to `tools/overnight/done/NAME.HANDOFF.md`
-  (35, 37 B10, 37b). The B10 pack needs `done/37-B10-savanna-badlands.HANDOFF.md`.
+- Branch `surface-rebuild` = `main` + supervisor/44 commits (tree clean but for Playground.unity churn
+  and HANDOFF.md). Runner idle (tmux `overnight`, ended). Queue empty.
+- Blocked: `44-engine-phase-plan-doc` (STOP_FOR_OWNER, waiting on Q36); `37e` leftovers are reference only.
+- Later: `later/37c`, `38` (shadow dots -> plan step 8), `40` (ledge crescent -> plan step 11b).
+- BUGS.md open rows 1-5. Last suite SUITE=all 662/0/18 (task 43).
+- Gemini worktrees: `../VT_gemini` (gemini/lava-torch-light bd60a30 -- engine plan step 1 merges it),
+  `../VT_gemini2` (audit report only; never merge; delete when the owner agrees).
 
 ## Next for the supervisor
-- On each done: one Done row in the doc (insert after header row mk2vq5dkmp6.1425; 5 cells: time,
-  task, result, commits, evidence) and replace "Running now" mk2vq5dkmp6.55626 (last h 96f3f861 at
-  rev 408).
-- **B10 review pack after 37e** (one doc section, captioned images, ONE batch of questions):
-  1. Palette pick a/b/c per biome for savanna + badlands (`Screenshots/B10/candidates_noon.png`,
-     `candidates_golden.png`, `palette_candidates_swatches.png`).
-  2. Seed 42's diagonal biome stripes OK, or an edge-blend/boundary-warp step? (`seed42_b8_b10_biome.png`)
-  3. Hard straight biome borders in the far band (`far_views_a.png`).
-  4. Canyon tablelands look (`Screenshots/B5b/`; the rim poses were poor -- say so).
-  5. Rename the landform "Badlands" (e.g. "breaks") vs the biome.
-  6. 37e's lake pictures.
-  Then ask about the v4 default + merge to `main` (SUITE=all
-  first), then start the engine-phase plan doc (SUPERVISOR.md / ROADMAP.md: Q26's one compiled
-  generator, E1's pass conditions from the TAA verdict, the fluid notes, the bugs list).
-- Watcher race (tooling, low priority, add to BUGS.md if it recurs): when the watcher loop restarts
-  in the seconds before a new task's transcript exists, it follows the OLD task's file until that
-  task ends. Fix by hand: kill the watcher's python child (`ps -axo pid,ppid | awk '$2==<loop pid>'`);
-  the loop restarts in 20 s.
-- Images in the doc: Artifact publish (url = doc link, asset true, file_paths) -> Docs `batch` with
-  `{"verb":"create","object":"blob","engine":"blob","payload":{"asset":"<id>"}}` -> `![alt](blob/<minted>)`
-  plus an italic caption line below (alt text is not shown as a caption).
+1. On the owner's Q36 answers: record them (Answered), write plan step 1's task file from
+   `ENGINE_PHASE_PLAN.md` (one compiled world-map generator path; first commit merges
+   `gemini/lava-torch-light` bd60a30 and compile-checks + reshoots lava pose 4 under torches), and
+   steps 2-3 per Q6. Copy every number the task needs INTO the task file. Engine steps are
+   performance work: CLAUDE.md measurement rules apply only to the [measure] steps.
+2. Ask for a usage screenshot before queueing big steps late in the week.
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 408;
-  "Waiting on you" lead mk2vq5dkmp6.27623; Q31/Q32/Q33 sections below it, all answered)
+  (doc id 681cc873-8163-45da-a51f-32ffca6d7468, body node 8460ce71-6ba5, last rev 448;
+  "Waiting on you" lead mk2vq5dkmp6.27623 -- Q36 sits right below it; Done table header row
+  mk2vq5dkmp6.1425 (insert rows after it, 5 cells); "Running now" paragraph mk2vq5dkmp6.55626
+  (edit it with a `find` replace of its text, no guard needed))
+- Engine phase plan: https://claude.ai/code/artifact/62d9391e-b05a-42d0-83c2-34d9bfeb04f7 (repo copy ENGINE_PHASE_PLAN.md)
 - Surface rebuild plan: https://claude.ai/code/artifact/f6222d44-1457-4a92-9460-3390d44e75fd
 - Game Design Brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
-- Terrain review: https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7
 
 ## Notes
-- No periodic updates; speak only when a task starts/finishes/blocks or the owner is needed.
-- Unblocking a STOP_FOR_OWNER task needs the owner's answer (the auto-mode classifier refused a
-  supervisor default on 9 Oct).
-- A `Requires:` line must name real task files only. Name order = run order.
+- Images in the doc: Artifact publish (url = doc link, asset true, file_path[s]) -> Docs `batch`
+  `{"verb":"create","object":"blob","engine":"blob","payload":{"asset":"<id>"}}` -> `![alt](blob/<minted>)`
+  plus an italic caption line.
+- Gemini runs in `../VT_gemini` with shell disabled and cannot read outside its folder: copy reference
+  files into it (e.g. `SVO_REF/`) and point the brief at them. Gemini cannot commit; the supervisor
+  reviews and commits on its branch.
+- Owner answers in the doc as bare "a" paragraphs under each question -- read with `sinceRev`; a
+  missing answer = ask in chat (Q2/Q6 were missed once).
 
 ## Ready-to-paste prompt
 > Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the overnight
