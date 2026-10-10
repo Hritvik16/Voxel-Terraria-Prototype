@@ -14,6 +14,20 @@ encoder (read 50's HANDOFF first). Do NOT change any default.
 Arms: the same 6 as task 50 (`native`, `taa_540`, `fsr1_540`, `stp_540`, `fsr3_dyn`, `fsr3_720`).
 Paths: the three motion paths from 50: `walk_cliff`, `spin_stop`, `fly`.
 
+## Lighting (owner, 2026-10-10: "why are some of the pics so dark and taken in bad lighting conditions?")
+Task 48's near_cliff and horizon stills faced INTO a low sun: the terrain is a near-black silhouette, so
+the owner could judge nothing but the outline. For this task:
+- Day paths at midday (as `-startview` / the M key in `./run-play.sh`), with the sun BEHIND or beside the
+  camera, so the terrain faces are lit and the detail (voxel faces, grass, rock bands) is visible. If a path
+  must turn through the sun (spin_stop), start and stop facing away from it.
+- Before recording, check each path's first frame: mean luma of the terrain part of the frame above ~70/255
+  and the sky under ~1/3 of the frame. Re-aim the path (keep its purpose: cliff edge, ridge, speed) if not;
+  say in HANDOFF what you changed.
+- If task 50's `walk_cliff` or `pan_horizon` clips came out backlit or dark (check its HANDOFF and a frame),
+  ALSO re-record those two at the fixed 30 fps in the new light into `Screenshots/Engine03/clips/` with the
+  suffix `_lit`, so the quality comparison has a well-lit version too.
+- night_torches stays at night (it tests torch light), but expose it as `./run-play.sh` does at night.
+
 ## Part 1 -- frame rate per arm (warm steady state)
 - ONE warm-up launch first, numbers discarded (`MODE=stream MOTION=walk ./run-tg2world.sh`, ~6 min); then the
   measured launch straight after (no idle gap over ~2 min). Report the warm-up's log path.
