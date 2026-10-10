@@ -44,8 +44,6 @@ namespace TerrainGen
             public double ms;
         }
 
-        private static readonly int[] DX = { -1, 0, 1, -1, 1, -1, 0, 1 };
-        private static readonly int[] DZ = { -1, -1, -1, 0, 0, 1, 1, 1 };
 
         /// Runs the pass IN PLACE on `height` (erosion) and `rough` (smoother beds),
         /// and fills `water` (level or NO_WATER) and `flow` (catchment, cells).
@@ -53,17 +51,20 @@ namespace TerrainGen
         /// deepest point is at least this deep there (DrainShallowLakes) -- v3
         /// regions drain small hollows in sand and plains and keep a wetland's
         /// ponds. Null = map v2's behaviour exactly.
-        public static Stats Run(int n, float[] height, float[] rough, float[] water, float[] flow, byte[] cls, float[] minLakeDepth = null)
+        /// Burst (engine plan step 1): MapArena pointers, scratch released on the
+        /// way out. `ms` is left 0 here (no clock under Burst); the managed
+        /// caller fills it with the whole map build's time.
+        public static unsafe Stats Run(MapArena* A, int n, float* height, float* rough, float* water, float* flow, byte* cls, float* minLakeDepth = null)
         {
-            var sw = System.Diagnostics.Stopwatch.StartNew();
+            int mark = A->Mark();
             var st = new Stats();
             int count = n * n;
-            var parent = new int[count];
-            var order = new int[count];
-            var eps = new float[count];
+            int* parent = A->Alloc<int>(count);
+            int* order = A->Alloc<int>(count);
+            float* eps = A->Alloc<float>(count);
 
             // ---- 1. eps flood: drainage parents + order ----
-            Flood(n, height, FLOOD_EPS, eps, parent, order);
+            Flood(A, n, height, FLOOD_EPS, eps, parent, order);
 
             // ---- 2. accumulation (reverse flood order = upstream first) ----
             for (int i = 0; i < count; i++) flow[i] = height[i] > 0f ? 1f : 0f;
@@ -75,7 +76,7 @@ namespace TerrainGen
             }
 
             // ---- 3 + 4. rivers and light erosion ----
-            var carve = new float[count];
+            float* carve = A->Alloc<float>(count);
             for (int i = 0; i < count; i++)
             {
                 if (height[i] <= 0f) continue;
@@ -85,7 +86,7 @@ namespace TerrainGen
                 carve[i] = math.min(80f, c);
             }
             // Two 3x3 box blurs: a channel becomes a valley ~3 cells (24 m) wide.
-            var tmp = new float[count];
+            float* tmp = A->Alloc<float>(count);
             for (int pass = 0; pass < 2; pass++)
             {
                 for (int z = 0; z < n; z++)
@@ -101,7 +102,7 @@ namespace TerrainGen
                     }
                     tmp[z * n + x] = s / m;
                 }
-                Array.Copy(tmp, carve, count);
+                for (int i = 0; i < count; i++) carve[i] = tmp[i];
             }
             for (int i = 0; i < count; i++)
             {
@@ -114,10 +115,10 @@ namespace TerrainGen
             }
 
             // ---- 1 again, plain: spill levels on the carved terrain ----
-            var level = new float[count];
-            var parent2 = new int[count];
-            var order2 = new int[count];
-            Flood(n, height, 0f, level, parent2, order2);
+            float* level = A->Alloc<float>(count);
+            int* parent2 = A->Alloc<int>(count);
+            int* order2 = A->Alloc<int>(count);
+            Flood(A, n, height, 0f, level, parent2, order2);
 
             // ---- 5. water level ----
             for (int i = 0; i < count; i++)
@@ -135,22 +136,25 @@ namespace TerrainGen
                     if (p >= 0 && height[p] <= 0f) st.riverMouths++;
                 }
             }
-            if (minLakeDepth != null) DrainShallowLakes(n, height, water, flow, cls, parent, minLakeDepth, ref st);
-            st.lakes = CountLakes(n, water, cls);
+            if (minLakeDepth != null) DrainShallowLakes(A, n, height, water, flow, cls, parent, minLakeDepth, ref st);
+            st.lakes = CountLakes(A, n, water, cls);
             for (int i = 0; i < count; i++) st.maxCatchmentKm2 = math.max(st.maxCatchmentKm2, flow[i]);
             st.maxCatchmentKm2 *= 64f / 1e6f;   // 8 m cells
-            st.ms = sw.Elapsed.TotalMilliseconds;
+            A->Release(mark);
             return st;
         }
 
         /// Priority flood from every ocean cell (height <= 0) and every border
         /// cell. out[i] = max(height[i], out[parent] + eps); parent[i] = the cell
         /// that opened i (-1 for a seed); order = pop order (non-decreasing out).
-        public static void Flood(int n, float[] height, float eps, float[] outLevel, int[] parent, int[] order)
+        public static unsafe void Flood(MapArena* A, int n, float* height, float eps, float* outLevel, int* parent, int* order)
         {
+            int* DX = stackalloc int[] { -1, 0, 1, -1, 1, -1, 0, 1 };
+            int* DZ = stackalloc int[] { -1, -1, -1, 0, 0, 1, 1, 1 };
+            int mark = A->Mark();
             int count = n * n;
-            var closed = new bool[count];
-            var heap = new MinHeap(count);
+            bool* closed = A->Alloc<bool>(count);
+            var heap = new MinHeap(A, count);
             for (int z = 0; z < n; z++)
             for (int x = 0; x < n; x++)
             {
@@ -180,6 +184,15 @@ namespace TerrainGen
                     heap.Push(outLevel[nb], nb);
                 }
             }
+            A->Release(mark);
+        }
+
+        /// Managed entry for tests (HydrologyTests): the same code, run here.
+        public static unsafe void Flood(int n, float[] height, float eps, float[] outLevel, int[] parent, int[] order)
+        {
+            var a = MapArena.Create();
+            try { fixed (float* h = height, o = outLevel) fixed (int* p = parent, r = order) Flood(&a, n, h, eps, o, p, r); }
+            finally { a.Dispose(); }
         }
 
         /// v3: a WHOLE lake stays or goes. Its deepest point must reach the
@@ -187,23 +200,26 @@ namespace TerrainGen
         /// otherwise every cell of it is drained -- to river where the flow is a
         /// river's, dry elsewhere. Per-cell thresholds left dry shelves below a
         /// lake's own water line (HydrologyTests' containment check caught it).
-        private static void DrainShallowLakes(int n, float[] height, float[] water, float[] flow, byte[] cls, int[] parent,
-                                              float[] minLakeDepth, ref Stats st)
+        private static unsafe void DrainShallowLakes(MapArena* A, int n, float* height, float* water, float* flow, byte* cls, int* parent,
+                                                     float* minLakeDepth, ref Stats st)
         {
+            int* DX = stackalloc int[] { -1, 0, 1, -1, 1, -1, 0, 1 };
+            int* DZ = stackalloc int[] { -1, -1, -1, 0, 0, 1, 1, 1 };
+            int mark = A->Mark();
             int count = n * n;
-            var seen = new bool[count];
-            var stack = new int[count];
-            var members = new System.Collections.Generic.List<int>();
+            bool* seen = A->Alloc<bool>(count);
+            int* stack = A->Alloc<int>(count);
+            int* members = A->Alloc<int>(count); int nm = 0;
             for (int i = 0; i < count; i++)
             {
                 if (seen[i] || cls[i] != LAKE) continue;
-                members.Clear();
+                nm = 0;
                 float deepest = -1f; int deepCell = i;
                 int sp = 0; stack[sp++] = i; seen[i] = true;
                 while (sp > 0)
                 {
                     int c = stack[--sp];
-                    members.Add(c);
+                    members[nm++] = c;
                     float dpt = water[c] - height[c];
                     if (dpt > deepest) { deepest = dpt; deepCell = c; }
                     int cx = c % n, cz = c / n;
@@ -217,8 +233,9 @@ namespace TerrainGen
                     }
                 }
                 if (deepest >= minLakeDepth[deepCell]) continue;
-                foreach (int c in members)
+                for (int q = 0; q < nm; q++)
                 {
+                    int c = members[q];
                     st.lakeCells--;
                     water[c] = NO_WATER; cls[c] = DRY;
                     if (flow[c] >= RIVER_MIN_CELLS)
@@ -229,13 +246,17 @@ namespace TerrainGen
                     }
                 }
             }
+            A->Release(mark);
         }
 
-        private static int CountLakes(int n, float[] water, byte[] cls)
+        private static unsafe int CountLakes(MapArena* A, int n, float* water, byte* cls)
         {
+            int* DX = stackalloc int[] { -1, 0, 1, -1, 1, -1, 0, 1 };
+            int* DZ = stackalloc int[] { -1, -1, -1, 0, 0, 1, 1, 1 };
+            int mark = A->Mark();
             int count = n * n, lakes = 0;
-            var seen = new bool[count];
-            var stack = new int[count];
+            bool* seen = A->Alloc<bool>(count);
+            int* stack = A->Alloc<int>(count);
             for (int i = 0; i < count; i++)
             {
                 if (seen[i] || cls[i] != LAKE) continue;
@@ -255,6 +276,7 @@ namespace TerrainGen
                     }
                 }
             }
+            A->Release(mark);
             return lakes;
         }
 
@@ -264,12 +286,12 @@ namespace TerrainGen
 
         /// Binary min-heap on (key, index); ties break by index, so the flood's
         /// pop order -- and everything downstream of it -- is deterministic.
-        private sealed class MinHeap
+        private unsafe struct MinHeap
         {
-            private readonly float[] _k;
-            private readonly int[] _v;
+            private float* _k;
+            private int* _v;
             public int Count;
-            public MinHeap(int cap) { _k = new float[cap]; _v = new int[cap]; }
+            public MinHeap(MapArena* A, int cap) { _k = A->Alloc<float>(cap); _v = A->Alloc<int>(cap); Count = 0; }
             private bool Less(int a, int b) => _k[a] < _k[b] || (_k[a] == _k[b] && _v[a] < _v[b]);
             private void Swap(int a, int b)
             {

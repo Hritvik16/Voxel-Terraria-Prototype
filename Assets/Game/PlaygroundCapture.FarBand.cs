@@ -201,6 +201,8 @@ public partial class PlaygroundCapture
         if (RaymarchFeature.Taa) L($"TAA ON{(RaymarchFeature.TaaChecker ? " + CHECKERBOARD" : "")} (sharpen {RaymarchFeature.TaaSharpenAmount:F2}); every shot is taken after >= 90 still frames");
         L($"seed {spec.seed}: world {spec.worldSizeVoxels / 10000f:F0} km, sea at Y {spec.seaLevelY}, peak site {map.PeakPosition}, " +
           $"max top {far.MaxHeightVoxels} (engine voxels), ring initial fill {far.InitialFillMs:F0} ms");
+        // Engine plan step 1: the map's identity, for WorldMapBurstTests (Editor == player).
+        L($"map v{spec.mapVersion} Height FNV {map.HeightHash():X16}  cell(613,259) {map.Height[259 * spec.mapCells + 613]:F5}");
         float c = spec.worldSizeVoxels * 0.5f;
         float2 pk = map.PeakPosition;
         float pkTop = Ground(pk.x, pk.y);

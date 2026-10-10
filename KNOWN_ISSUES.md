@@ -519,7 +519,16 @@ real and separate reason — see the LOD-cascade finding in
   existing "Burst == Mono" benchmark runs in the IL2CPP player, not the Editor.
   TerrainGen's gate is therefore Burst self-consistency (one compiled path for
   every authoritative evaluation), with the Editor-Mono rate reported.
-  **The PLAYER'S WORLD MAP IS NOT THE EDITOR'S (found 2026-10-08, task 32c, NOT FIXED).**
+  **FIXED for the world map (task 45, 2026-10-10, engine plan step 1):** the whole
+  map build (regions, features, easy areas, erosion, fine map, hydrology, record,
+  routes, Offsets.For) now runs in ONE Burst job (`MapJob.cs`, job in the
+  `TerrainGen.Burst` assembly; Strict/High) in the Editor AND the player, and throws
+  if it ever runs managed. seed 42 v4 Height FNV: Editor `639552DD962C4B28` ==
+  player `639552DD962C4B28` (`Logs/tg2world_20261010_005419.txt`), pinned by
+  `WorldMapBurstTests`. Still Mono-vs-IL2CPP: managed callers of `ShapeField.Sample`
+  outside jobs (StreamManager's spawn sample, FarBand capture probes) -- not the map.
+  The text below is the history.
+  **The PLAYER'S WORLD MAP IS NOT THE EDITOR'S (found 2026-10-08, task 32c; FIXED task 45).**
   seed 42 v4 `WorldMap.Height` FNV: IL2CPP player `B387F054A29997D4`, Editor/tests
   `BD4343C5D13F55BF`; cell (613,259) 1169.15 vs 1160.16 voxels. Erosion amplifies the
   float differences. So EditMode map tests and `PlayMetricsReport` check a map that

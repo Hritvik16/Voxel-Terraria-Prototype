@@ -61,7 +61,7 @@ namespace TerrainGen
         public bool IsRoute => (flags & WorldRecord.FLAG_ROUTE) != 0;
     }
 
-    public sealed class WorldRecord
+    public sealed partial class WorldRecord
     {
         public const int BYTES_PER_CELL = 6;
         public const byte SEA = 15;
@@ -109,15 +109,16 @@ namespace TerrainGen
             AtCell(math.max(x, 0) / CellVoxels, math.max(z, 0) / CellVoxels);
 
         /// ShapeField.Biome at every cell centre -- exactly what Sample reports.
-        public static byte[] BiomePlane(TerrainSpec spec)
+        /// The biome per map cell. Managed entry: computed by the map's Burst job.
+        public static byte[] BiomePlane(TerrainSpec spec) => MapJobs.BiomePlane(in spec);
+
+        public static unsafe void BiomePlane(in TerrainSpec spec, byte* b)
         {
             int n = spec.mapCells;
-            var o = Offsets.For(in spec);
-            var b = new byte[n * n];
+            var o = Offsets.Compute(in spec);
             for (int z = 0; z < n; z++)
             for (int x = 0; x < n; x++)
                 b[z * n + x] = ShapeField.Biome(in o, new float2((x + 0.5f) * spec.mapCellVoxels, (z + 0.5f) * spec.mapCellVoxels));
-            return b;
         }
 
         public static WorldRecord Build(WorldMap map) => Build(map, BiomePlane(map.Spec));
@@ -126,19 +127,24 @@ namespace TerrainGen
         /// `easyFrom` (B8): the record the routes were found on; its easy areas
         /// are kept as they are (their cells are never eased) instead of being
         /// grown again on the eased map, so the routes join the same areas.
-        public static WorldRecord Build(WorldMap map, byte[] biomes, WorldRecord easyFrom = null)
+        /// Managed entry: built by the map's Burst job (MapJobs.Record).
+        public static WorldRecord Build(WorldMap map, byte[] biomes, WorldRecord easyFrom = null) => MapJobs.Record(map, biomes, easyFrom);
+
+        /// The Burst core of Build (engine plan step 1).
+        public static unsafe void Build(MapArena* A, Diag* dg, ref MapData map, byte* biomes, RecordB* easyFrom, in Danger.TiersB tiers, out RecordB rec)
         {
-            var spec = map.Spec;
-            int n = spec.mapCells;
-            var rec = new WorldRecord(n, spec.mapCellVoxels, spec.mapVersion);
-            byte[] region = map.Region;
-            var arch = new byte[n * n];
-            for (int i = 0; i < arch.Length; i++) arch[i] = region[i] == 255 ? SEA : region[i];
+            var spec = map.spec;
+            int n = spec.mapCells, N = n * n;
+            rec = new RecordB { data = A->Root<RecordCell>(N), cells = n, cellVoxels = spec.mapCellVoxels, mapVersion = spec.mapVersion };
+            int mark = A->Mark();
+            byte* region = map.region;
+            byte* arch = A->Alloc<byte>(N);
+            for (int i = 0; i < N; i++) arch[i] = region[i] == 255 ? SEA : region[i];
 
             // Depth into the archetype: distance to the nearest cell whose
             // archetype differs (the sea included). Seeds are the cells with
             // a different 4-neighbour.
-            var d = new int[n * n];
+            int* d = A->Alloc<int>(N);
             for (int z = 0; z < n; z++)
             for (int x = 0; x < n; x++)
             {
@@ -149,35 +155,35 @@ namespace TerrainGen
             }
             Chamfer(d, n);
             int depthUnits = DEPTH_STEP_M * 10 * CHAMFER_ORTHO / spec.mapCellVoxels;   // 32 m = 20 units
-            for (int i = 0; i < d.Length; i++)
-                rec.Data[i].landform = (byte)(arch[i] | (math.min(15, d[i] / depthUnits) << 4));
+            for (int i = 0; i < N; i++)
+                rec.data[i].landform = (byte)(arch[i] | (math.min(15, d[i] / depthUnits) << 4));
 
             // Distance to fresh water.
-            byte[] wc = map.WaterClass;
-            for (int i = 0; i < d.Length; i++) d[i] = wc[i] == Hydrology.LAKE || wc[i] == Hydrology.RIVER ? 0 : INF;
+            byte* wc = map.waterClass;
+            for (int i = 0; i < N; i++) d[i] = wc[i] == Hydrology.LAKE || wc[i] == Hydrology.RIVER ? 0 : INF;
             Chamfer(d, n);
             int waterUnits = WATER_STEP_M * 10 * CHAMFER_ORTHO / spec.mapCellVoxels;   // 16 m = 10 units
-            for (int i = 0; i < d.Length; i++)
-                rec.Data[i].freshWater = (byte)math.min(WATER_FAR, d[i] / waterUnits);
+            for (int i = 0; i < N; i++)
+                rec.data[i].freshWater = (byte)math.min(WATER_FAR, d[i] / waterUnits);
 
-            for (int i = 0; i < d.Length; i++) rec.Data[i].biome = biomes[i];
-            Features.Mark(map, rec);   // before the easy areas: they skip feature cells
-            if (easyFrom == null) EasyAreas.Mark(map, rec);
+            for (int i = 0; i < N; i++) rec.data[i].biome = biomes[i];
+            Features.Mark(ref map, ref rec);   // before the easy areas: they skip feature cells
+            if (easyFrom == null) EasyAreas.Mark(A, dg, ref map, ref rec);
             else
             {
-                foreach (var a in easyFrom.EasyAreaList)
-                    foreach (int i in a.cells) rec.Data[i].flags |= FLAG_EASY;
-                rec.EasyAreaList = easyFrom.EasyAreaList;
+                for (int q = 0; q < easyFrom->easyCount; q++)
+                    for (int c = 0; c < easyFrom->easy[q].cellsLen; c++) rec.data[easyFrom->easy[q].cells[c]].flags |= FLAG_EASY;
+                rec.easy = easyFrom->easy; rec.easyCount = easyFrom->easyCount;
             }
-            Danger.Mark(map, rec);
-            Routes.Mark(map, rec);   // B8: after the danger it lowers
-            return rec;
+            Danger.Mark(ref map, ref rec, in tiers);
+            Routes.Mark(ref map, ref rec);   // B8: after the danger it lowers
+            A->Release(mark);
         }
 
         // 5/7 chamfer (max error ~2% against Euclidean), two passes, integer.
         private const int CHAMFER_ORTHO = 5, CHAMFER_DIAG = 7, INF = int.MaxValue / 2;
 
-        private static void Chamfer(int[] d, int n)
+        private static unsafe void Chamfer(int* d, int n)
         {
             for (int z = 0; z < n; z++)
             for (int x = 0; x < n; x++)

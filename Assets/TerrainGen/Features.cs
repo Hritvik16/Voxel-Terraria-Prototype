@@ -101,7 +101,30 @@ namespace TerrainGen
         public float2 bbMin, bbMax;          // canyon bounds incl. its walls
     }
 
-    public static class Features
+    /// Feature for Burst (engine plan step 1): the same fields, arrays as
+    /// MapArena pointers (null where Feature's array is null), lengths beside
+    /// them. MapJobs converts both ways.
+    public unsafe struct FeatureB
+    {
+        public byte kind;
+        public byte tier;
+        public int2 centre;
+        public float radiusM;
+        public bool wayDown;
+        public int mapVersion;
+        public int cellCount;
+        public float baseH, rise, R, B, L;
+        public float2 dir, noiseOff;
+        public float footR;
+        public float2* path; public int pathLen;      // floor, halfW, bank, halfWNat: pathLen each
+        public float* floor, halfW, bank, halfWNat;
+        public float highSide;
+        public float* gap; public int2 gapLo; public int gapW, gapH; public float gapCell;   // gap, segLo, segHi: gapW x gapH
+        public short* segLo, segHi;
+        public float2 bbMin, bbMax;
+    }
+
+    public static unsafe class Features
     {
         public const byte GreatPeak = 1, GreatCanyon = 2, Mesa = 3, Volcano = 4, CraterLake = 5;
         public const byte Common = 0, Uncommon = 1, Rare = 2;
@@ -182,41 +205,62 @@ namespace TerrainGen
         /// Rare wonders allowed: 1 / 1 / 2. None exist in the pool today.
         public static int RareMaxFor(in TerrainSpec spec) => spec.worldSizeVoxels <= 120000 ? 1 : 2;
 
-        private static readonly byte[] Pool = { GreatPeak, GreatCanyon, Mesa, Volcano, CraterLake };
+        public const int POOL = 5;
+        private static byte PoolAt(int q) => q == 0 ? GreatPeak : q == 1 ? GreatCanyon : q == 2 ? Mesa : q == 3 ? Volcano : CraterLake;
 
         /// The kinds this world draws, in slot order (slot 0 the way down).
-        public static byte[] Draw(in TerrainSpec spec)
+        /// Managed entry: drawn by the map's Burst job (MapJobs).
+        public static byte[] Draw(in TerrainSpec spec) => MapJobs.Draw(in spec);
+
+        /// Burst core of Draw: writes up to 8 kinds, returns how many.
+        public static int Draw(in TerrainSpec spec, byte* kinds)
         {
             int count = CountFor(in spec);
-            var kinds = new List<byte> { GreatCanyon };
-            var n = new int[8]; n[GreatCanyon] = 1;
+            int nk = 0;
+            kinds[nk++] = GreatCanyon;
+            int* n = stackalloc int[8];
+            for (int i = 0; i < 8; i++) n[i] = 0;
+            n[GreatCanyon] = 1;
             for (int j = 1; j < count; j++)
             {
                 float total = 0f;
-                foreach (byte k in Pool) if (n[k] < Cap(k)) total += Weight(k);
+                for (int q = 0; q < POOL; q++) { byte k = PoolAt(q); if (n[k] < Cap(k)) total += Weight(k); }
                 if (total <= 0f) break;
                 float r = Noise.Hash01(j, 31, 7, spec.seed + 901u) * total;
                 byte pick = 0;
-                foreach (byte k in Pool)
+                for (int q = 0; q < POOL; q++)
                 {
+                    byte k = PoolAt(q);
                     if (n[k] >= Cap(k)) continue;
                     pick = k; r -= Weight(k);
                     if (r < 0f) break;
                 }
-                kinds.Add(pick); n[pick]++;
+                kinds[nk++] = pick; n[pick]++;
             }
-            return kinds.ToArray();
+            return nk;
         }
 
-        private static bool Has(byte[] kinds, byte k) { foreach (byte x in kinds) if (x == k) return true; return false; }
+        private static bool Has(byte* kinds, int nk, byte k) { for (int i = 0; i < nk; i++) if (kinds[i] == k) return true; return false; }
 
         // 12 directions, 30 degrees apart (literal: no trig in the map).
-        private static readonly float2[] Ring12 =
+        private static float2 Ring12(int a)
         {
-            new float2(1f, 0f), new float2(0.8660254f, 0.5f), new float2(0.5f, 0.8660254f), new float2(0f, 1f),
-            new float2(-0.5f, 0.8660254f), new float2(-0.8660254f, 0.5f), new float2(-1f, 0f), new float2(-0.8660254f, -0.5f),
-            new float2(-0.5f, -0.8660254f), new float2(0f, -1f), new float2(0.5f, -0.8660254f), new float2(0.8660254f, -0.5f),
-        };
+            switch (a)
+            {
+                case 0: return new float2(1f, 0f);
+                case 1: return new float2(0.8660254f, 0.5f);
+                case 2: return new float2(0.5f, 0.8660254f);
+                case 3: return new float2(0f, 1f);
+                case 4: return new float2(-0.5f, 0.8660254f);
+                case 5: return new float2(-0.8660254f, 0.5f);
+                case 6: return new float2(-1f, 0f);
+                case 7: return new float2(-0.8660254f, -0.5f);
+                case 8: return new float2(-0.5f, -0.8660254f);
+                case 9: return new float2(0f, -1f);
+                case 10: return new float2(0.5f, -0.8660254f);
+                default: return new float2(0.8660254f, -0.5f);
+            }
+        }
 
         // ------------------------------------------------------------------
         // 1. the volcano (pure; Offsets.For(spec) stores it)
@@ -225,7 +269,9 @@ namespace TerrainGen
         /// did not draw one. `o` needs only its coast offsets.
         public static float2 VolcanoSite(in TerrainSpec spec, in Offsets o)
         {
-            if (!Has(Draw(in spec), Volcano)) return new float2(NO_SITE_XZ, NO_SITE_XZ);
+            byte* kinds = stackalloc byte[8];
+            int nk = Draw(in spec, kinds);
+            if (!Has(kinds, nk, Volcano)) return new float2(NO_SITE_XZ, NO_SITE_XZ);
             float c = spec.worldSizeVoxels * 0.5f, R = spec.islandRadius;
             float2 geyser = Stamps.GeyserSite(in spec, in o);
             for (int i = 0; i < 96; i++)
@@ -236,7 +282,7 @@ namespace TerrainGen
                 if (math.distance(p, geyser) < Stamps.VOLCANO_BASE_R + GEYSER_R + GAP) continue;
                 bool ok = true;
                 for (int a = 0; a < 12 && ok; a++)
-                    if (WorldMap.Coast(in spec, in o, p + Ring12[a] * Stamps.VOLCANO_BASE_R) < 0.05f) ok = false;
+                    if (WorldMap.Coast(in spec, in o, p + Ring12(a) * Stamps.VOLCANO_BASE_R) < 0.05f) ok = false;
                 if (ok) return p;
             }
             return Stamps.VolcanoSiteV3(in spec, in o);
@@ -245,24 +291,26 @@ namespace TerrainGen
         // ------------------------------------------------------------------
         // 2. the great peak (starting shapes)
         // ------------------------------------------------------------------
-        /// Diagnostics of the last placement (like EasyAreas.LastPick).
+        /// Diagnostics of the last placement (like EasyAreas.LastPick), formatted
+        /// by MapJobs from the job's DiagEvents (EV_*).
         public static string LastPlace = "";
+        public const int EV_PEAK = 1, EV_TOP = 2, EV_SUBST = 3, EV_LATE = 4;
 
         /// The list so far: the volcano (if drawn) and the great peak (if drawn
         /// and it fits). Returns the peak's site or NO_SITE.
-        public static float2 PlaceEarly(in TerrainSpec spec, in Offsets o, Regions.Layout L, byte[] kinds, List<Feature> feats)
+        public static float2 PlaceEarly(Diag* dg, in TerrainSpec spec, in Offsets o, in Regions.LayoutB L, byte* kinds, int nk, ref PList<FeatureB> feats)
         {
-            LastPlace = "";
-            if (Has(kinds, Volcano))
+            if (dg != null) { dg->placeRan = true; dg->place.Clear(); }
+            if (Has(kinds, nk, Volcano))
             {
                 float2 vs = Stamps.VolcanoSite(in spec, in o);
-                feats.Add(new Feature { kind = Volcano, tier = Uncommon, centre = new int2((int)vs.x, (int)vs.y), footR = Stamps.VOLCANO_BASE_R,
-                                        radiusM = Stamps.VOLCANO_BASE_R / 10f, mapVersion = spec.mapVersion });
+                feats.Add(new FeatureB { kind = Volcano, tier = Uncommon, centre = new int2((int)vs.x, (int)vs.y), footR = Stamps.VOLCANO_BASE_R,
+                                         radiusM = Stamps.VOLCANO_BASE_R / 10f, mapVersion = spec.mapVersion });
             }
             float2 peak = new float2(NO_SITE_XZ, NO_SITE_XZ);
-            if (!Has(kinds, GreatPeak)) return peak;
+            if (!Has(kinds, nk, GreatPeak)) return peak;
             float2 geyser = Stamps.GeyserSite(in spec, in o);
-            var w = new float[Regions.KINDS];
+            float* w = stackalloc float[Regions.KINDS];
             float best = float.MinValue; int tried = 0;
             const float STEP = 2000f;
             int g = (int)(spec.worldSizeVoxels / STEP);
@@ -273,17 +321,17 @@ namespace TerrainGen
                 float coast = WorldMap.Coast(in spec, in o, p);
                 if (coast < 0.45f || math.distance(p, geyser) < PEAK_R + GEYSER_R + GAP) continue;
                 bool clear = true;
-                foreach (var f in feats) if (math.distance(p, (float2)f.centre) < math.max(MIN_SEP, PEAK_FOOT + f.footR + GAP)) clear = false;
+                for (int q = 0; q < feats.Length; q++) if (math.distance(p, (float2)feats[q].centre) < math.max(MIN_SEP, PEAK_FOOT + feats[q].footR + GAP)) clear = false;
                 if (!clear) continue;
                 tried++;
-                Regions.Weights(L, in o, p, w);
+                Regions.Weights(in L, in o, p, w);
                 float s = w[Regions.Alpine] + 0.3f * math.min(coast, 1f) + 0.1f * Noise.Hash01(x, 51, z, spec.seed + 921u);
                 if (s > best) { best = s; peak = p; }
             }
             if (best > float.MinValue)
-                feats.Add(new Feature { kind = GreatPeak, tier = Common, centre = new int2((int)peak.x, (int)peak.y), footR = PEAK_FOOT,
-                                        radiusM = PEAK_FOOT / 10f, mapVersion = spec.mapVersion });
-            LastPlace += $"peak: {tried} candidates, {(best > float.MinValue ? $"at ({peak.x:F0}, {peak.y:F0})" : "NONE")}; ";
+                feats.Add(new FeatureB { kind = GreatPeak, tier = Common, centre = new int2((int)peak.x, (int)peak.y), footR = PEAK_FOOT,
+                                         radiusM = PEAK_FOOT / 10f, mapVersion = spec.mapVersion });
+            if (dg != null) dg->place.Add(new DiagEvent { code = EV_PEAK, a0 = tried, a1 = best > float.MinValue ? 1 : 0, x = peak.x, y = peak.y });
             return peak;
         }
 
@@ -292,10 +340,14 @@ namespace TerrainGen
         //    BEFORE the easy areas, which then avoid them; finished on the
         //    eroded grid)
         // ------------------------------------------------------------------
-        private sealed class Ctx
+        private struct Ctx
         {
-            public TerrainSpec spec; public Offsets o; public int m; public float cm; public float[] hc;
-            public float[] gentle; public float2 geyser;
+            public TerrainSpec spec; public Offsets o; public int m; public float cm; public float* hc;
+            public float* gentle; public float2 geyser;
+            /// Rejections by reason (diagnostics): low, sea, -, geyser, path, spacing.
+            public int* rej;
+            /// Canyon's points (valid until the next Canyon) and Tops' targets (x, z, height).
+            public PList<float2> path; public PList<float3> tops;
             public float H(float2 p)
             {
                 float gx = p.x / cm - 0.5f, gz = p.y / cm - 0.5f;
@@ -323,8 +375,6 @@ namespace TerrainGen
                 int x = math.clamp((int)(p.x / cm), 0, m - 1), z = math.clamp((int)(p.y / cm), 0, m - 1);
                 return gentle != null ? gentle[z * m + x] : 0f;
             }
-            /// Rejections by reason (diagnostics): low, sea, -, geyser, path, spacing.
-            public int[] rej = new int[6];
         }
 
         /// Places every slot not placed yet (all but the volcano and the peak),
@@ -332,85 +382,106 @@ namespace TerrainGen
         /// that fits nowhere is replaced by the first of mesa, crater lake,
         /// canyon still under its cap that does. `gentle`: the gentle-class
         /// weight per cell -- features leave the gentlest land to the easy areas.
-        public static void PlaceLate(in TerrainSpec spec, in Offsets o, int m, float cm, float[] hc, float[] gentle, bool[] bad,
-                                     byte[] kinds, List<Feature> feats)
+        public static void PlaceLate(MapArena* A, Diag* dg, in TerrainSpec spec, in Offsets o, int m, float cm, float* hc, float* gentle, bool* bad,
+                                     byte* kinds, int nk, ref PList<FeatureB> feats)
         {
-            var c = new Ctx { spec = spec, o = o, m = m, cm = cm, hc = hc, gentle = gentle, geyser = Stamps.GeyserSite(in spec, in o) };
+            int* rej = stackalloc int[6];
+            for (int i = 0; i < 6; i++) rej[i] = 0;
+            var c = new Ctx { spec = spec, o = o, m = m, cm = cm, hc = hc, gentle = gentle, geyser = Stamps.GeyserSite(in spec, in o), rej = rej,
+                              path = new PList<float2>(A, 128), tops = new PList<float3>(A, 64) };
             // visibility estimate: eyes on land every 400 m, 2 m above the starting
             // shapes (the peak and the volcano are already in them)
-            var land = new List<float2>();
+            var land = new PList<float2>(A, 512);
             for (float z = 2000f; z < spec.worldSizeVoxels; z += 4000f)
             for (float x = 2000f; x < spec.worldSizeVoxels; x += 4000f)
                 if (c.Coast(new float2(x, z)) > Regions.LAND_COAST) land.Add(new float2(x, z));
-            var covered = new bool[land.Count];
-            foreach (var f in feats) Cover(c, f, land, covered);
-            var n = new int[8];
-            foreach (var f in feats) n[f.kind]++;
+            bool* covered = A->Root<bool>(land.Length);
+            for (int q = 0; q < feats.Length; q++) Cover(ref c, in feats.Ptr[q], land.Ptr, land.Length, covered);
+            int* n = stackalloc int[8];
+            for (int i = 0; i < 8; i++) n[i] = 0;
+            for (int q = 0; q < feats.Length; q++) n[feats[q].kind]++;
             // hardest first: a canyon needs a clear line to the sea, a crater lake
             // high ground, a mesa only room (slot order left seed 7 a canyon short)
-            var order = new List<int>();
-            foreach (byte k in new[] { GreatCanyon, CraterLake, Mesa })
-                for (int j = 0; j < kinds.Length; j++) if (kinds[j] == k) order.Add(j);
+            int* order = stackalloc int[8]; int on = 0;
+            byte* hard = stackalloc byte[] { GreatCanyon, CraterLake, Mesa };
+            for (int h = 0; h < 3; h++)
+                for (int j = 0; j < nk; j++) if (kinds[j] == hard[h]) order[on++] = j;
             // Depth-first over each slot's best SEARCH_TOP candidates (its own kind,
             // then the substitutes), the greedy choice first: a seed greedy fills
             // takes exactly greedy's result. Bounded by SEARCH_BUDGET candidate
             // scans; the fullest placement found stands if none is complete.
             // A complete placement must leave B4 its easy areas: EasyAreas.Pick on
             // the same inputs (with these footprints marked) must seat the count.
-            var specCopy = spec;
             int want = EasyAreas.CountFor(in spec);
-            int Seats(List<Feature> fs)
-            {
-                var b = (bool[])bad.Clone();
-                MarkBad(fs, m, cm, b);
-                return EasyAreas.Pick(in specCopy, m, cm, hc, gentle, b).Length;
-            }
-            var st = new Search { budget = SEARCH_BUDGET, checks = SEARCH_CHECKS, best = new List<Feature>(feats), seats = Seats, easyWant = want };
-            int before = feats.Count;
-            bool done = Place(c, st, kinds, order, 0, n, land, covered, feats);
-            if (!done) { feats.Clear(); feats.AddRange(st.best); }
-            LastPlace += $"late: {feats.Count - before} of {order.Count} placed, {SEARCH_BUDGET - st.budget} scans, {SEARCH_CHECKS - st.checks} easy checks " +
-                         $"(seats {st.bestSeats} of {want}){(done ? "" : ", INCOMPLETE")}; ";
+            var st = new Search { budget = SEARCH_BUDGET, checks = SEARCH_CHECKS, easyWant = want, bestSeats = -1, best = new PList<FeatureB>(A, 8), bad = bad };
+            st.best.CopyFrom(ref feats);
+            int before = feats.Length;
+            bool done = Place(A, dg, ref c, ref st, kinds, order, on, 0, n, land.Ptr, land.Length, covered, ref feats);
+            if (!done) feats.CopyFrom(ref st.best);
+            if (dg != null)
+                dg->place.Add(new DiagEvent { code = EV_LATE, a0 = feats.Length - before, a1 = on, a2 = SEARCH_BUDGET - st.budget, a3 = SEARCH_CHECKS - st.checks,
+                                              a4 = st.bestSeats, a5 = want, a6 = done ? 1 : 0 });
         }
 
         public const int SEARCH_TOP = 3, SEARCH_BUDGET = 40, SEARCH_CHECKS = 8;
-        private sealed class Search
+        private struct Search
         {
-            public int budget, checks, easyWant, bestSeats = -1;
-            public List<Feature> best;
-            public System.Func<List<Feature>, int> seats;
+            public int budget, checks, easyWant, bestSeats;
+            public PList<FeatureB> best;
+            public bool* bad;   // Seats' input: the cells no easy area may cover, before the features
         }
 
-        private static bool Place(Ctx c, Search st, byte[] kinds, List<int> order, int idx, int[] n, List<float2> land, bool[] covered, List<Feature> feats)
+        /// How many easy areas EasyAreas.Pick seats with these footprints marked.
+        private static int Seats(MapArena* A, Diag* dg, ref Ctx c, ref Search st, ref PList<FeatureB> fs)
         {
-            if (idx == order.Count)
+            int mark = A->Mark();
+            bool* b = A->Copy(st.bad, c.m * c.m);
+            MarkBad(fs.Ptr, fs.Length, c.m, c.cm, b);
+            var sites = new PList<EasyAreas.Site>(A, 8);
+            EasyAreas.Pick(A, dg, in c.spec, c.m, c.cm, c.hc, c.gentle, b, null, ref sites);
+            int seated = sites.Length;
+            A->Release(mark);
+            return seated;
+        }
+
+        private static bool Place(MapArena* A, Diag* dg, ref Ctx c, ref Search st, byte* kinds, int* order, int orderN, int idx, int* n,
+                                  float2* land, int landN, bool* covered, ref PList<FeatureB> feats)
+        {
+            if (idx == orderN)
             {
                 // complete: keep the one that leaves the most easy-area seats
                 if (st.checks-- <= 0) return false;
-                int seated = st.seats(feats);
-                if (feats.Count > st.best.Count || seated > st.bestSeats) { st.best = new List<Feature>(feats); st.bestSeats = seated; }
+                int seated = Seats(A, dg, ref c, ref st, ref feats);
+                if (feats.Length > st.best.Length || seated > st.bestSeats) { st.best.CopyFrom(ref feats); st.bestSeats = seated; }
                 return seated >= st.easyWant;
             }
-            if (feats.Count > st.best.Count && st.bestSeats < 0) st.best = new List<Feature>(feats);
+            if (feats.Length > st.best.Length && st.bestSeats < 0) st.best.CopyFrom(ref feats);
             int slot = order[idx] + 1;
             byte want = kinds[order[idx]];
-            var tryKinds = new List<byte> { want };
-            foreach (byte alt in new[] { Mesa, CraterLake, GreatCanyon }) if (alt != want) tryKinds.Add(alt);
-            foreach (byte k in tryKinds)
+            byte* tryKinds = stackalloc byte[4]; int nt = 0;
+            tryKinds[nt++] = want;
+            if (want != Mesa) tryKinds[nt++] = Mesa;
+            if (want != CraterLake) tryKinds[nt++] = CraterLake;
+            if (want != GreatCanyon) tryKinds[nt++] = GreatCanyon;
+            var top = new PList<FeatureB>(A, SEARCH_TOP + 1);
+            for (int t = 0; t < nt; t++)
             {
+                byte k = tryKinds[t];
                 if (n[k] >= Cap(k)) continue;
                 if (st.budget-- <= 0) return false;
-                foreach (var f in Top(c, k, slot, land, covered, feats))
+                Top(A, dg, ref c, k, slot, land, landN, covered, ref feats, ref top);
+                for (int q = 0; q < top.Length; q++)
                 {
-                    var cov = (bool[])covered.Clone();
-                    Cover(c, f, land, cov);
+                    FeatureB f = top[q];
+                    bool* cov = A->RootCopy(covered, landN);
+                    Cover(ref c, in f, land, landN, cov);
                     feats.Add(f); n[k]++;
-                    if (Place(c, st, kinds, order, idx + 1, n, land, cov, feats))
+                    if (Place(A, dg, ref c, ref st, kinds, order, orderN, idx + 1, n, land, landN, cov, ref feats))
                     {
-                        if (k != want) LastPlace += $"slot {slot}: {Name(want)} -> {Name(k)}; ";
+                        if (k != want && dg != null) dg->place.Add(new DiagEvent { code = EV_SUBST, a0 = slot, a1 = want, a2 = k });
                         return true;
                     }
-                    feats.RemoveAt(feats.Count - 1); n[k]--;
+                    feats.RemoveLast(); n[k]--;
                     if (st.budget <= 0 || st.checks <= 0) return false;
                 }
             }
@@ -419,98 +490,127 @@ namespace TerrainGen
 
         /// Marks the eyes that see f within 3 km on the starting shapes (an
         /// estimate of VisibleShare before the map exists).
-        private static void Cover(Ctx c, Feature f, List<float2> eyes, bool[] seen)
+        private static void Cover(ref Ctx c, in FeatureB f, float2* eyes, int eyesN, bool* seen)
         {
-            var tops = Tops(c, f);
-            for (int j = 0; j < eyes.Count; j++)
+            Tops(ref c, in f);
+            for (int j = 0; j < eyesN; j++)
             {
                 if (seen[j]) continue;
                 float he = c.H(eyes[j]) + 20f;
-                foreach (var (tp, th) in tops)
-                    if (math.distance(eyes[j], tp) <= VIEW && c.Sight(eyes[j], he, tp, th)) { seen[j] = true; break; }
+                for (int t = 0; t < c.tops.Length; t++)
+                {
+                    float3 tp = c.tops[t];
+                    if (math.distance(eyes[j], tp.xy) <= VIEW && c.Sight(eyes[j], he, tp.xy, tp.z)) { seen[j] = true; break; }
+                }
             }
         }
 
-        /// Placement's targets and their heights on the starting shapes: the
-        /// summit area, the caldera rim, the mesa top (foot + rise), the crater
-        /// rim, the canyon walls half way down to a near-sea floor.
-        private static List<(float2, float)> Tops(Ctx c, Feature f)
+        /// Placement's targets and their heights on the starting shapes, into
+        /// c.tops as (x, z, height): the summit area, the caldera rim, the mesa
+        /// top (foot + rise), the crater rim, the canyon walls half way down to
+        /// a near-sea floor.
+        private static void Tops(ref Ctx c, in FeatureB f)
         {
-            var t = new List<(float2, float)>();
+            c.tops.Clear();
             float2 o = (float2)f.centre;
             switch (f.kind)
             {
-                case GreatPeak: t.Add((o, c.H(o))); for (int a = 0; a < 12; a += 2) { float2 q = o + Ring12[a] * (0.3f * PEAK_R); t.Add((q, c.H(q))); } break;
-                case Volcano: for (int a = 0; a < 12; a += 2) { float2 q = o + Ring12[a] * Stamps.CALDERA_R; t.Add((q, c.H(q))); } break;
-                case Mesa: { float top = c.H(o) + f.rise; t.Add((o, top)); for (int a = 0; a < 12; a += 2) t.Add((o + Ring12[a] * (0.8f * f.R), top)); break; }
-                case CraterLake: for (int a = 0; a < 12; a += 2) { float2 q = o + Ring12[a] * (1.1f * f.R); t.Add((q, c.H(q) + 0.5f * f.B)); } break;
+                case GreatPeak:
+                    c.tops.Add(new float3(o, c.H(o)));
+                    for (int a = 0; a < 12; a += 2) { float2 q = o + Ring12(a) * (0.3f * PEAK_R); c.tops.Add(new float3(q, c.H(q))); }
+                    break;
+                case Volcano:
+                    for (int a = 0; a < 12; a += 2) { float2 q = o + Ring12(a) * Stamps.CALDERA_R; c.tops.Add(new float3(q, c.H(q))); }
+                    break;
+                case Mesa:
+                {
+                    float top = c.H(o) + f.rise;
+                    c.tops.Add(new float3(o, top));
+                    for (int a = 0; a < 12; a += 2) c.tops.Add(new float3(o + Ring12(a) * (0.8f * f.R), top));
+                    break;
+                }
+                case CraterLake:
+                    for (int a = 0; a < 12; a += 2) { float2 q = o + Ring12(a) * (1.1f * f.R); c.tops.Add(new float3(q, c.H(q) + 0.5f * f.B)); }
+                    break;
                 case GreatCanyon:
-                    for (int k = 0; k + 1 < f.path.Length; k += 5)
+                    for (int k = 0; k + 1 < f.pathLen; k += 5)
                     {
                         float2 a = f.path[k], d = math.normalizesafe(f.path[k + 1] - a), side = new float2(-d.y, d.x) * (HALF_FLOOR + 300f);
                         float mid = 0.5f * c.H(a);
-                        t.Add((a + side, mid)); t.Add((a - side, mid));
+                        c.tops.Add(new float3(a + side, mid)); c.tops.Add(new float3(a - side, mid));
                     }
                     break;
             }
-            return t;
         }
 
-        /// The kind's SEARCH_TOP best-scoring candidates at this point, best first.
-        private static List<Feature> Top(Ctx c, byte kind, int slot, List<float2> land, bool[] covered, List<Feature> feats)
+        /// The kind's SEARCH_TOP best-scoring candidates at this point, best
+        /// first, into `top` (a canyon's path copied to Root memory).
+        private static void Top(MapArena* A, Diag* dg, ref Ctx c, byte kind, int slot, float2* land, int landN, bool* covered,
+                                ref PList<FeatureB> feats, ref PList<FeatureB> top)
         {
             var spec = c.spec;
             float step = 1600f;
             int g = (int)(spec.worldSizeVoxels / step);
-            var top = new List<(float s, Feature f)>(); int fits = 0;
+            int mark = A->Mark();
+            float* ts = stackalloc float[SEARCH_TOP + 1];
+            FeatureB* tf = stackalloc FeatureB[SEARCH_TOP + 1];
+            int tn = 0, fits = 0;
+            bool* probe = A->Alloc<bool>(landN);
             for (int z = 0; z < g; z++)
             for (int x = 0; x < g; x++)
             {
                 float2 p = new float2((x + 0.5f) * step, (z + 0.5f) * step);
-                var f = kind == GreatCanyon ? Canyon(c, p, x, z, slot) : kind == Mesa ? MesaAt(c, p, x, z, slot) : CraterAt(c, p, x, z, slot);
-                if (f == null) continue;
-                if (!Clear(c, f, feats)) { c.rej[5]++; continue; }
+                FeatureB f;
+                bool ok = kind == GreatCanyon ? Canyon(ref c, p, x, z, slot, out f) : kind == Mesa ? MesaAt(ref c, p, x, z, slot, out f) : CraterAt(ref c, p, x, z, slot, out f);
+                if (!ok) continue;
+                if (!Clear(in f, ref feats)) { c.rej[5]++; continue; }
                 fits++;
                 // visibility gain (share of land newly seeing a feature), then ridges
                 int gain = 0;
-                var probe = new bool[covered.Length];
-                System.Array.Copy(covered, probe, covered.Length);
-                Cover(c, f, land, probe);
-                for (int j = 0; j < probe.Length; j++) if (probe[j] && !covered[j]) gain++;
-                float hide = Hidden(c, (float2)f.centre, kind == GreatCanyon ? c.H((float2)f.centre) : f.baseH + f.rise);
-                float s = gain / (float)math.max(1, land.Count) + HIDE_BONUS * hide - GENTLE_COST * GentleOf(c, f)
+                for (int j = 0; j < landN; j++) probe[j] = covered[j];
+                Cover(ref c, in f, land, landN, probe);
+                for (int j = 0; j < landN; j++) if (probe[j] && !covered[j]) gain++;
+                float hide = Hidden(ref c, (float2)f.centre, kind == GreatCanyon ? c.H((float2)f.centre) : f.baseH + f.rise);
+                float s = gain / (float)math.max(1, landN) + HIDE_BONUS * hide - GENTLE_COST * GentleOf(ref c, in f)
                         + 0.05f * Noise.Hash01(x, 60 + slot, z, spec.seed + 931u);
-                int at = top.Count;
-                while (at > 0 && top[at - 1].s < s) at--;
-                if (at < SEARCH_TOP) { top.Insert(at, (s, f)); if (top.Count > SEARCH_TOP) top.RemoveAt(SEARCH_TOP); }
+                int at = tn;
+                while (at > 0 && ts[at - 1] < s) at--;
+                if (at < SEARCH_TOP)
+                {
+                    if (f.path != null) f.path = A->RootCopy(f.path, f.pathLen);   // Canyon reuses its points buffer
+                    for (int q = tn; q > at; q--) { ts[q] = ts[q - 1]; tf[q] = tf[q - 1]; }
+                    ts[at] = s; tf[at] = f;
+                    if (tn < SEARCH_TOP) tn++;
+                }
             }
-            LastPlace += $"slot {slot} {Name(kind)}: {fits} fit (rejected: low {c.rej[0]} sea {c.rej[1]} geyser {c.rej[3]} path {c.rej[4]} spacing {c.rej[5]}); ";
-            System.Array.Clear(c.rej, 0, c.rej.Length);
-            var r = new List<Feature>();
-            foreach (var t in top) r.Add(t.f);
-            return r;
+            if (dg != null)
+                dg->place.Add(new DiagEvent { code = EV_TOP, a0 = slot, a1 = kind, a2 = fits, a3 = c.rej[0], a4 = c.rej[1], a5 = c.rej[3], a6 = c.rej[4], a7 = c.rej[5] });
+            for (int i = 0; i < 6; i++) c.rej[i] = 0;
+            top.Clear();
+            for (int q = 0; q < tn; q++) top.Add(tf[q]);
+            A->Release(mark);
         }
 
         /// Gentle-class weight a feature takes: at a point feature's centre, or
         /// the mean along a canyon (which crosses the low land to the sea).
-        private static float GentleOf(Ctx c, Feature f)
+        private static float GentleOf(ref Ctx c, in FeatureB f)
         {
             if (f.path == null) return c.Gentle((float2)f.centre);
             float sum = 0f;
-            foreach (var a in f.path) sum += c.Gentle(a);
-            return sum / f.path.Length;
+            for (int k = 0; k < f.pathLen; k++) sum += c.Gentle(f.path[k]);
+            return sum / f.pathLen;
         }
 
         /// Share of 6 directions in which ground 0.6-1.5 km out stands within
         /// 40 m of `top` or above it: a ridge that hides the feature from the
         /// country beyond until you crest it.
-        private static float Hidden(Ctx c, float2 p, float top)
+        private static float Hidden(ref Ctx c, float2 p, float top)
         {
             int hid = 0;
             for (int a = 0; a < 12; a += 2)   // 6 of the 12 directions
             {
                 float mx = float.MinValue;
-                for (float r = 6000f; r <= 15000f; r += 1500f) mx = math.max(mx, c.H(p + Ring12[a] * r));
+                for (float r = 6000f; r <= 15000f; r += 1500f) mx = math.max(mx, c.H(p + Ring12(a) * r));
                 if (mx >= top - 400f) hid++;
             }
             return hid / 6f;
@@ -518,28 +618,23 @@ namespace TerrainGen
 
         /// The footprint is on land (off the beach) and off the geyser basin;
         /// checked at the centre and 12 points on the ring r.
-        private static bool FootprintOk(Ctx c, float2 p, float r)
+        private static bool FootprintOk(ref Ctx c, float2 p, float r)
         {
             if (math.distance(p, c.geyser) < r + GEYSER_R + GAP) { c.rej[3]++; return false; }
             if (c.Coast(p) < 0.06f) { c.rej[1]++; return false; }
             for (int a = 0; a < 12; a++)
-                if (c.Coast(p + Ring12[a] * r) < 0.06f) { c.rej[1]++; return false; }
+                if (c.Coast(p + Ring12(a) * r) < 0.06f) { c.rej[1]++; return false; }
             return true;
         }
 
         /// Spacing against everything placed: centres MIN_SEP apart, footprints
         /// GAP apart, and a mesa's ramp tip outside the others' footprints.
-        private static bool Clear(Ctx c, Feature f, List<Feature> feats)
+        private static bool Clear(in FeatureB f, ref PList<FeatureB> feats)
         {
-            foreach (var e in feats)
+            for (int q = 0; q < feats.Length; q++)
             {
-                foreach (var (me, other) in new[] { (f, e), (e, f) })
-                {
-                    if (me.kind != Mesa) continue;
-                    float2 tip = (float2)me.centre + me.dir * MesaReach(me);
-                    if (other.path == null) { if (math.distance(tip, (float2)other.centre) < other.footR + GAP) return false; }
-                    else foreach (var a in other.path) if (math.distance(tip, a) < CANYON_HALF_MAX + GAP) return false;
-                }
+                ref FeatureB e = ref feats[q];
+                if (!RampClear(in f, in e) || !RampClear(in e, in f)) return false;
                 if (math.distance((float2)f.centre, (float2)e.centre) < MIN_SEP) return false;
                 if (f.path == null && e.path == null)
                 {
@@ -547,16 +642,29 @@ namespace TerrainGen
                 }
                 else if (f.path != null && e.path != null)
                 {
-                    foreach (var a in f.path) foreach (var b in e.path)
-                        if (math.distance(a, b) < 2f * CANYON_HALF_MAX + GAP) return false;
+                    for (int i = 0; i < f.pathLen; i++)
+                        for (int j = 0; j < e.pathLen; j++)
+                            if (math.distance(f.path[i], e.path[j]) < 2f * CANYON_HALF_MAX + GAP) return false;
                 }
                 else
                 {
-                    var cy = f.path != null ? f : e; var pt = f.path != null ? e : f;
-                    foreach (var a in cy.path)
-                        if (math.distance(a, (float2)pt.centre) < pt.footR + CANYON_HALF_MAX + GAP) return false;
+                    bool fc = f.path != null;
+                    float2* cy = fc ? f.path : e.path; int cyN = fc ? f.pathLen : e.pathLen;
+                    float2 ptC = fc ? (float2)e.centre : (float2)f.centre; float ptR = fc ? e.footR : f.footR;
+                    for (int i = 0; i < cyN; i++)
+                        if (math.distance(cy[i], ptC) < ptR + CANYON_HALF_MAX + GAP) return false;
                 }
             }
+            return true;
+        }
+
+        /// A mesa's ramp tip stays outside the other feature's footprint.
+        private static bool RampClear(in FeatureB me, in FeatureB other)
+        {
+            if (me.kind != Mesa) return true;
+            float2 tip = (float2)me.centre + me.dir * MesaReach(in me);
+            if (other.path == null) return !(math.distance(tip, (float2)other.centre) < other.footR + GAP);
+            for (int k = 0; k < other.pathLen; k++) if (math.distance(tip, other.path[k]) < CANYON_HALF_MAX + GAP) return false;
             return true;
         }
 
@@ -567,60 +675,67 @@ namespace TerrainGen
             return l > 1e-3f ? v / l : new float2(1f, 0f);
         }
 
-        private static Feature MesaAt(Ctx c, float2 p, int x, int z, int slot)
+        private static bool MesaAt(ref Ctx c, float2 p, int x, int z, int slot, out FeatureB f)
         {
+            f = default;
             uint s = c.spec.seed + 941u + (uint)slot * 7u;
             float g = c.H(p);
-            if (c.Coast(p) < 0.2f || g < 150f) { c.rej[0]++; return null; }
+            if (c.Coast(p) < 0.2f || g < 150f) { c.rej[0]++; return false; }
             float R = 1500f + 1000f * Noise.Hash01(x, 1, z, s), rise = 1200f + 600f * Noise.Hash01(x, 2, z, s);
             float B = 900f, L = rise / 0.5f;          // the ramp: ~27 deg, the one way up
             // the irregular outline (stretch MESA_STRETCH, lobes HILL_LOBE) scales the whole
             // profile; the spacing radius is the cliff band's -- the ramp is one narrow
             // tongue beyond it, inside the GAP or reaching into it (InFootprint is exact)
             float foot = MESA_STRETCH * (1f + WorldMap.HILL_LOBE) * (R + B);
-            if (!FootprintOk(c, p, MESA_STRETCH * (R + B))) return null;
-            return new Feature { kind = Mesa, tier = Common, centre = new int2((int)p.x, (int)p.y), footR = foot, radiusM = foot / 10f,
-                                 mapVersion = c.spec.mapVersion, baseH = g, rise = rise, R = R, B = B, L = L,
-                                 dir = HashUnit(x, z, s + 3u), noiseOff = new float2(Noise.Hash01(x, 4, z, s), Noise.Hash01(x, 5, z, s)) * 100f };
+            if (!FootprintOk(ref c, p, MESA_STRETCH * (R + B))) return false;
+            f = new FeatureB { kind = Mesa, tier = Common, centre = new int2((int)p.x, (int)p.y), footR = foot, radiusM = foot / 10f,
+                               mapVersion = c.spec.mapVersion, baseH = g, rise = rise, R = R, B = B, L = L,
+                               dir = HashUnit(x, z, s + 3u), noiseOff = new float2(Noise.Hash01(x, 4, z, s), Noise.Hash01(x, 5, z, s)) * 100f };
+            return true;
         }
 
-        private static Feature CraterAt(Ctx c, float2 p, int x, int z, int slot)
+        private static bool CraterAt(ref Ctx c, float2 p, int x, int z, int slot, out FeatureB f)
         {
+            f = default;
             uint s = c.spec.seed + 951u + (uint)slot * 7u;
             float g = c.H(p);
-            if (c.Coast(p) < 0.2f || g < 500f) { c.rej[0]++; return null; }
+            if (c.Coast(p) < 0.2f || g < 500f) { c.rej[0]++; return false; }
             // depth; Finish keeps the bowl floor >= 15 m above the sea (a lake of its own)
             float R = 2200f + 1000f * Noise.Hash01(x, 1, z, s), D = 600f + 300f * Noise.Hash01(x, 2, z, s);
             float foot = 1.8f * R;
-            if (!FootprintOk(c, p, foot)) return null;
-            return new Feature { kind = CraterLake, tier = Uncommon, centre = new int2((int)p.x, (int)p.y), footR = foot, radiusM = foot / 10f,
-                                 mapVersion = c.spec.mapVersion, baseH = g, rise = 0.5f * D, R = R, B = D };
+            if (!FootprintOk(ref c, p, foot)) return false;
+            f = new FeatureB { kind = CraterLake, tier = Uncommon, centre = new int2((int)p.x, (int)p.y), footR = foot, radiusM = foot / 10f,
+                               mapVersion = c.spec.mapVersion, baseH = g, rise = 0.5f * D, R = R, B = D };
+            return true;
         }
 
         /// A canyon headed at p: a meandering line toward the nearest sea at
-        /// least CANYON_MIN_LEN away (12 headings); null if the head is low, no
+        /// least CANYON_MIN_LEN away (12 headings); false if the head is low, no
         /// heading qualifies, or the line crosses the geyser basin or the shore
-        /// before its mouth. Its floor is set by Finish.
-        private static Feature Canyon(Ctx c, float2 p, int x, int z, int slot)
+        /// before its mouth. Its floor is set by Finish. f.path points into
+        /// c.path, which the next call reuses.
+        private static bool Canyon(ref Ctx c, float2 p, int x, int z, int slot, out FeatureB f)
         {
+            f = default;
             uint s = c.spec.seed + 961u + (uint)slot * 7u;
-            if (c.Coast(p) < 0.35f || c.H(p) < CANYON_HEAD_MIN) { c.rej[0]++; return null; }
+            if (c.Coast(p) < 0.35f || c.H(p) < CANYON_HEAD_MIN) { c.rej[0]++; return false; }
             float2 off = new float2(Noise.Hash01(x, 1, z, s), Noise.Hash01(x, 2, z, s)) * 100f;
             // toward the nearest sea of 12 headings that is at least CANYON_MIN_LEN away
             float bestD = float.MaxValue; int bestA = -1;
             for (int a = 0; a < 12; a++)
             {
                 for (float t = CANYON_STEP; t <= CANYON_MAX_STEPS * CANYON_STEP; t += CANYON_STEP)
-                    if (c.Coast(p + Ring12[a] * t) <= 0f)
+                    if (c.Coast(p + Ring12(a) * t) <= 0f)
                     {
                         if (t >= CANYON_MIN_LEN && t < bestD) { bestD = t; bestA = a; }
                         break;
                     }
             }
-            if (bestA < 0) { c.rej[4]++; return null; }
+            if (bestA < 0) { c.rej[4]++; return false; }
             // a meandering line: lateral wander up to CANYON_WANDER, none at the head
-            float2 down = Ring12[bestA], lateral = new float2(-down.y, down.x);
-            var pts = new List<float2> { p };
+            float2 down = Ring12(bestA), lateral = new float2(-down.y, down.x);
+            ref PList<float2> pts = ref c.path;
+            pts.Clear(); pts.Add(p);
             bool sea = false;
             for (int k = 1; k <= CANYON_MAX_STEPS + 10; k++)
             {
@@ -631,21 +746,22 @@ namespace TerrainGen
                 if (cq <= 0f) { sea = true; break; }
             }
             // the line must stay on land until the sea it was aimed at
-            for (int k = 1; k < pts.Count - 1; k++)
-                if (math.distance(pts[k], p) < bestD - 2f * CANYON_STEP && c.Coast(pts[k]) <= 0.02f) { c.rej[4]++; return null; }
-            if (!sea || (pts.Count - 1) * CANYON_STEP < CANYON_MIN_LEN) { c.rej[4]++; return null; }
+            for (int k = 1; k < pts.Length - 1; k++)
+                if (math.distance(pts[k], p) < bestD - 2f * CANYON_STEP && c.Coast(pts[k]) <= 0.02f) { c.rej[4]++; return false; }
+            if (!sea || (pts.Length - 1) * CANYON_STEP < CANYON_MIN_LEN) { c.rej[4]++; return false; }
             // clear of the geyser basin over its walls
-            foreach (var a in pts)
-                if (math.distance(a, c.geyser) < GEYSER_R + CANYON_HALF_MAX + GAP) { c.rej[3]++; return null; }
-            int nP = pts.Count;
+            for (int k = 0; k < pts.Length; k++)
+                if (math.distance(pts[k], c.geyser) < GEYSER_R + CANYON_HALF_MAX + GAP) { c.rej[3]++; return false; }
+            int nP = pts.Length;
             float2 lo = pts[0], hi = pts[0];
-            foreach (var a in pts) { lo = math.min(lo, a); hi = math.max(hi, a); }
+            for (int k = 0; k < nP; k++) { lo = math.min(lo, pts[k]); hi = math.max(hi, pts[k]); }
             float2 mid = pts[nP / 2];
             float len = (nP - 1) * CANYON_STEP;
-            return new Feature { kind = GreatCanyon, tier = Common, wayDown = true, centre = new int2((int)mid.x, (int)mid.y),
-                                 footR = 0.5f * len + CANYON_HALF_MAX, radiusM = (0.5f * len + CANYON_HALF_MAX) / 10f, mapVersion = c.spec.mapVersion,
-                                 path = pts.ToArray(),
-                                 bbMin = lo - BANK_REACH, bbMax = hi + BANK_REACH };
+            f = new FeatureB { kind = GreatCanyon, tier = Common, wayDown = true, centre = new int2((int)mid.x, (int)mid.y),
+                               footR = 0.5f * len + CANYON_HALF_MAX, radiusM = (0.5f * len + CANYON_HALF_MAX) / 10f, mapVersion = c.spec.mapVersion,
+                               path = pts.Ptr, pathLen = nP,
+                               bbMin = lo - BANK_REACH, bbMax = hi + BANK_REACH };
+            return true;
         }
 
         /// The starting-shape cells (m x m) at the CORE of each late feature --
@@ -655,17 +771,18 @@ namespace TerrainGen
         /// outer footprint may share an easy area's fade; EasyAreas.Mark keeps
         /// the flagged cells off it. (Marking whole footprints left seeds 42
         /// and 7 one easy area of four.)
-        public static void MarkBad(List<Feature> feats, int m, float cm, bool[] bad)
+        public static void MarkBad(FeatureB* feats, int count, int m, float cm, bool* bad)
         {
-            foreach (var f in feats)
+            for (int q = 0; q < count; q++)
             {
+                ref FeatureB f = ref feats[q];
                 if (f.kind == GreatPeak || f.kind == Volcano) continue;
                 float reach = f.path != null ? BAD_CANYON : f.kind == Mesa ? MESA_STRETCH * (f.R + f.B) : 1.2f * f.R;
                 float2 lo = (float2)f.centre - reach, hi = (float2)f.centre + reach;
                 if (f.path != null)
                 {
                     lo = f.path[0]; hi = f.path[0];
-                    foreach (var a in f.path) { lo = math.min(lo, a); hi = math.max(hi, a); }
+                    for (int k = 0; k < f.pathLen; k++) { lo = math.min(lo, f.path[k]); hi = math.max(hi, f.path[k]); }
                     lo -= reach; hi += reach;
                 }
                 int x0 = math.max(0, (int)(lo.x / cm)), z0 = math.max(0, (int)(lo.y / cm));
@@ -679,7 +796,7 @@ namespace TerrainGen
                     else
                     {
                         inside = false;
-                        foreach (var a in f.path) if (math.distance(p, a) < reach) { inside = true; break; }
+                        for (int k = 0; k < f.pathLen; k++) if (math.distance(p, f.path[k]) < reach) { inside = true; break; }
                     }
                     if (inside) bad[z * m + x] = true;
                 }
@@ -691,11 +808,12 @@ namespace TerrainGen
         /// most the rim less CANYON_DEPTH, at least a CANYON_GRADE climb above
         /// the mouth's 1.5 m, falling only toward the mouth (no pit, no lake) --
         /// and its half width.
-        public static void Finish(in TerrainSpec spec, int m, float cm, float[] hc, List<Feature> feats)
+        public static void Finish(MapArena* A, in TerrainSpec spec, int m, float cm, float* hc, FeatureB* feats, int count)
         {
             var c = new Ctx { spec = spec, m = m, cm = cm, hc = hc };
-            foreach (var f in feats)
+            for (int q = 0; q < count; q++)
             {
+                ref FeatureB f = ref feats[q];
                 if (f.kind == Mesa) f.baseH = c.H((float2)f.centre);
                 else if (f.kind == CraterLake)
                 {
@@ -705,8 +823,8 @@ namespace TerrainGen
                 }
                 else if (f.kind == GreatCanyon)
                 {
-                    int nP = f.path.Length;
-                    f.floor = new float[nP]; f.halfW = new float[nP]; f.bank = new float[nP]; f.halfWNat = new float[nP];
+                    int nP = f.pathLen;
+                    f.floor = A->Root<float>(nP); f.halfW = A->Root<float>(nP); f.bank = A->Root<float>(nP); f.halfWNat = A->Root<float>(nP);
                     // the full bank goes on the side whose ground is higher (300 m
                     // out): the lowland beyond the other side keeps its view of
                     // the canyon and the land behind it. (Choosing the side with
@@ -732,22 +850,23 @@ namespace TerrainGen
                     }
                 }
             }
-            Gaps(in spec, m, cm, hc, feats);
+            Gaps(A, in spec, m, cm, hc, feats, count);
         }
 
         /// B5b: the side canyons. Drainage on the eroded ground (the same eps
         /// flood as Hydrology), and on each canyon's tableland a cut of radius
         /// GAP_R round every cell with GAP_RIVERS x a river's catchment
         /// (Hydrology.RIVER_MIN_CELLS of fine cells), outside the canyon's own cut.
-        private static void Gaps(in TerrainSpec spec, int m, float cm, float[] hc, List<Feature> feats)
+        private static void Gaps(MapArena* A, in TerrainSpec spec, int m, float cm, float* hc, FeatureB* feats, int nf)
         {
             bool any = false;
-            foreach (var f in feats) if (f.kind == GreatCanyon) any = true;
+            for (int q = 0; q < nf; q++) if (feats[q].kind == GreatCanyon) any = true;
             if (!any) return;
+            int mark = A->Mark();
             int count = m * m;
-            var lvl = new float[count]; var par = new int[count]; var ord = new int[count];
-            Hydrology.Flood(m, hc, Hydrology.FLOOD_EPS, lvl, par, ord);
-            var flow = new float[count];
+            float* lvl = A->Alloc<float>(count); int* par = A->Alloc<int>(count); int* ord = A->Alloc<int>(count);
+            Hydrology.Flood(A, m, hc, Hydrology.FLOOD_EPS, lvl, par, ord);
+            float* flow = A->Alloc<float>(count);
             for (int i = 0; i < count; i++) flow[i] = hc[i] > 0f ? 1f : 0f;
             for (int k = count - 1; k >= 0; k--)
             {
@@ -757,22 +876,23 @@ namespace TerrainGen
             float fine = spec.mapCellVoxels / cm;
             float river = GAP_RIVERS * Hydrology.RIVER_MIN_CELLS * fine * fine;
             int r = (int)math.ceil(GAP_R / cm);
-            foreach (var f in feats)
+            for (int q = 0; q < nf; q++)
             {
+                ref FeatureB f = ref feats[q];
                 if (f.kind != GreatCanyon) continue;
                 int x0 = math.max(0, (int)(f.bbMin.x / cm)), z0 = math.max(0, (int)(f.bbMin.y / cm));
                 int x1 = math.min(m - 1, (int)(f.bbMax.x / cm)), z1 = math.min(m - 1, (int)(f.bbMax.y / cm));
                 f.gapLo = new int2(x0, z0); f.gapW = x1 - x0 + 1; f.gapH = z1 - z0 + 1; f.gapCell = cm;
-                f.gap = new float[f.gapW * f.gapH];
-                Segs(f);
+                f.gap = A->Root<float>(f.gapW * f.gapH);
+                Segs(A, ref f);
                 for (int z = z0; z <= z1; z++)
                 for (int x = x0; x <= x1; x++)
                 {
                     int i = z * m + x;
                     if (hc[i] <= 0f || flow[i] < river) continue;
                     float2 p = new float2((x + 0.5f) * cm, (z + 0.5f) * cm);
-                    if (!CanyonAt(f, p, out float s, out _, out float dt, out float lat) || dt <= 0f) continue;
-                    dt *= SideOf(f, lat);
+                    if (!CanyonAt(in f, p, out float s, out _, out float dt, out float lat) || dt <= 0f) continue;
+                    dt *= SideOf(in f, lat);
                     if (s < HALF_FLOOR + dt / WALL) continue;   // inside the cut: drains along the floor
                     for (int dz = -r; dz <= r; dz++)
                     for (int dx = -r; dx <= r; dx++)
@@ -787,6 +907,7 @@ namespace TerrainGen
                     }
                 }
             }
+            A->Release(mark);
         }
 
         /// CanyonAt's search, cut down per coarse cell and exact: the nearest
@@ -795,12 +916,12 @@ namespace TerrainGen
         /// so ties resolve as in the full loop); none when even the nearest is
         /// out of BANK_REACH. (The full loop over the enlarged boxes cost the
         /// map build ~1-2 s.)
-        private static void Segs(Feature f)
+        private static void Segs(MapArena* A, ref FeatureB f)
         {
-            int nS = f.path.Length - 1, cells = f.gapW * f.gapH;
-            f.segLo = new short[cells]; f.segHi = new short[cells];
+            int nS = f.pathLen - 1, cells = f.gapW * f.gapH;
+            f.segLo = A->Root<short>(cells); f.segHi = A->Root<short>(cells);
             float hd = f.gapCell * 0.7072f + 1f;
-            var d = new float[nS];
+            float* d = A->Alloc<float>(nS);
             for (int z = 0; z < f.gapH; z++)
             for (int x = 0; x < f.gapW; x++)
             {
@@ -823,7 +944,7 @@ namespace TerrainGen
         }
 
         /// The side-canyon cut at p (0-1), bilinear on the coarse cells.
-        private static float GapAt(Feature f, float2 p)
+        private static float GapAt(in FeatureB f, float2 p)
         {
             float gx = p.x / f.gapCell - 0.5f - f.gapLo.x, gz = p.y / f.gapCell - 0.5f - f.gapLo.y;
             int x0 = (int)math.floor(gx), z0 = (int)math.floor(gz);
@@ -839,31 +960,32 @@ namespace TerrainGen
         // ------------------------------------------------------------------
         /// The fine map's height at p after the post-erosion features. `bankW`
         /// (0-1) scales a canyon's tableland: less on the shore and in an easy area.
-        public static float Apply(List<Feature> feats, float2 p, float h, float bankW = 1f)
+        public static float Apply(FeatureB* feats, int count, float2 p, float h, float bankW = 1f)
         {
-            foreach (var f in feats)
+            for (int q = 0; q < count; q++)
             {
+                ref FeatureB f = ref feats[q];
                 if (f.kind == Mesa)
                 {
-                    float2 q = p - (float2)f.centre;
-                    float reach = MesaReach(f);
-                    if (q.x * q.x + q.y * q.y >= reach * reach) continue;
-                    float t = MesaWeight(f, q);
+                    float2 d = p - (float2)f.centre;
+                    float reach = MesaReach(in f);
+                    if (d.x * d.x + d.y * d.y >= reach * reach) continue;
+                    float t = MesaWeight(in f, d);
                     if (t > 0f) h = math.max(h, math.lerp(h, f.baseH + f.rise, t));
                 }
                 else if (f.kind == CraterLake)
                 {
-                    float2 q = p - (float2)f.centre;
-                    float d = math.sqrt(q.x * q.x + q.y * q.y), x = d / f.R;
+                    float2 d = p - (float2)f.centre;
+                    float dist = math.sqrt(d.x * d.x + d.y * d.y), x = dist / f.R;
                     if (x < 1f) h = h - f.B * (1f - x * x) + f.rise * x * x * x * x;
                     else if (x < 1.8f) { float t = 1f - (x - 1f) / 0.8f; h += f.rise * t * t; }
                 }
                 else if (f.kind == GreatCanyon)
                 {
                     if (p.x < f.bbMin.x || p.y < f.bbMin.y || p.x > f.bbMax.x || p.y > f.bbMax.y) continue;
-                    if (!CanyonAt(f, p, out float s, out float fl, out float dt, out float lat)) continue;
-                    dt *= SideOf(f, lat);
-                    float bw = BankShare(f, p, bankW);
+                    if (!CanyonAt(in f, p, out float s, out float fl, out float dt, out float lat)) continue;
+                    dt *= SideOf(in f, lat);
+                    float bw = BankShare(in f, p, bankW);
                     if (dt > 0f && bw > 0f)
                     {
                         float s0 = HALF_FLOOR + dt / WALL + BANK_RIM;
@@ -878,10 +1000,10 @@ namespace TerrainGen
         }
 
         /// How far a mesa reaches at most: its ramp's tip on the irregular outline.
-        public static float MesaReach(Feature f) => MESA_STRETCH * (1f + WorldMap.HILL_LOBE) * (f.R + math.max(f.B, f.L));
+        public static float MesaReach(in FeatureB f) => MESA_STRETCH * (1f + WorldMap.HILL_LOBE) * (f.R + math.max(f.B, f.L));
 
         /// Mesa profile weight at q = p - centre: MesaT on an irregular outline.
-        private static float MesaWeight(Feature f, float2 q)
+        private static float MesaWeight(in FeatureB f, float2 q)
         {
             float x = WorldMap.IrregularX(q, f.R, f.dir, MESA_STRETCH, f.noiseOff);
             return WorldMap.MesaT(q, x * f.R, f.R, f.B, f.L, f.dir);
@@ -899,23 +1021,23 @@ namespace TerrainGen
         /// B5b: the tableland's share at p before its outer slope: the shore,
         /// the easy areas (WorldMap passes both as `bankW`; BankW recomputes it)
         /// and the side canyons give way.
-        private static float BankShare(Feature f, float2 p, float bankW) => f.gap != null ? bankW * (1f - GapAt(f, p)) : bankW;
+        private static float BankShare(in FeatureB f, float2 p, float bankW) => f.gap != null ? bankW * (1f - GapAt(in f, p)) : bankW;
 
         /// What WorldMap passes Apply as `bankW` at p.
-        public static float BankW(in TerrainSpec spec, in Offsets o, EasyAreas.Site[] easy, float2 p)
-            => Noise.SmoothStep(0f, BANK_SHORE, WorldMap.Coast(in spec, in o, p)) * (1f - EasyAreas.Weight(easy, in o, p, out _));
+        public static float BankW(in TerrainSpec spec, in Offsets o, EasyAreas.Site* easy, int easyN, float2 p)
+            => Noise.SmoothStep(0f, BANK_SHORE, WorldMap.Coast(in spec, in o, p)) * (1f - EasyAreas.Weight(easy, easyN, in o, p, out _));
 
         /// The share of the full bank on lateral offset `lat`.
-        private static float SideOf(Feature f, float lat) => BANK_LOW + (1f - BANK_LOW) * Noise.SmoothStep(-SIDE_BLEND, SIDE_BLEND, lat * f.highSide);
+        private static float SideOf(in FeatureB f, float lat) => BANK_LOW + (1f - BANK_LOW) * Noise.SmoothStep(-SIDE_BLEND, SIDE_BLEND, lat * f.highSide);
 
         /// Distance from p to the canyon's centre line, the floor and the
         /// tableland's rise there (the full one), and p's lateral offset from
         /// the nearest segment's line (> 0 left of the path, head to mouth);
         /// false past BANK_REACH.
-        private static bool CanyonAt(Feature f, float2 p, out float dist, out float fl, out float bank, out float lat)
+        private static bool CanyonAt(in FeatureB f, float2 p, out float dist, out float fl, out float bank, out float lat)
         {
             dist = float.MaxValue; fl = 0f; bank = 0f; lat = 0f;
-            int k0 = 0, k1 = f.path.Length - 2;
+            int k0 = 0, k1 = f.pathLen - 2;
             if (f.segLo != null)
             {
                 int cx = (int)math.floor(p.x / f.gapCell) - f.gapLo.x, cz = (int)math.floor(p.y / f.gapCell) - f.gapLo.y;
@@ -947,7 +1069,7 @@ namespace TerrainGen
         /// `spec`, `o`, `easy` give a canyon's BankW. A pure function of the
         /// feature and the spec, never of the map's heights (the routes ease
         /// those after the first record).
-        public static bool InFootprint(Feature f, float2 p, in TerrainSpec spec, in Offsets o, EasyAreas.Site[] easy)
+        public static bool InFootprint(in FeatureB f, float2 p, in TerrainSpec spec, in Offsets o, EasyAreas.Site* easy, int easyN)
         {
             float2 q = p - (float2)f.centre;
             float d = math.sqrt(q.x * q.x + q.y * q.y);
@@ -955,13 +1077,13 @@ namespace TerrainGen
             {
                 case GreatPeak: return d < PEAK_FOOT;
                 case Volcano: return d < Stamps.VOLCANO_BASE_R;
-                case Mesa: return d < MesaReach(f) && MesaWeight(f, q) > 0.01f;
+                case Mesa: return d < MesaReach(in f) && MesaWeight(in f, q) > 0.01f;
                 case CraterLake: return d < f.footR;
                 case GreatCanyon:
                 {
                     if (p.x < f.bbMin.x || p.y < f.bbMin.y || p.x > f.bbMax.x || p.y > f.bbMax.y) return false;
                     float best = float.MaxValue; float hw = 0f, hwNat = 0f;
-                    for (int k = 0; k + 1 < f.path.Length; k++)
+                    for (int k = 0; k + 1 < f.pathLen; k++)
                     {
                         float2 a = f.path[k], ab = f.path[k + 1] - a;
                         float t = math.saturate(math.dot(p - a, ab) / math.dot(ab, ab));
@@ -977,30 +1099,32 @@ namespace TerrainGen
                     float sd = math.sqrt(best);
                     if (sd >= hw + BANK_RIM) return false;
                     if (sd < hwNat + 200f) return true;
-                    CanyonAt(f, p, out _, out _, out float dt, out float lat);
-                    float share = BankShare(f, p, BankW(in spec, in o, easy, p));
-                    float wall = HALF_FLOOR + dt * SideOf(f, lat) * share / WALL;
+                    CanyonAt(in f, p, out _, out _, out float dt, out float lat);
+                    float share = BankShare(in f, p, BankW(in spec, in o, easy, easyN, p));
+                    float wall = HALF_FLOOR + dt * SideOf(in f, lat) * share / WALL;
                     return sd < math.min(hw, math.max(hwNat, wall)) + math.lerp(200f, BANK_RIM, share);
                 }
                 default: return false;
             }
         }
 
-        /// Flags the footprint cells (FLAG_FEATURE, site = index + 1) and fills
-        /// the record's feature list. Runs before EasyAreas.Mark.
-        public static void Mark(WorldMap map, WorldRecord rec)
+        /// Flags the footprint cells (FLAG_FEATURE, site = index + 1) and sets
+        /// each feature's cellCount. Runs before EasyAreas.Mark. (The record's
+        /// feature list is the map's own: MapJobs hands it over.)
+        public static void Mark(ref MapData map, ref RecordB rec)
         {
-            var feats = map.SignatureFeatures;
-            if (feats == null) return;
-            var spec = map.Spec;
-            var o = Offsets.For(in spec);   // B5b: BankW for the canyons
+            if (!map.hasFeats) return;
+            FeatureB* feats = map.feats;
+            var spec = map.spec;
+            var o = Offsets.Compute(in spec);   // B5b: BankW for the canyons
             int n = spec.mapCells, cv = spec.mapCellVoxels;
-            for (int k = 0; k < feats.Length; k++)
+            int easyN = map.hasEasy ? map.easyCount : 0;
+            for (int k = 0; k < map.featCount; k++)
             {
-                var f = feats[k];
+                ref FeatureB f = ref feats[k];
                 float2 lo, hi;
                 if (f.path != null) { lo = f.bbMin + (BANK_REACH - FOOT_MAX); hi = f.bbMax - (BANK_REACH - FOOT_MAX); }   // the walls' and the rim's box
-                else { float r = f.kind == Mesa ? MesaReach(f) : f.footR; lo = (float2)f.centre - r; hi = (float2)f.centre + r; }
+                else { float r = f.kind == Mesa ? MesaReach(in f) : f.footR; lo = (float2)f.centre - r; hi = (float2)f.centre + r; }
                 int x0 = math.max(0, (int)(lo.x / cv)), z0 = math.max(0, (int)(lo.y / cv));
                 int x1 = math.min(n - 1, (int)(hi.x / cv)), z1 = math.min(n - 1, (int)(hi.y / cv));
                 int count = 0;
@@ -1008,15 +1132,14 @@ namespace TerrainGen
                 for (int x = x0; x <= x1; x++)
                 {
                     int i = z * n + x;
-                    if (map.Height[i] <= 0f || rec.Data[i].site != 0) continue;
-                    if (!InFootprint(f, new float2((x + 0.5f) * cv, (z + 0.5f) * cv), in spec, in o, map.EasySites)) continue;
-                    rec.Data[i].flags |= WorldRecord.FLAG_FEATURE;
-                    rec.Data[i].site = (byte)(k + 1);
+                    if (map.height[i] <= 0f || rec.data[i].site != 0) continue;
+                    if (!InFootprint(in f, new float2((x + 0.5f) * cv, (z + 0.5f) * cv), in spec, in o, map.easySites, easyN)) continue;
+                    rec.data[i].flags |= WorldRecord.FLAG_FEATURE;
+                    rec.data[i].site = (byte)(k + 1);
                     count++;
                 }
                 f.cellCount = count;
             }
-            rec.FeatureList = feats;
         }
 
         // ------------------------------------------------------------------

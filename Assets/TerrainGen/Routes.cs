@@ -93,7 +93,7 @@ namespace TerrainGen
         public int[] corridor;            // flagged cells (FLAG_ROUTE), this route's own
     }
 
-    public static class Routes
+    public static unsafe class Routes
     {
         /// Band costs (plan rule 9): Walk 1, Scramble 2, Climb 6, Sheer 30.
         public static readonly int[] BAND_COST = { 1, 2, 6, 30 };
@@ -156,79 +156,78 @@ namespace TerrainGen
         public static bool Diagnose;
         public static float[] DiagH0, DiagLo, DiagHi; public static bool[] DiagSkip;
 
-        /// Finds the links on the first record, eases the map (Height, Rough)
-        /// in place and returns the routes. Null when the record has fewer than
-        /// two easy areas.
-        public static Route[] Build(WorldMap map, WorldRecord rec)
+        /// BAND_COST[band] as code (Burst reads no managed array).
+        public static int BandCost(int band) => band == 0 ? 1 : band == 1 ? 2 : band == 2 ? 6 : 30;
+
+        private struct Link { public int a, b; public bool tree; public float overlap; }
+
+        /// Finds the links on the first record, eases the map (height, rough)
+        /// in place and appends the routes. False when the record has fewer than
+        /// two easy areas. Burst (engine plan step 1): MapArena pointers;
+        /// LastBuild is formatted from `dg` by MapJobs.
+        public static bool Build(MapArena* A, Diag* dg, ref MapData map, ref RecordB rec, ref PList<RouteB> routes)
         {
-            var areas = rec.EasyAreaList;
-            if (areas == null || areas.Length < 2) { LastBuild = "fewer than two easy areas"; return null; }
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            var spec = map.Spec;
-            int n = spec.mapCells, N = n * n, A = areas.Length;
+            routes.Clear();
+            if (dg != null) dg->routeRan = true;
+            EasyAreas.EasyAreaB* areas = rec.easy;
+            int NA = rec.easyCount;
+            if (areas == null || NA < 2) { if (dg != null) dg->routeFew = true; return false; }
+            int mark = A->Mark();
+            var spec = map.spec;
+            int n = spec.mapCells, N = n * n;
             float cv = spec.mapCellVoxels;
 
             // ---- 1. cell costs; area membership ----
-            var cost = new int[N];
-            var area = new byte[N];
+            int* cost = A->Alloc<int>(N);
+            byte* area = A->Alloc<byte>(N);
             for (int i = 0; i < N; i++)
             {
-                var c = rec.Data[i];
-                if (map.Height[i] <= 0f || c.IsSea) continue;   // closed
-                int k = BAND_COST[c.MoveBand] * (1 + c.Danger);
-                byte wc = map.WaterClass[i];
-                if (wc == Hydrology.LAKE) k = BAND_COST[Danger.Sheer] * (1 + c.Danger);
+                var c = rec.data[i];
+                if (map.height[i] <= 0f || c.IsSea) continue;   // closed
+                int k = BandCost(c.MoveBand) * (1 + c.Danger);
+                byte wc = map.waterClass[i];
+                if (wc == Hydrology.LAKE) k = BandCost(Danger.Sheer) * (1 + c.Danger);
                 else if (wc == Hydrology.RIVER) k *= RIVER_MUL;
                 if (c.IsFeature) k *= FEATURE_MUL;
                 cost[i] = k;
             }
-            for (int a = 0; a < A; a++) foreach (int i in areas[a].cells) area[i] = (byte)(a + 1);
+            for (int a = 0; a < NA; a++) for (int q = 0; q < areas[a].cellsLen; q++) area[areas[a].cells[q]] = (byte)(a + 1);
             // the S-level stamps (arches, rings, clusters, fossils, mouths) and
             // the geyser pools are voxel-only steps the map does not see: a
             // route costs Sheer there, so it goes round them
-            var o2 = Offsets.For(in spec);
-            void KeepOut(float2 c, float r)
-            {
-                int R = (int)math.ceil(r / cv), cx = (int)(c.x / cv), cz = (int)(c.y / cv);
-                for (int z = math.max(0, cz - R); z <= math.min(n - 1, cz + R); z++)
-                for (int x = math.max(0, cx - R); x <= math.min(n - 1, cx + R); x++)
-                {
-                    int i = z * n + x;
-                    if (cost[i] == 0 || math.distance(c, new float2((x + 0.5f) * cv, (z + 0.5f) * cv)) > r) continue;
-                    cost[i] = math.max(cost[i], BAND_COST[Danger.Sheer] * (1 + rec.Data[i].Danger));
-                }
-            }
+            var o2 = Offsets.Compute(in spec);
             int sc = spec.worldSizeVoxels >> Stamps.CELL_SHIFT;
             for (int gz = 0; gz <= sc; gz++)
             for (int gx = 0; gx <= sc; gx++)
-                if (Stamps.CellStamp(in o2, gx, gz, out var st) && StampKeepOut(st.kind) > 0f) KeepOut(StampKeepOutCentre(in st), StampKeepOut(st.kind));
-            for (int j = 0; j < 9; j++) KeepOut(Stamps.PoolCentre(in spec, in o2, j), POOL_KEEP_OUT);
+                if (Stamps.CellStamp(in o2, gx, gz, out var st) && StampKeepOut(st.kind) > 0f) KeepOut(ref rec, cost, n, cv, StampKeepOutCentre(in st), StampKeepOut(st.kind));
+            for (int j = 0; j < 9; j++) KeepOut(ref rec, cost, n, cv, Stamps.PoolCentre(in spec, in o2, j), POOL_KEEP_OUT);
 
             // ---- 2. what sees each area; one search per pair ----
-            var surf = new float[N];
+            float* surf = A->Alloc<float>(N);
             for (int i = 0; i < N; i++)
             {
-                float w = map.Water[i];
-                surf[i] = math.max(math.max(map.Height[i], 0f), w != Hydrology.NO_WATER ? w : 0f);
+                float w = map.water[i];
+                surf[i] = math.max(math.max(map.height[i], 0f), w != Hydrology.NO_WATER ? w : 0f);
             }
-            var sees = new byte[N];
-            for (int a = 0; a < A; a++)
+            byte* sees = A->Alloc<byte>(N);
+            for (int a = 0; a < NA; a++)
             {
-                var cells = areas[a].cells;
-                int step = math.max(1, cells.Length / SIGHT_TARGETS);
-                for (int t = 0; t < SIGHT_TARGETS && t * step < cells.Length; t++)
+                int* cells = areas[a].cells; int cn = areas[a].cellsLen;
+                int step = math.max(1, cn / SIGHT_TARGETS);
+                for (int t = 0; t < SIGHT_TARGETS && t * step < cn; t++)
                     Viewshed(surf, n, cells[t * step], SIGHT_RANGE, sees, (byte)(1 << a));
             }
-            var linkCost = new long[A, A];
-            var linkPath = new int[A, A][];
-            var dist = new int[N]; var parent = new int[N];
-            var heap = new Heap(1 << 16);
-            for (int a = 0; a < A; a++)
-            for (int b = a + 1; b < A; b++)
+            long* linkCost = A->Alloc<long>(NA * NA);
+            IntPtr* linkPath = A->Alloc<IntPtr>(NA * NA); int* linkLen = A->Alloc<int>(NA * NA);
+            int* dist = A->Alloc<int>(N); int* parent = A->Alloc<int>(N);
+            var heap = new Heap(A, 1 << 16);
+            var pth = new PList<int>(A, 1024, true);
+            for (int a = 0; a < NA; a++)
+            for (int b = a + 1; b < NA; b++)
             {
                 for (int i = 0; i < N; i++) { dist[i] = int.MaxValue; parent[i] = -1; }
                 heap.Clear();
-                foreach (int i in areas[a].cells) { dist[i] = 0; heap.Push(i); }
+                for (int q = 0; q < areas[a].cellsLen; q++) { int i = areas[a].cells[q]; dist[i] = 0; heap.Push(i); }
                 int end = -1, both = (1 << a) | (1 << b);
                 while (heap.Count > 0)
                 {
@@ -253,105 +252,90 @@ namespace TerrainGen
                         if (nd < dist[j]) { dist[j] = nd; parent[j] = i; heap.Push(((long)nd << 20) | (uint)j); }
                     }
                 }
-                if (end < 0) { linkCost[a, b] = linkCost[b, a] = long.MaxValue; continue; }
-                var p = new List<int>();
-                for (int i = end; i >= 0; i = parent[i]) p.Add(i);
-                p.Reverse();   // A's cell first
-                linkCost[a, b] = linkCost[b, a] = dist[end];
-                linkPath[a, b] = p.ToArray();
+                if (end < 0) { linkCost[a * NA + b] = linkCost[b * NA + a] = long.MaxValue; continue; }
+                pth.Clear();
+                for (int i = end; i >= 0; i = parent[i]) pth.Add(i);
+                int L = pth.Length;
+                int* path = A->Root<int>(L);
+                for (int q = 0; q < L; q++) path[q] = pth[L - 1 - q];   // A's cell first
+                linkCost[a * NA + b] = linkCost[b * NA + a] = dist[end];
+                linkPath[a * NA + b] = (IntPtr)path; linkLen[a * NA + b] = L;
             }
-            long searchMs = sw.ElapsedMilliseconds;
 
             // ---- 3. spanning tree + extra links ----
-            var pairs = new List<(long c, int a, int b)>();
-            for (int a = 0; a < A; a++) for (int b = a + 1; b < A; b++) if (linkCost[a, b] != long.MaxValue) pairs.Add((linkCost[a, b], a, b));
-            pairs.Sort((p, q) => p.c != q.c ? p.c.CompareTo(q.c) : p.a != q.a ? p.a.CompareTo(q.a) : p.b.CompareTo(q.b));
-            var comp = new int[A]; for (int a = 0; a < A; a++) comp[a] = a;
-            int Find(int a) { while (comp[a] != a) a = comp[a] = comp[comp[a]]; return a; }
-            var chosen = new List<(int a, int b, bool tree, float overlap)>();
-            var linked = new bool[A, A];
-            var deg = new int[A];
-            var near = new bool[N];
-            void Stamp(int[] path)
+            // pairs by (cost, a, b): one key each, cost << 16 | a << 8 | b
+            var pairs = new PList<long>(A, 64, true);
+            for (int a = 0; a < NA; a++) for (int b = a + 1; b < NA; b++)
+                if (linkCost[a * NA + b] != long.MaxValue) pairs.Add((linkCost[a * NA + b] << 16) | ((long)a << 8) | (long)b);
+            PSort.Longs(pairs.Ptr, pairs.Length);
+            int* comp = A->Alloc<int>(NA); for (int a = 0; a < NA; a++) comp[a] = a;
+            var chosen = new PList<Link>(A, 16, true);
+            bool* linked = A->Alloc<bool>(NA * NA);
+            int* deg = A->Alloc<int>(NA);
+            bool* near = A->Alloc<bool>(N);
+            int nearR = (int)math.ceil(OVERLAP_R / cv);
+            for (int q = 0; q < pairs.Length; q++)
             {
-                int r = (int)math.ceil(OVERLAP_R / cv);
-                foreach (int i in path)
-                {
-                    int x = i & (n - 1), z = i / n;
-                    for (int zz = math.max(0, z - r); zz <= math.min(n - 1, z + r); zz++)
-                    for (int xx = math.max(0, x - r); xx <= math.min(n - 1, x + r); xx++)
-                        if ((xx - x) * (xx - x) + (zz - z) * (zz - z) <= r * r) near[zz * n + xx] = true;
-                }
-            }
-            float Overlap(int[] path)
-            {
-                int c = 0; foreach (int i in path) if (near[i]) c++;
-                return path.Length > 0 ? (float)c / path.Length : 0f;
-            }
-            foreach (var p in pairs)
-            {
-                int ra = Find(p.a), rb = Find(p.b);
+                long key = pairs[q];
+                int pa = (int)((key >> 8) & 255), pb = (int)(key & 255);
+                int ra = Find(comp, pa), rb = Find(comp, pb);
                 if (ra == rb) continue;
                 comp[ra] = rb;
-                chosen.Add((p.a, p.b, true, Overlap(linkPath[p.a, p.b])));
-                linked[p.a, p.b] = linked[p.b, p.a] = true; deg[p.a]++; deg[p.b]++;
-                Stamp(linkPath[p.a, p.b]);
+                int* lp = (int*)linkPath[pa * NA + pb]; int ll = linkLen[pa * NA + pb];
+                chosen.Add(new Link { a = pa, b = pb, tree = true, overlap = Overlap(near, lp, ll) });
+                linked[pa * NA + pb] = linked[pb * NA + pa] = true; deg[pa]++; deg[pb]++;
+                StampNear(near, n, nearR, lp, ll);
             }
-            for (int a = 0; a < A; a++)
+            for (int a = 0; a < NA; a++)
             {
                 while (deg[a] < 2)
                 {
                     int best = -1; double bestC = double.MaxValue; float bestO = 0f;
-                    for (int b = 0; b < A; b++)
+                    for (int b = 0; b < NA; b++)
                     {
-                        if (b == a || linked[a, b] || linkCost[a, b] == long.MaxValue) continue;
-                        var path = a < b ? linkPath[a, b] : linkPath[b, a];
-                        float o = Overlap(path);
-                        double c = linkCost[a, b] * (1.0 + 2.0 * o);
+                        if (b == a || linked[a * NA + b] || linkCost[a * NA + b] == long.MaxValue) continue;
+                        int pi = a < b ? a * NA + b : b * NA + a;
+                        float o = Overlap(near, (int*)linkPath[pi], linkLen[pi]);
+                        double c = linkCost[a * NA + b] * (1.0 + 2.0 * o);
                         if (c < bestC) { bestC = c; best = b; bestO = o; }
                     }
                     if (best < 0) break;
                     int lo = math.min(a, best), hi = math.max(a, best);
-                    chosen.Add((lo, hi, false, bestO));
-                    linked[a, best] = linked[best, a] = true; deg[a]++; deg[best]++;
-                    Stamp(linkPath[lo, hi]);
+                    chosen.Add(new Link { a = lo, b = hi, tree = false, overlap = bestO });
+                    linked[a * NA + best] = linked[best * NA + a] = true; deg[a]++; deg[best]++;
+                    StampNear(near, n, nearR, (int*)linkPath[lo * NA + hi], linkLen[lo * NA + hi]);
                 }
             }
 
             // ---- 4 + 5. centre lines, then the easing ----
-            var routes = new Route[chosen.Count];
-            var coneLo = new float[N]; var coneHi = new float[N]; var roughW = new float[N];
-            var touched = new List<int>();
-            var seen = new bool[N]; var mark = new bool[N];
-            for (int r = 0; r < chosen.Count; r++)
+            float* coneLo = A->Alloc<float>(N); float* coneHi = A->Alloc<float>(N); float* roughW = A->Alloc<float>(N);
+            var touched = new PList<int>(A, 4096, true);
+            bool* seen = A->Alloc<bool>(N); bool* mark2 = A->Alloc<bool>(N);
+            for (int r = 0; r < chosen.Length; r++)
             {
-                var (a, b, tree, ov) = chosen[r];
-                int[] path = linkPath[a, b];
-                var rt = new Route
+                Link lk = chosen[r];
+                int a = lk.a, b = lk.b;
+                int* path = (int*)linkPath[a * NA + b]; int pathLen = linkLen[a * NA + b];
+                var rt = new RouteB
                 {
-                    mapVersion = spec.mapVersion, areaA = a, areaB = b, tree = tree, overlap = ov,
+                    mapVersion = spec.mapVersion, areaA = a, areaB = b, tree = lk.tree, overlap = lk.overlap,
                     areaCentreA = areas[a].centre, areaCentreB = areas[b].centre,
-                    cost = linkCost[a, b], cells = path,
+                    cost = linkCost[a * NA + b], cells = path, cellsLen = pathLen,
                 };
-                rt.line = Smooth(path, n, cv);
-                int L = rt.line.Length;
+                rt.line = Smooth(A, path, pathLen, n, cv); rt.lineLen = pathLen;
+                int L = rt.lineLen;
                 rt.endA = (int2)rt.line[0]; rt.endB = (int2)rt.line[L - 1];
-                rt.halfW = new float[L]; rt.cut = new float[L]; rt.bandBefore = new byte[L];
-                var prof = new float[L];
+                rt.halfW = A->Root<float>(L); rt.cut = A->Root<float>(L); rt.bandBefore = A->Root<byte>(L);
+                float* prof = A->Alloc<float>(L);
                 for (int k = 0; k < L; k++)
                 {
                     float2 p = rt.line[k];
                     rt.halfW[k] = HALF_W * (1f + WIDTH_WOBBLE * math.clamp(1.6f * Noise.Fbm(p / 2500f + o2.valley + 37f, 2), -1f, 1f));
                     int ci = CellOf(p, n, cv);
-                    rt.bandBefore[k] = (byte)rec.Data[ci].MoveBand;
-                    prof[k] = Bilinear(map.Height, n, cv, p);
+                    rt.bandBefore[k] = (byte)rec.data[ci].MoveBand;
+                    prof[k] = Bilinear(map.height, n, cv, p);
                 }
                 // the lowest PASS_SLOPE-Lipschitz profile under the ground: crests cut
-                var u = (float[])prof.Clone();
-                var seg = new float[L];
-                for (int k = 1; k < L; k++) seg[k] = math.distance(rt.line[k], rt.line[k - 1]);
-                for (int k = 1; k < L; k++) u[k] = math.min(u[k], u[k - 1] + PASS_SLOPE * seg[k]);
-                for (int k = L - 2; k >= 0; k--) u[k] = math.min(u[k], u[k + 1] + PASS_SLOPE * seg[k + 1]);
                 // where the cut would pass CUT_MAX the step stays; the lowest
                 // PASS_SLOPE-Lipschitz profile over THAT fills its foot (a scree
                 // ramp, at most FILL_MAX). Without a capped cut nothing is filled.
@@ -359,6 +343,11 @@ namespace TerrainGen
                 // the line: a cell beside it that a 20 m cut leaves standing
                 // high lifts the line to within the cone of it (the bilinear
                 // profile alone misses a cliff that runs beside the line).
+                float* u = A->Copy(prof, L);
+                float* seg = A->Alloc<float>(L);
+                for (int k = 1; k < L; k++) seg[k] = math.distance(rt.line[k], rt.line[k - 1]);
+                for (int k = 1; k < L; k++) u[k] = math.min(u[k], u[k - 1] + PASS_SLOPE * seg[k]);
+                for (int k = L - 2; k >= 0; k--) u[k] = math.min(u[k], u[k + 1] + PASS_SLOPE * seg[k + 1]);
                 for (int k = 0; k < L; k++)
                 {
                     float lo = prof[k] - CUT_MAX, core = CORE * rt.halfW[k];
@@ -368,15 +357,15 @@ namespace TerrainGen
                     for (int x = math.max(0, cx - R); x <= math.min(n - 1, cx + R); x++)
                     {
                         int i = z * n + x;
-                        if (!Easable(map, rec, i)) continue;
+                        if (!Easable(ref map, ref rec, i)) continue;
                         float d = math.distance(p, new float2((x + 0.5f) * cv, (z + 0.5f) * cv));
-                        if (d <= core) lo = math.max(lo, map.Height[i] - CUT_MAX - PASS_SLOPE * d);
+                        if (d <= core) lo = math.max(lo, map.height[i] - CUT_MAX - PASS_SLOPE * d);
                     }
                     u[k] = math.max(u[k], lo);
                 }
                 for (int k = 1; k < L; k++) u[k] = math.max(u[k], u[k - 1] - PASS_SLOPE * seg[k]);
                 for (int k = L - 2; k >= 0; k--) u[k] = math.max(u[k], u[k + 1] - PASS_SLOPE * seg[k + 1]);
-                rt.fill = new float[L];
+                rt.fill = A->Root<float>(L);
                 float len = 0f;
                 for (int k = 0; k < L; k++)
                 {
@@ -386,10 +375,10 @@ namespace TerrainGen
                 }
                 rt.lengthM = len / 10f;
                 rt.straightM = math.distance(rt.line[0], rt.line[L - 1]) / 10f;
-                float wsum = 0f; foreach (float w in rt.halfW) wsum += w;
+                float wsum = 0f; for (int k = 0; k < L; k++) wsum += rt.halfW[k];
                 rt.widthM = 2f * wsum / L / 10f;
                 // per cell: the flared cone's bounds, the strongest roughness easing, the corridor
-                var corr = new List<int>();
+                var corr = new PList<int>(A, 1024, true);
                 for (int k = 0; k < L; k++)
                 {
                     float2 p = rt.line[k];
@@ -402,8 +391,8 @@ namespace TerrainGen
                     {
                         int i = z * n + x;
                         float2 q = new float2((x + 0.5f) * cv, (z + 0.5f) * cv);
-                        // the edge wanders a little (no ruled line); the core does not
                         float d0 = math.distance(p, q);
+                        // the edge wanders a little (no ruled line); the core does not
                         float d = d0 + 40f * Noise.Fbm(q / 700f + o2.valley - 23f, 2) * math.saturate((d0 - core) / core);
                         if (d > reach) continue;
                         if (!seen[i]) { seen[i] = true; touched.Add(i); coneLo[i] = float.MinValue; coneHi[i] = float.MaxValue; }
@@ -413,77 +402,119 @@ namespace TerrainGen
                         // full inside, from a noise-moved start out to the edge
                         float start = (0.45f + 0.3f * Noise.Fbm(q / 900f + o2.detail + 51f, 2)) * hw;
                         roughW[i] = math.max(roughW[i], 1f - Noise.SmoothStep(start, hw + ROUGH_EDGE, d));
-                        if (d <= hw && !mark[i]) { mark[i] = true; corr.Add(i); }
+                        if (d <= hw && !mark2[i]) { mark2[i] = true; corr.Add(i); }
                     }
                 }
                 // mark is per route: cleared so the next route lists its own cells
-                foreach (int i in corr) mark[i] = false;
-                corr.Sort();
-                rt.corridor = corr.ToArray();
-                routes[r] = rt;
+                for (int q = 0; q < corr.Length; q++) mark2[corr[q]] = false;
+                PSort.Ints(corr.Ptr, corr.Length);
+                rt.corridor = A->RootCopy(corr.Ptr, corr.Length); rt.corridorLen = corr.Length;
+                routes.Add(rt);
             }
+
             // apply, guarded
             int cutCells = 0, fillCells = 0; float maxCut = 0f, maxFill = 0f;
-            if (Diagnose)
+            if (dg != null && dg->routeDiagnose)
             {
-                DiagH0 = (float[])map.Height.Clone(); DiagLo = new float[N]; DiagHi = new float[N]; DiagSkip = new bool[N];
-                for (int i = 0; i < N; i++) { DiagLo[i] = DiagHi[i] = float.NaN; DiagSkip[i] = !Easable(map, rec, i); }
-                foreach (int i in touched) { DiagLo[i] = coneLo[i]; DiagHi[i] = coneHi[i]; }
+                dg->diagH0 = A->RootCopy(map.height, N); dg->diagLo = A->Root<float>(N); dg->diagHi = A->Root<float>(N); dg->diagSkip = A->Root<bool>(N);
+                for (int i = 0; i < N; i++) { dg->diagLo[i] = dg->diagHi[i] = float.NaN; dg->diagSkip[i] = !Easable(ref map, ref rec, i); }
+                for (int q = 0; q < touched.Length; q++) { int i = touched[q]; dg->diagLo[i] = coneLo[i]; dg->diagHi[i] = coneHi[i]; }
             }
-            foreach (int i in touched)
+            for (int q = 0; q < touched.Length; q++)
             {
-                if (!Easable(map, rec, i)) continue;
+                int i = touched[q];
+                if (!Easable(ref map, ref rec, i)) continue;
                 if (roughW[i] > 0f)
-                    map.Rough[i] = math.lerp(map.Rough[i], math.min(map.Rough[i], ROUTE_ROUGH), roughW[i]);
-                float h0 = map.Height[i];
+                    map.rough[i] = math.lerp(map.rough[i], math.min(map.rough[i], ROUTE_ROUGH), roughW[i]);
+                float h0 = map.height[i];
                 float delta = math.clamp(math.clamp(h0, coneLo[i], coneHi[i]) - h0, -CUT_MAX, FILL_MAX);
-                if (delta > 0f) { map.Height[i] = h0 + delta; fillCells++; maxFill = math.max(maxFill, delta); }
+                if (delta > 0f) { map.height[i] = h0 + delta; fillCells++; maxFill = math.max(maxFill, delta); }
                 if (delta >= 0f) continue;
                 int x = i & (n - 1), z = i / n;
                 float floor = LAND_MIN;
                 for (int zz = math.max(0, z - 2); zz <= math.min(n - 1, z + 2); zz++)
                 for (int xx = math.max(0, x - 2); xx <= math.min(n - 1, x + 2); xx++)
                 {
-                    float w = map.Water[zz * n + xx];
+                    float w = map.water[zz * n + xx];
                     if (w != Hydrology.NO_WATER) floor = math.max(floor, w + WATER_MARGIN);
                 }
                 float nh = math.max(h0 + delta, math.min(h0, floor));
-                if (nh < map.Height[i]) { cutCells++; maxCut = math.max(maxCut, map.Height[i] - nh); }
-                map.Height[i] = nh;
+                if (nh < map.height[i]) { cutCells++; maxCut = math.max(maxCut, map.height[i] - nh); }
+                map.height[i] = nh;
             }
+
             // ---- 6. passes on the eased profile ----
-            foreach (var rt in routes)
+            for (int r = 0; r < routes.Length; r++)
             {
-                int L = rt.line.Length;
-                var prof = new float[L];
-                for (int k = 0; k < L; k++) prof[k] = Bilinear(map.Height, n, cv, rt.line[k]);
-                rt.passes = Passes(prof);
+                ref RouteB rt = ref routes[r];
+                int L = rt.lineLen;
+                float* prof = A->Alloc<float>(L);
+                for (int k = 0; k < L; k++) prof[k] = Bilinear(map.height, n, cv, rt.line[k]);
+                var pl = new PList<int>(A, 8);
+                Passes(prof, L, ref pl);
+                rt.passes = pl.Ptr; rt.passesLen = pl.Length;
             }
-            var sb = new System.Text.StringBuilder();
-            sb.Append($"areas {A}, links {chosen.Count} ({pairs.Count} reachable pairs); search {searchMs} ms, all {sw.ElapsedMilliseconds} ms; cut cells {cutCells}, deepest cut {maxCut / 10f:F1} m; fill cells {fillCells}, deepest fill {maxFill / 10f:F1} m; ");
-            foreach (var rt in routes)
-                sb.Append($"[{rt.areaA}-{rt.areaB}{(rt.tree ? "" : " extra")} {rt.lengthM:F0} m / {rt.straightM:F0} m, overlap {rt.overlap * 100f:F0}%, passes {rt.passes.Length}] ");
-            LastBuild = sb.ToString();
-            return routes;
+            if (dg != null)
+            {
+                dg->routeA = NA; dg->routeChosen = chosen.Length; dg->routePairs = pairs.Length;
+                dg->routeCutCells = cutCells; dg->routeMaxCut = maxCut; dg->routeFillCells = fillCells; dg->routeMaxFill = maxFill;
+            }
+            A->Release(mark);
+            return true;
+        }
+
+        private static void KeepOut(ref RecordB rec, int* cost, int n, float cv, float2 c, float r)
+        {
+            int R = (int)math.ceil(r / cv), cx = (int)(c.x / cv), cz = (int)(c.y / cv);
+            for (int z = math.max(0, cz - R); z <= math.min(n - 1, cz + R); z++)
+            for (int x = math.max(0, cx - R); x <= math.min(n - 1, cx + R); x++)
+            {
+                int i = z * n + x;
+                if (cost[i] == 0 || math.distance(c, new float2((x + 0.5f) * cv, (z + 0.5f) * cv)) > r) continue;
+                cost[i] = math.max(cost[i], BandCost(Danger.Sheer) * (1 + rec.data[i].Danger));
+            }
+        }
+
+        private static int Find(int* comp, int a) { while (comp[a] != a) a = comp[a] = comp[comp[a]]; return a; }
+
+        private static void StampNear(bool* near, int n, int r, int* path, int len)
+        {
+            for (int q = 0; q < len; q++)
+            {
+                int i = path[q];
+                int x = i & (n - 1), z = i / n;
+                for (int zz = math.max(0, z - r); zz <= math.min(n - 1, z + r); zz++)
+                for (int xx = math.max(0, x - r); xx <= math.min(n - 1, x + r); xx++)
+                    if ((xx - x) * (xx - x) + (zz - z) * (zz - z) <= r * r) near[zz * n + xx] = true;
+            }
+        }
+
+        private static float Overlap(bool* near, int* path, int len)
+        {
+            int c = 0; for (int q = 0; q < len; q++) if (near[path[q]]) c++;
+            return len > 0 ? (float)c / len : 0f;
         }
 
         /// The record's corridor: FLAG_ROUTE and base danger one tier lower
-        /// (WorldRecord.Build, after Danger.Mark). A cell in two corridors drops once.
-        public static void Mark(WorldMap map, WorldRecord rec)
+        /// (WorldRecord.Build, after Danger.Mark). A cell in two corridors drops
+        /// once. (The record's route list is the map's own: MapJobs hands it over.)
+        public static void Mark(ref MapData map, ref RecordB rec)
         {
-            var routes = map.Routes;
-            if (routes == null) return;
-            foreach (var rt in routes)
-            foreach (int i in rt.corridor)
+            if (!map.hasRoutes) return;
+            for (int r = 0; r < map.routeCount; r++)
             {
-                if ((rec.Data[i].flags & WorldRecord.FLAG_ROUTE) != 0) continue;
-                rec.Data[i].flags |= WorldRecord.FLAG_ROUTE;
-                if (rec.Data[i].IsSea) continue;
-                byte hz = rec.Data[i].hazard;
-                int d = hz & 7;
-                rec.Data[i].hazard = (byte)((hz & ~7) | math.max(0, d - 1));
+                ref RouteB rt = ref map.routes[r];
+                for (int q = 0; q < rt.corridorLen; q++)
+                {
+                    int i = rt.corridor[q];
+                    if ((rec.data[i].flags & WorldRecord.FLAG_ROUTE) != 0) continue;
+                    rec.data[i].flags |= WorldRecord.FLAG_ROUTE;
+                    if (rec.data[i].IsSea) continue;
+                    byte hz = rec.data[i].hazard;
+                    int d = hz & 7;
+                    rec.data[i].hazard = (byte)((hz & ~7) | math.max(0, d - 1));
+                }
             }
-            rec.RouteList = routes;
         }
 
         /// Marks `bit` on every cell within `range` cells whose 2 m eye sees cell
@@ -491,7 +522,7 @@ namespace TerrainGen
         /// to every cell of the square's rim, integer steps (no trig); a cell
         /// is seen when the line from t to its eye clears the steepest ground
         /// passed so far on that ray.
-        public static void Viewshed(float[] surf, int n, int t, int range, byte[] mask, byte bit)
+        public static void Viewshed(float* surf, int n, int t, int range, byte* mask, byte bit)
         {
             int tx = t & (n - 1), tz = t / n;
             float ht = surf[t] + EYE;
@@ -523,12 +554,25 @@ namespace TerrainGen
         /// ground before a higher point on both sides (ends excluded).
         public static int[] Passes(float[] prof)
         {
-            var list = new List<int>();
-            int L = prof.Length;
+            var a = MapArena.Create();
+            try
+            {
+                var list = new PList<int>(&a, 8);
+                fixed (float* p = prof) Passes(p, prof.Length, ref list);
+                var r = new int[list.Length];
+                for (int i = 0; i < r.Length; i++) r[i] = list[i];
+                return r;
+            }
+            finally { a.Dispose(); }
+        }
+
+        public static void Passes(float* prof, int L, ref PList<int> list)
+        {
+            list.Clear();
             for (int k = 1; k < L - 1; k++)
             {
                 if (prof[k] < prof[k - 1] || prof[k] < prof[k + 1]) continue;
-                if (prof[k] == prof[k - 1] && list.Count > 0 && list[list.Count - 1] == k - 1) continue;
+                if (prof[k] == prof[k - 1] && list.Length > 0 && list[list.Length - 1] == k - 1) continue;
                 float lo = prof[k]; bool ok = true;
                 for (int j = k - 1; j >= 0 && prof[j] <= prof[k]; j--) lo = math.min(lo, prof[j]);
                 if (prof[k] - lo < PASS_PROMINENCE) ok = false;
@@ -537,16 +581,30 @@ namespace TerrainGen
                 if (prof[k] - lo < PASS_PROMINENCE) ok = false;
                 if (ok) list.Add(k);
             }
-            return list.ToArray();
         }
 
         /// Cell centres, then SMOOTH passes of a [1 2 3 2 1]/9 filter with the ends fixed.
         public static float2[] Smooth(int[] path, int n, float cv)
         {
-            int L = path.Length;
-            var a = new float2[L];
+            var a = MapArena.Create();
+            try
+            {
+                float2[] r = new float2[path.Length];
+                fixed (int* p = path)
+                {
+                    float2* s = Smooth(&a, p, path.Length, n, cv);
+                    for (int i = 0; i < r.Length; i++) r[i] = s[i];
+                }
+                return r;
+            }
+            finally { a.Dispose(); }
+        }
+
+        public static float2* Smooth(MapArena* A, int* path, int L, int n, float cv)
+        {
+            float2* a = A->Root<float2>(L);
             for (int k = 0; k < L; k++) a[k] = new float2(((path[k] & (n - 1)) + 0.5f) * cv, ((path[k] / n) + 0.5f) * cv);
-            var b = new float2[L];
+            float2* b = A->Root<float2>(L);
             for (int s = 0; s < SMOOTH; s++)
             {
                 for (int k = 0; k < L; k++)
@@ -563,19 +621,24 @@ namespace TerrainGen
         /// one-cell collar round them (an easy cell's slope reads its four
         /// neighbours: easing one would change the area) and the signature
         /// features' footprints.
-        private static bool Easable(WorldMap map, WorldRecord rec, int i)
+        private static bool Easable(ref MapData map, ref RecordB rec, int i)
         {
-            var c = rec.Data[i];
-            if (c.IsSea || c.IsEasy || c.IsFeature || map.WaterClass[i] != Hydrology.DRY || map.Height[i] <= 0f) return false;
-            int n = rec.Cells, x = i & (n - 1), z = i / n;
-            return !((x > 0 && rec.Data[i - 1].IsEasy) || (x < n - 1 && rec.Data[i + 1].IsEasy)
-                  || (z > 0 && rec.Data[i - n].IsEasy) || (z < n - 1 && rec.Data[i + n].IsEasy));
+            var c = rec.data[i];
+            if (c.IsSea || c.IsEasy || c.IsFeature || map.waterClass[i] != Hydrology.DRY || map.height[i] <= 0f) return false;
+            int n = rec.cells, x = i & (n - 1), z = i / n;
+            return !((x > 0 && rec.data[i - 1].IsEasy) || (x < n - 1 && rec.data[i + 1].IsEasy)
+                  || (z > 0 && rec.data[i - n].IsEasy) || (z < n - 1 && rec.data[i + n].IsEasy));
         }
 
         public static int CellOf(float2 p, int n, float cv) =>
             math.clamp((int)(p.y / cv), 0, n - 1) * n + math.clamp((int)(p.x / cv), 0, n - 1);
 
         public static float Bilinear(float[] h, int n, float cv, float2 p)
+        {
+            fixed (float* hp = h) return Bilinear(hp, n, cv, p);
+        }
+
+        public static float Bilinear(float* h, int n, float cv, float2 p)
         {
             float gx = p.x / cv - 0.5f, gz = p.y / cv - 0.5f;
             int x0 = math.clamp((int)math.floor(gx), 0, n - 2), z0 = math.clamp((int)math.floor(gz), 0, n - 2);
@@ -588,14 +651,19 @@ namespace TerrainGen
         private static int Log2(int v) { int r = 0; while ((1 << r) < v) r++; return r; }
 
         /// Binary min-heap of (cost << 20 | cell) keys; ties break by cell index.
-        private sealed class Heap
+        private struct Heap
         {
-            private long[] _a; public int Count;
-            public Heap(int cap) { _a = new long[cap]; }
+            private long* _a; private int _cap; private MapArena* _A; public int Count;
+            public Heap(MapArena* A, int cap) { _A = A; _cap = cap; _a = A->Alloc<long>(cap); Count = 0; }
             public void Clear() => Count = 0;
             public void Push(long v)
             {
-                if (Count == _a.Length) Array.Resize(ref _a, _a.Length * 2);
+                if (Count == _cap)
+                {
+                    long* na = _A->Alloc<long>(_cap * 2);
+                    for (int q = 0; q < _cap; q++) na[q] = _a[q];
+                    _a = na; _cap *= 2;
+                }
                 int i = Count++;
                 while (i > 0)
                 {
@@ -621,5 +689,26 @@ namespace TerrainGen
                 return top;
             }
         }
+    }
+
+    /// Route for Burst (engine plan step 1): the same fields, arrays as
+    /// MapArena pointers with their lengths. MapJobs converts it to Route.
+    public unsafe struct RouteB
+    {
+        public int mapVersion;
+        public int areaA, areaB;
+        public int2 areaCentreA, areaCentreB;
+        public bool tree;
+        public long cost;
+        public float overlap;
+        public int* cells; public int cellsLen;
+        public float2* line; public int lineLen;   // halfW, cut, fill, bandBefore: lineLen each
+        public float* halfW, cut, fill;
+        public byte* bandBefore;
+        public int* passes; public int passesLen;
+        public float widthM;
+        public float lengthM, straightM;
+        public int2 endA, endB;
+        public int* corridor; public int corridorLen;
     }
 }

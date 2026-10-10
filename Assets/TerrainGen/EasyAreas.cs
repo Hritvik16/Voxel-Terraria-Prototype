@@ -84,7 +84,10 @@ namespace TerrainGen
         /// Score per unit of non-gentle window share (voxels): 5% costs 100 m.
         public const float NON_GENTLE_COST = 20000f;
         /// Relax passes: (largest non-gentle window share, MIN_SEP scale).
-        public static readonly float2[] RELAX = { new float2(0.35f, 1f), new float2(0.5f, 1f), new float2(0.7f, 0.9f), new float2(0.85f, 0.8f) };
+        public static readonly float2[] RELAX = { Relax(0), Relax(1), Relax(2), Relax(3) };
+        public const int RELAX_N = 4;
+        /// RELAX[i] as code (Burst reads no managed array).
+        public static float2 Relax(int i) => i == 0 ? new float2(0.35f, 1f) : i == 1 ? new float2(0.5f, 1f) : i == 2 ? new float2(0.7f, 0.9f) : new float2(0.85f, 0.8f);
         /// Score bonus (voxels of score per voxel of distance) for distance from
         /// the sites already seated, counted up to SPREAD_CAP: 2 km is worth
         /// 100 m of height. Plan rule 8 (B8) joins easy areas by routes, so they
@@ -108,7 +111,8 @@ namespace TerrainGen
         /// flags a feature or sea cell. (B5's footprints left seed 65537 three
         /// sites of six and seed 11 a fourth on 82% non-gentle land; seed 12,
         /// a low world, has its lowest-third gentle land only near the shore.)
-        public static readonly float4 EDGE_PASS = new float4(0.5f, 0.8f, 0.35f, 0.15f);
+        public static readonly float4 EDGE_PASS = EdgePass();
+        public static float4 EdgePass() => new float4(0.5f, 0.8f, 0.35f, 0.15f);
         /// Walk band: tan(15 deg)^2, compared against the squared 8 m gradient (Danger.cs holds the bands).
         public const float WALK_TAN2 = Danger.WALK_TAN2;
 
@@ -133,20 +137,26 @@ namespace TerrainGen
         /// non-gentle land and closer centres (the sweep shows which pass).
         /// featureBad (optional): feature footprints, kept out of the RELAX
         /// passes like `bad` and allowed in part in the EDGE_PASS only.
-        public static Site[] Pick(in TerrainSpec spec, int m, float cm, float[] hc, float[] gentle, bool[] bad, bool[] featureBad = null)
+        /// Burst (engine plan step 1): MapArena pointers; the sites are appended
+        /// to `sites` (cleared first), the diagnostics go to `dg` (LastPick is
+        /// formatted from them by MapJobs).
+        public static unsafe void Pick(MapArena* A, Diag* dg, in TerrainSpec spec, int m, float cm, float* hc, float* gentle, bool* bad, bool* featureBad, ref PList<Site> sites)
         {
+            int mark = A->Mark();
+            float4 edge = EdgePass();
+            sites.Clear();
             // Predicted lakes: the starting shape's own depressions (Hydrology's
             // priority flood). Erosion moves them a little, but a hollow this
             // deep before shaping is still a lake after it.
-            var spill = new float[m * m];
-            Hydrology.Flood(m, hc, 0f, spill, new int[m * m], new int[m * m]);
+            float* spill = A->Alloc<float>(m * m);
+            Hydrology.Flood(A, m, hc, 0f, spill, A->Alloc<int>(m * m), A->Alloc<int>(m * m));
             // summed-area tables, (m+1)^2
             int s = m + 1;
-            var nBad = new int[s * s]; var nRough = new int[s * s]; var nWet = new int[s * s]; var nFeat = new int[s * s];
+            int* nBad = A->Alloc<int>(s * s); int* nRough = A->Alloc<int>(s * s); int* nWet = A->Alloc<int>(s * s); int* nFeat = A->Alloc<int>(s * s);
             float top = 0f;
-            for (int i = 0; i < hc.Length; i++) top = math.max(top, hc[i]);
+            for (int i = 0; i < m * m; i++) top = math.max(top, hc[i]);
             float third = THIRD_SAFE * top / 3f, levelMax = math.min(LEVEL_MAX, third);
-            var sH = new double[s * s]; var sH2 = new double[s * s];
+            double* sH = A->Alloc<double>(s * s); double* sH2 = A->Alloc<double>(s * s);
             for (int z = 0; z < m; z++)
             for (int x = 0; x < m; x++)
             {
@@ -161,24 +171,24 @@ namespace TerrainGen
             }
             int r = (int)(WINDOW / cm), cellsW = (2 * r + 1) * (2 * r + 1);
             int count = CountFor(in spec) + SPARE;
-            var cand = new System.Collections.Generic.List<(float score, int x, int z, float mean, float rough, bool late)>();
+            var cand = new PList<Cand>(A, 1024, true);
             int tried = 0, offBad = 0, offFeat = 0;
             for (int z = r; z < m - r; z += 2)
             for (int x = r; x < m - r; x += 2)
             {
                 int x0 = x - r, z0 = z - r, x1 = x + r + 1, z1 = z + r + 1;
-                int A = z0 * s + x0, B = z0 * s + x1, C = z1 * s + x0, D = z1 * s + x1;
+                int A0 = z0 * s + x0, B = z0 * s + x1, C = z1 * s + x0, D = z1 * s + x1;
                 tried++;
-                float eb = (nBad[D] - nBad[B] - nBad[C] + nBad[A]) / (float)cellsW;
-                if (eb > 0f && (featureBad == null || eb > EDGE_PASS.w)) { offBad++; continue; }
-                float fb = (nFeat[D] - nFeat[B] - nFeat[C] + nFeat[A]) / (float)cellsW;
-                if (fb > EDGE_PASS.z) { offFeat++; continue; }
-                float rough = (nRough[D] - nRough[B] - nRough[C] + nRough[A]) / (float)cellsW;
-                if (rough > RELAX[RELAX.Length - 1].x) continue;
-                float wet = (nWet[D] - nWet[B] - nWet[C] + nWet[A]) / (float)cellsW;
+                float eb = (nBad[D] - nBad[B] - nBad[C] + nBad[A0]) / (float)cellsW;
+                if (eb > 0f && (featureBad == null || eb > edge.w)) { offBad++; continue; }
+                float fb = (nFeat[D] - nFeat[B] - nFeat[C] + nFeat[A0]) / (float)cellsW;
+                if (fb > edge.z) { offFeat++; continue; }
+                float rough = (nRough[D] - nRough[B] - nRough[C] + nRough[A0]) / (float)cellsW;
+                if (rough > Relax(RELAX_N - 1).x) continue;
+                float wet = (nWet[D] - nWet[B] - nWet[C] + nWet[A0]) / (float)cellsW;
                 if (wet > WET_MAX) continue;
-                double mean = (sH[D] - sH[B] - sH[C] + sH[A]) / cellsW;
-                double vv = (sH2[D] - sH2[B] - sH2[C] + sH2[A]) / cellsW - mean * mean;
+                double mean = (sH[D] - sH[B] - sH[C] + sH[A0]) / cellsW;
+                double vv = (sH2[D] - sH2[B] - sH2[C] + sH2[A0]) / cellsW - mean * mean;
                 float sd = (float)math.sqrt(math.max(0.0, vv));
                 // the ring between the window and one twice its size
                 int X0 = math.max(0, x - 2 * r), Z0 = math.max(0, z - 2 * r), X1 = math.min(m, x + 2 * r + 1), Z1 = math.min(m, z + 2 * r + 1);
@@ -188,29 +198,33 @@ namespace TerrainGen
                 float basin = (float)math.max(0.0, ring - mean);
                 float pressed = (float)mean <= levelMax ? (float)mean : levelMax + KEEP * ((float)mean - levelMax);
                 float high = math.max(0f, pressed - third);
-                cand.Add(((float)mean + sd + NON_GENTLE_COST * (rough + wet + fb + eb) + BASIN_COST * basin + HIGH_COST * high, x, z, (float)mean, rough, fb + eb > 0f || (high > 0f && featureBad != null)));
+                cand.Add(new Cand
+                {
+                    score = (float)mean + sd + NON_GENTLE_COST * (rough + wet + fb + eb) + BASIN_COST * basin + HIGH_COST * high,
+                    x = x, z = z, mean = (float)mean, rough = rough, late = fb + eb > 0f || (high > 0f && featureBad != null),
+                });
             }
             // Greedy: each step seats the candidate with the lowest score less a
             // bonus for distance from the sites already seated (SPREAD), so the
             // areas spread over the island instead of filling one lowland. Ties
             // keep grid order.
-            var sites = new System.Collections.Generic.List<Site>();
-            int passes = RELAX.Length + (featureBad != null ? 1 : 0);
-            var perPass = new int[passes];
-            for (int pass = 0; pass < passes && sites.Count < count; pass++)
+            int passes = RELAX_N + (featureBad != null ? 1 : 0);
+            int* perPass = stackalloc int[RELAX_N + 1];
+            for (int q = 0; q <= RELAX_N; q++) perPass[q] = 0;
+            for (int pass = 0; pass < passes && sites.Length < count; pass++)
             {
-                bool edgePass = pass == RELAX.Length;
-                float maxRough = edgePass ? EDGE_PASS.x : RELAX[pass].x, sep = MIN_SEP * (edgePass ? EDGE_PASS.y : RELAX[pass].y);
-                while (sites.Count < count)
+                bool edgePass = pass == RELAX_N;
+                float maxRough = edgePass ? edge.x : Relax(pass).x, sep = MIN_SEP * (edgePass ? edge.y : Relax(pass).y);
+                while (sites.Length < count)
                 {
                     int best = -1; float bestCost = float.MaxValue; float2 bestP = default;
-                    for (int k = 0; k < cand.Count; k++)
+                    for (int k = 0; k < cand.Length; k++)
                     {
-                        var c = cand[k];
+                        Cand c = cand[k];
                         if (c.rough > maxRough || (c.late && !edgePass)) continue;
                         float2 p = new float2((c.x + 0.5f) * cm, (c.z + 0.5f) * cm);
                         float dmin = SPREAD_CAP;
-                        foreach (var t in sites) dmin = math.min(dmin, math.distance(t.centre, p));
+                        for (int t = 0; t < sites.Length; t++) dmin = math.min(dmin, math.distance(sites[t].centre, p));
                         if (dmin < sep) continue;
                         float cost = c.score - SPREAD * dmin;
                         if (cost < bestCost) { bestCost = cost; best = k; bestP = p; }
@@ -220,20 +234,33 @@ namespace TerrainGen
                     perPass[pass]++;
                 }
             }
-            LastPick = $"windows {tried}: {offBad} touch sea/beach/peak/volcano{(featureBad != null ? $" over {EDGE_PASS.w:P0}" : "")}, {offFeat} over {EDGE_PASS.z:P0} feature, {cand.Count} within the loosest non-gentle limit; " +
-                       $"sites {sites.Count} of {count} (incl. {SPARE} spare), per relax pass {string.Join("/", perPass)}; lowest third predicted {third / 10f:F0} m";
-            return sites.ToArray();
+            if (dg != null)
+            {
+                dg->pickRan = true; dg->pickTried = tried; dg->pickOffBad = offBad; dg->pickOffFeat = offFeat; dg->pickCand = cand.Length;
+                dg->pickSites = sites.Length; dg->pickCount = count; dg->pickPasses = passes; dg->pickFeatureBad = featureBad != null; dg->pickThird = third;
+                for (int q = 0; q < passes; q++) dg->pickPerPass[q] = perPass[q];
+            }
+            A->Release(mark);
         }
+
+        private struct Cand { public float score; public int x, z; public float mean, rough; public bool late; }
 
         /// How fully p is pressed (1 inside the core, 0 past the fade) and by
         /// which site. 0 and -1 when sites is empty or p is outside every area.
-        public static float Weight(Site[] sites, in Offsets o, float2 p, out int site)
+        public static unsafe float Weight(Site[] sites, in Offsets o, float2 p, out int site)
         {
             site = -1;
             if (sites == null || sites.Length == 0) return 0f;
+            fixed (Site* s = sites) return Weight(s, sites.Length, in o, p, out site);
+        }
+
+        public static unsafe float Weight(Site* sites, int count, in Offsets o, float2 p, out int site)
+        {
+            site = -1;
+            if (sites == null || count == 0) return 0f;
             float best = 0f;
             float bend = EDGE_WOBBLE * CORE * Noise.Fbm(p / 3000f + o.valley + 61f, 2);
-            for (int k = 0; k < sites.Length; k++)
+            for (int k = 0; k < count; k++)
             {
                 float d = math.distance(p, sites[k].centre) + bend;
                 if (d >= CORE + FADE) continue;
@@ -246,113 +273,139 @@ namespace TerrainGen
         /// Starting relief inside an area: pressed toward the site's level.
         public static float Press(float h, float level, float t) => math.lerp(h, level + (h - level) * KEEP, t);
 
-        /// Flags the easy cells in the record and fills its area list.
-        public static void Mark(WorldMap map, WorldRecord rec)
+        /// The record's easy area for Burst (EasyArea with its cells as a pointer).
+        public unsafe struct EasyAreaB
         {
-            var sites = map.EasySites;
-            if (sites == null) return;
-            var spec = map.Spec;
-            int n = spec.mapCells, cv = spec.mapCellVoxels;
-            float[] h = map.Height;
+            public int2 centre;
+            public int cellCount;
+            public float hectares, radiusM, meanHeightM;
+            public int* cells;
+            public int cellsLen;
+        }
+
+        /// Flags the easy cells in the record and fills its area list (Burst;
+        /// LastMark is formatted from `dg` by MapJobs).
+        public static unsafe void Mark(MapArena* A, Diag* dg, ref MapData map, ref RecordB rec)
+        {
+            if (!map.hasEasy) return;
+            Site* sites = map.easySites; int ns = map.easyCount;
+            var spec = map.spec;
+            int n = spec.mapCells, cv = spec.mapCellVoxels, N = n * n;
+            float* h = map.height;
             float hi = 0f; int land = 0;
-            for (int i = 0; i < h.Length; i++) if (h[i] > 0f) { land++; hi = math.max(hi, h[i]); }
+            for (int i = 0; i < N; i++) if (h[i] > 0f) { land++; hi = math.max(hi, h[i]); }
             float lowThird = hi / 3f;
             int count = CountFor(in spec);
             int want = (int)math.round(SHARE * land / count);
             int g = (int)math.ceil(GROW / cv);
-            var owner = new byte[n * n];   // 0 = free, else area index + 1
-            var why = new System.Text.StringBuilder();
-            var sorted = new long[sites.Length][];
-            var took = new int[sites.Length];
+            int mark = A->Mark();
+            byte* owner = A->Alloc<byte>(N);   // 0 = free, else area index + 1
+            IntPtr* sorted = A->Alloc<IntPtr>(ns); int* sortedLen = A->Alloc<int>(ns);
+            int* took = A->Alloc<int>(ns);
             long nn = (long)n * n;
+            int* fails = stackalloc int[7];
+            if (dg != null) { dg->markRan = true; dg->markSites = ns; }
             // candidates per area, nearest first (sites are >= MIN_SEP apart, so
             // the discs overlap little; a cell goes to the first area that takes it)
-            for (int k = 0; k < sites.Length; k++)
+            for (int k = 0; k < ns; k++)
             {
                 int cx = (int)math.floor(sites[k].centre.x / cv), cz = (int)math.floor(sites[k].centre.y / cv);
-                var keys = new System.Collections.Generic.List<long>();
-                var fails = new int[7];
+                var keys = new PList<long>(A, 4096, true);
+                for (int f = 0; f < 7; f++) fails[f] = 0;
                 for (int z = math.max(0, cz - g); z <= math.min(n - 1, cz + g); z++)
                 for (int x = math.max(0, cx - g); x <= math.min(n - 1, cx + g); x++)
                 {
                     int dx = x - cx, dz = z - cz, d2 = dx * dx + dz * dz;
                     if (d2 > g * g) continue;
                     int i = z * n + x;
-                    int f = Fails(map, i, lowThird);
-                    if (f == 0 && rec.Data[i].IsFeature) f = 6;   // B5: never on a signature feature
+                    int f = Fails(ref map, i, lowThird);
+                    if (f == 0 && rec.data[i].IsFeature) f = 6;   // B5: never on a signature feature
                     fails[f]++;
                     if (f == 0) keys.Add(d2 * nn + i);
                 }
-                keys.Sort();
-                sorted[k] = keys.ToArray();
-                why.Append($"[{k}] easy {fails[0]} sea {fails[1]} high {fails[2]} not-gentle {fails[3]} water {fails[4]} steep {fails[5]} feature {fails[6]}; ");
+                PSort.Longs(keys.Ptr, keys.Length);
+                sorted[k] = (IntPtr)keys.Ptr; sortedLen[k] = keys.Length;
+                if (dg != null && k < 8) for (int f = 0; f < 7; f++) dg->markFails[k * 7 + f] = fails[f];
             }
             // the `count` sites with the most easy ground become the areas (in
             // seeding order); the spares stay pressed flat but unflagged
-            var rank = new int[sites.Length];
-            for (int k = 0; k < rank.Length; k++) rank[k] = k;
-            Array.Sort(rank, (a, b) => sorted[a].Length != sorted[b].Length ? sorted[b].Length.CompareTo(sorted[a].Length) : a.CompareTo(b));
-            var sel = new int[math.min(count, sites.Length)];
-            Array.Copy(rank, sel, sel.Length);
-            Array.Sort(sel);
-            var list = new EasyArea[sel.Length];
+            int* rank = A->Alloc<int>(ns);
+            for (int k = 0; k < ns; k++) rank[k] = k;
+            for (int i = 1; i < ns; i++)
+            {
+                int v = rank[i], j = i - 1;
+                while (j >= 0 && (sortedLen[v] != sortedLen[rank[j]] ? sortedLen[v] > sortedLen[rank[j]] : v < rank[j])) { rank[j + 1] = rank[j]; j--; }
+                rank[j + 1] = v;
+            }
+            int selN = math.min(count, ns);
+            int* sel = A->Alloc<int>(math.max(1, selN));
+            for (int q = 0; q < selN; q++) sel[q] = rank[q];
+            PSort.Ints(sel, selN);
             // Round-robin growth, one cell per area per round, nearest first, so
             // land two areas both reach splits by nearness. Pass 0: each area
             // up to its share. Pass 1: areas with cells to spare make up what
             // the short ones missed (each up to SLACK more).
-            var cursor = new int[sites.Length];
-            bool Next(int k)
-            {
-                while (cursor[k] < sorted[k].Length)
-                {
-                    int i = (int)(sorted[k][cursor[k]++] % nn);
-                    if (owner[i] != 0) continue;
-                    owner[i] = (byte)(k + 1); took[k]++;
-                    return true;
-                }
-                return false;
-            }
-            void Grow(int quota, ref int budget)
-            {
-                for (bool any = true; any && budget > 0;)
-                {
-                    any = false;
-                    foreach (int k in sel)
-                        if (budget > 0 && took[k] < quota && Next(k)) { any = true; budget--; }
-                }
-            }
+            int* cursor = A->Alloc<int>(ns);
             int all = want * count;
-            Grow(want, ref all);
+            Grow(want, ref all, sel, selN, cursor, sorted, sortedLen, owner, took, nn);
             int deficit = want * count;
-            foreach (int k in sel) deficit -= took[k];
-            Grow((int)(want * (1f + SLACK)), ref deficit);
+            for (int q = 0; q < selN; q++) deficit -= took[sel[q]];
+            Grow((int)(want * (1f + SLACK)), ref deficit, sel, selN, cursor, sorted, sortedLen, owner, took, nn);
             float cellM = cv / 10f;
-            for (int q = 0; q < sel.Length; q++)
+            rec.easy = A->Root<EasyAreaB>(math.max(1, selN)); rec.easyCount = selN;
+            for (int q = 0; q < selN; q++)
             {
                 int k = sel[q];
-                var cells = new int[took[k]];
+                long* sk = (long*)sorted[k];
+                int* cells = A->Root<int>(took[k]);
                 double sumH = 0; long far2 = 0; int j = 0;
                 for (int c = 0; c < cursor[k]; c++)
                 {
-                    int i = (int)(sorted[k][c] % nn);
+                    int i = (int)(sk[c] % nn);
                     if (owner[i] != k + 1) continue;   // the first area to reach a cell owns it
                     cells[j++] = i;
-                    rec.Data[i].flags |= WorldRecord.FLAG_EASY;
+                    rec.data[i].flags |= WorldRecord.FLAG_EASY;
                     sumH += h[i];
-                    far2 = sorted[k][c] / nn;
+                    far2 = sk[c] / nn;
                 }
-                list[q] = new EasyArea
+                rec.easy[q] = new EasyAreaB
                 {
                     centre = new int2((int)sites[k].centre.x, (int)sites[k].centre.y),
                     cellCount = j,
                     hectares = j * cellM * cellM / 10000f,
                     radiusM = math.sqrt((float)far2) * cellM,
                     meanHeightM = j > 0 ? (float)(sumH / j) / 10f : 0f,
-                    cells = cells,
+                    cells = cells, cellsLen = took[k],
                 };
             }
-            rec.EasyAreaList = list;
-            LastMark = why + $"kept {string.Join(",", sel)}";
+            if (dg != null) { dg->markKeptN = math.min(selN, 8); for (int q = 0; q < selN && q < 8; q++) dg->markKept[q] = sel[q]; }
+            A->Release(mark);
+        }
+
+        private static unsafe bool Next(int k, int* cursor, IntPtr* sorted, int* sortedLen, byte* owner, int* took, long nn)
+        {
+            long* sk = (long*)sorted[k];
+            while (cursor[k] < sortedLen[k])
+            {
+                int i = (int)(sk[cursor[k]++] % nn);
+                if (owner[i] != 0) continue;
+                owner[i] = (byte)(k + 1); took[k]++;
+                return true;
+            }
+            return false;
+        }
+
+        private static unsafe void Grow(int quota, ref int budget, int* sel, int selN, int* cursor, IntPtr* sorted, int* sortedLen, byte* owner, int* took, long nn)
+        {
+            for (bool any = true; any && budget > 0;)
+            {
+                any = false;
+                for (int q = 0; q < selN; q++)
+                {
+                    int k = sel[q];
+                    if (budget > 0 && took[k] < quota && Next(k, cursor, sorted, sortedLen, owner, took, nn)) { any = true; budget--; }
+                }
+            }
         }
 
         /// Plan rule 3, from the land alone: Walk band at 8 m (central
@@ -371,6 +424,17 @@ namespace TerrainGen
             if (reg == 255 || Regions.ClassOf(reg) != Regions.Gentle) return 3;
             if (map.WaterClass[i] != Hydrology.DRY) return 4;
             return Danger.SlopeTan2(h, map.Spec.mapCells, map.Spec.mapCellVoxels, i) < WALK_TAN2 ? 0 : 5;
+        }
+
+        public static unsafe int Fails(ref MapData map, int i, float lowThird)
+        {
+            float* h = map.height;
+            if (h[i] <= 0f) return 1;
+            if (h[i] >= lowThird) return 2;
+            byte reg = map.region[i];
+            if (reg == 255 || Regions.ClassOf(reg) != Regions.Gentle) return 3;
+            if (map.waterClass[i] != Hydrology.DRY) return 4;
+            return Danger.SlopeTan2(h, map.spec.mapCells, map.spec.mapCellVoxels, i) < WALK_TAN2 ? 0 : 5;
         }
     }
 }

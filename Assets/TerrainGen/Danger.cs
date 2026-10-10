@@ -75,7 +75,12 @@ namespace TerrainGen
         }
 
         /// tan^2 of the 8 m map slope at cell i: central differences, one-sided at the edge.
-        public static float SlopeTan2(float[] h, int n, int cellVoxels, int i)
+        public static unsafe float SlopeTan2(float[] h, int n, int cellVoxels, int i)
+        {
+            fixed (float* p = h) return SlopeTan2(p, n, cellVoxels, i);
+        }
+
+        public static unsafe float SlopeTan2(float* h, int n, int cellVoxels, int i)
         {
             int x = i & (n - 1), z = i / n;
             int x0 = math.max(x - 1, 0), x1 = math.min(x + 1, n - 1);
@@ -93,10 +98,15 @@ namespace TerrainGen
 
         /// The land's highest map height (voxels above the sea); the altitude
         /// thirds cut [0, this] -- EasyAreas' `hi`.
-        public static float HighestLand(float[] h)
+        public static unsafe float HighestLand(float[] h)
+        {
+            fixed (float* p = h) return HighestLand(p, h.Length);
+        }
+
+        public static unsafe float HighestLand(float* h, int count)
         {
             float hi = 0f;
-            for (int i = 0; i < h.Length; i++) if (h[i] > 0f) hi = math.max(hi, h[i]);
+            for (int i = 0; i < count; i++) if (h[i] > 0f) hi = math.max(hi, h[i]);
             return hi;
         }
 
@@ -114,20 +124,45 @@ namespace TerrainGen
 
         public static byte Pack(int danger, byte band) => (byte)(danger | (band << 3));
 
-        /// Writes every cell's hazard byte (WorldRecord.Build, after the biome is in).
-        public static void Mark(WorldMap map, WorldRecord rec, Tiers t = null)
+        /// A Tiers table for Burst (engine plan step 1): the managed table's
+        /// bytes, copied in by the job's caller (TiersB.From(Default)).
+        public unsafe struct TiersB
         {
-            t = t ?? Default;
-            var spec = map.Spec;
-            int n = spec.mapCells, cv = spec.mapCellVoxels;
-            float[] h = map.Height;
-            byte[] region = map.Region;
-            float hi = HighestLand(h);
-            for (int i = 0; i < h.Length; i++)
+            public fixed byte altitude[3];
+            public fixed byte landform[3];
+            public fixed byte biome[16];
+
+            public static TiersB From(Tiers t)
             {
-                if (h[i] <= 0f) { rec.Data[i].hazard = 0; continue; }
-                int d = Of(t, AltitudeThird(h[i], hi), LandformClassOf(region[i]), rec.Data[i].Biome);
-                rec.Data[i].hazard = Pack(d, BandOfTan2(SlopeTan2(h, n, cv, i)));
+                var b = new TiersB();
+                for (int i = 0; i < 3; i++) { b.altitude[i] = t.altitude[i]; b.landform[i] = t.landform[i]; }
+                for (int i = 0; i < 16; i++) b.biome[i] = t.biome[i];
+                return b;
+            }
+        }
+
+        public static unsafe int Of(in TiersB t, int altitudeThird, int landformClass, byte biome)
+        {
+            fixed (TiersB* p = &t)
+            {
+                byte b = p->biome[biome & 15];
+                if (b == NONE) throw new InvalidOperationException("Danger: a biome has no row in the tier table");
+                return math.min(MAX, p->altitude[altitudeThird] + p->landform[landformClass] + b);
+            }
+        }
+
+        /// Writes every cell's hazard byte (WorldRecord.Build, after the biome is in).
+        public static unsafe void Mark(ref MapData map, ref RecordB rec, in TiersB t)
+        {
+            int n = map.n, cv = map.spec.mapCellVoxels, N = n * n;
+            float* h = map.height;
+            byte* region = map.region;
+            float hi = HighestLand(h, N);
+            for (int i = 0; i < N; i++)
+            {
+                if (h[i] <= 0f) { rec.data[i].hazard = 0; continue; }
+                int d = Of(in t, AltitudeThird(h[i], hi), LandformClassOf(region[i]), rec.data[i].Biome);
+                rec.data[i].hazard = Pack(d, BandOfTan2(SlopeTan2(h, n, cv, i)));
             }
         }
     }
