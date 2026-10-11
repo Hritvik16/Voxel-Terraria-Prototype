@@ -1,52 +1,58 @@
-# 55-engine-5b-fluid-pool-size: DONE. The Playground/tg2/play fluid tile pool went from 1,024 to 480 tiles. Fluid GPU memory in the ledger fell from 548.8 to 276.8 MB, with 0 refusals at the coast and lake stops.
+# 56-engine-8-shadow-dots: DONE -- the owner's sun-shadow "dots" were false shadows from temporal shadow reuse (BUGS #1, case (a)); fixed in the shadow path.
 
-## What changed (commit 7451b8c, branch engine-phase)
-- `EngineConfig.PLAYGROUND_FLUID_TILE_POOL_CAPACITY = 480`, next to `FLUID_TILE_POOL_CAPACITY` (1,024, unchanged).
-  - 480 x 0.5 MiB = 240 MiB of cells. That is the largest whole-tile count under plan §2's ~250 MB.
-  - There is no alignment rule. FluidTileMap and FluidGpuSimulation take any count; only regionDims must be pow2, and DispatchGrid folds rows past 60,000 groups.
-- `Playground.cs`: the `_tilePoolCap` default is now the new const.
-- `Phase5aSceneBuilder`: the Playground builder now stamps the new cap. This was the scene-builder landmine: it never set the field before.
-  - The brush-guard scene is also a Playground component. Its builder now pins `FLUID_TILE_POOL_CAPACITY` (1,024) explicitly.
-- `Playground.unity`: `_tilePoolCap: 1024 -> 480`. Only that one line is committed. The working tree also has an older, uncommitted regeneration diff of this scene (fileID churn); I left it alone.
-- All other fluid rig scenes and classes are untouched and keep 1,024 or their serialized 512.
-- New test `FluidAwakeOnlyTilesTests.MoreAwakeTilesThanThePlaygroundCap_NearestWin_RefusalsCounted`. It asks for 640 remembered tiles against the real 480 cap:
-  - Pass 1, near end: 480 resident, 160 refusals counted, the nearest kept, the refused tiles still remembered.
-  - Pass 2, far end: 160 displacements, 0 refusals, the nearest kept again.
-  - It also asserts that the cells fit in 250 MiB.
-- Updated KNOWN_ISSUES (task 55 note under task 54's entry) and the CLAUDE.md index line.
+## Diagnosis
+- Play runs with temporal shadow reuse ON (`RenderPreset.Apply` defaults `-tshadow 1`; play's FSR 3 default keeps it; the owner's Quality preset too).
+- Each frame 3 of 4 thread-group tiles (8x8 gate pixels) skip the sun ray and reuse last frame's value.
+  - The lookup reprojected the hit voxel's CENTRE, a point inside the solid. On a top face seen from walking height, it lands about 1.5 voxels nearer, on the NEIGHBOUR's face.
+  - It then accepted the neighbour on a depth window (2% + 2 voxels).
+  - Result: a lattice of small lit-in-dark and dark-in-light squares on stepped ground at a low sun. It shows on a still camera too.
+- Ruled out with the CPU oracle (`ShadowRayReference.Trace`):
+  - origin, bias, soft term, half-res: with `-tshadow 0`, the GPU and oracle agree to 0.01-0.53%.
+  - travel LOD: it is 0 in config.
+- The owner's photos match: small axis-aligned squares on grass, cross shapes and triangles on sand.
 
-## Evidence (memory/behaviour only, no timing; rule 10)
-- Fast suite: PASS 641 FAIL 0 SKIP 14. The new test passed, and the log has 0 `error CS` (`Logs/overnight/55_fast.out`).
-- `run-fluid-tiled.sh`: PASS 19 FAIL 0 at its unchanged cap. It printed "551 <= 1024" (`Logs/overnight/55_fluidtiled.out`).
-- Poolprobe. The build ran with BUILD=1 (build OK, 0 error CS). It ran twice: once without the ledger (`55_pool.out`), then with `EXTRA=-memledger` (`55_pool_ledger.out`, the main one). Both report "pool: 480 tiles of 32^3, GPU 248 MiB" (240 MiB cells plus the 8 MiB ring directory).
+## The fix (commit ade1b22, branch engine-phase; a bug fix, no API or layout change)
+- `Raymarch.compute`: reproject the pixel's own surface point (as TAA does) and try the nearest history pixel plus 3 neighbours.
+  - Reuse only on an exact match of `ShadowOriginKey(voxel + normal)`. TraceShadowRay's result depends on that cell alone.
+  - The history is now `uint2` (sunVis bits, key).
+- `RaymarchFeature.cs`: fill the history buffers with key 0xFFFFFFFF on creation (the checkerboard's unwritten half must never match). Dropped the now-unused `_PrevCamVox`.
+- New `-shadowdots` capture (`PlaygroundCapture.ShadowDots.cs`, `run-shadow-dots.sh`, `TAG=before|after`).
+  - Picks 3 poses from the map where a 6 deg sun reaches the ground: 2 sun-facing slopes and 1 flat at sea level.
+  - Waits for deficit 0, shoots Quality and FSR 3 with ts on/off, still and moving.
+  - Compares the sunVis view to the oracle pixel by pixel.
+  - Added to Playground's capture/fly-mode flag lists (the walk-mode trap cost me 3 runs).
+- KNOWN_ISSUES has a new entry. BUGS #1 is moved to Fixed. `later/38` is moved to `done/`.
 
-| | task 54 (1,024 tiles) | task 55 (480 tiles) |
-|---|---|---|
-| ledger: Fluid simulation, GPU MB | 548.8 | 276.8 |
-| ledger: SUM of owners | 1,920.4 MB | 1,651.6 MB |
-| pool-peaks row: fluid tiles cap MB | 512.0 | 240.0 |
-| phys_footprint peak (whole probe run) | 2,870 MB | 2,472 MB (2,556 in the run without the ledger) |
-| refusals, whole run (coast + lake) | 0 | 0 |
-| pool peak | 32 | 32 (30 at the lake) |
-| box water after 480 frames, coast | 1029 -> 3 | 1029 -> 12 (9 in the other run) |
-| box water after 480 frames, lake | 1029 -> 1 | 1029 -> 8 (11 in the other run) |
+## Evidence
+- Fast suite: PASS 641 FAIL 0 SKIP 14, 0 `error CS`; all 19 ShadowRay* tests pass (`Logs/overnight/56_fast.out`).
+- `run-phase7-rig.sh` (fresh release build): PASS 37 FAIL 0 (`Logs/overnight/56_phase7.out`).
+- Oracle, `-tshadow 1`, golden hour 6 deg and 12 deg (before: `Logs/overnight/56_before5.out`; after: `Logs/overnight/56_after.out`):
+  - false-dark: slope1 1.05-1.42% -> 0.01-0.03%; slope2 4.6-5.6% -> 0.41-0.53%; shore 1.2-1.6% -> 0.04-0.05%.
+  - After the fix, every arm is identical to `-tshadow 0`.
+  - The leftover (slope2 0.4-0.5%, false-lit ~0.3-0.6%) is present with reuse OFF as well: the documented dense-brick-only penumbra gap.
+- Old-shader rerun for the ray counts (`Logs/overnight/56_before_stats.out`) reproduced the dots (1.1-5.4%).
+- Cost: no timing (rule 10). Rays traced per frame with `-tshadow 1`, % of hit pixels (`56_before_stats.out` vs `56_after_stats.out`):
+  - before 31-42%, after 25-26% still and 25-33% moving (Quality).
+  - FSR 3 moving: 26-47% after vs 31-44% before. One shore frame was higher (47.1 vs 40.1).
+  - Expect equal or slightly lower shadow cost; per-pixel overhead is up to 4 history loads.
 
-- The pool never got near 480, so the cap does not affect behaviour here. The 1-12 voxel spread in leftover box water is between runs of the same policy; it is not a cap effect.
-- The phys_footprint drop is about the size of the ledger drop, but it is a single run each. Treat it as direction only.
+## Screenshots looked at (`Screenshots/56/`, untracked; native-size crops, left = before, right = after unless noted)
+- `diagnosis_slope2_12deg_tshadow_on_vs_off.png`: BEFORE build only.
+  - Left column is `-tshadow 1`, right column `-tshadow 0`; top row beauty, bottom row the sunVis view.
+  - Top-left shows the dot lattice on the lit voxel tops. Top-right is clean.
+- `shore_6deg_ts1_move_before_after.png`: flat ground at sea level, moving. Left: lit squares and crosses inside the cast shadows (the owner's sand look). Right: solid shadow shapes.
+- `slope1_6deg_fsr3_move_before_after.png`: play's FSR 3 path. Left: a sawtooth "crenellation" along the lit edge, centre-left. Right: a straight edge.
+- `slope2_12deg_ts1_still_before_after.png`, `slope1_6deg_ts1_move_before_after.png`: the same lattice gone, still and moving.
+- `noon_ts1_before_after.png`: the noon control, whole frame.
+  - The two frames are the same except a few stray dark marks at the bottom-left corner of "before".
 
-## Screenshot looked at (`Screenshots/55/`, copied from the probe's shot folder, untracked)
-- `Screenshots/55/lake_after_2s.png`: midday, sun behind the camera, the same scene as 54. The placed box is falling as a dark column into the lake, left of centre. The vent's water spreads as blocks over the right half of the lake and the sand. Placed water still flows at the 480 cap.
-
-## Not done / follow-ups (none queued)
-- Headroom risk, for the owner to watch: under the mask policy, fluid-tiled's 220-pocket scatter peaks at 551 tiles.
-  - An awake-only blast that wide would hit 480.
-  - It is handled (nearest tiles win, refusals counted), but far pockets would visibly hang until there is room.
-  - No awake-only wide-scatter scenario exists in Playground yet. That would be the evidence if it matters.
-- Still open from 54: stepped generated sea/lake surfaces, and the 488-tick quiet release.
+## Not done / for the owner
+- No play-through by eye (unattended). Worth a look at golden hour (`N`) in `./run-play.sh`.
 
 ## For the doc
-- Fluid tile pool (Playground/tg2/play): 1,024 -> 480 tiles; cells 512 -> 240 MiB GPU (`Logs/overnight/54_pool.out` vs `Logs/overnight/55_pool_ledger.out`).
-- Ledger "Fluid simulation" GPU: 548.8 -> 276.8 MB. Ledger sum: 1,920.4 -> 1,651.6 MB.
-- phys_footprint peak, coast poolprobe run: 2,870 -> 2,472 MB (single runs; direction only).
-- Refusals at the coast and lake stops: 0 -> 0 (pool peak 32 of 480). Every fluid rig keeps 1,024; fluid-tiled still PASS 19.
-- Image: `Screenshots/55/lake_after_2s.png`. Midday at the lake: the placed box falls as a column into the lake (left of centre) and the vent's water spreads over the right half. Placed water still flows with the smaller pool.
+- Sun-shadow pixels disagreeing with the CPU oracle at golden hour, play's temporal reuse ON: 1.1-5.4% -> 0.01-0.53%, the same as reuse OFF (`Logs/overnight/56_before5.out` -> `56_after.out`).
+- Worst pose (slope2, 12 deg): 5.62% -> 0.53% false-dark samples.
+- Sun rays traced per frame, Quality, camera still: 31-42% -> 25% of hit pixels. The shadow cost should not rise (no timing taken).
+- `run-phase7-rig.sh` PASS 37 FAIL 0; fast suite PASS 641 FAIL 0.
+- Image: `Screenshots/56/shore_6deg_ts1_move_before_after.png`. Flat ground at sea level, sun 6 deg, walking. Left (before): lit squares and crosses inside the shadows, the owner's "dots". Right (after): clean shadow shapes.
+- Image: `Screenshots/56/slope1_6deg_fsr3_move_before_after.png`. Play's default FSR 3. The sawtooth edge on the lit face (left, centre) is gone (right).
