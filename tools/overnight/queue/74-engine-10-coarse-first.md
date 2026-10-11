@@ -1,12 +1,9 @@
 # 74-engine-10-coarse-first
 
-Requires: 73-rivers-waterfalls-plan
-
 Approval: owner, 2026-10-11 ~08:40 in chat: Q43 "Approve all (a)" -- Amendment 8.14 as drafted (Q7-Q11 all (a);
 earlier Q1-Q6 answers already recorded in the draft). `ENGINE_PHASE_PLAN.md` approved 2026-10-09 (Q36). Queued by
 the supervisor 2026-10-11. Branch `engine-phase`.
-(`Requires:` 73 only to keep one task at a time in order; 74 does not depend on 73's content. If 73 blocks for the
-owner, run 74 anyway.)
+(Runs after 73 by file order; it does not depend on 73's content.)
 
 ## Change
 1. **First commit: adopt the amendment.** Rename `AMENDMENT_8_14_LOD_SHELLS_DRAFT.md` -> `AMENDMENT_8_14_LOD_SHELLS.md`,
