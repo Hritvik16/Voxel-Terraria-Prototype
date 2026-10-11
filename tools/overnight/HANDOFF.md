@@ -1,5 +1,4 @@
 # 74-engine-10-coarse-first: DONE. Amendment 8.14 adopted; shell chunks generate at 0.2-12.8 m, exact, row 13's line holds on seed 42. Two owner questions before step 11 (below).
-
 ## Questions for the owner (needed before step 11 renders shells; not blocking this step)
 1. **The coarse top loses the 0.3 m grass/sand/snow layer.** A centre sample lands inside the 3-voxel surface layer
    (`DetailField.SURFACE_THICKNESS`) in only about 3/2^k of top voxels. Top-voxel material matches the vote in
@@ -12,7 +11,6 @@
    cascades' tie-to-solid vote better everywhere. Pooled shell 1: voxels 97.17 -> 98.49%, heights 98.97 -> 99.58%.
    Flat river plains: 94.7 -> 98.7%. **(a, recommended)** Switch, which makes edited chunks pop less when they move
    to the downsampled path (row 12). (b) Keep the centre.
-
 ## What changed
 - `9a859f1` Amendment adopted: `AMENDMENT_8_14_LOD_SHELLS_DRAFT.md` renamed to `AMENDMENT_8_14_LOD_SHELLS.md`; header
   says ADOPTED 2026-10-11 with Q1-Q11; CLAUDE.md ground-truth list gains 8.14 after 8.12. No code.
@@ -21,7 +19,6 @@
   MaxStep neighbours, `PrepareColumn`, ore plane, `CullBrick` per FINE brick and `Material`, plus the air fast path.
   Output goes to caller-owned scratch (`ShellChunk`), never ChunkStore; no op log yet. `Assets/CoreEngine/Tests/
   ShellChunkTests.cs` (new, 3 tests). Frozen APIs, D.1, §4.4 and `Generate` are unchanged.
-
 ## Evidence
 - `SUITE=all` **PASS 726 FAIL 0 SKIP 19** (Logs/overnight/74-all.out). Baseline: 73's fast run, 691/0/14; code was
   unchanged from 73 until this task.
@@ -43,10 +40,8 @@
   is in its own fine brick, so `CullBrick` runs per voxel. The amendment estimated "about the same as a 0.1 m chunk".
   It is 1.7x (shells 1-2) to 4.2x (shells 3-7) of that. That matters for step 16's columns/s, and per-brick culling
   at coarse scale is the obvious lever.
-
 ## Next
 - Owner answers Q1/Q2 (each a small default change plus a test update); then step 11 (shell pools + rendering).
-
 ## For the doc
 - Exactness: coarse voxels vs the 0.1 m generator at their centre: **0 of 79,507 differ** at each of shells 1-7.
 - Row 13 gate, seed 42: voxels 97.32 / 97.58 / 97.77%, heights 99.97 / 99.995 / 100% (shells 1/2/3). Seeds 7 and 1234
