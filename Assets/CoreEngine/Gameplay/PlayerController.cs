@@ -174,6 +174,16 @@ public class PlayerController : MonoBehaviour
         ApplyToTransform();
     }
 
+    /// Movement set A (task 65): swim/dive, double jump, dash. Playground's
+    /// interactive walk mode only; rigs keep the legacy DebugStep above.
+    public void DebugStep(float dt, in MotorInput input)
+    {
+        if (!_ready) return;
+        if (_hotReload && PlayerConfig.ReloadIfChanged()) _motor.Config = PlayerConfig.Active;
+        _motor.Step(dt, input);
+        ApplyToTransform();
+    }
+
     public void DebugSetLook(float yawDeg, float pitchDeg)
     {
         _yawDeg = yawDeg;

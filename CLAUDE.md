@@ -244,6 +244,8 @@ F6 in play opens the settings menu (task 58): saved to `PlaySettings.json` besid
 `PlayerConfig.json`, flags override it per field for one run; rigs/capture runs (and `-fluidprobe`) never read it.
 Task 64 (gameplay step 1): play starts in SURVIVAL (F6 "Game mode" / `-gamemode creative`): LMB digs into a
 36-slot inventory, RMB places a grid-snapped cube, E bag, Q size; rigs never read the file, so they stay Creative.
+Task 65 (gameplay step 2): in play, walk mode has swim/dive (Space up, Left Ctrl down), a double jump and a Left
+Shift dash (`PlayerMotor.Step(dt, in MotorInput)`, numbers in PlayerConfig.json); rigs keep the legacy Step.
 
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change

@@ -44,7 +44,58 @@
 //    ChunkStore refuse the insert (PHASE_5C_COMPLETION.md §9.5). Continuous
 //    walking cannot do that; Teleport can. See the note there.
 
+// =========================================================================
+// MOVEMENT SET A (task 65, GAMEPLAY_PHASE_PLAN.md step 2): swim/dive, double
+// jump, dash. Only Step(dt, in MotorInput) uses them. The legacy
+// Step(dt, wish, jump) -- every rig and every pre-existing test -- runs the
+// exact old arithmetic: no swimming (a body sinks through water, as
+// APlayerDoesNotStandOnWater pins), no air jump, no dash.
+//
+// SWIMMING STILL SAMPLES ONE-WAY (§8.6). The motor reads fluid bytes at the
+// Buoyancy probe positions and never writes or wakes anything. Swim = the
+// Center probe (half the body height) is in a liquid -- ">= 50% submerged".
+// While swimming, gravity is replaced by a target velocity: WASD along the
+// look direction, Space up, Ctrl down, capped at swimSpeedMps scaled down by
+// the fluid's drag relative to water's; with no vertical input the body
+// floats so its swimFloatHeightM point sits at the water line.
+// =========================================================================
+
 using Unity.Mathematics;
+
+/// One frame of player intent for Step(dt, in MotorInput). Build it with
+/// FromLook so every caller turns keys + camera angles into the same vectors.
+public struct MotorInput
+{
+    /// World-space horizontal wish, exactly the legacy Step's `wishDirXZ`.
+    public float2 WishXZ;
+    /// The same keys in the CAMERA's frame, pitch included: swimming moves
+    /// along this (look down + W = dive).
+    public float3 LookWish;
+    /// Unit horizontal look direction. A dash with no move key goes this way.
+    public float2 ForwardXZ;
+    /// Edge-triggered jump (ground jump, double jump, jump out of water).
+    public bool JumpPressed;
+    /// Held: swim up. Held: swim down.
+    public bool UpHeld, DownHeld;
+    /// Edge-triggered dash.
+    public bool DashPressed;
+
+    /// `move` = (strafe, forward) in -1..1 from the keys; Unity camera angles
+    /// (pitch positive = looking down).
+    public static MotorInput FromLook(float2 move, float yawDeg, float pitchDeg)
+    {
+        float y = math.radians(yawDeg), p = math.radians(pitchDeg);
+        float sy = math.sin(y), cy = math.cos(y), sp = math.sin(p), cp = math.cos(p);
+        var fwd3 = new float3(sy * cp, -sp, cy * cp);
+        var right3 = new float3(cy, 0f, -sy);
+        return new MotorInput
+        {
+            WishXZ = new float2(move.x * cy + move.y * sy, move.y * cy - move.x * sy),
+            LookWish = right3 * move.x + fwd3 * move.y,
+            ForwardXZ = new float2(sy, cy),
+        };
+    }
+}
 
 public sealed class PlayerMotor
 {
@@ -98,6 +149,29 @@ public sealed class PlayerMotor
     /// movement bug -- and it would otherwise be invisible.
     public bool LastBlockedByNonResident;
 
+    // ---- Movement set A state (Step(dt, in MotorInput) only). ----
+
+    /// The Center probe is in a liquid this step: gravity is off, the swim
+    /// target velocity drives the body.
+    public bool Swimming;
+    /// The liquid being swum in, Air when not swimming.
+    public byte SwimFluid = Materials.Air;
+    /// Air jumps spent since the last landing / entering fluid.
+    public int AirJumpsUsed;
+    /// Seconds left in the current dash; > 0 while dashing.
+    public float DashTimeLeftS;
+    /// Seconds until the next dash may start (the HUD's cooldown bar).
+    public float DashCooldownS;
+    /// A dash was started in this airtime (one per airtime).
+    public bool DashUsedInAir;
+    public float2 DashDir;
+    /// After a jump out of water, swimming stays off this long so the swim
+    /// target velocity does not cancel the jump before the body leaves.
+    public float SwimLockS;
+    public bool LastDoubleJump, LastDashStarted, LastWaterJump;
+
+    public bool Dashing => DashTimeLeftS > 0f;
+
     public PlayerMotor(IWorldQuery world, IVoxelResidency residency, PlayerConfig config)
     {
         _world = world;
@@ -141,13 +215,23 @@ public sealed class PlayerMotor
     // Stepping
     // =====================================================================
 
-    /// Advances one frame.
+    /// Advances one frame. THE LEGACY PATH: walk, jump, step-up only -- no
+    /// swim, no air jump, no dash -- exactly as before movement set A, so rigs
+    /// and the existing PlayerMotorTests are unchanged.
     ///
     /// `wishDirXZ` is the desired horizontal direction in world space; magnitude
     /// above 1 is clamped, so a caller may pass a raw stick vector. `jumpPressed`
     /// is EDGE-triggered -- the caller is responsible for not holding it, which
     /// is what makes coyote time observable rather than papered over by autohop.
     public void Step(float dt, float2 wishDirXZ, bool jumpPressed)
+        => StepCore(dt, new MotorInput { WishXZ = wishDirXZ, JumpPressed = jumpPressed }, false);
+
+    /// Advances one frame with movement set A (swim/dive, double jump, dash).
+    /// With no fluid around and no dash or air jump pressed it does exactly
+    /// what the legacy Step does.
+    public void Step(float dt, in MotorInput input) => StepCore(dt, input, true);
+
+    private void StepCore(float dt, in MotorInput input, bool abilities)
     {
         if (dt <= 0f) return;
         PlayerConfig c = Config;
@@ -155,8 +239,61 @@ public sealed class PlayerMotor
         LastStepUpApplied = false;
         LastBlockedHorizontally = false;
         LastBlockedByNonResident = false;
+        LastDoubleJump = LastDashStarted = LastWaterJump = false;
+        bool jumpPressed = input.JumpPressed;
+
+        if (!abilities)
+        {
+            Swimming = false;
+            SwimFluid = Materials.Air;
+            DashTimeLeftS = 0f;
+        }
+        else
+        {
+            if (SwimLockS > 0f) SwimLockS = math.max(0f, SwimLockS - dt);
+            if (DashCooldownS > 0f) DashCooldownS = math.max(0f, DashCooldownS - dt);
+            UpdateSwimming();
+            if (Swimming) { AirJumpsUsed = 0; DashUsedInAir = false; DashTimeLeftS = 0f; }
+
+            // Jump out of water: only at the surface (head probe dry), at the
+            // normal jump impulse; swimming then stays off for SwimLockS.
+            if (Swimming && jumpPressed && !InLiquid(Buoyancy.ProbePosition(PositionM, c.bodyHeightM, BuoyancyProbe.Head), out _))
+            {
+                Swimming = false;
+                SwimFluid = Materials.Air;
+                SwimLockS = c.waterJumpSwimLockS;
+                VelocityMps.y = c.jumpImpulseMps;
+                Grounded = false;
+                TimeSinceGroundedS = c.coyoteTimeSeconds + 1f;
+                jumpPressed = false;
+                LastWaterJump = true;
+            }
+
+            // Dash: not in fluid, not while one runs, off cooldown, one per airtime.
+            if (input.DashPressed && !Swimming && !Dashing && DashCooldownS <= 0f
+                && (Grounded || !DashUsedInAir) && c.dashSpeedMps > 0f && c.dashDurationS > 0f)
+            {
+                float wl = math.length(input.WishXZ);
+                float2 dir = wl > 1e-5f ? input.WishXZ / wl : math.normalizesafe(input.ForwardXZ, new float2(0f, 1f));
+                DashDir = dir;
+                DashTimeLeftS = c.dashDurationS;
+                DashCooldownS = c.dashCooldownS;
+                if (!Grounded) DashUsedInAir = true;
+                LastDashStarted = true;
+            }
+
+            if (Dashing) { StepDash(dt); UpdateGrounded(dt); return; }
+            if (Swimming)
+            {
+                StepSwim(dt, input);
+                MoveWithCollision(VelocityMps * dt);
+                UpdateGrounded(dt);
+                return;
+            }
+        }
 
         // ---- 1. Horizontal acceleration -------------------------------
+        float2 wishDirXZ = input.WishXZ;
         float wishLen = math.length(wishDirXZ);
         float2 wishDir = wishLen > 1e-5f ? wishDirXZ / wishLen : float2.zero;
         float wishScale = math.min(wishLen, 1f);
@@ -196,6 +333,14 @@ public sealed class PlayerMotor
             // across two frames of the same fall.
             TimeSinceGroundedS = c.coyoteTimeSeconds + 1f;
         }
+        else if (abilities && jumpPressed && AirJumpsUsed < c.airJumps)
+        {
+            // Double jump: SETS the vertical speed (a falling body gets the
+            // same lift as a rising one), reset by landing or entering fluid.
+            VelocityMps.y = c.jumpImpulseMps * c.airJumpImpulseScale;
+            AirJumpsUsed++;
+            LastDoubleJump = true;
+        }
 
         // ---- 3. Gravity ------------------------------------------------
         VelocityMps.y -= c.gravityMps2 * dt;
@@ -206,24 +351,157 @@ public sealed class PlayerMotor
         MoveWithCollision(delta3);
 
         // ---- 5. Grounded state ------------------------------------------
-        // GroundProbeM LOOKS AHEAD, IT DOES NOT STOP THE FALL. Zeroing the
-        // downward velocity here as well cost a visible 2 cm hover: the probe
-        // sees the surface up to GroundProbeM early, so killing the velocity on
-        // that signal parks the player just above the ground and "feet rest on
-        // the surface" quietly becomes false. Landing is MoveAxis's job -- it
-        // snaps to the contact plane and zeroes VelocityMps.y there. This flag
-        // only answers "may I jump", where reading ground slightly early is the
-        // intended tolerance.
+        UpdateGrounded(dt);
+    }
+
+    /// GroundProbeM LOOKS AHEAD, IT DOES NOT STOP THE FALL. Zeroing the
+    /// downward velocity here as well cost a visible 2 cm hover: the probe
+    /// sees the surface up to GroundProbeM early, so killing the velocity on
+    /// that signal parks the player just above the ground and "feet rest on
+    /// the surface" quietly becomes false. Landing is MoveAxis's job -- it
+    /// snaps to the contact plane and zeroes VelocityMps.y there. This flag
+    /// only answers "may I jump", where reading ground slightly early is the
+    /// intended tolerance.
+    private void UpdateGrounded(float dt)
+    {
         bool groundedNow = VelocityMps.y <= 0f && IsGroundedAt(PositionM);
         if (groundedNow)
         {
             Grounded = true;
             TimeSinceGroundedS = 0f;
+            AirJumpsUsed = 0;
+            DashUsedInAir = false;
         }
         else
         {
             Grounded = false;
             TimeSinceGroundedS += dt;
+        }
+    }
+
+    // =====================================================================
+    // Movement set A
+    // =====================================================================
+
+    /// A LIQUID: a fluid that is not a gas (steam is a fluid but nobody swims
+    /// in it). Non-resident reads dry, Buoyancy's rule: missing a swim for a
+    /// frame is harmless, inventing one at the window edge is a launch.
+    private bool InLiquid(float3 pointM, out byte material)
+    {
+        if (!VoxelCollision.IsFluid(_world, _residency, CoordMath.WorldToVoxel(pointM), out material)) return false;
+        if (MaterialRules.IsGasMaterial(material)) { material = Materials.Air; return false; }
+        return true;
+    }
+
+    private bool InLiquid(int3 voxel)
+    {
+        byte m;
+        return VoxelCollision.IsFluid(_world, _residency, voxel, out m) && !MaterialRules.IsGasMaterial(m);
+    }
+
+    /// ">= 50% submerged" = the Buoyancy Center probe (half the body) is in a liquid.
+    private void UpdateSwimming()
+    {
+        byte m = Materials.Air;
+        bool wet = SwimLockS <= 0f
+                   && InLiquid(Buoyancy.ProbePosition(PositionM, Config.bodyHeightM, BuoyancyProbe.Center), out m);
+        Swimming = wet;
+        SwimFluid = wet ? m : Materials.Air;
+    }
+
+    /// The swim speed cap in this fluid: swimSpeedMps in water, scaled by
+    /// water's drag / this fluid's drag when that is thicker (oil 0.6x,
+    /// lava 0.25x, sludge 0.17x).
+    public float SwimCapMps(byte fluid)
+    {
+        float drag = MaterialRules.ViscosityDrag(fluid);
+        float waterDrag = MaterialRules.ViscosityDrag(Materials.Water);
+        return Config.swimSpeedMps * (drag > waterDrag ? waterDrag / drag : 1f);
+    }
+
+    private void StepSwim(float dt, in MotorInput input)
+    {
+        PlayerConfig c = Config;
+        float cap = SwimCapMps(SwimFluid);
+
+        float3 wish = input.LookWish;
+        wish.y += (input.UpHeld ? 1f : 0f) - (input.DownHeld ? 1f : 0f);
+        float wl = math.length(wish);
+        if (wl > 1f) wish /= wl;
+        float3 target = wish * cap;
+        // No vertical intent: float so the swimFloatHeightM point sits at the water line.
+        if (math.abs(wish.y) < 0.05f) target.y = FloatTargetVy();
+        float tl = math.length(target);
+        if (tl > cap) target *= cap / tl;
+
+        // Arriving faster than the cap (a dive from height): the fluid's drag
+        // bleeds the excess, never below the cap.
+        float3 v = VelocityMps;
+        float sp = math.length(v);
+        if (sp > cap)
+        {
+            float drag = math.max(MaterialRules.ViscosityDrag(SwimFluid), 0.5f);
+            v *= math.max(cap, sp * math.exp(-drag * dt)) / sp;
+        }
+
+        float3 d = target - v;
+        float dl = math.length(d);
+        float step = c.swimAccelMps2 * dt;
+        v += dl > step ? d / dl * step : d;
+        VelocityMps = v;
+    }
+
+    /// Vertical speed that brings the float point to the water line above (or
+    /// below) it, proportional to the distance, limited to swimFloatRiseMps.
+    private float FloatTargetVy()
+    {
+        PlayerConfig c = Config;
+        float3 fp = PositionM + new float3(0f, c.swimFloatHeightM, 0f);
+        int3 v = CoordMath.WorldToVoxel(fp);
+        float surfaceY;
+        if (InLiquid(v))
+        {
+            int k = 1;
+            while (k <= 40 && InLiquid(v + new int3(0, k, 0))) k++;
+            if (k > 40) return c.swimFloatRiseMps;            // deep: rise at full float speed
+            surfaceY = (v.y + k) * VoxelSizeM;
+        }
+        else
+        {
+            int maxK = (int)math.ceil(c.swimFloatHeightM / VoxelSizeM) + 1;
+            int k = 1;
+            while (k <= maxK && !InLiquid(v - new int3(0, k, 0))) k++;
+            if (k > maxK) return -c.swimFloatRiseMps;
+            surfaceY = (v.y - k + 1) * VoxelSizeM;
+        }
+        return math.clamp((surfaceY - fp.y) * c.swimFloatGainPerS, -c.swimFloatRiseMps, c.swimFloatRiseMps);
+    }
+
+    /// One dash frame: dashSpeedMps along DashDir with gravity held off, swept
+    /// through the same substep collision as walking (no tunnelling). The frame
+    /// the dash ends in is split so the dash covers exactly speed x duration
+    /// whatever the frame rate; after it the body keeps maxSpeedMps. A wall
+    /// ends the dash.
+    private void StepDash(float dt)
+    {
+        PlayerConfig c = Config;
+        float part = math.min(dt, DashTimeLeftS);
+        DashTimeLeftS -= part;
+        float2 exitV = DashDir * c.maxSpeedMps;
+        float2 hv = (DashDir * (c.dashSpeedMps * part) + exitV * (dt - part)) / dt;
+        VelocityMps = new float3(hv.x, 0f, hv.y);
+        MoveWithCollision(VelocityMps * dt);
+        if (LastBlockedHorizontally)
+        {
+            DashTimeLeftS = 0f;
+            VelocityMps.x = 0f;
+            VelocityMps.z = 0f;
+        }
+        else if (DashTimeLeftS <= 0f)
+        {
+            DashTimeLeftS = 0f;
+            VelocityMps.x = exitV.x;
+            VelocityMps.z = exitV.y;
         }
     }
 
@@ -332,7 +610,9 @@ public sealed class PlayerMotor
 
         // Only from the ground. Without this the player can climb a wall in
         // mid-air by holding into it, one step per frame.
-        if (!Grounded && TimeSinceGroundedS > Config.coyoteTimeSeconds) return;
+        // A swimmer may step up too: that is how a body leaves a lake onto a
+        // low bank (Swimming is never set on the legacy path).
+        if (!Grounded && TimeSinceGroundedS > Config.coyoteTimeSeconds && !Swimming) return;
 
         // MoveAxis may have snapped us flush against the wall; step from where
         // we started so the lift is measured against open space.
@@ -389,6 +669,8 @@ public sealed class PlayerMotor
     {
         PositionM = feetCentre;
         VelocityMps = float3.zero;
+        DashTimeLeftS = 0f;
+        AirJumpsUsed = 0;
         Grounded = IsGroundedAt(feetCentre);
         TimeSinceGroundedS = Grounded ? 0f : Config.coyoteTimeSeconds + 1f;
     }

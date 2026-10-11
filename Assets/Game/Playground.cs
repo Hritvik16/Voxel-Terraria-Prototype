@@ -104,7 +104,7 @@ using VoxelEngine.Memory;
 using VoxelEngine.Mirror;
 using VoxelEngine.Simulation;
 
-public class Playground : MonoBehaviour
+public partial class Playground : MonoBehaviour
 {
     [SerializeField] private ComputeShader _fluidCA;
     [Tooltip("Arena edge in voxels. Power of two -- the CA addresses its region with shifts.")]
@@ -353,6 +353,7 @@ public class Playground : MonoBehaviour
         // the settings menu's saved file instead, flags still winning per field
         // (SettingsMenu.LoadAndApply, below). Its defaults are exactly fsr3 dyn.
         bool playSettings = IsPlaySettingsRun();
+        _moveAbilities = playSettings;
         if (!playSettings)
         {
             if (UpscalerSelect.FromArgs(out var upsKind, out int upsRows, out bool upsDyn)) UpscalerSelect.Apply(upsKind, upsRows, upsDyn);
@@ -514,6 +515,8 @@ public class Playground : MonoBehaviour
         if (Phase4Bootstrapper.IsTg2World && !IsCaptureRun()) StartCoroutine(SettleStartPose(HasArg("-startview")));
         // -survivaldemo (task 64): the step-1 screenshots, through the real dig/place paths, then quit.
         if (!IsCaptureRun() && HasArg("-survivaldemo")) StartCoroutine(SurvivalDemo());
+        // -movedemo (task 65): movement set A's screenshots (dive, double jump over a gap), then quit.
+        if (!IsCaptureRun() && HasArg("-movedemo")) StartCoroutine(MoveDemo());
     }
 
     /// For overlays (Minimap) that must stay out of capture frames.
@@ -1600,11 +1603,30 @@ public class Playground : MonoBehaviour
         float sin = math.sin(r), cos = math.cos(r);
         float2 world = new float2(wish.x * cos + wish.y * sin, wish.y * cos - wish.x * sin);
 
-        bool jump = (_cam == null || _cam.Captured) && Input.GetKeyDown(KeyCode.Space);
-        _player.DebugStep(dt, world, jump);
+        bool keys = _cam == null || _cam.Captured;
+        bool jump = keys && Input.GetKeyDown(KeyCode.Space);
+        if (!_moveAbilities) _player.DebugStep(dt, world, jump);
+        else
+        {
+            // Movement set A (task 65): swim/dive, double jump, dash. Interactive
+            // runs only; rigs and captures keep the legacy step above.
+            var input = MotorInput.FromLook(wish, yaw, _cam != null ? _cam.Pitch : 0f);
+            input.JumpPressed = jump;
+            input.UpHeld = keys && Input.GetKey(KeyCode.Space);
+            input.DownHeld = keys && Input.GetKey(KeyCode.LeftControl);
+            input.DashPressed = keys && Input.GetKeyDown(KeyCode.LeftShift);
+            if (_demoInput.HasValue) input = _demoInput.Value;
+            _demoInput = null;
+            _player.DebugStep(dt, input);
+        }
 
         ApplyBuoyancy(dt);
     }
+
+    /// Movement set A on (interactive runs). Set in Start.
+    private bool _moveAbilities;
+    /// -movedemo: one frame of scripted input, consumed by the next DriveWalk.
+    private MotorInput? _demoInput;
 
     /// SWIMMING, COMPOSED IN THE GAME LAYER. See header note 4.
     ///
@@ -1622,6 +1644,9 @@ public class Playground : MonoBehaviour
                                       PlayerConfig.Active.maxSpeedMps,
                                       _readback != null ? _readback.FramesSinceLastApplied : 0);
         if (!_buoyState.InFluid) return;
+        // A swimming motor (movement set A) already moves at the fluid's own
+        // swim speed; the game-layer forces below are for wading and sinking.
+        if (motor.Swimming || motor.SwimLockS > 0f) return;
 
         motor.VelocityMps.y += _buoyState.BuoyantAccelMps2 * dt;
 
@@ -2154,6 +2179,7 @@ public class Playground : MonoBehaviour
 
         DrawTopBar(vw);
         if (SurvivalMode) DrawSurvivalHotbar(vw, vh); else DrawHotbar(vw, vh);
+        DrawMoveHud(vw, vh);
         if (!_demoHideState) DrawStatePanel(vh);
         if (SurvivalMode && InventoryOpen && !SettingsMenu.IsOpen) DrawInventoryPanel(vw, vh);
         else if (_showHelp && !SettingsMenu.IsOpen) DrawHelp(vw, vh);   // the menu (F6) sits where help does
@@ -2245,6 +2271,29 @@ public class Playground : MonoBehaviour
     }
 
     /// Survival's hotbar: the inventory's first 9 slots, counts in voxels.
+    /// Movement set A (task 65): the dash cooldown bar, and what the body is
+    /// doing (swimming in X / double jump spent), above the hotbar.
+    private void DrawMoveHud(float vw, float vh)
+    {
+        if (!_moveAbilities || _mode != MoveMode.Walk || _player == null || _player.Motor == null) return;
+        var m = _player.Motor;
+        var c = m.Config;
+        const float w = 200f, h = 10f;
+        float x = (vw - w) * 0.5f, y = vh - 58f - 58f - 44f;
+        float ready = c.dashCooldownS > 0f ? 1f - Mathf.Clamp01(m.DashCooldownS / c.dashCooldownS) : 1f;
+        bool airSpent = !m.Grounded && !m.Swimming && m.DashUsedInAir;
+        Box(new Rect(x - 1, y - 1, w + 2, h + 2), new Color(0f, 0f, 0f, 0.55f));
+        Box(new Rect(x, y, w * ready, h), ready >= 1f && !airSpent ? new Color(0.45f, 0.9f, 1f, 0.9f)
+                                                                  : new Color(0.55f, 0.6f, 0.65f, 0.8f));
+        string state = m.Swimming ? $"swimming in {MaterialName(m.SwimFluid)}  <b>Space</b> up  <b>Ctrl</b> down"
+                     : m.Dashing ? "<b>DASH</b>"
+                     : !m.Grounded ? (m.AirJumpsUsed < c.airJumps ? "air: <b>Space</b> double jump" : "double jump spent")
+                     : "";
+        GUI.Label(new Rect(x - 120, y - 19, w + 240, 18),
+                  $"<b>Shift</b> dash {(ready >= 1f && !airSpent ? "ready" : "")}   {state}",
+                  Label(11, TextAnchor.MiddleCenter));
+    }
+
     private void DrawSurvivalHotbar(float vw, float vh)
     {
         const float slot = 58f, pad = 6f;
@@ -2488,6 +2537,9 @@ public class Playground : MonoBehaviour
         sb.AppendLine("");
         sb.AppendLine("<b><color=#cfe3f5>MOVE</color></b>");
         sb.AppendLine("  <b>WASD</b> walk    <b>Space</b> jump    <b>Shift</b> fast (fly)    <b>Q/E</b> down/up (fly)");
+        if (_moveAbilities)
+            sb.AppendLine("  <b><color=#ffd479>Space</color></b> in the air: double jump    <b><color=#ffd479>Shift</color></b> dash (walk)    " +
+                          "in water: <b>WASD</b> swim where you look, <b>Space</b> up / jump out, <b>Ctrl</b> down");
         sb.AppendLine("  <b>Tab</b> walk ↔ fly      <b>R</b> respawn on the surface      <b>F</b> go to the basin");
         sb.AppendLine("");
         if (SurvivalMode)

@@ -98,6 +98,44 @@ public sealed class PlayerConfig
     public float maxSubstepVoxels = 0.5f;
 
     // =====================================================================
+    // MOVEMENT SET A (task 65, GAMEPLAY_PHASE_PLAN.md step 2, P13-P16).
+    // Read only by PlayerMotor.Step(dt, in MotorInput); the legacy Step and
+    // every rig ignore them.
+    // =====================================================================
+
+    /// Swim speed cap in water, m/s (P14). Thicker fluids scale it down by
+    /// water's drag / theirs (PlayerMotor.SwimCapMps).
+    public float swimSpeedMps = 3.0f;
+
+    /// How fast the swim velocity turns toward the wish, m/s^2.
+    public float swimAccelMps2 = 12f;
+
+    /// Height above the feet that floats AT the water line when idle, metres.
+    /// 1.3 m puts the eye (1.6 m) 0.3 m above the water.
+    public float swimFloatHeightM = 1.3f;
+
+    /// Fastest an idle swimmer rises to (or settles onto) the surface, m/s.
+    public float swimFloatRiseMps = 1.0f;
+
+    /// Float speed per metre of distance from the water line, 1/s.
+    public float swimFloatGainPerS = 4f;
+
+    /// After jumping out of water, swimming stays off this long, seconds.
+    public float waterJumpSwimLockS = 0.35f;
+
+    /// Extra jumps in the air (the double jump). Reset on landing or entering fluid.
+    public int airJumps = 1;
+
+    /// The air jump's impulse as a fraction of jumpImpulseMps.
+    public float airJumpImpulseScale = 0.85f;
+
+    /// Dash peak speed (m/s), duration (s) and cooldown from its start (s).
+    /// 14 x 0.18 = 2.52 m. One dash per airtime.
+    public float dashSpeedMps = 14f;
+    public float dashDurationS = 0.18f;
+    public float dashCooldownS = 0.8f;
+
+    // =====================================================================
     // Validation
     // =====================================================================
 
@@ -126,6 +164,25 @@ public sealed class PlayerConfig
         bodyWidthM       = Fix(bodyWidthM, 0.05f, 10f, 0.6f, nameof(bodyWidthM), notes);
         bodyHeightM      = Fix(bodyHeightM, 0.2f, 20f, 1.8f, nameof(bodyHeightM), notes);
         maxSubstepVoxels = Fix(maxSubstepVoxels, 0.05f, 4f, 0.5f, nameof(maxSubstepVoxels), notes);
+        swimSpeedMps     = Fix(swimSpeedMps, 0.1f, 50f, 3.0f, nameof(swimSpeedMps), notes);
+        swimAccelMps2    = Fix(swimAccelMps2, 0.1f, 1000f, 12f, nameof(swimAccelMps2), notes);
+        swimFloatHeightM = Fix(swimFloatHeightM, 0.1f, 20f, 1.3f, nameof(swimFloatHeightM), notes);
+        swimFloatRiseMps = Fix(swimFloatRiseMps, 0f, 50f, 1.0f, nameof(swimFloatRiseMps), notes);
+        swimFloatGainPerS = Fix(swimFloatGainPerS, 0.1f, 100f, 4f, nameof(swimFloatGainPerS), notes);
+        waterJumpSwimLockS = Fix(waterJumpSwimLockS, 0f, 5f, 0.35f, nameof(waterJumpSwimLockS), notes);
+        airJumpImpulseScale = Fix(airJumpImpulseScale, 0f, 4f, 0.85f, nameof(airJumpImpulseScale), notes);
+        dashSpeedMps     = Fix(dashSpeedMps, 0f, 100f, 14f, nameof(dashSpeedMps), notes);
+        dashDurationS    = Fix(dashDurationS, 0f, 2f, 0.18f, nameof(dashDurationS), notes);
+        dashCooldownS    = Fix(dashCooldownS, 0f, 30f, 0.8f, nameof(dashCooldownS), notes);
+        if (airJumps < 0) { notes.Append($"{nameof(airJumps)} {airJumps}->0; "); airJumps = 0; }
+        if (airJumps > 5) { notes.Append($"{nameof(airJumps)} {airJumps}->5; "); airJumps = 5; }
+        // The float point must be inside the body, or an idle swimmer floats
+        // with the whole body under water.
+        if (swimFloatHeightM > bodyHeightM)
+        {
+            notes.Append($"{nameof(swimFloatHeightM)} {swimFloatHeightM.ToString(CultureInfo.InvariantCulture)}->{bodyHeightM.ToString(CultureInfo.InvariantCulture)} (capped to body height); ");
+            swimFloatHeightM = bodyHeightM;
+        }
 
         if (stepHeightVoxels < 0) { notes.Append($"{nameof(stepHeightVoxels)} {stepHeightVoxels}->0; "); stepHeightVoxels = 0; }
         if (stepHeightVoxels > 64) { notes.Append($"{nameof(stepHeightVoxels)} {stepHeightVoxels}->64; "); stepHeightVoxels = 64; }
@@ -193,6 +250,18 @@ public sealed class PlayerConfig
 
     public string ToJson() => JsonUtility.ToJson(this, true);
 
+    /// The public fields whose name does not appear in `json` (comma list), or
+    /// null when every field is present.
+    public static string MissingFields(string json)
+    {
+        if (json == null) return null;
+        var sb = new System.Text.StringBuilder();
+        foreach (var f in typeof(PlayerConfig).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            if (json.IndexOf("\"" + f.Name + "\"", StringComparison.Ordinal) < 0)
+                sb.Append(sb.Length == 0 ? "" : ", ").Append(f.Name);
+        return sb.Length == 0 ? null : sb.ToString();
+    }
+
     // =====================================================================
     // The live instance + hot reload
     // =====================================================================
@@ -235,6 +304,17 @@ public sealed class PlayerConfig
             {
                 _active = new PlayerConfig();
                 ReloadNow();
+                // A file written before a field existed (task 65 added the
+                // movement-set-A numbers) gets the missing fields appended at
+                // their defaults, so every tunable is visible in the file.
+                // Only when it parsed cleanly: a file with a typo is left alone.
+                string json = File.ReadAllText(_path);
+                string missing = MissingFields(json);
+                if (LastError == null && missing != null)
+                {
+                    File.WriteAllText(_path, _active.ToJson());
+                    Debug.Log($"[PlayerConfig] added {missing} at defaults -> {_path}");
+                }
             }
             StampFile();
             Debug.Log($"[PlayerConfig] tune live by editing {_path}");

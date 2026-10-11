@@ -74,6 +74,8 @@ keys (Playground.cs RegisterDefaultToys, PlaygroundFlyCamera, PlaygroundHud, Min
   click         capture the mouse (first click only captures)   Esc  release it
   Tab           walk <-> fly      R respawn on ground    F go to the fluid arena (the start pose)
   WASD          move; walk: Space jump; fly: E up, Q down, Left Shift fast (E/Q: Survival keys in walk)
+  walk moves    Space in the air: double jump   Left Shift: dash (0.8 s cooldown bar above the hotbar)
+                in water: WASD swims where you look, Space up / jump out at the surface, Left Ctrl down
   SURVIVAL (default; F6 Game mode or -gamemode creative switches):
   mouse L / R   dig into the inventory (held) / place a cube of the held block (cyan box)
   wheel or 1-9  hotbar slot    Q cube size 0.1/0.2/0.4/0.8 m    E inventory (click two slots to swap)
