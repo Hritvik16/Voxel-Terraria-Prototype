@@ -592,6 +592,18 @@ real and separate reason — see the LOD-cascade finding in
   Bloom/Vignette/tonemap otherwise tints the frame grey once post is on for
   FSR). Measured: Performance 15.1-15.6 ms, 16.8 ms pitched at the ground,
   Balanced 19.7 ms, vs 55.2 ms shipped (`Logs/perf60_20260926_031103.txt`).
+- **TEMPORAL SHADOW REUSE SHOWED THE NEIGHBOURS' SHADOWS -- the owner's "shadow dots"
+  (BUGS #1; found and FIXED task 56, 2026-10-10).** Play has `-tshadow` ON (every preset,
+  and FSR 3 keeps it). The history was looked up at the hit voxel's CENTRE (inside the
+  solid: on a top face seen from walking height it projects ~1.5 voxels nearer, onto the
+  neighbour's face) and accepted on a 2%/2-voxel depth window the neighbour passes, so the
+  3 of 4 tiles not tracing that frame showed a lattice of 8x8-pixel squares at a low sun.
+  Now: the pixel's surface point is reprojected and the history is keyed by the shadow-
+  origin cell (`ShadowOriginKey`). `./run-shadow-dots.sh` (`-shadowdots`) checks the
+  sunVis view against ShadowRayReference per pixel: golden hour, -tshadow 1, false-dark
+  1.1-5.4% -> 0.01-0.53%, identical to -tshadow 0. The left-over 0.4-0.5% false-dark and
+  the ~0.3-0.6% false-lit (both modes, slope2/shore) are the oracle-vs-shader gaps already
+  stated in PHASE_7_COMPLETION.md (dense-brick-only penumbra), not looked into further.
 - **WHILE THE CAMERA MOVES, 8-10% OF FRAMES EXCEED 33 ms (found 2026-09-26, NOT
   FIXED).** Present at every preset. Not the fluid (`-nofluid`), not the HUD
   (`-nohud`). The one valid still-camera arm had the same mean and ~0 such

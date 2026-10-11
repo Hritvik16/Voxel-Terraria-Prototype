@@ -207,12 +207,24 @@ int _CollectShadowStats;
 // with shadows, 18.6 ms without). The world is static between edits, so a
 // pixel traces its sun ray on ONE frame in four (a rotating 2x2 pattern) and
 // otherwise reuses last frame's value at its reprojected position -- only when
-// the previous frame saw the SAME surface there (depth within 2% + 2 voxels);
-// anything newly revealed traces. Off unless _TemporalShadows (-tshadow 1).
-StructuredBuffer<float2> ShadowHistR;      // x = sunVis, y = distance (voxels) from that frame's camera; y < 0 = none
-RWStructuredBuffer<float2> ShadowHistW;
+// the previous frame traced the SAME shadow origin there; anything newly
+// revealed traces. Off unless _TemporalShadows (-tshadow 1).
+//
+// TASK 56 (BUGS #1, the owner's "shadow acne -- dots on the terrain"). The
+// history used to be looked up at the hit voxel's CENTRE, a point inside the
+// solid: on a top face seen at walking height it projects ~1.5 voxels nearer
+// the camera, onto the NEIGHBOUR's face, and "same surface" was a depth window
+// (2% + 2 voxels) that the neighbour passes. So the non-tracing tiles showed
+// their neighbours' shadows: a lattice of 8x8-pixel squares, lit-in-dark and
+// dark-in-light, on stepped ground at a low sun (1-6% of pixels disagreed
+// with ShadowRayReference at golden hour; 0.01-0.5% with -tshadow 0).
+// Now the pixel's own SURFACE POINT is reprojected (as TAA does) and the
+// history is keyed by the shadow-origin cell (hit voxel + normal), which is
+// everything TraceShadowRay's result depends on: a match reuses exactly the
+// value this pixel would trace (bar the sun's drift over a few frames).
+StructuredBuffer<uint2> ShadowHistR;      // x = asuint(sunVis), y = ShadowOriginKey; 0xFFFFFFFF = none
+RWStructuredBuffer<uint2> ShadowHistW;
 float4x4 _PrevViewProj;
-float4 _PrevCamVox;
 int _TemporalShadows;
 int _ShadowHistValid;
 uint _ShadowFrame;
@@ -1479,6 +1491,15 @@ void LeapSpanReseedClosedForm(inout int3 voxel, inout float3 tMax, inout float c
 // Everything else -- the leap primitives, the bounds guard, the content-ceiling
 // early exit -- is the same already-proven code, called with different numbers.
 // ===========================================================================
+
+/// The temporal-shadow history key: the shadow ray's origin cell (TraceShadowRay
+/// reads nothing else of the pixel). x and z keep 11 bits, y 9 (204.8 m and
+/// 51.2 m periods, far beyond any one-frame reprojection); bit 31 stays clear so
+/// no key equals the 0xFFFFFFFF "none".
+uint ShadowOriginKey(int3 c)
+{
+    return ((uint)c.x & 0x7FFu) | (((uint)c.y & 0x1FFu) << 11) | (((uint)c.z & 0x7FFu) << 20);
+}
 
 struct ShadowHit
 {
@@ -3027,9 +3048,10 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         bool reuse = (_ShadowQualityLevel == 1) && distant;
         bool isQuadLead = ((gtid.x & 1u) == 0u) && ((gtid.y & 1u) == 0u);
 
-        // Temporal reuse: is last frame's value for this surface usable?
+        // Temporal reuse: is last frame's value for this shadow origin usable?
         bool histHit = false;
         float histVis = 1.0;
+        uint shadowKey = ShadowOriginKey(voxel + normal);
         if (_TemporalShadows != 0 && needsShadowRay && _ShadowHistValid != 0)
         {
             // The rotation is per 8x8 THREAD GROUP, not per pixel: a group runs
@@ -3048,30 +3070,29 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             bool myTurn = (((tile.x & 1u) | ((tile.y & 1u) << 1u)) == (sFrame & 3u));
             if (!myTurn)
             {
-                float3 pv = float3(voxel) + 0.5;
-                float4 pc = mul(_PrevViewProj, float4(pv * 0.1, 1.0));
+                // This pixel's own surface point, where it was last frame. The
+                // nearest pixel first, then its neighbours toward the point (a
+                // face only a few pixels wide often lands one over); the key
+                // decides, so trying more can only find the exact value or none.
+                // Checkerboard: last frame wrote only ITS half of the pixels (the
+                // other half of that buffer holds the never-matching fill), so
+                // the neighbours are what find it there.
+                float3 hp = rayStart + rayDir * currentDist;
+                float4 pc = mul(_PrevViewProj, float4(hp * 0.1, 1.0));
                 if (pc.w > 1e-4)
                 {
-                    float2 ndc = pc.xy / pc.w;
-                    int2 pp = int2(floor((ndc * 0.5 + 0.5) * float2(width, height)));
-                    if (pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
+                    float2 ppf = (pc.xy / pc.w * 0.5 + 0.5) * float2(width, height);
+                    int2 p0 = int2(floor(ppf));
+                    int2 dn = int2(ppf.x - p0.x >= 0.5 ? 1 : -1, ppf.y - p0.y >= 0.5 ? 1 : -1);
+                    int2 probes[4] = { p0, int2(p0.x + dn.x, p0.y), int2(p0.x, p0.y + dn.y), p0 + dn };
+                    [unroll]
+                    for (int q = 0; q < 4; q++)
                     {
-                        float2 hv = ShadowHistR[(uint)pp.y * width + (uint)pp.x];
-                        float d = length(pv - _PrevCamVox.xyz);
-                        if (hv.y >= 0.0 && abs(hv.y - d) < max(2.0, d * 0.02)) { histHit = true; histVis = hv.x; }
-                    }
-                    // Checkerboard: last frame wrote only ITS half of the pixels
-                    // (and, the buffers ping-ponging every frame, the other half of
-                    // this buffer is never written). Try the horizontal neighbour.
-                    if (checker && !histHit)
-                    {
-                        float2 ppf = (ndc * 0.5 + 0.5) * float2(width, height);
-                        pp.x += (ppf.x - pp.x >= 0.5) ? 1 : -1;
-                        if (pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
+                        int2 pp = probes[q];
+                        if (!histHit && pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
                         {
-                            float2 hv = ShadowHistR[(uint)pp.y * width + (uint)pp.x];
-                            float d = length(pv - _PrevCamVox.xyz);
-                            if (hv.y >= 0.0 && abs(hv.y - d) < max(2.0, d * 0.02)) { histHit = true; histVis = hv.x; }
+                            uint2 hv = ShadowHistR[(uint)pp.y * width + (uint)pp.x];
+                            if (hv.y == shadowKey) { histHit = true; histVis = asfloat(hv.x); }
                         }
                     }
                 }
@@ -3122,8 +3143,8 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // Temporal reuse: every pixel records what it used, for the next frame.
     if (_TemporalShadows != 0 && inBounds)
         ShadowHistW[id.y * width + id.x] = needsShadowRay
-            ? float2(sunVis, length((float3(voxel) + 0.5) - _CameraPos * 10.0))
-            : float2(0.0, -1.0);
+            ? uint2(asuint(sunVis), ShadowOriginKey(voxel + normal))
+            : uint2(0u, 0xFFFFFFFFu);
 
     // -----------------------------------------------------------------------
     // AMBIENT SKY VISIBILITY (§6.5's "underground reads near-zero ambient")

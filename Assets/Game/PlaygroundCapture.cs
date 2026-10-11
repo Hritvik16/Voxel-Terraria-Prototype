@@ -1468,6 +1468,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-upscaleab")) { yield return UpscaleAb(); yield break; }
         if (HasFlag("-lavalight")) { yield return LavaLightShots(); yield break; }
         if (HasFlag("-torchshadowshots")) { yield return TorchShadowShots(); yield break; }
+        if (HasFlag("-shadowdots")) { yield return ShadowDots(); yield break; }
         if (HasFlag("-upscalersmoke")) { yield return UpscalerSmoke(); yield break; }
         if (HasFlag("-upscalercompare")) { yield return UpscalerCompare(); yield break; }
         if (HasFlag("-upscalerclips")) { yield return UpscalerClips(); yield break; }

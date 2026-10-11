@@ -424,7 +424,7 @@ public class Playground : MonoBehaviour
             HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
             HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-torchshadowshots") || HasArg("-upscalersmoke") || HasArg("-upscalercompare") || HasArg("-upscalerclips") || HasArg("-looksweep") ||
             HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-nearshimmer") || HasArg("-fluidroster") ||
-            HasArg("-devmap") || HasArg("-taarisk") || HasArg("-fluidprobe") || HasArg("-poolprobe") || HasArg("-streamprobe") || HasArg("-flysweep"))
+            HasArg("-devmap") || HasArg("-taarisk") || HasArg("-fluidprobe") || HasArg("-poolprobe") || HasArg("-streamprobe") || HasArg("-flysweep") || HasArg("-shadowdots"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
@@ -467,7 +467,7 @@ public class Playground : MonoBehaviour
                 a == "-daysweep" || a == "-presetshots" || a == "-phase7demo" || a == "-roofskipab" || a == "-upscaleab" ||
                 a == "-lavalight" || a == "-torchshadowshots" || a == "-upscalersmoke" || a == "-upscalercompare" || a == "-upscalerclips" || a == "-looksweep" || a == "-farvisual" || a == "-farpreview" || a == "-flyfast" ||
                 a == "-farseams" || a == "-lodpop" || a == "-farshimmer" || a == "-nearshimmer" || a == "-fluidroster" || a == "-devmap" || a == "-taarisk" || a == "-streamprobe" || a == "-flysweep" || a == "-poolprobe" ||
-                a == "-stutterprobe" || a == "-lightingab" || a == "-shadowstats" || a == "-pitchsweep" || a == "-fluidbench"))
+                a == "-stutterprobe" || a == "-lightingab" || a == "-shadowstats" || a == "-pitchsweep" || a == "-fluidbench" || a == "-shadowdots"))
                 return true;
         return false;
     }

@@ -246,7 +246,6 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     private static bool _tsValid;
     private static uint _tsFrame;
     private static Matrix4x4 _tsPrevVP;
-    private static Vector3 _tsPrevCamVox;
 
     /// TEMPORAL ANTI-ALIASING (Raymarch.compute's TAA block; overnight task 06).
     /// OFF unless `-taa 1` (last match wins) or Playground's F4. Beauty view
@@ -339,7 +338,6 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public uint tsFrame;
             public GraphicsBuffer tsRead, tsWrite;
             public Matrix4x4 tsPrevVP;
-            public Vector3 tsPrevCamVox;
             public int taa, taaHistValid, taaDirtyCount, taaChecker, taaCheckerParity;
             public Vector2 taaJitter;
             public Matrix4x4 taaPrevVP;
@@ -545,15 +543,19 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         _tsA?.Release(); _tsB?.Release();
                         _tsA = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, 8);
                         _tsB = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, 8);
+                        // (sunVis, origin key) per pixel. A slot never written (the
+                        // checkerboard's other half) must never match a key: 0xFFFFFFFF.
+                        var fill = new uint[dispatchW * dispatchH * 2];
+                        for (int i = 1; i < fill.Length; i += 2) fill[i] = 0xFFFFFFFFu;
+                        _tsA.SetData(fill); _tsB.SetData(fill);
                         _tsW = dispatchW; _tsH = dispatchH; _tsValid = false;
                     }
                     passData.tsRead = _tsA; passData.tsWrite = _tsB;
                     passData.tsValid = _tsValid ? 1 : 0;
                     passData.tsFrame = _tsFrame++;
-                    passData.tsPrevVP = _tsPrevVP; passData.tsPrevCamVox = _tsPrevCamVox;
+                    passData.tsPrevVP = _tsPrevVP;
                     var tc = cameraData.camera;
                     _tsPrevVP = tc.projectionMatrix * tc.worldToCameraMatrix;
-                    _tsPrevCamVox = tc.transform.position * 10f;
                     (_tsA, _tsB) = (_tsB, _tsA);
                     _tsValid = true;
                 }
@@ -983,7 +985,6 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_ShadowHistValid", data.tsValid);
                         cmd.SetComputeIntParam(data.compute, "_ShadowFrame", (int)data.tsFrame);
                         cmd.SetComputeMatrixParam(data.compute, "_PrevViewProj", data.tsPrevVP);
-                        cmd.SetComputeVectorParam(data.compute, "_PrevCamVox", data.tsPrevCamVox);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShadowHistR", data.tsRead);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShadowHistW", data.tsWrite);
                         cmd.SetComputeIntParam(data.compute, "_MaxShadowSteps", data.maxShadowSteps);
