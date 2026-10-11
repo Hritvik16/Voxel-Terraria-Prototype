@@ -246,6 +246,9 @@ Task 64 (gameplay step 1): play starts in SURVIVAL (F6 "Game mode" / `-gamemode 
 36-slot inventory, RMB places a grid-snapped cube, E bag, Q size; rigs never read the file, so they stay Creative.
 Task 65 (gameplay step 2): in play, walk mode has swim/dive (Space up, Left Ctrl down), a double jump and a Left
 Shift dash (`PlayerMotor.Step(dt, in MotorInput)`, numbers in PlayerConfig.json); rigs keep the legacy Step.
+Task 66 (gameplay step 3): map v4 has ORES (`Assets/TerrainGen/Ores.cs`, GenMat 65-69: copper/iron/gold/cobalt/
+emberstone by depth layer; density = layer base x `OreTable` biome x landform x2 favoured), sparse on purpose
+(mixed bricks <= +5%, `OreTests`); v3 has none. `EXTRA="-oredemo"` shoots them; dev map Z x3 = 1-voxel slice.
 
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change

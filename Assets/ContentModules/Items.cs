@@ -84,6 +84,7 @@ public static class Items
         T(45, "red band"); T(46, "cream band"); T(47, "ochre band"); T(48, "umber mudstone"); T(49, "plum shale");
         T(50, "blue slate"); T(51, "marble"); T(52, "basalt"); T(53, "teal quartzite"); T(54, "silver schist");
         T(60, "karst limestone"); T(61, "black basalt"); T(62, "laterite"); T(63, "moss rock"); T(64, "jade serpentine");
+        T(65, "copper ore"); T(66, "iron ore"); T(67, "gold ore"); T(68, "cobalt ore"); T(69, "emberstone");   // step 3 (Ores.cs)
         T(70, "deepstone"); T(71, "cavern rock"); T(72, "ash"); T(73, "obsidian"); T(74, "magma crust"); T(75, "bedrock");
         T(80, "sinter"); T(81, "blue crystal"); T(82, "amber crystal"); T(83, "rose crystal"); T(84, "green crystal");
         T(85, "bone"); T(86, "meteor ore"); T(87, "bark"); T(88, "leaves"); T(89, "mushroom stem"); T(90, "mushroom cap");

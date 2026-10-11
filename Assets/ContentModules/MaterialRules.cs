@@ -656,11 +656,11 @@ public static class MaterialPalette
             0.753f, 0.314f, 0.173f,   // 190 laterite
             0.310f, 0.478f, 0.227f,   // 191 moss rock
             0.184f, 0.561f, 0.416f,   // 192 jade serpentine
-            -1f, -1f, -1f,   // 193
-            -1f, -1f, -1f,   // 194
-            -1f, -1f, -1f,   // 195
-            -1f, -1f, -1f,   // 196
-            -1f, -1f, -1f,   // 197
+            0.247f, 0.667f, 0.525f,   // 193 copper ore
+            0.753f, 0.541f, 0.416f,   // 194 iron ore
+            0.760f, 0.637f, 0.195f,   // 195 gold ore
+            0.234f, 0.351f, 0.760f,   // 196 cobalt ore
+            0.760f, 0.253f, 0.143f,   // 197 emberstone
             0.290f, 0.290f, 0.369f,   // 198 deepstone
             0.420f, 0.365f, 0.322f,   // 199 cavern rock
             0.490f, 0.463f, 0.439f,   // 200 ash
@@ -808,11 +808,11 @@ public static class MaterialPalette
             0.753f, 0.314f, 0.173f,   // 190 laterite
             0.310f, 0.478f, 0.227f,   // 191 moss rock
             0.184f, 0.561f, 0.416f,   // 192 jade serpentine
-            -1f, -1f, -1f,   // 193
-            -1f, -1f, -1f,   // 194
-            -1f, -1f, -1f,   // 195
-            -1f, -1f, -1f,   // 196
-            -1f, -1f, -1f,   // 197
+            0.247f, 0.667f, 0.525f,   // 193 copper ore
+            0.753f, 0.541f, 0.416f,   // 194 iron ore
+            0.918f, 0.769f, 0.235f,   // 195 gold ore
+            0.290f, 0.435f, 0.941f,   // 196 cobalt ore
+            0.950f, 0.317f, 0.179f,   // 197 emberstone
             0.290f, 0.290f, 0.369f,   // 198 deepstone
             0.420f, 0.365f, 0.322f,   // 199 cavern rock
             0.490f, 0.463f, 0.439f,   // 200 ash

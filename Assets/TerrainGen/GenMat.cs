@@ -40,6 +40,7 @@ namespace TerrainGen
         public const byte CreamSandstone = 40, RedSandstone = 41, OrangeSandstone = 42, MaroonMudstone = 43, PinkSiltstone = 44; // desert
         public const byte BlueSlate = 50, Marble = 51, Basalt = 52, TealQuartzite = 53, SilverSchist = 54;  // snow
         public const byte KarstLimestone = 60, BlackBasalt = 61, Laterite = 62, MossRock = 63, JadeSerpentine = 64; // jungle
+        // Ores (gameplay step 3, map v4): 65-69 = Ores.Copper .. Ores.Emberstone (Ores.cs).
         // B10 (map v4), in the gaps after forest's and desert's sets: savanna's rock per
         // depth layer, and badlands' three exposed bands (layer 0 cycles them by height)
         // plus its deep and cavern rock.

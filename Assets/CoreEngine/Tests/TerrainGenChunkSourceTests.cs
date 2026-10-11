@@ -62,6 +62,7 @@ public class TerrainGenChunkSourceTests
     {
         [Unity.Collections.ReadOnly] public Unity.Collections.NativeArray<float> h, r, w;
         [Unity.Collections.ReadOnly] public Unity.Collections.NativeArray<byte> toEngine;
+        [Unity.Collections.ReadOnly] public Unity.Collections.NativeArray<byte> ore;   // the source's ore plane (task 66)
         public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o; public int3 origin;
         public Unity.Collections.NativeArray<int> top;        // per column: S height, or int.MinValue if excluded
         public Unity.Collections.NativeArray<byte> mats;      // every 3rd voxel, unculled D -> engine
@@ -83,6 +84,7 @@ public class TerrainGenChunkSourceTests
                 var col = TerrainGen.ShapeField.Sample(in spec, in map, in o, wx + 0.5f, wz + 0.5f, 1);
                 float st = TerrainGen.ShapeField.MaxStep(in spec, in map, in o, wx + 0.5f, wz + 0.5f, 1, col.height);
                 var cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, wx, wz);
+                if (cd.oreMul != 0) cd.oreMul = ore[TerrainGen.Ores.CellIndex(wx, wz, spec.mapCells, spec.mapCellVoxels)];
                 top[(z / 3) * 43 + x / 3] = (!col.carvesTop && col.water <= col.height) ? col.height : int.MinValue;
                 for (int y = 0; y < 128; y += 3)
                     mats[k++] = toEngine[TerrainGen.DetailField.Material(in spec, in o, in col, in cd, st, wx, origin.y + y, wz)];
@@ -102,6 +104,7 @@ public class TerrainGenChunkSourceTests
         var rA = new Unity.Collections.NativeArray<float>(_src.Map.Rough, Unity.Collections.Allocator.TempJob);
         var wA = new Unity.Collections.NativeArray<float>(_src.Map.Water, Unity.Collections.Allocator.TempJob);
         var te = new Unity.Collections.NativeArray<byte>(256, Unity.Collections.Allocator.TempJob);
+        var oA = new Unity.Collections.NativeArray<byte>(TerrainGen.OreTable.DensityPlane(_src.Map.Record, _src.Spec.mapCells), Unity.Collections.Allocator.TempJob);
         var top = new Unity.Collections.NativeArray<int>(43 * 43, Unity.Collections.Allocator.TempJob);
         var refM = new Unity.Collections.NativeArray<byte>(43 * 43 * 43, Unity.Collections.Allocator.TempJob);
         try
@@ -110,7 +113,7 @@ public class TerrainGenChunkSourceTests
             var chunk = new Chunk();
             _src.Generate(cc, chunk, alloc, pool, null);
             int3 b = cc * 128;
-            new RefJob { h = hA, r = rA, w = wA, toEngine = te, spec = _src.Spec, o = _src.O, origin = b, top = top, mats = refM }.Run();
+            new RefJob { h = hA, r = rA, w = wA, toEngine = te, ore = oA, spec = _src.Spec, o = _src.O, origin = b, top = top, mats = refM }.Run();
             int mismatches = 0, checkedV = 0, lodCols = 0, dense = 0, k = 0;
             for (int bi = 0; bi < EngineConfig.BRICKS_PER_CHUNK; bi++) if ((chunk.bricks[bi].data & 0x80000000u) != 0) dense++;
             for (int z = 0; z < 128; z += 3)
@@ -144,7 +147,7 @@ public class TerrainGenChunkSourceTests
         finally
         {
             pool.Dispose(); pool2.Dispose();
-            hA.Dispose(); rA.Dispose(); wA.Dispose(); te.Dispose(); top.Dispose(); refM.Dispose();
+            hA.Dispose(); rA.Dispose(); wA.Dispose(); te.Dispose(); oA.Dispose(); top.Dispose(); refM.Dispose();
         }
     }
 
@@ -156,12 +159,13 @@ public class TerrainGenChunkSourceTests
         var rA = new Unity.Collections.NativeArray<float>(_src.Map.Rough, Unity.Collections.Allocator.TempJob);
         var wA = new Unity.Collections.NativeArray<float>(_src.Map.Water, Unity.Collections.Allocator.TempJob);
         var te = new Unity.Collections.NativeArray<byte>(256, Unity.Collections.Allocator.TempJob);
+        var oA = new Unity.Collections.NativeArray<byte>(TerrainGen.OreTable.DensityPlane(_src.Map.Record, _src.Spec.mapCells), Unity.Collections.Allocator.TempJob);
         var top = new Unity.Collections.NativeArray<int>(43 * 43, Unity.Collections.Allocator.TempJob);
         var refM = new Unity.Collections.NativeArray<byte>(43 * 43 * 43, Unity.Collections.Allocator.TempJob);
         try
         {
             for (int i = 0; i < 256; i++) te[i] = VoxelEngine.Rendering.FarField.GenToEngine((byte)i);
-            new RefJob { h = hA, r = rA, w = wA, toEngine = te, spec = _src.Spec, o = _src.O, origin = cc * 128, top = top, mats = refM }.Run();
+            new RefJob { h = hA, r = rA, w = wA, toEngine = te, ore = oA, spec = _src.Spec, o = _src.O, origin = cc * 128, top = top, mats = refM }.Run();
             int bad = 0, k = 0;
             for (int z = 0; z < 128; z += 3)
             for (int x = 0; x < 128; x += 3)
@@ -169,7 +173,7 @@ public class TerrainGenChunkSourceTests
                 if (Read(chunk, pool, x, y, z) != refM[k++]) bad++;
             return bad;
         }
-        finally { hA.Dispose(); rA.Dispose(); wA.Dispose(); te.Dispose(); top.Dispose(); refM.Dispose(); }
+        finally { hA.Dispose(); rA.Dispose(); wA.Dispose(); te.Dispose(); oA.Dispose(); top.Dispose(); refM.Dispose(); }
     }
 
     /// V2's air fast path: a chunk wholly above the ground comes back as

@@ -27,6 +27,8 @@
 //                      between a 2-D floor and ceiling with pillars. All of it
 //                      is per-COLUMN open intervals (PrepareColumn); a voxel
 //                      costs a few comparisons.
+//   ores               map v4 (gameplay step 3, Ores.cs): integer-hash blobs
+//                      in layer rock deeper than 6 m, one ore per layer
 //   fluid pockets      sealed ellipsoids, generated AT REST: fluid below a flat
 //                      level, air above; a shell no cave may breach (§2.7)
 //
@@ -69,6 +71,11 @@ namespace TerrainGen
             public int cav0Lo, cav0Hi, cav1Lo, cav1Hi;
             /// The underworld chamber's open interval [lo, hi) (lo == hi: a pillar).
             public int underLo, underHi;
+            /// Gameplay step 3: ore density multiplier in 1/16ths (Ores.MUL_ONE = x1),
+            /// the column's biome x landform pair (OreTable.PairMul). PrepareColumn sets
+            /// x1 on map v4 and 0 (no ore) below; a generator holding the world record
+            /// overwrites it from OreTable.DensityPlane.
+            public byte oreMul;
         }
 
         /// The geology terms only (layer boundary offsets, soil): what the
@@ -100,6 +107,7 @@ namespace TerrainGen
         public static ColumnDetail PrepareColumn(in TerrainSpec spec, in Offsets o, int x, int z)
         {
             var cd = PrepareGeology(in o, x, z);
+            cd.oreMul = spec.mapVersion >= 4 ? Ores.DEFAULT_MUL : (byte)0;
             float2 p = new float2(x, z);
             // Tunnels: the zero-line of a 2-D field meanders like a river in plan;
             // a second field gives its depth, a third its size, a fourth where it runs.
@@ -331,6 +339,12 @@ namespace TerrainGen
                     var bd = PrepareGeology(in o, (x & ~(BRICK - 1)) + BRICK / 2, (z & ~(BRICK - 1)) + BRICK / 2);
                     gDeep = bd.deepOffset; gCavern = bd.cavernOffset; gUnder = bd.underOffset;
                 }
+                // Ores (gameplay step 3, map v4): the host layer is the brick's own.
+                if (cd.oreMul != 0 && spec.mapVersion >= 4)
+                {
+                    byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, gy, gDeep, gCavern, gUnder), x, y, z);
+                    if (ore != 0) return ore;
+                }
                 return LayerRock(in spec, c.biome, gy, gDeep, gCavern, gUnder);
             }
 
@@ -339,6 +353,12 @@ namespace TerrainGen
             {
                 if (depth < SURFACE_THICKNESS) return Surface(in spec, in c, stepAtTop);
                 if (depth < cd.soilDepth) return Soil(c.biome);
+            }
+            // Ores (gameplay step 3, map v4): only in rock deeper than 6 m (no cliff faces).
+            if (cd.oreMul != 0 && depth > Ores.MIN_DEPTH && spec.mapVersion >= 4)
+            {
+                byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, y, cd.deepOffset, cd.cavernOffset, cd.underOffset), x, y, z);
+                if (ore != 0) return ore;
             }
             return LayerRock(in spec, c.biome, y, cd.deepOffset, cd.cavernOffset, cd.underOffset);
         }

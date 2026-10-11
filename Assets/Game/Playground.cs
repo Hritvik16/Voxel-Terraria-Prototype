@@ -517,6 +517,8 @@ public partial class Playground : MonoBehaviour
         if (!IsCaptureRun() && HasArg("-survivaldemo")) StartCoroutine(SurvivalDemo());
         // -movedemo (task 65): movement set A's screenshots (dive, double jump over a gap), then quit.
         if (!IsCaptureRun() && HasArg("-movedemo")) StartCoroutine(MoveDemo());
+        // -oredemo (task 66): ore screenshots (a tunnel wall, the hotbar, the dev map's close slice), then quit.
+        if (!IsCaptureRun() && HasArg("-oredemo")) StartCoroutine(OreDemo());
     }
 
     /// For overlays (Minimap) that must stay out of capture frames.

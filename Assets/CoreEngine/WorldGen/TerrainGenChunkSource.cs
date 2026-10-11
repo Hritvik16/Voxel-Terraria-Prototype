@@ -48,6 +48,7 @@ namespace VoxelEngine.WorldGen
         public readonly TerrainGen.WorldMap Map;
         private NativeArray<float> _h, _r, _w;
         private NativeArray<byte> _cls;   // map water class: ShapeField's lake rims (v4)
+        private NativeArray<byte> _ore;   // per map cell ore multiplier (gameplay step 3; zeros on v3)
         private NativeArray<byte> _toEngine;
 
         public TerrainGenChunkSource(uint seed) : this(seed, MapVersionArg()) { }
@@ -83,6 +84,7 @@ namespace VoxelEngine.WorldGen
             _r = new NativeArray<float>(Map.Rough, Allocator.Persistent);
             _w = new NativeArray<float>(Map.Water, Allocator.Persistent);
             _cls = new NativeArray<byte>(Map.WaterClass, Allocator.Persistent);
+            _ore = new NativeArray<byte>(TerrainGen.OreTable.DensityPlane(Map.Record, Spec.mapCells), Allocator.Persistent);
             _toEngine = new NativeArray<byte>(256, Allocator.Persistent);
             for (int i = 0; i < 256; i++) _toEngine[i] = VoxelEngine.Rendering.FarField.GenToEngine((byte)i);
 
@@ -110,6 +112,7 @@ namespace VoxelEngine.WorldGen
             if (_r.IsCreated) _r.Dispose();
             if (_w.IsCreated) _w.Dispose();
             if (_cls.IsCreated) _cls.Dispose();
+            if (_ore.IsCreated) _ore.Dispose();
             if (_toEngine.IsCreated) _toEngine.Dispose();
             Map?.Dispose();
         }
@@ -231,7 +234,7 @@ namespace VoxelEngine.WorldGen
                     cp.valid = false;
                     new ColumnJob
                     {
-                        h = _h, r = _r, w = _w, cls = _cls, spec = Spec, o = O, origin = coord * E,
+                        h = _h, r = _r, w = _w, cls = _cls, ore = _ore, spec = Spec, o = O, origin = coord * E,
                         colS = cp.colS, colSt = cp.colSt, colCd = cp.colCd, top = cp.top,
                     }.Run();
                     cp.cx = coord.x; cp.cz = coord.z; cp.valid = true; cp.Runs++;
@@ -298,6 +301,7 @@ namespace VoxelEngine.WorldGen
         {
             [ReadOnly] public NativeArray<float> h, r, w;
             [ReadOnly] public NativeArray<byte> cls;
+            [ReadOnly] public NativeArray<byte> ore;
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
             public NativeArray<TerrainGen.ColumnSample> colS;
@@ -342,7 +346,9 @@ namespace VoxelEngine.WorldGen
                     int m = math.max(math.max(math.abs(hg[gi + 1] - ch), math.abs(hg[gi - 1] - ch)),
                                      math.max(math.abs(hg[gi + G] - ch), math.abs(hg[gi - G] - ch)));
                     colSt[ci] = m / 1f;
-                    colCd[ci] = TerrainGen.DetailField.PrepareColumn(in spec, in o, x, z);
+                    var cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, x, z);
+                    if (cd.oreMul != 0) cd.oreMul = ore[TerrainGen.Ores.CellIndex(x, z, spec.mapCells, spec.mapCellVoxels)];
+                    colCd[ci] = cd;
                     var c = colS[ci];
                     maxTop = math.max(maxTop, math.max(c.height, c.water));
                 }

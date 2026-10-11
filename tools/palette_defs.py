@@ -20,7 +20,9 @@ NAMES = {1: "water", 2: "lava", 3: "honey", 4: "oil", 5: "acid", 6: "sludge", 7:
          # B10 (map v4): savanna and badlands
          15: "savanna grass", 16: "badlands clay", 24: "red earth", 25: "hardpan",
          35: "kopje granite", 36: "ironstone", 37: "gneiss",
-         45: "red band", 46: "cream band", 47: "ochre band", 48: "umber mudstone", 49: "plum shale"}
+         45: "red band", 46: "cream band", 47: "ochre band", 48: "umber mudstone", 49: "plum shale",
+         # gameplay step 3 (map v4): ores, one per depth layer
+         65: "copper ore", 66: "iron ore", 67: "gold ore", 68: "cobalt ore", 69: "emberstone"}
 
 BIOMES = [("Forest", [10, 20, 30, 31, 32, 33, 34]), ("Desert", [12, 21, 40, 41, 42, 43, 44]),
           ("Snow", [13, 22, 50, 51, 52, 53, 54]), ("Jungle", [11, 23, 60, 61, 62, 63, 64]),
@@ -113,5 +115,12 @@ B10_CANDIDATES = {
 }
 B10_SHIPPED = "a"
 PALETTES["D"][2].update(B10_CANDIDATES[B10_SHIPPED][1])
+
+# Gameplay step 3 (task 66, agent's pick, owner may change): ore colours, bright
+# against their dark host rock. Copper reads as verdigris (malachite green), iron
+# as rust, gold, cobalt blue, emberstone red-orange. NOT emissive (CLAUDE.md:
+# emissive materials register as point lights).
+ORES = hexes({65: "3faa86", 66: "c08a6a", 67: "eac43c", 68: "4a6ff0", 69: "ff5530"})
+PALETTES["D"][2].update(ORES)
 
 ROUND2 = ["A", "C", "D"]

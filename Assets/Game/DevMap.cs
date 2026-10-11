@@ -63,6 +63,7 @@ public sealed class DevMap : MonoBehaviour
     private TerrainGen.TerrainSpec _spec;
     private TerrainGen.Offsets _o;
     private TerrainGen.WorldMap _mapView;     // OUR pins over FarField's arrays
+    private byte[] _orePlane;                 // gameplay step 3: per map cell ore multiplier (the chunk source's)
     private int2 _off;
     private int _seaShift;
     private Vector3 _islandCentre;
@@ -84,10 +85,15 @@ public sealed class DevMap : MonoBehaviour
     private Texture2D _px;
     /// Z toggles an 800 m slice around the target at 2.5 m per pixel. The island
     /// slice (20 m per pixel) point-samples tunnels a few metres wide, so caves
-    /// read as speckle there; the local slice resolves them.
+    /// read as speckle there; the local slice resolves them. A third press gives
+    /// the CLOSE slice (task 66): 32 m at one voxel per pixel, where ore deposits
+    /// (0.5-0.7 m) show; a fourth goes back to the island.
     private bool _sliceLocal;
+    private bool _sliceClose;
     private float2 _sliceCentre;
     public const int LOCAL_HALF_VOXELS = 4000;
+    public const int CLOSE_HALF_VOXELS = 160;
+    private int SliceHalf => _sliceClose ? CLOSE_HALF_VOXELS : LOCAL_HALF_VOXELS;
 
     // IMGUI under the LINEAR colour space shows every colour one sRGB encode
     // too light (measured in the first -devmap shots: the sea legend drew
@@ -174,6 +180,7 @@ public sealed class DevMap : MonoBehaviour
             _spec = far.Tg2Spec;
             _o = TerrainGen.Offsets.For(_spec);
             _mapView = new TerrainGen.WorldMap(m.Spec, m.Height, m.Rough, m.PeakPosition, m.Water, m.Flow, m.Hydro, m.WaterClass);
+            _orePlane = TerrainGen.OreTable.DensityPlane(m.Record, _spec.mapCells);
             _off = far.Tg2OffsetVoxels;
             _seaShift = far.Tg2SeaShift;
             float c = _spec.worldSizeVoxels * 0.5f;
@@ -347,11 +354,11 @@ public sealed class DevMap : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.T)) _pitch = _pitch > 85f ? 50f : 89.5f;
         if (Input.GetKeyDown(KeyCode.H)) _labelMode = (_labelMode + 1) % 3;
         if (Input.GetKeyDown(KeyCode.G)) _showSlice = !_showSlice;
-        if (_tg2 && Input.GetKeyDown(KeyCode.Z)) StartSlice(!_sliceLocal);
+        if (_tg2 && Input.GetKeyDown(KeyCode.Z)) { if (!_sliceLocal) StartSlice(true); else if (!_sliceClose) StartSlice(true, true); else StartSlice(false); }
         // The local slice follows the target once it has moved a quarter of the
         // window away (not mid-drag, so a pan does not restart it every frame).
         if (_tg2 && _sliceLocal && !_dragOrbit && !_dragPan &&
-            math.distance(EngineToTg(_target), _sliceCentre) > LOCAL_HALF_VOXELS * 0.5f) StartSlice(true);
+            math.distance(EngineToTg(_target), _sliceCentre) > SliceHalf * 0.5f) StartSlice(true, _sliceClose);
         if (Input.GetKeyDown(KeyCode.N)) SunCycle.SetHours(SunCycle.GoldenHourHours);
         if (Input.GetKeyDown(KeyCode.M)) SunCycle.SetHours(SunCycle.NoonHours);
         if (Input.GetKeyDown(KeyCode.Alpha0)) { _target = _islandCentre; _dist = _islandRadiusM * 1.9f; _pitch = 50f; }
@@ -411,21 +418,24 @@ public sealed class DevMap : MonoBehaviour
     }
 
     public bool SliceLocal => _sliceLocal;
+    public bool SliceClose => _sliceClose;
 
     /// (Re)starts the slice worker: the whole island, or LOCAL_HALF_VOXELS
-    /// around the orbit target. Each start re-prepares its columns (~5 s).
-    public void StartSlice(bool local)
+    /// (close: CLOSE_HALF_VOXELS) around the orbit target. Each start
+    /// re-prepares its columns (~5 s).
+    public void StartSlice(bool local, bool close = false)
     {
         _worker?.Stop();
         _sliceLocal = local;
+        _sliceClose = local && close;
         float c = _spec.worldSizeVoxels * 0.5f;
         _sliceCentre = local ? EngineToTg(_target) : new float2(c, c);
-        int half = local ? LOCAL_HALF_VOXELS : (int)(_spec.islandRadius * 1.3f);
+        int half = local ? SliceHalf : (int)(_spec.islandRadius * 1.3f);
         int step = (2 * half + SLICE_N - 1) / SLICE_N;
         if (_sliceTex == null)
             _sliceTex = new Texture2D(SLICE_N, SLICE_N, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
         _shownSliceY = int.MinValue;   // never show the previous region's pixels as this one's
-        _worker = new SliceWorker(_spec, _o, _mapView, (int)_sliceCentre.x - half, (int)_sliceCentre.y - half, step, SLICE_N);
+        _worker = new SliceWorker(_spec, _o, _mapView, _orePlane, (int)_sliceCentre.x - half, (int)_sliceCentre.y - half, step, SLICE_N);
         _worker.Request(_sliceY);
     }
 
@@ -459,6 +469,7 @@ public sealed class DevMap : MonoBehaviour
         private readonly TerrainGen.TerrainSpec _spec;
         private readonly TerrainGen.Offsets _o;
         private readonly TerrainGen.WorldMap _map;
+        private readonly byte[] _orePlane;
         private readonly TerrainGen.ColumnSample[] _cols;
         private readonly TerrainGen.DetailField.ColumnDetail[] _det;
         private readonly float[] _st;
@@ -475,9 +486,9 @@ public sealed class DevMap : MonoBehaviour
 
         public float PrepFraction => _prepRows / (float)N;
 
-        public SliceWorker(TerrainGen.TerrainSpec spec, TerrainGen.Offsets o, TerrainGen.WorldMap map, int x0, int z0, int step, int n)
+        public SliceWorker(TerrainGen.TerrainSpec spec, TerrainGen.Offsets o, TerrainGen.WorldMap map, byte[] orePlane, int x0, int z0, int step, int n)
         {
-            _spec = spec; _o = o; _map = map; X0 = x0; Z0 = z0; Step = step; N = n;
+            _spec = spec; _o = o; _map = map; _orePlane = orePlane; X0 = x0; Z0 = z0; Step = step; N = n;
             _cols = new TerrainGen.ColumnSample[n * n];
             _det = new TerrainGen.DetailField.ColumnDetail[n * n];
             _st = new float[n * n];
@@ -511,6 +522,7 @@ public sealed class DevMap : MonoBehaviour
                     _cols[k] = TerrainGen.ShapeField.Sample(in _spec, in view, in _o, x + 0.5f, z + 0.5f, 1);
                     _st[k] = TerrainGen.ShapeField.MaxStep(in _spec, in view, in _o, x + 0.5f, z + 0.5f, 1, _cols[k].height);
                     _det[k] = TerrainGen.DetailField.PrepareColumn(in _spec, in _o, x, z);
+                    if (_det[k].oreMul != 0) _det[k].oreMul = _orePlane[TerrainGen.Ores.CellIndex(x, z, _spec.mapCells, _spec.mapCellVoxels)];
                 }
                 _prepRows = j + 1;
             }
@@ -569,6 +581,7 @@ public sealed class DevMap : MonoBehaviour
         S(80, 0xe0d6bd); S(81, 0x59a6fa); S(82, 0xfaad33); S(83, 0xf273b3); S(84, 0x59eb8c);
         S(85, 0xdbd1b3); S(86, 0xf24d8c); S(87, 0x5c422e); S(88, 0x476b38); S(89, 0xd1c7b3); S(90, 0x9e4d8c);
         S(91, 0x2e2929); S(92, 0x8f8c85);
+        S(65, 0x3faa86); S(66, 0xc08a6a); S(67, 0xeac43c); S(68, 0x4a6ff0); S(69, 0xff5530);   // ores (gameplay step 3)
         return t;
     }
 
@@ -656,7 +669,7 @@ public sealed class DevMap : MonoBehaviour
         foreach (var kv in _kindCounts) sb.Append($"{kv.Key} {kv.Value} · ");
         sb.AppendLine();
         sb.AppendLine("<color=#9fb6c9>LMB drag orbit · RMB drag pan · wheel/Q/E zoom · WASD pan (Shift fast) · arrows orbit · T top-down · 0 reset · 1-9 fly to a major landmark · H labels · N/M golden/noon" +
-                      (_tg2 ? " · G slice panel · Z island/local slice · R/F or PgUp/PgDn slice depth ±10 m (Shift ±50) · click the slice to move there" : "") + "</color>");
+                      (_tg2 ? " · G slice panel · Z island/local/close slice · R/F or PgUp/PgDn slice depth ±10 m (Shift ±50) · click the slice to move there" : "") + "</color>");
         float pw = Mathf.Min(Screen.width - 32f * ui, 760f * ui);
         float ph = _label.CalcHeight(new GUIContent(sb.ToString()), pw - 20 * ui) + 16 * ui;
         var pr = new Rect(16 * ui, 16 * ui, pw, ph);
@@ -701,8 +714,10 @@ public sealed class DevMap : MonoBehaviour
             Key(CaveAir, "cave"); Key(OpenAir, "open air"); Key(SeaCol, "sea"); Key(GenColours[1], "water");
             Key(GenColours[2], "lava"); Key(GenColours[70], "deepstone"); Key(GenColours[71], "cavern rock");
             Key(GenColours[91], "volcanic"); Key(GenColours[81], "crystal");
+            Key(GenColours[65], "copper"); Key(GenColours[66], "iron"); Key(GenColours[67], "gold");
+            Key(GenColours[68], "cobalt"); Key(GenColours[69], "ember");
             GUI.Label(new Rect(_slicePx.x, ly + 18 * ui, side, 20 * ui),
-                $"<color=#9fb6c9>{(_sliceLocal ? "LOCAL" : "island")} · {SLICE_N}² px, {_worker?.Step * 0.1f:F1} m each · strata coloured by provisional palette A</color>", _small);
+                $"<color=#9fb6c9>{(_sliceClose ? "CLOSE" : _sliceLocal ? "LOCAL" : "island")} · {SLICE_N}² px, {_worker?.Step * 0.1f:F1} m each · strata coloured by provisional palette A</color>", _small);
         }
     }
 
