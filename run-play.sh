@@ -3,7 +3,7 @@
 #   ./run-play.sh            the tg2 island on map v4 (surface rebuild B1+) + the far band
 #   MAPV=3 ./run-play.sh     the old generator (map v3), for comparison
 #   BUILD=1 ./run-play.sh    rebuild the Playground first (scene + release player)
-#   KEEP=1 ./run-play.sh     keep your edits from the last session (default: fresh world;
+#   KEEP=1 ./run-play.sh     keep your edits + Survival inventory (player.json) from the last session (default: fresh world;
 #                            v3 and v4 share one delta folder, so edits would cross over)
 #   SHOT=60 ./run-play.sh    one screenshot 60 s after startup (-playshot; path printed at exit)
 #   EXTRA="-upscaler fsr1 -renderrows 540" ...   extra player flags (e.g. -detailspeed 1)
@@ -73,14 +73,17 @@ world: -world tg2 -mapversion $MAPV (far band always on in tg2), far shadows on
 keys (Playground.cs RegisterDefaultToys, PlaygroundFlyCamera, PlaygroundHud, Minimap, DevMap):
   click         capture the mouse (first click only captures)   Esc  release it
   Tab           walk <-> fly      R respawn on ground    F go to the fluid arena (the start pose)
-  WASD          move; walk: Space jump; fly: E up, Q down, Left Shift fast
-  mouse L / R   dig (held) / place the held item (held)    wheel or 1-9  pick item
+  WASD          move; walk: Space jump; fly: E up, Q down, Left Shift fast (E/Q: Survival keys in walk)
+  SURVIVAL (default; F6 Game mode or -gamemode creative switches):
+  mouse L / R   dig into the inventory (held) / place a cube of the held block (cyan box)
+  wheel or 1-9  hotbar slot    Q cube size 0.1/0.2/0.4/0.8 m    E inventory (click two slots to swap)
+  CREATIVE: mouse L / R dig / place the held brush (held), wheel or 1-9 pick brush
   Z / X         dig tool smaller / larger
   V vent here (pours the held fluid or sand)   0 stop vents   B bomb   G chaos burst   T shoot
   F1 HUD   F2 help   F3 render preset quality/balanced/performance (leaves the FSR 3 default)
   F4 TAA on/off, preset path only (also hides/shows the minimap -- both listen to F4)
   F5 voxel detail radius at speed on/off
-  F6 GRAPHICS SETTINGS menu (saved; Esc or F6 closes)
+  F6 SETTINGS menu: game mode + graphics (saved; Esc or F6 closes)
   C far band on/off   I far band view (beauty -> bands -> far step heat)
   O dev map (whole island + underground slice; Esc/O closes)
   N golden hour  M noon  L midnight  P pause clock  , / . scrub time

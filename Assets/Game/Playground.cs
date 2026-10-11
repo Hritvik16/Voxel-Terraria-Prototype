@@ -250,6 +250,7 @@ public class Playground : MonoBehaviour
     // drives _brushes by index.
     // =====================================================================
     internal static bool SurvivalMode;
+    private bool _demoHideState;          // -survivaldemo: the dev readout panel out of the shots
     /// The E panel is open: it owns the mouse (PlaygroundFlyCamera releases it).
     internal static bool InventoryOpen { get; private set; }
     private Inventory _inv = Inventory.WithStarterKit();
@@ -573,6 +574,7 @@ public class Playground : MonoBehaviour
         while (Time.unscaledTime - t0 < 25f || _player == null || !_player.Ready) yield return null;
         SetGameMode(true);
         _showHelp = false;
+        _demoHideState = true;            // the dev readout panel, out of the pictures
         _mode = MoveMode.Walk;
         SunCycle.SetHours(SunCycle.NoonHours);
         VoxelEngine.Rendering.LightingDriver.ClockPaused = true;
@@ -580,68 +582,102 @@ public class Playground : MonoBehaviour
         System.IO.Directory.CreateDirectory(dir);
         if (_cam == null && Camera.main != null) _cam = Camera.main.GetComponent<PlaygroundFlyCamera>();
 
-        // 1. Face rising ground, sun behind: of 16 headings, the nearest column
-        // within 2.5-12 m whose top is >= 0.8 m above the feet, + a sun bonus.
-        float3 feet = _player.Motor.PositionM;
-        int3 f = CoordMath.WorldToVoxel(feet);
-        float3 sun = SunCycle.Direction;
-        float2 sxz = math.normalizesafe(sun.xz);
-        float bestScore = float.MinValue, bestYaw = 0f, bestD = -1f;
-        for (int i = 0; i < 16; i++)
+        // 1. A stand: flat dry ground within 60 m with a >= 1 m rise 4-8 m
+        // ahead, heading within 45 deg of straight away from the sun.
+        int3 f = CoordMath.WorldToVoxel(_player.Motor.PositionM);
+        float2 sxz = math.normalizesafe(SunCycle.Direction.xz);
+        float awayYaw = math.degrees(math.atan2(-sxz.x, -sxz.y));
+        float bestScore = float.MinValue, bestYaw = awayYaw, bestD = -1f;
+        int3 bestStand = f;
+        for (int r = 0; r <= 600; r += 30)
         {
-            float yaw = i * 22.5f, r = math.radians(yaw);
-            float2 d = new float2(math.sin(r), math.cos(r));
-            for (float dm = 2.5f; dm <= 12f; dm += 0.5f)
+            for (int dz = -r; dz <= r; dz += 30)
+            for (int dx = -r; dx <= r; dx += 30)
             {
-                int x = f.x + (int)math.round(d.x * dm * 10f), z = f.z + (int)math.round(d.y * dm * 10f);
-                int sy = SurfaceY(x, z);
-                if (sy < 0) break;
-                if (sy < f.y + 8) continue;
-                float score = -dm - 6f * math.dot(d, sxz);
-                if (score > bestScore) { bestScore = score; bestYaw = yaw; bestD = dm; }
-                break;
+                if (math.max(math.abs(dx), math.abs(dz)) != r) continue;
+                int x = f.x + dx, z = f.z + dz, sy = DryTopY(x, z);
+                if (sy < 0) continue;
+                if (math.abs(DryTopY(x + 10, z) - sy) > 2 || math.abs(DryTopY(x - 10, z) - sy) > 2 ||
+                    math.abs(DryTopY(x, z + 10) - sy) > 2 || math.abs(DryTopY(x, z - 10) - sy) > 2) continue;
+                for (int k = -2; k <= 2; k++)
+                {
+                    float yaw = awayYaw + k * 22.5f, yr = math.radians(yaw);
+                    float2 d = new float2(math.sin(yr), math.cos(yr));
+                    for (float dm = 2.5f; dm <= 8f; dm += 0.5f)
+                    {
+                        int h = DryTopY(x + (int)math.round(d.x * dm * 10f), z + (int)math.round(d.y * dm * 10f));
+                        if (h < 0) break;
+                        if (h < sy + 10) { if (math.abs(h - sy) > 6) break; continue; }
+                        if (dm < 4f) break;               // too close: no room for the wall
+                        float score = -math.abs(dm - 5.5f) - 0.02f * r * 0.1f - 0.5f * math.abs(k);
+                        if (score > bestScore) { bestScore = score; bestYaw = yaw; bestD = dm; bestStand = new int3(x, sy, z); }
+                        break;
+                    }
+                }
             }
+            yield return null;
         }
-        if (bestD < 0f) { bestYaw = MostOpenYaw(Camera.main.transform.position, 180f); bestD = 4f; }
+        if (bestD < 0f) { bestD = 5f; bestStand = new int3(f.x, math.max(DryTopY(f.x, f.z), f.y - 1), f.z); }
+        _player.Motor.Teleport(new float3(bestStand.x * 0.1f + 0.05f, (bestStand.y + 1) * 0.1f + 0.02f, bestStand.z * 0.1f + 0.05f));
+        _player.Motor.ResolveSpawn();
         float br = math.radians(bestYaw);
         float2 fwd = new float2(math.sin(br), math.cos(br));
-        float back = math.max(0f, bestD - 2.4f);
-        int stx = f.x + (int)math.round(fwd.x * back * 10f), stz = f.z + (int)math.round(fwd.y * back * 10f);
-        int sty = SurfaceY(stx, stz);
-        if (sty >= 0)
-        {
-            _player.Motor.Teleport(new float3(stx * 0.1f + 0.05f, (sty + 1) * 0.1f + 0.02f, stz * 0.1f + 0.05f));
-            _player.Motor.ResolveSpawn();
-        }
-        _cam?.SetLook(bestYaw, 14f);
-        for (int i = 0; i < 60; i++) yield return null;
-        Debug.Log($"[SurvivalDemo] facing yaw {bestYaw:F0} (rise at {bestD:F1} m), sun xz ({sxz.x:F2},{sxz.y:F2}), {EyeReport()}");
+        _cam?.SetLook(bestYaw, 6f);
+        for (int i = 0; i < 90; i++) yield return null;
+        Debug.Log($"[SurvivalDemo] stand {bestStand} top {Items.Name(_store.GetVoxel(bestStand))}, yaw {bestYaw:F0} (away from sun {awayYaw:F0}), rise at {bestD:F1} m; {EyeReport()}");
 
-        // 2. Dig into it: a ring of aim points, then down through the floor
-        // of the hole for a second stratum. Bore-sized bites (r 3).
+        // 2. Dig a pit in the ground to the left (the surface layers), then a
+        // doorway into the hillside: a 3 x 3 grid of aims, deep enough to pass
+        // the soil into rock. Bore-sized bites (r 3).
         int invBefore = InventoryTotal();
         int removed = 0, credited = 0, lost = 0;
-        float[,] aims = { { 0, 14 }, { -10, 8 }, { 10, 8 }, { 0, 2 }, { -10, 20 }, { 10, 20 }, { 0, 30 }, { 0, 45 }, { 0, 60 } };
-        for (int a = 0; a < aims.GetLength(0); a++)
+        for (int a = 0; a < 6; a++)
         {
-            _cam?.SetLook(bestYaw + aims[a, 0], aims[a, 1]);
-            for (int k = 0; k < 24; k++)
+            _cam?.SetLook(bestYaw - 50f - (a & 1) * 12f, 50f + (a >> 1) * 6f);
+            for (int k = 0; k < 16; k++)
             {
                 yield return null;
-                if (!_hasTarget || _targetDistM > 6f) continue;
+                if (!_hasTarget || _targetDistM > 5f) continue;
                 var r = SurvivalDig(_targetVoxel, 3, 150);
                 removed += r.Removed; credited += r.Credited; lost += r.Lost;
             }
         }
-        _cam?.SetLook(bestYaw, 14f);
+        byte hillFace = Materials.Air;
+        float aimPitch = math.degrees(math.atan2(1.6f - 0.5f, bestD));   // eye to ~0.5 m up the face
+        for (int py = 0; py < 3; py++)
+        for (int px = -1; px <= 1; px++)
+        {
+            _cam?.SetLook(bestYaw + px * 5f, aimPitch - py * 5f);
+            for (int k = 0; k < 16; k++)
+            {
+                yield return null;
+                if (!_hasTarget || _targetDistM > bestD + 4f) continue;
+                if (hillFace == Materials.Air) hillFace = _targetMaterial;
+                var r = SurvivalDig(_targetVoxel, 3, 150);
+                removed += r.Removed; credited += r.Credited; lost += r.Lost;
+            }
+        }
+        _cam?.SetLook(bestYaw, 8f);
         for (int i = 0; i < 30; i++) yield return null;
         Debug.Log($"[SurvivalDemo] dug {removed} voxels: credited {credited}, lost {lost}, inventory {invBefore} -> {InventoryTotal()} " +
                   $"(delta {InventoryTotal() - invBefore}); {InventoryLine()}");
 
-        // Hold the biggest non-torch stack.
+        // Hold the plentiful block whose colour differs most from the hillside
+        // behind the wall (so the wall reads in the picture).
+        var ground = MaterialPalette.Of(hillFace != Materials.Air ? hillFace : _store.GetVoxel(bestStand));
         int bestSlot = -1;
+        float bestPick = float.MinValue;
         for (int i = 0; i < Inventory.SlotCount; i++)
-            if (!_inv.IsEmpty(i) && !Items.PlacesSingleVoxel(_inv.ItemAt(i)) && (bestSlot < 0 || _inv.CountAt(i) > _inv.CountAt(bestSlot))) bestSlot = i;
+        {
+            if (_inv.IsEmpty(i) || Items.PlacesSingleVoxel(_inv.ItemAt(i)) || _inv.CountAt(i) < 1600) continue;
+            var c = MaterialPalette.Of(_inv.ItemAt(i));
+            float diff = math.abs(c.R - ground.R) + math.abs(c.G - ground.G) + math.abs(c.B - ground.B);
+            if (diff > bestPick) { bestPick = diff; bestSlot = i; }
+        }
+        if (bestSlot < 0)
+            for (int i = 0; i < Inventory.SlotCount; i++)
+                if (!_inv.IsEmpty(i) && !Items.PlacesSingleVoxel(_inv.ItemAt(i)) && (bestSlot < 0 || _inv.CountAt(i) > _inv.CountAt(bestSlot))) bestSlot = i;
+        Debug.Log($"[SurvivalDemo] hill face {Items.Name(hillFace)}; wall block {(bestSlot >= 0 ? Items.Name(_inv.ItemAt(bestSlot)) : "none")}");
         if (bestSlot >= Inventory.HotbarSize) { _inv.Swap(bestSlot, 1); bestSlot = 1; }
         if (bestSlot >= 0) SelectSlot(bestSlot);
         yield return DemoShot(dir, "1_hotbar_after_dig");
@@ -652,22 +688,22 @@ public class Playground : MonoBehaviour
         yield return DemoShot(dir, "2_inventory_panel");
         CloseInventory();
 
-        // 4. A wall of 0.4 m cubes beside the hole: 5 wide x 3 high, along the
-        // world axis most across the view, starting 1.2 m to the right.
+        // 4. A wall of 0.4 m cubes beside the doorway: 6 wide x 4 high, across
+        // the view, 2.2 m ahead, from 0.6 m to 3.0 m right.
         _edgeIndex = SurvivalBuild.DefaultEdgeIndex;
         int e = SurvivalBuild.CubeEdges[_edgeIndex];
         bool alongX = math.abs(fwd.y) >= math.abs(fwd.x);
         float2 right = new float2(fwd.y, -fwd.x);
         int3 step = alongX ? new int3(right.x >= 0 ? e : -e, 0, 0) : new int3(0, 0, right.y >= 0 ? e : -e);
         int3 me = CoordMath.WorldToVoxel(_player.Motor.PositionM);
-        int3 start = me + new int3((int)math.round(fwd.x * 16f + right.x * 12f), 0, (int)math.round(fwd.y * 16f + right.y * 12f));
+        int3 start = me + new int3((int)math.round(fwd.x * 22f + right.x * 6f), 0, (int)math.round(fwd.y * 22f + right.y * 6f));
         int invMid = InventoryTotal(), placed = 0, cubes = 0, refusedN = 0;
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < 6; i++)
         {
             int3 c = start + step * i;
-            int gy = SurfaceY(c.x, c.z);
+            int gy = DryTopY(c.x, c.z);
             if (gy < 0) continue;
-            for (int j = 0; j < 3; j++)
+            for (int j = 0; j < 4; j++)
             {
                 var r = TrySurvivalPlace(new int3(c.x, gy + 1 + j * e, c.z));
                 if (r.Outcome == SurvivalBuild.PlaceOutcome.Placed) { placed += r.Placed; cubes++; }
@@ -678,13 +714,18 @@ public class Playground : MonoBehaviour
         Debug.Log($"[SurvivalDemo] wall: {cubes} cubes, {placed} voxels placed, {refusedN} not placed; inventory {invMid} -> {InventoryTotal()} " +
                   $"(delta {InventoryTotal() - invMid}, conservation {(invMid - InventoryTotal() == placed ? "OK" : "BROKEN")}); {InventoryLine()}");
 
-        // 5. Look between the hole and the wall.
-        _cam?.SetLook(bestYaw + 22f, 16f);
-        for (int i = 0; i < 40; i++) yield return null;
+        // 5. Back up 1.5 m and look between the doorway and the wall.
+        float3 p = _player.Motor.PositionM - new float3(fwd.x, 0f, fwd.y) * 1.5f;
+        int3 pv = CoordMath.WorldToVoxel(p);
+        int py2 = DryTopY(pv.x, pv.z);
+        if (py2 >= 0)
+        {
+            _player.Motor.Teleport(new float3(p.x, (py2 + 1) * 0.1f + 0.02f, p.z));
+            _player.Motor.ResolveSpawn();
+        }
+        _cam?.SetLook(bestYaw + 14f, 12f);
+        for (int i = 0; i < 60; i++) yield return null;
         yield return DemoShot(dir, "3_wall_beside_hole");
-        _cam?.SetLook(bestYaw + 10f, 10f);
-        for (int i = 0; i < 20; i++) yield return null;
-        yield return DemoShot(dir, "4_wall_wide");
         SaveInventory();
         Debug.Log("[SurvivalDemo] done");
         Application.Quit();
@@ -2077,7 +2118,7 @@ public class Playground : MonoBehaviour
                 DrawLine(new Vector2(cx, cy + gap), new Vector2(cx, cy + len), c, w);
             }
 
-            if (_ready && _hasTarget)
+            if (_ready && _hasTarget && !InventoryOpen)
             {
                 bool inRegion = InFluidRange(_targetVoxel);
                 DrawVoxelHighlight(cam, _targetVoxel, new Color(0f, 0f, 0f, 0.55f), 4.5f * k);
@@ -2113,7 +2154,7 @@ public class Playground : MonoBehaviour
 
         DrawTopBar(vw);
         if (SurvivalMode) DrawSurvivalHotbar(vw, vh); else DrawHotbar(vw, vh);
-        DrawStatePanel(vh);
+        if (!_demoHideState) DrawStatePanel(vh);
         if (SurvivalMode && InventoryOpen && !SettingsMenu.IsOpen) DrawInventoryPanel(vw, vh);
         else if (_showHelp && !SettingsMenu.IsOpen) DrawHelp(vw, vh);   // the menu (F6) sits where help does
 
@@ -2245,10 +2286,16 @@ public class Playground : MonoBehaviour
             int c = _inv.CountAt(i);
             string n = c >= 10000 ? "10k" : c.ToString();
             GUI.Label(new Rect(r.x, r.y + r.height - 38, r.width - 5, 16), $"<b>{n}</b>", Label(12, TextAnchor.MiddleRight));
-            GUI.Label(new Rect(r.x, r.yMax - 17, r.width, 16), Items.Name(_inv.ItemAt(i)), Label(9, TextAnchor.MiddleCenter));
+            string name = Items.Name(_inv.ItemAt(i));
+            if (name.Length > 12) name = name.Substring(0, 11) + "…";
+            GUI.Label(new Rect(r.x, r.yMax - 17, r.width, 16), name, Label(9, TextAnchor.MiddleCenter));
         }
         Frame(r, sel ? new Color(1f, 0.82f, 0.3f, 1f) : new Color(1f, 1f, 1f, 0.25f), sel ? 2.5f : 1f);
-        if (key != null) GUI.Label(new Rect(r.x + 5, r.y + 2, 20, 16), key, Label(11));
+        if (key != null)
+        {
+            Box(new Rect(r.x + 2, r.y + 2, 14, 15), new Color(0f, 0f, 0f, 0.7f));
+            GUI.Label(new Rect(r.x + 5, r.y + 1, 14, 16), key, Label(11));
+        }
     }
 
     /// The E panel: hotbar row + 3 backpack rows. Click one slot, then another:
@@ -2257,7 +2304,7 @@ public class Playground : MonoBehaviour
     {
         const float slot = 62f, pad = 6f;
         float gridW = 9 * (slot + pad) - pad;
-        float w = gridW + 40f, h = 4 * (slot + pad) + 120f;
+        float w = gridW + 40f, h = 4 * (slot + pad) + 96f;
         var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f - 40f, w, h);
         Box(r, new Color(0.03f, 0.05f, 0.08f, 0.95f));
         Frame(r, new Color(1f, 1f, 1f, 0.25f), 1f);
