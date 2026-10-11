@@ -19,6 +19,9 @@ owner-facing to-do. One line each: what, where seen, task file (if written), sug
 | 7 | Generated sea/lake water is not at rest: stepped surfaces leave water slabs with vertical sides ~1.5 m above the beach. Since task 54 (awake-only tiles) they stand as walls until touched; before, approaching woke and spilled them (filling the pool). Owner 2026-10-10: "This is a bug. World gen should always place all fluids in resting position. So we should start out with 0 in the pool until they are disturbed." Acceptance: every generated water/lava body at rest (one level per body, no side faces above ground), pool 0 tiles on arrival anywhere | task 54 `Screenshots/54/coast_before.png`; task 39 item 2 | -- | owner Q40 (b): engine plan step 18, with #5 (river steps into a lake) |
 
 ## Deferred (not bugs, parked by the owner)
+- `later/78-rig-refresh.md` -- many rigs no longer match the game (Playground/v3 world, Creative, legacy motor,
+  no upscaler, 1,024 fluid tiles, windowed, stale gates). Owner 2026-10-11: far-future task; audit + plan first,
+  before engine step 23 (the milestone runs every rig).
 - `later/37c-B3c-highland-variation.md` -- knolls and dells in rolling highlands (B5 review
   follow-up). Deferred 2026-10-09 to end the terrain phase sooner; revisit after placement.
 
