@@ -21,6 +21,7 @@
 #
 # Usage: ./run-phase7-rig.sh            (build + run)
 #        SKIP_BUILD=1 ./run-phase7-rig.sh
+#        EXTRA="-roofskip 1" ./run-phase7-rig.sh   (extra player flags)
 # Exit code: 0 if the rig reported 0 FAIL, non-zero otherwise.
 set -uo pipefail
 
@@ -54,7 +55,7 @@ fi
 echo "== Running (blocks until the rig quits itself) =="
 # -cleardeltas: gates compare against pristine generation, so a previous run's
 # carved chamber must not persist into this one.
-open -n -W "$APP" --args -cleardeltas
+open -n -W "$APP" --args -cleardeltas ${EXTRA:-}   # EXTRA="-roofskip 1" (task 59)
 RC=$?
 
 LATEST=$(ls -td "$RD"/*/ 2>/dev/null | head -n 1)

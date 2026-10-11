@@ -5,6 +5,7 @@
 // Every option drives a switch that already existed -- no new rendering:
 //
 //   Shadow quality   RaymarchFeature.ShadowQualityLevel, the J key's §6.5 rungs
+//   Roof skip        RaymarchFeature.ShadowRoofSkip, as -roofskip (task 59: ON)
 //   Upscaler         UpscalerSelect.Apply, as -upscaler (task 47/52)
 //   Internal rows    UpscalerSelect.Apply, as -renderrows
 //   Shadow edges     Playground.SetSoftShadows, the K key (k_soft 0 = hard)
@@ -36,6 +37,8 @@ public class SettingsMenu : MonoBehaviour
 {
     public const KeyCode ToggleKey = KeyCode.F6;
     public static bool IsOpen { get; private set; }
+    // Task 59's warm A/B (Logs/costsplit_*_roof*.txt); same pixels either way.
+    private const string ROOF_HINT = "Skips sun-shadow steps that the height pyramid proves are open sky. Same pixels; not measured yet.";
 
     private static string _path;
     private static PlaySettings _saved = new PlaySettings();
@@ -62,6 +65,7 @@ public class SettingsMenu : MonoBehaviour
 
         if (!run.presetPath) ApplyUpscaler(run.upscaler, run.rows);
         RaymarchFeature.ShadowQualityLevel = run.shadowLevel;
+        RaymarchFeature.ShadowRoofSkip = run.roofSkip;
         if (!run.softShadows) Playground.SetSoftShadows(false);
         ApplyOverlay(run.perfOverlay);
         Minimap.Visible = run.minimap;
@@ -71,7 +75,7 @@ public class SettingsMenu : MonoBehaviour
         Debug.Log($"[PlaySettings] {(File.Exists(_path) ? "loaded" : "no file yet (defaults)")} {_path}" +
                   (err != null ? $" -- {err}" : "") +
                   $"; this run: upscaler {(run.presetPath ? "preset path" : run.upscaler)}, rows {run.rows}, shadows {run.shadowLevel}" +
-                  $" {(run.softShadows ? "soft" : "hard")}, overlay {run.perfOverlay}, minimap {(run.minimap ? "on" : "off")}" +
+                  $" {(run.softShadows ? "soft" : "hard")}, roof skip {(run.roofSkip ? "on" : "off")}, overlay {run.perfOverlay}, minimap {(run.minimap ? "on" : "off")}" +
                   (_overridden.Count > 0 ? $"; flags override: {string.Join(", ", _overridden)}" : ""));
     }
 
@@ -135,7 +139,7 @@ public class SettingsMenu : MonoBehaviour
         float vw = Screen.width / ui, vh = Screen.height / ui;
         Styles();
 
-        const float w = 780f, h = 560f;
+        const float w = 780f, h = 634f;
         var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f, w, h);
         Fill(r, new Color(0.03f, 0.05f, 0.08f, 0.96f));
         Fill(new Rect(r.x, r.y, w, 1f), new Color(1f, 1f, 1f, 0.25f));
@@ -156,6 +160,17 @@ public class SettingsMenu : MonoBehaviour
         {
             RaymarchFeature.ShadowQualityLevel = pick;
             Save("shadowLevel", s => s.shadowLevel = pick);
+        }
+
+        // 1b. The shadow roof skip (task 59): exact, so it only changes cost.
+        int roof = RaymarchFeature.ShadowRoofSkip ? 0 : 1;
+        pick = Row(x, ref y, "Roof skip", "roofSkip",
+            ROOF_HINT,
+            new[] { "On (exact, faster shadows)", "Off" }, roof);
+        if (pick >= 0 && pick != roof)
+        {
+            RaymarchFeature.ShadowRoofSkip = pick == 0;
+            Save("roofSkip", s => s.roofSkip = pick == 0);
         }
 
         // 2. The upscaler.
@@ -222,7 +237,7 @@ public class SettingsMenu : MonoBehaviour
         y += 4f;
         GUI.Label(new Rect(x, y, w - 40f, 60f),
             "<color=#9fb6c9>Choices made here are saved and used at the next start. Command-line flags " +
-            "(-upscaler, -renderrows, -shadowlevel) override them for one run. The keys J, K, F1, F4 change " +
+            "(-upscaler, -renderrows, -shadowlevel, -roofskip) override them for one run. The keys J, K, F1, F4 change " +
             "things for this session only.\n" + (_note ?? $"file: {_path}") + "</color>", _small);
 
         GUI.matrix = prev;

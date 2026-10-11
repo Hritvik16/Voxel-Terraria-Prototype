@@ -35,6 +35,14 @@
 //           wait, cpuRenderThreadFrameTime, gpuFrameTime (INFLATED ~2.6x on this
 //           Mac, Amendment 8.10 -- relative only).
 //   STILLS  one per arm (first pass, before its timing window) into <run>/stills/.
+//   TASK 59 (capture-only flags, run-cost-split.sh EXTRA=):
+//     -costarms a,b,..  only these arms (repeats allowed: "roof_on,roof_on" =
+//                       F X X F X X F); default the eight above
+//     -costsun DEG      sun DEG above the horizon, evening side
+//                       (SunCycle.HoursForElevation) instead of noon
+//     roof_on           an arm that turns the shadow roof skip ON
+//                       (RaymarchFeature.ShadowRoofSkip); FULL keeps the launch's
+//                       value (OFF unless -roofskip 1), so saved = OFF - ON
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -63,13 +71,16 @@ public partial class PlaygroundCapture
                                   UniversalAdditionalCameraData acd)
     {
         float timed = ArgFloat("-costtimed", 20f);
-        float hours = SunCycle.NoonHours;
+        float sunDeg = ArgFloat("-costsun", -1f);
+        float hours = sunDeg > 0f ? SunCycle.HoursForElevation(sunDeg, morning: false) : SunCycle.NoonHours;
+        string armsArg = ArgValue("-costarms");
+        string[] costArms = string.IsNullOrEmpty(armsArg) ? CostArms : armsArg.Split(',');
         SunCycle.SetHours(hours);
         float3 sun = SunCycle.DirectionAt(hours);
         int baseShadow = RaymarchFeature.ShadowQualityLevel, baseTorch = RaymarchFeature.TorchShadowsOverride;
         L("");
-        L($"COST SPLIT (task 57): {hours:F0}:00, sun elevation {SunCycle.ElevationDegreesAt(hours):F0} deg; FULL = fsr3 540 rows pinned, " +
-          $"HUD + minimap on, fluid on; shadow rung {baseShadow}, torch rays override {baseTorch} (config {LightingConfig.Active.torchShadowRays}), " +
+        L($"COST SPLIT (task 57): {hours:F2} h, sun elevation {SunCycle.ElevationDegreesAt(hours):F0} deg; FULL = fsr3 540 rows pinned, " +
+          $"HUD + minimap on, fluid on; roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}; shadow rung {baseShadow}, torch rays override {baseTorch} (config {LightingConfig.Active.torchShadowRays}), " +
           $"temporal shadows {(RaymarchFeature.TemporalShadows ? "ON" : "OFF")}, far shadows {(far.ShadowsOn ? "ON" : "OFF")}, cascade {RaymarchFeature.UseLODCascade}");
         L($"order: F, then per arm X X F; each run {CostSettle:F0} s settle + {timed:F0} s timed, real time, no capture");
 
@@ -134,7 +145,7 @@ public partial class PlaygroundCapture
 
             var runs = new List<CostRun>();
             var order = new List<string> { "full" };
-            foreach (string a in CostArms) { order.Add(a); order.Add(a); order.Add("full"); }
+            foreach (string a in costArms) { order.Add(a); order.Add(a); order.Add("full"); }
             var seen = new Dictionary<string, int>();
             foreach (string arm in order)
             {
@@ -162,9 +173,9 @@ public partial class PlaygroundCapture
             t.AppendLine("arm        p50    p99 ms   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50");
             t.AppendLine($"full     {Pct(allFull, 0.5f),6:F1} {Pct(allFull, 0.99f),6:F1}    {fulls.Count} runs: {string.Join(" ", fp50.ConvertAll(v => v.ToString("F1")))}   " +
                          $"(range {fMax - fMin:F1})   cpu {Pct(Pool(fulls, x => x.cpuMain), 0.5f):F1} / {Pct(Pool(fulls, x => x.presentWait), 0.5f):F1}   gpu* {Pct(Pool(fulls, x => x.gpu), 0.5f):F1}");
-            for (int i = 0; i < CostArms.Length; i++)
+            for (int i = 0; i < costArms.Length; i++)
             {
-                string arm = CostArms[i];
+                string arm = costArms[i];
                 CostRun x1 = runs[1 + 3 * i], x2 = runs[2 + 3 * i], before = runs[3 * i], after = runs[3 + 3 * i];
                 var both = new List<float>(x1.ms); both.AddRange(x2.ms);
                 float fb = Pct(before.ms, 0.5f), fa = Pct(after.ms, 0.5f), xp = Pct(both, 0.5f);
@@ -207,6 +218,7 @@ public partial class PlaygroundCapture
         if (arm == "tiny_gate") RaymarchFeature.CustomGateResolution = new Vector2Int(256, 144);
         RaymarchFeature.ShadowQualityLevel = arm == "sun_off" ? 3 : _costBaseShadow;
         RaymarchFeature.TorchShadowsOverride = arm == "torch_off" ? 0 : _costBaseTorch;
+        RaymarchFeature.ShadowRoofSkip = arm == "roof_on" || _costBaseRoof;
         FarField.RenderEnabled = arm != "far_off";
         RaymarchFeature.UseLODCascade = arm != "tiers_off";
         Playground.DebugSuspendFluidSim = arm == "fluid_off";
@@ -216,6 +228,7 @@ public partial class PlaygroundCapture
     }
 
     private static int _costBaseShadow = -1, _costBaseTorch = -1;
+    private static bool _costBaseRoof;
 
     /// One timed run: settle at pose 0 with the arm applied, history reset, a
     /// still (first pass only), then the path by real time; the frames after
@@ -223,7 +236,7 @@ public partial class PlaygroundCapture
     private IEnumerator CostTime(ClipPath path, CostRun r, float timed, string still, Camera cam,
                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
     {
-        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; }
+        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; }
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);

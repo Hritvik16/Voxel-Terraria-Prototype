@@ -43,6 +43,10 @@ public sealed class PlaySettings
     public int perfOverlay = 1;
     /// The corner minimap (F4 also flips it).
     public bool minimap = true;
+    /// Task 59 (owner Q42 (a)): the shadow roof skip (RaymarchFeature.ShadowRoofSkip,
+    /// `-roofskip`), exact by construction. ON for play; rigs keep it OFF. A file
+    /// saved before task 59 has no such field and so gets this default.
+    public bool roofSkip = true;
 
     /// Runtime only: -renderpreset / -taa / -checker without -upscaler or
     /// -renderrows asked for the old preset frame path, so no upscaler is applied.
@@ -86,7 +90,7 @@ public sealed class PlaySettings
     public static PlaySettings WithArgs(PlaySettings saved, string[] args, List<string> overridden)
     {
         var s = saved.Clone();
-        string u = Last(args, "-upscaler"), r = Last(args, "-renderrows"), sh = Last(args, "-shadowlevel");
+        string u = Last(args, "-upscaler"), r = Last(args, "-renderrows"), sh = Last(args, "-shadowlevel"), rs = Last(args, "-roofskip");
         if (u != null)
         {
             string v = u.ToLowerInvariant();
@@ -103,6 +107,11 @@ public sealed class PlaySettings
         {
             if (int.TryParse(sh, out int n) && n >= 0 && n <= 3) { s.shadowLevel = n; overridden?.Add("shadowLevel"); }
             else overridden?.Add($"-shadowlevel: bad value '{sh}'");
+        }
+        if (rs != null)
+        {
+            if (rs == "0" || rs == "1") { s.roofSkip = rs == "1"; overridden?.Add("roofSkip"); }
+            else overridden?.Add($"-roofskip: bad value '{rs}'");
         }
         // Task 52's rule, kept: asking for the preset path without naming an
         // upscaler keeps the preset path.
