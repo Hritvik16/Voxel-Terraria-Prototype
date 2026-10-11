@@ -1,34 +1,38 @@
-STOP_FOR_OWNER -- Half-res sun shadows are built and ship as an F6 option ("Shadow resolution" Full/Half, `-shadowres`). Play's default is still Full. The shipped version saves only 0.5-1.3 ms, which is BELOW the task's 2.0 ms bar. Two questions:
-1. Q1. Make Half play's default? (a) no, keep Full (recommended: about 1 ms for visibly blockier shadow edges, and Gate 3 is 1 px from red); (b) yes.
-2. Q2. Shadow cost, step 8: (a) close it here and go on to the next plan step (recommended); (b) build the group-coherent variant (a separate half-res shadow pass over a hit buffer, then a depth/normal-aware upsample). Size M (est.): the march kernel splits into hit / shadow / shade passes, ~4-8 MB more buffers at 540 rows, no frozen API touched.
+STOP_FOR_OWNER -- Amendment 8.14 draft revised: shells now scale to the hardware through a quality preset. Five new questions ("all (a)" approves):
+1. Q7. Presets: (a) four, Low / Medium / High (= the M1, pinned by every rig) / Ultra, one menu row (rec.; 4 layouts to test, 3 checkable here only for memory/correctness); (b) three, drop Medium; (c) four + a separate "View distance" (shell count) row.
+2. Q8. First-launch pick: (a) lowest of memory / GPU / CPU tiers from `SystemInfo`, thresholds in draft §H.3, no benchmark (rec.; GPU-name rules need upkeep); (b) RAM only (sends weak-iGPU 16 GB laptops to Ultra); (c) (a) + a 10 s benchmark (warm-chip skew up to 2.2x, est. size M).
+3. Q9. Changing it in F6: (a) applies on next launch, row says "(restart)" (rec.; no new teardown path); (b) live teardown + re-prime (est. size M); (c) shell count live, rest on restart.
+4. Q10. Preset also sets FSR 3 rows: (a) yes as a default, top = sizing rows, bottom = 3/4 (High = today's 540-720), "Render rows" still overrides (rec.); (b) no, 540-720 everywhere; (c) locked together.
+5. Q11. Render range changing on its own while playing: (a) no, menu setting; FSR 3 dyn holds frame rate (rec.); (b) yes, drop outer shells under load; (c) decide after step 23.
 
-# 61-engine-8b-halfres-shadows: built, measured, default unchanged. Below the 2.0 ms bar, so it's the owner's call.
+# 62-engine-9b-8-14-scalable-shells: DONE (planning only). Draft revised and committed; needs the owner's answers.
 ## What changed (branch `engine-phase`)
-- e892f04: `Raymarch.compute` `_ShadowHalfRes`: rung 1's 2x2 quad reuse at ALL distances, made edge-aware. A pixel takes its quad lead's sun value only if its shadow origin (voxel + normal) is within 2 voxels + 2 pixel footprints of the lead's, or on the lead's plane (same normal, within 1 voxel). Otherwise it traces its own ray. The old rung 1 path is unchanged. `RaymarchFeature.ShadowHalfRes`; `PlaySettings.shadowRes` full|half (+1 test); F6 row; cost-split arms `halfres` (step A: plain rung 1 at all distances) and `half` (the shipped switch). Stills now also save `_sunvis` and `_clean` (no HUD).
-- (this commit): menu hint now has the measured numbers; HANDOFF; `Screenshots/61/`.
-## Evidence (warm steady state, FSR 3 at 540 rows, run-cost-split.sh, F X X F order)
-- Step A, `halfres`, session 1 (warm-up `Logs/tg2world_20261010_234100.txt`): noon walk_near 48.0 -> 44.8 ms (+3.2/+3.1 saved), walk_open +0.5; sun 10 near +0.7/+0.8, open +1.8/+1.7 (`Logs/costsplit_2026-10-10_234721.txt`, `_235523.txt`). That cleared 2.0 ms, so the design was kept.
-- Same build, `half` and `halfres` (warm-up `Logs/tg2world_20261011_000820.txt`; `Logs/costsplit_2026-10-11_001455.txt` noon, `_002546.txt` sun 10):
-  - noon walk_near: FULL p50 43.0 / p99 51.9 -> half 41.8 / 49.5 (saved +1.3, +1.0; noise 0.3). `halfres` saved only +1.4 this time.
-  - noon walk_open: 29.2 / 36.3 -> 28.5 / 32.8 (saved +1.3, +1.0; noise 1.6-1.7, so inside the noise).
-  - sun 10 walk_near: 35.0 / 42.9 -> 34.5 / 42.3 (+0.5, +0.6; noise 0.1).
-  - sun 10 walk_open: 33.5 / 39.6 -> 32.4 / 38.3 (+1.2, +1.3; noise 0.1).
-- UNEXPLAINED: FULL at noon walk_near was 48.0 in session 1 and 43.0 in session 2 (both on battery). So step A's 3.2 ms looks like a session effect. The likely cause is lockstep: quad leads still leave 16 of 64 lanes tracing in every 8x8 group, and the group waits for its slowest lane (the same as the 2026-09-26 warning). Not measured further. `Builds/Playground_old.app` (HEAD shader) and `Playground_new.app` are left from the earlier attempt, unused.
-- Gate 3 (`EXTRA="-shadowres half"` run-phase7-rig.sh, `Logs/overnight/61_gate3.out`): 97.26% = 426/438 (> 97%, PASS), was 98.17% = 430/438. All 12 mismatches are cpu=shadow, gpu=lit. One more mismatch would turn it red. Rig PASS 37 FAIL 0.
-- Fast EditMode: PASS 649 FAIL 0 SKIP 14 (before and after the hint edit).
-- Edge check (how): (1) by construction: sky, far-behind-near and other-plane pixels trace their own ray. (2) The `_sunvis` debug views of Full and Half are diffed at the same pose. Differing pixels (0.2-0.5% > 64/255) lie along shadow TERMINATORS in 2x2 steps, not along depth silhouettes. (3) In the 4x crops the ridge-against-sky silhouette is identical in both panels.
-## Unfinished
-- No group-coherent variant (Q2). The menu row is not click-tested in a play session; it applies like task 58's rows.
+- 7e39aad: `AMENDMENT_8_14_LOD_SHELLS_DRAFT.md` only. New section **H. Scaling to the hardware** right after "For the owner":
+  H.1 survey (Minecraft, Distant Horizons, Unreal scalability/`r.ViewDistanceScale`/HLOD, Unity, how defaults are picked; labelled "from general knowledge, not looked up") + what we copy;
+  H.2 preset table; H.3 auto-pick thresholds; H.4 F6 / restart; H.5 frame rate vs presets; H.6 invariants on every preset.
+  (Named "H", not "0", so it can't be confused with the architecture's §0.2 that the draft cites for the upload cap.)
+- Contract row 1 rewritten (runtime `ShellLayout.From(preset)`, pools/directories allocated at start-up, shader constants not `#define`s); rows 6/7/9/11/15 note per-preset effects; NEW rows 16 (quality preset in `PlaySettings`, `-quality`) and 17 (`QualityAuto.Pick`, fixture tests).
+- Owner's answers recorded: Q1 replaced by presets (M1 = 720 sizing = High), Q2-Q6 (a). §2a/§3 relabelled as the High (M1) headline; §3 adds per-preset totals; §6 adds "only the M1 exists here" and "wrong pick" risks.
+## Evidence
+- Planning only: no code, Unity, builds or rigs. EditMode not run (no code changed).
+- Every preset number is (est.), computed with the draft's own §2 method (ring = ±ceil(c/128), hollow minus ±(floor(c/256)-1), densities 3.36/2.93/2.33/2.0 from `Logs/overnight/55_pool_ledger.out`, caps peak x 1.25). The method reproduces the draft's existing 540/720 tables exactly (cols 112/160, flux 86/99, shell 0 305/364 MB).
+- Cross-check: Ultra's shell 0 footprint (21x21 columns) is exactly today's window, whose measured peak is 379,527 bricks.
+- "Rest of process" 1,483 MB = the draft's ~2,338 MB at poses minus High's 855 MB terrain (tasks 53/55); held constant across presets.
+## Unfinished / notes
+- `SystemInfo.graphicsMemorySize` on Apple silicon has never been logged here (only printed by RaymarchAutoBenchmark/CaptureRig); the draft says the first build of the step prints it.
+- Low cannot go much below ~2.0 GB with this amendment alone (1,483 MB isn't terrain); the draft names the fluid-pool and shell-0 two-level-directory cuts but does not propose them.
+## Next step
+- Owner answers Q7-Q11 (or "all (a)"); then the supervisor publishes the draft and the plan's step 10 (coarse-first generation) starts.
 
 ## For the doc
-| sun / arc | Full p50 ms (fps) | Half p50 ms (fps) | saved |
-|---|---|---|---|
-| noon, walk_near | 43.0 (23.3) | 41.8 (23.9) | 1.0-1.3 ms |
-| noon, walk_open | 29.2 (34.2) | 28.5 (35.1) | 1.0-1.3 ms (inside noise 1.6) |
-| 10 deg, walk_near | 35.0 (28.6) | 34.5 (29.0) | 0.5-0.6 ms |
-| 10 deg, walk_open | 33.5 (29.9) | 32.4 (30.9) | 1.2-1.3 ms |
-Source: `Logs/costsplit_2026-10-11_001455.txt` and `_002546.txt` (warm). Gate 3: 98.17% -> 97.26% (PASS, 1 px from red).
-- `Screenshots/61/walk_near_sun25_full.png` / `walk_near_sun25_half.png`: sun 25 deg from front-left, terrain lit. Look at the shadow line running diagonally down the near ridge on the right half of the frame. Half's edge is blockier there.
-- `Screenshots/61/walk_near_sun25_crop4x.png`: 4x crop of that shadow line (left Full, right Half; where it is: `walk_near_sun25_cropbox.png`, yellow box). Half's line steps in 2x2-pixel blocks and moves by a few pixels, and its shadow reaches a little further on the right.
-- `Screenshots/61/walk_open_sun25_crop4x.png`: 4x crop of the ridge against the sky (left Full, right Half). The silhouette is identical, so nothing bleeds across it. Only small soft-shadow patches on the slope differ.
-Question: make Half play's default, yes/no (Q1); build the bigger variant (Q2).
+Task 62: the 8.14 draft now sizes the shells per machine. Nothing built; every number (est.) from the draft's own formulas.
+| preset | sizing rows (FSR 3 dyn) | shells / 3D range | 0.1 m radius | terrain MB (today 1,322) | process | full detail keeps up to |
+|---|---|---|---|---|---|---|
+| Low | 480 (360-480) | 6 / 1.5 km | 59 m | 526 | ~2.0 GB | 5-8 m/s on its class |
+| Medium | 540 (405-540) | 7 / 3.3 km | 65 m | 684 | ~2.2 GB | 8-12 m/s |
+| **High = M1 8 GB** | 720 (540-720) | 8 / 6.6 km | 82 m | 855 | ~2.3 GB (< 3 GB cap) | 7-11 m/s (M1 capacity, task 28) |
+| Ultra | 1080 (810-1080) | 7 / 6.6 km | 116 m | 1,497 | ~3.0 GB (16 GB+ machines) | 9-14 m/s on its class |
+- Beyond the last shell the far band draws (Q6 (a)). Rigs pin High. Range is cheap (a shell is ~10-120 MB); shell 0 (255-718 MB) is what the presets really trade.
+- Auto-pick = lowest of memory / GPU / CPU tiers (M1 Air 8 GB -> High; Intel iGPU Mac -> Low; M2 Pro 16 GB -> Ultra).
+- Images: none -- a planning revision with nothing rendered.
+- Questions: Q7-Q11 above.
