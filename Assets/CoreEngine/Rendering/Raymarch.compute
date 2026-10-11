@@ -985,6 +985,32 @@ float3 LookAlbedo(uint mat, int3 voxel)
 // Real emission is Phase 7 (§6.5).
 bool MaterialIsSelfLit(uint mat) { return mat == 11u || mat == 20u; }   // Lava, Sludge
 
+// ---- TASK 66b: THE VIEW FROM INSIDE A FLUID ----
+// With the eye inside a fluid voxel the primary ray used to "hit" that voxel at
+// t = 0 with normal (0,0,0); its shadow and sky rays started inside the fluid
+// too (sunVis 0, skyVis 0), so the frame shaded to near-black. Now, when
+// _UnderwaterView != 0 and the eye's voxel holds one of these fluids, the march
+// passes through that fluid (passMat), stops on anything else -- the bed and
+// walls are shaded as usual, AIR is the surface seen from below -- and the
+// pixel is fogged by the distance travelled in the fluid. Lava stays as it was
+// (the player is burning; the look is not worth a branch), steam is a gas.
+// The eye NOT in a fluid takes exactly the old path: passMat is 0, every test
+// below reduces to the old `mat != 0`.
+int _UnderwaterView;   // 1 on (RaymarchFeature.UnderwaterView, PlaySettings.underwaterFog)
+bool MaterialIsClearFluid(uint m) { return m == 6u || m == 12u || m == 18u || m == 19u || m == 20u || m == 21u; }
+
+// Extinction per metre, r g b: transmittance over d metres is exp(-d * this).
+// Water keeps blue-green longest (~6-8 m to the bed, "a few metres").
+float3 FluidExtinction(uint m)
+{
+    if (m == 6u)  return float3(0.60, 0.30, 0.22);   // Water
+    if (m == 12u) return float3(0.90, 1.40, 3.00);   // Honey: amber, ~1.5 m
+    if (m == 18u) return float3(3.00, 3.20, 3.50);   // Oil: dark, ~1 m
+    if (m == 19u) return float3(1.00, 0.35, 1.40);   // Acid: green
+    if (m == 20u) return float3(1.50, 0.60, 1.80);   // Sludge: green
+    return float3(6.0, 7.0, 9.0);                    // Quicksand: ~0.3 m
+}
+
 // ===========================================================================
 // A.7's `emissive`, MIRRORED -- and why it is mirrored rather than uploaded.
 //
@@ -1140,6 +1166,32 @@ uint VoxelMaterialAt(int3 voxel, uint3 windowDimsBricks)
     uint vIdx = (uint)LocalVoxelIndex(LocalVoxelIndex3D(voxel));
     uint packed = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
     return (packed >> ((vIdx & 3u) * 8u)) & 0xFFu;
+}
+
+/// Task 66b: the voxel Y of the plane where `fluid` ends straight above `eye`
+/// (the surface, or a ceiling over a flooded cave). Whole uniform fluid bricks
+/// are skipped; 48 reads at most (past that the eye is called that deep). Every
+/// thread asks the same column, so the reads are coherent. Eye-in-fluid only.
+int FluidTopAbove(int3 eye, uint fluid, uint3 windowDimsBricks)
+{
+    int y = eye.y;
+    [loop]
+    for (int i = 0; i < 48; i++)
+    {
+        int3 v = int3(eye.x, y, eye.z);
+        int3 rel = VoxelToBrick(v) - _WindowOriginBricksPacked.xyz;
+        if (rel.y >= (int)windowDimsBricks.y || y >= _ContentCeilingVoxelY) return y;
+        uint handle = ReadClipmap(VoxelToBrick(v), windowDimsBricks);
+        if ((handle & 0x80000000u) == 0u)
+        {
+            if ((handle & 0xFFu) != fluid) return y;
+            y = ((y >> 3) + 1) << 3;   // the next brick up
+            continue;
+        }
+        if (VoxelMaterialAt(v, windowDimsBricks) != fluid) return y;
+        y++;
+    }
+    return y;
 }
 
 /// SVO/Brickmap emissive color: an emitting material glows in its own look albedo.
@@ -2513,6 +2565,24 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     float maxDist = (_MaxRayDistance > 0.0) ? _MaxRayDistance : 1280.0;
     int _iterCap = (_MaxOuterIterations > 0) ? _MaxOuterIterations : 400;
 
+    // TASK 66b: the material this ray passes through -- air (0) as always, or
+    // the fluid the eye is in. Past the distance where the fluid has absorbed
+    // 98% of every channel nothing can show, so the march stops there (water
+    // 17.8 m): the eye-in-fluid path never leaves tier 0's near range.
+    uint passMat = 0u;
+    float fluidTopY = 0.0;   // voxels: where the fluid above the eye ends (the light comes down from there)
+    if (_UnderwaterView != 0)
+    {
+        uint eyeMat = VoxelMaterialAt(voxel, _WindowDimsBricks);
+        if (MaterialIsClearFluid(eyeMat))
+        {
+            passMat = eyeMat;
+            fluidTopY = (float)FluidTopAbove(voxel, eyeMat, _WindowDimsBricks);
+            float3 ext = FluidExtinction(eyeMat);
+            maxDist = min(maxDist, 39.12 / min(ext.x, min(ext.y, ext.z)));   // ln(50) m x 10 voxels/m
+        }
+    }
+
     // ---- FAR BAND: a camera OUTSIDE the voxel window (above its 51.2 m
     // ceiling, say) used to lose every ray at the bounds guard on iteration 1:
     // a black/sky screen. With the far band on, advance the ray to the window's
@@ -2642,7 +2712,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         // old inline form was correct here and is NOT correct for a shadow ray,
         // which starts at a surface; see SelectLODTier's header. Behaviour at
         // this call site is unchanged, byte for byte.
-        int tier = SelectLODTier(currentDist);
+        int tier = (passMat != 0u) ? 0 : SelectLODTier(currentDist);   // 66b: 0 when passMat == 0u is unchanged
 
         if (tier == 0)
         {
@@ -2652,8 +2722,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             // (or any ray when _UseLODCascade==0) get byte-identical behavior.
             // ===================================================================
             bool leapt = false;
+            // 66b: inside a fluid an all-air cell is a STOP (the surface), never a leap.
             [loop]
-            for (int k = (int)_AirMipLevelCount; k >= 1; k--)
+            for (int k = (passMat == 0u) ? (int)_AirMipLevelCount : 0; k >= 1; k--)
             {
                 int shift = 3 + k;
                 int3 cell = voxel >> shift;
@@ -2710,7 +2781,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                         uint pShift = (vIdx & 3) * 8;
                         mat = (packedData >> pShift) & 0xFF;
 
-                        if (mat != 0) { hit = true; lastWasDense = true; break; }
+                        if (mat != passMat) { hit = true; lastWasDense = true; break; }
 
                         denseMicroSteps++;
                         steps++;
@@ -2738,7 +2809,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 uint shift2 = (vIdx2 & 3) * 8;
                 mat = (packedData2 >> shift2) & 0xFF;
 
-                if (mat != 0) { hit = true; lastWasDense = true; tierAtHit = 0; break; }
+                if (mat != passMat) { hit = true; lastWasDense = true; tierAtHit = 0; break; }
 
                 denseMicroSteps++;
                 if (tMax.x < tMax.y)
@@ -2755,7 +2826,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             }
 
             mat = handle & 0xFF;
-            if (mat != 0) { hit = true; lastWasDense = false; tierAtHit = 0; break; }
+            if (mat != passMat) { hit = true; lastWasDense = false; tierAtHit = 0; break; }
 
             {
                 int3 bMin = brickCoord * 8;
@@ -2795,7 +2866,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 uint pShift = (vIdx & 3) * 8;
                 mat = (packedData >> pShift) & 0xFF;
 
-                if (mat != 0) { hit = true; lastWasDense = true; tierAtHit = tier; break; }
+                if (mat != passMat) { hit = true; lastWasDense = true; tierAtHit = tier; break; }
 
                 // FIX (measured, not guessed): this used to single-step one RAW
                 // voxel at a time even though a coarse voxel here spans `factor`
@@ -2821,7 +2892,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             }
 
             mat = handle & 0xFF;
-            if (mat != 0) { hit = true; lastWasDense = false; tierAtHit = tier; break; }
+            if (mat != passMat) { hit = true; lastWasDense = false; tierAtHit = tier; break; }
 
             // Empty coarse brick: leap its full span using the SAME, UNCHANGED
             // LeapSpanReseedClosedForm tier-0 already uses - just with the span
@@ -2914,7 +2985,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #else
     float tVoxelLimit = currentDist;
 #endif
-    if (_FarEnabled != 0 && !hit)
+    if (_FarEnabled != 0 && !hit && passMat == 0u)   // 66b: under a fluid the far band is fogged out anyway
     {
         float tFar = (_FarEnabled == 2) ? 0.0 : FarStartT(rayStart, rayDir, skipVoxel ? 0.0 : tVoxelLimit);
         if (skipVoxel && _FarEnabled == 1) tFar = 0.0;
@@ -3003,7 +3074,8 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     bool softShadows = (_ShadowQualityLevel <= 1) && (_KSoft > 0.0);
 
     // §6.5: "skips sky pixels (no primary hit => no shadow ray)".
-    bool needsShadowRay = hit && sunIsUp && shadowsOn;
+    // 66b: not from inside a fluid -- every sun ray would start in it and stop on it.
+    bool needsShadowRay = hit && sunIsUp && shadowsOn && passMat == 0u;
 
     // -----------------------------------------------------------------------
     // §6.5's 8.4 WAVE-UNIFORM BRANCH GUARD -- built in from the start.
@@ -3175,6 +3247,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // combine doing the shaping. Handled here rather than inside the guard so a
     // wave that skipped the block entirely still lands on the right value.
     if (hit && sunIsUp && !shadowsOn) sunVis = 1.0;
+    // 66b: from inside a fluid the bed and walls take the sun, dimmed for the fluid
+    // above them; the fog below does the rest. No terrain shadows under water.
+    if (hit && sunIsUp && passMat != 0u) sunVis = 0.8;
 
     // Temporal reuse: every pixel records what it used, for the next frame.
     if (_TemporalShadows != 0 && inBounds)
@@ -3203,7 +3278,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // own flag so Stage 6 measures it as its own arm, and the decision is the
     // owner's. See PHASE_7_COMPLETION.md's FLAG list.
     // -----------------------------------------------------------------------
-    if (hit && _UseSkyProbeAmbient != 0)
+    if (hit && _UseSkyProbeAmbient != 0 && passMat == 0u)   // 66b: from a fluid it would stop in the fluid
     {
         // No second group guard here: `hit` is already the per-thread condition
         // and a group with no hits at all has nothing to probe, so the outer
@@ -3352,7 +3427,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 
     float4 color = _SkyColor;
     if (_Look == 1 && _UseDevColors != 0) color = float4(LookToLinear(LookShoulder(LookAtmosphere(rayDir), _LookGrade.z)), 1.0);
-    if (hit)
+    // 66b: a fluid-mode stop on AIR is the surface from below, coloured after this chain.
+    bool fluidSurface = (passMat != 0u) && hit && (mat == 0u);
+    if (hit && !fluidSurface)
     {
         float ndotl = max(0.2, dot(float3(normal), normalize(float3(0.5, 1.0, 0.2))));
         if (_UseDevColors != 0 && _Look == 1)
@@ -3386,7 +3463,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 
             // VAO on the ambient term only, with the Brickmap's remap.
             float vao = 1.0;
-            if (_ShadeAO != 0 && !selfLit)
+            if (_ShadeAO != 0 && !selfLit && passMat == 0u)   // 66b: fluid neighbours are not occluders
             {
                 float3 inVoxel = hitP - (float3(voxel) + 0.5);
                 vao = FaceAO(voxel, normal, inVoxel, _WindowDimsBricks);
@@ -3507,7 +3584,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             }
 
             // Ambient occlusion from neighbour occupancy.
-            if (_ShadeAO != 0 && !selfLit)
+            if (_ShadeAO != 0 && !selfLit && passMat == 0u)   // 66b: fluid neighbours are not occluders
             {
                 float3 hitP = rayStart + rayDir * currentDist;
                 float3 inVoxel = hitP - (float3(voxel) + 0.5);   // [-0.5, 0.5] per axis
@@ -3647,6 +3724,45 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             if (_ShadeFog != 0) shadedF = lerp(shadedF, _SkyColor.rgb, HazeAmount(fh.t, rayStart.y, rayStart.y + rayDir.y * fh.t) * 0.85);
             color = float4(ApplyTonemap(shadedF), 1.0);
         }
+    }
+
+    // ---- 66b: THE FLUID BETWEEN THE EYE AND WHAT IT SEES ----
+    // The whole path was in the fluid (the march stops where it leaves it), so
+    // transmittance is exp(-d * extinction) per channel. The fog is the fluid's
+    // albedo under the sky's light; where the ray leaves through the surface it
+    // sees the sky inside Snell's window (~49 deg from straight up, cos 0.66)
+    // and the fluid's own light reflected outside it.
+    if (passMat != 0u)
+    {
+        float3 sdU = normalize(_SunDir);
+        float dayU = saturate(sdU.y * 0.8 + 0.2);
+        float window = smoothstep(0.55, 0.75, rayDir.y);
+        float3 fogLin, surfLin;
+        if (_Look == 1 && _UseDevColors != 0)
+        {
+            float3 fogL = MaterialAlbedoLook(passMat) * ((_LookSun.rgb * dayU + _LookMoon.rgb * 0.3 + _LookAmbient.rgb) * _LookGrade.x) * 0.6;
+            float3 surfL = lerp(fogL * 1.6, LookAtmosphere(rayDir) * 0.85 + fogL * 0.3, window);
+            if (_LookGrade.w > 0.0) { fogL = LookGradeColour(fogL, _LookGrade.y, _LookGrade.z); surfL = LookGradeColour(surfL, _LookGrade.y, _LookGrade.z); }
+            fogLin = LookToLinear(fogL);
+            surfLin = LookToLinear(surfL);
+        }
+        else
+        {
+            float3 fogS = MaterialAlbedo(passMat) * (_SunColor * dayU + _AmbientColor) * 0.6;
+            fogLin = ApplyTonemap(fogS);
+            surfLin = ApplyTonemap(lerp(fogS * 1.6, _SkyColor.rgb * 0.85 + fogS * 0.3, window));
+        }
+        // Light comes down from the fluid's top: what reaches a depth d is
+        // exp(-d * ext / 2) (half: scattered light keeps some of it), for the
+        // fog at the eye and for the surface the ray hit. Flat-top assumption.
+        float3 ext = FluidExtinction(passMat);
+        float eyeDepthM = max(0.0, fluidTopY - rayStart.y) * 0.1;
+        float hitDepthM = max(0.0, fluidTopY - (rayStart.y + rayDir.y * currentDist)) * 0.1;
+        fogLin *= exp(-eyeDepthM * ext * 0.5);
+        fogLin += MaterialEmissiveTint(passMat) * MaterialEmissive(passMat) * 0.3;   // sludge glows
+        float3 base = fluidSurface ? surfLin : (hit ? color.rgb * exp(-hitDepthM * ext * 0.5) : fogLin);
+        float3 trans = exp(-(currentDist * 0.1) * ext);
+        color = float4(base * trans + fogLin * (1.0 - trans), 1.0);
     }
 
     // TAA: where this pixel's surface was last frame, and what it was.

@@ -61,6 +61,10 @@ public sealed class PlaySettings
     /// the old brushes (what every rig runs). A file saved before task 64 gets
     /// survival.
     public string gameMode = "survival";
+    /// Task 66b: the view with the eye inside a fluid (RaymarchFeature.UnderwaterView,
+    /// `-underwater 0|1`). On: the lake bed through tinted fog. Off: the old black.
+    /// A file saved before task 66b gets on.
+    public bool underwaterFog = true;
 
     /// Runtime only: -renderpreset / -taa / -checker without -upscaler or
     /// -renderrows asked for the old preset frame path, so no upscaler is applied.
@@ -110,6 +114,7 @@ public sealed class PlaySettings
         var s = saved.Clone();
         string u = Last(args, "-upscaler"), r = Last(args, "-renderrows"), sh = Last(args, "-shadowlevel"), rs = Last(args, "-roofskip"), sr = Last(args, "-shadowres");
         string gm = Last(args, "-gamemode");
+        string uw = Last(args, "-underwater");
         if (u != null)
         {
             string v = u.ToLowerInvariant();
@@ -143,6 +148,11 @@ public sealed class PlaySettings
             string v = gm.ToLowerInvariant();
             if (Array.IndexOf(GameModes, v) >= 0) { s.gameMode = v; overridden?.Add("gameMode"); }
             else overridden?.Add($"-gamemode: bad value '{gm}'");
+        }
+        if (uw != null)
+        {
+            if (uw == "0" || uw == "1") { s.underwaterFog = uw == "1"; overridden?.Add("underwaterFog"); }
+            else overridden?.Add($"-underwater: bad value '{uw}'");
         }
         // Task 52's rule, kept: asking for the preset path without naming an
         // upscaler keeps the preset path.

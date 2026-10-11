@@ -29,7 +29,7 @@ public class PlaySettingsTests
         string path = Path.Combine(Path.GetTempPath(), "PlaySettingsTests_" + System.Guid.NewGuid().ToString("N"), PlaySettings.FileName);
         try
         {
-            var a = new PlaySettings { upscaler = "stp", rows = "720", shadowLevel = 2, softShadows = false, perfOverlay = 2, minimap = false, roofSkip = true };
+            var a = new PlaySettings { upscaler = "stp", rows = "720", shadowLevel = 2, softShadows = false, perfOverlay = 2, minimap = false, roofSkip = true, underwaterFog = false };
             Assert.IsTrue(PlaySettings.Save(path, a, out string werr), werr);
             var b = PlaySettings.Load(path, out string rerr);
             Assert.IsNull(rerr);
@@ -40,6 +40,7 @@ public class PlaySettingsTests
             Assert.AreEqual(2, b.perfOverlay);
             Assert.IsFalse(b.minimap);
             Assert.IsTrue(b.roofSkip);
+            Assert.IsFalse(b.underwaterFog);
         }
         finally { Directory.Delete(Path.GetDirectoryName(path), true); }
     }
@@ -121,6 +122,27 @@ public class PlaySettingsTests
         run = PlaySettings.WithArgs(old, new[] { "-roofskip", "yes" }, over);
         Assert.IsFalse(run.roofSkip, "a bad value keeps the saved one");
         CollectionAssert.Contains(over, "-roofskip: bad value 'yes'");
+    }
+
+    [Test]
+    public void UnderwaterFog_OldFileGetsOn_FlagOverridesForTheRun()
+    {
+        // Task 66b: a file saved before it has no underwaterFog field: it gets ON.
+        var old = PlaySettings.Parse("{\"upscaler\":\"fsr3\",\"rows\":\"dyn\",\"gameMode\":\"survival\"}", out string e);
+        Assert.IsNull(e);
+        Assert.IsTrue(old.underwaterFog);
+        Assert.IsTrue(new PlaySettings().underwaterFog);
+
+        var over = new List<string>();
+        var run = PlaySettings.WithArgs(old, new[] { "-underwater", "1", "-underwater", "0" }, over);
+        Assert.IsFalse(run.underwaterFog, "last match wins");
+        Assert.IsTrue(old.underwaterFog, "the saved settings are untouched");
+        CollectionAssert.Contains(over, "underwaterFog");
+
+        over.Clear();
+        run = PlaySettings.WithArgs(old, new[] { "-underwater", "off" }, over);
+        Assert.IsTrue(run.underwaterFog, "a bad value keeps the saved one");
+        CollectionAssert.Contains(over, "-underwater: bad value 'off'");
     }
 
     [Test]

@@ -13,6 +13,7 @@
 //   Perf overlay     PlaygroundHud's strip and its F1 detail panel
 //   Minimap          Minimap.Visible (F4 also flips it)
 //   Game mode        Playground.SetGameMode, as -gamemode (task 64: Survival / Creative)
+//   Underwater view  RaymarchFeature.UnderwaterView, as -underwater (task 66b: On)
 //
 // ORDERED by task 57's cost split (Logs/costsplit_2026-10-10_212527.txt, warm,
 // walk at noon, FSR 3 at 540): sun shadows 14.2 / 4.2 ms (wall / open view),
@@ -74,6 +75,7 @@ public class SettingsMenu : MonoBehaviour
         if (!run.softShadows) Playground.SetSoftShadows(false);
         ApplyOverlay(run.perfOverlay);
         Minimap.Visible = run.minimap;
+        RaymarchFeature.UnderwaterView = run.underwaterFog;
         Playground.SetGameMode(run.gameMode == "survival");
         // -settingsopen: start with the menu open (task 58's -playshot still).
         if (Array.IndexOf(Environment.GetCommandLineArgs(), "-settingsopen") >= 0) IsOpen = true;
@@ -81,7 +83,7 @@ public class SettingsMenu : MonoBehaviour
         Debug.Log($"[PlaySettings] {(File.Exists(_path) ? "loaded" : "no file yet (defaults)")} {_path}" +
                   (err != null ? $" -- {err}" : "") +
                   $"; this run: upscaler {(run.presetPath ? "preset path" : run.upscaler)}, rows {run.rows}, shadows {run.shadowLevel}" +
-                  $" {(run.softShadows ? "soft" : "hard")}, shadow res {run.shadowRes}, roof skip {(run.roofSkip ? "on" : "off")}, overlay {run.perfOverlay}, minimap {(run.minimap ? "on" : "off")}, game mode {run.gameMode}" +
+                  $" {(run.softShadows ? "soft" : "hard")}, shadow res {run.shadowRes}, roof skip {(run.roofSkip ? "on" : "off")}, overlay {run.perfOverlay}, minimap {(run.minimap ? "on" : "off")}, game mode {run.gameMode}, underwater {(run.underwaterFog ? "on" : "off")}" +
                   (_overridden.Count > 0 ? $"; flags override: {string.Join(", ", _overridden)}" : ""));
     }
 
@@ -145,7 +147,7 @@ public class SettingsMenu : MonoBehaviour
         float vw = Screen.width / ui, vh = Screen.height / ui;
         Styles();
 
-        const float w = 780f, h = 782f;   // + task 64's Game mode row
+        const float w = 780f, h = 856f;   // + task 64's Game mode row, task 66b's Underwater view row
         var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f, w, h);
         Fill(r, new Color(0.03f, 0.05f, 0.08f, 0.96f));
         Fill(new Rect(r.x, r.y, w, 1f), new Color(1f, 1f, 1f, 0.25f));
@@ -265,10 +267,21 @@ public class SettingsMenu : MonoBehaviour
             Save("minimap", s => s.minimap = pick == 0);
         }
 
+        // 7. Underwater view (task 66b). Look only, not measured.
+        int uv = RaymarchFeature.UnderwaterView ? 0 : 1;
+        pick = Row(x, ref y, "Underwater view", "underwaterFog",
+            "With your eyes in water (or oil, sludge, ...): the bed and walls through tinted fog, the surface from below. Off: black.",
+            new[] { "On", "Off" }, uv);
+        if (pick >= 0 && pick != uv)
+        {
+            RaymarchFeature.UnderwaterView = pick == 0;
+            Save("underwaterFog", s => s.underwaterFog = pick == 0);
+        }
+
         y += 4f;
         GUI.Label(new Rect(x, y, w - 40f, 60f),
             "<color=#9fb6c9>Choices made here are saved and used at the next start. Command-line flags " +
-            "(-upscaler, -renderrows, -shadowlevel, -shadowres, -roofskip, -gamemode) override them for one run. The keys J, K, F1, F4 change " +
+            "(-upscaler, -renderrows, -shadowlevel, -shadowres, -roofskip, -gamemode, -underwater) override them for one run. The keys J, K, F1, F4 change " +
             "things for this session only.\n" + (_note ?? $"file: {_path}") + "</color>", _small);
 
         GUI.matrix = prev;

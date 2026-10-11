@@ -7,6 +7,8 @@
 // the camera. Then quits.
 //   1  floating at a lake's surface           (swim, idle float)
 //   2  diving toward the lake bed             (W while looking 55 deg down)
+//   2a/2b/2c  task 66b: eye 1 m and 6 m under, then looking up at the surface
+//      (+ 2b_under_6m_view_off: the same pose with RaymarchFeature.UnderwaterView off)
 //   3  mid-double-jump over a 3.8 m trench    (carved through EditService)
 // It logs the top speeds it saw (walk, swim, dash) and where the jump landed.
 // Shots: persistentDataPath/MoveDemo/.
@@ -125,6 +127,41 @@ public partial class Playground
             Debug.Log($"[MoveDemo] dive heading {diveYaw:F0}: feet {deepest:+0.00;-0.00} m vs the surface, swimming {m.Swimming}, " +
                       $"top swim speed {maxSwim:F2} m/s (cap {m.SwimCapMps(Materials.Water):F2}); trace (feet vs surface):{trace}");
             yield return DemoShot(dir, "2_dive_lake_bed");
+
+            // Task 66b: the view from under the water. The eye is held at a set
+            // depth (re-teleported every frame: an idle swimmer floats up) while
+            // TAA / FSR 3 settle; the same 6 m pose with the view OFF is the old
+            // black frame for comparison.
+            float eyeOff = Camera.main != null ? Camera.main.transform.position.y - m.PositionM.y : 1.6f;
+            float bedM = WaterColumn(here.x, here.z, out _, out int bedU) ? (bedU + 1) * 0.1f : surfM - 9f;
+            float3 divePose = m.PositionM;   // x, z held for the shots; the whole pose restored after
+            float deep6 = math.min(6f, surfM - bedM - 0.4f);
+            float[] depths = { 1f, deep6, deep6 }, pitches = { 35f, 35f, -60f };
+            string[] names = { "2a_under_1m", "2b_under_6m", "2c_look_up_surface" };
+            for (int s = 0; s < 3; s++)
+            {
+                float depth = depths[s], pitch = pitches[s];
+                float3 feet = new float3(divePose.x, surfM - depth - eyeOff, divePose.z);
+                for (int i = 0; i < 40; i++)
+                {
+                    m.Teleport(feet);
+                    _cam?.SetLook(diveYaw, pitch);
+                    _demoInput = default(MotorInput);
+                    yield return null;
+                }
+                float eyeY = Camera.main != null ? Camera.main.transform.position.y : feet.y + eyeOff;
+                Debug.Log($"[MoveDemo] 66b {names[s]}: eye {surfM - eyeY:F2} m under the surface (bed {surfM - bedM:F1} m), pitch {pitch:F0}, " +
+                          $"swimming {m.Swimming}");
+                yield return DemoShot(dir, names[s]);
+                if (s == 1)
+                {
+                    RaymarchFeature.UnderwaterView = false;
+                    for (int i = 0; i < 20; i++) { m.Teleport(feet); _demoInput = default(MotorInput); yield return null; }
+                    yield return DemoShot(dir, "2b_under_6m_view_off");
+                    RaymarchFeature.UnderwaterView = true;
+                }
+            }
+            m.Teleport(divePose);   // back to the dive pose (the 6 m eye put the feet in the bed) for the release below
 
             // Let go: an idle swimmer floats back to the water line.
             float tUp = 0f;

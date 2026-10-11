@@ -195,6 +195,11 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static int LookOverride = -1;
     /// >= 0 forces LightingConfig.emissiveBleed without touching the file. -1 = use the config.
     public static int EmissiveBleedOverride = -1;
+    /// Task 66b: with the eye inside water, oil, sludge, acid, honey or quicksand the
+    /// primary ray passes through that fluid and fogs by the distance (Raymarch.compute
+    /// `passMat`). False = the old view (black). Play sets it from
+    /// PlaySettings.underwaterFog; rigs keep this default and are never under a fluid.
+    public static bool UnderwaterView = true;
     /// >= 0 forces LightingConfig.torchShadowRays (-torchshadows N; 0 = no
     /// occlusion rays, the pre-task-46 leak). -1 = use the config.
     public static int TorchShadowsOverride = -1;
@@ -427,6 +432,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public float lookShadowDarkness, lookHazeDensity;
             public Vector4 lookGrade;
             public int emissiveBleed;
+            public int underwaterView;
             public int torchShadowRays;
 
             // ---- far band (FarField.cs) ----
@@ -747,6 +753,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 Unity.Mathematics.float4 g = SunCycle.LookGradeAt(hrs);
                 passData.lookGrade = new Vector4(g.x, g.y, g.z, g.w);
                 passData.emissiveBleed = EmissiveBleedOverride >= 0 ? EmissiveBleedOverride : cfg.emissiveBleed;
+                passData.underwaterView = UnderwaterView ? 1 : 0;
                 passData.torchShadowRays = Mathf.Clamp(TorchShadowsOverride >= 0 ? TorchShadowsOverride : cfg.torchShadowRays,
                                                        0, LightingConfig.MaxTorchShadowRays);
 
@@ -1039,6 +1046,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeFloatParam(data.compute, "_LookHazeDensity", data.lookHazeDensity);
                         cmd.SetComputeVectorParam(data.compute, "_LookGrade", data.lookGrade);
                         cmd.SetComputeIntParam(data.compute, "_EmissiveBleed", data.emissiveBleed);
+                        cmd.SetComputeIntParam(data.compute, "_UnderwaterView", data.underwaterView);
                         cmd.SetComputeIntParam(data.compute, "_TorchShadowRays", data.torchShadowRays);
 
                         cmd.SetComputeIntParam(data.compute, "_ShadowRoofSkip", data.roofSkip == 1 ? 1 : 0);
