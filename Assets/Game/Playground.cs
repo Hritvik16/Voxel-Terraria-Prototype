@@ -238,6 +238,34 @@ public class Playground : MonoBehaviour
           "oil", "acid", "toxic sludge", "quicksand", "steam" };
     private int _brush;
 
+    // =====================================================================
+    // SURVIVAL (gameplay step 1, task 64; GAMEPLAY_PHASE_PLAN.md P1-P12)
+    //
+    // Survival: LMB digs into the inventory (SurvivalBuild.Dig), RMB places a
+    // grid-snapped cube of the selected hotbar item (SurvivalBuild.Place), E
+    // opens the 36-slot panel, Q cycles the cube size. Creative: the brushes
+    // above, untouched. ONLY an interactive run can be Survival (the F6 menu's
+    // saved "Game mode", SettingsMenu.LoadAndApply); every rig and capture run
+    // never reads that file and so stays Creative -- Phase6BrushGuard still
+    // drives _brushes by index.
+    // =====================================================================
+    internal static bool SurvivalMode;
+    /// The E panel is open: it owns the mouse (PlaygroundFlyCamera releases it).
+    internal static bool InventoryOpen { get; private set; }
+    private Inventory _inv = Inventory.WithStarterKit();
+    private readonly int[] _digScratch = new int[256];
+    private int _edgeIndex = SurvivalBuild.DefaultEdgeIndex;
+    private int _invPick = -1;            // the E panel's first clicked slot
+    private float _placeRepeat;           // RMB held: one cube per PlaceRepeatS
+    private const float PlaceRepeatS = 0.22f;
+    private bool _invDirty;
+    private float _invSaveTimer;
+    private string _invPath;
+    private int _lostTotal;
+
+    internal Inventory DebugInventory => _inv;
+    internal int DebugCubeEdge => SurvivalBuild.CubeEdges[_edgeIndex];
+
     /// Remembers k_soft across the hard/soft toggle so the owner's tuned value
     /// survives an A/B without a file round-trip.
     private static float _savedKSoft = 0.03f;
@@ -469,6 +497,7 @@ public class Playground : MonoBehaviour
         // The dev map (O). Its own component: it owns the camera and the
         // keyboard while open, and Update/OnGUI below stand aside for it.
         if (GetComponent<DevMap>() == null) gameObject.AddComponent<DevMap>();
+        LoadInventory();
 
         _ready = true;
         TeleportToArena();
@@ -482,6 +511,8 @@ public class Playground : MonoBehaviour
         // start also go to noon with a level camera (the arena's 18 deg
         // look-down under the start-up light was dim). The F key does not.
         if (Phase4Bootstrapper.IsTg2World && !IsCaptureRun()) StartCoroutine(SettleStartPose(HasArg("-startview")));
+        // -survivaldemo (task 64): the step-1 screenshots, through the real dig/place paths, then quit.
+        if (!IsCaptureRun() && HasArg("-survivaldemo")) StartCoroutine(SurvivalDemo());
     }
 
     /// For overlays (Minimap) that must stay out of capture frames.
@@ -527,6 +558,163 @@ public class Playground : MonoBehaviour
     /// -playshot S: wait S unscaled seconds, write one PNG under
     /// persistentDataPath/PlayShots, log its path. Last match wins (like
     /// PlaygroundCapture's ArgValue).
+    // =====================================================================
+    // -survivaldemo (task 64): gameplay step 1's acceptance screenshots. An
+    // INTERACTIVE run (run-play.sh EXTRA="-gamemode survival -survivaldemo"),
+    // so the HUD is exactly what a player sees. Stands facing the nearest
+    // rising ground with the sun behind, digs into it with SurvivalDig, opens
+    // the E panel, builds a wall of 0.4 m cubes with TrySurvivalPlace beside
+    // the hole, logs the inventory before/after (conservation), and quits.
+    // Shots: persistentDataPath/SurvivalDemo/.
+    // =====================================================================
+    private IEnumerator SurvivalDemo()
+    {
+        float t0 = Time.unscaledTime;
+        while (Time.unscaledTime - t0 < 25f || _player == null || !_player.Ready) yield return null;
+        SetGameMode(true);
+        _showHelp = false;
+        _mode = MoveMode.Walk;
+        SunCycle.SetHours(SunCycle.NoonHours);
+        VoxelEngine.Rendering.LightingDriver.ClockPaused = true;
+        string dir = System.IO.Path.Combine(Application.persistentDataPath, "SurvivalDemo");
+        System.IO.Directory.CreateDirectory(dir);
+        if (_cam == null && Camera.main != null) _cam = Camera.main.GetComponent<PlaygroundFlyCamera>();
+
+        // 1. Face rising ground, sun behind: of 16 headings, the nearest column
+        // within 2.5-12 m whose top is >= 0.8 m above the feet, + a sun bonus.
+        float3 feet = _player.Motor.PositionM;
+        int3 f = CoordMath.WorldToVoxel(feet);
+        float3 sun = SunCycle.Direction;
+        float2 sxz = math.normalizesafe(sun.xz);
+        float bestScore = float.MinValue, bestYaw = 0f, bestD = -1f;
+        for (int i = 0; i < 16; i++)
+        {
+            float yaw = i * 22.5f, r = math.radians(yaw);
+            float2 d = new float2(math.sin(r), math.cos(r));
+            for (float dm = 2.5f; dm <= 12f; dm += 0.5f)
+            {
+                int x = f.x + (int)math.round(d.x * dm * 10f), z = f.z + (int)math.round(d.y * dm * 10f);
+                int sy = SurfaceY(x, z);
+                if (sy < 0) break;
+                if (sy < f.y + 8) continue;
+                float score = -dm - 6f * math.dot(d, sxz);
+                if (score > bestScore) { bestScore = score; bestYaw = yaw; bestD = dm; }
+                break;
+            }
+        }
+        if (bestD < 0f) { bestYaw = MostOpenYaw(Camera.main.transform.position, 180f); bestD = 4f; }
+        float br = math.radians(bestYaw);
+        float2 fwd = new float2(math.sin(br), math.cos(br));
+        float back = math.max(0f, bestD - 2.4f);
+        int stx = f.x + (int)math.round(fwd.x * back * 10f), stz = f.z + (int)math.round(fwd.y * back * 10f);
+        int sty = SurfaceY(stx, stz);
+        if (sty >= 0)
+        {
+            _player.Motor.Teleport(new float3(stx * 0.1f + 0.05f, (sty + 1) * 0.1f + 0.02f, stz * 0.1f + 0.05f));
+            _player.Motor.ResolveSpawn();
+        }
+        _cam?.SetLook(bestYaw, 14f);
+        for (int i = 0; i < 60; i++) yield return null;
+        Debug.Log($"[SurvivalDemo] facing yaw {bestYaw:F0} (rise at {bestD:F1} m), sun xz ({sxz.x:F2},{sxz.y:F2}), {EyeReport()}");
+
+        // 2. Dig into it: a ring of aim points, then down through the floor
+        // of the hole for a second stratum. Bore-sized bites (r 3).
+        int invBefore = InventoryTotal();
+        int removed = 0, credited = 0, lost = 0;
+        float[,] aims = { { 0, 14 }, { -10, 8 }, { 10, 8 }, { 0, 2 }, { -10, 20 }, { 10, 20 }, { 0, 30 }, { 0, 45 }, { 0, 60 } };
+        for (int a = 0; a < aims.GetLength(0); a++)
+        {
+            _cam?.SetLook(bestYaw + aims[a, 0], aims[a, 1]);
+            for (int k = 0; k < 24; k++)
+            {
+                yield return null;
+                if (!_hasTarget || _targetDistM > 6f) continue;
+                var r = SurvivalDig(_targetVoxel, 3, 150);
+                removed += r.Removed; credited += r.Credited; lost += r.Lost;
+            }
+        }
+        _cam?.SetLook(bestYaw, 14f);
+        for (int i = 0; i < 30; i++) yield return null;
+        Debug.Log($"[SurvivalDemo] dug {removed} voxels: credited {credited}, lost {lost}, inventory {invBefore} -> {InventoryTotal()} " +
+                  $"(delta {InventoryTotal() - invBefore}); {InventoryLine()}");
+
+        // Hold the biggest non-torch stack.
+        int bestSlot = -1;
+        for (int i = 0; i < Inventory.SlotCount; i++)
+            if (!_inv.IsEmpty(i) && !Items.PlacesSingleVoxel(_inv.ItemAt(i)) && (bestSlot < 0 || _inv.CountAt(i) > _inv.CountAt(bestSlot))) bestSlot = i;
+        if (bestSlot >= Inventory.HotbarSize) { _inv.Swap(bestSlot, 1); bestSlot = 1; }
+        if (bestSlot >= 0) SelectSlot(bestSlot);
+        yield return DemoShot(dir, "1_hotbar_after_dig");
+
+        // 3. The E panel.
+        InventoryOpen = true;
+        for (int i = 0; i < 4; i++) yield return null;
+        yield return DemoShot(dir, "2_inventory_panel");
+        CloseInventory();
+
+        // 4. A wall of 0.4 m cubes beside the hole: 5 wide x 3 high, along the
+        // world axis most across the view, starting 1.2 m to the right.
+        _edgeIndex = SurvivalBuild.DefaultEdgeIndex;
+        int e = SurvivalBuild.CubeEdges[_edgeIndex];
+        bool alongX = math.abs(fwd.y) >= math.abs(fwd.x);
+        float2 right = new float2(fwd.y, -fwd.x);
+        int3 step = alongX ? new int3(right.x >= 0 ? e : -e, 0, 0) : new int3(0, 0, right.y >= 0 ? e : -e);
+        int3 me = CoordMath.WorldToVoxel(_player.Motor.PositionM);
+        int3 start = me + new int3((int)math.round(fwd.x * 16f + right.x * 12f), 0, (int)math.round(fwd.y * 16f + right.y * 12f));
+        int invMid = InventoryTotal(), placed = 0, cubes = 0, refusedN = 0;
+        for (int i = 0; i < 5; i++)
+        {
+            int3 c = start + step * i;
+            int gy = SurfaceY(c.x, c.z);
+            if (gy < 0) continue;
+            for (int j = 0; j < 3; j++)
+            {
+                var r = TrySurvivalPlace(new int3(c.x, gy + 1 + j * e, c.z));
+                if (r.Outcome == SurvivalBuild.PlaceOutcome.Placed) { placed += r.Placed; cubes++; }
+                else refusedN++;
+                yield return null;
+            }
+        }
+        Debug.Log($"[SurvivalDemo] wall: {cubes} cubes, {placed} voxels placed, {refusedN} not placed; inventory {invMid} -> {InventoryTotal()} " +
+                  $"(delta {InventoryTotal() - invMid}, conservation {(invMid - InventoryTotal() == placed ? "OK" : "BROKEN")}); {InventoryLine()}");
+
+        // 5. Look between the hole and the wall.
+        _cam?.SetLook(bestYaw + 22f, 16f);
+        for (int i = 0; i < 40; i++) yield return null;
+        yield return DemoShot(dir, "3_wall_beside_hole");
+        _cam?.SetLook(bestYaw + 10f, 10f);
+        for (int i = 0; i < 20; i++) yield return null;
+        yield return DemoShot(dir, "4_wall_wide");
+        SaveInventory();
+        Debug.Log("[SurvivalDemo] done");
+        Application.Quit();
+    }
+
+    private IEnumerator DemoShot(string dir, string name)
+    {
+        yield return new WaitForEndOfFrame();
+        string path = System.IO.Path.Combine(dir, name + ".png");
+        Texture2D tex = ScreenCapture.CaptureScreenshotAsTexture();
+        System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+        Destroy(tex);
+        Debug.Log($"[SurvivalDemo] shot {path}  {EyeReport()}, clock {SunCycle.ClockString()}");
+    }
+
+    private int InventoryTotal()
+    {
+        int n = 0;
+        for (int i = 0; i < Inventory.SlotCount; i++) n += _inv.CountAt(i);
+        return n;
+    }
+
+    private string InventoryLine()
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < Inventory.SlotCount; i++)
+            if (!_inv.IsEmpty(i)) sb.Append($"[{i}] {Items.Name(_inv.ItemAt(i))} {_inv.CountAt(i)}  ");
+        return sb.ToString();
+    }
+
     private IEnumerator PlayShot()
     {
         string[] a = Environment.GetCommandLineArgs();
@@ -1129,6 +1317,12 @@ public class Playground : MonoBehaviour
         {
             // THE SETTINGS MENU (F6) OWNS THE MOUSE AND KEYS WHILE OPEN, like the
             // dev map: its buttons must not dig, and its keys must not walk.
+            InventoryOpen = false;
+        }
+        else if (InventoryOpen)
+        {
+            // THE E PANEL OWNS THE MOUSE TOO (its slots are clicked); E or Esc closes.
+            if (!SurvivalMode || Input.GetKeyDown(KeyCode.E) || Input.GetKeyDown(KeyCode.Escape)) CloseInventory();
         }
         else
         {
@@ -1136,9 +1330,11 @@ public class Playground : MonoBehaviour
             foreach (var t in _toys) if (Input.GetKeyDown(t.Key)) t.Run();
             HandleTimeScrub(dt);
             HandleHotbarKeys();
+            HandleSurvivalKeys();
             HandleMouse(dt);
             DriveWalk(dt);
         }
+        TickInventorySave(dt);
 
         StepChaosBurst();
 
@@ -1299,8 +1495,48 @@ public class Playground : MonoBehaviour
 
     private void HandleHotbarKeys()
     {
+        if (SurvivalMode)
+        {
+            for (int i = 0; i < Inventory.HotbarSize; i++)
+                if (Input.GetKeyDown(KeyCode.Alpha1 + i)) SelectSlot(i);
+            return;
+        }
         for (int i = 0; i < _brushes.Length && i < 9; i++)
             if (Input.GetKeyDown(KeyCode.Alpha1 + i)) SetBrush(i);
+    }
+
+    /// E and Q, Survival and WALK only: in fly mode they stay the flycam's
+    /// up/down (a dev mode, pick P11), so flying never opens the panel.
+    private void HandleSurvivalKeys()
+    {
+        if (!SurvivalMode || _mode != MoveMode.Walk) return;
+        if (Input.GetKeyDown(KeyCode.E)) { InventoryOpen = true; _invPick = -1; }
+        if (Input.GetKeyDown(KeyCode.Q))
+        {
+            _edgeIndex = (_edgeIndex + 1) % SurvivalBuild.CubeEdges.Length;
+            int e = SurvivalBuild.CubeEdges[_edgeIndex];
+            _status = $"place size {e} voxel{(e > 1 ? "s" : "")} = {e * 0.1f:0.0} m cube";
+        }
+    }
+
+    private void SelectSlot(int i)
+    {
+        _inv.Selected = i;
+        _status = _inv.IsEmpty(_inv.Selected) ? $"slot {_inv.Selected + 1}: empty"
+            : $"holding {Items.Name(_inv.ItemAt(_inv.Selected))} x{_inv.CountAt(_inv.Selected):N0}";
+    }
+
+    private void CloseInventory()
+    {
+        InventoryOpen = false;
+        _invPick = -1;
+    }
+
+    /// Called by the settings menu (F6 "Game mode") and LoadAndApply.
+    internal static void SetGameMode(bool survival)
+    {
+        SurvivalMode = survival;
+        if (!survival) InventoryOpen = false;
     }
 
     /// Walks the player, then lets §8.6's buoyancy act on the result.
@@ -1362,9 +1598,14 @@ public class Playground : MonoBehaviour
 
         float scroll = Input.mouseScrollDelta.y;
         if (Mathf.Abs(scroll) > 0.01f)
-            SetBrush((int)Mathf.Repeat(_brush + (scroll > 0 ? 1 : -1), _brushes.Length));
+        {
+            if (SurvivalMode) SelectSlot(_inv.Selected + (scroll > 0 ? 1 : -1));
+            else SetBrush((int)Mathf.Repeat(_brush + (scroll > 0 ? 1 : -1), _brushes.Length));
+        }
 
+        if (!Input.GetMouseButton(1)) _placeRepeat = 0f;
         if (!_hasTarget) return;
+        if (SurvivalMode) { HandleSurvivalMouse(dt); return; }
 
         if (Input.GetMouseButton(0))          // held: dig at the tool's own rate
         {
@@ -1385,6 +1626,148 @@ public class Playground : MonoBehaviour
             TryPaintBrush(_targetAdjacent);
         }
     }
+
+    /// Survival's LMB / RMB. Dig: the tool tier's rate and radius, as Creative,
+    /// but every voxel lands in the inventory. Place: one cube per click, and
+    /// one per PlaceRepeatS while RMB is held.
+    private void HandleSurvivalMouse(float dt)
+    {
+        if (Input.GetMouseButton(0))
+        {
+            var tier = EditService.Tiers[_tier];
+            int allow = _digBudget.Accrue(dt, tier.VoxelsPerSecond);
+            if (allow > 0) SurvivalDig(_targetVoxel, tier.RadiusVoxels, allow);
+        }
+        else if (Input.GetMouseButton(1))
+        {
+            _placeRepeat -= dt;
+            if (_placeRepeat > 0f) return;
+            _placeRepeat = PlaceRepeatS;
+            TrySurvivalPlace(_targetAdjacent);
+        }
+    }
+
+    /// The dig half of the loop. Internal so the -survivaldemo shots drive
+    /// the real path rather than a copy of it.
+    internal SurvivalBuild.DigResult SurvivalDig(int3 at, int radius, int budget)
+    {
+        var r = SurvivalBuild.Dig(_edits, _inv, at, radius, budget, _digScratch);
+        if (r.Removed == 0) return r;
+        _dugCounter += r.Removed;
+        _act = Act.Dig;
+        _actAge = 0f;
+        _invDirty |= r.Credited > 0;
+        _lostTotal += r.Lost;
+        _status = r.Lost > 0
+            ? $"<color=#ff9a9a>inventory FULL -- {r.Lost} voxel(s) of {Items.Name(r.LastItem)} lost</color>"
+            : r.Credited > 0 ? $"+{r.Credited} {Items.Name(r.LastItem)}  (now {_inv.Count(r.LastItem):N0})"
+            : "dug fluid -- nothing to pick up (no bucket yet)";
+        return r;
+    }
+
+    /// The place half. Refuses (status line, nothing written) when the cube
+    /// would enclose the player, when a mobile item would leave the wake
+    /// radius (the Creative guard below, same reason), or when the slot holds
+    /// fewer voxels than the cube needs (P7).
+    internal SurvivalBuild.PlaceResult TrySurvivalPlace(int3 at)
+    {
+        int slot = _inv.Selected;
+        byte item = _inv.ItemAt(slot);
+        int edge = SurvivalBuild.EdgeFor(item, SurvivalBuild.CubeEdges[_edgeIndex]);
+        int3 lo = SurvivalBuild.SnapToGrid(at, edge);
+        var refused = new SurvivalBuild.PlaceResult { Outcome = SurvivalBuild.PlaceOutcome.NothingToFill, Item = item, Edge = edge, Lo = lo };
+
+        if (!_inv.IsEmpty(slot) && _mode == MoveMode.Walk && _player != null && _player.Motor != null)
+        {
+            float3 feet = _player.Motor.PositionM;
+            float hw = PlayerConfig.Active.bodyWidthM * 0.5f;
+            int3 bLo = CoordMath.WorldToVoxel(feet - new float3(hw, 0f, hw));
+            int3 bHi = CoordMath.WorldToVoxel(feet + new float3(hw, PlayerConfig.Active.bodyHeightM, hw));
+            if (SurvivalBuild.CubeOverlaps(lo, edge, bLo, bHi))
+            {
+                PlaceRefused($"not placed -- the {edge * 0.1f:0.0} m cube would enclose you; step back or press Q for a smaller size");
+                return refused;
+            }
+        }
+        if (!_inv.IsEmpty(slot) && MaterialRules.IsMobile(item) && !SphereFitsInWakeRadius(lo + (edge >> 1), edge))
+        {
+            PlaceRefused($"{Items.Name(item)} not placed -- outside the {_fluid.ActiveRadiusVoxels * 0.1f:0.#} m wake radius, it would never fall");
+            return refused;
+        }
+
+        var r = SurvivalBuild.Place(_edits, _store, _inv, slot, at, edge);
+        switch (r.Outcome)
+        {
+            case SurvivalBuild.PlaceOutcome.Placed:
+                _act = Act.Place;
+                _actAge = 0f;
+                _invDirty = true;
+                _status = $"placed {r.Placed} {Items.Name(r.Item)} ({r.Edge * 0.1f:0.0} m cube), {_inv.CountAt(slot):N0} left";
+                break;
+            case SurvivalBuild.PlaceOutcome.EmptySlot: PlaceRefused($"slot {slot + 1} is empty -- dig (LMB) to fill it"); break;
+            case SurvivalBuild.PlaceOutcome.NotPlaceable: PlaceRefused($"{Items.Name(r.Item)} cannot be placed"); break;
+            case SurvivalBuild.PlaceOutcome.TooFew:
+                PlaceRefused($"not enough {Items.Name(r.Item)}: the {r.Edge * 0.1f:0.0} m cube needs {r.Needed}, slot has {_inv.CountAt(slot)} -- Q for a smaller size");
+                break;
+            case SurvivalBuild.PlaceOutcome.NotLoaded: PlaceRefused("not placed -- that ground is not loaded yet"); break;
+            default: break;                                   // NothingToFill: already solid, silent
+        }
+        return r;
+    }
+
+    private void PlaceRefused(string why)
+    {
+        _status = $"<color=#ff9a9a>{why}</color>";
+        _act = Act.Refused;
+        _actAge = 0f;
+    }
+
+    // ---- P12: player.json beside the world's deltas ----
+
+    private void LoadInventory()
+    {
+        if (!IsPlaySettingsRun() || string.IsNullOrEmpty(Phase4Bootstrapper.DeltaDirectory)) return;
+        _invPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Phase4Bootstrapper.DeltaDirectory), "player.json");
+        // A fresh world (-cleardeltas, run-play.sh's default) starts a fresh
+        // inventory; KEEP=1 (-keepdeltas) keeps both.
+        if (!HasArg("-keepdeltas") || !System.IO.File.Exists(_invPath))
+        {
+            Debug.Log($"[Playground] inventory: fresh (starter kit), saves to {_invPath}");
+            _invDirty = true;
+            return;
+        }
+        try
+        {
+            var inv = Inventory.FromJson(System.IO.File.ReadAllText(_invPath), out string err);
+            if (inv != null) _inv = inv;
+            Debug.Log($"[Playground] inventory: loaded {_invPath}" + (err != null ? $" ({err})" : ""));
+        }
+        catch (Exception e) { Debug.LogWarning($"[Playground] inventory: read failed ({e.Message}), starter kit"); }
+    }
+
+    private void TickInventorySave(float dt)
+    {
+        _invSaveTimer += dt;
+        if (_invSaveTimer < 30f) return;
+        _invSaveTimer = 0f;
+        SaveInventory();
+    }
+
+    private void SaveInventory()
+    {
+        if (!_invDirty || _invPath == null) return;
+        try
+        {
+            string tmp = _invPath + ".tmp";
+            System.IO.File.WriteAllText(tmp, _inv.ToJson());
+            if (System.IO.File.Exists(_invPath)) System.IO.File.Delete(_invPath);
+            System.IO.File.Move(tmp, _invPath);
+            _invDirty = false;
+        }
+        catch (Exception e) { Debug.LogWarning($"[Playground] inventory: save failed ({e.Message})"); }
+    }
+
+    void OnApplicationQuit() => SaveInventory();
 
     /// THE PLACE ACTION. Returns true if the blob was actually written.
     ///
@@ -1615,10 +1998,10 @@ public class Playground : MonoBehaviour
         GUI.color = old;
     }
 
-    private void DrawVoxelHighlight(Camera cam, int3 v, Color c, float width)
+    private void DrawVoxelHighlight(Camera cam, int3 v, Color c, float width, int edge = 1)
     {
         Vector3 lo = new Vector3(v.x, v.y, v.z) * 0.1f - Vector3.one * 0.002f;
-        Vector3 hi = lo + Vector3.one * (0.1f + 0.004f);
+        Vector3 hi = lo + Vector3.one * (0.1f * edge + 0.004f);
 
         Vector3[] w = new Vector3[8];
         for (int i = 0; i < 8; i++)
@@ -1701,6 +2084,13 @@ public class Playground : MonoBehaviour
                 DrawVoxelHighlight(cam, _targetVoxel,
                     inRegion ? new Color(1f, 0.78f, 0.25f, 0.98f)
                              : new Color(0.85f, 0.85f, 0.88f, 0.9f), 2f * k);
+                // Survival: where RMB's cube would go (cyan), when holding something.
+                if (SurvivalMode && !_inv.IsEmpty(_inv.Selected))
+                {
+                    int e = SurvivalBuild.EdgeFor(_inv.ItemAt(_inv.Selected), SurvivalBuild.CubeEdges[_edgeIndex]);
+                    DrawVoxelHighlight(cam, SurvivalBuild.SnapToGrid(_targetAdjacent, e),
+                                       new Color(0.45f, 0.9f, 1f, 0.75f), 1.5f * k, e);
+                }
             }
 
             // The last shot's impact, fading. Makes T do something visible.
@@ -1722,9 +2112,10 @@ public class Playground : MonoBehaviour
         float vw = Screen.width / ui, vh = Screen.height / ui;
 
         DrawTopBar(vw);
-        DrawHotbar(vw, vh);
+        if (SurvivalMode) DrawSurvivalHotbar(vw, vh); else DrawHotbar(vw, vh);
         DrawStatePanel(vh);
-        if (_showHelp && !SettingsMenu.IsOpen) DrawHelp(vw, vh);   // the menu (F6) sits where help does
+        if (SurvivalMode && InventoryOpen && !SettingsMenu.IsOpen) DrawInventoryPanel(vw, vh);
+        else if (_showHelp && !SettingsMenu.IsOpen) DrawHelp(vw, vh);   // the menu (F6) sits where help does
 
         GUI.matrix = prev;
     }
@@ -1810,6 +2201,105 @@ public class Playground : MonoBehaviour
                   Label(12, TextAnchor.MiddleCenter));
         GUI.Label(rr, $"<b>RMB — PLACE</b>{refused}\n{_brushNames[_brush]}   <b>1-{_brushes.Length}</b> / scroll",
                   Label(12, TextAnchor.MiddleCenter));
+    }
+
+    /// Survival's hotbar: the inventory's first 9 slots, counts in voxels.
+    private void DrawSurvivalHotbar(float vw, float vh)
+    {
+        const float slot = 58f, pad = 6f;
+        float total = Inventory.HotbarSize * (slot + pad) - pad;
+        float x0 = (vw - total) * 0.5f;
+        float y0 = vh - slot - 58f;
+        for (int i = 0; i < Inventory.HotbarSize; i++)
+            DrawSlot(new Rect(x0 + i * (slot + pad), y0, slot, slot), i, i == _inv.Selected, $"{i + 1}");
+
+        var tier = EditService.Tiers[_tier];
+        bool digHot = _act == Act.Dig && _actAge < 0.35f;
+        bool placeHot = (_act == Act.Place || _act == Act.Refused) && _actAge < 0.35f;
+        string refused = _act == Act.Refused && _actAge < 0.6f ? "  <color=#ff9a9a>REFUSED</color>" : "";
+        int e = SurvivalBuild.CubeEdges[_edgeIndex];
+        var lr = new Rect(x0 - 250, y0 + 8, 240, 44);
+        var rr = new Rect(x0 + total + 10, y0 + 8, 270, 44);
+        Box(lr, new Color(0f, 0f, 0f, digHot ? 0.75f : 0.4f));
+        Box(rr, new Color(0f, 0f, 0f, placeHot ? 0.75f : 0.4f));
+        if (digHot) Frame(lr, new Color(1f, 0.82f, 0.3f, 1f), 2f);
+        if (placeHot) Frame(rr, new Color(1f, 0.82f, 0.3f, 1f), 2f);
+        GUI.Label(lr, $"<b>LMB — DIG</b> into inventory\n{tier.Name} · {tier.VoxelsPerSecond} vox/s   <b>Z/X</b>",
+                  Label(12, TextAnchor.MiddleCenter));
+        byte held = _inv.ItemAt(_inv.Selected);
+        string what = _inv.IsEmpty(_inv.Selected) ? "empty slot" : Items.Name(held);
+        string size = !_inv.IsEmpty(_inv.Selected) && Items.PlacesSingleVoxel(held) ? "1 voxel" : $"{e * 0.1f:0.0} m cube <b>Q</b>";
+        GUI.Label(rr, $"<b>RMB — PLACE</b>{refused}\n{what} · {size}   <b>E</b> bag",
+                  Label(12, TextAnchor.MiddleCenter));
+        GUI.Label(new Rect(x0, y0 - 20, total, 18), "<color=#cfe3f5><b>SURVIVAL</b></color>  <color=#9fb6c9>F6 switches to Creative</color>",
+                  Label(11, TextAnchor.MiddleCenter));
+    }
+
+    /// One inventory slot: swatch, count, key label. Counts above 9,999 read "10k".
+    private void DrawSlot(Rect r, int i, bool sel, string key)
+    {
+        Box(r, new Color(0f, 0f, 0f, sel ? 0.78f : 0.5f));
+        if (!_inv.IsEmpty(i))
+        {
+            Box(new Rect(r.x + 6, r.y + 6, r.width - 12, r.height - 24), MaterialSwatch(_inv.ItemAt(i)));
+            int c = _inv.CountAt(i);
+            string n = c >= 10000 ? "10k" : c.ToString();
+            GUI.Label(new Rect(r.x, r.y + r.height - 38, r.width - 5, 16), $"<b>{n}</b>", Label(12, TextAnchor.MiddleRight));
+            GUI.Label(new Rect(r.x, r.yMax - 17, r.width, 16), Items.Name(_inv.ItemAt(i)), Label(9, TextAnchor.MiddleCenter));
+        }
+        Frame(r, sel ? new Color(1f, 0.82f, 0.3f, 1f) : new Color(1f, 1f, 1f, 0.25f), sel ? 2.5f : 1f);
+        if (key != null) GUI.Label(new Rect(r.x + 5, r.y + 2, 20, 16), key, Label(11));
+    }
+
+    /// The E panel: hotbar row + 3 backpack rows. Click one slot, then another:
+    /// they swap (same item merges). Right-click a hotbar slot to select it.
+    private void DrawInventoryPanel(float vw, float vh)
+    {
+        const float slot = 62f, pad = 6f;
+        float gridW = 9 * (slot + pad) - pad;
+        float w = gridW + 40f, h = 4 * (slot + pad) + 120f;
+        var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f - 40f, w, h);
+        Box(r, new Color(0.03f, 0.05f, 0.08f, 0.95f));
+        Frame(r, new Color(1f, 1f, 1f, 0.25f), 1f);
+        GUI.Label(new Rect(r.x + 20, r.y + 10, w - 40, 24),
+                  "<b>INVENTORY</b>   <color=#9fb6c9>E or Esc closes · click two slots to swap · counts are voxels (0.1 m)</color>", Label(14));
+
+        float x0 = r.x + 20f, yBack = r.y + 44f;
+        float yHot = yBack + 3 * (slot + pad) + 14f;
+        GUI.Label(new Rect(x0, yHot - 16, gridW, 16), "<color=#9fb6c9>hotbar (1-9)</color>", Label(11));
+        Event ev = Event.current;
+        for (int i = 0; i < Inventory.SlotCount; i++)
+        {
+            bool hot = i < Inventory.HotbarSize;
+            int col = hot ? i : (i - Inventory.HotbarSize) % 9;
+            int row = hot ? 0 : (i - Inventory.HotbarSize) / 9;
+            var sr = new Rect(x0 + col * (slot + pad), hot ? yHot : yBack + row * (slot + pad), slot, slot);
+            DrawSlot(sr, i, i == _invPick || (hot && i == _inv.Selected && _invPick < 0), hot ? $"{i + 1}" : null);
+            if (i == _invPick) Frame(sr, new Color(0.45f, 0.9f, 1f, 1f), 3f);
+            if (ev.type == EventType.MouseDown && sr.Contains(ev.mousePosition))
+            {
+                if (ev.button == 1 && hot) SelectSlot(i);
+                else if (_invPick < 0) { if (!_inv.IsEmpty(i)) _invPick = i; }
+                else { _inv.Swap(_invPick, i); _invPick = -1; _invDirty = true; }
+                ev.Use();
+            }
+        }
+
+        // Totals by item, so "how much do I have" needs no adding up.
+        var totals = new SortedDictionary<string, int>();
+        for (int i = 0; i < Inventory.SlotCount; i++)
+            if (!_inv.IsEmpty(i))
+            {
+                string n = Items.Name(_inv.ItemAt(i));
+                totals[n] = (totals.TryGetValue(n, out int t) ? t : 0) + _inv.CountAt(i);
+            }
+        var sb = new StringBuilder("<color=#cfe3f5>");
+        foreach (var kv in totals) sb.Append($"{kv.Key} {kv.Value:N0}   ");
+        sb.Append("</color>");
+        if (_lostTotal > 0) sb.Append($"<color=#ff9a9a>   lost to a full bag: {_lostTotal:N0}</color>");
+        var wrap = Label(12);
+        wrap.wordWrap = true;
+        GUI.Label(new Rect(x0, yHot + slot + 10, gridW, 44), sb.ToString(), wrap);
     }
 
     /// Live engine state, bottom-left. Everything here is a READOUT of a Phase 6
@@ -1950,12 +2440,22 @@ public class Playground : MonoBehaviour
         sb.AppendLine("<b>CONTROLS</b>   <color=#9fb6c9>(F2 hides this)</color>");
         sb.AppendLine("");
         sb.AppendLine("<b><color=#cfe3f5>MOVE</color></b>");
-        sb.AppendLine("  <b>WASD</b> walk    <b>Space</b> jump    <b>Shift</b> sprint    <b>Q/E</b> down/up (fly)");
+        sb.AppendLine("  <b>WASD</b> walk    <b>Space</b> jump    <b>Shift</b> fast (fly)    <b>Q/E</b> down/up (fly)");
         sb.AppendLine("  <b>Tab</b> walk ↔ fly      <b>R</b> respawn on the surface      <b>F</b> go to the basin");
         sb.AppendLine("");
-        sb.AppendLine("<b><color=#cfe3f5>BUILD & DIG</color></b>");
-        sb.AppendLine("  <b>LMB</b> dig at the tool's rate        <b>Z / X</b> tool tier");
-        sb.AppendLine("  <b>RMB</b> place held item               <b>1-6</b> / scroll  pick item");
+        if (SurvivalMode)
+        {
+            sb.AppendLine("<b><color=#cfe3f5>BUILD & DIG</color></b>   <color=#9fb6c9>(SURVIVAL -- F6 Game mode switches to Creative's free brushes)</color>");
+            sb.AppendLine("  <b>LMB</b> dig: every voxel goes into your inventory      <b>Z / X</b> tool tier");
+            sb.AppendLine("  <b>RMB</b> place a cube of the held block (cyan box), costs the cells it fills");
+            sb.AppendLine("  <b><color=#ffd479>Q</color></b> cube size 0.1 / 0.2 / 0.4 / 0.8 m   <b><color=#ffd479>E</color></b> inventory (click two slots to swap)   <b>1-9</b> / scroll  hotbar");
+        }
+        else
+        {
+            sb.AppendLine("<b><color=#cfe3f5>BUILD & DIG</color></b>   <color=#9fb6c9>(CREATIVE -- F6 Game mode switches to Survival)</color>");
+            sb.AppendLine("  <b>LMB</b> dig at the tool's rate        <b>Z / X</b> tool tier");
+            sb.AppendLine("  <b>RMB</b> place held item               <b>1-9</b> / scroll  pick item");
+        }
         sb.AppendLine("");
         sb.AppendLine("<b><color=#cfe3f5>FLUID & DESTRUCTION</color></b>");
         sb.AppendLine("  <b><color=#ffd479>G</color></b>   <b>CHAOS BURST</b> — ~51,000 voxels of water/sand/lava at once");
@@ -1965,7 +2465,8 @@ public class Playground : MonoBehaviour
         sb.AppendLine("");
         sb.AppendLine("<b><color=#cfe3f5>LIGHT & TIME</color></b>   <color=#9fb6c9>(Phase 7)</color>");
         sb.AppendLine("  <b><color=#ffd479>N</color></b> golden hour   <b>M</b> noon   <b>L</b> midnight   <b>,</b> / <b>.</b> scrub (hold)   <b>P</b> pause the clock");
-        sb.AppendLine("  <b>7</b>   place a <b>torch</b> (hotbar slot 7, then RMB)      LMB digs it out again");
+        sb.AppendLine(SurvivalMode ? "  <b>torch</b>: starter kit, hotbar slot 1 -- RMB places one; LMB digs it back"
+                                   : "  <b>7</b>   place a <b>torch</b> (hotbar slot 7, then RMB)      LMB digs it out again");
         sb.AppendLine("  <b>J</b>   shadow quality 0-3 — full soft / half-res distant / hard / off (§6.5)");
         sb.AppendLine("  <b>K</b>   hard ↔ soft shadows (k_soft toggle)");
         sb.AppendLine("  <b>Y</b>   view: beauty → sun visibility → shadow step heat");
@@ -1973,7 +2474,7 @@ public class Playground : MonoBehaviour
         sb.AppendLine("");
         sb.AppendLine("<b><color=#cfe3f5>VIEW</color></b>");
         sb.AppendLine("  <b>F1</b> perf overlay      <b>F2</b> these controls      <b>ESC</b> release the mouse      <b>O</b> dev map      <b>F3</b> render preset      <b>F4</b> minimap");
-        sb.AppendLine("  <b><color=#ffd479>F6</color></b> GRAPHICS SETTINGS — shadows, upscaler, resolution, overlay, minimap (saved)");
+        sb.AppendLine("  <b><color=#ffd479>F6</color></b> SETTINGS — game mode, shadows, upscaler, resolution, overlay, minimap (saved)");
         sb.AppendLine("");
         sb.Append("<color=#9fb6c9>Fluid simulates only inside §7.4's wake radius (shown in the state " +
                   "panel in both voxels and metres). The crosshair box turns grey outside it, and " +
@@ -1987,7 +2488,7 @@ public class Playground : MonoBehaviour
         // is already occupied by the RMB panel, and a controls list that
         // overlaps the thing it is describing is worse than useless. It is
         // toggled, so covering the view while open is intended.
-        float w = 760f, h = 494f;   // grew again with Phase 7's LIGHT & TIME group, and F6 (task 58)
+        float w = 760f, h = 512f;   // grew again with Phase 7's LIGHT & TIME group, F6 (task 58), Survival (task 64)
         var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f, w, h);
         Box(r, new Color(0f, 0f, 0f, 0.82f));
         Frame(r, new Color(1f, 1f, 1f, 0.22f), 1f);

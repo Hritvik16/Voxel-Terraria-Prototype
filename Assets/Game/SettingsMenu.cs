@@ -12,6 +12,7 @@
 //   Shadow edges     Playground.SetSoftShadows, the K key (k_soft 0 = hard)
 //   Perf overlay     PlaygroundHud's strip and its F1 detail panel
 //   Minimap          Minimap.Visible (F4 also flips it)
+//   Game mode        Playground.SetGameMode, as -gamemode (task 64: Survival / Creative)
 //
 // ORDERED by task 57's cost split (Logs/costsplit_2026-10-10_212527.txt, warm,
 // walk at noon, FSR 3 at 540): sun shadows 14.2 / 4.2 ms (wall / open view),
@@ -73,13 +74,14 @@ public class SettingsMenu : MonoBehaviour
         if (!run.softShadows) Playground.SetSoftShadows(false);
         ApplyOverlay(run.perfOverlay);
         Minimap.Visible = run.minimap;
+        Playground.SetGameMode(run.gameMode == "survival");
         // -settingsopen: start with the menu open (task 58's -playshot still).
         if (Array.IndexOf(Environment.GetCommandLineArgs(), "-settingsopen") >= 0) IsOpen = true;
 
         Debug.Log($"[PlaySettings] {(File.Exists(_path) ? "loaded" : "no file yet (defaults)")} {_path}" +
                   (err != null ? $" -- {err}" : "") +
                   $"; this run: upscaler {(run.presetPath ? "preset path" : run.upscaler)}, rows {run.rows}, shadows {run.shadowLevel}" +
-                  $" {(run.softShadows ? "soft" : "hard")}, shadow res {run.shadowRes}, roof skip {(run.roofSkip ? "on" : "off")}, overlay {run.perfOverlay}, minimap {(run.minimap ? "on" : "off")}" +
+                  $" {(run.softShadows ? "soft" : "hard")}, shadow res {run.shadowRes}, roof skip {(run.roofSkip ? "on" : "off")}, overlay {run.perfOverlay}, minimap {(run.minimap ? "on" : "off")}, game mode {run.gameMode}" +
                   (_overridden.Count > 0 ? $"; flags override: {string.Join(", ", _overridden)}" : ""));
     }
 
@@ -143,15 +145,29 @@ public class SettingsMenu : MonoBehaviour
         float vw = Screen.width / ui, vh = Screen.height / ui;
         Styles();
 
-        const float w = 780f, h = 708f;
+        const float w = 780f, h = 782f;   // + task 64's Game mode row
         var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f, w, h);
         Fill(r, new Color(0.03f, 0.05f, 0.08f, 0.96f));
         Fill(new Rect(r.x, r.y, w, 1f), new Color(1f, 1f, 1f, 0.25f));
         Fill(new Rect(r.x, r.yMax - 1f, w, 1f), new Color(1f, 1f, 1f, 0.25f));
 
         float x = r.x + 20f, y = r.y + 14f;
-        GUI.Label(new Rect(x, y, w - 40f, 26f), "<b>GRAPHICS SETTINGS</b>   <color=#9fb6c9>F6 or Esc closes -- every option applies now, no restart</color>", _title);
-        y += 26f;
+        GUI.Label(new Rect(x, y, w - 40f, 26f), "<b>SETTINGS</b>   <color=#9fb6c9>F6 or Esc closes -- every option applies now, no restart</color>", _title);
+        y += 30f;
+
+        // 0. Game mode (task 64, gameplay step 1). Not a graphics cost.
+        int gm = Playground.SurvivalMode ? 0 : 1;
+        int pick0 = Row(x, ref y, "Game mode", "gameMode",
+            "Survival: dig into your inventory, build cubes from the hotbar (E bag, Q size). Creative: the old free brushes.",
+            new[] { "Survival", "Creative" }, gm);
+        if (pick0 >= 0 && pick0 != gm)
+        {
+            Playground.SetGameMode(pick0 == 0);
+            Save("gameMode", s => s.gameMode = pick0 == 0 ? "survival" : "creative");
+        }
+
+        GUI.Label(new Rect(x, y, w - 40f, 22f), "<b>GRAPHICS</b>", _title);
+        y += 22f;
         GUI.Label(new Rect(x, y, w - 40f, 18f), "<color=#9fb6c9>Most frame time first (task 57's cost split: walk at noon, FSR 3 at 540 rows, facing a wall / an open view)</color>", _small);
         y += 28f;
 
@@ -252,7 +268,7 @@ public class SettingsMenu : MonoBehaviour
         y += 4f;
         GUI.Label(new Rect(x, y, w - 40f, 60f),
             "<color=#9fb6c9>Choices made here are saved and used at the next start. Command-line flags " +
-            "(-upscaler, -renderrows, -shadowlevel, -shadowres, -roofskip) override them for one run. The keys J, K, F1, F4 change " +
+            "(-upscaler, -renderrows, -shadowlevel, -shadowres, -roofskip, -gamemode) override them for one run. The keys J, K, F1, F4 change " +
             "things for this session only.\n" + (_note ?? $"file: {_path}") + "</color>", _small);
 
         GUI.matrix = prev;

@@ -71,8 +71,9 @@ public class PlaygroundFlyCamera : MonoBehaviour
         // otherwise clicking back into the window mines whatever you happened to
         // be pointing at.
         // The settings menu (F6, task 58) needs the cursor for its buttons:
-        // release it, and neither look nor move while it is open.
-        if (SettingsMenu.IsOpen)
+        // release it, and neither look nor move while it is open. Survival's
+        // inventory panel (E, task 64) is clicked the same way.
+        if (SettingsMenu.IsOpen || Playground.InventoryOpen)
         {
             if (_captured) { _captured = false; Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
             return;

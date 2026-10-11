@@ -468,6 +468,22 @@ public class EditService : IEditService
     /// Nearest-first so a rate-limited tool eats a visible hole outward from
     /// where it is pointed, rather than scattering removals across the brush.
     public int MineSphereBudgeted(int3 centre, int radius, int budget, byte material = 0)
+        => MineSphereCore(centre, radius, budget, material, null);
+
+    /// GAMEPLAY STEP 1 (task 64): the same dig, also reporting WHAT it removed.
+    /// `removedByMaterial` (length 256, indexed by material id) is INCREMENTED
+    /// by one for the previous material of every voxel actually changed to Air;
+    /// the caller clears it. Survival's inventory is credited from it
+    /// (SurvivalBuild.Dig). The overload above is unchanged (plan guardrail 1).
+    public int MineSphereBudgeted(int3 centre, int radius, int budget, int[] removedByMaterial)
+    {
+        if (removedByMaterial == null) throw new ArgumentNullException(nameof(removedByMaterial));
+        if (removedByMaterial.Length < 256)
+            throw new ArgumentException("needs one counter per material id (256)", nameof(removedByMaterial));
+        return MineSphereCore(centre, radius, budget, Materials.Air, removedByMaterial);
+    }
+
+    private int MineSphereCore(int3 centre, int radius, int budget, byte material, int[] removed)
     {
         RequireWired();
         if (budget <= 0) return 0;
@@ -487,7 +503,13 @@ public class EditService : IEditService
         for (int x = -radius; x <= radius && changed < budget; x++)
         {
             if (x * x + y * y + z * z != d2) continue;         // shell d2, nearest first
-            if (WriteOne(centre + new int3(x, y, z), material)) changed++;
+            int3 v = centre + new int3(x, y, z);
+            byte before = removed != null ? _world.GetVoxel(v) : (byte)0;
+            if (WriteOne(v, material))
+            {
+                changed++;
+                if (removed != null) removed[before]++;
+            }
         }
 
         if (changed > 0)

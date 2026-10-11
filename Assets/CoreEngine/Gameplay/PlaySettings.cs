@@ -30,6 +30,7 @@ public sealed class PlaySettings
     public static readonly string[] Upscalers = { "none", "taa", "fsr1", "stp", "fsr3" };
     public static readonly string[] RowChoices = { "540", "720", "dyn" };
     public static readonly string[] ShadowResChoices = { "full", "half" };
+    public static readonly string[] GameModes = { "survival", "creative" };
 
     // ---- The saved fields (JsonUtility: public fields only) ----
     /// none | taa | fsr1 | stp | fsr3 (UpscalerSelect.Kind; `-upscaler`).
@@ -55,6 +56,11 @@ public sealed class PlaySettings
     /// ray per 2x2 pixels at all distances, edge-aware. Full by default (the owner
     /// judges the look); a file saved before task 61 gets this default.
     public string shadowRes = "full";
+    /// Task 64 (gameplay step 1, pick P1): survival | creative (`-gamemode`).
+    /// Survival: dig into the inventory, place cubes from the hotbar. Creative:
+    /// the old brushes (what every rig runs). A file saved before task 64 gets
+    /// survival.
+    public string gameMode = "survival";
 
     /// Runtime only: -renderpreset / -taa / -checker without -upscaler or
     /// -renderrows asked for the old preset frame path, so no upscaler is applied.
@@ -71,6 +77,7 @@ public sealed class PlaySettings
         if (Array.IndexOf(Upscalers, upscaler) < 0) { notes.Add($"upscaler '{upscaler}' -> fsr3"); upscaler = "fsr3"; }
         if (Array.IndexOf(RowChoices, rows) < 0) { notes.Add($"rows '{rows}' -> dyn"); rows = "dyn"; }
         if (Array.IndexOf(ShadowResChoices, shadowRes) < 0) { notes.Add($"shadowRes '{shadowRes}' -> full"); shadowRes = "full"; }
+        if (Array.IndexOf(GameModes, gameMode) < 0) { notes.Add($"gameMode '{gameMode}' -> survival"); gameMode = "survival"; }
         if (shadowLevel < 0 || shadowLevel > 3) { notes.Add($"shadowLevel {shadowLevel} -> 0"); shadowLevel = 0; }
         if (perfOverlay < 0 || perfOverlay > 2) { notes.Add($"perfOverlay {perfOverlay} -> 1"); perfOverlay = 1; }
         return notes.Count == 0 ? null : string.Join(", ", notes);
@@ -88,6 +95,7 @@ public sealed class PlaySettings
         if (s == null) { error = "malformed JSON (null result)"; return new PlaySettings(); }
         if (s.upscaler != null) s.upscaler = s.upscaler.ToLowerInvariant();
         if (s.shadowRes != null) s.shadowRes = s.shadowRes.ToLowerInvariant();
+        if (s.gameMode != null) s.gameMode = s.gameMode.ToLowerInvariant();
         string clamped = s.Validate();
         if (clamped != null) error = "clamped: " + clamped;
         return s;
@@ -101,6 +109,7 @@ public sealed class PlaySettings
     {
         var s = saved.Clone();
         string u = Last(args, "-upscaler"), r = Last(args, "-renderrows"), sh = Last(args, "-shadowlevel"), rs = Last(args, "-roofskip"), sr = Last(args, "-shadowres");
+        string gm = Last(args, "-gamemode");
         if (u != null)
         {
             string v = u.ToLowerInvariant();
@@ -128,6 +137,12 @@ public sealed class PlaySettings
             string v = sr.ToLowerInvariant();
             if (Array.IndexOf(ShadowResChoices, v) >= 0) { s.shadowRes = v; overridden?.Add("shadowRes"); }
             else overridden?.Add($"-shadowres: bad value '{sr}'");
+        }
+        if (gm != null)
+        {
+            string v = gm.ToLowerInvariant();
+            if (Array.IndexOf(GameModes, v) >= 0) { s.gameMode = v; overridden?.Add("gameMode"); }
+            else overridden?.Add($"-gamemode: bad value '{gm}'");
         }
         // Task 52's rule, kept: asking for the preset path without naming an
         // upscaler keeps the preset path.
