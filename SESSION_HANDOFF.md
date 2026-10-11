@@ -51,3 +51,9 @@ anything in the gameplay plan's "Owner may change" list.
 > finishes, blocks, or needs me. When this session gets long, hand off to a fresh one yourself.
 > Start by telling me why this new session started and what the previous chat covered
 > (SESSION_HANDOFF.md, "For the owner").
+
+## Update 02:50
+- 61 closed (Half saves 0.5-1.3 ms; Full stays; step 8 closed, decided for the owner, changeable). 62 waiting in
+  blocked/ for the owner's Q43 (8.14 presets; doc + Now tab). 63 done: `GAMEPLAY_PHASE_PLAN.md` (22 picks, 20 steps).
+- Running 64 (step 1). Queued 65-72 = plan steps 2-9 with the plan's real deps (`674431c`). Next feed: steps 10-13
+  (hardness/tools, crafting, cliff veins, bucket); step 14 is a measurement that asks the owner.
