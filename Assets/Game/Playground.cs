@@ -1615,7 +1615,9 @@ public partial class Playground : MonoBehaviour
             input.UpHeld = keys && Input.GetKey(KeyCode.Space);
             input.DownHeld = keys && Input.GetKey(KeyCode.LeftControl);
             input.DashPressed = keys && Input.GetKeyDown(KeyCode.LeftShift);
-            if (_demoInput.HasValue) input = _demoInput.Value;
+            // -movedemo: scripted input; and the frame after a screenshot (a
+            // PNG encode, often 0.3 s) is not allowed to bend the trajectory.
+            if (_demoInput.HasValue) { input = _demoInput.Value; dt = math.min(dt, 1f / 30f); }
             _demoInput = null;
             _player.DebugStep(dt, input);
         }

@@ -36,24 +36,48 @@ public partial class Playground
         int3 f = CoordMath.WorldToVoxel(m.PositionM);
         Debug.Log($"[MoveDemo] start {f}, away from sun yaw {awayYaw:F0}, abilities {_moveAbilities}");
 
-        // ---- 1/2. A lake 3-9 m deep, inside water for 6 m each way. ----
+        // ---- 1/2. A lake 3-9 m deep, water 6 m each way: from the terrain
+        // MAP (ShapeField; the loaded window rarely holds one), nearest first,
+        // then teleport and let the window stream in around it.
         int3 lake = default;
         int lakeTop = -1, lakeBed = -1;
-        for (int r = 0; r <= 2400 && lakeTop < 0; r += 40)
+        var src = Phase4Bootstrapper.Streamer.TerrainGenSource;
+        if (src != null)
         {
-            for (int dz = -r; dz <= r && lakeTop < 0; dz += 40)
-            for (int dx = -r; dx <= r && lakeTop < 0; dx += 40)
+            var spec = src.Spec; var view = src.Map.View; var o = src.O;
+            bool Lake(int x, int z, out int w, out int h)
             {
-                if (math.max(math.abs(dx), math.abs(dz)) != r) continue;
-                int x = f.x + dx, z = f.z + dz;
-                if (!WaterColumn(x, z, out int top, out int bed) || top - bed < 30 || top - bed > 90) continue;
-                if (!WaterColumn(x + 60, z, out _, out _) || !WaterColumn(x - 60, z, out _, out _) ||
-                    !WaterColumn(x, z + 60, out _, out _) || !WaterColumn(x, z - 60, out _, out _)) continue;
-                lake = new int3(x, top, z); lakeTop = top; lakeBed = bed;
+                var col = TerrainGen.ShapeField.Sample(in spec, in view, in o, x + 0.5f, z + 0.5f, 1);
+                w = col.water; h = col.height;
+                return col.water != TerrainGen.ColumnSample.NO_WATER_Y && col.waterKind == 0 && col.water > col.height;
             }
-            yield return null;
+            for (int r = 0; r <= 20000 && lakeTop < 0; r += 80)
+            {
+                for (int dz = -r; dz <= r && lakeTop < 0; dz += 80)
+                for (int dx = -r; dx <= r && lakeTop < 0; dx += 80)
+                {
+                    if (math.max(math.abs(dx), math.abs(dz)) != r) continue;
+                    int x = f.x + dx, z = f.z + dz;
+                    if (!Lake(x, z, out int w, out int h) || w - h < 30 || w - h > 90) continue;
+                    if (!Lake(x + 60, z, out _, out _) || !Lake(x - 60, z, out _, out _) ||
+                        !Lake(x, z + 60, out _, out _) || !Lake(x, z - 60, out _, out _)) continue;
+                    lake = new int3(x, w, z); lakeTop = w; lakeBed = h;
+                }
+                if ((r & 1023) == 0) yield return null;
+            }
         }
-        if (lakeTop < 0) Debug.Log("[MoveDemo] no lake 3-9 m deep within 240 m -- swim shots skipped");
+        if (lakeTop >= 0)
+        {
+            Debug.Log($"[MoveDemo] map lake at {lake}, {math.length((float2)(lake.xz - f.xz)) * 0.1f:F0} m away; streaming it in");
+            m.Teleport(new float3(lake.x * 0.1f + 0.05f, (lakeTop + 1) * 0.1f - c.swimFloatHeightM, lake.z * 0.1f + 0.05f));
+            float tw = Time.unscaledTime;
+            while (Time.unscaledTime - tw < 40f && !WaterColumn(lake.x, lake.z, out _, out _))
+            { _demoInput = default(MotorInput); yield return null; }
+            for (int i = 0; i < 300; i++) { _demoInput = default(MotorInput); yield return null; }   // the window around it
+            if (!WaterColumn(lake.x, lake.z, out lakeTop, out lakeBed))
+            { Debug.Log($"[MoveDemo] lake column {lake} not water in the loaded world after 45 s"); lakeTop = -1; }
+        }
+        if (lakeTop < 0) Debug.Log("[MoveDemo] no lake 3-9 m deep within 2 km on the map -- swim shots skipped");
         else
         {
             m.Teleport(new float3(lake.x * 0.1f + 0.05f, (lakeTop + 1) * 0.1f - c.swimFloatHeightM, lake.z * 0.1f + 0.05f));
@@ -63,57 +87,85 @@ public partial class Playground
                       $"floating: swimming {m.Swimming} in {MaterialName(m.SwimFluid)}, feet {m.PositionM.y:F2} m, vy {m.VelocityMps.y:F3}");
             yield return DemoShot(dir, "1_swim_surface");
 
-            float maxSwim = 0f;
-            float bedTopM = (lakeBed + 1) * 0.1f;
-            for (int i = 0; i < 240 && m.PositionM.y > bedTopM + 0.9f; i++)
+            // Dive toward the deepest water (8 headings, 1-8 m out), preferring
+            // headings with the sun behind; log the descent.
+            float diveYaw = awayYaw, bestScore = float.MinValue;
+            for (int h = 0; h < 8; h++)
             {
-                _cam?.SetLook(awayYaw, 55f);
-                _demoInput = MotorInput.FromLook(new float2(0f, 1f), awayYaw, 55f);
+                float yawH = awayYaw + h * 45f, yr = math.radians(yawH);
+                float score = math.abs(Mathf.DeltaAngle(yawH, awayYaw)) <= 90f ? 20f : 0f;
+                for (int dm = 10; dm <= 80; dm += 10)
+                {
+                    int x = lake.x + (int)math.round(math.sin(yr) * dm), z = lake.z + (int)math.round(math.cos(yr) * dm);
+                    score += WaterColumn(x, z, out int wTop, out int wBed) ? wTop - wBed : -50f;
+                }
+                if (score > bestScore) { bestScore = score; diveYaw = yawH; }
+            }
+            float maxSwim = 0f, surfM = (lakeTop + 1) * 0.1f;
+            var trace = new System.Text.StringBuilder();
+            int3 here = default;
+            for (int i = 0; i < 150; i++)
+            {
+                here = CoordMath.WorldToVoxel(m.PositionM);
+                if (WaterColumn(here.x, here.z, out _, out int bedHere) && m.PositionM.y < (bedHere + 1) * 0.1f + 0.6f) break;
+                _cam?.SetLook(diveYaw, 55f);
+                _demoInput = MotorInput.FromLook(new float2(0f, 1f), diveYaw, 55f);
                 yield return null;
-                maxSwim = math.max(maxSwim, math.length(m.VelocityMps));
+                if (m.Swimming) maxSwim = math.max(maxSwim, math.length(m.VelocityMps));
+                if (i % 15 == 0) trace.Append($" t{i / 60f:F2}s y{m.PositionM.y - surfM:+0.00;-0.00} v{math.length(m.VelocityMps):F2}{(m.Swimming ? "" : " DRY")}");
             }
             for (int i = 0; i < 8; i++)
             {
-                _cam?.SetLook(awayYaw, 35f);
-                _demoInput = MotorInput.FromLook(new float2(0f, 1f), awayYaw, 35f);
+                _cam?.SetLook(diveYaw, 35f);
+                _demoInput = MotorInput.FromLook(new float2(0f, 1f), diveYaw, 35f);
                 yield return null;
-                maxSwim = math.max(maxSwim, math.length(m.VelocityMps));
+                if (m.Swimming) maxSwim = math.max(maxSwim, math.length(m.VelocityMps));
             }
-            Debug.Log($"[MoveDemo] dive: feet {m.PositionM.y:F2} m (bed top {bedTopM:F1}), swimming {m.Swimming}, " +
-                      $"top swim speed {maxSwim:F2} m/s (cap {m.SwimCapMps(Materials.Water):F2})");
+            float deepest = m.PositionM.y - surfM;
+            Debug.Log($"[MoveDemo] dive heading {diveYaw:F0}: feet {deepest:+0.00;-0.00} m vs the surface, swimming {m.Swimming}, " +
+                      $"top swim speed {maxSwim:F2} m/s (cap {m.SwimCapMps(Materials.Water):F2}); trace (feet vs surface):{trace}");
             yield return DemoShot(dir, "2_dive_lake_bed");
+
+            // Let go: an idle swimmer floats back to the water line.
+            float tUp = 0f;
+            for (int i = 0; i < 900; i++)
+            {
+                _demoInput = default(MotorInput);
+                yield return null;
+                tUp += math.min(Time.deltaTime, 1f / 30f);
+                if (math.abs(m.PositionM.y + c.swimFloatHeightM - surfM) < 0.03f && math.abs(m.VelocityMps.y) < 0.05f) break;
+            }
+            Debug.Log($"[MoveDemo] released at {deepest:+0.00;-0.00} m: back at the water line after {tUp:F1} s (float point {m.PositionM.y + c.swimFloatHeightM - surfM:+0.000;-0.000} m), swimming {m.Swimming}");
         }
 
-        // ---- 3. Double jump over a trench. Flat dry ground along the axis
-        // nearest to straight away from the sun, carved 3.8 m wide.
+        // ---- 3. Double jump over a gap: two stone runways (built through
+        // EditService, 0.3 m thick, 4 m above the highest ground under them)
+        // with a 3.8 m gap -- too wide for one jump (~2.9 m), not for two
+        // (~4.6 m). Along the axis nearest to straight away from the sun.
+        f = CoordMath.WorldToVoxel(m.PositionM);
         float axisYaw = math.round(awayYaw / 90f) * 90f;
         float ar = math.radians(axisYaw);
         int2 fw = new int2((int)math.round(math.sin(ar)), (int)math.round(math.cos(ar)));
         int2 side = new int2(fw.y, -fw.x);
-        int3 stand = default;
-        bool found = false;
-        for (int r = 0; r <= 1200 && !found; r += 30)
+        const int gapStart = 30, gapWidth = 38, runEnd = 100;
+        int groundMax = int.MinValue;
+        for (int k = -25; k <= runEnd; k += 5)
+        for (int l = -20; l <= 20; l += 5)
         {
-            for (int dz = -r; dz <= r && !found; dz += 30)
-            for (int dx = -r; dx <= r && !found; dx += 30)
-            {
-                if (math.max(math.abs(dx), math.abs(dz)) != r) continue;
-                int x = f.x + dx, z = f.z + dz, sy = DryTopY(x, z);
-                if (sy < 0) continue;
-                if (FlatAlong(x, z, sy, fw, side, 10) && FlatAlong(x, z, sy, fw, side, 1))
-                { stand = new int3(x, sy, z); found = true; }
-            }
-            yield return null;
+            int x = f.x + fw.x * k + side.x * l, z = f.z + fw.y * k + side.y * l;
+            int h = DryTopY(x, z);
+            if (h < 0 && WaterColumn(x, z, out int wt, out _)) h = wt;
+            if (h < 0) h = TopAnyY(x, z);
+            groundMax = math.max(groundMax, h);
         }
-        if (!found) { Debug.Log("[MoveDemo] no flat 10 m run within 120 m -- jump shot skipped"); Application.Quit(); yield break; }
-
-        const int gapStart = 20, gapWidth = 38;
-        int3 a = stand + new int3(fw.x * gapStart - side.x * 20, -24, fw.y * gapStart - side.y * 20);
-        int3 b = stand + new int3(fw.x * (gapStart + gapWidth - 1) + side.x * 20, 3, fw.y * (gapStart + gapWidth - 1) + side.y * 20);
-        int carved = _edits.SetBox(a, b, Materials.Air);
+        int3 stand = new int3(f.x, groundMax + 40, f.z);   // the runway's top voxel, 4 m up
+        int3 a1 = Course(f, fw, side, -25, -20, stand.y - 2), b1 = Course(f, fw, side, gapStart - 1, 20, stand.y);
+        int3 a2 = Course(f, fw, side, gapStart + gapWidth, -20, stand.y - 2), b2 = Course(f, fw, side, runEnd, 20, stand.y);
+        int built = _edits.SetBox(a1, b1, Materials.Stone) + _edits.SetBox(a2, b2, Materials.Stone);
         float2 c0 = new float2(stand.x * 0.1f + 0.05f, stand.z * 0.1f + 0.05f);
         float sNear = (gapStart - 0.5f) * 0.1f, sFar = (gapStart + gapWidth - 0.5f) * 0.1f;
-        Debug.Log($"[MoveDemo] stand {stand} axis yaw {axisYaw:F0}; trench {sNear:F2}..{sFar:F2} m ahead, 2.4 m deep, {carved} voxels carved");
+        Debug.Log($"[MoveDemo] runway top y {(stand.y + 1) * 0.1f:F1} m ({(stand.y - groundMax) * 0.1f:F1} m over the highest ground), axis yaw {axisYaw:F0}; " +
+                  $"gap {sNear:F2}..{sFar:F2} m ahead; {built} voxels built");
 
         m.Teleport(new float3(c0.x, (stand.y + 1) * 0.1f + 0.02f, c0.y));
         m.ResolveSpawn();
@@ -127,11 +179,11 @@ public partial class Playground
         int afterDj = -1;
         for (int i = 0; i < 400; i++)
         {
-            var input = MotorInput.FromLook(new float2(0f, 1f), axisYaw, afterDj >= 0 ? 32f : 20f);
+            var input = MotorInput.FromLook(new float2(0f, 1f), axisYaw, afterDj >= 0 ? 45f : 20f);
             if (!jumped && m.Grounded && S() >= sNear - 0.2f) { input.JumpPressed = true; jumped = true; jumpS = S(); }
             else if (jumped && !doubled && !m.Grounded && m.VelocityMps.y <= 0.3f)
             { input.JumpPressed = true; doubled = true; djS = S(); djY = m.PositionM.y; afterDj = 0; }
-            _cam?.SetLook(axisYaw, afterDj >= 0 ? 32f : 20f);
+            _cam?.SetLook(axisYaw, afterDj >= 0 ? 45f : 20f);
             _demoInput = input;
             yield return null;
             if (!jumped) maxWalk = math.max(maxWalk, math.length(m.VelocityMps.xz));
@@ -139,9 +191,9 @@ public partial class Playground
             if (doubled && afterDj > 4 && m.Grounded) break;
         }
         float landS = S();
-        bool farSide = landS > sFar - 0.3f && m.PositionM.y > groundY - 0.35f;
+        bool farSide = landS > sFar - 0.3f && m.PositionM.y > groundY - 0.05f;
         Debug.Log($"[MoveDemo] jump at {jumpS:F2} m, double jump at {djS:F2} m ({djY - groundY:F2} m up), " +
-                  $"landed at {landS:F2} m, feet {m.PositionM.y - groundY:+0.00;-0.00} m vs ground -> {(farSide ? "FAR SIDE (cleared)" : "IN THE TRENCH")}; walk top {maxWalk:F2} m/s");
+                  $"landed at {landS:F2} m, feet {m.PositionM.y - groundY:+0.00;-0.00} m vs ground -> {(farSide ? "FAR RUNWAY (cleared)" : "MISSED")}; walk top {maxWalk:F2} m/s");
 
         // A dash on the far side: peak speed and distance.
         for (int i = 0; i < 60; i++) { _demoInput = default(MotorInput); yield return null; }
@@ -184,16 +236,16 @@ public partial class Playground
         return false;
     }
 
-    /// Dry ground within 2 voxels of `sy` from 2.5 m behind to 7 m ahead along
-    /// `fw`, 2 m either side, sampled every `step` voxels.
-    private bool FlatAlong(int x, int z, int sy, int2 fw, int2 side, int step)
+    /// Topmost non-air voxel of the loaded column, or the band floor.
+    private int TopAnyY(int x, int z)
     {
-        for (int k = -25; k <= 70; k += step)
-        for (int l = -20; l <= 20; l += 10)
-        {
-            int h = DryTopY(x + fw.x * k + side.x * l, z + fw.y * k + side.y * l);
-            if (h < 0 || math.abs(h - sy) > 2) return false;
-        }
-        return true;
+        int yTop = RaymarchFeature.ContentCeilingVoxelY - 1, yBot = RaymarchFeature.ContentFloorVoxelY;
+        for (int y = yTop; y >= yBot; y--)
+            if (_store.GetVoxel(new int3(x, y, z)) != Materials.Air) return y;
+        return yBot;
     }
+
+    /// The voxel `k` ahead along `fw` and `l` to the side of `f`, at height `y`.
+    private static int3 Course(int3 f, int2 fw, int2 side, int k, int l, int y)
+        => new int3(f.x + fw.x * k + side.x * l, y, f.z + fw.y * k + side.y * l);
 }
