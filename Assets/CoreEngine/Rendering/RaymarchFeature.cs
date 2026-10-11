@@ -200,6 +200,10 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// `passMat`). False = the old view (black). Play sets it from
     /// PlaySettings.underwaterFog; rigs keep this default and are never under a fluid.
     public static bool UnderwaterView = true;
+    /// Task 73 PROTOTYPE (throwaway, -riverlook 1 / -riverdemo; OFF by default, rigs never set it):
+    /// water side faces drawn as white-water curtains, 1-voxel steps between water drawn as surface,
+    /// foam where a water top ends at a drop. Look 1 path only. RIVERS_WATERFALLS_PLAN.md.
+    public static bool RiverLook = false;
     /// >= 0 forces LightingConfig.torchShadowRays (-torchshadows N; 0 = no
     /// occlusion rays, the pre-task-46 leak). -1 = use the config.
     public static int TorchShadowsOverride = -1;
@@ -433,6 +437,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public Vector4 lookGrade;
             public int emissiveBleed;
             public int underwaterView;
+            public int riverLook;
             public int torchShadowRays;
 
             // ---- far band (FarField.cs) ----
@@ -754,6 +759,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 passData.lookGrade = new Vector4(g.x, g.y, g.z, g.w);
                 passData.emissiveBleed = EmissiveBleedOverride >= 0 ? EmissiveBleedOverride : cfg.emissiveBleed;
                 passData.underwaterView = UnderwaterView ? 1 : 0;
+                passData.riverLook = RiverLook ? 1 : 0;
                 passData.torchShadowRays = Mathf.Clamp(TorchShadowsOverride >= 0 ? TorchShadowsOverride : cfg.torchShadowRays,
                                                        0, LightingConfig.MaxTorchShadowRays);
 
@@ -1047,6 +1053,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeVectorParam(data.compute, "_LookGrade", data.lookGrade);
                         cmd.SetComputeIntParam(data.compute, "_EmissiveBleed", data.emissiveBleed);
                         cmd.SetComputeIntParam(data.compute, "_UnderwaterView", data.underwaterView);
+                        cmd.SetComputeIntParam(data.compute, "_RiverLook", data.riverLook);
                         cmd.SetComputeIntParam(data.compute, "_TorchShadowRays", data.torchShadowRays);
 
                         cmd.SetComputeIntParam(data.compute, "_ShadowRoofSkip", data.roofSkip == 1 ? 1 : 0);

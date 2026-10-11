@@ -1194,6 +1194,57 @@ int FluidTopAbove(int3 eye, uint fluid, uint3 windowDimsBricks)
     return y;
 }
 
+// ---- TASK 73 PROTOTYPE: RIVER LOOK (throwaway; _RiverLook 0 = this never runs) ----
+// A shading-only check of what the renderer alone can do for generated rivers
+// (RIVERS_WATERFALLS_PLAN.md). Look 1 path, water (mat 6) primary hits only:
+//   * a SIDE face over a 1-voxel step down to more water is drawn as surface
+//     (normal up), so a fine staircase reads as one sloped sheet;
+//   * any other water side face is a white-water curtain (vertical streaks);
+//   * a TOP face within 3 voxels of a drop (air beside it at its own height)
+//     gets a foam lip.
+// No animation (stills only), no flow field on the GPU, no far band.
+int _RiverLook;
+// Outside tier 0's window VoxelMaterialAt says AIR; here that must not read as a drop.
+uint RiverMatAt(int3 v, uint3 windowDimsBricks)
+{
+    int3 rel = VoxelToBrick(v) - _WindowOriginBricksPacked.xyz;
+    if (any(rel < 0) || any(rel >= (int3)windowDimsBricks)) return 255u;
+    return VoxelMaterialAt(v, windowDimsBricks);
+}
+float3 RiverLookAlbedo(float3 baseColor, int3 voxel, inout int3 normal, uint3 windowDimsBricks)
+{
+    float3 foamC = float3(0.80, 0.86, 0.90);
+    if (normal.y == 0)
+    {
+        int3 out1 = voxel + normal;   // the air cell this face looks into
+        if (VoxelMaterialAt(out1 - int3(0, 1, 0), windowDimsBricks) == 6u)
+        {
+            normal = int3(0, 1, 0);   // a 1-voxel riser between water: part of the sheet
+            return baseColor;
+        }
+        int3 a = abs(normal);
+        int u = a.x != 0 ? voxel.z : voxel.x;   // the along-face column
+        float streak = VoxelHash(int3(u, voxel.y >> 2, 7)) * 0.6 + VoxelHash(int3(u >> 1, voxel.y >> 3, 11)) * 0.4;
+        return lerp(baseColor, foamC, 0.45 + 0.45 * streak);
+    }
+    if (normal.y > 0)
+    {
+        float foam = 0.0;
+        [unroll] for (int s = 1; s <= 3; s++)
+        {
+            float w = 1.0 - (s - 1) * 0.3;
+            if (RiverMatAt(voxel + int3(s, 0, 0), windowDimsBricks) == 0u) foam = max(foam, w);
+            if (RiverMatAt(voxel - int3(s, 0, 0), windowDimsBricks) == 0u) foam = max(foam, w);
+            if (RiverMatAt(voxel + int3(0, 0, s), windowDimsBricks) == 0u) foam = max(foam, w);
+            if (RiverMatAt(voxel - int3(0, 0, s), windowDimsBricks) == 0u) foam = max(foam, w);
+        }
+        float rip = VoxelHash(int3(voxel.x >> 1, 3, voxel.z >> 1)) - 0.5;
+        float3 c = baseColor * (1.0 + 0.10 * rip);
+        return lerp(c, foamC, foam * (0.55 + 0.3 * VoxelHash(voxel)));
+    }
+    return baseColor;
+}
+
 /// SVO/Brickmap emissive color: an emitting material glows in its own look albedo.
 float3 LookEmitColor(int3 voxel, uint3 windowDimsBricks)
 {
@@ -3440,6 +3491,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             uint lm = mat;
             bool selfLit = MaterialIsSelfLit(lm);
             float3 baseColor = LookAlbedo(lm, voxel);
+            if (_RiverLook != 0 && lm == 6u && passMat == 0u) baseColor = RiverLookAlbedo(baseColor, voxel, normal, _WindowDimsBricks);   // task 73 prototype
             float3 nF = float3(normal);
             float3 sd = normalize(_SunDir);
 

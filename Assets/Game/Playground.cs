@@ -519,6 +519,10 @@ public partial class Playground : MonoBehaviour
         if (!IsCaptureRun() && HasArg("-movedemo")) StartCoroutine(MoveDemo());
         // -oredemo (task 66): ore screenshots (a tunnel wall, the hotbar, the dev map's close slice), then quit.
         if (!IsCaptureRun() && HasArg("-oredemo")) StartCoroutine(OreDemo());
+        // -riverdemo (task 73): river/lake/waterfall/mouth screenshots for RIVERS_WATERFALLS_PLAN.md, then quit.
+        // -riverlook (task 73 prototype, OFF by default): the shading-only river look; with -riverdemo, each pose shot off and on.
+        if (!IsCaptureRun() && HasArg("-riverlook") && !HasArg("-riverdemo")) RaymarchFeature.RiverLook = true;
+        if (!IsCaptureRun() && HasArg("-riverdemo")) StartCoroutine(RiverDemo());
     }
 
     /// For overlays (Minimap) that must stay out of capture frames.
