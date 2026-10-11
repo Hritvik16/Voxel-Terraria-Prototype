@@ -1,58 +1,69 @@
-# 56-engine-8-shadow-dots: DONE -- the owner's sun-shadow "dots" were false shadows from temporal shadow reuse (BUGS #1, case (a)); fixed in the shadow path.
+# 57-engine-7-frame-cost-split: DONE -- the play frame is GPU-bound; sun shadow rays are the biggest single cut (14.2 ms near a wall, 4.2 ms on an open view), then the FSR 3 pass (6 ms).
 
-## Diagnosis
-- Play runs with temporal shadow reuse ON (`RenderPreset.Apply` defaults `-tshadow 1`; play's FSR 3 default keeps it; the owner's Quality preset too).
-- Each frame 3 of 4 thread-group tiles (8x8 gate pixels) skip the sun ray and reuse last frame's value.
-  - The lookup reprojected the hit voxel's CENTRE, a point inside the solid. On a top face seen from walking height, it lands about 1.5 voxels nearer, on the NEIGHBOUR's face.
-  - It then accepted the neighbour on a depth window (2% + 2 voxels).
-  - Result: a lattice of small lit-in-dark and dark-in-light squares on stepped ground at a low sun. It shows on a still camera too.
-- Ruled out with the CPU oracle (`ShadowRayReference.Trace`):
-  - origin, bias, soft term, half-res: with `-tshadow 0`, the GPU and oracle agree to 0.01-0.53%.
-  - travel LOD: it is 0 in config.
-- The owner's photos match: small axis-aligned squares on grass, cross shapes and triangles on sand.
+## What changed (branch `engine-phase`, commit 303e109; capture-only, no default or look change)
+- `Assets/Game/PlaygroundCapture.CostSplit.cs`: `-upscalerclips -costsplit`, which reuses task 51's harness.
+  - Setup: fullscreen 1920x1080, quality preset, far band + far shadows, noon with the clock paused. Same flags as `./run-play.sh`, except FSR 3 is pinned at 540 rows.
+  - FULL is play's frame: FSR 3 at 540, HUD + minimap shown, fluid simulating.
+  - Each arm switches off ONE thing through existing static switches.
+  - Run order: F, then X X F for each arm (ABBA, 2 FULL runs around each pair). Each run is 3 s settle + 20 s timed, in real time, with no capture.
+  - Streaming is pinned at the middle of the path, so no frame streams.
+- Two 8 s arcs of MODE=walk's circle (r 150 m round the start pose, 5 m/s, eye 1.6 m, level look):
+  - `walk_near`: heading straight away from the sun. It faces a badlands canyon wall 10-30 m away.
+  - `walk_open`: the most open of the circle's 16 points that has the sun behind or beside. It looks over the island from a ridge, about 45% sky.
+  - Why both: the smoke run showed the view sets the cost (52 vs 28 ms). The two arcs bracket what a walk sees.
+- Added a `tiny_gate` DIAGNOSTIC arm (no upscaler, 256x144 march). It shows the CPU + fixed-cost floor.
+- Also: `run-cost-split.sh` (BUILD_ONLY / SKIP_BUILD, as run-upscaler-realrate.sh) and `tools/costsplit-sheet.py` (3x3 contact sheet).
 
-## The fix (commit ade1b22, branch engine-phase; a bug fix, no API or layout change)
-- `Raymarch.compute`: reproject the pixel's own surface point (as TAA does) and try the nearest history pixel plus 3 neighbours.
-  - Reuse only on an exact match of `ShadowOriginKey(voxel + normal)`. TraceShadowRay's result depends on that cell alone.
-  - The history is now `uint2` (sunVis bits, key).
-- `RaymarchFeature.cs`: fill the history buffers with key 0xFFFFFFFF on creation (the checkerboard's unwritten half must never match). Dropped the now-unused `_PrevCamVox`.
-- New `-shadowdots` capture (`PlaygroundCapture.ShadowDots.cs`, `run-shadow-dots.sh`, `TAG=before|after`).
-  - Picks 3 poses from the map where a 6 deg sun reaches the ground: 2 sun-facing slopes and 1 flat at sea level.
-  - Waits for deficit 0, shoots Quality and FSR 3 with ts on/off, still and moving.
-  - Compares the sunVis view to the oracle pixel by pixel.
-  - Added to Playground's capture/fly-mode flag lists (the walk-mode trap cost me 3 runs).
-- KNOWN_ISSUES has a new entry. BUGS #1 is moved to Fixed. `later/38` is moved to `done/`.
+## Evidence (WARM STEADY STATE)
+- Warm-up: `Logs/tg2world_20261010_211902.txt` (MODE=stream MOTION=walk, discarded). The measured launch started 45 s later.
+- Measured: `Logs/costsplit_2026-10-10_212527.txt` (copy: `Screenshots/57/costsplit.txt`).
+  - On AC, 100% before and after; owner hold no/no.
+  - 0 streaming frames and 0 far-busy frames on every run.
+- Noise floor: 9 FULL runs per path, p50 range 1.4 ms (near) and 1.6 ms (open). The FULL pair around each arm differs by 0.1-1.0 ms.
+- Fast suite PASS 641 FAIL 0 SKIP 14, 0 `error CS` (`Logs/overnight/57_fast2.out`).
+- Smoke runs (2 s and 1 s windows) are not evidence. They led to the two-path design.
 
-## Evidence
-- Fast suite: PASS 641 FAIL 0 SKIP 14, 0 `error CS`; all 19 ShadowRay* tests pass (`Logs/overnight/56_fast.out`).
-- `run-phase7-rig.sh` (fresh release build): PASS 37 FAIL 0 (`Logs/overnight/56_phase7.out`).
-- Oracle, `-tshadow 1`, golden hour 6 deg and 12 deg (before: `Logs/overnight/56_before5.out`; after: `Logs/overnight/56_after.out`):
-  - false-dark: slope1 1.05-1.42% -> 0.01-0.03%; slope2 4.6-5.6% -> 0.41-0.53%; shore 1.2-1.6% -> 0.04-0.05%.
-  - After the fix, every arm is identical to `-tshadow 0`.
-  - The leftover (slope2 0.4-0.5%, false-lit ~0.3-0.6%) is present with reuse OFF as well: the documented dense-brick-only penumbra gap.
-- Old-shader rerun for the ray counts (`Logs/overnight/56_before_stats.out`) reproduced the dots (1.1-5.4%).
-- Cost: no timing (rule 10). Rays traced per frame with `-tshadow 1`, % of hit pixels (`56_before_stats.out` vs `56_after_stats.out`):
-  - before 31-42%, after 25-26% still and 25-33% moving (Quality).
-  - FSR 3 moving: 26-47% after vs 31-44% before. One shore frame was higher (47.1 vs 40.1).
-  - Expect equal or slightly lower shadow cost; per-pixel overhead is up to 4 history loads.
+| arm | near p50/p99 ms | saved | open p50/p99 ms | saved |
+|---|---|---|---|---|
+| FULL (fsr3 540) | 49.4 / 58.9 | - | 30.4 / 36.2 | - |
+| sun_off (rung 3: voxel + far sun shadows) | 35.2 / 42.3 | **+14.2** | 26.8 / 30.9 | **+4.2** |
+| ups_none (FSR 3 -> plain blit, 540) | 43.1 / 53.8 | **+6.0** | 24.1 / 30.1 | **+6.2** |
+| far_off (far band march) | 47.7 / 57.5 | +1.8 | 26.6 / 32.1 | +3.8 |
+| tiers_off (tier 0 only, rays end at 128 m; changes the picture) | 49.3 / 59.4 | +0.3 | 27.2 / 32.9 | +2.9 |
+| hud_off (HUD + minimap) | 48.8 / 58.0 | +1.0 | 29.6 / 34.9 | +1.2 |
+| torch_off (task 46 rays; no torch in view) | 48.8 / 58.3 | +0.7 | 29.6 / 35.2 | +0.9 |
+| fluid_off | 49.3 / 59.9 | -0.2 (0) | 29.9 / 36.1 | -0.1 (0) |
+| tiny_gate (diagnostic: floor) | 6.3 / 10.4 | (+43.3) | 3.5 / 6.8 | (+26.8) |
 
-## Screenshots looked at (`Screenshots/56/`, untracked; native-size crops, left = before, right = after unless noted)
-- `diagnosis_slope2_12deg_tshadow_on_vs_off.png`: BEFORE build only.
-  - Left column is `-tshadow 1`, right column `-tshadow 0`; top row beauty, bottom row the sunVis view.
-  - Top-left shows the dot lattice on the lit voxel tops. Top-right is clean.
-- `shore_6deg_ts1_move_before_after.png`: flat ground at sea level, moving. Left: lit squares and crosses inside the cast shadows (the owner's sand look). Right: solid shadow shapes.
-- `slope1_6deg_fsr3_move_before_after.png`: play's FSR 3 path. Left: a sawtooth "crenellation" along the lit edge, centre-left. Right: a straight edge.
-- `slope2_12deg_ts1_still_before_after.png`, `slope1_6deg_ts1_move_before_after.png`: the same lattice gone, still and moving.
-- `noon_ts1_before_after.png`: the noon control, whole frame.
-  - The two frames are the same except a few stray dark marks at the bottom-left corner of "before".
+- **GPU-bound.** With the march at 7% of its pixels the frame drops to 3.5-6.3 ms, so frame time follows GPU pixel work.
+  - Unity's `cpuMainThreadFrameTime` equals wall time in every arm because the main thread waits on the GPU.
+  - Metal reports present-wait as 0, and the render thread takes 2-3 ms. The CPU timer cannot split this; tiny_gate does.
+- **Not explained by any one arm:** about 19 ms (near) and 8 ms (open). That is the primary voxel march + shading at 960x540; switching it off is not a single-pass change.
+- **Task 51's ~100 ms hitches did not show up:** p99 is 59 / 36 ms with fluid on, and fluid costs 0. Likely cleared by tasks 52-56 (not isolated).
+- torch_off saves 0.7-0.9 ms with no torch in view, slightly above the noise. Worth a look (rays toward far-off lights?), not a priority.
 
-## Not done / for the owner
-- No play-through by eye (unattended). Worth a look at golden hour (`N`) in `./run-play.sh`.
+## Ranking (what to cut, for step 8's ONE cost change)
+1. **Sun shadow rays: 14.2 / 4.2 ms.** My default for step 8: `-roofskip 1` (RaymarchFeature.ShadowRoofSkip). It is already built, exact by construction (changes cost, not pixels), and has never been measured. The next option is rung 1 (half-res beyond LOD1).
+2. FSR 3 pass: a fixed ~6 ms at 1080p output (task 51: fsr1_540 ran 4-5 ms faster than fsr3_dyn on walk and spin).
+3. Far band 1.8-3.8 ms and tiers 0.3-2.9 ms: these grow with an open view.
+4. HUD + minimap about 1 ms, torch rays about 0.8 ms, fluid 0.
+
+## Screenshots looked at
+- `Screenshots/57/walk_near_sheet.png`: 3x3, one tile per arm at walk_near's first pose. Every tile is the same canyon wall with the play HUD, sun at 78 deg behind the camera.
+  - `sun_off` is flat-lit; `tiny_gate` (bottom right) is blocky; `hud_off` (bottom middle) shows the frame without the panel.
+- `Screenshots/57/walk_open_sheet.png`: the same layout for walk_open.
+  - The view looks along a sunlit ridge to the sea on the left.
+  - `far_off` (middle left): the far sea and hills turn to sky.
+
+## Not done / next
+- Not run: other times of day (a low sun makes shadow rays longer) and spin/fly.
+- Next: step 8's ONE cost change, picked from the ranking above, then a warm A/B on this same `run-cost-split.sh` FULL arm.
 
 ## For the doc
-- Sun-shadow pixels disagreeing with the CPU oracle at golden hour, play's temporal reuse ON: 1.1-5.4% -> 0.01-0.53%, the same as reuse OFF (`Logs/overnight/56_before5.out` -> `56_after.out`).
-- Worst pose (slope2, 12 deg): 5.62% -> 0.53% false-dark samples.
-- Sun rays traced per frame, Quality, camera still: 31-42% -> 25% of hit pixels. The shadow cost should not rise (no timing taken).
-- `run-phase7-rig.sh` PASS 37 FAIL 0; fast suite PASS 641 FAIL 0.
-- Image: `Screenshots/56/shore_6deg_ts1_move_before_after.png`. Flat ground at sea level, sun 6 deg, walking. Left (before): lit squares and crosses inside the shadows, the owner's "dots". Right (after): clean shadow shapes.
-- Image: `Screenshots/56/slope1_6deg_fsr3_move_before_after.png`. Play's default FSR 3. The sawtooth edge on the lit face (left, centre) is gone (right).
+- Play frame (FSR 3 at 540, warm, walk at noon): 49.4 ms facing a near wall, 30.4 ms on an open ridge view (`Logs/costsplit_2026-10-10_212527.txt`). Noise is 1.4-1.6 ms.
+- Sun shadows off saves 14.2 / 4.2 ms (the biggest single item).
+- FSR 3 -> plain blit saves 6.0 / 6.2 ms.
+- Far band off saves 1.8 / 3.8 ms; tiers 1-2 off saves 0.3 / 2.9 ms. HUD ~1 ms, torch rays ~0.8 ms, fluid 0.
+- **GPU-bound:** with the march at 256x144 the frame takes 3.5-6.3 ms. The CPU is not the limit.
+- Image: `Screenshots/57/walk_near_full.png`. The FULL walk pose at noon, sun behind the camera, play HUD on. A badlands canyon wall fills most of the frame and the sky is top right. This is the 49 ms view.
+- Image: `Screenshots/57/walk_near_sheet.png`. One tile per arm, same pose. Compare `full` (top left) with `sun_off` (top middle): at a 78 deg sun the picture barely changes, yet the frame is 14 ms faster.
