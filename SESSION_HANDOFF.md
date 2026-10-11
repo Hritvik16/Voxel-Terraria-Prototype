@@ -1,56 +1,47 @@
-# Session handoff -- 2026-10-10 21:00 (supervisor; queue RUNNING task 57)
+# Session handoff -- 2026-10-11 00:15 (supervisor; queue RUNNING task 61; owner asleep)
 
 ## For the owner
-**Why a new session:** this chat reported five finished tasks (52-56) and grew long; a fresh one is cheaper
-per turn. Everything is in the Queue decisions doc.
+**Why this file changed:** the supervisor that ran 21:00-22:50 never updated it. A new supervisor took over at
+22:50 (you asked for it from the `fps-talk` window), closed the old one, and wrote this before your usage cut-off.
 
-**What the previous chat covered (10 Oct 15:08 - 21:00):**
-- **52** play starts with FSR 3 dynamic (your Q38 pick). **53** cascade caps from measured peaks: -285 MB.
-  **54** fluid tiles only for moving fluid: coast refusals 2.0 M -> 0. **55** fluid pool 1,024 -> 480 tiles:
-  -272 MB GPU (Q39). **56** your shadow "dots" fixed: false shadows from temporal shadow reuse (BUGS #1).
-- You said the water walls at the coast are a bug (generation must place every fluid at rest, pool 0 until
-  disturbed); Q40 (b): BUGS #7, fixed at plan step 18 with BUGS #5.
-- Q41: step 7's pass/fail is known red (16-23 fps at 540 rows vs 60 target), so task 57 measures a cost split
-  instead (one thing off per arm) to pick step 8's one cost change.
-- You asked for a settings menu: queued as **58**, small, after 57 (existing switches only, ordered by 57's
-  costs, saved between runs, rigs ignore it; also fixes the help panel's "&amp;", BUGS #6). No task time limit
-  (you only wanted to know why tasks take hours: rebuild + relaunch per look, ~10-15 min per try).
-- Your usage reset: 2% of the week at 16:53. Old supervisor windows closed (only supervisor + worker now).
+**What happened 21:00 - 00:15:**
+- **57** cost split: GPU-bound; sun shadows the biggest cost (14.2 / 4.2 ms of 49 / 30 ms). **58** F6 settings menu.
+- **59** roof skip: exact but SLOWER on tg2 (+2.3 to +4.8 ms), stays OFF. You picked **half-res shadows** -> task 61.
+- **60** Amendment 8.14 draft (LOD shells) published as a doc. You approved most of it but want render range and LOD
+  tiers scaled to the hardware -> task 62 revises it (Q2-Q6 (a); Q1 replaced by presets). Shells are NOT a frame-rate
+  win (est. -1.6 to +2.7 ms); they save ~470 MB and draw 3D terrain to 6.6 km.
+- At 00:10 you went to sleep: "keep queuing, gameplay features over optimization, pick your recommendations". So the
+  supervisor queued **63** (gameplay phase plan, agent's picks, no stop) and **64-66** (its steps 1-3).
 
-**Running:** task 57 (started 20:49, ~1.5-2.5 h). **Then:** 58. **Open for you:** nothing blocking.
+**Running:** 61. **Queue:** 62 (stops for you), 63, 64, 65, 66. **Open for you:** 62's questions when it lands;
+anything in the gameplay plan's "Owner may change" list.
 
 ## State
-- Branch `engine-phase`: 52 `08b336d`, 53 `b0e15ff`, 54 `ac23cf3`, 55 `7451b8c`, 56 `ade1b22`. main untouched, nothing pushed.
-- Queue: 57 running, 58 (Requires 57). No PAUSE. Blocked: only the old 37e note.
-- BUGS.md rows added: 6 (help panel &amp;, fixed by 58), 7 (generated water not at rest, step 18). #1 fixed by 56.
-- Runner-event wait: Monitor tool `tail -F` missed events once; use Bash `run_in_background` with an until-loop
-  over `wc -l` of runner.log (that works and was allowed), timeout 7200000, re-arm on timeout.
-- This chat ran as a background process spawned by an old supervisor's daemon (`claude daemon run`, pid 47001);
-  check `ps` for stray Claude sessions at start and close extras (owner OK'd closing old supervisor windows).
+- Branch `engine-phase`; main untouched, nothing pushed. Commits tonight: 59 `d3b7c38` `0bd1b4a`; 60 `5ad05a4`;
+  queue `d1fd97a` (61), `f162bc4` (62), `2a7f98e` (63-66 + `GAME_DESIGN_BRIEF_SNAPSHOT.md`).
+- Runner waits out usage limits itself (WAIT_MIN 20 x MAX_WAITS 18). Limit was 97% of the 5-hour window at 00:10;
+  owner expects it back ~02:00.
+- Sessions: this supervisor runs as a background job (daemon pid 47001) and the owner reaches it through the
+  `fps-talk` window (tmux 12:0, owner chose to keep it). Worker = the runner's `claude -p`. Stray tmux shells 0 and
+  claude-retry-* hold no Claude.
+- Docs-write guard: background sessions can't use Write/Edit in the shared checkout; the supervisor writes queue
+  files with shell heredocs (allowed by SUPERVISOR.md's role).
 
 ## Next for the supervisor
-1. Arm the runner-event wait. When 57 finishes: report it (Task reports + Done row), then ask the owner ONE
-   question: which cost to cut first (step 8's one cost change), options from 57's ranked table, recommendation
-   first. Note the gap is ~3x (43-62 ms vs 16.7), so say plainly that one change will not reach 60 fps; the plan's
-   big lever is shells (steps 9-11). 58 can run meanwhile (it does not depend on the answer).
-2. After 58: plan step 9 is the Amendment 8.14 draft (planning only, STOP_FOR_OWNER) -- queue it unless the
-   owner's step-8 answer changes the order. Steps 1-8 are then done.
+1. On each runner event: report in the Queue decisions doc (Task reports + Done row) as usual.
+2. 62 lands STOP_FOR_OWNER: publish its revision into the 8.14 doc (below) and ask its new questions.
+3. When 63 lands: read `GAMEPLAY_PHASE_PLAN.md`, add its picks list to the doc as "agent's picks, object if you
+   like", and queue steps 4+ (one task per step, same template as `64-gameplay-step-1.md`) so the queue never runs dry.
+4. Engine plan step 10 (coarse-first generation) waits for the owner's approval of 62's revision.
 
 ## Documents
-- Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  Now = body `3b5fd194-f74f` (rev 106; Running `mk2vq5dkmp6.121`, Next up `mk2vq5dkmp6.357`, Waiting heading
-  `mk2vq5dkmp6.573` with Q40 (answered) `.7121`, Q41 `.7854`, Q39 (done) `.8329`, Usage `.8639`; Done table
-  `mk2vq5dkmp6.886`: append rows `"side":"end"`, `"as":"blocks"`, 4 cells Task/Result/Commit/Report).
-  Task reports = body `d611dfba-5116` (rev 13; insert after `mk2vq5dkmp6.13`). Answered = `4e4a30eb-dbfc`.
-  Q38/Q40 can move to Answered when convenient.
-- Engine phase plan: `ENGINE_PHASE_PLAN.md` (local copy, section 3 = steps) and
-  https://claude.ai/code/artifact/62d9391e-b05a-42d0-83c2-34d9bfeb04f7
-- Upscaler Clips page: https://claude.ai/artifact/CDAhSF142yvbD25AVeREWX
-
-## Notes
-- Owner's usage screenshot arrives as a doc image: read the blob -> asset id -> Artifact read `path` = asset id.
-- Images for the doc: shrink with `sips -Z 960 ... -s format jpeg` into /tmp/claude-501/, look, upload one
-  file per Artifact call (`asset: true`), then `create blob` in the doc, then embed with a caption.
+- Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468 (Now body `3b5fd194-f74f`
+  rev 114: Running `mk2vq5dkmp6.121`, Next up `mk2vq5dkmp6.357`, Done table `mk2vq5dkmp6.886`; Task reports body
+  `d611dfba-5116` rev 16, insert after `mk2vq5dkmp6.13`).
+- Amendment 8.14 draft doc: https://claude.ai/code/artifact/00973048-b0f4-4839-8479-a5f4c4e9bc50 (body `9b8171c6-b55b`).
+- Game design brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf (local plain-text copy
+  `GAME_DESIGN_BRIEF_SNAPSHOT.md`).
+- Engine phase plan: `ENGINE_PHASE_PLAN.md`; https://claude.ai/code/artifact/62d9391e-b05a-42d0-83c2-34d9bfeb04f7
 
 ## Ready-to-paste prompt
 > Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the overnight
