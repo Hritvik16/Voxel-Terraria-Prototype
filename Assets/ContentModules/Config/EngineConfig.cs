@@ -446,6 +446,20 @@ public static class EngineConfig
     // nothing: a pool only has to exceed demand, and demand is ~680.
     public const int FLUID_TILE_POOL_CAPACITY = 1024;
 
+    // THE PLAYGROUND / tg2 / play POOL (task 55, engine plan step 5b; plan §2's
+    // ~250 MB fluid budget; owner Q39 (a)). Since task 54 the Playground admits
+    // tiles for AWAKE fluid only, so resting sea and lakes no longer fill the
+    // pool: the coast poolprobe peaked at 32 tiles, not 1,024. 480 tiles x
+    // 0.5 MiB = 240 MiB GPU, the largest whole-tile count under 250 MB. No
+    // alignment rule: FluidTileMap and FluidGpuSimulation take any count (the
+    // dispatch grid folds rows past 60,000 groups; regionDims stay pow2).
+    // A full pool still behaves as task 54 built it: nearest tiles win, a
+    // refused tile is counted and stays remembered until there is room.
+    // EVERY FLUID RIG KEEPS FLUID_TILE_POOL_CAPACITY (1,024), so their numbers
+    // stay comparable; the Phase 6 brush-guard scene (also a Playground) is
+    // pinned to 1,024 by its builder.
+    public const int PLAYGROUND_FLUID_TILE_POOL_CAPACITY = 480;
+
     // §7.4's near-player active radius, in VOXELS (0.1 m each) => 128 m, chosen
     // to match C.5's LOD0 boundary so simulated fluid and full-resolution
     // terrain have the same reach. A slot whose home leaves this radius is

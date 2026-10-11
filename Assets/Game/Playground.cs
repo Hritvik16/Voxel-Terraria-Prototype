@@ -188,9 +188,10 @@ public class Playground : MonoBehaviour
     private DestructionReducer _demolition;
     private Buoyancy _buoyancy;
 
-    [Tooltip("§7.2 tile pool cap. 512 tiles x 32^3 cells is the configuration every " +
-             "tiled rig proved; the footprint does not scale with the active radius.")]
-    [SerializeField] private int _tilePoolCap = EngineConfig.FLUID_TILE_POOL_CAPACITY;
+    [Tooltip("§7.2 tile pool cap, 0.5 MiB GPU per tile, allocated up front. Awake fluid " +
+             "only (task 54), so 480 = 240 MiB fits plan §2's ~250 MB (task 55); the " +
+             "footprint does not scale with the active radius.")]
+    [SerializeField] private int _tilePoolCap = EngineConfig.PLAYGROUND_FLUID_TILE_POOL_CAPACITY;
 
     private int _residencyTick;
     private int3 _arenaOrigin, _arenaCentre;

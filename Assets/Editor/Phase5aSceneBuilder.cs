@@ -88,6 +88,7 @@ public static class Phase5aSceneBuilder
         po.FindProperty("_waterBudget").intValue = 60000;
         po.FindProperty("_sandBudget").intValue = 20000;
         po.FindProperty("_lavaBudget").intValue = 12000;
+        po.FindProperty("_tilePoolCap").intValue = EngineConfig.PLAYGROUND_FLUID_TILE_POOL_CAPACITY;
         po.FindProperty("_outputRootFolderName").stringValue = "PlaygroundShots";
         po.ApplyModifiedPropertiesWithoutUndo();
 
@@ -561,6 +562,8 @@ public static class Phase5aSceneBuilder
         po.FindProperty("_waterBudget").intValue = 0;
         po.FindProperty("_sandBudget").intValue = 0;
         po.FindProperty("_lavaBudget").intValue = 0;
+        // A RIG: keeps the 1,024-tile pool every fluid rig measured (task 55).
+        po.FindProperty("_tilePoolCap").intValue = EngineConfig.FLUID_TILE_POOL_CAPACITY;
         po.FindProperty("_outputRootFolderName").stringValue = "Phase6BrushGuard";
         po.ApplyModifiedPropertiesWithoutUndo();
 

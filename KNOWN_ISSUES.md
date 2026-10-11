@@ -782,6 +782,12 @@ real and separate reason — see the LOD-cascade finding in
     generated water surface with an open side (stepped sea/lake, item (2)) now stands as a
     vertical water face until touched (§5.5 static water) instead of spilling on approach.
     The older rigs (fluid-tiled, siege, chaos, acceptance...) still run the mask policy.
+  - **TASK 55 (2026-10-10): Playground/tg2/play pool RESIZED 1,024 -> 480 tiles**
+    (`EngineConfig.PLAYGROUND_FLUID_TILE_POOL_CAPACITY`, plan §2's ~250 MB; owner Q39 (a)).
+    Ledger fluid GPU 548.8 -> 276.8 MB; coast/lake poolprobe peak 32 of 480, 0 refusals. Every
+    fluid rig (and the brush-guard Playground scene) keeps FLUID_TILE_POOL_CAPACITY = 1,024.
+    Watch: under the MASK policy fluid-tiled's 220-pocket scatter peaks 551 tiles; an awake-only
+    blast that wide would hit 480 (nearest win, refusals counted -- the overflow is visible).
 - **FLUID IN TG2 DOES SIMULATE: task 07's "never moved" was a misreading (task
   09, 2026-10-03; no engine change).** `-fluidprobe` (`MODE=fluidprobe
   ./run-tg2world.sh`; `PROBEWORLD=` for the default-world control) repeats task

@@ -151,6 +151,58 @@ public class FluidAwakeOnlyTilesTests
         Assert.AreEqual(64, tiles.ResidentTiles);
     }
 
+    // Task 55: the Playground / tg2 pool is 480 tiles. When more awake tiles
+    // want in than that, the pool must behave as task 54 built it: no crash,
+    // the NEAREST tiles win, every refusal is counted, and a refused tile stays
+    // remembered so it comes back when there is room.
+    [Test]
+    public void MoreAwakeTilesThanThePlaygroundCap_NearestWin_RefusalsCounted()
+    {
+        int cap = EngineConfig.PLAYGROUND_FLUID_TILE_POOL_CAPACITY;
+        const int chunks = 10;                          // 640 tiles of water along +x
+        for (int x = 0; x < chunks; x++)
+            _store.InsertChunk(new Chunk { coord = new int3(x, 0, 0), isUniform = true, uniformMaterial = Materials.Water });
+        var tiles = AwakeTiles(cap, quiet: 1000);
+        var all = new System.Collections.Generic.List<int3>();
+        for (int tx = 0; tx < chunks * 4; tx++)
+        for (int ty = 0; ty < 4; ty++)
+        for (int tz = 0; tz < 4; tz++)
+        {
+            var tc = new int3(tx, ty, tz);
+            all.Add(tc);
+            tiles.Acquire(tc);                          // disturbed, then released mid-flow
+            tiles.Release(tc);
+        }
+        int want = all.Count;
+        Assert.Greater(want, cap);
+        Assert.AreEqual(want, tiles.UnsettledCount, "every tile left mid-flow is remembered");
+
+        // Pass 1 at the -x end: the pool fills nearest-first and refuses the rest.
+        // Pass 2 at the +x end: the refused tiles are now the nearest, so each
+        // displaces the farthest resident (which is remembered in its turn).
+        const int wake = 2000, sleep = 4000;            // the whole strip is inside both radii
+        for (int pass = 0; pass < 2; pass++)
+        {
+            int3 centre = pass == 0 ? new int3(64, 64, 64) : new int3(chunks * 128 - 64, 64, 64);
+            var st = FluidTileResidency.Refresh(_store, tiles, centre, wake, sleep);
+            Assert.AreEqual(cap, tiles.ResidentTiles, "the pool fills to its cap and no further");
+            Assert.AreEqual(pass == 0 ? want - cap : 0, st.TilesRefusedPoolFull, "every tile that did not fit is counted");
+            Assert.AreEqual(pass == 0 ? 0 : want - cap, st.TilesDisplaced, "a nearer tile displaces a farther one");
+            Assert.AreEqual(want - cap, tiles.UnsettledCount, "what is not resident stays remembered for later");
+
+            long farthestIn = long.MinValue, nearestOut = long.MaxValue;
+            foreach (int3 tc in all)
+            {
+                long d2 = tiles.TileDistSq(tc, centre);
+                if (tiles.TryGetSlot(tc) != FluidTileMap.NO_TILE) farthestIn = System.Math.Max(farthestIn, d2);
+                else nearestOut = System.Math.Min(nearestOut, d2);
+            }
+            Assert.LessOrEqual(farthestIn, nearestOut, $"nearest win around {centre}");
+        }
+        // The pool's per-cell buffers fit plan §2's ~250 MB fluid budget.
+        Assert.LessOrEqual((long)cap * tiles.TileCells * 16, 250L * 1024 * 1024);
+    }
+
     [Test]
     public void QuietTicksCoverTheSlowestMaterialsSleep()
     {
