@@ -52,3 +52,6 @@ side-by-side stills; the default flip is the owner's call (STOP_FOR_OWNER at the
 ## For the doc
 p50 frame ms Full -> Half per arc and sun height (and the fps), Gate 3 result, the stills with a caption saying
 where the shadow edges are, and the question: make Half play's default, yes/no.
+
+## Owner answer (2026-10-11, delegated)
+Owner at 00:10: "pick your recommendations, i can always queue something to change them". Supervisor applied Q1 (a) keep Full, Q2 (a) close step 8 (no group-coherent variant). Recorded in the doc as changeable.
