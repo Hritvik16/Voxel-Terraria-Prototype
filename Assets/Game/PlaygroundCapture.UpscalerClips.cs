@@ -127,6 +127,8 @@ public partial class PlaygroundCapture
         if (eyes.Count < 3) { L($"only {eyes.Count} eye-level poses"); }
         // -realrate (task 51): per-arm frame rate, then clips at that rate
         if (HasFlag("-realrate")) { yield return UpscalerRealRate(root, pg, far, cam, sm, store, boot, acd, map, E); yield break; }
+        // -costsplit (task 57): FULL vs one-thing-off arms on the walk, warm ABBA
+        if (HasFlag("-costsplit")) { yield return CostSplit(root, pg, far, cam, sm, store, acd); Application.Quit(0); yield break; }
 
         // ---- the paths (poses fixed here, before any arm) ----
         var paths = new List<ClipPath>();
