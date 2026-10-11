@@ -12,6 +12,10 @@
 # with EXTRA="-upscaler none|taa|fsr1|stp|fsr3 -renderrows 540|720|dyn"; EXTRA="-renderpreset
 # quality" (or -taa 1 / -checker 1) gives the old preset path. F3 leaves the upscaler for
 # the presets (restart to get it back). The F1 HUD and the strip show "UPSCALE fsr3 dyn <rows>".
+# Settings menu (task 58): F6 in play -- shadows, upscaler, rows, shadow edges, perf overlay,
+# minimap; live, saved to PlaySettings.json (beside PlayerConfig.json) and applied at the next
+# start. -upscaler / -renderrows / -shadowlevel in EXTRA override the file PER FIELD for that
+# run (so -renderrows 720 alone keeps the saved upscaler). Rigs never read the file.
 # Start pose (task 32d): the fluid arena's basin can be a lake bed (v4) or the pose can
 # sit inside a hill (v3), so a tg2 session stands on the nearest dry column instead;
 # the Player.log "[Playground] start pose" lines say where, and what the eye is in.
@@ -75,6 +79,7 @@ keys (Playground.cs RegisterDefaultToys, PlaygroundFlyCamera, PlaygroundHud, Min
   F1 HUD   F2 help   F3 render preset quality/balanced/performance (leaves the FSR 3 default)
   F4 TAA on/off, preset path only (also hides/shows the minimap -- both listen to F4)
   F5 voxel detail radius at speed on/off
+  F6 GRAPHICS SETTINGS menu (saved; Esc or F6 closes)
   C far band on/off   I far band view (beauty -> bands -> far step heat)
   O dev map (whole island + underground slice; Esc/O closes)
   N golden hour  M noon  L midnight  P pause clock  , / . scrub time

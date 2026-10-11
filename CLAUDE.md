@@ -240,6 +240,8 @@ To PLAY the newest world (tg2 on map v4 + far band, interactive preset, keys lis
 Play starts with FSR 3 dynamic (task 52, owner Q38 (a): 1080p from 540-720 rows);
 `EXTRA="-upscaler none|taa|fsr1|stp|fsr3 -renderrows 540|720|dyn"` or `-renderpreset quality`
 override it. Rigs and capture modes are unchanged (no upscaler unless they pass the flags).
+F6 in play opens the graphics settings menu (task 58): saved to `PlaySettings.json` beside
+`PlayerConfig.json`, flags override it per field for one run; rigs/capture runs (and `-fluidprobe`) never read it.
 
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change

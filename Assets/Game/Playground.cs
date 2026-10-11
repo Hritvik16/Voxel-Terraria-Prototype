@@ -240,7 +240,21 @@ public class Playground : MonoBehaviour
 
     /// Remembers k_soft across the hard/soft toggle so the owner's tuned value
     /// survives an A/B without a file round-trip.
-    private float _savedKSoft = 0.03f;
+    private static float _savedKSoft = 0.03f;
+
+    /// The K key and the settings menu's "Shadow edges" (task 58): hard = k_soft
+    /// 0 in the live config (the file is not written); soft restores the value
+    /// it had. A LightingConfig.json reload brings the file's value back.
+    internal static void SetSoftShadows(bool soft)
+    {
+        if (!soft)
+        {
+            if (LightingConfig.Active.kSoft > 0f) _savedKSoft = LightingConfig.Active.kSoft;
+            LightingConfig.Active.kSoft = 0f;
+        }
+        else if (LightingConfig.Active.kSoft <= 0f)
+            LightingConfig.Active.kSoft = _savedKSoft > 0f ? _savedKSoft : 0.03f;
+    }
 
     // ---- Movement mode ----
     private enum MoveMode { Walk, Fly }
@@ -306,11 +320,24 @@ public class Playground : MonoBehaviour
         // upscaler starts with FSR 3 dynamic, exactly as `-upscaler fsr3 -renderrows dyn`.
         // -renderpreset / -taa / -checker ask for the old frame path and keep it
         // (the -fluidprobe rig passes -renderpreset and is not a capture run).
-        if (UpscalerSelect.FromArgs(out var upsKind, out int upsRows, out bool upsDyn)) UpscalerSelect.Apply(upsKind, upsRows, upsDyn);
-        else if (!IsCaptureRun() && !HasArg("-renderpreset") && !HasArg("-taa") && !HasArg("-checker"))
-            UpscalerSelect.Apply(UpscalerSelect.Kind.Fsr3, UpscalerSelect.MinRows, true);
+        // Task 58: an interactive run (not a capture run, not -fluidprobe) takes
+        // the settings menu's saved file instead, flags still winning per field
+        // (SettingsMenu.LoadAndApply, below). Its defaults are exactly fsr3 dyn.
+        bool playSettings = IsPlaySettingsRun();
+        if (!playSettings)
+        {
+            if (UpscalerSelect.FromArgs(out var upsKind, out int upsRows, out bool upsDyn)) UpscalerSelect.Apply(upsKind, upsRows, upsDyn);
+            else if (!IsCaptureRun() && !HasArg("-renderpreset") && !HasArg("-taa") && !HasArg("-checker"))
+                UpscalerSelect.Apply(UpscalerSelect.Kind.Fsr3, UpscalerSelect.MinRows, true);
+        }
         // The minimap (owner, 2026-09-26: "always in the corner"). F4 hides it.
         if (GetComponent<Minimap>() == null) gameObject.AddComponent<Minimap>();
+        // The graphics settings menu (task 58, F6): upscaler, rows, shadows, overlay, minimap.
+        if (playSettings)
+        {
+            if (GetComponent<SettingsMenu>() == null) gameObject.AddComponent<SettingsMenu>();
+            SettingsMenu.LoadAndApply();
+        }
         // -playshot S (task 32b, run-play.sh SHOT=S): one screenshot of the
         // interactive session S seconds after startup. Not a capture mode --
         // the preset, HUD and controls stay exactly as a player gets them.
@@ -459,6 +486,12 @@ public class Playground : MonoBehaviour
 
     /// For overlays (Minimap) that must stay out of capture frames.
     internal static bool IsCaptureRunForUi => IsCaptureRun();
+
+    /// Task 58: the runs that read PlaySettings.json. Every run-*.sh that
+    /// launches the Playground passes a capture flag except run-play.sh,
+    /// run-demo.sh (both interactive) and run-tg2world.sh MODE=fluidprobe
+    /// (-fluidprobe is a rig but deliberately not a capture run), excluded here.
+    private static bool IsPlaySettingsRun() => !IsCaptureRun() && !HasArg("-fluidprobe");
 
     private static bool IsCaptureRun()
     {
@@ -710,14 +743,13 @@ public class Playground : MonoBehaviour
             // it instantly and still have their tuned number to come back to.
             if (LightingConfig.Active.kSoft > 0f)
             {
-                _savedKSoft = LightingConfig.Active.kSoft;
-                LightingConfig.Active.kSoft = 0f;
+                SetSoftShadows(false);
                 _status = "HARD shadows (k_soft = 0). Press K again to restore " +
                           $"k_soft = {_savedKSoft:F3} from LightingConfig.json.";
             }
             else
             {
-                LightingConfig.Active.kSoft = _savedKSoft > 0f ? _savedKSoft : 0.03f;
+                SetSoftShadows(true);
                 _status = $"SOFT shadows (C.10, k_soft = {LightingConfig.Active.kSoft:F3})";
             }
         }));
@@ -1092,6 +1124,11 @@ public class Playground : MonoBehaviour
         if (DevMap.IsOpen)
         {
             if (Input.GetKeyDown(KeyCode.O) || Input.GetKeyDown(KeyCode.Escape)) DevMap.Toggle();
+        }
+        else if (SettingsMenu.IsOpen)
+        {
+            // THE SETTINGS MENU (F6) OWNS THE MOUSE AND KEYS WHILE OPEN, like the
+            // dev map: its buttons must not dig, and its keys must not walk.
         }
         else
         {
@@ -1687,7 +1724,7 @@ public class Playground : MonoBehaviour
         DrawTopBar(vw);
         DrawHotbar(vw, vh);
         DrawStatePanel(vh);
-        if (_showHelp) DrawHelp(vw, vh);
+        if (_showHelp && !SettingsMenu.IsOpen) DrawHelp(vw, vh);   // the menu (F6) sits where help does
 
         GUI.matrix = prev;
     }
@@ -1916,26 +1953,27 @@ public class Playground : MonoBehaviour
         sb.AppendLine("  <b>WASD</b> walk    <b>Space</b> jump    <b>Shift</b> sprint    <b>Q/E</b> down/up (fly)");
         sb.AppendLine("  <b>Tab</b> walk ↔ fly      <b>R</b> respawn on the surface      <b>F</b> go to the basin");
         sb.AppendLine("");
-        sb.AppendLine("<b><color=#cfe3f5>BUILD &amp; DIG</color></b>");
+        sb.AppendLine("<b><color=#cfe3f5>BUILD & DIG</color></b>");
         sb.AppendLine("  <b>LMB</b> dig at the tool's rate        <b>Z / X</b> tool tier");
         sb.AppendLine("  <b>RMB</b> place held item               <b>1-6</b> / scroll  pick item");
         sb.AppendLine("");
-        sb.AppendLine("<b><color=#cfe3f5>FLUID &amp; DESTRUCTION</color></b>");
+        sb.AppendLine("<b><color=#cfe3f5>FLUID & DESTRUCTION</color></b>");
         sb.AppendLine("  <b><color=#ffd479>G</color></b>   <b>CHAOS BURST</b> — ~51,000 voxels of water/sand/lava at once");
         sb.AppendLine("  <b>V</b>   open a vent above the crosshair      <b>0</b>  close all vents");
         sb.AppendLine("  <b>B</b>   bomb at the crosshair (§8.5, frame-split)");
         sb.AppendLine("  <b>T</b>   shoot a projectile (§8.4 DDA trace)");
         sb.AppendLine("");
-        sb.AppendLine("<b><color=#cfe3f5>LIGHT &amp; TIME</color></b>   <color=#9fb6c9>(Phase 7)</color>");
+        sb.AppendLine("<b><color=#cfe3f5>LIGHT & TIME</color></b>   <color=#9fb6c9>(Phase 7)</color>");
         sb.AppendLine("  <b><color=#ffd479>N</color></b> golden hour   <b>M</b> noon   <b>L</b> midnight   <b>,</b> / <b>.</b> scrub (hold)   <b>P</b> pause the clock");
         sb.AppendLine("  <b>7</b>   place a <b>torch</b> (hotbar slot 7, then RMB)      LMB digs it out again");
         sb.AppendLine("  <b>J</b>   shadow quality 0-3 — full soft / half-res distant / hard / off (§6.5)");
-        sb.AppendLine("  <b>K</b>   hard &lt;-&gt; soft shadows (k_soft toggle)");
-        sb.AppendLine("  <b>Y</b>   view: beauty -&gt; sun visibility -&gt; shadow step heat");
+        sb.AppendLine("  <b>K</b>   hard ↔ soft shadows (k_soft toggle)");
+        sb.AppendLine("  <b>Y</b>   view: beauty → sun visibility → shadow step heat");
         sb.AppendLine("  <b><color=#ffd479>[</color></b> / <b><color=#ffd479>]</color></b>   cycle LIGHT PRESET — Warm / Atmospheric / HighContrast / Muted / Shipped");
         sb.AppendLine("");
         sb.AppendLine("<b><color=#cfe3f5>VIEW</color></b>");
         sb.AppendLine("  <b>F1</b> perf overlay      <b>F2</b> these controls      <b>ESC</b> release the mouse      <b>O</b> dev map      <b>F3</b> render preset      <b>F4</b> minimap");
+        sb.AppendLine("  <b><color=#ffd479>F6</color></b> GRAPHICS SETTINGS — shadows, upscaler, resolution, overlay, minimap (saved)");
         sb.AppendLine("");
         sb.Append("<color=#9fb6c9>Fluid simulates only inside §7.4's wake radius (shown in the state " +
                   "panel in both voxels and metres). The crosshair box turns grey outside it, and " +
@@ -1949,7 +1987,7 @@ public class Playground : MonoBehaviour
         // is already occupied by the RMB panel, and a controls list that
         // overlaps the thing it is describing is worse than useless. It is
         // toggled, so covering the view while open is intended.
-        float w = 760f, h = 476f;   // grew again with Phase 7's LIGHT & TIME group
+        float w = 760f, h = 494f;   // grew again with Phase 7's LIGHT & TIME group, and F6 (task 58)
         var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f, w, h);
         Box(r, new Color(0f, 0f, 0f, 0.82f));
         Frame(r, new Color(1f, 1f, 1f, 0.22f), 1f);

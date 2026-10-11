@@ -46,6 +46,10 @@ public class PlaygroundHud : MonoBehaviour
     [SerializeField] private bool _minimalVisible = true;
     [SerializeField] private KeyCode _toggleKey = KeyCode.F1;
 
+    /// The settings menu's "Perf overlay" (task 58): the F1 panel and the strip.
+    public bool DetailVisible { get => _visible; set => _visible = value; }
+    public bool StripVisible { get => _minimalVisible; set => _minimalVisible = value; }
+
     private FrameTiming[] _timings = new FrameTiming[1];
 
     // Smoothed for readability, plus a rolling worst so a single hitch does not

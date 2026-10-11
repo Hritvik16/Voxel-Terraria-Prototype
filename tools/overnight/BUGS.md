@@ -16,7 +16,6 @@ owner-facing to-do. One line each: what, where seen, task file (if written), sug
 | 3 | Coast fills the fluid pool (falling beach sand + sea); sea beyond ~61 m sleeps | task 39, Q31 part 1 (open) | -- | engine phase, fluids (wake on disturbance) |
 | 4 | Torch light passes through walls: no point-light occlusion (`Raymarch.compute:1856`); the SVO traces shadow rays for the nearest torches. Owner 2026-10-09: what they liked in the SVO is "how light reacts to its surroundings". Also: merge branch `gemini/lava-torch-light` (bd60a30: lava ignores torch light, Q34 3a; `SVO_LIGHTING_NOTES.md`, line refs wrong) | Gemini SVO lighting notes, Phase 7 §10 flag | -- | engine phase, lighting (first task that builds) |
 | 5 | River water steps down into a lake behind grid-edged 2x2 squares (0.2-1 m above the lake; flows in game). Older than 37e/42; rivers are outside the at-rest tests. Also: volcano lava lake never checked for 37e's defect | task 42, `Screenshots/42/seed7_lake_top.png` | -- | terrain follow-up (river/lake design: e.g. end a river at the lake's reach) -- owner decides |
-| 6 | Play help panel (F2) prints HTML entities: "BUILD &amp;amp; DIG", "FLUID &amp;amp; DESTRUCTION", "beauty -&amp;gt; sun visibility" (text is HTML-escaped twice, or escaped for a renderer that does not decode) | task 52 still `Screenshots/Engine03/play52/play_fsr3dyn_default.png` | -- | any UI/play task; trivial |
 | 7 | Generated sea/lake water is not at rest: stepped surfaces leave water slabs with vertical sides ~1.5 m above the beach. Since task 54 (awake-only tiles) they stand as walls until touched; before, approaching woke and spilled them (filling the pool). Owner 2026-10-10: "This is a bug. World gen should always place all fluids in resting position. So we should start out with 0 in the pool until they are disturbed." Acceptance: every generated water/lava body at rest (one level per body, no side faces above ground), pool 0 tiles on arrival anywhere | task 54 `Screenshots/54/coast_before.png`; task 39 item 2 | -- | owner Q40 (b): engine plan step 18, with #5 (river steps into a lake) |
 
 ## Deferred (not bugs, parked by the owner)
@@ -35,6 +34,10 @@ to install + log in to Gemini CLI, and a small runner change. Not for B steps / 
 
 ## Fixed
 (move rows here with the commit when done)
+
+- **#6 Help panel (F2) printed HTML entities -- FIXED task 58 (2026-10-10).** IMGUI rich text does not decode
+  entities, so `&amp;` / `&lt;-&gt;` printed literally; the help text now uses `&`, `↔`, `→`. Still:
+  `Screenshots/58/play_help_fixed.png` ("BUILD & DIG", "FLUID & DESTRUCTION", "LIGHT & TIME").
 
 - **#1 Shadow dots on grass slopes / sand shores at low sun -- FIXED task 56 (`ade1b22`, 2026-10-10).** Not real
   shadows: temporal shadow reuse (ON in play) took each skipped pixel's sun visibility from the NEIGHBOUR voxel's

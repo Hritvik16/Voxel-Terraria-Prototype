@@ -70,6 +70,13 @@ public class PlaygroundFlyCamera : MonoBehaviour
         // consumed by capture and deliberately does NOT also act in the world --
         // otherwise clicking back into the window mines whatever you happened to
         // be pointing at.
+        // The settings menu (F6, task 58) needs the cursor for its buttons:
+        // release it, and neither look nor move while it is open.
+        if (SettingsMenu.IsOpen)
+        {
+            if (_captured) { _captured = false; Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
+            return;
+        }
         if (!_captured && Input.GetMouseButtonDown(0))
         {
             _captured = true;
