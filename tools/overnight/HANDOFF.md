@@ -1,50 +1,59 @@
-# 63-gameplay-phase-plan: DONE (planning only). `GAMEPLAY_PHASE_PLAN.md` written and committed; owner delegated the picks.
+# 64-gameplay-step-1: DONE. Survival dig -> inventory -> build from a hotbar works in play; 17 new tests green.
 
-## What changed (branch `engine-phase`)
-- 56ba179: `GAMEPLAY_PHASE_PLAN.md` only. Top: "Owner may change" list (22 picks, one line each, how cheap to
-  reverse). Then goal, 11 guardrails, a 20-step table (one change per step, acceptance, size, needs), risks.
-- Overrides ROADMAP.md's order for now (owner 2026-10-11); ENGINE_PHASE_PLAN steps resume later, nothing cancelled.
-
-## Steps 1-3 (tasks 64-66), one line each
-1. **Inventory, hotbar, survival build/dig:** dug material -> 36-slot inventory (9 hotbar + 27, E panel), right-click
-   places a grid-snapped cube (Q: 0.1-0.8 m) costing the cells it fills; F6 "Game mode" Survival (play default) /
-   Creative (today's brushes, what rigs run); new `EditService` overload reports mined materials. M.
-2. **Movement set A in `PlayerMotor`:** swim/dive (3.0 m/s, Space/Left Ctrl), double jump (0.85x), dash (Left Shift,
-   14 m/s for 0.18 s, 0.8 s cooldown); tuning in `PlayerConfig.json`; walk/jump unchanged with no new input. M.
-3. **Ores by depth and biome x landform (map v4 only):** 5 ores, one per layer (copper/iron/gold/cobalt/emberstone,
-   placeholder names), integer-hash blobs 0.3-1.2 m, < 0.5% of rock, pair density table from `WorldRecord`;
-   `SUITE=all`, v3 byte-identical, mixed-brick share rise <= 5%. M.
+## What changed (branch `engine-phase`, commits 5ba06e8, 1462477)
+- `Assets/ContentModules/Items.cs` (new): item = material id; tg2 grass/jungle grass/savanna grass -> loam/mud/red
+  earth; fluids give nothing (P9); torches place 1 voxel; names for every legacy + tg2 material; starter kit 50 torches.
+- `Assets/CoreEngine/Gameplay/Inventory.cs` (new): 36 slots (9 hotbar + 27), cap 10,000 voxels, stacks-first add,
+  all-or-nothing take, swap/merge, JSON with repair of bad slots.
+- `EditService.MineSphereBudgeted(centre, radius, budget, int[] removedByMaterial)`: NEW overload; old one unchanged.
+- `Assets/CoreEngine/Gameplay/SurvivalBuild.cs` (new): Dig (credits inventory, reports lost overflow) and Place
+  (cube at `at & ~(edge-1)`, fills only Air/fluid cells via `PlacePrefab`, cost = cells written).
+- `PlaySettings.gameMode` + `-gamemode survival|creative`; F6 menu row "Game mode" (menu title now SETTINGS).
+- `Playground.cs`: Survival hotbar strip, E bag panel, Q size, cyan cube preview, player.json beside the deltas
+  (fresh unless `-keepdeltas`/KEEP=1, saved every 30 s + on quit), refusals (encloses you / wake radius / too few),
+  F2 help, `-survivaldemo` (scripted screenshots). `PlaygroundFlyCamera` frees the mouse while the bag is open.
+- `run-play.sh` key list, `CLAUDE.md` one paragraph. No frozen API, memory layout or TerrainGen change.
 
 ## Evidence
-- Planning only: no code, Unity, builds or rigs; EditMode not run (nothing compiled changed).
-- Checked against the code: dig = `EditService.MineSphereBudgeted` (returns a count only, hence the new overload);
-  place = `Playground.TryPaintBrush` (sphere r=2, wake guard); `EditService.SetBox` exists; hotbar `_brushes`
-  slots 0-3 pinned by Phase6BrushGuard; keys E/Q/LeftShift/LeftCtrl free in play (only DevMap uses them, and it
-  owns input while open); play is a fresh world unless `KEEP=1` (run-play.sh); GenMat palette is 96 entries,
-  codes 17-19, 26-29, 55-59, 65-69, 76-79, 93-95 unused; brief's movement bands (Walk < ~30°) drive step 5.
+- Fast EditMode: `PASS 666 FAIL 0 SKIP 14` (Logs/overnight/64-fast2.out, after the last code change). New
+  `SurvivalBuildTests` (17): inventory add/stack/cap/full/take/swap, JSON round-trip + repair, item table (codes
+  pinned vs GenMat), overload counts, dig N -> +N (grass -> loam), fluid -> nothing, full bag -> lost, place in air
+  costs 64, place over grass costs 48 and dig-back restores 500, refuse short/empty/fluid writes nothing, torch = 1
+  voxel, snap = integer floor for negatives, -gamemode precedence, Creative default + brush slots 0-3 (reflection).
+- Play run (BUILD=1, `-gamemode survival -survivaldemo`; Logs/overnight/64-demo-player.log): dug 12,239 voxels ->
+  credited 12,239, lost 0; wall 24 cubes = 1,493 voxels placed, inventory 12,289 -> 10,796 ("conservation OK").
+- No frame-time measurement (owner rule). Memory: the inventory is 36 ints; no engine allocation added.
+
+## Picks (owner may change)
+- E/Q act only in WALK mode; in fly they stay the flycam's up/down (fly is a dev mode, P11).
+- RMB places one cube per click, repeating every 0.22 s while held (Creative still paints every frame).
+- A cube fills Air AND fluid cells (replaces water, as Creative does); solid cells inside it are skipped and free.
+- Placement is taken from the selected slot only (not other stacks of the same item).
+- Refused if the cube overlaps your body; mobile blocks (sand, beach sand) keep the wake-radius guard.
+- Starter torches go in hotbar slot 1; dug blocks fill slots 2+ in dig order.
+- Dig rate/radius = the existing Z/X tool tiers (hand/drill/bore); bedrock is diggable (hardness is step 10).
+- F6 menu: "Game mode" sits on top, above a GRAPHICS heading.
+
 ## Unfinished / notes
-- Steps 14, 17, 18 need the owner (trees voxels vs meshes measurement; creatures/combat batch; NPC physics).
-- Step 3 changes v4 chunks: engine step 10 (coarse-first) must treat ore as host rock at coarse levels.
+- `Builds/Playground.app` was built one cosmetic commit early (1462477 hides the crosshair box under the bag):
+  `BUILD=1 ./run-play.sh` once.
+- Dev keys (V vents, bombs, G chaos) still use Creative's brush list in Survival (P11), never the inventory.
+
 ## Next step
-- Task 64 = plan step 1.
+- Task 65 = plan step 2 (movement set A: swim/dive, double jump, dash).
 
 ## For the doc
-Task 63: gameplay phase plan. Nothing built; `GAMEPLAY_PHASE_PLAN.md` (56ba179).
-- **Goal:** the first playable loop on the tg2 island, Terraria-like: dig -> get the exact blocks -> build from a
-  hotbar; move with swim/dive, double jump, dash (then climb, glide, grapple, wall-run); better ore deeper and in
-  harsher biome x landform pairs, later buying tools that open harder places. Gated by danger and materials.
-- **Picks (agent's, owner may change):** Survival default in play, Creative in F6 (P1); auto-pickup, no ground drops
-  (P2); item = exact material, grass gives soil (P3); counted in voxels, cap 10,000/slot (P4); 9+27 slots, E panel
-  (P5); grid-snapped cube placement 0.1-0.8 m, default 0.4 m (P6); all-or-nothing place (P7); full inventory loses
-  overflow (P8); no fluid pickup yet (P9); starter 50 torches (P10); dev keys stay live (P11); inventory saved with
-  the world's edits (P12); first moves swim/dive + double jump + dash (P13); walk 5.2, swim 3.0, dash 14 m/s for
-  0.18 s (P14); all abilities unlocked (P15); tuning in PlayerConfig.json (P16); 5 ores one per layer (P17); pair
-  sets density, biome favours one ore (P18); integer-hash blobs < 0.5% of rock, v4 only (P19); no map v5 (P20);
-  spawn at best easy area, play only (P21); keep inventory on death (P22).
-- **Step table:** 1 inventory/hotbar/survival (M) · 2 swim/dive, double jump, dash (M) · 3 ores by depth + pair (M) ·
-  4 start on best easy area (S) · 5 slope rule + climbing (M) · 6 gliding (S) · 7 grapple (M) · 8 wall-run/jump (M) ·
-  9 health/fall/drowning/death (M) · 10 hardness + tool tiers (S-M) · 11 crafting v1 (M) · 12 cliff veins + feature
-  deposits (M) · 13 bucket (M) · 14 [measure] trees voxels vs meshes (M, owner) · 15 trees/plants (L) · 16 hazard
-  zones (M) · 17 owner batch: creatures/combat/stages (S) · 18 [measure] NPC physics (M, owner) · 19 towns + NPCs (L) ·
-  20 boats, fast travel, flight 60 m/s (L, after engine step 16).
-- Images: none -- a planning doc with nothing rendered.
+Task 64: gameplay step 1. In `./run-play.sh` you now start in **Survival**: LMB digs and every voxel goes into
+your inventory (grass gives loam), RMB places a cube of the held block (cyan box shows where), **Q** cube size
+0.1/0.2/0.4/0.8 m, **E** opens the 36-slot bag (click two slots to swap), **1-9**/wheel pick the hotbar slot;
+**F6 -> Game mode** (or `-gamemode creative`) brings back the old brushes. KEEP=1 keeps the bag with the world.
+- Dig conservation: 12,239 voxels dug -> 12,239 credited, 0 lost (Logs/overnight/64-demo-player.log).
+- Build conservation: 24 cubes placed 1,493 voxels -> bag 12,289 -> 10,796 (-1,493).
+- Tests: fast suite 666 passing, 0 failing, incl. 17 new (Logs/overnight/64-fast2.out).
+- Picks: listed above (E/Q walk-only, 0.22 s place repeat, fluid cells fillable, selected slot only).
+- `Screenshots/64/1_hotbar_after_dig.png` -- centre: the black doorway just dug into a sunlit sandstone hillside;
+  bottom: the hotbar with torch 50 / sand / packed sand / orange sandstone and their voxel counts.
+- `Screenshots/64/2_inventory_panel.png` -- centre panel: the E bag, 27 empty backpack slots over the hotbar row,
+  four items, and the totals line under it (orange sandstone 9,461, packed sand 2,415, sand 363, torch 50).
+- `Screenshots/64/3_wall_beside_hole.png` -- centre: the flat pale packed-sand wall (6 x 4 cubes of 0.4 m) built
+  from dug blocks; left of it the black doorway it came from; status line top-left "placed 64 packed sand".
