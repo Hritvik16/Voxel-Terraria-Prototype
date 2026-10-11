@@ -43,6 +43,9 @@
 //     roof_on           an arm that turns the shadow roof skip ON
 //                       (RaymarchFeature.ShadowRoofSkip); FULL keeps the launch's
 //                       value (OFF unless -roofskip 1), so saved = OFF - ON
+//     roof_build        DIAGNOSTIC: the pyramid is built every frame but the
+//                       march ignores it (RaymarchFeature.DebugRoofBuildOnly):
+//                       the build's own cost
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -219,6 +222,7 @@ public partial class PlaygroundCapture
         RaymarchFeature.ShadowQualityLevel = arm == "sun_off" ? 3 : _costBaseShadow;
         RaymarchFeature.TorchShadowsOverride = arm == "torch_off" ? 0 : _costBaseTorch;
         RaymarchFeature.ShadowRoofSkip = arm == "roof_on" || _costBaseRoof;
+        RaymarchFeature.DebugRoofBuildOnly = arm == "roof_build";
         FarField.RenderEnabled = arm != "far_off";
         RaymarchFeature.UseLODCascade = arm != "tiers_off";
         Playground.DebugSuspendFluidSim = arm == "fluid_off";

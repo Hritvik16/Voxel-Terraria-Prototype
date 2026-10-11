@@ -204,6 +204,10 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// `-roofskip 1` on any player's command line turns it on (last match wins,
     /// like PlaygroundCapture's args).
     public static bool ShadowRoofSkip = ReadRoofSkipArg();
+    /// DIAGNOSTIC (task 59's cost split arm roof_build): build the HeightMip
+    /// pyramid every frame but leave the shadow march as with the skip OFF, so
+    /// the build's cost can be told from the march's. Never set outside it.
+    public static bool DebugRoofBuildOnly = false;
 
     /// Build rays from URP's per-frame projection (which carries TAA/STP
     /// sub-pixel JITTER) instead of Camera.projectionMatrix. Without jitter a
@@ -733,7 +737,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // Shadow roof skip. The buffer is bound on EVERY frame, on or
                 // off: an HLSL-declared buffer left unbound is undefined on Metal.
                 EnsureHeightMip(clip.WindowDimsBricks.x, clip.WindowDimsBricks.z);
-                passData.roofSkip = ShadowRoofSkip ? 1 : 0;
+                passData.roofSkip = ShadowRoofSkip ? 1 : DebugRoofBuildOnly ? 2 : 0;   // 2 = build only
                 passData.heightMip = HeightMipBuffer;
                 passData.heightOffsetsA = new[] { _heightOffsets[0], _heightOffsets[1], _heightOffsets[2], _heightOffsets[3] };
                 passData.heightOffsetsB = new[] { _heightOffsets[4], _heightOffsets[5], _heightOffsets[6], 0 };
@@ -1020,7 +1024,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_EmissiveBleed", data.emissiveBleed);
                         cmd.SetComputeIntParam(data.compute, "_TorchShadowRays", data.torchShadowRays);
 
-                        cmd.SetComputeIntParam(data.compute, "_ShadowRoofSkip", data.roofSkip);
+                        cmd.SetComputeIntParam(data.compute, "_ShadowRoofSkip", data.roofSkip == 1 ? 1 : 0);
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsA", data.heightOffsetsA);
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsB", data.heightOffsetsB);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "HeightMip", data.heightMip);

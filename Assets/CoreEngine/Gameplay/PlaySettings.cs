@@ -44,9 +44,12 @@ public sealed class PlaySettings
     /// The corner minimap (F4 also flips it).
     public bool minimap = true;
     /// Task 59 (owner Q42 (a)): the shadow roof skip (RaymarchFeature.ShadowRoofSkip,
-    /// `-roofskip`), exact by construction. ON for play; rigs keep it OFF. A file
-    /// saved before task 59 has no such field and so gets this default.
-    public bool roofSkip = true;
+    /// `-roofskip`), exact by construction. OFF by default after task 59's warm A/B
+    /// on tg2 (Logs/costsplit_2026-10-10_224908 / _225726 / _230831): its per-frame
+    /// pyramid build costs ~3 ms and the skip saves <1 ms, so ON was 1.5 ms faster
+    /// only facing a wall at noon and 2-5 ms slower otherwise. Owner's call (HANDOFF 59).
+    /// A file saved before task 59 has no such field and so gets this default.
+    public bool roofSkip = false;
 
     /// Runtime only: -renderpreset / -taa / -checker without -upscaler or
     /// -renderrows asked for the old preset frame path, so no upscaler is applied.

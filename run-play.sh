@@ -14,7 +14,7 @@
 # the presets (restart to get it back). The F1 HUD and the strip show "UPSCALE fsr3 dyn <rows>".
 # Settings menu (task 58): F6 in play -- shadows, roof skip, upscaler, rows, shadow edges, perf
 # overlay, minimap; live, saved to PlaySettings.json (beside PlayerConfig.json) and applied at the next
-# start. Roof skip (exact, faster sun shadows) is ON in play since task 59; rigs keep it OFF.
+# start. Roof skip (exact sun shadows) is OFF by default: task 59 measured it slower on tg2.
 # -upscaler / -renderrows / -shadowlevel / -roofskip 0|1 in EXTRA override the file PER FIELD for that
 # run (so -renderrows 720 alone keeps the saved upscaler). Rigs never read the file.
 # Start pose (task 32d): the fluid arena's basin can be a lake bed (v4) or the pose can

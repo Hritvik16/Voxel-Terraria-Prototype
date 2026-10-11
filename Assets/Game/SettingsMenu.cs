@@ -5,7 +5,7 @@
 // Every option drives a switch that already existed -- no new rendering:
 //
 //   Shadow quality   RaymarchFeature.ShadowQualityLevel, the J key's §6.5 rungs
-//   Roof skip        RaymarchFeature.ShadowRoofSkip, as -roofskip (task 59: ON)
+//   Roof skip        RaymarchFeature.ShadowRoofSkip, as -roofskip (task 59: OFF, see hint)
 //   Upscaler         UpscalerSelect.Apply, as -upscaler (task 47/52)
 //   Internal rows    UpscalerSelect.Apply, as -renderrows
 //   Shadow edges     Playground.SetSoftShadows, the K key (k_soft 0 = hard)
@@ -37,8 +37,8 @@ public class SettingsMenu : MonoBehaviour
 {
     public const KeyCode ToggleKey = KeyCode.F6;
     public static bool IsOpen { get; private set; }
-    // Task 59's warm A/B (Logs/costsplit_*_roof*.txt); same pixels either way.
-    private const string ROOF_HINT = "Skips sun-shadow steps that the height pyramid proves are open sky. Same pixels; not measured yet.";
+    // Task 59's warm A/B on tg2 (Logs/costsplit_2026-10-10_224908 / _225726); same pixels either way.
+    private const string ROOF_HINT = "Same pixels. On tg2 ON saved 1.5 ms facing a wall at noon but cost 3.5 ms on an open view, and 2-5 ms at a low sun.";
 
     private static string _path;
     private static PlaySettings _saved = new PlaySettings();
@@ -166,7 +166,7 @@ public class SettingsMenu : MonoBehaviour
         int roof = RaymarchFeature.ShadowRoofSkip ? 0 : 1;
         pick = Row(x, ref y, "Roof skip", "roofSkip",
             ROOF_HINT,
-            new[] { "On (exact, faster shadows)", "Off" }, roof);
+            new[] { "On", "Off" }, roof);
         if (pick >= 0 && pick != roof)
         {
             RaymarchFeature.ShadowRoofSkip = pick == 0;

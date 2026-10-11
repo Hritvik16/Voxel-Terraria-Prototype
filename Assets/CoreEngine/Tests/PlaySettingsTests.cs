@@ -19,7 +19,7 @@ public class PlaySettingsTests
         Assert.IsTrue(d.softShadows);
         Assert.AreEqual(1, d.perfOverlay);     // the strip only, F1 panel closed
         Assert.IsTrue(d.minimap);
-        Assert.IsTrue(d.roofSkip);             // task 59: ON for play
+        Assert.IsFalse(d.roofSkip);            // task 59: OFF after its A/B (owner's call)
     }
 
     [Test]
@@ -28,7 +28,7 @@ public class PlaySettingsTests
         string path = Path.Combine(Path.GetTempPath(), "PlaySettingsTests_" + System.Guid.NewGuid().ToString("N"), PlaySettings.FileName);
         try
         {
-            var a = new PlaySettings { upscaler = "stp", rows = "720", shadowLevel = 2, softShadows = false, perfOverlay = 2, minimap = false, roofSkip = false };
+            var a = new PlaySettings { upscaler = "stp", rows = "720", shadowLevel = 2, softShadows = false, perfOverlay = 2, minimap = false, roofSkip = true };
             Assert.IsTrue(PlaySettings.Save(path, a, out string werr), werr);
             var b = PlaySettings.Load(path, out string rerr);
             Assert.IsNull(rerr);
@@ -38,7 +38,7 @@ public class PlaySettingsTests
             Assert.IsFalse(b.softShadows);
             Assert.AreEqual(2, b.perfOverlay);
             Assert.IsFalse(b.minimap);
-            Assert.IsFalse(b.roofSkip);
+            Assert.IsTrue(b.roofSkip);
         }
         finally { Directory.Delete(Path.GetDirectoryName(path), true); }
     }
@@ -103,22 +103,22 @@ public class PlaySettingsTests
     }
 
     [Test]
-    public void RoofSkip_OldFileGetsOn_FlagOverridesForTheRun()
+    public void RoofSkip_OldFileGetsDefault_FlagOverridesForTheRun()
     {
-        // A file saved by task 58 has no roofSkip field: it must come up ON.
+        // A file saved by task 58 has no roofSkip field: it gets the default (OFF).
         var old = PlaySettings.Parse("{\"upscaler\":\"fsr3\",\"rows\":\"dyn\",\"shadowLevel\":0,\"softShadows\":true,\"perfOverlay\":1,\"minimap\":true}", out string e);
         Assert.IsNull(e);
-        Assert.IsTrue(old.roofSkip);
+        Assert.IsFalse(old.roofSkip);
 
         var over = new List<string>();
-        var run = PlaySettings.WithArgs(old, new[] { "-roofskip", "1", "-roofskip", "0" }, over);
-        Assert.IsFalse(run.roofSkip, "last match wins");
-        Assert.IsTrue(old.roofSkip, "the saved settings are untouched");
+        var run = PlaySettings.WithArgs(old, new[] { "-roofskip", "0", "-roofskip", "1" }, over);
+        Assert.IsTrue(run.roofSkip, "last match wins");
+        Assert.IsFalse(old.roofSkip, "the saved settings are untouched");
         CollectionAssert.Contains(over, "roofSkip");
 
         over.Clear();
         run = PlaySettings.WithArgs(old, new[] { "-roofskip", "yes" }, over);
-        Assert.IsTrue(run.roofSkip, "a bad value keeps the saved one");
+        Assert.IsFalse(run.roofSkip, "a bad value keeps the saved one");
         CollectionAssert.Contains(over, "-roofskip: bad value 'yes'");
     }
 }
