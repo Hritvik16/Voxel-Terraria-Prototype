@@ -25,7 +25,7 @@ supervisor publishes it to the owner as a doc; you do not touch claude.ai).
   table for BOTH 540 and 720 (sizes, voxel size per shell, chunks, MB, upload/frame) and recommend one.
 - Top speed: Q1 (a) 60 m/s; Q2 (a) when generation falls behind, show the next coarser shell.
 - Memory: 3 GB process cap (M1 8 GB). Use tasks 53/55's ledger numbers as today's baseline.
-- Frame time (task 57, `tools/overnight/done/57-*` HANDOFF or git `2c6e0bb`): GPU-bound; 49.4 / 30.4 ms
+- Frame time (task 57: `git show 572f5f8:tools/overnight/HANDOFF.md`): GPU-bound; 49.4 / 30.4 ms
   (near wall / open), of which ~19 / ~8 ms is the main voxel march no single switch removes; tiers 1-2 cost
   0.3 / 2.9 ms. Estimate what shells do to march cost, step by step, and label every estimate "(est.)".
 - Coarse-first generation (step 10) needs a solid/air agreement threshold set HERE.
