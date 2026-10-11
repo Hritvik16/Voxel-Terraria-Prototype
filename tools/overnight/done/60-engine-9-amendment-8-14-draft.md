@@ -42,3 +42,6 @@ supervisor publishes it to the owner as a doc; you do not touch claude.ai).
 ## Acceptance
 The file exists, committed; every number has a source (log path, ledger, file:line) or "(est.)"; HANDOFF starts
 with `STOP_FOR_OWNER` and lists the questions; `## For the doc` = the For-the-owner block + the questions.
+
+## Owner answer (2026-10-11 ~00:00, chat)
+"I would go with your recommended for most of these but remember that we are trying to stay open to as many devices as possible so the render range and LOD tiers need to be dynamic based on the hardware. Or however popular games do it." Read as Q2-Q6 (a), Q1 replaced by hardware-scaled presets -> revision task 62. Next after 61: plan order (shells).
