@@ -3,10 +3,8 @@
 ## What changed (branch `engine-phase`, commit 303e109; capture-only, no default or look change)
 - `Assets/Game/PlaygroundCapture.CostSplit.cs`: `-upscalerclips -costsplit`, which reuses task 51's harness.
   - Setup: fullscreen 1920x1080, quality preset, far band + far shadows, noon with the clock paused. Same flags as `./run-play.sh`, except FSR 3 is pinned at 540 rows.
-  - FULL is play's frame: FSR 3 at 540, HUD + minimap shown, fluid simulating.
-  - Each arm switches off ONE thing through existing static switches.
-  - Run order: F, then X X F for each arm (ABBA, 2 FULL runs around each pair). Each run is 3 s settle + 20 s timed, in real time, with no capture.
-  - Streaming is pinned at the middle of the path, so no frame streams.
+  - FULL = play's frame (FSR 3 at 540, HUD + minimap, fluid on). Each arm switches off ONE thing via existing static switches.
+  - Order F, then X X F per arm (ABBA); each run 3 s settle + 20 s timed, real time, no capture; streaming pinned mid-path.
 - Two 8 s arcs of MODE=walk's circle (r 150 m round the start pose, 5 m/s, eye 1.6 m, level look):
   - `walk_near`: heading straight away from the sun. It faces a badlands canyon wall 10-30 m away.
   - `walk_open`: the most open of the circle's 16 points that has the sun behind or beside. It looks over the island from a ridge, about 45% sky.
@@ -17,11 +15,9 @@
 ## Evidence (WARM STEADY STATE)
 - Warm-up: `Logs/tg2world_20261010_211902.txt` (MODE=stream MOTION=walk, discarded). The measured launch started 45 s later.
 - Measured: `Logs/costsplit_2026-10-10_212527.txt` (copy: `Screenshots/57/costsplit.txt`).
-  - On AC, 100% before and after; owner hold no/no.
-  - 0 streaming frames and 0 far-busy frames on every run.
+  - On AC, 100% before and after; owner hold no/no; 0 streaming and 0 far-busy frames on every run.
 - Noise floor: 9 FULL runs per path, p50 range 1.4 ms (near) and 1.6 ms (open). The FULL pair around each arm differs by 0.1-1.0 ms.
 - Fast suite PASS 641 FAIL 0 SKIP 14, 0 `error CS` (`Logs/overnight/57_fast2.out`).
-- Smoke runs (2 s and 1 s windows) are not evidence. They led to the two-path design.
 
 | arm | near p50/p99 ms | saved | open p50/p99 ms | saved |
 |---|---|---|---|---|
@@ -49,15 +45,11 @@
 4. HUD + minimap about 1 ms, torch rays about 0.8 ms, fluid 0.
 
 ## Screenshots looked at
-- `Screenshots/57/walk_near_sheet.png`: 3x3, one tile per arm at walk_near's first pose. Every tile is the same canyon wall with the play HUD, sun at 78 deg behind the camera.
-  - `sun_off` is flat-lit; `tiny_gate` (bottom right) is blocky; `hud_off` (bottom middle) shows the frame without the panel.
-- `Screenshots/57/walk_open_sheet.png`: the same layout for walk_open.
-  - The view looks along a sunlit ridge to the sea on the left.
-  - `far_off` (middle left): the far sea and hills turn to sky.
+- `Screenshots/57/walk_near_sheet.png` (3x3, one tile per arm, same pose): the same canyon wall with the play HUD in every tile, sun at 78 deg behind; `sun_off` flat-lit, `tiny_gate` (bottom right) blocky, `hud_off` (bottom middle) without the panel.
+- `Screenshots/57/walk_open_sheet.png` (same layout): a sunlit ridge down to the sea on the left; in `far_off` (middle left) the far sea and hills turn to sky.
 
 ## Not done / next
-- Not run: other times of day (a low sun makes shadow rays longer) and spin/fly.
-- Next: step 8's ONE cost change, picked from the ranking above, then a warm A/B on this same `run-cost-split.sh` FULL arm.
+- Not run: other times of day (a low sun makes shadow rays longer) and spin/fly. Next: step 8's ONE cost change, picked from the ranking above, then a warm A/B on this same `run-cost-split.sh` FULL arm.
 
 ## For the doc
 - Play frame (FSR 3 at 540, warm, walk at noon): 49.4 ms facing a near wall, 30.4 ms on an open ridge view (`Logs/costsplit_2026-10-10_212527.txt`). Noise is 1.4-1.6 ms.
