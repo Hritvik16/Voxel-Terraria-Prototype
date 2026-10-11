@@ -1,59 +1,56 @@
-# 65-gameplay-step-2: DONE. Swim/dive, double jump and dash work in play; 21 new tests green. Underwater view renders BLACK (renderer gap, not this step).
+# 66-gameplay-step-3: DONE. Map v4 has ores (copper/iron/gold/cobalt/emberstone by depth, density by biome x landform); dug ore lands in the hotbar. Ore is SPARSE (0.026% of rock) because of the plan's memory rule.
 
-## What changed (branch `engine-phase`, commits 9ba2bca, 33248b7)
-- `PlayerMotor.cs`: new `MotorInput` (+ `FromLook(move, yaw, pitch)`) and `Step(dt, in MotorInput)` = movement set A.
-  The legacy `Step(dt, wish, jump)` runs the old arithmetic exactly (rigs, `PlayerMotorTests` untouched).
-- `PlayerConfig.cs`: swim/air-jump/dash numbers + Validate; an old PlayerConfig.json gets missing fields appended at defaults.
-- `PlayerController.DebugStep(dt, in MotorInput)`; `Playground.cs`: interactive runs (not capture, not -fluidprobe)
-  use set A (Space, Left Ctrl, Left Shift); HUD dash bar + state line above the hotbar; F2 help line;
-  `Playground.MoveDemo.cs` (`-movedemo`, scripted screenshots; finds a lake on the terrain map, builds a gap runway).
-- `run-play.sh` key list, `CLAUDE.md` one paragraph. No frozen API, memory layout or TerrainGen change.
+## What changed (branch `engine-phase`, commit f97bc0b)
+- NEW `Assets/TerrainGen/Ores.cs`: GenMat 65-69, one ore per layer (stone copper, deep stone iron to sea-100 m, gold below, cavern rock
+  cobalt, underworld emberstone). Integer hash per 32^3 cell -> at most one deposit in the cell's 2x2x2 inner bricks (1, 2 or 4 bricks),
+  one ellipsoid per brick (half-axes 2.5-3.5 voxels, ragged rim). `OreTable`: landform x biome multiplier (11 x 6, 1/16ths) -> per map cell plane.
+- `DetailField`: `ColumnDetail.oreMul` (x1 on v4, 0 on v3); ore replaces layer rock only, deeper than 6 m (no soil/surface/stamps/cliffs).
+- `TerrainGenChunkSource`: 1 MB ore plane from the world record into the column job. `DevMap`: same plane; Z now cycles island/local/CLOSE
+  (32 m at 1 voxel per pixel) + ore legend. Palette D colours (`tools/palette_defs.py` -> MaterialRules + Raymarch.compute), item names.
+- `Playground.OreDemo.cs` (`-oredemo`): finds an exposed deposit near spawn, torch-lit shot, digs it via SurvivalDig, E panel, dev map slice.
+- No frozen API, no memory-layout change (new palette entries only). v3 untouched (oreMul 0; `MapV3_HasNoOre`).
 
 ## Evidence
-- Fast EditMode `PASS 687 FAIL 0 SKIP 14` (Logs/overnight/65-fast2.out). New `MovementSetATests` (21): swim level/up/down
-  reach 3.0 m/s and never exceed it; dive follows the look (60 deg); idle swimmer floats to the 1.3 m point at the water
-  line (+-0.05 m, at rest); lava cap 0.75; steam not swum; jump out at the surface; legacy Step still sinks; double jump
-  once per airtime at 0.85x, reset by landing and by entering water; legacy has none; dash 2.3-2.7 m at 30/60/144 Hz,
-  peak 14 m/s; dash into a 1-voxel wall at dt 1/60 and 0.1 s: 0 penetration, flush; cooldown 0.8 s; one per airtime;
-  no dash swimming; new path == legacy bit-for-bit over 400 frames of walk/jump/step-up; FromLook == old walk formula; config.
-- Play (`BUILD=1 EXTRA="-movedemo" ./run-play.sh`, Logs/overnight/65-demo-player.log): dive trace 3.00 m/s to 6.37 m
-  deep; released, back at the water line in 5.8 s; jump 2.76 m -> double jump 4.32 m -> landed on the far runway at
-  7.31 m over a 3.8 m gap; dash peak 14.00 m/s, 2.61 m. Build = 9ba2bca + the demo edits of 33248b7 (one log-format fix after).
-- No frame-time measurement (owner rule). Memory: a few floats per motor.
-
-Top speeds (P14): walk 5.2, swim 3.0 (oil 1.8, acid 2.6, lava 0.75, sludge 0.5), float up 1.0, dash peak 14.0, fall 55 m/s.
+- `SUITE=all` PASS 722 FAIL 0 SKIP 19 (Logs/overnight/66-all2.out). New `OreTests` (5): placement Burst == Mono and repeats, other seed
+  differs; v3 no ore; per-pair x layer cell chance within +-25% of the table (all 330 entries); real chunks (seed 42, 4 sites x 12 chunks,
+  Burst): 0 ore outside layer rock, 0 outside its band, 0 within 6 m of the top, deterministic, ore < 0.5% of rock, every layer has ore,
+  ring-set mixed bricks <= +5% (asserted). `AirFastPath_IsExact` reference now uses the same plane (it caught 12 ore voxels).
+- Report (REPORTS=1) `Screenshots/66/ore_report.txt`: ore 24,726 / 94.07 M rock voxels = 0.026%; mixed bricks, ring set (top chunk + 7 below
+  x 4 sites) 4,694 -> 4,882 (+4.0%, +5.9 bricks = 2.9 KB per chunk; +24 MB on V0's 16-layer ring projection). Sampled sites were desert/jungle only.
+- History of the density: free 0.3-1.2 m blobs at ~0.17% ore made deep chunks 213 -> 1,471 mixed bricks (+590%); brick-shaped deposits pack
+  ~89 ore voxels per mixed brick (was ~56); at x1 they measured +7.8% on the ring set, so bases were cut x0.55.
+- Play (`BUILD=1 EXTRA="-oredemo" ./run-play.sh`, Player.log): 786 deposits in 10,934 cells searched; exposed copper 66 m from spawn, 23.8 m
+  under the top; loaded world matches TerrainGen (copper at the voxel); dug 486 voxels -> 119 copper ore + 367 orange sandstone.
+- Memory: +1 MB plane, +4 B per column per ColumnPass (+64 KB each), mixed bricks above. No frame-time measurement (owner rule).
 
 ## Picks (owner may change)
-- Swim = Buoyancy Center probe (half the body) in a LIQUID; steam (gas) is not swum. Idle float point 1.3 m (eye 0.3 m out).
-- Space at the surface (head dry) jumps out at the normal impulse; swimming locked 0.35 s after. Swimmers may step up 0.3 m.
-- Thicker fluids: cap = 3.0 x water drag / fluid drag. A fast entry bleeds speed by the fluid's drag, never below the cap.
-- Wading (under half submerged) keeps the old game-layer buoyancy drag.
-- Double jump SETS vertical speed to 5.27 m/s (also when falling).
-- Dash: level (gravity off) for 0.18 s, then keeps walk speed 5.2 along it; a wall ends it; cooldown from dash start;
-  no dash while swimming; other input ignored during the dash. Direction = move keys, else look.
-- Set A in interactive Survival AND Creative; rigs/captures/-fluidprobe keep the legacy step.
-- HUD: a 200 px bar above the hotbar (cyan = ready) + "Shift dash ready / double jump spent / swimming in water".
+- Deposits are brick-shaped 0.5-0.7 m blobs, clustered 2-4 to ~1.6 m (P19 said 0.3-1.2 m; changed for memory, see above).
+- Base chance per 32^3 cell (of 65,536): copper 3300, iron 2500, gold 1650, cobalt 1300, ember 820. Gold/iron split at sea - 100 m.
+- Table: alpine/breaks 1.5x, volcanic 1.63x, canyon 1.38x, plateau 1.25x, highlands/sea cliffs 1.13x, dunes/sea 0.75x, plains 0.63x,
+  wetland 0.5x; biome: snow 1.13x, badlands 1.25x, jungle 0.88x. Favoured x2: forest copper, savanna iron, desert+badlands gold, snow cobalt, jungle ember.
+- Colours: copper verdigris green 3faa86, iron rust c08a6a, gold eac43c, cobalt 4a6ff0, ember ff5530; none emissive. Acid does not eat ore.
+- Ore only deeper than 6 m under the column top: cliff faces have none (plan step 12 does cliff veins).
 
 ## Unfinished / notes
-- **Underwater is black.** With the eye inside a water voxel the raymarcher draws black (and water is opaque from above),
-  so the plan's "underwater view of a lake bed" shot can't exist yet. Recommended task (renderer, needs owner approval
-  as it touches the raymarch shader): when the eye is in fluid, march through fluid cells with a depth tint/fog.
-- Session restarted after the task was done: fast suite verified on final code; only HANDOFF committed.
+- Sparse ore is the cost of the 5% rule. Each doubling of density costs about +24 MB on the V0 ring projection. A cheaper idea (owner call,
+  it's design): put deposits mostly in bricks that already hold cave air (cave walls), which costs almost no memory.
+- Cave shot is torch-lit (underground, no sun). The legend change came after the demo build: shot 4 has no ore legend row.
+- Engine step 10 (coarse-first) must treat ore as its host rock (plan note).
 
 ## Next step
-- Task 66 = plan step 3 (ores by depth and biome x landform). Supervisor: consider queueing the underwater view.
+- Task 67 = plan step 4 (start on the best easy area).
 
 ## For the doc
-Task 65: gameplay step 2, movement set A. In `./run-play.sh` (walk mode): **Space** in the air = double jump;
-**Left Shift** = dash (bar above the hotbar shows the 0.8 s cooldown); in water **WASD** swims where you look,
-**Space** up (at the surface: jump out), **Left Ctrl** down; let go and you float back up.
-- Swim cap 3.0 m/s, dash peak 14.0 m/s over 2.52-2.61 m, walk 5.2, terminal fall 55 (tests + Logs/overnight/65-demo-player.log).
-- Double jump cleared a 3.8 m gap (jump 2.76 m -> landed 7.31 m); a single jump reaches ~2.9 m.
-- Dive to 6.4 m at 3.00 m/s; idle float back to the surface in 5.8 s.
-- Tests: fast suite 687 passing, 0 failing, 21 new (Logs/overnight/65-fast2.out). Picks: above.
-- `Screenshots/65/1_swim_surface.png` -- floating at a lake's surface at noon, eye 0.3 m above the blue water; bottom
-  centre: "swimming in water  Space up  Ctrl down" and the full cyan dash bar.
-- `Screenshots/65/3_double_jump_over_gap.png` -- mid-air over the 3.8 m gap, looking down at the far grey stone runway
-  above the lake; HUD line "double jump spent". The black wedge under the runway is the same missing underwater view.
-- `Screenshots/65/2_dive_lake_bed.png` -- 6 m under water: the frame is all BLACK except the HUD ("swimming in water").
-  That is the missing underwater rendering, not a bug in the dive.
+Task 66: gameplay step 3, ores. Map v4 now has five ores, one per depth layer (copper, iron, gold, cobalt, emberstone), more in mountains,
+volcanic ground and breaks, fewer in plains and wetlands, each biome favouring one. In `./run-play.sh`: dig into tunnel walls (LMB in
+Survival) and the ore goes into the hotbar like any block; O then Z three times shows a 1-voxel dev map slice with deposits. Picks: above.
+- Ore share of rock 0.026% (24,726 of 94.07 M voxels, 48 chunks, Screenshots/66/ore_report.txt).
+- Mixed bricks on ring-shaped chunks 4,694 -> 4,882 (+4.0%, limit 5%; ~+24 MB on V0's ring projection).
+- Ore voxels per mixed brick ~56 -> ~89 (brick-shaped deposits); first-draft density would have been +590% mixed bricks in deep chunks.
+- Tests: whole suite 722 passing, 0 failing; 5 new OreTests (Logs/overnight/66-all2.out).
+- `Screenshots/66/1_cave_wall_ore.png` -- a tunnel 24 m underground, torch-lit: left of centre, two green copper blobs in the orange
+  sandstone wall; the cream square between them is the torch.
+- `Screenshots/66/2_hotbar_ore.png` -- the same wall after digging: the lower blob is a hole; bottom centre, slot 3 holds 119 copper ore
+  (teal); top left "+119 copper ore".
+- `Screenshots/66/4_devmap_close_slice.png` -- bottom-left panel: a 32 m slice at the deposit's height, 1 voxel per pixel; the black curve is
+  the tunnel, the teal dots in the orange sandstone are copper deposits (~12 in the square); the white cross is the one in shot 1.
