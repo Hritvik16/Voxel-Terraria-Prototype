@@ -1,6 +1,6 @@
 # 65-gameplay-step-2
 
-Requires: 64-gameplay-step-1
+Requires: 63-gameplay-phase-plan
 
 Approval: owner, 2026-10-11 ~00:10 in chat: "keep queuing tasks, ideally moving forward with gameplay features
 instead of optimizations, pick your recommendations, i can always queue something to change them". Queued by the
