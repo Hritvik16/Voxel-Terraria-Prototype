@@ -1,60 +1,40 @@
-# 57-engine-7-frame-cost-split: DONE -- the play frame is GPU-bound; sun shadow rays are the biggest single cut (14.2 ms near a wall, 4.2 ms on an open view), then the FSR 3 pass (6 ms).
-## What changed (branch `engine-phase`, commit 303e109; capture-only, no default or look change)
-- `Assets/Game/PlaygroundCapture.CostSplit.cs`: `-upscalerclips -costsplit`, which reuses task 51's harness.
-  - Setup: fullscreen 1920x1080, quality preset, far band + far shadows, noon with the clock paused. Same flags as `./run-play.sh`, except FSR 3 is pinned at 540 rows.
-  - FULL = play's frame (FSR 3 at 540, HUD + minimap, fluid on). Each arm switches off ONE thing via existing static switches.
-  - Order F, then X X F per arm (ABBA); each run 3 s settle + 20 s timed, real time, no capture; streaming pinned mid-path.
-- Two 8 s arcs of MODE=walk's circle (r 150 m round the start pose, 5 m/s, eye 1.6 m, level look):
-  - `walk_near`: heading straight away from the sun. It faces a badlands canyon wall 10-30 m away.
-  - `walk_open`: the most open of the circle's 16 points that has the sun behind or beside. It looks over the island from a ridge, about 45% sky.
-  - Why both: the smoke run showed the view sets the cost (52 vs 28 ms). The two arcs bracket what a walk sees.
-- Added a `tiny_gate` DIAGNOSTIC arm (no upscaler, 256x144 march). It shows the CPU + fixed-cost floor.
-- Also: `run-cost-split.sh` (BUILD_ONLY / SKIP_BUILD, as run-upscaler-realrate.sh) and `tools/costsplit-sheet.py` (3x3 contact sheet).
+# 58-settings-menu: DONE -- F6 opens a graphics settings panel in play. It is saved between runs and applies live; BUGS #6 (help "&amp;") is fixed.
+## What changed (branch `engine-phase`, commit 3865ad3)
+- `Assets/Game/SettingsMenu.cs` (new): the panel. Clickable buttons; it releases the mouse while open (flycam + Playground skip input, like the dev map). F6 or Esc closes it.
+- `Assets/CoreEngine/Gameplay/PlaySettings.cs` (new): `PlaySettings.json` in persistentDataPath, beside PlayerConfig/LightingConfig.
+  - Pure Parse / Validate / WithArgs. Order: defaults < saved file < flags (`-upscaler`, `-renderrows`, `-shadowlevel`), per field, for that run only.
+  - `-renderpreset`/`-taa`/`-checker` with no upscaler flag keep the preset path (task 52's rule).
+- `Playground.cs`: an interactive run (not `IsCaptureRun()`, not `-fluidprobe`) loads the file instead of task 52's hard-coded fsr3 dyn. The file's defaults ARE fsr3 dyn, so with no file nothing changes.
+  - K now goes through `SetSoftShadows` (shared with the menu). Help is hidden while the menu is open, gains an F6 line, and #6 is fixed (`&`, `↔`, `→`; IMGUI does not decode entities).
+- `PlaygroundHud.cs`: public `StripVisible` / `DetailVisible`. `PlaygroundFlyCamera.cs`: no look/move while the menu is open.
+- `run-play.sh` keys + comment, `CLAUDE.md` Commands line, `BUGS.md` #6 moved to Fixed. New flag `-settingsopen` (starts with the menu open; used for the still).
+- Rig check: every `run-*.sh` that opens Playground.app passes a capture flag except run-play.sh, run-demo.sh (both interactive; they read the file) and run-tg2world MODE=fluidprobe (`-fluidprobe`, excluded by name). So no rig reads the file.
 
-## Evidence (WARM STEADY STATE)
-- Warm-up: `Logs/tg2world_20261010_211902.txt` (MODE=stream MOTION=walk, discarded). The measured launch started 45 s later.
-- Measured: `Logs/costsplit_2026-10-10_212527.txt` (copy: `Screenshots/57/costsplit.txt`).
-  - On AC, 100% before and after; owner hold no/no; 0 streaming and 0 far-busy frames on every run.
-- Noise floor: 9 FULL runs per path, p50 range 1.4 ms (near) and 1.6 ms (open). The FULL pair around each arm differs by 0.1-1.0 ms.
-- Fast suite PASS 641 FAIL 0 SKIP 14, 0 `error CS` (`Logs/overnight/57_fast2.out`).
+## Options (in the menu's order = task 57's cost ranking). All apply LIVE; none needs a restart.
+| option | choices (default) | maps to | hint shown (57 numbers only where 57 measured) |
+|---|---|---|---|
+| Shadow quality | Full soft / Half-res far / Hard / Off (**Full soft**) | `RaymarchFeature.ShadowQualityLevel` = J rungs 0-3 | Off saved 14.2 / 4.2 ms (wall / open); 1, 2 not measured |
+| Upscaler | None / TAA / FSR 1 / STP / FSR 3 (**FSR 3**) | `UpscalerSelect.Apply` = `-upscaler` | FSR 3's pass ~6 ms over None; others not measured in 57 |
+| Internal resolution | 540 / 720 / Dynamic (**Dynamic**) | `UpscalerSelect.Apply` = `-renderrows` | GPU-bound: frame follows these pixels |
+| Shadow edges | Soft / Hard (**Soft**) | `Playground.SetSoftShadows` = K (k_soft 0) | cost not measured |
+| Perf overlay | Off / Strip / Strip + details (**Strip**) | PlaygroundHud strip + F1 panel | HUD + minimap ~1 ms together |
+| Minimap | On / Off (**On**) | `Minimap.Visible` (F4 also flips it) | part of that ~1 ms |
+- Render preset (F3) is dropped from the menu. Its Quality preset is the same 960x540 trace as "None at 540", and Balanced/Performance (640/480 wide) are below the owner's 960x540 minimum (RenderPreset.Default note). F3 stays as a dev key.
+- Saving: only a choice made IN the menu is saved, and it clears the "set by a flag" mark for that field. J/K/F1/F4 stay session-only toggles; the menu shows their live state.
+- Known limit: Hard edges (k_soft 0) is undone if LightingConfig.json hot-reloads mid-run. K has the same behaviour.
+- Behaviour change (documented in run-play.sh): `EXTRA="-renderrows 720"` alone now keeps the saved upscaler (it used to give none@720).
 
-| arm | near p50/p99 ms | saved | open p50/p99 ms | saved |
-|---|---|---|---|---|
-| FULL (fsr3 540) | 49.4 / 58.9 | - | 30.4 / 36.2 | - |
-| sun_off (rung 3: voxel + far sun shadows) | 35.2 / 42.3 | **+14.2** | 26.8 / 30.9 | **+4.2** |
-| ups_none (FSR 3 -> plain blit, 540) | 43.1 / 53.8 | **+6.0** | 24.1 / 30.1 | **+6.2** |
-| far_off (far band march) | 47.7 / 57.5 | +1.8 | 26.6 / 32.1 | +3.8 |
-| tiers_off (tier 0 only, rays end at 128 m; changes the picture) | 49.3 / 59.4 | +0.3 | 27.2 / 32.9 | +2.9 |
-| hud_off (HUD + minimap) | 48.8 / 58.0 | +1.0 | 29.6 / 34.9 | +1.2 |
-| torch_off (task 46 rays; no torch in view) | 48.8 / 58.3 | +0.7 | 29.6 / 35.2 | +0.9 |
-| fluid_off | 49.3 / 59.9 | -0.2 (0) | 29.9 / 36.1 | -0.1 (0) |
-| tiny_gate (diagnostic: floor) | 6.3 / 10.4 | (+43.3) | 3.5 / 6.8 | (+26.8) |
-
-- **GPU-bound.** With the march at 7% of its pixels the frame drops to 3.5-6.3 ms, so frame time follows GPU pixel work.
-  - Unity's `cpuMainThreadFrameTime` equals wall time in every arm because the main thread waits on the GPU.
-  - Metal reports present-wait as 0, and the render thread takes 2-3 ms. The CPU timer cannot split this; tiny_gate does.
-- **Not explained by any one arm:** about 19 ms (near) and 8 ms (open). That is the primary voxel march + shading at 960x540; switching it off is not a single-pass change.
-- **Task 51's ~100 ms hitches did not show up:** p99 is 59 / 36 ms with fluid on, and fluid costs 0. Likely cleared by tasks 52-56 (not isolated).
-- torch_off saves 0.7-0.9 ms with no torch in view, slightly above the noise. Worth a look (rays toward far-off lights?), not a priority.
-
-## Ranking (what to cut, for step 8's ONE cost change)
-1. **Sun shadow rays: 14.2 / 4.2 ms.** My default for step 8: `-roofskip 1` (RaymarchFeature.ShadowRoofSkip). It is already built, exact by construction (changes cost, not pixels), and has never been measured. The next option is rung 1 (half-res beyond LOD1).
-2. FSR 3 pass: a fixed ~6 ms at 1080p output (task 51: fsr1_540 ran 4-5 ms faster than fsr3_dyn on walk and spin).
-3. Far band 1.8-3.8 ms and tiers 0.3-2.9 ms: these grow with an open view.
-4. HUD + minimap about 1 ms, torch rays about 0.8 ms, fluid 0.
-
-## Screenshots looked at
-- `Screenshots/57/walk_near_sheet.png` (3x3, one tile per arm, same pose): the same canyon wall with the play HUD in every tile, sun at 78 deg behind; `sun_off` flat-lit, `tiny_gate` (bottom right) blocky, `hud_off` (bottom middle) without the panel.
-- `Screenshots/57/walk_open_sheet.png` (same layout): a sunlit ridge down to the sea on the left; in `far_off` (middle left) the far sea and hills turn to sky.
+## Evidence
+- Fast suite PASS 647 FAIL 0 SKIP 14, 0 `error CS` (`Logs/overnight/58_fast2.out`). That is 641 + 6 new `PlaySettingsTests`: defaults, save/load round trip, broken/missing file, per-field flag override with last match winning and the file untouched, bad flag values, preset-path flags.
+- Live load + override: a saved file with rows 540 and minimap off, run with `-renderrows 720`. Player.log: `[PlaySettings] loaded ...; this run: upscaler fsr3, rows 720, ... minimap off; flags override: rows`. The still shows `UPSCALE fsr3 720` and no minimap (`Logs/overnight/58_play_help.out`). The test file was deleted afterwards, so the owner's next play starts at the defaults.
+- No frame-time measurement (rule 10); the HUD fps in the stills is not evidence.
 
 ## Not done / next
-- Not run: other times of day (a low sun makes shadow rays longer) and spin/fly. Next: step 8's ONE cost change, picked from the ranking above, then a warm A/B on this same `run-cost-split.sh` FULL arm.
+- The buttons were not clicked in a real session (headless). The click path is IMGUI `GUI.Button` and the same code as the start-up apply. First owner play: press F6, click each option, reopen to check that it saved.
 
 ## For the doc
-- Play frame (FSR 3 at 540, warm, walk at noon): 49.4 ms facing a near wall, 30.4 ms on an open ridge view (`Logs/costsplit_2026-10-10_212527.txt`). Noise is 1.4-1.6 ms.
-- Sun shadows off saves 14.2 / 4.2 ms (the biggest single item).
-- FSR 3 -> plain blit saves 6.0 / 6.2 ms.
-- Far band off saves 1.8 / 3.8 ms; tiers 1-2 off saves 0.3 / 2.9 ms. HUD ~1 ms, torch rays ~0.8 ms, fluid 0.
-- **GPU-bound:** with the march at 256x144 the frame takes 3.5-6.3 ms. The CPU is not the limit.
-- Image: `Screenshots/57/walk_near_full.png`. The FULL walk pose at noon, sun behind the camera, play HUD on. A badlands canyon wall fills most of the frame and the sky is top right. This is the 49 ms view.
-- Image: `Screenshots/57/walk_near_sheet.png`. One tile per arm, same pose. Compare `full` (top left) with `sun_off` (top middle): at a 78 deg sun the picture barely changes, yet the frame is 14 ms faster.
+- New: F6 graphics menu, 6 options, all live, saved to `PlaySettings.json`; flags override per field; rigs never read it.
+- Tests: fast suite 641 -> 647 PASS, 0 FAIL (`Logs/overnight/58_fast2.out`).
+- BUGS #6 fixed: help headings read "BUILD & DIG" (was "BUILD &amp; DIG").
+- Image: `Screenshots/58/play_settings_menu.png` (noon at the play start, over the island and sea). The centre panel is the menu, rows ordered by cost: Shadow quality (hint "Off saved 14.2 ms ... 4.2 ms"), Upscaler (FSR 3 lit), Internal resolution ("Dynamic (now 540)" lit), Shadow edges, Perf overlay (Strip), Minimap (On). The footer gives the save path.
+- Image: `Screenshots/58/play_help_fixed.png` (same start, F2 help open). Look at the group headings "BUILD & DIG", "FLUID & DESTRUCTION", "LIGHT & TIME", the K/Y lines with ↔ / →, and the new orange **F6** line under VIEW. Top right reads `UPSCALE fsr3 720` and there is no minimap (saved file + `-renderrows 720` flag).
