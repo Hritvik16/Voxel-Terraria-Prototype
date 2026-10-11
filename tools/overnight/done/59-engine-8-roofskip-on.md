@@ -35,3 +35,6 @@ section, add a "Roof skip (exact, faster shadows)" toggle there (saved like the 
 
 ## For the doc
 p50 frame ms OFF -> ON for each arc and sun height, the fps those mean, exactness result, Gate 3 result, the still.
+
+## Owner answer (2026-10-10 ~23:25)
+(a) keep roof skip OFF (done in 0bd1b4a). Step 8 tries half-res shadows instead: task 61.
