@@ -39,7 +39,7 @@ using VoxelEngine.Memory;
 
 namespace VoxelEngine.WorldGen
 {
-    public sealed class TerrainGenChunkSource : IDisposable
+    public sealed partial class TerrainGenChunkSource : IDisposable
     {
         public const byte SIZE_CLASS = 2;
         public const int BRICK_GEOLOGY_DEPTH = 200;
