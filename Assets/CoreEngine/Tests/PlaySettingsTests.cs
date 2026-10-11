@@ -20,6 +20,7 @@ public class PlaySettingsTests
         Assert.AreEqual(1, d.perfOverlay);     // the strip only, F1 panel closed
         Assert.IsTrue(d.minimap);
         Assert.IsFalse(d.roofSkip);            // task 59: OFF after its A/B (owner's call)
+        Assert.AreEqual("full", d.shadowRes);  // task 61: Full until the owner judges Half
     }
 
     [Test]
@@ -120,5 +121,31 @@ public class PlaySettingsTests
         run = PlaySettings.WithArgs(old, new[] { "-roofskip", "yes" }, over);
         Assert.IsFalse(run.roofSkip, "a bad value keeps the saved one");
         CollectionAssert.Contains(over, "-roofskip: bad value 'yes'");
+    }
+
+    [Test]
+    public void ShadowRes_OldFileGetsFull_FlagOverridesForTheRun_BadValuesClamp()
+    {
+        // A file saved before task 61 has no shadowRes field: it gets Full.
+        var old = PlaySettings.Parse("{\"upscaler\":\"fsr3\",\"rows\":\"dyn\",\"shadowLevel\":0,\"roofSkip\":false}", out string e);
+        Assert.IsNull(e);
+        Assert.AreEqual("full", old.shadowRes);
+
+        var over = new List<string>();
+        var run = PlaySettings.WithArgs(old, new[] { "-shadowres", "full", "-shadowres", "HALF" }, over);
+        Assert.AreEqual("half", run.shadowRes, "last match wins, any case");
+        Assert.AreEqual("full", old.shadowRes, "the saved settings are untouched");
+        CollectionAssert.Contains(over, "shadowRes");
+
+        over.Clear();
+        run = PlaySettings.WithArgs(old, new[] { "-shadowres", "quarter" }, over);
+        Assert.AreEqual("full", run.shadowRes, "a bad value keeps the saved one");
+        CollectionAssert.Contains(over, "-shadowres: bad value 'quarter'");
+
+        // A saved half round-trips; a garbage saved value is clamped to full.
+        Assert.AreEqual("half", PlaySettings.Parse("{\"shadowRes\":\"Half\"}", out e).shadowRes);
+        Assert.IsNull(e);
+        Assert.AreEqual("full", PlaySettings.Parse("{\"shadowRes\":\"x\"}", out e).shadowRes);
+        StringAssert.Contains("shadowRes", e);
     }
 }

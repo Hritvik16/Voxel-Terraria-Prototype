@@ -209,6 +209,12 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// the build's cost can be told from the march's. Never set outside it.
     public static bool DebugRoofBuildOnly = false;
 
+    /// HALF-RES SUN SHADOWS (task 61, Raymarch.compute's _ShadowHalfRes): one
+    /// sun ray per 2x2 pixels at all distances, edge-aware. Play sets it from
+    /// PlaySettings.shadowRes; anywhere else `-shadowres half` turns it on (last
+    /// match wins). OFF by default: rigs and capture runs are unchanged.
+    public static bool ShadowHalfRes = ReadShadowResArg();
+
     /// Build rays from URP's per-frame projection (which carries TAA/STP
     /// sub-pixel JITTER) instead of Camera.projectionMatrix. Without jitter a
     /// temporal upscaler accumulates identical samples and cannot add detail.
@@ -218,6 +224,15 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static GraphicsBuffer HeightMipBuffer;
     private static int _heightMipWindowX = -1, _heightMipWindowZ = -1;
     private static int[] _heightOffsets = new int[8];
+
+    private static bool ReadShadowResArg()
+    {
+        string[] a = System.Environment.GetCommandLineArgs();
+        bool half = false;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == "-shadowres") half = a[i + 1] == "half";
+        return half;
+    }
 
     private static bool ReadRoofSkipArg()
     {
@@ -404,6 +419,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public float tonemapWhite;
             public int look;
             public int roofSkip;
+            public float shadowHalfRes;
             public GraphicsBuffer heightMip;
             public int[] heightOffsetsA, heightOffsetsB;
             public int kHeightRaw, kHeightDilate, kHeightLevel;
@@ -738,6 +754,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // off: an HLSL-declared buffer left unbound is undefined on Metal.
                 EnsureHeightMip(clip.WindowDimsBricks.x, clip.WindowDimsBricks.z);
                 passData.roofSkip = ShadowRoofSkip ? 1 : DebugRoofBuildOnly ? 2 : 0;   // 2 = build only
+                passData.shadowHalfRes = ShadowHalfRes ? LODConfig.PixelAngleRad(cameraData.camera.fieldOfView, dispatchH) : 0f;
                 passData.heightMip = HeightMipBuffer;
                 passData.heightOffsetsA = new[] { _heightOffsets[0], _heightOffsets[1], _heightOffsets[2], _heightOffsets[3] };
                 passData.heightOffsetsB = new[] { _heightOffsets[4], _heightOffsets[5], _heightOffsets[6], 0 };
@@ -1025,6 +1042,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_TorchShadowRays", data.torchShadowRays);
 
                         cmd.SetComputeIntParam(data.compute, "_ShadowRoofSkip", data.roofSkip == 1 ? 1 : 0);
+                        cmd.SetComputeFloatParam(data.compute, "_ShadowHalfRes", data.shadowHalfRes);
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsA", data.heightOffsetsA);
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsB", data.heightOffsetsB);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "HeightMip", data.heightMip);

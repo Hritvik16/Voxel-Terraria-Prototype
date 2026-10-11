@@ -46,6 +46,13 @@
 //     roof_build        DIAGNOSTIC: the pyramid is built every frame but the
 //                       march ignores it (RaymarchFeature.DebugRoofBuildOnly):
 //                       the build's own cost
+//   TASK 61 (engine step 8b): halfres  shadow rung 1's 2x2 quad reuse at ALL
+//                       distances (ShadowQualityLevel 1, Rung1DistanceOverrideM
+//                       ~0): one lane of each quad traces the sun ray
+//                       (step A: no edge test)
+//                     half  the shipped switch: RaymarchFeature.ShadowHalfRes
+//                       (edge-aware half-res at all distances, rung unchanged);
+//                       FULL keeps the launch's value (`-shadowres`)
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -83,7 +90,7 @@ public partial class PlaygroundCapture
         int baseShadow = RaymarchFeature.ShadowQualityLevel, baseTorch = RaymarchFeature.TorchShadowsOverride;
         L("");
         L($"COST SPLIT (task 57): {hours:F2} h, sun elevation {SunCycle.ElevationDegreesAt(hours):F0} deg; FULL = fsr3 540 rows pinned, " +
-          $"HUD + minimap on, fluid on; roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}; shadow rung {baseShadow}, torch rays override {baseTorch} (config {LightingConfig.Active.torchShadowRays}), " +
+          $"HUD + minimap on, fluid on; roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}; shadow res {(RaymarchFeature.ShadowHalfRes ? "HALF" : "full")}; shadow rung {baseShadow}, torch rays override {baseTorch} (config {LightingConfig.Active.torchShadowRays}), " +
           $"temporal shadows {(RaymarchFeature.TemporalShadows ? "ON" : "OFF")}, far shadows {(far.ShadowsOn ? "ON" : "OFF")}, cascade {RaymarchFeature.UseLODCascade}");
         L($"order: F, then per arm X X F; each run {CostSettle:F0} s settle + {timed:F0} s timed, real time, no capture");
 
@@ -219,10 +226,12 @@ public partial class PlaygroundCapture
         // tiny_gate: a DIAGNOSTIC, not one thing off -- no upscaler and a 256x144
         // march (7% of 540's pixels): what is left is the CPU + fixed-cost floor
         if (arm == "tiny_gate") RaymarchFeature.CustomGateResolution = new Vector2Int(256, 144);
-        RaymarchFeature.ShadowQualityLevel = arm == "sun_off" ? 3 : _costBaseShadow;
+        RaymarchFeature.ShadowQualityLevel = arm == "sun_off" ? 3 : arm == "halfres" ? 1 : _costBaseShadow;
+        RaymarchFeature.Rung1DistanceOverrideM = arm == "halfres" ? 0.001f : _costBaseRung1;
         RaymarchFeature.TorchShadowsOverride = arm == "torch_off" ? 0 : _costBaseTorch;
         RaymarchFeature.ShadowRoofSkip = arm == "roof_on" || _costBaseRoof;
         RaymarchFeature.DebugRoofBuildOnly = arm == "roof_build";
+        RaymarchFeature.ShadowHalfRes = arm == "half" || _costBaseHalf;
         FarField.RenderEnabled = arm != "far_off";
         RaymarchFeature.UseLODCascade = arm != "tiers_off";
         Playground.DebugSuspendFluidSim = arm == "fluid_off";
@@ -233,6 +242,8 @@ public partial class PlaygroundCapture
 
     private static int _costBaseShadow = -1, _costBaseTorch = -1;
     private static bool _costBaseRoof;
+    private static float _costBaseRung1;
+    private static bool _costBaseHalf;
 
     /// One timed run: settle at pose 0 with the arm applied, history reset, a
     /// still (first pass only), then the path by real time; the frames after
@@ -240,14 +251,33 @@ public partial class PlaygroundCapture
     private IEnumerator CostTime(ClipPath path, CostRun r, float timed, string still, Camera cam,
                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
     {
-        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; }
+        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; }
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);
         CostApply(r.arm);
         acd.resetHistory = true;
         yield return Frames(30);
-        if (still != null) { ScreenCapture.CaptureScreenshot(still); yield return Frames(2); }
+        if (still != null)
+        {
+            ScreenCapture.CaptureScreenshot(still); yield return Frames(2);
+            // Task 61: the same frame without HUD or minimap (owner stills),
+            // then the arm's own HUD state back.
+            bool hideUi = Playground.DebugHideUi, mapOn = Minimap.Visible;
+            Playground.DebugHideUi = true; Minimap.Visible = false;
+            yield return Frames(3);
+            ScreenCapture.CaptureScreenshot(still.Replace(".png", "_clean.png")); yield return Frames(2);
+            Playground.DebugHideUi = hideUi; Minimap.Visible = mapOn;
+            // Task 61: the sun-visibility view at the same pose (the half-res
+            // edge check diffs these between arms), then back to the beauty.
+            RaymarchFeature.DebugViewOverride = RaymarchFeature.DebugMode.SunVis;
+            RaymarchFeature.UseDebugViewOverride = true;
+            yield return Frames(10);
+            ScreenCapture.CaptureScreenshot(still.Replace(".png", "_sunvis.png")); yield return Frames(2);
+            RaymarchFeature.UseDebugViewOverride = false;
+            acd.resetHistory = true;
+            yield return Frames(10);
+        }
         var ft = new FrameTiming[1];
         float t = 0f;
         while (t < CostSettle + timed)

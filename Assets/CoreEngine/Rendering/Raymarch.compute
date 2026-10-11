@@ -478,6 +478,17 @@ float _ShadowMaxDistVoxels;
 // threshold -- rather than the mechanism -- was why rung 1 never engaged.
 float _Rung1DistVoxels;
 
+// TASK 61 (engine step 8b): HALF-RES SUN SHADOWS at ALL distances, a play
+// setting (PlaySettings.shadowRes, `-shadowres half`). 0 = off; > 0 = ON, and
+// the value is the march's radians per pixel (the edge test's footprint).
+// Rung 1's 2x2 quad reuse, but EDGE-AWARE: a pixel takes its quad lead's value
+// only if its shadow origin (voxel + normal) is within 2 voxels + 2 pixel
+// footprints of the lead's, or lies on the lead's plane (same normal, within
+// one voxel along it -- a voxel stair step). Anything else -- a silhouette, a
+// sky lead, a far surface behind a near one -- traces its own ray, so shadow
+// values never cross a depth/normal edge. Rung 1 itself is unchanged.
+float _ShadowHalfRes;
+
 int   _Tonemap;
 float _Exposure;
 float _TonemapWhite;
@@ -509,6 +520,10 @@ float3 ApplyTonemap(float3 c)
 // budget and is the entire cost of not needing wave intrinsics.
 groupshared uint  gsAnyShadowNeeded;
 groupshared float gsSunVis[64];
+// Task 61's edge test: each lane's shadow origin, w = NormalCode or -1 (no ray).
+groupshared int4  gsShadowOrg[64];
+
+int NormalCode(int3 n) { return (n.x + 1) + 3 * (n.y + 1) + 9 * (n.z + 1); }
 
 #define MAX_CHAIN_LEAPS 7
 
@@ -3047,6 +3062,28 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         bool distant = hit && (currentDist >= rung1Threshold);
         bool reuse = (_ShadowQualityLevel == 1) && distant;
         bool isQuadLead = ((gtid.x & 1u) == 0u) && ((gtid.y & 1u) == 0u);
+        uint leadLane = (gtid.y & ~1u) * 8u + (gtid.x & ~1u);
+
+        // Task 61: half-res at all distances, edge-aware (_ShadowHalfRes note).
+        // _ShadowHalfRes is a constant, so the barrier is group-uniform.
+        if (_ShadowHalfRes > 0.0)
+        {
+            int3 org = voxel + normal;
+            gsShadowOrg[lane] = needsShadowRay ? int4(org, NormalCode(normal)) : int4(0, 0, 0, -1);
+            GroupMemoryBarrierWithGroupSync();
+            int4 lo = gsShadowOrg[leadLane];
+            bool similar = false;
+            if (needsShadowRay && lo.w >= 0)
+            {
+                int3 d = org - lo.xyz;
+                int3 dd = abs(d);
+                float tol = 2.0 + 2.0 * currentDist * _ShadowHalfRes;
+                bool nearLead = (float)max(dd.x, max(dd.y, dd.z)) <= tol;
+                bool coplanar = (lo.w == NormalCode(normal)) && (abs(normal.x * d.x + normal.y * d.y + normal.z * d.z) <= 1);
+                similar = nearLead || coplanar;
+            }
+            reuse = similar || isQuadLead;
+        }
 
         // Temporal reuse: is last frame's value for this shadow origin usable?
         bool histHit = false;
@@ -3114,7 +3151,6 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         float mineVis = histHit ? histVis : sh.sunVis;
         gsSunVis[lane] = mineVis;
         GroupMemoryBarrierWithGroupSync();
-        uint leadLane = (gtid.y & ~1u) * 8u + (gtid.x & ~1u);
         float leadVis = gsSunVis[leadLane];
 
         sunVis = needsShadowRay ? (reuse ? leadVis : mineVis) : 0.0;

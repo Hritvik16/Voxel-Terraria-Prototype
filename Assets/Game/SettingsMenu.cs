@@ -5,6 +5,7 @@
 // Every option drives a switch that already existed -- no new rendering:
 //
 //   Shadow quality   RaymarchFeature.ShadowQualityLevel, the J key's §6.5 rungs
+//   Shadow resolution RaymarchFeature.ShadowHalfRes, as -shadowres (task 61: Full, see hint)
 //   Roof skip        RaymarchFeature.ShadowRoofSkip, as -roofskip (task 59: OFF, see hint)
 //   Upscaler         UpscalerSelect.Apply, as -upscaler (task 47/52)
 //   Internal rows    UpscalerSelect.Apply, as -renderrows
@@ -38,6 +39,8 @@ public class SettingsMenu : MonoBehaviour
     public const KeyCode ToggleKey = KeyCode.F6;
     public static bool IsOpen { get; private set; }
     // Task 59's warm A/B on tg2 (Logs/costsplit_2026-10-10_224908 / _225726); same pixels either way.
+    // Task 61's warm A/B on tg2 (filled in from its cost split).
+    private const string RES_HINT = "Half: one sun-shadow ray per 2x2 pixels (silhouettes still trace their own). Softer shadow edges. Not measured yet.";
     private const string ROOF_HINT = "Same pixels. On tg2 ON saved 1.5 ms facing a wall at noon but cost 3.5 ms on an open view, and 2-5 ms at a low sun.";
 
     private static string _path;
@@ -66,6 +69,7 @@ public class SettingsMenu : MonoBehaviour
         if (!run.presetPath) ApplyUpscaler(run.upscaler, run.rows);
         RaymarchFeature.ShadowQualityLevel = run.shadowLevel;
         RaymarchFeature.ShadowRoofSkip = run.roofSkip;
+        RaymarchFeature.ShadowHalfRes = run.shadowRes == "half";
         if (!run.softShadows) Playground.SetSoftShadows(false);
         ApplyOverlay(run.perfOverlay);
         Minimap.Visible = run.minimap;
@@ -75,7 +79,7 @@ public class SettingsMenu : MonoBehaviour
         Debug.Log($"[PlaySettings] {(File.Exists(_path) ? "loaded" : "no file yet (defaults)")} {_path}" +
                   (err != null ? $" -- {err}" : "") +
                   $"; this run: upscaler {(run.presetPath ? "preset path" : run.upscaler)}, rows {run.rows}, shadows {run.shadowLevel}" +
-                  $" {(run.softShadows ? "soft" : "hard")}, roof skip {(run.roofSkip ? "on" : "off")}, overlay {run.perfOverlay}, minimap {(run.minimap ? "on" : "off")}" +
+                  $" {(run.softShadows ? "soft" : "hard")}, shadow res {run.shadowRes}, roof skip {(run.roofSkip ? "on" : "off")}, overlay {run.perfOverlay}, minimap {(run.minimap ? "on" : "off")}" +
                   (_overridden.Count > 0 ? $"; flags override: {string.Join(", ", _overridden)}" : ""));
     }
 
@@ -139,7 +143,7 @@ public class SettingsMenu : MonoBehaviour
         float vw = Screen.width / ui, vh = Screen.height / ui;
         Styles();
 
-        const float w = 780f, h = 634f;
+        const float w = 780f, h = 708f;
         var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f, w, h);
         Fill(r, new Color(0.03f, 0.05f, 0.08f, 0.96f));
         Fill(new Rect(r.x, r.y, w, 1f), new Color(1f, 1f, 1f, 0.25f));
@@ -160,6 +164,17 @@ public class SettingsMenu : MonoBehaviour
         {
             RaymarchFeature.ShadowQualityLevel = pick;
             Save("shadowLevel", s => s.shadowLevel = pick);
+        }
+
+        // 1a. Half-res sun shadows (task 61).
+        int res = RaymarchFeature.ShadowHalfRes ? 1 : 0;
+        pick = Row(x, ref y, "Shadow resolution", "shadowRes",
+            RES_HINT,
+            new[] { "Full", "Half" }, res);
+        if (pick >= 0 && pick != res)
+        {
+            RaymarchFeature.ShadowHalfRes = pick == 1;
+            Save("shadowRes", s => s.shadowRes = pick == 1 ? "half" : "full");
         }
 
         // 1b. The shadow roof skip (task 59): exact, so it only changes cost.
@@ -237,7 +252,7 @@ public class SettingsMenu : MonoBehaviour
         y += 4f;
         GUI.Label(new Rect(x, y, w - 40f, 60f),
             "<color=#9fb6c9>Choices made here are saved and used at the next start. Command-line flags " +
-            "(-upscaler, -renderrows, -shadowlevel, -roofskip) override them for one run. The keys J, K, F1, F4 change " +
+            "(-upscaler, -renderrows, -shadowlevel, -shadowres, -roofskip) override them for one run. The keys J, K, F1, F4 change " +
             "things for this session only.\n" + (_note ?? $"file: {_path}") + "</color>", _small);
 
         GUI.matrix = prev;
