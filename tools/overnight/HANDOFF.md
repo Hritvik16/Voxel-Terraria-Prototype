@@ -1,56 +1,58 @@
-# 66-gameplay-step-3: DONE. Map v4 has ores (copper/iron/gold/cobalt/emberstone by depth, density by biome x landform); dug ore lands in the hotbar. Ore is SPARSE (0.026% of rock) because of the plan's memory rule.
+# 66b-underwater-view: DONE. With the eye inside water you now see the lake bed and walls through blue-green fog, and the surface from below. Above water nothing changed (rig shots byte-identical).
 
-## What changed (branch `engine-phase`, commit f97bc0b)
-- NEW `Assets/TerrainGen/Ores.cs`: GenMat 65-69, one ore per layer (stone copper, deep stone iron to sea-100 m, gold below, cavern rock
-  cobalt, underworld emberstone). Integer hash per 32^3 cell -> at most one deposit in the cell's 2x2x2 inner bricks (1, 2 or 4 bricks),
-  one ellipsoid per brick (half-axes 2.5-3.5 voxels, ragged rim). `OreTable`: landform x biome multiplier (11 x 6, 1/16ths) -> per map cell plane.
-- `DetailField`: `ColumnDetail.oreMul` (x1 on v4, 0 on v3); ore replaces layer rock only, deeper than 6 m (no soil/surface/stamps/cliffs).
-- `TerrainGenChunkSource`: 1 MB ore plane from the world record into the column job. `DevMap`: same plane; Z now cycles island/local/CLOSE
-  (32 m at 1 voxel per pixel) + ore legend. Palette D colours (`tools/palette_defs.py` -> MaterialRules + Raymarch.compute), item names.
-- `Playground.OreDemo.cs` (`-oredemo`): finds an exposed deposit near spawn, torch-lit shot, digs it via SurvivalDig, E panel, dev map slice.
-- No frozen API, no memory-layout change (new palette entries only). v3 untouched (oreMul 0; `MapV3_HasNoOre`).
+## Why it was black
+With the eye inside a water voxel, the primary ray's first read was that voxel: `mat != 0`, so a "hit" at t = 0 with normal
+(0,0,0). Its sun and sky rays also started inside the water, giving sunVis 0 and skyVis 0. The face shaded to near-black.
+
+## What changed (branch `engine-phase`, commit 892c4f9)
+- `Raymarch.compute`: `passMat` = the fluid the eye is in (water, honey, oil, acid, sludge, quicksand), or 0. Every primary-march hit
+  test is now `mat != passMat`, which is exactly the old `mat != 0` when the eye is not in a fluid. Inside a fluid: air-mip leaps off,
+  tier forced to 0, the march ends where per-fluid extinction reaches 98% (17.8 m for water). The ray stops on any other material
+  (bed and walls shaded as usual) or on AIR (the surface from below: sky inside Snell's window, cos 0.66, the fluid's light outside it).
+  The fog uses per-fluid rgb extinction: transmittance exp(-d x ext) along the view. Light fades with depth below the fluid's top
+  (`FluidTopAbove`: <= 48 reads up from the eye, skipping whole fluid bricks).
+  Under a fluid: no sun/sky shadow rays (sunVis 0.8, skyVis 1), no FaceAO (it counted the water as occluders), no far band.
+  **Lava and steam are unchanged**: the eye in lava still draws near-black (simplest; the player is burning).
+- `RaymarchFeature.UnderwaterView` (static, default true) -> `_UnderwaterView`. `PlaySettings.underwaterFog` (default on; an old file
+  gets on), `-underwater 0|1`, and an F6 row "Underwater view" On/Off (Off = the old black). Rigs keep the default; no rig pose is under a fluid.
+- `-movedemo`: new shots 2a (eye 1 m under), 2b (eye 6 m under), 2b_view_off (same pose, view off), 2c (6 m, looking up 60 deg).
+  The eye is held by re-teleporting each frame, and the dive pose is restored before the release check.
+- `PlaySettingsTests`: new `UnderwaterFog_OldFileGetsOn_FlagOverridesForTheRun` test; the round-trip test now covers the field.
+  CLAUDE.md: one line under Commands.
+- No fluid-sim change, no memory-layout change, no frozen API touched. The CPU is still the sole terrain writer.
 
 ## Evidence
-- `SUITE=all` PASS 722 FAIL 0 SKIP 19 (Logs/overnight/66-all2.out). New `OreTests` (5): placement Burst == Mono and repeats, other seed
-  differs; v3 no ore; per-pair x layer cell chance within +-25% of the table (all 330 entries); real chunks (seed 42, 4 sites x 12 chunks,
-  Burst): 0 ore outside layer rock, 0 outside its band, 0 within 6 m of the top, deterministic, ore < 0.5% of rock, every layer has ore,
-  ring-set mixed bricks <= +5% (asserted). `AirFastPath_IsExact` reference now uses the same plane (it caught 12 ore voxels).
-- Report (REPORTS=1) `Screenshots/66/ore_report.txt`: ore 24,726 / 94.07 M rock voxels = 0.026%; mixed bricks, ring set (top chunk + 7 below
-  x 4 sites) 4,694 -> 4,882 (+4.0%, +5.9 bricks = 2.9 KB per chunk; +24 MB on V0's 16-layer ring projection). Sampled sites were desert/jungle only.
-- History of the density: free 0.3-1.2 m blobs at ~0.17% ore made deep chunks 213 -> 1,471 mixed bricks (+590%); brick-shaped deposits pack
-  ~89 ore voxels per mixed brick (was ~56); at x1 they measured +7.8% on the ring set, so bases were cut x0.55.
-- Play (`BUILD=1 EXTRA="-oredemo" ./run-play.sh`, Player.log): 786 deposits in 10,934 cells searched; exposed copper 66 m from spawn, 23.8 m
-  under the top; loaded world matches TerrainGen (copper at the voxel); dug 486 voxels -> 119 copper ore + 367 orange sandstone.
-- Memory: +1 MB plane, +4 B per column per ColumnPass (+64 KB each), mixed bricks above. No frame-time measurement (owner rule).
+- Fast EditMode `PASS 691 FAIL 0 SKIP 14`, run before and after the final shader edit (Logs/overnight/66b-fast.out, 66b-fast2.out).
+- `run-phase7-rig.sh` PASS 37 FAIL 0 (Logs/overnight/66b-phase7.out, run 2026-10-11_084304). Gate 3: 430 agree / 8 disagree = 98.17%,
+  same as every default run since 10-10 (04:59, 20:47, 22:41). **All 19 shots are md5-identical to the 2026-10-10_224138 run.**
+  The 02:28 run is the odd one out (426/12, 8 sun shots differ); it was most likely task 61's half-res arm, not the default.
+- Play (`BUILD=1 EXTRA="-movedemo" ./run-play.sh`, Logs/overnight/66b-demo-player.log): lake at int3(41612, 6477, 43148), surface 647.8 m,
+  bed 6.7 m below the shot spot. Shots at eye 1.00 m and 6.00 m under, noon. Release floats back in 5.6 s (task 65: 5.8 s).
+- Shots looked at: 1_swim_surface matches task 65's (opaque blue water from above, the same dark hillside top right).
+- Cost: not measured (owner rule). Eye-in-fluid pixels walk dense water bricks voxel by voxel up to 17.8 m, plus <= 48 coherent
+  reads up. The demo HUD showed 61-71 fps under water vs 43-45 at the surface shot; that is not evidence, but nothing looks expensive.
 
 ## Picks (owner may change)
-- Deposits are brick-shaped 0.5-0.7 m blobs, clustered 2-4 to ~1.6 m (P19 said 0.3-1.2 m; changed for memory, see above).
-- Base chance per 32^3 cell (of 65,536): copper 3300, iron 2500, gold 1650, cobalt 1300, ember 820. Gold/iron split at sea - 100 m.
-- Table: alpine/breaks 1.5x, volcanic 1.63x, canyon 1.38x, plateau 1.25x, highlands/sea cliffs 1.13x, dunes/sea 0.75x, plains 0.63x,
-  wetland 0.5x; biome: snow 1.13x, badlands 1.25x, jungle 0.88x. Favoured x2: forest copper, savanna iron, desert+badlands gold, snow cobalt, jungle ember.
-- Colours: copper verdigris green 3faa86, iron rust c08a6a, gold eac43c, cobalt 4a6ff0, ember ff5530; none emissive. Acid does not eat ore.
-- Ore only deeper than 6 m under the column top: cliff faces have none (plan step 12 does cliff veins).
+- Water extinction per metre r/g/b 0.60/0.30/0.22 (bed readable to ~6-8 m). Honey 0.9/1.4/3.0, oil 3.0/3.2/3.5, acid 1.0/0.35/1.4,
+  sludge 1.5/0.6/1.8, quicksand 6/7/9. The depth light fade uses half of these.
+- No terrain shadows under water. A flooded cave is lit as open water, dimmed only by the depth below the fluid top above the eye.
+  The surface from below is a flat colour (no refracted world above). Oil floating on water looks like an opaque ceiling from below.
 
-## Unfinished / notes
-- Sparse ore is the cost of the 5% rule. Each doubling of density costs about +24 MB on the V0 ring projection. A cheaper idea (owner call,
-  it's design): put deposits mostly in bricks that already hold cave air (cave walls), which costs almost no memory.
-- Cave shot is torch-lit (underground, no sun). The legend change came after the demo build: shot 4 has no ore legend row.
-- Engine step 10 (coarse-first) must treat ore as its host rock (plan note).
-
-## Next step
-- Task 67 = plan step 4 (start on the best easy area).
+## Unfinished / next
+- Not checked: torch light under water (`TorchRayBlocked` may treat water as a blocker); the eye inside oil/sludge/acid has no shots.
+- Next queued task as the queue says.
 
 ## For the doc
-Task 66: gameplay step 3, ores. Map v4 now has five ores, one per depth layer (copper, iron, gold, cobalt, emberstone), more in mountains,
-volcanic ground and breaks, fewer in plains and wetlands, each biome favouring one. In `./run-play.sh`: dig into tunnel walls (LMB in
-Survival) and the ore goes into the hotbar like any block; O then Z three times shows a 1-voxel dev map slice with deposits. Picks: above.
-- Ore share of rock 0.026% (24,726 of 94.07 M voxels, 48 chunks, Screenshots/66/ore_report.txt).
-- Mixed bricks on ring-shaped chunks 4,694 -> 4,882 (+4.0%, limit 5%; ~+24 MB on V0's ring projection).
-- Ore voxels per mixed brick ~56 -> ~89 (brick-shaped deposits); first-draft density would have been +590% mixed bricks in deep chunks.
-- Tests: whole suite 722 passing, 0 failing; 5 new OreTests (Logs/overnight/66-all2.out).
-- `Screenshots/66/1_cave_wall_ore.png` -- a tunnel 24 m underground, torch-lit: left of centre, two green copper blobs in the orange
-  sandstone wall; the cream square between them is the torch.
-- `Screenshots/66/2_hotbar_ore.png` -- the same wall after digging: the lower blob is a hole; bottom centre, slot 3 holds 119 copper ore
-  (teal); top left "+119 copper ore".
-- `Screenshots/66/4_devmap_close_slice.png` -- bottom-left panel: a 32 m slice at the deposit's height, 1 voxel per pixel; the black curve is
-  the tunnel, the teal dots in the orange sandstone are copper deposits (~12 in the square); the white cross is the one in shot 1.
+Task 66b: underwater view. Diving used to show a black screen. Now, with your eyes in water, you see the lake bed and walls tinted
+blue-green, fading into fog after a few metres, and looking up shows a brighter patch where the sky is. Above water nothing changed.
+F6 "Underwater view" turns it off.
+- Frame under water: black -> lit bed + fog (Screenshots/66b/2b_under_6m_view_off.png -> 2b_under_6m.png).
+- Phase 7 rig: PASS 37 FAIL 0 both before and after; all 19 shots byte-identical to the last default run; Gate 3 98.17% unchanged.
+- Fast EditMode: 691 passing, 0 failing (1 new test).
+- `Screenshots/66b/2b_under_6m_view_off.png`: BEFORE. Eye 6 m under at noon: all black except the HUD and the yellow build cursor.
+- `Screenshots/66b/2b_under_6m.png`: AFTER, same pose. The sandy lake bed 0.7 m below the eye, its voxel steps green-tinted
+  (red absorbed at depth); the step tops are lighter, the sides darker.
+- `Screenshots/66b/2a_under_1m.png`: eye 1 m under, looking 35 deg down. The left half is the bed, blue-tinted; the right half is the deeper
+  water fading to flat blue fog.
+- `Screenshots/66b/2c_look_up_surface.png`: 6 m under, looking up. The brighter top right is the sky through the surface (Snell's
+  window); the dark slope bottom left is the lake wall.
