@@ -1,37 +1,37 @@
-STOP_FOR_OWNER -- Roof skip makes play SLOWER on tg2, so I left it OFF. Pick one:
-(a) keep it OFF; step 8 picks another shadow cut (recommended);
-(b) ON anyway (it saves 1.5 ms only facing a wall at noon);
-(c) a follow-up that rebuilds the pyramid only when the mirror changes. That saves at most the ~3 ms build, so it is roughly break-even with OFF.
+STOP_FOR_OWNER -- Amendment 8.14 draft is written (`AMENDMENT_8_14_LOD_SHELLS_DRAFT.md`). It needs the owner's answers before step 10. "All (a)" approves it.
+1. Q1. Shell sizing: (a) 720 rows (~+150 MB, +15% generation vs 540, est.); (b) 540; (c) 720 near (shells 0-2), 540 beyond.
+2. Q2. Hand-over: (a) where the finer voxel reaches 1 px (the coarser arrives at 2 px; the 2026-09-25 strict test looked no better and cost +6 ms); (b) strict ≤ 1 px (~2x terrain memory, over 3 GB at 720); (c) strict for shell 0 only (+300 MB).
+3. Q3. Op log vs D.1: (a) by time order (op count at save, kept in the new op file; D.1 frozen); (b) ops then D.1 (a later far op is lost in dug bricks); (c) a new D.1 version (frozen-format redesign).
+4. Q4. Awake fluid outside the smaller window: (a) stays resident inside the 32-chunk CPU ring, no new §4.4 state; (b) a new §4.4 "patch" state now (redesign); (c) don't shrink near awake fluid.
+5. Q5. Coarse-first pass line: (a) centre sample, ≥ 97% solid/air agreement in surface bricks + ≥ 99% column heights within 1 coarse voxel; (b) corner sample (Q19 4a); (c) 90%.
+6. Q6. Far band: (a) keep it beyond the last shell, retire at step 23 if shells cover the horizon; (b) retire at step 11; (c) keep it for good.
 
-# 59-engine-8-roofskip-on: STOPPED. Exact (0 px) and Gate 3 green, but ON is slower in 3 of 4 warm arms. The play default is OFF; the toggle is in the menu.
+# 60-engine-9-amendment-8-14-draft: DONE (planning only). Draft committed; owner decision needed.
 ## What changed (branch `engine-phase`)
-- d3b7c38: `PlaySettings.roofSkip` (saved; `-roofskip 0|1` overrides it per run, last match wins). `SettingsMenu` row "Roof skip" under Shadow quality (panel 634 px tall). Cost split: capture-only `-costarms a,b` (subset or repeats), `-costsun DEG` (evening sun DEG up), and arm `roof_on`. `run-phase7-rig.sh` passes `EXTRA`. `run-play.sh` comment updated. +1 PlaySettings test.
-- 0bd1b4a: default `roofSkip = false` after the A/B (a file saved by task 58 also gets OFF). The menu hint quotes the numbers. Diagnostic arm `roof_build` (`RaymarchFeature.DebugRoofBuildOnly`: builds the pyramid but the march ignores it; capture-only).
-- Rigs and capture runs are unchanged (OFF unless they pass `-roofskip 1`).
-
-## Evidence
-- Exactness, `-roofskipab` (9 poses, release, fullscreen). Run 2: beauty 0 px and sun visibility 0 px at all 9 poses; steps/ray 68.6 -> 41.6 (-39%) (`Logs/overnight/59_roofskipab2.out`). Run 1: high_golden differed on all 2,073,600 px because its OFF frame (skip not active) was blank; sun visibility was 0 px there too. I treated it as a capture glitch, not the skip, because run 2 was clean. Images below.
-- Gate 3, `EXTRA="-roofskip 1" run-phase7-rig.sh`: 430/438 = 98.17% (>97%), the same 8 mismatches as today's OFF run 204717. Rig PASS 37 FAIL 0 (`Logs/overnight/59_phase7.out`).
-- Warm A/B at WARM STEADY STATE. Warm-up `Logs/tg2world_20261010_224242.txt` (discarded), then back to back. Each launch runs F R R F R R F on both arcs (ABBA x2), FSR 3 at 540, fullscreen 1920x1080. p50 / p99 ms; "slower" = ON costs more:
-| sun | arc | OFF p50/p99 | ON p50/p99 | ON - OFF | in-launch noise |
-|---|---|---|---|---|---|
-| noon 78 deg | walk_near (wall) | 48.0 / 56.7 | 46.6 / 57.5 | **-1.5 (faster)** | 0.0-0.1 |
-| noon 78 deg | walk_open | 28.7 / 33.6 | 32.2 / 37.0 | **+3.5 slower** | 0.0-0.3 |
-| golden 10 deg | walk_near | 36.7 / 45.5 | 39.0 / 49 | **+2.3 slower** (1.9/2.6) | 0.1-0.3 |
-| golden 10 deg | walk_open | 34.9 / 41.8 | 39.6 / 50 | **+4.8 slower** (5.5/4.1) | 0.0-0.8 |
-  Logs: `Logs/costsplit_2026-10-10_224908.txt` (noon), `_225726.txt` (10 deg). Every difference is well above 57's noise floor (1.4-1.6 ms).
-- Cause, isolated (`Logs/costsplit_2026-10-10_230831.txt`, 10 deg, same launch). Pyramid build alone (`roof_build`): +3.4 ms near, +3.0 ms open. Build plus skip (`roof_on`): +2.9 ms near, +3.8 ms open. So the per-frame build (BuildHeightRaw scans every column of the tg2 window top-down) costs ~3 ms. The skip itself saves only 0.6 ms (near) or costs 0.8 ms (open): tg2's tall terrain keeps the coarse pyramid levels high, so a step pays up to 6 height reads and rarely skips. September's win was on Playground's low terrain.
-- Fast suite PASS 648 FAIL 0 SKIP 14, 0 `error CS` (`Logs/overnight/59_fast2.out`).
-
+- 5ad05a4: `AMENDMENT_8_14_LOD_SHELLS_DRAFT.md` (new, the only file). No code, no Unity, no builds, no rigs.
+## Evidence / sources (nothing measured; every number has a source or "(est.)")
+- Memory baseline: task 55's ledger (`Logs/overnight/55_pool_ledger.out`): terrain owners 1,322 MB; pool peaks tier0 379,527, t1 76,150, t2 16,045. Task 53 peaks: poses 82,641 / 16,437; phys_footprint poses 3,077, walk 2,869 MB.
+- Frame time: task 57 (`git show 572f5f8:tools/overnight/HANDOFF.md`): 49.4 / 30.4 ms; tiers 0.3 / 2.9; far band 1.8 / 3.8.
+- Generation capacity 23-37 chunks/s warm (task 28, plan E3); column cost split from `PLAN_COARSE_FIRST_GEN.md` §3.1.
+- Rule-B evidence: `LODConfig.cs:50-58` (2026-09-25: strict bounds no better, 11.7 vs 11.4/255, +6 ms).
+- Geometry for the shell tables: formula in the draft §2 (shells, pow2 rings, hollow, horizon 6.6 km, world 8 km × 1.1 km).
+## Findings worth knowing
+- The plan's "720 costs 1.78x" is ~1.3x once rings snap to chunks and the horizon cuts the last shells (est.).
+- The plan's wording "each shell starts where its voxel is ≤ 1 px" (rule B) and its "full detail 52-70 m" (rule A) disagree. Q2 settles it. Rule B at 720 would put the process back over 3 GB.
+- Today's GPU mirror directory is 128 MB GPU + 128 MB managed (32×32×8 chunk slots × 16 KB, `TerrainClipmap.cs:226-241`). A 16³ mirror box halves it. Rule B's 32³ shell 0 would make it 1 GB, so rule B also forces a §3.7 layout change.
+- Shells are NOT a frame-rate win (est. −1.6 to +0.4 ms near, −0.8 to +2.7 open). The ~19 / ~8 ms main march is untouched.
+- Full detail keeps up to ~7-11 m/s at 720 sizing (est.); above that the coarser shell shows (Q2 (a) of the plan).
 ## Not done / next
-- The menu row was not clicked (headless). Fast suite only; no terrain code changed.
-- Next, after the owner answers: step 8's ONE shadow change. If (a), step 8 is still open. 57's ranking says sun shadows cost 14.2 / 4.2 ms; rung 1 (half-res beyond LOD1) has never been measured on tg2.
+- Nothing to build until the owner answers. Then step 10 (coarse-first generation) uses Q5's line; step 11 builds shells.
+- Plan step 8 (one shadow-cost change) is still open from task 59's STOP.
 
 ## For the doc
-- Exact: 0 differing px at 9 poses (run 2); Gate 3 98.17% with ON, the same as OFF; rig PASS 37 FAIL 0.
-- Noon, p50 OFF -> ON: wall 48.0 -> 46.6 ms (20.8 -> 21.5 fps); open 28.7 -> 32.2 ms (34.8 -> 31.1 fps). `Logs/costsplit_2026-10-10_224908.txt`
-- Sun 10 deg, p50 OFF -> ON: wall 36.7 -> 39.0 ms (27.2 -> 25.6 fps); open 34.9 -> 39.6 ms (28.7 -> 25.3 fps). `Logs/costsplit_2026-10-10_225726.txt`
-- Cause: the pyramid build alone costs +3.0-3.4 ms/frame; the skip saves <=0.6 ms. `Logs/costsplit_2026-10-10_230831.txt`
-- Result: play default stays OFF; "Roof skip" On/Off is in the F6 menu.
-- Image `Screenshots/59/golden10_walk_near_roof_on.png`: walk_near at sun 10 deg, roof skip ON, FSR 3 at 540. The right half is the lit orange canyon wall with the sun behind-left; the lower left is covered by the debug HUD. The OFF frame for comparison is `golden10_walk_near_off.png`.
-- Images `Screenshots/59/run1_high_golden_OFF_blank.png` / `_ON.png` / `_DIFF.png`: exactness run 1's glitch. The OFF frame (skip not active) is blank (blue with a dark top band), the ON frame shows terrain, and the DIFF is magenta over the whole frame. Run 2's same pose matched exactly (`run2_high_golden_ON.png`).
+**For the owner** (from the draft):
+- What changes: today's 3 voxel tiers (voxels only to ~128 m, then the flat far band) become 8 nested cube shells, 0.1 m to 12.8 m voxels, out to 6.6 km, vertically too.
+- What it buys: real 3D terrain to the horizon. The 0.1 m area shrinks from 128 m to ~80 m, saving ~470 MB (est.). A late chunk shows a coarser shell, not a hole.
+- What it does not buy: frame rate. The main march (~19 / ~8 ms, task 57) stays; shells cost about the same as tiers + far band (−1.6 to +2.7 ms, est.).
+- Costs: steps 10-14 as planned. Full detail keeps up only to ~7-11 m/s (est.); faster, the coarser shell shows briefly.
+- Frozen and still frozen: GetVoxel, SetVoxel, the D.1 bytes, the §4.4 table. New beside them: an edit-op log file.
+**Numbers:** terrain memory 1,322 → ~855 MB (est., `Logs/overnight/55_pool_ledger.out` as today); poses peak 3,077 → ~2,340 MB (est., task 53 + 55 + this); 0.1 m window radius 128 → 82 m; voxel at hand-over ≤ 2 px at 720 rows, ≤ 1.5 px at 540; upload at 5 m/s 0.23 MB/frame vs the 3 MiB cap.
+**Questions:** Q1-Q6 exactly as at the top of this file.
+**Images:** none. This is a planning task, and nothing visible changed.
