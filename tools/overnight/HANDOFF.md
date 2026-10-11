@@ -21,14 +21,7 @@
   7.31 m over a 3.8 m gap; dash peak 14.00 m/s, 2.61 m. Build = 9ba2bca + the demo edits of 33248b7 (one log-format fix after).
 - No frame-time measurement (owner rule). Memory: a few floats per motor.
 
-## Top speeds (P14)
-| move | top speed | where |
-| --- | --- | --- |
-| walk | 5.2 m/s | config; play "walk top 5.20" |
-| swim, water | 3.0 m/s (oil 1.8, acid 2.6, lava 0.75, sludge 0.5) | tests + play dive "3.00" |
-| idle float up | 1.0 m/s | config |
-| dash peak | 14.0 m/s for 0.18 s = 2.52 m | tests + play "14.00" |
-| fall terminal | 55 m/s | config (unchanged) |
+Top speeds (P14): walk 5.2, swim 3.0 (oil 1.8, acid 2.6, lava 0.75, sludge 0.5), float up 1.0, dash peak 14.0, fall 55 m/s.
 
 ## Picks (owner may change)
 - Swim = Buoyancy Center probe (half the body) in a LIQUID; steam (gas) is not swum. Idle float point 1.3 m (eye 0.3 m out).
@@ -45,10 +38,7 @@
 - **Underwater is black.** With the eye inside a water voxel the raymarcher draws black (and water is opaque from above),
   so the plan's "underwater view of a lake bed" shot can't exist yet. Recommended task (renderer, needs owner approval
   as it touches the raymarch shader): when the eye is in fluid, march through fluid cells with a depth tint/fog.
-- Tests use a synthetic IWorldQuery (as PlayerMotorTests do), not a ChunkStore.
-- Re-run check (2026-10-11): the session was restarted after the task was done; verified fast suite ran on the final
-  code (03:55:55, before commit 33248b7) and shots exist; only this HANDOFF was committed.
-- The demo leaves two stone runways in that world (fresh world by default, so gone next run).
+- Session restarted after the task was done: fast suite verified on final code; only HANDOFF committed.
 
 ## Next step
 - Task 66 = plan step 3 (ores by depth and biome x landform). Supervisor: consider queueing the underwater view.
