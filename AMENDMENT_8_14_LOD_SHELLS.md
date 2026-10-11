@@ -1,7 +1,15 @@
-# Amendment 8.14 (DRAFT, NOT ADOPTED) -- LOD shells, an edit-op log, and a smaller 0.1 m window
+# Amendment 8.14 (ADOPTED 2026-10-11) -- LOD shells, an edit-op log, and a smaller 0.1 m window
 
 2026-10-10 · task 60 (engine plan step 9, planning only). Revised 2026-10-11 · task 62: shells scale to the hardware.
-Nothing here is built or approved.
+**ADOPTED 2026-10-11** (owner, in chat: Q43 "Approve all (a)"; recorded by task 74). Owner answers:
+Q1 replaced by hardware-scaled shells (§H; the M1 gets High = 720 rows); Q2 (a) rule A, hand over where the finer
+voxel reaches 1 px; Q3 (a) op log and D.1 by order of time (seq side table, D.1 frozen); Q4 (a) awake fluid stays
+resident inside the 32-chunk CPU ring; Q5 (a) coarse-first pass line = centre sample, >= 97% solid/air, >= 99% heights
+within 1 coarse voxel; Q6 (a) far band kept beyond the last shell; Q7 (a) four presets Low/Medium/High/Ultra;
+Q8 (a) auto-pick = lowest of memory/GPU/CPU tiers, no benchmark; Q9 (a) preset change applies on restart;
+Q10 (a) the preset sets the default FSR 3 row range; Q11 (a) render range never changes on its own.
+Built so far: nothing before task 74 (engine step 10, coarse-first generation). The text below is the draft as
+approved; "draft" in it means this document.
 Amends: ARCHITECTURE_v8.6 §3.7, §4.2, §4.3, §6.4, Appendix A/D; 8.9 §2-3; 8.10 (cascade tiers 1-2).
 Supersedes: 8.11 (a draft, never adopted; its "Option B, a true cascade" is what this is).
 Inputs: `ENGINE_PHASE_PLAN.md` §3 step 9 and §4 rows 1-4, owner answers Q1 (a), Q2 (a), Q38 (a); owner answers to
