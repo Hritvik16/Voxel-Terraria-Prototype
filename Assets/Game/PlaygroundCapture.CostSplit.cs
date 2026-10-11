@@ -53,6 +53,10 @@
 //                     half  the shipped switch: RaymarchFeature.ShadowHalfRes
 //                       (edge-aware half-res at all distances, rung unchanged);
 //                       FULL keeps the launch's value (`-shadowres`)
+//   TASK 75: see_on  see-through liquids ON (RaymarchFeature.SeeThroughLiquids);
+//                       FULL keeps the launch's value (OFF unless -seethrough 1)
+//            -costpaths lake  two still poses instead of the walk arcs: lake_shore
+//                       (over a map lake, sun behind) and lake_away (same eye, facing the sun)
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -130,9 +134,15 @@ public partial class PlaygroundCapture
         string stills = Path.Combine(root, "stills");
         Directory.CreateDirectory(stills);
         var tables = new StringBuilder();
-        foreach (var (pname, a0) in new[] { ("walk_near", aNear), ("walk_open", aOpen) })
+        // TASK 75: -costpaths lake -- two STILL poses instead of the walk arcs: a
+        // lake shore looking out over the water (sun behind), and the same spot
+        // turned to face the sun (no water in view; check its still).
+        var pathList = new List<ClipPath>();
+        if (ArgValue("-costpaths") == "lake") pathList.AddRange(CostLakePaths(centre, sun, hours));
+        else
+        foreach (var (pname0, a0) in new[] { ("walk_near", aNear), ("walk_open", aOpen) })
         {
-            var path = new ClipPath { name = pname, hours = hours, moving = true, lead = 0,
+            var path = new ClipPath { name = pname0, hours = hours, moving = true, lead = 0,
                                       pos = new Vector3[(int)(RatePathSeconds * 30f) + 1],
                                       rot = new Quaternion[(int)(RatePathSeconds * 30f) + 1] };
             for (int f = 0; f < path.pos.Length; f++)
@@ -145,6 +155,11 @@ public partial class PlaygroundCapture
             }
             path.note = $"MODE=walk circle centre {centre:F0} r {radius:F0} m, arc from {math.degrees(a0):F0} deg, {speed:F0} m/s, " +
                         $"heading yaw {path.rot[0].eulerAngles.y:F0} -> {path.rot[path.rot.Length - 1].eulerAngles.y:F0} (sun yaw {math.degrees(math.atan2(sun.x, sun.z)):F0})";
+            pathList.Add(path);
+        }
+        foreach (var path in pathList)
+        {
+            string pname = path.name;
             L("");
             L($"== {pname}: {path.note}");
             RatePose(path, RatePathSeconds * 0.5f, out Vector3 mid, out _);
@@ -234,6 +249,9 @@ public partial class PlaygroundCapture
         RaymarchFeature.ShadowHalfRes = arm == "half" || _costBaseHalf;
         FarField.RenderEnabled = arm != "far_off";
         RaymarchFeature.UseLODCascade = arm != "tiers_off";
+        // Task 75: see_on turns see-through liquids ON; FULL keeps the launch's
+        // value (OFF unless -seethrough 1), so saved = OFF - ON (negative = its cost).
+        RaymarchFeature.SeeThroughLiquids = arm == "see_on" || _costBaseSee;
         Playground.DebugSuspendFluidSim = arm == "fluid_off";
         Playground.DebugHideUi = arm == "hud_off";
         Minimap.Visible = arm != "hud_off";
@@ -243,7 +261,37 @@ public partial class PlaygroundCapture
     private static int _costBaseShadow = -1, _costBaseTorch = -1;
     private static bool _costBaseRoof;
     private static float _costBaseRung1;
-    private static bool _costBaseHalf;
+    private static bool _costBaseHalf, _costBaseSee;
+
+    /// Task 75: the lake poses, at -liquiddemo's lake (Playground.FindDemoLake:
+    /// the nearest map LAKE, 40 m across, >= 3 m deep) and its edge toward the
+    /// sun. The eye stands 3 m past the edge, 1.6 m over the ground or the water
+    /// level, whichever is higher (a generated lake can stand above the land next
+    /// to it; the first try put the eye under such a wall). lake_shore looks back
+    /// over the water (sun behind), 8 deg down; lake_away is the same eye facing
+    /// the sun, level.
+    private List<ClipPath> CostLakePaths(Vector3 centre, float3 sun, float hours)
+    {
+        var list = new List<ClipPath>();
+        float2 toSun = math.normalizesafe(new float2(sun.x, sun.z));
+        if (!Playground.FindDemoLake(new int2((int)(centre.x * 10f), (int)(centre.z * 10f)), toSun, out float2 lake, out float2 edge, out int waterTop))
+        { L("  -costpaths lake: no lake (or not a tg2 world)"); return list; }
+        float2 shore = edge + toSun * 30f;
+        var eye = new Vector3(shore.x * 0.1f, 0f, shore.y * 0.1f);
+        eye.y = math.max(WalkEyeY(eye.x, eye.z, centre.y), (waterTop + 1) * 0.1f + 1.6f);
+        var look = new Vector3(-toSun.x, 0f, -toSun.y);
+        foreach (var (name, rot) in new[] { ("lake_shore", Quaternion.LookRotation(look, Vector3.up) * Quaternion.Euler(8f, 0f, 0f)),
+                                            ("lake_away", Quaternion.LookRotation(-look, Vector3.up)) })
+        {
+            int n = (int)(RatePathSeconds * 30f) + 1;
+            var path = new ClipPath { name = name, hours = hours, moving = false, lead = 0, pos = new Vector3[n], rot = new Quaternion[n] };
+            for (int f = 0; f < n; f++) { path.pos[f] = eye; path.rot[f] = rot; }
+            path.note = $"still pose, eye {eye:F1} (1.6 m over the ground), lake point {lake * 0.1f} m, " +
+                        $"lake centre {math.length(shore - lake) * 0.1f:F0} m away, water level {(waterTop + 1) * 0.1f:F1} m, yaw {rot.eulerAngles.y:F0}, pitch {rot.eulerAngles.x:F0}";
+            list.Add(path);
+        }
+        return list;
+    }
 
     /// One timed run: settle at pose 0 with the arm applied, history reset, a
     /// still (first pass only), then the path by real time; the frames after
@@ -251,7 +299,7 @@ public partial class PlaygroundCapture
     private IEnumerator CostTime(ClipPath path, CostRun r, float timed, string still, Camera cam,
                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
     {
-        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; }
+        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; }
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);

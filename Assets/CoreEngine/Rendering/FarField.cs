@@ -66,6 +66,12 @@ namespace VoxelEngine.Rendering
 
         public const uint FLAG_WATER = 1u;
 
+        /// Task 75: a WATER texel also carries its depth -- water voxels above the
+        /// ground, clamped to 127 (12.7 m) -- in bits 25-31, so the shader can make
+        /// far water as see-through as near water without a march. Read only when
+        /// see-through liquids are on; the spare flag bits were zero before.
+        public static uint DepthBits(int depthVoxels) => (uint)math.clamp(depthVoxels, 0, 127) << 25;
+
         // ---- the engine-facing switch ----
         public static FarField Active { get; private set; }
 
@@ -535,7 +541,7 @@ namespace VoxelEngine.Rendering
         {
             const int SEA = WorldGenConstants.SEA_LEVEL_VOXEL_Y;
             if (columnHeight < SEA)
-                return (uint)(SEA + 1) | ((uint)Materials.Water << 16) | (FLAG_WATER << 24);
+                return (uint)(SEA + 1) | ((uint)Materials.Water << 16) | (FLAG_WATER << 24) | DepthBits(SEA - columnHeight);
             return (uint)(columnHeight + 1) | ((uint)surfaceByBiome[biome] << 16);
         }
 
@@ -609,10 +615,11 @@ namespace VoxelEngine.Rendering
                 byte gm = TerrainGen.DetailField.TopMaterial(in spec, in c, step, in o, (int)gx, (int)gz);
                 int top = c.height + 1 - seaShift;
                 if (c.height < spec.seaLevelY)
-                    output[i] = (uint)(spec.seaLevelY + 1 - seaShift) | ((uint)Materials.Water << 16) | (FLAG_WATER << 24);
+                    output[i] = (uint)(spec.seaLevelY + 1 - seaShift) | ((uint)Materials.Water << 16) | (FLAG_WATER << 24) | DepthBits(spec.seaLevelY - c.height);
                 else if (c.water > c.height)   // map v2: a lake or river (or the caldera's lava) over this column
                     output[i] = (uint)math.clamp(c.water + 1 - seaShift, 0, 65535)
-                              | ((uint)(c.waterKind == 1 ? Materials.Lava : Materials.Water) << 16) | (FLAG_WATER << 24);
+                              | ((uint)(c.waterKind == 1 ? Materials.Lava : Materials.Water) << 16) | (FLAG_WATER << 24)
+                              | (c.waterKind == 1 ? 0u : DepthBits(c.water - c.height));
                 else
                     output[i] = (uint)math.clamp(top, 0, 65535) | ((uint)genToEngine[gm] << 16);
             }

@@ -255,6 +255,11 @@ Task 66b: eye inside water/oil/sludge/acid/honey/quicksand sees through it (tint
 Raymarch.compute `passMat`, 0 = the old path); F6 "Underwater view" / `-underwater 0|1`; lava unchanged; `-movedemo` shoots it.
 Task 73: `EXTRA="-riverdemo [-riverlook]"` shoots 4 river sites (slope, lake inlet, 10 m drop, mouth) near/mid/far, off/on;
 `-riverlook` = a throwaway shading-only prototype, OFF by default (`RIVERS_WATERFALLS_PLAN.md`: rivers are 8 m-cell slabs).
+Task 75: liquids seen from above/the side are SEE-THROUGH, each by its own clarity (Raymarch.compute `FluidExtinction`,
+one table with 66b: water ~5 m, acid 1.5, honey 1, sludge 0.5, oil 0.2 m; lava opaque; the far band too, from depth bits
+25-31 of its water texels). F6 "See-through liquids" / `-seethrough 0|1`: on in play, OFF in rigs/capture runs (byte-identical).
+`EXTRA="-liquiddemo"` shoots test pools + a lake shore/near/mid/far, off and on; cost: `run-cost-split.sh` with
+`EXTRA="-costarms see_on,see_on -costpaths lake"`.
 
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change

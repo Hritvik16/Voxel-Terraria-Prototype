@@ -29,7 +29,7 @@ public class PlaySettingsTests
         string path = Path.Combine(Path.GetTempPath(), "PlaySettingsTests_" + System.Guid.NewGuid().ToString("N"), PlaySettings.FileName);
         try
         {
-            var a = new PlaySettings { upscaler = "stp", rows = "720", shadowLevel = 2, softShadows = false, perfOverlay = 2, minimap = false, roofSkip = true, underwaterFog = false };
+            var a = new PlaySettings { upscaler = "stp", rows = "720", shadowLevel = 2, softShadows = false, perfOverlay = 2, minimap = false, roofSkip = true, underwaterFog = false, seeThroughLiquids = false };
             Assert.IsTrue(PlaySettings.Save(path, a, out string werr), werr);
             var b = PlaySettings.Load(path, out string rerr);
             Assert.IsNull(rerr);
@@ -41,6 +41,7 @@ public class PlaySettingsTests
             Assert.IsFalse(b.minimap);
             Assert.IsTrue(b.roofSkip);
             Assert.IsFalse(b.underwaterFog);
+            Assert.IsFalse(b.seeThroughLiquids);
         }
         finally { Directory.Delete(Path.GetDirectoryName(path), true); }
     }
@@ -143,6 +144,27 @@ public class PlaySettingsTests
         run = PlaySettings.WithArgs(old, new[] { "-underwater", "off" }, over);
         Assert.IsTrue(run.underwaterFog, "a bad value keeps the saved one");
         CollectionAssert.Contains(over, "-underwater: bad value 'off'");
+    }
+
+    [Test]
+    public void SeeThroughLiquids_OldFileGetsOn_FlagOverridesForTheRun()
+    {
+        // Task 75: a file saved before it has no seeThroughLiquids field: it gets ON.
+        var old = PlaySettings.Parse("{\"upscaler\":\"fsr3\",\"rows\":\"dyn\",\"underwaterFog\":true}", out string e);
+        Assert.IsNull(e);
+        Assert.IsTrue(old.seeThroughLiquids);
+        Assert.IsTrue(new PlaySettings().seeThroughLiquids);
+
+        var over = new List<string>();
+        var run = PlaySettings.WithArgs(old, new[] { "-seethrough", "1", "-seethrough", "0" }, over);
+        Assert.IsFalse(run.seeThroughLiquids, "last match wins");
+        Assert.IsTrue(old.seeThroughLiquids, "the saved settings are untouched");
+        CollectionAssert.Contains(over, "seeThroughLiquids");
+
+        over.Clear();
+        run = PlaySettings.WithArgs(old, new[] { "-seethrough", "yes" }, over);
+        Assert.IsTrue(run.seeThroughLiquids, "a bad value keeps the saved one");
+        CollectionAssert.Contains(over, "-seethrough: bad value 'yes'");
     }
 
     [Test]

@@ -1000,15 +1000,20 @@ int _UnderwaterView;   // 1 on (RaymarchFeature.UnderwaterView, PlaySettings.und
 bool MaterialIsClearFluid(uint m) { return m == 6u || m == 12u || m == 18u || m == 19u || m == 20u || m == 21u; }
 
 // Extinction per metre, r g b: transmittance over d metres is exp(-d * this).
-// Water keeps blue-green longest (~6-8 m to the bed, "a few metres").
+// TASK 75 retuned it and made it the ONE clarity table: the view from inside
+// (66b) and the view from above (task 75, voxels and far band) both read it.
+// "Clear to D" = a bed D metres straight down keeps 10% on the clearest channel
+// (view path D plus half the light's path D: 1.5 * D * min(ext) = ln 10), so
+// min(ext) = 1.535 / D. Picks (owner may change): water 5 m blue-green, acid
+// 1.5 m green, honey 1 m amber, sludge 0.5 m, oil 0.2 m. Lava never passes.
 float3 FluidExtinction(uint m)
 {
-    if (m == 6u)  return float3(0.60, 0.30, 0.22);   // Water
-    if (m == 12u) return float3(0.90, 1.40, 3.00);   // Honey: amber, ~1.5 m
-    if (m == 18u) return float3(3.00, 3.20, 3.50);   // Oil: dark, ~1 m
-    if (m == 19u) return float3(1.00, 0.35, 1.40);   // Acid: green
-    if (m == 20u) return float3(1.50, 0.60, 1.80);   // Sludge: green
-    return float3(6.0, 7.0, 9.0);                    // Quicksand: ~0.3 m
+    if (m == 6u)  return float3(0.80, 0.31, 0.37);   // Water: blue-green, ~5 m
+    if (m == 12u) return float3(1.53, 2.50, 6.00);   // Honey: amber, ~1 m
+    if (m == 18u) return float3(7.70, 8.10, 8.90);   // Oil: near-opaque, ~0.2 m
+    if (m == 19u) return float3(2.00, 1.02, 2.30);   // Acid: murky green, ~1.5 m
+    if (m == 20u) return float3(4.20, 3.07, 5.00);   // Sludge: ~0.5 m
+    return float3(6.0, 7.0, 9.0);                    // Quicksand: ~0.3 m (66b only; never seen through from outside)
 }
 
 // ===========================================================================
@@ -2541,6 +2546,91 @@ float HazeAmount(float distVoxels, float y0, float y1)
     return saturate(d * d * _LookHazeDensity);
 }
 
+// ---- TASK 75: SEE-THROUGH LIQUIDS (the view from ABOVE or the side) ----
+// With _SeeThroughLiquids != 0, a primary ray from air that hits water, honey,
+// oil, acid or sludge remembers that surface and marches on THROUGH the fluid
+// (66b's passMat, at whatever LOD tier the distance selects) to what is behind
+// it. Everything after the march -- the one sun shadow ray, the sky probe, the
+// whole shading chain, TAA -- then runs on the SURFACE exactly as before, and
+// the end of CSMainBody blends in what was behind it:
+//   through = lerp(surface as today, behind lit through the fluid, exp(-path * ext))
+//   colour  = lerp(through, sky reflected, Fresnel)        (top faces only)
+// Deep fluid therefore converges on today's look. The bed takes the SURFACE's
+// sun shadow (no second shadow ray through the fluid) and a depth-darkening
+// term exp(-0.5 * depth * ext) for the light coming down to it. No refraction.
+// The far band does the same from its texel's water depth (bits 25-31), with no
+// march. Lava, quicksand and steam stop at the surface exactly as today.
+// Cost guards: the march through a fluid ends where (1 - Fresnel) * transmittance
+// < 2% (SeeMaxPathVoxels), after SEE_STEP_CAP extra steps, or on leaving it.
+int _SeeThroughLiquids;   // 1 on (RaymarchFeature.SeeThroughLiquids, PlaySettings.seeThroughLiquids)
+bool MaterialIsSeeThrough(uint m) { return m == 6u || m == 12u || m == 18u || m == 19u || m == 20u; }
+#define SEE_FRESNEL_MAX 0.6     // pick: a grazing view keeps 40% of the water's own colour
+#define SEE_STEP_CAP 192        // extra march iterations at most, per ray, inside the fluid
+#define SEE_FAR_BED_MAT 140u    // the far band has no bed material: tg2 Sand (TG2_BASE 128 + GenMat 12)
+
+// Schlick, F0 0.02, capped; a side face (a stepped water wall) reflects nothing.
+float SeeFresnel(float3 rayDir, int3 n)
+{
+    if (n.y <= 0) return 0.0;
+    float k = 1.0 - saturate(-rayDir.y);
+    return min(SEE_FRESNEL_MAX, 0.02 + 0.98 * k * k * k * k * k);
+}
+
+// Path length (voxels) past which (1 - F) * transmittance of the bed < 2% on
+// the clearest channel. A downward ray also loses light on the way down to its
+// bed (half the depth, see above), hence the (1 + 0.5 |dy|).
+float SeeMaxPathVoxels(uint m, float3 rayDir, float fres)
+{
+    float3 e = FluidExtinction(m);
+    float k = min(e.x, min(e.y, e.z)) * (1.0 + 0.5 * saturate(-rayDir.y));
+    return max(0.0, log(50.0 * (1.0 - fres)) / k) * 10.0;
+}
+
+// What lies behind the fluid, lit with the light that got through it (lightT):
+// the far band's combine (no AO, no point lights), then haze at its own
+// distance, grade and the output transform -- the same space `color` is in.
+float3 SeeBehindColour(uint m, int3 v, float3 nF, float sunVisB, float skyVisB, float3 lightT,
+                       float3 rayDir, float t, float y0)
+{
+    float3 sd = normalize(_SunDir);
+    float y1 = y0 + rayDir.y * t;
+    if (_Look == 1 && _UseDevColors != 0)
+    {
+        float3 ln = normalize(nF + float3(0.0, 0.65, 0.0));
+        float softened = lerp(0.4, 1.0, saturate(ln.y) * 0.6 + saturate(abs(ln.x)) * 0.2 + 0.2);
+        float skyOpen = lerp(_UndergroundAmbientFloor, 1.0, skyVisB);
+        float sunExposure = lerp((1.0 - _LookShadowDarkness) * skyOpen, 1.0, sunVisB);
+        float3 direct = _LookSun.rgb * saturate(dot(nF, sd) * 0.8 + 0.2) * sunExposure * softened
+                      + _LookMoon.rgb * saturate(dot(nF, -sd) * 0.8 + 0.2) * softened * skyOpen;
+        float3 faceLight = (direct + _LookAmbient.rgb * skyOpen) * _LookGrade.x;
+        if (_UniformFaceHue != 0)
+            faceLight = UniformFaceHue(faceLight, (_LookSun.rgb * 0.6 + _LookMoon.rgb * 0.6 + _LookAmbient.rgb) * _LookGrade.x);
+        float3 lit = LookAlbedo(m, v) * faceLight * lightT;
+        if (_ShadeFog != 0) lit = lerp(lit, LookAtmosphere(rayDir), HazeAmount(t, y0, y1));
+        if (_LookGrade.w > 0.0) lit = LookGradeColour(lit, _LookGrade.y, _LookGrade.z);
+        return LookToLinear(lit);
+    }
+    float3 sh = MaterialAlbedo(m) * (_SunColor * saturate(dot(nF, sd)) * sunVisB + _AmbientColor * skyVisB) * lightT;
+    if (_ShadeFog != 0) sh = lerp(sh, _SkyColor.rgb, HazeAmount(t, y0, y1) * 0.85);
+    return ApplyTonemap(sh);
+}
+
+// The sky seen in a top face, plus a sun glint where the surface is lit.
+float3 SeeReflection(float3 rayDir, float sunVisS)
+{
+    float3 r = float3(rayDir.x, abs(rayDir.y), rayDir.z);
+    float g = pow(saturate(dot(r, normalize(_SunDir))), 400.0) * sunVisS * (_SunDir.y > 0.0 ? 1.0 : 0.0);
+    if (_Look == 1 && _UseDevColors != 0)
+        return LookToLinear(LookShoulder(LookAtmosphere(r) + _LookSun.rgb * g * 4.0, _LookGrade.z));
+    return saturate(_SkyColor.rgb + _SunColor * g * 4.0);
+}
+
+// The blend. `surface` is the pixel as shaded today; tView / lightT per channel.
+float3 SeeCompose(float3 surface, float3 behind, float3 tView, float fres, float3 refl)
+{
+    return lerp(lerp(surface, behind, tView), refl, fres);
+}
+
 void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 {
     // The pixel this thread traces. Without the checkerboard it IS the thread id.
@@ -2634,6 +2724,17 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         }
     }
 
+    // TASK 75: the surface a ray from AIR entered a see-through fluid at (seeMat
+    // != 0 once it has), and where the ray's path in the fluid ended. Off, or
+    // with the eye in a fluid (66b owns that), seeOn is false and nothing below
+    // changes: seeMat stays 0 and the march is the old one.
+    bool seeOn = (_SeeThroughLiquids != 0) && (passMat == 0u);
+    uint seeMat = 0u;
+    float seeEntryDist = 0.0, seeEndDist = 0.0, seeMaxDistSaved = 0.0, seeFres = 0.0;
+    int3 seeVoxel = int3(0, 0, 0), seeNormal = int3(0, 0, 0);
+    int seeTier = 0, seeIterCapSaved = 0;
+    bool seeDense = false, seeExited = false;
+
     // ---- FAR BAND: a camera OUTSIDE the voxel window (above its 51.2 m
     // ceiling, say) used to lose every ray at the bounds guard on iteration 1:
     // a black/sky screen. With the far band on, advance the ray to the window's
@@ -2686,6 +2787,11 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     }
 #endif
 
+    // TASK 75: up to three passes of the one march -- air, then through the
+    // fluid it hit, then air again if the ray left the fluid. seeOn false: one.
+    [loop]
+    for (int seePass = 0; seePass < 3; seePass++)
+    {
     while (!skipVoxel && currentDist < maxDist && steps < _iterCap)
     {
         // EARLY-EXIT (new, added after real diagnostic data - see chat).
@@ -2763,7 +2869,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         // old inline form was correct here and is NOT correct for a shadow ray,
         // which starts at a surface; see SelectLODTier's header. Behaviour at
         // this call site is unchanged, byte for byte.
-        int tier = (passMat != 0u) ? 0 : SelectLODTier(currentDist);   // 66b: 0 when passMat == 0u is unchanged
+        int tier = (passMat != 0u && seeMat == 0u) ? 0 : SelectLODTier(currentDist);   // 66b: 0 when passMat == 0u is unchanged; 75: any tier
 
         if (tier == 0)
         {
@@ -2987,7 +3093,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                     uint nextHandle = ReadClipmapTier(tier, nextTierBrickCoord);
 
                     if ((nextHandle & 0x80000000) != 0) break; // dense - let the outer loop handle it
-                    if ((nextHandle & 0xFF) != 0) break;        // uniform solid - let the outer loop resolve the hit
+                    if ((nextHandle & 0xFF) != passMat) break;  // uniform solid - let the outer loop resolve the hit (75: or AIR, leaving a fluid)
 
                     int3 nextBMinRaw = (nextTierBrickCoord * 8) << tierShift;
                     LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart, nextBMinRaw, spanVoxelsRaw, normal, exitIters, nonExitIters);
@@ -2996,6 +3102,52 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 }
             }
         }
+    }
+        // ---- TASK 75: between passes ----
+        if (!seeOn) break;
+        if (seePass == 0)
+        {
+            // Hit a see-through fluid from air: remember the surface, march on in it.
+            if (!hit || !MaterialIsSeeThrough(mat)) break;
+            seeMat = mat; seeEntryDist = currentDist; seeVoxel = voxel; seeNormal = normal;
+            seeTier = tierAtHit; seeDense = lastWasDense;
+            seeFres = SeeFresnel(rayDir, normal);
+            seeMaxDistSaved = maxDist; seeIterCapSaved = _iterCap;
+            maxDist = min(maxDist, currentDist + SeeMaxPathVoxels(mat, rayDir, seeFres));
+            _iterCap = min(_iterCap, steps + SEE_STEP_CAP);
+            passMat = mat;
+            hit = false;
+            continue;
+        }
+        if (seePass == 1)
+        {
+            seeEndDist = currentDist;
+            // Left the fluid into air: march on through the air (no second fluid).
+            if (hit && mat == 0u)
+            {
+                seeExited = true;
+                passMat = 0u; hit = false;
+                maxDist = seeMaxDistSaved; _iterCap = seeIterCapSaved;
+                continue;
+            }
+        }
+        break;
+    }
+
+    // TASK 75: keep what is behind the fluid, then put the SURFACE back as the
+    // primary hit -- every line from here to the end of the shading chain sees
+    // exactly the hit it saw before this task.
+    bool seeBehindHit = false;
+    uint seeBehindMat = 0u;
+    int3 seeBehindVoxel = int3(0, 0, 0), seeBehindNormal = int3(0, 1, 0);
+    float seeBehindDist = 0.0;
+    if (seeMat != 0u)
+    {
+        if (!seeExited) seeEndDist = currentDist;
+        seeBehindHit = hit; seeBehindMat = mat; seeBehindVoxel = voxel; seeBehindNormal = normal; seeBehindDist = currentDist;
+        hit = true; mat = seeMat; voxel = seeVoxel; normal = seeNormal; currentDist = seeEntryDist;
+        tierAtHit = seeTier; lastWasDense = seeDense;
+        passMat = 0u; maxDist = seeMaxDistSaved; _iterCap = seeIterCapSaved;
     }
 
     if (isDebugPixel)
@@ -3776,6 +3928,40 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             if (_ShadeFog != 0) shadedF = lerp(shadedF, _SkyColor.rgb, HazeAmount(fh.t, rayStart.y, rayStart.y + rayDir.y * fh.t) * 0.85);
             color = float4(ApplyTonemap(shadedF), 1.0);
         }
+        // TASK 75: far water is see-through by the same table, from the depth
+        // its texel carries (bits 25-31, voxels; FarField.DepthBits): top faces
+        // only, the path straight down to the bed at this ray's slope, no march.
+        if (_SeeThroughLiquids != 0 && fm == 6u && fh.normal.y > 0)
+        {
+            float depthV = (float)((fh.texel >> 25) & 0x7Fu);
+            float slope = max(0.05, -rayDir.y);
+            float3 extF = FluidExtinction(6u);
+            float fresF = SeeFresnel(rayDir, fh.normal);
+            float3 behindF = SeeBehindColour(SEE_FAR_BED_MAT, fvox - int3(0, (int)depthV, 0), float3(0.0, 1.0, 0.0), sunVisF, 1.0,
+                                             exp(-0.05 * depthV * extF), rayDir, fh.t + depthV / slope, rayStart.y);
+            color.rgb = SeeCompose(color.rgb, behindF, exp(-(0.1 * depthV / slope) * extF), fresF, SeeReflection(rayDir, sunVisF));
+        }
+    }
+
+    // ---- TASK 75: WHAT IS BEHIND THE FLUID SURFACE ----
+    // `color` is the surface, shaded exactly as before. Blend in what the march
+    // found behind it, by the path length inside the fluid (see SeeCompose).
+    if (seeMat != 0u)
+    {
+        float3 extS = FluidExtinction(seeMat);
+        float3 tView = exp(-((seeEndDist - seeEntryDist) * 0.1) * extS);
+        float3 behind = color.rgb;   // nothing reached: past the clarity range the fluid is its own colour, as today
+        if (seeBehindHit)
+        {
+            // Light reaching the bed comes down through the depth it lies under
+            // the entry point; after the ray left the fluid it is in open air.
+            float bedDepthM = seeExited ? 0.0 : max(0.0, -rayDir.y * (seeBehindDist - seeEntryDist)) * 0.1;
+            behind = SeeBehindColour(seeBehindMat, seeBehindVoxel, float3(seeBehindNormal), sunVis, skyVis,
+                                     exp(-0.5 * bedDepthM * extS), rayDir, seeBehindDist, rayStart.y);
+        }
+        else if (seeExited)
+            behind = (_Look == 1 && _UseDevColors != 0) ? LookToLinear(LookShoulder(LookAtmosphere(rayDir), _LookGrade.z)) : _SkyColor.rgb;
+        color.rgb = SeeCompose(color.rgb, behind, tView, seeFres, SeeReflection(rayDir, sunVis));
     }
 
     // ---- 66b: THE FLUID BETWEEN THE EYE AND WHAT IT SEES ----

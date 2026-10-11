@@ -14,6 +14,7 @@
 //   Minimap          Minimap.Visible (F4 also flips it)
 //   Game mode        Playground.SetGameMode, as -gamemode (task 64: Survival / Creative)
 //   Underwater view  RaymarchFeature.UnderwaterView, as -underwater (task 66b: On)
+//   See-through liquids RaymarchFeature.SeeThroughLiquids, as -seethrough (task 75: On)
 //
 // ORDERED by task 57's cost split (Logs/costsplit_2026-10-10_212527.txt, warm,
 // walk at noon, FSR 3 at 540): sun shadows 14.2 / 4.2 ms (wall / open view),
@@ -76,6 +77,7 @@ public class SettingsMenu : MonoBehaviour
         ApplyOverlay(run.perfOverlay);
         Minimap.Visible = run.minimap;
         RaymarchFeature.UnderwaterView = run.underwaterFog;
+        RaymarchFeature.SeeThroughLiquids = run.seeThroughLiquids;
         Playground.SetGameMode(run.gameMode == "survival");
         // -settingsopen: start with the menu open (task 58's -playshot still).
         if (Array.IndexOf(Environment.GetCommandLineArgs(), "-settingsopen") >= 0) IsOpen = true;
@@ -83,7 +85,7 @@ public class SettingsMenu : MonoBehaviour
         Debug.Log($"[PlaySettings] {(File.Exists(_path) ? "loaded" : "no file yet (defaults)")} {_path}" +
                   (err != null ? $" -- {err}" : "") +
                   $"; this run: upscaler {(run.presetPath ? "preset path" : run.upscaler)}, rows {run.rows}, shadows {run.shadowLevel}" +
-                  $" {(run.softShadows ? "soft" : "hard")}, shadow res {run.shadowRes}, roof skip {(run.roofSkip ? "on" : "off")}, overlay {run.perfOverlay}, minimap {(run.minimap ? "on" : "off")}, game mode {run.gameMode}, underwater {(run.underwaterFog ? "on" : "off")}" +
+                  $" {(run.softShadows ? "soft" : "hard")}, shadow res {run.shadowRes}, roof skip {(run.roofSkip ? "on" : "off")}, overlay {run.perfOverlay}, minimap {(run.minimap ? "on" : "off")}, game mode {run.gameMode}, underwater {(run.underwaterFog ? "on" : "off")}, see-through liquids {(run.seeThroughLiquids ? "on" : "off")}" +
                   (_overridden.Count > 0 ? $"; flags override: {string.Join(", ", _overridden)}" : ""));
     }
 
@@ -147,7 +149,7 @@ public class SettingsMenu : MonoBehaviour
         float vw = Screen.width / ui, vh = Screen.height / ui;
         Styles();
 
-        const float w = 780f, h = 856f;   // + task 64's Game mode row, task 66b's Underwater view row
+        const float w = 780f, h = 930f;   // + task 64's Game mode row, task 66b's Underwater view row, task 75's See-through liquids row
         var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f, w, h);
         Fill(r, new Color(0.03f, 0.05f, 0.08f, 0.96f));
         Fill(new Rect(r.x, r.y, w, 1f), new Color(1f, 1f, 1f, 0.25f));
@@ -278,10 +280,21 @@ public class SettingsMenu : MonoBehaviour
             Save("underwaterFog", s => s.underwaterFog = pick == 0);
         }
 
+        // 8. See-through liquids (task 75). Small cost where liquid is in view.
+        int stl = RaymarchFeature.SeeThroughLiquids ? 0 : 1;
+        pick = Row(x, ref y, "See-through liquids", "seeThroughLiquids",
+            "Water, honey, acid, sludge and oil show what is under them, each by its own clarity. Off: opaque surfaces.",
+            new[] { "On", "Off" }, stl);
+        if (pick >= 0 && pick != stl)
+        {
+            RaymarchFeature.SeeThroughLiquids = pick == 0;
+            Save("seeThroughLiquids", s => s.seeThroughLiquids = pick == 0);
+        }
+
         y += 4f;
         GUI.Label(new Rect(x, y, w - 40f, 60f),
             "<color=#9fb6c9>Choices made here are saved and used at the next start. Command-line flags " +
-            "(-upscaler, -renderrows, -shadowlevel, -shadowres, -roofskip, -gamemode, -underwater) override them for one run. The keys J, K, F1, F4 change " +
+            "(-upscaler, -renderrows, -shadowlevel, -shadowres, -roofskip, -gamemode, -underwater, -seethrough) override them for one run. The keys J, K, F1, F4 change " +
             "things for this session only.\n" + (_note ?? $"file: {_path}") + "</color>", _small);
 
         GUI.matrix = prev;

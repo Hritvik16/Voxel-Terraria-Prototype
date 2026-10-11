@@ -368,6 +368,8 @@ public partial class Playground : MonoBehaviour
             if (GetComponent<SettingsMenu>() == null) gameObject.AddComponent<SettingsMenu>();
             SettingsMenu.LoadAndApply();
         }
+        // -seethrough 0|1 (task 75) outside play (capture runs, -fluidprobe): OFF unless asked.
+        else if (TryArgFloat("-seethrough", out float seeArg)) RaymarchFeature.SeeThroughLiquids = seeArg >= 1f;
         // -playshot S (task 32b, run-play.sh SHOT=S): one screenshot of the
         // interactive session S seconds after startup. Not a capture mode --
         // the preset, HUD and controls stay exactly as a player gets them.
@@ -523,6 +525,8 @@ public partial class Playground : MonoBehaviour
         // -riverlook (task 73 prototype, OFF by default): the shading-only river look; with -riverdemo, each pose shot off and on.
         if (!IsCaptureRun() && HasArg("-riverlook") && !HasArg("-riverdemo")) RaymarchFeature.RiverLook = true;
         if (!IsCaptureRun() && HasArg("-riverdemo")) StartCoroutine(RiverDemo());
+        // -liquiddemo (task 75): see-through liquids off/on -- test pools of each fluid and a tg2 lake near/mid/far, then quit.
+        if (!IsCaptureRun() && HasArg("-liquiddemo")) StartCoroutine(LiquidDemo());
     }
 
     /// For overlays (Minimap) that must stay out of capture frames.

@@ -65,6 +65,11 @@ public sealed class PlaySettings
     /// `-underwater 0|1`). On: the lake bed through tinted fog. Off: the old black.
     /// A file saved before task 66b gets on.
     public bool underwaterFog = true;
+    /// Task 75: liquids seen from above or the side are see-through, each by its
+    /// own clarity (RaymarchFeature.SeeThroughLiquids, `-seethrough 0|1`). On: the
+    /// bed through tinted water. Off: today's opaque surface. A file saved before
+    /// task 75 gets on.
+    public bool seeThroughLiquids = true;
 
     /// Runtime only: -renderpreset / -taa / -checker without -upscaler or
     /// -renderrows asked for the old preset frame path, so no upscaler is applied.
@@ -115,6 +120,7 @@ public sealed class PlaySettings
         string u = Last(args, "-upscaler"), r = Last(args, "-renderrows"), sh = Last(args, "-shadowlevel"), rs = Last(args, "-roofskip"), sr = Last(args, "-shadowres");
         string gm = Last(args, "-gamemode");
         string uw = Last(args, "-underwater");
+        string st = Last(args, "-seethrough");
         if (u != null)
         {
             string v = u.ToLowerInvariant();
@@ -153,6 +159,11 @@ public sealed class PlaySettings
         {
             if (uw == "0" || uw == "1") { s.underwaterFog = uw == "1"; overridden?.Add("underwaterFog"); }
             else overridden?.Add($"-underwater: bad value '{uw}'");
+        }
+        if (st != null)
+        {
+            if (st == "0" || st == "1") { s.seeThroughLiquids = st == "1"; overridden?.Add("seeThroughLiquids"); }
+            else overridden?.Add($"-seethrough: bad value '{st}'");
         }
         // Task 52's rule, kept: asking for the preset path without naming an
         // upscaler keeps the preset path.
