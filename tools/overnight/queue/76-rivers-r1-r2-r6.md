@@ -8,7 +8,7 @@ generate water rivers only for now). Queued by the supervisor 2026-10-11. Branch
 approved terrain-generator change: `SUITE=all`.
 
 ## Change
-Rows R1, R2 and R6 of `RIVERS_WATERFALLS_PLAN.md`, exactly as written there (read the plan's cause section first:
+Rows R1, R2, R5 and R6 of `RIVERS_WATERFALLS_PLAN.md`, exactly as written there (read the plan's cause section first:
 `Hydrology.cs:134` one level per 8 m cell, `ShapeField.SampleWater` max of 4 cells, `DetailField.cs:273,371` no
 banks, opaque stone-like shading `Raymarch.compute:942`, far band `FarField.cs:613-615`).
 - **R1 smooth river profile** per voxel column, from the mouth up the drainage tree; the level never rises
@@ -28,6 +28,9 @@ banks, opaque stone-like shading `Raymarch.compute:942`, far band `FarField.cs:6
 - `SUITE=all` green, with the new R6 test(s); report Height/water FNV change for seed 42 v4 (expected: water changes).
 - `-riverdemo` (task 73) before/after at the same 4 sites, near and mid, noon, sun behind camera: wall census numbers
   (73's: tallest wall 7.6 / 3.2 / 10.5 / 1.3 m, side faces per top face 0.79 / 0.16 / 1.23 / 0.10) before -> after.
-- A far view (800 m) showing the far band follows the new profile.
+- **Same look at every distance (owner, 2026-10-11: "they should look the same regardless of what distance they're
+  at").** So this task also does the plan's R5: the far band and coarser tiers get the new profile (they sample R1's
+  levels) AND the same flow animation, foam and see-through clarity (75) as near water. Shots of one river at
+  ~20 m, ~150 m, ~800 m and ~2 km: same colour, animation and shape at each; no seam where tiers hand over.
 - Contact sheets with one-line captions. No frame-time measurement.
 - HANDOFF `## For the doc`: wall census before -> after, R6 result, 2-3 images.

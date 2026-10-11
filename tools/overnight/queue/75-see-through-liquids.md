@@ -18,7 +18,12 @@ march (participating medium: per-fluid tint + exponential absorption by distance
   walls, other fluid) attenuated. Opaque fluids (lava) stop at the surface exactly as today.
 - **Efficiency is a requirement (owner):** early-out when transmittance < ~2% or after a per-fluid max distance;
   cap the extra steps; no refraction, no second shadow ray through water (use the bed's normal sun shadow, or a
-  depth-darkening term if that is cheaper -- say which); no change to the far band (far water stays opaque, note it).
+  depth-darkening term if that is cheaper -- say which); see the distance rule below.
+- **Same look at every distance (owner, 2026-10-11: "they should look the same regardless of what distance they're
+  at").** The clarity must match across the 0.1 m voxels, the coarser LOD/cascade tiers and the 2.5D far band. The
+  far band already knows each water texel's level and ground height, so apply the same per-fluid absorption to
+  (level - ground) depth there (cheap, no march). Show near / mid / far (~800 m) shots of the same lake; no visible
+  change in water colour or clarity at a tier boundary.
 - Also find and fix "sometimes I see an opaque block" if it is a distinct bug (e.g. a fluid cell drawn as a solid
   cube, a side face, LOD tier); say what it was. Rivers' slab shape is NOT this task (that is 73's R1).
 - CPU stays the sole terrain writer; no fluid-sim change; no memory-layout change. Rigs/capture runs keep today's
