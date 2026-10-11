@@ -1,66 +1,56 @@
-# Session handoff -- 2026-10-10 15:10 (supervisor; queue RUNNING task 52)
+# Session handoff -- 2026-10-10 21:00 (supervisor; queue RUNNING task 57)
 
 ## For the owner
-**Why a new session:** three tasks finished in this chat (49, 50, 51) and the week's usage is nearly gone;
-a fresh session is cheaper per turn. Everything is in the Queue decisions doc.
+**Why a new session:** this chat reported five finished tasks (52-56) and grew long; a fresh one is cheaper
+per turn. Everything is in the Queue decisions doc.
 
-**What the previous chat covered (10 Oct 07:20 - 15:00):**
-- **49** memory ledger: brick pools ~2x too big (~535 MB could go), fluid pool always full, every run over 3 GB.
-- You said the upscaler stills were not enough and too dark, and asked for something automated comparing
-  looks AND fps. **50** recorded every option on identical frames; **51** timed each option warm and
-  re-recorded the motion clips at real rate, in midday light. Both are on the page
-  [Upscaler Clips](https://claude.ai/artifact/CDAhSF142yvbD25AVeREWX) (sets: Same frames 30 fps / Real frame rate).
-- **51's key number:** no option reaches 30 fps at eye level on this Mac (540-row options 16-23 fps,
-  FSR 3 720 10-13, native 6-7).
-- Disk clean-up (your OK): 7.1 -> 31 GB free (build debug folders, old run frames, palette voxel exports, Unity cache).
-- Usage: 94% of the week at Sat 14:03 (resets Thu 06:00). You will press the free "Full reset" (expires 22 Oct)
-  when it hits 100%. Queue paused (`tools/overnight/PAUSE`).
+**What the previous chat covered (10 Oct 15:08 - 21:00):**
+- **52** play starts with FSR 3 dynamic (your Q38 pick). **53** cascade caps from measured peaks: -285 MB.
+  **54** fluid tiles only for moving fluid: coast refusals 2.0 M -> 0. **55** fluid pool 1,024 -> 480 tiles:
+  -272 MB GPU (Q39). **56** your shadow "dots" fixed: false shadows from temporal shadow reuse (BUGS #1).
+- You said the water walls at the coast are a bug (generation must place every fluid at rest, pool 0 until
+  disturbed); Q40 (b): BUGS #7, fixed at plan step 18 with BUGS #5.
+- Q41: step 7's pass/fail is known red (16-23 fps at 540 rows vs 60 target), so task 57 measures a cost split
+  instead (one thing off per arm) to pick step 8's one cost change.
+- You asked for a settings menu: queued as **58**, small, after 57 (existing switches only, ordered by 57's
+  costs, saved between runs, rigs ignore it; also fixes the help panel's "&amp;", BUGS #6). No task time limit
+  (you only wanted to know why tasks take hours: rebuild + relaunch per look, ~10-15 min per try).
+- Your usage reset: 2% of the week at 16:53. Old supervisor windows closed (only supervisor + worker now).
 
-- **Q38 answered 15:05: (a) FSR 3 dynamic** (540-720 rows). Queued 52 (make it the play default; also deletes
-  task 48's raw stills and fixes the stale CLAUDE.md MAPV=3 line), 53 (engine step 6: cascade caps from 49's
-  peaks), 54 (engine step 5: fluid tiles for awake fluid only; stops for you first if it needs a contract change).
-  Pause lifted, runner restarted 15:07.
-
-**Running:** task 52 (started 15:07). **Open for you:** press the free "Full reset" when the week hits 100%
-(the runner retries every 20 min for up to 6 h, then sets the task aside).
+**Running:** task 57 (started 20:49, ~1.5-2.5 h). **Then:** 58. **Open for you:** nothing blocking.
 
 ## State
-- Branch `engine-phase`: 49 `1fcfcb8`, 50 `5c2eca3`.., 51 `0624152`/`3fe865a`/`e71ec70`. main untouched, nothing pushed.
-- Queue: 52 running, then 53, 54. No PAUSE. Task 48 moved to done/ (Q38 answered).
-- Clips: raw in `Screenshots/Engine03/clips{,_realrate}/`; web re-encodes (avconvert Preset1920x1080, H.264,
-  <=15 MB per file, the page's per-file limit) in `Screenshots/Engine03/clips_web/` with the page source
-  `upscaler-clips.html` (republish with `root` = that folder). All uncommitted.
-- Task 48's 190 MB raw stills: delete after Q38 (owner OK'd in principle).
-
-## Q38 as it stands (supervisor's read, posted in the doc under your answer)
-STP 540 and FSR 3 720 look closest to native. FSR 3 720 costs +36 ms/frame (10 fps walk) -- not affordable now.
-At equal cost (540): STP is sharper but greyer and restless when still (task 48 flagged this may be our
-integration); FSR 3 is steadier, true colour, softer. Options to offer: (a) FSR 3 dynamic, climbing to 720 as the
-engine phase frees frame time; (b) STP 540 + a small task to fix its tone / rest shimmer first.
+- Branch `engine-phase`: 52 `08b336d`, 53 `b0e15ff`, 54 `ac23cf3`, 55 `7451b8c`, 56 `ade1b22`. main untouched, nothing pushed.
+- Queue: 57 running, 58 (Requires 57). No PAUSE. Blocked: only the old 37e note.
+- BUGS.md rows added: 6 (help panel &amp;, fixed by 58), 7 (generated water not at rest, step 18). #1 fixed by 56.
+- Runner-event wait: Monitor tool `tail -F` missed events once; use Bash `run_in_background` with an until-loop
+  over `wc -l` of runner.log (that works and was allowed), timeout 7200000, re-arm on timeout.
+- This chat ran as a background process spawned by an old supervisor's daemon (`claude daemon run`, pid 47001);
+  check `ps` for stray Claude sessions at start and close extras (owner OK'd closing old supervisor windows).
 
 ## Next for the supervisor
-1. Arm the runner-event wait. Report 52, 53, 54 as they finish (Task reports tab + Done row). Move Q38's text to
-   the Answered tab when convenient (it is marked ANSWERED in place on the Now tab).
-   After 54: plan step 7 (frame-time milestone). Task 51 already shows ~60 ms walk p50 at the quality preset
-   (target 16.7), so step 7 is very likely red -> step 8 (shadow cost). Ask the owner whether to skip step 7's
-   measurement and go straight to step 8 (CLAUDE.md: skip a measurement whose every outcome leads to the same
-   action) -- recommend skipping.
-2. Owner-level flag worth raising once: 16-23 fps at eye level is far below 30; plan step 7 (frame-time milestone)
-   and the engine-phase perf steps matter more than the upscaler pick.
-3. (CLAUDE.md MAPV=3 wording: folded into task 52.)
+1. Arm the runner-event wait. When 57 finishes: report it (Task reports + Done row), then ask the owner ONE
+   question: which cost to cut first (step 8's one cost change), options from 57's ranked table, recommendation
+   first. Note the gap is ~3x (43-62 ms vs 16.7), so say plainly that one change will not reach 60 fps; the plan's
+   big lever is shells (steps 9-11). 58 can run meanwhile (it does not depend on the answer).
+2. After 58: plan step 9 is the Amendment 8.14 draft (planning only, STOP_FOR_OWNER) -- queue it unless the
+   owner's step-8 answer changes the order. Steps 1-8 are then done.
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468
-  Now = body `3b5fd194-f74f` (rev 98; Running `mk2vq5dkmp6.121`, Next up `mk2vq5dkmp6.357`, Q38 `mk2vq5dkmp6.2876`,
-  clips note `mk2vq5dkmp6.4002`, owner's Q38 answer `mc1batkm7es.1`, Usage `mk2vq5dkmp6.700`, Done table
-  `mk2vq5dkmp6.886`: append rows with `"side":"end"`, `"as":"blocks"`, 4 cells).
-  Task reports = body `d611dfba-5116` (rev 8; insert after `mk2vq5dkmp6.13`). Answered = `4e4a30eb-dbfc`.
+  Now = body `3b5fd194-f74f` (rev 106; Running `mk2vq5dkmp6.121`, Next up `mk2vq5dkmp6.357`, Waiting heading
+  `mk2vq5dkmp6.573` with Q40 (answered) `.7121`, Q41 `.7854`, Q39 (done) `.8329`, Usage `.8639`; Done table
+  `mk2vq5dkmp6.886`: append rows `"side":"end"`, `"as":"blocks"`, 4 cells Task/Result/Commit/Report).
+  Task reports = body `d611dfba-5116` (rev 13; insert after `mk2vq5dkmp6.13`). Answered = `4e4a30eb-dbfc`.
+  Q38/Q40 can move to Answered when convenient.
+- Engine phase plan: `ENGINE_PHASE_PLAN.md` (local copy, section 3 = steps) and
+  https://claude.ai/code/artifact/62d9391e-b05a-42d0-83c2-34d9bfeb04f7
 - Upscaler Clips page: https://claude.ai/artifact/CDAhSF142yvbD25AVeREWX
-- Engine phase plan: https://claude.ai/code/artifact/62d9391e-b05a-42d0-83c2-34d9bfeb04f7
 
 ## Notes
 - Owner's usage screenshot arrives as a doc image: read the blob -> asset id -> Artifact read `path` = asset id.
-- Comparison images/clips: midday, sun behind camera (memory `comparison-images-well-lit`).
+- Images for the doc: shrink with `sips -Z 960 ... -s format jpeg` into /tmp/claude-501/, look, upload one
+  file per Artifact call (`asset: true`), then `create blob` in the doc, then embed with a caption.
 
 ## Ready-to-paste prompt
 > Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the overnight
