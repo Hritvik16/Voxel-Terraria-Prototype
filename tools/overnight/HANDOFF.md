@@ -16,13 +16,11 @@
 ## What changed
 - `9a859f1` Amendment adopted: `AMENDMENT_8_14_LOD_SHELLS_DRAFT.md` renamed to `AMENDMENT_8_14_LOD_SHELLS.md`; header
   says ADOPTED 2026-10-11 with Q1-Q11; CLAUDE.md ground-truth list gains 8.14 after 8.12. No code.
-- `ac334f8` Step 10:
-  - `Assets/CoreEngine/WorldGen/TerrainGenChunkSource.Shell.cs` (new; the class is now `partial`):
-    `GenerateShellChunk(shell 0-7, coord, ShellChunk[, sampleIndex])`. Two Burst jobs (column, voxel) use the same
-    `ShapeField.Sample`, MaxStep neighbours, `PrepareColumn`, ore plane, `CullBrick` per FINE brick, and `Material`
-    as `Generate`. The air fast path is kept. Output goes to caller-owned scratch (`ShellChunk`: 128^3 mats + per-brick
-    uniform flags). It never enters ChunkStore. No op log yet.
-  - `Assets/CoreEngine/Tests/ShellChunkTests.cs` (new, 3 tests). Frozen APIs, D.1, §4.4 and `Generate` are unchanged.
+- `ac334f8` Step 10: `Assets/CoreEngine/WorldGen/TerrainGenChunkSource.Shell.cs` (new; the class is now `partial`):
+  `GenerateShellChunk(shell 0-7, coord, ShellChunk[, sampleIndex])`, two Burst jobs using `Generate`'s own Sample,
+  MaxStep neighbours, `PrepareColumn`, ore plane, `CullBrick` per FINE brick and `Material`, plus the air fast path.
+  Output goes to caller-owned scratch (`ShellChunk`), never ChunkStore; no op log yet. `Assets/CoreEngine/Tests/
+  ShellChunkTests.cs` (new, 3 tests). Frozen APIs, D.1, §4.4 and `Generate` are unchanged.
 
 ## Evidence
 - `SUITE=all` **PASS 726 FAIL 0 SKIP 19** (Logs/overnight/74-all.out). Baseline: 73's fast run, 691/0/14; code was
@@ -33,16 +31,11 @@
   landform; 9 landforms on seed 42, 8 each on seeds 7 and 1234):
   - **Gate, seed 42 (row 13's set):** shells 1/2/3 voxels in mixed bricks 97.32 / 97.58 / 97.77% (>= 97); heights
     within 1 voxel 99.97 / 99.995 / 100% (>= 99). **PASS.** Shell 4: 97.75 / 100%.
-  - **Below the line elsewhere (reported, not gated):**
-    - seed 7, shell 1: 97.40% voxels / 96.97% heights.
-    - seed 1234, shell 1: 96.57% / 98.74%.
-    - pooled, shell 1: 97.17% / 98.97%.
-    - Causes, seen in the pictures and the numbers:
-      - Steep faces. Seed 7's canyonlands and volcanic sites have a mean fine step of 4.27 and 2.83 voxels (seed 42's
-        sites are <= 1.5). There, a sideways half-voxel shift reads as 2-3 voxels of height (97% of misses are
-        "coarse 2-3 below").
-      - The vote's tie-to-solid bias on flat ground (plains 94.7%).
-      - The vote thickens floating ledges by one voxel. The centre sample is closer to the true shape there.
+  - **Below the line elsewhere (reported, not gated), shell 1:** seed 7 97.40% voxels / 96.97% heights; seed 1234
+    96.57 / 98.74%; pooled 97.17 / 98.97%. Causes: steep faces (seed 7's canyonlands and volcanic sites have a mean
+    fine step of 4.27 and 2.83 voxels, seed 42's <= 1.5; a sideways half-voxel shift reads as 2-3 voxels of height,
+    and 97% of misses are "coarse 2-3 below"); the vote's tie-to-solid bias on flat ground (plains 94.7%); the vote
+    thickening floating ledges by one voxel, where the centre sample is closer to the true shape.
   - I first gated the pooled total as well. It failed at 98.97% heights, so I narrowed the gate to the set row 13
     names and kept the rest as report lines. The test header says so.
 - Generation cost (from the test; Editor, Burst, one thread, warm, mean of 3; no rig): `Generate` 47 ms; shells 1-2
@@ -52,8 +45,7 @@
   at coarse scale is the obvious lever.
 
 ## Next
-- Owner answers to Q1/Q2 above (either is a one-line default plus a test update). Then step 11 (shell pools +
-  rendering), per ENGINE_PHASE_PLAN.md.
+- Owner answers Q1/Q2 (each a small default change plus a test update); then step 11 (shell pools + rendering).
 
 ## For the doc
 - Exactness: coarse voxels vs the 0.1 m generator at their centre: **0 of 79,507 differ** at each of shells 1-7.
@@ -61,8 +53,8 @@
   at shell 1: 97.40 / 96.57% voxels, 96.97 / 98.74% heights (below the line, reported).
 - Top-voxel material vs the vote: 96 -> 77 -> 61 -> 56% (shells 1-4, pooled), so the surface layer is lost (Q1).
 - Generation ms per shell chunk (test, Editor): shells 1-2: 78-88; shells 3-7: 193-217; 0.1 m `Generate`: 47.
-- Log: `Logs/TerrainGen/coarse_first.txt`. All images: rows = shells 1/2/3 (0.2/0.4/0.8 m). Columns: majority-vote top
-  view | coarse top view | vote section | coarse section (red = solid/air differs).
+- Log `Logs/TerrainGen/coarse_first.txt`. Images: rows = shells 1/2/3; columns = vote top | coarse top | vote section |
+  coarse section (red = solid/air differs).
 - `Screenshots/74/74_alpine_range.png`: seed 42 alpine slope. The coarse sections (right column) match the vote except
   a few red specks on the slope. In the shell 2 row (middle), the coarse top view is more speckled.
 - `Screenshots/74/74_river_plains.png`: seed 42 plains. In the shell 3 row (bottom), the coarse top view is blue-grey
