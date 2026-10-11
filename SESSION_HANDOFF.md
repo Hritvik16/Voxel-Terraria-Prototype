@@ -1,51 +1,56 @@
-# Session handoff -- 2026-10-11 07:30 (supervisor; queue RUNNING task 66)
+# Session handoff -- 2026-10-11 14:35 (supervisor; queue RUNNING task 76)
 
 ## For the owner
-**Why a new session:** the night's supervisor (a background job you started from the `fps-talk` window at 22:50)
-reported five finished tasks and grew long; a fresh one is cheaper per turn. Everything is in the Queue decisions doc.
+**Why a new session:** the 07:30 supervisor reported five finished tasks and talked with you a lot today, so it got
+long; a fresh one is cheaper per turn. Everything is in the Queue decisions doc.
 
-**What happened overnight (22:50 - 07:30):**
-- **59** roof skip: exact but slower on tg2, stays OFF. **61** half-res shadows: an F6 option, saves only 0.5-1.3 ms,
-  so play stays Full and step 8 is closed (decided for you since you delegated; changeable).
-- **60 + 62** Amendment 8.14 (LOD shells) draft, revised so shells and render range scale to the hardware: quality
-  presets Low / Medium / High (= your M1, ~2.3 GB) / Ultra, auto-picked on first launch, F6 on restart.
-  **Waiting for your OK (Q43, "all (a)" or changes).** Shells don't raise frame rate; they save ~470 MB and draw 3D
-  terrain to 6.6 km. Only engine step 10 waits on it.
-- At 00:10 you said: gameplay over optimization, agent's picks. **63** wrote `GAMEPLAY_PHASE_PLAN.md` (20 steps,
-  22 changeable picks, listed in Task reports). **64** play starts in Survival: dig into a 36-slot bag, build from a
-  hotbar (E bag, Q cube size, F6 Game mode). **65** double jump, dash, swim/dive. Diving shows a BLACK screen ->
-  **66b** queued to draw the lake bed through tinted fog.
-- The 5-hour usage limit paused the queue 00:34-02:14 and ~04:00-07:17; the runner waited it out by itself.
+**What you asked and decided today (07:30 - 14:35):**
+- **Gameplay stopped after 66b** (your call). Steps 4-9 (tasks 67-72) are parked in `tools/overnight/later/`.
+- **Q43 approved, "all (a)":** Amendment 8.14 (LOD shells + Low/Medium/High/Ultra presets) is adopted.
+- **Rivers (task 73's questions):** held water (a smooth river the sim ignores until touched, then an endless
+  source); shape + look now (task 76); waterfalls at every drop over ~2 m (later, after engine step 17); rivers of
+  ALL fluids, water first. Flow map: supervisor default (a), the 1 MB flow-direction map.
+- **See-through liquids:** all liquids, each its own clarity, efficient. **Same look at every distance** (your rule)
+  -- written into 75, 76 and 77.
+- **Rig refresh:** parked for the far future as `later/78-rig-refresh.md` (audit + plan, before engine step 23).
 
-**Running:** 66 (ores by depth and biome x landform). **Queued:** 66b underwater view, 67-72 (start area, climbing,
-gliding, grapple, wall-run, health/death). **Open for you:** Q43; a usage screenshot (Claude app > Usage); object to
-any gameplay pick you dislike.
+**Finished today:** 66 ores (5 ores by depth and biome x landform); 66b underwater view (lake bed through fog instead
+of black); 73 rivers investigation (rivers are 8 m water slabs with walls up to 10.5 m); 74 engine step 10
+(coarse-first generation; its 2 questions went ahead with (a)/(a), folded into 77); 75 see-through liquids
+(water 5 m, acid 1.5, honey 1, sludge 0.5, oil 0.2; **+3.5 ms at a lake shore, over the 2.5 ms line** -> 75b,
+supervisor picked the recommended option, it stays on in play meanwhile).
+
+**Running:** 76 rivers (smooth profile with banks, river look + flow animation at every distance, every generated
+fluid at rest = bug #7). **Queued:** 75b (split the see-through cost, one cheaper change, then stop for you), 77
+engine step 11a (shell storage + upload, with 74's two fixes first). **Open for you:** object to any default
+(74's (a)/(a), 75b, the flow map); a usage screenshot (Claude app > Usage) -- the 5-hour limit paused the queue
+09:29-13:00 today.
 
 ## State
-- Branch `engine-phase`; main untouched; nothing pushed. Tonight: 59 `0bd1b4a`, 60 `5ad05a4`, 61 `e892f04`,
-  62 `7e39aad`, 63 `56ba179`, 64 `5ba06e8`, 65 `9ba2bca`; queue commits `d1fd97a` `f162bc4` `2a7f98e` `674431c` `34f638f`.
-- blocked/: 62 (waits for Q43; on "all (a)" move it to done/ with the answer and queue engine step 10 per
-  `ENGINE_PHASE_PLAN.md` -- or after the gameplay steps if the owner keeps gameplay first) and the old 37e note.
-- Gameplay tasks use one template (`tools/overnight/queue/67-gameplay-step-4.md`): "implement step N of
-  GAMEPLAY_PHASE_PLAN.md", agent picks recorded, Requires = the plan's dependency column (space-separated).
-  Next to feed: steps 10 (hardness + tool tiers, needs 1,3), 11 (crafting, needs 10), 12 (cliff veins, needs 3),
-  13 (bucket). Step 14 is a measurement that asks the owner (trees voxels vs meshes).
-- Supervisor writes queue files with shell heredocs: background-job sessions can't Write/Edit in the shared checkout.
-- Old supervisor = background job 7b24bb36 (hosted by `claude daemon`, pid 47001), reached through tmux `12:0`
-  `fps-talk` (the owner's side session, which the owner chose to keep). It goes idle after this handoff; the owner
-  can close `fps-talk` / that job.
+- Branch `engine-phase`; main untouched; nothing pushed. Today: 66 `f97bc0b`, 66b `892c4f9`, 73 `9f7029a`,
+  74 `9a859f1` `ac334f8`, 75 `9a28a20`; queue commits `5e56019` `d820ccc` `3c7f927` `035bb64` `126efd3` `5a9d78c`
+  `f5adc05` `cddc669` `287877e`.
+- blocked/: only the old 37e note. After 77: next engine steps per `ENGINE_PHASE_PLAN.md` -- 11b (raymarch + seams,
+  fixes BUGS #2), 11c (vertical), 12, then 17 (fixed-rate fluid tick) -> R3/R4 held water + waterfalls
+  (`RIVERS_WATERFALLS_PLAN.md`) -> 18. Owner prefers engine capability before gameplay now.
+- 75b is a PERFORMANCE task: when it ends, report before -> after and STOP for the owner before any other perf change.
+- Old supervisor = this window, tmux `12:1` `claude-fresh` (pid of claude 12037). `fps-talk` (12:0) is the owner's
+  side session. Old background supervisor job 7b24bb36 was stopped at 07:35.
 
 ## Documents
 - Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468 (Now body `3b5fd194-f74f`
-  rev 120: Running `mk2vq5dkmp6.121`, Next up `mk2vq5dkmp6.357`, Waiting heading `mk2vq5dkmp6.573` (Q43 below it),
-  Done table `mk2vq5dkmp6.886`; Task reports body `d611dfba-5116` rev 20, insert after `mk2vq5dkmp6.13`).
-- Amendment 8.14 draft doc: https://claude.ai/code/artifact/00973048-b0f4-4839-8479-a5f4c4e9bc50 (body `9b8171c6-b55b`).
-- Gameplay plan: `GAMEPLAY_PHASE_PLAN.md` (local only). Design brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
-  (local copy `GAME_DESIGN_BRIEF_SNAPSHOT.md`). Engine plan: `ENGINE_PHASE_PLAN.md`.
+  rev 130: Running `mk2vq5dkmp6.121`, Waiting heading `mk2vq5dkmp6.573`, Done table `mk2vq5dkmp6.886` (append rows
+  with `side:end`); Task reports body `d611dfba-5116` rev 25, insert new reports after `mk2vq5dkmp6.13`).
+  The doc's Now-tab rev sometimes jumps without content change (editor re-sessions): on guard_mismatch re-read sinceRev.
+- Amendment 8.14 (adopted): `AMENDMENT_8_14_LOD_SHELLS.md`. Rivers plan: `RIVERS_WATERFALLS_PLAN.md`.
+  Gameplay plan: `GAMEPLAY_PHASE_PLAN.md`. Engine plan: `ENGINE_PHASE_PLAN.md`. Design brief:
+  https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
 
 ## Notes
-- Images for the doc: `sips -Z 960 ... -s format jpeg` into the job tmp dir, look, Artifact upload (`asset: true`,
-  url = the doc), Docs `create` blob with the asset id, then `![alt](blob/<id>)` + an italic caption.
+- Images for the doc: `sips -Z 1000 ... -s format jpeg --out <scratchpad>`, Read it, Artifact publish `asset: true`
+  (url = the doc), Docs `create` object blob `{"asset": id}`, then `![alt](blob/<id>)` + an italic caption.
+- Queue files are tracked in git: use `git mv` for tracked files, plain `mv` + `git add` for untracked ones; commit by path.
+- Don't put `Requires:` on a task just for ordering: the runner skips a task whose requirement blocked.
 
 ## Ready-to-paste prompt
 > Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the overnight
