@@ -1,37 +1,34 @@
-STOP_FOR_OWNER -- Amendment 8.14 draft is written (`AMENDMENT_8_14_LOD_SHELLS_DRAFT.md`). It needs the owner's answers before step 10. "All (a)" approves it.
-1. Q1. Shell sizing: (a) 720 rows (~+150 MB, +15% generation vs 540, est.); (b) 540; (c) 720 near (shells 0-2), 540 beyond.
-2. Q2. Hand-over: (a) where the finer voxel reaches 1 px (the coarser arrives at 2 px; the 2026-09-25 strict test looked no better and cost +6 ms); (b) strict ≤ 1 px (~2x terrain memory, over 3 GB at 720); (c) strict for shell 0 only (+300 MB).
-3. Q3. Op log vs D.1: (a) by time order (op count at save, kept in the new op file; D.1 frozen); (b) ops then D.1 (a later far op is lost in dug bricks); (c) a new D.1 version (frozen-format redesign).
-4. Q4. Awake fluid outside the smaller window: (a) stays resident inside the 32-chunk CPU ring, no new §4.4 state; (b) a new §4.4 "patch" state now (redesign); (c) don't shrink near awake fluid.
-5. Q5. Coarse-first pass line: (a) centre sample, ≥ 97% solid/air agreement in surface bricks + ≥ 99% column heights within 1 coarse voxel; (b) corner sample (Q19 4a); (c) 90%.
-6. Q6. Far band: (a) keep it beyond the last shell, retire at step 23 if shells cover the horizon; (b) retire at step 11; (c) keep it for good.
+STOP_FOR_OWNER -- Half-res sun shadows are built and ship as an F6 option ("Shadow resolution" Full/Half, `-shadowres`). Play's default is still Full. The shipped version saves only 0.5-1.3 ms, which is BELOW the task's 2.0 ms bar. Two questions:
+1. Q1. Make Half play's default? (a) no, keep Full (recommended: about 1 ms for visibly blockier shadow edges, and Gate 3 is 1 px from red); (b) yes.
+2. Q2. Shadow cost, step 8: (a) close it here and go on to the next plan step (recommended); (b) build the group-coherent variant (a separate half-res shadow pass over a hit buffer, then a depth/normal-aware upsample). Size M (est.): the march kernel splits into hit / shadow / shade passes, ~4-8 MB more buffers at 540 rows, no frozen API touched.
 
-# 60-engine-9-amendment-8-14-draft: DONE (planning only). Draft committed; owner decision needed.
+# 61-engine-8b-halfres-shadows: built, measured, default unchanged. Below the 2.0 ms bar, so it's the owner's call.
 ## What changed (branch `engine-phase`)
-- 5ad05a4: `AMENDMENT_8_14_LOD_SHELLS_DRAFT.md` (new, the only file). No code, no Unity, no builds, no rigs.
-## Evidence / sources (nothing measured; every number has a source or "(est.)")
-- Memory baseline: task 55's ledger (`Logs/overnight/55_pool_ledger.out`): terrain owners 1,322 MB; pool peaks tier0 379,527, t1 76,150, t2 16,045. Task 53 peaks: poses 82,641 / 16,437; phys_footprint poses 3,077, walk 2,869 MB.
-- Frame time: task 57 (`git show 572f5f8:tools/overnight/HANDOFF.md`): 49.4 / 30.4 ms; tiers 0.3 / 2.9; far band 1.8 / 3.8.
-- Generation capacity 23-37 chunks/s warm (task 28, plan E3); column cost split from `PLAN_COARSE_FIRST_GEN.md` §3.1.
-- Rule-B evidence: `LODConfig.cs:50-58` (2026-09-25: strict bounds no better, 11.7 vs 11.4/255, +6 ms).
-- Geometry for the shell tables: formula in the draft §2 (shells, pow2 rings, hollow, horizon 6.6 km, world 8 km × 1.1 km).
-## Findings worth knowing
-- The plan's "720 costs 1.78x" is ~1.3x once rings snap to chunks and the horizon cuts the last shells (est.).
-- The plan's wording "each shell starts where its voxel is ≤ 1 px" (rule B) and its "full detail 52-70 m" (rule A) disagree. Q2 settles it. Rule B at 720 would put the process back over 3 GB.
-- Today's GPU mirror directory is 128 MB GPU + 128 MB managed (32×32×8 chunk slots × 16 KB, `TerrainClipmap.cs:226-241`). A 16³ mirror box halves it. Rule B's 32³ shell 0 would make it 1 GB, so rule B also forces a §3.7 layout change.
-- Shells are NOT a frame-rate win (est. −1.6 to +0.4 ms near, −0.8 to +2.7 open). The ~19 / ~8 ms main march is untouched.
-- Full detail keeps up to ~7-11 m/s at 720 sizing (est.); above that the coarser shell shows (Q2 (a) of the plan).
-## Not done / next
-- Nothing to build until the owner answers. Then step 10 (coarse-first generation) uses Q5's line; step 11 builds shells.
-- Plan step 8 (one shadow-cost change) is still open from task 59's STOP.
+- e892f04: `Raymarch.compute` `_ShadowHalfRes`: rung 1's 2x2 quad reuse at ALL distances, made edge-aware. A pixel takes its quad lead's sun value only if its shadow origin (voxel + normal) is within 2 voxels + 2 pixel footprints of the lead's, or on the lead's plane (same normal, within 1 voxel). Otherwise it traces its own ray. The old rung 1 path is unchanged. `RaymarchFeature.ShadowHalfRes`; `PlaySettings.shadowRes` full|half (+1 test); F6 row; cost-split arms `halfres` (step A: plain rung 1 at all distances) and `half` (the shipped switch). Stills now also save `_sunvis` and `_clean` (no HUD).
+- (this commit): menu hint now has the measured numbers; HANDOFF; `Screenshots/61/`.
+## Evidence (warm steady state, FSR 3 at 540 rows, run-cost-split.sh, F X X F order)
+- Step A, `halfres`, session 1 (warm-up `Logs/tg2world_20261010_234100.txt`): noon walk_near 48.0 -> 44.8 ms (+3.2/+3.1 saved), walk_open +0.5; sun 10 near +0.7/+0.8, open +1.8/+1.7 (`Logs/costsplit_2026-10-10_234721.txt`, `_235523.txt`). That cleared 2.0 ms, so the design was kept.
+- Same build, `half` and `halfres` (warm-up `Logs/tg2world_20261011_000820.txt`; `Logs/costsplit_2026-10-11_001455.txt` noon, `_002546.txt` sun 10):
+  - noon walk_near: FULL p50 43.0 / p99 51.9 -> half 41.8 / 49.5 (saved +1.3, +1.0; noise 0.3). `halfres` saved only +1.4 this time.
+  - noon walk_open: 29.2 / 36.3 -> 28.5 / 32.8 (saved +1.3, +1.0; noise 1.6-1.7, so inside the noise).
+  - sun 10 walk_near: 35.0 / 42.9 -> 34.5 / 42.3 (+0.5, +0.6; noise 0.1).
+  - sun 10 walk_open: 33.5 / 39.6 -> 32.4 / 38.3 (+1.2, +1.3; noise 0.1).
+- UNEXPLAINED: FULL at noon walk_near was 48.0 in session 1 and 43.0 in session 2 (both on battery). So step A's 3.2 ms looks like a session effect. The likely cause is lockstep: quad leads still leave 16 of 64 lanes tracing in every 8x8 group, and the group waits for its slowest lane (the same as the 2026-09-26 warning). Not measured further. `Builds/Playground_old.app` (HEAD shader) and `Playground_new.app` are left from the earlier attempt, unused.
+- Gate 3 (`EXTRA="-shadowres half"` run-phase7-rig.sh, `Logs/overnight/61_gate3.out`): 97.26% = 426/438 (> 97%, PASS), was 98.17% = 430/438. All 12 mismatches are cpu=shadow, gpu=lit. One more mismatch would turn it red. Rig PASS 37 FAIL 0.
+- Fast EditMode: PASS 649 FAIL 0 SKIP 14 (before and after the hint edit).
+- Edge check (how): (1) by construction: sky, far-behind-near and other-plane pixels trace their own ray. (2) The `_sunvis` debug views of Full and Half are diffed at the same pose. Differing pixels (0.2-0.5% > 64/255) lie along shadow TERMINATORS in 2x2 steps, not along depth silhouettes. (3) In the 4x crops the ridge-against-sky silhouette is identical in both panels.
+## Unfinished
+- No group-coherent variant (Q2). The menu row is not click-tested in a play session; it applies like task 58's rows.
 
 ## For the doc
-**For the owner** (from the draft):
-- What changes: today's 3 voxel tiers (voxels only to ~128 m, then the flat far band) become 8 nested cube shells, 0.1 m to 12.8 m voxels, out to 6.6 km, vertically too.
-- What it buys: real 3D terrain to the horizon. The 0.1 m area shrinks from 128 m to ~80 m, saving ~470 MB (est.). A late chunk shows a coarser shell, not a hole.
-- What it does not buy: frame rate. The main march (~19 / ~8 ms, task 57) stays; shells cost about the same as tiers + far band (−1.6 to +2.7 ms, est.).
-- Costs: steps 10-14 as planned. Full detail keeps up only to ~7-11 m/s (est.); faster, the coarser shell shows briefly.
-- Frozen and still frozen: GetVoxel, SetVoxel, the D.1 bytes, the §4.4 table. New beside them: an edit-op log file.
-**Numbers:** terrain memory 1,322 → ~855 MB (est., `Logs/overnight/55_pool_ledger.out` as today); poses peak 3,077 → ~2,340 MB (est., task 53 + 55 + this); 0.1 m window radius 128 → 82 m; voxel at hand-over ≤ 2 px at 720 rows, ≤ 1.5 px at 540; upload at 5 m/s 0.23 MB/frame vs the 3 MiB cap.
-**Questions:** Q1-Q6 exactly as at the top of this file.
-**Images:** none. This is a planning task, and nothing visible changed.
+| sun / arc | Full p50 ms (fps) | Half p50 ms (fps) | saved |
+|---|---|---|---|
+| noon, walk_near | 43.0 (23.3) | 41.8 (23.9) | 1.0-1.3 ms |
+| noon, walk_open | 29.2 (34.2) | 28.5 (35.1) | 1.0-1.3 ms (inside noise 1.6) |
+| 10 deg, walk_near | 35.0 (28.6) | 34.5 (29.0) | 0.5-0.6 ms |
+| 10 deg, walk_open | 33.5 (29.9) | 32.4 (30.9) | 1.2-1.3 ms |
+Source: `Logs/costsplit_2026-10-11_001455.txt` and `_002546.txt` (warm). Gate 3: 98.17% -> 97.26% (PASS, 1 px from red).
+- `Screenshots/61/walk_near_sun25_full.png` / `walk_near_sun25_half.png`: sun 25 deg from front-left, terrain lit. Look at the shadow line running diagonally down the near ridge on the right half of the frame. Half's edge is blockier there.
+- `Screenshots/61/walk_near_sun25_crop4x.png`: 4x crop of that shadow line (left Full, right Half; where it is: `walk_near_sun25_cropbox.png`, yellow box). Half's line steps in 2x2-pixel blocks and moves by a few pixels, and its shadow reaches a little further on the right.
+- `Screenshots/61/walk_open_sun25_crop4x.png`: 4x crop of the ridge against the sky (left Full, right Half). The silhouette is identical, so nothing bleeds across it. Only small soft-shadow patches on the slope differ.
+Question: make Half play's default, yes/no (Q1); build the bigger variant (Q2).

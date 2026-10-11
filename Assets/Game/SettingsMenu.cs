@@ -39,8 +39,8 @@ public class SettingsMenu : MonoBehaviour
     public const KeyCode ToggleKey = KeyCode.F6;
     public static bool IsOpen { get; private set; }
     // Task 59's warm A/B on tg2 (Logs/costsplit_2026-10-10_224908 / _225726); same pixels either way.
-    // Task 61's warm A/B on tg2 (filled in from its cost split).
-    private const string RES_HINT = "Half: one sun-shadow ray per 2x2 pixels (silhouettes still trace their own). Softer shadow edges. Not measured yet.";
+    // Task 61's warm A/B on tg2 (Logs/costsplit_2026-10-11_001455 / _002546).
+    private const string RES_HINT = "Half: one sun-shadow ray per 2x2 pixels (silhouettes still trace their own). On tg2 it saved 0.5-1.3 ms of 29-43 ms. Blockier shadow edges.";
     private const string ROOF_HINT = "Same pixels. On tg2 ON saved 1.5 ms facing a wall at noon but cost 3.5 ms on an open view, and 2-5 ms at a low sun.";
 
     private static string _path;
