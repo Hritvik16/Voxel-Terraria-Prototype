@@ -1,5 +1,4 @@
 # 57-engine-7-frame-cost-split: DONE -- the play frame is GPU-bound; sun shadow rays are the biggest single cut (14.2 ms near a wall, 4.2 ms on an open view), then the FSR 3 pass (6 ms).
-
 ## What changed (branch `engine-phase`, commit 303e109; capture-only, no default or look change)
 - `Assets/Game/PlaygroundCapture.CostSplit.cs`: `-upscalerclips -costsplit`, which reuses task 51's harness.
   - Setup: fullscreen 1920x1080, quality preset, far band + far shadows, noon with the clock paused. Same flags as `./run-play.sh`, except FSR 3 is pinned at 540 rows.
