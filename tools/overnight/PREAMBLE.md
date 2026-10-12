@@ -23,6 +23,11 @@ You are running UNATTENDED in a fresh headless session started by
    suite, `./run-editmode-tests.sh`, ~3 min; `SUITE=all` when the task changes
    terrain-generator code -- every B step -- or prepares a merge to `main`), one
    performance change per measurement, look at screenshots before concluding.
+   **Test trim (owner, 2026-10-12, (a)):** while iterating, run only your own
+   tests (a `-testFilter` run); run the required suite (fast or `SUITE=all`)
+   ONCE, at the end, before the final commit -- again only if that run fails
+   and you fix something. Take ALL demo/screenshot shots in ONE player launch;
+   relaunch only for a shot that came out broken.
 4. **Git.** Commit on the branch that is checked out, never `main`, never push.
    End commit messages with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 5. **NEVER end your turn while something is still running.** This is a `-p`
