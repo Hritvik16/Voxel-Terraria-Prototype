@@ -78,6 +78,7 @@ public class SettingsMenu : MonoBehaviour
         Minimap.Visible = run.minimap;
         RaymarchFeature.UnderwaterView = run.underwaterFog;
         RaymarchFeature.SeeThroughLiquids = run.seeThroughLiquids;
+        RaymarchFeature.RiverLook = run.riverLook;
         Playground.SetGameMode(run.gameMode == "survival");
         // -settingsopen: start with the menu open (task 58's -playshot still).
         if (Array.IndexOf(Environment.GetCommandLineArgs(), "-settingsopen") >= 0) IsOpen = true;

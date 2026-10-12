@@ -599,7 +599,7 @@ public static class MaterialPalette
             -1f, -1f, -1f,   // 133
             -1f, -1f, -1f,   // 134
             -1f, -1f, -1f,   // 135
-            -1f, -1f, -1f,   // 136
+            0.184f, 0.498f, 0.722f,   // 136 river lip
             -1f, -1f, -1f,   // 137
             0.373f, 0.620f, 0.227f,   // 138 grass
             0.247f, 0.682f, 0.290f,   // 139 jungle grass
@@ -751,7 +751,7 @@ public static class MaterialPalette
             -1f, -1f, -1f,   // 133
             -1f, -1f, -1f,   // 134
             -1f, -1f, -1f,   // 135
-            -1f, -1f, -1f,   // 136
+            0.184f, 0.498f, 0.722f,   // 136 river lip
             -1f, -1f, -1f,   // 137
             0.373f, 0.620f, 0.227f,   // 138 grass
             0.247f, 0.682f, 0.290f,   // 139 jungle grass

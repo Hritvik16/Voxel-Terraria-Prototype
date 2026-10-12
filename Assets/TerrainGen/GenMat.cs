@@ -17,6 +17,10 @@ namespace TerrainGen
         public const byte Acid = 5;
         public const byte Sludge = 6;
         public const byte Quicksand = 7;
+        /// Task 76 (map v4): the lip under each one-voxel step of a generated
+        /// river (Rivers.Column). SOLID to everything but the renderer, which
+        /// draws it as water; R3's held water will take its place.
+        public const byte RiverLip = 8;
 
         // ---- surfaces ----
         public const byte Grass = 10;

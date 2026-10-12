@@ -42,6 +42,7 @@ namespace TerrainGen.Tests
         {
             [ReadOnly] public NativeArray<float> h, r, w;
             [ReadOnly] public NativeArray<byte> cls;
+            [ReadOnly] public NativeArray<ushort> flow;   // task 76
             [ReadOnly] public NativeArray<int2> tiles;
             public TerrainSpec spec; public Offsets o;
             [NativeDisableParallelForRestriction] public NativeArray<int> counts;   // tiles x K
@@ -53,7 +54,7 @@ namespace TerrainGen.Tests
                 var map = new MapView
                 {
                     height = (float*)h.GetUnsafeReadOnlyPtr(), rough = (float*)r.GetUnsafeReadOnlyPtr(),
-                    water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(),
+                    water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(), flowDir = flow.Length > 1 ? (ushort*)flow.GetUnsafeReadOnlyPtr() : null,
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 int2 tile = tiles[t];
@@ -150,6 +151,7 @@ namespace TerrainGen.Tests
             var rA = new NativeArray<float>(map.Rough, Allocator.TempJob);
             var wA = new NativeArray<float>(map.Water, Allocator.TempJob);
             var cA = new NativeArray<byte>(map.WaterClass, Allocator.TempJob);
+            var fA = new NativeArray<ushort>(map.FlowDir ?? new ushort[1], Allocator.TempJob);
             var counts = new NativeArray<int>(tiles.Length * K, Allocator.TempJob);
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var tot = new long[K];
@@ -169,14 +171,14 @@ namespace TerrainGen.Tests
             }
             try
             {
-                new ShoreJob { h = hA, r = rA, w = wA, cls = cA, tiles = tiles, spec = spec, o = o, counts = counts }
+                new ShoreJob { h = hA, r = rA, w = wA, cls = cA, flow = fA, tiles = tiles, spec = spec, o = o, counts = counts }
                     .Schedule(tiles.Length, 4).Complete();
                 for (int t = 0; t < tiles.Length; t++)
                 for (int s = 0; s < K; s++) tot[s] += counts[t * K + s];
             }
             finally
             {
-                counts.Dispose(); hA.Dispose(); rA.Dispose(); wA.Dispose(); cA.Dispose(); list.Dispose();
+                counts.Dispose(); hA.Dispose(); rA.Dispose(); wA.Dispose(); cA.Dispose(); fA.Dispose(); list.Dispose();
             }
             float onGrid = tot[1] > 0 ? (float)tot[2] / tot[1] : 0f, straight = tot[1] > 0 ? (float)tot[3] / tot[1] : 0f;
             string rep = $"seed {seed} v4  map lakes {map.Hydro.lakes}  lake cells {map.Hydro.lakeCells} ({map.Hydro.lakeCells * 64e-4:F1} ha)  tiles {nt}  ({sw.Elapsed.TotalSeconds:F1} s)\n" +

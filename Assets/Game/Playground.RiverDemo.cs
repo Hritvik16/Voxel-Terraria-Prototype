@@ -9,11 +9,15 @@
 //   B  a river entering a lake    (river cell beside a lake cell, higher)
 //   C  a waterfall                (river cell -> river/lake neighbour >= 10 m lower; else the biggest drop)
 //   D  a river mouth at the sea   (river cell beside a sea cell: BUGS #7's slab)
-// Each site: a near shot (~12 m) and a mid shot (~100 m); A also a far-band
-// shot (~800 m). With -riverlook also on the command line, every pose is shot
-// twice: _off (today) and _on (RaymarchFeature.RiverLook, the task 73
-// shading-only prototype). Near shots also log a wall census of the loaded
-// world in a 24 m box: water top faces vs water side faces facing air.
+// Each site: a near shot (~12 m) and a mid shot (~100 m); A also ~20 m, ~150 m,
+// ~800 m and ~2 km (task 76: the same river at every distance). Seed 42 takes
+// task 73's four cells, so before/after compare the same places. With
+// -riverlook on the command line every pose is shot twice: _off (the river
+// look and see-through liquids off: the generator's shape alone) and _on (task
+// 76's RaymarchFeature.RiverLook + task 75's see-through, as play has them).
+// Near shots also log a wall census of the loaded world in a 24 m box: water
+// top faces vs water side faces facing air, and (task 76) the river lips' side
+// faces facing air -- the one-voxel risers the look draws as surface.
 // Shots: persistentDataPath/RiverDemo/.
 
 using System.Collections;
@@ -79,6 +83,14 @@ public partial class Playground
             if ((r & 7) == 0) yield return null;
         }
         if (siteI[2] < 0 && bestFallI >= 0) { siteI[2] = bestFallI; siteJ[2] = bestFallJ; }
+        if (spec.seed == 42u && spec.mapVersion >= 4)
+        {
+            // Task 76: task 73's cells (Logs/overnight/73-demo-player.log), so the
+            // before/after shots are of the same places.
+            int2[] c73 = { new int2(517, 534), new int2(517, 535), new int2(460, 550), new int2(460, 551),
+                           new int2(512, 528), new int2(513, 529), new int2(660, 343), new int2(660, 344) };
+            for (int s = 0; s < 4; s++) { siteI[s] = c73[2 * s].y * n + c73[2 * s].x; siteJ[s] = c73[2 * s + 1].y * n + c73[2 * s + 1].x; }
+        }
         string[] names = { "A_slope_reach", "B_river_into_lake", "C_waterfall", "D_river_mouth_sea" };
         for (int s = 0; s < 4; s++)
         {
@@ -113,7 +125,7 @@ public partial class Playground
             float2 fd = math.normalizesafe(cj - ci);           // downstream
             float yawLookUp = math.degrees(math.atan2(-fd.x, -fd.y)), yawLookDown = math.degrees(math.atan2(fd.x, fd.y));
             var poses = new List<(string tag, float dist, float up)> { ("near", 120f, 50f), ("mid", 1000f, 300f) };
-            if (s == 0) { poses.Add(("far", 8000f, 1500f)); poses.Add(("far2km", 20000f, 4000f)); }
+            if (s == 0) { poses.Add(("r020", 200f, 70f)); poses.Add(("r150", 1500f, 400f)); poses.Add(("far", 8000f, 1500f)); poses.Add(("far2km", 20000f, 4000f)); }
             bool censusDone = false;
             foreach (var (tag, dist, up) in poses)
             {
@@ -155,7 +167,7 @@ public partial class Playground
                 _cam?.SetLook(math.degrees(math.atan2(look.x, look.z)), pitch);
                 int3 tv = new int3((int)tgt.x, lowY, (int)tgt.z);
                 float tw = Time.unscaledTime;
-                bool near = !tag.StartsWith("far");
+                bool near = !tag.StartsWith("far") && tag != "r150";
                 while (near && Time.unscaledTime - tw < 75f && !(_store.IsResident(CoordMath.VoxelToChunk(tv)) && _store.GetVoxel(tv) != Materials.Air))
                 { camT.position = camM; yield return null; }
                 for (int k = 0; k < (near ? 180 : 300); k++) { camT.position = camM; yield return null; }
@@ -164,7 +176,8 @@ public partial class Playground
                 if (!censusDone && near)
                 {
                     censusDone = true;
-                    int tops = 0, sides = 0, tallest = 0;
+                    int tops = 0, sides = 0, tallest = 0, lipSides = 0;
+                    byte lip = Materials.FromTg2(TerrainGen.GenMat.RiverLip);
                     for (int z = tv.z - 120; z < tv.z + 120; z++)
                     {
                         for (int x = tv.x - 120; x < tv.x + 120; x++)
@@ -173,7 +186,15 @@ public partial class Playground
                             for (int y = tv.y + 120; y >= tv.y - 120; y--)
                             {
                                 int3 v = new int3(x, y, z);
-                                if (_store.GetVoxel(v) != Materials.Water) { run = 0; continue; }
+                                byte mv = _store.GetVoxel(v);
+                                if (mv == lip)
+                                {
+                                    if (_store.GetVoxel(v + new int3(1, 0, 0)) == Materials.Air) lipSides++;
+                                    if (_store.GetVoxel(v + new int3(-1, 0, 0)) == Materials.Air) lipSides++;
+                                    if (_store.GetVoxel(v + new int3(0, 0, 1)) == Materials.Air) lipSides++;
+                                    if (_store.GetVoxel(v + new int3(0, 0, -1)) == Materials.Air) lipSides++;
+                                }
+                                if (mv != Materials.Water) { run = 0; continue; }
                                 if (_store.GetVoxel(v + new int3(0, 1, 0)) == Materials.Air) tops++;
                                 int fa = 0;
                                 if (_store.GetVoxel(v + new int3(1, 0, 0)) == Materials.Air) fa++;
@@ -188,17 +209,18 @@ public partial class Playground
                         if ((z & 15) == 0) { camT.position = camM; yield return null; }
                     }
                     Debug.Log($"[RiverDemo] {names[s]} wall census (24 x 24 m, +-12 m): water top faces {tops}, side faces facing air {sides} " +
-                              $"({(tops > 0 ? (float)sides / tops : 0f):F2} per top face), tallest exposed water wall {tallest * 0.1f:F1} m");
+                              $"({(tops > 0 ? (float)sides / tops : 0f):F2} per top face), tallest exposed water wall {tallest * 0.1f:F1} m; " +
+                              $"river lip side faces facing air {lipSides} ({(tops > 0 ? (float)lipSides / tops : 0f):F2} per water top face)");
                 }
                 string baseName = $"{(char)('a' + s)}_{names[s]}_{tag}";
                 if (!both) { yield return DemoShot(dir, baseName); continue; }
-                RaymarchFeature.RiverLook = false;
+                RaymarchFeature.RiverLook = false; RaymarchFeature.SeeThroughLiquids = false;
                 for (int k = 0; k < 8; k++) { camT.position = camM; yield return null; }
                 yield return DemoShot(dir, baseName + "_off");
-                RaymarchFeature.RiverLook = true;
+                RaymarchFeature.RiverLook = true; RaymarchFeature.SeeThroughLiquids = true;
                 for (int k = 0; k < 8; k++) { camT.position = camM; yield return null; }
                 yield return DemoShot(dir, baseName + "_on");
-                RaymarchFeature.RiverLook = false;
+                RaymarchFeature.RiverLook = false; RaymarchFeature.SeeThroughLiquids = false;
             }
         }
         Debug.Log("[RiverDemo] done");

@@ -522,8 +522,8 @@ public partial class Playground : MonoBehaviour
         // -oredemo (task 66): ore screenshots (a tunnel wall, the hotbar, the dev map's close slice), then quit.
         if (!IsCaptureRun() && HasArg("-oredemo")) StartCoroutine(OreDemo());
         // -riverdemo (task 73): river/lake/waterfall/mouth screenshots for RIVERS_WATERFALLS_PLAN.md, then quit.
-        // -riverlook (task 73 prototype, OFF by default): the shading-only river look; with -riverdemo, each pose shot off and on.
-        if (!IsCaptureRun() && HasArg("-riverlook") && !HasArg("-riverdemo")) RaymarchFeature.RiverLook = true;
+        // -riverlook 0|1 (task 76's river look; play: PlaySettings.riverLook, on) outside play: OFF unless asked.
+        if (!playSettings && TryArgFloat("-riverlook", out float rlArg)) RaymarchFeature.RiverLook = rlArg >= 1f;
         if (!IsCaptureRun() && HasArg("-riverdemo")) StartCoroutine(RiverDemo());
         // -liquiddemo (task 75): see-through liquids off/on -- test pools of each fluid and a tg2 lake near/mid/far, then quit.
         if (!IsCaptureRun() && HasArg("-liquiddemo")) StartCoroutine(LiquidDemo());

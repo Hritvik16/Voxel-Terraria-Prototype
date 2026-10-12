@@ -112,7 +112,7 @@ namespace VoxelEngine.WorldGen
 
             new ShellColumnJob
             {
-                h = _h, r = _r, w = _w, cls = _cls, ore = _ore, spec = Spec, o = O,
+                h = _h, r = _r, w = _w, cls = _cls, flow = _flow, ore = _ore, spec = Spec, o = O,
                 origin = origin, shift = shell, half = half,
                 colS = output.colS, colSt = output.colSt, colCd = output.colCd, top = output.top,
             }.Run();
@@ -139,6 +139,7 @@ namespace VoxelEngine.WorldGen
         {
             [ReadOnly] public NativeArray<float> h, r, w;
             [ReadOnly] public NativeArray<byte> cls;
+            [ReadOnly] public NativeArray<ushort> flow;
             [ReadOnly] public NativeArray<byte> ore;
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
@@ -155,6 +156,7 @@ namespace VoxelEngine.WorldGen
                 {
                     height = (float*)h.GetUnsafeReadOnlyPtr(), rough = (float*)r.GetUnsafeReadOnlyPtr(),
                     water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(),
+                    flowDir = flow.Length > 1 ? (ushort*)flow.GetUnsafeReadOnlyPtr() : null,   // task 76
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 int maxTop = spec.seaLevelY;

@@ -206,9 +206,12 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// keep today's look byte for byte; play sets it from PlaySettings.seeThroughLiquids
     /// (on), a capture run only with `-seethrough 1`.
     public static bool SeeThroughLiquids = false;
-    /// Task 73 PROTOTYPE (throwaway, -riverlook 1 / -riverdemo; OFF by default, rigs never set it):
-    /// water side faces drawn as white-water curtains, 1-voxel steps between water drawn as surface,
-    /// foam where a water top ends at a drop. Look 1 path only. RIVERS_WATERFALLS_PLAN.md.
+    /// Task 76 (R2 + R5, replaces task 73's prototype): generated rivers drawn as one
+    /// moving sheet -- one-voxel risers between water drawn as surface, ripples moving
+    /// along the map's flow directions and foam where the profile is steep, on near
+    /// voxels, coarse tiers and the far band alike (Raymarch.compute `_RiverLook`,
+    /// RiverSurface; the flow map is FarField.RiverFlow). Look 1 path. OFF by default so
+    /// rigs and capture runs keep their look; play sets it from PlaySettings.riverLook (on).
     public static bool RiverLook = false;
     /// >= 0 forces LightingConfig.torchShadowRays (-torchshadows N; 0 = no
     /// occlusion rays, the pre-task-46 leak). -1 = use the config.
@@ -445,6 +448,9 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public int underwaterView;
             public int seeThroughLiquids;
             public int riverLook;
+            public GraphicsBuffer riverFlow;   // task 76: FarField.RiverFlow, or the far dummy
+            public Vector4 riverMap;           // xy gen offset, z cell voxels, w cells (0 = none)
+            public float riverTime;
             public int torchShadowRays;
 
             // ---- far band (FarField.cs) ----
@@ -768,6 +774,13 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 passData.underwaterView = UnderwaterView ? 1 : 0;
                 passData.seeThroughLiquids = SeeThroughLiquids ? 1 : 0;
                 passData.riverLook = RiverLook ? 1 : 0;
+                {
+                    var farR = VoxelEngine.Rendering.FarField.Active;
+                    bool hasFlow = farR != null && farR.RiverFlow != null;
+                    passData.riverFlow = hasFlow ? farR.RiverFlow : _farDummy;
+                    passData.riverMap = hasFlow ? farR.RiverMapParams : Vector4.zero;
+                    passData.riverTime = Time.time;
+                }
                 passData.torchShadowRays = Mathf.Clamp(TorchShadowsOverride >= 0 ? TorchShadowsOverride : cfg.torchShadowRays,
                                                        0, LightingConfig.MaxTorchShadowRays);
 
@@ -1063,6 +1076,9 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_UnderwaterView", data.underwaterView);
                         cmd.SetComputeIntParam(data.compute, "_SeeThroughLiquids", data.seeThroughLiquids);
                         cmd.SetComputeIntParam(data.compute, "_RiverLook", data.riverLook);
+                        cmd.SetComputeVectorParam(data.compute, "_RiverMap", data.riverMap);
+                        cmd.SetComputeFloatParam(data.compute, "_RiverTime", data.riverTime);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "RiverFlow", data.riverFlow);
                         cmd.SetComputeIntParam(data.compute, "_TorchShadowRays", data.torchShadowRays);
 
                         cmd.SetComputeIntParam(data.compute, "_ShadowRoofSkip", data.roofSkip == 1 ? 1 : 0);

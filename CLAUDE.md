@@ -253,8 +253,13 @@ emberstone by depth layer; density = layer base x `OreTable` biome x landform x2
 (mixed bricks <= +5%, `OreTests`); v3 has none. `EXTRA="-oredemo"` shoots them; dev map Z x3 = 1-voxel slice.
 Task 66b: eye inside water/oil/sludge/acid/honey/quicksand sees through it (tinted fog, bed, surface from below;
 Raymarch.compute `passMat`, 0 = the old path); F6 "Underwater view" / `-underwater 0|1`; lava unchanged; `-movedemo` shoots it.
-Task 73: `EXTRA="-riverdemo [-riverlook]"` shoots 4 river sites (slope, lake inlet, 10 m drop, mouth) near/mid/far, off/on;
-`-riverlook` = a throwaway shading-only prototype, OFF by default (`RIVERS_WATERFALLS_PLAN.md`: rivers are 8 m-cell slabs).
+Task 73: `EXTRA="-riverdemo [-riverlook]"` shoots 4 river sites (slope, lake inlet, 10 m drop, mouth) near/mid/far, off/on
+(task 76: seed 42 uses 73's cells; off = shape only, on = river look + see-through; A also at 20 m/150 m/800 m/2 km).
+Task 76 (R1+R2+R5+R6): map v4 rivers are AT REST: `Rivers.cs` (a per-column level along drainage segments, never rising
+downstream, ending at the lake/sea level; trapezoid channel, banks; a one-voxel LIP, GenMat 8 = engine 136, under every
+step: solid to the CPU, drawn as water by `RiverLipAsWater`). Flow map = `WorldMap.FlowDir` (16 bits/cell) -> `FarField.RiverFlow`.
+Play setting `riverLook` (PlaySettings.json; no F6 row yet) / `-riverlook 0|1` (on in play, off in rigs): risers drawn as surface, ripples along the flow,
+foam where steep, near and far alike. `FluidAtRestTests` = BUGS #7's acceptance (rivers, sea, lava lake, pockets).
 Task 75: liquids seen from above/the side are SEE-THROUGH, each by its own clarity (Raymarch.compute `FluidExtinction`,
 one table with 66b: water ~5 m, acid 1.5, honey 1, sludge 0.5, oil 0.2 m; lava opaque; the far band too, from depth bits
 25-31 of its water texels). F6 "See-through liquids" / `-seethrough 0|1`: on in play, OFF in rigs/capture runs (byte-identical).

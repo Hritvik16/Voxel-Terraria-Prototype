@@ -15,8 +15,6 @@ owner-facing to-do. One line each: what, where seen, task file (if written), sug
 | 2 | Black crescent/oval under the ledge at the `ledge_view` pose | task 34 B5 contact sheet; still there after B8/B10 | `later/40-bug-ledge-view-crescent.md` | engine phase, LOD seam / render work |
 | 3 | Coast fills the fluid pool (falling beach sand + sea); sea beyond ~61 m sleeps | task 39, Q31 part 1 (open) | -- | engine phase, fluids (wake on disturbance) |
 | 4 | Torch light passes through walls: no point-light occlusion (`Raymarch.compute:1856`); the SVO traces shadow rays for the nearest torches. Owner 2026-10-09: what they liked in the SVO is "how light reacts to its surroundings". Also: merge branch `gemini/lava-torch-light` (bd60a30: lava ignores torch light, Q34 3a; `SVO_LIGHTING_NOTES.md`, line refs wrong) | Gemini SVO lighting notes, Phase 7 §10 flag | -- | engine phase, lighting (first task that builds) |
-| 5 | River water steps down into a lake behind grid-edged 2x2 squares (0.2-1 m above the lake; flows in game). Older than 37e/42; rivers are outside the at-rest tests. Also: volcano lava lake never checked for 37e's defect | task 42, `Screenshots/42/seed7_lake_top.png` | -- | terrain follow-up (river/lake design: e.g. end a river at the lake's reach) -- owner decides |
-| 7 | Generated sea/lake water is not at rest: stepped surfaces leave water slabs with vertical sides ~1.5 m above the beach. Since task 54 (awake-only tiles) they stand as walls until touched; before, approaching woke and spilled them (filling the pool). Owner 2026-10-10: "This is a bug. World gen should always place all fluids in resting position. So we should start out with 0 in the pool until they are disturbed." Acceptance: every generated water/lava body at rest (one level per body, no side faces above ground), pool 0 tiles on arrival anywhere | task 54 `Screenshots/54/coast_before.png`; task 39 item 2 | -- | owner Q40 (b): engine plan step 18, with #5 (river steps into a lake) |
 
 ## Deferred (not bugs, parked by the owner)
 - `later/78-rig-refresh.md` -- many rigs no longer match the game (Playground/v3 world, Creative, legacy motor,
@@ -37,6 +35,17 @@ to install + log in to Gemini CLI, and a small runner change. Not for B steps / 
 
 ## Fixed
 (move rows here with the commit when done)
+
+- **#5 River steps into a lake behind 2x2 squares; volcano lava lake unchecked -- FIXED task 76 (2026-10-11).** Map v4
+  rivers are a per-column profile (`Rivers.cs`) that never rises downstream and ends AT the lake/sea level (its last
+  cell stands at it), held by one-voxel lips. The lava lake was NOT at rest (917k lava voxels beside air in the ring
+  between the caldera floor and the inner wall, seed 2026): v4 now fills that ring to the lava level. Tests:
+  `FluidAtRestTests`. Shots: `Screenshots/76/sheet_near.jpg` row B.
+- **#7 Generated water not at rest (slabs with vertical sides) -- FIXED IN GENERATION task 76 (2026-10-11).** Every
+  generated fluid is at rest by test (`FluidAtRestTests`: rivers + sea coast 1-in-6 + lakes for seeds 42/7, the lava
+  lake of seed 2026, 24 underground pockets of seed 42: 0 voxels beside/over air). Exposed river water walls at the
+  73 sites 7.6 / 3.2 / 10.5 / 1.3 m -> 0 / 0 / 0 / 0. NOT yet measured at runtime: "pool 0 tiles on arrival"
+  (a `MODE=poolprobe` walk is the check).
 
 - **#6 Help panel (F2) printed HTML entities -- FIXED task 58 (2026-10-10).** IMGUI rich text does not decode
   entities, so `&amp;` / `&lt;-&gt;` printed literally; the help text now uses `&`, `↔`, `→`. Still:

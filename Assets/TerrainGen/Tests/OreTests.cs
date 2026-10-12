@@ -42,6 +42,7 @@ namespace TerrainGen.Tests
         {
             [ReadOnly] public NativeArray<float> h, r, w;
             [ReadOnly] public NativeArray<byte> cls, plane;
+            [ReadOnly] public NativeArray<ushort> flow;   // task 76
             public TerrainSpec spec; public Offsets o;
             public int3 origin;
             public bool ores;
@@ -53,7 +54,7 @@ namespace TerrainGen.Tests
             public unsafe void Execute()
             {
                 var map = new MapView { height = (float*)h.GetUnsafeReadOnlyPtr(), rough = (float*)r.GetUnsafeReadOnlyPtr(),
-                                        water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(),
+                                        water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(), flowDir = flow.Length > 1 ? (ushort*)flow.GetUnsafeReadOnlyPtr() : null,
                                         cells = spec.mapCells, cellVoxels = spec.mapCellVoxels };
                 for (int k = 0; k < CHUNK; k++)
                 for (int i = 0; i < CHUNK; i++)
@@ -180,12 +181,13 @@ namespace TerrainGen.Tests
             using var rA = new NativeArray<float>(_map.Rough, Allocator.TempJob);
             using var wA = new NativeArray<float>(_map.Water, Allocator.TempJob);
             using var cA = new NativeArray<byte>(_map.WaterClass, Allocator.TempJob);
+            using var fA = new NativeArray<ushort>(_map.FlowDir ?? new ushort[1], Allocator.TempJob);
             using var pA = new NativeArray<byte>(_plane, Allocator.TempJob);
             using var colS = new NativeArray<ColumnSample>(CHUNK * CHUNK, Allocator.TempJob);
             using var colStep = new NativeArray<float>(CHUNK * CHUNK, Allocator.TempJob);
             using var colCd = new NativeArray<DetailField.ColumnDetail>(CHUNK * CHUNK, Allocator.TempJob);
             using var stats = new NativeArray<long>(S_LEN, Allocator.TempJob);
-            new OreJob { h = hA, r = rA, w = wA, cls = cA, plane = pA, spec = _spec, o = _o, origin = origin, ores = ores,
+            new OreJob { h = hA, r = rA, w = wA, cls = cA, flow = fA, plane = pA, spec = _spec, o = _o, origin = origin, ores = ores,
                          colS = colS, colStep = colStep, colCd = colCd, stats = stats }.Run();
             return stats.ToArray();
         }

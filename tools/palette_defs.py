@@ -123,4 +123,10 @@ PALETTES["D"][2].update(B10_CANDIDATES[B10_SHIPPED][1])
 ORES = hexes({65: "3faa86", 66: "c08a6a", 67: "eac43c", 68: "4a6ff0", 69: "ff5530"})
 PALETTES["D"][2].update(ORES)
 
+# Task 76: the river lip (GenMat.RiverLip, 8). The renderer draws it as water
+# (Raymarch.compute RiverLipAsWater); this colour is for CPU views (minimap,
+# item icon): the water's.
+PALETTES["D"][2].update(hexes({8: "2f7fb8"}))
+NAMES[8] = "river lip"
+
 ROUND2 = ["A", "C", "D"]

@@ -177,6 +177,12 @@ namespace VoxelEngine.Rendering
         private readonly int2[] _origin = new int2[LEVELS];
         private NativeArray<float> _tgH, _tgR, _tgW;
         private NativeArray<byte> _tgCls;   // map water class: ShapeField's lake rims (v4)
+        private NativeArray<ushort> _tgFlow; // v4 river flow bits (task 76; length 1 = none)
+        /// Task 76 (R2/R5): the map's river flow bits on the GPU, two cells per
+        /// uint (Raymarch.compute RiverFlow; 2 MB at 1024^2 cells). Null = none.
+        public GraphicsBuffer RiverFlow { get; private set; }
+        /// xy: gen voxel = engine voxel + xy; z: voxels per map cell; w: cells.
+        public Vector4 RiverMapParams { get; private set; }
         private NativeArray<byte> _genToEngine;
         private TerrainGen.Offsets _tgO;
         private ColumnSampler.State _st;
@@ -216,6 +222,15 @@ namespace VoxelEngine.Rendering
                 _tgR = new NativeArray<float>(Tg2Map.Rough, Allocator.Persistent);
                 _tgW = new NativeArray<float>(Tg2Map.Water, Allocator.Persistent);
                 _tgCls = new NativeArray<byte>(Tg2Map.WaterClass, Allocator.Persistent);
+                _tgFlow = new NativeArray<ushort>(Tg2Map.FlowDir ?? new ushort[1], Allocator.Persistent);
+                if (Tg2Map.FlowDir != null)
+                {
+                    var fd = Tg2Map.FlowDir;
+                    var packed = new uint[(fd.Length + 1) >> 1];
+                    for (int i = 0; i < fd.Length; i++) packed[i >> 1] |= (uint)fd[i] << ((i & 1) << 4);
+                    RiverFlow = new GraphicsBuffer(GraphicsBuffer.Target.Structured, packed.Length, sizeof(uint));
+                    RiverFlow.SetData(packed);
+                }
                 // PREVIEW: put today's camera over the new island's centre,
                 // texel-aligned, and map its sea onto today's. A real world is
                 // already in the island's own frame.
@@ -224,6 +239,9 @@ namespace VoxelEngine.Rendering
                     : new int2(((half - (int)(cameraMetres.x * 10f)) >> 7) << 7,
                                ((half - (int)(cameraMetres.z * 10f)) >> 7) << 7);
                 Tg2SeaShift = Tg2World ? 0 : Tg2Spec.seaLevelY - WorldGenConstants.SEA_LEVEL_VOXEL_Y;
+                // Only an aligned tg2 world: a preview's near voxels are another world's.
+                if (Tg2World && RiverFlow != null)
+                    RiverMapParams = new Vector4(Tg2OffsetVoxels.x, Tg2OffsetVoxels.y, Tg2Spec.mapCellVoxels, Tg2Spec.mapCells);
                 _genToEngine = new NativeArray<byte>(256, Allocator.Persistent);
                 for (int i = 0; i < 256; i++) _genToEngine[i] = GenToEngine((byte)i);
                 Debug.Log($"[FarField] tg2 {(Tg2World ? "WORLD (aligned)" : "preview")}: world map v{Tg2Spec.mapVersion} (biome x{Tg2Spec.BiomeScale}, {Tg2Spec.BiomeSet} biomes{(Tg2Map.Record != null ? $", record {Tg2Map.Record.Bytes} B" : "")}) built in {swm.ElapsedMilliseconds} ms, " +
@@ -435,7 +453,7 @@ namespace VoxelEngine.Rendering
             if (UsesTg2)
                 return new FillTg2Job
                 {
-                    h = _tgH, r = _tgR, wat = _tgW, cls = _tgCls, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
+                    h = _tgH, r = _tgR, wat = _tgW, cls = _tgCls, flow = _tgFlow, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
                     seaShift = Tg2SeaShift,
                     texelVoxels = texelVoxels, x0 = x0, z0 = z0, w = w, ringOrder = ringOrder, ringOrigin = ringOrigin, output = output,
                 }.Schedule(count, batch);
@@ -528,6 +546,8 @@ namespace VoxelEngine.Rendering
             if (_tgR.IsCreated) _tgR.Dispose();
             if (_tgW.IsCreated) _tgW.Dispose();
             if (_tgCls.IsCreated) _tgCls.Dispose();
+            if (_tgFlow.IsCreated) _tgFlow.Dispose();
+            RiverFlow?.Release(); RiverFlow = null;
             if (_genToEngine.IsCreated) _genToEngine.Dispose();
             if (_ownsTg2Map) Tg2Map?.Dispose();
             if (Active == this) Active = null;
@@ -577,6 +597,7 @@ namespace VoxelEngine.Rendering
         {
             [ReadOnly] public NativeArray<float> h, r, wat;
             [ReadOnly] public NativeArray<byte> cls;
+            [ReadOnly] public NativeArray<ushort> flow;
             [ReadOnly] public NativeArray<byte> genToEngine;
             public TerrainGen.TerrainSpec spec;
             public TerrainGen.Offsets o;
@@ -603,6 +624,7 @@ namespace VoxelEngine.Rendering
                     rough = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(r),
                     water = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(wat),
                     waterClass = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(cls),
+                    flowDir = flow.Length > 1 ? (ushort*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(flow) : null,   // task 76
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 int half = texelVoxels >> 1;

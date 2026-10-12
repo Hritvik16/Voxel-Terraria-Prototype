@@ -30,6 +30,7 @@ namespace TerrainGen.Tests
         {
             [ReadOnly] public NativeArray<float> h, r, w;
             [ReadOnly] public NativeArray<byte> cls;
+            [ReadOnly] public NativeArray<ushort> flow;   // task 76
             public TerrainSpec spec; public Offsets o;
             public int x0, z0, size;
             [NativeDisableParallelForRestriction] public NativeArray<int> height, water;
@@ -40,7 +41,7 @@ namespace TerrainGen.Tests
                 var map = new MapView
                 {
                     height = (float*)h.GetUnsafeReadOnlyPtr(), rough = (float*)r.GetUnsafeReadOnlyPtr(),
-                    water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(),
+                    water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(), flowDir = flow.Length > 1 ? (ushort*)flow.GetUnsafeReadOnlyPtr() : null,
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 for (int i = 0; i < size; i++)
@@ -88,6 +89,7 @@ namespace TerrainGen.Tests
             var rA = new NativeArray<float>(map.Rough, Allocator.TempJob);
             var wA = new NativeArray<float>(map.Water, Allocator.TempJob);
             var cA = new NativeArray<byte>(map.WaterClass, Allocator.TempJob);
+            var fA = new NativeArray<ushort>(map.FlowDir ?? new ushort[1], Allocator.TempJob);
             var hh = new NativeArray<int>(size * size, Allocator.TempJob);
             var ww = new NativeArray<int>(size * size, Allocator.TempJob);
             var kk = new NativeArray<byte>(size * size, Allocator.TempJob);
@@ -96,7 +98,7 @@ namespace TerrainGen.Tests
             float level = map.Water[pick] + spec.seaLevelY;
             try
             {
-                new ViewJob { h = hA, r = rA, w = wA, cls = cA, spec = spec, o = o, x0 = x0, z0 = z0, size = size, height = hh, water = ww, kind = kk }
+                new ViewJob { h = hA, r = rA, w = wA, cls = cA, flow = fA, spec = spec, o = o, x0 = x0, z0 = z0, size = size, height = hh, water = ww, kind = kk }
                     .Schedule(size, 4).Complete();
                 for (int j = 0; j < size; j++)
                 for (int i = 0; i < size; i++)
@@ -136,7 +138,7 @@ namespace TerrainGen.Tests
                 }
                 otherText = string.Join("\n  ", System.Linq.Enumerable.Take(System.Linq.Enumerable.Select(other, kv => $"{kv.Key}: {kv.Value} px"), 12));
             }
-            finally { hA.Dispose(); rA.Dispose(); wA.Dispose(); cA.Dispose(); hh.Dispose(); ww.Dispose(); kk.Dispose(); }
+            finally { hA.Dispose(); rA.Dispose(); wA.Dispose(); cA.Dispose(); fA.Dispose(); hh.Dispose(); ww.Dispose(); kk.Dispose(); }
             var tex = new UnityEngine.Texture2D(size, size, UnityEngine.TextureFormat.RGBA32, false);
             tex.SetPixels32(px); tex.Apply();
             string dir = Path.Combine(Directory.GetCurrentDirectory(), "Logs", "TerrainGen");

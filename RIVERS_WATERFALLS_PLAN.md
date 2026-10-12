@@ -1,5 +1,9 @@
 # Rivers and waterfalls: why they look like slabs, and a plan (task 73, 2026-10-11)
 
+**Status (task 76, 2026-10-11): R1, R2, R5 and R6 are BUILT** (owner Q1 (a), Q2 (a), Q4 (a)): rivers are plain
+water held by one-voxel lips (option A1's shape, the lip a material R3 can turn into held water); R3 and R4 remain.
+See `tools/overnight/done/76-*.HANDOFF.md` and `Screenshots/76/`.
+
 Owner, 2026-10-11: "I just want all the fluids to be present in the initial world. Surface water, rivers and
 waterfalls. Right now the rivers ... look like slabs." Status: investigation + plan. **Nothing here is built
 except a throwaway shading prototype behind `-riverlook` (OFF by default).** Questions for you are at the end.

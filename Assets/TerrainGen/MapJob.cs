@@ -41,6 +41,8 @@ namespace TerrainGen
         public int n;                                  // spec.mapCells
         public float* height, rough, water, flow;      // n x n
         public byte* waterClass, region;               // region: null on v2
+        public int* drainParent, drainOrder;           // v4: the eps flood's tree (task 76), else null
+        public ushort* flowDir;                        // v4: Rivers.Profile's flow bits, else null
         public float2 peak;
         public Hydrology.Stats hydro;
         public Erosion.Stats erosion;
@@ -199,6 +201,7 @@ namespace TerrainGen
                 d.spec = map.Spec; d.n = map.Spec.mapCells;
                 d.height = In(&a, map.Height); d.rough = In(&a, map.Rough); d.water = In(&a, map.Water); d.flow = In(&a, map.Flow);
                 d.waterClass = In(&a, map.WaterClass); d.region = In(&a, map.Region);
+                if (map.FlowDir != null) d.flowDir = In(&a, map.FlowDir);
                 d.peak = map.PeakPosition;
                 if (map.EasySites != null) { d.easySites = In(&a, map.EasySites); d.easyCount = map.EasySites.Length; d.hasEasy = true; }
                 var feats = map.SignatureFeatures;
@@ -457,6 +460,7 @@ namespace TerrainGen
                 BeaconCount = d.beacons, InselbergCount = d.inselbergs,
             };
             if (d.region != null) map.Region = MapJobs.Out(d.region, N);
+            if (d.flowDir != null) map.SetFlowDir(MapJobs.Out(d.flowDir, N));
             if (d.hasLayout) map.RegionLayout = MapJobs.Out(in d.layout);
             if (d.hasEasy) map.EasySites = MapJobs.Out(d.easySites, d.easyCount);
             if (d.hasFeats)

@@ -41,6 +41,10 @@ namespace TerrainGen
         {
             public int landCells, riverCells, riverMouths, lakeCells, lakes;
             public float maxCarve, maxCatchmentKm2;
+            /// Map v4 (task 76, Rivers.Profile): river cells whose profile drops
+            /// more than Rivers.FALL_DROP per cell length (left for R4's waterfalls),
+            /// and river cells raised over their own bed + depth (dips filled).
+            public int riverFallCells, riverRaisedCells;
             public double ms;
         }
 
@@ -54,7 +58,10 @@ namespace TerrainGen
         /// Burst (engine plan step 1): MapArena pointers, scratch released on the
         /// way out. `ms` is left 0 here (no clock under Burst); the managed
         /// caller fills it with the whole map build's time.
-        public static unsafe Stats Run(MapArena* A, int n, float* height, float* rough, float* water, float* flow, byte* cls, float* minLakeDepth = null)
+        /// `parentOut` / `orderOut` (optional, n x n, map v4): the eps flood's
+        /// drainage parents and pop order, for Rivers.Profile (task 76).
+        public static unsafe Stats Run(MapArena* A, int n, float* height, float* rough, float* water, float* flow, byte* cls, float* minLakeDepth = null,
+                                       int* parentOut = null, int* orderOut = null)
         {
             int mark = A->Mark();
             var st = new Stats();
@@ -138,6 +145,8 @@ namespace TerrainGen
             }
             if (minLakeDepth != null) DrainShallowLakes(A, n, height, water, flow, cls, parent, minLakeDepth, ref st);
             st.lakes = CountLakes(A, n, water, cls);
+            if (parentOut != null) for (int i = 0; i < count; i++) parentOut[i] = parent[i];
+            if (orderOut != null) for (int i = 0; i < count; i++) orderOut[i] = order[i];
             for (int i = 0; i < count; i++) st.maxCatchmentKm2 = math.max(st.maxCatchmentKm2, flow[i]);
             st.maxCatchmentKm2 *= 64f / 1e6f;   // 8 m cells
             A->Release(mark);

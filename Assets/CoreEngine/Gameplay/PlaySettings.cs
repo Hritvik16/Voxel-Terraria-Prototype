@@ -70,6 +70,11 @@ public sealed class PlaySettings
     /// bed through tinted water. Off: today's opaque surface. A file saved before
     /// task 75 gets on.
     public bool seeThroughLiquids = true;
+    /// Task 76 (R2): generated rivers drawn as one moving sheet -- one-voxel risers
+    /// hidden, ripples along the flow, foam where steep, the same at every
+    /// distance (RaymarchFeature.RiverLook, `-riverlook 0|1`). A file saved before
+    /// task 76 gets on.
+    public bool riverLook = true;
 
     /// Runtime only: -renderpreset / -taa / -checker without -upscaler or
     /// -renderrows asked for the old preset frame path, so no upscaler is applied.
@@ -121,6 +126,7 @@ public sealed class PlaySettings
         string gm = Last(args, "-gamemode");
         string uw = Last(args, "-underwater");
         string st = Last(args, "-seethrough");
+        string rl = Last(args, "-riverlook");
         if (u != null)
         {
             string v = u.ToLowerInvariant();
@@ -159,6 +165,11 @@ public sealed class PlaySettings
         {
             if (uw == "0" || uw == "1") { s.underwaterFog = uw == "1"; overridden?.Add("underwaterFog"); }
             else overridden?.Add($"-underwater: bad value '{uw}'");
+        }
+        if (rl != null)
+        {
+            if (rl == "0" || rl == "1") { s.riverLook = rl == "1"; overridden?.Add("riverLook"); }
+            else overridden?.Add($"-riverlook: bad value '{rl}'");
         }
         if (st != null)
         {

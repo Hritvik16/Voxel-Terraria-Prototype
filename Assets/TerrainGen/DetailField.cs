@@ -274,6 +274,7 @@ namespace TerrainGen
                 return GenMat.Air;
             }
             if (y <= spec.worldBottomY) return GenMat.Bedrock;
+            if (c.lipLo != 0 && y >= c.lipLo) return GenMat.RiverLip;   // task 76
 
             // §2.5 stamp openings (arches, hoops, ribs, under the tree's canopy).
             // Never the top voxel (Stamps.cs header), so S stays the top solid.
@@ -297,7 +298,7 @@ namespace TerrainGen
             // Map v4 (task 37e): a lake rim's fill is not ground to carve; caves
             // go by the ground under it (ColumnSample.rimGround).
             int hc = c.rimGround != 0 ? math.min(hg, c.rimGround) : hg;
-            if (hc - y > CARVE_MIN_DEPTH)
+            if (hc - y > CARVE_MIN_DEPTH && (c.riverFloor == 0 || y < c.riverFloor))   // task 76: none beside a river
             {
                 bool inShell = false;
                 if (!cull.noPocket)
@@ -369,6 +370,7 @@ namespace TerrainGen
         {
             if (c.height < spec.seaLevelY) return GenMat.Water;
             if (c.water > c.height) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
+            if (c.lipLo != 0 && c.height >= c.lipLo) return GenMat.RiverLip;   // task 76
             if (c.stampMat != 0 && c.height >= c.stampBodyLo) return c.stampMat;
             if (stepAtTop > 1.5f) return Strata(in spec, in o, c.biome, x, c.height, z);
             return Surface(in spec, in c, stepAtTop);

@@ -36,6 +36,9 @@ namespace TerrainGen
         /// Hydrology.DRY / LAKE / RIVER per cell (WorldMap.WaterClass).
         /// OPTIONAL: null = no lake rims (ShapeField.LakeRim; map v4 only).
         public byte* waterClass;
+        /// Map v4 (task 76): Rivers' per-cell flow bits. OPTIONAL: null = the
+        /// old 2x2 river water (SampleWater), so a view without it differs.
+        public ushort* flowDir;
         public int cells;
         public float cellVoxels;
     }
@@ -49,6 +52,9 @@ namespace TerrainGen
         public readonly float[] Flow;
         /// Hydrology.DRY / LAKE / RIVER per cell.
         public readonly byte[] WaterClass;
+        /// Map v4 (task 76): per river cell, the direction to its downstream cell,
+        /// the profile's drop and the river's size (Rivers.FLOW_*); 0 elsewhere. Null below v4.
+        public ushort[] FlowDir { get; private set; }
         public readonly float2 PeakPosition;   // voxels
         public readonly Hydrology.Stats Hydro;
         public int BeaconCount { get; private set; }
@@ -72,7 +78,7 @@ namespace TerrainGen
         public Route[] Routes { get; private set; }
         /// Routes.LastBuild for this map (diagnostics: links, cut and fill cells).
         public string RouteBuild { get; private set; }
-        private GCHandle _hH, _hR, _hW, _hC;
+        private GCHandle _hH, _hR, _hW, _hC, _hF;
 
         public WorldMap(TerrainSpec spec, float[] height, float[] rough, float2 peak,
                         float[] water = null, float[] flow = null, Hydrology.Stats hydro = default, byte[] waterClass = null)
@@ -96,6 +102,7 @@ namespace TerrainGen
             rough = (float*)_hR.AddrOfPinnedObject(),
             water = (float*)_hW.AddrOfPinnedObject(),
             waterClass = (byte*)_hC.AddrOfPinnedObject(),
+            flowDir = _hF.IsAllocated ? (ushort*)_hF.AddrOfPinnedObject() : null,
             cells = Spec.mapCells,
             cellVoxels = Spec.mapCellVoxels,
         };
@@ -114,12 +121,34 @@ namespace TerrainGen
             return h;
         }
 
+        /// FNV-1a 64 over Water's float bits, as HeightHash (task 76: rivers change
+        /// the water, not the height).
+        public ulong WaterHash()
+        {
+            ulong h = 14695981039346656037UL;
+            foreach (float v in Water)
+            {
+                uint b = (uint)BitConverter.SingleToInt32Bits(v);
+                for (int k = 0; k < 4; k++) { h = (h ^ (b & 255)) * 1099511628211UL; b >>= 8; }
+            }
+            return h;
+        }
+
         public void Dispose()
         {
             if (_hH.IsAllocated) _hH.Free();
             if (_hR.IsAllocated) _hR.Free();
             if (_hW.IsAllocated) _hW.Free();
             if (_hC.IsAllocated) _hC.Free();
+            if (_hF.IsAllocated) _hF.Free();
+        }
+
+        /// Task 76: set once by the build (FromCore), pinned like the others.
+        internal void SetFlowDir(ushort[] f)
+        {
+            if (_hF.IsAllocated) _hF.Free();
+            FlowDir = f;
+            if (f != null) _hF = GCHandle.Alloc(f, GCHandleType.Pinned);
         }
 
         // ------------------------------------------------------------------
@@ -177,6 +206,13 @@ namespace TerrainGen
                 WorldRecord.Build(A, dg, ref map, biomes, &first, in tiers, out RecordB second);
                 map.record = second;
             }
+            // Task 76 (R1): the river profile, on the final map (after the routes'
+            // cut and fill): levels that never rise downstream, and the per-cell
+            // flow direction ShapeField's river channels and the renderer read.
+            map.flowDir = A->Root<ushort>(N);
+            int mk = A->Mark();
+            Rivers.Profile(map.n, map.height, map.water, map.flow, map.waterClass, map.drainParent, map.drainOrder, map.flowDir, A->Alloc<float>(N), ref map.hydro);
+            A->Release(mk);
         }
 
         // ------------------------------------------------------------------
@@ -396,8 +432,12 @@ namespace TerrainGen
             float* water = A->Root<float>(n * n);
             float* flow = A->Root<float>(n * n);
             byte* cls = A->Root<byte>(n * n);
-            var hydro = Hydrology.Run(A, n, h, r, water, flow, cls, lakeMin);
+            // v4 (task 76): keep the drainage tree for Rivers.Profile (BuildV4's last step).
+            int* drainParent = spec.mapVersion >= 4 ? A->Root<int>(n * n) : null;
+            int* drainOrder = spec.mapVersion >= 4 ? A->Root<int>(n * n) : null;
+            var hydro = Hydrology.Run(A, n, h, r, water, flow, cls, lakeMin, drainParent, drainOrder);
             ClearCalderaLake(in spec, in o, water, cls);
+            map.drainParent = drainParent; map.drainOrder = drainOrder;
             if (feat && peak.x <= Features.NO_SITE_XZ)
             {
                 // no great peak drawn: PeakPosition (poses, the minimap) is the highest cell
