@@ -28,6 +28,11 @@
 // shell pools. Edit ops (row 9, task 81): the overload taking an
 // EditOpSnapshot applies them after generation (EditOpApply.ApplyToShell).
 //
+// BRICK SKIP (task 82b): the same proofs as Generate's (its header), over a
+// brick's 8 coarse sample heights. The samples' fine bricks differ (k >= 3), so
+// the brick-geology offsets are only bounded and the pocket test covers the
+// fine-brick box all samples lie in; a skipped brick still fills Mats.
+//
 // THREADING: like Generate -- the map arrays are shared read-only; each call
 // writes only the ShellChunk the caller owns (single-writer, CLAUDE.md).
 using System;
@@ -140,12 +145,19 @@ namespace VoxelEngine.WorldGen
                 return;
             }
 
-            new ShellVoxelJob
+            var stats = new NativeArray<int>(4, Allocator.TempJob);
+            try
             {
-                toEngine = _toEngine, spec = Spec, o = O, origin = origin, shift = shell, half = half,
-                colS = output.colS, colSt = output.colSt, colCd = output.colCd,
-                mats = output.Mats, brickMat = output.BrickMat, brickUniform = output.BrickUniform,
-            }.Run();
+                new ShellVoxelJob
+                {
+                    toEngine = _toEngine, spec = Spec, o = O, origin = origin, shift = shell, half = half,
+                    colS = output.colS, colSt = output.colSt, colCd = output.colCd,
+                    mats = output.Mats, brickMat = output.BrickMat, brickUniform = output.BrickUniform,
+                    skip = BrickSkip, stats = stats,
+                }.Run();
+                AddSkipStats(stats, 4);
+            }
+            finally { stats.Dispose(); }
         }
 
         /// Row 12 with ops: generation, then the snapshot's ops in seq order at
@@ -223,6 +235,8 @@ namespace VoxelEngine.WorldGen
             public NativeArray<byte> mats;
             public NativeArray<byte> brickMat;
             public NativeArray<bool> brickUniform;
+            public bool skip;
+            public NativeArray<int> stats;   // task 82b: SkipStats' four counts for this chunk
 
             public void Execute()
             {
@@ -231,11 +245,43 @@ namespace VoxelEngine.WorldGen
                 // Coarse voxels per fine 8^3 brick, per axis: 8, 4, 2, then 1. The
                 // cull record is valid for every sample inside one fine brick.
                 int s = math.max(1, 8 >> shift);
+                var bTop = new NativeArray<int>(256, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+                var bMinH = new NativeArray<int>(256, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+                var bMaxH = new NativeArray<int>(256, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+                if (skip) BrickColumnBounds(in spec, colS, bTop, bMinH, bMaxH);
+                stats[3] += EngineConfig.BRICKS_PER_CHUNK;
+                int span = 7 << shift;   // fine voxels from a brick's first sample to its last, per axis
                 for (int by = 0; by < 16; by++)
                 for (int bz = 0; bz < 16; bz++)
                 for (int bx = 0; bx < 16; bx++)
                 {
                     int bi = (bz << 8) | (by << 4) | bx;
+                    if (skip)
+                    {
+                        int bc = (bz << 4) | bx;
+                        int3 f0 = origin + (new int3(bx, by, bz) << (3 + shift)) + half;   // the brick's first sample
+                        byte g = 255;
+                        if (f0.y > bTop[bc]) g = TerrainGen.GenMat.Air;
+                        else if (f0.y + span <= bMinH[bc] || f0.y > bMaxH[bc])
+                        {
+                            bool noPocket = TerrainGen.DetailField.NoPocketInBox(in spec, in o, f0 & FINE_BRICK_MASK,
+                                                                                 ((f0 + span) & FINE_BRICK_MASK) + TerrainGen.DetailField.BRICK);
+                            g = ProveBrick(in spec, colS, colSt, colCd, origin, shift, half, bx, bz, f0.y, noPocket, false, 0f, 0f, 0f);
+                        }
+                        if (g != 255)
+                        {
+                            byte m = toEngine[g];
+                            for (int vy = 0; vy < 8; vy++)
+                            for (int vz = 0; vz < 8; vz++)
+                            {
+                                int row = (((by << 3) + vy) << 14) | (((bz << 3) + vz) << 7) | (bx << 3);
+                                for (int vx = 0; vx < 8; vx++) mats[row + vx] = m;
+                            }
+                            brickUniform[bi] = true; brickMat[bi] = m;
+                            stats[SkipKind(g)]++;
+                            continue;
+                        }
+                    }
                     byte first = 0; bool uni = true, any = false;
                     for (int sy = 0; sy < 8; sy += s)
                     for (int sz = 0; sz < 8; sz += s)
@@ -266,6 +312,7 @@ namespace VoxelEngine.WorldGen
                     brickUniform[bi] = uni;
                     brickMat[bi] = first;
                 }
+                bTop.Dispose(); bMinH.Dispose(); bMaxH.Dispose();
 
                 // The top voxel (task 74 Q1 (a)). Shell 0 samples every fine
                 // voxel, so its top voxel IS h already; skip it (== Generate).

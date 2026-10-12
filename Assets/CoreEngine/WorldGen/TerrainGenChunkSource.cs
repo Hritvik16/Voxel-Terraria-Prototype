@@ -18,6 +18,15 @@
 // economy); the rest get a pooled 512-byte body, laid out exactly as
 // ChunkGeneratorFull lays them out.
 //
+// BRICK SKIP (engine step 15, task 82b; ENGINE_PHASE_PLAN.md row 15): before
+// the per-voxel pass, a brick wholly above its 64 columns' max(ground, water,
+// sea) is uniform air outright, and a brick wholly above or wholly below every
+// column's ground asks DetailField.UniformSamples per column whether the column
+// data PROVES one material for all its voxels (water, lake, stone, soil...).
+// Proven bricks are written as the uniform brick they would have been; the
+// rest take the per-voxel pass unchanged. Output is byte-identical with the
+// skip on or off (BrickSkip; BrickSkipTests). Same in GenerateShellChunk.
+//
 // MATERIALS: today the GenMat codes collapse onto the existing engine ids
 // (the far band's mapping, FarField.GenToEngine) -- the ~45 palette-D strata,
 // soil and stamp materials are V1b and change only that table.
@@ -210,6 +219,21 @@ namespace VoxelEngine.WorldGen
         public void Generate(int3 coord, Chunk chunk, ChunkHandleAllocator allocator, BrickDataPool pool, object allocLock)
             => Generate(coord, chunk, allocator, pool, allocLock, null);
 
+        /// Task 82b's brick skip (header). On by default; tests turn it off for
+        /// the byte-identical and timing comparisons. Read at each call.
+        public bool BrickSkip = true;
+
+        /// Brick-skip diagnostics since construction, summed by every thread:
+        /// [0..3] Generate, [4..7] GenerateShellChunk, each = bricks proven
+        /// uniform AIR, FLUID (water/lava), SOLID, and bricks that reached the
+        /// voxel pass stage (4096 per chunk that was not wholly air).
+        public readonly long[] SkipStats = new long[8];
+
+        private void AddSkipStats(NativeArray<int> st, int at)
+        {
+            for (int i = 0; i < 4; i++) System.Threading.Interlocked.Add(ref SkipStats[at + i], st[i]);
+        }
+
         /// `pass` (may be null = a private one-shot pass, the old behaviour):
         /// reused when it already holds coord's column, refilled otherwise.
         public void Generate(int3 coord, Chunk chunk, ChunkHandleAllocator allocator, BrickDataPool pool, object allocLock, ColumnPass pass)
@@ -230,6 +254,7 @@ namespace VoxelEngine.WorldGen
             var cp = pass ?? own;
             NativeArray<byte> mats = default, uniform = default;
             NativeArray<bool> isUniform = default;
+            NativeArray<int> stats = default;
             try
             {
                 if (!shared)
@@ -265,12 +290,15 @@ namespace VoxelEngine.WorldGen
                 mats = new NativeArray<byte>(E * E * E, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
                 uniform = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, Allocator.TempJob);
                 isUniform = new NativeArray<bool>(EngineConfig.BRICKS_PER_CHUNK, Allocator.TempJob);
+                stats = new NativeArray<int>(4, Allocator.TempJob);
                 new VoxelJob
                 {
                     toEngine = _toEngine, spec = Spec, o = O, origin = coord * E,
                     colS = colS, colSt = colSt, colCd = colCd,
                     mats = mats, brickMat = uniform, brickUniform = isUniform,
+                    skip = BrickSkip, stats = stats,
                 }.Run();
+                AddSkipStats(stats, 0);
 
                 var raw = pool.RawData;
                 for (int by = 0; by < 16; by++)
@@ -296,6 +324,7 @@ namespace VoxelEngine.WorldGen
                 if (mats.IsCreated) mats.Dispose();
                 if (uniform.IsCreated) uniform.Dispose();
                 if (isUniform.IsCreated) isUniform.Dispose();
+                if (stats.IsCreated) stats.Dispose();
             }
         }
 
@@ -374,16 +403,41 @@ namespace VoxelEngine.WorldGen
             [WriteOnly] public NativeArray<byte> mats;
             public NativeArray<byte> brickMat;
             public NativeArray<bool> brickUniform;
+            public bool skip;
+            public NativeArray<int> stats;   // task 82b: SkipStats' four counts for this chunk
 
             public void Execute()
             {
                 const int E = 128;
+                var bTop = new NativeArray<int>(256, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+                var bMinH = new NativeArray<int>(256, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+                var bMaxH = new NativeArray<int>(256, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+                if (skip) BrickColumnBounds(in spec, colS, bTop, bMinH, bMaxH);
+                stats[3] += EngineConfig.BRICKS_PER_CHUNK;
                 for (int by = 0; by < 16; by++)
                 for (int bz = 0; bz < 16; bz++)
                 for (int bx = 0; bx < 16; bx++)
                 {
                     int bi = (bz << 8) | (by << 4) | bx;
-                    var cr = TerrainGen.DetailField.CullBrick(in spec, in o, origin.x + (bx << 3), origin.y + (by << 3), origin.z + (bz << 3));
+                    int bc = (bz << 4) | bx, yLo = origin.y + (by << 3);
+                    if (skip && yLo > bTop[bc])
+                    {
+                        brickUniform[bi] = true; brickMat[bi] = toEngine[TerrainGen.GenMat.Air];
+                        stats[0]++;
+                        continue;
+                    }
+                    var cr = TerrainGen.DetailField.CullBrick(in spec, in o, origin.x + (bx << 3), yLo, origin.z + (bz << 3));
+                    if (skip && (yLo + 7 <= bMinH[bc] || yLo > bMaxH[bc]))
+                    {
+                        byte g = ProveBrick(in spec, colS, colSt, colCd, origin, 0, 0, bx, bz, yLo, cr.noPocket,
+                                            cr.hasGeo, cr.geoDeep, cr.geoCavern, cr.geoUnder);
+                        if (g != 255)
+                        {
+                            brickUniform[bi] = true; brickMat[bi] = toEngine[g];
+                            stats[SkipKind(g)]++;
+                            continue;
+                        }
+                    }
                     byte first = 0; bool uni = true;
                     for (int vz = 0; vz < 8; vz++)
                     for (int vx = 0; vx < 8; vx++)
@@ -404,7 +458,53 @@ namespace VoxelEngine.WorldGen
                     brickUniform[bi] = uni;
                     brickMat[bi] = first;
                 }
+                bTop.Dispose(); bMinH.Dispose(); bMaxH.Dispose();
             }
         }
+
+        // ---- Task 82b: the brick skip's helpers, shared by VoxelJob and ShellVoxelJob ----
+
+        /// Per brick column (bz << 4 | bx) of a chunk's 128^2 sampled columns:
+        /// the max of max(ground, water, sea), the min and the max ground.
+        private static void BrickColumnBounds(in TerrainGen.TerrainSpec spec, NativeArray<TerrainGen.ColumnSample> colS,
+                                              NativeArray<int> top, NativeArray<int> minH, NativeArray<int> maxH)
+        {
+            for (int i = 0; i < 256; i++) { top[i] = spec.seaLevelY; minH[i] = int.MaxValue; maxH[i] = int.MinValue; }
+            for (int lz = 0; lz < 128; lz++)
+            for (int lx = 0; lx < 128; lx++)
+            {
+                var c = colS[(lz << 7) | lx];
+                int b = ((lz >> 3) << 4) | (lx >> 3);
+                top[b] = math.max(top[b], math.max(c.height, c.water));
+                minH[b] = math.min(minH[b], c.height);
+                maxH[b] = math.max(maxH[b], c.height);
+            }
+        }
+
+        /// The GenMat every sample of brick column (bx, bz) gets at the 8 sample
+        /// heights from yLo (step 2^shift), from its 64 columns, or 255.
+        private static byte ProveBrick(in TerrainGen.TerrainSpec spec, NativeArray<TerrainGen.ColumnSample> colS,
+                                       NativeArray<float> colSt, NativeArray<TerrainGen.DetailField.ColumnDetail> colCd,
+                                       int3 origin, int shift, int half, int bx, int bz, int yLo, bool noPocket,
+                                       bool geoExact, float geoDeep, float geoCavern, float geoUnder)
+        {
+            byte m = 255;
+            for (int vz = 0; vz < 8; vz++)
+            for (int vx = 0; vx < 8; vx++)
+            {
+                int lx = (bx << 3) + vx, lz = (bz << 3) + vz, ci = (lz << 7) | lx;
+                var c = colS[ci]; var cd = colCd[ci];
+                byte g = TerrainGen.DetailField.UniformSamples(in spec, in c, in cd, colSt[ci],
+                    origin.x + (lx << shift) + half, origin.z + (lz << shift) + half, yLo, 1 << shift, 8, noPocket,
+                    geoExact, geoDeep, geoCavern, geoUnder);
+                if (g == 255 || (m != 255 && g != m)) return 255;
+                m = g;
+            }
+            return m;
+        }
+
+        /// SkipStats slot of a proven brick's material: 0 air, 1 fluid, 2 solid.
+        private static int SkipKind(byte g)
+            => g == TerrainGen.GenMat.Air ? 0 : (g == TerrainGen.GenMat.Water || g == TerrainGen.GenMat.Lava) ? 1 : 2;
     }
 }

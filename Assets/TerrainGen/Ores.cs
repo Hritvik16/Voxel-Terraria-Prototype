@@ -126,20 +126,11 @@ namespace TerrainGen
             return 0;
         }
 
-        /// The ore at voxel (x, y, z) of host layer `layer`, or 0 for none.
-        public static byte At(in TerrainSpec spec, int oreMul, byte biome, int layer, int x, int y, int z)
+        /// The deposit's inner bricks (bit b = (bx - 1) | (by - 1) << 1 | (bz - 1) << 2):
+        /// one brick (5 in 8), two face-adjacent bricks (2 in 8) or a 2x2 slab of
+        /// four (1 in 8).
+        private static uint DepositMask(uint g)
         {
-            int chance = CellChance(layer, biome, oreMul);
-            if (chance <= 0) return 0;
-            uint h = Hash(spec.seed, x >> CELL_SHIFT, y >> CELL_SHIFT, z >> CELL_SHIFT);
-            if ((int)(h & 0xFFFFu) >= chance) return 0;
-            // Only the cell's 2x2x2 INNER bricks (voxels 8-23 per axis) hold ore.
-            int bx = (x >> 3) & 3, by = (y >> 3) & 3, bz = (z >> 3) & 3;
-            if (bx == 0 || bx == 3 || by == 0 || by == 3 || bz == 0 || bz == 3) return 0;
-            int b = (bx - 1) | ((by - 1) << 1) | ((bz - 1) << 2);
-            uint g = Mix(h ^ 0x6A09E667u);
-            // The deposit: one brick (5 in 8), two face-adjacent bricks (2 in 8)
-            // or a 2x2 slab of four (1 in 8).
             int first = (int)(g & 7u);
             uint mask = 1u << first;
             uint size = (g >> 3) & 7u;
@@ -154,7 +145,37 @@ namespace TerrainGen
                     mask |= (1u << (first ^ (1 << a2))) | (1u << (first ^ (1 << a) ^ (1 << a2)));
                 }
             }
-            if (((mask >> b) & 1u) == 0u) return 0;
+            return mask;
+        }
+
+        /// Engine step 15 (task 82b): false when NO voxel of the 8^3 brick holding
+        /// (x, y, z) can be ore at cell chance `chance` (CellChance). At's cell
+        /// and deposit tests read only the 32^3 cell and the brick, so they hold
+        /// for the whole brick.
+        public static bool BrickMayHold(in TerrainSpec spec, int chance, int x, int y, int z)
+        {
+            if (chance <= 0) return false;
+            uint h = Hash(spec.seed, x >> CELL_SHIFT, y >> CELL_SHIFT, z >> CELL_SHIFT);
+            if ((int)(h & 0xFFFFu) >= chance) return false;
+            int bx = (x >> 3) & 3, by = (y >> 3) & 3, bz = (z >> 3) & 3;
+            if (bx == 0 || bx == 3 || by == 0 || by == 3 || bz == 0 || bz == 3) return false;
+            int b = (bx - 1) | ((by - 1) << 1) | ((bz - 1) << 2);
+            return ((DepositMask(Mix(h ^ 0x6A09E667u)) >> b) & 1u) != 0u;
+        }
+
+        /// The ore at voxel (x, y, z) of host layer `layer`, or 0 for none.
+        public static byte At(in TerrainSpec spec, int oreMul, byte biome, int layer, int x, int y, int z)
+        {
+            int chance = CellChance(layer, biome, oreMul);
+            if (chance <= 0) return 0;
+            uint h = Hash(spec.seed, x >> CELL_SHIFT, y >> CELL_SHIFT, z >> CELL_SHIFT);
+            if ((int)(h & 0xFFFFu) >= chance) return 0;
+            // Only the cell's 2x2x2 INNER bricks (voxels 8-23 per axis) hold ore.
+            int bx = (x >> 3) & 3, by = (y >> 3) & 3, bz = (z >> 3) & 3;
+            if (bx == 0 || bx == 3 || by == 0 || by == 3 || bz == 0 || bz == 3) return 0;
+            int b = (bx - 1) | ((by - 1) << 1) | ((bz - 1) << 2);
+            uint g = Mix(h ^ 0x6A09E667u);
+            if (((DepositMask(g) >> b) & 1u) == 0u) return 0;
             // One ellipsoid per brick, centred in it, in DOUBLED brick-local units
             // (voxel v's centre is 2v + 1 - 8, so -7..7): half-axes 2.5-3.5 voxels,
             // never leaving the brick.

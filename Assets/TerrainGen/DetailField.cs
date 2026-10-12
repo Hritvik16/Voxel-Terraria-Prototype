@@ -78,6 +78,9 @@ namespace TerrainGen
             public byte oreMul;
         }
 
+        /// Amplitudes of the wavy layer-boundary offsets (PrepareGeology).
+        public const float GEO_DEEP_AMP = 80f, GEO_CAVERN_AMP = 25f, GEO_UNDER_AMP = 20f;
+
         /// The geology terms only (layer boundary offsets, soil): what the
         /// surface and LayerRock need. No caves.
         private static ColumnDetail PrepareGeology(in Offsets o, int x, int z)
@@ -86,9 +89,9 @@ namespace TerrainGen
             // Each layer boundary is a wavy surface: the offset shifts the
             // boundary's height, column by column.
             var cd = new ColumnDetail();
-            cd.deepOffset = 80f * noise.snoise(p / 2600f + o.strata);
-            cd.cavernOffset = 25f * noise.snoise(p / 3000f + o.strata + 90f);
-            cd.underOffset = 20f * noise.snoise(p / 1800f + o.strata - 70f);
+            cd.deepOffset = GEO_DEEP_AMP * noise.snoise(p / 2600f + o.strata);
+            cd.cavernOffset = GEO_CAVERN_AMP * noise.snoise(p / 3000f + o.strata + 90f);
+            cd.underOffset = GEO_UNDER_AMP * noise.snoise(p / 1800f + o.strata - 70f);
             float n = noise.snoise(p / 300f + o.soil) * 0.5f + 0.5f;
             cd.soilDepth = 12 + (int)math.floor(n * 12f);
             return cd;
@@ -362,6 +365,208 @@ namespace TerrainGen
                 if (ore != 0) return ore;
             }
             return LayerRock(in spec, c.biome, y, cd.deepOffset, cd.cavernOffset, cd.underOffset);
+        }
+
+        // ------------------------------------------------------------------
+        // WHOLE-BRICK PROOFS (engine step 15, task 82b). A chunk generator asks,
+        // per column of an 8^3 brick, whether Material gives every sample y of
+        // the brick the SAME material -- one call from the column data instead
+        // of eight Material calls. It walks Material's branches over the y RANGE
+        // [yLo, yHi]: each branch is taken by every sample or by none, else the
+        // answer is 255 = unproven, and the caller runs the per-voxel pass (so
+        // 255 is always safe; only a wrong non-255 answer could change output).
+        // EXACT BY CONSTRUCTION: each test is Material's own comparison at the
+        // end of the range where it is hardest to pass. Integer tests are exact;
+        // the float layer tests (y + offset < limit) are monotone in both terms,
+        // so the bound at the end holds for every sample. Tunnels get a 2-voxel
+        // margin for the rounding of (y - yc). BrickSkipTests compares chunks and
+        // shell chunks with the skip on and off, byte for byte.
+        // ------------------------------------------------------------------
+
+        /// Bound on |snoise| used for the layer offsets when the caller does not
+        /// know each sample's fine brick (shells): 2x the noise's +-1 range.
+        public const float GEO_OFFSET_MARGIN = 2f;
+
+        /// Material of every sample y = yLo + j * yStep (j < count) of column
+        /// (x, z), or 255 when the column data cannot prove them all equal.
+        /// noPocket: CullBrick's pocket test passes for every sample's fine brick.
+        /// geoExact: all samples lie in ONE fine brick whose CullBrick geology is
+        /// (geoDeep, geoCavern, geoUnder); otherwise the offsets are only bounded.
+        public static byte UniformSamples(in TerrainSpec spec, in ColumnSample c, in ColumnDetail cd, float stepAtTop,
+                                          int x, int z, int yLo, int yStep, int count, bool noPocket,
+                                          bool geoExact, float geoDeep, float geoCavern, float geoUnder)
+        {
+            int yHi = yLo + yStep * (count - 1);
+            int h = c.height;
+            if (yLo > h)
+            {
+                if (yLo > spec.seaLevelY && yLo > c.water) return GenMat.Air;
+                if (yHi <= spec.seaLevelY) return GenMat.Water;
+                if (yLo > spec.seaLevelY && yHi <= c.water) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
+                return 255;
+            }
+            if (yHi > h) return 255;
+            if (yLo <= spec.worldBottomY) return yHi <= spec.worldBottomY ? GenMat.Bedrock : (byte)255;
+            if (c.lipLo != 0 && yHi >= c.lipLo) return 255;
+            if (Meets(c.open1Lo, c.open1Hi, yLo, yHi) || Meets(c.open2Lo, c.open2Hi, yLo, yHi) || Meets(c.open3Lo, c.open3Hi, yLo, yHi))
+                return 255;
+            if (c.stamp3D) return 255;
+
+            int hg = h;   // Material's ledge rule; the range is wholly below or above the gap here
+            if (c.open3Hi > c.open3Lo && yHi < c.open3Lo) hg = c.open3Lo - 1;
+            int hc = c.rimGround != 0 ? math.min(hg, c.rimGround) : hg;
+            if (hc - yLo > CARVE_MIN_DEPTH && (c.riverFloor == 0 || yLo < c.riverFloor))   // some sample may carve
+            {
+                if (!noPocket) return 255;
+                if (Meets(cd.cav0Lo, cd.cav0Hi, yLo, yHi) || Meets(cd.cav1Lo, cd.cav1Hi, yLo, yHi)) return 255;
+                if (Meets(cd.underLo, math.min(cd.underHi, spec.UnderworldTopY), yLo, yHi)) return 255;
+                if (MayTunnel(cd.tun0, hc - cd.tunY0, cd.tunH0, yLo, yHi) || MayTunnel(cd.tun1, cd.tunY1, cd.tunH1, yLo, yHi) ||
+                    MayTunnel(cd.tun2, cd.tunY2, cd.tunH2, yLo, yHi) || MayTunnel(cd.tun3, c.regional - cd.tunY3, cd.tunH3, yLo, yHi))
+                    return 255;
+            }
+            if (c.stampMat != 0 && yHi >= c.stampBodyLo) return yLo >= c.stampBodyLo ? c.stampMat : (byte)255;
+
+            // The rock rules: brick geology deeper than brickGeologyDepth, the
+            // per-voxel rules above it. A range across that depth is split there
+            // and both parts must prove the same material.
+            int bgd = spec.brickGeologyDepth;
+            if (bgd > 0 && hg - yLo > bgd)
+            {
+                if (hg - yHi > bgd) return GeologyRock(in spec, in c, in cd, x, z, yLo, yStep, count, geoExact, geoDeep, geoCavern, geoUnder);
+                int nGeo = (hg - bgd - 1 - yLo) / yStep + 1;   // the samples with y < hg - bgd
+                byte deep = GeologyRock(in spec, in c, in cd, x, z, yLo, yStep, nGeo, geoExact, geoDeep, geoCavern, geoUnder);
+                if (deep == 255) return 255;
+                return ShallowRock(in spec, in c, in cd, stepAtTop, x, z, yLo + nGeo * yStep, yStep, count - nGeo, hg) == deep ? deep : (byte)255;
+            }
+            return ShallowRock(in spec, in c, in cd, stepAtTop, x, z, yLo, yStep, count, hg);
+        }
+
+        /// UniformSamples' tail where every sample is deeper than brickGeologyDepth:
+        /// ore, then LayerRock at the sample's fine-brick centre height.
+        private static byte GeologyRock(in TerrainSpec spec, in ColumnSample c, in ColumnDetail cd, int x, int z,
+                                        int yLo, int yStep, int count, bool geoExact, float geoDeep, float geoCavern, float geoUnder)
+        {
+            int yHi = yLo + yStep * (count - 1);
+            float dLo, dHi, cLo, cHi, uLo, uHi;
+            if (geoExact)
+            {
+                if ((yLo >> 3) != (yHi >> 3)) return 255;
+                dLo = dHi = geoDeep; cLo = cHi = geoCavern; uLo = uHi = geoUnder;
+            }
+            else
+            {
+                dHi = GEO_DEEP_AMP * GEO_OFFSET_MARGIN; cHi = GEO_CAVERN_AMP * GEO_OFFSET_MARGIN; uHi = GEO_UNDER_AMP * GEO_OFFSET_MARGIN;
+                dLo = -dHi; cLo = -cHi; uLo = -uHi;
+            }
+            int gyLo = (yLo & ~(BRICK - 1)) + BRICK / 2, gyHi = (yHi & ~(BRICK - 1)) + BRICK / 2;
+            if (cd.oreMul != 0 && spec.mapVersion >= 4 &&
+                OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi))
+                return 255;
+            return LayerRockRange(in spec, c.biome, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi);
+        }
+
+        /// UniformSamples' tail where no sample is deeper than brickGeologyDepth:
+        /// surface, soil, ore, then LayerRock at the sample's own height.
+        private static byte ShallowRock(in TerrainSpec spec, in ColumnSample c, in ColumnDetail cd, float stepAtTop, int x, int z,
+                                        int yLo, int yStep, int count, int hg)
+        {
+            int yHi = yLo + yStep * (count - 1);
+            int depthLo = hg - yHi, depthHi = hg - yLo;
+            if (!(stepAtTop > 1.5f) && yHi >= spec.CavernTopY)
+            {
+                if (yLo < spec.CavernTopY) return 255;
+                if (depthLo < SURFACE_THICKNESS) return depthHi < SURFACE_THICKNESS ? Surface(in spec, in c, stepAtTop) : (byte)255;
+                if (depthLo < cd.soilDepth) return depthHi < cd.soilDepth ? Soil(c.biome) : (byte)255;
+            }
+            float d = cd.deepOffset, cv = cd.cavernOffset, u = cd.underOffset;
+            if (cd.oreMul != 0 && depthHi > Ores.MIN_DEPTH && spec.mapVersion >= 4 &&
+                OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, yLo, yHi, d, d, cv, cv, u, u))
+                return 255;
+            return LayerRockRange(in spec, c.biome, yLo, yHi, d, d, cv, cv, u, u);
+        }
+
+        /// [yLo, yHi] meets the interval [lo, hi) (empty when hi <= lo).
+        private static bool Meets(int lo, int hi, int yLo, int yHi) => hi > lo && yHi >= lo && yLo < hi;
+
+        /// InTunnel can pass for some y in [yLo, yHi]. It needs t < 1 and
+        /// |y - yc| < halfH; 2 voxels of margin cover the float rounding of y - yc.
+        private static bool MayTunnel(float t, float yc, float halfH, int yLo, int yHi)
+        {
+            if (t >= 1f) return false;
+            return !((double)yLo - yc >= (double)halfH + 2.0 || (double)yc - yHi >= (double)halfH + 2.0);
+        }
+
+        /// Ore can appear at some sample: the host layer is not provably one
+        /// layer over [lyLo, lyHi] and the offset ranges, or a sample's brick
+        /// passes Ores' cell and deposit tests.
+        private static bool OreMay(in TerrainSpec spec, byte biome, int oreMul, int x, int z, int yLo, int yStep, int count,
+                                   int lyLo, int lyHi, float dLo, float dHi, float cLo, float cHi, float uLo, float uHi)
+        {
+            float lo = lyLo, hi = lyHi;
+            int layer;
+            int s500 = spec.seaLevelY - STONE_BOTTOM_BELOW_SEA, s1000 = spec.seaLevelY - Ores.GOLD_TOP_BELOW_SEA;
+            if (hi + uHi < spec.UnderworldTopY) layer = 4;
+            else if (!(lo + uLo >= spec.UnderworldTopY)) return true;
+            else if (hi + cHi < spec.CavernTopY) layer = 3;
+            else if (!(lo + cLo >= spec.CavernTopY)) return true;
+            else if (hi + dHi < s500)
+            {
+                if (hi + dHi < s1000) layer = 2;
+                else if (lo + dLo >= s1000) layer = 1;
+                else return true;
+            }
+            else if (!(lo + dLo >= s500)) return true;
+            else layer = 0;
+            int chance = Ores.CellChance(layer, biome, oreMul);
+            if (chance <= 0) return false;
+            for (int j = 0; j < count; j++)
+            {
+                int y = yLo + j * yStep;
+                if (j > 0 && (y >> 3) == ((y - yStep) >> 3)) continue;   // same brick as the last sample
+                if (Ores.BrickMayHold(in spec, chance, x, y, z)) return true;
+            }
+            return false;
+        }
+
+        /// LayerRock for every y in [yLo, yHi] and every offset in its range, or
+        /// 255 when that is not one material.
+        private static byte LayerRockRange(in TerrainSpec spec, byte biome, int yLo, int yHi,
+                                           float dLo, float dHi, float cLo, float cHi, float uLo, float uHi)
+        {
+            float lo = yLo, hi = yHi;
+            float gLo = lo + uLo, gHi = hi + uHi;
+            if (gHi < spec.UnderworldTopY)
+            {
+                int magma = spec.worldBottomY + LAVA_ABOVE_FLOOR + 200, ash = spec.UnderworldTopY - 300;
+                if (gHi < magma) return GenMat.MagmaCrust;
+                if (!(gLo >= magma)) return 255;
+                if (gLo >= ash) return GenMat.Ash;
+                return gHi < ash ? GenMat.Obsidian : (byte)255;
+            }
+            if (!(gLo >= spec.UnderworldTopY)) return 255;
+            if (hi + cHi < spec.CavernTopY) return BiomeRock(biome, 2);
+            if (!(lo + cLo >= spec.CavernTopY)) return 255;
+            if (hi + dHi < spec.seaLevelY - STONE_BOTTOM_BELOW_SEA) return BiomeRock(biome, 1);
+            if (!(lo + dLo >= spec.seaLevelY - STONE_BOTTOM_BELOW_SEA)) return 255;
+            if (biome == GenBiome.Badlands) return (yLo >> 5) == (yHi >> 5) ? BadlandsBand(yLo) : (byte)255;
+            return BiomeRock(biome, 0);
+        }
+
+        /// CullBrick's pocket test for every fine brick inside the box [lo, hi)
+        /// (multiples of BRICK): true when no pocket or its shell reaches any.
+        public static bool NoPocketInBox(in TerrainSpec spec, in Offsets o, int3 lo, int3 hi)
+        {
+            int3 c0 = lo >> POCKET_CELL_SHIFT, c1 = (hi - 1) >> POCKET_CELL_SHIFT;
+            float3 flo = lo, fhi = hi;
+            for (int cz = c0.z; cz <= c1.z; cz++)
+            for (int cy = c0.y; cy <= c1.y; cy++)
+            for (int cx = c0.x; cx <= c1.x; cx++)
+            {
+                if (!TryGetPocket(in spec, in o, cx, cy, cz, out PocketInfo pk)) continue;
+                float3 ext = pk.radii * 1.35f + 1f;
+                if (!(math.any(fhi < pk.centre - ext) || math.any(flo > pk.centre + ext))) return false;
+            }
+            return true;
         }
 
         /// The material of the column's top voxel -- what the far band colours a

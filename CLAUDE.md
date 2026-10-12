@@ -285,6 +285,11 @@ are caught up on arrival. Far band: fill jobs apply ops per texel (2.5D: crater 
 floating blob no; `FarField` header EDITS); later ops patch their footprint through the strip staging + FarScatter.
 `EditOpRedrawTests` (4, one Slow). `EXTRA="-farop -faroplate -faropr 400 -shells 1 -shellworkers 3 -shellwait 240"` = before/after.
 
+Task 82b (engine 15): GENERATION BRICK SKIP. Generate and GenerateShellChunk write a brick as uniform without the per-voxel
+pass when the column data PROVES it one material (`DetailField.UniformSamples`: air above max(ground, water, sea), sea/lake
+water, soil, layer rock with no cave/pocket/ore reaching it). Byte-identical on or off (`BrickSkipTests`; `BrickSkip` field,
+`SkipStats`). Isolated: 0.1 m chunk 26.8 -> 9.2 ms; shells 1.2-1.45x (their column pass now dominates).
+
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
 (`Assets/TerrainGen/`):
