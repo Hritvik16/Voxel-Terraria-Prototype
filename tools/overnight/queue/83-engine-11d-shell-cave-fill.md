@@ -19,6 +19,14 @@ island so nothing is evicted).
      could reach). Define "enclosed" cheaply and conservatively (e.g. below the column's ground height h by more than
      a margin of one shell voxel, and not reachable from a non-enclosed neighbour within the chunk); when unsure, keep
      the air. Water/fluid voxels are never filled.
+   - **Cave entrances are points of interest and MUST stay visible from far away (owner, 2026-10-12).** Filling
+     only ever touches air that is sealed off from the outside; the tunnel behind a visible mouth stays open at
+     least one shell voxel deep, so the mouth reads as a dark hole, not a painted patch. Today's sampling (one fine
+     voxel per coarse voxel, row 13) can MISS a small mouth entirely: at a mouth, a coarse voxel becomes air when
+     enough of the fine voxels it covers are mouth air (pick the threshold so a mouth at least half a shell voxel
+     wide shows; state it). Test: seed 42's cave mouths (find a few with the generator) appear in shells 3-6 before
+     and after the fill (count them; 0 lost to the fill). Report the smallest mouth each shell shows; a mouth well
+     under one pixel cannot be drawn at any detail level -- say what size that is per shell.
    - **Flatten material-only bricks:** a brick that is all solid but mixed material, and NOT the surface (no air or
      fluid neighbour in the brick's 6-neighbourhood at shell resolution), becomes uniform with its majority material,
      so it costs no dense brick.
