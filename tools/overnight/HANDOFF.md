@@ -1,53 +1,59 @@
-# 77-engine-11a-shell-storage: DONE. Task 74's Q1/Q2 applied; shell storage + upload built, validators 0, rigs unchanged. One owner question (not blocking 11b)
-## Question for the owner (needed before shell pool caps are final; 11b can start without it)
-**Q1. The coarse shells hold ~1.5-3.4x the dense bricks 8.14 estimated, because of caves underground.** At seed 42's spawn, shell 6 needs
-~194k dense bricks (71.6k stored + 122.7k refused) against an estimate of 57k (cap 71.7k), and shell 7 needs ~20k against 13.8k. In the
-player run shells 3, 4 and 5 also filled their caps (~102k each) and refused more. Of the stored dense bricks, 71% contain air (caves,
-caverns) and 29% are material-only (ores, strata). Refusing is safe (row 15: the coarser shell shows; stale 0), but distant land goes missing.
-(a, recommended) In shells >= 3, fill enclosed underground air and flatten material-only bricks to one material (caves are not visible
-from 275 m+). This breaks row 12's "coarse voxel == generator voxel" below the surface only; one amendment row plus a test.
-(b) Raise the caps to the measured peaks: shells cost ~2-3x 8.14's 388 MB (est.), above the 3 GB cap. (c) Keep the caps and accept holes.
-## What changed
-- `3aeca7e` Q1 (a) + Q2 (a) (supervisor defaults): `GenerateShellChunk` samples fine index 2^(k-1)-1, and a column's top solid coarse voxel
-  takes the material of the fine voxel at the ground height h. Amendment 8.14 row 13 amended. `ShellChunkTests` stay exact (0 differ, now
-  including 1,213-1,849 top voxels per shell), and the agreement report gains a "surface vs 0.1 m" column.
-- `e72835d` Step 11a: `ShellLayout.From(preset)` (ContentModules/Config), `ShellStore` / `ShellStreamer` / `ShellValidator` /
-  `ShellDebugView` (CoreEngine/Mirror, namespace VoxelEngine.Mirror), `ShellStorageTests`. Two-level directory (ABSENT / UNIFORM|mat /
-  PAGE|page; 16 KB pages; 512 B bodies in BrickDataPool layout), zeroed at construction, refuses when full, budgeted multi-frame upload
-  (directory entry published last), dedicated workers, main-thread upload inside what tier 0 leaves of the 3 MiB cap.
-  Phase4Bootstrapper: `-shells 1` (tg2 only, **OFF by default**: nothing draws shells before 11b, and the pools would sit beside the
-  cascades they replace, +549 MB peak), `-quality low|medium|high|ultra` (default high), `-shellworkers N`, `-shellsdebug S`.
-- `2837be2` Fixed a starvation found in the player run: a full coarse shell kept regenerating its refused chunks while shells 1-4 got
-  nothing. Now a refused chunk waits until its shell has room, and a full shell yields the workers to the finer shells.
+# 80-engine-11b-shell-raymarch: DONE. Shells 1-7 draw behind `-shells 1` (default OFF), with distance hand-over, absent -> coarser, seams fixed; rigs unchanged
+(77's Q1, the pool caps, is still with the owner. It is now visible in the frames, see "Not done".)
+## What changed (commit `2f6ca67`, branch engine-phase)
+- `Raymarch.compute` `ShellMarch` (+ `ShellResolve/Lookup/ChunkState`): marches shells 1..N from ONE shared directory/page/brick buffer.
+  Each shell gets a base offset (`ShellStore.SharedBuffers`; 3 buffers, because 21 would pass Metal's 31-buffer limit). Count, rings,
+  published boxes, holes and bounds come from a constant buffer sized for 8 (row 1). It starts where tier 0 ends or a column is non-resident
+  (`FarStartT`). Rules: by distance; absent/refused -> coarser (Q2 (a), row 15); hole -> finer; tier 0's space is leapt unless tier 0 is
+  missing there; far band only past the last shell or where no shell has the chunk (row 5). Never coarser mid-cell; a start inside a coarse
+  solid cell is a TOP-face hit: this is the seam fix, no LOD side-face dark arcs.
+  Shell hits get a shell sun ray (ignores solid cells within 3 of its own cells: the coarser-shell self-shadow). Tier-0 AO and the sky probe
+  are not read for shell hits (they darkened the sea past 128 m). The river lip (136) is drawn as water.
+- `ShellRayReference.cs` = the CPU twin. `ShellHandOverTests` (5): every boundary of High's 7 shells, 4 azimuths; absent -> next stored shell
+  -> far band; past the last -> far band (level ray: 33 iterations, cap 384); tier-0 space leapt / tier-0 gap -> far band; seam top face.
+- `RaymarchFeature`: `DrawShells` (on when a streamer is Active), `ShellTint`, `ShellIterCap` (`-shelliters`). Cascade tiers 1-2 do NOT
+  draw while shells draw (row 2), but they stay ALLOCATED: freeing them would break the one-launch OFF/ON comparison. Free them when the
+  default switches. ShadowStats 8-39 = per-shell px metric. `Phase4Bootstrapper`: `ShellStreamer.Active`; `-shellsdebug` also tints.
+- `PlaygroundCapture.FarBand`: with `-shells 1`, `MODE=poses` shoots each pose at noon OFF/ON/tint after waiting up to `-shellwait` s
+  (default 75) for the shells to fill. `tools/shells80-sheet.py` makes the sheets. CLAUDE.md Commands has one new paragraph.
 ## Evidence
-- SUITE=all **PASS 736 FAIL 0 SKIP 19** (Logs/overnight/77-all.out, after the generator change); fast after the last fix **698/0/14**
-  (Logs/overnight/77-fast2.out). ShellStorageTests 4/4, including the Slow fill (Logs/Shells/fill.txt).
-- Validators: EditMode (High shells 6-7, real generator, two camera legs): stale slots 0, pool errors 0, uploads byte-exact, every update
-  inside its 1 MiB budget. Player, 3 runs, all 7 shells: stale 0, pool errors 0, **GPU directory readback mismatches 0**, over-budget
-  frames 0, generation errors 0 (Logs/Shells/player_shells_*.txt).
-- Memory A/B (same build, same pose run): peak 2,823 -> 3,372 MB; Metal (IOAccelerator) 1,042 -> 1,408 MB (+366 MB, the shells allocate
-  372 MB); native "Untagged" +193 MB, of which ~45 MB is accounted for (Logs/tg2world_20261012_013704 vs _011934, *_mem_peak_breakdown.txt).
-- Rigs: `run-phase7-rig.sh` **PASS 37 FAIL 0, 19/19 shots byte-identical** to 75b's run (Phase7Cycle/2026-10-11_233444 vs 2026-10-12_015234).
-  Acceptance rig **53 PASS / 1 FAIL**: the known flaky steady-state upload p99 (1.24 ms vs 1.0; KNOWN_ISSUES "Gate C is red on ONE
-  upload-budget check"). Previous run (2026-10-04) had 52/2 on the same check. No frame time quoted. I looked at Traverse_49: grass, a
-  sand band, water, three hills, a clean horizon.
+- Fast EditMode **PASS 703 FAIL 0 SKIP 14** (Logs/overnight/80-fast.out); filtered ShellHandOver 5/5 + ShellStorage 4/4 (incl. Slow fill).
+- `run-phase7-rig.sh` on the FINAL shader: **PASS 37 FAIL 0, 19/19 shots byte-identical** to 77's run (Phase7Cycle/2026-10-12_051216 vs
+  _015234). Same after the first shader version (_035824). Build: 0 Shader error.
+- Player, 2 launches (the 2nd re-shot after fixing 3 defects the 1st showed): validators shells 1-7 stale 0, pool errors 0, GPU directory
+  mismatches 0 (shared buffers + bases), gen errors 0 (Screenshots/80/shells_occupancy_quit.txt). Peak footprint 2,959 MB with shells AND
+  cascades allocated (Logs/tg2world_20261012_043323_mem.txt). No frame time measured (rule 10).
+- Looked at all 16 poses x 3 (sheets below). Shells ON matches OFF in layout everywhere, with more detail at 140 m-2 km.
+  - Gone: the dark arcs (cascade seams) on the snow at peak_from_2km and on the sea at coast_from_sea_30m.
+  - Seam / colour jumps found: (1) a vertical light/dark split down the far peak at peak_from_2km: shell 6 left, far band right. The chunk is
+    refused (FULL) and the far band shades differently. (2) Chunk-shaped patches where a refused chunk falls back to the next shell
+    (glide_400m, geyser_basin tint). (3) cliff_foot_2: a dark straight-edged wedge on the ridge. The straight edge is tier 0's 89.6 m band
+    ceiling; above it shell 1 draws the backlit cliff in shadow, nearer than 69 m (2.5 px). This is vertical coverage (11c/14), not a seam.
+  - Missing land: none. The far band fills every absent chunk. At oblique_3000m / map_7000m / rivers_oblique the shells draw NOTHING:
+    shells 6-7 are FULL with the chunks of the first poses (their box covers the whole island, so nothing is ever evicted).
+- **BUGS #2 (ledge crescent): not reproduced.** Today's `ledge_view` finds a different ledge: the whole frame is a tier-0 wall (921,600 of
+  921,600 px tier 0), with no crescent OFF or ON. Shells never draw in that frame, so 11b can neither cause nor fix it there. Leave
+  later/40 open until the B5 pose is re-found.
 ## Not done / next
-- The shells never filled completely in the pose run: ~440-640 ms per shell chunk with 2 workers beside tier 0, and thousands of chunks
-  per pose (steps 15/16). Occupancy bits / air mips for shells come with 11b. Shell 0 is still the 128 m window (step 14).
-  PlaySettings / F6 / auto-pick (rows 16-17) are not done. While a shell is full its cheap uniform chunks wait too.
-- Next: 11b (raymarch + seams + the "largest voxel <= 1 px" pose metric), ideally after Q1.
+- Occupancy bits / air mips for shells: not built. Uniform chunks and bricks leap whole; no iteration-cap overrun was seen in the shots.
+  Build them in the perf step if shell cost shows.
+- **Q1 is now visible in the frames.** Shells 1-2 run out of PAGES first (320/320 pages, only 91k/150k and 119k/119k bricks); 3-7 run out
+  of bricks. Final refusals s1-s7 = 24/36/41/50/48/55/43 (missing waiting: 1674/1711/1891/790/330/90/0). Fixing the caps is the owner's
+  Q1, plus `PAGES_PER_COLUMN` for shells 1-2.
+- Rivers in coarse shells show as broken blue specks, not lines (narrow channels at 0.8-3.2 m voxels). One unexplained small dark mark
+  (a "?" shape) on the snow at glide_400m in ON.
+- Next: the owner's Q1, then the default switch + retire cascade tiers 1-2 (frees their memory), and 11c (vertical / shell 0).
 ## For the doc
-- Top-voxel colour vs the real 0.1 m surface, shells 1-4 pooled: **coarse 99.99 / 99.37 / 98.88 / 97.81%**. The majority vote itself
-  reaches only 96.2 / 91.8 / 73.5 / 56.1%, so 74's "vs vote" line (96 / 76 / 60 / 55% -> now 96 / 91 / 72 / 54%) measured the wrong
-  reference past shell 2 (Logs/TerrainGen/coarse_first.txt vs coarse_first_74.txt). Q2: pooled shell 1 voxels 97.2 -> 98.5%, heights 99.0 -> 99.6%.
-- Memory per shell, High, as allocated (bodies + pages + directory): 82 / 66 / 58 / 58 / 58 / 40 / 10 MB = **372 MB**; 8.14's formula
-  gives 383 MB against §H.2's 388. Per preset, shells 1+: Low 166 / Medium 274 / High 383 / Ultra 674 MB vs 169 / 277 / 388 / 677
-  (Logs/Shells/ledger.txt).
-- Dense bricks needed vs estimated, seed 42 spawn: shell 6 **~194k vs 57k**, shell 7 ~20k vs 14k (Logs/Shells/fill.txt from `e72835d`'s run).
-- Player peak footprint with shells on: 2,823 -> 3,372 MB (+366 MB Metal), off by default.
-- `Screenshots/77/77_river_plains.png`: bottom row (shell 3). The vote's top view (left) shows blue-grey bare patches; the coarse top view
-  (second) keeps the light snow colour. Task 74's version (Screenshots/74/74_river_plains.png) showed it the other way round.
-- `Screenshots/77/shells_occupancy_leg0.png`: High shells 6 (left) and 7 (right) around the spawn, one cell per chunk column. Grey = the
-  hole the finer shell covers (the camera is outlined in it), green = stored, red = refused (pool full). The red edge is the shortfall in Q1.
-- `Screenshots/77/player_shells_t90.png`: the player run 90 s in, shells 1-7 from left to right. Shells 1-4 are yellow (still missing).
-  In shells 6-7 the stored green ring is around an earlier pose; the camera (outlined) has moved on.
+- Largest voxel on screen, max px over the 16 poses at 720 rows (screen-centre angle): **s1 0.97** (2.53 only where shell 1 draws above tier
+  0's band), **s2 2.14, s3 2.12, s4 3.69, s5 4.48, s6 4.50, s7 3.14**. 8.14 §1's adopted rule A puts the next shell's voxel at **2 px** at its
+  inner bound: the plan row's "<= 1 px" is rule B's wording. Shells 1-3 meet 2 px; 4-7 exceed it where refused chunks fall back to the next
+  coarser shell (Screenshots/80/farpreview.txt `[shells]` lines).
+- Refusals per shell (run total) s1-s7: 24 / 36 / 41 / 50 / 48 / 55 / 43; FULL at almost every pose (pages for s1-2, bricks for s3-7).
+- Phase 7 rig 37/0, 19/19 byte-identical with shells OFF. Peak footprint 2,959 MB with shells + cascades both allocated.
+- `Screenshots/80/sheet_shells_1.jpg`: rows peak_from_2km, summit_view, glide_400m, coast_from_sea_30m, oblique_3000m; columns OFF / ON /
+  tint (tier 0 blue, shells 1-7 green, yellow, orange, red, magenta, cyan, white; far band grey). Row 1: compare the snow plain's dark arc in
+  OFF (gone in ON) and the peak's left/right split. Row 4: compare the black arcs on the sea in OFF (gone in ON). Row 5: all grey, far band.
+- `Screenshots/80/sheet_shells_3.jpg`: rows eye_level_3, ledge_view, cliff_foot_1-3. Row 2 is BUGS #2's pose: all tier 0, no crescent.
+  Row 4: the dark wedge over the ridge in ON, above tier 0's band (green in the tint).
+- `Screenshots/80/coast_seam_off_run1_run2.png`: the sea at the hand-over. Top: OFF, a black arc. Middle: the first launch, a darker strip
+  (tier-0 AO / sky probe read at a shell hit). Bottom: the final, flat.
