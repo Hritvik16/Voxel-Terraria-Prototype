@@ -50,7 +50,16 @@ namespace VoxelEngine.Mirror
         private readonly int3[] _lo, _hi;     // stored box (inclusive), world-clamped
         private readonly List<int3>[] _cand;  // missing chunks, FARTHEST first (pop from the end)
         private readonly HashSet<long> _inFlight = new HashSet<long>();
-        private readonly HashSet<long>[] _refused;
+        // Refused chunks (pool or pages full, row 15) -> the dense bricks they
+        // need. Retried only once the shell has that much room again: a full
+        // coarse shell must not keep the workers regenerating its refusals
+        // while the finer shells wait (found in the task 77 player run).
+        private readonly Dictionary<long, int>[] _refused;
+        private readonly List<long> _pruneScratch = new List<long>();
+        // A shell that just refused a chunk is FULL until it has room for one
+        // that size again: its other missing chunks wait (each would cost a
+        // generation only to be refused) and the finer shells get the workers.
+        private readonly int[] _fullNeed;
         private readonly Stack<TerrainGenChunkSource.ShellChunk> _free = new Stack<TerrainGenChunkSource.ShellChunk>();
         private readonly List<TerrainGenChunkSource.ShellChunk> _all = new List<TerrainGenChunkSource.ShellChunk>();
         private readonly Queue<TerrainGenChunkSource.ShellChunk> _pending = new Queue<TerrainGenChunkSource.ShellChunk>();
@@ -70,12 +79,12 @@ namespace VoxelEngine.Mirror
             int n = layout.ShellCount;
             _stores = new ShellStore[n];
             _cc = new int3[n]; _ccValid = new bool[n]; _lo = new int3[n]; _hi = new int3[n];
-            _cand = new List<int3>[n]; _refused = new HashSet<long>[n];
+            _cand = new List<int3>[n]; _refused = new Dictionary<long, int>[n]; _fullNeed = new int[n];
             for (int k = FirstShell; k <= LastShell; k++)
             {
                 var s = layout[k];
                 _stores[k] = new ShellStore(k, s.Ring, s.PoolCap, s.PageCap);
-                _cand[k] = new List<int3>(); _refused[k] = new HashSet<long>();
+                _cand[k] = new List<int3>(); _refused[k] = new Dictionary<long, int>();
             }
             workers = math.max(1, workers);
             int scratch = synchronous ? 3 : workers + 2;   // + 2: results waiting for upload budget
@@ -102,6 +111,9 @@ namespace VoxelEngine.Mirror
 
         private static long Key(int k, int3 c) =>
             ((long)k << 60) | ((long)(c.x & 0xFFFFF) << 40) | ((long)(c.y & 0xFFFFF) << 20) | (long)(c.z & 0xFFFFF);
+        /// Key's chunk back (20-bit fields, sign-extended by the arithmetic shifts).
+        private static int3 KeyCoord(long key) =>
+            new int3((int)(key >> 40 << 44 >> 44), (int)(key >> 20 << 44 >> 44), (int)(key << 44 >> 44));
 
         /// The camera's chunk in shell k, from its position in metres (integer
         /// voxel first, then shifts: no float division, §6.2).
@@ -123,7 +135,7 @@ namespace VoxelEngine.Mirror
 
         /// Chunks still missing (not stored, not refused) in shell k.
         public int Missing(int k) => _cand[k] == null ? 0 : _cand[k].Count;
-        public bool IsRefused(int k, int3 c) => _refused[k].Contains(Key(k, c));
+        public bool IsRefused(int k, int3 c) => _refused[k].ContainsKey(Key(k, c));
         public bool IsInFlight(int k, int3 c) => _inFlight.Contains(Key(k, c));
 
         public bool Idle
@@ -134,7 +146,8 @@ namespace VoxelEngine.Mirror
                 for (int k = FirstShell; k <= LastShell; k++)
                 {
                     if (_stores[k].DirectoryDirty) return false;
-                    foreach (var c in _cand[k]) if (!_stores[k].Holds(c) && !_refused[k].Contains(Key(k, c))) return false;
+                    if (ShellFull(k)) continue;
+                    foreach (var c in _cand[k]) if (!_stores[k].Holds(c) && !Blocked(k, Key(k, c))) return false;
                 }
                 return true;
             }
@@ -207,7 +220,12 @@ namespace VoxelEngine.Mirror
                 case ShellStore.StoreResult.OverBudget:
                 case ShellStore.StoreResult.Busy: return false;
                 case ShellStore.StoreResult.InProgress: return true;   // stays in flight until Continue finishes it
-                case ShellStore.StoreResult.Refused: _inFlight.Remove(key); _refused[k].Add(key); return true;
+                case ShellStore.StoreResult.Refused:
+                    _inFlight.Remove(key);
+                    ShellStore.UploadBytes(sc, out int dense, out _, out _);
+                    _refused[k][key] = dense;
+                    _fullNeed[k] = math.max(1, dense);
+                    return true;
                 default: _inFlight.Remove(key); return true;
             }
         }
@@ -218,17 +236,35 @@ namespace VoxelEngine.Mirror
         {
             for (k = LastShell; k >= FirstShell; k--)   // coarsest first
             {
+                if (ShellFull(k)) continue;
                 var list = _cand[k];
                 while (list.Count > 0)
                 {
                     c = list[list.Count - 1]; list.RemoveAt(list.Count - 1);
                     long key = Key(k, c);
-                    if (!Wanted(k, c) || _stores[k].Holds(c) || _inFlight.Contains(key) || _refused[k].Contains(key)) continue;
+                    if (!Wanted(k, c) || _stores[k].Holds(c) || _inFlight.Contains(key) || Blocked(k, key)) continue;
                     return true;
                 }
             }
             k = -1; c = default;
             return false;
+        }
+
+        public bool ShellFull(int k)
+        {
+            if (_fullNeed[k] == 0) return false;
+            var st = _stores[k];
+            if (st.FreePages > 0 && st.FreeBricks >= _fullNeed[k]) { _fullNeed[k] = 0; return false; }
+            return true;
+        }
+
+        /// A refused chunk stays out until its shell can hold it.
+        private bool Blocked(int k, long key)
+        {
+            if (!_refused[k].TryGetValue(key, out int dense)) return false;
+            var st = _stores[k];
+            if (st.FreePages > 0 && st.FreeBricks >= dense) { _refused[k].Remove(key); return false; }
+            return true;
         }
 
         /// Recompute shell k's box when the camera changes chunk there: evict
@@ -249,7 +285,11 @@ namespace VoxelEngine.Mirror
                 hi.y = lo.y + s.Ring.y - 1;
             }
             _cc[k] = cc; _ccValid[k] = true; _lo[k] = lo; _hi[k] = hi;
-            _refused[k].Clear();   // room may have freed up
+            _pruneScratch.Clear();
+            foreach (var kv in _refused[k])
+                if (!Wanted(k, KeyCoord(kv.Key)))
+                    _pruneScratch.Add(kv.Key);
+            foreach (long key in _pruneScratch) _refused[k].Remove(key);
 
             var st = _stores[k];
             for (int slot = 0; slot < st.SlotCount; slot++)

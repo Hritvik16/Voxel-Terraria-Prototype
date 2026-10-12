@@ -89,7 +89,7 @@ namespace VoxelEngine.Mirror
                 s.Box(k, out int3 lo, out int3 hi, out int3 cc);
                 sb.AppendLine($"  shell {k} ({sh.VoxelM:0.0##} m, ring {sh.Ring.x}x{sh.Ring.y}x{sh.Ring.z}, box {lo}..{hi}, hole +-{sh.Hole}): " +
                               $"chunks {st.ChunksStored} (uniform {st.UniformChunks}, pages {st.PagesUsed}/{st.PageCap} peak {st.PeakPages}), " +
-                              $"bricks {st.BricksUsed}/{st.PoolCap} peak {st.PeakBricks} (est. {sh.EstBricks}), refusals {st.Refusals} ({st.RefusedBricks} bricks), missing {s.Missing(k)}, " +
+                              $"bricks {st.BricksUsed}/{st.PoolCap} peak {st.PeakBricks} (est. {sh.EstBricks}), refusals {st.Refusals} ({st.RefusedBricks} bricks){(s.ShellFull(k) ? " FULL" : "")}, missing {s.Missing(k)}, " +
                               $"GPU {st.BytesAllocated / 1e6:F1} MB, uploaded {st.BytesUploaded / 1e6:F1} MB");
             }
             return sb.ToString();

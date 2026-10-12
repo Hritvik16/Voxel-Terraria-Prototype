@@ -259,7 +259,7 @@ public class ShellStorageTests
                     Assert.AreEqual(0, stale, ex);
                     Assert.AreEqual(0, ShellValidator.CountPoolErrors(s.Store(k), out ex), ex);
                     Assert.Greater(s.Store(k).ChunksStored, 0, $"shell {k} stored nothing");
-                    // Every wanted chunk is stored or refused (a full pool, row 15:
+                    // Every wanted chunk is stored, refused or waiting on a full shell (row 15:
                     // reported, not asserted -- the caps are 8.14's estimates);
                     // check three stored ones voxel for voxel.
                     s.Box(k, out int3 lo, out int3 hi, out int3 cc);
@@ -270,7 +270,7 @@ public class ShellStorageTests
                             var c = new int3(x, y, z);
                             if (!s.Wanted(k, c)) continue;
                             wanted++;
-                            Assert.IsTrue(s.Store(k).Holds(c) || s.IsRefused(k, c), $"shell {k} chunk {c} wanted but neither stored nor refused");
+                            Assert.IsTrue(s.Store(k).Holds(c) || s.IsRefused(k, c) || s.ShellFull(k), $"shell {k} chunk {c} wanted but neither stored, refused, nor waiting on a full shell");
                             if (checkedN < 3 && s.Store(k).Holds(c) && ((x + z) % 4 == 0))
                             {
                                 src.GenerateShellChunk(k, c, fresh);
