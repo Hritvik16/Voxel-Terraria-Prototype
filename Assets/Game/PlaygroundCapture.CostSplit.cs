@@ -57,6 +57,14 @@
 //                       FULL keeps the launch's value (OFF unless -seethrough 1)
 //            -costpaths lake  two still poses instead of the walk arcs: lake_shore
 //                       (over a map lake, sun behind) and lake_away (same eye, facing the sun)
+//   TASK 75b: see_noblend / see_nofar / see_nomarch  DIAGNOSTIC: see_on minus one part
+//                       (RaymarchFeature.DebugSeeSkip): the voxel end blend, the far band's
+//                       blend, the march through the fluid (the blend runs on the surface)
+//                       (the candidates' own arms -- step cap 64, cut 5%, coarser tier by path --
+//                       were measured once, Logs/costsplit_2026-10-11_224010.txt, and removed)
+//            heat / see_heat / see_tier  DIAGNOSTIC stills: step heat off / on, LOD tier view on
+//            -costpaths lake also times lake_wall: task 75's first pose (seed 42, fixed
+//                       eye), which faced a wall of water (~60% of the frame) in 75's run
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -251,7 +259,13 @@ public partial class PlaygroundCapture
         RaymarchFeature.UseLODCascade = arm != "tiers_off";
         // Task 75: see_on turns see-through liquids ON; FULL keeps the launch's
         // value (OFF unless -seethrough 1), so saved = OFF - ON (negative = its cost).
-        RaymarchFeature.SeeThroughLiquids = arm == "see_on" || _costBaseSee;
+        RaymarchFeature.SeeThroughLiquids = arm.StartsWith("see_") || _costBaseSee;
+        // Task 75b: see_on minus one part (diagnostic; FULL and every other arm skip nothing).
+        RaymarchFeature.DebugSeeSkip = arm == "see_noblend" ? 1 : arm == "see_nofar" ? 2 : arm == "see_nomarch" ? 4 : 0;
+        // Task 75b: heat / see_heat show the step-count heat view (stills only; their ms are not frames
+        // of the product), see_tier the LOD tier view with see-through on.
+        RaymarchFeature.UseDebugViewOverride = arm == "heat" || arm == "see_heat" || arm == "see_tier";
+        RaymarchFeature.DebugViewOverride = arm == "see_tier" ? RaymarchFeature.DebugMode.LODTier : RaymarchFeature.DebugMode.StepHeat;
         Playground.DebugSuspendFluidSim = arm == "fluid_off";
         Playground.DebugHideUi = arm == "hud_off";
         Minimap.Visible = arm != "hud_off";
@@ -288,6 +302,17 @@ public partial class PlaygroundCapture
             for (int f = 0; f < n; f++) { path.pos[f] = eye; path.rot[f] = rot; }
             path.note = $"still pose, eye {eye:F1} (1.6 m over the ground), lake point {lake * 0.1f} m, " +
                         $"lake centre {math.length(shore - lake) * 0.1f:F0} m away, water level {(waterTop + 1) * 0.1f:F1} m, yaw {rot.eulerAngles.y:F0}, pitch {rot.eulerAngles.x:F0}";
+            list.Add(path);
+        }
+        // Task 75b: task 75's first lake_shore pose (Logs/costsplit_2026-10-11_135318.txt),
+        // fixed: the eye stood under a lake standing above the land and faced its wall.
+        {
+            var eyeW = new Vector3(4145.2f, 653.1f, 4303.0f);
+            var rotW = Quaternion.Euler(8f, 180f, 0f);
+            int n = (int)(RatePathSeconds * 30f) + 1;
+            var path = new ClipPath { name = "lake_wall", hours = hours, moving = false, lead = 0, pos = new Vector3[n], rot = new Quaternion[n] };
+            for (int f = 0; f < n; f++) { path.pos[f] = eyeW; path.rot[f] = rotW; }
+            path.note = $"still pose, eye {eyeW:F1} (task 75's first pose, fixed; seed 42), yaw 180, pitch 8";
             list.Add(path);
         }
         return list;

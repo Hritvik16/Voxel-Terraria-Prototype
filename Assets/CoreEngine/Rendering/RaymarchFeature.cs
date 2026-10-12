@@ -206,6 +206,12 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// keep today's look byte for byte; play sets it from PlaySettings.seeThroughLiquids
     /// (on), a capture run only with `-seethrough 1`.
     public static bool SeeThroughLiquids = false;
+    /// DIAGNOSTIC (task 75b's cost split arms see_noblend / see_nofar / see_nomarch):
+    /// bits that skip one part of the see-through work -- 1 the end blend behind a
+    /// voxel surface, 2 the far band's blend, 4 the march through the fluid (the
+    /// blend then runs on the surface itself). Sent as _SeeThroughLiquids bits 1-3.
+    /// Never set outside the cost split.
+    public static int DebugSeeSkip = 0;
     /// Task 76 (R2 + R5, replaces task 73's prototype): generated rivers drawn as one
     /// moving sheet -- one-voxel risers between water drawn as surface, ripples moving
     /// along the map's flow directions and foam where the profile is steep, on near
@@ -772,7 +778,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 passData.lookGrade = new Vector4(g.x, g.y, g.z, g.w);
                 passData.emissiveBleed = EmissiveBleedOverride >= 0 ? EmissiveBleedOverride : cfg.emissiveBleed;
                 passData.underwaterView = UnderwaterView ? 1 : 0;
-                passData.seeThroughLiquids = SeeThroughLiquids ? 1 : 0;
+                passData.seeThroughLiquids = SeeThroughLiquids ? 1 | ((DebugSeeSkip & 7) << 1) : 0;   // bits 1-3: task 75b diagnostic
                 passData.riverLook = RiverLook ? 1 : 0;
                 {
                     var farR = VoxelEngine.Rendering.FarField.Active;

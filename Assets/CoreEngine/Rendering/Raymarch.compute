@@ -2621,11 +2621,18 @@ float HazeAmount(float distVoxels, float y0, float y1)
 // The far band does the same from its texel's water depth (bits 25-31), with no
 // march. Lava, quicksand and steam stop at the surface exactly as today.
 // Cost guards: the march through a fluid ends where (1 - Fresnel) * transmittance
-// < 2% (SeeMaxPathVoxels), after SEE_STEP_CAP extra steps, or on leaving it.
+// < SEE_CUT (SeeMaxPathVoxels), after SEE_STEP_CAP extra steps, or on leaving it.
+// Task 75b: the march's cost grows with that path (a lower step cap saved nothing,
+// a coarser tier cost more), so the cut is 10% (was 2%) and the bed fades out over
+// the last 30% of the path (SeeCutFade) instead of stopping at a seam.
 int _SeeThroughLiquids;   // 1 on (RaymarchFeature.SeeThroughLiquids, PlaySettings.seeThroughLiquids)
+// Bits 1-3 (task 75b's cost split only, RaymarchFeature.DebugSeeSkip): skip the voxel end
+// blend (2), the far band's blend (4), the march through the fluid (8).
 bool MaterialIsSeeThrough(uint m) { return m == 6u || m == 12u || m == 18u || m == 19u || m == 20u; }
 #define SEE_FRESNEL_MAX 0.6     // pick: a grazing view keeps 40% of the water's own colour
 #define SEE_STEP_CAP 192        // extra march iterations at most, per ray, inside the fluid
+#define SEE_CUT 0.10            // task 75b (was 0.02): the bed's weight at which the march stops
+#define SEE_CUT_FADE 0.3        // ... reached by a fade over this last part of the path (no seam)
 #define SEE_FAR_BED_MAT 140u    // the far band has no bed material: tg2 Sand (TG2_BASE 128 + GenMat 12)
 
 // Schlick, F0 0.02, capped; a side face (a stepped water wall) reflects nothing.
@@ -2636,14 +2643,21 @@ float SeeFresnel(float3 rayDir, int3 n)
     return min(SEE_FRESNEL_MAX, 0.02 + 0.98 * k * k * k * k * k);
 }
 
-// Path length (voxels) past which (1 - F) * transmittance of the bed < 2% on
+// Path length (voxels) past which (1 - F) * transmittance of the bed < SEE_CUT on
 // the clearest channel. A downward ray also loses light on the way down to its
 // bed (half the depth, see above), hence the (1 + 0.5 |dy|).
 float SeeMaxPathVoxels(uint m, float3 rayDir, float fres)
 {
     float3 e = FluidExtinction(m);
     float k = min(e.x, min(e.y, e.z)) * (1.0 + 0.5 * saturate(-rayDir.y));
-    return max(0.0, log(50.0 * (1.0 - fres)) / k) * 10.0;
+    return max(0.0, log((1.0 - fres) / SEE_CUT) / k) * 10.0;
+}
+
+// Task 75b: what is behind fades to nothing at the cut, so ending the march
+// there leaves no edge where a sloping bed crosses it.
+float SeeCutFade(float pathVoxels, float maxPathVoxels)
+{
+    return saturate((maxPathVoxels - pathVoxels) / max(1.0e-3, SEE_CUT_FADE * maxPathVoxels));
 }
 
 // What lies behind the fluid, lit with the light that got through it (lightT):
@@ -2790,7 +2804,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // changes: seeMat stays 0 and the march is the old one.
     bool seeOn = (_SeeThroughLiquids != 0) && (passMat == 0u);
     uint seeMat = 0u;
-    float seeEntryDist = 0.0, seeEndDist = 0.0, seeMaxDistSaved = 0.0, seeFres = 0.0;
+    float seeEntryDist = 0.0, seeEndDist = 0.0, seeMaxDistSaved = 0.0, seeFres = 0.0, seeMaxPath = 0.0;
     int3 seeVoxel = int3(0, 0, 0), seeNormal = int3(0, 0, 0);
     int seeTier = 0, seeIterCapSaved = 0;
     bool seeDense = false, seeExited = false;
@@ -3178,7 +3192,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             seeTier = tierAtHit; seeDense = lastWasDense;
             seeFres = SeeFresnel(rayDir, normal);
             seeMaxDistSaved = maxDist; seeIterCapSaved = _iterCap;
-            maxDist = min(maxDist, currentDist + SeeMaxPathVoxels(mat, rayDir, seeFres));
+            if ((_SeeThroughLiquids & 8) != 0) break;   // 75b diagnostic: no march (the blend runs on the surface)
+            seeMaxPath = SeeMaxPathVoxels(mat, rayDir, seeFres);
+            maxDist = min(maxDist, currentDist + seeMaxPath);
             _iterCap = min(_iterCap, steps + SEE_STEP_CAP);
             passMat = mat;
             hit = false;
@@ -4008,7 +4024,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         // TASK 75: far water is see-through by the same table, from the depth
         // its texel carries (bits 25-31, voxels; FarField.DepthBits): top faces
         // only, the path straight down to the bed at this ray's slope, no march.
-        if (_SeeThroughLiquids != 0 && fm == 6u && fh.normal.y > 0)
+        if (_SeeThroughLiquids != 0 && (_SeeThroughLiquids & 4) == 0 && fm == 6u && fh.normal.y > 0)
         {
             float depthV = (float)((fh.texel >> 25) & 0x7Fu);
             float slope = max(0.05, -rayDir.y);
@@ -4016,17 +4032,19 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             float fresF = SeeFresnel(rayDir, fh.normal);
             float3 behindF = SeeBehindColour(SEE_FAR_BED_MAT, fvox - int3(0, (int)depthV, 0), float3(0.0, 1.0, 0.0), sunVisF, 1.0,
                                              exp(-0.05 * depthV * extF), rayDir, fh.t + depthV / slope, rayStart.y);
-            color.rgb = SeeCompose(color.rgb, behindF, exp(-(0.1 * depthV / slope) * extF) * (1.0 - riverFoam), fresF, SeeReflection(rayDir, sunVisF));
+            float fadeF = SeeCutFade(depthV / slope, SeeMaxPathVoxels(6u, rayDir, fresF));   // task 75b: the voxels' cut
+            color.rgb = SeeCompose(color.rgb, behindF, exp(-(0.1 * depthV / slope) * extF) * (1.0 - riverFoam) * fadeF, fresF, SeeReflection(rayDir, sunVisF));
         }
     }
 
     // ---- TASK 75: WHAT IS BEHIND THE FLUID SURFACE ----
     // `color` is the surface, shaded exactly as before. Blend in what the march
     // found behind it, by the path length inside the fluid (see SeeCompose).
-    if (seeMat != 0u)
+    if (seeMat != 0u && (_SeeThroughLiquids & 2) == 0)
     {
         float3 extS = FluidExtinction(seeMat);
-        float3 tView = exp(-((seeEndDist - seeEntryDist) * 0.1) * extS) * (1.0 - riverFoam);   // task 76: foam is opaque
+        float3 tView = exp(-((seeEndDist - seeEntryDist) * 0.1) * extS) * (1.0 - riverFoam)   // task 76: foam is opaque
+                     * SeeCutFade(seeEndDist - seeEntryDist, seeMaxPath);                      // task 75b
         float3 behind = color.rgb;   // nothing reached: past the clarity range the fluid is its own colour, as today
         if (seeBehindHit)
         {
