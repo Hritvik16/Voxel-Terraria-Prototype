@@ -271,6 +271,13 @@ Task 80 (engine 11b): `-shells 1` now DRAWS shells 1-7 (Raymarch.compute `ShellM
 `-shellsdebug S` also tints each pixel by shell; with `-shells 1`, `MODE=poses` shoots every pose OFF/ON/tint at noon with
 the per-shell px metric (`EXTRA="-shells 1 -shellworkers 3 -gateres 1280"`, sheets: `tools/shells80-sheet.py`).
 
+Task 81 (engine 13a, 8.14 rows 8-10): FAR EDITS are D.4 ops: `IEditOps.Record(EditOp)` (`EditOps`; sphere/box, Air = carve;
+kind 3 reserved for D.3 prefabs) appends to `ops.log` in the delta folder (`EditOpLog`; written only once an op exists, cleared
+with the deltas) and applies at once to resident chunks via EditService; workers apply the log's immutable `Snapshot` on
+generation (`EditOpApply`: 0.1 m chunks, and shells at their own voxel size). Load = ops <= S, D.1, ops > S (S per chunk in the
+log's side table; CRC mismatch -> all ops, then D.1). `SetVoxel`/D.1 unchanged. `EditOpTests` (10). Already-generated shell
+chunks / the far band do not redraw yet (13b). `EXTRA="-farop -shells 1 -shellworkers 3 -shellwait 180"` = a 20 m crater shot.
+
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
 (`Assets/TerrainGen/`):

@@ -43,6 +43,34 @@ public class Phase4Bootstrapper : MonoBehaviour
     /// occupancy picture + report S seconds after start-up and at quit, and
     /// tints each pixel by the shell that drew it.
     public static ShellStreamer Shells { get; private set; }
+
+    /// `-farop` (task 81's demo): the centre of the 20 m crater recorded as an
+    /// edit op ~300 m from the spawn before anything streams, or null.
+    public static int3? FarOpCentre { get; private set; }
+
+    /// Engine step 13a's demo: one sphere-carve op (r = 200 voxels = 20 m) on land
+    /// ~300 m from `camPos`, through IEditOps, BEFORE the first chunk or shell
+    /// chunk generates -- 13b (redraw when an op lands) does not exist yet, so an
+    /// op recorded later shows only in chunks generated after it.
+    private static void RecordFarOp(Vector3 camPos)
+    {
+        var src = Streamer.TerrainGenSource;
+        var spec = src.Spec; var view = src.Map.View; var o = src.O;
+        for (int i = 0; i < 16; i++)
+        {
+            float a = i * (Mathf.PI / 8f);
+            float x = camPos.x * 10f + Mathf.Sin(a) * 3000f, z = camPos.z * 10f + Mathf.Cos(a) * 3000f;
+            var col = TerrainGen.ShapeField.Sample(in spec, in view, in o, x, z, 1);
+            if (col.height < spec.seaLevelY + 50 || col.water > col.height) continue;   // land, not under water
+            var centre = new int3((int)x, col.height, (int)z);
+            uint seq = new EditOps(Streamer.Ops, null, null).Record(
+                new VoxelEngine.Streaming.EditOp(VoxelEngine.Streaming.EditOpKind.Sphere, centre, 200, Materials.Air));
+            FarOpCentre = centre;
+            UnityEngine.Debug.Log($"[FarOp] op #{seq}: sphere carve r 20 m at voxel {centre} ({(centre.x - camPos.x * 10f) * 0.1f:F0}, {(centre.z - camPos.z * 10f) * 0.1f:F0}) m from the camera, heading {i * 22.5f:F1} deg");
+            return;
+        }
+        UnityEngine.Debug.Log("[FarOp] no land 300 m from the spawn in 16 headings -- no op recorded");
+    }
     public static CoalesceScheduler Coalescer { get; private set; }
     public static string DeltaDirectory { get; private set; }
     public static string MetaRoundtripStatus { get; private set; }
@@ -202,6 +230,10 @@ public class Phase4Bootstrapper : MonoBehaviour
         {
             foreach (string f in Directory.GetFiles(DeltaDirectory, "*.delta")) File.Delete(f);
             foreach (string f in Directory.GetFiles(DeltaDirectory, "*.delta.tmp")) File.Delete(f);
+            // The edit-op log (8.14 D.4) belongs to the same save: clearing the
+            // deltas without it would replay old far edits onto a fresh world.
+            foreach (string f in new[] { VoxelEngine.Streaming.EditOpLog.FILE_NAME, VoxelEngine.Streaming.EditOpLog.FILE_NAME + ".tmp" })
+                if (File.Exists(Path.Combine(DeltaDirectory, f))) File.Delete(Path.Combine(DeltaDirectory, f));
         }
 
         // ---- Pools / store / mirrors ----
@@ -304,6 +336,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         sw.Restart();
         Vector3 camPos = Camera.main != null ? Camera.main.transform.position
                        : IsTg2World ? Tg2Spawn(Streamer.TerrainGenSource) : ResolveSpawn();
+        if (IsTg2World && Array.IndexOf(Environment.GetCommandLineArgs(), "-farop") >= 0) RecordFarOp(camPos);
         Streamer.Update(camPos);
         if (_fillWindowOnStart)
         {
@@ -347,6 +380,7 @@ public class Phase4Bootstrapper : MonoBehaviour
             int qi = Array.LastIndexOf(sargs, "-quality");
             var layout = ShellLayout.From(ShellLayout.Parse(qi >= 0 && qi + 1 < sargs.Length ? sargs[qi + 1] : null));
             Shells = new ShellStreamer(layout, Streamer.TerrainGenSource, ArgInt("-shellworkers", 1));
+            Shells.Ops = Streamer.Ops;   // 8.14 row 9: shells apply the save's edit ops on generation
             ShellStreamer.Active = Shells;
             RaymarchFeature.ShellIterCap = ArgInt("-shelliters", RaymarchFeature.ShellIterCap);
             int dbg = ArgInt("-shellsdebug", -1);

@@ -385,7 +385,8 @@ public class EditService : IEditService
     /// is public only because §8.5's frame-split destruction genuinely cannot
     /// express itself with SetBox -- 400K voxels through TrySetVoxel would run
     /// a 27-cell wake scan per voxel, ~10.8 million probes for one detonation.
-    /// DestructionReducer is the intended and only caller.
+    /// DestructionReducer is the intended caller; EditOps (8.14 row 9) is the
+    /// other, applying a recorded op to resident chunks one chunk at a time.
     public bool WriteVoxelDeferred(int3 v, byte material) => WriteOne(v, material);
 
     /// The per-voxel half of a batch: everything TrySetVoxel does EXCEPT the

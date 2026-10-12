@@ -527,6 +527,8 @@ public partial class Playground : MonoBehaviour
         if (!IsCaptureRun() && HasArg("-riverdemo")) StartCoroutine(RiverDemo());
         // -liquiddemo (task 75): see-through liquids off/on -- test pools of each fluid and a tg2 lake near/mid/far, then quit.
         if (!IsCaptureRun() && HasArg("-liquiddemo")) StartCoroutine(LiquidDemo());
+        // -farop (task 81): a 20 m crater recorded as an edit op ~300 m out at start-up, shot through the shells, then quit.
+        if (!IsCaptureRun() && HasArg("-farop")) StartCoroutine(FarOpDemo());
     }
 
     /// For overlays (Minimap) that must stay out of capture frames.

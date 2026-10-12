@@ -25,7 +25,8 @@
 //
 // Render-only product (8.14 row 3): it never enters ChunkStore, is never saved
 // and is never queried by IWorldQuery. Nothing reads it yet -- step 11 adds the
-// shell pools. Edit ops (row 9) do not exist yet, so none are applied.
+// shell pools. Edit ops (row 9, task 81): the overload taking an
+// EditOpSnapshot applies them after generation (EditOpApply.ApplyToShell).
 //
 // THREADING: like Generate -- the map arrays are shared read-only; each call
 // writes only the ShellChunk the caller owns (single-writer, CLAUDE.md).
@@ -105,7 +106,8 @@ namespace VoxelEngine.WorldGen
         }
 
         /// 8.14 row 12's GenerateShellChunk: shell `shell`'s chunk `coord` (in
-        /// that shell's own chunk units) into `output`. No op log yet (row 9).
+        /// that shell's own chunk units) into `output`, without edit ops (the
+        /// overload below applies them).
         /// `sampleIndex` (diagnostic): which of the 2^k fine voxels per axis a
         /// coarse voxel takes; -1 = row 13's 2^(k-1) - 1. ShellChunkTests
         /// reports the old centre 2^(k-1) beside it; nothing else passes it.
@@ -139,6 +141,17 @@ namespace VoxelEngine.WorldGen
                 colS = output.colS, colSt = output.colSt, colCd = output.colCd,
                 mats = output.Mats, brickMat = output.BrickMat, brickUniform = output.BrickUniform,
             }.Run();
+        }
+
+        /// Row 12 with ops: generation, then the snapshot's ops in seq order at
+        /// this shell's voxel size (row 9). Returns the op count applied (the
+        /// snapshot's), so a caller can tell which later ops the chunk lacks.
+        public int GenerateShellChunk(int shell, int3 coord, ShellChunk output, VoxelEngine.Streaming.EditOpSnapshot ops)
+        {
+            GenerateShellChunk(shell, coord, output);
+            if (ops == null || ops.Count == 0) return 0;
+            VoxelEngine.Streaming.EditOpApply.ApplyToShell(output, ops.Ops, 0, ops.Count);
+            return ops.Count;
         }
 
         [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]

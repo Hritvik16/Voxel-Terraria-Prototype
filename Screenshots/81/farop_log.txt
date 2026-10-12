@@ -1,0 +1,9 @@
+[FarOp] op #1: sphere carve r 20 m at voxel int3(40000, 7219, 43000) (0, 300) m from the camera, heading 0.0 deg
+[FarOp] shell 1 chunk int3(156, 28, 167): wanted False held False refused False in flight False full False missing 450
+[FarOp] shell 2 chunk int3(78, 14, 83): wanted True held True refused False in flight False full True missing 640
+[FarOp] shell 3 chunk int3(39, 7, 41): wanted True held True refused False in flight False full True missing 1303
+[FarOp] shell 4 chunk int3(19, 3, 20): wanted False held False refused False in flight False full True missing 702
+[FarOp] shell 5 chunk int3(9, 1, 10): wanted False held False refused False in flight False full True missing 385
+[FarOp] shell 6 chunk int3(4, 0, 5): wanted False held False refused False in flight False full True missing 111
+[FarOp] shell 7 chunk int3(2, 0, 2): wanted False held False refused False in flight False full True missing 0
+[FarOp] camera float3(4012.248f, 1021.9f, 4100.375f) m, crater float3(4000f, 721.9f, 4300f) m, 361 m away; shells idle False after 183 s; shells holding the crater's chunk: 2 3; ops in the log 1

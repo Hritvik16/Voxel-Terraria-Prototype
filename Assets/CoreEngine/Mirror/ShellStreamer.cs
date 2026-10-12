@@ -51,6 +51,10 @@ namespace VoxelEngine.Mirror
         public int LastShell { get; }
         /// Tests: generate inline in Update (no threads), SyncChunksPerUpdate per call.
         public bool Synchronous { get; }
+        /// The save's edit-op log (8.14 row 9, task 81), or null. Set once by the owner
+        /// before the first Update; workers apply its current Snapshot to each chunk.
+        /// A chunk generated before an op lands keeps its old voxels until 13b's redraw.
+        public VoxelEngine.Streaming.EditOpLog Ops;
         public int SyncChunksPerUpdate = 16;
 
         // Stats (main thread).
@@ -234,7 +238,7 @@ namespace VoxelEngine.Mirror
                 if (!Synchronous) { _jobs.Add(sc); continue; }
                 // Tests: generate here; it is stored from _done on the next Update.
                 var t = System.Diagnostics.Stopwatch.StartNew();
-                _src.GenerateShellChunk(k, c, sc);
+                _src.GenerateShellChunk(k, c, sc, Ops?.Snapshot);
                 _done.Enqueue((sc, t.Elapsed.TotalMilliseconds, true));
                 made++;
             }
@@ -399,7 +403,7 @@ namespace VoxelEngine.Mirror
                 {
                     var t = System.Diagnostics.Stopwatch.StartNew();
                     bool ok = true;
-                    try { _src.GenerateShellChunk(sc.Shell, sc.Coord, sc); }
+                    try { _src.GenerateShellChunk(sc.Shell, sc.Coord, sc, Ops?.Snapshot); }
                     catch (Exception e) { ok = false; UnityEngine.Debug.LogError($"[ShellStreamer] shell {sc.Shell} chunk {sc.Coord}: {e}"); }
                     _done.Enqueue((sc, t.Elapsed.TotalMilliseconds, ok));
                 }

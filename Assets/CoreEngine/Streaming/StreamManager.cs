@@ -480,6 +480,7 @@ namespace VoxelEngine.Streaming
             public bool deltaApplied;
             public DeltaRejectReason rejectReason;
             public bool hadDeltaFile;
+            public int opsApplied;           // 8.14 row 9: the op count of the snapshot the worker applied
             public Exception error;
             // StreamTrace only (zero when tracing is off): worker phase ticks.
             public long traceGenTicks, traceDownTicks, traceDoneTs;
@@ -599,7 +600,17 @@ namespace VoxelEngine.Streaming
             }
 
             System.IO.Directory.CreateDirectory(_deltaDir);
+            Ops = EditOpLog.Open(_deltaDir, meta.seed);
+            if (Ops.Count > 0 || Ops.LoadReject != OpLogRejectReason.None)
+                Debug.Log($"[StreamManager] ops.log: {Ops.Count} edit ops loaded (reject: {Ops.LoadReject})");
         }
+
+        /// The save's edit-op log (Amendment 8.14 rows 8-10, D.4). Main thread
+        /// records into it (EditOps); workers apply its Snapshot on generation.
+        public EditOpLog Ops { get; private set; }
+        /// Ops applied on the main thread to chunks that were in flight when the op
+        /// was recorded (DrainCompletions' catch-up).
+        public long OpsCaughtUpTotal { get; private set; }
 
         // =====================================================================
         // Per-frame entry point. MAIN THREAD ONLY.
@@ -921,6 +932,12 @@ namespace VoxelEngine.Streaming
                 var chunk = new Chunk();
                 GenerateBaseline(coord, chunk, scratch.allocator, scratch.pool, pass);
                 if (trace) completion.traceGenTicks = StreamTrace.Now - tw0;
+                // 8.14 rows 9-10: edit ops from an immutable snapshot (published by
+                // the main thread; no lock). Ops with seq <= S go before the delta,
+                // the rest after it; S comes from the snapshot's side table.
+                EditOpSnapshot ops = Ops.Snapshot;
+                completion.opsApplied = ops.Count;
+                int opsBefore = ops.Count;
                 long cpu1 = trace ? StreamTrace.ThreadCpuNs() : 0;
                 if (trace) completion.traceGenCpuMs = StreamTrace.CpuMs(cpu0, cpu1);
 
@@ -929,7 +946,14 @@ namespace VoxelEngine.Streaming
                 // against scratch storage -- it is pure CPU work and keeping it
                 // off the main thread is the whole point of async loading.
                 string path = DeltaCodec.PathFor(_deltaDir, coord);
-                if (DeltaCodec.TryReadFile(path, out byte[] bytes, out var readReason))
+                bool haveBytes = DeltaCodec.TryReadFile(path, out byte[] bytes, out var readReason);
+                if (ops.Count > 0)
+                {
+                    if (haveBytes && bytes.Length >= DeltaCodec.TRAILER_BYTES)
+                        opsBefore = ops.OpsBeforeDelta(coord, EditOpLog.TrailerCrc(bytes));
+                    EditOpApply.ApplyToChunk(chunk, coord, scratch.allocator, scratch.pool, ops.Ops, 0, opsBefore);
+                }
+                if (haveBytes)
                 {
                     completion.hadDeltaFile = true;
                     if (DeltaCodec.TryDecodeOnto(bytes, coord, _meta.seed, chunk, scratch.pool, out var reason))
@@ -942,6 +966,8 @@ namespace VoxelEngine.Streaming
                     completion.hadDeltaFile = true;
                     completion.rejectReason = readReason;
                 }
+                if (opsBefore < ops.Count)
+                    EditOpApply.ApplyToChunk(chunk, coord, scratch.allocator, scratch.pool, ops.Ops, opsBefore, ops.Count);
 
                 // Downsample HERE, on the worker, while it exclusively owns the
                 // chunk and its scratch pool (§3.2 holds: no shared state read).
@@ -1101,6 +1127,12 @@ namespace VoxelEngine.Streaming
                         }
                     else
                         _cascades.MarkDirty(c.coord); // fallback: main-thread path
+
+                    // 8.14 row 9: ops recorded while this chunk was in flight (the
+                    // worker's snapshot predates them, and EditOps' near apply
+                    // skipped the chunk as not resident). Applied through the
+                    // CPU writer, in seq order, like any edit to a resident chunk.
+                    if (c.opsApplied < Ops.Count) CatchUpOps(c.coord, c.opsApplied);
 
                     ChunksAdmittedTotal++;
                     admitted++;
@@ -1372,6 +1404,11 @@ namespace VoxelEngine.Streaming
 
                 baseline = new Chunk();
                 GenerateBaseline(coord, baseline, scratch.allocator, scratch.pool);
+                // 8.14 row 10: the baseline is generation + every op so far; the
+                // side table records that count (S) BEFORE the delta is written.
+                var ops = Ops.Snapshot;
+                if (ops.Count > 0)
+                    EditOpApply.ApplyToChunk(baseline, coord, scratch.allocator, scratch.pool, ops.Ops, 0, ops.Count);
 
                 byte[] bytes = DeltaCodec.Encode(coord, _meta.seed, live, _pool, baseline, scratch.pool);
                 string path = DeltaCodec.PathFor(_deltaDir, coord);
@@ -1381,10 +1418,12 @@ namespace VoxelEngine.Streaming
                     // Coalesced back to baseline. §4.1 makes ABSENCE meaningful,
                     // so the stale file must go, not linger as a lie.
                     DeltaCodec.DeleteIfPresent(path);
+                    Ops.NoteDeltaDeleted(coord);
                     if (_table.TryGetValue(coord, out var r0)) r0.deltaByteLength = 0;
                     return true;
                 }
 
+                Ops.NoteDeltaAboutToBeWritten(coord, bytes);
                 DeltaCodec.WriteAtomic(path, bytes);
                 if (_table.TryGetValue(coord, out var r)) { r.deltaByteLength = (uint)bytes.Length; }
                 return true;
@@ -1659,6 +1698,34 @@ namespace VoxelEngine.Streaming
                 if (!_store.IsResident(new int3(_lastCameraChunk.x + dx, cy, _lastCameraChunk.z + dz)))
                     deficit++;
             return deficit;
+        }
+
+        /// Applies ops [from, Count) that reach the resident chunk `coord` through
+        /// ChunkStore.SetVoxel (the sole CPU writer), then marks the mirrors.
+        private void CatchUpOps(int3 coord, int from)
+        {
+            var ops = Ops.Snapshot;
+            int3 c0 = coord << 7;
+            bool any = false;
+            for (int i = from; i < ops.Count; i++)
+            {
+                var op = ops.Ops[i];
+                if (!EditOpApply.TouchesChunk(op, coord)) continue;
+                EditOpApply.Bounds(op, out int3 lo, out int3 hi);
+                int3 a = math.max(lo, c0), b = math.min(hi, c0 + (EngineConfig.CHUNK_EDGE_VOXELS - 1));
+                for (int z = a.z; z <= b.z; z++)
+                for (int y = a.y; y <= b.y; y++)
+                for (int x = a.x; x <= b.x; x++)
+                {
+                    var v = new int3(x, y, z);
+                    if (EditOpApply.Covers(op, v)) _store.SetVoxel(v, op.material);
+                }
+                any = true;
+                OpsCaughtUpTotal++;
+            }
+            if (!any) return;
+            _clipmap.MarkDirty(coord);
+            _cascades.MarkDirty(coord);
         }
 
         /// The generated (pre-edit) content of a chunk: TerrainGen for sizeClass 2
