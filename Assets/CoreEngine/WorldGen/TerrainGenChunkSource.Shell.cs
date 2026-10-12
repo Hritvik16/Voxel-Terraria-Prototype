@@ -59,6 +59,11 @@ namespace VoxelEngine.WorldGen
             /// Wholly above every sampled column's ground, water and sea: no
             /// voxel pass ran, Mats is NOT written, every brick is uniform air.
             public bool IsUniformAir;
+            /// Edit ops 0..OpsApplied of the save's log are in Mats (task 82: a chunk
+            /// that finishes after a newer op lands is caught up before upload).
+            public int OpsApplied;
+            /// ShellStreamer: this chunk re-makes one the shell already holds (an op redraw).
+            public bool Redraw;
             public NativeArray<byte> Mats;          // 128^3, Index(x, y, z)
             public NativeArray<byte> BrickMat;      // 4096, (bz << 8) | (by << 4) | bx
             public NativeArray<bool> BrickUniform;
@@ -117,7 +122,7 @@ namespace VoxelEngine.WorldGen
             if (sampleIndex >= (1 << shell)) throw new ArgumentOutOfRangeException(nameof(sampleIndex));
             int3 origin = coord << (CHUNK_SHIFT + shell);
             int half = sampleIndex >= 0 ? sampleIndex : shell == 0 ? 0 : (1 << (shell - 1)) - 1;
-            output.Shell = shell; output.Coord = coord; output.IsUniformAir = false;
+            output.Shell = shell; output.Coord = coord; output.IsUniformAir = false; output.OpsApplied = 0;
 
             new ShellColumnJob
             {
@@ -151,6 +156,7 @@ namespace VoxelEngine.WorldGen
             GenerateShellChunk(shell, coord, output);
             if (ops == null || ops.Count == 0) return 0;
             VoxelEngine.Streaming.EditOpApply.ApplyToShell(output, ops.Ops, 0, ops.Count);
+            output.OpsApplied = ops.Count;
             return ops.Count;
         }
 

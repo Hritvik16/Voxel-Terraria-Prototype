@@ -428,6 +428,8 @@ public partial class Playground : MonoBehaviour
         _edits = new EditService();
         _edits.AttachWorld(_store, _store, _store, _clipmap);
         _edits.AttachFluidSimulation(_fluid, _store);
+        // An edit op caught up on a chunk that was in flight wakes fluid like any edit (task 82).
+        if (Phase4Bootstrapper.Streamer != null) Phase4Bootstrapper.Streamer.OpCatchUpEdited = _edits.NotifyEditedRegion;
 
         // §6.6's enqueue, on the SAME EditService every other edit in this scene
         // already goes through. A torch is a terrain byte, so placing one is an

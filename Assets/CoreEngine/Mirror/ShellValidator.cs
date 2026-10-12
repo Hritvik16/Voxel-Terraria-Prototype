@@ -51,8 +51,11 @@ namespace VoxelEngine.Mirror
             string first = null;
             int errors = 0;
             void Err(string m) { errors++; if (first == null) first = $"shell {st.Shell}: {m}"; }
-            if (st.BricksUsed + st.FreeBricks != st.PoolCap) Err($"bricks used {st.BricksUsed} + free {st.FreeBricks} != cap {st.PoolCap}");
-            if (st.PagesUsed + st.FreePages != st.PageCap) Err($"pages used {st.PagesUsed} + free {st.FreePages} != cap {st.PageCap}");
+            // Deferred = a redraw's old copy, freed at the next directory flush (task 82).
+            if (st.BricksUsed + st.FreeBricks + st.DeferredBricks != st.PoolCap)
+                Err($"bricks used {st.BricksUsed} + free {st.FreeBricks} + deferred {st.DeferredBricks} != cap {st.PoolCap}");
+            if (st.PagesUsed + st.FreePages + st.DeferredPages != st.PageCap)
+                Err($"pages used {st.PagesUsed} + free {st.FreePages} + deferred {st.DeferredPages} != cap {st.PageCap}");
             var pageOwned = new bool[st.PageCap];
             int pages = 0, chunks = 0;
             for (int slot = 0; slot < st.SlotCount; slot++)

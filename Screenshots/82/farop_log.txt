@@ -1,0 +1,4 @@
+[FarOp] site picked, op deferred to the demo (-faroplate): sphere carve r 40 m at voxel int3(40000, 7219, 43000)
+[FarOp] pose A after 240 s: shells idle False, crater chunk held True
+[FarOp] op #1 #0 Sphere cint3(40000, 7219, 43000) s400 m0 recorded AFTER the shells filled. Far band: 5 patches up after 8 frames (0.79 s). Shells: 9 chunks queued, 9 redrawn, 5 caught up on arrival, all stored after 88 frames (3.14 s)
+[FarOp] shells holding the crater's chunk: 2 3; replace with no room 4

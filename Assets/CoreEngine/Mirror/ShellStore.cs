@@ -33,6 +33,13 @@
 //   * Upload bytes are charged against a caller-given budget, the remainder
 //     of the shared 3 MiB/frame cap (row 14, §0.2); over budget = not now.
 //   * Bitwise integer coordinates only; the ring is a power of two (§6.2).
+//   * REDRAW (task 82, 8.14 row 9 / E5): Store(sc, ref budget, replace: true)
+//     re-stores a chunk the slot already holds WITHOUT a gap: the new page and
+//     bodies are uploaded beside the old ones, the entry flips when they are
+//     all up, and the old page and bodies are DEFERRED -- they return to the
+//     free stacks only after the next successful FlushDirectory, so no body a
+//     GPU entry still points at is ever rewritten (the WHAT THE GPU MAY SEE
+//     rule in ShellStreamer, for a free that happens mid-Update).
 using System;
 using System.Collections.Generic;
 using Unity.Collections;
@@ -118,6 +125,9 @@ namespace VoxelEngine.Mirror
         private readonly int[] _pageBrickCount;
         private readonly int[] _freeBricks; private int _freeBrickTop;
         private readonly int[] _freePages; private int _freePageTop;
+        // Pages (with their bodies) a redraw replaced: freed at the next directory flush.
+        private readonly List<int> _deferredPages = new List<int>();
+        private int _deferredBricks;
         private bool _dirDirty;
         private readonly uint[] _pageStaging = new uint[PAGE_UINTS];
         private NativeArray<uint> _bodyStaging;   // up to 4096 bodies (2 MB), reused
@@ -203,6 +213,13 @@ namespace VoxelEngine.Mirror
         public int PageBrickCount(int page) => _pageBrickCount[page];
         public int FreeBricks => _freeBrickTop;
         public int FreePages => _freePageTop;
+        /// Replaced by a redraw, still referenced by the GPU's directory until the next flush.
+        public int DeferredBricks => _deferredBricks;
+        public int DeferredPages => _deferredPages.Count;
+        /// Redraws stored (task 82), and redraws that found no room for the new
+        /// copy beside the old one (the caller evicts and stores it fresh).
+        public long Replaced { get; private set; }
+        public long ReplaceNoRoom { get; private set; }
 
         /// Upload cost of a chunk, in bytes, before it is stored.
         public static int UploadBytes(TerrainGenChunkSource.ShellChunk sc, out int dense, out bool uniform, out byte uniformMat)
@@ -229,7 +246,7 @@ namespace VoxelEngine.Mirror
         private bool _job;
         private int3 _jobCoord;
         private int _jobSlot, _jobPage, _jobN, _jobDone;
-        private bool _jobPageUp;
+        private bool _jobPageUp, _jobReplace;
         public bool JobActive => _job;
         public int3 JobCoord => _jobCoord;
 
@@ -238,13 +255,30 @@ namespace VoxelEngine.Mirror
         /// a page and bodies, stage them (`sc` may be reused as soon as this
         /// returns) and upload what `budget` allows (InProgress = call Continue
         /// on later frames). OverBudget / Busy / Refused leave everything untouched.
-        public StoreResult Store(TerrainGenChunkSource.ShellChunk sc, ref int budget)
+        /// `replace` (a redraw, task 82): the slot already holds sc.Coord and keeps
+        /// drawing it until the new copy is complete (header: REDRAW); with no room
+        /// for both copies it returns Refused and counts ReplaceNoRoom, not Refusals.
+        public StoreResult Store(TerrainGenChunkSource.ShellChunk sc, ref int budget, bool replace = false)
         {
             if (_job) return StoreResult.Busy;
             UploadBytes(sc, out int dense, out bool uniform, out byte umat);
             if (budget < (uniform ? 4 : 512)) return StoreResult.OverBudget;
             int slot = Slot(sc.Coord);
-            if (!uniform)
+            bool keepOld = replace && _tagged[slot] && _tag[slot].Equals(sc.Coord);
+            if (keepOld)
+            {
+                if (!uniform && (_freePageTop == 0 || _freeBrickTop < dense)) { ReplaceNoRoom++; return StoreResult.Refused; }
+                Replaced++;
+                if (uniform)
+                {
+                    DeferSlot(slot);
+                    _dir[slot] = UNIFORM | umat;
+                    UniformChunks++; ChunksStored++; _dirDirty = true;
+                    budget -= 4; BytesUploaded += 4;
+                    return StoreResult.Stored;
+                }
+            }
+            else if (!uniform)
             {
                 // Room after freeing this slot's own occupant (a re-store).
                 int pagesFreeAfter = _freePageTop, bricksFreeAfter = _freeBrickTop;
@@ -254,7 +288,7 @@ namespace VoxelEngine.Mirror
                 }
                 if (pagesFreeAfter == 0 || bricksFreeAfter < dense) { Refusals++; RefusedBricks += dense; return StoreResult.Refused; }
             }
-            EvictSlot(slot);
+            if (!keepOld) EvictSlot(slot);
 
             if (uniform)
             {
@@ -280,6 +314,7 @@ namespace VoxelEngine.Mirror
             BricksUsed += n; PagesUsed++;
             PeakBricks = math.max(PeakBricks, BricksUsed); PeakPages = math.max(PeakPages, PagesUsed);
             _job = true; _jobCoord = sc.Coord; _jobSlot = slot; _jobPage = page; _jobN = n; _jobDone = 0; _jobPageUp = false;
+            _jobReplace = keepOld;
             return Continue(ref budget) ? StoreResult.Stored : StoreResult.InProgress;
         }
 
@@ -311,6 +346,8 @@ namespace VoxelEngine.Mirror
                 budget -= PAGE_UINTS * 4; BytesUploaded += PAGE_UINTS * 4;
                 _jobPageUp = true;
             }
+            // A redraw whose old copy is still there swaps it out now (deferred free).
+            if (_jobReplace && _tagged[_jobSlot] && _tag[_jobSlot].Equals(_jobCoord)) DeferSlot(_jobSlot);
             _dir[_jobSlot] = PAGE | (uint)_jobPage;
             _tag[_jobSlot] = _jobCoord; _tagged[_jobSlot] = true;
             ChunksStored++; _dirDirty = true;
@@ -350,6 +387,37 @@ namespace VoxelEngine.Mirror
             }
         }
 
+        /// A redraw's old copy: its counters go now, its page and bodies only at the
+        /// next successful FlushDirectory (the GPU directory still points at them).
+        /// The slot stays tagged; the caller writes the new entry.
+        private void DeferSlot(int slot)
+        {
+            uint e = _dir[slot];
+            if ((e & PAGE) != 0)
+            {
+                int page = (int)(e & ~PAGE);
+                _deferredPages.Add(page);
+                _deferredBricks += _pageBrickCount[page];
+                BricksUsed -= _pageBrickCount[page];
+                PagesUsed--;
+            }
+            else if ((e & UNIFORM) != 0) UniformChunks--;
+            ChunksStored--;
+        }
+
+        private void ReleaseDeferred()
+        {
+            foreach (int page in _deferredPages)
+            {
+                var list = _pageBricks[page];
+                for (int i = 0; i < _pageBrickCount[page]; i++) _freeBricks[_freeBrickTop++] = list[i];
+                _pageBrickCount[page] = 0;
+                _freePages[_freePageTop++] = page;
+            }
+            _deferredPages.Clear();
+            _deferredBricks = 0;
+        }
+
         /// Free whatever chunk the slot holds (bricks and page back to the pools).
         public void EvictSlot(int slot)
         {
@@ -377,13 +445,14 @@ namespace VoxelEngine.Mirror
         /// 32^3 ring 128 KB). Returns false (and writes nothing) over budget.
         public bool FlushDirectory(ref int budget)
         {
-            if (!_dirDirty) return true;
+            if (!_dirDirty) { if (_deferredPages.Count > 0) ReleaseDeferred(); return true; }
             int bytes = SlotCount * 4;
             if (bytes > budget) return false;
             DirectoryBuffer.SetData(_dir, 0, DirBase, SlotCount);
             if (ShadowUploads) Array.Copy(_dir, ShadowDir, SlotCount);
             _dirDirty = false;
             budget -= bytes; BytesUploaded += bytes;
+            if (_deferredPages.Count > 0) ReleaseDeferred();   // the GPU no longer points at them
             return true;
         }
         public bool DirectoryDirty => _dirDirty;

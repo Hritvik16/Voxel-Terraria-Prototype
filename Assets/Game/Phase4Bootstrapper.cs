@@ -47,6 +47,10 @@ public class Phase4Bootstrapper : MonoBehaviour
     /// `-farop` (task 81's demo): the centre of the 20 m crater recorded as an
     /// edit op ~300 m from the spawn before anything streams, or null.
     public static int3? FarOpCentre { get; private set; }
+    /// `-farop -faroplate` (task 82's demo): the op is NOT recorded at start-up;
+    /// the demo records this one after the shells have filled (13b's redraw).
+    /// `-faropr N` sets its radius in voxels (default 200 = 20 m).
+    public static VoxelEngine.Streaming.EditOp? FarOpLate { get; private set; }
 
     /// Engine step 13a's demo: one sphere-carve op (r = 200 voxels = 20 m) on land
     /// ~300 m from `camPos`, through IEditOps, BEFORE the first chunk or shell
@@ -63,9 +67,16 @@ public class Phase4Bootstrapper : MonoBehaviour
             var col = TerrainGen.ShapeField.Sample(in spec, in view, in o, x, z, 1);
             if (col.height < spec.seaLevelY + 50 || col.water > col.height) continue;   // land, not under water
             var centre = new int3((int)x, col.height, (int)z);
-            uint seq = new EditOps(Streamer.Ops, null, null).Record(
-                new VoxelEngine.Streaming.EditOp(VoxelEngine.Streaming.EditOpKind.Sphere, centre, 200, Materials.Air));
+            var op = new VoxelEngine.Streaming.EditOp(VoxelEngine.Streaming.EditOpKind.Sphere, centre,
+                (ushort)math.clamp(ArgInt("-faropr", 200), 8, 4096), Materials.Air);
             FarOpCentre = centre;
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "-faroplate") >= 0)
+            {
+                FarOpLate = op;
+                UnityEngine.Debug.Log($"[FarOp] site picked, op deferred to the demo (-faroplate): sphere carve r {op.size * 0.1f:F0} m at voxel {centre}");
+                return;
+            }
+            uint seq = new EditOps(Streamer.Ops, null, null).Record(op);
             UnityEngine.Debug.Log($"[FarOp] op #{seq}: sphere carve r 20 m at voxel {centre} ({(centre.x - camPos.x * 10f) * 0.1f:F0}, {(centre.z - camPos.z * 10f) * 0.1f:F0}) m from the camera, heading {i * 22.5f:F1} deg");
             return;
         }
@@ -371,7 +382,8 @@ public class Phase4Bootstrapper : MonoBehaviour
         // The TerrainGen world ALWAYS has it: outside the voxel band (above,
         // below, beyond) the far band is the only thing that draws the island.
         if (VoxelEngine.Rendering.FarField.RequestedByArgs() || IsTg2World)
-            _far = new VoxelEngine.Rendering.FarField(Meta, camPos, IsTg2World ? Streamer.TerrainGenSource.Map : null);
+            _far = new VoxelEngine.Rendering.FarField(Meta, camPos, IsTg2World ? Streamer.TerrainGenSource.Map : null,
+                                                      Streamer.Ops);   // task 82: the far band draws the save's edit ops
         ApplyBandToRenderer();
 
         if (IsTg2World && ArgInt("-shells", 0) == 1)

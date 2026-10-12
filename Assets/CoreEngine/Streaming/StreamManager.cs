@@ -611,6 +611,10 @@ namespace VoxelEngine.Streaming
         /// Ops applied on the main thread to chunks that were in flight when the op
         /// was recorded (DrainCompletions' catch-up).
         public long OpsCaughtUpTotal { get; private set; }
+        /// Task 82: called (main thread) with each inclusive voxel box an in-flight
+        /// catch-up wrote, so the owner can run the fluid wake scan there
+        /// (EditService.NotifyEditedRegion, what EditOps' near apply runs). Null = none.
+        public Action<int3, int3> OpCatchUpEdited;
 
         // =====================================================================
         // Per-frame entry point. MAIN THREAD ONLY.
@@ -1722,6 +1726,7 @@ namespace VoxelEngine.Streaming
                 }
                 any = true;
                 OpsCaughtUpTotal++;
+                OpCatchUpEdited?.Invoke(a, b);   // the wake scan SetSphere/SetBox run (task 82)
             }
             if (!any) return;
             _clipmap.MarkDirty(coord);

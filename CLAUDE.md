@@ -275,8 +275,15 @@ Task 81 (engine 13a, 8.14 rows 8-10): FAR EDITS are D.4 ops: `IEditOps.Record(Ed
 kind 3 reserved for D.3 prefabs) appends to `ops.log` in the delta folder (`EditOpLog`; written only once an op exists, cleared
 with the deltas) and applies at once to resident chunks via EditService; workers apply the log's immutable `Snapshot` on
 generation (`EditOpApply`: 0.1 m chunks, and shells at their own voxel size). Load = ops <= S, D.1, ops > S (S per chunk in the
-log's side table; CRC mismatch -> all ops, then D.1). `SetVoxel`/D.1 unchanged. `EditOpTests` (10). Already-generated shell
-chunks / the far band do not redraw yet (13b). `EXTRA="-farop -shells 1 -shellworkers 3 -shellwait 180"` = a 20 m crater shot.
+log's side table; CRC mismatch -> all ops, then D.1). `SetVoxel`/D.1 unchanged. `EditOpTests` (10). `EXTRA="-farop -shells 1
+-shellworkers 3 -shellwait 180"` = a 20 m crater shot.
+
+Task 82 (engine 13b): an op recorded LATER redraws at once. Shells: stored chunks it touches are REGENERATED (no CPU brick copy)
+and re-stored gap-free (`ShellStore.Store(.., replace: true)`: old copy drawn until the new one is up, old page freed after the
+next directory flush; a FULL shell has no room for both -> evict, store fresh, 1 frame of the coarser shell); chunks in flight
+are caught up on arrival. Far band: fill jobs apply ops per texel (2.5D: crater / mound / deeper water yes, tunnel / overhang /
+floating blob no; `FarField` header EDITS); later ops patch their footprint through the strip staging + FarScatter.
+`EditOpRedrawTests` (4, one Slow). `EXTRA="-farop -faroplate -faropr 400 -shells 1 -shellworkers 3 -shellwait 240"` = before/after.
 
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change

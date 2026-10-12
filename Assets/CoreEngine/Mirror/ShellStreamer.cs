@@ -25,6 +25,19 @@
 // nearest the camera first within a shell. A coarse chunk is cheap and fills
 // a hole; a missing fine chunk only looks blockier (Q2 (a)).
 //
+// REDRAW (task 82, engine step 13b; 8.14 row 9, the plan's E5 "redrawn in the
+// shells at once"): each Update reads the ops the log gained since the last
+// one. Every chunk such an op touches that a shell HOLDS (or is uploading) is
+// queued for a redraw: generated again with the current snapshot, ahead of the
+// missing chunks, and re-stored through ShellStore's gap-free replace, inside
+// the same budget. There is no CPU copy of stored bricks (row 1), so a redraw
+// regenerates; it is byte-identical to a fresh GenerateShellChunk with the op
+// by construction (EditOpRedrawTests). A chunk generating, or generated and
+// waiting for budget, when an op lands is caught up before it is stored
+// (ApplyToShell over the ops it missed: the same sequential apply, so the same
+// bytes). A redraw a full shell has no room for evicts the old copy and stores
+// the new one fresh (the slot reads the coarser shell for those frames).
+//
 // THREADING (single-writer, CLAUDE.md): workers only write the ShellChunk
 // scratch handed to them; every ShellStore mutation, every GPU write and every
 // set below is main-thread only. Hand-over is the same BlockingCollection /
@@ -53,12 +66,16 @@ namespace VoxelEngine.Mirror
         public bool Synchronous { get; }
         /// The save's edit-op log (8.14 row 9, task 81), or null. Set once by the owner
         /// before the first Update; workers apply its current Snapshot to each chunk.
-        /// A chunk generated before an op lands keeps its old voxels until 13b's redraw.
+        /// Ops recorded later redraw the chunks they touch (task 82, header REDRAW).
         public VoxelEngine.Streaming.EditOpLog Ops;
         public int SyncChunksPerUpdate = 16;
 
         // Stats (main thread).
         public long Requested, Generated, DroppedStale, OverBudgetFrames, GenErrors;
+        /// Task 82: chunks queued for an op redraw, redraws stored, chunks caught up on arrival.
+        public long RedrawsQueued, Redrawn, OpsCaughtUp;
+        /// Redraws not yet stored (queued, generating or uploading).
+        public int RedrawsPending => _redrawQ.Count + _redrawOut;
         public double GenMsTotal;            // worker-side, summed
         public int LastBytes { get; private set; }
 
@@ -71,6 +88,11 @@ namespace VoxelEngine.Mirror
         private readonly bool[] _pubValid;
         private readonly List<int3>[] _cand;  // missing chunks, FARTHEST first (pop from the end)
         private readonly HashSet<long> _inFlight = new HashSet<long>();
+        // Op redraws (task 82): (shell, chunk) keys, FIFO; _redrawSet dedups the queue.
+        private readonly Queue<long> _redrawQ = new Queue<long>();
+        private readonly HashSet<long> _redrawSet = new HashSet<long>();
+        private int _redrawOut;                       // redraw chunks generating or waiting to store
+        private int _opsSeen;                         // ops of the log already turned into redraws
         // Refused chunks (pool or pages full, row 15) -> the dense bricks they
         // need. Retried only once the shell has that much room again: a full
         // coarse shell must not keep the workers regenerating its refusals
@@ -173,7 +195,7 @@ namespace VoxelEngine.Mirror
         {
             get
             {
-                if (_inFlight.Count > 0 || _pending.Count > 0) return false;
+                if (_inFlight.Count > 0 || _pending.Count > 0 || _redrawQ.Count > 0) return false;
                 for (int k = FirstShell; k <= LastShell; k++)
                 {
                     if (_stores[k].DirectoryDirty) return false;
@@ -202,6 +224,7 @@ namespace VoxelEngine.Mirror
                 LastBytes = start - budget;
                 return;
             }
+            QueueRedraws();
 
             // Chunks part-way up (ShellStore's multi-frame upload) first.
             for (int k = FirstShell; k <= LastShell; k++)
@@ -222,7 +245,12 @@ namespace VoxelEngine.Mirror
             }
             while (_done.TryDequeue(out var r))
             {
-                if (!r.ok) { GenErrors++; _inFlight.Remove(Key(r.sc.Shell, r.sc.Coord)); Recycle(r.sc); continue; }
+                if (!r.ok)
+                {
+                    GenErrors++; _inFlight.Remove(Key(r.sc.Shell, r.sc.Coord));
+                    if (r.sc.Redraw) { _redrawOut--; r.sc.Redraw = false; }
+                    Recycle(r.sc); continue;
+                }
                 Generated++; GenMsTotal += r.ms;
                 if (_pending.Count > 0 || !Upload(r.sc, ref budget)) { _pending.Enqueue(r.sc); continue; }
                 Recycle(r.sc);
@@ -230,10 +258,11 @@ namespace VoxelEngine.Mirror
             if (_pending.Count > 0) OverBudgetFrames++;
 
             int made = 0;
-            while (_free.Count > 0 && (!Synchronous || made < SyncChunksPerUpdate) && NextCandidate(out int k, out int3 c))
+            while (_free.Count > 0 && (!Synchronous || made < SyncChunksPerUpdate) && NextCandidate(out int k, out int3 c, out bool redraw))
             {
                 var sc = _free.Pop();
-                sc.Shell = k; sc.Coord = c;
+                sc.Shell = k; sc.Coord = c; sc.Redraw = redraw;
+                if (redraw) _redrawOut++;
                 _inFlight.Add(Key(k, c)); Requested++;
                 if (!Synchronous) { _jobs.Add(sc); continue; }
                 // Tests: generate here; it is stored from _done on the next Update.
@@ -293,12 +322,29 @@ namespace VoxelEngine.Mirror
         private bool Upload(TerrainGenChunkSource.ShellChunk sc, ref int budget)
         {
             int k = sc.Shell; long key = Key(k, sc.Coord);
-            if (!Wanted(k, sc.Coord) || _stores[k].Holds(sc.Coord))
+            bool held = _stores[k].Holds(sc.Coord);
+            if (!Wanted(k, sc.Coord) || (held && !sc.Redraw))
             {
                 _inFlight.Remove(key); DroppedStale++;
+                if (sc.Redraw) { _redrawOut--; sc.Redraw = false; }
                 return true;
             }
-            switch (_stores[k].Store(sc, ref budget))
+            CatchUp(sc);
+            var res = _stores[k].Store(sc, ref budget, replace: held);
+            if (res == ShellStore.StoreResult.Refused && held)
+            {
+                // No room for the new copy beside the old one: drop the old one
+                // (published before anything reuses it -- Update's first Publish)
+                // and store the new one fresh next frame.
+                _stores[k].Evict(sc.Coord);
+                return false;
+            }
+            if (sc.Redraw && res != ShellStore.StoreResult.OverBudget && res != ShellStore.StoreResult.Busy)
+            {
+                _redrawOut--; sc.Redraw = false;
+                if (res != ShellStore.StoreResult.Refused) Redrawn++;
+            }
+            switch (res)
             {
                 case ShellStore.StoreResult.OverBudget:
                 case ShellStore.StoreResult.Busy: return false;
@@ -314,6 +360,77 @@ namespace VoxelEngine.Mirror
         }
 
         private void Recycle(TerrainGenChunkSource.ShellChunk sc) => _free.Push(sc);
+
+        /// Ops the chunk missed (recorded after its worker read the snapshot) go on
+        /// now, main thread, before it is stored: the same sequential ApplyToShell
+        /// generation does, so the same bytes.
+        private void CatchUp(TerrainGenChunkSource.ShellChunk sc)
+        {
+            var snap = Ops?.Snapshot;
+            if (snap == null || sc.OpsApplied >= snap.Count) return;
+            VoxelEngine.Streaming.EditOpApply.ApplyToShell(sc, snap.Ops, sc.OpsApplied, snap.Count);
+            sc.OpsApplied = snap.Count;
+            OpsCaughtUp++;
+        }
+
+        /// The ops the log gained since the last Update -> redraws of the chunks
+        /// they touch that a shell holds or is uploading (the header's REDRAW).
+        /// Chunks generating or waiting are caught up instead (CatchUp).
+        private void QueueRedraws()
+        {
+            if (Ops == null) return;
+            var snap = Ops.Snapshot;
+            if (snap.Count < _opsSeen) _opsSeen = snap.Count;   // the log was cleared
+            for (int i = _opsSeen; i < snap.Count; i++)
+            {
+                var op = snap.Ops[i];
+                VoxelEngine.Streaming.EditOpApply.Bounds(op, out int3 lo, out int3 hi);
+                for (int k = FirstShell; k <= LastShell; k++)
+                {
+                    int shift = 7 + k;
+                    int3 c0 = math.max(lo >> shift, _lo[k]), c1 = math.min(hi >> shift, _hi[k]);
+                    var st = _stores[k];
+                    for (int z = c0.z; z <= c1.z; z++)
+                    for (int y = c0.y; y <= c1.y; y++)
+                    for (int x = c0.x; x <= c1.x; x++)
+                    {
+                        var c = new int3(x, y, z);
+                        if (!Wanted(k, c)) continue;
+                        bool uploading = st.JobActive && st.JobCoord.Equals(c);   // staged before the op
+                        if (!st.Holds(c) && !uploading) continue;   // missing / generating: generation or CatchUp has it
+                        long key = Key(k, c);
+                        if (_inFlight.Contains(key) && !uploading) continue;   // a redraw generating: CatchUp has it
+                        if (_redrawSet.Add(key)) { _redrawQ.Enqueue(key); RedrawsQueued++; }
+                    }
+                }
+            }
+            _opsSeen = snap.Count;
+        }
+
+        /// The next queued redraw that can generate now. One still in flight (its
+        /// pre-op copy is uploading) waits in the queue; one no longer held is
+        /// dropped (the missing-chunk path regenerates it with the op).
+        private bool NextRedraw(out int k, out int3 c)
+        {
+            for (int n = _redrawQ.Count; n > 0; n--)
+            {
+                long key = _redrawQ.Dequeue();
+                k = (int)(key >> 60); c = KeyCoord(key);
+                if (_inFlight.Contains(key)) { _redrawQ.Enqueue(key); continue; }
+                _redrawSet.Remove(key);
+                if (!Wanted(k, c) || !_stores[k].Holds(c)) continue;
+                return true;
+            }
+            k = -1; c = default;
+            return false;
+        }
+
+        private bool NextCandidate(out int k, out int3 c, out bool redraw)
+        {
+            redraw = NextRedraw(out k, out c);
+            if (redraw) return true;
+            return NextCandidate(out k, out c);
+        }
 
         private bool NextCandidate(out int k, out int3 c)
         {
@@ -403,7 +520,7 @@ namespace VoxelEngine.Mirror
                 {
                     var t = System.Diagnostics.Stopwatch.StartNew();
                     bool ok = true;
-                    try { _src.GenerateShellChunk(sc.Shell, sc.Coord, sc, Ops?.Snapshot); }
+                    try { _src.GenerateShellChunk(sc.Shell, sc.Coord, sc, Ops?.Snapshot); }   // sets sc.OpsApplied
                     catch (Exception e) { ok = false; UnityEngine.Debug.LogError($"[ShellStreamer] shell {sc.Shell} chunk {sc.Coord}: {e}"); }
                     _done.Enqueue((sc, t.Elapsed.TotalMilliseconds, ok));
                 }
