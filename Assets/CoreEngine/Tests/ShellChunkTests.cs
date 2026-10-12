@@ -4,9 +4,11 @@
 // row 10): TerrainGenChunkSource.GenerateShellChunk, a chunk generated directly
 // at 0.1 * 2^k m voxels.
 //   Shell 0      == Generate, byte for byte (the same code path at k = 0)
-//   Centre       every coarse voxel of shells 1-7 == TerrainGen's own D
+//   Exact        every coarse voxel of shells 1-7 == TerrainGen's own D
 //                (unculled, prepared independently, under Burst like the
-//                chunk) at the fine voxel nearest its centre (row 13)
+//                chunk) at fine index 2^(k-1) - 1 per axis, and each column's
+//                solid top voxel == D at the ground height h (row 13 as
+//                amended by task 77: owner defaults Q2 (a), Q1 (a))
 //   Agreement    (Slow) solid/air vs the cascades' majority-vote downsample of
 //                the 0.1 m chunks (LODDownsampler), shells 1-3 GATED at row
 //                13's line: >= 97% of voxels in non-uniform bricks and >= 99%
@@ -15,9 +17,9 @@
 //                and the pooled total are REPORTED against the same line, not
 //                gated: on 2026-10-11 (task 74) shell 1 fell below it there
 //                (HANDOFF). Shell 4 reported. One site per landform per seed.
-//                Beside each centre number: sample index 2^(k-1) - 1 (report).
+//                Beside each number: the old centre sample 2^(k-1) (report).
 //                Also reports generation ms per shell chunk and writes the
-//                side-by-side pictures (Screenshots/74/).
+//                side-by-side pictures (Screenshots/77/; task 74's are in 74/).
 // "Solid" here is NON-AIR: water and lava count, as the renderer draws them.
 using System.Collections.Generic;
 using NUnit.Framework;
@@ -103,7 +105,7 @@ public class ShellChunkTests
     }
 
     // ------------------------------------------------------------------
-    // Every coarse voxel is D at the fine voxel nearest its centre.
+    // Every coarse voxel is D at its sample (index 2^(k-1) - 1), the top one D at h.
     // ------------------------------------------------------------------
     [Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Strict, FloatPrecision = Unity.Burst.FloatPrecision.High, CompileSynchronously = true)]
     private struct ShellRefJob : Unity.Jobs.IJob
@@ -114,6 +116,8 @@ public class ShellChunkTests
         public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
         public int3 origin; public int shift, half;
         public NativeArray<byte> mats;      // coarse voxels 0, 3, 6, ... 126 per axis (43^3), unculled D -> engine
+        public NativeArray<int> topY;       // per sampled column: the top voxel's coarse y in this chunk, or -1
+        public NativeArray<byte> topM;      // ... and its expected material
 
         public unsafe void Execute()
         {
@@ -125,7 +129,7 @@ public class ShellChunkTests
                 waterClass = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(cls), flowDir = flow.Length > 1 ? (ushort*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(flow) : null,
                 cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
             };
-            int k = 0;
+            int k = 0, t = 0;
             for (int z = 0; z < 128; z += 3)
             for (int x = 0; x < 128; x += 3)
             {
@@ -134,8 +138,20 @@ public class ShellChunkTests
                 float st = TerrainGen.ShapeField.MaxStep(in spec, in map, in o, wx + 0.5f, wz + 0.5f, 1, col.height);
                 var cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, wx, wz);
                 if (cd.oreMul != 0) cd.oreMul = ore[TerrainGen.Ores.CellIndex(wx, wz, spec.mapCells, spec.mapCellVoxels)];
+                // Task 74 Q1 (a): the highest sample <= h, if solid, is D at h.
+                int ly = (col.height - origin.y - half) >> shift;
+                byte topG = 0;
+                if (ly >= 0 && ly < 128)
+                {
+                    byte g = TerrainGen.DetailField.Material(in spec, in o, in col, in cd, st, wx, origin.y + (ly << shift) + half, wz);
+                    if (g >= TerrainGen.GenMat.RiverLip) topG = TerrainGen.DetailField.Material(in spec, in o, in col, in cd, st, wx, col.height, wz);
+                    else ly = -1;
+                }
+                else ly = -1;
+                topY[t] = ly; topM[t++] = toEngine[topG];
                 for (int y = 0; y < 128; y += 3)
-                    mats[k++] = toEngine[TerrainGen.DetailField.Material(in spec, in o, in col, in cd, st, wx, origin.y + (y << shift) + half, wz)];
+                    mats[k++] = y == ly ? toEngine[topG]
+                        : toEngine[TerrainGen.DetailField.Material(in spec, in o, in col, in cd, st, wx, origin.y + (y << shift) + half, wz)];
             }
         }
     }
@@ -152,6 +168,8 @@ public class ShellChunkTests
         var oA = new NativeArray<byte>(TerrainGen.OreTable.DensityPlane(_src.Map.Record, _src.Spec.mapCells), Allocator.TempJob);
         var te = new NativeArray<byte>(256, Allocator.TempJob);
         var refM = new NativeArray<byte>(43 * 43 * 43, Allocator.TempJob);
+        var refTY = new NativeArray<int>(43 * 43, Allocator.TempJob);
+        var refTM = new NativeArray<byte>(43 * 43, Allocator.TempJob);
         var sc = new TerrainGenChunkSource.ShellChunk();
         try
         {
@@ -164,13 +182,13 @@ public class ShellChunkTests
                 int k = cs.x;
                 int3 coord = (s >> (7 + k)) + new int3(0, cs.y, 0);
                 _src.GenerateShellChunk(k, coord, sc);
-                int half = 1 << (k - 1);
+                int half = (1 << (k - 1)) - 1;   // task 74 Q2 (a)
                 new ShellRefJob
                 {
                     h = hA, r = rA, w = wA, cls = cA, flow = fA, toEngine = te, ore = oA, spec = _src.Spec, o = _src.O,
-                    origin = coord << (7 + k), shift = k, half = half, mats = refM,
+                    origin = coord << (7 + k), shift = k, half = half, mats = refM, topY = refTY, topM = refTM,
                 }.Run();
-                int bad = 0, n = 0, solid = 0;
+                int bad = 0, n = 0, solid = 0, tops = 0, t = 0;
                 string first = null;
                 for (int z = 0; z < 128; z += 3)
                 for (int x = 0; x < 128; x += 3)
@@ -180,15 +198,23 @@ public class ShellChunkTests
                     if (want != Materials.Air) solid++;
                     if (want != got) { bad++; if (first == null) first = $"({x},{y},{z}) D {want} shell {got}"; }
                 }
-                UnityEngine.Debug.Log($"[74] shell {k} chunk {coord}: {n} voxels vs D, {bad} differ; {solid} non-air; {sc.DenseBricks} dense bricks");
-                Assert.AreEqual(0, bad, $"shell {k} chunk {coord}: {bad} coarse voxels differ from D at their centre; first {first}");
+                for (int z = 0; z < 128; z += 3)
+                for (int x = 0; x < 128; x += 3, t++)
+                {
+                    if (refTY[t] < 0) continue;
+                    tops++;
+                    byte want = refTM[t], got = sc.Get(x, refTY[t], z);
+                    if (want != got) { bad++; if (first == null) first = $"top ({x},{refTY[t]},{z}) D(h) {want} shell {got}"; }
+                }
+                UnityEngine.Debug.Log($"[74] shell {k} chunk {coord}: {n} voxels + {tops} top voxels vs D, {bad} differ; {solid} non-air; {sc.DenseBricks} dense bricks");
+                Assert.AreEqual(0, bad, $"shell {k} chunk {coord}: {bad} coarse voxels differ from D at their sample; first {first}");
                 Assert.Greater(solid, 0, $"shell {k} chunk {coord} holds no terrain: the test picked the wrong chunk");
                 if (cs.y == 0) Assert.Less(solid, n, $"shell {k} chunk {coord} holds no air: not a surface chunk");
             }
         }
         finally
         {
-            sc.Dispose(); hA.Dispose(); rA.Dispose(); wA.Dispose(); cA.Dispose(); fA.Dispose(); oA.Dispose(); te.Dispose(); refM.Dispose();
+            sc.Dispose(); hA.Dispose(); rA.Dispose(); wA.Dispose(); cA.Dispose(); fA.Dispose(); oA.Dispose(); te.Dispose(); refM.Dispose(); refTY.Dispose(); refTM.Dispose();
         }
     }
 
@@ -203,18 +229,20 @@ public class ShellChunkTests
     {
         public long mixedVox, mixedAgree, allVox, allAgree, cols, colsOk, bothSolid, sameMat;
         public long topCols, topSame;   // columns whose tops are within 1 voxel: same material at the coarse top?
+        public long surfCols, surfCoarse, surfVote;   // task 77: top material == the 0.1 m surface's (the fine column at the sample)?
         public long missUp, missDown, missFar, missNone;   // column misses: coarse top 2-3 voxels above / below the vote's, >= 4 apart, one side empty
         public void Add(Stat s)
         {
             mixedVox += s.mixedVox; mixedAgree += s.mixedAgree; allVox += s.allVox; allAgree += s.allAgree;
             cols += s.cols; colsOk += s.colsOk; bothSolid += s.bothSolid; sameMat += s.sameMat;
             topCols += s.topCols; topSame += s.topSame;
+            surfCols += s.surfCols; surfCoarse += s.surfCoarse; surfVote += s.surfVote;
             missUp += s.missUp; missDown += s.missDown; missFar += s.missFar; missNone += s.missNone;
         }
         public double Vox => mixedVox == 0 ? 1 : (double)mixedAgree / mixedVox;
         public double Cols => cols == 0 ? 1 : (double)colsOk / cols;
         public double Mat => bothSolid == 0 ? 1 : (double)sameMat / bothSolid;
-        public string Line => $"vox(mixed bricks) {Vox * 100,7:F3}%  cols(|dh|<=1) {Cols * 100,7:F3}%  material {Mat * 100,6:F2}%  top material {(topCols == 0 ? 100 : 100.0 * topSame / topCols),6:F2}%  all-voxel {(allVox == 0 ? 100 : 100.0 * allAgree / allVox),7:F3}%  [{mixedVox} vox, {cols} cols; misses up2-3 {missUp} down2-3 {missDown} far {missFar} none {missNone}]";
+        public string Line => $"vox(mixed bricks) {Vox * 100,7:F3}%  cols(|dh|<=1) {Cols * 100,7:F3}%  material {Mat * 100,6:F2}%  top material {(topCols == 0 ? 100 : 100.0 * topSame / topCols),6:F2}%  all-voxel {(allVox == 0 ? 100 : 100.0 * allAgree / allVox),7:F3}%  surface vs 0.1 m: coarse {(surfCols == 0 ? 100 : 100.0 * surfCoarse / surfCols),6:F2}% vote {(surfCols == 0 ? 100 : 100.0 * surfVote / surfCols),6:F2}%  [{mixedVox} vox, {cols} cols; misses up2-3 {missUp} down2-3 {missDown} far {missFar} none {missNone}]";
     }
 
     /// A region: n x n fine chunk columns from (c0.x, c0.z) (both even), layers c0.y .. c0.y + L - 1.
@@ -305,9 +333,10 @@ public class ShellChunkTests
     /// The region at shells 1..MAX_K: vote[k] (majority vote of the 0.1 m
     /// chunks, chained as the cascades chain it) and coarse[k] (GenerateShellChunk),
     /// both flat x + RX (y + RY z).
-    private static void BuildRegion(TerrainGenChunkSource src, Region rg, byte[][] vote, byte[][] coarse, byte[][] lowIdx)
+    private static void BuildRegion(TerrainGenChunkSource src, Region rg, byte[][] vote, byte[][] coarse, byte[][] lowIdx, byte[] fineTop)
     {
         int RXf = rg.n * 128, RYf = rg.L * 128;
+        System.Array.Clear(fineTop, 0, fineTop.Length);
         for (int k = 1; k <= MAX_K; k++) { vote[k] = new byte[(RXf >> k) * (RYf >> k) * (RXf >> k)]; coarse[k] = new byte[vote[k].Length]; lowIdx[k] = new byte[vote[k].Length]; }
         var fine = new byte[128 * 128 * 128];
         var pass = new TerrainGenChunkSource.ColumnPass();
@@ -325,6 +354,16 @@ public class ShellChunkTests
                     Extract(chunk, pool, fine);
                 }
                 finally { pool.Dispose(); }
+                // The 0.1 m surface material per fine column (layers go up, so a higher one overwrites).
+                for (int z = 0; z < 128; z++)
+                for (int x = 0; x < 128; x++)
+                for (int y = 127; y >= 0; y--)
+                {
+                    byte m = fine[x + 128 * (y + 128 * z)];
+                    if (m == Materials.Air) continue;
+                    fineTop[(dx * 128 + x) + RXf * (dz * 128 + z)] = m;
+                    break;
+                }
                 byte[] cur = fine;
                 for (int k = 1; k <= MAX_K; k++)
                 {
@@ -343,8 +382,8 @@ public class ShellChunkTests
         CoarseRegion(src, rg, lowIdx, 0);
     }
 
-    /// coarse[k] from GenerateShellChunk; lowOffset -1 = the centre sample,
-    /// 0 = sample index 2^(k-1) - 1 (the diagnostic beside it).
+    /// coarse[k] from GenerateShellChunk; lowOffset -1 = row 13's sample (index
+    /// 2^(k-1) - 1 since task 77), 0 = the old centre 2^(k-1) (the diagnostic beside it).
     private static void CoarseRegion(TerrainGenChunkSource src, Region rg, byte[][] coarse, int lowOffset)
     {
         int RXf = rg.n * 128, RYf = rg.L * 128;
@@ -359,7 +398,7 @@ public class ShellChunkTests
                 for (int cy = g0.y >> 7; cy <= g1.y >> 7; cy++)
                 for (int cx = g0.x >> 7; cx <= g1.x >> 7; cx++)
                 {
-                    src.GenerateShellChunk(k, new int3(cx, cy, cz), sc, lowOffset < 0 ? -1 : (1 << (k - 1)) - 1);
+                    src.GenerateShellChunk(k, new int3(cx, cy, cz), sc, lowOffset < 0 ? -1 : 1 << (k - 1));
                     byte[] m = sc.IsUniformAir ? null : sc.Mats.ToArray();
                     int3 lo = math.max(g0, new int3(cx, cy, cz) << 7), hi = math.min(g1, (new int3(cx, cy, cz) << 7) + 127);
                     for (int z = lo.z; z <= hi.z; z++)
@@ -372,8 +411,9 @@ public class ShellChunkTests
         }
     }
 
-    private static Stat Compare(byte[] vote, byte[] coarse, int RX, int RY)
+    private static Stat Compare(byte[] vote, byte[] coarse, int RX, int RY, byte[] fineTop, int k)
     {
+        int RXf = RX << k, h2 = (1 << (k - 1)) - 1;
         var s = new Stat();
         // Voxels, and voxels in non-uniform bricks (8^3 coarse; mixed solid/air in either).
         for (int bz = 0; bz < RX; bz += 8)
@@ -407,7 +447,12 @@ public class ShellChunkTests
             else if (math.abs(tv - tc) <= 1)
             {
                 s.colsOk++; s.topCols++;
-                if (vote[x + RX * (tv + RY * z)] == coarse[x + RX * (tc + RY * z)]) s.topSame++;
+                byte vm = vote[x + RX * (tv + RY * z)], cm = coarse[x + RX * (tc + RY * z)];
+                if (vm == cm) s.topSame++;
+                byte fm = fineTop[((x << k) + h2) + RXf * ((z << k) + h2)];
+                s.surfCols++;
+                if (cm == fm) s.surfCoarse++;
+                if (vm == fm) s.surfVote++;
             }
             else if (math.abs(tv - tc) >= 4) s.missFar++;
             else if (tc > tv) s.missUp++; else s.missDown++;
@@ -428,7 +473,7 @@ public class ShellChunkTests
         byte[] renderLf = { TerrainGen.Regions.Alpine, TerrainGen.Regions.Canyonlands, TerrainGen.Regions.Plains };
         var lines = new List<string>
         {
-            "Engine step 10 (task 74): coarse-first shell chunks vs the majority-vote downsample of the 0.1 m chunks.",
+            "Engine step 10 (task 74; sample index 2^(k-1)-1 and the top-voxel rule since task 77): coarse-first shell chunks vs the majority-vote downsample of the 0.1 m chunks.",
             $"Gate (Amendment 8.14 row 13, owner Q5 (a)): shells 1-3, vox(mixed bricks) >= {VOXEL_MIN:P0} and cols(|dh| <= 1 coarse voxel) >= {HEIGHT_MIN:P0},",
             "on seed 42's landform set and on all seeds pooled. Shell 4 reported, not gated. Non-air = solid (water counts). Editor, Burst.",
             "",
@@ -451,33 +496,34 @@ public class ShellChunkTests
                 foreach (var rg in sites)
                 {
                     var vote = new byte[MAX_K + 1][]; var coarse = new byte[MAX_K + 1][]; var lowIdx = new byte[MAX_K + 1][];
-                    BuildRegion(src, rg, vote, coarse, lowIdx);
+                    var fineTop = new byte[(rg.n * 128) * (rg.n * 128)];
+                    BuildRegion(src, rg, vote, coarse, lowIdx, fineTop);
                     lines.Add($"  {TerrainGen.Regions.Name(rg.landform),-18} site ({rg.site.x},{rg.site.y},{rg.site.z})  region {rg.n}x{rg.n} chunks x {rg.L} layers from {rg.c0}; {Roughness(src, rg)}");
                     bool low = false;
                     for (int k = 1; k <= MAX_K; k++)
                     {
                         int RX = (rg.n * 128) >> k, RY = (rg.L * 128) >> k;
-                        var st = Compare(vote[k], coarse[k], RX, RY);
+                        var st = Compare(vote[k], coarse[k], RX, RY, fineTop, k);
                         perSeed[k].Add(st); pooled[k].Add(st);
                         lines.Add($"    shell {k} ({0.1f * (1 << k):F1} m)  {st.Line}");
-                        var sl = Compare(vote[k], lowIdx[k], RX, RY);
+                        var sl = Compare(vote[k], lowIdx[k], RX, RY, fineTop, k);
                         perSeedLow[k].Add(sl); pooledLow[k].Add(sl);
-                        lines.Add($"      index 2^(k-1)-1   {sl.Line}");
+                        lines.Add($"      old centre 2^(k-1) {sl.Line}");
                         if (k <= 3 && st.Cols < HEIGHT_MIN) low = true;
                     }
                     string lfName = TerrainGen.Regions.Name(rg.landform).Replace(' ', '_');
-                    if (seed == 42u && System.Array.IndexOf(renderLf, rg.landform) >= 0) WritePicture(rg, vote, coarse, $"74_{lfName}");
-                    else if (low) WritePicture(rg, vote, coarse, $"74_below_line_seed{seed}_{lfName}");
+                    if (seed == 42u && System.Array.IndexOf(renderLf, rg.landform) >= 0) WritePicture(rg, vote, coarse, $"77_{lfName}");
+                    else if (low) WritePicture(rg, vote, coarse, $"77_below_line_seed{seed}_{lfName}");
                 }
                 for (int k = 1; k <= MAX_K; k++) lines.Add($"  seed {seed} shell {k}  {perSeed[k].Line}");
-                for (int k = 1; k <= MAX_K; k++) lines.Add($"  seed {seed} shell {k}  index 2^(k-1)-1  {perSeedLow[k].Line}");
+                for (int k = 1; k <= MAX_K; k++) lines.Add($"  seed {seed} shell {k}  old centre 2^(k-1)  {perSeedLow[k].Line}");
                 if (seed == 42u) seed42 = perSeed; else belowLine.Add(($"seed {seed}", perSeed));
             }
             finally { if (src != _src) src.Dispose(); }
         }
         lines.Add("");
         for (int k = 1; k <= MAX_K; k++) lines.Add($"POOLED shell {k} ({0.1f * (1 << k):F1} m)  {pooled[k].Line}");
-        for (int k = 1; k <= MAX_K; k++) lines.Add($"POOLED shell {k} index 2^(k-1)-1 (diagnostic)  {pooledLow[k].Line}");
+        for (int k = 1; k <= MAX_K; k++) lines.Add($"POOLED shell {k} old centre 2^(k-1) (diagnostic)  {pooledLow[k].Line}");
         lines.Add($"(agreement part: {sw.Elapsed.TotalSeconds:F0} s)");
         belowLine.Add(("pooled", pooled));
         for (int k = 1; k <= 3; k++)
@@ -561,7 +607,7 @@ public class ShellChunkTests
         var tex = new UnityEngine.Texture2D(W, H, UnityEngine.TextureFormat.RGBA32, false);
         tex.SetPixels32(px);
         tex.Apply();
-        string dir = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "Screenshots", "74");
+        string dir = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "Screenshots", "77");   // task 74 wrote Screenshots/74 (centre sample, no top rule)
         System.IO.Directory.CreateDirectory(dir);
         System.IO.File.WriteAllBytes(System.IO.Path.Combine(dir, name + ".png"), UnityEngine.ImageConversion.EncodeToPNG(tex));
         UnityEngine.Object.DestroyImmediate(tex);

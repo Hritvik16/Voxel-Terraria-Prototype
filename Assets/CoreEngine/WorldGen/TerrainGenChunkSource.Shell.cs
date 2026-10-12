@@ -7,8 +7,15 @@
 //
 // A shell-k chunk is 128^3 of its own voxels, 12.8 * 2^k m on a side; its fine
 // (0.1 m) origin is coord << (7 + k). Coarse voxel i samples the fine voxel
-// NEAREST ITS CENTRE: origin + (i << k) + half, half = 2^(k-1) (0 at k = 0).
-// Every coarse voxel is therefore EXACTLY Generate's voxel at that position
+// origin + (i << k) + half, half = 2^(k-1) - 1 (0 at k = 0): one fine voxel
+// below the centre, which matches the cascades' tie-to-solid vote better than
+// the centre (task 74 Q2 (a), 2026-10-11; row 13 as amended).
+// THE TOP VOXEL (task 74 Q1 (a)): the coarse voxel whose sample is the
+// highest one at or below the column's ground height h (S, the column's top
+// solid fine voxel -- Material is air/fluid above it) takes, if it is solid,
+// the material of the fine voxel AT h, so a distant surface keeps its 0.3 m
+// grass/sand/snow layer instead of the soil or rock a sample inside it hits.
+// Every coarse voxel is therefore EXACTLY Generate's voxel at one position
 // (row 13, Q5 (a)): the same S at (x + 0.5, z + 0.5), the same spacing-1
 // MaxStep (its four neighbours are not on the coarse grid, so they are
 // sampled here: (x + 1) + 0.5f is the float ColumnJob's grid uses), the same
@@ -100,14 +107,14 @@ namespace VoxelEngine.WorldGen
         /// 8.14 row 12's GenerateShellChunk: shell `shell`'s chunk `coord` (in
         /// that shell's own chunk units) into `output`. No op log yet (row 9).
         /// `sampleIndex` (diagnostic): which of the 2^k fine voxels per axis a
-        /// coarse voxel takes; -1 = row 13's centre, 2^(k-1). ShellChunkTests
-        /// reports 2^(k-1) - 1 beside it for the owner; nothing else passes it.
+        /// coarse voxel takes; -1 = row 13's 2^(k-1) - 1. ShellChunkTests
+        /// reports the old centre 2^(k-1) beside it; nothing else passes it.
         public void GenerateShellChunk(int shell, int3 coord, ShellChunk output, int sampleIndex = -1)
         {
             if (shell < 0 || shell > MAX_SHELL) throw new ArgumentOutOfRangeException(nameof(shell));
             if (sampleIndex >= (1 << shell)) throw new ArgumentOutOfRangeException(nameof(sampleIndex));
             int3 origin = coord << (CHUNK_SHIFT + shell);
-            int half = sampleIndex >= 0 ? sampleIndex : shell == 0 ? 0 : 1 << (shell - 1);
+            int half = sampleIndex >= 0 ? sampleIndex : shell == 0 ? 0 : (1 << (shell - 1)) - 1;
             output.Shell = shell; output.Coord = coord; output.IsUniformAir = false;
 
             new ShellColumnJob
@@ -194,7 +201,7 @@ namespace VoxelEngine.WorldGen
             [ReadOnly] public NativeArray<TerrainGen.ColumnSample> colS;
             [ReadOnly] public NativeArray<float> colSt;
             [ReadOnly] public NativeArray<TerrainGen.DetailField.ColumnDetail> colCd;
-            [WriteOnly] public NativeArray<byte> mats;
+            public NativeArray<byte> mats;
             public NativeArray<byte> brickMat;
             public NativeArray<bool> brickUniform;
 
@@ -239,6 +246,29 @@ namespace VoxelEngine.WorldGen
                     }
                     brickUniform[bi] = uni;
                     brickMat[bi] = first;
+                }
+
+                // The top voxel (task 74 Q1 (a)). Shell 0 samples every fine
+                // voxel, so its top voxel IS h already; skip it (== Generate).
+                if (shift == 0) return;
+                for (int lz = 0; lz < E; lz++)
+                for (int lx = 0; lx < E; lx++)
+                {
+                    int ci = lz * E + lx;
+                    var c = colS[ci];
+                    int ly = (c.height - origin.y - half) >> shift;   // floor: the highest sample <= h
+                    if (ly < 0 || ly >= E) continue;
+                    int x = origin.x + (lx << shift) + half, z = origin.z + (lz << shift) + half;
+                    int y = origin.y + (ly << shift) + half;
+                    var cd = colCd[ci]; float st = colSt[ci];
+                    var cs = TerrainGen.DetailField.CullBrick(in spec, in o, x & FINE_BRICK_MASK, y & FINE_BRICK_MASK, z & FINE_BRICK_MASK);
+                    if (TerrainGen.DetailField.Material(in spec, in o, in c, in cd, st, x, y, z, in cs) < TerrainGen.GenMat.RiverLip)
+                        continue;   // air or a fluid at the sample (an opening): not a solid top
+                    var ch = TerrainGen.DetailField.CullBrick(in spec, in o, x & FINE_BRICK_MASK, c.height & FINE_BRICK_MASK, z & FINE_BRICK_MASK);
+                    byte m = toEngine[TerrainGen.DetailField.Material(in spec, in o, in c, in cd, st, x, c.height, z, in ch)];
+                    mats[(ly << 14) | (lz << 7) | lx] = m;
+                    int bi = ((lz >> 3) << 8) | ((ly >> 3) << 4) | (lx >> 3);
+                    if (brickUniform[bi] && brickMat[bi] != m) brickUniform[bi] = false;
                 }
             }
         }
