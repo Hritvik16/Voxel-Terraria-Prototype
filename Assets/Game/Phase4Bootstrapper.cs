@@ -33,6 +33,14 @@ public class Phase4Bootstrapper : MonoBehaviour
     public static LODCascadeManager Cascades { get; private set; }
     public static WorldMetaData Meta { get; private set; }
     public static StreamManager Streamer { get; private set; }
+    /// Amendment 8.14 step 11a (task 77): the coarse shells' storage, filled and
+    /// uploaded but NOT drawn (11b). Off unless `-shells 1` (tg2 only): its
+    /// GPU pools (High ~383 MB at the caps, est.) would sit beside the cascade
+    /// tiers it replaces until 11b retires them, so rigs and play stay as they
+    /// were. `-quality low|medium|high|ultra` (default high: rigs pin High,
+    /// row 16), `-shellworkers N` (default 1), `-shellsdebug S` writes the
+    /// occupancy picture + report S seconds after start-up and at quit.
+    public static ShellStreamer Shells { get; private set; }
     public static CoalesceScheduler Coalescer { get; private set; }
     public static string DeltaDirectory { get; private set; }
     public static string MetaRoundtripStatus { get; private set; }
@@ -116,6 +124,7 @@ public class Phase4Bootstrapper : MonoBehaviour
 
     private BrickDataPool _pool;
     private VoxelEngine.Rendering.FarField _far;
+    private float _shellsDebugAt = -1f;
     private ChunkHandleAllocator _allocator;
     private ChunkStore _store;
 
@@ -330,6 +339,19 @@ public class Phase4Bootstrapper : MonoBehaviour
             _far = new VoxelEngine.Rendering.FarField(Meta, camPos, IsTg2World ? Streamer.TerrainGenSource.Map : null);
         ApplyBandToRenderer();
 
+        if (IsTg2World && ArgInt("-shells", 0) == 1)
+        {
+            string[] sargs = Environment.GetCommandLineArgs();
+            int qi = Array.LastIndexOf(sargs, "-quality");
+            var layout = ShellLayout.From(ShellLayout.Parse(qi >= 0 && qi + 1 < sargs.Length ? sargs[qi + 1] : null));
+            Shells = new ShellStreamer(layout, Streamer.TerrainGenSource, ArgInt("-shellworkers", 1));
+            int dbg = ArgInt("-shellsdebug", -1);
+            if (dbg >= 0) _shellsDebugAt = Time.realtimeSinceStartup + dbg;
+            long bytes = 0; for (int k = 1; k < layout.ShellCount; k++) bytes += Shells.Store(k).BytesAllocated;
+            UnityEngine.Debug.Log($"[Shells] preset {layout.Preset} ({layout.SizingRows} rows): shells 1-{layout.ShellCount - 1} allocated, " +
+                                  $"GPU {bytes / 1e6:F1} MB (8.14 §2 formula {layout.ShellsTotalMBEstimate:F0} MB); not drawn before 11b");
+        }
+
         StartupMs = total.Elapsed.TotalMilliseconds;
         UnityEngine.Debug.Log($"[Phase4Bootstrapper] Total startup: {StartupMs:F0}ms");
     }
@@ -363,6 +385,13 @@ public class Phase4Bootstrapper : MonoBehaviour
         }
         FrameGapProbe.LastUploadBytes = Streamer.LastUploadBytes;
         FrameGapProbe.LastSetDataCalls = Streamer.LastUploadStats.brickRuns + Streamer.LastUploadStats.chunksUploaded;
+        if (Shells != null)
+        {
+            // The shells share the 3 MiB/frame cap (8.14 row 14): what the 0.1 m
+            // mirror and the cascades left of it this frame.
+            Shells.Update(camPos, EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME - Streamer.LastUploadBytes);
+            if (_shellsDebugAt >= 0f && Time.realtimeSinceStartup >= _shellsDebugAt) { WriteShellsDebug("t"); _shellsDebugAt = -1f; }
+        }
         double farT0 = sw.Elapsed.TotalMilliseconds;
         if (_far != null)
         {
@@ -372,6 +401,34 @@ public class Phase4Bootstrapper : MonoBehaviour
         }
         FrameGapProbe.LastFarMs = sw.Elapsed.TotalMilliseconds - farT0;
         FrameGapProbe.LastCoalescerMs = sw.Elapsed.TotalMilliseconds - streamMs;
+    }
+
+    private static int ArgInt(string name, int fallback)
+    {
+        string[] a = Environment.GetCommandLineArgs();
+        int i = Array.LastIndexOf(a, name);   // last match, as PlaygroundCapture's ArgInt
+        return i >= 0 && i + 1 < a.Length && int.TryParse(a[i + 1], out int v) ? v : fallback;
+    }
+
+    /// Task 77: the shells' occupancy picture, report and validator results.
+    private static void WriteShellsDebug(string when)
+    {
+        string dir = Path.Combine(Application.persistentDataPath, "Shells");
+        string stamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
+        string png = Path.Combine(dir, $"shells_{stamp}_{when}.png");
+        ShellDebugView.WritePng(Shells, png);
+        var sb = new System.Text.StringBuilder(ShellDebugView.Report(Shells));
+        for (int k = Shells.FirstShell; k <= Shells.LastShell; k++)
+        {
+            var st = Shells.Store(k);
+            int stale = ShellValidator.CountStaleSlots(Shells, k, out string ex1);
+            int pool = ShellValidator.CountPoolErrors(st, out string ex2);
+            int gpu = st.DirectoryDirty ? -1 : ShellValidator.CountGpuDirectoryMismatches(st, out string ex3);
+            sb.AppendLine($"  validator shell {k}: stale slots {stale}{(ex1 != null ? " (" + ex1 + ")" : "")}, pool errors {pool}{(ex2 != null ? " (" + ex2 + ")" : "")}, " +
+                          $"GPU directory mismatches {(gpu < 0 ? "n/a (dirty)" : gpu.ToString())}");
+        }
+        File.WriteAllText(Path.ChangeExtension(png, ".txt"), sb.ToString());
+        UnityEngine.Debug.Log($"[Shells] {when}: {png}\n{sb}");
     }
 
     /// V2: the voxel march owns exactly the loaded band. Flat worlds keep the
@@ -406,6 +463,7 @@ public class Phase4Bootstrapper : MonoBehaviour
     {
         // Clean shutdown flushes pending edits. The rig's force-quit test
         // deliberately bypasses this path (Process.Kill) -- that is the point.
+        if (Shells != null && ArgInt("-shellsdebug", -1) >= 0) WriteShellsDebug("quit");
         if (Streamer != null)
         {
             int n = Streamer.FlushAllDirty();
@@ -420,6 +478,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         if (IsTg2World) { RaymarchFeature.ContentFloorVoxelY = 0; RaymarchFeature.ContentCeilingVoxelY = 128; }
         Streamer?.Dispose();
         Clipmap?.Dispose();
+        Shells?.Dispose(); Shells = null;
         Cascades?.Dispose();
         _pool?.Dispose();
         Clipmap = null; Cascades = null; Store = null; Pool = null; Meta = null;
