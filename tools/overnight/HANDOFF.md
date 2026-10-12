@@ -1,46 +1,53 @@
-# 75b-see-through-cost: DONE -- see-through at the lake shore +5.0 ms -> +2.0 ms (target <= 2.5 met); commit `59c55cb` (engine-phase)
+# 77-engine-11a-shell-storage: DONE. Task 74's Q1/Q2 applied; shell storage + upload built, validators 0, rigs unchanged. One owner question (not blocking 11b)
+## Question for the owner (needed before shell pool caps are final; 11b can start without it)
+**Q1. The coarse shells hold ~1.5-3.4x the dense bricks 8.14 estimated, because of caves underground.** At seed 42's spawn, shell 6 needs
+~194k dense bricks (71.6k stored + 122.7k refused) against an estimate of 57k (cap 71.7k), and shell 7 needs ~20k against 13.8k. In the
+player run shells 3, 4 and 5 also filled their caps (~102k each) and refused more. Of the stored dense bricks, 71% contain air (caves,
+caverns) and 29% are material-only (ores, strata). Refusing is safe (row 15: the coarser shell shows; stale 0), but distant land goes missing.
+(a, recommended) In shells >= 3, fill enclosed underground air and flatten material-only bricks to one material (caves are not visible
+from 275 m+). This breaks row 12's "coarse voxel == generator voxel" below the surface only; one amendment row plus a test.
+(b) Raise the caps to the measured peaks: shells cost ~2-3x 8.14's 388 MB (est.), above the 3 GB cap. (c) Keep the caps and accept holes.
 ## What changed
-- `Raymarch.compute`: the march through a fluid now stops where the bed's weight (1 - F) * T falls under **10%** (`SEE_CUT`,
-  was 2%). `SeeCutFade` fades the bed out over the last 30% of that path, so the earlier stop leaves no edge on a sloping bed.
-  The far band uses the same cut, so near and far still match. Step cap (192), table, blend: unchanged.
-- Diagnostic arms kept: `see_noblend / see_nofar / see_nomarch` (`RaymarchFeature.DebugSeeSkip`, cost split only).
-  The three candidate arms were measured once and then removed.
-- Note: a previous session of this task ran the split (19:30) and the heat stills, then hit the usage limit; this session went on from there.
-## Split (step 1; warm-up Logs/tg2world_20261011_192327.txt, Logs/costsplit_2026-10-11_193015.txt, lake_shore, p50)
-| arm | p50 ms | vs OFF |
-|---|---|---|
-| OFF (5 runs) | 62.3 | -- |
-| see_on | 67.1 | +5.0 |
-| no end blend | 67.0 | +4.7 -> blend ~0.1-0.3 ms |
-| no far-band blend | 67.2 | +4.9 -> far ~0 |
-| no march (blend on the surface) | 62.2 | -0.1 -> **the march is all of it** |
-## Candidates (step 2). Expected before measuring vs measured (warm-up Logs/tg2world_20261011_223335.txt, Logs/costsplit_2026-10-11_224010.txt)
-- step cap 192 -> 64: expected 1-2 ms; **saved 0.0** (no ray uses more than 64 extra steps).
-- coarser tier past 3 m / 6 m in the fluid (like shadow travel LOD): expected 1.5-2.5 ms; **2.9 ms WORSE** (+8.5).
-- cut 2% -> 5%: expected ~1 ms; **saved 1.0** (+4.6). So the cost follows the path length. The pick was 10% + fade (expected ~2 ms saved).
-## After (step 3; warm-up Logs/tg2world_20261011_231039.txt, Logs/costsplit_2026-10-11_231717.txt, ABBA)
-- lake_shore: OFF 52.3, ON 54.2 / 54.0 -> **+1.9 / +2.2 ms** (before: +5.0 split run, +5.6 candidate run).
-- lake_away (no liquid in view): -0.1 / 0.0. **lake_wall: +0.1 / +0.1, but there is no water in view any more**: after task 76 the
-  lakes are at rest and the standing wall at task 75's first pose is gone (still `.../UpscalerClips/2026-10-11_224010/stills/lake_wall_see_on_clean.png`
-  shows dry sand terraces and rock). The wall-of-water case can't be measured at this pose now.
-- Caveat: OFF itself was different in each launch (62.3 / 58.1 / 52.3 ms), so compare the gaps measured within a launch.
-  As a share of the frame: 8-10% -> 3.6-4.2%.
-## Checks
-- Fast EditMode **PASS 695 FAIL 0 SKIP 14** (Logs/overnight/75b-tests.out).
-- `run-phase7-rig.sh` (setting off) **PASS 37 FAIL 0**, **19/19 shots pixel-identical** to task 75's run (Phase7Cycle/2026-10-11_134515 vs _233444).
-- `-liquiddemo` re-shot ON (Logs/overnight/75b-demo.out; shots Screenshots/75b/shots/). Looked at both sheets: the same stripes
-  show in every pool (water all five, acid/honey only the shallow ones, as in 75); lake shallows and bank the same.
+- `3aeca7e` Q1 (a) + Q2 (a) (supervisor defaults): `GenerateShellChunk` samples fine index 2^(k-1)-1, and a column's top solid coarse voxel
+  takes the material of the fine voxel at the ground height h. Amendment 8.14 row 13 amended. `ShellChunkTests` stay exact (0 differ, now
+  including 1,213-1,849 top voxels per shell), and the agreement report gains a "surface vs 0.1 m" column.
+- `e72835d` Step 11a: `ShellLayout.From(preset)` (ContentModules/Config), `ShellStore` / `ShellStreamer` / `ShellValidator` /
+  `ShellDebugView` (CoreEngine/Mirror, namespace VoxelEngine.Mirror), `ShellStorageTests`. Two-level directory (ABSENT / UNIFORM|mat /
+  PAGE|page; 16 KB pages; 512 B bodies in BrickDataPool layout), zeroed at construction, refuses when full, budgeted multi-frame upload
+  (directory entry published last), dedicated workers, main-thread upload inside what tier 0 leaves of the 3 MiB cap.
+  Phase4Bootstrapper: `-shells 1` (tg2 only, **OFF by default**: nothing draws shells before 11b, and the pools would sit beside the
+  cascades they replace, +549 MB peak), `-quality low|medium|high|ultra` (default high), `-shellworkers N`, `-shellsdebug S`.
+- `2837be2` Fixed a starvation found in the player run: a full coarse shell kept regenerating its refused chunks while shells 1-4 got
+  nothing. Now a refused chunk waits until its shell has room, and a full shell yields the workers to the finer shells.
+## Evidence
+- SUITE=all **PASS 736 FAIL 0 SKIP 19** (Logs/overnight/77-all.out, after the generator change); fast after the last fix **698/0/14**
+  (Logs/overnight/77-fast2.out). ShellStorageTests 4/4, including the Slow fill (Logs/Shells/fill.txt).
+- Validators: EditMode (High shells 6-7, real generator, two camera legs): stale slots 0, pool errors 0, uploads byte-exact, every update
+  inside its 1 MiB budget. Player, 3 runs, all 7 shells: stale 0, pool errors 0, **GPU directory readback mismatches 0**, over-budget
+  frames 0, generation errors 0 (Logs/Shells/player_shells_*.txt).
+- Memory A/B (same build, same pose run): peak 2,823 -> 3,372 MB; Metal (IOAccelerator) 1,042 -> 1,408 MB (+366 MB, the shells allocate
+  372 MB); native "Untagged" +193 MB, of which ~45 MB is accounted for (Logs/tg2world_20261012_013704 vs _011934, *_mem_peak_breakdown.txt).
+- Rigs: `run-phase7-rig.sh` **PASS 37 FAIL 0, 19/19 shots byte-identical** to 75b's run (Phase7Cycle/2026-10-11_233444 vs 2026-10-12_015234).
+  Acceptance rig **53 PASS / 1 FAIL**: the known flaky steady-state upload p99 (1.24 ms vs 1.0; KNOWN_ISSUES "Gate C is red on ONE
+  upload-budget check"). Previous run (2026-10-04) had 52/2 on the same check. No frame time quoted. I looked at Traverse_49: grass, a
+  sand band, water, three hills, a clean horizon.
 ## Not done / next
-- Next candidate if more is wanted (not done, one change only): march a uniform-fluid run at the brick level without re-entering
-  the outer loop (chain leaps through uniform water bricks, as `_TraversalMode == 2` does for air), or a cut on luminance instead of
-  the clearest channel (the green channel sets the path today). Both need their own task.
-- A new wall-of-water pose (a stepped river or a placed water box) if the owner wants that case measured.
+- The shells never filled completely in the pose run: ~440-640 ms per shell chunk with 2 workers beside tier 0, and thousands of chunks
+  per pose (steps 15/16). Occupancy bits / air mips for shells come with 11b. Shell 0 is still the 128 m window (step 14).
+  PlaySettings / F6 / auto-pick (rows 16-17) are not done. While a shell is full its cheap uniform chunks wait too.
+- Next: 11b (raymarch + seams + the "largest voxel <= 1 px" pose metric), ideally after Q1.
 ## For the doc
-- See-through cost at the lake shore, p50 warm ABBA: **+5.0 ms -> +2.0 ms** (+1.9 / +2.2; Logs/costsplit_2026-10-11_193015.txt -> Logs/costsplit_2026-10-11_231717.txt).
-- Split of the +5.0 ms: march through the fluid ~5.0, end blend ~0.1-0.3, far-band blend ~0 (Logs/costsplit_2026-10-11_193015.txt).
-- Candidates: step cap 64 saved 0.0 ms; coarser tier cost +2.9 ms; cut 5% saved 1.0 ms (Logs/costsplit_2026-10-11_224010.txt).
-- No liquid in view: 0.0 ms before and after. Phase 7 rig 37/37, shots identical. Warm-ups: Logs/tg2world_20261011_192327.txt, _223335.txt, _231039.txt.
-- `Screenshots/75b/sheet_pools_before_after.jpg`: left = task 75 (cut 2%), right = 75b (cut 10% + fade). Compare the stripe rows in
-  each pool (rows 1-4, middle pool): the same stripes show in both columns, from the water pool's deepest to honey's shallow two.
-- `Screenshots/75b/sheet_lake_before_after.jpg`: row 1 (shore shallows): the sand bank fading into the blue looks the same in both columns.
-  Rows 2-4 differ only where task 76 changed the rivers (cascade instead of slab staircase), not because of this change.
+- Top-voxel colour vs the real 0.1 m surface, shells 1-4 pooled: **coarse 99.99 / 99.37 / 98.88 / 97.81%**. The majority vote itself
+  reaches only 96.2 / 91.8 / 73.5 / 56.1%, so 74's "vs vote" line (96 / 76 / 60 / 55% -> now 96 / 91 / 72 / 54%) measured the wrong
+  reference past shell 2 (Logs/TerrainGen/coarse_first.txt vs coarse_first_74.txt). Q2: pooled shell 1 voxels 97.2 -> 98.5%, heights 99.0 -> 99.6%.
+- Memory per shell, High, as allocated (bodies + pages + directory): 82 / 66 / 58 / 58 / 58 / 40 / 10 MB = **372 MB**; 8.14's formula
+  gives 383 MB against §H.2's 388. Per preset, shells 1+: Low 166 / Medium 274 / High 383 / Ultra 674 MB vs 169 / 277 / 388 / 677
+  (Logs/Shells/ledger.txt).
+- Dense bricks needed vs estimated, seed 42 spawn: shell 6 **~194k vs 57k**, shell 7 ~20k vs 14k (Logs/Shells/fill.txt from `e72835d`'s run).
+- Player peak footprint with shells on: 2,823 -> 3,372 MB (+366 MB Metal), off by default.
+- `Screenshots/77/77_river_plains.png`: bottom row (shell 3). The vote's top view (left) shows blue-grey bare patches; the coarse top view
+  (second) keeps the light snow colour. Task 74's version (Screenshots/74/74_river_plains.png) showed it the other way round.
+- `Screenshots/77/shells_occupancy_leg0.png`: High shells 6 (left) and 7 (right) around the spawn, one cell per chunk column. Grey = the
+  hole the finer shell covers (the camera is outlined in it), green = stored, red = refused (pool full). The red edge is the shortfall in Q1.
+- `Screenshots/77/player_shells_t90.png`: the player run 90 s in, shells 1-7 from left to right. Shells 1-4 are yellow (still missing).
+  In shells 6-7 the stored green ring is around an earlier pose; the camera (outlined) has moved on.
