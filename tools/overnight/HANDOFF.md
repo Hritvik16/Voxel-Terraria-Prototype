@@ -1,55 +1,46 @@
-# 76-rivers-r1-r2-r6: DONE -- R1 + R2 + R5 + R6 built; every generated fluid at rest by test; commit `b5ec224` (engine-phase)
+# 75b-see-through-cost: DONE -- see-through at the lake shore +5.0 ms -> +2.0 ms (target <= 2.5 met); commit `59c55cb` (engine-phase)
 ## What changed
-- **R1** `Assets/TerrainGen/Rivers.cs` (new), map v4 only (v3 untouched): `Profile` (map stage, after the routes) sets each
-  river cell's level = bed + depth, capped by every lake it drains out of, raised to its downstream cell (never rises
-  downstream), last cell AT the lake/sea level when within 2 m. `Column` (from `ShapeField.Sample`): level per voxel column
-  along cell-centre -> parent segments (steps of ONE voxel every few metres), trapezoid channel (edge 0.3 m, 31 deg shelf,
-  <= 4 m deep, holes filled), banks of the NEAREST channel at 27 deg. **At rest, how:** the first column of each one-voxel
-  step down is a LIP -- solid up to the upper level, material `GenMat.RiverLip` (8 = engine 136): solid to the CPU (CA, motor),
-  drawn as water. R3 swaps it for held water later. River fluid is `Rivers.FLUID` (water today; Q5). Falls > 2 m per cell
-  flagged `FLOW_FALL` (365 cells on seed 42) for R4 -- no curtains built; they are lip staircases now.
-- Flow map `WorldMap.FlowDir` (16 bits/cell = 2 MB: direction, fall, slope class, river size), `MapView.flowDir`, plumbed
-  into every MapView site (chunk source, shells, far band, tests). Hydrology keeps its drainage tree for it.
-- Things rivers broke and the fix: stamps (cave mouths, fissures, skull cave, arch/hoop openings) and cave tunnels kept out of
-  rivers (`nearRiver`, `riverFloor`, like NearLake); the geyser ring holds a river (`riverHoldY`); minimap samples rivers
-  at its own step (rivers stay one line). **Volcano lava lake was NOT at rest** (seed 2026: 917,162 lava voxels beside air
-  in the ring between caldera floor and inner wall) -> v4 fills that ring to the lava level (`Stamps.Column`).
-- **R2/R5** `Raymarch.compute`: `RiverLipAsWater` (lips march, see-through and shade as water, always); with
-  `_RiverLook`: a lip's side face drawn as surface where the flow map has a river (every tier) or over a 1-voxel step (tier 0);
-  ripples moving along the flow + foam by slope class/fall -- from the MAP (`FarField.RiverFlow` buffer), so tier 0, coarse
-  tiers and the far band match; ripples fade to their mean by 400 m, foam keeps its mean; foam lowers see-through (75 kept).
-  `RaymarchFeature.RiverLook` (off: rigs byte-identical), `PlaySettings.riverLook` = on, `-riverlook 0|1`; NO F6 row yet.
-  Task 73's prototype removed. Palette entry for 136 (water colour, CPU views only).
-- **R6** `Assets/TerrainGen/Tests/FluidAtRestTests.cs`: rivers + sea coast (1 in 6 coast cells) + lakes (seeds 42, 7), the
-  volcano lava lake (seed 2026, the first test seed that draws one), 24 underground pockets (seed 42), profile monotonicity.
-- `-riverdemo`: seed 42 takes 73's four cells; off = shape only (look + see-through off), on = play look; site A also at
-  20 m / 150 m / 800 m / 2 km; census counts lip risers. `tools/river76-sheet.py`. BUGS #5, #7 moved to Fixed; CLAUDE.md, plan status.
-## Evidence
-- `SUITE=all` **PASS 732 FAIL 0 SKIP 19** (Logs/overnight/76-all2.out; first run had 3 fails, fixed: palette, portability, 8 m Sheer on routes).
-- R6 (Logs/TerrainGen/fluid_at_rest_42.txt, _7, volcano_at_rest_2026, pocket_at_rest_42): **0 unsettled** voxels: river 124 M /
-  113 M voxels, sea 157 M / 179 M, lakes 80 M / 95 M, lava lake 725 M (was 917,162 unsettled), pockets 11.4 M. Routes Sheer 0.0 m.
-- FNV seed 42 v4: Height **unchanged** 639552DD962C4B28; Water F93A59C2224B54A8 -> **6E53C3AD2909F15C** (Logs/TerrainGen/river_profile_42.txt).
-- Demo: Logs/overnight/76-demo-player.log; shots Screenshots/76/shots/, sheets Screenshots/76/. Looked at all three sheets.
-## Not done / caveats
-- Pool = 0 tiles on arrival: proven only by the EditMode at-rest tests, not by a runtime pool probe (a `MODE=poolprobe` walk is the check).
-- Site B: the river's last cells lie in the lake's shallow fringe and stand 1-4 voxels above it; a short ribbon edged by lip lines
-  shows (row B of sheet_near). Site D: through clear sea water the carved channel shows as a trench on the sea bed.
-- Steep reaches (A, C) are lip staircases drawn as foaming water: R4 (waterfall curtains, plunge pools) is still to do.
-- Cost not measured (rule 10): `Rivers.Column` adds a 7x7-cell scan to every S call (+8 level evaluations next to rivers);
-  in the final demo B/C mid shots had unstreamed coarse blocks that the previous run did not -- check generation at the next perf milestone.
-## Next
-- Owner: look at the sheets; R3 (held water) and R4 (falls) after step 17. Small follow-ups (not queued): F6 row for "River look";
-  end river cells inside a lake's fringe at the lake level (site B ribbon).
+- `Raymarch.compute`: the march through a fluid now stops where the bed's weight (1 - F) * T falls under **10%** (`SEE_CUT`,
+  was 2%). `SeeCutFade` fades the bed out over the last 30% of that path, so the earlier stop leaves no edge on a sloping bed.
+  The far band uses the same cut, so near and far still match. Step cap (192), table, blend: unchanged.
+- Diagnostic arms kept: `see_noblend / see_nofar / see_nomarch` (`RaymarchFeature.DebugSeeSkip`, cost split only).
+  The three candidate arms were measured once and then removed.
+- Note: a previous session of this task ran the split (19:30) and the heat stills, then hit the usage limit; this session went on from there.
+## Split (step 1; warm-up Logs/tg2world_20261011_192327.txt, Logs/costsplit_2026-10-11_193015.txt, lake_shore, p50)
+| arm | p50 ms | vs OFF |
+|---|---|---|
+| OFF (5 runs) | 62.3 | -- |
+| see_on | 67.1 | +5.0 |
+| no end blend | 67.0 | +4.7 -> blend ~0.1-0.3 ms |
+| no far-band blend | 67.2 | +4.9 -> far ~0 |
+| no march (blend on the surface) | 62.2 | -0.1 -> **the march is all of it** |
+## Candidates (step 2). Expected before measuring vs measured (warm-up Logs/tg2world_20261011_223335.txt, Logs/costsplit_2026-10-11_224010.txt)
+- step cap 192 -> 64: expected 1-2 ms; **saved 0.0** (no ray uses more than 64 extra steps).
+- coarser tier past 3 m / 6 m in the fluid (like shadow travel LOD): expected 1.5-2.5 ms; **2.9 ms WORSE** (+8.5).
+- cut 2% -> 5%: expected ~1 ms; **saved 1.0** (+4.6). So the cost follows the path length. The pick was 10% + fade (expected ~2 ms saved).
+## After (step 3; warm-up Logs/tg2world_20261011_231039.txt, Logs/costsplit_2026-10-11_231717.txt, ABBA)
+- lake_shore: OFF 52.3, ON 54.2 / 54.0 -> **+1.9 / +2.2 ms** (before: +5.0 split run, +5.6 candidate run).
+- lake_away (no liquid in view): -0.1 / 0.0. **lake_wall: +0.1 / +0.1, but there is no water in view any more**: after task 76 the
+  lakes are at rest and the standing wall at task 75's first pose is gone (still `.../UpscalerClips/2026-10-11_224010/stills/lake_wall_see_on_clean.png`
+  shows dry sand terraces and rock). The wall-of-water case can't be measured at this pose now.
+- Caveat: OFF itself was different in each launch (62.3 / 58.1 / 52.3 ms), so compare the gaps measured within a launch.
+  As a share of the frame: 8-10% -> 3.6-4.2%.
+## Checks
+- Fast EditMode **PASS 695 FAIL 0 SKIP 14** (Logs/overnight/75b-tests.out).
+- `run-phase7-rig.sh` (setting off) **PASS 37 FAIL 0**, **19/19 shots pixel-identical** to task 75's run (Phase7Cycle/2026-10-11_134515 vs _233444).
+- `-liquiddemo` re-shot ON (Logs/overnight/75b-demo.out; shots Screenshots/75b/shots/). Looked at both sheets: the same stripes
+  show in every pool (water all five, acid/honey only the shallow ones, as in 75); lake shallows and bank the same.
+## Not done / next
+- Next candidate if more is wanted (not done, one change only): march a uniform-fluid run at the brick level without re-entering
+  the outer loop (chain leaps through uniform water bricks, as `_TraversalMode == 2` does for air), or a cut on luminance instead of
+  the clearest channel (the green channel sets the path today). Both need their own task.
+- A new wall-of-water pose (a stepped river or a placed water box) if the owner wants that case measured.
 ## For the doc
-- Tallest exposed water wall at 73's sites A/B/C/D: **7.6 / 3.2 / 10.5 / 1.3 m -> 0 / 0 / 0 / 0 m**; water side faces per top
-  face 0.79 / 0.16 / 1.23 / 0.10 -> 0.00 at all four (Logs/overnight/73-demo-player.log -> Logs/overnight/76-demo-player.log).
-  Lip risers (drawn as surface) per water top face: 1.92 / 0.20 / 10.24 / 0.03.
-- At-rest (R6): unsettled fluid voxels -> **0** for rivers, sea, lakes, pockets; volcano lava lake **917,162 -> 0** (seed 2026).
-- Water FNV F93A59C2224B54A8 -> 6E53C3AD2909F15C; Height FNV unchanged. River cells 3,354; falls flagged for R4: 365.
-- `Screenshots/76/sheet_near.jpg`: rows = sites A-D from ~12 m; left = before (task 73), middle = new shape with the look off,
-  right = play look. Watch row C: the 10 m blue wall becomes a foaming cascade between sloping banks; row D: the slab
-  staircase into the sea is gone, the river enters flush.
-- `Screenshots/76/sheet_mid.jpg`: same from ~100 m. Left column's floating blue slab staircases become one thin
-  continuous river in the middle/right columns. (B/C right halves: coarse blocks = streaming not finished, not the river.)
-- `Screenshots/76/sheet_distances.jpg`: site A at 20 m / 150 m / 800 m / 2 km, top row look on, bottom off. The river stays the
-  same colour by slope at each distance: foam-white on the steep lower reach, blue on the gentle upper reach, a light line at 800 m.
+- See-through cost at the lake shore, p50 warm ABBA: **+5.0 ms -> +2.0 ms** (+1.9 / +2.2; Logs/costsplit_2026-10-11_193015.txt -> Logs/costsplit_2026-10-11_231717.txt).
+- Split of the +5.0 ms: march through the fluid ~5.0, end blend ~0.1-0.3, far-band blend ~0 (Logs/costsplit_2026-10-11_193015.txt).
+- Candidates: step cap 64 saved 0.0 ms; coarser tier cost +2.9 ms; cut 5% saved 1.0 ms (Logs/costsplit_2026-10-11_224010.txt).
+- No liquid in view: 0.0 ms before and after. Phase 7 rig 37/37, shots identical. Warm-ups: Logs/tg2world_20261011_192327.txt, _223335.txt, _231039.txt.
+- `Screenshots/75b/sheet_pools_before_after.jpg`: left = task 75 (cut 2%), right = 75b (cut 10% + fade). Compare the stripe rows in
+  each pool (rows 1-4, middle pool): the same stripes show in both columns, from the water pool's deepest to honey's shallow two.
+- `Screenshots/75b/sheet_lake_before_after.jpg`: row 1 (shore shallows): the sand bank fading into the blue looks the same in both columns.
+  Rows 2-4 differ only where task 76 changed the rivers (cascade instead of slab staircase), not because of this change.
