@@ -1,61 +1,58 @@
-# Session handoff -- 2026-10-11 23:55 (supervisor; queue RUNNING task 77)
+# Session handoff -- 2026-10-12 14:40 (supervisor; queue RUNNING task 83)
 
 ## For the owner
-**Why a new session:** you asked for one (this supervisor ran 14:28-23:55 and had a lot of back-and-forth with you).
+**Why a new session:** the previous supervisor (23:46 Sun - 14:40 Mon) handled five finished tasks; past that point every
+turn gets expensive, so it handed over by the rule.
 
-**What you asked and decided this session (14:28 - 23:55):**
-- **76 rivers finished** (rivers at rest, river look). You saw slabs/terraces and the side agent's note that river
-  lips are SOLID ground drawn as water: "bad for gameplay" -> **fix it later** with R3 (held water, after engine step
-  17). Logged as BUGS #8 (site B's river end 1-4 blocks above the lake is in it too). Commit `135ee94`.
-- **75b see-through cost finished:** +5.0 ms -> +2.0 ms at the lake shore, look unchanged. **Accepted.** The further cut
-  (march whole water bricks at once) is parked for much later as `later/79-see-through-brick-march.md` (`804bd5e`).
-- **Doc:** the Now tab now has a **Next up** table: every planned step in order with what it does, what you will
-  notice, and its size (your request: one-liners were too vague). Step 14's row explains the 0.1 m area: no longer a
-  fixed 128 m, sized per preset (Low 59 / Medium 65 / High 82 / Ultra 116 m), ~470 MB freed on High.
-- You asked whether tasks run unnecessary tests. The supervisor's look (see State) found the test runs are mostly
-  the task's own new tests plus the required suites; the real bottleneck is the 5-hour usage limit. One trim is
-  proposed (open below).
+**What happened (all on branch `engine-phase`; main untouched, nothing pushed):**
+- **Test trim, your (a):** tasks now run the whole suite once at the end and take all shots in one launch (PREAMBLE, `5b42d6b`).
+- **77 (11a) shell storage** done: shells built and uploaded, off by default; far top colour 97.8-99.99% right. Raised Q44.
+- **80 (11b) shells drawn** behind `-shells 1` (still off by default): seam arcs gone; full shells fall back to the far band.
+- **81 (13a) far edits** saved as operations (`ops.log`) and applied on generation; far == near, 0 voxels differ.
+- **82 (13b) far edits redraw**: far band 0.8 s, shells 3.1 s after the edit. NOT built: hand-dug pits showing in shells (needs a design).
+- **82b (step 15) faster generation, your pick to go next:** 0.1 m chunk 26.8 -> 9.2 ms (2.9x isolated), byte-identical;
+  shells only 1.2-1.45x (their column pass now dominates).
+- **Q44 answered (a):** fill sealed caves / flatten ore in shells 3+; you added: **visible cave entrances must stay, even small
+  ones** (points of interest) -- written into task 83.
+- You said: **main features before optimization** (saved in memory); faster generation was the one exception. Step 16
+  (streaming check) moved down to just before the milestone (23). 11c folded into step 14 ("going ahead unless you object").
+- You asked for a side session on how other games generate fast: **gen-talk** (tmux `12:0`). Its proposal "coarse column
+  fields" is parked as `tools/overnight/later/84-coarse-column-fields.md` and is **Q45** in the doc.
+- Tidied tmux: closed fps-talk, empty shells and stale `claude-retry-*` sessions. Opened a Terminal window on the running task.
 
-**Running:** 77, engine step 11a (LOD shell storage + upload, after 74's two fixes); started 23:36. Nothing new on
-screen from 77 (11b draws the shells). **Open for you:** the test-trim proposal (below).
+**Running:** 83 -- shell cave fill (Q44 (a)), started 14:34.
+**Waiting on you:** **Q45** -- queue coarse column fields after 83? Supervisor now recommends **(a)**: 82b's numbers show the
+shells' per-column work is ~70-80 ms of a 75-138 ms shell chunk, which is what Q45 speeds up.
+**Windows:** close the old supervisor `12:1` ("supervisor") once the new one has spoken (the new one tries itself).
+Keep `12:0` gen-talk (yours) and the `overnight` session (the queue runner).
 
 ## State
-- Branch `engine-phase`; main untouched; nothing pushed. This session: 76 `b5ec224` `daaf9e7`, 75b `59c55cb` `9e070b0`,
-  supervisor `135ee94` (BUGS #8), `804bd5e` (later/79).
-- queue/: 77 only. **When 77 is done, queue 11b** (`ENGINE_PHASE_PLAN.md` row 11 part b: raymarch through the shells +
-  seams, fixes BUGS #2 / `later/40-bug-ledge-view-crescent.md`; copy the amendment's numbers in; name 77's leftovers),
-  then 11c, 12, 13 ... per the Next up table. R3+R4 come after 17.
-- **Pace:** every task hits the 5-HOUR window: ~1.5-3 h of work, then the runner waits 20-min retries until reset
-  (74 waited 09:28-12:29, 76 14:59-17:28, 75b 20:03-22:23). So roughly one task per 5-hour window. ETA given to the
-  owner at 23:55: 77 done ~02:00-04:00 (depends on whether it hits the window ~03:20); 11b is L-sized and the hardest
-  step: likely Monday afternoon or later, possibly split in two.
-- **Test overhead (owner asked 23:50):** 76: six filtered runs of its own new tests (~5 min each), SUITE=all twice
-  (~11.5 min each; second after a fix), four demo player runs (~10 min each). 75b: one fast suite (3m50s), a Phase 7 rig,
-  three 6-min warm-ups (one per measurement session; the usage pause forced the 2nd). Unity runs cost wall time, not
-  tokens, and wall time is mostly spent waiting on the usage limit anyway. Proposed trim (ASK the owner, recommended
-  (a)): (a) PREAMBLE: SUITE=all ONCE per task, at the end (filtered runs while iterating), and ONE player run for all
-  demo shots unless a shot is broken; (b) leave as is.
-- Weekly usage: 45% at Sun 14:40 (owner screenshot in the doc's Now tab; resets Thu 06:00 PT) -- on track.
-- Old supervisor = this window, tmux `12:2` `claude-fresh`. `fps-talk` (12:0) is the owner's side session (owner may
-  close it). Window 12:1 may be an empty shell (owner closed its Claude).
+- queue/: 83 only (running). After 83: if the owner says Q45 (a), move `later/84-coarse-column-fields.md` to queue/ (strip
+  the PARKED line, add "Owner approved Q45 (a) <date>"). Otherwise next, per the doc's Next up table: **shells ON by default +
+  retire cascade tiers 1-2** (ask the owner first: show 83's off/on sheets -- look and feel), then 12 (hand-over decoupled from
+  residency; needs shells on), 14 (smaller 0.1 m area, includes 11c's vertical part), 17, R3, R4, 18-22, then 16, 23.
+- Leftovers to remember: row 12 (hand-dug pits -> shells, needs a design: shell workers cannot read ChunkStore); BUGS #2 ledge
+  crescent not reproduced (later/40 stays open); rivers in coarse shells look like broken blue specks; a small dark "?" on the
+  snow at glide_400m (task 80); shells 6-7 never evict (box covers the island) -- see whether 83's fill makes them fit.
+- This session's commits: 5b42d6b (PREAMBLE), 4d39b47 (queue 80), 05163a5 (81), queue 82, b95cbba + 3ba27f4 (83), f45e90e (82b),
+  f626478 (later/84). Task commits: 77 e72835d/2837be2/3aeca7e, 80 2f6ca67, 81 e6798cd, 82 7be72cc, 82b 0887b49.
+- Weekly usage: last screenshot 45% at Sun 14:40 (resets Thu 06:00 PT). Six tasks since -- ask the owner for a fresh usage
+  screenshot before queueing anything big.
 
 ## Documents
-- Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468 (Now body `3b5fd194-f74f`
-  rev 162: Running `mk2vq5dkmp6.121`, Next up heading `mk2vq5dkmp6.17589` + table `mk2vq5dkmp6.18552` (drop a row when
-  its task starts), Done table `mk2vq5dkmp6.886` (append rows `side:end`, `as:blocks`, 4 cells); Task reports body
-  `d611dfba-5116` rev 29, insert new reports after `mk2vq5dkmp6.13`).
-- Docs reads/writes work (one early read was refused by the auto-mode classifier at session start; later ones passed).
-- Amendment 8.14 (adopted): `AMENDMENT_8_14_LOD_SHELLS.md`. Rivers plan: `RIVERS_WATERFALLS_PLAN.md`.
-  Engine plan: `ENGINE_PHASE_PLAN.md`. Bugs: `tools/overnight/BUGS.md` (#8 new). Design brief:
-  https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
+- Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468 (Now body `3b5fd194-f74f` rev 173:
+  Running `mk2vq5dkmp6.121`, Next up table `mk2vq5dkmp6.18552`, Waiting on you heading `mk2vq5dkmp6.573` (Q45 at `.25819`, list
+  `.26432`), Done table `mk2vq5dkmp6.886` (append rows `side:end`, `as:blocks`, 4 cells); Task reports body `d611dfba-5116` rev 34,
+  insert new reports after `mk2vq5dkmp6.13`). Table ROW hashes (not cell hashes) guard a row delete.
+- Amendment 8.14: `AMENDMENT_8_14_LOD_SHELLS.md`. Engine plan: `ENGINE_PHASE_PLAN.md`. Bugs: `tools/overnight/BUGS.md`.
+  Design brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
 
 ## Notes
+- Queue order is `ls | sort`: name a task `NNb-...` to slot it before `NN+1`.
 - Images for the doc: `sips -Z 1000 ... -s format jpeg --out <scratchpad>`, Read it, Artifact publish `asset: true`
-  (url = the doc), Docs `create` object `blob`, engine `blob`, payload `{"asset": id}`, then `![alt](blob/<id>)` + an
-  italic caption.
-- Queue files are tracked in git: use `git mv` for tracked files, plain `mv` + `git add` for untracked ones; commit by path.
-- Don't put `Requires:` on a task just for ordering: the runner skips a task whose requirement blocked.
-- `tmux kill-window` on the old supervisor was refused by the auto-mode classifier; ask the owner to close it.
+  (url = the doc), Docs `create` object `blob`, engine `blob`, payload `{"asset": id}`, then `![alt](blob/<id>)` + caption.
+- Commit supervisor files by path; `git mv` tracked queue files, `mv` + `git add` untracked ones.
+- `tmux kill-window` worked this session.
 
 ## Ready-to-paste prompt
 > Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the overnight
