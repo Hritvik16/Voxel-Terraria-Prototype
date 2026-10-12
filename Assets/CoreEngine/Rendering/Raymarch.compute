@@ -2584,6 +2584,219 @@ FarHit FarMarch(float3 O, float3 D, float tStart, int stepCap, bool skipWindow, 
     return r;
 }
 
+// ===========================================================================
+// AMENDMENT 8.14 LOD SHELLS -- THE SHELL MARCH (engine step 11b, task 80)
+//
+// Rows 1, 2, 5, 15. Shells 1..N-1 of a ShellLayout (ShellStore / ShellStreamer,
+// task 77), each a pow2 ring of chunks of 128^3 cells of 2^k x 0.1 m, in a
+// two-level directory: entry 0 ABSENT, UNIFORM|mat, PAGE|page; a page is 4096
+// brick handles (uniform mat, or DENSE|body); a body is 512 B, the
+// BrickDataPool layout. ONE directory / page / brick buffer for every shell
+// (ShellStore's SHARED BUFFERS), each shell at a base. Shell count, rings,
+// published boxes, holes and hand-over distances come from the constant
+// buffer below (arrays sized for 8, row 1), never from #defines.
+//
+// The rules (by distance, absent -> coarser, hole -> finer, never coarser
+// mid-cell, a start inside a coarse solid cell is a TOP-face hit) are written
+// out in ShellRayReference.cs, the CPU twin of ShellMarch that EditMode tests.
+// A change here is a change there.
+//
+// _ShellCount == 0 (shells off, the default): CSMainBody never calls any of
+// this, and every buffer below is bound to a 1-element dummy.
+// ===========================================================================
+StructuredBuffer<uint> ShellDir;
+StructuredBuffer<uint> ShellPages;
+StructuredBuffer<uint> ShellBricks;
+int    _ShellCount;          // shells including shell 0; 0 = off
+int    _ShellIterCap;        // primary march iterations (all shells together)
+int    _ShellTint;           // 1: tint each pixel by the shell that drew it (-shellsdebug)
+float  _ShellPixelAngle;     // radians per dispatch pixel at screen centre (the px metric)
+float4 _ShellRing[8];        // ring dims xyz, directory base w
+float4 _ShellLo[8];          // published box min xyz (chunks), page base w
+float4 _ShellHi[8];          // published box max xyz, brick base w
+float4 _ShellCam[8];         // camera chunk xyz, hole H w (-1 none)
+float4 _ShellBounds[8];      // inner, outer hand-over distance (0.1 m voxels), cell size (voxels), 0
+
+#define SHELL_OK 0
+#define SHELL_HOLE 1
+#define SHELL_ABSENT 2
+#define SHELL_END_HIT 0
+#define SHELL_END_PAST_LAST 1
+#define SHELL_END_ABSENT 2
+#define SHELL_END_CAP 3
+
+struct ShellHit
+{
+    int end;        // SHELL_END_*
+    int shell;      // the shell that drew the hit
+    float t;        // hit t, or where the far band takes over
+    int3 voxel;     // the 0.1 m voxel the ray entered the hit cell at
+    int3 normal;
+    uint mat;
+    int iters;
+    bool inside;    // entered mid-cell (top-face normal)
+};
+
+/// Smallest shell k >= 1 whose outer bound is beyond d; -1 = past the last.
+int ShellByDistance(float d)
+{
+    [loop] for (int k = 1; k < _ShellCount; k++) if (d < _ShellBounds[k].y) return k;
+    return -1;
+}
+
+int ShellChunkState(int k, int3 voxel, out uint e)
+{
+    e = 0u;
+    int3 c = voxel >> (7 + k);
+    int3 lo = (int3)_ShellLo[k].xyz, hi = (int3)_ShellHi[k].xyz;
+    if (any(c < lo) || any(c > hi)) return SHELL_ABSENT;
+    int4 cam = (int4)_ShellCam[k];
+    int3 d = abs(c - cam.xyz);
+    if (cam.w >= 0 && max(d.x, max(d.y, d.z)) <= cam.w) return SHELL_HOLE;
+    int3 ring = (int3)_ShellRing[k].xyz;
+    int3 w = c & (ring - 1);   // pow2 ring (8.14 row 1 asserts it): never a modulo
+    e = ShellDir[(uint)_ShellRing[k].w + (uint)((w.z * ring.y + w.y) * ring.x + w.x)];
+    return e == 0u ? SHELL_ABSENT : SHELL_OK;
+}
+
+/// Tier 0 should hold this voxel but does not: a non-resident column of its
+/// window, inside its band (the far band drew that before 11b, and still does).
+bool ShellTier0Missing(int3 voxel)
+{
+    if (voxel.y < _ContentFloorVoxelY || voxel.y >= _ContentCeilingVoxelY) return false;
+    int2 rc = (voxel.xz >> 7) - (_WindowOriginBricksPacked.xz >> 4);
+    int2 dims = int2(_WindowDimsChunksPacked.xz);
+    if (any(rc < 0) || any(rc >= dims)) return false;
+    return !FarChunkResident(rc);
+}
+
+/// The shell that answers at `voxel` when the distance asks for kd; -1 = none
+/// (far band); -2 = in every hole down to shell 1 (tier 0's space).
+int ShellResolve(int kd, int3 voxel, out uint e)
+{
+    int s = ShellChunkState(kd, voxel, e);
+    if (s == SHELL_OK) return kd;
+    if (s == SHELL_HOLE)
+    {
+        int j = kd - 1;
+        [loop] for (; j >= 1; j--)
+        {
+            int sj = ShellChunkState(j, voxel, e);
+            if (sj == SHELL_OK) return j;
+            if (sj == SHELL_ABSENT) break;
+        }
+        if (j < 1) { e = 0u; return -2; }
+    }
+    [loop] for (int j2 = kd + 1; j2 < _ShellCount; j2++)
+        if (ShellChunkState(j2, voxel, e) == SHELL_OK) return j2;
+    e = 0u;
+    return -1;
+}
+
+/// Material at `voxel` in shell k (entry e) and the log2 span of its uniform region.
+uint ShellLookup(int k, uint e, int3 voxel, out int spanShift)
+{
+    if ((e & 0x40000000u) != 0u) { spanShift = k + 7; return e & 0xFFu; }
+    uint page = e & 0x7FFFFFFFu;
+    int3 b = (voxel >> (k + 3)) & 15;
+    uint h = ShellPages[((uint)_ShellLo[k].w + page) * 4096u + (uint)((b.z << 8) | (b.y << 4) | b.x)];
+    if ((h & 0x80000000u) == 0u) { spanShift = k + 3; return h & 0xFFu; }
+    int3 s = (voxel >> k) & 7;
+    uint vIdx = (uint)((s.z << 6) | (s.y << 3) | s.x);
+    uint body = (uint)_ShellHi[k].w + (h & 0x3FFFFFFFu);
+    spanShift = k;
+    return (ShellBricks[body * 128u + (vIdx >> 2)] >> ((vIdx & 3u) * 8u)) & 0xFFu;
+}
+
+/// Did the last step enter a new cell of shell k (through the face `normal`)?
+bool ShellAtEntry(int3 voxel, int3 normal, int3 step, int k)
+{
+    int m = (1 << k) - 1;
+    if (normal.x != 0) return step.x > 0 ? (voxel.x & m) == 0 : (voxel.x & m) == m;
+    if (normal.y != 0) return step.y > 0 ? (voxel.y & m) == 0 : (voxel.y & m) == m;
+    if (normal.z != 0) return step.z > 0 ? (voxel.z & m) == 0 : (voxel.z & m) == m;
+    return false;
+}
+
+/// March the shells from t = tStart. Primary: start = the camera (0.1 m voxels).
+/// Shadow: start = a point just off the hit face, `camera` for the distance rule.
+/// ShellRayReference.March, line for line.
+ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters)
+{
+    dir = FarSafeDir(dir);
+    int3 step = int3(sign(dir));
+    float3 tDelta = abs(1.0 / dir);
+    float3 p = start + dir * tStart;
+    int3 voxel = int3(floor(p));
+    float3 tMax = float3(ReseedTMaxAxis(voxel.x, start.x, tDelta.x, step.x),
+                         ReseedTMaxAxis(voxel.y, start.y, tDelta.y, step.y),
+                         ReseedTMaxAxis(voxel.z, start.z, tDelta.z, step.z));
+    float t = tStart;
+    int3 normal = int3(0, 0, 0);
+    ShellHit r;
+    r.end = SHELL_END_CAP; r.shell = -1; r.t = tStart; r.voxel = voxel; r.normal = int3(0, 1, 0);
+    r.mat = 0u; r.iters = 0; r.inside = false;
+    int kPrev = 0;
+    int dummyA = 0, dummyB = 0;
+    [loop]
+    for (int it = 0; it < maxIters; it++)
+    {
+        r.iters = it + 1;
+        float camDist = shadow ? length(float3(voxel) + 0.5 - camera) : t;
+        int kd = ShellByDistance(camDist);
+        if (kd < 0) { r.end = SHELL_END_PAST_LAST; r.t = t; return r; }
+        if (kPrev > 0 && kd > kPrev && !ShellAtEntry(voxel, normal, step, kd)) kd = kPrev;
+        uint e;
+        int k = ShellResolve(kd, voxel, e);
+        if (k == -2 && !ShellTier0Missing(voxel))
+        {
+            // Tier 0's space: it marched this and saw air. Leap one tier-0 chunk.
+            LeapSpanReseedClosedForm(voxel, tMax, t, tDelta, step, start, (voxel >> 7) << 7, 128,
+                                     normal, dummyA, dummyB);
+            kPrev = 0;
+            continue;
+        }
+        if (k < 0) { r.end = SHELL_END_ABSENT; r.t = t; return r; }
+        int sh;
+        uint mat = ShellLookup(k, e, voxel, sh);
+        if (mat != 0u)
+        {
+            bool entry = ShellAtEntry(voxel, normal, step, k);
+            // A shadow ray ignores solid cells within 3 of that shell's cells of
+            // its origin: where the hit's shell lacks a chunk a coarser shell
+            // answers, and its cells stand up to one cell above the surface the
+            // ray left (chunk-shaped self-shadow on cliff_foot_2, task 80).
+            if (shadow && t < (float)(3 << k)) entry = false;
+            if (entry || !shadow)
+            {
+                r.end = SHELL_END_HIT; r.shell = k; r.t = t; r.voxel = voxel; r.mat = mat;
+                r.inside = !entry;
+                r.normal = entry ? normal : int3(0, dir.y > 0.0 ? -1 : 1, 0);
+                return r;
+            }
+            sh = k;   // a shadow ray's start cell: leave it
+        }
+        LeapSpanReseedClosedForm(voxel, tMax, t, tDelta, step, start, (voxel >> sh) << sh, 1 << sh,
+                                 normal, dummyA, dummyB);
+        kPrev = k;
+    }
+    r.end = SHELL_END_CAP; r.t = t;
+    return r;
+}
+
+/// -shellsdebug's tint: shell 0 / tier 0 blue, then green, yellow, orange, red, magenta, cyan, white.
+float3 ShellTintColor(int k)
+{
+    if (k <= 0) return float3(0.35, 0.55, 1.0);
+    if (k == 1) return float3(0.35, 1.0, 0.35);
+    if (k == 2) return float3(1.0, 1.0, 0.3);
+    if (k == 3) return float3(1.0, 0.6, 0.2);
+    if (k == 4) return float3(1.0, 0.3, 0.3);
+    if (k == 5) return float3(1.0, 0.35, 1.0);
+    if (k == 6) return float3(0.3, 1.0, 1.0);
+    return float3(1.0, 1.0, 1.0);
+}
+
 // Distance haze, one curve for both bands when the far band is on (the old
 // (d/290m)^2 curve saturates at the window edge, which is exactly the cutoff the
 // far band exists to remove). Off: the shipped curve, unchanged.
@@ -3269,10 +3482,42 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #else
     float tVoxelLimit = currentDist;
 #endif
+    // ---- 8.14 SHELLS (task 80): where tier 0 ends or is absent, shells 1.. ----
+    // Tier 0 (the 128 m window) is still shell 0 until step 14. The shells take
+    // over exactly where the far band used to: the first non-resident column
+    // before the voxel march's end (FarStartT), or the end itself. They hand
+    // to the far band only past the last shell or where no shell has the chunk
+    // (row 5). _ShellCount == 0 (default): nothing here runs.
+    int shellAtHit = 0;
+    float tShellEnd = -1.0;   // >= 0: the shells ran and ended there without a hit
+    if (_ShellCount > 1 && !hit && passMat == 0u && _FarEnabled != 2)
+    {
+        float tS = skipVoxel ? 0.0 : FarStartT(rayStart, rayDir, tVoxelLimit);
+        ShellHit shr = ShellMarch(rayStart, rayDir, tS, false, rayStart, _ShellIterCap);
+        if (shr.end == SHELL_END_HIT)
+        {
+            hit = true; mat = RiverLipAsWater(shr.mat); voxel = shr.voxel; normal = shr.normal; currentDist = shr.t;
+            shellAtHit = shr.shell; tierAtHit = 2 + shr.shell; lastWasDense = true;
+            if (_CollectShadowStats != 0 && shr.inside) InterlockedAdd(ShadowStats[11 + 4 * shr.shell], 1u);
+        }
+        else tShellEnd = shr.t;
+    }
+    // The largest voxel on screen (plan row 11): px of the cell each ray stopped
+    // in, per shell (0 = tier 0 and the cascade tiers), at the dispatch rows.
+    if (_CollectShadowStats != 0 && _ShellCount > 1 && hit && inBounds)
+    {
+        int kS = shellAtHit;
+        float cellVox = (kS > 0) ? (float)(1 << kS) : (tierAtHit == 1 ? 2.0 : (tierAtHit == 2 ? 4.0 : 1.0));
+        float px = cellVox / max(currentDist * _ShellPixelAngle, 1e-6);
+        InterlockedAdd(ShadowStats[8 + 4 * kS], 1u);
+        if (px > 1.0) InterlockedAdd(ShadowStats[9 + 4 * kS], 1u);
+        InterlockedMax(ShadowStats[10 + 4 * kS], (uint)min(px * 1000.0, 4.0e9));
+    }
     if (_FarEnabled != 0 && !hit && passMat == 0u)   // 66b: under a fluid the far band is fogged out anyway
     {
         float tFar = (_FarEnabled == 2) ? 0.0 : FarStartT(rayStart, rayDir, skipVoxel ? 0.0 : tVoxelLimit);
         if (skipVoxel && _FarEnabled == 1) tFar = 0.0;
+        if (tShellEnd >= 0.0) tFar = tShellEnd;
         tFarDbg = tFar;
         fh = FarMarch(rayStart, rayDir, tFar, (int)_FarParams.z, _FarEnabled == 1, 0.0 FAR_VOXEL_END_ARG(tDetail));
         farHit = fh.hit;
@@ -3534,6 +3779,15 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // 66b: from inside a fluid the bed and walls take the sun, dimmed for the fluid
     // above them; the fog below does the rest. No terrain shadows under water.
     if (hit && sunIsUp && passMat != 0u) sunVis = 0.8;
+    // 8.14 shells (task 80): a shell hit's sun ray marches the shells (the
+    // tier-0 ray above left the window at once). Starts just off the hit face;
+    // the shell is chosen by the sample's CAMERA distance (§6.5's 8.2 rule).
+    if (shellAtHit > 0 && needsShadowRay)
+    {
+        float3 so = rayStart + rayDir * currentDist + float3(normal) * 0.01;
+        ShellHit ss = ShellMarch(so, normalize(_SunDir), 0.0, true, rayStart, max(32, _ShellIterCap >> 1));
+        sunVis = (ss.end == SHELL_END_HIT) ? 0.0 : 1.0;
+    }
 
     // Temporal reuse: every pixel records what it used, for the next frame.
     if (_TemporalShadows != 0 && inBounds)
@@ -3562,7 +3816,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // own flag so Stage 6 measures it as its own arm, and the decision is the
     // owner's. See PHASE_7_COMPLETION.md's FLAG list.
     // -----------------------------------------------------------------------
-    if (hit && _UseSkyProbeAmbient != 0 && passMat == 0u)   // 66b: from a fluid it would stop in the fluid
+    if (hit && _UseSkyProbeAmbient != 0 && passMat == 0u && shellAtHit == 0)   // 66b: from a fluid it would stop in the fluid; task 80: a shell hit's 0.1 m voxel is not tier 0's
     {
         // No second group guard here: `hit` is already the per-thread condition
         // and a group with no hits at all has nothing to probe, so the outer
@@ -3705,6 +3959,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         float4 tierColor = float4(0.1, 0.3, 0.9, 1.0); // tier 0 = blue
         if (tierAtHit == 1) tierColor = float4(0.15, 0.85, 0.2, 1.0); // tier 1 = green
         if (tierAtHit == 2) tierColor = float4(0.9, 0.15, 0.15, 1.0); // tier 2 = red
+        if (shellAtHit > 0) tierColor = float4(ShellTintColor(shellAtHit), 1.0);   // task 80: shells
         if (inBounds) ResultTexture[id.xy] = tierColor;
         return;
     }
@@ -3754,7 +4009,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 
             // VAO on the ambient term only, with the Brickmap's remap.
             float vao = 1.0;
-            if (_ShadeAO != 0 && !selfLit && passMat == 0u)   // 66b: fluid neighbours are not occluders
+            if (_ShadeAO != 0 && !selfLit && passMat == 0u && shellAtHit == 0)   // 66b: fluid neighbours are not occluders; task 80: nor tier 0's for a shell hit
             {
                 float3 inVoxel = hitP - (float3(voxel) + 0.5);
                 vao = FaceAO(voxel, normal, inVoxel, _WindowDimsBricks);
@@ -3875,7 +4130,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             }
 
             // Ambient occlusion from neighbour occupancy.
-            if (_ShadeAO != 0 && !selfLit && passMat == 0u)   // 66b: fluid neighbours are not occluders
+            if (_ShadeAO != 0 && !selfLit && passMat == 0u && shellAtHit == 0)   // 66b: fluid neighbours are not occluders; task 80: nor tier 0's for a shell hit
             {
                 float3 hitP = rayStart + rayDir * currentDist;
                 float3 inVoxel = hitP - (float3(voxel) + 0.5);   // [-0.5, 0.5] per axis
@@ -4123,6 +4378,13 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         uint pi = id.y * width + id.x;
         TaaCur[pi] = float4(prevPx, expD, asfloat(key));
         TaaMetaW[pi] = float2((tHit >= 0.0) ? length(P - rayStart) : -2.0, asfloat(key));
+    }
+    // -shellsdebug (task 80): each pixel tinted by what drew it -- tier 0 blue,
+    // shells 1.. green/yellow/orange/red/magenta/cyan/white, far band grey.
+    if (_ShellTint != 0 && _ShellCount > 1 && (hit || farHit))
+    {
+        float tintLum = dot(color.rgb, float3(0.299, 0.587, 0.114));
+        color.rgb = lerp(color.rgb, (hit ? ShellTintColor(shellAtHit) : float3(0.5, 0.5, 0.5)) * (0.35 + 0.65 * tintLum), 0.6);
     }
     if (inBounds) ResultTexture[id.xy] = color;
 }

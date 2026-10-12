@@ -77,7 +77,7 @@ namespace VoxelEngine.Mirror
         {
             example = null;
             var gpu = new uint[st.SlotCount];
-            st.DirectoryBuffer.GetData(gpu);
+            st.DirectoryBuffer.GetData(gpu, 0, st.DirBase, st.SlotCount);
             int bad = 0;
             for (int i = 0; i < gpu.Length; i++)
                 if (gpu[i] != st.DirectoryEntry(i)) { bad++; if (example == null) example = $"shell {st.Shell} slot {i}: GPU 0x{gpu[i]:X8} CPU 0x{st.DirectoryEntry(i):X8}"; }

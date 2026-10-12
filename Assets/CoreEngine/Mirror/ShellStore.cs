@@ -15,6 +15,12 @@
 //   BrickBuffer      128 uints (512 B) per dense brick, voxel (vz<<6)|(vy<<3)|vx,
 //                    the BrickDataPool body layout, so 11b's march reads a
 //                    shell brick exactly as it reads a 0.1 m one.
+// SHARED BUFFERS (task 80, step 11b): the raymarch binds ONE directory, ONE
+// page and ONE brick buffer for all shells -- 7 shells x 3 buffers beside the
+// kernel's ~23 would pass Metal's 31-buffer limit. Each shell owns a range of
+// each (DirBase / PageBase / BrickBase, in entries / pages / bricks); entries,
+// page indices and body indices stay shell-LOCAL, the shader adds the bases.
+// A store built without SharedBuffers allocates its own three (tests).
 // The CPU keeps the directory, each slot's chunk TAG (for the stale-slot
 // validator) and each page's body list (to free it) -- NO brick bodies (row 1:
 // "GPU only; the CPU keeps no copy"), except the test-only shadow below.
@@ -60,6 +66,37 @@ namespace VoxelEngine.Mirror
         public GraphicsBuffer DirectoryBuffer { get; private set; }
         public GraphicsBuffer PageBuffer { get; private set; }
         public GraphicsBuffer BrickBuffer { get; private set; }
+        /// This shell's first directory entry / page / brick in the buffers above.
+        public int DirBase { get; }
+        public int PageBase { get; }
+        public int BrickBase { get; }
+        private readonly bool _ownsBuffers;
+
+        /// One set of buffers for every shell (see the header). Zeroed here (row 3).
+        public sealed class SharedBuffers : IDisposable
+        {
+            public GraphicsBuffer Dir { get; private set; }
+            public GraphicsBuffer Pages { get; private set; }
+            public GraphicsBuffer Bricks { get; private set; }
+            public long BytesAllocated { get; }
+            public SharedBuffers(int dirEntries, int pages, int bricks)
+            {
+                dirEntries = math.max(1, dirEntries); pages = math.max(1, pages); bricks = math.max(1, bricks);
+                Dir = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, dirEntries, 4);
+                Pages = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, pages * PAGE_UINTS, 4);
+                Bricks = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, bricks * BRICK_UINTS, 4);
+                ZeroBuffer(Dir, dirEntries);
+                ZeroBuffer(Pages, pages * PAGE_UINTS);
+                ZeroBuffer(Bricks, bricks * BRICK_UINTS);
+                BytesAllocated = (long)dirEntries * 4 + (long)pages * PAGE_UINTS * 4 + (long)bricks * BRICK_UINTS * 4;
+            }
+            public void Dispose()
+            {
+                Dir?.Release(); Dir = null;
+                Pages?.Release(); Pages = null;
+                Bricks?.Release(); Bricks = null;
+            }
+        }
 
         // Counters (main thread).
         public int BricksUsed { get; private set; }
@@ -89,7 +126,8 @@ namespace VoxelEngine.Mirror
         // Test shadows (ShadowUploads).
         public uint[] ShadowDir, ShadowPages, ShadowBricks;
 
-        public ShellStore(int shell, int3 ring, int poolCap, int pageCap)
+        public ShellStore(int shell, int3 ring, int poolCap, int pageCap,
+                          SharedBuffers shared = null, int dirBase = 0, int pageBase = 0, int brickBase = 0)
         {
             if (shell < 1 || shell > TerrainGenChunkSource.MAX_SHELL) throw new ArgumentOutOfRangeException(nameof(shell));
             if (!ShellLayout.IsPow2(ring.x) || !ShellLayout.IsPow2(ring.y) || !ShellLayout.IsPow2(ring.z))
@@ -113,18 +151,31 @@ namespace VoxelEngine.Mirror
             _freePageTop = PageCap;
             _bodyStaging = new NativeArray<uint>(EngineConfig.BRICKS_PER_CHUNK * BRICK_UINTS, Allocator.Persistent);
 
-            // LockBufferForWrite usage, as TerrainClipmap / CascadeTierPool: partial
-            // SetData into a device-private buffer renames it (78 live copies once,
-            // CascadeTierPool.cs's vmmap note).
-            DirectoryBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, SlotCount, 4);
-            PageBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, PageCap * PAGE_UINTS, 4);
-            BrickBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, PoolCap * BRICK_UINTS, 4);
-            // Zero everything (row 3). Pages and bricks are only read through a
-            // directory entry that was written after them, but a zeroed buffer
-            // makes a stray read show as air, not garbage.
-            DirectoryBuffer.SetData(_dir);
-            ZeroBuffer(PageBuffer, PageCap * PAGE_UINTS);
-            ZeroBuffer(BrickBuffer, PoolCap * BRICK_UINTS);
+            if (shared != null)
+            {
+                // The shared set was zeroed when it was made (SharedBuffers).
+                DirectoryBuffer = shared.Dir; PageBuffer = shared.Pages; BrickBuffer = shared.Bricks;
+                DirBase = dirBase; PageBase = pageBase; BrickBase = brickBase;
+                if ((long)(dirBase + SlotCount) > DirectoryBuffer.count || (long)(pageBase + PageCap) * PAGE_UINTS > PageBuffer.count
+                    || (long)(brickBase + PoolCap) * BRICK_UINTS > BrickBuffer.count)
+                    throw new ArgumentException($"shell {shell}'s ranges do not fit the shared buffers");
+            }
+            else
+            {
+                // LockBufferForWrite usage, as TerrainClipmap / CascadeTierPool: partial
+                // SetData into a device-private buffer renames it (78 live copies once,
+                // CascadeTierPool.cs's vmmap note).
+                _ownsBuffers = true;
+                DirectoryBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, SlotCount, 4);
+                PageBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, PageCap * PAGE_UINTS, 4);
+                BrickBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, PoolCap * BRICK_UINTS, 4);
+                // Zero everything (row 3). Pages and bricks are only read through a
+                // directory entry that was written after them, but a zeroed buffer
+                // makes a stray read show as air, not garbage.
+                DirectoryBuffer.SetData(_dir);
+                ZeroBuffer(PageBuffer, PageCap * PAGE_UINTS);
+                ZeroBuffer(BrickBuffer, PoolCap * BRICK_UINTS);
+            }
             if (ShadowUploads)
             {
                 ShadowDir = new uint[SlotCount];
@@ -245,7 +296,7 @@ namespace VoxelEngine.Mirror
                 while (end < _jobN && list[end] == list[end - 1] + 1) end++;
                 end = math.min(end, _jobDone + budget / (BRICK_UINTS * 4));
                 int count = (end - _jobDone) * BRICK_UINTS;
-                BrickBuffer.SetData(_bodyStaging, _jobDone * BRICK_UINTS, list[_jobDone] * BRICK_UINTS, count);
+                BrickBuffer.SetData(_bodyStaging, _jobDone * BRICK_UINTS, (BrickBase + list[_jobDone]) * BRICK_UINTS, count);
                 if (ShadowUploads)
                     NativeArray<uint>.Copy(_bodyStaging, _jobDone * BRICK_UINTS, ShadowBricks, list[_jobDone] * BRICK_UINTS, count);
                 budget -= count * 4; BytesUploaded += count * 4;
@@ -255,7 +306,7 @@ namespace VoxelEngine.Mirror
             if (!_jobPageUp)
             {
                 if (budget < PAGE_UINTS * 4) return false;
-                PageBuffer.SetData(_pageStaging, 0, _jobPage * PAGE_UINTS, PAGE_UINTS);
+                PageBuffer.SetData(_pageStaging, 0, (PageBase + _jobPage) * PAGE_UINTS, PAGE_UINTS);
                 if (ShadowUploads) Array.Copy(_pageStaging, 0, ShadowPages, _jobPage * PAGE_UINTS, PAGE_UINTS);
                 budget -= PAGE_UINTS * 4; BytesUploaded += PAGE_UINTS * 4;
                 _jobPageUp = true;
@@ -329,7 +380,7 @@ namespace VoxelEngine.Mirror
             if (!_dirDirty) return true;
             int bytes = SlotCount * 4;
             if (bytes > budget) return false;
-            DirectoryBuffer.SetData(_dir);
+            DirectoryBuffer.SetData(_dir, 0, DirBase, SlotCount);
             if (ShadowUploads) Array.Copy(_dir, ShadowDir, SlotCount);
             _dirDirty = false;
             budget -= bytes; BytesUploaded += bytes;
@@ -339,9 +390,13 @@ namespace VoxelEngine.Mirror
 
         public void Dispose()
         {
-            DirectoryBuffer?.Release(); DirectoryBuffer = null;
-            PageBuffer?.Release(); PageBuffer = null;
-            BrickBuffer?.Release(); BrickBuffer = null;
+            if (_ownsBuffers)
+            {
+                DirectoryBuffer?.Release();
+                PageBuffer?.Release();
+                BrickBuffer?.Release();
+            }
+            DirectoryBuffer = null; PageBuffer = null; BrickBuffer = null;
             if (_bodyStaging.IsCreated) _bodyStaging.Dispose();
         }
     }

@@ -19,6 +19,7 @@ using System.Collections.Generic;
 using System.IO;
 using Unity.Mathematics;
 using UnityEngine;
+using VoxelEngine.Mirror;
 using VoxelEngine.Rendering;
 using VoxelEngine.WorldGen;
 
@@ -309,9 +310,23 @@ public partial class PlaygroundCapture
             poses.Add(("coast_yaw180", cp.Item2, Quaternion.Euler(0f, 180f, 0f) * cp.Item3));
             L("COAST PROBE (-coastprobe, task 19): 3 poses; pixels in screenshot coords (1920x1080 frame, top-left origin)");
         }
+        // TASK 80 (engine step 11b): with -shells 1, every pose at noon only,
+        // three shots: A shells OFF (the pre-11b frame: cascade tiers 1-2 +
+        // far band), B shells ON, C ON tinted by the shell that drew each pixel.
+        // Before them, up to -shellwait s (default 75) for the shells to fill.
+        // B's line gives the largest voxel on screen per shell (plan row 11).
+        var shellsS = world ? Phase4Bootstrapper.Shells : null;
+        bool shellShots = shellsS != null;
+        if (shellShots)
+        {
+            L($"SHELLS (-shells 1, task 80): preset {shellsS.Layout.Preset}, shells 1-{shellsS.Layout.ShellCount - 1}, march cap {RaymarchFeature.ShellIterCap}; " +
+              $"A = shells off (cascades), B = shells on, C = on + tint (tier 0 blue, shells 1-7 green/yellow/orange/red/magenta/cyan/white, far band grey)");
+            L($"  px = the largest voxel a ray stopped in, in dispatch pixels ({RaymarchFeature.CustomGateResolution.y} rows; 8.14 High is sized for 720); " +
+              $"per shell: hits, hits over 1 px, max px. Shell 0 = tier 0 (0.1 m; large near the eye by nature).");
+        }
         foreach (var (n, pos, rot) in poses)
         {
-            foreach (float hours in new[] { SunCycle.GoldenHourHours, 12f })
+            foreach (float hours in shellShots ? new[] { 12f } : new[] { SunCycle.GoldenHourHours, 12f })
             {
                 SunCycle.SetHours(hours);
                 cam.transform.position = pos; cam.transform.rotation = rot;
@@ -327,6 +342,11 @@ public partial class PlaygroundCapture
                 yield return Frames(30);
                 double ms = 0; for (int i = 0; i < 60; i++) { yield return null; ms += Time.unscaledDeltaTime * 1000.0; }
                 string tn = hours == 12f ? "noon" : "golden";
+                if (shellShots)
+                {
+                    yield return ShellPoseShots(shellsS, $"{n}_{tn}", n);
+                    continue;
+                }
                 yield return CaptureTo($"{n}_{tn}");
                 if (coastProbe)
                 {
@@ -412,6 +432,54 @@ public partial class PlaygroundCapture
         Debug.Log("[farpreview]\n" + _log);
         yield return null;
         Application.Quit(0);
+    }
+
+    /// TASK 80: one pose's shells OFF / ON / tint shots, the px metric and the
+    /// refusals per shell (see FarPreview).
+    private IEnumerator ShellPoseShots(ShellStreamer sh, string tag, string pose)
+    {
+        float wait = ArgFloat("-shellwait", 75f), t0 = Time.realtimeSinceStartup;
+        int missing = 0;
+        while (Time.realtimeSinceStartup - t0 < wait)
+        {
+            missing = 0;
+            for (int k = sh.FirstShell; k <= sh.LastShell; k++) if (!sh.ShellFull(k)) missing += sh.Missing(k);
+            if (missing == 0 && sh.InFlight == 0 && sh.Pending == 0) break;
+            yield return null;
+        }
+        float waited = Time.realtimeSinceStartup - t0;
+        RaymarchFeature.DrawShells = false; RaymarchFeature.ShellTint = false;
+        yield return Frames(12);
+        yield return CaptureTo($"{tag}_A_off");
+        RaymarchFeature.DrawShells = true;
+        yield return Frames(12);
+        RaymarchFeature.CollectShadowStats = true;
+        RaymarchFeature.ResetShadowStats();
+        yield return Frames(1);
+        uint[] s = RaymarchFeature.ReadShadowStats();
+        RaymarchFeature.CollectShadowStats = false;
+        yield return CaptureTo($"{tag}_B_on");
+        RaymarchFeature.ShellTint = true;
+        yield return Frames(6);
+        yield return CaptureTo($"{tag}_C_tint");
+        RaymarchFeature.ShellTint = false;
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"  [shells] {pose,-22} waited {waited:F0} s (missing {missing}, in flight {sh.InFlight})  px:");
+        for (int k = 0; k < sh.Layout.ShellCount && 11 + 4 * k < s.Length; k++)
+        {
+            uint hits = s[8 + 4 * k];
+            if (hits == 0) { sb.Append($"  s{k} -"); continue; }
+            sb.Append($"  s{k} {hits}/{s[9 + 4 * k]}>1/max {s[10 + 4 * k] / 1000f:F2}");
+            if (k > 0 && s[11 + 4 * k] > 0) sb.Append($" (mid-cell {s[11 + 4 * k]})");
+        }
+        L(sb.ToString());
+        var rb = new System.Text.StringBuilder("  [shells] refusals/missing/full:");
+        for (int k = sh.FirstShell; k <= sh.LastShell; k++)
+        {
+            var st = sh.Store(k);
+            rb.Append($"  s{k} {st.Refusals}/{sh.Missing(k)}{(sh.ShellFull(k) ? "/FULL" : "")} ({st.ChunksStored} stored)");
+        }
+        L(rb.ToString());
     }
 
     /// TASK 19 probe: one pixel (screenshot coords, top-left origin, scaled

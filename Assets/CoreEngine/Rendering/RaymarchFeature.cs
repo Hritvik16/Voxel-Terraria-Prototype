@@ -66,6 +66,16 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static float MaxRayDistance = 1280f;
     public static bool UseLODCascade = true;
 
+    /// Amendment 8.14 step 11b (task 80): draw the coarse shells when a
+    /// ShellStreamer is Active (`-shells 1`). While they draw, cascade tiers 1-2
+    /// do not (row 2: shells replace them) and tier 0 marches to MaxRayDistance.
+    /// False = the shells stay resident but the frame is the pre-11b one (the
+    /// capture's OFF arm). ShellTint (-shellsdebug) tints each pixel by its shell.
+    public static bool DrawShells = true;
+    public static bool ShellTint = false;
+    public static int ShellIterCap = 384;
+    public static bool ShellsDrawnLastFrame { get; private set; }
+
     /// Tier boundaries: 8.9's fixed LODConfig.TIER_OUTER_RANGE_M (default) or
     /// the pixel-footprint form, recomputed per frame from the dispatch height
     /// and camera FOV (-tierbounds pixel; measured 2026-09-25, not adopted --
@@ -336,7 +346,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool CollectShadowStats = false;
     public static GraphicsBuffer ShadowStatsBuffer { get; private set; }
     // [0..4] shadow counters; [5] far rays, [6] far steps (primary + far shadow), [7] far hits.
-    public const int STATS_LEN = 8;
+    public const int STATS_LEN = 40;   // 0-7 shadow / far; 8 + 4k .. 11 + 4k: shell k's px metric (task 80)
     private static readonly uint[] _statsZero = new uint[STATS_LEN];
     private static GraphicsBuffer _farDummy;
     /// Bound as LightBuffer when no LightingDriver exists (the Phase 4
@@ -466,6 +476,12 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public Vector4 farParams;
             public float farPixelAngle;
             public float detailRadiusVoxels;   // task 24: 0 = hand-over at the residency edge (today)
+
+            // ---- 8.14 shells (task 80); shellCount 0 = off, dummies bound ----
+            public int shellCount, shellIterCap, shellTint;
+            public float shellPixelAngle;
+            public GraphicsBuffer shellDir, shellPages, shellBricks;
+            public Vector4[] shellRing, shellLo, shellHi, shellCam, shellBounds;
             public VoxelEngine.Rendering.FarField.Scatter[] farScatters;
             public int farMipMask;
             public int kFarScatter = -1, kFarMip = -1;
@@ -890,8 +906,25 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 }
                 passData.mipInfo = info;
 
+                var shells = ShellStreamer.Active;
+                bool shellsOn = DrawShells && shells != null && !useStripped && !useMemoryProbe;
+                ShellsDrawnLastFrame = shellsOn;
+                passData.shellCount = shellsOn ? shells.Layout.ShellCount : 0;
+                passData.shellIterCap = Mathf.Max(16, ShellIterCap);
+                passData.shellTint = shellsOn && ShellTint ? 1 : 0;
+                passData.shellPixelAngle = LODConfig.PixelAngleRad(cameraData.camera.fieldOfView, dispatchH);
+                passData.shellRing = new Vector4[ShellLayout.MAX_SHELLS]; passData.shellLo = new Vector4[ShellLayout.MAX_SHELLS];
+                passData.shellHi = new Vector4[ShellLayout.MAX_SHELLS]; passData.shellCam = new Vector4[ShellLayout.MAX_SHELLS];
+                passData.shellBounds = new Vector4[ShellLayout.MAX_SHELLS];
+                if (shellsOn)
+                {
+                    shells.ShaderParams(passData.shellRing, passData.shellLo, passData.shellHi, passData.shellCam, passData.shellBounds);
+                    passData.shellDir = shells.Gpu.Dir; passData.shellPages = shells.Gpu.Pages; passData.shellBricks = shells.Gpu.Bricks;
+                }
+                else { passData.shellDir = _farDummy; passData.shellPages = _farDummy; passData.shellBricks = _farDummy; }
+
                 var cascadeManager = LODCascadeManager.Active;
-                bool cascadeAvailable = UseLODCascade && cascadeManager != null;
+                bool cascadeAvailable = UseLODCascade && cascadeManager != null && !shellsOn;
                 passData.useLODCascade = cascadeAvailable ? 1 : 0;
 
                 if (cascadeAvailable)
@@ -1122,6 +1155,19 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarTexels", data.farTexels);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarMips", data.farMips);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarResident", data.farResident);
+                        // 8.14 shells (task 80). Always bound (dummies when off).
+                        cmd.SetComputeIntParam(data.compute, "_ShellCount", data.shellCount);
+                        cmd.SetComputeIntParam(data.compute, "_ShellIterCap", data.shellIterCap);
+                        cmd.SetComputeIntParam(data.compute, "_ShellTint", data.shellTint);
+                        cmd.SetComputeFloatParam(data.compute, "_ShellPixelAngle", data.shellPixelAngle);
+                        cmd.SetComputeVectorArrayParam(data.compute, "_ShellRing", data.shellRing);
+                        cmd.SetComputeVectorArrayParam(data.compute, "_ShellLo", data.shellLo);
+                        cmd.SetComputeVectorArrayParam(data.compute, "_ShellHi", data.shellHi);
+                        cmd.SetComputeVectorArrayParam(data.compute, "_ShellCam", data.shellCam);
+                        cmd.SetComputeVectorArrayParam(data.compute, "_ShellBounds", data.shellBounds);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellDir", data.shellDir);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellPages", data.shellPages);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellBricks", data.shellBricks);
                         if (data.farEnabled != 0 && (data.farScatters.Length > 0 || data.farMipMask != 0))
                         {
                             cmd.BeginSample("VE.Raymarch.FarUpkeep");

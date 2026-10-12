@@ -3,8 +3,17 @@
 // Amendment 8.14 (engine step 11a, task 77): fills the coarse shells 1..n-1
 // of a ShellLayout around the camera from GenerateShellChunk (row 12) on
 // dedicated worker threads, and uploads them on the main thread inside the
-// remainder of the shared 3 MiB/frame upload cap (row 14). Nothing renders
-// from it yet: 11b adds the raymarch and the seams.
+// remainder of the shared 3 MiB/frame upload cap (row 14). Step 11b (task 80):
+// Raymarch.compute draws them (ShaderParams below); `Active` is the streamer
+// the renderer reads, set by whoever owns it (Phase4Bootstrapper).
+//
+// WHAT THE GPU MAY SEE (task 80): the shader trusts a directory entry only for
+// a chunk inside the PUBLISHED box -- the box as of the last directory flush
+// that went up. A box moves in Slide (evicting what left it) before anything
+// is stored; the directory is flushed right after, and if that flush does not
+// fit the budget no chunk is stored this frame, so freed bricks and pages are
+// never rewritten while a GPU entry still points at them, and a stale entry
+// can never alias a chunk of the new box (the ring holds the box once, pow2).
 //
 // WHAT EACH SHELL STORES (8.14 §1-§2; ShellLayout's header has the rules):
 // the chunks within +-R of the camera's chunk (in that shell's own chunks),
@@ -25,13 +34,19 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using Unity.Mathematics;
+using UnityEngine;
 using VoxelEngine.WorldGen;
 
 namespace VoxelEngine.Mirror
 {
     public sealed class ShellStreamer : IDisposable
     {
+        /// The streamer the raymarch draws (task 80); null = no shells.
+        public static ShellStreamer Active;
+
         public ShellLayout Layout { get; }
+        /// One directory / page / brick buffer for all shells (ShellStore's header).
+        public ShellStore.SharedBuffers Gpu { get; }
         public int FirstShell { get; }
         public int LastShell { get; }
         /// Tests: generate inline in Update (no threads), SyncChunksPerUpdate per call.
@@ -48,6 +63,8 @@ namespace VoxelEngine.Mirror
         private readonly int3[] _cc;          // camera chunk per shell
         private readonly bool[] _ccValid;
         private readonly int3[] _lo, _hi;     // stored box (inclusive), world-clamped
+        private readonly int3[] _pubLo, _pubHi, _pubCc;   // the box the GPU directory matches
+        private readonly bool[] _pubValid;
         private readonly List<int3>[] _cand;  // missing chunks, FARTHEST first (pop from the end)
         private readonly HashSet<long> _inFlight = new HashSet<long>();
         // Refused chunks (pool or pages full, row 15) -> the dense bricks they
@@ -79,11 +96,21 @@ namespace VoxelEngine.Mirror
             int n = layout.ShellCount;
             _stores = new ShellStore[n];
             _cc = new int3[n]; _ccValid = new bool[n]; _lo = new int3[n]; _hi = new int3[n];
+            _pubLo = new int3[n]; _pubHi = new int3[n]; _pubCc = new int3[n]; _pubValid = new bool[n];
             _cand = new List<int3>[n]; _refused = new Dictionary<long, int>[n]; _fullNeed = new int[n];
+            int dirN = 0, pageN = 0, brickN = 0;
             for (int k = FirstShell; k <= LastShell; k++)
             {
                 var s = layout[k];
-                _stores[k] = new ShellStore(k, s.Ring, s.PoolCap, s.PageCap);
+                dirN += s.RingSlots; pageN += s.PageCap; brickN += s.PoolCap;
+            }
+            Gpu = new ShellStore.SharedBuffers(dirN, pageN, brickN);
+            dirN = 0; pageN = 0; brickN = 0;
+            for (int k = FirstShell; k <= LastShell; k++)
+            {
+                var s = layout[k];
+                _stores[k] = new ShellStore(k, s.Ring, s.PoolCap, s.PageCap, Gpu, dirN, pageN, brickN);
+                dirN += s.RingSlots; pageN += s.PageCap; brickN += s.PoolCap;
                 _cand[k] = new List<int3>(); _refused[k] = new Dictionary<long, int>();
             }
             workers = math.max(1, workers);
@@ -161,6 +188,16 @@ namespace VoxelEngine.Mirror
             int budget = math.max(0, budgetBytes);
             int start = budget;
             for (int k = FirstShell; k <= LastShell; k++) Slide(k, camMetres);
+            // Publish the evictions before any freed brick or page is reused
+            // (header: WHAT THE GPU MAY SEE). Over budget: store nothing now.
+            bool published = true;
+            for (int k = FirstShell; k <= LastShell; k++) published &= Publish(k, ref budget);
+            if (!published)
+            {
+                OverBudgetFrames++;
+                LastBytes = start - budget;
+                return;
+            }
 
             // Chunks part-way up (ShellStore's multi-frame upload) first.
             for (int k = FirstShell; k <= LastShell; k++)
@@ -201,8 +238,50 @@ namespace VoxelEngine.Mirror
                 _done.Enqueue((sc, t.Elapsed.TotalMilliseconds, true));
                 made++;
             }
-            for (int k = FirstShell; k <= LastShell; k++) _stores[k].FlushDirectory(ref budget);
+            for (int k = FirstShell; k <= LastShell; k++) Publish(k, ref budget);
             LastBytes = start - budget;
+        }
+
+        /// Flush shell k's directory; when it is on the GPU, the current box is the published one.
+        private bool Publish(int k, ref int budget)
+        {
+            if (!_stores[k].FlushDirectory(ref budget)) return false;
+            if (_ccValid[k]) { _pubLo[k] = _lo[k]; _pubHi[k] = _hi[k]; _pubCc[k] = _cc[k]; _pubValid[k] = true; }
+            return true;
+        }
+
+        /// The box the GPU directory of shell k matches (false: nothing published yet).
+        public bool PublishedBox(int k, out int3 lo, out int3 hi, out int3 cc)
+        {
+            lo = _pubLo[k]; hi = _pubHi[k]; cc = _pubCc[k];
+            return _pubValid[k];
+        }
+
+        /// Raymarch.compute's shell constants (8.14 row 1: count and bounds from a
+        /// constant buffer, arrays sized for 8). Per shell k, all as floats (every
+        /// value is an integer below 2^24, exact):
+        ///   ring[k]   = (ring x, y, z, directory base)
+        ///   lo[k]     = (published box min, page base);  hi[k] = (box max, brick base)
+        ///   cam[k]    = (camera chunk, hole H; -1 = no hole)
+        ///   bounds[k] = (inner, outer hand-over distance in 0.1 m voxels, voxel size in 0.1 m voxels, 0)
+        /// A shell with nothing published gets an empty box (lo > hi): every chunk ABSENT.
+        public void ShaderParams(Vector4[] ring, Vector4[] lo, Vector4[] hi, Vector4[] cam, Vector4[] bounds)
+        {
+            for (int k = 0; k < ShellLayout.MAX_SHELLS; k++)
+            {
+                ring[k] = new Vector4(1, 1, 1, 0); lo[k] = new Vector4(1, 1, 1, 0); hi[k] = new Vector4(0, 0, 0, 0);
+                cam[k] = new Vector4(0, 0, 0, -1); bounds[k] = Vector4.zero;
+                if (k >= Layout.ShellCount) continue;
+                var s = Layout[k];
+                bounds[k] = new Vector4(s.InnerM * 10f, s.OuterM * 10f, 1 << k, 0f);
+                if (k < FirstShell || k > LastShell) continue;
+                var st = _stores[k];
+                ring[k] = new Vector4(st.Ring.x, st.Ring.y, st.Ring.z, st.DirBase);
+                if (!PublishedBox(k, out int3 l, out int3 h, out int3 c)) continue;
+                lo[k] = new Vector4(l.x, l.y, l.z, st.PageBase);
+                hi[k] = new Vector4(h.x, h.y, h.z, st.BrickBase);
+                cam[k] = new Vector4(c.x, c.y, c.z, s.Hole);
+            }
         }
 
         /// Hand a finished chunk to its store. True = consumed (stored, started,
@@ -339,6 +418,8 @@ namespace VoxelEngine.Mirror
             foreach (var sc in _all) sc.Dispose();
             _all.Clear();
             for (int k = 0; k < _stores.Length; k++) { _stores[k]?.Dispose(); _stores[k] = null; }
+            Gpu?.Dispose();
+            if (Active == this) Active = null;
         }
     }
 }

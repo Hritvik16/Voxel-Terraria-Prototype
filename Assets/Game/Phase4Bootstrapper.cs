@@ -33,13 +33,15 @@ public class Phase4Bootstrapper : MonoBehaviour
     public static LODCascadeManager Cascades { get; private set; }
     public static WorldMetaData Meta { get; private set; }
     public static StreamManager Streamer { get; private set; }
-    /// Amendment 8.14 step 11a (task 77): the coarse shells' storage, filled and
-    /// uploaded but NOT drawn (11b). Off unless `-shells 1` (tg2 only): its
-    /// GPU pools (High ~383 MB at the caps, est.) would sit beside the cascade
-    /// tiers it replaces until 11b retires them, so rigs and play stay as they
-    /// were. `-quality low|medium|high|ultra` (default high: rigs pin High,
-    /// row 16), `-shellworkers N` (default 1), `-shellsdebug S` writes the
-    /// occupancy picture + report S seconds after start-up and at quit.
+    /// Amendment 8.14 step 11a (task 77): the coarse shells' storage; step 11b
+    /// (task 80) draws them (RaymarchFeature.DrawShells; cascade tiers 1-2 stop
+    /// drawing while they do, but stay allocated). Off unless `-shells 1` (tg2
+    /// only): shells + cascades together are over the 3 GB cap, and switching
+    /// the default waits for the owner (77's Q1). `-quality low|medium|high|ultra`
+    /// (default high: rigs pin High, row 16), `-shellworkers N` (default 1),
+    /// `-shelliters N` (march cap, default 384), `-shellsdebug S` writes the
+    /// occupancy picture + report S seconds after start-up and at quit, and
+    /// tints each pixel by the shell that drew it.
     public static ShellStreamer Shells { get; private set; }
     public static CoalesceScheduler Coalescer { get; private set; }
     public static string DeltaDirectory { get; private set; }
@@ -345,11 +347,14 @@ public class Phase4Bootstrapper : MonoBehaviour
             int qi = Array.LastIndexOf(sargs, "-quality");
             var layout = ShellLayout.From(ShellLayout.Parse(qi >= 0 && qi + 1 < sargs.Length ? sargs[qi + 1] : null));
             Shells = new ShellStreamer(layout, Streamer.TerrainGenSource, ArgInt("-shellworkers", 1));
+            ShellStreamer.Active = Shells;
+            RaymarchFeature.ShellIterCap = ArgInt("-shelliters", RaymarchFeature.ShellIterCap);
             int dbg = ArgInt("-shellsdebug", -1);
             if (dbg >= 0) _shellsDebugAt = Time.realtimeSinceStartup + dbg;
+            RaymarchFeature.ShellTint = dbg >= 0;
             long bytes = 0; for (int k = 1; k < layout.ShellCount; k++) bytes += Shells.Store(k).BytesAllocated;
             UnityEngine.Debug.Log($"[Shells] preset {layout.Preset} ({layout.SizingRows} rows): shells 1-{layout.ShellCount - 1} allocated, " +
-                                  $"GPU {bytes / 1e6:F1} MB (8.14 §2 formula {layout.ShellsTotalMBEstimate:F0} MB); not drawn before 11b");
+                                  $"GPU {bytes / 1e6:F1} MB (8.14 §2 formula {layout.ShellsTotalMBEstimate:F0} MB); drawn (11b), cascade tiers 1-2 off while drawn");
         }
 
         StartupMs = total.Elapsed.TotalMilliseconds;
@@ -478,6 +483,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         if (IsTg2World) { RaymarchFeature.ContentFloorVoxelY = 0; RaymarchFeature.ContentCeilingVoxelY = 128; }
         Streamer?.Dispose();
         Clipmap?.Dispose();
+        if (ShellStreamer.Active == Shells) ShellStreamer.Active = null;
         Shells?.Dispose(); Shells = null;
         Cascades?.Dispose();
         _pool?.Dispose();
