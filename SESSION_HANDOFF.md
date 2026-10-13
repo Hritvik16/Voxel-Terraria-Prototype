@@ -1,58 +1,53 @@
-# Session handoff -- 2026-10-12 14:40 (supervisor; queue RUNNING task 83)
+# Session handoff -- 2026-10-13 01:10 (supervisor; queue RUNNING task 85b)
 
 ## For the owner
-**Why a new session:** the previous supervisor (23:46 Sun - 14:40 Mon) handled five finished tasks; past that point every
-turn gets expensive, so it handed over by the rule.
+**Why a new session:** the previous supervisor (Mon 14:37 - Tue 01:10) got long: four tasks plus a git cleanup, a tmux
+repair and a new screenshot archive. Every turn re-sends all of it, so it handed over by the rule.
 
-**What happened (all on branch `engine-phase`; main untouched, nothing pushed):**
-- **Test trim, your (a):** tasks now run the whole suite once at the end and take all shots in one launch (PREAMBLE, `5b42d6b`).
-- **77 (11a) shell storage** done: shells built and uploaded, off by default; far top colour 97.8-99.99% right. Raised Q44.
-- **80 (11b) shells drawn** behind `-shells 1` (still off by default): seam arcs gone; full shells fall back to the far band.
-- **81 (13a) far edits** saved as operations (`ops.log`) and applied on generation; far == near, 0 voxels differ.
-- **82 (13b) far edits redraw**: far band 0.8 s, shells 3.1 s after the edit. NOT built: hand-dug pits showing in shells (needs a design).
-- **82b (step 15) faster generation, your pick to go next:** 0.1 m chunk 26.8 -> 9.2 ms (2.9x isolated), byte-identical;
-  shells only 1.2-1.45x (their column pass now dominates).
-- **Q44 answered (a):** fill sealed caves / flatten ore in shells 3+; you added: **visible cave entrances must stay, even small
-  ones** (points of interest) -- written into task 83.
-- You said: **main features before optimization** (saved in memory); faster generation was the one exception. Step 16
-  (streaming check) moved down to just before the milestone (23). 11c folded into step 14 ("going ahead unless you object").
-- You asked for a side session on how other games generate fast: **gen-talk** (tmux `12:0`). Its proposal "coarse column
-  fields" is parked as `tools/overnight/later/84-coarse-column-fields.md` and is **Q45** in the doc.
-- Tidied tmux: closed fps-talk, empty shells and stale `claude-retry-*` sessions. Opened a Terminal window on the running task.
+**What happened (branch `engine-phase`, now ALSO ON GITHUB):**
+- **83 (11d) cave fill** done: far shells fill sealed caves, all 11 cave entrances kept. Raised Q46 (sealed fluids).
+- **83b** (Q46 (a), "going ahead unless you object"): sealed fluids filled too; every far shell fits at spawn; refusals 225 -> 12.
+- **85 (step 12)**, your **Q47 (a) "obviously near"**: shells load nearest-on-screen first; shell 1 at 75 s 0 -> 1,050-1,390 chunks.
+- **Q45 (a)**: coarse column fields queued as **86**. **Q48 (a) + "take care of torches too; night shows points of interest by
+  light"**: far shading queued as **85b** (sky light by time of day, slope shading at distance, haze that never hides lights,
+  torches through the same shading, a note on how step 21's far lights plug in). Your screenshot is BUGS #9.
+- **Usage:** you said "don't worry about usage, just use it efficiently". No reserve, no screenshot requests; the runner waits
+  out limits itself. Usage readings now have their own **Usage** tab in the doc.
+- **Launch budget** (your "what is the point of running over 5 mins"): screenshot launches take 3-5 views, <= ~10 min, never
+  wait for streaming (83b's launch had taken 95 min). In PREAMBLE.
+- **GitHub (your ask):** pushed `main` and `engine-phase` (41 MB). Screenshot IMAGES were stripped from the ~460 unpushed
+  commits first, so **every commit hash quoted before 13 Oct 01:00 changed**: old -> new in `tools/commit-map.txt`. Images are
+  git-ignored now; their text reports stay in git. All 1,052 images are in the **Screenshot Archive** page (linked from the doc).
+- **Local cleanup (your picks):** build leftovers, screenshots before task 73, logs older than 14 days, stray root logs, 12 merged
+  branches and the VT_gemini worktree (its SVO_REF kept in the repo). `.git` 474 -> 129 MB; ~5 GB freed.
+- **tmux:** macOS deleted tmux's socket (3 days idle); the repair left new windows unable to create folders (83b failed twice).
+  Fixed: launch scripts and tmux's default command set `umask 022`. A tmux restart later clears it for good (SUPERVISOR.md).
 
-**Running:** 83 -- shell cave fill (Q44 (a)), started 14:34.
-**Waiting on you:** **Q45** -- queue coarse column fields after 83? Supervisor now recommends **(a)**: 82b's numbers show the
-shells' per-column work is ~70-80 ms of a 75-138 ms shell chunk, which is what Q45 speeds up.
-**Windows:** close the old supervisor `12:1` ("supervisor") once the new one has spoken (the new one tries itself).
-Keep `12:0` gen-talk (yours) and the `overnight` session (the queue runner).
+**Running:** 85b far shading (started 01:01). Then 86. **Waiting on you:** nothing.
+**Windows:** close the old supervisor window `12:2` ("claude-fresh") once the new one has spoken. Keep `12:0` gen-talk (yours)
+and the `overnight` session. The Terminal window following the running task is open.
 
 ## State
-- queue/: 83 only (running). After 83: if the owner says Q45 (a), move `later/84-coarse-column-fields.md` to queue/ (strip
-  the PARKED line, add "Owner approved Q45 (a) <date>"). Otherwise next, per the doc's Next up table: **shells ON by default +
-  retire cascade tiers 1-2** (ask the owner first: show 83's off/on sheets -- look and feel), then 12 (hand-over decoupled from
-  residency; needs shells on), 14 (smaller 0.1 m area, includes 11c's vertical part), 17, R3, R4, 18-22, then 16, 23.
-- Leftovers to remember: row 12 (hand-dug pits -> shells, needs a design: shell workers cannot read ChunkStore); BUGS #2 ledge
-  crescent not reproduced (later/40 stays open); rivers in coarse shells look like broken blue specks; a small dark "?" on the
-  snow at glide_400m (task 80); shells 6-7 never evict (box covers the island) -- see whether 83's fill makes them fit.
-- This session's commits: 5b42d6b (PREAMBLE), 4d39b47 (queue 80), 05163a5 (81), queue 82, b95cbba + 3ba27f4 (83), f45e90e (82b),
-  f626478 (later/84). Task commits: 77 e72835d/2837be2/3aeca7e, 80 2f6ca67, 81 e6798cd, 82 7be72cc, 82b 0887b49.
-- Weekly usage: last screenshot 45% at Sun 14:40 (resets Thu 06:00 PT). Six tasks since -- ask the owner for a fresh usage
-  screenshot before queueing anything big.
+- queue/: 85b (running), 86. Next after 86, per the doc's Next up table: shells ON by default + retire cascade tiers 1-2 (ask the
+  owner first with 85b's sheets: look and feel), 14 (smaller 0.1 m area), 17, R3, R4, 18-22, then 16, 23.
+- Open leftovers: row 12 (hand-dug pits -> shells, needs a design); BUGS #2 ledge crescent (later/40); rivers in coarse shells look
+  like blue specks; shells 6-7 never evict (box covers the island); s3 pages 1% over cap; peak process 2,985 MB (cap 3 GB) with shells.
+- New per-task step: add `Screenshots/<task>/` to the archive (tools/archive/README.md) after the doc report.
+- Commits this session (new hashes): queue/PREAMBLE/SUPERVISOR edits, BUGS #9, 85/85b/86 task files, tools/archive, d69766a.
 
 ## Documents
-- Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468 (Now body `3b5fd194-f74f` rev 173:
-  Running `mk2vq5dkmp6.121`, Next up table `mk2vq5dkmp6.18552`, Waiting on you heading `mk2vq5dkmp6.573` (Q45 at `.25819`, list
-  `.26432`), Done table `mk2vq5dkmp6.886` (append rows `side:end`, `as:blocks`, 4 cells); Task reports body `d611dfba-5116` rev 34,
-  insert new reports after `mk2vq5dkmp6.13`). Table ROW hashes (not cell hashes) guard a row delete.
+- Queue decisions: https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468 (Now body `3b5fd194-f74f` rev 187: Running
+  `mk2vq5dkmp6.121` (h 2d210c33), Waiting on you heading `mk2vq5dkmp6.573`, Done table `mk2vq5dkmp6.886` (append rows `side:end`,
+  `as:blocks`, 4 cells); Task reports body `d611dfba-5116` rev 41, insert new reports after `mk2vq5dkmp6.38815`; Usage tab body
+  `a03eb411-0501`).
+- Screenshot Archive: https://claude.ai/artifact/9y7VxxX8FmsDMtVbSyFd2d (tools/archive/README.md says how to add a task).
 - Amendment 8.14: `AMENDMENT_8_14_LOD_SHELLS.md`. Engine plan: `ENGINE_PHASE_PLAN.md`. Bugs: `tools/overnight/BUGS.md`.
-  Design brief: https://claude.ai/code/artifact/d31b4321-77c3-4026-93d2-460c190950bf
 
 ## Notes
-- Queue order is `ls | sort`: name a task `NNb-...` to slot it before `NN+1`.
-- Images for the doc: `sips -Z 1000 ... -s format jpeg --out <scratchpad>`, Read it, Artifact publish `asset: true`
-  (url = the doc), Docs `create` object `blob`, engine `blob`, payload `{"asset": id}`, then `![alt](blob/<id>)` + caption.
-- Commit supervisor files by path; `git mv` tracked queue files, `mv` + `git add` untracked ones.
-- `tmux kill-window` worked this session.
+- The runner's watcher: anchor the wait loop on the task's `start NAME` line (a quick fail once went unnoticed).
+- `Requires:` lines are parsed by the runner: never write "Requires: nothing".
+- Images for the doc: `sips -Z 1000 ... --out <scratchpad>`, Read it, Artifact publish `asset: true` (url = the doc), Docs `create`
+  object `blob`, engine `blob`, payload `{"asset": id}`, then `![alt](blob/<id>)` + caption.
 
 ## Ready-to-paste prompt
 > Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the overnight
