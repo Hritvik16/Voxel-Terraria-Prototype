@@ -12,6 +12,9 @@
 //   Prefilter    the mouth prefilter changes no byte at the mouth chunks.
 //   Far ops      a crater crossing a chunk face below the surface stays open.
 //   Shells 1-2   untouched by the fill.
+//   Sea / lake   (task 83b: enclosed fluids are filled too, the default) at a sea
+//                and a lake site no fluid voxel a ray from outside can reach changes,
+//                and the outside rays see the same.
 // "Pass" = air, a fluid or the river lip (GenMat 0-8), as the fill defines it.
 using System.Collections.Generic;
 using NUnit.Framework;
@@ -42,6 +45,7 @@ public class ShellFillTests
     {
         if (_src == null) return;
         _src.ShellFill = true; _src.ShellFillMouths = true; _src.ShellFillFlatten = true; _src.ShellFillMouthPrefilter = true;
+        _src.ShellFillFluids = true;
     }
 
     // ------------------------------------------------------------------
@@ -53,13 +57,14 @@ public class ShellFillTests
     }
 
     /// variant: 0 = the generator (no fill), 1 = fill + flatten without mouths, 2 = everything,
-    /// 3 = everything without the prefilter.
+    /// 3 = everything without the prefilter. Every fill variant fills enclosed fluids (83b's default).
     private static readonly Dictionary<(int, int3, int), C> _cache = new Dictionary<(int, int3, int), C>();
 
     private static C Gen(int k, int3 coord, int variant, EditOpSnapshot ops = null)
     {
         if (ops == null && _cache.TryGetValue((k, coord, variant), out var hit)) return hit;
         _src.ShellFill = variant != 0; _src.ShellFillMouths = variant >= 2; _src.ShellFillMouthPrefilter = variant != 3;
+        _src.ShellFillFluids = true;
         var c = new C { K = k, Coord = coord, M = new byte[128 * 128 * 128], LyOpen = new int[128 * 128], Ground = new int[128 * 128] };
         using (var sc = new TerrainGenChunkSource.ShellChunk())
         {
@@ -385,6 +390,93 @@ public class ShellFillTests
         Assert.AreEqual(0, closed, "the fill closed part of a far crater");
     }
 
+    /// A sea column (>= 15 m deep) and a lake column (>= 3 m of still water above
+    /// sea level) on seed 42: (site, water surface y).
+    private static List<(string, int3)> WaterSites()
+    {
+        var spec = _src.Spec; var view = _src.Map.View; var o = _src.O;
+        var list = new List<(string, int3)>(); bool sea = false, lake = false;
+        int W = spec.worldSizeVoxels;
+        for (int gz = W / 10; gz < W * 9 / 10 && !(sea && lake); gz += 500)
+        for (int gx = W / 10; gx < W * 9 / 10 && !(sea && lake); gx += 500)
+        {
+            var c = TerrainGen.ShapeField.Sample(in spec, in view, in o, gx + 0.5f, gz + 0.5f, 1);
+            if (!sea && c.height < spec.seaLevelY - 150 && c.water == TerrainGen.ColumnSample.NO_WATER_Y)
+            { sea = true; list.Add(("sea", new int3(gx, spec.seaLevelY, gz))); }
+            else if (!lake && c.water != TerrainGen.ColumnSample.NO_WATER_Y && c.waterKind == 0 &&
+                     c.water > spec.seaLevelY + 50 && c.water - c.height >= 30)
+            { lake = true; list.Add(("lake", new int3(gx, c.water, gz))); }
+        }
+        return list;
+    }
+
+    [Test, Category("Slow")]
+    public void SeaAndLake_SurfaceFluid_Unchanged()
+    {
+        var sites = WaterSites();
+        Assert.AreEqual(2, sites.Count, "no sea or no lake site on seed 42");
+        var lines = new List<string>();
+        try
+        {
+            foreach (var (name, w) in sites)
+            for (int k = TerrainGenChunkSource.FIRST_FILL_SHELL; k <= TerrainGenChunkSource.MAX_SHELL; k++)
+            {
+            int reachK = 0;
+            for (int dy = -1; dy <= 0; dy++)
+            {
+                int3 coord = (w >> (7 + k)) + new int3(0, dy, 0);
+                if (coord.y < 0) continue;
+                C a = Gen(k, coord, 0), b = Gen(k, coord, 1), c = Gen(k, coord, 2);
+                // Pass voxels of the generator reachable inside the chunk from one open by height.
+                var seen = new bool[a.M.Length]; var stack = new Stack<int>();
+                for (int y = 0; y < 128; y++) for (int z = 0; z < 128; z++) for (int x = 0; x < 128; x++)
+                {
+                    int i = Idx(x, y, z);
+                    if (Pass[a.M[i]] && HeightOpen(a, x, y, z)) { seen[i] = true; stack.Push(i); }
+                }
+                while (stack.Count > 0)
+                {
+                    int i = stack.Pop(), x = i & 127, z = (i >> 7) & 127, y = i >> 14;
+                    for (int d = 0; d < 6; d++)
+                    {
+                        int nx = x + (d == 0 ? -1 : d == 1 ? 1 : 0), ny = y + (d == 2 ? -1 : d == 3 ? 1 : 0), nz = z + (d == 4 ? -1 : d == 5 ? 1 : 0);
+                        if ((uint)nx >= 128 || (uint)ny >= 128 || (uint)nz >= 128) continue;
+                        int j = Idx(nx, ny, nz);
+                        if (seen[j] || !Pass[a.M[j]]) continue;
+                        seen[j] = true; stack.Push(j);
+                    }
+                }
+                int reach = 0, reachChanged = 0, enclosed = 0, enclosedFilled = 0;
+                for (int i = 0; i < a.M.Length; i++)
+                {
+                    byte m = a.M[i];
+                    if (!Pass[m] || m == Materials.Air) continue;
+                    if (seen[i]) { reach++; if (c.M[i] != m) reachChanged++; }
+                    else { enclosed++; if (c.M[i] != m) enclosedFilled++; }
+                }
+                var ra = Rays(a); var rb = Rays(b);
+                int rays = 0, bad = 0;
+                for (int i = 0; i < ra.Count; i++) { if (ra[i] == long.MinValue) continue; rays++; if (ra[i] != rb[i]) bad++; }
+                lines.Add($"{name} shell {k} chunk {coord}: fluid voxels reachable {reach} (changed {reachChanged}), " +
+                          $"enclosed {enclosed} (filled {enclosedFilled}); outside rays {rays}, differ {bad}");
+                Assert.AreEqual(0, reachChanged, $"{name} shell {k} chunk {coord}: {reachChanged} reachable fluid voxels changed");
+                Assert.AreEqual(0, bad, $"{name} shell {k} chunk {coord}: {bad} outside rays see something else");
+                reachK += reach;
+            }
+            // The sea's surface can sit on a chunk floor (Y 5120): either chunk holds it.
+            Assert.Greater(reachK, 0, $"{name} shell {k}: no surface fluid in the two test chunks");
+            }
+        }
+        finally
+        {
+            string dir = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "Logs", "Shells");
+            System.IO.Directory.CreateDirectory(dir);
+            System.IO.File.WriteAllLines(System.IO.Path.Combine(dir, "fill83b_water.txt"), lines);
+            Debug.Log("[83b]\n" + string.Join("\n", lines));
+            _cache.Clear();
+        }
+    }
+
     [Test]
     public void Shells1and2_AreNotFilled()
     {
@@ -460,7 +552,7 @@ public class ShellFillTests
         var L = ShellLayout.From(QualityPreset.High);
         float3 cam = Spawn();
         var lines = new List<string> { $"camera {cam} m (77's spawn), preset High, every wanted chunk generated (caps ignored)",
-            "  A = the generator; C = the fill (task 83); D = C + enclosed FLUIDS filled too (diagnostic: the task keeps fluids)" };
+            "  A = the generator; C = task 83's fill (fluids kept); D = C + enclosed FLUIDS filled too (task 83b, the default)" };
         var s = new VoxelEngine.Mirror.ShellStreamer(L, _src, 1, synchronous: true) { SyncChunksPerUpdate = 0 };
         var dir = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "Logs", "Shells");
         System.IO.Directory.CreateDirectory(dir);
@@ -493,9 +585,9 @@ public class ShellFillTests
                     if (TerrainGenChunkSource.ShellFills(k))
                     {
                         var tf = System.Diagnostics.Stopwatch.StartNew();
-                        _src.FillShell(scC); filled++;
+                        _src.ShellFillFluids = false; _src.FillShell(scC); filled++;
                         fillMs += tf.Elapsed.TotalMilliseconds;
-                        _src.ShellFillFluids = true; _src.FillShell(scD); _src.ShellFillFluids = false;
+                        _src.ShellFillFluids = true; _src.FillShell(scD);
                     }
                     VoxelEngine.Mirror.ShellStore.UploadBytes(scC, out int c0, out bool uC, out _);
                     VoxelEngine.Mirror.ShellStore.UploadBytes(scD, out int e0, out bool uD, out _);
@@ -525,14 +617,14 @@ public class ShellFillTests
                 lines.Add($"    C's dense bricks: {cFluid} hold a fluid, {cAir} air (no fluid), {cSkin} all solid (a skin beside open air)");
                 lines.Add($"    pages A {pA} -> C {pC} (D {pD}); cap {sh.PageCap}: C {(pC > sh.PageCap ? "OVER" : "fits")}, D {(pD > sh.PageCap ? "OVER" : "fits")}; " +
                           $"C {pC / (double)sh.Columns:F2}/column, max {maxCol} in one column, {pageOnlyC} chunks with no dense brick");
-                System.IO.File.WriteAllLines(System.IO.Path.Combine(dir, "need83.txt"), lines);
+                System.IO.File.WriteAllLines(System.IO.Path.Combine(dir, "need83b.txt"), lines);
             }
         }
         finally
         {
-            _src.ShellFill = true; _src.ShellFillFluids = false;
+            _src.ShellFill = true; _src.ShellFillFluids = true;
             s.Dispose();
-            System.IO.File.WriteAllLines(System.IO.Path.Combine(dir, "need83.txt"), lines);
+            System.IO.File.WriteAllLines(System.IO.Path.Combine(dir, "need83b.txt"), lines);
             Debug.Log("[83] need\n" + string.Join("\n", lines));
         }
     }

@@ -29,7 +29,11 @@
 //              no cave can reach. Air
 //              behind an opened mouth is then reached by the flood.
 //   FILL       enclosed AIR becomes the solid below it (else above it, else
-//              the chunk's first solid); fluids are never filled.
+//              the chunk's first solid). Enclosed FLUIDS too (task 83b, owner
+//              Q46 (a), 2026-10-12: the sealed underworld lava sea, sealed
+//              pockets); a fluid the flood reaches (the sea, lakes, rivers, any
+//              fluid open to the sky or a mouth, or seen through another
+//              liquid's surface) stays exactly as generated.
 //   FLATTEN    a brick that is all solid, mixed, and has no pass voxel in its
 //              6-neighbourhood (a face neighbour outside the chunk counts as
 //              pass when it is above its column's h - V) becomes uniform with
@@ -65,10 +69,9 @@ namespace VoxelEngine.WorldGen
         public bool ShellFillMouths = true;
         public bool ShellFillFlatten = true;
         public bool ShellFillMouthPrefilter = true;
-        /// DIAGNOSTIC ONLY, off: also fill ENCLOSED fluids (the underworld's lava
-        /// sea, sealed pockets). The task's rule is "fluids are never filled";
-        /// this switch only measures what that rule costs (ShellNeed report).
-        public bool ShellFillFluids = false;
+        /// Also fill ENCLOSED fluids (task 83b, owner Q46 (a)): the underworld's
+        /// lava sea, sealed pockets. Off = task 83 (fluids never filled).
+        public bool ShellFillFluids = true;
 
         /// Fill diagnostics since construction, summed by every thread:
         /// [0] chunks filled + 65536 x chunks made wholly uniform, [1] enclosed air voxels filled, [2] mouth voxels

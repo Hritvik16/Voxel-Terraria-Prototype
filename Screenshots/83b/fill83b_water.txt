@@ -1,0 +1,16 @@
+sea shell 3 chunk int3(7, 4, 7): fluid voxels reachable 1842628 (changed 0), enclosed 0 (filled 0); outside rays 74492, differ 0
+sea shell 3 chunk int3(7, 5, 7): fluid voxels reachable 0 (changed 0), enclosed 0 (filled 0); outside rays 81920, differ 0
+sea shell 4 chunk int3(3, 1, 3): fluid voxels reachable 0 (changed 0), enclosed 3817 (filled 3817); outside rays 0, differ 0
+sea shell 4 chunk int3(3, 2, 3): fluid voxels reachable 921153 (changed 0), enclosed 0 (filled 0); outside rays 78418, differ 0
+sea shell 5 chunk int3(1, 0, 1): fluid voxels reachable 0 (changed 0), enclosed 13786 (filled 13786); outside rays 0, differ 0
+sea shell 5 chunk int3(1, 1, 1): fluid voxels reachable 458859 (changed 0), enclosed 0 (filled 0); outside rays 80386, differ 0
+sea shell 6 chunk int3(0, 0, 0): fluid voxels reachable 229376 (changed 0), enclosed 13553 (filled 13553); outside rays 48640, differ 0
+sea shell 7 chunk int3(0, 0, 0): fluid voxels reachable 114688 (changed 0), enclosed 1020 (filled 1020); outside rays 65536, differ 0
+lake shell 3 chunk int3(50, 4, 22): fluid voxels reachable 0 (changed 0), enclosed 0 (filled 0); outside rays 0, differ 0
+lake shell 3 chunk int3(50, 5, 22): fluid voxels reachable 3939 (changed 0), enclosed 0 (filled 0); outside rays 22604, differ 0
+lake shell 4 chunk int3(25, 1, 11): fluid voxels reachable 0 (changed 0), enclosed 3475 (filled 3475); outside rays 0, differ 0
+lake shell 4 chunk int3(25, 2, 11): fluid voxels reachable 39199 (changed 0), enclosed 0 (filled 0); outside rays 27372, differ 0
+lake shell 5 chunk int3(12, 0, 5): fluid voxels reachable 0 (changed 0), enclosed 12067 (filled 12067); outside rays 0, differ 0
+lake shell 5 chunk int3(12, 1, 5): fluid voxels reachable 8951 (changed 0), enclosed 0 (filled 0); outside rays 55850, differ 0
+lake shell 6 chunk int3(6, 0, 2): fluid voxels reachable 34442 (changed 0), enclosed 13520 (filled 13520); outside rays 40366, differ 0
+lake shell 7 chunk int3(3, 0, 1): fluid voxels reachable 32001 (changed 0), enclosed 1016 (filled 1016); outside rays 62191, differ 0
