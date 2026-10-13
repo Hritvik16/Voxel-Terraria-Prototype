@@ -15,8 +15,9 @@ owner-facing to-do. One line each: what, where seen, task file (if written), sug
 | 2 | Black crescent/oval under the ledge at the `ledge_view` pose | task 34 B5 contact sheet; still there after B8/B10 | `later/40-bug-ledge-view-crescent.md` | engine phase, LOD seam / render work |
 | 3 | Coast fills the fluid pool (falling beach sand + sea); sea beyond ~61 m sleeps | task 39, Q31 part 1 (open) | -- | engine phase, fluids (wake on disturbance) |
 | 4 | Torch light passes through walls: no point-light occlusion (`Raymarch.compute:1856`); the SVO traces shadow rays for the nearest torches. Owner 2026-10-09: what they liked in the SVO is "how light reacts to its surroundings". Also: merge branch `gemini/lava-torch-light` (bd60a30: lava ignores torch light, Q34 3a; `SVO_LIGHTING_NOTES.md`, line refs wrong) | Gemini SVO lighting notes, Phase 7 §10 flag | -- | engine phase, lighting (first task that builds) |
-| 9 | Far terrain reads as SPECKS of colour, not shapes with depth: with the sun in front, every voxel face turned from the sun is near-black (no sky/ambient light), only top faces are lit, and at ~1 voxel per pixel (shells start at 1 px) slopes become a dot pattern; no distance haze. Seen in rigs without TAA/FSR (FSR 3 in play smooths some of it, KNOWN_ISSUES TAA stills). Owner 2026-10-12: "looks just like specks of color rather than terrain with depth" | owner screenshot 2026-10-12 22:20 (83b poses run, `-shells 1`); same look OFF and ON in `Screenshots/83/cliff_foot_*` | -- (Q48) | engine phase, before shells ON by default |
 | 8 | River lips are SOLID ground drawn as water (task 76's stopgap): the player can stand on / bump into "water" at every river step, digging a lip is odd; rivers read as visible terraces (look off), and at site B the river's last cells stand 1-4 voxels above the lake as a ribbon edged by lines. Owner 2026-10-11: "bad for gameplay" -- "fix it later" | task 76 `Screenshots/76/sheet_near.jpg` rows A-D; HANDOFF 76 caveats | -- | R3 held water (after engine step 17, `RIVERS_WATERFALLS_PLAN.md`); site B ribbon with it |
+| 10 | The `eye_level_*` poses do not show the same frame from run to run: same map hash and eye (4600, 652.9, 4000) m, but 83b drew a valley + peak at `eye_level_1`, 85 a plain with the sea, 85b a hillside filling the view (shells off in all three A shots). Suspect what tier 0 / the content band draws around a just-arrived eye, not the pose | task 85b (`Screenshots/85b/eye_level_1_*` vs `Screenshots/83b/eye_level_1_noon_A_off.png`) | -- | engine phase, streaming / band placement |
+| 11 | A lava pool placed by EditService in the tg2 world is not drawn: 1,961 voxels set (`TrySetVoxel(Lava)`, lava tiles registered) 45 m ahead, no orange in OFF or ON shots, day or night. Torches placed the same way show. Seed 42 has no volcano, so no lava was in view at all | task 85b night set (`Screenshots/85b/*_night_*`, farpreview.txt) | -- | engine phase, fluids / far lights (step 21) |
 
 ## Deferred (not bugs, parked by the owner)
 - `later/78-rig-refresh.md` -- many rigs no longer match the game (Playground/v3 world, Creative, legacy motor,
@@ -37,6 +38,11 @@ to install + log in to Gemini CLI, and a small runner change. Not for B steps / 
 
 ## Fixed
 (move rows here with the commit when done)
+
+- **#9 Far terrain reads as SPECKS -- FIXED task 85b (2026-10-13), behind `-farshade` / F6 "Far shading" (ON in play, OFF in rigs).**
+  Own kernel `CSMainFarShade` (VE_FAR_SHADE): hemisphere sky light by time of day, the far band's column-height slope
+  normal where a 0.1 m voxel is <= 2 px, height-aware haze that light escapes. eye_level_3 backlit noon: near-black
+  pixels 18.8% -> 0.0%. Sheets: `Screenshots/85b/sheet_day_raw.jpg`, `sheet_night.jpg`.
 
 - **#5 River steps into a lake behind 2x2 squares; volcano lava lake unchecked -- FIXED task 76 (2026-10-11).** Map v4
   rivers are a per-column profile (`Rivers.cs`) that never rises downstream and ends AT the lake/sea level (its last

@@ -168,6 +168,27 @@ public class PlaySettingsTests
     }
 
     [Test]
+    public void FarShade_OldFileGetsOn_FlagOverridesForTheRun()
+    {
+        // Task 85b: a file saved before it has no farShade field: it gets ON.
+        var old = PlaySettings.Parse("{\"upscaler\":\"fsr3\",\"rows\":\"dyn\",\"seeThroughLiquids\":true}", out string e);
+        Assert.IsNull(e);
+        Assert.IsTrue(old.farShade);
+        Assert.IsTrue(new PlaySettings().farShade);
+
+        var over = new List<string>();
+        var run = PlaySettings.WithArgs(old, new[] { "-farshade", "1", "-farshade", "0" }, over);
+        Assert.IsFalse(run.farShade, "last match wins");
+        Assert.IsTrue(old.farShade, "the saved settings are untouched");
+        CollectionAssert.Contains(over, "farShade");
+
+        over.Clear();
+        run = PlaySettings.WithArgs(old, new[] { "-farshade", "on" }, over);
+        Assert.IsTrue(run.farShade, "a bad value keeps the saved one");
+        CollectionAssert.Contains(over, "-farshade: bad value 'on'");
+    }
+
+    [Test]
     public void ShadowRes_OldFileGetsFull_FlagOverridesForTheRun_BadValuesClamp()
     {
         // A file saved before task 61 has no shadowRes field: it gets Full.

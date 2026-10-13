@@ -302,6 +302,14 @@ a missing fine chunk is a hole). With shells on, the hand-over is by distance: s
 chunks inside its band are leapt (`ShellMarch`'s tTier0 / `ShellRayReference.March`), no `FarStartT`, no `-detailspeed`.
 `ShellOrderTests` (order, margins > 0 on every preset: `Logs/Shells/margin85.txt`).
 
+Task 85b (BUGS #9, owner Q48 (a)): FAR SHADING = its own kernel `CSMainFarShade` (VE_FAR_SHADE; every line under #ifdef, so
+OFF is byte-identical -- runtime ifs were NOT, 1-LSB diffs): hemisphere sky light (`FarShadeSky`, follows time of day), the
+far band's column-height slope normal from where a 0.1 m voxel is 2 px (`FarSlopeNormal`), height-aware haze that light
+(torches, emission, bleed: `lightAdd`) mostly escapes. Look 1; near, tiers, shells, far band. `-farshade 0|1` / F6 "Far
+shading" (PlaySettings.farShade): ON in play, OFF in rigs/capture. Not with `-checker` or the `-detailspeed` square.
+`EXTRA="-farshadeshots -gateres 1280 -poses a,b"` = day lit/backlit + night torches, OFF/ON, raw/FSR 3
+(`tools/farshade85b-sheet.py`). Far lights (step 21) add into `lightAdd`.
+
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
 (`Assets/TerrainGen/`):

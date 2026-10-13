@@ -97,6 +97,10 @@
 // exactly the pre-task code; RaymarchFeature dispatches this kernel only
 // while the square is active (-detailspeed 1 and the camera moving).
 #pragma kernel CSMainDetail VE_DETAIL_SPEED
+// TASK 85b: CSMain + far shading (sky light, slope normal at distance, haze that
+// light escapes). Every task-85b line is under #ifdef VE_FAR_SHADE (see the
+// FAR SHADING block); RaymarchFeature dispatches it while -farshade / F6 is on.
+#pragma kernel CSMainFarShade VE_FAR_SHADE
 
 #include "../Coord/CoordMath.hlsl"
 #include "../Memory/StructHeaders.hlsl"
@@ -2839,6 +2843,109 @@ float HazeAmount(float distVoxels, float y0, float y1)
     return saturate(d * d * _LookHazeDensity);
 }
 
+#ifdef VE_FAR_SHADE
+// ===========================================================================
+// TASK 85b (BUGS #9, owner Q48 (a)): FAR SHADING (-farshade 1; ON in play from
+// PlaySettings.farShade, OFF in rigs and capture runs). It is its OWN KERNEL,
+// CSMainFarShade, compiled with VE_FAR_SHADE: every task-85b line is under
+// #ifdef VE_FAR_SHADE, so CSMain / CSMainChecker / CSMainDetail compile from
+// exactly the pre-task code and the switch OFF is byte-identical (runtime ifs
+// were not: the compiler scheduled the off path differently, 1-LSB diffs in 8
+// of 19 Phase 7 shots). RaymarchFeature dispatches it while FarShade is on,
+// unless the checkerboard or the -detailspeed square holds the frame. Look 1 only. Far terrain read as specks: a face turned
+// from the sun got only 0.3 x horizon x the noon exposure (~10/255 on rock), a
+// slope at ~1 voxel per pixel became lit tops + black sides, and the haze thinned
+// over 350 m of height, so peaks did not haze at all. Three parts:
+//  1. SKY LIGHT (FarShadeSky): the flat ambient becomes a hemisphere term, the
+//     sky colour the face looks at (horizon .. half way to the zenith by its
+//     tilt) x the share of sky it sees ((1 + n.y) / 2) x _FarShadeParams.x, still
+//     x the sky probe and VAO. The sky colours follow the time of day, so at night
+//     it is the night sky's level (below the old night ambient): night stays
+//     dark and lights stand out.
+//  2. SLOPE NORMAL (FarSlopeNormal): from where a 0.1 m voxel is 2 px, fully at
+//     1 px (FarShadeBlend; _ShellPixelAngle, so it follows the render rows), a
+//     hit is lit with the ground slope from the far band's column heights
+//     instead of its cube face -- when it lies on that surface (not in a cave or
+//     under an overhang). Sun, moon, sky and point lights all take it. Voxels,
+//     cascade tiers, shells and the far band alike.
+//  3. HAZE (FarShadeHaze): toward the sky behind the pixel (LookAtmosphere, so
+//     dark at night), 1 - exp(-d / range) thinned with height over a scale
+//     height of _FarShadeParams.z. LIGHT is split out first (torches, emission,
+//     bleed: `lightAdd`) and takes only _FarShadeParams.w of the haze, so night
+//     points of interest are not swallowed.
+// FAR LIGHTS (engine step 21) plug in at `lightAdd`: whatever they add to a far
+// pixel goes there, and the haze rule above applies unchanged.
+// ===========================================================================
+float4 _FarShadeParams;   // x sky strength, y haze range (voxels), z haze scale height (voxels), w light's share of the haze
+
+float FarShadeBlend(float distVoxels)
+{
+    float pa = max(_ShellPixelAngle, 1e-6);
+    return smoothstep(0.5 / pa, 1.0 / pa, distVoxels);   // a 0.1 m voxel: 2 px -> 1 px
+}
+
+// The ground slope at p (voxels) from the far band's column heights, bilinear
+// over the four texel centres around p, at the finest level whose texel is
+// >= 2 px there. False where no ring holds p, or p is more than one texel below
+// the lowest / above the highest of the four tops (a cave, an overhang).
+bool FarSlopeNormal(float3 p, float distVoxels, out float3 n)
+{
+    n = float3(0.0, 1.0, 0.0);
+    if (_FarEnabled == 0) return false;
+    float2 camV = _CameraPos.xz * 10.0;
+    float cheb = max(abs(p.x - camV.x), abs(p.z - camV.y));
+    float fp = 2.0 * distVoxels * _ShellPixelAngle;
+    int L = 0;
+    [loop] while (L < FAR_LEVELS - 1 && ((float)(8 << L) < fp || cheb >= (float)((FAR_USE_RADIUS - 2) * (8 << L)))) L++;
+    float tv = (float)(8 << L);
+    if (cheb >= (float)(FAR_USE_RADIUS - 2) * tv) return false;
+    float2 f = p.xz / tv - 0.5;
+    int2 c = int2(floor(f));
+    float2 fr = f - float2(c);
+    float h00 = (float)(FarTexelAt(L, c) & 0xFFFFu);
+    float h10 = (float)(FarTexelAt(L, c + int2(1, 0)) & 0xFFFFu);
+    float h01 = (float)(FarTexelAt(L, c + int2(0, 1)) & 0xFFFFu);
+    float h11 = (float)(FarTexelAt(L, c + int2(1, 1)) & 0xFFFFu);
+    float lo = min(min(h00, h10), min(h01, h11));
+    float hi = max(max(h00, h10), max(h01, h11));
+    if (p.y < lo - tv || p.y > hi + tv) return false;
+    float dx = lerp(h10 - h00, h11 - h01, fr.y);
+    float dz = lerp(h01 - h00, h11 - h10, fr.x);
+    n = normalize(float3(-dx, tv, -dz));
+    return true;
+}
+
+// Face normal -> the lighting normal (part 2). Fluids keep their flat tops.
+float3 FarShadeNormal(float3 nFace, float3 p, float distVoxels, uint m)
+{
+    float w = FarShadeBlend(distVoxels);
+    float3 nS;
+    if (w <= 0.0 || MaterialIsClearFluid(m) || m == 11u || !FarSlopeNormal(p, distVoxels, nS)) return nFace;
+    return normalize(lerp(nFace, nS, w));
+}
+
+float3 FarShadeSky(float3 n)
+{
+    return lerp(_LookSkyHorizon.rgb, _LookSkyZenith.rgb, 0.5 * saturate(n.y)) * ((0.5 + 0.5 * n.y) * _FarShadeParams.x);
+}
+
+float FarShadeHaze(float distVoxels, float y0, float y1)
+{
+    float a = max(y0 - 23.0, 0.0) / _FarShadeParams.z;
+    float b = max(y1 - 23.0, 0.0) / _FarShadeParams.z;
+    float avg = (abs(b - a) < 1e-3) ? exp(-a) : (exp(-a) - exp(-b)) / (b - a);
+    return saturate(1.0 - exp(-distVoxels * avg / _FarShadeParams.y));
+}
+
+// Haze with the light kept out of most of it (part 3).
+float3 FarShadeApplyHaze(float3 lit, float3 lightAdd, float3 rayDir, float distVoxels, float y0, float y1)
+{
+    float h = FarShadeHaze(distVoxels, y0, y1);
+    if (_FarEnabled == 0) h = max(h, HazeAmount(distVoxels, y0, y1));   // no far band: keep the range fog that hides the world's edge
+    return lerp(lit, LookAtmosphere(rayDir), h) + lightAdd * (h * (1.0 - _FarShadeParams.w));
+}
+#endif
+
 // ---- TASK 75: SEE-THROUGH LIQUIDS (the view from ABOVE or the side) ----
 // With _SeeThroughLiquids != 0, a primary ray from air that hits water, honey,
 // oil, acid or sludge remembers that surface and marches on THROUGH the fluid
@@ -4015,6 +4122,10 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             }
             float3 nF = float3(normal);
             float3 sd = normalize(_SunDir);
+#ifdef VE_FAR_SHADE
+            // Task 85b: past the blend, lit by the ground slope, not the cube face.
+            if (!selfLit) nF = FarShadeNormal(nF, rayStart + rayDir * currentDist, currentDist, lm);
+#endif
 
             // Face shade: tops bright, sides distinct (the Brickmap's constants).
             float3 ln = normalize(nF + float3(0.0, 0.65, 0.0));
@@ -4042,7 +4153,12 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 vao = FaceAO(voxel, normal, inVoxel, _WindowDimsBricks);
                 vao = lerp(0.15, 1.0, pow(smoothstep(0.0, 1.0, vao), 1.2));
             }
+#ifdef VE_FAR_SHADE
+            // Task 85b: the sky term; VAO fades out where a voxel is <= 1-2 px.
+            float3 ambient = FarShadeSky(nF) * skyOpen * lerp(vao, 1.0, FarShadeBlend(currentDist));
+#else
             float3 ambient = _LookAmbient.rgb * skyOpen * vao;
+#endif
 
             float3 hitPosM = hitP * 0.1;
             float3 pointTerm, omniTerm = float3(0.0, 0.0, 0.0);
@@ -4068,17 +4184,29 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             // Lava is self-lit and must ignore point light (owner 2026-10-09, Q34 3a).
             // Every other material keeps the previous combine, unchanged.
             float3 lit;
+#ifdef VE_FAR_SHADE
+            float3 lightAdd = float3(0.0, 0.0, 0.0);   // task 85b: the light in `lit` (torches, emission, bleed)
+#endif
             if (lm == 11u)
             {
                 float hot = VoxelHash(voxel) - 0.5;
                 float3 albedo = MaterialAlbedoLook(lm) + float3(hot * 0.10, hot * 0.05, -hot * 0.02);
                 lit = baseColor * ((direct + ambient) * _LookGrade.x) + albedo * (MaterialEmissive(lm) * 2.0);
+#ifdef VE_FAR_SHADE
+                lightAdd = albedo * (MaterialEmissive(lm) * 2.0);
+#endif
             }
             else
             {
                 lit = selfLit ? saturate(baseColor * 1.35 + 0.06)
                               : baseColor * faceLight;
                 lit += MaterialEmissiveTint(lm) * MaterialEmissive(lm);
+#ifdef VE_FAR_SHADE
+                lightAdd = MaterialEmissiveTint(lm) * MaterialEmissive(lm);
+                if (!selfLit)   // the point lights' share of faceLight
+                    lightAdd += max(lit - lightAdd - baseColor * UniformFaceHue((direct + ambient) * _LookGrade.x,
+                                        (_LookSun.rgb * 0.6 + _LookMoon.rgb * 0.6 + _LookAmbient.rgb) * _LookGrade.x), 0.0);
+#endif
             }
 
             // EMISSIVE BLEED (_EmissiveBleed, ON by default since task 46, owner
@@ -4101,13 +4229,22 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                                    max(LookEmitColor(fa - e2, _WindowDimsBricks) * (1.0 - uv.y),
                                        LookEmitColor(fa + e2, _WindowDimsBricks) * uv.y));
                 lit += bleed * 2.0;
+#ifdef VE_FAR_SHADE
+                lightAdd += bleed * 2.0;
+#endif
             }
 
+#ifdef VE_FAR_SHADE
+            // Task 85b: aerial perspective; light keeps most of itself.
+            if (_ShadeFog != 0)
+                lit = FarShadeApplyHaze(lit, lightAdd, rayDir, currentDist, rayStart.y, rayStart.y + rayDir.y * currentDist);
+#else
             // Squared distance haze into the sky behind the pixel.
             if (_ShadeFog != 0)
             {
                 lit = lerp(lit, LookAtmosphere(rayDir), HazeAmount(currentDist, rayStart.y, rayStart.y + rayDir.y * currentDist));
             }
+#endif
             if (_LookGrade.w > 0.0) lit = LookGradeColour(lit, _LookGrade.y, _LookGrade.z);
             color = float4(LookToLinear(lit), 1.0);
         }
@@ -4281,6 +4418,10 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 RiverSurface((rayStart + rayDir * fh.t).xz, fh.t, rb, riverFoam);
                 baseColor = lerp(baseColor * rb, RIVER_FOAM, riverFoam);
             }
+#ifdef VE_FAR_SHADE
+            // Task 85b: the slope from the same column heights the far band is drawn from.
+            nF = FarShadeNormal(nF, rayStart + rayDir * fh.t, fh.t, fm);
+#endif
             float3 ln = normalize(nF + float3(0.0, 0.65, 0.0));
             float faceShade = saturate(ln.y) * 0.6 + saturate(abs(ln.x)) * 0.2 + 0.2;
             float softened = lerp(0.4, 1.0, faceShade);
@@ -4289,10 +4430,22 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             float3 direct = _LookSun.rgb * sunLight * sunExposure * softened;
             float moonLight = saturate(dot(nF, -sd) * 0.8 + 0.2);
             direct += _LookMoon.rgb * moonLight * softened;
+#ifdef VE_FAR_SHADE
+            float3 faceLightF = (direct + FarShadeSky(nF)) * _LookGrade.x;
+#else
             float3 faceLightF = (direct + _LookAmbient.rgb) * _LookGrade.x;
+#endif
             faceLightF = UniformFaceHue(faceLightF, (_LookSun.rgb * 0.6 + _LookMoon.rgb * 0.6 + _LookAmbient.rgb) * _LookGrade.x);
             float3 lit = baseColor * faceLightF;
+#ifdef VE_FAR_SHADE
+            // Task 85b: far lava and other emitters glow as near ones do (the near
+            // lava form, albedo x emission x 2) and keep that light through the haze.
+            float3 lightAddF = MaterialAlbedoLook(fm) * (MaterialEmissive(fm) * 2.0);
+            lit += lightAddF;
+            if (_ShadeFog != 0) lit = FarShadeApplyHaze(lit, lightAddF, rayDir, fh.t, rayStart.y, rayStart.y + rayDir.y * fh.t);
+#else
             if (_ShadeFog != 0) lit = lerp(lit, LookAtmosphere(rayDir), HazeAmount(fh.t, rayStart.y, rayStart.y + rayDir.y * fh.t));
+#endif
             if (_LookGrade.w > 0.0) lit = LookGradeColour(lit, _LookGrade.y, _LookGrade.z);
             color = float4(LookToLinear(lit), 1.0);
         }
@@ -4431,6 +4584,13 @@ void CSMainChecker(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadI
 // TASK 24: compiled with VE_DETAIL_SPEED (the #pragma kernel line above).
 [numthreads(8, 8, 1)]
 void CSMainDetail(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
+{
+    CSMainBody(tid, gtid, false);
+}
+
+// TASK 85b: compiled with VE_FAR_SHADE (the #pragma kernel line above).
+[numthreads(8, 8, 1)]
+void CSMainFarShade(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
 {
     CSMainBody(tid, gtid, false);
 }

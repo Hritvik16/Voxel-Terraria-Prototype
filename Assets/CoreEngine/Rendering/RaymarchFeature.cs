@@ -229,6 +229,21 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// RiverSurface; the flow map is FarField.RiverFlow). Look 1 path. OFF by default so
     /// rigs and capture runs keep their look; play sets it from PlaySettings.riverLook (on).
     public static bool RiverLook = false;
+    /// Task 85b (BUGS #9, owner Q48 (a)): FAR SHADING -- a hemisphere sky term that
+    /// follows the time of day, the ground slope instead of the cube face where a
+    /// 0.1 m voxel is <= 2 px, and aerial-perspective haze that light (torches,
+    /// lava) mostly escapes. Look 1 path; voxels, tiers, shells and the far band
+    /// (Raymarch.compute kernel CSMainFarShade, VE_FAR_SHADE). OFF by default so rigs and capture runs keep
+    /// their look byte for byte; play sets it from PlaySettings.farShade (on); any
+    /// other player (capture runs, rigs) only with `-farshade 1` (last match wins).
+    public static bool FarShade = ReadFarShadeArg();
+    /// Its constants (task 85b's picks): sky strength (x the sky colour the face
+    /// sees), haze range and scale height (metres), and the share of the haze that
+    /// light takes (0.25: a torch at haze 0.9 keeps ~78% of its light).
+    public static float FarShadeSkyStrength = 1.1f;
+    public static float FarShadeHazeRangeM = 3500f;
+    public static float FarShadeHazeScaleHeightM = 1500f;
+    public static float FarShadeLightHaze = 0.25f;
     /// >= 0 forces LightingConfig.torchShadowRays (-torchshadows N; 0 = no
     /// occlusion rays, the pre-task-46 leak). -1 = use the config.
     public static int TorchShadowsOverride = -1;
@@ -274,6 +289,15 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         bool on = false;
         for (int i = 0; i + 1 < a.Length; i++)
             if (a[i] == "-roofskip") on = a[i + 1] == "1";
+        return on;
+    }
+
+    private static bool ReadFarShadeArg()
+    {
+        string[] a = System.Environment.GetCommandLineArgs();
+        bool on = false;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == "-farshade") on = a[i + 1] == "1";
         return on;
     }
 
@@ -464,6 +488,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public int underwaterView;
             public int seeThroughLiquids;
             public int riverLook;
+            public Vector4 farShadeParams;
             public GraphicsBuffer riverFlow;   // task 76: FarField.RiverFlow, or the far dummy
             public Vector4 riverMap;           // xy gen offset, z cell voxels, w cells (0 = none)
             public float riverTime;
@@ -796,6 +821,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 passData.underwaterView = UnderwaterView ? 1 : 0;
                 passData.seeThroughLiquids = SeeThroughLiquids ? 1 | ((DebugSeeSkip & 7) << 1) : 0;   // bits 1-3: task 75b diagnostic
                 passData.riverLook = RiverLook ? 1 : 0;
+                passData.farShadeParams = new Vector4(FarShadeSkyStrength, FarShadeHazeRangeM * 10f,
+                                                      FarShadeHazeScaleHeightM * 10f, FarShadeLightHaze);
                 {
                     var farR = VoxelEngine.Rendering.FarField.Active;
                     bool hasFlow = farR != null && farR.RiverFlow != null;
@@ -839,6 +866,11 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // byte-identical. Not combined with the checkerboard (CSMainChecker wins).
                 if (passData.detailRadiusVoxels > 0f && passData.kPrimary == 0)
                     passData.kPrimary = activeCompute.FindKernel("CSMainDetail");
+                // Task 85b: far shading is its own kernel (VE_FAR_SHADE), so OFF runs the
+                // pre-task CSMain byte for byte. The checkerboard and the -detailspeed
+                // square keep their kernels (no far shading while they hold the frame).
+                if (FarShade && passData.kPrimary == 0 && activeCompute.HasKernel("CSMainFarShade"))
+                    passData.kPrimary = activeCompute.FindKernel("CSMainFarShade");
                 passData.farShadow = farOn && far.ShadowsOn ? 1 : 0;
                 passData.farTexels = farOn ? far.Texels : _farDummy;
                 passData.farMips = farOn ? far.Mips : _farDummy;
@@ -1119,6 +1151,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_UnderwaterView", data.underwaterView);
                         cmd.SetComputeIntParam(data.compute, "_SeeThroughLiquids", data.seeThroughLiquids);
                         cmd.SetComputeIntParam(data.compute, "_RiverLook", data.riverLook);
+                        cmd.SetComputeVectorParam(data.compute, "_FarShadeParams", data.farShadeParams);
                         cmd.SetComputeVectorParam(data.compute, "_RiverMap", data.riverMap);
                         cmd.SetComputeFloatParam(data.compute, "_RiverTime", data.riverTime);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "RiverFlow", data.riverFlow);

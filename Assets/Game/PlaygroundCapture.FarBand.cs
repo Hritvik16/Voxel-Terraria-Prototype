@@ -318,6 +318,16 @@ public partial class PlaygroundCapture
             poses.RemoveAll(q => !keep.Contains(q.Item1));
             L($"POSES (-poses): {poses.Count} kept of {keep.Count} named: {string.Join(", ", poses.ConvertAll(q => q.Item1))}");
         }
+        // TASK 85b: -farshadeshots = far shading OFF / ON, day and night (PlaygroundCapture.FarShade.cs).
+        if (HasFlag("-farshadeshots"))
+        {
+            yield return FarShadeShots(poses, cam, far, world);
+            File.WriteAllText(Path.Combine(_folder, "farpreview.txt"), _log.ToString());
+            Debug.Log("[farpreview]\n" + _log);
+            yield return null;
+            Application.Quit(0);
+            yield break;
+        }
         // TASK 80 (engine step 11b): with -shells 1, every pose at noon only,
         // three shots: A shells OFF (the pre-11b frame: cascade tiers 1-2 +
         // far band), B shells ON, C ON tinted by the shell that drew each pixel.

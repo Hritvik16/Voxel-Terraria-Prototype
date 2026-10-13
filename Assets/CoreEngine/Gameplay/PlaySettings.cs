@@ -75,6 +75,10 @@ public sealed class PlaySettings
     /// distance (RaymarchFeature.RiverLook, `-riverlook 0|1`). A file saved before
     /// task 76 gets on.
     public bool riverLook = true;
+    /// Task 85b: far shading -- sky light that follows the time of day, slopes
+    /// lit by the ground's slope at distance, haze that lights mostly escape
+    /// (RaymarchFeature.FarShade, `-farshade 0|1`). A file saved before task 85b gets on.
+    public bool farShade = true;
 
     /// Runtime only: -renderpreset / -taa / -checker without -upscaler or
     /// -renderrows asked for the old preset frame path, so no upscaler is applied.
@@ -127,6 +131,7 @@ public sealed class PlaySettings
         string uw = Last(args, "-underwater");
         string st = Last(args, "-seethrough");
         string rl = Last(args, "-riverlook");
+        string fs = Last(args, "-farshade");
         if (u != null)
         {
             string v = u.ToLowerInvariant();
@@ -175,6 +180,11 @@ public sealed class PlaySettings
         {
             if (st == "0" || st == "1") { s.seeThroughLiquids = st == "1"; overridden?.Add("seeThroughLiquids"); }
             else overridden?.Add($"-seethrough: bad value '{st}'");
+        }
+        if (fs != null)
+        {
+            if (fs == "0" || fs == "1") { s.farShade = fs == "1"; overridden?.Add("farShade"); }
+            else overridden?.Add($"-farshade: bad value '{fs}'");
         }
         // Task 52's rule, kept: asking for the preset path without naming an
         // upscaler keeps the preset path.
