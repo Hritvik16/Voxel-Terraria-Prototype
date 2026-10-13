@@ -228,6 +228,7 @@ namespace VoxelEngine.WorldGen
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 int maxTop = spec.seaLevelY;
+                var nodes = new TerrainGen.DetailField.NodeCache();   // task 86 (shells > 3: one node per column)
                 for (int k = 0; k < E; k++)
                 for (int i = 0; i < E; i++)
                 {
@@ -242,7 +243,7 @@ namespace VoxelEngine.WorldGen
                     int e = TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, (z - 1) + 0.5f, 1).height;
                     int m = math.max(math.max(math.abs(a - ch), math.abs(b - ch)), math.max(math.abs(d - ch), math.abs(e - ch)));
                     colSt[ci] = m / 1f;
-                    var cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, x, z);
+                    var cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, x, z, ref nodes);
                     if (cd.oreMul != 0) cd.oreMul = ore[TerrainGen.Ores.CellIndex(x, z, spec.mapCells, spec.mapCellVoxels)];
                     colCd[ci] = cd;
                     colS[ci] = c;

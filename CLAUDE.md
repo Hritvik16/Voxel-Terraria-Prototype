@@ -302,6 +302,11 @@ a missing fine chunk is a hole). With shells on, the hand-over is by distance: s
 chunks inside its band are leapt (`ShellMarch`'s tTier0 / `ShellRayReference.March`), no `FarStartT`, no `-detailspeed`.
 `ShellOrderTests` (order, margins > 0 on every preset: `Logs/Shells/margin85.txt`).
 
+Task 86 (owner Q45 (a)): COARSE CAVE FIELDS. `DetailField.PrepareColumn` evaluates the cave noises (tunnels, their depths,
+caverns' nR/nF, the underworld chamber) at one node per 8x8 columns (`TerrainSpec.coarseColumnShift` = 3, nodes at 7 mod 8 so
+shell >= 4 columns sit on nodes) and interpolates bilinearly; geology/soil/ore stay exact (strata do not move). Pure function of
+(x, z); loops pass a `NodeCache`. `-coarsecols 0` = the pre-86 bytes; `CoarseColumnTests` (largest cave shift 1.41 voxels).
+
 Task 85b (BUGS #9, owner Q48 (a)): FAR SHADING = its own kernel `CSMainFarShade` (VE_FAR_SHADE; every line under #ifdef, so
 OFF is byte-identical -- runtime ifs were NOT, 1-LSB diffs): hemisphere sky light (`FarShadeSky`, follows time of day), the
 far band's column-height slope normal from where a 0.1 m voxel is 2 px (`FarSlopeNormal`), height-aware haze that light

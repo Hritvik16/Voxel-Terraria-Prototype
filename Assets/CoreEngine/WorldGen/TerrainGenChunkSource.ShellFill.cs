@@ -226,6 +226,7 @@ namespace VoxelEngine.WorldGen
                     var subS = new NativeArray<TerrainGen.ColumnSample>(16, Allocator.Temp);
                     var subD = new NativeArray<TerrainGen.DetailField.ColumnDetail>(16, Allocator.Temp);
                     var widened = new NativeList<int>(256, Allocator.Temp);
+                    var nodes = new TerrainGen.DetailField.NodeCache();   // task 86
                     for (int ci = 0; ci < E * E; ci++)
                     {
                         if (head[ci] < 0) continue;
@@ -242,7 +243,7 @@ namespace VoxelEngine.WorldGen
                                     int sx = origin.x + (lx << shift) + ((2 * (s & 3) + 1) << (shift - 3));
                                     int sz = origin.z + (lz << shift) + ((2 * (s >> 2) + 1) << (shift - 3));
                                     subS[s] = TerrainGen.ShapeField.Sample(in spec, in map, in o, sx + 0.5f, sz + 0.5f, 1);
-                                    subD[s] = TerrainGen.DetailField.PrepareColumn(in spec, in o, sx, sz);
+                                    subD[s] = TerrainGen.DetailField.PrepareColumn(in spec, in o, sx, sz, ref nodes);
                                 }
                                 loaded = true; stats[7]++;
                             }

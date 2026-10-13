@@ -275,6 +275,8 @@ namespace VoxelEngine.Rendering
                 // A world's map carries its spec (with the chunk source's brick
                 // geology), so the dev map's slice reads what the chunks hold.
                 Tg2Spec = sharedTg2Map != null ? sharedTg2Map.Spec : TerrainGen.TerrainSpec.SizeClass2(meta.seed, VoxelEngine.WorldGen.TerrainGenChunkSource.MapVersionArg());
+                int ccArg = VoxelEngine.WorldGen.TerrainGenChunkSource.CoarseColumnArg();   // task 86
+                if (ccArg >= 0) { var ts = Tg2Spec; ts.coarseColumnShift = ccArg; Tg2Spec = ts; }
                 _ownsTg2Map = sharedTg2Map == null;
                 Tg2Map = sharedTg2Map ?? TerrainGen.WorldMap.Build(Tg2Spec);
                 _tgO = TerrainGen.Offsets.For(Tg2Spec);

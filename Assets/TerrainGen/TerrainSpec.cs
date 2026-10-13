@@ -45,6 +45,14 @@ namespace TerrainGen
         /// unless a cave, a pocket or a biome border crosses them. 0 (the
         /// default) = per-voxel geology everywhere, as before.
         public int brickGeologyDepth;
+        /// Task 86 (owner Q45 (a)): DetailField.PrepareColumn evaluates the cave
+        /// noises (tunnels, tunnel depths, caverns, the underworld chamber) on an
+        /// absolute grid of one node per 2^s x 2^s columns and interpolates them
+        /// bilinearly. 0 = per column (the pre-86 bytes; a spec built field by
+        /// field). SizeClass2 sets COARSE_COLUMN_SHIFT; -coarsecols 0 on a player
+        /// turns it off (TerrainGenChunkSource.CoarseColumnArg).
+        public int coarseColumnShift;
+        public const int COARSE_COLUMN_SHIFT = 3;   // one node per 8 x 8 columns (one per brick column)
         /// Which world-map recipe: 2 = noise ranges + bolted-on landforms (to
         /// 2026-09-25), 3 = regions + erosion (TerrainGen v3, design doc §13).
         /// 0 is read as 2, so a spec built field by field keeps the old map.
@@ -86,6 +94,7 @@ namespace TerrainGen
             cavernTopBelowSea = 1500,        // 150 m
             underworldTopBelowSea = 4000,    // 400 m
             worldBottomY = 120,              // 12 m of bedrock floor under the underworld
+            coarseColumnShift = COARSE_COLUMN_SHIFT,
             mapVersion = 4,                  // v4 = surface rebuild B1-B10 (owner 2026-10-09, Q35 6a); 3 = regions + erosion (§13), via -mapversion 3
         };
 

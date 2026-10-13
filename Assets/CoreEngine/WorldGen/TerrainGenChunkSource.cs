@@ -52,7 +52,17 @@ namespace VoxelEngine.WorldGen
     {
         public const byte SIZE_CLASS = 2;
         public const int BRICK_GEOLOGY_DEPTH = 200;
-        public readonly TerrainGen.TerrainSpec Spec;
+        public TerrainGen.TerrainSpec Spec { get; private set; }
+
+        /// Tests and reports (task 86's A/B): spec.coarseColumnShift for the
+        /// chunks generated from now on (0 = the per-column cave fields). The
+        /// map and the far band are not rebuilt (neither reads it). Not
+        /// thread-safe: call between Generate calls, never during streaming.
+        public void SetCoarseColumnShift(int s)
+        {
+            var t = Spec; t.coarseColumnShift = s; Spec = t;
+            _columnTop.Clear();
+        }
         public readonly TerrainGen.Offsets O;
         public readonly TerrainGen.WorldMap Map;
         private NativeArray<float> _h, _r, _w;
@@ -77,6 +87,18 @@ namespace VoxelEngine.WorldGen
             return v;
         }
 
+        /// -coarsecols N (task 86): spec.coarseColumnShift for this run (0 = the
+        /// per-column cave fields, the pre-86 bytes; 3 = the default). Absent or
+        /// unparsable = -1, keep the spec's. Last match wins, like MapVersionArg.
+        public static int CoarseColumnArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            int v = -1;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-coarsecols" && int.TryParse(a[i + 1], out int p) && p >= 0 && p <= 6) v = p;
+            return v;
+        }
+
         public TerrainGenChunkSource(uint seed, int mapVersion)
         {
             // R1 BRICK GEOLOGY (V0, design doc §11/§15): below 20 m under the
@@ -87,6 +109,8 @@ namespace VoxelEngine.WorldGen
             // in the owner's 3 GB.
             var spec = TerrainGen.TerrainSpec.SizeClass2(seed, mapVersion);
             spec.brickGeologyDepth = BRICK_GEOLOGY_DEPTH;
+            int cc = CoarseColumnArg();
+            if (cc >= 0) spec.coarseColumnShift = cc;
             Spec = spec;
             O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
             Map = TerrainGen.WorldMap.Build(Spec);
@@ -372,6 +396,7 @@ namespace VoxelEngine.WorldGen
                     if (i >= 0 && i < E && k >= 0 && k < E) colS[k * E + i] = c;
                 }
                 int maxTop = spec.seaLevelY;
+                var nodes = new TerrainGen.DetailField.NodeCache();   // task 86: each cave node once
                 for (int k = 0; k < E; k++)
                 for (int i = 0; i < E; i++)
                 {
@@ -380,7 +405,7 @@ namespace VoxelEngine.WorldGen
                     int m = math.max(math.max(math.abs(hg[gi + 1] - ch), math.abs(hg[gi - 1] - ch)),
                                      math.max(math.abs(hg[gi + G] - ch), math.abs(hg[gi - G] - ch)));
                     colSt[ci] = m / 1f;
-                    var cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, x, z);
+                    var cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, x, z, ref nodes);
                     if (cd.oreMul != 0) cd.oreMul = ore[TerrainGen.Ores.CellIndex(x, z, spec.mapCells, spec.mapCellVoxels)];
                     colCd[ci] = cd;
                     var c = colS[ci];

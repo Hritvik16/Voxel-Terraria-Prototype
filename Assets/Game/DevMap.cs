@@ -514,6 +514,7 @@ public sealed class DevMap : MonoBehaviour
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var view = _map.View;
+            var nodes = new TerrainGen.DetailField.NodeCache();   // task 86
             for (int j = 0; j < N && !_quit; j++)
             {
                 for (int i = 0; i < N; i++)
@@ -521,7 +522,7 @@ public sealed class DevMap : MonoBehaviour
                     int x = X0 + i * Step, z = Z0 + j * Step, k = j * N + i;
                     _cols[k] = TerrainGen.ShapeField.Sample(in _spec, in view, in _o, x + 0.5f, z + 0.5f, 1);
                     _st[k] = TerrainGen.ShapeField.MaxStep(in _spec, in view, in _o, x + 0.5f, z + 0.5f, 1, _cols[k].height);
-                    _det[k] = TerrainGen.DetailField.PrepareColumn(in _spec, in _o, x, z);
+                    _det[k] = TerrainGen.DetailField.PrepareColumn(in _spec, in _o, x, z, ref nodes);
                     if (_det[k].oreMul != 0) _det[k].oreMul = _orePlane[TerrainGen.Ores.CellIndex(x, z, _spec.mapCells, _spec.mapCellVoxels)];
                 }
                 _prepRows = j + 1;

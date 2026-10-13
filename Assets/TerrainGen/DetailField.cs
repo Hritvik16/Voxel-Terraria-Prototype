@@ -107,25 +107,150 @@ namespace TerrainGen
 
         /// Everything D needs per COLUMN: the geology terms and every cave's
         /// open interval through this column. Computed once per column.
+        ///
+        /// TASK 86 (owner Q45 (a)): COARSE CAVE FIELDS. The cave terms are 25
+        /// 2-D noises with wavelengths of 200-6,000 voxels, ~0.85 of this
+        /// function's cost (step 0: PrepareColumn was 61.7% of the column pass,
+        /// Logs/TerrainGen/column_pass_split.txt). With spec.coarseColumnShift
+        /// s > 0 they are evaluated only at the nodes of an ABSOLUTE 2^s grid
+        /// (CaveTerms; nodes at columns = 2^s - 1 mod 2^s) and interpolated bilinearly to the column; the cheap
+        /// non-linear steps (abs, the gates, the cavern hashes) stay per column.
+        /// The geology, soil and ore terms are exact per column, so strata
+        /// boundaries do not move. A pure function of (x, z): every caller (0.1 m
+        /// chunks, shells, shell fill, far edits) agrees, with or without a
+        /// NodeCache. s = 0 = per column, byte-identical to the pre-86 code
+        /// (CoarseColumnTests measure the boundary shift against it).
         public static ColumnDetail PrepareColumn(in TerrainSpec spec, in Offsets o, int x, int z)
+        {
+            int s = spec.coarseColumnShift;
+            if (s <= 0) return FinishColumn(in spec, in o, CaveTerms(in o, new float2(x, z)), x, z);
+            int m = (1 << s) - 1, xr = x - m, zr = z - m, nx = xr >> s, nz = zr >> s;
+            float inv = 1f / (1 << s), fx = (xr & m) * inv, fz = (zr & m) * inv;
+            var n00 = CaveTerms(in o, nx, nz, s);
+            var n10 = (xr & m) != 0 ? CaveTerms(in o, nx + 1, nz, s) : n00;   // weight 0: never read
+            var n01 = (zr & m) != 0 ? CaveTerms(in o, nx, nz + 1, s) : n00;
+            var n11 = (xr & m) != 0 && (zr & m) != 0 ? CaveTerms(in o, nx + 1, nz + 1, s) : n00;
+            return FinishColumn(in spec, in o, Bilerp(in n00, in n10, in n01, in n11, fx, fz), x, z);
+        }
+
+        /// The same, reading the grid nodes through `cache` (same bytes as the
+        /// uncached form; a loop over neighbouring columns evaluates each node
+        /// about once instead of up to four times).
+        public static ColumnDetail PrepareColumn(in TerrainSpec spec, in Offsets o, int x, int z, ref NodeCache cache)
+        {
+            int s = spec.coarseColumnShift;
+            if (s <= 0) return FinishColumn(in spec, in o, CaveTerms(in o, new float2(x, z)), x, z);
+            int m = (1 << s) - 1, xr = x - m, zr = z - m, nx = xr >> s, nz = zr >> s;
+            float inv = 1f / (1 << s), fx = (xr & m) * inv, fz = (zr & m) * inv;
+            var n00 = cache.Get(in o, nx, nz, s);
+            var n10 = (xr & m) != 0 ? cache.Get(in o, nx + 1, nz, s) : n00;
+            var n01 = (zr & m) != 0 ? cache.Get(in o, nx, nz + 1, s) : n00;
+            var n11 = (xr & m) != 0 && (zr & m) != 0 ? cache.Get(in o, nx + 1, nz + 1, s) : n00;
+            return FinishColumn(in spec, in o, Bilerp(in n00, in n10, in n01, in n11, fx, fz), x, z);
+        }
+
+        /// The pre-86 per-column reference (every cave term exact at the column),
+        /// whatever spec.coarseColumnShift says. Tests and reports only.
+        public static ColumnDetail PrepareColumnExact(in TerrainSpec spec, in Offsets o, int x, int z)
+            => FinishColumn(in spec, in o, CaveTerms(in o, new float2(x, z)), x, z);
+
+        /// The raw smooth cave noises at one point, before any abs / gate /
+        /// threshold (those do not interpolate). Tunnel layer k: (half height,
+        /// gate, width, line) Fbm values; ty: the four depth Fbms; cv: cavern
+        /// nR, nF, underworld pillar, floor; uHi: underworld ceiling.
+        public struct CaveNode
+        {
+            public float4 t0, t1, t2, t3, ty, cv;
+            public float uHi, pad0, pad1, pad2;
+            public const int FLOATS = 28;
+        }
+
+        /// Node (nx, nz) of the 2^s grid sits at column ((nx << s) + 2^s - 1, ..):
+        /// offset so that shell k > s's columns (origin + (i << k) + 2^(k-1) - 1,
+        /// TerrainGenChunkSource.Shell.cs) fall ON nodes and need one node each.
+        private static CaveNode CaveTerms(in Offsets o, int nx, int nz, int s)
+            => CaveTerms(in o, new float2((nx << s) + (1 << s) - 1, (nz << s) + (1 << s) - 1));
+
+        private static CaveNode CaveTerms(in Offsets o, float2 p)
+        {
+            var n = new CaveNode();
+            n.t0 = TunnelTerms(p, o.caveA.xy, o.caveA.z);
+            n.t1 = TunnelTerms(p, o.caveB.xy, o.caveB.z);
+            n.t2 = TunnelTerms(p, o.cavern.xy, o.cavern.z);
+            n.t3 = TunnelTerms(p, o.under.xy + 43f, o.under.z);
+            n.ty = new float4(Noise.Fbm(p / 3500f + o.caveA.xy + 11f, 2), Noise.Fbm(p / 4000f + o.caveB.xy + 13f, 2),
+                              Noise.Fbm(p / 4000f + o.cavern.xy + 17f, 2), Noise.Fbm(p / 3000f + o.under.xy + 47f, 2));
+            n.cv = new float4(Noise.Fbm(p / 400f + o.cavern.xy + 23f, 2), Noise.Fbm(p / 200f + o.cavern.xy + 29f, 2),
+                              Noise.Fbm(p / 1800f + o.under.xy + 31f, 3), Noise.Fbm(p / 3000f + o.under.xy + 37f, 3));
+            n.uHi = Noise.Fbm(p / 2200f + o.under.xy + 41f, 3);
+            return n;
+        }
+
+        private static float4 TunnelTerms(float2 p, float2 off, float seedZ)
+            => new float4(Noise.Fbm(p / 1500f + off + seedZ + 5f, 2), Noise.Fbm(p / 6000f + off + seedZ + 3f, 2),
+                          Noise.Fbm(p / 2500f + off + seedZ + 7f, 2), Noise.Fbm(p / TUNNEL_SCALE + off + seedZ, 3));
+
+        private static CaveNode Bilerp(in CaveNode a, in CaveNode b, in CaveNode c, in CaveNode d, float fx, float fz)
+        {
+            var n = new CaveNode();
+            n.t0 = math.lerp(math.lerp(a.t0, b.t0, fx), math.lerp(c.t0, d.t0, fx), fz);
+            n.t1 = math.lerp(math.lerp(a.t1, b.t1, fx), math.lerp(c.t1, d.t1, fx), fz);
+            n.t2 = math.lerp(math.lerp(a.t2, b.t2, fx), math.lerp(c.t2, d.t2, fx), fz);
+            n.t3 = math.lerp(math.lerp(a.t3, b.t3, fx), math.lerp(c.t3, d.t3, fx), fz);
+            n.ty = math.lerp(math.lerp(a.ty, b.ty, fx), math.lerp(c.ty, d.ty, fx), fz);
+            n.cv = math.lerp(math.lerp(a.cv, b.cv, fx), math.lerp(c.cv, d.cv, fx), fz);
+            n.uHi = math.lerp(math.lerp(a.uHi, b.uHi, fx), math.lerp(c.uHi, d.uHi, fx), fz);
+            return n;
+        }
+
+        /// A small direct-mapped cache of grid nodes, owned by one loop (a job's
+        /// local; never shared). default = empty. 128 x 2 slots: a row-major
+        /// sweep over up to 128 node columns evaluates each node once.
+        public unsafe struct NodeCache
+        {
+            public const int SLOTS = 256;
+            private fixed int _kx[SLOTS];
+            private fixed int _kz[SLOTS];
+            private fixed byte _used[SLOTS];
+            private fixed float _v[SLOTS * CaveNode.FLOATS];
+            /// Node evaluations since the cache was made (diagnostics).
+            public int Misses;
+
+            public CaveNode Get(in Offsets o, int nx, int nz, int s)
+            {
+                int slot = (nx & 127) | ((nz & 1) << 7);
+                fixed (float* v = _v)
+                {
+                    var p = (CaveNode*)(v + slot * CaveNode.FLOATS);
+                    if (_used[slot] != 0 && _kx[slot] == nx && _kz[slot] == nz) return *p;
+                    *p = CaveTerms(in o, nx, nz, s);
+                    _kx[slot] = nx; _kz[slot] = nz; _used[slot] = 1; Misses++;
+                    return *p;
+                }
+            }
+        }
+
+        /// The cheap per-column half: geology and soil exact, the cave terms
+        /// from `n` (exact or interpolated), the cavern cell hashes exact.
+        private static ColumnDetail FinishColumn(in TerrainSpec spec, in Offsets o, in CaveNode n, int x, int z)
         {
             var cd = PrepareGeology(in o, x, z);
             cd.oreMul = spec.mapVersion >= 4 ? Ores.DEFAULT_MUL : (byte)0;
             float2 p = new float2(x, z);
             // Tunnels: the zero-line of a 2-D field meanders like a river in plan;
             // a second field gives its depth, a third its size, a fourth where it runs.
-            cd.tun0 = TunnelLine(p, o.caveA.xy, o.caveA.z, out float h0);
-            cd.tun1 = TunnelLine(p, o.caveB.xy, o.caveB.z, out float h1);
-            cd.tun2 = TunnelLine(p, o.cavern.xy, o.cavern.z, out float h2);
-            cd.tun3 = TunnelLine(p, o.under.xy + 43f, o.under.z, out float h3);
+            cd.tun0 = TunnelLine(n.t0, out float h0);
+            cd.tun1 = TunnelLine(n.t1, out float h1);
+            cd.tun2 = TunnelLine(n.t2, out float h2);
+            cd.tun3 = TunnelLine(n.t3, out float h3);
             cd.tunH0 = h0; cd.tunH1 = h1; cd.tunH2 = h2; cd.tunH3 = h3 * 1.3f;
-            cd.tunY3 = 200f + 150f * (Noise.Fbm(p / 3000f + o.under.xy + 47f, 2) * 0.5f + 0.5f);   // below the regional ground
-            cd.tunY0 = 180f + 120f * (Noise.Fbm(p / 3500f + o.caveA.xy + 11f, 2) * 0.5f + 0.5f);        // depth below the top
-            cd.tunY1 = spec.seaLevelY - 500f - 300f * (Noise.Fbm(p / 4000f + o.caveB.xy + 13f, 2) * 0.5f + 0.5f);
-            cd.tunY2 = spec.seaLevelY - 1100f - 300f * (Noise.Fbm(p / 4000f + o.cavern.xy + 17f, 2) * 0.5f + 0.5f);
+            cd.tunY3 = 200f + 150f * (n.ty.w * 0.5f + 0.5f);   // below the regional ground
+            cd.tunY0 = 180f + 120f * (n.ty.x * 0.5f + 0.5f);        // depth below the top
+            cd.tunY1 = spec.seaLevelY - 500f - 300f * (n.ty.y * 0.5f + 0.5f);
+            cd.tunY2 = spec.seaLevelY - 1100f - 300f * (n.ty.z * 0.5f + 0.5f);
 
             // Caverns: placed halls in the cavern layer, one candidate per cell.
-            float nR = Noise.Fbm(p / 400f + o.cavern.xy + 23f, 2), nF = Noise.Fbm(p / 200f + o.cavern.xy + 29f, 2);
+            float nR = n.cv.x, nF = n.cv.y;
             int gx = x >> CAVERN_CELL_SHIFT, gz = z >> CAVERN_CELL_SHIFT;
             int band0 = spec.UnderworldTopY + 300;
             int cells = math.max(0, (spec.CavernTopY - 200 - band0) / CAVERN_CELL_Y);
@@ -141,22 +266,23 @@ namespace TerrainGen
 
             // The underworld chamber: floor and ceiling from 2-D fields; pillars
             // where the ceiling comes down to the floor.
-            float pil = Noise.Fbm(p / 1800f + o.under.xy + 31f, 3);
+            float pil = n.cv.z;
             if (pil < 0.42f)
             {
-                cd.underLo = spec.worldBottomY + 200 + (int)(150f * (Noise.Fbm(p / 3000f + o.under.xy + 37f, 3) * 0.5f + 0.5f));
-                cd.underHi = spec.UnderworldTopY - 250 - (int)(250f * (Noise.Fbm(p / 2200f + o.under.xy + 41f, 3) * 0.5f + 0.5f));
+                cd.underLo = spec.worldBottomY + 200 + (int)(150f * (n.cv.w * 0.5f + 0.5f));
+                cd.underHi = spec.UnderworldTopY - 250 - (int)(250f * (n.uHi * 0.5f + 0.5f));
             }
             return cd;
         }
 
-        /// A tunnel layer at p: |line| / width, and the passage half height.
-        private static float TunnelLine(float2 p, float2 off, float seedZ, out float halfH)
+        /// A tunnel layer from its TunnelTerms (t = half height, gate, width,
+        /// line): |line| / width, and the passage half height.
+        private static float TunnelLine(float4 t, out float halfH)
         {
-            halfH = 22f + 14f * (Noise.Fbm(p / 1500f + off + seedZ + 5f, 2) * 0.5f + 0.5f);
-            if (Noise.Fbm(p / 6000f + off + seedZ + 3f, 2) < -0.15f) return 99f;          // passages end and begin
-            float w = TUNNEL_WIDTH * (0.7f + 0.6f * (Noise.Fbm(p / 2500f + off + seedZ + 7f, 2) * 0.5f + 0.5f));
-            return math.abs(Noise.Fbm(p / TUNNEL_SCALE + off + seedZ, 3)) / w;
+            halfH = 22f + 14f * (t.x * 0.5f + 0.5f);
+            if (t.y < -0.15f) return 99f;          // passages end and begin
+            float w = TUNNEL_WIDTH * (0.7f + 0.6f * (t.z * 0.5f + 0.5f));
+            return math.abs(t.w) / w;
         }
 
         /// The open interval of cell (gx, cy, gz)'s cavern through column p.
