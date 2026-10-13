@@ -1,53 +1,60 @@
-# 82b-engine-15-generation-speed: DONE. Proven-uniform bricks skip the per-voxel pass; output byte-identical; 0.1 m chunk 26.8 -> 9.2 ms (isolated).
-## What changed (commit `0887b49`, branch engine-phase)
-- `DetailField.UniformSamples` (TerrainGen): for one column and a brick's 8 sample heights, walks Material's branches over the
-  y RANGE and returns the one material every sample gets, or 255 = unproven (the per-voxel pass then runs, so 255 is always safe).
-  Each test is Material's own comparison, taken at the end of the range where it is hardest to pass:
-  - Above ground: air above max(ground, still water, sea); sea water; lake water or lava.
-  - Below ground: bedrock, the river lip, stamp openings, stamp3D, the ledge rule. Caves are checked only if some sample is
-    deeper than 6 m and not under a river floor: pocket (CullBrick's test), cavern and underworld intervals, all 4 tunnel layers
-    (2 voxels of margin for float rounding). Then stamp body, surface, soil, ores (`Ores.BrickMayHold` = At's cell and deposit
-    test, which depends only on the cell and the brick), then layer rock (`LayerRockRange`; float sums are monotone).
-  - Brick geology (deeper than 20 m) uses the exact cull values in 0.1 m chunks. In shells, where samples lie in different fine
-    bricks, it uses offsets bounded at 2x the noise amplitude. A range across the 20 m depth is split, and both parts must agree.
-- `TerrainGenChunkSource`: `VoxelJob` / `ShellVoxelJob` first take per-brick-column bounds. A brick above max top is air in O(1).
-  A brick wholly above or wholly below every column's ground asks `UniformSamples` for each of its 64 columns. A proven brick is
-  written as the uniform brick it would have been; shells also fill `Mats`. The shell pocket test covers the box of fine bricks
-  (`NoPocketInBox`). `BrickSkip` (on by default) and `SkipStats` (air/fluid/solid/total, 0.1 m and shells) are public for tests.
-- `Ores.At` refactored to share `DepositMask` (same arithmetic). CLAUDE.md: one Task 82b paragraph.
+STOP_FOR_OWNER -- Q: should the shell fill also fill ENCLOSED fluids (the sealed underworld lava sea, sealed pockets)? The task
+says "fluids are never filled", and with that rule shells 3-6 still need 1.04-1.66x their brick caps at spawn (target missed).
+ (a) yes, enclosed fluids only (no ray from outside can reach them; sea, lakes and rivers stay): at spawn s3-s7 then FIT (bricks
+     91.6k / 72.2k / 62.3k / 27.5k / 4.2k vs caps 102.4k / 102.4k / 102.4k / 71.7k / 17.3k). One switch, `ShellFillFluids`,
+     already built and measured (off). Recommended.
+ (b) keep fluids, raise s3-6 brick caps to the need x 1.25: about +190 MB of GPU memory. The run peaked at 2,951 MB (cap 3 GB).
+ (c) keep as is: s3-6 stay FULL at most poses; the far band fills what they refuse.
+# 83-engine-11d-shell-cave-fill: DONE except the target. Shells >= 3 fill enclosed air, keep cave entrances, flatten what nobody sees.
+## What changed (commit `f858dd5`, branch engine-phase)
+- `TerrainGenChunkSource.ShellFill.cs` (new): after generation and ops, for shells >= 3 (`FIRST_FILL_SHELL`, every preset):
+  - Flood from air above h - V (V = one shell voxel), op boxes +-1, open chunk faces (halo heights); enclosed AIR takes the solid
+    below, else above. Fluids are never filled.
+  - Mouths: a solid voxel touching open air becomes air when >= 1/4 of its underground 4x4x4 sub-samples (not arch, hoop or ledge
+    gaps) are cave air. A per-column prefilter (tunnel bands, stamps in reach) skips the rest.
+  - Flatten: interior mixed bricks take their majority material; wholly interior chunks become one material (no page).
+- Ops overload: generate, then apply ops, then fill. `ShellStreamer.CatchUp`: a filled chunk that missed an op is REDRAWN, not caught up.
+- `ShellLayout.PageCapFor`: s1 / s2 pages = measured 7.70 / 6.96 per column x 1.25 = 1,540 / 1,392 (was 320 each).
+- 8.14 row 13b. `ShellChunkTests`: exact with the fill off; with it on, exact at and above h - V (0 differ, s1-7). CLAUDE.md.
 ## Evidence
-- **Byte-identical** (`BrickSkipTests`, both Slow; Logs/overnight/82b-identical.txt, 82b-shells-identical.txt):
-  - **257 chunks**: 14 seed-42 sites (10 landforms, coast, sea, lake, river, stamp column). Each has the surface band plus deep
-    layers 1-36 (underworld, caverns, tunnel layers, pockets). 24,190 dense bricks, 76,771 ore voxels, 995,400 cave-air voxels.
-  - **254 shell chunks** over shells 1-7 at 9 of those sites: surface band, layer 0, the cavern top and sea - 60 m.
-  - Equal byte for byte with the skip on vs off. No lava-lake site turned up on the scan grid (none on seed 42's grid).
-- Existing exactness tests still pass: Shell0_IsGenerate, ShellVoxels vs D (shells 1-7), SurfaceChunk_IsExact, AirFastPath,
-  ColumnPassSharing (Logs/overnight/82b-filter2.out).
-- **SUITE=all PASS 757 FAIL 0 SKIP 20** (755 + 2 new; the extra skip is the report-only timing test). Logs/overnight/82b-all.out.
-- **run-phase7-rig.sh** (fresh build): PASS 37 FAIL 0, **19/19 shots byte-identical** (`cmp`) to 82's
-  (Phase7Cycle/2026-10-12_143300 vs _101148). Logs/overnight/82b-phase7.out.
-- **Isolated timing** (`BrickSkip_TimingReport`, REPORTS=1): Editor Burst, one thread, ABBA, warm steady state. Warm-up was
-  `MODE=stream MOTION=walk ./run-tg2world.sh` (Logs/tg2world_20261012_140430.txt); report in Logs/overnight/82b-timing.txt.
-  Chunk set: 8 sites, the stream's surface band (4 below, 2 above, shared column pass).
-  - 0.1 m: **26.8 -> 9.2 ms per chunk (2.91x)**. 94.4% of bricks proven: air 14.9, fluid 5.3, solid 74.2%.
-  - Shells, ms per chunk (off -> on): k1 90 -> 75, k2 105 -> 85, k3 200 -> 138, k4 197 -> 148, k5 178 -> 145, k6 155 -> 121,
-    k7 137 -> 96 (**1.21-1.45x**). Bricks proven: 77 / 64 / 52 / 43 / 35 / 45 / 63%.
-  - The pre-split first run (Logs/overnight/82b-timing-v1.txt, also after a warm-up) agreed: 26.8 -> 9.7 ms.
-  - This is an isolated generation figure, NOT a streaming or frame-time claim (step 16 measures streaming).
-## Not done / notes
-- Shells gain less because their **column pass now dominates**: `ShellColumnJob` takes 5 ShapeField.Sample per column for the
-  spacing-1 MaxStep, about 70-80 ms of the shell-1 to shell-3 chunk. Tall high-shell bricks also straddle the ground somewhere,
-  so they are truly mixed. Making the column pass cheaper is a performance change and needs the owner's go-ahead (not queued).
-- No follow-up task added.
-## Next step
-Queue order: 83 (shell cave fill). Engine step 16 (the streaming check of this speed-up) comes later, per the plan.
+- `ShellFillTests` (6; Screenshots/83/fill83_tests.txt):
+  - (i) 2.6 M outside rays (top + 4 sides, 80 chunks, s3-7): 0 differ. With mouths on, 96 differ, all at the 130 opened voxels.
+  - (ii) 11 cave entrances (4 mouths, 4 fissures, 3 skull caves): shown in s3-6 11 -> 11, s7 4 -> 5; 0 lost. Tunnels never come
+    within 6 m of the column top, so seed 42's entrances are stamps.
+  - (iii) dense bricks drop to 19-61%. Prefilter byte-identical on 52 chunks. A far crater across a chunk face: 0 of 2.33 M samples closed.
+- Whole suite **PASS 762 FAIL 0 SKIP 21** (Logs/overnight/83-all.out). run-phase7-rig **PASS 37 FAIL 0, 19/19 shots byte-identical**
+  to 82b's run (Phase7Cycle/2026-10-12_180337 vs _143300).
+- 77's streamer fill (fill_77method.txt): s6 67 -> 142 chunks stored, refusals 3 -> 1; s7 13 -> 16 stored, 3 -> 0.
+- Poses run (`-shells 1 -shellwait 360`, Logs/overnight/83-poses.out): peak **2,951 MB** (80: 2,959). s3-6 store 2-7x more
+  chunks per pose and are still FULL at most poses.
+- Sheets looked at (83 vs 80):
+  - peak_from_2km: the peak is one shell, and 80's light/dark split is gone.
+  - glide_400m: no far-band patches.
+  - coast: clean (OFF's cascade arc gone in ON). geyser: fewer grey patches.
+  - oblique_3000m / map / rivers_oblique: still all far band. Shells 6-7 are FULL with earlier poses' chunks (s6 139 stored, 38
+    missing; s7 20 stored); their box covers the island, so nothing is evicted (eviction not redesigned, per the task).
+## Found (not fixed)
+- **Shells 1-2 starve.** Coarsest-first ordering now spends minutes on s3-5 (no longer refused). At 75 s waits s1-2 held 0 chunks.
+  `ShellResolve` then ends every ray that meets an absent finer chunk inside a coarser hole, so whole frames were far band
+  (Screenshots/83/wait75/sheet_shells_1.jpg). Shells needed 127-296 s per pose to fill. Owner call: streaming order / hand-over.
+- s1 / s2 need 237k / 361k bricks (caps 150k / 119k; fill is k >= 3 only). s3-5 pages over cap too (657 / 598 / 331 vs 320), not raised.
+- Fill cost, Editor Burst, isolated, NOT a performance claim: shell chunk 122-178 -> 167-240 ms. The mouth rule is most of it.
+## Next step: the owner's answer above; then 11c / the default switch per the plan.
 
 ## For the doc
-- 0.1 m chunk generation, isolated (Editor Burst, 1 thread, warm, ABBA): **26.8 -> 9.2 ms per chunk (2.91x)**.
-  Logs/overnight/82b-timing.txt.
-- Shell chunks, same check: shell 1 90 -> 75 ms, shell 3 200 -> 138 ms, shell 7 137 -> 96 ms (**1.21-1.45x** across shells
-  1-7). The shell column pass is now the larger cost.
-- Bricks proven uniform and skipped: **94% at 0.1 m** (air 15%, water 5%, solid 74%); **35-77% in shells** (by shell).
-- Byte-identical: **257 chunks + 254 shell chunks (shells 1-7)**, skip on vs off. Whole suite 757/0/20. Phase 7 rig 37/0,
-  with 19/19 shots byte-identical.
-- No images: output is byte-identical, so nothing changes on screen.
+- Dense bricks needed at spawn, before -> after (cap): s3 1,564k -> 106k (102k); s4 557k -> 142k (102k); s5 521k -> 170k (102k);
+  s6 194k -> 94k (72k); s7 20.4k -> 13.3k (17.3k, fits). If enclosed fluids were also filled (Q (a)): 92k / 72k / 62k / 28k / 4k, all fit.
+  Screenshots/83/need83.txt.
+- Refusals over the 16 poses, run total s1-s7: 80 = 24/36/41/50/48/55/43 -> 83 = 18/30/41/41/45/44/6.
+- Pages s1 / s2: cap 320 -> 1,540 / 1,392 (need 1,232 / 1,113).
+- GPU memory per shell (bodies + pages + directory): s1 82 -> 102 MB, s2 66 -> 84 MB; s3-5 57.6 MB, s6 40.4, s7 9.7 (unchanged).
+  Peak process 2,951 MB.
+- Entrances: 11/11 seed-42 cave entrances still shown in shells 3-6 (s7 4 -> 5). The smallest mouth shown is a passage V/2 x V/2:
+  s3 0.4 m, s4 0.8, s5 1.6, s6 3.2, s7 6.4 m. That is 1 px at each shell's near edge (275 m, 550 m, 1.1 km, 2.2 km, 4.4 km).
+  Anything smaller is under a pixel there.
+- `Screenshots/83/sheet_shells_1.jpg` next to `Screenshots/80/sheet_shells_1.jpg`. Rows: peak_from_2km, summit, glide_400m,
+  coast, oblique_3000m; columns: OFF / ON / tint.
+  - Row 1: the peak is one magenta shell, and 80's grey/cyan split is gone.
+  - Row 3: glide is all shells, with none of 80's grey patches.
+  - Row 5: still grey (shells 6-7 full).
+- `Screenshots/83/wait75/sheet_shells_1.jpg`: same poses after 75 s; rows 1 and 3 all grey in the tint (s1-2 starved, above).
