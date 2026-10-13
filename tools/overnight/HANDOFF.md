@@ -1,58 +1,53 @@
-# 85-engine-12-handover-near-first: DONE. Shell chunks stream nearest-on-screen first (Q47 (a)); shells hand over by distance.
-## What changed (commit `1bb7e9e`, branch engine-phase)
-- `ShellStreamer.cs`: one request order across all shells. The key is `OrderKey` = max(distance from the camera to the chunk's
-  nearest point, the shell's inner hand-over distance) x (1 - 0.25 x cos(angle to the camera's smoothed velocity)), with the plain
-  distance breaking ties. The per-shell lists are re-keyed whenever any shell's camera chunk changes, and NextCandidate merges
-  their ends. Coarsest-first is gone. Also new: `InFlightIn(k)` and `TakeRequestOrder` (for tests).
-- Step 12, shells-on path only (`Raymarch.compute` ShellMarch and its CPU twin `ShellRayReference.March`, new `tTier0` arg): the shells
-  march from the camera. Inside tier 0's band, min(its 68.75 m hand-over, where tier 0's march stopped), a chunk tier 0 holds is
-  leapt. A chunk it does not hold (non-resident, or outside its window or layers) is read from shell 1, 2, ... The shells path no longer calls `FarStartT`,
-  and the far band starts at the shells' end. `RaymarchFeature`: `-detailspeed` is off while shells draw. Shadow rays pass tTier0 = 0 (unchanged).
-- Capture: `-poses a,b,c` keeps only the named poses. A `[shells] complete at` line gives the time each shell finished per pose.
-- Tests: `ShellOrderTests` (3) and `ShellHandOverTests.TierZerosBand_HeldIsLeapt_NotHeldIsShellOne`. Amendment 8.14 §3 "Order" and row 5,
-  plus a CLAUDE.md paragraph.
+# 85b-far-shading: DONE. Far terrain is shaded, not specked: sky light, slope normal at distance, haze lights escape (BUGS #9, Q48 (a)).
+## What changed (commit `bd98d9d`, branch engine-phase)
+- `Raymarch.compute`: a new kernel **`CSMainFarShade`** (`VE_FAR_SHADE`). Every 85b line is under `#ifdef`, so CSMain, CSMainChecker and CSMainDetail are the pre-task code.
+  (My first version used runtime `if`s and was NOT byte-identical: 1-LSB diffs in 8 of 19 Phase 7 shots.) Look 1 path; near, tiers 1-2, shells and the far band alike:
+  1. Sky light, `FarShadeSky`: the flat ambient (0.3 x horizon) becomes the sky colour the face looks at (horizon .. half-way to the zenith)
+     x (1 + n.y) / 2 x 1.1, still x the sky probe and VAO. It follows the time of day; at night it is BELOW the old night ambient.
+  2. Slope normal, `FarSlopeNormal`: from the far band's column heights (bilinear over 4 texels, at the finest level whose texel is >= 2 px).
+     It blends in from where a 0.1 m voxel is 2 px to where it is 1 px. At 720 rows that is **34 m -> 69 m** (it follows the render rows).
+     Skipped in caves and under overhangs (the hit is > 1 texel off the column tops), on fluids and on lava. Sun, moon, sky and torches all use it.
+  3. Haze, `FarShadeHaze`: 1 - exp(-d / 3.5 km), thinned over a 1.5 km scale height, toward the sky behind the pixel (dark at night).
+     Light (`lightAdd`: torches, emission, bleed, far lava) takes only 25% of the haze. Without a far band, the old range fog is kept as a floor (it hides the world's edge).
+- `RaymarchFeature`: `FarShade` (also reads `-farshade 1` on any player) picks the kernel. The checkerboard and the `-detailspeed` square keep theirs (no far shading then).
+  Constants: `FarShadeSkyStrength` 1.1, `FarShadeHazeRangeM` 3500, `FarShadeHazeScaleHeightM` 1500, `FarShadeLightHaze` 0.25.
+- `PlaySettings.farShade` (on; an old file gets on), `-farshade 0|1`, F6 row "Far shading". The F6 panel now scales for 1010 rows (it was 930 tall in 900).
+- Capture `-farpreview -farshadeshots` (`PlaygroundCapture.FarShade.cs`): day lit/backlit + night torches/lava, OFF/ON, raw/FSR 3; sheets `tools/farshade85b-sheet.py`.
+- Passes added: none. Inside the primary kernel, a hit past the blend start does a level loop + 4 FarTexels reads, one extra `UniformFaceHue` and the haze exp. No new rays.
 ## Evidence
-- Order, fixed camera at spawn, High: 7,508 requests. All 2,170 shell-1 chunks are requested by #2,911; the first shell >= 3 chunk is #3,102.
-  The first request is shell 1 (before: all of shell 7 went first). No coarse chunk farther than a shell-1 chunk comes before it (asserted).
-- Prefetch margin > 0 on every preset and shell (Screenshots/85/margin85.txt). High: shell 0 20.8 m, shell 1 16.1 m (0.27 s at 60 m/s), s2 32 m,
-  s7 1,592 m. Smallest anywhere: Low shell 1, 10.7 m.
-- ONE launch (`BUILD=1 MODE=poses EXTRA="-shells 1 -shellworkers 3 -gateres 1280 -shellwait 75 -poses ..."`, Logs/overnight/85-poses.out,
-  copied to Screenshots/85/wait75/poses85.txt). Chunks stored/missing at 75 s, 83's wait75 -> 85:
-  | pose | s1 | s2 | s3-7 stored |
-  | peak_from_2km_ground | 0/2170 -> **1390/775** | 0/2170 -> 219/1951 | 100/586/299/137/16 -> 0 |
-  | glide_400m | 0/2170 -> **1212/953** | 0/2001 -> 177/1824 | 567/637/308/139/16 -> 0 |
-  | eye_level_1 | 0/2170 -> **1050/1115** | 0/2170 -> 151/2019 | 143/544/308/137/16 -> 0 |
-  | cliff_foot_1 | 256/1909 -> **1212/956 FULL** | 494/1671 -> 351/1814 | 593/573/298/143/16 -> 0 |
-  Shells 1-2 did not complete within 75 s, before or after. At ~16-19 chunks/s, shell 1 alone (2,170 chunks) needs ~2 min.
-  Pixels drawn by s1/s2: peak none -> 3,059/10,705; eye_level_1 none -> 150k/54k. Peak process 2,995 -> 2,999 MB (cap 3 GB). No frame time quoted (rule 10).
+- Whole suite **PASS 768 FAIL 0 SKIP 21** (Logs/overnight/85b-all.out; 767 + `FarShade_OldFileGetsOn_FlagOverridesForTheRun`).
+- run-phase7-rig, switch OFF: **PASS 37 FAIL 0, 19/19 shots byte-identical** to task 85's (Phase7Cycle/2026-10-13_020910 vs _005521).
+  Switch ON (`EXTRA="-farshade 1"`): **PASS 37 FAIL 0** (Phase7Cycle/2026-10-13_021118), 10/19 shots change look.
+  The cave-lit-by-torch shot is unchanged in practice (the cave stays dark). In golden hour the slopes are smoother and shadows lighter.
+- ONE player launch for the sheets (the 2nd: the 1st, Screenshots/85b/run1, had sky x1.3, the owner pose's frame was a wall, and the lava sat at 80 m; ~8 min).
+  `Logs/overnight/85b-shots2.out`, `Screenshots/85b/farpreview.txt`; peak memory 2,529 MB. Shells off (the play default), waits 7-38 s, deficit 0 at every pose.
+  CAVEAT: these shots came from the runtime-`if` build. The final kernel build has the same math; I did not reshoot.
+- Near-black share (luma < 20/255), OFF -> ON, raw (Screenshots/85b/farshade85b_stats.txt): **eye_level_3 backlit noon 18.8% -> 0.0%**, lit 9.6% -> 0.0%,
+  glide backlit 6.8% -> 0.0%, peak lit 2.2% -> 0.0%. Night stays dark: mean luma eye_level_3 14 -> 18, peak_from_2km 18 -> 20 (of 255).
 - Sheets I looked at:
-  - Screenshots/85/wait75/sheet_shells_1.jpg (the 4 poses: OFF / ON / tint).
-  - Screenshots/85/wait75/before_after_83_vs_85.jpg, the columns 83 ON | 83 tint | 85 ON | 85 tint:
-  - Row 1 (peak): 85's tint has a yellow s2 strip past the blue tier-0 plane, where 83 was grey. Mountains are still grey (far band) in both.
-  - Row 3 (eye_level_1): green s1 and yellow s2 bands in the middle distance. 83's frame was all tier 0, but this pose moved after 83 (83b HANDOFF).
-  - Rows 2 and 4 (glide, cliff_foot_1): framed differently from 83, so they are not a matched pair. Glide shows no shell pixel either time.
-    Cliff_foot_1 is all tier 0 (blue). The ON column shows no holes, seams or floating cells.
-  - Caveats: in 83 these poses ran 1st/3rd/10th/13th of 16, with chunks left over from earlier poses; here they ran 1-4.
-- Whole suite **PASS 767 FAIL 0 SKIP 21** (Logs/overnight/85-all.out; 83b 763 + 4 new). run-phase7-rig **PASS 37 FAIL 0, 19/19 shots
-  byte-identical** to 83b's (Phase7Cycle/2026-10-13_005521 vs 2026-10-12_235030), so the shells-off path is unchanged.
-## Found / left (owner's call, not done)
-- **glide_400m spends the whole wait on sky.** The camera is ~400 m up, and the s1/s2 boxes (+-153 / +-307 m, all axes) are mostly air chunks.
-  Those generate at about the same rate as surface chunks (glide 18.5/s, eye level 16/s). So near-first fills s1-2 with nothing visible,
-  and s3-4, which hold the visible ground, get 0. Proposed fix: skip a chunk the column data PROVES is air before it is queued (the
-  `DetailField.UniformSamples` max-height test from 82b, done before generation), or rank it last. This changes performance, so it needs
-  owner approval.
-- s1 FULL at cliff_foot_1 (2 refusals; s1 cap 150k bricks vs ~237k needed, 83's finding). The s3 page cap is 1% over (83b). Neither changed here.
-- The shells-off path keeps FarStartT and -detailspeed until shells become the default (a later task, per the plan).
+  - `Screenshots/85b/sheet_day_raw.jpg`: rows = pose x (lit, backlit); columns OFF | ON.
+    eye_level_3 backlit (the owner's case): the black, speckled peak becomes shaped brown slopes with the strata readable.
+    glide_400m backlit: the black peak becomes brown. oblique_3000m: the far sea and island haze toward the sky; a bit milky.
+    peak_from_2km: snow tops get brighter.
+  - `Screenshots/85b/sheet_day_fsr3.jpg`: the same through FSR 3 at 720 rows (FSR 3 context confirmed in Player.log); it matches raw.
+  - `Screenshots/85b/sheet_night.jpg`: 0.5 h, OFF | ON. Night stays dark. Torches 12-28 m are bright points, and the 60-150 m ones are orange glows on the slope (eye_level_3 rows).
+    ON lifts the moonlit terrain slightly (the slopes lose their black step lines).
+## Found / left
+- **Owner pose:** `eye_level_1` now shows a hillside filling the view (83b showed a valley + peak, 85 a plain with the sea), with the same map hash and eye. BUGS #10 (new).
+  I used `eye_level_3`, the same dark-speckled valley + peak look, as the owner's case.
+- **Lava:** seed 42 has no volcano. A placed 5 m lava pool (1,961 voxels, lava lights registered) is not drawn, in OFF or ON. BUGS #11 (new).
+- **Far torches beyond ~120-150 m cannot exist yet**: EditService refuses non-resident chunks, and lights register only there (farpreview.txt lists each spot).
+- **Torch-through-walls (BUGS #4):** neither better nor worse. Occlusion rays are untouched. Tier >= 1 hits still use the unshadowed sum (as before).
+  The haze now keeps light, but point lights reach 8 m, at <= ~70 m where haze is ~2%.
+- **Step 21 (far lights) plugs in at `lightAdd`.** Whatever a far light adds to a far pixel (far band / shell hit), add it to both `lit` and `lightAdd`. `FarShadeApplyHaze` then keeps 1 - 0.25 x haze of it.
+  The night sky term stays low, so points of interest read across the island. The far-band lava path already does this (`lightAddF`).
 ## Next step
-Owner: the air-chunk skip above (Q). Then 11c / the default switch per the plan.
+Owner: look at the three sheets. Possible tuning: sky 1.1, haze 3.5 km, snow brightness. Then 86 as queued.
 
 ## For the doc
-- Shell-1 chunks stored after a 75 s wait (83 coarse-first -> 85 near-first): peak 0 -> 1,390; glide 0 -> 1,212; eye_level_1 0 -> 1,050;
-  cliff_foot_1 256 -> 1,212 of 2,165 (Logs/overnight/83-poses-wait75.out -> Screenshots/85/wait75/poses85.txt).
-- Request order at spawn: the first shell-1 request moves from after all 7,508 - 2,170 coarse chunks to #1. Shell 1 finishes by #2,911 and the
-  first shell >= 3 chunk is #3,102 (ShellOrderTests).
-- Fill time for shells 1-2: not reached within 75 s, before or after (~2 min needed at ~17 chunks/s).
-- Prefetch margin, High: shell 0 20.8 m, shell 1 16.1 m, shell 2 32.2 m. Every preset > 0 (Screenshots/85/margin85.txt).
-- `Screenshots/85/wait75/before_after_83_vs_85.jpg`: row 1 (peak) tint column: yellow s2 strip past the blue tier-0 plane in 85, grey
-  (far band) in 83. Row 3 (eye_level_1) 85 tint: green s1 and yellow s2 bands in the middle distance.
-- `Screenshots/85/wait75/sheet_shells_1.jpg`: the 4 poses after 75 s, OFF / ON / tint. The ON column has no holes or seams.
+- Near-black pixels at the owner's case (eye_level_3, noon, sun ahead): **18.8% -> 0.0%**; sun-behind 9.6% -> 0.0%; glide backlit 6.8% -> 0.0% (Screenshots/85b/farshade85b_stats.txt).
+- Night stays dark: mean luma 14 -> 18 (eye_level_3) and 18 -> 20 (peak_from_2km) of 255; torches at 12-150 m stay visible.
+- Slope-normal blend 34 -> 69 m at 720 rows (a 0.1 m voxel 2 px -> 1 px); haze 3.5 km, 1.5 km scale height; light keeps 75% of what haze takes.
+- OFF is byte-identical: Phase 7 rig 19/19 shots; PASS 37/0 off and on; whole suite 768/0/21.
+- `Screenshots/85b/sheet_day_raw.jpg`: rows = poses (lit, backlit), OFF | ON. Look at eye_level_3 backlit: a black speckled peak (OFF) becomes shaped slopes (ON).
+- `Screenshots/85b/sheet_night.jpg`: 0.5 h, OFF | ON. Night stays dark, and the torch glows (near points, orange patches at 60-150 m) are visible in both.
