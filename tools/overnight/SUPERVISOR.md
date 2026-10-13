@@ -88,6 +88,9 @@ On each event:
   write the final summary into the doc, update `SESSION_HANDOFF.md`, stop.
 
 ## Usage budget (owner, 2026-10-09)
+**Owner, 2026-10-12: "dont worry about usage. Just make sure to use it efficiently I dont really use it for
+anything else."** This REPLACES the reserve / screenshot rules below: keep the queue fed, no ~10% reserve, no pausing to
+save the week, no usage-screenshot requests (the runner waits out limits by itself). Efficiency rules stay.
 $20 Pro plan; NEVER suggest paid options (credits, upgrades). The WEEKLY limit (resets Thu 06:00 PT)
 binds, not the 5-hour window. The supervisor paces the queue itself: keep ~10% of the week in
 reserve for the owner's questions, review packs and a blocker fix. The owner cannot tell when to
