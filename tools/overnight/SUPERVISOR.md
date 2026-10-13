@@ -68,7 +68,8 @@ On each event:
 - **done NAME**: read HANDOFF.md's `## For the doc` block. Owner, 2026-10-09: EVERY finished task
   gets a short report section in the doc's "Task reports" tab (newest first): one-line result,
   the before -> after numbers, and its 1-3 images uploaded and captioned (look at each first).
-  Plus one row in the Done table on the "Now" tab. Keep the "Now" tab short (running, waiting
+  Plus one row in the Done table on the "Now" tab. **Then add the task's `Screenshots/<task>/` folder to the Screenshot
+  Archive page (`tools/archive/README.md`; owner 2026-10-13: images live in claude.ai, `Screenshots/` images are git-ignored).** Keep the "Now" tab short (running, waiting
   on you, next up); move closed questions to "Answered" (owner: the doc got hard to navigate).
 - **BLOCKED NAME**: read `blocked/NAME.HANDOFF.md`. Add its question to the doc:
   a specific multiple-choice question with your recommendation first and why,
