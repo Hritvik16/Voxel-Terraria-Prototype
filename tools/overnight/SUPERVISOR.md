@@ -200,3 +200,11 @@ and which (this one) to close.
 > yourself. Put every question for me in the "Queue decisions" doc. Start by
 > telling me why this new session started and what the previous chat covered
 > (SESSION_HANDOFF.md, "For the owner").
+
+## tmux socket gone (2026-10-12)
+macOS deletes `/private/tmp/tmux-501/` when nothing touched it for ~3 days; then every `tmux` command says "error connecting
+to /private/tmp/tmux-501/default" although the server (and all windows) still run. Fix: `mkdir -m 700 /private/tmp/tmux-501;
+kill -USR1 <tmux server pid>` (recreates the socket). SIDE EFFECT: the server's umask becomes 0117, so every window it opens
+afterwards makes unusable folders (a headless Claude then cannot create its temp dir: task 83b failed twice). Since then
+`start.sh` / `new-session.sh` set `umask 022` themselves, and the running server has `tmux set -g default-command 'umask 022;
+exec /bin/zsh -l'` for windows opened by hand. A tmux restart (nothing important running) clears it for good.
