@@ -1,0 +1,1806 @@
+#pragma kernel CSMain
+
+RWTexture2D<float4> Result;
+// [0] = Hit Position & Status. [1] = Geometric Face Normal
+RWStructuredBuffer<int4> _CrosshairTarget;
+float4x4 _CameraToWorld;
+float4x4 _CameraInverseProjection;
+float4 _CameraForward;
+int _PoolSize;
+
+struct SVONode { uint childIndex; uint material; };
+struct ChunkData { float4 position; uint rootNodeIndex; int currentLOD; uint packedState; uint densePoolIndex; };
+
+StructuredBuffer<SVONode> _SVOPool;
+StructuredBuffer<uint> _DenseChunkPool;
+StructuredBuffer<ChunkData> _ChunkMap;
+int _ChunkCount;
+float4 _ClipmapCenters[8];
+int _ClipmapLayers;
+float4 _RenderBounds;
+int _DebugViewMode;
+// SA-F7 PER-PIXEL NUMERIC DUMP. _SafDumpX <= 0 means OFF, which is what an
+// unset global reads back as, so the instrument is inert unless asked for.
+int _SafDumpX;
+int _SafDumpY;
+// CALIB trip count (debug mode 12). A uniform, not a #define, so the
+// compiler cannot unroll or fold the loop -- see DEBUG MODE 12 below.
+int _CalibIters;
+// SKY PARITY (SA-SKY): the Brickmap's sun-highlight and haze terms as one
+// package (that is how the Brickmap ships them). _SvoSkyMode 0 keeps the
+// legacy sky bit-identical (used by the control arm + pre-decision captures);
+// normal runs default ON via the render feature (probe runs forward the
+// per-arm mode). Owner decision 2026-09-20: ON with RESTRAINED haze (1.2).
+// Look reference is the Brickmap, not the main project.
+float4 _SunHaloColor;
+float _HazeDensity;
+int _SvoSkyMode;
+
+// SESSION 12: THE ENVIRONMENT IS UNIFORMS, NOT CONSTANTS. The sky gradient,
+// ambient and shadow floor were literals here, so this engine could not have a
+// day/night cycle at all. They now come from the render feature, which passes
+// EXACTLY the old literals unless the playground overrides them -- so every
+// probe arm renders bit-identically. Same names and meanings as the Brickmap's
+// VoxelEnvironmentManager globals.
+float4 _ZenithColor;      // default (0.2, 0.4, 0.8)
+float4 _HorizonColor;     // default (0.6, 0.8, 1.0)
+float  _AmbientStrength;  // default 0.3
+float  _ShadowDarkness;   // default 0.75 (shadowed = 25% direct)
+
+// PLAYGROUND render state, forwarded explicitly; 0 = shipped behaviour.
+int _ShadowRung;          // 0 hard / 1 soft 4-ray / 2 near-only / 3 off
+int _SkyOcclusion;        // 0 off / 1 sealed space loses skylight
+
+// POINT LIGHTS (session 12). This engine had none. Ported from the Brickmap
+// term for term -- same struct, same attenuation, same per-light occlusion ray
+// -- so torches cost and look the same kind of thing in both. Always bound
+// (a dummy when nothing is lit): Metal skips a dispatch with an unbound
+// declaration, silently.
+struct TorchLight { float3 position; float radius; float3 color; float intensity; };
+StructuredBuffer<TorchLight> _TorchBuffer;
+int _TorchCount;
+
+// SA-F6: 0 = the dead baked-AO path (this engine as shipped through session 8,
+// where vao is always exactly 1.0); 1 = the live eight-neighbour AO ported from
+// the Brickmap. A RUNTIME toggle, not a #define, so one build produces both
+// arms in one run and the control cannot drift thermally away from the arm it
+// is compared against (B3F1_ABLATION.md's methodological finding).
+int _SvoAoMode;
+
+// CALIBRATION STRIP -- see PARITY_ROADMAP "colour space".  Session 6 tried to
+// match this engine's look to the Brickmap's by SOLVING for an exposure
+// constant, twice, and overshot both times.  The reason is that the shader
+// value and the pixel on screen were not the same number here: this project
+// WAS Linear colour space and the Brickmap Gamma, so URP sRGB-encoded this
+// engine's output on the final blit and did not encode the Brickmap's.  No
+// single multiplier can undo a per-channel power curve, which is exactly why
+// each algebraic solve missed.
+//
+// SESSION 8, OWNER DECISION: this project is now GAMMA
+// (ProjectSettings m_ActiveColorSpace: 0), the same as the Brickmap, and the
+// blit's compensating decode has been DELETED rather than disabled.  There is
+// no curve anywhere in this path any more, so a shader value is its own pixel.
+// The strip stays -- it is what PROVES that, and it is the instrument that
+// will catch the next colour-space drift instead of a six-minute guess.
+//
+// Rather than assume the curve, MEASURE it: under _DebugViewMode 10 a band
+// of known values 0.0..1.0 is written straight down the real output path, and
+// whatever comes back out of ScreenCapture is the pipeline's transfer function.
+// Both engines carry an identical strip, so the two are directly comparable.
+// Shared with the Brickmap as _DebugViewMode == 10 so one instrument
+// measures both pipelines. See CSMain.
+float3 _SunDir;
+
+int _IsEditMode;
+int _EditMode;
+int _BrushSize;
+int _BrushShape;
+float _VoxelScale;
+
+// NEW: The exact block the crosshair is looking at
+float4 _TargetBlock;
+float4 _TargetNormal;
+
+struct Ray { float3 origin; float3 direction; };
+
+struct VoxelMaterial {
+    float4 albedo;
+    float roughness;
+    float metallic;
+    float emission;
+    float padding;
+};
+
+StructuredBuffer<VoxelMaterial> _MaterialPalette;
+
+float hash(float3 p) {
+    p = frac(p * 0.3183099 + 0.1);
+    p *= 17.0;
+    return frac(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+
+
+// SIGN THAT IS NEVER ZERO. HLSL's sign(0.0) is 0.0, so a ray component of
+// exactly zero produces a (0,0,0) surface normal here:
+//     normal = float3(mask) * -sign(ray.direction)
+// A degenerate normal normalizes to straight up through
+// normalize(normal + float3(0, 0.65, 0)), takes maximum face shade, and the
+// pixel renders bright instead of like the side face it is.
+//
+// The Brickmap already guards its two copies of this idiom
+// (`ray.direction < 0.0f ? 1.0f : -1.0f`, with the old -sign() left commented
+// beside them); the SVO did not. This brings the two engines into line.
+//
+// *** THIS DID NOT FIX THE CENTRE-COLUMN SEAM. SVO FLAG SA-F7. ***
+// It was added on the hypothesis that it would, and the hypothesis was WRONG:
+// the frame is 960 wide, so the centre falls BETWEEN columns 479 and 480 and
+// uv.x is -0.00104 / +0.00104 there, never exactly 0. Builds with and without
+// this change are byte-identical at the seam (col 479 mean luma 172.9 both
+// times, against 92.4 and 85.8 either side). Kept because it is correct
+// hardening that costs nothing, NOT because it fixed anything. See SVO_FLAGS.
+float3 NonZeroSign(float3 v) {
+    return float3(v.x < 0.0f ? -1.0f : 1.0f,
+                  v.y < 0.0f ? -1.0f : 1.0f,
+                  v.z < 0.0f ? -1.0f : 1.0f);
+}
+
+// ===========================================================================
+// SA-F7: AXIS SELECTION DERIVED FROM COMPARISONS, NEVER FROM FLOAT EQUALITY
+// ===========================================================================
+//
+// Every step mask in this file used to be recovered by testing the chosen t
+// for EQUALITY against the components it was chosen from:
+//
+//     float tNext = min(min(tMaxC.x, tMaxC.y), tMaxC.z);
+//     mask = (tNext == tMaxC.x) ? int3(1,0,0)
+//          : ((tNext == tMaxC.y) ? int3(0,1,0) : int3(0,0,1));
+//
+// Z IS THE SILENT FALLBACK OF THAT CHAIN. If neither equality holds -- which a
+// reassociated or fused multiply-add can cause, since the compiler is free to
+// evaluate `tMaxC.x` differently inside min() than in the comparison -- the
+// mask becomes Z with no diagnostic, and the surface normal derived from it
+// points along Z on a face that is actually +Y.
+//
+// That is exactly what session 8 measured at column 479: the decoded normal is
+// (-0.209, +0.119, +0.580) where both neighbouring columns are (-0.18, +0.49,
+// -0.06). ~70% of that column returns a Z normal where +Y is correct.
+//
+// These helpers select the axis with the SAME comparison chain that produces
+// the extremum and read the value back from the axis they chose, so the mask
+// and the t can never disagree. No equality is performed at all, the choice is
+// total (every input lands on exactly one axis), and it is NaN-deterministic:
+// a NaN component fails every `<=`/`>=` and simply loses.
+//
+// The returned t is bit-identical to the old min()/max() for all ordinary
+// inputs, so this changes the MASK ONLY -- traversal, depth and step counts are
+// untouched. That is deliberate: it makes the discriminator clean. If the seam
+// survives, the cause is not the mask.
+int3 MinAxisMask(float3 tv, out float tSel) {
+    if (tv.x <= tv.y) {
+        if (tv.x <= tv.z) { tSel = tv.x; return int3(1, 0, 0); }
+        tSel = tv.z; return int3(0, 0, 1);
+    }
+    if (tv.y <= tv.z) { tSel = tv.y; return int3(0, 1, 0); }
+    tSel = tv.z; return int3(0, 0, 1);
+}
+
+int3 MaxAxisMask(float3 tv, out float tSel) {
+    if (tv.x >= tv.y) {
+        if (tv.x >= tv.z) { tSel = tv.x; return int3(1, 0, 0); }
+        tSel = tv.z; return int3(0, 0, 1);
+    }
+    if (tv.y >= tv.z) { tSel = tv.y; return int3(0, 1, 0); }
+    tSel = tv.z; return int3(0, 0, 1);
+}
+
+// MASK PROVENANCE -- the instrument that makes the next hypothesis cheap.
+//
+// SA-F7 has already cost two disproved hypotheses (sign(0.0), then "is it
+// shading or geometry"). The mask that reaches the shader can be set at EIGHT
+// different places in TraceVoxelRay, and no capture so far can tell them
+// apart. TraceVoxelRay now reports WHICH ONE wrote the mask it returned, and
+// debug view 11 paints it. If the comparison fix above does not move column
+// 479, this says where to look next instead of costing another build to guess.
+#define MASKSITE_NONE        0   // never written -- mask stayed int3(0,0,0)
+#define MASKSITE_EMPTYSKIP   1   // uniform-air chunk skipped
+#define MASKSITE_UNIFORMHIT  2   // uniform-solid chunk, entry face of its box
+#define MASKSITE_BBOXSKIP    3   // chunk bbox missed, skipped
+#define MASKSITE_BBOXENTER   4   // jumped to the chunk bbox, entry face
+#define MASKSITE_DDA_X       5   // voxel DDA stepped X
+#define MASKSITE_DDA_Y       6   // voxel DDA stepped Y
+#define MASKSITE_DDA_Z       7   // voxel DDA stepped Z
+#define MASKSITE_CHUNKADV    8   // outer loop advanced to the next chunk
+
+Ray CreateCameraRay(float2 uv) {
+    float3 origin = mul(_CameraToWorld, float4(0.0f, 0.0f, 0.0f, 1.0f)).xyz;
+    float3 direction = mul(_CameraInverseProjection, float4(uv, 0.0f, 1.0f)).xyz;
+    direction = mul(_CameraToWorld, float4(direction, 0.0f)).xyz;
+    Ray ray; ray.origin = origin; ray.direction = normalize(direction);
+    return ray;
+}
+
+int GetLayer(float3 worldPos) {
+    int renderDistXZ = (int)_RenderBounds.x;
+    int renderDistY  = (int)_RenderBounds.y; 
+    for (int L = 0; L < _ClipmapLayers; L++) {
+        float layerScale = _ClipmapCenters[L].w;
+        int3 chunkCoord = int3(floor(worldPos / (32.0 * layerScale)));
+        int3 centerChunk = (int3)_ClipmapCenters[L].xyz;
+        float distXZ = length(float2(chunkCoord.x - centerChunk.x, chunkCoord.z - centerChunk.z));
+        if (distXZ <= renderDistXZ && abs(chunkCoord.y - centerChunk.y) <= renderDistY) return L;
+    }
+    return _ClipmapLayers;
+}
+
+ChunkData GetChunkData(int3 chunkCoord, int layer) {
+    // EXPLICIT ZERO-INITIALIZATION: Metal will refuse to compile the kernel 
+    // if it detects we might return an uninitialized 'packedState'.
+    ChunkData invalidChunk;
+    invalidChunk.position = float4(0, 0, 0, 0);
+    invalidChunk.rootNodeIndex = 0xFFFFFFFF;
+    invalidChunk.currentLOD = 0;
+    invalidChunk.packedState = 0;
+    invalidChunk.densePoolIndex = 0;
+    
+    int renderDistXZ = (int)_RenderBounds.x;
+    int renderDistY  = (int)_RenderBounds.y; 
+    int3 centerChunk = (int3)_ClipmapCenters[layer].xyz;
+    float distXZ = length(float2(chunkCoord.x - centerChunk.x, chunkCoord.z - centerChunk.z));
+    if(distXZ > renderDistXZ || abs(chunkCoord.y - centerChunk.y) > renderDistY) return invalidChunk;
+    
+    int sideXZ = 2 * renderDistXZ + 1;
+    int sideY = 2 * renderDistY + 1;
+    int mx = (int)(((uint)(chunkCoord.x + 400000 * sideXZ)) % (uint)sideXZ);
+    int my = (int)(((uint)(chunkCoord.y + 400000 * sideY)) % (uint)sideY);
+    int mz = (int)(((uint)(chunkCoord.z + 400000 * sideXZ)) % (uint)sideXZ);
+    
+    ChunkData cd = _ChunkMap[(layer * _ChunkCount) + mx + mz * sideXZ + my * sideXZ * sideXZ];
+    
+    float3 expectedPos = chunkCoord * 32.0f;
+    // The following validation check prevents stale data flickering during movement.
+    if (abs(cd.position.x - expectedPos.x) > 0.1f || abs(cd.position.y - expectedPos.y) > 0.1f || abs(cd.position.z - expectedPos.z) > 0.1f) return invalidChunk;
+    return cd;
+
+}
+
+void UnpackLight(uint data, out uint matID, out float r, out float g, out float b, out float sun, out uint ao) {
+    matID = data & 0xFF;
+    r = ((data >> 8) & 0xF) / 15.0f;
+    g = ((data >> 12) & 0xF) / 15.0f;
+    b = ((data >> 16) & 0xF) / 15.0f;
+    sun = ((data >> 20) & 0xF) / 15.0f;
+    ao = (data >> 24) & 0xFF;
+}
+
+uint GetVoxelFromRoot(uint rootIndex, int3 localPos) {
+    if (rootIndex == 0xFFFFFFFF || rootIndex >= (uint)_PoolSize) return 0;
+    uint nodeIndex = rootIndex;
+    int size = 32;
+    for (int i = 0; i < 6; i++) {
+        if (nodeIndex >= (uint)_PoolSize) return 0;
+        if (nodeIndex >= (uint)_PoolSize) return 0;
+        SVONode node = _SVOPool[nodeIndex];
+        if (node.childIndex == 0) return node.material;
+        size >>= 1; 
+        int3 childIdx = (localPos >= size) ? 1 : 0;
+        localPos -= childIdx * size;
+        nodeIndex = node.childIndex + (childIdx.x + childIdx.y * 2 + childIdx.z * 4);
+    }
+    
+    // FIX: Actually read the final leaf node from VRAM instead of returning Air!
+    return (nodeIndex < (uint)_PoolSize) ? _SVOPool[nodeIndex].material : 0; 
+}
+
+// SA-F6: IS THE VOXEL AT THIS WORLD-GRID POSITION SOLID?
+//
+// The Brickmap gets ambient occlusion by asking eight neighbours at shade time
+// (FastGetMaterial x8). This is the SVO's equivalent, and it costs more: the
+// Brickmap's brick is a flat array it can index, while here every neighbour is
+// an independent six-level descent from a chunk root. That is the whole reason
+// SA-F6 was left open rather than fixed in passing -- it is a
+// performance-affecting change and gets its own measured arm.
+//
+// It resolves the chunk itself rather than assuming the neighbour shares the
+// hit voxel's chunk, because AO's entire job is the voxel at the EDGE of
+// something, which is exactly where the eight neighbours straddle a chunk
+// boundary. Sampling only within the hit chunk would leave a bright seam on
+// every chunk border -- the defect this engine has already shipped twice in
+// other forms.
+//
+// Out-of-window neighbours (no chunk, or a chunk not yet streamed) return AIR,
+// not solid. A missing chunk must not darken the frame: air is the honest
+// answer for "nothing is loaded there", and it fails toward no-AO, which is
+// this engine's pre-SA-F6 behaviour rather than toward a new artefact.
+// The material at a world-grid position (0 = air / not loaded), for the
+// emissive bleed. Same resolution rules as SvoSolidAt below.
+uint SvoMaterialAt(int3 mapPos, int layer) {
+    int3 chunkCoord = mapPos >> 5;
+    ChunkData cd = GetChunkData(chunkCoord, layer);
+    int3 vLocal = mapPos - (chunkCoord << 5);
+    if ((cd.packedState & 1) == 1) {
+        uint denseBase = cd.densePoolIndex << 15;
+        uint flatIdx = (uint)(vLocal.x + (vLocal.y << 5) + (vLocal.z << 10));
+        return _DenseChunkPool[denseBase + flatIdx] & 0xFF;
+    }
+    if (cd.rootNodeIndex == 0xFFFFFFFF) return 0;
+    return GetVoxelFromRoot(cd.rootNodeIndex, vLocal) & 0xFF;
+}
+
+float3 SvoEmitColor(int3 mapPos, int layer) {
+    VoxelMaterial m = _MaterialPalette[SvoMaterialAt(mapPos, layer)];
+    return m.emission > 0.0 ? m.albedo.rgb : float3(0, 0, 0);
+}
+
+bool SvoSolidAt(int3 mapPos, int layer) {
+    int3 chunkCoord = mapPos >> 5;            // arithmetic shift: floors for negatives
+    ChunkData cd = GetChunkData(chunkCoord, layer);
+    int3 vLocal = mapPos - (chunkCoord << 5);
+
+    if ((cd.packedState & 1) == 1) {
+        uint denseBase = cd.densePoolIndex << 15;
+        uint flatIdx = (uint)(vLocal.x + (vLocal.y << 5) + (vLocal.z << 10));
+        return (_DenseChunkPool[denseBase + flatIdx] & 0xFF) > 0;
+    }
+    if (cd.rootNodeIndex == 0xFFFFFFFF) return false;
+    return (GetVoxelFromRoot(cd.rootNodeIndex, vLocal) & 0xFF) > 0;
+}
+
+// bool TraceVoxelRay(Ray ray, float maxDist, out float t, out int3 mask, out uint hitMatID_Data, out float finalVoxelSize, out float3 finalBlockPos, out int raySteps) {
+//     bool hit = false;
+//     hitMatID_Data = 0; mask = 0; t = 0; finalVoxelSize = 1.0f; finalBlockPos = 0; raySteps = 0;
+//     // THE FIX: The DDA Infinity Trap.
+//         // Prevent exactly zero directions without EVER flipping the mathematical sign of the ray.
+//         float3 safeDir = ray.direction;
+//         if (abs(safeDir.x) < 1e-6f) safeDir.x = (safeDir.x < 0.0f ? -1e-6f : 1e-6f);
+//         if (abs(safeDir.y) < 1e-6f) safeDir.y = (safeDir.y < 0.0f ? -1e-6f : 1e-6f);
+//         if (abs(safeDir.z) < 1e-6f) safeDir.z = (safeDir.z < 0.0f ? -1e-6f : 1e-6f);
+
+//         float3 invDir = 1.0f / safeDir;
+//         int3 rayStep = sign(safeDir);
+//         int3 stepDirBounds = max(rayStep, 0);
+
+//     // Might need to change the 600 to something higher
+//     [loop]
+//     for (int i = 0; i < 200; i++) { 
+//         raySteps++; 
+//         if (t > maxDist) break;
+//         float3 currentPos = ray.origin + ray.direction * t;
+
+//         // Aggressive horizon culling to prevent Ray Runaway
+//         if (currentPos.y > 30.0f && ray.direction.y > -0.05f) break;
+//         // DYNAMIC BOUNDS CULLING: Kill the ray instantly if it exits the maximum generated volume.
+//         // int maxL = _ClipmapLayers - 1;
+//         // float maxScale = _ClipmapCenters[maxL].w;
+//         // float maxRadiusXZ = _RenderBounds.x * 32.0f * maxScale;
+//         // float maxRadiusY = _RenderBounds.y * 32.0f * maxScale; 
+//         // float3 globalCenter = _ClipmapCenters[maxL].xyz * 32.0f * maxScale;
+        
+//         // float distFromCenterXZ = length(float2(currentPos.x - globalCenter.x, currentPos.z - globalCenter.z));
+//         // if (distFromCenterXZ > maxRadiusXZ || abs(currentPos.y - globalCenter.y) > maxRadiusY) break;
+
+//         int layer = GetLayer(currentPos);
+//         if (layer >= _ClipmapLayers) break;
+
+//         float voxelSize = _ClipmapCenters[layer].w;
+//         float chunkSize = 32.0f * voxelSize;
+//         int3 mapPos = int3(floor(currentPos / voxelSize));
+//         int3 chunkCoord = mapPos >> 5;
+
+//         ChunkData currentChunk = GetChunkData(chunkCoord, layer);
+//         uint rootIndex = currentChunk.rootNodeIndex;
+
+//         if (rootIndex != 0xFFFFFFFF) {
+//             SVONode rootNode = _SVOPool[(rootIndex < (uint)_PoolSize) ? rootIndex : 0]; //_SVOPool[rootIndex & 134217727];
+
+//             if (rootNode.childIndex == 0 && (rootNode.material & 0xFF) == 0) {
+//                 float3 nextC = (chunkCoord + stepDirBounds) * chunkSize;
+//                 float3 tMaxC = (nextC - ray.origin) * invDir;
+//                 float tNext = min(min(tMaxC.x, tMaxC.y), tMaxC.z);
+//                 mask = (tNext == tMaxC.x) ? int3(1,0,0) : ((tNext == tMaxC.y) ? int3(0,1,0) : int3(0,0,1));
+//                 t = max(t, tNext + (voxelSize * 0.05f));
+//                 continue;
+//             }
+
+//             if (rootNode.childIndex == 0 && (rootNode.material & 0xFF) != 0) {
+//                 hit = true; hitMatID_Data = rootNode.material; finalVoxelSize = voxelSize;
+//                 float3 chunkMin = chunkCoord * chunkSize;
+//                 float3 chunkMax = chunkMin + chunkSize;
+//                 float3 t0 = (chunkMin - ray.origin) * invDir;
+//                 float3 t1 = (chunkMax - ray.origin) * invDir;
+//                 float3 tMinBox = min(t0, t1);
+//                 float tEnter = max(max(tMinBox.x, tMinBox.y), tMinBox.z);
+
+//                 t = max(t, tEnter);
+//                 finalBlockPos = floor((ray.origin + ray.direction * t) / voxelSize);
+//                 mask = (tEnter == tMinBox.x) ? int3(1,0,0) : ((tEnter == tMinBox.y) ? int3(0,1,0) : int3(0,0,1));
+//                 break;
+//             }
+
+//             // --- UNPACK STATE & PRESERVE HDDA Y-BOUNDS CULLING ---
+//             uint isDense = currentChunk.packedState & 1;
+//             uint chunkMinY = (currentChunk.packedState >> 8) & 0xFF;
+//             uint chunkMaxY = (uint)currentChunk.position.w;
+
+//             // Dense chunks use full 32 bounds (to allow editing air), SVOs use tight vertical bounds to skip empty sky/air
+//             float minY = (isDense == 1) ? 0.0f : (float)chunkMinY;
+//             float maxY = (isDense == 1) ? 32.0f : (float)chunkMaxY;
+
+//             float3 absoluteBoxMin = (chunkCoord * 32.0f + float3(0.0f, minY, 0.0f)) * voxelSize;
+//             float3 absoluteBoxMax = (chunkCoord * 32.0f + float3(32.0f, maxY, 32.0f)) * voxelSize;
+//             float3 tb0 = (absoluteBoxMin - ray.origin) * invDir;
+//             float3 tb1 = (absoluteBoxMax - ray.origin) * invDir;
+//             float3 tMinB = min(tb0, tb1);
+//             float3 tMaxB = max(tb0, tb1);
+//             float tEnterB = max(max(tMinB.x, tMinB.y), tMinB.z);
+//             float tExitB = min(min(tMaxB.x, tMaxB.y), tMaxB.z);
+
+//             if (tEnterB > tExitB || tExitB < t) {
+//                 float3 nextC = (chunkCoord + stepDirBounds) * chunkSize;
+//                 float3 tMaxC = (nextC - ray.origin) * invDir;
+//                 float tNext = min(min(tMaxC.x, tMaxC.y), tMaxC.z);
+//                 mask = (tNext == tMaxC.x) ? int3(1,0,0) : ((tNext == tMaxC.y) ? int3(0,1,0) : int3(0,0,1));
+//                 t = max(t, tNext + (voxelSize * 0.05f));
+//                 continue;
+//             }
+
+//             if (tEnterB > t) {
+//                 t = tEnterB + (voxelSize * 0.001f);
+//                 float3 jumpPos = ray.origin + ray.direction * t;
+//                 mapPos = int3(floor(jumpPos / voxelSize));
+//                 mask = (tEnterB == tMinB.x) ? int3(1,0,0) : ((tEnterB == tMinB.y) ? int3(0,1,0) : int3(0,0,1));
+//             }
+
+//             float3 tDelta = abs(voxelSize * invDir);
+//             float3 tMaxV = ((mapPos + stepDirBounds) * voxelSize - ray.origin) * invDir;
+            
+//             [loop]
+//             for (int v = 0; v < 128; v++) { 
+//                 int3 vLocal = mapPos - (chunkCoord << 5);
+//                 if (any(vLocal < 0) || any(vLocal > 31)) break;
+                
+//                 uint matData = GetVoxelFromRoot(rootIndex, vLocal);
+//                 if ((matData & 0xFF) > 0) { hit = true; hitMatID_Data = matData; finalVoxelSize = voxelSize; finalBlockPos = mapPos; break; }
+                
+//                 if (tMaxV.x < tMaxV.y) {
+//                     if (tMaxV.x < tMaxV.z) { t = tMaxV.x; tMaxV.x += tDelta.x; mapPos.x += rayStep.x; mask = int3(1,0,0); }
+//                     else { t = tMaxV.z; tMaxV.z += tDelta.z; mapPos.z += rayStep.z; mask = int3(0,0,1); }
+//                 } else {
+//                     if (tMaxV.y < tMaxV.z) { t = tMaxV.y; tMaxV.y += tDelta.y; mapPos.y += rayStep.y; mask = int3(0,1,0); }
+//                     else { t = tMaxV.z; tMaxV.z += tDelta.z; mapPos.z += rayStep.z; mask = int3(0,0,1); }
+//                 }
+//             }
+//         }
+//         if (hit) break;
+        
+//         float3 nextC = (chunkCoord + stepDirBounds) * chunkSize;
+//         float3 tMaxC = (nextC - ray.origin) * invDir;
+//         float tNext = min(min(tMaxC.x, tMaxC.y), tMaxC.z);
+//         mask = (tNext == tMaxC.x) ? int3(1,0,0) : ((tNext == tMaxC.y) ? int3(0,1,0) : int3(0,0,1));
+//         t = max(t, tNext + (voxelSize * 0.05f));
+//     }
+//     return hit;
+// }
+// ===========================================================================
+// SA-F7 -- THE PER-PIXEL NUMERIC DUMP, BUILT BEFORE HYPOTHESIS 7
+// ===========================================================================
+//
+// SIX hypotheses are disproved (SAF7_DIAGNOSED.md section 3). The reason the
+// seventh is not another guess is that there has never been a way to READ the
+// traversal. Every instrument so far paints a picture -- normals, depth, step
+// count, mask provenance -- and a picture cannot tell you that tMaxV.x came
+// back as 6.7e-3 where its neighbour got 1.4e+2. The reference project has had
+// a numeric dump (DebugOut[], keyed to a debug pixel) for exactly this class of
+// question all along.
+//
+// THE READING THIS IS BUILT TO TEST, and it is the one nobody has tested: the
+// mask-provenance histogram at column 479 is IDENTICAL to the percent across
+// four builds containing four substantive changes to the traversal. Four edits
+// to the DDA, zero change in which branch writes the mask. So either that
+// branch is reached by a path none of the edits touch, or -- the untested
+// reading -- THE X STEP IS CORRECT, and the defect is in the consequences of a
+// ray running down a voxel seam. Column 479's rays travel less than one voxel
+// in x over their entire length: they run ALONG the boundary plane rather than
+// across terrain the way their neighbours do.
+//
+// The dump separates those two flatly. If the X step is wrong, tMaxV.x at the
+// seam is out of family -- negative, or orders below its neighbours' -- and the
+// step sequence reads X,X,X where the neighbour walks Y. If the X step is
+// RIGHT, tMaxV.x is ordinary, the sequence looks reasonable, and the damage is
+// in what those steps then DO: the vLocal bounds break, the chunk advance, or
+// how few voxels are actually tested before the ray gives up.
+//
+// COST, AND WHY IT IS THE SHAPE IT IS. Records are POST-STEP only, plus one
+// pre-loop record of the initial state. That is deliberate. A post-step record
+// is written from variables that are already live, so the instrument adds no
+// register pressure to the hottest loop in the engine -- and step k's post-step
+// tMaxV IS step k+1's pre-step tMaxV, so the sequence is complete regardless.
+// An earlier draft captured pre-step temporaries; it would have kept seven more
+// registers alive in a build whose frame times have to stay comparable with the
+// build before it.
+//
+// It writes into _CrosshairTarget, which is already bound, already read back
+// asynchronously every frame, and already has a CPU-side consumer. Entries [0]
+// and [1] keep their existing meaning for the crosshair; the dump starts at
+// [2]. The buffer is grown in ChunkManager to match.
+#define SAF7_HDR          2
+#define SAF7_BASE         3
+#define SAF7_MAX_RECORDS  24
+#define SAF7_SITE_INIT   -1   // chunk ENTRY: the state the voxel DDA starts from
+#define SAF7_SITE_BREAK  -2   // chunk EXIT: the voxel loop left its chunk (vLocal out of range)
+#define SAF7_SITE_HIT    -3   // chunk EXIT: the voxel loop found a solid voxel
+#define SAF7_SITE_EXHAUST -4  // chunk EXIT: 128 voxel steps without leaving or hitting
+#define SAF7_SITE_EMPTY  -5   // ADVANCE: uniform-air chunk skipped (tNext in tMaxV.x)
+#define SAF7_SITE_BBOX   -6   // ADVANCE: bbox-miss chunk skipped (tNext in tMaxV.x)
+#define SAF7_SITE_UNIHIT -7   // uniform-solid chunk hit (tEnter in t)
+
+// ---------------------------------------------------------------------------
+// WHERE THE RECORDS CAN BE WRITTEN, AND WHY IT IS NOT WHERE IT SHOULD BE
+// ---------------------------------------------------------------------------
+// The first version of this instrument wrote a record after every voxel step,
+// inside the DDA's inner loop. Unity's Metal backend REFUSES that:
+//
+//     Shader error in 'RayTracer': Compilation failed for kernel 'CSMain'
+//     [0x80004005 - unknown error] 'internal error: flattened side effect'
+//
+// -- a UAV write inside a loop carrying `break` is flattened, and a side
+// effect in flattened control flow is rejected. It was bisected to this and
+// nothing else: the same file with the calib arm physically removed still
+// failed, and with the inner-loop writes removed it built clean.
+//
+// AND THE BUILD SAID "Succeeded". BUILDRESULT: Succeeded, errors=1, a player
+// on disk, a dead primary kernel. That is why build-and-verify.sh now exists
+// and greps the log; a batchmode compute-shader checker was tried first, was
+// mutation-checked against a deliberately broken kernel, FAILED to catch it,
+// and was deleted rather than kept as a check that always passes.
+//
+// So records are written at chunk ENTRY and chunk EXIT, both outside the inner
+// loop, and the per-voxel detail that would have been one record per step is
+// carried out in a REGISTER instead: stepSeq packs the chosen axis of the
+// first 12 voxel steps, two bits each. No UAV, no flattening, and the question
+// SA-F7 actually asks -- does column 479 walk X,X,X where its neighbour walks
+// Y, and does it leave the chunk after one voxel -- is answered by the pair.
+#define SAF7_SEQ_STEPS 12
+
+// NO EARLY RETURN, AND THAT IS NOT STYLE. This function writes a UAV and is
+// called from inside the voxel DDA -- a loop containing `break`, which the
+// Metal backend flattens. A conditional `return` in a side-effecting function
+// reached from flattened control flow makes Unity's compiler fail the whole
+// kernel with "internal error: flattened side effect", and it fails the BUILD
+// while still reporting BUILDRESULT: Succeeded. The bound is a clamp here and
+// a real condition at every call site (dumpN < SAF7_MAX_RECORDS), so the clamp
+// can never actually be the thing that saves us.
+void SafDump(int slot, float3 tMaxV, float3 tDelta, int3 mapPos, int3 chunkCoord,
+             float t, int site, int layer, int iter, uint stepSeq)
+{
+    int b = SAF7_BASE + clamp(slot, 0, SAF7_MAX_RECORDS - 1) * 4;
+    // Floats go through asint() so the dump is LOSSLESS. Converting a float
+    // into an int slot would round away exactly the small differences this
+    // instrument exists to find.
+    _CrosshairTarget[b + 0] = int4(asint(tMaxV.x),  asint(tMaxV.y),  asint(tMaxV.z),  site);
+    // layer in the low 4 bits, the 12-step axis sequence in the rest: 2 bits
+    // per step, 1 = X, 2 = Y, 3 = Z, 0 = step not taken.
+    _CrosshairTarget[b + 1] = int4(asint(tDelta.x), asint(tDelta.y), asint(tDelta.z),
+                                   (layer & 0xF) | (int)(stepSeq << 4));
+    _CrosshairTarget[b + 2] = int4(mapPos.x,     mapPos.y,     mapPos.z,     iter);
+    _CrosshairTarget[b + 3] = int4(chunkCoord.x, chunkCoord.y, chunkCoord.z, asint(t));
+}
+
+bool TraceVoxelRay(Ray ray, float maxDist, out float t, out int3 mask, out uint hitMatID_Data, out float finalVoxelSize, out float3 finalBlockPos, out int raySteps, out int maskSite, bool dump) {
+    bool hit = false;
+    int dumpN = 0;   // SA-F7: records written by this ray. Stays 0 unless dump.
+    // SA-F7 PATH TRAIL stash: advance sites (which end in `continue`) cannot
+    // write the UAV themselves -- rep2 proved those writes vanish while the
+    // counter survives. They stash here; the loop top flushes from the proven
+    // ENTRY-level site. UNIHIT breaks the loop so the header writes it.
+    int prevSite = 0; int3 prevChunk = 0; int3 prevMap = 0;
+    float prevTNext = 0; float prevT = 0; int prevLayer = 0; int prevIter = 0;
+    int uniHit = 0; int3 uniChunk = 0; int3 uniMap = 0;
+    float uniTEnter = 0; float uniT = 0; int uniLayer = 0; int uniIter = 0;
+    hitMatID_Data = 0; mask = 0; t = 0; finalVoxelSize = 1.0f; finalBlockPos = 0; raySteps = 0; maskSite = MASKSITE_NONE;
+    int innerAccum = 0;
+
+    float3 safeDir = ray.direction;
+    if (abs(safeDir.x) < 1e-6f) safeDir.x = (safeDir.x < 0.0f ? -1e-6f : 1e-6f);
+    if (abs(safeDir.y) < 1e-6f) safeDir.y = (safeDir.y < 0.0f ? -1e-6f : 1e-6f);
+    if (abs(safeDir.z) < 1e-6f) safeDir.z = (safeDir.z < 0.0f ? -1e-6f : 1e-6f);
+
+    float3 invDir = 1.0f / safeDir;
+    int3 rayStep = sign(safeDir);
+    int3 stepDirBounds = max(rayStep, 0);
+
+    // SA-F7: traversal state carried ACROSS a chunk boundary. See the block at
+    // the cell selection below for why the DDA must not be restarted there.
+    int3 carriedMapPos = 0;
+    int  carriedLayer  = -1;
+    // SA-F9 (session 12): the DDA's boundary times ride along with the cell,
+    // so a chunk crossing continues the SAME walk instead of re-deriving it.
+    float3 carriedTMaxV = 0;
+
+    [loop]
+    for (int i = 0; i < 200; i++) { 
+        raySteps++;
+        if (t > maxDist) break;
+        float3 currentPos = ray.origin + ray.direction * t;
+        
+        if (currentPos.y > 250.0f && ray.direction.y > -0.05f) break;
+
+        // SA-F7 PATH TRAIL flush, at loop-top level (the only UAV site proven
+        // to land). Logs the PREVIOUS iteration's advance, so order is kept:
+        // advance k always precedes entry k+1. tNext rides in tMaxV.x.
+        [branch] if (dump && prevSite != 0 && dumpN < SAF7_MAX_RECORDS) {
+            SafDump(dumpN, float3(prevTNext, 0, 0), float3(0, 0, 0),
+                    prevMap, prevChunk, prevT, prevSite, prevLayer, prevIter, 0u);
+            dumpN++; prevSite = 0;
+        }
+
+        int layer = GetLayer(currentPos);
+        if (layer >= _ClipmapLayers) break;
+
+        float voxelSize = _ClipmapCenters[layer].w;
+        float chunkSize = 32.0f * voxelSize;
+
+        // =====================================================================
+        // SA-F7 -- THE FIX. THE DDA MUST NOT BE RESTARTED AT A CHUNK SEAM.
+        // =====================================================================
+        //
+        // `floor(p / voxelSize)` names the cell a position is IN. On a boundary
+        // it names the cell on the POSITIVE side -- which for a ray travelling
+        // NEGATIVELY along that axis is the cell it has just left, not the one
+        // it is entering. The DDA then finds the next boundary in that axis at
+        // distance zero, steps it immediately, lands outside the chunk, and
+        // `any(vLocal < 0)` breaks the voxel loop having tested ONE of the 32
+        // voxels it should have. The outer loop's chunk advance then computes
+        // that same plane at t, so `t` does not advance either, and the ray
+        // stalls on the seam until its iteration budget is gone.
+        //
+        // Normally harmless: a position is exactly on a boundary for one step
+        // and the ray moves off it. It is NOT harmless when the ray barely
+        // moves along that axis at all, because then it stays on the boundary
+        // for the whole trace. That is the column where |direction.a| is
+        // minimal -- column 479 of 960.
+        //
+        // MEASURED, and this is what settled it after FOUR failed hypotheses.
+        // The canonical pose is x = z = 140.8 m, and at 0.1 m voxels that is
+        // 1408 voxels = EXACTLY 44 chunks: the camera stands on a voxel
+        // boundary AND a chunk boundary in both horizontal axes. Moving it half
+        // a voxel, changing nothing else:
+        //
+        //   camera x    col 479 vs neighbours    rank among 958 columns
+        //   140.80          +46.76                    1   <- worst in frame
+        //   140.85           +0.13                  694
+        //   140.75           +0.07                  804
+        //
+        // and the heading control agrees: at yaw 45, where NO world axis is
+        // near-parallel, column 479 ranks 622 of 958 and the mask provenance at
+        // 477-481 is identical. Two independent knobs, each of which removes it.
+        //
+        // TWO SMALLER FIXES WERE BUILT AND MEASURED FIRST. NEITHER WORKED, and
+        // both are recorded here so they are not retried:
+        //
+        //   * rebuilding tMaxV from the CURRENT position as a fraction of a
+        //     voxel -- the standard form, still in place below. Seam moved by
+        //     0.2 luma; the mask provenance was identical to the percent.
+        //   * nudging the sample point forward ALONG THE RAY before flooring.
+        //     It cannot work, and the reason is the whole point of this bug:
+        //     the nudge is a fraction of a VOXEL along the RAY, so on a
+        //     near-parallel axis it is ~1e-7 m -- three orders BELOW one
+        //     float32 ulp at 140.8 m. It is rounded away in exactly the
+        //     component it was meant to fix.
+        //
+        // THE FIX IS TO STOP RESTARTING. When the voxel DDA walks out of its
+        // chunk it has ALREADY computed the correct next cell. Carry that into
+        // the next outer iteration instead of re-deriving one from a position
+        // sitting on a boundary. Traversal becomes continuous across chunks,
+        // which is what it should always have been -- the per-chunk restart is
+        // an artefact of nesting the two loops, not a property of the octree.
+        //
+        // Guarded on the LAYER: a clipmap layer change alters voxelSize, and a
+        // cell index in one layer's units is meaningless in another's.
+        int3 mapPos;
+        bool carried = (carriedLayer == layer);
+        if (carried) mapPos = carriedMapPos;
+        else {
+            // DIRECTION-AWARE CELL (SA-F9). floor() names the cell on the
+            // POSITIVE side of a boundary; a ray travelling negatively along
+            // that axis is entering the NEGATIVE-side cell. ceil(q)-1 equals
+            // floor(q) everywhere except exactly on a boundary, where it picks
+            // the cell the ray is actually entering.
+            float3 q = currentPos / voxelSize;
+            mapPos = int3(rayStep.x > 0 ? floor(q.x) : ceil(q.x) - 1.0f,
+                          rayStep.y > 0 ? floor(q.y) : ceil(q.y) - 1.0f,
+                          rayStep.z > 0 ? floor(q.z) : ceil(q.z) - 1.0f);
+        }
+        carriedLayer = -1;
+        int3 chunkCoord = mapPos >> 5;
+
+        ChunkData currentChunk = GetChunkData(chunkCoord, layer);
+        uint isDense = currentChunk.packedState & 1;
+        uint rootIndex = currentChunk.rootNodeIndex;
+
+        // THE FIX: Only enter if it's a valid SVO OR an active Dense chunk
+        if (isDense == 1 || rootIndex != 0xFFFFFFFF) {
+            
+            // 1. FAST SVO SKIP (Only run if it's NOT dense!)
+            if (isDense == 0) {
+                SVONode rootNode = _SVOPool[(rootIndex < (uint)_PoolSize) ? rootIndex : 0];
+                if (rootNode.childIndex == 0 && (rootNode.material & 0xFF) == 0) {
+                    float3 nextC = (chunkCoord + stepDirBounds) * chunkSize;
+                    float3 tMaxC = (nextC - ray.origin) * invDir;
+                    float tNext;
+                    mask = MinAxisMask(tMaxC, tNext);     // SA-F7
+                    maskSite = MASKSITE_EMPTYSKIP;
+                    // SA-F7 PATH LOG, SECOND DESIGN. The first design wrote the
+                    // record here and it VANISHED: rep2 showed dumpN counting
+                    // the calls while their UAV writes never landed -- only the
+                    // ENTRY-site write (loop-top level, no adjacent
+                    // continue/break) is known good. So advance sites only
+                    // STASH into registers; the loop top flushes to the buffer
+                    // from the proven site. See the flush below GetLayer.
+                    prevSite = SAF7_SITE_EMPTY; prevChunk = chunkCoord; prevMap = mapPos;
+                    prevTNext = tNext; prevT = t; prevLayer = layer; prevIter = i;
+                    // SA-F7 REPAIR, SECOND DESIGN (rep3 trail: the first design --
+                    // step a full transit past a degenerate plane -- ejected
+                    // the ray ~3 km past maxDist when the degenerate axis was
+                    // the near-parallel one, and the pixel stayed black).
+                    // A plane at or behind t is not an exit: the ray stands ON
+                    // it (seam) or past it. Mask those axes out and take the
+                    // nearest plane strictly ahead. Ordinary rays are
+                    // untouched: all their planes are already ahead, so axE
+                    // equals tMaxC and the mask is identical. If NO plane is
+                    // ahead, tNext is +inf and the ray exits via maxDist -- a
+                    // miss, never a stall.
+                    float3 axE = tMaxC;
+                    if (axE.x <= t) axE.x = 3.4e38f;
+                    if (axE.y <= t) axE.y = 3.4e38f;
+                    if (axE.z <= t) axE.z = 3.4e38f;
+                    mask = MinAxisMask(axE, tNext);
+                    t = max(t, tNext + (voxelSize * 0.05f));
+                    continue;
+                }
+                if (rootNode.childIndex == 0 && (rootNode.material & 0xFF) != 0) {
+                    hit = true; hitMatID_Data = rootNode.material;  
+                    finalVoxelSize = voxelSize * 32.0f; // THE FIX: Report the true compressed 32x32 size!
+                    float3 chunkMin = chunkCoord * chunkSize;
+                    float3 chunkMax = chunkMin + chunkSize;
+                    float3 t0 = (chunkMin - ray.origin) * invDir;
+                    float3 t1 = (chunkMax - ray.origin) * invDir;
+                    float3 tMinBox = min(t0, t1);
+                    float tEnter;
+                    mask = MaxAxisMask(tMinBox, tEnter);  // SA-F7
+                    maskSite = MASKSITE_UNIFORMHIT;
+                    t = max(t, tEnter);
+                    finalBlockPos = floor((ray.origin + ray.direction * t) / (voxelSize * 32.0f)); 
+                    // SA-F7 PATH LOG: UNIHIT breaks the loop, so there is no
+                    // next loop-top to flush from -- stash and let the header
+                    // block (straight-line, proven) write it. See header.
+                    uniHit = 1; uniChunk = chunkCoord; uniMap = mapPos;
+                    uniTEnter = tEnter; uniT = t; uniLayer = layer; uniIter = i;
+                    break;
+                }
+            }
+
+            // 2. BOUNDING BOX
+            uint chunkMinY = (currentChunk.packedState >> 8) & 0xFF;
+            uint chunkMaxY = (uint)currentChunk.position.w;
+            float minY = (isDense == 1) ? 0.0f : (float)chunkMinY;
+            float maxY = (isDense == 1) ? 32.0f : (float)chunkMaxY;
+
+            float3 absoluteBoxMin = (chunkCoord * 32.0f + float3(0.0f, minY, 0.0f)) * voxelSize;
+            float3 absoluteBoxMax = (chunkCoord * 32.0f + float3(32.0f, maxY, 32.0f)) * voxelSize;
+            float3 tb0 = (absoluteBoxMin - ray.origin) * invDir;
+            float3 tb1 = (absoluteBoxMax - ray.origin) * invDir;
+            float3 tMinB = min(tb0, tb1);
+            float3 tMaxB = max(tb0, tb1);
+            float tEnterB = max(max(tMinB.x, tMinB.y), tMinB.z);
+            float tExitB = min(min(tMaxB.x, tMaxB.y), tMaxB.z);
+
+            if (tEnterB > tExitB || tExitB < t) {
+                float3 nextC = (chunkCoord + stepDirBounds) * chunkSize;
+                float3 tMaxC = (nextC - ray.origin) * invDir;
+                float tNext;
+                mask = MinAxisMask(tMaxC, tNext);         // SA-F7
+                maskSite = MASKSITE_BBOXSKIP;
+                // SA-F7 PATH LOG: stash, flushed at loop top (see EMPTYSKIP).
+                prevSite = SAF7_SITE_BBOX; prevChunk = chunkCoord; prevMap = mapPos;
+                prevTNext = tNext; prevT = t; prevLayer = layer; prevIter = i;
+                // SA-F7 REPAIR: same ahead-plane mask as EMPTYSKIP above.
+                float3 axB = tMaxC;
+                if (axB.x <= t) axB.x = 3.4e38f;
+                if (axB.y <= t) axB.y = 3.4e38f;
+                if (axB.z <= t) axB.z = 3.4e38f;
+                mask = MinAxisMask(axB, tNext);
+                t = max(t, tNext + (voxelSize * 0.05f));
+                continue;
+            }
+
+            if (tEnterB > t) {
+                t = tEnterB + (voxelSize * 0.001f);
+                float3 jumpPos = ray.origin + ray.direction * t;
+                mapPos = int3(floor(jumpPos / voxelSize));
+                carried = false;   // a jump starts a new walk
+                float tEnterSel;
+                mask = MaxAxisMask(tMinB, tEnterSel);     // SA-F7
+                maskSite = MASKSITE_BBOXENTER;
+            }
+
+            float3 tDelta = abs(voxelSize * invDir);
+
+            // =================================================================
+            // SA-F7 -- THE COLUMN-479 SEAM. THIS IS THE FIX.
+            // =================================================================
+            //
+            // tMaxV used to be
+            //     ((mapPos + stepDirBounds) * voxelSize - ray.origin) * invDir
+            // -- an ABSOLUTE ray parameter obtained by differencing two world
+            // coordinates and scaling by invDir. At the canonical pose those
+            // coordinates are both ~140.8 m, so the subtraction cancels to
+            // something near zero, and for an axis the ray is nearly parallel
+            // to, invDir is ~-935. A float32 cancellation error of one ulp at
+            // 140.8 is ~1.5e-5, which that scaling turns into ~0.014 in t --
+            // AND CAN FLIP ITS SIGN. A negative tMaxV is smaller than every
+            // other axis, so the DDA steps THAT axis first, every time, in
+            // every chunk, because tMaxV is recomputed per chunk.
+            //
+            // The consequence is not a wrong normal. It is a wrong TRAVERSAL:
+            // one bogus step takes mapPos out of the chunk, `any(vLocal < 0)`
+            // breaks the voxel loop, and the ray leaves having tested ONE voxel
+            // of the 32 it should have. It punches through the ground and hits
+            // something far away on a side face.
+            //
+            // THAT IS ALL FOUR OF SESSION 8'S MEASUREMENTS AT ONCE, which no
+            // earlier hypothesis accounted for: normal +Z/+X where neighbours
+            // are +Y (a side face, not a top face), depth -52.8 (it terminates
+            // FARTHER away), step count +93.0 (it walks many more chunks), and
+            // -- session 9's mask-provenance view -- 67% of the column taking
+            // its mask from the DDA's X branch where the neighbours take 53%
+            // from the Y branch.
+            //
+            // THE PREDICTION THAT CONFIRMED IT, made before this was written
+            // and checked against captures already on disk: the defect needs a
+            // world axis the ray is nearly parallel to, so it must depend on
+            // HEADING, not on the screen centre. Measured over the sweep:
+            //     yaw  0 (looking down +Z, x near-parallel)  col 479 rank 1/958
+            //     yaw 90 (looking down +X, z near-parallel)  col 480 rank 1
+            //     yaw 45 (NO axis near-parallel)             col 479 rank 622
+            // A centre-column artefact would not care about yaw. This one does.
+            //
+            // THE FIX IS THE STANDARD DDA FORMULATION, not a constant and not
+            // an epsilon: measure the distance to the next boundary from the
+            // CURRENT position as a FRACTION of a voxel, and add it to t.
+            //   * toNext is in [0,1] by construction, so tMaxV >= t ALWAYS.
+            //     No cancellation can produce a boundary behind the ray.
+            //   * the difference is taken between two numbers less than one
+            //     voxel apart, so there is nothing large to cancel.
+            //   * for a near-parallel axis tDelta is huge, so tMaxV is huge and
+            //     that axis simply never wins -- which is the correct answer,
+            //     reached by arithmetic rather than by a threshold.
+            //
+            // The old 1e-6 guard is KEPT below. It is three orders of magnitude
+            // too tight to have caught this (|dir.x| at column 479 is ~1.1e-3),
+            // but it still protects tDelta itself from an infinity, and
+            // removing it in the same change would confound the two.
+            float3 curPos      = ray.origin + ray.direction * t;
+            float3 fracInVoxel = saturate(curPos / voxelSize - (float3)mapPos);
+            float3 toNext      = float3(rayStep.x > 0 ? 1.0f - fracInVoxel.x : fracInVoxel.x,
+                                        rayStep.y > 0 ? 1.0f - fracInVoxel.y : fracInVoxel.y,
+                                        rayStep.z > 0 ? 1.0f - fracInVoxel.z : fracInVoxel.z);
+            float3 tMaxV = t + toNext * tDelta;
+            // SA-F9: a walk carried across the seam keeps its own boundary
+            // times -- they are exact continuations; the fractional rebuild
+            // above is only for walks that START here.
+            if (carried) tMaxV = carriedTMaxV;
+
+            // DDA Infinity Guard (pre-existing): prevents divide-by-zero
+            // infinity traps when looking EXACTLY parallel to an axis.
+            if (abs(ray.direction.x) < 1e-6f) { tMaxV.x = 3.4e38f; tDelta.x = 3.4e38f; }
+            if (abs(ray.direction.y) < 1e-6f) { tMaxV.y = 3.4e38f; tDelta.y = 3.4e38f; }
+            if (abs(ray.direction.z) < 1e-6f) { tMaxV.z = 3.4e38f; tDelta.z = 3.4e38f; }
+
+            // SA-F7 DUMP: the state the voxel DDA is about to start from. This
+            // is the record that answers "is tMaxV.x out of family at the
+            // seam?" -- it is written before a single step is taken, so it
+            // cannot have been corrupted by one.
+            [branch] if (dump && dumpN < SAF7_MAX_RECORDS) { SafDump(dumpN, tMaxV, tDelta, mapPos, chunkCoord, t, SAF7_SITE_INIT, layer, i, 0u); dumpN++; }
+
+            // 3. THE BRANCH-SAFE DUAL PATH 
+            if (isDense == 1) {
+                uint denseBase = currentChunk.densePoolIndex << 15;
+                [loop]
+                for (int v = 0; v < 128; v++) {  innerAccum++;
+                    int3 vLocal = mapPos - (chunkCoord << 5);
+                    // SA-F7: hand the cell the DDA reached to the next outer
+                    // iteration rather than letting it re-derive one from a
+                    // position that may sit exactly on this seam.
+                    // SA-F7 DUMP: the voxel loop is leaving this chunk. HOW
+                    // MANY voxels it tested before doing so is the number the
+                    // untested reading predicts will be wrong at the seam -- a
+                    // ray that runs down a boundary plane may leave after one.
+                    if (any(vLocal < 0) || any(vLocal > 31)) { carriedMapPos = mapPos; carriedTMaxV = tMaxV; carriedLayer = layer; break; }
+                    
+                    uint flatIdx = vLocal.x + (vLocal.y << 5) + (vLocal.z << 10);
+                    uint matData = _DenseChunkPool[denseBase + flatIdx];
+
+                    if ((matData & 0xFF) > 0) { hit = true; hitMatID_Data = matData; finalVoxelSize = voxelSize; finalBlockPos = mapPos; break; }
+                    
+                    // SA-F7 hypothesis 2, left INTACT on purpose: a tie here
+                    // (tMaxV.y == tMaxV.z) also falls through to Z. Not changed
+                    // in the same build as the mask fix, or neither would be
+                    // attributable. The provenance view says whether this loop
+                    // is even the writer at column 479.
+                    if (tMaxV.x < tMaxV.y) {
+                        if (tMaxV.x < tMaxV.z) { t = tMaxV.x; tMaxV.x += tDelta.x; mapPos.x += rayStep.x; mask = int3(1,0,0); maskSite = MASKSITE_DDA_X; }
+                        else { t = tMaxV.z; tMaxV.z += tDelta.z; mapPos.z += rayStep.z; mask = int3(0,0,1); maskSite = MASKSITE_DDA_Z; }
+                    } else {
+                        if (tMaxV.y < tMaxV.z) { t = tMaxV.y; tMaxV.y += tDelta.y; mapPos.y += rayStep.y; mask = int3(0,1,0); maskSite = MASKSITE_DDA_Y; }
+                        else { t = tMaxV.z; tMaxV.z += tDelta.z; mapPos.z += rayStep.z; mask = int3(0,0,1); maskSite = MASKSITE_DDA_Z; }
+                    }
+                    // SA-F7 DUMP, POST-STEP. maskSite names the axis actually
+                    // chosen; tMaxV is this step's successor state, which is
+                    // the next step's pre-state. The sequence of these IS the
+                    // traversal, in numbers, for one pixel.
+                    }
+            } else {
+                [loop]
+                for (int v = 0; v < 128; v++) {  innerAccum++;
+                    int3 vLocal = mapPos - (chunkCoord << 5);
+                    // SA-F7: hand the cell the DDA reached to the next outer
+                    // iteration rather than letting it re-derive one from a
+                    // position that may sit exactly on this seam.
+                    // SA-F7 DUMP: the voxel loop is leaving this chunk. HOW
+                    // MANY voxels it tested before doing so is the number the
+                    // untested reading predicts will be wrong at the seam -- a
+                    // ray that runs down a boundary plane may leave after one.
+                    if (any(vLocal < 0) || any(vLocal > 31)) { carriedMapPos = mapPos; carriedTMaxV = tMaxV; carriedLayer = layer; break; }
+                    
+                    uint matData = GetVoxelFromRoot(rootIndex, vLocal);
+
+                    if ((matData & 0xFF) > 0) { hit = true; hitMatID_Data = matData; finalVoxelSize = voxelSize; finalBlockPos = mapPos; break; }
+                    
+                    // SA-F7 hypothesis 2, left INTACT on purpose: a tie here
+                    // (tMaxV.y == tMaxV.z) also falls through to Z. Not changed
+                    // in the same build as the mask fix, or neither would be
+                    // attributable. The provenance view says whether this loop
+                    // is even the writer at column 479.
+                    if (tMaxV.x < tMaxV.y) {
+                        if (tMaxV.x < tMaxV.z) { t = tMaxV.x; tMaxV.x += tDelta.x; mapPos.x += rayStep.x; mask = int3(1,0,0); maskSite = MASKSITE_DDA_X; }
+                        else { t = tMaxV.z; tMaxV.z += tDelta.z; mapPos.z += rayStep.z; mask = int3(0,0,1); maskSite = MASKSITE_DDA_Z; }
+                    } else {
+                        if (tMaxV.y < tMaxV.z) { t = tMaxV.y; tMaxV.y += tDelta.y; mapPos.y += rayStep.y; mask = int3(0,1,0); maskSite = MASKSITE_DDA_Y; }
+                        else { t = tMaxV.z; tMaxV.z += tDelta.z; mapPos.z += rayStep.z; mask = int3(0,0,1); maskSite = MASKSITE_DDA_Z; }
+                    }
+                    // SA-F7 DUMP, POST-STEP. maskSite names the axis actually
+                    // chosen; tMaxV is this step's successor state, which is
+                    // the next step's pre-state. The sequence of these IS the
+                    // traversal, in numbers, for one pixel.
+                    }
+            }
+        }
+        if (hit) break;
+        // =====================================================================
+        // SA-F9 (session 12) -- THE SVO'S SHADOW NOISE AND SEE-THROUGH HOLES.
+        // =====================================================================
+        // When the voxel walk leaves its chunk it has ALREADY put t exactly on
+        // the crossing and computed the next cell. The advance below then
+        // recomputed the chunk's exit planes from ABSOLUTE coordinates and, per
+        // SA-F7's ahead-plane rule, masked out any plane at or behind t. The
+        // exit plane it had just crossed sits at t +/- one float ulp, so about
+        // half the time it was masked and t JUMPED to the next plane on a
+        // different axis -- skipping up to a chunk of voxels, and leaving the
+        // carried cell and t describing two different points on the ray.
+        //   * primary rays: columns of sky seen THROUGH the ground (step-heat
+        //     view, canonical pose);
+        //   * shadow / probe rays: salt-and-pepper false shadow in moire rings
+        //     over the whole terrain (sun-visibility view), which is what the
+        //     session-11 "svo_acne" captures were circling.
+        // A walk that exited into the next chunk now continues with no advance
+        // at all (t, cell and boundary times carried); only a chunk the walk
+        // did not traverse (no data, exhausted) is advanced by planes.
+        if (carriedLayer == layer) continue;
+        float3 nextC = (chunkCoord + stepDirBounds) * chunkSize;
+        float3 tMaxC = (nextC - ray.origin) * invDir;
+        float tNext;
+        mask = MinAxisMask(tMaxC, tNext);                 // SA-F7
+        maskSite = MASKSITE_CHUNKADV;
+        // SA-F7 REPAIR: same ahead-plane mask as EMPTYSKIP above. This is the
+        // site the seam ray lived in: every voxel-loop exit without a hit
+        // lands here, and standing on the boundary plane tNext == t.
+        float3 axC = tMaxC;
+        if (axC.x <= t) axC.x = 3.4e38f;
+        if (axC.y <= t) axC.y = 3.4e38f;
+        if (axC.z <= t) axC.z = 3.4e38f;
+        mask = MinAxisMask(axC, tNext);
+        t = max(t, tNext + (voxelSize * 0.05f));
+    }
+    // SA-F7 DUMP HEADER, written last so it states how many records are valid.
+    // 0x5AF7 is a magic number: a CPU reader that does not see it is looking at
+    // a stale or uninitialised buffer, not at a traversal, and says so rather
+    // than printing plausible nonsense.
+    // UNIHIT record: stashed because its site breaks the loop (see above) and
+    // written here in straight-line code, the second proven site.
+    [branch] if (dump && uniHit != 0 && dumpN < SAF7_MAX_RECORDS) {
+        SafDump(dumpN, float3(uniTEnter, 0, 0), float3(0, 0, 0),
+                uniMap, uniChunk, uniT, SAF7_SITE_UNIHIT, uniLayer, uniIter, 0u);
+        dumpN++;
+    }
+    [branch] if (dump) _CrosshairTarget[SAF7_HDR] = int4(_SafDumpX, _SafDumpY, dumpN, 0x5AF7);
+    // Same packing as the Brickmap's TraceVoxelRay: outer (per-chunk) steps
+    // in the low 16 bits, inner voxel steps in the high 16, so the step-heat
+    // view (14) shows TOTAL traversal work in both engines on one scale.
+    raySteps = (raySteps & 0xFFFF) | (min(innerAccum, 65535) << 16);
+    return hit;
+}
+
+
+// STEP HEAT, one scale for both engines (view 14; the Brickmap's view 1 too).
+// `packed` is TraceVoxelRay's raySteps: outer steps low 16 bits, inner steps
+// high 16. The heat is TOTAL work, log-scaled over 1..512 steps, on a
+// blue -> cyan -> green -> yellow -> red ramp. It used to be `steps / 150`
+// linear: the Brickmap fed it the packed value (inner << 16 is always >= 65536,
+// so every pixel was solid red) and the SVO counted only its outer loop (a
+// handful of steps, so every pixel was solid blue). Neither said anything.
+float3 StepHeatColor(int packed)
+{
+    float n = (float)(packed & 0xFFFF) + (float)((uint)packed >> 16);
+    float h = saturate(log2(1.0 + n) / 9.0);   // log2(513) ~ 9
+    float3 c = lerp(float3(0, 0, 1), float3(0, 1, 1), saturate(h * 4.0));
+    c = lerp(c, float3(0, 1, 0), saturate(h * 4.0 - 1.0));
+    c = lerp(c, float3(1, 1, 0), saturate(h * 4.0 - 2.0));
+    c = lerp(c, float3(1, 0, 0), saturate(h * 4.0 - 3.0));
+    return c;
+}
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    uint width, height; Result.GetDimensions(width, height);
+
+    // Sits across the vertical centre, which no overlay covers -- the caption
+    // panel is along the top and the minimap in the bottom-left corner.
+    // alpha (= linear depth) is deliberately non-zero so the blit does not
+    // take the sky path and discard the band.
+    if (_DebugViewMode == 10 && abs((int)id.y - (int)(height / 2)) < 8) {
+        float v = floor((float)id.x * 11.0f / (float)width) / 10.0f;
+        Result[id.xy] = float4(v, v, v, 1000.0f);
+        return;
+    }
+
+    // --- DEBUG MODE 12: CALIB -- THE PER-RUN SCALE FACTOR ------------------
+    //
+    // WHY THIS EXISTS. The three engines are measured in separate runs, and
+    // session 9 proved runs are not comparable to each other: the SAME
+    // counterbalanced sweep drifted +61.2% internally in one run and -0.7% in
+    // another (MEASUREMENT_METHOD.md). That is why COMPARISON_PACKAGE_v4_final
+    // deliberately quotes NO cross-engine ratio -- the numbers are fine, the
+    // METHOD cannot support the comparison the project exists to make.
+    //
+    // This branch is the fix for the method. It is a fixed synthetic workload:
+    // no world data, no camera, no streaming, no palette, no traversal. It
+    // depends on nothing but the dispatch thread id and _CalibIters, so its
+    // frame time is a property of THE MACHINE AT THAT MOMENT and of nothing
+    // else. Run first, middle and last in every sweep, it gives a per-run,
+    // per-position scale factor, and scaled times from different runs and
+    // different engines become commensurable.
+    //
+    // TWO ITERATION COUNTS, NOT ONE. The arm is run at N and at 2N. The SLOPE
+    // between them is pure ALU throughput and is engine-independent; the
+    // INTERCEPT is this engine's own per-frame wrapper (dispatch, blit,
+    // present, overlay). So the wrapper is MEASURED and subtracted rather than
+    // assumed away -- without that, a constant engine-side overhead would ride
+    // straight into the scale factor and be read as a machine difference.
+    //
+    // Requirements it has to meet, all of them deliberate:
+    //   * CONTENT-FREE. It must not read a voxel, a chunk or a material, or it
+    //     would measure the world state, which is the thing that differs.
+    //   * IDENTICAL. The loop below is byte-identical in both side engines.
+    //     Only the alpha written on the last line differs, because the two
+    //     blits read alpha differently, and that difference is part of the
+    //     wrapper the two-point fit removes.
+    //   * NON-ELIDABLE. acc and v are loop-carried through frac(), and the
+    //     trip count is a uniform under [loop], so nothing can be hoisted,
+    //     unrolled or folded away.
+    //   * UNIFORM. Every thread runs the same trip count, so there is no
+    //     divergence and the arm measures throughput, not scheduling luck.
+    //   * CHEAP TO PLACE. It needs no settle -- the camera does not move and
+    //     no streaming is provoked -- so six of them cost under a minute a rep.
+    if (_DebugViewMode == 12) {
+        // ---- CALIB CORE -- BYTE-IDENTICAL IN BOTH ENGINES. DO NOT EDIT ONE
+        // ---- COPY. The whole value of this arm is that the two engines run
+        // ---- the SAME instructions, so any difference in its time is the
+        // ---- machine and the wrapper, never the content.
+        float cv  = frac((float)(id.x * 7919u + id.y * 104729u) * 2.3283064e-10f) + 0.125f;
+        float cacc = 0.5f;
+        [loop] for (int ci = 0; ci < _CalibIters; ci++) {
+            cacc = frac(cacc * 1.0003f + sin(cv + cacc) * cos(cv - cacc) + sqrt(abs(cv * cacc) + 1e-3f));
+            cv   = frac(cv * 1.0007f + 0.6180339887f);
+        }
+        float3 crgb = float3(cacc, frac(cacc * 3.0f), frac(cacc * 7.0f));
+        // SVO alpha carries LINEAR DEPTH and the blit discards alpha 0 as
+        // sky, so the calib band must write a large non-zero depth to take the
+        // same blit path a rendered frame takes. See the mode-10 strip above,
+        // which pays for the same reason.
+        Result[id.xy] = float4(crgb, 1000.0f);
+        return;
+    }
+
+    float2 uv = (id.xy + 0.5f) / float2(width, height) * 2.0f - 1.0f;
+    Ray ray = CreateCameraRay(uv);
+    
+    // RAISED TO 250m: Allows the camera to render mountains when flying high
+    if (ray.origin.y > 250.0f && ray.direction.y >= 0.0f) {
+        Result[id.xy] = float4(0.6, 0.8, 1.0, 0);
+        return;
+    }
+
+    float t = 0;
+    int3 mask = 0;
+    float finalVoxelSize = 1.0f;
+    float3 finalBlockPos = 0;
+    uint hitMatID_Data = 0;
+    int steps = 0;
+    int maskSite = MASKSITE_NONE;
+
+    // SA-F7: only the one debug pixel dumps, and only when asked. _SafDumpX
+    // reads back 0 when unset, so every ordinary frame passes false here.
+    bool safDump = (_SafDumpX > 0) && ((int)id.x == _SafDumpX) && ((int)id.y == _SafDumpY);
+    bool hit = TraceVoxelRay(ray, 800.0, t, mask, hitMatID_Data, finalVoxelSize, finalBlockPos, steps, maskSite, safDump);
+
+    // --- GPU CROSSHAIR TARGETER ---
+    if (id.x == width / 2 && id.y == height / 2) {
+        if (hit && t < 50.0) { 
+            _CrosshairTarget[0] = int4((int)finalBlockPos.x, (int)finalBlockPos.y, (int)finalBlockPos.z, 1);
+            // Calculate and pass the exact geometric normal of the face we hit
+            float3 rawNormal = float3(mask) * -NonZeroSign(ray.direction);
+            _CrosshairTarget[1] = int4((int)rawNormal.x, (int)rawNormal.y, (int)rawNormal.z, 0);
+        } else {
+            _CrosshairTarget[0] = int4(-999, -999, -999, 0); 
+            _CrosshairTarget[1] = int4(0, 0, 0, 0);
+        }
+    }
+
+    if (hit) {
+        
+        float3 normal = float3(mask) * -NonZeroSign(ray.direction);
+        float3 hitWorldPos = ray.origin + ray.direction * t;
+        
+        int layer = GetLayer(hitWorldPos);
+        float layerScale = _ClipmapCenters[layer].w; // THE FIX: Decouple LOD layer scale from physical voxel size
+        float3 chunkCoord = floor(hitWorldPos / (32.0 * layerScale));
+        float bandXZ = max(0.0, max(abs(chunkCoord.x - _ClipmapCenters[layer].x), abs(chunkCoord.z - _ClipmapCenters[layer].z)) - (_RenderBounds.x - 1.5)) / 1.5;
+        float bandY = max(0.0, abs(chunkCoord.y - _ClipmapCenters[layer].y) - (_RenderBounds.y - 1.5)) / 1.5;
+        float dissolveBand = saturate(max(bandXZ, bandY));
+
+        // (Session 13: the "LOD1 normal bend" that used to sit here is GONE, as
+        // it long has been from the Brickmap, the look reference. It tilted
+        // every normal toward its 2x2x2 parent's centre by voxel PARITY across
+        // the outer 1.5 chunks of every clipmap layer -- a regular lattice of
+        // tilts that the normals view showed on flat ground and that read as
+        // the diagonal moire stripes on this engine's far sand. dissolveBand
+        // is kept: nothing else reads it, but it documents the band.)
+        
+        uint mat; float r_light, g_light, b_light, sun_light; uint bakedAO_mask;
+        UnpackLight(hitMatID_Data, mat, r_light, g_light, b_light, sun_light, bakedAO_mask);
+        VoxelMaterial matData = _MaterialPalette[mat];
+        
+        if (_DebugViewMode == 6 || _DebugViewMode == 14) { Result[id.xy] = float4(StepHeatColor(steps), 1); return; }
+        if (_DebugViewMode == 2) { float d = saturate(t / 200.0); Result[id.xy] = float4(1.0 - d, 1.0 - d, 1.0 - d, 1); return; }
+        if (_DebugViewMode == 3) { Result[id.xy] = float4(normal * 0.5 + 0.5, 1); return; }
+        // SA-F7 PROVENANCE. Which of the eight writers set the mask this pixel
+        // shaded with. Flat, saturated, well-separated colours so a per-column
+        // histogram over the capture is exact rather than eyeballed:
+        //   black  none        red    empty-chunk skip   orange uniform hit
+        //   yellow bbox skip   green  bbox entry face    cyan   DDA stepped X
+        //   blue   DDA Y       magenta DDA Z             white  chunk advance
+        if (_DebugViewMode == 11) {
+            float3 c = float3(0, 0, 0);
+            if (maskSite == MASKSITE_EMPTYSKIP)  c = float3(1.0, 0.0, 0.0);
+            if (maskSite == MASKSITE_UNIFORMHIT) c = float3(1.0, 0.5, 0.0);
+            if (maskSite == MASKSITE_BBOXSKIP)   c = float3(1.0, 1.0, 0.0);
+            if (maskSite == MASKSITE_BBOXENTER)  c = float3(0.0, 1.0, 0.0);
+            if (maskSite == MASKSITE_DDA_X)      c = float3(0.0, 1.0, 1.0);
+            if (maskSite == MASKSITE_DDA_Y)      c = float3(0.0, 0.0, 1.0);
+            if (maskSite == MASKSITE_DDA_Z)      c = float3(1.0, 0.0, 1.0);
+            if (maskSite == MASKSITE_CHUNKADV)   c = float3(1.0, 1.0, 1.0);
+            Result[id.xy] = float4(c, 1);
+            return;
+        }
+        if (_DebugViewMode == 4) { Result[id.xy] = float4(matData.albedo.rgb, 1); return; }
+        if (_DebugViewMode == 5) { Result[id.xy] = float4((float3(r_light, g_light, b_light) + sun_light) / 1.5, 1); return; }
+        if (_DebugViewMode == 1) { 
+            // SVO Memory Heatmap
+            // finalVoxelSize correlates with node depth. 1.0 = leaf (red), larger = root (green)
+            float compressionFactor = saturate(1.0 - (1.0 / finalVoxelSize)); 
+            float3 svoColor = lerp(float3(1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), compressionFactor);
+            Result[id.xy] = float4(svoColor, 1); 
+            return; 
+        }
+
+        // (Deleted the expensive, unused shadowRay trace here)
+
+        // (Deleted the expensive, unused shadowRay trace here)
+
+        // --- MOIRE FIX 2: Geometric & Texture Mipmapping ---
+        // --- MOIRE SUPPRESSION, SPLIT INTO TWO FADES ---
+        //
+        // There used to be ONE distanceFade, starting at 80 m and complete at
+        // 160 m, and it was applied to FIVE separate things: face shading,
+        // BOTH texture blends, the detail noise, and ambient occlusion. With a
+        // 166.4 m draw distance most of the visible ground is past 80 m, so
+        // most of the frame rendered with no directional shading, no AO, and
+        // both colour blends pinned to a flat 0.5 -- no colour variation at
+        // all. Measured, this engine rendered at HALF the Brickmap's
+        // saturation (37.5 vs 85.9) and looked washed out.
+        //
+        // Only HIGH-FREQUENCY terms alias. Per-voxel detail noise genuinely
+        // needs suppressing with distance; face shading and ambient occlusion
+        // are LOW-frequency form cues that do not moire and carry the shape of
+        // the terrain. So they get separate fades:
+        //
+        //   detailFade - aggressive, unchanged (80 m -> 160 m). High-frequency
+        //                per-voxel noise, the actual moire source.
+        //   formFade   - gentle, 130 m -> 166 m. Shading, AO and colour blends,
+        //                which stay intact across almost the whole view.
+        float detailFade = saturate(1.0 - (t - 80.0) / 80.0);
+        float formFade   = saturate(1.0 - (t - 130.0) / 36.0);
+        float distanceFade = formFade;   // shading / AO / colour blends
+
+        // 1. Smooth the Shading (The Terracing Fix)
+        //
+        // MATCHED TO THE BRICKMAP'S EXPRESSION, which is 0.6/0.2/0.2 followed
+        // by a lerp(0.4, 1.0, .) softening, not 0.5/0.2/0.45 used raw. The two
+        // are close but not equal, and the difference is directional: on a
+        // top-facing voxel this engine produced 0.95 where the Brickmap
+        // produces lerp(0.4,1,0.8) = 0.88, an 8% brighter direct term on
+        // exactly the surfaces that fill the canonical pose.
+        //
+        // That 8% is most of the residual measured after the colour-space fix:
+        // dividing each engine's grass pixel by their (identical) grass albedo
+        // leaves this engine's light 11.6% high in R and G but only 4% in B,
+        // and R/G-weighted excess is the signature of the DIRECT term, whose
+        // sun colour is (1.0, 0.9, 0.7). Ambient, which is blue-heavy, is
+        // already matched.
+        float3 lightingNormal = normalize(normal + float3(0, 0.65, 0));
+        float rawFaceShade = saturate(dot(lightingNormal, float3(0, 1, 0))) * 0.6 +
+                             saturate(abs(dot(lightingNormal, float3(1, 0, 0)))) * 0.2 + 0.2;
+        // The Brickmap's softenedFaceShade. The outer lerp is this engine's own
+        // moire fade, which the Brickmap does not have and which is kept.
+        float faceShade = lerp(0.85, lerp(0.4, 1.0, rawFaceShade), distanceFade);
+
+        // 2. Smooth the Texture Noise
+        float noiseLarge = hash(floor(finalBlockPos * 0.1));
+        float noiseMedium = hash(floor(finalBlockPos * 0.5));
+        float noiseDetail = (hash(finalBlockPos) - 0.5) * 0.08 * detailFade;  // aggressive: this is the moire source
+
+        float3 baseColor = matData.albedo.rgb;
+        if (baseColor.g > baseColor.r && baseColor.g > baseColor.b) {
+            float3 colorLush = baseColor * float3(1.1, 1.1, 0.8);
+            float3 colorOlive = baseColor * float3(0.8, 0.9, 0.6);
+            float3 colorDeep = baseColor * float3(0.5, 0.7, 0.5);
+            
+            float blend1 = lerp(0.5, smoothstep(0.2, 0.8, noiseLarge), distanceFade);
+            float3 mixColor = lerp(colorLush, colorOlive, blend1);
+            
+            float blend2 = lerp(0.5, smoothstep(0.3, 0.9, noiseMedium), distanceFade);
+            mixColor = lerp(mixColor, colorDeep, blend2);
+            
+            baseColor = mixColor + noiseDetail;
+        } else {
+            baseColor += noiseDetail;
+        }
+
+        // =====================================================================
+        // SA-F6 -- AMBIENT OCCLUSION. Two paths, selected at RUNTIME.
+        // =====================================================================
+        //
+        // _SvoAoMode 0 is this engine exactly as it shipped through session 8:
+        // the baked path below, which computes a CONSTANT. bakedAO_mask is
+        // UnpackLight's bits 24-31 of the voxel word, and the only thing that
+        // ever writes that word is WorldGen.compute's
+        //     PackMaterialAndLight(matID, r, g, b, sun)
+        //         = matID | (r << 8) | (g << 12) | (b << 16) | (sun << 20)
+        // which stops at bit 23. Bits 24-31 are therefore ALWAYS ZERO, every
+        // corner b0..b7 is false, finalAO is always 0 and vao is always exactly
+        // 1.0. Forty lines of corner extraction and bilinear blending to
+        // compute 1.0. Same bug class as session 6's missing sunlight, in the
+        // same packed word one field along.
+        //
+        // _SvoAoMode 1 is the fix: the Brickmap's OWN AO model, eight live
+        // neighbour samples per shaded pixel, so the two side engines occlude
+        // by the same rule and the comparison is about architecture rather
+        // than about one engine skipping the work. Ported term for term --
+        // side/side/corner VERTEX_AO, the same bilinear blend across the face,
+        // and the same smoothstep -> pow(1.2) -> lerp(0.15, 1.0) response
+        // curve (RayTracer.compute in VoxelTerraria_Brickmap). Nothing is
+        // invented here; a different curve would make the arms incomparable.
+        //
+        // The baked path is kept, not deleted, because mode 0 IS the control
+        // arm and it must be the engine that was measured, not a reconstruction
+        // of it.
+        float vao = 1.0;
+
+        if (_SvoAoMode == 1) {
+            // Only the voxel-level hits have a meaningful one-voxel
+            // neighbourhood. A uniform-chunk hit (MASKSITE_UNIFORMHIT) reports
+            // finalBlockPos in units of 32 voxels -- sampling +/-1 around it
+            // would read chunks 32 voxels away and paint noise on the far
+            // field. Those keep vao 1.0, which is what they render today.
+            bool voxelLevelHit = (maskSite == MASKSITE_DDA_X || maskSite == MASKSITE_DDA_Y ||
+                                  maskSite == MASKSITE_DDA_Z || maskSite == MASKSITE_BBOXENTER);
+            if (voxelLevelHit) {
+                int3 hitVoxel   = int3(floor(finalBlockPos));
+                int3 faceAirPos = hitVoxel + int3(round(normal));
+                int3 tan1, tan2;
+                float2 aoUV;
+                float3 localHit = saturate((hitWorldPos / layerScale) - (float3)hitVoxel);
+
+                if (abs(normal.x) > 0.5)      { tan1 = int3(0,1,0); tan2 = int3(0,0,1); aoUV = localHit.yz; }
+                else if (abs(normal.y) > 0.5) { tan1 = int3(1,0,0); tan2 = int3(0,0,1); aoUV = localHit.xz; }
+                else                          { tan1 = int3(1,0,0); tan2 = int3(0,1,0); aoUV = localHit.xy; }
+
+                int s_m1 = SvoSolidAt(faceAirPos - tan1, layer) ? 1 : 0;
+                int s_p1 = SvoSolidAt(faceAirPos + tan1, layer) ? 1 : 0;
+                int s_m2 = SvoSolidAt(faceAirPos - tan2, layer) ? 1 : 0;
+                int s_p2 = SvoSolidAt(faceAirPos + tan2, layer) ? 1 : 0;
+                int d_mm = SvoSolidAt(faceAirPos - tan1 - tan2, layer) ? 1 : 0;
+                int d_pm = SvoSolidAt(faceAirPos + tan1 - tan2, layer) ? 1 : 0;
+                int d_mp = SvoSolidAt(faceAirPos - tan1 + tan2, layer) ? 1 : 0;
+                int d_pp = SvoSolidAt(faceAirPos + tan1 + tan2, layer) ? 1 : 0;
+
+                #define VERTEX_AO(s1, s2, d) ((s1 && s2) ? 0.0 : (3.0 - (s1 + s2 + d)) / 3.0)
+                float a00 = VERTEX_AO(s_m1, s_m2, d_mm);
+                float a10 = VERTEX_AO(s_p1, s_m2, d_pm);
+                float a01 = VERTEX_AO(s_m1, s_p2, d_mp);
+                float a11 = VERTEX_AO(s_p1, s_p2, d_pp);
+
+                float aoBottom = lerp(a00, a10, aoUV.x);
+                float aoTop    = lerp(a01, a11, aoUV.x);
+                float vaoLive  = lerp(aoBottom, aoTop, aoUV.y);
+
+                vaoLive = smoothstep(0.0, 1.0, vaoLive);
+                vaoLive = pow(vaoLive, 1.2);
+                vaoLive = lerp(0.15, 1.0, vaoLive);
+
+                // THE MOIRE FADE, THE RIGHT WAY ROUND.
+                //
+                // The line this replaces was
+                //     vao = lerp(saturate(rawVao), 1.0, distanceFade)
+                // and distanceFade is 1.0 NEAR and 0.0 FAR, so that expression
+                // gives vao = 1.0 on near surfaces and FULL occlusion on the
+                // far field -- exactly inverted. It was invisible because
+                // rawVao was the constant 1.0 either way, so both ends of the
+                // lerp were 1.0. faceShade, two dozen lines up, has the fade
+                // the correct way round; this one never did.
+                vao = lerp(1.0, vaoLive, distanceFade);
+            }
+        } else {
+            // ---- MODE 0: the baked path, preserved verbatim. ALWAYS 1.0. ----
+            float3 localHitPos = frac((ray.origin + ray.direction * t) / finalVoxelSize);
+            float2 faceUV;
+            float c00 = 0, c10 = 0, c01 = 0, c11 = 0;
+
+            bool b0 = (bakedAO_mask & 1) != 0;   // -X, -Y, -Z
+            bool b1 = (bakedAO_mask & 2) != 0;   // +X, -Y, -Z
+            bool b2 = (bakedAO_mask & 4) != 0;   // -X, +Y, -Z
+            bool b3 = (bakedAO_mask & 8) != 0;   // +X, +Y, -Z
+            bool b4 = (bakedAO_mask & 16) != 0;  // -X, -Y, +Z
+            bool b5 = (bakedAO_mask & 32) != 0;  // +X, -Y, +Z
+            bool b6 = (bakedAO_mask & 64) != 0;  // -X, +Y, +Z
+            bool b7 = (bakedAO_mask & 128) != 0; // +X, +Y, +Z
+
+            if (mask.x > 0) {
+                faceUV = localHitPos.yz;
+                if (ray.direction.x < 0) { c00 = b1 ? 1.0 : 0.0; c10 = b3 ? 1.0 : 0.0; c01 = b5 ? 1.0 : 0.0; c11 = b7 ? 1.0 : 0.0; }
+                else                     { c00 = b0 ? 1.0 : 0.0; c10 = b2 ? 1.0 : 0.0; c01 = b4 ? 1.0 : 0.0; c11 = b6 ? 1.0 : 0.0; }
+            } else if (mask.y > 0) {
+                faceUV = localHitPos.xz;
+                if (ray.direction.y < 0) { c00 = b2 ? 1.0 : 0.0; c10 = b3 ? 1.0 : 0.0; c01 = b6 ? 1.0 : 0.0; c11 = b7 ? 1.0 : 0.0; }
+                else                     { c00 = b0 ? 1.0 : 0.0; c10 = b1 ? 1.0 : 0.0; c01 = b4 ? 1.0 : 0.0; c11 = b5 ? 1.0 : 0.0; }
+            } else {
+                faceUV = localHitPos.xy;
+                if (ray.direction.z < 0) { c00 = b4 ? 1.0 : 0.0; c10 = b5 ? 1.0 : 0.0; c01 = b6 ? 1.0 : 0.0; c11 = b7 ? 1.0 : 0.0; }
+                else                     { c00 = b0 ? 1.0 : 0.0; c10 = b1 ? 1.0 : 0.0; c01 = b2 ? 1.0 : 0.0; c11 = b3 ? 1.0 : 0.0; }
+            }
+
+            float bottomAO = lerp(c00, c10, faceUV.x);
+            float topAO = lerp(c01, c11, faceUV.x);
+            float finalAO = lerp(bottomAO, topAO, faceUV.y);
+            float rawVao = 1.0 - (finalAO * 0.6);
+            vao = lerp(saturate(rawVao), 1.0, distanceFade);
+        }
+        
+        // --- TRUE DIRECTIONAL SUN SHADOWS ---
+        Ray shadowRay;
+        // Push the ray slightly off the block's surface using its normal so it doesn't shadow itself
+        // BIAS: 0.1 voxels was too small and risks self-shadow acne. The
+        // Brickmap uses 1.5 voxels along the normal and shows no acne; matched.
+        shadowRay.origin = (ray.origin + ray.direction * t) + (normal * finalVoxelSize * 1.5);
+        shadowRay.direction = _SunDir;
+        
+        float s_t = 0; int3 s_mask = 0; uint s_mat = 0; 
+        float s_size = 1.0; float3 s_pos = 0; int s_steps = 0; int s_site = 0;
+        
+        // SHADOW RANGE: this trace was 8.0 units against the Brickmap's 60.0,
+        // so far fewer pixels were ever shadowed and the frame read about twice
+        // as bright (measured grass G=199 vs the Brickmap's 95 at matching
+        // saturation). Matched to 60.0 for parity.
+        //
+        // The original comment justified 8.0 as eliminating "GPU thread
+        // divergence and stutter", which is a real cost -- longer shadow rays
+        // diverge more. That trade is now MEASURED rather than assumed: see the
+        // shadow-range arm in the report.
+        // PLAYGROUND SHADOW RUNGS -- identical ladder and code to the
+        // Brickmap's (0 hard = shipped; sunVis is exactly 0/1 there, so the
+        // lerp below reproduces the old ternary bit for bit).
+        bool inShadow = false;
+        float sunVis = 1.0;
+        bool sunTraced = false;
+        if (_ShadowRung != 3 && !(_ShadowRung == 2 && t > 40.0)) {
+            sunTraced = true;
+            if (_ShadowRung == 1) {
+                float3 sd = normalize(_SunDir.xyz);
+                float3 sup = abs(sd.y) < 0.99 ? float3(0, 1, 0) : float3(1, 0, 0);
+                float3 sb1 = normalize(cross(sd, sup)), sb2 = cross(sd, sb1);
+                float rot = hash(finalBlockPos + frac(hitWorldPos * 7.13)) * 6.2831853;
+                float lit = 0.0;
+                [loop] for (int k = 0; k < 4; k++) {
+                    float a = rot + k * 1.5707963;
+                    Ray sr; sr.origin = shadowRay.origin;
+                    sr.direction = normalize(sd + (sb1 * cos(a) + sb2 * sin(a)) * 0.035);
+                    if (!(TraceVoxelRay(sr, 60.0, s_t, s_mask, s_mat, s_size, s_pos, s_steps, s_site, false) && s_t < 60.0)) lit += 1.0;
+                }
+                sunVis = lit * 0.25;
+                inShadow = sunVis < 0.5;
+            } else {
+                inShadow = TraceVoxelRay(shadowRay, 60.0, s_t, s_mask, s_mat, s_size, s_pos, s_steps, s_site, false);   // shadow rays never dump
+                sunVis = inShadow ? 0.0 : 1.0;
+            }
+        }
+
+        // PLAYGROUND SKY OCCLUSION -- identical to the Brickmap's.
+        float skyVis = 1.0;
+        // Skipped where the sun/moon ray escaped: that surface is open to the
+        // sky by construction (identical rule in the Brickmap).
+        if (_SkyOcclusion == 1 && !(sunTraced && sunVis > 0.0)) {
+            Ray occRay;
+            occRay.origin = hitWorldPos + (normal * _VoxelScale * 1.5);
+            occRay.direction = normalize(float3(0.0, 1.0, 0.0) + normal * 0.9);
+            float o_t = 0; int3 o_mask = 0; uint o_mat = 0; float o_size = 1.0; float3 o_pos = 0; int o_steps = 0; int o_site = 0;
+            if (TraceVoxelRay(occRay, 24.0, o_t, o_mask, o_mat, o_size, o_pos, o_steps, o_site, false) && o_t < 24.0) skyVis = 0.04;
+        }
+        if (_DebugViewMode == 13) { Result[id.xy] = float4(sunVis.xxx * lerp(0.35, 1.0, skyVis), 1); return; }
+
+        float sunExposure = lerp((1.0 - _ShadowDarkness) * skyVis, 1.0, sunVis);
+        
+        // --- AESTHETIC PARITY WITH THE BRICKMAP ---
+        //
+        // THREE DEFECTS FIXED HERE, which together made this engine render at
+        // HALF the Brickmap's colour saturation (measured 38.3 vs 73.5 over the
+        // ground half of the frame) and look flat and washed out:
+        //
+        //  1. `vao` WAS COMPUTED AND THEN COMMENTED OUT of the final blend
+        //     (`// * vao`). The engine paid for ambient occlusion every frame
+        //     and threw the result away, so nothing defined the form of a
+        //     crevice or a terrace edge.
+        //
+        //  2. Ambient was a flat GREY SCALAR (0.2), where the Brickmap uses a
+        //     COLOURED sky-dome bounce. This engine's own sky horizon is
+        //     float3(0.6, 0.8, 1.0) -- identical to the Brickmap's
+        //     horizonColor -- so the ambient is taken from it rather than
+        //     introducing a uniform, and the blue bounce returns.
+        //
+        //  3. Everything was multiplied by faceShade TOGETHER, ambient
+        //     included. That is the same mistake the Brickmap had in the
+        //     opposite direction (there AO crushed the frame to black). AO
+        //     models occlusion of the SKY DOME and belongs on AMBIENT only;
+        //     face shading is directional and belongs on DIRECT only; the
+        //     chunk's baked local light gets neither.
+        // *** THE ACTUAL CAUSE OF THE FLAT, WASHED-OUT LOOK ***
+        //
+        // sun_light arrives from UnpackLight, which reads bits 20-23 of the
+        // voxel word. WorldGen.compute writes that word with
+        //     PackMaterialAndLight(mat, 0, 0, 0, 0)
+        // at EVERY site (lines 381 and 454), so r/g/b/sun are ALWAYS ZERO.
+        // This engine has therefore never had directional sunlight at all --
+        // it was rendering flat ambient times a face-shade term, which is why
+        // its grass measured B=59 against the Brickmap's B=27 at an identical
+        // green, and why saturation sat at half the Brickmap's.
+        //
+        // Two earlier attempts of mine did not fix this and are recorded in
+        // git: enabling the commented-out VAO, and splitting the moire fade.
+        // Neither moved saturation, because neither addressed the missing sun.
+        //
+        // Computed from the surface normal exactly as the Brickmap does
+        // (RayTracer.compute:221, `saturate(dot(normal, _SunDir.xyz))`).
+        // Same wrap the Brickmap's 1-bit path now carries and its 32-bit path
+        // always had (`* 0.8 + 0.2`), and the same thing the reference does
+        // with max(0.2, .) at Raymarch.compute:2038. Without a floor a face
+        // pointing away from the sun receives only ambient, which through a
+        // grass albedo is rgb(15,34,18) -- the black terrace sides the owner
+        // spotted in the Brickmap captures. This engine had the identical
+        // expression and would show it wherever its geometry stepped.
+        sun_light = saturate(dot(normal, _SunDir.xyz) * 0.8 + 0.2);
+
+        // Session 12: uniforms carrying the old literals by default (see the
+        // declarations). HORIZON_COLOR (0.6,0.8,1.0) * AMBIENT_STRENGTH 0.3.
+        float3 ambientColor = _HorizonColor.rgb * _AmbientStrength * skyVis;
+
+        // EXPOSURE: the 2.5 multiplier was tuned against a sun_light that was
+        // always ZERO, so it was never actually exercised. With real sunlight
+        // it blows the frame out -- grass measured rgb(179,242,145) against the
+        // Brickmap's (52,95,27). Matched to the Brickmap's own formula
+        // (RayTracer.compute:324, `(sun_light * 1.5) * sunExposure * sunColor`)
+        // including its warm sun tint, so the two engines expose alike.
+        // The Brickmap's _SunHaloColor, which VoxelEnvironmentManager sets from
+        // its authored sunHaloColor (1.0, 0.9, 0.7) and which at this pose is
+        // passed through unattenuated -- sunIntensity = clamp01(sinE * 4) is 1
+        // at 45 degrees of elevation. This engine had (1.0, 0.96, 0.88), a
+        // visibly bluer sun, which is part of why its frame read blue-heavy.
+        // Session 12: _SunHaloColor, which the render feature has always set
+        // to exactly (1.0, 0.9, 0.7) -- the constant this line used to hold.
+        float3 SUN_COLOR = _SunHaloColor.rgb;
+        // 1.5 IS THE BRICKMAP'S OWN CONSTANT, not a fitted one
+        // (its RayTracer.compute: `(sun_light * 1.5) * sunExposure * halo`).
+        //
+        // It was dropped to 0.55 in session 6 to pull a frame that measured
+        // G=199 down to the Brickmap's G=95. That solve was arithmetically
+        // fine and still wrong, because it was fitting a gamma difference with
+        // a linear scale: this engine's output WAS sRGB-encoded by URP and the
+        // Brickmap's was not (measured -- see VoxelGBuffer.shader). Session 8
+        // moved this project to Gamma, so there is no encode left to cancel and
+        // the honest constant is the reference's. The two engines' direct terms
+        // are now the same expression rather than one being a correction for
+        // the other.
+        float3 directTerm  = (sun_light * 1.5 * sunExposure) * faceShade * SUN_COLOR;
+        float3 ambientTerm = ambientColor * vao;
+        float3 localTerm   = float3(r_light, g_light, b_light);
+
+        // --- DYNAMIC TORCH LOOP (ported from the Brickmap) ---
+        float3 dynamicLight = 0;
+        float3 torchStart = hitWorldPos + (normal * finalVoxelSize * 0.5);
+        // CAPPED PER-LIGHT OCCLUSION -- identical policy to the Brickmap's:
+        // the first TORCH_RAYS in-range torches (buffer is nearest-camera
+        // first) are traced, further ones scaled by the traced visible
+        // fraction, negligible ones skipped. It was one traversal per torch
+        // per pixel (up to 32).
+        #define TORCH_RAYS 4
+        int traced = 0, seen = 0;
+        float3 restLight = 0;
+        for (int ti = 0; ti < _TorchCount; ti++) {
+            TorchLight torch = _TorchBuffer[ti];
+            float3 lv = torch.position - torchStart;
+            float dl = length(lv);
+            if (dl >= torch.radius) continue;
+            float3 ldir = lv / max(dl, 1e-4);
+            float ndl = max(0.0, dot(normal, ldir));
+            if (ndl <= 0.01) continue;
+            float att = smoothstep(0.0, 1.0, saturate(1.0 - dl / torch.radius));
+            float3 contrib = torch.color * (att * ndl * torch.intensity);
+            if (max(contrib.r, max(contrib.g, contrib.b)) < 0.004) continue;
+            if (traced >= TORCH_RAYS) { restLight += contrib; continue; }
+            Ray tr; tr.origin = torchStart; tr.direction = ldir;
+            float t_t = 0; int3 t_mask = 0; uint t_mat = 0; float t_size = 1.0; float3 t_pos = 0; int t_steps = 0; int t_site = 0;
+            // Stop short of the torch's own (solid) voxel, and judge the hit
+            // against the torch distance: the voxel walk does not stop at
+            // maxDist (session 12, both engines).
+            float tMax = max(0.0, dl - _VoxelScale * 1.8);
+            bool tb = TraceVoxelRay(tr, tMax, t_t, t_mask, t_mat, t_size, t_pos, t_steps, t_site, false) && t_t < tMax;
+            traced++;
+            if (!tb) { dynamicLight += contrib; seen++; }
+        }
+        if (traced > 0) dynamicLight += restLight * ((float)seen / (float)traced);
+        // Self-emission, the Brickmap's rule: a palette entry with emission
+        // glows in its own colour (this engine read `emission` and ignored it).
+        float3 glowColor = matData.emission > 0.0 ? matData.albedo.rgb * (matData.emission * 2.0) : float3(0, 0, 0);
+
+        // EMISSIVE BLEED, the Brickmap's rule (its "dynamic emissive
+        // injection"): a face next to an emitting voxel (torch, lava) picks up
+        // that voxel's colour, fading across the face away from it -- the warm
+        // halo on a floor around a torch that the Brickmap draws and this
+        // engine did not. The Brickmap reads it off the eight AO neighbours it
+        // fetches anyway (flat brick reads); here each neighbour is a tree
+        // descent, so only the four edge neighbours are read, and only for
+        // layer-0 voxel-level hits on non-emitting faces -- the only place a
+        // one-voxel halo is visible at all.
+        if (matData.emission <= 0.0 && layer == 0 &&
+            (maskSite == MASKSITE_DDA_X || maskSite == MASKSITE_DDA_Y ||
+             maskSite == MASKSITE_DDA_Z || maskSite == MASKSITE_BBOXENTER)) {
+            int3 hv = int3(floor(finalBlockPos));
+            int3 fa = hv + int3(round(normal));
+            int3 e1, e2; float2 uv;
+            float3 lh = saturate((hitWorldPos / layerScale) - (float3)hv);
+            if (abs(normal.x) > 0.5)      { e1 = int3(0,1,0); e2 = int3(0,0,1); uv = lh.yz; }
+            else if (abs(normal.y) > 0.5) { e1 = int3(1,0,0); e2 = int3(0,0,1); uv = lh.xz; }
+            else                          { e1 = int3(1,0,0); e2 = int3(0,1,0); uv = lh.xy; }
+            float3 bleed = max(max(SvoEmitColor(fa - e1, layer) * (1.0 - uv.x), SvoEmitColor(fa + e1, layer) * uv.x),
+                               max(SvoEmitColor(fa - e2, layer) * (1.0 - uv.y), SvoEmitColor(fa + e2, layer) * uv.y));
+            glowColor += bleed * 2.0;
+        }
+
+        if (_DebugViewMode == 15) { Result[id.xy] = float4(dynamicLight + float3(0.02, 0.0, 0.04), 1); return; }
+        float3 colorWithLight = baseColor * (directTerm + ambientTerm + localTerm + dynamicLight) + glowColor;
+
+        // DYNAMIC FOG: Calculates atmosphere thickness based on your exact Inspector bounds
+        int maxL = _ClipmapLayers - 1;
+        float maxWorldDist = _RenderBounds.x * 32.0f * _ClipmapCenters[maxL].w;
+        
+        // Fog starts at 40% of your maximum view distance and reaches maximum density at the edge
+        float fogStart = maxWorldDist * 0.4f; 
+        float fog = saturate((t - fogStart) / (maxWorldDist - fogStart));
+        // float fog = 1.0 - exp(-pow(t * 0.008, 2.0));
+        float3 skyColor = lerp(_HorizonColor.rgb, _ZenithColor.rgb, saturate(ray.direction.y * 0.5 + 0.5));
+
+        // SA-SKY: skipped entirely unless the sky arm runs (ships OFF).
+        float fogK = fog;
+        if (_SvoSkyMode != 0) {
+            float sunHighlight = pow(max(0.0f, dot(ray.direction, _SunDir)), 8.0f);
+            float3 atmosphereColor = lerp(skyColor, _SunHaloColor.rgb, sunHighlight);
+            skyColor = atmosphereColor;
+            fogK = saturate(pow(saturate(t / maxWorldDist), 2.0f) * _HazeDensity);
+        }
+
+        // Output raw HDR color
+        float3 finalColor = lerp(colorWithLight, skyColor, fogK);
+
+        // --- TARGET BLOCK HIGHLIGHT ---
+        // If we hit a block and are in edit mode, check if this pixel belongs to the targeted block
+        if (_IsEditMode == 1 && _TargetBlock.w == 1.0 && hit) {
+            
+            // Validate if the pixel we are currently drawing is part of the crosshair's target block
+            if (abs(finalBlockPos.x - _TargetBlock.x) < 0.1 && 
+                abs(finalBlockPos.y - _TargetBlock.y) < 0.1 && 
+                abs(finalBlockPos.z - _TargetBlock.z) < 0.1) {
+                
+                // Calculate the normal of the face this pixel is on
+                float3 rawNormal = float3(mask) * -NonZeroSign(ray.direction);
+                
+                // Check if this pixel is on the exact face the crosshair is resting on
+                bool isTargetFace = (abs(rawNormal.x - _TargetNormal.x) < 0.1 && 
+                                     abs(rawNormal.y - _TargetNormal.y) < 0.1 && 
+                                     abs(rawNormal.z - _TargetNormal.z) < 0.1);
+                
+                // 1. Add a subtle emission glow (Gold for the active face, slight white for the rest)
+                finalColor += isTargetFace ? float3(0.3, 0.25, 0.05) : float3(0.08, 0.08, 0.08);
+                
+                // 2. Draw a crisp wireframe around the block
+                float3 localPos = frac((ray.origin + ray.direction * t) / finalVoxelSize);
+                float2 faceUV = mask.x > 0 ? localPos.yz : (mask.y > 0 ? localPos.xz : localPos.xy);
+                
+                // Find distance to the nearest edge (0.0 to 0.5)
+                float edgeDist = min(min(faceUV.x, 1.0 - faceUV.x), min(faceUV.y, 1.0 - faceUV.y));
+                
+                if (edgeDist < 0.04) {
+                    // Bright Yellow/Orange wireframe for the active face, White for the rest
+                    finalColor = isTargetFace ? float3(1.0, 0.8, 0.0) : float3(0.9, 0.9, 0.9);
+                }
+            }
+        }
+
+        // --- GPU HOLOGRAM OVERLAY ---
+        if (_IsEditMode == 1 && _TargetBlock.w == 1.0) {
+            float3 targetGrid = _TargetBlock.xyz;
+            float3 targetNorm = _TargetNormal.xyz;
+            
+            // 1. ALIGN TO SURFACE: Push the center out/in by the brush radius
+            float3 centerGrid = targetGrid;
+            if (_EditMode == 1) {
+                // PLACE: Push out by (BrushSize + 1.0) to sit exactly on the surface block
+                centerGrid += targetNorm * (_BrushSize + 1.0);
+            } else {
+                // REMOVE: Push in by BrushSize to carve perfectly flush
+                centerGrid -= targetNorm * _BrushSize;
+            }
+            
+            // 2. AABB BOUNDING BOX
+            float physicalRadius = (_BrushSize + 0.5) * _VoxelScale;
+            float3 centerWorld = (centerGrid * _VoxelScale) + (_VoxelScale * 0.5);
+            float3 boxMin = centerWorld - physicalRadius;
+            float3 boxMax = centerWorld + physicalRadius;
+            
+            // BUG FIX: sign(0.0) IS 0.0, so `sign(d) * 1e-6` leaves an EXACTLY
+            // zero component exactly zero and the guard does nothing -- 1/0 then
+            // gives +inf and the intersection math degenerates.
+            //
+            // A camera ray's x-component is exactly zero down the centre COLUMN
+            // of the screen, which is why this produced a 4-pixel-wide bright
+            // seam at x = width/2 (measured: columns 797-800 of 1600 at luma
+            // 186 against a median of 74). Same for y at the centre ROW.
+            //
+            // TraceVoxelRay at line ~272 already guards correctly with an
+            // explicit ternary; this site did not. Now identical.
+            float3 safeDir = ray.direction;
+            if (abs(safeDir.x) < 1e-6) safeDir.x = (safeDir.x < 0.0 ? -1e-6 : 1e-6);
+            if (abs(safeDir.y) < 1e-6) safeDir.y = (safeDir.y < 0.0 ? -1e-6 : 1e-6);
+            if (abs(safeDir.z) < 1e-6) safeDir.z = (safeDir.z < 0.0 ? -1e-6 : 1e-6);
+            
+            float3 invDir = 1.0 / safeDir;
+            float3 t0 = (boxMin - ray.origin) * invDir;
+            float3 t1 = (boxMax - ray.origin) * invDir;
+            float3 tMin = min(t0, t1);
+            float3 tMax = max(t0, t1);
+            float tEnter = max(max(tMin.x, tMin.y), tMin.z);
+            float tExit = min(min(tMax.x, tMax.y), tMax.z);
+            
+            if (tEnter < tExit && tExit > 0) {
+                // We hit the bounding box! Run a Mini-DDA to find the exact voxel wireframe
+                float tStep = max(tEnter, 0.0);
+                
+                // If placing, hide blocks behind the terrain. If removing, X-Ray through it.
+                float maxT = (_EditMode == 1) ? min(tExit, t) : tExit;
+
+                float3 rayPos = ray.origin + ray.direction * tStep;
+                int3 currentGrid = floor(rayPos / _VoxelScale);
+                int3 stepDir = sign(safeDir);
+                float3 tDelta = abs(_VoxelScale * invDir);
+                float3 tMaxV = ((currentGrid + max(stepDir, 0)) * _VoxelScale - ray.origin) * invDir;
+
+                // THE FIX: DDA Infinity Guard
+                // Prevents divide-by-zero Infinity logic traps when looking parallel to an axis
+                if (abs(ray.direction.x) < 1e-6f) { tMaxV.x = 3.4e38f; tDelta.x = 3.4e38f; }
+                if (abs(ray.direction.y) < 1e-6f) { tMaxV.y = 3.4e38f; tDelta.y = 3.4e38f; }
+                if (abs(ray.direction.z) < 1e-6f) { tMaxV.z = 3.4e38f; tDelta.z = 3.4e38f; }
+                
+                bool hitHoloVoxel = false;
+                int3 holoMask = 0;
+                float hitT = 0;
+
+                [loop]
+                for (int i = 0; i < 40; i++) { 
+                    if (tStep > maxT) break;
+                    
+                    float3 pLocal = currentGrid - centerGrid;
+                    float dist = 0.0;
+                    
+                    // --- MODULAR SDF SWITCH (Must match WorldGen exactly) ---
+                    switch (_BrushShape) {
+                        case 0: // CUBE
+                            dist = max(abs(pLocal.x), max(abs(pLocal.y), abs(pLocal.z)));
+                            break;
+                        case 1: // SPHERE
+                            dist = length(pLocal);
+                            break;
+                    }
+
+                    if (dist <= _BrushSize + 0.5) {
+                        hitHoloVoxel = true;
+                        hitT = tStep;
+                        break;
+                    }
+                    
+                    // Step to next voxel inside the bounding box
+                    if (tMaxV.x < tMaxV.y) {
+                        if (tMaxV.x < tMaxV.z) { tStep = tMaxV.x; tMaxV.x += tDelta.x; currentGrid.x += stepDir.x; holoMask = int3(1,0,0); }
+                        else { tStep = tMaxV.z; tMaxV.z += tDelta.z; currentGrid.z += stepDir.z; holoMask = int3(0,0,1); }
+                    } else {
+                        if (tMaxV.y < tMaxV.z) { tStep = tMaxV.y; tMaxV.y += tDelta.y; currentGrid.y += stepDir.y; holoMask = int3(0,1,0); }
+                        else { tStep = tMaxV.z; tMaxV.z += tDelta.z; currentGrid.z += stepDir.z; holoMask = int3(0,0,1); }
+                    }
+                }
+                
+                if (hitHoloVoxel) {
+                    float3 holoColor = (_EditMode == 0) ? float3(1.0, 0.1, 0.1) : float3(0.1, 1.0, 0.2);
+                    
+                    // Draw a crisp wireframe over the voxelized shape
+                    float3 hitPosHolo = ray.origin + ray.direction * hitT;
+                    float3 localFacePos = frac(hitPosHolo / _VoxelScale);
+                    float2 uvHolo = holoMask.x > 0 ? localFacePos.yz : (holoMask.y > 0 ? localFacePos.xz : localFacePos.xy);
+                    
+                    float edgeDist = min(min(uvHolo.x, 1.0 - uvHolo.x), min(uvHolo.y, 1.0 - uvHolo.y));
+                    float alpha = (edgeDist < 0.05) ? 0.7 : 0.2; 
+                    
+                    finalColor = lerp(finalColor, holoColor, alpha);
+                }
+            }
+        }
+
+        // Output raw HDR color
+        float zDepth = t * dot(ray.direction, _CameraForward.xyz);
+        Result[id.xy] = float4(finalColor, zDepth);
+    } else {
+        float3 skyColor = lerp(_HorizonColor.rgb, _ZenithColor.rgb, saturate(ray.direction.y * 0.5 + 0.5));
+        // SA-SKY: same package as above (pure sky pixels).
+        if (_SvoSkyMode != 0) {
+            float sunHighlight = pow(max(0.0f, dot(ray.direction, _SunDir)), 8.0f);
+            skyColor = lerp(skyColor, _SunHaloColor.rgb, sunHighlight);
+        }
+        Result[id.xy] = float4(skyColor, 0); 
+    }
+}

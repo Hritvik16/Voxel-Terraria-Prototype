@@ -171,3 +171,12 @@ Assets/Resources/BuildStamp.txt.meta
 /*.log
 tools/vxrender
 tools/erosion-lab
+
+# Screenshots: images/videos live in the claude.ai Screenshot Archive (tools/archive/README.md); text reports stay tracked
+Screenshots/**/*.png
+Screenshots/**/*.PNG
+Screenshots/**/*.jpg
+Screenshots/**/*.jpeg
+Screenshots/**/*.mp4
+Screenshots/**/*.mov
+Screenshots/**/*.gif
