@@ -1,7 +1,8 @@
-# 84-coarse-column-fields  (PARKED: owner-gated; queue only when the owner says so)
+# 86-coarse-column-fields
 
 Proposal from the owner's side session (gen-talk, 2026-10-12), passed on at the owner's request. Runs after 82b
-(engine step 15, brick skip). NOT approved yet: needs the owner's go (Queue decisions doc, Q45).
+(engine step 15, brick skip). **Owner approved Q45 (a) in chat, 2026-10-12:** queue it (step 0 first; the coarse-grid change
+only if step 0 says so). Renumbered 84 -> 86 so it runs after task 85 (keeps 85's fill-time comparison clean).
 
 ## Why
 The column pass is ~60% of a chunk's cost (KNOWN_ISSUES task 23). Per 0.1 m column we evaluate fields that change
