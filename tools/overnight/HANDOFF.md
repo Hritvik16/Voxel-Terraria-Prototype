@@ -1,49 +1,58 @@
-# 83b-engine-11d-shell-fluid-fill: DONE. The shell fill now also fills ENCLOSED fluids; at spawn s3-s7 fit their brick caps.
-## What changed (commit `67b84ed`, branch engine-phase)
-- `TerrainGenChunkSource.ShellFill.cs`: `ShellFillFluids` on by default (owner Q46 (a)). The flood is unchanged. Fluids are pass
-  voxels, so any fluid connected to open air, a cave mouth, an op box, the chunk-face halo, or another liquid's surface
-  (task 75 see-through) is reached and kept. Only fluid nothing reaches is filled.
-- `ShellFillTests`: Gen/TearDown pin fluids on, so test (i)'s outside rays run with fluids filled. New `SeaAndLake_SurfaceFluid_Unchanged`
-  (Slow). The need report now has C = 83 (fluids kept) and D = 83b and writes `need83b.txt`.
-- Amendment 8.14 row 13b and the CLAUDE.md task-83 paragraph each got one clause.
+# 85-engine-12-handover-near-first: DONE. Shell chunks stream nearest-on-screen first (Q47 (a)); shells hand over by distance.
+## What changed (commit `1bb7e9e`, branch engine-phase)
+- `ShellStreamer.cs`: one request order across all shells. The key is `OrderKey` = max(distance from the camera to the chunk's
+  nearest point, the shell's inner hand-over distance) x (1 - 0.25 x cos(angle to the camera's smoothed velocity)), with the plain
+  distance breaking ties. The per-shell lists are re-keyed whenever any shell's camera chunk changes, and NextCandidate merges
+  their ends. Coarsest-first is gone. Also new: `InFlightIn(k)` and `TakeRequestOrder` (for tests).
+- Step 12, shells-on path only (`Raymarch.compute` ShellMarch and its CPU twin `ShellRayReference.March`, new `tTier0` arg): the shells
+  march from the camera. Inside tier 0's band, min(its 68.75 m hand-over, where tier 0's march stopped), a chunk tier 0 holds is
+  leapt. A chunk it does not hold (non-resident, or outside its window or layers) is read from shell 1, 2, ... The shells path no longer calls `FarStartT`,
+  and the far band starts at the shells' end. `RaymarchFeature`: `-detailspeed` is off while shells draw. Shadow rays pass tTier0 = 0 (unchanged).
+- Capture: `-poses a,b,c` keeps only the named poses. A `[shells] complete at` line gives the time each shell finished per pose.
+- Tests: `ShellOrderTests` (3) and `ShellHandOverTests.TierZerosBand_HeldIsLeapt_NotHeldIsShellOne`. Amendment 8.14 §3 "Order" and row 5,
+  plus a CLAUDE.md paragraph.
 ## Evidence
-- Test (i), fluids filled: same lines as 83: 2.6 M outside rays, 0 differ (Screenshots/83b/fill83_tests_83b.txt). Entrances 11 -> 11,
-  0 lost. Dense bricks in the test chunks: s4-s7 39/34/45/61% -> 35/15/16/24% of the generator's.
-- Sea/lake test (Screenshots/83b/fill83b_water.txt), shells 3-7, a sea and a lake site, 2 chunks each: 0 fluid voxels that open
-  water reaches changed (sea s3 alone has 1.84 M of them), 0 outside rays differ. Enclosed fluid below them was filled: 1-14k voxels/chunk.
-- Bricks needed at spawn (Screenshots/83b/need83b.txt): s3-s7 fit their brick caps (table below). **Pages: s3 324 vs cap 320, 1% OVER**
-  (83: 657); s4 260, s5 162 now fit. Not changed (no cap changes in this task).
-- Poses run, ONE launch (`BUILD=1 MODE=poses EXTRA="-shells 1 -shellworkers 3 -gateres 1280 -shellwait 360"`,
-  Logs/overnight/83b-poses.out, shots FarBand/2026-10-12_214720_world). The Mac was on battery; no frame time is quoted.
-  - Refusals over the 16 poses, s1-s7: 83 = 18/30/41/41/45/44/6 -> 83b = **2/10/0/0/0/0/0**.
-  - Poses where a shell was FULL: 83 = 11/12/12/12/12/13/3 -> 83b = 2/5/0/0/0/0/0.
-  - Peak process 2,951 -> **2,985 MB** (cap 3 GB): s3-6 now hold all their chunks.
-- **Shells 1-2 starve worse (Q47, KNOWN, not fixed).** s3-7 now take every wanted chunk, and the coarsest-first order spends the
-  360 s wait on them. 11 of 16 poses hit the 360 s limit (83: 0). At geyser/eye_level/ledge/cliff_foot, s1 held 0 chunks
-  (missing 2,170) and s2 held 0-222.
-- Sheets looked at (Screenshots/83b/sheet_shells_1..4.jpg vs Screenshots/83/):
-  - Sheet 1: the ON column looks the same as 83's. Summit_view tint (row 2): the grey far-band block at the right horizon is gone
-    (the cyan s6 band is unbroken: s6 stores 182/182). Rows 1, 3, 4 same; row 5 (oblique_3000m) is still all far band.
-  - Sheet 2 row 2 (geyser_basin, tint): grey rectangles where s1-2 had no chunks yet (Q47). 83's frame was yellow/green there.
-    The ON column looks the same, because the far band fills those holes.
-  - Sheet 2 row 4: eye_level_1 shows a different view than in 83, in the OFF column too. The pose itself moved; the shells did not cause it.
-- oblique_3000m / rivers_oblique: no shell pixel although s5-7 hold 143-180 chunks, and none are full. In 83 this looked like
-  FULL shells; it is not that. Unexplained; worth a look in 11c.
-- Whole suite **PASS 763 FAIL 0 SKIP 21** (Logs/overnight/83b-all.out). run-phase7-rig **PASS 37 FAIL 0, 19/19 shots byte-identical**
-  to 83's (Phase7Cycle/2026-10-12_235030 vs _180337).
-## Left / next
-- Q47 (s1-2 starve behind s3-7): the owner's call, now more pressing. s3 pages are over cap by 4 (324/320); the fix is a
-  1.25x margin, about +1.3 MB. Needs approval.
-- Next step: Q47, then 11c / the default switch per the plan.
+- Order, fixed camera at spawn, High: 7,508 requests. All 2,170 shell-1 chunks are requested by #2,911; the first shell >= 3 chunk is #3,102.
+  The first request is shell 1 (before: all of shell 7 went first). No coarse chunk farther than a shell-1 chunk comes before it (asserted).
+- Prefetch margin > 0 on every preset and shell (Screenshots/85/margin85.txt). High: shell 0 20.8 m, shell 1 16.1 m (0.27 s at 60 m/s), s2 32 m,
+  s7 1,592 m. Smallest anywhere: Low shell 1, 10.7 m.
+- ONE launch (`BUILD=1 MODE=poses EXTRA="-shells 1 -shellworkers 3 -gateres 1280 -shellwait 75 -poses ..."`, Logs/overnight/85-poses.out,
+  copied to Screenshots/85/wait75/poses85.txt). Chunks stored/missing at 75 s, 83's wait75 -> 85:
+  | pose | s1 | s2 | s3-7 stored |
+  | peak_from_2km_ground | 0/2170 -> **1390/775** | 0/2170 -> 219/1951 | 100/586/299/137/16 -> 0 |
+  | glide_400m | 0/2170 -> **1212/953** | 0/2001 -> 177/1824 | 567/637/308/139/16 -> 0 |
+  | eye_level_1 | 0/2170 -> **1050/1115** | 0/2170 -> 151/2019 | 143/544/308/137/16 -> 0 |
+  | cliff_foot_1 | 256/1909 -> **1212/956 FULL** | 494/1671 -> 351/1814 | 593/573/298/143/16 -> 0 |
+  Shells 1-2 did not complete within 75 s, before or after. At ~16-19 chunks/s, shell 1 alone (2,170 chunks) needs ~2 min.
+  Pixels drawn by s1/s2: peak none -> 3,059/10,705; eye_level_1 none -> 150k/54k. Peak process 2,995 -> 2,999 MB (cap 3 GB). No frame time quoted (rule 10).
+- Sheets I looked at:
+  - Screenshots/85/wait75/sheet_shells_1.jpg (the 4 poses: OFF / ON / tint).
+  - Screenshots/85/wait75/before_after_83_vs_85.jpg, the columns 83 ON | 83 tint | 85 ON | 85 tint:
+  - Row 1 (peak): 85's tint has a yellow s2 strip past the blue tier-0 plane, where 83 was grey. Mountains are still grey (far band) in both.
+  - Row 3 (eye_level_1): green s1 and yellow s2 bands in the middle distance. 83's frame was all tier 0, but this pose moved after 83 (83b HANDOFF).
+  - Rows 2 and 4 (glide, cliff_foot_1): framed differently from 83, so they are not a matched pair. Glide shows no shell pixel either time.
+    Cliff_foot_1 is all tier 0 (blue). The ON column shows no holes, seams or floating cells.
+  - Caveats: in 83 these poses ran 1st/3rd/10th/13th of 16, with chunks left over from earlier poses; here they ran 1-4.
+- Whole suite **PASS 767 FAIL 0 SKIP 21** (Logs/overnight/85-all.out; 83b 763 + 4 new). run-phase7-rig **PASS 37 FAIL 0, 19/19 shots
+  byte-identical** to 83b's (Phase7Cycle/2026-10-13_005521 vs 2026-10-12_235030), so the shells-off path is unchanged.
+## Found / left (owner's call, not done)
+- **glide_400m spends the whole wait on sky.** The camera is ~400 m up, and the s1/s2 boxes (+-153 / +-307 m, all axes) are mostly air chunks.
+  Those generate at about the same rate as surface chunks (glide 18.5/s, eye level 16/s). So near-first fills s1-2 with nothing visible,
+  and s3-4, which hold the visible ground, get 0. Proposed fix: skip a chunk the column data PROVES is air before it is queued (the
+  `DetailField.UniformSamples` max-height test from 82b, done before generation), or rank it last. This changes performance, so it needs
+  owner approval.
+- s1 FULL at cliff_foot_1 (2 refusals; s1 cap 150k bricks vs ~237k needed, 83's finding). The s3 page cap is 1% over (83b). Neither changed here.
+- The shells-off path keeps FarStartT and -detailspeed until shells become the default (a later task, per the plan).
+## Next step
+Owner: the air-chunk skip above (Q). Then 11c / the default switch per the plan.
 
 ## For the doc
-- Dense bricks at spawn, 83 -> 83b (cap): s3 106k -> 91.6k (102.4k); s4 142k -> 72.2k (102.4k); s5 170k -> 62.3k (102.4k);
-  s6 94.0k -> 27.5k (71.7k); s7 13.3k -> 4.2k (17.3k). All fit; before, only s7 did. Screenshots/83b/need83b.txt.
-- Refusals over the 16 poses, s1-s7: 18/30/41/41/45/44/6 -> 2/10/0/0/0/0/0 (Logs/overnight/83b-poses.out).
-- Pages s3/s4/s5: 657/598/331 -> 324/260/162 (cap 320 each; s3 still 1% over).
-- Peak process 2,951 -> 2,985 MB (cap 3 GB).
-- Surface fluid: 0 changed voxels, 0 changed outside rays at a sea and a lake, shells 3-7 (Screenshots/83b/fill83b_water.txt).
-- `Screenshots/83b/sheet_shells_1.jpg` vs `Screenshots/83/sheet_shells_1.jpg`: in the row 2 (summit_view) tint, the grey block at
-  the right horizon is gone (s6 complete). Everything else looks the same, as expected.
-- `Screenshots/83b/sheet_shells_2.jpg` row 2 (geyser_basin, tint): grey rectangles are where s1-2 starved (Q47). The ON column
-  is unchanged.
+- Shell-1 chunks stored after a 75 s wait (83 coarse-first -> 85 near-first): peak 0 -> 1,390; glide 0 -> 1,212; eye_level_1 0 -> 1,050;
+  cliff_foot_1 256 -> 1,212 of 2,165 (Logs/overnight/83-poses-wait75.out -> Screenshots/85/wait75/poses85.txt).
+- Request order at spawn: the first shell-1 request moves from after all 7,508 - 2,170 coarse chunks to #1. Shell 1 finishes by #2,911 and the
+  first shell >= 3 chunk is #3,102 (ShellOrderTests).
+- Fill time for shells 1-2: not reached within 75 s, before or after (~2 min needed at ~17 chunks/s).
+- Prefetch margin, High: shell 0 20.8 m, shell 1 16.1 m, shell 2 32.2 m. Every preset > 0 (Screenshots/85/margin85.txt).
+- `Screenshots/85/wait75/before_after_83_vs_85.jpg`: row 1 (peak) tint column: yellow s2 strip past the blue tier-0 plane in 85, grey
+  (far band) in 83. Row 3 (eye_level_1) 85 tint: green s1 and yellow s2 bands in the middle distance.
+- `Screenshots/85/wait75/sheet_shells_1.jpg`: the 4 poses after 75 s, OFF / ON / tint. The ON column has no holes or seams.
