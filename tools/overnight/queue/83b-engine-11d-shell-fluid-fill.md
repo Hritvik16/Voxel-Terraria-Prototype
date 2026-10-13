@@ -2,7 +2,6 @@
 
 Approval: task 83 stopped with Q46 ("fill ENCLOSED fluids too?"). Supervisor, 2026-10-12 18:50: recorded in the Queue
 decisions doc as "going ahead with (a) unless you object" (reversible: one switch, invisible by test). Branch `engine-phase`.
-Requires: nothing (83 is committed: f858dd5, c003f5a).
 
 ## Context (83's HANDOFF, done/20261012_184256_83-...HANDOFF.md)
 83 fills enclosed AIR in shells >= 3 but never fluids. At seed 42's spawn s3-s6 still need 1.04-1.66x their brick caps.
