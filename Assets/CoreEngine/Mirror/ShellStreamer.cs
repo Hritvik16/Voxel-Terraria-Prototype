@@ -21,9 +21,17 @@
 // top layer]), minus the hole +-H the finer shell covers (all three axes).
 // A chunk leaving that set is evicted the frame the camera's chunk changes.
 //
-// ORDER (§3 "Upload budget"): the coarsest shell's missing chunks first,
-// nearest the camera first within a shell. A coarse chunk is cheap and fills
-// a hole; a missing fine chunk only looks blockier (Q2 (a)).
+// ORDER (task 85, owner Q47 (a), 2026-10-12: "near terrain loads first"):
+// NEAREST ON SCREEN FIRST, across all shells. The key (OrderKey) is the
+// distance from the camera to the chunk's nearest point, but not less than the
+// shell's inner hand-over distance (nothing of it is drawn nearer), times
+// 1 - VEL_BIAS x cos(angle between the chunk and the camera's velocity) (§4.3
+// prefetch). Ties: the plain distance. A shell-1 chunk at 40 m goes before a
+// shell-5 chunk at 1.5 km; a coarser shell still fills its band, after the
+// nearer bands. This replaces 8.14 §3's coarsest-first (Q2 (a)): shells are
+// HOLLOW, so a missing fine chunk is a hole (far band), not a blockier view.
+// Keys are recomputed for every shell whenever any shell's camera chunk
+// changes, so the lists merge on one consistent key.
 //
 // REDRAW (task 82, engine step 13b; 8.14 row 9, the plan's E5 "redrawn in the
 // shells at once"): each Update reads the ops the log gained since the last
@@ -87,7 +95,18 @@ namespace VoxelEngine.Mirror
         private readonly int3[] _lo, _hi;     // stored box (inclusive), world-clamped
         private readonly int3[] _pubLo, _pubHi, _pubCc;   // the box the GPU directory matches
         private readonly bool[] _pubValid;
-        private readonly List<int3>[] _cand;  // missing chunks, FARTHEST first (pop from the end)
+        /// A missing chunk and its request-order key (header ORDER).
+        private struct Cand { public int3 C; public float Key, Dist; }
+        private readonly List<Cand>[] _cand;  // missing chunks, FARTHEST first (pop from the end)
+        private static readonly Comparison<Cand> FarthestFirst = (a, b) =>
+        {
+            int r = b.Key.CompareTo(a.Key);
+            return r != 0 ? r : b.Dist.CompareTo(a.Dist);
+        };
+        /// §4.3 prefetch: a chunk straight ahead of the motion counts this much nearer.
+        public const float VEL_BIAS = 0.25f;
+        private float3 _lastCam, _vel;        // metres; _vel = smoothed motion per Update
+        private bool _haveLastCam;
         private readonly HashSet<long> _inFlight = new HashSet<long>();
         // Op redraws (task 82): (shell, chunk) keys, FIFO; _redrawSet dedups the queue.
         private readonly Queue<long> _redrawQ = new Queue<long>();
@@ -124,7 +143,7 @@ namespace VoxelEngine.Mirror
             _stores = new ShellStore[n];
             _cc = new int3[n]; _ccValid = new bool[n]; _lo = new int3[n]; _hi = new int3[n];
             _pubLo = new int3[n]; _pubHi = new int3[n]; _pubCc = new int3[n]; _pubValid = new bool[n];
-            _cand = new List<int3>[n]; _refused = new Dictionary<long, int>[n]; _fullNeed = new int[n];
+            _cand = new List<Cand>[n]; _refused = new Dictionary<long, int>[n]; _fullNeed = new int[n];
             int dirN = 0, pageN = 0, brickN = 0;
             for (int k = FirstShell; k <= LastShell; k++)
             {
@@ -138,7 +157,7 @@ namespace VoxelEngine.Mirror
                 var s = layout[k];
                 _stores[k] = new ShellStore(k, s.Ring, s.PoolCap, s.PageCap, Gpu, dirN, pageN, brickN);
                 dirN += s.RingSlots; pageN += s.PageCap; brickN += s.PoolCap;
-                _cand[k] = new List<int3>(); _refused[k] = new Dictionary<long, int>();
+                _cand[k] = new List<Cand>(); _refused[k] = new Dictionary<long, int>();
             }
             workers = math.max(1, workers);
             int scratch = synchronous ? 3 : workers + 2;   // + 2: results waiting for upload budget
@@ -161,6 +180,13 @@ namespace VoxelEngine.Mirror
 
         public ShellStore Store(int k) => _stores[k];
         public int InFlight => _inFlight.Count;
+        /// Chunks of shell k generating or waiting to be stored (task 85's capture timing).
+        public int InFlightIn(int k)
+        {
+            int n = 0;
+            foreach (long key in _inFlight) if ((int)(key >> 60) == k) n++;
+            return n;
+        }
         public int Pending => _pending.Count;
 
         private static long Key(int k, int3 c) =>
@@ -201,7 +227,7 @@ namespace VoxelEngine.Mirror
                 {
                     if (_stores[k].DirectoryDirty) return false;
                     if (ShellFull(k)) continue;
-                    foreach (var c in _cand[k]) if (!_stores[k].Holds(c) && !Blocked(k, Key(k, c))) return false;
+                    foreach (var c in _cand[k]) if (!_stores[k].Holds(c.C) && !Blocked(k, Key(k, c.C))) return false;
                 }
                 return true;
             }
@@ -214,7 +240,10 @@ namespace VoxelEngine.Mirror
         {
             int budget = math.max(0, budgetBytes);
             int start = budget;
-            for (int k = FirstShell; k <= LastShell; k++) Slide(k, camMetres);
+            TrackVelocity(camMetres);
+            bool slid = false;
+            for (int k = FirstShell; k <= LastShell; k++) slid |= Slide(k, camMetres);
+            if (slid) Rekey(camMetres);
             // Publish the evictions before any freed brick or page is reused
             // (header: WHAT THE GPU MAY SEE). Over budget: store nothing now.
             bool published = true;
@@ -455,22 +484,89 @@ namespace VoxelEngine.Mirror
             return NextCandidate(out k, out c);
         }
 
+        /// The nearest-on-screen missing chunk over all shells (header ORDER): each
+        /// list is sorted on the same key, so this is a merge of their ends.
         private bool NextCandidate(out int k, out int3 c)
         {
-            for (k = LastShell; k >= FirstShell; k--)   // coarsest first
+            int best = -1; Cand bc = default;
+            for (int j = FirstShell; j <= LastShell; j++)
             {
-                if (ShellFull(k)) continue;
-                var list = _cand[k];
+                if (ShellFull(j)) continue;
+                var list = _cand[j];
                 while (list.Count > 0)
                 {
-                    c = list[list.Count - 1]; list.RemoveAt(list.Count - 1);
-                    long key = Key(k, c);
-                    if (!Wanted(k, c) || _stores[k].Holds(c) || _inFlight.Contains(key) || Blocked(k, key)) continue;
-                    return true;
+                    var top = list[list.Count - 1];
+                    long key = Key(j, top.C);
+                    if (Wanted(j, top.C) && !_stores[j].Holds(top.C) && !_inFlight.Contains(key) && !Blocked(j, key))
+                    {
+                        if (best < 0 || FarthestFirst(top, bc) > 0) { best = j; bc = top; }
+                        break;
+                    }
+                    list.RemoveAt(list.Count - 1);
                 }
             }
-            k = -1; c = default;
-            return false;
+            if (best < 0) { k = -1; c = default; return false; }
+            _cand[best].RemoveAt(_cand[best].Count - 1);
+            k = best; c = bc.C;
+            return true;
+        }
+
+        /// Tests (task 85): pop the next `max` requests in the order Update would
+        /// dispatch them, without generating anything.
+        public int TakeRequestOrder(List<(int k, int3 c)> into, int max)
+        {
+            int n = 0;
+            while (n < max && NextCandidate(out int k, out int3 c)) { into.Add((k, c)); n++; }
+            return n;
+        }
+
+        /// The request-order key of chunk c of shell k (header ORDER), in 0.1 m voxels:
+        /// max(distance to its nearest point, the shell's inner hand-over distance),
+        /// times 1 - VEL_BIAS x cos(angle to velDir) (velDir zero: no bias). `dist` = the plain distance.
+        public static float OrderKey(ShellLayout layout, int k, int3 c, float3 camVox, float3 velDir, out float dist)
+        {
+            int edge = 128 << k;
+            float3 lo = (float3)(c << (7 + k)), hi = lo + edge;
+            dist = math.length(math.max(math.max(lo - camVox, camVox - hi), 0f));
+            float key = math.max(dist, layout[k].InnerM * 10f);
+            if (math.lengthsq(velDir) > 0f)
+            {
+                float3 d = lo + 0.5f * edge - camVox;
+                float len = math.length(d);
+                if (len > 0f) key *= 1f - VEL_BIAS * math.dot(d / len, velDir);
+            }
+            return key;
+        }
+
+        /// The camera's smoothed motion per Update (metres). A jump over 50 m is a
+        /// teleport, not motion: it resets.
+        private void TrackVelocity(float3 camMetres)
+        {
+            if (_haveLastCam)
+            {
+                float3 d = camMetres - _lastCam;
+                _vel = math.lengthsq(d) > 2500f ? float3.zero : math.lerp(_vel, d, 0.25f);
+            }
+            _lastCam = camMetres; _haveLastCam = true;
+        }
+
+        /// Recompute every list's keys at the current camera and re-sort (farthest first).
+        private void Rekey(float3 camMetres)
+        {
+            float3 camVox = camMetres * 10f;
+            // Below ~1 m/s (at 60 Updates/s) there is no heading to prefer.
+            float3 velDir = math.lengthsq(_vel) > 0.0004f ? math.normalize(_vel) : float3.zero;
+            for (int k = FirstShell; k <= LastShell; k++)
+            {
+                var list = _cand[k];
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var e = list[i];
+                    e.Key = OrderKey(Layout, k, e.C, camVox, velDir, out e.Dist);
+                    list[i] = e;
+                }
+                list.Sort(FarthestFirst);
+            }
         }
 
         public bool ShellFull(int k)
@@ -491,11 +587,11 @@ namespace VoxelEngine.Mirror
         }
 
         /// Recompute shell k's box when the camera changes chunk there: evict
-        /// what left it, list what is missing (nearest last = popped first).
-        private void Slide(int k, float3 camMetres)
+        /// what left it, list what is missing (Update's Rekey sorts it). True = it moved.
+        private bool Slide(int k, float3 camMetres)
         {
             int3 cc = CameraChunk(camMetres, k);
-            if (_ccValid[k] && cc.Equals(_cc[k])) return;
+            if (_ccValid[k] && cc.Equals(_cc[k])) return false;
             var s = Layout[k];
             int shift = 7 + k;
             int3 wmax = new int3(_worldMaxVoxel >> shift, _src.ShellTopLayer(k), _worldMaxVoxel >> shift);
@@ -525,14 +621,9 @@ namespace VoxelEngine.Mirror
             for (int x = lo.x; x <= hi.x; x++)
             {
                 var c = new int3(x, y, z);
-                if (Wanted(k, c) && !st.Holds(c)) list.Add(c);
+                if (Wanted(k, c) && !st.Holds(c)) list.Add(new Cand { C = c });
             }
-            // Farthest first, so the nearest is popped first (squared distance in chunks, integer).
-            list.Sort((a, b) =>
-            {
-                int3 da = a - cc, db = b - cc;
-                return math.csum(db * db).CompareTo(math.csum(da * da));
-            });
+            return true;
         }
 
         private void WorkerLoop()

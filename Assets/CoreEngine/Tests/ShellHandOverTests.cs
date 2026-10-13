@@ -14,7 +14,9 @@
 //     hole); none -> the far band (END_ABSENT);
 //   * past the last shell -> the far band (END_PAST_LAST);
 //   * a march that starts inside a coarse solid cell is a TOP-face hit (the
-//     seam rule: never the side face it last crossed).
+//     seam rule: never the side face it last crossed);
+//   * task 85 (step 12): inside tier 0's band a chunk tier 0 holds is leapt,
+//     one it does not hold is read from shell 1 (hand-over by distance).
 using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Mathematics;
@@ -49,6 +51,8 @@ public class ShellHandOverTests
         public byte Voxel(int k, int body, int vIdx) => 0;
         public bool Tier0Missing(int3 voxel) => Tier0Gap;
         public bool Tier0Gap;
+        public bool Tier0Holds(int3 voxel) => Tier0Held;
+        public bool Tier0Held;
         public bool InHole(int k, int3 voxel)
         {
             if (L[k].Hole < 0) return false;
@@ -173,6 +177,30 @@ public class ShellHandOverTests
         var g = Shoot(v, dM);
         Assert.AreEqual(ShellRayReference.END_ABSENT, g.End);
         Assert.AreEqual(0f, g.T);
+    }
+
+    [Test]
+    public void TierZerosBand_HeldIsLeapt_NotHeldIsShellOne()
+    {
+        var v = View();
+        float r0 = v.OuterVoxels(0);
+        // Ground at 60 m (< tier 0's 68.75 m hand-over), outside shell 1's hole.
+        float dM = 60f;
+        var hit = ShellRayReference.March(v, Cam, DirTo(dM, 0.3f), 0f, false, Cam, 4096, r0);
+        Assert.IsTrue(v.InHole(1, hit.Voxel) == false, "the 60 m ground point is outside shell 1's hole");
+        // Tier 0 does not hold it (non-resident, outside its window or layers): shell 1 draws it.
+        Assert.AreEqual(ShellRayReference.END_HIT, hit.End);
+        Assert.AreEqual(1, hit.Shell);
+        Assert.AreEqual(dM * 10f, hit.T, 20f);
+        // Tier 0 holds it: it marched there (and saw air), so nothing inside its band is
+        // drawn by a shell; the first shell sample is at or past r0 (a top-face hit).
+        v.Tier0Held = true;
+        var held = ShellRayReference.March(v, Cam, DirTo(dM, 0.3f), 0f, false, Cam, 4096, r0);
+        Assert.AreEqual(ShellRayReference.END_HIT, held.End);
+        Assert.GreaterOrEqual(held.T, r0, "no shell pixel inside tier 0's band where tier 0 holds the chunk");
+        // tTier0 = 0 (shadow rays, old callers): the rule is off.
+        var off = ShellRayReference.March(v, Cam, DirTo(dM, 0.3f), 0f, false, Cam, 4096);
+        Assert.AreEqual(hit.T, off.T, 1e-3f);
     }
 
     [Test]

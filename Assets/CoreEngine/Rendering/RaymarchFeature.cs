@@ -830,6 +830,10 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 if (cameraData.camera.cameraType == CameraType.Game)
                     VoxelEngine.Streaming.DetailRadius.Tick(Time.frameCount, Time.realtimeSinceStartup, cameraData.camera.transform.position);
                 passData.detailRadiusVoxels = farOn ? VoxelEngine.Streaming.DetailRadius.ShaderRadiusVoxels : 0f;
+                // Task 85 (8.14 row 5, step 12): with shells drawn the hand-over is by
+                // distance, so -detailspeed is not used on that path (shellsOn below).
+                if (DrawShells && ShellStreamer.Active != null && !useStripped && !useMemoryProbe)
+                    passData.detailRadiusVoxels = 0f;
                 // Only the CSMainDetail kernel reads it (VE_DETAIL_SPEED); CSMain and
                 // CSMainChecker are the pre-task code, so OFF and a still camera are
                 // byte-identical. Not combined with the checkerboard (CSMainChecker wins).

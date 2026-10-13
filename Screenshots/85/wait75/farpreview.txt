@@ -1,0 +1,21 @@
+SIZECLASS 2 WORLD (-world tg2: voxel band streamed in Y + the far band) -- 2026-10-13_001733
+seed 42: world 8 km, sea at Y 5120, peak site float2(39000f, 37000f), max top 11000 (engine voxels), ring initial fill 3038 ms
+map v4 Height FNV 639552DD962C4B28  cell(613,259) 1068.80900
+volcano_from_2km, caldera_above: this world drew no volcano (map v4 feature pool) -- skipped
+cliff feet found: 3  (band placement: terrain-aware)
+POSES (-poses): 4 kept of 4 named: peak_from_2km_ground, glide_400m, eye_level_1, cliff_foot_1
+SHELLS (-shells 1, task 80): preset High, shells 1-7, march cap 384; A = shells off (cascades), B = shells on, C = on + tint (tier 0 blue, shells 1-7 green/yellow/orange/red/magenta/cyan/white, far band grey)
+  px = the largest voxel a ray stopped in, in dispatch pixels (720 rows; 8.14 High is sized for 720); per shell: hits, hits over 1 px, max px. Shell 0 = tier 0 (0.1 m; large near the eye by nature).
+  [shells] peak_from_2km_ground   waited 75 s (missing 6424, in flight 5)  px:  s0 231523/194531>1/max 8.41  s1 3059/294>1/max 1.63  s2 10705/10705>1/max 1.81  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 0/775 (1390 stored)  s2 0/1951 (219 stored)  s3 0/2001 (0 stored)  s4 0/987 (0 stored)  s5 0/480 (0 stored)  s6 0/182 (0 stored)  s7 0/16 (0 stored)
+  [shells] complete at (s; - = not within the wait):  s1 -  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] glide_400m             waited 75 s (missing 6025, in flight 5)  px:  s0 -  s1 -  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 0/953 (1212 stored)  s2 0/1824 (177 stored)  s3 0/1663 (0 stored)  s4 0/987 (0 stored)  s5 0/414 (0 stored)  s6 0/144 (0 stored)  s7 0/16 (0 stored)
+  [shells] complete at (s; - = not within the wait):  s1 -  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] eye_level_1            waited 75 s (missing 6845, in flight 5)  px:  s0 109383/92580>1/max 18.03  s1 149993/95822>1/max 1.17  s2 54193/54193>1/max 1.81  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 0/1115 (1050 stored)  s2 0/2019 (151 stored)  s3 0/2001 (0 stored)  s4 0/987 (0 stored)  s5 0/480 (0 stored)  s6 0/182 (0 stored)  s7 0/16 (0 stored)
+  [shells] complete at (s; - = not within the wait):  s1 -  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] cliff_foot_1           waited 75 s (missing 5456, in flight 5)  px:  s0 921600/921600>1/max 43.00  s1 -  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 2/956/FULL (1212 stored)  s2 0/1814 (351 stored)  s3 0/2001 (0 stored)  s4 0/987 (0 stored)  s5 0/441 (0 stored)  s6 0/162 (0 stored)  s7 0/16 (0 stored)
+  [shells] complete at (s; - = not within the wait):  s1 65/FULL  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+ring upkeep: 3 strips, 18 refills, 93.3 MB uploaded

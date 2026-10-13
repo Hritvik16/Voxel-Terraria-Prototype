@@ -296,6 +296,12 @@ point sample misses (>= 1/4 of a voxel's underground 4^3 sub-samples are cave ai
 interior chunks. Rays from outside see the same (`ShellFillTests`); switches `ShellFill*` (tests turn them off). A filled chunk
 that missed an op is REDRAWN, not caught up. Shell 1-2 page caps measured x 1.25 (`ShellLayout.PageCapFor`).
 
+Task 85 (engine 12, owner Q47 (a)): shell chunks stream NEAREST ON SCREEN FIRST across all shells (`ShellStreamer.OrderKey`:
+max(distance to the chunk, its shell's inner bound) x (1 - 0.25 cos to the velocity)), not coarsest first (shells are hollow:
+a missing fine chunk is a hole). With shells on, the hand-over is by distance: shells march from the camera, tier 0's held
+chunks inside its band are leapt (`ShellMarch`'s tTier0 / `ShellRayReference.March`), no `FarStartT`, no `-detailspeed`.
+`ShellOrderTests` (order, margins > 0 on every preset: `Logs/Shells/margin85.txt`).
+
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
 (`Assets/TerrainGen/`):

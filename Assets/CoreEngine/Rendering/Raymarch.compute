@@ -2670,6 +2670,17 @@ bool ShellTier0Missing(int3 voxel)
     return !FarChunkResident(rc);
 }
 
+/// Tier 0 holds this voxel: a resident column of its window, inside its band
+/// (task 85: what a primary ray leaps inside tier 0's distance band).
+bool ShellTier0Holds(int3 voxel)
+{
+    if (voxel.y < _ContentFloorVoxelY || voxel.y >= _ContentCeilingVoxelY) return false;
+    int2 rc = (voxel.xz >> 7) - (_WindowOriginBricksPacked.xz >> 4);
+    int2 dims = int2(_WindowDimsChunksPacked.xz);
+    if (any(rc < 0) || any(rc >= dims)) return false;
+    return FarChunkResident(rc);
+}
+
 /// The shell that answers at `voxel` when the distance asks for kd; -1 = none
 /// (far band); -2 = in every hole down to shell 1 (tier 0's space).
 int ShellResolve(int kd, int3 voxel, out uint e)
@@ -2720,8 +2731,9 @@ bool ShellAtEntry(int3 voxel, int3 normal, int3 step, int k)
 
 /// March the shells from t = tStart. Primary: start = the camera (0.1 m voxels).
 /// Shadow: start = a point just off the hit face, `camera` for the distance rule.
-/// ShellRayReference.March, line for line.
-ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters)
+/// tTier0 (task 85, 8.14 row 5): tier 0 marched [0, tTier0) and saw air; a chunk
+/// it holds there is leapt (0 = off: shadow rays). ShellRayReference.March, line for line.
+ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters, float tTier0)
 {
     dir = FarSafeDir(dir);
     int3 step = int3(sign(dir));
@@ -2743,6 +2755,14 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
     {
         r.iters = it + 1;
         float camDist = shadow ? length(float3(voxel) + 0.5 - camera) : t;
+        if (t < tTier0 && ShellTier0Holds(voxel))
+        {
+            // Tier 0's band, a chunk it holds: it marched this and saw air.
+            LeapSpanReseedClosedForm(voxel, tMax, t, tDelta, step, start, (voxel >> 7) << 7, 128,
+                                     normal, dummyA, dummyB);
+            kPrev = 0;
+            continue;
+        }
         int kd = ShellByDistance(camDist);
         if (kd < 0) { r.end = SHELL_END_PAST_LAST; r.t = t; return r; }
         if (kPrev > 0 && kd > kPrev && !ShellAtEntry(voxel, normal, step, kd)) kd = kPrev;
@@ -3483,17 +3503,20 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     float tVoxelLimit = currentDist;
 #endif
     // ---- 8.14 SHELLS (task 80): where tier 0 ends or is absent, shells 1.. ----
-    // Tier 0 (the 128 m window) is still shell 0 until step 14. The shells take
-    // over exactly where the far band used to: the first non-resident column
-    // before the voxel march's end (FarStartT), or the end itself. They hand
-    // to the far band only past the last shell or where no shell has the chunk
-    // (row 5). _ShellCount == 0 (default): nothing here runs.
+    // Tier 0 (the 128 m window) is still shell 0 until step 14. Hand-over by
+    // DISTANCE, not residency (8.14 row 5, step 12, task 85): the shells march
+    // from the camera; inside tier 0's band (its hand-over distance, or where its
+    // march stopped if nearer) a chunk tier 0 holds is leapt, and one it does not
+    // hold (non-resident, outside its window or layers) is read from shell 1, 2, ...
+    // FarStartT's residency DDA and -detailspeed are not used on this path. They
+    // hand to the far band only past the last shell or where no shell has the
+    // chunk (row 5). _ShellCount == 0 (default): nothing here runs.
     int shellAtHit = 0;
     float tShellEnd = -1.0;   // >= 0: the shells ran and ended there without a hit
     if (_ShellCount > 1 && !hit && passMat == 0u && _FarEnabled != 2)
     {
-        float tS = skipVoxel ? 0.0 : FarStartT(rayStart, rayDir, tVoxelLimit);
-        ShellHit shr = ShellMarch(rayStart, rayDir, tS, false, rayStart, _ShellIterCap);
+        float tTier0 = skipVoxel ? 0.0 : min(tVoxelLimit, _ShellBounds[0].y);
+        ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0);
         if (shr.end == SHELL_END_HIT)
         {
             hit = true; mat = RiverLipAsWater(shr.mat); voxel = shr.voxel; normal = shr.normal; currentDist = shr.t;
@@ -3515,9 +3538,13 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     }
     if (_FarEnabled != 0 && !hit && passMat == 0u)   // 66b: under a fluid the far band is fogged out anyway
     {
-        float tFar = (_FarEnabled == 2) ? 0.0 : FarStartT(rayStart, rayDir, skipVoxel ? 0.0 : tVoxelLimit);
-        if (skipVoxel && _FarEnabled == 1) tFar = 0.0;
-        if (tShellEnd >= 0.0) tFar = tShellEnd;
+        float tFar;
+        if (tShellEnd >= 0.0) tFar = tShellEnd;   // task 85: the shells' end, no residency DDA
+        else
+        {
+            tFar = (_FarEnabled == 2) ? 0.0 : FarStartT(rayStart, rayDir, skipVoxel ? 0.0 : tVoxelLimit);
+            if (skipVoxel && _FarEnabled == 1) tFar = 0.0;
+        }
         tFarDbg = tFar;
         fh = FarMarch(rayStart, rayDir, tFar, (int)_FarParams.z, _FarEnabled == 1, 0.0 FAR_VOXEL_END_ARG(tDetail));
         farHit = fh.hit;
@@ -3785,7 +3812,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     if (shellAtHit > 0 && needsShadowRay)
     {
         float3 so = rayStart + rayDir * currentDist + float3(normal) * 0.01;
-        ShellHit ss = ShellMarch(so, normalize(_SunDir), 0.0, true, rayStart, max(32, _ShellIterCap >> 1));
+        ShellHit ss = ShellMarch(so, normalize(_SunDir), 0.0, true, rayStart, max(32, _ShellIterCap >> 1), 0.0);
         sunVis = (ss.end == SHELL_END_HIT) ? 0.0 : 1.0;
     }
 

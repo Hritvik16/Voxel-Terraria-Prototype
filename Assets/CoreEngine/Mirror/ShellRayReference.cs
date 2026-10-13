@@ -25,6 +25,12 @@
 //     far band drew that before 11b and still does). Without this a camera
 //     outside tier 0's band (high up) would see no shell at all: its own chunk
 //     is in every hole.
+//   * Tier 0's band (task 85, step 12: hand-over by distance, not residency).
+//     A primary ray marches the shells from the camera. Up to tier 0's
+//     hand-over distance (or where tier 0's own march stopped, if nearer) a
+//     chunk tier 0 HOLDS is leapt: it marched it and saw air. One it does not
+//     hold (non-resident, outside its window or its layers) is read from
+//     shell 1, 2, ... like any absent chunk. No residency DDA (FarStartT).
 //   * Never coarser mid-cell. The switch to a coarser shell waits until the ray
 //     enters a new cell of that shell (cells nest, so a coarser cell's faces
 //     are finer faces). A ray that must start inside a coarser solid cell (the
@@ -59,6 +65,8 @@ namespace VoxelEngine.Mirror
             byte Voxel(int k, int body, int vIdx);       // (vz << 6) | (vy << 3) | vx
             /// Tier 0 should hold this voxel but does not (a non-resident column of its window, inside its band).
             bool Tier0Missing(int3 voxel);
+            /// Tier 0 holds this voxel (a resident column of its window, inside its band).
+            bool Tier0Holds(int3 voxel);
         }
 
         public struct Result
@@ -142,8 +150,11 @@ namespace VoxelEngine.Mirror
 
         /// March the shells from t = tStart (primary: `start` = the ray origin =
         /// the camera, 0.1 m voxels; shadow: the origin cell's point, with
-        /// `camera` for the distance rule). Mirrors Raymarch.compute's ShellMarch.
-        public static Result March(IView v, float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters)
+        /// `camera` for the distance rule). tTier0 (task 85): tier 0 marched
+        /// [0, tTier0) and saw air; a chunk it holds there is leapt (0 = off).
+        /// Mirrors Raymarch.compute's ShellMarch.
+        public static Result March(IView v, float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters,
+                                   float tTier0 = 0f)
         {
             dir = new float3(SafeAxis(dir.x), SafeAxis(dir.y), SafeAxis(dir.z));
             int3 step = (int3)math.sign(dir);
@@ -159,6 +170,13 @@ namespace VoxelEngine.Mirror
             {
                 r.Iters = it + 1;
                 float camDist = shadow ? math.length((float3)voxel + 0.5f - camera) : t;
+                if (t < tTier0 && v.Tier0Holds(voxel))
+                {
+                    // Tier 0's band, a chunk it holds: it marched this and saw air.
+                    Leap(ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, (voxel >> 7) << 7, 128);
+                    kPrev = 0;
+                    continue;
+                }
                 int kd = ShellByDistance(v, camDist);
                 if (kd < 0) { r.End = END_PAST_LAST; r.T = t; return r; }
                 if (kPrev > 0 && kd > kPrev && !AtEntry(voxel, normal, step, kd)) kd = kPrev;
@@ -249,6 +267,7 @@ namespace VoxelEngine.Mirror
             public uint Page(int k, int page, int lb) => _stores[k].ShadowPages[page * EngineConfig.BRICKS_PER_CHUNK + lb];
             public byte Voxel(int k, int body, int vIdx) => (byte)(_stores[k].ShadowBricks[body * 128 + (vIdx >> 2)] >> ((vIdx & 3) * 8));
             public bool Tier0Missing(int3 voxel) => false;
+            public bool Tier0Holds(int3 voxel) => false;
         }
     }
 }

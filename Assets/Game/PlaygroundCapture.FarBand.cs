@@ -310,6 +310,14 @@ public partial class PlaygroundCapture
             poses.Add(("coast_yaw180", cp.Item2, Quaternion.Euler(0f, 180f, 0f) * cp.Item3));
             L("COAST PROBE (-coastprobe, task 19): 3 poses; pixels in screenshot coords (1920x1080 frame, top-left origin)");
         }
+        // TASK 85: -poses a,b,... keeps only the named poses (launch budget: a few poses per run).
+        string keepPoses = ArgValue("-poses");
+        if (!string.IsNullOrEmpty(keepPoses))
+        {
+            var keep = new HashSet<string>(keepPoses.Split(','));
+            poses.RemoveAll(q => !keep.Contains(q.Item1));
+            L($"POSES (-poses): {poses.Count} kept of {keep.Count} named: {string.Join(", ", poses.ConvertAll(q => q.Item1))}");
+        }
         // TASK 80 (engine step 11b): with -shells 1, every pose at noon only,
         // three shots: A shells OFF (the pre-11b frame: cascade tiers 1-2 +
         // far band), B shells ON, C ON tinted by the shell that drew each pixel.
@@ -440,10 +448,18 @@ public partial class PlaygroundCapture
     {
         float wait = ArgFloat("-shellwait", 75f), t0 = Time.realtimeSinceStartup;
         int missing = 0;
+        // Task 85: when each shell completed (nothing missing or in flight, or FULL); -1 = not in the wait.
+        var doneAt = new float[sh.Layout.ShellCount];
+        for (int k = 0; k < doneAt.Length; k++) doneAt[k] = -1f;
         while (Time.realtimeSinceStartup - t0 < wait)
         {
             missing = 0;
-            for (int k = sh.FirstShell; k <= sh.LastShell; k++) if (!sh.ShellFull(k)) missing += sh.Missing(k);
+            for (int k = sh.FirstShell; k <= sh.LastShell; k++)
+            {
+                if (!sh.ShellFull(k)) missing += sh.Missing(k);
+                if (doneAt[k] < 0f && (sh.ShellFull(k) || (sh.Missing(k) == 0 && sh.InFlightIn(k) == 0)))
+                    doneAt[k] = Time.realtimeSinceStartup - t0;
+            }
             if (missing == 0 && sh.InFlight == 0 && sh.Pending == 0) break;
             yield return null;
         }
@@ -480,6 +496,10 @@ public partial class PlaygroundCapture
             rb.Append($"  s{k} {st.Refusals}/{sh.Missing(k)}{(sh.ShellFull(k) ? "/FULL" : "")} ({st.ChunksStored} stored)");
         }
         L(rb.ToString());
+        var db = new System.Text.StringBuilder("  [shells] complete at (s; - = not within the wait):");
+        for (int k = sh.FirstShell; k <= sh.LastShell; k++)
+            db.Append(doneAt[k] < 0f ? $"  s{k} -" : $"  s{k} {doneAt[k]:F0}{(sh.ShellFull(k) ? "/FULL" : "")}");
+        L(db.ToString());
     }
 
     /// TASK 19 probe: one pixel (screenshot coords, top-left origin, scaled
