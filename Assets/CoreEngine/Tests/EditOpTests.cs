@@ -37,6 +37,7 @@ public class EditOpTests
 
     [OneTimeSetUp] public void BuildOnce() { if (_src == null) _src = new TerrainGenChunkSource(42u); }
     [OneTimeTearDown] public void TearDown() { _src?.Dispose(); _src = null; }
+    [TearDown] public void FillOn() { if (_src != null) _src.ShellFill = true; }
 
     private static string TempDir(string name)
     {
@@ -517,8 +518,10 @@ public class EditOpTests
                 log.Append(new EditOp(EditOpKind.Box, s + new int3(0, 4 * r, 0), (ushort)(r / 2), Materials.Snow));   // in the air
                 var snap = log.Snapshot;
 
+                _src.ShellFill = false;   // ops on the generator's voxels (task 83's fill runs after them: ShellFillTests)
                 _src.GenerateShellChunk(k, cs, plain);
                 Assert.AreEqual(snap.Count, _src.GenerateShellChunk(k, cs, edited, snap));
+                _src.ShellFill = true;
                 int half = (1 << (k - 1)) - 1;
                 int3 o = (cs << (7 + k)) + half;
                 int covered = 0, bad = 0; string first = null;

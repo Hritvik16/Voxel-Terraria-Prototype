@@ -8,7 +8,9 @@
 //                (unculled, prepared independently, under Burst like the
 //                chunk) at fine index 2^(k-1) - 1 per axis, and each column's
 //                solid top voxel == D at the ground height h (row 13 as
-//                amended by task 77: owner defaults Q2 (a), Q1 (a))
+//                amended by task 77: owner defaults Q2 (a), Q1 (a)), with
+//                task 83's fill OFF; with it on, shells >= 3 still equal it at
+//                and above the surface (below it: ShellFillTests)
 //   Agreement    (Slow) solid/air vs the cascades' majority-vote downsample of
 //                the 0.1 m chunks (LODDownsampler), shells 1-3 GATED at row
 //                13's line: >= 97% of voxels in non-uniform bricks and >= 99%
@@ -181,7 +183,9 @@ public class ShellChunkTests
             {
                 int k = cs.x;
                 int3 coord = (s >> (7 + k)) + new int3(0, cs.y, 0);
+                _src.ShellFill = false;   // the generator itself (task 83's fill is checked below)
                 _src.GenerateShellChunk(k, coord, sc);
+                _src.ShellFill = true;
                 int half = (1 << (k - 1)) - 1;   // task 74 Q2 (a)
                 new ShellRefJob
                 {
@@ -210,10 +214,33 @@ public class ShellChunkTests
                 Assert.AreEqual(0, bad, $"shell {k} chunk {coord}: {bad} coarse voxels differ from D at their sample; first {first}");
                 Assert.Greater(solid, 0, $"shell {k} chunk {coord} holds no terrain: the test picked the wrong chunk");
                 if (cs.y == 0) Assert.Less(solid, n, $"shell {k} chunk {coord} holds no air: not a surface chunk");
+
+                // Task 83 (owner Q44 (a)): with the fill on, shells >= 3 equal the generator
+                // at and above the surface -- every voxel whose sample is above h - V.
+                using (var f = new TerrainGenChunkSource.ShellChunk())
+                {
+                    _src.GenerateShellChunk(k, coord, f);
+                    int V = 1 << k, oy = coord.y << (7 + k), above = 0, badAbove = 0, below = 0;
+                    for (int z = 0; z < 128; z++)
+                    for (int x = 0; x < 128; x++)
+                    {
+                        int ly0 = math.max(0, ((sc.GroundY(x, z) - V - oy - half) >> k) + 1);
+                        for (int y = 0; y < 128; y++)
+                        {
+                            if (y < ly0) { if (f.Get(x, y, z) != sc.Get(x, y, z)) below++; continue; }
+                            above++;
+                            if (f.Get(x, y, z) != sc.Get(x, y, z)) badAbove++;
+                        }
+                    }
+                    UnityEngine.Debug.Log($"[83] shell {k} chunk {coord}: fill on vs the generator: {above} voxels at/above the surface, {badAbove} differ; {below} differ below it");
+                    Assert.AreEqual(0, badAbove, $"shell {k} chunk {coord}: the fill changed {badAbove} voxels at or above the surface");
+                    if (k < TerrainGenChunkSource.FIRST_FILL_SHELL) Assert.AreEqual(0, below, $"shell {k} is not a fill shell but {below} voxels changed");
+                }
             }
         }
         finally
         {
+            _src.ShellFill = true;
             sc.Dispose(); hA.Dispose(); rA.Dispose(); wA.Dispose(); cA.Dispose(); fA.Dispose(); oA.Dispose(); te.Dispose(); refM.Dispose(); refTY.Dispose(); refTM.Dispose();
         }
     }
@@ -388,7 +415,10 @@ public class ShellChunkTests
     {
         int RXf = rg.n * 128, RYf = rg.L * 128;
         int3 fo = rg.c0 << 7;
+        bool fill = src.ShellFill;
+        src.ShellFill = false;   // row 13's sample itself (task 83's fill changes only what no ray sees)
         using (var sc = new TerrainGenChunkSource.ShellChunk())
+        try
         {
             for (int k = 1; k <= MAX_K; k++)
             {
@@ -409,6 +439,7 @@ public class ShellChunkTests
                 }
             }
         }
+        finally { src.ShellFill = fill; }
     }
 
     private static Stat Compare(byte[] vote, byte[] coarse, int RX, int RY, byte[] fineTop, int k)

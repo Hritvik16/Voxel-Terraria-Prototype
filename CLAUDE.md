@@ -290,6 +290,12 @@ pass when the column data PROVES it one material (`DetailField.UniformSamples`: 
 water, soil, layer rock with no cave/pocket/ore reaching it). Byte-identical on or off (`BrickSkipTests`; `BrickSkip` field,
 `SkipStats`). Isolated: 0.1 m chunk 26.8 -> 9.2 ms; shells 1.2-1.45x (their column pass now dominates).
 
+Task 83 (engine 11d, owner Q44 (a), 8.14 row 13b): SHELL CAVE FILL. Shells >= 3 (`FIRST_FILL_SHELL`) are NOT the generator below
+the surface: after generation + ops, `TerrainGenChunkSource.ShellFill.cs` fills enclosed AIR (fluids kept), opens cave mouths a
+point sample misses (>= 1/4 of a voxel's underground 4^3 sub-samples are cave air), flattens interior mixed bricks and wholly
+interior chunks. Rays from outside see the same (`ShellFillTests`); switches `ShellFill*` (tests turn them off). A filled chunk
+that missed an op is REDRAWN, not caught up. Shell 1-2 page caps measured x 1.25 (`ShellLayout.PageCapFor`).
+
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
 (`Assets/TerrainGen/`):

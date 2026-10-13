@@ -35,7 +35,8 @@
 // by construction (EditOpRedrawTests). A chunk generating, or generated and
 // waiting for budget, when an op lands is caught up before it is stored
 // (ApplyToShell over the ops it missed: the same sequential apply, so the same
-// bytes). A redraw a full shell has no room for evicts the old copy and stores
+// bytes) -- except in a filled shell (k >= 3, task 83), where it is stored as
+// generated and redrawn, since an op cannot be applied on top of the fill. A redraw a full shell has no room for evicts the old copy and stores
 // the new one fresh (the slot reads the coarser shell for those frames).
 //
 // THREADING (single-writer, CLAUDE.md): workers only write the ShellChunk
@@ -329,7 +330,7 @@ namespace VoxelEngine.Mirror
                 if (sc.Redraw) { _redrawOut--; sc.Redraw = false; }
                 return true;
             }
-            CatchUp(sc);
+            bool redrawAfter = CatchUp(sc);
             var res = _stores[k].Store(sc, ref budget, replace: held);
             if (res == ShellStore.StoreResult.Refused && held)
             {
@@ -348,15 +349,25 @@ namespace VoxelEngine.Mirror
             {
                 case ShellStore.StoreResult.OverBudget:
                 case ShellStore.StoreResult.Busy: return false;
-                case ShellStore.StoreResult.InProgress: return true;   // stays in flight until Continue finishes it
+                case ShellStore.StoreResult.InProgress:   // stays in flight until Continue finishes it
+                    if (redrawAfter) QueueRedraw(key);
+                    return true;
                 case ShellStore.StoreResult.Refused:
                     _inFlight.Remove(key);
                     ShellStore.UploadBytes(sc, out int dense, out _, out _);
                     _refused[k][key] = dense;
                     _fullNeed[k] = math.max(1, dense);
                     return true;
-                default: _inFlight.Remove(key); return true;
+                default:
+                    _inFlight.Remove(key);
+                    if (redrawAfter) QueueRedraw(key);
+                    return true;
             }
+        }
+
+        private void QueueRedraw(long key)
+        {
+            if (_redrawSet.Add(key)) { _redrawQ.Enqueue(key); RedrawsQueued++; }
         }
 
         private void Recycle(TerrainGenChunkSource.ShellChunk sc) => _free.Push(sc);
@@ -364,13 +375,25 @@ namespace VoxelEngine.Mirror
         /// Ops the chunk missed (recorded after its worker read the snapshot) go on
         /// now, main thread, before it is stored: the same sequential ApplyToShell
         /// generation does, so the same bytes.
-        private void CatchUp(TerrainGenChunkSource.ShellChunk sc)
+        /// Task 83: a FILLED shell chunk (k >= 3) cannot take an op on top of its
+        /// fill (an op opening a sealed cave would find it filled), so one a missed
+        /// op touches is stored as generated and REDRAWN (returns true): the redraw
+        /// is a fresh GenerateShellChunk with the op, byte for byte.
+        private bool CatchUp(TerrainGenChunkSource.ShellChunk sc)
         {
             var snap = Ops?.Snapshot;
-            if (snap == null || sc.OpsApplied >= snap.Count) return;
+            if (snap == null || sc.OpsApplied >= snap.Count) return false;
+            if (_src.ShellFill && TerrainGenChunkSource.ShellFills(sc.Shell))
+            {
+                for (int i = sc.OpsApplied; i < snap.Count; i++)
+                    if (VoxelEngine.Streaming.EditOpApply.TouchesChunk(snap.Ops[i], sc.Coord, sc.Shell)) return true;
+                sc.OpsApplied = snap.Count;   // none of them reaches it
+                return false;
+            }
             VoxelEngine.Streaming.EditOpApply.ApplyToShell(sc, snap.Ops, sc.OpsApplied, snap.Count);
             sc.OpsApplied = snap.Count;
             OpsCaughtUp++;
+            return false;
         }
 
         /// The ops the log gained since the last Update -> redraws of the chunks

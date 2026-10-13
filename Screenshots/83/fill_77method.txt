@@ -1,0 +1,18 @@
+leg 0: camera float3(4000f, 916.3f, 4000f) m, 62 updates, 20 s, peak 1048576 B/update (budget 1048576)
+  shell 6: 71244 dense bricks stored, 65583 (92.1%) hold no air voxel (material-only)
+  shell 6: box int3(0, 0, 0)..int3(9, 1, 9) camera chunk int3(4, 1, 4): 182 wanted, 142 stored, refusals 1 (984 dense bricks refused), 3 checked byte-exact, stale 0
+  shell 7: 13273 dense bricks stored, 13175 (99.3%) hold no air voxel (material-only)
+  shell 7: box int3(0, 0, 0)..int3(4, 0, 4) camera chunk int3(2, 0, 2): 16 wanted, 16 stored, refusals 0 (0 dense bricks refused), 3 checked byte-exact, stale 0
+shells preset High (720 rows), shells 6-7; requested 159 generated 159 stale-dropped 0 errors 0 over-budget frames 22; gen ms/chunk 128.2
+  shell 6 (6.4 m, ring 16x4x16, box int3(0, 0, 0)..int3(9, 1, 9), hole +-1): chunks 142 (uniform 74, pages 68/224 peak 68), bricks 71244/71680 peak 71244 (est. 57344), refusals 1 (984 bricks) FULL, missing 39, GPU 40.4 MB, uploaded 37.8 MB
+  shell 7 (12.8 m, ring 16x2x16, box int3(0, 0, 0)..int3(4, 0, 4), hole +-1): chunks 16 (uniform 0, pages 16/54 peak 16), bricks 13273/17280 peak 13273 (est. 13824), refusals 0 (0 bricks), missing 0, GPU 9.7 MB, uploaded 7.1 MB
+
+leg 1: camera float3(5000f, 916.3f, 4300f) m, 7 updates, 3 s, peak 1048576 B/update (budget 1048576)
+  shell 6: 71508 dense bricks stored, 65476 (91.6%) hold no air voxel (material-only)
+  shell 6: box int3(0, 0, 0)..int3(9, 1, 9) camera chunk int3(6, 1, 5): 182 wanted, 142 stored, refusals 2 (1949 dense bricks refused), 3 checked byte-exact, stale 0
+  shell 7: 13571 dense bricks stored, 12885 (94.9%) hold no air voxel (material-only)
+  shell 7: box int3(0, 0, 0)..int3(4, 0, 4) camera chunk int3(3, 0, 2): 16 wanted, 16 stored, refusals 0 (0 dense bricks refused), 3 checked byte-exact, stale 0
+shells preset High (720 rows), shells 6-7; requested 177 generated 177 stale-dropped 0 errors 0 over-budget frames 22; gen ms/chunk 131.6
+  shell 6 (6.4 m, ring 16x4x16, box int3(0, 0, 0)..int3(9, 1, 9), hole +-1): chunks 142 (uniform 71, pages 71/224 peak 71), bricks 71508/71680 peak 71508 (est. 57344), refusals 2 (1949 bricks) FULL, missing 39, GPU 40.4 MB, uploaded 42.0 MB
+  shell 7 (12.8 m, ring 16x2x16, box int3(0, 0, 0)..int3(4, 0, 4), hole +-1): chunks 16 (uniform 0, pages 16/54 peak 16), bricks 13571/17280 peak 13571 (est. 13824), refusals 0 (0 bricks), missing 0, GPU 9.7 MB, uploaded 8.6 MB
+

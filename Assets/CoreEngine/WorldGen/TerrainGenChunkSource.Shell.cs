@@ -28,6 +28,11 @@
 // shell pools. Edit ops (row 9, task 81): the overload taking an
 // EditOpSnapshot applies them after generation (EditOpApply.ApplyToShell).
 //
+// CAVE FILL (task 83, owner Q44 (a)): shells >= 3 then fill enclosed
+// underground air, open small cave mouths and flatten interior mixed bricks
+// (TerrainGenChunkSource.ShellFill.cs); below the surface they are no longer
+// the generator's voxels. Shells 0-2 are unchanged.
+//
 // BRICK SKIP (task 82b): the same proofs as Generate's (its header), over a
 // brick's 8 coarse sample heights. The samples' fine bricks differ (k >= 3), so
 // the brick-geology offsets are only bounded and the pocket test covers the
@@ -90,6 +95,17 @@ namespace VoxelEngine.WorldGen
             }
 
             public byte Get(int x, int y, int z) => IsUniformAir ? Materials.Air : Mats[Index(x, y, z)];
+            /// The ground height h (fine voxels, S's top solid) of coarse column (x, z)'s sample.
+            public int GroundY(int x, int z) => colS[(z << 7) | x].height;
+
+            /// Tests and reports: this chunk becomes a copy of `o` (voxels, bricks
+            /// and the column data the fill reads).
+            public void CopyFrom(ShellChunk o)
+            {
+                Shell = o.Shell; Coord = o.Coord; IsUniformAir = o.IsUniformAir; OpsApplied = o.OpsApplied; Redraw = false;
+                Mats.CopyFrom(o.Mats); BrickMat.CopyFrom(o.BrickMat); BrickUniform.CopyFrom(o.BrickUniform);
+                colS.CopyFrom(o.colS); colSt.CopyFrom(o.colSt); colCd.CopyFrom(o.colCd); top.CopyFrom(o.top);
+            }
 
             /// Bricks that need a 512-byte body.
             public int DenseBricks
@@ -123,6 +139,13 @@ namespace VoxelEngine.WorldGen
         /// reports the old centre 2^(k-1) beside it; nothing else passes it.
         public void GenerateShellChunk(int shell, int3 coord, ShellChunk output, int sampleIndex = -1)
         {
+            int half = GenerateShellChunkRaw(shell, coord, output, sampleIndex);
+            FillShellChunk(output, half, null);   // task 83: shells >= 3 only
+        }
+
+        /// Generation alone (rows 12-13, exact); returns the sample offset used.
+        private int GenerateShellChunkRaw(int shell, int3 coord, ShellChunk output, int sampleIndex)
+        {
             if (shell < 0 || shell > MAX_SHELL) throw new ArgumentOutOfRangeException(nameof(shell));
             if (sampleIndex >= (1 << shell)) throw new ArgumentOutOfRangeException(nameof(sampleIndex));
             int3 origin = coord << (CHUNK_SHIFT + shell);
@@ -142,7 +165,7 @@ namespace VoxelEngine.WorldGen
             {
                 output.IsUniformAir = true;
                 for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++) { output.BrickUniform[i] = true; output.BrickMat[i] = Materials.Air; }
-                return;
+                return half;
             }
 
             var stats = new NativeArray<int>(4, Allocator.TempJob);
@@ -158,18 +181,25 @@ namespace VoxelEngine.WorldGen
                 AddSkipStats(stats, 4);
             }
             finally { stats.Dispose(); }
+            return half;
         }
 
         /// Row 12 with ops: generation, then the snapshot's ops in seq order at
-        /// this shell's voxel size (row 9). Returns the op count applied (the
-        /// snapshot's), so a caller can tell which later ops the chunk lacks.
+        /// this shell's voxel size (row 9), then task 83's fill (shells >= 3; the
+        /// ops go first, so a far crater or tunnel open to the sky stays open).
+        /// Returns the op count applied (the snapshot's), so a caller can tell
+        /// which later ops the chunk lacks.
         public int GenerateShellChunk(int shell, int3 coord, ShellChunk output, VoxelEngine.Streaming.EditOpSnapshot ops)
         {
-            GenerateShellChunk(shell, coord, output);
-            if (ops == null || ops.Count == 0) return 0;
-            VoxelEngine.Streaming.EditOpApply.ApplyToShell(output, ops.Ops, 0, ops.Count);
-            output.OpsApplied = ops.Count;
-            return ops.Count;
+            int half = GenerateShellChunkRaw(shell, coord, output, -1);
+            int n = 0;
+            if (ops != null && ops.Count > 0)
+            {
+                VoxelEngine.Streaming.EditOpApply.ApplyToShell(output, ops.Ops, 0, ops.Count);
+                output.OpsApplied = n = ops.Count;
+            }
+            FillShellChunk(output, half, ops);
+            return n;
         }
 
         [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]

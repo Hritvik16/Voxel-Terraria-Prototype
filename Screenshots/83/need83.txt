@@ -1,0 +1,30 @@
+camera float3(4000f, 916.3f, 4000f) m (77's spawn), preset High, every wanted chunk generated (caps ignored)
+  A = the generator; C = the fill (task 83); D = C + enclosed FLUIDS filled too (diagnostic: the task keeps fluids)
+shell 1 (0.2 m): 2170 wanted chunks (938 uniform air), 160 columns, 150 s
+    dense bricks A 237264 -> C 237264 (D 237264); est. 120013, cap 150016: C OVER, D OVER; C bodies 121.5 MB
+    C's dense bricks: 0 hold a fluid, 109737 air (no fluid), 127527 all solid (a skin beside open air)
+    pages A 1232 -> C 1232 (D 1232); cap 320: C OVER, D OVER; C 7.70/column, max 13 in one column, 0 chunks with no dense brick
+shell 2 (0.4 m): 2001 wanted chunks (888 uniform air), 160 columns, 152 s
+    dense bricks A 361287 -> C 361287 (D 361287); est. 95437, cap 119296: C OVER, D OVER; C bodies 185.0 MB
+    C's dense bricks: 405 hold a fluid, 105497 air (no fluid), 255385 all solid (a skin beside open air)
+    pages A 1113 -> C 1113 (D 1113); cap 320: C OVER, D OVER; C 6.96/column, max 11 in one column, 0 chunks with no dense brick
+shell 3 (0.8 m): 1663 wanted chunks (618 uniform air), 160 columns, 334 s, fill 58.2 ms/chunk (Editor)
+    dense bricks A 1564222 -> C 106428 (D 91645); est. 81920, cap 102400: C OVER, D fits; C bodies 54.5 MB
+    C's dense bricks: 16856 hold a fluid, 82613 air (no fluid), 6959 all solid (a skin beside open air)
+    pages A 1045 -> C 657 (D 324); cap 320: C OVER, D OVER; C 4.11/column, max 5 in one column, 0 chunks with no dense brick
+shell 4 (1.6 m): 987 wanted chunks (336 uniform air), 160 columns, 203 s, fill 53.2 ms/chunk (Editor)
+    dense bricks A 557474 -> C 142225 (D 72205); est. 81920, cap 102400: C OVER, D fits; C bodies 72.8 MB
+    C's dense bricks: 74664 hold a fluid, 62461 air (no fluid), 5100 all solid (a skin beside open air)
+    pages A 649 -> C 598 (D 260); cap 320: C OVER, D fits; C 3.74/column, max 5 in one column, 1 chunks with no dense brick
+shell 5 (3.2 m): 489 wanted chunks (158 uniform air), 160 columns, 102 s, fill 47.8 ms/chunk (Editor)
+    dense bricks A 520621 -> C 170090 (D 62318); est. 81920, cap 102400: C OVER, D fits; C bodies 87.1 MB
+    C's dense bricks: 123317 hold a fluid, 31419 air (no fluid), 15354 all solid (a skin beside open air)
+    pages A 331 -> C 331 (D 162); cap 320: C OVER, D fits; C 2.07/column, max 3 in one column, 0 chunks with no dense brick
+shell 6 (6.4 m): 182 wanted chunks (91 uniform air), 112 columns, 28 s, fill 44.6 ms/chunk (Editor)
+    dense bricks A 194292 -> C 93973 (D 27523); est. 57344, cap 71680: C OVER, D fits; C bodies 48.1 MB
+    C's dense bricks: 87144 hold a fluid, 5280 air (no fluid), 1549 all solid (a skin beside open air)
+    pages A 91 -> C 91 (D 91); cap 224: C fits, D fits; C 0.81/column, max 1 in one column, 0 chunks with no dense brick
+shell 7 (12.8 m): 16 wanted chunks (0 uniform air), 27 columns, 3 s, fill 25.9 ms/chunk (Editor)
+    dense bricks A 20440 -> C 13273 (D 4168); est. 13824, cap 17280: C fits, D fits; C bodies 6.8 MB
+    C's dense bricks: 13197 hold a fluid, 56 air (no fluid), 20 all solid (a skin beside open air)
+    pages A 16 -> C 16 (D 16); cap 54: C fits, D fits; C 0.59/column, max 1 in one column, 0 chunks with no dense brick

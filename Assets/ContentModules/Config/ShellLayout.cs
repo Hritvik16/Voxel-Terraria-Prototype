@@ -43,6 +43,16 @@ public sealed class ShellLayout
     /// chunk) per stored chunk column. NOT in the amendment: an est. of
     /// 11a, refused (row 15) when exceeded; the debug fill reports the peak.
     public const int PAGES_PER_COLUMN = 2;
+    /// Shells 1-2 (task 83): MEASURED non-uniform chunks per column at seed 42's
+    /// spawn, High (Logs/Shells/need83.txt: 1,232 and 1,113 over 160 columns;
+    /// 11a's 2 ran out first, task 80), times CAP_HEADROOM (row 1).
+    public const float PAGES_PER_COLUMN_S1 = 7.70f, PAGES_PER_COLUMN_S2 = 6.96f;
+
+    /// Page cap of shell k over `cols` stored columns.
+    public static int PageCapFor(int k, int cols)
+        => k == 1 ? (int)Math.Ceiling(cols * PAGES_PER_COLUMN_S1 * CAP_HEADROOM)
+         : k == 2 ? (int)Math.Ceiling(cols * PAGES_PER_COLUMN_S2 * CAP_HEADROOM)
+         : cols * PAGES_PER_COLUMN;
 
     public struct Shell
     {
@@ -134,7 +144,7 @@ public sealed class ShellLayout
             {
                 Index = k, VoxelM = V, ChunkM = E, InnerM = L._shells[k - 1].OuterM, OuterM = r,
                 Reach = R, Hole = H, Ring = new int3(xz, y, xz), Columns = cols,
-                EstBricks = est, PoolCap = (int)Math.Round(est * CAP_HEADROOM), PageCap = cols * PAGES_PER_COLUMN,
+                EstBricks = est, PoolCap = (int)Math.Round(est * CAP_HEADROOM), PageCap = PageCapFor(k, cols),
             };
             if (!IsPow2(s.Ring.x) || !IsPow2(s.Ring.y) || !IsPow2(s.Ring.z))
                 throw new InvalidOperationException($"shell {k} ring {s.Ring} is not a power of two (§6.2)");
