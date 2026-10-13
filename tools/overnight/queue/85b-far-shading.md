@@ -30,7 +30,7 @@ pattern; (3) no distance haze. FSR 3 in play smooths part of (2), not (1).
    passed, so rigs stay byte-identical (like task 75's `-seethrough`).
 
 ## Acceptance
-- Stills, ONE player launch, each OFF/ON (well lit: midday with the sun BEHIND the camera, plus the owner's backlit case):
+- Stills, ONE player launch (<= ~10-15 min: short fixed waits, <= 60 s per pose, PREAMBLE launch budget), each OFF/ON (well lit: midday with the sun BEHIND the camera, plus the owner's backlit case):
   the owner's pose (find it: valley + peak, 83b poses run around 22:20; nearest `cliff_foot_*` / `eye_level_*` otherwise),
   glide_400m, peak_from_2km, oblique_3000m; raw AND with `-upscaler fsr3`. NIGHT set: the same 2 poses at night (`-tod`)
   with a few torches placed near (10-30 m) and far (100-300 m) and the volcano/lava in view: lights visible, haze does not

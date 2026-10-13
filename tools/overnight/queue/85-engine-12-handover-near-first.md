@@ -26,8 +26,9 @@ instead of refusing them, s1-2 held 0 chunks after 75 s; shells needed 127-296 s
 ## Acceptance
 - A test: with a fixed camera and request budget, the order puts every shell-1 chunk inside the view before any shell >= 3 chunk
   farther than it; shells-off path byte-identical (existing tests).
-- ONE player launch, `-shells 1`: 83's poses at a SHORT wait (75 s, like 83's wait75 run) and at 83's long wait.
-  Report per pose: time until shells 1-2 are complete, chunks per shell stored at 75 s, before (83) -> after.
+- ONE player launch, `-shells 1`, <= ~10 min (PREAMBLE launch budget): 4 poses (peak_from_2km, glide_400m,
+  eye_level_1, cliff_foot_1) at a 75 s wait, like 83's wait75 run; no long-wait arm. Report per pose: chunks per shell
+  stored and missing at 75 s, and the time shells 1-2 completed if they did, before (83's wait75) -> after.
   Sheet via `tools/shells80-sheet.py` next to `Screenshots/83/wait75/sheet_shells_1.jpg`; look at it.
 - Fast EditMode suite while iterating as PREAMBLE says; `SUITE=all` once at the end. `run-phase7-rig.sh` unchanged.
 - No frame-time measurement (PREAMBLE rule 10). HANDOFF `## For the doc`: fill times before -> after, the 75 s sheet.

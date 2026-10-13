@@ -28,6 +28,12 @@ You are running UNATTENDED in a fresh headless session started by
    ONCE, at the end, before the final commit -- again only if that run fails
    and you fix something. Take ALL demo/screenshot shots in ONE player launch;
    relaunch only for a shot that came out broken.
+   **Launch budget (owner, 2026-10-12: "what is the point of running over 5 mins if we are not
+   playtesting?"):** a screenshot/metrics launch takes the FEW poses the task needs (3-5, not all 16)
+   and lasts <= ~10 min including load. Never wait for streaming to finish (e.g. `-shellwait 360`): use
+   a short fixed wait (<= 60-90 s) and REPORT what is still missing (the `[shells]` missing counts)
+   instead. Task 83b's launch waited 360 s at 16 poses = 95 min, and 11 poses were still unfilled.
+   Longer only in a performance/streaming task, or when the task file says why.
 4. **Git.** Commit on the branch that is checked out, never `main`, never push.
    End commit messages with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 5. **NEVER end your turn while something is still running.** This is a `-p`
