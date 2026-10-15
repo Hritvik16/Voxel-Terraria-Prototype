@@ -42,3 +42,12 @@ The 2026-10-13 run never started work: every attempt hit the weekly usage limit 
 was set aside as FAILED. No code was touched. Run it exactly as written. Owner context (2026-10-15): Q49 is answered
 "yes for the visuals, but show me the frame time first" -> tasks 89 (measure) and 90 (default) follow this one; this task
 still changes no default.
+
+## Owner HOLD (2026-10-15, chat) -- do not requeue as written
+Stopped mid-run by the supervisor at the owner's objection: the shrink lowers the CPU load radius 10 -> 5/6/7 chunks,
+i.e. GAMEPLAY reach (GetVoxel, SetVoxel, physics, fluid residency), 128 m -> 59-82 m. Owner: "The player needs to be able
+to affect terrain outside of range. NPCs would need to interact with terrain out of range. Fluid simulation would look
+weird if it is only contained within that 0.1 area." Owner chose "Hold until reach design": a simulation-reach decision
+(how far the world is live, far queries, NPCs far away; how other games split render vs simulation distance) comes out
+of the gameplay planning round started 2026-10-15. The partial edits are in 87-engine-14-smaller-window.patch.
+Likely future shape (not approved): shrink only what is DRAWN (GPU mirror + GPU pool), keep CPU reach >= 128 m.

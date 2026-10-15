@@ -160,3 +160,17 @@ Plan for about **29 worker tasks plus about 8 retries or follow-ups, so ~37 sess
 - **Heaviest in usage:** steps 11, 13, 19 and 20, which split into 10 sessions between them.
 - **Long in wall time but light in tokens:** the three **[measure]** steps (7, 16, 23). Each one is a warm-up launch plus ABBA arms.
 - **Natural pause points**, if the week runs short: after step 8 (quick wins plus memory), after step 16 (shells and streaming), and after step 19 (fluids).
+
+## Owner answers, 2026-10-15 (chat; for step 20's light-grid amendment and step 21)
+- **Light count:** the player must be able to light a whole cave tunnel or hellevator, or the whole island, with "a
+  million lights if they want to". The grid's cost must not grow with light count, and **step 21 (far lights) must scale
+  the same way** (aggregate per far cell, never one entry per torch).
+- **Role:** visual-first (draw the player to points of interest; glowing lakes and lit places seen from far away). No game
+  rule reads light yet, but the grid must be readable later by gameplay through sparse async readback (a few points a
+  few times a second); no CPU copy now.
+- **Thin walls:** a 0.1 m wall blocks light fully (propagation respects the fine occupancy at cell faces).
+- **Relight:** instant (1-2 frames) within ~20-30 m of the camera, a crawl (<= ~0.25 s) beyond.
+- **Shadows:** crisp shadow rays (task 46) for the nearest few lights, soft grid light for the rest.
+- **Step 14 (task 87) is ON HOLD:** it shrank gameplay reach, not only the drawn area. See
+  `tools/overnight/blocked/87-engine-14-smaller-window.md`. Steps that "need 14" (16, 19, 20) wait for the
+  simulation-reach decision from the gameplay planning round.
