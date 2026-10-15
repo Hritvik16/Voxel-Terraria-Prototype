@@ -45,3 +45,12 @@ instant near / crawl far, crisp near shadows + soft grid.
 | Spell crafting | **OPEN (owner: "leave this undecided for now").** Leaning Noita (wand slots + modifiers) but "that's too complicated". Revisit when combat is designed. |
 | Building tools | **Click-and-drag strokes** (owner: "a simple click and drag ... given initial shape. Simplest can just be a line of voxels. That should allow for any type of build"). Pick a brush (today's sized cube), press, drag: it places along the stroke. Details in batch 5. |
 | Death | **Chosen per world** at world creation: soft / classic / hardcore (one life). |
+
+## Batch 5 -- building strokes, reactions
+| Topic | Answer |
+| --- | --- |
+| Building tools (reference game) | **Like "Lay of the Land"** (Steam 2776090; same small-blocky-voxel look). Owner: one click-and-drag stroke "naturally goes from a straight line of voxels to a plane of voxels, allowing for easy wall and roof building". Its store page also lists: a cylinder tool (round structures), a cone tool (sloped roofs), paths drawn directly onto the ground, terrain sculpting (raise/lower ground), and custom prefabs made from your own builds. |
+| Reuse your builds | **Yes:** the player can "select" any build they made and click-and-drag with it the same way (a selection becomes a brush / custom prefab). |
+| Extra reactions (all four picked) | **Heat** (freeze/melt: ice, snow melts near fire/lava, sand + heat -> glass); **gas & explosives** (cave gas pockets, gunpowder, steam pressure bursts); **electricity** (conducts through water and metal; wet targets take more); **life** (water + dirt -> mud, plants grow on wet soil, moss/fungus spreads, ash regrows grass). Plus batch 1's: water + lava -> stone + steam, fire spreads, acid eats rock, oil burns. |
+
+Sources for the reference game: [Steam store page](https://store.steampowered.com/app/2776090/) (opened 2026-10-15; it does not describe the line-to-plane drag itself -- that part is the owner's description).
