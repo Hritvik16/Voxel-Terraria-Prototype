@@ -1,40 +1,44 @@
-# 88-cavern-cell-precompute: DONE. Cavern candidates computed once per 102.4 m cell; PrepareColumn 345 -> 125 ns/column, output bytes unchanged.
-## What changed (commit `e7a39a3`, branch engine-phase)
-- `DetailField.CavernCells` (inside 86's `NodeCache`, so every cached caller gets it: ColumnJob, ShellColumnJob, ShellFill sub-samples,
-  DevMap): the passing cavern candidates (centre, axis, R, stretch, centre y, floor depth, ceiling) of a cell's 3x3 x 4 layers,
-  computed once per cell. 4 slots keyed by the cell (gx, gz), slot by parity, so shell chunks spanning many cells (shells >= 4)
-  read the right ones without thrashing. A column now runs only the ellipse test on the stored list.
-- Byte-identical by construction: the old `CavernInterval` is split into `CavernCandidate` (hashes) + `CavernInterval` (geometry);
-  the uncached path calls the same two, in the same order (cy, j, i), first two hits. Uncached `PrepareColumn` (FarField, tests)
-  and `PrepareColumnExact` are unchanged. > `CAVERN_CY_MAX` (8) cavern layers -> uncached (seed 42 tg2 has 4).
-- Also used at `coarseColumnShift` 0 (`-coarsecols 0`) and on map v3 (same bytes).
-- `TerrainSpec.cavernCellCacheOff` (byte, 0 = cached) + `TerrainGenChunkSource.SetCavernCellCache(bool)`: the A arm of the tests.
-- New `CavernCellCacheTests` (2): columns (Slow, 17 s in Mono) and chunks/shells (fast, 4.6 s). `ColumnPassSplitTests.CavernCache_TimingReport` (report only).
-- Housekeeping: task 87's blocked run left an untracked `Assets/CoreEngine/Tests/SmallWindowTests.cs` behind (its patch was reverted, the
-  test was not); it would have broken the compile. Moved to `tools/overnight/blocked/87-SmallWindowTests.LEAKED.cs.txt` (37e's precedent).
-  **Whoever runs 87 again: restore it from there along with the patch.**
-## Evidence
-- Whole suite **PASS 773 FAIL 0 SKIP 23** (Logs/overnight/88-all.out; was 771/0/22: +2 tests, +1 report-only skip). Wall 27m38s.
-- Bytes (Screenshots/88/cavern_cache_columns.txt, cavern_cache_identical.txt): 25,600 columns cached == uncached == cache-off, and shift-0
-  cached == `PrepareColumnExact` (16,384 random columns + a 96x96 block round cell corner (19456, 65536); 12,807 columns with a cavern,
-  2,959 with two). The block filled 4 cells for 4 cells (no thrash). Chunks: 12 mixed 0.1 m chunks (4 chunk columns round the corner,
-  cavern layers 24-25 + surface) + 14 shell chunks at shells 1/3/5/7 (cavern layer + surface, both sides of the corner): equal FNV-1a.
-- **Timing, warm steady state** (warm-up `Logs/tg2world_20261015_103535.txt` (BUILD=1 first: no Playground.app existed), test straight after;
-  Editor Burst, one thread, ABBA, isolated generation -- a direction check, NOT a streaming or frame-time claim; Screenshots/88/cavern_cache_timing.txt):
-  PrepareColumn per chunk column 5.66 -> **2.05 ms** (345 -> 125 ns/column; 86 measured 309 ns before, same order);
-  whole 7-layer chunk column 88.29 -> **84.71 ms (x0.959)**; shell chunks B/A: 1 0.948, 2 0.945, 3 0.961, 4 0.980, 5 0.970, 6 0.981, 7 0.970.
-- No screenshots: output bytes do not change (tests above prove it), so nothing visible can differ.
+STOP_FOR_OWNER: Amendment 8.15 (simulation reach) is drafted and needs your answers to Q1-Q10 (end of
+`AMENDMENT_8_15_SIMULATION_REACH.md`; "all (a)" approves it). Task 87 stays on hold until then.
+
+# 90a-amendment-8-15-simulation-reach: DONE (planning only). Draft written and committed, marked DRAFT, NOT ADOPTED.
+## What changed
+- New `AMENDMENT_8_15_SIMULATION_REACH.md` (commit `2a70afd`, branch engine-phase). CLAUDE.md NOT edited; no code, builds or launches.
+## Evidence (read, not measured)
+- Code read: live reach 128 m (`EngineConfig.cs:268` load radius 10, `:479` fluid radius 1,280 voxels); with shells on,
+  0.1 m is drawn only to shell 0's hand-over (`Raymarch.compute:3625`), and shells hold generator + ops only
+  (`ShellStreamer.cs` header, `:418-422`). **So today a block-by-block edit 69-128 m away is live but not drawn** (code
+  reading; not seen in a shot). No fire exists (only an `IsFlammable` flag, `MaterialRules.cs:37`). The GPU body buffer
+  is sized to the CPU pool and indexed by the CPU handle (`TerrainClipmap.cs:225-241`).
+- Memory baseline: peak 2,999 MB with shells on (task 85, `390e0de`); per-owner rows from task 55's ledger (via 8.14 §3).
 ## Left / notes
-- The column pass is now dominated by ShapeField.Sample (~10 ms per chunk column in 86's split) and the voxel pass; PrepareColumn is ~2%
-  of a 7-layer chunk column. Further PrepareColumn work is not worth it.
-- Not measured: streaming throughput in a real player (a milestone perf task should).
+- Every number in the draft is (est.) except those citing a task/ledger. Other games' render/sim splits are from
+  general knowledge, not looked up (labelled as such).
+- D.4 gains a format version 2 (additive); §3.7 changes if Q2 (a). Both are flagged in the draft's §10.
 ## Next step
-89 as queued (shells perf breakdown). 87 is in blocked/ (usage limit) -- the supervisor requeues it with its leaked test file.
+Owner answers Q1-Q10. Then the supervisor queues the tasks in the answered order (draft §11). 91 (step 17) does not depend on this.
 
 ## For the doc
-- PrepareColumn (per-column cave/cavern step): **345 -> 125 ns per column** (5.66 -> 2.05 ms per 0.1 m chunk column).
-- Whole 7-layer chunk column: **88.3 -> 84.7 ms (-4.1%)**; shell chunks 1-7: -2% to -5.5%.
-  (Editor Burst, warm, ABBA; Screenshots/88/cavern_cache_timing.txt)
-- Output bytes: **identical** -- 25,600 columns, 12 chunks and 14 shell chunks (shells 1/3/5/7) across a cavern cell corner (Screenshots/88/cavern_cache_identical.txt).
-- Whole suite 773 / 0 / 23.
-- No images: nothing visible can change (byte-identical).
+**Summary (10 lines)**
+1. Three zones: NEAR (fully live, 128 m fixed on every machine), FAR-ACTIVE (sparse coarse sim where something big happens), FROZEN (paused, caught up on return).
+2. NEAR from the eye: a 1.8 m creature is 10 px at 93 m (540 rows), 124 m (720, M1 High), 186 m (1080) -> keep today's 128 m.
+3. Step 14 redone: shrink only what is DRAWN (GPU box 32x32x8 -> 16³ + its own GPU brick pool); CPU reach stays 128 m.
+4. Saving vs today's measured 2,999 MB: -675 MB (est.) vs task 87's -855 MB; ~180 MB is the price of keeping reach.
+5. Far fire / floods / lava / powders run on 0.8 m cells in 51.2 m tiles at ~1 tick/s and write their results as new D.4 ops (burn, fluid level, powder settle): CPU stays the sole terrain writer; real on return. Replaces step 19a.
+6. Far builds always visible: a coarse "edit summary" saved beside each D.1 (+~12% save size, 10-30 MB RAM, est.), drawn by shells and far band. Fixes the 69-128 m gap found today.
+7. Catch-up: world clock + per-chunk last-seen time; fluid settles flat, powder falls, growth by timestamp on load.
+8. Nukes: one carve op + a debris budget (10% rubble at rest, <= 200 k voxels; <= 64 fluid tiles awake; dust render-only).
+9. New `IFarQuery` beside the frozen `GetVoxel`: exact (resident -> D.1 -> generator + ops), ~1-3 µs/point (est.), plus a coarse raycast.
+10. Process memory ~2,370 MB (~2,470 with the light grid; est.) -> ~530 MB left for the game under 3 GB.
+
+**Questions (recommended first):** Q1 NEAR radius (a 128 m fixed / b 154 m / c per machine) · Q2 what step 14 shrinks
+(a GPU box + own GPU pool / b box only / c nothing) · Q3 far builds (a edit summaries / b regenerate on demand / c ops only) ·
+Q4 far-sim order (a floods/lava first, then powders, fire / b fire first / c floods only) · Q5 far fire model (a 2.5D cells
+with real burn ops / b 3D coarse / c visual only) · Q6 catch-up (a instant on load / b fast-forward / c none) · Q7 nuke
+debris (a budgeted / b all simulated / c pure carve) · Q8 far query (a exact + raycast / b heights only / c none) ·
+Q9 co-op determinism (a far sim deterministic, near host-authoritative / b all deterministic / c later) · Q10 when
+(a "engine owes now" ~13 sessions, then lighting, then far sims / b all before lighting / c only the shrink now).
+
+**ETA change:** steps 14 + 19 (~5 sessions) become 17 tasks, ~26 sessions (~32 with retries): **net +~21 sessions
+(+~27 with retries), about +1.5-2 weeks** of queue time; ~13 sessions of it are needed before steps 16/20.
+No images: planning only (the draft has two ASCII diagrams of the zones and the far-sim data flow).
