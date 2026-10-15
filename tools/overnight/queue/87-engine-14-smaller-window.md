@@ -36,3 +36,9 @@ Read Amendment 8.14 rows 1, 6, 7, 11, 15 and its sizing table (section 2/H) firs
   Sheet with captions saying what to look at.
 - Fast EditMode while iterating, `SUITE=all` once at the end.
 - HANDOFF `## For the doc`: window radius before -> after, peak MB before -> after, gates C/D, the sheet.
+
+## Requeued (supervisor, 2026-10-15)
+The 2026-10-13 run never started work: every attempt hit the weekly usage limit (runner.log 05:57-12:46, api 429), so it
+was set aside as FAILED. No code was touched. Run it exactly as written. Owner context (2026-10-15): Q49 is answered
+"yes for the visuals, but show me the frame time first" -> tasks 89 (measure) and 90 (default) follow this one; this task
+still changes no default.
