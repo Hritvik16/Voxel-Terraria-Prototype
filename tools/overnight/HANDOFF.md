@@ -1,53 +1,52 @@
-STOP_FOR_OWNER -- gameplay plan updated (task 92); four questions, recommendation first:
-1. **Plane stroke (BLD2):** (a) one drag: the box from where you pressed to where you are now, one brush thick (flat
-   = floor/roof, upright = wall, thin = line); (b) drag a line, release, sweep it into a plane, click; (c) hold Shift
-   to turn the line into a plane.
-2. **Hardcore death (9b):** (a) the world locks: you can fly and look, not play (Minecraft); (b) the world is deleted;
-   (c) a new empty-handed character starts in the same world (Terraria).
-3. **Classic death (9b):** (a) everything you carry drops in one bag at the death spot, kept until fetched; (b) only
-   the backpack drops; (c) half of every stack drops.
-4. **Gameplay vs the engine block (8.15 E/D/C/Q, then lighting):** (a) alternate, one gameplay task after each engine
-   task; (b) finish the engine block first; (c) gameplay first.
+# 93-bug-fluidprobe-tg2-water-frozen: DONE -- the bug was in the PROBE, not the engine; the probe is fixed and the water moves
 
-# 92-gameplay-plan-update: DONE (planning only)
+## Cause
+On map v4, the ground 8-20 m ahead of eye_level_1 (looking towards the peak) is higher than the eye. Task 07's
+straight-ahead search found no open ground there, logged "no open ground found ahead; using a guess", and put
+the dug hole, the water box and the lava box INSIDE the hillside. A census of the CPU store before placement:
+water box **1029/1029 solid**, lava box **784/784 solid**. So every fluid voxel was walled in by rock:
+`intent.no_destination` = 1029 (water) / 784 (lava), and the GPU sim correctly did nothing. On 2026-10-03 (map v3)
+the same pose had open ground ahead, which is why task 09's run moved. The scheduler, mirror, shells, RiverLipAsWater
+and awake-only tiles are all innocent (the tiles were acquired, wakes dispatched, the box was inside the mirror window).
 
-## What changed
-- `GAMEPLAY_PHASE_PLAN.md` rewritten in place (same shape), commit `7107b4f`. `## For the owner` on top (12 lines);
-  "Owner may change" list: P6, P13, P22-P29 now "owner, 2026-10-15"; P7 replaced (stroke cost: place until the slot runs
-  out; all-or-nothing suited single clicks); P22 "keep inventory on death" replaced by death per world.
-- New step groups: BLD1-6 (building), 9a/9b (death split), RX1-7 (reactions: A = today's `MaterialRules` pair table /
-  `IsFallingSolid`; B = new sim), CB1-3 (combat; CB3 spells WAITING, OPEN), CR1-2 + V1 (creatures), BS1-2 (bosses),
-  STG1-2 (stages). Old ids 1-20 kept so 67-72 still point at the right rows; old 17 (question batch) marked done.
-- Far-away rules cited, not restated: rows say "Requires 8.15 <row>" (E1/E2, C1, N1, B1, V1, Q1, F1, R1, L1).
-- 67-71 **still valid**; 72 **needs rewrite** (step 9 -> 9a health/respawn + 9b death mode). Files not edited.
-
-## Picks of mine to check (in the plan)
-- STG1 (= 8.15 S1) built with a dev trigger (`-stage N`) BEFORE bosses exist; 8.15's table says it needs bosses (G).
-- Dig also uses strokes (LMB); prefab cap 64^3 voxels; heat field per brick; growth = CPU random-tick, not the CA.
-- RX1 changes today's water + lava products (obsidian + air -> stone + steam), per the owner's batch-1 wording.
-- The death bag (classic) is a static saved marker, so P2 (no ground drops / no entity physics) still holds.
+## What changed (commit 981b985)
+- `Assets/Game/PlaygroundCapture.FluidProbe.cs`: logs the task-07 site and its solid-voxel count in both boxes,
+  then tries 8 headings (0, +-45, +-90, +-135, 180 deg) x the same 5 distances and uses the first site whose two
+  boxes are ALL AIR in the store (`SolidIn`). If no heading works it says "NO OPEN SITE" and falls back to the old
+  site. The arena (non-tg2) path is unchanged.
+- `KNOWN_ISSUES.md`: one sub-bullet under "FLUID IN TG2 DOES SIMULATE".
+- No EditMode test: the cause is in the rig's site choice (Assembly-CSharp, which the test asmdefs can't reference),
+  not in engine CPU code. The probe's census line now catches it at run time.
 
 ## Evidence
-Planning only: no code, Unity, builds, launches or tests. Read: the design round file, the old plan, 8.15 §8/§11/§14/
-§15, `MaterialRules.cs` (pair reactions water+lava, acid; steam `IsGas`; sand falling, snow static on purpose).
+- Probe run: `BUILD=1 MODE=fluidprobe EXTRA="-fpscap 30 -fluidstrip" ./run-tg2world.sh` ->
+  `Logs/tg2world_20261015_152136.txt`; report copy `Screenshots/93/fluidprobe.txt` (committed).
+  "task-07 site (no open ground ahead, a guess): solid voxels in water box 1029/1029, in lava box 784/784";
+  "site: turned 90 deg ... both boxes all air". Dug 9327 voxels (not 14147: the hole is now partly in open air).
+- CPU store, water in box / elsewhere nearby: +1 s 461/568, +2 s 356/673, +4 s 164/865, +8 s 0/1029,
+  +20 s 0/997. Lava in box: 784 -> 375 (+2 s) -> 130 (+20 s). GPU: commit.APPLIED 878 -> 1029, no_destination 0.
+- Before (task 91's run, `Logs/tg2world_20261015_112947.txt`): water in box 1029 at every point up to +20 s, ops total 0.
+- Fast suite: `PASS 732 FAIL 0 SKIP 14` (`Logs/overnight/93-fast.out`). The Mac was on battery at 10-13% at the
+  start of the run (charging later); this doesn't matter here (no timing).
+- Stills looked at (copied to `Screenshots/93/`, not committed):
+  - `Screenshots/93/strip_2s.png` -- centre-left: the blue water box breaking up as it falls onto the slope;
+    the orange lava column to its right still stands whole.
+  - `Screenshots/93/strip_8s.png` -- the water is gone from the box and sits as a small blue pool in the dug hole
+    on the slope (centre-left); the lava column has slumped into a rounded heap.
+
+## Not done / notes
+- Other probes that place things relative to eye_level_1 (`-taarisk`'s fluid setup, `PlaygroundCapture.TaaRisk.cs`)
+  still use the old straight-ahead guess on map v4, and probably bury their boxes too. Not touched (out of scope).
+- No follow-up queued.
 
 ## Next step
-Owner answers Q1-Q4. Then the supervisor rewrites `later/72` as 9a, writes 9b, BLD1, BLD2, RX1 task files, and queues
-per Q4. Not done here: no queue files written (the task said plan only).
+Nothing for the owner. The queue goes on (93a...).
 
 ## For the doc
-No images: planning only. New step list (gameplay run order):
-- BLD1 drag line (brush stamped along a straight drag; preview, cost per cell) -- S
-- BLD2 plane stroke (walls/roofs in one drag; shape per Q1) -- S-M
-- 4 start on the best easy area (task 67) -- S
-- 9a health, fall/lava/acid damage, oxygen, respawn (task 72 rewritten) -- M
-- 9b death mode per world: soft / classic / hardcore (Q2, Q3) -- M
-- RX1 adjacency reactions: lava + water -> stone + steam, mud, glass, melting (table rows) -- S
-- 5 climb (68), 6 glide (69), 7 grapple (70), 8 wall-run (71)
-- BLD4 ground paths, BLD5 sculpt raise/lower, BLD3 cylinder + cone roof, BLD6 your build as a brush
-- 10 tool tiers, 11 crafting, 13 bucket, RX2 powders, CB1 gear combat v1, CB2 armor
-- 14 trees [measure] -> 15 trees -> RX4 growth; 18 entity physics [measure] -> CR1 spawner -> CR2 behaviour
-- After 8.15 rows: RX3 fire (N1), RX5 heat, RX6 gas/explosives (nukes: B1), RX7 electricity; STG1 stage flip (C1, E2)
-  -> BS1 landmark boss -> STG2 stage content -> BS2; V1 far creatures; 12 ore sources; 16 hazards; 19 towns; 20 travel
-- CB3 spells: waiting on the owner (OPEN)
-Questions: Q1-Q4 at the top of this file.
+Task 93: tg2 "water never moves" was the probe placing its boxes inside a hill on map v4, not an engine fault.
+- Solid voxels in the task-07 water box / lava box before placement: 1029/1029 and 784/784 (`Logs/tg2world_20261015_152136.txt`)
+- Water still in the box at +8 s: 1029 (`Logs/tg2world_20261015_112947.txt`) -> 0 (`Logs/tg2world_20261015_152136.txt`)
+- Water ops applied (GPU commit.APPLIED): 0 -> 1029; intent.no_destination 1029 -> 0
+- Lava still in the box at +20 s: 784 -> 130
+- `Screenshots/93/strip_2s.png` -- centre-left: the water box falling apart 2 s after it was placed, lava column to its right.
+- `Screenshots/93/strip_8s.png` -- the same view at 8 s: the water is in the dug hole as a small pool, the lava has slumped.
