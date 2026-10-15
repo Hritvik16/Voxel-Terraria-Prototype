@@ -54,3 +54,11 @@ instant near / crawl far, crisp near shadows + soft grid.
 | Extra reactions (all four picked) | **Heat** (freeze/melt: ice, snow melts near fire/lava, sand + heat -> glass); **gas & explosives** (cave gas pockets, gunpowder, steam pressure bursts); **electricity** (conducts through water and metal; wet targets take more); **life** (water + dirt -> mud, plants grow on wet soil, moss/fungus spreads, ash regrows grass). Plus batch 1's: water + lava -> stone + steam, fire spreads, acid eats rock, oil burns. |
 
 Sources for the reference game: [Steam store page](https://store.steampowered.com/app/2776090/) (opened 2026-10-15; it does not describe the line-to-plane drag itself -- that part is the owner's description).
+
+## Batch 6 -- simulation reach (Amendment 8.15 draft questions, same day)
+All of the draft's recommended answers (Q1-Q10 (a)); full text in `tools/overnight/done/90a-amendment-8-15-simulation-reach.md`.
+| Topic | Answer |
+| --- | --- |
+| Live reach | **128 m on every machine**, plus look-ahead loading at speed and **visual-only far creatures** (herds, birds past 128 m) so long views are not empty. |
+| Stage flip in explored areas | **New ores / biome spread only where unseen** (never-touched rock), by a one-time world pass; builds and digs never overwritten; creatures change everywhere at once. |
+| New reactions far away | **Freeze**; growth, melt and freeze computed from elapsed time on return; gas explosions and electricity only near you. |

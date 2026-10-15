@@ -50,3 +50,18 @@ Include 2-3 simple diagrams (inline SVG or ASCII) of the zones if they help.
 - The document exists, is committed on `engine-phase`, marked DRAFT, NOT ADOPTED; CLAUDE.md is NOT edited (adoption is the
   owner's call).
 - HANDOFF ends with `STOP_FOR_OWNER` and `## For the doc`: a 10-line summary, the question list, the ETA change.
+
+## Owner answer (2026-10-15, supervisor chat)
+- Q1 (a) 128 m live on every machine, PLUS (owner picked "128 m + far visuals"): a later task for look-ahead loading along the
+  velocity at speed and VISUAL-ONLY far creatures (herds, birds drawn past 128 m, not simulated) so long views are not empty.
+  (Owner first asked "Does 128 m make sense? Is it fun for gameplay?"; the supervisor explained: Minecraft's 128-block mob
+  range, ~25 s ahead at 5 m/s but ~2 s at 60 m/s flight, empty far plains, ~4x the area at 256 m.)
+- Q2 (a) GPU directory box AND own GPU brick pool (§3.7 layout change approved), -394 MB est.; CPU reach stays 128 m.
+- Q3 (a) edit summaries. Q4 (a) floods/lava first, powders, then fire. Q5 (a) 2.5D 0.8 m cells. Q6 (a) instant on load.
+- Q7 (a) budgeted debris. Q8 (a) exact + raycast. Q9 (a) far sim deterministic, near host-authoritative.
+- Q10 (a) owed part (E1-E2, D1-D4, C1, Q1-Q2) -> lighting (20-22) -> far sims.
+- GAP A (not in the draft; batch 4 "few big world stages"): a boss stage flip adds new ores / biome spread by a ONE-TIME
+  world pass ONLY in never-touched rock (no D.1 / no ops there); edits and builds are never overwritten; creatures change
+  everywhere at once; far views update as areas reload. Needs: world stage number in the save, generator takes stage as input.
+- GAP B (not in the draft; batch 5 reactions): far away, heat/gas/electricity/growth FREEZE like everything else; growth,
+  melt and freeze are computed from elapsed time on return (catch-up rule); gas explosions and electricity only near you.
