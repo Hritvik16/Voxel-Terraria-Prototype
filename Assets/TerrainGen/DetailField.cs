@@ -136,17 +136,21 @@ namespace TerrainGen
         /// The same, reading the grid nodes through `cache` (same bytes as the
         /// uncached form; a loop over neighbouring columns evaluates each node
         /// about once instead of up to four times).
-        public static ColumnDetail PrepareColumn(in TerrainSpec spec, in Offsets o, int x, int z, ref NodeCache cache)
+        public static unsafe ColumnDetail PrepareColumn(in TerrainSpec spec, in Offsets o, int x, int z, ref NodeCache cache)
         {
             int s = spec.coarseColumnShift;
-            if (s <= 0) return FinishColumn(in spec, in o, CaveTerms(in o, new float2(x, z)), x, z);
-            int m = (1 << s) - 1, xr = x - m, zr = z - m, nx = xr >> s, nz = zr >> s;
-            float inv = 1f / (1 << s), fx = (xr & m) * inv, fz = (zr & m) * inv;
-            var n00 = cache.Get(in o, nx, nz, s);
-            var n10 = (xr & m) != 0 ? cache.Get(in o, nx + 1, nz, s) : n00;
-            var n01 = (zr & m) != 0 ? cache.Get(in o, nx, nz + 1, s) : n00;
-            var n11 = (xr & m) != 0 && (zr & m) != 0 ? cache.Get(in o, nx + 1, nz + 1, s) : n00;
-            return FinishColumn(in spec, in o, Bilerp(in n00, in n10, in n01, in n11, fx, fz), x, z);
+            fixed (CavernCells* cav = &cache.Caverns)
+            {
+                var cc = spec.cavernCellCacheOff != 0 ? null : cav;   // task 88's A arm: uncached
+                if (s <= 0) return FinishColumn(in spec, in o, CaveTerms(in o, new float2(x, z)), x, z, cc);
+                int m = (1 << s) - 1, xr = x - m, zr = z - m, nx = xr >> s, nz = zr >> s;
+                float inv = 1f / (1 << s), fx = (xr & m) * inv, fz = (zr & m) * inv;
+                var n00 = cache.Get(in o, nx, nz, s);
+                var n10 = (xr & m) != 0 ? cache.Get(in o, nx + 1, nz, s) : n00;
+                var n01 = (zr & m) != 0 ? cache.Get(in o, nx, nz + 1, s) : n00;
+                var n11 = (xr & m) != 0 && (zr & m) != 0 ? cache.Get(in o, nx + 1, nz + 1, s) : n00;
+                return FinishColumn(in spec, in o, Bilerp(in n00, in n10, in n01, in n11, fx, fz), x, z, cc);
+            }
         }
 
         /// The pre-86 per-column reference (every cave term exact at the column),
@@ -215,6 +219,8 @@ namespace TerrainGen
             private fixed float _v[SLOTS * CaveNode.FLOATS];
             /// Node evaluations since the cache was made (diagnostics).
             public int Misses;
+            /// Task 88: the cavern candidates of the last cells seen.
+            public CavernCells Caverns;
 
             public CaveNode Get(in Offsets o, int nx, int nz, int s)
             {
@@ -233,6 +239,14 @@ namespace TerrainGen
         /// The cheap per-column half: geology and soil exact, the cave terms
         /// from `n` (exact or interpolated), the cavern cell hashes exact.
         private static ColumnDetail FinishColumn(in TerrainSpec spec, in Offsets o, in CaveNode n, int x, int z)
+        {
+            unsafe { return FinishColumn(in spec, in o, in n, x, z, null); }
+        }
+
+        /// `cav` != null: the cavern candidates come from that cache (task 88;
+        /// same bytes), null: computed here for this column.
+        private static unsafe ColumnDetail FinishColumn(in TerrainSpec spec, in Offsets o, in CaveNode n, int x, int z,
+                                                        CavernCells* cav)
         {
             var cd = PrepareGeology(in o, x, z);
             cd.oreMul = spec.mapVersion >= 4 ? Ores.DEFAULT_MUL : (byte)0;
@@ -254,14 +268,19 @@ namespace TerrainGen
             int gx = x >> CAVERN_CELL_SHIFT, gz = z >> CAVERN_CELL_SHIFT;
             int band0 = spec.UnderworldTopY + 300;
             int cells = math.max(0, (spec.CavernTopY - 200 - band0) / CAVERN_CELL_Y);
-            int found = 0;
-            for (int cy = 0; cy < cells && found < 2; cy++)
-            for (int j = -1; j <= 1 && found < 2; j++)
-            for (int i = -1; i <= 1 && found < 2; i++)
+            if (cav != null && cells <= CAVERN_CY_MAX) cav->Find(in o, gx, gz, band0, cells, p, nR, nF, ref cd);
+            else
             {
-                if (!CavernInterval(in o, gx + i, cy, gz + j, band0, p, nR, nF, out int lo, out int hi)) continue;
-                if (found == 0) { cd.cav0Lo = lo; cd.cav0Hi = hi; } else { cd.cav1Lo = lo; cd.cav1Hi = hi; }
-                found++;
+                int found = 0;
+                for (int cy = 0; cy < cells && found < 2; cy++)
+                for (int j = -1; j <= 1 && found < 2; j++)
+                for (int i = -1; i <= 1 && found < 2; i++)
+                {
+                    if (!CavernCandidate(in o, gx + i, cy, gz + j, band0, out var k)) continue;
+                    if (!CavernInterval(in k, p, nR, nF, out int lo, out int hi)) continue;
+                    if (found == 0) { cd.cav0Lo = lo; cd.cav0Hi = hi; } else { cd.cav1Lo = lo; cd.cav1Hi = hi; }
+                    found++;
+                }
             }
 
             // The underworld chamber: floor and ceiling from 2-D fields; pillars
@@ -285,30 +304,98 @@ namespace TerrainGen
             return math.abs(t.w) / w;
         }
 
-        /// The open interval of cell (gx, cy, gz)'s cavern through column p.
-        private static bool CavernInterval(in Offsets o, int gx, int cy, int gz, int band0, float2 p, float nR, float nF,
-                                           out int lo, out int hi)
+        // ---- Task 88: CAVERN CELL CANDIDATES, once per cell ----
+        // A column tests the cavern candidates of its 3 x 3 cells x `cells`
+        // layers (seed 42 tg2: 36), each 1-10 Hash01. They depend only on the
+        // cell (gx, gz) -- one 102.4 m cell covers a whole 0.1 m chunk column --
+        // so CavernCells keeps the passing candidates of the last cells seen and
+        // each column runs only the geometry. Byte-identical (the same two
+        // functions, the same order); keyed by the cell, so shell chunks that
+        // span many cells (shells >= 4) still read the right ones.
+        public const int CAVERN_CY_MAX = 8;             // layers a cache holds; more -> uncached (seed 42 tg2: 4)
+        private const int CAVERN_CANDS = CAVERN_CY_MAX * 9;
+
+        /// One cavern candidate (a cell whose first hash passes): 9 floats.
+        private struct CavernCand
         {
-            lo = hi = 0;
+            public float2 c, u;
+            public float R, stretch, cyc, floorDepth, ceilH;
+            public const int FLOATS = 9;
+        }
+
+        /// Cell (gx, cy, gz)'s cavern, if it has one.
+        private static bool CavernCandidate(in Offsets o, int gx, int cy, int gz, int band0, out CavernCand k)
+        {
+            k = default;
             uint sd = o.seed + 601u;
             if (Noise.Hash01(gx, cy, gz, sd) > 0.45f) return false;
-            float2 c = new float2(gx + 0.3f + 0.4f * Noise.Hash01(gx, cy, gz, sd + 1u),
-                                  gz + 0.3f + 0.4f * Noise.Hash01(gx, cy, gz, sd + 2u)) * CAVERN_CELL;
-            float R = 200f + 220f * Noise.Hash01(gx, cy, gz, sd + 3u);
-            float stretch = 1f + 0.6f * Noise.Hash01(gx, cy, gz, sd + 4u);
+            k.c = new float2(gx + 0.3f + 0.4f * Noise.Hash01(gx, cy, gz, sd + 1u),
+                             gz + 0.3f + 0.4f * Noise.Hash01(gx, cy, gz, sd + 2u)) * CAVERN_CELL;
+            k.R = 200f + 220f * Noise.Hash01(gx, cy, gz, sd + 3u);
+            k.stretch = 1f + 0.6f * Noise.Hash01(gx, cy, gz, sd + 4u);
             float2 u = new float2(Noise.Hash01(gx, cy, gz, sd + 5u) - 0.5f, Noise.Hash01(gx, cy, gz, sd + 6u) - 0.5f);
             float ul = math.sqrt(u.x * u.x + u.y * u.y);
-            u = ul > 1e-3f ? u / ul : new float2(1f, 0f);
-            float2 q = p - c;
-            float along = math.dot(q, u) / stretch, side = q.x * -u.y + q.y * u.x;
-            float r2 = (along * along + side * side) / (R * R) * (1f + 0.25f * nR);
+            k.u = ul > 1e-3f ? u / ul : new float2(1f, 0f);
+            k.cyc = band0 + cy * CAVERN_CELL_Y + CAVERN_CELL_Y * 0.5f + (Noise.Hash01(gx, cy, gz, sd + 7u) - 0.5f) * 100f;
+            k.floorDepth = 60f + 60f * Noise.Hash01(gx, cy, gz, sd + 8u);
+            k.ceilH = 100f + 120f * Noise.Hash01(gx, cy, gz, sd + 9u);
+            return true;
+        }
+
+        /// The open interval of candidate k's cavern through column p.
+        private static bool CavernInterval(in CavernCand k, float2 p, float nR, float nF, out int lo, out int hi)
+        {
+            lo = hi = 0;
+            float2 q = p - k.c;
+            float along = math.dot(q, k.u) / k.stretch, side = q.x * -k.u.y + q.y * k.u.x;
+            float r2 = (along * along + side * side) / (k.R * k.R) * (1f + 0.25f * nR);
             if (r2 >= 1f) return false;
-            float cyc = band0 + cy * CAVERN_CELL_Y + CAVERN_CELL_Y * 0.5f + (Noise.Hash01(gx, cy, gz, sd + 7u) - 0.5f) * 100f;
-            float floorDepth = 60f + 60f * Noise.Hash01(gx, cy, gz, sd + 8u);
-            float ceilH = 100f + 120f * Noise.Hash01(gx, cy, gz, sd + 9u);
-            lo = (int)math.floor(cyc - floorDepth * (1f - 0.5f * r2) + 20f * nF);
-            hi = (int)math.floor(cyc + ceilH * math.sqrt(1f - r2));
+            lo = (int)math.floor(k.cyc - k.floorDepth * (1f - 0.5f * r2) + 20f * nF);
+            hi = (int)math.floor(k.cyc + k.ceilH * math.sqrt(1f - r2));
             return hi > lo + 2;
+        }
+
+        /// The passing cavern candidates round the last cells seen, 4 slots by
+        /// cell parity (a 2 x 2 block of cells without thrashing). Owned by one
+        /// loop (inside NodeCache; never shared); assumes one seed and spec per
+        /// cache, as the grid nodes do. default = empty.
+        public unsafe struct CavernCells
+        {
+            private fixed int _gx[4];
+            private fixed int _gz[4];
+            private fixed int _n[4];
+            private fixed byte _used[4];
+            private fixed float _v[4 * CAVERN_CANDS * CavernCand.FLOATS];
+            /// Cells whose candidates were computed (diagnostics).
+            public int Misses;
+
+            /// The uncached loop's result for column p of cell (gx, gz):
+            /// the same candidates in the same order (cy, j, i), first two hits.
+            internal void Find(in Offsets o, int gx, int gz, int band0, int cells, float2 p, float nR, float nF,
+                               ref ColumnDetail cd)
+            {
+                int slot = (gx & 1) | ((gz & 1) << 1);
+                fixed (float* v = _v)
+                {
+                    var list = (CavernCand*)(v + slot * CAVERN_CANDS * CavernCand.FLOATS);
+                    if (_used[slot] == 0 || _gx[slot] != gx || _gz[slot] != gz)
+                    {
+                        int n = 0;
+                        for (int cy = 0; cy < cells; cy++)
+                        for (int j = -1; j <= 1; j++)
+                        for (int i = -1; i <= 1; i++)
+                            if (CavernCandidate(in o, gx + i, cy, gz + j, band0, out var k)) list[n++] = k;
+                        _n[slot] = n; _gx[slot] = gx; _gz[slot] = gz; _used[slot] = 1; Misses++;
+                    }
+                    int count = _n[slot], found = 0;
+                    for (int t = 0; t < count && found < 2; t++)
+                    {
+                        if (!CavernInterval(in list[t], p, nR, nF, out int lo, out int hi)) continue;
+                        if (found == 0) { cd.cav0Lo = lo; cd.cav0Hi = hi; } else { cd.cav1Lo = lo; cd.cav1Hi = hi; }
+                        found++;
+                    }
+                }
+            }
         }
 
         /// Convenience form: prepares the column itself (slow in a loop).

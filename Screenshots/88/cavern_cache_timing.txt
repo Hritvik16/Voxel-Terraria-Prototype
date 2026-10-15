@@ -1,0 +1,11 @@
+Task 88: cavern cell cache, seed 42 map v4, 8 land chunk columns, Editor Burst, one thread, ABBA
+A = cache off (candidates per column, pre-88 work), B = on; both coarse cave grid. Isolated generation only; not a streaming or frame-time claim.
+  P per chunk column           A     5.66 ms   B     2.05 ms   B/A 0.362   ns per column A 345  B 125   (32 runs per arm)
+  chunk column, 7 layers       A    88.29 ms   B    84.71 ms   B/A 0.959   (16 columns per arm)
+  shell 1 chunk (surface)     A    69.44 ms   B    65.82 ms   B/A 0.948   (8 per arm)
+  shell 2 chunk (surface)     A    69.22 ms   B    65.41 ms   B/A 0.945   (8 per arm)
+  shell 3 chunk (surface)     A   127.10 ms   B   122.19 ms   B/A 0.961   (8 per arm)
+  shell 4 chunk (surface)     A   216.64 ms   B   212.41 ms   B/A 0.980   (8 per arm)
+  shell 5 chunk (surface)     A   168.44 ms   B   163.37 ms   B/A 0.970   (8 per arm)
+  shell 6 chunk (surface)     A   259.01 ms   B   253.99 ms   B/A 0.981   (8 per arm)
+  shell 7 chunk (surface)     A   223.76 ms   B   217.11 ms   B/A 0.970   (8 per arm)

@@ -53,6 +53,10 @@ namespace TerrainGen
         /// turns it off (TerrainGenChunkSource.CoarseColumnArg).
         public int coarseColumnShift;
         public const int COARSE_COLUMN_SHIFT = 3;   // one node per 8 x 8 columns (one per brick column)
+        /// Task 88: 1 = DetailField.PrepareColumn(.., ref NodeCache) recomputes the
+        /// cavern candidates per column instead of once per cavern cell (the A arm
+        /// of its timing and byte tests; same bytes either way). 0 = cached.
+        public byte cavernCellCacheOff;
         /// Which world-map recipe: 2 = noise ranges + bolted-on landforms (to
         /// 2026-09-25), 3 = regions + erosion (TerrainGen v3, design doc §13).
         /// 0 is read as 2, so a spec built field by field keeps the old map.

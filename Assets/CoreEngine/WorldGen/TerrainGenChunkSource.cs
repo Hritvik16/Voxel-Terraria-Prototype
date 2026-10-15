@@ -63,6 +63,13 @@ namespace VoxelEngine.WorldGen
             var t = Spec; t.coarseColumnShift = s; Spec = t;
             _columnTop.Clear();
         }
+
+        /// Tests and reports (task 88's A/B): off = the cavern candidates are
+        /// recomputed per column (pre-88 work; same bytes). Same rules as above.
+        public void SetCavernCellCache(bool on)
+        {
+            var t = Spec; t.cavernCellCacheOff = on ? (byte)0 : (byte)1; Spec = t;
+        }
         public readonly TerrainGen.Offsets O;
         public readonly TerrainGen.WorldMap Map;
         private NativeArray<float> _h, _r, _w;
