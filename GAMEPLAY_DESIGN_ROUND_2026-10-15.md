@@ -37,3 +37,11 @@ instant near / crawl far, crisp near shadows + soft grid.
 | Creatures when you leave | **Wild creatures despawn and respawn by biome near you; town NPCs and named creatures persist** (frozen, or on routines per "town life"). |
 | Combat | **Spells + gear**, and "**anime-esque fun combat that can be fast paced or slow depending on the player**". |
 | Bosses | **Both:** some live at landmarks (signature features), some summoned or event-triggered. |
+
+## Batch 4 -- stages, spells, building, death
+| Topic | Answer |
+| --- | --- |
+| World stages | **Few big jumps (Terraria Hardmode style):** 3-4 clear stages; one boss flips the whole world (new ores, creatures everywhere, some biomes change). Needs a world-wide change pass over the saved world. |
+| Spell crafting | **OPEN (owner: "leave this undecided for now").** Leaning Noita (wand slots + modifiers) but "that's too complicated". Revisit when combat is designed. |
+| Building tools | **Click-and-drag strokes** (owner: "a simple click and drag ... given initial shape. Simplest can just be a line of voxels. That should allow for any type of build"). Pick a brush (today's sized cube), press, drag: it places along the stroke. Details in batch 5. |
+| Death | **Chosen per world** at world creation: soft / classic / hardcore (one life). |
