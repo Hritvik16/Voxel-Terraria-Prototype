@@ -30,3 +30,12 @@ marked OPEN). Parked gameplay task files `tools/overnight/later/67-72` (gameplay
    step order, and at most 4 specific multiple-choice questions where the round left a real gap (recommendation first).
 4. Commit the plan by path. HANDOFF starts with `STOP_FOR_OWNER` + those questions; `## For the doc`: the new step list
    (one line each) and the questions. No images (planning only; say so).
+
+## Owner answer (2026-10-15, supervisor chat)
+- Q1 plane stroke: face pull, not the box drag: "place one block down, extend it into a line by selecting one of its
+  faces, then [pull] one of the line's faces [into a plane]"; study Lay of the Land's system later -> task 93b1.
+- Q2 hardcore: (a) world locks to a fly-only viewer.
+- Q3 classic: OPEN until the object-placement phase ("you only lose some items") -> 9b not queued.
+- Q4: (a) alternate gameplay and engine tasks -> queued 93a1 BLD1, 93b1 BLD2, 93c1 step 4, 93d1 9a, 93e1 RX1,
+  93f1 step 5, 93g1 step 6 between the 8.15 block; 94 fluid gravity fall; 97.
+Task 92 itself was complete (plan written, 7107b4f); moved to done/.

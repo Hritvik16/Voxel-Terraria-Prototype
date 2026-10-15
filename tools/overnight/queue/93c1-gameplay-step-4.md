@@ -1,10 +1,11 @@
-# 67-gameplay-step-4
+# 93c1-gameplay-step-4
 
 Requires: 63-gameplay-phase-plan
 
 Approval: owner, 2026-10-11 ~00:10 in chat: "keep queuing tasks, ideally moving forward with gameplay features
 instead of optimizations, pick your recommendations, i can always queue something to change them". Queued by the
 supervisor 2026-10-11. Branch `engine-phase`.
+Re-queued 2026-10-15 by the supervisor in the alternating order (owner Q4 (a): one gameplay task after each engine task).
 
 ## Change
 Implement **step 4** of `GAMEPLAY_PHASE_PLAN.md` (written by task 63; steps 1-3 = tasks 64-66), exactly as its step table describes, and
