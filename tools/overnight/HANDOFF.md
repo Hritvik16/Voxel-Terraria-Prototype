@@ -1,44 +1,59 @@
-STOP_FOR_OWNER: Amendment 8.15 (simulation reach) is drafted and needs your answers to Q1-Q10 (end of
-`AMENDMENT_8_15_SIMULATION_REACH.md`; "all (a)" approves it). Task 87 stays on hold until then.
+# 91-engine-17-fixed-rate-fluid-tick: DONE. Fluid CA ticks at a fixed 4.5 Hz at any frame rate (option C); decision 11 superseded.
 
-# 90a-amendment-8-15-simulation-reach: DONE (planning only). Draft written and committed, marked DRAFT, NOT ADOPTED.
-## What changed
-- New `AMENDMENT_8_15_SIMULATION_REACH.md` (commit `2a70afd`, branch engine-phase). CLAUDE.md NOT edited; no code, builds or launches.
-## Evidence (read, not measured)
-- Code read: live reach 128 m (`EngineConfig.cs:268` load radius 10, `:479` fluid radius 1,280 voxels); with shells on,
-  0.1 m is drawn only to shell 0's hand-over (`Raymarch.compute:3625`), and shells hold generator + ops only
-  (`ShellStreamer.cs` header, `:418-422`). **So today a block-by-block edit 69-128 m away is live but not drawn** (code
-  reading; not seen in a shot). No fire exists (only an `IsFlammable` flag, `MaterialRules.cs:37`). The GPU body buffer
-  is sized to the CPU pool and indexed by the CPU handle (`TerrainClipmap.cs:225-241`).
-- Memory baseline: peak 2,999 MB with shells on (task 85, `390e0de`); per-owner rows from task 55's ledger (via 8.14 §3).
-## Left / notes
-- Every number in the draft is (est.) except those citing a task/ledger. Other games' render/sim splits are from
-  general knowledge, not looked up (labelled as such).
-- D.4 gains a format version 2 (additive); §3.7 changes if Q2 (a). Both are flagged in the draft's §10.
+**Owner, please note (gameplay consequence, not blocking):** in light scenes the old tick ran FASTER than 4.5 Hz
+(9.5 ticks/s at 29 FPS, 6.35 at 19 FPS; arena pour), so at 30 FPS **water now falls and spreads about half as fast
+as before** (strip rows 1 vs 3). R = 4.5 is what the task specified (the diagnosis's heavy-scene worst case). Raising
+it is one flag (`-fluidhz R`) / one constant; above ~4.5 the low-FPS shortfall grows unless option B lands first.
+
+## What changed (commit `73024a8`, branch engine-phase)
+- New `Assets/CoreEngine/Simulation/FluidTickScheduler.cs`: due every 1/R s (phase-locked to a deadline, so no rate
+  is lost to frame quantisation), issued only when `CanIssue`; at most one banked tick, missed periods are dropped and
+  counted (`MissedTicks` = SHORTFALL), never replayed as a burst. `DefaultRateHz = 4.5`. `MaxFramesInFlight` untouched;
+  options A/B/D/E untouched. Lava keeps `MaterialRules.TickInterval` = every 6th tick -> 0.75 Hz.
+- `Playground.cs`: the tick in `Update` goes through the scheduler (play, tg2 and every capture mode); `-fluidhz R`
+  sets R, `-fluidhz 0` = the old behaviour (comparison arm). `DebugTickFluid` and the stand-alone rigs
+  (FluidTiledRig, Phase 4/6 rigs, ...) still tick on `CanIssue` alone -- unchanged, so their histories stay comparable.
+- Fluid probe: a `FLUID RATE` line at every report point (ticks/s since placement, R, lava rate, SHORTFALL);
+  new `-fpscap N` and `-fluidstrip` (report/shots at wall-clock 1/2/4/8/12/20 s). `-sustained` prints the scheduler line.
+- Decision 11 marked SUPERSEDED: `ENGINE_PHASE_PLAN.md` (note under amendment row 5), `KNOWN_ISSUES.md`, CLAUDE.md index.
+- `FluidTickSchedulerTests` (5): 30 vs 60 FPS fake clocks issue the same ticks (+-1 over 60 s), never > R*T+1 or a
+  1 s burst, never while canIssue is false; jitter; 15 FPS / 3 s hitch shortfall counted; legacy arm.
+- Queued follow-up `93-bug-fluidprobe-tg2-water-frozen.md` (see below).
+
+## Evidence
+- `SUITE=all`: **PASS 778 FAIL 0 SKIP 23** (`Logs/overnight/91-suite.out`); FluidAtRestTests 5/5, FluidTickSchedulerTests 5/5.
+- `run-fluid-tiled.sh`: **PASS 19 FAIL 0**, incl. "active set ... under 544 MB" (2026-09-11 rebase) (`Logs/overnight/91-fluidtiled.out`).
+- `MODE=poolprobe` (tg2, lake + coast): **refusals 0** over 246 residency passes, pool peak 32/480, water box drains
+  (coast 1029 -> 9 by +480 frames) (`Logs/tg2world_20261015_115238.txt`). Peak footprint 2,395 MB.
+- Ticks/s, 20 s after placement (summary `Screenshots/91/91-rates.txt`; the machine reached ~30 FPS max, so `-fpscap 60`
+  gave 31.8 FPS -- the comparison is caps 30 vs 20):
+  | arm | FPS | ticks/s | shortfall |
+  |---|---|---|---|
+  | fixed, cap 30 (arena) | 29.1 | **4.50** | 0 |
+  | fixed, cap 20 (arena) | 19.3 | **4.44** | 1 tick in 20 s (0.05/s) |
+  | legacy, cap 30 (arena) | 29.1 | 9.50 | -- |
+  | legacy, cap 20 (arena) | 19.3 | 6.35 | -- |
+  | fixed, cap 30 (tg2 fluidprobe) | 29.2 | 4.49 | 0 |
+- Same front at the same time: water in its box at +2/+4 s = 341/134 (cap 30) vs 323/127 (cap 20); legacy 140/0 vs 251/22.
+- Not a performance task: no frame-time numbers quoted (rule 10).
+
+## Found, NOT caused by this task
+`MODE=fluidprobe` in **tg2** (eye_level_1 site): the placed water never moves (ops total 0, `promote.seen=0`, lava
+`no_destination=784`) -- **identically with `-fluidhz 0`** (`Logs/tg2world_20261015_112947.txt` vs `_113531.txt`).
+It moved on 2026-10-03 (task 09). The arena and the tg2 lake/coast (poolprobe) move fine. Queued as task 93.
+
 ## Next step
-Owner answers Q1-Q10. Then the supervisor queues the tasks in the answered order (draft §11). 91 (step 17) does not depend on this.
+Owner: keep R = 4.5 or pick another (see the note at the top). Then option B (adaptive drain, a measured A/B) would
+let R rise to ~6.5 Hz with the same 30 FPS independence; A only after the conservation ledger proves upload ordering.
+Note: Playground's vents still emit per FRAME (`Emit`), so a vent's pour rate still follows FPS (out of scope here).
 
 ## For the doc
-**Summary (10 lines)**
-1. Three zones: NEAR (fully live, 128 m fixed on every machine), FAR-ACTIVE (sparse coarse sim where something big happens), FROZEN (paused, caught up on return).
-2. NEAR from the eye: a 1.8 m creature is 10 px at 93 m (540 rows), 124 m (720, M1 High), 186 m (1080) -> keep today's 128 m.
-3. Step 14 redone: shrink only what is DRAWN (GPU box 32x32x8 -> 16³ + its own GPU brick pool); CPU reach stays 128 m.
-4. Saving vs today's measured 2,999 MB: -675 MB (est.) vs task 87's -855 MB; ~180 MB is the price of keeping reach.
-5. Far fire / floods / lava / powders run on 0.8 m cells in 51.2 m tiles at ~1 tick/s and write their results as new D.4 ops (burn, fluid level, powder settle): CPU stays the sole terrain writer; real on return. Replaces step 19a.
-6. Far builds always visible: a coarse "edit summary" saved beside each D.1 (+~12% save size, 10-30 MB RAM, est.), drawn by shells and far band. Fixes the 69-128 m gap found today.
-7. Catch-up: world clock + per-chunk last-seen time; fluid settles flat, powder falls, growth by timestamp on load.
-8. Nukes: one carve op + a debris budget (10% rubble at rest, <= 200 k voxels; <= 64 fluid tiles awake; dust render-only).
-9. New `IFarQuery` beside the frozen `GetVoxel`: exact (resident -> D.1 -> generator + ops), ~1-3 µs/point (est.), plus a coarse raycast.
-10. Process memory ~2,370 MB (~2,470 with the light grid; est.) -> ~530 MB left for the game under 3 GB.
-
-**Questions (recommended first):** Q1 NEAR radius (a 128 m fixed / b 154 m / c per machine) · Q2 what step 14 shrinks
-(a GPU box + own GPU pool / b box only / c nothing) · Q3 far builds (a edit summaries / b regenerate on demand / c ops only) ·
-Q4 far-sim order (a floods/lava first, then powders, fire / b fire first / c floods only) · Q5 far fire model (a 2.5D cells
-with real burn ops / b 3D coarse / c visual only) · Q6 catch-up (a instant on load / b fast-forward / c none) · Q7 nuke
-debris (a budgeted / b all simulated / c pure carve) · Q8 far query (a exact + raycast / b heights only / c none) ·
-Q9 co-op determinism (a far sim deterministic, near host-authoritative / b all deterministic / c later) · Q10 when
-(a "engine owes now" ~13 sessions, then lighting, then far sims / b all before lighting / c only the shrink now).
-
-**ETA change:** steps 14 + 19 (~5 sessions) become 17 tasks, ~26 sessions (~32 with retries): **net +~21 sessions
-(+~27 with retries), about +1.5-2 weeks** of queue time; ~13 sessions of it are needed before steps 16/20.
-No images: planning only (the draft has two ASCII diagrams of the zones and the far-sim data flow).
+- Fluid ticks/s at 30 FPS: 9.50 -> **4.50**; at 20 FPS: 6.35 -> **4.44** (was 1.50x apart, now 1.01x) -- arena pour,
+  20 s windows, `Screenshots/91/91-rates.txt` (logs `Logs/tg2world_20261015_1138*/1143*/1146*/1148*.txt`).
+- Lava: every 6th CA tick -> **0.75 Hz** at any frame rate (was 1.6 Hz at 29 FPS, 1.06 at 19 FPS).
+- Shortfall line: fixed at 19 FPS `SHORTFALL missed 1 = 0.05/s`; at 29 FPS 0.
+- Rigs: SUITE=all 778/0/23; run-fluid-tiled 19/0; poolprobe coast refusals 0; FluidAtRestTests 5/5.
+- Image: `Screenshots/91/91-strip.png` -- rows = fixed cap 30, fixed cap 20, legacy cap 30, legacy cap 20; columns
+  = +2/+4/+8 s after placing a water column (blue) and a lava block (orange) in the arena at noon. Look at rows 1-2:
+  the same water shape in every column (column at 2 s, landing at 4 s, puddle at 8 s); rows 3-4 differ from each
+  other (legacy at 30 FPS is already a puddle at 4 s, at 20 FPS still a column).
