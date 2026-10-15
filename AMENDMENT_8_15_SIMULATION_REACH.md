@@ -1,10 +1,12 @@
-# Amendment 8.15 (DRAFT, NOT ADOPTED) -- Simulation reach: what is live, how far, and what happens far away
+# Amendment 8.15 (ADOPTED 2026-10-15) -- Simulation reach: what is live, how far, and what happens far away
 
-2026-10-15 · task 90a (planning only; no code, no builds, no launches). **Nothing here is approved.** Adoption is the
-owner's call (questions at the end); CLAUDE.md is not edited by this draft.
-Amends (if adopted): ARCHITECTURE_v8.6 §3.7 (GPU body index), §4.3 (the 128 m radius becomes a fixed NEAR), §7.4
-(activity scope), §8.4-8.5 (projectiles, mass destruction); Amendment 8.14 rows 6, 7, 9, 11, 12 and §3; ENGINE_PHASE_PLAN
-steps 14 and 19.
+2026-10-15 · drafted by task 90a (planning only; no code, no builds, no launches); **ADOPTED 2026-10-15** by the owner
+(supervisor chat: Q1-Q10 all (a), plus "128 m + far visuals" and two gaps the supervisor added; record at the end,
+"Owner answers"). Adopted by task 90b, which added §13-15 (look-ahead + far visuals, stage flip, far reactions) and
+their rows in §11. CLAUDE.md lists 8.15 after 8.14 in the override order.
+Amends: ARCHITECTURE_v8.6 §3.7 (GPU body index), §4.2 (D.1's baseline is the chunk's generation stage, §14), §4.3 (the
+128 m radius becomes a fixed NEAR), §7.4 (activity scope), §8.4-8.5 (projectiles, mass destruction); Amendment 8.14
+rows 6, 7, 9, 11, 12 and §3; ENGINE_PHASE_PLAN steps 14 and 19.
 Inputs: `GAMEPLAY_DESIGN_ROUND_2026-10-15.md` (the requirement), `tools/overnight/blocked/87-engine-14-smaller-window.md`,
 `AMENDMENT_8_14_LOD_SHELLS.md`, `ENGINE_PHASE_PLAN.md`, `FLUID_TICK_DIAGNOSIS.md`, `GAME_DESIGN_BRIEF_SNAPSHOT.md` open
 Q12/Q13, KNOWN_ISSUES (3 GB cap, fluid pool), and the code as of `60ba585`.
@@ -13,7 +15,7 @@ A number marked **(est.)** is my estimate. Every other number names its source. 
 ## For the owner
 
 - **What you asked for.** Task 87 would have made the *live* world (digging, physics, fluid, NPCs) as small as the
-  *sharp-drawn* world: 128 m -> 82 m on your M1. You stopped it. This draft keeps those two apart, the way most games do.
+  *sharp-drawn* world: 128 m -> 82 m on your M1. You stopped it. This amendment keeps those two apart, the way most games do.
 - **Three zones** (diagram below): **NEAR** = everything fully live, a fixed **128 m** on every machine (today's reach);
   **FAR-ACTIVE** = only the places where something big is happening (a fire, a flood, a lava flow, a sand slide, a
   town), simulated coarsely; **FROZEN** = everything else, paused and caught up when you come back.
@@ -25,7 +27,8 @@ A number marked **(est.)** is my estimate. Every other number names its source. 
   shrinks like 87's: the whole process lands near **~2.37 GB, ~2.47 GB with the light grid** (est.; 2,999 MB measured today).
 - **Size:** **17 tasks, ~26 sessions (~32 with retries)**, against ~5 sessions for steps 14 + 19 as planned. About half
   of it (fire, floods, nukes) can wait until after the lighting steps if you want the engine phase to finish sooner (Q10).
-- **Ten questions** at the end, recommended answer first. "All (a)" approves the draft.
+- **Adopted 2026-10-15:** you answered all ten questions (a) and added far visuals (§13); the stage flip (§14) and
+  far reactions (§15) are folded in from your batch 4/5 answers. The first block of tasks (E1, 89, 90, D1-D4) is queued.
 
 ```
    Top view, High preset (M1). Not to scale beyond 300 m.
@@ -318,6 +321,7 @@ A 50 m sphere is 5.2 × 10⁸ voxels. §8.5's 400 k per 2-3 frames would take ~1
 | 7 | CHANGED | §7.4's "active radius" becomes NEAR + awake-resident fluid in the ring + FAR-ACTIVE coarse fluid | §7.4; plan §4 row 4 |
 | 8 | CHANGED | §8.5 mass destruction: big blasts are one op + the debris budget (§6) | §8.5 |
 | 9 | UNCHANGED | the CPU is the only terrain writer: the far sim writes ops, the generator applies them | §0.1 inv. 1 |
+| 10 | CHANGED (additive) | world stage byte (saved) is a generator input; a chunk's D.1 baseline is regenerated at the stage it was generated at (its pinned stage), never the current one (§14). D.1 bytes unchanged | §4.2; Appendix D |
 
 ## 11. Tasks (one change each) and where they slot in
 
@@ -331,7 +335,7 @@ S = one session, M = 1-2, L = 3+. Every task: tests + metrics/screenshots; no fr
 | D2 | GPU mirror box 16³ per preset; CPU load radius stays 10 | M | E1 | 14 |
 | D3 | GPU own brick-body pool + handle table (§3.7) | M-L | D2 | 14 |
 | D4 | CPU brick cap from `PeakUsed` × 1.5 + one memory ledger (counts, not timing) | S | D3 | 14 |
-| C1 | World clock + chunk last-seen side table | S | -- | -- |
+| C1 | World clock + chunk last-seen side table; also the world stage byte (0) and a per-chunk generation-stage byte (§14's hook, no behaviour yet) | S | -- | -- |
 | C2 | Catch-up on load (fluid settle, powder wake, `OnChunkResident` hook) | M | C1, 18 | -- |
 | Q1 | `IFarQuery.GetVoxels` (exact: resident / D.1 / generator + ops) | M | -- | -- |
 | Q2 | `IFarQuery.Raycast` (coarse + refine) | S-M | Q1 | -- |
@@ -342,13 +346,24 @@ S = one session, M = 1-2, L = 3+. Every task: tests + metrics/screenshots; no fr
 | N1 | Near fire (Fire/Smoke/Ash CA + burn reactions) | M | 17 | -- |
 | F4 | Far fire + glow/smoke overlay | M | F1, N1 | -- |
 | B1 | Big-blast path + debris budget | M | O1, F2 | -- |
+| L1 | Look-ahead prefetch along the velocity at speed (§13.1); **engine**, sized from step 16 | S-M | 16 | 16's follow-up |
+| V1 | Visual-only far creatures (herds, birds past 128 m, not simulated; §13.2); **gameplay phase** | M | creatures (G), Q1 | -- |
+| S1 | Stage flip: generator takes the stage; pin touched chunks; per-stage ore / biome tables (§14); **gameplay phase** | M | C1, E2, bosses (G) | -- |
+| R1 | Far-reaction catch-up: melt / freeze / regrow from elapsed time in C2's hook (§15); **gameplay phase** | S | C2, the near heat/life materials (gameplay plan) | -- |
 | (G) | Town routines, NPC physics (brief Q13) | -- | gameplay phase | -- |
 
-**Order (Q10 (a)):** after 91 (step 17): E1 -> 89/90 (shells default) -> D1 -> D2 -> D3 -> D4 -> C1 -> Q1 -> Q2 ->
+**Order (Q10 (a), ADOPTED):** after 91 (step 17): E1 -> 89/90 (shells default) -> D1 -> D2 -> D3 -> D4 -> C1 -> Q1 -> Q2 ->
 E2 -> 18 -> C2 -> O1 -> F1 -> F3 -> F2 -> N1 -> F4 -> B1, with steps 20-22 (lighting) after D4 if the owner prefers
-lighting sooner (they need 14's memory, not the far sim). Step 16 (streaming milestone) runs after D4.
+lighting sooner (they need 14's memory, not the far sim). Step 16 (streaming milestone) runs after D4; L1 after 16.
+Owner Q10 (a) fixes it as: the owed part (E1-E2, D1-D4, C1, Q1-Q2) -> lighting (steps 20-22) -> the far sims
+(18, C2, O1, F1-F4, N1, B1). V1, S1, R1 and (G) are gameplay-phase rows.
+**Queued by task 90b (first block, run order):** `93a` E1 -> `93b` 89 (shells perf breakdown, a performance task) ->
+`93c` 90 (shells default in play; ONLY the default: 90's old item 2, "do not allocate tiers 1-2", moved to D1 so each
+task is one change) -> `93d` D1 -> `93e` D2 -> `93f` D3 -> `93g` D4 (`tools/overnight/queue/`). 90 requires E1: with
+shells the default, edits 69-128 m away would otherwise be live but invisible in play (§5). C1, Q1, Q2, E2 and later
+are queued by the supervisor when these are done.
 
-**ETA (est.):** S = 1 session, M = 1.5, M-L = 2, L = 3 -> **~26 sessions, ~32 with retries**. Steps 14 + 19 as planned
+**ETA (est.; unchanged by adoption except L1, +~1.5 sessions after step 16; gameplay rows not counted):** S = 1 session, M = 1.5, M-L = 2, L = 3 -> **~26 sessions, ~32 with retries**. Steps 14 + 19 as planned
 were ~5 (M + L). Net **+~21 sessions (+~27 with retries)**, about **+1.5-2 weeks** of queue time at the terrain phase's
 pace (35 tasks in a week), longer when the weekly limit binds. Of it, the "engine owes now" part (E1-E2, D1-D4, C1,
 Q1-Q2: ~13 sessions) unblocks steps 16 and 20; the rest (catch-up, far sims, fire, nukes: ~13, ~16 with retries) can
@@ -365,47 +380,90 @@ follow lighting.
 | Fire everywhere is a fun killer (owner may want limits) | caps in EngineConfig; game rules (rain, firebreaks) later | N1/F4 shots |
 | The GPU pool remap is a §3.7 layout change | validator compares through the table; one task (D3) alone | D3 |
 
-## Questions for the owner
+## 13. Look-ahead and far visuals (owner Q1 extra: "128 m + far visuals")
 
-Option (a) is recommended in each. "All (a)" approves the draft as written.
+NEAR stays 128 m on every machine (Q1 (a)). The owner added two things so a long view is neither late nor empty.
 
-1. **Q1. How far is the world fully live (NEAR)?**
-   (a) **128 m on every machine** (today's; a creature is 10 px at 124 m on your M1). Cost: ~+180 MB against task 87.
-   (b) 154 m (12 chunks): ~+110 MB more and ~40% more generation (est.).
-   (c) Per machine, as 87 did (59-116 m): saves ~180 MB, but live reach differs between players and saves.
-2. **Q2. Step 14 redone: what shrinks?**
-   (a) **GPU directory box AND a separate GPU brick pool** (§3.7 layout change): -394 MB (est.).
-   (b) Directory box only: -147 MB (est.), no §3.7 change; ~250 MB less room for the game.
-   (c) Nothing on the GPU now; revisit palette bricks (8.13) instead.
-3. **Q3. Far builds visible (brief Q12).**
-   (a) **Edit summaries saved beside D.1, live inside NEAR**: +~12% save size, 10-30 MB RAM (est.).
-   (b) Regenerate + decode D.1 when a shell needs it: no new file, ~90 s of worker time per 1,000-chunk base each time it comes into view.
-   (c) Only op-made edits show far away (not "always").
-4. **Q4. Which far sims, in what order?**
-   (a) **Framework + floods/lava first (replaces step 19), powders, then fire once near fire exists; town life in the gameplay phase.**
-   (b) Fire first (needs near fire first anyway).
-   (c) Only floods/lava now; fire and powders after the gameplay phase starts.
-5. **Q5. Far fire model.**
-   (a) **2.5D cells of 0.8 m, fuel from biome × landform + vegetation, burnt result written as ops; glow and smoke drawn far.**
-   (b) 3D coarse voxels (shell 3): exact overhangs and caves burn, ~4-8× the cost (est.).
-   (c) Visual-only far fire: cheaper, but the forest is unburned when you return (against your answer).
-6. **Q6. Catch-up on return.**
-   (a) **Instant on load: fluid settles flat, powder falls, growth by timestamp.** Bounded per frame.
-   (b) Fast-forward the near CA for a few seconds: closer to "real", costs a hitch on arrival.
-   (c) No catch-up: exactly frozen (Minecraft).
-7. **Q7. Nuke debris.**
-   (a) **One carve op; 10% becomes resting rubble (≤ 200 k voxels); ≤ 64 fluid tiles awake, the rest settles as a level; dust is render-only.**
-   (b) Everything becomes simulated powder and fluid (Noita-true): breaks the fluid pool and frame time.
-   (c) Pure carve, no debris.
-8. **Q8. Far query.**
-   (a) **Exact (resident -> D.1 -> generator + ops), plus a coarse raycast.** ~1-3 µs per point (est.).
-   (b) Far-band heights only: cheap, wrong in caves and under overhangs.
-   (c) None now; far game logic stays abstract.
-9. **Q9. Determinism for co-op later.**
-   (a) **Far sim deterministic (integer, fixed tick, seeded hashes); near GPU CA host-authoritative (as §7.8 today).**
-   (b) Make the near CA deterministic too: a CPU-only near sim, large cost.
-   (c) Ignore until co-op is built (risk: the far sim has to be rewritten).
-10. **Q10. When?**
-    (a) **"Engine owes now" first (E1-E2, D1-D4, C1, Q1-Q2, ~13 sessions), then lighting (steps 20-22), then the far sims (~13 sessions).**
-    (b) Everything in this draft before lighting.
-    (c) Only E1 + D1-D4 now; the rest when the gameplay phase needs it.
+### 13.1 Look-ahead prefetch along the velocity (engine row L1, after step 16)
+- **The problem (KNOWN_ISSUES "STREAMING REQUIREMENT, WORST CASE", task 16b):** a 60 m/s dive (engine plan Q1 (a) top
+  speed) needs 2,285 chunks/s at full cost; capacity was 2-29/s; the prefetch margin is 0 s because chunks are
+  requested only when they enter the radius. At 60 m/s, 128 m of NEAR is ~2.1 s of travel; at 5 m/s it is ~25 s.
+- **What exists:** shells already stream nearest-on-screen first with a velocity term (task 85,
+  `ShellStreamer.OrderKey`: distance x (1 - 0.25 cos to the velocity)). The 0.1 m CPU streamer orders by distance only.
+- **L1 (est.):** (1) give the 0.1 m request order the same velocity term; (2) at speed v above a threshold (~10 m/s),
+  also request chunks within 128 m of the PREDICTED eye, eye + v x T (T ~2 s, offset capped at 64 m so the lobe stays
+  inside the 32-chunk CPU ring, ±204 m; pow2 ring maths unchanged, §0.1 invariant 2), and defer evicting chunks behind
+  the player that the lobe still needs. Prefetched chunks are resident, but game rules (spawning, the NEAR contract)
+  still use 128 m round the player. Extra residency: up to ~+50% columns at the cap (est.), counted against the CPU
+  brick cap D4 sets (D4 sizes the cap with no lobe; L1 must re-check it).
+- **Honest limit:** look-ahead buys margin only where generation keeps up on average (walk, run, slow flight). It
+  cannot close a throughput gap; at 60 m/s level flight engine plan Q2 (a) still applies (the coarser shell is drawn
+  until detail arrives) and game logic beyond what is resident uses `IFarQuery` (§7).
+- **Engine hook owed now: none.** Step 16 measures the margin first; L1 is sized from its numbers (if 16 meets the
+  requirement without it, L1 shrinks to item (1)).
+
+### 13.2 Visual-only far creatures (row V1, gameplay phase)
+- Herds, flocks and birds drawn past 128 m so far plains are not empty. **Not simulated:** no physics, no `GetVoxel`,
+  no persistence; a seeded pattern per far cell and time of day (biome x landform from the world record) decides what
+  is drawn, and it fades out as NEAR's real creatures (spawned by biome, §8) take over at ~128 m.
+- Drawn as instanced impostors that depth-test against the raymarched depth; ground height from the far band /
+  `IFarQuery` (Q1 row). Budget (est.): <= 2 k instances, < 1 MB.
+- **Engine hook:** a depth target from the raymarch that a later instanced pass can test against. FSR 3 (task 52)
+  already consumes a depth input, so this is likely owed by nothing new; V1 verifies it first. No row now.
+
+## 14. Stage flip (owner batch 4: "few big world stages"; gap A)
+
+A boss flips the whole world to the next stage (3-4 stages): new ores, some biomes spread, new creatures everywhere.
+Owner: new ores / biome spread **only in never-touched rock**, by a one-time pass; builds and digs are never
+overwritten; creatures change everywhere at once; far views update as areas reload.
+
+- **Saved state:** the world stage number (a byte) in the world-state file that C1 creates with the world clock (D.2
+  `world.meta` stays write-once, §4.2/Appendix D). The generator takes the stage as an input beside the seed (ore table
+  per stage in `Ores.cs`, biome-spread masks per stage on the world map). A pure function of (seed, stage, x, z, y).
+- **Rule: a stage may change MATERIALS only, never shape** (heights, caves, rivers). So a touched chunk next to an
+  untouched one never shows a step or a cut cave at the border; only a material edge.
+- **Touched chunks are pinned.** Each chunk has a generation-stage byte (C1's per-chunk side table). The one-time pass at
+  the flip writes the OLD stage into it for every chunk that has a D.1 file or is touched by any op recorded before the
+  flip (op bounding boxes -> chunks); it is a scan of the delta folder and the op log, no terrain is rewritten. A pinned
+  chunk always generates at its pinned stage, so D.1 decodes onto the same baseline and nothing the player made moves.
+  Untouched chunks generate at the current stage the next time they generate: that IS the "pass", lazily.
+- **Landmine (the rule that keeps it correct):** a resident chunk remembers the stage it was generated at (1 byte, in
+  RAM). On eviction its bricks are compared with a regeneration **at that stage** (§4.2's baseline), never the current
+  one; otherwise an unedited old-stage chunk would save every old ore as a "deviating brick" and freeze the old stage in
+  D.1 forever. Unedited -> no D.1, not pinned -> next load is the new stage. Edited -> D.1 + pinned to its stage.
+- **Shells and far band:** stored shell chunks keep the old look until evicted and regenerated (owner: "update as
+  areas reload"); pinned chunks' shells use their pinned stage (E2's summaries already carry their look).
+- **Engine owes now:** only C1's two bytes (world stage = 0, per-chunk generation stage), no behaviour. The generator
+  input, the pin pass and the stage tables are row S1, gameplay phase (it needs bosses and stage content).
+
+## 15. Far reactions: heat, gas, electricity, growth (owner batch 5; gap B)
+
+The owner's extra reactions (heat: melt/freeze, sand -> glass; gas and explosives; electricity through water and metal;
+life: mud, plants on wet soil, moss, ash regrows grass) are NEAR material rules (§7.6's reaction table); their near
+models are listed by the gameplay plan (task 92), not here. Far away:
+- **They FREEZE**, like everything outside FAR-ACTIVE (§1.2). No far model, no far ops. This does not change §3: far
+  fire, lava/floods and powders still run coarsely (owner batch 3).
+- **On return, growth, melt and freeze resolve from elapsed time** in the catch-up step (§4, C2's
+  `OnChunkResident(chunk, secondsAway)` hook): a table of closed-form rules {from, condition, to, min seconds away},
+  e.g. snow/ice next to lava or fire -> water; still water surface in a frozen biome -> ice; ash -> grass; wet soil ->
+  moss. Evaluated once per returning chunk in Burst on worker scratch, bounded per frame like the rest of §4.
+- **Gas explosions and electricity happen only near you** (inside NEAR). A far gas pocket stays as it is; nothing
+  conducts far away; nothing catches up for them.
+- **Engine owes:** C2's hook (already a row). The rule table is row R1, gameplay phase (it needs the near materials).
+
+## Owner answers (2026-10-15, supervisor chat; recorded in `tools/overnight/done/90a-amendment-8-15-simulation-reach.md`)
+
+| Q | answer | effect |
+|---|---|---|
+| Q1 NEAR radius | (a) 128 m on every machine, **plus** look-ahead at speed and visual-only far creatures | §1.2, §13 |
+| Q2 step 14 | (a) GPU directory box AND own GPU brick pool (§3.7 layout change approved), -394 MB (est.) | §2; D2, D3 |
+| Q3 far builds | (a) edit summaries (live inside NEAR, saved beside D.1) | §5; E1, E2 |
+| Q4 far sims | (a) floods/lava first, powders, then fire; town life in the gameplay phase | §3 |
+| Q5 far fire | (a) 2.5D 0.8 m cells, burnt result as ops | §3.2 |
+| Q6 catch-up | (a) instant on load | §4 |
+| Q7 nuke debris | (a) budgeted | §6 |
+| Q8 far query | (a) exact + raycast | §7 |
+| Q9 determinism | (a) far sim deterministic, near host-authoritative | §3.1 |
+| Q10 when | (a) owed part (E1-E2, D1-D4, C1, Q1-Q2) -> lighting (20-22) -> far sims | §11 |
+| gap A stage flip | one-time pass, never-touched rock only; edits never overwritten; far views update on reload | §14 |
+| gap B far reactions | freeze; growth/melt/freeze from elapsed time on return; gas and electricity near only | §15 |

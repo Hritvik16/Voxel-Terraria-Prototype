@@ -7,7 +7,8 @@
    bitmask) → 8.9 (LOD & resolution) → 8.10 (LOD cascade performance) →
    8.12 (Phase 7's substitute budget gate) → 8.14 (LOD shells, edit-op log,
    smaller 0.1 m window, quality presets; `AMENDMENT_8_14_LOD_SHELLS.md`,
-   adopted 2026-10-11).
+   adopted 2026-10-11) → 8.15 (simulation reach: NEAR 128 m on every machine,
+   only the DRAWN side shrinks; `AMENDMENT_8_15_SIMULATION_REACH.md`, adopted 2026-10-15).
    **Note: no `.md` exists in this repo for amendment 8.8, or for 8.7.** Both
    are in force and implemented (`OccupancyMask.cs`, `AirMip*.cs`) and both are
    cited by the completion docs, but the documents themselves are absent and

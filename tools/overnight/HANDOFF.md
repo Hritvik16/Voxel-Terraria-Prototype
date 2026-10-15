@@ -1,59 +1,60 @@
-# 91-engine-17-fixed-rate-fluid-tick: DONE. Fluid CA ticks at a fixed 4.5 Hz at any frame rate (option C); decision 11 superseded.
+# 90b-adopt-amendment-8-15: DONE (planning only). 8.15 ADOPTED 2026-10-15, CLAUDE.md updated, first block queued (93a-93g).
 
-**Owner, please note (gameplay consequence, not blocking):** in light scenes the old tick ran FASTER than 4.5 Hz
-(9.5 ticks/s at 29 FPS, 6.35 at 19 FPS; arena pour), so at 30 FPS **water now falls and spreads about half as fast
-as before** (strip rows 1 vs 3). R = 4.5 is what the task specified (the diagnosis's heavy-scene worst case). Raising
-it is one flag (`-fluidhz R`) / one constant; above ~4.5 the low-FPS shortfall grows unless option B lands first.
-
-## What changed (commit `73024a8`, branch engine-phase)
-- New `Assets/CoreEngine/Simulation/FluidTickScheduler.cs`: due every 1/R s (phase-locked to a deadline, so no rate
-  is lost to frame quantisation), issued only when `CanIssue`; at most one banked tick, missed periods are dropped and
-  counted (`MissedTicks` = SHORTFALL), never replayed as a burst. `DefaultRateHz = 4.5`. `MaxFramesInFlight` untouched;
-  options A/B/D/E untouched. Lava keeps `MaterialRules.TickInterval` = every 6th tick -> 0.75 Hz.
-- `Playground.cs`: the tick in `Update` goes through the scheduler (play, tg2 and every capture mode); `-fluidhz R`
-  sets R, `-fluidhz 0` = the old behaviour (comparison arm). `DebugTickFluid` and the stand-alone rigs
-  (FluidTiledRig, Phase 4/6 rigs, ...) still tick on `CanIssue` alone -- unchanged, so their histories stay comparable.
-- Fluid probe: a `FLUID RATE` line at every report point (ticks/s since placement, R, lava rate, SHORTFALL);
-  new `-fpscap N` and `-fluidstrip` (report/shots at wall-clock 1/2/4/8/12/20 s). `-sustained` prints the scheduler line.
-- Decision 11 marked SUPERSEDED: `ENGINE_PHASE_PLAN.md` (note under amendment row 5), `KNOWN_ISSUES.md`, CLAUDE.md index.
-- `FluidTickSchedulerTests` (5): 30 vs 60 FPS fake clocks issue the same ticks (+-1 over 60 s), never > R*T+1 or a
-  1 s burst, never while canIssue is false; jitter; 15 FPS / 3 s hitch shortfall counted; legacy arm.
-- Queued follow-up `93-bug-fluidprobe-tg2-water-frozen.md` (see below).
+## What changed (one commit on engine-phase, see `git log --grep '^90b'`)
+- `AMENDMENT_8_15_SIMULATION_REACH.md`: header DRAFT -> **ADOPTED 2026-10-15**; Questions section -> "Owner answers"
+  table (Q1-Q10 all (a) + gaps A/B). New §13 look-ahead + far visuals, §14 stage flip, §15 far reactions; §10 row 10
+  (stage is a generator input; D.1 baseline = the chunk's generation stage); §11 rows L1, V1, S1, R1, C1 widened (stage
+  bytes), adopted order + the queued block.
+- `CLAUDE.md` Ground truth item 2: "→ 8.15 (simulation reach ...; `AMENDMENT_8_15_SIMULATION_REACH.md`, adopted
+  2026-10-15)". Nothing else in CLAUDE.md touched.
+- Queue files written (run order; each has Approval, one change, acceptance without frame-time claims except 93b):
+  - `93a-engine-14e1-edit-summaries-live` -- E1: resident edited chunks redraw into the shells covering them (no Requires).
+  - `93b-shells-perf-breakdown` -- old 89, a PERFORMANCE task (rule 9 warm-up); no longer requires 87 (no Requires).
+  - `93c-shells-default-in-play` -- old 90, ONLY the play default + F6 row. Requires 93b, 93a.
+  - `93d-engine-14d1-free-cascade-tiers` -- D1: shells ON allocates no tiers 1-2 (-193 MB est.). Requires 93c.
+  - `93e-engine-14d2-gpu-mirror-box` -- D2: box 32x32x8 -> 16^3 (Low/Med/High), CPU radius stays 10; says 87 is
+    SUPERSEDED, do not apply its patch. Requires 93a, 93d.
+  - `93f-engine-14d3-gpu-brick-pool` -- D3: own GPU body pool + handle table (§3.7 layout). Requires 93e.
+  - `93g-engine-14d4-cpu-brick-cap-ledger` -- D4: `TG2_BRICK_POOL_CAP` from measured peak x 1.5 + one ledger line. Requires 93f.
+  - Originals `later/89-*` and `later/90-*` left in place. C1 / Q1 / Q2 / E2 and later NOT written (supervisor's).
 
 ## Evidence
-- `SUITE=all`: **PASS 778 FAIL 0 SKIP 23** (`Logs/overnight/91-suite.out`); FluidAtRestTests 5/5, FluidTickSchedulerTests 5/5.
-- `run-fluid-tiled.sh`: **PASS 19 FAIL 0**, incl. "active set ... under 544 MB" (2026-09-11 rebase) (`Logs/overnight/91-fluidtiled.out`).
-- `MODE=poolprobe` (tg2, lake + coast): **refusals 0** over 246 residency passes, pool peak 32/480, water box drains
-  (coast 1029 -> 9 by +480 frames) (`Logs/tg2world_20261015_115238.txt`). Peak footprint 2,395 MB.
-- Ticks/s, 20 s after placement (summary `Screenshots/91/91-rates.txt`; the machine reached ~30 FPS max, so `-fpscap 60`
-  gave 31.8 FPS -- the comparison is caps 30 vs 20):
-  | arm | FPS | ticks/s | shortfall |
-  |---|---|---|---|
-  | fixed, cap 30 (arena) | 29.1 | **4.50** | 0 |
-  | fixed, cap 20 (arena) | 19.3 | **4.44** | 1 tick in 20 s (0.05/s) |
-  | legacy, cap 30 (arena) | 29.1 | 9.50 | -- |
-  | legacy, cap 20 (arena) | 19.3 | 6.35 | -- |
-  | fixed, cap 30 (tg2 fluidprobe) | 29.2 | 4.49 | 0 |
-- Same front at the same time: water in its box at +2/+4 s = 341/134 (cap 30) vs 323/127 (cap 20); legacy 140/0 vs 251/22.
-- Not a performance task: no frame-time numbers quoted (rule 10).
+Planning only: no code, no Unity, no builds, launches or tests. Code read only to copy names/numbers into the task files
+(`EngineConfig.TG2_LOAD_RADIUS_CHUNKS` = 10, `TG2_MIRROR_CHUNKS_Y` = 8, `TG2_BRICK_POOL_CAP` = 750,000 vs
+`BRICK_POOL_CAP` = 500,000; `ShellStore.Store(.., replace)`; `ShellStreamer.OrderKey` has a velocity term).
 
-## Found, NOT caused by this task
-`MODE=fluidprobe` in **tg2** (eye_level_1 site): the placed water never moves (ops total 0, `promote.seen=0`, lava
-`no_destination=784`) -- **identically with `-fluidhz 0`** (`Logs/tg2world_20261015_112947.txt` vs `_113531.txt`).
-It moved on 2026-10-03 (task 09). The arena and the tg2 lake/coast (poolprobe) move fine. Queued as task 93.
+## Ambiguities / choices made (supervisor please check)
+1. **Numbering:** 93 and 97 were already taken (fluid bug, option B), so the block is `93a`-`93g` (sorts after 93,
+   before 97). Free for C1/Q1/Q2/E2: 94, 95, 96, 98, 99. **Beware: the runner uses `ls | sort`, so a `100-...` file
+   would sort BEFORE `92-...`** (Requires still guard order, but the runner would pick it first).
+2. **Old 90 contained D1** (its item 2, "do not allocate tiers 1-2"). Split: 93c = default only, 93d = D1 (one change each).
+3. **Tiers 1-2 saving:** old 89 said ~480 MB (task 53/55 ledger); 8.15 §2 itemises 193 MB (79.0 GPU + 67.6 native +
+   46.1 managed). Files use 193 MB, est.; 93d measures it.
+4. **93c Requires 93a (E1)**: with shells the play default, edits 69-128 m away would be live but undrawn otherwise.
+   93b has no Requires (its walk has no edits).
+5. **16^3 box is TALLER than today's** (16 vs 8 chunks) but half as wide (+-102 m vs +-204 m); kept as 8.14 says.
+6. **Stage flip granularity:** the task text says never-touched CHUNKS (no D.1, no ops); the owner said never-touched
+   ROCK. §14 pins whole touched chunks (stricter; simplest correct rule) and limits stages to MATERIAL changes (no shape
+   change -> no border steps). If the owner wants untouched rock inside an edited chunk to change too, D.1's brick
+   baseline allows it (dropped bricks = untouched), but a re-touched-then-restored brick would also change.
+7. **Look-ahead (L1) is an ENGINE row** after step 16 (streaming), not gameplay; no hook owed before 16. Far creatures
+   (V1), stage flip (S1), far-reaction catch-up (R1) are gameplay-phase rows; engine owes only C1's two stage bytes
+   (now part of C1's row) and C2's hook (already a row).
 
 ## Next step
-Owner: keep R = 4.5 or pick another (see the note at the top). Then option B (adaptive drain, a measured A/B) would
-let R rise to ~6.5 Hz with the same 30 FPS independence; A only after the conservation ledger proves upload ordering.
-Note: Playground's vents still emit per FRAME (`Emit`), so a vent's pour rate still follows FPS (out of scope here).
+Queue runs 93 (fluid bug), then 93a-93g in order (93b is a measured A/B; 97 is another). Supervisor writes C1, Q1, Q2,
+E2 when 93g is done; then lighting (steps 20-22) per Q10 (a).
 
 ## For the doc
-- Fluid ticks/s at 30 FPS: 9.50 -> **4.50**; at 20 FPS: 6.35 -> **4.44** (was 1.50x apart, now 1.01x) -- arena pour,
-  20 s windows, `Screenshots/91/91-rates.txt` (logs `Logs/tg2world_20261015_1138*/1143*/1146*/1148*.txt`).
-- Lava: every 6th CA tick -> **0.75 Hz** at any frame rate (was 1.6 Hz at 29 FPS, 1.06 at 19 FPS).
-- Shortfall line: fixed at 19 FPS `SHORTFALL missed 1 = 0.05/s`; at 29 FPS 0.
-- Rigs: SUITE=all 778/0/23; run-fluid-tiled 19/0; poolprobe coast refusals 0; FluidAtRestTests 5/5.
-- Image: `Screenshots/91/91-strip.png` -- rows = fixed cap 30, fixed cap 20, legacy cap 30, legacy cap 20; columns
-  = +2/+4/+8 s after placing a water column (blue) and a lava block (orange) in the arena at noon. Look at rows 1-2:
-  the same water shape in every column (column at 2 s, landing at 4 s, puddle at 8 s); rows 3-4 differ from each
-  other (legacy at 30 FPS is already a puddle at 4 s, at 20 FPS still a column).
+**Adopted summary (8.15, 2026-10-15):**
+1. NEAR (fully live: dig, physics, fluid, creatures) = 128 m on every machine; only what is DRAWN shrinks (step 14 redone).
+2. GPU: box 16^3 + its own brick pool + tiers 1-2 freed -> ~2,370 MB process (est.) vs 2,999 MB measured today.
+3. Your builds show from anywhere: live edit summaries now (E1), saved beside D.1 later (E2).
+4. Far away: floods/lava, powders, fire keep running on 0.8 m cells and write their results as ops; everything else freezes.
+5. On return: fluids settle, powder falls; growth, melt and freeze computed from time away. Gas/electricity only near.
+6. New: exact far query + raycast for NPCs/spells past 128 m; nukes = one carve + budgeted debris.
+7. Stage flip: new ores / biome spread only in never-touched chunks; builds never change (gameplay phase; 2 bytes now).
+8. Look-ahead loading at speed after step 16; visual-only far herds/birds in the gameplay phase.
+**Queue order:** 93 fluid bug -> 93a E1 -> 93b shells perf (89) -> 93c shells default (90) -> 93d D1 -> 93e D2 ->
+93f D3 -> 93g D4 (97 fluid option B runs after 93g by name order) -> [supervisor: C1, Q1, Q2, E2] -> lighting 20-22 -> far sims.
+No images: planning only.
