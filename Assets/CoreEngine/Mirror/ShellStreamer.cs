@@ -47,6 +47,11 @@
 // generated and redrawn, since an op cannot be applied on top of the fill. A redraw a full shell has no room for evicts the old copy and stores
 // the new one fresh (the slot reads the coarser shell for those frames).
 //
+// EDIT SUMMARIES (task 93a, Amendment 8.15 §5 "Live"): resident 0.1 m chunks a
+// player edited (D.1 / SetVoxel, not ops) are summarised into the shells that
+// cover them and those shell chunks redrawn through the same path
+// (ShellStreamer.EditSummaries.cs).
+//
 // THREADING (single-writer, CLAUDE.md): workers only write the ShellChunk
 // scratch handed to them; every ShellStore mutation, every GPU write and every
 // set below is main-thread only. Hand-over is the same BlockingCollection /
@@ -61,7 +66,7 @@ using VoxelEngine.WorldGen;
 
 namespace VoxelEngine.Mirror
 {
-    public sealed class ShellStreamer : IDisposable
+    public sealed partial class ShellStreamer : IDisposable
     {
         /// The streamer the raymarch draws (task 80); null = no shells.
         public static ShellStreamer Active;
@@ -222,7 +227,7 @@ namespace VoxelEngine.Mirror
         {
             get
             {
-                if (_inFlight.Count > 0 || _pending.Count > 0 || _redrawQ.Count > 0) return false;
+                if (_inFlight.Count > 0 || _pending.Count > 0 || _redrawQ.Count > 0 || SummariesBusy) return false;
                 for (int k = FirstShell; k <= LastShell; k++)
                 {
                     if (_stores[k].DirectoryDirty) return false;
@@ -254,6 +259,7 @@ namespace VoxelEngine.Mirror
                 LastBytes = start - budget;
                 return;
             }
+            UpdateSummaries();
             QueueRedraws();
 
             // Chunks part-way up (ShellStore's multi-frame upload) first.
@@ -292,12 +298,13 @@ namespace VoxelEngine.Mirror
             {
                 var sc = _free.Pop();
                 sc.Shell = k; sc.Coord = c; sc.Redraw = redraw;
+                sc.Summaries = _sumSnap.Count > 0 ? _sumSnap : null;   // task 93a: the summaries as of dispatch
                 if (redraw) _redrawOut++;
                 _inFlight.Add(Key(k, c)); Requested++;
                 if (!Synchronous) { _jobs.Add(sc); continue; }
                 // Tests: generate here; it is stored from _done on the next Update.
                 var t = System.Diagnostics.Stopwatch.StartNew();
-                _src.GenerateShellChunk(k, c, sc, Ops?.Snapshot);
+                _src.GenerateShellChunk(k, c, sc, Ops?.Snapshot, sc.Summaries);
                 _done.Enqueue((sc, t.Elapsed.TotalMilliseconds, true));
                 made++;
             }
@@ -408,11 +415,13 @@ namespace VoxelEngine.Mirror
         /// fill (an op opening a sealed cave would find it filled), so one a missed
         /// op touches is stored as generated and REDRAWN (returns true): the redraw
         /// is a fresh GenerateShellChunk with the op, byte for byte.
+        /// Task 93a: so is one holding an edit summary (the summary goes after the
+        /// ops: an op on top of it would not be the fresh generation's bytes).
         private bool CatchUp(TerrainGenChunkSource.ShellChunk sc)
         {
             var snap = Ops?.Snapshot;
             if (snap == null || sc.OpsApplied >= snap.Count) return false;
-            if (_src.ShellFill && TerrainGenChunkSource.ShellFills(sc.Shell))
+            if ((_src.ShellFill && TerrainGenChunkSource.ShellFills(sc.Shell)) || sc.SummariesApplied > 0)
             {
                 for (int i = sc.OpsApplied; i < snap.Count; i++)
                     if (VoxelEngine.Streaming.EditOpApply.TouchesChunk(snap.Ops[i], sc.Coord, sc.Shell)) return true;
@@ -634,7 +643,7 @@ namespace VoxelEngine.Mirror
                 {
                     var t = System.Diagnostics.Stopwatch.StartNew();
                     bool ok = true;
-                    try { _src.GenerateShellChunk(sc.Shell, sc.Coord, sc, Ops?.Snapshot); }   // sets sc.OpsApplied
+                    try { _src.GenerateShellChunk(sc.Shell, sc.Coord, sc, Ops?.Snapshot, sc.Summaries); }   // sets sc.OpsApplied
                     catch (Exception e) { ok = false; UnityEngine.Debug.LogError($"[ShellStreamer] shell {sc.Shell} chunk {sc.Coord}: {e}"); }
                     _done.Enqueue((sc, t.Elapsed.TotalMilliseconds, ok));
                 }
@@ -652,6 +661,7 @@ namespace VoxelEngine.Mirror
             }
             foreach (var sc in _all) sc.Dispose();
             _all.Clear();
+            DisposeSummaries();
             for (int k = 0; k < _stores.Length; k++) { _stores[k]?.Dispose(); _stores[k] = null; }
             Gpu?.Dispose();
             if (Active == this) Active = null;

@@ -91,6 +91,17 @@ public class ChunkStore : IWorldQuery, IEditService, IVoxelResidency
     public int3 WindowDims => _windowDims;
     public int ResidentCount => _residentCount;
     public int DenseBricksHeld => _denseBricksHeld;
+    /// The brick bodies (read-only use: the shell streamer's edit-summary snapshot copies from it).
+    public BrickDataPool BrickPool => _brickPool;
+
+    /// Amendment 8.15 §5 "Live" (task 93a): null = no edit marks (shells off;
+    /// SetVoxel is then exactly as before). Set: SetVoxel marks the edited brick
+    /// in Chunk.editMask and tells the sink once per chunk (IChunkEditSink).
+    public IChunkEditSink EditSink;
+    /// > 0 while an EDIT OP is being applied to resident chunks (EditOps.Record,
+    /// StreamManager's catch-up): ops are already in the shells (tasks 81/82),
+    /// so those writes are not marked. Main thread, like SetVoxel.
+    public int EditMarksMuted;
 
     /// Inclusive-min, EXCLUSIVE-max chunk bounds of the resident window.
     public int3 WindowMinChunk => _windowOrigin;
@@ -223,6 +234,14 @@ public class ChunkStore : IWorldQuery, IEditService, IVoxelResidency
         // Rebuilding here also means the mask is derived rather than persisted,
         // which keeps the frozen D.1 delta format untouched.
         RebuildFluidTileMask(chunk);
+
+        // Task 93a: a chunk that arrives edited (D.1 records -> editMask, on the
+        // loading worker) is summarised like one edited in place.
+        if (EditSink != null && chunk.editMask != null)
+        {
+            chunk.editPending = true;
+            EditSink.ChunkEdited(chunk.coord);
+        }
     }
 
     public Chunk GetChunk(int3 chunkCoord)
@@ -483,6 +502,26 @@ public class ChunkStore : IWorldQuery, IEditService, IVoxelResidency
         // 4. Mark dirty for clipmap upload and delta save
         chunk.dirty = true;
         chunk.deltaDirty = true;
+
+        // 5. Task 93a: a player edit the shells must summarise (8.15 §5 "Live").
+        // An op write (muted) marks no brick, but a chunk already summarised is
+        // re-summarised: the op may have changed its edited bricks.
+        if (EditSink != null) MarkEdited(chunk, brickFlatIndex, EditMarksMuted == 0);
+    }
+
+    /// Marks brick `brickFlatIndex` of `chunk` edited (if `mark`); tells the sink on
+    /// the first change since its last snapshot (Chunk.editPending).
+    private void MarkEdited(Chunk chunk, int brickFlatIndex, bool mark)
+    {
+        if (mark)
+        {
+            var m = chunk.editMask ??= new ulong[EngineConfig.BRICKS_PER_CHUNK >> 6];
+            m[brickFlatIndex >> 6] |= 1UL << (brickFlatIndex & 63);
+        }
+        else if (chunk.editMask == null) return;
+        if (chunk.editPending) return;
+        chunk.editPending = true;
+        EditSink.ChunkEdited(chunk.coord);
     }
 
     /// Recomputes a chunk's fluid-tile mask from its actual contents.

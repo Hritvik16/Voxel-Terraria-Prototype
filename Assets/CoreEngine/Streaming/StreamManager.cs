@@ -961,7 +961,12 @@ namespace VoxelEngine.Streaming
                 {
                     completion.hadDeltaFile = true;
                     if (DeltaCodec.TryDecodeOnto(bytes, coord, _meta.seed, chunk, scratch.pool, out var reason))
+                    {
                         completion.deltaApplied = true;
+                        // Task 93a: the bricks the player changed, for the shells' edit
+                        // summaries (CPU-only; ChunkStore.InsertChunk tells the sink).
+                        chunk.editMask = EditSummaryOps.MaskFromDelta(bytes);
+                    }
                     else
                         completion.rejectReason = reason;
                 }
@@ -1711,6 +1716,9 @@ namespace VoxelEngine.Streaming
             var ops = Ops.Snapshot;
             int3 c0 = coord << 7;
             bool any = false;
+            _store.EditMarksMuted++;   // task 93a: ops are in the shells already
+            try
+            {
             for (int i = from; i < ops.Count; i++)
             {
                 var op = ops.Ops[i];
@@ -1728,6 +1736,8 @@ namespace VoxelEngine.Streaming
                 OpsCaughtUpTotal++;
                 OpCatchUpEdited?.Invoke(a, b);   // the wake scan SetSphere/SetBox run (task 82)
             }
+            }
+            finally { _store.EditMarksMuted--; }
             if (!any) return;
             _clipmap.MarkDirty(coord);
             _cascades.MarkDirty(coord);

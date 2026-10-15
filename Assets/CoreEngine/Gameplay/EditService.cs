@@ -141,6 +141,14 @@ public class EditService : IEditService
 
     public bool IsWired => _writer != null;
 
+    /// Task 93a: while on, writes are not marked as player edits for the
+    /// shells' edit summaries (EditOps.Record: an op is in the shells already).
+    /// Nests; only a ChunkStore writer marks edits at all.
+    public void MuteEditMarks(bool on)
+    {
+        if (_writer is ChunkStore cs) cs.EditMarksMuted += on ? 1 : -1;
+    }
+
     // =====================================================================
     // §8.3's path
     // =====================================================================

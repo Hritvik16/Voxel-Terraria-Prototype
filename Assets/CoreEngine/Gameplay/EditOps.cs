@@ -41,6 +41,9 @@ public sealed class EditOps : IEditOps
         // crater far away must not walk 33 M voxels asking "resident?".
         EditOpApply.Bounds(op, out int3 lo, out int3 hi);
         int3 k0 = lo >> 7, k1 = hi >> 7;
+        _edits.MuteEditMarks(true);   // task 93a: an op is in the shells already, not an edit to summarise
+        try
+        {
         for (int cz = k0.z; cz <= k1.z; cz++)
         for (int cy = k0.y; cy <= k1.y; cy++)
         for (int cx = k0.x; cx <= k1.x; cx++)
@@ -60,6 +63,8 @@ public sealed class EditOps : IEditOps
             if (changed > 0) _edits.NotifyEditedRegion(a, b);
             NearVoxelsWritten += changed;
         }
+        }
+        finally { _edits.MuteEditMarks(false); }
         return op.seq;
     }
 }

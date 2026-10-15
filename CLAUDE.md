@@ -308,6 +308,13 @@ caverns' nR/nF, the underworld chamber) at one node per 8x8 columns (`TerrainSpe
 shell >= 4 columns sit on nodes) and interpolates bilinearly; geology/soil/ore stay exact (strata do not move). Pure function of
 (x, z); loops pass a `NodeCache`. `-coarsecols 0` = the pre-86 bytes; `CoarseColumnTests` (largest cave shift 1.41 voxels).
 
+Task 93a (engine E1, 8.15 §5 "Live"): EDIT SUMMARIES. With shells on, `ChunkStore.SetVoxel` marks edited bricks
+(`Chunk.editMask`, CPU-only; D.1 records on reload; op writes not marked) and tells `ShellStreamer` (IChunkEditSink); an edited
+resident chunk a shell >= 1 covers is majority-voted per shell level (`EditSummary.cs`, Burst job on a main-thread snapshot,
+<= 1/s per chunk, `EDIT_SUMMARIES_PER_FRAME` = 1, refusals counted) and the covering shell chunks redraw as generator + ops +
+summaries, then the fill. Evicted = summary dropped (saved summaries are E2). `-editsummaries 0` = off. `EditSummaryTests` (5).
+`EXTRA="-farwall -shells 1 -shellworkers 3"` = a SetVoxel tower near/far, off/on (tier 0 draws it near today; far shows the shells).
+
 Task 85b (BUGS #9, owner Q48 (a)): FAR SHADING = its own kernel `CSMainFarShade` (VE_FAR_SHADE; every line under #ifdef, so
 OFF is byte-identical -- runtime ifs were NOT, 1-LSB diffs): hemisphere sky light (`FarShadeSky`, follows time of day), the
 far band's column-height slope normal from where a 0.1 m voxel is 2 px (`FarSlopeNormal`), height-aware haze that light

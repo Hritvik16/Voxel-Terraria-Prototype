@@ -90,7 +90,8 @@ namespace VoxelEngine.WorldGen
 
         /// The pass over a generated (and edited) shell chunk. `half` is the
         /// sample offset generation used.
-        private void FillShellChunk(ShellChunk output, int half, VoxelEngine.Streaming.EditOpSnapshot ops, bool force = false)
+        private void FillShellChunk(ShellChunk output, int half, VoxelEngine.Streaming.EditOpSnapshot ops, bool force = false,
+                                    VoxelEngine.Streaming.EditSummarySnapshot summaries = null)
         {
             if ((!ShellFill && !force) || !ShellFills(output.Shell) || output.IsUniformAir) return;
             int k = output.Shell;
@@ -114,6 +115,12 @@ namespace VoxelEngine.WorldGen
                         if (math.any(l1 < l0)) continue;
                         boxes.Add(l0); boxes.Add(l1);
                     }
+                // Task 93a: an edit summary's footprint is a seed like an op box, so a
+                // tunnel the player dug far away stays open (not filled as a cave).
+                if (summaries != null)
+                    foreach (var es in summaries.All)
+                        if (VoxelEngine.Streaming.EditSummaryOps.ShellBox(es, output.Coord, k, out int3 l0, out int3 l1))
+                        { boxes.Add(math.max(l0 - 1, 0)); boxes.Add(math.min(l1 + 1, 127)); }
                 new ShellFillJob
                 {
                     h = _h, r = _r, w = _w, cls = _cls, flow = _flow, toEngine = _toEngine, spec = Spec, o = O,

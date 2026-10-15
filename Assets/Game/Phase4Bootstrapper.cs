@@ -393,6 +393,10 @@ public class Phase4Bootstrapper : MonoBehaviour
             var layout = ShellLayout.From(ShellLayout.Parse(qi >= 0 && qi + 1 < sargs.Length ? sargs[qi + 1] : null));
             Shells = new ShellStreamer(layout, Streamer.TerrainGenSource, ArgInt("-shellworkers", 1));
             Shells.Ops = Streamer.Ops;   // 8.14 row 9: shells apply the save's edit ops on generation
+            // Task 93a (8.15 §5 "Live"): resident block edits redraw into the shells that
+            // cover them. `-editsummaries 0` = tracked but not drawn (the pre-93a picture).
+            Shells.AttachEdits(Store);
+            Shells.SummariesEnabled = ArgInt("-editsummaries", 1) != 0;
             ShellStreamer.Active = Shells;
             RaymarchFeature.ShellIterCap = ArgInt("-shelliters", RaymarchFeature.ShellIterCap);
             int dbg = ArgInt("-shellsdebug", -1);

@@ -230,6 +230,11 @@ Engine owes: a **persistent world clock** (game seconds, saved), and **last-seen
 
 ## 5. Far builds visible (brief Q12, owner "yes, always")
 
+**Task 93a (E1 built, 2026-10-15) corrects this:** today tier 0 marches the whole GPU mirror box (±204 m) and the
+shells only run where its march misses (`Raymarch.compute` `if (_ShellCount > 1 && !hit ...)`), so a resident block
+edit IS drawn to 128 m (`Screenshots/93a/farwall_near_*`: a SetVoxel tower 100 m out, tier-0 blue in the tint, with
+summaries off). The gap below opens with D2's 16³ box, and beyond the CPU window. E1's live summaries are in place for it.
+
 **Today's gap (from reading the code, not seen in a shot):** shells are generator + ops (section 0), so with shells on a
 block-by-block wall is drawn only inside shell 0's band (~69 m on High), even though it is live to 128 m; past the CPU
 window it shows nowhere. 8.14 row 12 planned "downsample the resident chunk" but it was never built.

@@ -74,6 +74,10 @@ namespace VoxelEngine.WorldGen
             public int OpsApplied;
             /// ShellStreamer: this chunk re-makes one the shell already holds (an op redraw).
             public bool Redraw;
+            /// Task 93a: edit summaries written into Mats (0 = none), and the snapshot
+            /// the streamer handed this generation at dispatch (null = none).
+            public int SummariesApplied;
+            public VoxelEngine.Streaming.EditSummarySnapshot Summaries;
             public NativeArray<byte> Mats;          // 128^3, Index(x, y, z)
             public NativeArray<byte> BrickMat;      // 4096, (bz << 8) | (by << 4) | bx
             public NativeArray<bool> BrickUniform;
@@ -103,6 +107,7 @@ namespace VoxelEngine.WorldGen
             public void CopyFrom(ShellChunk o)
             {
                 Shell = o.Shell; Coord = o.Coord; IsUniformAir = o.IsUniformAir; OpsApplied = o.OpsApplied; Redraw = false;
+                SummariesApplied = o.SummariesApplied; Summaries = o.Summaries;
                 Mats.CopyFrom(o.Mats); BrickMat.CopyFrom(o.BrickMat); BrickUniform.CopyFrom(o.BrickUniform);
                 colS.CopyFrom(o.colS); colSt.CopyFrom(o.colSt); colCd.CopyFrom(o.colCd); top.CopyFrom(o.top);
             }
@@ -150,7 +155,7 @@ namespace VoxelEngine.WorldGen
             if (sampleIndex >= (1 << shell)) throw new ArgumentOutOfRangeException(nameof(sampleIndex));
             int3 origin = coord << (CHUNK_SHIFT + shell);
             int half = sampleIndex >= 0 ? sampleIndex : shell == 0 ? 0 : (1 << (shell - 1)) - 1;
-            output.Shell = shell; output.Coord = coord; output.IsUniformAir = false; output.OpsApplied = 0;
+            output.Shell = shell; output.Coord = coord; output.IsUniformAir = false; output.OpsApplied = 0; output.SummariesApplied = 0;
 
             new ShellColumnJob
             {
@@ -189,7 +194,11 @@ namespace VoxelEngine.WorldGen
         /// ops go first, so a far crater or tunnel open to the sky stays open).
         /// Returns the op count applied (the snapshot's), so a caller can tell
         /// which later ops the chunk lacks.
-        public int GenerateShellChunk(int shell, int3 coord, ShellChunk output, VoxelEngine.Streaming.EditOpSnapshot ops)
+        /// Task 93a (8.15 §5 "Live"): `summaries`, if given, are written over the
+        /// result after the ops and BEFORE the fill (EditSummary.cs): the resident
+        /// edited chunks inside this shell chunk, majority-voted to its voxel size.
+        public int GenerateShellChunk(int shell, int3 coord, ShellChunk output, VoxelEngine.Streaming.EditOpSnapshot ops,
+                                      VoxelEngine.Streaming.EditSummarySnapshot summaries = null)
         {
             int half = GenerateShellChunkRaw(shell, coord, output, -1);
             int n = 0;
@@ -198,7 +207,8 @@ namespace VoxelEngine.WorldGen
                 VoxelEngine.Streaming.EditOpApply.ApplyToShell(output, ops.Ops, 0, ops.Count);
                 output.OpsApplied = n = ops.Count;
             }
-            FillShellChunk(output, half, ops);
+            if (summaries != null) output.SummariesApplied = VoxelEngine.Streaming.EditSummaryOps.ApplyToShell(output, summaries);
+            FillShellChunk(output, half, ops, false, output.SummariesApplied > 0 ? summaries : null);
             return n;
         }
 

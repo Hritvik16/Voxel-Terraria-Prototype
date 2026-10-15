@@ -199,7 +199,7 @@ namespace VoxelEngine.Streaming
             return written;
         }
 
-        private static void RecomputeShellBrick(TerrainGenChunkSource.ShellChunk sc, int bx, int by, int bz)
+        internal static void RecomputeShellBrick(TerrainGenChunkSource.ShellChunk sc, int bx, int by, int bz)
         {
             int bi = (bz << 8) | (by << 4) | bx;
             byte first = sc.Mats[TerrainGenChunkSource.Index(bx << 3, by << 3, bz << 3)];

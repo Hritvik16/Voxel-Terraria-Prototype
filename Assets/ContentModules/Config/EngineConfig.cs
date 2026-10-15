@@ -181,6 +181,18 @@ public static class EngineConfig
     // a full chunk generate -- that is what this bounds.
     public const int MAX_CHUNK_SAVES_PER_FRAME = 4;
 
+    // ---- Edit summaries (Amendment 8.15 §5 "Live", task 93a) ----
+    // A resident chunk a player edited is re-summarised into the shells that
+    // cover it at most once per EDIT_SUMMARY_MIN_INTERVAL_S (8.15 §5: "at most
+    // once a second"), and at most EDIT_SUMMARIES_PER_FRAME start per frame:
+    // the main thread copies the chunk's bricks (<= 2 MB) for each. More are
+    // REFUSED and counted (ShellStreamer.SummariesRefused) and retried the next
+    // frame. EDIT_SUMMARY_SCRATCH builds may be in flight (each scratch ~4.3 MB,
+    // allocated on the first edit with shells on). ASSUMPTION, NOT MEASURED.
+    public const int EDIT_SUMMARIES_PER_FRAME = 1;
+    public const int EDIT_SUMMARY_SCRATCH = 2;
+    public const double EDIT_SUMMARY_MIN_INTERVAL_S = 1.0;
+
     // ---- Chunk generation concurrency (§0.1 invariant 8) ----
     // Worker threads generating chunks off the main thread. This WAS hardcoded
     // in StreamManager as max(2, ProcessorCount - 1), which is both a hard limit

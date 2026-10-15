@@ -537,6 +537,8 @@ public partial class Playground : MonoBehaviour
         if (!IsCaptureRun() && HasArg("-liquiddemo")) StartCoroutine(LiquidDemo());
         // -farop (task 81): a 20 m crater recorded as an edit op ~300 m out at start-up, shot through the shells, then quit.
         if (!IsCaptureRun() && HasArg("-farop")) StartCoroutine(FarOpDemo());
+        // -farwall (task 93a): a SetVoxel tower ~100 m out, edit summaries off then on, shot through the shells, then quit.
+        if (!IsCaptureRun() && HasArg("-farwall")) StartCoroutine(FarWallDemo());
     }
 
     /// For overlays (Minimap) that must stay out of capture frames.
