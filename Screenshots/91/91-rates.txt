@@ -1,0 +1,14 @@
+== 91-arena30: log: Logs/tg2world_20261015_113842.txt
+since placement 20.00 s, 582 frames = 29.1 FPS: ticks 90 = 4.50/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 4
+== 91-arena20: log: Logs/tg2world_20261015_114331.txt
+since placement 20.03 s, 386 frames = 19.3 FPS: ticks 89 = 4.44/s, SHORTFALL missed 1 = 0.05/s, blocked frames (total) 7
+== 91-arena30-legacy: log: Logs/tg2world_20261015_114600.txt
+since placement 20.00 s, 582 frames = 29.1 FPS: ticks 190 = 9.50/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 0
+== 91-arena20-legacy: log: Logs/tg2world_20261015_114802.txt
+since placement 20.00 s, 387 frames = 19.3 FPS: ticks 127 = 6.35/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 0
+== 91-fp30: log: Logs/tg2world_20261015_112947.txt
+since placement 20.03 s, 585 frames = 29.2 FPS: ticks 90 = 4.49/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 131
+== 91-fp30-legacy: log: Logs/tg2world_20261015_113531.txt
+since placement 20.03 s, 581 frames = 29.0 FPS: ticks 193 = 9.64/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 0
+== 91-arena60 (cap 60, machine reached ~30): log: Logs/tg2world_20261015_114110.txt
+since placement 20.02 s, 637 frames = 31.8 FPS: ticks 90 = 4.50/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 15

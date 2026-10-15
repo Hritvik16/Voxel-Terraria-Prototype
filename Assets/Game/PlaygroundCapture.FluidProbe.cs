@@ -13,6 +13,13 @@
 // clipmap window and the chunk's upload epoch (CSPromote reads the MIRROR, not
 // the store), the wake queue, the readback's op counters, and the CA's own
 // per-tick GPU debug counters (FluidGpuSimulation.DebugDump).
+//
+// Task 91 (engine step 17, fixed-rate fluid tick): every report point also
+// prints FLUID RATE -- ticks/s since placement, the scheduler's rate, lava's
+// rate and the SHORTFALL (due ticks the frame rate could not deliver).
+// `-fpscap N` caps the frame rate (Application.targetFrameRate) for the whole
+// run; `-fluidstrip` replaces the frame offsets with WALL-CLOCK seconds after
+// placement (shots at 2, 4 and 8 s) so two caps can be compared still by still.
 using System;
 using System.Collections;
 using System.IO;
@@ -30,6 +37,9 @@ public partial class PlaygroundCapture
         Screen.SetResolution(1920, 1080, !HasFlag("-windowed"));
         QualitySettings.vSyncCount = 0;
         Application.targetFrameRate = -1;
+        int fpsCap = ArgInt("-fpscap", 0);
+        if (fpsCap > 0) Application.targetFrameRate = fpsCap;
+        bool strip = HasFlag("-fluidstrip");
         var pg = FindAnyObjectByType<Playground>();
         while (Phase4Bootstrapper.Store == null) yield return null;
         yield return Frames(300);
@@ -46,7 +56,8 @@ public partial class PlaygroundCapture
         var store = Phase4Bootstrapper.Store;
         var far = FarField.Active;
         var sm = Phase4Bootstrapper.Streamer;
-        L($"FLUID PROBE -- {ts}  world {(tg2 ? "tg2" : "default (arena control)")}");
+        L($"FLUID PROBE -- {ts}  world {(tg2 ? "tg2" : "default (arena control)")}  fps cap {(fpsCap > 0 ? fpsCap.ToString() : "none")}" +
+          $"{(strip ? "  -fluidstrip (wall-clock shots 2/4/8 s)" : "")}");
         if (pg == null || pg.DebugFluid == null || pg.DebugEdits == null)
         {
             L("no Playground fluid simulation (pg/DebugFluid/DebugEdits null)");
@@ -109,17 +120,32 @@ public partial class PlaygroundCapture
         }
 
         L("");
-        L("---- BEFORE placement ----");
+        L("---- BEFORE placement (FLUID RATE here = the last 0 s) ----");
+        _rate0 = (Time.unscaledTimeAsDouble, Time.frameCount, pg.DebugTickScheduler?.IssuedTicks ?? 0, pg.DebugTickScheduler?.MissedTicks ?? 0);
         ProbeState(pg, store, hole, wLo, wHi, lc, true);
 
         int nW = pg.DebugEdits.SetBox(wLo, wHi, Materials.Water);
         int nL = pg.DebugEdits.SetBox(lc + new int3(-3, 0, -3), lc + new int3(3, 15, 3), Materials.Lava);
         int f0 = Time.frameCount;
+        var sched = pg.DebugTickScheduler;
+        _rate0 = (Time.unscaledTimeAsDouble, f0, sched?.IssuedTicks ?? 0, sched?.MissedTicks ?? 0);
         L("");
         L($"PLACED water {nW} voxels {wLo}..{wHi}, lava {nL} voxels at {lc}+(-3,0,-3)..(3,15,3), frame {f0}");
         L($"  same frame: wake queued {pg.DebugFluid.WakeRequestsQueuedTotal}, deferred {pg.DebugFluid.DeferredWakeRequests}, " +
           $"rej_region {pg.DebugFluid.WakeRejectedOutOfRegion}, rej_full {pg.DebugFluid.WakeRejectedFull}");
-        int[] at = { 1, 2, 3, 5, 10, 20, 45, 90, 180, 225, 400 };
+        if (strip)
+        {
+            float[] secs = { 1f, 2f, 4f, 8f, 12f, 20f };
+            foreach (float k in secs)
+            {
+                while (Time.unscaledTimeAsDouble - _rate0.t < k) yield return null;
+                L("");
+                L($"---- +{k:F0} s wall clock (frame {Time.frameCount}, +{Time.frameCount - f0} frames) ----");
+                ProbeState(pg, store, hole, wLo, wHi, lc, false);
+                if (k == 2f || k == 4f || k == 8f) yield return CaptureTo($"strip_{k:F0}s");
+            }
+        }
+        int[] at = strip ? new int[0] : new[] { 1, 2, 3, 5, 10, 20, 45, 90, 180, 225, 400 };
         foreach (int k in at)
         {
             while (Time.frameCount - f0 < k) yield return null;
@@ -134,6 +160,9 @@ public partial class PlaygroundCapture
         yield return null;
         Application.Quit(0);
     }
+
+    /// Wall clock, frame and scheduler counters at placement (FLUID RATE's zero).
+    private (double t, int frame, long issued, long missed) _rate0;
 
     private void ProbeState(Playground pg, ChunkStore store, int3 hole, int3 wLo, int3 wHi, int3 lc, bool refresh)
     {
@@ -202,6 +231,16 @@ public partial class PlaygroundCapture
             L($"  readback: ticks issued {rb.RequestsIssuedTotal}, canIssue {rb.CanIssue}, inFlight {rb.FramesInFlight}, pendingOps {rb.PendingOps}, " +
               $"ops total {rb.OpsTotal}, applied writes {rb.AppliedVoxelWrites}, stale dropped {rb.StaleOpsDropped}, " +
               $"non-resident dropped {rb.OpsDroppedNonResident}, skipped issues {rb.SkippedIssuesTotal}, overflow frames {rb.AppendOverflowFramesTotal}");
+        var ts = pg.DebugTickScheduler;
+        if (ts != null)
+        {
+            double dt = Math.Max(1e-3, Time.unscaledTimeAsDouble - _rate0.t);
+            long issued = ts.IssuedTicks - _rate0.issued, missed = ts.MissedTicks - _rate0.missed;
+            L($"  FLUID RATE (task 91): {(ts.Legacy ? "LEGACY -fluidhz 0" : $"fixed {ts.RateHz:F2} Hz")}, lava " +
+              $"{(ts.Legacy ? "1/" + MaterialRules.TickInterval(Materials.Lava) + " of ticks" : $"{ts.RateHz / MaterialRules.TickInterval(Materials.Lava):F2} Hz")}; " +
+              $"since placement {dt:F2} s, {Time.frameCount - _rate0.frame} frames = {(Time.frameCount - _rate0.frame) / dt:F1} FPS: " +
+              $"ticks {issued} = {issued / dt:F2}/s, SHORTFALL missed {missed} = {missed / dt:F2}/s, blocked frames (total) {ts.BlockedFrames}");
+        }
         L($"  slots: live (last async) {fl.LastLiveSlots} / cap {fl.SlotCapacity}; suspended {Playground.DebugSuspendFluidSim}");
         L($"  GPU last tick: {fl.DebugDump()}");
     }

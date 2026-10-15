@@ -110,6 +110,8 @@ None of these is approved. Rows 1-3 go into one draft, 8.14 (step 9). The others
 | 3 | **An edit-op log beside D.1.** A new save section of operations ("sphere r at x,y,z"), applied on generation. D.1 deltas keep their frozen format. The precedence rule: ops first, then D.1 for chunks edited while resident. | E5 and the ROADMAP note. A redesign next to a frozen API. | 9 |
 | 4 | **Residency rules for fluid patches.** Chunks outside the detail window stay resident around awake fluid. Check whether this fits the frozen §4.4 state-transition table as it is. If it needs a new state, that is a redesign and gets flagged. | E7 and tension 4. | 14, 19 |
 | 5 | **Fluid tick contract.** Phase 5's decision 11 (a 6-frame CA tick) becomes a fixed rate. The 7.2 tiled active set holds awake fluid only. | E6, E7, BUGS #3. | 5, 17 |
+
+**Row 5 note (task 91, 2026-10-15):** decision 11 is SUPERSEDED. The CA ticks at a fixed 4.5 Hz (`FluidTickScheduler.DefaultRateHz`, option C of `FLUID_TICK_DIAGNOSIS.md`; lava = 4.5 / 6 = 0.75 Hz), gated by `CanIssue`; a too-low frame rate drops ticks and counts them (SHORTFALL). `-fluidhz R` sets R, `-fluidhz 0` = the old behaviour. Rigs other than Playground still tick on `CanIssue` alone.
 | 6 | **A Phase 7 lighting addition:** a light grid next to the 32 point lights, plus occlusion rays. 8.12's gate is re-run at the new internal resolution. | E9. | 2, 20 |
 | 7 | **Resolution and budget:** the design rows become the Q3 answer (8.9 used 540). The frame budget is 16.7 ms at that setting. | E1 and E4. | 3 |
 

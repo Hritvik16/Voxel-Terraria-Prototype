@@ -180,6 +180,10 @@ public partial class Playground : MonoBehaviour
     private FluidGpuSimulation _fluid;
     private FluidTileMap _tiles;
     private FluidOpListReadback _readback;
+    /// Engine step 17 (task 91): the CA ticks at FluidTickScheduler's fixed
+    /// rate (4.5 Hz), not whenever the pipeline allows. `-fluidhz R` sets R;
+    /// `-fluidhz 0` = the pre-91 decision 11 behaviour (a comparison arm).
+    private FluidTickScheduler _tickSched;
     private EditService _edits;
 
     // ---- Phase 6 systems, all driven from here ----
@@ -419,6 +423,8 @@ public partial class Playground : MonoBehaviour
             SleepRadiusVoxels = FluidActiveRegion.SleepRadiusFor(_activeRadiusVoxels),
         };
         _readback = new FluidOpListReadback(_fluid, _store) { OnVoxelApplied = MarkDirtyFor };
+        _tickSched = new FluidTickScheduler(TryArgFloat("-fluidhz", out float fluidHz) && fluidHz >= 0f
+            ? fluidHz : FluidTickScheduler.DefaultRateHz);
 
         // §8.3's edit path, not the hand-rolled trio. EVERY edit in this scene
         // now goes through EditService: it marks the mirror dirty, runs §7.6's
@@ -1448,7 +1454,7 @@ public partial class Playground : MonoBehaviour
         // NOT the same thing as "no fluid cost".
         if (!DebugSuspendFluidSim)
         {
-            if (_readback.CanIssue)
+            if (_tickSched.ShouldIssue(Time.unscaledTimeAsDouble, _readback.CanIssue))
             {
                 _fluid.Tick(_clipmap);
                 _readback.IssueReadback(0);
@@ -1466,6 +1472,8 @@ public partial class Playground : MonoBehaviour
 
     /// Decision 11's diagnosis: the readback whose counters split a tick's period.
     internal FluidOpListReadback DebugReadback => _readback;
+    /// Task 91: the fixed-rate scheduler (rate, issued, missed = shortfall).
+    internal FluidTickScheduler DebugTickScheduler => _tickSched;
 
     /// MEASUREMENT SEAM, NOT A CONFIGURATION -- the same standing this file's
     /// own header gives DebugSuspendFluidSim.

@@ -826,3 +826,7 @@ real and separate reason — see the LOD-cascade finding in
       continuously.
   - Logs: `Logs/tg2world_20261003_055038.txt` (tg2) and `_055801.txt`
     (control). Nothing to fix here beyond decision 11.
+  - **Task 91 (2026-10-15): decision 11 is superseded** in Playground (play, tg2 and
+    every capture mode): the CA ticks at a fixed 4.5 Hz (`FluidTickScheduler`), lava at
+    0.75 Hz, independent of frame rate; the fluid probe prints `FLUID RATE` with the
+    SHORTFALL (ticks a too-low frame rate could not deliver). `-fluidhz 0` = old.

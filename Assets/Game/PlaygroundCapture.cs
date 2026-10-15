@@ -2107,7 +2107,12 @@ public partial class PlaygroundCapture : MonoBehaviour
             float secs = Time.realtimeSinceStartup - runStart;
             L("");
             L($"  fluid CA ticks/s {(pg.DebugFluidTicks - fluidTicksAtStart) / Math.Max(1f, secs):F1}   " +
-              "(one tick per readback round-trip; this is fluid SPEED)");
+              "(this is fluid SPEED)");
+            var sch = pg.DebugTickScheduler;
+            if (sch != null)
+                L($"  fluid tick scheduler (task 91): {(sch.Legacy ? "LEGACY (-fluidhz 0, rate follows FPS)" : $"fixed {sch.RateHz:F2} Hz")}, " +
+                  $"lava {(sch.Legacy ? 0f : sch.RateHz / MaterialRules.TickInterval(Materials.Lava)):F2} Hz; since start: issued {sch.IssuedTicks}, " +
+                  $"SHORTFALL missed {sch.MissedTicks} ({sch.MissedTicks / Math.Max(1f, Time.realtimeSinceStartup):F2}/s), blocked frames {sch.BlockedFrames}");
         }
         if (rb != null)
         {
