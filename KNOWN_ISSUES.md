@@ -830,3 +830,10 @@ real and separate reason — see the LOD-cascade finding in
     every capture mode): the CA ticks at a fixed 4.5 Hz (`FluidTickScheduler`), lava at
     0.75 Hz, independent of frame rate; the fluid probe prints `FLUID RATE` with the
     SHORTFALL (ticks a too-low frame rate could not deliver). `-fluidhz 0` = old.
+  - **Task 93 (2026-10-15): "tg2 water frozen" again was the PROBE SITE, not the engine.** On map
+    v4 the ground 8-20 m ahead of eye_level_1 is above the eye, so the probe fell back to a
+    guessed site INSIDE the hillside: water box 1029/1029 and lava box 784/784 voxels were solid
+    rock before placement, so every fluid voxel was walled in (`intent.no_destination` = all).
+    The probe now logs that census and turns in 45 degree steps to the first site whose boxes
+    are all air (seed 42: +90 deg). Water then leaves the box: 461 in box at +1 s, 0 at +8 s;
+    lava 784 -> 130 by +20 s (`Logs/tg2world_20261015_152136.txt`).

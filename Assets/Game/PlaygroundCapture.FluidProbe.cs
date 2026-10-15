@@ -14,6 +14,11 @@
 // the store), the wake queue, the readback's op counters, and the CA's own
 // per-tick GPU debug counters (FluidGpuSimulation.DebugDump).
 //
+// Task 93: the tg2 site is checked on the store first (map v4 put task 07's
+// site inside a hillside, so nothing could move): the task-07 site's solid
+// count is logged, then the first heading (45 degree steps) whose two boxes are
+// all air is used.
+//
 // Task 91 (engine step 17, fixed-rate fluid tick): every report point also
 // prints FLUID RATE -- ticks/s since placement, the scheduler's rate, lava's
 // rate and the SHORTFALL (due ticks the frame rate could not deliver).
@@ -82,28 +87,61 @@ public partial class PlaygroundCapture
             yield return NearSettle(far, sm);
             float gEye = StoreGroundM(store, eye1.x, eye1.z, eye1.y + 10f);
             if (!float.IsNaN(gEye)) eye1.y = gEye + 1.7f;
-            Vector3 target = Vector3.zero; bool found = false;
+            // Task 93: on map v4 the ground 8-20 m ahead of eye_level_1 (towards the peak) is above the eye,
+            // so task 07's straight-ahead search fell back to a guess that put the hole, the water box and the
+            // lava box INSIDE the hillside: every fluid voxel was walled in by rock (intent.no_destination =
+            // all of them) and "nothing moved". The guess site is still censused below so the report shows it;
+            // the probe then turns in 45 degree steps until a site's two boxes are all air in the store.
+            void Site(Vector3 g, Vector3 r, out int3 h, out int3 lo, out int3 hi, out int3 l)
+            {
+                h = CoordMath.WorldToVoxel(new float3(g.x, g.y - 0.4f, g.z));
+                lo = h + new int3(-3, 20, -3); hi = h + new int3(3, 40, 3);
+                l = CoordMath.WorldToVoxel(new float3(g.x + r.x * 3f, g.y + 1.5f, g.z + r.z * 3f));
+            }
+            Vector3 legacy = Vector3.zero; bool legacyFound = false;
             foreach (float d in new[] { 10f, 13f, 16f, 8f, 20f })
             {
                 Vector3 p = eye1 + fwd * d;
                 float g = StoreGroundM(store, p.x, p.z, eye1.y + 15f);
                 if (float.IsNaN(g) || g > eye1.y - 0.5f) continue;
-                target = new Vector3(p.x, g, p.z); found = true; break;
+                legacy = new Vector3(p.x, g, p.z); legacyFound = true; break;
             }
-            if (!found) { target = eye1 + fwd * 10f; target.y = eye1.y - 1.7f; L("no open ground found ahead; using a guess"); }
+            if (!legacyFound) { legacy = eye1 + fwd * 10f; legacy.y = eye1.y - 1.7f; }
             Vector3 right = Vector3.Cross(Vector3.up, fwd).normalized;
+            {
+                Site(legacy, right, out _, out int3 lo0, out int3 hi0, out int3 l0);
+                L($"task-07 site ({(legacyFound ? "ground found" : "no open ground ahead, a guess")}) {legacy:F1}: solid voxels in water box " +
+                  $"{SolidIn(store, lo0, hi0)}/1029, in lava box {SolidIn(store, l0 + new int3(-3, 0, -3), l0 + new int3(3, 15, 3))}/784");
+            }
+            Vector3 target = legacy; bool found = false; float turned = 0f;
+            Vector3 fwd0 = fwd;
+            for (int turn = 0; turn < 8 && !found; turn++)
+            {
+                float deg = ((turn + 1) >> 1) * 45f * ((turn & 1) == 1 ? 1f : -1f);   // 0, +45, -45, +90, -90, +135, -135, 180
+                Vector3 f = Quaternion.AngleAxis(deg, Vector3.up) * fwd0;
+                Vector3 r = Vector3.Cross(Vector3.up, f).normalized;
+                foreach (float d in new[] { 10f, 13f, 16f, 8f, 20f })
+                {
+                    Vector3 p = eye1 + f * d;
+                    float g = StoreGroundM(store, p.x, p.z, eye1.y + 15f);
+                    if (float.IsNaN(g) || g > eye1.y - 0.5f) continue;
+                    Site(new Vector3(p.x, g, p.z), r, out _, out int3 lo, out int3 hi, out int3 l);
+                    if (SolidIn(store, lo, hi) + SolidIn(store, l + new int3(-3, 0, -3), l + new int3(3, 15, 3)) > 0) continue;
+                    target = new Vector3(p.x, g, p.z); fwd = f; right = r; turned = deg; found = true; break;
+                }
+            }
+            if (found) L($"site: turned {turned:F0} deg from the task-07 heading, both boxes all air");
+            else L("NO OPEN SITE in 8 headings x 5 distances: using the task-07 site (expect rock-walled boxes)");
             Vector3 look = target + right * 1.5f + Vector3.up * 0.5f;
             cam.transform.position = eye1;
             cam.transform.rotation = Quaternion.LookRotation((look - eye1).normalized, Vector3.up);
             L($"view: eye {eye1:F1}, ground target {target:F1} ({Vector3.Distance(eye1, target):F1} m)");
             yield return NearSettle(far, sm);
             yield return Frames(90);
-            hole = CoordMath.WorldToVoxel(new float3(target.x, target.y - 0.4f, target.z));
+            Site(target, right, out hole, out wLo, out wHi, out lc);
             int dug = pg.DebugEdits.SetSphere(hole, 15, Materials.Air);
             L($"dug {dug} voxels at {hole} on frame {Time.frameCount}");
             yield return Frames(66);
-            wLo = hole + new int3(-3, 20, -3); wHi = hole + new int3(3, 40, 3);
-            lc = CoordMath.WorldToVoxel(new float3(target.x + right.x * 3f, target.y + 1.5f, target.z + right.z * 3f));
         }
         else
         {
@@ -159,6 +197,17 @@ public partial class PlaygroundCapture
         Debug.Log("[PlaygroundCapture]\n" + _log);
         yield return null;
         Application.Quit(0);
+    }
+
+    /// Non-air voxels in the inclusive box [lo, hi] of the CPU store.
+    private static int SolidIn(ChunkStore store, int3 lo, int3 hi)
+    {
+        int n = 0;
+        for (int z = lo.z; z <= hi.z; z++)
+        for (int y = lo.y; y <= hi.y; y++)
+        for (int x = lo.x; x <= hi.x; x++)
+            if (store.GetVoxel(new int3(x, y, z)) != 0) n++;
+        return n;
     }
 
     /// Wall clock, frame and scheduler counters at placement (FLUID RATE's zero).
