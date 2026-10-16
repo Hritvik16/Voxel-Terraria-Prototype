@@ -1,55 +1,60 @@
-STOP_FOR_OWNER -- 93b2: walking fill throughput FIXED (2.8x), but shells 1-2 stop at their BRICK caps (~55% / ~28% of the band).
-Question (Q53): how should shells 1-2 hold their whole band?
- (a) RECOMMENDED: extend task 83's cave fill to shells 1-2 (today shells >= 3, owner Q44 (a)). No extra memory. Unfilled shells 1-2
-     are 67% mixed chunks (caves below the surface); filled shell 3 is 26%. That should bring shell 1 under its cap; shell 2 likely
-     still short (~75%). Cost: the fill adds ~50 ms per chunk on the workers (shell 3's figure).
- (b) Raise the shell 1-2 brick pools: ~+250 MB (s1 +71, s2 +179). More than D1 freed (193 MB); peak ~2,740 -> ~2,990 MB of 3,072.
- (c) Accept it: shells 1-2 hold what fits at mountain spots, the far band draws the rest; go on to 93b3.
+# 93d1-gameplay-step-9a: DONE -- health, fall damage, air under liquids, lava/acid damage, soft death to the play start
+(93b2's STOP_FOR_OWNER Q53, shells 1-2 brick caps, is still open: see `tools/overnight/blocked/93b2-shells-fill-while-walking.HANDOFF.md`.)
 
-# 93b2-shells-fill-while-walking: cause found (2 causes), throughput half fixed; >= 90% target NOT met (caps)
+## What changed (commit 327169d, branch engine-phase)
+- `PlayerVitals.cs` (new, CoreEngine/Gameplay): plain class. It holds health, air, regen and the death state, and has `Sense()`, which uses the same
+  feet/centre/head probes as Buoyancy (a gas is not a liquid), and `RespawnTarget()` (the play start, else the death column).
+- `PlayerMotor`: one new output field, `LastImpactDownMps` (the downward speed when the feet hit a solid). Nothing else changed; the legacy Step is the same.
+- `PlayerConfig`: 12 new tuning fields (all validated): maxHealth, fallSafe/LethalHeightM, oxygenSeconds, oxygenRefillPerS,
+  drown/lava/acidDamagePerS, regenDelayS, regenPerS, respawnDelayS. The play config file picks them up automatically.
+- `Playground.Vitals.cs` (new): ticks the vitals after each walk step and runs the death screen and respawn (93c1's R path to the play start).
+  It also draws the HUD: a HEALTH bar at the left end of the hotbar caption row, an AIR bar at the right end (only shown when not full), a red flash on damage, and the "YOU DIED" screen.
+  `Playground.cs`: a dead body does not dig or walk; added an F2 help line; added the `-vitalsdemo` / `-vitals 0` flags.
+- Only active in interactive Survival WALK. Creative, fly, rigs, capture runs, the older demos (-movedemo, -strokedemo, ...) and `-vitals 0` take no damage.
+- No frozen API, no D.1 or memory-layout change. Nothing new is saved: health is full on every launch.
 
-## Cause (step 1, counted per shell over a walk; `ShellStreamer.Counters.cs`)
-- Not churn at the hole edge, not drops on arrival (10-20 per launch), not recentre losses: hypotheses 2-3 ruled out.
-- (4) THROUGHPUT: ~90% of a shell chunk's time is its COLUMN PASS (shell 1 at the start: column 90-119 ms, voxel 8-11 ms).
-  It depends on (shell, x, z) only, yet ran once per LAYER: 13 times per shell-1 column. That is task 30's tier-0 bug, in the shells.
-  Walking at 5 m/s, shell 1 alone needs ~33 chunks/s (5,893 generated in the 3 min walk after the fix). Before: ~9.5/s,
-  so it fell 3-5x behind the box; shell 2 got no worker at all during the walk.
-- (1) CAPS, the second limit: shells 1-2 go FULL on BRICKS (pages are half free), at 1,130-1,338 of 2,168 chunks (s1) and 510-610 of ~2,000 (s2).
-## Fix (commit c265106; one change, same bytes, design kept)
-- `GenerateShellChunk` COLUMN REUSE: the scratch keeps its column (key: source, spec stamp, shell, x, z, sample offset) and skips the job.
-- `ShellStreamer` COLUMN AFFINITY: a returning scratch first takes the NEAREST missing layer of its own column (tier 0's column batch,
-  one layer per hand-over). The global pick passes over columns another scratch owns. Across columns the order is still Q47 (a)'s.
-  Scratches go from workers + 2 to 2 x workers + 2 (+3 x ~4.4 MB). `-shellcolreuse 0` = the old behaviour (diagnostic A/B).
-- No frozen API, layout or memory-layout change. With shells off nothing is called.
-- Capture: per-shell counters at the walk's start and end (`CountersReport`), held per 30 s window, an `-walkshellwait S`
-  start-pose wait (the walk clock starts after it), and a `99_end_tint` still.
+## Picks (owner may change -- all in PlayerConfig.json except the last three)
+- Health 100. Fall damage is linear in fall HEIGHT: no damage up to 4 m, 100 HP at 20 m, so 6.25 HP per metre above 4 m.
+  A jump (0.87 m) and a double jump plus dash cost nothing.
+- Landing with liquid at your feet takes no fall damage, even in shallow water (Terraria's rule).
+- Air lasts 20 s while your head is in a liquid. After that, drowning costs 10 HP/s. Air refills 5x faster than it drains (empty to full in 4 s).
+- Lava costs 50 HP/s (2 s kills you); acid costs 20 HP/s. Sludge, oil, honey and quicksand do no damage.
+- Health regenerates at 2 HP/s once 8 s have passed without damage.
+- The death screen lasts 3 s, then you respawn at the play start with full health and air. The inventory is untouched ("soft").
+- R does not heal you (otherwise it would be a free heal). Landing from a mode switch into walk is free: Tab from fly, a respawn, the start pose or a KEEP=1 resume.
+- A dash zeroes your falling speed, so a dash just before landing avoids fall damage (Terraria's double jump does the same). Left as a skill move.
+
 ## Evidence
-- `ShellColumnReuseTests` (3): reuse byte-identical (shell 1, and filled shell 3); spec change drops the column; ~1 pass per column;
-  walking twin (Slow; modelled 3 workers, column 150 / voxel 15 ms, 5 m/s for 15 s): ON 240 -> 1,211 held (FULL), OFF 240 -> 458
-  (`Screenshots/93b2/walk_twin.txt`). Shell tests filter PASS 24 (order, storage, redraw, summaries, hand-over); fast suite
-  **PASS 763 FAIL 0 SKIP 14** (`Logs/overnight/93b2-fast.out`).
-- Launches (same build, AC, counts only, 120 s start-pose wait + 3 min walk; flags in `Logs/overnight/93b2-{before2,after}.out`):
-  before = `-shellcolreuse 0` `Screenshots/93b2/before/walk.txt`, after `Screenshots/93b2/after/walk.txt`.
-  First run (HEAD + counters; its walk was only 55 s, timer bug since fixed) `Screenshots/93b2/first_run_55s_walk.txt`: same pattern.
-- Peak footprint 2,742 -> 2,739 MB. No frame times quoted (rule 10).
-- Not changed: shell 1 alone takes ~77% of the 3 workers while walking, so shell 3 still drains (1,225 -> 639). A 4th shell
-  worker or the fill question above decides that; 93b3 / the 93b re-run measures it.
-## Next step
-Owner answers Q53. Then 93b3 (far band after the shells), then re-run 93b.
+- `PlayerVitalsTests` (10): fall curve (0 at 4 m, 25 at 8 m, 50 at 12 m, 100 at 20 m, capped); real motor drops (3 m: 0, 12 m: ~50 +-4, 25 m: dead);
+  0.3 m of water cushions a 15 m fall; air 10 s -> half, 20 s -> empty with zero damage before that, 5 s drowning -> 50 HP, refill in 4 s;
+  wading in lava is 50/s and kills in 2 s, acid 20/s, water 0; regen delay; lava death -> 3 s screen -> respawn at the start (not in the lava) with full bars;
+  Validate keeps lethal above safe. Filter PASS 10; **fast suite PASS 773 FAIL 0 SKIP 14** (`Logs/overnight/93d1-fast.out`).
+- One `-vitalsdemo` launch (`Logs/overnight/93d1-demo2.out`, log lines in `Screenshots/93d1/vitalsdemo.txt`):
+  12 m fall: impact 23.08 m/s = 12.10 m, 50.6 damage. Air ran out after 20.1 s; drowning then took health to 60.
+  Acid for 1 s took 11.7 HP: the demo caps a step at 1/30 s and the game ran under 30 fps, so game time ran slower than real time.
+  Lava killed the player. The respawn came 6.9 s after the lava death, **0.0 m from the play start**, and the inventory was **50 -> 50**.
+- A bug found in the first launch and fixed: the drowning formula leaked a float-rounding sliver of damage on every step under water.
+  That kept the red flash on for the whole dive. The test now asserts exactly 100 HP and no hit while air lasts.
+
+## Next
+- 9b (death mode per world) waits for Q3. Otherwise the plan order goes on: RX1 -> 5 -> 6 ...
+- Not done here: health does not persist through KEEP=1, and there is no death or damage sound. Those are later rows (9b / audio).
 
 ## For the doc
-Task 93b2: why the shells empty while walking. Each shell chunk re-ran a column pass that depends only on x and z,
-for every one of its 13 layers. Now it runs once per column. Shells 1-2 still stop at their brick caps (owner Q53).
-| 5 m/s walk, 3 shell workers | before | after |
-|---|---|---|
-| shell chunks generated (whole launch) | 3,598 | 9,948 |
-| shell 1 column pass reused | 0% | 86% |
-| start pose: shell 1 FULL after | 46 s | < 10 s |
-| walk's end held s1 / s2 / s3 / s4 | 207 / 125 / 146 / 0 | 1,049 / 351 / 639 / 141 |
-| band s1 / s2 / s3 / s4 | 2,170 / 2,170 / 1,663 / 987 | same |
-Logs `Screenshots/93b2/{before,after}/walk.txt`.
-Images:
-- `Screenshots/93b2/walk_end_before_after.jpg`: top row, the walk's end view, before (left) and after (right): the same
-  picture (near mountain, hill, far plain). Bottom row, the shell tint: green = shell 1, blue = tier 0, grey = far band.
-  After, a green strip of shell 1 covers the valley floor left of the hill (~5x the green pixels). The hill and the plain are
-  grey (far band) in both, because shells 2-3 did not fill there (caps / workers).
+**Result:** gameplay step 9a is done. Survival now has health, fall damage, air under water, lava and acid damage, and a soft death that sends you back to the start.
+- **What the owner can do in `./run-play.sh`** (Survival walk, no new keys):
+  - Fall more than 4 m and the HEALTH bar drops, with a red flash. 20 m kills.
+  - Dive (Ctrl): the AIR bar appears and runs for 20 s, then you drown.
+  - Walk into lava or acid and you take damage.
+  - At 0 HP you get "YOU DIED", then you are back at the start after 3 s with everything kept.
+  - Tuning is in PlayerConfig.json. `EXTRA="-vitals 0"` turns damage off; `EXTRA="-vitalsdemo"` takes the 7 shots.
+- Numbers: 12 m fall 100 -> 49.4 HP (curve 50.6); air 20.1 s then drowning to 60 HP; lava 2 s kills; respawn 0.0 m from the play start, inventory 50 -> 50 (`Screenshots/93d1/vitalsdemo.txt`).
+- Picks: 100 HP; safe 4 m / lethal 20 m; 20 s air; lava 50 / acid 20 HP/s; regen 2 HP/s after 8 s; 3 s death screen; water at the feet cushions falls.
+- Images (`Screenshots/93d1/`):
+  - `1_full_health.png`: bottom centre, the red HEALTH 100/100 bar at the left end of the hotbar caption row. Noon, sun behind, at the play start.
+  - `2_after_fall_12m.png`: 3 frames after a 12 m drop. The whole frame has a red damage flash, and the bar reads about 52/100.
+  - `3_under_water_air.png`: on the bed of a 2.5 m water tank, looking up at the blue surface. The blue AIR bar (right end) is at half (9 s); health is still full.
+  - `4_drowning.png`: the same pose once the air has run out. The AIR bar reads "drowning!", the frame has a red flash and health is 60.
+  - `5_lava.png`: wading in a lava tank. Health is 59 and the frame is pink from the constant hit flash.
+  - `6_you_died.png`: the death screen, "YOU DIED / burned in lava / back to the start in 2 s -- you keep everything".
+  - `7_respawned_at_start.png`: back at the play start with full health. The two demo tanks (dark stone) are ahead.
