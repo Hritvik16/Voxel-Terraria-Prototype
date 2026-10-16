@@ -326,6 +326,11 @@ public class EditSummaryTests
             { Ops = log, SyncChunksPerUpdate = 32, SummaryClock = () => clock };
         var want = new TerrainGenChunkSource.ShellChunk();
         var lines = new List<string>();
+        // Shell 1 is a fill shell since task 93b2; the reference writes the summary over
+        // the generator, the streamer fills after it (summary boxes as seeds). This test
+        // checks the redraw pipeline, so the fill is off on both sides (ShellFillTests).
+        bool fill = _src.ShellFill;
+        _src.ShellFill = false;
         try
         {
             var store = new ChunkStore(pool, alloc);
@@ -427,6 +432,7 @@ public class EditSummaryTests
         finally
         {
             ShellStore.ShadowUploads = false;
+            _src.ShellFill = fill;
             s.Dispose(); want.Dispose(); pool.Dispose();
             Debug.Log("[93a] streamer\n" + string.Join("\n", lines));
         }

@@ -475,6 +475,9 @@ public class Phase4Bootstrapper : MonoBehaviour
             // pre-93b2 dispatch (no column affinity); the same bytes either way.
             bool colReuse = ArgInt("-shellcolreuse", 1) != 0;
             Shells.ColumnAffinity = colReuse; Streamer.TerrainGenSource.ShellColumnReuse = colReuse;
+            // Task 93b2 (owner Q54 (a)): the cave fill runs on shells >= 1. `-shellfillfrom 3`
+            // = task 83's shells >= 3 (the pre-change bytes; diagnostic A/B).
+            Streamer.TerrainGenSource.FirstFillShell = Mathf.Clamp(ArgInt("-shellfillfrom", TerrainGenChunkSource.FIRST_FILL_SHELL), 1, 8);
             ShellStreamer.Active = Shells;
             RaymarchFeature.ShellIterCap = ArgInt("-shelliters", RaymarchFeature.ShellIterCap);
             int dbg = ArgInt("-shellsdebug", -1);

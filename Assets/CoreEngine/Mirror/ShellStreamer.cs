@@ -107,6 +107,9 @@ namespace VoxelEngine.Mirror
         public long Requested, Generated, DroppedStale, OverBudgetFrames, GenErrors;
         /// Task 82: chunks queued for an op redraw, redraws stored, chunks caught up on arrival.
         public long RedrawsQueued, Redrawn, OpsCaughtUp;
+        /// Task 93b2: chunks that arrived missing an op that touches them and were sent
+        /// to a redraw instead (filled chunks: every shell since task 93b2; CatchUp).
+        public long OpsRedrawnOnArrival;
         /// Redraws not yet stored (queued, generating or uploading).
         public int RedrawsPending => _redrawQ.Count + _redrawOut;
         public double GenMsTotal;            // worker-side, summed
@@ -576,10 +579,10 @@ namespace VoxelEngine.Mirror
         {
             var snap = Ops?.Snapshot;
             if (snap == null || sc.OpsApplied >= snap.Count) return false;
-            if ((_src.ShellFill && TerrainGenChunkSource.ShellFills(sc.Shell)) || sc.SummariesApplied > 0)
+            if ((_src.ShellFill && _src.FillsShell(sc.Shell)) || sc.SummariesApplied > 0)
             {
                 for (int i = sc.OpsApplied; i < snap.Count; i++)
-                    if (VoxelEngine.Streaming.EditOpApply.TouchesChunk(snap.Ops[i], sc.Coord, sc.Shell)) return true;
+                    if (VoxelEngine.Streaming.EditOpApply.TouchesChunk(snap.Ops[i], sc.Coord, sc.Shell)) { OpsRedrawnOnArrival++; return true; }
                 sc.OpsApplied = snap.Count;   // none of them reaches it
                 return false;
             }

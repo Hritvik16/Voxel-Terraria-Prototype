@@ -12,7 +12,8 @@
 //               uploaded shadow == a fresh GenerateShellChunk with the ops
 //               (0 differ), stale slots 0, pool books balanced. Then the camera
 //               moves and an op lands on a chunk still generating -> caught up
-//               on arrival (the same bytes).
+//               on arrival, or (a filled chunk: every shell since task 93b2)
+//               redrawn on arrival (the same bytes).
 //   Far band    a FarField filled, then a crater, a mound and a carve under the
 //               sea recorded -> after the patches go up, every texel of every
 //               level == a fresh FarField built with the ops; the crater is
@@ -270,12 +271,13 @@ public class EditOpRedrawTests
                 }
             }
             Assert.Greater(added, 0, "nothing in flight after the move");
-            long caught0 = s.OpsCaughtUp;
+            long caught0 = s.OpsCaughtUp, arrRedraw0 = s.OpsRedrawnOnArrival;
             Fill(s, cam, BUDGET, "after the move");
             snap = log.Snapshot;
             touched = CheckTouched(s, snap, null, out differ, out first);
-            lines.Add($"in flight: {added} ops on generating chunks, {s.OpsCaughtUp - caught0} chunks caught up on arrival; {touched} touched stored chunks, {differ} differ");
-            Assert.Greater(s.OpsCaughtUp - caught0, 0, "no chunk was caught up");
+            lines.Add($"in flight: {added} ops on generating chunks, {s.OpsCaughtUp - caught0} chunks caught up on arrival, " +
+                      $"{s.OpsRedrawnOnArrival - arrRedraw0} redrawn on arrival (filled: every shell since task 93b2); {touched} touched stored chunks, {differ} differ");
+            Assert.Greater(s.OpsCaughtUp - caught0 + s.OpsRedrawnOnArrival - arrRedraw0, 0, "no in-flight chunk was caught up or redrawn on arrival");
             Assert.AreEqual(0, differ, first);
             for (int k = s.FirstShell; k <= s.LastShell; k++)
             {

@@ -2,16 +2,20 @@
 //
 // Task 83 (engine step 11d; owner Q44 (a); Amendment 8.14 row 13's fill note):
 // the shell cave fill (TerrainGenChunkSource.ShellFill.cs) on seed 42.
+// Task 93b2 (owner Q54 (a)): the fill runs on shells 1-2 too (FIRST_FILL_SHELL = 1);
+// every check below covers them.
 //   Visible      (i) a top-down and 4 side-view raycasts of every test chunk:
 //                fill + flatten (mouths off) vs the generator: 0 rays differ.
 //                With mouths on, every ray that differs hit an opened mouth voxel.
 //   Mouths       (ii) tunnel mouths found in shell 3 (cliff sites): each one that
-//                shows in shells 3-6 before the fill still shows after it (0 lost);
+//                shows in shells 1-7 before the fill still shows after it (0 lost;
+//                shells 1-2 check the first entrance of each kind, they are slow);
 //                the mouth rule's gains are reported.
 //   Bricks       (iii) dense bricks drop (per shell, reported; total asserted).
 //   Prefilter    the mouth prefilter changes no byte at the mouth chunks.
 //   Far ops      a crater crossing a chunk face below the surface stays open.
-//   Shells 1-2   untouched by the fill.
+//   Shells 1-2   filled (task 93b2): enclosed voxels change, dense bricks drop,
+//                outside rays see the same.
 //   Sea / lake   (task 83b: enclosed fluids are filled too, the default) at a sea
 //                and a lake site no fluid voxel a ray from outside can reach changes,
 //                and the outside rays see the same.
@@ -244,7 +248,7 @@ public class ShellFillTests
 
     // ==================================================================
 
-    [Test, Category("Slow")]
+    [Test, Category("Slow"), Timeout(1800000)]   // shells 1-2 (task 93b2) pushed it past the default 180 s
     public void Fill_KeepsWhatRaysSee_KeepsMouths_DropsDenseBricks()
     {
         var lines = new List<string>();
@@ -253,7 +257,7 @@ public class ShellFillTests
         lines.Add($"{sites.Count} cliff sites");
         try
         {
-            // (i) + (iii): surface chunk and the one below, shells 3-7.
+            // (i) + (iii): surface chunk and the one below, shells 1-7.
             var denseA = new long[8]; var denseC = new long[8]; var chunks = new int[8];
             int raysChecked = 0, raysWide = 0, raysWideBad = 0, widenedVox = 0;
             foreach (var s in sites)
@@ -282,29 +286,34 @@ public class ShellFillTests
                 for (int i = 0; i < c.M.Length; i++) if (c.M[i] == Materials.Air && b.M[i] != Materials.Air) widenedVox++;
                 Assert.AreEqual(0, bad, $"shell {k} chunk {coord}: {bad} rays see something else after the fill; first {first}");
             }
-            lines.Add($"(i) {raysChecked} rays from outside (top + 4 sides) over {chunks[3] + chunks[4] + chunks[5] + chunks[6] + chunks[7]} chunks: " +
+            int nChunks = 0; foreach (int q in chunks) nChunks += q;
+            lines.Add($"(i) {raysChecked} rays from outside (top + 4 sides) over {nChunks} chunks: " +
                       $"fill + flatten vs generator 0 differ; mouths on: {raysWide} rays differ, {raysWideBad} not at an opened mouth voxel ({widenedVox} voxels opened)");
             Assert.AreEqual(0, raysWideBad, "a ray changed by the mouth rule did not hit an opened mouth voxel");
             long tA = 0, tC = 0;
-            for (int k = 3; k <= 7; k++)
+            for (int k = TerrainGenChunkSource.FIRST_FILL_SHELL; k <= TerrainGenChunkSource.MAX_SHELL; k++)
             {
                 lines.Add($"(iii) shell {k}: {chunks[k]} chunks, dense bricks {denseA[k]} -> {denseC[k]} ({(denseA[k] == 0 ? 0 : 100.0 * denseC[k] / denseA[k]):F1}%)");
                 tA += denseA[k]; tC += denseC[k];
             }
             Assert.Less(tC, tA, "the fill dropped no dense brick");
 
-            // (ii) cave entrances (the generator's opening stamps), shells 3-6.
+            // (ii) cave entrances (the generator's opening stamps), shells 1-7; shells 1-2
+            // (100 / 27 chunks per entrance) take the first entrance of each kind.
             var ents = Entrances(4);
             var kinds = new Dictionary<byte, int>();
             foreach (var e in ents) kinds[e.Kind] = kinds.TryGetValue(e.Kind, out int q) ? q + 1 : 1;
             string ks = ""; foreach (var kv in kinds) ks += $" {kv.Value} {KindName(kv.Key)}";
             lines.Add($"(ii) {ents.Count} cave entrances on seed 42:{ks}");
             Assert.Greater(ents.Count, 0, "no cave entrance stamp found");
+            var firstPerKind = new List<Entrance>(); var seenKind = new HashSet<byte>();
+            foreach (var e in ents) if (seenKind.Add(e.Kind)) firstPerKind.Add(e);
             int lost = 0;
-            for (int k = 3; k <= 7; k++)
+            for (int k = TerrainGenChunkSource.FIRST_FILL_SHELL; k <= TerrainGenChunkSource.MAX_SHELL; k++)
             {
                 int before = 0, after = 0, gained = 0, hb = 0, ha = 0; string per = "";
-                foreach (var e in ents)
+                var ek = k < 3 ? firstPerKind : ents;
+                foreach (var e in ek)
                 {
                     int nb = Holes(e, k, 0), na = Holes(e, k, 2);
                     bool sb = nb > 0, sa = na > 0;
@@ -315,7 +324,8 @@ public class ShellFillTests
                     if (sb && !sa) lost++;
                     per += sa ? (sb ? "Y" : "+") : (sb ? "!" : ".");
                 }
-                lines.Add($"(ii) shell {k} ({0.1f * (1 << k):F1} m voxels): entrances shown {before} -> {after} of {ents.Count} (+{gained} by the mouth rule)  [{per}]; hole voxels {hb} -> {ha}");
+                lines.Add($"(ii) shell {k} ({0.1f * (1 << k):F1} m voxels): entrances shown {before} -> {after} of {ek.Count} (+{gained} by the mouth rule)  [{per}]; hole voxels {hb} -> {ha}");
+                if (k < 3) _cache.Clear();   // 100 shell-1 chunks per entrance: do not keep them
             }
             lines.Add("     per entrance: Y shown before and after, + only after (mouth rule), . neither, ! lost");
             Assert.AreEqual(0, lost, "a cave mouth that showed before the fill is gone after it");
@@ -335,9 +345,9 @@ public class ShellFillTests
     {
         var chunks = new List<(int, int3)>();
         foreach (var e in Entrances(3))
-            for (int k = 3; k <= 6; k++) chunks.Add((k, e.Site >> (7 + k)));
+            for (int k = 1; k <= 6; k++) chunks.Add((k, e.Site >> (7 + k)));
         foreach (var s in CliffSites(4))
-            for (int k = 3; k <= 6; k++) chunks.Add((k, s >> (7 + k)));
+            for (int k = 1; k <= 6; k++) chunks.Add((k, s >> (7 + k)));
         var ms = new double[4, 8]; var n = new int[8];
         int opened = 0; string bad = null;
         foreach (var (k, coord) in chunks)
@@ -350,7 +360,7 @@ public class ShellFillTests
             if (diff > 0 && bad == null) bad = $"shell {k} chunk {coord}: the prefilter changed {diff} voxels";
         }
         var lines = new List<string> { $"prefilter: {chunks.Count} chunks (entrance + cliff sites); voxels opened by the mouth rule {opened}" };
-        for (int k = 3; k <= 6; k++)
+        for (int k = 1; k <= 6; k++)
             if (n[k] > 0)
                 lines.Add($"  shell {k}: {n[k]} chunks, ms/chunk (Editor, Burst): generator {ms[0, k] / n[k]:F0}, fill no mouths {ms[1, k] / n[k]:F0}, " +
                           $"fill {ms[2, k] / n[k]:F0}, fill without the prefilter {ms[3, k] / n[k]:F0}");
@@ -477,18 +487,31 @@ public class ShellFillTests
         }
     }
 
+    /// Task 93b2 (owner Q54 (a)): shells 1-2 are fill shells. In the chunk under a
+    /// cliff site's surface the fill changes enclosed voxels and drops dense bricks,
+    /// and every outside ray sees what it saw (fill + flatten without mouths).
     [Test]
-    public void Shells1and2_AreNotFilled()
+    public void Shells1and2_AreFilled_RaysSeeTheSame()
     {
+        Assert.AreEqual(1, TerrainGenChunkSource.FIRST_FILL_SHELL);
         var sites = CliffSites(1);
+        var lines = new List<string>();
         for (int k = 1; k <= 2; k++)
         {
             int3 coord = (sites[0] >> (7 + k)) + new int3(0, -1, 0);
-            C a = Gen(k, coord, 0), c = Gen(k, coord, 2);
+            C a = Gen(k, coord, 0), b = Gen(k, coord, 1), c = Gen(k, coord, 2);
             int diff = 0;
             for (int i = 0; i < a.M.Length; i++) if (a.M[i] != c.M[i]) diff++;
-            Assert.AreEqual(0, diff, $"shell {k}: the fill changed {diff} voxels");
+            var ra = Rays(a); var rb = Rays(b);
+            int rays = 0, bad = 0;
+            for (int i = 0; i < ra.Count; i++) { if (ra[i] == long.MinValue) continue; rays++; if (ra[i] != rb[i]) bad++; }
+            lines.Add($"shell {k} chunk {coord}: {diff} voxels filled/opened, dense bricks {a.Dense} -> {c.Dense}, " +
+                      $"ms (Editor) generator {a.Ms:F0} fill {c.Ms:F0}; outside rays {rays}, differ {bad}");
+            Assert.Greater(diff, 0, $"shell {k}: the fill changed nothing below the surface");
+            Assert.Less(c.Dense, a.Dense, $"shell {k}: the fill dropped no dense brick");
+            Assert.AreEqual(0, bad, $"shell {k} chunk {coord}: {bad} outside rays see something else after the fill");
         }
+        Debug.Log("[93b2]\n" + string.Join("\n", lines));
         _cache.Clear();
     }
 
@@ -496,20 +519,21 @@ public class ShellFillTests
     public void FillShell_AfterGeneration_IsGenerateShellChunkWithTheFill()
     {
         var sites = CliffSites(1);
-        int3 coord = (sites[0] >> 10) + new int3(0, -1, 0);
+        foreach (int k in new[] { 1, 3 })   // task 93b2: shell 1 is a fill shell too
         using (var a = new TerrainGenChunkSource.ShellChunk())
         using (var b = new TerrainGenChunkSource.ShellChunk())
         {
-            _src.GenerateShellChunk(3, coord, a);
+            int3 coord = (sites[0] >> (7 + k)) + new int3(0, -1, 0);
+            _src.GenerateShellChunk(k, coord, a);
             _src.ShellFill = false;
-            _src.GenerateShellChunk(3, coord, b);
+            _src.GenerateShellChunk(k, coord, b);
             _src.FillShell(b);
             _src.ShellFill = true;
             int diff = 0;
             for (int i = 0; i < a.Mats.Length; i++) if (a.Mats[i] != b.Mats[i]) diff++;
             for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++)
                 if (a.BrickUniform[i] != b.BrickUniform[i] || (a.BrickUniform[i] && a.BrickMat[i] != b.BrickMat[i])) diff++;
-            Assert.AreEqual(0, diff);
+            Assert.AreEqual(0, diff, $"shell {k}: FillShell after generation differs from GenerateShellChunk");
             // Brick records match the voxels.
             int badBricks = 0;
             for (int bi = 0; bi < EngineConfig.BRICKS_PER_CHUNK; bi++)

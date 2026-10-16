@@ -1,9 +1,10 @@
 // Assets/CoreEngine/WorldGen/TerrainGenChunkSource.ShellFill.cs
 //
 // Engine step 11d (task 83; owner Q44 (a), 2026-10-12; Amendment 8.14 row 13's
-// fill note): SHELL CAVE FILL. Below the surface, shells >= 3 (FIRST_FILL_SHELL,
-// 275 m+ on High, the same shell index on every preset) are NOT equal to the
-// generator. After generation and the far edit ops, GenerateShellChunk runs
+// fill note): SHELL CAVE FILL. Below the surface, shells >= 1 (FIRST_FILL_SHELL;
+// task 83 began at 3, 275 m+ on High; task 93b2, owner Q54 (a), 2026-10-16,
+// lowered it to 1, 69 m+ on High, so shells 1-2 fit their brick caps) are NOT
+// equal to the generator. After generation and the far edit ops, GenerateShellChunk runs
 // this pass on the coarse grid:
 //   OPEN       a pass voxel (air, a fluid, the river lip) is OPEN when its
 //              sample lies above h - V (h = the column's ground, V = one shell
@@ -17,7 +18,9 @@
 //   MOUTHS     (cave entrances are points of interest, owner 2026-10-12) a
 //              solid fill-zone voxel touching a seed-open voxel (outside air,
 //              a halo or op seed) is sub-sampled 4 x 4 x 4 at the fine level
-//              (DetailField.Material at the cell centres); it becomes AIR when
+//              (DetailField.Material at the cell centres; shells 1-2 have
+//              fewer fine cells per voxel, 2^3 / 4^3, and sample each of them
+//              (shell 1: every cell 8 times)); it becomes AIR when
 //              at least 1/4 of its UNDERGROUND sub-samples (fine y <= that
 //              fine column's h, outside an arch / hoop / ledge opening: those
 //              are not caves) are air or fluid, and at least 4 are. A mouth
@@ -59,9 +62,14 @@ namespace VoxelEngine.WorldGen
 {
     public sealed partial class TerrainGenChunkSource
     {
-        /// The first shell the fill runs on (owner Q44 (a): k >= 3).
-        public const int FIRST_FILL_SHELL = 3;
+        /// The first shell the fill runs on (owner Q44 (a): k >= 3; task 93b2,
+        /// owner Q54 (a): k >= 1, every shell).
+        public const int FIRST_FILL_SHELL = 1;
         public static bool ShellFills(int shell) => shell >= FIRST_FILL_SHELL;
+        /// Diagnostic (task 93b2, `-shellfillfrom N`): the first shell THIS source
+        /// fills; 3 = task 83's fill (the pre-93b2 bytes). Set before any worker runs.
+        public int FirstFillShell = FIRST_FILL_SHELL;
+        public bool FillsShell(int shell) => shell >= FirstFillShell;
 
         /// Task 83's switches, read at each call. All on by default; tests turn
         /// them off for the before/after comparisons.
@@ -84,7 +92,7 @@ namespace VoxelEngine.WorldGen
         /// GenerateShellChunk with the fill on.
         public void FillShell(ShellChunk output)
         {
-            if (!ShellFills(output.Shell) || output.IsUniformAir) return;
+            if (!FillsShell(output.Shell) || output.IsUniformAir) return;
             FillShellChunk(output, (1 << (output.Shell - 1)) - 1, null, true);
         }
 
@@ -93,7 +101,7 @@ namespace VoxelEngine.WorldGen
         private void FillShellChunk(ShellChunk output, int half, VoxelEngine.Streaming.EditOpSnapshot ops, bool force = false,
                                     VoxelEngine.Streaming.EditSummarySnapshot summaries = null)
         {
-            if ((!ShellFill && !force) || !ShellFills(output.Shell) || output.IsUniformAir) return;
+            if ((!ShellFill && !force) || !FillsShell(output.Shell) || output.IsUniformAir) return;
             int k = output.Shell;
             int3 origin = output.Coord << (CHUNK_SHIFT + k);
             var boxes = new NativeList<int3>(Allocator.TempJob);
@@ -247,8 +255,8 @@ namespace VoxelEngine.WorldGen
                             {
                                 for (int s = 0; s < 16; s++)
                                 {
-                                    int sx = origin.x + (lx << shift) + ((2 * (s & 3) + 1) << (shift - 3));
-                                    int sz = origin.z + (lz << shift) + ((2 * (s >> 2) + 1) << (shift - 3));
+                                    int sx = origin.x + (lx << shift) + SubOff(2 * (s & 3) + 1);
+                                    int sz = origin.z + (lz << shift) + SubOff(2 * (s >> 2) + 1);
                                     subS[s] = TerrainGen.ShapeField.Sample(in spec, in map, in o, sx + 0.5f, sz + 0.5f, 1);
                                     subD[s] = TerrainGen.DetailField.PrepareColumn(in spec, in o, sx, sz, ref nodes);
                                 }
@@ -258,12 +266,12 @@ namespace VoxelEngine.WorldGen
                             int und = 0, pas = 0;
                             for (int s = 0; s < 16; s++)
                             {
-                                int sx = origin.x + (lx << shift) + ((2 * (s & 3) + 1) << (shift - 3));
-                                int sz = origin.z + (lz << shift) + ((2 * (s >> 2) + 1) << (shift - 3));
+                                int sx = origin.x + (lx << shift) + SubOff(2 * (s & 3) + 1);
+                                int sz = origin.z + (lz << shift) + SubOff(2 * (s >> 2) + 1);
                                 var c0 = subS[s]; var d0 = subD[s];
                                 for (int j = 0; j < 4; j++)
                                 {
-                                    int fy = origin.y + (ly << shift) + ((2 * j + 1) << (shift - 3));
+                                    int fy = origin.y + (ly << shift) + SubOff(2 * j + 1);
                                     if (fy > c0.height) continue;   // outside air: not a mouth
                                     if ((fy >= c0.open1Lo && fy < c0.open1Hi) || (fy >= c0.open2Lo && fy < c0.open2Hi) ||
                                         (fy >= c0.open3Lo && fy < c0.open3Hi)) continue;   // an arch / hoop / ledge gap: not a cave
@@ -362,6 +370,12 @@ namespace VoxelEngine.WorldGen
 
             /// First ly whose sample (origin.y + (ly << k) + half) is above ground - V.
             private int LyOpen(int ground, int V) => ((ground - V - origin.y - half) >> shift) + 1;
+
+            /// Fine cell of sub-sample `odd` / 8 across a voxel (odd = 1, 3, 5, 7):
+            /// (odd x V) >> 3. Shells >= 3: odd << (shift - 3), as task 83 wrote it
+            /// (same bytes); shells 1-2 (task 93b2): the cell holding that point
+            /// (a negative shift count would wrap in C#).
+            private int SubOff(int odd) => (odd << shift) >> 3;
 
             private int HaloHeight(in TerrainGen.MapView map, int x, int z)
                 => TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, z + 0.5f, 1).height;

@@ -28,10 +28,10 @@
 // shell pools. Edit ops (row 9, task 81): the overload taking an
 // EditOpSnapshot applies them after generation (EditOpApply.ApplyToShell).
 //
-// CAVE FILL (task 83, owner Q44 (a)): shells >= 3 then fill enclosed
-// underground air, open small cave mouths and flatten interior mixed bricks
-// (TerrainGenChunkSource.ShellFill.cs); below the surface they are no longer
-// the generator's voxels. Shells 0-2 are unchanged.
+// CAVE FILL (task 83, owner Q44 (a); every shell since task 93b2, owner Q54 (a)):
+// shells >= FIRST_FILL_SHELL then fill enclosed underground air, open small cave
+// mouths and flatten interior mixed bricks (TerrainGenChunkSource.ShellFill.cs);
+// below the surface they are no longer the generator's voxels. Tier 0 is unchanged.
 //
 // BRICK SKIP (task 82b): the same proofs as Generate's (its header), over a
 // brick's 8 coarse sample heights. The samples' fine bricks differ (k >= 3), so
@@ -159,7 +159,7 @@ namespace VoxelEngine.WorldGen
         public void GenerateShellChunk(int shell, int3 coord, ShellChunk output, int sampleIndex = -1)
         {
             int half = GenerateShellChunkRaw(shell, coord, output, sampleIndex);
-            FillShellChunk(output, half, null);   // task 83: shells >= 3 only
+            FillShellChunk(output, half, null);   // task 83: shells >= FIRST_FILL_SHELL
         }
 
         /// Task 93b2: off = every shell chunk runs its column job (the pre-93b2 work; same bytes).
