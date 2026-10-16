@@ -1,8 +1,21 @@
-# Session handoff -- 2026-10-15 ~16:30 (supervisor; queue RUNNING task 93a)
+# Session handoff -- 2026-10-15 ~21:00 (supervisor; queue RUNNING task 93b)
 
 ## For the owner
-**Why this session started:** the previous supervisor (tmux window 22:1) lost macOS file access to the repo at ~15:05 and
-could not write this file; you started this one (window 22:0) with a prompt in its place. 22:1 was closed.
+**Why a new session (21:00):** the supervisor in window 22:0 grew to ~10 MB of history (the size hook fired). That
+session started at ~16:00 after its predecessor (window 22:1) lost macOS file access to the repo; 22:1 was closed.
+
+**Since 16:30 in 22:0:**
+- **93a done** (`f271d77`, E1 edit summaries): block-built chunks are drawn into the far shells (tower visible at 241 m;
+  0 voxels differ from reference; ~3.4 ms main thread per summary, 1 per frame). It pays off from D2 (93e) on, because tier 0
+  still draws edits out to ~102 m today. In the doc with its before/after pair.
+- **93a1 done** (`a9ca2db`, BLD1 drag line): RMB press-drag-release builds a line of cubes, LMB drag digs one, Esc cancels,
+  pays per cube and stops when the slot runs out; suite 745/0. In the doc with two images. The queue waited ~3.5 h on the
+  usage limit before it.
+- **Your "blocky ridge" question** on 93a's far shots: the `-shellsdebug` tint shows the ridge and the mountain left of it
+  were drawn by the 2.5D FAR BAND (grey tint) because shell 3+ had not streamed yet. Task 93c now re-shoots that pose after
+  the shells fill (commit `b29e9ff`). CAVEAT the supervisor noticed afterwards: 93a1's near shots (0.1 m voxels, savanna
+  slope) show the same yellow-top / grey-riser terrace stripes, so the striped look is at least partly the real surface on
+  steep slopes, not only the far band. 93c's caption must say which. Tell the owner this when 93c lands (or now if asked).
 
 **What this session did (branch `engine-phase`):**
 - **Task 92's four gameplay questions (Q50), answered:** (1) plane stroke = face pull: place one block, pull a face into a
@@ -20,7 +33,8 @@ could not write this file; you started this one (window 22:0) with a prompt in i
 - **Queue decisions doc:** Task reports for 93 (two strip images) and 90b; Done rows 91, 90b, 92, 93; Running line; Q50/Q51
   recorded. **Screenshot Archive:** folders 91 and 93 added (version 5).
 
-**Running:** queue worker on 93a (E1 edit summaries, since 15:32), runner in tmux `overnight`, watcher tab open.
+**Running:** queue worker on 93b (shells perf breakdown, since 20:47), runner in tmux `overnight`, watcher tab open.
+**Close:** tmux window 22:0 (the old supervisor) once the new one has greeted you.
 **Open / waiting on you:** nothing new. Parked: classic-death rule (placement phase); 97 re-ask after 94.
 **Other window:** tmux `12:0` "gen-talk" is your side discussion session from 12 Oct (generation speed / shadows). It has
 an unsent line "write up the shadow proposal for the supervisor". Close it when you are done with it.
