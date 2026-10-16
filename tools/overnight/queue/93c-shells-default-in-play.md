@@ -38,4 +38,14 @@ Read task 93b's result (`tools/overnight/done/*93b-shells-perf-breakdown*` and i
 - Stills, ONE launch (<= ~10 min, short fixed waits, PREAMBLE launch budget): play at 3 poses (e.g. eye_level_2,
   glide_400m, peak_from_2km), midday with the sun behind the camera, OFF vs ON, captions naming what to look at
   (horizon shapes, seams, any holes where shells had not filled; report missing shell counts).
-- HANDOFF `## For the doc`: which rule applied, peak MB OFF -> ON, the sheet.
+- **Owner's blocky-ridge check (owner, 2026-10-15, on 93a's `farwall_far_*` shots: "kinda blocky, our 0.1 m
+  granularity doesn't shine ... the yellow/grey ridge and the topography there look off"):** 93a's `-shellsdebug` twin
+  shows that ridge and the mountain left of it were drawn by the 2.5D FAR BAND (grey tint), because shell 3+ had not
+  streamed yet (shell 3 0/6 around the tower, ~1,500 shell-3 chunks missing after 93a's short wait). In the same launch,
+  re-shoot 93a's far pose (`-farwall` far pose, camera (3904.6, 978.5, 4083.8) m, its heading) with shells ON, and for this
+  ONE pose wait until the shells covering the frame are filled (missing 0 for shells 1-4 inside the view, cap 4 min; say
+  what is still missing at the cap). The launch budget's short-wait rule is lifted for this pose only, because the
+  question IS what the filled shells look like. Shoot plain + `-shellsdebug` tint, plus a 4x crop of the ridge. Caption:
+  which shell draws the ridge now, and whether it still looks stepped/striped (if it does, that is the generator's
+  surface, not the far band -- say so).
+- HANDOFF `## For the doc`: which rule applied, peak MB OFF -> ON, the sheet, the blocky-ridge pair (93a vs filled).
