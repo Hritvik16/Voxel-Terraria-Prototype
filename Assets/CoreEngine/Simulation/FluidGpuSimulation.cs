@@ -560,6 +560,28 @@ namespace VoxelEngine.Simulation
             UploadMaterialRegistry();
         }
 
+        /// §7.6's pair table flattened to the shader's [self * 256 + other]
+        /// lookup, 0xFFFFFFFF = no reaction. Static so ReactionTableTests can
+        /// pin it against MaterialRules.TryGetReaction (the CPU reference's
+        /// lookup) without a GPU.
+        public static void BuildReactionTables(out uint[] reactSelf, out uint[] reactOther)
+        {
+            reactSelf = new uint[256 * 256];
+            reactOther = new uint[256 * 256];
+            for (int i = 0; i < reactSelf.Length; i++) reactSelf[i] = 0xFFFFFFFFu;
+            for (int m = 0; m < 256; m++)
+            {
+                if (!MaterialRules.HasAnyReaction((byte)m)) continue;
+                for (int o = 0; o < 256; o++)
+                {
+                    if (!MaterialRules.TryGetReaction((byte)m, (byte)o,
+                            out byte sp, out byte op)) continue;
+                    reactSelf[m * 256 + o] = sp;
+                    reactOther[m * 256 + o] = op;
+                }
+            }
+        }
+
         private static GraphicsBuffer New(GraphicsBuffer.Target target, int count, int stride) =>
             new GraphicsBuffer(target, Math.Max(1, count), stride);
 
@@ -571,22 +593,13 @@ namespace VoxelEngine.Simulation
             var flags = new uint[256];
             var interval = new uint[256];
             var rank = new uint[256];
-            var reactSelf = new uint[256 * 256];
-            var reactOther = new uint[256 * 256];
-            for (int i = 0; i < reactSelf.Length; i++) reactSelf[i] = 0xFFFFFFFFu;
+            BuildReactionTables(out uint[] reactSelf, out uint[] reactOther);
 
             for (int m = 0; m < 256; m++)
             {
                 flags[m] = MaterialRules.Flags((byte)m);
                 interval[m] = MaterialRules.TickInterval((byte)m);
                 rank[m] = MaterialRules.DensityRank((byte)m);
-                for (int o = 0; o < 256; o++)
-                {
-                    if (!MaterialRules.TryGetReaction((byte)m, (byte)o,
-                            out byte sp, out byte op)) continue;
-                    reactSelf[m * 256 + o] = sp;
-                    reactOther[m * 256 + o] = op;
-                }
             }
 
             _materialFlags = New(GraphicsBuffer.Target.Structured, 256, 4);

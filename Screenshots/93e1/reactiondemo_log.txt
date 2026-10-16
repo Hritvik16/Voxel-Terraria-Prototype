@@ -1,0 +1,7 @@
+[ReactionDemo] start int3(26680, 6319, 30200), sun-away yaw 180 -> axis 180
+[ReactionDemo] 1 water+lava (GPU CA, read from ChunkStore): cooled stone 352, lava 2348, steam 352, water 448, 
+[ReactionDemo] 2 water+loam (GPU CA, read from ChunkStore): loam 2326, mud 374, water 144, 
+[ReactionDemo] 3 sand+lava (before clearing) (GPU CA, read from ChunkStore): glass 241, lava 256, sand 2459, 
+[ReactionDemo] 3 sand+lava (near half cleared) (GPU CA, read from ChunkStore): glass 246, lava 128, sand 2454, 
+[ReactionDemo] 4 snow+lava (GPU CA, read from ChunkStore): cooled stone 134, lava 122, snow 2566, steam 134, 
+[ReactionDemo] done

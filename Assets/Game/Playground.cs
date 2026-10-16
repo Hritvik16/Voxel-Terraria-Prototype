@@ -538,10 +538,13 @@ public partial class Playground : MonoBehaviour
         if (!IsCaptureRun() && HasArg("-movedemo")) StartCoroutine(MoveDemo());
         // -vitalsdemo (task 93d1): health / fall / air / lava / soft death screenshots, then quit.
         if (!IsCaptureRun() && HasArg("-vitalsdemo")) StartCoroutine(VitalsDemo());
+        // -reactiondemo (task 93e1): RX1's four adjacency pairs in marble trays, one shot each, then quit.
+        if (!IsCaptureRun() && HasArg("-reactiondemo")) StartCoroutine(ReactionDemo());
         // Task 93d1: the older demos keep their shots damage-free; -vitals 0 turns damage off in play.
         _vitalsAllowed = !(TryArgFloat("-vitals", out float vitArg) && vitArg < 1f) &&
                          !(HasArg("-survivaldemo") || HasArg("-strokedemo") || HasArg("-pulldemo") || HasArg("-movedemo") ||
-                           HasArg("-oredemo") || HasArg("-riverdemo") || HasArg("-liquiddemo") || HasArg("-farop") || HasArg("-farwall"));
+                           HasArg("-oredemo") || HasArg("-riverdemo") || HasArg("-liquiddemo") || HasArg("-farop") || HasArg("-farwall") ||
+                           HasArg("-reactiondemo"));
         // -oredemo (task 66): ore screenshots (a tunnel wall, the hotbar, the dev map's close slice), then quit.
         if (!IsCaptureRun() && HasArg("-oredemo")) StartCoroutine(OreDemo());
         // -riverdemo (task 73): river/lake/waterfall/mouth screenshots for RIVERS_WATERFALLS_PLAN.md, then quit.
@@ -1374,6 +1377,8 @@ public partial class Playground : MonoBehaviour
         if (m == Materials.Sludge) return "toxic sludge";
         if (m == Materials.Quicksand) return "quicksand";
         if (m == Materials.Steam) return "steam";
+        if (m == Materials.CooledStone) return "cooled stone";
+        if (m == Materials.Glass) return "glass";
         return $"id {m}";
     }
 

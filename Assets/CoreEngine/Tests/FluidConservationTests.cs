@@ -695,9 +695,11 @@ public class FluidConservationTests
     // =====================================================================
 
     [Test]
-    public void WaterPlusLava_ProducesObsidian_AndFreesBothSlots()
+    public void WaterPlusLava_ProducesCooledStoneAndSteam_AndFreesBothSlots()
     {
-        // §13: "water+lava -> obsidian, both slots freed."
+        // §13: "water+lava -> obsidian, both slots freed." RX1 (task 93e1)
+        // changed the products: the lava cell becomes cooled stone, the water
+        // cell steam. Both original slots still free; the steam gets a new one.
         var sim = NewBigSandbox(FluidMotionTiers.Full);
         sim.EditVoxel(16, 1, 16, Materials.Lava);
         sim.EditVoxel(17, 1, 16, Materials.Water);
@@ -711,17 +713,20 @@ public class FluidConservationTests
         var check = sim.CheckConservation();
         Assert.IsTrue(check.Ok, check.Message);
 
-        Assert.AreEqual(1, sim.CountMaterial(Materials.Obsidian), "the lava cell becomes obsidian");
+        Assert.AreEqual(1, sim.CountMaterial(Materials.CooledStone), "the lava cell becomes cooled stone");
+        Assert.AreEqual(Materials.CooledStone, sim.GetVoxel(16, 1, 16));
+        Assert.AreEqual(Materials.Steam, sim.GetVoxel(17, 1, 16), "the water cell becomes steam");
         Assert.AreEqual(0, sim.CountMaterial(Materials.Lava), "the lava is consumed");
-        Assert.AreEqual(0, sim.CountMaterial(Materials.Water), "the water is consumed");
-        Assert.AreEqual(0, sim.CountMobileBytes(), "no mobile material survives the reaction");
-        Assert.AreEqual(2L, sim.Ledger.ReactionConsumed,
-            "both consumed bytes must be booked as a reaction, not silently lost");
+        Assert.AreEqual(0, sim.CountMaterial(Materials.Water), "the water flashed to steam");
+        Assert.AreEqual(1, sim.CountMobileBytes(), "only the steam is still mobile");
+        Assert.AreEqual(1L, sim.Ledger.ReactionConsumed,
+            "the consumed lava must be booked as a reaction, not silently lost");
 
         // "Both slots freed": the scanning slot frees inside Intent, its
-        // counterpart on its own next Intent via the orphan check (§7.3).
+        // counterpart in the same pass (its cell was reserved). The one slot
+        // left is the steam's, promoted by the wake that follows the write.
         sim.Tick();
-        Assert.AreEqual(0, sim.ActiveSlotCount, "both slots must be free at steady state");
+        Assert.AreEqual(1, sim.ActiveSlotCount, "only the steam holds a slot");
         Assert.IsTrue(sim.CheckConservation().Ok, sim.CheckConservation().Message);
     }
 
@@ -743,12 +748,13 @@ public class FluidConservationTests
             Assert.IsTrue(check.Ok, check.Message);
         }
 
-        Assert.AreEqual(1, sim.CountMaterial(Materials.Obsidian),
-            "the falling lava should have made exactly one obsidian on contact");
+        Assert.AreEqual(1, sim.CountMaterial(Materials.CooledStone),
+            "the falling lava should have made exactly one cooled stone on contact");
         Assert.AreEqual(0, sim.CountMaterial(Materials.Lava));
-        Assert.AreEqual(before - 2, sim.CountMobileBytes(),
-            "one lava and one water consumed, nothing else");
-        Assert.AreEqual(2L, sim.Ledger.ReactionConsumed);
+        Assert.AreEqual(1, sim.CountMaterial(Materials.Steam), "one water cell flashed to steam");
+        Assert.AreEqual(before - 1, sim.CountMobileBytes(),
+            "one lava consumed; the water lives on as steam");
+        Assert.AreEqual(1L, sim.Ledger.ReactionConsumed);
     }
 
     [Test]

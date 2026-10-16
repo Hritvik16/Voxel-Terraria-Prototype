@@ -358,7 +358,7 @@ public class Phase5bValidationRig : MonoBehaviour
         L($"readback latency: max frames in flight {_basin.Readback.MaxFramesInFlightSeen} " +
           "(§7.2 expects 1-3; §8.2's speed clamp does not exist until Phase 6)");
 
-        foreach (byte m in new[] { Materials.Water, Materials.Sand, Materials.Lava, Materials.Obsidian })
+        foreach (byte m in new[] { Materials.Water, Materials.Sand, Materials.Lava, Materials.CooledStone, Materials.Steam })   // RX1 (93e1) products
         {
             int gpu = _basin.CountMaterialWorld(m);
             int cpu = _basin.Oracle.CountMaterial(m);

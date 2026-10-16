@@ -72,6 +72,7 @@ public static class Items
         n[Materials.TorchGreen] = "green torch"; n[Materials.TorchPurple] = "violet torch";
         n[Materials.Oil] = "oil"; n[Materials.Acid] = "acid"; n[Materials.Sludge] = "toxic sludge";
         n[Materials.Quicksand] = "quicksand"; n[Materials.Steam] = "steam";
+        n[Materials.CooledStone] = "cooled stone"; n[Materials.Glass] = "glass";   // RX1
 
         // tg2 (GenMat code -> name), TerrainGen/GenMat.cs.
         void T(byte code, string name) => n[Materials.TG2_BASE + code] = name;

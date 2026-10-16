@@ -107,6 +107,15 @@ public static class Materials
     public const byte Sludge      = 20;
     public const byte Quicksand   = 21;
     public const byte Steam       = 22;
+
+    // ---- RX1 reaction products (task 93e1, GAMEPLAY_PHASE_PLAN row RX1; ADDITIVE) ----
+    // CooledStone: what a lava cell becomes when water touches it (it was
+    // Obsidian before RX1). Its own id rather than Stone (2), so a count of
+    // reaction products never mixes with generated stone. Glass: sand + lava.
+    // Absent from ContentVersionHash() for the Lava/Honey precedent: no
+    // generator places them.
+    public const byte CooledStone = 23;
+    public const byte Glass       = 24;
 }
 
 public struct BiomeDefinition

@@ -420,7 +420,7 @@ public class LateGameSiegeRig : MonoBehaviour
                     var v = new int3(x, y, z);
                     if (!Store.IsResident(CoordMath.VoxelToChunk(v))) continue;
                     byte m = Store.GetVoxel(v);
-                    if (m == Materials.Lava || m == Materials.Obsidian) lo++;
+                    if (m == Materials.Lava || m == Materials.CooledStone) lo++;   // RX1 (93e1): the water+lava product is CooledStone, was Obsidian
                     else if (m == Materials.Water) w++;
                 }
         lavaObs = lo; water = w;

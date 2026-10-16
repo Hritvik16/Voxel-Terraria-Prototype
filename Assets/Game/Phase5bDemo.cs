@@ -293,7 +293,7 @@ public class Phase5bDemo : MonoBehaviour
 
         L("");
         L($"materials at end: water {Count(Materials.Water)}  sand {Count(Materials.Sand)}  " +
-          $"lava {Count(Materials.Lava)}  obsidian {Count(Materials.Obsidian)}  stone {Count(Materials.Stone)}");
+          $"lava {Count(Materials.Lava)}  cooled stone {Count(Materials.CooledStone)}  stone {Count(Materials.Stone)}");
         L($"screenshots captured: {_shots}");
         L(_shots >= 11 ? "RESULT: demo complete." : "RESULT: FAILED — expected 11 screenshots.");
 
@@ -320,7 +320,7 @@ public class Phase5bDemo : MonoBehaviour
         finally { Destroy(shot); }
         _shots++;
         L($"{name}.png — {caption}   [water {Count(Materials.Water)} sand {Count(Materials.Sand)} " +
-          $"lava {Count(Materials.Lava)} obsidian {Count(Materials.Obsidian)}]");
+          $"lava {Count(Materials.Lava)} cooled stone {Count(Materials.CooledStone)}]");
     }
 
     /// EXACT, not sampled. An earlier version scanned every other cell and

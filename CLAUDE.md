@@ -360,6 +360,11 @@ Task 93e (engine 14d2, 8.15 row D2, OPT-IN pending owner Q54): `-shells 1 -small
 Recentres re-dirty slots held by another chunk (`TerrainClipmap.RecentreDirtiesStaleSlots`); the validator skips residents outside the box.
 NOT default: the GPU fluid CA reads terrain from this box (KNOWN_ISSUES). `UploadDirtyBoxTests` (9).
 
+Task 93e1 (gameplay RX1): ADJACENCY REACTIONS in `MaterialRules`' pair table (both directions via `Pair`): water + lava -> steam
+(water cell) + COOLED STONE (lava cell; new id 23, was obsidian + air); water + tg2 loam/red earth -> mud (water kept); lava + sand
+(legacy, tg2, beach) -> GLASS (new id 24, acid-proof; lava kept); lava + snow/tg2 snow/packed ice -> water (lava kept, then quenched).
+GPU: `CSReact` sets the op wake bit for MOBILE products (air/solid products unchanged). `ReactionPairTests` (6), `EXTRA="-reactiondemo"` = 4 tray shots.
+
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
 (`Assets/TerrainGen/`):

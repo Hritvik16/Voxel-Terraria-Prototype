@@ -873,6 +873,8 @@ float3 MaterialAlbedo(uint mat)
     if (mat == 20u) return float3(0.300, 0.620, 0.180);  // Sludge
     if (mat == 21u) return float3(0.560, 0.470, 0.320);  // Quicksand
     if (mat == 22u) return float3(0.700, 0.720, 0.740);  // Steam
+    if (mat == 23u) return float3(0.300, 0.295, 0.310);  // CooledStone (RX1)
+    if (mat == 24u) return float3(0.600, 0.720, 0.700);  // Glass (RX1)
     return float3(0.90, 0.10, 0.80);                     // unauthored -> obvious magenta
 }
 
@@ -960,6 +962,8 @@ float3 MaterialAlbedoLook(uint mat)
     if (mat == 20u) return float3(0.400, 0.850, 0.220);  // Sludge
     if (mat == 21u) return float3(0.660, 0.560, 0.380);  // Quicksand
     if (mat == 22u) return float3(0.850, 0.870, 0.900);  // Steam
+    if (mat == 23u) return float3(0.360, 0.350, 0.370);  // CooledStone (RX1)
+    if (mat == 24u) return float3(0.700, 0.850, 0.820);  // Glass (RX1)
     return float3(0.90, 0.10, 0.80);                     // unauthored -> obvious magenta
 }
 

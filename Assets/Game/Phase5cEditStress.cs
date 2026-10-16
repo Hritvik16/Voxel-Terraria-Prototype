@@ -276,7 +276,7 @@ public class Phase5cEditStress : MonoBehaviour
         for (int x = 1; x < SX - 1; x++)
         {
             byte m = Store.GetVoxel(new int3(x, y, z));
-            if (!MaterialRules.IsMobile(m)) continue;
+            if (!MaterialRules.IsMobile(m) || MaterialRules.IsGasMaterial(m)) continue;   // RX1: steam rises, never "floats"
             if (Store.GetVoxel(new int3(x, y - 1, z)) == Materials.Air) n++;
         }
         return n;
@@ -319,7 +319,7 @@ public class Phase5cEditStress : MonoBehaviour
             for (int x = 0; x < SX; x++)
             {
                 byte m = Store.GetVoxel(new int3(x, y, z));
-                if (!MaterialRules.IsMobile(m) && m != Materials.Obsidian) continue;
+                if (!MaterialRules.IsMobile(m) && m != Materials.CooledStone) continue;   // RX1 (93e1): the water+lava product is CooledStone, was Obsidian
                 h ^= (ulong)((x * 73856093) ^ (y * 19349663) ^ (z * 83492791) ^ (m * 2654435761));
                 h *= 1099511628211UL;
             }
@@ -342,7 +342,7 @@ public class Phase5cEditStress : MonoBehaviour
     }
 
     private static readonly byte[] TrackedMaterials =
-        { Materials.Water, Materials.Sand, Materials.Lava, Materials.Honey, Materials.Obsidian };
+        { Materials.Water, Materials.Sand, Materials.Lava, Materials.Honey, Materials.CooledStone };   // RX1 (93e1): the water+lava product is CooledStone, was Obsidian
 
     public Obs Observe()
     {
@@ -352,7 +352,7 @@ public class Phase5cEditStress : MonoBehaviour
             Sand = CountMaterial(Materials.Sand),
             Lava = CountMaterial(Materials.Lava),
             Honey = CountMaterial(Materials.Honey),
-            Obsidian = CountMaterial(Materials.Obsidian),
+            Obsidian = CountMaterial(Materials.CooledStone),   // RX1 (93e1): the water+lava product is CooledStone, was Obsidian
             Floating = CountFloating(),
             Fingerprint = Fingerprint(),
         };
@@ -578,7 +578,7 @@ public class Phase5cEditStress : MonoBehaviour
             r.Eq(0, wb, "all water entered");
             r.Eq(0, lb, "all lava entered");
             r.Settle();
-            int obs = r.CountMaterial(Materials.Obsidian);
+            int obs = r.CountMaterial(Materials.CooledStone);   // RX1 (93e1): the water+lava product is CooledStone, was Obsidian
             r.True(obs > 0, "obsidian formed (§7.6 reaction)");
             // MASS BALANCE, not raw counts: each obsidian consumed one water and
             // one lava, so these identities hold no matter HOW MANY reactions

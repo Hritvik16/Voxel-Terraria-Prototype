@@ -675,8 +675,12 @@ void CSReact(uint3 id : SV_DispatchThreadID)
 
         // Single-cell: each side expects its own current material to still be
         // there, so an edit that changed it drops the op instead of stomping it.
-        EmitOp(c, selfProduct, int3(0,0,0), 0u, slot.materialID);
-        EmitOp(n, otherProduct, int3(0,0,0), 0u, other);
+        // RX1 (task 93e1): a MOBILE product (steam, melt water, a side that keeps
+        // its material) carries the wake bit, so the CPU's op-driven wake
+        // re-promotes it -- FluidReferenceCPU's CommitPass wakes the same cells.
+        // Air / solid products carry none, exactly as before RX1.
+        EmitOp(c, selfProduct | (IsMobile(selfProduct) ? OP_WAKE_BIT : 0u), int3(0,0,0), 0u, slot.materialID);
+        EmitOp(n, otherProduct | (IsMobile(otherProduct) ? OP_WAKE_BIT : 0u), int3(0,0,0), 0u, other);
 
         // This slot is gone. Its counterpart self-frees on its next Intent via
         // the orphan check once the CPU applies the op (§7.3's mechanism).
