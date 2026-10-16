@@ -1,5 +1,7 @@
 # 93b-shells-perf-breakdown
 
+Requires: 93b3-far-band-after-shells-cost
+
 (Was `tools/overnight/later/89-shells-perf-breakdown.md`; copied and updated by task 90b. The original stays in later/.)
 
 Approval: owner, 2026-10-15 in chat. On Q49 (shells ON by default in play, cascade tiers 1-2 retired) the owner said
@@ -45,3 +47,10 @@ Table: arm, p50 / p99 ms, >33 ms share, delta vs OFF, peak MB, Metal MB, log pat
 applies, in one line. One still per arm at the same walk pose (midday, sun behind the camera -- owner rejected backlit
 stills) plus the `-shellsdebug` tint of the ON still, captioned with what to look at.
 End with `## For the doc`: the table, the rule that applies, the stills.
+
+## Re-run (supervisor, 2026-10-15 ~22:40, Q52 (a): going ahead unless the owner objects)
+The first run blocked (STOP_FOR_OWNER): ON +15.2 / +10.5 ms p50 steady, shells never filled while walking. Its report is
+`tools/overnight/blocked/93b-shells-perf-breakdown.HANDOFF.md` and `Screenshots/93b/perf93b.txt` (commits becf7f1, a7d811a).
+93b2 (fill while walking) and 93b3 (far band after the shells) ran first. Re-run the SAME arms with the code already in
+place (no new capture code needed), and add one column "first run" so the table shows first run -> now. Same three
+rules decide 93c. Write the output to `Screenshots/93b/rerun/` so the first run's report stays.

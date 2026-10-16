@@ -1,6 +1,6 @@
 # 93d-engine-14d1-free-cascade-tiers
 
-Requires: 93c-shells-default-in-play
+Requires: 93a-engine-14e1-edit-summaries-live
 
 Approval: owner, 2026-10-15 in the supervisor chat: Amendment 8.15 Q1-Q10 all (a) -- Q2 (a) step 14 redone, Q10 (a)
 order -- recorded in `tools/overnight/done/90a-amendment-8-15-simulation-reach.md` "## Owner answer"; also Q49 (cascade
@@ -30,3 +30,8 @@ Since task 80 cascade tiers 1-2 stop DRAWING when shells draw, but stay ALLOCATE
 - Stills, ONE short launch (<= ~10 min): 2 poses, ON before vs after, to show nothing that tiers 1-2 drew went missing
   (captions: horizon, mid-distance slopes). No frame-time numbers.
 - HANDOFF `## For the doc`: peak MB before -> after, memledger rows, the pair.
+
+## Supervisor note (2026-10-15 ~22:40, Q52 (a))
+Requires changed from 93c to 93a: task 93b blocked (shells ON +10-15 ms steady, never fill while walking), so 93c (shells
+default) is HELD. This task acts only with `-shells 1` (shells OFF byte-identical), so it runs now and frees the 193 MB that
+93b2 (shells fill while walking) may need. Measure memory with `-shells 1`; "play default after 93c" does not apply yet.
