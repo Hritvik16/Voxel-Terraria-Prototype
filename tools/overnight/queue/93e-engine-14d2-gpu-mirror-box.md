@@ -42,3 +42,17 @@ box was sized per preset, nothing more.
   glide_400m, cliff_foot_1), before vs after, plus `-shellsdebug` tint so the shell-0 / shell-1 boundary shows. Look
   for seams, holes or popping at the boundary; captions say where.
 - HANDOFF `## For the doc`: box before -> after per preset, peak MB before -> after, gates C/D, the sheet.
+
+## Owner answer (2026-10-16, Queue decisions doc Q55 = (b))
+The 16^3 box is BUILT and committed opt-in (`dc68d34`, `-smallmirror 1`); do NOT redo it. The owner chose **(b): keep
+fluid at 128 m on every preset** (8.15: simulation reach must not depend on the preset). This run:
+1. Give the GPU fluid CA (`FluidCA.compute` `SampleVoxel`) its own small terrain lookup for chunks that hold AWAKE fluid
+   outside the 16^3 mirror box (HANDOFF estimate ~1 MB): a directory of those chunks' bricks, written from the CPU state
+   (CPU stays the sole terrain writer), so water 90-128 m away keeps flowing against real terrain, not air.
+2. Then switch the small box ON by default with `-shells 1` (Low/Medium/High; Ultra keeps 32x8x32); `-smallmirror 0` = old.
+3. Note for 93f (D3): it must map those fluid chunks' bodies too; say what it needs in HANDOFF.
+Acceptance: an EditMode test where awake water in a chunk outside the box (100-128 m) flows the same as inside the box
+(CPU reference vs GPU, or the CPU's accepted-move count); fluid at 128 m on every preset; the mirror check (lost/lag/stale
+0) still holds; shells off byte-identical (`run-phase7-rig.sh` 19/19, PASS 37); memory before -> after (peak + median MB,
+shells on, 93e's poses); `SUITE=all` once at the end. No frame time (rule 10). Fluid shots: a pool flowing at ~110 m
+seen from the start, before (frozen) vs after. Stop for the owner only if (b) needs more than ~32 MB or a frozen-API change.

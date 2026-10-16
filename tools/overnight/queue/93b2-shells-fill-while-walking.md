@@ -42,3 +42,13 @@ different order policy than Q47 (a), a memory-layout change, or a frozen-API cha
   midday, sun behind the camera, captioned (which shell colour should now cover what).
 - `KNOWN_ISSUES.md` entry "SHELLS COST +10-15 ms STEADY, NEVER FILL WHILE WALKING": update the fill half.
 - `## For the doc`: the counts table, the cause in one line, the before/after tint pair.
+
+## Owner answer (2026-10-16, Queue decisions doc Q54 = (a))
+Your Q53 (renumbered Q54 in the doc; Q53 was taken) is answered **(a): extend task 83's cave fill to shells 1-2**
+(today `FIRST_FILL_SHELL` = 3, owner Q44 (a)). Step 1 and the throughput fix are DONE and committed (`c265106`); do
+NOT redo them. This run is ONE change: lower the fill to shells 1-2 (fluids fill too, as 83b does for shells >= 3),
+keeping ShellFill's guarantee that rays from outside see the same (`ShellFillTests` extended to shells 1-2).
+Acceptance: the same short `MODE=walk` launch as before (`-walkshellwait`, counts only, no frame time): held per shell
+at the walk's end and FULL refusals per shell, after 93b2's fix -> after this; target shells 1-3 >= 90% of their band.
+If shell 2 still stops at its cap, report how far short (do not raise pools: that was option (b), not chosen).
+Report the extra worker time per shell 1-2 chunk. Fast suite once at the end. Tint before/after at the walk's end.
