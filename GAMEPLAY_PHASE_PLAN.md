@@ -14,6 +14,8 @@ code, no Unity, no builds. Branch `engine-phase`. Far-away rules are NOT restate
 - **New order (first ten):** drag line -> plane stroke -> easy start (67) -> health/respawn -> death mode -> easy
   reactions (lava + water -> stone + steam, mud, glass, melting) -> climb (68), glide (69), grapple (70), wall-run (71).
   Tasks 67-71 stay valid; 72 (health/death) needs a rewrite.
+- **Answered 2026-10-15** (supervisor chat): Q1 NOT (a) -- face pull (BLD2 below); Q2 (a); Q3 OPEN (some items lost,
+  rule decided in the object-placement phase); Q4 (a) alternate. Recorded in the list below and the rows named.
 - **Questions (recommendation first):**
   1. Plane stroke: (a) one drag, the box from press to now, one brush thick (flat = floor, upright = wall, thin = line); (b) drag a line, release, sweep into a plane, click; (c) Shift turns the line into a plane.
   2. Hardcore death: (a) the world locks, fly-and-look only (Minecraft); (b) the world is deleted; (c) a new empty-handed character in the same world (Terraria).
@@ -51,6 +53,9 @@ code, no Unity, no builds. Branch `engine-phase`. Far-away rules are NOT restate
 19. **P22 Death is chosen per world at world creation: soft / classic / hardcore (one life). Owner, 2026-10-15**
     (replaces "keep inventory on death"). Meaning of each: soft = respawn, keep everything; classic = Q3; hardcore = Q2.
     Flag `-deathmode soft|classic|hardcore` + a PlaySettings "new world" field; read only when a world is created.
+    **Q2, owner 2026-10-15: (a)** hardcore death locks the world to a fly-only viewer. **Q3, owner 2026-10-15: OPEN** --
+    "you only lose some items"; the exact rule is decided in the object-placement phase. 9b waits for it (soft +
+    hardcore could ship earlier; not queued).
 20. **P23 World stages: 3-4, one boss flips the whole world** (new ores, creatures everywhere, some biomes). **Owner,
     2026-10-15.** Engine side = 8.15 §14 (materials only, touched chunks pinned).
 21. **P24 Creatures: ~50-70 near you; wild ones despawn/respawn by biome; town NPCs and named creatures persist.
@@ -60,6 +65,9 @@ code, no Unity, no builds. Branch `engine-phase`. Far-away rules are NOT restate
 23. **P26 Bosses: some at landmarks (signature features), some summoned/event-triggered. Owner, 2026-10-15.**
 24. **P27 Building = click-and-drag strokes like "Lay of the Land"; also cylinder, cone roof, ground paths, sculpt
     raise/lower, your own build as a brush. Owner, 2026-10-15.** Dig uses the same strokes (LMB): agent's pick.
+    **Q1, owner 2026-10-15: NOT (a).** "For now very simply: place one block down, extend it into a line by selecting
+    one of its faces, then select one of the line's faces [to extend it into a plane]" -> BLD2 = face pull (task 93b1).
+    Later: study how Lay of the Land's building system works (research row BLD-R below).
 25. **P28 No structural integrity** (nothing collapses because unsupported, except powders). **Owner, 2026-10-15.**
 26. **P29 Single player first; keep co-op possible (deterministic, host-authoritative). Owner, 2026-10-15.**
 
@@ -101,12 +109,14 @@ Numbers 1-20 keep their 2026-10-11 ids (tasks 67-72 point at them); new groups u
 | 1 | Inventory, hotbar, survival dig/build | 64 |
 | 2 | Swim/dive, double jump, dash | 65 (+66b underwater view) |
 | 3 | Ores by depth and biome x landform (v4) | 66 |
+| BLD1 | Drag line (RMB/LMB press-drag-release, preview, Esc cancels) | 93a1 |
 
 ### Building (P6, P7, P27) -- smallest useful first
 | # | Step (one change) | Acceptance | Size | Needs |
 | --- | --- | --- | --- | --- |
 | BLD1 | **Drag line.** Press, drag, release: the selected brush is stamped along the straight line between the press point and the release point (integer 3D DDA on the brush grid, `& ~(n-1)`), ghost preview + cell count while dragging, Esc cancels; Survival cost per P7; LMB drag digs the same way. One `EditService` call per stroke (added `SetBoxes`/loop over `SetBox`; mobile-solid wake guard kept). | EditMode: line cells exact on 6 directions + diagonals; cost = cells placed; stops when the slot runs out; undo-free (no undo yet). Screenshots: a 10 m wall base drawn in one drag; the preview. | S | 1 |
-| BLD2 | **Plane stroke** per Q1 (rec. (a): the box between press and current point, thinned to one brush on its smallest axis). Walls and roofs in one drag. | EditMode: flat drag -> horizontal plane, upright -> wall, thin -> line (BLD1 unchanged). Screenshots: a 4-wall hut + flat roof built in 5 strokes. | S-M | BLD1, Q1 |
+| BLD2 | **Face pull** per Q1 (owner 2026-10-15, NOT (a)): place one block, select one of its faces and pull it out into a line; select one of the line's faces and pull it into a plane. Walls and roofs in two pulls. (Was: plane stroke, rec. (a).) | EditMode: a pull along each of the 6 faces gives the exact line/plane; cost = cells placed; stops when the slot runs out (BLD1 unchanged). Screenshots: a 4-wall hut + flat roof. | S-M | BLD1 (task 93b1) |
+| BLD-R | **Research:** how Lay of the Land's building system works (owner 2026-10-15, "later"); a short report, then any change to BLD2-BLD6 is the owner's. | A report with pictures. | S | -- |
 | BLD3 | **Cylinder and cone tools** (round towers; sloped/cone roofs): brush shapes chosen on a tool wheel; a drag sets radius and height. | EditMode voxel counts vs the analytic shape (+-1 shell). Screenshot: tower with cone roof. | M | BLD2 |
 | BLD4 | **Paths drawn on the ground:** the stroke follows the surface (`VoxelRayWalker` down per step) and replaces the top 1-2 voxels with the path material from the slot. | EditMode on a synthetic slope: path cells lie on the surface, nothing floats. Screenshot: a path over a hill. | S-M | BLD1 |
 | BLD5 | **Terrain sculpt raise/lower** along a stroke with a smooth falloff; raise costs soil from the slot, lower gives it (P3). | EditMode conservation (raised = taken). Screenshot: a levelled building plot. | M | BLD1 |
@@ -123,7 +133,7 @@ Far visibility of builds is the engine's: **8.15 E1** (queued, 93a) and **E2**. 
 | 7 | **Grappling hook.** Unchanged. | as before | M | 2 | 70 |
 | 8 | **Wall-run and wall-jump.** Unchanged. | as before | M | 5 | 71 |
 | 9a | **Health, fall damage, oxygen while diving, lava/acid damage, respawn at the start** -- soft death only. Minimal bar HUD. | EditMode damage curves, oxygen drain/refill, respawn location. Screenshots. | M | 2, 4 | 72 (rewrite) |
-| 9b | **Death mode per world** (P22): chosen when a world is created (flag + PlaySettings field), stored in the world-game file; soft / classic (Q3 rec.: one bag at the death spot, a static marker saved with the world, fetched by walking into it) / hardcore (Q2 rec.: the world locks to a fly-only viewer). | EditMode: each mode's outcome; the mode survives a `KEEP=1` reload; changing the flag on a kept world does nothing. Screenshot: the bag; the hardcore "world locked" screen. | M | 9a, Q2, Q3 | new |
+| 9b | **Death mode per world** (P22): chosen when a world is created (flag + PlaySettings field), stored in the world-game file; soft / classic (Q3 OPEN, owner 2026-10-15: "you only lose some items", rule decided in the object-placement phase) / hardcore (Q2 (a), owner 2026-10-15: the world locks to a fly-only viewer). Waits for Q3; soft + hardcore could ship earlier (not queued). | EditMode: each mode's outcome; the mode survives a `KEEP=1` reload; changing the flag on a kept world does nothing. Screenshot: the bag; the hardcore "world locked" screen. | M | 9a, Q2, Q3 | new |
 
 ### Tools, crafting, fluids, hazards
 | # | Step | Size | Needs |
@@ -182,7 +192,7 @@ coarsely (**8.15 F1-F4**). Gas and electricity are near-only.
   (CB3's question round).
 - **Old 9** -- split into 9a + 9b (P22).
 
-## 4. Run order (gameplay only; Q4 decides how it interleaves with the engine block)
+## 4. Run order (gameplay only; Q4 (a), owner 2026-10-15: one gameplay task after each engine task)
 
 1. BLD1 -> BLD2 -> 4 (67) -> 9a (72 rewritten) -> 9b -> RX1 -> 5 (68) -> 6 (69) -> 7 (70) -> 8 (71)
 2. BLD4 -> BLD5 -> BLD3 -> BLD6 -> 10 -> 11 -> 13 -> RX2 -> CB1 -> CB2

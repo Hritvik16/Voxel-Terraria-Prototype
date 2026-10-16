@@ -323,6 +323,11 @@ shading" (PlaySettings.farShade): ON in play, OFF in rigs/capture. Not with `-ch
 `EXTRA="-farshadeshots -gateres 1280 -poses a,b"` = day lit/backlit + night torches, OFF/ON, raw/FSR 3
 (`tools/farshade85b-sheet.py`). Far lights (step 21) add into `lightAdd`.
 
+Task 93a1 (gameplay BLD1): Survival DRAG LINE. RMB press-drag-release stamps the brush cube along the integer DDA line
+(`SurvivalBuild.LineCubes`, <= 256 cubes) in one `EditService.SetCubes` call; pays cube by cube, stops when the slot runs out;
+LMB held still = tool dig as before, turned > 4 deg = dig stroke; preview + count while dragging, Esc cancels (keeps the mouse).
+`Playground.Stroke.cs`, `StrokeTests` (8). `EXTRA="-strokedemo"` = the 6 shots (wall base, short slot, trench).
+
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
 (`Assets/TerrainGen/`):

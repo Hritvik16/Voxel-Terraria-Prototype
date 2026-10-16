@@ -525,6 +525,8 @@ public partial class Playground : MonoBehaviour
         if (Phase4Bootstrapper.IsTg2World && !IsCaptureRun()) StartCoroutine(SettleStartPose(HasArg("-startview")));
         // -survivaldemo (task 64): the step-1 screenshots, through the real dig/place paths, then quit.
         if (!IsCaptureRun() && HasArg("-survivaldemo")) StartCoroutine(SurvivalDemo());
+        // -strokedemo (task 93a1): BLD1's drag-line screenshots, then quit.
+        if (!IsCaptureRun() && HasArg("-strokedemo")) StartCoroutine(StrokeDemo());
         // -movedemo (task 65): movement set A's screenshots (dive, double jump over a gap), then quit.
         if (!IsCaptureRun() && HasArg("-movedemo")) StartCoroutine(MoveDemo());
         // -oredemo (task 66): ore screenshots (a tunnel wall, the hotbar, the dev map's close slice), then quit.
@@ -1686,7 +1688,7 @@ public partial class Playground : MonoBehaviour
     /// click that re-focuses the window cannot also dig a hole.
     private void HandleMouse(float dt)
     {
-        if (_cam == null || !_cam.Captured) return;
+        if (_cam == null || !_cam.Captured) { if (!_strokeDemoOwns) CancelStroke(); return; }
 
         float scroll = Input.mouseScrollDelta.y;
         if (Mathf.Abs(scroll) > 0.01f)
@@ -1696,6 +1698,7 @@ public partial class Playground : MonoBehaviour
         }
 
         if (!Input.GetMouseButton(1)) _placeRepeat = 0f;
+        if (SurvivalMode && HandleStrokeMouse(dt)) return;   // BLD1: a drag stroke owns the mouse
         if (!_hasTarget) return;
         if (SurvivalMode) { HandleSurvivalMouse(dt); return; }
 
@@ -1720,8 +1723,10 @@ public partial class Playground : MonoBehaviour
     }
 
     /// Survival's LMB / RMB. Dig: the tool tier's rate and radius, as Creative,
-    /// but every voxel lands in the inventory. Place: one cube per click, and
-    /// one per PlaceRepeatS while RMB is held.
+    /// but every voxel lands in the inventory, until a drag turns it into a dig
+    /// stroke (Playground.Stroke.cs). Place: a cube block is a drag stroke
+    /// (BLD1) and never reaches here; a single-voxel item (torch) places one
+    /// per click, and one per PlaceRepeatS while RMB is held.
     private void HandleSurvivalMouse(float dt)
     {
         if (Input.GetMouseButton(0))
@@ -2177,13 +2182,16 @@ public partial class Playground : MonoBehaviour
                     inRegion ? new Color(1f, 0.78f, 0.25f, 0.98f)
                              : new Color(0.85f, 0.85f, 0.88f, 0.9f), 2f * k);
                 // Survival: where RMB's cube would go (cyan), when holding something.
-                if (SurvivalMode && !_inv.IsEmpty(_inv.Selected))
+                if (SurvivalMode && !_inv.IsEmpty(_inv.Selected) && !StrokeActive)
                 {
                     int e = SurvivalBuild.EdgeFor(_inv.ItemAt(_inv.Selected), SurvivalBuild.CubeEdges[_edgeIndex]);
                     DrawVoxelHighlight(cam, SurvivalBuild.SnapToGrid(_targetAdjacent, e),
                                        new Color(0.45f, 0.9f, 1f, 0.75f), 1.5f * k, e);
                 }
             }
+
+            // BLD1: the drag stroke's cubes + its count (even aimed at the sky).
+            if (_ready && SurvivalMode && !InventoryOpen) DrawStrokePreview(cam, k, ui);
 
             // The last shot's impact, fading. Makes T do something visible.
             if (_ready && _hasShot && _lastShot.Hit && _shotAge < 2f)
@@ -2573,6 +2581,8 @@ public partial class Playground : MonoBehaviour
             sb.AppendLine("<b><color=#cfe3f5>BUILD & DIG</color></b>   <color=#9fb6c9>(SURVIVAL -- F6 Game mode switches to Creative's free brushes)</color>");
             sb.AppendLine("  <b>LMB</b> dig: every voxel goes into your inventory      <b>Z / X</b> tool tier");
             sb.AppendLine("  <b>RMB</b> place a cube of the held block (cyan box), costs the cells it fills");
+            sb.AppendLine("  <b><color=#ffd479>RMB drag</color></b> a line of cubes, placed on release (stops when the slot runs out)   " +
+                          "<b><color=#ffd479>LMB drag</color></b> dig a line   <b><color=#ffd479>Esc</color></b> cancel");
             sb.AppendLine("  <b><color=#ffd479>Q</color></b> cube size 0.1 / 0.2 / 0.4 / 0.8 m   <b><color=#ffd479>E</color></b> inventory (click two slots to swap)   <b>1-9</b> / scroll  hotbar");
         }
         else

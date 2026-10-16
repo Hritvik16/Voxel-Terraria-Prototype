@@ -293,6 +293,12 @@ public class EditService : IEditService
     {
         if (_fluids.Count == 0) return;
         WakeScansRun++;
+        WakeBox(minVoxel, maxVoxel);
+    }
+
+    /// NotifyEditedRegion's scan without the counter: the box plus a one-cell margin.
+    private void WakeBox(int3 minVoxel, int3 maxVoxel)
+    {
         for (int z = minVoxel.z - 1; z <= maxVoxel.z + 1; z++)
         for (int y = minVoxel.y - 1; y <= maxVoxel.y + 1; y++)
         for (int x = minVoxel.x - 1; x <= maxVoxel.x + 1; x++)
@@ -381,6 +387,60 @@ public class EditService : IEditService
         if (changed > 0) NotifyEditedRegion(origin, origin + dims - new int3(1, 1, 1));
         return changed;
     }
+
+    /// GAMEPLAY BLD1 (task 93a1): a STROKE -- the first `count` edge-aligned
+    /// cubes of `los` (origins, edge a power of two) stamped in ONE call, so a
+    /// drag is one edit however long it is. `fillOnly` (placing): only Air and
+    /// fluid cells take `material`, solid ones are left alone. Otherwise
+    /// (digging, `material` = Air) every cell becomes `material`.
+    /// `removedByMaterial` (optional, length 256) is INCREMENTED by the previous
+    /// material of every changed cell, as MineSphereBudgeted's reporting overload.
+    ///
+    /// ONE wake scan for the stroke (WakeScansRun +1), over only the cubes that
+    /// changed, each with NotifyEditedRegion's one-cell margin -- not the
+    /// stroke's bounding box, which for a long diagonal is mostly untouched air.
+    public int SetCubes(IReadOnlyList<int3> los, int count, int edge, byte material, bool fillOnly,
+                        int[] removedByMaterial = null)
+    {
+        RequireWired();
+        if (los == null) throw new ArgumentNullException(nameof(los));
+        if (edge <= 0 || (edge & (edge - 1)) != 0) throw new ArgumentException("edge must be a power of two", nameof(edge));
+        if (removedByMaterial != null && removedByMaterial.Length < 256)
+            throw new ArgumentException("needs one counter per material id (256)", nameof(removedByMaterial));
+        count = math.min(count, los.Count);
+
+        int changed = 0;
+        _strokeChanged.Clear();
+        for (int c = 0; c < count; c++)
+        {
+            int3 lo = los[c];
+            int before = changed;
+            for (int z = 0; z < edge; z++)
+            for (int y = 0; y < edge; y++)
+            for (int x = 0; x < edge; x++)
+            {
+                int3 v = lo + new int3(x, y, z);
+                byte old = _world.GetVoxel(v);
+                if (fillOnly && old != Materials.Air && !MaterialRules.IsFluidMaterial(old)) continue;
+                if (WriteOne(v, material))
+                {
+                    changed++;
+                    if (removedByMaterial != null) removedByMaterial[old]++;
+                }
+            }
+            if (changed > before) _strokeChanged.Add(c);
+        }
+
+        if (_strokeChanged.Count > 0 && _fluids.Count > 0)
+        {
+            WakeScansRun++;
+            int3 e1 = new int3(edge - 1, edge - 1, edge - 1);
+            foreach (int c in _strokeChanged) WakeBox(los[c], los[c] + e1);
+        }
+        return changed;
+    }
+
+    private readonly List<int> _strokeChanged = new List<int>();   // SetCubes' changed cube indices (main thread only)
 
     /// One voxel, WITHOUT the wake scan -- for a caller driving its own batch
     /// across frames, which cannot use SetBox because it does not process the

@@ -21,8 +21,17 @@
 // power-of-two sizes). Only Air and fluid cells are filled; solid cells inside
 // the cube are left alone and cost nothing. All or nothing (P7): fewer items in
 // the slot than cells to fill places nothing.
+//
+// STROKES (BLD1, task 93a1, GAMEPLAY_PHASE_PLAN.md P7/P27): press, drag,
+// release stamps the brush cube along the straight line between the two cubes
+// -- LineCubes, an integer 3D DDA on the brush grid (add/compare only, no
+// division) -- in ONE EditService.SetCubes call. Placing pays per cube in
+// path order and STOPS at the first cube the slot cannot pay for in full
+// (whole cubes only; P7 for strokes). Digging stamps Air the same way and
+// credits the inventory exactly as Dig does.
 
 using System;
+using System.Collections.Generic;
 using Unity.Mathematics;
 
 public static class SurvivalBuild
@@ -48,7 +57,14 @@ public static class SurvivalBuild
     {
         Array.Clear(scratch, 0, scratch.Length);
         var r = new DigResult { Removed = edits.MineSphereBudgeted(centre, radius, budget, scratch) };
-        if (r.Removed == 0) return r;
+        Credit(inv, scratch, ref r);
+        return r;
+    }
+
+    /// Credits `scratch` (removed voxels per material) to the inventory.
+    private static void Credit(Inventory inv, int[] scratch, ref DigResult r)
+    {
+        if (r.Removed == 0) return;
         for (int m = 0; m < 256; m++)
         {
             int n = scratch[m];
@@ -60,7 +76,6 @@ public static class SurvivalBuild
             r.Lost += n - added;
             r.LastItem = item;
         }
-        return r;
     }
 
     public enum PlaceOutcome { Placed, EmptySlot, NotPlaceable, NothingToFill, TooFew, NotLoaded }
@@ -107,6 +122,132 @@ public static class SurvivalBuild
         r.Placed = edits.PlacePrefab(r.Lo, new int3(n, n, n), cells);
         inv.TakeFromSlot(slot, r.Placed);
         r.Outcome = r.Placed > 0 ? PlaceOutcome.Placed : PlaceOutcome.NotLoaded;
+        return r;
+    }
+
+    // =====================================================================
+    // Strokes (BLD1)
+    // =====================================================================
+
+    /// A stroke holds at most this many cubes (25.6 m at 1 voxel, 204.8 m at 8);
+    /// a longer drag is cut at the far end.
+    public const int MaxStrokeCubes = 256;
+
+    /// The brush-grid cubes on the straight line from the cube containing `a`
+    /// to the cube containing `b`, both ends included, as cube ORIGINS in path
+    /// order (`cubes` is cleared first). Integer 3D DDA (Bresenham): the axis
+    /// with the largest grid delta steps every cube, the others step when their
+    /// doubled error crosses -- position i = round(i * d / n), ties away from
+    /// the start, with adds and compares only. Grid coordinates are `v >> log2(edge)`,
+    /// an arithmetic shift, so negative coordinates floor like SnapToGrid.
+    public static void LineCubes(int3 a, int3 b, int edge, List<int3> cubes, int max = MaxStrokeCubes)
+    {
+        if (edge <= 0 || (edge & (edge - 1)) != 0) throw new ArgumentException("edge must be a power of two", nameof(edge));
+        cubes.Clear();
+        int s = math.tzcnt(edge);
+        int3 p = a >> s, q = b >> s;
+        int3 d = math.abs(q - p), st = math.sign(q - p);
+        int n = math.cmax(d);
+        int3 acc = new int3(n, n, n);            // "one half" in units of 1/(2n)
+        int twoN = n << 1;
+        for (int i = 0; i <= n && cubes.Count < max; i++)
+        {
+            cubes.Add(p << s);
+            acc += d << 1;
+            if (acc.x >= twoN) { acc.x -= twoN; p.x += st.x; }
+            if (acc.y >= twoN) { acc.y -= twoN; p.y += st.y; }
+            if (acc.z >= twoN) { acc.z -= twoN; p.z += st.z; }
+        }
+    }
+
+    /// Cells of the cube at `lo` that placing would fill (Air or fluid).
+    public static int FillableCells(IWorldQuery world, int3 lo, int edge)
+    {
+        int n = 0;
+        for (int z = 0; z < edge; z++)
+        for (int y = 0; y < edge; y++)
+        for (int x = 0; x < edge; x++)
+            if (Fillable(world.GetVoxel(lo + new int3(x, y, z)))) n++;
+        return n;
+    }
+
+    /// Cells of the cube at `lo` that digging would change (anything not Air).
+    public static int DiggableCells(IWorldQuery world, int3 lo, int edge)
+    {
+        int n = 0;
+        for (int z = 0; z < edge; z++)
+        for (int y = 0; y < edge; y++)
+        for (int x = 0; x < edge; x++)
+            if (world.GetVoxel(lo + new int3(x, y, z)) != Materials.Air) n++;
+        return n;
+    }
+
+    public struct StrokeCost
+    {
+        public int Cells;        // cells the whole path would fill (place) or remove (dig)
+        public int Cubes;        // cubes in the path
+        public int Affordable;   // cubes the slot pays for, from the start (place; dig = Cubes)
+        public int AffordableCells;
+    }
+
+    /// The preview's numbers: what the stroke would cost, and how far the
+    /// selected slot's `budget` carries it (whole cubes, path order).
+    public static StrokeCost Cost(IWorldQuery world, List<int3> cubes, int edge, bool dig, int budget)
+    {
+        var c = new StrokeCost { Cubes = cubes.Count };
+        bool paying = true;
+        for (int i = 0; i < cubes.Count; i++)
+        {
+            int k = dig ? DiggableCells(world, cubes[i], edge) : FillableCells(world, cubes[i], edge);
+            c.Cells += k;
+            if (paying && (dig || c.AffordableCells + k <= budget)) { c.Affordable++; c.AffordableCells += k; }
+            else paying = false;
+        }
+        return c;
+    }
+
+    public struct StrokeResult
+    {
+        public PlaceOutcome Outcome;
+        public byte Item;
+        public int Edge;
+        public int Cubes;        // cubes in the path
+        public int CubesPaid;    // cubes stamped (the slot paid for each in full)
+        public int Needed;       // cells the whole path would fill
+        public int Placed;       // cells written (= taken from the slot)
+        public bool RanOut;      // the slot ran out before the end of the path
+    }
+
+    /// Places the slot's item along `cubes` (origins on the `edge` grid,
+    /// LineCubes' output). Pays cube by cube in path order and stops at the
+    /// first cube the slot cannot pay for in full; cost = cells placed.
+    public static StrokeResult PlaceStroke(EditService edits, IWorldQuery world, Inventory inv, int slot,
+                                           List<int3> cubes, int edge)
+    {
+        var r = new StrokeResult { Item = inv.ItemAt(slot), Edge = edge, Cubes = cubes.Count };
+        if (inv.IsEmpty(slot)) { r.Outcome = PlaceOutcome.EmptySlot; return r; }
+        if (!Items.IsPlaceable(r.Item)) { r.Outcome = PlaceOutcome.NotPlaceable; return r; }
+
+        var c = Cost(world, cubes, edge, false, inv.CountAt(slot));
+        r.Needed = c.Cells;
+        r.CubesPaid = c.Affordable;
+        r.RanOut = c.Affordable < c.Cubes;
+        if (c.Cells == 0) { r.Outcome = PlaceOutcome.NothingToFill; return r; }
+        if (c.AffordableCells == 0) { r.Outcome = PlaceOutcome.TooFew; return r; }
+
+        r.Placed = edits.SetCubes(cubes, c.Affordable, edge, r.Item, fillOnly: true);
+        inv.TakeFromSlot(slot, r.Placed);
+        r.Outcome = r.Placed > 0 ? PlaceOutcome.Placed : PlaceOutcome.NotLoaded;
+        return r;
+    }
+
+    /// Digs every cube along `cubes` and credits the inventory as Dig does
+    /// (fluids give nothing, a full inventory loses the overflow, P8/P9).
+    public static DigResult DigStroke(EditService edits, Inventory inv, List<int3> cubes, int edge, int[] scratch)
+    {
+        Array.Clear(scratch, 0, scratch.Length);
+        var r = new DigResult { Removed = edits.SetCubes(cubes, cubes.Count, edge, Materials.Air, false, scratch) };
+        Credit(inv, scratch, ref r);
         return r;
     }
 
