@@ -1,55 +1,51 @@
-# Session handoff -- 2026-10-15 ~21:00 (supervisor; queue RUNNING task 93b)
+# Session handoff -- 2026-10-16 ~03:00 (supervisor; queue RUNNING task 93b2)
 
 ## For the owner
-**Why a new session (21:00):** the supervisor in window 22:0 grew to ~10 MB of history (the size hook fired). That
-session started at ~16:00 after its predecessor (window 22:1) lost macOS file access to the repo; 22:1 was closed.
+**Why a new session (03:00):** the supervisor in tmux window 22:1 reached ~8 MB of history (the size hook fired). It
+started at ~21:00 on 15 Oct after its predecessor (22:0) did the same; you closed 22:0 by hand (the permission checker
+blocked the supervisor's `tmux kill-window`).
 
-**Since 16:30 in 22:0:**
-- **93a done** (`f271d77`, E1 edit summaries): block-built chunks are drawn into the far shells (tower visible at 241 m;
-  0 voxels differ from reference; ~3.4 ms main thread per summary, 1 per frame). It pays off from D2 (93e) on, because tier 0
-  still draws edits out to ~102 m today. In the doc with its before/after pair.
-- **93a1 done** (`a9ca2db`, BLD1 drag line): RMB press-drag-release builds a line of cubes, LMB drag digs one, Esc cancels,
-  pays per cube and stops when the slot runs out; suite 745/0. In the doc with two images. The queue waited ~3.5 h on the
-  usage limit before it.
-- **Your "blocky ridge" question** on 93a's far shots: the `-shellsdebug` tint shows the ridge and the mountain left of it
-  were drawn by the 2.5D FAR BAND (grey tint) because shell 3+ had not streamed yet. Task 93c now re-shoots that pose after
-  the shells fill (commit `b29e9ff`). CAVEAT the supervisor noticed afterwards: 93a1's near shots (0.1 m voxels, savanna
-  slope) show the same yellow-top / grey-riser terrace stripes, so the striped look is at least partly the real surface on
-  steep slopes, not only the far band. 93c's caption must say which. Tell the owner this when 93c lands (or now if asked).
+**What happened in 22:1 (21:00 -> 03:00):**
+- **93b shells perf breakdown BLOCKED -> Q52, going ahead with (a) unless you object.** Shells ON are +10.5 / +15.2 ms p50
+  slower at steady state (most of it: the far band drawn behind the shells, ~+11 ms; the shell march ~+3 ms), and while
+  walking the shells never fill (2,347 chunks made in 3 min, ~170 kept). 93c (shells default) is HELD. Queued 93b2 (fill
+  while walking) and 93b3 (far band cost behind the shells), each fixes only a bug and stops for you otherwise; 93b re-runs
+  after them and 93c switches only if shells come within 1-3 ms. D1 (93d) no longer waited on 93c (commit `fb67378`).
+  The tint still also settled the 93a "blocky ridge" caveat: the striped mountain is tier 0 = the real 0.1 m surface.
+  Also noted in the report: play WITHOUT shells already runs 36-53 ms (19-28 FPS), 70% of walking frames > 33 ms --
+  for the next performance milestone.
+- **93b1 done** (`58eab9d`): face pull. Alt+RMB drag on a face of your last block/line/wall repeats it (block -> line ->
+  wall -> thick wall); inward digs. Suite 755/0. Its own picks (Alt+RMB, pull length by the crosshair, inward digs) are
+  listed in the doc for you to change.
+- **93c1 done** (`b55743e`): play starts on the best easy area (seed 42: 892 m peak -> 634 m flat ground); R = back to
+  start; KEEP=1 resumes. Suite 808/0. **New Q53** (design, waiting on you; nothing blocked): seed 42's easy area is a
+  SNOW plain -- prefer a mild biome? Recommended (a) yes. Also an unexplained dark dome on the left horizon of the after shot.
+- **93d done** (`977f25e`): with shells on, tiers 1-2 are not created: peak 2,978 -> 2,728 MB, Metal 1,466 -> 1,378 MB;
+  shells off byte-identical (Phase 7 rig 37/37).
+- Doc: Task reports for 93b, 93b1, 93c1, 93d (each with images); Done rows; Running line; Q52, Q53. Archive: 93b, 93b1,
+  93c1, 93d added (version 11).
 
-**What this session did (branch `engine-phase`):**
-- **Task 92's four gameplay questions (Q50), answered:** (1) plane stroke = face pull: place one block, pull a face into a
-  line, pull a face of the line into a plane (study Lay of the Land's building system later); (2) hardcore death = (a) the
-  world locks; (3) classic death = you lose some items, exact rule decided in the object-placement phase (9b not queued);
-  (4) (a) alternate gameplay and engine tasks.
-- **Fluid gravity fall (your chat request) queued as task 94**, after the 8.15 block and before 97 (your pick (a)). All
-  fluids fall at the same gravity speed (today water 0.45 m/s, lava 0.075, honey 0.015); viscosity only slows sideways
-  spreading. It writes a small Amendment 8.16 note first (design change to spec §7.4, approved by you in chat).
-  Fluid rate (Q51): keep 4.5 Hz, raise after option B (97). After 94 lands, ask you whether 97 is still wanted.
-- **Queue rebuilt, alternating (commit `4324554`):** 93a E1 (running) -> 93a1 BLD1 drag line -> 93b shells perf -> 93b1
-  BLD2 face pull -> 93c shells default -> 93c1 start on easy area (was later/67) -> 93d D1 -> 93d1 9a health/respawn (was
-  later/72, rewritten) -> 93e D2 -> 93e1 RX1 reactions -> 93f D3 -> 93f1 climbing (was 68) -> 93g D4 -> 93g1 gliding
-  (was 69) -> 94 fluid gravity fall -> 97 fluid option B. 92 moved to done/.
-- **Queue decisions doc:** Task reports for 93 (two strip images) and 90b; Done rows 91, 90b, 92, 93; Running line; Q50/Q51
-  recorded. **Screenshot Archive:** folders 91 and 93 added (version 5).
-
-**Running:** queue worker on 93b (shells perf breakdown, since 20:47), runner in tmux `overnight`, watcher tab open.
-**Close:** tmux window 22:0 (the old supervisor) once the new one has greeted you.
-**Open / waiting on you:** nothing new. Parked: classic-death rule (placement phase); 97 re-ask after 94.
-**Other window:** tmux `12:0` "gen-talk" is your side discussion session from 12 Oct (generation speed / shadows). It has
-an unsent line "write up the shadow proposal for the supervisor". Close it when you are done with it.
+**Running:** queue worker on 93b2 (shells fill while walking, since 02:54), runner in tmux `overnight`, watcher tab open.
+**Close:** tmux window 22:1 (this old supervisor) once the new one has greeted you.
+**Waiting on you:** Q53 (start biome). Q52 is "going ahead with (a) unless you object". Parked: classic-death rule
+(placement phase); ask whether 97 is still wanted after 94 lands.
+**Other window:** tmux `12:0` "gen-talk", your side discussion from 12 Oct; close it when done.
 
 ## State for the next supervisor
 - Doc: "Queue decisions" https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468 (Now tab body
-  `3b5fd194-f74f`, Task reports body `d611dfba-5116`; Done table `mk2vq5dkmp6.886`, rows appended at the end; newest
-  report goes after `mk2vq5dkmp6.38815`). Last Q number: Q51.
-- Screenshot Archive https://claude.ai/artifact/9y7VxxX8FmsDMtVbSyFd2d (`tools/archive/README.md`).
-- `later/`: 70 grapple, 71 wall-run (next gameplay slots after 93g1), 37c, 40, 78, 79, 89/90 (copies; 93b/93c are the
-  queued versions). Gameplay order after that (`GAMEPLAY_PHASE_PLAN.md` §4): 70 -> 71 -> BLD4/5/3/6 -> 10 tools ...
-  9b needs the classic-death answer first.
-- 90b's note: after 93g the supervisor queues C1, Q1, Q2, E2 (8.15 rows), then lighting 20-22, then far sims; keep
-  alternating with gameplay (Q50 (4)).
-- Task 93a1 also writes the Q50 answers into `GAMEPLAY_PHASE_PLAN.md` (supervisor may not edit it while a task runs).
+  `3b5fd194-f74f`, Task reports body `d611dfba-5116`; Done table `mk2vq5dkmp6.886`, 4 cells per row, append at its end;
+  newest report goes BEFORE heading `mk2vq5dkmp6.54101` (93d's); Q questions go right after the "Waiting on you"
+  heading `mk2vq5dkmp6.573`; the Running line is paragraph `mk2vq5dkmp6.121`). Last Q number: **Q53**.
+- Screenshot Archive https://claude.ai/artifact/9y7VxxX8FmsDMtVbSyFd2d (`tools/archive/README.md`; a publish from a
+  new session is refused once until you read the live version -- diff it, then publish).
+- Queue order now: 93b2 -> 93b3 -> 93b (re-run, Requires 93b3) -> 93c (Requires 93b) -> 93d1 -> 93e (Requires 93c) ->
+  93e1 -> 93f -> 93f1 -> 93g -> 93g1 -> 94 -> 97. If 93b2 or 93b3 blocks, 93b/93c/93e-93g wait; gameplay tasks keep going.
+- If the owner answers Q53 (a): write a small gameplay task (start prefers grass/forest/plains easy areas; fallback the
+  largest) after the current gameplay slot.
+- Permission notes: `tmux kill-window` and the Docs `query` (comment listing) were denied by the auto-mode checker this
+  session; ask the owner to close windows (`! tmux kill-window -t <w>`).
+- `later/`: 70 grapple, 71 wall-run (next gameplay after 93g1), 37c, 40, 78, 79, 89/90 copies. After 93g: C1, Q1, Q2, E2
+  (8.15 rows), lighting 20-22, far sims; keep alternating with gameplay (Q50 (4)).
 
 ## Ready-to-paste prompt
 > Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the overnight queue as described there until
