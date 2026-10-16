@@ -1,61 +1,59 @@
-STOP_FOR_OWNER -- Q54: the GPU FLUID CA reads its terrain from the GPU mirror box. A 16^3 box means fluid between ~90 m and 128 m stops flowing.
-Does this change what the game can simulate? YES, unless you pick (b). The box shrink is built and tested, but it is OPT-IN (`-smallmirror 1`) until you answer.
-- Why: `FluidCA.compute` `SampleVoxel` reads the tier-0 mirror and returns AIR outside it. Fluid is live to 128 m (`FLUID_ACTIVE_RADIUS_VOXELS`).
-  Today's 32x8x32 box covers +-192 m. The 16^3 box covers only >= 89.6 m. Past that edge, awake water sees rock as air.
-  The CPU re-checks every fluid move, so nothing is corrupted. That water simply freezes (its moves are dropped). Amendment 8.15 §1.2 assumed the fluid CA is CPU-side.
-- (a) Accept: the fluid CA reach becomes the drawn box: >= 90 m on Low-High, 128 m on Ultra. Clamp the fluid radius to it so far water sleeps cleanly. Flip the default.
-  Cost: a rule that depends on the preset (8.15 says NEAR must not), and water you leave flowing 90-128 m away stops until you return.
-- (b) **Recommended:** keep fluid at 128 m everywhere. A new task (est. M) gives the fluid CA a small terrain directory of its own for awake-fluid chunks outside the box (~1 MB, est.); D3 maps their bodies too. Then flip the default.
-- (c) Drop D2: keep 32x8x32 and go straight to D3, giving up ~150-210 MB.
+# 93e1-gameplay-rx1-adjacency-reactions: DONE -- four adjacency pairs in MaterialRules' table, CPU + GPU agree, 4 play shots
 
-# 93e-engine-14d2-gpu-mirror-box: BUILT, OPT-IN -- 16^3 GPU mirror box with shells on; CPU reach unchanged; default waits for Q54
-
-## What changed (commit dc68d34, branch engine-phase)
-- `ShellLayout.MirrorBox`: Shell0Directory if shell 0's radius fits `BoxInnerReachM` (d/2 - 1 chunks; 16 -> 89.6 m), it is pow2, and it has >= 8 layers.
-  Otherwise today's box. Result: **Low/Medium/High 32x8x32 -> 16^3** (shell 0: 59/65/82 m fit), **Ultra keeps 32x8x32** (116 m > 89.6 m).
-- `Phase4Bootstrapper`: `-shells 1 -smallmirror 1` (no `-keeptiers`) builds the clipmap with that box, after a pow2 assert. The load radius stays `TG2_LOAD_RADIUS_CHUNKS` = 10. The CPU ring stays 32x16x32.
-- `StreamManager.MirrorOrigin` (pure, from SlideWindow): a narrower box centres on the camera by its own size (`>> 1`). Equal widths give the old origin, so shells off is unchanged.
-- **Bug found and fixed (new with a box smaller than the resident area):** after a recentre, a slot could still hold a chunk that had just left the box.
-  Walk back across a chunk edge and the other chunk was drawn there (LOST). A not-yet-loaded position drew it too (stale).
-  Fix: `TerrainClipmap` remembers each slot's owner. On a recentre, every box position whose slot holds another chunk is marked dirty: resident -> upload, absent -> clear. This only runs with the small box.
-- `ClipmapValidator.ValidateRegion` skips residents outside the box (not mirrored by design; it used to call them LOST). It counts them as `chunksOutOfBox`.
-  Shell pose runs now log a `[mirror]` line (lost/lag/stale).
-- KNOWN_ISSUES entry + CLAUDE.md line. No frozen API, no §4.4 change, GPU body buffer untouched (that is 93f/D3).
+## What changed (commit 700560a, branch engine-phase)
+- **Id count first (plan §6 risk):** engine ids 23-127 were all free (105 ids). Two new palette entries: `Materials.CooledStone = 23`
+  and `Materials.Glass = 24`. Mud already exists (tg2 GenMat 23 = engine 151). No memory-layout change, no frozen API touched.
+- `MaterialRules`: the RX1 pairs (each stored both ways by the new `Pair` helper):
+  - water + lava -> **steam** (water cell) + **cooled stone** (lava cell). Before: air + obsidian.
+  - water + loam (148) / red earth (152) -> the soil becomes **mud** (151), the water is kept.
+  - lava + sand (4) / tg2 sand (140) / beach sand (142) -> the sand becomes **glass**, the lava is kept.
+  - lava + snow (7) / tg2 snow (141) / packed ice (150) -> the snow becomes **water**, the lava is kept. The melt water then quenches the lava (pair 1).
+- `FluidCA.compute` `CSReact`: a reaction op whose product is MOBILE now carries the wake bit. Without it, steam and melt water would sit without a slot on the GPU.
+  The CPU reference already wakes these cells in CommitPass. Air/solid products carry no bit, as before, so acid and the old pairs behave the same.
+- `FluidGpuSimulation.BuildReactionTables` is now a static function, so a test can check the GPU's 256x256 table. The upload is unchanged.
+- Palette: CPU tables and both shader functions (`MaterialAlbedo`, `MaterialAlbedoLook`). Names added in `Items` and `Playground`.
+- Old fluid rigs (FluidChaos, LateGameSiege, Phase5b/5c) now count cooled stone where they counted obsidian.
+  Phase5c's floating count skips gases, because steam rises. None of these rigs was run.
+- `-reactiondemo` (`Playground.ReactionDemo.cs`): four marble trays ahead of the play start, one per pair, with a 2 m viewing pillar. Noon, sun behind the camera.
+  Each tray's materials are counted from ChunkStore after the GPU ops are applied. Vitals are off during the demo.
 
 ## Evidence
-- `UploadDirtyBoxTests` 9 (6 new):
-  - box per preset, pow2, and the CPU load radius is 10;
-  - MirrorOrigin;
-  - residents outside the box are skipped and counted (57 of 121);
-  - a walk out and back gives 0 wrong slots;
-  - the control without slot owners reproduces the wrong chunk;
-  - a position with no chunk is cleared after a recentre.
-  E1's `EditSummaryTests` (5) pass (the edited out-of-box chunk shows in its shell). **SUITE=all PASS 830 FAIL 0 SKIP 23** (`Logs/overnight/93e-all.out`).
-- In game, 16^3, after each teleport (`Logs/overnight/93e-mirror2.out`, `Screenshots/93e/mirror_check_farpreview.txt`): **MIRROR lost 0 lag 0 stale 0** at glide_400m, eye_level_3 and cliff_foot_1.
-  Resident 3,087 = 21x21x7, so the 128 m reach is kept. 1,792 chunks are in the box and 1,295 resident chunks are outside it.
-- Shells off: `run-phase7-rig.sh` **PASS 37 FAIL 0, 19/19 shots byte-identical** to 93d's `Phase7Cycle/2026-10-16_023443` (`Logs/overnight/93e-phase7.out`).
-- `run-acceptance-rig.sh` CANNOT pass `-shells 1` (it builds the flat Phase 4 world), so this is the shells-off run (`Phase4Acceptance/2026-10-16_071916`): PASS 51 FAIL 2.
-  Gate D is all PASS. Gate C's correctness checks all PASS. Both FAILs are the known §4.3 upload-p99 timing check (Gate C and Gate E; KNOWN_ISSUES; it was red on 10-12 too). No frame time is quoted (rule 10).
-- Memory, shells on, same 4 poses and flags as 93d plus 2 (`MODE=poses EXTRA="-shells 1 -shellworkers 3 -gateres 1280 -shellwait 60 -poses eye_level_3,glide_400m,cliff_foot_1,peak_from_2km_ground -memledger -shellsdebug 60"`, after arm `+ -smallmirror 1`):
-  - TerrainClipmap ledger row: **513.1 GPU + 147.5 managed -> 439.6 + 74.1 MB (-147)**, the amendment's estimate (dir 128 -> 64 MB, managed 147 -> 74). Ledger SUM 1,907.0 -> 1,758.2 MB.
-  - phys_footprint median over 37 samples after start-up: **2,688 -> 2,475 MB (-213)**. The single peak sample only moved 2,703 -> 2,664: the after arm's peak is one start-up spike (2nd sample), and it settles at ~2,470-2,580.
-  - Files: `Screenshots/93e/{before,after}/` (farpreview.txt, *_mem.txt, *_peak_breakdown.txt).
-- Stills (one launch per arm, 60 s waits; the shells were still missing ~1.7-2.2 k chunks per pose, as in 93d):
-  - glide_400m and cliff_foot_1: before and after are pixel-identical.
-  - eye_level_3: 2.1% of pixels differ, peak: 0.34%. All of it is the strip between the box edge and 128 m, which shell 1 (0.2 m) now draws instead of tier 0.
-  - No seam, hole or popping at the hand-over in the beauty crops.
+- `ReactionPairTests` (6, new): one test per pair on `FluidReferenceCPU`, with conservation checked every tick. Each also checks the GPU table gives the same products in both scan orders.
+  Two more tests: the GPU table equals `TryGetReaction` for all 65,536 pairs, and the shader's wake rule.
+  `FluidConservationTests`' two water+lava tests were updated to the new products (ledger: 1 consumed, was 2).
+- Fast suite **PASS 785 FAIL 0 SKIP 14** (wall 4m04s). Nothing under `Assets/TerrainGen/` changed, so SUITE=all was not needed.
+- GPU path in play (`Screenshots/93e1/reactiondemo_log.txt`); every count balances:
+  - water + lava: 352 cooled stone = 352 steam; water 800 -> 448.
+  - water + loam: mud 374 (= loam lost); water 144 kept.
+  - sand + lava: glass 241 (= sand lost); lava 256 kept.
+  - snow + lava: 134 snow melted -> 134 steam + 134 cooled stone; lava 256 -> 122.
+- No frame-time measurement (feature task).
 
-## Not done / next
-- The default stays off until Q54. 93f (D3) Requires 93e and its saving depends on this box. Under (b), D3 must also map the fluid chunks' bodies.
-- With the small box, a chunk crossing re-uploads ~112 chunks over ~7 frames (16 per frame). Counted in `RecentreDirtiedTotal`, not timed (rule 10). Step 16's perf milestone should look at it.
+## Picks (owner may change)
+1. "Stone" from water + lava is a NEW id, **cooled stone** (dark cool grey, 0.30). It is not legacy Stone (2), so product counts never mix with generated stone. Acid eats it like stone.
+2. **Glass** is pale sea-green, OPAQUE (real transparency would be renderer work) and ACID-PROOF. It is now the acid container (obsidian was before).
+3. Water + soil: the **water is kept** (no draining lakes). "dirt" = tg2 **loam + red earth**. Grass, hardpan and clay are not included.
+4. Sand + lava and snow + lava: the **lava is kept**. A lava flow glasses or melts only what it touches. Melt water then quenches the lava (steam + crust).
+5. Legacy Sand/Snow are included alongside the tg2 ones.
+
+## Known limits (not fixed; RX1 is table rows only)
+- **A slot can fall asleep before reacting.** The CA ages a slot on a LATERAL move, so lava can doze off on sand it just slid onto, without reacting until something wakes it.
+  The CPU test found this, and the sand test does not assert "no contact at rest".
+- **Three-way contact can differ between CPU and GPU.** Example: lava touching both water and sand in one tick. The CPU reserves the lava cell once; the GPU may apply both ops.
+  Each side's result still conserves mass, and §7.8 only requires steady-state invariants.
+- **Steam looks rough.** It draws as scattered floating grey cubes, some with black shadowed faces. That is today's steam look, not changed here.
+- The `-reactiondemo` shots include the HUD, as `-vitalsdemo`'s do.
+
+## Next step
+The plan's run order: 5 (68) next. RX4 (life/growth) reads mud from RX1.
 
 ## For the doc
-Task 93e (engine 14d2, 8.15 row D2): the tier-0 GPU mirror box shrinks to 16^3 with the shells on. Built and tested, but OPT-IN (`-smallmirror 1`): the GPU fluid CA reads terrain from this box (owner Q54).
-- Box: Low/Medium/High 32x8x32 -> **16^3** (shell 0 at 59/65/82 m fits the 89.6 m inner reach); Ultra keeps 32x8x32. CPU load radius 10 (128 m) on every preset (3,087 resident at every pose).
-- TerrainClipmap memory: 513 GPU + 148 managed -> **440 + 74 MB**. Process footprint median 2,688 -> **2,475 MB** (`Screenshots/93e/{before,after}/`).
-- Mirror after recentres: lost 0 / lag 0 / stale 0 (`Screenshots/93e/mirror_check_farpreview.txt`). Phase 7 19/19 byte-identical, PASS 37. SUITE=all PASS 830 FAIL 0.
-Images:
-- `Screenshots/93e/eye_level_3_sheet.jpg`: left BEFORE, right AFTER. Top row is the beauty shot: the same. Bottom row is the shell tint.
-  The blue tier-0 ground now ends at the straight edge of the 16^3 box. The green shell-1 strip beyond it is what the shells now draw. No gap.
-- `Screenshots/93e/eye_level_3_edge_zoom.jpg`: 2x crop of the lower right, where the box edge crosses the ground. Top: beauty before/after, no seam or hole. Bottom: tint, the blue/green boundary moved left.
-- `Screenshots/93e/peak_strip.jpg`: peak_from_2km_ground rows 700-900. Strips top to bottom: before, after, tint before, tint after. Look for the thin green shell-1 band in the last strip.
+RX1 adjacency reactions are done: 4 pairs in MaterialRules' table; the CPU reference and the GPU CA agree; 2 new materials, `cooled stone` = 23 and `glass` = 24 (mud already existed, 151). Picks are listed above.
+- water + lava, GPU in play: 352 cooled stone + 352 steam from 352 water (`Screenshots/93e1/reactiondemo_log.txt`).
+- snow + lava: 134 melted -> 134 steam + 134 cooled stone (melt, then quench, exact).
+- sand + lava: 241 glass; water + loam: 374 mud with all 144 water kept.
+- Tests: ReactionPairTests 6 new; fast suite PASS 785 FAIL 0.
+- `Screenshots/93e1/1_water_lava.png` -- centre tray: the orange lava floor; in the middle, the poured water (blue, dark cooled-stone crust under it); the grey steam cubes rise above.
+- `Screenshots/93e1/2_water_loam.png` -- centre tray: the orange-brown loam floor; the dark purple-brown patch in the middle is mud under the shallow see-through water.
+- `Screenshots/93e1/3_sand_lava.png` -- centre tray: the lava block's far half on the sand; the near half was cleared to show the pale green glass square beneath it.
+- `Screenshots/93e1/4_snow_lava.png` -- centre tray: a lava blob on a snow floor; the dark ring round it is cooled stone where the melt water quenched it; the grey cubes above are steam.
