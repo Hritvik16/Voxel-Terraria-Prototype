@@ -743,9 +743,21 @@ namespace VoxelEngine.Streaming
             // stream layer by its OWN height (8 layers: stream - 4 .. stream + 3,
             // which strictly contains the loaded band stream -+ 3). Flat worlds
             // pass the store's origin unchanged, as before.
-            int3 clipOrigin = origin;
-            if (VerticalStreaming) clipOrigin.y = camChunk.y - _clipmap.WindowDimsChunks.y / 2;
-            _clipmap.SetWindowOrigin(clipOrigin);
+            _clipmap.SetWindowOrigin(MirrorOrigin(camChunk, origin, _windowDims, _clipmap.WindowDimsChunks, VerticalStreaming));
+        }
+
+        /// The GPU mirror box's origin for a camera chunk, given the store's.
+        /// Task 93e (8.15 row D2): with the shells on the box can be narrower
+        /// than the store ring (16^3); it centres on the camera by its OWN
+        /// size, cam - d/2 .. cam + d/2 - 1 (ShellLayout.BoxInnerReachM).
+        /// Equal widths give the store's origin, as before.
+        public static int3 MirrorOrigin(int3 camChunk, int3 storeOrigin, int3 storeDims, int3 mirrorDims, bool vertical)
+        {
+            int3 clipOrigin = storeOrigin;
+            if (vertical) clipOrigin.y = camChunk.y - mirrorDims.y / 2;
+            if (mirrorDims.x != storeDims.x) clipOrigin.x = camChunk.x - (mirrorDims.x >> 1);
+            if (mirrorDims.z != storeDims.z) clipOrigin.z = camChunk.z - (mirrorDims.z >> 1);
+            return clipOrigin;
         }
 
         // =====================================================================

@@ -47,6 +47,10 @@ public class Phase4Bootstrapper : MonoBehaviour
     /// occupancy picture + report S seconds after start-up and at quit, and
     /// tints each pixel by the shell that drew it.
     public static ShellStreamer Shells { get; private set; }
+    /// Task 93e (8.15 row D2): `-smallmirror 1` with `-shells 1` -- the tier-0 GPU
+    /// mirror box is the preset's ShellLayout.MirrorBox (16^3 on Low-High), not
+    /// 32 x 8 x 32. False when off or when the preset keeps today's box (Ultra).
+    public static bool SmallMirror { get; private set; }
 
     /// `-farop` (task 81's demo): the centre of the 20 m crater recorded as an
     /// edit op ~300 m from the spawn before anything streams, or null.
@@ -288,7 +292,29 @@ public class Phase4Bootstrapper : MonoBehaviour
         int3 mirrorChunks = new int3(EngineConfig.WINDOW_CHUNKS_XZ,
                                      IsTg2World ? EngineConfig.TG2_MIRROR_CHUNKS_Y : EngineConfig.MIRROR_CHUNKS_Y,
                                      EngineConfig.WINDOW_CHUNKS_XZ);
-        Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity);
+        // Task 93e (8.15 row D2, §2 items 1-2): with the shells drawing beyond it,
+        // the tier-0 GPU mirror box shrinks to the preset's ShellLayout.MirrorBox
+        // (16^3 on Low/Medium/High, Ultra keeps 32 x 8 x 32). The CPU ring and the
+        // load radius (TG2_LOAD_RADIUS_CHUNKS, 128 m) do NOT change. OPT-IN
+        // (`-smallmirror 1`) until the owner decides: the GPU fluid CA reads its
+        // terrain from this box (FluidCA.compute SampleVoxel), so fluid between the
+        // box edge (~90 m) and 128 m stops flowing (93e HANDOFF). Needs `-shells 1`
+        // and no cascade tiers (`-keeptiers 1` keeps today's box: their slots
+        // follow tier 0's). Shells off: unchanged.
+        SmallMirror = false;
+        if (IsTg2World && ArgInt("-shells", 0) == 1 && ArgInt("-smallmirror", 0) == 1
+            && !LODCascadeManager.TiersWanted(IsTg2World, 1, ArgInt("-keeptiers", 0)))
+        {
+            int3 box = ShellLayout.From(ShellPresetFromArgs()).MirrorBox;
+            if (!ShellLayout.IsPow2(box.x) || !ShellLayout.IsPow2(box.y) || !ShellLayout.IsPow2(box.z))
+                throw new InvalidOperationException($"[Phase4Bootstrapper] GPU mirror box {box} is not a power of two (§6.2)");
+            SmallMirror = !box.Equals(mirrorChunks);
+            mirrorChunks = box;
+        }
+        Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity) { RecentreDirtiesStaleSlots = SmallMirror };
+        if (IsTg2World && ArgInt("-shells", 0) == 1)
+            UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU mirror box {mirrorChunks} ({(SmallMirror ? "-smallmirror: task 93e" : "today's")}), " +
+                                  $"load radius stays {EngineConfig.TG2_LOAD_RADIUS_CHUNKS} chunks");
         // Edit-driven cascade rebuilds off the main thread (LODCascadeManager's
         // ASYNC REBUILD block). -cascadeasync 0 is the A/B.
         LODCascadeManager.AsyncRebuildEnabled = LODCascadeManager.AsyncRequestedByArgs();
@@ -438,9 +464,7 @@ public class Phase4Bootstrapper : MonoBehaviour
 
         if (shellsRequested)
         {
-            string[] sargs = Environment.GetCommandLineArgs();
-            int qi = Array.LastIndexOf(sargs, "-quality");
-            var layout = ShellLayout.From(ShellLayout.Parse(qi >= 0 && qi + 1 < sargs.Length ? sargs[qi + 1] : null));
+            var layout = ShellLayout.From(ShellPresetFromArgs());
             Shells = new ShellStreamer(layout, Streamer.TerrainGenSource, ArgInt("-shellworkers", 1));
             Shells.Ops = Streamer.Ops;   // 8.14 row 9: shells apply the save's edit ops on generation
             // Task 93a (8.15 §5 "Live"): resident block edits redraw into the shells that
@@ -511,6 +535,14 @@ public class Phase4Bootstrapper : MonoBehaviour
         }
         FrameGapProbe.LastFarMs = sw.Elapsed.TotalMilliseconds - farT0;
         FrameGapProbe.LastCoalescerMs = sw.Elapsed.TotalMilliseconds - streamMs;
+    }
+
+    /// `-quality low|medium|high|ultra` (default High: rigs pin High, row 16).
+    private static QualityPreset ShellPresetFromArgs()
+    {
+        string[] a = Environment.GetCommandLineArgs();
+        int qi = Array.LastIndexOf(a, "-quality");
+        return ShellLayout.Parse(qi >= 0 && qi + 1 < a.Length ? a[qi + 1] : null);
     }
 
     private static int ArgInt(string name, int fallback)
@@ -592,7 +624,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         Shells?.Dispose(); Shells = null;
         Cascades?.Dispose();
         _pool?.Dispose();
-        Clipmap = null; Cascades = null; Store = null; Pool = null; Meta = null;
+        Clipmap = null; Cascades = null; Store = null; Pool = null; Meta = null; SmallMirror = false;
         Streamer = null; Coalescer = null; MetaRoundtripStatus = null;
     }
 }

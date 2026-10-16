@@ -73,6 +73,9 @@ public static class ClipmapValidator
     {
         public bool pass;
         public int chunksChecked;
+        /// Resident chunks outside the mirror box (task 32's parked chunks; with
+        /// task 93e's small box, the 0.1 m ring beyond it): not mirrored, not checked.
+        public int chunksOutOfBox;
         public int chunksWithMismatch;
         public int handleMismatches;
         public int brickByteMismatches;
@@ -160,6 +163,7 @@ public static class ClipmapValidator
         foreach (Chunk chunk in store.ResidentChunks())
         {
             if (result.chunksChecked >= maxChunks) break;
+            if (!clipmap.ContainsChunk(chunk.coord)) { result.chunksOutOfBox++; continue; }
             result.chunksChecked++;
 
             bool dirty = clipmap.IsDirty(chunk.coord);

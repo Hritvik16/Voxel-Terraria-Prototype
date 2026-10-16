@@ -90,6 +90,23 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
     // empty: a stray is a save-capped eviction (KNOWN_ISSUES, task 21/26).
     private readonly HashSet<int3> _parkedOutOfBox = new HashSet<int3>();
     private readonly List<int3> _parkedScratch = new List<int3>();
+
+    // --- Slot owners (task 93e, 8.15 row D2). With the shells on, the box can
+    // be SMALLER than the resident area (16^3 inside a 21 x 21 load radius), so
+    // a recentre leaves slots holding a chunk that has just left the box but is
+    // still resident -- no eviction ever clears them. Each slot remembers the
+    // chunk last written into it; on a recentre every box position whose slot
+    // is held by another chunk is marked dirty: resident -> uploaded, not
+    // resident -> cleared (the eviction path's owner test passes, the position
+    // owns its slot). Without it a walk back across a chunk edge draws the
+    // other chunk there (LOST: resident, clean, wrong slot) and a position not
+    // yet generated draws it too (CountStaleSlots). Off (default) = the old
+    // path, untouched: today's box is wider than the evict radius.
+    private readonly int3[] _slotOwner;
+    private readonly bool[] _slotHeld;
+    public bool RecentreDirtiesStaleSlots { get; set; }
+    /// Box positions marked dirty by recentres (RecentreDirtiesStaleSlots).
+    public long RecentreDirtiedTotal { get; private set; }
     /// Resident dirty chunks skipped because they were outside the mirror box,
     /// summed over every UploadDirty pass. Per pass: UploadStats.skippedOutOfBox.
     public long SkippedOutOfBoxTotal { get; private set; }
@@ -239,6 +256,9 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         BrickDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
             GraphicsBuffer.UsageFlags.LockBufferForWrite, brickPoolCapacity * 128, 4);
         _clipmapLocal = new uint[totalBricks];
+        int chunkSlots = windowChunks.x * windowChunks.y * windowChunks.z;
+        _slotOwner = new int3[chunkSlots];
+        _slotHeld = new bool[chunkSlots];
 
         // ZERO THE GPU CLIPMAP. This line's absence was the "memory corruption".
         //
@@ -271,7 +291,25 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         Active = this;
     }
 
-    public void SetWindowOrigin(int3 originChunks) => _windowOrigin = originChunks;
+    public void SetWindowOrigin(int3 originChunks)
+    {
+        bool moved = !originChunks.Equals(_windowOrigin);
+        _windowOrigin = originChunks;
+        if (moved && RecentreDirtiesStaleSlots) DirtyForeignSlots();
+    }
+
+    /// Slot owners (task 93e): every box position whose slot holds another chunk.
+    private void DirtyForeignSlots()
+    {
+        for (int z = 0; z < _windowDimsChunks.z; z++)
+        for (int y = 0; y < _windowDimsChunks.y; y++)
+        for (int x = 0; x < _windowDimsChunks.x; x++)
+        {
+            int3 c = _windowOrigin + new int3(x, y, z);
+            int s = ChunkSlot(c);
+            if (_slotHeld[s] && !_slotOwner[s].Equals(c) && _dirtyChunks.Add(c)) RecentreDirtiedTotal++;
+        }
+    }
     /// CALL count vs DISTINCT-CHUNK count, split.
     ///
     /// §4.3's upload budget blew out ~10x under fluid load, and "too many
@@ -344,6 +382,10 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         int3 d = chunkCoord - _windowOrigin;
         return ((d.x & ~_chunkMask.x) | (d.y & ~_chunkMask.y) | (d.z & ~_chunkMask.z)) == 0;
     }
+
+    /// InMirrorBox for ClipmapValidator (task 93e): a resident chunk outside the
+    /// box is not mirrored, by design, and is not a lost update.
+    public bool ContainsChunk(int3 chunkCoord) => InMirrorBox(chunkCoord);
 
     private int BrickLinearIndex(int3 worldBrick)
     {
@@ -532,7 +574,10 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
             phaseStart = sw.Elapsed.TotalMilliseconds;
 
             // ONE contiguous write per chunk -- the whole point of chunk-major.
-            WriteClipmapChunk(ChunkSlot(chunkCoord) * EngineConfig.BRICKS_PER_CHUNK, ref stats);
+            int slot = ChunkSlot(chunkCoord);
+            WriteClipmapChunk(slot * EngineConfig.BRICKS_PER_CHUNK, ref stats);
+            _slotOwner[slot] = chunkCoord;
+            _slotHeld[slot] = !evicted;
 
             stats.clipmapSetMs += sw.Elapsed.TotalMilliseconds - phaseStart;
             phaseStart = sw.Elapsed.TotalMilliseconds;

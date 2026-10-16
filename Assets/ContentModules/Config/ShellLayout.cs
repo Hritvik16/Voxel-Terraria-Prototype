@@ -78,12 +78,35 @@ public sealed class ShellLayout
     public float Shell0RadiusM { get; private set; } // c * 0.1 + margin: 59 / 65 / 82 / 116 m
     public int LoadRadiusChunks { get; private set; }
     public int3 Shell0Directory { get; private set; }
+    /// TASK 93e (8.15 row D2): the tier-0 GPU mirror box with the shells on --
+    /// Shell0Directory when shell 0's radius (hand-over + margin) fits inside it
+    /// from anywhere in the camera's chunk, else today's 32 x 8 x 32 box
+    /// (TodayMirrorBox). Low / Medium / High 16^3, Ultra 32 x 8 x 32.
+    public int3 MirrorBox { get; private set; }
     public int Shell0PoolCap { get; private set; }
     /// Shells 1+ by 8.14 §2's MB formula at the caps; compare §H.2's "shells 1+" row.
     public float ShellsTotalMBEstimate { get; private set; }
     private Shell[] _shells;
     /// Shell k (0 .. ShellCount-1). Shell 0's Ring is the 0.1 m GPU directory box.
     public Shell this[int k] => _shells[k];
+
+    /// Today's tg2 GPU mirror box (32 x 8 x 32): shells off, and any preset
+    /// whose shell 0 does not fit a smaller box.
+    public static int3 TodayMirrorBox => new int3(EngineConfig.WINDOW_CHUNKS_XZ, EngineConfig.TG2_MIRROR_CHUNKS_Y, EngineConfig.WINDOW_CHUNKS_XZ);
+
+    /// Horizontal distance the box is guaranteed to cover from the camera: it is
+    /// centred as [cam - d/2, cam + d/2 - 1] chunks (StreamManager.SlideWindow), so
+    /// the near edge is at least d/2 - 1 whole chunks away wherever the camera
+    /// sits inside its own chunk.
+    public static float BoxInnerReachM(int3 box) => ((Math.Min(box.x, box.z) >> 1) - 1) * 12.8f;
+
+    /// The box holds shell 0: power of two on every axis (§6.2), tall enough for
+    /// the vertical band (TG2_MIRROR_CHUNKS_Y, StreamManager asserts the band
+    /// fits), and shell 0's radius inside BoxInnerReachM.
+    public static bool BoxFitsShell0(int3 box, float shell0RadiusM)
+        => IsPow2(box.x) && IsPow2(box.y) && IsPow2(box.z)
+           && box.y >= EngineConfig.TG2_MIRROR_CHUNKS_Y
+           && shell0RadiusM <= BoxInnerReachM(box);
 
     public static int Pow2Ceil(int v) { int p = 1; while (p < v) p <<= 1; return p; }
     public static bool IsPow2(int v) => v > 0 && (v & (v - 1)) == 0;
@@ -121,6 +144,7 @@ public sealed class ShellLayout
         };
         float r0 = L.C * 0.1f;
         L.Shell0RadiusM = (float)(Math.Round(r0) + Math.Round(SHELL0_MARGIN_M));   // §H.2 rounds each: 69 + 13
+        L.MirrorBox = BoxFitsShell0(dir0, L.Shell0RadiusM) ? dir0 : TodayMirrorBox;
         L._shells[0] = new Shell
         {
             Index = 0, VoxelM = 0.1f, ChunkM = 12.8f, InnerM = 0f, OuterM = r0,

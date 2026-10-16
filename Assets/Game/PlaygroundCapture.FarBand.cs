@@ -363,6 +363,17 @@ public partial class PlaygroundCapture
                 if (shellShots)
                 {
                     yield return ShellPoseShots(shellsS, $"{n}_{tn}", n);
+                    if (world && Phase4Bootstrapper.Clipmap != null)
+                    {
+                        // Task 93e: the tier-0 mirror after the jump (the small box's recentre),
+                        // as the golden-hour line below checks it on shells-off runs.
+                        var clip = Phase4Bootstrapper.Clipmap;
+                        var vr = ClipmapValidator.ValidateRegion(clip, Phase4Bootstrapper.Pool, Phase4Bootstrapper.Store, maxChunks: 4096, validateBrickBodies: false);
+                        int stale = ClipmapValidator.CountStaleSlots(clip, Phase4Bootstrapper.Store, out string ex);
+                        L($"  [mirror] {n,-22} box {clip.WindowDimsChunks}  MIRROR lost {vr.mismatchesInCleanChunks} lag {vr.mismatchesInDirtyChunks} stale {stale}" +
+                          (ex != null ? $" [{ex}]" : "") + $"  checked {vr.chunksChecked}  resident outside the box {vr.chunksOutOfBox}  " +
+                          $"skippedOutOfBox {clip.SkippedOutOfBoxTotal}  recentre-dirtied {clip.RecentreDirtiedTotal}  resident {Phase4Bootstrapper.Store.ResidentCount}  deficit {deficit}");
+                    }
                     continue;
                 }
                 yield return CaptureTo($"{n}_{tn}");
@@ -417,7 +428,7 @@ public partial class PlaygroundCapture
                     var vr = ClipmapValidator.ValidateRegion(Phase4Bootstrapper.Clipmap, Phase4Bootstrapper.Pool, Phase4Bootstrapper.Store, maxChunks: 4096, validateBrickBodies: false);
                     int stale = ClipmapValidator.CountStaleSlots(Phase4Bootstrapper.Clipmap, Phase4Bootstrapper.Store, out string ex);
                     mirrorCheck = $"  MIRROR lost {vr.mismatchesInCleanChunks} lag {vr.mismatchesInDirtyChunks} stale {stale}" + (ex != null ? $" [{ex}]" : "") +
-                                  $"  outOfBox {Phase4Bootstrapper.Clipmap.SkippedOutOfBoxTotal}";
+                                  $"  outOfBox {Phase4Bootstrapper.Clipmap.SkippedOutOfBoxTotal} (resident now {vr.chunksOutOfBox}, recentre-dirtied {Phase4Bootstrapper.Clipmap.RecentreDirtiedTotal})";
                 }
                 L($"{n,-24}{tn,7}  eye {pos}  {ms / 60.0:F2} ms (diagnostic)" + mirrorCheck +
                   (world && sm != null ? $"  band {sm.StreamLayer}+-{VoxelEngine.Streaming.StreamManager.V_LOAD_LAYERS}  resident {Phase4Bootstrapper.Store.ResidentCount}  " +

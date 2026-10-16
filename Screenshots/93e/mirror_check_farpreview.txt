@@ -1,0 +1,21 @@
+SIZECLASS 2 WORLD (-world tg2: voxel band streamed in Y + the far band) -- 2026-10-16_071031
+seed 42: world 8 km, sea at Y 5120, peak site float2(39000f, 37000f), max top 11000 (engine voxels), ring initial fill 2863 ms
+map v4 Height FNV 639552DD962C4B28  cell(613,259) 1068.80900
+volcano_from_2km, caldera_above: this world drew no volcano (map v4 feature pool) -- skipped
+cliff feet found: 3  (band placement: terrain-aware)
+POSES (-poses): 3 kept of 3 named: glide_400m, eye_level_3, cliff_foot_1
+SHELLS (-shells 1, task 80): preset High, shells 1-7, march cap 384; A = shells off (cascades), B = shells on, C = on + tint (tier 0 blue, shells 1-7 green/yellow/orange/red/magenta/cyan/white, far band grey)
+  px = the largest voxel a ray stopped in, in dispatch pixels (720 rows; 8.14 High is sized for 720); per shell: hits, hits over 1 px, max px. Shell 0 = tier 0 (0.1 m; large near the eye by nature).
+  [shells] glide_400m             waited 30 s (missing 2304, in flight 8)  px:  s0 -  s1 -  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 0/0 (2170 stored)  s2 0/0 (2001 stored)  s3 0/691 (964 stored)  s4 0/987 (0 stored)  s5 0/414 (0 stored)  s6 0/144 (0 stored)  s7 0/16 (0 stored)
+  [shells] complete at (s; - = not within the wait):  s1 2  s2 24  s3 -  s4 -  s5 -  s6 -  s7 -
+  [mirror] glide_400m             box int3(16, 16, 16)  MIRROR lost 0 lag 0 stale 0  checked 1792  resident outside the box 1295  skippedOutOfBox 1337  recentre-dirtied 1241  resident 3087  deficit 0
+  [shells] eye_level_3            waited 30 s (missing 3045, in flight 8)  px:  s0 171239/0>1/max 0.87  s1 55697/28687>1/max 1.26  s2 23917/23917>1/max 1.81  s3 79652/79652>1/max 2.67  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 3/583/FULL (1584 stored)  s2 3/1529/FULL (638 stored)  s3 0/1323 (670 stored)  s4 0/987 (0 stored)  s5 0/480 (0 stored)  s6 0/182 (0 stored)  s7 0/16 (0 stored)
+  [shells] complete at (s; - = not within the wait):  s1 10/FULL  s2 14/FULL  s3 -  s4 -  s5 -  s6 -  s7 -
+  [mirror] eye_level_3            box int3(16, 16, 16)  MIRROR lost 0 lag 0 stale 0  checked 1792  resident outside the box 1295  skippedOutOfBox 2633  recentre-dirtied 3033  resident 3087  deficit 0
+  [shells] cliff_foot_1           waited 30 s (missing 2556, in flight 8)  px:  s0 621875/620441>1/max 28.85  s1 12/12>1/max 1.54  s2 -  s3 125/0>1/max 0.99  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 4/742/FULL (1427 stored)  s2 6/1574/FULL (593 stored)  s3 0/838 (1155 stored)  s4 0/987 (0 stored)  s5 0/441 (0 stored)  s6 0/162 (0 stored)  s7 0/16 (0 stored)
+  [shells] complete at (s; - = not within the wait):  s1 0/FULL  s2 0/FULL  s3 -  s4 -  s5 -  s6 -  s7 -
+  [mirror] cliff_foot_1           box int3(16, 16, 16)  MIRROR lost 0 lag 0 stale 0  checked 1792  resident outside the box 1295  skippedOutOfBox 3929  recentre-dirtied 4825  resident 3087  deficit 0
+ring upkeep: 8 strips, 11 refills, 66.6 MB uploaded
