@@ -1,64 +1,55 @@
-# 93d-engine-14d1-free-cascade-tiers: DONE -- with `-shells 1` cascade tiers 1-2 are not allocated; peak 2,978 -> 2,728 MB
+STOP_FOR_OWNER -- 93b2: walking fill throughput FIXED (2.8x), but shells 1-2 stop at their BRICK caps (~55% / ~28% of the band).
+Question (Q53): how should shells 1-2 hold their whole band?
+ (a) RECOMMENDED: extend task 83's cave fill to shells 1-2 (today shells >= 3, owner Q44 (a)). No extra memory. Unfilled shells 1-2
+     are 67% mixed chunks (caves below the surface); filled shell 3 is 26%. That should bring shell 1 under its cap; shell 2 likely
+     still short (~75%). Cost: the fill adds ~50 ms per chunk on the workers (shell 3's figure).
+ (b) Raise the shell 1-2 brick pools: ~+250 MB (s1 +71, s2 +179). More than D1 freed (193 MB); peak ~2,740 -> ~2,990 MB of 3,072.
+ (c) Accept it: shells 1-2 hold what fits at mountain spots, the far band draws the rest; go on to 93b3.
 
-## What changed (commit 977f25e)
-- `LODCascadeManager.TiersWanted(tg2, shells, keeptiers)`: tiers 1-2 are skipped only for tg2 + `-shells 1`. Everything
-  else allocates them as before. `Phase4Bootstrapper.Cascades` is null in that case, and the log says "NOT allocated".
-- `StreamManager`: every `_cascades` call is null-safe. With no cascades the worker skips the downsample: no
-  PrepareTier0/DownsampleTier work and `cascadeData` stays null. Scratch contexts get no `DownsampleScratch` (~2.3 MB each).
-  New `CascadeTiersOn` and `ScratchDownsampleBuffers` (for tests).
-- Readers checked: RaymarchFeature already binds the tier-0 buffers as stand-ins when `LODCascadeManager.Active` is null.
-  MemoryLedger and the acceptance rig already handle null. `PlaygroundCapture.LodPop` is now null-safe.
-  CoalesceScheduler only stores the reference.
-- `-keeptiers 1` allocates the tiers anyway. It is for the diagnostic arms that set `DrawShells = false` (`-costarms
-  shells_off`, the farpreview `A_off` still, the `-farop` B shot). Without it those arms now show tier 0 + far band, not
-  tiers 1-2 (CostSplit comment updated). Cascade code, `-detailspeed` and `FarStartT` are untouched. No frozen API changed.
-- `CascadeTiersOffTests` (3): the start-up rule; streaming, editing, evicting and re-admitting with no cascades (the edit
-  survives, no downsample buffers, no manager created, the tier-0 mirror drains); and the shells-off control, which holds
-  its buffers. CLAUDE.md has a commands entry.
+# 93b2-shells-fill-while-walking: cause found (2 causes), throughput half fixed; >= 90% target NOT met (caps)
 
+## Cause (step 1, counted per shell over a walk; `ShellStreamer.Counters.cs`)
+- Not churn at the hole edge, not drops on arrival (10-20 per launch), not recentre losses: hypotheses 2-3 ruled out.
+- (4) THROUGHPUT: ~90% of a shell chunk's time is its COLUMN PASS (shell 1 at the start: column 90-119 ms, voxel 8-11 ms).
+  It depends on (shell, x, z) only, yet ran once per LAYER: 13 times per shell-1 column. That is task 30's tier-0 bug, in the shells.
+  Walking at 5 m/s, shell 1 alone needs ~33 chunks/s (5,893 generated in the 3 min walk after the fix). Before: ~9.5/s,
+  so it fell 3-5x behind the box; shell 2 got no worker at all during the walk.
+- (1) CAPS, the second limit: shells 1-2 go FULL on BRICKS (pages are half free), at 1,130-1,338 of 2,168 chunks (s1) and 510-610 of ~2,000 (s2).
+## Fix (commit c265106; one change, same bytes, design kept)
+- `GenerateShellChunk` COLUMN REUSE: the scratch keeps its column (key: source, spec stamp, shell, x, z, sample offset) and skips the job.
+- `ShellStreamer` COLUMN AFFINITY: a returning scratch first takes the NEAREST missing layer of its own column (tier 0's column batch,
+  one layer per hand-over). The global pick passes over columns another scratch owns. Across columns the order is still Q47 (a)'s.
+  Scratches go from workers + 2 to 2 x workers + 2 (+3 x ~4.4 MB). `-shellcolreuse 0` = the old behaviour (diagnostic A/B).
+- No frozen API, layout or memory-layout change. With shells off nothing is called.
+- Capture: per-shell counters at the walk's start and end (`CountersReport`), held per 30 s window, an `-walkshellwait S`
+  start-pose wait (the walk clock starts after it), and a `99_end_tint` still.
 ## Evidence
-- Own tests: PASS 15 FAIL 0 (new tests + DeferredEviction, CascadeAsyncRebuild, EditOp). Fast suite **PASS 761 FAIL 0
-  SKIP 14** (`Logs/overnight/93d-fast.out`; 758 before, +3).
-- Shells off: `run-phase7-rig.sh` **PASS 37 FAIL 0**, and all 19 shots are **byte-identical** to a same-day baseline:
-  HEAD without this change (`Phase7Cycle/2026-10-16_024701`) vs with it (`2026-10-16_023443`).
-  Compared with the last earlier run (10-13_021118, task 85b), 10/19 shots differ. Both of today's runs differ the same
-  way, so commits made since 85b (86, 91, 93a...) cause it, not this change. Nobody re-baselined after those.
-- Memory: two launches, before = HEAD build and after = this commit, same flags. Logs `Logs/overnight/93d-before.out` and
-  `93d-after.out`, copied to `Screenshots/93d/{before,after}/`. Flags: `MODE=poses EXTRA="-shells 1 -shellworkers 3
-  -gateres 1280 -shellwait 60 -poses peak_from_2km_ground,cliff_foot_1 -memledger"`.
-  - Peak phys_footprint **2,978 -> 2,728 MB (-250)**. IOAccelerator (graphics, the Metal buffers) **1,466 -> 1,378 MB (-88)**.
-    Untagged malloc 1,295 -> 1,144 MB (-151). From the `mem_peak_breakdown.txt` files.
-  - Memledger: the `LODCascadeManager` row (79.0 GPU / 67.6 native / 43.8 managed = 190.4 MB) is now "(not present)".
-    `cascade tier 1/2` pool rows are "(not present)". Ledger SUM 2,091.2 -> 1,900.7 MB. No other row moved by more than 0.1 MB.
-  - The cut is larger than the 193 MB estimate. The extra ~60 MB is the workers' DownsampleScratch buffers and the
-    per-chunk cascade result arrays, which the ledger does not walk.
-- No frame-time numbers (rule 10).
-- Stills: the shells-ON frames, before vs after. cliff_foot_1 is 0.00% different. peak_from_2km_ground differs on 2.06%
-  of pixels, in one band of the mid-distance snowfield. In that band shell 2 had filled further in the before run
-  (s2 677 vs 236 chunks stored at 60 s; s2 px 29,884 vs 10,705). The after counts match task 85's run exactly
-  (3,059 / 10,705). So this is shell streaming timing, not a missing tier: tiers 1-2 never drew with shells on.
-- Missing at 60 s, after: peak s1 638 / s2 1,934 / s3-7 all; cliff s1 956 FULL / s2 1,643 FULL. Same pattern as before.
-
-## Not done / notes
-- MemoryLedger has no ShellStreamer root, so the shells' own GPU memory is not in the ledger SUM. That would be a one-line
-  addition to the roots list, and 93b2 or 93g may want it.
-
+- `ShellColumnReuseTests` (3): reuse byte-identical (shell 1, and filled shell 3); spec change drops the column; ~1 pass per column;
+  walking twin (Slow; modelled 3 workers, column 150 / voxel 15 ms, 5 m/s for 15 s): ON 240 -> 1,211 held (FULL), OFF 240 -> 458
+  (`Screenshots/93b2/walk_twin.txt`). Shell tests filter PASS 24 (order, storage, redraw, summaries, hand-over); fast suite
+  **PASS 763 FAIL 0 SKIP 14** (`Logs/overnight/93b2-fast.out`).
+- Launches (same build, AC, counts only, 120 s start-pose wait + 3 min walk; flags in `Logs/overnight/93b2-{before2,after}.out`):
+  before = `-shellcolreuse 0` `Screenshots/93b2/before/walk.txt`, after `Screenshots/93b2/after/walk.txt`.
+  First run (HEAD + counters; its walk was only 55 s, timer bug since fixed) `Screenshots/93b2/first_run_55s_walk.txt`: same pattern.
+- Peak footprint 2,742 -> 2,739 MB. No frame times quoted (rule 10).
+- Not changed: shell 1 alone takes ~77% of the 3 workers while walking, so shell 3 still drains (1,225 -> 639). A 4th shell
+  worker or the fill question above decides that; 93b3 / the 93b re-run measures it.
 ## Next step
-Next queued task (93e, D2).
+Owner answers Q53. Then 93b3 (far band after the shells), then re-run 93b.
 
 ## For the doc
-Task 93d (engine 14d1): with the shells on, the unused cascade tiers 1-2 are no longer created.
-- Peak process footprint, shells on, 2 poses: 2,978 -> **2,728 MB** (cap 3,000). `Screenshots/93d/{before,after}/mem.txt`
-- Metal (IOAccelerator graphics): 1,466 -> **1,378 MB**. Malloc 1,295 -> 1,144 MB. `.../mem_peak_breakdown.txt`
-- Memledger: LODCascadeManager 79.0 GPU + 67.6 native + 43.8 managed MB -> not present. Ledger sum 2,091 -> 1,901 MB.
-  `Screenshots/93d/{before,after}/farpreview.txt`
-- Shells off unchanged: Phase 7 rig PASS 37 FAIL 0, 19/19 shots byte-identical. Fast suite 758 -> 761 PASS, 0 FAIL.
+Task 93b2: why the shells empty while walking. Each shell chunk re-ran a column pass that depends only on x and z,
+for every one of its 13 layers. Now it runs once per column. Shells 1-2 still stop at their brick caps (owner Q53).
+| 5 m/s walk, 3 shell workers | before | after |
+|---|---|---|
+| shell chunks generated (whole launch) | 3,598 | 9,948 |
+| shell 1 column pass reused | 0% | 86% |
+| start pose: shell 1 FULL after | 46 s | < 10 s |
+| walk's end held s1 / s2 / s3 / s4 | 207 / 125 / 146 / 0 | 1,049 / 351 / 639 / 141 |
+| band s1 / s2 / s3 / s4 | 2,170 / 2,170 / 1,663 / 987 | same |
+Logs `Screenshots/93b2/{before,after}/walk.txt`.
 Images:
-- `Screenshots/93d/before_after_93d.jpg`: shells ON, BEFORE (left) vs AFTER (right). Top row, peak_from_2km_ground: the
-  horizon line, the far mountains and the cliff on the left are the same. Bottom row, cliff_foot_1: the mid-distance red
-  slope and its skyline are pixel-identical. Nothing that tiers 1-2 drew went missing.
-- `Screenshots/93d/peak_diff_strip.jpg`: rows 732-820 of the peak pose. Strips top to bottom: before, after, and the
-  pixels that differ by 16 or more (white). The white speckle sits on the mid-distance snowfield, where shell 2 had more
-  chunks in the before run. That is streaming progress at 60 s, not this change.
-- `Screenshots/93d/peak_Aoff_diff_strip.jpg`: the diagnostic A_off still (shells not drawn). Before, tiers 1-2 drew the
-  snowfield past tier 0. After, the far band draws it. Coarser, but there are no holes. `-keeptiers 1` restores the old arm.
+- `Screenshots/93b2/walk_end_before_after.jpg`: top row, the walk's end view, before (left) and after (right): the same
+  picture (near mountain, hill, far plain). Bottom row, the shell tint: green = shell 1, blue = tier 0, grey = far band.
+  After, a green strip of shell 1 covers the valley floor left of the hill (~5x the green pixels). The hill and the plain are
+  grey (far band) in both, because shells 2-3 did not fill there (caps / workers).
