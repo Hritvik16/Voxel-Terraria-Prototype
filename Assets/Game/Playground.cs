@@ -266,6 +266,11 @@ public partial class Playground : MonoBehaviour
     private bool _invDirty;
     private float _invSaveTimer;
     private string _invPath;
+    /// Task 93c1: player_pose.json beside player.json (play-start runs only);
+    /// written only once the start pose has settled, so a slow start never
+    /// saves the arena's pose over a good one.
+    private string _posePath;
+    private bool _poseReady;
     private int _lostTotal;
 
     internal Inventory DebugInventory => _inv;
@@ -554,6 +559,11 @@ public partial class Playground : MonoBehaviour
     /// (-fluidprobe is a rig but deliberately not a capture run), excluded here.
     private static bool IsPlaySettingsRun() => !IsCaptureRun() && !HasArg("-fluidprobe");
 
+    /// Task 93c1 (gameplay step 4, P21): the runs that start at the play start
+    /// (TerrainGen.PlayStart: the best easy area) and save/resume the player's
+    /// pose: the play-settings runs, unless -playstart 0 (back to Tg2Spawn).
+    internal static bool IsPlayStartRun() => IsPlaySettingsRun() && !(TryArgFloat("-playstart", out float v) && v < 1f);
+
     private static bool IsCaptureRun()
     {
         foreach (string a in Environment.GetCommandLineArgs())
@@ -793,6 +803,7 @@ public partial class Playground : MonoBehaviour
             if (a[i] == "-playshot" && float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float,
                                                       System.Globalization.CultureInfo.InvariantCulture, out float p)) s = p;
         if (s < 0f) yield break;
+        if (HasArg("-playshotquit")) _showHelp = false;   // an unattended shot: the terrain, not the F2 panel
         float t0 = Time.unscaledTime;
         while (Time.unscaledTime - t0 < s) yield return null;
         yield return new WaitForEndOfFrame();
@@ -804,6 +815,8 @@ public partial class Playground : MonoBehaviour
         Destroy(tex);
         // What the eye is in (a black frame at the start pose: task 32b).
         Debug.Log($"[Playground] -playshot: {path}  {EyeReport()}, t {Time.unscaledTime:F1} s, clock {SunCycle.ClockString()}, day {SunCycle.DayLengthSeconds:F0} s");
+        // -playshotquit (task 93c1): quit after the shot (one start frame per seed, unattended).
+        if (HasArg("-playshotquit")) Application.Quit();
     }
 
     private string EyeReport()
@@ -821,11 +834,25 @@ public partial class Playground : MonoBehaviour
     /// topmost non-air voxel in the loaded band is SOLID (not fluid), every
     /// chunk above it resident, so the eye is in open air. Waits while the
     /// columns are still streaming in.
-    private IEnumerator SettleStartPose(bool startView = false)
+    ///
+    /// Task 93c1 (gameplay step 4): when the session started at the play
+    /// start (the best easy area), the search starts THERE, not at the arena;
+    /// a KEEP=1 resume stands exactly at the saved pose instead (no search).
+    /// `walk`: switch to walk mode before standing (R's respawn waits in fly).
+    /// `fromCamera`: search from where the camera is (F: the arena), not the start.
+    private IEnumerator SettleStartPose(bool startView = false, bool walk = false, bool fromCamera = false)
     {
         Camera cam = Camera.main;
         if (cam == null) yield break;
-        Vector3 a = cam.transform.position;
+        var resume = Phase4Bootstrapper.PlayResume;
+        if (resume != null && !walk && !fromCamera)
+        {
+            Phase4Bootstrapper.ClearPlayResume();   // once: F and R go to the start from here on
+            yield return ResumePose(resume, startView);
+            yield break;
+        }
+        bool atStart = Phase4Bootstrapper.PlayStartActive && !fromCamera;
+        Vector3 a = atStart ? Phase4Bootstrapper.PlayStartM : cam.transform.position;
         int3 from = CoordMath.WorldToVoxel(new float3(a.x, a.y, a.z));
         string before = EyeReport();
         int3 col = default;
@@ -847,9 +874,11 @@ public partial class Playground : MonoBehaviour
             if (_cam != null) _cam.SetLook(yaw, 0f);
             else cam.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
         }
+        if (walk) _mode = MoveMode.Walk;
         if (_mode == MoveMode.Walk) SnapPlayerToCamera();
-        _status = "standing on dry ground near the fluid arena";
-        Debug.Log($"[Playground] start pose: arena {before}; basin {_arenaCentre} under fluid: {basinWet}; " +
+        _poseReady = true;
+        _status = atStart ? "standing at the start (the best easy area)" : "standing on dry ground near the fluid arena";
+        Debug.Log($"[Playground] start pose: {(atStart ? "play start (easy area)" : "arena")} {before}; basin {_arenaCentre} under fluid: {basinWet}; " +
                   $"moved to dry column ({col.x}, {col.z}) top {col.y} {MaterialName(_store.GetVoxel(col))} -> {EyeReport()}" +
                   (startView ? $"; -startview: noon, level look (yaw {cam.transform.rotation.eulerAngles.y:F0}) at t {Time.unscaledTime:F1} s" : "") +
                   $"; day {SunCycle.DayLengthSeconds:F0} s");
@@ -929,8 +958,8 @@ public partial class Playground : MonoBehaviour
         Register(new Toy(KeyCode.Alpha0, "stop vents", () =>
             { _waterLeft = _sandLeft = _lavaLeft = _otherLeft = 0; _status = "vents closed"; }));
         Register(new Toy(KeyCode.F, "go to arena", () =>
-            { TeleportToArena(); if (Phase4Bootstrapper.IsTg2World) StartCoroutine(SettleStartPose()); }));
-        Register(new Toy(KeyCode.R, "respawn on ground", Respawn));
+            { TeleportToArena(); if (Phase4Bootstrapper.IsTg2World) StartCoroutine(SettleStartPose(fromCamera: true)); }));
+        Register(new Toy(KeyCode.R, "respawn (play: back to the start)", Respawn));
         Register(new Toy(KeyCode.B, "bomb", DetonateAtTarget));
         Register(new Toy(KeyCode.G, "CHAOS BURST", StartChaosBurst));
         Register(new Toy(KeyCode.T, "shoot", ShootProjectile));
@@ -1102,6 +1131,7 @@ public partial class Playground : MonoBehaviour
     private void Respawn()
     {
         if (_player == null || _player.Motor == null) return;
+        if (Phase4Bootstrapper.PlayStartActive) { StartCoroutine(RespawnAtPlayStart()); return; }
         int3 c = CameraVoxel();
         int sy = SurfaceY(c.x, c.z);
         if (sy < 0) { _status = "no ground under you to respawn onto"; return; }
@@ -1109,6 +1139,40 @@ public partial class Playground : MonoBehaviour
         _player.Motor.ResolveSpawn();
         _mode = MoveMode.Walk;
         _status = "respawned on the surface";
+    }
+
+    /// Task 93c1: R in play goes back to the play start. Fly mode while the
+    /// start streams in (the camera holds the window there; a walking player
+    /// would pull it back), then the start pose's dry-column search, in walk.
+    private IEnumerator RespawnAtPlayStart()
+    {
+        Camera cam = Camera.main;
+        if (cam == null) yield break;
+        _mode = MoveMode.Fly;
+        cam.transform.position = Phase4Bootstrapper.PlayStartM;
+        _status = "back to the start ...";
+        yield return SettleStartPose(false, walk: true);
+    }
+
+    /// KEEP=1: stand at the saved pose once its chunk and the one under it are
+    /// resident (the window was primed there at start-up), look as saved.
+    private IEnumerator ResumePose(PlayerPose p, bool startView)
+    {
+        Camera cam = Camera.main;
+        int3 feet = CoordMath.WorldToVoxel(new float3(p.x, p.y, p.z));
+        for (int f = 0; f < 900 && !(_store.IsResident(CoordMath.VoxelToChunk(feet)) &&
+                                     _store.IsResident(CoordMath.VoxelToChunk(feet - new int3(0, EngineConfig.CHUNK_EDGE_VOXELS, 0)))); f++)
+            yield return null;
+        if (startView) SunCycle.SetHours(SunCycle.NoonHours);
+        cam.transform.position = new Vector3(p.x, p.y + 1.6f, p.z);
+        if (_cam == null) _cam = cam.GetComponent<PlaygroundFlyCamera>();
+        if (_cam != null) _cam.SetLook(p.yaw, p.pitch);
+        else cam.transform.rotation = Quaternion.Euler(p.pitch, p.yaw, 0f);
+        _mode = p.walk && _player != null ? MoveMode.Walk : MoveMode.Fly;
+        if (_mode == MoveMode.Walk) SnapPlayerToCamera();
+        _poseReady = true;
+        _status = "resumed where you left off (KEEP=1)";
+        Debug.Log($"[Playground] start pose: resumed saved pose {p.x:F1},{p.y:F1},{p.z:F1} m yaw {p.yaw:F0} -> {EyeReport()}");
     }
 
     private void CycleTier(int d)
@@ -1828,6 +1892,8 @@ public partial class Playground : MonoBehaviour
     {
         if (!IsPlaySettingsRun() || string.IsNullOrEmpty(Phase4Bootstrapper.DeltaDirectory)) return;
         _invPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Phase4Bootstrapper.DeltaDirectory), "player.json");
+        if (Phase4Bootstrapper.IsTg2World && IsPlayStartRun())
+            _posePath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Phase4Bootstrapper.DeltaDirectory), PlayerPose.FileName);
         // A fresh world (-cleardeltas, run-play.sh's default) starts a fresh
         // inventory; KEEP=1 (-keepdeltas) keeps both.
         if (!HasArg("-keepdeltas") || !System.IO.File.Exists(_invPath))
@@ -1851,6 +1917,31 @@ public partial class Playground : MonoBehaviour
         if (_invSaveTimer < 30f) return;
         _invSaveTimer = 0f;
         SaveInventory();
+        SavePose();
+    }
+
+    private void SavePose()
+    {
+        if (_posePath == null || !_poseReady || Camera.main == null || Phase4Bootstrapper.Streamer?.TerrainGenSource == null) return;
+        Vector3 c = Camera.main.transform.position;
+        bool walk = _mode == MoveMode.Walk && _player != null && _player.Motor != null;
+        float3 feet = walk ? _player.Motor.PositionM : new float3(c.x, c.y - 1.6f, c.z);
+        var pose = new PlayerPose
+        {
+            mapVersion = Phase4Bootstrapper.Streamer.TerrainGenSource.Spec.mapVersion,
+            x = feet.x, y = feet.y, z = feet.z,
+            yaw = _cam != null ? _cam.Yaw : Camera.main.transform.eulerAngles.y,
+            pitch = _cam != null ? _cam.Pitch : 0f,
+            walk = walk,
+        };
+        try
+        {
+            string tmp = _posePath + ".tmp";
+            System.IO.File.WriteAllText(tmp, pose.ToJson());
+            if (System.IO.File.Exists(_posePath)) System.IO.File.Delete(_posePath);
+            System.IO.File.Move(tmp, _posePath);
+        }
+        catch (Exception e) { Debug.LogWarning($"[Playground] pose: save failed ({e.Message})"); }
     }
 
     private void SaveInventory()
@@ -1867,7 +1958,7 @@ public partial class Playground : MonoBehaviour
         catch (Exception e) { Debug.LogWarning($"[Playground] inventory: save failed ({e.Message})"); }
     }
 
-    void OnApplicationQuit() => SaveInventory();
+    void OnApplicationQuit() { SaveInventory(); SavePose(); }
 
     /// THE PLACE ACTION. Returns true if the blob was actually written.
     ///
@@ -2581,7 +2672,9 @@ public partial class Playground : MonoBehaviour
         if (_moveAbilities)
             sb.AppendLine("  <b><color=#ffd479>Space</color></b> in the air: double jump    <b><color=#ffd479>Shift</color></b> dash (walk)    " +
                           "in water: <b>WASD</b> swim where you look, <b>Space</b> up / jump out, <b>Ctrl</b> down");
-        sb.AppendLine("  <b>Tab</b> walk ↔ fly      <b>R</b> respawn on the surface      <b>F</b> go to the basin");
+        sb.AppendLine(Phase4Bootstrapper.PlayStartActive
+            ? "  <b>Tab</b> walk ↔ fly      <b><color=#ffd479>R</color></b> back to the start (the best easy area)      <b>F</b> go to the basin"
+            : "  <b>Tab</b> walk ↔ fly      <b>R</b> respawn on the surface      <b>F</b> go to the basin");
         sb.AppendLine("");
         if (SurvivalMode)
         {

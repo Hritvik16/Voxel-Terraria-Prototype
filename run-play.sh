@@ -3,9 +3,11 @@
 #   ./run-play.sh            the tg2 island on map v4 (surface rebuild B1+) + the far band
 #   MAPV=3 ./run-play.sh     the old generator (map v3), for comparison
 #   BUILD=1 ./run-play.sh    rebuild the Playground first (scene + release player)
-#   KEEP=1 ./run-play.sh     keep your edits + Survival inventory (player.json) from the last session (default: fresh world;
+#   KEEP=1 ./run-play.sh     keep your edits, Survival inventory (player.json) and where you stood (player_pose.json) from
+#                            the last session (default: fresh world at the play start, the best easy area, task 93c1;
 #                            v3 and v4 share one delta folder, so edits would cross over)
 #   SHOT=60 ./run-play.sh    one screenshot 60 s after startup (-playshot; path printed at exit)
+#                            (EXTRA="-playshotquit" quits after it; EXTRA="-worldseed 7" another tg2 island, own folder)
 #   EXTRA="-upscaler fsr1 -renderrows 540" ...   extra player flags (e.g. -detailspeed 1)
 # Upscaler (task 52, owner Q38 (a)): play STARTS WITH FSR 3 DYNAMIC -- 1080p output from
 # 540-720 internal rows chosen on frame time, as `-upscaler fsr3 -renderrows dyn`. Override
@@ -72,7 +74,7 @@ cat <<KEYS
 world: -world tg2 -mapversion $MAPV (far band always on in tg2), far shadows on
 keys (Playground.cs RegisterDefaultToys, PlaygroundFlyCamera, PlaygroundHud, Minimap, DevMap):
   click         capture the mouse (first click only captures)   Esc  release it
-  Tab           walk <-> fly      R respawn on ground    F go to the fluid arena (the start pose)
+  Tab           walk <-> fly      R back to the start (best easy area; task 93c1)    F go to the fluid arena
   WASD          move; walk: Space jump; fly: E up, Q down, Left Shift fast (E/Q: Survival keys in walk)
   walk moves    Space in the air: double jump   Left Shift: dash (0.8 s cooldown bar above the hotbar)
                 in water: WASD swims where you look, Space up / jump out at the surface, Left Ctrl down
@@ -97,5 +99,5 @@ DELTA="-cleardeltas"; [ "${KEEP:-0}" = "1" ] && DELTA="-keepdeltas"
 SHOTARG=""; [ -n "${SHOT:-}" ] && SHOTARG="-playshot $SHOT"
 open -n -W "$APP" --args -world tg2 -mapversion "$MAPV" -farband 1 -farshadow 1 -startview -daylength 1200 $DELTA $SHOTARG ${EXTRA:-}
 PL="$HOME/Library/Logs/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Player.log"
-grep -E "\[FarField\] tg2 WORLD|\[Playground\] (-playshot|start pose)" "$PL" 2>/dev/null | cut -c1-200
+grep -E "\[FarField\] tg2 WORLD|\[Playground\] (-playshot|start pose)|\[Phase4Bootstrapper\] (play start|-keepdeltas: (resuming|pose))" "$PL" 2>/dev/null | cut -c1-200
 grep "\[UpscalerSelect\]" "$PL" 2>/dev/null | sed -n '1p;$p' | cut -c1-200   # the start and the last dyn step

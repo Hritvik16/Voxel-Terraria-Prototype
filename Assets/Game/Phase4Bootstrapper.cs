@@ -102,6 +102,15 @@ public class Phase4Bootstrapper : MonoBehaviour
     }
     public static bool IsTg2World { get; private set; }
 
+    /// Task 93c1 (gameplay step 4, P21): true when this session started at
+    /// TerrainGen.PlayStart's pick; PlayStartM is that point (metres, eye 2 m
+    /// above the map's ground). Playground's start pose and R return there.
+    public static bool PlayStartActive { get; private set; }
+    public static Vector3 PlayStartM { get; private set; }
+    /// KEEP=1: the saved pose this session resumes at (null = start fresh).
+    public static PlayerPose PlayResume { get; private set; }
+    public static void ClearPlayResume() => PlayResume = null;
+
     /// MEASUREMENT SEAM (task 51), not a configuration: while set, streaming
     /// and the far band centre on this point instead of the camera, so a timed
     /// camera path that fits inside the window streams nothing. Off by default.
@@ -180,15 +189,20 @@ public class Phase4Bootstrapper : MonoBehaviour
         // The TerrainGen world has no legacy anchors (its landmarks are the
         // map's own); a SEPARATE folder keeps its deltas from ever being
         // replayed onto the other world's chunks (deltas are keyed by coord).
+        // -worldseed N (task 93c1): another tg2 island, for looking at the play
+        // start on more than one seed. Absent = WORLD_SEED (42), the world every
+        // rig and report uses; another seed keeps its own folder (deltas, player).
+        uint tgSeed = IsTg2World ? (uint)ArgInt("-worldseed", (int)WORLD_SEED) : WORLD_SEED;
         WorldMetaData planned = IsTg2World
             ? new WorldMetaData
               {
-                  seed = WORLD_SEED, sizeClass = TerrainGenChunkSource.SIZE_CLASS,
+                  seed = tgSeed, sizeClass = TerrainGenChunkSource.SIZE_CLASS,
                   formatVersion = WorldMeta.FORMAT_VERSION,
                   contentVersionHash = WorldGenConstants.ContentVersionHash(),
               }
             : AnchorPlanner.Plan(WORLD_SEED, SIZE_CLASS);
-        string worldDir = Path.Combine(Application.persistentDataPath, IsTg2World ? "Phase4World_tg2" : "Phase4World");
+        string worldDir = Path.Combine(Application.persistentDataPath,
+            !IsTg2World ? "Phase4World" : tgSeed == WORLD_SEED ? "Phase4World_tg2" : $"Phase4World_tg2_s{tgSeed}");
         string metaPath = Path.Combine(worldDir, "world.meta");
         WorldMeta.WriteAtomic(metaPath, planned);
 
@@ -331,10 +345,36 @@ public class Phase4Bootstrapper : MonoBehaviour
                                      Meta, DeltaDirectory, loadRadius);
         Coalescer = new CoalesceScheduler(_store, _pool, Clipmap, Cascades);
 
+        // Task 93c1 (gameplay step 4, P21): an interactive Playground session
+        // starts in the best easy area (TerrainGen.PlayStart); rigs, capture
+        // runs and -playstart 0 keep Tg2Spawn.
+        // KEEP=1 (-keepdeltas) resumes where the last session ended instead
+        // (PlayerPose, beside player.json).
+        PlayStartActive = false; PlayResume = null;
+        if (IsTg2World && Playground.IsPlayStartRun() && FindAnyObjectByType<Playground>() != null)
+        {
+            var tgs = Streamer.TerrainGenSource;
+            if (TerrainGen.PlayStart.Find(tgs.Map, out var start))
+            {
+                PlayStartActive = true;
+                PlayStartM = new Vector3(start.column.x * 0.1f + 0.05f, (start.groundY + 1) * 0.1f + 2f, start.column.y * 0.1f + 0.05f);
+                UnityEngine.Debug.Log($"[Phase4Bootstrapper] play start (easy area): {start} -> {PlayStartM.x:F1},{PlayStartM.y:F1},{PlayStartM.z:F1} m");
+            }
+            string posePath = Path.Combine(worldDir, PlayerPose.FileName);
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "-keepdeltas") >= 0 && File.Exists(posePath))
+            {
+                PlayResume = PlayerPose.FromJson(File.ReadAllText(posePath), tgs.Spec.mapVersion, out string poseErr);
+                UnityEngine.Debug.Log(PlayResume != null
+                    ? $"[Phase4Bootstrapper] -keepdeltas: resuming at {PlayResume.x:F1},{PlayResume.y:F1},{PlayResume.z:F1} m ({posePath})"
+                    : $"[Phase4Bootstrapper] -keepdeltas: pose not used ({poseErr}): {posePath}");
+            }
+        }
+
         if (IsTg2World && Camera.main != null)
         {
             // The island's own frame: stand on dry land near the centre.
-            Camera.main.transform.position = Tg2Spawn(Streamer.TerrainGenSource);
+            Camera.main.transform.position = PlayResume != null ? new Vector3(PlayResume.x, PlayResume.y + 1.6f, PlayResume.z)
+                                           : PlayStartActive ? PlayStartM : Tg2Spawn(Streamer.TerrainGenSource);
             Camera.main.transform.rotation = Quaternion.Euler(_cameraSpawnEuler);
         }
         else if (_overrideCameraOnStart && Camera.main != null)
@@ -346,7 +386,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         // ---- Fill the initial window ----
         sw.Restart();
         Vector3 camPos = Camera.main != null ? Camera.main.transform.position
-                       : IsTg2World ? Tg2Spawn(Streamer.TerrainGenSource) : ResolveSpawn();
+                       : IsTg2World ? (PlayStartActive ? PlayStartM : Tg2Spawn(Streamer.TerrainGenSource)) : ResolveSpawn();
         if (IsTg2World && Array.IndexOf(Environment.GetCommandLineArgs(), "-farop") >= 0) RecordFarOp(camPos);
         Streamer.Update(camPos);
         if (_fillWindowOnStart)

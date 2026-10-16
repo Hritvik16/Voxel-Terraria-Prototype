@@ -1,0 +1,33 @@
+01:20:01 lock is free; waiting for the Mac to be clear of Unity for 45 s
+building the Playground (Logs/play_scene.log, Logs/play_build.log) ...
+build OK
+build: commit d91cf31, built 2026-10-16 01:24:59Z, DIRTY (uncommitted edits were built in)
+world: -world tg2 -mapversion 4 (far band always on in tg2), far shadows on
+keys (Playground.cs RegisterDefaultToys, PlaygroundFlyCamera, PlaygroundHud, Minimap, DevMap):
+  click         capture the mouse (first click only captures)   Esc  release it
+  Tab           walk <-> fly      R back to the start (best easy area; task 93c1)    F go to the fluid arena
+  WASD          move; walk: Space jump; fly: E up, Q down, Left Shift fast (E/Q: Survival keys in walk)
+  walk moves    Space in the air: double jump   Left Shift: dash (0.8 s cooldown bar above the hotbar)
+                in water: WASD swims where you look, Space up / jump out at the surface, Left Ctrl down
+  SURVIVAL (default; F6 Game mode or -gamemode creative switches):
+  mouse L / R   dig into the inventory (held) / place a cube of the held block (cyan box)
+  wheel or 1-9  hotbar slot    Q cube size 0.1/0.2/0.4/0.8 m    E inventory (click two slots to swap)
+  CREATIVE: mouse L / R dig / place the held brush (held), wheel or 1-9 pick brush
+  Z / X         dig tool smaller / larger
+  V vent here (pours the held fluid or sand)   0 stop vents   B bomb   G chaos burst   T shoot
+  F1 HUD   F2 help   F3 render preset quality/balanced/performance (leaves the FSR 3 default)
+  F4 TAA on/off, preset path only (also hides/shows the minimap -- both listen to F4)
+  F5 voxel detail radius at speed on/off
+  F6 SETTINGS menu: game mode + graphics (saved; Esc or F6 closes)
+  C far band on/off   I far band view (beauty -> bands -> far step heat)
+  O dev map (whole island + underground slice; Esc/O closes)
+  N golden hour  M noon  L midnight  P pause clock  , / . scrub time
+  J shadow quality 0-3   K hard/soft shadows   U look Brickmap/Phase 7
+  [ / ] light preset   Y lighting view (sun vis -> shadow heat)
+[Phase4Bootstrapper] play start (easy area): area 1 cell 386381 column (26680, 30200) ground 6317 interior True -> 2668.1,633.8,3020.1 m
+[FarField] tg2 WORLD (aligned): world map v4 (biome x3.25, 6 biomes, record 6291456 B) built in 4 ms, offset int2(0, 0), sea shift 0
+[Playground] start pose: play start (easy area) eye 2685.2,633.1,3014.8 m = voxel int3(26852, 6331, 30148) material 0 (air), mode Walk; basin int3(26884, 6305, 30180) under fluid: False; moved to dry 
+[Playground] start pose after 5 s: eye 2668.1,633.5,3020.1 m = voxel int3(26680, 6335, 30200) material 0 (air), mode Walk
+[Playground] -playshot: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/PlayShots/play_20261016_012637.png  eye 2668.1,633.5,3020.1 m = voxel int3(26680, 633
+[UpscalerSelect] upscaler fsr3, internal 960x540 (dyn) -> 1920x1080
+[UpscalerSelect] upscaler fsr3, internal 960x540 (dyn) -> 1920x1080

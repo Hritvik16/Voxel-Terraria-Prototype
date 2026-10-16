@@ -334,6 +334,11 @@ line or previous pull, while every cube's centre is solid; else the aimed Q-size
 Layer order, stops when the slot runs out, <= `MaxPullCubes` (2,048 / 131k cells), one `SetCubes`. `Playground.Pull.cs`,
 `PullTests` (10). `EXTRA="-pulldemo"` = 9 shots on a flat map site (block -> thick wall, a hut).
 
+Task 93c1 (gameplay step 4, P21): play STARTS in the best easy area (`TerrainGen.PlayStart`: the largest B4 easy area, ties
+-> nearest the island centre; its first easy + Walk + dry cell whose 8 neighbours are too); R goes back there; KEEP=1 resumes
+at `player_pose.json` (beside player.json, saved every 30 s and on quit). Rigs/capture runs and `-playstart 0` keep `Tg2Spawn`.
+`-worldseed N` = another tg2 island (own folder); `-playshotquit` quits after `-playshot`. `PlayStartTests`, `PlayerPoseTests`.
+
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
 (`Assets/TerrainGen/`):

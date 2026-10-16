@@ -111,6 +111,7 @@ Numbers 1-20 keep their 2026-10-11 ids (tasks 67-72 point at them); new groups u
 | 3 | Ores by depth and biome x landform (v4) | 66 |
 | BLD1 | Drag line (RMB/LMB press-drag-release, preview, Esc cancels) | 93a1 |
 | BLD2 | Face pull (Alt + RMB drag on a face of the last shape: block -> line -> wall -> box; inward digs) | 93b1 |
+| 4 | Start on the best easy area (`TerrainGen.PlayStart`; R returns there; KEEP=1 resumes at `player_pose.json`) | 93c1 |
 
 ### Building (P6, P7, P27) -- smallest useful first
 | # | Step (one change) | Acceptance | Size | Needs |
