@@ -136,6 +136,39 @@ public sealed class PlayerConfig
     public float dashCooldownS = 0.8f;
 
     // =====================================================================
+    // VITALS (task 93d1, GAMEPLAY_PHASE_PLAN.md step 9a). Read only by
+    // PlayerVitals, which only an interactive Survival walk ticks; rigs and
+    // Creative never take damage.
+    // =====================================================================
+
+    /// Full health, HP.
+    public float maxHealth = 100f;
+
+    /// Fall damage is linear in the fall HEIGHT the landing speed is worth
+    /// (v^2 / 2g): none up to fallSafeHeightM, the whole of maxHealth at
+    /// fallLethalHeightM. 4 m / 20 m = 6.25 HP per metre over 4 m. Landing
+    /// with the feet in a liquid takes none.
+    public float fallSafeHeightM = 4f;
+    public float fallLethalHeightM = 20f;
+
+    /// Breath under a liquid (head probe wet), seconds; refilled this many
+    /// seconds per second in air (5 = full in 4 s); empty -> drownDamagePerS.
+    public float oxygenSeconds = 20f;
+    public float oxygenRefillPerS = 5f;
+    public float drownDamagePerS = 10f;
+
+    /// Touching lava / acid (any of the feet, centre or head probes), HP/s.
+    public float lavaDamagePerS = 50f;
+    public float acidDamagePerS = 20f;
+
+    /// Health comes back regenPerS HP/s once regenDelayS has passed without damage.
+    public float regenDelayS = 8f;
+    public float regenPerS = 2f;
+
+    /// Soft death: the "you died" screen lasts this long, then back to the start.
+    public float respawnDelayS = 3f;
+
+    // =====================================================================
     // Validation
     // =====================================================================
 
@@ -174,6 +207,23 @@ public sealed class PlayerConfig
         dashSpeedMps     = Fix(dashSpeedMps, 0f, 100f, 14f, nameof(dashSpeedMps), notes);
         dashDurationS    = Fix(dashDurationS, 0f, 2f, 0.18f, nameof(dashDurationS), notes);
         dashCooldownS    = Fix(dashCooldownS, 0f, 30f, 0.8f, nameof(dashCooldownS), notes);
+        maxHealth        = Fix(maxHealth, 1f, 100000f, 100f, nameof(maxHealth), notes);
+        fallSafeHeightM  = Fix(fallSafeHeightM, 0f, 1000f, 4f, nameof(fallSafeHeightM), notes);
+        fallLethalHeightM = Fix(fallLethalHeightM, 0f, 10000f, 20f, nameof(fallLethalHeightM), notes);
+        // Lethal must be above safe, or the curve divides by zero.
+        if (fallLethalHeightM < fallSafeHeightM + 0.1f)
+        {
+            notes.Append($"{nameof(fallLethalHeightM)} {fallLethalHeightM.ToString(CultureInfo.InvariantCulture)}->{(fallSafeHeightM + 0.1f).ToString(CultureInfo.InvariantCulture)} (above the safe height); ");
+            fallLethalHeightM = fallSafeHeightM + 0.1f;
+        }
+        oxygenSeconds    = Fix(oxygenSeconds, 0.1f, 3600f, 20f, nameof(oxygenSeconds), notes);
+        oxygenRefillPerS = Fix(oxygenRefillPerS, 0f, 1000f, 5f, nameof(oxygenRefillPerS), notes);
+        drownDamagePerS  = Fix(drownDamagePerS, 0f, 100000f, 10f, nameof(drownDamagePerS), notes);
+        lavaDamagePerS   = Fix(lavaDamagePerS, 0f, 100000f, 50f, nameof(lavaDamagePerS), notes);
+        acidDamagePerS   = Fix(acidDamagePerS, 0f, 100000f, 20f, nameof(acidDamagePerS), notes);
+        regenDelayS      = Fix(regenDelayS, 0f, 3600f, 8f, nameof(regenDelayS), notes);
+        regenPerS        = Fix(regenPerS, 0f, 100000f, 2f, nameof(regenPerS), notes);
+        respawnDelayS    = Fix(respawnDelayS, 0f, 60f, 3f, nameof(respawnDelayS), notes);
         if (airJumps < 0) { notes.Append($"{nameof(airJumps)} {airJumps}->0; "); airJumps = 0; }
         if (airJumps > 5) { notes.Append($"{nameof(airJumps)} {airJumps}->5; "); airJumps = 5; }
         // The float point must be inside the body, or an idle swimmer floats

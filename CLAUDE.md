@@ -345,6 +345,12 @@ hands a returning scratch its column's nearest missing layer first and the globa
 AFFINITY; scratches 2 x workers + 2). Same bytes; `-shellcolreuse 0` = old. Per-shell counters `ShellStreamer.CountersReport()`
 (walk logs); `-walkshellwait S` waits at the walk's start pose first. `ShellColumnReuseTests` (3, walking twin Slow).
 
+Task 93d1 (gameplay step 9a): Survival walk has HEALTH (`PlayerVitals`, ticked after each motor step in `Playground.Vitals.cs`): fall damage
+linear in fall height (motor's `LastImpactDownMps`; 4 m safe, 20 m lethal; liquid at the feet cushions; the first landing after entering
+walk is free), AIR 20 s under a liquid then 10 HP/s, lava 50 / acid 20 HP/s, regen 2 HP/s after 8 s; 0 HP = SOFT death (screen 3 s, then
+the play start, inventory kept). Numbers in PlayerConfig.json. Creative, fly, rigs, older demos and `-vitals 0` take no damage.
+`PlayerVitalsTests` (10). `EXTRA="-vitalsdemo"` = 7 shots (full, 12 m fall, under water, drowning, lava, died, respawned).
+
 Task 93d (engine 14d1, 8.15 row D1, Q49): with `-shells 1` cascade tiers 1-2 are NOT ALLOCATED (`LODCascadeManager.TiersWanted`;
 `Phase4Bootstrapper.Cascades` = null, every reader checks; no worker downsample, no DownsampleScratch). Shells off: unchanged.
 `-keeptiers 1` allocates them anyway (diagnostic arms that set DrawShells false and want tiers 1-2 behind). `CascadeTiersOffTests`.

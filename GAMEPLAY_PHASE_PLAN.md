@@ -112,6 +112,7 @@ Numbers 1-20 keep their 2026-10-11 ids (tasks 67-72 point at them); new groups u
 | BLD1 | Drag line (RMB/LMB press-drag-release, preview, Esc cancels) | 93a1 |
 | BLD2 | Face pull (Alt + RMB drag on a face of the last shape: block -> line -> wall -> box; inward digs) | 93b1 |
 | 4 | Start on the best easy area (`TerrainGen.PlayStart`; R returns there; KEEP=1 resumes at `player_pose.json`) | 93c1 |
+| 9a | Health, fall damage (4 m safe, 20 m lethal), air under liquids (20 s), lava/acid damage, soft death -> the play start (`PlayerVitals`) | 93d1 |
 
 ### Building (P6, P7, P27) -- smallest useful first
 | # | Step (one change) | Acceptance | Size | Needs |

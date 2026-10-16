@@ -536,6 +536,12 @@ public partial class Playground : MonoBehaviour
         if (!IsCaptureRun() && HasArg("-pulldemo")) StartCoroutine(PullDemo());
         // -movedemo (task 65): movement set A's screenshots (dive, double jump over a gap), then quit.
         if (!IsCaptureRun() && HasArg("-movedemo")) StartCoroutine(MoveDemo());
+        // -vitalsdemo (task 93d1): health / fall / air / lava / soft death screenshots, then quit.
+        if (!IsCaptureRun() && HasArg("-vitalsdemo")) StartCoroutine(VitalsDemo());
+        // Task 93d1: the older demos keep their shots damage-free; -vitals 0 turns damage off in play.
+        _vitalsAllowed = !(TryArgFloat("-vitals", out float vitArg) && vitArg < 1f) &&
+                         !(HasArg("-survivaldemo") || HasArg("-strokedemo") || HasArg("-pulldemo") || HasArg("-movedemo") ||
+                           HasArg("-oredemo") || HasArg("-riverdemo") || HasArg("-liquiddemo") || HasArg("-farop") || HasArg("-farwall"));
         // -oredemo (task 66): ore screenshots (a tunnel wall, the hotbar, the dev map's close slice), then quit.
         if (!IsCaptureRun() && HasArg("-oredemo")) StartCoroutine(OreDemo());
         // -riverdemo (task 73): river/lake/waterfall/mouth screenshots for RIVERS_WATERFALLS_PLAN.md, then quit.
@@ -1465,9 +1471,14 @@ public partial class Playground : MonoBehaviour
             HandleTimeScrub(dt);
             HandleHotbarKeys();
             HandleSurvivalKeys();
-            HandleMouse(dt);
-            DriveWalk(dt);
+            // Task 93d1: a dead body (soft death screen) neither digs nor walks.
+            if (!VitalsDead)
+            {
+                HandleMouse(dt);
+                DriveWalk(dt);
+            }
         }
+        TickDeath(dt);
         TickInventorySave(dt);
 
         StepChaosBurst();
@@ -1715,6 +1726,7 @@ public partial class Playground : MonoBehaviour
         }
 
         ApplyBuoyancy(dt);
+        TickVitals(dt);   // task 93d1: health, air, damage (interactive Survival only)
     }
 
     /// Movement set A on (interactive runs). Set in Start.
@@ -2312,6 +2324,7 @@ public partial class Playground : MonoBehaviour
         DrawTopBar(vw);
         if (SurvivalMode) DrawSurvivalHotbar(vw, vh); else DrawHotbar(vw, vh);
         DrawMoveHud(vw, vh);
+        DrawVitalsHud(vw, vh);
         if (!_demoHideState) DrawStatePanel(vh);
         if (SurvivalMode && InventoryOpen && !SettingsMenu.IsOpen) DrawInventoryPanel(vw, vh);
         else if (_showHelp && !SettingsMenu.IsOpen) DrawHelp(vw, vh);   // the menu (F6) sits where help does
@@ -2685,6 +2698,8 @@ public partial class Playground : MonoBehaviour
                           "<b><color=#ffd479>LMB drag</color></b> dig a line   <b><color=#ffd479>Esc</color></b> cancel");
             sb.AppendLine("  <b><color=#ffd479>Alt + RMB drag</color></b> pull a face of your last block/line/wall: block -> line -> wall -> thick wall " +
                           "(drag along the face; inward digs)");
+            sb.AppendLine("  <b><color=#ffd479>HEALTH</color></b> falls over 4 m, lava, acid and running out of <b>AIR</b> (under water) hurt; " +
+                          "it comes back after 8 s; at 0 you go back to the start and keep everything");
             sb.AppendLine("  <b><color=#ffd479>Q</color></b> cube size 0.1 / 0.2 / 0.4 / 0.8 m   <b><color=#ffd479>E</color></b> inventory (click two slots to swap)   <b>1-9</b> / scroll  hotbar");
         }
         else

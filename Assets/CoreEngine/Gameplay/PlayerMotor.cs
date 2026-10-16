@@ -169,6 +169,10 @@ public sealed class PlayerMotor
     /// target velocity does not cancel the jump before the body leaves.
     public float SwimLockS;
     public bool LastDoubleJump, LastDashStarted, LastWaterJump;
+    /// Task 93d1 (gameplay 9a): the downward speed (m/s, >= 0) at which the
+    /// feet hit a solid this step, 0 if they did not. Read by PlayerVitals for
+    /// fall damage; the motor itself does nothing with it.
+    public float LastImpactDownMps;
 
     public bool Dashing => DashTimeLeftS > 0f;
 
@@ -240,6 +244,7 @@ public sealed class PlayerMotor
         LastBlockedHorizontally = false;
         LastBlockedByNonResident = false;
         LastDoubleJump = LastDashStarted = LastWaterJump = false;
+        LastImpactDownMps = 0f;
         bool jumpPressed = input.JumpPressed;
 
         if (!abilities)
@@ -584,7 +589,11 @@ public sealed class PlayerMotor
             : snapped <= PositionM[axis];
         if (movingForward && !OverlapsSolid(snapPos)) PositionM = snapPos;
 
-        if (axis == 1) VelocityMps.y = 0f;
+        if (axis == 1)
+        {
+            if (amount < 0f) LastImpactDownMps = math.max(LastImpactDownMps, -VelocityMps.y);
+            VelocityMps.y = 0f;
+        }
         else
         {
             LastBlockedHorizontally = true;
