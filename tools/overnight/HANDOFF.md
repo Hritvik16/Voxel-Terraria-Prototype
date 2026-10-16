@@ -1,57 +1,59 @@
-STOP_FOR_OWNER -- 93b: shells ON are 10-15 ms SLOWER at steady state (rule 3), and they never fill while walking.
-Question (Q50): what happens to 93c (shells default in play)?
- (a) RECOMMENDED: hold 93c; queue one task "shells: walking churn + far-after-shell cost": find why shell 1 is generated
-     and dropped while walking, and split the far band's +11 ms after the shells (primary vs sun-shadow rays, start t). Re-run 93b after it.
- (b) switch anyway for the visuals. But while walking the shells are nearly empty, so the visual gain doesn't show up in play either.
- (c) leave shells off in play until D1-D4 (93d-93g) land, then re-measure.
+# 93b1-gameplay-bld2-face-pull: DONE -- Alt + RMB drag pulls a face of the last shape: block -> line -> wall -> thick wall
 
-# 93b-shells-perf-breakdown: DONE (measured) -- ON +15.2 / +10.5 ms p50 steady; moving ON -2.9 ms but with EMPTY shells
+## What changed (commit 58eab9d)
+- `SurvivalBuild.cs`: `Shape` (the last shape's cubes + set, box, `Intact`, cap 8,192), `EntryFace`, `FaceLayer`,
+  `PullCubes` (layer by layer from the face; N < 0 = the face layer and behind), `PullSteps` (aim -> N), `MaxPullCubes`,
+  `PlacePull` / `DigPull` (BLD1's `PlaceStroke` / `DigStroke`: same costs, ONE `EditService.SetCubes` call).
+- `Playground.Pull.cs` (new): the input, preview (yellow face layer, cyan paid / red past the run-out / orange dig / grey
+  skipped; boxes past 96 cubes), commit, status lines, `-pulldemo`. `Playground.Stroke.cs`: StrokeKind.Pull, Esc cancels
+  it, a BLD1 line becomes the shape; stand search moved to `FindDemoStand` (same order, -strokedemo unchanged).
+  `Playground.cs`: a click-placed cube becomes the shape, `DrawBoxHighlight`, F2 help line, `-pulldemo` hook.
+- `PullTests.cs` (10), CLAUDE.md commands entry, plan Done row BLD2. No TerrainGen, engine, API or layout change.
 
-## What changed (commit becf7f1, capture-only, no defaults)
-- `PlaygroundCapture.ShellsPerf.cs` (new): cost split + `-shells 1` waits `-shellwait` s (default 120) at the pinned pose, logs
-  stored/missing/in-flight per shell and the `-shellsdebug` tint still; `-sustained` prints whole-run p50/p99/>33 ms share, shell
-  counts at the walk's start/end, the time each shell completed, and the streamer counters (requested/generated/over-budget).
-- `PlaygroundCapture.CostSplit.cs`: arms `shells_off` (DrawShells false: tiers 1-2 draw, workers keep running), `fshade_off`.
-- KNOWN_ISSUES entry + CLAUDE.md index line. Report: `Screenshots/93b/perf93b.txt` (all numbers, log paths).
+## Picks (owner may change)
+- Input: hold **Alt (Option)** + **RMB drag**; release commits, Esc cancels. (No middle button on a trackpad; RMB = placing.)
+- N = where the crosshair ray passes closest to the line through the face along its normal, rounded to cubes (SketchUp-like).
+- The face = every shape cube exposed on that side (not only one plane), so a stepped BLD1 line on a slope pulls up into one wall.
+- Pulling back in DIGS (included): the face layer first, credited like a dig stroke; it can dig past the shape into terrain.
+- "Intact" = every cube's centre voxel still solid, checked on press. Otherwise the pull uses the aimed cube at the Q size,
+  and that cube plus the pulled cubes become the shape.
+- Pulled cubes use the SELECTED slot's block, at the shape's own cube size (Q only matters for the fallback). Torches can't be pulled.
+- Caps: 64 layers, and at most 2,048 cubes / 131,072 cells per pull (= BLD1's longest stroke at 0.8 m), whole layers only.
+  The pull is written in one frame like BLD1's stroke, not spread over frames.
 
-## Evidence (warm steady state; warm-up `Logs/tg2world_20261015_205445.txt`; ABBA back to back, AC, no owner pause)
-Setting: fsr3 540, quality preset, far band + far shadows, `-farshade 1 -seethrough 1 -riverlook 1`, noon; ON adds `-shells 1 -shellworkers 3`.
-| arm | p50 ms | p99 ms | >33 ms | peak MB | Metal MB |
-|---|---|---|---|---|---|
-| steady walk_near OFF / ON (2 launches each) | 53.6, 51.2 / 66.5, 68.6 | 91-119 / 120-132 | - | - | - |
-| steady walk_open OFF / ON | 36.2, 35.5 / 45.4, 47.2 | 50-69 / 87-88 | - | - | - |
-| moving walk OFF / ON | 41.8, 43.3 / 40.4, 38.9 | 99, 100 / 92, 90 | 70, 76% / 69, 65% | 2,542, 2,564 / 2,943, 2,936 | 1,164, 1,210 / 1,526, 1,528 |
-- Steady delta: +15.2 ms (near, noise 2.4) and +10.5 ms (open, noise 0.7). ON with a 420 s fill wait: 66.1 / 45.9, the same
-  (`Logs/costsplit_2026-10-15_220254.txt`; it ended on battery). Logs: `Logs/costsplit_2026-10-15_{210051,210747,212140,213552}.txt`,
-  `Logs/tg2world_20261015_{214220,214718,215208,215700}.txt`.
-- Where the cost is (paired arms in the ON launches): turning shells off saves 8.6-16.4 ms, so ON with shells off = OFF and
-  the 3 shell workers cost ~0. Turning the far band off saves 13.6-19.2 ms with shells ON vs 2.0-5.7 ms with them OFF.
-  So: the shell march costs ~+3 ms more than tiers 1-2, and the far band after the shells (`tFar = tShellEnd`, task 85) costs
-  ~+11 ms more than after the tiers. Why that march costs more is NOT isolated. gpu* rises 34-39%, so the extra cost is on the GPU.
-- Shells 1-2 hit their page cap (FULL) at both walk poses with 621 / 1,140 chunks unstored (shell 3 too at walk_open).
-- Moving: shell 1 held 104-149 chunks at the walk's start and 76 at the end; shells 2-7 held none; nothing completed. A counter run
-  (`Logs/tg2world_20261015_222142.txt`, on battery, counts only): 2,347 chunks generated in 3 min, 170 held, 1 over-budget frame
-  in 4,912, so the upload cap is NOT the cause. Likely cause, not verified: nearest-first order keeps the workers on the chunks
-  just outside shell 1's hole, and the eye walks into them. So the moving ON arm measured "tiers 1-2 not drawn", not the shells.
-- Memory ON: +387 MB peak (2,940 of 3,072), Metal +340 MB, with tiers 1-2 still allocated (193 MB; 93d frees them).
-- Fast suite `PASS 745 FAIL 0 SKIP 14` (`Logs/overnight/93b-fast.out`).
-- Looked at: `Screenshots/93b/sheet_walk_open.png`, `sheet_walk_near.png`. OFF and ON look the same at both poses. Pixel samples
-  of the tint still: the nearby mountain is tier 0 (blue), the ridge top right is shells 1-2 (green/yellow), the sea horizon is
-  the far band (grey).
+## Evidence
+- Filtered `PullTests` PASS 10 FAIL 0 (Stroke + SurvivalBuild tests passed in the same run); fast suite
+  `PASS 755 FAIL 0 SKIP 14` (`Logs/overnight/93b1-fast.out`; 93b was 745). SUITE=all not needed (no `Assets/TerrainGen/` change).
+- Demo `BUILD=1 ./run-play.sh EXTRA="-pulldemo"`, launch 3 (1-2 had poor sites; their logs are overwritten). Log: `Screenshots/93b1/pulldemo_log.txt`.
+  The spawn's mountain has no flat stand within the loaded 120 m (best step 1.5-1.7 m), so the demo picks a flat dry 14 m
+  square from the world map (880 m away, height range 0) and walks there. Pulls: line 10, wall 70, thick wall 210 cubes; hut
+  floor 64 + foundation 64; walls 48/42/42/36; roof 64. Every pull came from the shape, and every slot delta = cells placed.
+  The launch-2 hut on a 4.2 m slope also ran out of stack mid-foundation (158/704 cubes), stopping cleanly in layer order.
+- Memory: Shape sets <= 8,192 cubes (< 1 MB). Mixed bricks: only what the player builds.
+- Looked at all 9 shots (sheet below): the blocks are where the log says, nothing floats except the 0.2 m gap below.
 
-## Not done
-- `tiny_gate` arm not run. The OFF bracket after the 420 s launch was stopped: the Mac switched to battery at 22:18.
-- Rule 2's `later/` task "shell march cost" was not written, because rule 3 applies (the owner decides first).
+## Not done / notes
+- The 0.4 m grid row sits 0.2 m above this ground (ground top 5489, rows at 5488/5492), so part 1 shows a thin shadow gap
+  under the block/line/wall. That's P6's grid snap (task 64), not the pull. The hut's pulled foundation fills it.
+- No undo (none exists yet). The plan's BLD-R research row already exists (93a1). No frame-time measurement (rule 10).
+
+## Next step
+Next queued task (Q4 (a): alternate gameplay with engine). Owner check: `./run-play.sh`, F6 Survival, place a block (RMB),
+then Alt + RMB drag its face.
 
 ## For the doc
-Task 93b: shells ON vs today's play, same settings (fsr3 540, quality, far band + far shading), warm, ABBA.
-- Steady (streaming pinned): p50 52.4 -> 67.6 ms (walk_near, +15.2), 35.9 -> 46.3 ms (walk_open, +10.5); OFF-vs-OFF noise 0.7-2.4 ms (`Screenshots/93b/perf93b.txt`)
-- Cost: shell march +3 ms over tiers 1-2; far band drawn after the shells +11 ms (far off saves 13-19 ms ON vs 2-6 OFF)
-- Moving (5 m/s walk): 42.6 -> 39.7 ms p50, BUT shell 1 held only ~76-208 chunks and shells 2-7 none (2,347 generated in 3 min)
-- Memory: peak 2,553 -> 2,940 MB (cap 3,072), Metal 1,187 -> 1,527 MB
-- Rule: ON > 3 ms slower -> 93c held (STOP_FOR_OWNER, Q50)
+Task 93b1 (BLD2): face pull. Alt (Option) + RMB drag on a face of your last block/line/wall repeats it along the face:
+block -> line -> wall -> thick wall in three pulls; dragging back in digs. Keys in `./run-play.sh` (Survival): RMB click = block,
+RMB drag = line (BLD1), **Alt + RMB drag = pull**, Esc = cancel, Q = cube size.
+- Pull sizes, exact (EditMode `PullTests` 10/10): block +N -> line of N+1 on all 6 faces; line 8 +3 -> plane 8 x 4; plane +2 -> box
+- Cost = cells placed: demo slot deltas 576 / 3,840 / 8,960 cells for line / wall / thick wall (`Screenshots/93b1/pulldemo_log.txt`)
+- Per pull: at most 2,048 cubes and 131,072 cells, one EditService call; fast suite 745 -> 755 PASS, 0 FAIL
+- Picks: see "Picks" above (Alt+RMB, aim -> N, inward digs, last shape while intact)
 Images:
-- `Screenshots/93b/sheet_walk_open.png`: top left OFF, top right ON: the same view across a terraced mountain; nothing visibly
-  better or worse. Bottom right, the shell tint: the mountain is tier 0 (blue cast), the ridge top right is shells 1-2 (green/yellow),
-  the sea and horizon on the left are the far band (grey).
-- `Screenshots/93b/sheet_walk_near.png`: a canyon wall at 10-30 m; OFF and ON are the same. The tint is blue all over (tier 0).
+- `Screenshots/93b1/sheet.png`: 3 x 3 contact sheet in shot order. Top row: one blue-slate block on white sand, the line
+  pulled from it, then the wall pull mid-drag. Middle: the wall, the thick wall (2 layers toward the camera), the hut's four walls.
+  Bottom: the roof pull's preview over the hut, the hut with roof and door, both builds from above.
+- `Screenshots/93b1/3_wall_preview.png`: the preview mid-pull. The yellow outlines along the bottom are the line being pulled,
+  the cyan grid above is the 6 layers about to be placed, and the count under the crosshair reads "PULL +6 60 cube(s) x 0.4 m 3,840 of 3,840 cells".
+- `Screenshots/93b1/8_hut.png`: the hut at eye level: 3.2 m front wall with a dug 0.8 x 2 m door, its roof edge on top, and the
+  thick wall at the left edge of the frame. `9_hut_above.png`: the flat roof, and the thick wall in the foreground.
