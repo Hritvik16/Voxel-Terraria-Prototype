@@ -1,26 +1,15 @@
 # 93a1-gameplay-bld1-drag-line: DONE -- Survival drag line (BLD1): press, drag, release builds or digs a line of brush cubes
 
 ## What changed (commit a9ca2db)
-- `SurvivalBuild.LineCubes`: the brush-grid cubes from the press cube to the release cube. It is an integer 3D DDA
-  (Bresenham; grid = `v >> log2(edge)`; adds and compares only), capped at `MaxStrokeCubes` = 256.
-  `Cost` gives the preview numbers, `PlaceStroke` pays cube by cube in path order and stops at the first cube the slot
-  cannot pay for in full, and `DigStroke` credits the inventory as Dig does.
-- `EditService.SetCubes` (ADDED, nothing changed): the whole stroke is ONE call. It runs one wake scan over only the
-  cubes that changed (with the one-cell margin). In place mode it fills only Air and fluid cells.
-- `Playground.Stroke.cs` (new):
-  - RMB press-drag-release places the stroke. LMB held still = the tool dig, unchanged; once the view turns > 4° it
-    becomes a dig stroke.
-  - Preview while dragging: cyan = paid for, red = past the run-out, grey = skipped, orange = dig. A count line sits
-    under the crosshair. Strokes over 96 cubes draw only the ends and the line between them.
-  - Esc cancels and keeps the mouse (`PlaygroundFlyCamera.EscapeEatenUntilFrame`). Opening E/F6, or losing capture,
-    also cancels.
-  - The single-click guards apply per cube: cubes that would enclose you, and mobile blocks outside the wake radius,
-    are skipped.
-  - Torches stay one per click. F2 help has a new line; there is an entry in CLAUDE.md.
-- `GAMEPLAY_PHASE_PLAN.md`: the owner's answers to Q1-Q4 (2026-10-15) are in "For the owner", P27, P22 and §4.
-  BLD2 is now face pull (task 93b1). There is a new research row BLD-R (Lay of the Land). 9b now says Q2 (a) and Q3 OPEN.
-  BLD1 is in the Done table.
-- Frozen APIs, D.1 and memory layout are untouched. Rigs are unaffected (Creative never reaches the stroke path).
+- `SurvivalBuild.LineCubes`: integer 3D DDA on the brush grid (`v >> log2(edge)`, adds/compares only), <= 256 cubes.
+  `Cost` = preview numbers; `PlaceStroke` pays cube by cube in path order, stops at the first unpayable cube; `DigStroke`
+  credits like Dig. `EditService.SetCubes` (ADDED): the stroke is ONE call, one wake scan over the changed cubes only.
+- `Playground.Stroke.cs` (new): RMB press-drag-release places; LMB still = tool dig as before, turned > 4 deg = dig stroke.
+  Preview: cyan paid / red past run-out / grey skipped / orange dig, count under the crosshair (> 96 cubes: ends + line).
+  Esc cancels and keeps the mouse (`PlaygroundFlyCamera.EscapeEatenUntilFrame`); E/F6/lost capture also cancel. Per-cube
+  guards (enclosing you, mobile outside the wake radius) skip that cube. Torches stay one per click. F2 line, CLAUDE.md entry.
+- `GAMEPLAY_PHASE_PLAN.md`: owner's Q1-Q4 (2026-10-15) in "For the owner", P27, P22, §4; BLD2 = face pull (93b1); new
+  research row BLD-R (Lay of the Land); 9b: Q2 (a), Q3 OPEN; BLD1 in Done. Frozen APIs/D.1/layout untouched; rigs unaffected.
 
 ## Picks (owner may change)
 1. **Dig drag:** LMB held still keeps the tool-tier dig. Turning the view > 4° makes it a dig stroke, which is instant
@@ -33,20 +22,14 @@
 6. Max 256 cubes per stroke. Esc cancels without releasing the mouse.
 
 ## Evidence
-- `StrokeTests` 8/8 (filter run `Logs/overnight/93a1-filter.log`). They cover:
-  - lines exact on all 6 axis directions × 4 sizes, and on 10 diagonals or slopes against an integer reference;
-    26-connected, no cube repeated, negative coordinates floor, cut at 256;
-  - cost = cells placed (also = `VoxelsWritten`); only air is filled through ground;
-  - running out stops after 3 of 10 cubes with 10 left in the slot; 63 voxels gives TooFew;
-  - a dig stroke credits removed = inventory.
-- Fast suite: `PASS 745 FAIL 0 SKIP 14` (737 + 8), `Logs/overnight/93a1-fast.out`.
-- Demo `BUILD=1 ./run-play.sh EXTRA="-strokedemo"`, launch 4 (Player.log lines `[StrokeDemo]`/`[Stroke]`):
-  - Wall base: 13/13 cubes of 0.8 m, 4,913 cells, slot 10,000 -> 5,087 (conservation OK).
-  - Short slot: 5/13 cubes, 2,542 of 6,629 cells, ran out, 118 left.
-  - Trench: 19 cubes of 0.4 m, 196 removed = 196 credited.
-- Launches 1-3 fixed the demo, not the feature: the live mouse path overwrote and committed the scripted strokes, and
-  the wall was the ground's colour. The demo now owns the stroke (`_strokeDemoOwns`) and picks a contrasting block.
-- No frame times (owner rule).
+- `StrokeTests` 8/8: lines exact on 6 axis directions x 4 sizes and 10 diagonals/slopes vs an integer reference, 26-connected,
+  no repeats, negative coords floor, cut at 256; cost = cells placed (= `VoxelsWritten`); air-only fill through ground; run-out
+  stops at 3/10 cubes (10 left); 63 voxels -> TooFew; dig removed = credited. Fast suite `PASS 745 FAIL 0 SKIP 14` (737 + 8),
+  `Logs/overnight/93a1-fast.out`.
+- Demo `BUILD=1 ./run-play.sh EXTRA="-strokedemo"` (launch 4, Player.log `[StrokeDemo]`): wall base 13/13 cubes of 0.8 m,
+  4,913 cells, slot 10,000 -> 5,087 (conservation OK); short slot 5/13 cubes, 2,542 of 6,629, 118 left; trench 19 cubes of 0.4 m,
+  196 removed = credited. Launches 1-3 fixed the DEMO (live mouse path committed its scripted strokes; wall same colour as the
+  ground): the demo now owns the stroke and picks a contrasting block. No frame times (owner rule).
 
 ## Not done / notes
 - The spawn area has no flat 12 m × 6 m ground within 120 m: the flattest stand found steps 1.5 m. The trench shot is weak
