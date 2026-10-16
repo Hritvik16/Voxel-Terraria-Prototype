@@ -1979,6 +1979,16 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-framegap")) { gap = gameObject.AddComponent<FrameGapProbe>(); gap.Recording = true; }
         var ftmT = new FrameTiming[1];
         var ftmCpu = new List<double>(4096); var ftmGpu = new List<double>(4096);
+        // Task 93b: every frame for the whole-run p50 / p99, and with -shells 1 when each
+        // shell completed (s from the walk's start; 0 = already complete) (ShellsPerf.cs).
+        var allMs = new List<float>(65536);
+        var shellsW = VoxelEngine.Mirror.ShellStreamer.Active;
+        float[] shellDone = shellsW != null ? new float[shellsW.Layout.ShellCount] : null;
+        if (shellsW != null)
+        {
+            for (int k = 0; k < shellDone.Length; k++) shellDone[k] = -1f;
+            L($"  [shells] at the walk's start (t+{Time.realtimeSinceStartup:F0} s after launch): {ShellCountsLine(shellsW)}");
+        }
 
         while (Time.realtimeSinceStartup - runStart < totalSeconds)
         {
@@ -2037,6 +2047,8 @@ public partial class PlaygroundCapture : MonoBehaviour
             yield return null;
             windowMs.Add(Time.unscaledDeltaTime * 1000.0);
             windowFrames++;
+            allMs.Add(Time.unscaledDeltaTime * 1000f);
+            if (shellsW != null) ShellTrack(shellsW, shellDone, Time.realtimeSinceStartup - runStart);
             if (ftm)
             {
                 FrameTimingManager.CaptureFrameTimings();
@@ -2064,6 +2076,13 @@ public partial class PlaygroundCapture : MonoBehaviour
             }
         }
 
+        L("");
+        L(WholeRunLine(allMs));
+        if (shellsW != null)
+        {
+            L($"  [shells] at the end: {ShellCountsLine(shellsW)}");
+            L($"  [shells] first complete at (s from the walk's start; - = never):{ShellDoneLine(shellsW, shellDone)}");
+        }
         // -memledger (2026-10-01): who owns the memory, by engine object
         // (MemoryLedger.cs). Taken after the timed loop so the walk's own cost
         // never lands in a measured window.

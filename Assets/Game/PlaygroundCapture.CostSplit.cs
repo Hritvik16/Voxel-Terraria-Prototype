@@ -65,6 +65,8 @@
 //            heat / see_heat / see_tier  DIAGNOSTIC stills: step heat off / on, LOD tier view on
 //            -costpaths lake also times lake_wall: task 75's first pose (seed 42, fixed
 //                       eye), which faced a wall of water (~60% of the frame) in 75's run
+//   TASK 93b: shells_off / fshade_off arms and the -shells 1 fill wait + tint still
+//            (PlaygroundCapture.ShellsPerf.cs).
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -175,6 +177,8 @@ public partial class PlaygroundCapture
             cam.transform.position = mid; cam.transform.rotation = path.rot[0];
             yield return NearSettle(far, sm);
             L($"  streaming pinned at the middle pose {mid:F1}: resident {store.ResidentCount}, deficit {sm.LoadDeficit()}");
+            // Task 93b: with -shells 1, let the shells fill here first (PlaygroundCapture.ShellsPerf.cs).
+            yield return CostShellWait(path, cam, Path.Combine(stills, $"{pname}_shelltint.png"));
 
             var runs = new List<CostRun>();
             var order = new List<string> { "full" };
@@ -256,6 +260,10 @@ public partial class PlaygroundCapture
         RaymarchFeature.DebugRoofBuildOnly = arm == "roof_build";
         RaymarchFeature.ShadowHalfRes = arm == "half" || _costBaseHalf;
         FarField.RenderEnabled = arm != "far_off";
+        // Task 93b: shells_off = tiers 1-2 draw instead of the shells (shell streaming keeps
+        // running); fshade_off = far shading off, FULL keeps the launch's -farshade.
+        RaymarchFeature.DrawShells = arm != "shells_off";
+        RaymarchFeature.FarShade = arm != "fshade_off" && _costBaseFarShade;
         RaymarchFeature.UseLODCascade = arm != "tiers_off";
         // Task 75: see_on turns see-through liquids ON; FULL keeps the launch's
         // value (OFF unless -seethrough 1), so saved = OFF - ON (negative = its cost).
@@ -275,7 +283,7 @@ public partial class PlaygroundCapture
     private static int _costBaseShadow = -1, _costBaseTorch = -1;
     private static bool _costBaseRoof;
     private static float _costBaseRung1;
-    private static bool _costBaseHalf, _costBaseSee;
+    private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade;
 
     /// Task 75: the lake poses, at -liquiddemo's lake (Playground.FindDemoLake:
     /// the nearest map LAKE, 40 m across, >= 3 m deep) and its edge toward the
@@ -324,7 +332,7 @@ public partial class PlaygroundCapture
     private IEnumerator CostTime(ClipPath path, CostRun r, float timed, string still, Camera cam,
                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
     {
-        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; }
+        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; }
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);
