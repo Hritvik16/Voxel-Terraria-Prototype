@@ -78,6 +78,9 @@ keys (Playground.cs RegisterDefaultToys, PlaygroundFlyCamera, PlaygroundHud, Min
   WASD          move; walk: Space jump; fly: E up, Q down, Left Shift fast (E/Q: Survival keys in walk)
   walk moves    Space in the air: double jump   Left Shift: dash (0.8 s cooldown bar above the hotbar)
                 in water: WASD swims where you look, Space up / jump out at the surface, Left Ctrl down
+                walk into a wall 0.9 m+ (or ground over 60 deg) and keep W held: climb (W up, A/D sideways,
+                Left Ctrl down, release W or Space to drop; stamina bar, refills on a 0.6 m ledge;
+                sand/snow and ice/glass climb slower); slopes over 30 deg slide you down: Space to scramble
   SURVIVAL (default; F6 Game mode or -gamemode creative switches):
   mouse L / R   dig into the inventory (held) / place a cube of the held block (cyan box)
   wheel or 1-9  hotbar slot    Q cube size 0.1/0.2/0.4/0.8 m    E inventory (click two slots to swap)

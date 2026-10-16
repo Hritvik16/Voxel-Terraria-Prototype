@@ -540,11 +540,13 @@ public partial class Playground : MonoBehaviour
         if (!IsCaptureRun() && HasArg("-vitalsdemo")) StartCoroutine(VitalsDemo());
         // -reactiondemo (task 93e1): RX1's four adjacency pairs in marble trays, one shot each, then quit.
         if (!IsCaptureRun() && HasArg("-reactiondemo")) StartCoroutine(ReactionDemo());
+        // -climbdemo (task 93f1): step 5's wall climb, 50 deg slide, ice pillar shots, then quit.
+        if (!IsCaptureRun() && HasArg("-climbdemo")) StartCoroutine(ClimbDemo());
         // Task 93d1: the older demos keep their shots damage-free; -vitals 0 turns damage off in play.
         _vitalsAllowed = !(TryArgFloat("-vitals", out float vitArg) && vitArg < 1f) &&
                          !(HasArg("-survivaldemo") || HasArg("-strokedemo") || HasArg("-pulldemo") || HasArg("-movedemo") ||
                            HasArg("-oredemo") || HasArg("-riverdemo") || HasArg("-liquiddemo") || HasArg("-farop") || HasArg("-farwall") ||
-                           HasArg("-reactiondemo"));
+                           HasArg("-reactiondemo") || HasArg("-climbdemo"));
         // -oredemo (task 66): ore screenshots (a tunnel wall, the hotbar, the dev map's close slice), then quit.
         if (!IsCaptureRun() && HasArg("-oredemo")) StartCoroutine(OreDemo());
         // -riverdemo (task 73): river/lake/waterfall/mouth screenshots for RIVERS_WATERFALLS_PLAN.md, then quit.
@@ -2436,12 +2438,26 @@ public partial class Playground : MonoBehaviour
         Box(new Rect(x, y, w * ready, h), ready >= 1f && !airSpent ? new Color(0.45f, 0.9f, 1f, 0.9f)
                                                                   : new Color(0.55f, 0.6f, 0.65f, 0.8f));
         string state = m.Swimming ? $"swimming in {MaterialName(m.SwimFluid)}  <b>Space</b> up  <b>Ctrl</b> down"
+                     : m.Climbing ? $"<b>CLIMBING</b> {Items.Name(m.ClimbFace)}{(m.ClimbGrip == MaterialRules.GripLoose ? " (loose)" : m.ClimbGrip == MaterialRules.GripSlick ? " (slick)" : "")}  <b>W</b> up  <b>Ctrl</b> down  release <b>W</b> to drop"
+                     : m.Sliding ? "<b>SLIDING</b> -- too steep, <b>Space</b> to scramble"
                      : m.Dashing ? "<b>DASH</b>"
                      : !m.Grounded ? (m.AirJumpsUsed < c.airJumps ? "air: <b>Space</b> double jump" : "double jump spent")
                      : "";
         GUI.Label(new Rect(x - 120, y - 19, w + 240, 18),
                   $"<b>Shift</b> dash {(ready >= 1f && !airSpent ? "ready" : "")}   {state}",
                   Label(11, TextAnchor.MiddleCenter));
+
+        // Task 93f1: climbing stamina, under the dash bar, shown while it is not full.
+        float sMax = c.climbStaminaS;
+        if (sMax > 0f && (m.Climbing || m.StaminaS < sMax - 1e-3f))
+        {
+            float f = Mathf.Clamp01(m.StaminaS / sMax);
+            float sy = y + h + 4f;
+            Box(new Rect(x - 1, sy - 1, w + 2, h + 2), new Color(0f, 0f, 0f, 0.55f));
+            Box(new Rect(x, sy, w * f, h), f < 0.25f ? new Color(1f, 0.45f, 0.3f, 0.95f) : new Color(1f, 0.85f, 0.35f, 0.9f));
+            GUI.Label(new Rect(x + w + 6, sy - 4, 160, 18),
+                      $"stamina {m.StaminaS:F1} s{(m.Resting && f < 1f ? "  resting" : "")}", Label(11, TextAnchor.MiddleLeft));
+        }
     }
 
     private void DrawSurvivalHotbar(float vw, float vh)
@@ -2690,6 +2706,10 @@ public partial class Playground : MonoBehaviour
         if (_moveAbilities)
             sb.AppendLine("  <b><color=#ffd479>Space</color></b> in the air: double jump    <b><color=#ffd479>Shift</color></b> dash (walk)    " +
                           "in water: <b>WASD</b> swim where you look, <b>Space</b> up / jump out, <b>Ctrl</b> down");
+        if (_moveAbilities)
+            sb.AppendLine("  <b><color=#ffd479>walk into a wall</color></b> (0.9 m+) to climb it: hold <b>W</b> up, <b>A/D</b> sideways, <b>Ctrl</b> down, " +
+                          "let go of <b>W</b> or <b>Space</b> to drop; stamina refills standing on a 0.6 m ledge. " +
+                          "Slopes over 30° slide: <b>Space</b> to scramble up");
         sb.AppendLine(Phase4Bootstrapper.PlayStartActive
             ? "  <b>Tab</b> walk ↔ fly      <b><color=#ffd479>R</color></b> back to the start (the best easy area)      <b>F</b> go to the basin"
             : "  <b>Tab</b> walk ↔ fly      <b>R</b> respawn on the surface      <b>F</b> go to the basin");

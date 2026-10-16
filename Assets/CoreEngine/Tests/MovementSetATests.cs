@@ -309,6 +309,7 @@ public class MovementSetATests
         w.Floor(-1);
         w.Box(new int3(15, 0, -20), new int3(15, 40, 20), Materials.Stone);   // 1-voxel wall, face at x = 1.5 m
         var m = Standing(w, new float3(0f, 0.5f, 0f));
+        m.Config.climbSpeedMps = 0f;   // task 93f1: holding into a 4 m wall would climb it; this pins the dash
         m.Step(dt, new MotorInput { DashPressed = true, ForwardXZ = new float2(1f, 0f) });
         for (int i = 0; i < 40; i++)
         {

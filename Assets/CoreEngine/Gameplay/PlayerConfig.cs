@@ -136,6 +136,46 @@ public sealed class PlayerConfig
     public float dashCooldownS = 0.8f;
 
     // =====================================================================
+    // SLOPES AND CLIMBING (task 93f1, GAMEPLAY_PHASE_PLAN.md step 5; the
+    // brief's movement bands). Read only by Step(dt, in MotorInput).
+    // Slopes are measured as the rise over slopeBaselineM ahead of the body
+    // (PlayerMotor.RiseAheadVoxels), in whole voxels.
+    // =====================================================================
+
+    /// Walk band: an auto-step is taken only when the ground ahead rises at
+    /// most this steeply (30 deg = 3 voxels over 0.5 m). Standing on ground
+    /// that falls away more steeply than this slides you downhill.
+    public float walkSlopeMaxDeg = 30f;
+    public float slopeBaselineM = 0.5f;
+
+    /// Climb band: a face rising at least this steeply over the baseline
+    /// (60 deg = 9 voxels over 0.5 m, i.e. any wall >= 0.9 m) can be clung to.
+    /// Between walkSlopeMaxDeg and this is Scramble: slide unless you jump.
+    public float climbMinSlopeDeg = 60f;
+
+    /// Downhill slide on Scramble/Climb ground: top speed (m/s), acceleration.
+    public float slideSpeedMps = 4.5f;
+    public float slideAccelMps2 = 18f;
+
+    /// Climbing speed on rock, m/s, and how long the move key must press into
+    /// a face before you cling (so brushing a wall does not grab it), s.
+    public float climbSpeedMps = 1.5f;
+    public float climbGrabDelayS = 0.2f;
+
+    /// Stamina, in seconds of climbing on rock (7 s = 10.5 m at 1.5 m/s, above
+    /// the brief's 8 m early rest-ledge spacing). Refills at climbStaminaRefillPerS
+    /// while standing on a rest ledge (the whole 0.6 x 0.6 m footprint supported).
+    public float climbStaminaS = 7f;
+    public float climbStaminaRefillPerS = 3.5f;
+
+    /// Loose faces (sand, powder snow) and slick faces (packed ice, glass):
+    /// climb speed x SpeedScale, stamina drain x DrainScale.
+    public float climbLooseSpeedScale = 0.6f;
+    public float climbLooseDrainScale = 1.5f;
+    public float climbSlickSpeedScale = 0.4f;
+    public float climbSlickDrainScale = 2.5f;
+
+    // =====================================================================
     // VITALS (task 93d1, GAMEPLAY_PHASE_PLAN.md step 9a). Read only by
     // PlayerVitals, which only an interactive Survival walk ticks; rigs and
     // Creative never take damage.
@@ -207,6 +247,25 @@ public sealed class PlayerConfig
         dashSpeedMps     = Fix(dashSpeedMps, 0f, 100f, 14f, nameof(dashSpeedMps), notes);
         dashDurationS    = Fix(dashDurationS, 0f, 2f, 0.18f, nameof(dashDurationS), notes);
         dashCooldownS    = Fix(dashCooldownS, 0f, 30f, 0.8f, nameof(dashCooldownS), notes);
+        walkSlopeMaxDeg  = Fix(walkSlopeMaxDeg, 0f, 89f, 30f, nameof(walkSlopeMaxDeg), notes);
+        slopeBaselineM   = Fix(slopeBaselineM, 0.1f, 2f, 0.5f, nameof(slopeBaselineM), notes);
+        climbMinSlopeDeg = Fix(climbMinSlopeDeg, 0f, 89f, 60f, nameof(climbMinSlopeDeg), notes);
+        slideSpeedMps    = Fix(slideSpeedMps, 0f, 100f, 4.5f, nameof(slideSpeedMps), notes);
+        slideAccelMps2   = Fix(slideAccelMps2, 0f, 1000f, 18f, nameof(slideAccelMps2), notes);
+        climbSpeedMps    = Fix(climbSpeedMps, 0f, 50f, 1.5f, nameof(climbSpeedMps), notes);
+        climbGrabDelayS  = Fix(climbGrabDelayS, 0f, 5f, 0.2f, nameof(climbGrabDelayS), notes);
+        climbStaminaS    = Fix(climbStaminaS, 0f, 3600f, 7f, nameof(climbStaminaS), notes);
+        climbStaminaRefillPerS = Fix(climbStaminaRefillPerS, 0f, 1000f, 3.5f, nameof(climbStaminaRefillPerS), notes);
+        climbLooseSpeedScale = Fix(climbLooseSpeedScale, 0f, 10f, 0.6f, nameof(climbLooseSpeedScale), notes);
+        climbLooseDrainScale = Fix(climbLooseDrainScale, 0f, 100f, 1.5f, nameof(climbLooseDrainScale), notes);
+        climbSlickSpeedScale = Fix(climbSlickSpeedScale, 0f, 10f, 0.4f, nameof(climbSlickSpeedScale), notes);
+        climbSlickDrainScale = Fix(climbSlickDrainScale, 0f, 100f, 2.5f, nameof(climbSlickDrainScale), notes);
+        // Climb must start above the walk band, or every auto-step is a cling.
+        if (climbMinSlopeDeg < walkSlopeMaxDeg)
+        {
+            notes.Append($"{nameof(climbMinSlopeDeg)} {climbMinSlopeDeg.ToString(CultureInfo.InvariantCulture)}->{walkSlopeMaxDeg.ToString(CultureInfo.InvariantCulture)} (not below the walk band); ");
+            climbMinSlopeDeg = walkSlopeMaxDeg;
+        }
         maxHealth        = Fix(maxHealth, 1f, 100000f, 100f, nameof(maxHealth), notes);
         fallSafeHeightM  = Fix(fallSafeHeightM, 0f, 1000f, 4f, nameof(fallSafeHeightM), notes);
         fallLethalHeightM = Fix(fallLethalHeightM, 0f, 10000f, 20f, nameof(fallLethalHeightM), notes);

@@ -60,6 +60,27 @@
 // floats so its swimFloatHeightM point sits at the water line.
 // =========================================================================
 
+// =========================================================================
+// SLOPES AND CLIMBING (task 93f1, GAMEPLAY_PHASE_PLAN.md step 5; the brief's
+// movement bands). Step(dt, in MotorInput) only; the legacy Step keeps its
+// 3-voxel step-up on every blocked move (rigs, PlayerMotorTests).
+//   Walk     an auto-step is taken only if the ground ahead rises at most
+//            walkSlopeMaxDeg over slopeBaselineM (RiseAheadVoxels: the
+//            highest column of the next 0.5 m, three lines across the body).
+//   Scramble steeper ground under the feet slides you downhill
+//            (UpdateSlide: a CONTINUOUS drop over the baseline -- a cliff
+//            edge is a ledge you may stand on, not a slope); jumping works.
+//   Climb    pressing into a face rising >= climbMinSlopeDeg over the
+//            baseline for climbGrabDelayS clings (StepClimb): climbSpeedMps
+//            up (Ctrl down, strafe sideways), stamina drains, letting go of
+//            the key / Space releases, the top is mantled by the normal
+//            step-up. Stamina refills only when RESTING: grounded, not
+//            sliding, the whole footprint supported (a 0.6 m ledge).
+//            Loose / slick faces (MaterialRules.ClimbGrip) are slower and
+//            tire faster.
+// All whole-voxel column counts on CPU terrain, read through IsBlocking.
+// =========================================================================
+
 using Unity.Mathematics;
 
 /// One frame of player intent for Step(dt, in MotorInput). Build it with
@@ -174,6 +195,30 @@ public sealed class PlayerMotor
     /// fall damage; the motor itself does nothing with it.
     public float LastImpactDownMps;
 
+    // ---- Slopes and climbing (task 93f1; Step(dt, in MotorInput) only). ----
+
+    /// Standing on ground steeper than the walk band: pushed along SlideDir.
+    public bool Sliding;
+    public float2 SlideDir;
+    /// Clinging to a face; ClimbDir points INTO it (one axis, +-1).
+    public bool Climbing;
+    public int2 ClimbDir;
+    /// The face's material and its MaterialRules.ClimbGrip class.
+    public byte ClimbFace;
+    public byte ClimbGrip;
+    /// Seconds of climbing left (PlayerConfig.climbStaminaS when full).
+    public float StaminaS;
+    /// On a rest ledge this step: stamina refills.
+    public bool Resting;
+    /// An auto-step was refused this step because the ground ahead rises
+    /// above the walk band; LastRiseVoxels is what was measured.
+    public bool LastSteepRefused;
+    public int LastRiseVoxels;
+    /// Seconds the keys have pressed into a climbable face (grab delay).
+    private float _climbHoldS;
+    /// The current step runs with abilities (the slope rule applies).
+    private bool _abilityStep;
+
     public bool Dashing => DashTimeLeftS > 0f;
 
     public PlayerMotor(IWorldQuery world, IVoxelResidency residency, PlayerConfig config)
@@ -181,6 +226,7 @@ public sealed class PlayerMotor
         _world = world;
         _residency = residency;
         Config = config ?? new PlayerConfig();
+        StaminaS = Config.climbStaminaS;
     }
 
     // =====================================================================
@@ -245,6 +291,8 @@ public sealed class PlayerMotor
         LastBlockedByNonResident = false;
         LastDoubleJump = LastDashStarted = LastWaterJump = false;
         LastImpactDownMps = 0f;
+        LastSteepRefused = false;
+        _abilityStep = abilities;
         bool jumpPressed = input.JumpPressed;
 
         if (!abilities)
@@ -252,13 +300,15 @@ public sealed class PlayerMotor
             Swimming = false;
             SwimFluid = Materials.Air;
             DashTimeLeftS = 0f;
+            Climbing = Sliding = Resting = false;
         }
         else
         {
             if (SwimLockS > 0f) SwimLockS = math.max(0f, SwimLockS - dt);
             if (DashCooldownS > 0f) DashCooldownS = math.max(0f, DashCooldownS - dt);
+            if (StaminaS > c.climbStaminaS) StaminaS = c.climbStaminaS;
             UpdateSwimming();
-            if (Swimming) { AirJumpsUsed = 0; DashUsedInAir = false; DashTimeLeftS = 0f; }
+            if (Swimming) { AirJumpsUsed = 0; DashUsedInAir = false; DashTimeLeftS = 0f; Climbing = Sliding = Resting = false; }
 
             // Jump out of water: only at the surface (head probe dry), at the
             // normal jump impulse; swimming then stays off for SwimLockS.
@@ -275,7 +325,7 @@ public sealed class PlayerMotor
             }
 
             // Dash: not in fluid, not while one runs, off cooldown, one per airtime.
-            if (input.DashPressed && !Swimming && !Dashing && DashCooldownS <= 0f
+            if (input.DashPressed && !Swimming && !Climbing && !Dashing && DashCooldownS <= 0f
                 && (Grounded || !DashUsedInAir) && c.dashSpeedMps > 0f && c.dashDurationS > 0f)
             {
                 float wl = math.length(input.WishXZ);
@@ -295,6 +345,16 @@ public sealed class PlayerMotor
                 UpdateGrounded(dt);
                 return;
             }
+
+            // Climb: cling after pressing into a Climb-band face; a frame
+            // that lets go falls through to the walk physics below.
+            if (!Climbing) TryStartClimb(dt, input);
+            if (Climbing)
+            {
+                if (StepClimb(dt, input)) return;
+                jumpPressed = false;              // Space let go; it is not also a jump
+            }
+            UpdateSlide();
         }
 
         // ---- 1. Horizontal acceleration -------------------------------
@@ -305,7 +365,21 @@ public sealed class PlayerMotor
 
         float2 vel = new float2(VelocityMps.x, VelocityMps.z);
 
-        if (wishLen > 1e-5f)
+        if (Sliding)
+        {
+            // The slope owns the downhill axis: the keys steer across it
+            // only, so holding W uphill does not hold you on a 45 deg slope.
+            float2 perp = new float2(-SlideDir.y, SlideDir.x);
+            float accel = Grounded ? c.accelerationMps2 : c.accelerationMps2 * c.airControl;
+            float vAlong = math.dot(vel, SlideDir), vPerp = math.dot(vel, perp);
+            float tPerp = math.dot(wishDir, perp) * c.maxSpeedMps * wishScale;
+            vPerp = MoveToward(vPerp, tPerp, accel * dt);
+            float a = c.slideAccelMps2 * dt;
+            vAlong = vAlong < c.slideSpeedMps ? math.min(vAlong + a, c.slideSpeedMps)
+                                              : math.max(c.slideSpeedMps, vAlong - a);
+            vel = SlideDir * vAlong + perp * vPerp;
+        }
+        else if (wishLen > 1e-5f)
         {
             float accel = Grounded ? c.accelerationMps2 : c.accelerationMps2 * c.airControl;
             float2 target = wishDir * (c.maxSpeedMps * wishScale);
@@ -357,7 +431,11 @@ public sealed class PlayerMotor
 
         // ---- 5. Grounded state ------------------------------------------
         UpdateGrounded(dt);
+        if (abilities) UpdateRest(dt);
     }
+
+    private static float MoveToward(float v, float target, float maxDelta)
+        => math.abs(target - v) <= maxDelta ? target : v + math.sign(target - v) * maxDelta;
 
     /// GroundProbeM LOOKS AHEAD, IT DOES NOT STOP THE FALL. Zeroing the
     /// downward velocity here as well cost a visible 2 cm hover: the probe
@@ -621,7 +699,21 @@ public sealed class PlayerMotor
         // mid-air by holding into it, one step per frame.
         // A swimmer may step up too: that is how a body leaves a lake onto a
         // low bank (Swimming is never set on the legacy path).
-        if (!Grounded && TimeSinceGroundedS > Config.coyoteTimeSeconds && !Swimming) return;
+        // A climber may too: that is how the top of a face is mantled.
+        if (!Grounded && TimeSinceGroundedS > Config.coyoteTimeSeconds && !Swimming && !Climbing) return;
+
+        // Task 93f1: the WALK BAND. With abilities an auto-step is taken only
+        // when the next slopeBaselineM rises no more than walkSlopeMaxDeg;
+        // the legacy path keeps the old step-up everywhere.
+        if (_abilityStep)
+        {
+            int walkMax = WalkMaxRiseVoxels;
+            int dir = amount > 0f ? 1 : -1;
+            float lead = before[axis] + dir * Config.bodyWidthM * 0.5f + amount;
+            int rise = RiseAheadVoxels(before, axis, dir, lead, walkMax + 1);
+            LastRiseVoxels = rise;
+            if (rise > walkMax) { LastSteepRefused = true; return; }
+        }
 
         // MoveAxis may have snapped us flush against the wall; step from where
         // we started so the lift is measured against open space.
@@ -638,6 +730,24 @@ public sealed class PlayerMotor
         // Settle back down: the step must be something to stand ON, not a
         // hop into open air. Descend at most the lift, in voxel increments.
         float3 settled = liftedMoved;
+        if (_abilityStep)
+        {
+            // Task 93f1: settle in WHOLE ROWS, each candidate at row * 0.1 m +
+            // SkinM. Repeated 0.1 m float subtractions from feet sitting exactly
+            // on a row (no skin: after Teleport/ResolveSpawn) land a hair under
+            // the row, read the step itself as an overlap, stop a row high and
+            // refuse a valid step -- the legacy path below still does that, and
+            // stalls on long ramps; rigs keep it.
+            int top = (int)math.floor(liftedMoved.y * 10f + 1e-3f);
+            for (int r = top; r >= top - Config.stepHeightVoxels; r--)
+            {
+                float3 down = liftedMoved;
+                down.y = r * VoxelSizeM + SkinM;
+                if (OverlapsSolid(down)) break;
+                settled = down;
+            }
+        }
+        else
         for (int i = 0; i < Config.stepHeightVoxels; i++)
         {
             float3 down = settled - new float3(0f, VoxelSizeM, 0f);
@@ -653,6 +763,249 @@ public sealed class PlayerMotor
             LastStepUpApplied = true;
             LastBlockedHorizontally = false;
         }
+    }
+
+    // =====================================================================
+    // Slopes and climbing (task 93f1)
+    // =====================================================================
+
+    /// Baseline in whole columns (0.5 m = 5).
+    public int BaselineColumns => math.max(1, (int)math.round(Config.slopeBaselineM / VoxelSizeM));
+
+    /// The most the ground may rise over the baseline for an auto-step
+    /// (30 deg over 0.5 m: 2.89 -> 3 voxels).
+    public int WalkMaxRiseVoxels => RiseVoxelsFor(Config.walkSlopeMaxDeg);
+
+    /// The least a face must rise over the baseline to be climbed
+    /// (60 deg over 0.5 m: 8.66 -> 9 voxels).
+    public int ClimbMinRiseVoxels => math.max(WalkMaxRiseVoxels + 1, RiseVoxelsFor(Config.climbMinSlopeDeg));
+
+    private int RiseVoxelsFor(float deg)
+        => (int)math.min(64f, math.floor(math.tan(math.radians(math.clamp(deg, 0f, 89f)))
+                                          * BaselineColumns + 0.5f));
+
+    /// How far the ground rises above the feet over the baseline ahead, in
+    /// whole voxels, capped at `cap`: the highest solid run starting at the
+    /// feet row, over BaselineColumns columns from the one holding `leadM`
+    /// (a coordinate on `axis`, just past the body's leading face), on three
+    /// lines across the body (both sides and the centre).
+    public int RiseAheadVoxels(float3 feetM, int axis, int dir, float leadM, int cap)
+    {
+        int other = axis == 0 ? 2 : 0;
+        int y0 = CoordMath.WorldToVoxel(feetM).y;
+        int c0 = (int)math.floor(leadM * 10f);
+        float inset = Config.bodyWidthM * 0.5f - 0.02f;
+        int n = BaselineColumns;
+        int best = 0;
+        for (int line = -1; line <= 1 && best < cap; line++)
+        {
+            int p = (int)math.floor((feetM[other] + line * inset) * 10f);
+            for (int k = 0; k < n && best < cap; k++)
+            {
+                int3 v = int3.zero;
+                v[axis] = c0 + dir * k;
+                v[other] = p;
+                int r = 0;
+                while (r < cap)
+                {
+                    v.y = y0 + r;
+                    if (!IsBlocking(v)) break;
+                    r++;
+                }
+                if (r > best) best = r;
+            }
+        }
+        return best;
+    }
+
+    /// The body's face on `axis`/`dir` has something blocking within `reachM`
+    /// (default: flush against it).
+    public bool TouchingFace(int axis, int dir, float reachM = 0.011f)
+    {
+        float3 p = PositionM;
+        p[axis] += dir * reachM;
+        return OverlapsSolid(p);
+    }
+
+    /// A clinging body keeps its grip while the face is within this reach: a
+    /// face that leans back (70 deg) opens a gap of up to a column between steps.
+    private const float ClimbReachM = 0.15f;
+
+    private float LeadOf(int axis, int dir) => PositionM[axis] + dir * (Config.bodyWidthM * 0.5f + 0.011f);
+
+    /// The material of the face ahead, chest high down to the feet, centre line first.
+    private byte FaceMaterial(int axis, int dir)
+    {
+        int other = axis == 0 ? 2 : 0;
+        int y0 = CoordMath.WorldToVoxel(PositionM).y;
+        int c0 = (int)math.floor(LeadOf(axis, dir) * 10f);
+        float inset = Config.bodyWidthM * 0.5f - 0.02f;
+        for (int i = 0; i < 3; i++)
+        {
+            int line = i == 0 ? 0 : i == 1 ? -1 : 1;
+            int3 v = int3.zero;
+            v[axis] = c0;
+            v[other] = (int)math.floor((PositionM[other] + line * inset) * 10f);
+            for (int r = 10; r >= 0; r--)
+            {
+                v.y = y0 + r;
+                if (IsBlocking(v)) return _world.GetVoxel(v);
+            }
+        }
+        return Materials.Air;
+    }
+
+    /// Cling when the keys have pressed into a Climb-band face for
+    /// climbGrabDelayS. Either horizontal axis the wish leans into (>= 0.6 of it).
+    private void TryStartClimb(float dt, in MotorInput input)
+    {
+        PlayerConfig c = Config;
+        float2 w = input.WishXZ;
+        float wl = math.length(w);
+        if (StaminaS <= 0f || c.climbSpeedMps <= 0f || wl < 0.3f) { _climbHoldS = 0f; return; }
+        float2 wd = w / wl;
+        bool xFirst = math.abs(wd.x) >= math.abs(wd.y);
+        int climbMin = ClimbMinRiseVoxels;
+        for (int i = 0; i < 2; i++)
+        {
+            int axis = (i == 0) == xFirst ? 0 : 2;
+            float comp = axis == 0 ? wd.x : wd.y;
+            if (math.abs(comp) < 0.6f) continue;
+            int dir = comp > 0f ? 1 : -1;
+            if (!TouchingFace(axis, dir)) continue;
+            if (RiseAheadVoxels(PositionM, axis, dir, LeadOf(axis, dir), climbMin) < climbMin) continue;
+            _climbHoldS += dt;
+            if (_climbHoldS < c.climbGrabDelayS) return;
+            Climbing = true;
+            Sliding = false;
+            ClimbDir = axis == 0 ? new int2(dir, 0) : new int2(0, dir);
+            ClimbFace = FaceMaterial(axis, dir);
+            ClimbGrip = MaterialRules.ClimbGrip(ClimbFace);
+            VelocityMps = float3.zero;
+            _climbHoldS = 0f;
+            return;
+        }
+        _climbHoldS = 0f;
+    }
+
+    public float ClimbSpeedScale => ClimbGrip == MaterialRules.GripLoose ? Config.climbLooseSpeedScale
+                                  : ClimbGrip == MaterialRules.GripSlick ? Config.climbSlickSpeedScale : 1f;
+    public float ClimbDrainScale => ClimbGrip == MaterialRules.GripLoose ? Config.climbLooseDrainScale
+                                  : ClimbGrip == MaterialRules.GripSlick ? Config.climbSlickDrainScale : 1f;
+
+    /// One climbing frame. Returns false when the climber let go (keys no
+    /// longer into the face, Space, or stamina out): the caller then runs
+    /// the walk physics for this frame.
+    private bool StepClimb(float dt, in MotorInput input)
+    {
+        PlayerConfig c = Config;
+        float2 d = new float2(ClimbDir.x, ClimbDir.y);
+        float2 perp = new float2(-d.y, d.x);
+        float2 w = input.WishXZ;
+        float wl = math.length(w);
+        if (wl > 1f) w /= wl;
+        if (math.dot(w, d) < 0.2f || input.JumpPressed || StaminaS <= 0f)
+        {
+            Climbing = false;
+            return false;
+        }
+
+        // Up the face (Ctrl: down), strafe along it, and pressed into it so
+        // contact holds on a face that leans back (a 70 deg slope recedes).
+        float speed = c.climbSpeedMps * ClimbSpeedScale;
+        float2 onWall = new float2(math.dot(w, perp), input.DownHeld ? -1f : 1f);
+        float owl = math.length(onWall);
+        if (owl > 1f) onWall /= owl;
+        float2 hv = d * speed + perp * (onWall.x * speed);
+        VelocityMps = new float3(hv.x, onWall.y * speed, hv.y);
+        MoveWithCollision(VelocityMps * dt);
+        StaminaS = math.max(0f, StaminaS - dt * ClimbDrainScale);
+
+        bool mantled = LastStepUpApplied;
+        UpdateGrounded(dt);
+        int axis = ClimbDir.x != 0 ? 0 : 2;
+        int dir = ClimbDir.x != 0 ? ClimbDir.x : ClimbDir.y;
+        if (mantled || (Grounded && input.DownHeld) || !TouchingFace(axis, dir, ClimbReachM))
+        {
+            // Over the top (the step-up stood us on it), down at the foot,
+            // or the face ended: walking resumes next frame.
+            Climbing = false;
+            VelocityMps = new float3(0f, math.min(VelocityMps.y, 0f), 0f);
+        }
+        Resting = false;
+        return true;
+    }
+
+    /// Ground under the feet that falls away CONTINUOUSLY (no column-to-column
+    /// jump over MaxSlopeColumnJump voxels) by more than the walk band over the
+    /// baseline, in any axis direction from the body's centre column: slide
+    /// down it. A jump between columns is a ledge edge, which you may stand on.
+    private const int MaxSlopeColumnJump = 3;   // = the 0.3 m step: a taller drop is a ledge
+
+    private void UpdateSlide()
+    {
+        Sliding = false;
+        if (!(Grounded || (TimeSinceGroundedS <= Config.coyoteTimeSeconds && VelocityMps.y <= 0f))) return;
+        int walkMax = WalkMaxRiseVoxels;
+        int n = BaselineColumns;
+        int3 f = CoordMath.WorldToVoxel(PositionM);
+        int depth = n * MaxSlopeColumnJump + MaxSlopeColumnJump;
+        int h0 = TopBelow(f, depth);
+        if (h0 == int.MinValue) return;                  // centre over a drop: a ledge edge
+        float2 g = float2.zero;
+        int best = 0;
+        for (int i = 0; i < 4; i++)
+        {
+            int3 step = i == 0 ? new int3(1, 0, 0) : i == 1 ? new int3(-1, 0, 0) : i == 2 ? new int3(0, 0, 1) : new int3(0, 0, -1);
+            int prev = h0;
+            bool ok = true;
+            for (int k = 1; k <= n && ok; k++)
+            {
+                int h = TopBelow(f + step * k, depth);
+                if (h == int.MinValue || math.abs(prev - h) > MaxSlopeColumnJump) ok = false;
+                else prev = h;
+            }
+            int drop = ok ? h0 - prev : 0;
+            if (drop <= 0) continue;
+            if (drop > best) best = drop;
+            g += new float2(step.x, step.z) * drop;
+        }
+        if (best <= walkMax || math.lengthsq(g) < 1e-6f) return;
+        Sliding = true;
+        SlideDir = math.normalize(g);
+    }
+
+    /// The highest blocking row in the column at or below `v`'s feet row - 1,
+    /// at most `depth` rows down; int.MinValue when there is none.
+    private int TopBelow(int3 v, int depth)
+    {
+        for (int r = 1; r <= depth; r++)
+        {
+            int3 p = new int3(v.x, v.y - r, v.z);
+            if (IsBlocking(p)) return p.y;
+        }
+        return int.MinValue;
+    }
+
+    /// Stamina refills while RESTING: grounded, not sliding or climbing, and
+    /// the whole footprint supported (every corner has ground within the step
+    /// height below) -- the brief's 0.6 x 0.6 m rest ledge.
+    private void UpdateRest(float dt)
+    {
+        Resting = Grounded && !Sliding && !Climbing && !Swimming && FootprintSupported();
+        if (Resting) StaminaS = math.min(Config.climbStaminaS, StaminaS + Config.climbStaminaRefillPerS * dt);
+    }
+
+    public bool FootprintSupported()
+    {
+        float h = Config.bodyWidthM * 0.5f - 0.01f;
+        int depth = math.max(1, Config.stepHeightVoxels);
+        for (int i = 0; i < 4; i++)
+        {
+            float3 p = PositionM + new float3((i & 1) == 0 ? -h : h, 0f, (i & 2) == 0 ? -h : h);
+            if (TopBelow(CoordMath.WorldToVoxel(p), depth) == int.MinValue) return false;
+        }
+        return true;
     }
 
     // =====================================================================
@@ -680,6 +1033,9 @@ public sealed class PlayerMotor
         VelocityMps = float3.zero;
         DashTimeLeftS = 0f;
         AirJumpsUsed = 0;
+        Climbing = Sliding = Resting = false;
+        _climbHoldS = 0f;
+        StaminaS = Config.climbStaminaS;
         Grounded = IsGroundedAt(feetCentre);
         TimeSinceGroundedS = Grounded ? 0f : Config.coyoteTimeSeconds + 1f;
     }

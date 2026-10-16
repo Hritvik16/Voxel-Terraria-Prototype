@@ -408,6 +408,28 @@ public static class MaterialRules
     /// A fluid that rises (steam): its Intent hierarchy is mirrored upward.
     public static bool IsGasMaterial(byte material) => (_flags[material] & IsGas) != 0u;
 
+    /// Task 93f1 (gameplay step 5, the brief's "ice and sand climb worse than
+    /// rock"): how a face of this material holds a climber. GripRock = full
+    /// speed and stamina; GripLoose (sand, beach/packed sand, powder snow) and
+    /// GripSlick (packed ice, glass) are slower and tire faster, by
+    /// PlayerConfig's climbLoose* / climbSlick* scales.
+    public const byte GripRock = 0, GripLoose = 1, GripSlick = 2;
+    public static byte ClimbGrip(byte material)
+    {
+        switch (material)
+        {
+            case Materials.Sand: case Materials.Snow:
+            case Materials.TG2_BASE + 12: case Materials.TG2_BASE + 13:   // tg2 sand, powder snow
+            case Materials.TG2_BASE + 14: case Materials.TG2_BASE + 21:   // beach sand, packed sand
+                return GripLoose;
+            case Materials.TG2_BASE + 22:                                 // packed ice
+            case Materials.Glass:
+                return GripSlick;
+            default:
+                return GripRock;
+        }
+    }
+
     /// §2.7 density layering: may `heavy`, sitting directly above `light`,
     /// trade places with it? Both must be FLUIDS (a falling solid never swaps:
     /// sand has an angle of repose, it sinks through nothing), must not react

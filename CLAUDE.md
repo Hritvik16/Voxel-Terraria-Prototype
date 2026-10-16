@@ -365,6 +365,12 @@ Task 93e1 (gameplay RX1): ADJACENCY REACTIONS in `MaterialRules`' pair table (bo
 (legacy, tg2, beach) -> GLASS (new id 24, acid-proof; lava kept); lava + snow/tg2 snow/packed ice -> water (lava kept, then quenched).
 GPU: `CSReact` sets the op wake bit for MOBILE products (air/solid products unchanged). `ReactionPairTests` (6), `EXTRA="-reactiondemo"` = 4 tray shots.
 
+Task 93f1 (gameplay step 5): play walk has the WALK BAND + CLIMBING (`PlayerMotor` abilities path only; rigs keep the legacy
+step-up): auto-step only if the next 0.5 m rises <= 30 deg (`walkSlopeMaxDeg`), steeper ground under the feet slides you down
+(Space scrambles), pressing into a face rising >= 60 deg (`climbMinSlopeDeg`, any wall >= 0.9 m) for 0.2 s clings: W up 1.5 m/s,
+A/D sideways, Ctrl down, release W/Space drops, top mantled; stamina 7 s, refills on a 0.6 m ledge; loose/slick faces
+(`MaterialRules.ClimbGrip`) slower. Numbers in PlayerConfig.json. `ClimbSlopeTests` (11). `EXTRA="-climbdemo"` = 6 shots.
+
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
 (`Assets/TerrainGen/`):

@@ -503,9 +503,13 @@ real and separate reason — see the LOD-cascade finding in
   the voxels there show too. Turning it to rock means changing the VOXEL rule
   as well (~60% of land is steeper than 30°), which is an art/terrain decision.
 - **The placeholder player can run up ~70° slopes** (3-voxel step-up on every
-  blocked move, no slope rule, `PlayerMotor.MoveAxisWithStepUp`). Terrain can't
-  be judged as an obstacle until the character is designed -- the owner does
-  NOT want movement rules designed yet.
+  blocked move, no slope rule, `PlayerMotor.MoveAxisWithStepUp`). **FIXED IN PLAY
+  by task 93f1** (gameplay step 5): `Step(dt, in MotorInput)` auto-steps only when
+  the next 0.5 m rises <= 30 deg, slides on steeper ground, climbs faces >= 60 deg
+  with stamina (`ClimbSlopeTests`). The LEGACY `Step` (rigs) is unchanged: it still
+  steps up anywhere, and its settle loop (repeated 0.1 m float subtractions) stalls
+  on long ramps when the feet sit exactly on a row with no skin (after Teleport):
+  a 45 deg ramp stops at 0.5 m. The abilities path settles in whole rows + skin.
 - **Phantom geometry: `ClipmapValidator.CountStaleSlots`** (commit `d60d986`)
   counts mirror positions with no resident chunk that still draw. First use: 1
   stale slot at one pose, still dirty (queued clear), 0 elsewhere. Not closed.
