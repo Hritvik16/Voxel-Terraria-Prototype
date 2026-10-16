@@ -26,7 +26,7 @@ using VoxelEngine.Memory;
 
 public partial class Playground
 {
-    private enum StrokeKind { None, Place, DigPending, Dig }
+    private enum StrokeKind { None, Place, DigPending, Dig, Pull }
 
     private StrokeKind _stroke;
     private int3 _strokeFrom, _strokeTo;            // voxels: the press aim and the current aim
@@ -44,7 +44,8 @@ public partial class Playground
     private const float StrokeRecostS = 0.25f;      // the cost is re-read this often while still (the world changes)
     private const int StrokePreviewMaxCubes = 96;   // longer strokes draw the end cubes + the line between
 
-    internal bool StrokeActive => _stroke == StrokeKind.Place || _stroke == StrokeKind.Dig;
+    internal bool StrokeActive => LineActive || _stroke == StrokeKind.Pull;
+    private bool LineActive => _stroke == StrokeKind.Place || _stroke == StrokeKind.Dig;
 
     /// Survival mouse, called every frame the cursor is captured, target or not.
     /// Returns true when a stroke owns the mouse (the caller skips single-click handling).
@@ -65,6 +66,19 @@ public partial class Playground
             bool was = StrokeActive;
             CancelStroke();
             if (was) _status = "stroke cancelled";
+            return true;
+        }
+
+        // ---- Alt + RMB: face pull (BLD2, Playground.Pull.cs) ----
+        if (_stroke == StrokeKind.None && PullKeyHeld && Input.GetMouseButtonDown(1) && _hasTarget
+            && !Items.PlacesSingleVoxel(_inv.ItemAt(_inv.Selected)))
+        {
+            BeginPull(_targetVoxel, AimFace());
+        }
+        if (_stroke == StrokeKind.Pull)
+        {
+            if (!Input.GetMouseButton(1)) CommitPull();
+            else RefreshPull(dt);
             return true;
         }
 
@@ -131,13 +145,14 @@ public partial class Playground
         _strokeCubes.Clear();
         _strokeSkippedCubes.Clear();
         _strokeLastTo = new int3(int.MinValue);
+        ResetPull();
     }
 
     /// Recomputes the path and its cost when the aim moved to another cube, the
     /// slot changed, or every StrokeRecostS (the world under it may change).
     internal void RefreshStroke(float dt, bool force = false)
     {
-        if (!StrokeActive) return;
+        if (!LineActive) return;
         bool dig = _stroke == StrokeKind.Dig;
         int edge = dig ? SurvivalBuild.CubeEdges[_edgeIndex]
                        : SurvivalBuild.EdgeFor(_inv.ItemAt(_inv.Selected), SurvivalBuild.CubeEdges[_edgeIndex]);
@@ -190,6 +205,7 @@ public partial class Playground
         int slot = _inv.Selected;
         int skipped = _strokeSkippedCubes.Count;
         var r = SurvivalBuild.PlaceStroke(_edits, _store, _inv, slot, _strokeCubes, _strokeEdge);
+        if (r.Outcome == SurvivalBuild.PlaceOutcome.Placed) _shape.Set(_strokeCubes, r.CubesPaid, r.Edge);   // BLD2: the shape to pull
         CancelStroke();
         string skip = skipped > 0 ? $", {skipped} cube(s) skipped (around you / outside the wake radius)" : "";
         switch (r.Outcome)
@@ -243,7 +259,8 @@ public partial class Playground
     /// cubes and the line between them.
     private void DrawStrokePreview(Camera cam, float k, float ui)
     {
-        if (!StrokeActive || _strokeEdge <= 0) return;
+        if (_stroke == StrokeKind.Pull) { DrawPullPreview(cam, k, ui); return; }
+        if (!LineActive || _strokeEdge <= 0) return;
         bool dig = _stroke == StrokeKind.Dig;
         int e = _strokeEdge;
         Color paid = dig ? new Color(1f, 0.6f, 0.2f, 0.9f) : new Color(0.45f, 0.9f, 1f, 0.9f);
@@ -317,36 +334,10 @@ public partial class Playground
         int3 f = CoordMath.WorldToVoxel(_player.Motor.PositionM);
         float2 sxz = math.normalizesafe(SunCycle.Direction.xz);
         float awayYaw = math.degrees(math.atan2(-sxz.x, -sxz.y));
-        // The flattest stand (max height step over the 12 m x 6 m ahead), headings
-        // within 45 deg of straight away from the sun; the first within 0.5 m wins.
-        int3 stand = new int3(f.x, math.max(DryTopY(f.x, f.z), f.y - 1), f.z);
-        float yaw = awayYaw;
-        int bestDev = int.MaxValue;
-        for (int r = 0; r <= 1200 && bestDev > 5; r += 20)
-        {
-            for (int dz = -r; dz <= r && bestDev > 5; dz += 20)
-            for (int dx = -r; dx <= r && bestDev > 5; dx += 20)
-            {
-                if (math.max(math.abs(dx), math.abs(dz)) != r) continue;
-                int x = f.x + dx, z = f.z + dz, sy = DryTopY(x, z);
-                if (sy < 0) continue;
-                for (int k = -2; k <= 2; k++)
-                {
-                    float kr = math.radians(awayYaw + k * 22.5f);
-                    float2 kf = new float2(math.sin(kr), math.cos(kr)), kri = new float2(kf.y, -kf.x);
-                    int dev = 0;
-                    for (int sx = -60; sx <= 60 && dev < bestDev; sx += 10)
-                    for (int a = 0; a <= 60 && dev < bestDev; a += 20)
-                    {
-                        int h = DryTopY(x + (int)math.round(kf.x * a + kri.x * sx), z + (int)math.round(kf.y * a + kri.y * sx));
-                        dev = h < 0 ? int.MaxValue : math.max(dev, math.abs(h - sy));
-                    }
-                    if (dev < bestDev) { bestDev = dev; stand = new int3(x, sy, z); yaw = awayYaw + k * 22.5f; }
-                }
-            }
-            yield return null;
-        }
-        Debug.Log($"[StrokeDemo] flattest stand: max step {bestDev} voxels over 12 m x 6 m");
+        yield return FindDemoStand(f, awayYaw, new[] { -45f, -22.5f, 0f, 22.5f, 45f });
+        int3 stand = _demoStand;
+        float yaw = _demoYaw;
+        Debug.Log($"[StrokeDemo] flattest stand: max step {_demoStandDev} voxels over 12 m x 6 m");
         float yr = math.radians(yaw);
         float2 fwd = new float2(math.sin(yr), math.cos(yr));
         float2 right = new float2(fwd.y, -fwd.x);
@@ -422,6 +413,45 @@ public partial class Playground
         _inv = Inventory.WithStarterKit();
         Debug.Log("[StrokeDemo] done");
         Application.Quit();
+    }
+
+    private int3 _demoStand;
+    private float _demoYaw;
+    private int _demoStandDev;
+
+    /// The flattest stand within 120 m of `f` (max height step over the 12 m x 6 m
+    /// ahead), on headings `baseYaw` + each offset; the first within 0.5 m wins.
+    /// Sets _demoStand / _demoYaw / _demoStandDev (-strokedemo, -pulldemo).
+    private IEnumerator FindDemoStand(int3 f, float baseYaw, float[] offsetsDeg)
+    {
+        _demoStand = new int3(f.x, math.max(DryTopY(f.x, f.z), f.y - 1), f.z);
+        _demoYaw = baseYaw;
+        int bestDev = int.MaxValue;
+        for (int r = 0; r <= 1200 && bestDev > 5; r += 20)
+        {
+            for (int dz = -r; dz <= r && bestDev > 5; dz += 20)
+            for (int dx = -r; dx <= r && bestDev > 5; dx += 20)
+            {
+                if (math.max(math.abs(dx), math.abs(dz)) != r) continue;
+                int x = f.x + dx, z = f.z + dz, sy = DryTopY(x, z);
+                if (sy < 0) continue;
+                foreach (float off in offsetsDeg)
+                {
+                    float kr = math.radians(baseYaw + off);
+                    float2 kf = new float2(math.sin(kr), math.cos(kr)), kri = new float2(kf.y, -kf.x);
+                    int dev = 0;
+                    for (int sx = -60; sx <= 60 && dev < bestDev; sx += 10)
+                    for (int a = 0; a <= 60 && dev < bestDev; a += 20)
+                    {
+                        int h = DryTopY(x + (int)math.round(kf.x * a + kri.x * sx), z + (int)math.round(kf.y * a + kri.y * sx));
+                        dev = h < 0 ? int.MaxValue : math.max(dev, math.abs(h - sy));
+                    }
+                    if (dev < bestDev) { bestDev = dev; _demoStand = new int3(x, sy, z); _demoYaw = baseYaw + off; }
+                }
+            }
+            yield return null;
+        }
+        _demoStandDev = bestDev;
     }
 
     /// The top dry voxel at `stand` + an xz offset in voxels.

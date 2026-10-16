@@ -1,0 +1,52 @@
+[PullDemo] flat map site int3(42572, 5489, 48988), 880 m away, height range 0 voxels
+[PullDemo] map site int3(42572, 5489, 48988) after 11 s: top 5489
+[PullDemo] stand int3(42572, 5489, 48988) (max step 0 voxels), heading 135, axis 180 (away from the sun 180), F int3(0, 0, -1), R int3(-1, 0, 0)
+[PullDemo] block blue slate (ground sinter), cube 4
+[PullDemo] block: Placed, 64 cells at int3(42620, 5492, 48940); shape 1
+[PullDemo] line (expect 10 cubes): from shape True, face 1 cubes, 9 cubes to place, cost 576 cells, affordable 9, skipped 0
+[Pull] place shape of 1, n int3(-1, 0, 0), 9 layers: Placed 9/9 cubes of 4, 576/576 cells, ranOut False, skipped 0, shape now 10
+[PullDemo] line (expect 10 cubes): Placed, 9/9 cubes, placed 576, slot 10000 -> 9424 (conservation OK), shape now 10
+[PullDemo] wall (expect 70 cubes): from shape True, face 10 cubes, 60 cubes to place, cost 3840 cells, affordable 60, skipped 0
+[Pull] place shape of 10, n int3(0, 1, 0), 6 layers: Placed 60/60 cubes of 4, 3840/3840 cells, ranOut False, skipped 0, shape now 70
+[PullDemo] wall (expect 70 cubes): Placed, 60/60 cubes, placed 3840, slot 10000 -> 6160 (conservation OK), shape now 70
+[PullDemo] thick wall (expect 210 cubes): from shape True, face 70 cubes, 140 cubes to place, cost 8960 cells, affordable 140, skipped 0
+[Pull] place shape of 70, n int3(0, 0, 1), 2 layers: Placed 140/140 cubes of 4, 8960/8960 cells, ranOut False, skipped 0, shape now 210
+[PullDemo] thick wall (expect 210 cubes): Placed, 140/140 cubes, placed 8960, slot 10000 -> 1040 (conservation OK), shape now 210
+[PullDemo] hut ground 5489..5489, floor row 5492, foundation 1 layer(s) down
+[PullDemo] floor block: Placed, shape 1
+[PullDemo] floor line (expect 8 cubes): from shape True, face 1 cubes, 7 cubes to place, cost 448 cells, affordable 7, skipped 0
+[Pull] place shape of 1, n int3(-1, 0, 0), 7 layers: Placed 7/7 cubes of 4, 448/448 cells, ranOut False, skipped 0, shape now 8
+[PullDemo] floor line (expect 8 cubes): Placed, 7/7 cubes, placed 448, slot 10000 -> 9552 (conservation OK), shape now 8
+[PullDemo] floor plate (expect 64 cubes): from shape True, face 8 cubes, 56 cubes to place, cost 3584 cells, affordable 56, skipped 0
+[Pull] place shape of 8, n int3(0, 0, -1), 7 layers: Placed 56/56 cubes of 4, 3584/3584 cells, ranOut False, skipped 0, shape now 64
+[PullDemo] floor plate (expect 64 cubes): Placed, 56/56 cubes, placed 3584, slot 10000 -> 6416 (conservation OK), shape now 64
+[PullDemo] foundation (expect 128 cubes): from shape True, face 64 cubes, 64 cubes to place, cost 2048 cells, affordable 64, skipped 0
+[Pull] place shape of 64, n int3(0, -1, 0), 1 layers: Placed 64/64 cubes of 4, 2048/2048 cells, ranOut False, skipped 0, shape now 128
+[PullDemo] foundation (expect 128 cubes): Placed, 64/64 cubes, placed 2048, slot 10000 -> 7952 (conservation OK), shape now 128
+[Stroke] place Placed: 8/8 cubes of 4, 512/512 cells, ranOut False, skipped 0
+[PullDemo] hut wall base (2, 16, 9, 16): Placed 8/8 cubes, shape 8
+[PullDemo] hut wall (2, 16, 9, 16) (expect 48 cubes): from shape True, face 8 cubes, 40 cubes to place, cost 2560 cells, affordable 40, skipped 0
+[Pull] place shape of 8, n int3(0, 1, 0), 5 layers: Placed 40/40 cubes of 4, 2560/2560 cells, ranOut False, skipped 0, shape now 48
+[PullDemo] hut wall (2, 16, 9, 16) (expect 48 cubes): Placed, 40/40 cubes, placed 2560, slot 10000 -> 7440 (conservation OK), shape now 48
+[Stroke] place Placed: 7/7 cubes of 4, 448/448 cells, ranOut False, skipped 0
+[PullDemo] hut wall base (9, 17, 9, 23): Placed 7/7 cubes, shape 7
+[PullDemo] hut wall (9, 17, 9, 23) (expect 42 cubes): from shape True, face 7 cubes, 35 cubes to place, cost 2240 cells, affordable 35, skipped 0
+[Pull] place shape of 7, n int3(0, 1, 0), 5 layers: Placed 35/35 cubes of 4, 2240/2240 cells, ranOut False, skipped 0, shape now 42
+[PullDemo] hut wall (9, 17, 9, 23) (expect 42 cubes): Placed, 35/35 cubes, placed 2240, slot 10000 -> 7760 (conservation OK), shape now 42
+[Stroke] place Placed: 7/7 cubes of 4, 448/448 cells, ranOut False, skipped 0
+[PullDemo] hut wall base (2, 23, 8, 23): Placed 7/7 cubes, shape 7
+[PullDemo] hut wall (2, 23, 8, 23) (expect 42 cubes): from shape True, face 7 cubes, 35 cubes to place, cost 2240 cells, affordable 35, skipped 0
+[Pull] place shape of 7, n int3(0, 1, 0), 5 layers: Placed 35/35 cubes of 4, 2240/2240 cells, ranOut False, skipped 0, shape now 42
+[PullDemo] hut wall (2, 23, 8, 23) (expect 42 cubes): Placed, 35/35 cubes, placed 2240, slot 10000 -> 7760 (conservation OK), shape now 42
+[Stroke] place Placed: 6/6 cubes of 4, 384/384 cells, ranOut False, skipped 0
+[PullDemo] hut wall base (2, 17, 2, 22): Placed 6/6 cubes, shape 6
+[PullDemo] hut wall (2, 17, 2, 22) (expect 36 cubes): from shape True, face 6 cubes, 30 cubes to place, cost 1920 cells, affordable 30, skipped 0
+[Pull] place shape of 6, n int3(0, 1, 0), 5 layers: Placed 30/30 cubes of 4, 1920/1920 cells, ranOut False, skipped 0, shape now 36
+[PullDemo] hut wall (2, 17, 2, 22) (expect 36 cubes): Placed, 30/30 cubes, placed 1920, slot 10000 -> 8080 (conservation OK), shape now 36
+[Stroke] place Placed: 8/8 cubes of 4, 512/512 cells, ranOut False, skipped 0
+[PullDemo] roof (expect 64 cubes): from shape True, face 8 cubes, 56 cubes to place, cost 3584 cells, affordable 56, skipped 0
+[Pull] place shape of 8, n int3(0, 0, -1), 7 layers: Placed 56/56 cubes of 4, 3584/3584 cells, ranOut False, skipped 0, shape now 64
+[PullDemo] roof (expect 64 cubes): Placed, 56/56 cubes, placed 3584, slot 10000 -> 6416 (conservation OK), shape now 64
+[Stroke] dig: 5 cubes of 4, removed 320, credited 320, lost 0
+[Stroke] dig: 5 cubes of 4, removed 320, credited 320, lost 0
+[PullDemo] done

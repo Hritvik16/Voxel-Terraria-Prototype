@@ -328,6 +328,12 @@ Task 93a1 (gameplay BLD1): Survival DRAG LINE. RMB press-drag-release stamps the
 LMB held still = tool dig as before, turned > 4 deg = dig stroke; preview + count while dragging, Esc cancels (keeps the mouse).
 `Playground.Stroke.cs`, `StrokeTests` (8). `EXTRA="-strokedemo"` = the 6 shots (wall base, short slot, trench).
 
+Task 93b1 (gameplay BLD2, owner Q1): Survival FACE PULL. Alt (Option) + RMB drag on a face of the LAST shape placed (click, BLD1
+line or previous pull, while every cube's centre is solid; else the aimed Q-size cube): the shape's cubes on that face
+(`SurvivalBuild.FaceLayer`) repeat along the normal, N = the aim's closest point on the normal line (`PullSteps`); back in = dig.
+Layer order, stops when the slot runs out, <= `MaxPullCubes` (2,048 / 131k cells), one `SetCubes`. `Playground.Pull.cs`,
+`PullTests` (10). `EXTRA="-pulldemo"` = 9 shots on a flat map site (block -> thick wall, a hut).
+
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
 (`Assets/TerrainGen/`):

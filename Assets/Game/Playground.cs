@@ -527,6 +527,8 @@ public partial class Playground : MonoBehaviour
         if (!IsCaptureRun() && HasArg("-survivaldemo")) StartCoroutine(SurvivalDemo());
         // -strokedemo (task 93a1): BLD1's drag-line screenshots, then quit.
         if (!IsCaptureRun() && HasArg("-strokedemo")) StartCoroutine(StrokeDemo());
+        // -pulldemo (task 93b1): BLD2's face-pull screenshots, then quit.
+        if (!IsCaptureRun() && HasArg("-pulldemo")) StartCoroutine(PullDemo());
         // -movedemo (task 65): movement set A's screenshots (dive, double jump over a gap), then quit.
         if (!IsCaptureRun() && HasArg("-movedemo")) StartCoroutine(MoveDemo());
         // -oredemo (task 66): ore screenshots (a tunnel wall, the hotbar, the dev map's close slice), then quit.
@@ -1800,6 +1802,7 @@ public partial class Playground : MonoBehaviour
                 _actAge = 0f;
                 _invDirty = true;
                 _status = $"placed {r.Placed} {Items.Name(r.Item)} ({r.Edge * 0.1f:0.0} m cube), {_inv.CountAt(slot):N0} left";
+                if (!Items.PlacesSingleVoxel(r.Item)) RememberShape(r.Lo, r.Edge);   // BLD2: the block to pull
                 break;
             case SurvivalBuild.PlaceOutcome.EmptySlot: PlaceRefused($"slot {slot + 1} is empty -- dig (LMB) to fill it"); break;
             case SurvivalBuild.PlaceOutcome.NotPlaceable: PlaceRefused($"{Items.Name(r.Item)} cannot be placed"); break;
@@ -2096,9 +2099,13 @@ public partial class Playground : MonoBehaviour
     }
 
     private void DrawVoxelHighlight(Camera cam, int3 v, Color c, float width, int edge = 1)
+        => DrawBoxHighlight(cam, v, new int3(edge, edge, edge), c, width);
+
+    /// The wire box [v, v + size) in voxels (BLD2's big pull previews).
+    private void DrawBoxHighlight(Camera cam, int3 v, int3 size, Color c, float width)
     {
         Vector3 lo = new Vector3(v.x, v.y, v.z) * 0.1f - Vector3.one * 0.002f;
-        Vector3 hi = lo + Vector3.one * (0.1f * edge + 0.004f);
+        Vector3 hi = lo + new Vector3(size.x, size.y, size.z) * 0.1f + Vector3.one * 0.004f;
 
         Vector3[] w = new Vector3[8];
         for (int i = 0; i < 8; i++)
@@ -2583,6 +2590,8 @@ public partial class Playground : MonoBehaviour
             sb.AppendLine("  <b>RMB</b> place a cube of the held block (cyan box), costs the cells it fills");
             sb.AppendLine("  <b><color=#ffd479>RMB drag</color></b> a line of cubes, placed on release (stops when the slot runs out)   " +
                           "<b><color=#ffd479>LMB drag</color></b> dig a line   <b><color=#ffd479>Esc</color></b> cancel");
+            sb.AppendLine("  <b><color=#ffd479>Alt + RMB drag</color></b> pull a face of your last block/line/wall: block -> line -> wall -> thick wall " +
+                          "(drag along the face; inward digs)");
             sb.AppendLine("  <b><color=#ffd479>Q</color></b> cube size 0.1 / 0.2 / 0.4 / 0.8 m   <b><color=#ffd479>E</color></b> inventory (click two slots to swap)   <b>1-9</b> / scroll  hotbar");
         }
         else
