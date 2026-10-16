@@ -52,6 +52,12 @@ namespace VoxelEngine.Mirror
         /// uses that instead.
         public static int DefaultTierPoolCapacity(int brickPoolCapTier0) => Math.Max(1024, brickPoolCapTier0 / 4);
 
+        /// Task 93d (8.15 row D1, owner Q49): does Phase4Bootstrapper create tiers 1-2?
+        /// Not when the shells draw (tg2 + `-shells 1`), unless `-keeptiers 1`;
+        /// every other launch allocates them as before.
+        public static bool TiersWanted(bool tg2World, int shellsArg, int keepTiersArg)
+            => !(tg2World && shellsArg == 1) || keepTiersArg == 1;
+
         public LODCascadeManager(int3 windowDimsChunks, Func<int, int> tierPoolCapacity)
         {
             _tierPools = new CascadeTierPool[LODConfig.TIER_COUNT];

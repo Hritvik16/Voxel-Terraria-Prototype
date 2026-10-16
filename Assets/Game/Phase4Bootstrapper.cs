@@ -30,12 +30,16 @@ public class Phase4Bootstrapper : MonoBehaviour
     public static TerrainClipmap Clipmap { get; private set; }
     public static ChunkStore Store { get; private set; }
     public static BrickDataPool Pool { get; private set; }
+    /// Null when the shells draw (task 93d, 8.15 row D1 / owner Q49): tiers 1-2
+    /// are not allocated then. Every reader checks for null.
     public static LODCascadeManager Cascades { get; private set; }
     public static WorldMetaData Meta { get; private set; }
     public static StreamManager Streamer { get; private set; }
     /// Amendment 8.14 step 11a (task 77): the coarse shells' storage; step 11b
     /// (task 80) draws them (RaymarchFeature.DrawShells; cascade tiers 1-2 stop
-    /// drawing while they do, but stay allocated). Off unless `-shells 1` (tg2
+    /// drawing while they do, and since task 93d are not allocated at all --
+    /// `-keeptiers 1` allocates them anyway, for the diagnostic arms that turn
+    /// DrawShells off and want tiers 1-2 behind it). Off unless `-shells 1` (tg2
     /// only): shells + cascades together are over the 3 GB cap, and switching
     /// the default waits for the owner (77's Q1). `-quality low|medium|high|ultra`
     /// (default high: rigs pin High, row 16), `-shellworkers N` (default 1),
@@ -299,8 +303,14 @@ public class Phase4Bootstrapper : MonoBehaviour
             VoxelEngine.Streaming.StreamManager.GenWorkersOverride =
                 gi >= 0 && gi + 1 < args.Length && int.TryParse(args[gi + 1], out int gw) && gw > 0 ? gw : 0;
         }
-        Cascades = new LODCascadeManager(mirrorChunks, tier => IsTg2World ? EngineConfig.Tg2CascadeTierPoolCap(tier)
+        // Task 93d (8.15 row D1, owner Q49): with the shells on, tiers 1-2 never draw,
+        // so they are not created (task 55's ledger: 193 MB). Shells off: as before.
+        bool shellsRequested = IsTg2World && ArgInt("-shells", 0) == 1;
+        Cascades = !LODCascadeManager.TiersWanted(IsTg2World, ArgInt("-shells", 0), ArgInt("-keeptiers", 0)) ? null
+                 : new LODCascadeManager(mirrorChunks, tier => IsTg2World ? EngineConfig.Tg2CascadeTierPoolCap(tier)
                                                                           : EngineConfig.CascadeTierPoolCap(tier));
+        if (shellsRequested)
+            UnityEngine.Debug.Log($"[Phase4Bootstrapper] cascade tiers 1-2 {(Cascades == null ? "NOT allocated (shells draw; -keeptiers 1 = allocate)" : "allocated (-keeptiers 1)")}");
 
         UnityEngine.Debug.Log($"[Phase4Bootstrapper] store ring {storeWindowChunks}, GPU mirror {mirrorChunks} " +
                               $"(camera altitude ceiling {EngineConfig.MIRROR_CEILING_METRES:F1}m -- see EngineConfig)");
@@ -426,7 +436,7 @@ public class Phase4Bootstrapper : MonoBehaviour
                                                       Streamer.Ops);   // task 82: the far band draws the save's edit ops
         ApplyBandToRenderer();
 
-        if (IsTg2World && ArgInt("-shells", 0) == 1)
+        if (shellsRequested)
         {
             string[] sargs = Environment.GetCommandLineArgs();
             int qi = Array.LastIndexOf(sargs, "-quality");
@@ -444,7 +454,8 @@ public class Phase4Bootstrapper : MonoBehaviour
             RaymarchFeature.ShellTint = dbg >= 0;
             long bytes = 0; for (int k = 1; k < layout.ShellCount; k++) bytes += Shells.Store(k).BytesAllocated;
             UnityEngine.Debug.Log($"[Shells] preset {layout.Preset} ({layout.SizingRows} rows): shells 1-{layout.ShellCount - 1} allocated, " +
-                                  $"GPU {bytes / 1e6:F1} MB (8.14 §2 formula {layout.ShellsTotalMBEstimate:F0} MB); drawn (11b), cascade tiers 1-2 off while drawn");
+                                  $"GPU {bytes / 1e6:F1} MB (8.14 §2 formula {layout.ShellsTotalMBEstimate:F0} MB); drawn (11b), cascade tiers 1-2 " +
+                                  (Cascades == null ? "not allocated (93d)" : "allocated, off while drawn"));
         }
 
         StartupMs = total.Elapsed.TotalMilliseconds;

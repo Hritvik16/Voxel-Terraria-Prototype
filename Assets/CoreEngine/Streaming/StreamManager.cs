@@ -143,6 +143,11 @@ namespace VoxelEngine.Streaming
         public double LastUploadMs { get; private set; }
         public int LastUploadBytes { get; private set; }
         public double LastCascadeMs { get; private set; }
+        /// Task 93d: false when built without cascade tiers (shells on): no worker
+        /// downsample, no per-scratch DownsampleScratch (~2.3 MB each).
+        public bool CascadeTiersOn => _cascades != null;
+        /// Scratch contexts (idle ones, in the pool) holding a DownsampleScratch. Tests.
+        public int ScratchDownsampleBuffers { get { int n = 0; foreach (var c in _scratchPool) if (c.downsample != null) n++; return n; } }
 
         /// LastDrainMs split into its parts, per frame (read-only diagnostics,
         /// added 2026-09-25 when -flyfast measured Update at 19 ms/frame mean at
@@ -467,7 +472,8 @@ namespace VoxelEngine.Streaming
             // Reusable downsample buffers, one set per worker. Sized once; every
             // chunk this worker handles reuses them instead of allocating a
             // fresh 2 MB tier-0 extraction plus per-step arrays per tier.
-            public LODDownsampler.DownsampleScratch downsample = new LODDownsampler.DownsampleScratch();
+            // Task 93d: null when there are no cascade tiers (shells on).
+            public LODDownsampler.DownsampleScratch downsample;
         }
 
         private struct LoadCompletion
@@ -596,6 +602,7 @@ namespace VoxelEngine.Streaming
                     // 4096 = worst case, an entirely dense chunk (§11.4).
                     pool = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK),
                     allocator = new ChunkHandleAllocator(2),
+                    downsample = _cascades != null ? new LODDownsampler.DownsampleScratch() : null,
                 });
             }
 
@@ -693,7 +700,7 @@ namespace VoxelEngine.Streaming
                 if (!chunk.dirty) continue;
                 chunk.dirty = false;
                 _clipmap.MarkDirty(chunk.coord);
-                _cascades.MarkDirty(chunk.coord);
+                _cascades?.MarkDirty(chunk.coord);
             }
 
             LastDrainMs = sw.Elapsed.TotalMilliseconds;
@@ -710,7 +717,7 @@ namespace VoxelEngine.Streaming
             var stats = _clipmap.UploadDirty(_store, _pool, EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME,
                                              camChunk, EngineConfig.UPLOAD_EXEMPT_RADIUS_CHUNKS);
             double clipDone = sw.Elapsed.TotalMilliseconds;
-            _cascades.UploadDirty(_store, _pool);
+            _cascades?.UploadDirty(_store, _pool);
             LastUploadMs = sw.Elapsed.TotalMilliseconds;
             LastCascadeMs = LastUploadMs - clipDone;
             LastUploadBytes = stats.bytesUploaded;
@@ -993,26 +1000,31 @@ namespace VoxelEngine.Streaming
                 // chunk. Handing the scratch array itself to the queue would
                 // alias -- the next chunk on this worker would rewrite voxels
                 // the main thread has not consumed yet.
-                completion.cascadeData = new byte[LODConfig.TIER_COUNT - 1][];
-                // Gather tier-0 ONCE for all tiers. It is a 128^3 (2 MB) walk and
-                // it was being redone per tier, so every chunk paid it twice --
-                // pure duplicated worker CPU, on the threads whose contention
-                // with the main thread is what starves frames in the first place.
                 long tw1 = trace ? StreamTrace.Now : 0;
                 long cpu2 = trace ? StreamTrace.ThreadCpuNs() : 0;
-                bool tier0Ready = LODDownsampler.PrepareTier0(chunk, scratch.pool, scratch.downsample);
-                for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+                // Task 93d (8.15 row D1): no cascade tiers (shells on) -> no downsample;
+                // cascadeData stays null and the main thread has nothing to submit.
+                if (_cascades != null)
                 {
-                    byte[] scratchResult =
-                        LODDownsampler.DownsampleTierFromScratch(chunk, tier, scratch.downsample, tier0Ready);
-                    // POOLED (2026-09-26): -framegap found 22 gen2 collections in
-                    // the worst 1% of frames. These are 262 KB + 32 KB per chunk
-                    // (large-object heap, so every allocation feeds a gen2); the
-                    // main thread consumes them synchronously in
-                    // SubmitPrecomputed and hands them straight back.
-                    var owned = RentCascadeArray(tier, scratchResult.Length);
-                    Array.Copy(scratchResult, owned, scratchResult.Length);
-                    completion.cascadeData[tier - 1] = owned;
+                    completion.cascadeData = new byte[LODConfig.TIER_COUNT - 1][];
+                    // Gather tier-0 ONCE for all tiers. It is a 128^3 (2 MB) walk and
+                    // it was being redone per tier, so every chunk paid it twice --
+                    // pure duplicated worker CPU, on the threads whose contention
+                    // with the main thread is what starves frames in the first place.
+                    bool tier0Ready = LODDownsampler.PrepareTier0(chunk, scratch.pool, scratch.downsample);
+                    for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+                    {
+                        byte[] scratchResult =
+                            LODDownsampler.DownsampleTierFromScratch(chunk, tier, scratch.downsample, tier0Ready);
+                        // POOLED (2026-09-26): -framegap found 22 gen2 collections in
+                        // the worst 1% of frames. These are 262 KB + 32 KB per chunk
+                        // (large-object heap, so every allocation feeds a gen2); the
+                        // main thread consumes them synchronously in
+                        // SubmitPrecomputed and hands them straight back.
+                        var owned = RentCascadeArray(tier, scratchResult.Length);
+                        Array.Copy(scratchResult, owned, scratchResult.Length);
+                        completion.cascadeData[tier - 1] = owned;
+                    }
                 }
 
                 completion.chunk = chunk;
@@ -1135,7 +1147,7 @@ namespace VoxelEngine.Streaming
                             ReturnCascadeArray(tier, c.cascadeData[tier - 1]);
                         }
                     else
-                        _cascades.MarkDirty(c.coord); // fallback: main-thread path
+                        _cascades?.MarkDirty(c.coord); // fallback: main-thread path
 
                     // 8.14 row 9: ops recorded while this chunk was in flight (the
                     // worker's snapshot predates them, and EditOps' near apply
@@ -1389,7 +1401,7 @@ namespace VoxelEngine.Streaming
             // ordering matters: mark before the evict and they would happily
             // re-upload the chunk they were meant to erase.
             _clipmap.MarkDirty(coord);
-            _cascades.MarkDirty(coord);
+            _cascades?.MarkDirty(coord);
 
             ChunksEvictedTotal++;
             return saved;
@@ -1409,6 +1421,7 @@ namespace VoxelEngine.Streaming
                     {
                         pool = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK),
                         allocator = new ChunkHandleAllocator(2),
+                        downsample = _cascades != null ? new LODDownsampler.DownsampleScratch() : null,
                     };
 
                 baseline = new Chunk();
@@ -1740,7 +1753,7 @@ namespace VoxelEngine.Streaming
             finally { _store.EditMarksMuted--; }
             if (!any) return;
             _clipmap.MarkDirty(coord);
-            _cascades.MarkDirty(coord);
+            _cascades?.MarkDirty(coord);
         }
 
         /// The generated (pre-edit) content of a chunk: TerrainGen for sizeClass 2

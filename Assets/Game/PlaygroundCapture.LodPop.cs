@@ -163,15 +163,17 @@ public partial class PlaygroundCapture
         }
         L($"  [{pose}] window origin {o} dims {d}: {resident}/{d.x * d.z} y=0 chunks resident, load deficit {streamer.LoadDeficit()}, " +
           $"pending {streamer.PendingLoads}, in flight {streamer.InFlightLoads}, clipmap dirty {clip.DirtyCount}, " +
-          $"tier1 dirty {cas.TierPool(1).DirtyRemaining}, tier2 dirty {cas.TierPool(2).DirtyRemaining}");
+          (cas != null ? $"tier1 dirty {cas.TierPool(1).DirtyRemaining}, tier2 dirty {cas.TierPool(2).DirtyRemaining}"
+                       : "cascade tiers 1-2 not allocated (shells on, task 93d)"));
         var cr = ClipmapValidator.ValidateRegion(clip, pool, store, int.MaxValue, false);
         L($"  [{pose}] tier 0 clipmap: {cr.chunksChecked} chunks, {cr.chunksWithMismatch} mismatched, " +
           $"lag {cr.mismatchesInDirtyChunks}, LOST {cr.mismatchesInCleanChunks}");
+        if (cas != null)
         foreach (var t in CascadeValidator.ValidateAllTiers(cas, store, pool, 4096, false))
             L($"  [{pose}] tier {t.tier} cascade: {t.chunksChecked} chunks, {t.chunksWithMismatch} mismatched, " +
               $"lag {t.mismatchesInDirtyChunks}, LOST {t.mismatchesInCleanChunks}" +
               (t.samples != null && t.samples.Count > 0 ? $"; e.g. {t.samples[0]}" : ""));
-        for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+        for (int tier = 1; cas != null && tier < LODConfig.TIER_COUNT; tier++)
         {
             var ev = CascadeValidator.ValidateEvictedSlots(cas.TierPool(tier), store, 4096);
             L($"  [{pose}] tier {tier} evicted slots: {ev.chunksChecked} checked, {ev.entryMismatches} stale entries");

@@ -261,7 +261,7 @@ public partial class PlaygroundCapture
         RaymarchFeature.ShadowHalfRes = arm == "half" || _costBaseHalf;
         FarField.RenderEnabled = arm != "far_off";
         // Task 93b: shells_off = tiers 1-2 draw instead of the shells (shell streaming keeps
-        // running); fshade_off = far shading off, FULL keeps the launch's -farshade.
+        // running; since task 93d only with -keeptiers 1, else tier 0 + far band); fshade_off = far shading off, FULL keeps the launch's -farshade.
         RaymarchFeature.DrawShells = arm != "shells_off";
         RaymarchFeature.FarShade = arm != "fshade_off" && _costBaseFarShade;
         RaymarchFeature.UseLODCascade = arm != "tiers_off";
