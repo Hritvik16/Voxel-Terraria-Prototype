@@ -447,6 +447,10 @@ public class Phase4Bootstrapper : MonoBehaviour
             // cover them. `-editsummaries 0` = tracked but not drawn (the pre-93a picture).
             Shells.AttachEdits(Store);
             Shells.SummariesEnabled = ArgInt("-editsummaries", 1) != 0;
+            // Task 93b2: `-shellcolreuse 0` = a column pass per shell chunk and the
+            // pre-93b2 dispatch (no column affinity); the same bytes either way.
+            bool colReuse = ArgInt("-shellcolreuse", 1) != 0;
+            Shells.ColumnAffinity = colReuse; Streamer.TerrainGenSource.ShellColumnReuse = colReuse;
             ShellStreamer.Active = Shells;
             RaymarchFeature.ShellIterCap = ArgInt("-shelliters", RaymarchFeature.ShellIterCap);
             int dbg = ArgInt("-shellsdebug", -1);

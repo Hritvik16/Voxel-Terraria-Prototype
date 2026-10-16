@@ -339,6 +339,12 @@ Task 93c1 (gameplay step 4, P21): play STARTS in the best easy area (`TerrainGen
 at `player_pose.json` (beside player.json, saved every 30 s and on quit). Rigs/capture runs and `-playstart 0` keep `Tg2Spawn`.
 `-worldseed N` = another tg2 island (own folder); `-playshotquit` quits after `-playshot`. `PlayStartTests`, `PlayerPoseTests`.
 
+Task 93b2 (BUGS: shells never fill while walking, part one of Q52 (a)): a shell chunk's COLUMN PASS (~90% of it; (shell, x, z) only)
+is kept in its scratch and skipped for the next layer of the same column (`GenerateShellChunk` COLUMN REUSE); `ShellStreamer`
+hands a returning scratch its column's nearest missing layer first and the global pick passes over owned columns (header COLUMN
+AFFINITY; scratches 2 x workers + 2). Same bytes; `-shellcolreuse 0` = old. Per-shell counters `ShellStreamer.CountersReport()`
+(walk logs); `-walkshellwait S` waits at the walk's start pose first. `ShellColumnReuseTests` (3, walking twin Slow).
+
 Task 93d (engine 14d1, 8.15 row D1, Q49): with `-shells 1` cascade tiers 1-2 are NOT ALLOCATED (`LODCascadeManager.TiersWanted`;
 `Phase4Bootstrapper.Cascades` = null, every reader checks; no worker downsample, no DownsampleScratch). Shells off: unchanged.
 `-keeptiers 1` allocates them anyway (diagnostic arms that set DrawShells false and want tiers 1-2 behind). `CascadeTiersOffTests`.
@@ -434,7 +440,7 @@ With live fluid they fail BY DESIGN -- never loosen them. Persistence evidence:
 Before touching streaming, rendering, fluids, memory or a rig, or quoting a
 number, read the matching entry in `KNOWN_ISSUES.md`. One line each:
 
-- SHELLS COST +10-15 ms STEADY, NEVER FILL WHILE WALKING (task 93b, NOT FIXED): far band after the shells ~+11 ms, shell march ~+3; shells 1-2 FULL at the walk poses; walking: shell 1 ~170 chunks held of ~2,170, 2-7 empty (not the upload cap). 93c (shells default) held.
+- SHELLS COST +10-15 ms STEADY, NEVER FILL WHILE WALKING (task 93b, NOT FIXED): far band after the shells ~+11 ms, shell march ~+3; walking fill: 93b2 fixed the throughput half (column pass once per column; walk's end s1 207 -> 1,049 held) -- shells 1-2 still stop at their BRICK caps (~55% / ~28% of the band, caves in unfilled shells). 93c (shells default) held.
 - STRAY RESIDENT CHUNKS ALIAS INTO THE MIRROR (task 21; FIXED task 26, 2026-10-04): save-capped evictions (4/frame) were retried only when the camera changed chunk; now retried every frame while any is deferred. v4 poses MIRROR 0/0/0. Task 32 (3cb76d1): `UploadDirty` skips, counts (`skippedOutOfBox`, poses `outOfBox`) and parks resident chunks outside the mirror box.
 - BLACK BAR OVER THE SEA at `coast_from_sea_30m` (PINNED task 19, FIXED task 22 2026-10-04: integer-cell DDA in `FarStartT`): `FarStartT`'s chunk DDA stalls after a -x face crossing (a fixed 1e-3 t-nudge is below one float step at x ~ 40000 voxels, so floor() keeps the same chunk), returns tLimit, and the far march starts under the sea -> water side face. Residency bits are correct. The dark arcs below it are voxel LOD tier seams.
 - STREAMING REQUIREMENT, WORST CASE (task 16b, 2026-10-03; replaces the 5% pass line): 60 m/s diagonal dive, every chunk full cost -> 2,285 chunks/s, 38 admits/frame; capacity today 2-29/s (79-1,053x short, generation limits); the latency budget is ZERO because voxels hand over to the far band at the residency edge (request point = R_d) -- owner must choose a prefetch margin / detail radius at speed. `StreamingRequirement.cs`, `-streamprobe` section 7. Task 24: `-detailspeed 1` (OFF by default, kernel `CSMainDetail`) gives a 0.62 s budget; still NOT MET (fly 56 p99 3.3-3.8 s).

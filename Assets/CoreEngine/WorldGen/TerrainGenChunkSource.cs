@@ -61,7 +61,7 @@ namespace VoxelEngine.WorldGen
         public void SetCoarseColumnShift(int s)
         {
             var t = Spec; t.coarseColumnShift = s; Spec = t;
-            _columnTop.Clear();
+            _columnTop.Clear(); _specStamp++;
         }
 
         /// Tests and reports (task 88's A/B): off = the cavern candidates are
@@ -69,7 +69,10 @@ namespace VoxelEngine.WorldGen
         public void SetCavernCellCache(bool on)
         {
             var t = Spec; t.cavernCellCacheOff = on ? (byte)0 : (byte)1; Spec = t;
+            _specStamp++;
         }
+        /// Bumped whenever Spec changes: a ShellChunk's kept column pass (task 93b2) is stale then.
+        private int _specStamp;
         public readonly TerrainGen.Offsets O;
         public readonly TerrainGen.WorldMap Map;
         private NativeArray<float> _h, _r, _w;

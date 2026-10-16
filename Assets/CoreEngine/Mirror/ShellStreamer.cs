@@ -47,6 +47,17 @@
 // generated and redrawn, since an op cannot be applied on top of the fill. A redraw a full shell has no room for evicts the old copy and stores
 // the new one fresh (the slot reads the coarser shell for those frames).
 //
+// COLUMN AFFINITY (task 93b2): a shell chunk's column pass (~90% of its
+// generation; it reads x and z, never y) is kept in its scratch, and
+// GenerateShellChunk skips it when the scratch's next chunk is in the same
+// shell and chunk column (task 30's fix for tier 0, in the shells). So a
+// scratch that comes back is handed the NEAREST missing layer of ITS column
+// first (FollowUp: tier 0's column batch, one layer per hand-over), and the
+// global pick passes over chunks of columns another scratch owns (they are
+// that scratch's follow-ups). Across columns the order is still the header's
+// ORDER. Without it a 13-layer shell-1 column ran the pass 13 times, and while
+// walking the workers fell 3-5x behind the box (task 93b2's counts).
+//
 // EDIT SUMMARIES (task 93a, Amendment 8.15 §5 "Live"): resident 0.1 m chunks a
 // player edited (D.1 / SetVoxel, not ops) are summarised into the shells that
 // cover them and those shell chunks redrawn through the same path
@@ -83,6 +94,14 @@ namespace VoxelEngine.Mirror
         /// Ops recorded later redraw the chunks they touch (task 82, header REDRAW).
         public VoxelEngine.Streaming.EditOpLog Ops;
         public int SyncChunksPerUpdate = 16;
+        /// Tests (task 93b2's walking twin): > 0 = a Synchronous Update generates
+        /// until this much MODELLED worker time is spent: SyncColumnCost per column
+        /// pass run, SyncVoxelCost per chunk that is not uniform air. The excess
+        /// carries to the next Update. 0 = SyncChunksPerUpdate alone.
+        public float SyncCostBudget, SyncColumnCost, SyncVoxelCost;
+        private float _syncDebt;
+        /// Task 93b2: header COLUMN AFFINITY. Off = the pre-93b2 dispatch (same bytes).
+        public bool ColumnAffinity = true;
 
         // Stats (main thread).
         public long Requested, Generated, DroppedStale, OverBudgetFrames, GenErrors;
@@ -128,7 +147,14 @@ namespace VoxelEngine.Mirror
         // that size again: its other missing chunks wait (each would cost a
         // generation only to be refused) and the finer shells get the workers.
         private readonly int[] _fullNeed;
-        private readonly Stack<TerrainGenChunkSource.ShellChunk> _free = new Stack<TerrainGenChunkSource.ShellChunk>();
+        private readonly List<TerrainGenChunkSource.ShellChunk> _free = new List<TerrainGenChunkSource.ShellChunk>();
+        // Header COLUMN AFFINITY: scratches back from a column with layers left
+        // (FollowUp), each scratch's column key, and how many scratches own a column.
+        private readonly List<TerrainGenChunkSource.ShellChunk> _follow = new List<TerrainGenChunkSource.ShellChunk>();
+        private readonly Dictionary<TerrainGenChunkSource.ShellChunk, long> _scratchCol = new Dictionary<TerrainGenChunkSource.ShellChunk, long>();
+        private readonly Dictionary<long, int> _colOwned = new Dictionary<long, int>();
+        /// The global pick passes over at most this many owned-column chunks per shell.
+        private const int MAX_OWNED_SKIP = 512;
         private readonly List<TerrainGenChunkSource.ShellChunk> _all = new List<TerrainGenChunkSource.ShellChunk>();
         private readonly Queue<TerrainGenChunkSource.ShellChunk> _pending = new Queue<TerrainGenChunkSource.ShellChunk>();
         private readonly BlockingCollection<TerrainGenChunkSource.ShellChunk> _jobs;
@@ -138,7 +164,7 @@ namespace VoxelEngine.Mirror
         private readonly int _worldMaxVoxel;
 
         public ShellStreamer(ShellLayout layout, TerrainGenChunkSource src, int workers,
-                             bool synchronous = false, int firstShell = 1, int lastShell = -1)
+                             bool synchronous = false, int firstShell = 1, int lastShell = -1, int syncScratch = 3)
         {
             Layout = layout; _src = src; Synchronous = synchronous;
             FirstShell = math.max(1, firstShell);
@@ -165,11 +191,13 @@ namespace VoxelEngine.Mirror
                 _cand[k] = new List<Cand>(); _refused[k] = new Dictionary<long, int>();
             }
             workers = math.max(1, workers);
-            int scratch = synchronous ? 3 : workers + 2;   // + 2: results waiting for upload budget
+            // + 2: results waiting for upload budget. Task 93b2: x 2 per worker, as
+            // a follow-up scratch waits a main-thread Update between its layers.
+            int scratch = synchronous ? math.max(1, syncScratch) : 2 * workers + 2;
             for (int i = 0; i < scratch; i++)
             {
                 var sc = new TerrainGenChunkSource.ShellChunk();
-                _all.Add(sc); _free.Push(sc);
+                _all.Add(sc); _free.Add(sc);
             }
             if (!synchronous)
             {
@@ -268,8 +296,8 @@ namespace VoxelEngine.Mirror
                 var st = _stores[k];
                 if (!st.JobActive) continue;
                 long key = Key(k, st.JobCoord);
-                if (!Wanted(k, st.JobCoord)) { st.AbortJob(); _inFlight.Remove(key); DroppedStale++; continue; }
-                if (st.Continue(ref budget)) _inFlight.Remove(key);
+                if (!Wanted(k, st.JobCoord)) { st.AbortJob(); _inFlight.Remove(key); DroppedStale++; Counters(k).Aborted++; continue; }
+                if (st.Continue(ref budget)) { _inFlight.Remove(key); CountStored(k, st.JobCoord); }
             }
             // Then finished chunks, oldest first. A chunk that cannot start
             // (budget, or its shell is still uploading another) waits in order.
@@ -285,29 +313,33 @@ namespace VoxelEngine.Mirror
                 {
                     GenErrors++; _inFlight.Remove(Key(r.sc.Shell, r.sc.Coord));
                     if (r.sc.Redraw) { _redrawOut--; r.sc.Redraw = false; }
-                    Recycle(r.sc); continue;
+                    Disown(r.sc); Recycle(r.sc); continue;
                 }
-                Generated++; GenMsTotal += r.ms;
+                Generated++; GenMsTotal += r.ms; CountGenerated(r.sc);
                 if (_pending.Count > 0 || !Upload(r.sc, ref budget)) { _pending.Enqueue(r.sc); continue; }
                 Recycle(r.sc);
             }
             if (_pending.Count > 0) OverBudgetFrames++;
 
             int made = 0;
-            while (_free.Count > 0 && (!Synchronous || made < SyncChunksPerUpdate) && NextCandidate(out int k, out int3 c, out bool redraw))
+            float avail = SyncCostBudget - _syncDebt;
+            while ((!Synchronous || (made < SyncChunksPerUpdate && (SyncCostBudget <= 0f || avail > 0f)))
+                   && NextJob(out var sc, out int k, out int3 c, out bool redraw))
             {
-                var sc = _free.Pop();
                 sc.Shell = k; sc.Coord = c; sc.Redraw = redraw;
                 sc.Summaries = _sumSnap.Count > 0 ? _sumSnap : null;   // task 93a: the summaries as of dispatch
                 if (redraw) _redrawOut++;
-                _inFlight.Add(Key(k, c)); Requested++;
+                _inFlight.Add(Key(k, c)); Requested++; CountRequest(k, c);
                 if (!Synchronous) { _jobs.Add(sc); continue; }
                 // Tests: generate here; it is stored from _done on the next Update.
                 var t = System.Diagnostics.Stopwatch.StartNew();
                 _src.GenerateShellChunk(k, c, sc, Ops?.Snapshot, sc.Summaries);
                 _done.Enqueue((sc, t.Elapsed.TotalMilliseconds, true));
                 made++;
+                avail -= (sc.ColumnReused ? 0f : SyncColumnCost) + (sc.IsUniformAir ? 0f : SyncVoxelCost);
             }
+            if (Synchronous && SyncCostBudget > 0f) _syncDebt = math.max(0f, -avail);
+            ReleaseIdleFollowUps();
             for (int k = FirstShell; k <= LastShell; k++) Publish(k, ref budget);
             LastBytes = start - budget;
         }
@@ -362,14 +394,17 @@ namespace VoxelEngine.Mirror
             bool held = _stores[k].Holds(sc.Coord);
             if (!Wanted(k, sc.Coord) || (held && !sc.Redraw))
             {
-                _inFlight.Remove(key); DroppedStale++;
+                _inFlight.Remove(key); DroppedStale++; Counters(k).DroppedArrival++;
                 if (sc.Redraw) { _redrawOut--; sc.Redraw = false; }
                 return true;
             }
             bool redrawAfter = CatchUp(sc);
+            bool alias = !held && _stores[k].SlotTagged(_stores[k].Slot(sc.Coord), out int3 prev) && !prev.Equals(sc.Coord);
             var res = _stores[k].Store(sc, ref budget, replace: held);
+            if (alias && (res == ShellStore.StoreResult.Stored || res == ShellStore.StoreResult.InProgress)) Counters(k).EvictAlias++;
             if (res == ShellStore.StoreResult.Refused && held)
             {
+                Counters(k).EvictNoRoom++;
                 // No room for the new copy beside the old one: drop the old one
                 // (published before anything reuses it -- Update's first Publish)
                 // and store the new one fresh next frame.
@@ -389,13 +424,13 @@ namespace VoxelEngine.Mirror
                     if (redrawAfter) QueueRedraw(key);
                     return true;
                 case ShellStore.StoreResult.Refused:
-                    _inFlight.Remove(key);
+                    _inFlight.Remove(key); Counters(k).Refused++;
                     ShellStore.UploadBytes(sc, out int dense, out _, out _);
                     _refused[k][key] = dense;
                     _fullNeed[k] = math.max(1, dense);
                     return true;
                 default:
-                    _inFlight.Remove(key);
+                    _inFlight.Remove(key); CountStored(k, sc.Coord);
                     if (redrawAfter) QueueRedraw(key);
                     return true;
             }
@@ -406,7 +441,127 @@ namespace VoxelEngine.Mirror
             if (_redrawSet.Add(key)) { _redrawQ.Enqueue(key); RedrawsQueued++; }
         }
 
-        private void Recycle(TerrainGenChunkSource.ShellChunk sc) => _free.Push(sc);
+        /// A scratch back on the main thread: one that owns a column waits in
+        /// _follow for that column's next layer (header COLUMN AFFINITY).
+        private void Recycle(TerrainGenChunkSource.ShellChunk sc)
+        {
+            if (ColumnAffinity && _scratchCol.ContainsKey(sc)) _follow.Add(sc);
+            else _free.Add(sc);
+        }
+
+        private static long ColKey(int k, int3 c) => Key(k, new int3(c.x, 0, c.z));
+
+        private void Own(TerrainGenChunkSource.ShellChunk sc, long col)
+        {
+            if (_scratchCol.TryGetValue(sc, out long old))
+            {
+                if (old == col) return;
+                Disown(sc);
+            }
+            _scratchCol[sc] = col;
+            _colOwned[col] = _colOwned.TryGetValue(col, out int n) ? n + 1 : 1;
+        }
+
+        private void Disown(TerrainGenChunkSource.ShellChunk sc)
+        {
+            if (!_scratchCol.TryGetValue(sc, out long old)) return;
+            _scratchCol.Remove(sc);
+            int n = _colOwned[old] - 1;
+            if (n <= 0) _colOwned.Remove(old); else _colOwned[old] = n;
+        }
+
+        /// Follow-up scratches whose column has nothing left this Update go back to _free.
+        private void ReleaseIdleFollowUps()
+        {
+            for (int i = _follow.Count - 1; i >= 0; i--)
+            {
+                var sc = _follow[i];
+                if (FollowUpPeek(sc)) continue;
+                _follow.RemoveAt(i); Disown(sc); _free.Add(sc);
+            }
+        }
+
+        /// Is a chunk of shell k a valid request now (wanted, missing, not in flight, not refused)?
+        private bool Requestable(int k, int3 c) =>
+            Wanted(k, c) && !_stores[k].Holds(c) && !_inFlight.Contains(Key(k, c)) && !Blocked(k, Key(k, c));
+
+        /// Does the column `sc` owns have a requestable layer left?
+        private bool FollowUpPeek(TerrainGenChunkSource.ShellChunk sc)
+        {
+            long col = _scratchCol[sc];
+            int k = (int)(col >> 60); int3 cc = KeyCoord(col);
+            if (ShellFull(k)) return false;
+            var list = _cand[k];
+            for (int i = list.Count - 1; i >= 0; i--)
+                if (list[i].C.x == cc.x && list[i].C.z == cc.z && Requestable(k, list[i].C)) return true;
+            return false;
+        }
+
+        /// The nearest requestable layer of the column `sc` owns, taken off its list.
+        private bool FollowUp(TerrainGenChunkSource.ShellChunk sc, out int k, out int3 c)
+        {
+            long col = _scratchCol[sc];
+            k = (int)(col >> 60); int3 cc = KeyCoord(col); c = default;
+            if (ShellFull(k)) return false;
+            var list = _cand[k];
+            for (int i = list.Count - 1; i >= 0; i--)
+            {
+                var e = list[i];
+                if (e.C.x != cc.x || e.C.z != cc.z) continue;
+                list.RemoveAt(i);
+                if (!Requestable(k, e.C)) continue;
+                c = e.C;
+                return true;
+            }
+            return false;
+        }
+
+        /// The next chunk to generate and the scratch for it: a queued redraw, then
+        /// a follow-up (header COLUMN AFFINITY), then the nearest missing chunk.
+        private bool NextJob(out TerrainGenChunkSource.ShellChunk sc, out int k, out int3 c, out bool redraw)
+        {
+            sc = null; redraw = false; k = -1; c = default;
+            if (_free.Count == 0 && _follow.Count == 0) return false;
+            if (NextRedraw(out k, out c))
+            {
+                redraw = true;
+                sc = TakeScratch(k, c);
+                return true;
+            }
+            while (_follow.Count > 0)
+            {
+                sc = _follow[_follow.Count - 1];
+                _follow.RemoveAt(_follow.Count - 1);
+                if (FollowUp(sc, out k, out c)) { Counters(k).FollowUps++; return true; }
+                Disown(sc); _free.Add(sc);
+            }
+            sc = null;
+            if (_free.Count == 0 || !NextCandidate(out k, out c)) return false;
+            sc = TakeScratch(k, c);
+            return true;
+        }
+
+        /// A scratch for chunk c of shell k: a free one already holding its column
+        /// (no column pass), else any free one, else a follow-up's (it gives up its
+        /// column). The scratch then owns c's column (affinity on).
+        private TerrainGenChunkSource.ShellChunk TakeScratch(int k, int3 c)
+        {
+            TerrainGenChunkSource.ShellChunk sc = null;
+            if (_free.Count > 0)
+            {
+                int pick = _free.Count - 1;
+                for (int i = _free.Count - 1; i >= 0; i--)
+                    if (_free[i].ColumnHolds(k, c.x, c.z)) { pick = i; break; }
+                sc = _free[pick]; _free.RemoveAt(pick);
+            }
+            else
+            {
+                sc = _follow[_follow.Count - 1]; _follow.RemoveAt(_follow.Count - 1);
+                Disown(sc);
+            }
+            if (ColumnAffinity) Own(sc, ColKey(k, c));
+            return sc;
+        }
 
         /// Ops the chunk missed (recorded after its worker read the snapshot) go on
         /// now, main thread, before it is stored: the same sequential ApplyToShell
@@ -497,25 +652,25 @@ namespace VoxelEngine.Mirror
         /// list is sorted on the same key, so this is a merge of their ends.
         private bool NextCandidate(out int k, out int3 c)
         {
-            int best = -1; Cand bc = default;
+            int best = -1, bestAt = -1; Cand bc = default;
+            bool skipOwned = ColumnAffinity && _colOwned.Count > 0;
             for (int j = FirstShell; j <= LastShell; j++)
             {
                 if (ShellFull(j)) continue;
                 var list = _cand[j];
-                while (list.Count > 0)
+                int skipped = 0;
+                for (int i = list.Count - 1; i >= 0; i--)
                 {
-                    var top = list[list.Count - 1];
-                    long key = Key(j, top.C);
-                    if (Wanted(j, top.C) && !_stores[j].Holds(top.C) && !_inFlight.Contains(key) && !Blocked(j, key))
-                    {
-                        if (best < 0 || FarthestFirst(top, bc) > 0) { best = j; bc = top; }
-                        break;
-                    }
-                    list.RemoveAt(list.Count - 1);
+                    var top = list[i];
+                    if (!Requestable(j, top.C)) { list.RemoveAt(i); continue; }
+                    // A chunk of a column another scratch owns is that scratch's follow-up.
+                    if (skipOwned && skipped < MAX_OWNED_SKIP && _colOwned.ContainsKey(ColKey(j, top.C))) { skipped++; continue; }
+                    if (best < 0 || FarthestFirst(top, bc) > 0) { best = j; bc = top; bestAt = i; }
+                    break;
                 }
             }
             if (best < 0) { k = -1; c = default; return false; }
-            _cand[best].RemoveAt(_cand[best].Count - 1);
+            _cand[best].RemoveAt(bestAt);
             k = best; c = bc.C;
             return true;
         }
@@ -621,7 +776,11 @@ namespace VoxelEngine.Mirror
 
             var st = _stores[k];
             for (int slot = 0; slot < st.SlotCount; slot++)
-                if (st.SlotTagged(slot, out int3 tag) && !Wanted(k, tag)) st.EvictSlot(slot);
+                if (st.SlotTagged(slot, out int3 tag) && !Wanted(k, tag))
+                {
+                    CountEvicted(k, slot, hole: math.all(tag >= lo) && math.all(tag <= hi));
+                    st.EvictSlot(slot);
+                }
 
             var list = _cand[k];
             list.Clear();

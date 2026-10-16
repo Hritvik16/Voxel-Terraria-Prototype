@@ -1987,7 +1987,16 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (shellsW != null)
         {
             for (int k = 0; k < shellDone.Length; k++) shellDone[k] = -1f;
+            // Task 93b2: -walkshellwait S = first wait up to S s at the start pose
+            // and log when each shell filled there (0 = start walking at once).
+            float preWait = ArgFloat("-walkshellwait", 0f);
+            if (preWait > 0f)
+            {
+                yield return WalkShellPrefill(shellsW, preWait);
+                windowStart = runStart = Time.realtimeSinceStartup;   // the walk's clock starts after the wait
+            }
             L($"  [shells] at the walk's start (t+{Time.realtimeSinceStartup:F0} s after launch): {ShellCountsLine(shellsW)}");
+            L("  [shells] counters at the walk's start:\n" + shellsW.CountersReport());
         }
 
         while (Time.realtimeSinceStartup - runStart < totalSeconds)
@@ -2071,6 +2080,7 @@ public partial class PlaygroundCapture : MonoBehaviour
                   $"{1000.0 * over33 / windowMs.Count,10:F1}{mean - firstWindowMs,10:+0.00;-0.00}{note}");
                 int resident = Phase4Bootstrapper.Store != null ? Phase4Bootstrapper.Store.ResidentCount : -1;
                 rows.Add($"{(Time.realtimeSinceStartup - runStart) / 60f:F3}\t{mean:F3}\t{fps:F2}\t{over33}\t{windowMs.Count}\t{resident}");
+                if (shellsW != null) L($"      [shells] held{ShellHeldLine(shellsW)}");
 
                 windowMs.Clear(); windowFrames = 0; windowStart = Time.realtimeSinceStartup;
             }
@@ -2082,6 +2092,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         {
             L($"  [shells] at the end: {ShellCountsLine(shellsW)}");
             L($"  [shells] first complete at (s from the walk's start; - = never):{ShellDoneLine(shellsW, shellDone)}");
+            L("  [shells] counters at the end (whole launch):\n" + shellsW.CountersReport());
         }
         // -memledger (2026-10-01): who owns the memory, by engine object
         // (MemoryLedger.cs). Taken after the timed loop so the walk's own cost
@@ -2091,6 +2102,13 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (wantShot)
         {
             Playground.DebugHideUi = true;
+            if (shellsW != null)
+            {
+                // Task 93b2: the -shellsdebug tint at the walk's end, before the shells catch up.
+                RaymarchFeature.ShellTint = true;
+                yield return Shot("99_end_tint", $"{motion}: shell tint at the walk's end; held{ShellHeldLine(shellsW)}");
+                RaymarchFeature.ShellTint = false;
+            }
             yield return Shot("99_end_pose", $"{motion}: eye {cam.transform.position}");
         }
 

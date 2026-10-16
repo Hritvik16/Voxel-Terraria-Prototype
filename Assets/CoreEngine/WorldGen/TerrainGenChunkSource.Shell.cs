@@ -78,6 +78,18 @@ namespace VoxelEngine.WorldGen
             /// the streamer handed this generation at dispatch (null = none).
             public int SummariesApplied;
             public VoxelEngine.Streaming.EditSummarySnapshot Summaries;
+            /// Task 93b2 (diagnostic): the last generation's time in the column pass,
+            /// the voxel pass and the rest (ops, summaries, task 83's fill), ms.
+            public double ColumnMs, VoxelMs, RestMs;
+            /// Task 93b2: the last generation took colS/colSt/colCd/top as they were
+            /// (the same shell, chunk column and sample offset as the one before).
+            public bool ColumnReused;
+            // The column the col arrays hold (task 93b2, header COLUMN REUSE).
+            internal bool colValid;
+            internal object colSource;
+            internal int colStamp, colShell, colX, colZ, colHalf;
+            /// Do the col arrays hold shell `shell`'s chunk column (x, z)?
+            public bool ColumnHolds(int shell, int x, int z) => colValid && colShell == shell && colX == x && colZ == z;
             public NativeArray<byte> Mats;          // 128^3, Index(x, y, z)
             public NativeArray<byte> BrickMat;      // 4096, (bz << 8) | (by << 4) | bx
             public NativeArray<bool> BrickUniform;
@@ -110,6 +122,8 @@ namespace VoxelEngine.WorldGen
                 SummariesApplied = o.SummariesApplied; Summaries = o.Summaries;
                 Mats.CopyFrom(o.Mats); BrickMat.CopyFrom(o.BrickMat); BrickUniform.CopyFrom(o.BrickUniform);
                 colS.CopyFrom(o.colS); colSt.CopyFrom(o.colSt); colCd.CopyFrom(o.colCd); top.CopyFrom(o.top);
+                colValid = o.colValid; colSource = o.colSource; colStamp = o.colStamp;
+                colShell = o.colShell; colX = o.colX; colZ = o.colZ; colHalf = o.colHalf;
             }
 
             /// Bricks that need a 512-byte body.
@@ -148,6 +162,12 @@ namespace VoxelEngine.WorldGen
             FillShellChunk(output, half, null);   // task 83: shells >= 3 only
         }
 
+        /// Task 93b2: off = every shell chunk runs its column job (the pre-93b2 work; same bytes).
+        public bool ShellColumnReuse = true;
+        /// Shell column jobs run (all callers; task 93b2's ShellColumnReuseTests).
+        public int ShellColumnPasses => _shellColumnPasses;
+        private int _shellColumnPasses;
+
         /// Generation alone (rows 12-13, exact); returns the sample offset used.
         private int GenerateShellChunkRaw(int shell, int3 coord, ShellChunk output, int sampleIndex)
         {
@@ -156,13 +176,31 @@ namespace VoxelEngine.WorldGen
             int3 origin = coord << (CHUNK_SHIFT + shell);
             int half = sampleIndex >= 0 ? sampleIndex : shell == 0 ? 0 : (1 << (shell - 1)) - 1;
             output.Shell = shell; output.Coord = coord; output.IsUniformAir = false; output.OpsApplied = 0; output.SummariesApplied = 0;
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            output.VoxelMs = 0;
 
-            new ShellColumnJob
+            // COLUMN REUSE (task 93b2): the column job reads origin.x / origin.z,
+            // shift and half, never y -- the same bug task 30 fixed for Generate. A
+            // scratch that already holds this column (the streamer hands a scratch
+            // the next layer of its column) keeps it: the same job's bytes.
+            bool reuse = ShellColumnReuse && output.colValid && output.colSource == this && output.colStamp == _specStamp
+                      && output.colShell == shell && output.colX == coord.x && output.colZ == coord.z && output.colHalf == half;
+            output.ColumnReused = reuse;
+            if (!reuse)
             {
-                h = _h, r = _r, w = _w, cls = _cls, flow = _flow, ore = _ore, spec = Spec, o = O,
-                origin = origin, shift = shell, half = half,
-                colS = output.colS, colSt = output.colSt, colCd = output.colCd, top = output.top,
-            }.Run();
+                output.colValid = false;
+                new ShellColumnJob
+                {
+                    h = _h, r = _r, w = _w, cls = _cls, flow = _flow, ore = _ore, spec = Spec, o = O,
+                    origin = origin, shift = shell, half = half,
+                    colS = output.colS, colSt = output.colSt, colCd = output.colCd, top = output.top,
+                }.Run();
+                System.Threading.Interlocked.Increment(ref _shellColumnPasses);
+                output.colValid = true; output.colSource = this; output.colStamp = _specStamp;
+                output.colShell = shell; output.colX = coord.x; output.colZ = coord.z; output.colHalf = half;
+            }
+            long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+            output.ColumnMs = (t1 - t0) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
 
             // The air fast path of Generate, at the coarse sample positions: above
             // max(ground, still water, sea) Material returns air (its first block).
@@ -186,6 +224,7 @@ namespace VoxelEngine.WorldGen
                 AddSkipStats(stats, 4);
             }
             finally { stats.Dispose(); }
+            output.VoxelMs = (System.Diagnostics.Stopwatch.GetTimestamp() - t1) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
             return half;
         }
 
@@ -201,6 +240,7 @@ namespace VoxelEngine.WorldGen
                                       VoxelEngine.Streaming.EditSummarySnapshot summaries = null)
         {
             int half = GenerateShellChunkRaw(shell, coord, output, -1);
+            long tr = System.Diagnostics.Stopwatch.GetTimestamp();
             int n = 0;
             if (ops != null && ops.Count > 0)
             {
@@ -209,6 +249,7 @@ namespace VoxelEngine.WorldGen
             }
             if (summaries != null) output.SummariesApplied = VoxelEngine.Streaming.EditSummaryOps.ApplyToShell(output, summaries);
             FillShellChunk(output, half, ops, false, output.SummariesApplied > 0 ? summaries : null);
+            output.RestMs = (System.Diagnostics.Stopwatch.GetTimestamp() - tr) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
             return n;
         }
 

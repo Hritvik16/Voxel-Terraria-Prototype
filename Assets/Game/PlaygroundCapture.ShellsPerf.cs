@@ -37,6 +37,35 @@ public partial class PlaygroundCapture
                $"dropped stale {sh.DroppedStale}, over-budget frames {sh.OverBudgetFrames} (of {Time.frameCount})";
     }
 
+    /// Task 93b2: chunks held per shell, and FULL.
+    private static string ShellHeldLine(ShellStreamer sh)
+    {
+        var sb = new StringBuilder();
+        for (int k = sh.FirstShell; k <= sh.LastShell; k++)
+            sb.Append($"  s{k} {sh.Store(k).ChunksStored}/{sh.Store(k).ChunksStored + sh.Missing(k) + sh.InFlightIn(k)}{(sh.ShellFull(k) ? " FULL" : "")}");
+        return sb.ToString();
+    }
+
+    /// Task 93b2 (-walkshellwait S): wait at the walk's start pose until every
+    /// shell has nothing missing (or is FULL), at most S s; log when each did.
+    private IEnumerator WalkShellPrefill(ShellStreamer sh, float wait)
+    {
+        float t0 = Time.realtimeSinceStartup, nextLog = 10f;
+        var doneAt = new float[sh.Layout.ShellCount];
+        for (int k = 0; k < doneAt.Length; k++) doneAt[k] = -1f;
+        while (Time.realtimeSinceStartup - t0 < wait)
+        {
+            float t = Time.realtimeSinceStartup - t0;
+            ShellTrack(sh, doneAt, t);
+            if (t >= nextLog) { L($"  [shells] start pose t+{t:F0} s: held{ShellHeldLine(sh)}"); nextLog += 10f; }
+            bool all = true;
+            for (int k = sh.FirstShell; k <= sh.LastShell; k++) all &= doneAt[k] >= 0f;
+            if (all) break;
+            yield return null;
+        }
+        L($"  [shells] start-pose wait {Time.realtimeSinceStartup - t0:F0} s (cap {wait:F0} s); complete at (s; - = not within the wait):{ShellDoneLine(sh, doneAt)}");
+    }
+
     /// Marks, per shell, the first time (s since t0) nothing was missing or in flight.
     private static void ShellTrack(ShellStreamer sh, float[] doneAt, float t)
     {
