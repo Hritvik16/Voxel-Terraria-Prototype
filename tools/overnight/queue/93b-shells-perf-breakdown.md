@@ -1,6 +1,6 @@
 # 93b-shells-perf-breakdown
 
-Requires: 93b3-far-band-after-shells-cost
+Requires: 93b3-far-band-after-shells-cost 93b2d-shell-fill-worker-cost
 
 (Was `tools/overnight/later/89-shells-perf-breakdown.md`; copied and updated by task 90b. The original stays in later/.)
 
