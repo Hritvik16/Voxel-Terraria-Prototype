@@ -1,59 +1,78 @@
-# 93a-engine-14e1-edit-summaries-live: DONE -- block edits on resident chunks now redraw into the shells (8.15 E1)
+# 93a1-gameplay-bld1-drag-line: DONE -- Survival drag line (BLD1): press, drag, release builds or digs a line of brush cubes
 
-## What changed (commit f271d77)
-- `ChunkStore.SetVoxel`: with an `EditSink` attached (shells on only) it marks the edited brick in the new CPU-only
-  `Chunk.editMask` and tells the sink once per chunk until the next snapshot. Op writes (`EditOps.Record`,
-  `StreamManager.CatchUpOps`) are muted: they mark no brick, but they still re-summarise a chunk that is already edited.
-  On reload, the loading worker sets the mask from the D.1 records (`EditSummaryOps.MaskFromDelta`). The D.1 format is unchanged.
-- `EditSummary.cs` (new): the main thread copies the chunk's brick words and bodies; a Burst job expands them and
-  majority-votes levels 1-7 (the cascades' rule, fuzz-equal to `LODDownsampler.MajorityVote`). A summary keeps only the
-  coarse voxels whose fine cube touches an edited brick, so unedited ground keeps the generator's look.
-- `ShellStreamer.EditSummaries.cs` (new): rebuilds a summary at most once per second for each edited chunk that a shell >= 1 covers.
-  `EngineConfig.EDIT_SUMMARIES_PER_FRAME` = 1; extra builds are refused, counted (`SummariesRefused`) and retried next frame.
-  2 scratch buffers of ~4.3 MB each, allocated on the first edit. A new summary goes into an immutable snapshot, and the
-  covering held, uploading or generating shell chunks are queued through task 82's gap-free replace.
-  `GenerateShellChunk(.., ops, summaries)` builds generator + ops + summaries, then runs the task 83 fill, which also
-  treats summary boxes as open-air seeds. A chunk that already has a summary is redrawn rather than caught up when an op lands late.
-- Eviction keeps nothing: the summary leaves the snapshot. A shell chunk already drawn with it keeps showing it until that
-  chunk is generated again; after that the edit is gone from the far shells until the chunk is resident again.
-  Saving summaries is E2.
-- `-editsummaries 0` = off; shells off = no sink, nothing changes; frozen APIs untouched. Demo `-farwall`
-  (`Playground.FarWallDemo.cs`). Docs: a note in 8.15 §5 and a task 93a entry in CLAUDE.md.
+## What changed (commit a9ca2db)
+- `SurvivalBuild.LineCubes`: the brush-grid cubes from the press cube to the release cube. It is an integer 3D DDA
+  (Bresenham; grid = `v >> log2(edge)`; adds and compares only), capped at `MaxStrokeCubes` = 256.
+  `Cost` gives the preview numbers, `PlaceStroke` pays cube by cube in path order and stops at the first cube the slot
+  cannot pay for in full, and `DigStroke` credits the inventory as Dig does.
+- `EditService.SetCubes` (ADDED, nothing changed): the whole stroke is ONE call. It runs one wake scan over only the
+  cubes that changed (with the one-cell margin). In place mode it fills only Air and fluid cells.
+- `Playground.Stroke.cs` (new):
+  - RMB press-drag-release places the stroke. LMB held still = the tool dig, unchanged; once the view turns > 4° it
+    becomes a dig stroke.
+  - Preview while dragging: cyan = paid for, red = past the run-out, grey = skipped, orange = dig. A count line sits
+    under the crosshair. Strokes over 96 cubes draw only the ends and the line between them.
+  - Esc cancels and keeps the mouse (`PlaygroundFlyCamera.EscapeEatenUntilFrame`). Opening E/F6, or losing capture,
+    also cancels.
+  - The single-click guards apply per cube: cubes that would enclose you, and mobile blocks outside the wake radius,
+    are skipped.
+  - Torches stay one per click. F2 help has a new line; there is an entry in CLAUDE.md.
+- `GAMEPLAY_PHASE_PLAN.md`: the owner's answers to Q1-Q4 (2026-10-15) are in "For the owner", P27, P22 and §4.
+  BLD2 is now face pull (task 93b1). There is a new research row BLD-R (Lay of the Land). 9b now says Q2 (a) and Q3 OPEN.
+  BLD1 is in the Done table.
+- Frozen APIs, D.1 and memory layout are untouched. Rigs are unaffected (Creative never reaches the stroke path).
 
-## Finding: 90a's "not drawn 69-128 m" does not hold today
-Tier 0 marches the whole GPU mirror box (±204 m) and the shells run only where tier 0 misses
-(`Raymarch.compute`, `if (_ShellCount > 1 && !hit ...)`). So a resident SetVoxel tower 100 m away is drawn by tier 0
-with summaries off (tint: tier-0 blue). The gap 8.15 §5 describes opens with D2's 16³ box (±102 m), and beyond the CPU window.
-E1 is now ready for D2. The near before/after pair is therefore the same picture. The summary is shown from 230 m instead.
+## Picks (owner may change)
+1. **Dig drag:** LMB held still keeps the tool-tier dig. Turning the view > 4° makes it a dig stroke, which is instant
+   (no tool-rate limit) in brush cubes. So the tool tiers only pace held digging.
+2. **Place:** RMB held no longer repeats a cube every 0.22 s. Holding RMB now shows the preview, and releasing places it.
+3. **Run-out:** whole cubes only, in path order (P7). The preview turns red past that point.
+4. **Guards:** per cube, skip rather than refuse the whole stroke. The skipped count is shown in grey.
+5. **Line endpoints:** RMB uses the air cell in front of the aimed face, LMB the aimed solid voxel. The line is straight
+   in 3D, so on bumpy ground it cuts into rises (solid cells cost nothing) and floats over dips.
+6. Max 256 cubes per stroke. Esc cancels without releasing the mouse.
 
 ## Evidence
-- `EditSummaryTests`, 5 of 5 passing, each test under 9 s:
-  - Vote fuzz: 200 k samples. Shells 1-7: the generated shell chunk matches an independent reference byte for byte (generator, then
-    `DownsampleOnce` chained over the resident chunk); the summary changes 205/22/2 voxels at shells 1/2/3.
-  - D.1 records equal the marked bricks. Streamer: unedited chunks give 0 notices; an op gives no summary; the redraw has 0 voxels different from the reference;
-    the 1 s interval and the 1-per-frame cap hold (refusals counted); eviction drops the summary.
-    Shells off: no marks, generation byte-identical.
-- Fast suite: `PASS 737 FAIL 0 SKIP 14` (732 + 5 new), `Logs/overnight/93a-fast.out`.
-- Demo `BUILD=1 ./run-play.sh EXTRA="-farwall -shells 1 -shellworkers 3"` (High): `Logs/overnight/93a-farwall-player.log`, `Screenshots/93a/farwall.txt`.
-  - Tower 6 x 25 x 6 m: 975,600 SetVoxel voxels, 6 chunks. After going far and coming back, the 6 chunks reloaded from D.1 in 6.6 s. That gave 6 notices and 6 summaries
-    (176,812 B), with 15 refusals spread over the frames. 4 shell chunks were redrawn, 1.20 s (17 frames) after turning summaries on.
-    Main-thread snapshot + extract time: 20.4 ms in total.
-    At the far pose all 6 were dropped; shell 2 held the tower's chunks.
-- Shells missing at the shots (60/45 s waits): shell 1 ~600-900, 2 ~1,200-1,700, 3 ~1,500-1,660; the tower's covering chunks were held. No frame times (rule 10).
+- `StrokeTests` 8/8 (filter run `Logs/overnight/93a1-filter.log`). They cover:
+  - lines exact on all 6 axis directions × 4 sizes, and on 10 diagonals or slopes against an integer reference;
+    26-connected, no cube repeated, negative coordinates floor, cut at 256;
+  - cost = cells placed (also = `VoxelsWritten`); only air is filled through ground;
+  - running out stops after 3 of 10 cubes with 10 left in the slot; 63 voxels gives TooFew;
+  - a dig stroke credits removed = inventory.
+- Fast suite: `PASS 745 FAIL 0 SKIP 14` (737 + 8), `Logs/overnight/93a1-fast.out`.
+- Demo `BUILD=1 ./run-play.sh EXTRA="-strokedemo"`, launch 4 (Player.log lines `[StrokeDemo]`/`[Stroke]`):
+  - Wall base: 13/13 cubes of 0.8 m, 4,913 cells, slot 10,000 -> 5,087 (conservation OK).
+  - Short slot: 5/13 cubes, 2,542 of 6,629 cells, ran out, 118 left.
+  - Trench: 19 cubes of 0.4 m, 196 removed = 196 credited.
+- Launches 1-3 fixed the demo, not the feature: the live mouse path overwrote and committed the scripted strokes, and
+  the wall was the ground's colour. The demo now owns the stroke (`_strokeDemoOwns`) and picks a contrasting block.
+- No frame times (owner rule).
 
-## Not done / next
-- Saved summaries (D.5) are E2. D2 (GPU box 16³) is where E1 becomes visible near the player; a check like D2's should
-  confirm a resident edit at 102-128 m is drawn by shell 1 (`-farwall -farwalldist 115` once D2 lands).
-- Launch 1 put the tower uphill outside the CPU's ±3 layers (edits refused); the demo now picks a resident site below the eye.
-  The sun is ~60° off "behind the camera", so the tower's near face is in shade. No follow-up queued.
+## Not done / notes
+- The spawn area has no flat 12 m × 6 m ground within 120 m: the flattest stand found steps 1.5 m. The trench shot is weak
+  because the straight line passes over dips, so only 196 voxels were dug.
+- The demo shots show the "CLICK the window to capture the mouse" banner (it is not an interactive session).
+- The preview cost scans up to 256 × 512 GetVoxel calls when the aimed cube changes, or every 0.25 s. Not measured.
+- Next gameplay step: BLD2 face pull (93b1), after the next engine task (Q4 (a)).
 
 ## For the doc
-Task 93a (8.15 E1): a resident block-built chunk is now summarised into the shells (majority vote of the real voxels) and
-the covering shell chunks are redrawn. Today tier 0 already draws such edits out to the GPU box, so this matters from D2 on.
-- Shell chunk vs reference (generator + vote of the resident chunk), shells 1-7: 0 voxels differ (`EditSummaryTests`)
-- Tower reload: 6 edited chunks -> 6 summaries (177 KB) -> 4 shell redraws, 1.2 s after turning summaries on (`Logs/overnight/93a-farwall-player.log`)
-- Main-thread cost: 20.4 ms in total for 6 summaries (snapshot + extract); 1 build per frame, 15 refusals counted
-- Fast suite 732 -> 737 passing, 0 failing
-- `Screenshots/93a/farwall_far_before.png` -- 241 m from the tower, summaries OFF: the yellow ridge in the centre is empty (the chunks are not resident, and shell 2 has the generator only).
-- `Screenshots/93a/farwall_far_after.png` -- same pose, summaries ON: the dark stone tower stands on that ridge, centre of the frame (its `_tint` twin shows it yellow = shell 2).
-- `Screenshots/93a/farwall_near_before_tint.png` -- 100 m, summaries OFF: the tower in the centre is tinted tier-0 blue, i.e. it was already drawn before this change.
+Task 93a1 (gameplay BLD1): in Survival you can now draw a straight line of blocks, or dig one, in a single drag.
+`./run-play.sh`:
+- RMB press, turn the view, release: places a line of the held block (Q = cube size 0.1-0.8 m).
+- LMB held still digs as before; LMB dragged digs a line.
+- Esc cancels the stroke.
+- The preview shows each cube and the cell count, and turns red where the slot runs out.
+
+Numbers:
+- 10 m wall base: 13 cubes of 0.8 m, 4,913 cells placed = 4,913 taken from the slot, one stroke (`[StrokeDemo]` in Player.log)
+- Short slot: 5 of 13 cubes placed, then it stopped (2,542 of 6,629 cells, 118 left in the slot)
+- Dig stroke: 196 voxels removed = 196 credited
+- Tests: fast suite 737 -> 745 passing (`StrokeTests` 8 new), 0 failing
+
+Picks: see "Picks" above (instant dig strokes, no RMB auto-repeat, whole-cube run-out, per-cube skip).
+
+Images:
+- `Screenshots/93a1/1_wall_base_preview.png` -- mid-drag. Across the upper middle is a row of 13 cyan 0.8 m cube outlines, 6 m ahead; the count "13 cube(s) x 0.8 m 4,913 of 4,913 cells" is under the crosshair.
+- `Screenshots/93a1/2_wall_base_placed.png` -- the same view after release: the dark basalt wall base stands where the outlines were, across the frame, on savanna grass.
+- `Screenshots/93a1/3_short_slot_preview.png` -- the second course with a short slot: the left 5 outlines are cyan and the rest red; the label says "slot runs out after 5 of 13".
+- `Screenshots/93a1/4_short_slot_placed.png` -- the second course stands on the LEFT part of the wall only; the status line (top left) says "ran out (4,087 more needed), 118 left".
