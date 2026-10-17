@@ -80,12 +80,21 @@ namespace VoxelEngine.WorldGen
         /// Also fill ENCLOSED fluids (task 83b, owner Q46 (a)): the underworld's
         /// lava sea, sealed pockets. Off = task 83 (fluids never filled).
         public bool ShellFillFluids = true;
+        /// Task 93b2d: the fill's fast path (same bytes); off = 52aad5e's code
+        /// path, for the A/B arms (`-shellfillfast 0`) and the byte tests.
+        public bool ShellFillFast = true;
 
         /// Fill diagnostics since construction, summed by every thread:
         /// [0] chunks filled + 65536 x chunks made wholly uniform, [1] enclosed air voxels filled, [2] mouth voxels
         /// opened, [3] bricks flattened, [4] dense bricks before the pass,
         /// [5] after, [6] mouth candidates sub-sampled, [7] columns sub-sampled.
         public readonly long[] FillStats = new long[8];
+
+        /// Task 93b2d: the fill's phases, timed one by one (ShellChunk.FillMs):
+        /// setup (halo, per-column open height), seed scan + flood, mouth
+        /// candidate scan, mouth sub-sampling (+ its flood), fill enclosed, flatten.
+        public const int FILL_PHASES = 6, PH_SETUP = 0, PH_FLOOD = 1, PH_CAND = 2, PH_SUB = 3, PH_FILL = 4, PH_FLAT = 5;
+        public static readonly string[] FillPhaseNames = { "setup", "flood", "cand", "sub", "fill", "flat" };
 
         /// Tests and reports: the fill over a chunk generated with ShellFill off
         /// (row 13's sample, no ops), whatever ShellFill says. Same bytes as
@@ -110,6 +119,11 @@ namespace VoxelEngine.WorldGen
             var open = new NativeArray<ulong>(128 * 128 * 128 / 64, Allocator.TempJob);
             var lyOpen = new NativeArray<int>(128 * 128, Allocator.TempJob);
             var halo = new NativeArray<int>(4 * 128, Allocator.TempJob);
+            var dirty = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, Allocator.TempJob);
+            var head = new NativeArray<int>(128 * 128, Allocator.TempJob);
+            var cand = new NativeList<int>(1024, Allocator.TempJob);
+            var next = new NativeList<int>(1024, Allocator.TempJob);
+            var scanLo = new NativeArray<int>(128 * 128, Allocator.TempJob, NativeArrayOptions.UninitializedMemory);
             try
             {
                 if (ops != null)
@@ -129,7 +143,7 @@ namespace VoxelEngine.WorldGen
                     foreach (var es in summaries.All)
                         if (VoxelEngine.Streaming.EditSummaryOps.ShellBox(es, output.Coord, k, out int3 l0, out int3 l1))
                         { boxes.Add(math.max(l0 - 1, 0)); boxes.Add(math.min(l1 + 1, 127)); }
-                new ShellFillJob
+                var job = new ShellFillJob
                 {
                     h = _h, r = _r, w = _w, cls = _cls, flow = _flow, toEngine = _toEngine, spec = Spec, o = O,
                     origin = origin, shift = k, half = half,
@@ -138,10 +152,27 @@ namespace VoxelEngine.WorldGen
                     boxes = boxes.AsArray(), mouths = ShellFillMouths, prefilter = ShellFillMouthPrefilter,
                     flatten = ShellFillFlatten, fillFluids = ShellFillFluids, stats = stats,
                     _pass = pass, _open = open, _lyOpen = lyOpen, _halo = halo,
-                }.Run();
+                    _dirty = dirty, _head = head, _cand = cand, _next = next,
+                    fast = ShellFillFast, _scanLo = scanLo,
+                };
+                // Task 93b2d: one Run per phase, each timed (FillMs); the same work in the same order.
+                output.FillRan = true;
+                long t = System.Diagnostics.Stopwatch.GetTimestamp();
+                for (int p = 0; p < FILL_PHASES; p++)
+                {
+                    if ((p == PH_CAND || p == PH_SUB) && !ShellFillMouths) { output.FillMs[p] = 0; continue; }
+                    job.phase = p; job.Run();
+                    long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
+                    output.FillMs[p] = (t2 - t) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
+                    t = t2;
+                }
                 for (int i = 0; i < 8; i++) System.Threading.Interlocked.Add(ref FillStats[i], stats[i]);
             }
-            finally { boxes.Dispose(); stats.Dispose(); pass.Dispose(); open.Dispose(); lyOpen.Dispose(); halo.Dispose(); }
+            finally
+            {
+                boxes.Dispose(); stats.Dispose(); pass.Dispose(); open.Dispose(); lyOpen.Dispose(); halo.Dispose();
+                dirty.Dispose(); head.Dispose(); cand.Dispose(); next.Dispose(); scanLo.Dispose();
+            }
         }
 
         [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]
@@ -177,6 +208,12 @@ namespace VoxelEngine.WorldGen
             public NativeArray<ulong> _open;
             public NativeArray<int> _lyOpen;    // per column: first ly whose sample is above h - V (unclamped)
             public NativeArray<int> _halo;      // 4 faces x 128: the same for the column across the face
+            public NativeArray<byte> _dirty;    // per brick: written by the mouths or the fill (Recompute)
+            public NativeArray<int> _head;      // mouth candidates: per column, the first (-1 = none) ...
+            public NativeList<int> _cand, _next;   // ... and the candidate voxels, linked
+            public int phase;                   // FILL_PHASES: Execute runs this one
+            public bool fast;                   // task 93b2d: seed scans bounded by _scanLo (same bytes)
+            public NativeArray<int> _scanLo;    // per column: the lowest ly TouchesSeed can be true at
 
             public unsafe void Execute()
             {
@@ -191,22 +228,50 @@ namespace VoxelEngine.WorldGen
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
 
-                int denseBefore = 0;
-                for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++) if (!brickUniform[i]) denseBefore++;
-                stats[4] += denseBefore;
-
-                for (int ci = 0; ci < E * E; ci++) _lyOpen[ci] = LyOpen(colS[ci].height, V);
-                for (int i = 0; i < E; i++)
+                if (phase == PH_SETUP)
                 {
-                    int s = (i << shift) + half;
-                    _halo[i]         = LyOpen(HaloHeight(in map, origin.x - V + half, origin.z + s), V);
-                    _halo[E + i]     = LyOpen(HaloHeight(in map, origin.x + (E << shift) + half, origin.z + s), V);
-                    _halo[2 * E + i] = LyOpen(HaloHeight(in map, origin.x + s, origin.z - V + half), V);
-                    _halo[3 * E + i] = LyOpen(HaloHeight(in map, origin.x + s, origin.z + (E << shift) + half), V);
+                    int denseBefore = 0;
+                    for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++) if (!brickUniform[i]) denseBefore++;
+                    stats[4] += denseBefore;
+
+                    for (int ci = 0; ci < E * E; ci++) _lyOpen[ci] = LyOpen(colS[ci].height, V);
+                    for (int i = 0; i < E; i++)
+                    {
+                        int s = (i << shift) + half;
+                        _halo[i]         = LyOpen(HaloHeight(in map, origin.x - V + half, origin.z + s), V);
+                        _halo[E + i]     = LyOpen(HaloHeight(in map, origin.x + (E << shift) + half, origin.z + s), V);
+                        _halo[2 * E + i] = LyOpen(HaloHeight(in map, origin.x + s, origin.z - V + half), V);
+                        _halo[3 * E + i] = LyOpen(HaloHeight(in map, origin.x + s, origin.z + (E << shift) + half), V);
+                    }
+                    return;
                 }
 
-                // 1. Flood from the open seeds through pass voxels of the fill zone.
                 var stack = new NativeList<int>(4096, Allocator.Temp);
+                var dirty = _dirty;
+                if (phase == PH_FLOOD)
+                {
+                if (fast)
+                {
+                    // Task 93b2d: TouchesSeed is false below ScanLo, so the scans
+                    // (this one and the mouth candidates') visit only [ScanLo, top of
+                    // the fill zone) per column; the same voxels pass, so the same
+                    // marks and, per column, the same candidates in the same order.
+                    for (int ci = 0; ci < E * E; ci++) _scanLo[ci] = ScanLo(ci);
+                    for (int ci = 0; ci < E * E; ci++)
+                    {
+                        int lx = ci & (E - 1), lz = ci >> ZS, top = math.min(_lyOpen[ci], E);
+                        for (int ly = _scanLo[ci]; ly < top; ly++)
+                        {
+                            int v = (ly << YS) | ci;
+                            if (_pass[mats[v]] == 0) continue;
+                            if (TouchesSeed(lx, ly, lz)) { Mark(v); stack.Add(v); }
+                        }
+                    }
+                    Flood(stack);
+                    stack.Dispose();
+                    return;
+                }
+                // 1. Flood from the open seeds through pass voxels of the fill zone.
                 for (int ly = 0; ly < E; ly++)
                 for (int lz = 0; lz < E; lz++)
                 for (int lx = 0; lx < E; lx++)
@@ -218,16 +283,30 @@ namespace VoxelEngine.WorldGen
                     if (TouchesSeed(lx, ly, lz)) { Mark(v); stack.Add(v); }
                 }
                 Flood(stack);
-
-                var dirty = new NativeArray<byte>(EngineConfig.BRICKS_PER_CHUNK, Allocator.Temp);
+                stack.Dispose();
+                return;
+                }
 
                 // 2. Mouths: solid fill-zone voxels touching a seed-open voxel.
-                if (mouths)
+                var head = _head; var cand = _cand; var next = _next;
+                if (phase == PH_CAND)
                 {
-                    var head = new NativeArray<int>(E * E, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
                     for (int i = 0; i < E * E; i++) head[i] = -1;
-                    var cand = new NativeList<int>(1024, Allocator.Temp);
-                    var next = new NativeList<int>(1024, Allocator.Temp);
+                    if (fast)
+                    {
+                        for (int ci = 0; ci < E * E; ci++)
+                        {
+                            int lx = ci & (E - 1), lz = ci >> ZS, top = math.min(_lyOpen[ci], E);
+                            for (int ly = _scanLo[ci]; ly < top; ly++)
+                            {
+                                int v = (ly << YS) | ci;
+                                if (_pass[mats[v]] != 0 || !TouchesSeed(lx, ly, lz)) continue;
+                                next.Add(head[ci]); head[ci] = cand.Length; cand.Add(v);
+                            }
+                        }
+                        stack.Dispose();
+                        return;
+                    }
                     for (int ly = 0; ly < E; ly++)
                     for (int lz = 0; lz < E; lz++)
                     for (int lx = 0; lx < E; lx++)
@@ -238,6 +317,11 @@ namespace VoxelEngine.WorldGen
                         if (_pass[mats[v]] != 0 || !TouchesSeed(lx, ly, lz)) continue;
                         next.Add(head[ci]); head[ci] = cand.Length; cand.Add(v);
                     }
+                    stack.Dispose();
+                    return;
+                }
+                if (phase == PH_SUB)
+                {
                     var subS = new NativeArray<TerrainGen.ColumnSample>(16, Allocator.Temp);
                     var subD = new NativeArray<TerrainGen.DetailField.ColumnDetail>(16, Allocator.Temp);
                     var widened = new NativeList<int>(256, Allocator.Temp);
@@ -290,9 +374,13 @@ namespace VoxelEngine.WorldGen
                     }
                     stats[2] += widened.Length;
                     Flood(stack);
-                    head.Dispose(); cand.Dispose(); next.Dispose(); subS.Dispose(); subD.Dispose(); widened.Dispose();
+                    subS.Dispose(); subD.Dispose(); widened.Dispose();
+                    stack.Dispose();
+                    return;
                 }
 
+                if (phase == PH_FILL)
+                {
                 // 3. Fill enclosed air: the solid below (rising, so a cave fills from its floor),
                 // else the solid above (falling, over what is left), else the chunk's first solid.
                 int filled = 0; byte fallback = 0;
@@ -322,8 +410,11 @@ namespace VoxelEngine.WorldGen
                 stack.Dispose();
 
                 for (int bi = 0; bi < EngineConfig.BRICKS_PER_CHUNK; bi++) if (dirty[bi] != 0) Recompute(bi);
+                return;
+                }
 
-                // 4. Flatten interior mixed bricks.
+                stack.Dispose();
+                // 4. Flatten interior mixed bricks (PH_FLAT).
                 if (flatten)
                 {
                     var hist = new NativeArray<int>(256, Allocator.Temp);
@@ -365,7 +456,6 @@ namespace VoxelEngine.WorldGen
                 for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++) if (!brickUniform[i]) denseAfter++;
                 stats[5] += denseAfter;
                 stats[0]++;
-                dirty.Dispose();
             }
 
             /// First ly whose sample (origin.y + (ly << k) + half) is above ground - V.
@@ -400,6 +490,41 @@ namespace VoxelEngine.WorldGen
                     if (lx >= a.x && lx <= b.x && ly >= a.y && ly <= b.y && lz >= a.z && lz <= b.z) return true;
                 }
                 return false;
+            }
+
+            /// Task 93b2d: the lowest ly at which SeedOpen can hold in column (lx, lz)
+            /// by a face halo or the top layer (E = never; op boxes: ScanLo).
+            private int SeedLo(int lx, int lz)
+            {
+                int s = E;
+                if (lx == 0) s = math.min(s, _halo[lz]);
+                if (lx == E - 1) s = math.min(s, _halo[E + lz]);
+                if (lz == 0) s = math.min(s, _halo[2 * E + lx]);
+                if (lz == E - 1) s = math.min(s, _halo[3 * E + lx]);
+                if (E >= _lyOpen[(lz << ZS) | lx]) s = math.min(s, E - 1);
+                return s;
+            }
+
+            /// Task 93b2d: below this ly, TouchesSeed(lx, ly, lz) is false in column ci.
+            /// A fill-zone voxel (ly < lyOpen) touches a seed only through: the voxel
+            /// above open by height (ly >= lyOpen - 1); a side neighbour open by height
+            /// (ly >= its lyOpen); itself or a 6-neighbour SeedOpen by a halo / the top
+            /// layer (ly >= SeedLo - 1 for the one above) or by an op box (column within
+            /// the box's x/z +-1, ly >= its lo.y - 1).
+            private int ScanLo(int ci)
+            {
+                int lx = ci & (E - 1), lz = ci >> ZS;
+                int lo = math.min(_lyOpen[ci] - 1, SeedLo(lx, lz) - 1);
+                if (lx > 0)     lo = math.min(lo, math.min(_lyOpen[ci - 1], SeedLo(lx - 1, lz)));
+                if (lx < E - 1) lo = math.min(lo, math.min(_lyOpen[ci + 1], SeedLo(lx + 1, lz)));
+                if (lz > 0)     lo = math.min(lo, math.min(_lyOpen[ci - (1 << ZS)], SeedLo(lx, lz - 1)));
+                if (lz < E - 1) lo = math.min(lo, math.min(_lyOpen[ci + (1 << ZS)], SeedLo(lx, lz + 1)));
+                for (int i = 0; i < boxes.Length; i += 2)
+                {
+                    int3 a = boxes[i], b = boxes[i + 1];
+                    if (lx >= a.x - 1 && lx <= b.x + 1 && lz >= a.z - 1 && lz <= b.z + 1) lo = math.min(lo, a.y - 1);
+                }
+                return math.max(lo, 0);
             }
 
             /// The voxel is a seed itself, or a 6-neighbour inside the chunk is a

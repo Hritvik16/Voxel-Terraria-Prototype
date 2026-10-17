@@ -29,6 +29,8 @@ namespace VoxelEngine.Mirror
             public long ColumnReused, FollowUps;   // column pass skipped; requests that were a scratch's follow-up
             public long EvictBox, EvictHole, EvictAlias, EvictNoRoom;
             public double ColumnMs, VoxelMs, RestMs;   // worker-side, summed over Generated
+            public long Filled;                        // task 93b2d: generations that ran the fill
+            public readonly double[] FillMs = new double[TerrainGenChunkSource.FILL_PHASES];   // summed over Filled
             public double EvictedAgeSum;      // seconds stored, summed over EvictBox + EvictHole
             public readonly long[] ReqRing = new long[RING_BUCKETS];
             public readonly long[] StoredRing = new long[RING_BUCKETS];
@@ -71,6 +73,11 @@ namespace VoxelEngine.Mirror
             var s = _counters[sc.Shell]; s.Generated++;
             s.ColumnMs += sc.ColumnMs; s.VoxelMs += sc.VoxelMs; s.RestMs += sc.RestMs;
             if (sc.ColumnReused) s.ColumnReused++;
+            if (sc.FillRan)
+            {
+                s.Filled++;
+                for (int p = 0; p < TerrainGenChunkSource.FILL_PHASES; p++) s.FillMs[p] += sc.FillMs[p];
+            }
             if (sc.IsUniformAir) { s.GenUniformAir++; return; }
             ShellStore.UploadBytes(sc, out int dense, out bool uniform, out _);
             if (uniform) s.GenUniformOther++; else { s.GenMixed++; s.GenDenseBricks += dense; }
@@ -108,6 +115,15 @@ namespace VoxelEngine.Mirror
                     $"{s.Stored} {s.Refused} {s.DroppedArrival} {s.Aborted} | {s.EvictBox}/{s.EvictHole}/{s.EvictAlias}/{s.EvictNoRoom}, " +
                     $"{(ev > 0 ? s.EvictedAgeSum / ev : 0):F1} | {st.ChunksStored}, {st.FreeBricks}/{L.PoolCap}, {st.FreePages}/{L.PageCap} | " +
                     $"{string.Join(",", s.ReqRing)} | {string.Join(",", s.StoredRing)}\n");
+            }
+            // Task 93b2d: the fill's worker time per FILLED chunk, by phase.
+            sb.Append(indent).Append("fill ms per filled chunk (worker): ").Append(string.Join("+", TerrainGenChunkSource.FillPhaseNames)).Append(" = total, filled\n");
+            for (int k = FirstShell; k <= LastShell; k++)
+            {
+                var s = _counters[k]; double tot = 0;
+                var parts = new string[TerrainGenChunkSource.FILL_PHASES];
+                for (int p = 0; p < parts.Length; p++) { double m = Per(s.FillMs[p], s.Filled); tot += m; parts[p] = m.ToString("F1"); }
+                sb.Append(indent).Append($"f{k}: {string.Join("+", parts)} = {tot:F1}, {s.Filled}\n");
             }
             return sb.ToString();
         }

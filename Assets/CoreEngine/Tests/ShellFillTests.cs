@@ -28,7 +28,7 @@ using VoxelEngine.Memory;
 using VoxelEngine.Streaming;
 using VoxelEngine.WorldGen;
 
-public class ShellFillTests
+public partial class ShellFillTests
 {
     private static TerrainGenChunkSource _src;
     private static readonly bool[] Pass = new bool[256];
@@ -49,7 +49,7 @@ public class ShellFillTests
     {
         if (_src == null) return;
         _src.ShellFill = true; _src.ShellFillMouths = true; _src.ShellFillFlatten = true; _src.ShellFillMouthPrefilter = true;
-        _src.ShellFillFluids = true;
+        _src.ShellFillFluids = true; _src.ShellFillFast = true; _src.ShellColumnReuse = true;
     }
 
     // ------------------------------------------------------------------

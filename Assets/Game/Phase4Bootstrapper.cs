@@ -482,6 +482,8 @@ public class Phase4Bootstrapper : MonoBehaviour
             // Task 93b2 (owner Q54 (a)): the cave fill runs on shells >= 1. `-shellfillfrom 3`
             // = task 83's shells >= 3 (the pre-change bytes; diagnostic A/B).
             Streamer.TerrainGenSource.FirstFillShell = Mathf.Clamp(ArgInt("-shellfillfrom", TerrainGenChunkSource.FIRST_FILL_SHELL), 1, 8);
+            // Task 93b2d: `-shellfillfast 0` = 52aad5e's fill scans (the same bytes; A/B arms).
+            Streamer.TerrainGenSource.ShellFillFast = ArgInt("-shellfillfast", 1) != 0;
             ShellStreamer.Active = Shells;
             RaymarchFeature.ShellIterCap = ArgInt("-shelliters", RaymarchFeature.ShellIterCap);
             int dbg = ArgInt("-shellsdebug", -1);

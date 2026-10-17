@@ -1,0 +1,7 @@
+fill ms per filled chunk (Editor, Burst), walk start pose, phases setup+flood+cand+sub+fill+flat = fill | column + voxel
+  shell 1 ref : 12 chunks: 0.3+4.5+33.3+0.8+4.0+1.0 = 44.0 | 58.3   (mouth candidates sub-sampled 68, columns 66 per chunk)
+  shell 1 fast: 12 chunks: 0.3+0.4+0.4+0.8+4.0+1.0 = 7.0 | 58.4   (mouth candidates sub-sampled 68, columns 66 per chunk)
+  shell 2 ref : 12 chunks: 0.4+5.0+40.6+7.4+4.0+1.5 = 58.8 | 97.9   (mouth candidates sub-sampled 687, columns 560 per chunk)
+  shell 2 fast: 12 chunks: 0.4+0.3+0.4+7.3+3.9+1.5 = 13.8 | 97.7   (mouth candidates sub-sampled 687, columns 560 per chunk)
+  shell 3 ref : 12 chunks: 0.4+4.5+37.5+4.5+3.9+7.7 = 58.5 | 156.3   (mouth candidates sub-sampled 362, columns 329 per chunk)
+  shell 3 fast: 12 chunks: 0.4+0.3+0.4+4.5+3.9+7.6 = 17.1 | 156.1   (mouth candidates sub-sampled 362, columns 329 per chunk)

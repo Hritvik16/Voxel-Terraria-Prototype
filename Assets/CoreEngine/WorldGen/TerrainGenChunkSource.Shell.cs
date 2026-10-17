@@ -81,6 +81,10 @@ namespace VoxelEngine.WorldGen
             /// Task 93b2 (diagnostic): the last generation's time in the column pass,
             /// the voxel pass and the rest (ops, summaries, task 83's fill), ms.
             public double ColumnMs, VoxelMs, RestMs;
+            /// Task 93b2d (diagnostic): the last generation ran task 83's fill, and its
+            /// time per phase (FILL_PHASES, FillPhaseNames), ms; inside RestMs.
+            public bool FillRan;
+            public readonly double[] FillMs = new double[FILL_PHASES];
             /// Task 93b2: the last generation took colS/colSt/colCd/top as they were
             /// (the same shell, chunk column and sample offset as the one before).
             public bool ColumnReused;
@@ -178,6 +182,8 @@ namespace VoxelEngine.WorldGen
             output.Shell = shell; output.Coord = coord; output.IsUniformAir = false; output.OpsApplied = 0; output.SummariesApplied = 0;
             long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             output.VoxelMs = 0;
+            output.FillRan = false;
+            for (int p = 0; p < FILL_PHASES; p++) output.FillMs[p] = 0;
 
             // COLUMN REUSE (task 93b2): the column job reads origin.x / origin.z,
             // shift and half, never y -- the same bug task 30 fixed for Generate. A
