@@ -1,0 +1,51 @@
+TASK 93b RE-RUN -- shells performance breakdown (2026-10-17, branch engine-phase @ a00bbdb, M1 Air 8 GB, AC all arms, no owner pause)
+Code in place since the first run (Screenshots/93b/perf93b.txt, 2026-10-15): 93b2/93b2d (shell fill while walking), 93b3, 93b4 read caches,
+93b5 mask (built, OFF = default, measured OFF), 93d (tiers 1-2 NOT allocated with -shells 1), 93e small mirror box, 93f GPU body pool, 93g CPU cap.
+WARM STEADY STATE: warm-up Logs/tg2world_20261017_052347.txt (MODE=stream MOTION=walk), then back to back with no gap:
+costsplit OFF ON ON OFF, walk OFF ON ON OFF. Driver: Logs/overnight/93b-rerun-driver.sh, output Logs/overnight/93b-rerun.out.
+Setting (all arms): -upscaler fsr3 -renderrows 540, quality preset, far band + far shadows, -farshade 1 -seethrough 1 -riverlook 1, noon.
+ON = + -shells 1 -shellworkers 3 (default mask off; tiers 1-2 not allocated since 93d).
+
+1. STEADY (run-cost-split.sh, streaming pinned, 15 s timed per run), p50 / p99 ms
+                         walk_near               walk_open              log
+  OFF #1                 53.7 /  84.7            34.1 / 64.7            Logs/costsplit_2026-10-17_053003.txt
+  ON  #1                 65.9 / 131.7            48.0 / 82.8            Logs/costsplit_2026-10-17_053705.txt
+  ON  #2                 66.0 / 106.9            47.9 / 83.1            Logs/costsplit_2026-10-17_054904.txt
+  OFF #2                 52.8 /  89.3            34.1 / 60.7            Logs/costsplit_2026-10-17_060101.txt
+  OFF mean -> ON mean    53.3 -> 66.0 (+12.7)    34.1 -> 48.0 (+13.9)
+  first run (10-15)      52.4 -> 67.6 (+15.2)    35.9 -> 46.3 (+10.5)
+  noise (OFF #1 vs #2)   0.9                     0.0
+  Shell fill at the pinned pose (120 s wait, both ON launches): walk_near s1 complete at 7 s, s2 38 s, s3 88-89 s, s4 928-936/985,
+  s5 135-139/490, s6-s7 0 (591-603 chunks missing in all); walk_open (after walk_near) s1-s2, s4-s7 complete, s3 FULL with 38-40 missing.
+  First run: s1-s2 FULL with 621 / 1,140 missing. So the shells now fill, and the cost is the same filled or not.
+
+  Paired arms inside the ON launches ("saved" = FULL - arm, ON #1 / ON #2):
+    shells_off (shells not drawn; since 93d NO tiers 1-2 either = tier 0 + far band): saves 15.8 / 16.2 (near), 17.4 / 17.6 (open)
+               -> ON shells_off p50 50.1 / 49.6 (near), 30.1 / 30.3 (open) = 3-4 ms UNDER today's play (OFF draws tiers 1-2)
+    far_off (also stops the shell march, 93b3): ON saves 17.4 / 18.2 (near), 21.3 / 22.1 (open); OFF saves 2.2 / 2.5, 4.1 / 4.1
+    fshade_off: ON -2.0 / -0.5 (near), 2.5 / 1.3 (open); OFF 3.5 / 2.8, 0.3 / 0.6
+  => the shell march costs ~16-18 ms of a frame; tiers 1-2 cost ~4 ms in today's play; net +12.7 / +13.9.
+     Counters (unchanged from 93b4): walk_near 5.5 shell iters/pixel (5.8% sky pixels at 94 iters each), walk_open 30.3/pixel
+     (56% of pixels are no-hit rays at 40.7 iters; by step: tier-0 leap 17%, air chunk 34%, air brick 43%, cell 6%).
+  CPU vs GPU: cpu main p50 = wall time (present wait 0), render thread 1-3 ms; gpu* (ON launches only, ~2.6x inflated) FULL 161 vs
+  shells_off 117 (near), 127 vs 74 (open): GPU-bound. gpu* read 0.0 in both OFF launches (FrameTimingManager gave nothing there).
+
+2. MOVING (MODE=walk 150 m circle at 5 m/s, 3 min, -tod 12, -memledger -frametiming), whole run
+  arm      p50    p99    >33 ms   peak MB   Metal (IOAccelerator graphics)   log
+  OFF #1   41.9   100.7  79.1%    2,391     1,203 MB                         Logs/tg2world_20261017_060657.txt
+  ON  #1   42.4    97.9  79.3%    2,477     1,306 MB                         Logs/tg2world_20261017_061147.txt
+  ON  #2   42.1    97.1  79.4%    2,366     1,302 MB                         Logs/tg2world_20261017_061638.txt
+  OFF #2   42.0    97.6  79.2%    2,369     1,155 MB                         Logs/tg2world_20261017_062130.txt
+  mean     OFF 42.0 -> ON 42.3 (+0.3; noise 0.1); first run 42.6 -> 39.7 (-2.9)
+  Shells while walking: at the walk's start (t+19 s) s1 1,222-1,228 / 2,170, s2 195-201; during the walk s1 held 1,213-1,864, s2 571-819,
+  s3-s7 0; at the end s1 1,003-1,038, s2 408-454; none ever complete. Generated 10,604-10,928 in the launch (50 ms each on a worker),
+  first run 2,347 (241 ms each). So shells 1-2 are now mostly there while walking, shells 3-7 are not: the moving arm draws less shell
+  than a filled view would, which is why it costs nothing extra.
+
+3. MEMORY (moving arms): peak phys_footprint OFF 2,380 -> ON 2,422 MB (+42; first run +387), Metal 1,179 -> 1,304 MB (+125; first run +340).
+  Tiers 1-2 are no longer allocated under ON (ledger "tiers 1-2 allocated no"). STEP 14 ledger (ON): CPU pool peak 358,717-360,734 of 570,000,
+  GPU body pool peak 242,840-243,847 of 254,400 (96%), refused 0.
+
+RULE: ON > 3 ms slower steady (+12.7 / +13.9 ms; p99 +30 / +20 ms) -> rule 3: STOP_FOR_OWNER; 93c must not switch.
+Not run: nothing skipped (cost-split arms far_off / fshade_off / shells_off ran inside both ON launches).
+Stills (same pose, noon, sun behind): Screenshots/93b/rerun/sheet_walk_open.png, sheet_walk_near.png (OFF, ON, ON shells-not-drawn, ON tint).

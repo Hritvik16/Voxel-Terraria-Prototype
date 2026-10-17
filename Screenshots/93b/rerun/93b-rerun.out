@@ -1,0 +1,35 @@
+=== 05:23:47 warmup   power: Now drawing from 'AC Power'
+log: Logs/tg2world_20261017_052347.txt
+=== 05:28:54 costsplit OFF   power: Now drawing from 'AC Power'
+05:28:54 lock is free; waiting for the Mac to be clear of Unity for 45 s
+report: Logs/costsplit_2026-10-17_053003.txt   data: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerClips/2026-10-17_053003
+DONE
+=== 05:36:00 costsplit ON   power: Now drawing from 'AC Power'
+05:36:00 lock is free; waiting for the Mac to be clear of Unity for 45 s
+report: Logs/costsplit_2026-10-17_053705.txt   data: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerClips/2026-10-17_053705
+DONE
+=== 05:47:59 costsplit ON   power: Now drawing from 'AC Power'
+05:47:59 lock is free; waiting for the Mac to be clear of Unity for 45 s
+report: Logs/costsplit_2026-10-17_054904.txt   data: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerClips/2026-10-17_054904
+DONE
+=== 05:59:58 costsplit OFF   power: Now drawing from 'AC Power'
+05:59:58 lock is free; waiting for the Mac to be clear of Unity for 45 s
+report: Logs/costsplit_2026-10-17_060101.txt   data: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerClips/2026-10-17_060101
+DONE
+=== 06:06:57 walk OFF   power: Now drawing from 'AC Power'
+peak phys_footprint: 2391 MB   (owner cap 3 GB; samples in Logs/tg2world_20261017_060657_mem.txt; breakdown at peak in Logs/tg2world_20261017_060657_mem_peak_breakdown.txt)
+  WHOLE RUN (4042 frames): p50 41.90 ms   p99 100.73 ms   >33 ms 79.14% of frames
+log: Logs/tg2world_20261017_060657.txt
+=== 06:11:47 walk ON   power: Now drawing from 'AC Power'
+peak phys_footprint: 2477 MB   (owner cap 3 GB; samples in Logs/tg2world_20261017_061147_mem.txt; breakdown at peak in Logs/tg2world_20261017_061147_mem_peak_breakdown.txt)
+  WHOLE RUN (4015 frames): p50 42.43 ms   p99 97.94 ms   >33 ms 79.30% of frames
+log: Logs/tg2world_20261017_061147.txt
+=== 06:16:38 walk ON   power: Now drawing from 'AC Power'
+peak phys_footprint: 2366 MB   (owner cap 3 GB; samples in Logs/tg2world_20261017_061638_mem.txt; breakdown at peak in Logs/tg2world_20261017_061638_mem_peak_breakdown.txt)
+  WHOLE RUN (4025 frames): p50 42.11 ms   p99 97.11 ms   >33 ms 79.35% of frames
+log: Logs/tg2world_20261017_061638.txt
+=== 06:21:30 walk OFF   power: Now drawing from 'AC Power'
+peak phys_footprint: 2369 MB   (owner cap 3 GB; samples in Logs/tg2world_20261017_062130_mem.txt; breakdown at peak in Logs/tg2world_20261017_062130_mem_peak_breakdown.txt)
+  WHOLE RUN (4048 frames): p50 42.04 ms   p99 97.64 ms   >33 ms 79.22% of frames
+log: Logs/tg2world_20261017_062130.txt
+=== 06:26:22 ALLDONE   power: Now drawing from 'AC Power'
