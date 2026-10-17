@@ -124,6 +124,13 @@ struct FluidWriteOp
 // §2.7 density layering (2026-09-25): this slot's one bid is a SWAP with the
 // lighter fluid directly below. Mirrors FluidReferenceCPU.FLAG_SWAP_BID.
 #define FLAG_SWAP_BID     (1u << 7)
+// Task 94 (AMENDMENT_8_16): k = consecutive ticks this slot has FALLEN, in the
+// uint lane's spare bits [15:8] (A.5's byte fields end at bit 7; the struct is
+// unchanged). FluidReferenceCPU keeps the same k beside its slots. Cleared by
+// every assignment of stateFlags (promote, free, force-demote), by CSIntent
+// when the slot is not free-falling, and by CSSweep when it lost its claim.
+#define FALL_SHIFT        8u
+#define FALL_MASK         (0xFFu << FALL_SHIFT)
 
 // AllocSlot's failure return. Distinct from a valid index and from NONE (-1),
 // which is a cell->slot sentinel and a different type.
@@ -211,6 +218,11 @@ StructuredBuffer<uint>  ReactionOtherProduct;
 // §2.7: MaterialRules.DensityRank -- 0 for non-fluids, rank steps mean > 5%
 // denser. The swap test compares ranks, exactly as the CPU oracle does.
 StructuredBuffer<uint>  MaterialDensityRank;
+// Task 94: FluidFall.BuildTable -- whole voxels fallen after k ticks of free
+// fall, k = 0..255, built ONCE on the CPU so this shader and FluidReferenceCPU
+// read the same integers. _FallOn = 0: the pre-94 rule (-fluidfall 0).
+StructuredBuffer<int>   FallTable;
+int   _FallOn;
 
 #define FLAG_IS_FLUID         (1u << 0)
 #define FLAG_IS_FALLING_SOLID (1u << 1)
@@ -809,6 +821,54 @@ void CSIntent(uint3 id : SV_DispatchThreadID)
         return;
     }
 
+    // ---- Task 94 gravity fall: BEFORE the viscosity gate ----
+    // FluidReferenceCPU.IntentPass's fall branch + FallClaim, line for line.
+    // Free fall is the same for every fluid; viscosity only slows sideways
+    // spreading and draining (AMENDMENT_8_16). Tick k moves FallTable[k] -
+    // FallTable[k-1] voxels straight down, stopping ABOVE the first cell that
+    // was not Air at tick start (never through a solid or another fluid): a
+    // landing, k = 0. A missing tile below stops it WITHOUT a landing (the
+    // applied op admits that tile; the fall goes on at speed). The one bid is
+    // an ordinary TryClaim, so the claim race and CSCommit are unchanged.
+    if (_FallOn != 0 && IsFluidMaterial(slot.materialID) && !IsGasMaterial(slot.materialID))
+    {
+        int3 b = int3(c.x, c.y - 1, c.z);
+        if (InRegion(b))
+        {
+            uint below = SampleVoxel(b);
+            bool bReacted = ReactedBuffer[RegionIndex(b)] != 0;
+            if (below == AIR && !bReacted)
+            {
+                slot.stateFlags |= FLAG_EVALUATED;
+                uint k = min(((slot.stateFlags & FALL_MASK) >> FALL_SHIFT) + 1u, 255u);
+                int step = FallTable[k] - FallTable[k - 1u];
+                int n = 1;
+                bool landed = false;
+                [loop] for (int j = 2; j <= step; j++)
+                {
+                    int3 v = int3(c.x, c.y - j, c.z);
+                    if (!InRegion(v)) break;
+                    if (SampleVoxel(v) != AIR || ReactedBuffer[RegionIndex(v)] != 0) { landed = true; break; }
+                    n = j;
+                }
+                slot.stateFlags = (slot.stateFlags & ~FALL_MASK) | ((landed ? 0u : k) << FALL_SHIFT);
+                if (!TryClaim(s, slot, int3(c.x, c.y - n, c.z))) DBG(9);
+                FluidSlots[s] = slot;
+                return;
+            }
+            // A lighter GAS below (steam): the swap is the fall, ungated.
+            if (IsGasMaterial(below) && SinksThrough(slot.materialID, below) && !bReacted)
+            {
+                slot.stateFlags &= ~FALL_MASK;
+                slot.stateFlags |= FLAG_EVALUATED;
+                if (!TrySwapClaim(s, slot, b)) DBG(9);
+                FluidSlots[s] = slot;
+                return;
+            }
+        }
+    }
+    slot.stateFlags &= ~FALL_MASK;
+
     // ---- §7.4 viscosity gate (A.5's per-slot phase counter, no modulo) ----
     uint interval = TickIntervalOf(slot.materialID);
     slot.viscosityPhase++;
@@ -971,6 +1031,9 @@ void CSSweep(uint3 id : SV_DispatchThreadID)
     // without this, honey (interval 30) would be freed by the sleep threshold
     // before ever taking a turn and would be immobile rather than slow.
     if ((slot.stateFlags & FLAG_EVALUATED) == 0u) return;
+
+    // Task 94: k counts ticks the slot actually FELL; a lost claim ends the run.
+    if ((slot.stateFlags & FLAG_WON_CLAIM) == 0u) slot.stateFlags &= ~FALL_MASK;
 
     if ((slot.stateFlags & (FLAG_WON_CLAIM | FLAG_DESCENDED)) == (FLAG_WON_CLAIM | FLAG_DESCENDED))
     {

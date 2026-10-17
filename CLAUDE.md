@@ -8,7 +8,9 @@
    8.12 (Phase 7's substitute budget gate) → 8.14 (LOD shells, edit-op log,
    smaller 0.1 m window, quality presets; `AMENDMENT_8_14_LOD_SHELLS.md`,
    adopted 2026-10-11) → 8.15 (simulation reach: NEAR 128 m on every machine,
-   only the DRAWN side shrinks; `AMENDMENT_8_15_SIMULATION_REACH.md`, adopted 2026-10-15).
+   only the DRAWN side shrinks; `AMENDMENT_8_15_SIMULATION_REACH.md`, adopted 2026-10-15) →
+   8.16 (fluid gravity fall: free fall ungated by viscosity, same for every fluid;
+   `AMENDMENT_8_16_FLUID_FALL.md`, DESIGN CHANGE owner-approved 2026-10-15).
    **Note: no `.md` exists in this repo for amendment 8.8, or for 8.7.** Both
    are in force and implemented (`OccupancyMask.cs`, `AirMip*.cs`) and both are
    cited by the completion docs, but the documents themselves are absent and
@@ -395,6 +397,12 @@ Task 93g1 (gameplay step 6): GLIDING on `PlayerMotor`'s abilities path (`CanGlid
 Space HELD -> sink eases to 2 m/s, speed to 10 m/s along the look yaw (ratio 5; S brakes to 4, A/D drift 3 m/s); release Space = normal
 fall; landing / water / dash / cling end it; lands at ~2 m/s (no fall damage). Numbers `glide*` in PlayerConfig.json (speed 0 = off).
 `GlideTests` (7). `EXTRA="-glidedemo -playshotquit"` = a real summit within 220 m of the start, lane away from the sun, 4 shots.
+
+Task 94 (8.16, owner design change): FLUID GRAVITY FALL. A fluid (not steam, not sand) with air below falls every tick, ungated by
+viscosity, the same for all fluids: `FluidFall` table (exact g t^2/2 floored to voxels, cap 12 m/s -> 27 voxels/tick at 4.5 Hz), read by
+`FluidReferenceCPU` and `FluidCA.compute` alike; k (ticks fallen) in GPU `stateFlags` [15:8] / a CPU side array. Stops above the first
+non-air cell; viscosity now gates only sideways/diagonal/draining moves. `-fluidfall 0` = v8.6 rule. `FluidGravityFallTests` (8).
+`BUILD=1 MODE=fluidprobe PROBEWORLD="" EXTRA="-fallstrip" ./run-tg2world.sh` = water/lava/honey before/after strip.
 
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change

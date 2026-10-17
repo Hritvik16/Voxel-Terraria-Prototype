@@ -168,9 +168,10 @@ public class ReactionPairTests
             Assert.Greater(mud, 0, $"soil {soil}: no mud formed");
             Assert.AreEqual(soil0 - mud, sim.CountMaterial(soil), "each mud cell was one soil cell");
             Assert.AreEqual(0L, sim.Ledger.ReactionConsumed, "soil -> mud moves no mobile mass");
-            // Holds for this pour (deterministic); in general a slot can sleep
-            // right after a lateral move -- see the sand test's note.
-            AssertNoFaceContact(sim, Materials.Water, soil);
+            // NOT asserted (since task 94): "no water touches soil at rest". It held
+            // only for this pour's pre-94 path; with the 8.16 fall one drop slides
+            // onto (15,1,1) and the sleep rule ages it on that LATERAL move, so it
+            // dozes off before its next scan -- the sand test's note, same cause.
         }
     }
 

@@ -230,6 +230,7 @@ public class FluidConservationTests
         // as pouring." One cell per tick is the rate the Air-Only rule implies,
         // and if it is ever more than that, a drop skipped a cell.
         var sim = NewSandbox(FluidMotionTiers.Gravity);
+        sim.GravityFall = false;   // pins the v8.6 FALL (one voxel per evaluated tick; `-fluidfall 0`). 8.16's: FluidGravityFallTests
         BuildFloor(sim);
         sim.EditVoxel(8, 20, 8, Materials.Water);
 
@@ -273,6 +274,7 @@ public class FluidConservationTests
         // §13: "Mine a falling drop -> orphan self-frees next tick; orphan
         // counter 0 at steady state."
         var sim = NewSandbox();
+        sim.GravityFall = false;   // pins the v8.6 FALL (one voxel per evaluated tick; `-fluidfall 0`). 8.16's: FluidGravityFallTests
         BuildFloor(sim);
         sim.EditVoxel(8, 24, 8, Materials.Water);
 
@@ -770,6 +772,7 @@ public class FluidConservationTests
                  { (Materials.Water, 1), (Materials.Lava, 6), (Materials.Honey, 30) })
         {
             var sim = NewBigSandbox(FluidMotionTiers.Full);
+            sim.GravityFall = false;   // pins the v8.6 viscosity-gated FALL; 8.16 gates only sideways moves (FluidGravityFallTests)
             sim.EditVoxel(16, 30, 16, material);   // 29 cells of fall available
 
             int firstMoveTick = -1;
@@ -801,6 +804,7 @@ public class FluidConservationTests
         // FLUID_SLEEP_TICKS (8) would free the slot before it ever got a turn
         // and honey would be immobile rather than slow.
         var sim = NewBigSandbox(FluidMotionTiers.Full);
+        sim.GravityFall = false;   // the gated FALL of v8.6; under 8.16 the same gate holds sideways moves (FluidGravityFallTests)
         sim.EditVoxel(16, 20, 16, Materials.Honey);
         for (int t = 0; t < 29; t++) sim.Tick();
         Assert.AreEqual(1, sim.ActiveSlotCount,

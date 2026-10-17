@@ -1,0 +1,80 @@
+05:07:01 lock is free; waiting for the Mac to be clear of Unity for 45 s
+05:07:46 lock acquired -- running: ./run-fluid-tiled.sh
+== Regenerating the scene ==
+== Building (release) ==
+== Running (blocks until the rig quits itself) ==
+Run folder: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FluidTiled/20261017_050829/
+
+============== fluid_tiled_report.txt ==============
+=== §7.2 SPARSE TILED ACTIVE SET -- ACCEPTANCE ===
+2026-10-17 05:08:29Z
+
+READING RULE: every figure is a COUNT or a BYTE SIZE. No frame time is
+taken -- §2.2's fluid budget is on the GPU lane, which this workflow
+cannot attribute. Nothing here may be quoted against §2.2.
+
+A -- THE SHIPPED RADIUS: FLUID_ACTIVE_RADIUS_VOXELS = 1280 (128 m)
+
+  radius   activeSet bytes   total GPU bytes   cells      tiles cap   fits ring
+     128           520.0 MB           530.5 MB   33554432       1024   True
+    PASS  the 128-voxel radius fits the tile ring without aliasing (§6.2)
+     640           520.0 MB           530.5 MB   33554432       1024   True
+    PASS  the active-set footprint does not move with the radius (545280000 vs 545280000 at r=640) -- the entire claim of the design
+    PASS  the 640-voxel radius fits the tile ring without aliasing (§6.2)
+    1280           520.0 MB           530.5 MB   33554432       1024   True
+    PASS  the active-set footprint does not move with the radius (545280000 vs 545280000 at r=1280) -- the entire claim of the design
+    PASS  the 1280-voxel radius fits the tile ring without aliasing (§6.2)
+
+  MEASURED at the SHIPPED radius: active set 520.0 MB, whole simulation 530.5 MB
+  the DENSE equivalent would be 2048^3 = 8,589,934,592 cells = 128 GB
+    PASS  the active set at the shipped radius is under 544 MB (520 MB at a 1024-tile cap; rebased 2026-09-11 from 512 MB when the cap went 512 -> 1024)
+    PASS  and still at least two orders of magnitude smaller than the dense region it replaces (252x; was 496x at the 512-tile cap, bound rebased from >400x to >=100x so it asserts the claim it is named for rather than a particular cap)
+    FINDING  THE SHIPPED RADIUS IS REACHABLE. 520 MB measured from the actual GPU allocations, against 128 GB for the dense region that made the radius inert. The footprint is identical at 128, 640 and 1280 voxels because it is a function of the tile pool, not the radius.
+
+B -- §7.4's radius GATES, which at any affordable dense size it could not
+  standing on the pool: 2 resident tile(s), 2 dispatched, 2460 voxel writes, slots everAllocated 691
+    PASS  fluid within the radius is tiled (2 tiles)
+    PASS  AND SLOTS WERE ACTUALLY ALLOCATED (691) -- tiles being resident is not the same as fluid simulating, and asserting only residency is what let a rig report 488 live tiles with zero slots and zero motion
+  walked 85 m away: 8 tile(s) resident near the NEW position; the tile we left is released
+    PASS  leaving the radius releases the tile you left -- §7.4's departure half, which is what makes the footprint bounded by presence rather than by radius
+  returned: 2 resident tile(s); the tile we left is re-acquired
+    PASS  and returning WAKES it again (2 tiles) -- the §7.4 contract that a sparse active set nearly lost, answered by ChunkFluidMask rather than by a cell sweep
+
+C -- EXPLOSION SCATTER: many small disconnected pockets over a wide area
+
+  scattered 220 pockets (7258 voxels) of water/sand/lava across +/-90 m
+  residency scan: 441 chunks read, 8820 skipped non-resident, 733 tiles flagged, 211 acquired, 0 refused (pool full)
+  [tick 1] last-tick stage counters: promote.seen=5716  promote.ALLOCATED=8190  intent.awake=5427  intent.CLAIMS=2676  commit.claims_seen=1950  commit.APPLIED=1950  intent.no_destination=1381  PROBE.promote_ran(ABCD)=43981  PROBE.saw_wakecount=5716  PROBE.saw_regioncells=33554432  PROBE.saw_tick=1  PROBE.saw_material_at_wake0=6  
+  [tick 4] last-tick stage counters: promote.seen=5716  promote.ALLOCATED=8190  intent.awake=5427  intent.CLAIMS=2676  commit.claims_seen=1950  commit.APPLIED=1950  intent.no_destination=1381  PROBE.promote_ran(ABCD)=43981  PROBE.saw_wakecount=5716  PROBE.saw_regioncells=33554432  PROBE.saw_tick=1  PROBE.saw_material_at_wake0=6  
+  [tick 12] last-tick stage counters: promote.seen=8905  promote.ALLOCATED=4300  promote.rej_owned=2068  promote.rej_notmobile=5317  intent.awake=8925  intent.CLAIMS=3362  commit.claims_seen=2430  commit.APPLIED=2430  intent.orphan_freed=1925  intent.no_destination=1833  PROBE.promote_ran(ABCD)=43981  PROBE.saw_wakecount=8905  PROBE.saw_regioncells=33554432  PROBE.saw_tick=2  PROBE.saw_material_at_wake0=6  
+  [tick 40] last-tick stage counters: promote.seen=16303  promote.ALLOCATED=2574  promote.rej_owned=3287  promote.rej_notmobile=12740  intent.awake=9106  intent.CLAIMS=3888  commit.claims_seen=2688  commit.APPLIED=2688  intent.orphan_freed=1654  intent.no_destination=3057  PROBE.promote_ran(ABCD)=43981  PROBE.saw_wakecount=16303  PROBE.saw_regioncells=33554432  PROBE.saw_tick=6  PROBE.saw_material_at_wake0=3  
+  after 400 ticks: peak 618 concurrent tiles (cap 1024), 167711 voxel writes applied
+  slots: highWater 12537, everAllocated 12537 / cap 65536, free list 9430
+  tiles: acquired 618, released 0, peak resident 618, pool exhaustions 0
+  op-list: emitted 103880 total, peak 3422/frame, applied 167711
+  ops dropped: 0 non-resident, 16717 stale; readback errors 0 (none)
+  [after 400 ticks] last-tick stage counters: promote.seen=15722  promote.ALLOCATED=1219  promote.rej_owned=1144  promote.rej_notmobile=14570  intent.awake=3218  intent.CLAIMS=1482  commit.claims_seen=1462  commit.APPLIED=1462  intent.orphan_freed=1195  intent.no_destination=54  PROBE.promote_ran(ABCD)=43981  PROBE.saw_wakecount=15722  PROBE.saw_regioncells=33554432  PROBE.saw_tick=55  PROBE.saw_material_at_wake0=7  
+  wake requests: queued 2929738, dispatched 1037876, rejected out-of-region 0, rejected full 0, still pending 0/32561 deferred
+    PASS  the scatter actually landed (220 pockets)
+    PASS  many disconnected pockets are simulated CONCURRENTLY (618 tiles) -- one dense region could never have covered this spread at any affordable size
+    PASS  and they actually moved (167711 voxel writes), so the tiles are simulating rather than merely resident
+    PASS  the tile pool never exceeds its cap (618 <= 1024)
+    note  the cap was not reached (peak 618 of 1024); this run does not exercise the refusal path
+  wake audit: 201 pockets still hold mobile material; 0 of them are NOT inside a resident tile
+    PASS  NOTHING SILENTLY FAILED TO WAKE (0 unwoken of 201) -- the exact defect class DESIGN_NOTE_7_2 §9 exists to prevent, audited rather than assumed
+
+D -- §9.7's several-simultaneous-regions, with ONE CA over the tile pool
+  placed 294 water voxels in 2 pools 300 voxels (30 m) apart
+    PASS  ONE CA instance is attached (1), not one per pool -- the §9.7 stopgap held a list
+  after 240 ticks: 2/2 pool tiles resident, 86757 voxel writes, slots everAllocated 4402
+    PASS  BOTH pools are resident under a single instance (2/2) -- structurally, because a tile exists wherever fluid is, not because something kept a list
+    PASS  and both are actually simulating (86757 voxel writes)
+
+
+PASS 19  FAIL 0
+RESULT: PASSED
+======================================================
+
+Screenshots:
+  (none)
+05:08:56 finished rc=0

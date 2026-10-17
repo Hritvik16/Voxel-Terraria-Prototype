@@ -109,6 +109,8 @@ namespace VoxelEngine.Simulation
         /// application. Expected to be non-zero in edit scenarios; a large value
         /// in a quiet scenario would mean the CA is deciding against stale state.
         public long StaleOpsDropped { get; private set; }
+        /// Task 94: applied MOVE ops that fell more than one voxel (gravity fall).
+        public long FastFallOpsApplied { get; private set; }
         /// Ops refused because a half of the move lay in a chunk that is not
         /// resident. NOT a mass loss -- the material stays exactly where it was,
         /// which is the point. A non-zero value here means fluid is live next to
@@ -497,6 +499,11 @@ namespace VoxelEngine.Simulation
                     // AwakeOnly tile bookkeeping (task 54): no-op otherwise.
                     _sim.NoteOpApplied(op.Dst);
                     if (op.HasSrc) _sim.NoteOpApplied(op.Src);
+                    if (op.HasSrc && !op.IsSwap && op.Src.y - op.Dst.y > 1)
+                    {
+                        FastFallOpsApplied++;
+                        _sim.NoteFallAhead(op.Dst);
+                    }
                     bool wake = op.Wake;
 
                     // §8.3's wake scan, run for the SAME reason an edit runs it:

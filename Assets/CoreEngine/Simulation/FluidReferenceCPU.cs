@@ -232,6 +232,30 @@ public sealed class FluidReferenceCPU : IFluidSampler
     /// value of this.
     public int TieBreakSalt { get; set; }
 
+    /// Task 94 (AMENDMENT_8_16): GRAVITY FALL. A fluid (not a gas, not a
+    /// falling solid) with air below falls FluidFall's table every tick, the
+    /// viscosity interval does not gate it, and it speeds up each tick it keeps
+    /// falling. False = the pre-94 rule (one voxel per evaluated tick).
+    public bool GravityFall { get; set; } = true;
+
+    /// The tick period the fall table integrates over (s). Defaults to task
+    /// 91's fixed 4.5 Hz; FluidGpuSimulation takes the same value.
+    public double FallTickSeconds
+    {
+        get => _fallTickSeconds;
+        set { _fallTable = FluidFall.BuildTable(value); _fallTickSeconds = value; }
+    }
+    private double _fallTickSeconds = FluidFall.DefaultTickSeconds;
+    private int[] _fallTable = FluidFall.BuildTable(FluidFall.DefaultTickSeconds);
+
+    /// k per slot: consecutive ticks this slot has fallen (FluidFall). The
+    /// GPU keeps it in FluidSlot.stateFlags [15:8]; A.5's byte layout has no
+    /// spare byte, so the oracle keeps it beside the slots, same lifetime.
+    private readonly byte[] _fallTicks;
+
+    /// Moves this tick that fell more than one voxel (task 94).
+    public int FastFallsThisTick { get; private set; }
+
     public int SizeXVoxels => _sizeX;
     public int SizeYVoxels => _sizeY;
     public int SizeZVoxels => _sizeZ;
@@ -335,6 +359,7 @@ public sealed class FluidReferenceCPU : IFluidSampler
             ? Math.Min(slotCapacity, EngineConfig.MAX_ACTIVE_FLUID)
             : Math.Min(_voxelCount, EngineConfig.MAX_ACTIVE_FLUID);
         _slots = new FluidSlotCPU[_slotCapacity];
+        _fallTicks = new byte[_slotCapacity];
         for (int i = 0; i < _slotCapacity; i++)
             _slots[i].brickDataIndex = i + 1 < _slotCapacity ? i + 1 : NONE;
         _freeHead = 0;
@@ -542,6 +567,7 @@ public sealed class FluidReferenceCPU : IFluidSampler
         slot.materialID = Materials.Air;
         slot.sleepCounter = 0;
         slot.viscosityPhase = 0;
+        _fallTicks[s] = 0;
         slot.localVoxelOffset = 0;
         slot.brickDataIndex = _freeHead;  // A.5's intrusive free list
         _freeHead = s;
@@ -573,6 +599,7 @@ public sealed class FluidReferenceCPU : IFluidSampler
         slot.sleepCounter = 0;
         slot.viscosityPhase = 0;
         slot.stateFlags = FLAG_AWAKE;
+        _fallTicks[s] = 0;
         _slotAt[voxelIndex] = s;
         return s;
     }
@@ -680,6 +707,7 @@ public sealed class FluidReferenceCPU : IFluidSampler
         _forceDemotedThisTick = 0;
         _reactionsThisTick = 0;
         _changedCellsThisTick = 0;
+        FastFallsThisTick = 0;
 
         ClearPass();
         IntentPass();
@@ -797,6 +825,38 @@ public sealed class FluidReferenceCPU : IFluidSampler
             // ---- §7.6 reactions, during the Intent neighbour scan ----
             if (TryReact(s, home, slot.materialID)) continue;
 
+            // ---- Task 94 gravity fall: BEFORE the viscosity gate ----
+            // Free fall is the same for every fluid; viscosity only slows
+            // sideways spreading and draining (AMENDMENT_8_16). FluidCA.compute's
+            // CSIntent runs the same branch.
+            if (GravityFall && (EnabledTiers & FluidMotionTiers.Gravity) != 0 &&
+                MaterialRules.IsFluidMaterial(slot.materialID) &&
+                !MaterialRules.IsGasMaterial(slot.materialID))
+            {
+                int3 cf = IndexToVoxel(home);
+                if (InBounds(cf.x, cf.y - 1, cf.z))
+                {
+                    int b = VoxelIndex(cf.x, cf.y - 1, cf.z);
+                    byte below = _voxels[b];
+                    if (below == Materials.Air && !_reacted[b])
+                    {
+                        slot.stateFlags |= FLAG_EVALUATED;
+                        FallClaim(s, ref slot, cf);
+                        continue;
+                    }
+                    // A lighter GAS below (steam): the swap is the fall, ungated.
+                    if (MaterialRules.IsGasMaterial(below) && MaterialRules.SinksThrough(slot.materialID, below) &&
+                        !_reacted[b])
+                    {
+                        _fallTicks[s] = 0;
+                        slot.stateFlags |= FLAG_EVALUATED;
+                        TrySwapClaim(s, ref slot, cf.x, cf.y - 1, cf.z);
+                        continue;
+                    }
+                }
+            }
+            _fallTicks[s] = 0;
+
             // ---- §7.4 viscosity gate ----
             // Per-slot phase counter (A.5's viscosityPhase), not a global
             // modulo: it keeps the tick math free of `%` and matches the field
@@ -853,6 +913,31 @@ public sealed class FluidReferenceCPU : IFluidSampler
                 if (bid) continue;
             }
         }
+    }
+
+    /// Task 94: the fall claim. Tick k (k = this slot's fall ticks + 1) may
+    /// move FluidFall.Step voxels straight down; it stops ABOVE the first cell
+    /// that was not Air at tick start (or a reacted cell) -- never through a
+    /// solid or another fluid -- and that stop is a landing (k = 0). The
+    /// sandbox edge stops it without a landing (the GPU's tile edge: the next
+    /// tile is admitted and the fall goes on at speed). The one bid is an
+    /// ordinary TryClaim, so Commit, the claim race and conservation are the
+    /// pre-94 ones; the target is simply further away.
+    private void FallClaim(int s, ref FluidSlotCPU slot, int3 c)
+    {
+        int k = Math.Min(_fallTicks[s] + 1, FluidFall.TableSize - 1);
+        int step = _fallTable[k] - _fallTable[k - 1];
+        int n = 1;
+        bool landed = false;
+        for (int j = 2; j <= step; j++)
+        {
+            if (!InBounds(c.x, c.y - j, c.z)) break;
+            int i = VoxelIndex(c.x, c.y - j, c.z);
+            if (_voxels[i] != Materials.Air || _reacted[i]) { landed = true; break; }
+            n = j;
+        }
+        _fallTicks[s] = landed ? (byte)0 : (byte)k;
+        TryClaim(s, ref slot, c.x, c.y - n, c.z);
     }
 
     /// §7.3 Claim, plain write. "If two sources target the same destination,
@@ -1016,6 +1101,7 @@ public sealed class FluidReferenceCPU : IFluidSampler
 
             _movesThisTick++;
             if (!descended) _lateralMovesThisTick++;
+            if (IndexToVoxel(home).y - IndexToVoxel(d).y > 1) FastFallsThisTick++;
             _changedCellsThisTick += 2;
 
             // The applied move is an edit as far as neighbours are concerned
@@ -1107,6 +1193,10 @@ public sealed class FluidReferenceCPU : IFluidSampler
             // Viscosity-gated this tick: it never got a turn, so it must not
             // age toward sleep.
             if ((slot.stateFlags & FLAG_EVALUATED) == 0) continue;
+
+            // Task 94: k counts ticks the slot actually FELL; a lost claim (or
+            // no move) ends the run.
+            if ((slot.stateFlags & FLAG_WON_CLAIM) == 0) _fallTicks[s] = 0;
 
             // THE SLEEP RULE, AND THE ONE PLACE THIS FILE READS §7.6 RATHER
             // THAN QUOTES IT. §7.6 says "a no-move counter frees the slot at

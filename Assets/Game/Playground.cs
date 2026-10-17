@@ -430,6 +430,11 @@ public partial class Playground : MonoBehaviour
         _readback = new FluidOpListReadback(_fluid, _store) { OnVoxelApplied = MarkDirtyFor };
         _tickSched = new FluidTickScheduler(TryArgFloat("-fluidhz", out float fluidHz) && fluidHz >= 0f
             ? fluidHz : FluidTickScheduler.DefaultRateHz);
+        // Task 94 (AMENDMENT_8_16): gravity fall, ON by default; `-fluidfall 0` = the
+        // pre-94 one voxel per tick. The fall integrates over the scheduler's period
+        // (legacy per-frame ticking keeps the nominal 4.5 Hz period).
+        _fluid.GravityFall = !(TryArgFloat("-fluidfall", out float fallArg) && fallArg == 0f);
+        if (!_tickSched.Legacy) _fluid.FallTickSeconds = _tickSched.PeriodSeconds;
 
         // §8.3's edit path, not the hand-rolled trio. EVERY edit in this scene
         // now goes through EditService: it marks the mirror dirty, runs §7.6's

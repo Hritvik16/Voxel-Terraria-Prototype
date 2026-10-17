@@ -1,0 +1,17 @@
+FALL STRIP (task 94) -- 2026-10-17_050506
+  tick 4.50 Hz, fall table dt 0.2222 s, terminal 12.15 m/s = 27 voxels/tick
+  arena centre int3(13012, 31, 12804), ground y 35 (3.5 m), release y 115 = 8.0 m above it
+
+---- BEFORE (gravity fall OFF): placed 1536 voxels, frame 691 ----
+  +0.5 s (wall 0.52 s, ticks 2):  water front 0.2 m  lava front 0.0 m  honey front 0.0 m
+  +1.0 s (wall 1.01 s, ticks 4):  water front 0.3 m  lava front 0.0 m  honey front 0.0 m
+  +2.0 s (wall 2.01 s, ticks 8):  water front 0.8 m  lava front 0.1 m  honey front 0.0 m
+  +4.0 s (wall 4.02 s, ticks 17):  water front 1.7 m  lava front 0.2 m  honey front 0.0 m
+  fast-fall ops applied (whole run) 0, fall-ahead tiles 0, op tiles refused 0
+
+---- AFTER (gravity fall ON): placed 1536 voxels, frame 925 ----
+  +0.5 s (wall 0.51 s, ticks 3):  water front 0.9 m  lava front 0.9 m  honey front 0.9 m
+  +1.0 s (wall 1.02 s, ticks 5):  water front 3.8 m  lava front 3.8 m  honey front 3.8 m
+  +2.0 s (wall 2.02 s, ticks 10):  water front 7.9 m  lava front 7.9 m  honey front 7.9 m
+  +4.0 s (wall 4.01 s, ticks 19):  water front 7.9 m  lava front 7.9 m  honey front 7.9 m
+  fast-fall ops applied (whole run) 10163, fall-ahead tiles 12, op tiles refused 0

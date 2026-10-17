@@ -114,6 +114,31 @@ namespace VoxelEngine.Simulation
         private int _ring = -1;
         private GraphicsBuffer _wakeRequests;
         private GraphicsBuffer _debugCounters;
+        /// Task 94: FluidFall's table (256 ints), rebuilt when FallTickSeconds changes.
+        private GraphicsBuffer _fallTable;
+        private double _fallTickSeconds = FluidFall.DefaultTickSeconds;
+
+        /// Task 94 (AMENDMENT_8_16): GRAVITY FALL on (default) -- a fluid with
+        /// air below falls FluidFall's table each tick, ungated by viscosity.
+        /// False = the pre-94 one voxel per evaluated tick (`-fluidfall 0`).
+        /// Same switch as FluidReferenceCPU.GravityFall.
+        public bool GravityFall { get; set; } = true;
+
+        /// The tick period the fall integrates over (s): the scheduler's period.
+        /// Default task 91's 4.5 Hz; per-frame (legacy) callers keep it.
+        public double FallTickSeconds
+        {
+            get => _fallTickSeconds;
+            set
+            {
+                int[] t = FluidFall.BuildTable(value);
+                _fallTickSeconds = value;
+                _fallTable?.SetData(t);
+                FallMaxStep = FluidFall.MaxStep(t);
+            }
+        }
+        /// The farthest one tick can move a falling cell (voxels).
+        public int FallMaxStep { get; private set; } = FluidFall.MaxStep(FluidFall.BuildTable(FluidFall.DefaultTickSeconds));
         private readonly uint[] _debugZero = new uint[DebugSlots];
         private readonly uint[] _debugScratch = new uint[DebugSlots];
 
@@ -533,6 +558,8 @@ namespace VoxelEngine.Simulation
             _wakePending = new FluidWakeQueue(maxOpsPerFrame, MaxWakeDeferTicks);
             _mirrorReady = IsMirrorReadyForCell;
             _debugCounters = New(GraphicsBuffer.Target.Structured, DebugSlots, 4);
+            _fallTable = New(GraphicsBuffer.Target.Structured, FluidFall.TableSize, 4);
+            _fallTable.SetData(FluidFall.BuildTable(_fallTickSeconds));
 
             // §3.7's lesson, applied here too: a fresh GraphicsBuffer contains
             // whatever was in GPU memory. SlotAt in particular MUST start at
@@ -794,6 +821,31 @@ namespace VoxelEngine.Simulation
                 Tiles.NoteActivity(tc << Tiles.TileShift);
             }
         }
+
+        /// Task 94: a FAST FALL (an applied move of more than one voxel down) also
+        /// pulls in the tiles its next tick can reach -- straight down, up to
+        /// FallMaxStep voxels below dst. NoteOpApplied's 3x3x3 only reaches one
+        /// voxel, so without this a fall at 27 voxels/tick stops at every tile
+        /// face (CSIntent stops it at a missing tile without a landing). One
+        /// tile almost always (the one below); released when quiet like any
+        /// other. AwakeOnly only, same refusal accounting as NoteOpApplied.
+        public void NoteFallAhead(int3 dst)
+        {
+            if (Tiles == null || !Tiles.AwakeOnly) return;
+            int3 lo = Tiles.TileOf(dst - new int3(0, FallMaxStep, 0)), hi = Tiles.TileOf(dst - new int3(0, 2, 0));
+            for (int ty = hi.y; ty >= lo.y; ty--)
+            {
+                int3 tc = new int3(hi.x, ty, hi.z);
+                if (Tiles.TryGetSlot(tc) != FluidTileMap.NO_TILE) continue;
+                if (!TryDisplaceForWake(tc) && Tiles.Acquire(tc) == FluidTileMap.NO_TILE)
+                { OpTilesRefusedTotal++; continue; }
+                FallAheadTilesTotal++;
+                Tiles.NoteActivity(tc << Tiles.TileShift);
+            }
+        }
+
+        /// Tiles NoteFallAhead acquired (task 94; pool-pressure evidence).
+        public long FallAheadTilesTotal { get; private set; }
 
         /// Face tiles an applied op could not get (pool full). AwakeOnly only.
         public long OpTilesRefusedTotal { get; private set; }
@@ -1080,6 +1132,7 @@ namespace VoxelEngine.Simulation
             _cs.SetInt("_WakeRequestCount", _wakeCount);
             _cs.SetInt("_MaxOpsPerFrame", MaxOpsPerFrame);
             _cs.SetInt("_SleepTicks", EngineConfig.FLUID_SLEEP_TICKS);
+            _cs.SetInt("_FallOn", GravityFall ? 1 : 0);
 
             int3 wdc = clipmap.WindowDimsChunks, wdb = clipmap.WindowDimsBricks, wob = clipmap.WindowOriginBricks;
             _cs.SetInts("_WindowDimsChunksPacked", wdc.x, wdc.y, wdc.z, 0);
@@ -1123,6 +1176,7 @@ namespace VoxelEngine.Simulation
                 _cs.SetBuffer(k, "ReactionSelfProduct", _reactSelf);
                 _cs.SetBuffer(k, "ReactionOtherProduct", _reactOther);
                 _cs.SetBuffer(k, "MaterialDensityRank", _densityRank);
+                _cs.SetBuffer(k, "FallTable", _fallTable);
             }
         }
 
@@ -1225,6 +1279,7 @@ namespace VoxelEngine.Simulation
                 _opCounters[i]?.Dispose(); _opCounters[i] = null;
             }
             _debugCounters?.Dispose(); _debugCounters = null;
+            _fallTable?.Dispose(); _fallTable = null;
             _materialFlags?.Dispose(); _materialTick?.Dispose();
             _reactSelf?.Dispose(); _reactOther?.Dispose(); _densityRank?.Dispose(); _densityRank = null;
             _slots = _claim = _slotAt = _reacted = _counters = null;
