@@ -229,8 +229,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// far-shading kernel only): bit 0 skips the shell-hit sun-shadow march, bit 1 the
     /// primary shell march and the far march after it, bit 2 turns ShellMarch's read caches off
     /// (shellcache_off: same image, the pre-93b4 reads), bit 3 ShellMarch's air-brick mask
-    /// (shellmask_off, task 93b5: same image, the pre-93b5 iterations), bit 4 one closed-form leap per
-    /// empty group instead of the exact inner loop (shellgroup, task 93b5: NOT bit-exact). Never set outside the cost split.
+    /// (shellmask_off, task 93b5: same image, the pre-93b5 iterations), bit 4 the exit-plane shell leap
+    /// without the mask (shellleap_new = bits 3 + 4: what that leap costs; the mask turns it on). Never set outside the cost split.
     public static int DebugShellSkip = 0;
     /// Task 76 (R2 + R5, replaces task 73's prototype): generated rivers drawn as one
     /// moving sheet -- one-voxel risers between water drawn as surface, ripples moving
@@ -247,9 +247,10 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// their look byte for byte; play sets it from PlaySettings.farShade (on); any
     /// other player (capture runs, rigs) only with `-farshade 1` (last match wins).
     public static bool FarShade = ReadFarShadeArg();
-    /// Task 93b5: ShellMarch uses the shells' air-brick mask (exact: the same image). OFF by
-    /// default: measured warm it cut shell iterations 55% / 29% (walk_near / walk_open) but made
-    /// frames 1-3 ms SLOWER (Logs/costsplit_2026-10-17_{023103,025258}.txt; KNOWN_ISSUES "SHELLS
+    /// Task 93b5: ShellMarch uses the shells' air-brick mask: an empty brick group in ONE leap,
+    /// exact with the exit-plane leap it turns on (task 93b5 (b)). OFF by default: warm, vs the
+    /// mask-off march p50 -2.1 ms walk_near but +0.8 ms walk_open, and the exit-plane leap moves
+    /// ~0.02% of pixels by 1-7 levels (Logs/costsplit_2026-10-17_041222.txt; KNOWN_ISSUES "SHELLS
     /// COST"). `-shellmask 1` turns it on. The mask itself is always built and uploaded.
     public static bool ShellAirMask = ReadShellMaskArg();
     /// Its constants (task 85b's picks): sky strength (x the sky colour the face

@@ -3,15 +3,18 @@
 // Task 93b5 (owner Q58 (a)): the shell AIR-BRICK MASK (ShellStore header; 64 bits
 // per page, bit g = brick group g of 4x4x4 bricks holds a brick that is not
 // uniform air) and ShellMarch's use of it (Raymarch.compute SHELL_MASK_ON,
-// ShellRayReference.March's useMask: an empty group's later air bricks are leapt
-// in an inner loop with no reads and no iteration each).
+// ShellRayReference.March's useMask: an empty group is crossed in ONE leap, exact
+// because every shell-march leap's state depends on its exit t alone, task 93b5 (b)).
 //   (1) The uploaded mask (ShellStore.ShadowMasks) equals a brute-force scan of
 //       the uploaded page for real tg2 shell chunks: generated (no fill), op-redrawn
 //       (Store replace: true) and filled; and a clear bit's group is air voxel for voxel.
-//   (2) March with the mask on and off gives every Result field but the counters
+//   (2) March with the mask on and off (both with the exit-plane leap, planeLeap,
+//       which the mask implies) gives every Result field but the counters
 //       equal on the ShellMarchCacheTests ray set (hole corners) + their shadows,
 //       >= 3,000 rays, in a synthetic world whose pages are cheap to scan.
 //   (3) A mutation (bits cleared on non-air groups) FAILS (2).
+//   (4) ShellRayReference.PlaneLeap: one leap over a brick group ends exactly where the
+//       brick leaps through it end (t, voxel, normal), on random and tie-prone rays.
 using System.Collections.Generic;
 using NUnit.Framework;
 using Unity.Mathematics;
@@ -272,16 +275,16 @@ public class ShellAirMaskTests
         const float tTier0 = 640f;   // tier 0 marched 64 m and saw air
         const int CAP = 4096, SHADOW_CAP = 2048;   // no ray ends at the cap: every field compares
         int rays = 0, hits = 0, shadows = 0, shadowHits = 0, absent = 0, past = 0, capOff = 0, differ = 0;
-        long itersOn = 0, itersOff = 0, groups = 0, bricks = 0;
+        long itersOn = 0, itersOff = 0, groups = 0;
         var shells = new HashSet<int>();
         var dirs = ShellMarchCacheTests.RaySet(v.L, Cam, out int tipRays);
         Assert.Greater(tipRays, 50, "the hole corners reach past the finer shell's bound");
         foreach (var dir in dirs)
         {
             var on = ShellRayReference.March(v, Cam, dir, 0f, false, Cam, CAP, tTier0, useMask: true);
-            var off = ShellRayReference.March(v, Cam, dir, 0f, false, Cam, CAP, tTier0, useMask: false);
+            var off = ShellRayReference.March(v, Cam, dir, 0f, false, Cam, CAP, tTier0, useMask: false, planeLeap: true);
             rays++;
-            itersOn += on.Iters; itersOff += off.Iters; groups += on.MaskGroups; bricks += on.MaskBricks;
+            itersOn += on.Iters; itersOff += off.Iters; groups += on.MaskGroups;
             if (off.End == ShellRayReference.END_CAP) capOff++;
             if (!Same(on, off))
             {
@@ -294,9 +297,9 @@ public class ShellAirMaskTests
             hits++; shells.Add(off.Shell);
             float3 so = Cam + dir * off.T + (float3)off.Normal * 0.01f;
             var sOn = ShellRayReference.March(v, so, sun, 0f, true, Cam, SHADOW_CAP, 0f, useMask: true);
-            var sOff = ShellRayReference.March(v, so, sun, 0f, true, Cam, SHADOW_CAP, 0f, useMask: false);
+            var sOff = ShellRayReference.March(v, so, sun, 0f, true, Cam, SHADOW_CAP, 0f, useMask: false, planeLeap: true);
             shadows++;
-            itersOn += sOn.Iters; itersOff += sOff.Iters; groups += sOn.MaskGroups; bricks += sOn.MaskBricks;
+            itersOn += sOn.Iters; itersOff += sOff.Iters; groups += sOn.MaskGroups;
             if (sOff.End == ShellRayReference.END_CAP) capOff++;
             if (!Same(sOn, sOff))
             {
@@ -308,7 +311,7 @@ public class ShellAirMaskTests
         report = $"{rays} primary rays ({tipRays} through hole corners): {hits} hits in shells {string.Join(",", shells)}, absent {absent}, " +
                  $"past {past}; {shadows} shadow rays, {shadowHits} shadowed; capped (mask off) {capOff}; differ {differ}; " +
                  $"iterations mask on {itersOn:N0} vs off {itersOff:N0} ({100.0 * itersOn / math.max(1, itersOff):F0}%), " +
-                 $"empty groups crossed {groups:N0}, air bricks leapt in them {bricks:N0}";
+                 $"empty groups crossed in one leap {groups:N0}";
         if (assertSame)
         {
             Assert.GreaterOrEqual(rays + shadows, 3000, "rays");
@@ -317,7 +320,7 @@ public class ShellAirMaskTests
             Assert.GreaterOrEqual(shells.Count, 4, "hits in several shells");
             Assert.Greater(absent + past, 100, "sky rays leave the shells");
             Assert.Greater(shadowHits, 10, "some shadow rays are blocked");
-            Assert.Greater(bricks, 0, "the mask leapt bricks");
+            Assert.Greater(groups, 0, "the mask leapt groups");
             Assert.Less(itersOn, itersOff, "the mask saves iterations");
         }
         return differ;
@@ -338,5 +341,68 @@ public class ShellAirMaskTests
         int differ = CompareMask(v, false, out string report);
         Debug.Log("[93b5] MUTATED mask on vs off: " + report);
         Assert.Greater(differ, 0, "a mask that calls a non-air group empty must change some result");
+    }
+
+    // ==================================================================
+    // (4) Leap is path-independent: one group leap = its brick leaps
+    // ==================================================================
+
+    /// From a cell inside a brick group of shell k (group = 4x4x4 bricks of 8 << k voxels),
+    /// march brick by brick until the cell leaves the group, and compare with ONE leap over
+    /// the group from the same state. Random directions and starts near tg2's coordinates,
+    /// plus axis-parallel and diagonal directions (|d| equal on two or three axes: plane ties).
+    [Test]
+    public void Leap_OneGroupLeap_EndsWhereItsBrickLeapsEnd()
+    {
+        var rng = new Unity.Mathematics.Random(93005u);
+        int rays = 0, ties = 0, multi = 0;
+        for (int i = 0; i < 20000; i++)
+        {
+            float3 dir;
+            int kind = i % 4;
+            if (kind == 0) dir = rng.NextFloat3Direction();
+            else if (kind == 1) dir = math.normalize(new float3(rng.NextBool() ? 1 : -1, rng.NextBool() ? 1 : -1, rng.NextBool() ? 1 : -1));
+            else if (kind == 2) { var d = new float3(rng.NextBool() ? 1 : -1, rng.NextBool() ? 1 : -1, 0); dir = math.normalize(rng.NextBool() ? d.xzy : d); }
+            else dir = math.normalize(new float3(rng.NextFloat(-1, 1), rng.NextBool() ? 1e-7f : -0.3f, rng.NextFloat(-1, 1)));
+            dir = new float3(ShellRayReference.SafeAxis(dir.x), ShellRayReference.SafeAxis(dir.y), ShellRayReference.SafeAxis(dir.z));
+            int k = 1 + i % 5;
+            int gsz = 1 << (k + 5);
+            // A start on a quarter-voxel grid; for the diagonal kinds its axes sit the same
+            // distance from group planes, so the ray meets group edges and corners exactly.
+            float sx = 40960f + rng.NextInt(-3000, 3000) + rng.NextInt(0, 4) * 0.25f;
+            float3 start = kind == 1 || kind == 2
+                ? new float3(sx, sx - 40960f + GROUND + gsz * rng.NextInt(-1, 2), sx + gsz * rng.NextInt(-3, 4))
+                : new float3(sx, GROUND + rng.NextInt(-400, 800) + rng.NextInt(0, 4) * 0.25f,
+                             40960f + rng.NextInt(-3000, 3000) + rng.NextInt(0, 4) * 0.25f);
+            int3 step = (int3)math.sign(dir);
+            float3 tDelta = math.abs(1f / dir);
+            int3 voxel = (int3)math.floor(start);
+            float3 tMax = ShellRayReference.ReseedTMax(voxel, start, tDelta, step);
+            float t = 0f; int3 normal = int3.zero;
+            // Walk a few random brick leaps first so the group is entered mid-path.
+            int pre = rng.NextInt(0, 40);
+            for (int j = 0; j < pre; j++)
+                ShellRayReference.PlaneLeap(ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, (voxel >> (k + 3)) << (k + 3), 1 << (k + 3));
+            int gs = k + 5;
+            int3 g0 = voxel >> gs;
+            int3 bv = voxel, gv = voxel; float3 bm = tMax, gm = tMax; float bt = t, gt = t; int3 bn = normal, gn = normal;
+            int leaps = 0;
+            while (math.all((bv >> gs) == g0) && leaps < 64)
+            {
+                ShellRayReference.PlaneLeap(ref bv, ref bm, ref bt, ref bn, tDelta, step, start, (bv >> (k + 3)) << (k + 3), 1 << (k + 3));
+                leaps++;
+            }
+            Assert.Less(leaps, 64, "the brick leaps leave the group");
+            ShellRayReference.PlaneLeap(ref gv, ref gm, ref gt, ref gn, tDelta, step, start, (gv >> gs) << gs, 1 << gs);
+            rays++;
+            if (leaps > 1) multi++;
+            if (math.csum(math.select(int3.zero, new int3(1), (bv >> gs) != g0)) > 1) ties++;
+            if (bt != gt || !bv.Equals(gv) || !bn.Equals(gn) || !bm.Equals(gm))
+                Assert.Fail($"ray {i} k {k} start {start} dir {dir}: {leaps} brick leaps -> t {bt:R} voxel {bv} normal {bn}; " +
+                            $"one group leap -> t {gt:R} voxel {gv} normal {gn}");
+        }
+        Debug.Log($"[93b5] Leap path-independence: {rays} rays, {multi} crossed >1 brick, {ties} left the group across an edge/corner");
+        Assert.Greater(multi, rays / 2, "most rays cross several bricks");
+        Assert.Greater(ties, 20, "some rays leave the group through an edge or corner (ties)");
     }
 }

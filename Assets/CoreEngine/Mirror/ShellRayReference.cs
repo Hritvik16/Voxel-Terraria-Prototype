@@ -90,7 +90,7 @@ namespace VoxelEngine.Mirror
             public int Iters;
             public bool InsideStart; // the hit cell was entered mid-cell (top-face normal)
             public int DirReads, PageReads;   // task 93b4: Resolve calls / brick-handle reads the caches did not answer
-            public int MaskGroups, MaskBricks; // task 93b5: empty groups crossed by the mask, and their air bricks (no iteration each)
+            public int MaskGroups;   // task 93b5: empty brick groups crossed in one leap each
         }
 
         /// Smallest shell k >= 1 whose outer bound is beyond d; -1 = past the last.
@@ -185,14 +185,16 @@ namespace VoxelEngine.Mirror
         /// Resolve's answer per (kd, kd's chunk) and of the brick handle per (shell,
         /// brick). Fewer reads, the same result (ShellMarchCacheTests).
         /// useMask (task 93b5, the shader's SHELL_MASK_ON; needs an IMaskView): an air
-        /// brick of a paged chunk whose brick group is empty in the page's mask has its
-        /// group's later air bricks leapt in an inner loop with no reads and no
-        /// iteration each. Fewer iterations, the same result (ShellAirMaskTests). Off by
-        /// default, as the shader's _ShellAirMask (-shellmask 1): measured slower (task 93b5).
+        /// brick of a paged chunk whose brick group is empty in the page's mask leaps the
+        /// whole group in one iteration where GroupLeapOk allows it. Fewer iterations, the
+        /// same result in every field but Iters and the read counters as planeLeap without the
+        /// mask (ShellAirMaskTests). planeLeap (task 93b5 (b), implied by useMask): every leap is
+        /// PlaneLeap (exit-plane t) instead of Leap (the shader's mask-off default).
         public static Result March(IView v, float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters,
-                                   float tTier0 = 0f, bool useCache = true, bool useMask = false)
+                                   float tTier0 = 0f, bool useCache = true, bool useMask = false, bool planeLeap = false)
         {
             var mv = useMask ? v as IMaskView : null;
+            bool pl = planeLeap || useMask;   // the shader's SHELL_PLANE_LEAP
             dir = new float3(SafeAxis(dir.x), SafeAxis(dir.y), SafeAxis(dir.z));
             int3 step = (int3)math.sign(dir);
             float3 tDelta = math.abs(1f / dir);
@@ -212,7 +214,7 @@ namespace VoxelEngine.Mirror
                 if (t < tTier0 && v.Tier0Holds(voxel))
                 {
                     // Tier 0's band, a chunk it holds: it marched this and saw air.
-                    Leap(ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, (voxel >> 7) << 7, 128);
+                    LeapAny(pl, ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, (voxel >> 7) << 7, 128);
                     kPrev = 0;
                     continue;
                 }
@@ -230,7 +232,7 @@ namespace VoxelEngine.Mirror
                 }
                 if (k == RESOLVE_TIER0 && !v.Tier0Missing(voxel))
                 {
-                    Leap(ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, (voxel >> 7) << 7, 128);
+                    LeapAny(pl, ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, (voxel >> 7) << 7, 128);
                     kPrev = 0;
                     continue;
                 }
@@ -268,33 +270,22 @@ namespace VoxelEngine.Mirror
                     sh = k;   // a shadow ray's start cell: leave it
                 }
                 // Task 93b5: an air brick of a paged chunk in an EMPTY brick group (Raymarch.compute's
-                // comment there: the group's other bricks would each take this brick's path).
-                bool groupEmpty = false;
-                int3 gMin = int3.zero;
+                // comment there): ONE leap crosses the group when every iteration its bricks would take
+                // is this brick's path (GroupLeapOk). Leap's state depends on its exit t alone, so it
+                // ends exactly where the last brick leap would.
                 if (mv != null && sh == k + 3)
                 {
                     int3 gl = (voxel >> (k + 5)) & 3;
                     int g = (gl.z << 4) | (gl.y << 2) | gl.x;
-                    groupEmpty = ((mv.GroupMask(k, (int)(e & ~ShellStore.PAGE)) >> g) & 1ul) == 0ul;
-                    gMin = (voxel >> (k + 5)) << (k + 5);
-                }
-                Leap(ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, (voxel >> sh) << sh, 1 << sh);
-                kPrev = k;
-                if (groupEmpty)
-                {
-                    r.MaskGroups++;
-                    int gs = k + 5;
-                    bool yFree = gMin.y + (1 << gs) <= mv.Tier0FloorY || gMin.y >= mv.Tier0CeilY;
-                    for (int gi = 0; gi < 16; gi++)
+                    if (((mv.GroupMask(k, (int)(e & ~ShellStore.PAGE)) >> g) & 1ul) == 0ul
+                        && GroupLeapOk(mv, voxel, k, t, tTier0, shadow, camera, start, tDelta, step))
                     {
-                        if (math.any((voxel >> gs) != (gMin >> gs))) break;
-                        if (t < tTier0 && !yFree) break;
-                        float cd = shadow ? math.length((float3)voxel + 0.5f - camera) : t;
-                        if (ShellByDistance(v, cd) != k) break;
-                        Leap(ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, (voxel >> (k + 3)) << (k + 3), 1 << (k + 3));
-                        r.MaskBricks++;
+                        sh = k + 5;
+                        r.MaskGroups++;
                     }
                 }
+                LeapAny(pl, ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, (voxel >> sh) << sh, 1 << sh);
+                kPrev = k;
             }
             r.End = END_CAP; r.T = t;
             return r;
@@ -331,6 +322,83 @@ namespace VoxelEngine.Mirror
             tMax = ReseedTMax(voxel, start, tDelta, step);
             t = tHit;
             normal = axis == 0 ? new int3(-step.x, 0, 0) : axis == 1 ? new int3(0, -step.y, 0) : new int3(0, 0, -step.z);
+        }
+
+        /// The shell march's leap: PlaneLeap with the mask / planeLeap, else Leap (the shader's ShellLeap).
+        private static void LeapAny(bool plane, ref int3 voxel, ref float3 tMax, ref float t, ref int3 normal,
+                                    float3 tDelta, int3 step, float3 start, int3 spanMin, int span)
+        {
+            if (plane) PlaneLeap(ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, spanMin, span);
+            else Leap(ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, spanMin, span);
+        }
+
+        /// Task 93b5 (b): the t of a voxel PLANE (integer coordinate on one axis), from the plane
+        /// itself: the same value whatever path reached it. ReseedAxis(v) == PlaneT(st > 0 ? v + 1 : v).
+        public static float PlaneT(int plane, float s, float td, int st) => (st > 0 ? (plane - s) : (s - plane)) * td;
+
+        /// The planes one axis crosses in a leap ending at tHit: every plane from the cell's next one
+        /// (np, t = tNext) whose t <= tHit, at most guard. The closed-form count is a guess, corrected
+        /// against PlaneT, so the cell reached is a function of tHit alone (no eps).
+        public static int PlanesCrossed(int np, float s, float td, int st, float tHit, float tNext, int guard)
+        {
+            int n = math.clamp((int)math.floor((tHit - tNext) / td) + 1, 0, guard);
+            while (n > 0 && PlaneT(np + st * (n - 1), s, td, st) > tHit) n--;
+            while (n < guard && PlaneT(np + st * n, s, td, st) <= tHit) n++;
+            return n;
+        }
+
+        /// Raymarch.compute's ShellLeap (task 93b5 (b)): t = the smallest exit-plane t; each axis
+        /// crosses the planes whose t <= that t; the normal is the first axis (x, y, z) whose last
+        /// crossed plane has that t. The state after a leap depends on its exit t only.
+        public static void PlaneLeap(ref int3 voxel, ref float3 tMax, ref float t, ref int3 normal,
+                                float3 tDelta, int3 step, float3 start, int3 spanMin, int span)
+        {
+            int3 ec = new int3(
+                step.x > 0 ? (spanMin.x + span - voxel.x) : (voxel.x - (spanMin.x - 1)),
+                step.y > 0 ? (spanMin.y + span - voxel.y) : (voxel.y - (spanMin.y - 1)),
+                step.z > 0 ? (spanMin.z + span - voxel.z) : (voxel.z - (spanMin.z - 1)));
+            int3 pe = new int3(step.x > 0 ? spanMin.x + span : spanMin.x,
+                               step.y > 0 ? spanMin.y + span : spanMin.y,
+                               step.z > 0 ? spanMin.z + span : spanMin.z);
+            float tHit = math.min(PlaneT(pe.x, start.x, tDelta.x, step.x),
+                         math.min(PlaneT(pe.y, start.y, tDelta.y, step.y), PlaneT(pe.z, start.z, tDelta.z, step.z)));
+            int3 np = new int3(step.x > 0 ? voxel.x + 1 : voxel.x, step.y > 0 ? voxel.y + 1 : voxel.y, step.z > 0 ? voxel.z + 1 : voxel.z);
+            int3 n = new int3(PlanesCrossed(np.x, start.x, tDelta.x, step.x, tHit, tMax.x, math.min(ec.x, span + 1)),
+                              PlanesCrossed(np.y, start.y, tDelta.y, step.y, tHit, tMax.y, math.min(ec.y, span + 1)),
+                              PlanesCrossed(np.z, start.z, tDelta.z, step.z, tHit, tMax.z, math.min(ec.z, span + 1)));
+            voxel += step * n;
+            tMax = ReseedTMax(voxel, start, tDelta, step);
+            t = tHit;
+            // The last plane crossed on each axis: the new cell's entry face.
+            bool hx = n.x > 0 && PlaneT(step.x > 0 ? voxel.x : voxel.x + 1, start.x, tDelta.x, step.x) == tHit;
+            bool hy = n.y > 0 && PlaneT(step.y > 0 ? voxel.y : voxel.y + 1, start.y, tDelta.y, step.y) == tHit;
+            normal = hx ? new int3(-step.x, 0, 0) : hy ? new int3(0, -step.y, 0) : new int3(0, 0, -step.z);
+        }
+
+        /// Raymarch.compute's ShellGroupLeapOk: may the EMPTY brick group of shell k holding voxel be
+        /// crossed in one leap from t? No tier-0 leap inside it (t past tTier0, or the group outside
+        /// tier 0's layers) and every distance in k's band: a primary ray's t's up to the group's exit t,
+        /// a shadow ray's cell centres inside the group (1 voxel margin).
+        public static bool GroupLeapOk(IMaskView v, int3 voxel, int k, float t, float tTier0, bool shadow, float3 camera,
+                                       float3 start, float3 tDelta, int3 step)
+        {
+            int gs = k + 5;
+            int gsz = 1 << gs;
+            int3 gMin = (voxel >> gs) << gs;
+            if (t < tTier0 && gMin.y + gsz > v.Tier0FloorY && gMin.y < v.Tier0CeilY) return false;
+            float lo = k > 1 ? v.OuterVoxels(k - 1) : -1f;
+            float hi = v.OuterVoxels(k);
+            if (shadow)
+            {
+                float3 c0 = (float3)gMin + 0.5f - camera, c1 = c0 + (gsz - 1);
+                return math.length(math.max(math.abs(c0), math.abs(c1))) < hi - 1f
+                    && math.length(math.max(math.max(c0, -c1), 0f)) >= lo + 1f;
+            }
+            if (t < lo) return false;
+            float tExit = math.min(PlaneT(step.x > 0 ? gMin.x + gsz : gMin.x, start.x, tDelta.x, step.x),
+                          math.min(PlaneT(step.y > 0 ? gMin.y + gsz : gMin.y, start.y, tDelta.y, step.y),
+                                   PlaneT(step.z > 0 ? gMin.z + gsz : gMin.z, start.z, tDelta.z, step.z)));
+            return tExit <= hi;
         }
 
         /// A view over real ShellStores (their CPU directory and, with

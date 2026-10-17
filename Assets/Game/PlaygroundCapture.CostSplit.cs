@@ -78,10 +78,12 @@
 //                       (RaymarchFeature.DebugShellSkip; far-shading kernel only, so -farshade 1)
 //            shellcache_off  ShellMarch's one-entry resolve / page caches off (the pre-fix reads; same image)
 //   TASK 93b5 (diagnostic): shellmask_off  ShellMarch's air-brick mask off (the pre-93b5 iterations; same
-//                       image); the counters line adds the groups / bricks the mask crossed (ShadowStats 60-61)
-//            shellgroup  an empty group in ONE closed-form leap, not the exact inner loop (NOT bit-exact:
-//                       measures what a non-exact group leap would save; its raw stills show what differs)
-//            (since 93b5 the mask is OFF by default: both arms need -shellmask 1, FULL then = mask on)
+//                       image); the counters line adds the empty groups crossed in one leap (ShadowStats 60)
+//                       (= the shell march as before 93b5: mask off keeps the old leap)
+//            shellleap_new  mask off but the exit-plane leap (ShellLeap, which the mask turns on): what the
+//                       leap itself costs; its raw stills = FULL's (exact) and differ from shellmask_off's
+//                       by the new t's LSBs
+//            (the mask needs -shellmask 1: FULL then = mask on)
 //            -coststillraw  each arm's first still also shoots _raw.png / _raw2.png (10 frames apart) with no
 //                       upscaler (no jitter), for byte-identity checks between arms
 //            the counters line also gives shell march iterations by ray kind (ShadowStats 48-55)
@@ -293,7 +295,7 @@ public partial class PlaygroundCapture
         RaymarchFeature.DrawShells = arm != "shells_off" && arm != "tiers_farprim";
         RaymarchFeature.FarShade = arm != "fshade_off" && _costBaseFarShade;
         // Task 93b4 (diagnostic): see the header.
-        RaymarchFeature.DebugShellSkip = arm == "shellshadow_off" ? 1 : arm == "shellmarch_off" ? 2 : arm == "shellcache_off" ? 4 : arm == "shellmask_off" ? 8 : arm == "shellgroup" ? 16 : 0;
+        RaymarchFeature.DebugShellSkip = arm == "shellshadow_off" ? 1 : arm == "shellmarch_off" ? 2 : arm == "shellcache_off" ? 4 : arm == "shellmask_off" ? 8 : arm == "shellleap_new" ? 24 : 0;
         RaymarchFeature.UseLODCascade = arm != "tiers_off";
         // Task 75: see_on turns see-through liquids ON; FULL keeps the launch's
         // value (OFF unless -seethrough 1), so saved = OFF - ON (negative = its cost).
@@ -347,11 +349,9 @@ public partial class PlaygroundCapture
         L($"    [shell {arm}] primary iters by step: tier-0 leap {(pi > 0 ? 100 * l0 / pi : 0):F0}%, air chunk {(pi > 0 ? 100 * lc / pi : 0):F0}%, air brick {(pi > 0 ? 100 * lb / pi : 0):F0}%, " +
           $"cell / end {(pi > 0 ? 100 * (pi - l0 - lc - lb) / pi : 0):F0}%; reads per primary iter: directory {(pi > 0 ? dr / pi : 0):F2}, page {(pi > 0 ? pr / pi : 0):F2}");
         if (st.Length < 62) yield break;
-        // Task 93b5: what the air-brick mask crossed (primary rays): groups, and the air bricks
-        // it leapt with no iteration each (they were one iteration each before).
-        double mg = st[60] / (double)n, mb = st[61] / (double)n;
-        L($"    [shell {arm}] air-brick mask: empty groups crossed {mg:N0}/frame, bricks leapt in them {mb:N0}/frame " +
-          $"({(mg > 0 ? mb / mg : 0):F1}/group; {(pi + mb > 0 ? 100 * mb / (pi + mb) : 0):F0}% of iterations + those bricks)");
+        // Task 93b5: the empty brick groups the air-brick mask crossed in one leap each (primary rays).
+        double mg = st[60] / (double)n;
+        L($"    [shell {arm}] air-brick mask: empty groups crossed in one leap {mg:N0}/frame ({(pi > 0 ? 100 * mg / pi : 0):F0}% of primary iters)");
     }
 
     /// Task 75: the lake poses, at -liquiddemo's lake (Playground.FindDemoLake:
