@@ -2637,6 +2637,18 @@ int    _DebugShellSkip;
 #else
 #define SHELL_CACHE_ON true
 #endif
+// TASK 93b5: the AIR-BRICK MASK (ShellStore header): 2 uints per page in the tail of
+// ShellPages, from _ShellMaskBase (uints). Used only with _ShellAirMask (-shellmask 1;
+// OFF by default: exact, but measured 1-3 ms SLOWER, RaymarchFeature.ShellAirMask); bit 3
+// of _DebugShellSkip turns it off in the far-shading kernel (the shellmask_off arm).
+// Same results either way.
+int    _ShellMaskBase;
+int    _ShellAirMask;
+#ifdef VE_FAR_SHADE
+#define SHELL_MASK_ON (_ShellAirMask != 0 && (_DebugShellSkip & 8) == 0)
+#else
+#define SHELL_MASK_ON (_ShellAirMask != 0)
+#endif
 
 #define SHELL_OK 0
 #define SHELL_HOLE 1
@@ -2662,6 +2674,8 @@ struct ShellHit
     int leapsBrick; // ... a uniform (air) brick of a paged chunk
     int dirReads;   // ShellResolve calls (directory reads) the cache did not answer
     int pageReads;  // brick-handle reads the cache did not answer
+    int maskGroups; // task 93b5 (diagnostic): empty brick groups the mask let the ray cross
+    int maskBricks; // ... and the air bricks it crossed there without an iteration
 #endif
 };
 
@@ -2793,6 +2807,7 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
     r.mat = 0u; r.iters = 0; r.inside = false;
 #ifdef VE_FAR_SHADE
     r.leaps0 = 0; r.leapsChunk = 0; r.leapsBrick = 0; r.dirReads = 0; r.pageReads = 0;
+    r.maskGroups = 0; r.maskBricks = 0;
 #endif
     int kPrev = 0;
     int dummyA = 0, dummyB = 0;
@@ -2884,9 +2899,71 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
 #ifdef VE_FAR_SHADE
         if (sh == k + 7) r.leapsChunk++; else if (sh == k + 3) r.leapsBrick++;
 #endif
+        // TASK 93b5: an air brick of a paged chunk (sh == k + 3: a uniform chunk gives
+        // k + 7, a cell k) whose 4x4x4-brick GROUP is empty in the page's air-brick mask.
+        bool groupEmpty = false;
+        int3 gMin = int3(0, 0, 0);
+        if (SHELL_MASK_ON && sh == k + 3)
+        {
+            int3 gl = (voxel >> (k + 5)) & 3;
+            uint g = (uint)((gl.z << 4) | (gl.y << 2) | gl.x);
+            uint mw = ShellPages[(uint)_ShellMaskBase + ((uint)_ShellLo[k].w + (e & 0x7FFFFFFFu)) * 2u + (g >> 5)];
+            groupEmpty = ((mw >> (g & 31u)) & 1u) == 0u;
+            gMin = (voxel >> (k + 5)) << (k + 5);
+#ifdef VE_FAR_SHADE
+            // TASK 93b5 (DIAGNOSTIC, capture only: the shellgroup arm, bit 4 of
+            // _DebugShellSkip; NOT in ShellRayReference): leap the empty group in ONE
+            // closed-form leap (sh = k + 5) instead of the exact inner loop below, where
+            // the whole group is in shell k's distance band and outside tier 0's band.
+            // NOT bit-exact (t at the group's exit rounds differently): it measures what
+            // a non-exact group leap would save.
+            if (groupEmpty && (_DebugShellSkip & 16) != 0)
+            {
+                int gsz = 1 << (k + 5);
+                float3 gc0 = float3(gMin) - camera, gc1 = gc0 + (float)gsz;
+                float farD = length(max(abs(gc0), abs(gc1)));
+                float nearD = length(max(max(gc0, -gc1), 0.0));
+                bool yOut = gMin.y + gsz <= _ContentFloorVoxelY || gMin.y >= _ContentCeilingVoxelY;
+                if ((t >= tTier0 || yOut) && farD < _ShellBounds[k].y && (k == 1 || nearD >= _ShellBounds[k - 1].y))
+                {
+                    sh = k + 5; groupEmpty = false;
+                    r.maskGroups++;
+                }
+            }
+#endif
+        }
         LeapSpanReseedClosedForm(voxel, tMax, t, tDelta, step, start, (voxel >> sh) << sh, 1 << sh,
                                  normal, dummyA, dummyB);
         kPrev = k;
+        if (groupEmpty)
+        {
+            // The group's other bricks are air too, so each later iteration inside it
+            // would do exactly this brick's work: no tier-0 leap (t past tTier0, or the
+            // group outside tier 0's layers), the same distance shell k (no clamp, the
+            // same chunk: k's entry, its page), an air handle, a one-brick leap. Take
+            // those leaps HERE, without the reads, with the SAME LeapSpanReseedClosedForm
+            // calls in the same order -- so t, voxel, normal are bit-identical (one
+            // closed-form leap over the whole group would round t differently). Leave
+            // the group, or any brick where a condition fails, to the loop above.
+            // ShellRayReference.March, line for line (ShellAirMaskTests).
+#ifdef VE_FAR_SHADE
+            r.maskGroups++;
+#endif
+            int gs = k + 5;
+            bool yFree = gMin.y + (1 << gs) <= _ContentFloorVoxelY || gMin.y >= _ContentCeilingVoxelY;
+            [loop] for (int gi = 0; gi < 16; gi++)
+            {
+                if (any((voxel >> gs) != (gMin >> gs))) break;
+                if (t < tTier0 && !yFree) break;
+                float cd = shadow ? length(float3(voxel) + 0.5 - camera) : t;
+                if (ShellByDistance(cd) != k) break;
+                LeapSpanReseedClosedForm(voxel, tMax, t, tDelta, step, start, (voxel >> (k + 3)) << (k + 3), 1 << (k + 3),
+                                         normal, dummyA, dummyB);
+#ifdef VE_FAR_SHADE
+                r.maskBricks++;
+#endif
+            }
+        }
     }
     r.end = SHELL_END_CAP; r.t = t;
     return r;
@@ -3736,6 +3813,8 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             InterlockedAdd(ShadowStats[57], (uint)shr.leapsBrick);
             InterlockedAdd(ShadowStats[58], (uint)shr.dirReads);
             InterlockedAdd(ShadowStats[59], (uint)shr.pageReads);
+            InterlockedAdd(ShadowStats[60], (uint)shr.maskGroups);   // task 93b5
+            InterlockedAdd(ShadowStats[61], (uint)shr.maskBricks);
         }
 #endif
         if (shr.end == SHELL_END_HIT)

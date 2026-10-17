@@ -66,7 +66,7 @@ public sealed class ShellLayout
         public int EstBricks, PoolCap, PageCap;
         public int RingSlots => Ring.x * Ring.y * Ring.z;
         /// What 11a allocates on the GPU for this shell: bodies + pages + directory.
-        public long BytesAllocated => (long)PoolCap * ShellBytes.BODY + (long)PageCap * ShellBytes.PAGE + (long)RingSlots * ShellBytes.DIR_ENTRY;
+        public long BytesAllocated => (long)PoolCap * ShellBytes.BODY + (long)PageCap * (ShellBytes.PAGE + ShellBytes.MASK) + (long)RingSlots * ShellBytes.DIR_ENTRY;
         /// 8.14 §2's MB column: bodies + 64 B occupancy per brick (est.) + directory, at the cap.
         public long BytesAmendmentFormula => (long)PoolCap * (ShellBytes.BODY + ShellBytes.OCCUPANCY_EST) + (long)RingSlots * ShellBytes.DIR_ENTRY;
     }
@@ -192,5 +192,6 @@ public static class ShellBytes
     public const int BODY = 512;          // 8^3 one-byte voxels
     public const int OCCUPANCY_EST = 64;  // per brick, 8.14 §2's MB column (est.; built in 11b with the air mips)
     public const int PAGE = 4096 * 4;     // 16 KB of brick handles per non-uniform chunk
+    public const int MASK = 2 * 4;        // task 93b5: its 64-bit air-brick group mask (the page buffer's tail)
     public const int DIR_ENTRY = 4;
 }

@@ -40,6 +40,16 @@
 //     free stacks only after the next successful FlushDirectory, so no body a
 //     GPU entry still points at is ever rewritten (the WHAT THE GPU MAY SEE
 //     rule in ShellStreamer, for a free that happens mid-Update).
+//   * AIR-BRICK MASK (task 93b5, owner Q58 (a); an Appendix A addition): per
+//     page, 64 bits (2 uints): bit g = brick group g ((gz << 4) | (gy << 2) | gx,
+//     g = brick >> 2 per axis: 4x4x4 bricks) holds a brick whose handle is not
+//     uniform air (GroupMask; a dense brick always counts). Built from the page
+//     staging in Store, uploaded with the page (before the directory entry that
+//     publishes it), never cleared: a page's mask is read only through an entry
+//     that points at it. It lives in the TAIL of the page buffer (MaskBase, in
+//     uints), not in a buffer of its own: one more binding would bring the
+//     raymarch kernel nearer Metal's 31-buffer limit (SHARED BUFFERS above).
+//     ShellMarch leaps an empty group's bricks without reading them.
 using System;
 using System.Collections.Generic;
 using Unity.Collections;
@@ -57,6 +67,7 @@ namespace VoxelEngine.Mirror
         public const uint UNIFORM = 0x40000000u;
         public const uint PAGE = 0x80000000u;
         public const uint DENSE = 0x80000000u;   // brick handle flag, as ChunkStore's
+        public const int MASK_UINTS = 2;            // task 93b5: the air-brick mask per page
         private const int BRICK_UINTS = 128;
         private const int PAGE_UINTS = EngineConfig.BRICKS_PER_CHUNK;
 
@@ -77,6 +88,8 @@ namespace VoxelEngine.Mirror
         public int DirBase { get; }
         public int PageBase { get; }
         public int BrickBase { get; }
+        /// Task 93b5: the first air-brick mask uint in PageBuffer (the store's page p at MaskBase + (PageBase + p) * MASK_UINTS).
+        public int MaskBase { get; }
         private readonly bool _ownsBuffers;
 
         /// One set of buffers for every shell (see the header). Zeroed here (row 3).
@@ -85,17 +98,22 @@ namespace VoxelEngine.Mirror
             public GraphicsBuffer Dir { get; private set; }
             public GraphicsBuffer Pages { get; private set; }
             public GraphicsBuffer Bricks { get; private set; }
+            /// Task 93b5: where the air-brick masks start in Pages (uints), MASK_UINTS per page.
+            public int MaskBase { get; }
+            public long MaskBytes { get; }
             public long BytesAllocated { get; }
             public SharedBuffers(int dirEntries, int pages, int bricks)
             {
                 dirEntries = math.max(1, dirEntries); pages = math.max(1, pages); bricks = math.max(1, bricks);
+                MaskBase = pages * PAGE_UINTS;
+                MaskBytes = (long)pages * MASK_UINTS * 4;
                 Dir = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, dirEntries, 4);
-                Pages = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, pages * PAGE_UINTS, 4);
+                Pages = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, pages * (PAGE_UINTS + MASK_UINTS), 4);
                 Bricks = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, bricks * BRICK_UINTS, 4);
                 ZeroBuffer(Dir, dirEntries);
-                ZeroBuffer(Pages, pages * PAGE_UINTS);
+                ZeroBuffer(Pages, pages * (PAGE_UINTS + MASK_UINTS));
                 ZeroBuffer(Bricks, bricks * BRICK_UINTS);
-                BytesAllocated = (long)dirEntries * 4 + (long)pages * PAGE_UINTS * 4 + (long)bricks * BRICK_UINTS * 4;
+                BytesAllocated = (long)dirEntries * 4 + (long)pages * (PAGE_UINTS + MASK_UINTS) * 4 + (long)bricks * BRICK_UINTS * 4;
             }
             public void Dispose()
             {
@@ -130,11 +148,12 @@ namespace VoxelEngine.Mirror
         private int _deferredBricks;
         private bool _dirDirty;
         private readonly uint[] _pageStaging = new uint[PAGE_UINTS];
+        private readonly uint[] _maskStaging = new uint[MASK_UINTS];
         private NativeArray<uint> _bodyStaging;   // up to 4096 bodies (2 MB), reused
         private readonly int[] _denseIdx = new int[EngineConfig.BRICKS_PER_CHUNK];
 
         // Test shadows (ShadowUploads).
-        public uint[] ShadowDir, ShadowPages, ShadowBricks;
+        public uint[] ShadowDir, ShadowPages, ShadowBricks, ShadowMasks;
 
         public ShellStore(int shell, int3 ring, int poolCap, int pageCap,
                           SharedBuffers shared = null, int dirBase = 0, int pageBase = 0, int brickBase = 0)
@@ -165,7 +184,7 @@ namespace VoxelEngine.Mirror
             {
                 // The shared set was zeroed when it was made (SharedBuffers).
                 DirectoryBuffer = shared.Dir; PageBuffer = shared.Pages; BrickBuffer = shared.Bricks;
-                DirBase = dirBase; PageBase = pageBase; BrickBase = brickBase;
+                DirBase = dirBase; PageBase = pageBase; BrickBase = brickBase; MaskBase = shared.MaskBase;
                 if ((long)(dirBase + SlotCount) > DirectoryBuffer.count || (long)(pageBase + PageCap) * PAGE_UINTS > PageBuffer.count
                     || (long)(brickBase + PoolCap) * BRICK_UINTS > BrickBuffer.count)
                     throw new ArgumentException($"shell {shell}'s ranges do not fit the shared buffers");
@@ -177,19 +196,21 @@ namespace VoxelEngine.Mirror
                 // CascadeTierPool.cs's vmmap note).
                 _ownsBuffers = true;
                 DirectoryBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, SlotCount, 4);
-                PageBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, PageCap * PAGE_UINTS, 4);
+                PageBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, PageCap * (PAGE_UINTS + MASK_UINTS), 4);
+                MaskBase = PageCap * PAGE_UINTS;
                 BrickBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, PoolCap * BRICK_UINTS, 4);
                 // Zero everything (row 3). Pages and bricks are only read through a
                 // directory entry that was written after them, but a zeroed buffer
                 // makes a stray read show as air, not garbage.
                 DirectoryBuffer.SetData(_dir);
-                ZeroBuffer(PageBuffer, PageCap * PAGE_UINTS);
+                ZeroBuffer(PageBuffer, PageCap * (PAGE_UINTS + MASK_UINTS));
                 ZeroBuffer(BrickBuffer, PoolCap * BRICK_UINTS);
             }
             if (ShadowUploads)
             {
                 ShadowDir = new uint[SlotCount];
                 ShadowPages = new uint[PageCap * PAGE_UINTS];
+                ShadowMasks = new uint[PageCap * MASK_UINTS];
                 ShadowBricks = new uint[PoolCap * BRICK_UINTS];
             }
         }
@@ -202,7 +223,22 @@ namespace VoxelEngine.Mirror
             z.Dispose();
         }
 
-        public long BytesAllocated => (long)SlotCount * 4 + (long)PageCap * PAGE_UINTS * 4 + (long)PoolCap * BRICK_UINTS * 4;
+        public long BytesAllocated => (long)SlotCount * 4 + (long)PageCap * (PAGE_UINTS + MASK_UINTS) * 4 + (long)PoolCap * BRICK_UINTS * 4;
+
+        /// Task 93b5: the brick group (0..63) of a local brick index ((bz << 8) | (by << 4) | bx).
+        public static int GroupOf(int localBrick) =>
+            (((localBrick >> 10) & 3) << 4) | (((localBrick >> 6) & 3) << 2) | ((localBrick >> 2) & 3);
+
+        /// Task 93b5: the air-brick mask of a page of 4096 brick handles at `offset`:
+        /// bit g set = group g holds a handle that is not uniform air (0). Shared by
+        /// ShellStore (the upload) and the tests / CPU views (ShellRayReference).
+        public static ulong GroupMask(uint[] handles, int offset = 0)
+        {
+            ulong m = 0ul;
+            for (int lb = 0; lb < PAGE_UINTS; lb++)
+                if (handles[offset + lb] != 0u) m |= 1ul << GroupOf(lb);
+            return m;
+        }
 
         /// Ring slot of a shell chunk: & masks only (pow2 ring, §6.2).
         public int Slot(int3 c) => (((c.z & _mask.z) * Ring.y) + (c.y & _mask.y)) * Ring.x + (c.x & _mask.x);
@@ -232,7 +268,7 @@ namespace VoxelEngine.Mirror
                 if (!sc.BrickUniform[i]) { dense++; uniform = false; }
                 else if (sc.BrickMat[i] != uniformMat) uniform = false;
             }
-            return uniform ? 4 : 4 + PAGE_UINTS * 4 + dense * BRICK_UINTS * 4;
+            return uniform ? 4 : 4 + (PAGE_UINTS + MASK_UINTS) * 4 + dense * BRICK_UINTS * 4;
         }
 
         public enum StoreResult { Stored, InProgress, OverBudget, Busy, Refused }
@@ -310,6 +346,8 @@ namespace VoxelEngine.Mirror
                 _pageStaging[bi] = DENSE | (uint)body;
             }
             _pageBrickCount[page] = n;
+            ulong mask = GroupMask(_pageStaging);
+            _maskStaging[0] = (uint)mask; _maskStaging[1] = (uint)(mask >> 32);
             StageBodies(sc, n);
             BricksUsed += n; PagesUsed++;
             PeakBricks = math.max(PeakBricks, BricksUsed); PeakPages = math.max(PeakPages, PagesUsed);
@@ -340,10 +378,16 @@ namespace VoxelEngine.Mirror
             if (_jobDone < _jobN) return false;
             if (!_jobPageUp)
             {
-                if (budget < PAGE_UINTS * 4) return false;
+                if (budget < (PAGE_UINTS + MASK_UINTS) * 4) return false;
                 PageBuffer.SetData(_pageStaging, 0, (PageBase + _jobPage) * PAGE_UINTS, PAGE_UINTS);
-                if (ShadowUploads) Array.Copy(_pageStaging, 0, ShadowPages, _jobPage * PAGE_UINTS, PAGE_UINTS);
-                budget -= PAGE_UINTS * 4; BytesUploaded += PAGE_UINTS * 4;
+                // Task 93b5: the page's air-brick mask, with the page (before its entry).
+                PageBuffer.SetData(_maskStaging, 0, MaskBase + (PageBase + _jobPage) * MASK_UINTS, MASK_UINTS);
+                if (ShadowUploads)
+                {
+                    Array.Copy(_pageStaging, 0, ShadowPages, _jobPage * PAGE_UINTS, PAGE_UINTS);
+                    Array.Copy(_maskStaging, 0, ShadowMasks, _jobPage * MASK_UINTS, MASK_UINTS);
+                }
+                budget -= (PAGE_UINTS + MASK_UINTS) * 4; BytesUploaded += (PAGE_UINTS + MASK_UINTS) * 4;
                 _jobPageUp = true;
             }
             // A redraw whose old copy is still there swaps it out now (deferred free).

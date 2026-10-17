@@ -69,6 +69,17 @@ namespace VoxelEngine.Mirror
             bool Tier0Holds(int3 voxel);
         }
 
+        /// Task 93b5: a view that also has each page's AIR-BRICK MASK (ShellStore.GroupMask:
+        /// bit g = brick group g holds a brick that is not uniform air) and tier 0's layers
+        /// (Tier0Holds is false outside [Tier0FloorY, Tier0CeilY): the shader's
+        /// _ContentFloorVoxelY / _ContentCeilingVoxelY). March uses the mask only through this.
+        public interface IMaskView : IView
+        {
+            ulong GroupMask(int k, int page);
+            int Tier0FloorY { get; }
+            int Tier0CeilY { get; }
+        }
+
         public struct Result
         {
             public int End;          // END_*
@@ -79,6 +90,7 @@ namespace VoxelEngine.Mirror
             public int Iters;
             public bool InsideStart; // the hit cell was entered mid-cell (top-face normal)
             public int DirReads, PageReads;   // task 93b4: Resolve calls / brick-handle reads the caches did not answer
+            public int MaskGroups, MaskBricks; // task 93b5: empty groups crossed by the mask, and their air bricks (no iteration each)
         }
 
         /// Smallest shell k >= 1 whose outer bound is beyond d; -1 = past the last.
@@ -172,9 +184,15 @@ namespace VoxelEngine.Mirror
         /// useCache (task 93b4, the shader's SHELL_CACHE_ON): one-entry caches of
         /// Resolve's answer per (kd, kd's chunk) and of the brick handle per (shell,
         /// brick). Fewer reads, the same result (ShellMarchCacheTests).
+        /// useMask (task 93b5, the shader's SHELL_MASK_ON; needs an IMaskView): an air
+        /// brick of a paged chunk whose brick group is empty in the page's mask has its
+        /// group's later air bricks leapt in an inner loop with no reads and no
+        /// iteration each. Fewer iterations, the same result (ShellAirMaskTests). Off by
+        /// default, as the shader's _ShellAirMask (-shellmask 1): measured slower (task 93b5).
         public static Result March(IView v, float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters,
-                                   float tTier0 = 0f, bool useCache = true)
+                                   float tTier0 = 0f, bool useCache = true, bool useMask = false)
         {
+            var mv = useMask ? v as IMaskView : null;
             dir = new float3(SafeAxis(dir.x), SafeAxis(dir.y), SafeAxis(dir.z));
             int3 step = (int3)math.sign(dir);
             float3 tDelta = math.abs(1f / dir);
@@ -249,8 +267,34 @@ namespace VoxelEngine.Mirror
                     }
                     sh = k;   // a shadow ray's start cell: leave it
                 }
+                // Task 93b5: an air brick of a paged chunk in an EMPTY brick group (Raymarch.compute's
+                // comment there: the group's other bricks would each take this brick's path).
+                bool groupEmpty = false;
+                int3 gMin = int3.zero;
+                if (mv != null && sh == k + 3)
+                {
+                    int3 gl = (voxel >> (k + 5)) & 3;
+                    int g = (gl.z << 4) | (gl.y << 2) | gl.x;
+                    groupEmpty = ((mv.GroupMask(k, (int)(e & ~ShellStore.PAGE)) >> g) & 1ul) == 0ul;
+                    gMin = (voxel >> (k + 5)) << (k + 5);
+                }
                 Leap(ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, (voxel >> sh) << sh, 1 << sh);
                 kPrev = k;
+                if (groupEmpty)
+                {
+                    r.MaskGroups++;
+                    int gs = k + 5;
+                    bool yFree = gMin.y + (1 << gs) <= mv.Tier0FloorY || gMin.y >= mv.Tier0CeilY;
+                    for (int gi = 0; gi < 16; gi++)
+                    {
+                        if (math.any((voxel >> gs) != (gMin >> gs))) break;
+                        if (t < tTier0 && !yFree) break;
+                        float cd = shadow ? math.length((float3)voxel + 0.5f - camera) : t;
+                        if (ShellByDistance(v, cd) != k) break;
+                        Leap(ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, (voxel >> (k + 3)) << (k + 3), 1 << (k + 3));
+                        r.MaskBricks++;
+                    }
+                }
             }
             r.End = END_CAP; r.T = t;
             return r;
@@ -291,7 +335,7 @@ namespace VoxelEngine.Mirror
 
         /// A view over real ShellStores (their CPU directory and, with
         /// ShellStore.ShadowUploads, the shadows of every page and body upload).
-        public sealed class StoreView : IView
+        public sealed class StoreView : IMaskView
         {
             private readonly ShellLayout _layout;
             private readonly ShellStore[] _stores;
@@ -312,6 +356,10 @@ namespace VoxelEngine.Mirror
             public byte Voxel(int k, int body, int vIdx) => (byte)(_stores[k].ShadowBricks[body * 128 + (vIdx >> 2)] >> ((vIdx & 3) * 8));
             public bool Tier0Missing(int3 voxel) => false;
             public bool Tier0Holds(int3 voxel) => false;
+            public ulong GroupMask(int k, int page) =>
+                _stores[k].ShadowMasks[page * ShellStore.MASK_UINTS] | ((ulong)_stores[k].ShadowMasks[page * ShellStore.MASK_UINTS + 1] << 32);
+            public int Tier0FloorY => 0;   // no tier 0: every group is outside its layers
+            public int Tier0CeilY => 0;
         }
     }
 }

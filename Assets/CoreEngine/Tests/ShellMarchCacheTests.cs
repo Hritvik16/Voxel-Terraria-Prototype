@@ -160,15 +160,10 @@ public class ShellMarchCacheTests
         Assert.AreEqual(a.InsideStart, b.InsideStart, what + ": inside");
     }
 
-    [Test]
-    public void CachesChangeNoPrimaryOrShadowResult()
+    /// The ray set (task 93b5's ShellAirMaskTests reuses it): 48 x 40 directions
+    /// (sky, horizon, ground, steep) plus rays through each shell's hole-corner tips.
+    internal static List<float3> RaySet(ShellLayout L, float3 cam, out int tipRays)
     {
-        var v = new TerrainView(ShellLayout.From(QualityPreset.High));
-        var sun = math.normalize(new float3(0.35f, 0.8f, -0.2f));
-        const float tTier0 = 640f;   // tier 0 marched 64 m and saw air
-        int rays = 0, hits = 0, shadows = 0, shadowHits = 0, absent = 0, past = 0, cap = 0;
-        long readsOn = 0, readsOff = 0;
-        var shells = new HashSet<int>();
         var dirs = new List<float3>();
         for (int i = 0; i < 48; i++)
         for (int j = 0; j < 40; j++)
@@ -182,13 +177,13 @@ public class ShellMarchCacheTests
         // finer shells decide chunk by chunk -- the one answer the resolve cache must
         // not keep for the whole chunk. Rays through a grid of points in each upper
         // corner chunk that lie beyond outer_(k-1).
-        int tipRays = 0;
-        for (int k = 2; k < v.ShellCount; k++)
+        tipRays = 0;
+        for (int k = 2; k < L.ShellCount; k++)
         {
-            int hole = v.L[k].Hole;
+            int hole = L[k].Hole;
             if (hole < 1) continue;
-            int3 cc = (int3)math.floor(Cam) >> (7 + k);
-            float size = 128 << k, inner = v.OuterVoxels(k - 1);
+            int3 cc = (int3)math.floor(cam) >> (7 + k);
+            float size = 128 << k, inner = L[k - 1].OuterM * 10f;
             foreach (int sx in new[] { -1, 1 })
             foreach (int sz in new[] { -1, 1 })
             {
@@ -196,11 +191,24 @@ public class ShellMarchCacheTests
                 for (int a = 0; a < 8; a++) for (int b = 0; b < 8; b++) for (int q = 0; q < 8; q++)
                 {
                     float3 pt = c0 + (new float3(a, b, q) + 0.5f) / 8f * size;
-                    if (math.length(pt - Cam) <= inner) continue;
-                    dirs.Add(math.normalize(pt - Cam)); tipRays++;
+                    if (math.length(pt - cam) <= inner) continue;
+                    dirs.Add(math.normalize(pt - cam)); tipRays++;
                 }
             }
         }
+        return dirs;
+    }
+
+    [Test]
+    public void CachesChangeNoPrimaryOrShadowResult()
+    {
+        var v = new TerrainView(ShellLayout.From(QualityPreset.High));
+        var sun = math.normalize(new float3(0.35f, 0.8f, -0.2f));
+        const float tTier0 = 640f;   // tier 0 marched 64 m and saw air
+        int rays = 0, hits = 0, shadows = 0, shadowHits = 0, absent = 0, past = 0, cap = 0;
+        long readsOn = 0, readsOff = 0;
+        var shells = new HashSet<int>();
+        var dirs = RaySet(v.L, Cam, out int tipRays);
         Assert.Greater(tipRays, 50, "the hole corners reach past the finer shell's bound");
         foreach (var dir in dirs)
         {

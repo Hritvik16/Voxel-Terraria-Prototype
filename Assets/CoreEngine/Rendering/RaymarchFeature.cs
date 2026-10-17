@@ -228,7 +228,9 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// DIAGNOSTIC (task 93b4's cost split arms shellshadow_off / shellmarch_off; the
     /// far-shading kernel only): bit 0 skips the shell-hit sun-shadow march, bit 1 the
     /// primary shell march and the far march after it, bit 2 turns ShellMarch's read caches off
-    /// (shellcache_off: same image, the pre-93b4 reads). Never set outside the cost split.
+    /// (shellcache_off: same image, the pre-93b4 reads), bit 3 ShellMarch's air-brick mask
+    /// (shellmask_off, task 93b5: same image, the pre-93b5 iterations), bit 4 one closed-form leap per
+    /// empty group instead of the exact inner loop (shellgroup, task 93b5: NOT bit-exact). Never set outside the cost split.
     public static int DebugShellSkip = 0;
     /// Task 76 (R2 + R5, replaces task 73's prototype): generated rivers drawn as one
     /// moving sheet -- one-voxel risers between water drawn as surface, ripples moving
@@ -245,6 +247,11 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// their look byte for byte; play sets it from PlaySettings.farShade (on); any
     /// other player (capture runs, rigs) only with `-farshade 1` (last match wins).
     public static bool FarShade = ReadFarShadeArg();
+    /// Task 93b5: ShellMarch uses the shells' air-brick mask (exact: the same image). OFF by
+    /// default: measured warm it cut shell iterations 55% / 29% (walk_near / walk_open) but made
+    /// frames 1-3 ms SLOWER (Logs/costsplit_2026-10-17_{023103,025258}.txt; KNOWN_ISSUES "SHELLS
+    /// COST"). `-shellmask 1` turns it on. The mask itself is always built and uploaded.
+    public static bool ShellAirMask = ReadShellMaskArg();
     /// Its constants (task 85b's picks): sky strength (x the sky colour the face
     /// sees), haze range and scale height (metres), and the share of the haze that
     /// light takes (0.25: a torch at haze 0.9 keeps ~78% of its light).
@@ -297,6 +304,15 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         bool on = false;
         for (int i = 0; i + 1 < a.Length; i++)
             if (a[i] == "-roofskip") on = a[i + 1] == "1";
+        return on;
+    }
+
+    private static bool ReadShellMaskArg()
+    {
+        string[] a = System.Environment.GetCommandLineArgs();
+        bool on = false;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == "-shellmask") on = a[i + 1] == "1";
         return on;
     }
 
@@ -378,7 +394,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool CollectShadowStats = false;
     public static GraphicsBuffer ShadowStatsBuffer { get; private set; }
     // [0..4] shadow counters; [5] far rays, [6] far steps (primary + far shadow), [7] far hits.
-    public const int STATS_LEN = 60;   // 0-7 shadow / far; 8 + 4k .. 11 + 4k: shell k's px metric (task 80); 40-47 far start / steps (task 93b3, far-shading kernel); 48-59 shell march iterations by ray kind / step kind / reads (task 93b4, far-shading kernel)
+    public const int STATS_LEN = 62;   // 0-7 shadow / far; 8 + 4k .. 11 + 4k: shell k's px metric (task 80); 40-47 far start / steps (task 93b3, far-shading kernel); 48-59 shell march iterations by ray kind / step kind / reads (task 93b4, far-shading kernel); 60-61 air-brick mask groups / bricks crossed (task 93b5)
     private static readonly uint[] _statsZero = new uint[STATS_LEN];
     private static GraphicsBuffer _farDummy;
     /// Bound as LightBuffer when no LightingDriver exists (the Phase 4
@@ -511,7 +527,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public float detailRadiusVoxels;   // task 24: 0 = hand-over at the residency edge (today)
 
             // ---- 8.14 shells (task 80); shellCount 0 = off, dummies bound ----
-            public int shellCount, shellIterCap, shellTint;
+            public int shellCount, shellIterCap, shellTint, shellMaskBase;
             public float shellPixelAngle;
             public GraphicsBuffer shellDir, shellPages, shellBricks;
             public Vector4[] shellRing, shellLo, shellHi, shellCam, shellBounds;
@@ -964,8 +980,9 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 {
                     shells.ShaderParams(passData.shellRing, passData.shellLo, passData.shellHi, passData.shellCam, passData.shellBounds);
                     passData.shellDir = shells.Gpu.Dir; passData.shellPages = shells.Gpu.Pages; passData.shellBricks = shells.Gpu.Bricks;
+                    passData.shellMaskBase = shells.Gpu.MaskBase;   // task 93b5
                 }
-                else { passData.shellDir = _farDummy; passData.shellPages = _farDummy; passData.shellBricks = _farDummy; }
+                else { passData.shellDir = _farDummy; passData.shellPages = _farDummy; passData.shellBricks = _farDummy; passData.shellMaskBase = 0; }
 
                 var cascadeManager = LODCascadeManager.Active;
                 bool cascadeAvailable = UseLODCascade && cascadeManager != null && !shellsOn;
@@ -1203,6 +1220,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         // 8.14 shells (task 80). Always bound (dummies when off).
                         cmd.SetComputeIntParam(data.compute, "_ShellCount", data.shellCount);
                         cmd.SetComputeIntParam(data.compute, "_ShellIterCap", data.shellIterCap);
+                        cmd.SetComputeIntParam(data.compute, "_ShellMaskBase", data.shellMaskBase);   // task 93b5
+                        cmd.SetComputeIntParam(data.compute, "_ShellAirMask", ShellAirMask ? 1 : 0);
                         cmd.SetComputeIntParam(data.compute, "_ShellTint", data.shellTint);
                         cmd.SetComputeIntParam(data.compute, "_DebugShellSkip", DebugShellSkip);   // task 93b4 (diagnostic)
                         cmd.SetComputeFloatParam(data.compute, "_ShellPixelAngle", data.shellPixelAngle);

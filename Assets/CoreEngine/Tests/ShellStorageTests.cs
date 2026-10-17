@@ -163,13 +163,13 @@ public class ShellStorageTests
             Assert.IsFalse(st.Continue(ref budget), "the 16 KB page does not fit the 100 B left");
             Assert.AreEqual(100, budget); Assert.IsFalse(st.Holds(a.Coord));
             Assert.AreEqual(0, ShellValidator.CountPoolErrors(st, out string ep0), ep0);
-            budget = 16384;
+            budget = 16384 + 8;   // the page and (task 93b5) its air-brick mask
             Assert.IsTrue(st.Continue(ref budget)); Assert.AreEqual(0, budget); Assert.IsTrue(st.Holds(a.Coord));
             budget = 3 * 1024 * 1024;
             Assert.AreEqual(ShellStore.StoreResult.Stored, st.Store(b, ref budget));
             Assert.AreEqual(ShellStore.StoreResult.Stored, st.Store(uni, ref budget));
             Assert.IsTrue(st.FlushDirectory(ref budget));
-            Assert.AreEqual(3 * 1024 * 1024 - (50 * 512 + 16384) - 4 - st.SlotCount * 4, budget, "every byte charged to the budget");
+            Assert.AreEqual(3 * 1024 * 1024 - (50 * 512 + 16384 + 8) - 4 - st.SlotCount * 4, budget, "every byte charged to the budget");
             Assert.AreEqual(90, st.BricksUsed); Assert.AreEqual(2, st.PagesUsed); Assert.AreEqual(1, st.UniformChunks);
             Assert.AreEqual(0, ShellValidator.CompareShadow(st, a, out string ea), ea);
             Assert.AreEqual(0, ShellValidator.CompareShadow(st, b, out string eb), eb);
