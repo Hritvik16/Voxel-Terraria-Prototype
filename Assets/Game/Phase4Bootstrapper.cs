@@ -266,7 +266,9 @@ public class Phase4Bootstrapper : MonoBehaviour
             foreach (string f in Directory.GetFiles(DeltaDirectory, "*.delta.tmp")) File.Delete(f);
             // The edit-op log (8.14 D.4) belongs to the same save: clearing the
             // deltas without it would replay old far edits onto a fresh world.
-            foreach (string f in new[] { VoxelEngine.Streaming.EditOpLog.FILE_NAME, VoxelEngine.Streaming.EditOpLog.FILE_NAME + ".tmp" })
+            // So does the world state (8.15 C1: clock, stage, chunk last-seen).
+            foreach (string f in new[] { VoxelEngine.Streaming.EditOpLog.FILE_NAME, VoxelEngine.Streaming.EditOpLog.FILE_NAME + ".tmp",
+                                         VoxelEngine.Streaming.WorldState.FILE_NAME, VoxelEngine.Streaming.WorldState.FILE_NAME + ".tmp" })
                 if (File.Exists(Path.Combine(DeltaDirectory, f))) File.Delete(Path.Combine(DeltaDirectory, f));
         }
 
@@ -526,6 +528,9 @@ public class Phase4Bootstrapper : MonoBehaviour
         // TransferToSharedPool in particular is covered by NO existing phase
         // timer and copies up to MAX_CHUNK_LOADS_PER_FRAME x 4096 dense bodies
         // into the 366 MB shared pool every frame.
+        // 8.15 C1: the world clock runs on GAME time (scaled), in play and in rigs alike;
+        // world.state is only written when the run saves terrain (WorldState header).
+        Streamer.AdvanceClock(Time.deltaTime);
         var sw = System.Diagnostics.Stopwatch.StartNew();
         Streamer.Update(camPos);
         double streamMs = sw.Elapsed.TotalMilliseconds;

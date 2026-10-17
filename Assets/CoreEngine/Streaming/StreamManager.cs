@@ -610,6 +610,36 @@ namespace VoxelEngine.Streaming
             Ops = EditOpLog.Open(_deltaDir, meta.seed);
             if (Ops.Count > 0 || Ops.LoadReject != OpLogRejectReason.None)
                 Debug.Log($"[StreamManager] ops.log: {Ops.Count} edit ops loaded (reject: {Ops.LoadReject})");
+            // 8.15 row C1: world clock, world stage, per-chunk last-seen + generation stage.
+            World = WorldState.Open(_deltaDir, meta.seed);
+            if (Ops.Count > 0) World.MarkPersistent();
+            if (World.HadFile)
+                Debug.Log($"[StreamManager] world.state: clock {World.ClockSeconds:F1} s, stage {World.Stage}, " +
+                          $"{World.ChunkCount} chunk entries (reject: {World.LoadReject})");
+            _worldStateWriteClock = World.ClockSeconds;
+        }
+
+        /// The save's world state (Amendment 8.15 row C1, `world.state`): world clock,
+        /// world stage, per-chunk last-seen and generation stage. Nothing reads it yet
+        /// (C2 catch-up and S1 stage flip are later rows). MAIN THREAD ONLY.
+        public WorldState World { get; private set; }
+        /// Game seconds between periodic world.state writes (only once the save is real).
+        public const double WORLD_STATE_SAVE_SECONDS = 30.0;
+        private double _worldStateWriteClock;
+
+        /// Advances the world clock by `dtSeconds` of game time (the owner calls it once a frame).
+        public void AdvanceClock(double dtSeconds) => World.Advance(dtSeconds);
+
+        /// Stamps every resident chunk as seen now and writes world.state if the save
+        /// is real (it existed, holds ops, or this session wrote a delta). Returns true if written.
+        public bool SaveWorldState()
+        {
+            if (Ops.Count > 0) World.MarkPersistent();
+            _worldStateWriteClock = World.ClockSeconds;
+            if (!World.Persistent) return false;
+            foreach (var chunk in _store.ResidentChunks()) World.StampSeen(chunk.coord);
+            try { return World.SaveIfPersistent(); }
+            catch (Exception e) { Debug.LogError($"[StreamManager] world.state save failed: {e}"); return false; }
         }
 
         /// The save's edit-op log (Amendment 8.14 rows 8-10, D.4). Main thread
@@ -630,6 +660,7 @@ namespace VoxelEngine.Streaming
         {
             _frame++;
             var sw = System.Diagnostics.Stopwatch.StartNew();
+            if (World.ClockSeconds - _worldStateWriteClock >= WORLD_STATE_SAVE_SECONDS) SaveWorldState();
 
             float3 camPos = new float3(cameraWorldPos.x, cameraWorldPos.y, cameraWorldPos.z);
             _velocity = math.lerp(_velocity, (camPos - _lastCameraPos) * 60f, 0.25f);
@@ -1115,6 +1146,7 @@ namespace VoxelEngine.Streaming
                         var airChunk = new Chunk { coord = c.coord, isUniform = true, uniformMaterial = Materials.Air };
                         ChunkLifecycle.Transition(rec, ChunkState.Resident, true, "generation failed -> air");
                         _store.InsertChunk(airChunk);
+                        World.NoteGenerated(c.coord, World.Stage);
                         rec.residentSlot = 0;
                         if (StreamTrace.Enabled) StreamTrace.OnDrop(c.coord, evicted: false);
                         continue;
@@ -1147,6 +1179,9 @@ namespace VoxelEngine.Streaming
                     ChunkLifecycle.Transition(rec, ChunkState.Resident, true, "DrainCompletions");
 
                     _store.InsertChunk(c.chunk);
+                    // 8.15 C1 / §14: the stage it was generated at (the generator takes
+                    // no stage until S1, so every chunk is generated at World.Stage = 0).
+                    World.NoteGenerated(c.coord, World.Stage);
                     rec.residentSlot = 0;
                     rec.lastTouchedFrame = _frame;
 
@@ -1383,6 +1418,9 @@ namespace VoxelEngine.Streaming
             var chunk = _store.GetChunk(coord);
             if (chunk == null) return false;
 
+            // 8.15 C1 (§4): last-seen = the clock as the chunk leaves (in memory;
+            // world.state catches up at its next write).
+            World.StampSeen(coord);
             bool saved = false;
             if (chunk.deltaDirty)
             {
@@ -1453,12 +1491,14 @@ namespace VoxelEngine.Streaming
                     // so the stale file must go, not linger as a lie.
                     DeltaCodec.DeleteIfPresent(path);
                     Ops.NoteDeltaDeleted(coord);
+                    World.MarkPersistent();
                     if (_table.TryGetValue(coord, out var r0)) r0.deltaByteLength = 0;
                     return true;
                 }
 
                 Ops.NoteDeltaAboutToBeWritten(coord, bytes);
                 DeltaCodec.WriteAtomic(path, bytes);
+                World.MarkPersistent();   // the run saves terrain: world.state is written too (C1)
                 if (_table.TryGetValue(coord, out var r)) { r.deltaByteLength = (uint)bytes.Length; }
                 return true;
             }
@@ -1533,7 +1573,8 @@ namespace VoxelEngine.Streaming
         public int TableSize => _table.Count;
 
         /// Forces every dirty resident chunk to disk. Used by the acceptance
-        /// rig's force-quit simulation and on clean shutdown.
+        /// rig's force-quit simulation and on clean shutdown. Also writes
+        /// world.state (8.15 C1) when the save is real.
         public int FlushAllDirty()
         {
             int n = 0;
@@ -1542,6 +1583,7 @@ namespace VoxelEngine.Streaming
                 if (!chunk.deltaDirty) continue;
                 if (SaveDelta(chunk.coord, chunk)) { chunk.deltaDirty = false; n++; }
             }
+            SaveWorldState();   // 8.15 C1: residents stamped seen now
             return n;
         }
 

@@ -418,6 +418,12 @@ Task 99 (engine, owner Q61 (a)): SHELL SKY-RAY EXIT, ON by default (`-shellskyex
 Exact (0 px, no-upscaler stills; CPU twin `ShellRayReference.March(skyY)`, `ShellSkyExitTests` (5)): p50 -4.7 / -2.6 ms (walk_near /
 walk_open, warm ABBA). Cost-split arms `skyexit_on` / `skyexit_off`; the counters line gives sky rays and their iterations (ShadowStats 62-64).
 
+Task 101 (engine C1, 8.15 §4/§14): WORLD STATE `world.state` beside the deltas (`WorldState.cs`; `StreamManager.World`): world clock
+(game seconds, `AdvanceClock(Time.deltaTime)` in play and rigs), world stage byte (0), per chunk last-seen (stamped on eviction and at
+each save for residents) + generation stage (noted on arrival). Nothing reads them yet (C2, S1). Written atomically, CRC, every 30 game s
+and in FlushAllDirty, ONLY once the save is real (file existed, ops, or a delta written); cleared with the deltas. Bad file -> defaults +
+warning, moved to `.rejected`. `WorldStateTests` (4).
+
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
 (`Assets/TerrainGen/`):
