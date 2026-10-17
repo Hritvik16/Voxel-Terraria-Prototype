@@ -267,7 +267,16 @@ public static class EngineConfig
     /// (0.85 x cap = 637k) ~138k bricks above that peak -- headroom for player
     /// building and digging inside the loaded band -- and returns another
     /// ~256 MB (250k x 512 B x 2).
-    public const int TG2_BRICK_POOL_CAP = 750000;
+    /// Task 93g (Amendment 8.15 row D4, §2 item 4): since 93f the GPU keeps its
+    /// own body pool, so this cap is CPU only (512 B a brick). Cap = measured
+    /// peak x 1.5 (8.15: players build and blast, not 8.14's x 1.25), rounded up
+    /// to 10 k. Peaks (BrickDataPool.PeakUsed, 21 x 21 columns = the 128 m load
+    /// radius, shells on): task 55 379,527; task 93g walk circle 358,892
+    /// (Logs/tg2world_20261016_235314.txt), 93f's four poses 330,792. 379,527 x
+    /// 1.5 = 569,291 -> 570,000 (-88 MB CPU); §3.6's valve line 0.85 x cap =
+    /// 484,500, 105 k bricks above the worst peak. Look-ahead (8.15 row L1) adds
+    /// residency: re-check this cap then.
+    public const int TG2_BRICK_POOL_CAP = 570000;
     /// Task 93f (Amendment 8.15 row D3, §2 item 3): with the shells on, the GPU
     /// body buffer is its own pool (TerrainClipmap.GpuPool.cs) holding only the
     /// drawn tier-0 box + the fluid terrain directory, cap = measured PeakUsed of
@@ -527,4 +536,9 @@ public static class EngineConfig
 
     public static int BrickPoolHighWaterBricks =>
         (int)(BRICK_POOL_CAP * BRICK_POOL_HIGH_WATER_FRACTION);
+
+    /// §3.6's valve line for any brick pool cap (the tg2 world's, or a
+    /// `-cpubrickcap` override): the same 0.85 fraction as the flat world's.
+    public static int HighWaterBricksFor(int cap) =>
+        (int)(cap * BRICK_POOL_HIGH_WATER_FRACTION);
 }

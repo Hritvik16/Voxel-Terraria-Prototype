@@ -369,6 +369,11 @@ table (refcounted per holder: box slot or fluid dir entry); staged handles carry
 refused + counted (ledger), chunk held as air, its shell draws it, retried when slots free. `-gpupool 0` = old layout, `-gpubrickcap N`.
 Shells off: old layout. `GpuBrickPoolTests` (6); validator compares through the table (`[mirror]` lines add `GPU pool ... body mismatches`).
 
+Task 93g (engine 14d4, 8.15 row D4): tg2 CPU brick cap `TG2_BRICK_POOL_CAP` 750,000 -> 570,000 (= worst measured peak 379,527 x 1.5,
+rounded to 10 k; valve 0.85 x cap = 484,500; rigs keep `BRICK_POOL_CAP` 500,000). `-cpubrickcap N` overrides it for one run
+(`Phase4Bootstrapper.CpuBrickCap`). `-memledger` ends with one `STEP 14 (8.15 D1-D4)` line: CPU pool cap/peak/valve, GPU body pool
+cap/peak/refused, mirror box, tiers 1-2 allocated, process phys_footprint now/peak (in-process, proc_pid_rusage) vs 3,000 MB. `CpuBrickCapTests` (2).
+
 Task 93e1 (gameplay RX1): ADJACENCY REACTIONS in `MaterialRules`' pair table (both directions via `Pair`): water + lava -> steam
 (water cell) + COOLED STONE (lava cell; new id 23, was obsidian + air); water + tg2 loam/red earth -> mud (water kept); lava + sand
 (legacy, tg2, beach) -> GLASS (new id 24, acid-proof; lava kept); lava + snow/tg2 snow/packed ice -> water (lava kept, then quenched).

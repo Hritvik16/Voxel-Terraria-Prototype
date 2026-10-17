@@ -271,11 +271,11 @@ public class Phase4Bootstrapper : MonoBehaviour
         }
 
         // ---- Pools / store / mirrors ----
-        _pool = new BrickDataPool(IsTg2World ? EngineConfig.TG2_BRICK_POOL_CAP : EngineConfig.BRICK_POOL_CAP, rangeAware: true);
+        _pool = new BrickDataPool(CpuBrickCap(IsTg2World), rangeAware: true);
         _allocator = new ChunkHandleAllocator(1024);
         _store = new ChunkStore(_pool, _allocator);
         if (IsTg2World)
-            _store.HighWaterBricksOverride = (int)(EngineConfig.TG2_BRICK_POOL_CAP * EngineConfig.BRICK_POOL_HIGH_WATER_FRACTION);
+            _store.HighWaterBricksOverride = EngineConfig.HighWaterBricksFor(_pool.Capacity);
         Store = _store; Pool = _pool;
 
         // The STORE's ring and the GPU MIRROR's window are deliberately
@@ -565,6 +565,17 @@ public class Phase4Bootstrapper : MonoBehaviour
         string[] a = Environment.GetCommandLineArgs();
         int qi = Array.LastIndexOf(a, "-quality");
         return ShellLayout.Parse(qi >= 0 && qi + 1 < a.Length ? a[qi + 1] : null);
+    }
+
+    /// The CPU 0.1 m brick pool's cap. Task 93g (8.15 row D4): the tg2 world's is
+    /// EngineConfig.TG2_BRICK_POOL_CAP; `-cpubrickcap N` overrides it for one run
+    /// (diagnostic before/after arms in one build). The flat world (rigs) keeps
+    /// BRICK_POOL_CAP and ignores the flag.
+    public static int CpuBrickCap(bool tg2)
+    {
+        if (!tg2) return EngineConfig.BRICK_POOL_CAP;
+        int n = ArgInt("-cpubrickcap", 0);
+        return n > 0 ? n : EngineConfig.TG2_BRICK_POOL_CAP;
     }
 
     private static int ArgInt(string name, int fallback)

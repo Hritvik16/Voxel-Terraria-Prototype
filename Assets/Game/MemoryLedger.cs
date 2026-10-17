@@ -111,16 +111,17 @@ public static class MemoryLedger
             lines.Add($"  {name,-22}{cap,10}{inUse,10}{peak,10}{(cap > 0 ? 100.0 * peak / cap : 0),9:F1}%{bytesPerUnit,8}" +
                       $"{MB(cap * bytesPerUnit),9}{MB(at125 * bytesPerUnit),11}");
         }
-        void BrickRow(string name, VoxelEngine.Memory.BrickDataPool p)
+        void BrickRow(string name, VoxelEngine.Memory.BrickDataPool p, long bytesPerUnit = 1024)
         {
             if (p == null) { lines.Add($"  {name,-22}  (not present)"); return; }
-            Row(name, p.Capacity, p.InUse, p.PeakUsed, 1024);
+            Row(name, p.Capacity, p.InUse, p.PeakUsed, bytesPerUnit);
         }
-        BrickRow("tier0 bricks", Phase4Bootstrapper.Pool);
+        var clip = Phase4Bootstrapper.Clipmap;
+        // Task 93f: with the GPU's own body pool the CPU pool has no GPU twin (512 B/unit).
+        BrickRow("tier0 bricks", Phase4Bootstrapper.Pool, clip != null && clip.GpuPoolEnabled ? 512 : 1024);
         var casc = Phase4Bootstrapper.Cascades;
         for (int t = 1; t < LODConfig.TIER_COUNT; t++)
             BrickRow($"cascade tier {t}", casc?.TierPool(t)?.BrickPool);
-        var clip = Phase4Bootstrapper.Clipmap;
         if (clip != null && clip.GpuPoolEnabled)
         {
             // Task 93f: the GPU's own brick-body pool (512 B of GPU per unit).
@@ -145,7 +146,64 @@ public static class MemoryLedger
             lines.Add($"  fluid tiles refused (pool full, since start): {tiles.PoolExhaustionsTotal:N0}   " +
                       $"acquired {tiles.TilesAcquiredTotal:N0}  released {tiles.TilesReleasedTotal:N0}");
         }
+        lines.Add("");
+        lines.Add(Step14Line());
         return lines;
+    }
+
+    /// The owner's 3 GB process cap (design doc §12; 8.15 §9's ledger is against it).
+    public const int PROCESS_CAP_MB = 3000;
+
+    /// Task 93g (8.15 row D4): engine plan step 14's rows on ONE line -- CPU brick
+    /// pool (D4), GPU body pool (D3), mirror box (D2), tiers 1-2 (D1), and the
+    /// process footprint against the 3,000 MB cap. Counts and MB only.
+    public static string Step14Line()
+    {
+        var pool = Phase4Bootstrapper.Pool;
+        var store = Phase4Bootstrapper.Store;
+        var clip = Phase4Bootstrapper.Clipmap;
+        var casc = Phase4Bootstrapper.Cascades;
+        string cpu = pool == null ? "CPU brick pool (not present)"
+            : $"CPU brick pool cap {pool.Capacity:N0} peak {pool.PeakUsed:N0} " +
+              $"(valve {(store != null && store.HighWaterBricksOverride >= 0 ? store.HighWaterBricksOverride : EngineConfig.BrickPoolHighWaterBricks):N0}, " +
+              $"{MB((long)pool.Capacity * 512)} MB)";
+        string gpu = clip == null ? "GPU bodies (no clipmap)"
+            : clip.GpuPoolEnabled
+                ? $"GPU body pool cap {clip.GpuPoolCapacity:N0} peak {clip.GpuPoolPeakUsed:N0} refused {clip.GpuPoolRefusedTotal:N0} " +
+                  $"({MB((long)clip.GpuPoolCapacity * 512)} MB)"
+                : "GPU bodies = the CPU pool (old layout)";
+        string box = clip == null ? "-" : $"{clip.WindowDimsChunks.x}x{clip.WindowDimsChunks.y}x{clip.WindowDimsChunks.z}";
+        bool tiers = casc != null && casc.TierPool(1) != null;
+        string proc = ProcessFootprint(out long now, out long peak)
+            ? $"process now {MB(now)} MB, peak {MB(peak)} MB of the {PROCESS_CAP_MB:N0} MB cap"
+            : "process footprint unavailable on this platform";
+        return $"  STEP 14 (8.15 D1-D4): {cpu} | {gpu} | mirror box {box} | tiers 1-2 allocated {(tiers ? "yes" : "no")} | {proc}";
+    }
+
+    // macOS: proc_pid_rusage(RUSAGE_INFO_V4) gives phys_footprint (the figure
+    // run-tg2world.sh's `footprint` samples) and its lifetime maximum, from
+    // inside the process. Offsets 72 / 240 of struct rusage_info_v4 (checked
+    // against the SDK's sys/resource.h with offsetof, 2026-10-16).
+    [System.Runtime.InteropServices.DllImport("/usr/lib/libSystem.B.dylib")]
+    private static extern int proc_pid_rusage(int pid, int flavor, byte[] buffer);
+    [System.Runtime.InteropServices.DllImport("/usr/lib/libSystem.B.dylib")]
+    private static extern int getpid();
+    private const int RUSAGE_INFO_V4 = 4;
+
+    /// Current and lifetime-peak phys_footprint in bytes; false off macOS or on error.
+    public static bool ProcessFootprint(out long now, out long peak)
+    {
+        now = peak = 0;
+        if (Application.platform != RuntimePlatform.OSXPlayer && Application.platform != RuntimePlatform.OSXEditor) return false;
+        try
+        {
+            var buf = new byte[512];
+            if (proc_pid_rusage(getpid(), RUSAGE_INFO_V4, buf) != 0) return false;
+            now = (long)BitConverter.ToUInt64(buf, 72);
+            peak = (long)BitConverter.ToUInt64(buf, 240);
+            return now > 0;
+        }
+        catch (Exception) { return false; }
     }
 
     private static string MB(long b) => (b / (1024.0 * 1024.0)).ToString("F1");
