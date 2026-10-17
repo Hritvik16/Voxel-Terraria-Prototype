@@ -556,11 +556,13 @@ public partial class Playground : MonoBehaviour
         if (!IsCaptureRun() && HasArg("-glidedemo")) StartCoroutine(GlideDemo());
         // -grappledemo (task 100): step 7's hook shots (aim, reel, hooked on a sheer face, swing), then quit.
         if (!IsCaptureRun() && HasArg("-grappledemo")) StartCoroutine(GrappleDemo());
+        // -walldemo (task 103): step 8's wall-run, wall-jump and chimney shots, then quit.
+        if (!IsCaptureRun() && HasArg("-walldemo")) StartCoroutine(WallDemo());
         // Task 93d1: the older demos keep their shots damage-free; -vitals 0 turns damage off in play.
         _vitalsAllowed = !(TryArgFloat("-vitals", out float vitArg) && vitArg < 1f) &&
                          !(HasArg("-survivaldemo") || HasArg("-strokedemo") || HasArg("-pulldemo") || HasArg("-movedemo") ||
                            HasArg("-oredemo") || HasArg("-riverdemo") || HasArg("-liquiddemo") || HasArg("-farop") || HasArg("-farwall") ||
-                           HasArg("-reactiondemo") || HasArg("-climbdemo"));
+                           HasArg("-reactiondemo") || HasArg("-climbdemo") || HasArg("-walldemo"));
         // -oredemo (task 66): ore screenshots (a tunnel wall, the hotbar, the dev map's close slice), then quit.
         if (!IsCaptureRun() && HasArg("-oredemo")) StartCoroutine(OreDemo());
         // -riverdemo (task 73): river/lake/waterfall/mouth screenshots for RIVERS_WATERFALLS_PLAN.md, then quit.
@@ -2462,9 +2464,11 @@ public partial class Playground : MonoBehaviour
         string state = hook.Length > 0 ? hook
                      : m.Swimming ? $"swimming in {MaterialName(m.SwimFluid)}  <b>Space</b> up  <b>Ctrl</b> down"
                      : m.Climbing ? $"<b>CLIMBING</b> {Items.Name(m.ClimbFace)}{(m.ClimbGrip == MaterialRules.GripLoose ? " (loose)" : m.ClimbGrip == MaterialRules.GripSlick ? " (slick)" : "")}  <b>W</b> up  <b>Ctrl</b> down  release <b>W</b> to drop"
+                     : m.WallRunning ? $"<b>WALL-RUN</b> {new Vector2(m.VelocityMps.x, m.VelocityMps.z).magnitude:F1} m/s  <b>Space</b> wall-jump  <b>Ctrl</b> drop  let go of <b>W</b> to fall"
                      : m.Sliding ? "<b>SLIDING</b> -- too steep, <b>Space</b> to scramble"
                      : m.Dashing ? "<b>DASH</b>"
                      : m.Gliding ? $"<b>GLIDING</b> {new Vector2(m.VelocityMps.x, m.VelocityMps.z).magnitude:F1} m/s, sinking {-m.VelocityMps.y:F1} m/s  mouse steers  <b>S</b> brake  release <b>Space</b> to drop"
+                     : !m.Grounded && m.WallJumpReady ? "wall: <b>Space</b> wall-jump"
                      : !m.Grounded ? (m.AirJumpsUsed < c.airJumps ? "air: <b>Space</b> double jump" : "double jump spent: hold <b>Space</b> to glide")
                      : "";
         GUI.Label(new Rect(x - 300, y - 19, w + 600, 18),
@@ -2473,7 +2477,7 @@ public partial class Playground : MonoBehaviour
 
         // Task 93f1: climbing stamina, under the dash bar, shown while it is not full.
         float sMax = c.climbStaminaS;
-        if (sMax > 0f && (m.Climbing || m.StaminaS < sMax - 1e-3f))
+        if (sMax > 0f && (m.Climbing || m.WallRunning || m.StaminaS < sMax - 1e-3f))
         {
             float f = Mathf.Clamp01(m.StaminaS / sMax);
             float sy = y + h + 4f;
@@ -2740,6 +2744,10 @@ public partial class Playground : MonoBehaviour
         if (_moveAbilities)
             sb.AppendLine("  <b><color=#ffd479>F</color></b> (or middle mouse) grappling hook: bites solid under the crosshair within 25 m (ring = in range); " +
                           "<b>hold F</b> to reel in, let go in the air to swing (<b>WASD</b> pump), <b>Space</b> lets go; <b>F</b> again re-aims");
+        if (_moveAbilities)
+            sb.AppendLine("  <b><color=#ffd479>jump along a wall</color></b> (run at it sideways, keys along it): wall-run 7 m/s for up to 1.2 s; " +
+                          "<b>Space</b> against any wall in the air: wall-jump off it (not the same wall twice -- bounce between two); " +
+                          "both use climbing stamina");
         sb.AppendLine(Phase4Bootstrapper.PlayStartActive
             ? "  <b>Tab</b> walk ↔ fly      <b><color=#ffd479>R</color></b> back to the start (the best easy area)      <b>F</b> go to the basin" + (_moveAbilities ? " (fly mode)" : "")
             : "  <b>Tab</b> walk ↔ fly      <b>R</b> respawn on the surface      <b>F</b> go to the basin" + (_moveAbilities ? " (fly mode)" : ""));

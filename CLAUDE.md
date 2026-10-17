@@ -406,6 +406,13 @@ crosshair = in range); HOLD = reel 12 m/s (no gravity; stops at the wall or 0.3 
 rope, WASD pump); Space lets go (the press still jumps / air-jumps -> glide), dash/swim/cling/landing/dug anchor/Teleport/legacy Step end it.
 F in fly mode = the basin toy as before. Numbers `hook*` in PlayerConfig.json (range 0 = off). `GrappleTests` (11). `EXTRA="-grappledemo"` = 5 shots.
 
+Task 103 (gameplay step 8): WALL-RUN + WALL-JUMP on `PlayerMotor`'s abilities path (`TryStartWallRun`/`StepWallRun`/`WallJump`/`WallBeside`):
+airborne near a jump's top (vy <= 2.5) or falling < 5 m/s, moving >= 3.5 m/s along a wall beside the body (blocks at 0.5 m and 1.2 m, within
+0.15 m; axis-aligned) with the keys along it -> runs 7 m/s, gravity x 0.2, up to 1.2 s; ends with the wall, keys released / into the wall
+(-> the climb grab) / away, Ctrl, dash, hook, landing. Space against any wall in the air (not a ground/coyote jump) = wall-jump: 5.5 m/s off
+the face + a full jump, along-wall speed kept, air jump kept; the same wall is not reused before landing (chimneys: alternate). Both spend climb
+stamina (run 1 s/s, jump 1 s). Numbers `wallRun*`/`wallJump*` in PlayerConfig.json (0 = off). `WallRunTests` (8). `EXTRA="-walldemo"` = 5 shots.
+
 Task 94 (8.16, owner design change): FLUID GRAVITY FALL. A fluid (not steam, not sand) with air below falls every tick, ungated by
 viscosity, the same for all fluids: `FluidFall` table (exact g t^2/2 floored to voxels, cap 12 m/s -> 27 voxels/tick at 4.5 Hz), read by
 `FluidReferenceCPU` and `FluidCA.compute` alike; k (ticks fallen) in GPU `stateFlags` [15:8] / a CPU side array. Stops above the first

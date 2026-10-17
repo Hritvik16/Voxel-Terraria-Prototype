@@ -1,0 +1,7 @@
+[WallDemo] start feet 3724.1,539.5,2284.1 m, sun-away yaw 180 -> axis 180; abilities True
+[WallDemo] site pad top row 5400 (540.0 m), run wall 9 m x 4 m at l 12, chimney 1.7 m x 8 m at k 70..89; 415950 voxels written
+[WallDemo] 2 wall-running 0.51 s: 3.31 m along, height +0.59 m, speed 7.00 m/s (config 7.0), stamina 6.49 s
+[WallDemo] 3 wall-jump after 1.46 s of run, 5.54 m along, height +0.59 m; velocity -5.5,6.2,-7.0
+[WallDemo] run started True, shot2 True, wall-jumped True
+[WallDemo] 4 chimney: 7 wall-jumps, 6.19 m up, stamina 7.00 -> 0.00 s (1.0 per jump)
+[WallDemo] done

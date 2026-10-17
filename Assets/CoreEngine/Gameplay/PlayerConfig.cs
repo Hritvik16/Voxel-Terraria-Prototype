@@ -214,6 +214,37 @@ public sealed class PlayerConfig
     public float hookSwingAccelMps2 = 5f;
 
     // =====================================================================
+    // WALL-RUN AND WALL-JUMP (task 103, GAMEPLAY_PHASE_PLAN.md step 8). Read
+    // only by Step(dt, in MotorInput). Both spend the climb stamina pool.
+    // 0 speed = no wall-run; 0 push = no wall-jump.
+    // =====================================================================
+
+    /// Speed along the wall while running on it, m/s (walk is 5.2).
+    public float wallRunSpeedMps = 7f;
+    /// Starts only when already moving along the wall at least this fast.
+    public float wallRunMinSpeedMps = 3.5f;
+    /// How fast the speed along the wall turns toward wallRunSpeedMps, m/s^2.
+    public float wallRunAccelMps2 = 20f;
+    /// Vertical speed set on starting (a small lift), m/s.
+    public float wallRunStartUpMps = 2.5f;
+    /// Gravity while running = gravityMps2 x this; the fall is capped at
+    /// wallRunMaxSinkMps. 7 m/s for 1.2 s = 8.4 m along at about the height
+    /// the run started (2.5 up, 4.4 m/s^2 down: -0.2 m), so a jump from flat
+    /// ground lasts the whole run.
+    public float wallRunGravityScale = 0.2f;
+    public float wallRunMaxSinkMps = 3f;
+    /// Longest single run, seconds; also ends with the wall, the stamina or the keys.
+    public float wallRunMaxS = 1.2f;
+    /// No start when falling faster than this, m/s (a wall cannot catch a fall).
+    public float wallRunMaxEntryFallMps = 5f;
+    /// Wall-jump: pushed off the wall's face at this speed, m/s, with
+    /// jumpImpulseMps x wallJumpUpScale upward; speed along the wall is kept.
+    public float wallJumpPushMps = 5.5f;
+    public float wallJumpUpScale = 1f;
+    /// Climb stamina one wall-jump costs, seconds (running drains 1 s per s).
+    public float wallJumpStaminaS = 1f;
+
+    // =====================================================================
     // VITALS (task 93d1, GAMEPLAY_PHASE_PLAN.md step 9a). Read only by
     // PlayerVitals, which only an interactive Survival walk ticks; rigs and
     // Creative never take damage.
@@ -309,6 +340,17 @@ public sealed class PlayerConfig
         hookReelAccelMps2 = Fix(hookReelAccelMps2, 0.1f, 10000f, 40f, nameof(hookReelAccelMps2), notes);
         hookMinLengthM   = Fix(hookMinLengthM, 0.1f, 50f, 0.3f, nameof(hookMinLengthM), notes);
         hookSwingAccelMps2 = Fix(hookSwingAccelMps2, 0f, 1000f, 5f, nameof(hookSwingAccelMps2), notes);
+        wallRunSpeedMps  = Fix(wallRunSpeedMps, 0f, 100f, 7f, nameof(wallRunSpeedMps), notes);
+        wallRunMinSpeedMps = Fix(wallRunMinSpeedMps, 0f, 100f, 3.5f, nameof(wallRunMinSpeedMps), notes);
+        wallRunAccelMps2 = Fix(wallRunAccelMps2, 0.1f, 1000f, 20f, nameof(wallRunAccelMps2), notes);
+        wallRunStartUpMps = Fix(wallRunStartUpMps, 0f, 50f, 2.5f, nameof(wallRunStartUpMps), notes);
+        wallRunGravityScale = Fix(wallRunGravityScale, 0f, 1f, 0.2f, nameof(wallRunGravityScale), notes);
+        wallRunMaxSinkMps = Fix(wallRunMaxSinkMps, 0.1f, 100f, 3f, nameof(wallRunMaxSinkMps), notes);
+        wallRunMaxS      = Fix(wallRunMaxS, 0f, 60f, 1.2f, nameof(wallRunMaxS), notes);
+        wallRunMaxEntryFallMps = Fix(wallRunMaxEntryFallMps, 0f, 100f, 5f, nameof(wallRunMaxEntryFallMps), notes);
+        wallJumpPushMps  = Fix(wallJumpPushMps, 0f, 100f, 5.5f, nameof(wallJumpPushMps), notes);
+        wallJumpUpScale  = Fix(wallJumpUpScale, 0f, 4f, 1f, nameof(wallJumpUpScale), notes);
+        wallJumpStaminaS = Fix(wallJumpStaminaS, 0f, 3600f, 1f, nameof(wallJumpStaminaS), notes);
         // Climb must start above the walk band, or every auto-step is a cling.
         if (climbMinSlopeDeg < walkSlopeMaxDeg)
         {

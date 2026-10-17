@@ -272,6 +272,20 @@ public sealed class PlayerMotor
     public bool Reeling, HookArrived;
     /// This step fired the hook; it bit; the hook let go this step.
     public bool LastHookFired, LastHookHit, LastHookReleased;
+    // ---- Wall-run and wall-jump (task 103; Step(dt, in MotorInput) only). ----
+
+    /// Running along a wall this step; WallDir points INTO it (one axis, +-1).
+    public bool WallRunning;
+    public int2 WallDir;
+    /// Seconds into the current run.
+    public float WallRunTimeS;
+    /// This step started a wall-run; this step jumped off a wall.
+    public bool LastWallRunStarted, LastWallJump;
+    /// The wall last run on or jumped off this airtime (axis, dir, plane
+    /// column): it may not be used again until the feet touch ground or
+    /// fluid, so walls are chained by alternating (a chimney), not repeated.
+    private int3 _lastWall;
+    private bool _hasLastWall;
     /// Seconds the keys have pressed into a climbable face (grab delay).
     private float _climbHoldS;
     /// The current step runs with abilities (the slope rule applies).
@@ -349,6 +363,7 @@ public sealed class PlayerMotor
         LastBlockedByNonResident = false;
         LastDoubleJump = LastDashStarted = LastWaterJump = false;
         LastHookFired = LastHookHit = LastHookReleased = false;
+        LastWallRunStarted = LastWallJump = false;
         Reeling = false;
         LastImpactDownMps = 0f;
         LastSteepRefused = false;
@@ -362,6 +377,7 @@ public sealed class PlayerMotor
             DashTimeLeftS = 0f;
             Climbing = Sliding = Resting = Gliding = false;
             Hooked = false;
+            WallRunning = false;
         }
         else
         {
@@ -370,7 +386,7 @@ public sealed class PlayerMotor
             if (StaminaS > c.climbStaminaS) StaminaS = c.climbStaminaS;
             Gliding = false;
             UpdateSwimming();
-            if (Swimming) { AirJumpsUsed = 0; DashUsedInAir = false; DashTimeLeftS = 0f; Climbing = Sliding = Resting = false; ReleaseHook(); }
+            if (Swimming) { AirJumpsUsed = 0; DashUsedInAir = false; DashTimeLeftS = 0f; Climbing = Sliding = Resting = WallRunning = false; _hasLastWall = false; ReleaseHook(); }
 
             // Jump out of water: only at the surface (head probe dry), at the
             // normal jump impulse; swimming then stays off for SwimLockS.
@@ -390,6 +406,7 @@ public sealed class PlayerMotor
             // lets go -- the Space press is NOT consumed (jump / air jump).
             if (input.HookPressed && !Swimming) FireHook(input.LookDir);
             if (Hooked && (jumpPressed || !AnchorHolds())) ReleaseHook();
+            if (Hooked) WallRunning = false;
 
             // Dash: not in fluid, not while one runs, off cooldown, one per airtime.
             if (input.DashPressed && !Swimming && !Climbing && !Dashing && DashCooldownS <= 0f
@@ -402,6 +419,7 @@ public sealed class PlayerMotor
                 DashCooldownS = c.dashCooldownS;
                 if (!Grounded) DashUsedInAir = true;
                 LastDashStarted = true;
+                WallRunning = false;
                 ReleaseHook();
             }
 
@@ -416,7 +434,7 @@ public sealed class PlayerMotor
 
             // Climb: cling after pressing into a Climb-band face; a frame
             // that lets go falls through to the walk physics below.
-            if (!Climbing) TryStartClimb(dt, input);
+            if (!Climbing && !WallRunning) TryStartClimb(dt, input);
             if (Climbing) ReleaseHook();
             if (Climbing)
             {
@@ -438,6 +456,11 @@ public sealed class PlayerMotor
                 return;
             }
             UpdateSlide();
+
+            // Wall-run (task 103): along a wall beside the body, airborne and
+            // fast; a frame that ends it falls through to the walk physics.
+            if (!WallRunning) TryStartWallRun(input, jumpPressed);
+            if (WallRunning && StepWallRun(dt, input, jumpPressed)) return;
 
             // Glide: after the air jumps, falling, Space held (task 93g1).
             if (CanGlide(input, jumpPressed))
@@ -506,6 +529,11 @@ public sealed class PlayerMotor
             // across two frames of the same fall.
             TimeSinceGroundedS = c.coyoteTimeSeconds + 1f;
         }
+        else if (abilities && jumpPressed && TryWallJump(input))
+        {
+            // Wall-jump (task 103): in the air against a wall, Space kicks off
+            // it; the air jump is kept.
+        }
         else if (abilities && jumpPressed && AirJumpsUsed < c.airJumps)
         {
             // Double jump: SETS the vertical speed (a falling body gets the
@@ -535,7 +563,7 @@ public sealed class PlayerMotor
     {
         PlayerConfig c = Config;
         if (!input.UpHeld || c.glideSpeedMps <= 0f) return false;
-        if (Grounded || Swimming || Climbing || Dashing || Sliding) return false;
+        if (Grounded || Swimming || Climbing || Dashing || Sliding || WallRunning) return false;
         if (AirJumpsUsed < c.airJumps || VelocityMps.y > 0f) return false;
         if (jumpPressed && TimeSinceGroundedS <= c.coyoteTimeSeconds) return false;
         return true;
@@ -728,6 +756,7 @@ public sealed class PlayerMotor
             TimeSinceGroundedS = 0f;
             AirJumpsUsed = 0;
             DashUsedInAir = false;
+            _hasLastWall = false;
         }
         else
         {
@@ -1040,6 +1069,203 @@ public sealed class PlayerMotor
     }
 
     // =====================================================================
+    // Wall-run and wall-jump (task 103)
+    // =====================================================================
+
+    /// A wall counts within this reach of the body's side (a flush body is
+    /// 0.0001 m off it; a run pressing along a rough cliff opens a column).
+    private const float WallReachM = 0.15f;
+    /// While running, the body is pressed into the wall this fast so contact
+    /// holds; the collision stops it at the face.
+    private const float WallPressMps = 1f;
+    /// The wall must block the column beside the body at these heights above
+    /// the feet (voxels): hip and chest, so a kerb or a fence is not a wall.
+    private const int WallLowVoxels = 5, WallHighVoxels = 12;
+
+    /// Is there a wall on the body's `axis`/`dir` side within WallReachM?
+    /// `plane` = the column it was found in (the wall's identity with axis, dir).
+    public bool WallBeside(int axis, int dir, out int plane)
+    {
+        int other = axis == 0 ? 2 : 0;
+        float half = Config.bodyWidthM * 0.5f;
+        int y0 = CoordMath.WorldToVoxel(PositionM).y;
+        int cNear = (int)math.floor((PositionM[axis] + dir * (half + 0.011f)) * 10f);
+        int cFar = (int)math.floor((PositionM[axis] + dir * (half + WallReachM)) * 10f);
+        int p = (int)math.floor(PositionM[other] * 10f);
+        for (int c = cNear; ; c += dir)
+        {
+            int3 v = int3.zero;
+            v[axis] = c;
+            v[other] = p;
+            v.y = y0 + WallLowVoxels;
+            bool low = IsBlocking(v);
+            v.y = y0 + WallHighVoxels;
+            if (low && IsBlocking(v)) { plane = c; return true; }
+            if (c == cFar) break;
+        }
+        plane = 0;
+        return false;
+    }
+
+    private static int3 WallId(int axis, int dir, int plane) => new int3(axis, dir, plane);
+
+    /// The same wall as the last one used this airtime: same side, its plane
+    /// within 3 voxels (a natural cliff's face wanders by a column or two).
+    private bool IsLastWall(int axis, int dir, int plane)
+        => _hasLastWall && _lastWall.x == axis && _lastWall.y == dir && math.abs(_lastWall.z - plane) <= 3;
+
+    /// Start a run: airborne, near the top of a jump or falling slowly, moving
+    /// along a wall beside the body at wallRunMinSpeedMps or more with the keys
+    /// along it (>= 0.5) and not pulling away. A press INTO a face stays the
+    /// climb's (TryStartClimb runs first); a held glide stays a glide.
+    private void TryStartWallRun(in MotorInput input, bool jumpPressed)
+    {
+        PlayerConfig c = Config;
+        if (c.wallRunSpeedMps <= 0f || c.wallRunMaxS <= 0f || StaminaS <= 0f || jumpPressed) return;
+        if (Grounded || Swimming || Climbing || Dashing || Hooked || Sliding) return;
+        if (VelocityMps.y > c.wallRunStartUpMps || VelocityMps.y < -c.wallRunMaxEntryFallMps) return;
+        if (CanGlide(input, jumpPressed)) return;
+        float2 w = input.WishXZ;
+        float wl = math.length(w);
+        if (wl < 0.3f) return;
+        float2 wd = w / wl;
+        for (int axis = 0; axis <= 2; axis += 2)
+        {
+            // A wall across `axis` is run along the other horizontal axis.
+            float vAlong = axis == 0 ? VelocityMps.z : VelocityMps.x;
+            if (math.abs(vAlong) < c.wallRunMinSpeedMps) continue;
+            float wAlong = (axis == 0 ? wd.y : wd.x) * math.sign(vAlong);
+            if (wAlong < 0.5f) continue;
+            for (int dir = -1; dir <= 1; dir += 2)
+            {
+                if ((axis == 0 ? wd.x : wd.y) * dir < -0.3f) continue;   // keys pull away from it
+                if (!WallBeside(axis, dir, out int plane) || IsLastWall(axis, dir, plane)) continue;
+                WallRunning = true;
+                LastWallRunStarted = true;
+                WallDir = axis == 0 ? new int2(dir, 0) : new int2(0, dir);
+                WallRunTimeS = 0f;
+                _lastWall = WallId(axis, dir, plane);
+                _hasLastWall = true;
+                _climbHoldS = 0f;
+                VelocityMps.y = c.wallRunStartUpMps;
+                if (axis == 0) VelocityMps.x = 0f; else VelocityMps.z = 0f;
+                return;
+            }
+        }
+    }
+
+    /// One wall-running frame. Returns false when the run ended this frame
+    /// (wall gone, time or stamina out, keys released / turned into the wall
+    /// / pulled away, Ctrl, or stopped by something ahead): the caller then
+    /// runs the walk physics. Space jumps off the wall.
+    private bool StepWallRun(float dt, in MotorInput input, bool jumpPressed)
+    {
+        PlayerConfig c = Config;
+        int axis = WallDir.x != 0 ? 0 : 2;
+        int dir = WallDir.x != 0 ? WallDir.x : WallDir.y;
+        int alongAxis = axis == 0 ? 2 : 0;
+        float2 n = new float2(WallDir.x, WallDir.y);
+        float2 along = axis == 0 ? new float2(0f, 1f) : new float2(1f, 0f);
+        float vA = math.dot(VelocityMps.xz, along);
+        float sgn = vA >= 0f ? 1f : -1f;
+
+        if (jumpPressed)
+        {
+            WallJump(axis, dir, _lastWall.z);
+            MoveWithCollision(VelocityMps * dt);
+            UpdateGrounded(dt);
+            return true;
+        }
+
+        float2 w = input.WishXZ;
+        float wl = math.length(w);
+        if (wl > 1f) w /= wl;
+        if (input.DownHeld || StaminaS <= 0f || WallRunTimeS >= c.wallRunMaxS
+            || math.dot(w, along) * sgn < 0.2f || math.dot(w, n) >= 0.8f || math.dot(w, n) < -0.6f
+            || math.abs(vA) < 0.5f * c.wallRunMinSpeedMps || !WallBeside(axis, dir, out _))
+        {
+            WallRunning = false;
+            return false;
+        }
+
+        vA = sgn * MoveToward(math.abs(vA), c.wallRunSpeedMps, c.wallRunAccelMps2 * dt);
+        float vy = math.max(VelocityMps.y - c.gravityMps2 * c.wallRunGravityScale * dt, -c.wallRunMaxSinkMps);
+        float2 hv = along * vA + n * WallPressMps;
+        VelocityMps = new float3(hv.x, vy, hv.y);
+        float before = PositionM[alongAxis];
+        MoveWithCollision(VelocityMps * dt);
+        float moved = math.abs(PositionM[alongAxis] - before);
+        // Only the run's own speed is kept: leaving the wall carries no push into it.
+        if (axis == 0) VelocityMps.x = 0f; else VelocityMps.z = 0f;
+        StaminaS = math.max(0f, StaminaS - dt);
+        WallRunTimeS += dt;
+        Resting = false;
+        UpdateGrounded(dt);
+        if (Grounded) WallRunning = false;
+        else if (moved < 0.25f * math.abs(vA) * dt)
+        {
+            // Stopped by something ahead on the wall: the run ends, no speed kept along it.
+            WallRunning = false;
+            if (alongAxis == 0) VelocityMps.x = 0f; else VelocityMps.z = 0f;
+        }
+        return true;
+    }
+
+    /// Kick off the wall on `axis`/`dir` (dir points INTO it): pushed out of
+    /// its face at wallJumpPushMps, up at jumpImpulseMps x wallJumpUpScale;
+    /// the speed along the wall is kept.
+    private void WallJump(int axis, int dir, int plane)
+    {
+        PlayerConfig c = Config;
+        float2 n = axis == 0 ? new float2(dir, 0f) : new float2(0f, dir);
+        float2 along = axis == 0 ? new float2(0f, 1f) : new float2(1f, 0f);
+        float2 hv = along * math.dot(VelocityMps.xz, along) - n * c.wallJumpPushMps;
+        VelocityMps = new float3(hv.x, c.jumpImpulseMps * c.wallJumpUpScale, hv.y);
+        StaminaS = math.max(0f, StaminaS - c.wallJumpStaminaS);
+        WallRunning = Gliding = false;
+        Grounded = false;
+        TimeSinceGroundedS = c.coyoteTimeSeconds + 1f;
+        _lastWall = WallId(axis, dir, plane);
+        _hasLastWall = true;
+        _climbHoldS = 0f;
+        LastWallJump = true;
+    }
+
+    /// Space in the air (not a ground / coyote jump): is there a wall to kick
+    /// off? The side the keys press into most is tried first; the wall used
+    /// last this airtime is skipped. Jumps and returns true if one was found.
+    private bool TryWallJump(in MotorInput input)
+    {
+        PlayerConfig c = Config;
+        if (c.wallJumpPushMps <= 0f || StaminaS <= 0f || Grounded || Swimming) return false;
+        if (!FindWall(input.WishXZ, out int axis, out int dir, out int plane)) return false;
+        WallJump(axis, dir, plane);
+        return true;
+    }
+
+    /// A wall-jump is possible now (the HUD's hint): airborne, stamina left
+    /// and a usable wall beside the body.
+    public bool WallJumpReady
+        => Config.wallJumpPushMps > 0f && StaminaS > 0f && !Grounded && !Swimming && !Climbing
+           && FindWall(float2.zero, out _, out _, out _);
+
+    private bool FindWall(float2 wish, out int axis, out int dir, out int plane)
+    {
+        axis = dir = plane = 0;
+        float best = float.NegativeInfinity;
+        bool found = false;
+        for (int i = 0; i < 4; i++)
+        {
+            int a = i < 2 ? 0 : 2, d = (i & 1) == 0 ? 1 : -1;
+            float into = (a == 0 ? wish.x : wish.y) * d;
+            if (into <= best) continue;
+            if (!WallBeside(a, d, out int p) || IsLastWall(a, d, p)) continue;
+            best = into; axis = a; dir = d; plane = p; found = true;
+        }
+        return found;
+    }
+
+    // =====================================================================
     // Slopes and climbing (task 93f1)
     // =====================================================================
 
@@ -1266,7 +1492,7 @@ public sealed class PlayerMotor
     /// height below) -- the brief's 0.6 x 0.6 m rest ledge.
     private void UpdateRest(float dt)
     {
-        Resting = Grounded && !Sliding && !Climbing && !Swimming && FootprintSupported();
+        Resting = Grounded && !Sliding && !Climbing && !Swimming && !WallRunning && FootprintSupported();
         if (Resting) StaminaS = math.min(Config.climbStaminaS, StaminaS + Config.climbStaminaRefillPerS * dt);
     }
 
@@ -1307,7 +1533,9 @@ public sealed class PlayerMotor
         VelocityMps = float3.zero;
         DashTimeLeftS = 0f;
         AirJumpsUsed = 0;
-        Climbing = Sliding = Resting = Gliding = false;
+        Climbing = Sliding = Resting = Gliding = WallRunning = false;
+        _hasLastWall = false;
+        WallRunTimeS = 0f;
         ReleaseHook();
         _climbHoldS = 0f;
         StaminaS = Config.climbStaminaS;
