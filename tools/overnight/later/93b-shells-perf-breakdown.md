@@ -1,6 +1,6 @@
 # 93b-shells-perf-breakdown
 
-Requires: 93b5-shell-air-brick-mask 93b2d-shell-fill-worker-cost
+Requires: 99-shell-sky-ray-exit
 
 (Was `tools/overnight/later/89-shells-perf-breakdown.md`; copied and updated by task 90b. The original stays in later/.)
 
@@ -54,3 +54,19 @@ The first run blocked (STOP_FOR_OWNER): ON +15.2 / +10.5 ms p50 steady, shells n
 93b2 (fill while walking) and 93b3 (far band after the shells) ran first. Re-run the SAME arms with the code already in
 place (no new capture code needed), and add one column "first run" so the table shows first run -> now. Same three
 rules decide 93c. Write the output to `Screenshots/93b/rerun/` so the first run's report stays.
+
+## Note (supervisor, 2026-10-17 04:4x): 93b5 closed, Q60 (b)
+93b5's air-brick mask is built but OFF by default (`-shellmask 1`); mask off = the pre-93b5 march byte for byte. Measure with
+the DEFAULT (mask off). Read `tools/overnight/blocked/93b5-shell-air-brick-mask.HANDOFF.md` for the iteration split (air-chunk
+leaps 34-47%, tier-0 leaps 17-23%) and the 93b4 read caches already in.
+
+## Owner answer (2026-10-17, Q61 (a)) -- third run
+The 2026-10-17 re-run stopped (rule 3: ON +12.7 / +13.9 ms steady; its report `tools/overnight/blocked/93b-shells-perf-breakdown.HANDOFF.md`,
+`Screenshots/93b/rerun/perf93b_rerun.txt`, commits 5a6bde8 / f349d22). Owner chose (a): task 99 (shell sky-ray exit) first, then re-run
+93b. Run the SAME arms again with whatever default 99 leaves (sky exit ON only if 99 made it the default; mask OFF). Add a column
+"re-run 17 Oct" so the table shows first run -> re-run -> now. Write to `Screenshots/93b/rerun2/`. Same three rules decide 93c.
+If 99 stopped for the owner, this task does not run (the runner holds it).
+
+## Owner answer (2026-10-17 ~13:10, Q63 (a)): SKIPPED
+Not run a third time: the owner switched play to shells without it (93c). Kept here for the next performance milestone
+(driver ready: `Screenshots/93b/rerun2/93b-rerun2-driver.sh`, AC only).

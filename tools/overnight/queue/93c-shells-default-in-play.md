@@ -1,6 +1,6 @@
 # 93c-shells-default-in-play
 
-Requires: 93b-shells-perf-breakdown 93a-engine-14e1-edit-summaries-live
+Requires: 93a-engine-14e1-edit-summaries-live 99-shell-sky-ray-exit
 
 (Was `tools/overnight/later/90-shells-default-in-play.md`; copied and updated by task 90b. The original stays in later/.)
 
@@ -15,12 +15,13 @@ measures (the rule is copied below). Re-approved in order by Amendment 8.15 Q10 
 - **Requires E1 (93a):** with shells the play default, a block edit 69-128 m away would otherwise be live but not drawn
   (8.15 §5). If 93a is not done, this task must not run.
 
-## Step 0 (decides whether to do anything)
-Read task 93b's result (`tools/overnight/done/*93b-shells-perf-breakdown*` and its HANDOFF in git history:
-`git log --grep '^93b: HANDOFF'`). Rule, decided before measuring:
-- ON p50 <= OFF + 1 ms: do the change below.
-- ON 1-3 ms slower: do the change below; 93b has written the `later/` cost task.
-- ON > 3 ms slower, or 93b wrote STOP_FOR_OWNER: change nothing, write `STOP_FOR_OWNER` quoting 93b's table.
+## Step 0 -- REPLACED by the owner (2026-10-17 ~13:10, Q63 (a)): switch now, 93b skipped
+93b's third run did not happen (Mac on battery; `tools/overnight/blocked/93b-shells-perf-breakdown.HANDOFF.md`). The supervisor
+showed the owner the estimate (17 Oct re-run +12.7 / +13.9 ms steady p50 minus task 99's -4.7 / -2.6 ms = roughly +8 / +11 ms,
+equal while walking) and the owner chose to **switch play to shells now, without the measurement**: D1-D4's memory savings,
+far detail and far-edit visibility only reach play with shells on. Frame time is checked at the next performance milestone;
+the remaining march work is `later/102-shell-march-cost.md`. So: no Step 0 rule, do the change below. No frame-time arms
+(rule 10). In HANDOFF, say plainly that standing-still frames in play are expected ~8-11 ms slower (estimate, not measured).
 
 ## Change (one change: play defaults to shells)
 1. Play (`./run-play.sh`, `PlaySettings.json`) starts with shells ON (`-shells 1` behaviour, the shell worker count 93b
