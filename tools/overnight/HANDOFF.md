@@ -6,7 +6,7 @@ in the product changed.
 
 # 93b3 far band after shells cost: ISOLATED, premise wrong; no fix (STOP_FOR_OWNER)
 
-## What changed (capture-only diagnostics; commit below)
+## What changed (capture-only diagnostics; commit 6e66b24, engine-phase)
 - `Raymarch.compute`: under `#ifdef VE_FAR_SHADE` ONLY (so CSMain, rigs and shells-off compile from the same code as before):
   the shell march's end type and iteration count are kept, plus counters ShadowStats 40-47 (far starts by shell end type /
   FarStartT, far PRIMARY steps, far shadow rays and steps, far start metres) and two debug views: 12 = FAR START, 13 = SHELL HEAT.
