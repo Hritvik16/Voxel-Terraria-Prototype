@@ -1,53 +1,52 @@
-STOP_FOR_OWNER -- task 93b5 (b): the EXACT one-leap group mask works (mask on = off: 0 px, 3,063 CPU rays field for field), but the
-exit-plane leap it needs moves 440 px (0.021%, over the 0.01% stop line; 1-7 level speckles on the distant sea) vs today, and costs
-+5-6 ms p50 by itself. Net vs today: -2.1 ms walk_near, +0.8 ms walk_open. Not >= 1 ms at both, so the mask stays OFF, and mask off
-now runs the OLD leap byte for byte. Question: (a) one more perf task: a cheaper exact leap (no loops: exit axis direct, a one-step
-correction), accepting the 0.02% px; the ceiling is ~2 ms (the old `shellgroup` arm); (b) RECOMMENDED: close the air-brick line.
-The mask stays built and OFF, and 93b re-runs. The shells' +12-15 ms is elsewhere (air-chunk leaps 34-47%, tier-0 leaps 17-23% of
-iterations, the per-iteration checks); (c) ship mask ON as is (not recommended: walk_open slower, p99 189 vs 106 ms at walk_near).
+# 94 fluid gravity fall (8.16): DONE. Every fluid now falls at g up to 12.15 m/s, the same for all; viscosity only gates sideways moves
 
-# 93b5 (b) exact group leap: built, exact, tested; not faster at both poses -> OFF, default path = today's code
+## What changed (commit 92e8fde, engine-phase)
+- `AMENDMENT_8_16_FLUID_FALL.md` (DESIGN CHANGE, owner-approved 2026-10-15), added to CLAUDE.md's amendment order + a task-94 note.
+- `FluidFall.cs` (new): ONE integer table, Table[k] = whole voxels fallen after k ticks (the exact g t^2/2, capped, floored). The cap is 12 m/s
+  rounded to whole voxels per tick: 27 voxels/tick = **12.15 m/s** at 4.5 Hz, reached after 1.24 s / 7.5 m. Never slower than the old 1 voxel/tick.
+- `FluidReferenceCPU` + `FluidCA.compute` CSIntent: a fluid (not steam, not sand) with air below SKIPS the viscosity gate and makes ONE ordinary
+  claim Step(k) voxels down. It stops above the first cell that was not air at tick start (= landing, k = 0). A missing tile stops it without a landing.
+  Steam below = an ungated swap. CSSweep resets k on a lost claim. **State: k in GPU `stateFlags` bits [15:8]** (spare bits in the slot's existing
+  uint lane; still 24 B). The CPU oracle keeps it in a side array, because A.5's byte layout has no spare byte. No struct, D.1 or API change.
+- Conservation: the fall is a normal §7.3 claim (air-only, plain store, destination-driven commit, one bid per slot), so no new collision rule
+  was needed. Sand (`IsFallingSolid`) and steam are unchanged: the fall branch is fluid-only, and sand's falls stay 1 voxel/tick.
+- `FluidGpuSimulation`: `GravityFall`, `FallTickSeconds` (Playground: the scheduler's period), `NoteFallAhead`. A fast-fall op pulls in the tile
+  its next tick reaches (AwakeOnly); without it a fall stalls at every 32-voxel tile face. `FluidOpListReadback.FastFallOpsApplied`.
+- Playground `-fluidfall 0` = v8.6 rule. Capture `-fallstrip` (`PlaygroundCapture.FallStrip.cs`).
+- Tests: new `FluidGravityFallTests` (8). Five old tests pin the v8.6 FALL with `GravityFall = false`: GravityOnly_SingleDrop, MineAFallingDrop,
+  Viscosity_LavaEvery6/Honey30, Viscosity_DoesNotAge, Lava_QuietWindow. Also the 8x8 tie-break experiment: its 30-drop pour now settles to one
+  flat layer for every salt, but its rig-scale control still differs under 8.16. ReactionPairTests water-on-soil: I dropped the "no water touches
+  soil at rest" line. It held only for the old pour's path; a drop now sleeps right after a lateral move, the sand test's documented caveat.
 
-## What changed (commit 251505e, engine-phase; continues 70ddcf5 / 2c1fa45)
-- `Raymarch.compute`: new `ShellPlaneT` / `ShellPlanesCrossed` / `ShellLeap`. t = (exit plane - start) x tDelta from the plane itself.
-  Each axis crosses exactly the planes whose t <= the exit t (a closed-form guess corrected against `ShellPlaneT`, no eps). The normal is
-  the first axis whose crossed plane has that t. So a leap's state depends on its exit t alone. `ShellGroupLeapOk`: an empty group is
-  ONE leap (sh = k + 5) when no tier-0 leap can happen inside it and every distance stays in shell k's band (primary: t up to the
-  group's exit t; shadow: cell centres, 1 voxel margin). The exact inner loop and the `shellgroup` diagnostic are gone.
-  `SHELL_PLANE_LEAP` = mask on (or `_DebugShellSkip` bit 4). Mask off = `LeapSpanReseedClosedForm`, as before 93b5.
-- CPU twin `ShellRayReference`: `PlaneLeap`, `PlanesCrossed`, `GroupLeapOk`, `March(..., planeLeap)` (useMask implies it). `Leap` unchanged.
-- `ShellAirMaskTests`: (2) compares mask on vs off with `planeLeap: true`; new (4) `Leap_OneGroupLeap_EndsWhereItsBrickLeapsEnd`.
-- Cost split: arm `shellgroup` removed, `shellleap_new` (bits 3+4: mask off, new leap) added; the counters line shows groups leapt (stat 60).
-  RaymarchFeature, CLAUDE.md (93b5 line + index), KNOWN_ISSUES "SHELLS COST" (new EXACT GROUP LEAP paragraph).
+## Evidence
+- Own filter run 53/53 (FluidGravityFall, FluidConservation, FluidAtRest, FluidSlowViscositySettle, FluidTieBreakVariance, FluidSlopedTerrain).
+  **Fast suite PASS 830 FAIL 0 SKIP 14** (`Logs/overnight/94-fast.out`).
+- CPU fall, every fluid the same (water, lava, honey, oil, acid, sludge, quicksand), within 1 voxel of the integrated fall at every tick to 2 s:
+  +0.44 s 0.90 m (exact 0.97), +1.11 s 6.00 m (6.06), +2.00 s 16.70 m (16.78). Never passes a 1-voxel slab at 28 offsets. Cap holds (27/tick).
+- GPU (EditMode is CPU-only, so this is the GPU check): one strip launch, `Logs/tg2world_20261017_050009.txt`, `Screenshots/94/94-fallstrip.txt`.
+  AFTER: water, lava and honey fronts are IDENTICAL at every shot (0.9 / 3.8 / 7.9 m at +0.5 / +1 / +2 s, landed by +2 s). They match the
+  table, with one tick of wake latency. BEFORE: water 0.2 / 0.3 / 0.8 / 1.7 m, lava 0 / 0 / 0.1 / 0.2 m, honey 0 at +0.5 / +1 / +2 / +4 s.
+- `run-fluid-tiled.sh` **PASS 19 FAIL 0** (`Screenshots/94/94-fluidtiled.txt`). That rig has NO mass-ledger assertion; its checks are residency,
+  motion and wakes. Exact mass is proven on the CPU oracle (conservation asserted every tick in all the tests above). The GPU apply is all-or-nothing per move op.
 
-## Evidence (AC power 100%, warm steady state)
-- Tests: filter run 18/18 (ShellAirMask, ShellMarchCache, ShellHandOver, ShellOrder, ShellStorage), no expected value moved, no tolerance
-  touched. (4): 20,000 rays, 14,961 cross > 1 brick, 5,624 leave the group across an edge/corner: one group leap = its brick leaps
-  in t, voxel, normal and tMax. (2): 2,376 primary + 687 shadow rays, 0 capped, differ 0, iterations 70%. (3) mutation: 21 differ (caught).
-  **Fast suite PASS 822 FAIL 0 SKIP 14** (`Logs/overnight/93b5b-fast.out`). A player build after the gating compiled with 0 shader errors.
-- Warm-up `Logs/tg2world_20261017_040606.txt`, then ONE launch `Logs/costsplit_2026-10-17_041222.txt`: F X X F Y Y F, `-shellmask 1`.
-  The ARM NAMES IN THAT LOG are from before the gating: its `shellmask_off` = new leap without the mask (now `shellleap_new`), and its
-  `shellleap_old` = today's march (now plain `shellmask_off`). p50 (p99) ms:
-  walk_near: mask + new leap 63.5 (189, runs 62.1/65.0/63.4, noise 2.8); new leap only 70.6 (110); today 65.7 (106).
-  walk_open: mask + new leap 49.0 (81, noise 1.2); new leap only 54.4 (103); today 48.2 (80).
-  Shell iterations/pixel today -> mask: 5.53 -> 2.56 (walk_near, -54%), 30.33 -> 21.89 (walk_open, -28%); the estimate was -40-50 / -25-30%.
-  Empty groups leapt: 526 k / 1.45 M a frame (40% / 13% of primary iterations).
-- Identity (no-upscaler `_raw` stills, same launch): mask on vs off (both new leap) **0 px** at both poses; raw vs raw2 0 px. New leap vs
-  today: walk_near 0 px, walk_open **440 px = 0.0212%, max channel delta 7** (217 px at 1, 153 at 2).
-- Default path NOT re-launched after the gating. It is the same code as that launch's `shellleap_old` arm (a uniform branch to the old leap).
+## Gameplay consequences (CLAUDE.md memory rule)
+- More motion and more pool use: FluidTiled scatter voxel writes 93,744 -> 167,711, peak tiles 553 -> 618 (+12%, cap 1,024).
+  Stale ops 6,934 -> 16,717 (dropped whole: lost motion, not mass). Strip: 12 fall-ahead tiles, 0 refused.
+- Looks: at 4.5 Hz a terminal-speed fall jumps 2.7 m per tick, and a released block falls as spaced SHEETS (each layer starts one tick
+  after the one below). Both get smoother with a higher tick rate, so this bears on 97. The arena's resident height capped the strip drop at 8 m.
 
-## Not done
-- No mask default change, no cheaper leap (a second perf change; it waits for the owner's pick). 93b's re-run still Requires 93b5.
+## Next
+- Supervisor: re-ask the owner about 97 (adaptive drain to raise 4.5 Hz); the sheet/jump look above is the new argument for it.
+- Not done (not asked): updating ARCHITECTURE A.5/Appendix B itself; the amendment records the bit use.
 
 ## For the doc
-Task 93b5 (b): an exact one-leap-per-empty-group air-brick mask. It works, but it is not worth turning on.
-- Shell iterations per pixel: **5.53 -> 2.56** (walk_near), **30.33 -> 21.89** (walk_open) (`Logs/costsplit_2026-10-17_041222.txt`).
-- Frame p50, today -> mask on: **65.7 -> 63.5 ms** (walk_near, noise 2.8) and **48.2 -> 49.0 ms** (walk_open, noise 1.2). The exact leap alone costs +5-6 ms.
-- Image: mask on = off **0 px**. New leap vs today: **0.021%** px at walk_open (1-7 levels), 0 at walk_near.
-- GPU memory: the mask stays +33 KB (High). Default stays OFF; mask off = today's march, byte for byte.
-Images:
-- `Screenshots/93b5b/walk_open_heat_today_vs_mask.jpg`: shell-march step heat, today LEFT / mask on RIGHT. The distant ridge band (centre-right)
-  is red/yellow on the left and mostly green on the right. Black = tier 0 drew it; the sky is blue in both.
-- `Screenshots/93b5b/walk_open_newleap_vs_today_diff.jpg`: the walk_open frame darkened, with every pixel the new leap changes vs today
-  marked by a red dot. They sit only on the distant sea and lowland at the left (scattered, 1-7 levels). The ridges are unchanged.
-- `Screenshots/93b5b/walk_open_beauty.jpg`: walk_open at noon, no upscaler (desert ridges, sea and snow at the left). It looks the same with the mask on or off.
+- Fall speed after +0.5 / +1 / +2 s, before -> after: water 0.45 -> 4.9 / 9.8 / 12.15 m/s; lava 0.075 -> same; honey 0.015 -> same
+  (every fluid identical; cap 12.15 m/s = 27 voxels/tick at 4.5 Hz). Distance fallen at 2 s: water 0.9 m, lava 0.1 m, honey 0 -> 16.7 m for all
+  (`FluidGravityFallTests`, TestResults_filter.xml).
+- GPU strip fronts at +1 s: water 0.3 / lava 0 / honey 0 m -> 3.8 m each (`Screenshots/94/94-fallstrip.txt`).
+- Conservation: exact on the CPU oracle every tick (8 new tests plus 45 existing); FluidTiled rig PASS 19/0; fast suite PASS 830 FAIL 0.
+- Pool: FluidTiled peak tiles 553 -> 618 (cap 1,024); strip 12 fall-ahead tiles, 0 refused.
+- `Screenshots/94/94-strip-crop.png`: top row is BEFORE, bottom row AFTER; columns +0 / +0.5 / +1 / +2 / +4 s. In each frame the left block is
+  honey (brown), the middle lava (orange), the right water (blue), released 8 m up. Top: honey never moves, lava sags at +4 s, water sinks ~1.7 m.
+  Bottom: all three shed sheets that fall at the same rate, most is on the ground by +2 s, and at +4 s three piles sit on the ground.
+- `Screenshots/94/94-strip.png`: the same 10 frames uncropped, to show the site. The blocks are small dots at mid-frame, 32 m away.
