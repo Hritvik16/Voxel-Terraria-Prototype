@@ -431,6 +431,12 @@ each save for residents) + generation stage (noted on arrival). Nothing reads th
 and in FlushAllDirty, ONLY once the save is real (file existed, ops, or a delta written); cleared with the deltas. Bad file -> defaults +
 warning, moved to `.rejected`. `WorldStateTests` (4).
 
+Task 104 (engine Q1, 8.15 §7): FAR QUERY `IFarQuery.GetVoxels(points, results)` (NEW beside the frozen GetVoxel; `FarQuery`,
+`StreamManager.FarQuery`, null on sizeClass 0/1): resident chunk -> ChunkStore; else the D.1 brick (LRU of parsed deltas, validated by
+TryDecodeOnto; SaveDelta calls `ForgetDelta`) then ops > S; else `TerrainGenChunkSource.PointVoxel` (Burst, Generate's exact calls) + all ops.
+Main-thread plan, Burst `PointJob` parallel over 32-point batches. `FarQueryTests` (4, one Slow). Editor test timing: ~7-10 us/point on a
+new column, 0.3 us in vertical runs (single thread), ~2 us wall parallel.
+
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
 (`Assets/TerrainGen/`):

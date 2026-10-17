@@ -262,6 +262,20 @@ namespace VoxelEngine.Streaming
         public int TopLayerChunkY => _tgSource != null ? _tgSource.TopLayerChunkY : MAX_GENERATED_CHUNK_Y;
         public TerrainGenChunkSource TerrainGenSource => _tgSource;
 
+        /// Amendment 8.15 row Q1 (task 104): the far query over this world -- any
+        /// voxel as its chunk would load (resident / D.1 / generator + ops). Made on
+        /// first use; null for sizeClass 0/1 worlds (no point generator). MAIN THREAD.
+        public FarQuery FarQuery
+        {
+            get
+            {
+                if (_farQuery == null && _tgSource != null)
+                    _farQuery = new FarQuery(_store, _store, _tgSource, Ops, _deltaDir, _meta.seed);
+                return _farQuery;
+            }
+        }
+        private FarQuery _farQuery;
+
         /// Highest chunk layer that can hold anything but air, for readers that
         /// cannot see the StreamManager (VoxelCollision's ceiling rule). Equal to
         /// MAX_GENERATED_CHUNK_Y unless a vertically streamed world is live.
@@ -1491,6 +1505,7 @@ namespace VoxelEngine.Streaming
                     // so the stale file must go, not linger as a lie.
                     DeltaCodec.DeleteIfPresent(path);
                     Ops.NoteDeltaDeleted(coord);
+                    _farQuery?.ForgetDelta(coord);
                     World.MarkPersistent();
                     if (_table.TryGetValue(coord, out var r0)) r0.deltaByteLength = 0;
                     return true;
@@ -1498,6 +1513,7 @@ namespace VoxelEngine.Streaming
 
                 Ops.NoteDeltaAboutToBeWritten(coord, bytes);
                 DeltaCodec.WriteAtomic(path, bytes);
+                _farQuery?.ForgetDelta(coord);
                 World.MarkPersistent();   // the run saves terrain: world.state is written too (C1)
                 if (_table.TryGetValue(coord, out var r)) { r.deltaByteLength = (uint)bytes.Length; }
                 return true;
@@ -1823,6 +1839,7 @@ namespace VoxelEngine.Streaming
         public void Dispose()
         {
             if (VerticalStreaming) ContentTopChunkY = MAX_GENERATED_CHUNK_Y;
+            _farQuery?.Dispose();
             _tgSource?.Dispose();
             _samplerState.Dispose();   // owns NativeArrays since the Burst port
             _cancel.Cancel();
