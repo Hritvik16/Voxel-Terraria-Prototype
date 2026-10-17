@@ -1,51 +1,58 @@
-STOP_FOR_OWNER -- 93b RE-RUN: shells ON are still 12.7-13.9 ms SLOWER at steady state (rule 3), even though shells 1-3 now fill.
-Question (Q61): what happens to 93c (shells default in play)?
- (a) RECOMMENDED: hold 93c, and queue one shell-march cost task (the march is ~16-18 ms of a frame, GPU-bound). 93b4 named the
-     candidates: end upward sky rays early (walk_near: 5.8% sky pixels at 94 iters each slow whole SIMD groups), and the air-chunk / air-brick
-     steps (77% of iterations at walk_open). Re-run 93b after it.
- (b) switch anyway for the visuals: +13 ms standing still (53 -> 66 ms, 34 -> 48 ms), ~0 while walking (shells 3-7 stay empty then).
- (c) Fact for the owner, not a recommendation: shells ON but NOT drawn (tier 0 + far band only, no tiers 1-2) runs 3-4 ms FASTER than
-     today's play (50 / 30 ms) and looks almost the same at both poses (sheets, bottom-left). Tiers 1-2 cost ~4 ms for little visible detail here.
+# 97-fluid-option-b-adaptive-drain: DONE. Option B is in. The fixed fluid tick rose from 4.5 to 6.5 Hz with no shortfall at 30 or 20 FPS (arena pour).
 
-# 93b re-run (shells perf breakdown): DONE (measured), rule 3 -> 93c held
+**Owner, please note (frame cost, not blocking):** option B moves a whole op batch, up to 4,096 ops, onto ONE frame's main
+thread. In a heavy pour (9,261 water voxels) at 20 FPS the apply's p99 went from 5.3 to 12.0 ms and its max from 5.9 to
+21.9 ms. That spike lands about 6 times a second while the pour runs. In the light arena pour the p99 stays at 5.5-6.4 ms
+(5.2-6.1 before). This is the risk that FLUID_TICK_DIAGNOSIS section 3 named. The apply timer measured it; no frame-time
+arm was run (rule 10). If it shows in play, `-drainwhole 2048` (or 0) is the knob.
 
-## What changed (commit 5a6bde8, no product code)
-- `Screenshots/93b/rerun/perf93b_rerun.txt` (full table + log paths), copies of the 4 cost-split logs, driver + its output.
-- KNOWN_ISSUES "SHELLS COST" entry + CLAUDE.md index line: re-run numbers appended.
-- No EditMode run: the commit is text only (no code, scene or shader change), so there was nothing for the suite to check.
+## What changed (commit `d536179`, branch engine-phase)
+- `OpDrainCursor.BudgetFor(batchOps, perFrame, wholeBatchMax)`: a batch of <= wholeBatchMax ops gets the whole batch as its
+  budget. A bigger batch keeps 1024/frame, with the same slices as before. The rule looks at the batch's total size.
+- `FluidOpListReadback.WholeBatchMaxOps` is per instance and 0 (off) by default. Playground sets `WholeBatchMaxOpsDefault` = 4096
+  (`-drainwhole N`, 0 = the old drain). The stand-alone rigs keep pure slicing. New counters: `WholeBatchesApplied`, and
+  `ApplyMs*` (mean, 0.1 ms histogram p99, max).
+- `FluidTickScheduler.DefaultRateHz` is now **6.5** (was 4.5), so lava runs at 1.08 Hz. Playground's fall table follows the period.
+  `FluidFall.DefaultTickSeconds` stays 1/4.5 for the rigs and the CPU-twin tests (comment says why).
+- Fluid probe: a `DRAIN (task 97)` line at every report point, giving the period split (latency + drain + gap), ops/batch, carried or whole, and apply ms.
+  `-fluidbox N` sets the arena water box half-width (10 = heavy pour). `-stripnoshots` turns off captures and adds a +40 s point.
+- Tests: `AdaptiveDrainTests` (6: a small batch drains in 1 frame, a big batch is sliced exactly as before, off = old, exactly-once order,
+  the period model, B needed for R at 30 FPS). `FluidTickSchedulerTests`' fake pipeline went from 5 to 4 busy frames (5 frames could not carry R > 6).
+- Docs: ENGINE_PHASE_PLAN row 5 note, KNOWN_ISSUES (fluid entry), CLAUDE.md index line.
 
-## Evidence (warm steady state; warm-up `Logs/tg2world_20261017_052347.txt`; ABBA back to back, AC, no owner pause; default mask OFF)
-| arm | first run (10-15) | now p50 / p99 ms | >33 ms | delta vs OFF | peak MB | Metal MB |
-|---|---|---|---|---|---|---|
-| steady walk_near OFF / ON | 52.4 / 67.6 (+15.2) | 53.7, 52.8 / 65.9, 66.0 (p99 85-89 / 107-132) | - | +12.7 (noise 0.9) | - | - |
-| steady walk_open OFF / ON | 35.9 / 46.3 (+10.5) | 34.1, 34.1 / 48.0, 47.9 (p99 61-65 / 83) | - | +13.9 (noise 0.0) | - | - |
-| moving walk OFF / ON | 42.6 / 39.7 (-2.9) | 41.9, 42.0 / 42.4, 42.1 (p99 98-101 / 97-98) | 79.1, 79.2 / 79.3, 79.4% | +0.3 (noise 0.1) | 2,391, 2,369 / 2,477, 2,366 | 1,203, 1,155 / 1,306, 1,302 |
-- Steady logs: `Logs/costsplit_2026-10-17_{053003,053705,054904,060101}.txt` (OFF ON ON OFF). Walk logs: `Logs/tg2world_20261017_{060657,061147,061638,062130}.txt`.
-- Shell fill, pinned pose, 120 s: s1 complete at 7 s, s2 at 38 s, s3 at 88-89 s (first run: s1-s2 FULL, 621 / 1,140 missing); s4 94%, s5 28%,
-  s6-s7 0; ~600 chunks missing. Filled or not, the cost is the same.
-- Where it goes (inside both ON launches): not drawing the shells saves 15.8-17.6 ms (now leaving tier 0 + far band, no tiers 1-2: 50 / 30 ms).
-  far_off (which also stops the shell march) saves 17.4-22.1 ms ON vs 2.2-4.1 OFF; far shading -2.0 to +2.5 ms. So shell march ~16-18 ms,
-  tiers 1-2 ~4 ms. GPU-bound (render thread 1-3 ms; gpu* 161 vs 117 near, 127 vs 74 open; gpu* read 0.0 in the OFF launches).
-- Moving: shell 1 at the walk's start (t+19 s) 1,222 / 2,170, held 1,000-1,860 during the walk, shell 2 400-820, shells 3-7 0; none ever
-  complete. 10,600-10,900 chunks generated (50 ms each) vs 2,347 (241 ms) in the first run. So moving ON = OFF because shells 3-7 are absent.
-- Memory: peak +42 MB (first run +387): tiers 1-2 are freed now (93d). Metal +125 MB. GPU body pool peak 243,847 of 254,400 (96%), refused 0.
-- Looked at `Screenshots/93b/rerun/sheet_walk_open.png` and `sheet_walk_near.png`: OFF, ON and ON-not-drawn look the same apart from the
-  snow coast at the left of walk_open (whiter, more even under ON). Tint: the near mountain is tier 0 (blue-grey), the coast is shells (cyan/pink),
-  and the ridge top right is shells (yellow/pink). walk_near is almost all tier 0.
+## Evidence
+- `SUITE=all`: **PASS 888 FAIL 0 SKIP 25** (`Logs/overnight/97-suite.out`). The filtered run while iterating was 19/19.
+- Rate arms ran at warm steady state. Warm-up: `Logs/tg2world_20261017_073606.txt`. The arms ran back to back from 07:44 to 08:50 with
+  no owner pause. The Mac went from AC to battery (95-100%) at about 07:56, outside my control; 91's arms also ran on battery.
+  Full table: `Screenshots/97/rates.txt`.
+  | arm (arena, 40 s, no shots) | FPS | ticks/s | SHORTFALL |
+  |---|---|---|---|
+  | before 4.5 Hz, cap 30 / cap 20 | 29.6 / 19.9 | 4.50 / 4.50 | 0 / 0 |
+  | after 6.5 Hz + B, cap 30 / cap 20 (x2) | 29.5 / 19.8 | 6.50 / 6.49, 6.49 | 0 / 0, 0 |
+  | 6.5 Hz with B OFF, cap 20 | 19.8 | 6.39 | 0.10/s |
+  | heavy pour 4.5 -> 6.5+B, cap 20 | 19.8 | 4.17 -> 5.82 | 0.32 -> 0.70/s |
+  | heavy pour 4.5 -> 6.5+B, cap 30 | 29.8 | 4.45 -> 6.17 | 0.05 -> 0.32/s |
+- Why 6.5 and not more: readback latency now measures 2.0 frames in every arm (the 09-24 diagnosis had 3.6-3.8). In the arena,
+  a tick takes 2 + 1 + 1 = 4 frames, of which 3 count towards the period (latency + drain - 1 + gap = 2 + 1 - 1 + 1), so the
+  capacity at 19.8 FPS is ~6.6 ticks/s. R = 7 cannot be delivered there.
+  At 6.0 Hz, one run lost 5 ticks during an FPS dip in its 20-40 s window (0 in 0-20 s), so I count that as noise, not a rate limit.
+- Pipeline capacity (legacy, tick whenever CanIssue): heavy pour at cap 20 went from 3.85 to 5.29 ticks/s with B, at cap 30 from 6.35 to 8.29.
+  Light pour at cap 20 went from 6.23 to 6.39: B only matters when a tick carries more than 1024 ops.
+- Finding: each strip screenshot is a ~0.3-0.5 s frame and drops one due tick at 6.5 Hz (3 per launch). 91's 0.05/s at 20 FPS
+  was probably the same artefact. That is why the rate arms use `-stripnoshots` and the strip launches are separate.
+- Screenshots I looked at: `Screenshots/97/97-strip.png` (below) and the raw +4 s 6.5 Hz shot (`FarBand/2026-10-17_084434_fluidprobe_arena/strip_4s.png`):
+  the arena floor at noon with the water mound and the slumping lava, nothing broken.
 
-## Not done
-- Nothing skipped. The `later/` "shell march cost" task was not written: that is rule 2's step, and rule 3 applies (owner decides first).
+## Left / next
+- Not done: a frame-time A/B of B (not asked; rule 10). Option A (gap 0, ~8 Hz) still needs the conservation-ledger proof first.
+- Heavy pours keep falling short at 20 FPS (5.8 of 6.5). A cheaper apply (it costs ~2-5 us per op) would help both the shortfall and the spike.
 
 ## For the doc
-Task 93b re-run: shells ON vs today's play, same settings (fsr3 540, quality, far band + far shading), warm, ABBA, after 93b2-93g.
-- Steady p50: walk_near 53.3 -> 66.0 ms (+12.7; first run +15.2), walk_open 34.1 -> 48.0 ms (+13.9; first run +10.5); noise 0.0-0.9 (`Screenshots/93b/rerun/perf93b_rerun.txt`)
-- Shell fill at a standing pose: shell 1 in 7 s, shell 2 in 38 s, shell 3 in 89 s (first run: shells 1-2 never complete)
-- Cost: shell march ~16-18 ms; tiers 1-2 (what it replaces) ~4 ms; without either, 3-4 ms faster than today
-- Moving: 42.0 -> 42.3 ms p50 (first run -2.9); shells 1-2 mostly there while walking (was ~76 chunks), shells 3-7 still empty
-- Memory: peak 2,380 -> 2,422 MB (first run 2,553 -> 2,940), Metal 1,179 -> 1,304 MB
-- Rule: ON > 3 ms slower -> 93c held again (STOP_FOR_OWNER, Q61)
-Images:
-- `Screenshots/93b/rerun/sheet_walk_open.png`: top left OFF, top right ON, bottom left ON with the shells not drawn (tier 0 + far band), bottom right
-  the shell tint. Look at the snow coast on the left: ON draws it whiter and more even. The mountain is the same in all three, because tier 0 draws it (blue-grey in the tint).
-- `Screenshots/93b/rerun/sheet_walk_near.png`: the same layout at a canyon wall 10-30 m away. All panels look the same, and the tint is tier 0 almost everywhere,
-  yet ON costs +12.7 ms here: the few sky pixels at top right march the shells at ~94 iterations each.
+- Fixed fluid rate went from **4.5 to 6.5 ticks/s** (+44%; lava 0.75 to 1.08 Hz). Arena pour: 6.50 ticks/s at 30 FPS and 6.49 at 20 FPS.
+- SHORTFALL at 20 FPS: **0 over 40 s** in 2 runs, before and after (`Screenshots/97/rates.txt`, logs `Logs/tg2world_20261017_081418.txt`, `_084733.txt`).
+- Heavy 9,261-voxel pour at 20 FPS: 4.17 -> 5.82 ticks/s (shortfall 0.70/s). Its apply spike p99 5.3 -> 12.0 ms, max 5.9 -> 21.9 ms.
+- Option B alone, same 6.5 Hz at 20 FPS: B off 6.39 ticks/s (0.10/s short) -> B on 6.49 (0 short). Heavy-pour capacity at 20 FPS 3.85 -> 5.29.
+- Image: `Screenshots/97/97-strip.png`. Rows: before (4.5 Hz, old drain, cap 30), after (6.5 Hz + B, cap 30), after (6.5 Hz + B, cap 20).
+  Columns: +2/+4/+8 s after placing a water column (blue) and a lava block (orange) in the arena at noon. Look at the +4 s column:
+  the after rows show a lower, wider water mound than before's cone, and at +8 s a wider puddle, so water moves faster. Rows 2 and 3
+  match each other, so the speed still does not depend on the frame rate.
