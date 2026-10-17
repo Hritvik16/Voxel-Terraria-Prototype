@@ -1,57 +1,52 @@
-STOP_FOR_OWNER -- task 93b5: the EXACT air-brick mask works (0 px differ, shell iterations -55% / -29%) but makes frames 1-3 ms
-SLOWER, so I shipped it OFF (`-shellmask 1`). A mask that saves time cannot be bit-exact the way the task asked (stop rule). The fast
-version is one closed-form leap per empty brick group: -1.5 / -2.0 ms (walk_near / walk_open), 0 px differ in both stills, but its t
-rounds differently at the group's exit. Question: (a) ship that one-leap version as is (CPU twin + a test with a t tolerance), ~2 ms;
-(b) RECOMMENDED: make it exact by construction: every shell-march leap computes t as (exit plane - start) x tDelta, so one group
-leap ends exactly where the last brick leap would. Same ~2 ms; mask on = off byte for byte; shell frames vs today may differ by an
-LSB (0 px expected); (c) leave the mask off. Whatever is picked, the shells' +12-15 ms is mostly NOT air-brick steps (see below).
-93b (Requires 93b5) should wait for this answer.
+# 93g1 gameplay step 6 (GLIDING): DONE -- hold Space after the double jump, 10 m/s forward, 2 m/s down, soft landing
 
-# 93b5 shell air-brick mask: built + exact + tested; measured SLOWER as an exact loop, so OFF by default
+(The previous HANDOFF, 93b5's STOP_FOR_OWNER on the shell air-brick mask, still waits for the owner: its question is in
+`tools/overnight/blocked/93b5-shell-air-brick-mask.HANDOFF.md`. 93b Requires 93b5.)
 
-## What changed (commit 70ddcf5, engine-phase)
-- `ShellStore`: a 64-bit mask per page (bit g = 4x4x4-brick group g has a handle that is not uniform air; `GroupMask` / `GroupOf`,
-  shared with the tests). It is built from the page staging in `Store` (generated chunks, op/summary redraws, fill output: all of them go through Store)
-  and uploaded with the page, before its directory entry. It sits in the TAIL of the shared page buffer (`MaskBase`), not in a buffer of its own,
-  because one more binding would bring the kernel nearer Metal's 31-buffer limit. Size: High 4,171 pages x 8 B = **33 KB**, Ultra **62 KB**.
-  `ShellBytes.MASK`, layout/ledger bytes, budget +8 B per page (ShellStorageTests' exact-budget numbers updated).
-- `Raymarch.compute` `ShellMarch`: for an air brick of a paged chunk whose group bit is 0, an inner loop takes the SAME one-brick
-  `LeapSpanReseedClosedForm` calls with no reads. It stops at the group edge, or at any brick where the tier-0 band, the distance shell or the clamp
-  would act. This is exact by construction: one closed-form leap over the group would round t differently, because tExit = tMax + (n-1) x tDelta depends on the path.
-  It runs only with `_ShellAirMask` (`RaymarchFeature.ShellAirMask`, `-shellmask 1`, default OFF). Diagnostics in the far-shading kernel:
-  `_DebugShellSkip` bit 3 (`shellmask_off`) and bit 4 (`shellgroup`: one non-exact leap per group, only where the whole group is in
-  shell k's band and outside tier 0's), and ShadowStats 60-61 (groups / bricks crossed; STATS_LEN 62).
-- CPU twin `ShellRayReference.March(useMask)` + `IMaskView` (GroupMask, tier-0 layers). `ShellMarchCacheTests.RaySet` extracted for reuse.
-- New `ShellAirMaskTests` (3). KNOWN_ISSUES "SHELLS COST" (new AIR-BRICK MASK paragraph) + its CLAUDE.md index line; CLAUDE.md Task 93b5 line.
+## What changed (commit 0a87243, engine-phase)
+- `PlayerMotor` (abilities path `Step(dt, in MotorInput)` only; the legacy rig Step never glides): new state `Gliding`, `CanGlide`
+  + `StepGlide`. The rule: airborne, not swimming/climbing/dashing/sliding, the air jumps spent (`AirJumpsUsed >= airJumps`), falling
+  (vy <= 0), Space HELD (`MotorInput.UpHeld`, already Space in play). Fall speed eases to `glideSinkMps` (braked at 30 m/s^2 when faster,
+  gains gravity when slower); horizontal velocity eases (8 m/s^2) to `glideSpeedMps` along the LOOK yaw; S = `glideSlowSpeedMps`,
+  A/D drift `glideStrafeMps`. Release Space = normal gravity; re-hold re-opens (still one double jump per airtime). Landing, water,
+  a dash or a cling (glide into a cliff holding W) end it. Teleport clears it.
+- `PlayerConfig`: `glideSinkMps 2`, `glideSpeedMps 10` (0 = glide off), `glideSlowSpeedMps 4`, `glideStrafeMps 3`, `glideAccelMps2 8`,
+  `glideBrakeMps2 30`, validated. Existing PlayerConfig.json files keep working (missing fields take these defaults).
+- HUD (`DrawMoveHud`): "GLIDING 10.0 m/s, sinking 2.0 m/s ..." and "double jump spent: hold Space to glide"; the state label is
+  wider (the GLIDING line was clipped at the old 440 px). F2 help + `run-play.sh` key list have a glide line. CLAUDE.md task line.
+- New `GlideTests` (7). New `-glidedemo` (`Playground.GlideDemo.cs`; vitals stay ON so the landing is judged by the real damage path).
 
-## Evidence (AC power, warm steady state)
-- Tests: filter 17/17 (ShellAirMask, ShellMarchCache, ShellHandOver, ShellOrder, ShellStorage). (1) Each of 12 real tg2 chunks
-  (shells 1-3, generated / filled, each also op-redrawn via `replace: true`) has an uploaded mask equal to a scan of its uploaded page; every clear group is air
-  voxel for voxel (352 empty / 416 non-empty groups). (2) 2,376 primary + 687 shadow rays: mask on = off in every field, 0 capped; iterations 69%.
-  (3) Mutation (bits cleared on non-air groups): 24 rays differ, caught. **Fast suite PASS 814 FAIL 0 SKIP 14** (`Logs/overnight/93b5-fast.out`).
-- Run 1 (`Logs/costsplit_2026-10-17_012419.txt`) is INVALID: the owner paused at 01:24 during it, and only walk_near ran.
-- Run 2: warm-up `Logs/tg2world_20261017_022453.txt`, then `Logs/costsplit_2026-10-17_023103.txt` (F X X F, X = shellmask_off, mask on in FULL):
-  shell iterations/pixel **5.53 -> 2.49** (walk_near), **30.33 -> 21.68** (walk_open). Primary sky ray at walk_near: 94.9 -> 42.7 iterations.
-  p50 off -> on: **65.0 -> 67.8** / **48.0 -> 48.6 ms** (noise 0.1); p99 186 -> 216 / 81 -> 101.
-- Run 3: warm-up `Logs/tg2world_20261017_024643.txt`, then `Logs/costsplit_2026-10-17_025258.txt` (+ shellgroup arm). p50 on / off / shellgroup:
-  walk_near **66.7 / 65.4 / 63.9**, walk_open **49.3 / 48.0 / 46.0** ms (noise 1.2-1.7 / 1.2-1.4).
-  Why the exact loop does not pay: it still does every brick leap (1.56 M / 4.31 M a frame), and SIMD lanes split between two loops.
-  Even skipping those leaps entirely (shellgroup) saves only ~2 ms of the shells' +12-15, so most of the march's cost is NOT air-brick steps
-  (left: tier-0 leaps 23%, uniform-air-chunk leaps 29-48%, the per-iteration distance/tier-0 checks).
-- Identity: no-upscaler stills `*_raw.png`: on vs off **0 px differ** at both poses (runs 2 and 3), shellgroup vs off 0 px, raw vs raw2 0 px.
+## Evidence
+- Fast suite: `PASS 821 FAIL 0 SKIP 14` (4m24s). Filter run during work: GlideTests + MovementSetA + ClimbSlope + PlayerMotor + PlayerConfig 77/77.
+- GlideTests: ratio = speed/sink = 5 +- 0.02 over 5 s steady (sink 2.000, speed 10.000 m/s, heading = look yaw); a glide from 30 m lands
+  at <= 2.01 m/s, FallDamage 0, feet on the floor, ~15 s down; the same drop without Space does damage; no glide before the double jump;
+  release -> gravity, re-hold -> back to 2 m/s; yaw 90 steers to +x, S -> 4 m/s, D -> 3 m/s drift; glide into a pool -> swimming;
+  glideSpeedMps 0 -> never glides.
+- Play (`Screenshots/93g1/glidedemo_log.txt`, second launch, seed 42 v4): launch site 99 m from the play start, 144.5 m above sea,
+  lane yaw 205 (sun-away 180). Glide 124.4 m across, 25.1 m down, **ratio 4.96**; impact **2.00 m/s -> 0 damage** (a free fall of that
+  height = 100 = death); health 100 -> 100; **0 frames held by unstreamed terrain** at 10 m/s (streaming kept up on this 16 s glide).
 
-## Not done
-- No decision taken between (a)/(b)/(c). The mask data stays built and uploaded (33 KB) either way.
-- 93b's re-run waits (Requires 93b5).
+## Picks (owner may change; all in PlayerConfig.json)
+1. Steering: the MOUSE steers (heading = look yaw), W/no key = full speed, S = air brake 4 m/s, A/D = 3 m/s sideways drift. (Alt: WASD
+   steers like walking.)
+2. Glide opens only once FALLING after the double jump (holding Space through the double jump glides from its apex); no glide without
+   spending the air jump (the brief's "after the double jump").
+3. Opening brake 30 m/s^2 (a fast fall turns into a glide in ~1-1.5 s, no instant stop); turn rate 8 m/s^2.
+4. No stamina / glide time limit and no item gate (P15: every ability unlocked); a glider item can come with crafting.
+
+## Not done / follow-ups (no new task queued)
+- The look of the glider: there is no player model in first person, so only the HUD says GLIDING (no wing/cloth visual, no wind sound).
+- Long glides from the island's real peaks (300+ m drops) are not shot; a ~25 m drop was the best lane within 220 m of the start.
 
 ## For the doc
-Task 93b5: an air-brick mask for shell chunks. It halves the march's steps but does not make frames faster.
-- Shell iterations per pixel: **5.53 -> 2.49** (walk_near, -55%), **30.33 -> 21.68** (walk_open, -29%), the estimate was -40-50 / -25-30% (`Logs/costsplit_2026-10-17_023103.txt`).
-- Frame p50, exact mask off -> on: **65.0 -> 67.8** / **48.0 -> 48.6 ms** (run 2), **65.4 -> 66.7** / **48.0 -> 49.3** (run 3): slower, so it ships OFF.
-- One non-exact leap per empty group (diagnostic): **65.4 -> 63.9** / **48.0 -> 46.0 ms**, 0 px differ (`Logs/costsplit_2026-10-17_025258.txt`).
-- GPU memory: +33 KB (High) / +62 KB (Ultra). Image: byte-identical with the mask on or off.
-Images:
-- `Screenshots/93b5/walk_open_heat_off_on.jpg`: shell-march step heat, mask OFF left / ON right. Look at the distant ridges on the right: they are red (96+ steps) with the
-  mask off and mostly yellow/green (25-96) with it on. Only the ridge tops stay red. The sky is blue/green in both. Black = tier 0 drew it.
-- `Screenshots/93b5/walk_near_heat_off_on.jpg`: the same at walk_near. The only shell-marched patch is the top-right sky, red with the mask off and green/yellow with it on.
-- `Screenshots/93b5/walk_open_beauty.jpg`: walk_open at noon, no upscaler (desert ridges, sea and snow at left). It is identical with the mask on or off. There is nothing to see by design.
+- **Result:** gliding works in play: double jump, keep Space held -> 10 m/s forward, 2 m/s down (ratio 5), soft landing, no fall damage.
+- **In `./run-play.sh`:** jump, Space again in the air (double jump), keep **Space held**: you glide where you look; **S** brakes,
+  **A/D** drift, let go of Space to drop. Jump off a summit.
+- Numbers: glide ratio 5.00 (test) / 4.96 (play, 124.4 m across for 25.1 m down); landing impact 2.00 m/s -> 0 HP lost (the same drop
+  falling = 100 HP, death); 0 frames stopped by unstreamed terrain at 10 m/s; tests 7 new, fast suite 821/0.
+- Picks: mouse steers, S brakes, A/D drift; opens after the double jump once falling; no stamina limit.
+- Images (Screenshots/93g1/):
+  - `1_summit.png` -- standing on the snow summit, looking out along the glide lane; the rocky dome on the horizon is ~150 m away.
+  - `2_gliding.png` -- 2.5 s into the glide: the HUD line above the dash bar reads "GLIDING 10.0 m/s, sinking 2.0 m/s"; the slope falls away below.
+  - `3_looking_down.png` -- 6 s in, camera tilted down: the snow terraces ~19 m below the glider.
+  - `4_landed.png` -- after landing 124 m away: HEALTH 100/100 (bottom left), no damage from the landing.
