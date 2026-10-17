@@ -1,43 +1,26 @@
 # 100-gameplay-step-7-grapple: DONE -- grappling hook (fire at solid <= 25 m, hold to reel, swing), tests 11/11, fast suite green
 
-## What changed (commit 29e8937, + docs commit after it)
-- `Assets/CoreEngine/Gameplay/PlayerMotor.cs`: the hook is on the ABILITIES path only (rigs keep the legacy Step, which clears it).
-  - `MotorInput` gains `LookDir` (set by FromLook), `HookPressed`, `HookHeld`.
-  - Fire (`FireHook`/`RayHook`): from the eye along LookDir, VoxelRayWalker; air and fluid passed; first SOLID voxel within `hookRangeM` = anchor
-    (a point on its face); an unloaded chunk or nothing in range = miss.
-  - Hold = `StepReel`: no gravity, eases to 12 m/s toward the anchor, rope shortens; stops at 0.3 m or when terrain takes 90% of the pull
-    (through MoveWithCollision, so it stops AT the wall); a face beside the anchor lets the body slide up it first.
-  - Released in the air = `StepSwing`: gravity, WASD pump 5 m/s^2 (no cap), inextensible rope (`ApplyRope`: project back + drop outward
-    velocity; if a wall refuses the correction, close it vertically, so you hang against a face instead of sliding down it).
-  - On the ground, not reeling: walk physics + the rope as a tether.
-  - Ends on: Space (the press still jumps or air-jumps, so swing -> double jump -> glide works), dash, swim, cling, landing after a swing (a normal
-    landing; vitals read LastImpactDownMps as before), the anchor voxel dug out or unloaded, Teleport, the legacy Step. Pressing again re-aims.
-- `PlayerConfig.cs`: `hookRangeM` 25, `hookReelSpeedMps` 12, `hookReelAccelMps2` 40, `hookMinLengthM` 0.3, `hookSwingAccelMps2` 5 (+ Validate).
-- `Assets/Game/Playground.Grapple.cs` (new): keys, the rope (screen line from the right hand to the anchor + a diamond), an in-range diamond ring
-  on the crosshair, and the HUD state (REELING / HOOKED / SWINGING).
-  - `Playground.cs`: DriveWalk reads the hook keys. The F toy ("go to the basin") stands aside in play's walk mode. F2 help line added.
-- `run-play.sh` key list; `Playground.GrappleDemo.cs` (`-grappledemo`); `CLAUDE.md` task line; `GAMEPLAY_PHASE_PLAN.md` Done row 7.
-- No frozen API, no memory layout, nothing under `Assets/TerrainGen/`.
+## What changed (commit 29e8937; docs 35ddb17)
+- `PlayerMotor.cs`, ABILITIES path only (the legacy Step clears it). `MotorInput` + `LookDir`, `HookPressed`, `HookHeld`.
+  - Fire (`FireHook`/`RayHook`): from the eye, VoxelRayWalker; air and fluid passed; the first SOLID voxel within 25 m (its face point) is the anchor;
+    an unloaded chunk = miss.
+  - Hold = `StepReel`: no gravity, 12 m/s toward the anchor; stops at 0.3 m or when terrain takes 90% of the pull (at the wall, via
+    MoveWithCollision); slides up a face beside the anchor first.
+  - Air, released = `StepSwing`: gravity, WASD pump, inextensible rope (`ApplyRope`; a wall-refused correction is closed vertically, so you hang
+    instead of sliding down). On the ground = walk + tether.
+  - Ends: Space (the press still jumps/air-jumps), dash, swim, cling, a swing landing (a normal landing for vitals), dug/unloaded anchor,
+    Teleport, legacy Step. F again re-aims.
+- `PlayerConfig.cs` `hook*` (range 25, reel 12, accel 40, min 0.3, swing pump 5).
+- `Playground.Grapple.cs` (new): keys, the rope overlay + anchor diamond, the in-range ring, HUD states.
+  - `Playground.cs`: wiring; the F toy stands aside in play's walk mode; F2 line. Also `run-play.sh` keys, `-grappledemo`, CLAUDE.md, plan Done row.
+- No frozen API, no memory layout, nothing in `Assets/TerrainGen/`.
 
 ## Evidence
-- `GrappleTests` (11, all pass). They cover:
-  - the hook passes air and water and bites the first solid face exactly (x = 10.000 m);
-  - misses at 26 m, in open sky, on water-only and on an unloaded chunk;
-  - the reel stops flush at the wall, never inside it (every frame), at 12.00 m/s;
-  - reel up a sheer face, then hang;
-  - swing energy (bottom speed > 85% of ideal) and the far side reached;
-  - Space -> double jump -> glide;
-  - a swing landing ends the hook, 0 damage on a 2 m drop;
-  - a reel into the ground does no damage (12 < 13.3 m/s);
-  - dash, swim, cling, dug anchor and the legacy Step each end the hook;
-  - re-aim, and range 0 = off.
-- Fast suite `PASS 853 FAIL 0 SKIP 14` (13:33). The filtered runs with Glide/Climb/MovementSetA also passed (48 + 2 fixed).
-- Demo, 2 launches (the first one's swing shot was weak): `Screenshots/100/run2/grappledemo_log.txt`.
-  - Anchor 8.95 m up the face from 13.2 m away.
-  - Reel at 12.00 m/s, arrived 0.31 m from the anchor, no overlap, feet 7.53 m up.
-  - Swing at 9.5 m/s, top speed 12.1 m/s.
-- Screenshots looked at: run1 1, 2, 3, 4 and run2 1, 4, 5. The descriptions are in "For the doc" below.
-  - run2's `1_site.png` looked the wrong way (the code was reverted to run1's angle; use run1's site shot).
+- `GrappleTests` 11/11: bites the first solid face through water (x = 10.000 m); misses at 26 m, sky, water-only, unloaded chunk; reel stops
+  flush at the wall, never inside (every frame), at 12.00 m/s; reel up a sheer face + hang; swing energy (> 85% ideal) and far side; Space ->
+  double jump -> glide; swing landing ends the hook (0 damage, 2 m); reel into the ground 0 damage; dash/swim/cling/dug anchor/legacy Step end it; re-aim; range 0 = off.
+- Fast suite `PASS 853 FAIL 0 SKIP 14` (13:33). Demo (2 launches; run 1's swing shot was weak): `Screenshots/100/run2/grappledemo_log.txt`.
+- Shots looked at: run1 1-4, run2 1, 4, 5. run2's `1_site.png` looked the wrong way; that angle was reverted to run1's, so use run1's site shot.
 
 ## Picks (owner may change)
 - Key: **F** (or the middle mouse button) in play's walk mode. Every letter is already bound; F's old toy (teleport to the basin) stays in fly mode.
