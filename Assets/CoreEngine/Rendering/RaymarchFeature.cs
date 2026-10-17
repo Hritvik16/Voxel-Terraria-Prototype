@@ -34,6 +34,9 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         FarBand = 9,
         FarHeat = 10,
         VoxelStop = 11,
+        // Task 93b3 (diagnostic, CSMainFarShade only): where the far march starts, shell march heat.
+        FarStart = 12,
+        ShellHeat = 13,
     }
 
     public enum GateResMode { UseInspector, Native, Forced960x540, ForcedCustom }
@@ -370,7 +373,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool CollectShadowStats = false;
     public static GraphicsBuffer ShadowStatsBuffer { get; private set; }
     // [0..4] shadow counters; [5] far rays, [6] far steps (primary + far shadow), [7] far hits.
-    public const int STATS_LEN = 40;   // 0-7 shadow / far; 8 + 4k .. 11 + 4k: shell k's px metric (task 80)
+    public const int STATS_LEN = 48;   // 0-7 shadow / far; 8 + 4k .. 11 + 4k: shell k's px metric (task 80); 40-47 far start / steps (task 93b3, far-shading kernel)
     private static readonly uint[] _statsZero = new uint[STATS_LEN];
     private static GraphicsBuffer _farDummy;
     /// Bound as LightBuffer when no LightingDriver exists (the Phase 4

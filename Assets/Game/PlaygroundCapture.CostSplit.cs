@@ -67,6 +67,14 @@
 //                       eye), which faced a wall of water (~60% of the frame) in 75's run
 //   TASK 93b: shells_off / fshade_off arms and the -shells 1 fill wait + tint still
 //            (PlaygroundCapture.ShellsPerf.cs).
+//   TASK 93b3 (diagnostic): farprim_off  the far march runs 0 steps (FarField.PrimaryStepCap 0: no far
+//                       hit, so no far shadow ray), residency still bound -- unlike far_off, whose dummy
+//                       FarResident also cuts the shells' tier-0 hand-over (ShellTier0Holds/Missing)
+//            fshadow_off  far sun-shadow rays off (FarField.ShadowsOn false)
+//            tiers_farprim  shells_off + farprim_off (tiers 1-2 drawn, no far march)
+//            every arm's first-pass still also logs the far counters (ShadowStats 5-7, 40-47, 30
+//            frames, before the timing window) and shoots the far step heat, the far-start view
+//            and the shell march heat (_farheat / _farstart / _shellheat.png).
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -260,9 +268,16 @@ public partial class PlaygroundCapture
         RaymarchFeature.DebugRoofBuildOnly = arm == "roof_build";
         RaymarchFeature.ShadowHalfRes = arm == "half" || _costBaseHalf;
         FarField.RenderEnabled = arm != "far_off";
+        // Task 93b3: farprim_off / fshadow_off / tiers_farprim (see the header).
+        if (FarField.Active != null)
+        {
+            if (_costBaseFarSteps < 0) { _costBaseFarSteps = FarField.Active.PrimaryStepCap; _costBaseFarShadowOn = FarField.Active.ShadowsOn; }
+            FarField.Active.PrimaryStepCap = (arm == "farprim_off" || arm == "tiers_farprim") ? 0 : _costBaseFarSteps;
+            FarField.Active.ShadowsOn = arm != "fshadow_off" && _costBaseFarShadowOn;
+        }
         // Task 93b: shells_off = tiers 1-2 draw instead of the shells (shell streaming keeps
         // running; since task 93d only with -keeptiers 1, else tier 0 + far band); fshade_off = far shading off, FULL keeps the launch's -farshade.
-        RaymarchFeature.DrawShells = arm != "shells_off";
+        RaymarchFeature.DrawShells = arm != "shells_off" && arm != "tiers_farprim";
         RaymarchFeature.FarShade = arm != "fshade_off" && _costBaseFarShade;
         RaymarchFeature.UseLODCascade = arm != "tiers_off";
         // Task 75: see_on turns see-through liquids ON; FULL keeps the launch's
@@ -284,6 +299,28 @@ public partial class PlaygroundCapture
     private static bool _costBaseRoof;
     private static float _costBaseRung1;
     private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade;
+    private static int _costBaseFarSteps = -1;
+    private static bool _costBaseFarShadowOn;
+
+    /// Task 93b3 (diagnostic): 30 frames of the far / shell-end counters at the
+    /// still pose (not in any timing window). Counters 40-47 are written by the
+    /// far-shading kernel only (CSMainFarShade; -farshade 1).
+    private IEnumerator CostFarCounters(string arm)
+    {
+        if (RaymarchFeature.ShadowStatsBuffer == null) yield break;
+        RaymarchFeature.CollectShadowStats = true;
+        RaymarchFeature.ResetShadowStats();
+        const int n = 30;
+        yield return Frames(n);
+        uint[] st = RaymarchFeature.ReadShadowStats();
+        RaymarchFeature.CollectShadowStats = false;
+        if (st == null || st.Length < 48) yield break;
+        double fr = st[5] / (double)n, prim = st[44] / (double)n, shR = st[45] / (double)n, shS = st[46] / (double)n;
+        double fromShells = (st[40] + st[41] + st[42]) / (double)n;
+        L($"    [far {arm}] far rays/frame {fr:N0} (from shells: past-last {st[40] / (double)n:N0}, absent {st[41] / (double)n:N0}, cap {st[42] / (double)n:N0}; " +
+          $"FarStartT {st[43] / (double)n:N0}), far hits/frame {st[7] / (double)n:N0}; PRIMARY steps/frame {prim:N0} ({(fr > 0 ? prim / fr : 0):F1}/ray); " +
+          $"SHADOW rays/frame {shR:N0}, steps/frame {shS:N0} ({(shR > 0 ? shS / shR : 0):F1}/ray); mean far start {(fr > 0 ? st[47] / (double)n / fr : 0):F0} m");
+    }
 
     /// Task 75: the lake poses, at -liquiddemo's lake (Playground.FindDemoLake:
     /// the nearest map LAKE, 40 m across, >= 3 m deep) and its edge toward the
@@ -355,7 +392,17 @@ public partial class PlaygroundCapture
             RaymarchFeature.UseDebugViewOverride = true;
             yield return Frames(10);
             ScreenCapture.CaptureScreenshot(still.Replace(".png", "_sunvis.png")); yield return Frames(2);
+            // Task 93b3: far step heat, far-start view, shell march heat; then the counters.
+            foreach (var (mode, suffix) in new[] { (RaymarchFeature.DebugMode.FarHeat, "_farheat.png"),
+                                                   (RaymarchFeature.DebugMode.FarStart, "_farstart.png"),
+                                                   (RaymarchFeature.DebugMode.ShellHeat, "_shellheat.png") })
+            {
+                RaymarchFeature.DebugViewOverride = mode;
+                yield return Frames(6);
+                ScreenCapture.CaptureScreenshot(still.Replace(".png", suffix)); yield return Frames(2);
+            }
             RaymarchFeature.UseDebugViewOverride = false;
+            yield return CostFarCounters(r.arm);
             acd.resetHistory = true;
             yield return Frames(10);
         }

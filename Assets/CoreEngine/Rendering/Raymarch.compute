@@ -3624,10 +3624,18 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // chunk (row 5). _ShellCount == 0 (default): nothing here runs.
     int shellAtHit = 0;
     float tShellEnd = -1.0;   // >= 0: the shells ran and ended there without a hit
+#ifdef VE_FAR_SHADE
+    // TASK 93b3 (DIAGNOSTIC, capture only): how the shell march ended and its
+    // iterations, for the far-start view (debug 12), shell heat (13), counters 40-47.
+    int dbgShellEnd = -1, dbgShellIters = 0;
+#endif
     if (_ShellCount > 1 && !hit && passMat == 0u && _FarEnabled != 2)
     {
         float tTier0 = skipVoxel ? 0.0 : min(tVoxelLimit, _ShellBounds[0].y);
         ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0);
+#ifdef VE_FAR_SHADE
+        dbgShellEnd = shr.end; dbgShellIters = shr.iters;
+#endif
         if (shr.end == SHELL_END_HIT)
         {
             hit = true; mat = RiverLipAsWater(shr.mat); voxel = shr.voxel; normal = shr.normal; currentDist = shr.t;
@@ -3659,6 +3667,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         tFarDbg = tFar;
         fh = FarMarch(rayStart, rayDir, tFar, (int)_FarParams.z, _FarEnabled == 1, 0.0 FAR_VOXEL_END_ARG(tDetail));
         farHit = fh.hit;
+#ifdef VE_FAR_SHADE
+        int dbgFarPrimSteps = fh.steps;
+#endif
         if (farHit && _SunDir.y > 0.0 && _FarShadow != 0 && _ShadowQualityLevel < 3)
         {
             float3 hp = rayStart + rayDir * fh.t + float3(fh.normal) * 0.05;
@@ -3671,6 +3682,17 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             InterlockedAdd(ShadowStats[5], 1u);
             InterlockedAdd(ShadowStats[6], (uint)(fh.steps + farShadowSteps));
             if (farHit) InterlockedAdd(ShadowStats[7], 1u);
+#ifdef VE_FAR_SHADE
+            // TASK 93b3 (diagnostic): 40-42 far rays whose start came from the shells'
+            // PAST_LAST / ABSENT / CAP end (43 = from FarStartT, the tiers path),
+            // 44 far PRIMARY steps, 45 far shadow rays, 46 their steps,
+            // 47 sum of the far start in metres.
+            if (tShellEnd >= 0.0) InterlockedAdd(ShadowStats[40 + min(max(dbgShellEnd - 1, 0), 2)], 1u);
+            else InterlockedAdd(ShadowStats[43], 1u);
+            InterlockedAdd(ShadowStats[44], (uint)dbgFarPrimSteps);
+            if (farShadowSteps > 0) { InterlockedAdd(ShadowStats[45], 1u); InterlockedAdd(ShadowStats[46], (uint)farShadowSteps); }
+            InterlockedAdd(ShadowStats[47], (uint)(max(tFar, 0.0) * 0.1));
+#endif
         }
     }
     // TASK 19 (2026-10-04, DIAGNOSTIC ONLY): the far hand-off at the ONE debug
@@ -4012,6 +4034,36 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         if (inBounds) ResultTexture[id.xy] = c10;
         return;
     }
+#ifdef VE_FAR_SHADE
+    // TASK 93b3 (DIAGNOSTIC, capture only; far-shading kernel): 12 = FAR START VIEW,
+    // 13 = SHELL MARCH HEAT (primary shell-march iterations, the StepHeat ramp;
+    // black = the shell march did not run).
+    // 12: tier-0 hit dark blue, shell hit dark green, sky/far pixels by WHERE the far
+    // march started: hue = how (grey: past the last shell, yellow: no shell has
+    // the chunk (ABSENT), red: the shell iteration CAP, cyan: FarStartT, the tiers
+    // path), brightness = distance (dark 0 m -> full at >= 2 km, log).
+    if (_DebugMode == 12)
+    {
+        float4 c12 = float4(0.0, 0.0, 0.0, 1.0);
+        if (hit) c12 = (shellAtHit > 0) ? float4(0.05, 0.30, 0.08, 1.0) : float4(0.05, 0.10, 0.35, 1.0);
+        else if (tFarDbg >= 0.0)
+        {
+            float3 hue = (tShellEnd < 0.0) ? float3(0.1, 0.9, 0.9)
+                       : (dbgShellEnd == SHELL_END_PAST_LAST ? float3(0.85, 0.85, 0.85)
+                       : (dbgShellEnd == SHELL_END_ABSENT ? float3(0.95, 0.85, 0.1) : float3(0.95, 0.1, 0.1)));
+            float b = 0.15 + 0.85 * saturate(log2(1.0 + tFarDbg * 0.1) / 11.0);
+            c12 = float4(hue * b, 1.0);
+        }
+        if (inBounds) ResultTexture[id.xy] = c12;
+        return;
+    }
+    if (_DebugMode == 13)
+    {
+        float4 c13 = (dbgShellEnd < 0 && !(shellAtHit > 0)) ? float4(0.0, 0.0, 0.0, 1.0) : StepHeatColor(dbgShellIters);
+        if (inBounds) ResultTexture[id.xy] = c13;
+        return;
+    }
+#endif
     if (_DebugMode == 11)
     {
         // VOXEL-STOP VIEW (diagnostic, item 1 of the 2026-09-25 brief): WHY the
