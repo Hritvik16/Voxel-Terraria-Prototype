@@ -8,7 +8,7 @@
   When the pool is full the chunk is refused and counted (ledger), held as air and handed to its shell (FarField residency), then
   retried once slots free. `ClipmapValidator` compares through the table. `-gpupool 0` = the old layout, `-gpubrickcap N` overrides the cap.
   Shells off keeps the old layout. `GpuBrickPoolTests` (6).
-- This run: the cap is set from the measurement. `EngineConfig.TG2_GPU_BRICK_CAP_16CUBE` 242,000 (the estimate) -> **254,400**
+- dd8f595 (this run): the cap is set from the measurement. `EngineConfig.TG2_GPU_BRICK_CAP_16CUBE` 242,000 (the estimate) -> **254,400**
   (measured peak 203,450 x 1.25). ARCHITECTURE §3.7 got a note pointing to 8.15 §10 row 2. CLAUDE.md got a Task 93f line.
   Text reports are in `Screenshots/93f/{before,after}/`.
 
