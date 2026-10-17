@@ -274,7 +274,11 @@ public static class EngineConfig
     /// a 16^3 box x 1.25. The box, not the preset, sets it: Low/Medium/High all
     /// draw 16^3 (ShellLayout.MirrorBox); a larger box (Ultra's 32 x 8 x 32,
     /// `-smallmirror 0`) scales it by its chunk count (GpuBrickCapFor).
-    public const int TG2_GPU_BRICK_CAP_16CUBE = 242000;
+    /// Measured (High, 16^3, poses eye_level_3 / glide_400m / cliff_foot_1 /
+    /// peak_from_2km_ground, 2026-10-16): PeakUsed 203,450 at eye_level_3
+    /// -> x 1.25 = 254,313, rounded up (124 MB of GPU). Ultra's box is the
+    /// chunk-count scaling, NOT measured (8.14's estimate was 474 k).
+    public const int TG2_GPU_BRICK_CAP_16CUBE = 254400;
     public static int GpuBrickCapFor(int boxX, int boxY, int boxZ)
         => (int)(((long)TG2_GPU_BRICK_CAP_16CUBE * boxX * boxY * boxZ + 4095) / 4096);
     /// GPU mirror height for a vertically streamed world: 8 layers strictly

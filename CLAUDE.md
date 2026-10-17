@@ -363,6 +363,12 @@ Recentres re-dirty slots held by another chunk (`TerrainClipmap.RecentreDirtiesS
 The GPU fluid CA reads chunks outside the box that fluid touches from the FLUID TERRAIN DIRECTORY (`TerrainClipmap.FluidDir.cs`, `-fluiddir 0` = off):
 fluid stays live to 128 m on every preset. `UploadDirtyBoxTests` (9), `FluidTerrainDirTests` (5). `MODE=fluidprobe EXTRA="... -fluidfar 110"` = a pool ~110 m out.
 
+Task 93f (engine 14d3, 8.15 row D3, owner Q2 (a)): with `-shells 1` the GPU BODY BUFFER is its own pool (`TerrainClipmap.GpuPool.cs`;
+cap `EngineConfig.GpuBrickCapFor` the box = 254,400 for 16^3, measured peak 203,450 x 1.25), mapped through a CPU-slot -> GPU-slot
+table (refcounted per holder: box slot or fluid dir entry); staged handles carry the GPU slot, so shaders are unchanged. Full pool ->
+refused + counted (ledger), chunk held as air, its shell draws it, retried when slots free. `-gpupool 0` = old layout, `-gpubrickcap N`.
+Shells off: old layout. `GpuBrickPoolTests` (6); validator compares through the table (`[mirror]` lines add `GPU pool ... body mismatches`).
+
 Task 93e1 (gameplay RX1): ADJACENCY REACTIONS in `MaterialRules`' pair table (both directions via `Pair`): water + lava -> steam
 (water cell) + COOLED STONE (lava cell; new id 23, was obsidian + air); water + tg2 loam/red earth -> mud (water kept); lava + sand
 (legacy, tg2, beach) -> GLASS (new id 24, acid-proof; lava kept); lava + snow/tg2 snow/packed ice -> water (lava kept, then quenched).
