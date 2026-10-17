@@ -37,7 +37,10 @@ public static class FluidFall
     public const uint StateMask = 0xFFu << StateShift;
 
     /// The tick period every fluid sim uses unless told otherwise: the fixed
-    /// rate of task 91's FluidTickScheduler.
+    /// rate of task 91's FluidTickScheduler. Task 97 raised Playground's rate
+    /// to 6.5 Hz (Playground sets FallTickSeconds from its scheduler); this
+    /// stays 1/4.5 so the stand-alone rigs (legacy ticking) and the CPU-twin
+    /// tests keep their history.
     public static double DefaultTickSeconds => 1.0 / 4.5;
 
     /// Voxels per tick at the terminal speed, a whole number (>= 1).

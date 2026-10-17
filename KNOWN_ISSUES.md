@@ -851,6 +851,12 @@ real and separate reason — see the LOD-cascade finding in
     every capture mode): the CA ticks at a fixed 4.5 Hz (`FluidTickScheduler`), lava at
     0.75 Hz, independent of frame rate; the fluid probe prints `FLUID RATE` with the
     SHORTFALL (ticks a too-low frame rate could not deliver). `-fluidhz 0` = old.
+  - **Task 97 (2026-10-17): option B + R 6.5 Hz.** A landed batch of <= 4096 ops applies whole
+    (`-drainwhole N`, 0 = off; Playground only). Arena pour: 6.49-6.50 ticks/s, SHORTFALL 0 at caps 30
+    and 20. COST: the whole batch lands on one frame's main thread -- apply p99 5.3 -> 12.0 ms, max
+    5.9 -> 21.9 ms in a 9,261-voxel pour at 20 FPS (per-tick spike ~6.5 times a second while it pours);
+    such a pour still falls short at 20 FPS (5.82 ticks/s, was 4.17). Strip captures drop a tick each
+    at 6.5 Hz (rate arms use `-stripnoshots`). `Screenshots/97/rates.txt`.
   - **Task 93 (2026-10-15): "tg2 water frozen" again was the PROBE SITE, not the engine.** On map
     v4 the ground 8-20 m ahead of eye_level_1 is above the eye, so the probe fell back to a
     guessed site INSIDE the hillside: water box 1029/1029 and lava box 784/784 voxels were solid

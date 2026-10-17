@@ -1,0 +1,31 @@
+== Lsmall_off_20 (-fluidhz 0 -drainwhole 0 -fpscap 20): log: Logs/tg2world_20261017_074454.txt
+FLUID RATE (task 91): LEGACY -fluidhz 0, lava 1/6 of ticks; since placement 20.05 s, 386 frames = 19.3 FPS: ticks 125 = 6.23/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 0
+DRAIN (task 97): whole-batch threshold OFF (-drainwhole 0), budget 1024/frame; since placement: batches landed 125, ops/batch 574, latency 2.01 + drain 1.07 + gap 1.00 frames, carried 9, applied whole 0; apply ms mean 2.57 p99 8.4 max (run) 8.50 over 133 frames
+PLACED water 1029 voxels int3(13009, 51, 12801)..int3(13015, 71, 12807), lava 784 voxels at int3(13042, 46, 12804)+(-3,0,-3)..(3,15,3), frame 542
+shots: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FarBand/2026-10-17_074635_fluidprobe_arena
+== Lsmall_on_20 (-fluidhz 0 -fpscap 20): log: Logs/tg2world_20261017_074718.txt
+FLUID RATE (task 91): LEGACY -fluidhz 0, lava 1/6 of ticks; since placement 20.03 s, 386 frames = 19.3 FPS: ticks 128 = 6.39/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 0
+DRAIN (task 97): whole-batch threshold 4096 ops, budget 1024/frame; since placement: batches landed 128, ops/batch 568, latency 2.01 + drain 1.00 + gap 1.00 frames, carried 0, applied whole 9; apply ms mean 2.09 p99 5.3 max (run) 7.68 over 127 frames
+PLACED water 1029 voxels int3(13009, 51, 12801)..int3(13015, 71, 12807), lava 784 voxels at int3(13042, 46, 12804)+(-3,0,-3)..(3,15,3), frame 542
+shots: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FarBand/2026-10-17_074856_fluidprobe_arena
+== Lbig_on_20 (-fluidhz 0 -fluidbox 10 -fpscap 20): log: Logs/tg2world_20261017_074930.txt
+FLUID RATE (task 91): LEGACY -fluidhz 0, lava 1/6 of ticks; since placement 20.04 s, 388 frames = 19.4 FPS: ticks 106 = 5.29/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 0
+DRAIN (task 97): whole-batch threshold 4096 ops, budget 1024/frame; since placement: batches landed 105, ops/batch 2198, latency 2.00 + drain 1.68 + gap 1.00 frames, carried 16, applied whole 89; apply ms mean 5.36 p99 21.4 max (run) 21.60 over 176 frames
+PLACED water 9261 voxels int3(13002, 51, 12794)..int3(13022, 71, 12814), lava 784 voxels at int3(13042, 46, 12804)+(-3,0,-3)..(3,15,3), frame 542
+shots: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FarBand/2026-10-17_075111_fluidprobe_arena
+== Lbig_off_20 (-fluidhz 0 -drainwhole 0 -fluidbox 10 -fpscap 20): log: Logs/tg2world_20261017_075152.txt
+FLUID RATE (task 91): LEGACY -fluidhz 0, lava 1/6 of ticks; since placement 20.02 s, 386 frames = 19.3 FPS: ticks 77 = 3.85/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 0
+DRAIN (task 97): whole-batch threshold OFF (-drainwhole 0), budget 1024/frame; since placement: batches landed 78, ops/batch 2501, latency 2.01 + drain 2.95 + gap 1.00 frames, carried 77, applied whole 0; apply ms mean 3.14 p99 7.4 max (run) 8.68 over 229 frames
+PLACED water 9261 voxels int3(13002, 51, 12794)..int3(13022, 71, 12814), lava 784 voxels at int3(13042, 46, 12804)+(-3,0,-3)..(3,15,3), frame 542
+shots: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FarBand/2026-10-17_075334_fluidprobe_arena
+== Lbig_off_30 (-fluidhz 0 -drainwhole 0 -fluidbox 10 -fpscap 30): log: Logs/tg2world_20261017_075415.txt
+FLUID RATE (task 91): LEGACY -fluidhz 0, lava 1/6 of ticks; since placement 20.00 s, 583 frames = 29.1 FPS: ticks 127 = 6.35/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 0
+DRAIN (task 97): whole-batch threshold OFF (-drainwhole 0), budget 1024/frame; since placement: batches landed 127, ops/batch 2012, latency 2.01 + drain 2.57 + gap 1.00 frames, carried 127, applied whole 0; apply ms mean 1.90 p99 5.5 max (run) 5.97 over 328 frames
+PLACED water 9261 voxels int3(13002, 51, 12794)..int3(13022, 71, 12814), lava 784 voxels at int3(13042, 46, 12804)+(-3,0,-3)..(3,15,3), frame 542
+shots: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FarBand/2026-10-17_075548_fluidprobe_arena
+== Lbig_on_30 (-fluidhz 0 -fluidbox 10 -fpscap 30): log: Logs/tg2world_20261017_075617.txt
+FLUID RATE (task 91): LEGACY -fluidhz 0, lava 1/6 of ticks; since placement 20.03 s, 580 frames = 29.0 FPS: ticks 166 = 8.29/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 0
+DRAIN (task 97): whole-batch threshold 4096 ops, budget 1024/frame; since placement: batches landed 167, ops/batch 1807, latency 2.08 + drain 1.40 + gap 1.00 frames, carried 15, applied whole 151; apply ms mean 3.56 p99 11.4 max (run) 14.62 over 233 frames
+PLACED water 9261 voxels int3(13002, 51, 12794)..int3(13022, 71, 12814), lava 784 voxels at int3(13042, 46, 12804)+(-3,0,-3)..(3,15,3), frame 542
+shots: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FarBand/2026-10-17_075752_fluidprobe_arena
+ARMS_DONE

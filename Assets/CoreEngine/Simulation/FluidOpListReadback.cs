@@ -221,6 +221,44 @@ namespace VoxelEngine.Simulation
         /// shipped path may raise it.
         public static int MaxOpsAppliedPerFrame { get; set; } = MaxOpsAppliedPerFrameDefault;
 
+        /// Task 97, option B (FLUID_TICK_DIAGNOSIS.md section 3, ADAPTIVE DRAIN):
+        /// a landed batch of at most this many ops is applied WHOLE in the frame
+        /// it lands, instead of 1024 per frame; bigger batches keep the slicing
+        /// above, unchanged (OpDrainCursor.BudgetFor). This cuts the tick period
+        /// by the drain (3.7 -> 1 frame at ~3,100 ops/tick, section 1), which is
+        /// what lets FluidTickScheduler.DefaultRateHz rise. 4096 = the
+        /// diagnosis's figure; the measured apply cost is in ApplyMs*.
+        public const int WholeBatchMaxOpsDefault = 4096;
+
+        /// PER INSTANCE and OFF (0) unless the owner sets it: Playground sets
+        /// WholeBatchMaxOpsDefault (`-drainwhole N`, 0 = off); the stand-alone
+        /// rigs keep the pure 1024 slicing, so their histories stay comparable.
+        public int WholeBatchMaxOps { get; set; }
+
+        /// Batches over the per-frame budget that option B applied in one frame
+        /// (each would have carried forward without it).
+        public long WholeBatchesApplied { get; private set; }
+
+        /// Main-thread time of PumpAndApply's drain, on frames that applied at
+        /// least one op (Stopwatch; the cost option B moves into one frame).
+        public long ApplyFrames { get; private set; }
+        public double ApplyMsTotal { get; private set; }
+        public double ApplyMsMax { get; private set; }
+        /// 0.1 ms bins, the last one = 25.5 ms and over.
+        public readonly long[] ApplyMsHistogram = new long[256];
+        private readonly System.Diagnostics.Stopwatch _applyWatch = new System.Diagnostics.Stopwatch();
+
+        /// The apply time at percentile `p` (0..1) of ApplyMsHistogram, the
+        /// upper edge of its bin; 0 when nothing was applied.
+        public double ApplyMsPercentile(double p)
+        {
+            if (ApplyFrames == 0) return 0.0;
+            long want = (long)Math.Ceiling(p * ApplyFrames), n = 0;
+            for (int i = 0; i < ApplyMsHistogram.Length; i++)
+                if ((n += ApplyMsHistogram[i]) >= want) return (i + 1) * 0.1;
+            return ApplyMsHistogram.Length * 0.1;
+        }
+
         // The carry-forward buffer. One batch at most: CanIssue refuses to let
         // the caller tick again until it is drained, so this is bounded by
         // MaxOpsPerFrame and cannot grow without limit however far behind the
@@ -363,7 +401,17 @@ namespace VoxelEngine.Simulation
                 _landedFrame = Time.frameCount;
             }
 
-            applied += DrainPending(MaxOpsAppliedPerFrame);
+            bool any = !_cursor.IsEmpty;
+            if (any) _applyWatch.Restart();
+            applied += DrainPending(OpDrainCursor.BudgetFor(_cursor.Count, MaxOpsAppliedPerFrame, WholeBatchMaxOps));
+            if (any)
+            {
+                double ms = _applyWatch.Elapsed.TotalMilliseconds;
+                ApplyFrames++;
+                ApplyMsTotal += ms;
+                if (ms > ApplyMsMax) ApplyMsMax = ms;
+                ApplyMsHistogram[Math.Min((int)(ms * 10.0), ApplyMsHistogram.Length - 1)]++;
+            }
             if (_landedFrame >= 0 && PendingOps == 0)
             {
                 // Frames spent draining, counting the landing frame itself.
@@ -417,8 +465,10 @@ namespace VoxelEngine.Simulation
             if (_cursor.IsEmpty) return 0;
             bool carries = _cursor.WouldCarry(budget);
             bool firstSlice = _cursor.Head == 0;
+            bool overBudget = _cursor.Remaining > MaxOpsAppliedPerFrame;
             if (!_cursor.Take(budget, out int from, out int to)) return 0;
             if (carries) { BudgetLimitedFrames++; if (firstSlice) BatchesCarriedForward++; }
+            else if (firstSlice && overBudget) WholeBatchesApplied++;
             return ApplyRange(from, to);
         }
 

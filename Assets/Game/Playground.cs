@@ -181,7 +181,7 @@ public partial class Playground : MonoBehaviour
     private FluidTileMap _tiles;
     private FluidOpListReadback _readback;
     /// Engine step 17 (task 91): the CA ticks at FluidTickScheduler's fixed
-    /// rate (4.5 Hz), not whenever the pipeline allows. `-fluidhz R` sets R;
+    /// rate (6.5 Hz since task 97), not whenever the pipeline allows. `-fluidhz R` sets R;
     /// `-fluidhz 0` = the pre-91 decision 11 behaviour (a comparison arm).
     private FluidTickScheduler _tickSched;
     private EditService _edits;
@@ -428,6 +428,11 @@ public partial class Playground : MonoBehaviour
             SleepRadiusVoxels = FluidActiveRegion.SleepRadiusFor(_activeRadiusVoxels),
         };
         _readback = new FluidOpListReadback(_fluid, _store) { OnVoxelApplied = MarkDirtyFor };
+        // Task 97 (option B, adaptive drain): a landed batch of <= 4096 ops applies
+        // whole in one frame; bigger ones keep the 1024/frame slicing. `-drainwhole N`
+        // sets the threshold, `-drainwhole 0` = the pre-97 drain (comparison arm).
+        _readback.WholeBatchMaxOps = TryArgFloat("-drainwhole", out float drainWhole) && drainWhole >= 0f
+            ? (int)drainWhole : FluidOpListReadback.WholeBatchMaxOpsDefault;
         _tickSched = new FluidTickScheduler(TryArgFloat("-fluidhz", out float fluidHz) && fluidHz >= 0f
             ? fluidHz : FluidTickScheduler.DefaultRateHz);
         // Task 94 (AMENDMENT_8_16): gravity fall, ON by default; `-fluidfall 0` = the

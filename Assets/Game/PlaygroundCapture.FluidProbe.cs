@@ -54,6 +54,7 @@ public partial class PlaygroundCapture
         if (fpsCap > 0) Application.targetFrameRate = fpsCap;
         float farM = ArgFloat("-fluidfar", 0f);
         bool strip = HasFlag("-fluidstrip") || farM > 0f;
+        bool noShots = HasFlag("-stripnoshots");
         var pg = FindAnyObjectByType<Playground>();
         while (Phase4Bootstrapper.Store == null) yield return null;
         yield return Frames(300);
@@ -210,7 +211,11 @@ public partial class PlaygroundCapture
             cam.transform.rotation = Quaternion.Euler(34f, 45f, 0f);
             yield return Frames(240);
             hole = pg.DebugArenaCentre;
-            wLo = hole + new int3(-3, 20, -3); wHi = hole + new int3(3, 40, 3);
+            // Task 97: `-fluidbox N` = half-width of the arena's water box (default 3: 7x21x7
+            // = 1,029 voxels, ~200 ops/tick, under the 1024/frame drain budget). N = 10 (21x21x21)
+            // is a heavy pour whose batches exceed it, where option B's adaptive drain matters.
+            int bw = Math.Max(1, ArgInt("-fluidbox", 3));
+            wLo = hole + new int3(-bw, 20, -bw); wHi = hole + new int3(bw, 40, bw);
             lc = hole + new int3(30, 15, 0);
             L($"arena centre {hole}, eye {cam.transform.position:F1}");
         }
@@ -218,6 +223,7 @@ public partial class PlaygroundCapture
         L("");
         L("---- BEFORE placement (FLUID RATE here = the last 0 s) ----");
         _rate0 = (Time.unscaledTimeAsDouble, Time.frameCount, pg.DebugTickScheduler?.IssuedTicks ?? 0, pg.DebugTickScheduler?.MissedTicks ?? 0);
+        DrainSnap(pg.DebugReadback, out _drain0);
         ProbeState(pg, store, hole, wLo, wHi, lc, true);
 
         int nW = pg.DebugEdits.SetBox(wLo, wHi, Materials.Water);
@@ -225,20 +231,23 @@ public partial class PlaygroundCapture
         int f0 = Time.frameCount;
         var sched = pg.DebugTickScheduler;
         _rate0 = (Time.unscaledTimeAsDouble, f0, sched?.IssuedTicks ?? 0, sched?.MissedTicks ?? 0);
+        DrainSnap(pg.DebugReadback, out _drain0);
         L("");
         L($"PLACED water {nW} voxels {wLo}..{wHi}, lava {nL} voxels at {lc}+(-3,0,-3)..(3,15,3), frame {f0}");
         L($"  same frame: wake queued {pg.DebugFluid.WakeRequestsQueuedTotal}, deferred {pg.DebugFluid.DeferredWakeRequests}, " +
           $"rej_region {pg.DebugFluid.WakeRejectedOutOfRegion}, rej_full {pg.DebugFluid.WakeRejectedFull}");
         if (strip)
         {
-            float[] secs = { 1f, 2f, 4f, 8f, 12f, 20f };
+            float[] secs = noShots ? new[] { 1f, 2f, 4f, 8f, 12f, 20f, 40f } : new[] { 1f, 2f, 4f, 8f, 12f, 20f };
             foreach (float k in secs)
             {
                 while (Time.unscaledTimeAsDouble - _rate0.t < k) yield return null;
                 L("");
                 L($"---- +{k:F0} s wall clock (frame {Time.frameCount}, +{Time.frameCount - f0} frames) ----");
                 ProbeState(pg, store, hole, wLo, wHi, lc, false);
-                if (farM > 0f ? (k == 2f || k == 8f || k == 20f) : (k == 2f || k == 4f || k == 8f))
+                // Task 97: `-stripnoshots` = the rate arms. A capture is a ~0.3-0.5 s frame, which drops a
+                // due tick at any R (3 SHORTFALL ticks per launch at 4.5 Hz and 6.5 Hz alike at 20 FPS).
+                if (!noShots && (farM > 0f ? (k == 2f || k == 8f || k == 20f) : (k == 2f || k == 4f || k == 8f)))
                 {
                     yield return CaptureTo($"strip_{k:F0}s");
                     if (farM > 0f)
@@ -296,6 +305,47 @@ public partial class PlaygroundCapture
 
     /// Wall clock, frame and scheduler counters at placement (FLUID RATE's zero).
     private (double t, int frame, long issued, long missed) _rate0;
+
+    /// Task 97: the readback's drain counters at placement (the DRAIN line's zero).
+    private struct DrainCounters
+    {
+        public long landed, latency, drain, gaps, gapFrames, ops, carried, whole, applyFrames;
+        public double applyMs;
+        public long[] hist;
+    }
+    private DrainCounters _drain0;
+
+    private static void DrainSnap(FluidOpListReadback rb, out DrainCounters d)
+    {
+        d = default;
+        if (rb == null) return;
+        d.landed = rb.TicksLanded; d.latency = rb.LandLatencyFramesTotal; d.drain = rb.DrainFramesTotal;
+        d.gaps = rb.IssueGapsCounted; d.gapFrames = rb.IssueGapFramesTotal; d.ops = rb.OpsInLandedBatchesTotal;
+        d.carried = rb.BatchesCarriedForward; d.whole = rb.WholeBatchesApplied;
+        d.applyFrames = rb.ApplyFrames; d.applyMs = rb.ApplyMsTotal; d.hist = (long[])rb.ApplyMsHistogram.Clone();
+    }
+
+    /// Task 97: tick period split since placement (latency + drain - 1 + gap frames, as in
+    /// FLUID_TICK_DIAGNOSIS.md section 1) and the apply's main-thread cost, p99 / max.
+    private string DrainLine(FluidOpListReadback rb)
+    {
+        DrainSnap(rb, out DrainCounters n);
+        DrainCounters o = _drain0;
+        long landed = n.landed - o.landed, gaps = n.gaps - o.gaps, frames = n.applyFrames - o.applyFrames;
+        double D(long v, long c) => c > 0 ? v / (double)c : 0.0;
+        double p99 = 0.0;
+        if (frames > 0 && o.hist != null)
+        {
+            long want = (long)Math.Ceiling(0.99 * frames), acc = 0;
+            for (int i = 0; i < n.hist.Length; i++)
+                if ((acc += n.hist[i] - o.hist[i]) >= want) { p99 = (i + 1) * 0.1; break; }
+        }
+        return $"  DRAIN (task 97): whole-batch threshold {(rb.WholeBatchMaxOps > 0 ? rb.WholeBatchMaxOps + " ops" : "OFF (-drainwhole 0)")}, " +
+               $"budget {FluidOpListReadback.MaxOpsAppliedPerFrame}/frame; since placement: batches landed {landed}, " +
+               $"ops/batch {D(n.ops - o.ops, landed):F0}, latency {D(n.latency - o.latency, landed):F2} + drain {D(n.drain - o.drain, landed):F2} " +
+               $"+ gap {D(n.gapFrames - o.gapFrames, gaps):F2} frames, carried {n.carried - o.carried}, applied whole {n.whole - o.whole}; " +
+               $"apply ms mean {(frames > 0 ? (n.applyMs - o.applyMs) / frames : 0.0):F2} p99 {p99:F1} max (run) {rb.ApplyMsMax:F2} over {frames} frames";
+    }
 
     private void ProbeState(Playground pg, ChunkStore store, int3 hole, int3 wLo, int3 wHi, int3 lc, bool refresh)
     {
@@ -375,6 +425,7 @@ public partial class PlaygroundCapture
               $"since placement {dt:F2} s, {Time.frameCount - _rate0.frame} frames = {(Time.frameCount - _rate0.frame) / dt:F1} FPS: " +
               $"ticks {issued} = {issued / dt:F2}/s, SHORTFALL missed {missed} = {missed / dt:F2}/s, blocked frames (total) {ts.BlockedFrames}");
         }
+        if (rb != null) L(DrainLine(rb));
         L($"  slots: live (last async) {fl.LastLiveSlots} / cap {fl.SlotCapacity}; suspended {Playground.DebugSuspendFluidSim}");
         L($"  GPU last tick: {fl.DebugDump()}");
     }

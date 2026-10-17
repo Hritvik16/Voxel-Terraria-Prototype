@@ -1,0 +1,27 @@
+Task 97 (option B adaptive drain + R 4.5 -> 6.5 Hz): arena fluid probe, -fluidstrip, warm steady state
+(warm-up Logs/tg2world_20261017_073606.txt, MODE=stream MOTION=walk; arms back to back 07:44-08:50; AC until ~07:56, then battery 95-100%).
+"small" = 91's arena pour (7x21x7 water = 1,029 voxels + 784 lava; ~530-600 ops/tick since task 94's fall);
+"big" = -fluidbox 10 (21x21x21 = 9,261 water; ~1,650-2,500 ops/tick, over the 1024/frame drain budget).
+Rate arms use -stripnoshots (each strip capture is a ~0.3-0.5 s frame that drops one due tick at R 6.5: 3 per launch);
+window = 40 s after placement. Raw lines: rates_noshots.txt, rates_noshots2.txt, rates_strip.txt (rep2), rates_capacity.txt.
+
+FIXED-RATE TABLE (the 91 table again)               FPS   ticks/s  SHORTFALL   drain frames  apply ms p99 / max
+before  4.5 Hz, old drain, small, cap 30            29.6  4.50     0          1.05          5.2 / 6.0    Logs/tg2world_20261017_083300.txt
+before  4.5 Hz, old drain, small, cap 20            19.9  4.50     0          1.05          6.1 / 7.1    Logs/tg2world_20261017_080907.txt
+after   6.5 Hz, B on,      small, cap 30            29.5  6.50     0          1.00          5.5 / 6.8    Logs/tg2world_20261017_082502.txt
+after   6.5 Hz, B on,      small, cap 20            19.8  6.49     0          1.00          6.4 / 6.7    Logs/tg2world_20261017_081418.txt
+after   6.5 Hz, B on,      small, cap 20 (repeat)   19.8  6.49     0          1.00          5.5 / 9.3    Logs/tg2world_20261017_084733.txt
+        6.5 Hz, B OFF,     small, cap 20            19.8  6.39     0.10/s     1.05          6.7 / 8.3    Logs/tg2world_20261017_082229.txt
+        6.0 Hz, B on,      small, cap 20            19.6  5.89     0.12/s (all 5 in 20-40 s, an FPS dip; 0 in 0-20 s)  Logs/tg2world_20261017_081651.txt
+        5.5 Hz, B on,      small, cap 20            19.8  5.49     0                                      Logs/tg2world_20261017_081933.txt
+HEAVY POUR (big)
+before  4.5 Hz, old drain, big, cap 30              29.8  4.45     0.05/s     2.40          5.0 / 5.4    Logs/tg2world_20261017_083808.txt
+after   6.5 Hz, B on,      big, cap 30              29.7  6.17     0.32/s     1.35          9.4 / 17.6   Logs/tg2world_20261017_083533.txt
+before  4.5 Hz, old drain, big, cap 20              19.8  4.17     0.32/s     2.44          5.3 / 5.9    Logs/tg2world_20261017_083017.txt
+after   6.5 Hz, B on,      big, cap 20              19.8  5.82     0.70/s     1.38          12.0 / 21.9  Logs/tg2world_20261017_082734.txt
+
+PIPELINE CAPACITY (legacy -fluidhz 0 = tick whenever CanIssue; 20 s window, strip shots on)
+small cap 20: B off 6.23/s (drain 1.07), B on 6.39/s (drain 1.00)      Logs/tg2world_20261017_074454 / 074718
+big   cap 20: B off 3.85/s (drain 2.95), B on 5.29/s (drain 1.68)      Logs/tg2world_20261017_075152 / 074930
+big   cap 30: B off 6.35/s (drain 2.57), B on 8.29/s (drain 1.40)      Logs/tg2world_20261017_075415 / 075617
+Readback latency measured 2.0 frames in every arm (the 2026-09-24 diagnosis measured 3.6-3.8 at 33-59 FPS uncapped).

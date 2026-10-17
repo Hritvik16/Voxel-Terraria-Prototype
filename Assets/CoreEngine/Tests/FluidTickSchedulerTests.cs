@@ -66,10 +66,12 @@ public class FluidTickSchedulerTests
     {
         const double T = 60.0;
         float R = FluidTickScheduler.DefaultRateHz;
-        // Pipeline busy ~5 frames per tick at either frame rate (latency is
-        // fixed in FRAMES, section 1): capacity 6/s at 30 FPS, 12/s at 60.
-        var r30 = Simulate(new FluidTickScheduler(), T, _ => 1.0 / 30.0, 5);
-        var r60 = Simulate(new FluidTickScheduler(), T, _ => 1.0 / 60.0, 5);
+        // Pipeline busy 4 frames per tick at either frame rate (latency is
+        // fixed in FRAMES, section 1; task 97 measured latency 2 + a one-frame
+        // drain (option B) + gap 1 = 3-4.5 frames): capacity 7.5/s at 30 FPS,
+        // 15/s at 60. Was 5 frames (6/s at 30) while R was 4.5.
+        var r30 = Simulate(new FluidTickScheduler(), T, _ => 1.0 / 30.0, 4);
+        var r60 = Simulate(new FluidTickScheduler(), T, _ => 1.0 / 60.0, 4);
         Assert.LessOrEqual(Math.Abs(r30.Issued - r60.Issued), 1, $"30 FPS {r30.Issued} vs 60 FPS {r60.Issued} ticks in {T} s");
         Assert.GreaterOrEqual(r30.Issued, (long)Math.Floor(R * T) - 1, $"30 FPS delivered {r30.Issued} of {R * T}");
         Assert.AreEqual(0, r30.Missed, "30 FPS has the capacity for R: nothing may be missed");

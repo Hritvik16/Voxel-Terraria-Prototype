@@ -30,11 +30,16 @@ namespace VoxelEngine.Simulation
 {
     public sealed class FluidTickScheduler
     {
-        /// R, in CA ticks per second. 4.5 Hz = today's pipeline capacity at the
-        /// diagnosis's worst measured case (33 FPS: 4.6 ticks/s), so 30+ FPS
-        /// delivers it. With option B (adaptive drain) it could rise to ~6.5,
-        /// with A+B to ~8 (FLUID_TICK_DIAGNOSIS.md section 3).
-        public const float DefaultRateHz = 4.5f;
+        /// R, in CA ticks per second. Task 91 set 4.5 Hz (the diagnosis's worst
+        /// measured case, 33 FPS: 4.6 ticks/s). Task 97 (option B, adaptive
+        /// drain: FluidOpListReadback.WholeBatchMaxOps) raised it to 6.5 Hz =
+        /// the highest that held SHORTFALL 0 over 40 s at a 20 FPS cap in the
+        /// arena pour (pipeline latency 2 + drain 1 + gap 1 = 3 frames there,
+        /// 6.6/s at 19.8 FPS; Screenshots/97/rates.txt). Heavy pours (> 1024
+        /// ops/tick) fall short at 20 FPS (~5.3/s capacity with B, 3.9 without)
+        /// and keep R at 30 FPS. A+B could reach ~8 (FLUID_TICK_DIAGNOSIS.md
+        /// section 3).
+        public const float DefaultRateHz = 6.5f;
 
         /// Ticks/s; <= 0 = LEGACY (pre-task-91 decision 11: issue whenever
         /// canIssue, fluid speed follows frame rate). Kept as a comparison arm
