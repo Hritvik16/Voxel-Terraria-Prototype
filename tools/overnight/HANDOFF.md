@@ -1,59 +1,50 @@
-STOP_FOR_OWNER -- task 93b4: the shells' +12-15 ms is the PRIMARY shell march's ITERATION COUNT, mostly air-brick steps (43-75%).
-The one fix that needs no design (read caches, byte-identical) is in and saves only 0.6-2.4 ms. Question: may the next task
-(a) add an AIR-BRICK MASK per paged shell chunk (64 bits = which 4x4x4 brick groups hold any non-air brick, ~50 KB GPU, a new
-buffer + ShellStore upload + CPU twin; exact, so byte-identical or 1 LSB) so a ray leaps a whole empty brick group per iteration?
-Estimate (NOT measured): iterations -40-50% walk_near / -25-30% walk_open, about -5-7 / -4-6 ms. Or (b) end upward sky rays at a
-per-shell max-solid height (cheaper, but NOT byte-identical: the far band may draw where the shells said air), (c) lower
-`ShellIterCap` 384 (changes the look), (d) leave it. Recommended: (a). 93b (Requires this task) should wait for that answer.
+# 93g engine 14d4 (8.15 row D4) CPU brick cap + STEP 14 ledger line: DONE. Cap 750,000 -> 570,000; process peak 2,375 -> 2,362 MB
 
-# 93b4 shell march cost: SPLIT done; byte-identical read-cache fix in (-2.4 / -0.6 ms); the rest needs design
+## What changed (commit f989de9, engine-phase)
+- `EngineConfig.TG2_BRICK_POOL_CAP` 750,000 -> **570,000** = max(task 55's 379,527, this task's 358,892) x 1.5 = 569,291, rounded up
+  to 10 k. New `EngineConfig.HighWaterBricksFor(cap)`: the §3.6 valve line stays at 0.85 x cap = 484,500. `BRICK_POOL_CAP` (rigs, 500,000) unchanged.
+- `Phase4Bootstrapper.CpuBrickCap(tg2)`: the cap is a code constant (no `[SerializeField]`/scene override). `-cpubrickcap N` overrides it for one run.
+  The ledger printed cap 570,000 in the after arm, which ran the new default with no flag, so the constant does take effect.
+- `MemoryLedger`: `-memledger` ends with ONE line, `STEP 14 (8.15 D1-D4): CPU brick pool cap/peak (valve, MB) | GPU body pool cap/peak/refused |
+  mirror box | tiers 1-2 allocated | process now/peak MB of the 3,000 MB cap`. The process figure is phys_footprint, read in-process
+  through `proc_pid_rusage(RUSAGE_INFO_V4)`. I checked the offsets (72/240) with offsetof against the SDK header.
+  Small fix: with the GPU pool, the `tier0 bricks` row now counts 512 B/unit, not 1024.
+- `CpuBrickCapTests` (2): checks the cap value and its derivation, the valve at 0.85, and that the rigs' cap is unchanged. Pool-pressure test at the NEW cap (flat world,
+  13x13 chunks): the store is pushed one chunk past 484,500 with player edits, and one frame later the valve has evicted the 2 coldest chunks (LRU; none in the camera's 5x5).
+  Both were saved to D.1 before being dropped (ChunksSavedTotal), and all 8,192 edited voxels came back on reload.
+- CLAUDE.md: a Task 93g line. Text reports: `Screenshots/93g/{walk_cap750k,poses_before_cap750k,poses_after_cap570k}.txt`.
 
-## What changed (commit 7a5231e, engine-phase)
-- `Raymarch.compute`: `ShellMarch` keeps one-entry caches (`SHELL_CACHE_ON`): ShellResolve's answer per (kd, kd's chunk) unless that
-  chunk is in kd's hole (`whole`), and the brick handle per (shell, brick). Under `#ifdef VE_FAR_SHADE` only (capture diagnostics):
-  ShadowStats 48-59 (shell iterations by ray kind, by step kind, reads), `_DebugShellSkip` (bit 0 shell shadow off, bit 1 primary
-  shell march + far march off, bit 2 caches off).
-- `RaymarchFeature.cs`: `STATS_LEN` 48 -> 60, `DebugShellSkip`. `PlaygroundCapture.CostSplit.cs`: arms `shellshadow_off`,
-  `shellmarch_off`, `shellcache_off`, `-coststillraw` (no-upscaler stills x2 per arm), the `[shell ...]` counter lines.
-- CPU twin `ShellRayReference.March(..., useCache)` + `LookupHandle` + `Resolve(.., out whole)`; new `ShellMarchCacheTests`.
-- KNOWN_ISSUES "SHELLS COST" entry (SPLIT paragraph) and its CLAUDE.md index line.
+## Evidence
+- Tests: filter run 3/3 (`CpuBrickCapTests` + `DeferredEvictionTests`). **SUITE=all PASS 863 FAIL 0 SKIP 25** (`Logs/overnight/93g-chain.out`).
+- `run-acceptance-rig.sh` `Phase4Acceptance/2026-10-17_002443`: **PASS 52 FAIL 1, Gates C and D green.** The FAIL is the known Gate E §4.3 upload-p99
+  timing check (1.363 ms, red in 93f too). It is a flat world with BRICK_POOL_CAP, so this change does not reach it. No stills needed.
+- Peak measurement, shells on, counts only:
+  - one `MODE=walk` circle (150 m, `-shells 1 -shellworkers 3 -memledger`): CPU PeakUsed **358,892** (`Logs/tg2world_20261016_235314.txt`).
+  - 93f's 4 poses: **330,792**. Both are below task 55's 379,527, so 379,527 sets the cap.
+- Memory, same 4 poses and flags as 93e/93f (`-shells 1 -shellworkers 3 -gateres 1280 -shellwait 60 -poses eye_level_3,glide_400m,cliff_foot_1,
+  peak_from_2km_ground -memledger -shellsdebug 60`), one build, AC power. Before = `-cpubrickcap 750000` (`Logs/tg2world_20261017_000434.txt`),
+  after = default (`Logs/tg2world_20261017_001357.txt`):
+  - ledger BrickDataPool **366.2 -> 278.3 MB** (-88 MB allocated); ledger SUM 1,526.2 -> 1,437.3 MB.
+  - phys_footprint (`footprint` every 10 s): peak **2,375 -> 2,362 MB**, median 2,367 -> 2,331 MB. In-process lifetime peak 2,394.8 -> 2,381.2 MB.
+  - **Why only 13-36 MB of the 88:** my guess, not verified, is that the pool pages above the peak are never written after the allocation zero-fills them,
+    and macOS compresses zero pages to almost nothing, so they barely count in phys_footprint. The cap mostly cuts reserved/virtual memory.
+    It also caps what building can fill before the valve fires (484,500).
+  - Validator at all 4 poses in both arms: `MIRROR lost 0 lag 0 stale 0`, GPU pool refused 0, body mismatches 0.
+- Step-14 total: task 85's **2,999 MB -> 2,362 MB** peak after D1-D4 (8.15 §9 estimated ~2,370 MB (est.); measured 2,362).
 
-## Evidence (AC power both launches; warm steady state)
-- Split: warm-up `Logs/tg2world_20261016_223104.txt` (discarded), then `Logs/costsplit_2026-10-16_223720.txt` (copy in `Screenshots/93b4/split/`).
-| arm (saved p50 ms vs bracketing FULL) | walk_near (FULL 62.4, noise 3.9) | walk_open (FULL 44.7, noise 0.8) |
-|---|---|---|
-| shellmarch_off (primary shell march + far march skipped) | +13.7 | +19.1 |
-| shellshadow_off (shell-hit sun shadow skipped) | +3.0 (only 26 rays/frame: noise) | +2.4 |
-| shells_off (tiers 1-2 drawn) | +15.5 | +11.3 |
-- Counters: walk_near 5.8% of pixels (top-right sky) run the march at 94 iterations each, 2.85 M/frame (5.5 per pixel): the SIMD lanes
-  of their groups wait, which is why so few pixels cost 13.7 ms. walk_open 62% of pixels: no-hit 40.7 iters/ray (end ABSENT ~51 m),
-  hit 105.9 iters/ray, 30.3 per pixel. Iterations by step (near / open): air bricks of paged chunks 75 / 43%, uniform air chunks
-  13 / 34%, tier-0 leaps 10 / 17%, cells 1 / 6%. Step 1.3: nothing else runs per pixel where tier 0 hits (shellmarch_off removes
-  13.7 of walk_near's 15.5 ms; shell shadows run only from shell hits). Lines: `ShellMarch(rayStart, rayDir, ...)` in CSMainBody
-  (the primary call) and the loop's `LeapSpanReseedClosedForm(... (voxel >> sh) << sh, 1 << sh ...)` taken with sh = k + 3 (one brick).
-- Fix ABBA (FULL = caches on, X = `shellcache_off`, F X X F in one launch): warm-up `Logs/tg2world_20261016_232811.txt`, then
-  `Logs/costsplit_2026-10-16_233425.txt` (copy in `Screenshots/93b4/abba/`). p50 before -> after: walk_near 66.3 -> 63.7 (noise 1.6),
-  walk_open 47.9 -> 47.3 (noise 0.2). p99: walk_near 103.8 -> 197.6 pooled, but that is ONE FULL run's hitches (pass 2 p99 206.8;
-  pass 1 102.9); walk_open 81.6 -> 79.8. Directory reads per iteration 0.90 -> 0.20 / 0.89 -> 0.46; page reads unchanged (0.75 / 0.45:
-  each air-brick step is a new brick). Iteration counts identical on/off.
-- Identity: no-upscaler stills `*_raw.png` cache on vs off: 0 pixels differ at both poses; raw vs raw2 (10 frames later) also 0 (static scene).
-- Tests: `ShellMarchCacheTests` (3,100 rays incl. rays through every hole corner's tip, + their shadows: every Result field equal on/off,
-  reads 55%); a mutation (cache kept through holes) FAILS it. Filter run 10/10 with ShellHandOverTests + ShellOrderTests.
-  Fast suite **PASS 809 FAIL 0 SKIP 14** (`Logs/overnight/93b4-fast.out`).
-
-## Not done
-- The air-brick mask (option (a) above) and any other iteration cut: design + new GPU buffer, owner's call. 93b's re-run should wait.
-- Shell fill while walking is unchanged (93b2d's worker shortage).
+## Not done / for the supervisor
+- **GPU body pool came close to full while walking:** peak **242,841 / 254,400 (95.5%)**, refused 0. 93f's teleport poses peaked at 203,450.
+  It is not over the cap, but 93f's x 1.25 rested on poses only. If a longer walk or building shows refusals, raise `TG2_GPU_BRICK_CAP_16CUBE` (~+30 k = +15 MB).
+- Next: step 16 (streaming milestone), then 8.15 row L1 (look-ahead). **L1 must re-check this cap**: its look-ahead lobe adds residency (8.15 §13.1).
+  Gameplay consequence: none at today's peaks. Building inside the 128 m radius can add ~105 k dense bricks (~26 fully dense chunks) above the worst peak
+  before the LRU valve starts evicting (it saves edits first). The old cap allowed ~258 k.
 
 ## For the doc
-Task 93b4: the shells' extra cost is the primary shell march, and inside it the step count through empty bricks, not the shadow ray.
-- Primary shell march: **13.7 ms** (walk_near) / **19.1 ms** (walk_open) of p50; shell shadow ~2.4 ms (`Logs/costsplit_2026-10-16_223720.txt`).
-- Iterations: 94 per sky ray at walk_near (5.8% of pixels), 30 per pixel at walk_open; **75% / 43% are one-brick steps through air**.
-- Read caches (byte-identical, 0 px differ): p50 **66.3 -> 63.7 ms** / **47.9 -> 47.3 ms**; directory reads per step 0.90 -> 0.20 (`Logs/costsplit_2026-10-16_233425.txt`).
-Images:
-- `Screenshots/93b4/sheet_93b4.jpg`: top left = walk_open beauty (no upscaler; desert ridges, sea and snow at left, sky above);
-  top right = its shell-march heat: blue (<= 24 steps) high sky, green (25-48) sky near the horizon, yellow/red (49-96+) distant ridges
-  on the right and the slope at lower left; black = tier-0 hits (no shell march). Bottom = walk_near: a canyon wall almost all tier 0
-  (black); only the top-right sky patch marches the shells, all red (96+), and that patch costs the 13.7 ms.
-- `Screenshots/93b4/abba/walk_open_full_raw.png` vs `walk_open_shellcache_off_raw.png`: the same frame with the caches on / off,
-  byte-identical (look at anything: there is no difference).
+Task 93g (engine 14d4, 8.15 row D4): the tg2 CPU brick pool is now sized from a measured peak x 1.5. This was the last row of step 14.
+- CPU brick cap **750,000 -> 570,000** bricks (366 -> 278 MB allocated); measured peak 379,527 (task 55; this walk 358,892, poses 330,792); valve line 484,500.
+- Process peak (same 4 poses, shells on): **2,375 -> 2,362 MB**. Median 2,367 -> 2,331 MB. Most of the 88 MB was zero pages that were already almost free.
+- Step 14 (D1-D4) total: **2,999 MB (task 85) -> 2,362 MB** vs 8.15 §9's ~2,370 MB estimate (`Logs/tg2world_20261017_001357.txt`).
+- Ledger line (after arm): `STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 330,792 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak
+  203,450 refused 0 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2226.6 MB, peak 2381.2 MB of the 3,000 MB cap`
+- Tests SUITE=all PASS 863 FAIL 0; acceptance Gates C/D green.
+Images: none. Nothing visible changes, because the cap only bounds CPU memory and no pose came near the valve.
