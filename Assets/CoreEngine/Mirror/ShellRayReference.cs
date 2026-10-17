@@ -78,6 +78,7 @@ namespace VoxelEngine.Mirror
             public byte Mat;
             public int Iters;
             public bool InsideStart; // the hit cell was entered mid-cell (top-face normal)
+            public int DirReads, PageReads;   // task 93b4: Resolve calls / brick-handle reads the caches did not answer
         }
 
         /// Smallest shell k >= 1 whose outer bound is beyond d; -1 = past the last.
@@ -101,9 +102,15 @@ namespace VoxelEngine.Mirror
 
         /// The shell that answers at `voxel` when the distance asks for kd;
         /// RESOLVE_ABSENT = none (far band); RESOLVE_TIER0 = in every hole down to shell 1.
-        public static int Resolve(IView v, int kd, int3 voxel, out uint e)
+        public static int Resolve(IView v, int kd, int3 voxel, out uint e) => Resolve(v, kd, voxel, out e, out _);
+
+        /// `whole` (task 93b4): the answer holds for every voxel of kd's chunk -- shell
+        /// kd has that chunk, or it is absent and the coarser shells (whose chunks
+        /// contain it) answered. False when kd's chunk is in its hole (finer chunks decide).
+        public static int Resolve(IView v, int kd, int3 voxel, out uint e, out bool whole)
         {
             int s = ChunkState(v, kd, voxel, out e);
+            whole = s != STATE_HOLE;
             if (s == STATE_OK) return kd;
             if (s == STATE_HOLE)
             {
@@ -136,6 +143,15 @@ namespace VoxelEngine.Mirror
             return v.Voxel(k, (int)(h & 0x3FFFFFFFu), (s.z << 6) | (s.y << 3) | s.x);
         }
 
+        /// Lookup with the brick handle `h` of a paged chunk already read (task 93b4).
+        public static byte LookupHandle(IView v, int k, uint h, int3 voxel, out int spanShift)
+        {
+            if ((h & ShellStore.DENSE) == 0) { spanShift = k + 3; return (byte)(h & 0xFFu); }
+            int3 s = (voxel >> k) & 7;
+            spanShift = k;
+            return v.Voxel(k, (int)(h & 0x3FFFFFFFu), (s.z << 6) | (s.y << 3) | s.x);
+        }
+
         /// Did the last step enter a new cell of shell k (through the face `normal`)?
         public static bool AtEntry(int3 voxel, int3 normal, int3 step, int k)
         {
@@ -153,8 +169,11 @@ namespace VoxelEngine.Mirror
         /// `camera` for the distance rule). tTier0 (task 85): tier 0 marched
         /// [0, tTier0) and saw air; a chunk it holds there is leapt (0 = off).
         /// Mirrors Raymarch.compute's ShellMarch.
+        /// useCache (task 93b4, the shader's SHELL_CACHE_ON): one-entry caches of
+        /// Resolve's answer per (kd, kd's chunk) and of the brick handle per (shell,
+        /// brick). Fewer reads, the same result (ShellMarchCacheTests).
         public static Result March(IView v, float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters,
-                                   float tTier0 = 0f)
+                                   float tTier0 = 0f, bool useCache = true)
         {
             dir = new float3(SafeAxis(dir.x), SafeAxis(dir.y), SafeAxis(dir.z));
             int3 step = (int3)math.sign(dir);
@@ -166,6 +185,8 @@ namespace VoxelEngine.Mirror
             int3 normal = int3.zero;
             var r = new Result { End = END_CAP, Shell = -1, T = tStart };
             int kPrev = 0;
+            int rcKd = -1, rcK = 0; int3 rcChunk = int3.zero; uint rcE = 0u;   // resolve cache
+            int pcK = -1; int3 pcBrick = int3.zero; uint pcH = 0u;            // page cache
             for (int it = 0; it < maxIters; it++)
             {
                 r.Iters = it + 1;
@@ -180,7 +201,15 @@ namespace VoxelEngine.Mirror
                 int kd = ShellByDistance(v, camDist);
                 if (kd < 0) { r.End = END_PAST_LAST; r.T = t; return r; }
                 if (kPrev > 0 && kd > kPrev && !AtEntry(voxel, normal, step, kd)) kd = kPrev;
-                int k = Resolve(v, kd, voxel, out uint e);
+                int k; uint e;
+                int3 kdChunk = voxel >> (7 + kd);
+                if (useCache && kd == rcKd && kdChunk.Equals(rcChunk)) { k = rcK; e = rcE; }
+                else
+                {
+                    k = Resolve(v, kd, voxel, out e, out bool whole);
+                    rcKd = whole ? kd : -1; rcChunk = kdChunk; rcK = k; rcE = e;
+                    r.DirReads++;
+                }
                 if (k == RESOLVE_TIER0 && !v.Tier0Missing(voxel))
                 {
                     Leap(ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, (voxel >> 7) << 7, 128);
@@ -188,7 +217,22 @@ namespace VoxelEngine.Mirror
                     continue;
                 }
                 if (k < 0) { r.End = END_ABSENT; r.T = t; return r; }
-                byte mat = Lookup(v, k, e, voxel, out int sh);
+                byte mat;
+                int sh;
+                if ((e & ShellStore.UNIFORM) != 0) mat = Lookup(v, k, e, voxel, out sh);
+                else
+                {
+                    // A brick of shell k lies in one chunk of shell k: same entry, same page.
+                    int3 brick = voxel >> (k + 3);
+                    if (!(useCache && k == pcK && brick.Equals(pcBrick)))
+                    {
+                        int3 b = brick & 15;
+                        pcH = v.Page(k, (int)(e & ~ShellStore.PAGE), (b.z << 8) | (b.y << 4) | b.x);
+                        pcK = k; pcBrick = brick;
+                        r.PageReads++;
+                    }
+                    mat = LookupHandle(v, k, pcH, voxel, out sh);
+                }
                 if (mat != 0)
                 {
                     bool entry = AtEntry(voxel, normal, step, k);

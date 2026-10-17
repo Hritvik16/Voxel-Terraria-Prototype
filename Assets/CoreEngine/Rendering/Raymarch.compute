@@ -2624,6 +2624,19 @@ float4 _ShellLo[8];          // published box min xyz (chunks), page base w
 float4 _ShellHi[8];          // published box max xyz, brick base w
 float4 _ShellCam[8];         // camera chunk xyz, hole H w (-1 none)
 float4 _ShellBounds[8];      // inner, outer hand-over distance (0.1 m voxels), cell size (voxels), 0
+#ifdef VE_FAR_SHADE
+// TASK 93b4 (DIAGNOSTIC, capture only; far-shading kernel): bit 0 skips the
+// shell-hit sun-shadow march, bit 1 skips the primary shell march AND the far
+// march after it (misses draw sky). RaymarchFeature.DebugShellSkip, 0 in play.
+int    _DebugShellSkip;
+#endif
+// TASK 93b4: ShellMarch's one-entry read caches (below); bit 2 of _DebugShellSkip
+// turns them off in the far-shading kernel (the shellcache_off arm). Same results either way.
+#ifdef VE_FAR_SHADE
+#define SHELL_CACHE_ON ((_DebugShellSkip & 4) == 0)
+#else
+#define SHELL_CACHE_ON true
+#endif
 
 #define SHELL_OK 0
 #define SHELL_HOLE 1
@@ -2643,6 +2656,13 @@ struct ShellHit
     uint mat;
     int iters;
     bool inside;    // entered mid-cell (top-face normal)
+#ifdef VE_FAR_SHADE
+    int leaps0;     // task 93b4 (diagnostic): iterations that leapt a tier-0 chunk
+    int leapsChunk; // ... a uniform (air) shell chunk
+    int leapsBrick; // ... a uniform (air) brick of a paged chunk
+    int dirReads;   // ShellResolve calls (directory reads) the cache did not answer
+    int pageReads;  // brick-handle reads the cache did not answer
+#endif
 };
 
 /// Smallest shell k >= 1 whose outer bound is beyond d; -1 = past the last.
@@ -2691,9 +2711,13 @@ bool ShellTier0Holds(int3 voxel)
 
 /// The shell that answers at `voxel` when the distance asks for kd; -1 = none
 /// (far band); -2 = in every hole down to shell 1 (tier 0's space).
-int ShellResolve(int kd, int3 voxel, out uint e)
+/// `whole` (task 93b4): the answer holds for every voxel of kd's chunk -- shell kd
+/// has that chunk, or it is absent and the answer came from the coarser shells,
+/// whose chunks contain it. False when kd's chunk is in its hole (finer chunks decide).
+int ShellResolve(int kd, int3 voxel, out uint e, out bool whole)
 {
     int s = ShellChunkState(kd, voxel, e);
+    whole = s != SHELL_HOLE;
     if (s == SHELL_OK) return kd;
     if (s == SHELL_HOLE)
     {
@@ -2719,6 +2743,17 @@ uint ShellLookup(int k, uint e, int3 voxel, out int spanShift)
     uint page = e & 0x7FFFFFFFu;
     int3 b = (voxel >> (k + 3)) & 15;
     uint h = ShellPages[((uint)_ShellLo[k].w + page) * 4096u + (uint)((b.z << 8) | (b.y << 4) | b.x)];
+    if ((h & 0x80000000u) == 0u) { spanShift = k + 3; return h & 0xFFu; }
+    int3 s = (voxel >> k) & 7;
+    uint vIdx = (uint)((s.z << 6) | (s.y << 3) | s.x);
+    uint body = (uint)_ShellHi[k].w + (h & 0x3FFFFFFFu);
+    spanShift = k;
+    return (ShellBricks[body * 128u + (vIdx >> 2)] >> ((vIdx & 3u) * 8u)) & 0xFFu;
+}
+
+/// TASK 93b4: ShellLookup with the brick handle `h` already read (paged chunks).
+uint ShellLookupHandle(int k, uint h, int3 voxel, out int spanShift)
+{
     if ((h & 0x80000000u) == 0u) { spanShift = k + 3; return h & 0xFFu; }
     int3 s = (voxel >> k) & 7;
     uint vIdx = (uint)((s.z << 6) | (s.y << 3) | s.x);
@@ -2756,8 +2791,13 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
     ShellHit r;
     r.end = SHELL_END_CAP; r.shell = -1; r.t = tStart; r.voxel = voxel; r.normal = int3(0, 1, 0);
     r.mat = 0u; r.iters = 0; r.inside = false;
+#ifdef VE_FAR_SHADE
+    r.leaps0 = 0; r.leapsChunk = 0; r.leapsBrick = 0; r.dirReads = 0; r.pageReads = 0;
+#endif
     int kPrev = 0;
     int dummyA = 0, dummyB = 0;
+    int rcKd = -1, rcK = 0; int3 rcChunk = int3(0, 0, 0); uint rcE = 0u;   // task 93b4: resolve cache
+    int pcK = -1; int3 pcBrick = int3(0, 0, 0); uint pcH = 0u;            // task 93b4: page cache
     [loop]
     for (int it = 0; it < maxIters; it++)
     {
@@ -2768,6 +2808,9 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
             // Tier 0's band, a chunk it holds: it marched this and saw air.
             LeapSpanReseedClosedForm(voxel, tMax, t, tDelta, step, start, (voxel >> 7) << 7, 128,
                                      normal, dummyA, dummyB);
+#ifdef VE_FAR_SHADE
+            r.leaps0++;
+#endif
             kPrev = 0;
             continue;
         }
@@ -2775,18 +2818,52 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
         if (kd < 0) { r.end = SHELL_END_PAST_LAST; r.t = t; return r; }
         if (kPrev > 0 && kd > kPrev && !ShellAtEntry(voxel, normal, step, kd)) kd = kPrev;
         uint e;
-        int k = ShellResolve(kd, voxel, e);
+        int k;
+        // TASK 93b4: the resolve cache. A ray takes many steps inside one chunk, and
+        // ShellResolve's answer (with the directory entry) is the same for every
+        // voxel of kd's chunk unless that chunk is in kd's hole (`whole`).
+        int3 kdChunk = voxel >> (7 + kd);
+        if (SHELL_CACHE_ON && kd == rcKd && all(kdChunk == rcChunk)) { k = rcK; e = rcE; }
+        else
+        {
+            bool whole;
+            k = ShellResolve(kd, voxel, e, whole);
+            rcKd = whole ? kd : -1; rcChunk = kdChunk; rcK = k; rcE = e;
+#ifdef VE_FAR_SHADE
+            r.dirReads++;
+#endif
+        }
         if (k == -2 && !ShellTier0Missing(voxel))
         {
             // Tier 0's space: it marched this and saw air. Leap one tier-0 chunk.
             LeapSpanReseedClosedForm(voxel, tMax, t, tDelta, step, start, (voxel >> 7) << 7, 128,
                                      normal, dummyA, dummyB);
+#ifdef VE_FAR_SHADE
+            r.leaps0++;
+#endif
             kPrev = 0;
             continue;
         }
         if (k < 0) { r.end = SHELL_END_ABSENT; r.t = t; return r; }
         int sh;
-        uint mat = ShellLookup(k, e, voxel, sh);
+        uint mat;
+        if ((e & 0x40000000u) != 0u) mat = ShellLookup(k, e, voxel, sh);   // uniform chunk: no page read
+        else
+        {
+            // TASK 93b4: the page cache, (shell, brick) -> brick handle (a brick of
+            // shell k lies in one chunk of shell k, so the same entry and page).
+            int3 brick = voxel >> (k + 3);
+            if (!(SHELL_CACHE_ON && k == pcK && all(brick == pcBrick)))
+            {
+                int3 b = brick & 15;
+                pcH = ShellPages[((uint)_ShellLo[k].w + (e & 0x7FFFFFFFu)) * 4096u + (uint)((b.z << 8) | (b.y << 4) | b.x)];
+                pcK = k; pcBrick = brick;
+#ifdef VE_FAR_SHADE
+                r.pageReads++;
+#endif
+            }
+            mat = ShellLookupHandle(k, pcH, voxel, sh);
+        }
         if (mat != 0u)
         {
             bool entry = ShellAtEntry(voxel, normal, step, k);
@@ -2804,6 +2881,9 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
             }
             sh = k;   // a shadow ray's start cell: leave it
         }
+#ifdef VE_FAR_SHADE
+        if (sh == k + 7) r.leapsChunk++; else if (sh == k + 3) r.leapsBrick++;
+#endif
         LeapSpanReseedClosedForm(voxel, tMax, t, tDelta, step, start, (voxel >> sh) << sh, 1 << sh,
                                  normal, dummyA, dummyB);
         kPrev = k;
@@ -3628,13 +3708,35 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // TASK 93b3 (DIAGNOSTIC, capture only): how the shell march ended and its
     // iterations, for the far-start view (debug 12), shell heat (13), counters 40-47.
     int dbgShellEnd = -1, dbgShellIters = 0;
+    // TASK 93b4 (DIAGNOSTIC): _DebugShellSkip bit 1 = no primary shell march and no
+    // far march (the shellmarch_off arm); 55 = pixels, for per-pixel means.
+    bool dbgSkipShellPrim = (_DebugShellSkip & 2) != 0;
+    if (_CollectShadowStats != 0 && inBounds) InterlockedAdd(ShadowStats[55], 1u);
 #endif
-    if (_ShellCount > 1 && !hit && passMat == 0u && _FarEnabled != 2)
+    if (_ShellCount > 1 && !hit && passMat == 0u && _FarEnabled != 2
+#ifdef VE_FAR_SHADE
+        && !dbgSkipShellPrim
+#endif
+        )
     {
         float tTier0 = skipVoxel ? 0.0 : min(tVoxelLimit, _ShellBounds[0].y);
         ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0);
 #ifdef VE_FAR_SHADE
         dbgShellEnd = shr.end; dbgShellIters = shr.iters;
+        // TASK 93b4 (diagnostic): primary shell rays and iterations by how they
+        // ended: 48/49 HIT, 50/51 no hit (sky, absent, past the last, cap); 54 = the
+        // iterations of both that leapt a tier-0 chunk.
+        if (_CollectShadowStats != 0)
+        {
+            uint slot = (shr.end == SHELL_END_HIT) ? 48u : 50u;
+            InterlockedAdd(ShadowStats[slot], 1u);
+            InterlockedAdd(ShadowStats[slot + 1u], (uint)shr.iters);
+            InterlockedAdd(ShadowStats[54], (uint)shr.leaps0);
+            InterlockedAdd(ShadowStats[56], (uint)shr.leapsChunk);
+            InterlockedAdd(ShadowStats[57], (uint)shr.leapsBrick);
+            InterlockedAdd(ShadowStats[58], (uint)shr.dirReads);
+            InterlockedAdd(ShadowStats[59], (uint)shr.pageReads);
+        }
 #endif
         if (shr.end == SHELL_END_HIT)
         {
@@ -3655,7 +3757,11 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         if (px > 1.0) InterlockedAdd(ShadowStats[9 + 4 * kS], 1u);
         InterlockedMax(ShadowStats[10 + 4 * kS], (uint)min(px * 1000.0, 4.0e9));
     }
-    if (_FarEnabled != 0 && !hit && passMat == 0u)   // 66b: under a fluid the far band is fogged out anyway
+    if (_FarEnabled != 0 && !hit && passMat == 0u   // 66b: under a fluid the far band is fogged out anyway
+#ifdef VE_FAR_SHADE
+        && !dbgSkipShellPrim
+#endif
+        )
     {
         float tFar;
         if (tShellEnd >= 0.0) tFar = tShellEnd;   // task 85: the shells' end, no residency DDA
@@ -3942,11 +4048,19 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // 8.14 shells (task 80): a shell hit's sun ray marches the shells (the
     // tier-0 ray above left the window at once). Starts just off the hit face;
     // the shell is chosen by the sample's CAMERA distance (§6.5's 8.2 rule).
-    if (shellAtHit > 0 && needsShadowRay)
+    if (shellAtHit > 0 && needsShadowRay
+#ifdef VE_FAR_SHADE
+        && (_DebugShellSkip & 1) == 0   // task 93b4: the shellshadow_off arm
+#endif
+        )
     {
         float3 so = rayStart + rayDir * currentDist + float3(normal) * 0.01;
         ShellHit ss = ShellMarch(so, normalize(_SunDir), 0.0, true, rayStart, max(32, _ShellIterCap >> 1), 0.0);
         sunVis = (ss.end == SHELL_END_HIT) ? 0.0 : 1.0;
+#ifdef VE_FAR_SHADE
+        // TASK 93b4 (diagnostic): 52 shell shadow rays, 53 their iterations.
+        if (_CollectShadowStats != 0) { InterlockedAdd(ShadowStats[52], 1u); InterlockedAdd(ShadowStats[53], (uint)ss.iters); }
+#endif
     }
 
     // Temporal reuse: every pixel records what it used, for the next frame.

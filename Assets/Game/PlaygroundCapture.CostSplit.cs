@@ -72,6 +72,14 @@
 //                       FarResident also cuts the shells' tier-0 hand-over (ShellTier0Holds/Missing)
 //            fshadow_off  far sun-shadow rays off (FarField.ShadowsOn false)
 //            tiers_farprim  shells_off + farprim_off (tiers 1-2 drawn, no far march)
+//   TASK 93b4 (diagnostic): shellshadow_off  the shell-hit sun-shadow march skipped (sunVis 1)
+//            shellmarch_off  the primary shell march AND the far march after it skipped (misses draw
+//                       sky): with shellshadow_off, what the shell march costs and what is left over
+//                       (RaymarchFeature.DebugShellSkip; far-shading kernel only, so -farshade 1)
+//            shellcache_off  ShellMarch's one-entry resolve / page caches off (the pre-fix reads; same image)
+//            -coststillraw  each arm's first still also shoots _raw.png / _raw2.png (10 frames apart) with no
+//                       upscaler (no jitter), for byte-identity checks between arms
+//            the counters line also gives shell march iterations by ray kind (ShadowStats 48-55)
 //            every arm's first-pass still also logs the far counters (ShadowStats 5-7, 40-47, 30
 //            frames, before the timing window) and shoots the far step heat, the far-start view
 //            and the shell march heat (_farheat / _farstart / _shellheat.png).
@@ -279,6 +287,8 @@ public partial class PlaygroundCapture
         // running; since task 93d only with -keeptiers 1, else tier 0 + far band); fshade_off = far shading off, FULL keeps the launch's -farshade.
         RaymarchFeature.DrawShells = arm != "shells_off" && arm != "tiers_farprim";
         RaymarchFeature.FarShade = arm != "fshade_off" && _costBaseFarShade;
+        // Task 93b4 (diagnostic): see the header.
+        RaymarchFeature.DebugShellSkip = arm == "shellshadow_off" ? 1 : arm == "shellmarch_off" ? 2 : arm == "shellcache_off" ? 4 : 0;
         RaymarchFeature.UseLODCascade = arm != "tiers_off";
         // Task 75: see_on turns see-through liquids ON; FULL keeps the launch's
         // value (OFF unless -seethrough 1), so saved = OFF - ON (negative = its cost).
@@ -320,6 +330,17 @@ public partial class PlaygroundCapture
         L($"    [far {arm}] far rays/frame {fr:N0} (from shells: past-last {st[40] / (double)n:N0}, absent {st[41] / (double)n:N0}, cap {st[42] / (double)n:N0}; " +
           $"FarStartT {st[43] / (double)n:N0}), far hits/frame {st[7] / (double)n:N0}; PRIMARY steps/frame {prim:N0} ({(fr > 0 ? prim / fr : 0):F1}/ray); " +
           $"SHADOW rays/frame {shR:N0}, steps/frame {shS:N0} ({(shR > 0 ? shS / shR : 0):F1}/ray); mean far start {(fr > 0 ? st[47] / (double)n / fr : 0):F0} m");
+        if (st.Length < 56) yield break;
+        // Task 93b4: shell march iterations by ray kind, per frame and per ray, and per pixel.
+        double px = st[55] / (double)n, hR = st[48] / (double)n, hI = st[49] / (double)n, mR = st[50] / (double)n, mI = st[51] / (double)n;
+        double sR = st[52] / (double)n, sI = st[53] / (double)n, l0 = st[54] / (double)n;
+        L($"    [shell {arm}] pixels/frame {px:N0}; PRIMARY hit rays {hR:N0} ({(px > 0 ? 100 * hR / px : 0):F1}%) iters {hI:N0} ({(hR > 0 ? hI / hR : 0):F1}/ray); " +
+          $"PRIMARY no-hit rays {mR:N0} ({(px > 0 ? 100 * mR / px : 0):F1}%) iters {mI:N0} ({(mR > 0 ? mI / mR : 0):F1}/ray); tier-0 leaps {l0:N0} ({(hI + mI > 0 ? 100 * l0 / (hI + mI) : 0):F0}% of primary iters); " +
+          $"SHADOW rays {sR:N0} iters {sI:N0} ({(sR > 0 ? sI / sR : 0):F1}/ray); all shell iters/pixel {(px > 0 ? (hI + mI + sI) / px : 0):F2}");
+        if (st.Length < 60) yield break;
+        double pi = hI + mI, lc = st[56] / (double)n, lb = st[57] / (double)n, dr = st[58] / (double)n, pr = st[59] / (double)n;
+        L($"    [shell {arm}] primary iters by step: tier-0 leap {(pi > 0 ? 100 * l0 / pi : 0):F0}%, air chunk {(pi > 0 ? 100 * lc / pi : 0):F0}%, air brick {(pi > 0 ? 100 * lb / pi : 0):F0}%, " +
+          $"cell / end {(pi > 0 ? 100 * (pi - l0 - lc - lb) / pi : 0):F0}%; reads per primary iter: directory {(pi > 0 ? dr / pi : 0):F2}, page {(pi > 0 ? pr / pi : 0):F2}");
     }
 
     /// Task 75: the lake poses, at -liquiddemo's lake (Playground.FindDemoLake:
@@ -402,6 +423,18 @@ public partial class PlaygroundCapture
                 ScreenCapture.CaptureScreenshot(still.Replace(".png", suffix)); yield return Frames(2);
             }
             RaymarchFeature.UseDebugViewOverride = false;
+            // Task 93b4: no-upscaler stills (no jitter) for byte-identity between arms.
+            if (System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-coststillraw") >= 0)
+            {
+                UpscalerSelect.Apply(UpscalerSelect.Kind.None, 540, false);
+                bool hideUi2 = Playground.DebugHideUi, mapOn2 = Minimap.Visible;
+                Playground.DebugHideUi = true; Minimap.Visible = false;
+                yield return Frames(20);
+                ScreenCapture.CaptureScreenshot(still.Replace(".png", "_raw.png")); yield return Frames(10);
+                ScreenCapture.CaptureScreenshot(still.Replace(".png", "_raw2.png")); yield return Frames(2);
+                Playground.DebugHideUi = hideUi2; Minimap.Visible = mapOn2;
+                CostApply(r.arm);
+            }
             yield return CostFarCounters(r.arm);
             acd.resetHistory = true;
             yield return Frames(10);

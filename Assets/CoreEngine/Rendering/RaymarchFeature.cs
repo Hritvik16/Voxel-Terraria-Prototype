@@ -225,6 +225,11 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// blend then runs on the surface itself). Sent as _SeeThroughLiquids bits 1-3.
     /// Never set outside the cost split.
     public static int DebugSeeSkip = 0;
+    /// DIAGNOSTIC (task 93b4's cost split arms shellshadow_off / shellmarch_off; the
+    /// far-shading kernel only): bit 0 skips the shell-hit sun-shadow march, bit 1 the
+    /// primary shell march and the far march after it, bit 2 turns ShellMarch's read caches off
+    /// (shellcache_off: same image, the pre-93b4 reads). Never set outside the cost split.
+    public static int DebugShellSkip = 0;
     /// Task 76 (R2 + R5, replaces task 73's prototype): generated rivers drawn as one
     /// moving sheet -- one-voxel risers between water drawn as surface, ripples moving
     /// along the map's flow directions and foam where the profile is steep, on near
@@ -373,7 +378,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool CollectShadowStats = false;
     public static GraphicsBuffer ShadowStatsBuffer { get; private set; }
     // [0..4] shadow counters; [5] far rays, [6] far steps (primary + far shadow), [7] far hits.
-    public const int STATS_LEN = 48;   // 0-7 shadow / far; 8 + 4k .. 11 + 4k: shell k's px metric (task 80); 40-47 far start / steps (task 93b3, far-shading kernel)
+    public const int STATS_LEN = 60;   // 0-7 shadow / far; 8 + 4k .. 11 + 4k: shell k's px metric (task 80); 40-47 far start / steps (task 93b3, far-shading kernel); 48-59 shell march iterations by ray kind / step kind / reads (task 93b4, far-shading kernel)
     private static readonly uint[] _statsZero = new uint[STATS_LEN];
     private static GraphicsBuffer _farDummy;
     /// Bound as LightBuffer when no LightingDriver exists (the Phase 4
@@ -1199,6 +1204,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_ShellCount", data.shellCount);
                         cmd.SetComputeIntParam(data.compute, "_ShellIterCap", data.shellIterCap);
                         cmd.SetComputeIntParam(data.compute, "_ShellTint", data.shellTint);
+                        cmd.SetComputeIntParam(data.compute, "_DebugShellSkip", DebugShellSkip);   // task 93b4 (diagnostic)
                         cmd.SetComputeFloatParam(data.compute, "_ShellPixelAngle", data.shellPixelAngle);
                         cmd.SetComputeVectorArrayParam(data.compute, "_ShellRing", data.shellRing);
                         cmd.SetComputeVectorArrayParam(data.compute, "_ShellLo", data.shellLo);
