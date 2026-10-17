@@ -46,7 +46,7 @@
   falling = 100 HP, death); 0 frames stopped by unstreamed terrain at 10 m/s; tests 7 new, fast suite 821/0.
 - Picks: mouse steers, S brakes, A/D drift; opens after the double jump once falling; no stamina limit.
 - Images (Screenshots/93g1/):
-  - `1_summit.png` -- standing on the snow summit, looking out along the glide lane; the rocky dome on the horizon is ~150 m away.
+  - `1_summit.png` -- standing on the snow summit, looking out along the glide lane; a rocky dome sits on the horizon, the sea behind it.
   - `2_gliding.png` -- 2.5 s into the glide: the HUD line above the dash bar reads "GLIDING 10.0 m/s, sinking 2.0 m/s"; the slope falls away below.
   - `3_looking_down.png` -- 6 s in, camera tilted down: the snow terraces ~19 m below the glider.
   - `4_landed.png` -- after landing 124 m away: HEALTH 100/100 (bottom left), no damage from the landing.
