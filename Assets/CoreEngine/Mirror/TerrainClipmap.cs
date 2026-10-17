@@ -66,7 +66,7 @@ using Unity.Mathematics;
 using UnityEngine;
 using VoxelEngine.Memory;
 
-public class TerrainClipmap : IDisposable, IChunkDirtySink
+public partial class TerrainClipmap : IDisposable, IChunkDirtySink
 {
     public static TerrainClipmap Active { get; private set; }
 
@@ -177,6 +177,8 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         /// current mirror box (task 32): writing one would overwrite the
         /// in-box chunk sharing its toroidal slot. Expected 0.
         public int skippedOutOfBox;
+        /// Out-of-box chunks written to the fluid terrain directory (task 93e).
+        public int fluidDirChunks;
 
         // PER-PHASE TIMING. The previous run reported a single upload_ms of
         // 44.9ms median against a 1.0ms budget and gave no way to attribute it.
@@ -411,6 +413,10 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         // nothing to do still moves time forward for anyone waiting on it.
         _uploadEpoch++;
 
+        // Fluid terrain directory (task 93e, TerrainClipmap.FluidDir.cs): drop
+        // stale entries, give newly wanted out-of-box chunks one (marked dirty).
+        SyncFluidDir(store);
+
         // Parked out-of-box chunks: back in the box and still resident -> dirty
         // again; evicted -> forget (the eviction marked it dirty itself).
         if (_parkedOutOfBox.Count > 0)
@@ -474,7 +480,10 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
             // ("lost") or drew it at a non-resident box position ("stale") --
             // KNOWN_ISSUES' stray-resident-chunk entry. Skip, park, count.
             // Evicted chunks keep the clear path below (its owner test covers them).
-            if (chunk != null && !InMirrorBox(chunkCoord))
+            // Exception (task 93e): a chunk the fluid CA needs goes to the fluid
+            // terrain directory instead, under the same budget below.
+            int fluidEntry = -1;
+            if (chunk != null && !InMirrorBox(chunkCoord) && (fluidEntry = FluidDirEntryOf(chunkCoord)) < 0)
             {
                 _dirtyChunks.Remove(chunkCoord);
                 _parkedOutOfBox.Add(chunkCoord);
@@ -504,6 +513,17 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
                 if (committed + chunkCost > byteBudget
                     || stats.chunksUploaded >= chunkCap)
                 { stats.chunksDeferred++; continue; }
+            }
+
+            if (fluidEntry >= 0)
+            {
+                UploadFluidDirChunk(chunk, chunkCoord, fluidEntry);
+                _dirtyChunks.Remove(chunkCoord);
+                _lastUploadEpoch[chunkCoord] = _uploadEpoch;
+                stats.chunksUploaded++;
+                stats.fluidDirChunks++;
+                bytes += EngineConfig.CLIPMAP_BYTES_PER_CHUNK;
+                continue;
             }
 
             phaseStart = sw.Elapsed.TotalMilliseconds;
@@ -611,6 +631,8 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
 
         phaseStart = sw.Elapsed.TotalMilliseconds;
         bytes += UploadDirtyBrickBodies(cpuPool, ref stats);
+        // Bodies first, then the index that makes the directory entries readable.
+        FlushFluidDirIndex();
         stats.brickSetMs = sw.Elapsed.TotalMilliseconds - phaseStart;
         phaseStart = sw.Elapsed.TotalMilliseconds;
 
@@ -782,6 +804,7 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         if (Active == this) Active = null;
         ClipmapBuffer?.Release();
         BrickDataBuffer?.Release();
+        DisposeFluidDir();
         AirMipPackedBuffer?.Release();
         AirMipPackedBuffer = null;
         if (_airMipBuffers != null)

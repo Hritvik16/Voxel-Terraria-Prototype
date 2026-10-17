@@ -25,6 +25,14 @@
 // `-fpscap N` caps the frame rate (Application.targetFrameRate) for the whole
 // run; `-fluidstrip` replaces the frame offsets with WALL-CLOCK seconds after
 // placement (shots at 2, 4 and 8 s) so two caps can be compared still by still.
+//
+// Task 93e (owner Q55 (b)): `-fluidfar D` (tg2) puts the site ~D m from
+// eye_level_1 instead of 8-20 m: headings in 22.5 degree steps, distances D, D-6,
+// D+6, D-12, D+12, the first within 120 m (3D) whose boxes are all air, whose water chunk is OUTSIDE the
+// tier-0 mirror box (so the CA reads it through the fluid terrain directory)
+// and that the eye can see (a CPU-store line of sight). The water box is 21 x 31
+// x 21; it implies -fluidstrip, and each shot (2, 8, 20 s) also has a 6 degree
+// telephoto twin (`*_tele`). Before = `-smallmirror 1 -fluiddir 0` (frozen).
 using System;
 using System.Collections;
 using System.IO;
@@ -44,7 +52,8 @@ public partial class PlaygroundCapture
         Application.targetFrameRate = -1;
         int fpsCap = ArgInt("-fpscap", 0);
         if (fpsCap > 0) Application.targetFrameRate = fpsCap;
-        bool strip = HasFlag("-fluidstrip");
+        float farM = ArgFloat("-fluidfar", 0f);
+        bool strip = HasFlag("-fluidstrip") || farM > 0f;
         var pg = FindAnyObjectByType<Playground>();
         while (Phase4Bootstrapper.Store == null) yield return null;
         yield return Frames(300);
@@ -92,10 +101,11 @@ public partial class PlaygroundCapture
             // lava box INSIDE the hillside: every fluid voxel was walled in by rock (intent.no_destination =
             // all of them) and "nothing moved". The guess site is still censused below so the report shows it;
             // the probe then turns in 45 degree steps until a site's two boxes are all air in the store.
+            int wr = farM > 0f ? 10 : 3, wTop = farM > 0f ? 50 : 40;
             void Site(Vector3 g, Vector3 r, out int3 h, out int3 lo, out int3 hi, out int3 l)
             {
                 h = CoordMath.WorldToVoxel(new float3(g.x, g.y - 0.4f, g.z));
-                lo = h + new int3(-3, 20, -3); hi = h + new int3(3, 40, 3);
+                lo = h + new int3(-wr, 20, -wr); hi = h + new int3(wr, wTop, wr);
                 l = CoordMath.WorldToVoxel(new float3(g.x + r.x * 3f, g.y + 1.5f, g.z + r.z * 3f));
             }
             Vector3 legacy = Vector3.zero; bool legacyFound = false;
@@ -115,24 +125,72 @@ public partial class PlaygroundCapture
             }
             Vector3 target = legacy; bool found = false; float turned = 0f;
             Vector3 fwd0 = fwd;
-            for (int turn = 0; turn < 8 && !found; turn++)
+            int turns = farM > 0f ? 16 : 8;
+            float step = farM > 0f ? 22.5f : 45f;
+            float[] dists = farM > 0f ? new[] { farM, farM - 6f, farM + 6f, farM - 12f, farM + 12f } : new[] { 10f, 13f, 16f, 8f, 20f };
+            var clipF = TerrainClipmap.Active;
+            // Far mode: the eye stays over eye_level_1's x/z but at max(its height, the site's ground + 15 m)
+            // (at 1.7 m the hills hide most ground 110 m away). Per site; the chosen one is kept.
+            Vector3 eyeF = eye1, eyeSite = eye1;
+            int rejGround = 0, rejBox = 0, rejFar = 0, rejLos = 0, rejSolid = 0;
+            float GroundAt(float x, float z)
             {
-                float deg = ((turn + 1) >> 1) * 45f * ((turn & 1) == 1 ? 1f : -1f);   // 0, +45, -45, +90, -90, +135, -135, 180
-                Vector3 f = Quaternion.AngleAxis(deg, Vector3.up) * fwd0;
-                Vector3 r = Vector3.Cross(Vector3.up, f).normalized;
-                foreach (float d in new[] { 10f, 13f, 16f, 8f, 20f })
+                if (farM <= 0f) return StoreGroundM(store, x, z, eye1.y + 15f);
+                int3 v = CoordMath.WorldToVoxel(new float3(x, eye1.y + 150f, z));
+                if (store.GetVoxel(v) != 0) return float.NaN;
+                for (int i = 0; i < 3000; i++, v.y--)
+                    if (store.GetVoxel(v) != 0) return (v.y + 1) * 0.1f;
+                return float.NaN;
+            }
+            // Far mode: if this pose has no site, the next eye-level pose (teleport + settle) is tried.
+            int poseIdx = 0;
+            for (int pi = 0; pi < (farM > 0f ? poses.Count : 1) && !found; pi++)
+            {
+                if (pi > 0)
                 {
-                    Vector3 p = eye1 + f * d;
-                    float g = StoreGroundM(store, p.x, p.z, eye1.y + 15f);
-                    if (float.IsNaN(g) || g > eye1.y - 0.5f) continue;
-                    Site(new Vector3(p.x, g, p.z), r, out _, out int3 lo, out int3 hi, out int3 l);
-                    if (SolidIn(store, lo, hi) + SolidIn(store, l + new int3(-3, 0, -3), l + new int3(3, 15, 3)) > 0) continue;
-                    target = new Vector3(p.x, g, p.z); fwd = f; right = r; turned = deg; found = true; break;
+                    eye1 = E(poses[pi].eye);
+                    Vector3 atP = E(poses[pi].at);
+                    fwd0 = atP - eye1; fwd0.y = 0f; fwd0.Normalize();
+                    cam.transform.position = eye1;
+                    cam.transform.rotation = Quaternion.LookRotation(fwd0, Vector3.up);
+                    yield return NearSettle(far, sm);
+                    float gP = StoreGroundM(store, eye1.x, eye1.z, eye1.y + 10f);
+                    if (!float.IsNaN(gP)) eye1.y = gP + 1.7f;
+                    clipF = TerrainClipmap.Active;
+                    L($"far site search: no site at {poses[pi - 1].n}, trying {poses[pi].n}");
+                }
+                poseIdx = pi;
+                for (int turn = 0; turn < turns && !found; turn++)
+                {
+                    float deg = ((turn + 1) >> 1) * step * ((turn & 1) == 1 ? 1f : -1f);   // 0, +45, -45, +90, -90, +135, -135, 180
+                    Vector3 f = Quaternion.AngleAxis(deg, Vector3.up) * fwd0;
+                    Vector3 r = Vector3.Cross(Vector3.up, f).normalized;
+                    foreach (float d in dists)
+                    {
+                        Vector3 p = eye1 + f * d;
+                        float g = GroundAt(p.x, p.z);
+                        if (float.IsNaN(g) || (farM <= 0f && g > eye1.y - 0.5f)) { rejGround++; continue; }
+                        Site(new Vector3(p.x, g, p.z), r, out _, out int3 lo, out int3 hi, out int3 l);
+                        if (farM > 0f)
+                        {
+                            eyeF = new Vector3(eye1.x, Mathf.Max(eye1.y, g + 15f), eye1.z);
+                            int3 wcc = CoordMath.VoxelToChunk((lo + hi) >> 1);
+                            if (clipF == null || clipF.ContainsChunk(wcc)) { rejBox++; continue; }   // must be outside the mirror box
+                            // ...and inside the fluid's 128 m wake radius, which is 3D: <= 120 m from the eye.
+                            if (Vector3.Distance(eyeF, new Vector3(p.x, g + 3.5f, p.z)) > 120f) { rejFar++; continue; }
+                            if (!StoreLineOfSight(store, eyeF, new Vector3(p.x, g + 2.5f, p.z))) { rejLos++; continue; }
+                        }
+                        if (SolidIn(store, lo, hi) + SolidIn(store, l + new int3(-3, 0, -3), l + new int3(3, 15, 3)) > 0) { rejSolid++; continue; }
+                        target = new Vector3(p.x, g, p.z); fwd = f; right = r; turned = deg; found = true; eyeSite = eyeF; break;
+                    }
                 }
             }
-            if (found) L($"site: turned {turned:F0} deg from the task-07 heading, both boxes all air");
-            else L("NO OPEN SITE in 8 headings x 5 distances: using the task-07 site (expect rock-walled boxes)");
-            Vector3 look = target + right * 1.5f + Vector3.up * 0.5f;
+            if (found) L($"site: {(farM > 0f ? poses[poseIdx].n + ", " : "")}turned {turned:F0} deg from the task-07 heading, both boxes all air");
+            else L($"NO OPEN SITE in {turns} headings x {dists.Length} distances: using the task-07 site (expect rock-walled boxes)");
+            if (farM > 0f) L($"far site search (-fluidfar {farM:F0}): rejected no ground {rejGround}, inside the mirror box {rejBox}, over 120 m (3D) {rejFar}, " +
+                             $"no line of sight {rejLos}, boxes not air {rejSolid}");
+            if (farM > 0f) eye1 = eyeSite;
+            Vector3 look = target + right * 1.5f + Vector3.up * (farM > 0f ? 2.5f : 0.5f);
             cam.transform.position = eye1;
             cam.transform.rotation = Quaternion.LookRotation((look - eye1).normalized, Vector3.up);
             L($"view: eye {eye1:F1}, ground target {target:F1} ({Vector3.Distance(eye1, target):F1} m)");
@@ -180,7 +238,18 @@ public partial class PlaygroundCapture
                 L("");
                 L($"---- +{k:F0} s wall clock (frame {Time.frameCount}, +{Time.frameCount - f0} frames) ----");
                 ProbeState(pg, store, hole, wLo, wHi, lc, false);
-                if (k == 2f || k == 4f || k == 8f) yield return CaptureTo($"strip_{k:F0}s");
+                if (farM > 0f ? (k == 2f || k == 8f || k == 20f) : (k == 2f || k == 4f || k == 8f))
+                {
+                    yield return CaptureTo($"strip_{k:F0}s");
+                    if (farM > 0f)
+                    {
+                        float fov = cam.fieldOfView;
+                        cam.fieldOfView = 6f;
+                        yield return Frames(3);
+                        yield return CaptureTo($"strip_{k:F0}s_tele");
+                        cam.fieldOfView = fov;
+                    }
+                }
             }
         }
         int[] at = strip ? new int[0] : new[] { 1, 2, 3, 5, 10, 20, 45, 90, 180, 225, 400 };
@@ -197,6 +266,21 @@ public partial class PlaygroundCapture
         Debug.Log("[PlaygroundCapture]\n" + _log);
         yield return null;
         Application.Quit(0);
+    }
+
+    /// Task 93e: no solid voxel in the CPU store on the segment a..b (0.1 m steps,
+    /// the last 2 m left out: the target sits on the ground).
+    private static bool StoreLineOfSight(ChunkStore store, Vector3 a, Vector3 b)
+    {
+        Vector3 d = b - a;
+        float len = d.magnitude;
+        d /= len;
+        for (float t = 0.5f; t < len - 2f; t += 0.1f)
+        {
+            Vector3 p = a + d * t;
+            if (store.GetVoxel(CoordMath.WorldToVoxel(new float3(p.x, p.y, p.z))) != 0) return false;
+        }
+        return true;
     }
 
     /// Non-air voxels in the inclusive box [lo, hi] of the CPU store.
@@ -258,7 +342,8 @@ public partial class PlaygroundCapture
                 int3 rel = CoordMath.VoxelToBrick(v) - clip.WindowOriginBricks;
                 bool inWin = math.all(rel >= 0) && math.all(rel < clip.WindowDimsBricks);
                 mir = $"mirror window originBricks {clip.WindowOriginBricks} dimsBricks {clip.WindowDimsBricks} -> in window {inWin}; " +
-                      $"chunk dirty {clip.IsDirty(cc)}, lastUpload {clip.LastUploadEpoch(cc)} / epoch {clip.UploadEpoch}";
+                      $"chunk dirty {clip.IsDirty(cc)}, lastUpload {clip.LastUploadEpoch(cc)} / epoch {clip.UploadEpoch}; " +
+                      $"in mirror box {clip.ContainsChunk(cc)}, fluid terrain dir {(clip.FluidDirEnabled ? $"on: holds it {clip.FluidDirHolds(cc)}, entries {clip.FluidDirEntries} (peak {clip.FluidDirPeakEntries}), uploads {clip.FluidDirUploadsTotal}, refused {clip.FluidDirRefusedTotal}" : "off")}";
             }
             L($"  {nm} voxel {v} chunk {cc}: {mask}; tile {tc} slot {tiles.TryGetSlot(tc)}; {mir}");
         }

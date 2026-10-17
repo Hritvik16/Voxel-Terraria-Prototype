@@ -659,6 +659,13 @@ namespace VoxelEngine.Simulation
             // full MaxWakeDeferTicks. The Phase 5c large_pour case showed it as
             // voxels that looked permanently stranded but were merely 120 ticks
             // from being looked at.
+            // Task 93e: outside a small mirror box the CA reads the fluid terrain
+            // directory, which takes a chunk only after a tile there exists (the
+            // tick publishes it, the next UploadDirty writes it). Until then the
+            // CA would read AIR at the cell and drop the wake, so wait for the
+            // entry (MaxWakeDeferTicks still bounds the wait).
+            if (m.FluidDirEnabled && !m.ContainsChunk(chunk) && !m.FluidDirHolds(chunk)) return false;
+
             if (!m.IsDirty(chunk)) return true;
 
             // DIRTY => an upload is outstanding. Wait for one that happened
@@ -952,6 +959,7 @@ namespace VoxelEngine.Simulation
             if (_wakeCount > 0) _wakeRequests.SetData(_wakeScratch, 0, 0, _wakeCount);
 
             UploadTileState();
+            PublishFluidChunks(clipmap);
             BindGlobals(clipmap);
 
             // AFTER binding, so the tick that re-centred is itself seeded. Doing
@@ -1008,6 +1016,32 @@ namespace VoxelEngine.Simulation
             if (_activeTileCount > 0) _activeTileSlots.SetData(_activeScratch, 0, 0, _activeTileCount);
         }
 
+        /// Task 93e: the chunks every resident tile + 1 voxel (the CA's widest
+        /// read) touches, for the clipmap's fluid terrain directory. Only with
+        /// tiles and a directory (a small mirror box); the clipmap keeps the
+        /// out-of-box, resident ones.
+        private readonly System.Collections.Generic.HashSet<int3> _fluidChunks =
+            new System.Collections.Generic.HashSet<int3>();
+        private void PublishFluidChunks(TerrainClipmap clipmap)
+        {
+            if (Tiles == null || clipmap == null || !clipmap.FluidDirEnabled) return;
+            _fluidChunks.Clear();
+            foreach (int3 t in Tiles.ResidentTileCoords()) AddChunksTouchedByTile(t, Tiles.TileEdge, _fluidChunks);
+            clipmap.SetFluidWanted(_fluidChunks);
+        }
+
+        /// The chunks one tile (tile coords, edge in voxels, pow2) plus a 1-voxel
+        /// apron touches. Pure; FluidTerrainDirTests checks it.
+        public static void AddChunksTouchedByTile(int3 tile, int edge, System.Collections.Generic.HashSet<int3> into)
+        {
+            int3 lo = CoordMath.VoxelToChunk(tile * edge - 1);
+            int3 hi = CoordMath.VoxelToChunk(tile * edge + edge);
+            for (int z = lo.z; z <= hi.z; z++)
+            for (int y = lo.y; y <= hi.y; y++)
+            for (int x = lo.x; x <= hi.x; x++)
+                into.Add(new int3(x, y, z));
+        }
+
         /// Cells dispatched for the per-cell kernels this tick. Dense: the whole
         /// region. Tiled: only ACTIVE tiles, so per-tick cost tracks fluid
         /// present rather than pool capacity.
@@ -1051,6 +1085,10 @@ namespace VoxelEngine.Simulation
             _cs.SetInts("_WindowDimsChunksPacked", wdc.x, wdc.y, wdc.z, 0);
             _cs.SetInts("_WindowDimsBricksPacked", wdb.x, wdb.y, wdb.z, 0);
             _cs.SetInts("_WindowOriginBricksPacked", wob.x, wob.y, wob.z, 0);
+            // Task 93e: the fluid terrain directory outside a small box (w = 0: off).
+            bool fluidDir = clipmap.FluidDirEnabled;
+            int3 fdr = fluidDir ? clipmap.FluidDirRingDims : new int3(1, 1, 1);
+            _cs.SetInts("_FluidDirRing", fdr.x, fdr.y, fdr.z, fluidDir ? 1 : 0);
 
             // Bound even when dense: HLSL requires every declared StructuredBuffer
             // to have something bound, and an unbound one reads as garbage rather
@@ -1066,6 +1104,9 @@ namespace VoxelEngine.Simulation
             {
                 _cs.SetBuffer(k, "ClipmapBuffer", clipmap.ClipmapBuffer);
                 _cs.SetBuffer(k, "BrickDataBuffer", clipmap.BrickDataBuffer);
+                _cs.SetBuffer(k, "FluidDirIndex", fluidDir ? clipmap.FluidDirIndexBuffer : _dummyTileBuf);
+                _cs.SetBuffer(k, "FluidDirCoords", fluidDir ? clipmap.FluidDirCoordBuffer : _dummyTileBuf);
+                _cs.SetBuffer(k, "FluidDirHandles", fluidDir ? clipmap.FluidDirHandleBuffer : _dummyTileBuf);
                 _cs.SetBuffer(k, "FluidSlots", _slots);
                 _cs.SetBuffer(k, "ClaimBuffer", _claim);
                 _cs.SetBuffer(k, "SlotAtBuffer", _slotAt);

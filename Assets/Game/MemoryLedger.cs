@@ -120,6 +120,15 @@ public static class MemoryLedger
         var casc = Phase4Bootstrapper.Cascades;
         for (int t = 1; t < LODConfig.TIER_COUNT; t++)
             BrickRow($"cascade tier {t}", casc?.TierPool(t)?.BrickPool);
+        var clip = Phase4Bootstrapper.Clipmap;
+        if (clip != null && clip.FluidDirEnabled)
+        {
+            // Task 93e: the fluid terrain directory (chunks outside a small mirror box).
+            Row("fluid terrain dir", clip.FluidDirCapacity, clip.FluidDirEntries, clip.FluidDirPeakEntries,
+                EngineConfig.BRICKS_PER_CHUNK * 4 * 2 + 32);
+            lines.Add($"  fluid terrain dir: GPU {MB(clip.FluidDirGpuBytes)} MB, uploads {clip.FluidDirUploadsTotal:N0}, " +
+                      $"refused (at {TerrainClipmap.FluidDirMaxEntries}) {clip.FluidDirRefusedTotal:N0}");
+        }
         var tiles = UnityEngine.Object.FindAnyObjectByType<Playground>()?.DebugTiles;
         if (tiles == null) lines.Add($"  {"fluid tiles",-22}  (not present)");
         else

@@ -47,9 +47,10 @@ public class Phase4Bootstrapper : MonoBehaviour
     /// occupancy picture + report S seconds after start-up and at quit, and
     /// tints each pixel by the shell that drew it.
     public static ShellStreamer Shells { get; private set; }
-    /// Task 93e (8.15 row D2): `-smallmirror 1` with `-shells 1` -- the tier-0 GPU
-    /// mirror box is the preset's ShellLayout.MirrorBox (16^3 on Low-High), not
-    /// 32 x 8 x 32. False when off or when the preset keeps today's box (Ultra).
+    /// Task 93e (8.15 row D2): with `-shells 1` (default since owner Q55 (b);
+    /// `-smallmirror 0` = off) the tier-0 GPU mirror box is the preset's
+    /// ShellLayout.MirrorBox (16^3 on Low-High), not 32 x 8 x 32, plus the fluid
+    /// terrain directory. False when off or when the preset keeps today's box (Ultra).
     public static bool SmallMirror { get; private set; }
 
     /// `-farop` (task 81's demo): the centre of the 20 m crater recorded as an
@@ -295,14 +296,16 @@ public class Phase4Bootstrapper : MonoBehaviour
         // Task 93e (8.15 row D2, §2 items 1-2): with the shells drawing beyond it,
         // the tier-0 GPU mirror box shrinks to the preset's ShellLayout.MirrorBox
         // (16^3 on Low/Medium/High, Ultra keeps 32 x 8 x 32). The CPU ring and the
-        // load radius (TG2_LOAD_RADIUS_CHUNKS, 128 m) do NOT change. OPT-IN
-        // (`-smallmirror 1`) until the owner decides: the GPU fluid CA reads its
-        // terrain from this box (FluidCA.compute SampleVoxel), so fluid between the
-        // box edge (~90 m) and 128 m stops flowing (93e HANDOFF). Needs `-shells 1`
-        // and no cascade tiers (`-keeptiers 1` keeps today's box: their slots
-        // follow tier 0's). Shells off: unchanged.
+        // load radius (TG2_LOAD_RADIUS_CHUNKS, 128 m) do NOT change. DEFAULT with
+        // `-shells 1` since owner Q55 (b) (`-smallmirror 0` = today's box): the GPU
+        // fluid CA reads its terrain from this box (FluidCA.compute SampleVoxel), so
+        // chunks outside it that fluid touches go to the clipmap's fluid terrain
+        // directory (TerrainClipmap.FluidDir.cs) and fluid stays live to 128 m on
+        // every preset (8.15). `-fluiddir 0` = without it (diagnostic: fluid past
+        // ~90 m freezes). Needs no cascade tiers (`-keeptiers 1` keeps today's box:
+        // their slots follow tier 0's). Shells off: unchanged.
         SmallMirror = false;
-        if (IsTg2World && ArgInt("-shells", 0) == 1 && ArgInt("-smallmirror", 0) == 1
+        if (IsTg2World && ArgInt("-shells", 0) == 1 && ArgInt("-smallmirror", 1) == 1
             && !LODCascadeManager.TiersWanted(IsTg2World, 1, ArgInt("-keeptiers", 0)))
         {
             int3 box = ShellLayout.From(ShellPresetFromArgs()).MirrorBox;
@@ -312,9 +315,10 @@ public class Phase4Bootstrapper : MonoBehaviour
             mirrorChunks = box;
         }
         Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity) { RecentreDirtiesStaleSlots = SmallMirror };
+        if (SmallMirror && ArgInt("-fluiddir", 1) == 1) Clipmap.EnableFluidDir(storeWindowChunks);
         if (IsTg2World && ArgInt("-shells", 0) == 1)
             UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU mirror box {mirrorChunks} ({(SmallMirror ? "-smallmirror: task 93e" : "today's")}), " +
-                                  $"load radius stays {EngineConfig.TG2_LOAD_RADIUS_CHUNKS} chunks");
+                                  $"load radius stays {EngineConfig.TG2_LOAD_RADIUS_CHUNKS} chunks, fluid terrain directory {(Clipmap.FluidDirEnabled ? "on" : "off")}");
         // Edit-driven cascade rebuilds off the main thread (LODCascadeManager's
         // ASYNC REBUILD block). -cascadeasync 0 is the A/B.
         LODCascadeManager.AsyncRebuildEnabled = LODCascadeManager.AsyncRequestedByArgs();

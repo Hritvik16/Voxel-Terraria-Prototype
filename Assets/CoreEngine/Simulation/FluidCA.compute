@@ -139,6 +139,14 @@ uint4 _WindowDimsChunksPacked;   // .xyz = resident window size in CHUNKS (pow2)
 int4  _WindowOriginBricksPacked; // .xyz = window origin in bricks
 uint4 _WindowDimsBricksPacked;   // .xyz = window size in bricks
 
+// ---- Fluid terrain directory (task 93e, TerrainClipmap.FluidDir.cs) ----
+// Resident chunks OUTSIDE the mirror box that a fluid tile touches, written from
+// the CPU state. _FluidDirRing.w = 0: off, the old AIR outside the box.
+StructuredBuffer<int>  FluidDirIndex;    // ring slot (store ring, pow2) -> entry, -1 none
+StructuredBuffer<int>  FluidDirCoords;   // entry * 4 + xyz = its chunk
+StructuredBuffer<uint> FluidDirHandles;  // entry * 4096 + LocalBrickIndex = brick handle
+uint4 _FluidDirRing;                     // .xyz = ring dims in chunks (pow2), .w = on
+
 // ---- Fluid state ----
 RWStructuredBuffer<FluidSlot> FluidSlots;
 RWStructuredBuffer<int>       ClaimBuffer;    // cell -> winning slot, or NONE
@@ -388,17 +396,33 @@ uint ReadClipmapHandle(int3 brickCoord)
 
 /// Material at a world voxel. Returns AIR outside the resident window, which
 /// matches ChunkStore.GetVoxel's documented behaviour for an unloaded chunk.
+/// Outside the box: the fluid terrain directory's handle, 0 (uniform AIR) if
+/// the chunk is not in it.
+uint ReadFluidDirHandle(int3 brickCoord)
+{
+    int3 chunkCoord = brickCoord >> 4;
+    int3 w = chunkCoord & (int3)(_FluidDirRing.xyz - 1);
+    int  e = FluidDirIndex[w.x + (int)_FluidDirRing.x * (w.y + (int)_FluidDirRing.y * w.z)];
+    if (e < 0) return 0u;
+    if (FluidDirCoords[e * 4 + 0] != chunkCoord.x || FluidDirCoords[e * 4 + 1] != chunkCoord.y ||
+        FluidDirCoords[e * 4 + 2] != chunkCoord.z) return 0u;
+    return FluidDirHandles[(e * 4096) + LocalBrickIndex(brickCoord & 15)];
+}
+
 uint SampleVoxel(int3 voxel)
 {
     int3 brickCoord = VoxelToBrick(voxel);
     int3 rel = brickCoord - _WindowOriginBricksPacked.xyz;
+    uint handle;
     if (rel.x < 0 || rel.y < 0 || rel.z < 0 ||
         rel.x >= (int)_WindowDimsBricksPacked.x ||
         rel.y >= (int)_WindowDimsBricksPacked.y ||
         rel.z >= (int)_WindowDimsBricksPacked.z)
-        return AIR;
-
-    uint handle = ReadClipmapHandle(brickCoord);
+    {
+        if (_FluidDirRing.w == 0u) return AIR;
+        handle = ReadFluidDirHandle(brickCoord);
+    }
+    else handle = ReadClipmapHandle(brickCoord);
     if ((handle & 0x80000000u) == 0u) return handle & 0xFFu;   // uniform brick
 
     uint poolIdx = handle & 0x3FFFFFFFu;

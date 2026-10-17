@@ -356,10 +356,11 @@ Task 93d (engine 14d1, 8.15 row D1, Q49): with `-shells 1` cascade tiers 1-2 are
 `Phase4Bootstrapper.Cascades` = null, every reader checks; no worker downsample, no DownsampleScratch). Shells off: unchanged.
 `-keeptiers 1` allocates them anyway (diagnostic arms that set DrawShells false and want tiers 1-2 behind). `CascadeTiersOffTests`.
 
-Task 93e (engine 14d2, 8.15 row D2, OPT-IN pending owner Q54): `-shells 1 -smallmirror 1` shrinks the tier-0 GPU mirror box to
-`ShellLayout.MirrorBox` (16^3 Low-High, Ultra keeps 32x8x32; centred by its own size, `StreamManager.MirrorOrigin`); CPU load radius stays 10.
+Task 93e (engine 14d2, 8.15 row D2, owner Q55 (b)): `-shells 1` shrinks the tier-0 GPU mirror box to `ShellLayout.MirrorBox` (DEFAULT;
+`-smallmirror 0` = old box; 16^3 Low-High, Ultra keeps 32x8x32; centred by its own size, `StreamManager.MirrorOrigin`); CPU load radius stays 10.
 Recentres re-dirty slots held by another chunk (`TerrainClipmap.RecentreDirtiesStaleSlots`); the validator skips residents outside the box.
-NOT default: the GPU fluid CA reads terrain from this box (KNOWN_ISSUES). `UploadDirtyBoxTests` (9).
+The GPU fluid CA reads chunks outside the box that fluid touches from the FLUID TERRAIN DIRECTORY (`TerrainClipmap.FluidDir.cs`, `-fluiddir 0` = off):
+fluid stays live to 128 m on every preset. `UploadDirtyBoxTests` (9), `FluidTerrainDirTests` (5). `MODE=fluidprobe EXTRA="... -fluidfar 110"` = a pool ~110 m out.
 
 Task 93e1 (gameplay RX1): ADJACENCY REACTIONS in `MaterialRules`' pair table (both directions via `Pair`): water + lava -> steam
 (water cell) + COOLED STONE (lava cell; new id 23, was obsidian + air); water + tg2 loam/red earth -> mud (water kept); lava + sand
@@ -463,7 +464,7 @@ With live fluid they fail BY DESIGN -- never loosen them. Persistence evidence:
 Before touching streaming, rendering, fluids, memory or a rig, or quoting a
 number, read the matching entry in `KNOWN_ISSUES.md`. One line each:
 
-- GPU FLUID CA READS TERRAIN FROM THE TIER-0 MIRROR BOX (task 93e, owner Q54): a 16^3 box would stop fluid flowing past ~90 m; `-smallmirror` stays opt-in until answered.
+- GPU FLUID CA READS TERRAIN FROM THE TIER-0 MIRROR BOX (task 93e; FIXED, Q55 (b)): the fluid terrain directory serves chunks outside the 16^3 box; fluid at 128 m on every preset; 93f (D3) must map its bodies.
 - SHELLS COST +10-15 ms STEADY, NEVER FILL WHILE WALKING (task 93b, NOT FIXED): far band after the shells ~+11 ms, shell march ~+3; walking fill: 93b2 fixed the throughput half (column pass once per column) and part two the caps (fill on shells 1-2: start pose complete, 0 FULL) -- walking is now short on WORKERS (fill +25-55 ms/chunk; walk's end s1 ~35%, s2 ~7%, shell 2 starved). 93c (shells default) held.
 - STRAY RESIDENT CHUNKS ALIAS INTO THE MIRROR (task 21; FIXED task 26, 2026-10-04): save-capped evictions (4/frame) were retried only when the camera changed chunk; now retried every frame while any is deferred. v4 poses MIRROR 0/0/0. Task 32 (3cb76d1): `UploadDirty` skips, counts (`skippedOutOfBox`, poses `outOfBox`) and parks resident chunks outside the mirror box.
 - BLACK BAR OVER THE SEA at `coast_from_sea_30m` (PINNED task 19, FIXED task 22 2026-10-04: integer-cell DDA in `FarStartT`): `FarStartT`'s chunk DDA stalls after a -x face crossing (a fixed 1e-3 t-nudge is below one float step at x ~ 40000 voxels, so floor() keeps the same chunk), returns tLimit, and the far march starts under the sea -> water side face. Residency bits are correct. The dark arcs below it are voxel LOD tier seams.

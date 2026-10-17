@@ -1,0 +1,95 @@
+FLUID PROBE -- 2026-10-16_165745  world tg2  fps cap none  -fluidstrip (wall-clock shots 2/4/8 s)
+task-07 site (no open ground ahead, a guess) (4590.8, 651.3, 3996.1): solid voxels in water box 13671/1029, in lava box 784/784
+far site search: no site at eye_level_1, trying eye_level_2
+site: eye_level_2, turned -68 deg from the task-07 heading, both boxes all air
+far site search (-fluidfar 110): rejected no ground 38, inside the mirror box 51, over 120 m (3D) 10, no line of sight 10, boxes not air 1
+view: eye (3454.8, 564.4, 4932.3), ground target (3564.7, 549.4, 4927.2) (111.0 m)
+dug 9642 voxels at int3(35646, 5490, 49272) on frame 1560
+
+---- BEFORE placement (FLUID RATE here = the last 0 s) ----
+  CPU store: water in box 0, elsewhere nearby 0; lava in box 0, elsewhere nearby 0
+  centre: PlayerVoxel int3(34547, 5644, 49322), water centre int3(35646, 5525, 49272), dist 1107v; wake r 1280v, sleep r 1472v, within wake True; re-centres 4
+  water voxel int3(35646, 5525, 49272) chunk int3(278, 43, 384): mask bit 0 (mask 0x0000000000000000, dirty 0x0000000000000000); tile int3(1113, 172, 1539) slot -1; mirror window originBricks int3(4176, 528, 6032) dimsBricks int3(256, 256, 256) -> in window False; chunk dirty False, lastUpload -1 / epoch 1627; in mirror box False, fluid terrain dir off
+  lava voxel int3(35645, 5516, 49242) chunk int3(278, 43, 384): mask bit 0 (mask 0x0000000000000000, dirty 0x0000000000000000); tile int3(1113, 172, 1538) slot -1; mirror window originBricks int3(4176, 528, 6032) dimsBricks int3(256, 256, 256) -> in window False; chunk dirty False, lastUpload -1 / epoch 1627; in mirror box False, fluid terrain dir off
+  tiles: resident 0/480 (peak 0), acquired 0, released 0, POOL EXHAUSTIONS 0; gpu active tiles 0
+  residency refresh: chunks scanned 0, non-resident 0, tiles w/ fluid 0, acquired 0, already 0, REFUSED POOL FULL 0, released radius 0, orphaned 0
+  wake: queued 0, dispatched 0, pending 0, deferred 0, coalesced 0, released-stale 0, rej_region 0, rej_full 0
+  readback: ticks issued 212, canIssue False, inFlight 1, pendingOps 0, ops total 0, applied writes 0, stale dropped 0, non-resident dropped 0, skipped issues 0, overflow frames 0
+  FLUID RATE (task 91): fixed 4.50 Hz, lava 0.75 Hz; since placement 0.00 s, 0 frames = 0.0 FPS: ticks 0 = 0.00/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 308
+  slots: live (last async) 0 / cap 750000; suspended False
+  GPU last tick: cpu.wake_queued_total=0 cpu.wake_dispatched_total=0 cpu.promote_dispatches=0 cpu.wake_dispatched_lasttick=0 cpu.wake_rej_region=0 cpu.wake_rej_full=0 | promote.seen=0 promote.ALLOCATED=0 promote.rej_owned=0 promote.rej_notmobile=0 intent.awake=0 intent.CLAIMS=0 commit.claims_seen=0 commit.APPLIED=0 intent.orphan_freed=0 intent.no_destination=0 commit.rej_home=0 commit.rej_dst_not_air=0 PROBE.promote_ran(ABCD)=0 PROBE.saw_wakecount=0 PROBE.saw_regioncells=0 PROBE.saw_tick=0 promote.rej_radius=0 PROBE.saw_material_at_wake0=0
+
+PLACED water 13671 voxels int3(35636, 5510, 49262)..int3(35656, 5540, 49282), lava 784 voxels at int3(35645, 5509, 49242)+(-3,0,-3)..(3,15,3), frame 1626
+  same frame: wake queued 14455, deferred 14455, rej_region 0, rej_full 0
+
+---- +1 s wall clock (frame 1653, +27 frames) ----
+  CPU store: water in box 13671, elsewhere nearby 0; lava in box 784, elsewhere nearby 0
+  centre: PlayerVoxel int3(34547, 5644, 49322), water centre int3(35646, 5525, 49272), dist 1107v; wake r 1280v, sleep r 1472v, within wake True; re-centres 4
+  water voxel int3(35646, 5525, 49272) chunk int3(278, 43, 384): mask bit 1 (mask 0x0066000600000000, dirty 0x0000000000000000); tile int3(1113, 172, 1539) slot 0; mirror window originBricks int3(4176, 528, 6032) dimsBricks int3(256, 256, 256) -> in window False; chunk dirty False, lastUpload -1 / epoch 1654; in mirror box False, fluid terrain dir off
+  lava voxel int3(35645, 5516, 49242) chunk int3(278, 43, 384): mask bit 1 (mask 0x0066000600000000, dirty 0x0000000000000000); tile int3(1113, 172, 1538) slot 8; mirror window originBricks int3(4176, 528, 6032) dimsBricks int3(256, 256, 256) -> in window False; chunk dirty False, lastUpload -1 / epoch 1654; in mirror box False, fluid terrain dir off
+  tiles: resident 10/480 (peak 10), acquired 10, released 0, POOL EXHAUSTIONS 0; gpu active tiles 10
+  wake: queued 14455, dispatched 14455, pending 0, deferred 0, coalesced 0, released-stale 0, rej_region 0, rej_full 0
+  readback: ticks issued 216, canIssue False, inFlight 1, pendingOps 0, ops total 0, applied writes 0, stale dropped 0, non-resident dropped 0, skipped issues 0, overflow frames 0
+  FLUID RATE (task 91): fixed 4.50 Hz, lava 0.75 Hz; since placement 1.04 s, 27 frames = 26.1 FPS: ticks 4 = 3.86/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 311
+  slots: live (last async) 0 / cap 750000; suspended False
+  GPU last tick: cpu.wake_queued_total=14455 cpu.wake_dispatched_total=14455 cpu.promote_dispatches=1 cpu.wake_dispatched_lasttick=0 cpu.wake_rej_region=0 cpu.wake_rej_full=0 | promote.seen=0 promote.ALLOCATED=0 promote.rej_owned=0 promote.rej_notmobile=0 intent.awake=0 intent.CLAIMS=0 commit.claims_seen=0 commit.APPLIED=0 intent.orphan_freed=0 intent.no_destination=0 commit.rej_home=0 commit.rej_dst_not_air=0 PROBE.promote_ran(ABCD)=0 PROBE.saw_wakecount=0 PROBE.saw_regioncells=0 PROBE.saw_tick=0 promote.rej_radius=0 PROBE.saw_material_at_wake0=0
+
+---- +2 s wall clock (frame 1679, +53 frames) ----
+  CPU store: water in box 13671, elsewhere nearby 0; lava in box 784, elsewhere nearby 0
+  centre: PlayerVoxel int3(34547, 5644, 49322), water centre int3(35646, 5525, 49272), dist 1107v; wake r 1280v, sleep r 1472v, within wake True; re-centres 4
+  water voxel int3(35646, 5525, 49272) chunk int3(278, 43, 384): mask bit 1 (mask 0x0066000600000000, dirty 0x0000000000000000); tile int3(1113, 172, 1539) slot 0; mirror window originBricks int3(4176, 528, 6032) dimsBricks int3(256, 256, 256) -> in window False; chunk dirty False, lastUpload -1 / epoch 1680; in mirror box False, fluid terrain dir off
+  lava voxel int3(35645, 5516, 49242) chunk int3(278, 43, 384): mask bit 1 (mask 0x0066000600000000, dirty 0x0000000000000000); tile int3(1113, 172, 1538) slot 8; mirror window originBricks int3(4176, 528, 6032) dimsBricks int3(256, 256, 256) -> in window False; chunk dirty False, lastUpload -1 / epoch 1680; in mirror box False, fluid terrain dir off
+  tiles: resident 10/480 (peak 10), acquired 10, released 0, POOL EXHAUSTIONS 0; gpu active tiles 10
+  wake: queued 14455, dispatched 14455, pending 0, deferred 0, coalesced 0, released-stale 0, rej_region 0, rej_full 0
+  readback: ticks issued 221, canIssue False, inFlight 1, pendingOps 0, ops total 0, applied writes 0, stale dropped 0, non-resident dropped 0, skipped issues 0, overflow frames 0
+  FLUID RATE (task 91): fixed 4.50 Hz, lava 0.75 Hz; since placement 2.01 s, 53 frames = 26.4 FPS: ticks 9 = 4.48/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 317
+  slots: live (last async) 0 / cap 750000; suspended False
+  GPU last tick: cpu.wake_queued_total=14455 cpu.wake_dispatched_total=14455 cpu.promote_dispatches=1 cpu.wake_dispatched_lasttick=0 cpu.wake_rej_region=0 cpu.wake_rej_full=0 | promote.seen=0 promote.ALLOCATED=0 promote.rej_owned=0 promote.rej_notmobile=0 intent.awake=0 intent.CLAIMS=0 commit.claims_seen=0 commit.APPLIED=0 intent.orphan_freed=0 intent.no_destination=0 commit.rej_home=0 commit.rej_dst_not_air=0 PROBE.promote_ran(ABCD)=0 PROBE.saw_wakecount=0 PROBE.saw_regioncells=0 PROBE.saw_tick=0 promote.rej_radius=0 PROBE.saw_material_at_wake0=0
+
+---- +4 s wall clock (frame 1724, +98 frames) ----
+  CPU store: water in box 13671, elsewhere nearby 0; lava in box 784, elsewhere nearby 0
+  centre: PlayerVoxel int3(34547, 5644, 49322), water centre int3(35646, 5525, 49272), dist 1107v; wake r 1280v, sleep r 1472v, within wake True; re-centres 4
+  water voxel int3(35646, 5525, 49272) chunk int3(278, 43, 384): mask bit 1 (mask 0x0066000600000000, dirty 0x0000000000000000); tile int3(1113, 172, 1539) slot 0; mirror window originBricks int3(4176, 528, 6032) dimsBricks int3(256, 256, 256) -> in window False; chunk dirty False, lastUpload -1 / epoch 1725; in mirror box False, fluid terrain dir off
+  lava voxel int3(35645, 5516, 49242) chunk int3(278, 43, 384): mask bit 1 (mask 0x0066000600000000, dirty 0x0000000000000000); tile int3(1113, 172, 1538) slot 8; mirror window originBricks int3(4176, 528, 6032) dimsBricks int3(256, 256, 256) -> in window False; chunk dirty False, lastUpload -1 / epoch 1725; in mirror box False, fluid terrain dir off
+  tiles: resident 10/480 (peak 10), acquired 10, released 0, POOL EXHAUSTIONS 0; gpu active tiles 10
+  wake: queued 14455, dispatched 14455, pending 0, deferred 0, coalesced 0, released-stale 0, rej_region 0, rej_full 0
+  readback: ticks issued 229, canIssue False, inFlight 1, pendingOps 0, ops total 0, applied writes 0, stale dropped 0, non-resident dropped 0, skipped issues 0, overflow frames 0
+  FLUID RATE (task 91): fixed 4.50 Hz, lava 0.75 Hz; since placement 4.01 s, 98 frames = 24.5 FPS: ticks 17 = 4.24/s, SHORTFALL missed 0 = 0.00/s, blocked frames (total) 346
+  slots: live (last async) 0 / cap 750000; suspended False
+  GPU last tick: cpu.wake_queued_total=14455 cpu.wake_dispatched_total=14455 cpu.promote_dispatches=1 cpu.wake_dispatched_lasttick=0 cpu.wake_rej_region=0 cpu.wake_rej_full=0 | promote.seen=0 promote.ALLOCATED=0 promote.rej_owned=0 promote.rej_notmobile=0 intent.awake=0 intent.CLAIMS=0 commit.claims_seen=0 commit.APPLIED=0 intent.orphan_freed=0 intent.no_destination=0 commit.rej_home=0 commit.rej_dst_not_air=0 PROBE.promote_ran(ABCD)=0 PROBE.saw_wakecount=0 PROBE.saw_regioncells=0 PROBE.saw_tick=0 promote.rej_radius=0 PROBE.saw_material_at_wake0=0
+
+---- +8 s wall clock (frame 1827, +201 frames) ----
+  CPU store: water in box 13671, elsewhere nearby 0; lava in box 784, elsewhere nearby 0
+  centre: PlayerVoxel int3(34547, 5644, 49322), water centre int3(35646, 5525, 49272), dist 1107v; wake r 1280v, sleep r 1472v, within wake True; re-centres 4
+  water voxel int3(35646, 5525, 49272) chunk int3(278, 43, 384): mask bit 1 (mask 0x0066000600000000, dirty 0x0000000000000000); tile int3(1113, 172, 1539) slot 0; mirror window originBricks int3(4176, 528, 6032) dimsBricks int3(256, 256, 256) -> in window False; chunk dirty False, lastUpload -1 / epoch 1828; in mirror box False, fluid terrain dir off
+  lava voxel int3(35645, 5516, 49242) chunk int3(278, 43, 384): mask bit 1 (mask 0x0066000600000000, dirty 0x0000000000000000); tile int3(1113, 172, 1538) slot 8; mirror window originBricks int3(4176, 528, 6032) dimsBricks int3(256, 256, 256) -> in window False; chunk dirty False, lastUpload -1 / epoch 1828; in mirror box False, fluid terrain dir off
+  tiles: resident 10/480 (peak 10), acquired 10, released 0, POOL EXHAUSTIONS 0; gpu active tiles 10
+  wake: queued 14455, dispatched 14455, pending 0, deferred 0, coalesced 0, released-stale 0, rej_region 0, rej_full 0
+  readback: ticks issued 246, canIssue False, inFlight 1, pendingOps 0, ops total 0, applied writes 0, stale dropped 0, non-resident dropped 0, skipped issues 0, overflow frames 0
+  FLUID RATE (task 91): fixed 4.50 Hz, lava 0.75 Hz; since placement 8.03 s, 201 frames = 25.0 FPS: ticks 34 = 4.23/s, SHORTFALL missed 1 = 0.12/s, blocked frames (total) 394
+  slots: live (last async) 0 / cap 750000; suspended False
+  GPU last tick: cpu.wake_queued_total=14455 cpu.wake_dispatched_total=14455 cpu.promote_dispatches=1 cpu.wake_dispatched_lasttick=0 cpu.wake_rej_region=0 cpu.wake_rej_full=0 | promote.seen=0 promote.ALLOCATED=0 promote.rej_owned=0 promote.rej_notmobile=0 intent.awake=0 intent.CLAIMS=0 commit.claims_seen=0 commit.APPLIED=0 intent.orphan_freed=0 intent.no_destination=0 commit.rej_home=0 commit.rej_dst_not_air=0 PROBE.promote_ran(ABCD)=0 PROBE.saw_wakecount=0 PROBE.saw_regioncells=0 PROBE.saw_tick=0 promote.rej_radius=0 PROBE.saw_material_at_wake0=0
+
+---- +12 s wall clock (frame 1919, +293 frames) ----
+  CPU store: water in box 13671, elsewhere nearby 0; lava in box 784, elsewhere nearby 0
+  centre: PlayerVoxel int3(34547, 5644, 49322), water centre int3(35646, 5525, 49272), dist 1107v; wake r 1280v, sleep r 1472v, within wake True; re-centres 4
+  water voxel int3(35646, 5525, 49272) chunk int3(278, 43, 384): mask bit 1 (mask 0x0066000600000000, dirty 0x0000000000000000); tile int3(1113, 172, 1539) slot 0; mirror window originBricks int3(4176, 528, 6032) dimsBricks int3(256, 256, 256) -> in window False; chunk dirty False, lastUpload -1 / epoch 1920; in mirror box False, fluid terrain dir off
+  lava voxel int3(35645, 5516, 49242) chunk int3(278, 43, 384): mask bit 1 (mask 0x0066000600000000, dirty 0x0000000000000000); tile int3(1113, 172, 1538) slot 8; mirror window originBricks int3(4176, 528, 6032) dimsBricks int3(256, 256, 256) -> in window False; chunk dirty False, lastUpload -1 / epoch 1920; in mirror box False, fluid terrain dir off
+  tiles: resident 10/480 (peak 10), acquired 10, released 0, POOL EXHAUSTIONS 0; gpu active tiles 10
+  wake: queued 14455, dispatched 14455, pending 0, deferred 0, coalesced 0, released-stale 0, rej_region 0, rej_full 0
+  readback: ticks issued 262, canIssue False, inFlight 1, pendingOps 0, ops total 0, applied writes 0, stale dropped 0, non-resident dropped 0, skipped issues 0, overflow frames 0
+  FLUID RATE (task 91): fixed 4.50 Hz, lava 0.75 Hz; since placement 12.01 s, 293 frames = 24.4 FPS: ticks 50 = 4.16/s, SHORTFALL missed 4 = 0.33/s, blocked frames (total) 434
+  slots: live (last async) 0 / cap 750000; suspended False
+  GPU last tick: cpu.wake_queued_total=14455 cpu.wake_dispatched_total=14455 cpu.promote_dispatches=1 cpu.wake_dispatched_lasttick=0 cpu.wake_rej_region=0 cpu.wake_rej_full=0 | promote.seen=0 promote.ALLOCATED=0 promote.rej_owned=0 promote.rej_notmobile=0 intent.awake=0 intent.CLAIMS=0 commit.claims_seen=0 commit.APPLIED=0 intent.orphan_freed=0 intent.no_destination=0 commit.rej_home=0 commit.rej_dst_not_air=0 PROBE.promote_ran(ABCD)=0 PROBE.saw_wakecount=0 PROBE.saw_regioncells=0 PROBE.saw_tick=0 promote.rej_radius=0 PROBE.saw_material_at_wake0=0
+
+---- +20 s wall clock (frame 2118, +492 frames) ----
+  CPU store: water in box 13671, elsewhere nearby 0; lava in box 784, elsewhere nearby 0
+  centre: PlayerVoxel int3(34547, 5644, 49322), water centre int3(35646, 5525, 49272), dist 1107v; wake r 1280v, sleep r 1472v, within wake True; re-centres 4
+  water voxel int3(35646, 5525, 49272) chunk int3(278, 43, 384): mask bit 1 (mask 0x0066000600000000, dirty 0x0000000000000000); tile int3(1113, 172, 1539) slot 0; mirror window originBricks int3(4176, 528, 6032) dimsBricks int3(256, 256, 256) -> in window False; chunk dirty False, lastUpload -1 / epoch 2119; in mirror box False, fluid terrain dir off
+  lava voxel int3(35645, 5516, 49242) chunk int3(278, 43, 384): mask bit 1 (mask 0x0066000600000000, dirty 0x0000000000000000); tile int3(1113, 172, 1538) slot 8; mirror window originBricks int3(4176, 528, 6032) dimsBricks int3(256, 256, 256) -> in window False; chunk dirty False, lastUpload -1 / epoch 2119; in mirror box False, fluid terrain dir off
+  tiles: resident 10/480 (peak 10), acquired 10, released 0, POOL EXHAUSTIONS 0; gpu active tiles 10
+  wake: queued 14455, dispatched 14455, pending 0, deferred 0, coalesced 0, released-stale 0, rej_region 0, rej_full 0
+  readback: ticks issued 295, canIssue False, inFlight 1, pendingOps 0, ops total 0, applied writes 0, stale dropped 0, non-resident dropped 0, skipped issues 0, overflow frames 0
+  FLUID RATE (task 91): fixed 4.50 Hz, lava 0.75 Hz; since placement 20.01 s, 492 frames = 24.6 FPS: ticks 83 = 4.15/s, SHORTFALL missed 6 = 0.30/s, blocked frames (total) 512
+  slots: live (last async) 0 / cap 750000; suspended False
+  GPU last tick: cpu.wake_queued_total=14455 cpu.wake_dispatched_total=14455 cpu.promote_dispatches=1 cpu.wake_dispatched_lasttick=0 cpu.wake_rej_region=0 cpu.wake_rej_full=0 | promote.seen=0 promote.ALLOCATED=0 promote.rej_owned=0 promote.rej_notmobile=0 intent.awake=0 intent.CLAIMS=0 commit.claims_seen=0 commit.APPLIED=0 intent.orphan_freed=0 intent.no_destination=0 commit.rej_home=0 commit.rej_dst_not_air=0 PROBE.promote_ran(ABCD)=0 PROBE.saw_wakecount=0 PROBE.saw_regioncells=0 PROBE.saw_tick=0 promote.rej_radius=0 PROBE.saw_material_at_wake0=0
