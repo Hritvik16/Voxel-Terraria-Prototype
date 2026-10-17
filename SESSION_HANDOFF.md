@@ -1,51 +1,54 @@
-# Session handoff -- 2026-10-16 ~08:50 (supervisor; queue RUNNING task 93f1)
+# Session handoff -- 2026-10-16 ~19:35 (supervisor; queue RUNNING task 93b3)
 
 ## For the owner
-**Why a new session (08:50):** the supervisor in tmux window 22:0 reached ~10 MB of history (the size hook fired) right
-after you answered Q53-Q55 and asked for a status breakdown. It started at ~02:55 after 22:1 handed off. 22:1 is still
-open: the permission checker would not let the supervisor close it (`! tmux kill-window -t 22:1`).
+**Why a new session (19:35):** the supervisor in tmux window 22:2 had handled four finished tasks plus a pause and a
+question, which is the point where SUPERVISOR.md says to hand off (every turn re-sends the whole chat). Nothing is wrong.
 
-**What happened in 22:0 (02:55 -> 08:50):**
-- **93b2 BLOCKED -> Q54, you answered (a).** It found why the shells empty while walking (the column pass ran once per
-  layer; now once per column: shell 1 held at the walk's end 207 -> 1,049, `c265106`), but shells 1-2 then stop at their
-  brick caps. Your (a): extend the cave fill to shells 1-2. 93b2 is requeued with that answer.
-- **93d1 done** (`327169d`): health, fall damage (4 m safe / 20 m lethal), 20 s air, lava/acid damage, soft death back to
-  the start keeping everything. Note: the crosshair box overlaps the "YOU DIED" text.
-- **93e BLOCKED -> Q55, you answered (b).** The 16^3 GPU box with shells on is built opt-in (`dc68d34`, footprint median
-  2,688 -> 2,475 MB) but would freeze fluid 90-128 m away. Your (b): keep fluid at 128 m everywhere (a small terrain lookup
-  for the fluid CA), then switch the box on. 93e is requeued with that answer.
-- **93e1 done** (`700560a`): water+lava -> cooled stone + steam, snow+lava melts then quenches, sand+lava -> glass,
-  water+loam -> mud.
-- **Q53 (a)** (start in a mild biome) -> new task 98. Q52 closed, (a) stands.
-- You asked for a full status breakdown (visuals, gameplay, performance, other); it was given in chat at the end of 22:0.
-- Doc: Task reports for 93b2, 93d1, 93e, 93e1 (with images), Done rows, Q54/Q55 added then marked ANSWERED with Q52/Q53.
-  Archive: 93b2, 93d1, 93e added (versions 12-14).
+**What happened in 22:2 (11:14 -> 19:35):**
+- You closed the old supervisor windows 22:0 / 22:1 yourself (the permission checker would not let the supervisor).
+- **93f1 done** (`9cc0940`): no more walking up cliffs. <= 30 deg walked, 30-60 deg slides (Space scrambles), >= 60 deg
+  climbed on a 7 s stamina bar (10.5 m per bar; ice slower). It had waited ~3 h on a real usage limit first (the
+  side agent's "false limit" worry was checked: the worker's error said "session limit, resets 11:10").
+- You paused builds 12:37 -> 14:00 (`tools/heavy.sh pause` + PAUSE file); resumed on time.
+- **93b2 part two stopped -> Q56, you answered (a).** The cave fill on shells 1-2 fixed their caps (standing still
+  both fill completely) but walking was short on workers. (a) = keep the fill, cut its cost: task 93b2d.
+  Gameplay note given with Q56: with shells default, cave passages longer than ~69 m end in rock (was ~275 m).
+- **93e done** (`9d85dc6`, your Q55 (b)): the 16^3 GPU box is on with shells, fluid still live to 128 m (a 111 m pool
+  went from frozen to flowing); footprint median 3,022 -> 2,674 MB with shells.
+- **93b2d done** (`3c7aedb`): the fill is ~5x cheaper (35-52 -> ~9 ms per chunk, same bytes); walking holds more of
+  shells 1-2 (s1 ~970 -> ~1,260, s2 ~430 -> ~690) but the 90% target is still not met. Measured on battery.
+- The runner stopped once at its 20-task limit (19:26); restarted at once.
+- Doc: task reports + Done rows for 93f1, 93b2 part two, 93e, 93b2d; Q56 added and closed. Images now go in the
+  Screenshot Archive only (versions 15-18): uploading images INTO the doc was refused by the permission checker.
 
-**Running:** queue worker on 93f1 (gameplay step 5: walkable slope + climbing, since 08:26); runner in tmux `overnight`;
-watcher tab open.
-**Close:** tmux windows 22:1 (old supervisor) and 22:0 (this one) once the new one has greeted you.
-**Waiting on you:** nothing in the queue. Open from earlier: classic-death rule (placement phase); whether 97 is still
-wanted after 94 lands. The breakdown raised two things worth your decision (see the breakdown): when to merge
-`engine-phase` to `main` (224 commits ahead, last merge 9 Oct), and when to run the next performance milestone.
+**Running:** queue worker on 93b3 (far band cost after the shells; a performance task) since 19:27. **The Mac was on
+battery at 29% when it started**; plug in, or its timings are less trustworthy and it may die mid-run.
+**Close:** tmux window 22:2 (this old supervisor) once the new one has greeted you.
+**Waiting on you:** nothing in the queue. Still open from earlier: merge `engine-phase` -> `main` (224+ commits ahead)
+and the next performance milestone; classic-death rule (placement phase); whether 97 is still wanted after 94.
 **Other window:** tmux `12:0` "gen-talk", your side discussion from 12 Oct; close it when done.
 
 ## State for the next supervisor
 - Doc: "Queue decisions" https://claude.ai/code/artifact/681cc873-8163-45da-a51f-32ffca6d7468 (Now tab body
-  `3b5fd194-f74f`, Task reports body `d611dfba-5116`; Done table `mk2vq5dkmp6.886`, 4 cells per row, append at its end;
-  newest report goes BEFORE heading `mk2vq5dkmp6.58499` (93e1's); Q questions go right after the "Waiting on you"
-  heading `mk2vq5dkmp6.573`; the Running line is paragraph `mk2vq5dkmp6.121`; Now tab rev 237). Last Q number: **Q55**.
-  The owner answers by typing "a)"/"b)" in a paragraph under the question's list: read `{"kind":"view","sinceRev":237}`.
-- Screenshot Archive https://claude.ai/artifact/9y7VxxX8FmsDMtVbSyFd2d (`tools/archive/README.md`). A new session's first
-  publish is refused until it has viewed the live version: `read` it (with `path: index.html` to save it), Read the saved
-  copy's first 40 lines, diff, then publish again unchanged.
-- Queue order (runner takes files in name order): 93f1 (running) -> 93b2 (fill shells 1-2) -> 93b3 -> 93b re-run -> 93c
-  -> 93e (fluid lookup + box on) -> 93f -> 93g -> 93g1 -> 94 -> 97 -> 98. Old HANDOFFs of 93b/93b2 stay in blocked/
-  for the workers to read.
-- Permission notes: `tmux kill-window` was denied by the auto-mode checker again; for a stretch at 03:00 it also denied
-  harmless greps and the Docs guide ("Interfere With Workloads"), then allowed them again later.
+  `3b5fd194-f74f`, rev 242; Task reports body `d611dfba-5116`; Done table `mk2vq5dkmp6.886`, 4 cells per row, append
+  with an `insert` `"as":"blocks"` `side:"end"` on the table; newest report goes BEFORE heading `mk2vq5dkmp6.63244`
+  (93b2d's); Q questions go right after the "Waiting on you" heading `mk2vq5dkmp6.573`; the Running line is paragraph
+  `mk2vq5dkmp6.121` (replace with ifHash from a read, or from the last ack: h `20601d8e` at rev 242)). Last Q: **Q56**.
+  Avoid `"` inside doc markdown content: the update call's JSON failed to parse twice with escaped quotes.
+- Screenshot Archive https://claude.ai/artifact/9y7VxxX8FmsDMtVbSyFd2d (`tools/archive/README.md`), version 18. A new
+  session must `read` it (no path) before its first publish. Clear `<scratchpad>/archive/sheets/` before each build so
+  only the new task's sheets are sent.
+- Doc image upload (`Artifact` asset upload to the doc) is DENIED by the auto-mode checker ("Data Exfiltration");
+  archive publishes are allowed. `tmux kill-window` of other windows is denied too; `tmux kill-session -t overnight`
+  (to restart the runner) was allowed.
+- Runner: `MAX_TASKS` = 20 per start; on "queue runner end" with tasks left, restart:
+  `tmux kill-session -t overnight; IDLE_MIN=0 tools/overnight/start.sh --resume`.
+- Queue order: 93b3 (running) -> 93b re-run (Requires 93b3 + 93b2d) -> 93c (Requires 93b) -> 93f -> 93g -> 93g1 -> 94
+  -> 97 -> 98. 93b2 is in done/ with Q56's answer appended; old HANDOFFs of 93b/93b2/93e stay in blocked/ for workers.
 - `later/`: 70 grapple, 71 wall-run (next gameplay after 93g1), 37c, 40, 78, 79, 89/90 copies. After 93g: C1, Q1, Q2, E2
-  (8.15 rows), engine steps 16 (streaming milestone), 18-23 (levelling, far fluid, light grid, far lights, GI, milestone);
-  keep alternating with gameplay (Q50 (4)).
+  (8.15 rows), engine steps 16 (streaming milestone), 18-23; keep alternating with gameplay (Q50 (4)).
+- Follow-up worth weighing when 93b re-runs: walking still needs ~2x the shell throughput for 90%; 93b2's options
+  (b) ration shell 1 / (c) 4th worker were not chosen -- ask again only if 93b/93c show it matters.
 
 ## Ready-to-paste prompt
 > Read tools/overnight/SUPERVISOR.md and SESSION_HANDOFF.md, then supervise the overnight queue as described there until
