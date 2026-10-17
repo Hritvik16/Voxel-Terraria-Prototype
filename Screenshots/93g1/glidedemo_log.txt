@@ -1,0 +1,7 @@
+[GlideDemo] start int3(26680, 6319, 30200), sun-away yaw 180, glide 10.0 m/s / sink 2.0 m/s
+[GlideDemo] launch site int3(26520, 6565, 31180) (99 m from the start), 144.5 m above sea, lane yaw 205: clear for 110 m, 24.9 m drop 30 m out
+[GlideDemo] on the summit: feet 656.70 m (top row 6565, ShapeField 6565), grounded True
+[GlideDemo] 2 gliding: 10.00 m/s forward, 2.00 m/s down, -1.8 m vs the summit
+[GlideDemo] 3 looking down: ~18.7 m above the ground (map surface)
+[GlideDemo] landed on id 141 after 16.7 s in the air (16.3 s gliding, double jump True): 124.4 m across, 25.1 m down, ratio 4.96; impact 2.00 m/s -> fall damage 0 (a free fall from 23.9 m: 100); health 100 -> 100; frames held by unstreamed terrain 0
+[GlideDemo] done

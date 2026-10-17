@@ -81,6 +81,20 @@
 // All whole-voxel column counts on CPU terrain, read through IsBlocking.
 // =========================================================================
 
+// =========================================================================
+// GLIDING (task 93g1, GAMEPLAY_PHASE_PLAN.md step 6; the brief: "hold Space
+// in the air after the double jump; sink ~2 m/s, forward ~10 m/s"). Step(dt,
+// in MotorInput) only. Airborne, out of fluid, not climbing or dashing, the
+// air jumps spent, falling (vy <= 0) and Space HELD: the body glides
+// (StepGlide). Fall speed eases to glideSinkMps (a faster fall is braked at
+// glideBrakeMps2, a slower one gains gravity), horizontal speed eases to
+// glideSpeedMps along the LOOK yaw (the mouse steers; S = glideSlowSpeedMps,
+// A/D drift glideStrafeMps sideways). Glide ratio = speed / sink = 5 by
+// default. Letting go of Space falls normally; landing, water, a dash or a
+// cling end it. A glide landing hits at ~glideSinkMps, far under the 4 m fall
+// damage threshold (PlayerVitals).
+// =========================================================================
+
 using Unity.Mathematics;
 
 /// One frame of player intent for Step(dt, in MotorInput). Build it with
@@ -214,6 +228,8 @@ public sealed class PlayerMotor
     /// above the walk band; LastRiseVoxels is what was measured.
     public bool LastSteepRefused;
     public int LastRiseVoxels;
+    /// Gliding this step (task 93g1): Space held in the air after the air jumps.
+    public bool Gliding;
     /// Seconds the keys have pressed into a climbable face (grab delay).
     private float _climbHoldS;
     /// The current step runs with abilities (the slope rule applies).
@@ -300,13 +316,14 @@ public sealed class PlayerMotor
             Swimming = false;
             SwimFluid = Materials.Air;
             DashTimeLeftS = 0f;
-            Climbing = Sliding = Resting = false;
+            Climbing = Sliding = Resting = Gliding = false;
         }
         else
         {
             if (SwimLockS > 0f) SwimLockS = math.max(0f, SwimLockS - dt);
             if (DashCooldownS > 0f) DashCooldownS = math.max(0f, DashCooldownS - dt);
             if (StaminaS > c.climbStaminaS) StaminaS = c.climbStaminaS;
+            Gliding = false;
             UpdateSwimming();
             if (Swimming) { AirJumpsUsed = 0; DashUsedInAir = false; DashTimeLeftS = 0f; Climbing = Sliding = Resting = false; }
 
@@ -355,6 +372,17 @@ public sealed class PlayerMotor
                 jumpPressed = false;              // Space let go; it is not also a jump
             }
             UpdateSlide();
+
+            // Glide: after the air jumps, falling, Space held (task 93g1).
+            if (CanGlide(input, jumpPressed))
+            {
+                Gliding = true;
+                StepGlide(dt, input);
+                MoveWithCollision(VelocityMps * dt);
+                UpdateGrounded(dt);
+                if (Grounded) Gliding = false;
+                return;
+            }
         }
 
         // ---- 1. Horizontal acceleration -------------------------------
@@ -432,6 +460,43 @@ public sealed class PlayerMotor
         // ---- 5. Grounded state ------------------------------------------
         UpdateGrounded(dt);
         if (abilities) UpdateRest(dt);
+    }
+
+    /// Task 93g1: may this step glide? A jump press that can still be spent
+    /// (coyote or an air jump) is spent instead.
+    private bool CanGlide(in MotorInput input, bool jumpPressed)
+    {
+        PlayerConfig c = Config;
+        if (!input.UpHeld || c.glideSpeedMps <= 0f) return false;
+        if (Grounded || Swimming || Climbing || Dashing || Sliding) return false;
+        if (AirJumpsUsed < c.airJumps || VelocityMps.y > 0f) return false;
+        if (jumpPressed && TimeSinceGroundedS <= c.coyoteTimeSeconds) return false;
+        return true;
+    }
+
+    /// One gliding frame: sets VelocityMps (the caller integrates it).
+    private void StepGlide(float dt, in MotorInput input)
+    {
+        PlayerConfig c = Config;
+        float vy = VelocityMps.y;
+        float sink = -c.glideSinkMps;
+        VelocityMps.y = vy < sink ? MoveToward(vy, sink, c.glideBrakeMps2 * dt)
+                                  : MoveToward(vy, sink, c.gravityMps2 * dt);
+
+        float2 fwd = math.normalizesafe(input.ForwardXZ, new float2(0f, 1f));
+        float2 right = new float2(fwd.y, -fwd.x);
+        float2 w = input.WishXZ;
+        float wl = math.length(w);
+        if (wl > 1f) w /= wl;
+        float along = math.dot(w, fwd), strafe = math.dot(w, right);
+        float speed = along < -0.3f ? c.glideSlowSpeedMps : c.glideSpeedMps;
+        float2 target = fwd * speed + right * (strafe * c.glideStrafeMps);
+        float2 vel = new float2(VelocityMps.x, VelocityMps.z);
+        float2 delta = target - vel;
+        float dl = math.length(delta), stepA = c.glideAccelMps2 * dt;
+        vel += dl > stepA && dl > 1e-6f ? delta / dl * stepA : delta;
+        VelocityMps.x = vel.x;
+        VelocityMps.z = vel.y;
     }
 
     private static float MoveToward(float v, float target, float maxDelta)
@@ -1033,7 +1098,7 @@ public sealed class PlayerMotor
         VelocityMps = float3.zero;
         DashTimeLeftS = 0f;
         AirJumpsUsed = 0;
-        Climbing = Sliding = Resting = false;
+        Climbing = Sliding = Resting = Gliding = false;
         _climbHoldS = 0f;
         StaminaS = Config.climbStaminaS;
         Grounded = IsGroundedAt(feetCentre);

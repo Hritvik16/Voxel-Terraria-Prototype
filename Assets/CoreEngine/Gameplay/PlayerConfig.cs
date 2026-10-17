@@ -176,6 +176,24 @@ public sealed class PlayerConfig
     public float climbSlickDrainScale = 2.5f;
 
     // =====================================================================
+    // GLIDING (task 93g1, GAMEPLAY_PHASE_PLAN.md step 6). Read only by
+    // Step(dt, in MotorInput): Space held in the air after the double jump.
+    // Glide ratio = glideSpeedMps / glideSinkMps (5 by default). 0 speed = off.
+    // =====================================================================
+
+    /// Steady fall speed while gliding, m/s (the brief: ~2).
+    public float glideSinkMps = 2f;
+    /// Steady speed along the look direction, m/s (the brief: ~10); S held
+    /// (air brake) eases to glideSlowSpeedMps; A/D drift up to glideStrafeMps.
+    public float glideSpeedMps = 10f;
+    public float glideSlowSpeedMps = 4f;
+    public float glideStrafeMps = 3f;
+    /// How fast the horizontal velocity turns toward its target, m/s^2.
+    public float glideAccelMps2 = 8f;
+    /// How hard a faster fall is braked to glideSinkMps on opening, m/s^2.
+    public float glideBrakeMps2 = 30f;
+
+    // =====================================================================
     // VITALS (task 93d1, GAMEPLAY_PHASE_PLAN.md step 9a). Read only by
     // PlayerVitals, which only an interactive Survival walk ticks; rigs and
     // Creative never take damage.
@@ -260,6 +278,12 @@ public sealed class PlayerConfig
         climbLooseDrainScale = Fix(climbLooseDrainScale, 0f, 100f, 1.5f, nameof(climbLooseDrainScale), notes);
         climbSlickSpeedScale = Fix(climbSlickSpeedScale, 0f, 10f, 0.4f, nameof(climbSlickSpeedScale), notes);
         climbSlickDrainScale = Fix(climbSlickDrainScale, 0f, 100f, 2.5f, nameof(climbSlickDrainScale), notes);
+        glideSinkMps     = Fix(glideSinkMps, 0.1f, 50f, 2f, nameof(glideSinkMps), notes);
+        glideSpeedMps    = Fix(glideSpeedMps, 0f, 100f, 10f, nameof(glideSpeedMps), notes);
+        glideSlowSpeedMps = Fix(glideSlowSpeedMps, 0f, 100f, 4f, nameof(glideSlowSpeedMps), notes);
+        glideStrafeMps   = Fix(glideStrafeMps, 0f, 100f, 3f, nameof(glideStrafeMps), notes);
+        glideAccelMps2   = Fix(glideAccelMps2, 0.1f, 1000f, 8f, nameof(glideAccelMps2), notes);
+        glideBrakeMps2   = Fix(glideBrakeMps2, 0.1f, 1000f, 30f, nameof(glideBrakeMps2), notes);
         // Climb must start above the walk band, or every auto-step is a cling.
         if (climbMinSlopeDeg < walkSlopeMaxDeg)
         {

@@ -542,6 +542,8 @@ public partial class Playground : MonoBehaviour
         if (!IsCaptureRun() && HasArg("-reactiondemo")) StartCoroutine(ReactionDemo());
         // -climbdemo (task 93f1): step 5's wall climb, 50 deg slide, ice pillar shots, then quit.
         if (!IsCaptureRun() && HasArg("-climbdemo")) StartCoroutine(ClimbDemo());
+        // -glidedemo (task 93g1): step 6's summit glide shots (vitals on: the landing must not hurt), then quit.
+        if (!IsCaptureRun() && HasArg("-glidedemo")) StartCoroutine(GlideDemo());
         // Task 93d1: the older demos keep their shots damage-free; -vitals 0 turns damage off in play.
         _vitalsAllowed = !(TryArgFloat("-vitals", out float vitArg) && vitArg < 1f) &&
                          !(HasArg("-survivaldemo") || HasArg("-strokedemo") || HasArg("-pulldemo") || HasArg("-movedemo") ||
@@ -2441,9 +2443,10 @@ public partial class Playground : MonoBehaviour
                      : m.Climbing ? $"<b>CLIMBING</b> {Items.Name(m.ClimbFace)}{(m.ClimbGrip == MaterialRules.GripLoose ? " (loose)" : m.ClimbGrip == MaterialRules.GripSlick ? " (slick)" : "")}  <b>W</b> up  <b>Ctrl</b> down  release <b>W</b> to drop"
                      : m.Sliding ? "<b>SLIDING</b> -- too steep, <b>Space</b> to scramble"
                      : m.Dashing ? "<b>DASH</b>"
-                     : !m.Grounded ? (m.AirJumpsUsed < c.airJumps ? "air: <b>Space</b> double jump" : "double jump spent")
+                     : m.Gliding ? $"<b>GLIDING</b> {new Vector2(m.VelocityMps.x, m.VelocityMps.z).magnitude:F1} m/s, sinking {-m.VelocityMps.y:F1} m/s  mouse steers  <b>S</b> brake  release <b>Space</b> to drop"
+                     : !m.Grounded ? (m.AirJumpsUsed < c.airJumps ? "air: <b>Space</b> double jump" : "double jump spent: hold <b>Space</b> to glide")
                      : "";
-        GUI.Label(new Rect(x - 120, y - 19, w + 240, 18),
+        GUI.Label(new Rect(x - 300, y - 19, w + 600, 18),
                   $"<b>Shift</b> dash {(ready >= 1f && !airSpent ? "ready" : "")}   {state}",
                   Label(11, TextAnchor.MiddleCenter));
 
@@ -2710,6 +2713,9 @@ public partial class Playground : MonoBehaviour
             sb.AppendLine("  <b><color=#ffd479>walk into a wall</color></b> (0.9 m+) to climb it: hold <b>W</b> up, <b>A/D</b> sideways, <b>Ctrl</b> down, " +
                           "let go of <b>W</b> or <b>Space</b> to drop; stamina refills standing on a 0.6 m ledge. " +
                           "Slopes over 30° slide: <b>Space</b> to scramble up");
+        if (_moveAbilities)
+            sb.AppendLine("  <b><color=#ffd479>hold Space</color></b> after the double jump: glide (10 m/s, sinks 2 m/s; the mouse steers, " +
+                          "<b>S</b> brakes, <b>A/D</b> drift; let go of <b>Space</b> to drop)");
         sb.AppendLine(Phase4Bootstrapper.PlayStartActive
             ? "  <b>Tab</b> walk ↔ fly      <b><color=#ffd479>R</color></b> back to the start (the best easy area)      <b>F</b> go to the basin"
             : "  <b>Tab</b> walk ↔ fly      <b>R</b> respawn on the surface      <b>F</b> go to the basin");

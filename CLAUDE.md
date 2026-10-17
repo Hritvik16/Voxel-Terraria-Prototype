@@ -390,6 +390,11 @@ step-up): auto-step only if the next 0.5 m rises <= 30 deg (`walkSlopeMaxDeg`), 
 A/D sideways, Ctrl down, release W/Space drops, top mantled; stamina 7 s, refills on a 0.6 m ledge; loose/slick faces
 (`MaterialRules.ClimbGrip`) slower. Numbers in PlayerConfig.json. `ClimbSlopeTests` (11). `EXTRA="-climbdemo"` = 6 shots.
 
+Task 93g1 (gameplay step 6): GLIDING on `PlayerMotor`'s abilities path (`CanGlide`/`StepGlide`): airborne, air jumps spent, falling,
+Space HELD -> sink eases to 2 m/s, speed to 10 m/s along the look yaw (ratio 5; S brakes to 4, A/D drift 3 m/s); release Space = normal
+fall; landing / water / dash / cling end it; lands at ~2 m/s (no fall damage). Numbers `glide*` in PlayerConfig.json (speed 0 = off).
+`GlideTests` (7). `EXTRA="-glidedemo -playshotquit"` = a real summit within 220 m of the start, lane away from the sun, 4 shots.
+
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
 (`Assets/TerrainGen/`):

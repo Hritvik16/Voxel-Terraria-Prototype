@@ -81,6 +81,8 @@ keys (Playground.cs RegisterDefaultToys, PlaygroundFlyCamera, PlaygroundHud, Min
                 walk into a wall 0.9 m+ (or ground over 60 deg) and keep W held: climb (W up, A/D sideways,
                 Left Ctrl down, release W or Space to drop; stamina bar, refills on a 0.6 m ledge;
                 sand/snow and ice/glass climb slower); slopes over 30 deg slide you down: Space to scramble
+                after the double jump keep Space HELD: glide (10 m/s forward, 2 m/s down; the mouse steers,
+                S brakes, A/D drift, let go of Space to drop) -- jump off a summit
   SURVIVAL (default; F6 Game mode or -gamemode creative switches):
   mouse L / R   dig into the inventory (held) / place a cube of the held block (cyan box)
   wheel or 1-9  hotbar slot    Q cube size 0.1/0.2/0.4/0.8 m    E inventory (click two slots to swap)
