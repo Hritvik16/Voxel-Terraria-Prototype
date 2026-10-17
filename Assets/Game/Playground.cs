@@ -554,6 +554,8 @@ public partial class Playground : MonoBehaviour
         if (!IsCaptureRun() && HasArg("-climbdemo")) StartCoroutine(ClimbDemo());
         // -glidedemo (task 93g1): step 6's summit glide shots (vitals on: the landing must not hurt), then quit.
         if (!IsCaptureRun() && HasArg("-glidedemo")) StartCoroutine(GlideDemo());
+        // -grappledemo (task 100): step 7's hook shots (aim, reel, hooked on a sheer face, swing), then quit.
+        if (!IsCaptureRun() && HasArg("-grappledemo")) StartCoroutine(GrappleDemo());
         // Task 93d1: the older demos keep their shots damage-free; -vitals 0 turns damage off in play.
         _vitalsAllowed = !(TryArgFloat("-vitals", out float vitArg) && vitArg < 1f) &&
                          !(HasArg("-survivaldemo") || HasArg("-strokedemo") || HasArg("-pulldemo") || HasArg("-movedemo") ||
@@ -983,7 +985,8 @@ public partial class Playground : MonoBehaviour
         Register(new Toy(KeyCode.Alpha0, "stop vents", () =>
             { _waterLeft = _sandLeft = _lavaLeft = _otherLeft = 0; _status = "vents closed"; }));
         Register(new Toy(KeyCode.F, "go to arena", () =>
-            { TeleportToArena(); if (Phase4Bootstrapper.IsTg2World) StartCoroutine(SettleStartPose(fromCamera: true)); }));
+            { if (HookKeysActive) return;   // task 100: F is the grappling hook in play's walk mode
+              TeleportToArena(); if (Phase4Bootstrapper.IsTg2World) StartCoroutine(SettleStartPose(fromCamera: true)); }));
         Register(new Toy(KeyCode.R, "respawn (play: back to the start)", Respawn));
         Register(new Toy(KeyCode.B, "bomb", DetonateAtTarget));
         Register(new Toy(KeyCode.G, "CHAOS BURST", StartChaosBurst));
@@ -1739,6 +1742,7 @@ public partial class Playground : MonoBehaviour
             input.UpHeld = keys && Input.GetKey(KeyCode.Space);
             input.DownHeld = keys && Input.GetKey(KeyCode.LeftControl);
             input.DashPressed = keys && Input.GetKeyDown(KeyCode.LeftShift);
+            ReadHookInput(ref input, keys);   // task 100: F / middle mouse = grappling hook
             // -movedemo: scripted input; and the frame after a screenshot (a
             // PNG encode, often 0.3 s) is not allowed to bend the trajectory.
             if (_demoInput.HasValue) { input = _demoInput.Value; dt = math.min(dt, 1f / 30f); }
@@ -2321,6 +2325,9 @@ public partial class Playground : MonoBehaviour
                 }
             }
 
+            // Task 100: the hook's rope, or the in-range ring on the crosshair.
+            if (_ready && !InventoryOpen) DrawHookOverlay(cam, k);
+
             // BLD1: the drag stroke's cubes + its count (even aimed at the sky).
             if (_ready && SurvivalMode && !InventoryOpen) DrawStrokePreview(cam, k, ui);
 
@@ -2451,7 +2458,9 @@ public partial class Playground : MonoBehaviour
         Box(new Rect(x - 1, y - 1, w + 2, h + 2), new Color(0f, 0f, 0f, 0.55f));
         Box(new Rect(x, y, w * ready, h), ready >= 1f && !airSpent ? new Color(0.45f, 0.9f, 1f, 0.9f)
                                                                   : new Color(0.55f, 0.6f, 0.65f, 0.8f));
-        string state = m.Swimming ? $"swimming in {MaterialName(m.SwimFluid)}  <b>Space</b> up  <b>Ctrl</b> down"
+        string hook = HookState(m);
+        string state = hook.Length > 0 ? hook
+                     : m.Swimming ? $"swimming in {MaterialName(m.SwimFluid)}  <b>Space</b> up  <b>Ctrl</b> down"
                      : m.Climbing ? $"<b>CLIMBING</b> {Items.Name(m.ClimbFace)}{(m.ClimbGrip == MaterialRules.GripLoose ? " (loose)" : m.ClimbGrip == MaterialRules.GripSlick ? " (slick)" : "")}  <b>W</b> up  <b>Ctrl</b> down  release <b>W</b> to drop"
                      : m.Sliding ? "<b>SLIDING</b> -- too steep, <b>Space</b> to scramble"
                      : m.Dashing ? "<b>DASH</b>"
@@ -2728,9 +2737,12 @@ public partial class Playground : MonoBehaviour
         if (_moveAbilities)
             sb.AppendLine("  <b><color=#ffd479>hold Space</color></b> after the double jump: glide (10 m/s, sinks 2 m/s; the mouse steers, " +
                           "<b>S</b> brakes, <b>A/D</b> drift; let go of <b>Space</b> to drop)");
+        if (_moveAbilities)
+            sb.AppendLine("  <b><color=#ffd479>F</color></b> (or middle mouse) grappling hook: bites solid under the crosshair within 25 m (ring = in range); " +
+                          "<b>hold F</b> to reel in, let go in the air to swing (<b>WASD</b> pump), <b>Space</b> lets go; <b>F</b> again re-aims");
         sb.AppendLine(Phase4Bootstrapper.PlayStartActive
-            ? "  <b>Tab</b> walk ↔ fly      <b><color=#ffd479>R</color></b> back to the start (the best easy area)      <b>F</b> go to the basin"
-            : "  <b>Tab</b> walk ↔ fly      <b>R</b> respawn on the surface      <b>F</b> go to the basin");
+            ? "  <b>Tab</b> walk ↔ fly      <b><color=#ffd479>R</color></b> back to the start (the best easy area)      <b>F</b> go to the basin" + (_moveAbilities ? " (fly mode)" : "")
+            : "  <b>Tab</b> walk ↔ fly      <b>R</b> respawn on the surface      <b>F</b> go to the basin" + (_moveAbilities ? " (fly mode)" : ""));
         sb.AppendLine("");
         if (SurvivalMode)
         {

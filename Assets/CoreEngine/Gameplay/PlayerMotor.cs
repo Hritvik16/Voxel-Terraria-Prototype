@@ -95,6 +95,30 @@
 // damage threshold (PlayerVitals).
 // =========================================================================
 
+// =========================================================================
+// GRAPPLING HOOK (task 100, GAMEPLAY_PHASE_PLAN.md step 7; the brief: "fire
+// at solid within 25 m (VoxelRayWalker), reel in, swing"). Step(dt, in
+// MotorInput) only. HookPressed fires from the eye along LookDir: the DDA
+// passes air and fluid and bites the first SOLID voxel within hookRangeM; an
+// unloaded chunk (or nothing in range) is a miss -- never an anchor. The rope
+// runs from RopeAttachM (the hands, 3/4 of the body up) to the face point.
+//   Reel   HookHeld: gravity off, the velocity eases to hookReelSpeedMps
+//          toward the anchor; the rope shortens as you go. Stops (velocity
+//          zero, HookArrived) at hookMinLengthM or when terrain blocks the
+//          pull -- MoveWithCollision, so the stop is AT the wall, never in it.
+//   Swing  released in the air: gravity, the keys pump at hookSwingAccelMps2
+//          (no speed cap), the rope is inextensible (ApplyRope projects the
+//          body back onto the sphere and drops the outward velocity).
+//   On the ground, not reeling: walk physics, the rope only keeps you within
+//          its length (a tether).
+// Ends: Space (the press still jumps / air-jumps, so a swing can end in a
+// double jump and then a glide), a dash, a swim, a cling, a landing after a
+// swing (a normal landing: PlayerVitals reads LastImpactDownMps as ever), the
+// anchor voxel dug out or unloaded, Teleport. Pressing again re-aims. The
+// reel is 12 m/s, under the 4 m fall-damage speed (13.3 m/s at g = 22).
+// The rope does not wrap around terrain (a straight constraint).
+// =========================================================================
+
 using Unity.Mathematics;
 
 /// One frame of player intent for Step(dt, in MotorInput). Build it with
@@ -114,6 +138,10 @@ public struct MotorInput
     public bool UpHeld, DownHeld;
     /// Edge-triggered dash.
     public bool DashPressed;
+    /// Unit look direction (camera forward, pitch included): the hook's aim.
+    public float3 LookDir;
+    /// Edge-triggered: fire the grappling hook (again = re-aim). Held: reel in.
+    public bool HookPressed, HookHeld;
 
     /// `move` = (strafe, forward) in -1..1 from the keys; Unity camera angles
     /// (pitch positive = looking down).
@@ -128,6 +156,7 @@ public struct MotorInput
             WishXZ = new float2(move.x * cy + move.y * sy, move.y * cy - move.x * sy),
             LookWish = right3 * move.x + fwd3 * move.y,
             ForwardXZ = new float2(sy, cy),
+            LookDir = fwd3,
         };
     }
 }
@@ -230,6 +259,19 @@ public sealed class PlayerMotor
     public int LastRiseVoxels;
     /// Gliding this step (task 93g1): Space held in the air after the air jumps.
     public bool Gliding;
+    // ---- Grappling hook (task 100; Step(dt, in MotorInput) only). ----
+
+    /// The hook is in a solid voxel; the rope holds.
+    public bool Hooked;
+    /// Where it bit (a point on the voxel's face), and that voxel.
+    public float3 HookAnchorM;
+    public int3 HookVoxel;
+    /// The rope's current length (RopeAttachM to the anchor), metres.
+    public float RopeLengthM;
+    /// Reeling in this step; the reel was stopped by the anchor or a wall.
+    public bool Reeling, HookArrived;
+    /// This step fired the hook; it bit; the hook let go this step.
+    public bool LastHookFired, LastHookHit, LastHookReleased;
     /// Seconds the keys have pressed into a climbable face (grab delay).
     private float _climbHoldS;
     /// The current step runs with abilities (the slope rule applies).
@@ -306,6 +348,8 @@ public sealed class PlayerMotor
         LastBlockedHorizontally = false;
         LastBlockedByNonResident = false;
         LastDoubleJump = LastDashStarted = LastWaterJump = false;
+        LastHookFired = LastHookHit = LastHookReleased = false;
+        Reeling = false;
         LastImpactDownMps = 0f;
         LastSteepRefused = false;
         _abilityStep = abilities;
@@ -317,6 +361,7 @@ public sealed class PlayerMotor
             SwimFluid = Materials.Air;
             DashTimeLeftS = 0f;
             Climbing = Sliding = Resting = Gliding = false;
+            Hooked = false;
         }
         else
         {
@@ -325,7 +370,7 @@ public sealed class PlayerMotor
             if (StaminaS > c.climbStaminaS) StaminaS = c.climbStaminaS;
             Gliding = false;
             UpdateSwimming();
-            if (Swimming) { AirJumpsUsed = 0; DashUsedInAir = false; DashTimeLeftS = 0f; Climbing = Sliding = Resting = false; }
+            if (Swimming) { AirJumpsUsed = 0; DashUsedInAir = false; DashTimeLeftS = 0f; Climbing = Sliding = Resting = false; ReleaseHook(); }
 
             // Jump out of water: only at the surface (head probe dry), at the
             // normal jump impulse; swimming then stays off for SwimLockS.
@@ -341,6 +386,11 @@ public sealed class PlayerMotor
                 LastWaterJump = true;
             }
 
+            // Grappling hook (task 100): fire / re-aim; Space or a lost anchor
+            // lets go -- the Space press is NOT consumed (jump / air jump).
+            if (input.HookPressed && !Swimming) FireHook(input.LookDir);
+            if (Hooked && (jumpPressed || !AnchorHolds())) ReleaseHook();
+
             // Dash: not in fluid, not while one runs, off cooldown, one per airtime.
             if (input.DashPressed && !Swimming && !Climbing && !Dashing && DashCooldownS <= 0f
                 && (Grounded || !DashUsedInAir) && c.dashSpeedMps > 0f && c.dashDurationS > 0f)
@@ -352,6 +402,7 @@ public sealed class PlayerMotor
                 DashCooldownS = c.dashCooldownS;
                 if (!Grounded) DashUsedInAir = true;
                 LastDashStarted = true;
+                ReleaseHook();
             }
 
             if (Dashing) { StepDash(dt); UpdateGrounded(dt); return; }
@@ -366,10 +417,25 @@ public sealed class PlayerMotor
             // Climb: cling after pressing into a Climb-band face; a frame
             // that lets go falls through to the walk physics below.
             if (!Climbing) TryStartClimb(dt, input);
+            if (Climbing) ReleaseHook();
             if (Climbing)
             {
                 if (StepClimb(dt, input)) return;
                 jumpPressed = false;              // Space let go; it is not also a jump
+            }
+
+            // Hooked: held = reel in; in the air = swing; on the ground the
+            // walk physics below run and the rope is applied after the move.
+            if (Hooked && input.HookHeld)
+            {
+                StepReel(dt);
+                UpdateGrounded(dt);
+                return;
+            }
+            if (Hooked && !Grounded)
+            {
+                StepSwing(dt, input);
+                return;
             }
             UpdateSlide();
 
@@ -456,6 +522,7 @@ public sealed class PlayerMotor
         // ---- 4. Integrate with collision --------------------------------
         float3 delta3 = VelocityMps * dt;
         MoveWithCollision(delta3);
+        if (Hooked) ApplyRope();          // grounded tether (task 100)
 
         // ---- 5. Grounded state ------------------------------------------
         UpdateGrounded(dt);
@@ -497,6 +564,148 @@ public sealed class PlayerMotor
         vel += dl > stepA && dl > 1e-6f ? delta / dl * stepA : delta;
         VelocityMps.x = vel.x;
         VelocityMps.z = vel.y;
+    }
+
+    // =====================================================================
+    // Grappling hook (task 100)
+    // =====================================================================
+
+    /// Where the hook is fired from: the eye (0.2 m under the top of the body,
+    /// PlayerController's 1.6 m for the 1.8 m body).
+    public float3 HookOriginM => PositionM + new float3(0f, Config.bodyHeightM - 0.2f, 0f);
+    /// Where the rope holds the body: the hands, 3/4 of the body up.
+    public float3 RopeAttachM => PositionM + new float3(0f, Config.bodyHeightM * 0.75f, 0f);
+
+    /// The hook's ray: the first SOLID voxel within rangeM along dir. Air and
+    /// fluid are passed; an unloaded chunk (below the generated top) or
+    /// nothing in range is a miss. `pointM` = the point on the face it
+    /// entered (or the ray's end on a miss), `distM` its distance.
+    public bool RayHook(float3 originM, float3 dir, float rangeM, out float3 pointM, out int3 voxel, out float distM)
+    {
+        dir = math.normalizesafe(dir, new float3(0f, 0f, 1f));
+        var w = VoxelRayWalker.Create(originM, originM + dir * rangeM);
+        while (w.MoveNext())
+        {
+            int3 v = w.Voxel;
+            if (VoxelCollision.IsNonResident(_residency, v))
+            {
+                if (VoxelCollision.AboveGeneratedContent(v)) continue;   // sky the generator never fills
+                break;                                                    // not loaded: a miss, never an anchor
+            }
+            byte m = _world.GetVoxel(v);
+            if (m == Materials.Air || MaterialRules.IsFluidMaterial(m)) continue;
+            voxel = v;
+            distM = w.TEnter;
+            pointM = originM + dir * w.TEnter;
+            return true;
+        }
+        voxel = default;
+        distM = rangeM;
+        pointM = originM + dir * rangeM;
+        return false;
+    }
+
+    /// Fires the hook from HookOriginM along `lookDir` (re-aims if hooked).
+    /// Returns whether it bit.
+    public bool FireHook(float3 lookDir)
+    {
+        ReleaseHook();
+        LastHookReleased = false;
+        LastHookFired = true;
+        PlayerConfig c = Config;
+        if (c.hookRangeM <= 0f) return false;
+        if (!RayHook(HookOriginM, lookDir, c.hookRangeM, out float3 p, out int3 v, out _)) return false;
+        Hooked = true;
+        HookAnchorM = p;
+        HookVoxel = v;
+        RopeLengthM = math.max(c.hookMinLengthM, math.length(p - RopeAttachM));
+        HookArrived = false;
+        LastHookHit = true;
+        return true;
+    }
+
+    public void ReleaseHook()
+    {
+        if (Hooked) LastHookReleased = true;
+        Hooked = Reeling = HookArrived = false;
+    }
+
+    /// The anchor voxel is still loaded and solid (digging it out drops you).
+    private bool AnchorHolds()
+        => !VoxelCollision.IsNonResident(_residency, HookVoxel) && IsBlocking(HookVoxel);
+
+    /// One reeling frame: toward the anchor at hookReelSpeedMps, no gravity,
+    /// never closer than hookMinLengthM; a wall in the way stops it there.
+    private void StepReel(float dt)
+    {
+        PlayerConfig c = Config;
+        Reeling = true;
+        Gliding = Sliding = false;
+        float3 to = HookAnchorM - RopeAttachM;
+        float dist = math.length(to);
+        float room = dist - c.hookMinLengthM;
+        if (room <= 1e-4f) { VelocityMps = float3.zero; HookArrived = true; RopeLengthM = math.max(c.hookMinLengthM, dist); return; }
+        float3 dir = to / dist;
+
+        float3 dv = dir * c.hookReelSpeedMps - VelocityMps;
+        float dl = math.length(dv), a = c.hookReelAccelMps2 * dt;
+        VelocityMps += dl > a && dl > 1e-6f ? dv / dl * a : dv;
+
+        float3 delta = VelocityMps * dt;
+        float along = math.dot(delta, dir);
+        if (along > room) delta *= room / along;      // stop exactly at the minimum length
+        float3 before = PositionM;
+        MoveWithCollision(delta);
+        float want = math.length(delta), moved = math.length(PositionM - before);
+        float nd = math.length(HookAnchorM - RopeAttachM);
+        // Arrived: at the minimum length, or terrain took 90% of the pull (a
+        // face beside the anchor still lets the body slide up it first).
+        HookArrived = nd <= c.hookMinLengthM + 0.01f || (want > 1e-6f && moved < 0.1f * want);
+        if (HookArrived) VelocityMps = float3.zero;   // the pull stops at the wall
+        RopeLengthM = math.min(RopeLengthM, math.max(c.hookMinLengthM, nd));
+    }
+
+    /// One swinging frame (hooked, airborne, not reeling): gravity, the keys
+    /// pump, the rope holds; a landing ends the hook.
+    private void StepSwing(float dt, in MotorInput input)
+    {
+        PlayerConfig c = Config;
+        Sliding = false;
+        float2 w = input.WishXZ;
+        float wl = math.length(w);
+        if (wl > 1f) w /= wl;
+        VelocityMps.x += w.x * c.hookSwingAccelMps2 * dt;
+        VelocityMps.z += w.y * c.hookSwingAccelMps2 * dt;
+        VelocityMps.y -= c.gravityMps2 * dt;
+        if (VelocityMps.y < -c.terminalSpeedMps) VelocityMps.y = -c.terminalSpeedMps;
+        MoveWithCollision(VelocityMps * dt);
+        ApplyRope();
+        UpdateGrounded(dt);
+        if (Grounded) ReleaseHook();
+    }
+
+    /// The rope is inextensible: past RopeLengthM the body is moved back onto
+    /// the sphere (through the collision move) and the outward velocity dropped.
+    private void ApplyRope()
+    {
+        float3 d = RopeAttachM - HookAnchorM;
+        float dist = math.length(d);
+        if (dist <= RopeLengthM || dist < 1e-5f) return;
+        float3 n = d / dist;
+        MoveWithCollision(-n * (dist - RopeLengthM));
+        float vr = math.dot(VelocityMps, n);
+        if (vr > 0f) VelocityMps -= n * vr;
+
+        // Terrain refused part of that (a body hanging against the face the
+        // anchor is in: the correction points INTO the wall): close the rest
+        // vertically, onto the sphere above/below where the body now is.
+        d = RopeAttachM - HookAnchorM;
+        float L2 = RopeLengthM * RopeLengthM, h2 = math.lengthsq(d.xz);
+        if (math.length(d) <= RopeLengthM + 1e-3f || h2 >= L2) return;   // free swing: float residue only
+        bool below = d.y < 0f;
+        float ty = HookAnchorM.y + (below ? -1f : 1f) * math.sqrt(L2 - h2);
+        MoveWithCollision(new float3(0f, ty - RopeAttachM.y, 0f));
+        if (below ? VelocityMps.y < 0f : VelocityMps.y > 0f) VelocityMps.y = 0f;
     }
 
     private static float MoveToward(float v, float target, float maxDelta)
@@ -1099,6 +1308,7 @@ public sealed class PlayerMotor
         DashTimeLeftS = 0f;
         AirJumpsUsed = 0;
         Climbing = Sliding = Resting = Gliding = false;
+        ReleaseHook();
         _climbHoldS = 0f;
         StaminaS = Config.climbStaminaS;
         Grounded = IsGroundedAt(feetCentre);

@@ -194,6 +194,26 @@ public sealed class PlayerConfig
     public float glideBrakeMps2 = 30f;
 
     // =====================================================================
+    // GRAPPLING HOOK (task 100, GAMEPLAY_PHASE_PLAN.md step 7). Read only by
+    // Step(dt, in MotorInput): fire at solid within hookRangeM, reel, swing.
+    // 0 range = off.
+    // =====================================================================
+
+    /// How far the hook reaches, metres (the brief: 25).
+    public float hookRangeM = 25f;
+    /// Reel-in speed, m/s. 12 stays under the 4 m fall-damage speed (13.3 m/s
+    /// at g = 22), so a reel into the ground never hurts.
+    public float hookReelSpeedMps = 12f;
+    /// How fast the reel velocity turns toward the anchor, m/s^2.
+    public float hookReelAccelMps2 = 40f;
+    /// The reel stops this far from the anchor (hands to anchor), metres.
+    /// Under the 0.39 m a body touching the face keeps, so a head-on reel is
+    /// stopped by the wall itself.
+    public float hookMinLengthM = 0.3f;
+    /// While swinging, the keys push this hard along the wish, m/s^2.
+    public float hookSwingAccelMps2 = 5f;
+
+    // =====================================================================
     // VITALS (task 93d1, GAMEPLAY_PHASE_PLAN.md step 9a). Read only by
     // PlayerVitals, which only an interactive Survival walk ticks; rigs and
     // Creative never take damage.
@@ -284,6 +304,11 @@ public sealed class PlayerConfig
         glideStrafeMps   = Fix(glideStrafeMps, 0f, 100f, 3f, nameof(glideStrafeMps), notes);
         glideAccelMps2   = Fix(glideAccelMps2, 0.1f, 1000f, 8f, nameof(glideAccelMps2), notes);
         glideBrakeMps2   = Fix(glideBrakeMps2, 0.1f, 1000f, 30f, nameof(glideBrakeMps2), notes);
+        hookRangeM       = Fix(hookRangeM, 0f, 200f, 25f, nameof(hookRangeM), notes);
+        hookReelSpeedMps = Fix(hookReelSpeedMps, 0.1f, 200f, 12f, nameof(hookReelSpeedMps), notes);
+        hookReelAccelMps2 = Fix(hookReelAccelMps2, 0.1f, 10000f, 40f, nameof(hookReelAccelMps2), notes);
+        hookMinLengthM   = Fix(hookMinLengthM, 0.1f, 50f, 0.3f, nameof(hookMinLengthM), notes);
+        hookSwingAccelMps2 = Fix(hookSwingAccelMps2, 0f, 1000f, 5f, nameof(hookSwingAccelMps2), notes);
         // Climb must start above the walk band, or every auto-step is a cling.
         if (climbMinSlopeDeg < walkSlopeMaxDeg)
         {

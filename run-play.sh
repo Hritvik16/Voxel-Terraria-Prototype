@@ -74,7 +74,7 @@ cat <<KEYS
 world: -world tg2 -mapversion $MAPV (far band always on in tg2), far shadows on
 keys (Playground.cs RegisterDefaultToys, PlaygroundFlyCamera, PlaygroundHud, Minimap, DevMap):
   click         capture the mouse (first click only captures)   Esc  release it
-  Tab           walk <-> fly      R back to the start (best easy area; task 93c1)    F go to the fluid arena
+  Tab           walk <-> fly      R back to the start (best easy area; task 93c1)    F go to the fluid arena (fly)
   WASD          move; walk: Space jump; fly: E up, Q down, Left Shift fast (E/Q: Survival keys in walk)
   walk moves    Space in the air: double jump   Left Shift: dash (0.8 s cooldown bar above the hotbar)
                 in water: WASD swims where you look, Space up / jump out at the surface, Left Ctrl down
@@ -83,6 +83,9 @@ keys (Playground.cs RegisterDefaultToys, PlaygroundFlyCamera, PlaygroundHud, Min
                 sand/snow and ice/glass climb slower); slopes over 30 deg slide you down: Space to scramble
                 after the double jump keep Space HELD: glide (10 m/s forward, 2 m/s down; the mouse steers,
                 S brakes, A/D drift, let go of Space to drop) -- jump off a summit
+  grapple       F (or middle mouse) in walk: hook the solid under the crosshair within 25 m (a ring on the
+                crosshair = in range); HOLD F to reel in (12 m/s, stops at the wall), let go in the air to
+                swing (WASD pumps), Space lets go (and still jumps), F again re-aims (task 100)
   SURVIVAL (default; F6 Game mode or -gamemode creative switches):
   mouse L / R   dig into the inventory (held) / place a cube of the held block (cyan box)
   wheel or 1-9  hotbar slot    Q cube size 0.1/0.2/0.4/0.8 m    E inventory (click two slots to swap)
