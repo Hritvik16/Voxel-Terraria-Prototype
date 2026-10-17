@@ -121,6 +121,13 @@ public static class MemoryLedger
         for (int t = 1; t < LODConfig.TIER_COUNT; t++)
             BrickRow($"cascade tier {t}", casc?.TierPool(t)?.BrickPool);
         var clip = Phase4Bootstrapper.Clipmap;
+        if (clip != null && clip.GpuPoolEnabled)
+        {
+            // Task 93f: the GPU's own brick-body pool (512 B of GPU per unit).
+            Row("GPU brick pool", clip.GpuPoolCapacity, clip.GpuPoolInUse, clip.GpuPoolPeakUsed, 512);
+            lines.Add($"  GPU brick pool: refused (pool full) {clip.GpuPoolRefusedTotal:N0}, held as air now {clip.GpuPoolRefusedNow:N0}, " +
+                      $"CPU->GPU table {MB(clip.GpuPoolTableBytes)} MB");
+        }
         if (clip != null && clip.FluidDirEnabled)
         {
             // Task 93e: the fluid terrain directory (chunks outside a small mirror box).

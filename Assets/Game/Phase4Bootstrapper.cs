@@ -314,7 +314,19 @@ public class Phase4Bootstrapper : MonoBehaviour
             SmallMirror = !box.Equals(mirrorChunks);
             mirrorChunks = box;
         }
-        Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity) { RecentreDirtiesStaleSlots = SmallMirror };
+        // Task 93f (8.15 row D3, owner Q2 (a)): with the shells drawing, the GPU body
+        // buffer is its own pool (EngineConfig.GpuBrickCapFor the box; `-gpubrickcap N`
+        // overrides, `-gpupool 0` = the old CPU-pool-sized layout). Shells off: unchanged.
+        int gpuBrickCap = 0;
+        if (IsTg2World && ArgInt("-shells", 0) == 1 && ArgInt("-gpupool", 1) == 1)
+        {
+            gpuBrickCap = ArgInt("-gpubrickcap", 0);
+            if (gpuBrickCap <= 0) gpuBrickCap = EngineConfig.GpuBrickCapFor(mirrorChunks.x, mirrorChunks.y, mirrorChunks.z);
+            gpuBrickCap = Math.Min(gpuBrickCap, _pool.Capacity);
+        }
+        Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity, gpuBrickCap) { RecentreDirtiesStaleSlots = SmallMirror };
+        if (gpuBrickCap > 0)
+            UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU brick pool {gpuBrickCap:N0} bodies ({gpuBrickCap * 512L / (1 << 20)} MB; CPU pool {_pool.Capacity:N0}): task 93f");
         if (SmallMirror && ArgInt("-fluiddir", 1) == 1) Clipmap.EnableFluidDir(storeWindowChunks);
         if (IsTg2World && ArgInt("-shells", 0) == 1)
             UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU mirror box {mirrorChunks} ({(SmallMirror ? "-smallmirror: task 93e" : "today's")}), " +
@@ -540,7 +552,8 @@ public class Phase4Bootstrapper : MonoBehaviour
         {
             _far.Update(camPos);
             Streamer.LayerRange(out int lo, out int hi);
-            _far.UpdateResidency(_store, Clipmap.WindowOriginBricks / EngineConfig.CHUNK_EDGE_BRICKS, Clipmap.WindowDimsChunks, lo, hi);
+            _far.UpdateResidency(_store, Clipmap.WindowOriginBricks / EngineConfig.CHUNK_EDGE_BRICKS, Clipmap.WindowDimsChunks, lo, hi,
+                                 Clipmap.GpuPoolRefusedNow > 0 ? Clipmap : null);
         }
         FrameGapProbe.LastFarMs = sw.Elapsed.TotalMilliseconds - farT0;
         FrameGapProbe.LastCoalescerMs = sw.Elapsed.TotalMilliseconds - streamMs;

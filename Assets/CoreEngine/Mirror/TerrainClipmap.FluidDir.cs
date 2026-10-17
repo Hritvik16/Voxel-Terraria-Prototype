@@ -16,9 +16,9 @@
 //   FluidDirIndex   ring slot of the chunk (store ring dims, pow2, & mask) -> entry, -1 none
 //   FluidDirCoords  entry * 4 + xyz = the chunk it holds (aliasing check)
 //   FluidDirHandles entry * 4096 + LocalBrickIndex = the brick handle, as ClipmapBuffer
-// Dense bodies go to BrickDataBuffer at their CPU pool index, as the mirror's do
-// (the body buffer is CPU-pool sized until task 93f / D3, which must keep these
-// bricks mapped).
+// Dense bodies go to BrickDataBuffer as the mirror's do: at their CPU pool index
+// in the old layout, through the GPU body pool with it on (task 93f / D3: an
+// entry is a holder of its own, chunkSlots + e, released when the entry goes).
 //
 // An index slot is published only AFTER its entry's handles were written, and is
 // cleared at once when the chunk leaves the set, is evicted or enters the box.
@@ -90,7 +90,15 @@ public partial class TerrainClipmap
         FluidDirCoordBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, capacity * 4, 4);
         FluidDirHandleBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, capacity * EngineConfig.BRICKS_PER_CHUNK, 4);
         FluidDirCoordBuffer.SetData(_fdCoords);
-        FluidDirHandleBuffer.SetData(_fdHandles);   // old entries keep their handles
+        if (!GpuPoolEnabled) FluidDirHandleBuffer.SetData(_fdHandles);   // old entries keep their handles
+        else
+        {
+            // Task 93f: the GPU copy carries GPU slots; a published entry's CPU slots
+            // are mapped (its holder keeps them), unpublished ones are never read.
+            var gpu = new uint[_fdHandles.Length];
+            for (int i = 0; i < gpu.Length; i++) gpu[i] = GpuHandleOf(_fdHandles[i]);
+            FluidDirHandleBuffer.SetData(gpu);
+        }
     }
 
     /// The fluid sim's chunks (FluidGpuSimulation, once per tick): every chunk a
@@ -132,6 +140,7 @@ public partial class TerrainClipmap
                 if (_fdIndex[s] == e) { _fdIndex[s] = -1; _fdIndexChanged = true; }
             }
             _fdCoords[e * 4 + 3] = -1;
+            ReleaseHolder(_chunkSlotCount + e);
             _fdFree.Push(e);
         }
 
@@ -160,26 +169,38 @@ public partial class TerrainClipmap
         => _fdIndex != null && _fdEntryOf.TryGetValue(c, out int e) ? e : -1;
 
     /// Writes one chunk's 4096 handles into its entry, queues its dense bodies,
-    /// then publishes the index slot.
-    private void UploadFluidDirChunk(Chunk chunk, int3 c, int e)
+    /// then publishes the index slot. False = the GPU body pool refused it
+    /// (task 93f): the entry is unpublished and holds nothing.
+    private bool UploadFluidDirChunk(Chunk chunk, int3 c, int e)
     {
+        if (!AcquireHolder(_chunkSlotCount + e, chunk))
+        {
+            if (_fdPublished.Remove(c))
+            {
+                int rs = FluidDirRingSlot(c);
+                if (_fdIndex[rs] == e) { _fdIndex[rs] = -1; _fdIndexChanged = true; }
+            }
+            return false;
+        }
         int b0 = e * EngineConfig.BRICKS_PER_CHUNK;
         for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++)
         {
             uint handle = chunk.isUniform ? chunk.uniformMaterial : chunk.bricks[i].data;
             _fdHandles[b0 + i] = handle;
+            _chunkStaging[i] = GpuHandleOf(handle);   // the GPU's copy carries the GPU slot (task 93f)
             if ((handle & 0x80000000u) != 0) _dirtyBrickSlots.Add((int)(handle & 0x3FFFFFFFu));
         }
         _fdCoords[e * 4 + 0] = c.x; _fdCoords[e * 4 + 1] = c.y; _fdCoords[e * 4 + 2] = c.z; _fdCoords[e * 4 + 3] = 0;
         if (!SuppressGpuUploads)
         {
-            FluidDirHandleBuffer.SetData(_fdHandles, b0, b0, EngineConfig.BRICKS_PER_CHUNK);
+            FluidDirHandleBuffer.SetData(_chunkStaging, 0, b0, EngineConfig.BRICKS_PER_CHUNK);
             FluidDirCoordBuffer.SetData(_fdCoords, e * 4, e * 4, 4);
         }
         int s = FluidDirRingSlot(c);
         if (_fdIndex[s] != e) { _fdIndex[s] = e; _fdIndexChanged = true; }
         _fdPublished.Add(c);
         FluidDirUploadsTotal++;
+        return true;
     }
 
     private void FlushFluidDirIndex()

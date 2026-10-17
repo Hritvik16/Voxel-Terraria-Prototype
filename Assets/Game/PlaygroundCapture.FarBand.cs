@@ -368,11 +368,15 @@ public partial class PlaygroundCapture
                         // Task 93e: the tier-0 mirror after the jump (the small box's recentre),
                         // as the golden-hour line below checks it on shells-off runs.
                         var clip = Phase4Bootstrapper.Clipmap;
-                        var vr = ClipmapValidator.ValidateRegion(clip, Phase4Bootstrapper.Pool, Phase4Bootstrapper.Store, maxChunks: 4096, validateBrickBodies: false);
+                        // Task 93f: with the GPU body pool, bodies too (through the table, 4 chunks).
+                        var vr = ClipmapValidator.ValidateRegion(clip, Phase4Bootstrapper.Pool, Phase4Bootstrapper.Store, maxChunks: 4096,
+                                                                 validateBrickBodies: clip.GpuPoolEnabled);
                         int stale = ClipmapValidator.CountStaleSlots(clip, Phase4Bootstrapper.Store, out string ex);
                         L($"  [mirror] {n,-22} box {clip.WindowDimsChunks}  MIRROR lost {vr.mismatchesInCleanChunks} lag {vr.mismatchesInDirtyChunks} stale {stale}" +
                           (ex != null ? $" [{ex}]" : "") + $"  checked {vr.chunksChecked}  resident outside the box {vr.chunksOutOfBox}  " +
-                          $"skippedOutOfBox {clip.SkippedOutOfBoxTotal}  recentre-dirtied {clip.RecentreDirtiedTotal}  resident {Phase4Bootstrapper.Store.ResidentCount}  deficit {deficit}");
+                          $"skippedOutOfBox {clip.SkippedOutOfBoxTotal}  recentre-dirtied {clip.RecentreDirtiedTotal}  resident {Phase4Bootstrapper.Store.ResidentCount}  deficit {deficit}" +
+                          (clip.GpuPoolEnabled ? $"  | GPU pool cap {clip.GpuPoolCapacity} used {clip.GpuPoolInUse} peak {clip.GpuPoolPeakUsed} refused {clip.GpuPoolRefusedTotal} " +
+                                                 $"body mismatches {vr.brickByteMismatches}" : ""));
                     }
                     continue;
                 }

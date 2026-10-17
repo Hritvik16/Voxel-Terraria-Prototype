@@ -268,6 +268,15 @@ public static class EngineConfig
     /// building and digging inside the loaded band -- and returns another
     /// ~256 MB (250k x 512 B x 2).
     public const int TG2_BRICK_POOL_CAP = 750000;
+    /// Task 93f (Amendment 8.15 row D3, §2 item 3): with the shells on, the GPU
+    /// body buffer is its own pool (TerrainClipmap.GpuPool.cs) holding only the
+    /// drawn tier-0 box + the fluid terrain directory, cap = measured PeakUsed of
+    /// a 16^3 box x 1.25. The box, not the preset, sets it: Low/Medium/High all
+    /// draw 16^3 (ShellLayout.MirrorBox); a larger box (Ultra's 32 x 8 x 32,
+    /// `-smallmirror 0`) scales it by its chunk count (GpuBrickCapFor).
+    public const int TG2_GPU_BRICK_CAP_16CUBE = 242000;
+    public static int GpuBrickCapFor(int boxX, int boxY, int boxZ)
+        => (int)(((long)TG2_GPU_BRICK_CAP_16CUBE * boxX * boxY * boxZ + 4095) / 4096);
     /// GPU mirror height for a vertically streamed world: 8 layers strictly
     /// contain the loaded band (StreamManager.V_LOAD_LAYERS = 3 -> 7 layers).
     public const int TG2_MIRROR_CHUNKS_Y = 8;

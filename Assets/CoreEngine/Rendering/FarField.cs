@@ -360,7 +360,10 @@ namespace VoxelEngine.Rendering
         /// [layerLo, layerHi] is -- a half-streamed column would otherwise hand
         /// its missing layers to the voxel march as air. Flat worlds: 0..0,
         /// exactly the old "its y=0 chunk is resident".
-        public void UpdateResidency(ChunkStore store, int3 windowOriginChunks, int3 windowDimsChunks, int layerLo, int layerHi)
+        /// gpuRefused (task 93f): a column with a chunk the GPU body pool refused is
+        /// NOT resident, so the shells draw it (tier 0 holds air there).
+        public void UpdateResidency(ChunkStore store, int3 windowOriginChunks, int3 windowDimsChunks, int layerLo, int layerHi,
+                                    TerrainClipmap gpuRefused = null)
         {
             long r0 = System.Diagnostics.Stopwatch.GetTimestamp();
             int n = windowDimsChunks.x * windowDimsChunks.z;
@@ -372,7 +375,10 @@ namespace VoxelEngine.Rendering
             {
                 bool all = true;
                 for (int cy = layerLo; cy <= layerHi && all; cy++)
-                    all = store.IsResident(new int3(windowOriginChunks.x + rx, cy, windowOriginChunks.z + rz));
+                {
+                    int3 c = new int3(windowOriginChunks.x + rx, cy, windowOriginChunks.z + rz);
+                    all = store.IsResident(c) && (gpuRefused == null || !gpuRefused.IsGpuRefused(c));
+                }
                 if (!all) continue;
                 int i = rz * windowDimsChunks.x + rx;
                 _residentBits[i >> 5] |= 1u << (i & 31);

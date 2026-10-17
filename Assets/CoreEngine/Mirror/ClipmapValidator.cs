@@ -27,6 +27,12 @@
 //
 //  4. A BOUNDED SAMPLE of real failures, not only the first.
 //
+// TASK 93f (8.15 row D3): with the GPU body pool on, the expected GPU entry of a
+// dense brick is its CPU handle with the GPU slot the table maps it to
+// (TerrainClipmap.GpuHandleOf), and its body is read at that GPU slot -- so a
+// table mix-up shows as BothDenseDifferentSlot / body mismatches, as before.
+// Reads go through TerrainClipmap.Read*ForValidation (a CPU shadow in tests).
+//
 // COST: reads back the clipmap plus bounded slices of the brick buffer, forcing
 // a GPU sync. Debug-only per §10.4 -- never call inside a timing measurement.
 using System.Collections.Generic;
@@ -76,6 +82,9 @@ public static class ClipmapValidator
         /// Resident chunks outside the mirror box (task 32's parked chunks; with
         /// task 93e's small box, the 0.1 m ring beyond it): not mirrored, not checked.
         public int chunksOutOfBox;
+        /// Resident in-box chunks a full GPU body pool refused (task 93f): held as
+        /// air by design (their shell draws them), counted, not checked.
+        public int chunksGpuRefused;
         public int chunksWithMismatch;
         public int handleMismatches;
         public int brickByteMismatches;
@@ -125,7 +134,7 @@ public static class ClipmapValidator
         int3 dims = clipmap.WindowDimsChunks, origin = clipmap.WindowOrigin;
         int totalBricks = clipmap.WindowDimsBricks.x * clipmap.WindowDimsBricks.y * clipmap.WindowDimsBricks.z;
         uint[] gpu = new uint[totalBricks];
-        clipmap.ClipmapBuffer.GetData(gpu);
+        clipmap.ReadClipmapForValidation(gpu);
         int stale = 0;
         for (int cz = 0; cz < dims.z; cz++)
         for (int cy = 0; cy < dims.y; cy++)
@@ -158,12 +167,13 @@ public static class ClipmapValidator
 
         int totalBricks = clipmap.WindowDimsBricks.x * clipmap.WindowDimsBricks.y * clipmap.WindowDimsBricks.z;
         uint[] gpuClipmap = new uint[totalBricks];
-        clipmap.ClipmapBuffer.GetData(gpuClipmap);
+        clipmap.ReadClipmapForValidation(gpuClipmap);
 
         foreach (Chunk chunk in store.ResidentChunks())
         {
             if (result.chunksChecked >= maxChunks) break;
             if (!clipmap.ContainsChunk(chunk.coord)) { result.chunksOutOfBox++; continue; }
+            if (clipmap.IsGpuRefused(chunk.coord)) { result.chunksGpuRefused++; continue; }
             result.chunksChecked++;
 
             bool dirty = clipmap.IsDirty(chunk.coord);
@@ -176,7 +186,10 @@ public static class ClipmapValidator
                 int3 localBrick = new int3(x, y, z);
                 int local = CoordMath.LocalBrickIndex(localBrick);
 
-                uint expected = chunk.isUniform ? chunk.uniformMaterial : chunk.bricks[local].data;
+                // Through the GPU body pool's table (task 93f; identity when it is off):
+                // a dense entry must carry the GPU slot the table gives its CPU slot.
+                uint cpuHandle = chunk.isUniform ? chunk.uniformMaterial : chunk.bricks[local].data;
+                uint expected = clipmap.GpuHandleOf(cpuHandle);
                 uint actual = gpuClipmap[clipmap.GpuIndexOf(chunk.coord, localBrick)];
                 if (actual == expected) continue;
 
@@ -234,6 +247,7 @@ public static class ClipmapValidator
         {
             if (checkedChunks >= BODY_CHECK_CHUNK_LIMIT) break;
             if (chunk.isUniform || chunk.bricks == null) continue;
+            if (!clipmap.ContainsChunk(chunk.coord) || clipmap.IsGpuRefused(chunk.coord)) continue;
             checkedChunks++;
 
             int minSlot = int.MaxValue, maxSlot = -1;
@@ -241,7 +255,8 @@ public static class ClipmapValidator
             {
                 uint d = chunk.bricks[i].data;
                 if ((d & 0x80000000u) == 0) continue;
-                int slot = (int)(d & 0x3FFFFFFFu);
+                int slot = clipmap.GpuSlotOf((int)(d & 0x3FFFFFFFu));   // task 93f: through the table
+                if (slot < 0) continue;                                  // unmapped: the handle check reports it
                 if (slot < minSlot) minSlot = slot;
                 if (slot > maxSlot) maxSlot = slot;
             }
@@ -251,16 +266,18 @@ public static class ClipmapValidator
             if (slotCount > BODY_CHECK_SLOT_LIMIT) continue; // don't degenerate into a full readback
 
             uint[] gpuRange = new uint[slotCount * 128];
-            clipmap.BrickDataBuffer.GetData(gpuRange, 0, minSlot * 128, slotCount * 128);
+            clipmap.ReadBodiesForValidation(gpuRange, minSlot * 128, slotCount * 128);
 
             for (int i = 0; i < EngineConfig.BRICKS_PER_CHUNK; i++)
             {
                 uint d = chunk.bricks[i].data;
                 if ((d & 0x80000000u) == 0) continue;
-                int slot = (int)(d & 0x3FFFFFFFu);
+                int cpuSlot = (int)(d & 0x3FFFFFFFu);
+                int slot = clipmap.GpuSlotOf(cpuSlot);
+                if (slot < 0) continue;
 
                 int gpuByteBase = (slot - minSlot) * 512;
-                int cpuByteBase = slot * 512;
+                int cpuByteBase = cpuSlot * 512;
                 for (int v = 0; v < 512; v++)
                 {
                     int gb = gpuByteBase + v;
