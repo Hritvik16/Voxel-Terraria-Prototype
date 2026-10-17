@@ -1,53 +1,51 @@
-# 103-gameplay-step-8-wall-run: DONE -- wall-run + wall-jump on PlayerMotor's abilities path, WallRunTests 8/8, fast suite green
+# 104-engine-q1-far-query-getvoxels: DONE -- IFarQuery.GetVoxels, exact (0 of ~390k test points differ), fast suite green
 
-## What changed (commit b088fbe)
-- `PlayerMotor.cs`: `TryStartWallRun` / `StepWallRun` / `WallJump` / `TryWallJump` / `WallBeside` / `WallJumpReady`; state
-  `WallRunning`, `WallDir`, `WallRunTimeS`, `LastWallRunStarted`, `LastWallJump`. Hand-over: climb grab is not tried while running
-  (turning the keys into the wall ends the run, then the normal 0.2 s grab clings); a fired hook, a dash, swimming, landing and
-  Teleport end a run; a glide that qualifies (Space held, air jumps spent, falling) is never caught by a wall; the legacy Step clears it.
-  A wall-jump is tried in the jump section AFTER the ground/coyote jump and BEFORE the double jump.
-- `PlayerConfig.cs`: `wallRun*` / `wallJump*` (11 numbers, clamped in Sanitize; speed 0 = no run, push 0 = no wall-jump).
-- `Playground.cs`: HUD state "WALL-RUN x m/s ...", air hint "wall: Space wall-jump", stamina bar shown while running; F2 help line.
-  `-walldemo` registered (damage-free like the other demos). `Playground.WallDemo.cs`: the 5 shots. CLAUDE.md task line.
-- No frozen API, D.1, memory-layout or TerrainGen change.
-
-## Picks (owner may change)
-- Wall-run starts AUTOMATICALLY (no key): airborne, near the top of a jump (vy <= 2.5 m/s) or falling < 5 m/s, moving >= 3.5 m/s along
-  a wall beside you with the keys along it. Speed 7 m/s, gravity x 0.2, at most 1.2 s (~8.4 m, holds about its height: -0.2 m on flat).
-- A "wall" = blocks the column beside the body at 0.5 m AND 1.2 m above the feet, within 0.15 m. AXIS-ALIGNED walls only (voxel faces
-  along x or z); a diagonal cliff (staircase) mostly will not hold a run. Wall-jump works off any of the 4 sides.
-- Wall-jump = Space in the air against a wall: 5.5 m/s out of the face + a full jump (6.2 m/s), speed along the wall kept, the double
-  jump is NOT spent. It replaces the double jump only when a wall is beside you.
-- The same wall (side + plane within 3 voxels) cannot be run or jumped off twice before landing / entering fluid: bounce between two.
-- Both spend the CLIMB stamina pool (run 1 s per s, wall-jump 1 s each; 7 s full): a 1.7 m chimney gives 7 bounces = ~6 m up.
-- Climbing's Space still DROPS (task 93f1 unchanged); a second Space in the air then wall-jumps off that face.
+## What changed (commit 78644ab)
+- NEW `Assets/CoreEngine/Memory/IFarQuery.cs`: `void GetVoxels(NativeArray<int3> points, NativeArray<byte> results)`, beside the
+  frozen `IWorldQuery.GetVoxel` (unchanged). Main thread only.
+- NEW `Assets/CoreEngine/Streaming/FarQuery.cs`: per point, the chunk's LOAD order (8.14 row 10):
+  1. resident chunk -> `ChunkStore.GetVoxel` (live voxels, unsaved edits and near-applied ops included);
+  2. the chunk's D.1 delta holds the brick -> its byte, then ops > S (S from the ops snapshot's side table: no entry 0, CRC mismatch all);
+  3. else the generator + EVERY op in seq order (a brick missing from the delta is gen + ops <= S, then ops > S follow).
+  A delta the codec rejects (`DeltaCodec.TryDecodeOnto`, the worker's own check, run on a scratch chunk) counts as no delta.
+  Split: rules 1-2 and the per-point plan on the main thread; rule 3 + every op in a Burst `PointJob` (Strict/High, Generate's float mode),
+  IJobParallelFor over 32-point batches (one NodeCache + column memo per batch). Reads only the source's read-only map arrays, a
+  NativeArray copy of the immutable ops Snapshot (re-copied only when the snapshot object changes) and the plan. No lock.
+  Delta cache: LRU of parsed D.1 indices (and "no file"), 128 entries / 16 MB; `ForgetDelta` / `ForgetAllDeltas`.
+- NEW `Assets/CoreEngine/WorldGen/TerrainGenChunkSource.Point.cs`: `PointVoxel` = ColumnJob's column (ShapeField.Sample at x+0.5,
+  the 4 neighbour samples for the step at the top, PrepareColumn + ore plane) and VoxelJob's CullBrick + Material + GenToEngine.
+  Consecutive points of one (x, z) reuse the column. Nothing under `Assets/TerrainGen/` changed (so fast suite, not SUITE=all).
+- `StreamManager.cs`: `FarQuery` property (made on first use; NULL on sizeClass 0/1 -- the legacy generator has no point form);
+  SaveDelta calls `_farQuery?.ForgetDelta(coord)` after writing or deleting a delta; Dispose disposes it. No frozen signature, D.1 or
+  4.4 change. CLAUDE.md: task line.
 
 ## Evidence
-- `WallRunTests` 8/8 + every neighbouring motor class (PlayerMotor, ClimbSlope, Glide, Grapple, PlayerVitals, PlayerConfig): filtered
-  run 106/106 (`Logs/unity_test_103.log`, `TestResults_103.xml`). Run test log: 7.00 m/s top, ~8 m along in 1.2 s, stamina -1.2 s.
-  Chimney test: 7 wall-jumps, then stamina 0 and the 8th press is the double jump. Same-wall press = double jump.
-- Fast suite `PASS 865 FAIL 0 SKIP 14` (was 857).
-- Demo (`BUILD=1 EXTRA="-walldemo" ./run-play.sh`, 3 launches: shots 3 and 4 retaken once each), log `Screenshots/103/walldemo_log.txt`:
-  run 0.51 s in: 3.3 m along, +0.59 m, 7.00 m/s, stamina 6.49; wall-jump velocity (-5.5 out, 6.2 up, 7.0 along); chimney 7 jumps, 6.19 m up,
-  stamina 7.00 -> 0.00.
-- No frame-time measurement (feature task).
+- `FarQueryTests` 4/4 + `EditOpTests` 10/10, filtered run (`unity_filter.log`, `TestResults_filter.xml`):
+  - Generator: 307,200 points (random + the x = 0 chunk-border and z = 8 brick-border planes + 12 edges) in 8 chunks, ONE shuffled call:
+    surface (4 materials), below it, 6 layers down, sea, negative x/z, below y 0 (two), above the top layer -- 0 differ vs `Generate`.
+  - Load order vs the worker's own steps (Generate, ApplyToChunk, TryDecodeOnto, ApplyToChunk), 22,897 points over the chunk + the one
+    below (an op crosses the seam): S = 1 (op 2 lands over the hand edit, the hand edit survives op 1, a uniform D.1 record), side-table
+    CRC mismatch (all ops then D.1), corrupt delta (no D.1), deleted delta -- 0 differ each.
+  - Resident: 35,792 points (17,416 resident incl. a hand edit and a near-applied op, 18,376 generated in the neighbour) -- 0 differ.
+  - Streamed (Slow, tg2 StreamManager): query far (caches "no delta"), stream in, edit + op, leave (delta saved -> ForgetDelta), op after
+    the save, query far, stream back: 21,625 of 21,625 points equal the streamed chunk; 513 answered from the delta.
+- Fast suite `PASS 868 FAIL 0 SKIP 14` (was 865; the Slow test is SUITE=all only), `Logs/overnight/104-fast.out`.
+- Cost per point (EditMode test timing in the Editor, Burst, 20,000 points; NOT a frame-time measurement, rule 10; two runs):
+  single thread, every point a new column 6.7 / 9.6 us; single thread, 64-voxel vertical runs 0.31 / 0.32 us; parallel wall
+  (7 job workers) 1.7 / 2.2 us. The amendment's 1-3 us estimate holds for runs and parallel; a lone new column costs more (5 ShapeField
+  samples: 4 are only for the step-at-top input Material needs).
 
-## Unfinished / next
-- Not done: non-axis-aligned (diagonal / curved) walls; a wall-run sound/camera tilt. Natural cliffs are rarely axis-aligned, so
-  in the real world runs work best along built walls and straight canyon faces: a possible follow-up if the owner wants it.
-- Next in GAMEPLAY_PHASE_PLAN: step 9b waits on Q3; the queue's 104 (engine Q1 IFarQuery.GetVoxels) is next.
+## Unfinished / notes
+- Legacy sizeClass 0/1 worlds (rigs) have no far query (`StreamManager.FarQuery` null).
+- Ops are scanned linearly per generated/delta point (fine for tens-hundreds of ops; a spatial index if logs grow large).
+- Fluid far away = generated water + ops (FAR-ACTIVE tiles do not exist yet; §7's "live state through the same call" comes with them).
+- Next: Q2 `IFarQuery.Raycast` (coarse far-band march, refined with GetVoxels near a hit), per the 8.15 order.
 
 ## For the doc
-- Result: the player can now WALL-RUN (jump along a wall: 7 m/s for up to 1.2 s, holds height) and WALL-JUMP (Space against any wall in
-  the air: kick off it; bounce up a chimney), both on the climb stamina.
-- In `./run-play.sh` (walk mode): run beside a wall with W, jump -> wall-run (HUD "WALL-RUN"); Space during it or against any wall in the
-  air -> wall-jump; Ctrl / letting go of W drops; turn into the wall to grab it (climb). F2 lists it.
-- Numbers: run 7.0 m/s (walk 5.2), ~8 m per run, -0.2 m height on flat; wall-jump 5.5 m/s out + 6.2 m/s up; chimney 1.7 m wide: 7 bounces,
-  6.2 m up, stamina 7.0 -> 0.0 s (`Screenshots/103/walldemo_log.txt`). Tests 857 -> 865 fast.
-- Picks: automatic start (no key), axis-aligned walls, no same wall twice per airtime, climb stamina shared (see Picks above).
-- Images:
-  - `Screenshots/103/1_site.png` -- the test site: the 9 m run wall on the left, the two-wall chimney on the right, noon, sun behind.
-  - `Screenshots/103/2_wallrun.png` -- mid-run, wall filling the left half; bottom centre HUD reads "WALL-RUN 7.0 m/s" and the stamina bar (6.5 s).
-  - `Screenshots/103/3_walljump.png` -- 0.4 s after the kick, looking back at the run wall's end from ~2 m out, in the air; stamina 5.2 s.
-  - `Screenshots/103/4_chimney_up.png` -- inside the chimney after 3 bounces, looking up between the walls; HUD hint "wall: Space wall-jump".
-  - `Screenshots/103/5_chimney_top_down.png` -- the top bounce (~6 m up), looking down the chimney to the pad; stamina 0.0 s.
+- Result: `IFarQuery.GetVoxels(points, results)` answers any voxel as its chunk would load (resident -> D.1 brick + later ops ->
+  generator + ops), exact; Burst job, parallel; `StreamManager.FarQuery`.
+- Exactness: 0 of 307,200 generator points, 0 of 4 x 22,897 delta/op points, 0 of 35,792 resident/neighbour points, 0 of 21,625
+  streamed points differ (FarQueryTests, `unity_filter.log`).
+- Tests: FarQueryTests 4 (one Slow); fast suite 865 -> 868 PASS, 0 FAIL (`Logs/overnight/104-fast.out`).
+- Cost per point (Editor test timing): ~7-10 us single thread on a fresh column, 0.3 us along a vertical run, ~2 us wall with 7 workers.
+- No images: nothing visible changed (an API for game rules).
