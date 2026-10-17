@@ -84,6 +84,9 @@
 //                       leap itself costs; its raw stills = FULL's (exact) and differ from shellmask_off's
 //                       by the new t's LSBs
 //            (the mask needs -shellmask 1: FULL then = mask on)
+//   TASK 99: skyexit_on / skyexit_off  the shells' sky-ray exit on / off (RaymarchFeature.ShellSkyExit;
+//                       FULL keeps the launch's -shellskyexit, ON by default); same image either way (exact); the counters
+//                       line adds SKY rays (no shell or far hit) and their shell iterations (ShadowStats 62-64)
 //            -coststillraw  each arm's first still also shoots _raw.png / _raw2.png (10 frames apart) with no
 //                       upscaler (no jitter), for byte-identity checks between arms
 //            the counters line also gives shell march iterations by ray kind (ShadowStats 48-55)
@@ -294,6 +297,8 @@ public partial class PlaygroundCapture
         // running; since task 93d only with -keeptiers 1, else tier 0 + far band); fshade_off = far shading off, FULL keeps the launch's -farshade.
         RaymarchFeature.DrawShells = arm != "shells_off" && arm != "tiers_farprim";
         RaymarchFeature.FarShade = arm != "fshade_off" && _costBaseFarShade;
+        // Task 99: the sky-ray exit (see the header).
+        RaymarchFeature.ShellSkyExit = arm == "skyexit_on" || (arm != "skyexit_off" && _costBaseSkyExit);
         // Task 93b4 (diagnostic): see the header.
         RaymarchFeature.DebugShellSkip = arm == "shellshadow_off" ? 1 : arm == "shellmarch_off" ? 2 : arm == "shellcache_off" ? 4 : arm == "shellmask_off" ? 8 : arm == "shellleap_new" ? 24 : 0;
         RaymarchFeature.UseLODCascade = arm != "tiers_off";
@@ -315,7 +320,7 @@ public partial class PlaygroundCapture
     private static int _costBaseShadow = -1, _costBaseTorch = -1;
     private static bool _costBaseRoof;
     private static float _costBaseRung1;
-    private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade;
+    private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit;
     private static int _costBaseFarSteps = -1;
     private static bool _costBaseFarShadowOn;
 
@@ -334,7 +339,7 @@ public partial class PlaygroundCapture
         if (st == null || st.Length < 48) yield break;
         double fr = st[5] / (double)n, prim = st[44] / (double)n, shR = st[45] / (double)n, shS = st[46] / (double)n;
         double fromShells = (st[40] + st[41] + st[42]) / (double)n;
-        L($"    [far {arm}] far rays/frame {fr:N0} (from shells: past-last {st[40] / (double)n:N0}, absent {st[41] / (double)n:N0}, cap {st[42] / (double)n:N0}; " +
+        L($"    [far {arm}] far rays/frame {fr:N0} (from shells: past-last {st[40] / (double)n:N0}, absent {st[41] / (double)n:N0}, cap / sky exit {st[42] / (double)n:N0}; " +
           $"FarStartT {st[43] / (double)n:N0}), far hits/frame {st[7] / (double)n:N0}; PRIMARY steps/frame {prim:N0} ({(fr > 0 ? prim / fr : 0):F1}/ray); " +
           $"SHADOW rays/frame {shR:N0}, steps/frame {shS:N0} ({(shR > 0 ? shS / shR : 0):F1}/ray); mean far start {(fr > 0 ? st[47] / (double)n / fr : 0):F0} m");
         if (st.Length < 56) yield break;
@@ -352,6 +357,12 @@ public partial class PlaygroundCapture
         // Task 93b5: the empty brick groups the air-brick mask crossed in one leap each (primary rays).
         double mg = st[60] / (double)n;
         L($"    [shell {arm}] air-brick mask: empty groups crossed in one leap {mg:N0}/frame ({(pi > 0 ? 100 * mg / pi : 0):F0}% of primary iters)");
+        if (st.Length < 65) yield break;
+        // Task 99: SKY rays (the shell march ran; no shell hit, no far hit) and the sky-ray exit.
+        double kR = st[62] / (double)n, kI = st[63] / (double)n, kX = st[64] / (double)n;
+        L($"    [shell {arm}] sky rays {kR:N0}/frame ({(px > 0 ? 100 * kR / px : 0):F1}% of pixels), shell iters {kI:N0} ({(kR > 0 ? kI / kR : 0):F1}/sky ray); " +
+          $"ended by the sky exit {kX:N0} ({(kR > 0 ? 100 * kX / kR : 0):F0}%); exit {(RaymarchFeature.ShellSkyExit ? "ON" : "OFF")}, shell top y {(VoxelEngine.Mirror.ShellStreamer.Active != null ? VoxelEngine.Mirror.ShellStreamer.Active.SolidTopY / 10f : float.NaN):F1} m, " +
+          $"far max h {(FarField.Active != null ? FarField.Active.MaxHeightVoxels / 10f : float.NaN):F1} m");
     }
 
     /// Task 75: the lake poses, at -liquiddemo's lake (Playground.FindDemoLake:
@@ -401,7 +412,7 @@ public partial class PlaygroundCapture
     private IEnumerator CostTime(ClipPath path, CostRun r, float timed, string still, Camera cam,
                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
     {
-        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; }
+        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; }
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);

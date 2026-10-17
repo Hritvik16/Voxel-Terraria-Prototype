@@ -215,6 +215,17 @@ namespace VoxelEngine.Mirror
         }
 
         public ShellStore Store(int k) => _stores[k];
+        /// Task 99 (the sky-ray exit, Raymarch.compute _ShellTopY): the max of every store's
+        /// SolidTopY (never lowered); int.MinValue = no shell has stored anything but air.
+        public int SolidTopY
+        {
+            get
+            {
+                int y = int.MinValue;
+                for (int k = FirstShell; k <= LastShell; k++) y = math.max(y, _stores[k].SolidTopY);
+                return y;
+            }
+        }
         public int InFlight => _inFlight.Count;
         /// Chunks of shell k generating or waiting to be stored (task 85's capture timing).
         public int InFlightIn(int k)

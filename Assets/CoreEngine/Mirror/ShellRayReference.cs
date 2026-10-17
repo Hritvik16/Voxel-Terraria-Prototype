@@ -51,6 +51,14 @@ namespace VoxelEngine.Mirror
     {
         public const int STATE_OK = 0, STATE_HOLE = 1, STATE_ABSENT = 2;
         public const int END_HIT = 0, END_PAST_LAST = 1, END_ABSENT = 2, END_CAP = 3;
+        public const int END_SKY = 4;   // task 99: the sky-ray exit (rising, above everything left)
+        public const int SKY_NEVER = int.MaxValue;
+
+        /// Task 99: Raymarch.compute's ShellSkyY. shellTopY = ShellStreamer.SolidTopY. A primary
+        /// ray with the far band on also waits until it is 2 voxels above the far band's max height
+        /// (its march from the shells' end then stops at once, no hit, from any later t too).
+        public static int PrimarySkyY(int shellTopY, bool farEnabled, float farMaxH) =>
+            farEnabled ? math.max(shellTopY, (int)math.ceil(farMaxH) + 2) : shellTopY;
         public const int RESOLVE_ABSENT = -1, RESOLVE_TIER0 = -2;
 
         /// What the march reads: the shader's constant buffer and three buffers.
@@ -190,8 +198,13 @@ namespace VoxelEngine.Mirror
         /// same result in every field but Iters and the read counters as planeLeap without the
         /// mask (ShellAirMaskTests). planeLeap (task 93b5 (b), implied by useMask): every leap is
         /// PlaneLeap (exit-plane t) instead of Leap (the shader's mask-off default).
+        /// skyY (task 99, the shader's ShellSkyY; SKY_NEVER = off): a ray with step.y > 0 whose voxel.y
+        /// >= skyY ends END_SKY there. Exact when skyY >= every non-air voxel's y + 1 the view holds:
+        /// voxel.y never falls on a rising ray (leaps add step x counts >= 0), so it reads only air
+        /// from there on (ShellSkyExitTests).
         public static Result March(IView v, float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters,
-                                   float tTier0 = 0f, bool useCache = true, bool useMask = false, bool planeLeap = false)
+                                   float tTier0 = 0f, bool useCache = true, bool useMask = false, bool planeLeap = false,
+                                   int skyY = SKY_NEVER)
         {
             var mv = useMask ? v as IMaskView : null;
             bool pl = planeLeap || useMask;   // the shader's SHELL_PLANE_LEAP
@@ -210,6 +223,7 @@ namespace VoxelEngine.Mirror
             for (int it = 0; it < maxIters; it++)
             {
                 r.Iters = it + 1;
+                if (step.y > 0 && voxel.y >= skyY) { r.End = END_SKY; r.T = t; return r; }   // task 99
                 float camDist = shadow ? math.length((float3)voxel + 0.5f - camera) : t;
                 if (t < tTier0 && v.Tier0Holds(voxel))
                 {

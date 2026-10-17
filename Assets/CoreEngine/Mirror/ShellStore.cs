@@ -50,6 +50,11 @@
 //     uints), not in a buffer of its own: one more binding would bring the
 //     raymarch kernel nearer Metal's 31-buffer limit (SHARED BUFFERS above).
 //     ShellMarch leaps an empty group's bricks without reading them.
+//   * SOLID TOP (task 99, the sky-ray exit): SolidTopY is a running max, NEVER lowered
+//     (evictions, aborts and lower redraws leave it), of the top (exclusive, 0.1 m
+//     voxels) of every brick a Store was given that is not uniform air (dense bricks
+//     count; fluids count). Raised in Store before anything is uploaded, so it is never
+//     below anything the GPU can read through this store. CPU-only (one int).
 using System;
 using System.Collections.Generic;
 using Unity.Collections;
@@ -134,6 +139,8 @@ namespace VoxelEngine.Mirror
         /// Dense bricks of the refused chunks: with BricksUsed, the demand the cap did not meet.
         public long RefusedBricks { get; private set; }
         public long BytesUploaded { get; private set; }
+        /// Task 99 (header SOLID TOP): int.MinValue until a chunk holding anything but air is stored.
+        public int SolidTopY { get; private set; } = int.MinValue;
 
         private readonly int3 _mask;
         private readonly uint[] _dir;
@@ -273,6 +280,25 @@ namespace VoxelEngine.Mirror
 
         public enum StoreResult { Stored, InProgress, OverBudget, Busy, Refused }
 
+        /// Task 99: the top (exclusive, 0.1 m voxels) of shell `shell`'s chunk sc's highest brick that
+        /// is not uniform air; int.MinValue = all air. Brick (bz << 8) | (by << 4) | bx of
+        /// chunk c spans voxel y [((c.y << 4) + by) << (k + 3), + (1 << (k + 3))).
+        public static int ChunkSolidTopY(TerrainGenChunkSource.ShellChunk sc, int shell)
+        {
+            if (sc.IsUniformAir) return int.MinValue;
+            for (int by = 15; by >= 0; by--)
+                for (int bz = 0; bz < 16; bz++)
+                    for (int bx = 0; bx < 16; bx++)
+                    {
+                        int bi = (bz << 8) | (by << 4) | bx;
+                        if (!sc.BrickUniform[bi] || sc.BrickMat[bi] != Materials.Air)
+                            return ((sc.Coord.y << 4) + by + 1) << (shell + 3);
+                    }
+            return int.MinValue;
+        }
+
+        private void RaiseSolidTop(TerrainGenChunkSource.ShellChunk sc) => SolidTopY = math.max(SolidTopY, ChunkSolidTopY(sc, Shell));
+
         // ONE chunk upload in progress (row 14): a dense chunk is up to 2 MB of
         // bodies + a 16 KB page, more than the frame's remainder of the 3 MiB
         // cap may hold. Its bodies and page go up over as many frames as the
@@ -305,6 +331,7 @@ namespace VoxelEngine.Mirror
             {
                 if (!uniform && (_freePageTop == 0 || _freeBrickTop < dense)) { ReplaceNoRoom++; return StoreResult.Refused; }
                 Replaced++;
+                RaiseSolidTop(sc);   // task 99
                 if (uniform)
                 {
                     DeferSlot(slot);
@@ -324,7 +351,7 @@ namespace VoxelEngine.Mirror
                 }
                 if (pagesFreeAfter == 0 || bricksFreeAfter < dense) { Refusals++; RefusedBricks += dense; return StoreResult.Refused; }
             }
-            if (!keepOld) EvictSlot(slot);
+            if (!keepOld) { RaiseSolidTop(sc); EvictSlot(slot); }   // task 99: before anything goes up
 
             if (uniform)
             {

@@ -2644,6 +2644,26 @@ int    _DebugShellSkip;
 // Same results either way.
 int    _ShellMaskBase;
 int    _ShellAirMask;
+// TASK 99: the SKY-RAY EXIT (-shellskyexit; RaymarchFeature.ShellSkyExit). _ShellTopY =
+// ShellStreamer.SolidTopY: a running max, never lowered, of the top (exclusive, 0.1 m voxels)
+// of every brick any shell store has been given that is not uniform air (ShellStore.Store,
+// also redraws: ops and edit summaries come through it). A ray whose step.y > 0 and whose
+// voxel.y >= that never reads anything but air again (voxel.y only grows: the leaps add
+// step x counts >= 0), so it would end without a hit. ShellSkyY adds the far band: the far
+// march after a shell no-hit starts at the shells' end t and stops at once, no hit, when
+// D.y >= 0 and p.y >= _FarParams.x (FarMarch's first test), so the exit also waits until the
+// ray is 2 voxels over that (DDA vs O + D t rounding: < 0.1 voxel here). Then the far march
+// from the early t gives what it gives from the late one, field for field, and the pixel
+// is the same. CPU twin: ShellRayReference.March(skyY) / PrimarySkyY (ShellSkyExitTests).
+int    _ShellTopY;
+int    _ShellSkyExit;
+#define SHELL_SKY_NEVER 2147483647
+int ShellSkyY(bool primary)
+{
+    if (_ShellSkyExit == 0) return SHELL_SKY_NEVER;
+    if (!primary || _FarEnabled == 0) return _ShellTopY;
+    return max(_ShellTopY, (int)ceil(_FarParams.x) + 2);
+}
 #ifdef VE_FAR_SHADE
 #define SHELL_MASK_ON (_ShellAirMask != 0 && (_DebugShellSkip & 8) == 0)
 // Task 93b5 (b): the exit-plane leap (ShellLeap) runs with the mask, or alone with
@@ -2661,6 +2681,7 @@ int    _ShellAirMask;
 #define SHELL_END_PAST_LAST 1
 #define SHELL_END_ABSENT 2
 #define SHELL_END_CAP 3
+#define SHELL_END_SKY 4   // task 99: rising and above everything the shells (and far band) hold
 
 struct ShellHit
 {
@@ -2887,7 +2908,9 @@ bool ShellGroupLeapOk(int3 voxel, int k, float t, float tTier0, bool shadow, flo
 /// Shadow: start = a point just off the hit face, `camera` for the distance rule.
 /// tTier0 (task 85, 8.14 row 5): tier 0 marched [0, tTier0) and saw air; a chunk
 /// it holds there is leapt (0 = off: shadow rays). ShellRayReference.March, line for line.
-ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters, float tTier0)
+/// skyY (task 99): a rising ray (step.y > 0) at voxel.y >= skyY ends SHELL_END_SKY (no hit);
+/// SHELL_SKY_NEVER = off. ShellSkyY: primary / shadow.
+ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters, float tTier0, int skyY)
 {
     dir = FarSafeDir(dir);
     int3 step = int3(sign(dir));
@@ -2913,6 +2936,8 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
     for (int it = 0; it < maxIters; it++)
     {
         r.iters = it + 1;
+        // Task 99: above everything that is left (header at _ShellTopY): a no-hit, now.
+        if (step.y > 0 && voxel.y >= skyY) { r.end = SHELL_END_SKY; r.t = t; return r; }
         float camDist = shadow ? length(float3(voxel) + 0.5 - camera) : t;
         if (t < tTier0 && ShellTier0Holds(voxel))
         {
@@ -3850,7 +3875,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         )
     {
         float tTier0 = skipVoxel ? 0.0 : min(tVoxelLimit, _ShellBounds[0].y);
-        ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0);
+        ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0, ShellSkyY(true));
 #ifdef VE_FAR_SHADE
         dbgShellEnd = shr.end; dbgShellIters = shr.iters;
         // TASK 93b4 (diagnostic): primary shell rays and iterations by how they
@@ -3921,7 +3946,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             if (farHit) InterlockedAdd(ShadowStats[7], 1u);
 #ifdef VE_FAR_SHADE
             // TASK 93b3 (diagnostic): 40-42 far rays whose start came from the shells'
-            // PAST_LAST / ABSENT / CAP end (43 = from FarStartT, the tiers path),
+            // PAST_LAST / ABSENT / CAP end (task 99: the SKY end counts as CAP) (43 = from FarStartT, the tiers path),
             // 44 far PRIMARY steps, 45 far shadow rays, 46 their steps,
             // 47 sum of the far start in metres.
             if (tShellEnd >= 0.0) InterlockedAdd(ShadowStats[40 + min(max(dbgShellEnd - 1, 0), 2)], 1u);
@@ -3932,6 +3957,16 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #endif
         }
     }
+#ifdef VE_FAR_SHADE
+    // TASK 99 (diagnostic): SKY rays -- the primary shell march ran and neither it nor
+    // the far band hit: 62 rays, 63 their shell iterations, 64 of them ended by the exit.
+    if (_CollectShadowStats != 0 && dbgShellEnd >= 0 && dbgShellEnd != SHELL_END_HIT && !farHit)
+    {
+        InterlockedAdd(ShadowStats[62], 1u);
+        InterlockedAdd(ShadowStats[63], (uint)dbgShellIters);
+        if (dbgShellEnd == SHELL_END_SKY) InterlockedAdd(ShadowStats[64], 1u);
+    }
+#endif
     // TASK 19 (2026-10-04, DIAGNOSTIC ONLY): the far hand-off at the ONE debug
     // pixel (the coast black bar). Writes DebugOut 46-87 and nothing else; no
     // other pixel's state or shading is touched. Read by -coastprobe.
@@ -4186,7 +4221,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         )
     {
         float3 so = rayStart + rayDir * currentDist + float3(normal) * 0.01;
-        ShellHit ss = ShellMarch(so, normalize(_SunDir), 0.0, true, rayStart, max(32, _ShellIterCap >> 1), 0.0);
+        ShellHit ss = ShellMarch(so, normalize(_SunDir), 0.0, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false));
         sunVis = (ss.end == SHELL_END_HIT) ? 0.0 : 1.0;
 #ifdef VE_FAR_SHADE
         // TASK 93b4 (diagnostic): 52 shell shadow rays, 53 their iterations.
@@ -4285,7 +4320,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // black = the shell march did not run).
     // 12: tier-0 hit dark blue, shell hit dark green, sky/far pixels by WHERE the far
     // march started: hue = how (grey: past the last shell, yellow: no shell has
-    // the chunk (ABSENT), red: the shell iteration CAP, cyan: FarStartT, the tiers
+    // the chunk (ABSENT), red: the shell iteration CAP, blue: the sky exit (task 99), cyan: FarStartT, the tiers
     // path), brightness = distance (dark 0 m -> full at >= 2 km, log).
     if (_DebugMode == 12)
     {
@@ -4295,7 +4330,8 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         {
             float3 hue = (tShellEnd < 0.0) ? float3(0.1, 0.9, 0.9)
                        : (dbgShellEnd == SHELL_END_PAST_LAST ? float3(0.85, 0.85, 0.85)
-                       : (dbgShellEnd == SHELL_END_ABSENT ? float3(0.95, 0.85, 0.1) : float3(0.95, 0.1, 0.1)));
+                       : (dbgShellEnd == SHELL_END_ABSENT ? float3(0.95, 0.85, 0.1)
+                       : (dbgShellEnd == SHELL_END_SKY ? float3(0.3, 0.5, 1.0) : float3(0.95, 0.1, 0.1))));
             float b = 0.15 + 0.85 * saturate(log2(1.0 + tFarDbg * 0.1) / 11.0);
             c12 = float4(hue * b, 1.0);
         }
