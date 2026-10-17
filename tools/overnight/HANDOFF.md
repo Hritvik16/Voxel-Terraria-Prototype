@@ -1,50 +1,60 @@
-# 98-gameplay-start-mild-biome: DONE. Play now starts in a mild biome. Seed 42 moved from a snow plain to a forest plain.
+# 99-shell-sky-ray-exit: DONE. Exact sky-ray exit, ON by default; p50 -4.7 ms (walk_near) / -2.6 ms (walk_open). Rule 1 applied.
 
-## What changed (commit `ad8e1dd`, branch engine-phase)
-- `Assets/TerrainGen/PlayStart.cs`:
-  - **Mild biomes** are `GenBiome.Forest` (0) and `GenBiome.Savanna` (4). These are the two biomes Danger's tier table rates 0.
-    Snow, Desert, Jungle (tier 2) and Badlands (tier 1) are not mild. There is no separate "grass" or "plains" biome id. Plains is a landform.
-  - An area's **mild size** is the number of its cells whose biome is mild.
-  - Areas whose mild size is at least `MIN_MILD_HA` = **2 ha** (313 cells of 8 m, a small clearing about 140 m across) are ranked by mild size.
-    The ranking is 93c1's rule unchanged: the largest, then areas within AREA_TIE 0.9 count as tied and the one nearest the island centre wins.
-  - The start cell and its 8 neighbours must also be mild, on top of 93c1's checks (easy, Walk band, dry).
-  - **Fallback:** if no area has 2 ha of mild cells, or no mild cell passes the checks, 93c1's rule runs on any biome.
-  - New API: `IsMild`, `MildSizes`, `MinMildCells`, `BestMildArea`, `ChooseArea`, `Find(map, out pick, preferMild = true)`.
-    `Pick` now carries `mild` and `biome`. `Find` is still a pure function of the map, and its old signature still works.
-- `-playstartmild 0` brings back 93c1's rule (`Playground.PlayStartPrefersMild`, read in `Phase4Bootstrapper`).
-  Rigs, capture runs and `-playstart 0` still use `Tg2Spawn`. KEEP=1 still resumes the saved pose; that path was not touched.
-- `PlayStartTests`:
-  - Seed 31337 added to the seed cases.
-  - Each seed logs its before (93c1) and after pick.
-  - New assertion: seed 42 must start mild.
-  - New test `ChooseArea_MildFirst_FallsBackToLargest`, on a hand-made record. It covers: no mild area -> the largest; a mild part 1 cell under 2 ha does not count; at 2 ha a small forest area beats a large snow area; ties go by mild size, then nearest the centre; same inputs give the same answer.
-- CLAUDE.md task-93c1 line updated.
-- **A choice the owner may want to know about:** "largest" is counted in MILD cells, not whole cells. B4's areas are all about the same size (43-45 ha), so counting whole cells would let a mostly-snow area that sits nearer the centre win over a mostly-forest one. The side effect: seed 31337's start was already in forest and it still moved, to the area with more forest.
+## What changed (commit `2b63964`, branch engine-phase)
+- `Raymarch.compute`: `ShellMarch(..., int skyY)`. A ray with step.y > 0 and voxel.y >= skyY ends as `SHELL_END_SKY` (no hit) at the top of the iteration.
+  - `ShellSkyY(primary)` = `_ShellTopY`. For a primary ray with the far band on, it is max(that, ceil(far max height) + 2).
+  - Why this is exact: on a rising ray voxel.y never falls (leaps only add step x counts >= 0), so the ray reads only air from there on.
+  - The far march after a shell no-hit starts at the shells' end t. `FarMarch`'s first test (D.y >= 0 and p.y >= maxH) passes at the exit's t and at every later t, so it returns the same empty result from the early t as from the late one.
+  - Shadow rays use the shells' top alone (only HIT matters for them).
+  - Diagnostics: ShadowStats 62-64 (sky rays, their iterations, exits). Debug view 12 shows sky exits in blue.
+- **Bound choice: ONE value for all shells**, not per shell or per x/z region. The exit stops the whole rest of the ray, so the bound has to cover everything still ahead, not just the current column. In play the far band's max height (1,100.0 m) decides anyway; the shells' top is 1,100.8 m.
+- `ShellStore.SolidTopY` + `ChunkSolidTopY`: the top of the highest brick that is not uniform air (dense bricks and fluids count). It is raised in `Store` before anything uploads (fresh stores and `replace: true` redraws; ops and edit summaries come through Store). It is never lowered (evictions, aborts, lower redraws). A refused chunk does not raise it. `ShellStreamer.SolidTopY` = the max over shells.
+- `RaymarchFeature.ShellSkyExit`: `-shellskyexit 0|1`, **default ON** (`0` = the old march). Sets `_ShellTopY` / `_ShellSkyExit`. STATS_LEN 62 -> 65.
+- CPU twin: `ShellRayReference.March(..., skyY)`, `END_SKY`, `PrimarySkyY`.
+- Cost split: arms `skyexit_on` / `skyexit_off`, and a `[shell ..] sky rays` counter line. The far line's "cap" is relabelled "cap / sky exit" (SKY ends fall into that bucket). Docs: KNOWN_ISSUES "SHELLS COST", CLAUDE.md (Task 99 line, index line).
+- New `ShellSkyExitTests` (5), on real ShellStores (shells 1-4) holding a synthetic world: ground, a near tower capped with water, a taller far peak.
+  - Bound >= every stored solid/fluid cell, at most one brick above it.
+  - 2,400 random rays x 3 skyY shapes (far off / far above / far below the shells' top) + their shadows: hits identical field for field; exits are no-hits ending later without the exit, and above the far max height.
+  - Rays grazing just under / at / over the bound (level, 1e-7, falling).
+  - Store raises / never lowers (uniform, dense-with-one-water-voxel redraw, eviction, air chunk, refused chunk, uniform solid chunk).
+  - Mutation (bound one brick low): 218 of 600 hits lost, so the test can fail.
 
-## Evidence
-- Filtered run `PlayStartTests`: 7/7 pass (`Logs/overnight/98_filter.log`). Fast suite: **PASS 837 FAIL 0 SKIP 14**, wall 4m19s.
-- Start per seed, before (93c1) -> after (heights are ground above sea; area mild share in brackets):
+## Evidence (AC power, charging 41 -> 44%; no owner pause; warm steady state)
+- Warm-up (discarded): `Logs/tg2world_20261017_101838.txt`. Then ONE launch, `Logs/costsplit_2026-10-17_102453.txt` (copy in `Screenshots/99/`).
+  - Order per pose: F X X F, F = exit OFF, X = `skyexit_on`.
+  - Flags: `-shells 1 -shellworkers 3 -shellwait 120 -farshade 1 -seethrough 1 -riverlook 1`, fsr3 540, quality.
+  - Driver: `Screenshots/99/99-driver.sh`.
 
-| seed | before | after |
-|---|---|---|
-| 42 | Snow, 44 ha (8 ha mild), +119.7 m | **Forest**, 44 ha (14 ha mild), +27.3 m |
-| 7 | Jungle, 43 ha (24 ha mild), +18.0 m | **Forest**, 43 ha (27 ha mild), +49.7 m |
-| 2026 | Desert, 45 ha (3 ha mild), +41.3 m | **Savanna**, 45 ha (42 ha mild), +37.1 m |
-| 31337 | Forest, 43 ha (26 ha mild), +42.8 m | Forest, 43 ha (32 ha mild), +35.0 m (other area) |
+| pose | arm | p50 ms (runs) | p99 ms | iters / sky ray | sky rays ended by exit | px changed (raw) |
+|---|---|---|---|---|---|---|
+| walk_near | OFF | 63.6 (63.2, 64.1) | 111.4 | 94.3 | 0 | - |
+| walk_near | ON | 58.9 (59.0, 58.6) | 105.6 | 82.2 | 100% | **0** |
+| walk_open | OFF | 46.6 (46.3, 46.9) | 88.0 | 39.7 | 0 | - |
+| walk_open | ON | 44.0 (44.2, 43.9) | 80.6 | 29.9 | 89% | **0** |
 
-- Seed 42 log lines are in `Screenshots/98/after.out` and `before.out`:
-  - after: `area 2 cell 292305 column (37240, 22840) ground 5393 interior True mild True biome 0`
-  - before: `area 1 ... biome 2`
-- Two short launches. One `BUILD=1 SHOT=60 EXTRA="-playshotquit"` run gave the after shot; one more run, with `-playstartmild 0` added, gave a matching before shot. Both are at `-startview` noon, facing the most open direction. The HUD's left panel is still drawn.
+- Saved p50: **+4.7 ms walk_near (noise 0.9), +2.6 ms walk_open (noise 0.6)**. Shell iterations per pixel: 5.50 -> 4.79 and 30.34 -> 24.88. Hit rays are unchanged (51.8 and 105.9 iterations per ray).
+- Rule applied: saves >= 3 ms at walk_near and is faster at walk_open, and it is exact. So **default ON**.
+- Identity checks:
+  - No-upscaler `_raw` stills, ON vs OFF: 0 px at both poses. raw vs raw2 (10 frames apart): 0 px.
+  - The FSR 3 `_clean` / `_sunvis` stills differ (21-48% / 0.02% of px). That is FSR 3's temporal jitter, which differs between any two frames. The raw stills (shadows included) are the identity check.
+- Fill at measure time: walk_near s1-s4 complete, s5 218/481, s6-s7 0 stored (missing 461); walk_open all but 36 stored. Tests: filter run ShellSkyExit + ShellMarchCache + ShellAirMask + ShellHandOver all pass. **Fast suite PASS 842 FAIL 0 SKIP 14** (`Logs/overnight/99-fast.out`). Player build: 0 shader errors.
 
 ## Left / next
-- Not checked: whether the sun is behind the camera. `-startview` faces the most open direction at noon, so the sun is high in both shots and they are well lit.
-- Next: whatever is next in the queue. No follow-up added.
+- 93b's re-run (queue, `Requires: 99`) runs next, as the task file says.
+- Rule 1 needs no note about where the rest of the cost is, but for 93b:
+  - walk_near's sky rays still take 82 iterations climbing ~145 m from the eye (~956 m) to the bound (1,100 m, the world ceiling).
+  - walk_open's cost left is the HIT rays (106 iterations each, 6% of px) and the air-chunk steps (47% of iterations).
 
 ## For the doc
-- Seed 42 start: Snow plain +119.7 m above sea -> **Forest** plain +27.3 m (`Screenshots/98/after.out`, `before.out`).
-- All 4 tested seeds now start in a mild biome (before: 1 of 4). Biomes: 42 Snow->Forest, 7 Jungle->Forest, 2026 Desert->Savanna, 31337 Forest->Forest.
-- Mild share of the chosen area, seed 2026: 3 ha -> 42 ha of 45 ha (`Logs/overnight/98_filter.log`, `[PlayStart]` lines).
+Task 99: rising shell rays now stop once they are above everything the shells and the far band hold. The image is exactly the same, and the frame is faster.
+- Frame p50, exit OFF -> ON: **63.6 -> 58.9 ms** (walk_near, noise 0.9) and **46.6 -> 44.0 ms** (walk_open, noise 0.6). p99 111 -> 106 and 88 -> 81 ms (`Logs/costsplit_2026-10-17_102453.txt`).
+- Shell iterations per sky ray: **94.3 -> 82.2** (walk_near) and **39.7 -> 29.9** (walk_open).
+- Image: **0 px** differ (no-upscaler stills, both poses).
 - Images:
-  - `Screenshots/98/start_seed42_before.png`: the 93c1 start at noon. Almost the whole lower half is white snow plain with ice-blue streaks; the orange-banded mountains are far off on the right.
-  - `Screenshots/98/start_seed42_after.png`: the new start at noon. Green grass fills the right and bottom of the frame and banded badlands ridges run along the horizon. In the minimap (top right) the marker sits inside the green forest patch, with the grey snow region to its west.
+  - `Screenshots/99/sheet_99.jpg`: 4 rows (walk_near OFF, ON, walk_open OFF, ON). Columns: no-upscaler beauty, shell-march step heat, far-start view.
+    - Heat colours: blue <= 24 steps, green 25-48, yellow/red more, black = tier 0.
+    - Compare rows 3 and 4, middle: walk_open's mid-sky band goes from green to blue.
+    - Compare rows 3 and 4, right: the sky that started the far band "ABSENT" (yellow) now starts it at the sky exit (light blue). Only a yellow band stays along the horizon.
+    - In walk_near (rows 1-2) only the top-right sky patch marches the shells. It stays mostly red/yellow: those rays climb ~145 m before the exit.
+    - The beauty column is the same in ON and OFF.
+  - `Screenshots/99/walk_near_clean_off_on.jpg`: walk_near at noon with the sun behind the camera, FSR 3, exit OFF left / ON right. The same canyon wall and sky; nothing to tell them apart.
