@@ -400,6 +400,12 @@ Space HELD -> sink eases to 2 m/s, speed to 10 m/s along the look yaw (ratio 5; 
 fall; landing / water / dash / cling end it; lands at ~2 m/s (no fall damage). Numbers `glide*` in PlayerConfig.json (speed 0 = off).
 `GlideTests` (7). `EXTRA="-glidedemo -playshotquit"` = a real summit within 220 m of the start, lane away from the sun, 4 shots.
 
+Task 100 (gameplay step 7): GRAPPLING HOOK on `PlayerMotor`'s abilities path (`FireHook`/`RayHook`/`StepReel`/`StepSwing`/`ApplyRope`):
+F or middle mouse in play's walk fires from the eye at the first SOLID voxel within 25 m (air + fluid passed, unloaded = miss; ring on the
+crosshair = in range); HOLD = reel 12 m/s (no gravity; stops at the wall or 0.3 m from the anchor), released in the air = swing (inextensible
+rope, WASD pump); Space lets go (the press still jumps / air-jumps -> glide), dash/swim/cling/landing/dug anchor/Teleport/legacy Step end it.
+F in fly mode = the basin toy as before. Numbers `hook*` in PlayerConfig.json (range 0 = off). `GrappleTests` (11). `EXTRA="-grappledemo"` = 5 shots.
+
 Task 94 (8.16, owner design change): FLUID GRAVITY FALL. A fluid (not steam, not sand) with air below falls every tick, ungated by
 viscosity, the same for all fluids: `FluidFall` table (exact g t^2/2 floored to voxels, cap 12 m/s -> 27 voxels/tick at 4.5 Hz), read by
 `FluidReferenceCPU` and `FluidCA.compute` alike; k (ticks fallen) in GPU `stateFlags` [15:8] / a CPU side array. Stops above the first
