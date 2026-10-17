@@ -398,7 +398,8 @@ public class Phase4Bootstrapper : MonoBehaviour
         Coalescer = new CoalesceScheduler(_store, _pool, Clipmap, Cascades);
 
         // Task 93c1 (gameplay step 4, P21): an interactive Playground session
-        // starts in the best easy area (TerrainGen.PlayStart); rigs, capture
+        // starts in the best easy area (TerrainGen.PlayStart; task 98: a mild
+        // biome's first, -playstartmild 0 = any biome); rigs, capture
         // runs and -playstart 0 keep Tg2Spawn.
         // KEEP=1 (-keepdeltas) resumes where the last session ended instead
         // (PlayerPose, beside player.json).
@@ -406,7 +407,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         if (IsTg2World && Playground.IsPlayStartRun() && FindAnyObjectByType<Playground>() != null)
         {
             var tgs = Streamer.TerrainGenSource;
-            if (TerrainGen.PlayStart.Find(tgs.Map, out var start))
+            if (TerrainGen.PlayStart.Find(tgs.Map, out var start, Playground.PlayStartPrefersMild()))
             {
                 PlayStartActive = true;
                 PlayStartM = new Vector3(start.column.x * 0.1f + 0.05f, (start.groundY + 1) * 0.1f + 2f, start.column.y * 0.1f + 0.05f);

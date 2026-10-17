@@ -586,6 +586,8 @@ public partial class Playground : MonoBehaviour
     /// (TerrainGen.PlayStart: the best easy area) and save/resume the player's
     /// pose: the play-settings runs, unless -playstart 0 (back to Tg2Spawn).
     internal static bool IsPlayStartRun() => IsPlaySettingsRun() && !(TryArgFloat("-playstart", out float v) && v < 1f);
+    /// Task 98: the start prefers a mild biome's easy area; -playstartmild 0 = 93c1's rule (any biome).
+    internal static bool PlayStartPrefersMild() => !(TryArgFloat("-playstartmild", out float v) && v < 1f);
 
     private static bool IsCaptureRun()
     {

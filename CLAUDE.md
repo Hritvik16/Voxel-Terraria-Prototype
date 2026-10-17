@@ -337,7 +337,9 @@ Layer order, stops when the slot runs out, <= `MaxPullCubes` (2,048 / 131k cells
 `PullTests` (10). `EXTRA="-pulldemo"` = 9 shots on a flat map site (block -> thick wall, a hut).
 
 Task 93c1 (gameplay step 4, P21): play STARTS in the best easy area (`TerrainGen.PlayStart`: the largest B4 easy area, ties
--> nearest the island centre; its first easy + Walk + dry cell whose 8 neighbours are too); R goes back there; KEEP=1 resumes
+-> nearest the island centre; its first easy + Walk + dry cell whose 8 neighbours are too; task 98: MILD FIRST -- Forest/Savanna
+cells counted per area, areas with >= 2 ha of them ranked by that count, start cell + neighbours mild; else any biome;
+`-playstartmild 0` = 93c1's rule; seed 42 snow -> forest); R goes back there; KEEP=1 resumes
 at `player_pose.json` (beside player.json, saved every 30 s and on quit). Rigs/capture runs and `-playstart 0` keep `Tg2Spawn`.
 `-worldseed N` = another tg2 island (own folder); `-playshotquit` quits after `-playshot`. `PlayStartTests`, `PlayerPoseTests`.
 
