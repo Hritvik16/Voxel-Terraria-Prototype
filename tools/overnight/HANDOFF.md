@@ -1,51 +1,48 @@
-# 104-engine-q1-far-query-getvoxels: DONE -- IFarQuery.GetVoxels, exact (0 of ~390k test points differ), fast suite green
+# 93c-shells-default-in-play: DONE -- play starts with the LOD shells ON; rigs unchanged; peak memory 2,512 -> 2,378 MB
 
-## What changed (commit 78644ab)
-- NEW `Assets/CoreEngine/Memory/IFarQuery.cs`: `void GetVoxels(NativeArray<int3> points, NativeArray<byte> results)`, beside the
-  frozen `IWorldQuery.GetVoxel` (unchanged). Main thread only.
-- NEW `Assets/CoreEngine/Streaming/FarQuery.cs`: per point, the chunk's LOAD order (8.14 row 10):
-  1. resident chunk -> `ChunkStore.GetVoxel` (live voxels, unsaved edits and near-applied ops included);
-  2. the chunk's D.1 delta holds the brick -> its byte, then ops > S (S from the ops snapshot's side table: no entry 0, CRC mismatch all);
-  3. else the generator + EVERY op in seq order (a brick missing from the delta is gen + ops <= S, then ops > S follow).
-  A delta the codec rejects (`DeltaCodec.TryDecodeOnto`, the worker's own check, run on a scratch chunk) counts as no delta.
-  Split: rules 1-2 and the per-point plan on the main thread; rule 3 + every op in a Burst `PointJob` (Strict/High, Generate's float mode),
-  IJobParallelFor over 32-point batches (one NodeCache + column memo per batch). Reads only the source's read-only map arrays, a
-  NativeArray copy of the immutable ops Snapshot (re-copied only when the snapshot object changes) and the plan. No lock.
-  Delta cache: LRU of parsed D.1 indices (and "no file"), 128 entries / 16 MB; `ForgetDelta` / `ForgetAllDeltas`.
-- NEW `Assets/CoreEngine/WorldGen/TerrainGenChunkSource.Point.cs`: `PointVoxel` = ColumnJob's column (ShapeField.Sample at x+0.5,
-  the 4 neighbour samples for the step at the top, PrepareColumn + ore plane) and VoxelJob's CullBrick + Material + GenToEngine.
-  Consecutive points of one (x, z) reuse the column. Nothing under `Assets/TerrainGen/` changed (so fast suite, not SUITE=all).
-- `StreamManager.cs`: `FarQuery` property (made on first use; NULL on sizeClass 0/1 -- the legacy generator has no point form);
-  SaveDelta calls `_farQuery?.ForgetDelta(coord)` after writing or deleting a delta; Dispose disposes it. No frozen signature, D.1 or
-  4.4 change. CLAUDE.md: task line.
+**Which rule applied:** Step 0 was replaced by the owner's Q63 (a) (switch now, no 93b measurement). No frame-time arms (rule 10).
+**Standing-still frames in play are expected ~8-11 ms SLOWER** than the old default (estimate: 93b re-run +12.7 / +13.9 ms minus
+task 99's -4.7 / -2.6 ms; NOT measured), about equal while walking. Checked at the next performance milestone (`later/102-shell-march-cost.md`).
+
+## What changed (commit a24ab64)
+- `PlaySettings.cs`: saved field `shells` (default ON; an older file gets ON), `-shells 0|1` overrides per run (bad value kept +
+  reported), `PlayShellWorkers = 3` (93b's count; `-shellworkers N` overrides), `ResolveShells(args, playRun, loadSaved, out workers)`:
+  a non-play run never calls the loader and keeps the pre-93c rule (`-shells 1` only, 1 worker, last match wins).
+- `Phase4Bootstrapper.cs`: decides once at boot (`ShellsOn`, `ShellWorkers`; playRun = tg2 + `Playground.IsPlaySettingsRun()` + a
+  Playground in the scene); every former `ArgInt("-shells")` reader (small mirror, GPU pool, tiers wanted, ShellStreamer) uses it.
+  Logs `[Phase4Bootstrapper] play run: LOD shells ON, 3 workers`. No change to 93d's tier logic, cascades, `-detailspeed`, `FarStartT`.
+- `SettingsMenu.cs`: row 10 "LOD shells" On/Off (the one option applied at the NEXT start; hint shows this run's state), panel 1004 -> 1078 px.
+  NOT seen on screen (no menu shot taken) -- the owner should glance at F6 once.
+- `Playground.ShellsDemo.cs` (NEW, `-shellsdemo`): 3 play poses + 93a's far ridge pose, tint shots, STEP 14 memory line per pose.
+  `PlaygroundCapture.FarBand.cs`: `Tg2EyeLevelPoses`/`TgGround` private -> internal. `run-play.sh` header, CLAUDE.md, KNOWN_ISSUES line 61.
+- Demos run through `run-play.sh` now get shells unless they pass `-shells 0` (they are play runs).
 
 ## Evidence
-- `FarQueryTests` 4/4 + `EditOpTests` 10/10, filtered run (`unity_filter.log`, `TestResults_filter.xml`):
-  - Generator: 307,200 points (random + the x = 0 chunk-border and z = 8 brick-border planes + 12 edges) in 8 chunks, ONE shuffled call:
-    surface (4 materials), below it, 6 layers down, sea, negative x/z, below y 0 (two), above the top layer -- 0 differ vs `Generate`.
-  - Load order vs the worker's own steps (Generate, ApplyToChunk, TryDecodeOnto, ApplyToChunk), 22,897 points over the chunk + the one
-    below (an op crosses the seam): S = 1 (op 2 lands over the hand edit, the hand edit survives op 1, a uniform D.1 record), side-table
-    CRC mismatch (all ops then D.1), corrupt delta (no D.1), deleted delta -- 0 differ each.
-  - Resident: 35,792 points (17,416 resident incl. a hand edit and a near-applied op, 18,376 generated in the neighbour) -- 0 differ.
-  - Streamed (Slow, tg2 StreamManager): query far (caches "no delta"), stream in, edit + op, leave (delta saved -> ForgetDelta), op after
-    the save, query far, stream back: 21,625 of 21,625 points equal the streamed chunk; 513 answered from the delta.
-- Fast suite `PASS 868 FAIL 0 SKIP 14` (was 865; the Slow test is SUITE=all only), `Logs/overnight/104-fast.out`.
-- Cost per point (EditMode test timing in the Editor, Burst, 20,000 points; NOT a frame-time measurement, rule 10; two runs):
-  single thread, every point a new column 6.7 / 9.6 us; single thread, 64-voxel vertical runs 0.31 / 0.32 us; parallel wall
-  (7 job workers) 1.7 / 2.2 us. The amendment's 1-3 us estimate holds for runs and parallel; a lone new column costs more (5 ShapeField
-  samples: 4 are only for the step-at-top input Material needs).
-
-## Unfinished / notes
-- Legacy sizeClass 0/1 worlds (rigs) have no far query (`StreamManager.FarQuery` null).
-- Ops are scanned linearly per generated/delta point (fine for tens-hundreds of ops; a spatial index if logs grow large).
-- Fluid far away = generated water + ops (FAR-ACTIVE tiles do not exist yet; §7's "live state through the same call" comes with them).
-- Next: Q2 `IFarQuery.Raycast` (coarse far-band march, refined with GetVoxels near a hit), per the 8.15 order.
+- `PlaySettingsTests` 14/14 (3 new: round trip, old file -> ON + flag override/last match/bad value, rigs never read the file, play run
+  file-then-flag). `SUITE=all` PASS 925 FAIL 0 SKIP 25 (`Logs/overnight/93c-all.out`).
+- `run-phase7-rig.sh`: PASS 37 FAIL 0, 19/19 shots byte-identical to 2026-10-16_214816 (`Logs/overnight/93c-phase7.out`).
+- Two launches (OFF must be its own boot: shells are a boot decision): `EXTRA="-shellsdemo -shells 0"` and `EXTRA="-shellsdemo"`
+  (no flag, no PlaySettings.json -> the default ON path). Logs `Logs/overnight/93c-player-{off,on}.log`, summary `Screenshots/93c/93c.txt`.
+- Memory (in-process phys_footprint lifetime peak / external `footprint` 10 s samples / IOAccelerator = Metal):
+  OFF 2,512 / 2,425 / 1,233 MB; ON 2,378 / 2,321 / 1,215 MB. Under the 3,000 MB cap. ON: tiers 1-2 not allocated, mirror 16^3,
+  GPU body pool peak 232,465 of 254,400 (91%), 0 refused.
+- Missing shell chunks at the 45 s shots: eye_level_2 1:0 2:741 3:1908 4:987; glide_400m 1:0 2:288 3:1244; peak_from_2km (2 km
+  teleport) 1:975 2:1449 3:1582 4:987. Ridge: shells 1-4 FILLED after 179 s (cap 240), then 1-4 all 0, 5:190 6:182 7:16.
+- Stills look the same OFF vs ON at the 3 poses (no holes, seams or horizon change seen); the ridge changed (below).
 
 ## For the doc
-- Result: `IFarQuery.GetVoxels(points, results)` answers any voxel as its chunk would load (resident -> D.1 brick + later ops ->
-  generator + ops), exact; Burst job, parallel; `StreamManager.FarQuery`.
-- Exactness: 0 of 307,200 generator points, 0 of 4 x 22,897 delta/op points, 0 of 35,792 resident/neighbour points, 0 of 21,625
-  streamed points differ (FarQueryTests, `unity_filter.log`).
-- Tests: FarQueryTests 4 (one Slow); fast suite 865 -> 868 PASS, 0 FAIL (`Logs/overnight/104-fast.out`).
-- Cost per point (Editor test timing): ~7-10 us single thread on a fresh column, 0.3 us along a vertical run, ~2 us wall with 7 workers.
-- No images: nothing visible changed (an API for game rules).
+- Rule: owner Q63 (a), switch without the measurement; standing-still play frames ~8-11 ms slower (estimate, unmeasured).
+- Peak process memory OFF -> ON default: 2,512 -> 2,378 MB (-134 MB; external sampler 2,425 -> 2,321); Metal 1,233 -> 1,215 MB; cap 3,000 MB.
+- Rigs: phase7 PASS 37 FAIL 0, 19/19 shots identical; SUITE=all PASS 925 FAIL 0.
+- Shells 1-4 around 93a's far pose fill in 179 s from a fresh start (3 workers, standing still).
+- `Screenshots/93c/93c_sheet.png` -- rows eye_level_2 / glide_400m / peak_from_2km / ridge93a; columns OFF, ON, ON tinted by shell
+  (blue tier 0, green 1, yellow 2, orange 3, red 4, magenta 5, grey = far band). Look at rows 1-3: OFF and ON match (at 45 s the
+  distant terrain is still mostly far band, grey in the tint); row 4: the ridge left of centre goes from striped to smooth.
+- `Screenshots/93c/93c_ridge_crop4x.png` -- the owner's blocky ridge, 4x crop: top = 93a (far band, grey tint: dark vertical stripes
+  and stepped ledges); middle = 93c shells filled: the ridge is now drawn by SHELL 3 (orange tint), the plain behind by shell 5,
+  and the stripes are GONE -- it reads as smooth 0.8 m facets (shell 3's voxel size), still faceted at 4x but not striped; bottom-left
+  = 93c shells OFF (tiers 1-2 + far band), striped like 93a. So the stripes were the 2.5D far band, not the generator's surface.
+  Full frames: `Screenshots/93c/on_ridge93a.png` / `_tint.png`, 4x singles `93c_ridge_93a_4x.png`, `93c_ridge_on_4x.png`.
+
+## Next
+- The F6 row was not looked at on screen. The frame-time cost is unmeasured by design (next performance milestone / task 102).
