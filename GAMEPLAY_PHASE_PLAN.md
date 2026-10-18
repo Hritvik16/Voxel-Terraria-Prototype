@@ -70,6 +70,11 @@ code, no Unity, no builds. Branch `engine-phase`. Far-away rules are NOT restate
     Later: study how Lay of the Land's building system works (research row BLD-R below).
 25. **P28 No structural integrity** (nothing collapses because unsupported, except powders). **Owner, 2026-10-15.**
 26. **P29 Single player first; keep co-op possible (deterministic, host-authoritative). Owner, 2026-10-15.**
+27. **P30 Pick ladder (step 10, task 105): each pick digs the NEXT ore** -- stone pick (starter) -> copper, copper pick
+    -> gold (NOT iron), gold pick -> iron, iron -> cobalt, cobalt -> emberstone + meteor ore; nothing digs bedrock;
+    rock is never refused, only slowed. Gold before iron (softer metal, lies deeper), so crafting (step 11) can climb
+    the ladder. Agent's pick. Step 10's first text "Z/X dev tiers retire in Survival" yields to P11: Z/X switch picks
+    in Survival (a dev key) until step 11 hands them out. Dig strokes stay instant (only the refusal applies).
 
 ## 1. Goal
 
@@ -114,6 +119,7 @@ Numbers 1-20 keep their 2026-10-11 ids (tasks 67-72 point at them); new groups u
 | 4 | Start on the best easy area (`TerrainGen.PlayStart`; R returns there; KEEP=1 resumes at `player_pose.json`) | 93c1 |
 | 9a | Health, fall damage (4 m safe, 20 m lethal), air under liquids (20 s), lava/acid damage, soft death -> the play start (`PlayerVitals`) | 93d1 |
 | 7 | Grappling hook (F / middle mouse: solid within 25 m, hold to reel 12 m/s, swing, Space lets go) | 100 |
+| 10 | Hardness and tool tiers as gear (`Tools.cs`: hardness 0-5 per material, picks stone/copper/gold/iron/cobalt/emberstone tier 1-6; cost per voxel 1 + max(0, hardness - tier + 1); ores need a tier, a copper pick is refused at iron; Z/X switch picks in Survival until crafting) | 105 |
 
 ### Building (P6, P7, P27) -- smallest useful first
 | # | Step (one change) | Acceptance | Size | Needs |

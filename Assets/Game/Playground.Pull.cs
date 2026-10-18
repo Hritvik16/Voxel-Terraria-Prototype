@@ -114,7 +114,8 @@ public partial class Playground
         _strokeSkippedCubes.Clear();
         bool dig = _pullUsed < 0;
         if (!dig) FilterPlaceCubes(_strokeCubes, e, _strokeSkippedCubes);
-        _strokeCost = SurvivalBuild.Cost(_store, _strokeCubes, e, dig, dig ? int.MaxValue : _inv.CountAt(_inv.Selected));
+        _strokeCost = SurvivalBuild.Cost(_store, _strokeCubes, e, dig, dig ? int.MaxValue : _inv.CountAt(_inv.Selected),
+                                         dig ? HeldPick.TooHard : null);   // task 105: too-hard cells stay
     }
 
     /// The release half of a pull.
@@ -131,7 +132,7 @@ public partial class Playground
         else if (_pullUsed < 0)
         {
             int n = _strokeCubes.Count;
-            var d = SurvivalBuild.DigPull(_edits, _inv, _pullShape, _strokeCubes, _digScratch);
+            var d = SurvivalBuild.DigPull(_edits, _inv, _pullShape, _strokeCubes, _digScratch, HeldPick.TooHard);
             if (!_pullFromShape) _shape.Set(_pullTemp.Cubes, _pullTemp.Count, _pullTemp.Edge);
             r.Cubes = n;
             if (d.Removed > 0)

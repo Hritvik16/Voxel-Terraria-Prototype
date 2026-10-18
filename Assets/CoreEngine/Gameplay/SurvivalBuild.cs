@@ -54,6 +54,55 @@ public static class SurvivalBuild
         public int Credited;     // voxels added to the inventory
         public int Lost;         // removed, had an item, did not fit (P8)
         public byte LastItem;    // the last item credited or lost (status line)
+        // Task 105 (step 10, Tools.cs): the held pick's limits.
+        public int TooHard;      // voxels left in place: the pick's tier is too low
+        public bool Refused;     // the AIMED voxel is too hard: nothing was dug
+        public byte RefusedMaterial;
+        public bool Waiting;     // stopped at a voxel costing more work than was left
+    }
+
+    // =====================================================================
+    // The held pick (step 10, task 105)
+    // =====================================================================
+
+    /// The held pick's per-material tables (Tools.Cost / Tools.TooHard),
+    /// rebuilt only when the pick changes.
+    public sealed class PickTables
+    {
+        public int Index { get; private set; } = -1;
+        public readonly byte[] Cost = new byte[256];
+        public readonly bool[] TooHard = new bool[256];
+        public Tools.Pick Pick => Tools.Picks[Index];
+
+        public PickTables(int index) { Set(index); }
+
+        public void Set(int index)
+        {
+            index = Tools.ClampPick(index);
+            if (index == Index) return;
+            Index = index;
+            Tools.FillCosts(Tools.Picks[index].Tier, Cost);
+            for (int m = 0; m < 256; m++) TooHard[m] = Cost[m] == 0;
+        }
+    }
+
+    /// LMB with a pick: the aimed voxel too hard -> refused, nothing dug, `work`
+    /// dropped. Else digs the pick's sphere nearest first, each voxel paying
+    /// Tools.Cost from `work` (the caller accrues the pick's rate into it),
+    /// too-hard voxels left in place, and credits the inventory as Dig does.
+    /// Unspent work is dropped unless the dig is waiting on a costly voxel.
+    public static DigResult DigWithPick(EditService edits, IWorldQuery world, Inventory inv, int3 centre,
+                                        PickTables pick, ref int work, int[] scratch)
+    {
+        var r = new DigResult();
+        byte aimed = world.GetVoxel(centre);
+        if (pick.TooHard[aimed]) { r.Refused = true; r.RefusedMaterial = aimed; work = 0; return r; }
+        Array.Clear(scratch, 0, scratch.Length);
+        r.Removed = edits.MineSphereCosted(centre, pick.Pick.RadiusVoxels, ref work, pick.Cost, scratch,
+                                           out r.TooHard, out r.Waiting);
+        if (!r.Waiting) work = 0;
+        Credit(inv, scratch, ref r);
+        return r;
     }
 
     /// Digs up to `budget` voxels, nearest the centre first, and credits the
@@ -176,14 +225,18 @@ public static class SurvivalBuild
         return n;
     }
 
-    /// Cells of the cube at `lo` that digging would change (anything not Air).
-    public static int DiggableCells(IWorldQuery world, int3 lo, int edge)
+    /// Cells of the cube at `lo` that digging would change (anything not Air,
+    /// and not too hard for the pick: `keep`, PickTables.TooHard, optional).
+    public static int DiggableCells(IWorldQuery world, int3 lo, int edge, bool[] keep = null)
     {
         int n = 0;
         for (int z = 0; z < edge; z++)
         for (int y = 0; y < edge; y++)
         for (int x = 0; x < edge; x++)
-            if (world.GetVoxel(lo + new int3(x, y, z)) != Materials.Air) n++;
+        {
+            byte m = world.GetVoxel(lo + new int3(x, y, z));
+            if (m != Materials.Air && (keep == null || !keep[m])) n++;
+        }
         return n;
     }
 
@@ -197,13 +250,13 @@ public static class SurvivalBuild
 
     /// The preview's numbers: what the stroke would cost, and how far the
     /// selected slot's `budget` carries it (whole cubes, path order).
-    public static StrokeCost Cost(IWorldQuery world, List<int3> cubes, int edge, bool dig, int budget)
+    public static StrokeCost Cost(IWorldQuery world, List<int3> cubes, int edge, bool dig, int budget, bool[] keep = null)
     {
         var c = new StrokeCost { Cubes = cubes.Count };
         bool paying = true;
         for (int i = 0; i < cubes.Count; i++)
         {
-            int k = dig ? DiggableCells(world, cubes[i], edge) : FillableCells(world, cubes[i], edge);
+            int k = dig ? DiggableCells(world, cubes[i], edge, keep) : FillableCells(world, cubes[i], edge);
             c.Cells += k;
             if (paying && (dig || c.AffordableCells + k <= budget)) { c.Affordable++; c.AffordableCells += k; }
             else paying = false;
@@ -248,10 +301,14 @@ public static class SurvivalBuild
 
     /// Digs every cube along `cubes` and credits the inventory as Dig does
     /// (fluids give nothing, a full inventory loses the overflow, P8/P9).
-    public static DigResult DigStroke(EditService edits, Inventory inv, List<int3> cubes, int edge, int[] scratch)
+    /// `keep` (task 105, optional: PickTables.TooHard) = cells left in place,
+    /// counted in TooHard. A stroke stays instant: only the refusal applies.
+    public static DigResult DigStroke(EditService edits, Inventory inv, List<int3> cubes, int edge, int[] scratch,
+                                      bool[] keep = null)
     {
         Array.Clear(scratch, 0, scratch.Length);
-        var r = new DigResult { Removed = edits.SetCubes(cubes, cubes.Count, edge, Materials.Air, false, scratch) };
+        var r = new DigResult { Removed = edits.SetCubes(cubes, cubes.Count, edge, Materials.Air, false, scratch, keep, out int kept) };
+        r.TooHard = kept;
         Credit(inv, scratch, ref r);
         return r;
     }
@@ -439,9 +496,10 @@ public static class SurvivalBuild
 
     /// Digs a pull's cubes (steps < 0) and credits the inventory as a dig
     /// stroke does; the cubes dug leave `shape`.
-    public static DigResult DigPull(EditService edits, Inventory inv, Shape shape, List<int3> cubes, int[] scratch)
+    public static DigResult DigPull(EditService edits, Inventory inv, Shape shape, List<int3> cubes, int[] scratch,
+                                    bool[] keep = null)
     {
-        var r = DigStroke(edits, inv, cubes, shape.Edge, scratch);
+        var r = DigStroke(edits, inv, cubes, shape.Edge, scratch, keep);
         shape.Remove(cubes, cubes.Count);
         return r;
     }

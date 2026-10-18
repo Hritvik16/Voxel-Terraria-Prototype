@@ -442,6 +442,12 @@ Task 93c (owner Q49 / Q63 (a)): PLAY STARTS WITH THE LOD SHELLS ON (`PlaySetting
 (`Phase4Bootstrapper.ShellsOn`/`ShellWorkers`). Rigs, capture runs and -fluidprobe never read the file: shells only with `-shells 1`, as before.
 Standing-still frames in play ~8-11 ms slower (estimate, not measured; `later/102-shell-march-cost.md`). `EXTRA="-shellsdemo [-shells 0]"` = 3 poses + 93a's ridge.
 
+Task 105 (gameplay step 10): HARDNESS + PICKS (`Assets/ContentModules/Tools.cs`). Survival's LMB digs with the held pick
+(`Inventory.pick` in player.json; Z/X switch it, a dev key until crafting, P11): each voxel costs 1 + max(0, hardness - tier + 1)
+of the pick's rate (`EditService.MineSphereCosted`, `SurvivalBuild.DigWithPick`); ores need a tier (stone pick -> copper,
+copper -> gold, gold -> iron, iron -> cobalt, cobalt -> emberstone; bedrock never): aimed too hard = REFUSED, else too-hard voxels
+stay; strokes/pulls keep them too. Creative and rigs unchanged (hand/drill/bore). `ToolTierTests` (10). `EXTRA="-tooldemo"` = 3 shots.
+
 Run the FAST EditMode suite before and after any change, and the WHOLE suite
 before any merge to `main` and on every terrain-generator change
 (`Assets/TerrainGen/`):

@@ -31,6 +31,9 @@ public sealed class Inventory
     public int selected;
     public int[] items = new int[SlotCount];
     public int[] counts = new int[SlotCount];
+    /// Task 105 (step 10): the held pick, an index into Tools.Picks (gear, not a
+    /// slot). An older file has no field -> 0, the starter stone pick.
+    public int pick = Tools.StarterPick;
 
     public byte ItemAt(int slot) => (byte)items[slot];
     public int CountAt(int slot) => counts[slot];
@@ -143,7 +146,7 @@ public sealed class Inventory
         catch (Exception e) { error = "malformed JSON: " + e.Message; return null; }
         if (inv == null) { error = "malformed JSON (null result)"; return null; }
 
-        var fixedInv = new Inventory { Selected = inv.selected };
+        var fixedInv = new Inventory { Selected = inv.selected, pick = Tools.ClampPick(inv.pick) };
         int bad = 0;
         for (int i = 0; i < SlotCount; i++)
         {

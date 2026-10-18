@@ -301,6 +301,12 @@ public partial class Playground : MonoBehaviour
     // ---- Tools (§8.3 tiers) ----
     private int _tier = 1;                       // hand / drill / bore
     private EditService.ToolBudget _digBudget;
+    // Task 105 (step 10): Survival digs with the held PICK (Tools.cs; gear in
+    // Inventory.pick, Z/X cycle it -- a dev key, P11); Creative keeps the
+    // hand/drill/bore tiers above. _digWork = accrued work not yet spent.
+    private readonly SurvivalBuild.PickTables _pickTables = new SurvivalBuild.PickTables(Tools.StarterPick);
+    private int _digWork;
+    internal SurvivalBuild.PickTables HeldPick { get { _pickTables.Set(_inv.pick); return _pickTables; } }
     private int _dugThisSecond, _dugCounter;
     private float _dugTimer;
 
@@ -562,9 +568,12 @@ public partial class Playground : MonoBehaviour
         _vitalsAllowed = !(TryArgFloat("-vitals", out float vitArg) && vitArg < 1f) &&
                          !(HasArg("-survivaldemo") || HasArg("-strokedemo") || HasArg("-pulldemo") || HasArg("-movedemo") ||
                            HasArg("-oredemo") || HasArg("-riverdemo") || HasArg("-liquiddemo") || HasArg("-farop") || HasArg("-farwall") ||
-                           HasArg("-reactiondemo") || HasArg("-climbdemo") || HasArg("-walldemo") || HasArg("-shellsdemo"));
+                           HasArg("-reactiondemo") || HasArg("-climbdemo") || HasArg("-walldemo") || HasArg("-shellsdemo") ||
+                           HasArg("-tooldemo"));
         // -oredemo (task 66): ore screenshots (a tunnel wall, the hotbar, the dev map's close slice), then quit.
         if (!IsCaptureRun() && HasArg("-oredemo")) StartCoroutine(OreDemo());
+        // -tooldemo (task 105): step 10's pick shots (iron vein: copper refused, gold digs it), then quit.
+        if (!IsCaptureRun() && HasArg("-tooldemo")) StartCoroutine(ToolDemo());
         // -riverdemo (task 73): river/lake/waterfall/mouth screenshots for RIVERS_WATERFALLS_PLAN.md, then quit.
         // -riverlook 0|1 (task 76's river look; play: PlaySettings.riverLook, on) outside play: OFF unless asked.
         if (!playSettings && TryArgFloat("-riverlook", out float rlArg)) RaymarchFeature.RiverLook = rlArg >= 1f;
@@ -1209,9 +1218,35 @@ public partial class Playground : MonoBehaviour
 
     private void CycleTier(int d)
     {
+        if (SurvivalMode) { SetPick((int)Mathf.Repeat(_inv.pick + d, Tools.Picks.Length)); return; }
         _tier = (int)Mathf.Repeat(_tier + d, EditService.Tiers.Length);
         var t = EditService.Tiers[_tier];
         _status = $"tool: {t.Name} — {t.VoxelsPerSecond} vox/s, radius {t.RadiusVoxels}";
+    }
+
+    /// Survival's held pick (task 105). Crafting (step 11) will hand out picks;
+    /// until then Z/X switch them (a dev key, P11).
+    internal void SetPick(int index)
+    {
+        _inv.pick = Tools.ClampPick(index);
+        _invDirty = true;
+        _digWork = 0;
+        var p = HeldPick.Pick;
+        _status = $"pick: {p.Name} (tier {p.Tier}) -- {p.VoxelsPerSecond} vox/s on soil, radius {p.RadiusVoxels}; digs {PickReach(p.Tier)}";
+    }
+
+    /// The hardest ores a pick of `tier` digs, for the status line.
+    private static string PickReach(int tier)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (byte code in new[] { Tools.CopperOreCode, Tools.GoldOreCode, Tools.IronOreCode, Tools.CobaltOreCode, Tools.EmberstoneCode })
+        {
+            byte m = Materials.FromTg2(code);
+            if (Tools.TooHard(m, tier)) continue;
+            if (sb.Length > 0) sb.Append(", ");
+            sb.Append(Items.Name(m));
+        }
+        return sb.Length > 0 ? sb.ToString() : "no ore";
     }
 
     private void SetBrush(int i)
@@ -1838,9 +1873,7 @@ public partial class Playground : MonoBehaviour
     {
         if (Input.GetMouseButton(0))
         {
-            var tier = EditService.Tiers[_tier];
-            int allow = _digBudget.Accrue(dt, tier.VoxelsPerSecond);
-            if (allow > 0) SurvivalDig(_targetVoxel, tier.RadiusVoxels, allow);
+            SurvivalPickDig(_targetVoxel, dt);
         }
         else if (Input.GetMouseButton(1))
         {
@@ -1851,8 +1884,43 @@ public partial class Playground : MonoBehaviour
         }
     }
 
+    /// LMB held in Survival (task 105): the held pick's rate accrues into
+    /// _digWork, each voxel pays Tools.Cost; an aimed voxel too hard for the
+    /// pick is REFUSED (status line + the dig box's REFUSED), nothing dug.
+    /// Internal so -tooldemo drives the real path.
+    internal SurvivalBuild.DigResult SurvivalPickDig(int3 at, float dt)
+    {
+        var pick = HeldPick;
+        _digWork += _digBudget.Accrue(dt, pick.Pick.VoxelsPerSecond);
+        var r = SurvivalBuild.DigWithPick(_edits, _store, _inv, at, pick, ref _digWork, _digScratch);
+        if (r.Refused)
+        {
+            int need = Tools.WeakestPickFor(r.RefusedMaterial);
+            PlaceRefused($"TOO HARD: {Items.Name(r.RefusedMaterial)} needs " +
+                   (need < 0 ? "a pick that does not exist (nothing digs it)"
+                             : $"a {Tools.Picks[need].Name} (tier {Tools.Picks[need].Tier}) -- you hold a {pick.Pick.Name} (tier {pick.Pick.Tier})"));
+            _digRefused = true;
+            return r;
+        }
+        _digRefused = false;
+        if (r.Removed == 0) return r;
+        _dugCounter += r.Removed;
+        _act = Act.Dig;
+        _actAge = 0f;
+        _invDirty |= r.Credited > 0;
+        _lostTotal += r.Lost;
+        string hard = r.TooHard > 0 ? $"  <color=#ffc27a>({r.TooHard} too hard, left)</color>" : "";
+        _status = (r.Lost > 0
+            ? $"<color=#ff9a9a>inventory FULL -- {r.Lost} voxel(s) of {Items.Name(r.LastItem)} lost</color>"
+            : r.Credited > 0 ? $"+{r.Credited} {Items.Name(r.LastItem)}  (now {_inv.Count(r.LastItem):N0})  {pick.Pick.Name}"
+            : "dug fluid -- nothing to pick up (no bucket yet)") + hard;
+        return r;
+    }
+    private bool _digRefused;             // the last LMB dig was refused (the dig box shows it)
+
     /// The dig half of the loop. Internal so the -survivaldemo shots drive
-    /// the real path rather than a copy of it.
+    /// the real path rather than a copy of it. (Task 105: the demos' fixed-budget
+    /// dig; it ignores the pick. The player's LMB is SurvivalPickDig.)
     internal SurvivalBuild.DigResult SurvivalDig(int3 at, int radius, int budget)
     {
         var r = SurvivalBuild.Dig(_edits, _inv, at, radius, budget, _digScratch);
@@ -1922,6 +1990,7 @@ public partial class Playground : MonoBehaviour
 
     private void PlaceRefused(string why)
     {
+        _digRefused = false;                  // SurvivalPickDig sets it again after a dig refusal
         _status = $"<color=#ff9a9a>{why}</color>";
         _act = Act.Refused;
         _actAge = 0f;
@@ -2499,10 +2568,12 @@ public partial class Playground : MonoBehaviour
         for (int i = 0; i < Inventory.HotbarSize; i++)
             DrawSlot(new Rect(x0 + i * (slot + pad), y0, slot, slot), i, i == _inv.Selected, $"{i + 1}");
 
-        var tier = EditService.Tiers[_tier];
-        bool digHot = _act == Act.Dig && _actAge < 0.35f;
-        bool placeHot = (_act == Act.Place || _act == Act.Refused) && _actAge < 0.35f;
-        string refused = _act == Act.Refused && _actAge < 0.6f ? "  <color=#ff9a9a>REFUSED</color>" : "";
+        var pick = HeldPick.Pick;
+        bool digRefused = _digRefused && _act == Act.Refused && _actAge < 0.6f;
+        bool digHot = (_act == Act.Dig || digRefused) && _actAge < 0.35f;
+        bool placeHot = !digRefused && (_act == Act.Place || _act == Act.Refused) && _actAge < 0.35f;
+        string refused = !digRefused && _act == Act.Refused && _actAge < 0.6f ? "  <color=#ff9a9a>REFUSED</color>" : "";
+        string digNo = digRefused ? "  <color=#ff9a9a>TOO HARD</color>" : "";
         int e = SurvivalBuild.CubeEdges[_edgeIndex];
         var lr = new Rect(x0 - 250, y0 + 8, 240, 44);
         var rr = new Rect(x0 + total + 10, y0 + 8, 270, 44);
@@ -2510,7 +2581,7 @@ public partial class Playground : MonoBehaviour
         Box(rr, new Color(0f, 0f, 0f, placeHot ? 0.75f : 0.4f));
         if (digHot) Frame(lr, new Color(1f, 0.82f, 0.3f, 1f), 2f);
         if (placeHot) Frame(rr, new Color(1f, 0.82f, 0.3f, 1f), 2f);
-        GUI.Label(lr, $"<b>LMB — DIG</b> into inventory\n{tier.Name} · {tier.VoxelsPerSecond} vox/s   <b>Z/X</b>",
+        GUI.Label(lr, $"<b>LMB — DIG</b>{digNo}\n{pick.Name} · tier {pick.Tier}   <b>Z/X</b>",
                   Label(12, TextAnchor.MiddleCenter));
         byte held = _inv.ItemAt(_inv.Selected);
         string what = _inv.IsEmpty(_inv.Selected) ? "empty slot" : Items.Name(held);
@@ -2757,7 +2828,8 @@ public partial class Playground : MonoBehaviour
         if (SurvivalMode)
         {
             sb.AppendLine("<b><color=#cfe3f5>BUILD & DIG</color></b>   <color=#9fb6c9>(SURVIVAL -- F6 Game mode switches to Creative's free brushes)</color>");
-            sb.AppendLine("  <b>LMB</b> dig: every voxel goes into your inventory      <b>Z / X</b> tool tier");
+            sb.AppendLine("  <b>LMB</b> dig: every voxel goes into your inventory      <b>Z / X</b> pick tier (dev key until crafting)");
+            sb.AppendLine("  <color=#9fb6c9>  hard rock digs slower; ores need a pick: stone->copper, copper->gold, gold->iron, iron->cobalt</color>");
             sb.AppendLine("  <b>RMB</b> place a cube of the held block (cyan box), costs the cells it fills");
             sb.AppendLine("  <b><color=#ffd479>RMB drag</color></b> a line of cubes, placed on release (stops when the slot runs out)   " +
                           "<b><color=#ffd479>LMB drag</color></b> dig a line   <b><color=#ffd479>Esc</color></b> cancel");
@@ -2805,7 +2877,7 @@ public partial class Playground : MonoBehaviour
         // is already occupied by the RMB panel, and a controls list that
         // overlaps the thing it is describing is worse than useless. It is
         // toggled, so covering the view while open is intended.
-        float w = 760f, h = 512f;   // grew again with Phase 7's LIGHT & TIME group, F6 (task 58), Survival (task 64)
+        float w = 760f, h = 530f;   // grew again with Phase 7's LIGHT & TIME group, F6 (task 58), Survival (task 64), picks (task 105)
         var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f, w, h);
         Box(r, new Color(0f, 0f, 0f, 0.82f));
         Frame(r, new Color(1f, 1f, 1f, 0.22f), 1f);

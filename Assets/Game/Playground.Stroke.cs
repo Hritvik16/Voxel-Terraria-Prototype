@@ -167,7 +167,8 @@ public partial class Playground
         SurvivalBuild.LineCubes(_strokeFrom, _strokeTo, edge, _strokeCubes);
         _strokeSkippedCubes.Clear();
         if (!dig) FilterPlaceCubes(_strokeCubes, edge, _strokeSkippedCubes);
-        _strokeCost = SurvivalBuild.Cost(_store, _strokeCubes, edge, dig, dig ? int.MaxValue : _inv.CountAt(_inv.Selected));
+        _strokeCost = SurvivalBuild.Cost(_store, _strokeCubes, edge, dig, dig ? int.MaxValue : _inv.CountAt(_inv.Selected),
+                                         dig ? HeldPick.TooHard : null);   // task 105: too-hard cells stay
     }
 
     /// The single-click guards, per cube: a cube that would enclose the player,
@@ -236,7 +237,7 @@ public partial class Playground
     {
         RefreshStroke(0f, force: true);
         int n = _strokeCubes.Count, edge = _strokeEdge;
-        var r = SurvivalBuild.DigStroke(_edits, _inv, _strokeCubes, edge, _digScratch);
+        var r = SurvivalBuild.DigStroke(_edits, _inv, _strokeCubes, edge, _digScratch, HeldPick.TooHard);
         CancelStroke();
         if (r.Removed > 0)
         {
@@ -246,7 +247,8 @@ public partial class Playground
             _invDirty |= r.Credited > 0;
             _lostTotal += r.Lost;
             _status = $"dug {r.Removed:N0} voxels in {n} cube(s) of {edge * 0.1f:0.0} m: +{r.Credited:N0} to the inventory" +
-                      (r.Lost > 0 ? $" <color=#ff9a9a>({r.Lost:N0} lost -- inventory FULL)</color>" : "");
+                      (r.Lost > 0 ? $" <color=#ff9a9a>({r.Lost:N0} lost -- inventory FULL)</color>" : "") +
+                      (r.TooHard > 0 ? $" <color=#ffc27a>({r.TooHard:N0} too hard for the {HeldPick.Pick.Name}, left)</color>" : "");
         }
         Debug.Log($"[Stroke] dig: {n} cubes of {edge}, removed {r.Removed}, credited {r.Credited}, lost {r.Lost}");
         return r;
