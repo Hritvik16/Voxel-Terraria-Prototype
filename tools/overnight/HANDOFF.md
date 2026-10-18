@@ -16,16 +16,14 @@
 - `ToolTierTests` 10/10: the rate table (pinned literally), the ladder, only ores/bedrock refused, refusal writes nothing,
   gold pick digs iron at cost 2, mixed sphere leaves the ore, work conserved over frames, strokes keep too-hard cells + preview
   matches, player.json round trip. Fast suite `PASS 881 FAIL 0 SKIP 14` (`Logs/overnight/105-fast.out`). No `Assets/TerrainGen/` change.
-- One launch, `BUILD=1 EXTRA="-tooldemo" ./run-play.sh` (~6 min): log `Logs/overnight/105-player.log`, summary `Screenshots/105/105.txt`.
+- No frame-time measurement (rule 10); memory: two 256-byte tables. One launch, `BUILD=1 EXTRA="-tooldemo" ./run-play.sh` (~6 min): log `Logs/overnight/105-player.log`, summary `Screenshots/105/105.txt`.
   Iron deposit found 1 m from the play start, 91.7 m below sea (119 m under the top), viewing room carved in front of it.
   Copper pick: refused, 0 removed, iron 331/331 left. Gold pick: 552 voxels (331 iron + 221 slate) in 9.8 s, iron left 0, 331 in the hotbar.
-- No frame-time measurement (rule 10). Memory: two 256-byte tables; nothing in the brick pool.
 
 ## Picks (owner may change) -- also P30 in the plan
 1. **Ladder: each pick digs the NEXT ore.** stone (starter) -> copper; copper -> gold, NOT iron; gold -> iron; iron -> cobalt;
    cobalt -> emberstone + meteor ore; bedrock never. Why gold before iron: the acceptance wants copper refused at iron, and crafting
-   must still climb (iron cannot need a pick made of iron). Gold is the softer metal and lies deeper, so the player passes iron to reach gold first.
-   Alternative: iron needs copper (classic Terraria), but then the acceptance's refusal is gone.
+   must still climb (iron cannot need a pick made of iron). Gold is the softer metal and lies deeper (player passes iron to reach gold). Alt: Terraria's copper->iron, but no refusal.
 2. **Rock is never refused, only slowed** (granite/basalt/obsidian x2-x4 slower with the starter). Only ores/bedrock refuse.
 3. **Aimed at a too-hard voxel = nothing dug** (Terraria-like); aimed at rock beside it = the rock goes, the ore stays.
 4. **P11 wins over step 10's first text:** Z/X dev tiers do NOT retire in Survival; they switch picks until crafting (step 11).
@@ -35,7 +33,6 @@
 
 ## Left / next
 - Demos older than 105 (`-oredemo`, `-survivaldemo`) use the old fixed-budget `SurvivalDig`, which ignores the pick (on purpose; noted in code).
-- Shot 1 shows only a small part of the vein (the camera is 1.6 m from the face); refusal text and dig box are clear.
 - Next: step 11 (crafting v1: pick recipes per ore tier) per the queue.
 
 ## For the doc
