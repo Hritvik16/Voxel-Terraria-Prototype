@@ -1,48 +1,63 @@
-# 93c-shells-default-in-play: DONE -- play starts with the LOD shells ON; rigs unchanged; peak memory 2,512 -> 2,378 MB
+# 105-gameplay-step-10-tool-tiers: DONE -- Survival digs with a held PICK; harder rock digs slower; ores need a tier (copper pick REFUSED at iron)
 
-**Which rule applied:** Step 0 was replaced by the owner's Q63 (a) (switch now, no 93b measurement). No frame-time arms (rule 10).
-**Standing-still frames in play are expected ~8-11 ms SLOWER** than the old default (estimate: 93b re-run +12.7 / +13.9 ms minus
-task 99's -4.7 / -2.6 ms; NOT measured), about equal while walking. Checked at the next performance milestone (`later/102-shell-march-cost.md`).
-
-## What changed (commit a24ab64)
-- `PlaySettings.cs`: saved field `shells` (default ON; an older file gets ON), `-shells 0|1` overrides per run (bad value kept +
-  reported), `PlayShellWorkers = 3` (93b's count; `-shellworkers N` overrides), `ResolveShells(args, playRun, loadSaved, out workers)`:
-  a non-play run never calls the loader and keeps the pre-93c rule (`-shells 1` only, 1 worker, last match wins).
-- `Phase4Bootstrapper.cs`: decides once at boot (`ShellsOn`, `ShellWorkers`; playRun = tg2 + `Playground.IsPlaySettingsRun()` + a
-  Playground in the scene); every former `ArgInt("-shells")` reader (small mirror, GPU pool, tiers wanted, ShellStreamer) uses it.
-  Logs `[Phase4Bootstrapper] play run: LOD shells ON, 3 workers`. No change to 93d's tier logic, cascades, `-detailspeed`, `FarStartT`.
-- `SettingsMenu.cs`: row 10 "LOD shells" On/Off (the one option applied at the NEXT start; hint shows this run's state), panel 1004 -> 1078 px.
-  NOT seen on screen (no menu shot taken) -- the owner should glance at F6 once.
-- `Playground.ShellsDemo.cs` (NEW, `-shellsdemo`): 3 play poses + 93a's far ridge pose, tint shots, STEP 14 memory line per pose.
-  `PlaygroundCapture.FarBand.cs`: `Tg2EyeLevelPoses`/`TgGround` private -> internal. `run-play.sh` header, CLAUDE.md, KNOWN_ISSUES line 61.
-- Demos run through `run-play.sh` now get shells unless they pass `-shells 0` (they are play runs).
+## What changed (commit 5a8ce20)
+- `Assets/ContentModules/Tools.cs` (NEW, a content table, guardrail 8): hardness 0-5 for every material id, a required tier (only
+  ores, meteor ore, bedrock), 6 picks. Cost per voxel = 1 + max(0, hardness - tier + 1) work units of the pick's rate; 0 = too hard.
+- `EditService.MineSphereCosted` (ADDED; nothing existing changed): nearest-first sphere dig that pays per voxel, skips too-hard
+  voxels (counted), stops at a voxel it cannot afford yet. `SetCubes` gained an overload with a `keep` mask (the old one forwards).
+- `SurvivalBuild`: `PickTables`, `DigWithPick` (aimed voxel too hard -> refused, nothing written); `DigStroke`/`DigPull`/`Cost`/
+  `DiggableCells` take the optional keep mask (strokes stay instant, only the refusal applies).
+- `Inventory.pick` (player.json field; an older file -> 0 = stone pick; out of range clamps). Format version unchanged.
+- `Playground`: Survival LMB = `SurvivalPickDig`; Z/X in Survival switch the pick (status says what it digs); dig box shows
+  "pick · tier N" and TOO HARD; F2 help line + panel 512 -> 530 px. Creative and every rig keep hand/drill/bore (untouched).
+- `Playground.ToolDemo.cs` (NEW, `EXTRA="-tooldemo"`). `GAMEPLAY_PHASE_PLAN.md` (step 10 Done row, pick P30), `CLAUDE.md` line.
 
 ## Evidence
-- `PlaySettingsTests` 14/14 (3 new: round trip, old file -> ON + flag override/last match/bad value, rigs never read the file, play run
-  file-then-flag). `SUITE=all` PASS 925 FAIL 0 SKIP 25 (`Logs/overnight/93c-all.out`).
-- `run-phase7-rig.sh`: PASS 37 FAIL 0, 19/19 shots byte-identical to 2026-10-16_214816 (`Logs/overnight/93c-phase7.out`).
-- Two launches (OFF must be its own boot: shells are a boot decision): `EXTRA="-shellsdemo -shells 0"` and `EXTRA="-shellsdemo"`
-  (no flag, no PlaySettings.json -> the default ON path). Logs `Logs/overnight/93c-player-{off,on}.log`, summary `Screenshots/93c/93c.txt`.
-- Memory (in-process phys_footprint lifetime peak / external `footprint` 10 s samples / IOAccelerator = Metal):
-  OFF 2,512 / 2,425 / 1,233 MB; ON 2,378 / 2,321 / 1,215 MB. Under the 3,000 MB cap. ON: tiers 1-2 not allocated, mirror 16^3,
-  GPU body pool peak 232,465 of 254,400 (91%), 0 refused.
-- Missing shell chunks at the 45 s shots: eye_level_2 1:0 2:741 3:1908 4:987; glide_400m 1:0 2:288 3:1244; peak_from_2km (2 km
-  teleport) 1:975 2:1449 3:1582 4:987. Ridge: shells 1-4 FILLED after 179 s (cap 240), then 1-4 all 0, 5:190 6:182 7:16.
-- Stills look the same OFF vs ON at the 3 poses (no holes, seams or horizon change seen); the ridge changed (below).
+- `ToolTierTests` 10/10: the rate table (pinned literally), the ladder, only ores/bedrock refused, refusal writes nothing,
+  gold pick digs iron at cost 2, mixed sphere leaves the ore, work conserved over frames, strokes keep too-hard cells + preview
+  matches, player.json round trip. Fast suite `PASS 881 FAIL 0 SKIP 14` (`Logs/overnight/105-fast.out`). No `Assets/TerrainGen/` change.
+- One launch, `BUILD=1 EXTRA="-tooldemo" ./run-play.sh` (~6 min): log `Logs/overnight/105-player.log`, summary `Screenshots/105/105.txt`.
+  Iron deposit found 1 m from the play start, 91.7 m below sea (119 m under the top), viewing room carved in front of it.
+  Copper pick: refused, 0 removed, iron 331/331 left. Gold pick: 552 voxels (331 iron + 221 slate) in 9.8 s, iron left 0, 331 in the hotbar.
+- No frame-time measurement (rule 10). Memory: two 256-byte tables; nothing in the brick pool.
+
+## Picks (owner may change) -- also P30 in the plan
+1. **Ladder: each pick digs the NEXT ore.** stone (starter) -> copper; copper -> gold, NOT iron; gold -> iron; iron -> cobalt;
+   cobalt -> emberstone + meteor ore; bedrock never. Why gold before iron: the acceptance wants copper refused at iron, and crafting
+   must still climb (iron cannot need a pick made of iron). Gold is the softer metal and lies deeper, so the player passes iron to reach gold first.
+   Alternative: iron needs copper (classic Terraria), but then the acceptance's refusal is gone.
+2. **Rock is never refused, only slowed** (granite/basalt/obsidian x2-x4 slower with the starter). Only ores/bedrock refuse.
+3. **Aimed at a too-hard voxel = nothing dug** (Terraria-like); aimed at rock beside it = the rock goes, the ore stays.
+4. **P11 wins over step 10's first text:** Z/X dev tiers do NOT retire in Survival; they switch picks until crafting (step 11).
+5. **The pick is gear, not a slot item** (`Inventory.pick`); step 11 decides how picks become items/recipes.
+6. Starter = old Survival "drill" on soil (40 vox/s, r2); rates 40/60/90/130/180/250, radius 2,2,2,2,3,3.
+7. Dig strokes and face pulls stay instant (BLD1/BLD2 as before); they only skip too-hard cells.
+
+## Left / next
+- Demos older than 105 (`-oredemo`, `-survivaldemo`) use the old fixed-budget `SurvivalDig`, which ignores the pick (on purpose; noted in code).
+- Shot 1 shows only a small part of the vein (the camera is 1.6 m from the face); refusal text and dig box are clear.
+- Next: step 11 (crafting v1: pick recipes per ore tier) per the queue.
 
 ## For the doc
-- Rule: owner Q63 (a), switch without the measurement; standing-still play frames ~8-11 ms slower (estimate, unmeasured).
-- Peak process memory OFF -> ON default: 2,512 -> 2,378 MB (-134 MB; external sampler 2,425 -> 2,321); Metal 1,233 -> 1,215 MB; cap 3,000 MB.
-- Rigs: phase7 PASS 37 FAIL 0, 19/19 shots identical; SUITE=all PASS 925 FAIL 0.
-- Shells 1-4 around 93a's far pose fill in 179 s from a fresh start (3 workers, standing still).
-- `Screenshots/93c/93c_sheet.png` -- rows eye_level_2 / glide_400m / peak_from_2km / ridge93a; columns OFF, ON, ON tinted by shell
-  (blue tier 0, green 1, yellow 2, orange 3, red 4, magenta 5, grey = far band). Look at rows 1-3: OFF and ON match (at 45 s the
-  distant terrain is still mostly far band, grey in the tint); row 4: the ridge left of centre goes from striped to smooth.
-- `Screenshots/93c/93c_ridge_crop4x.png` -- the owner's blocky ridge, 4x crop: top = 93a (far band, grey tint: dark vertical stripes
-  and stepped ledges); middle = 93c shells filled: the ridge is now drawn by SHELL 3 (orange tint), the plain behind by shell 5,
-  and the stripes are GONE -- it reads as smooth 0.8 m facets (shell 3's voxel size), still faceted at 4x but not striped; bottom-left
-  = 93c shells OFF (tiers 1-2 + far band), striped like 93a. So the stripes were the 2.5D far band, not the generator's surface.
-  Full frames: `Screenshots/93c/on_ridge93a.png` / `_tint.png`, 4x singles `93c_ridge_93a_4x.png`, `93c_ridge_on_4x.png`.
+**Result:** Survival now digs with a pick. Harder rock digs slower, and each ore needs a good enough pick. A copper pick is
+refused at iron ("TOO HARD: iron ore needs a gold pick (tier 3) -- you hold a copper pick (tier 2)"); a gold pick digs the same vein.
+**In `./run-play.sh`:** you start with a stone pick; LMB digs; **Z/X switch picks** (a dev key until crafting); F2 lists the ladder.
 
-## Next
-- The F6 row was not looked at on screen. The frame-time cost is unmeasured by design (next performance milestone / task 102).
+| pick (tier) | vox/s on soil | limestone | granite | obsidian | ores it digs |
+| --- | --- | --- | --- | --- | --- |
+| stone (1), starter | 40 | 20 | 13 | 10 | copper |
+| copper (2) | 60 | 60 | 30 | 20 | + gold (not iron) |
+| gold (3) | 90 | 90 | 90 | 45 | + iron |
+| iron (4) | 130 | 130 | 130 | 130 | + cobalt |
+| cobalt (5) | 180 | 180 | 180 | 180 | + emberstone, meteor ore |
+| emberstone (6) | 250 | 250 | 250 | 250 | everything but bedrock |
+
+- Iron vein, copper pick: 0 of 331 iron voxels dug (refused); gold pick: 331 of 331 in 9.8 s (`Screenshots/105/105.txt`).
+- Tests: `ToolTierTests` 10 new; fast suite 881 pass, 0 fail.
+
+Images (underground, torch-lit, 92 m below sea; there is no sun down there):
+- `Screenshots/105/1_iron_vein_copper_pick_refused.png` -- top-left status line in red "TOO HARD: iron ore needs a gold pick";
+  bottom-left dig box "TOO HARD, copper pick · tier 2"; the orange voxels left of the crosshair are the iron vein, untouched.
+- `Screenshots/105/2_gold_pick_digging.png` -- same spot with the gold pick: dark holes eaten into the wall with orange iron still at
+  their edges; hotbar slot 3 = iron ore 167, status "+3 iron ore (now 167) gold pick".
+- `Screenshots/105/3_gold_pick_vein_dug.png` -- the vein gone: a dark hole at the crosshair; hotbar iron ore 331, slate 221.
