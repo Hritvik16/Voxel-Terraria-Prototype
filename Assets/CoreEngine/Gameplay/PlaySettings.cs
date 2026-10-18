@@ -31,6 +31,9 @@ public sealed class PlaySettings
     public static readonly string[] RowChoices = { "540", "720", "dyn" };
     public static readonly string[] ShadowResChoices = { "full", "half" };
     public static readonly string[] GameModes = { "survival", "creative" };
+    /// Task 93c: the shell worker count play starts with (task 93b's arms ran 3);
+    /// `-shellworkers N` overrides it. Runs that do not read this file keep 1.
+    public const int PlayShellWorkers = 3;
 
     // ---- The saved fields (JsonUtility: public fields only) ----
     /// none | taa | fsr1 | stp | fsr3 (UpscalerSelect.Kind; `-upscaler`).
@@ -79,6 +82,10 @@ public sealed class PlaySettings
     /// lit by the ground's slope at distance, haze that lights mostly escape
     /// (RaymarchFeature.FarShade, `-farshade 0|1`). A file saved before task 85b gets on.
     public bool farShade = true;
+    /// Task 93c (owner Q49 / Q63 (a)): the LOD shells (8.14) draw beyond the
+    /// tier-0 box (`-shells 0|1`). Read at BOOT (Phase4Bootstrapper, ResolveShells),
+    /// so a change applies at the next start. A file saved before task 93c gets on.
+    public bool shells = true;
 
     /// Runtime only: -renderpreset / -taa / -checker without -upscaler or
     /// -renderrows asked for the old preset frame path, so no upscaler is applied.
@@ -132,6 +139,7 @@ public sealed class PlaySettings
         string st = Last(args, "-seethrough");
         string rl = Last(args, "-riverlook");
         string fs = Last(args, "-farshade");
+        string sl = Last(args, "-shells");
         if (u != null)
         {
             string v = u.ToLowerInvariant();
@@ -186,11 +194,33 @@ public sealed class PlaySettings
             if (fs == "0" || fs == "1") { s.farShade = fs == "1"; overridden?.Add("farShade"); }
             else overridden?.Add($"-farshade: bad value '{fs}'");
         }
+        if (sl != null)
+        {
+            if (sl == "0" || sl == "1") { s.shells = sl == "1"; overridden?.Add("shells"); }
+            else overridden?.Add($"-shells: bad value '{sl}'");
+        }
         // Task 52's rule, kept: asking for the preset path without naming an
         // upscaler keeps the preset path.
         s.presetPath = u == null && r == null && (Has(args, "-renderpreset") || Has(args, "-taa") || Has(args, "-checker"));
         if (s.presetPath) overridden?.Add("upscaler (preset path)");
         return s;
+    }
+
+    /// Task 93c: the boot-time shells decision (Phase4Bootstrapper.Start). A run
+    /// that reads PlaySettings (`playRun`: interactive play on tg2) takes the saved
+    /// `shells` with `-shells 0|1` laid over it, and PlayShellWorkers unless
+    /// `-shellworkers N`. Any other run (rigs, capture runs, -fluidprobe) NEVER calls
+    /// `loadSaved`: shells only with `-shells 1`, 1 worker unless `-shellworkers N`
+    /// -- exactly the pre-93c rule. Last match wins, like Phase4Bootstrapper.ArgInt.
+    public static bool ResolveShells(string[] args, bool playRun, Func<PlaySettings> loadSaved, out int shellWorkers)
+    {
+        if (!playRun)
+        {
+            shellWorkers = LastInt(args, "-shellworkers", 1);
+            return LastInt(args, "-shells", 0) == 1;
+        }
+        shellWorkers = LastInt(args, "-shellworkers", PlayShellWorkers);
+        return WithArgs(loadSaved(), args, null).shells;
     }
 
     // ---- File IO (the menu's; never called by rigs) ----
@@ -226,6 +256,12 @@ public sealed class PlaySettings
         string v = null;
         for (int i = 0; i + 1 < args.Length; i++) if (args[i] == flag) v = args[i + 1];
         return v;
+    }
+
+    private static int LastInt(string[] args, string flag, int fallback)
+    {
+        int i = Array.LastIndexOf(args, flag);
+        return i >= 0 && i + 1 < args.Length && int.TryParse(args[i + 1], out int v) ? v : fallback;
     }
 
     private static bool Has(string[] args, string flag)

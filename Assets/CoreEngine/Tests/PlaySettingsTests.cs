@@ -29,7 +29,7 @@ public class PlaySettingsTests
         string path = Path.Combine(Path.GetTempPath(), "PlaySettingsTests_" + System.Guid.NewGuid().ToString("N"), PlaySettings.FileName);
         try
         {
-            var a = new PlaySettings { upscaler = "stp", rows = "720", shadowLevel = 2, softShadows = false, perfOverlay = 2, minimap = false, roofSkip = true, underwaterFog = false, seeThroughLiquids = false };
+            var a = new PlaySettings { upscaler = "stp", rows = "720", shadowLevel = 2, softShadows = false, perfOverlay = 2, minimap = false, roofSkip = true, underwaterFog = false, seeThroughLiquids = false, shells = false };
             Assert.IsTrue(PlaySettings.Save(path, a, out string werr), werr);
             var b = PlaySettings.Load(path, out string rerr);
             Assert.IsNull(rerr);
@@ -42,6 +42,7 @@ public class PlaySettingsTests
             Assert.IsTrue(b.roofSkip);
             Assert.IsFalse(b.underwaterFog);
             Assert.IsFalse(b.seeThroughLiquids);
+            Assert.IsFalse(b.shells);   // task 93c
         }
         finally { Directory.Delete(Path.GetDirectoryName(path), true); }
     }
@@ -212,5 +213,62 @@ public class PlaySettingsTests
         Assert.IsNull(e);
         Assert.AreEqual("full", PlaySettings.Parse("{\"shadowRes\":\"x\"}", out e).shadowRes);
         StringAssert.Contains("shadowRes", e);
+    }
+
+    [Test]
+    public void Shells_OldFileGetsOn_FlagOverridesForTheRun()
+    {
+        // Task 93c: a file saved before it has no shells field: it gets ON (play's new default).
+        var old = PlaySettings.Parse("{\"upscaler\":\"fsr3\",\"rows\":\"dyn\",\"farShade\":true}", out string e);
+        Assert.IsNull(e);
+        Assert.IsTrue(old.shells);
+        Assert.IsTrue(new PlaySettings().shells);
+        Assert.IsFalse(PlaySettings.Parse("{\"shells\":false}", out e).shells, "a saved Off is kept");
+
+        var over = new List<string>();
+        var run = PlaySettings.WithArgs(old, new[] { "-shells", "1", "-shells", "0" }, over);
+        Assert.IsFalse(run.shells, "last match wins");
+        Assert.IsTrue(old.shells, "the saved settings are untouched");
+        CollectionAssert.Contains(over, "shells");
+
+        over.Clear();
+        run = PlaySettings.WithArgs(old, new[] { "-shells", "2" }, over);
+        Assert.IsTrue(run.shells, "a bad value keeps the saved one");
+        CollectionAssert.Contains(over, "-shells: bad value '2'");
+    }
+
+    [Test]
+    public void ResolveShells_RigsAndCaptureRunsNeverReadTheFile()
+    {
+        // Not a play run: the loader must never be called, and the pre-93c rule holds.
+        System.Func<PlaySettings> boom = () => { Assert.Fail("a rig/capture run read PlaySettings"); return null; };
+        Assert.IsFalse(PlaySettings.ResolveShells(new[] { "-world", "tg2", "-sustained" }, false, boom, out int w));
+        Assert.AreEqual(1, w);
+        Assert.IsTrue(PlaySettings.ResolveShells(new[] { "-shells", "1", "-shellworkers", "3" }, false, boom, out w));
+        Assert.AreEqual(3, w);
+        Assert.IsFalse(PlaySettings.ResolveShells(new[] { "-shells", "1", "-shells", "0" }, false, boom, out w), "last match wins");
+        Assert.AreEqual(1, w);
+    }
+
+    [Test]
+    public void ResolveShells_PlayRunTakesTheFileThenTheFlag()
+    {
+        int loads = 0;
+        PlaySettings saved = new PlaySettings();
+        System.Func<PlaySettings> load = () => { loads++; return saved; };
+
+        Assert.IsTrue(PlaySettings.ResolveShells(new[] { "-world", "tg2" }, true, load, out int w), "no file = default ON");
+        Assert.AreEqual(PlaySettings.PlayShellWorkers, w);
+        Assert.AreEqual(3, PlaySettings.PlayShellWorkers, "task 93b's worker count");
+
+        saved = new PlaySettings { shells = false };
+        Assert.IsFalse(PlaySettings.ResolveShells(new string[0], true, load, out w), "the saved Off");
+        Assert.IsTrue(PlaySettings.ResolveShells(new[] { "-shells", "1", "-shellworkers", "2" }, true, load, out w), "the flag wins for the run");
+        Assert.AreEqual(2, w);
+        Assert.IsFalse(saved.shells, "a flag never writes the saved settings");
+
+        saved = new PlaySettings();
+        Assert.IsFalse(PlaySettings.ResolveShells(new[] { "-shells", "0" }, true, load, out w));
+        Assert.AreEqual(4, loads);
     }
 }

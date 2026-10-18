@@ -15,6 +15,8 @@
 //   Game mode        Playground.SetGameMode, as -gamemode (task 64: Survival / Creative)
 //   Underwater view  RaymarchFeature.UnderwaterView, as -underwater (task 66b: On)
 //   See-through liquids RaymarchFeature.SeeThroughLiquids, as -seethrough (task 75: On)
+//   LOD shells       PlaySettings.shells, as -shells (task 93c: On). The ONE option read
+//                    at boot (Phase4Bootstrapper): it applies at the next start.
 //
 // ORDERED by task 57's cost split (Logs/costsplit_2026-10-10_212527.txt, warm,
 // walk at noon, FSR 3 at 540): sun shadows 14.2 / 4.2 ms (wall / open view),
@@ -26,7 +28,7 @@
 // Performance render 640x360 / 480x270, below the owner's 960x540 minimum
 // (RenderPreset.Default, 2026-10-01). F3 stays as a dev key.
 //
-// All options apply LIVE; none needs a restart. A change made HERE is saved
+// All options but LOD shells apply LIVE. A change made HERE is saved
 // (PlaySettings.json, persistentDataPath) and applied at the next start; the
 // keys J/K/F1/F4 stay quick session toggles and are not saved. Command-line
 // flags override the file for one run (PlaySettings.WithArgs). Only an
@@ -87,7 +89,7 @@ public class SettingsMenu : MonoBehaviour
         Debug.Log($"[PlaySettings] {(File.Exists(_path) ? "loaded" : "no file yet (defaults)")} {_path}" +
                   (err != null ? $" -- {err}" : "") +
                   $"; this run: upscaler {(run.presetPath ? "preset path" : run.upscaler)}, rows {run.rows}, shadows {run.shadowLevel}" +
-                  $" {(run.softShadows ? "soft" : "hard")}, shadow res {run.shadowRes}, roof skip {(run.roofSkip ? "on" : "off")}, overlay {run.perfOverlay}, minimap {(run.minimap ? "on" : "off")}, game mode {run.gameMode}, underwater {(run.underwaterFog ? "on" : "off")}, see-through liquids {(run.seeThroughLiquids ? "on" : "off")}, far shading {(run.farShade ? "on" : "off")}" +
+                  $" {(run.softShadows ? "soft" : "hard")}, shadow res {run.shadowRes}, roof skip {(run.roofSkip ? "on" : "off")}, overlay {run.perfOverlay}, minimap {(run.minimap ? "on" : "off")}, game mode {run.gameMode}, underwater {(run.underwaterFog ? "on" : "off")}, see-through liquids {(run.seeThroughLiquids ? "on" : "off")}, far shading {(run.farShade ? "on" : "off")}, LOD shells {(run.shells ? "on" : "off")}" +
                   (_overridden.Count > 0 ? $"; flags override: {string.Join(", ", _overridden)}" : ""));
     }
 
@@ -145,20 +147,20 @@ public class SettingsMenu : MonoBehaviour
     {
         if (!IsOpen || Playground.DebugHideUi || DevMap.IsOpen) return;
         GUI.depth = -10;   // over Playground's help panel and the HUD
-        float ui = Mathf.Max(1f, Screen.height / 1010f);   // task 85b: 1010 (was 900) so all rows fit
+        float ui = Mathf.Max(1f, Screen.height / 1084f);   // task 85b: 1010 (was 900), task 93c: 1084 so all rows fit
         Matrix4x4 prev = GUI.matrix;
         GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * ui);
         float vw = Screen.width / ui, vh = Screen.height / ui;
         Styles();
 
-        const float w = 780f, h = 1004f;   // + task 64's Game mode row, task 66b's Underwater view row, task 75's See-through liquids row, task 85b's Far shading row
+        const float w = 780f, h = 1078f;   // + task 64's Game mode row, task 66b's Underwater view row, task 75's See-through liquids row, task 85b's Far shading row, task 93c's LOD shells row
         var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f, w, h);
         Fill(r, new Color(0.03f, 0.05f, 0.08f, 0.96f));
         Fill(new Rect(r.x, r.y, w, 1f), new Color(1f, 1f, 1f, 0.25f));
         Fill(new Rect(r.x, r.yMax - 1f, w, 1f), new Color(1f, 1f, 1f, 0.25f));
 
         float x = r.x + 20f, y = r.y + 14f;
-        GUI.Label(new Rect(x, y, w - 40f, 26f), "<b>SETTINGS</b>   <color=#9fb6c9>F6 or Esc closes -- every option applies now, no restart</color>", _title);
+        GUI.Label(new Rect(x, y, w - 40f, 26f), "<b>SETTINGS</b>   <color=#9fb6c9>F6 or Esc closes -- every option applies now, except LOD shells (next start)</color>", _title);
         y += 30f;
 
         // 0. Game mode (task 64, gameplay step 1). Not a graphics cost.
@@ -304,10 +306,21 @@ public class SettingsMenu : MonoBehaviour
             Save("farShade", s => s.farShade = pick == 0);
         }
 
+        // 10. LOD shells (task 93c). Read at boot, so the saved choice is shown and
+        // used at the next start; the hint says what this run has.
+        int shl = _saved.shells ? 0 : 1;
+        bool shellsNow = Phase4Bootstrapper.ShellsOn;
+        pick = Row(x, ref y, "LOD shells", "shells",
+            $"Detailed terrain past 128 m and far edits drawn (memory ~0.2 GB less). Standing still ~8-11 ms slower (estimate). " +
+            $"Next start. This run: {(shellsNow ? "On" : "Off")}.",
+            new[] { "On", "Off" }, shl);
+        if (pick >= 0 && pick != shl)
+            Save("shells", s => s.shells = pick == 0);
+
         y += 4f;
         GUI.Label(new Rect(x, y, w - 40f, 60f),
             "<color=#9fb6c9>Choices made here are saved and used at the next start. Command-line flags " +
-            "(-upscaler, -renderrows, -shadowlevel, -shadowres, -roofskip, -gamemode, -underwater, -seethrough, -farshade) override them for one run. The keys J, K, F1, F4 change " +
+            "(-upscaler, -renderrows, -shadowlevel, -shadowres, -roofskip, -gamemode, -underwater, -seethrough, -farshade, -shells) override them for one run. The keys J, K, F1, F4 change " +
             "things for this session only.\n" + (_note ?? $"file: {_path}") + "</color>", _small);
 
         GUI.matrix = prev;

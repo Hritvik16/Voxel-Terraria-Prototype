@@ -19,6 +19,8 @@
 # start. Roof skip (exact sun shadows) is OFF by default: task 59 measured it slower on tg2.
 # -upscaler / -renderrows / -shadowlevel / -roofskip 0|1 in EXTRA override the file PER FIELD for that
 # run (so -renderrows 720 alone keeps the saved upscaler). Rigs never read the file.
+# LOD shells (task 93c, owner Q63 (a)): play STARTS WITH THE SHELLS ON (3 shell workers), F6 "LOD shells"
+# (applies at the next start); EXTRA="-shells 0" turns them off for one run, -shellworkers N sets the workers.
 # Start pose (task 32d): the fluid arena's basin can be a lake bed (v4) or the pose can
 # sit inside a hill (v3), so a tg2 session stands on the nearest dry column instead;
 # the Player.log "[Playground] start pose" lines say where, and what the eye is in.

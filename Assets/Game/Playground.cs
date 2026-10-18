@@ -562,7 +562,7 @@ public partial class Playground : MonoBehaviour
         _vitalsAllowed = !(TryArgFloat("-vitals", out float vitArg) && vitArg < 1f) &&
                          !(HasArg("-survivaldemo") || HasArg("-strokedemo") || HasArg("-pulldemo") || HasArg("-movedemo") ||
                            HasArg("-oredemo") || HasArg("-riverdemo") || HasArg("-liquiddemo") || HasArg("-farop") || HasArg("-farwall") ||
-                           HasArg("-reactiondemo") || HasArg("-climbdemo") || HasArg("-walldemo"));
+                           HasArg("-reactiondemo") || HasArg("-climbdemo") || HasArg("-walldemo") || HasArg("-shellsdemo"));
         // -oredemo (task 66): ore screenshots (a tunnel wall, the hotbar, the dev map's close slice), then quit.
         if (!IsCaptureRun() && HasArg("-oredemo")) StartCoroutine(OreDemo());
         // -riverdemo (task 73): river/lake/waterfall/mouth screenshots for RIVERS_WATERFALLS_PLAN.md, then quit.
@@ -575,6 +575,8 @@ public partial class Playground : MonoBehaviour
         if (!IsCaptureRun() && HasArg("-farop")) StartCoroutine(FarOpDemo());
         // -farwall (task 93a): a SetVoxel tower ~100 m out, edit summaries off then on, shot through the shells, then quit.
         if (!IsCaptureRun() && HasArg("-farwall")) StartCoroutine(FarWallDemo());
+        // -shellsdemo (task 93c): play stills at 3 poses + 93a's far ridge, shells as this run has them (OFF / ON), then quit.
+        if (!IsCaptureRun() && HasArg("-shellsdemo")) StartCoroutine(ShellsDemo());
     }
 
     /// For overlays (Minimap) that must stay out of capture frames.
@@ -584,7 +586,7 @@ public partial class Playground : MonoBehaviour
     /// launches the Playground passes a capture flag except run-play.sh,
     /// run-demo.sh (both interactive) and run-tg2world.sh MODE=fluidprobe
     /// (-fluidprobe is a rig but deliberately not a capture run), excluded here.
-    private static bool IsPlaySettingsRun() => !IsCaptureRun() && !HasArg("-fluidprobe");
+    internal static bool IsPlaySettingsRun() => !IsCaptureRun() && !HasArg("-fluidprobe");
 
     /// Task 93c1 (gameplay step 4, P21): the runs that start at the play start
     /// (TerrainGen.PlayStart: the best easy area) and save/resume the player's

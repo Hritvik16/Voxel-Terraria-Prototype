@@ -618,7 +618,7 @@ public partial class PlaygroundCapture
     /// The three EYE-LEVEL poses (tg2 voxels: eye, look-at), shared by
     /// -farpreview and -nearshimmer: dry sites at 25 / 45 / 65% of the island
     /// radius, 1.7 m above the ground, looking at the peak.
-    private static List<(string n, float3 eye, float3 at)> Tg2EyeLevelPoses(TerrainGen.WorldMap map)
+    internal static List<(string n, float3 eye, float3 at)> Tg2EyeLevelPoses(TerrainGen.WorldMap map)
     {
         var spec = map.Spec;
         float c = spec.worldSizeVoxels * 0.5f;
@@ -642,7 +642,7 @@ public partial class PlaygroundCapture
 
     /// Top-face Y (tg2 absolute voxels) of the sizeClass 2 column, or sea level.
     /// Not an iterator, so it may hold the map's pointer view.
-    private static float TgGround(TerrainGen.WorldMap map, float gx, float gz)
+    internal static float TgGround(TerrainGen.WorldMap map, float gx, float gz)
     {
         var spec = map.Spec;
         var view = map.View;

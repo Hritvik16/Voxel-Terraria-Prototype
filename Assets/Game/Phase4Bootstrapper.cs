@@ -110,6 +110,10 @@ public class Phase4Bootstrapper : MonoBehaviour
         return v == "tg2";
     }
     public static bool IsTg2World { get; private set; }
+    /// Task 93c: this run draws the LOD shells (tg2 only; PlaySettings.ResolveShells).
+    public static bool ShellsOn { get; private set; }
+    /// Task 93c: the shell worker count (`-shellworkers`; play's default PlaySettings.PlayShellWorkers).
+    public static int ShellWorkers { get; private set; } = 1;
 
     /// Task 93c1 (gameplay step 4, P21): true when this session started at
     /// TerrainGen.PlayStart's pick; PlayStartM is that point (metres, eye 2 m
@@ -195,6 +199,21 @@ public class Phase4Bootstrapper : MonoBehaviour
         // ---- Stage 1 (§5.2): plan, persist, read back, verify. Unchanged
         // from Phase 3 -- generation still consumes the FILE, not the plan.
         IsTg2World = Tg2WorldRequested();
+        // Task 93c (owner Q49 / Q63 (a)): interactive play on tg2 starts with the LOD
+        // shells ON (PlaySettings.shells, F6 "LOD shells"; `-shells 0|1` overrides for
+        // the run) and PlaySettings.PlayShellWorkers workers. Rigs, capture runs and
+        // -fluidprobe never read the file: shells only with `-shells 1`, as before.
+        {
+            bool playRun = IsTg2World && Playground.IsPlaySettingsRun() && FindAnyObjectByType<Playground>() != null;
+            string psPath = Path.Combine(Application.persistentDataPath, PlaySettings.FileName);
+            bool on = PlaySettings.ResolveShells(Environment.GetCommandLineArgs(), playRun,
+                                                 () => PlaySettings.Load(psPath, out _), out int sw0);
+            ShellsOn = IsTg2World && on;
+            ShellWorkers = sw0;
+            if (playRun)
+                UnityEngine.Debug.Log($"[Phase4Bootstrapper] play run: LOD shells {(ShellsOn ? $"ON, {ShellWorkers} workers" : "OFF")} " +
+                                      "(PlaySettings.shells / -shells; task 93c)");
+        }
         // The TerrainGen world has no legacy anchors (its landmarks are the
         // map's own); a SEPARATE folder keeps its deltas from ever being
         // replayed onto the other world's chunks (deltas are keyed by coord).
@@ -307,7 +326,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         // ~90 m freezes). Needs no cascade tiers (`-keeptiers 1` keeps today's box:
         // their slots follow tier 0's). Shells off: unchanged.
         SmallMirror = false;
-        if (IsTg2World && ArgInt("-shells", 0) == 1 && ArgInt("-smallmirror", 1) == 1
+        if (IsTg2World && ShellsOn && ArgInt("-smallmirror", 1) == 1
             && !LODCascadeManager.TiersWanted(IsTg2World, 1, ArgInt("-keeptiers", 0)))
         {
             int3 box = ShellLayout.From(ShellPresetFromArgs()).MirrorBox;
@@ -320,7 +339,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         // buffer is its own pool (EngineConfig.GpuBrickCapFor the box; `-gpubrickcap N`
         // overrides, `-gpupool 0` = the old CPU-pool-sized layout). Shells off: unchanged.
         int gpuBrickCap = 0;
-        if (IsTg2World && ArgInt("-shells", 0) == 1 && ArgInt("-gpupool", 1) == 1)
+        if (IsTg2World && ShellsOn && ArgInt("-gpupool", 1) == 1)
         {
             gpuBrickCap = ArgInt("-gpubrickcap", 0);
             if (gpuBrickCap <= 0) gpuBrickCap = EngineConfig.GpuBrickCapFor(mirrorChunks.x, mirrorChunks.y, mirrorChunks.z);
@@ -330,7 +349,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         if (gpuBrickCap > 0)
             UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU brick pool {gpuBrickCap:N0} bodies ({gpuBrickCap * 512L / (1 << 20)} MB; CPU pool {_pool.Capacity:N0}): task 93f");
         if (SmallMirror && ArgInt("-fluiddir", 1) == 1) Clipmap.EnableFluidDir(storeWindowChunks);
-        if (IsTg2World && ArgInt("-shells", 0) == 1)
+        if (IsTg2World && ShellsOn)
             UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU mirror box {mirrorChunks} ({(SmallMirror ? "-smallmirror: task 93e" : "today's")}), " +
                                   $"load radius stays {EngineConfig.TG2_LOAD_RADIUS_CHUNKS} chunks, fluid terrain directory {(Clipmap.FluidDirEnabled ? "on" : "off")}");
         // Edit-driven cascade rebuilds off the main thread (LODCascadeManager's
@@ -349,8 +368,8 @@ public class Phase4Bootstrapper : MonoBehaviour
         }
         // Task 93d (8.15 row D1, owner Q49): with the shells on, tiers 1-2 never draw,
         // so they are not created (task 55's ledger: 193 MB). Shells off: as before.
-        bool shellsRequested = IsTg2World && ArgInt("-shells", 0) == 1;
-        Cascades = !LODCascadeManager.TiersWanted(IsTg2World, ArgInt("-shells", 0), ArgInt("-keeptiers", 0)) ? null
+        bool shellsRequested = IsTg2World && ShellsOn;
+        Cascades = !LODCascadeManager.TiersWanted(IsTg2World, ShellsOn ? 1 : 0, ArgInt("-keeptiers", 0)) ? null
                  : new LODCascadeManager(mirrorChunks, tier => IsTg2World ? EngineConfig.Tg2CascadeTierPoolCap(tier)
                                                                           : EngineConfig.CascadeTierPoolCap(tier));
         if (shellsRequested)
@@ -484,7 +503,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         if (shellsRequested)
         {
             var layout = ShellLayout.From(ShellPresetFromArgs());
-            Shells = new ShellStreamer(layout, Streamer.TerrainGenSource, ArgInt("-shellworkers", 1));
+            Shells = new ShellStreamer(layout, Streamer.TerrainGenSource, ShellWorkers);
             Shells.Ops = Streamer.Ops;   // 8.14 row 9: shells apply the save's edit ops on generation
             // Task 93a (8.15 §5 "Live"): resident block edits redraw into the shells that
             // cover them. `-editsummaries 0` = tracked but not drawn (the pre-93a picture).
