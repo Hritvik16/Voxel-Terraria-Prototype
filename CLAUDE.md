@@ -45,6 +45,10 @@
 Engine capability + performance (lighting, LOD shells, resolution, streaming, fluids) come
 BEFORE the player and placement.
 
+**engine-phase merged to `main` on 2026-10-22** (task 109, merge `a5f6440`; whole suite `PASS 935 FAIL 0
+SKIP 25`). **Next: the owner's quality pass (2026-10-22)** -- performance (stable 30 fps), lighting, world gen,
+visuals BEFORE populating the world; crafting / the core loop come after.
+
 Phases 1-7 are CLOSED and merged (Phase 7: `9b3ee50`, 2026-09-24). The
 large-world / terrain-overhaul work -- TerrainGen v3, the far band, and the
 walkable sizeClass 2 island (`-world tg2`), design doc §12-15 -- was merged to
