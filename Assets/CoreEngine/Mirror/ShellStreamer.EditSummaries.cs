@@ -20,11 +20,16 @@
 //      chunk covering it that a shell holds, uploads or generates is queued for
 //      a redraw (the op path: generated again -- now generator + ops + the
 //      summaries, then the fill -- and re-stored gap-free).
-//   4. EVICTION KEEPS NOTHING (8.15 §5's saved summaries are task E2): the
-//      summary leaves the snapshot, nothing is redrawn for it; a shell chunk
-//      drawn with it keeps it until it is generated again (it leaves the box,
-//      or another edit or op redraws it), then the edit is gone from the far
-//      shells until the chunk is resident again.
+//   4. EVICTION: the live summary leaves the snapshot. Task 108 (8.15 E2):
+//      SaveDelta wrote the chunk's D.5 summary beside its D.1 (Saved), and
+//      step 5 puts that one in instead -- same look, so nothing is redrawn.
+//   5. SAVED SUMMARIES: every D.5 summary of a chunk with no live summary that
+//      some shell covers is read (at most SAVED_SUMMARY_LOADS_PER_FRAME disk
+//      reads per frame; stale or corrupt files are rejected by the store) and
+//      published with the live ones; it is applied in row 10's order (ops <= S,
+//      summary, ops > S; GenerateShellChunk). One that appears, changes look or
+//      goes away while covered redraws its covering shell chunks.
+//      `-savedsummaries 0` (SavedSummariesEnabled) = not read: the 93a picture.
 // Shells off: nothing attaches the sink, so SetVoxel marks nothing.
 //
 // THREADING: everything here is main thread; the job reads only its scratch.
@@ -41,6 +46,13 @@ namespace VoxelEngine.Mirror
         /// False (`-editsummaries 0`): edits are still tracked but nothing is
         /// summarised -- the pre-93a picture. Turning it on summarises them.
         public bool SummariesEnabled = true;
+        /// Task 108 (8.15 E2): the save's D.5 summaries (null = none), and the switch
+        /// that reads them (also needs SummariesEnabled). Toggling redraws.
+        public SavedEditSummaries Saved;
+        public bool SavedSummariesEnabled = true;
+        /// Saved summaries in the snapshot now; published (new or replaced) so far.
+        public int SavedHeld => _savedIn.Count;
+        public long SavedSummariesIn;
         /// Seconds, for the once-per-interval rule; tests drive it. Null = real time.
         public Func<double> SummaryClock;
 
@@ -80,7 +92,15 @@ namespace VoxelEngine.Mirror
         private bool _sumWaiting;
         private readonly System.Diagnostics.Stopwatch _sumWatch = System.Diagnostics.Stopwatch.StartNew();
 
-        private bool SummariesBusy => _builds.Count > 0 || _sumWaiting;
+        private bool SummariesBusy => _builds.Count > 0 || _sumWaiting || _savedPending;
+
+        // ---- saved summaries (header point 5) ----
+        private readonly Dictionary<int3, EditSummary> _savedIn = new Dictionary<int3, EditSummary>();
+        private readonly Dictionary<int3, EditSummary> _liveDropped = new Dictionary<int3, EditSummary>();
+        private readonly List<int3> _savedCoords = new List<int3>(), _savedOut = new List<int3>();
+        private int _savedSeen = -1;
+        private bool _savedDirty = true, _savedOn, _savedPending;
+        private bool HasLive(int3 c) => _sum.TryGetValue(c, out var e) && e.Summary != null;
         private double SumNow => SummaryClock != null ? SummaryClock() : _sumWatch.Elapsed.TotalSeconds;
 
         /// Start tracking `store`'s edits (main thread, once). Chunks already
@@ -109,11 +129,73 @@ namespace VoxelEngine.Mirror
         }
 
         /// Update's step between the boxes moving and the op redraws (header EDIT SUMMARIES).
-        private void UpdateSummaries()
+        private void UpdateSummaries(bool moved = false)
         {
-            if (_editStore == null) return;
+            if (_editStore == null && Saved == null) return;
             bool changed = false;
             _sumNew.Clear();
+            if (_editStore != null) changed = UpdateLiveSummaries();
+            changed |= UpdateSavedSummaries(moved || changed);
+            _liveDropped.Clear();
+
+            if (!changed) return;
+            var all = new List<EditSummary>(_sum.Count + _savedIn.Count);
+            foreach (var kv in _sum) if (kv.Value.Summary != null) all.Add(kv.Value.Summary);
+            all.AddRange(_savedIn.Values);
+            _sumSnap = new EditSummarySnapshot(all.ToArray(), ++_sumVersion);
+            foreach (var c in _sumNew) QueueSummaryRedraws(c);
+        }
+
+        /// Header point 5. True = the snapshot changed.
+        private bool UpdateSavedSummaries(bool dirty)
+        {
+            bool on = Saved != null && SavedSummariesEnabled && SummariesEnabled;
+            if (on != _savedOn) { _savedOn = on; dirty = true; }
+            if (Saved != null && Saved.Version != _savedSeen) dirty = true;
+            if (!(dirty || _savedDirty)) return false;
+            _savedDirty = false; _savedPending = false;
+            bool changed = false;
+
+            _savedOut.Clear();
+            foreach (var kv in _savedIn)
+                if (!on || !Saved.Has(kv.Key) || HasLive(kv.Key) || !SummaryCovered(kv.Key)) _savedOut.Add(kv.Key);
+            foreach (var c in _savedOut)
+            {
+                _savedIn.Remove(c);
+                changed = true;
+                if (!HasLive(c) && SummaryCovered(c)) _sumNew.Add(c);   // switched off, deleted or rejected while drawn
+            }
+            if (on)
+            {
+                int budget = EngineConfig.SAVED_SUMMARY_LOADS_PER_FRAME;
+                Saved.CopyCoords(_savedCoords);
+                foreach (var c in _savedCoords)
+                {
+                    if (HasLive(c) || !SummaryCovered(c)) continue;
+                    var r = Saved.TryGet(c, ref budget, out var s);
+                    if (r == SavedEditSummaries.GetResult.NotLoaded) { _savedPending = true; continue; }
+                    _savedIn.TryGetValue(c, out var cur);
+                    if (r == SavedEditSummaries.GetResult.None)
+                    {
+                        if (cur != null) { _savedIn.Remove(c); changed = true; _sumNew.Add(c); }
+                        continue;
+                    }
+                    if (ReferenceEquals(cur, s)) continue;
+                    _savedIn[c] = s;
+                    changed = true; SavedSummariesIn++;
+                    var prev = cur ?? (_liveDropped.TryGetValue(c, out var ld) ? ld : null);
+                    if (prev == null || !prev.SameLook(s)) _sumNew.Add(c);
+                }
+            }
+            _savedDirty = _savedPending;
+            _savedSeen = Saved != null ? Saved.Version : -1;
+            return changed;
+        }
+
+        /// Header points 1-4. True = the snapshot changed.
+        private bool UpdateLiveSummaries()
+        {
+            bool changed = false;
 
             // 1. Finished builds -> summaries.
             for (int i = 0; i < _builds.Count; i++)
@@ -155,7 +237,7 @@ namespace VoxelEngine.Mirror
                 if (_editStore.GetChunk(kv.Key) != kv.Value.Chunk) _sumGone.Add(kv.Key);
             foreach (var c in _sumGone)
             {
-                if (_sum[c].Summary != null) { changed = true; SummariesDropped++; }
+                if (_sum[c].Summary != null) { changed = true; SummariesDropped++; _liveDropped[c] = _sum[c].Summary; }
                 _sum.Remove(c);
             }
 
@@ -185,12 +267,7 @@ namespace VoxelEngine.Mirror
                     _builds.Add(new SumBuild { S = s, Coord = kv.Key, Chunk = e.Chunk, Mask = mask });
                 }
             }
-
-            if (!changed) return;
-            var all = new List<EditSummary>(_sum.Count);
-            foreach (var kv in _sum) if (kv.Value.Summary != null) all.Add(kv.Value.Summary);
-            _sumSnap = new EditSummarySnapshot(all.ToArray(), ++_sumVersion);
-            foreach (var c in _sumNew) QueueSummaryRedraws(c);
+            return changed;
         }
 
         /// Every shell chunk covering 0.1 m chunk `c` that a shell holds, uploads or
@@ -225,7 +302,7 @@ namespace VoxelEngine.Mirror
         private void DisposeSummaries()
         {
             foreach (var s in _sumAll) s.Dispose();   // completes any job first
-            _sumAll.Clear(); _sumFree.Clear(); _builds.Clear();
+            _sumAll.Clear(); _sumFree.Clear(); _builds.Clear(); _savedIn.Clear();
             if (_editStore != null && _editStore.EditSink == this) _editStore.EditSink = null;
             _editStore = null;
         }

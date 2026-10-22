@@ -53,6 +53,20 @@
 // The texel is sampled at its CENTRE column, so a texel shows the op only if
 // the op covers that column -- an op narrower than the texel may not show.
 //
+// SAVED EDIT SUMMARIES (task 108, Amendment 8.15 row E2): an edited chunk's D.5
+// summary (SavedEditSummaries) is folded in the same way, in row 10's order
+// (ops <= its S, the summary, ops > S). The store keeps, per edited brick
+// column, the two fine columns this band ever samples (texel centres: x & 7 ==
+// 4 at level 0, == 0 above) as FarSpans: the run of edited bricks [ylo, yhi]
+// and its highest non-air voxel at 0.2 m (ApplySpan). 2.5D: a build that
+// reaches the column's top raises it (tower, wall, mound) or a dug run lowers
+// it to the run's floor (pit); a run buried under the generator's top (a
+// tunnel) changes nothing; over water a build that rises out of it is dry land
+// and a dug bed gets deeper. Each job gets its own sorted copy of the spans in
+// its region (SpansFor), so the store is never read off the main thread; a
+// change in the store (a save, a delete, a summary validated) patches that
+// chunk's texels like a later op.
+//
 // NOT IN THIS PROTOTYPE (§4.2 production form): persistence of its own, the
 // band-limited field, a CPU march oracle.
 using System;
@@ -219,6 +233,9 @@ namespace VoxelEngine.Rendering
             public NativeArray<int> maxH;
             public NativeArray<VoxelEngine.Streaming.EditOp> ops;   // the ops the job applies (owned by the job)
             public int opsUsed;                                     // the log's count when it was scheduled
+            public NativeArray<VoxelEngine.Streaming.FarSpan> spans; // task 108: saved summaries (owned by the job)
+            public NativeArray<int4> spanCols;
+            public int sumUsed;                                     // the store's Version when scheduled
             public int2 newOrigin;       // origin to adopt when applied
             public int x0, z0, w, h;     // region (texel coords) for a strip
             public double startedAt;
@@ -236,6 +253,8 @@ namespace VoxelEngine.Rendering
             public JobHandle handle;
             public NativeArray<uint> result;
             public NativeArray<VoxelEngine.Streaming.EditOp> ops;
+            public NativeArray<VoxelEngine.Streaming.FarSpan> spans;
+            public NativeArray<int4> spanCols;
         }
         private readonly List<Patch> _patches = new List<Patch>();   // FIFO: issued in the order scheduled
         private bool _patchTurn;
@@ -251,6 +270,14 @@ namespace VoxelEngine.Rendering
             set { _ops = value; _opsSeen = 0; }
         }
 
+        // ---- saved edit summaries (task 108, header SAVED EDIT SUMMARIES) ----
+        private VoxelEngine.Streaming.SavedEditSummaries _saved;
+        private int _savedSeen;
+        private readonly List<VoxelEngine.Streaming.FarSpan> _spanTmp = new List<VoxelEngine.Streaming.FarSpan>();
+        private readonly List<int3> _changedTmp = new List<int3>();
+        public long SummaryPatchChunks { get; private set; }
+        public VoxelEngine.Streaming.SavedEditSummaries Summaries => _saved;
+
         /// Test hook (EditMode cannot read GPU buffers back): a CPU copy of every
         /// texel write (ApplyFull, and each scatter as FarScatter does it). Set
         /// before construction; Shadow is level-major ring slots.
@@ -261,10 +288,12 @@ namespace VoxelEngine.Rendering
         /// source (TerrainGenChunkSource.Map) -- borrowed, not owned, so the
         /// ~25 s build happens once. Null: build (and own) one as before.
         public FarField(WorldMetaData meta, Vector3 cameraMetres, TerrainGen.WorldMap sharedTg2Map = null,
-                        VoxelEngine.Streaming.EditOpLog ops = null)
+                        VoxelEngine.Streaming.EditOpLog ops = null, VoxelEngine.Streaming.SavedEditSummaries summaries = null)
         {
             _ops = ops;
             _opsSeen = ops != null ? ops.Count : 0;   // the initial fill below applies them
+            _saved = summaries;
+            _savedSeen = summaries != null ? summaries.Version : 0;   // so does it these
             if (ShadowTexels) Shadow = new uint[LEVELS * LEVEL_TEXELS];
             _st = ColumnSampler.CreateState(meta);
             Tg2World = meta.sizeClass == VoxelEngine.WorldGen.TerrainGenChunkSource.SIZE_CLASS;
@@ -401,6 +430,7 @@ namespace VoxelEngine.Rendering
             long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             double applyTicks = 0;
             QueueOpPatches();
+            QueueSummaryPatches();
             // 1. Harvest finished jobs.
             for (int L = 0; L < LEVELS; L++)
             {
@@ -442,8 +472,8 @@ namespace VoxelEngine.Rendering
                 MaxHeightVoxels = math.max(MaxHeightVoxels, p.maxH[0]);
                 StripsApplied++;
                 fs.strips++;
-                PatchAfter(L, p.x0, p.z0, p.w, p.h, p.opsUsed);
-                p.result.Dispose(); p.maxH.Dispose(); p.ops.Dispose();
+                PatchAfter(L, p.x0, p.z0, p.w, p.h, p.opsUsed, p.sumUsed);
+                p.result.Dispose(); p.maxH.Dispose(); p.ops.Dispose(); DisposeSpans(ref p.spans, ref p.spanCols);
                 p.active = false;
                 _patchTurn = true;
             }
@@ -495,7 +525,8 @@ namespace VoxelEngine.Rendering
             p.maxH = new NativeArray<int>(1, Allocator.Persistent);
             p.startedAt = Time.realtimeSinceStartupAsDouble;
             p.ops = OpsFor(L, x0, z0, w, h, out p.opsUsed);
-            var h1 = ScheduleFill(TexelVoxels(L), x0, z0, w, false, int2.zero, p.result, w * h, 1024, p.ops);
+            SpansFor(L, x0, z0, w, h, out p.spans, out p.spanCols, out p.sumUsed);
+            var h1 = ScheduleFill(TexelVoxels(L), x0, z0, w, false, int2.zero, p.result, w * h, 1024, p.ops, p.spans, p.spanCols);
             p.handle = new MaxJob { values = p.result, maxH = p.maxH }.Schedule(h1);
             ColumnsSampled += (long)w * h;
         }
@@ -503,13 +534,14 @@ namespace VoxelEngine.Rendering
         private void ScheduleFull(int L, int2 origin)
         {
             ref Pending p = ref _pending[L];
-            if (p.active) { p.handle.Complete(); p.result.Dispose(); p.maxH.Dispose(); p.ops.Dispose(); }
+            if (p.active) { p.handle.Complete(); p.result.Dispose(); p.maxH.Dispose(); p.ops.Dispose(); DisposeSpans(ref p.spans, ref p.spanCols); }
             p.active = true; p.full = true; p.newOrigin = origin;
             p.result = new NativeArray<uint>(LEVEL_TEXELS, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             p.maxH = new NativeArray<int>(1, Allocator.Persistent);
             p.startedAt = Time.realtimeSinceStartupAsDouble;
             p.ops = OpsFor(L, origin.x, origin.y, EDGE, EDGE, out p.opsUsed);
-            var h1 = ScheduleFill(TexelVoxels(L), origin.x, origin.y, EDGE, true, origin, p.result, LEVEL_TEXELS, 4096, p.ops);
+            SpansFor(L, origin.x, origin.y, EDGE, EDGE, out p.spans, out p.spanCols, out p.sumUsed);
+            var h1 = ScheduleFill(TexelVoxels(L), origin.x, origin.y, EDGE, true, origin, p.result, LEVEL_TEXELS, 4096, p.ops, p.spans, p.spanCols);
             p.handle = new MaxJob { values = p.result, maxH = p.maxH }.Schedule(h1);
             ColumnsSampled += LEVEL_TEXELS;
         }
@@ -525,14 +557,15 @@ namespace VoxelEngine.Rendering
             MaxHeightVoxels = math.max(MaxHeightVoxels, p.maxH[0]);
             PendingMipMask |= 1 << L;
             if (Ready) FullRefills++;
-            PatchAfter(L, p.newOrigin.x, p.newOrigin.y, EDGE, EDGE, p.opsUsed);
-            p.result.Dispose(); p.maxH.Dispose(); p.ops.Dispose();
+            PatchAfter(L, p.newOrigin.x, p.newOrigin.y, EDGE, EDGE, p.opsUsed, p.sumUsed);
+            p.result.Dispose(); p.maxH.Dispose(); p.ops.Dispose(); DisposeSpans(ref p.spans, ref p.spanCols);
             p.active = false;
         }
 
         private JobHandle ScheduleFill(int texelVoxels, int x0, int z0, int w, bool ringOrder, int2 ringOrigin,
                                        NativeArray<uint> output, int count, int batch,
-                                       NativeArray<VoxelEngine.Streaming.EditOp> ops)
+                                       NativeArray<VoxelEngine.Streaming.EditOp> ops,
+                                       NativeArray<VoxelEngine.Streaming.FarSpan> spans, NativeArray<int4> spanCols)
         {
             int opCount = ops.Length == 1 && ops[0].kind == 0 ? 0 : ops.Length;   // OpsFor's empty marker
             if (UsesTg2)
@@ -541,13 +574,13 @@ namespace VoxelEngine.Rendering
                     h = _tgH, r = _tgR, wat = _tgW, cls = _tgCls, flow = _tgFlow, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
                     seaShift = Tg2SeaShift,
                     texelVoxels = texelVoxels, x0 = x0, z0 = z0, w = w, ringOrder = ringOrder, ringOrigin = ringOrigin, output = output,
-                    ops = ops, opCount = opCount,
+                    ops = ops, opCount = opCount, spans = spans, spanCols = spanCols,
                 }.Schedule(count, batch);
             return new FillRegionJob
             {
                 st = _st, surfaceByBiome = _surfaceByBiome, texelVoxels = texelVoxels,
                 x0 = x0, z0 = z0, w = w, ringOrder = ringOrder, ringOrigin = ringOrigin, output = output,
-                ops = ops, opCount = opCount,
+                ops = ops, opCount = opCount, spans = spans, spanCols = spanCols,
             }.Schedule(count, batch);
         }
 
@@ -606,18 +639,155 @@ namespace VoxelEngine.Rendering
             _opsSeen = snap.Count;
         }
 
-        /// A strip or refill computed with ops 0..opsUsed has just gone up: the
-        /// ops recorded since then get a patch behind it (FIFO, so it lands after).
-        private void PatchAfter(int L, int x0, int z0, int w, int h, int opsUsed)
+        /// A strip or refill computed with ops 0..opsUsed (and the summary store at
+        /// version sumUsed) has just gone up: the ops recorded and the summaries
+        /// changed since then get a patch behind it (FIFO, so it lands after).
+        private void PatchAfter(int L, int x0, int z0, int w, int h, int opsUsed, int sumUsed)
         {
             var snap = _ops?.Snapshot;
-            if (snap == null || opsUsed >= snap.Count) return;
-            for (int i = opsUsed; i < snap.Count; i++)
+            if (snap != null && opsUsed < snap.Count)
+                for (int i = opsUsed; i < snap.Count; i++)
+                {
+                    OpTexelRect(snap.Ops[i], L, out int2 a, out int2 b);
+                    a = math.max(a, new int2(x0, z0)); b = math.min(b, new int2(x0 + w - 1, z0 + h - 1));
+                    SchedulePatch(L, a, b);
+                }
+            if (_saved == null || sumUsed >= _saved.Version) return;
+            _saved.ChangedSince(sumUsed, _changedTmp);
+            foreach (var c in _changedTmp)
             {
-                OpTexelRect(snap.Ops[i], L, out int2 a, out int2 b);
+                ChunkTexelRect(c.xz, L, out int2 a, out int2 b);
                 a = math.max(a, new int2(x0, z0)); b = math.min(b, new int2(x0 + w - 1, z0 + h - 1));
                 SchedulePatch(L, a, b);
             }
+        }
+
+        // ------------------------------------------------------------------
+        // Saved edit summaries (task 108, header SAVED EDIT SUMMARIES). Main thread.
+        // ------------------------------------------------------------------
+
+        /// Level L texels whose centre column lies in 0.1 m chunk column `c` (xz).
+        public static void ChunkTexelRect(int2 c, int L, out int2 t0, out int2 t1)
+        {
+            int sh = 3 + L, half = (8 << L) >> 1, tv = 8 << L;
+            int2 lo = c << 7, hi = lo + 127;
+            t0 = (lo - half + (tv - 1)) >> sh;
+            t1 = (hi - half) >> sh;
+        }
+
+        /// The store changed (a summary saved, deleted, validated or rejected): patch
+        /// each changed chunk's texels, every level.
+        private void QueueSummaryPatches()
+        {
+            if (_saved == null || _saved.Version == _savedSeen) return;
+            _saved.ChangedSince(_savedSeen, _changedTmp);
+            _savedSeen = _saved.Version;
+            foreach (var c in _changedTmp)
+            {
+                SummaryPatchChunks++;
+                for (int L = 0; L < LEVELS; L++)
+                {
+                    ChunkTexelRect(c.xz, L, out int2 a, out int2 b);
+                    SchedulePatch(L, a, b);
+                }
+            }
+        }
+
+        /// The saved summaries' spans a job over region (x0, z0, w, h) of level L
+        /// samples, sorted by column (z, x), then S ascending, then top-down; and per
+        /// column int4(x, z, first, count) sorted by (z, x). Arrays the job owns; none:
+        /// one empty entry each (count 0, never matched).
+        private void SpansFor(int L, int x0, int z0, int w, int h, out NativeArray<VoxelEngine.Streaming.FarSpan> spans,
+                              out NativeArray<int4> cols, out int used)
+        {
+            used = _saved != null ? _saved.Version : 0;
+            _spanTmp.Clear();
+            if (_saved != null)
+            {
+                int tv = TexelVoxels(L), half = tv >> 1;
+                _saved.FarSpansIn(new int2(x0, z0) * tv + half, new int2(x0 + w - 1, z0 + h - 1) * tv + half, _spanTmp);
+                _spanTmp.RemoveAll(f => ((f.x - half) & (tv - 1)) != 0 || ((f.z - half) & (tv - 1)) != 0);
+            }
+            if (_spanTmp.Count == 0)
+            {
+                spans = new NativeArray<VoxelEngine.Streaming.FarSpan>(1, Allocator.Persistent);
+                cols = new NativeArray<int4>(1, Allocator.Persistent);
+                cols[0] = new int4(int.MinValue, int.MinValue, 0, 0);
+                return;
+            }
+            _spanTmp.Sort((a, b) =>
+                a.z != b.z ? a.z.CompareTo(b.z) : a.x != b.x ? a.x.CompareTo(b.x)
+                : a.opsBefore != b.opsBefore ? a.opsBefore.CompareTo(b.opsBefore) : b.ylo.CompareTo(a.ylo));
+            spans = new NativeArray<VoxelEngine.Streaming.FarSpan>(_spanTmp.Count, Allocator.Persistent);
+            int nc = 0;
+            for (int i = 0; i < _spanTmp.Count; i++)
+            {
+                spans[i] = _spanTmp[i];
+                if (i == 0 || _spanTmp[i].x != _spanTmp[i - 1].x || _spanTmp[i].z != _spanTmp[i - 1].z) nc++;
+            }
+            cols = new NativeArray<int4>(nc, Allocator.Persistent);
+            int ci = -1;
+            for (int i = 0; i < _spanTmp.Count; i++)
+            {
+                var f = _spanTmp[i];
+                if (ci < 0 || cols[ci].x != f.x || cols[ci].y != f.z) cols[++ci] = new int4(f.x, f.z, i, 0);
+                var c = cols[ci]; c.w++; cols[ci] = c;
+            }
+        }
+
+        private static void DisposeSpans(ref NativeArray<VoxelEngine.Streaming.FarSpan> spans, ref NativeArray<int4> cols)
+        {
+            if (spans.IsCreated) spans.Dispose();
+            if (cols.IsCreated) cols.Dispose();
+        }
+
+        /// The spans of column (px, pz): binary search of `cols` (sorted by z, then x).
+        public static void FindSpans(NativeArray<int4> cols, int px, int pz, out int start, out int count)
+        {
+            start = 0; count = 0;
+            int lo = 0, hi = cols.Length - 1;
+            while (lo <= hi)
+            {
+                int mid = (lo + hi) >> 1;
+                int4 c = cols[mid];
+                int cmp = c.y != pz ? (c.y < pz ? -1 : 1) : c.x != px ? (c.x < px ? -1 : 1) : 0;
+                if (cmp == 0) { start = c.z; count = c.w; return; }
+                if (cmp < 0) lo = mid + 1; else hi = mid - 1;
+            }
+        }
+
+        /// Does the span carve a dry column's top (so the new top needs the floor's material at ylo - 1)?
+        public static bool SpanCarvesDryTop(uint t, in VoxelEngine.Streaming.FarSpan s)
+        {
+            if (((t >> 24) & FLAG_WATER) != 0 || s.top != VoxelEngine.Streaming.FarSpan.NO_TOP) return false;
+            int top = (int)(t & 0xFFFFu) - 1;
+            return top >= s.ylo && top <= s.yhi;
+        }
+
+        /// ONE saved summary span on ONE packed texel (header SAVED EDIT SUMMARIES):
+        /// the summary knows the column over [ylo, yhi]; `floorMat` is used only
+        /// when SpanCarvesDryTop.
+        public static uint ApplySpan(uint t, in VoxelEngine.Streaming.FarSpan s, byte floorMat)
+        {
+            int H = (int)(t & 0xFFFFu);
+            bool liquid = ((t >> 24) & FLAG_WATER) != 0;
+            bool hasTop = s.top != VoxelEngine.Streaming.FarSpan.NO_TOP;
+            if (!liquid)
+            {
+                if (H - 1 > s.yhi) return t;                           // buried under the ground: a tunnel, a cellar
+                if (hasTop) return PackFill(s.mat, s.fluidBase, s.top);   // the build's top is the column's top
+                return H - 1 >= s.ylo ? (uint)math.max(s.ylo, 0) | ((uint)floorMat << 16) : t;   // dug to the run's floor
+            }
+            if (hasTop && s.top >= H) return PackFill(s.mat, s.fluidBase, s.top);   // rises out of the liquid
+            byte m = (byte)(t >> 16);
+            if (m == Materials.Lava) return t;                         // its ground is not known
+            int d = (int)(t >> 25);
+            if (d <= 0 || d >= 127) return t;                          // ground unknown (deeper than 12.7 m)
+            int G = H - d;                                             // first water voxel = the bed's first air
+            if (G - 1 > s.yhi) return t;                               // under the bed
+            if (hasTop)
+                return s.mat == Materials.Water || s.mat == Materials.Lava ? t : (t & 0x01FFFFFFu) | DepthBits(H - s.top);
+            return G - 1 >= s.ylo ? (t & 0x01FFFFFFu) | DepthBits(H - math.max(s.ylo, 0)) : t;
         }
 
         /// Recompute texels [t0, t1] of level L (clipped to the ring as it is now;
@@ -635,7 +805,8 @@ namespace VoxelEngine.Rendering
                 var pt = new Patch { level = L, x0 = t0.x, z0 = z, w = w, h = h };
                 pt.result = new NativeArray<uint>(w * h, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
                 pt.ops = OpsFor(L, t0.x, z, w, h, out _);
-                pt.handle = ScheduleFill(TexelVoxels(L), t0.x, z, w, false, int2.zero, pt.result, w * h, 256, pt.ops);
+                SpansFor(L, t0.x, z, w, h, out pt.spans, out pt.spanCols, out _);
+                pt.handle = ScheduleFill(TexelVoxels(L), t0.x, z, w, false, int2.zero, pt.result, w * h, 256, pt.ops, pt.spans, pt.spanCols);
                 ColumnsSampled += (long)w * h;
                 _patches.Add(pt);
             }
@@ -672,7 +843,7 @@ namespace VoxelEngine.Rendering
                 PatchesApplied++; PatchTexels += (long)w * h;
                 sub.Dispose();
             }
-            pt.result.Dispose(); pt.ops.Dispose();
+            pt.result.Dispose(); pt.ops.Dispose(); DisposeSpans(ref pt.spans, ref pt.spanCols);
         }
 
         /// FarScatter on the CPU, into Shadow (tests).
@@ -826,9 +997,9 @@ namespace VoxelEngine.Rendering
             {
                 ref Pending p = ref _pending[L];
                 if (!p.active) continue;
-                p.handle.Complete(); p.result.Dispose(); p.maxH.Dispose(); p.ops.Dispose(); p.active = false;
+                p.handle.Complete(); p.result.Dispose(); p.maxH.Dispose(); p.ops.Dispose(); DisposeSpans(ref p.spans, ref p.spanCols); p.active = false;
             }
-            foreach (var pt in _patches) { pt.handle.Complete(); pt.result.Dispose(); pt.ops.Dispose(); }
+            foreach (var pt in _patches) { var q = pt; pt.handle.Complete(); pt.result.Dispose(); pt.ops.Dispose(); DisposeSpans(ref q.spans, ref q.spanCols); }
             _patches.Clear();
             Texels?.Release(); Mips?.Release(); Staging?.Release(); Resident?.Release(); Resident = null;
             Texels = null; Mips = null; Staging = null;
@@ -868,6 +1039,8 @@ namespace VoxelEngine.Rendering
             [WriteOnly] public NativeArray<uint> output;
             [ReadOnly] public NativeArray<VoxelEngine.Streaming.EditOp> ops;   // task 82
             public int opCount;
+            [ReadOnly] public NativeArray<VoxelEngine.Streaming.FarSpan> spans;   // task 108
+            [ReadOnly] public NativeArray<int4> spanCols;
 
             public void Execute(int i)
             {
@@ -885,9 +1058,12 @@ namespace VoxelEngine.Rendering
                 uint t = Pack(h, b, surfaceByBiome);
                 int px = tx * texelVoxels + half, pz = tz * texelVoxels + half;
                 int fillLo = int.MaxValue; byte fillMat = 0;
+                FindSpans(spanCols, px, pz, out int s0, out int sn);   // task 108: saved summaries, S order
+                int si = 0;
                 for (int j = 0; j < opCount; j++)
                 {
                     var op = ops[j];
+                    for (; si < sn && spans[s0 + si].opsBefore < (int)op.seq; si++) t = ApplySpan(t, spans[s0 + si], Materials.Stone);
                     if (!OpColumnSpan(in op, px, pz, out int ylo, out int yhi)) continue;
                     byte fm = Materials.Stone;   // the legacy band's floor: no material oracle here
                     if (CarvesDryTop(t, in op, ylo, yhi) && ylo - 1 >= fillLo) fm = fillMat;
@@ -895,6 +1071,7 @@ namespace VoxelEngine.Rendering
                     if (op.material != Materials.Air && n != t) { fillLo = ylo; fillMat = op.material; }
                     t = n;
                 }
+                for (; si < sn; si++) t = ApplySpan(t, spans[s0 + si], Materials.Stone);
                 output[i] = t;
             }
         }
@@ -916,6 +1093,8 @@ namespace VoxelEngine.Rendering
             [WriteOnly] public NativeArray<uint> output;
             [ReadOnly] public NativeArray<VoxelEngine.Streaming.EditOp> ops;   // task 82
             public int opCount;
+            [ReadOnly] public NativeArray<VoxelEngine.Streaming.FarSpan> spans;   // task 108
+            [ReadOnly] public NativeArray<int4> spanCols;
 
             public unsafe void Execute(int i)
             {
@@ -961,9 +1140,13 @@ namespace VoxelEngine.Rendering
                 int px = tx * texelVoxels + half, pz = tz * texelVoxels + half;
                 int fillLo = int.MaxValue; byte fillMat = 0;
                 bool cdReady = false; var cd = default(TerrainGen.DetailField.ColumnDetail);
+                FindSpans(spanCols, px, pz, out int s0, out int sn);   // task 108: saved summaries, S order
+                int si = 0;
                 for (int j = 0; j < opCount; j++)
                 {
                     var op = ops[j];
+                    for (; si < sn && spans[s0 + si].opsBefore < (int)op.seq; si++)
+                        t = SpanTg2(t, spans[s0 + si], in c, step, (int)gx, (int)gz, ref cdReady, ref cd);
                     if (!OpColumnSpan(in op, px, pz, out int ylo, out int yhi)) continue;
                     byte fm = 0;
                     if (CarvesDryTop(t, in op, ylo, yhi))
@@ -982,7 +1165,27 @@ namespace VoxelEngine.Rendering
                     if (op.material != Materials.Air && n != t) { fillLo = ylo; fillMat = op.material; }
                     t = n;
                 }
+                for (; si < sn; si++) t = SpanTg2(t, spans[s0 + si], in c, step, (int)gx, (int)gz, ref cdReady, ref cd);
                 output[i] = t;
+            }
+
+            /// One span; a dug dry top takes the generator's material at the run's floor.
+            private uint SpanTg2(uint t, in VoxelEngine.Streaming.FarSpan s, in TerrainGen.ColumnSample c,
+                                 float step, int gx, int gz, ref bool cdReady, ref TerrainGen.DetailField.ColumnDetail cd)
+            {
+                byte fm = 0;
+                if (SpanCarvesDryTop(t, in s))
+                {
+                    int fy = s.ylo - 1;
+                    if (fy < 0) fm = Materials.Stone;
+                    else
+                    {
+                        if (!cdReady) { cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, gx, gz); cdReady = true; }
+                        byte g = TerrainGen.DetailField.Material(in spec, in o, in c, in cd, step, gx, fy + seaShift, gz);
+                        fm = TerrainGen.GenMat.IsFluid(g) || g == TerrainGen.GenMat.Air ? Materials.Stone : genToEngine[g];
+                    }
+                }
+                return ApplySpan(t, in s, fm);
             }
         }
 

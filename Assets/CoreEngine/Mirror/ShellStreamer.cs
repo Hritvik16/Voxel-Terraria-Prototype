@@ -301,7 +301,7 @@ namespace VoxelEngine.Mirror
                 LastBytes = start - budget;
                 return;
             }
-            UpdateSummaries();
+            UpdateSummaries(slid);
             QueueRedraws();
 
             // Chunks part-way up (ShellStore's multi-frame upload) first.

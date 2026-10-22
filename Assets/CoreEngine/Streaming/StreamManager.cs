@@ -631,6 +631,30 @@ namespace VoxelEngine.Streaming
                 Debug.Log($"[StreamManager] world.state: clock {World.ClockSeconds:F1} s, stage {World.Stage}, " +
                           $"{World.ChunkCount} chunk entries (reject: {World.LoadReject})");
             _worldStateWriteClock = World.ClockSeconds;
+            // 8.15 row E2 (task 108): D.5 edit summaries, written beside each D.1.
+            SavedSummaries = SavedEditSummaries.Open(_deltaDir, meta.seed);
+            if (SavedSummaries.Count > 0)
+                Debug.Log($"[StreamManager] summary/: {SavedSummaries.Count} saved edit summaries indexed");
+        }
+
+        /// The save's D.5 edit summaries (Amendment 8.15 row E2, task 108): SaveDelta
+        /// writes one for every D.1 it writes; ShellStreamer and FarField read them.
+        public SavedEditSummaries SavedSummaries { get; private set; }
+
+        /// Deletes a save's terrain files: D.1 deltas, D.4 ops.log, world.state and
+        /// D.5 summary/ -- they belong together (a delta-less world replaying old ops
+        /// or old summaries would be a different world). `-cleardeltas`.
+        public static void ClearSaveFiles(string deltaDir)
+        {
+            if (!System.IO.Directory.Exists(deltaDir)) return;
+            foreach (string f in System.IO.Directory.GetFiles(deltaDir, "*.delta")) System.IO.File.Delete(f);
+            foreach (string f in System.IO.Directory.GetFiles(deltaDir, "*.delta.tmp")) System.IO.File.Delete(f);
+            foreach (string f in new[] { EditOpLog.FILE_NAME, EditOpLog.FILE_NAME + ".tmp", WorldState.FILE_NAME, WorldState.FILE_NAME + ".tmp" })
+            {
+                string p = System.IO.Path.Combine(deltaDir, f);
+                if (System.IO.File.Exists(p)) System.IO.File.Delete(p);
+            }
+            SavedEditSummaries.DeleteAll(deltaDir);
         }
 
         /// The save's world state (Amendment 8.15 row C1, `world.state`): world clock,
@@ -675,6 +699,7 @@ namespace VoxelEngine.Streaming
             _frame++;
             var sw = System.Diagnostics.Stopwatch.StartNew();
             if (World.ClockSeconds - _worldStateWriteClock >= WORLD_STATE_SAVE_SECONDS) SaveWorldState();
+            SavedSummaries.Warm(EngineConfig.SAVED_SUMMARY_LOADS_PER_FRAME);   // E2: far spans of summaries not read yet
 
             float3 camPos = new float3(cameraWorldPos.x, cameraWorldPos.y, cameraWorldPos.z);
             _velocity = math.lerp(_velocity, (camPos - _lastCameraPos) * 60f, 0.25f);
@@ -1505,14 +1530,18 @@ namespace VoxelEngine.Streaming
                     // so the stale file must go, not linger as a lie.
                     DeltaCodec.DeleteIfPresent(path);
                     Ops.NoteDeltaDeleted(coord);
+                    SavedSummaries.DeltaDeleted(coord);   // E2: absent D.1, absent D.5
                     _farQuery?.ForgetDelta(coord);
                     World.MarkPersistent();
                     if (_table.TryGetValue(coord, out var r0)) r0.deltaByteLength = 0;
                     return true;
                 }
 
+                int opsBefore = Ops.Count;   // S, as the side table records it
                 Ops.NoteDeltaAboutToBeWritten(coord, bytes);
                 DeltaCodec.WriteAtomic(path, bytes);
+                // 8.15 E2 (task 108): D.5 right after D.1, carrying its CRC (never throws).
+                SavedSummaries.DeltaWritten(coord, bytes, live, _pool, opsBefore);
                 _farQuery?.ForgetDelta(coord);
                 World.MarkPersistent();   // the run saves terrain: world.state is written too (C1)
                 if (_table.TryGetValue(coord, out var r)) { r.deltaByteLength = (uint)bytes.Length; }
@@ -1840,6 +1869,7 @@ namespace VoxelEngine.Streaming
         {
             if (VerticalStreaming) ContentTopChunkY = MAX_GENERATED_CHUNK_Y;
             _farQuery?.Dispose();
+            SavedSummaries?.Dispose();
             _tgSource?.Dispose();
             _samplerState.Dispose();   // owns NativeArrays since the Burst port
             _cancel.Cancel();

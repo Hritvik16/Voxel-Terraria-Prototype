@@ -204,3 +204,16 @@ Task 105 (gameplay step 10): HARDNESS + PICKS (`Assets/ContentModules/Tools.cs`)
 of the pick's rate (`EditService.MineSphereCosted`, `SurvivalBuild.DigWithPick`); ores need a tier (stone pick -> copper,
 copper -> gold, gold -> iron, iron -> cobalt, cobalt -> emberstone; bedrock never): aimed too hard = REFUSED, else too-hard voxels
 stay; strokes/pulls keep them too. Creative and rigs unchanged (hand/drill/bore). `ToolTierTests` (10). `EXTRA="-tooldemo"` = 3 shots.
+
+Task 108 (engine E2, 8.15 §5 / §10 row 6): SAVED EDIT SUMMARIES, save file D.5 `summary/{cx}_{cy}_{cz}.sum` beside D.1
+(`SavedEditSummaries.cs`; `StreamManager.SavedSummaries`). `SaveDelta` builds the chunk's summary right after D.1's rename with 93a's
+path (`EditSummaryOps.Snapshot/Run/Extract`, main thread) for the bricks D.1 records, and writes it `.tmp` + rename with a CRC and D.1's
+CRC (a summary whose D.1 changed is ignored: StaleDelta; corrupt/truncated rejected, never thrown); a D.1 deleted (coalesced) deletes it.
+Format: 32 B header (magic, version, seed, chunk, D.1 CRC, S = ops at save, brick count), brick list, level-1 voxels per brick (a uniform
+brick = 2 B), levels 4-7 (levels 2-3 re-voted from level 1 on load, so every level == the live 93a summary). Shells: `ShellStreamer.Saved`
+publishes the saved summary of every covered chunk without a live one (eviction swaps live -> saved with no redraw; <= 8 disk reads/frame),
+applied in row 10's order (`GenerateShellChunk`: ops <= S, summary, ops > S). Far band: per edited brick column the 2 sampled columns as
+`FarSpan`s, folded 2.5D (`FarField.ApplySpan`: a build that reaches the top raises it, a dug run lowers it, a buried run changes nothing),
+patched when the store changes. Index + far spans + LRU (16 MB cap) + one 4.3 MB scratch (`RamBytes`). `StreamManager.ClearSaveFiles`
+(`-cleardeltas`) clears it with the deltas, ops.log and world.state. `-savesummaries 0` = not written, `-savedsummaries 0` = not drawn.
+`EditSummarySaveTests` (5). `EXTRA="-farwall -farwallsaved -shells 1 -shellworkers 3"` = near, far saved OFF / ON shots.

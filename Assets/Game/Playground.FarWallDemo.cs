@@ -13,6 +13,11 @@
 // summaries ON, near_after, far_after -- each with a -shellsdebug tint shot.
 // ./run-play.sh EXTRA="-farwall -shells 1 -shellworkers 3". Shots:
 // persistentDataPath/FarWallDemo/.
+// -farwallsaved (task 108, 8.15 E2): summaries ON throughout; the tower goes in,
+// near shot, then the FAR pose once every tower chunk is evicted (its D.1 and
+// D.5 saved): saved summaries switched OFF (the covering shell chunks redraw:
+// the generator look, what 93a left after a regeneration) and back ON (redrawn
+// from D.5: the tower). Shots farwall_near, farwall_saved_off, farwall_saved_on.
 
 using System.Collections;
 using Unity.Mathematics;
@@ -35,7 +40,8 @@ public partial class Playground
         System.IO.Directory.CreateDirectory(dir);
         if (_cam == null && Camera.main != null) _cam = Camera.main.GetComponent<PlaygroundFlyCamera>();
         _mode = MoveMode.Fly;
-        shells.SummariesEnabled = false;
+        bool savedMode = HasArg("-farwallsaved");
+        shells.SummariesEnabled = savedMode;
         var camT = Camera.main.transform;
 
         // The tower: ~100 m from the start, as far AWAY from the sun as a site allows (so the
@@ -116,7 +122,7 @@ public partial class Playground
         string Census()
         {
             string s = $"tower chunks resident {TowerResident()}/{(c1.x - c0.x + 1) * (c1.y - c0.y + 1) * (c1.z - c0.z + 1)}; " +
-                       $"summaries {(shells.SummariesEnabled ? "ON" : "OFF")}: notices {shells.SummaryNotices}, tracked {shells.EditedChunksTracked}, " +
+                       $"summaries {(shells.SummariesEnabled ? "ON" : "OFF")}, saved {(shells.SavedSummariesEnabled ? "ON" : "OFF")} held {shells.SavedHeld}: notices {shells.SummaryNotices}, tracked {shells.EditedChunksTracked}, " +
                        $"built {shells.SummariesBuilt}, held {shells.SummariesHeld} ({shells.SummaryBytes} B), refused {shells.SummariesRefused}, " +
                        $"dropped {shells.SummariesDropped}, summary redraws {shells.SummaryRedrawsQueued}, redrawn {shells.Redrawn}, pending {shells.RedrawsPending}, " +
                        $"main ms {shells.SummaryBuildMsMain:F1}; covering shell chunks held:";
@@ -140,6 +146,27 @@ public partial class Playground
         int written = _edits.SetBox(lo, hi, Materials.Stone);
         Debug.Log($"[FarWall] tower {lo}..{hi} (voxels), chunks {c0}..{c1}, {written} voxels written by SetVoxel; far pose {far} m");
         yield return Hold(60);
+        if (savedMode)
+        {
+            yield return Settle(30f);
+            yield return Shots("near");
+            at = far;
+            float te = Time.unscaledTime;
+            while (Time.unscaledTime - te < 60f && TowerResident() > 0) yield return Hold(1);
+            yield return Settle(45f);
+            var saved = Phase4Bootstrapper.Streamer.SavedSummaries;
+            Debug.Log($"[FarWall] saved: {TowerResident()} tower chunks resident after {Time.unscaledTime - te:F1} s; D.5 written {saved.Written} " +
+                      $"({saved.BytesWritten} B; their D.1 {saved.DeltaBytesSeen} B), build {saved.BuildMsTotal:F1} ms total, write {saved.WriteMsTotal:F1} ms, " +
+                      $"rejected {saved.Rejected}, store RAM {saved.RamBytes} B (index {saved.Count}, LRU {saved.LruBytes} B); shells hold {shells.SavedHeld} saved");
+            shells.SavedSummariesEnabled = false;
+            yield return Settle(45f);
+            yield return Shots("saved_off");
+            shells.SavedSummariesEnabled = true;
+            yield return Settle(45f);
+            yield return Shots("saved_on");
+            Application.Quit();
+            yield break;
+        }
         yield return Shots("near_before");
         // 2. FAR, summaries off: the tower's chunks leave the CPU; the shells never had it.
         at = far;

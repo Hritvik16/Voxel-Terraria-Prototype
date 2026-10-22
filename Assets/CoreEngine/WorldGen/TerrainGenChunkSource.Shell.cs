@@ -242,18 +242,27 @@ namespace VoxelEngine.WorldGen
         /// Task 93a (8.15 §5 "Live"): `summaries`, if given, are written over the
         /// result after the ops and BEFORE the fill (EditSummary.cs): the resident
         /// edited chunks inside this shell chunk, majority-voted to its voxel size.
+        /// Task 108 (8.15 E2): a SAVED summary (an evicted chunk, D.5) goes in row 10's
+        /// order instead -- ops <= its S, the summary, ops > S -- so an op recorded
+        /// after the chunk was saved still shows over it. Live ones (S = int.MaxValue)
+        /// go after every op, as before.
         public int GenerateShellChunk(int shell, int3 coord, ShellChunk output, VoxelEngine.Streaming.EditOpSnapshot ops,
                                       VoxelEngine.Streaming.EditSummarySnapshot summaries = null)
         {
             int half = GenerateShellChunkRaw(shell, coord, output, -1);
             long tr = System.Diagnostics.Stopwatch.GetTimestamp();
-            int n = 0;
-            if (ops != null && ops.Count > 0)
-            {
-                VoxelEngine.Streaming.EditOpApply.ApplyToShell(output, ops.Ops, 0, ops.Count);
-                output.OpsApplied = n = ops.Count;
-            }
-            if (summaries != null) output.SummariesApplied = VoxelEngine.Streaming.EditSummaryOps.ApplyToShell(output, summaries);
+            int n = ops != null ? ops.Count : 0, done = 0, applied = 0;
+            if (summaries != null && n > 0)
+                for (int s = -1; (s = VoxelEngine.Streaming.EditSummaryOps.NextOpsBefore(summaries, shell, coord, s, n)) >= 0; )
+                {
+                    if (s > done) VoxelEngine.Streaming.EditOpApply.ApplyToShell(output, ops.Ops, done, s);
+                    done = math.max(done, s);
+                    applied += VoxelEngine.Streaming.EditSummaryOps.ApplyToShell(output, summaries, s, s);
+                }
+            if (n > done) VoxelEngine.Streaming.EditOpApply.ApplyToShell(output, ops.Ops, done, n);
+            output.OpsApplied = n;
+            if (summaries != null) applied += VoxelEngine.Streaming.EditSummaryOps.ApplyToShell(output, summaries, n);
+            output.SummariesApplied = applied;
             FillShellChunk(output, half, ops, false, output.SummariesApplied > 0 ? summaries : null);
             output.RestMs = (System.Diagnostics.Stopwatch.GetTimestamp() - tr) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
             return n;

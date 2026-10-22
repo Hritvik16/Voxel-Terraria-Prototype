@@ -47,10 +47,14 @@ namespace VoxelEngine.Streaming
         public int VoxelsAt(int k) => Values[k].Length;
         /// Bounding box of the edited bricks (chunk-local brick coords, inclusive); Lo > Hi = none.
         public readonly int3 BrickLo, BrickHi;
+        /// Task 108 (8.15 E2): the edit ops this summary's chunk already held (S, row 10's
+        /// order): a shell applies ops <= S, then the summary, then ops > S. A live
+        /// summary (93a, a resident chunk: every op is in it) has int.MaxValue.
+        public readonly int OpsBefore;
 
-        internal EditSummary(int3 coord, ulong[] mask, ulong[][] groups, byte[][] values)
+        internal EditSummary(int3 coord, ulong[] mask, ulong[][] groups, byte[][] values, int opsBefore = int.MaxValue)
         {
-            Coord = coord; Mask = mask; Groups = groups; Values = values;
+            Coord = coord; Mask = mask; Groups = groups; Values = values; OpsBefore = opsBefore;
             BrickLo = new int3(16); BrickHi = new int3(-1);
             for (int w = 0; w < mask.Length; w++)
             {
@@ -66,6 +70,21 @@ namespace VoxelEngine.Streaming
             int b = mask.Length * 8;
             for (int k = 1; k <= EditSummaryOps.MAX_LEVEL; k++) b += values[k].Length + groups[k].Length * 8;
             Bytes = b;
+        }
+
+        /// Same bricks, same voxels at every level (OpsBefore aside): a shell drawn
+        /// with one is drawn with the other.
+        public bool SameLook(EditSummary o)
+        {
+            if (o == null || !o.Coord.Equals(Coord)) return false;
+            for (int w = 0; w < Mask.Length; w++) if (Mask[w] != o.Mask[w]) return false;
+            for (int k = 1; k <= EditSummaryOps.MAX_LEVEL; k++)
+            {
+                var a = Values[k]; var b = o.Values[k];
+                if (a.Length != b.Length) return false;
+                for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+            }
+            return true;
         }
     }
 
@@ -265,7 +284,7 @@ namespace VoxelEngine.Streaming
 
         /// MAIN THREAD, after the job: the summary of chunk `coord` for the edited
         /// bricks `mask` (copied by the caller when it snapshotted the chunk).
-        public static EditSummary Extract(int3 coord, ulong[] mask, Scratch s)
+        public static EditSummary Extract(int3 coord, ulong[] mask, Scratch s, int opsBefore = int.MaxValue)
         {
             var groups = new ulong[MAX_LEVEL + 1][];
             var values = new byte[MAX_LEVEL + 1][];
@@ -293,7 +312,7 @@ namespace VoxelEngine.Streaming
                     }
                 }
             }
-            return new EditSummary(coord, (ulong[])mask.Clone(), groups, values);
+            return new EditSummary(coord, (ulong[])mask.Clone(), groups, values, opsBefore);
         }
 
         // =====================================================================
@@ -306,7 +325,7 @@ namespace VoxelEngine.Streaming
         public static int BlockEdge(int k) => math.max(8 >> k, 1);
 
         /// Edited groups at level k: group (bx, by, bz) >> GroupShift(k), index (gz << 2L) | (gy << L) | gx, L = 4 - shift.
-        private static ulong[] GroupBits(ulong[] mask, int k)
+        internal static ulong[] GroupBits(ulong[] mask, int k)
         {
             int g = GroupShift(k), L = 4 - g;
             var bits = new ulong[math.max(1, (1 << (3 * L)) >> 6)];
@@ -352,7 +371,9 @@ namespace VoxelEngine.Streaming
         /// Writes every summary of `snap` inside shell chunk `sc` (shells 1-7) over
         /// its voxels and refreshes the shell bricks touched. Returns the number of
         /// summaries applied. Writes only `sc` (owned by the caller).
-        public static int ApplyToShell(TerrainGenChunkSource.ShellChunk sc, EditSummarySnapshot snap)
+        /// Task 108: only those with sMin <= OpsBefore <= sMax (the ops interleave).
+        public static int ApplyToShell(TerrainGenChunkSource.ShellChunk sc, EditSummarySnapshot snap,
+                                       int sMin = int.MinValue, int sMax = int.MaxValue)
         {
             int k = sc.Shell;
             if (snap == null || snap.Count == 0 || k < 1 || k > MAX_LEVEL) return 0;
@@ -362,7 +383,7 @@ namespace VoxelEngine.Streaming
             int be = BlockEdge(k);
             foreach (var s in snap.All)
             {
-                if (!(s.Coord >> k).Equals(sc.Coord)) continue;
+                if (!(s.Coord >> k).Equals(sc.Coord) || s.OpsBefore < sMin || s.OpsBefore > sMax) continue;
                 var v = s.Values[k];
                 if (v.Length == 0) continue;
                 applied++;
@@ -405,6 +426,21 @@ namespace VoxelEngine.Streaming
                 }
             }
             return applied;
+        }
+
+        /// The smallest OpsBefore above `after` and below `below` among the summaries
+        /// inside shell chunk (k, shellCoord); -1 = none (GenerateShellChunk's interleave).
+        public static int NextOpsBefore(EditSummarySnapshot snap, int k, int3 shellCoord, int after, int below)
+        {
+            int best = -1;
+            if (snap == null) return best;
+            foreach (var s in snap.All)
+            {
+                int q = s.OpsBefore;
+                if (q <= after || q >= below || !(s.Coord >> k).Equals(shellCoord)) continue;
+                if (best < 0 || q < best) best = q;
+            }
+            return best;
         }
     }
 }

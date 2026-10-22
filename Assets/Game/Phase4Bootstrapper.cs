@@ -281,14 +281,11 @@ public class Phase4Bootstrapper : MonoBehaviour
 
         if ((_clearDeltasOnStart || forceClear) && !keepDeltas)
         {
-            foreach (string f in Directory.GetFiles(DeltaDirectory, "*.delta")) File.Delete(f);
-            foreach (string f in Directory.GetFiles(DeltaDirectory, "*.delta.tmp")) File.Delete(f);
             // The edit-op log (8.14 D.4) belongs to the same save: clearing the
             // deltas without it would replay old far edits onto a fresh world.
-            // So does the world state (8.15 C1: clock, stage, chunk last-seen).
-            foreach (string f in new[] { VoxelEngine.Streaming.EditOpLog.FILE_NAME, VoxelEngine.Streaming.EditOpLog.FILE_NAME + ".tmp",
-                                         VoxelEngine.Streaming.WorldState.FILE_NAME, VoxelEngine.Streaming.WorldState.FILE_NAME + ".tmp" })
-                if (File.Exists(Path.Combine(DeltaDirectory, f))) File.Delete(Path.Combine(DeltaDirectory, f));
+            // So does the world state (8.15 C1: clock, stage, chunk last-seen),
+            // and the edit summaries (8.15 E2, D.5 summary/).
+            VoxelEngine.Streaming.StreamManager.ClearSaveFiles(DeltaDirectory);
         }
 
         // ---- Pools / store / mirrors ----
@@ -416,6 +413,8 @@ public class Phase4Bootstrapper : MonoBehaviour
 
         Streamer = new StreamManager(_store, _pool, _allocator, Clipmap, Cascades,
                                      Meta, DeltaDirectory, loadRadius);
+        // Task 108 (8.15 E2): `-savesummaries 0` = D.1 saves write no D.5 summary.
+        Streamer.SavedSummaries.WriteEnabled = ArgInt("-savesummaries", 1) != 0;
         Coalescer = new CoalesceScheduler(_store, _pool, Clipmap, Cascades);
 
         // Task 93c1 (gameplay step 4, P21): an interactive Playground session
@@ -497,7 +496,8 @@ public class Phase4Bootstrapper : MonoBehaviour
         // below, beyond) the far band is the only thing that draws the island.
         if (VoxelEngine.Rendering.FarField.RequestedByArgs() || IsTg2World)
             _far = new VoxelEngine.Rendering.FarField(Meta, camPos, IsTg2World ? Streamer.TerrainGenSource.Map : null,
-                                                      Streamer.Ops);   // task 82: the far band draws the save's edit ops
+                                                      Streamer.Ops,    // task 82: the far band draws the save's edit ops
+                                                      Streamer.SavedSummaries);   // task 108 (8.15 E2): and the saved edit summaries
         ApplyBandToRenderer();
 
         if (shellsRequested)
@@ -509,6 +509,10 @@ public class Phase4Bootstrapper : MonoBehaviour
             // cover them. `-editsummaries 0` = tracked but not drawn (the pre-93a picture).
             Shells.AttachEdits(Store);
             Shells.SummariesEnabled = ArgInt("-editsummaries", 1) != 0;
+            // Task 108 (8.15 E2): evicted edited chunks keep their look from D.5.
+            // `-savedsummaries 0` = not read (the 93a picture: dropped on eviction).
+            Shells.Saved = Streamer.SavedSummaries;
+            Shells.SavedSummariesEnabled = ArgInt("-savedsummaries", 1) != 0;
             // Task 93b2: `-shellcolreuse 0` = a column pass per shell chunk and the
             // pre-93b2 dispatch (no column affinity); the same bytes either way.
             bool colReuse = ArgInt("-shellcolreuse", 1) != 0;

@@ -192,6 +192,13 @@ public static class EngineConfig
     public const int EDIT_SUMMARIES_PER_FRAME = 1;
     public const int EDIT_SUMMARY_SCRATCH = 2;
     public const double EDIT_SUMMARY_MIN_INTERVAL_S = 1.0;
+    // Saved summaries (8.15 E2, task 108, D.5 `summary/`): disk reads of summary
+    // files per frame (ShellStreamer coverage + the far band's warm-up together;
+    // each is one small file plus, once per session, D.1's 4-byte trailer), and
+    // the LRU of loaded summaries (the guardrail: > ~20 MB gives the number).
+    // ASSUMPTION, NOT MEASURED.
+    public const int SAVED_SUMMARY_LOADS_PER_FRAME = 8;
+    public const long SAVED_SUMMARY_LRU_BYTES = 16L * 1024 * 1024;
 
     // ---- Chunk generation concurrency (§0.1 invariant 8) ----
     // Worker threads generating chunks off the main thread. This WAS hardcoded
