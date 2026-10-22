@@ -1,56 +1,54 @@
-# 110-perf-frame-budget-split: DONE (items 1-2 complete; item 3 only partly possible without a code change, see below)
+STOP_FOR_OWNER -- task 111 (30 fps plan): `PERF_30FPS_PLAN.md` is written. Please pick the cuts below (recommendation first).
 
-Verdict: **GPU-bound.** CPU floor is 5-7 ms (`tiny_gate`) against frames of 43-61 ms; present wait is 0.0 everywhere.
-Code unchanged, no commits except this file. Setting: shells ON (`-shells 1 -shellworkers 3`), FSR3 540 rows, quality preset, far band + far shadows,
-`-farshade 1 -seethrough 1 -riverlook 1`, noon, AC power for every launch (walk ON 2 flipped to battery in its last seconds; its numbers match walk ON 1).
-Driver: `Logs/overnight/110-driver.sh` (+ `.out`). **Warm-up log: `Logs/tg2world_20261022_121916.txt`.** Warm steady state: warm-up 12:19-12:24, then ON1 12:25-13:01, ON2 13:03-13:39, walks 13:39-13:49, no gap > 2 min.
+- **Q1 Internal rows.** (a) **FSR 3 dyn 432-540, target ~30 ms** (rows drop only on heavy views; stills at 432 vs 540 shown first);
+  (b) dyn 360-540 (most headroom, softest); (c) keep the 540 minimum: 30 fps then needs shells OFF or sun shadows OFF.
+- **Q2 Quality preset on the M1.** (a) **Medium**: shells sized for the 540 rows play actually renders; far band past 3.3 km (was 6.6);
+  drawn 0.1 m area 65 m (simulation stays 128 m, 8.15); -171 MB; (b) keep High; (c) Low (only with Q1 (b)).
+- **Q3 Shells.** (a) **keep ON and cut their march** (exact column sky leap, then Medium); (b) shells OFF in play (-13 ms measured, same
+  look at noon, loses 3D range past the window; reverses Q63 (a)).
+- **Q4 Sun shadows.** (a) **128 m clamp, then 1-in-8 temporal reuse, one task each, judged on golden-hour stills**; (b) half-res now
+  (-0.5-1.3 ms, blockier edges); (c) no shadow cut.
+- **Q5 Upscaler.** (a) **keep FSR 3; STP (-3 ms) is the fallback**; (b) STP now; (c) FSR 1 now (-5 ms, shimmers).
+- **Q6 Order.** (a) **as in the plan §3** (exact cut, preset, rows, shadows, spikes); (b) rows first.
+- **Q7 Shell fill while walking.** (a) **park until 30 fps is met** (filled shells add cost back); (b) now.
+- Going ahead with (a), reversible: **Q8** summary build to a worker job (108's spike); **Q9** measurement fixes (`-renderrows` honoured
+  by the cost split, p95 in the walk report, a golden-hour walk arm).
 
-## Table 1: steady split, saved ms vs FULL (positive = the arm's thing costs this), launch 1 / launch 2
-Logs: `Logs/costsplit_2026-10-22_122517.txt` (L1), `Logs/costsplit_2026-10-22_130301.txt` (L2). 15 s timed, ABBA with FULL between.
-FULL p50: walk_near 60.5 / 60.9 ms (p99 110.6 / 109.6); walk_open 43.2 / 42.9 ms (p99 80.9 / 83.9).
-| arm (what is OFF) | walk_near L1 / L2 | walk_open L1 / L2 |
-|---|---|---|
-| shells_off (no shells) | +13.0 / +13.8 | +13.7 / +13.4 |
-| far_off (far band; also cuts the shell march) | +14.9 / +15.5 | +18.2 / +17.2 |
-| shellmarch_off (shell primary march) | +12.8 / +12.8 | +18.7 / +18.8 |
-| shellshadow_off | +1.3 / +0.7 | +1.4 / +1.2 |
-| skyexit_off (sky-ray exit off, i.e. task 99's saving) | -3.5 / -1.6 | -3.3 / -3.7 |
-| sun_off (sun shadows) | +16.6 / +14.8 | +6.2 / +5.9 |
-| torch_off | +0.7 / -0.4 | -0.6 / -0.2 |
-| fshade_off (far shading) | -1.0 / -1.0 | +1.4 / +0.6 |
-| fshadow_off (far shadows) | +2.4 / +1.5 | +0.7 / 0.0 |
-| farprim_off | +0.7 / +1.0 | +0.9 / -0.2 |
-| fluid_off | -0.1 / 0.0 | -0.7 / -0.2 |
-| hud_off | +0.6 / -0.1 | +0.5 / +0.3 |
-| ups_none (FSR3 pass; 540 rows rendered either way) | +5.5 / +4.7 | +6.1 / +5.2 |
-| tiny_gate (256x144, no upscaler = CPU + fixed floor) | frame 7.1 ms | frame 5.0 ms |
-Noise: walk_near FULL range 7.3 / 5.3 ms (arms under ~3 ms are not resolved there); walk_open range 2.1 / 1.1 ms.
-Not run: tiers_off (shells draw instead of tiers 1-2), see-through off (no "off" arm exists; FULL has it ON, only `see_*` arms exist and they force ON).
+# 111-perf-30fps-plan: DONE (planning only; STOP_FOR_OWNER for the cuts)
 
-## Table 2: moving (MODE=walk circle, 3 min, `-tod 12 -memledger -frametiming`, shells ON)
-| launch | log | p50 | p99 | frames > 33 ms | peak MB |
-|---|---|---|---|---|---|
-| 1 | `Logs/tg2world_20261022_133936.txt` | 40.97 ms | 98.70 ms | 77.57% | 2417 |
-| 2 | `Logs/tg2world_20261022_134432.txt` | 41.03 ms | 99.44 ms | 72.04% (ended on battery) | 2304 |
-FrameTimingManager (L1): cpu main p50 40.96 ms; GPU p50 110.7 ms (inflated ~2.6x on this Mac, relative only).
+## What changed
+- New `PERF_30FPS_PLAN.md`: the gap, a ranked table of 10 candidate cuts, a one-change-per-task order with a running sum, approvals, questions.
+  No product code, no tests, no launches (planning task). Commit: see `git log -1` (this file + the plan only).
 
-## Table 3: resolution sensitivity, PARTLY DONE
-`-renderrows 720` / 360 cannot be set in the cost split: `CostApply` hardcodes `UpscalerSelect.Apply(..., 540, ...)`, so the flag is ignored.
-I did not change code (task rule). What the existing arms say: frame at 540 rows 60.7 / 43.1 ms (near/open); the 7%-pixel `tiny_gate` frame 7.1 / 5.0 ms,
-so about 53 / 38 ms of the frame scales with pixels (a linear fit from two points, not a measurement at other rows). The FSR3 pass itself is ~5-6 ms.
-Follow-up for 111 or a tiny task: read `-renderrows` in `CostApply`, then run FULL at 360 / 720.
+## What the plan says (all from existing logs; est. = arithmetic, not an arm)
+- Gap: walking p50 41.0 -> 30 ms (-11), frames > 33 ms 72-78% -> 5% (needs p95 <= 33; p99 is 99 ms); still: walk_near 60.7 -> 30 (-30.7),
+  walk_open 43.0 -> 30 (-13.0). Source: `Logs/costsplit_2026-10-22_{122517,130301}.txt`, `Logs/tg2world_20261022_{133936,134432}.txt`.
+- New findings while reading code/logs: (1) FSR 3 "dyn" never leaves 540 rows today (steps down above 18 ms smoothed; floor 540), so it
+  holds nothing at these frame times. (2) Play runs preset High (shells sized for 720 rows) while rendering 540: march spent on detail below
+  1.5 px. (3) On the walk, shells 3-7 hold nothing, so the moving number understates the cost once the shells fill. (4) 110 ran at noon only.
+- Honest sum: walk p50 <= 30 reachable at step 3 (est. ~28 ms) only with rows below 540. The 5% line is NOT reached with confidence:
+  cliff-facing views est. ~37 ms after steps 1-4, ~30-34 only with a 360-405 row floor, plus spike fixes of unknown size.
 
-## The 5 largest costs (mean of both launches, ms)
-1. walk_open, shellmarch_off: 18.8 (shell primary march)
-2. walk_open, far_off: 17.7 (far band; overlaps #1, since far_off also cuts the shell march to 1 iter/ray)
-3. walk_near, sun_off: 15.7 (sun shadows; only 6.0 at walk_open)
-4. walk_near, far_off: 15.2 (same overlap with shell march: shellmarch_off 12.8)
-5. walk_near/open, shells_off: 13.4-13.9 (whole shell path)
-Next smaller: FSR3 pass 5-6, sun shadows at walk_open 6. Everything else is < 3 ms.
-Moving is no better than steady: 41 ms p50, 72-78% of frames > 33 ms (a 30 fps target needs ~-8 ms, p99 ~-65 ms).
+## Evidence looked at (images not committed)
+- `Screenshots/93b/sheet_walk_open.png` -- top-left (shells OFF) vs top-right (shells ON): ridge, orange mountain, snow identical.
+- `Screenshots/93b/sheet_walk_near.png` -- any panel: sky only in the top-right strip (~6% px), which carries most of the 12.8 ms shell march.
+- `Screenshots/110/walk_open_full.png` vs `Screenshots/93b3/split/walk_open_fshadow_off.png` -- far mountains at right: far shadows ON/OFF
+  identical at noon.
+- `Screenshots/110/walk_near_full.png` -- cliff fills ~90% of the frame, HUD 27 fps: the view the 5% line is about.
+
+## Next step
+The owner answers Q1-Q7. Then the supervisor queues step 1 (shell column sky leap = `later/102` made concrete) with the approval in its task file.
+Each step: warm-up + one cost-split launch + walk x4 ABBA, then stop.
 
 ## For the doc
-- Steady FULL p50: walk_near 60.7 ms, walk_open 43.0 ms (`Logs/costsplit_2026-10-22_*.txt`); moving 41.0 ms p50 / 99 ms p99, 72-78% > 33 ms, peak 2.3-2.4 GB.
-- Largest: shell march 12.8-18.8, far band 15-18, sun shadows 6-16, shells overall 13-14, FSR3 5-6; sky-ray exit already saves 1.6-3.7.
-- Image (not committed) `Screenshots/110/walk_near_full.png`: walk_near at FULL, looking into a sandstone/terracotta slope at close range (HUD overlays visible, 27 fps readout).
-- Image `Screenshots/110/walk_open_full.png`: walk_open at FULL, sky above ~half the frame, terraced desert hills and a snow patch at lower left (45 ms readout). Sun is behind the camera in both.
+- Gap: walking p50 41.0 ms -> 30 (-11 ms); frames > 33 ms 72-78% -> <= 5%; still: walk_near 60.7 -> 30 ms, walk_open 43.0 -> 30 ms.
+- Top 6 of the ranked table (ms near / open; **est.** unless measured):
+  1. Shell column sky leap (exact, 0 px): est. 3-8 / 1-2.
+  2. Quality preset Medium (shells sized for the 540 rows rendered): est. 2-4 / 4-6, -171 MB; far band past 3.3 km.
+  3. Rows below 540 (FSR 3 dyn floor 432, target 30 ms): est. 11-17 / 8-12 (405: 13-21 / 9-14; 360: 17-27 / 12-18). Softer picture.
+  4. Shells OFF in play: measured 13.4 / 13.6; same look at noon poses; reverses Q63 (a).
+  5. Sun shadows cheaper (128 m clamp / 1-in-8 reuse): est. 2-4 / 0-1 and 3-6 / 1-2 (sun OFF measured 15.7 / 6.0; half-res 0.5-1.3).
+  6. Cheaper upscaler: STP measured -2.7 / -3.1, FSR 1 -4.9 / -5.4 (task 51); FSR 3 pass 5-6 (110).
+  far_off (15-18) overlaps the shell march and is not a separate cut.
+- Images: `Screenshots/93b/sheet_walk_open.png` (top row, OFF vs ON: shells cost no look at this pose);
+  `Screenshots/93b/sheet_walk_near.png` (top-right sky strip, ~6% of pixels, carries the shell march cost).
