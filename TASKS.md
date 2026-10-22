@@ -217,3 +217,12 @@ applied in row 10's order (`GenerateShellChunk`: ops <= S, summary, ops > S). Fa
 patched when the store changes. Index + far spans + LRU (16 MB cap) + one 4.3 MB scratch (`RamBytes`). `StreamManager.ClearSaveFiles`
 (`-cleardeltas`) clears it with the deltas, ops.log and world.state. `-savesummaries 0` = not written, `-savedsummaries 0` = not drawn.
 `EditSummarySaveTests` (5). `EXTRA="-farwall -farwallsaved -shells 1 -shellworkers 3"` = near, far saved OFF / ON shots.
+
+**Task 112 (measure tooling, 111 Q9; no product behaviour change).** `run-cost-split.sh` now honours `-renderrows N`
+(`PlaygroundCapture.CostSplit.cs` `CostRows`: last match, clamped to `UpscalerSelect`'s 540-720; "dyn"/none = 540, so older arms are
+unchanged; before 112 the flag was silently ignored, e.g. 110's planned 720 arm ran at 540); the header reads `FULL = fsr3 N rows pinned`,
+and `ups_none` / `-coststillraw` use the same rows. Rows below 540 are not reachable (`UpscalerSelect.MinRows` = 540). The `-sustained`
+WHOLE RUN line (`MODE=walk`) prints p50 / **p95** / p99 (30 fps line: p95 <= 33 ms). Golden-hour walk: no flag needed -- the sustained
+probe pins the sun at golden hour (6 deg, 17.59 h) unless `-tod H` is passed (110 passed `-tod 12`); `-tod 17` = ~14.5 deg. Command:
+`MODE=walk MINUTES=3 EXTRA="-renderpreset quality -upscaler fsr3 -renderrows 540 -farband 1 -farshade 1 -seethrough 1 -riverlook 1
+-tod 17.6 -memledger -frametiming -shells 1 -shellworkers 3" ./run-tg2world.sh`.

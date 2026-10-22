@@ -2,6 +2,8 @@
 # run-cost-split.sh -- task 57 (engine plan step 7): where a play frame's ms go.
 # -upscalerclips -costsplit at the tg2 world, quality preset + far band + far shadows
 # (as ./run-play.sh), FSR 3 pinned at 540 rows, fullscreen 1920x1080 (as task 51).
+# Task 112: EXTRA="-renderrows 720" pins every arm at 720 rows instead (clamped 540-720;
+# before task 112 the flag was ignored and every arm ran at 540).
 # One launch: FULL, then per arm X X FULL (ABBA), each 3 s settle + 20 s timed on an
 # 8 s piece of MODE=walk's circle, streaming pinned (PlaygroundCapture.CostSplit.cs).
 # Warm-up first (PREAMBLE rule 9):

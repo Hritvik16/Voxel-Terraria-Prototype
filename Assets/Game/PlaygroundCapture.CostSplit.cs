@@ -11,7 +11,9 @@
 //           (Time.unscaledDeltaTime). Streaming PINNED at its middle pose
 //           (Phase4Bootstrapper.DebugStreamCentre), as task 51: nothing streams
 //           while timing.
-//   FULL    play's frame: FSR 3 pinned at 540 rows, play HUD + minimap shown,
+//   FULL    play's frame: FSR 3 pinned at 540 rows (task 112: -renderrows N
+//           pins N instead, clamped to UpscalerSelect's 540-720; "dyn" or no
+//           flag = 540, so older arms are unchanged), play HUD + minimap shown,
 //           fluid simulating, every pass on.
 //   ARMS    ONE thing off each, all through existing static switches:
 //             sun_off    RaymarchFeature.ShadowQualityLevel = 3 (voxel AND
@@ -23,7 +25,7 @@
 //                        rays end at MaxRayDistance; the CPU tier builds keep
 //                        running)
 //             fluid_off  Playground.DebugSuspendFluidSim = true
-//             ups_none   UpscalerSelect none at 540 rows (gate 960x540, plain blit)
+//             ups_none   UpscalerSelect none at the same rows (540: gate 960x540, plain blit)
 //             hud_off    Playground.DebugHideUi + minimap hidden
 //           plus tiny_gate, a DIAGNOSTIC: no upscaler, 256x144 march -- the
 //           CPU + fixed-cost floor (cpuMainThreadFrameTime tracks wall time on
@@ -129,7 +131,7 @@ public partial class PlaygroundCapture
         float3 sun = SunCycle.DirectionAt(hours);
         int baseShadow = RaymarchFeature.ShadowQualityLevel, baseTorch = RaymarchFeature.TorchShadowsOverride;
         L("");
-        L($"COST SPLIT (task 57): {hours:F2} h, sun elevation {SunCycle.ElevationDegreesAt(hours):F0} deg; FULL = fsr3 540 rows pinned, " +
+        L($"COST SPLIT (task 57): {hours:F2} h, sun elevation {SunCycle.ElevationDegreesAt(hours):F0} deg; FULL = fsr3 {CostRows} rows pinned, " +
           $"HUD + minimap on, fluid on; roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}; shadow res {(RaymarchFeature.ShadowHalfRes ? "HALF" : "full")}; shadow rung {baseShadow}, torch rays override {baseTorch} (config {LightingConfig.Active.torchShadowRays}), " +
           $"temporal shadows {(RaymarchFeature.TemporalShadows ? "ON" : "OFF")}, far shadows {(far.ShadowsOn ? "ON" : "OFF")}, cascade {RaymarchFeature.UseLODCascade}");
         L($"order: F, then per arm X X F; each run {CostSettle:F0} s settle + {timed:F0} s timed, real time, no capture");
@@ -272,10 +274,16 @@ public partial class PlaygroundCapture
         var a = new List<float>(); foreach (var r in rs) a.AddRange(f(r)); return a;
     }
 
-    /// FULL (play's frame at 540 rows) with exactly one thing switched off.
+    /// Task 112: the rows every arm is pinned at. `-renderrows N` (last match, like
+    /// every Arg*) clamped as UpscalerSelect.Apply does; "dyn", a bad value or no
+    /// flag = 540, the value every arm before task 112 ran at.
+    private static readonly int CostRows =
+        int.TryParse(ArgValue("-renderrows"), out int rows) ? Mathf.Clamp(rows, UpscalerSelect.MinRows, UpscalerSelect.MaxRows) : 540;
+
+    /// FULL (play's frame at CostRows rows) with exactly one thing switched off.
     private static void CostApply(string arm)
     {
-        UpscalerSelect.Apply(arm == "ups_none" || arm == "tiny_gate" ? UpscalerSelect.Kind.None : UpscalerSelect.Kind.Fsr3, 540, false);
+        UpscalerSelect.Apply(arm == "ups_none" || arm == "tiny_gate" ? UpscalerSelect.Kind.None : UpscalerSelect.Kind.Fsr3, CostRows, false);
         // tiny_gate: a DIAGNOSTIC, not one thing off -- no upscaler and a 256x144
         // march (7% of 540's pixels): what is left is the CPU + fixed-cost floor
         if (arm == "tiny_gate") RaymarchFeature.CustomGateResolution = new Vector2Int(256, 144);
@@ -448,7 +456,7 @@ public partial class PlaygroundCapture
             // Task 93b4: no-upscaler stills (no jitter) for byte-identity between arms.
             if (System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-coststillraw") >= 0)
             {
-                UpscalerSelect.Apply(UpscalerSelect.Kind.None, 540, false);
+                UpscalerSelect.Apply(UpscalerSelect.Kind.None, CostRows, false);
                 bool hideUi2 = Playground.DebugHideUi, mapOn2 = Minimap.Visible;
                 Playground.DebugHideUi = true; Minimap.Visible = false;
                 yield return Frames(20);

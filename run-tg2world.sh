@@ -94,6 +94,8 @@ elif [ "${MODE:-poses}" = "flysweep" ]; then
   open -n "$APP" --args -world tg2 -flysweep -gateres 0 -renderpreset performance \
     -farshadow 1 -cleardeltas -tag "flysweep_${RUN_ID}" ${EXTRA:-}
 elif [ "${MODE:-poses}" = "walk" ]; then
+  # Task 112: the sun is GOLDEN HOUR (6 deg, 17.59 h) unless EXTRA passes -tod H (task 110 used -tod 12 = noon;
+  # -tod 17 = ~14.5 deg). The report's WHOLE RUN line prints p50 / p95 / p99 (30 fps line: p95 <= 33 ms).
   open -n "$APP" --args -world tg2 -sustained -motion walk -orbitradius "${WALKR:-150}" -movespeed 5 -minutes "${MINUTES:-5}" \
     -gateres 0 -renderpreset performance -farshadow 1 -cleardeltas -tag "tg2walk_${RUN_ID}" ${EXTRA:-}
 else

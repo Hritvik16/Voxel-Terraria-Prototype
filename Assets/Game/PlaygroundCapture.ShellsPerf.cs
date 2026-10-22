@@ -112,11 +112,13 @@ public partial class PlaygroundCapture
     }
 
     /// -sustained: the whole run's frame-time percentiles (every frame kept).
+    /// Task 112: p95 too -- the 30 fps line (PERF_30FPS_PLAN.md) is "<= 5% of
+    /// frames > 33 ms", i.e. p95 <= 33 ms.
     private static string WholeRunLine(List<float> ms)
     {
         if (ms.Count == 0) return "  WHOLE RUN: no frames";
         int over = 0; foreach (float v in ms) if (v > 33f) over++;
-        return $"  WHOLE RUN ({ms.Count} frames): p50 {Pct(ms, 0.5f):F2} ms   p99 {Pct(ms, 0.99f):F2} ms   " +
-               $">33 ms {100f * over / ms.Count:F2}% of frames";
+        return $"  WHOLE RUN ({ms.Count} frames): p50 {Pct(ms, 0.5f):F2} ms   p95 {Pct(ms, 0.95f):F2} ms   p99 {Pct(ms, 0.99f):F2} ms   " +
+               $">33 ms {100f * over / ms.Count:F2}% of frames (30 fps line: p95 <= 33)";
     }
 }
