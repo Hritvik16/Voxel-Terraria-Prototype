@@ -199,6 +199,10 @@ public static class EngineConfig
     // ASSUMPTION, NOT MEASURED.
     public const int SAVED_SUMMARY_LOADS_PER_FRAME = 8;
     public const long SAVED_SUMMARY_LRU_BYTES = 16L * 1024 * 1024;
+    // Saved-summary builds in flight off the main thread (task 113): one scratch
+    // (~4.3 MB, allocated on demand) each; MAX_CHUNK_SAVES_PER_FRAME so a frame's
+    // evictions never wait. One more finishes the oldest first. ASSUMPTION, NOT MEASURED.
+    public const int SAVED_SUMMARY_SCRATCH = MAX_CHUNK_SAVES_PER_FRAME;
 
     // ---- Chunk generation concurrency (§0.1 invariant 8) ----
     // Worker threads generating chunks off the main thread. This WAS hardcoded

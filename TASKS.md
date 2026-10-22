@@ -217,6 +217,15 @@ applied in row 10's order (`GenerateShellChunk`: ops <= S, summary, ops > S). Fa
 patched when the store changes. Index + far spans + LRU (16 MB cap) + one 4.3 MB scratch (`RamBytes`). `StreamManager.ClearSaveFiles`
 (`-cleardeltas`) clears it with the deltas, ops.log and world.state. `-savesummaries 0` = not written, `-savedsummaries 0` = not drawn.
 `EditSummarySaveTests` (5). `EXTRA="-farwall -farwallsaved -shells 1 -shellworkers 3"` = near, far saved OFF / ON shots.
+Task 113 (111 Q8 (a)): the build is OFF the main thread. `SaveDelta` (after D.1's rename, which stays on the main thread) only snapshots
+the chunk into a scratch the store owns and schedules the Burst vote; `SavedEditSummaries.Pump` (top of `StreamManager.Update`) finishes
+completed jobs on the main thread (Extract, encode, `.tmp` + rename, index); `FlushAllDirty` and `Dispose` call `CompleteAll` (shutdown
+writes every pending one; `-cleardeltas` runs before the store opens, so nothing is pending then). <= `SAVED_SUMMARY_SCRATCH` (4 =
+`MAX_CHUNK_SAVES_PER_FRAME`) builds in flight, ~4.3 MB each on demand (`RamBytes` counts them); a 5th finishes the oldest first
+(`SyncFallbacks`). PENDING: `Has` true, `TryGet` = NotLoaded (no disk read), `Warm` skips it, the far band keeps its previous spans,
+ShellStreamer keeps the dropped live summary as a stand-in (no redraw); a newer D.1 supersedes it, a deleted D.1 drops it (`Superseded`).
+Same .sum bytes as 108 (`Synchronous = true` keeps the inline path for tests). Flags unchanged. Tests +2 in `EditSummarySaveTests`
+(bytes identical with the pool overwritten and the chunk reloaded while pending; evict-while-pending stand-in / reload / landed swap).
 
 **Task 112 (measure tooling, 111 Q9; no product behaviour change).** `run-cost-split.sh` now honours `-renderrows N`
 (`PlaygroundCapture.CostSplit.cs` `CostRows`: last match, clamped to `UpscalerSelect`'s 540-720; "dyn"/none = 540, so older arms are

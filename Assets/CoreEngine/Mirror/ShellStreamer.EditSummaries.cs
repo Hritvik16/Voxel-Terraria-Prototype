@@ -23,6 +23,8 @@
 //   4. EVICTION: the live summary leaves the snapshot. Task 108 (8.15 E2):
 //      SaveDelta wrote the chunk's D.5 summary beside its D.1 (Saved), and
 //      step 5 puts that one in instead -- same look, so nothing is redrawn.
+//      Task 113: that build runs off-thread; while it is pending the dropped
+//      live summary stands in (still published), then the saved one replaces it.
 //   5. SAVED SUMMARIES: every D.5 summary of a chunk with no live summary that
 //      some shell covers is read (at most SAVED_SUMMARY_LOADS_PER_FRAME disk
 //      reads per frame; stale or corrupt files are rejected by the store) and
@@ -173,8 +175,19 @@ namespace VoxelEngine.Mirror
                 {
                     if (HasLive(c) || !SummaryCovered(c)) continue;
                     var r = Saved.TryGet(c, ref budget, out var s);
-                    if (r == SavedEditSummaries.GetResult.NotLoaded) { _savedPending = true; continue; }
                     _savedIn.TryGetValue(c, out var cur);
+                    if (r == SavedEditSummaries.GetResult.NotLoaded)
+                    {
+                        _savedPending = true;
+                        // Task 113: its build is pending (evicted this frame): the dropped live
+                        // summary stands in until it lands -- the drawn look, no redraw.
+                        if (cur == null && Saved.IsPending(c) && _liveDropped.TryGetValue(c, out var standIn))
+                        {
+                            _savedIn[c] = standIn;
+                            changed = true;
+                        }
+                        continue;
+                    }
                     if (r == SavedEditSummaries.GetResult.None)
                     {
                         if (cur != null) { _savedIn.Remove(c); changed = true; _sumNew.Add(c); }

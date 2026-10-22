@@ -21,6 +21,16 @@
 //   Far band          a summary saved after the fill patches its chunk's texels
 //                     == a fresh FarField built with it; the tower's centre
 //                     texel rises to its top (stone), the pit's drops.
+// Task 113 (the build off the main thread; every test above saves through the
+// scheduled job, Save waits for it):
+//   Bytes identical   async .sum == Synchronous .sum == an independent
+//                     Snapshot/Run/Extract/Encode, with the chunk evicted, its
+//                     pool slots overwritten and the chunk reloaded while the job
+//                     runs; pending = Has, NotLoaded (no read), no file; a newer
+//                     D.1 supersedes, a deleted D.1 drops; 5 saves on 4 scratches.
+//   Evict while pending  the dropped live summary stands in (no redraw); a
+//                     reload's live summary wins; the landed one swaps in on the
+//                     next eviction with no redraw.
 using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
@@ -93,8 +103,18 @@ public class EditSummarySaveTests
     }
     private const int PIT = 16;
 
-    /// SaveDelta's steps: baseline = generator + ops 0..S, D.1 encoded and written, then D.5.
+    /// SaveDelta's steps: baseline = generator + ops 0..S, D.1 encoded and written, then D.5
+    /// (scheduled, then waited for: task 113).
     private static byte[] Save(string dir, SavedEditSummaries saved, int3 c, Chunk live, BrickDataPool pool, EditOpSnapshot ops, int S)
+    {
+        byte[] bytes = Delta(dir, c, live, pool, ops, S);
+        saved.DeltaWritten(c, bytes, live, pool, S);
+        saved.CompleteAll();
+        return bytes;
+    }
+
+    /// D.1 of `live` against generator + ops 0..S, written into `dir`.
+    private static byte[] Delta(string dir, int3 c, Chunk live, BrickDataPool pool, EditOpSnapshot ops, int S)
     {
         var bpool = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
         var balloc = new ChunkHandleAllocator(2);
@@ -105,10 +125,31 @@ public class EditSummarySaveTests
             byte[] bytes = DeltaCodec.Encode(c, SEED, live, pool, baseline, bpool);
             Assert.IsNotNull(bytes, "the edits left no delta");
             DeltaCodec.WriteAtomic(DeltaCodec.PathFor(dir, c), bytes);
-            saved.DeltaWritten(c, bytes, live, pool, S);
             return bytes;
         }
         finally { bpool.Dispose(); }
+    }
+
+    /// 108's build, by hand (no SavedEditSummaries): the .sum bytes of `live` for D.1 `d1`.
+    private static byte[] Reference(int3 c, Chunk live, BrickDataPool pool, byte[] d1, int S)
+    {
+        using var scr = new EditSummaryOps.Scratch();
+        EditSummaryOps.Snapshot(live, pool, scr);
+        EditSummaryOps.Run(scr);
+        var sum = EditSummaryOps.Extract(c, EditSummaryOps.MaskFromDelta(d1), scr, S);
+        return SummaryCodec.Encode(sum, SEED, EditOpLog.TrailerCrc(d1));
+    }
+
+    /// Pumps until no build is in flight (the main thread's per-frame Pump, in a loop).
+    private static void PumpUntilDone(SavedEditSummaries saved)
+    {
+        var t = System.Diagnostics.Stopwatch.StartNew();
+        while (saved.InFlight > 0)
+        {
+            saved.Pump();
+            Assert.Less(t.Elapsed.TotalSeconds, 60, "a summary build never finished");
+            System.Threading.Thread.Sleep(1);
+        }
     }
 
     private static int Diff(TerrainGenChunkSource.ShellChunk a, TerrainGenChunkSource.ShellChunk b, out string ex)
@@ -545,5 +586,203 @@ public class EditSummarySaveTests
         FarField.ShadowTexels = true;
         try { return new FarField(new WorldMetaData { seed = SEED, sizeClass = 2 }, cam, _src.Map, null, saved); }
         finally { FarField.ShadowTexels = false; }
+    }
+
+    // =====================================================================
+    // Task 113: the build off the main thread
+    // =====================================================================
+
+    [Test, Timeout(600000)]
+    public void AsyncBuild_BytesIdenticalToSynchronous_EvenWithThePoolOverwrittenWhilePending()
+    {
+        string dirA = TempDir(), dirB = TempDir();
+        int3 site = Site();
+        int3 c = site >> 7;
+        var pool = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK * 4);
+        var alloc = new ChunkHandleAllocator(4);
+        var log = EditOpLog.InMemory(SEED);
+        var sync = SavedEditSummaries.Open(dirA, SEED);
+        sync.Synchronous = true;
+        var asy = SavedEditSummaries.Open(dirB, SEED);
+        var lines = new List<string>();
+        try
+        {
+            var store = new ChunkStore(pool, alloc);
+            var edits = new EditService();
+            edits.AttachWorld(store, store, store, null);
+            var live = Gen(c, alloc, pool);
+            store.InsertChunk(live);
+            Build(edits, site);
+            byte[] d1 = Delta(dirA, c, live, pool, log.Snapshot, log.Count);
+            File.Copy(DeltaCodec.PathFor(dirA, c), DeltaCodec.PathFor(dirB, c));
+            byte[] reference = Reference(c, live, pool, d1, log.Count);
+            string pathA = SavedEditSummaries.PathFor(dirA, c), pathB = SavedEditSummaries.PathFor(dirB, c);
+
+            Assert.IsNotNull(sync.DeltaWritten(c, d1, live, pool, log.Count), "Synchronous returns the summary");
+            Assert.IsNull(asy.DeltaWritten(c, d1, live, pool, log.Count), "async returns nothing until it lands");
+            Assert.AreEqual(1, asy.JobsScheduled);
+            Assert.IsTrue(asy.IsPending(c) && asy.Has(c) && asy.PendingCount == 1);
+            Assert.IsFalse(File.Exists(pathB), "a pending summary was written before Pump");
+            int budget = 1;
+            Assert.AreEqual(SavedEditSummaries.GetResult.NotLoaded, asy.TryGet(c, ref budget, out _));
+            Assert.AreEqual(1, budget, "a pending summary cost a disk read");
+            var coords = new List<int3>();
+            asy.CopyCoords(coords);
+            CollectionAssert.AreEqual(new[] { c }, coords);
+
+            // While the job runs: evict, overwrite every pool byte, reload (generate + the same edits).
+            store.EvictChunk(c);
+            var raw = pool.RawData;
+            for (int i = 0; i < raw.Length; i++) raw[i] = 0xA5;
+            var live2 = Gen(c, alloc, pool);
+            store.InsertChunk(live2);
+            Build(edits, site);
+            Assert.IsTrue(asy.IsPending(c), "nothing pumped yet");
+            PumpUntilDone(asy);
+            Assert.IsFalse(asy.IsPending(c));
+            CollectionAssert.AreEqual(reference, File.ReadAllBytes(pathA), "Synchronous != the hand build");
+            CollectionAssert.AreEqual(reference, File.ReadAllBytes(pathB), "async != the hand build (the pool was overwritten while pending)");
+            budget = 1;
+            Assert.AreEqual(SavedEditSummaries.GetResult.Valid, asy.TryGet(c, ref budget, out var sa));
+            Assert.AreEqual(SavedEditSummaries.GetResult.Valid, sync.TryGet(c, ref budget, out var ss));
+            Assert.IsTrue(sa.SameLook(ss), "async != sync at some level");
+            lines.Add($"async == sync == hand build: {reference.Length} B, byte for byte (pool overwritten + chunk reloaded while pending)");
+
+            // A newer D.1 supersedes the pending one; only the newest is written.
+            edits.SetBox(site + new int3(0, 49, 0), site + new int3(7, 52, 7), Materials.Stone);
+            byte[] d1b = Delta(dirB, c, live2, pool, log.Snapshot, log.Count);
+            byte[] referenceB = Reference(c, live2, pool, d1b, log.Count);
+            asy.DeltaWritten(c, d1, live2, pool, log.Count);    // (stale bytes, as an older save)
+            asy.DeltaWritten(c, d1b, live2, pool, log.Count);
+            Assert.AreEqual(1, asy.PendingCount);
+            PumpUntilDone(asy);
+            Assert.AreEqual(1, asy.Superseded);
+            Assert.AreEqual(2, asy.Written);
+            CollectionAssert.AreEqual(referenceB, File.ReadAllBytes(pathB), "the superseding save's bytes");
+
+            // A D.1 deleted while pending: no file, no entry.
+            asy.DeltaWritten(c, d1b, live2, pool, log.Count);
+            asy.DeltaDeleted(c);
+            Assert.IsFalse(asy.Has(c));
+            asy.CompleteAll();
+            Assert.AreEqual(2, asy.Superseded);
+            Assert.AreEqual(2, asy.Written);
+            Assert.IsFalse(File.Exists(pathB), "a dropped build wrote its file");
+
+            // Five saves in one frame on four scratches: the oldest finishes early; all identical.
+            for (int i = 1; i <= 5; i++)
+            {
+                int3 ci = c + new int3(0, 0, i);
+                sync.DeltaWritten(ci, d1b, live2, pool, log.Count);
+                asy.DeltaWritten(ci, d1b, live2, pool, log.Count);
+            }
+            Assert.AreEqual(1, asy.SyncFallbacks);
+            Assert.AreEqual(EngineConfig.SAVED_SUMMARY_SCRATCH, asy.ScratchCount);
+            Assert.AreEqual(EngineConfig.SAVED_SUMMARY_SCRATCH, asy.PendingCount);
+            asy.CompleteAll();
+            for (int i = 1; i <= 5; i++)
+            {
+                int3 ci = c + new int3(0, 0, i);
+                CollectionAssert.AreEqual(File.ReadAllBytes(SavedEditSummaries.PathFor(dirA, ci)), File.ReadAllBytes(SavedEditSummaries.PathFor(dirB, ci)), $"chunk {ci}");
+            }
+            lines.Add($"superseded {asy.Superseded}, written {asy.Written}, sync fallbacks {asy.SyncFallbacks}, scratches {asy.ScratchCount}; " +
+                      $"main-thread build ms total: async {asy.BuildMsTotal:F2} vs sync {sync.BuildMsTotal:F2} (test timing, not a frame time)");
+        }
+        finally
+        {
+            sync.Dispose(); asy.Dispose(); pool.Dispose();
+            Directory.Delete(dirA, true); Directory.Delete(dirB, true);
+            Debug.Log("[113] async summary build\n" + string.Join("\n", lines));
+        }
+    }
+
+    [Test, Timeout(900000)]
+    public void EvictWhilePending_LiveSummaryStandsIn_ReloadSeesLive_LandedSwapsInWithoutRedraw()
+    {
+        const int BUDGET = 3 * 1024 * 1024;
+        string dir = TempDir();
+        int3 site = Site();
+        int3 c = site >> 7, cover = c >> 1;
+        var L = ShellLayout.From(QualityPreset.Low);
+        int3 camShell = cover + new int3(L[1].Hole + 2, 0, 0);
+        float3 cam = new float3(((camShell.x << 8) + 128) * 0.1f, (site.y + 30) * 0.1f, ((camShell.z << 8) + 128) * 0.1f);
+
+        var pool = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK * 4);
+        var alloc = new ChunkHandleAllocator(4);
+        var log = EditOpLog.InMemory(SEED);
+        double clock = 0;
+        ShellStore.ShadowUploads = true;
+        bool fill = _src.ShellFill;
+        _src.ShellFill = false;
+        var saved = SavedEditSummaries.Open(dir, SEED);
+        var s = new ShellStreamer(L, _src, 1, synchronous: true, firstShell: 1, lastShell: 1)
+            { Ops = log, SyncChunksPerUpdate = 32, SummaryClock = () => clock, Saved = saved };
+        try
+        {
+            var store = new ChunkStore(pool, alloc);
+            var edits = new EditService();
+            edits.AttachWorld(store, store, store, null);
+            var live = Gen(c, alloc, pool);
+            store.InsertChunk(live);
+            s.AttachEdits(store);
+            int n = 0;
+            while (!s.Store(1).Holds(cover)) { s.Update(cam, BUDGET); Assert.Less(++n, 3000, "shell 1 never held the cover"); }
+            clock = 10;
+            Build(edits, site);
+            for (int i = 0; i < 60 && (s.SummariesBuilt == 0 || s.RedrawsPending > 0); i++) s.Update(cam, BUDGET);
+            Assert.AreEqual(1, s.SummariesBuilt);
+            var liveSum = s.Summaries.All[0];
+
+            // Save (scheduled, not landed), then evict: the live summary stands in.
+            byte[] d1 = Delta(dir, c, live, pool, log.Snapshot, log.Count);
+            byte[] reference = Reference(c, live, pool, d1, log.Count);
+            saved.DeltaWritten(c, d1, live, pool, log.Count);
+            Assert.IsTrue(saved.IsPending(c));
+            long redraws0 = s.SummaryRedrawsQueued;
+            store.EvictChunk(c);
+            for (int i = 0; i < 3; i++) s.Update(cam, BUDGET);
+            Assert.IsTrue(saved.IsPending(c), "nothing pumped");
+            Assert.AreEqual(1, s.SummariesDropped);
+            Assert.AreEqual(1, s.SavedHeld, "the stand-in");
+            Assert.AreEqual(1, s.SummariesHeld);
+            Assert.AreSame(liveSum, s.Summaries.All[0], "the published look while pending == the dropped live summary");
+            Assert.AreEqual(redraws0, s.SummaryRedrawsQueued, "the pending window redrew");
+
+            // Reload while still pending (generate + the same edits): its live summary wins.
+            var live2 = Gen(c, alloc, pool);
+            store.InsertChunk(live2);
+            clock = 20;
+            Build(edits, site);
+            for (int i = 0; i < 60 && (s.SummariesBuilt < 2 || s.RedrawsPending > 0); i++) s.Update(cam, BUDGET);
+            Assert.AreEqual(2, s.SummariesBuilt);
+            Assert.AreEqual(0, s.SavedHeld, "the stand-in outlived the reload's live summary");
+            Assert.AreEqual(1, s.SummariesHeld);
+            var liveSum2 = s.Summaries.All[0];
+            Assert.AreEqual(int.MaxValue, liveSum2.OpsBefore, "live");
+            Assert.IsTrue(liveSum2.SameLook(liveSum));
+
+            // It lands: written, == the hand build; the shells keep the live one while resident.
+            PumpUntilDone(saved);
+            CollectionAssert.AreEqual(reference, File.ReadAllBytes(SavedEditSummaries.PathFor(dir, c)), "landed bytes");
+            s.Update(cam, BUDGET);
+            Assert.AreSame(liveSum2, s.Summaries.All[0]);
+
+            // Evicted again (unchanged since that save): the landed summary swaps in, no redraw.
+            long redraws1 = s.SummaryRedrawsQueued;
+            store.EvictChunk(c);
+            s.Update(cam, BUDGET);
+            Assert.AreEqual(1, s.SavedHeld);
+            Assert.AreEqual(1, s.SummariesHeld);
+            Assert.AreNotEqual(int.MaxValue, s.Summaries.All[0].OpsBefore, "the saved summary");
+            Assert.IsTrue(s.Summaries.All[0].SameLook(liveSum2));
+            Assert.AreEqual(redraws1, s.SummaryRedrawsQueued, "the landed summary redrew the same look");
+        }
+        finally
+        {
+            ShellStore.ShadowUploads = false;
+            _src.ShellFill = fill;
+            s.Dispose(); saved.Dispose(); pool.Dispose();
+            Directory.Delete(dir, true);
+        }
     }
 }

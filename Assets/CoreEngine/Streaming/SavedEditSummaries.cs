@@ -8,9 +8,26 @@
 // autosave, shutdown flush) and the shells and the far band draw it from disk.
 //
 // BUILD: the same Burst pass as 93a (EditSummaryOps.Snapshot/Run/Extract over
-// the live chunk, on the main thread inside SaveDelta, right after D.1's
-// rename), for the bricks D.1 records (MaskFromDelta: the bricks that differ
-// from the baseline, generator + ops <= S). No second downsampler.
+// the live chunk), for the bricks D.1 records (MaskFromDelta: the bricks that
+// differ from the baseline, generator + ops <= S). No second downsampler.
+// Task 113 (off-thread, 93a's pattern): SaveDelta, right after D.1's rename,
+// only SNAPSHOTS the chunk into a scratch this store owns and schedules the vote
+// (a worker writes only that scratch). Pump (StreamManager.Update, every frame)
+// finishes completed jobs on the main thread: Extract, encode, `.tmp` + rename,
+// index. The bytes are those of the synchronous build (`Synchronous` = 108's
+// inline path). Up to EngineConfig.SAVED_SUMMARY_SCRATCH builds are in flight;
+// one more completes the oldest first (SyncFallbacks).
+//
+// PENDING (a D.1 written, its D.5 not yet): Has() is true, TryGet answers
+// NotLoaded (no disk read), Warm skips it and the far band keeps the coord's
+// previous spans, so readers keep the look they have until the build lands
+// (ShellStreamer keeps the dropped live summary as a stand-in). The snapshot is
+// a copy, so an eviction, a pool slot reissued, a reload or new edits before the
+// job finishes cannot change it. A newer D.1 of the same chunk SUPERSEDES it
+// (only the newest is written); a D.1 deleted (coalesced) or written with
+// summaries off DROPS it. CompleteAll (FlushAllDirty, Dispose) finishes every
+// pending build and writes it; a crash before that leaves the old or no D.5:
+// StaleDelta / none, as below.
 //
 // D.5 LAYOUT `summary/{cx}_{cy}_{cz}.sum` (little-endian, formatVersion 1):
 //   header  {uint magic 'ESUM', ushort formatVersion, uint seed, int3 chunk,
@@ -38,9 +55,11 @@
 // 32 B), an LRU of loaded summaries (EngineConfig.SAVED_SUMMARY_LRU_BYTES) and
 // one 4.3 MB build scratch, allocated on the first save with edits. RamBytes.
 //
-// THREADING (single-writer): main thread only. Shell workers read summaries
-// through ShellStreamer's immutable snapshot; far-band jobs get their own copy
-// of the spans they need (FarField). No locks.
+// THREADING (single-writer): main thread only, except the vote job, which
+// reads and writes only its own scratch (main thread touches a scratch only
+// after Complete). Shell workers read summaries through ShellStreamer's
+// immutable snapshot; far-band jobs get their own copy of the spans they need
+// (FarField). No locks.
 //
 // Coordinates are integer shifts and masks only (§6.2).
 using System;
@@ -286,7 +305,13 @@ namespace VoxelEngine.Streaming
 
         // ---- counters ----
         public long Written, Deleted, Loaded, Rejected, WriteFailures, BytesWritten, DeltaBytesSeen;
+        /// Off-thread builds (task 113): scheduled; finished early because every scratch
+        /// was busy; discarded (superseded by a newer D.1, or its D.1 deleted).
+        public long JobsScheduled, SyncFallbacks, Superseded;
+        /// Main-thread build time (Snapshot + Extract; + the vote when Synchronous) and write time.
         public double BuildMsTotal, WriteMsTotal;
+        /// True = 108's inline build (tests' reference); false = the vote on a worker.
+        public bool Synchronous;
         public SummaryRejectReason LastReject { get; private set; }
 
         /// Bumped by every change a reader must see (write, delete, a load that
@@ -307,7 +332,18 @@ namespace VoxelEngine.Streaming
         private readonly LinkedList<EditSummary> _lru = new LinkedList<EditSummary>();
         private long _lruBytes;
         private readonly Dictionary<int3, int> _removedAt = new Dictionary<int3, int>();
-        private EditSummaryOps.Scratch _scratch;
+        private sealed class Pending
+        {
+            public int3 Coord;
+            public ulong[] Mask;
+            public uint Crc;
+            public int OpsBefore;
+            public EditSummaryOps.Scratch S;
+        }
+        private readonly List<Pending> _inFlight = new List<Pending>();          // schedule order
+        private readonly Dictionary<int3, Pending> _pendingBy = new Dictionary<int3, Pending>();   // the newest per chunk
+        private readonly Stack<EditSummaryOps.Scratch> _scratchFree = new Stack<EditSummaryOps.Scratch>();
+        private readonly List<EditSummaryOps.Scratch> _scratchAll = new List<EditSummaryOps.Scratch>();
         private readonly List<int3> _warm = new List<int3>();
         private bool _maybeUnvalidated = true;   // some entry may have State 0 (Warm's early out)
 
@@ -349,8 +385,18 @@ namespace VoxelEngine.Streaming
         }
 
         public int Count => _index.Count;
-        public bool Has(int3 c) => _index.ContainsKey(c);
-        public void CopyCoords(List<int3> outp) { outp.Clear(); outp.AddRange(_index.Keys); }
+        /// A summary exists or is being built (pending) for `c`.
+        public bool Has(int3 c) => _index.ContainsKey(c) || _pendingBy.ContainsKey(c);
+        public void CopyCoords(List<int3> outp)
+        {
+            outp.Clear(); outp.AddRange(_index.Keys);
+            foreach (var c in _pendingBy.Keys) if (!_index.ContainsKey(c)) outp.Add(c);
+        }
+        /// A D.1 of `c` was written and its summary build has not landed yet.
+        public bool IsPending(int3 c) => _pendingBy.ContainsKey(c);
+        public int PendingCount => _pendingBy.Count;
+        public int InFlight => _inFlight.Count;
+        public int ScratchCount => _scratchAll.Count;
 
         public long LruBytes => _lruBytes;
         public int LruCount => _lru.Count;
@@ -358,9 +404,9 @@ namespace VoxelEngine.Streaming
         public long FarSpanCount { get { long n = 0; foreach (var e in _index.Values) if (e.Far != null) n += e.Far.Length; return n; } }
         public const int INDEX_ENTRY_BYTES = 48;   // Entry object + dictionary slot, approximate
         public const int FAR_SPAN_BYTES = 32;
-        /// Index + far spans + LRU + the build scratch: the store's RAM (approximate).
+        /// Index + far spans + LRU + the build scratches: the store's RAM (approximate).
         public long RamBytes => (long)_index.Count * INDEX_ENTRY_BYTES + FarSpanCount * FAR_SPAN_BYTES + _lruBytes
-                                + (_scratch != null ? ScratchBytes : 0);
+                                + _scratchAll.Count * ScratchBytes;
         public static long ScratchBytes => EngineConfig.BRICKS_PER_CHUNK * 4L + EngineConfig.BRICKS_PER_CHUNK * (long)EngineConfig.BRICK_BODY_BYTES
                                            + (128L * 128 * 128) + EditSummaryOps.LevelsBytes;
 
@@ -369,53 +415,147 @@ namespace VoxelEngine.Streaming
         // =====================================================================
 
         /// D.1 `deltaBytes` of chunk `coord` was just renamed into place; `live` is the
-        /// chunk it encodes, `opsBefore` the op count it holds (S). Builds and writes the
-        /// summary. Never throws: a failure is counted and the entry goes stale-checked.
+        /// chunk it encodes, `opsBefore` the op count it holds (S). Snapshots the chunk
+        /// and schedules the summary build (Pump finishes it); Synchronous: builds and
+        /// writes it now and returns it (else null). Never throws: a failure is counted
+        /// and the entry goes stale-checked.
         public EditSummary DeltaWritten(int3 coord, byte[] deltaBytes, Chunk live, BrickDataPool pool, int opsBefore)
         {
             uint crc = EditOpLog.TrailerCrc(deltaBytes);
             DeltaBytesSeen += deltaBytes.Length;
+            DropPending(coord);   // a newer D.1: an older build of this chunk is superseded
             if (!WriteEnabled)
             {
                 // The old file (if any) no longer matches: mark it for a stale check.
                 if (_index.TryGetValue(coord, out var e0)) { e0.DeltaCrc = crc; e0.CrcKnown = true; e0.State = 0; e0.Far = null; DropLru(coord); Changed(coord, e0); }
                 return null;
             }
+            EditSummaryOps.Scratch scr = null;
             try
             {
                 var t = System.Diagnostics.Stopwatch.StartNew();
                 var mask = EditSummaryOps.MaskFromDelta(deltaBytes);
                 if (mask == null) { DeltaDeleted(coord); return null; }
-                if (_scratch == null) _scratch = new EditSummaryOps.Scratch();
-                EditSummaryOps.Snapshot(live, pool, _scratch);
-                EditSummaryOps.Run(_scratch);
-                var s = EditSummaryOps.Extract(coord, mask, _scratch, opsBefore);
+                scr = TakeScratch();
+                var p = new Pending { Coord = coord, Mask = mask, Crc = crc, OpsBefore = opsBefore, S = scr };
+                EditSummaryOps.Snapshot(live, pool, scr);
+                scr = null;   // owned by p from here (Finish frees it)
+                if (Synchronous)
+                {
+                    EditSummaryOps.Run(p.S);
+                    BuildMsTotal += t.Elapsed.TotalMilliseconds;
+                    _pendingBy[coord] = p;   // (Finish checks it; never in flight)
+                    return Finish(p);
+                }
+                EditSummaryOps.Schedule(p.S);
+                BuildMsTotal += t.Elapsed.TotalMilliseconds;
+                JobsScheduled++;
+                _pendingBy[coord] = p;
+                _inFlight.Add(p);
+                Version++;   // readers see the chunk as pending
+                return null;
+            }
+            catch (Exception ex)
+            {
+                if (scr != null) _scratchFree.Push(scr);
+                Failed(coord, crc, ex);
+                return null;
+            }
+        }
+
+        /// MAIN THREAD, every frame: finishes the builds whose jobs completed.
+        public int Pump()
+        {
+            int n = 0;
+            for (int i = 0; i < _inFlight.Count; i++)
+            {
+                if (!_inFlight[i].S.Job.IsCompleted) continue;
+                var p = _inFlight[i];
+                _inFlight.RemoveAt(i--);
+                Finish(p);
+                n++;
+            }
+            return n;
+        }
+
+        /// Waits for every pending build and writes it (flush, shutdown).
+        public void CompleteAll()
+        {
+            while (_inFlight.Count > 0)
+            {
+                var p = _inFlight[0];
+                _inFlight.RemoveAt(0);
+                Finish(p);
+            }
+        }
+
+        /// A free scratch; all EngineConfig.SAVED_SUMMARY_SCRATCH busy -> the oldest build finishes now.
+        private EditSummaryOps.Scratch TakeScratch()
+        {
+            if (_scratchFree.Count > 0) return _scratchFree.Pop();
+            if (_scratchAll.Count < EngineConfig.SAVED_SUMMARY_SCRATCH || _inFlight.Count == 0)
+            {
+                var s = new EditSummaryOps.Scratch();
+                _scratchAll.Add(s);
+                return s;
+            }
+            var oldest = _inFlight[0];
+            _inFlight.RemoveAt(0);
+            SyncFallbacks++;
+            Finish(oldest);
+            return _scratchFree.Pop();
+        }
+
+        /// Completes `p`'s job, frees its scratch and, unless superseded or dropped,
+        /// extracts, encodes, writes and indexes the summary.
+        private EditSummary Finish(Pending p)
+        {
+            p.S.Job.Complete();
+            try
+            {
+                if (!_pendingBy.TryGetValue(p.Coord, out var cur) || cur != p) { Superseded++; return null; }
+                _pendingBy.Remove(p.Coord);
+                var t = System.Diagnostics.Stopwatch.StartNew();
+                var s = EditSummaryOps.Extract(p.Coord, p.Mask, p.S, p.OpsBefore);
                 BuildMsTotal += t.Elapsed.TotalMilliseconds;
                 t.Restart();
-                var bytes = SummaryCodec.Encode(s, _seed, crc);
-                DeltaCodec.WriteAtomic(PathFor(DeltaDirectory, coord), bytes);
+                var bytes = SummaryCodec.Encode(s, _seed, p.Crc);
+                DeltaCodec.WriteAtomic(PathFor(DeltaDirectory, p.Coord), bytes);
                 WriteMsTotal += t.Elapsed.TotalMilliseconds;
                 Written++; BytesWritten += bytes.Length;
-                if (!_index.TryGetValue(coord, out var e)) _index[coord] = e = new Entry();
-                _removedAt.Remove(coord);
-                e.DeltaCrc = crc; e.CrcKnown = true; e.State = 1; e.Reject = SummaryRejectReason.None;
+                if (!_index.TryGetValue(p.Coord, out var e)) _index[p.Coord] = e = new Entry();
+                _removedAt.Remove(p.Coord);
+                e.DeltaCrc = p.Crc; e.CrcKnown = true; e.State = 1; e.Reject = SummaryRejectReason.None;
                 e.Far = SummaryCodec.FarSpans(s);
                 PutLru(s);
-                Changed(coord, e);
+                Changed(p.Coord, e);
                 return s;
             }
             catch (Exception ex)
             {
-                WriteFailures++;
-                UnityEngine.Debug.LogError($"[SavedEditSummaries] summary save failed for {coord}: {ex}");
-                if (_index.TryGetValue(coord, out var e)) { e.DeltaCrc = crc; e.CrcKnown = true; e.State = 0; e.Far = null; DropLru(coord); Changed(coord, e); }
+                Failed(p.Coord, p.Crc, ex);
                 return null;
             }
+            finally { _scratchFree.Push(p.S); }
+        }
+
+        private void Failed(int3 coord, uint crc, Exception ex)
+        {
+            WriteFailures++;
+            UnityEngine.Debug.LogError($"[SavedEditSummaries] summary save failed for {coord}: {ex}");
+            if (_index.TryGetValue(coord, out var e)) { e.DeltaCrc = crc; e.CrcKnown = true; e.State = 0; e.Far = null; DropLru(coord); Changed(coord, e); }
+        }
+
+        /// Forgets `c`'s pending build (its job still runs; Finish discards it).
+        private void DropPending(int3 c)
+        {
+            if (_pendingBy.Remove(c)) Version++;
         }
 
         /// D.1 of `coord` was deleted (the chunk coalesced back to its baseline).
         public void DeltaDeleted(int3 coord)
         {
+            DropPending(coord);
             try
             {
                 string p = PathFor(DeltaDirectory, coord);
@@ -442,6 +582,7 @@ namespace VoxelEngine.Streaming
         public GetResult TryGet(int3 c, ref int loadBudget, out EditSummary s)
         {
             s = null;
+            if (_pendingBy.ContainsKey(c)) return GetResult.NotLoaded;   // the build lands in a frame or two
             if (!_index.TryGetValue(c, out var e) || e.State == 2) return GetResult.None;
             if (_lruMap.TryGetValue(c, out var node) && e.State == 1)
             {
@@ -463,7 +604,7 @@ namespace VoxelEngine.Streaming
             _warm.Clear();
             foreach (var kv in _index)
             {
-                if (kv.Value.State != 0) continue;
+                if (kv.Value.State != 0 || _pendingBy.ContainsKey(kv.Key)) continue;
                 _warm.Add(kv.Key);
                 if (_warm.Count >= maxLoads) break;
             }
@@ -578,10 +719,12 @@ namespace VoxelEngine.Streaming
             _lruBytes -= node.Value.Bytes;
         }
 
+        /// Writes every pending build (shutdown after FlushAllDirty), then frees the scratches.
         public void Dispose()
         {
-            _scratch?.Dispose();
-            _scratch = null;
+            CompleteAll();
+            foreach (var s in _scratchAll) s.Dispose();
+            _scratchAll.Clear(); _scratchFree.Clear();
         }
     }
 }

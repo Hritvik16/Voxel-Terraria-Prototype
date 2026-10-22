@@ -643,7 +643,8 @@ namespace VoxelEngine.Streaming
 
         /// Deletes a save's terrain files: D.1 deltas, D.4 ops.log, world.state and
         /// D.5 summary/ -- they belong together (a delta-less world replaying old ops
-        /// or old summaries would be a different world). `-cleardeltas`.
+        /// or old summaries would be a different world). `-cleardeltas`. Runs before a
+        /// StreamManager opens the directory, so no summary build is pending (task 113).
         public static void ClearSaveFiles(string deltaDir)
         {
             if (!System.IO.Directory.Exists(deltaDir)) return;
@@ -699,6 +700,7 @@ namespace VoxelEngine.Streaming
             _frame++;
             var sw = System.Diagnostics.Stopwatch.StartNew();
             if (World.ClockSeconds - _worldStateWriteClock >= WORLD_STATE_SAVE_SECONDS) SaveWorldState();
+            SavedSummaries.Pump();   // E2 (task 113): summary builds whose vote job finished -> written
             SavedSummaries.Warm(EngineConfig.SAVED_SUMMARY_LOADS_PER_FRAME);   // E2: far spans of summaries not read yet
 
             float3 camPos = new float3(cameraWorldPos.x, cameraWorldPos.y, cameraWorldPos.z);
@@ -1541,6 +1543,7 @@ namespace VoxelEngine.Streaming
                 Ops.NoteDeltaAboutToBeWritten(coord, bytes);
                 DeltaCodec.WriteAtomic(path, bytes);
                 // 8.15 E2 (task 108): D.5 right after D.1, carrying its CRC (never throws).
+                // Task 113: snapshot + scheduled vote here; Update's Pump writes it.
                 SavedSummaries.DeltaWritten(coord, bytes, live, _pool, opsBefore);
                 _farQuery?.ForgetDelta(coord);
                 World.MarkPersistent();   // the run saves terrain: world.state is written too (C1)
@@ -1628,6 +1631,7 @@ namespace VoxelEngine.Streaming
                 if (!chunk.deltaDirty) continue;
                 if (SaveDelta(chunk.coord, chunk)) { chunk.deltaDirty = false; n++; }
             }
+            SavedSummaries.CompleteAll();   // E2 (task 113): their D.5 summaries too
             SaveWorldState();   // 8.15 C1: residents stamped seen now
             return n;
         }
