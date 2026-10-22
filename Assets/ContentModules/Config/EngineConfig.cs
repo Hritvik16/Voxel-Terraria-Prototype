@@ -181,6 +181,18 @@ public static class EngineConfig
     // a full chunk generate -- that is what this bounds.
     public const int MAX_CHUNK_SAVES_PER_FRAME = 4;
 
+    // ---- Edit summaries (Amendment 8.15 §5 "Live", task 93a) ----
+    // A resident chunk a player edited is re-summarised into the shells that
+    // cover it at most once per EDIT_SUMMARY_MIN_INTERVAL_S (8.15 §5: "at most
+    // once a second"), and at most EDIT_SUMMARIES_PER_FRAME start per frame:
+    // the main thread copies the chunk's bricks (<= 2 MB) for each. More are
+    // REFUSED and counted (ShellStreamer.SummariesRefused) and retried the next
+    // frame. EDIT_SUMMARY_SCRATCH builds may be in flight (each scratch ~4.3 MB,
+    // allocated on the first edit with shells on). ASSUMPTION, NOT MEASURED.
+    public const int EDIT_SUMMARIES_PER_FRAME = 1;
+    public const int EDIT_SUMMARY_SCRATCH = 2;
+    public const double EDIT_SUMMARY_MIN_INTERVAL_S = 1.0;
+
     // ---- Chunk generation concurrency (§0.1 invariant 8) ----
     // Worker threads generating chunks off the main thread. This WAS hardcoded
     // in StreamManager as max(2, ProcessorCount - 1), which is both a hard limit
@@ -255,7 +267,29 @@ public static class EngineConfig
     /// (0.85 x cap = 637k) ~138k bricks above that peak -- headroom for player
     /// building and digging inside the loaded band -- and returns another
     /// ~256 MB (250k x 512 B x 2).
-    public const int TG2_BRICK_POOL_CAP = 750000;
+    /// Task 93g (Amendment 8.15 row D4, §2 item 4): since 93f the GPU keeps its
+    /// own body pool, so this cap is CPU only (512 B a brick). Cap = measured
+    /// peak x 1.5 (8.15: players build and blast, not 8.14's x 1.25), rounded up
+    /// to 10 k. Peaks (BrickDataPool.PeakUsed, 21 x 21 columns = the 128 m load
+    /// radius, shells on): task 55 379,527; task 93g walk circle 358,892
+    /// (Logs/tg2world_20261016_235314.txt), 93f's four poses 330,792. 379,527 x
+    /// 1.5 = 569,291 -> 570,000 (-88 MB CPU); §3.6's valve line 0.85 x cap =
+    /// 484,500, 105 k bricks above the worst peak. Look-ahead (8.15 row L1) adds
+    /// residency: re-check this cap then.
+    public const int TG2_BRICK_POOL_CAP = 570000;
+    /// Task 93f (Amendment 8.15 row D3, §2 item 3): with the shells on, the GPU
+    /// body buffer is its own pool (TerrainClipmap.GpuPool.cs) holding only the
+    /// drawn tier-0 box + the fluid terrain directory, cap = measured PeakUsed of
+    /// a 16^3 box x 1.25. The box, not the preset, sets it: Low/Medium/High all
+    /// draw 16^3 (ShellLayout.MirrorBox); a larger box (Ultra's 32 x 8 x 32,
+    /// `-smallmirror 0`) scales it by its chunk count (GpuBrickCapFor).
+    /// Measured (High, 16^3, poses eye_level_3 / glide_400m / cliff_foot_1 /
+    /// peak_from_2km_ground, 2026-10-16): PeakUsed 203,450 at eye_level_3
+    /// -> x 1.25 = 254,313, rounded up (124 MB of GPU). Ultra's box is the
+    /// chunk-count scaling, NOT measured (8.14's estimate was 474 k).
+    public const int TG2_GPU_BRICK_CAP_16CUBE = 254400;
+    public static int GpuBrickCapFor(int boxX, int boxY, int boxZ)
+        => (int)(((long)TG2_GPU_BRICK_CAP_16CUBE * boxX * boxY * boxZ + 4095) / 4096);
     /// GPU mirror height for a vertically streamed world: 8 layers strictly
     /// contain the loaded band (StreamManager.V_LOAD_LAYERS = 3 -> 7 layers).
     public const int TG2_MIRROR_CHUNKS_Y = 8;
@@ -291,7 +325,23 @@ public static class EngineConfig
     /// mirror instead of the flat world's one content layer. A cascade pool has
     /// no valve (exhaustion throws), so FIRST SIZING is 2x the flat world's
     /// measured-and-padded caps; the run's PeakUsed sets the real number.
-    public static int Tg2CascadeTierPoolCap(int tier) => 2 * CascadeTierPoolCap(tier);
+    /// SET FROM PeakUsed (task 53, engine plan step 6; peaks from task 49, tg2
+    /// map v4, -memledger; worst of poses / walk / coast poolprobe):
+    ///   tier 1 peak 82,641 (poses) x 1.25 = 103,301 -> 104,000 (was 320,000)
+    ///   tier 2 peak 16,437 (poses) x 1.25 =  20,546 ->  21,000 (was  96,000)
+    /// No alignment rule: BrickDataPool takes any count, the GPU body buffer is
+    /// cap x 128 uints. Saves (216,000 + 75,000) x 512 B x 2 (CPU + GPU) = 284 MB.
+    /// Exhaustion still THROWS ("BrickDataPool exhausted") out of the chunk
+    /// admission that overflowed; if that line ever appears, raise these.
+    public static int Tg2CascadeTierPoolCap(int tier)
+    {
+        switch (tier)
+        {
+            case 1: return 104000;
+            case 2: return 21000;
+            default: return 2 * CascadeTierPoolCap(tier);
+        }
+    }
 
     public static int CascadeTierPoolCap(int tier)
     {
@@ -430,6 +480,20 @@ public static class EngineConfig
     // nothing: a pool only has to exceed demand, and demand is ~680.
     public const int FLUID_TILE_POOL_CAPACITY = 1024;
 
+    // THE PLAYGROUND / tg2 / play POOL (task 55, engine plan step 5b; plan §2's
+    // ~250 MB fluid budget; owner Q39 (a)). Since task 54 the Playground admits
+    // tiles for AWAKE fluid only, so resting sea and lakes no longer fill the
+    // pool: the coast poolprobe peaked at 32 tiles, not 1,024. 480 tiles x
+    // 0.5 MiB = 240 MiB GPU, the largest whole-tile count under 250 MB. No
+    // alignment rule: FluidTileMap and FluidGpuSimulation take any count (the
+    // dispatch grid folds rows past 60,000 groups; regionDims stay pow2).
+    // A full pool still behaves as task 54 built it: nearest tiles win, a
+    // refused tile is counted and stays remembered until there is room.
+    // EVERY FLUID RIG KEEPS FLUID_TILE_POOL_CAPACITY (1,024), so their numbers
+    // stay comparable; the Phase 6 brush-guard scene (also a Playground) is
+    // pinned to 1,024 by its builder.
+    public const int PLAYGROUND_FLUID_TILE_POOL_CAPACITY = 480;
+
     // §7.4's near-player active radius, in VOXELS (0.1 m each) => 128 m, chosen
     // to match C.5's LOD0 boundary so simulated fluid and full-resolution
     // terrain have the same reach. A slot whose home leaves this radius is
@@ -472,4 +536,9 @@ public static class EngineConfig
 
     public static int BrickPoolHighWaterBricks =>
         (int)(BRICK_POOL_CAP * BRICK_POOL_HIGH_WATER_FRACTION);
+
+    /// §3.6's valve line for any brick pool cap (the tg2 world's, or a
+    /// `-cpubrickcap` override): the same 0.85 fraction as the flat world's.
+    public static int HighWaterBricksFor(int cap) =>
+        (int)(cap * BRICK_POOL_HIGH_WATER_FRACTION);
 }

@@ -1,0 +1,6 @@
+[ToolDemo] search: 14 cells, 1 iron deposits, iron at int3(37235, 4203, 22827), 1 m from the spawn, -91.7 m vs sea, 119.2 m under the top
+[ToolDemo] room: loaded True, carved 9576 voxels, 4 torch(es); camera int3(37254, 4206, 22831) (1.6 m from the face); iron voxels within 1.2 m of the face: 331; aimed iron ore at int3(37238, 4203, 22827)
+[ToolDemo] copper pick at iron ore int3(37238, 4204, 22829): refused True, removed 0; iron left 331 of 331; status "<color=#ff9a9a>TOO HARD: iron ore needs a gold pick (tier 3) -- you hold a copper pick (tier 2)</color>"
+[ToolDemo] gold pick, half the vein: 243 voxels dug in 4.6 s, iron in the hotbar 167
+[ToolDemo] gold pick: 552 voxels dug (552 credited) in 9.8 s / 152 frames; iron left 0 of 331; iron ore in the inventory 331; status "+6 iron ore  (now 331)  gold pick"; [0] torch 50  [1] slate 221  [2] iron ore 331  
+[ToolDemo] done

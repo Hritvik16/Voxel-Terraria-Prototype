@@ -1,0 +1,28 @@
+Task 88 byte-identical, seed 42 map v4: cavern cell corner (19456,65536), cavern y 3149..3243
+  chunk int3(151, 24, 511)  fnv 9a541727  mixed
+  chunk int3(151, 25, 511)  fnv e5add53e  mixed
+  chunk int3(151, 33, 511)  fnv 2b6bee3a  mixed
+  chunk int3(152, 24, 511)  fnv cd406e1a  mixed
+  chunk int3(152, 25, 511)  fnv ae9831b6  mixed
+  chunk int3(152, 33, 511)  fnv 9d09e110  mixed
+  chunk int3(151, 24, 512)  fnv 461c02f0  mixed
+  chunk int3(151, 25, 512)  fnv 7ef2dfbd  mixed
+  chunk int3(151, 32, 512)  fnv 2d409b0b  mixed
+  chunk int3(152, 24, 512)  fnv 265f7bc3  mixed
+  chunk int3(152, 25, 512)  fnv 138c0479  mixed
+  chunk int3(152, 32, 512)  fnv a0f28b2f  mixed
+  shell 1 chunk int3(75, 12, 255)  fnv 943655a8  content
+  shell 1 chunk int3(76, 12, 256)  fnv c5157b08  content
+  shell 1 chunk int3(75, 16, 255)  fnv 549003e3  content
+  shell 1 chunk int3(76, 16, 256)  fnv 12fba7fe  content
+  shell 3 chunk int3(18, 3, 63)  fnv d9899515  content
+  shell 3 chunk int3(19, 3, 64)  fnv d9899515  content
+  shell 3 chunk int3(18, 4, 63)  fnv 40bba5b4  content
+  shell 3 chunk int3(19, 4, 64)  fnv f6ab407c  content
+  shell 5 chunk int3(4, 0, 15)  fnv d9899515  content
+  shell 5 chunk int3(4, 0, 16)  fnv d93e9515  content
+  shell 5 chunk int3(4, 1, 15)  fnv 01089bdc  content
+  shell 5 chunk int3(4, 1, 16)  fnv db6508d7  content
+  shell 7 chunk int3(1, 0, 3)  fnv 5d679123  content
+  shell 7 chunk int3(1, 0, 4)  fnv a397c8d6  content
+26 chunks byte-identical (12 mixed 0.1 m chunks)

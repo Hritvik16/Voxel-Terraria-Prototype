@@ -3,10 +3,24 @@
 #   ./run-play.sh            the tg2 island on map v4 (surface rebuild B1+) + the far band
 #   MAPV=3 ./run-play.sh     the old generator (map v3), for comparison
 #   BUILD=1 ./run-play.sh    rebuild the Playground first (scene + release player)
-#   KEEP=1 ./run-play.sh     keep your edits from the last session (default: fresh world;
+#   KEEP=1 ./run-play.sh     keep your edits, Survival inventory (player.json) and where you stood (player_pose.json) from
+#                            the last session (default: fresh world at the play start, the best easy area, task 93c1;
 #                            v3 and v4 share one delta folder, so edits would cross over)
 #   SHOT=60 ./run-play.sh    one screenshot 60 s after startup (-playshot; path printed at exit)
-#   EXTRA="-taa 1" ...       extra player flags (e.g. -taa 1, -detailspeed 1)
+#                            (EXTRA="-playshotquit" quits after it; EXTRA="-worldseed 7" another tg2 island, own folder)
+#   EXTRA="-upscaler fsr1 -renderrows 540" ...   extra player flags (e.g. -detailspeed 1)
+# Upscaler (task 52, owner Q38 (a)): play STARTS WITH FSR 3 DYNAMIC -- 1080p output from
+# 540-720 internal rows chosen on frame time, as `-upscaler fsr3 -renderrows dyn`. Override
+# with EXTRA="-upscaler none|taa|fsr1|stp|fsr3 -renderrows 540|720|dyn"; EXTRA="-renderpreset
+# quality" (or -taa 1 / -checker 1) gives the old preset path. F3 leaves the upscaler for
+# the presets (restart to get it back). The F1 HUD and the strip show "UPSCALE fsr3 dyn <rows>".
+# Settings menu (task 58): F6 in play -- shadows, roof skip, upscaler, rows, shadow edges, perf
+# overlay, minimap; live, saved to PlaySettings.json (beside PlayerConfig.json) and applied at the next
+# start. Roof skip (exact sun shadows) is OFF by default: task 59 measured it slower on tg2.
+# -upscaler / -renderrows / -shadowlevel / -roofskip 0|1 in EXTRA override the file PER FIELD for that
+# run (so -renderrows 720 alone keeps the saved upscaler). Rigs never read the file.
+# LOD shells (task 93c, owner Q63 (a)): play STARTS WITH THE SHELLS ON (3 shell workers), F6 "LOD shells"
+# (applies at the next start); EXTRA="-shells 0" turns them off for one run, -shellworkers N sets the workers.
 # Start pose (task 32d): the fluid arena's basin can be a lake bed (v4) or the pose can
 # sit inside a hill (v3), so a tg2 session stands on the nearest dry column instead;
 # the Player.log "[Playground] start pose" lines say where, and what the eye is in.
@@ -15,7 +29,7 @@
 # Day length (task 33b, owner Q28 (b)): -daylength 1200, a 20-minute day; rigs and
 # capture runs keep LightingConfig's 120 s (the player ignores the flag in them).
 # Interactive: no capture flags, so Playground applies the interactive render
-# preset (RenderPreset.Default) exactly as a player session would. Holds the
+# preset (RenderPreset.Default) and then FSR 3 dyn, exactly as a player session would. Holds the
 # shared Unity lock while the player is open (like run-demo.sh).
 set -uo pipefail
 UNITY_BIN="/Applications/6000.3.10f1/Unity.app/Contents/MacOS/Unity"
@@ -62,14 +76,28 @@ cat <<KEYS
 world: -world tg2 -mapversion $MAPV (far band always on in tg2), far shadows on
 keys (Playground.cs RegisterDefaultToys, PlaygroundFlyCamera, PlaygroundHud, Minimap, DevMap):
   click         capture the mouse (first click only captures)   Esc  release it
-  Tab           walk <-> fly      R respawn on ground    F go to the fluid arena (the start pose)
-  WASD          move; walk: Space jump; fly: E up, Q down, Left Shift fast
-  mouse L / R   dig (held) / place the held item (held)    wheel or 1-9  pick item
+  Tab           walk <-> fly      R back to the start (best easy area; task 93c1)    F go to the fluid arena (fly)
+  WASD          move; walk: Space jump; fly: E up, Q down, Left Shift fast (E/Q: Survival keys in walk)
+  walk moves    Space in the air: double jump   Left Shift: dash (0.8 s cooldown bar above the hotbar)
+                in water: WASD swims where you look, Space up / jump out at the surface, Left Ctrl down
+                walk into a wall 0.9 m+ (or ground over 60 deg) and keep W held: climb (W up, A/D sideways,
+                Left Ctrl down, release W or Space to drop; stamina bar, refills on a 0.6 m ledge;
+                sand/snow and ice/glass climb slower); slopes over 30 deg slide you down: Space to scramble
+                after the double jump keep Space HELD: glide (10 m/s forward, 2 m/s down; the mouse steers,
+                S brakes, A/D drift, let go of Space to drop) -- jump off a summit
+  grapple       F (or middle mouse) in walk: hook the solid under the crosshair within 25 m (a ring on the
+                crosshair = in range); HOLD F to reel in (12 m/s, stops at the wall), let go in the air to
+                swing (WASD pumps), Space lets go (and still jumps), F again re-aims (task 100)
+  SURVIVAL (default; F6 Game mode or -gamemode creative switches):
+  mouse L / R   dig into the inventory (held) / place a cube of the held block (cyan box)
+  wheel or 1-9  hotbar slot    Q cube size 0.1/0.2/0.4/0.8 m    E inventory (click two slots to swap)
+  CREATIVE: mouse L / R dig / place the held brush (held), wheel or 1-9 pick brush
   Z / X         dig tool smaller / larger
   V vent here (pours the held fluid or sand)   0 stop vents   B bomb   G chaos burst   T shoot
-  F1 HUD   F2 help   F3 render preset quality/balanced/performance
-  F4 TAA on/off (also hides/shows the minimap -- both listen to F4)
+  F1 HUD   F2 help   F3 render preset quality/balanced/performance (leaves the FSR 3 default)
+  F4 TAA on/off, preset path only (also hides/shows the minimap -- both listen to F4)
   F5 voxel detail radius at speed on/off
+  F6 SETTINGS menu: game mode + graphics (saved; Esc or F6 closes)
   C far band on/off   I far band view (beauty -> bands -> far step heat)
   O dev map (whole island + underground slice; Esc/O closes)
   N golden hour  M noon  L midnight  P pause clock  , / . scrub time
@@ -81,4 +109,5 @@ DELTA="-cleardeltas"; [ "${KEEP:-0}" = "1" ] && DELTA="-keepdeltas"
 SHOTARG=""; [ -n "${SHOT:-}" ] && SHOTARG="-playshot $SHOT"
 open -n -W "$APP" --args -world tg2 -mapversion "$MAPV" -farband 1 -farshadow 1 -startview -daylength 1200 $DELTA $SHOTARG ${EXTRA:-}
 PL="$HOME/Library/Logs/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Player.log"
-grep -E "\[FarField\] tg2 WORLD|\[Playground\] (-playshot|start pose)" "$PL" 2>/dev/null | cut -c1-200
+grep -E "\[FarField\] tg2 WORLD|\[Playground\] (-playshot|start pose)|\[Phase4Bootstrapper\] (play start|-keepdeltas: (resuming|pose))" "$PL" 2>/dev/null | cut -c1-200
+grep "\[UpscalerSelect\]" "$PL" 2>/dev/null | sed -n '1p;$p' | cut -c1-200   # the start and the last dyn step

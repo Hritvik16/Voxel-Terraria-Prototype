@@ -30,8 +30,6 @@ namespace TerrainGen
 {
     public static class Erosion
     {
-        private static readonly int[] DX = { -1, 0, 1, -1, 1, -1, 0, 1 };
-        private static readonly int[] DZ = { -1, -1, -1, 0, 0, 1, 1, 1 };
         private const float DIAG = 1.41421356f;
 
         public struct Stats { public int iterations; public float maxCut; public int outlets; }
@@ -55,18 +53,23 @@ namespace TerrainGen
         /// `start` is the fraction of the target the land starts at (v3: 0.2,
         /// so it rises 80% of its height while rivers cut); a higher start is
         /// LESS uplift during the pass (v4, B3: a light valley pass).
-        public static Stats Run(int n, float[] target, float[] erod, float[] talus, bool[] layered, float cellVoxels, int iterations, float start = 0.2f)
+        /// Burst (engine plan step 1): buffers are MapArena pointers; the
+        /// scratch is released on the way out.
+        public static unsafe Stats Run(MapArena* A, int n, float* target, float* erod, float* talus, bool* layered, float cellVoxels, int iterations, float start = 0.2f)
         {
+            int* DX = stackalloc int[] { -1, 0, 1, -1, 1, -1, 0, 1 };
+            int* DZ = stackalloc int[] { -1, -1, -1, 0, 0, 1, 1, 1 };
+            int mark = A->Mark();
             int N = n * n;
-            var h = new float[N];
+            float* h = A->Alloc<float>(N);
             for (int i = 0; i < N; i++) h[i] = target[i] <= 0f ? target[i] : target[i] * start;
-            var order = new int[N];
-            var parent = new int[N];
-            var recv = new int[N];
-            var area = new float[N];
-            var fill = new float[N];
-            var visited = new bool[N];
-            var heap = new Heap(N);
+            int* order = A->Alloc<int>(N);
+            int* parent = A->Alloc<int>(N);
+            int* recv = A->Alloc<int>(N);
+            float* area = A->Alloc<float>(N);
+            float* fill = A->Alloc<float>(N);
+            bool* visited = A->Alloc<bool>(N);
+            var heap = new Heap(A, N);
             var st = new Stats { iterations = iterations };
             int count = 0;
             for (int it = 0; it < iterations; it++)
@@ -187,14 +190,15 @@ namespace TerrainGen
                 }
             }
             for (int i = 0; i < N; i++) { st.maxCut = math.max(st.maxCut, target[i] - h[i]); target[i] = h[i]; }
+            A->Release(mark);
             return st;
         }
 
         /// Binary min-heap of (height, index), ties by index: a fixed order.
-        private sealed class Heap
+        private unsafe struct Heap
         {
-            private readonly float[] _k; private readonly int[] _v; private int _n;
-            public Heap(int cap) { _k = new float[cap + 1]; _v = new int[cap + 1]; }
+            private float* _k; private int* _v; private int _n;
+            public Heap(MapArena* A, int cap) { _k = A->Alloc<float>(cap + 1); _v = A->Alloc<int>(cap + 1); _n = 0; }
             public int Count => _n;
             public void Clear() => _n = 0;
             private bool Less(int a, int b) => _k[a] < _k[b] || (_k[a] == _k[b] && _v[a] < _v[b]);
@@ -217,7 +221,7 @@ namespace TerrainGen
                     Swap(i, m); i = m;
                 }
             }
-            private void Swap(int a, int b) { (_k[a], _k[b]) = (_k[b], _k[a]); (_v[a], _v[b]) = (_v[b], _v[a]); }
+            private void Swap(int a, int b) { float tk = _k[a]; _k[a] = _k[b]; _k[b] = tk; int tv = _v[a]; _v[a] = _v[b]; _v[b] = tv; }
         }
     }
 }

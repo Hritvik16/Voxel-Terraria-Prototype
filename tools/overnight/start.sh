@@ -12,5 +12,5 @@ set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1
 [ "${1:-}" = "--resume" ] && rm -f tools/overnight/PAUSE
 if tmux has-session -t overnight 2>/dev/null; then echo "tmux session 'overnight' already exists -- attach: tmux attach -t overnight"; exit 1; fi
-tmux new-session -d -s overnight -c "$PWD" "$SHELL -ic 'IDLE_MIN=${IDLE_MIN:-15} caffeinate -ims nice -n 10 tools/overnight/run-queue.sh; echo; echo queue runner finished -- see tools/overnight/HANDOFF.md; exec $SHELL -i'"
+tmux new-session -d -s overnight -c "$PWD" "umask 022; $SHELL -ic 'IDLE_MIN=${IDLE_MIN:-15} caffeinate -ims nice -n 10 tools/overnight/run-queue.sh; echo; echo queue runner finished -- see tools/overnight/HANDOFF.md; exec $SHELL -i'"
 echo "overnight queue started in tmux session 'overnight' -- attach: tmux attach -t overnight"

@@ -59,6 +59,7 @@ public class FluidSlowViscositySettleTests
         Assert.AreEqual(6u, MaterialRules.TickInterval(Materials.Lava));
 
         var sim = Basin();
+        sim.GravityFall = false;   // the blind spot needs lava MID-FALL; under 8.16 lava falls at g and lands at once
         for (int i = 0; i < 6; i++) sim.EditVoxel(16, 24 + i, 16, Materials.Lava);
 
         int quiet = 0, falseRestTick = -1;

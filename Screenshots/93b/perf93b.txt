@@ -1,0 +1,53 @@
+TASK 93b -- shells performance breakdown (2026-10-15, branch engine-phase, M1 Air 8 GB, AC unless noted)
+WARM STEADY STATE: warm-up Logs/tg2world_20261015_205445.txt (MODE=stream MOTION=walk), then back to back:
+costsplit OFF ON ON OFF, walk OFF ON ON OFF, costsplit ON-filled. Driver: Logs/overnight/93b-driver.sh, -driver2.sh.
+Setting (all arms): -upscaler fsr3 -renderrows 540, quality preset, far band + far shadows, -farshade 1 -seethrough 1
+-riverlook 1 (play's defaults), noon. ON = + -shells 1 -shellworkers 3 (tiers 1-2 still allocated, not drawn).
+
+1. STEADY (run-cost-split.sh: streaming pinned, 15 s timed per run, FULL = play's frame), p50 / p99 ms
+                         walk_near            walk_open        log
+  OFF #1                 53.6 /  91.0         36.2 / 50.0      Logs/costsplit_2026-10-15_210051.txt
+  ON  #1                 66.5 / 119.7         45.4 / 86.6      Logs/costsplit_2026-10-15_210747.txt
+  ON  #2                 68.6 / 131.9         47.2 / 88.1      Logs/costsplit_2026-10-15_212140.txt
+  OFF #2                 51.2 / 119.2         35.5 / 68.5      Logs/costsplit_2026-10-15_213552.txt
+  ON filled (420 s wait) 66.1 / 119.3         45.9 / 86.2      Logs/costsplit_2026-10-15_220254.txt (ended on BATTERY)
+  OFF mean / ON mean     52.4 -> 67.6 (+15.2) 35.9 -> 46.3 (+10.5)
+  noise (OFF #1 vs #2)   2.4                  0.7
+  Shell fill at the pinned pose (120 s wait): s1 FULL 1,550 stored / 621 missing, s2 FULL 691 / 1,140, s3 625-1,275,
+  s4-s7 0 (walk_near); walk_open s1-s3 FULL, s4 381-765. 420 s wait: walk_near s3 complete at 363 s, s4 78%, s6-s7 0;
+  walk_open s4-s7 complete at 120 s. Filled or not, ON is the same (+10-15 ms).
+
+  Paired arms inside the ON launches ("saved" = FULL - arm, both ON launches):
+    shells_off (tiers 1-2 drawn, shell workers still running): saves 16.4 / 14.6 (near), 9.6 / 8.6 (open)
+                                                               -> the CPU side (3 workers + streamer) costs ~nothing;
+                                                                  ON shells_off p50 49.7-52.9 / 35.6-36.4 = OFF
+    far_off (far band not drawn):     ON saves 13.7 / 13.6 (near), 19.2 / 18.0 (open)
+                                      OFF saves 2.0 / 2.4 (near), 5.7 / 5.1 (open)
+    fshade_off (far shading off):     ON 1.6 / 2.6 near, 2.1 / 0.4 open; OFF 0.3 / 1.2, 0.5 / -0.4
+  => ON's extra ~15 ms = shell march ~+3 ms over tiers 1-2 (ON far_off 53.0-55.5 vs OFF far_off 48.5-51.5)
+     + the far band's march AFTER the shells ~+11 ms more than after the tiers (Raymarch.compute: tFar = tShellEnd,
+     task 85, instead of FarStartT). WHY that march costs more is NOT isolated (candidates: far march starting at
+     a FULL shell's gap close to the eye; far sun-shadow rays for more far hits; shell sun-shadow rays).
+  CPU vs GPU: cpu main p50 tracks wall time on Metal (present wait 0), so it cannot split; gpu* (inflated ~2.6x)
+  rises with ON: near 112.9 -> 150.8, open 73.9 -> 102.9 (+34-39%); render thread 1.5-2.5 ms: GPU-bound.
+
+2. MOVING (MODE=walk 150 m circle at 5 m/s, 3 min, -tod 12, -memledger -frametiming), whole run
+  arm      p50    p99    >33 ms   peak MB   Metal (IOAccelerator)  log
+  OFF #1   41.8   98.7   70.2%    2,542     1,164 MB               Logs/tg2world_20261015_214220.txt
+  ON  #1   40.4   91.6   68.7%    2,943     1,526 MB               Logs/tg2world_20261015_214718.txt
+  ON  #2   38.9   89.6   65.5%    2,936     1,528 MB               Logs/tg2world_20261015_215208.txt
+  OFF #2   43.3   99.5   76.1%    2,564     1,210 MB               Logs/tg2world_20261015_215700.txt
+  mean     OFF 42.6 -> ON 39.7 (-2.9 ms; noise 1.5) -- BUT the shells were EMPTY: 104-149 chunks stored at the walk's
+  start (t+20 s), 76-77 at the end (s1 only; s2-s7 0 the whole walk, 7,600 missing); no shell ever complete.
+  So the moving ON arm measures "tiers 1-2 not drawn, shells absent", not the shells.
+  Counter run (Logs/tg2world_20261015_222142.txt, BATTERY, counts only): requested 2,352, generated 2,347
+  (241 ms each on a worker), stored 170 at the end, dropped stale 4, over-budget frames 1 of 4,912.
+  => NOT the upload cap. Shell 1 is generated and then dropped again: ~13 chunks/s made, ~170 held.
+     Likely (not verified): nearest-first order (task 85) keeps the workers on the chunks just outside
+     shell 1's hole, and those fall into the hole as the eye moves (hollow shell, ShellStreamer.Wanted/Slide).
+
+3. MEMORY: ON +387 MB peak footprint (2,553 -> 2,940 MB avg; cap 3,072), Metal +340 MB (1,187 -> 1,527); tiers 1-2
+   still allocated (ledger: LODCascadeManager 79.0 GPU / 67.6 native / 46.1 managed MB; 93d frees them).
+
+RULE: ON > 3 ms slower steady (+10.5 / +15.2 ms, p99 +30-37 ms) -> STOP_FOR_OWNER; 93c must not switch.
+Not run: tiny_gate. OFF-bracket after ON-filled was stopped (Mac went on battery, 22:18).

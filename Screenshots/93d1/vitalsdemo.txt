@@ -1,0 +1,14 @@
+[VitalsDemo] start feet 2668.1,631.9,3020.1 m, play start (2668.05, 633.80, 3020.05), sun-away yaw 180 -> axis 180; survival True, abilities True
+[VitalsDemo] 1 health 100.0, air 20.0 s, vitals on
+[VitalsDemo] 2 fell 12 m: impact 23.08 m/s (= 12.10 m), health 100.0 -> 49.4 (curve says 50.6 damage)
+[VitalsDemo] water tank at int3(26680, 6326, 30140) floor y 6326, 2.5 m deep; 37904 voxels written
+[VitalsDemo] 3 under water: feet 0.00 m over the bed, swimming True, air 9.0 s, health 100.0
+[VitalsDemo] 4 air empty after ~20.1 s under (config 20 s); health 99.8 -> 59.9 drowning, cause Drowning
+[VitalsDemo] out: air 9.7 s after 1 s in air (refill 5 s/s)
+[VitalsDemo] acid 1 s: health 100 -> 88.3 (config 20/s), cause Acid
+[VitalsDemo] 5 in lava: health 58.5, cause Lava, feet 0.02 m over the bed
+[Vitals] died (Lava) at 2664.0,632.7,3017.8 m, death 1
+[VitalsDemo] 6 dead: cause Lava, deaths 1, status "you died: burned in lava -- back to the start in 3 s (you keep everything)"
+[Vitals] respawned (play start)
+[VitalsDemo] 7 respawned after 6.9 s: feet 2668.1,631.9,3020.1 m, 0.0 m from the play start (xz), 0.0 m from the demo's start feet; health 100, air 20 s, dead False, inventory 50 -> 50 voxels
+[VitalsDemo] done

@@ -68,5 +68,16 @@ namespace VoxelEngine.Simulation
 
         /// True when this Take did not finish the batch, i.e. the budget bit.
         public bool WouldCarry(int budget) => !IsEmpty && budget < Remaining;
+
+        /// Task 97, option B of FLUID_TICK_DIAGNOSIS.md section 3 (ADAPTIVE
+        /// DRAIN): the per-frame budget for a batch of `batchOps` ops. A batch
+        /// of at most `wholeBatchMax` ops is applied WHOLE (budget = the batch),
+        /// so it drains in the frame it lands; a bigger one keeps the §8.5
+        /// slicing at `perFrame`, so big bursts (the 2026-09-11 siege) behave
+        /// exactly as before. `wholeBatchMax` <= 0 = off (always `perFrame`).
+        /// Decided by the batch's TOTAL size, never by what is left of it: a
+        /// big batch is sliced to its end, it never finishes in one late lump.
+        public static int BudgetFor(int batchOps, int perFrame, int wholeBatchMax) =>
+            wholeBatchMax > 0 && batchOps <= wholeBatchMax ? Math.Max(batchOps, perFrame) : perFrame;
     }
 }

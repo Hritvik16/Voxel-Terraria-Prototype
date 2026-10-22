@@ -84,6 +84,7 @@ public class PaletteSyncTests
             Materials.Water, Materials.Snow, Materials.Sandstone, Materials.JungleGrass,
             Materials.Deepstone, Materials.Lava, Materials.Honey, Materials.Obsidian,
             Materials.Torch, Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple,
+            Materials.CooledStone, Materials.Glass,   // RX1
         };
         foreach (byte id in authored)
         {
@@ -112,6 +113,7 @@ public class PaletteSyncTests
             Materials.Deepstone, Materials.Lava, Materials.Honey, Materials.Obsidian,
             Materials.Torch,   // Phase 7
             Materials.TorchBlue, Materials.TorchGreen, Materials.TorchPurple,   // Stage G
+            Materials.CooledStone, Materials.Glass,                             // RX1
         };
 
         foreach (byte id in authored)

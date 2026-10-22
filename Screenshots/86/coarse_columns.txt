@@ -1,0 +1,6 @@
+Task 86: cave boundary shift, coarse (shift 3, one node per 8^2 columns) vs per column; seed 42 map v4
+4 vertical slices x 16384 columns through the island centre; distance (voxels) from each voxel whose state differs to the nearest reference voxel in that state
+strata (deep / cavern / underworld boundary offsets): 0 of 65536 columns differ (exact by construction)
+  tunnels    open voxels    184,550  differing    1,655 (0.897%)  largest shift 1.41 voxels  [<=1: 1653, <=1.5: 2, <=2: 0, <=3: 0, <=4: 0, <=8: 0, <=24: 0, >24: 0]
+  caverns    open voxels  3,202,635  differing    3,336 (0.104%)  largest shift 1.00 voxels  [<=1: 3336, <=1.5: 0, <=2: 0, <=3: 0, <=4: 0, <=8: 0, <=24: 0, >24: 0]
+  underworld open voxels 20,126,058  differing    1,544 (0.008%)  largest shift 1.00 voxels  [<=1: 1544, <=1.5: 0, <=2: 0, <=3: 0, <=4: 0, <=8: 0, <=24: 0, >24: 0]

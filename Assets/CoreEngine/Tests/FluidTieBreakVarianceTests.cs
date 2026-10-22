@@ -43,6 +43,11 @@ public class FluidTieBreakVarianceTests
     private static int[] RunAndProfile(int salt, out int total)
     {
         var sim = Basin(salt, out int3 innerMin);
+        // Task 94: pinned to the v8.6 fall. Under 8.16 this 30-drop pour lands at
+        // g and settles to ONE flat layer for every salt, so the per-layer
+        // profile below cannot differ; the rig-scale control further down runs
+        // the 8.16 rule and still differs.
+        sim.GravityFall = false;
         // 40 drops into an 8x8 basin: MORE than one layer, so the surface is
         // partly filled and drops genuinely have equally-legal lateral choices.
         for (int i = 0; i < 40; i++)

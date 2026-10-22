@@ -1,0 +1,502 @@
+diff --git a/Assets/TerrainGen/Features.cs b/Assets/TerrainGen/Features.cs
+index 722d1ff..0f2ed33 100644
+--- a/Assets/TerrainGen/Features.cs
++++ b/Assets/TerrainGen/Features.cs
+@@ -52,6 +52,18 @@
+ //                nearest sea 1.5-4.4 km away: a floor 40 m wide that only falls toward the
+ //                mouth (no pit, so no lake; it drains), and terraced walls
+ //                (Regions.Terrace) up to the ground on both sides.
++//                B5b (owner Q29.4 (a)): the floor is pinned near the sea, so
++//                through low land the walls stayed low (median 2-35 m deep on
++//                5 of 7 canyons); the banks are now a TABLELAND the canyon cuts:
++//                raised to floor + BANK_DEPTH (135 m) on the side whose ground
++//                is higher, BANK_LOW of that on the other (a full bank on both
++//                sides hid the canyon and the peak from the lowland beyond it:
++//                seed 42 fell to 77.5% seeing a feature), ramped up from the
++//                mouth over BANK_RAMP (the way in), flat for BANK_RIM past the
++//                wall top, easing back to the ground over BANK_SLOPE x the rise.
++//                Rivers that cross it cut side canyons (Gaps), not dams. It
++//                only raises, yields to the easy areas and the shore, and
++//                leaves placement and the floor as they were.
+ //
+ // RECORD (WorldRecord): the feature list (kind, centre, footprint radius,
+ // way-down flag, mapVersion) and, on each footprint cell, FLAG_FEATURE and
+@@ -80,6 +92,11 @@ namespace TerrainGen
+         public float2 dir, noiseOff;
+         public float footR;                  // voxels: footprint radius (point features)
+         public float2[] path; public float[] floor; public float[] halfW;   // canyon centre line (head first), floor, half width
++        public float[] bank;                 // canyon: the tableland's rise above the floor per path point (B5b)
++        public float[] halfWNat;             // canyon: the half width on the ground as it was (no tableland)
++        public float highSide;               // canyon: +1 the full bank is left of the path (head to mouth), -1 right
++        public float[] gap; public int2 gapLo; public int gapW, gapH; public float gapCell;   // canyon: side-canyon cuts in the tableland (0-1, coarse cells)
++        public short[] segLo, segHi;         // canyon: per coarse cell of that grid, the path segments CanyonAt must try (-1: none in reach)
+         public float2 bbMin, bbMax;          // canyon bounds incl. its walls
+     }
+ 
+@@ -98,7 +115,7 @@ namespace TerrainGen
+         public const float VIEW = 30000f;             // 3 km: the visibility rule (owner Q6 (a))
+         // canyon
+         public const float CANYON_STEP = 400f, CANYON_MAX_STEPS = 110, CANYON_MIN_LEN = 15000f;
+-        public const float CANYON_DEPTH = 2000f, CANYON_FLOOR_MIN = 15f, CANYON_GRADE = 0.012f;
++        public const float CANYON_DEPTH = 2000f, CANYON_FLOOR_MIN = 15f, CANYON_GRADE = 0.006f;   // B5b: 6 m/km (was 12): the floor carved deeper
+         public const float MESA_STRETCH = 1.2f;
+         /// Placement score per unit of gentle-class weight taken (GentleOf);
+         /// 0.3 at the centre only left seed 42 two easy areas of four.
+@@ -118,6 +135,27 @@ namespace TerrainGen
+         /// seed 2026 no canyon and broke B4 on seeds 42 and 31337.
+         public const float CANYON_HEAD_MIN = 700f;
+         public const float HALF_FLOOR = 200f, WALL = 2f, CANYON_CUT = 2200f, CANYON_HALF_MAX = 1400f;
++        /// B5b: the tableland a canyon cuts (voxels): its rise above the floor,
++        /// reached BANK_RAMP up from the mouth; the flat rim past the wall top;
++        /// the outer slope's run per unit of rise (smoothstep: ~14 deg mean,
++        /// ~21 deg at its steepest); +-BANK_NOISE on its top.
++        public const float BANK_DEPTH = 1350f, BANK_RAMP = 12000f, BANK_RIM = 1000f, BANK_SLOPE = 4f, BANK_NOISE = 100f, BANK_LOW = 0.35f;
++        /// The full bank gives way to the low one over +-SIDE_BLEND of lateral
++        /// offset (voxels): no step on the path's line past the head.
++        public const float SIDE_BLEND = 700f;
++        /// The tableland eases down to the shore over this much of WorldMap.
++        /// Coast (~340 m; coast x 5, ~0.5 km, kept seed 2026's coastal canyon
++        /// under 100 m everywhere).
++        public const float BANK_SHORE = 0.12f;
++        public const float BANK_REACH = HALF_FLOOR + BANK_DEPTH / WALL + BANK_RIM + BANK_SLOPE * BANK_DEPTH;
++        /// B5b: a channel crossing the tableland (GAP_RIVERS x a river's
++        /// catchment on the eroded ground) cuts it to the ground over GAP_R
++        /// (voxels): a side canyon, not a dam (a dammed outlet flooded an
++        /// easy area on seed 31337).
++        public const float GAP_R = 560f, GAP_RIVERS = 2f;
++        /// The farthest a canyon's footprint reaches from its centre line: the
++        /// widest walls and the tableland's rim beside them (voxels).
++        public const float FOOT_MAX = CANYON_HALF_MAX + BANK_RIM;
+ 
+         public static string Name(byte k)
+         {
+@@ -606,7 +644,7 @@ namespace TerrainGen
+             return new Feature { kind = GreatCanyon, tier = Common, wayDown = true, centre = new int2((int)mid.x, (int)mid.y),
+                                  footR = 0.5f * len + CANYON_HALF_MAX, radiusM = (0.5f * len + CANYON_HALF_MAX) / 10f, mapVersion = c.spec.mapVersion,
+                                  path = pts.ToArray(),
+-                                 bbMin = lo - CANYON_CUT, bbMax = hi + CANYON_CUT };
++                                 bbMin = lo - BANK_REACH, bbMax = hi + BANK_REACH };
+         }
+ 
+         /// The starting-shape cells (m x m) at the CORE of each late feature --
+@@ -667,7 +705,18 @@ namespace TerrainGen
+                 else if (f.kind == GreatCanyon)
+                 {
+                     int nP = f.path.Length;
+-                    f.floor = new float[nP]; f.halfW = new float[nP];
++                    f.floor = new float[nP]; f.halfW = new float[nP]; f.bank = new float[nP]; f.halfWNat = new float[nP];
++                    // the full bank goes on the side whose ground is higher (300 m
++                    // out): the lowland beyond the other side keeps its view of
++                    // the canyon and the land behind it. (Choosing the side with
++                    // fewer easy areas instead cost seed 42 2 points of the 80%.)
++                    float lean = 0f;
++                    for (int k = 0; k + 1 < nP; k++)
++                    {
++                        float2 d = math.normalizesafe(f.path[k + 1] - f.path[k]), left = new float2(-d.y, d.x) * 3000f;
++                        lean += c.H(f.path[k] + left) - c.H(f.path[k] - left);
++                    }
++                    f.highSide = lean >= 0f ? 1f : -1f;
+                     float run = float.MaxValue;
+                     for (int k = 0; k < nP; k++)
+                     {
+@@ -675,17 +724,121 @@ namespace TerrainGen
+                         run = math.min(run, rim - CANYON_DEPTH);
+                         float least = CANYON_FLOOR_MIN + CANYON_GRADE * (nP - 1 - k) * CANYON_STEP;
+                         f.floor[k] = math.max(run, least);   // both terms only fall toward the mouth
++                        f.bank[k] = BANK_DEPTH * math.saturate((nP - 1 - k) * CANYON_STEP / BANK_RAMP);
++                        f.halfWNat[k] = math.clamp(HALF_FLOOR + (rim - f.floor[k]) / WALL, HALF_FLOOR, CANYON_HALF_MAX);
++                        rim = math.max(rim, f.floor[k] + f.bank[k]);
+                         f.halfW[k] = math.clamp(HALF_FLOOR + (rim - f.floor[k]) / WALL, HALF_FLOOR, CANYON_HALF_MAX);
+                     }
+                 }
+             }
++            Gaps(in spec, m, cm, hc, feats);
++        }
++
++        /// B5b: the side canyons. Drainage on the eroded ground (the same eps
++        /// flood as Hydrology), and on each canyon's tableland a cut of radius
++        /// GAP_R round every cell with GAP_RIVERS x a river's catchment
++        /// (Hydrology.RIVER_MIN_CELLS of fine cells), outside the canyon's own cut.
++        private static void Gaps(in TerrainSpec spec, int m, float cm, float[] hc, List<Feature> feats)
++        {
++            bool any = false;
++            foreach (var f in feats) if (f.kind == GreatCanyon) any = true;
++            if (!any) return;
++            int count = m * m;
++            var lvl = new float[count]; var par = new int[count]; var ord = new int[count];
++            Hydrology.Flood(m, hc, Hydrology.FLOOD_EPS, lvl, par, ord);
++            var flow = new float[count];
++            for (int i = 0; i < count; i++) flow[i] = hc[i] > 0f ? 1f : 0f;
++            for (int k = count - 1; k >= 0; k--)
++            {
++                int c = ord[k], p = par[c];
++                if (p >= 0 && hc[c] > 0f) flow[p] += flow[c];
++            }
++            float fine = spec.mapCellVoxels / cm;
++            float river = GAP_RIVERS * Hydrology.RIVER_MIN_CELLS * fine * fine;
++            int r = (int)math.ceil(GAP_R / cm);
++            foreach (var f in feats)
++            {
++                if (f.kind != GreatCanyon) continue;
++                int x0 = math.max(0, (int)(f.bbMin.x / cm)), z0 = math.max(0, (int)(f.bbMin.y / cm));
++                int x1 = math.min(m - 1, (int)(f.bbMax.x / cm)), z1 = math.min(m - 1, (int)(f.bbMax.y / cm));
++                f.gapLo = new int2(x0, z0); f.gapW = x1 - x0 + 1; f.gapH = z1 - z0 + 1; f.gapCell = cm;
++                f.gap = new float[f.gapW * f.gapH];
++                Segs(f);
++                for (int z = z0; z <= z1; z++)
++                for (int x = x0; x <= x1; x++)
++                {
++                    int i = z * m + x;
++                    if (hc[i] <= 0f || flow[i] < river) continue;
++                    float2 p = new float2((x + 0.5f) * cm, (z + 0.5f) * cm);
++                    if (!CanyonAt(f, p, out float s, out _, out float dt, out float lat) || dt <= 0f) continue;
++                    dt *= SideOf(f, lat);
++                    if (s < HALF_FLOOR + dt / WALL) continue;   // inside the cut: drains along the floor
++                    for (int dz = -r; dz <= r; dz++)
++                    for (int dx = -r; dx <= r; dx++)
++                    {
++                        int xx = x + dx - x0, zz = z + dz - z0;
++                        if (xx < 0 || zz < 0 || xx >= f.gapW || zz >= f.gapH) continue;
++                        float d = math.sqrt(dx * dx + dz * dz) * cm;
++                        if (d >= GAP_R) continue;
++                        float g = 1f - Noise.SmoothStep(0.5f * GAP_R, GAP_R, d);
++                        int j = zz * f.gapW + xx;
++                        if (g > f.gap[j]) f.gap[j] = g;
++                    }
++                }
++            }
++        }
++
++        /// CanyonAt's search, cut down per coarse cell and exact: the nearest
++        /// segment to any point in a cell lies within the cell centre's nearest
++        /// distance + 2 half diagonals of it (a superset range, in path order,
++        /// so ties resolve as in the full loop); none when even the nearest is
++        /// out of BANK_REACH. (The full loop over the enlarged boxes cost the
++        /// map build ~1-2 s.)
++        private static void Segs(Feature f)
++        {
++            int nS = f.path.Length - 1, cells = f.gapW * f.gapH;
++            f.segLo = new short[cells]; f.segHi = new short[cells];
++            float hd = f.gapCell * 0.7072f + 1f;
++            var d = new float[nS];
++            for (int z = 0; z < f.gapH; z++)
++            for (int x = 0; x < f.gapW; x++)
++            {
++                float2 c = new float2((f.gapLo.x + x + 0.5f) * f.gapCell, (f.gapLo.y + z + 0.5f) * f.gapCell);
++                float dmin = float.MaxValue;
++                for (int k = 0; k < nS; k++)
++                {
++                    float2 a = f.path[k], ab = f.path[k + 1] - a;
++                    float t = math.saturate(math.dot(c - a, ab) / math.dot(ab, ab));
++                    d[k] = math.distance(c, a + ab * t);
++                    dmin = math.min(dmin, d[k]);
++                }
++                int j = z * f.gapW + x;
++                if (dmin - hd >= BANK_REACH) { f.segLo[j] = -1; f.segHi[j] = -1; continue; }
++                int lo = 0, hi = nS - 1;
++                while (d[lo] > dmin + 2f * hd) lo++;
++                while (d[hi] > dmin + 2f * hd) hi--;
++                f.segLo[j] = (short)lo; f.segHi[j] = (short)hi;
++            }
++        }
++
++        /// The side-canyon cut at p (0-1), bilinear on the coarse cells.
++        private static float GapAt(Feature f, float2 p)
++        {
++            float gx = p.x / f.gapCell - 0.5f - f.gapLo.x, gz = p.y / f.gapCell - 0.5f - f.gapLo.y;
++            int x0 = (int)math.floor(gx), z0 = (int)math.floor(gz);
++            if (x0 < 0 || z0 < 0 || x0 + 1 >= f.gapW || z0 + 1 >= f.gapH) return 0f;
++            float fx = gx - x0, fz = gz - z0;
++            int i = z0 * f.gapW + x0;
++            float a = math.lerp(f.gap[i], f.gap[i + 1], fx), b = math.lerp(f.gap[i + f.gapW], f.gap[i + f.gapW + 1], fx);
++            return math.lerp(a, b, fz);
+         }
+ 
+         // ------------------------------------------------------------------
+         // shapes on the fine map
+         // ------------------------------------------------------------------
+-        /// The fine map's height at p after the post-erosion features.
+-        public static float Apply(List<Feature> feats, float2 p, float h)
++        /// The fine map's height at p after the post-erosion features. `bankW`
++        /// (0-1) scales a canyon's tableland: less on the shore and in an easy area.
++        public static float Apply(List<Feature> feats, float2 p, float h, float bankW = 1f)
+         {
+             foreach (var f in feats)
+             {
+@@ -707,8 +860,17 @@ namespace TerrainGen
+                 else if (f.kind == GreatCanyon)
+                 {
+                     if (p.x < f.bbMin.x || p.y < f.bbMin.y || p.x > f.bbMax.x || p.y > f.bbMax.y) continue;
+-                    if (!CanyonAt(f, p, out float s, out float fl)) continue;
+-                    h = math.min(h, fl + Regions.Terrace(WallRise(s)));
++                    if (!CanyonAt(f, p, out float s, out float fl, out float dt, out float lat)) continue;
++                    dt *= SideOf(f, lat);
++                    float bw = BankShare(f, p, bankW);
++                    if (dt > 0f && bw > 0f)
++                    {
++                        float s0 = HALF_FLOOR + dt / WALL + BANK_RIM;
++                        float w = bw * (1f - Noise.SmoothStep(s0, s0 + BANK_SLOPE * dt, s));
++                        float top = fl + dt + BANK_NOISE * noise.snoise(p / 6000f + (f.path[0] / 1000f));
++                        if (w > 0f && top > h) h = math.lerp(h, top, w);
++                    }
++                    if (s < CANYON_CUT) h = math.min(h, fl + Regions.Terrace(WallRise(s)));
+                 }
+             }
+             return h;
+@@ -733,25 +895,58 @@ namespace TerrainGen
+             return WALL * u + 0.01f * v * v;
+         }
+ 
+-        /// Distance from p to the canyon's centre line and the floor there;
+-        /// false past CANYON_CUT.
+-        private static bool CanyonAt(Feature f, float2 p, out float dist, out float fl)
++        /// B5b: the tableland's share at p before its outer slope: the shore,
++        /// the easy areas (WorldMap passes both as `bankW`; BankW recomputes it)
++        /// and the side canyons give way.
++        private static float BankShare(Feature f, float2 p, float bankW) => f.gap != null ? bankW * (1f - GapAt(f, p)) : bankW;
++
++        /// What WorldMap passes Apply as `bankW` at p.
++        public static float BankW(in TerrainSpec spec, in Offsets o, EasyAreas.Site[] easy, float2 p)
++            => Noise.SmoothStep(0f, BANK_SHORE, WorldMap.Coast(in spec, in o, p)) * (1f - EasyAreas.Weight(easy, in o, p, out _));
++
++        /// The share of the full bank on lateral offset `lat`.
++        private static float SideOf(Feature f, float lat) => BANK_LOW + (1f - BANK_LOW) * Noise.SmoothStep(-SIDE_BLEND, SIDE_BLEND, lat * f.highSide);
++
++        /// Distance from p to the canyon's centre line, the floor and the
++        /// tableland's rise there (the full one), and p's lateral offset from
++        /// the nearest segment's line (> 0 left of the path, head to mouth);
++        /// false past BANK_REACH.
++        private static bool CanyonAt(Feature f, float2 p, out float dist, out float fl, out float bank, out float lat)
+         {
+-            dist = float.MaxValue; fl = 0f;
+-            for (int k = 0; k + 1 < f.path.Length; k++)
++            dist = float.MaxValue; fl = 0f; bank = 0f; lat = 0f;
++            int k0 = 0, k1 = f.path.Length - 2;
++            if (f.segLo != null)
++            {
++                int cx = (int)math.floor(p.x / f.gapCell) - f.gapLo.x, cz = (int)math.floor(p.y / f.gapCell) - f.gapLo.y;
++                if (cx >= 0 && cz >= 0 && cx < f.gapW && cz < f.gapH)
++                {
++                    int j = cz * f.gapW + cx;
++                    if (f.segLo[j] < 0) return false;
++                    k0 = f.segLo[j]; k1 = f.segHi[j];
++                }
++            }
++            for (int k = k0; k <= k1; k++)
+             {
+                 float2 a = f.path[k], ab = f.path[k + 1] - a;
+                 float t = math.saturate(math.dot(p - a, ab) / math.dot(ab, ab));
+                 float2 d = p - (a + ab * t);
+                 float dd = d.x * d.x + d.y * d.y;
+-                if (dd < dist) { dist = dd; fl = math.lerp(f.floor[k], f.floor[k + 1], t); }
++                if (dd < dist)
++                {
++                    dist = dd; fl = math.lerp(f.floor[k], f.floor[k + 1], t); bank = math.lerp(f.bank[k], f.bank[k + 1], t);
++                    float2 q = p - a;
++                    lat = (ab.x * q.y - ab.y * q.x) / math.sqrt(math.dot(ab, ab));
++                }
+             }
+             dist = math.sqrt(dist);
+-            return dist < CANYON_CUT;
++            return dist < BANK_REACH;
+         }
+ 
+         /// True on the feature's footprint (the record's FLAG_FEATURE cells).
+-        public static bool InFootprint(Feature f, float2 p)
++        /// `spec`, `o`, `easy` give a canyon's BankW. A pure function of the
++        /// feature and the spec, never of the map's heights (the routes ease
++        /// those after the first record).
++        public static bool InFootprint(Feature f, float2 p, in TerrainSpec spec, in Offsets o, EasyAreas.Site[] easy)
+         {
+             float2 q = p - (float2)f.centre;
+             float d = math.sqrt(q.x * q.x + q.y * q.y);
+@@ -764,16 +959,27 @@ namespace TerrainGen
+                 case GreatCanyon:
+                 {
+                     if (p.x < f.bbMin.x || p.y < f.bbMin.y || p.x > f.bbMax.x || p.y > f.bbMax.y) return false;
+-                    float best = float.MaxValue; float hw = 0f;
++                    float best = float.MaxValue; float hw = 0f, hwNat = 0f;
+                     for (int k = 0; k + 1 < f.path.Length; k++)
+                     {
+                         float2 a = f.path[k], ab = f.path[k + 1] - a;
+                         float t = math.saturate(math.dot(p - a, ab) / math.dot(ab, ab));
+                         float2 e = p - (a + ab * t);
+                         float dd = e.x * e.x + e.y * e.y;
+-                        if (dd < best) { best = dd; hw = math.lerp(f.halfW[k], f.halfW[k + 1], t); }
++                        if (dd < best) { best = dd; hw = math.lerp(f.halfW[k], f.halfW[k + 1], t); hwNat = math.lerp(f.halfWNat[k], f.halfWNat[k + 1], t); }
+                     }
+-                    return math.sqrt(best) < hw + 200f;
++                    // B5b: the walls reach the ground as it was, or the
++                    // tableland where it stands (it gives way to an easy area,
++                    // the shore, a side canyon); then 20 m, or on the
++                    // tableland its rim, the BANK_RIM you look in from:
++                    // s < min(hw, max(hwNat, wall)) + lerp(20 m, BANK_RIM, share), the bank read only between.
++                    float sd = math.sqrt(best);
++                    if (sd >= hw + BANK_RIM) return false;
++                    if (sd < hwNat + 200f) return true;
++                    CanyonAt(f, p, out _, out _, out float dt, out float lat);
++                    float share = BankShare(f, p, BankW(in spec, in o, easy, p));
++                    float wall = HALF_FLOOR + dt * SideOf(f, lat) * share / WALL;
++                    return sd < math.min(hw, math.max(hwNat, wall)) + math.lerp(200f, BANK_RIM, share);
+                 }
+                 default: return false;
+             }
+@@ -786,12 +992,13 @@ namespace TerrainGen
+             var feats = map.SignatureFeatures;
+             if (feats == null) return;
+             var spec = map.Spec;
++            var o = Offsets.For(in spec);   // B5b: BankW for the canyons
+             int n = spec.mapCells, cv = spec.mapCellVoxels;
+             for (int k = 0; k < feats.Length; k++)
+             {
+                 var f = feats[k];
+                 float2 lo, hi;
+-                if (f.path != null) { lo = f.bbMin; hi = f.bbMax; }
++                if (f.path != null) { lo = f.bbMin + (BANK_REACH - FOOT_MAX); hi = f.bbMax - (BANK_REACH - FOOT_MAX); }   // the walls' and the rim's box
+                 else { float r = f.kind == Mesa ? MesaReach(f) : f.footR; lo = (float2)f.centre - r; hi = (float2)f.centre + r; }
+                 int x0 = math.max(0, (int)(lo.x / cv)), z0 = math.max(0, (int)(lo.y / cv));
+                 int x1 = math.min(n - 1, (int)(hi.x / cv)), z1 = math.min(n - 1, (int)(hi.y / cv));
+@@ -801,7 +1008,7 @@ namespace TerrainGen
+                 {
+                     int i = z * n + x;
+                     if (map.Height[i] <= 0f || rec.Data[i].site != 0) continue;
+-                    if (!InFootprint(f, new float2((x + 0.5f) * cv, (z + 0.5f) * cv))) continue;
++                    if (!InFootprint(f, new float2((x + 0.5f) * cv, (z + 0.5f) * cv), in spec, in o, map.EasySites)) continue;
+                     rec.Data[i].flags |= WorldRecord.FLAG_FEATURE;
+                     rec.Data[i].site = (byte)(k + 1);
+                     count++;
+@@ -888,7 +1095,11 @@ namespace TerrainGen
+         /// A canyon's depth on the final map (metres): at every path point the
+         /// higher of the two rims (ground 40 m past its half width) less the
+         /// floor there; the deepest and the median, mouth excluded.
+-        public static void CanyonDepth(Feature f, WorldMap map, out float maxM, out float medianM)
++        public static void CanyonDepth(Feature f, WorldMap map, out float maxM, out float medianM) => CanyonDepth(f, map, out maxM, out medianM, out _);
++
++        /// ... and `profile`: the depth (m) at each tenth of the path, head to
++        /// mouth, as "L|R" rims above the floor (L = left of the path).
++        public static void CanyonDepth(Feature f, WorldMap map, out float maxM, out float medianM, out string profile)
+         {
+             int n = map.Spec.mapCells; float cv = map.Spec.mapCellVoxels;
+             float H(float2 p) { int x = math.clamp((int)(p.x / cv), 0, n - 1), z = math.clamp((int)(p.y / cv), 0, n - 1); return map.Height[z * n + x]; }
+@@ -898,10 +1109,52 @@ namespace TerrainGen
+                 float2 a = f.path[k], dir = math.normalizesafe(f.path[k + 1] - a), side = new float2(-dir.y, dir.x) * (f.halfW[k] + 400f);
+                 d.Add((math.max(H(a + side), H(a - side)) - H(a)) / 10f);
+             }
++            var pr = new System.Text.StringBuilder();
++            for (int q = 0; q < 10 && f.path.Length > 4; q++)
++            {
++                int k = q * (f.path.Length - 4) / 10;
++                float2 a = f.path[k], dir = math.normalizesafe(f.path[k + 1] - a), side = new float2(-dir.y, dir.x) * (f.halfW[k] + 400f);
++                pr.Append($"{(H(a + side) - H(a)) / 10f:F0}|{(H(a - side) - H(a)) / 10f:F0} ");
++            }
++            profile = pr.ToString().TrimEnd();
+             d.Sort();
+             maxM = d.Count > 0 ? d[d.Count - 1] : 0f; medianM = d.Count > 0 ? d[d.Count / 2] : 0f;
+         }
+ 
++        /// A canyon's walls on the final map: the land cells between the floor's
++        /// edge and the half width that stand over 5 m above the floor, and the
++        /// share of them steeper than 45 deg (central differences, 8 m cells).
++        public static void CanyonWalls(Feature f, WorldMap map, out int cells, out float steepShare)
++        {
++            int n = map.Spec.mapCells; float cv = map.Spec.mapCellVoxels;
++            float[] h = map.Height;
++            int x0 = math.max(1, (int)(f.bbMin.x / cv)), z0 = math.max(1, (int)(f.bbMin.y / cv));
++            int x1 = math.min(n - 2, (int)(f.bbMax.x / cv)), z1 = math.min(n - 2, (int)(f.bbMax.y / cv));
++            cells = 0; int steep = 0;
++            for (int z = z0; z <= z1; z++)
++            for (int x = x0; x <= x1; x++)
++            {
++                int i = z * n + x;
++                if (h[i] <= 0f) continue;
++                float2 p = new float2((x + 0.5f) * cv, (z + 0.5f) * cv);
++                float best = float.MaxValue, hw = 0f, fl = 0f;
++                for (int k = 0; k + 1 < f.path.Length; k++)
++                {
++                    float2 a = f.path[k], ab = f.path[k + 1] - a;
++                    float t = math.saturate(math.dot(p - a, ab) / math.dot(ab, ab));
++                    float2 e = p - (a + ab * t);
++                    float dd = e.x * e.x + e.y * e.y;
++                    if (dd < best) { best = dd; hw = math.lerp(f.halfW[k], f.halfW[k + 1], t); fl = math.lerp(f.floor[k], f.floor[k + 1], t); }
++                }
++                float s = math.sqrt(best);
++                if (s <= HALF_FLOOR || s >= hw || h[i] < fl + 50f) continue;
++                cells++;
++                float gx = (h[i + 1] - h[i - 1]) * 0.5f, gz = (h[i + n] - h[i - n]) * 0.5f;
++                if (gx * gx + gz * gz > cv * cv) steep++;
++            }
++            steepShare = cells > 0 ? steep / (float)cells : 0f;
++        }
++
+         public struct Visibility
+         {
+             public int eyes, seeing, near;   // land eyes; seeing a feature within 3 km; with a target within 3 km
+diff --git a/Assets/TerrainGen/Tests/DangerTests.cs b/Assets/TerrainGen/Tests/DangerTests.cs
+index 446a744..c22247c 100644
+--- a/Assets/TerrainGen/Tests/DangerTests.cs
++++ b/Assets/TerrainGen/Tests/DangerTests.cs
+@@ -112,7 +112,7 @@ namespace TerrainGen.Tests
+                 var diag = new StringBuilder("          corr with distance from the centre:");
+                 for (int k = 0; k < dn.Length; k++) diag.Append($" {dn[k]} {dp[k].R:F3};");
+                 double mean = 0; for (int d = 0; d < 8; d++) mean += d * hist[d]; mean /= land;
+-                ulong rh = rec.Hash(), rh2 = WorldRecord.Build(map).Hash();
++                ulong rh = rec.Hash(), rh2 = WorldRecord.Build(map, WorldRecord.BiomePlane(map.Spec), map.Routes != null ? map.Record : null).Hash();   // as WorldMap builds it (WorldRecordTests)
+                 string Pc(long v) => $"{100.0 * v / land,4:F1}";
+                 report.AppendLine($"  {seed,-6}  {string.Join(" / ", Array.ConvertAll(hist, Pc))}%   {mean:F2}   {string.Join(" / ", Array.ConvertAll(bands, Pc))}%   {rs,6:F3}       {rc,6:F3}        {easyMax} ({easyN} cells)    {rh:X16}  {HashWithoutHazard(rec):X16}   {MapHash(map):X16}");
+                 report.AppendLine($"          spawn cell ({spawn.x:F0}, {spawn.y:F0}), centre ({centre.x:F0}, {centre.y:F0}); highest land {hi / 10f:F0} m, thirds at {hi / 30f:F0} / {2f * hi / 30f:F0} m; land outside every region {region255}; band by atan != record {atanBand}");
+diff --git a/Assets/TerrainGen/Tests/PlayMetricsReport.cs b/Assets/TerrainGen/Tests/PlayMetricsReport.cs
+index e2c9208..92ffc36 100644
+--- a/Assets/TerrainGen/Tests/PlayMetricsReport.cs
++++ b/Assets/TerrainGen/Tests/PlayMetricsReport.cs
+@@ -382,7 +382,7 @@ namespace TerrainGen.Tests
+                 // BuildV3), and a second build that must match it
+                 var plane = WorldRecord.BiomePlane(spec);
+                 sw.Restart();
+-                var again = WorldRecord.Build(map, plane);
++                var again = WorldRecord.Build(map, plane, map.Routes != null ? map.Record : null);   // as WorldMap builds it (WorldRecordTests)
+                 m.recordMs = sw.Elapsed.TotalMilliseconds;
+                 m.recordBytes = map.Record.Bytes;
+                 m.recordHash = map.Record.Hash();
+@@ -985,8 +985,11 @@ namespace TerrainGen.Tests
+ 
+         private static string CanyonText(Feature f, WorldMap map)
+         {
+-            Features.CanyonDepth(f, map, out float mx, out float md);
+-            return $"  length {(f.path.Length - 1) * Features.CANYON_STEP / 10f:F0} m, floor {f.floor[0] / 10f:F0} -> {f.floor[f.floor.Length - 1] / 10f:F0} m, depth max {mx:F0} m median {md:F0} m";
++            Features.CanyonDepth(f, map, out float mx, out float md, out string prof);
++            Features.CanyonWalls(f, map, out int wc, out float ws);
++            return $"  length {(f.path.Length - 1) * Features.CANYON_STEP / 10f:F0} m, floor {f.floor[0] / 10f:F0} -> {f.floor[f.floor.Length - 1] / 10f:F0} m, depth max {mx:F0} m median {md:F0} m" +
++                   $", walls {wc} cells {ws * 100f:F0}% > 45 deg, full bank {(f.highSide > 0f ? "L" : "R")}" +
++                   $"\n        rims above the floor L|R (m), head to mouth by tenths: {prof}";
+         }
+ 
+         /// A canyon from its rim: at the deepest path point, the eye on the
+diff --git a/Assets/TerrainGen/Tests/WorldRecordTests.cs b/Assets/TerrainGen/Tests/WorldRecordTests.cs
+index 23e383c..40a0bc7 100644
+--- a/Assets/TerrainGen/Tests/WorldRecordTests.cs
++++ b/Assets/TerrainGen/Tests/WorldRecordTests.cs
+@@ -106,7 +106,10 @@ namespace TerrainGen.Tests
+             // BuildV3 (WorldMap.BuildV4); the rest is on the critical path.
+             var plane = WorldRecord.BiomePlane(spec4);
+             var sw = System.Diagnostics.Stopwatch.StartNew();
+-            var again = WorldRecord.Build(a, plane);
++            // rebuilt as WorldMap builds it: after the routes, the easy areas the
++            // routes were found on are kept (a fresh growth on the eased map can
++            // differ by a few cells -- 2 on seed 42 after B5b; WorldMap never does that)
++            var again = WorldRecord.Build(a, plane, a.Routes != null ? a.Record : null);
+             double ms = sw.Elapsed.TotalMilliseconds;
+             Assert.AreEqual(ha, again.Hash());
+             Assert.Less(ms, 2000.0, $"record build after the map {ms:F0} ms: B1 allows the map 2 s over v3");
+diff --git a/Assets/TerrainGen/WorldMap.cs b/Assets/TerrainGen/WorldMap.cs
+index ec090a2..4b09389 100644
+--- a/Assets/TerrainGen/WorldMap.cs
++++ b/Assets/TerrainGen/WorldMap.cs
+@@ -333,7 +333,7 @@ namespace TerrainGen
+                     hh = math.lerp(hh, v, t);
+                 }
+                 hh = Stamps.CraterApply(in spec, in o, p, hh, math.saturate(coast * 5f));
+-                if (feat) hh = Features.Apply(feats, p, hh);   // B5, fresh like the craters
++                if (feat) hh = Features.Apply(feats, p, hh, Noise.SmoothStep(0f, Features.BANK_SHORE, coast) * (1f - et));   // B5, fresh like the craters
+                 h[i] = hh; r[i] = rough;
+             }
+             // Rock shows where the eroded land is steep.

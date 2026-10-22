@@ -32,6 +32,10 @@ public class PlaygroundFlyCamera : MonoBehaviour
     /// player is actually looking around rather than clicking to re-capture.
     public bool Captured => _captured;
 
+    /// Playground's drag stroke (BLD1) owns Esc while it is active: Esc cancels
+    /// the stroke and keeps the mouse. Set every frame a stroke is active.
+    public static int EscapeEatenUntilFrame = -1;
+
     /// Scroll adjusts fly speed unless something else claims the wheel.
     public bool ScrollControlsSpeed { get; set; } = false;
 
@@ -70,6 +74,14 @@ public class PlaygroundFlyCamera : MonoBehaviour
         // consumed by capture and deliberately does NOT also act in the world --
         // otherwise clicking back into the window mines whatever you happened to
         // be pointing at.
+        // The settings menu (F6, task 58) needs the cursor for its buttons:
+        // release it, and neither look nor move while it is open. Survival's
+        // inventory panel (E, task 64) is clicked the same way.
+        if (SettingsMenu.IsOpen || Playground.InventoryOpen)
+        {
+            if (_captured) { _captured = false; Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
+            return;
+        }
         if (!_captured && Input.GetMouseButtonDown(0))
         {
             _captured = true;
@@ -77,7 +89,7 @@ public class PlaygroundFlyCamera : MonoBehaviour
             Cursor.visible = false;
             return;
         }
-        if (Input.GetKeyDown(KeyCode.Escape))
+        if (Input.GetKeyDown(KeyCode.Escape) && Time.frameCount > EscapeEatenUntilFrame)
         {
             _captured = false;
             Cursor.lockState = CursorLockMode.None;

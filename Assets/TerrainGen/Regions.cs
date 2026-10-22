@@ -69,33 +69,47 @@ namespace TerrainGen
             public int Count => seeds.Length;
         }
 
+        /// The Layout for Burst (engine plan step 1): MapArena pointers.
+        public unsafe struct LayoutB
+        {
+            public float2* seeds;
+            public byte* kind;
+            public int Count;
+        }
+
+        /// Managed entry (tests, reports): built by the map's Burst job.
+        public static Layout Build(in TerrainSpec spec, in Offsets o) => MapJobs.RegionsLayout(in spec, in o);
+
         /// The region layout of a world (deterministic from the seed).
-        public static Layout Build(in TerrainSpec spec, in Offsets o)
+        public static unsafe LayoutB Build(MapArena* A, in TerrainSpec spec, in Offsets o)
         {
             float c = spec.worldSizeVoxels * 0.5f, R = spec.islandRadius;
-            var seeds = new List<float2> { WorldMap.PeakSite(in spec, in o), Stamps.VolcanoSiteV3(in spec, in o) };
-            for (int i = 0; i < 800 && seeds.Count < TARGET_REGIONS; i++)
+            var seeds = new PList<float2>(A, TARGET_REGIONS);
+            seeds.Add(WorldMap.PeakSite(in spec, in o)); seeds.Add(Stamps.VolcanoSiteV3(in spec, in o));
+            for (int i = 0; i < 800 && seeds.Length < TARGET_REGIONS; i++)
             {
                 float2 p = new float2(c, c) + new float2(Noise.Hash01(i, 1, 7, spec.seed + 501u) - 0.5f,
                                                          Noise.Hash01(i, 2, 7, spec.seed + 502u) - 0.5f) * (2f * R);
                 if (math.distance(p, new float2(c, c)) > 0.95f * R) continue;
                 if (WorldMap.Coast(in spec, in o, p) <= 0.04f) continue;
                 bool ok = true;
-                foreach (var s in seeds) if (math.distance(s, p) < MIN_SEPARATION * R) { ok = false; break; }
+                for (int q = 0; q < seeds.Length; q++) if (math.distance(seeds[q], p) < MIN_SEPARATION * R) { ok = false; break; }
                 if (ok) seeds.Add(p);
             }
-            var kind = new byte[seeds.Count];
+            byte* kind = A->Root<byte>(seeds.Length);
             kind[0] = Alpine; kind[1] = Volcanic;
-            byte[] coastal = Shuffle(new[] { CoastalCliffs, Plains, Dunes, Wetland, CoastalCliffs, Plains }, spec.seed + 511u);
-            byte[] inland = Shuffle(new[] { Highlands, Canyonlands, Plateau, Breaks, Alpine, Highlands, Canyonlands, Breaks }, spec.seed + 512u);
+            byte* coastal = stackalloc byte[] { CoastalCliffs, Plains, Dunes, Wetland, CoastalCliffs, Plains };
+            byte* inland = stackalloc byte[] { Highlands, Canyonlands, Plateau, Breaks, Alpine, Highlands, Canyonlands, Breaks };
+            Shuffle(coastal, 6, spec.seed + 511u);
+            Shuffle(inland, 8, spec.seed + 512u);
             int ci = 0, ii = 0;
-            for (int s = 2; s < seeds.Count; s++)
+            for (int s = 2; s < seeds.Length; s++)
             {
                 bool nearCoast = WorldMap.Coast(in spec, in o, seeds[s]) < 0.33f;
-                kind[s] = nearCoast ? coastal[ci++ % coastal.Length] : inland[ii++ % inland.Length];
+                kind[s] = nearCoast ? coastal[ci++ % 6] : inland[ii++ % 8];
             }
-            var L = new Layout { seeds = seeds.ToArray(), kind = kind };
-            if (spec.mapVersion >= 4) AssignByFlatness(in spec, in o, L);
+            var L = new LayoutB { seeds = seeds.Ptr, kind = kind, Count = seeds.Length };
+            if (spec.mapVersion >= 4) AssignByFlatness(A, in spec, in o, ref L);
             return L;
         }
 
@@ -131,18 +145,20 @@ namespace TerrainGen
 
         /// Each region's land area, in CLASS_GRID cells: the same nearest-seed
         /// rule (warped Voronoi) that writes WorldMap.Region.
-        public static int[] LandCells(in TerrainSpec spec, in Offsets o, Layout L)
+        /// Managed entry (tests): run by the map's Burst job.
+        public static int[] LandCells(in TerrainSpec spec, in Offsets o, Layout L) => MapJobs.LandCells(in spec, in o, L);
+
+        public static unsafe void LandCells(in TerrainSpec spec, in Offsets o, in LayoutB L, int* area)
         {
-            var area = new int[L.Count];
+            for (int i = 0; i < L.Count; i++) area[i] = 0;
             float step = (float)spec.mapCells * spec.mapCellVoxels / CLASS_GRID;
             for (int z = 0; z < CLASS_GRID; z++)
             for (int x = 0; x < CLASS_GRID; x++)
             {
                 float2 p = new float2((x + 0.5f) * step, (z + 0.5f) * step);
                 if (WorldMap.Coast(in spec, in o, p) <= LAND_COAST) continue;
-                area[Nearest(L, Warp(in o, p), out _)]++;
+                area[Nearest(in L, Warp(in o, p), out _)]++;
             }
-            return area;
         }
 
         /// v4: deal every free region (all but the pinned alpine peak and
@@ -153,17 +169,19 @@ namespace TerrainGen
         /// 59,049 sums of <= 10 integers). The gentle error weighs 4x: it is
         /// the acceptance number. Ties keep the first assignment in counting
         /// order, so the result is a pure function of the seed and the share.
-        public static void AssignByFlatness(in TerrainSpec spec, in Offsets o, Layout L)
+        public static unsafe void AssignByFlatness(MapArena* A, in TerrainSpec spec, in Offsets o, ref LayoutB L)
         {
-            int[] area = LandCells(in spec, in o, L);
+            int mark = A->Mark();
+            int* area = A->Alloc<int>(L.Count);
+            LandCells(in spec, in o, in L, area);
             int free = L.Count - 2;
-            if (free <= 0) return;
-            long total = 0; foreach (int a in area) total += a;
+            if (free <= 0) { A->Release(mark); return; }
+            long total = 0; for (int q = 0; q < L.Count; q++) total += area[q];
             float G = spec.GentleShare * total, B = BROKEN_OF_REST * (1f - spec.GentleShare) * total;
             float S = total - G - B;
             int combos = 1; for (int i = 0; i < free; i++) combos *= CLASSES;
             int best = 0; float bestCost = float.MaxValue;
-            var cls = new int[free];
+            int* cls = A->Alloc<int>(free);
             for (int c = 0; c < combos; c++)
             {
                 int r = c; long g = 0, b = 0, st = area[0] + area[1]; int ng = 0, nb = 0;
@@ -181,42 +199,40 @@ namespace TerrainGen
             for (int i = 0; i < free; i++) { cls[i] = best % CLASSES; best /= CLASSES; }
 
             // Archetypes within a class, per-seed shuffled lists as in v3.
-            byte[][] coastal =
-            {
-                Shuffle(new[] { Plains, Wetland, Plains, Highlands }, spec.seed + 521u),
-                Shuffle(new[] { Dunes, Breaks, Dunes }, spec.seed + 522u),
-                new[] { CoastalCliffs },
-            };
-            byte[][] inland =
-            {
-                Shuffle(new[] { Highlands, Plateau, Plains, Highlands, Plateau }, spec.seed + 523u),
-                Shuffle(new[] { Canyonlands, Breaks, Dunes, Canyonlands }, spec.seed + 524u),
-                new[] { Alpine },
-            };
-            var ci = new int[CLASSES]; var ii = new int[CLASSES];
+            // (rows per class, flattened: row k starts at its offset, has its length)
+            byte* coastal = stackalloc byte[] { Plains, Wetland, Plains, Highlands,   Dunes, Breaks, Dunes,   CoastalCliffs };
+            byte* inland = stackalloc byte[] { Highlands, Plateau, Plains, Highlands, Plateau,   Canyonlands, Breaks, Dunes, Canyonlands,   Alpine };
+            int* cOff = stackalloc int[] { 0, 4, 7 }; int* cLen = stackalloc int[] { 4, 3, 1 };
+            int* iOff = stackalloc int[] { 0, 5, 9 }; int* iLen = stackalloc int[] { 5, 4, 1 };
+            Shuffle(coastal + 0, 4, spec.seed + 521u);
+            Shuffle(coastal + 4, 3, spec.seed + 522u);
+            Shuffle(inland + 0, 5, spec.seed + 523u);
+            Shuffle(inland + 5, 4, spec.seed + 524u);
+            int* ci = stackalloc int[CLASSES]; int* ii = stackalloc int[CLASSES];
+            for (int k = 0; k < CLASSES; k++) { ci[k] = 0; ii[k] = 0; }
             for (int i = 0; i < free; i++)
             {
                 int s = i + 2, k = cls[i];
                 bool nearCoast = WorldMap.Coast(in spec, in o, L.seeds[s]) < 0.33f;
-                L.kind[s] = nearCoast ? coastal[k][ci[k]++ % coastal[k].Length] : inland[k][ii[k]++ % inland[k].Length];
+                L.kind[s] = nearCoast ? coastal[cOff[k] + ci[k]++ % cLen[k]] : inland[iOff[k] + ii[k]++ % iLen[k]];
             }
+            A->Release(mark);
         }
 
-        private static byte[] Shuffle(byte[] a, uint seed)
+        private static unsafe void Shuffle(byte* a, int length, uint seed)
         {
-            for (int i = a.Length - 1; i > 0; i--)
+            for (int i = length - 1; i > 0; i--)
             {
                 int j = (int)(Noise.Hash01(i, 3, 9, seed) * (i + 1));
-                (a[i], a[j]) = (a[j], a[i]);
+                byte t = a[i]; a[i] = a[j]; a[j] = t;
             }
-            return a;
         }
 
         /// Organic borders: bend the sample position with a 2-D warp.
         private static float2 Warp(in Offsets o, float2 p) =>
             p + new float2(Noise.Fbm(p / 7000f + o.coastB + 17f, 3), Noise.Fbm(p / 7000f + o.coastA + 29f, 3)) * WARP;
 
-        private static int Nearest(Layout L, float2 q, out float dmin)
+        private static unsafe int Nearest(in LayoutB L, float2 q, out float dmin)
         {
             dmin = float.MaxValue; int nearest = 0;
             for (int i = 0; i < L.Count; i++)
@@ -229,10 +245,17 @@ namespace TerrainGen
 
         /// Per-archetype weights at p (sum 1) and the nearest region's index.
         /// `w` must hold KINDS floats.
-        public static int Weights(Layout L, in Offsets o, float2 p, float[] w)
+        /// Managed entry (tests): the same code, run here.
+        public static unsafe int Weights(Layout L, in Offsets o, float2 p, float[] w)
+        {
+            fixed (float2* s = L.seeds) fixed (byte* k = L.kind) fixed (float* wp = w)
+                return Weights(new LayoutB { seeds = s, kind = k, Count = L.Count }, in o, p, wp);
+        }
+
+        public static unsafe int Weights(in LayoutB L, in Offsets o, float2 p, float* w)
         {
             float2 q = Warp(in o, p);
-            int nearest = Nearest(L, q, out float dmin);
+            int nearest = Nearest(in L, q, out float dmin);
             for (int k = 0; k < KINDS; k++) w[k] = 0f;
             float sum = 0f;
             for (int i = 0; i < L.Count; i++)

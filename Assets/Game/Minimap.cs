@@ -117,7 +117,7 @@ public class Minimap : MonoBehaviour
             for (int i = 0; i < BAKE_N; i++)
             {
                 float x = (i + 0.5f) * step, z = (j + 0.5f) * step;
-                var c = TerrainGen.ShapeField.Sample(in spec, in view, in o, x, z, 8);
+                var c = TerrainGen.ShapeField.Sample(in spec, in view, in o, x, z, math.max(8, (int)step));   // task 76: a texel as wide as the step, so a river stays one line
                 int k = j * BAKE_N + i;
                 bool wet = c.height < spec.seaLevelY || c.water > c.height;
                 water[k] = wet;

@@ -12,13 +12,17 @@ owner-facing to-do. One line each: what, where seen, task file (if written), sug
 ## Open
 | # | Bug | Seen | Task file | Fix with |
 |---|---|---|---|---|
-| 1 | Shadow dots on grass slopes / sand lake shores at low sun | owner play notes 2026-10-08, `~/Desktop/Bugs?/` | `later/38-bug-shadow-dots.md` | engine phase, shadow work |
 | 2 | Black crescent/oval under the ledge at the `ledge_view` pose | task 34 B5 contact sheet; still there after B8/B10 | `later/40-bug-ledge-view-crescent.md` | engine phase, LOD seam / render work |
 | 3 | Coast fills the fluid pool (falling beach sand + sea); sea beyond ~61 m sleeps | task 39, Q31 part 1 (open) | -- | engine phase, fluids (wake on disturbance) |
 | 4 | Torch light passes through walls: no point-light occlusion (`Raymarch.compute:1856`); the SVO traces shadow rays for the nearest torches. Owner 2026-10-09: what they liked in the SVO is "how light reacts to its surroundings". Also: merge branch `gemini/lava-torch-light` (bd60a30: lava ignores torch light, Q34 3a; `SVO_LIGHTING_NOTES.md`, line refs wrong) | Gemini SVO lighting notes, Phase 7 §10 flag | -- | engine phase, lighting (first task that builds) |
-| 5 | River water steps down into a lake behind grid-edged 2x2 squares (0.2-1 m above the lake; flows in game). Older than 37e/42; rivers are outside the at-rest tests. Also: volcano lava lake never checked for 37e's defect | task 42, `Screenshots/42/seed7_lake_top.png` | -- | terrain follow-up (river/lake design: e.g. end a river at the lake's reach) -- owner decides |
+| 8 | River lips are SOLID ground drawn as water (task 76's stopgap): the player can stand on / bump into "water" at every river step, digging a lip is odd; rivers read as visible terraces (look off), and at site B the river's last cells stand 1-4 voxels above the lake as a ribbon edged by lines. Owner 2026-10-11: "bad for gameplay" -- "fix it later" | task 76 `Screenshots/76/sheet_near.jpg` rows A-D; HANDOFF 76 caveats | -- | R3 held water (after engine step 17, `RIVERS_WATERFALLS_PLAN.md`); site B ribbon with it |
+| 10 | The `eye_level_*` poses do not show the same frame from run to run: same map hash and eye (4600, 652.9, 4000) m, but 83b drew a valley + peak at `eye_level_1`, 85 a plain with the sea, 85b a hillside filling the view (shells off in all three A shots). Suspect what tier 0 / the content band draws around a just-arrived eye, not the pose | task 85b (`Screenshots/85b/eye_level_1_*` vs `Screenshots/83b/eye_level_1_noon_A_off.png`) | -- | engine phase, streaming / band placement |
+| 11 | A lava pool placed by EditService in the tg2 world is not drawn: 1,961 voxels set (`TrySetVoxel(Lava)`, lava tiles registered) 45 m ahead, no orange in OFF or ON shots, day or night. Torches placed the same way show. Seed 42 has no volcano, so no lava was in view at all | task 85b night set (`Screenshots/85b/*_night_*`, farpreview.txt) | -- | engine phase, fluids / far lights (step 21) |
 
 ## Deferred (not bugs, parked by the owner)
+- `later/78-rig-refresh.md` -- many rigs no longer match the game (Playground/v3 world, Creative, legacy motor,
+  no upscaler, 1,024 fluid tiles, windowed, stale gates). Owner 2026-10-11: far-future task; audit + plan first,
+  before engine step 23 (the milestone runs every rig).
 - `later/37c-B3c-highland-variation.md` -- knolls and dells in rolling highlands (B5 review
   follow-up). Deferred 2026-10-09 to end the terrain phase sooner; revisit after placement.
 
@@ -34,5 +38,30 @@ to install + log in to Gemini CLI, and a small runner change. Not for B steps / 
 
 ## Fixed
 (move rows here with the commit when done)
+
+- **#9 Far terrain reads as SPECKS -- FIXED task 85b (2026-10-13), behind `-farshade` / F6 "Far shading" (ON in play, OFF in rigs).**
+  Own kernel `CSMainFarShade` (VE_FAR_SHADE): hemisphere sky light by time of day, the far band's column-height slope
+  normal where a 0.1 m voxel is <= 2 px, height-aware haze that light escapes. eye_level_3 backlit noon: near-black
+  pixels 18.8% -> 0.0%. Sheets: `Screenshots/85b/sheet_day_raw.jpg`, `sheet_night.jpg`.
+
+- **#5 River steps into a lake behind 2x2 squares; volcano lava lake unchecked -- FIXED task 76 (2026-10-11).** Map v4
+  rivers are a per-column profile (`Rivers.cs`) that never rises downstream and ends AT the lake/sea level (its last
+  cell stands at it), held by one-voxel lips. The lava lake was NOT at rest (917k lava voxels beside air in the ring
+  between the caldera floor and the inner wall, seed 2026): v4 now fills that ring to the lava level. Tests:
+  `FluidAtRestTests`. Shots: `Screenshots/76/sheet_near.jpg` row B.
+- **#7 Generated water not at rest (slabs with vertical sides) -- FIXED IN GENERATION task 76 (2026-10-11).** Every
+  generated fluid is at rest by test (`FluidAtRestTests`: rivers + sea coast 1-in-6 + lakes for seeds 42/7, the lava
+  lake of seed 2026, 24 underground pockets of seed 42: 0 voxels beside/over air). Exposed river water walls at the
+  73 sites 7.6 / 3.2 / 10.5 / 1.3 m -> 0 / 0 / 0 / 0. NOT yet measured at runtime: "pool 0 tiles on arrival"
+  (a `MODE=poolprobe` walk is the check).
+
+- **#6 Help panel (F2) printed HTML entities -- FIXED task 58 (2026-10-10).** IMGUI rich text does not decode
+  entities, so `&amp;` / `&lt;-&gt;` printed literally; the help text now uses `&`, `↔`, `→`. Still:
+  `Screenshots/58/play_help_fixed.png` ("BUILD & DIG", "FLUID & DESTRUCTION", "LIGHT & TIME").
+
+- **#1 Shadow dots on grass slopes / sand shores at low sun -- FIXED task 56 (`ade1b22`, 2026-10-10).** Not real
+  shadows: temporal shadow reuse (ON in play) took each skipped pixel's sun visibility from the NEIGHBOUR voxel's
+  pixel, giving 8x8-pixel lit/dark squares. History is now keyed by the shadow ray's origin cell; vs the CPU
+  oracle, false-dark 1.1-5.4% -> 0.01-0.53% (same as reuse off). `./run-shadow-dots.sh`; `Screenshots/56/`.
 
 - **37e's EditMode run ballooned Unity to 22.5 GB footprint (peak 23.1 GB, "Untagged" dirty memory), swap 14.8/15.4 GB** (2026-10-09 15:53, supervisor killed it; the 15:2x hard power-off happened while the same task's first attempt was running, so it was most likely the same run). Suspect: the new untracked `Assets/TerrainGen/Tests/LakeRestTests.cs` (RestJob over 4 seeds' lake cells via `LakeRestHook`) or the generator hook it calls -- NOT proven. 37e is in `tools/overnight/blocked/`, queue PAUSEd. Before re-queueing: find the allocation (one seed, watch `footprint <pid>`), and add a memory watchdog to the runner (kill Unity when swap free < 2 GB).

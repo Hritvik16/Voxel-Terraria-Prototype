@@ -98,6 +98,186 @@ public sealed class PlayerConfig
     public float maxSubstepVoxels = 0.5f;
 
     // =====================================================================
+    // MOVEMENT SET A (task 65, GAMEPLAY_PHASE_PLAN.md step 2, P13-P16).
+    // Read only by PlayerMotor.Step(dt, in MotorInput); the legacy Step and
+    // every rig ignore them.
+    // =====================================================================
+
+    /// Swim speed cap in water, m/s (P14). Thicker fluids scale it down by
+    /// water's drag / theirs (PlayerMotor.SwimCapMps).
+    public float swimSpeedMps = 3.0f;
+
+    /// How fast the swim velocity turns toward the wish, m/s^2.
+    public float swimAccelMps2 = 12f;
+
+    /// Height above the feet that floats AT the water line when idle, metres.
+    /// 1.3 m puts the eye (1.6 m) 0.3 m above the water.
+    public float swimFloatHeightM = 1.3f;
+
+    /// Fastest an idle swimmer rises to (or settles onto) the surface, m/s.
+    public float swimFloatRiseMps = 1.0f;
+
+    /// Float speed per metre of distance from the water line, 1/s.
+    public float swimFloatGainPerS = 4f;
+
+    /// After jumping out of water, swimming stays off this long, seconds.
+    public float waterJumpSwimLockS = 0.35f;
+
+    /// Extra jumps in the air (the double jump). Reset on landing or entering fluid.
+    public int airJumps = 1;
+
+    /// The air jump's impulse as a fraction of jumpImpulseMps.
+    public float airJumpImpulseScale = 0.85f;
+
+    /// Dash peak speed (m/s), duration (s) and cooldown from its start (s).
+    /// 14 x 0.18 = 2.52 m. One dash per airtime.
+    public float dashSpeedMps = 14f;
+    public float dashDurationS = 0.18f;
+    public float dashCooldownS = 0.8f;
+
+    // =====================================================================
+    // SLOPES AND CLIMBING (task 93f1, GAMEPLAY_PHASE_PLAN.md step 5; the
+    // brief's movement bands). Read only by Step(dt, in MotorInput).
+    // Slopes are measured as the rise over slopeBaselineM ahead of the body
+    // (PlayerMotor.RiseAheadVoxels), in whole voxels.
+    // =====================================================================
+
+    /// Walk band: an auto-step is taken only when the ground ahead rises at
+    /// most this steeply (30 deg = 3 voxels over 0.5 m). Standing on ground
+    /// that falls away more steeply than this slides you downhill.
+    public float walkSlopeMaxDeg = 30f;
+    public float slopeBaselineM = 0.5f;
+
+    /// Climb band: a face rising at least this steeply over the baseline
+    /// (60 deg = 9 voxels over 0.5 m, i.e. any wall >= 0.9 m) can be clung to.
+    /// Between walkSlopeMaxDeg and this is Scramble: slide unless you jump.
+    public float climbMinSlopeDeg = 60f;
+
+    /// Downhill slide on Scramble/Climb ground: top speed (m/s), acceleration.
+    public float slideSpeedMps = 4.5f;
+    public float slideAccelMps2 = 18f;
+
+    /// Climbing speed on rock, m/s, and how long the move key must press into
+    /// a face before you cling (so brushing a wall does not grab it), s.
+    public float climbSpeedMps = 1.5f;
+    public float climbGrabDelayS = 0.2f;
+
+    /// Stamina, in seconds of climbing on rock (7 s = 10.5 m at 1.5 m/s, above
+    /// the brief's 8 m early rest-ledge spacing). Refills at climbStaminaRefillPerS
+    /// while standing on a rest ledge (the whole 0.6 x 0.6 m footprint supported).
+    public float climbStaminaS = 7f;
+    public float climbStaminaRefillPerS = 3.5f;
+
+    /// Loose faces (sand, powder snow) and slick faces (packed ice, glass):
+    /// climb speed x SpeedScale, stamina drain x DrainScale.
+    public float climbLooseSpeedScale = 0.6f;
+    public float climbLooseDrainScale = 1.5f;
+    public float climbSlickSpeedScale = 0.4f;
+    public float climbSlickDrainScale = 2.5f;
+
+    // =====================================================================
+    // GLIDING (task 93g1, GAMEPLAY_PHASE_PLAN.md step 6). Read only by
+    // Step(dt, in MotorInput): Space held in the air after the double jump.
+    // Glide ratio = glideSpeedMps / glideSinkMps (5 by default). 0 speed = off.
+    // =====================================================================
+
+    /// Steady fall speed while gliding, m/s (the brief: ~2).
+    public float glideSinkMps = 2f;
+    /// Steady speed along the look direction, m/s (the brief: ~10); S held
+    /// (air brake) eases to glideSlowSpeedMps; A/D drift up to glideStrafeMps.
+    public float glideSpeedMps = 10f;
+    public float glideSlowSpeedMps = 4f;
+    public float glideStrafeMps = 3f;
+    /// How fast the horizontal velocity turns toward its target, m/s^2.
+    public float glideAccelMps2 = 8f;
+    /// How hard a faster fall is braked to glideSinkMps on opening, m/s^2.
+    public float glideBrakeMps2 = 30f;
+
+    // =====================================================================
+    // GRAPPLING HOOK (task 100, GAMEPLAY_PHASE_PLAN.md step 7). Read only by
+    // Step(dt, in MotorInput): fire at solid within hookRangeM, reel, swing.
+    // 0 range = off.
+    // =====================================================================
+
+    /// How far the hook reaches, metres (the brief: 25).
+    public float hookRangeM = 25f;
+    /// Reel-in speed, m/s. 12 stays under the 4 m fall-damage speed (13.3 m/s
+    /// at g = 22), so a reel into the ground never hurts.
+    public float hookReelSpeedMps = 12f;
+    /// How fast the reel velocity turns toward the anchor, m/s^2.
+    public float hookReelAccelMps2 = 40f;
+    /// The reel stops this far from the anchor (hands to anchor), metres.
+    /// Under the 0.39 m a body touching the face keeps, so a head-on reel is
+    /// stopped by the wall itself.
+    public float hookMinLengthM = 0.3f;
+    /// While swinging, the keys push this hard along the wish, m/s^2.
+    public float hookSwingAccelMps2 = 5f;
+
+    // =====================================================================
+    // WALL-RUN AND WALL-JUMP (task 103, GAMEPLAY_PHASE_PLAN.md step 8). Read
+    // only by Step(dt, in MotorInput). Both spend the climb stamina pool.
+    // 0 speed = no wall-run; 0 push = no wall-jump.
+    // =====================================================================
+
+    /// Speed along the wall while running on it, m/s (walk is 5.2).
+    public float wallRunSpeedMps = 7f;
+    /// Starts only when already moving along the wall at least this fast.
+    public float wallRunMinSpeedMps = 3.5f;
+    /// How fast the speed along the wall turns toward wallRunSpeedMps, m/s^2.
+    public float wallRunAccelMps2 = 20f;
+    /// Vertical speed set on starting (a small lift), m/s.
+    public float wallRunStartUpMps = 2.5f;
+    /// Gravity while running = gravityMps2 x this; the fall is capped at
+    /// wallRunMaxSinkMps. 7 m/s for 1.2 s = 8.4 m along at about the height
+    /// the run started (2.5 up, 4.4 m/s^2 down: -0.2 m), so a jump from flat
+    /// ground lasts the whole run.
+    public float wallRunGravityScale = 0.2f;
+    public float wallRunMaxSinkMps = 3f;
+    /// Longest single run, seconds; also ends with the wall, the stamina or the keys.
+    public float wallRunMaxS = 1.2f;
+    /// No start when falling faster than this, m/s (a wall cannot catch a fall).
+    public float wallRunMaxEntryFallMps = 5f;
+    /// Wall-jump: pushed off the wall's face at this speed, m/s, with
+    /// jumpImpulseMps x wallJumpUpScale upward; speed along the wall is kept.
+    public float wallJumpPushMps = 5.5f;
+    public float wallJumpUpScale = 1f;
+    /// Climb stamina one wall-jump costs, seconds (running drains 1 s per s).
+    public float wallJumpStaminaS = 1f;
+
+    // =====================================================================
+    // VITALS (task 93d1, GAMEPLAY_PHASE_PLAN.md step 9a). Read only by
+    // PlayerVitals, which only an interactive Survival walk ticks; rigs and
+    // Creative never take damage.
+    // =====================================================================
+
+    /// Full health, HP.
+    public float maxHealth = 100f;
+
+    /// Fall damage is linear in the fall HEIGHT the landing speed is worth
+    /// (v^2 / 2g): none up to fallSafeHeightM, the whole of maxHealth at
+    /// fallLethalHeightM. 4 m / 20 m = 6.25 HP per metre over 4 m. Landing
+    /// with the feet in a liquid takes none.
+    public float fallSafeHeightM = 4f;
+    public float fallLethalHeightM = 20f;
+
+    /// Breath under a liquid (head probe wet), seconds; refilled this many
+    /// seconds per second in air (5 = full in 4 s); empty -> drownDamagePerS.
+    public float oxygenSeconds = 20f;
+    public float oxygenRefillPerS = 5f;
+    public float drownDamagePerS = 10f;
+
+    /// Touching lava / acid (any of the feet, centre or head probes), HP/s.
+    public float lavaDamagePerS = 50f;
+    public float acidDamagePerS = 20f;
+
+    /// Health comes back regenPerS HP/s once regenDelayS has passed without damage.
+    public float regenDelayS = 8f;
+    public float regenPerS = 2f;
+
+    /// Soft death: the "you died" screen lasts this long, then back to the start.
+    public float respawnDelayS = 3f;
+
+    // =====================================================================
     // Validation
     // =====================================================================
 
@@ -126,6 +306,83 @@ public sealed class PlayerConfig
         bodyWidthM       = Fix(bodyWidthM, 0.05f, 10f, 0.6f, nameof(bodyWidthM), notes);
         bodyHeightM      = Fix(bodyHeightM, 0.2f, 20f, 1.8f, nameof(bodyHeightM), notes);
         maxSubstepVoxels = Fix(maxSubstepVoxels, 0.05f, 4f, 0.5f, nameof(maxSubstepVoxels), notes);
+        swimSpeedMps     = Fix(swimSpeedMps, 0.1f, 50f, 3.0f, nameof(swimSpeedMps), notes);
+        swimAccelMps2    = Fix(swimAccelMps2, 0.1f, 1000f, 12f, nameof(swimAccelMps2), notes);
+        swimFloatHeightM = Fix(swimFloatHeightM, 0.1f, 20f, 1.3f, nameof(swimFloatHeightM), notes);
+        swimFloatRiseMps = Fix(swimFloatRiseMps, 0f, 50f, 1.0f, nameof(swimFloatRiseMps), notes);
+        swimFloatGainPerS = Fix(swimFloatGainPerS, 0.1f, 100f, 4f, nameof(swimFloatGainPerS), notes);
+        waterJumpSwimLockS = Fix(waterJumpSwimLockS, 0f, 5f, 0.35f, nameof(waterJumpSwimLockS), notes);
+        airJumpImpulseScale = Fix(airJumpImpulseScale, 0f, 4f, 0.85f, nameof(airJumpImpulseScale), notes);
+        dashSpeedMps     = Fix(dashSpeedMps, 0f, 100f, 14f, nameof(dashSpeedMps), notes);
+        dashDurationS    = Fix(dashDurationS, 0f, 2f, 0.18f, nameof(dashDurationS), notes);
+        dashCooldownS    = Fix(dashCooldownS, 0f, 30f, 0.8f, nameof(dashCooldownS), notes);
+        walkSlopeMaxDeg  = Fix(walkSlopeMaxDeg, 0f, 89f, 30f, nameof(walkSlopeMaxDeg), notes);
+        slopeBaselineM   = Fix(slopeBaselineM, 0.1f, 2f, 0.5f, nameof(slopeBaselineM), notes);
+        climbMinSlopeDeg = Fix(climbMinSlopeDeg, 0f, 89f, 60f, nameof(climbMinSlopeDeg), notes);
+        slideSpeedMps    = Fix(slideSpeedMps, 0f, 100f, 4.5f, nameof(slideSpeedMps), notes);
+        slideAccelMps2   = Fix(slideAccelMps2, 0f, 1000f, 18f, nameof(slideAccelMps2), notes);
+        climbSpeedMps    = Fix(climbSpeedMps, 0f, 50f, 1.5f, nameof(climbSpeedMps), notes);
+        climbGrabDelayS  = Fix(climbGrabDelayS, 0f, 5f, 0.2f, nameof(climbGrabDelayS), notes);
+        climbStaminaS    = Fix(climbStaminaS, 0f, 3600f, 7f, nameof(climbStaminaS), notes);
+        climbStaminaRefillPerS = Fix(climbStaminaRefillPerS, 0f, 1000f, 3.5f, nameof(climbStaminaRefillPerS), notes);
+        climbLooseSpeedScale = Fix(climbLooseSpeedScale, 0f, 10f, 0.6f, nameof(climbLooseSpeedScale), notes);
+        climbLooseDrainScale = Fix(climbLooseDrainScale, 0f, 100f, 1.5f, nameof(climbLooseDrainScale), notes);
+        climbSlickSpeedScale = Fix(climbSlickSpeedScale, 0f, 10f, 0.4f, nameof(climbSlickSpeedScale), notes);
+        climbSlickDrainScale = Fix(climbSlickDrainScale, 0f, 100f, 2.5f, nameof(climbSlickDrainScale), notes);
+        glideSinkMps     = Fix(glideSinkMps, 0.1f, 50f, 2f, nameof(glideSinkMps), notes);
+        glideSpeedMps    = Fix(glideSpeedMps, 0f, 100f, 10f, nameof(glideSpeedMps), notes);
+        glideSlowSpeedMps = Fix(glideSlowSpeedMps, 0f, 100f, 4f, nameof(glideSlowSpeedMps), notes);
+        glideStrafeMps   = Fix(glideStrafeMps, 0f, 100f, 3f, nameof(glideStrafeMps), notes);
+        glideAccelMps2   = Fix(glideAccelMps2, 0.1f, 1000f, 8f, nameof(glideAccelMps2), notes);
+        glideBrakeMps2   = Fix(glideBrakeMps2, 0.1f, 1000f, 30f, nameof(glideBrakeMps2), notes);
+        hookRangeM       = Fix(hookRangeM, 0f, 200f, 25f, nameof(hookRangeM), notes);
+        hookReelSpeedMps = Fix(hookReelSpeedMps, 0.1f, 200f, 12f, nameof(hookReelSpeedMps), notes);
+        hookReelAccelMps2 = Fix(hookReelAccelMps2, 0.1f, 10000f, 40f, nameof(hookReelAccelMps2), notes);
+        hookMinLengthM   = Fix(hookMinLengthM, 0.1f, 50f, 0.3f, nameof(hookMinLengthM), notes);
+        hookSwingAccelMps2 = Fix(hookSwingAccelMps2, 0f, 1000f, 5f, nameof(hookSwingAccelMps2), notes);
+        wallRunSpeedMps  = Fix(wallRunSpeedMps, 0f, 100f, 7f, nameof(wallRunSpeedMps), notes);
+        wallRunMinSpeedMps = Fix(wallRunMinSpeedMps, 0f, 100f, 3.5f, nameof(wallRunMinSpeedMps), notes);
+        wallRunAccelMps2 = Fix(wallRunAccelMps2, 0.1f, 1000f, 20f, nameof(wallRunAccelMps2), notes);
+        wallRunStartUpMps = Fix(wallRunStartUpMps, 0f, 50f, 2.5f, nameof(wallRunStartUpMps), notes);
+        wallRunGravityScale = Fix(wallRunGravityScale, 0f, 1f, 0.2f, nameof(wallRunGravityScale), notes);
+        wallRunMaxSinkMps = Fix(wallRunMaxSinkMps, 0.1f, 100f, 3f, nameof(wallRunMaxSinkMps), notes);
+        wallRunMaxS      = Fix(wallRunMaxS, 0f, 60f, 1.2f, nameof(wallRunMaxS), notes);
+        wallRunMaxEntryFallMps = Fix(wallRunMaxEntryFallMps, 0f, 100f, 5f, nameof(wallRunMaxEntryFallMps), notes);
+        wallJumpPushMps  = Fix(wallJumpPushMps, 0f, 100f, 5.5f, nameof(wallJumpPushMps), notes);
+        wallJumpUpScale  = Fix(wallJumpUpScale, 0f, 4f, 1f, nameof(wallJumpUpScale), notes);
+        wallJumpStaminaS = Fix(wallJumpStaminaS, 0f, 3600f, 1f, nameof(wallJumpStaminaS), notes);
+        // Climb must start above the walk band, or every auto-step is a cling.
+        if (climbMinSlopeDeg < walkSlopeMaxDeg)
+        {
+            notes.Append($"{nameof(climbMinSlopeDeg)} {climbMinSlopeDeg.ToString(CultureInfo.InvariantCulture)}->{walkSlopeMaxDeg.ToString(CultureInfo.InvariantCulture)} (not below the walk band); ");
+            climbMinSlopeDeg = walkSlopeMaxDeg;
+        }
+        maxHealth        = Fix(maxHealth, 1f, 100000f, 100f, nameof(maxHealth), notes);
+        fallSafeHeightM  = Fix(fallSafeHeightM, 0f, 1000f, 4f, nameof(fallSafeHeightM), notes);
+        fallLethalHeightM = Fix(fallLethalHeightM, 0f, 10000f, 20f, nameof(fallLethalHeightM), notes);
+        // Lethal must be above safe, or the curve divides by zero.
+        if (fallLethalHeightM < fallSafeHeightM + 0.1f)
+        {
+            notes.Append($"{nameof(fallLethalHeightM)} {fallLethalHeightM.ToString(CultureInfo.InvariantCulture)}->{(fallSafeHeightM + 0.1f).ToString(CultureInfo.InvariantCulture)} (above the safe height); ");
+            fallLethalHeightM = fallSafeHeightM + 0.1f;
+        }
+        oxygenSeconds    = Fix(oxygenSeconds, 0.1f, 3600f, 20f, nameof(oxygenSeconds), notes);
+        oxygenRefillPerS = Fix(oxygenRefillPerS, 0f, 1000f, 5f, nameof(oxygenRefillPerS), notes);
+        drownDamagePerS  = Fix(drownDamagePerS, 0f, 100000f, 10f, nameof(drownDamagePerS), notes);
+        lavaDamagePerS   = Fix(lavaDamagePerS, 0f, 100000f, 50f, nameof(lavaDamagePerS), notes);
+        acidDamagePerS   = Fix(acidDamagePerS, 0f, 100000f, 20f, nameof(acidDamagePerS), notes);
+        regenDelayS      = Fix(regenDelayS, 0f, 3600f, 8f, nameof(regenDelayS), notes);
+        regenPerS        = Fix(regenPerS, 0f, 100000f, 2f, nameof(regenPerS), notes);
+        respawnDelayS    = Fix(respawnDelayS, 0f, 60f, 3f, nameof(respawnDelayS), notes);
+        if (airJumps < 0) { notes.Append($"{nameof(airJumps)} {airJumps}->0; "); airJumps = 0; }
+        if (airJumps > 5) { notes.Append($"{nameof(airJumps)} {airJumps}->5; "); airJumps = 5; }
+        // The float point must be inside the body, or an idle swimmer floats
+        // with the whole body under water.
+        if (swimFloatHeightM > bodyHeightM)
+        {
+            notes.Append($"{nameof(swimFloatHeightM)} {swimFloatHeightM.ToString(CultureInfo.InvariantCulture)}->{bodyHeightM.ToString(CultureInfo.InvariantCulture)} (capped to body height); ");
+            swimFloatHeightM = bodyHeightM;
+        }
 
         if (stepHeightVoxels < 0) { notes.Append($"{nameof(stepHeightVoxels)} {stepHeightVoxels}->0; "); stepHeightVoxels = 0; }
         if (stepHeightVoxels > 64) { notes.Append($"{nameof(stepHeightVoxels)} {stepHeightVoxels}->64; "); stepHeightVoxels = 64; }
@@ -193,6 +450,18 @@ public sealed class PlayerConfig
 
     public string ToJson() => JsonUtility.ToJson(this, true);
 
+    /// The public fields whose name does not appear in `json` (comma list), or
+    /// null when every field is present.
+    public static string MissingFields(string json)
+    {
+        if (json == null) return null;
+        var sb = new System.Text.StringBuilder();
+        foreach (var f in typeof(PlayerConfig).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            if (json.IndexOf("\"" + f.Name + "\"", StringComparison.Ordinal) < 0)
+                sb.Append(sb.Length == 0 ? "" : ", ").Append(f.Name);
+        return sb.Length == 0 ? null : sb.ToString();
+    }
+
     // =====================================================================
     // The live instance + hot reload
     // =====================================================================
@@ -235,6 +504,17 @@ public sealed class PlayerConfig
             {
                 _active = new PlayerConfig();
                 ReloadNow();
+                // A file written before a field existed (task 65 added the
+                // movement-set-A numbers) gets the missing fields appended at
+                // their defaults, so every tunable is visible in the file.
+                // Only when it parsed cleanly: a file with a typo is left alone.
+                string json = File.ReadAllText(_path);
+                string missing = MissingFields(json);
+                if (LastError == null && missing != null)
+                {
+                    File.WriteAllText(_path, _active.ToJson());
+                    Debug.Log($"[PlayerConfig] added {missing} at defaults -> {_path}");
+                }
             }
             StampFile();
             Debug.Log($"[PlayerConfig] tune live by editing {_path}");

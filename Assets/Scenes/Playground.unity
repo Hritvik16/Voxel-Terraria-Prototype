@@ -161,7 +161,7 @@ MonoBehaviour:
   _lavaBudget: 12000
   _ventEdge: 5
   _ventSpread: 40
-  _tilePoolCap: 1024
+  _tilePoolCap: 480
 --- !u!4 &176163474
 Transform:
   m_ObjectHideFlags: 0

@@ -629,6 +629,13 @@ Gate 0's anti-vacuity guard caught its own gate being vacuous.
 ## 10. FLAG, DO NOT DECIDE — the owner's calls
 
 ### 1. Point lights through walls
+**DECIDED 2026-10-09 (owner Q5 (a)), DONE in task 46 (2026-10-10):** each lit
+tier-0 pixel traces occlusion rays to its 4 nearest point lights
+(`LightingConfig.torchShadowRays`, `-torchshadows N`, 0 = the old leak); other
+lights are scaled by the traced share. `run-phase7-rig.sh` Gate 1b asserts it
+(far-side luma 0.0610 with rays off -> 0.0000 with rays on = the no-torch frame).
+The text below is the original flag, kept as history.
+
 §6.5 and §3.8 specify pure attenuation, no per-light occlusion ray, and §3.8's
 whole cost model (2M pixels × N lights) assumes there is not one. §13's
 acceptance bullet says a torch "does not bend around a wall". **With no

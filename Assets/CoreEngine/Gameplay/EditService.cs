@@ -141,6 +141,14 @@ public class EditService : IEditService
 
     public bool IsWired => _writer != null;
 
+    /// Task 93a: while on, writes are not marked as player edits for the
+    /// shells' edit summaries (EditOps.Record: an op is in the shells already).
+    /// Nests; only a ChunkStore writer marks edits at all.
+    public void MuteEditMarks(bool on)
+    {
+        if (_writer is ChunkStore cs) cs.EditMarksMuted += on ? 1 : -1;
+    }
+
     // =====================================================================
     // §8.3's path
     // =====================================================================
@@ -285,6 +293,12 @@ public class EditService : IEditService
     {
         if (_fluids.Count == 0) return;
         WakeScansRun++;
+        WakeBox(minVoxel, maxVoxel);
+    }
+
+    /// NotifyEditedRegion's scan without the counter: the box plus a one-cell margin.
+    private void WakeBox(int3 minVoxel, int3 maxVoxel)
+    {
         for (int z = minVoxel.z - 1; z <= maxVoxel.z + 1; z++)
         for (int y = minVoxel.y - 1; y <= maxVoxel.y + 1; y++)
         for (int x = minVoxel.x - 1; x <= maxVoxel.x + 1; x++)
@@ -374,6 +388,69 @@ public class EditService : IEditService
         return changed;
     }
 
+    /// GAMEPLAY BLD1 (task 93a1): a STROKE -- the first `count` edge-aligned
+    /// cubes of `los` (origins, edge a power of two) stamped in ONE call, so a
+    /// drag is one edit however long it is. `fillOnly` (placing): only Air and
+    /// fluid cells take `material`, solid ones are left alone. Otherwise
+    /// (digging, `material` = Air) every cell becomes `material`.
+    /// `removedByMaterial` (optional, length 256) is INCREMENTED by the previous
+    /// material of every changed cell, as MineSphereBudgeted's reporting overload.
+    ///
+    /// ONE wake scan for the stroke (WakeScansRun +1), over only the cubes that
+    /// changed, each with NotifyEditedRegion's one-cell margin -- not the
+    /// stroke's bounding box, which for a long diagonal is mostly untouched air.
+    public int SetCubes(IReadOnlyList<int3> los, int count, int edge, byte material, bool fillOnly,
+                        int[] removedByMaterial = null)
+        => SetCubes(los, count, edge, material, fillOnly, removedByMaterial, null, out _);
+
+    /// Task 105 (step 10): the same, leaving every cell whose current material
+    /// has `keep[m]` set (a dig stroke's too-hard cells, Tools.TooHard) as it
+    /// is; `kept` counts them.
+    public int SetCubes(IReadOnlyList<int3> los, int count, int edge, byte material, bool fillOnly,
+                        int[] removedByMaterial, bool[] keep, out int kept)
+    {
+        kept = 0;
+        RequireWired();
+        if (los == null) throw new ArgumentNullException(nameof(los));
+        if (edge <= 0 || (edge & (edge - 1)) != 0) throw new ArgumentException("edge must be a power of two", nameof(edge));
+        if (removedByMaterial != null && removedByMaterial.Length < 256)
+            throw new ArgumentException("needs one counter per material id (256)", nameof(removedByMaterial));
+        count = math.min(count, los.Count);
+
+        int changed = 0;
+        _strokeChanged.Clear();
+        for (int c = 0; c < count; c++)
+        {
+            int3 lo = los[c];
+            int before = changed;
+            for (int z = 0; z < edge; z++)
+            for (int y = 0; y < edge; y++)
+            for (int x = 0; x < edge; x++)
+            {
+                int3 v = lo + new int3(x, y, z);
+                byte old = _world.GetVoxel(v);
+                if (fillOnly && old != Materials.Air && !MaterialRules.IsFluidMaterial(old)) continue;
+                if (keep != null && keep[old]) { kept++; continue; }
+                if (WriteOne(v, material))
+                {
+                    changed++;
+                    if (removedByMaterial != null) removedByMaterial[old]++;
+                }
+            }
+            if (changed > before) _strokeChanged.Add(c);
+        }
+
+        if (_strokeChanged.Count > 0 && _fluids.Count > 0)
+        {
+            WakeScansRun++;
+            int3 e1 = new int3(edge - 1, edge - 1, edge - 1);
+            foreach (int c in _strokeChanged) WakeBox(los[c], los[c] + e1);
+        }
+        return changed;
+    }
+
+    private readonly List<int> _strokeChanged = new List<int>();   // SetCubes' changed cube indices (main thread only)
+
     /// One voxel, WITHOUT the wake scan -- for a caller driving its own batch
     /// across frames, which cannot use SetBox because it does not process the
     /// whole region at once.
@@ -385,7 +462,8 @@ public class EditService : IEditService
     /// is public only because §8.5's frame-split destruction genuinely cannot
     /// express itself with SetBox -- 400K voxels through TrySetVoxel would run
     /// a 27-cell wake scan per voxel, ~10.8 million probes for one detonation.
-    /// DestructionReducer is the intended and only caller.
+    /// DestructionReducer is the intended caller; EditOps (8.14 row 9) is the
+    /// other, applying a recorded op to resident chunks one chunk at a time.
     public bool WriteVoxelDeferred(int3 v, byte material) => WriteOne(v, material);
 
     /// The per-voxel half of a batch: everything TrySetVoxel does EXCEPT the
@@ -468,6 +546,22 @@ public class EditService : IEditService
     /// Nearest-first so a rate-limited tool eats a visible hole outward from
     /// where it is pointed, rather than scattering removals across the brush.
     public int MineSphereBudgeted(int3 centre, int radius, int budget, byte material = 0)
+        => MineSphereCore(centre, radius, budget, material, null);
+
+    /// GAMEPLAY STEP 1 (task 64): the same dig, also reporting WHAT it removed.
+    /// `removedByMaterial` (length 256, indexed by material id) is INCREMENTED
+    /// by one for the previous material of every voxel actually changed to Air;
+    /// the caller clears it. Survival's inventory is credited from it
+    /// (SurvivalBuild.Dig). The overload above is unchanged (plan guardrail 1).
+    public int MineSphereBudgeted(int3 centre, int radius, int budget, int[] removedByMaterial)
+    {
+        if (removedByMaterial == null) throw new ArgumentNullException(nameof(removedByMaterial));
+        if (removedByMaterial.Length < 256)
+            throw new ArgumentException("needs one counter per material id (256)", nameof(removedByMaterial));
+        return MineSphereCore(centre, radius, budget, Materials.Air, removedByMaterial);
+    }
+
+    private int MineSphereCore(int3 centre, int radius, int budget, byte material, int[] removed)
     {
         RequireWired();
         if (budget <= 0) return 0;
@@ -487,7 +581,61 @@ public class EditService : IEditService
         for (int x = -radius; x <= radius && changed < budget; x++)
         {
             if (x * x + y * y + z * z != d2) continue;         // shell d2, nearest first
-            if (WriteOne(centre + new int3(x, y, z), material)) changed++;
+            int3 v = centre + new int3(x, y, z);
+            byte before = removed != null ? _world.GetVoxel(v) : (byte)0;
+            if (WriteOne(v, material))
+            {
+                changed++;
+                if (removed != null) removed[before]++;
+            }
+        }
+
+        if (changed > 0)
+        {
+            int3 r3 = new int3(radius, radius, radius);
+            NotifyEditedRegion(centre - r3, centre + r3);
+        }
+        return changed;
+    }
+
+    /// GAMEPLAY STEP 10 (task 105): a dig that PAYS per voxel by material.
+    /// `costByMaterial[m]` (length 256) = work units one voxel of m costs
+    /// (Tools.Cost), 0 = too hard: left in place and counted in `tooHard`.
+    /// Nearest-first as MineSphereBudgeted; `work` is spent voxel by voxel and
+    /// the dig STOPS (`waiting` = true) at the first voxel costing more than
+    /// is left, which is then dug first next time, so a hard voxel costs the
+    /// same however the work arrives. Air costs nothing. Credits
+    /// `removedByMaterial` (length 256, incremented) as the reporting overload.
+    public int MineSphereCosted(int3 centre, int radius, ref int work, byte[] costByMaterial,
+                                int[] removedByMaterial, out int tooHard, out bool waiting)
+    {
+        RequireWired();
+        if (costByMaterial == null || costByMaterial.Length < 256)
+            throw new ArgumentException("needs one cost per material id (256)", nameof(costByMaterial));
+        if (removedByMaterial == null || removedByMaterial.Length < 256)
+            throw new ArgumentException("needs one counter per material id (256)", nameof(removedByMaterial));
+        tooHard = 0;
+        waiting = false;
+        int changed = 0;
+        int maxD2 = radius * radius;
+        for (int d2 = 0; d2 <= maxD2 && !waiting; d2++)          // shell d2, nearest first (see MineSphereCore)
+        for (int z = -radius; z <= radius && !waiting; z++)
+        for (int y = -radius; y <= radius && !waiting; y++)
+        for (int x = -radius; x <= radius && !waiting; x++)
+        {
+            if (x * x + y * y + z * z != d2) continue;
+            int3 v = centre + new int3(x, y, z);
+            byte before = _world.GetVoxel(v);
+            if (before == Materials.Air) continue;
+            int cost = costByMaterial[before];
+            if (cost == 0) { tooHard++; continue; }
+            if (cost > work) { waiting = true; break; }
+            if (WriteOne(v, Materials.Air))
+            {
+                work -= cost;
+                changed++;
+                removedByMaterial[before]++;
+            }
         }
 
         if (changed > 0)

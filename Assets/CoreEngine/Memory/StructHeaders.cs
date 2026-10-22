@@ -37,6 +37,17 @@ namespace VoxelEngine.Memory
         // it is SAFE because over-reporting only costs a tile that is acquired,
         // found empty and freed; under-reporting is fluid that never wakes.
         public ulong fluidTileDirty;
+
+        // EDIT SUMMARIES (Amendment 8.15 §5 "Live", task 93a). One bit per brick
+        // (LocalBrickIndex order, 64 x 64 = 4096) that a player edit (SetVoxel,
+        // not an op) or a loaded D.1 record has made differ from the generator;
+        // null = none. CPU-only and derived like fluidTileMask: never persisted,
+        // never uploaded; a reload rebuilds it from the D.1 records. Set only
+        // while ChunkStore.EditSink is attached (shells drawing).
+        public ulong[] editMask;
+        // A mark since the shell streamer last took a snapshot of this chunk:
+        // the sink has been told once and is not told again until it clears this.
+        public bool editPending;
     }
 
     // A.3 BrickHandle - CPU, 4B packed uint, 4096 per populated chunk

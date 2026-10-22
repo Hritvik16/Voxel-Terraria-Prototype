@@ -1,0 +1,15 @@
+shells preset High (720 rows), shells 1-7; requested 18643 generated 18638 stale-dropped 26 errors 0 over-budget frames 3; gen ms/chunk 236.9
+  shell 1 (0.2 m, ring 16x16x16, box int3(128, 13, 186)..int3(140, 25, 198), hole +-1): chunks 0 (uniform 0, pages 0/320 peak 320), bricks 0/150016 peak 90859 (est. 120013), refusals 24 (3671 bricks), missing 2170, GPU 82.1 MB, uploaded 422.1 MB
+  shell 2 (0.4 m, ring 16x16x16, box int3(61, 3, 90)..int3(73, 15, 102), hole +-1): chunks 0 (uniform 0, pages 0/320 peak 320), bricks 0/119296 peak 119220 (est. 95437), refusals 36 (14234 bricks), missing 2170, GPU 66.3 MB, uploaded 785.5 MB
+  shell 3 (0.8 m, ring 16x16x16, box int3(27, 0, 42)..int3(39, 10, 54), hole +-1): chunks 0 (uniform 0, pages 0/320 peak 148), bricks 0/102400 peak 102385 (est. 81920), refusals 41 (67846 bricks), missing 1832, GPU 57.7 MB, uploaded 723.3 MB
+  shell 4 (1.6 m, ring 16x8x16, box int3(10, 0, 18)..int3(22, 5, 30), hole +-1): chunks 95 (uniform 28, pages 67/320 peak 165), bricks 59473/102400 peak 102302 (est. 81920), refusals 50 (50197 bricks), missing 887, GPU 57.7 MB, uploaded 568.2 MB
+  shell 5 (3.2 m, ring 16x4x16, box int3(2, 0, 6)..int3(14, 2, 18), hole +-1): chunks 99 (uniform 25, pages 74/320 peak 83), bricks 101890/102400 peak 102372 (est. 81920), refusals 51 (114812 bricks) FULL, missing 378, GPU 57.7 MB, uploaded 322.8 MB
+  shell 6 (6.4 m, ring 16x4x16, box int3(0, 0, 0)..int3(9, 1, 9), hole +-1): chunks 68 (uniform 33, pages 35/224 peak 35), bricks 71496/71680 peak 71671 (est. 57344), refusals 59 (129250 bricks) FULL, missing 110, GPU 40.4 MB, uploaded 157.3 MB
+  shell 7 (12.8 m, ring 16x2x16, box int3(0, 0, 0)..int3(4, 0, 4), hole +-1): chunks 12 (uniform 0, pages 12/54 peak 13), bricks 16060/17280 peak 17152 (est. 13824), refusals 47 (63615 bricks) FULL, missing 0, GPU 9.7 MB, uploaded 34.1 MB
+  validator shell 1: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 2: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 3: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 4: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 5: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 6: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 7: stale slots 0, pool errors 0, GPU directory mismatches 0

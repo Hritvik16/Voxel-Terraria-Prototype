@@ -114,6 +114,31 @@ namespace VoxelEngine.Simulation
         private int _ring = -1;
         private GraphicsBuffer _wakeRequests;
         private GraphicsBuffer _debugCounters;
+        /// Task 94: FluidFall's table (256 ints), rebuilt when FallTickSeconds changes.
+        private GraphicsBuffer _fallTable;
+        private double _fallTickSeconds = FluidFall.DefaultTickSeconds;
+
+        /// Task 94 (AMENDMENT_8_16): GRAVITY FALL on (default) -- a fluid with
+        /// air below falls FluidFall's table each tick, ungated by viscosity.
+        /// False = the pre-94 one voxel per evaluated tick (`-fluidfall 0`).
+        /// Same switch as FluidReferenceCPU.GravityFall.
+        public bool GravityFall { get; set; } = true;
+
+        /// The tick period the fall integrates over (s): the scheduler's period.
+        /// Default task 91's 4.5 Hz; per-frame (legacy) callers keep it.
+        public double FallTickSeconds
+        {
+            get => _fallTickSeconds;
+            set
+            {
+                int[] t = FluidFall.BuildTable(value);
+                _fallTickSeconds = value;
+                _fallTable?.SetData(t);
+                FallMaxStep = FluidFall.MaxStep(t);
+            }
+        }
+        /// The farthest one tick can move a falling cell (voxels).
+        public int FallMaxStep { get; private set; } = FluidFall.MaxStep(FluidFall.BuildTable(FluidFall.DefaultTickSeconds));
         private readonly uint[] _debugZero = new uint[DebugSlots];
         private readonly uint[] _debugScratch = new uint[DebugSlots];
 
@@ -469,6 +494,7 @@ namespace VoxelEngine.Simulation
             RequirePow2(regionDims.z, "regionDims.z");
 
             Tiles = tiles;
+            if (tiles != null) tiles.QuietTicks = QuietTicksFor();
             _regionDims = regionDims;
             _regionCellCount = regionDims.x * regionDims.y * regionDims.z;
             _shiftX = Log2(regionDims.x);
@@ -532,6 +558,8 @@ namespace VoxelEngine.Simulation
             _wakePending = new FluidWakeQueue(maxOpsPerFrame, MaxWakeDeferTicks);
             _mirrorReady = IsMirrorReadyForCell;
             _debugCounters = New(GraphicsBuffer.Target.Structured, DebugSlots, 4);
+            _fallTable = New(GraphicsBuffer.Target.Structured, FluidFall.TableSize, 4);
+            _fallTable.SetData(FluidFall.BuildTable(_fallTickSeconds));
 
             // §3.7's lesson, applied here too: a fresh GraphicsBuffer contains
             // whatever was in GPU memory. SlotAt in particular MUST start at
@@ -559,6 +587,28 @@ namespace VoxelEngine.Simulation
             UploadMaterialRegistry();
         }
 
+        /// §7.6's pair table flattened to the shader's [self * 256 + other]
+        /// lookup, 0xFFFFFFFF = no reaction. Static so ReactionTableTests can
+        /// pin it against MaterialRules.TryGetReaction (the CPU reference's
+        /// lookup) without a GPU.
+        public static void BuildReactionTables(out uint[] reactSelf, out uint[] reactOther)
+        {
+            reactSelf = new uint[256 * 256];
+            reactOther = new uint[256 * 256];
+            for (int i = 0; i < reactSelf.Length; i++) reactSelf[i] = 0xFFFFFFFFu;
+            for (int m = 0; m < 256; m++)
+            {
+                if (!MaterialRules.HasAnyReaction((byte)m)) continue;
+                for (int o = 0; o < 256; o++)
+                {
+                    if (!MaterialRules.TryGetReaction((byte)m, (byte)o,
+                            out byte sp, out byte op)) continue;
+                    reactSelf[m * 256 + o] = sp;
+                    reactOther[m * 256 + o] = op;
+                }
+            }
+        }
+
         private static GraphicsBuffer New(GraphicsBuffer.Target target, int count, int stride) =>
             new GraphicsBuffer(target, Math.Max(1, count), stride);
 
@@ -570,22 +620,13 @@ namespace VoxelEngine.Simulation
             var flags = new uint[256];
             var interval = new uint[256];
             var rank = new uint[256];
-            var reactSelf = new uint[256 * 256];
-            var reactOther = new uint[256 * 256];
-            for (int i = 0; i < reactSelf.Length; i++) reactSelf[i] = 0xFFFFFFFFu;
+            BuildReactionTables(out uint[] reactSelf, out uint[] reactOther);
 
             for (int m = 0; m < 256; m++)
             {
                 flags[m] = MaterialRules.Flags((byte)m);
                 interval[m] = MaterialRules.TickInterval((byte)m);
                 rank[m] = MaterialRules.DensityRank((byte)m);
-                for (int o = 0; o < 256; o++)
-                {
-                    if (!MaterialRules.TryGetReaction((byte)m, (byte)o,
-                            out byte sp, out byte op)) continue;
-                    reactSelf[m * 256 + o] = sp;
-                    reactOther[m * 256 + o] = op;
-                }
             }
 
             _materialFlags = New(GraphicsBuffer.Target.Structured, 256, 4);
@@ -645,6 +686,13 @@ namespace VoxelEngine.Simulation
             // full MaxWakeDeferTicks. The Phase 5c large_pour case showed it as
             // voxels that looked permanently stranded but were merely 120 ticks
             // from being looked at.
+            // Task 93e: outside a small mirror box the CA reads the fluid terrain
+            // directory, which takes a chunk only after a tile there exists (the
+            // tick publishes it, the next UploadDirty writes it). Until then the
+            // CA would read AIR at the cell and drop the wake, so wait for the
+            // entry (MaxWakeDeferTicks still bounds the wait).
+            if (m.FluidDirEnabled && !m.ContainsChunk(chunk) && !m.FluidDirHolds(chunk)) return false;
+
             if (!m.IsDirty(chunk)) return true;
 
             // DIRTY => an upload is outstanding. Wait for one that happened
@@ -693,6 +741,7 @@ namespace VoxelEngine.Simulation
                     WakeRejectedOutOfRegion++;
                     return;
                 }
+                Tiles.NoteActivity(worldVoxel);
             }
             else if (!InRegion(worldVoxel)) { WakeRejectedOutOfRegion++; return; }
 
@@ -743,6 +792,78 @@ namespace VoxelEngine.Simulation
             for (int dy = -1; dy <= 1; dy++)
             for (int dx = -1; dx <= 1; dx++)
                 RequestWake(worldVoxel + new int3(dx, dy, dz));
+        }
+
+        /// AWAKE-ONLY: an applied op keeps its tile awake, and pulls in the
+        /// tiles across any face it touches (task 54).
+        ///
+        /// WHY THE FACE TILES. The CA can only move into a cell whose tile is
+        /// resident (InRegion). Under the mask policy a neighbouring tile of
+        /// beach sand or lake water was resident anyway; under AwakeOnly it is
+        /// not, and a LATERAL op carries no wake flag (PHASE_5A §5.2), so water
+        /// spreading over a beach would stop dead at every 32-voxel tile face.
+        /// So every applied op makes sure the tiles of its 3x3x3 neighbourhood
+        /// exist -- one tile almost always, up to 8 at a tile corner. A pool-full
+        /// refusal is the same guarded no-op as a refused wake (§7.7).
+        public void NoteOpApplied(int3 worldVoxel)
+        {
+            if (Tiles == null || !Tiles.AwakeOnly) return;
+            int3 lo = Tiles.TileOf(worldVoxel - 1), hi = Tiles.TileOf(worldVoxel + 1);
+            for (int tz = lo.z; tz <= hi.z; tz++)
+            for (int ty = lo.y; ty <= hi.y; ty++)
+            for (int tx = lo.x; tx <= hi.x; tx++)
+            {
+                int3 tc = new int3(tx, ty, tz);
+                if (Tiles.TryGetSlot(tc) == FluidTileMap.NO_TILE &&
+                    !TryDisplaceForWake(tc) &&
+                    Tiles.Acquire(tc) == FluidTileMap.NO_TILE)
+                { OpTilesRefusedTotal++; continue; }
+                Tiles.NoteActivity(tc << Tiles.TileShift);
+            }
+        }
+
+        /// Task 94: a FAST FALL (an applied move of more than one voxel down) also
+        /// pulls in the tiles its next tick can reach -- straight down, up to
+        /// FallMaxStep voxels below dst. NoteOpApplied's 3x3x3 only reaches one
+        /// voxel, so without this a fall at 27 voxels/tick stops at every tile
+        /// face (CSIntent stops it at a missing tile without a landing). One
+        /// tile almost always (the one below); released when quiet like any
+        /// other. AwakeOnly only, same refusal accounting as NoteOpApplied.
+        public void NoteFallAhead(int3 dst)
+        {
+            if (Tiles == null || !Tiles.AwakeOnly) return;
+            int3 lo = Tiles.TileOf(dst - new int3(0, FallMaxStep, 0)), hi = Tiles.TileOf(dst - new int3(0, 2, 0));
+            for (int ty = hi.y; ty >= lo.y; ty--)
+            {
+                int3 tc = new int3(hi.x, ty, hi.z);
+                if (Tiles.TryGetSlot(tc) != FluidTileMap.NO_TILE) continue;
+                if (!TryDisplaceForWake(tc) && Tiles.Acquire(tc) == FluidTileMap.NO_TILE)
+                { OpTilesRefusedTotal++; continue; }
+                FallAheadTilesTotal++;
+                Tiles.NoteActivity(tc << Tiles.TileShift);
+            }
+        }
+
+        /// Tiles NoteFallAhead acquired (task 94; pool-pressure evidence).
+        public long FallAheadTilesTotal { get; private set; }
+
+        /// Face tiles an applied op could not get (pool full). AwakeOnly only.
+        public long OpTilesRefusedTotal { get; private set; }
+        /// Recentre seeds run because a remembered-unsettled tile came back.
+        public long UnsettledSeedsTotal { get; private set; }
+
+        /// Ticks without an op or wake after which every slot in a tile has
+        /// slept: CSSweep frees a slot after FLUID_SLEEP_TICKS EVALUATED ticks
+        /// without a descent, and a viscous material is evaluated once per
+        /// TickInterval ticks -- so the slowest mobile material sets the bound.
+        /// Plus RING ticks for ops still in flight on the readback, doubled.
+        public static int QuietTicksFor()
+        {
+            uint maxInterval = 1;
+            for (int m = 0; m < 256; m++)
+                if (MaterialRules.IsMobile((byte)m))
+                    maxInterval = Math.Max(maxInterval, MaterialRules.TickInterval((byte)m));
+            return EngineConfig.FLUID_SLEEP_TICKS * (int)maxInterval + 2 * RING;
         }
 
         public void RequestWakeRegionCell(int regionCell)
@@ -846,6 +967,20 @@ namespace VoxelEngine.Simulation
             if (clipmap == null) throw new ArgumentNullException(nameof(clipmap));
             TickCount++;
 
+            // AwakeOnly bookkeeping (task 54): the tile pool's clock is the CA
+            // tick, and a re-admitted unsettled tile asks for the recentre seed
+            // so its stopped cells (air below) are promoted again.
+            if (Tiles != null)
+            {
+                Tiles.Clock = TickCount;
+                if (Tiles.SeedRequested)
+                {
+                    Tiles.SeedRequested = false;
+                    _recentreSeedTicks = Math.Max(_recentreSeedTicks, RecentreSeedTicks);
+                    UnsettledSeedsTotal++;
+                }
+            }
+
             // Release only the requests the GPU can actually act on. When the
             // mirror is already current -- every rig and every existing test --
             // this releases them on the same tick they were queued, so nothing
@@ -876,6 +1011,7 @@ namespace VoxelEngine.Simulation
             if (_wakeCount > 0) _wakeRequests.SetData(_wakeScratch, 0, 0, _wakeCount);
 
             UploadTileState();
+            PublishFluidChunks(clipmap);
             BindGlobals(clipmap);
 
             // AFTER binding, so the tick that re-centred is itself seeded. Doing
@@ -932,6 +1068,32 @@ namespace VoxelEngine.Simulation
             if (_activeTileCount > 0) _activeTileSlots.SetData(_activeScratch, 0, 0, _activeTileCount);
         }
 
+        /// Task 93e: the chunks every resident tile + 1 voxel (the CA's widest
+        /// read) touches, for the clipmap's fluid terrain directory. Only with
+        /// tiles and a directory (a small mirror box); the clipmap keeps the
+        /// out-of-box, resident ones.
+        private readonly System.Collections.Generic.HashSet<int3> _fluidChunks =
+            new System.Collections.Generic.HashSet<int3>();
+        private void PublishFluidChunks(TerrainClipmap clipmap)
+        {
+            if (Tiles == null || clipmap == null || !clipmap.FluidDirEnabled) return;
+            _fluidChunks.Clear();
+            foreach (int3 t in Tiles.ResidentTileCoords()) AddChunksTouchedByTile(t, Tiles.TileEdge, _fluidChunks);
+            clipmap.SetFluidWanted(_fluidChunks);
+        }
+
+        /// The chunks one tile (tile coords, edge in voxels, pow2) plus a 1-voxel
+        /// apron touches. Pure; FluidTerrainDirTests checks it.
+        public static void AddChunksTouchedByTile(int3 tile, int edge, System.Collections.Generic.HashSet<int3> into)
+        {
+            int3 lo = CoordMath.VoxelToChunk(tile * edge - 1);
+            int3 hi = CoordMath.VoxelToChunk(tile * edge + edge);
+            for (int z = lo.z; z <= hi.z; z++)
+            for (int y = lo.y; y <= hi.y; y++)
+            for (int x = lo.x; x <= hi.x; x++)
+                into.Add(new int3(x, y, z));
+        }
+
         /// Cells dispatched for the per-cell kernels this tick. Dense: the whole
         /// region. Tiled: only ACTIVE tiles, so per-tick cost tracks fluid
         /// present rather than pool capacity.
@@ -970,11 +1132,16 @@ namespace VoxelEngine.Simulation
             _cs.SetInt("_WakeRequestCount", _wakeCount);
             _cs.SetInt("_MaxOpsPerFrame", MaxOpsPerFrame);
             _cs.SetInt("_SleepTicks", EngineConfig.FLUID_SLEEP_TICKS);
+            _cs.SetInt("_FallOn", GravityFall ? 1 : 0);
 
             int3 wdc = clipmap.WindowDimsChunks, wdb = clipmap.WindowDimsBricks, wob = clipmap.WindowOriginBricks;
             _cs.SetInts("_WindowDimsChunksPacked", wdc.x, wdc.y, wdc.z, 0);
             _cs.SetInts("_WindowDimsBricksPacked", wdb.x, wdb.y, wdb.z, 0);
             _cs.SetInts("_WindowOriginBricksPacked", wob.x, wob.y, wob.z, 0);
+            // Task 93e: the fluid terrain directory outside a small box (w = 0: off).
+            bool fluidDir = clipmap.FluidDirEnabled;
+            int3 fdr = fluidDir ? clipmap.FluidDirRingDims : new int3(1, 1, 1);
+            _cs.SetInts("_FluidDirRing", fdr.x, fdr.y, fdr.z, fluidDir ? 1 : 0);
 
             // Bound even when dense: HLSL requires every declared StructuredBuffer
             // to have something bound, and an unbound one reads as garbage rather
@@ -990,6 +1157,9 @@ namespace VoxelEngine.Simulation
             {
                 _cs.SetBuffer(k, "ClipmapBuffer", clipmap.ClipmapBuffer);
                 _cs.SetBuffer(k, "BrickDataBuffer", clipmap.BrickDataBuffer);
+                _cs.SetBuffer(k, "FluidDirIndex", fluidDir ? clipmap.FluidDirIndexBuffer : _dummyTileBuf);
+                _cs.SetBuffer(k, "FluidDirCoords", fluidDir ? clipmap.FluidDirCoordBuffer : _dummyTileBuf);
+                _cs.SetBuffer(k, "FluidDirHandles", fluidDir ? clipmap.FluidDirHandleBuffer : _dummyTileBuf);
                 _cs.SetBuffer(k, "FluidSlots", _slots);
                 _cs.SetBuffer(k, "ClaimBuffer", _claim);
                 _cs.SetBuffer(k, "SlotAtBuffer", _slotAt);
@@ -1006,6 +1176,7 @@ namespace VoxelEngine.Simulation
                 _cs.SetBuffer(k, "ReactionSelfProduct", _reactSelf);
                 _cs.SetBuffer(k, "ReactionOtherProduct", _reactOther);
                 _cs.SetBuffer(k, "MaterialDensityRank", _densityRank);
+                _cs.SetBuffer(k, "FallTable", _fallTable);
             }
         }
 
@@ -1108,6 +1279,7 @@ namespace VoxelEngine.Simulation
                 _opCounters[i]?.Dispose(); _opCounters[i] = null;
             }
             _debugCounters?.Dispose(); _debugCounters = null;
+            _fallTable?.Dispose(); _fallTable = null;
             _materialFlags?.Dispose(); _materialTick?.Dispose();
             _reactSelf?.Dispose(); _reactOther?.Dispose(); _densityRank?.Dispose(); _densityRank = null;
             _slots = _claim = _slotAt = _reacted = _counters = null;

@@ -1,47 +1,60 @@
-STOP_FOR_OWNER -- 41-lava-look-shots: is the new lava right, and should emissive bleed stay on?
-Look at `Screenshots/LavaLook/contact_sheet.png` (rows = 6 poses; columns = BEFORE / bleed 0 / bleed 1 / SVO reference on the night-pool row).
-Questions: (1) Keep the new lava look? (2) Turn bleed on by default (`LightingConfig.emissiveBleed = 1`)? (3) Fix the pale lava under torches (pose 4, below) by dropping `pointTerm` on lava faces? Not done; it needs your OK.
+# 105-gameplay-step-10-tool-tiers: DONE -- Survival digs with a held PICK; harder rock digs slower; ores need a tier (copper pick REFUSED at iron)
 
-# 41-lava-look-shots: DONE. gemini/lava-look merged, compiles, fast suite green, three arms shot.
+## What changed (commit 5a8ce20)
+- `Assets/ContentModules/Tools.cs` (NEW, a content table, guardrail 8): hardness 0-5 for every material id, a required tier (only
+  ores, meteor ore, bedrock), 6 picks. Cost per voxel = 1 + max(0, hardness - tier + 1) work units of the pick's rate; 0 = too hard.
+- `EditService.MineSphereCosted` (ADDED; nothing existing changed): nearest-first sphere dig that pays per voxel, skips too-hard
+  voxels (counted), stops at a voxel it cannot afford yet. `SetCubes` gained an overload with a `keep` mask (the old one forwards).
+- `SurvivalBuild`: `PickTables`, `DigWithPick` (aimed voxel too hard -> refused, nothing written); `DigStroke`/`DigPull`/`Cost`/
+  `DiggableCells` take the optional keep mask (strokes stay instant, only the refusal applies).
+- `Inventory.pick` (player.json field; an older file -> 0 = stone pick; out of range clamps). Format version unchanged.
+- `Playground`: Survival LMB = `SurvivalPickDig`; Z/X in Survival switch the pick (status says what it digs); dig box shows
+  "pick · tier N" and TOO HARD; F2 help line + panel 512 -> 530 px. Creative and every rig keep hand/drill/bore (untouched).
+- `Playground.ToolDemo.cs` (NEW, `EXTRA="-tooldemo"`). `GAMEPLAY_PHASE_PLAN.md` (step 10 Done row, pick P30), `CLAUDE.md` line.
 
-## What changed
-- Merge commit of `gemini/lava-look` (73a625b) into `surface-rebuild`. No conflicts. Pre-merge "before" HEAD = 478237d.
-- One fix inside the merged code, `Assets/Game/PlaygroundCapture.cs`: `-emissivebleed` was parsed only inside `Sustained()`, so `-lavalight` ignored it. It is now parsed at the top of `Start()`, so every mode honours it. Same line, moved.
-- Shots: `Screenshots/LavaLook/{before,bleed0,bleed1}/` (the 6 lava-light-ON shots + `lavalight.txt` each), plus `contact_sheet.png`.
+## Evidence
+- `ToolTierTests` 10/10: the rate table (pinned literally), the ladder, only ores/bedrock refused, refusal writes nothing,
+  gold pick digs iron at cost 2, mixed sphere leaves the ore, work conserved over frames, strokes keep too-hard cells + preview
+  matches, player.json round trip. Fast suite `PASS 881 FAIL 0 SKIP 14` (`Logs/overnight/105-fast.out`). No `Assets/TerrainGen/` change.
+- No frame-time measurement (rule 10); memory: two 256-byte tables. One launch, `BUILD=1 EXTRA="-tooldemo" ./run-play.sh` (~6 min): log `Logs/overnight/105-player.log`, summary `Screenshots/105/105.txt`.
+  Iron deposit found 1 m from the play start, 91.7 m below sea (119 m under the top), viewing room carved in front of it.
+  Copper pick: refused, 0 removed, iron 331/331 left. Gold pick: 552 voxels (331 iron + 221 slate) in 9.8 s, iron left 0, 331 in the hotbar.
 
-## Evidence (correctness only; no performance arms, rule 10)
-- Fast EditMode: **PASS 631 FAIL 0 SKIP 14** (`Logs/overnight/41/suite.out`), 0 `error CS`.
-- `ShaderCompileCheck.CheckAll`: every shader OK, Raymarch.compute OK (`Logs/overnight/41/shadercheck.log`).
-- Player build (`Logs/lavalight_build.log`, 19:44): "Compiling compute shader Raymarch" present, **0 `Shader error`**, 0 `error CS`.
-- BEFORE used the 19:26 build. That build is HEAD 478237d: no Assets change since e4b6a02 (19:21), and it used the same scene builder and build method.
-- Arms: before `Logs/lavalight_ab_20261009_193521.txt`; bleed 0 `Logs/lavalight_ab_20261009_194243.txt`; bleed 1 launched by hand (`-lavalight -cleardeltas -emissivebleed 1`), data `.../LavaLight/2026-10-09_194703/`.
-- Pixel diff, share of pixels changed by more than 8 levels:
+## Picks (owner may change) -- also P30 in the plan
+1. **Ladder: each pick digs the NEXT ore.** stone (starter) -> copper; copper -> gold, NOT iron; gold -> iron; iron -> cobalt;
+   cobalt -> emberstone + meteor ore; bedrock never. Why gold before iron: the acceptance wants copper refused at iron, and crafting
+   must still climb (iron cannot need a pick made of iron). Gold is the softer metal and lies deeper (player passes iron to reach gold). Alt: Terraria's copper->iron, but no refusal.
+2. **Rock is never refused, only slowed** (granite/basalt/obsidian x2-x4 slower with the starter). Only ores/bedrock refuse.
+3. **Aimed at a too-hard voxel = nothing dug** (Terraria-like); aimed at rock beside it = the rock goes, the ore stays.
+4. **P11 wins over step 10's first text:** Z/X dev tiers do NOT retire in Survival; they switch picks until crafting (step 11).
+5. **The pick is gear, not a slot item** (`Inventory.pick`); step 11 decides how picks become items/recipes.
+6. Starter = old Survival "drill" on soil (40 vox/s, r2); rates 40/60/90/130/180/250, radius 2,2,2,2,3,3.
+7. Dig strokes and face pulls stay instant (BLD1/BLD2 as before); they only skip too-hard cells.
 
-| pose | before vs bleed 0 | bleed 0 vs bleed 1 |
-|---|---|---|
-| 1 cavern wide | 27.7% | 3.6% |
-| 2 wall beside lava | 12.7% | 7.7% |
-| 3 cavern far end | 37.2% | 3.9% |
-| 4 torches + lava | 21.8% | 5.2% |
-| 5 night pool | 0.7% | 0.01% |
-| 6 golden hour | 0.7% | 0.01% |
+## Left / next
+- Demos older than 105 (`-oredemo`, `-survivaldemo`) use the old fixed-budget `SurvivalDig`, which ignores the pick (on purpose; noted in code).
+- Next: step 11 (crafting v1: pick recipes per ore tier) per the queue.
 
-  For poses 1 and 4, the masks show the before-vs-bleed-0 change covers exactly the lava area. Walls, floor and torches are identical.
+## For the doc
+**Result:** Survival now digs with a pick. Harder rock digs slower, and each ore needs a good enough pick. A copper pick is
+refused at iron ("TOO HARD: iron ore needs a gold pick (tier 3) -- you hold a copper pick (tier 2)"); a gold pick digs the same vein.
+**In `./run-play.sh`:** you start with a stone pick; LMB digs; **Z/X switch picks** (a dev key until crafting); F2 lists the ladder.
 
-## What I SEE
-- **Cavern lava (poses 1-3) IS deep orange at bleed 0**, the same orange as the night pool. Before, it was pale gold. The lava aggregate lights do NOT wash it out.
-  - Contact sheet rows 1-3, columns 1 vs 2: the lava floor goes from pale gold to orange.
-- **BUT under torches (pose 4, 40 torches) the lava goes PALE YELLOW**, paler than before.
-  - The cause is `baseColor * faceLight`: faceLight carries the torch point light, so strong torch light now bleaches lava.
-  - The candidate fix is the one the review named: drop `pointTerm` (or at least the torch part) on lava faces. NOT done.
-  - Contact sheet row 4: compare the lava strip in column 1 (orange) with columns 2-3 (pale yellow with orange specks).
-- **Nothing but lava differs between BEFORE and bleed 0.** The diff masks show only lava pixels, and the torch-lit walls in pose 4 are identical.
-- **Bleed 1** adds a one-voxel glowing rim on the faces that touch lava: the floor edge in poses 1/3, and the wall foot in pose 2 (row 2, column 3, bottom edge).
-  - It reaches only edge-neighbours of an emitter; walls further away are not warmer.
-  - Torches are lit as before, but the pose-4 torch walls are already near white, so no visible change there.
-- Night pool (row 5): orange with bleed 0, closer to the SVO's orange (far right) than the old gold. The SVO's lava is broken up with dark crust and obsidian; ours is one flat orange disc.
-- Pose 4 bleed 0 vs bleed 1 also differs at scattered single lava voxels. Bleed is gated off on emitters, so this is probably the lava itself changing between launches (hot/cool or fluid). Not chased.
+| pick (tier) | vox/s on soil | limestone | granite | obsidian | ores it digs |
+| --- | --- | --- | --- | --- | --- |
+| stone (1), starter | 40 | 20 | 13 | 10 | copper |
+| copper (2) | 60 | 60 | 30 | 20 | + gold (not iron) |
+| gold (3) | 90 | 90 | 90 | 45 | + iron |
+| iron (4) | 130 | 130 | 130 | 130 | + cobalt |
+| cobalt (5) | 180 | 180 | 180 | 180 | + emberstone, meteor ore |
+| emberstone (6) | 250 | 250 | 250 | 250 | everything but bedrock |
 
-## Left open / next
-- Owner decisions above. Far-band lava keeps its old colour (not shaded by this block).
-- The bleed's cost (4 extra window reads per pixel when on) is unmeasured; it is due at the engine milestone.
+- Iron vein, copper pick: 0 of 331 iron voxels dug (refused); gold pick: 331 of 331 in 9.8 s (`Screenshots/105/105.txt`).
+- Tests: `ToolTierTests` 10 new; fast suite 881 pass, 0 fail.
+
+Images (underground, torch-lit, 92 m below sea; there is no sun down there):
+- `Screenshots/105/1_iron_vein_copper_pick_refused.png` -- top-left status line in red "TOO HARD: iron ore needs a gold pick";
+  bottom-left dig box "TOO HARD, copper pick · tier 2"; the orange voxels left of the crosshair are the iron vein, untouched.
+- `Screenshots/105/2_gold_pick_digging.png` -- same spot with the gold pick: dark holes eaten into the wall with orange iron still at
+  their edges; hotbar slot 3 = iron ore 167, status "+3 iron ore (now 167) gold pick".
+- `Screenshots/105/3_gold_pick_vein_dug.png` -- the vein gone: a dark hole at the crosshair; hotbar iron ore 331, slate 221.

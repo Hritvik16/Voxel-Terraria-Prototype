@@ -84,7 +84,126 @@ public static class MemoryLedger
                   $"reserved {MB(UnityEngine.Profiling.Profiler.GetTotalReservedMemoryLong())} MB, " +
                   $"graphics driver {MB(UnityEngine.Profiling.Profiler.GetAllocatedMemoryForGraphicsDriver())} MB, " +
                   $"managed heap {MB(GC.GetTotalMemory(false))} MB  (Profiler figures may read 0 in a release player)");
+        lines.AddRange(PoolReport());
         return lines;
+    }
+
+    /// POOL PEAKS (2026-10-10, engine plan step 4). Capacity, in-use and the
+    /// high-water mark of every fixed pool, plus what each would cost if its
+    /// cap were set to peak x 1.25 -- the numbers steps 5 (fluid tiles) and 6
+    /// (cascade caps) size against. Reads counters only; changes nothing.
+    /// Bytes per unit: a brick is 512 B of CPU array + 512 B of GPU mirror
+    /// (BrickDataPool / TerrainClipmap / CascadeTierPool all allocate
+    /// capacity * 512 B). A fluid tile is its cells in the four per-cell GPU
+    /// buffers (claim, slotAt, reacted, wakeMark: 16 B/cell) plus 40 B of
+    /// per-tile directory (tileCoords 16 + activeTileSlots 4, GPU and CPU).
+    public static List<string> PoolReport()
+    {
+        var lines = new List<string>
+        {
+            "",
+            "  --- POOL PEAKS (capacity / in use / peak since start; MB = whole cap and cap at peak x 1.25) ---",
+            $"  {"pool",-22}{"capacity",10}{"in use",10}{"peak",10}{"peak/cap",10}{"B/unit",8}{"cap MB",9}{"1.25pk MB",11}",
+        };
+        void Row(string name, int cap, int inUse, int peak, long bytesPerUnit)
+        {
+            long at125 = (long)Math.Ceiling(peak * 1.25);
+            lines.Add($"  {name,-22}{cap,10}{inUse,10}{peak,10}{(cap > 0 ? 100.0 * peak / cap : 0),9:F1}%{bytesPerUnit,8}" +
+                      $"{MB(cap * bytesPerUnit),9}{MB(at125 * bytesPerUnit),11}");
+        }
+        void BrickRow(string name, VoxelEngine.Memory.BrickDataPool p, long bytesPerUnit = 1024)
+        {
+            if (p == null) { lines.Add($"  {name,-22}  (not present)"); return; }
+            Row(name, p.Capacity, p.InUse, p.PeakUsed, bytesPerUnit);
+        }
+        var clip = Phase4Bootstrapper.Clipmap;
+        // Task 93f: with the GPU's own body pool the CPU pool has no GPU twin (512 B/unit).
+        BrickRow("tier0 bricks", Phase4Bootstrapper.Pool, clip != null && clip.GpuPoolEnabled ? 512 : 1024);
+        var casc = Phase4Bootstrapper.Cascades;
+        for (int t = 1; t < LODConfig.TIER_COUNT; t++)
+            BrickRow($"cascade tier {t}", casc?.TierPool(t)?.BrickPool);
+        if (clip != null && clip.GpuPoolEnabled)
+        {
+            // Task 93f: the GPU's own brick-body pool (512 B of GPU per unit).
+            Row("GPU brick pool", clip.GpuPoolCapacity, clip.GpuPoolInUse, clip.GpuPoolPeakUsed, 512);
+            lines.Add($"  GPU brick pool: refused (pool full) {clip.GpuPoolRefusedTotal:N0}, held as air now {clip.GpuPoolRefusedNow:N0}, " +
+                      $"CPU->GPU table {MB(clip.GpuPoolTableBytes)} MB");
+        }
+        if (clip != null && clip.FluidDirEnabled)
+        {
+            // Task 93e: the fluid terrain directory (chunks outside a small mirror box).
+            Row("fluid terrain dir", clip.FluidDirCapacity, clip.FluidDirEntries, clip.FluidDirPeakEntries,
+                EngineConfig.BRICKS_PER_CHUNK * 4 * 2 + 32);
+            lines.Add($"  fluid terrain dir: GPU {MB(clip.FluidDirGpuBytes)} MB, uploads {clip.FluidDirUploadsTotal:N0}, " +
+                      $"refused (at {TerrainClipmap.FluidDirMaxEntries}) {clip.FluidDirRefusedTotal:N0}");
+        }
+        var tiles = UnityEngine.Object.FindAnyObjectByType<Playground>()?.DebugTiles;
+        if (tiles == null) lines.Add($"  {"fluid tiles",-22}  (not present)");
+        else
+        {
+            Row($"fluid tiles ({tiles.TileEdge}^3)", tiles.TileCapacity, tiles.ResidentTiles, tiles.PeakResidentTiles,
+                (long)tiles.TileCells * 16 + 40);
+            lines.Add($"  fluid tiles refused (pool full, since start): {tiles.PoolExhaustionsTotal:N0}   " +
+                      $"acquired {tiles.TilesAcquiredTotal:N0}  released {tiles.TilesReleasedTotal:N0}");
+        }
+        lines.Add("");
+        lines.Add(Step14Line());
+        return lines;
+    }
+
+    /// The owner's 3 GB process cap (design doc §12; 8.15 §9's ledger is against it).
+    public const int PROCESS_CAP_MB = 3000;
+
+    /// Task 93g (8.15 row D4): engine plan step 14's rows on ONE line -- CPU brick
+    /// pool (D4), GPU body pool (D3), mirror box (D2), tiers 1-2 (D1), and the
+    /// process footprint against the 3,000 MB cap. Counts and MB only.
+    public static string Step14Line()
+    {
+        var pool = Phase4Bootstrapper.Pool;
+        var store = Phase4Bootstrapper.Store;
+        var clip = Phase4Bootstrapper.Clipmap;
+        var casc = Phase4Bootstrapper.Cascades;
+        string cpu = pool == null ? "CPU brick pool (not present)"
+            : $"CPU brick pool cap {pool.Capacity:N0} peak {pool.PeakUsed:N0} " +
+              $"(valve {(store != null && store.HighWaterBricksOverride >= 0 ? store.HighWaterBricksOverride : EngineConfig.BrickPoolHighWaterBricks):N0}, " +
+              $"{MB((long)pool.Capacity * 512)} MB)";
+        string gpu = clip == null ? "GPU bodies (no clipmap)"
+            : clip.GpuPoolEnabled
+                ? $"GPU body pool cap {clip.GpuPoolCapacity:N0} peak {clip.GpuPoolPeakUsed:N0} refused {clip.GpuPoolRefusedTotal:N0} " +
+                  $"({MB((long)clip.GpuPoolCapacity * 512)} MB)"
+                : "GPU bodies = the CPU pool (old layout)";
+        string box = clip == null ? "-" : $"{clip.WindowDimsChunks.x}x{clip.WindowDimsChunks.y}x{clip.WindowDimsChunks.z}";
+        bool tiers = casc != null && casc.TierPool(1) != null;
+        string proc = ProcessFootprint(out long now, out long peak)
+            ? $"process now {MB(now)} MB, peak {MB(peak)} MB of the {PROCESS_CAP_MB:N0} MB cap"
+            : "process footprint unavailable on this platform";
+        return $"  STEP 14 (8.15 D1-D4): {cpu} | {gpu} | mirror box {box} | tiers 1-2 allocated {(tiers ? "yes" : "no")} | {proc}";
+    }
+
+    // macOS: proc_pid_rusage(RUSAGE_INFO_V4) gives phys_footprint (the figure
+    // run-tg2world.sh's `footprint` samples) and its lifetime maximum, from
+    // inside the process. Offsets 72 / 240 of struct rusage_info_v4 (checked
+    // against the SDK's sys/resource.h with offsetof, 2026-10-16).
+    [System.Runtime.InteropServices.DllImport("/usr/lib/libSystem.B.dylib")]
+    private static extern int proc_pid_rusage(int pid, int flavor, byte[] buffer);
+    [System.Runtime.InteropServices.DllImport("/usr/lib/libSystem.B.dylib")]
+    private static extern int getpid();
+    private const int RUSAGE_INFO_V4 = 4;
+
+    /// Current and lifetime-peak phys_footprint in bytes; false off macOS or on error.
+    public static bool ProcessFootprint(out long now, out long peak)
+    {
+        now = peak = 0;
+        if (Application.platform != RuntimePlatform.OSXPlayer && Application.platform != RuntimePlatform.OSXEditor) return false;
+        try
+        {
+            var buf = new byte[512];
+            if (proc_pid_rusage(getpid(), RUSAGE_INFO_V4, buf) != 0) return false;
+            now = (long)BitConverter.ToUInt64(buf, 72);
+            peak = (long)BitConverter.ToUInt64(buf, 240);
+            return now > 0;
+        }
+        catch (Exception) { return false; }
     }
 
     private static string MB(long b) => (b / (1024.0 * 1024.0)).ToString("F1");

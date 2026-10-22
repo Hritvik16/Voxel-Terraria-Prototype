@@ -1,0 +1,38 @@
+SIZECLASS 2 WORLD (-world tg2: voxel band streamed in Y + the far band) -- 2026-10-16_021407
+seed 42: world 8 km, sea at Y 5120, peak site float2(39000f, 37000f), max top 11000 (engine voxels), ring initial fill 2788 ms
+map v4 Height FNV 639552DD962C4B28  cell(613,259) 1068.80900
+volcano_from_2km, caldera_above: this world drew no volcano (map v4 feature pool) -- skipped
+cliff feet found: 3  (band placement: terrain-aware)
+POSES (-poses): 2 kept of 2 named: peak_from_2km_ground, cliff_foot_1
+SHELLS (-shells 1, task 80): preset High, shells 1-7, march cap 384; A = shells off (cascades), B = shells on, C = on + tint (tier 0 blue, shells 1-7 green/yellow/orange/red/magenta/cyan/white, far band grey)
+  px = the largest voxel a ray stopped in, in dispatch pixels (720 rows; 8.14 High is sized for 720); per shell: hits, hits over 1 px, max px. Shell 0 = tier 0 (0.1 m; large near the eye by nature).
+  [shells] peak_from_2km_ground   waited 60 s (missing 5203, in flight 5)  px:  s0 231523/194531>1/max 8.41  s1 3059/294>1/max 1.63  s2 29884/21993>1/max 1.81  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 1/591/FULL (1578 stored)  s2 2/1491/FULL (677 stored)  s3 0/1996 (0 stored)  s4 0/987 (0 stored)  s5 0/480 (0 stored)  s6 0/182 (0 stored)  s7 0/16 (0 stored)
+  [shells] complete at (s; - = not within the wait):  s1 42/FULL  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] cliff_foot_1           waited 60 s (missing 3545, in flight 5)  px:  s0 620410/620410>1/max 28.85  s1 1472/1472>1/max 1.92  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 2/957/FULL (1212 stored)  s2 5/1643/FULL (524 stored)  s3 0/1898 (98 stored)  s4 0/987 (0 stored)  s5 0/441 (0 stored)  s6 0/162 (0 stored)  s7 0/16 (0 stored)
+  [shells] complete at (s; - = not within the wait):  s1 34/FULL  s2 53/FULL  s3 -  s4 -  s5 -  s6 -  s7 -
+ring upkeep: 2 strips, 9 refills, 56.8 MB uploaded
+
+  --- MEMORY LEDGER (end of run; GPU = Metal buffers, native = NativeArray, managed = arrays) ---
+  owner                                           GPU MB  native MB  managed MB
+  TerrainClipmap (GPU mirror)                      513.1        0.0       147.4
+  BrickDataPool (CPU bricks)                         0.0      366.2         0.0
+  ChunkStore                                       390.2       53.5        66.0
+  LODCascadeManager                                 79.0       67.6        43.8
+  StreamManager (+TerrainGen map, workers)           0.0        0.0         0.1
+  CoalesceScheduler                                  0.0        0.0         0.0
+  FarField (far band)                               29.2       15.0         0.0
+  Fluid simulation                                 276.8        0.0        41.0
+  LightingDriver                                     0.0        0.0         0.0
+  RaymarchFeature statics                            2.3        0.0         0.0
+  SUM of the above                                1290.5      502.2       298.4   = 2091.2 MB
+  Unity totals: allocated 715.7 MB, reserved 880.5 MB, graphics driver 0.0 MB, managed heap 362.0 MB  (Profiler figures may read 0 in a release player)
+
+  --- POOL PEAKS (capacity / in use / peak since start; MB = whole cap and cap at peak x 1.25) ---
+  pool                    capacity    in use      peak  peak/cap  B/unit   cap MB  1.25pk MB
+  tier0 bricks              750000    326936    330792     44.1%    1024    732.4      403.8
+  cascade tier 1            104000     75591     75591     72.7%    1024    101.6       92.3
+  cascade tier 2             21000     13412     13700     65.2%    1024     20.5       16.7
+  fluid tiles (32^3)           480         0         0      0.0%  524328    240.0        0.0
+  fluid tiles refused (pool full, since start): 0   acquired 0  released 0

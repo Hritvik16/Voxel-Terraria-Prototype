@@ -97,6 +97,10 @@
 // exactly the pre-task code; RaymarchFeature dispatches this kernel only
 // while the square is active (-detailspeed 1 and the camera moving).
 #pragma kernel CSMainDetail VE_DETAIL_SPEED
+// TASK 85b: CSMain + far shading (sky light, slope normal at distance, haze that
+// light escapes). Every task-85b line is under #ifdef VE_FAR_SHADE (see the
+// FAR SHADING block); RaymarchFeature dispatches it while -farshade / F6 is on.
+#pragma kernel CSMainFarShade VE_FAR_SHADE
 
 #include "../Coord/CoordMath.hlsl"
 #include "../Memory/StructHeaders.hlsl"
@@ -207,12 +211,24 @@ int _CollectShadowStats;
 // with shadows, 18.6 ms without). The world is static between edits, so a
 // pixel traces its sun ray on ONE frame in four (a rotating 2x2 pattern) and
 // otherwise reuses last frame's value at its reprojected position -- only when
-// the previous frame saw the SAME surface there (depth within 2% + 2 voxels);
-// anything newly revealed traces. Off unless _TemporalShadows (-tshadow 1).
-StructuredBuffer<float2> ShadowHistR;      // x = sunVis, y = distance (voxels) from that frame's camera; y < 0 = none
-RWStructuredBuffer<float2> ShadowHistW;
+// the previous frame traced the SAME shadow origin there; anything newly
+// revealed traces. Off unless _TemporalShadows (-tshadow 1).
+//
+// TASK 56 (BUGS #1, the owner's "shadow acne -- dots on the terrain"). The
+// history used to be looked up at the hit voxel's CENTRE, a point inside the
+// solid: on a top face seen at walking height it projects ~1.5 voxels nearer
+// the camera, onto the NEIGHBOUR's face, and "same surface" was a depth window
+// (2% + 2 voxels) that the neighbour passes. So the non-tracing tiles showed
+// their neighbours' shadows: a lattice of 8x8-pixel squares, lit-in-dark and
+// dark-in-light, on stepped ground at a low sun (1-6% of pixels disagreed
+// with ShadowRayReference at golden hour; 0.01-0.5% with -tshadow 0).
+// Now the pixel's own SURFACE POINT is reprojected (as TAA does) and the
+// history is keyed by the shadow-origin cell (hit voxel + normal), which is
+// everything TraceShadowRay's result depends on: a match reuses exactly the
+// value this pixel would trace (bar the sun's drift over a few frames).
+StructuredBuffer<uint2> ShadowHistR;      // x = asuint(sunVis), y = ShadowOriginKey; 0xFFFFFFFF = none
+RWStructuredBuffer<uint2> ShadowHistW;
 float4x4 _PrevViewProj;
-float4 _PrevCamVox;
 int _TemporalShadows;
 int _ShadowHistValid;
 uint _ShadowFrame;
@@ -466,6 +482,17 @@ float _ShadowMaxDistVoxels;
 // threshold -- rather than the mechanism -- was why rung 1 never engaged.
 float _Rung1DistVoxels;
 
+// TASK 61 (engine step 8b): HALF-RES SUN SHADOWS at ALL distances, a play
+// setting (PlaySettings.shadowRes, `-shadowres half`). 0 = off; > 0 = ON, and
+// the value is the march's radians per pixel (the edge test's footprint).
+// Rung 1's 2x2 quad reuse, but EDGE-AWARE: a pixel takes its quad lead's value
+// only if its shadow origin (voxel + normal) is within 2 voxels + 2 pixel
+// footprints of the lead's, or lies on the lead's plane (same normal, within
+// one voxel along it -- a voxel stair step). Anything else -- a silhouette, a
+// sky lead, a far surface behind a near one -- traces its own ray, so shadow
+// values never cross a depth/normal edge. Rung 1 itself is unchanged.
+float _ShadowHalfRes;
+
 int   _Tonemap;
 float _Exposure;
 float _TonemapWhite;
@@ -497,6 +524,10 @@ float3 ApplyTonemap(float3 c)
 // budget and is the entire cost of not needing wave intrinsics.
 groupshared uint  gsAnyShadowNeeded;
 groupshared float gsSunVis[64];
+// Task 61's edge test: each lane's shadow origin, w = NormalCode or -1 (no ray).
+groupshared int4  gsShadowOrg[64];
+
+int NormalCode(int3 n) { return (n.x + 1) + 3 * (n.y + 1) + 9 * (n.z + 1); }
 
 #define MAX_CHAIN_LEAPS 7
 
@@ -628,7 +659,7 @@ static const float3 kTg2Palette[96] = {
     float3(0.900, 0.100, 0.800),   // 133 (none)
     float3(0.900, 0.100, 0.800),   // 134 (none)
     float3(0.900, 0.100, 0.800),   // 135 (none)
-    float3(0.900, 0.100, 0.800),   // 136 (none)
+    float3(0.184, 0.498, 0.722),   // 136 river lip
     float3(0.900, 0.100, 0.800),   // 137 (none)
     float3(0.373, 0.620, 0.227),   // 138 grass
     float3(0.247, 0.682, 0.290),   // 139 jungle grass
@@ -685,11 +716,11 @@ static const float3 kTg2Palette[96] = {
     float3(0.753, 0.314, 0.173),   // 190 laterite
     float3(0.310, 0.478, 0.227),   // 191 moss rock
     float3(0.184, 0.561, 0.416),   // 192 jade serpentine
-    float3(0.900, 0.100, 0.800),   // 193 (none)
-    float3(0.900, 0.100, 0.800),   // 194 (none)
-    float3(0.900, 0.100, 0.800),   // 195 (none)
-    float3(0.900, 0.100, 0.800),   // 196 (none)
-    float3(0.900, 0.100, 0.800),   // 197 (none)
+    float3(0.247, 0.667, 0.525),   // 193 copper ore
+    float3(0.753, 0.541, 0.416),   // 194 iron ore
+    float3(0.760, 0.637, 0.195),   // 195 gold ore
+    float3(0.234, 0.351, 0.760),   // 196 cobalt ore
+    float3(0.760, 0.253, 0.143),   // 197 emberstone
     float3(0.290, 0.290, 0.369),   // 198 deepstone
     float3(0.420, 0.365, 0.322),   // 199 cavern rock
     float3(0.490, 0.463, 0.439),   // 200 ash
@@ -726,7 +757,7 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.900, 0.100, 0.800),   // 133 (none)
     float3(0.900, 0.100, 0.800),   // 134 (none)
     float3(0.900, 0.100, 0.800),   // 135 (none)
-    float3(0.900, 0.100, 0.800),   // 136 (none)
+    float3(0.184, 0.498, 0.722),   // 136 river lip
     float3(0.900, 0.100, 0.800),   // 137 (none)
     float3(0.373, 0.620, 0.227),   // 138 grass
     float3(0.247, 0.682, 0.290),   // 139 jungle grass
@@ -783,11 +814,11 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.753, 0.314, 0.173),   // 190 laterite
     float3(0.310, 0.478, 0.227),   // 191 moss rock
     float3(0.184, 0.561, 0.416),   // 192 jade serpentine
-    float3(0.900, 0.100, 0.800),   // 193 (none)
-    float3(0.900, 0.100, 0.800),   // 194 (none)
-    float3(0.900, 0.100, 0.800),   // 195 (none)
-    float3(0.900, 0.100, 0.800),   // 196 (none)
-    float3(0.900, 0.100, 0.800),   // 197 (none)
+    float3(0.247, 0.667, 0.525),   // 193 copper ore
+    float3(0.753, 0.541, 0.416),   // 194 iron ore
+    float3(0.918, 0.769, 0.235),   // 195 gold ore
+    float3(0.290, 0.435, 0.941),   // 196 cobalt ore
+    float3(0.950, 0.317, 0.179),   // 197 emberstone
     float3(0.290, 0.290, 0.369),   // 198 deepstone
     float3(0.420, 0.365, 0.322),   // 199 cavern rock
     float3(0.490, 0.463, 0.439),   // 200 ash
@@ -842,6 +873,8 @@ float3 MaterialAlbedo(uint mat)
     if (mat == 20u) return float3(0.300, 0.620, 0.180);  // Sludge
     if (mat == 21u) return float3(0.560, 0.470, 0.320);  // Quicksand
     if (mat == 22u) return float3(0.700, 0.720, 0.740);  // Steam
+    if (mat == 23u) return float3(0.300, 0.295, 0.310);  // CooledStone (RX1)
+    if (mat == 24u) return float3(0.600, 0.720, 0.700);  // Glass (RX1)
     return float3(0.90, 0.10, 0.80);                     // unauthored -> obvious magenta
 }
 
@@ -869,7 +902,7 @@ float4 _LookMoon;
 float  _LookShadowDarkness;
 float  _LookHazeDensity;
 float4 _LookGrade;         // CINEMATIC GRADE: x exposure (sun+ambient), y saturation, z shoulder knee, w amount
-int    _EmissiveBleed;     // 0 = off (default), 1 = faces next to lava/torches get glow
+int    _EmissiveBleed;     // 1 = faces next to lava/torches get glow (default), 0 = off
 
 float3 LookToLinear(float3 c) { return pow(saturate(c), 2.2); }
 
@@ -929,6 +962,8 @@ float3 MaterialAlbedoLook(uint mat)
     if (mat == 20u) return float3(0.400, 0.850, 0.220);  // Sludge
     if (mat == 21u) return float3(0.660, 0.560, 0.380);  // Quicksand
     if (mat == 22u) return float3(0.850, 0.870, 0.900);  // Steam
+    if (mat == 23u) return float3(0.360, 0.350, 0.370);  // CooledStone (RX1)
+    if (mat == 24u) return float3(0.700, 0.850, 0.820);  // Glass (RX1)
     return float3(0.90, 0.10, 0.80);                     // unauthored -> obvious magenta
 }
 
@@ -957,6 +992,42 @@ float3 LookAlbedo(uint mat, int3 voxel)
 // SHADING CHEAT, not a light source: nothing here illuminates anything else.
 // Real emission is Phase 7 (§6.5).
 bool MaterialIsSelfLit(uint mat) { return mat == 11u || mat == 20u; }   // Lava, Sludge
+
+// ---- TASK 66b: THE VIEW FROM INSIDE A FLUID ----
+// With the eye inside a fluid voxel the primary ray used to "hit" that voxel at
+// t = 0 with normal (0,0,0); its shadow and sky rays started inside the fluid
+// too (sunVis 0, skyVis 0), so the frame shaded to near-black. Now, when
+// _UnderwaterView != 0 and the eye's voxel holds one of these fluids, the march
+// passes through that fluid (passMat), stops on anything else -- the bed and
+// walls are shaded as usual, AIR is the surface seen from below -- and the
+// pixel is fogged by the distance travelled in the fluid. Lava stays as it was
+// (the player is burning; the look is not worth a branch), steam is a gas.
+// The eye NOT in a fluid takes exactly the old path: passMat is 0, every test
+// below reduces to the old `mat != 0`.
+int _UnderwaterView;   // 1 on (RaymarchFeature.UnderwaterView, PlaySettings.underwaterFog)
+bool MaterialIsClearFluid(uint m) { return m == 6u || m == 12u || m == 18u || m == 19u || m == 20u || m == 21u; }
+/// Task 76: a generated river's LIP (GenMat.RiverLip = engine 136) is solid to
+/// the CPU (fluid CA, motor) but the renderer draws it as the water it holds.
+/// Every march compares materials through this, so a ray -- or 75's
+/// see-through pass -- treats a lip exactly as water. No lip, no change.
+uint RiverLipAsWater(uint m) { return m == 136u ? 6u : m; }
+
+// Extinction per metre, r g b: transmittance over d metres is exp(-d * this).
+// TASK 75 retuned it and made it the ONE clarity table: the view from inside
+// (66b) and the view from above (task 75, voxels and far band) both read it.
+// "Clear to D" = a bed D metres straight down keeps 10% on the clearest channel
+// (view path D plus half the light's path D: 1.5 * D * min(ext) = ln 10), so
+// min(ext) = 1.535 / D. Picks (owner may change): water 5 m blue-green, acid
+// 1.5 m green, honey 1 m amber, sludge 0.5 m, oil 0.2 m. Lava never passes.
+float3 FluidExtinction(uint m)
+{
+    if (m == 6u)  return float3(0.80, 0.31, 0.37);   // Water: blue-green, ~5 m
+    if (m == 12u) return float3(1.53, 2.50, 6.00);   // Honey: amber, ~1 m
+    if (m == 18u) return float3(7.70, 8.10, 8.90);   // Oil: near-opaque, ~0.2 m
+    if (m == 19u) return float3(2.00, 1.02, 2.30);   // Acid: murky green, ~1.5 m
+    if (m == 20u) return float3(4.20, 3.07, 5.00);   // Sludge: ~0.5 m
+    return float3(6.0, 7.0, 9.0);                    // Quicksand: ~0.3 m (66b only; never seen through from outside)
+}
 
 // ===========================================================================
 // A.7's `emissive`, MIRRORED -- and why it is mirrored rather than uploaded.
@@ -1113,6 +1184,138 @@ uint VoxelMaterialAt(int3 voxel, uint3 windowDimsBricks)
     uint vIdx = (uint)LocalVoxelIndex(LocalVoxelIndex3D(voxel));
     uint packed = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
     return (packed >> ((vIdx & 3u) * 8u)) & 0xFFu;
+}
+
+/// Task 66b: the voxel Y of the plane where `fluid` ends straight above `eye`
+/// (the surface, or a ceiling over a flooded cave). Whole uniform fluid bricks
+/// are skipped; 48 reads at most (past that the eye is called that deep). Every
+/// thread asks the same column, so the reads are coherent. Eye-in-fluid only.
+int FluidTopAbove(int3 eye, uint fluid, uint3 windowDimsBricks)
+{
+    int y = eye.y;
+    [loop]
+    for (int i = 0; i < 48; i++)
+    {
+        int3 v = int3(eye.x, y, eye.z);
+        int3 rel = VoxelToBrick(v) - _WindowOriginBricksPacked.xyz;
+        if (rel.y >= (int)windowDimsBricks.y || y >= _ContentCeilingVoxelY) return y;
+        uint handle = ReadClipmap(VoxelToBrick(v), windowDimsBricks);
+        if ((handle & 0x80000000u) == 0u)
+        {
+            if ((handle & 0xFFu) != fluid) return y;
+            y = ((y >> 3) + 1) << 3;   // the next brick up
+            continue;
+        }
+        if (VoxelMaterialAt(v, windowDimsBricks) != fluid) return y;
+        y++;
+    }
+    return y;
+}
+
+// ---- TASK 76 (R2 + R5): THE RIVER LOOK (_RiverLook 0 = this never runs) ----
+// Generated rivers (map v4, Rivers.cs) are a sheet of water stepping down one
+// voxel every few metres, each step held by a lip drawn as water
+// (RiverLipAsWater). With _RiverLook != 0:
+//   * RISERS: generated water is at rest, so the only water side faces a ray
+//     from air can meet are LIPS' (a step down the river). One is drawn as
+//     part of the sheet (normal up) where the flow map has a river -- at every
+//     tier, so a coarse tier's cascade is not a dark wall -- or, on tier 0,
+//     over a one-voxel step down to more water anywhere.
+//   * FLOW: river water TOP faces -- tier 0, coarser tiers and the far band
+//     alike -- carry ripples moving along the flow and foam where the profile is
+//     steep. Both come from the MAP (RiverFlow: Rivers.Profile's 16 bits per
+//     8 m cell, uploaded once), not from the voxels, so every tier draws the
+//     same river the same way. Ripples fade to their mean with distance (no
+//     shimmer); the foam keeps its mean, so the colour is the same far away.
+// Replaces task 73's throwaway prototype (streaked curtains, voxel foam lips).
+int _RiverLook;
+float4 _RiverMap;     // gen voxel = engine voxel + xy; z = voxels per cell; w = cells (0 = no flow map)
+float _RiverTime;     // seconds
+StructuredBuffer<uint> RiverFlow;   // two cells per uint, the even cell in the low half
+static const float3 RIVER_FOAM = float3(0.80, 0.86, 0.90);
+
+uint RiverBits(int2 cell)
+{
+    int n = (int)_RiverMap.w;
+    if (n <= 0 || cell.x < 0 || cell.y < 0 || cell.x >= n || cell.y >= n) return 0u;
+    uint i = (uint)(cell.y * n + cell.x);
+    uint w = RiverFlow[i >> 1];
+    return (i & 1u) != 0u ? (w >> 16) : (w & 0xFFFFu);
+}
+
+/// Rivers.FLOW_DIR_MASK's neighbour order (Hydrology.Flood).
+float2 RiverDirVec(uint d)
+{
+    int dx = (d == 0u || d == 3u || d == 5u) ? -1 : ((d == 1u || d == 6u) ? 0 : 1);
+    int dz = d < 3u ? -1 : (d < 5u ? 0 : 1);
+    return normalize(float2(dx, dz));
+}
+
+/// The flow at engine position xz (voxels): the river cells among the four
+/// cell centres round it, bilinear. w = their weight (0 = no river cell near),
+/// slope = Rivers' slope class (0.4 m per 8 m each), fall = R4's flag.
+void RiverFlowAt(float2 xz, out float2 dir, out float w, out float slope, out float fall)
+{
+    float2 g = (xz + _RiverMap.xy) / _RiverMap.z - 0.5;
+    int2 c0 = (int2)floor(g);
+    float2 f = g - (float2)c0;
+    dir = float2(0.0, 0.0); w = 0.0; slope = 0.0; fall = 0.0;
+    [unroll] for (int k = 0; k < 4; k++)
+    {
+        int2 o = int2(k & 1, k >> 1);
+        float wk = (o.x != 0 ? f.x : 1.0 - f.x) * (o.y != 0 ? f.y : 1.0 - f.y);
+        uint b = RiverBits(c0 + o);
+        if ((b & 0x80u) == 0u) continue;
+        dir += RiverDirVec(b & 7u) * wk;
+        slope += (float)((b >> 4) & 7u) * wk;
+        fall += ((b & 8u) != 0u ? 1.0 : 0.0) * wk;
+        w += wk;
+    }
+    if (w > 0.0) { slope /= w; fall /= w; }
+}
+
+/// The river weight at engine xz (RiverFlowAt's w): > 0 where a river cell is near.
+float RiverWeightAt(float2 xz)
+{
+    if (_RiverMap.w <= 0.0) return 0.0;
+    float2 dir; float w, slope, fall;
+    RiverFlowAt(xz, dir, w, slope, fall);
+    return w;
+}
+
+float RiverNoise(float2 p)
+{
+    float2 i = floor(p), f = frac(p);
+    f = f * f * (3.0 - 2.0 * f);
+    int2 c = (int2)i;
+    float a = VoxelHash(int3(c.x, 91, c.y)), b = VoxelHash(int3(c.x + 1, 91, c.y));
+    float d = VoxelHash(int3(c.x, 91, c.y + 1)), e = VoxelHash(int3(c.x + 1, 91, c.y + 1));
+    return lerp(lerp(a, b, f.x), lerp(d, e, f.x), f.y);
+}
+
+/// A river top face at engine xz, `distVox` from the eye: `bright` multiplies
+/// the albedo (mean 1), `foam` (0..1) blends it to RIVER_FOAM and makes the
+/// water that much less see-through.
+void RiverSurface(float2 xz, float distVox, out float bright, out float foam)
+{
+    bright = 1.0; foam = 0.0;
+    if (_RiverLook == 0 || _RiverMap.w <= 0.0) return;
+    float2 dir; float w, slope, fall;
+    RiverFlowAt(xz, dir, w, slope, fall);
+    if (w <= 0.0) return;
+    float s = saturate(w * 4.0);
+    float dl = length(dir);
+    float2 d = dl > 1e-3 ? dir / dl : float2(1.0, 0.0);
+    float2 pm = xz * 0.1;                                   // metres
+    float t = _RiverTime * (0.5 + 0.3 * slope);             // along the flow, faster where steep
+    float u = dot(pm, d), v = dot(pm, float2(-d.y, d.x));
+    float n1 = RiverNoise(float2(u * 0.9 - t * 0.9, v * 2.2));
+    float n2 = RiverNoise(float2(u * 2.3 - t * 2.3, v * 5.0) + 17.0);
+    float detail = saturate(1.0 - distVox / 4000.0);        // ripples fade to their mean by 400 m
+    bright = 1.0 + 0.24 * ((n1 * 0.6 + n2 * 0.4) - 0.5) * detail * s;
+    float foamMean = s * saturate(0.07 * slope + 0.6 * fall);
+    float streak = saturate((n2 - 0.3) * 2.0) / 0.42;       // mean ~1
+    foam = saturate(foamMean * lerp(1.0, streak, detail));
 }
 
 /// SVO/Brickmap emissive color: an emitting material glows in its own look albedo.
@@ -1479,6 +1682,15 @@ void LeapSpanReseedClosedForm(inout int3 voxel, inout float3 tMax, inout float c
 // Everything else -- the leap primitives, the bounds guard, the content-ceiling
 // early exit -- is the same already-proven code, called with different numbers.
 // ===========================================================================
+
+/// The temporal-shadow history key: the shadow ray's origin cell (TraceShadowRay
+/// reads nothing else of the pixel). x and z keep 11 bits, y 9 (204.8 m and
+/// 51.2 m periods, far beyond any one-frame reprojection); bit 31 stays clear so
+/// no key equals the 0xFFFFFFFF "none".
+uint ShadowOriginKey(int3 c)
+{
+    return ((uint)c.x & 0x7FFu) | (((uint)c.y & 0x1FFu) << 11) | (((uint)c.z & 0x7FFu) << 20);
+}
 
 struct ShadowHit
 {
@@ -1859,6 +2071,10 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
 // is screenshotted; the ambiguity and the cost of the alternative are flagged
 // in PHASE_7_COMPLETION.md for the owner. No per-light shadow rays were added.
 //
+// TASK 46 (owner Q5 (a)): that leak is now fixed by SumPointLightsShadowed
+// below -- capped per-pixel occlusion rays. This function stays as the
+// _TorchShadowRays == 0 path (and for tier >= 1 hits), unchanged.
+//
 // The loop is bounded by _ActiveLightCount, which the CPU caps at
 // MAX_ACTIVE_LIGHTS -- that cap is the entire defence against §3.8's
 // "per-pixel light death spiral", so the bound is load-bearing, not hygiene.
@@ -1928,6 +2144,194 @@ float3 UniformFaceHue(float3 faceLight, float3 hueSource)
     float h = dot(hueSource, W);
     if (h <= 1e-5) return faceLight;
     return hueSource * (dot(faceLight, W) / h);
+}
+
+// ===========================================================================
+// TORCH SHADOW RAYS (task 46, owner Q5 (a); fixes "torches shine through walls")
+//
+// §6.5 says "a torch behind a wall does not light the far side", but C.11 as
+// first shipped had no occlusion test, so it did (the FLAG in
+// PHASE_7_COMPLETION.md). This is the SVO build's capped form: each lit tier-0
+// pixel traces one occlusion ray to each of its _TorchShadowRays NEAREST
+// in-range lights; every other in-range light is scaled by the traced share
+// (seen / traced). That keeps §3.8's bound -- the ray count per pixel is capped
+// by _TorchShadowRays, not by _ActiveLightCount. 0 = no rays, the old leak.
+//
+// The ray is the sun shadow ray's tier-0 walk (air-mip leaps, uniform-brick
+// leaps, dense micro-steps) from §6.5's origin -- the air cell in front of the
+// hit face, at its centre, no bias -- to the light. It ends, VISIBLE, on
+// entering the light's own voxel (a torch is solid) or passing the light; any
+// solid voxel before that occludes. Leaving the tier-0 window or the step cap
+// also counts as visible: the pre-task behaviour, never a black pixel.
+// ===========================================================================
+int _TorchShadowRays;
+#define TORCH_SHADOW_MAX   8      // LightingConfig.MaxTorchShadowRays
+#define TORCH_SHADOW_STEPS 256    // outer iterations; 8 m range = 80 voxels/axis
+
+bool TorchRayBlocked(int3 fromCell, float3 lightVox, uint3 windowDimsBricks)
+{
+    int3 target = int3(floor(lightVox));
+    int3 voxel = fromCell;
+    if (all(voxel == target)) return false;
+
+    float3 rayStart = (float3)voxel + 0.5;
+    float3 toL = lightVox - rayStart;
+    float tEnd = length(toL);
+    float3 dir = toL / max(tEnd, 1e-6);
+    dir.x = abs(dir.x) < 1e-6 ? (dir.x >= 0 ? 1e-6 : -1e-6) : dir.x;
+    dir.y = abs(dir.y) < 1e-6 ? (dir.y >= 0 ? 1e-6 : -1e-6) : dir.y;
+    dir.z = abs(dir.z) < 1e-6 ? (dir.z >= 0 ? 1e-6 : -1e-6) : dir.z;
+
+    int3 step = int3(sign(dir.x), sign(dir.y), sign(dir.z));
+    float3 tDelta = abs(1.0 / dir);
+    float3 tMax = 0.5 * tDelta;                 // the ray starts at the cell centre
+    float currentDist = 0.0;
+
+    int3 nrm = int3(0, 0, 0);                   // the leap helpers want these; unused here
+    int exitIters = 0, nonExitIters = 0;
+
+    [loop]
+    for (int it = 0; it < TORCH_SHADOW_STEPS && currentDist < tEnd; it++)
+    {
+        if (all(voxel == target)) return false;
+
+        int3 brickCoord = VoxelToBrick(voxel);
+        int3 rel = brickCoord - _WindowOriginBricksPacked.xyz;
+        if (rel.x < 0 || rel.y < 0 || rel.z < 0 ||
+            rel.x >= (int)windowDimsBricks.x ||
+            rel.y >= (int)windowDimsBricks.y ||
+            rel.z >= (int)windowDimsBricks.z) return false;
+
+        bool leapt = false;
+        [loop]
+        for (int k = (int)_AirMipLevelCount; k >= 1; k--)
+        {
+            int shift = 3 + k;
+            int3 cell = voxel >> shift;
+            if (ReadAirMip(k, cell) == 0u)
+            {
+                LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart,
+                                         cell << shift, 8 << k, nrm, exitIters, nonExitIters);
+                leapt = true;
+                break;
+            }
+        }
+        if (leapt) continue;
+
+        uint handle = ReadClipmap(brickCoord, windowDimsBricks);
+        if ((handle & 0x80000000u) != 0u)
+        {
+            uint poolIdx = handle & 0x3FFFFFFFu;
+            uint vIdx = (uint)LocalVoxelIndex(LocalVoxelIndex3D(voxel));
+            uint packed = BrickDataBuffer[(poolIdx * 128) + (vIdx >> 2)];
+            if (((packed >> ((vIdx & 3u) * 8u)) & 0xFFu) != 0u) return true;
+
+            if (tMax.x < tMax.y)
+            {
+                if (tMax.x < tMax.z) { voxel.x += step.x; currentDist = tMax.x; tMax.x += tDelta.x; }
+                else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; }
+            }
+            else
+            {
+                if (tMax.y < tMax.z) { voxel.y += step.y; currentDist = tMax.y; tMax.y += tDelta.y; }
+                else                 { voxel.z += step.z; currentDist = tMax.z; tMax.z += tDelta.z; }
+            }
+            continue;
+        }
+
+        if ((handle & 0xFFu) != 0u) return true;   // uniform solid brick
+
+        LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart,
+                                 brickCoord * 8, 8, nrm, exitIters, nonExitIters);
+    }
+    return false;
+}
+
+/// SumPointLights with torch shadow rays. `airCell` is the air voxel in front of
+/// the hit face; `omni` returns SumPointLightsOmni(omniPosM) under the SAME
+/// per-light visibility, so a hidden torch cannot tint a face's hue either.
+float3 SumPointLightsShadowed(float3 posM, float3 nrmF, int3 airCell, float3 omniPosM,
+                              uint3 windowDimsBricks, out float3 omni)
+{
+    int n = min(_TorchShadowRays, TORCH_SHADOW_MAX);
+    float nearD2[TORCH_SHADOW_MAX];
+    uint  nearIdx[TORCH_SHADOW_MAX];
+    [unroll]
+    for (int s0 = 0; s0 < TORCH_SHADOW_MAX; s0++) { nearD2[s0] = 3.0e38; nearIdx[s0] = 0xFFFFFFFFu; }
+
+    // Pass 1: every light's unshadowed contribution, and the n nearest lights
+    // that contribute anything (insertion into a sorted list of n).
+    float3 total = float3(0.0, 0.0, 0.0);
+    float3 omniTotal = float3(0.0, 0.0, 0.0);
+    [loop]
+    for (uint i = 0u; i < _ActiveLightCount; i++)
+    {
+        LightSource L = LightBuffer[i];
+        float3 lp = float3(L.x, L.y, L.z);
+        float3 lc = float3(L.r, L.g, L.b);
+        float r2 = L.range * L.range;
+
+        float3 dO = lp - omniPosM;
+        float dO2 = dot(dO, dO);
+        if (dO2 <= r2) omniTotal += lc / (1.0 + dO2 * L.k);
+
+        float3 d = lp - posM;
+        float dist2 = dot(d, d);
+        if (dist2 > r2) continue;
+        float atten = 1.0 / (1.0 + dist2 * L.k);
+        if (_PointLightNdotL != 0)
+            atten *= max(0.0, dot(nrmF, normalize(d + 1e-6)));
+        if (atten <= 0.0) continue;
+        total += lc * atten;
+
+        float cd = dist2;
+        uint ci = i;
+        [unroll]
+        for (int s = 0; s < TORCH_SHADOW_MAX; s++)
+        {
+            if (s < n && cd < nearD2[s])
+            {
+                float td = nearD2[s]; nearD2[s] = cd; cd = td;
+                uint ti = nearIdx[s]; nearIdx[s] = ci; ci = ti;
+            }
+        }
+    }
+
+    // Pass 2: trace the n nearest.
+    float3 vis = float3(0.0, 0.0, 0.0), tracedSum = float3(0.0, 0.0, 0.0);
+    float3 omniVis = float3(0.0, 0.0, 0.0), omniTraced = float3(0.0, 0.0, 0.0);
+    int traced = 0, seen = 0;
+    [loop]
+    for (int t = 0; t < n; t++)
+    {
+        uint li = nearIdx[t];
+        if (li == 0xFFFFFFFFu) break;
+        LightSource L = LightBuffer[li];
+        float3 lp = float3(L.x, L.y, L.z);
+        float3 lc = float3(L.r, L.g, L.b);
+
+        float3 d = lp - posM;
+        float atten = 1.0 / (1.0 + dot(d, d) * L.k);
+        if (_PointLightNdotL != 0)
+            atten *= max(0.0, dot(nrmF, normalize(d + 1e-6)));
+        float3 dO = lp - omniPosM;
+        float dO2 = dot(dO, dO);
+        float3 oc = (dO2 <= L.range * L.range) ? lc / (1.0 + dO2 * L.k) : float3(0.0, 0.0, 0.0);
+
+        traced++;
+        tracedSum += lc * atten;
+        omniTraced += oc;
+        if (!TorchRayBlocked(airCell, lp * 10.0, windowDimsBricks))
+        {
+            seen++;
+            vis += lc * atten;
+            omniVis += oc;
+        }
+    }
+
+    float share = traced > 0 ? (float)seen / (float)traced : 1.0;
+    omni = omniVis + max(omniTotal - omniTraced, 0.0) * share;
+    return vis + max(total - tracedSum, 0.0) * share;
 }
 
 
@@ -2188,6 +2592,474 @@ FarHit FarMarch(float3 O, float3 D, float tStart, int stepCap, bool skipWindow, 
     return r;
 }
 
+// ===========================================================================
+// AMENDMENT 8.14 LOD SHELLS -- THE SHELL MARCH (engine step 11b, task 80)
+//
+// Rows 1, 2, 5, 15. Shells 1..N-1 of a ShellLayout (ShellStore / ShellStreamer,
+// task 77), each a pow2 ring of chunks of 128^3 cells of 2^k x 0.1 m, in a
+// two-level directory: entry 0 ABSENT, UNIFORM|mat, PAGE|page; a page is 4096
+// brick handles (uniform mat, or DENSE|body); a body is 512 B, the
+// BrickDataPool layout. ONE directory / page / brick buffer for every shell
+// (ShellStore's SHARED BUFFERS), each shell at a base. Shell count, rings,
+// published boxes, holes and hand-over distances come from the constant
+// buffer below (arrays sized for 8, row 1), never from #defines.
+//
+// The rules (by distance, absent -> coarser, hole -> finer, never coarser
+// mid-cell, a start inside a coarse solid cell is a TOP-face hit) are written
+// out in ShellRayReference.cs, the CPU twin of ShellMarch that EditMode tests.
+// A change here is a change there.
+//
+// _ShellCount == 0 (shells off, the default): CSMainBody never calls any of
+// this, and every buffer below is bound to a 1-element dummy.
+// ===========================================================================
+StructuredBuffer<uint> ShellDir;
+StructuredBuffer<uint> ShellPages;
+StructuredBuffer<uint> ShellBricks;
+int    _ShellCount;          // shells including shell 0; 0 = off
+int    _ShellIterCap;        // primary march iterations (all shells together)
+int    _ShellTint;           // 1: tint each pixel by the shell that drew it (-shellsdebug)
+float  _ShellPixelAngle;     // radians per dispatch pixel at screen centre (the px metric)
+float4 _ShellRing[8];        // ring dims xyz, directory base w
+float4 _ShellLo[8];          // published box min xyz (chunks), page base w
+float4 _ShellHi[8];          // published box max xyz, brick base w
+float4 _ShellCam[8];         // camera chunk xyz, hole H w (-1 none)
+float4 _ShellBounds[8];      // inner, outer hand-over distance (0.1 m voxels), cell size (voxels), 0
+#ifdef VE_FAR_SHADE
+// TASK 93b4 (DIAGNOSTIC, capture only; far-shading kernel): bit 0 skips the
+// shell-hit sun-shadow march, bit 1 skips the primary shell march AND the far
+// march after it (misses draw sky). RaymarchFeature.DebugShellSkip, 0 in play.
+int    _DebugShellSkip;
+#endif
+// TASK 93b4: ShellMarch's one-entry read caches (below); bit 2 of _DebugShellSkip
+// turns them off in the far-shading kernel (the shellcache_off arm). Same results either way.
+#ifdef VE_FAR_SHADE
+#define SHELL_CACHE_ON ((_DebugShellSkip & 4) == 0)
+#else
+#define SHELL_CACHE_ON true
+#endif
+// TASK 93b5: the AIR-BRICK MASK (ShellStore header): 2 uints per page in the tail of
+// ShellPages, from _ShellMaskBase (uints). Used only with _ShellAirMask (-shellmask 1;
+// OFF by default: exact, but not faster at both walk poses, RaymarchFeature.ShellAirMask); bit 3
+// of _DebugShellSkip turns it off in the far-shading kernel (the shellmask_off arm).
+// Same results either way.
+int    _ShellMaskBase;
+int    _ShellAirMask;
+// TASK 99: the SKY-RAY EXIT (-shellskyexit; RaymarchFeature.ShellSkyExit). _ShellTopY =
+// ShellStreamer.SolidTopY: a running max, never lowered, of the top (exclusive, 0.1 m voxels)
+// of every brick any shell store has been given that is not uniform air (ShellStore.Store,
+// also redraws: ops and edit summaries come through it). A ray whose step.y > 0 and whose
+// voxel.y >= that never reads anything but air again (voxel.y only grows: the leaps add
+// step x counts >= 0), so it would end without a hit. ShellSkyY adds the far band: the far
+// march after a shell no-hit starts at the shells' end t and stops at once, no hit, when
+// D.y >= 0 and p.y >= _FarParams.x (FarMarch's first test), so the exit also waits until the
+// ray is 2 voxels over that (DDA vs O + D t rounding: < 0.1 voxel here). Then the far march
+// from the early t gives what it gives from the late one, field for field, and the pixel
+// is the same. CPU twin: ShellRayReference.March(skyY) / PrimarySkyY (ShellSkyExitTests).
+int    _ShellTopY;
+int    _ShellSkyExit;
+#define SHELL_SKY_NEVER 2147483647
+int ShellSkyY(bool primary)
+{
+    if (_ShellSkyExit == 0) return SHELL_SKY_NEVER;
+    if (!primary || _FarEnabled == 0) return _ShellTopY;
+    return max(_ShellTopY, (int)ceil(_FarParams.x) + 2);
+}
+#ifdef VE_FAR_SHADE
+#define SHELL_MASK_ON (_ShellAirMask != 0 && (_DebugShellSkip & 8) == 0)
+// Task 93b5 (b): the exit-plane leap (ShellLeap) runs with the mask, or alone with
+// bit 4 of _DebugShellSkip (the shellleap_new arm: what the leap itself costs).
+#define SHELL_PLANE_LEAP (SHELL_MASK_ON || (_DebugShellSkip & 16) != 0)
+#else
+#define SHELL_MASK_ON (_ShellAirMask != 0)
+#define SHELL_PLANE_LEAP SHELL_MASK_ON
+#endif
+
+#define SHELL_OK 0
+#define SHELL_HOLE 1
+#define SHELL_ABSENT 2
+#define SHELL_END_HIT 0
+#define SHELL_END_PAST_LAST 1
+#define SHELL_END_ABSENT 2
+#define SHELL_END_CAP 3
+#define SHELL_END_SKY 4   // task 99: rising and above everything the shells (and far band) hold
+
+struct ShellHit
+{
+    int end;        // SHELL_END_*
+    int shell;      // the shell that drew the hit
+    float t;        // hit t, or where the far band takes over
+    int3 voxel;     // the 0.1 m voxel the ray entered the hit cell at
+    int3 normal;
+    uint mat;
+    int iters;
+    bool inside;    // entered mid-cell (top-face normal)
+#ifdef VE_FAR_SHADE
+    int leaps0;     // task 93b4 (diagnostic): iterations that leapt a tier-0 chunk
+    int leapsChunk; // ... a uniform (air) shell chunk
+    int leapsBrick; // ... a uniform (air) brick of a paged chunk
+    int dirReads;   // ShellResolve calls (directory reads) the cache did not answer
+    int pageReads;  // brick-handle reads the cache did not answer
+    int maskGroups; // task 93b5 (diagnostic): empty brick groups crossed in one leap each
+#endif
+};
+
+/// Smallest shell k >= 1 whose outer bound is beyond d; -1 = past the last.
+int ShellByDistance(float d)
+{
+    [loop] for (int k = 1; k < _ShellCount; k++) if (d < _ShellBounds[k].y) return k;
+    return -1;
+}
+
+int ShellChunkState(int k, int3 voxel, out uint e)
+{
+    e = 0u;
+    int3 c = voxel >> (7 + k);
+    int3 lo = (int3)_ShellLo[k].xyz, hi = (int3)_ShellHi[k].xyz;
+    if (any(c < lo) || any(c > hi)) return SHELL_ABSENT;
+    int4 cam = (int4)_ShellCam[k];
+    int3 d = abs(c - cam.xyz);
+    if (cam.w >= 0 && max(d.x, max(d.y, d.z)) <= cam.w) return SHELL_HOLE;
+    int3 ring = (int3)_ShellRing[k].xyz;
+    int3 w = c & (ring - 1);   // pow2 ring (8.14 row 1 asserts it): never a modulo
+    e = ShellDir[(uint)_ShellRing[k].w + (uint)((w.z * ring.y + w.y) * ring.x + w.x)];
+    return e == 0u ? SHELL_ABSENT : SHELL_OK;
+}
+
+/// Tier 0 should hold this voxel but does not: a non-resident column of its
+/// window, inside its band (the far band drew that before 11b, and still does).
+bool ShellTier0Missing(int3 voxel)
+{
+    if (voxel.y < _ContentFloorVoxelY || voxel.y >= _ContentCeilingVoxelY) return false;
+    int2 rc = (voxel.xz >> 7) - (_WindowOriginBricksPacked.xz >> 4);
+    int2 dims = int2(_WindowDimsChunksPacked.xz);
+    if (any(rc < 0) || any(rc >= dims)) return false;
+    return !FarChunkResident(rc);
+}
+
+/// Tier 0 holds this voxel: a resident column of its window, inside its band
+/// (task 85: what a primary ray leaps inside tier 0's distance band).
+bool ShellTier0Holds(int3 voxel)
+{
+    if (voxel.y < _ContentFloorVoxelY || voxel.y >= _ContentCeilingVoxelY) return false;
+    int2 rc = (voxel.xz >> 7) - (_WindowOriginBricksPacked.xz >> 4);
+    int2 dims = int2(_WindowDimsChunksPacked.xz);
+    if (any(rc < 0) || any(rc >= dims)) return false;
+    return FarChunkResident(rc);
+}
+
+/// The shell that answers at `voxel` when the distance asks for kd; -1 = none
+/// (far band); -2 = in every hole down to shell 1 (tier 0's space).
+/// `whole` (task 93b4): the answer holds for every voxel of kd's chunk -- shell kd
+/// has that chunk, or it is absent and the answer came from the coarser shells,
+/// whose chunks contain it. False when kd's chunk is in its hole (finer chunks decide).
+int ShellResolve(int kd, int3 voxel, out uint e, out bool whole)
+{
+    int s = ShellChunkState(kd, voxel, e);
+    whole = s != SHELL_HOLE;
+    if (s == SHELL_OK) return kd;
+    if (s == SHELL_HOLE)
+    {
+        int j = kd - 1;
+        [loop] for (; j >= 1; j--)
+        {
+            int sj = ShellChunkState(j, voxel, e);
+            if (sj == SHELL_OK) return j;
+            if (sj == SHELL_ABSENT) break;
+        }
+        if (j < 1) { e = 0u; return -2; }
+    }
+    [loop] for (int j2 = kd + 1; j2 < _ShellCount; j2++)
+        if (ShellChunkState(j2, voxel, e) == SHELL_OK) return j2;
+    e = 0u;
+    return -1;
+}
+
+/// Material at `voxel` in shell k (entry e) and the log2 span of its uniform region.
+uint ShellLookup(int k, uint e, int3 voxel, out int spanShift)
+{
+    if ((e & 0x40000000u) != 0u) { spanShift = k + 7; return e & 0xFFu; }
+    uint page = e & 0x7FFFFFFFu;
+    int3 b = (voxel >> (k + 3)) & 15;
+    uint h = ShellPages[((uint)_ShellLo[k].w + page) * 4096u + (uint)((b.z << 8) | (b.y << 4) | b.x)];
+    if ((h & 0x80000000u) == 0u) { spanShift = k + 3; return h & 0xFFu; }
+    int3 s = (voxel >> k) & 7;
+    uint vIdx = (uint)((s.z << 6) | (s.y << 3) | s.x);
+    uint body = (uint)_ShellHi[k].w + (h & 0x3FFFFFFFu);
+    spanShift = k;
+    return (ShellBricks[body * 128u + (vIdx >> 2)] >> ((vIdx & 3u) * 8u)) & 0xFFu;
+}
+
+/// TASK 93b4: ShellLookup with the brick handle `h` already read (paged chunks).
+uint ShellLookupHandle(int k, uint h, int3 voxel, out int spanShift)
+{
+    if ((h & 0x80000000u) == 0u) { spanShift = k + 3; return h & 0xFFu; }
+    int3 s = (voxel >> k) & 7;
+    uint vIdx = (uint)((s.z << 6) | (s.y << 3) | s.x);
+    uint body = (uint)_ShellHi[k].w + (h & 0x3FFFFFFFu);
+    spanShift = k;
+    return (ShellBricks[body * 128u + (vIdx >> 2)] >> ((vIdx & 3u) * 8u)) & 0xFFu;
+}
+
+/// Did the last step enter a new cell of shell k (through the face `normal`)?
+bool ShellAtEntry(int3 voxel, int3 normal, int3 step, int k)
+{
+    int m = (1 << k) - 1;
+    if (normal.x != 0) return step.x > 0 ? (voxel.x & m) == 0 : (voxel.x & m) == m;
+    if (normal.y != 0) return step.y > 0 ? (voxel.y & m) == 0 : (voxel.y & m) == m;
+    if (normal.z != 0) return step.z > 0 ? (voxel.z & m) == 0 : (voxel.z & m) == m;
+    return false;
+}
+
+/// TASK 93b5 (b): the t of a voxel PLANE (integer coordinate `plane` on one axis),
+/// computed from the plane itself: the same value whatever path reached it.
+/// ReseedTMaxAxis(v) == ShellPlaneT(step > 0 ? v + 1 : v).
+float ShellPlaneT(int plane, float s, float td, int st)
+{
+    precise float d = st > 0 ? ((float)plane - s) : (s - (float)plane);
+    precise float r = d * td;
+    return r;
+}
+
+/// The planes one axis crosses in a leap that ends at tHit: every plane from the
+/// cell's next one (`np`, t = tNext) whose t <= tHit, at most `guard`. The
+/// closed-form count is only a guess, corrected against ShellPlaneT, so the cell
+/// reached is a function of tHit alone (no eps).
+int ShellPlanesCrossed(int np, float s, float td, int st, float tHit, float tNext, int guard)
+{
+    int n = clamp((int)floor((tHit - tNext) / td) + 1, 0, guard);
+    [loop] while (n > 0 && ShellPlaneT(np + st * (n - 1), s, td, st) > tHit) n--;
+    [loop] while (n < guard && ShellPlaneT(np + st * n, s, td, st) <= tHit) n++;
+    return n;
+}
+
+/// TASK 93b5 (b): ShellMarch's leap over the span [spanMin, spanMin + span) (every
+/// axis). t = the smallest exit-plane t (ShellPlaneT); each axis crosses the planes
+/// whose t <= that t; the normal is the first axis (x, y, z) whose last crossed
+/// plane has that t. So the state after a leap depends on its exit t only, and one
+/// leap over an empty brick group ends exactly where its last brick leap would
+/// (same t, voxel, normal). LeapSpanReseedClosedForm's (tMax + (n - 1) tDelta, eps)
+/// rounded by path. Only with the mask (SHELL_PLANE_LEAP): it costs +5-6 ms p50 without
+/// it and moves ~0.02% of pixels by 1-7 levels vs the old leap (task 93b5 (b)), so mask
+/// off keeps the old leap. ShellRayReference.Leap / PlaneLeap, line for line.
+void ShellLeap(inout int3 voxel, inout float3 tMax, inout float t, inout int3 normal,
+               float3 tDelta, int3 step, float3 start, int3 spanMin, int span)
+{
+    if (!SHELL_PLANE_LEAP)
+    {
+        // Mask off (the default): the shell march's leap as before task 93b5, byte for byte.
+        int dA = 0, dB = 0;
+        LeapSpanReseedClosedForm(voxel, tMax, t, tDelta, step, start, spanMin, span, normal, dA, dB);
+        return;
+    }
+    int3 ec = int3(
+        step.x > 0 ? (spanMin.x + span - voxel.x) : (voxel.x - (spanMin.x - 1)),
+        step.y > 0 ? (spanMin.y + span - voxel.y) : (voxel.y - (spanMin.y - 1)),
+        step.z > 0 ? (spanMin.z + span - voxel.z) : (voxel.z - (spanMin.z - 1)));
+    int3 pe = int3(step.x > 0 ? spanMin.x + span : spanMin.x,
+                   step.y > 0 ? spanMin.y + span : spanMin.y,
+                   step.z > 0 ? spanMin.z + span : spanMin.z);
+    float tHit = min(ShellPlaneT(pe.x, start.x, tDelta.x, step.x),
+                 min(ShellPlaneT(pe.y, start.y, tDelta.y, step.y),
+                     ShellPlaneT(pe.z, start.z, tDelta.z, step.z)));
+    int3 np = int3(step.x > 0 ? voxel.x + 1 : voxel.x,
+                   step.y > 0 ? voxel.y + 1 : voxel.y,
+                   step.z > 0 ? voxel.z + 1 : voxel.z);
+    int3 n = int3(ShellPlanesCrossed(np.x, start.x, tDelta.x, step.x, tHit, tMax.x, min(ec.x, span + 1)),
+                  ShellPlanesCrossed(np.y, start.y, tDelta.y, step.y, tHit, tMax.y, min(ec.y, span + 1)),
+                  ShellPlanesCrossed(np.z, start.z, tDelta.z, step.z, tHit, tMax.z, min(ec.z, span + 1)));
+    voxel += step * n;
+    tMax = float3(ReseedTMaxAxis(voxel.x, start.x, tDelta.x, step.x),
+                  ReseedTMaxAxis(voxel.y, start.y, tDelta.y, step.y),
+                  ReseedTMaxAxis(voxel.z, start.z, tDelta.z, step.z));
+    t = tHit;
+    // The last plane crossed on each axis: the new cell's entry face.
+    bool hx = n.x > 0 && ShellPlaneT(step.x > 0 ? voxel.x : voxel.x + 1, start.x, tDelta.x, step.x) == tHit;
+    bool hy = n.y > 0 && ShellPlaneT(step.y > 0 ? voxel.y : voxel.y + 1, start.y, tDelta.y, step.y) == tHit;
+    normal = hx ? int3(-step.x, 0, 0) : (hy ? int3(0, -step.y, 0) : int3(0, 0, -step.z));
+}
+
+/// TASK 93b5: may the EMPTY brick group of shell k holding `voxel` be crossed in one
+/// leap from t? Every iteration its bricks would take must leap no tier-0 chunk and
+/// ask distance shell k: t past tTier0 (or the group outside tier 0's layers), and
+/// every distance in k's band -- a primary ray's are its t's, from t to the group's
+/// exit t; a shadow ray's are its cells' centres, inside the group (1 voxel margin).
+bool ShellGroupLeapOk(int3 voxel, int k, float t, float tTier0, bool shadow, float3 camera,
+                      float3 start, float3 tDelta, int3 step)
+{
+    int gs = k + 5;
+    int gsz = 1 << gs;
+    int3 gMin = (voxel >> gs) << gs;
+    if (t < tTier0 && gMin.y + gsz > _ContentFloorVoxelY && gMin.y < _ContentCeilingVoxelY) return false;
+    float lo = k > 1 ? _ShellBounds[k - 1].y : -1.0;
+    float hi = _ShellBounds[k].y;
+    if (shadow)
+    {
+        float3 c0 = float3(gMin) + 0.5 - camera, c1 = c0 + (float)(gsz - 1);
+        return length(max(abs(c0), abs(c1))) < hi - 1.0 && length(max(max(c0, -c1), 0.0)) >= lo + 1.0;
+    }
+    if (t < lo) return false;
+    float tExit = min(ShellPlaneT(step.x > 0 ? gMin.x + gsz : gMin.x, start.x, tDelta.x, step.x),
+                  min(ShellPlaneT(step.y > 0 ? gMin.y + gsz : gMin.y, start.y, tDelta.y, step.y),
+                      ShellPlaneT(step.z > 0 ? gMin.z + gsz : gMin.z, start.z, tDelta.z, step.z)));
+    return tExit <= hi;
+}
+
+/// March the shells from t = tStart. Primary: start = the camera (0.1 m voxels).
+/// Shadow: start = a point just off the hit face, `camera` for the distance rule.
+/// tTier0 (task 85, 8.14 row 5): tier 0 marched [0, tTier0) and saw air; a chunk
+/// it holds there is leapt (0 = off: shadow rays). ShellRayReference.March, line for line.
+/// skyY (task 99): a rising ray (step.y > 0) at voxel.y >= skyY ends SHELL_END_SKY (no hit);
+/// SHELL_SKY_NEVER = off. ShellSkyY: primary / shadow.
+ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters, float tTier0, int skyY)
+{
+    dir = FarSafeDir(dir);
+    int3 step = int3(sign(dir));
+    float3 tDelta = abs(1.0 / dir);
+    float3 p = start + dir * tStart;
+    int3 voxel = int3(floor(p));
+    float3 tMax = float3(ReseedTMaxAxis(voxel.x, start.x, tDelta.x, step.x),
+                         ReseedTMaxAxis(voxel.y, start.y, tDelta.y, step.y),
+                         ReseedTMaxAxis(voxel.z, start.z, tDelta.z, step.z));
+    float t = tStart;
+    int3 normal = int3(0, 0, 0);
+    ShellHit r;
+    r.end = SHELL_END_CAP; r.shell = -1; r.t = tStart; r.voxel = voxel; r.normal = int3(0, 1, 0);
+    r.mat = 0u; r.iters = 0; r.inside = false;
+#ifdef VE_FAR_SHADE
+    r.leaps0 = 0; r.leapsChunk = 0; r.leapsBrick = 0; r.dirReads = 0; r.pageReads = 0;
+    r.maskGroups = 0;
+#endif
+    int kPrev = 0;
+    int rcKd = -1, rcK = 0; int3 rcChunk = int3(0, 0, 0); uint rcE = 0u;   // task 93b4: resolve cache
+    int pcK = -1; int3 pcBrick = int3(0, 0, 0); uint pcH = 0u;            // task 93b4: page cache
+    [loop]
+    for (int it = 0; it < maxIters; it++)
+    {
+        r.iters = it + 1;
+        // Task 99: above everything that is left (header at _ShellTopY): a no-hit, now.
+        if (step.y > 0 && voxel.y >= skyY) { r.end = SHELL_END_SKY; r.t = t; return r; }
+        float camDist = shadow ? length(float3(voxel) + 0.5 - camera) : t;
+        if (t < tTier0 && ShellTier0Holds(voxel))
+        {
+            // Tier 0's band, a chunk it holds: it marched this and saw air.
+            ShellLeap(voxel, tMax, t, normal, tDelta, step, start, (voxel >> 7) << 7, 128);
+#ifdef VE_FAR_SHADE
+            r.leaps0++;
+#endif
+            kPrev = 0;
+            continue;
+        }
+        int kd = ShellByDistance(camDist);
+        if (kd < 0) { r.end = SHELL_END_PAST_LAST; r.t = t; return r; }
+        if (kPrev > 0 && kd > kPrev && !ShellAtEntry(voxel, normal, step, kd)) kd = kPrev;
+        uint e;
+        int k;
+        // TASK 93b4: the resolve cache. A ray takes many steps inside one chunk, and
+        // ShellResolve's answer (with the directory entry) is the same for every
+        // voxel of kd's chunk unless that chunk is in kd's hole (`whole`).
+        int3 kdChunk = voxel >> (7 + kd);
+        if (SHELL_CACHE_ON && kd == rcKd && all(kdChunk == rcChunk)) { k = rcK; e = rcE; }
+        else
+        {
+            bool whole;
+            k = ShellResolve(kd, voxel, e, whole);
+            rcKd = whole ? kd : -1; rcChunk = kdChunk; rcK = k; rcE = e;
+#ifdef VE_FAR_SHADE
+            r.dirReads++;
+#endif
+        }
+        if (k == -2 && !ShellTier0Missing(voxel))
+        {
+            // Tier 0's space: it marched this and saw air. Leap one tier-0 chunk.
+            ShellLeap(voxel, tMax, t, normal, tDelta, step, start, (voxel >> 7) << 7, 128);
+#ifdef VE_FAR_SHADE
+            r.leaps0++;
+#endif
+            kPrev = 0;
+            continue;
+        }
+        if (k < 0) { r.end = SHELL_END_ABSENT; r.t = t; return r; }
+        int sh;
+        uint mat;
+        if ((e & 0x40000000u) != 0u) mat = ShellLookup(k, e, voxel, sh);   // uniform chunk: no page read
+        else
+        {
+            // TASK 93b4: the page cache, (shell, brick) -> brick handle (a brick of
+            // shell k lies in one chunk of shell k, so the same entry and page).
+            int3 brick = voxel >> (k + 3);
+            if (!(SHELL_CACHE_ON && k == pcK && all(brick == pcBrick)))
+            {
+                int3 b = brick & 15;
+                pcH = ShellPages[((uint)_ShellLo[k].w + (e & 0x7FFFFFFFu)) * 4096u + (uint)((b.z << 8) | (b.y << 4) | b.x)];
+                pcK = k; pcBrick = brick;
+#ifdef VE_FAR_SHADE
+                r.pageReads++;
+#endif
+            }
+            mat = ShellLookupHandle(k, pcH, voxel, sh);
+        }
+        if (mat != 0u)
+        {
+            bool entry = ShellAtEntry(voxel, normal, step, k);
+            // A shadow ray ignores solid cells within 3 of that shell's cells of
+            // its origin: where the hit's shell lacks a chunk a coarser shell
+            // answers, and its cells stand up to one cell above the surface the
+            // ray left (chunk-shaped self-shadow on cliff_foot_2, task 80).
+            if (shadow && t < (float)(3 << k)) entry = false;
+            if (entry || !shadow)
+            {
+                r.end = SHELL_END_HIT; r.shell = k; r.t = t; r.voxel = voxel; r.mat = mat;
+                r.inside = !entry;
+                r.normal = entry ? normal : int3(0, dir.y > 0.0 ? -1 : 1, 0);
+                return r;
+            }
+            sh = k;   // a shadow ray's start cell: leave it
+        }
+#ifdef VE_FAR_SHADE
+        if (sh == k + 7) r.leapsChunk++; else if (sh == k + 3) r.leapsBrick++;
+#endif
+        // TASK 93b5: an air brick of a paged chunk (sh == k + 3: a uniform chunk gives
+        // k + 7, a cell k) whose 4x4x4-brick GROUP is empty in the page's air-brick mask:
+        // the group's other bricks are air too, so each later iteration inside it would do
+        // exactly this brick's work -- no tier-0 leap (t past tTier0, or the group outside
+        // tier 0's layers), the same distance shell k (no clamp; the same chunk: k's entry,
+        // its page), an air handle, a one-brick leap -- as long as every distance it asks
+        // stays in shell k's band. Then ONE leap crosses the group (sh = k + 5): ShellLeap's
+        // state depends on the exit t alone, so it ends exactly where the last brick leap
+        // would (task 93b5 (b)). ShellRayReference.March, line for line (ShellAirMaskTests).
+        if (SHELL_MASK_ON && sh == k + 3)
+        {
+            int3 gl = (voxel >> (k + 5)) & 3;
+            uint g = (uint)((gl.z << 4) | (gl.y << 2) | gl.x);
+            uint mw = ShellPages[(uint)_ShellMaskBase + ((uint)_ShellLo[k].w + (e & 0x7FFFFFFFu)) * 2u + (g >> 5)];
+            if (((mw >> (g & 31u)) & 1u) == 0u && ShellGroupLeapOk(voxel, k, t, tTier0, shadow, camera, start, tDelta, step))
+            {
+                sh = k + 5;
+#ifdef VE_FAR_SHADE
+                r.maskGroups++;
+#endif
+            }
+        }
+        ShellLeap(voxel, tMax, t, normal, tDelta, step, start, (voxel >> sh) << sh, 1 << sh);
+        kPrev = k;
+    }
+    r.end = SHELL_END_CAP; r.t = t;
+    return r;
+}
+
+/// -shellsdebug's tint: shell 0 / tier 0 blue, then green, yellow, orange, red, magenta, cyan, white.
+float3 ShellTintColor(int k)
+{
+    if (k <= 0) return float3(0.35, 0.55, 1.0);
+    if (k == 1) return float3(0.35, 1.0, 0.35);
+    if (k == 2) return float3(1.0, 1.0, 0.3);
+    if (k == 3) return float3(1.0, 0.6, 0.2);
+    if (k == 4) return float3(1.0, 0.3, 0.3);
+    if (k == 5) return float3(1.0, 0.35, 1.0);
+    if (k == 6) return float3(0.3, 1.0, 1.0);
+    return float3(1.0, 1.0, 1.0);
+}
+
 // Distance haze, one curve for both bands when the far band is on (the old
 // (d/290m)^2 curve saturates at the window edge, which is exactly the cutoff the
 // far band exists to remove). Off: the shipped curve, unchanged.
@@ -2208,6 +3080,208 @@ float HazeAmount(float distVoxels, float y0, float y1)
     float range = (_MaxRayDistance > 0.0) ? _MaxRayDistance : 1280.0;
     float d = saturate(distVoxels / range);
     return saturate(d * d * _LookHazeDensity);
+}
+
+#ifdef VE_FAR_SHADE
+// ===========================================================================
+// TASK 85b (BUGS #9, owner Q48 (a)): FAR SHADING (-farshade 1; ON in play from
+// PlaySettings.farShade, OFF in rigs and capture runs). It is its OWN KERNEL,
+// CSMainFarShade, compiled with VE_FAR_SHADE: every task-85b line is under
+// #ifdef VE_FAR_SHADE, so CSMain / CSMainChecker / CSMainDetail compile from
+// exactly the pre-task code and the switch OFF is byte-identical (runtime ifs
+// were not: the compiler scheduled the off path differently, 1-LSB diffs in 8
+// of 19 Phase 7 shots). RaymarchFeature dispatches it while FarShade is on,
+// unless the checkerboard or the -detailspeed square holds the frame. Look 1 only. Far terrain read as specks: a face turned
+// from the sun got only 0.3 x horizon x the noon exposure (~10/255 on rock), a
+// slope at ~1 voxel per pixel became lit tops + black sides, and the haze thinned
+// over 350 m of height, so peaks did not haze at all. Three parts:
+//  1. SKY LIGHT (FarShadeSky): the flat ambient becomes a hemisphere term, the
+//     sky colour the face looks at (horizon .. half way to the zenith by its
+//     tilt) x the share of sky it sees ((1 + n.y) / 2) x _FarShadeParams.x, still
+//     x the sky probe and VAO. The sky colours follow the time of day, so at night
+//     it is the night sky's level (below the old night ambient): night stays
+//     dark and lights stand out.
+//  2. SLOPE NORMAL (FarSlopeNormal): from where a 0.1 m voxel is 2 px, fully at
+//     1 px (FarShadeBlend; _ShellPixelAngle, so it follows the render rows), a
+//     hit is lit with the ground slope from the far band's column heights
+//     instead of its cube face -- when it lies on that surface (not in a cave or
+//     under an overhang). Sun, moon, sky and point lights all take it. Voxels,
+//     cascade tiers, shells and the far band alike.
+//  3. HAZE (FarShadeHaze): toward the sky behind the pixel (LookAtmosphere, so
+//     dark at night), 1 - exp(-d / range) thinned with height over a scale
+//     height of _FarShadeParams.z. LIGHT is split out first (torches, emission,
+//     bleed: `lightAdd`) and takes only _FarShadeParams.w of the haze, so night
+//     points of interest are not swallowed.
+// FAR LIGHTS (engine step 21) plug in at `lightAdd`: whatever they add to a far
+// pixel goes there, and the haze rule above applies unchanged.
+// ===========================================================================
+float4 _FarShadeParams;   // x sky strength, y haze range (voxels), z haze scale height (voxels), w light's share of the haze
+
+float FarShadeBlend(float distVoxels)
+{
+    float pa = max(_ShellPixelAngle, 1e-6);
+    return smoothstep(0.5 / pa, 1.0 / pa, distVoxels);   // a 0.1 m voxel: 2 px -> 1 px
+}
+
+// The ground slope at p (voxels) from the far band's column heights, bilinear
+// over the four texel centres around p, at the finest level whose texel is
+// >= 2 px there. False where no ring holds p, or p is more than one texel below
+// the lowest / above the highest of the four tops (a cave, an overhang).
+bool FarSlopeNormal(float3 p, float distVoxels, out float3 n)
+{
+    n = float3(0.0, 1.0, 0.0);
+    if (_FarEnabled == 0) return false;
+    float2 camV = _CameraPos.xz * 10.0;
+    float cheb = max(abs(p.x - camV.x), abs(p.z - camV.y));
+    float fp = 2.0 * distVoxels * _ShellPixelAngle;
+    int L = 0;
+    [loop] while (L < FAR_LEVELS - 1 && ((float)(8 << L) < fp || cheb >= (float)((FAR_USE_RADIUS - 2) * (8 << L)))) L++;
+    float tv = (float)(8 << L);
+    if (cheb >= (float)(FAR_USE_RADIUS - 2) * tv) return false;
+    float2 f = p.xz / tv - 0.5;
+    int2 c = int2(floor(f));
+    float2 fr = f - float2(c);
+    float h00 = (float)(FarTexelAt(L, c) & 0xFFFFu);
+    float h10 = (float)(FarTexelAt(L, c + int2(1, 0)) & 0xFFFFu);
+    float h01 = (float)(FarTexelAt(L, c + int2(0, 1)) & 0xFFFFu);
+    float h11 = (float)(FarTexelAt(L, c + int2(1, 1)) & 0xFFFFu);
+    float lo = min(min(h00, h10), min(h01, h11));
+    float hi = max(max(h00, h10), max(h01, h11));
+    if (p.y < lo - tv || p.y > hi + tv) return false;
+    float dx = lerp(h10 - h00, h11 - h01, fr.y);
+    float dz = lerp(h01 - h00, h11 - h10, fr.x);
+    n = normalize(float3(-dx, tv, -dz));
+    return true;
+}
+
+// Face normal -> the lighting normal (part 2). Fluids keep their flat tops.
+float3 FarShadeNormal(float3 nFace, float3 p, float distVoxels, uint m)
+{
+    float w = FarShadeBlend(distVoxels);
+    float3 nS;
+    if (w <= 0.0 || MaterialIsClearFluid(m) || m == 11u || !FarSlopeNormal(p, distVoxels, nS)) return nFace;
+    return normalize(lerp(nFace, nS, w));
+}
+
+float3 FarShadeSky(float3 n)
+{
+    return lerp(_LookSkyHorizon.rgb, _LookSkyZenith.rgb, 0.5 * saturate(n.y)) * ((0.5 + 0.5 * n.y) * _FarShadeParams.x);
+}
+
+float FarShadeHaze(float distVoxels, float y0, float y1)
+{
+    float a = max(y0 - 23.0, 0.0) / _FarShadeParams.z;
+    float b = max(y1 - 23.0, 0.0) / _FarShadeParams.z;
+    float avg = (abs(b - a) < 1e-3) ? exp(-a) : (exp(-a) - exp(-b)) / (b - a);
+    return saturate(1.0 - exp(-distVoxels * avg / _FarShadeParams.y));
+}
+
+// Haze with the light kept out of most of it (part 3).
+float3 FarShadeApplyHaze(float3 lit, float3 lightAdd, float3 rayDir, float distVoxels, float y0, float y1)
+{
+    float h = FarShadeHaze(distVoxels, y0, y1);
+    if (_FarEnabled == 0) h = max(h, HazeAmount(distVoxels, y0, y1));   // no far band: keep the range fog that hides the world's edge
+    return lerp(lit, LookAtmosphere(rayDir), h) + lightAdd * (h * (1.0 - _FarShadeParams.w));
+}
+#endif
+
+// ---- TASK 75: SEE-THROUGH LIQUIDS (the view from ABOVE or the side) ----
+// With _SeeThroughLiquids != 0, a primary ray from air that hits water, honey,
+// oil, acid or sludge remembers that surface and marches on THROUGH the fluid
+// (66b's passMat, at whatever LOD tier the distance selects) to what is behind
+// it. Everything after the march -- the one sun shadow ray, the sky probe, the
+// whole shading chain, TAA -- then runs on the SURFACE exactly as before, and
+// the end of CSMainBody blends in what was behind it:
+//   through = lerp(surface as today, behind lit through the fluid, exp(-path * ext))
+//   colour  = lerp(through, sky reflected, Fresnel)        (top faces only)
+// Deep fluid therefore converges on today's look. The bed takes the SURFACE's
+// sun shadow (no second shadow ray through the fluid) and a depth-darkening
+// term exp(-0.5 * depth * ext) for the light coming down to it. No refraction.
+// The far band does the same from its texel's water depth (bits 25-31), with no
+// march. Lava, quicksand and steam stop at the surface exactly as today.
+// Cost guards: the march through a fluid ends where (1 - Fresnel) * transmittance
+// < SEE_CUT (SeeMaxPathVoxels), after SEE_STEP_CAP extra steps, or on leaving it.
+// Task 75b: the march's cost grows with that path (a lower step cap saved nothing,
+// a coarser tier cost more), so the cut is 10% (was 2%) and the bed fades out over
+// the last 30% of the path (SeeCutFade) instead of stopping at a seam.
+int _SeeThroughLiquids;   // 1 on (RaymarchFeature.SeeThroughLiquids, PlaySettings.seeThroughLiquids)
+// Bits 1-3 (task 75b's cost split only, RaymarchFeature.DebugSeeSkip): skip the voxel end
+// blend (2), the far band's blend (4), the march through the fluid (8).
+bool MaterialIsSeeThrough(uint m) { return m == 6u || m == 12u || m == 18u || m == 19u || m == 20u; }
+#define SEE_FRESNEL_MAX 0.6     // pick: a grazing view keeps 40% of the water's own colour
+#define SEE_STEP_CAP 192        // extra march iterations at most, per ray, inside the fluid
+#define SEE_CUT 0.10            // task 75b (was 0.02): the bed's weight at which the march stops
+#define SEE_CUT_FADE 0.3        // ... reached by a fade over this last part of the path (no seam)
+#define SEE_FAR_BED_MAT 140u    // the far band has no bed material: tg2 Sand (TG2_BASE 128 + GenMat 12)
+
+// Schlick, F0 0.02, capped; a side face (a stepped water wall) reflects nothing.
+float SeeFresnel(float3 rayDir, int3 n)
+{
+    if (n.y <= 0) return 0.0;
+    float k = 1.0 - saturate(-rayDir.y);
+    return min(SEE_FRESNEL_MAX, 0.02 + 0.98 * k * k * k * k * k);
+}
+
+// Path length (voxels) past which (1 - F) * transmittance of the bed < SEE_CUT on
+// the clearest channel. A downward ray also loses light on the way down to its
+// bed (half the depth, see above), hence the (1 + 0.5 |dy|).
+float SeeMaxPathVoxels(uint m, float3 rayDir, float fres)
+{
+    float3 e = FluidExtinction(m);
+    float k = min(e.x, min(e.y, e.z)) * (1.0 + 0.5 * saturate(-rayDir.y));
+    return max(0.0, log((1.0 - fres) / SEE_CUT) / k) * 10.0;
+}
+
+// Task 75b: what is behind fades to nothing at the cut, so ending the march
+// there leaves no edge where a sloping bed crosses it.
+float SeeCutFade(float pathVoxels, float maxPathVoxels)
+{
+    return saturate((maxPathVoxels - pathVoxels) / max(1.0e-3, SEE_CUT_FADE * maxPathVoxels));
+}
+
+// What lies behind the fluid, lit with the light that got through it (lightT):
+// the far band's combine (no AO, no point lights), then haze at its own
+// distance, grade and the output transform -- the same space `color` is in.
+float3 SeeBehindColour(uint m, int3 v, float3 nF, float sunVisB, float skyVisB, float3 lightT,
+                       float3 rayDir, float t, float y0)
+{
+    float3 sd = normalize(_SunDir);
+    float y1 = y0 + rayDir.y * t;
+    if (_Look == 1 && _UseDevColors != 0)
+    {
+        float3 ln = normalize(nF + float3(0.0, 0.65, 0.0));
+        float softened = lerp(0.4, 1.0, saturate(ln.y) * 0.6 + saturate(abs(ln.x)) * 0.2 + 0.2);
+        float skyOpen = lerp(_UndergroundAmbientFloor, 1.0, skyVisB);
+        float sunExposure = lerp((1.0 - _LookShadowDarkness) * skyOpen, 1.0, sunVisB);
+        float3 direct = _LookSun.rgb * saturate(dot(nF, sd) * 0.8 + 0.2) * sunExposure * softened
+                      + _LookMoon.rgb * saturate(dot(nF, -sd) * 0.8 + 0.2) * softened * skyOpen;
+        float3 faceLight = (direct + _LookAmbient.rgb * skyOpen) * _LookGrade.x;
+        if (_UniformFaceHue != 0)
+            faceLight = UniformFaceHue(faceLight, (_LookSun.rgb * 0.6 + _LookMoon.rgb * 0.6 + _LookAmbient.rgb) * _LookGrade.x);
+        float3 lit = LookAlbedo(m, v) * faceLight * lightT;
+        if (_ShadeFog != 0) lit = lerp(lit, LookAtmosphere(rayDir), HazeAmount(t, y0, y1));
+        if (_LookGrade.w > 0.0) lit = LookGradeColour(lit, _LookGrade.y, _LookGrade.z);
+        return LookToLinear(lit);
+    }
+    float3 sh = MaterialAlbedo(m) * (_SunColor * saturate(dot(nF, sd)) * sunVisB + _AmbientColor * skyVisB) * lightT;
+    if (_ShadeFog != 0) sh = lerp(sh, _SkyColor.rgb, HazeAmount(t, y0, y1) * 0.85);
+    return ApplyTonemap(sh);
+}
+
+// The sky seen in a top face, plus a sun glint where the surface is lit.
+float3 SeeReflection(float3 rayDir, float sunVisS)
+{
+    float3 r = float3(rayDir.x, abs(rayDir.y), rayDir.z);
+    float g = pow(saturate(dot(r, normalize(_SunDir))), 400.0) * sunVisS * (_SunDir.y > 0.0 ? 1.0 : 0.0);
+    if (_Look == 1 && _UseDevColors != 0)
+        return LookToLinear(LookShoulder(LookAtmosphere(r) + _LookSun.rgb * g * 4.0, _LookGrade.z));
+    return saturate(_SkyColor.rgb + _SunColor * g * 4.0);
+}
+
+// The blend. `surface` is the pixel as shaded today; tView / lightT per channel.
+float3 SeeCompose(float3 surface, float3 behind, float3 tView, float fres, float3 refl)
+{
+    return lerp(lerp(surface, behind, tView), refl, fres);
 }
 
 void CSMainBody(uint3 tid, uint3 gtid, bool checker)
@@ -2285,6 +3359,35 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     float maxDist = (_MaxRayDistance > 0.0) ? _MaxRayDistance : 1280.0;
     int _iterCap = (_MaxOuterIterations > 0) ? _MaxOuterIterations : 400;
 
+    // TASK 66b: the material this ray passes through -- air (0) as always, or
+    // the fluid the eye is in. Past the distance where the fluid has absorbed
+    // 98% of every channel nothing can show, so the march stops there (water
+    // 17.8 m): the eye-in-fluid path never leaves tier 0's near range.
+    uint passMat = 0u;
+    float fluidTopY = 0.0;   // voxels: where the fluid above the eye ends (the light comes down from there)
+    if (_UnderwaterView != 0)
+    {
+        uint eyeMat = VoxelMaterialAt(voxel, _WindowDimsBricks);
+        if (MaterialIsClearFluid(eyeMat))
+        {
+            passMat = eyeMat;
+            fluidTopY = (float)FluidTopAbove(voxel, eyeMat, _WindowDimsBricks);
+            float3 ext = FluidExtinction(eyeMat);
+            maxDist = min(maxDist, 39.12 / min(ext.x, min(ext.y, ext.z)));   // ln(50) m x 10 voxels/m
+        }
+    }
+
+    // TASK 75: the surface a ray from AIR entered a see-through fluid at (seeMat
+    // != 0 once it has), and where the ray's path in the fluid ended. Off, or
+    // with the eye in a fluid (66b owns that), seeOn is false and nothing below
+    // changes: seeMat stays 0 and the march is the old one.
+    bool seeOn = (_SeeThroughLiquids != 0) && (passMat == 0u);
+    uint seeMat = 0u;
+    float seeEntryDist = 0.0, seeEndDist = 0.0, seeMaxDistSaved = 0.0, seeFres = 0.0, seeMaxPath = 0.0;
+    int3 seeVoxel = int3(0, 0, 0), seeNormal = int3(0, 0, 0);
+    int seeTier = 0, seeIterCapSaved = 0;
+    bool seeDense = false, seeExited = false;
+
     // ---- FAR BAND: a camera OUTSIDE the voxel window (above its 51.2 m
     // ceiling, say) used to lose every ray at the bounds guard on iteration 1:
     // a black/sky screen. With the far band on, advance the ray to the window's
@@ -2337,6 +3440,11 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     }
 #endif
 
+    // TASK 75: up to three passes of the one march -- air, then through the
+    // fluid it hit, then air again if the ray left the fluid. seeOn false: one.
+    [loop]
+    for (int seePass = 0; seePass < 3; seePass++)
+    {
     while (!skipVoxel && currentDist < maxDist && steps < _iterCap)
     {
         // EARLY-EXIT (new, added after real diagnostic data - see chat).
@@ -2414,7 +3522,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         // old inline form was correct here and is NOT correct for a shadow ray,
         // which starts at a surface; see SelectLODTier's header. Behaviour at
         // this call site is unchanged, byte for byte.
-        int tier = SelectLODTier(currentDist);
+        int tier = (passMat != 0u && seeMat == 0u) ? 0 : SelectLODTier(currentDist);   // 66b: 0 when passMat == 0u is unchanged; 75: any tier
 
         if (tier == 0)
         {
@@ -2424,8 +3532,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             // (or any ray when _UseLODCascade==0) get byte-identical behavior.
             // ===================================================================
             bool leapt = false;
+            // 66b: inside a fluid an all-air cell is a STOP (the surface), never a leap.
             [loop]
-            for (int k = (int)_AirMipLevelCount; k >= 1; k--)
+            for (int k = (passMat == 0u) ? (int)_AirMipLevelCount : 0; k >= 1; k--)
             {
                 int shift = 3 + k;
                 int3 cell = voxel >> shift;
@@ -2482,7 +3591,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                         uint pShift = (vIdx & 3) * 8;
                         mat = (packedData >> pShift) & 0xFF;
 
-                        if (mat != 0) { hit = true; lastWasDense = true; break; }
+                        mat = RiverLipAsWater(mat); if (mat != passMat) { hit = true; lastWasDense = true; break; }
 
                         denseMicroSteps++;
                         steps++;
@@ -2510,7 +3619,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 uint shift2 = (vIdx2 & 3) * 8;
                 mat = (packedData2 >> shift2) & 0xFF;
 
-                if (mat != 0) { hit = true; lastWasDense = true; tierAtHit = 0; break; }
+                mat = RiverLipAsWater(mat); if (mat != passMat) { hit = true; lastWasDense = true; tierAtHit = 0; break; }
 
                 denseMicroSteps++;
                 if (tMax.x < tMax.y)
@@ -2527,7 +3636,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             }
 
             mat = handle & 0xFF;
-            if (mat != 0) { hit = true; lastWasDense = false; tierAtHit = 0; break; }
+            mat = RiverLipAsWater(mat); if (mat != passMat) { hit = true; lastWasDense = false; tierAtHit = 0; break; }
 
             {
                 int3 bMin = brickCoord * 8;
@@ -2567,7 +3676,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 uint pShift = (vIdx & 3) * 8;
                 mat = (packedData >> pShift) & 0xFF;
 
-                if (mat != 0) { hit = true; lastWasDense = true; tierAtHit = tier; break; }
+                mat = RiverLipAsWater(mat); if (mat != passMat) { hit = true; lastWasDense = true; tierAtHit = tier; break; }
 
                 // FIX (measured, not guessed): this used to single-step one RAW
                 // voxel at a time even though a coarse voxel here spans `factor`
@@ -2593,7 +3702,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             }
 
             mat = handle & 0xFF;
-            if (mat != 0) { hit = true; lastWasDense = false; tierAtHit = tier; break; }
+            mat = RiverLipAsWater(mat); if (mat != passMat) { hit = true; lastWasDense = false; tierAtHit = tier; break; }
 
             // Empty coarse brick: leap its full span using the SAME, UNCHANGED
             // LeapSpanReseedClosedForm tier-0 already uses - just with the span
@@ -2637,7 +3746,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                     uint nextHandle = ReadClipmapTier(tier, nextTierBrickCoord);
 
                     if ((nextHandle & 0x80000000) != 0) break; // dense - let the outer loop handle it
-                    if ((nextHandle & 0xFF) != 0) break;        // uniform solid - let the outer loop resolve the hit
+                    if (RiverLipAsWater(nextHandle & 0xFF) != passMat) break;  // uniform solid - let the outer loop resolve the hit (75: or AIR, leaving a fluid)
 
                     int3 nextBMinRaw = (nextTierBrickCoord * 8) << tierShift;
                     LeapSpanReseedClosedForm(voxel, tMax, currentDist, tDelta, step, rayStart, nextBMinRaw, spanVoxelsRaw, normal, exitIters, nonExitIters);
@@ -2646,6 +3755,59 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 }
             }
         }
+    }
+        // ---- TASK 76: a river riser is part of the sheet (voxels only) ----
+        if (_RiverLook != 0 && seePass == 0 && hit && mat == 6u && normal.y == 0
+            && (RiverWeightAt((rayStart + rayDir * currentDist).xz) > 0.0
+                || (tierAtHit == 0 && RiverLipAsWater(VoxelMaterialAt(voxel + normal - int3(0, 1, 0), _WindowDimsBricks)) == 6u)))
+            normal = int3(0, 1, 0);
+        // ---- TASK 75: between passes ----
+        if (!seeOn) break;
+        if (seePass == 0)
+        {
+            // Hit a see-through fluid from air: remember the surface, march on in it.
+            if (!hit || !MaterialIsSeeThrough(mat)) break;
+            seeMat = mat; seeEntryDist = currentDist; seeVoxel = voxel; seeNormal = normal;
+            seeTier = tierAtHit; seeDense = lastWasDense;
+            seeFres = SeeFresnel(rayDir, normal);
+            seeMaxDistSaved = maxDist; seeIterCapSaved = _iterCap;
+            if ((_SeeThroughLiquids & 8) != 0) break;   // 75b diagnostic: no march (the blend runs on the surface)
+            seeMaxPath = SeeMaxPathVoxels(mat, rayDir, seeFres);
+            maxDist = min(maxDist, currentDist + seeMaxPath);
+            _iterCap = min(_iterCap, steps + SEE_STEP_CAP);
+            passMat = mat;
+            hit = false;
+            continue;
+        }
+        if (seePass == 1)
+        {
+            seeEndDist = currentDist;
+            // Left the fluid into air: march on through the air (no second fluid).
+            if (hit && mat == 0u)
+            {
+                seeExited = true;
+                passMat = 0u; hit = false;
+                maxDist = seeMaxDistSaved; _iterCap = seeIterCapSaved;
+                continue;
+            }
+        }
+        break;
+    }
+
+    // TASK 75: keep what is behind the fluid, then put the SURFACE back as the
+    // primary hit -- every line from here to the end of the shading chain sees
+    // exactly the hit it saw before this task.
+    bool seeBehindHit = false;
+    uint seeBehindMat = 0u;
+    int3 seeBehindVoxel = int3(0, 0, 0), seeBehindNormal = int3(0, 1, 0);
+    float seeBehindDist = 0.0;
+    if (seeMat != 0u)
+    {
+        if (!seeExited) seeEndDist = currentDist;
+        seeBehindHit = hit; seeBehindMat = mat; seeBehindVoxel = voxel; seeBehindNormal = normal; seeBehindDist = currentDist;
+        hit = true; mat = seeMat; voxel = seeVoxel; normal = seeNormal; currentDist = seeEntryDist;
+        tierAtHit = seeTier; lastWasDense = seeDense;
+        passMat = 0u; maxDist = seeMaxDistSaved; _iterCap = seeIterCapSaved;
     }
 
     if (isDebugPixel)
@@ -2686,13 +3848,90 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #else
     float tVoxelLimit = currentDist;
 #endif
-    if (_FarEnabled != 0 && !hit)
+    // ---- 8.14 SHELLS (task 80): where tier 0 ends or is absent, shells 1.. ----
+    // Tier 0 (the 128 m window) is still shell 0 until step 14. Hand-over by
+    // DISTANCE, not residency (8.14 row 5, step 12, task 85): the shells march
+    // from the camera; inside tier 0's band (its hand-over distance, or where its
+    // march stopped if nearer) a chunk tier 0 holds is leapt, and one it does not
+    // hold (non-resident, outside its window or layers) is read from shell 1, 2, ...
+    // FarStartT's residency DDA and -detailspeed are not used on this path. They
+    // hand to the far band only past the last shell or where no shell has the
+    // chunk (row 5). _ShellCount == 0 (default): nothing here runs.
+    int shellAtHit = 0;
+    float tShellEnd = -1.0;   // >= 0: the shells ran and ended there without a hit
+#ifdef VE_FAR_SHADE
+    // TASK 93b3 (DIAGNOSTIC, capture only): how the shell march ended and its
+    // iterations, for the far-start view (debug 12), shell heat (13), counters 40-47.
+    int dbgShellEnd = -1, dbgShellIters = 0;
+    // TASK 93b4 (DIAGNOSTIC): _DebugShellSkip bit 1 = no primary shell march and no
+    // far march (the shellmarch_off arm); 55 = pixels, for per-pixel means.
+    bool dbgSkipShellPrim = (_DebugShellSkip & 2) != 0;
+    if (_CollectShadowStats != 0 && inBounds) InterlockedAdd(ShadowStats[55], 1u);
+#endif
+    if (_ShellCount > 1 && !hit && passMat == 0u && _FarEnabled != 2
+#ifdef VE_FAR_SHADE
+        && !dbgSkipShellPrim
+#endif
+        )
     {
-        float tFar = (_FarEnabled == 2) ? 0.0 : FarStartT(rayStart, rayDir, skipVoxel ? 0.0 : tVoxelLimit);
-        if (skipVoxel && _FarEnabled == 1) tFar = 0.0;
+        float tTier0 = skipVoxel ? 0.0 : min(tVoxelLimit, _ShellBounds[0].y);
+        ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0, ShellSkyY(true));
+#ifdef VE_FAR_SHADE
+        dbgShellEnd = shr.end; dbgShellIters = shr.iters;
+        // TASK 93b4 (diagnostic): primary shell rays and iterations by how they
+        // ended: 48/49 HIT, 50/51 no hit (sky, absent, past the last, cap); 54 = the
+        // iterations of both that leapt a tier-0 chunk.
+        if (_CollectShadowStats != 0)
+        {
+            uint slot = (shr.end == SHELL_END_HIT) ? 48u : 50u;
+            InterlockedAdd(ShadowStats[slot], 1u);
+            InterlockedAdd(ShadowStats[slot + 1u], (uint)shr.iters);
+            InterlockedAdd(ShadowStats[54], (uint)shr.leaps0);
+            InterlockedAdd(ShadowStats[56], (uint)shr.leapsChunk);
+            InterlockedAdd(ShadowStats[57], (uint)shr.leapsBrick);
+            InterlockedAdd(ShadowStats[58], (uint)shr.dirReads);
+            InterlockedAdd(ShadowStats[59], (uint)shr.pageReads);
+            InterlockedAdd(ShadowStats[60], (uint)shr.maskGroups);   // task 93b5
+        }
+#endif
+        if (shr.end == SHELL_END_HIT)
+        {
+            hit = true; mat = RiverLipAsWater(shr.mat); voxel = shr.voxel; normal = shr.normal; currentDist = shr.t;
+            shellAtHit = shr.shell; tierAtHit = 2 + shr.shell; lastWasDense = true;
+            if (_CollectShadowStats != 0 && shr.inside) InterlockedAdd(ShadowStats[11 + 4 * shr.shell], 1u);
+        }
+        else tShellEnd = shr.t;
+    }
+    // The largest voxel on screen (plan row 11): px of the cell each ray stopped
+    // in, per shell (0 = tier 0 and the cascade tiers), at the dispatch rows.
+    if (_CollectShadowStats != 0 && _ShellCount > 1 && hit && inBounds)
+    {
+        int kS = shellAtHit;
+        float cellVox = (kS > 0) ? (float)(1 << kS) : (tierAtHit == 1 ? 2.0 : (tierAtHit == 2 ? 4.0 : 1.0));
+        float px = cellVox / max(currentDist * _ShellPixelAngle, 1e-6);
+        InterlockedAdd(ShadowStats[8 + 4 * kS], 1u);
+        if (px > 1.0) InterlockedAdd(ShadowStats[9 + 4 * kS], 1u);
+        InterlockedMax(ShadowStats[10 + 4 * kS], (uint)min(px * 1000.0, 4.0e9));
+    }
+    if (_FarEnabled != 0 && !hit && passMat == 0u   // 66b: under a fluid the far band is fogged out anyway
+#ifdef VE_FAR_SHADE
+        && !dbgSkipShellPrim
+#endif
+        )
+    {
+        float tFar;
+        if (tShellEnd >= 0.0) tFar = tShellEnd;   // task 85: the shells' end, no residency DDA
+        else
+        {
+            tFar = (_FarEnabled == 2) ? 0.0 : FarStartT(rayStart, rayDir, skipVoxel ? 0.0 : tVoxelLimit);
+            if (skipVoxel && _FarEnabled == 1) tFar = 0.0;
+        }
         tFarDbg = tFar;
         fh = FarMarch(rayStart, rayDir, tFar, (int)_FarParams.z, _FarEnabled == 1, 0.0 FAR_VOXEL_END_ARG(tDetail));
         farHit = fh.hit;
+#ifdef VE_FAR_SHADE
+        int dbgFarPrimSteps = fh.steps;
+#endif
         if (farHit && _SunDir.y > 0.0 && _FarShadow != 0 && _ShadowQualityLevel < 3)
         {
             float3 hp = rayStart + rayDir * fh.t + float3(fh.normal) * 0.05;
@@ -2705,8 +3944,29 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             InterlockedAdd(ShadowStats[5], 1u);
             InterlockedAdd(ShadowStats[6], (uint)(fh.steps + farShadowSteps));
             if (farHit) InterlockedAdd(ShadowStats[7], 1u);
+#ifdef VE_FAR_SHADE
+            // TASK 93b3 (diagnostic): 40-42 far rays whose start came from the shells'
+            // PAST_LAST / ABSENT / CAP end (task 99: the SKY end counts as CAP) (43 = from FarStartT, the tiers path),
+            // 44 far PRIMARY steps, 45 far shadow rays, 46 their steps,
+            // 47 sum of the far start in metres.
+            if (tShellEnd >= 0.0) InterlockedAdd(ShadowStats[40 + min(max(dbgShellEnd - 1, 0), 2)], 1u);
+            else InterlockedAdd(ShadowStats[43], 1u);
+            InterlockedAdd(ShadowStats[44], (uint)dbgFarPrimSteps);
+            if (farShadowSteps > 0) { InterlockedAdd(ShadowStats[45], 1u); InterlockedAdd(ShadowStats[46], (uint)farShadowSteps); }
+            InterlockedAdd(ShadowStats[47], (uint)(max(tFar, 0.0) * 0.1));
+#endif
         }
     }
+#ifdef VE_FAR_SHADE
+    // TASK 99 (diagnostic): SKY rays -- the primary shell march ran and neither it nor
+    // the far band hit: 62 rays, 63 their shell iterations, 64 of them ended by the exit.
+    if (_CollectShadowStats != 0 && dbgShellEnd >= 0 && dbgShellEnd != SHELL_END_HIT && !farHit)
+    {
+        InterlockedAdd(ShadowStats[62], 1u);
+        InterlockedAdd(ShadowStats[63], (uint)dbgShellIters);
+        if (dbgShellEnd == SHELL_END_SKY) InterlockedAdd(ShadowStats[64], 1u);
+    }
+#endif
     // TASK 19 (2026-10-04, DIAGNOSTIC ONLY): the far hand-off at the ONE debug
     // pixel (the coast black bar). Writes DebugOut 46-87 and nothing else; no
     // other pixel's state or shading is touched. Read by -coastprobe.
@@ -2775,7 +4035,8 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     bool softShadows = (_ShadowQualityLevel <= 1) && (_KSoft > 0.0);
 
     // §6.5: "skips sky pixels (no primary hit => no shadow ray)".
-    bool needsShadowRay = hit && sunIsUp && shadowsOn;
+    // 66b: not from inside a fluid -- every sun ray would start in it and stop on it.
+    bool needsShadowRay = hit && sunIsUp && shadowsOn && passMat == 0u;
 
     // -----------------------------------------------------------------------
     // §6.5's 8.4 WAVE-UNIFORM BRANCH GUARD -- built in from the start.
@@ -2834,10 +4095,33 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         bool distant = hit && (currentDist >= rung1Threshold);
         bool reuse = (_ShadowQualityLevel == 1) && distant;
         bool isQuadLead = ((gtid.x & 1u) == 0u) && ((gtid.y & 1u) == 0u);
+        uint leadLane = (gtid.y & ~1u) * 8u + (gtid.x & ~1u);
 
-        // Temporal reuse: is last frame's value for this surface usable?
+        // Task 61: half-res at all distances, edge-aware (_ShadowHalfRes note).
+        // _ShadowHalfRes is a constant, so the barrier is group-uniform.
+        if (_ShadowHalfRes > 0.0)
+        {
+            int3 org = voxel + normal;
+            gsShadowOrg[lane] = needsShadowRay ? int4(org, NormalCode(normal)) : int4(0, 0, 0, -1);
+            GroupMemoryBarrierWithGroupSync();
+            int4 lo = gsShadowOrg[leadLane];
+            bool similar = false;
+            if (needsShadowRay && lo.w >= 0)
+            {
+                int3 d = org - lo.xyz;
+                int3 dd = abs(d);
+                float tol = 2.0 + 2.0 * currentDist * _ShadowHalfRes;
+                bool nearLead = (float)max(dd.x, max(dd.y, dd.z)) <= tol;
+                bool coplanar = (lo.w == NormalCode(normal)) && (abs(normal.x * d.x + normal.y * d.y + normal.z * d.z) <= 1);
+                similar = nearLead || coplanar;
+            }
+            reuse = similar || isQuadLead;
+        }
+
+        // Temporal reuse: is last frame's value for this shadow origin usable?
         bool histHit = false;
         float histVis = 1.0;
+        uint shadowKey = ShadowOriginKey(voxel + normal);
         if (_TemporalShadows != 0 && needsShadowRay && _ShadowHistValid != 0)
         {
             // The rotation is per 8x8 THREAD GROUP, not per pixel: a group runs
@@ -2856,30 +4140,29 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             bool myTurn = (((tile.x & 1u) | ((tile.y & 1u) << 1u)) == (sFrame & 3u));
             if (!myTurn)
             {
-                float3 pv = float3(voxel) + 0.5;
-                float4 pc = mul(_PrevViewProj, float4(pv * 0.1, 1.0));
+                // This pixel's own surface point, where it was last frame. The
+                // nearest pixel first, then its neighbours toward the point (a
+                // face only a few pixels wide often lands one over); the key
+                // decides, so trying more can only find the exact value or none.
+                // Checkerboard: last frame wrote only ITS half of the pixels (the
+                // other half of that buffer holds the never-matching fill), so
+                // the neighbours are what find it there.
+                float3 hp = rayStart + rayDir * currentDist;
+                float4 pc = mul(_PrevViewProj, float4(hp * 0.1, 1.0));
                 if (pc.w > 1e-4)
                 {
-                    float2 ndc = pc.xy / pc.w;
-                    int2 pp = int2(floor((ndc * 0.5 + 0.5) * float2(width, height)));
-                    if (pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
+                    float2 ppf = (pc.xy / pc.w * 0.5 + 0.5) * float2(width, height);
+                    int2 p0 = int2(floor(ppf));
+                    int2 dn = int2(ppf.x - p0.x >= 0.5 ? 1 : -1, ppf.y - p0.y >= 0.5 ? 1 : -1);
+                    int2 probes[4] = { p0, int2(p0.x + dn.x, p0.y), int2(p0.x, p0.y + dn.y), p0 + dn };
+                    [unroll]
+                    for (int q = 0; q < 4; q++)
                     {
-                        float2 hv = ShadowHistR[(uint)pp.y * width + (uint)pp.x];
-                        float d = length(pv - _PrevCamVox.xyz);
-                        if (hv.y >= 0.0 && abs(hv.y - d) < max(2.0, d * 0.02)) { histHit = true; histVis = hv.x; }
-                    }
-                    // Checkerboard: last frame wrote only ITS half of the pixels
-                    // (and, the buffers ping-ponging every frame, the other half of
-                    // this buffer is never written). Try the horizontal neighbour.
-                    if (checker && !histHit)
-                    {
-                        float2 ppf = (ndc * 0.5 + 0.5) * float2(width, height);
-                        pp.x += (ppf.x - pp.x >= 0.5) ? 1 : -1;
-                        if (pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
+                        int2 pp = probes[q];
+                        if (!histHit && pp.x >= 0 && pp.y >= 0 && pp.x < (int)width && pp.y < (int)height)
                         {
-                            float2 hv = ShadowHistR[(uint)pp.y * width + (uint)pp.x];
-                            float d = length(pv - _PrevCamVox.xyz);
-                            if (hv.y >= 0.0 && abs(hv.y - d) < max(2.0, d * 0.02)) { histHit = true; histVis = hv.x; }
+                            uint2 hv = ShadowHistR[(uint)pp.y * width + (uint)pp.x];
+                            if (hv.y == shadowKey) { histHit = true; histVis = asfloat(hv.x); }
                         }
                     }
                 }
@@ -2901,7 +4184,6 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         float mineVis = histHit ? histVis : sh.sunVis;
         gsSunVis[lane] = mineVis;
         GroupMemoryBarrierWithGroupSync();
-        uint leadLane = (gtid.y & ~1u) * 8u + (gtid.x & ~1u);
         float leadVis = gsSunVis[leadLane];
 
         sunVis = needsShadowRay ? (reuse ? leadVis : mineVis) : 0.0;
@@ -2926,12 +4208,32 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // combine doing the shaping. Handled here rather than inside the guard so a
     // wave that skipped the block entirely still lands on the right value.
     if (hit && sunIsUp && !shadowsOn) sunVis = 1.0;
+    // 66b: from inside a fluid the bed and walls take the sun, dimmed for the fluid
+    // above them; the fog below does the rest. No terrain shadows under water.
+    if (hit && sunIsUp && passMat != 0u) sunVis = 0.8;
+    // 8.14 shells (task 80): a shell hit's sun ray marches the shells (the
+    // tier-0 ray above left the window at once). Starts just off the hit face;
+    // the shell is chosen by the sample's CAMERA distance (§6.5's 8.2 rule).
+    if (shellAtHit > 0 && needsShadowRay
+#ifdef VE_FAR_SHADE
+        && (_DebugShellSkip & 1) == 0   // task 93b4: the shellshadow_off arm
+#endif
+        )
+    {
+        float3 so = rayStart + rayDir * currentDist + float3(normal) * 0.01;
+        ShellHit ss = ShellMarch(so, normalize(_SunDir), 0.0, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false));
+        sunVis = (ss.end == SHELL_END_HIT) ? 0.0 : 1.0;
+#ifdef VE_FAR_SHADE
+        // TASK 93b4 (diagnostic): 52 shell shadow rays, 53 their iterations.
+        if (_CollectShadowStats != 0) { InterlockedAdd(ShadowStats[52], 1u); InterlockedAdd(ShadowStats[53], (uint)ss.iters); }
+#endif
+    }
 
     // Temporal reuse: every pixel records what it used, for the next frame.
     if (_TemporalShadows != 0 && inBounds)
         ShadowHistW[id.y * width + id.x] = needsShadowRay
-            ? float2(sunVis, length((float3(voxel) + 0.5) - _CameraPos * 10.0))
-            : float2(0.0, -1.0);
+            ? uint2(asuint(sunVis), ShadowOriginKey(voxel + normal))
+            : uint2(0u, 0xFFFFFFFFu);
 
     // -----------------------------------------------------------------------
     // AMBIENT SKY VISIBILITY (§6.5's "underground reads near-zero ambient")
@@ -2954,7 +4256,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // own flag so Stage 6 measures it as its own arm, and the decision is the
     // owner's. See PHASE_7_COMPLETION.md's FLAG list.
     // -----------------------------------------------------------------------
-    if (hit && _UseSkyProbeAmbient != 0)
+    if (hit && _UseSkyProbeAmbient != 0 && passMat == 0u && shellAtHit == 0)   // 66b: from a fluid it would stop in the fluid; task 80: a shell hit's 0.1 m voxel is not tier 0's
     {
         // No second group guard here: `hit` is already the per-thread condition
         // and a group with no hits at all has nothing to probe, so the outer
@@ -3012,6 +4314,37 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         if (inBounds) ResultTexture[id.xy] = c10;
         return;
     }
+#ifdef VE_FAR_SHADE
+    // TASK 93b3 (DIAGNOSTIC, capture only; far-shading kernel): 12 = FAR START VIEW,
+    // 13 = SHELL MARCH HEAT (primary shell-march iterations, the StepHeat ramp;
+    // black = the shell march did not run).
+    // 12: tier-0 hit dark blue, shell hit dark green, sky/far pixels by WHERE the far
+    // march started: hue = how (grey: past the last shell, yellow: no shell has
+    // the chunk (ABSENT), red: the shell iteration CAP, blue: the sky exit (task 99), cyan: FarStartT, the tiers
+    // path), brightness = distance (dark 0 m -> full at >= 2 km, log).
+    if (_DebugMode == 12)
+    {
+        float4 c12 = float4(0.0, 0.0, 0.0, 1.0);
+        if (hit) c12 = (shellAtHit > 0) ? float4(0.05, 0.30, 0.08, 1.0) : float4(0.05, 0.10, 0.35, 1.0);
+        else if (tFarDbg >= 0.0)
+        {
+            float3 hue = (tShellEnd < 0.0) ? float3(0.1, 0.9, 0.9)
+                       : (dbgShellEnd == SHELL_END_PAST_LAST ? float3(0.85, 0.85, 0.85)
+                       : (dbgShellEnd == SHELL_END_ABSENT ? float3(0.95, 0.85, 0.1)
+                       : (dbgShellEnd == SHELL_END_SKY ? float3(0.3, 0.5, 1.0) : float3(0.95, 0.1, 0.1))));
+            float b = 0.15 + 0.85 * saturate(log2(1.0 + tFarDbg * 0.1) / 11.0);
+            c12 = float4(hue * b, 1.0);
+        }
+        if (inBounds) ResultTexture[id.xy] = c12;
+        return;
+    }
+    if (_DebugMode == 13)
+    {
+        float4 c13 = (dbgShellEnd < 0 && !(shellAtHit > 0)) ? float4(0.0, 0.0, 0.0, 1.0) : StepHeatColor(dbgShellIters);
+        if (inBounds) ResultTexture[id.xy] = c13;
+        return;
+    }
+#endif
     if (_DebugMode == 11)
     {
         // VOXEL-STOP VIEW (diagnostic, item 1 of the 2026-09-25 brief): WHY the
@@ -3097,13 +4430,17 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         float4 tierColor = float4(0.1, 0.3, 0.9, 1.0); // tier 0 = blue
         if (tierAtHit == 1) tierColor = float4(0.15, 0.85, 0.2, 1.0); // tier 1 = green
         if (tierAtHit == 2) tierColor = float4(0.9, 0.15, 0.15, 1.0); // tier 2 = red
+        if (shellAtHit > 0) tierColor = float4(ShellTintColor(shellAtHit), 1.0);   // task 80: shells
         if (inBounds) ResultTexture[id.xy] = tierColor;
         return;
     }
 
     float4 color = _SkyColor;
     if (_Look == 1 && _UseDevColors != 0) color = float4(LookToLinear(LookShoulder(LookAtmosphere(rayDir), _LookGrade.z)), 1.0);
-    if (hit)
+    // 66b: a fluid-mode stop on AIR is the surface from below, coloured after this chain.
+    bool fluidSurface = (passMat != 0u) && hit && (mat == 0u);
+    float riverFoam = 0.0;   // task 76: foam on a river top face (near or far)
+    if (hit && !fluidSurface)
     {
         float ndotl = max(0.2, dot(float3(normal), normalize(float3(0.5, 1.0, 0.2))));
         if (_UseDevColors != 0 && _Look == 1)
@@ -3114,8 +4451,18 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             uint lm = mat;
             bool selfLit = MaterialIsSelfLit(lm);
             float3 baseColor = LookAlbedo(lm, voxel);
+            if (_RiverLook != 0 && lm == 6u && passMat == 0u && normal.y > 0)   // task 76: flow and foam
+            {
+                float rb;
+                RiverSurface((rayStart + rayDir * currentDist).xz, currentDist, rb, riverFoam);
+                baseColor = lerp(baseColor * rb, RIVER_FOAM, riverFoam);
+            }
             float3 nF = float3(normal);
             float3 sd = normalize(_SunDir);
+#ifdef VE_FAR_SHADE
+            // Task 85b: past the blend, lit by the ground slope, not the cube face.
+            if (!selfLit) nF = FarShadeNormal(nF, rayStart + rayDir * currentDist, currentDist, lm);
+#endif
 
             // Face shade: tops bright, sides distinct (the Brickmap's constants).
             float3 ln = normalize(nF + float3(0.0, 0.65, 0.0));
@@ -3137,48 +4484,74 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 
             // VAO on the ambient term only, with the Brickmap's remap.
             float vao = 1.0;
-            if (_ShadeAO != 0 && !selfLit)
+            if (_ShadeAO != 0 && !selfLit && passMat == 0u && shellAtHit == 0)   // 66b: fluid neighbours are not occluders; task 80: nor tier 0's for a shell hit
             {
                 float3 inVoxel = hitP - (float3(voxel) + 0.5);
                 vao = FaceAO(voxel, normal, inVoxel, _WindowDimsBricks);
                 vao = lerp(0.15, 1.0, pow(smoothstep(0.0, 1.0, vao), 1.2));
             }
+#ifdef VE_FAR_SHADE
+            // Task 85b: the sky term; VAO fades out where a voxel is <= 1-2 px.
+            float3 ambient = FarShadeSky(nF) * skyOpen * lerp(vao, 1.0, FarShadeBlend(currentDist));
+#else
             float3 ambient = _LookAmbient.rgb * skyOpen * vao;
+#endif
 
             float3 hitPosM = hitP * 0.1;
-            float3 pointTerm = SumPointLights(hitPosM, nF);
+            float3 pointTerm, omniTerm = float3(0.0, 0.0, 0.0);
+            if (_TorchShadowRays > 0 && tierAtHit == 0 && !selfLit)
+                pointTerm = SumPointLightsShadowed(hitPosM, nF, voxel + normal, (float3(voxel) + 0.5) * 0.1,
+                                                   _WindowDimsBricks, omniTerm);
+            else
+            {
+                pointTerm = SumPointLights(hitPosM, nF);
+                if (_UniformFaceHue != 0) omniTerm = SumPointLightsOmni((float3(voxel) + 0.5) * 0.1);
+            }
 
             float3 faceLight = (direct + ambient) * _LookGrade.x + pointTerm;
             if (_UniformFaceHue != 0)
                 faceLight = UniformFaceHue(faceLight, (_LookSun.rgb * 0.6 + _LookMoon.rgb * 0.6 + _LookAmbient.rgb) * _LookGrade.x
-                                                      + SumPointLightsOmni((float3(voxel) + 0.5) * 0.1));
+                                                      + omniTerm);
 
             // LAVA (owner 2026-10-09): the SVO build's emissive form,
             // baseColor * light + albedo * emission * 2, which keeps lava deep
             // orange. The old self-lit cheat, saturate(base * 1.35 + 0.06) + tint
             // * 0.55, clipped red at 1 and let green climb to ~0.76: pale gold.
             // Per-voxel hot/cool: +/-0.05 red, +/-0.025 green around the albedo.
+            // Lava is self-lit and must ignore point light (owner 2026-10-09, Q34 3a).
             // Every other material keeps the previous combine, unchanged.
             float3 lit;
+#ifdef VE_FAR_SHADE
+            float3 lightAdd = float3(0.0, 0.0, 0.0);   // task 85b: the light in `lit` (torches, emission, bleed)
+#endif
             if (lm == 11u)
             {
                 float hot = VoxelHash(voxel) - 0.5;
                 float3 albedo = MaterialAlbedoLook(lm) + float3(hot * 0.10, hot * 0.05, -hot * 0.02);
-                lit = baseColor * faceLight + albedo * (MaterialEmissive(lm) * 2.0);
+                lit = baseColor * ((direct + ambient) * _LookGrade.x) + albedo * (MaterialEmissive(lm) * 2.0);
+#ifdef VE_FAR_SHADE
+                lightAdd = albedo * (MaterialEmissive(lm) * 2.0);
+#endif
             }
             else
             {
                 lit = selfLit ? saturate(baseColor * 1.35 + 0.06)
                               : baseColor * faceLight;
                 lit += MaterialEmissiveTint(lm) * MaterialEmissive(lm);
+#ifdef VE_FAR_SHADE
+                lightAdd = MaterialEmissiveTint(lm) * MaterialEmissive(lm);
+                if (!selfLit)   // the point lights' share of faceLight
+                    lightAdd += max(lit - lightAdd - baseColor * UniformFaceHue((direct + ambient) * _LookGrade.x,
+                                        (_LookSun.rgb * 0.6 + _LookMoon.rgb * 0.6 + _LookAmbient.rgb) * _LookGrade.x), 0.0);
+#endif
             }
 
-            // EMISSIVE BLEED (opt-in, _EmissiveBleed, default 0): a non-emitting
+            // EMISSIVE BLEED (_EmissiveBleed, ON by default since task 46, owner
+            // Q5 (a); -emissivebleed 0 turns it off): a non-emitting
             // tier-0 face picks up the look albedo of an emitter on one of the
             // four edge neighbours of its air cell, fading across the face --
             // the SVO RayTracer.compute's bleed, term for term. Four extra
-            // window reads per pixel, so it stays off until the engine
-            // milestone measures it.
+            // window reads per pixel; engine plan step 7 measures the cost.
             if (_EmissiveBleed != 0 && tierAtHit == 0 && MaterialEmissive(lm) <= 0.0)
             {
                 int3 fa = voxel + normal;
@@ -3193,13 +4566,22 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                                    max(LookEmitColor(fa - e2, _WindowDimsBricks) * (1.0 - uv.y),
                                        LookEmitColor(fa + e2, _WindowDimsBricks) * uv.y));
                 lit += bleed * 2.0;
+#ifdef VE_FAR_SHADE
+                lightAdd += bleed * 2.0;
+#endif
             }
 
+#ifdef VE_FAR_SHADE
+            // Task 85b: aerial perspective; light keeps most of itself.
+            if (_ShadeFog != 0)
+                lit = FarShadeApplyHaze(lit, lightAdd, rayDir, currentDist, rayStart.y, rayStart.y + rayDir.y * currentDist);
+#else
             // Squared distance haze into the sky behind the pixel.
             if (_ShadeFog != 0)
             {
                 lit = lerp(lit, LookAtmosphere(rayDir), HazeAmount(currentDist, rayStart.y, rayStart.y + rayDir.y * currentDist));
             }
+#endif
             if (_LookGrade.w > 0.0) lit = LookGradeColour(lit, _LookGrade.y, _LookGrade.z);
             color = float4(LookToLinear(lit), 1.0);
         }
@@ -3249,7 +4631,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             }
 
             // Ambient occlusion from neighbour occupancy.
-            if (_ShadeAO != 0 && !selfLit)
+            if (_ShadeAO != 0 && !selfLit && passMat == 0u && shellAtHit == 0)   // 66b: fluid neighbours are not occluders; task 80: nor tier 0's for a shell hit
             {
                 float3 hitP = rayStart + rayDir * currentDist;
                 float3 inVoxel = hitP - (float3(voxel) + 0.5);   // [-0.5, 0.5] per axis
@@ -3294,7 +4676,15 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             float3 sunTerm = _SunColor * sunVis * ndl;
 
             float3 hitPosM = (rayStart + rayDir * currentDist) * 0.1;
-            float3 pointTerm = SumPointLights(hitPosM, float3(normal));
+            float3 pointTerm, omniTerm = float3(0.0, 0.0, 0.0);
+            if (_TorchShadowRays > 0 && tierAtHit == 0 && !selfLit)
+                pointTerm = SumPointLightsShadowed(hitPosM, float3(normal), voxel + normal, (float3(voxel) + 0.5) * 0.1,
+                                                   _WindowDimsBricks, omniTerm);
+            else
+            {
+                pointTerm = SumPointLights(hitPosM, float3(normal));
+                if (_UniformFaceHue != 0) omniTerm = SumPointLightsOmni((float3(voxel) + 0.5) * 0.1);
+            }
 
             // ambientSky, modulated by sky visibility so a sealed cave is dark
             // and a cave mouth is not (§6.5). With the probe off this collapses
@@ -3314,7 +4704,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             {
                 float3 faceLight = sunTerm + pointTerm + ambientTerm;
                 if (_UniformFaceHue != 0)
-                    faceLight = UniformFaceHue(faceLight, _SunColor * 0.6 + _AmbientColor + SumPointLightsOmni((float3(voxel) + 0.5) * 0.1));
+                    faceLight = UniformFaceHue(faceLight, _SunColor * 0.6 + _AmbientColor + omniTerm);
                 shaded = shaded * faceLight;
             }
 
@@ -3359,6 +4749,16 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         if (_Look == 1 && _UseDevColors != 0)
         {
             float3 baseColor = LookAlbedo(fm, fvox);
+            if (_RiverLook != 0 && fm == 6u && fh.normal.y > 0)   // task 76 (R5): the same flow and foam as near
+            {
+                float rb;
+                RiverSurface((rayStart + rayDir * fh.t).xz, fh.t, rb, riverFoam);
+                baseColor = lerp(baseColor * rb, RIVER_FOAM, riverFoam);
+            }
+#ifdef VE_FAR_SHADE
+            // Task 85b: the slope from the same column heights the far band is drawn from.
+            nF = FarShadeNormal(nF, rayStart + rayDir * fh.t, fh.t, fm);
+#endif
             float3 ln = normalize(nF + float3(0.0, 0.65, 0.0));
             float faceShade = saturate(ln.y) * 0.6 + saturate(abs(ln.x)) * 0.2 + 0.2;
             float softened = lerp(0.4, 1.0, faceShade);
@@ -3367,10 +4767,22 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             float3 direct = _LookSun.rgb * sunLight * sunExposure * softened;
             float moonLight = saturate(dot(nF, -sd) * 0.8 + 0.2);
             direct += _LookMoon.rgb * moonLight * softened;
+#ifdef VE_FAR_SHADE
+            float3 faceLightF = (direct + FarShadeSky(nF)) * _LookGrade.x;
+#else
             float3 faceLightF = (direct + _LookAmbient.rgb) * _LookGrade.x;
+#endif
             faceLightF = UniformFaceHue(faceLightF, (_LookSun.rgb * 0.6 + _LookMoon.rgb * 0.6 + _LookAmbient.rgb) * _LookGrade.x);
             float3 lit = baseColor * faceLightF;
+#ifdef VE_FAR_SHADE
+            // Task 85b: far lava and other emitters glow as near ones do (the near
+            // lava form, albedo x emission x 2) and keep that light through the haze.
+            float3 lightAddF = MaterialAlbedoLook(fm) * (MaterialEmissive(fm) * 2.0);
+            lit += lightAddF;
+            if (_ShadeFog != 0) lit = FarShadeApplyHaze(lit, lightAddF, rayDir, fh.t, rayStart.y, rayStart.y + rayDir.y * fh.t);
+#else
             if (_ShadeFog != 0) lit = lerp(lit, LookAtmosphere(rayDir), HazeAmount(fh.t, rayStart.y, rayStart.y + rayDir.y * fh.t));
+#endif
             if (_LookGrade.w > 0.0) lit = LookGradeColour(lit, _LookGrade.y, _LookGrade.z);
             color = float4(LookToLinear(lit), 1.0);
         }
@@ -3381,6 +4793,81 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             if (_ShadeFog != 0) shadedF = lerp(shadedF, _SkyColor.rgb, HazeAmount(fh.t, rayStart.y, rayStart.y + rayDir.y * fh.t) * 0.85);
             color = float4(ApplyTonemap(shadedF), 1.0);
         }
+        // TASK 75: far water is see-through by the same table, from the depth
+        // its texel carries (bits 25-31, voxels; FarField.DepthBits): top faces
+        // only, the path straight down to the bed at this ray's slope, no march.
+        if (_SeeThroughLiquids != 0 && (_SeeThroughLiquids & 4) == 0 && fm == 6u && fh.normal.y > 0)
+        {
+            float depthV = (float)((fh.texel >> 25) & 0x7Fu);
+            float slope = max(0.05, -rayDir.y);
+            float3 extF = FluidExtinction(6u);
+            float fresF = SeeFresnel(rayDir, fh.normal);
+            float3 behindF = SeeBehindColour(SEE_FAR_BED_MAT, fvox - int3(0, (int)depthV, 0), float3(0.0, 1.0, 0.0), sunVisF, 1.0,
+                                             exp(-0.05 * depthV * extF), rayDir, fh.t + depthV / slope, rayStart.y);
+            float fadeF = SeeCutFade(depthV / slope, SeeMaxPathVoxels(6u, rayDir, fresF));   // task 75b: the voxels' cut
+            color.rgb = SeeCompose(color.rgb, behindF, exp(-(0.1 * depthV / slope) * extF) * (1.0 - riverFoam) * fadeF, fresF, SeeReflection(rayDir, sunVisF));
+        }
+    }
+
+    // ---- TASK 75: WHAT IS BEHIND THE FLUID SURFACE ----
+    // `color` is the surface, shaded exactly as before. Blend in what the march
+    // found behind it, by the path length inside the fluid (see SeeCompose).
+    if (seeMat != 0u && (_SeeThroughLiquids & 2) == 0)
+    {
+        float3 extS = FluidExtinction(seeMat);
+        float3 tView = exp(-((seeEndDist - seeEntryDist) * 0.1) * extS) * (1.0 - riverFoam)   // task 76: foam is opaque
+                     * SeeCutFade(seeEndDist - seeEntryDist, seeMaxPath);                      // task 75b
+        float3 behind = color.rgb;   // nothing reached: past the clarity range the fluid is its own colour, as today
+        if (seeBehindHit)
+        {
+            // Light reaching the bed comes down through the depth it lies under
+            // the entry point; after the ray left the fluid it is in open air.
+            float bedDepthM = seeExited ? 0.0 : max(0.0, -rayDir.y * (seeBehindDist - seeEntryDist)) * 0.1;
+            behind = SeeBehindColour(seeBehindMat, seeBehindVoxel, float3(seeBehindNormal), sunVis, skyVis,
+                                     exp(-0.5 * bedDepthM * extS), rayDir, seeBehindDist, rayStart.y);
+        }
+        else if (seeExited)
+            behind = (_Look == 1 && _UseDevColors != 0) ? LookToLinear(LookShoulder(LookAtmosphere(rayDir), _LookGrade.z)) : _SkyColor.rgb;
+        color.rgb = SeeCompose(color.rgb, behind, tView, seeFres, SeeReflection(rayDir, sunVis));
+    }
+
+    // ---- 66b: THE FLUID BETWEEN THE EYE AND WHAT IT SEES ----
+    // The whole path was in the fluid (the march stops where it leaves it), so
+    // transmittance is exp(-d * extinction) per channel. The fog is the fluid's
+    // albedo under the sky's light; where the ray leaves through the surface it
+    // sees the sky inside Snell's window (~49 deg from straight up, cos 0.66)
+    // and the fluid's own light reflected outside it.
+    if (passMat != 0u)
+    {
+        float3 sdU = normalize(_SunDir);
+        float dayU = saturate(sdU.y * 0.8 + 0.2);
+        float window = smoothstep(0.55, 0.75, rayDir.y);
+        float3 fogLin, surfLin;
+        if (_Look == 1 && _UseDevColors != 0)
+        {
+            float3 fogL = MaterialAlbedoLook(passMat) * ((_LookSun.rgb * dayU + _LookMoon.rgb * 0.3 + _LookAmbient.rgb) * _LookGrade.x) * 0.6;
+            float3 surfL = lerp(fogL * 1.6, LookAtmosphere(rayDir) * 0.85 + fogL * 0.3, window);
+            if (_LookGrade.w > 0.0) { fogL = LookGradeColour(fogL, _LookGrade.y, _LookGrade.z); surfL = LookGradeColour(surfL, _LookGrade.y, _LookGrade.z); }
+            fogLin = LookToLinear(fogL);
+            surfLin = LookToLinear(surfL);
+        }
+        else
+        {
+            float3 fogS = MaterialAlbedo(passMat) * (_SunColor * dayU + _AmbientColor) * 0.6;
+            fogLin = ApplyTonemap(fogS);
+            surfLin = ApplyTonemap(lerp(fogS * 1.6, _SkyColor.rgb * 0.85 + fogS * 0.3, window));
+        }
+        // Light comes down from the fluid's top: what reaches a depth d is
+        // exp(-d * ext / 2) (half: scattered light keeps some of it), for the
+        // fog at the eye and for the surface the ray hit. Flat-top assumption.
+        float3 ext = FluidExtinction(passMat);
+        float eyeDepthM = max(0.0, fluidTopY - rayStart.y) * 0.1;
+        float hitDepthM = max(0.0, fluidTopY - (rayStart.y + rayDir.y * currentDist)) * 0.1;
+        fogLin *= exp(-eyeDepthM * ext * 0.5);
+        fogLin += MaterialEmissiveTint(passMat) * MaterialEmissive(passMat) * 0.3;   // sludge glows
+        float3 base = fluidSurface ? surfLin : (hit ? color.rgb * exp(-hitDepthM * ext * 0.5) : fogLin);
+        float3 trans = exp(-(currentDist * 0.1) * ext);
+        color = float4(base * trans + fogLin * (1.0 - trans), 1.0);
     }
 
     // TAA: where this pixel's surface was last frame, and what it was.
@@ -3409,6 +4896,13 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         TaaCur[pi] = float4(prevPx, expD, asfloat(key));
         TaaMetaW[pi] = float2((tHit >= 0.0) ? length(P - rayStart) : -2.0, asfloat(key));
     }
+    // -shellsdebug (task 80): each pixel tinted by what drew it -- tier 0 blue,
+    // shells 1.. green/yellow/orange/red/magenta/cyan/white, far band grey.
+    if (_ShellTint != 0 && _ShellCount > 1 && (hit || farHit))
+    {
+        float tintLum = dot(color.rgb, float3(0.299, 0.587, 0.114));
+        color.rgb = lerp(color.rgb, (hit ? ShellTintColor(shellAtHit) : float3(0.5, 0.5, 0.5)) * (0.35 + 0.65 * tintLum), 0.6);
+    }
     if (inBounds) ResultTexture[id.xy] = color;
 }
 
@@ -3427,6 +4921,13 @@ void CSMainChecker(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadI
 // TASK 24: compiled with VE_DETAIL_SPEED (the #pragma kernel line above).
 [numthreads(8, 8, 1)]
 void CSMainDetail(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
+{
+    CSMainBody(tid, gtid, false);
+}
+
+// TASK 85b: compiled with VE_FAR_SHADE (the #pragma kernel line above).
+[numthreads(8, 8, 1)]
+void CSMainFarShade(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
 {
     CSMainBody(tid, gtid, false);
 }

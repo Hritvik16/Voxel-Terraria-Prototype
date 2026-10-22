@@ -104,7 +104,7 @@ using VoxelEngine.Memory;
 using VoxelEngine.Mirror;
 using VoxelEngine.Simulation;
 
-public class Playground : MonoBehaviour
+public partial class Playground : MonoBehaviour
 {
     [SerializeField] private ComputeShader _fluidCA;
     [Tooltip("Arena edge in voxels. Power of two -- the CA addresses its region with shifts.")]
@@ -180,6 +180,10 @@ public class Playground : MonoBehaviour
     private FluidGpuSimulation _fluid;
     private FluidTileMap _tiles;
     private FluidOpListReadback _readback;
+    /// Engine step 17 (task 91): the CA ticks at FluidTickScheduler's fixed
+    /// rate (6.5 Hz since task 97), not whenever the pipeline allows. `-fluidhz R` sets R;
+    /// `-fluidhz 0` = the pre-91 decision 11 behaviour (a comparison arm).
+    private FluidTickScheduler _tickSched;
     private EditService _edits;
 
     // ---- Phase 6 systems, all driven from here ----
@@ -188,9 +192,10 @@ public class Playground : MonoBehaviour
     private DestructionReducer _demolition;
     private Buoyancy _buoyancy;
 
-    [Tooltip("§7.2 tile pool cap. 512 tiles x 32^3 cells is the configuration every " +
-             "tiled rig proved; the footprint does not scale with the active radius.")]
-    [SerializeField] private int _tilePoolCap = EngineConfig.FLUID_TILE_POOL_CAPACITY;
+    [Tooltip("§7.2 tile pool cap, 0.5 MiB GPU per tile, allocated up front. Awake fluid " +
+             "only (task 54), so 480 = 240 MiB fits plan §2's ~250 MB (task 55); the " +
+             "footprint does not scale with the active radius.")]
+    [SerializeField] private int _tilePoolCap = EngineConfig.PLAYGROUND_FLUID_TILE_POOL_CAPACITY;
 
     private int _residencyTick;
     private int3 _arenaOrigin, _arenaCentre;
@@ -237,9 +242,57 @@ public class Playground : MonoBehaviour
           "oil", "acid", "toxic sludge", "quicksand", "steam" };
     private int _brush;
 
+    // =====================================================================
+    // SURVIVAL (gameplay step 1, task 64; GAMEPLAY_PHASE_PLAN.md P1-P12)
+    //
+    // Survival: LMB digs into the inventory (SurvivalBuild.Dig), RMB places a
+    // grid-snapped cube of the selected hotbar item (SurvivalBuild.Place), E
+    // opens the 36-slot panel, Q cycles the cube size. Creative: the brushes
+    // above, untouched. ONLY an interactive run can be Survival (the F6 menu's
+    // saved "Game mode", SettingsMenu.LoadAndApply); every rig and capture run
+    // never reads that file and so stays Creative -- Phase6BrushGuard still
+    // drives _brushes by index.
+    // =====================================================================
+    internal static bool SurvivalMode;
+    private bool _demoHideState;          // -survivaldemo: the dev readout panel out of the shots
+    /// The E panel is open: it owns the mouse (PlaygroundFlyCamera releases it).
+    internal static bool InventoryOpen { get; private set; }
+    private Inventory _inv = Inventory.WithStarterKit();
+    private readonly int[] _digScratch = new int[256];
+    private int _edgeIndex = SurvivalBuild.DefaultEdgeIndex;
+    private int _invPick = -1;            // the E panel's first clicked slot
+    private float _placeRepeat;           // RMB held: one cube per PlaceRepeatS
+    private const float PlaceRepeatS = 0.22f;
+    private bool _invDirty;
+    private float _invSaveTimer;
+    private string _invPath;
+    /// Task 93c1: player_pose.json beside player.json (play-start runs only);
+    /// written only once the start pose has settled, so a slow start never
+    /// saves the arena's pose over a good one.
+    private string _posePath;
+    private bool _poseReady;
+    private int _lostTotal;
+
+    internal Inventory DebugInventory => _inv;
+    internal int DebugCubeEdge => SurvivalBuild.CubeEdges[_edgeIndex];
+
     /// Remembers k_soft across the hard/soft toggle so the owner's tuned value
     /// survives an A/B without a file round-trip.
-    private float _savedKSoft = 0.03f;
+    private static float _savedKSoft = 0.03f;
+
+    /// The K key and the settings menu's "Shadow edges" (task 58): hard = k_soft
+    /// 0 in the live config (the file is not written); soft restores the value
+    /// it had. A LightingConfig.json reload brings the file's value back.
+    internal static void SetSoftShadows(bool soft)
+    {
+        if (!soft)
+        {
+            if (LightingConfig.Active.kSoft > 0f) _savedKSoft = LightingConfig.Active.kSoft;
+            LightingConfig.Active.kSoft = 0f;
+        }
+        else if (LightingConfig.Active.kSoft <= 0f)
+            LightingConfig.Active.kSoft = _savedKSoft > 0f ? _savedKSoft : 0.03f;
+    }
 
     // ---- Movement mode ----
     private enum MoveMode { Walk, Fly }
@@ -248,6 +301,12 @@ public class Playground : MonoBehaviour
     // ---- Tools (§8.3 tiers) ----
     private int _tier = 1;                       // hand / drill / bore
     private EditService.ToolBudget _digBudget;
+    // Task 105 (step 10): Survival digs with the held PICK (Tools.cs; gear in
+    // Inventory.pick, Z/X cycle it -- a dev key, P11); Creative keeps the
+    // hand/drill/bore tiers above. _digWork = accrued work not yet spent.
+    private readonly SurvivalBuild.PickTables _pickTables = new SurvivalBuild.PickTables(Tools.StarterPick);
+    private int _digWork;
+    internal SurvivalBuild.PickTables HeldPick { get { _pickTables.Set(_inv.pick); return _pickTables; } }
     private int _dugThisSecond, _dugCounter;
     private float _dugTimer;
 
@@ -300,8 +359,32 @@ public class Playground : MonoBehaviour
         // world's first run lost its preset exactly that way.
         if (!IsCaptureRun()) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Default));
         else if (HasArg("-renderpreset")) RenderPreset.Apply(RenderPreset.FromArgs(RenderPreset.Kind.Quality));
+        // -upscaler / -renderrows (task 47, UpscalerSelect.cs): when asked, in any mode.
+        // Task 52 (owner Q38 (a), 2026-10-10): an INTERACTIVE run that names no
+        // upscaler starts with FSR 3 dynamic, exactly as `-upscaler fsr3 -renderrows dyn`.
+        // -renderpreset / -taa / -checker ask for the old frame path and keep it
+        // (the -fluidprobe rig passes -renderpreset and is not a capture run).
+        // Task 58: an interactive run (not a capture run, not -fluidprobe) takes
+        // the settings menu's saved file instead, flags still winning per field
+        // (SettingsMenu.LoadAndApply, below). Its defaults are exactly fsr3 dyn.
+        bool playSettings = IsPlaySettingsRun();
+        _moveAbilities = playSettings;
+        if (!playSettings)
+        {
+            if (UpscalerSelect.FromArgs(out var upsKind, out int upsRows, out bool upsDyn)) UpscalerSelect.Apply(upsKind, upsRows, upsDyn);
+            else if (!IsCaptureRun() && !HasArg("-renderpreset") && !HasArg("-taa") && !HasArg("-checker"))
+                UpscalerSelect.Apply(UpscalerSelect.Kind.Fsr3, UpscalerSelect.MinRows, true);
+        }
         // The minimap (owner, 2026-09-26: "always in the corner"). F4 hides it.
         if (GetComponent<Minimap>() == null) gameObject.AddComponent<Minimap>();
+        // The graphics settings menu (task 58, F6): upscaler, rows, shadows, overlay, minimap.
+        if (playSettings)
+        {
+            if (GetComponent<SettingsMenu>() == null) gameObject.AddComponent<SettingsMenu>();
+            SettingsMenu.LoadAndApply();
+        }
+        // -seethrough 0|1 (task 75) outside play (capture runs, -fluidprobe): OFF unless asked.
+        else if (TryArgFloat("-seethrough", out float seeArg)) RaymarchFeature.SeeThroughLiquids = seeArg >= 1f;
         // -playshot S (task 32b, run-play.sh SHOT=S): one screenshot of the
         // interactive session S seconds after startup. Not a capture mode --
         // the preset, HUD and controls stay exactly as a player gets them.
@@ -332,7 +415,14 @@ public class Playground : MonoBehaviour
         // §7.4's ACTIVE RADIUS around you, not a region you can stand outside
         // of. _arenaEdge now only sizes the basin search and the HUD's old
         // arena marker; it no longer sizes any allocation.
-        _tiles = new FluidTileMap(ChunkFluidMask.TILE_EDGE, new int3(128, 128, 128), _tilePoolCap);
+        _tiles = new FluidTileMap(ChunkFluidMask.TILE_EDGE, new int3(128, 128, 128), _tilePoolCap)
+        {
+            // ENGINE PLAN STEP 5 (task 54): tiles only for AWAKE fluid. Resting
+            // sea, lakes and supported sand are plain terrain until disturbed
+            // (§7.4 "dormant = zero GPU slots"). "-awakeonly 0" is a MEASUREMENT
+            // SEAM restoring the mask policy (every fluid tile in the radius).
+            AwakeOnly = !(TryArgFloat("-awakeonly", out float awakeOnlyArg) && awakeOnlyArg == 0f),
+        };
         _fluid = new FluidGpuSimulation(_fluidCA,
             new int3(64, 64, 64), _slotCapacity, _maxOpsPerFrame, _tiles)
         {
@@ -344,6 +434,18 @@ public class Playground : MonoBehaviour
             SleepRadiusVoxels = FluidActiveRegion.SleepRadiusFor(_activeRadiusVoxels),
         };
         _readback = new FluidOpListReadback(_fluid, _store) { OnVoxelApplied = MarkDirtyFor };
+        // Task 97 (option B, adaptive drain): a landed batch of <= 4096 ops applies
+        // whole in one frame; bigger ones keep the 1024/frame slicing. `-drainwhole N`
+        // sets the threshold, `-drainwhole 0` = the pre-97 drain (comparison arm).
+        _readback.WholeBatchMaxOps = TryArgFloat("-drainwhole", out float drainWhole) && drainWhole >= 0f
+            ? (int)drainWhole : FluidOpListReadback.WholeBatchMaxOpsDefault;
+        _tickSched = new FluidTickScheduler(TryArgFloat("-fluidhz", out float fluidHz) && fluidHz >= 0f
+            ? fluidHz : FluidTickScheduler.DefaultRateHz);
+        // Task 94 (AMENDMENT_8_16): gravity fall, ON by default; `-fluidfall 0` = the
+        // pre-94 one voxel per tick. The fall integrates over the scheduler's period
+        // (legacy per-frame ticking keeps the nominal 4.5 Hz period).
+        _fluid.GravityFall = !(TryArgFloat("-fluidfall", out float fallArg) && fallArg == 0f);
+        if (!_tickSched.Legacy) _fluid.FallTickSeconds = _tickSched.PeriodSeconds;
 
         // §8.3's edit path, not the hand-rolled trio. EVERY edit in this scene
         // now goes through EditService: it marks the mirror dirty, runs §7.6's
@@ -353,6 +455,8 @@ public class Playground : MonoBehaviour
         _edits = new EditService();
         _edits.AttachWorld(_store, _store, _store, _clipmap);
         _edits.AttachFluidSimulation(_fluid, _store);
+        // An edit op caught up on a chunk that was in flight wakes fluid like any edit (task 82).
+        if (Phase4Bootstrapper.Streamer != null) Phase4Bootstrapper.Streamer.OpCatchUpEdited = _edits.NotifyEditedRegion;
 
         // §6.6's enqueue, on the SAME EditService every other edit in this scene
         // already goes through. A torch is a terrain byte, so placing one is an
@@ -406,9 +510,9 @@ public class Playground : MonoBehaviour
         if (HasArg("-playgroundshots") || HasArg("-gputrace") || HasArg("-p7stress") ||
             HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-sustained") || HasArg("-phase7demo") || HasArg("-roofskipab") ||
-            HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-looksweep") ||
+            HasArg("-upscaleab") || HasArg("-lavalight") || HasArg("-torchshadowshots") || HasArg("-upscalersmoke") || HasArg("-upscalercompare") || HasArg("-upscalerclips") || HasArg("-looksweep") ||
             HasArg("-farvisual") || HasArg("-farpreview") || HasArg("-flyfast") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-nearshimmer") || HasArg("-fluidroster") ||
-            HasArg("-devmap") || HasArg("-taarisk") || HasArg("-fluidprobe") || HasArg("-poolprobe") || HasArg("-streamprobe") || HasArg("-flysweep"))
+            HasArg("-devmap") || HasArg("-taarisk") || HasArg("-fluidprobe") || HasArg("-poolprobe") || HasArg("-streamprobe") || HasArg("-flysweep") || HasArg("-shadowdots"))
         {
             _mode = MoveMode.Fly;
             _showHelp = false;
@@ -419,13 +523,14 @@ public class Playground : MonoBehaviour
         // panel and a hotbar across them defeats the point.
         if (HasArg("-p7stress") || HasArg("-daysweep") || HasArg("-presetshots") ||
             HasArg("-phase7demo") || HasArg("-roofskipab") || HasArg("-upscaleab") ||
-            HasArg("-lavalight") || HasArg("-looksweep") || HasArg("-farvisual") ||
+            HasArg("-lavalight") || HasArg("-torchshadowshots") || HasArg("-upscalersmoke") || HasArg("-upscalercompare") || HasArg("-upscalerclips") || HasArg("-looksweep") || HasArg("-farvisual") ||
             HasArg("-farpreview") || HasArg("-farseams") || HasArg("-lodpop") || HasArg("-farshimmer") || HasArg("-nearshimmer") || HasArg("-fluidroster") || HasArg("-taarisk") || HasArg("-streamprobe") || HasArg("-flysweep")) DebugHideUi = true;
 
         RegisterDefaultToys();
         // The dev map (O). Its own component: it owns the camera and the
         // keyboard while open, and Update/OnGUI below stand aside for it.
         if (GetComponent<DevMap>() == null) gameObject.AddComponent<DevMap>();
+        LoadInventory();
 
         _ready = true;
         TeleportToArena();
@@ -439,19 +544,74 @@ public class Playground : MonoBehaviour
         // start also go to noon with a level camera (the arena's 18 deg
         // look-down under the start-up light was dim). The F key does not.
         if (Phase4Bootstrapper.IsTg2World && !IsCaptureRun()) StartCoroutine(SettleStartPose(HasArg("-startview")));
+        // -survivaldemo (task 64): the step-1 screenshots, through the real dig/place paths, then quit.
+        if (!IsCaptureRun() && HasArg("-survivaldemo")) StartCoroutine(SurvivalDemo());
+        // -strokedemo (task 93a1): BLD1's drag-line screenshots, then quit.
+        if (!IsCaptureRun() && HasArg("-strokedemo")) StartCoroutine(StrokeDemo());
+        // -pulldemo (task 93b1): BLD2's face-pull screenshots, then quit.
+        if (!IsCaptureRun() && HasArg("-pulldemo")) StartCoroutine(PullDemo());
+        // -movedemo (task 65): movement set A's screenshots (dive, double jump over a gap), then quit.
+        if (!IsCaptureRun() && HasArg("-movedemo")) StartCoroutine(MoveDemo());
+        // -vitalsdemo (task 93d1): health / fall / air / lava / soft death screenshots, then quit.
+        if (!IsCaptureRun() && HasArg("-vitalsdemo")) StartCoroutine(VitalsDemo());
+        // -reactiondemo (task 93e1): RX1's four adjacency pairs in marble trays, one shot each, then quit.
+        if (!IsCaptureRun() && HasArg("-reactiondemo")) StartCoroutine(ReactionDemo());
+        // -climbdemo (task 93f1): step 5's wall climb, 50 deg slide, ice pillar shots, then quit.
+        if (!IsCaptureRun() && HasArg("-climbdemo")) StartCoroutine(ClimbDemo());
+        // -glidedemo (task 93g1): step 6's summit glide shots (vitals on: the landing must not hurt), then quit.
+        if (!IsCaptureRun() && HasArg("-glidedemo")) StartCoroutine(GlideDemo());
+        // -grappledemo (task 100): step 7's hook shots (aim, reel, hooked on a sheer face, swing), then quit.
+        if (!IsCaptureRun() && HasArg("-grappledemo")) StartCoroutine(GrappleDemo());
+        // -walldemo (task 103): step 8's wall-run, wall-jump and chimney shots, then quit.
+        if (!IsCaptureRun() && HasArg("-walldemo")) StartCoroutine(WallDemo());
+        // Task 93d1: the older demos keep their shots damage-free; -vitals 0 turns damage off in play.
+        _vitalsAllowed = !(TryArgFloat("-vitals", out float vitArg) && vitArg < 1f) &&
+                         !(HasArg("-survivaldemo") || HasArg("-strokedemo") || HasArg("-pulldemo") || HasArg("-movedemo") ||
+                           HasArg("-oredemo") || HasArg("-riverdemo") || HasArg("-liquiddemo") || HasArg("-farop") || HasArg("-farwall") ||
+                           HasArg("-reactiondemo") || HasArg("-climbdemo") || HasArg("-walldemo") || HasArg("-shellsdemo") ||
+                           HasArg("-tooldemo"));
+        // -oredemo (task 66): ore screenshots (a tunnel wall, the hotbar, the dev map's close slice), then quit.
+        if (!IsCaptureRun() && HasArg("-oredemo")) StartCoroutine(OreDemo());
+        // -tooldemo (task 105): step 10's pick shots (iron vein: copper refused, gold digs it), then quit.
+        if (!IsCaptureRun() && HasArg("-tooldemo")) StartCoroutine(ToolDemo());
+        // -riverdemo (task 73): river/lake/waterfall/mouth screenshots for RIVERS_WATERFALLS_PLAN.md, then quit.
+        // -riverlook 0|1 (task 76's river look; play: PlaySettings.riverLook, on) outside play: OFF unless asked.
+        if (!playSettings && TryArgFloat("-riverlook", out float rlArg)) RaymarchFeature.RiverLook = rlArg >= 1f;
+        if (!IsCaptureRun() && HasArg("-riverdemo")) StartCoroutine(RiverDemo());
+        // -liquiddemo (task 75): see-through liquids off/on -- test pools of each fluid and a tg2 lake near/mid/far, then quit.
+        if (!IsCaptureRun() && HasArg("-liquiddemo")) StartCoroutine(LiquidDemo());
+        // -farop (task 81): a 20 m crater recorded as an edit op ~300 m out at start-up, shot through the shells, then quit.
+        if (!IsCaptureRun() && HasArg("-farop")) StartCoroutine(FarOpDemo());
+        // -farwall (task 93a): a SetVoxel tower ~100 m out, edit summaries off then on, shot through the shells, then quit.
+        if (!IsCaptureRun() && HasArg("-farwall")) StartCoroutine(FarWallDemo());
+        // -shellsdemo (task 93c): play stills at 3 poses + 93a's far ridge, shells as this run has them (OFF / ON), then quit.
+        if (!IsCaptureRun() && HasArg("-shellsdemo")) StartCoroutine(ShellsDemo());
     }
 
     /// For overlays (Minimap) that must stay out of capture frames.
     internal static bool IsCaptureRunForUi => IsCaptureRun();
+
+    /// Task 58: the runs that read PlaySettings.json. Every run-*.sh that
+    /// launches the Playground passes a capture flag except run-play.sh,
+    /// run-demo.sh (both interactive) and run-tg2world.sh MODE=fluidprobe
+    /// (-fluidprobe is a rig but deliberately not a capture run), excluded here.
+    internal static bool IsPlaySettingsRun() => !IsCaptureRun() && !HasArg("-fluidprobe");
+
+    /// Task 93c1 (gameplay step 4, P21): the runs that start at the play start
+    /// (TerrainGen.PlayStart: the best easy area) and save/resume the player's
+    /// pose: the play-settings runs, unless -playstart 0 (back to Tg2Spawn).
+    internal static bool IsPlayStartRun() => IsPlaySettingsRun() && !(TryArgFloat("-playstart", out float v) && v < 1f);
+    /// Task 98: the start prefers a mild biome's easy area; -playstartmild 0 = 93c1's rule (any biome).
+    internal static bool PlayStartPrefersMild() => !(TryArgFloat("-playstartmild", out float v) && v < 1f);
 
     private static bool IsCaptureRun()
     {
         foreach (string a in Environment.GetCommandLineArgs())
             if (a.StartsWith("-") && (a == "-sustained" || a == "-playgroundshots" || a == "-gputrace" || a == "-p7stress" ||
                 a == "-daysweep" || a == "-presetshots" || a == "-phase7demo" || a == "-roofskipab" || a == "-upscaleab" ||
-                a == "-lavalight" || a == "-looksweep" || a == "-farvisual" || a == "-farpreview" || a == "-flyfast" ||
+                a == "-lavalight" || a == "-torchshadowshots" || a == "-upscalersmoke" || a == "-upscalercompare" || a == "-upscalerclips" || a == "-looksweep" || a == "-farvisual" || a == "-farpreview" || a == "-flyfast" ||
                 a == "-farseams" || a == "-lodpop" || a == "-farshimmer" || a == "-nearshimmer" || a == "-fluidroster" || a == "-devmap" || a == "-taarisk" || a == "-streamprobe" || a == "-flysweep" || a == "-poolprobe" ||
-                a == "-stutterprobe" || a == "-lightingab" || a == "-shadowstats" || a == "-pitchsweep" || a == "-fluidbench"))
+                a == "-stutterprobe" || a == "-lightingab" || a == "-shadowstats" || a == "-pitchsweep" || a == "-fluidbench" || a == "-shadowdots"))
                 return true;
         return false;
     }
@@ -478,6 +638,203 @@ public class Playground : MonoBehaviour
     /// -playshot S: wait S unscaled seconds, write one PNG under
     /// persistentDataPath/PlayShots, log its path. Last match wins (like
     /// PlaygroundCapture's ArgValue).
+    // =====================================================================
+    // -survivaldemo (task 64): gameplay step 1's acceptance screenshots. An
+    // INTERACTIVE run (run-play.sh EXTRA="-gamemode survival -survivaldemo"),
+    // so the HUD is exactly what a player sees. Stands facing the nearest
+    // rising ground with the sun behind, digs into it with SurvivalDig, opens
+    // the E panel, builds a wall of 0.4 m cubes with TrySurvivalPlace beside
+    // the hole, logs the inventory before/after (conservation), and quits.
+    // Shots: persistentDataPath/SurvivalDemo/.
+    // =====================================================================
+    private IEnumerator SurvivalDemo()
+    {
+        float t0 = Time.unscaledTime;
+        while (Time.unscaledTime - t0 < 25f || _player == null || !_player.Ready) yield return null;
+        SetGameMode(true);
+        _showHelp = false;
+        _demoHideState = true;            // the dev readout panel, out of the pictures
+        _mode = MoveMode.Walk;
+        SunCycle.SetHours(SunCycle.NoonHours);
+        VoxelEngine.Rendering.LightingDriver.ClockPaused = true;
+        string dir = System.IO.Path.Combine(Application.persistentDataPath, "SurvivalDemo");
+        System.IO.Directory.CreateDirectory(dir);
+        if (_cam == null && Camera.main != null) _cam = Camera.main.GetComponent<PlaygroundFlyCamera>();
+
+        // 1. A stand: flat dry ground within 60 m with a >= 1 m rise 4-8 m
+        // ahead, heading within 45 deg of straight away from the sun.
+        int3 f = CoordMath.WorldToVoxel(_player.Motor.PositionM);
+        float2 sxz = math.normalizesafe(SunCycle.Direction.xz);
+        float awayYaw = math.degrees(math.atan2(-sxz.x, -sxz.y));
+        float bestScore = float.MinValue, bestYaw = awayYaw, bestD = -1f;
+        int3 bestStand = f;
+        for (int r = 0; r <= 600; r += 30)
+        {
+            for (int dz = -r; dz <= r; dz += 30)
+            for (int dx = -r; dx <= r; dx += 30)
+            {
+                if (math.max(math.abs(dx), math.abs(dz)) != r) continue;
+                int x = f.x + dx, z = f.z + dz, sy = DryTopY(x, z);
+                if (sy < 0) continue;
+                if (math.abs(DryTopY(x + 10, z) - sy) > 2 || math.abs(DryTopY(x - 10, z) - sy) > 2 ||
+                    math.abs(DryTopY(x, z + 10) - sy) > 2 || math.abs(DryTopY(x, z - 10) - sy) > 2) continue;
+                for (int k = -2; k <= 2; k++)
+                {
+                    float yaw = awayYaw + k * 22.5f, yr = math.radians(yaw);
+                    float2 d = new float2(math.sin(yr), math.cos(yr));
+                    for (float dm = 2.5f; dm <= 8f; dm += 0.5f)
+                    {
+                        int h = DryTopY(x + (int)math.round(d.x * dm * 10f), z + (int)math.round(d.y * dm * 10f));
+                        if (h < 0) break;
+                        if (h < sy + 10) { if (math.abs(h - sy) > 6) break; continue; }
+                        if (dm < 4f) break;               // too close: no room for the wall
+                        float score = -math.abs(dm - 5.5f) - 0.02f * r * 0.1f - 0.5f * math.abs(k);
+                        if (score > bestScore) { bestScore = score; bestYaw = yaw; bestD = dm; bestStand = new int3(x, sy, z); }
+                        break;
+                    }
+                }
+            }
+            yield return null;
+        }
+        if (bestD < 0f) { bestD = 5f; bestStand = new int3(f.x, math.max(DryTopY(f.x, f.z), f.y - 1), f.z); }
+        _player.Motor.Teleport(new float3(bestStand.x * 0.1f + 0.05f, (bestStand.y + 1) * 0.1f + 0.02f, bestStand.z * 0.1f + 0.05f));
+        _player.Motor.ResolveSpawn();
+        float br = math.radians(bestYaw);
+        float2 fwd = new float2(math.sin(br), math.cos(br));
+        _cam?.SetLook(bestYaw, 6f);
+        for (int i = 0; i < 90; i++) yield return null;
+        Debug.Log($"[SurvivalDemo] stand {bestStand} top {Items.Name(_store.GetVoxel(bestStand))}, yaw {bestYaw:F0} (away from sun {awayYaw:F0}), rise at {bestD:F1} m; {EyeReport()}");
+
+        // 2. Dig a pit in the ground to the left (the surface layers), then a
+        // doorway into the hillside: a 3 x 3 grid of aims, deep enough to pass
+        // the soil into rock. Bore-sized bites (r 3).
+        int invBefore = InventoryTotal();
+        int removed = 0, credited = 0, lost = 0;
+        for (int a = 0; a < 6; a++)
+        {
+            _cam?.SetLook(bestYaw - 50f - (a & 1) * 12f, 50f + (a >> 1) * 6f);
+            for (int k = 0; k < 16; k++)
+            {
+                yield return null;
+                if (!_hasTarget || _targetDistM > 5f) continue;
+                var r = SurvivalDig(_targetVoxel, 3, 150);
+                removed += r.Removed; credited += r.Credited; lost += r.Lost;
+            }
+        }
+        byte hillFace = Materials.Air;
+        float aimPitch = math.degrees(math.atan2(1.6f - 0.5f, bestD));   // eye to ~0.5 m up the face
+        for (int py = 0; py < 3; py++)
+        for (int px = -1; px <= 1; px++)
+        {
+            _cam?.SetLook(bestYaw + px * 5f, aimPitch - py * 5f);
+            for (int k = 0; k < 16; k++)
+            {
+                yield return null;
+                if (!_hasTarget || _targetDistM > bestD + 4f) continue;
+                if (hillFace == Materials.Air) hillFace = _targetMaterial;
+                var r = SurvivalDig(_targetVoxel, 3, 150);
+                removed += r.Removed; credited += r.Credited; lost += r.Lost;
+            }
+        }
+        _cam?.SetLook(bestYaw, 8f);
+        for (int i = 0; i < 30; i++) yield return null;
+        Debug.Log($"[SurvivalDemo] dug {removed} voxels: credited {credited}, lost {lost}, inventory {invBefore} -> {InventoryTotal()} " +
+                  $"(delta {InventoryTotal() - invBefore}); {InventoryLine()}");
+
+        // Hold the plentiful block whose colour differs most from the hillside
+        // behind the wall (so the wall reads in the picture).
+        var ground = MaterialPalette.Of(hillFace != Materials.Air ? hillFace : _store.GetVoxel(bestStand));
+        int bestSlot = -1;
+        float bestPick = float.MinValue;
+        for (int i = 0; i < Inventory.SlotCount; i++)
+        {
+            if (_inv.IsEmpty(i) || Items.PlacesSingleVoxel(_inv.ItemAt(i)) || _inv.CountAt(i) < 1600) continue;
+            var c = MaterialPalette.Of(_inv.ItemAt(i));
+            float diff = math.abs(c.R - ground.R) + math.abs(c.G - ground.G) + math.abs(c.B - ground.B);
+            if (diff > bestPick) { bestPick = diff; bestSlot = i; }
+        }
+        if (bestSlot < 0)
+            for (int i = 0; i < Inventory.SlotCount; i++)
+                if (!_inv.IsEmpty(i) && !Items.PlacesSingleVoxel(_inv.ItemAt(i)) && (bestSlot < 0 || _inv.CountAt(i) > _inv.CountAt(bestSlot))) bestSlot = i;
+        Debug.Log($"[SurvivalDemo] hill face {Items.Name(hillFace)}; wall block {(bestSlot >= 0 ? Items.Name(_inv.ItemAt(bestSlot)) : "none")}");
+        if (bestSlot >= Inventory.HotbarSize) { _inv.Swap(bestSlot, 1); bestSlot = 1; }
+        if (bestSlot >= 0) SelectSlot(bestSlot);
+        yield return DemoShot(dir, "1_hotbar_after_dig");
+
+        // 3. The E panel.
+        InventoryOpen = true;
+        for (int i = 0; i < 4; i++) yield return null;
+        yield return DemoShot(dir, "2_inventory_panel");
+        CloseInventory();
+
+        // 4. A wall of 0.4 m cubes beside the doorway: 6 wide x 4 high, across
+        // the view, 2.2 m ahead, from 0.6 m to 3.0 m right.
+        _edgeIndex = SurvivalBuild.DefaultEdgeIndex;
+        int e = SurvivalBuild.CubeEdges[_edgeIndex];
+        bool alongX = math.abs(fwd.y) >= math.abs(fwd.x);
+        float2 right = new float2(fwd.y, -fwd.x);
+        int3 step = alongX ? new int3(right.x >= 0 ? e : -e, 0, 0) : new int3(0, 0, right.y >= 0 ? e : -e);
+        int3 me = CoordMath.WorldToVoxel(_player.Motor.PositionM);
+        int3 start = me + new int3((int)math.round(fwd.x * 22f + right.x * 6f), 0, (int)math.round(fwd.y * 22f + right.y * 6f));
+        int invMid = InventoryTotal(), placed = 0, cubes = 0, refusedN = 0;
+        for (int i = 0; i < 6; i++)
+        {
+            int3 c = start + step * i;
+            int gy = DryTopY(c.x, c.z);
+            if (gy < 0) continue;
+            for (int j = 0; j < 4; j++)
+            {
+                var r = TrySurvivalPlace(new int3(c.x, gy + 1 + j * e, c.z));
+                if (r.Outcome == SurvivalBuild.PlaceOutcome.Placed) { placed += r.Placed; cubes++; }
+                else refusedN++;
+                yield return null;
+            }
+        }
+        Debug.Log($"[SurvivalDemo] wall: {cubes} cubes, {placed} voxels placed, {refusedN} not placed; inventory {invMid} -> {InventoryTotal()} " +
+                  $"(delta {InventoryTotal() - invMid}, conservation {(invMid - InventoryTotal() == placed ? "OK" : "BROKEN")}); {InventoryLine()}");
+
+        // 5. Back up 1.5 m and look between the doorway and the wall.
+        float3 p = _player.Motor.PositionM - new float3(fwd.x, 0f, fwd.y) * 1.5f;
+        int3 pv = CoordMath.WorldToVoxel(p);
+        int py2 = DryTopY(pv.x, pv.z);
+        if (py2 >= 0)
+        {
+            _player.Motor.Teleport(new float3(p.x, (py2 + 1) * 0.1f + 0.02f, p.z));
+            _player.Motor.ResolveSpawn();
+        }
+        _cam?.SetLook(bestYaw + 14f, 12f);
+        for (int i = 0; i < 60; i++) yield return null;
+        yield return DemoShot(dir, "3_wall_beside_hole");
+        SaveInventory();
+        Debug.Log("[SurvivalDemo] done");
+        Application.Quit();
+    }
+
+    private IEnumerator DemoShot(string dir, string name)
+    {
+        yield return new WaitForEndOfFrame();
+        string path = System.IO.Path.Combine(dir, name + ".png");
+        Texture2D tex = ScreenCapture.CaptureScreenshotAsTexture();
+        System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+        Destroy(tex);
+        Debug.Log($"[SurvivalDemo] shot {path}  {EyeReport()}, clock {SunCycle.ClockString()}");
+    }
+
+    private int InventoryTotal()
+    {
+        int n = 0;
+        for (int i = 0; i < Inventory.SlotCount; i++) n += _inv.CountAt(i);
+        return n;
+    }
+
+    private string InventoryLine()
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < Inventory.SlotCount; i++)
+            if (!_inv.IsEmpty(i)) sb.Append($"[{i}] {Items.Name(_inv.ItemAt(i))} {_inv.CountAt(i)}  ");
+        return sb.ToString();
+    }
+
     private IEnumerator PlayShot()
     {
         string[] a = Environment.GetCommandLineArgs();
@@ -486,6 +843,7 @@ public class Playground : MonoBehaviour
             if (a[i] == "-playshot" && float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float,
                                                       System.Globalization.CultureInfo.InvariantCulture, out float p)) s = p;
         if (s < 0f) yield break;
+        if (HasArg("-playshotquit")) _showHelp = false;   // an unattended shot: the terrain, not the F2 panel
         float t0 = Time.unscaledTime;
         while (Time.unscaledTime - t0 < s) yield return null;
         yield return new WaitForEndOfFrame();
@@ -497,6 +855,8 @@ public class Playground : MonoBehaviour
         Destroy(tex);
         // What the eye is in (a black frame at the start pose: task 32b).
         Debug.Log($"[Playground] -playshot: {path}  {EyeReport()}, t {Time.unscaledTime:F1} s, clock {SunCycle.ClockString()}, day {SunCycle.DayLengthSeconds:F0} s");
+        // -playshotquit (task 93c1): quit after the shot (one start frame per seed, unattended).
+        if (HasArg("-playshotquit")) Application.Quit();
     }
 
     private string EyeReport()
@@ -514,11 +874,25 @@ public class Playground : MonoBehaviour
     /// topmost non-air voxel in the loaded band is SOLID (not fluid), every
     /// chunk above it resident, so the eye is in open air. Waits while the
     /// columns are still streaming in.
-    private IEnumerator SettleStartPose(bool startView = false)
+    ///
+    /// Task 93c1 (gameplay step 4): when the session started at the play
+    /// start (the best easy area), the search starts THERE, not at the arena;
+    /// a KEEP=1 resume stands exactly at the saved pose instead (no search).
+    /// `walk`: switch to walk mode before standing (R's respawn waits in fly).
+    /// `fromCamera`: search from where the camera is (F: the arena), not the start.
+    private IEnumerator SettleStartPose(bool startView = false, bool walk = false, bool fromCamera = false)
     {
         Camera cam = Camera.main;
         if (cam == null) yield break;
-        Vector3 a = cam.transform.position;
+        var resume = Phase4Bootstrapper.PlayResume;
+        if (resume != null && !walk && !fromCamera)
+        {
+            Phase4Bootstrapper.ClearPlayResume();   // once: F and R go to the start from here on
+            yield return ResumePose(resume, startView);
+            yield break;
+        }
+        bool atStart = Phase4Bootstrapper.PlayStartActive && !fromCamera;
+        Vector3 a = atStart ? Phase4Bootstrapper.PlayStartM : cam.transform.position;
         int3 from = CoordMath.WorldToVoxel(new float3(a.x, a.y, a.z));
         string before = EyeReport();
         int3 col = default;
@@ -540,9 +914,11 @@ public class Playground : MonoBehaviour
             if (_cam != null) _cam.SetLook(yaw, 0f);
             else cam.transform.rotation = Quaternion.Euler(0f, yaw, 0f);
         }
+        if (walk) _mode = MoveMode.Walk;
         if (_mode == MoveMode.Walk) SnapPlayerToCamera();
-        _status = "standing on dry ground near the fluid arena";
-        Debug.Log($"[Playground] start pose: arena {before}; basin {_arenaCentre} under fluid: {basinWet}; " +
+        _poseReady = true;
+        _status = atStart ? "standing at the start (the best easy area)" : "standing on dry ground near the fluid arena";
+        Debug.Log($"[Playground] start pose: {(atStart ? "play start (easy area)" : "arena")} {before}; basin {_arenaCentre} under fluid: {basinWet}; " +
                   $"moved to dry column ({col.x}, {col.z}) top {col.y} {MaterialName(_store.GetVoxel(col))} -> {EyeReport()}" +
                   (startView ? $"; -startview: noon, level look (yaw {cam.transform.rotation.eulerAngles.y:F0}) at t {Time.unscaledTime:F1} s" : "") +
                   $"; day {SunCycle.DayLengthSeconds:F0} s");
@@ -622,8 +998,9 @@ public class Playground : MonoBehaviour
         Register(new Toy(KeyCode.Alpha0, "stop vents", () =>
             { _waterLeft = _sandLeft = _lavaLeft = _otherLeft = 0; _status = "vents closed"; }));
         Register(new Toy(KeyCode.F, "go to arena", () =>
-            { TeleportToArena(); if (Phase4Bootstrapper.IsTg2World) StartCoroutine(SettleStartPose()); }));
-        Register(new Toy(KeyCode.R, "respawn on ground", Respawn));
+            { if (HookKeysActive) return;   // task 100: F is the grappling hook in play's walk mode
+              TeleportToArena(); if (Phase4Bootstrapper.IsTg2World) StartCoroutine(SettleStartPose(fromCamera: true)); }));
+        Register(new Toy(KeyCode.R, "respawn (play: back to the start)", Respawn));
         Register(new Toy(KeyCode.B, "bomb", DetonateAtTarget));
         Register(new Toy(KeyCode.G, "CHAOS BURST", StartChaosBurst));
         Register(new Toy(KeyCode.T, "shoot", ShootProjectile));
@@ -639,13 +1016,17 @@ public class Playground : MonoBehaviour
                       (next == RenderPreset.Kind.Quality ? ", nearest blit)" : ", FSR to the screen)") +
                       (RaymarchFeature.TemporalShadows ? " -- temporal shadows ON" : "");
         }));
-        // TAA (overnight task 06): OFF by default; `-taa 1` starts with it on.
+        // TAA (overnight task 06): OFF on the preset path; `-taa 1` starts with it on.
+        // Under the FSR 3 / STP default (task 52) their own resolve replaces ours,
+        // so the toggle has no visible effect until F3 hands the frame back.
         Register(new Toy(KeyCode.F4, "TAA on/off", () =>
         {
             RaymarchFeature.Taa = !RaymarchFeature.Taa;
             _status = RaymarchFeature.Taa
                 ? $"TAA ON (jitter {RaymarchFeature.TaaJitterCycle}-frame Halton, sharpen {RaymarchFeature.TaaSharpenAmount:F2}) -- F4 to compare"
                 : "TAA OFF -- F4 to compare";
+            if (RaymarchFeature.UpscaleInputs != RaymarchFeature.UpscalerInputMode.Off)
+                _status += $" (no visible effect: {UpscalerSelect.Name(UpscalerSelect.Current)} resolves the frame; F3 for the presets)";
         }));
         // Detail radius at speed (overnight task 24): OFF by default; `-detailspeed 1` starts with it on.
         Register(new Toy(KeyCode.F5, "voxel detail radius at speed on/off", () =>
@@ -690,14 +1071,13 @@ public class Playground : MonoBehaviour
             // it instantly and still have their tuned number to come back to.
             if (LightingConfig.Active.kSoft > 0f)
             {
-                _savedKSoft = LightingConfig.Active.kSoft;
-                LightingConfig.Active.kSoft = 0f;
+                SetSoftShadows(false);
                 _status = "HARD shadows (k_soft = 0). Press K again to restore " +
                           $"k_soft = {_savedKSoft:F3} from LightingConfig.json.";
             }
             else
             {
-                LightingConfig.Active.kSoft = _savedKSoft > 0f ? _savedKSoft : 0.03f;
+                SetSoftShadows(true);
                 _status = $"SOFT shadows (C.10, k_soft = {LightingConfig.Active.kSoft:F3})";
             }
         }));
@@ -792,6 +1172,7 @@ public class Playground : MonoBehaviour
     private void Respawn()
     {
         if (_player == null || _player.Motor == null) return;
+        if (Phase4Bootstrapper.PlayStartActive) { StartCoroutine(RespawnAtPlayStart()); return; }
         int3 c = CameraVoxel();
         int sy = SurfaceY(c.x, c.z);
         if (sy < 0) { _status = "no ground under you to respawn onto"; return; }
@@ -801,11 +1182,71 @@ public class Playground : MonoBehaviour
         _status = "respawned on the surface";
     }
 
+    /// Task 93c1: R in play goes back to the play start. Fly mode while the
+    /// start streams in (the camera holds the window there; a walking player
+    /// would pull it back), then the start pose's dry-column search, in walk.
+    private IEnumerator RespawnAtPlayStart()
+    {
+        Camera cam = Camera.main;
+        if (cam == null) yield break;
+        _mode = MoveMode.Fly;
+        cam.transform.position = Phase4Bootstrapper.PlayStartM;
+        _status = "back to the start ...";
+        yield return SettleStartPose(false, walk: true);
+    }
+
+    /// KEEP=1: stand at the saved pose once its chunk and the one under it are
+    /// resident (the window was primed there at start-up), look as saved.
+    private IEnumerator ResumePose(PlayerPose p, bool startView)
+    {
+        Camera cam = Camera.main;
+        int3 feet = CoordMath.WorldToVoxel(new float3(p.x, p.y, p.z));
+        for (int f = 0; f < 900 && !(_store.IsResident(CoordMath.VoxelToChunk(feet)) &&
+                                     _store.IsResident(CoordMath.VoxelToChunk(feet - new int3(0, EngineConfig.CHUNK_EDGE_VOXELS, 0)))); f++)
+            yield return null;
+        if (startView) SunCycle.SetHours(SunCycle.NoonHours);
+        cam.transform.position = new Vector3(p.x, p.y + 1.6f, p.z);
+        if (_cam == null) _cam = cam.GetComponent<PlaygroundFlyCamera>();
+        if (_cam != null) _cam.SetLook(p.yaw, p.pitch);
+        else cam.transform.rotation = Quaternion.Euler(p.pitch, p.yaw, 0f);
+        _mode = p.walk && _player != null ? MoveMode.Walk : MoveMode.Fly;
+        if (_mode == MoveMode.Walk) SnapPlayerToCamera();
+        _poseReady = true;
+        _status = "resumed where you left off (KEEP=1)";
+        Debug.Log($"[Playground] start pose: resumed saved pose {p.x:F1},{p.y:F1},{p.z:F1} m yaw {p.yaw:F0} -> {EyeReport()}");
+    }
+
     private void CycleTier(int d)
     {
+        if (SurvivalMode) { SetPick((int)Mathf.Repeat(_inv.pick + d, Tools.Picks.Length)); return; }
         _tier = (int)Mathf.Repeat(_tier + d, EditService.Tiers.Length);
         var t = EditService.Tiers[_tier];
         _status = $"tool: {t.Name} — {t.VoxelsPerSecond} vox/s, radius {t.RadiusVoxels}";
+    }
+
+    /// Survival's held pick (task 105). Crafting (step 11) will hand out picks;
+    /// until then Z/X switch them (a dev key, P11).
+    internal void SetPick(int index)
+    {
+        _inv.pick = Tools.ClampPick(index);
+        _invDirty = true;
+        _digWork = 0;
+        var p = HeldPick.Pick;
+        _status = $"pick: {p.Name} (tier {p.Tier}) -- {p.VoxelsPerSecond} vox/s on soil, radius {p.RadiusVoxels}; digs {PickReach(p.Tier)}";
+    }
+
+    /// The hardest ores a pick of `tier` digs, for the status line.
+    private static string PickReach(int tier)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (byte code in new[] { Tools.CopperOreCode, Tools.GoldOreCode, Tools.IronOreCode, Tools.CobaltOreCode, Tools.EmberstoneCode })
+        {
+            byte m = Materials.FromTg2(code);
+            if (Tools.TooHard(m, tier)) continue;
+            if (sb.Length > 0) sb.Append(", ");
+            sb.Append(Items.Name(m));
+        }
+        return sb.Length > 0 ? sb.ToString() : "no ore";
     }
 
     private void SetBrush(int i)
@@ -994,6 +1435,8 @@ public class Playground : MonoBehaviour
         if (m == Materials.Sludge) return "toxic sludge";
         if (m == Materials.Quicksand) return "quicksand";
         if (m == Materials.Steam) return "steam";
+        if (m == Materials.CooledStone) return "cooled stone";
+        if (m == Materials.Glass) return "glass";
         return $"id {m}";
     }
 
@@ -1058,6 +1501,7 @@ public class Playground : MonoBehaviour
         if (!_ready) return;
         if (_cam == null && Camera.main != null) _cam = Camera.main.GetComponent<PlaygroundFlyCamera>();
         RenderPreset.Tick();
+        UpscalerSelect.Tick();
 
         float dt = Time.deltaTime;
         _actAge += dt;
@@ -1072,15 +1516,33 @@ public class Playground : MonoBehaviour
         {
             if (Input.GetKeyDown(KeyCode.O) || Input.GetKeyDown(KeyCode.Escape)) DevMap.Toggle();
         }
+        else if (SettingsMenu.IsOpen)
+        {
+            // THE SETTINGS MENU (F6) OWNS THE MOUSE AND KEYS WHILE OPEN, like the
+            // dev map: its buttons must not dig, and its keys must not walk.
+            InventoryOpen = false;
+        }
+        else if (InventoryOpen)
+        {
+            // THE E PANEL OWNS THE MOUSE TOO (its slots are clicked); E or Esc closes.
+            if (!SurvivalMode || Input.GetKeyDown(KeyCode.E) || Input.GetKeyDown(KeyCode.Escape)) CloseInventory();
+        }
         else
         {
             UpdateTarget();
             foreach (var t in _toys) if (Input.GetKeyDown(t.Key)) t.Run();
             HandleTimeScrub(dt);
             HandleHotbarKeys();
-            HandleMouse(dt);
-            DriveWalk(dt);
+            HandleSurvivalKeys();
+            // Task 93d1: a dead body (soft death screen) neither digs nor walks.
+            if (!VitalsDead)
+            {
+                HandleMouse(dt);
+                DriveWalk(dt);
+            }
         }
+        TickDeath(dt);
+        TickInventorySave(dt);
 
         StepChaosBurst();
 
@@ -1136,7 +1598,7 @@ public class Playground : MonoBehaviour
         // NOT the same thing as "no fluid cost".
         if (!DebugSuspendFluidSim)
         {
-            if (_readback.CanIssue)
+            if (_tickSched.ShouldIssue(Time.unscaledTimeAsDouble, _readback.CanIssue))
             {
                 _fluid.Tick(_clipmap);
                 _readback.IssueReadback(0);
@@ -1154,6 +1616,8 @@ public class Playground : MonoBehaviour
 
     /// Decision 11's diagnosis: the readback whose counters split a tick's period.
     internal FluidOpListReadback DebugReadback => _readback;
+    /// Task 91: the fixed-rate scheduler (rate, issued, missed = shortfall).
+    internal FluidTickScheduler DebugTickScheduler => _tickSched;
 
     /// MEASUREMENT SEAM, NOT A CONFIGURATION -- the same standing this file's
     /// own header gives DebugSuspendFluidSim.
@@ -1241,8 +1705,48 @@ public class Playground : MonoBehaviour
 
     private void HandleHotbarKeys()
     {
+        if (SurvivalMode)
+        {
+            for (int i = 0; i < Inventory.HotbarSize; i++)
+                if (Input.GetKeyDown(KeyCode.Alpha1 + i)) SelectSlot(i);
+            return;
+        }
         for (int i = 0; i < _brushes.Length && i < 9; i++)
             if (Input.GetKeyDown(KeyCode.Alpha1 + i)) SetBrush(i);
+    }
+
+    /// E and Q, Survival and WALK only: in fly mode they stay the flycam's
+    /// up/down (a dev mode, pick P11), so flying never opens the panel.
+    private void HandleSurvivalKeys()
+    {
+        if (!SurvivalMode || _mode != MoveMode.Walk) return;
+        if (Input.GetKeyDown(KeyCode.E)) { InventoryOpen = true; _invPick = -1; }
+        if (Input.GetKeyDown(KeyCode.Q))
+        {
+            _edgeIndex = (_edgeIndex + 1) % SurvivalBuild.CubeEdges.Length;
+            int e = SurvivalBuild.CubeEdges[_edgeIndex];
+            _status = $"place size {e} voxel{(e > 1 ? "s" : "")} = {e * 0.1f:0.0} m cube";
+        }
+    }
+
+    private void SelectSlot(int i)
+    {
+        _inv.Selected = i;
+        _status = _inv.IsEmpty(_inv.Selected) ? $"slot {_inv.Selected + 1}: empty"
+            : $"holding {Items.Name(_inv.ItemAt(_inv.Selected))} x{_inv.CountAt(_inv.Selected):N0}";
+    }
+
+    private void CloseInventory()
+    {
+        InventoryOpen = false;
+        _invPick = -1;
+    }
+
+    /// Called by the settings menu (F6 "Game mode") and LoadAndApply.
+    internal static void SetGameMode(bool survival)
+    {
+        SurvivalMode = survival;
+        if (!survival) InventoryOpen = false;
     }
 
     /// Walks the player, then lets §8.6's buoyancy act on the result.
@@ -1265,11 +1769,34 @@ public class Playground : MonoBehaviour
         float sin = math.sin(r), cos = math.cos(r);
         float2 world = new float2(wish.x * cos + wish.y * sin, wish.y * cos - wish.x * sin);
 
-        bool jump = (_cam == null || _cam.Captured) && Input.GetKeyDown(KeyCode.Space);
-        _player.DebugStep(dt, world, jump);
+        bool keys = _cam == null || _cam.Captured;
+        bool jump = keys && Input.GetKeyDown(KeyCode.Space);
+        if (!_moveAbilities) _player.DebugStep(dt, world, jump);
+        else
+        {
+            // Movement set A (task 65): swim/dive, double jump, dash. Interactive
+            // runs only; rigs and captures keep the legacy step above.
+            var input = MotorInput.FromLook(wish, yaw, _cam != null ? _cam.Pitch : 0f);
+            input.JumpPressed = jump;
+            input.UpHeld = keys && Input.GetKey(KeyCode.Space);
+            input.DownHeld = keys && Input.GetKey(KeyCode.LeftControl);
+            input.DashPressed = keys && Input.GetKeyDown(KeyCode.LeftShift);
+            ReadHookInput(ref input, keys);   // task 100: F / middle mouse = grappling hook
+            // -movedemo: scripted input; and the frame after a screenshot (a
+            // PNG encode, often 0.3 s) is not allowed to bend the trajectory.
+            if (_demoInput.HasValue) { input = _demoInput.Value; dt = math.min(dt, 1f / 30f); }
+            _demoInput = null;
+            _player.DebugStep(dt, input);
+        }
 
         ApplyBuoyancy(dt);
+        TickVitals(dt);   // task 93d1: health, air, damage (interactive Survival only)
     }
+
+    /// Movement set A on (interactive runs). Set in Start.
+    private bool _moveAbilities;
+    /// -movedemo: one frame of scripted input, consumed by the next DriveWalk.
+    private MotorInput? _demoInput;
 
     /// SWIMMING, COMPOSED IN THE GAME LAYER. See header note 4.
     ///
@@ -1287,6 +1814,9 @@ public class Playground : MonoBehaviour
                                       PlayerConfig.Active.maxSpeedMps,
                                       _readback != null ? _readback.FramesSinceLastApplied : 0);
         if (!_buoyState.InFluid) return;
+        // A swimming motor (movement set A) already moves at the fluid's own
+        // swim speed; the game-layer forces below are for wading and sinking.
+        if (motor.Swimming || motor.SwimLockS > 0f) return;
 
         motor.VelocityMps.y += _buoyState.BuoyantAccelMps2 * dt;
 
@@ -1300,13 +1830,19 @@ public class Playground : MonoBehaviour
     /// click that re-focuses the window cannot also dig a hole.
     private void HandleMouse(float dt)
     {
-        if (_cam == null || !_cam.Captured) return;
+        if (_cam == null || !_cam.Captured) { if (!_strokeDemoOwns) CancelStroke(); return; }
 
         float scroll = Input.mouseScrollDelta.y;
         if (Mathf.Abs(scroll) > 0.01f)
-            SetBrush((int)Mathf.Repeat(_brush + (scroll > 0 ? 1 : -1), _brushes.Length));
+        {
+            if (SurvivalMode) SelectSlot(_inv.Selected + (scroll > 0 ? 1 : -1));
+            else SetBrush((int)Mathf.Repeat(_brush + (scroll > 0 ? 1 : -1), _brushes.Length));
+        }
 
+        if (!Input.GetMouseButton(1)) _placeRepeat = 0f;
+        if (SurvivalMode && HandleStrokeMouse(dt)) return;   // BLD1: a drag stroke owns the mouse
         if (!_hasTarget) return;
+        if (SurvivalMode) { HandleSurvivalMouse(dt); return; }
 
         if (Input.GetMouseButton(0))          // held: dig at the tool's own rate
         {
@@ -1327,6 +1863,212 @@ public class Playground : MonoBehaviour
             TryPaintBrush(_targetAdjacent);
         }
     }
+
+    /// Survival's LMB / RMB. Dig: the tool tier's rate and radius, as Creative,
+    /// but every voxel lands in the inventory, until a drag turns it into a dig
+    /// stroke (Playground.Stroke.cs). Place: a cube block is a drag stroke
+    /// (BLD1) and never reaches here; a single-voxel item (torch) places one
+    /// per click, and one per PlaceRepeatS while RMB is held.
+    private void HandleSurvivalMouse(float dt)
+    {
+        if (Input.GetMouseButton(0))
+        {
+            SurvivalPickDig(_targetVoxel, dt);
+        }
+        else if (Input.GetMouseButton(1))
+        {
+            _placeRepeat -= dt;
+            if (_placeRepeat > 0f) return;
+            _placeRepeat = PlaceRepeatS;
+            TrySurvivalPlace(_targetAdjacent);
+        }
+    }
+
+    /// LMB held in Survival (task 105): the held pick's rate accrues into
+    /// _digWork, each voxel pays Tools.Cost; an aimed voxel too hard for the
+    /// pick is REFUSED (status line + the dig box's REFUSED), nothing dug.
+    /// Internal so -tooldemo drives the real path.
+    internal SurvivalBuild.DigResult SurvivalPickDig(int3 at, float dt)
+    {
+        var pick = HeldPick;
+        _digWork += _digBudget.Accrue(dt, pick.Pick.VoxelsPerSecond);
+        var r = SurvivalBuild.DigWithPick(_edits, _store, _inv, at, pick, ref _digWork, _digScratch);
+        if (r.Refused)
+        {
+            int need = Tools.WeakestPickFor(r.RefusedMaterial);
+            PlaceRefused($"TOO HARD: {Items.Name(r.RefusedMaterial)} needs " +
+                   (need < 0 ? "a pick that does not exist (nothing digs it)"
+                             : $"a {Tools.Picks[need].Name} (tier {Tools.Picks[need].Tier}) -- you hold a {pick.Pick.Name} (tier {pick.Pick.Tier})"));
+            _digRefused = true;
+            return r;
+        }
+        _digRefused = false;
+        if (r.Removed == 0) return r;
+        _dugCounter += r.Removed;
+        _act = Act.Dig;
+        _actAge = 0f;
+        _invDirty |= r.Credited > 0;
+        _lostTotal += r.Lost;
+        string hard = r.TooHard > 0 ? $"  <color=#ffc27a>({r.TooHard} too hard, left)</color>" : "";
+        _status = (r.Lost > 0
+            ? $"<color=#ff9a9a>inventory FULL -- {r.Lost} voxel(s) of {Items.Name(r.LastItem)} lost</color>"
+            : r.Credited > 0 ? $"+{r.Credited} {Items.Name(r.LastItem)}  (now {_inv.Count(r.LastItem):N0})  {pick.Pick.Name}"
+            : "dug fluid -- nothing to pick up (no bucket yet)") + hard;
+        return r;
+    }
+    private bool _digRefused;             // the last LMB dig was refused (the dig box shows it)
+
+    /// The dig half of the loop. Internal so the -survivaldemo shots drive
+    /// the real path rather than a copy of it. (Task 105: the demos' fixed-budget
+    /// dig; it ignores the pick. The player's LMB is SurvivalPickDig.)
+    internal SurvivalBuild.DigResult SurvivalDig(int3 at, int radius, int budget)
+    {
+        var r = SurvivalBuild.Dig(_edits, _inv, at, radius, budget, _digScratch);
+        if (r.Removed == 0) return r;
+        _dugCounter += r.Removed;
+        _act = Act.Dig;
+        _actAge = 0f;
+        _invDirty |= r.Credited > 0;
+        _lostTotal += r.Lost;
+        _status = r.Lost > 0
+            ? $"<color=#ff9a9a>inventory FULL -- {r.Lost} voxel(s) of {Items.Name(r.LastItem)} lost</color>"
+            : r.Credited > 0 ? $"+{r.Credited} {Items.Name(r.LastItem)}  (now {_inv.Count(r.LastItem):N0})"
+            : "dug fluid -- nothing to pick up (no bucket yet)";
+        return r;
+    }
+
+    /// The place half. Refuses (status line, nothing written) when the cube
+    /// would enclose the player, when a mobile item would leave the wake
+    /// radius (the Creative guard below, same reason), or when the slot holds
+    /// fewer voxels than the cube needs (P7).
+    internal SurvivalBuild.PlaceResult TrySurvivalPlace(int3 at)
+    {
+        int slot = _inv.Selected;
+        byte item = _inv.ItemAt(slot);
+        int edge = SurvivalBuild.EdgeFor(item, SurvivalBuild.CubeEdges[_edgeIndex]);
+        int3 lo = SurvivalBuild.SnapToGrid(at, edge);
+        var refused = new SurvivalBuild.PlaceResult { Outcome = SurvivalBuild.PlaceOutcome.NothingToFill, Item = item, Edge = edge, Lo = lo };
+
+        if (!_inv.IsEmpty(slot) && _mode == MoveMode.Walk && _player != null && _player.Motor != null)
+        {
+            float3 feet = _player.Motor.PositionM;
+            float hw = PlayerConfig.Active.bodyWidthM * 0.5f;
+            int3 bLo = CoordMath.WorldToVoxel(feet - new float3(hw, 0f, hw));
+            int3 bHi = CoordMath.WorldToVoxel(feet + new float3(hw, PlayerConfig.Active.bodyHeightM, hw));
+            if (SurvivalBuild.CubeOverlaps(lo, edge, bLo, bHi))
+            {
+                PlaceRefused($"not placed -- the {edge * 0.1f:0.0} m cube would enclose you; step back or press Q for a smaller size");
+                return refused;
+            }
+        }
+        if (!_inv.IsEmpty(slot) && MaterialRules.IsMobile(item) && !SphereFitsInWakeRadius(lo + (edge >> 1), edge))
+        {
+            PlaceRefused($"{Items.Name(item)} not placed -- outside the {_fluid.ActiveRadiusVoxels * 0.1f:0.#} m wake radius, it would never fall");
+            return refused;
+        }
+
+        var r = SurvivalBuild.Place(_edits, _store, _inv, slot, at, edge);
+        switch (r.Outcome)
+        {
+            case SurvivalBuild.PlaceOutcome.Placed:
+                _act = Act.Place;
+                _actAge = 0f;
+                _invDirty = true;
+                _status = $"placed {r.Placed} {Items.Name(r.Item)} ({r.Edge * 0.1f:0.0} m cube), {_inv.CountAt(slot):N0} left";
+                if (!Items.PlacesSingleVoxel(r.Item)) RememberShape(r.Lo, r.Edge);   // BLD2: the block to pull
+                break;
+            case SurvivalBuild.PlaceOutcome.EmptySlot: PlaceRefused($"slot {slot + 1} is empty -- dig (LMB) to fill it"); break;
+            case SurvivalBuild.PlaceOutcome.NotPlaceable: PlaceRefused($"{Items.Name(r.Item)} cannot be placed"); break;
+            case SurvivalBuild.PlaceOutcome.TooFew:
+                PlaceRefused($"not enough {Items.Name(r.Item)}: the {r.Edge * 0.1f:0.0} m cube needs {r.Needed}, slot has {_inv.CountAt(slot)} -- Q for a smaller size");
+                break;
+            case SurvivalBuild.PlaceOutcome.NotLoaded: PlaceRefused("not placed -- that ground is not loaded yet"); break;
+            default: break;                                   // NothingToFill: already solid, silent
+        }
+        return r;
+    }
+
+    private void PlaceRefused(string why)
+    {
+        _digRefused = false;                  // SurvivalPickDig sets it again after a dig refusal
+        _status = $"<color=#ff9a9a>{why}</color>";
+        _act = Act.Refused;
+        _actAge = 0f;
+    }
+
+    // ---- P12: player.json beside the world's deltas ----
+
+    private void LoadInventory()
+    {
+        if (!IsPlaySettingsRun() || string.IsNullOrEmpty(Phase4Bootstrapper.DeltaDirectory)) return;
+        _invPath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Phase4Bootstrapper.DeltaDirectory), "player.json");
+        if (Phase4Bootstrapper.IsTg2World && IsPlayStartRun())
+            _posePath = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Phase4Bootstrapper.DeltaDirectory), PlayerPose.FileName);
+        // A fresh world (-cleardeltas, run-play.sh's default) starts a fresh
+        // inventory; KEEP=1 (-keepdeltas) keeps both.
+        if (!HasArg("-keepdeltas") || !System.IO.File.Exists(_invPath))
+        {
+            Debug.Log($"[Playground] inventory: fresh (starter kit), saves to {_invPath}");
+            _invDirty = true;
+            return;
+        }
+        try
+        {
+            var inv = Inventory.FromJson(System.IO.File.ReadAllText(_invPath), out string err);
+            if (inv != null) _inv = inv;
+            Debug.Log($"[Playground] inventory: loaded {_invPath}" + (err != null ? $" ({err})" : ""));
+        }
+        catch (Exception e) { Debug.LogWarning($"[Playground] inventory: read failed ({e.Message}), starter kit"); }
+    }
+
+    private void TickInventorySave(float dt)
+    {
+        _invSaveTimer += dt;
+        if (_invSaveTimer < 30f) return;
+        _invSaveTimer = 0f;
+        SaveInventory();
+        SavePose();
+    }
+
+    private void SavePose()
+    {
+        if (_posePath == null || !_poseReady || Camera.main == null || Phase4Bootstrapper.Streamer?.TerrainGenSource == null) return;
+        Vector3 c = Camera.main.transform.position;
+        bool walk = _mode == MoveMode.Walk && _player != null && _player.Motor != null;
+        float3 feet = walk ? _player.Motor.PositionM : new float3(c.x, c.y - 1.6f, c.z);
+        var pose = new PlayerPose
+        {
+            mapVersion = Phase4Bootstrapper.Streamer.TerrainGenSource.Spec.mapVersion,
+            x = feet.x, y = feet.y, z = feet.z,
+            yaw = _cam != null ? _cam.Yaw : Camera.main.transform.eulerAngles.y,
+            pitch = _cam != null ? _cam.Pitch : 0f,
+            walk = walk,
+        };
+        try
+        {
+            string tmp = _posePath + ".tmp";
+            System.IO.File.WriteAllText(tmp, pose.ToJson());
+            if (System.IO.File.Exists(_posePath)) System.IO.File.Delete(_posePath);
+            System.IO.File.Move(tmp, _posePath);
+        }
+        catch (Exception e) { Debug.LogWarning($"[Playground] pose: save failed ({e.Message})"); }
+    }
+
+    private void SaveInventory()
+    {
+        if (!_invDirty || _invPath == null) return;
+        try
+        {
+            string tmp = _invPath + ".tmp";
+            System.IO.File.WriteAllText(tmp, _inv.ToJson());
+            if (System.IO.File.Exists(_invPath)) System.IO.File.Delete(_invPath);
+            System.IO.File.Move(tmp, _invPath);
+            _invDirty = false;
+        }
+        catch (Exception e) { Debug.LogWarning($"[Playground] inventory: save failed ({e.Message})"); }
+    }
+
+    void OnApplicationQuit() { SaveInventory(); SavePose(); }
 
     /// THE PLACE ACTION. Returns true if the blob was actually written.
     ///
@@ -1557,10 +2299,14 @@ public class Playground : MonoBehaviour
         GUI.color = old;
     }
 
-    private void DrawVoxelHighlight(Camera cam, int3 v, Color c, float width)
+    private void DrawVoxelHighlight(Camera cam, int3 v, Color c, float width, int edge = 1)
+        => DrawBoxHighlight(cam, v, new int3(edge, edge, edge), c, width);
+
+    /// The wire box [v, v + size) in voxels (BLD2's big pull previews).
+    private void DrawBoxHighlight(Camera cam, int3 v, int3 size, Color c, float width)
     {
         Vector3 lo = new Vector3(v.x, v.y, v.z) * 0.1f - Vector3.one * 0.002f;
-        Vector3 hi = lo + Vector3.one * (0.1f + 0.004f);
+        Vector3 hi = lo + new Vector3(size.x, size.y, size.z) * 0.1f + Vector3.one * 0.004f;
 
         Vector3[] w = new Vector3[8];
         for (int i = 0; i < 8; i++)
@@ -1636,14 +2382,27 @@ public class Playground : MonoBehaviour
                 DrawLine(new Vector2(cx, cy + gap), new Vector2(cx, cy + len), c, w);
             }
 
-            if (_ready && _hasTarget)
+            if (_ready && _hasTarget && !InventoryOpen)
             {
                 bool inRegion = InFluidRange(_targetVoxel);
                 DrawVoxelHighlight(cam, _targetVoxel, new Color(0f, 0f, 0f, 0.55f), 4.5f * k);
                 DrawVoxelHighlight(cam, _targetVoxel,
                     inRegion ? new Color(1f, 0.78f, 0.25f, 0.98f)
                              : new Color(0.85f, 0.85f, 0.88f, 0.9f), 2f * k);
+                // Survival: where RMB's cube would go (cyan), when holding something.
+                if (SurvivalMode && !_inv.IsEmpty(_inv.Selected) && !StrokeActive)
+                {
+                    int e = SurvivalBuild.EdgeFor(_inv.ItemAt(_inv.Selected), SurvivalBuild.CubeEdges[_edgeIndex]);
+                    DrawVoxelHighlight(cam, SurvivalBuild.SnapToGrid(_targetAdjacent, e),
+                                       new Color(0.45f, 0.9f, 1f, 0.75f), 1.5f * k, e);
+                }
             }
+
+            // Task 100: the hook's rope, or the in-range ring on the crosshair.
+            if (_ready && !InventoryOpen) DrawHookOverlay(cam, k);
+
+            // BLD1: the drag stroke's cubes + its count (even aimed at the sky).
+            if (_ready && SurvivalMode && !InventoryOpen) DrawStrokePreview(cam, k, ui);
 
             // The last shot's impact, fading. Makes T do something visible.
             if (_ready && _hasShot && _lastShot.Hit && _shotAge < 2f)
@@ -1664,9 +2423,12 @@ public class Playground : MonoBehaviour
         float vw = Screen.width / ui, vh = Screen.height / ui;
 
         DrawTopBar(vw);
-        DrawHotbar(vw, vh);
-        DrawStatePanel(vh);
-        if (_showHelp) DrawHelp(vw, vh);
+        if (SurvivalMode) DrawSurvivalHotbar(vw, vh); else DrawHotbar(vw, vh);
+        DrawMoveHud(vw, vh);
+        DrawVitalsHud(vw, vh);
+        if (!_demoHideState) DrawStatePanel(vh);
+        if (SurvivalMode && InventoryOpen && !SettingsMenu.IsOpen) DrawInventoryPanel(vw, vh);
+        else if (_showHelp && !SettingsMenu.IsOpen) DrawHelp(vw, vh);   // the menu (F6) sits where help does
 
         GUI.matrix = prev;
     }
@@ -1754,6 +2516,155 @@ public class Playground : MonoBehaviour
                   Label(12, TextAnchor.MiddleCenter));
     }
 
+    /// Survival's hotbar: the inventory's first 9 slots, counts in voxels.
+    /// Movement set A (task 65): the dash cooldown bar, and what the body is
+    /// doing (swimming in X / double jump spent), above the hotbar.
+    private void DrawMoveHud(float vw, float vh)
+    {
+        if (!_moveAbilities || _mode != MoveMode.Walk || _player == null || _player.Motor == null) return;
+        var m = _player.Motor;
+        var c = m.Config;
+        const float w = 200f, h = 10f;
+        float x = (vw - w) * 0.5f, y = vh - 58f - 58f - 44f;
+        float ready = c.dashCooldownS > 0f ? 1f - Mathf.Clamp01(m.DashCooldownS / c.dashCooldownS) : 1f;
+        bool airSpent = !m.Grounded && !m.Swimming && m.DashUsedInAir;
+        Box(new Rect(x - 1, y - 1, w + 2, h + 2), new Color(0f, 0f, 0f, 0.55f));
+        Box(new Rect(x, y, w * ready, h), ready >= 1f && !airSpent ? new Color(0.45f, 0.9f, 1f, 0.9f)
+                                                                  : new Color(0.55f, 0.6f, 0.65f, 0.8f));
+        string hook = HookState(m);
+        string state = hook.Length > 0 ? hook
+                     : m.Swimming ? $"swimming in {MaterialName(m.SwimFluid)}  <b>Space</b> up  <b>Ctrl</b> down"
+                     : m.Climbing ? $"<b>CLIMBING</b> {Items.Name(m.ClimbFace)}{(m.ClimbGrip == MaterialRules.GripLoose ? " (loose)" : m.ClimbGrip == MaterialRules.GripSlick ? " (slick)" : "")}  <b>W</b> up  <b>Ctrl</b> down  release <b>W</b> to drop"
+                     : m.WallRunning ? $"<b>WALL-RUN</b> {new Vector2(m.VelocityMps.x, m.VelocityMps.z).magnitude:F1} m/s  <b>Space</b> wall-jump  <b>Ctrl</b> drop  let go of <b>W</b> to fall"
+                     : m.Sliding ? "<b>SLIDING</b> -- too steep, <b>Space</b> to scramble"
+                     : m.Dashing ? "<b>DASH</b>"
+                     : m.Gliding ? $"<b>GLIDING</b> {new Vector2(m.VelocityMps.x, m.VelocityMps.z).magnitude:F1} m/s, sinking {-m.VelocityMps.y:F1} m/s  mouse steers  <b>S</b> brake  release <b>Space</b> to drop"
+                     : !m.Grounded && m.WallJumpReady ? "wall: <b>Space</b> wall-jump"
+                     : !m.Grounded ? (m.AirJumpsUsed < c.airJumps ? "air: <b>Space</b> double jump" : "double jump spent: hold <b>Space</b> to glide")
+                     : "";
+        GUI.Label(new Rect(x - 300, y - 19, w + 600, 18),
+                  $"<b>Shift</b> dash {(ready >= 1f && !airSpent ? "ready" : "")}   {state}",
+                  Label(11, TextAnchor.MiddleCenter));
+
+        // Task 93f1: climbing stamina, under the dash bar, shown while it is not full.
+        float sMax = c.climbStaminaS;
+        if (sMax > 0f && (m.Climbing || m.WallRunning || m.StaminaS < sMax - 1e-3f))
+        {
+            float f = Mathf.Clamp01(m.StaminaS / sMax);
+            float sy = y + h + 4f;
+            Box(new Rect(x - 1, sy - 1, w + 2, h + 2), new Color(0f, 0f, 0f, 0.55f));
+            Box(new Rect(x, sy, w * f, h), f < 0.25f ? new Color(1f, 0.45f, 0.3f, 0.95f) : new Color(1f, 0.85f, 0.35f, 0.9f));
+            GUI.Label(new Rect(x + w + 6, sy - 4, 160, 18),
+                      $"stamina {m.StaminaS:F1} s{(m.Resting && f < 1f ? "  resting" : "")}", Label(11, TextAnchor.MiddleLeft));
+        }
+    }
+
+    private void DrawSurvivalHotbar(float vw, float vh)
+    {
+        const float slot = 58f, pad = 6f;
+        float total = Inventory.HotbarSize * (slot + pad) - pad;
+        float x0 = (vw - total) * 0.5f;
+        float y0 = vh - slot - 58f;
+        for (int i = 0; i < Inventory.HotbarSize; i++)
+            DrawSlot(new Rect(x0 + i * (slot + pad), y0, slot, slot), i, i == _inv.Selected, $"{i + 1}");
+
+        var pick = HeldPick.Pick;
+        bool digRefused = _digRefused && _act == Act.Refused && _actAge < 0.6f;
+        bool digHot = (_act == Act.Dig || digRefused) && _actAge < 0.35f;
+        bool placeHot = !digRefused && (_act == Act.Place || _act == Act.Refused) && _actAge < 0.35f;
+        string refused = !digRefused && _act == Act.Refused && _actAge < 0.6f ? "  <color=#ff9a9a>REFUSED</color>" : "";
+        string digNo = digRefused ? "  <color=#ff9a9a>TOO HARD</color>" : "";
+        int e = SurvivalBuild.CubeEdges[_edgeIndex];
+        var lr = new Rect(x0 - 250, y0 + 8, 240, 44);
+        var rr = new Rect(x0 + total + 10, y0 + 8, 270, 44);
+        Box(lr, new Color(0f, 0f, 0f, digHot ? 0.75f : 0.4f));
+        Box(rr, new Color(0f, 0f, 0f, placeHot ? 0.75f : 0.4f));
+        if (digHot) Frame(lr, new Color(1f, 0.82f, 0.3f, 1f), 2f);
+        if (placeHot) Frame(rr, new Color(1f, 0.82f, 0.3f, 1f), 2f);
+        GUI.Label(lr, $"<b>LMB — DIG</b>{digNo}\n{pick.Name} · tier {pick.Tier}   <b>Z/X</b>",
+                  Label(12, TextAnchor.MiddleCenter));
+        byte held = _inv.ItemAt(_inv.Selected);
+        string what = _inv.IsEmpty(_inv.Selected) ? "empty slot" : Items.Name(held);
+        string size = !_inv.IsEmpty(_inv.Selected) && Items.PlacesSingleVoxel(held) ? "1 voxel" : $"{e * 0.1f:0.0} m cube <b>Q</b>";
+        GUI.Label(rr, $"<b>RMB — PLACE</b>{refused}\n{what} · {size}   <b>E</b> bag",
+                  Label(12, TextAnchor.MiddleCenter));
+        GUI.Label(new Rect(x0, y0 - 20, total, 18), "<color=#cfe3f5><b>SURVIVAL</b></color>  <color=#9fb6c9>F6 switches to Creative</color>",
+                  Label(11, TextAnchor.MiddleCenter));
+    }
+
+    /// One inventory slot: swatch, count, key label. Counts above 9,999 read "10k".
+    private void DrawSlot(Rect r, int i, bool sel, string key)
+    {
+        Box(r, new Color(0f, 0f, 0f, sel ? 0.78f : 0.5f));
+        if (!_inv.IsEmpty(i))
+        {
+            Box(new Rect(r.x + 6, r.y + 6, r.width - 12, r.height - 24), MaterialSwatch(_inv.ItemAt(i)));
+            int c = _inv.CountAt(i);
+            string n = c >= 10000 ? "10k" : c.ToString();
+            GUI.Label(new Rect(r.x, r.y + r.height - 38, r.width - 5, 16), $"<b>{n}</b>", Label(12, TextAnchor.MiddleRight));
+            string name = Items.Name(_inv.ItemAt(i));
+            if (name.Length > 12) name = name.Substring(0, 11) + "…";
+            GUI.Label(new Rect(r.x, r.yMax - 17, r.width, 16), name, Label(9, TextAnchor.MiddleCenter));
+        }
+        Frame(r, sel ? new Color(1f, 0.82f, 0.3f, 1f) : new Color(1f, 1f, 1f, 0.25f), sel ? 2.5f : 1f);
+        if (key != null)
+        {
+            Box(new Rect(r.x + 2, r.y + 2, 14, 15), new Color(0f, 0f, 0f, 0.7f));
+            GUI.Label(new Rect(r.x + 5, r.y + 1, 14, 16), key, Label(11));
+        }
+    }
+
+    /// The E panel: hotbar row + 3 backpack rows. Click one slot, then another:
+    /// they swap (same item merges). Right-click a hotbar slot to select it.
+    private void DrawInventoryPanel(float vw, float vh)
+    {
+        const float slot = 62f, pad = 6f;
+        float gridW = 9 * (slot + pad) - pad;
+        float w = gridW + 40f, h = 4 * (slot + pad) + 96f;
+        var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f - 40f, w, h);
+        Box(r, new Color(0.03f, 0.05f, 0.08f, 0.95f));
+        Frame(r, new Color(1f, 1f, 1f, 0.25f), 1f);
+        GUI.Label(new Rect(r.x + 20, r.y + 10, w - 40, 24),
+                  "<b>INVENTORY</b>   <color=#9fb6c9>E or Esc closes · click two slots to swap · counts are voxels (0.1 m)</color>", Label(14));
+
+        float x0 = r.x + 20f, yBack = r.y + 44f;
+        float yHot = yBack + 3 * (slot + pad) + 14f;
+        GUI.Label(new Rect(x0, yHot - 16, gridW, 16), "<color=#9fb6c9>hotbar (1-9)</color>", Label(11));
+        Event ev = Event.current;
+        for (int i = 0; i < Inventory.SlotCount; i++)
+        {
+            bool hot = i < Inventory.HotbarSize;
+            int col = hot ? i : (i - Inventory.HotbarSize) % 9;
+            int row = hot ? 0 : (i - Inventory.HotbarSize) / 9;
+            var sr = new Rect(x0 + col * (slot + pad), hot ? yHot : yBack + row * (slot + pad), slot, slot);
+            DrawSlot(sr, i, i == _invPick || (hot && i == _inv.Selected && _invPick < 0), hot ? $"{i + 1}" : null);
+            if (i == _invPick) Frame(sr, new Color(0.45f, 0.9f, 1f, 1f), 3f);
+            if (ev.type == EventType.MouseDown && sr.Contains(ev.mousePosition))
+            {
+                if (ev.button == 1 && hot) SelectSlot(i);
+                else if (_invPick < 0) { if (!_inv.IsEmpty(i)) _invPick = i; }
+                else { _inv.Swap(_invPick, i); _invPick = -1; _invDirty = true; }
+                ev.Use();
+            }
+        }
+
+        // Totals by item, so "how much do I have" needs no adding up.
+        var totals = new SortedDictionary<string, int>();
+        for (int i = 0; i < Inventory.SlotCount; i++)
+            if (!_inv.IsEmpty(i))
+            {
+                string n = Items.Name(_inv.ItemAt(i));
+                totals[n] = (totals.TryGetValue(n, out int t) ? t : 0) + _inv.CountAt(i);
+            }
+        var sb = new StringBuilder("<color=#cfe3f5>");
+        foreach (var kv in totals) sb.Append($"{kv.Key} {kv.Value:N0}   ");
+        sb.Append("</color>");
+        if (_lostTotal > 0) sb.Append($"<color=#ff9a9a>   lost to a full bag: {_lostTotal:N0}</color>");
+        var wrap = Label(12);
+        wrap.wordWrap = true;
+        GUI.Label(new Rect(x0, yHot + slot + 10, gridW, 44), sb.ToString(), wrap);
+    }
+
     /// Live engine state, bottom-left. Everything here is a READOUT of a Phase 6
     /// system, so "is buoyancy doing anything" is answerable at a glance.
     private const int FluidCounterRefreshFrames = 15;
@@ -1834,7 +2745,8 @@ public class Playground : MonoBehaviour
         var lastPass = DebugLastResidency;
 
         sb.AppendLine("<b><color=#ffd479>── FLUID (§7.2 tiles / §7.4 radius) ───</color></b>");
-        sb.Append(Row("tiles", $"{_tiles.ResidentTiles} / {_tiles.TileCapacity} resident   " +
+        sb.Append(Row("tiles", $"{_tiles.ResidentTiles} / {_tiles.TileCapacity} resident" +
+            (_tiles.AwakeOnly ? " <color=#b9cfe4>(awake fluid only)</color>   " : "   ") +
             (lastPass.TilesRefusedPoolFull > 0
                 ? $"<color=#ffc64a>pool FULL: {lastPass.TilesRefusedPoolFull:N0} far tiles left asleep</color> " +
                   $"<color=#b9cfe4>(nearest kept; {_tiles.PoolExhaustionsTotal:N0} refusals since start)</color>"
@@ -1891,29 +2803,67 @@ public class Playground : MonoBehaviour
         sb.AppendLine("<b>CONTROLS</b>   <color=#9fb6c9>(F2 hides this)</color>");
         sb.AppendLine("");
         sb.AppendLine("<b><color=#cfe3f5>MOVE</color></b>");
-        sb.AppendLine("  <b>WASD</b> walk    <b>Space</b> jump    <b>Shift</b> sprint    <b>Q/E</b> down/up (fly)");
-        sb.AppendLine("  <b>Tab</b> walk ↔ fly      <b>R</b> respawn on the surface      <b>F</b> go to the basin");
+        sb.AppendLine("  <b>WASD</b> walk    <b>Space</b> jump    <b>Shift</b> fast (fly)    <b>Q/E</b> down/up (fly)");
+        if (_moveAbilities)
+            sb.AppendLine("  <b><color=#ffd479>Space</color></b> in the air: double jump    <b><color=#ffd479>Shift</color></b> dash (walk)    " +
+                          "in water: <b>WASD</b> swim where you look, <b>Space</b> up / jump out, <b>Ctrl</b> down");
+        if (_moveAbilities)
+            sb.AppendLine("  <b><color=#ffd479>walk into a wall</color></b> (0.9 m+) to climb it: hold <b>W</b> up, <b>A/D</b> sideways, <b>Ctrl</b> down, " +
+                          "let go of <b>W</b> or <b>Space</b> to drop; stamina refills standing on a 0.6 m ledge. " +
+                          "Slopes over 30° slide: <b>Space</b> to scramble up");
+        if (_moveAbilities)
+            sb.AppendLine("  <b><color=#ffd479>hold Space</color></b> after the double jump: glide (10 m/s, sinks 2 m/s; the mouse steers, " +
+                          "<b>S</b> brakes, <b>A/D</b> drift; let go of <b>Space</b> to drop)");
+        if (_moveAbilities)
+            sb.AppendLine("  <b><color=#ffd479>F</color></b> (or middle mouse) grappling hook: bites solid under the crosshair within 25 m (ring = in range); " +
+                          "<b>hold F</b> to reel in, let go in the air to swing (<b>WASD</b> pump), <b>Space</b> lets go; <b>F</b> again re-aims");
+        if (_moveAbilities)
+            sb.AppendLine("  <b><color=#ffd479>jump along a wall</color></b> (run at it sideways, keys along it): wall-run 7 m/s for up to 1.2 s; " +
+                          "<b>Space</b> against any wall in the air: wall-jump off it (not the same wall twice -- bounce between two); " +
+                          "both use climbing stamina");
+        sb.AppendLine(Phase4Bootstrapper.PlayStartActive
+            ? "  <b>Tab</b> walk ↔ fly      <b><color=#ffd479>R</color></b> back to the start (the best easy area)      <b>F</b> go to the basin" + (_moveAbilities ? " (fly mode)" : "")
+            : "  <b>Tab</b> walk ↔ fly      <b>R</b> respawn on the surface      <b>F</b> go to the basin" + (_moveAbilities ? " (fly mode)" : ""));
         sb.AppendLine("");
-        sb.AppendLine("<b><color=#cfe3f5>BUILD &amp; DIG</color></b>");
-        sb.AppendLine("  <b>LMB</b> dig at the tool's rate        <b>Z / X</b> tool tier");
-        sb.AppendLine("  <b>RMB</b> place held item               <b>1-6</b> / scroll  pick item");
+        if (SurvivalMode)
+        {
+            sb.AppendLine("<b><color=#cfe3f5>BUILD & DIG</color></b>   <color=#9fb6c9>(SURVIVAL -- F6 Game mode switches to Creative's free brushes)</color>");
+            sb.AppendLine("  <b>LMB</b> dig: every voxel goes into your inventory      <b>Z / X</b> pick tier (dev key until crafting)");
+            sb.AppendLine("  <color=#9fb6c9>  hard rock digs slower; ores need a pick: stone->copper, copper->gold, gold->iron, iron->cobalt</color>");
+            sb.AppendLine("  <b>RMB</b> place a cube of the held block (cyan box), costs the cells it fills");
+            sb.AppendLine("  <b><color=#ffd479>RMB drag</color></b> a line of cubes, placed on release (stops when the slot runs out)   " +
+                          "<b><color=#ffd479>LMB drag</color></b> dig a line   <b><color=#ffd479>Esc</color></b> cancel");
+            sb.AppendLine("  <b><color=#ffd479>Alt + RMB drag</color></b> pull a face of your last block/line/wall: block -> line -> wall -> thick wall " +
+                          "(drag along the face; inward digs)");
+            sb.AppendLine("  <b><color=#ffd479>HEALTH</color></b> falls over 4 m, lava, acid and running out of <b>AIR</b> (under water) hurt; " +
+                          "it comes back after 8 s; at 0 you go back to the start and keep everything");
+            sb.AppendLine("  <b><color=#ffd479>Q</color></b> cube size 0.1 / 0.2 / 0.4 / 0.8 m   <b><color=#ffd479>E</color></b> inventory (click two slots to swap)   <b>1-9</b> / scroll  hotbar");
+        }
+        else
+        {
+            sb.AppendLine("<b><color=#cfe3f5>BUILD & DIG</color></b>   <color=#9fb6c9>(CREATIVE -- F6 Game mode switches to Survival)</color>");
+            sb.AppendLine("  <b>LMB</b> dig at the tool's rate        <b>Z / X</b> tool tier");
+            sb.AppendLine("  <b>RMB</b> place held item               <b>1-9</b> / scroll  pick item");
+        }
         sb.AppendLine("");
-        sb.AppendLine("<b><color=#cfe3f5>FLUID &amp; DESTRUCTION</color></b>");
+        sb.AppendLine("<b><color=#cfe3f5>FLUID & DESTRUCTION</color></b>");
         sb.AppendLine("  <b><color=#ffd479>G</color></b>   <b>CHAOS BURST</b> — ~51,000 voxels of water/sand/lava at once");
         sb.AppendLine("  <b>V</b>   open a vent above the crosshair      <b>0</b>  close all vents");
         sb.AppendLine("  <b>B</b>   bomb at the crosshair (§8.5, frame-split)");
         sb.AppendLine("  <b>T</b>   shoot a projectile (§8.4 DDA trace)");
         sb.AppendLine("");
-        sb.AppendLine("<b><color=#cfe3f5>LIGHT &amp; TIME</color></b>   <color=#9fb6c9>(Phase 7)</color>");
+        sb.AppendLine("<b><color=#cfe3f5>LIGHT & TIME</color></b>   <color=#9fb6c9>(Phase 7)</color>");
         sb.AppendLine("  <b><color=#ffd479>N</color></b> golden hour   <b>M</b> noon   <b>L</b> midnight   <b>,</b> / <b>.</b> scrub (hold)   <b>P</b> pause the clock");
-        sb.AppendLine("  <b>7</b>   place a <b>torch</b> (hotbar slot 7, then RMB)      LMB digs it out again");
+        sb.AppendLine(SurvivalMode ? "  <b>torch</b>: starter kit, hotbar slot 1 -- RMB places one; LMB digs it back"
+                                   : "  <b>7</b>   place a <b>torch</b> (hotbar slot 7, then RMB)      LMB digs it out again");
         sb.AppendLine("  <b>J</b>   shadow quality 0-3 — full soft / half-res distant / hard / off (§6.5)");
-        sb.AppendLine("  <b>K</b>   hard &lt;-&gt; soft shadows (k_soft toggle)");
-        sb.AppendLine("  <b>Y</b>   view: beauty -&gt; sun visibility -&gt; shadow step heat");
+        sb.AppendLine("  <b>K</b>   hard ↔ soft shadows (k_soft toggle)");
+        sb.AppendLine("  <b>Y</b>   view: beauty → sun visibility → shadow step heat");
         sb.AppendLine("  <b><color=#ffd479>[</color></b> / <b><color=#ffd479>]</color></b>   cycle LIGHT PRESET — Warm / Atmospheric / HighContrast / Muted / Shipped");
         sb.AppendLine("");
         sb.AppendLine("<b><color=#cfe3f5>VIEW</color></b>");
         sb.AppendLine("  <b>F1</b> perf overlay      <b>F2</b> these controls      <b>ESC</b> release the mouse      <b>O</b> dev map      <b>F3</b> render preset      <b>F4</b> minimap");
+        sb.AppendLine("  <b><color=#ffd479>F6</color></b> SETTINGS — game mode, shadows, upscaler, resolution, overlay, minimap (saved)");
         sb.AppendLine("");
         sb.Append("<color=#9fb6c9>Fluid simulates only inside §7.4's wake radius (shown in the state " +
                   "panel in both voxels and metres). The crosshair box turns grey outside it, and " +
@@ -1927,7 +2877,7 @@ public class Playground : MonoBehaviour
         // is already occupied by the RMB panel, and a controls list that
         // overlaps the thing it is describing is worse than useless. It is
         // toggled, so covering the view while open is intended.
-        float w = 760f, h = 476f;   // grew again with Phase 7's LIGHT & TIME group
+        float w = 760f, h = 530f;   // grew again with Phase 7's LIGHT & TIME group, F6 (task 58), Survival (task 64), picks (task 105)
         var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f, w, h);
         Box(r, new Color(0f, 0f, 0f, 0.82f));
         Frame(r, new Color(1f, 1f, 1f, 0.22f), 1f);

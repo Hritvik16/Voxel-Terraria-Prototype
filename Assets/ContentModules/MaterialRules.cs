@@ -92,6 +92,11 @@ public static class MaterialRules
         // specifically NOT mobile -- that is what makes a reaction show up in
         // the conservation ledger as a permanent removal rather than a loss.
         Define(Materials.Obsidian, 0u, 0);
+        // RX1 products (task 93e1): ordinary static solids, like Obsidian above.
+        // Cooled stone is stone, so acid eats it (Dissolves, below); glass is
+        // acid-proof, the container a player can now make.
+        Define(Materials.CooledStone, 0u, 0);
+        Define(Materials.Glass,       0u, 0);
 
         // ---- §2.7 fluids (2026-09-25) ----
         // Oil: slightly viscous, flammable (fire is a later system), LIGHTER
@@ -108,9 +113,9 @@ public static class MaterialRules
         // Steam: a gas -- rises, spreads under ceilings, liquids fall through it.
         Define(Materials.Steam,     IsFluid | IsGas, 1);
 
-        // What acid eats. Obsidian is deliberately acid-proof (it is the
-        // container a player can make), as are torches.
-        foreach (byte m in new[] { Materials.Stone, Materials.Deepstone, Materials.MossyStone,
+        // What acid eats. Obsidian and glass are deliberately acid-proof (glass
+        // is the container a player can make: sand + lava), as are torches.
+        foreach (byte m in new[] { Materials.Stone, Materials.CooledStone, Materials.Deepstone, Materials.MossyStone,
                                    Materials.Sandstone, Materials.Grass, Materials.JungleGrass,
                                    Materials.Snow })
             _flags[m] |= Dissolves;
@@ -137,19 +142,29 @@ public static class MaterialRules
         // "emissive material floods the light list" trap CLAUDE.md records.
 
         // ---- §7.6 reactions ----
-        // Water + Lava -> Obsidian. The LAVA cell becomes the obsidian (the
-        // solid is where the melt was); the WATER cell is consumed to Air
-        // (it flashed off). Both fluid slots free -- the one that ran the scan
-        // frees immediately, its counterpart self-frees on the next tick's
+        // RX1 (task 93e1, GAMEPLAY_PHASE_PLAN row RX1) -- adjacency pairs.
+        // Water + Lava -> the LAVA cell becomes cooled stone (the solid is where
+        // the melt was), the WATER cell becomes steam (it flashed off; before
+        // RX1: Obsidian + Air). Both fluid slots free -- the one that ran the
+        // scan frees immediately, its counterpart self-frees on the next tick's
         // orphan check (§7.3), because its home byte no longer matches its
         // cached material. That asymmetry is the spec's mechanism, not a bug.
-        var reactions = new System.Collections.Generic.List<Reaction>
-        {
-            new Reaction { self = Materials.Water, other = Materials.Lava,
-                           selfProduct = Materials.Air, otherProduct = Materials.Obsidian },
-            new Reaction { self = Materials.Lava,  other = Materials.Water,
-                           selfProduct = Materials.Obsidian, otherProduct = Materials.Air },
-        };
+        // A product that is MOBILE (steam, melt water, the side that keeps its
+        // material) is re-promoted by the wake that follows the write (CPU:
+        // WakeNeighbourhood; GPU: the op's wake bit, set for mobile products).
+        var reactions = new System.Collections.Generic.List<Reaction>();
+        Pair(reactions, Materials.Water, Materials.Lava, Materials.Steam, Materials.CooledStone);
+        // Water + loam / red earth (the tg2 soils) -> mud. The water is NOT
+        // consumed: it keeps flowing, and the soil it touches turns to mud.
+        foreach (byte g in new byte[] { 20, 24 })                       // Loam, RedEarth
+            Pair(reactions, Materials.Water, Materials.FromTg2(g), Materials.Water, Materials.FromTg2(23)); // Mud
+        // Lava + sand (legacy, tg2 sand, beach sand) -> glass; the lava stays.
+        foreach (byte m in new[] { Materials.Sand, Materials.FromTg2(12), Materials.FromTg2(14) })
+            Pair(reactions, Materials.Lava, m, Materials.Lava, Materials.Glass);
+        // Lava + snow / ice (legacy snow, tg2 snow, packed ice) -> water; the
+        // lava stays (the melt water then quenches it: the pair above).
+        foreach (byte m in new[] { Materials.Snow, Materials.FromTg2(13), Materials.FromTg2(22) })
+            Pair(reactions, Materials.Lava, m, Materials.Lava, Materials.Water);
         // Acid + anything Dissolves -> Air + Air. Both directions, so the pair
         // resolves whichever side scans first (the rock never has a slot, so in
         // practice the acid always does).
@@ -162,6 +177,15 @@ public static class MaterialRules
                                          selfProduct = Materials.Air, otherProduct = Materials.Air });
         }
         _reactions = reactions.ToArray();
+    }
+
+    /// Both directions of one pair: `a` next to `b` makes (aProduct, bProduct)
+    /// whichever side scans first.
+    private static void Pair(System.Collections.Generic.List<Reaction> r,
+                             byte a, byte b, byte aProduct, byte bProduct)
+    {
+        r.Add(new Reaction { self = a, other = b, selfProduct = aProduct, otherProduct = bProduct });
+        r.Add(new Reaction { self = b, other = a, selfProduct = bProduct, otherProduct = aProduct });
     }
 
     private static void Define(byte material, uint flags, uint tickInterval)
@@ -384,6 +408,28 @@ public static class MaterialRules
     /// A fluid that rises (steam): its Intent hierarchy is mirrored upward.
     public static bool IsGasMaterial(byte material) => (_flags[material] & IsGas) != 0u;
 
+    /// Task 93f1 (gameplay step 5, the brief's "ice and sand climb worse than
+    /// rock"): how a face of this material holds a climber. GripRock = full
+    /// speed and stamina; GripLoose (sand, beach/packed sand, powder snow) and
+    /// GripSlick (packed ice, glass) are slower and tire faster, by
+    /// PlayerConfig's climbLoose* / climbSlick* scales.
+    public const byte GripRock = 0, GripLoose = 1, GripSlick = 2;
+    public static byte ClimbGrip(byte material)
+    {
+        switch (material)
+        {
+            case Materials.Sand: case Materials.Snow:
+            case Materials.TG2_BASE + 12: case Materials.TG2_BASE + 13:   // tg2 sand, powder snow
+            case Materials.TG2_BASE + 14: case Materials.TG2_BASE + 21:   // beach sand, packed sand
+                return GripLoose;
+            case Materials.TG2_BASE + 22:                                 // packed ice
+            case Materials.Glass:
+                return GripSlick;
+            default:
+                return GripRock;
+        }
+    }
+
     /// §2.7 density layering: may `heavy`, sitting directly above `light`,
     /// trade places with it? Both must be FLUIDS (a falling solid never swaps:
     /// sand has an angle of repose, it sinks through nothing), must not react
@@ -573,6 +619,11 @@ public static class MaterialPalette
         // palette. It should read as dense and glassy against both the lava it
         // came from and the stone around it.
         _table[Materials.Obsidian] = new Rgb(0.095f, 0.085f, 0.125f);
+        // RX1 (task 93e1). Cooled stone: dark cool grey, between deepstone and
+        // obsidian, so a quenched lava flow reads as rock, not as the old black.
+        // Glass: pale sea-green, the lightest solid after snow (opaque for now).
+        _table[Materials.CooledStone] = new Rgb(0.300f, 0.295f, 0.310f);
+        _table[Materials.Glass]       = new Rgb(0.600f, 0.720f, 0.700f);
 
         // ---- §2.7 fluids ----
         // Oil: near-black warm brown, darker than anything but obsidian.
@@ -599,7 +650,7 @@ public static class MaterialPalette
             -1f, -1f, -1f,   // 133
             -1f, -1f, -1f,   // 134
             -1f, -1f, -1f,   // 135
-            -1f, -1f, -1f,   // 136
+            0.184f, 0.498f, 0.722f,   // 136 river lip
             -1f, -1f, -1f,   // 137
             0.373f, 0.620f, 0.227f,   // 138 grass
             0.247f, 0.682f, 0.290f,   // 139 jungle grass
@@ -656,11 +707,11 @@ public static class MaterialPalette
             0.753f, 0.314f, 0.173f,   // 190 laterite
             0.310f, 0.478f, 0.227f,   // 191 moss rock
             0.184f, 0.561f, 0.416f,   // 192 jade serpentine
-            -1f, -1f, -1f,   // 193
-            -1f, -1f, -1f,   // 194
-            -1f, -1f, -1f,   // 195
-            -1f, -1f, -1f,   // 196
-            -1f, -1f, -1f,   // 197
+            0.247f, 0.667f, 0.525f,   // 193 copper ore
+            0.753f, 0.541f, 0.416f,   // 194 iron ore
+            0.760f, 0.637f, 0.195f,   // 195 gold ore
+            0.234f, 0.351f, 0.760f,   // 196 cobalt ore
+            0.760f, 0.253f, 0.143f,   // 197 emberstone
             0.290f, 0.290f, 0.369f,   // 198 deepstone
             0.420f, 0.365f, 0.322f,   // 199 cavern rock
             0.490f, 0.463f, 0.439f,   // 200 ash
@@ -730,6 +781,8 @@ public static class MaterialPalette
         t[Materials.Lava]        = new Rgb(0.95f, 0.35f, 0.08f);
         t[Materials.Honey]       = new Rgb(0.68f, 0.48f, 0.13f);
         t[Materials.Obsidian]    = new Rgb(0.09f, 0.07f, 0.12f);
+        t[Materials.CooledStone] = new Rgb(0.36f, 0.35f, 0.37f);
+        t[Materials.Glass]       = new Rgb(0.70f, 0.85f, 0.82f);
         t[Materials.Torch]       = new Rgb(1.00f, 0.70f, 0.35f);
         t[Materials.TorchBlue]   = new Rgb(0.40f, 0.60f, 1.00f);
         t[Materials.TorchGreen]  = new Rgb(0.45f, 1.00f, 0.50f);
@@ -751,7 +804,7 @@ public static class MaterialPalette
             -1f, -1f, -1f,   // 133
             -1f, -1f, -1f,   // 134
             -1f, -1f, -1f,   // 135
-            -1f, -1f, -1f,   // 136
+            0.184f, 0.498f, 0.722f,   // 136 river lip
             -1f, -1f, -1f,   // 137
             0.373f, 0.620f, 0.227f,   // 138 grass
             0.247f, 0.682f, 0.290f,   // 139 jungle grass
@@ -808,11 +861,11 @@ public static class MaterialPalette
             0.753f, 0.314f, 0.173f,   // 190 laterite
             0.310f, 0.478f, 0.227f,   // 191 moss rock
             0.184f, 0.561f, 0.416f,   // 192 jade serpentine
-            -1f, -1f, -1f,   // 193
-            -1f, -1f, -1f,   // 194
-            -1f, -1f, -1f,   // 195
-            -1f, -1f, -1f,   // 196
-            -1f, -1f, -1f,   // 197
+            0.247f, 0.667f, 0.525f,   // 193 copper ore
+            0.753f, 0.541f, 0.416f,   // 194 iron ore
+            0.918f, 0.769f, 0.235f,   // 195 gold ore
+            0.290f, 0.435f, 0.941f,   // 196 cobalt ore
+            0.950f, 0.317f, 0.179f,   // 197 emberstone
             0.290f, 0.290f, 0.369f,   // 198 deepstone
             0.420f, 0.365f, 0.322f,   // 199 cavern rock
             0.490f, 0.463f, 0.439f,   // 200 ash

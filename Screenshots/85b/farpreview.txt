@@ -1,0 +1,49 @@
+SIZECLASS 2 WORLD (-world tg2: voxel band streamed in Y + the far band) -- 2026-10-13_013339
+seed 42: world 8 km, sea at Y 5120, peak site float2(39000f, 37000f), max top 11000 (engine voxels), ring initial fill 2682 ms
+map v4 Height FNV 639552DD962C4B28  cell(613,259) 1068.80900
+volcano_from_2km, caldera_above: this world drew no volcano (map v4 feature pool) -- skipped
+cliff feet found: 3  (band placement: terrain-aware)
+POSES (-poses): 5 kept of 5 named: peak_from_2km_ground, glide_400m, oblique_3000m, eye_level_1, eye_level_3
+FAR SHADING (task 85b, -farshadeshots): 5 poses, wait <= 45 s each, 720 internal rows raw and FSR 3; sky x1.1, haze range 3500 m, scale height 1500 m, light's share of haze 0.25; shells off
+  slope-normal blend: from 34 m (a 0.1 m voxel = 2 px) to 69 m (1 px) at 720 rows
+peak_from_2km_ground     eye (4532.46, 528.80, 5597.37): waited 23 s, far ring ready, voxel deficit 0
+  peak_from_2km_ground lit: 10.00 h, sun elevation 58 deg, sun . view (horizontal) -0.67
+  peak_from_2km_ground backlit: 16.25 h, sun elevation 26 deg, sun . view (horizontal) 0.08
+glide_400m               eye (2400.00, 912.00, 2400.00): waited 13 s, far ring ready, voxel deficit 0
+  glide_400m lit: 16.25 h, sun elevation 26 deg, sun . view (horizontal) -0.58
+  glide_400m backlit: 10.00 h, sun elevation 58 deg, sun . view (horizontal) 0.96
+oblique_3000m            eye (4000.00, 3512.00, 1800.00): waited 7 s, far ring ready, voxel deficit 0
+  oblique_3000m lit: 7.75 h, sun elevation 26 deg, sun . view (horizontal) 0.24
+  oblique_3000m backlit: 10.00 h, sun elevation 58 deg, sun . view (horizontal) 0.40
+eye_level_1              eye (4600.00, 652.90, 4000.00): waited 21 s, far ring ready, voxel deficit 0
+  eye_level_1 lit: 10.00 h, sun elevation 58 deg, sun . view (horizontal) -1.00
+  eye_level_1 backlit: 12.00 h, sun elevation 78 deg, sun . view (horizontal) -0.39
+eye_level_3              eye (3235.19, 674.50, 2640.34): waited 28 s, far ring ready, voxel deficit 0
+  eye_level_3 lit: 16.25 h, sun elevation 26 deg, sun . view (horizontal) -0.31
+  eye_level_3 backlit: 12.00 h, sun elevation 78 deg, sun . view (horizontal) 0.85
+peak_from_2km_ground     eye (4532.46, 528.80, 5597.37): waited 25 s, far ring ready, voxel deficit 0
+    torch   12 m ahead,  -3 m aside: at voxel (45315, 5271, 55850)
+    torch   20 m ahead,   4 m aside: at voxel (45223, 5262, 55796)
+    torch   28 m ahead,  -2 m aside: at voxel (45254, 5257, 55701)
+    torch   60 m ahead,  12 m aside: at voxel (45020, 5228, 55442)
+    torch   80 m ahead, -10 m aside: at voxel (45166, 5239, 55183)
+    torch  100 m ahead, -15 m aside: at voxel (45150, 5234, 54977)
+    torch  120 m ahead,   8 m aside: at voxel (44869, 5246, 54860)
+    torch  150 m ahead,  10 m aside: no ground found
+    torch  200 m ahead,  -5 m aside: no ground found
+    torch  250 m ahead,   0 m aside: no ground found
+    torch  300 m ahead,   6 m aside: no ground found
+  peak_from_2km_ground night: 0.50 h; torches near 3/3, far (60-300 m) 4/8; lava pool 45 m ahead: 1961 voxels; lights registered 7, lava tiles 4
+eye_level_3              eye (3235.19, 674.50, 2640.34): waited 38 s, far ring ready, voxel deficit 0
+    torch   12 m ahead,  -3 m aside: at voxel (32390, 6611, 26521)
+    torch   20 m ahead,   4 m aside: at voxel (32492, 6517, 26551)
+    torch   28 m ahead,  -2 m aside: at voxel (32483, 6446, 26651)
+    torch   60 m ahead,  12 m aside: at voxel (32772, 6240, 26847)
+    torch   80 m ahead, -10 m aside: at voxel (32692, 6371, 27134)
+    torch  100 m ahead, -15 m aside: at voxel (32756, 6399, 27330)
+    torch  120 m ahead,   8 m aside: at voxel (33057, 6353, 27377)
+    torch  150 m ahead,  10 m aside: at voxel (33233, 6293, 27620)
+    torch  200 m ahead,  -5 m aside: no ground found
+    torch  250 m ahead,   0 m aside: no ground found
+    torch  300 m ahead,   6 m aside: no ground found
+  eye_level_3 night: 0.50 h; torches near 3/3, far (60-300 m) 5/8; lava pool 45 m ahead: 1961 voxels; lights registered 15, lava tiles 13

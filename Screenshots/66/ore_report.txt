@@ -1,0 +1,71 @@
+Ores (gameplay step 3), seed 42, map v4, brick geology 200, Burst
+48 chunks of 128^3, 4 land sites: the RING set (top chunk + 7 below) and the DEEP set (sea-75 m, sea-125 m, sea-250 m, underworld top-20 m)
+
+ore voxels / layer-rock voxels: 24,726 / 94,069,485 = 0.026%
+
+ORE VOXELS per layer x column biome (rock voxels of that layer x biome in brackets):
+layer                               forest                desert                  snow                jungle               savanna              badlands
+copper (stone)                           -        12,431 (0.03%)                     -         3,899 (0.03%)                     -                     -
+iron (deep)                              -         1,446 (0.02%)                     -         1,566 (0.07%)                     -                     -
+gold (deeper)                            -         2,911 (0.05%)                     -           395 (0.02%)                     -                     -
+cobalt (cavern)                          -         1,246 (0.02%)                     -           148 (0.01%)                     -                     -
+ember (underworld)                       -           149 (0.00%)                     -           535 (0.03%)                     -                     -
+
+ORE SHARE per pair multiplier (column's OreTable entry, 16 = x1): ore / rock
+  x1.31       6,543 /     23,111,236 = 0.028%
+  x1.38       4,406 /     17,179,331 = 0.026%
+  x1.50      13,777 /     53,778,918 = 0.026%
+
+MIXED BRICKS, RING SET (32 chunks: per site the top chunk + 7 below, V0's ring projection):
+  4,694 -> 4,882  (+4.0%; +5.9 bricks = 2.9 KB per chunk)
+  projected on V0's 16-layer ring (32 x 32 columns x 8 chunks): +24 MB
+MIXED BRICKS, ALL 48 chunks: 4,907 -> 5,190 of 196,608 (2.50% -> 2.64% of all bricks; +5.8% relative)
+  per chunk (mixed off -> on, ore voxels):
+    site0 ring top               663 ->    663          0
+    site0 ring -1                438 ->    443        373
+    site0 ring -2                212 ->    218        529
+    site0 ring -3                 89 ->     92        310
+    site0 ring -4                  0 ->      8        737
+    site0 ring -5                  0 ->      6        582
+    site0 ring -6                  0 ->      8        794
+    site0 ring -7                  0 ->      6        574
+    site0 deep (iron)              0 ->     17      1,566
+    site0 deeper (gold)            6 ->     11        395
+    site0 cavern                   0 ->      2        148
+    site0 underworld               0 ->      7        535
+    site1 ring top               682 ->    686        168
+    site1 ring -1                281 ->    292        958
+    site1 ring -2                  0 ->      5        447
+    site1 ring -3                  0 ->     10        952
+    site1 ring -4                  0 ->      9        796
+    site1 ring -5                  0 ->      2        184
+    site1 ring -6                  0 ->      6        542
+    site1 ring -7                  0 ->      4        346
+    site1 deep (iron)             73 ->     77        331
+    site1 deeper (gold)            0 ->     17      1,555
+    site1 cavern                 134 ->    137        284
+    site1 underworld               0 ->      0          0
+    site2 ring top               948 ->    953        365
+    site2 ring -1                332 ->    338        525
+    site2 ring -2                  6 ->     13        529
+    site2 ring -3                  0 ->      5        436
+    site2 ring -4                  0 ->      7        484
+    site2 ring -5                  0 ->      7        601
+    site2 ring -6                  0 ->      7        706
+    site2 ring -7                  0 ->      5        452
+    site2 deep (iron)              0 ->      5        462
+    site2 deeper (gold)            0 ->      9        753
+    site2 cavern                   0 ->      7        724
+    site2 underworld               0 ->      1        103
+    site3 ring top               591 ->    591          0
+    site3 ring -1                452 ->    456        438
+    site3 ring -2                  0 ->      8        617
+    site3 ring -3                  0 ->      5        400
+    site3 ring -4                  0 ->     11      1,020
+    site3 ring -5                  0 ->      6        497
+    site3 ring -6                  0 ->     10        811
+    site3 ring -7                  0 ->      2        157
+    site3 deep (iron)              0 ->      7        653
+    site3 deeper (gold)            0 ->      7        603
+    site3 cavern                   0 ->      3        238
+    site3 underworld               0 ->      1         46

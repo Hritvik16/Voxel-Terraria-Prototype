@@ -1,0 +1,13 @@
+SIZECLASS 2 WORLD (-world tg2: voxel band streamed in Y + the far band) -- 2026-10-13_050141
+seed 42: world 8 km, sea at Y 5120, peak site float2(39000f, 37000f), max top 11000 (engine voxels), ring initial fill 2659 ms
+map v4 Height FNV 639552DD962C4B28  cell(613,259) 1068.80900
+volcano_from_2km, caldera_above: this world drew no volcano (map v4 feature pool) -- skipped
+cliff feet found: 3  (band placement: terrain-aware)
+POSES (-poses): 3 kept of 3 named: eye_level_2, ledge_view, cliff_foot_1
+eye_level_2              golden  eye (3454.77, 532.10, 4932.27)  277.93 ms (diagnostic)  MIRROR lost 0 lag 0 stale 0  outOfBox 0  band 41+-3  resident 3087  deficit 0  dense 401078  lruEvictions 0
+eye_level_2                noon  eye (3454.77, 532.10, 4932.27)  93.14 ms (diagnostic)  band 41+-3  resident 3087  deficit 0  dense 401078  lruEvictions 0
+ledge_view               golden  eye (4788.04, 604.25, 3459.33)  101.51 ms (diagnostic)  MIRROR lost 0 lag 0 stale 0  outOfBox 0  band 48+-3  resident 3087  deficit 0  dense 384195  lruEvictions 0
+ledge_view                 noon  eye (4788.04, 604.25, 3459.33)  111.20 ms (diagnostic)  band 48+-3  resident 3087  deficit 0  dense 384195  lruEvictions 0
+cliff_foot_1             golden  eye (4852.00, 551.70, 2052.00)  182.75 ms (diagnostic)  MIRROR lost 0 lag 0 stale 0  outOfBox 0  band 43+-3  resident 3087  deficit 0  dense 251324  lruEvictions 0
+cliff_foot_1               noon  eye (4852.00, 551.70, 2052.00)  112.81 ms (diagnostic)  band 43+-3  resident 3087  deficit 0  dense 251324  lruEvictions 0
+ring upkeep: 5 strips, 17 refills, 89.8 MB uploaded

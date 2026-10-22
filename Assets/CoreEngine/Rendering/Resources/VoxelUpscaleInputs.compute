@@ -1,0 +1,63 @@
+// VoxelUpscaleInputs.compute -- TASK 47 (engine plan step 3, owner Q4).
+//
+// What a temporal upscaler (URP STP, FSR 3) needs and a compute raymarch does
+// not produce by itself: per-pixel MOTION VECTORS and DEVICE DEPTH. Both come
+// from buffers CSMain already writes when its TAA block is on (task 06):
+//   TaaCur[pi].xy  = where this pixel's surface was in the PREVIOUS frame, in
+//                    gate pixels, measured with the unjittered previous
+//                    view-projection, minus this frame's ray jitter
+//   TaaMetaW[pi].x = hit distance from THIS camera, voxels (-2 = sky)
+// A separate file (not a kernel in Raymarch.compute) so CSMain's compiled
+// code is untouched: a runtime uniform inside CSMain once moved TAA-off images
+// by a few silhouette pixels (task 08).
+//
+// Conventions, all in gate pixels with row 0 at the BOTTOM (as CSMain writes
+// ResultTexture, and as every Unity render texture is laid out):
+//   motion = (current - previous) position in UV units, the URP
+//            _MotionVectorTexture convention (MotionVectorsCommon.hlsl).
+//            current = pixel centre + _UpsJitter.zw (zw = 0 when the ray was
+//            jittered by our own _TaaJitter; -URP's jitter in pixels when the
+//            ray used URP's jittered projection -- see RaymarchFeature).
+//   depth  = device depth, the value a raster pass would have left in the
+//            depth buffer (reversed Z on Metal: 1 near, 0 far / sky).
+#pragma kernel UpscaleInputs
+
+StructuredBuffer<float4> UpsTaaCur;
+StructuredBuffer<float2> UpsTaaMeta;
+RWTexture2D<float2> UpsMotion;
+RWTexture2D<float> UpsDepth;
+
+float4x4 _UpsInvProj;   // the inverse projection CSMain's rays used (_CameraInverseProjection)
+float4 _UpsSize;        // gate width, height
+float4 _UpsJitter;      // xy = CSMain's _TaaJitter (ray offset, pixels); zw = motion offset, pixels
+float4 _UpsDepth;       // x = near m, y = far m, z = 1 reversed Z / 0 not
+
+[numthreads(8, 8, 1)]
+void UpscaleInputs(uint3 id : SV_DispatchThreadID)
+{
+    uint w = (uint)_UpsSize.x, h = (uint)_UpsSize.y;
+    if (id.x >= w || id.y >= h) return;
+    uint pi = id.y * w + id.x;
+    float2 c = float2(id.xy) + 0.5;
+
+    float4 cur = UpsTaaCur[pi];
+    // -1e4 = the surface was behind the previous camera: no motion to report.
+    UpsMotion[id.xy] = (cur.x > -1000.0) ? (c + _UpsJitter.zw - cur.xy) / _UpsSize.xy : float2(0.0, 0.0);
+
+    bool reversed = _UpsDepth.z > 0.5;
+    float d = reversed ? 0.0 : 1.0;
+    float distVox = UpsTaaMeta[pi].x;
+    if (distVox >= 0.0)
+    {
+        // The same ray CSMain traced, to turn distance along it into eye depth.
+        float2 uv = (c + _UpsJitter.xy) / _UpsSize.xy * 2.0 - 1.0;
+        float4 t = mul(_UpsInvProj, float4(uv.x, uv.y, 1.0, 1.0));
+        float3 v = normalize(t.xyz / t.w);
+        float n = _UpsDepth.x, f = _UpsDepth.y;
+        float z = max(distVox * 0.1 * -v.z, n);
+        // Inverse of LinearEyeDepth with Unity's _ZBufferParams.
+        d = reversed ? (f / z - 1.0) / (f / n - 1.0) : (f / z - f / n) / (1.0 - f / n);
+        d = saturate(d);
+    }
+    UpsDepth[id.xy] = d;
+}

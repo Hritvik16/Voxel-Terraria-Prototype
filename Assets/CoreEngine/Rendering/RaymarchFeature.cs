@@ -14,7 +14,7 @@ using UnityEngine.Rendering.Universal;
 using UnityEngine.Rendering.RenderGraphModule;
 using VoxelEngine.Mirror;
 
-public class RaymarchFeature : ScriptableRendererFeature
+public partial class RaymarchFeature : ScriptableRendererFeature
 {
     public enum DebugMode
     {
@@ -34,6 +34,9 @@ public class RaymarchFeature : ScriptableRendererFeature
         FarBand = 9,
         FarHeat = 10,
         VoxelStop = 11,
+        // Task 93b3 (diagnostic, CSMainFarShade only): where the far march starts, shell march heat.
+        FarStart = 12,
+        ShellHeat = 13,
     }
 
     public enum GateResMode { UseInspector, Native, Forced960x540, ForcedCustom }
@@ -65,6 +68,16 @@ public class RaymarchFeature : ScriptableRendererFeature
     public static bool UsePackedMips = true;
     public static float MaxRayDistance = 1280f;
     public static bool UseLODCascade = true;
+
+    /// Amendment 8.14 step 11b (task 80): draw the coarse shells when a
+    /// ShellStreamer is Active (`-shells 1`). While they draw, cascade tiers 1-2
+    /// do not (row 2: shells replace them) and tier 0 marches to MaxRayDistance.
+    /// False = the shells stay resident but the frame is the pre-11b one (the
+    /// capture's OFF arm). ShellTint (-shellsdebug) tints each pixel by its shell.
+    public static bool DrawShells = true;
+    public static bool ShellTint = false;
+    public static int ShellIterCap = 384;
+    public static bool ShellsDrawnLastFrame { get; private set; }
 
     /// Tier boundaries: 8.9's fixed LODConfig.TIER_OUTER_RANGE_M (default) or
     /// the pixel-footprint form, recomputed per frame from the dispatch height
@@ -164,6 +177,9 @@ public class RaymarchFeature : ScriptableRendererFeature
     public static bool UseDebugViewOverride = false;
 
     public static Vector2Int LastDispatchResolution = new Vector2Int(0, 0);
+    /// Primary raymarch dispatches executed so far (task 47's smoke checks
+    /// that every path really traces a new image every frame).
+    public static int PrimaryDispatchCount;
 
     /// Stage F's branch-engagement counters. Off by default: the per-pixel
     /// InterlockedAdd that fills them is expensive and would contaminate any
@@ -192,12 +208,84 @@ public class RaymarchFeature : ScriptableRendererFeature
     public static int LookOverride = -1;
     /// >= 0 forces LightingConfig.emissiveBleed without touching the file. -1 = use the config.
     public static int EmissiveBleedOverride = -1;
+    /// Task 66b: with the eye inside water, oil, sludge, acid, honey or quicksand the
+    /// primary ray passes through that fluid and fogs by the distance (Raymarch.compute
+    /// `passMat`). False = the old view (black). Play sets it from
+    /// PlaySettings.underwaterFog; rigs keep this default and are never under a fluid.
+    public static bool UnderwaterView = true;
+    /// Task 75: water, honey, oil, acid and sludge seen from above or the side are
+    /// see-through, each by its own clarity (Raymarch.compute `_SeeThroughLiquids`,
+    /// FluidExtinction; the far band too). OFF by default so rigs and capture runs
+    /// keep today's look byte for byte; play sets it from PlaySettings.seeThroughLiquids
+    /// (on), a capture run only with `-seethrough 1`.
+    public static bool SeeThroughLiquids = false;
+    /// DIAGNOSTIC (task 75b's cost split arms see_noblend / see_nofar / see_nomarch):
+    /// bits that skip one part of the see-through work -- 1 the end blend behind a
+    /// voxel surface, 2 the far band's blend, 4 the march through the fluid (the
+    /// blend then runs on the surface itself). Sent as _SeeThroughLiquids bits 1-3.
+    /// Never set outside the cost split.
+    public static int DebugSeeSkip = 0;
+    /// DIAGNOSTIC (task 93b4's cost split arms shellshadow_off / shellmarch_off; the
+    /// far-shading kernel only): bit 0 skips the shell-hit sun-shadow march, bit 1 the
+    /// primary shell march and the far march after it, bit 2 turns ShellMarch's read caches off
+    /// (shellcache_off: same image, the pre-93b4 reads), bit 3 ShellMarch's air-brick mask
+    /// (shellmask_off, task 93b5: same image, the pre-93b5 iterations), bit 4 the exit-plane shell leap
+    /// without the mask (shellleap_new = bits 3 + 4: what that leap costs; the mask turns it on). Never set outside the cost split.
+    public static int DebugShellSkip = 0;
+    /// Task 76 (R2 + R5, replaces task 73's prototype): generated rivers drawn as one
+    /// moving sheet -- one-voxel risers between water drawn as surface, ripples moving
+    /// along the map's flow directions and foam where the profile is steep, on near
+    /// voxels, coarse tiers and the far band alike (Raymarch.compute `_RiverLook`,
+    /// RiverSurface; the flow map is FarField.RiverFlow). Look 1 path. OFF by default so
+    /// rigs and capture runs keep their look; play sets it from PlaySettings.riverLook (on).
+    public static bool RiverLook = false;
+    /// Task 85b (BUGS #9, owner Q48 (a)): FAR SHADING -- a hemisphere sky term that
+    /// follows the time of day, the ground slope instead of the cube face where a
+    /// 0.1 m voxel is <= 2 px, and aerial-perspective haze that light (torches,
+    /// lava) mostly escapes. Look 1 path; voxels, tiers, shells and the far band
+    /// (Raymarch.compute kernel CSMainFarShade, VE_FAR_SHADE). OFF by default so rigs and capture runs keep
+    /// their look byte for byte; play sets it from PlaySettings.farShade (on); any
+    /// other player (capture runs, rigs) only with `-farshade 1` (last match wins).
+    public static bool FarShade = ReadFarShadeArg();
+    /// Task 93b5: ShellMarch uses the shells' air-brick mask: an empty brick group in ONE leap,
+    /// exact with the exit-plane leap it turns on (task 93b5 (b)). OFF by default: warm, vs the
+    /// mask-off march p50 -2.1 ms walk_near but +0.8 ms walk_open, and the exit-plane leap moves
+    /// ~0.02% of pixels by 1-7 levels (Logs/costsplit_2026-10-17_041222.txt; KNOWN_ISSUES "SHELLS
+    /// COST"). `-shellmask 1` turns it on. The mask itself is always built and uploaded.
+    public static bool ShellAirMask = ReadShellMaskArg();
+    /// Task 99 (owner Q61 (a)): the SKY-RAY EXIT. A rising shell ray above the highest
+    /// non-air brick any shell store holds (ShellStreamer.SolidTopY) -- and, for a primary
+    /// ray with the far band on, 2 voxels above the far band's max height -- ends there
+    /// as a no-hit: exact (Raymarch.compute ShellSkyY, ShellSkyExitTests; no-upscaler stills 0 px).
+    /// ON by default: warm, ABBA, p50 -4.7 ms walk_near / -2.6 ms walk_open (noise 0.9 / 0.6;
+    /// Logs/costsplit_2026-10-17_102453.txt). `-shellskyexit 0` = the march before task 99.
+    public static bool ShellSkyExit = ReadShellSkyExitArg();
+    /// Its constants (task 85b's picks): sky strength (x the sky colour the face
+    /// sees), haze range and scale height (metres), and the share of the haze that
+    /// light takes (0.25: a torch at haze 0.9 keeps ~78% of its light).
+    public static float FarShadeSkyStrength = 1.1f;
+    public static float FarShadeHazeRangeM = 3500f;
+    public static float FarShadeHazeScaleHeightM = 1500f;
+    public static float FarShadeLightHaze = 0.25f;
+    /// >= 0 forces LightingConfig.torchShadowRays (-torchshadows N; 0 = no
+    /// occlusion rays, the pre-task-46 leak). -1 = use the config.
+    public static int TorchShadowsOverride = -1;
 
     /// SHADOW ROOF SKIP (Raymarch.compute's HeightMip block): exact by
     /// construction, so it changes cost, not pixels. OFF until measured;
     /// `-roofskip 1` on any player's command line turns it on (last match wins,
     /// like PlaygroundCapture's args).
     public static bool ShadowRoofSkip = ReadRoofSkipArg();
+    /// DIAGNOSTIC (task 59's cost split arm roof_build): build the HeightMip
+    /// pyramid every frame but leave the shadow march as with the skip OFF, so
+    /// the build's cost can be told from the march's. Never set outside it.
+    public static bool DebugRoofBuildOnly = false;
+
+    /// HALF-RES SUN SHADOWS (task 61, Raymarch.compute's _ShadowHalfRes): one
+    /// sun ray per 2x2 pixels at all distances, edge-aware. Play sets it from
+    /// PlaySettings.shadowRes; anywhere else `-shadowres half` turns it on (last
+    /// match wins). OFF by default: rigs and capture runs are unchanged.
+    public static bool ShadowHalfRes = ReadShadowResArg();
 
     /// Build rays from URP's per-frame projection (which carries TAA/STP
     /// sub-pixel JITTER) instead of Camera.projectionMatrix. Without jitter a
@@ -209,12 +297,48 @@ public class RaymarchFeature : ScriptableRendererFeature
     private static int _heightMipWindowX = -1, _heightMipWindowZ = -1;
     private static int[] _heightOffsets = new int[8];
 
+    private static bool ReadShadowResArg()
+    {
+        string[] a = System.Environment.GetCommandLineArgs();
+        bool half = false;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == "-shadowres") half = a[i + 1] == "half";
+        return half;
+    }
+
     private static bool ReadRoofSkipArg()
     {
         string[] a = System.Environment.GetCommandLineArgs();
         bool on = false;
         for (int i = 0; i + 1 < a.Length; i++)
             if (a[i] == "-roofskip") on = a[i + 1] == "1";
+        return on;
+    }
+
+    private static bool ReadShellMaskArg()
+    {
+        string[] a = System.Environment.GetCommandLineArgs();
+        bool on = false;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == "-shellmask") on = a[i + 1] == "1";
+        return on;
+    }
+
+    private static bool ReadShellSkyExitArg()
+    {
+        string[] a = System.Environment.GetCommandLineArgs();
+        bool on = true;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == "-shellskyexit") on = a[i + 1] != "0";
+        return on;
+    }
+
+    private static bool ReadFarShadeArg()
+    {
+        string[] a = System.Environment.GetCommandLineArgs();
+        bool on = false;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == "-farshade") on = a[i + 1] == "1";
         return on;
     }
 
@@ -240,7 +364,6 @@ public class RaymarchFeature : ScriptableRendererFeature
     private static bool _tsValid;
     private static uint _tsFrame;
     private static Matrix4x4 _tsPrevVP;
-    private static Vector3 _tsPrevCamVox;
 
     /// TEMPORAL ANTI-ALIASING (Raymarch.compute's TAA block; overnight task 06).
     /// OFF unless `-taa 1` (last match wins) or Playground's F4. Beauty view
@@ -288,7 +411,7 @@ public class RaymarchFeature : ScriptableRendererFeature
     public static bool CollectShadowStats = false;
     public static GraphicsBuffer ShadowStatsBuffer { get; private set; }
     // [0..4] shadow counters; [5] far rays, [6] far steps (primary + far shadow), [7] far hits.
-    public const int STATS_LEN = 8;
+    public const int STATS_LEN = 65;   // 0-7 shadow / far; 8 + 4k .. 11 + 4k: shell k's px metric (task 80); 40-47 far start / steps (task 93b3, far-shading kernel); 48-59 shell march iterations by ray kind / step kind / reads (task 93b4, far-shading kernel); 60-61 air-brick mask groups / bricks crossed (task 93b5); 62-64 sky rays / their shell iterations / ended by the sky exit (task 99, far-shading kernel)
     private static readonly uint[] _statsZero = new uint[STATS_LEN];
     private static GraphicsBuffer _farDummy;
     /// Bound as LightBuffer when no LightingDriver exists (the Phase 4
@@ -333,7 +456,6 @@ public class RaymarchFeature : ScriptableRendererFeature
             public uint tsFrame;
             public GraphicsBuffer tsRead, tsWrite;
             public Matrix4x4 tsPrevVP;
-            public Vector3 tsPrevCamVox;
             public int taa, taaHistValid, taaDirtyCount, taaChecker, taaCheckerParity;
             public Vector2 taaJitter;
             public Matrix4x4 taaPrevVP;
@@ -342,6 +464,10 @@ public class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer taaCur, taaMetaR, taaMetaW, taaColR, taaColW;
             public TextureHandle taaScratch;
             public int kTaaResolve, kTaaSharpen;
+            // Task 47: taa != 0 with taaResolve == 0 = TAA's jitter and history
+            // buffers only, for an external upscaler (RaymarchFeature.Upscalers.cs).
+            public int taaResolve;
+            public UpsComputeData ups;
             public int kPrimary;   // CSMain (0), or CSMainChecker with -checker, or CSMainDetail (task 24)
             public bool primaryChecker;   // kPrimary is CSMainChecker: dispatch half the width
             public ComputeShader compute;
@@ -392,6 +518,7 @@ public class RaymarchFeature : ScriptableRendererFeature
             public float tonemapWhite;
             public int look;
             public int roofSkip;
+            public float shadowHalfRes;
             public GraphicsBuffer heightMip;
             public int[] heightOffsetsA, heightOffsetsB;
             public int kHeightRaw, kHeightDilate, kHeightLevel;
@@ -399,6 +526,14 @@ public class RaymarchFeature : ScriptableRendererFeature
             public float lookShadowDarkness, lookHazeDensity;
             public Vector4 lookGrade;
             public int emissiveBleed;
+            public int underwaterView;
+            public int seeThroughLiquids;
+            public int riverLook;
+            public Vector4 farShadeParams;
+            public GraphicsBuffer riverFlow;   // task 76: FarField.RiverFlow, or the far dummy
+            public Vector4 riverMap;           // xy gen offset, z cell voxels, w cells (0 = none)
+            public float riverTime;
+            public int torchShadowRays;
 
             // ---- far band (FarField.cs) ----
             public int farEnabled, farShadow;
@@ -407,6 +542,12 @@ public class RaymarchFeature : ScriptableRendererFeature
             public Vector4 farParams;
             public float farPixelAngle;
             public float detailRadiusVoxels;   // task 24: 0 = hand-over at the residency edge (today)
+
+            // ---- 8.14 shells (task 80); shellCount 0 = off, dummies bound ----
+            public int shellCount, shellIterCap, shellTint, shellMaskBase, shellTopY;
+            public float shellPixelAngle;
+            public GraphicsBuffer shellDir, shellPages, shellBricks;
+            public Vector4[] shellRing, shellLo, shellHi, shellCam, shellBounds;
             public VoxelEngine.Rendering.FarField.Scatter[] farScatters;
             public int farMipMask;
             public int kFarScatter = -1, kFarMip = -1;
@@ -494,9 +635,14 @@ public class RaymarchFeature : ScriptableRendererFeature
 
             TextureHandle target = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_RaymarchTarget", false);
             var taaCam = cameraData.camera;
-            bool taaOn = Taa && !useStripped && !useMemoryProbe && _debugMode == 0
+            // Task 47: STP / FSR 3 take TAA's jitter, depth and reprojection but
+            // replace its resolve. Off (the default) leaves taaOn exactly as before.
+            bool upsIn = UpscaleInputs != UpscalerInputMode.Off && !useStripped && !useMemoryProbe && _debugMode == 0
                       && taaCam.cameraType == CameraType.Game;
-            TextureHandle taaScratch = taaOn
+            bool taaOn = (Taa || upsIn) && !useStripped && !useMemoryProbe && _debugMode == 0
+                      && taaCam.cameraType == CameraType.Game;
+            bool taaResolve = taaOn && !upsIn;
+            TextureHandle taaScratch = taaResolve
                 ? UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_RaymarchTaaCur", false)
                 : TextureHandle.nullHandle;
 
@@ -529,15 +675,19 @@ public class RaymarchFeature : ScriptableRendererFeature
                         _tsA?.Release(); _tsB?.Release();
                         _tsA = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, 8);
                         _tsB = new GraphicsBuffer(GraphicsBuffer.Target.Structured, dispatchW * dispatchH, 8);
+                        // (sunVis, origin key) per pixel. A slot never written (the
+                        // checkerboard's other half) must never match a key: 0xFFFFFFFF.
+                        var fill = new uint[dispatchW * dispatchH * 2];
+                        for (int i = 1; i < fill.Length; i += 2) fill[i] = 0xFFFFFFFFu;
+                        _tsA.SetData(fill); _tsB.SetData(fill);
                         _tsW = dispatchW; _tsH = dispatchH; _tsValid = false;
                     }
                     passData.tsRead = _tsA; passData.tsWrite = _tsB;
                     passData.tsValid = _tsValid ? 1 : 0;
                     passData.tsFrame = _tsFrame++;
-                    passData.tsPrevVP = _tsPrevVP; passData.tsPrevCamVox = _tsPrevCamVox;
+                    passData.tsPrevVP = _tsPrevVP;
                     var tc = cameraData.camera;
                     _tsPrevVP = tc.projectionMatrix * tc.worldToCameraMatrix;
-                    _tsPrevCamVox = tc.transform.position * 10f;
                     (_tsA, _tsB) = (_tsB, _tsA);
                     _tsValid = true;
                 }
@@ -552,6 +702,8 @@ public class RaymarchFeature : ScriptableRendererFeature
                 }
                 TerrainClipmap.RecordUploadedChunks = taaOn;
                 passData.taa = taaOn ? 1 : 0;
+                passData.taaResolve = taaResolve ? 1 : 0;
+                passData.ups = null;
                 passData.taaCur = _taaDummy4; passData.taaMetaW = _taaDummy2;
                 passData.kPrimary = 0;
                 passData.primaryChecker = false;
@@ -568,15 +720,18 @@ public class RaymarchFeature : ScriptableRendererFeature
                         _taaCur = new GraphicsBuffer(GraphicsBuffer.Target.Structured, n, 16);
                         _taaW = dispatchW; _taaH = dispatchH; _taaValid = false;
                     }
-                    Matrix4x4 proj = UseCameraDataProjection ? cameraData.GetProjectionMatrix(0) : taaCam.projectionMatrix;
+                    // An upscaler's motion vectors are measured between UNJITTERED cameras.
+                    Matrix4x4 proj = UseCameraDataProjection && !upsIn ? cameraData.GetProjectionMatrix(0) : taaCam.projectionMatrix;
                     Matrix4x4 vp = proj * taaCam.worldToCameraMatrix;
                     Vector3 camVox = taaCam.transform.position * 10f;
                     Unity.Mathematics.float3 sdT = SunCycle.Direction;
                     Vector3 sun = new Vector3(sdT.x, sdT.y, sdT.z).normalized;
                     var cfgT = LightingConfig.Active;
                     int bleedSig = EmissiveBleedOverride >= 0 ? EmissiveBleedOverride : cfgT.emissiveBleed;
+                    int torchSig = TorchShadowsOverride >= 0 ? TorchShadowsOverride : cfgT.torchShadowRays;
                     int lightSig = ShadowQualityLevel * 31 + (LookOverride >= 0 ? LookOverride : cfgT.look) * 7
-                                 + (TonemapOverride >= 0 ? TonemapOverride : cfgT.tonemap) + bleedSig * 13;
+                                 + (TonemapOverride >= 0 ? TonemapOverride : cfgT.tonemap) + bleedSig * 13
+                                 + torchSig * 97;
                     // A LARGE LIGHT JUMP (the sun moving > 0.25 deg in a frame, a
                     // look / shadow-rung / tonemap switch) or a teleport (> 20 m)
                     // invalidates every history colour at once. The sun bound was
@@ -597,12 +752,13 @@ public class RaymarchFeature : ScriptableRendererFeature
                     // jitter per frame a pixel traced on alternate frames would see
                     // only the odd or only the even Halton indices -- for base 2,
                     // all >= 0.5 or all < 0.5: a half-pixel bias between the halves).
-                    passData.taaChecker = TaaChecker ? 1 : 0;
-                    if (TaaChecker) { passData.kPrimary = activeCompute.FindKernel("CSMainChecker"); passData.primaryChecker = true; }
+                    passData.taaChecker = TaaChecker && !upsIn ? 1 : 0;
+                    if (TaaChecker && !upsIn) { passData.kPrimary = activeCompute.FindKernel("CSMainChecker"); passData.primaryChecker = true; }
                     passData.taaCheckerParity = (int)(_taaFrame & 1u);
                     int hi = (int)((TaaChecker ? (_taaFrame >> 1) : _taaFrame) % TaaJitterCycle) + 1;
+                    LastTaaJitter = upsIn ? UpsJitter(_taaFrame, dispatchW, dispatchH, cameraData)
+                                          : new Vector2(Halton(hi, 2) - 0.5f, Halton(hi, 3) - 0.5f);
                     _taaFrame++;
-                    LastTaaJitter = new Vector2(Halton(hi, 2) - 0.5f, Halton(hi, 3) - 0.5f);
                     passData.taaJitter = LastTaaJitter;
                     passData.taaParams = new Vector4(TaaAlphaStill, TaaAlphaMoving, TaaMotionPx, TaaSharpenAmount);
                     passData.taaCur = _taaCur;
@@ -622,6 +778,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                     passData.taaScratch = taaScratch;
                     passData.kTaaResolve = activeCompute.FindKernel("TaaResolve");
                     passData.kTaaSharpen = activeCompute.FindKernel("TaaSharpen");
+                    if (upsIn) passData.ups = UpsPrepare(renderGraph, frameData, dispatchW, dispatchH, reset);
                 }
                 else
                 {
@@ -702,11 +859,26 @@ public class RaymarchFeature : ScriptableRendererFeature
                 Unity.Mathematics.float4 g = SunCycle.LookGradeAt(hrs);
                 passData.lookGrade = new Vector4(g.x, g.y, g.z, g.w);
                 passData.emissiveBleed = EmissiveBleedOverride >= 0 ? EmissiveBleedOverride : cfg.emissiveBleed;
+                passData.underwaterView = UnderwaterView ? 1 : 0;
+                passData.seeThroughLiquids = SeeThroughLiquids ? 1 | ((DebugSeeSkip & 7) << 1) : 0;   // bits 1-3: task 75b diagnostic
+                passData.riverLook = RiverLook ? 1 : 0;
+                passData.farShadeParams = new Vector4(FarShadeSkyStrength, FarShadeHazeRangeM * 10f,
+                                                      FarShadeHazeScaleHeightM * 10f, FarShadeLightHaze);
+                {
+                    var farR = VoxelEngine.Rendering.FarField.Active;
+                    bool hasFlow = farR != null && farR.RiverFlow != null;
+                    passData.riverFlow = hasFlow ? farR.RiverFlow : _farDummy;
+                    passData.riverMap = hasFlow ? farR.RiverMapParams : Vector4.zero;
+                    passData.riverTime = Time.time;
+                }
+                passData.torchShadowRays = Mathf.Clamp(TorchShadowsOverride >= 0 ? TorchShadowsOverride : cfg.torchShadowRays,
+                                                       0, LightingConfig.MaxTorchShadowRays);
 
                 // Shadow roof skip. The buffer is bound on EVERY frame, on or
                 // off: an HLSL-declared buffer left unbound is undefined on Metal.
                 EnsureHeightMip(clip.WindowDimsBricks.x, clip.WindowDimsBricks.z);
-                passData.roofSkip = ShadowRoofSkip ? 1 : 0;
+                passData.roofSkip = ShadowRoofSkip ? 1 : DebugRoofBuildOnly ? 2 : 0;   // 2 = build only
+                passData.shadowHalfRes = ShadowHalfRes ? LODConfig.PixelAngleRad(cameraData.camera.fieldOfView, dispatchH) : 0f;
                 passData.heightMip = HeightMipBuffer;
                 passData.heightOffsetsA = new[] { _heightOffsets[0], _heightOffsets[1], _heightOffsets[2], _heightOffsets[3] };
                 passData.heightOffsetsB = new[] { _heightOffsets[4], _heightOffsets[5], _heightOffsets[6], 0 };
@@ -726,11 +898,20 @@ public class RaymarchFeature : ScriptableRendererFeature
                 if (cameraData.camera.cameraType == CameraType.Game)
                     VoxelEngine.Streaming.DetailRadius.Tick(Time.frameCount, Time.realtimeSinceStartup, cameraData.camera.transform.position);
                 passData.detailRadiusVoxels = farOn ? VoxelEngine.Streaming.DetailRadius.ShaderRadiusVoxels : 0f;
+                // Task 85 (8.14 row 5, step 12): with shells drawn the hand-over is by
+                // distance, so -detailspeed is not used on that path (shellsOn below).
+                if (DrawShells && ShellStreamer.Active != null && !useStripped && !useMemoryProbe)
+                    passData.detailRadiusVoxels = 0f;
                 // Only the CSMainDetail kernel reads it (VE_DETAIL_SPEED); CSMain and
                 // CSMainChecker are the pre-task code, so OFF and a still camera are
                 // byte-identical. Not combined with the checkerboard (CSMainChecker wins).
                 if (passData.detailRadiusVoxels > 0f && passData.kPrimary == 0)
                     passData.kPrimary = activeCompute.FindKernel("CSMainDetail");
+                // Task 85b: far shading is its own kernel (VE_FAR_SHADE), so OFF runs the
+                // pre-task CSMain byte for byte. The checkerboard and the -detailspeed
+                // square keep their kernels (no far shading while they hold the frame).
+                if (FarShade && passData.kPrimary == 0 && activeCompute.HasKernel("CSMainFarShade"))
+                    passData.kPrimary = activeCompute.FindKernel("CSMainFarShade");
                 passData.farShadow = farOn && far.ShadowsOn ? 1 : 0;
                 passData.farTexels = farOn ? far.Texels : _farDummy;
                 passData.farMips = farOn ? far.Mips : _farDummy;
@@ -802,8 +983,27 @@ public class RaymarchFeature : ScriptableRendererFeature
                 }
                 passData.mipInfo = info;
 
+                var shells = ShellStreamer.Active;
+                bool shellsOn = DrawShells && shells != null && !useStripped && !useMemoryProbe;
+                ShellsDrawnLastFrame = shellsOn;
+                passData.shellCount = shellsOn ? shells.Layout.ShellCount : 0;
+                passData.shellIterCap = Mathf.Max(16, ShellIterCap);
+                passData.shellTint = shellsOn && ShellTint ? 1 : 0;
+                passData.shellPixelAngle = LODConfig.PixelAngleRad(cameraData.camera.fieldOfView, dispatchH);
+                passData.shellRing = new Vector4[ShellLayout.MAX_SHELLS]; passData.shellLo = new Vector4[ShellLayout.MAX_SHELLS];
+                passData.shellHi = new Vector4[ShellLayout.MAX_SHELLS]; passData.shellCam = new Vector4[ShellLayout.MAX_SHELLS];
+                passData.shellBounds = new Vector4[ShellLayout.MAX_SHELLS];
+                if (shellsOn)
+                {
+                    shells.ShaderParams(passData.shellRing, passData.shellLo, passData.shellHi, passData.shellCam, passData.shellBounds);
+                    passData.shellDir = shells.Gpu.Dir; passData.shellPages = shells.Gpu.Pages; passData.shellBricks = shells.Gpu.Bricks;
+                    passData.shellMaskBase = shells.Gpu.MaskBase;   // task 93b5
+                    passData.shellTopY = shells.SolidTopY;          // task 99
+                }
+                else { passData.shellDir = _farDummy; passData.shellPages = _farDummy; passData.shellBricks = _farDummy; passData.shellMaskBase = 0; passData.shellTopY = int.MinValue; }
+
                 var cascadeManager = LODCascadeManager.Active;
-                bool cascadeAvailable = UseLODCascade && cascadeManager != null;
+                bool cascadeAvailable = UseLODCascade && cascadeManager != null && !shellsOn;
                 passData.useLODCascade = cascadeAvailable ? 1 : 0;
 
                 if (cascadeAvailable)
@@ -854,7 +1054,8 @@ public class RaymarchFeature : ScriptableRendererFeature
                 }
 
                 builder.UseTexture(target, AccessFlags.Write);
-                if (passData.taa != 0) builder.UseTexture(passData.taaScratch, AccessFlags.ReadWrite);
+                if (passData.taaResolve != 0) builder.UseTexture(passData.taaScratch, AccessFlags.ReadWrite);
+                if (passData.ups != null) { builder.UseTexture(passData.ups.motion, AccessFlags.Write); builder.UseTexture(passData.ups.depth, AccessFlags.Write); }
                 builder.AllowPassCulling(false);
 
                 builder.SetRenderFunc((ComputePassData data, ComputeGraphContext context) =>
@@ -957,7 +1158,6 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_ShadowHistValid", data.tsValid);
                         cmd.SetComputeIntParam(data.compute, "_ShadowFrame", (int)data.tsFrame);
                         cmd.SetComputeMatrixParam(data.compute, "_PrevViewProj", data.tsPrevVP);
-                        cmd.SetComputeVectorParam(data.compute, "_PrevCamVox", data.tsPrevCamVox);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShadowHistR", data.tsRead);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShadowHistW", data.tsWrite);
                         cmd.SetComputeIntParam(data.compute, "_MaxShadowSteps", data.maxShadowSteps);
@@ -991,8 +1191,17 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeFloatParam(data.compute, "_LookHazeDensity", data.lookHazeDensity);
                         cmd.SetComputeVectorParam(data.compute, "_LookGrade", data.lookGrade);
                         cmd.SetComputeIntParam(data.compute, "_EmissiveBleed", data.emissiveBleed);
+                        cmd.SetComputeIntParam(data.compute, "_UnderwaterView", data.underwaterView);
+                        cmd.SetComputeIntParam(data.compute, "_SeeThroughLiquids", data.seeThroughLiquids);
+                        cmd.SetComputeIntParam(data.compute, "_RiverLook", data.riverLook);
+                        cmd.SetComputeVectorParam(data.compute, "_FarShadeParams", data.farShadeParams);
+                        cmd.SetComputeVectorParam(data.compute, "_RiverMap", data.riverMap);
+                        cmd.SetComputeFloatParam(data.compute, "_RiverTime", data.riverTime);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "RiverFlow", data.riverFlow);
+                        cmd.SetComputeIntParam(data.compute, "_TorchShadowRays", data.torchShadowRays);
 
-                        cmd.SetComputeIntParam(data.compute, "_ShadowRoofSkip", data.roofSkip);
+                        cmd.SetComputeIntParam(data.compute, "_ShadowRoofSkip", data.roofSkip == 1 ? 1 : 0);
+                        cmd.SetComputeFloatParam(data.compute, "_ShadowHalfRes", data.shadowHalfRes);
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsA", data.heightOffsetsA);
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsB", data.heightOffsetsB);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "HeightMip", data.heightMip);
@@ -1026,6 +1235,24 @@ public class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarTexels", data.farTexels);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarMips", data.farMips);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "FarResident", data.farResident);
+                        // 8.14 shells (task 80). Always bound (dummies when off).
+                        cmd.SetComputeIntParam(data.compute, "_ShellCount", data.shellCount);
+                        cmd.SetComputeIntParam(data.compute, "_ShellIterCap", data.shellIterCap);
+                        cmd.SetComputeIntParam(data.compute, "_ShellMaskBase", data.shellMaskBase);   // task 93b5
+                        cmd.SetComputeIntParam(data.compute, "_ShellAirMask", ShellAirMask ? 1 : 0);
+                        cmd.SetComputeIntParam(data.compute, "_ShellTopY", data.shellTopY);             // task 99
+                        cmd.SetComputeIntParam(data.compute, "_ShellSkyExit", ShellSkyExit ? 1 : 0);
+                        cmd.SetComputeIntParam(data.compute, "_ShellTint", data.shellTint);
+                        cmd.SetComputeIntParam(data.compute, "_DebugShellSkip", DebugShellSkip);   // task 93b4 (diagnostic)
+                        cmd.SetComputeFloatParam(data.compute, "_ShellPixelAngle", data.shellPixelAngle);
+                        cmd.SetComputeVectorArrayParam(data.compute, "_ShellRing", data.shellRing);
+                        cmd.SetComputeVectorArrayParam(data.compute, "_ShellLo", data.shellLo);
+                        cmd.SetComputeVectorArrayParam(data.compute, "_ShellHi", data.shellHi);
+                        cmd.SetComputeVectorArrayParam(data.compute, "_ShellCam", data.shellCam);
+                        cmd.SetComputeVectorArrayParam(data.compute, "_ShellBounds", data.shellBounds);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellDir", data.shellDir);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellPages", data.shellPages);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellBricks", data.shellBricks);
                         if (data.farEnabled != 0 && (data.farScatters.Length > 0 || data.farMipMask != 0))
                         {
                             cmd.BeginSample("VE.Raymarch.FarUpkeep");
@@ -1080,7 +1307,7 @@ public class RaymarchFeature : ScriptableRendererFeature
                     }
                     // With TAA on, the primary ray writes the scratch target and
                     // TaaSharpen writes the real one.
-                    cmd.SetComputeTextureParam(data.compute, data.kPrimary, "ResultTexture", data.taa != 0 ? data.taaScratch : data.target);
+                    cmd.SetComputeTextureParam(data.compute, data.kPrimary, "ResultTexture", data.taaResolve != 0 ? data.taaScratch : data.target);
 
                     int threadGroupsX = Mathf.CeilToInt(data.dispatchWidth / 8f);
                     int threadGroupsY = Mathf.CeilToInt(data.dispatchHeight / 8f);
@@ -1096,8 +1323,10 @@ public class RaymarchFeature : ScriptableRendererFeature
                     cmd.BeginSample("VE.Raymarch.Primary");
                     cmd.DispatchCompute(data.compute, data.kPrimary, primaryGroupsX, threadGroupsY, 1);
                     cmd.EndSample("VE.Raymarch.Primary");
+                    PrimaryDispatchCount++;
 
-                    if (data.taa != 0)
+                    if (data.ups != null) UpsDispatch(cmd, data.ups, data.taaCur, data.taaMetaW);
+                    if (data.taaResolve != 0)
                     {
                         cmd.BeginSample("VE.Raymarch.Taa");
                         cmd.SetComputeTextureParam(data.compute, data.kTaaResolve, "TaaCurColor", data.taaScratch);
@@ -1115,10 +1344,15 @@ public class RaymarchFeature : ScriptableRendererFeature
                 });
             }
 
+            // FSR 3 upscales the gate image to the camera target's size; the blit
+            // below then copies 1:1.
+            TextureHandle blitSource = target;
+            if (upsIn && UpscaleInputs == UpscalerInputMode.Fsr3)
+                blitSource = UpsRecordFsr3(renderGraph, frameData, target, cameraData);
             using (var builder = renderGraph.AddRasterRenderPass<BlitPassData>("VoxelRaymarch_Blit", out var blitData))
             {
-                blitData.source = target;
-                builder.UseTexture(target, AccessFlags.Read);
+                blitData.source = blitSource;
+                builder.UseTexture(blitSource, AccessFlags.Read);
                 builder.SetRenderAttachment(activeColor, 0, AccessFlags.Write);
                 builder.AllowPassCulling(false);
                 builder.SetRenderFunc((BlitPassData data, RasterGraphContext context) =>
@@ -1162,6 +1396,11 @@ public class RaymarchFeature : ScriptableRendererFeature
             _pass.SetGateResolution(forceRes, gw, gh);
 
             renderer.EnqueuePass(_pass);
+            if (UpscaleInputs == UpscalerInputMode.Stp)
+            {
+                if (_stpInputsPass == null) _stpInputsPass = new StpInputsPass();
+                renderer.EnqueuePass(_stpInputsPass);
+            }
         }
     }
 
@@ -1178,6 +1417,7 @@ public class RaymarchFeature : ScriptableRendererFeature
         _taaDummy4?.Release(); _taaDummy2?.Release();
         _taaColA = _taaColB = _taaMetaA = _taaMetaB = _taaCur = _taaDummy4 = _taaDummy2 = null;
         _taaValid = false;
+        UpsDispose();
         base.Dispose(disposing);
     }
 }

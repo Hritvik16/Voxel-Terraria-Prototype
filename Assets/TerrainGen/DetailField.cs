@@ -27,6 +27,8 @@
 //                      between a 2-D floor and ceiling with pillars. All of it
 //                      is per-COLUMN open intervals (PrepareColumn); a voxel
 //                      costs a few comparisons.
+//   ores               map v4 (gameplay step 3, Ores.cs): integer-hash blobs
+//                      in layer rock deeper than 6 m, one ore per layer
 //   fluid pockets      sealed ellipsoids, generated AT REST: fluid below a flat
 //                      level, air above; a shell no cave may breach (§2.7)
 //
@@ -69,7 +71,15 @@ namespace TerrainGen
             public int cav0Lo, cav0Hi, cav1Lo, cav1Hi;
             /// The underworld chamber's open interval [lo, hi) (lo == hi: a pillar).
             public int underLo, underHi;
+            /// Gameplay step 3: ore density multiplier in 1/16ths (Ores.MUL_ONE = x1),
+            /// the column's biome x landform pair (OreTable.PairMul). PrepareColumn sets
+            /// x1 on map v4 and 0 (no ore) below; a generator holding the world record
+            /// overwrites it from OreTable.DensityPlane.
+            public byte oreMul;
         }
+
+        /// Amplitudes of the wavy layer-boundary offsets (PrepareGeology).
+        public const float GEO_DEEP_AMP = 80f, GEO_CAVERN_AMP = 25f, GEO_UNDER_AMP = 20f;
 
         /// The geology terms only (layer boundary offsets, soil): what the
         /// surface and LayerRock need. No caves.
@@ -79,9 +89,9 @@ namespace TerrainGen
             // Each layer boundary is a wavy surface: the offset shifts the
             // boundary's height, column by column.
             var cd = new ColumnDetail();
-            cd.deepOffset = 80f * noise.snoise(p / 2600f + o.strata);
-            cd.cavernOffset = 25f * noise.snoise(p / 3000f + o.strata + 90f);
-            cd.underOffset = 20f * noise.snoise(p / 1800f + o.strata - 70f);
+            cd.deepOffset = GEO_DEEP_AMP * noise.snoise(p / 2600f + o.strata);
+            cd.cavernOffset = GEO_CAVERN_AMP * noise.snoise(p / 3000f + o.strata + 90f);
+            cd.underOffset = GEO_UNDER_AMP * noise.snoise(p / 1800f + o.strata - 70f);
             float n = noise.snoise(p / 300f + o.soil) * 0.5f + 0.5f;
             cd.soilDepth = 12 + (int)math.floor(n * 12f);
             return cd;
@@ -97,81 +107,295 @@ namespace TerrainGen
 
         /// Everything D needs per COLUMN: the geology terms and every cave's
         /// open interval through this column. Computed once per column.
+        ///
+        /// TASK 86 (owner Q45 (a)): COARSE CAVE FIELDS. The cave terms are 25
+        /// 2-D noises with wavelengths of 200-6,000 voxels, ~0.85 of this
+        /// function's cost (step 0: PrepareColumn was 61.7% of the column pass,
+        /// Logs/TerrainGen/column_pass_split.txt). With spec.coarseColumnShift
+        /// s > 0 they are evaluated only at the nodes of an ABSOLUTE 2^s grid
+        /// (CaveTerms; nodes at columns = 2^s - 1 mod 2^s) and interpolated bilinearly to the column; the cheap
+        /// non-linear steps (abs, the gates, the cavern hashes) stay per column.
+        /// The geology, soil and ore terms are exact per column, so strata
+        /// boundaries do not move. A pure function of (x, z): every caller (0.1 m
+        /// chunks, shells, shell fill, far edits) agrees, with or without a
+        /// NodeCache. s = 0 = per column, byte-identical to the pre-86 code
+        /// (CoarseColumnTests measure the boundary shift against it).
         public static ColumnDetail PrepareColumn(in TerrainSpec spec, in Offsets o, int x, int z)
         {
+            int s = spec.coarseColumnShift;
+            if (s <= 0) return FinishColumn(in spec, in o, CaveTerms(in o, new float2(x, z)), x, z);
+            int m = (1 << s) - 1, xr = x - m, zr = z - m, nx = xr >> s, nz = zr >> s;
+            float inv = 1f / (1 << s), fx = (xr & m) * inv, fz = (zr & m) * inv;
+            var n00 = CaveTerms(in o, nx, nz, s);
+            var n10 = (xr & m) != 0 ? CaveTerms(in o, nx + 1, nz, s) : n00;   // weight 0: never read
+            var n01 = (zr & m) != 0 ? CaveTerms(in o, nx, nz + 1, s) : n00;
+            var n11 = (xr & m) != 0 && (zr & m) != 0 ? CaveTerms(in o, nx + 1, nz + 1, s) : n00;
+            return FinishColumn(in spec, in o, Bilerp(in n00, in n10, in n01, in n11, fx, fz), x, z);
+        }
+
+        /// The same, reading the grid nodes through `cache` (same bytes as the
+        /// uncached form; a loop over neighbouring columns evaluates each node
+        /// about once instead of up to four times).
+        public static unsafe ColumnDetail PrepareColumn(in TerrainSpec spec, in Offsets o, int x, int z, ref NodeCache cache)
+        {
+            int s = spec.coarseColumnShift;
+            fixed (CavernCells* cav = &cache.Caverns)
+            {
+                var cc = spec.cavernCellCacheOff != 0 ? null : cav;   // task 88's A arm: uncached
+                if (s <= 0) return FinishColumn(in spec, in o, CaveTerms(in o, new float2(x, z)), x, z, cc);
+                int m = (1 << s) - 1, xr = x - m, zr = z - m, nx = xr >> s, nz = zr >> s;
+                float inv = 1f / (1 << s), fx = (xr & m) * inv, fz = (zr & m) * inv;
+                var n00 = cache.Get(in o, nx, nz, s);
+                var n10 = (xr & m) != 0 ? cache.Get(in o, nx + 1, nz, s) : n00;
+                var n01 = (zr & m) != 0 ? cache.Get(in o, nx, nz + 1, s) : n00;
+                var n11 = (xr & m) != 0 && (zr & m) != 0 ? cache.Get(in o, nx + 1, nz + 1, s) : n00;
+                return FinishColumn(in spec, in o, Bilerp(in n00, in n10, in n01, in n11, fx, fz), x, z, cc);
+            }
+        }
+
+        /// The pre-86 per-column reference (every cave term exact at the column),
+        /// whatever spec.coarseColumnShift says. Tests and reports only.
+        public static ColumnDetail PrepareColumnExact(in TerrainSpec spec, in Offsets o, int x, int z)
+            => FinishColumn(in spec, in o, CaveTerms(in o, new float2(x, z)), x, z);
+
+        /// The raw smooth cave noises at one point, before any abs / gate /
+        /// threshold (those do not interpolate). Tunnel layer k: (half height,
+        /// gate, width, line) Fbm values; ty: the four depth Fbms; cv: cavern
+        /// nR, nF, underworld pillar, floor; uHi: underworld ceiling.
+        public struct CaveNode
+        {
+            public float4 t0, t1, t2, t3, ty, cv;
+            public float uHi, pad0, pad1, pad2;
+            public const int FLOATS = 28;
+        }
+
+        /// Node (nx, nz) of the 2^s grid sits at column ((nx << s) + 2^s - 1, ..):
+        /// offset so that shell k > s's columns (origin + (i << k) + 2^(k-1) - 1,
+        /// TerrainGenChunkSource.Shell.cs) fall ON nodes and need one node each.
+        private static CaveNode CaveTerms(in Offsets o, int nx, int nz, int s)
+            => CaveTerms(in o, new float2((nx << s) + (1 << s) - 1, (nz << s) + (1 << s) - 1));
+
+        private static CaveNode CaveTerms(in Offsets o, float2 p)
+        {
+            var n = new CaveNode();
+            n.t0 = TunnelTerms(p, o.caveA.xy, o.caveA.z);
+            n.t1 = TunnelTerms(p, o.caveB.xy, o.caveB.z);
+            n.t2 = TunnelTerms(p, o.cavern.xy, o.cavern.z);
+            n.t3 = TunnelTerms(p, o.under.xy + 43f, o.under.z);
+            n.ty = new float4(Noise.Fbm(p / 3500f + o.caveA.xy + 11f, 2), Noise.Fbm(p / 4000f + o.caveB.xy + 13f, 2),
+                              Noise.Fbm(p / 4000f + o.cavern.xy + 17f, 2), Noise.Fbm(p / 3000f + o.under.xy + 47f, 2));
+            n.cv = new float4(Noise.Fbm(p / 400f + o.cavern.xy + 23f, 2), Noise.Fbm(p / 200f + o.cavern.xy + 29f, 2),
+                              Noise.Fbm(p / 1800f + o.under.xy + 31f, 3), Noise.Fbm(p / 3000f + o.under.xy + 37f, 3));
+            n.uHi = Noise.Fbm(p / 2200f + o.under.xy + 41f, 3);
+            return n;
+        }
+
+        private static float4 TunnelTerms(float2 p, float2 off, float seedZ)
+            => new float4(Noise.Fbm(p / 1500f + off + seedZ + 5f, 2), Noise.Fbm(p / 6000f + off + seedZ + 3f, 2),
+                          Noise.Fbm(p / 2500f + off + seedZ + 7f, 2), Noise.Fbm(p / TUNNEL_SCALE + off + seedZ, 3));
+
+        private static CaveNode Bilerp(in CaveNode a, in CaveNode b, in CaveNode c, in CaveNode d, float fx, float fz)
+        {
+            var n = new CaveNode();
+            n.t0 = math.lerp(math.lerp(a.t0, b.t0, fx), math.lerp(c.t0, d.t0, fx), fz);
+            n.t1 = math.lerp(math.lerp(a.t1, b.t1, fx), math.lerp(c.t1, d.t1, fx), fz);
+            n.t2 = math.lerp(math.lerp(a.t2, b.t2, fx), math.lerp(c.t2, d.t2, fx), fz);
+            n.t3 = math.lerp(math.lerp(a.t3, b.t3, fx), math.lerp(c.t3, d.t3, fx), fz);
+            n.ty = math.lerp(math.lerp(a.ty, b.ty, fx), math.lerp(c.ty, d.ty, fx), fz);
+            n.cv = math.lerp(math.lerp(a.cv, b.cv, fx), math.lerp(c.cv, d.cv, fx), fz);
+            n.uHi = math.lerp(math.lerp(a.uHi, b.uHi, fx), math.lerp(c.uHi, d.uHi, fx), fz);
+            return n;
+        }
+
+        /// A small direct-mapped cache of grid nodes, owned by one loop (a job's
+        /// local; never shared). default = empty. 128 x 2 slots: a row-major
+        /// sweep over up to 128 node columns evaluates each node once.
+        public unsafe struct NodeCache
+        {
+            public const int SLOTS = 256;
+            private fixed int _kx[SLOTS];
+            private fixed int _kz[SLOTS];
+            private fixed byte _used[SLOTS];
+            private fixed float _v[SLOTS * CaveNode.FLOATS];
+            /// Node evaluations since the cache was made (diagnostics).
+            public int Misses;
+            /// Task 88: the cavern candidates of the last cells seen.
+            public CavernCells Caverns;
+
+            public CaveNode Get(in Offsets o, int nx, int nz, int s)
+            {
+                int slot = (nx & 127) | ((nz & 1) << 7);
+                fixed (float* v = _v)
+                {
+                    var p = (CaveNode*)(v + slot * CaveNode.FLOATS);
+                    if (_used[slot] != 0 && _kx[slot] == nx && _kz[slot] == nz) return *p;
+                    *p = CaveTerms(in o, nx, nz, s);
+                    _kx[slot] = nx; _kz[slot] = nz; _used[slot] = 1; Misses++;
+                    return *p;
+                }
+            }
+        }
+
+        /// The cheap per-column half: geology and soil exact, the cave terms
+        /// from `n` (exact or interpolated), the cavern cell hashes exact.
+        private static ColumnDetail FinishColumn(in TerrainSpec spec, in Offsets o, in CaveNode n, int x, int z)
+        {
+            unsafe { return FinishColumn(in spec, in o, in n, x, z, null); }
+        }
+
+        /// `cav` != null: the cavern candidates come from that cache (task 88;
+        /// same bytes), null: computed here for this column.
+        private static unsafe ColumnDetail FinishColumn(in TerrainSpec spec, in Offsets o, in CaveNode n, int x, int z,
+                                                        CavernCells* cav)
+        {
             var cd = PrepareGeology(in o, x, z);
+            cd.oreMul = spec.mapVersion >= 4 ? Ores.DEFAULT_MUL : (byte)0;
             float2 p = new float2(x, z);
             // Tunnels: the zero-line of a 2-D field meanders like a river in plan;
             // a second field gives its depth, a third its size, a fourth where it runs.
-            cd.tun0 = TunnelLine(p, o.caveA.xy, o.caveA.z, out float h0);
-            cd.tun1 = TunnelLine(p, o.caveB.xy, o.caveB.z, out float h1);
-            cd.tun2 = TunnelLine(p, o.cavern.xy, o.cavern.z, out float h2);
-            cd.tun3 = TunnelLine(p, o.under.xy + 43f, o.under.z, out float h3);
+            cd.tun0 = TunnelLine(n.t0, out float h0);
+            cd.tun1 = TunnelLine(n.t1, out float h1);
+            cd.tun2 = TunnelLine(n.t2, out float h2);
+            cd.tun3 = TunnelLine(n.t3, out float h3);
             cd.tunH0 = h0; cd.tunH1 = h1; cd.tunH2 = h2; cd.tunH3 = h3 * 1.3f;
-            cd.tunY3 = 200f + 150f * (Noise.Fbm(p / 3000f + o.under.xy + 47f, 2) * 0.5f + 0.5f);   // below the regional ground
-            cd.tunY0 = 180f + 120f * (Noise.Fbm(p / 3500f + o.caveA.xy + 11f, 2) * 0.5f + 0.5f);        // depth below the top
-            cd.tunY1 = spec.seaLevelY - 500f - 300f * (Noise.Fbm(p / 4000f + o.caveB.xy + 13f, 2) * 0.5f + 0.5f);
-            cd.tunY2 = spec.seaLevelY - 1100f - 300f * (Noise.Fbm(p / 4000f + o.cavern.xy + 17f, 2) * 0.5f + 0.5f);
+            cd.tunY3 = 200f + 150f * (n.ty.w * 0.5f + 0.5f);   // below the regional ground
+            cd.tunY0 = 180f + 120f * (n.ty.x * 0.5f + 0.5f);        // depth below the top
+            cd.tunY1 = spec.seaLevelY - 500f - 300f * (n.ty.y * 0.5f + 0.5f);
+            cd.tunY2 = spec.seaLevelY - 1100f - 300f * (n.ty.z * 0.5f + 0.5f);
 
             // Caverns: placed halls in the cavern layer, one candidate per cell.
-            float nR = Noise.Fbm(p / 400f + o.cavern.xy + 23f, 2), nF = Noise.Fbm(p / 200f + o.cavern.xy + 29f, 2);
+            float nR = n.cv.x, nF = n.cv.y;
             int gx = x >> CAVERN_CELL_SHIFT, gz = z >> CAVERN_CELL_SHIFT;
             int band0 = spec.UnderworldTopY + 300;
             int cells = math.max(0, (spec.CavernTopY - 200 - band0) / CAVERN_CELL_Y);
-            int found = 0;
-            for (int cy = 0; cy < cells && found < 2; cy++)
-            for (int j = -1; j <= 1 && found < 2; j++)
-            for (int i = -1; i <= 1 && found < 2; i++)
+            if (cav != null && cells <= CAVERN_CY_MAX) cav->Find(in o, gx, gz, band0, cells, p, nR, nF, ref cd);
+            else
             {
-                if (!CavernInterval(in o, gx + i, cy, gz + j, band0, p, nR, nF, out int lo, out int hi)) continue;
-                if (found == 0) { cd.cav0Lo = lo; cd.cav0Hi = hi; } else { cd.cav1Lo = lo; cd.cav1Hi = hi; }
-                found++;
+                int found = 0;
+                for (int cy = 0; cy < cells && found < 2; cy++)
+                for (int j = -1; j <= 1 && found < 2; j++)
+                for (int i = -1; i <= 1 && found < 2; i++)
+                {
+                    if (!CavernCandidate(in o, gx + i, cy, gz + j, band0, out var k)) continue;
+                    if (!CavernInterval(in k, p, nR, nF, out int lo, out int hi)) continue;
+                    if (found == 0) { cd.cav0Lo = lo; cd.cav0Hi = hi; } else { cd.cav1Lo = lo; cd.cav1Hi = hi; }
+                    found++;
+                }
             }
 
             // The underworld chamber: floor and ceiling from 2-D fields; pillars
             // where the ceiling comes down to the floor.
-            float pil = Noise.Fbm(p / 1800f + o.under.xy + 31f, 3);
+            float pil = n.cv.z;
             if (pil < 0.42f)
             {
-                cd.underLo = spec.worldBottomY + 200 + (int)(150f * (Noise.Fbm(p / 3000f + o.under.xy + 37f, 3) * 0.5f + 0.5f));
-                cd.underHi = spec.UnderworldTopY - 250 - (int)(250f * (Noise.Fbm(p / 2200f + o.under.xy + 41f, 3) * 0.5f + 0.5f));
+                cd.underLo = spec.worldBottomY + 200 + (int)(150f * (n.cv.w * 0.5f + 0.5f));
+                cd.underHi = spec.UnderworldTopY - 250 - (int)(250f * (n.uHi * 0.5f + 0.5f));
             }
             return cd;
         }
 
-        /// A tunnel layer at p: |line| / width, and the passage half height.
-        private static float TunnelLine(float2 p, float2 off, float seedZ, out float halfH)
+        /// A tunnel layer from its TunnelTerms (t = half height, gate, width,
+        /// line): |line| / width, and the passage half height.
+        private static float TunnelLine(float4 t, out float halfH)
         {
-            halfH = 22f + 14f * (Noise.Fbm(p / 1500f + off + seedZ + 5f, 2) * 0.5f + 0.5f);
-            if (Noise.Fbm(p / 6000f + off + seedZ + 3f, 2) < -0.15f) return 99f;          // passages end and begin
-            float w = TUNNEL_WIDTH * (0.7f + 0.6f * (Noise.Fbm(p / 2500f + off + seedZ + 7f, 2) * 0.5f + 0.5f));
-            return math.abs(Noise.Fbm(p / TUNNEL_SCALE + off + seedZ, 3)) / w;
+            halfH = 22f + 14f * (t.x * 0.5f + 0.5f);
+            if (t.y < -0.15f) return 99f;          // passages end and begin
+            float w = TUNNEL_WIDTH * (0.7f + 0.6f * (t.z * 0.5f + 0.5f));
+            return math.abs(t.w) / w;
         }
 
-        /// The open interval of cell (gx, cy, gz)'s cavern through column p.
-        private static bool CavernInterval(in Offsets o, int gx, int cy, int gz, int band0, float2 p, float nR, float nF,
-                                           out int lo, out int hi)
+        // ---- Task 88: CAVERN CELL CANDIDATES, once per cell ----
+        // A column tests the cavern candidates of its 3 x 3 cells x `cells`
+        // layers (seed 42 tg2: 36), each 1-10 Hash01. They depend only on the
+        // cell (gx, gz) -- one 102.4 m cell covers a whole 0.1 m chunk column --
+        // so CavernCells keeps the passing candidates of the last cells seen and
+        // each column runs only the geometry. Byte-identical (the same two
+        // functions, the same order); keyed by the cell, so shell chunks that
+        // span many cells (shells >= 4) still read the right ones.
+        public const int CAVERN_CY_MAX = 8;             // layers a cache holds; more -> uncached (seed 42 tg2: 4)
+        private const int CAVERN_CANDS = CAVERN_CY_MAX * 9;
+
+        /// One cavern candidate (a cell whose first hash passes): 9 floats.
+        private struct CavernCand
         {
-            lo = hi = 0;
+            public float2 c, u;
+            public float R, stretch, cyc, floorDepth, ceilH;
+            public const int FLOATS = 9;
+        }
+
+        /// Cell (gx, cy, gz)'s cavern, if it has one.
+        private static bool CavernCandidate(in Offsets o, int gx, int cy, int gz, int band0, out CavernCand k)
+        {
+            k = default;
             uint sd = o.seed + 601u;
             if (Noise.Hash01(gx, cy, gz, sd) > 0.45f) return false;
-            float2 c = new float2(gx + 0.3f + 0.4f * Noise.Hash01(gx, cy, gz, sd + 1u),
-                                  gz + 0.3f + 0.4f * Noise.Hash01(gx, cy, gz, sd + 2u)) * CAVERN_CELL;
-            float R = 200f + 220f * Noise.Hash01(gx, cy, gz, sd + 3u);
-            float stretch = 1f + 0.6f * Noise.Hash01(gx, cy, gz, sd + 4u);
+            k.c = new float2(gx + 0.3f + 0.4f * Noise.Hash01(gx, cy, gz, sd + 1u),
+                             gz + 0.3f + 0.4f * Noise.Hash01(gx, cy, gz, sd + 2u)) * CAVERN_CELL;
+            k.R = 200f + 220f * Noise.Hash01(gx, cy, gz, sd + 3u);
+            k.stretch = 1f + 0.6f * Noise.Hash01(gx, cy, gz, sd + 4u);
             float2 u = new float2(Noise.Hash01(gx, cy, gz, sd + 5u) - 0.5f, Noise.Hash01(gx, cy, gz, sd + 6u) - 0.5f);
             float ul = math.sqrt(u.x * u.x + u.y * u.y);
-            u = ul > 1e-3f ? u / ul : new float2(1f, 0f);
-            float2 q = p - c;
-            float along = math.dot(q, u) / stretch, side = q.x * -u.y + q.y * u.x;
-            float r2 = (along * along + side * side) / (R * R) * (1f + 0.25f * nR);
+            k.u = ul > 1e-3f ? u / ul : new float2(1f, 0f);
+            k.cyc = band0 + cy * CAVERN_CELL_Y + CAVERN_CELL_Y * 0.5f + (Noise.Hash01(gx, cy, gz, sd + 7u) - 0.5f) * 100f;
+            k.floorDepth = 60f + 60f * Noise.Hash01(gx, cy, gz, sd + 8u);
+            k.ceilH = 100f + 120f * Noise.Hash01(gx, cy, gz, sd + 9u);
+            return true;
+        }
+
+        /// The open interval of candidate k's cavern through column p.
+        private static bool CavernInterval(in CavernCand k, float2 p, float nR, float nF, out int lo, out int hi)
+        {
+            lo = hi = 0;
+            float2 q = p - k.c;
+            float along = math.dot(q, k.u) / k.stretch, side = q.x * -k.u.y + q.y * k.u.x;
+            float r2 = (along * along + side * side) / (k.R * k.R) * (1f + 0.25f * nR);
             if (r2 >= 1f) return false;
-            float cyc = band0 + cy * CAVERN_CELL_Y + CAVERN_CELL_Y * 0.5f + (Noise.Hash01(gx, cy, gz, sd + 7u) - 0.5f) * 100f;
-            float floorDepth = 60f + 60f * Noise.Hash01(gx, cy, gz, sd + 8u);
-            float ceilH = 100f + 120f * Noise.Hash01(gx, cy, gz, sd + 9u);
-            lo = (int)math.floor(cyc - floorDepth * (1f - 0.5f * r2) + 20f * nF);
-            hi = (int)math.floor(cyc + ceilH * math.sqrt(1f - r2));
+            lo = (int)math.floor(k.cyc - k.floorDepth * (1f - 0.5f * r2) + 20f * nF);
+            hi = (int)math.floor(k.cyc + k.ceilH * math.sqrt(1f - r2));
             return hi > lo + 2;
+        }
+
+        /// The passing cavern candidates round the last cells seen, 4 slots by
+        /// cell parity (a 2 x 2 block of cells without thrashing). Owned by one
+        /// loop (inside NodeCache; never shared); assumes one seed and spec per
+        /// cache, as the grid nodes do. default = empty.
+        public unsafe struct CavernCells
+        {
+            private fixed int _gx[4];
+            private fixed int _gz[4];
+            private fixed int _n[4];
+            private fixed byte _used[4];
+            private fixed float _v[4 * CAVERN_CANDS * CavernCand.FLOATS];
+            /// Cells whose candidates were computed (diagnostics).
+            public int Misses;
+
+            /// The uncached loop's result for column p of cell (gx, gz):
+            /// the same candidates in the same order (cy, j, i), first two hits.
+            internal void Find(in Offsets o, int gx, int gz, int band0, int cells, float2 p, float nR, float nF,
+                               ref ColumnDetail cd)
+            {
+                int slot = (gx & 1) | ((gz & 1) << 1);
+                fixed (float* v = _v)
+                {
+                    var list = (CavernCand*)(v + slot * CAVERN_CANDS * CavernCand.FLOATS);
+                    if (_used[slot] == 0 || _gx[slot] != gx || _gz[slot] != gz)
+                    {
+                        int n = 0;
+                        for (int cy = 0; cy < cells; cy++)
+                        for (int j = -1; j <= 1; j++)
+                        for (int i = -1; i <= 1; i++)
+                            if (CavernCandidate(in o, gx + i, cy, gz + j, band0, out var k)) list[n++] = k;
+                        _n[slot] = n; _gx[slot] = gx; _gz[slot] = gz; _used[slot] = 1; Misses++;
+                    }
+                    int count = _n[slot], found = 0;
+                    for (int t = 0; t < count && found < 2; t++)
+                    {
+                        if (!CavernInterval(in list[t], p, nR, nF, out int lo, out int hi)) continue;
+                        if (found == 0) { cd.cav0Lo = lo; cd.cav0Hi = hi; } else { cd.cav1Lo = lo; cd.cav1Hi = hi; }
+                        found++;
+                    }
+                }
+            }
         }
 
         /// Convenience form: prepares the column itself (slow in a loop).
@@ -266,6 +490,7 @@ namespace TerrainGen
                 return GenMat.Air;
             }
             if (y <= spec.worldBottomY) return GenMat.Bedrock;
+            if (c.lipLo != 0 && y >= c.lipLo) return GenMat.RiverLip;   // task 76
 
             // §2.5 stamp openings (arches, hoops, ribs, under the tree's canopy).
             // Never the top voxel (Stamps.cs header), so S stays the top solid.
@@ -289,7 +514,7 @@ namespace TerrainGen
             // Map v4 (task 37e): a lake rim's fill is not ground to carve; caves
             // go by the ground under it (ColumnSample.rimGround).
             int hc = c.rimGround != 0 ? math.min(hg, c.rimGround) : hg;
-            if (hc - y > CARVE_MIN_DEPTH)
+            if (hc - y > CARVE_MIN_DEPTH && (c.riverFloor == 0 || y < c.riverFloor))   // task 76: none beside a river
             {
                 bool inShell = false;
                 if (!cull.noPocket)
@@ -331,6 +556,12 @@ namespace TerrainGen
                     var bd = PrepareGeology(in o, (x & ~(BRICK - 1)) + BRICK / 2, (z & ~(BRICK - 1)) + BRICK / 2);
                     gDeep = bd.deepOffset; gCavern = bd.cavernOffset; gUnder = bd.underOffset;
                 }
+                // Ores (gameplay step 3, map v4): the host layer is the brick's own.
+                if (cd.oreMul != 0 && spec.mapVersion >= 4)
+                {
+                    byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, gy, gDeep, gCavern, gUnder), x, y, z);
+                    if (ore != 0) return ore;
+                }
                 return LayerRock(in spec, c.biome, gy, gDeep, gCavern, gUnder);
             }
 
@@ -340,7 +571,215 @@ namespace TerrainGen
                 if (depth < SURFACE_THICKNESS) return Surface(in spec, in c, stepAtTop);
                 if (depth < cd.soilDepth) return Soil(c.biome);
             }
+            // Ores (gameplay step 3, map v4): only in rock deeper than 6 m (no cliff faces).
+            if (cd.oreMul != 0 && depth > Ores.MIN_DEPTH && spec.mapVersion >= 4)
+            {
+                byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, y, cd.deepOffset, cd.cavernOffset, cd.underOffset), x, y, z);
+                if (ore != 0) return ore;
+            }
             return LayerRock(in spec, c.biome, y, cd.deepOffset, cd.cavernOffset, cd.underOffset);
+        }
+
+        // ------------------------------------------------------------------
+        // WHOLE-BRICK PROOFS (engine step 15, task 82b). A chunk generator asks,
+        // per column of an 8^3 brick, whether Material gives every sample y of
+        // the brick the SAME material -- one call from the column data instead
+        // of eight Material calls. It walks Material's branches over the y RANGE
+        // [yLo, yHi]: each branch is taken by every sample or by none, else the
+        // answer is 255 = unproven, and the caller runs the per-voxel pass (so
+        // 255 is always safe; only a wrong non-255 answer could change output).
+        // EXACT BY CONSTRUCTION: each test is Material's own comparison at the
+        // end of the range where it is hardest to pass. Integer tests are exact;
+        // the float layer tests (y + offset < limit) are monotone in both terms,
+        // so the bound at the end holds for every sample. Tunnels get a 2-voxel
+        // margin for the rounding of (y - yc). BrickSkipTests compares chunks and
+        // shell chunks with the skip on and off, byte for byte.
+        // ------------------------------------------------------------------
+
+        /// Bound on |snoise| used for the layer offsets when the caller does not
+        /// know each sample's fine brick (shells): 2x the noise's +-1 range.
+        public const float GEO_OFFSET_MARGIN = 2f;
+
+        /// Material of every sample y = yLo + j * yStep (j < count) of column
+        /// (x, z), or 255 when the column data cannot prove them all equal.
+        /// noPocket: CullBrick's pocket test passes for every sample's fine brick.
+        /// geoExact: all samples lie in ONE fine brick whose CullBrick geology is
+        /// (geoDeep, geoCavern, geoUnder); otherwise the offsets are only bounded.
+        public static byte UniformSamples(in TerrainSpec spec, in ColumnSample c, in ColumnDetail cd, float stepAtTop,
+                                          int x, int z, int yLo, int yStep, int count, bool noPocket,
+                                          bool geoExact, float geoDeep, float geoCavern, float geoUnder)
+        {
+            int yHi = yLo + yStep * (count - 1);
+            int h = c.height;
+            if (yLo > h)
+            {
+                if (yLo > spec.seaLevelY && yLo > c.water) return GenMat.Air;
+                if (yHi <= spec.seaLevelY) return GenMat.Water;
+                if (yLo > spec.seaLevelY && yHi <= c.water) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
+                return 255;
+            }
+            if (yHi > h) return 255;
+            if (yLo <= spec.worldBottomY) return yHi <= spec.worldBottomY ? GenMat.Bedrock : (byte)255;
+            if (c.lipLo != 0 && yHi >= c.lipLo) return 255;
+            if (Meets(c.open1Lo, c.open1Hi, yLo, yHi) || Meets(c.open2Lo, c.open2Hi, yLo, yHi) || Meets(c.open3Lo, c.open3Hi, yLo, yHi))
+                return 255;
+            if (c.stamp3D) return 255;
+
+            int hg = h;   // Material's ledge rule; the range is wholly below or above the gap here
+            if (c.open3Hi > c.open3Lo && yHi < c.open3Lo) hg = c.open3Lo - 1;
+            int hc = c.rimGround != 0 ? math.min(hg, c.rimGround) : hg;
+            if (hc - yLo > CARVE_MIN_DEPTH && (c.riverFloor == 0 || yLo < c.riverFloor))   // some sample may carve
+            {
+                if (!noPocket) return 255;
+                if (Meets(cd.cav0Lo, cd.cav0Hi, yLo, yHi) || Meets(cd.cav1Lo, cd.cav1Hi, yLo, yHi)) return 255;
+                if (Meets(cd.underLo, math.min(cd.underHi, spec.UnderworldTopY), yLo, yHi)) return 255;
+                if (MayTunnel(cd.tun0, hc - cd.tunY0, cd.tunH0, yLo, yHi) || MayTunnel(cd.tun1, cd.tunY1, cd.tunH1, yLo, yHi) ||
+                    MayTunnel(cd.tun2, cd.tunY2, cd.tunH2, yLo, yHi) || MayTunnel(cd.tun3, c.regional - cd.tunY3, cd.tunH3, yLo, yHi))
+                    return 255;
+            }
+            if (c.stampMat != 0 && yHi >= c.stampBodyLo) return yLo >= c.stampBodyLo ? c.stampMat : (byte)255;
+
+            // The rock rules: brick geology deeper than brickGeologyDepth, the
+            // per-voxel rules above it. A range across that depth is split there
+            // and both parts must prove the same material.
+            int bgd = spec.brickGeologyDepth;
+            if (bgd > 0 && hg - yLo > bgd)
+            {
+                if (hg - yHi > bgd) return GeologyRock(in spec, in c, in cd, x, z, yLo, yStep, count, geoExact, geoDeep, geoCavern, geoUnder);
+                int nGeo = (hg - bgd - 1 - yLo) / yStep + 1;   // the samples with y < hg - bgd
+                byte deep = GeologyRock(in spec, in c, in cd, x, z, yLo, yStep, nGeo, geoExact, geoDeep, geoCavern, geoUnder);
+                if (deep == 255) return 255;
+                return ShallowRock(in spec, in c, in cd, stepAtTop, x, z, yLo + nGeo * yStep, yStep, count - nGeo, hg) == deep ? deep : (byte)255;
+            }
+            return ShallowRock(in spec, in c, in cd, stepAtTop, x, z, yLo, yStep, count, hg);
+        }
+
+        /// UniformSamples' tail where every sample is deeper than brickGeologyDepth:
+        /// ore, then LayerRock at the sample's fine-brick centre height.
+        private static byte GeologyRock(in TerrainSpec spec, in ColumnSample c, in ColumnDetail cd, int x, int z,
+                                        int yLo, int yStep, int count, bool geoExact, float geoDeep, float geoCavern, float geoUnder)
+        {
+            int yHi = yLo + yStep * (count - 1);
+            float dLo, dHi, cLo, cHi, uLo, uHi;
+            if (geoExact)
+            {
+                if ((yLo >> 3) != (yHi >> 3)) return 255;
+                dLo = dHi = geoDeep; cLo = cHi = geoCavern; uLo = uHi = geoUnder;
+            }
+            else
+            {
+                dHi = GEO_DEEP_AMP * GEO_OFFSET_MARGIN; cHi = GEO_CAVERN_AMP * GEO_OFFSET_MARGIN; uHi = GEO_UNDER_AMP * GEO_OFFSET_MARGIN;
+                dLo = -dHi; cLo = -cHi; uLo = -uHi;
+            }
+            int gyLo = (yLo & ~(BRICK - 1)) + BRICK / 2, gyHi = (yHi & ~(BRICK - 1)) + BRICK / 2;
+            if (cd.oreMul != 0 && spec.mapVersion >= 4 &&
+                OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi))
+                return 255;
+            return LayerRockRange(in spec, c.biome, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi);
+        }
+
+        /// UniformSamples' tail where no sample is deeper than brickGeologyDepth:
+        /// surface, soil, ore, then LayerRock at the sample's own height.
+        private static byte ShallowRock(in TerrainSpec spec, in ColumnSample c, in ColumnDetail cd, float stepAtTop, int x, int z,
+                                        int yLo, int yStep, int count, int hg)
+        {
+            int yHi = yLo + yStep * (count - 1);
+            int depthLo = hg - yHi, depthHi = hg - yLo;
+            if (!(stepAtTop > 1.5f) && yHi >= spec.CavernTopY)
+            {
+                if (yLo < spec.CavernTopY) return 255;
+                if (depthLo < SURFACE_THICKNESS) return depthHi < SURFACE_THICKNESS ? Surface(in spec, in c, stepAtTop) : (byte)255;
+                if (depthLo < cd.soilDepth) return depthHi < cd.soilDepth ? Soil(c.biome) : (byte)255;
+            }
+            float d = cd.deepOffset, cv = cd.cavernOffset, u = cd.underOffset;
+            if (cd.oreMul != 0 && depthHi > Ores.MIN_DEPTH && spec.mapVersion >= 4 &&
+                OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, yLo, yHi, d, d, cv, cv, u, u))
+                return 255;
+            return LayerRockRange(in spec, c.biome, yLo, yHi, d, d, cv, cv, u, u);
+        }
+
+        /// [yLo, yHi] meets the interval [lo, hi) (empty when hi <= lo).
+        private static bool Meets(int lo, int hi, int yLo, int yHi) => hi > lo && yHi >= lo && yLo < hi;
+
+        /// InTunnel can pass for some y in [yLo, yHi]. It needs t < 1 and
+        /// |y - yc| < halfH; 2 voxels of margin cover the float rounding of y - yc.
+        private static bool MayTunnel(float t, float yc, float halfH, int yLo, int yHi)
+        {
+            if (t >= 1f) return false;
+            return !((double)yLo - yc >= (double)halfH + 2.0 || (double)yc - yHi >= (double)halfH + 2.0);
+        }
+
+        /// Ore can appear at some sample: the host layer is not provably one
+        /// layer over [lyLo, lyHi] and the offset ranges, or a sample's brick
+        /// passes Ores' cell and deposit tests.
+        private static bool OreMay(in TerrainSpec spec, byte biome, int oreMul, int x, int z, int yLo, int yStep, int count,
+                                   int lyLo, int lyHi, float dLo, float dHi, float cLo, float cHi, float uLo, float uHi)
+        {
+            float lo = lyLo, hi = lyHi;
+            int layer;
+            int s500 = spec.seaLevelY - STONE_BOTTOM_BELOW_SEA, s1000 = spec.seaLevelY - Ores.GOLD_TOP_BELOW_SEA;
+            if (hi + uHi < spec.UnderworldTopY) layer = 4;
+            else if (!(lo + uLo >= spec.UnderworldTopY)) return true;
+            else if (hi + cHi < spec.CavernTopY) layer = 3;
+            else if (!(lo + cLo >= spec.CavernTopY)) return true;
+            else if (hi + dHi < s500)
+            {
+                if (hi + dHi < s1000) layer = 2;
+                else if (lo + dLo >= s1000) layer = 1;
+                else return true;
+            }
+            else if (!(lo + dLo >= s500)) return true;
+            else layer = 0;
+            int chance = Ores.CellChance(layer, biome, oreMul);
+            if (chance <= 0) return false;
+            for (int j = 0; j < count; j++)
+            {
+                int y = yLo + j * yStep;
+                if (j > 0 && (y >> 3) == ((y - yStep) >> 3)) continue;   // same brick as the last sample
+                if (Ores.BrickMayHold(in spec, chance, x, y, z)) return true;
+            }
+            return false;
+        }
+
+        /// LayerRock for every y in [yLo, yHi] and every offset in its range, or
+        /// 255 when that is not one material.
+        private static byte LayerRockRange(in TerrainSpec spec, byte biome, int yLo, int yHi,
+                                           float dLo, float dHi, float cLo, float cHi, float uLo, float uHi)
+        {
+            float lo = yLo, hi = yHi;
+            float gLo = lo + uLo, gHi = hi + uHi;
+            if (gHi < spec.UnderworldTopY)
+            {
+                int magma = spec.worldBottomY + LAVA_ABOVE_FLOOR + 200, ash = spec.UnderworldTopY - 300;
+                if (gHi < magma) return GenMat.MagmaCrust;
+                if (!(gLo >= magma)) return 255;
+                if (gLo >= ash) return GenMat.Ash;
+                return gHi < ash ? GenMat.Obsidian : (byte)255;
+            }
+            if (!(gLo >= spec.UnderworldTopY)) return 255;
+            if (hi + cHi < spec.CavernTopY) return BiomeRock(biome, 2);
+            if (!(lo + cLo >= spec.CavernTopY)) return 255;
+            if (hi + dHi < spec.seaLevelY - STONE_BOTTOM_BELOW_SEA) return BiomeRock(biome, 1);
+            if (!(lo + dLo >= spec.seaLevelY - STONE_BOTTOM_BELOW_SEA)) return 255;
+            if (biome == GenBiome.Badlands) return (yLo >> 5) == (yHi >> 5) ? BadlandsBand(yLo) : (byte)255;
+            return BiomeRock(biome, 0);
+        }
+
+        /// CullBrick's pocket test for every fine brick inside the box [lo, hi)
+        /// (multiples of BRICK): true when no pocket or its shell reaches any.
+        public static bool NoPocketInBox(in TerrainSpec spec, in Offsets o, int3 lo, int3 hi)
+        {
+            int3 c0 = lo >> POCKET_CELL_SHIFT, c1 = (hi - 1) >> POCKET_CELL_SHIFT;
+            float3 flo = lo, fhi = hi;
+            for (int cz = c0.z; cz <= c1.z; cz++)
+            for (int cy = c0.y; cy <= c1.y; cy++)
+            for (int cx = c0.x; cx <= c1.x; cx++)
+            {
+                if (!TryGetPocket(in spec, in o, cx, cy, cz, out PocketInfo pk)) continue;
+                float3 ext = pk.radii * 1.35f + 1f;
+                if (!(math.any(fhi < pk.centre - ext) || math.any(flo > pk.centre + ext))) return false;
+            }
+            return true;
         }
 
         /// The material of the column's top voxel -- what the far band colours a
@@ -349,6 +788,7 @@ namespace TerrainGen
         {
             if (c.height < spec.seaLevelY) return GenMat.Water;
             if (c.water > c.height) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
+            if (c.lipLo != 0 && c.height >= c.lipLo) return GenMat.RiverLip;   // task 76
             if (c.stampMat != 0 && c.height >= c.stampBodyLo) return c.stampMat;
             if (stepAtTop > 1.5f) return Strata(in spec, in o, c.biome, x, c.height, z);
             return Surface(in spec, in c, stepAtTop);

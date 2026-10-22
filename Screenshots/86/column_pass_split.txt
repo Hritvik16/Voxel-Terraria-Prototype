@@ -1,0 +1,19 @@
+Task 86 step 0: column pass split, seed 42 map v4, 8 land chunk columns, Editor Burst, one thread, ABBA (S P P S)
+Isolated generation only; not a streaming or frame-time claim.
+
+  S  ShapeField.Sample x 130^2        10.21 ms per chunk column   (16 runs)       604 ns per sample
+  P  DetailField.PrepareColumn x 128^2    15.96 ms per chunk column   (16 runs)       974 ns per column
+  P share of S + P: 61.0%   (decision rule: >= ~30% -> coarse-grid the km-scale fields; less -> target Sample)
+
+  whole chunk column, 7 layers (shared pass), Generate:   100.07 ms   (112 chunks / 16 columns per arm)
+  S + P as a share of that: 26.1%   (P alone 15.9%, S alone 10.2%)
+
+After task 86: A = per-column cave fields (coarseColumnShift 0, pre-86), B = coarse (shift 3); ABBA
+  P per chunk column           A    15.96 ms   B     5.07 ms   B/A 0.318   (309 ns per column)
+  column pass S + P            A    26.16 ms   B    15.28 ms   B/A 0.584
+  chunk column, 7 layers       A   100.07 ms   B    89.32 ms   B/A 0.893
+  shell 1 chunk (surface)     A    79.96 ms   B    69.33 ms   B/A 0.867   (8 per arm)
+  shell 2 chunk (surface)     A    76.76 ms   B    68.97 ms   B/A 0.899   (8 per arm)
+  shell 3 chunk (surface)     A   130.60 ms   B   127.01 ms   B/A 0.973   (8 per arm)
+  shell 4 chunk (surface)     A   218.08 ms   B   215.39 ms   B/A 0.988   (8 per arm)
+  shell 5 chunk (surface)     A   165.65 ms   B   168.45 ms   B/A 1.017   (8 per arm)

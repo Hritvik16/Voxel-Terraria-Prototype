@@ -59,6 +59,12 @@ namespace TerrainGen
         /// v3 T5b: the air under a CAP-ROCK LEDGE, [lo, hi). Like the stamp
         /// intervals, never contains the top voxel (the ledge IS the top).
         public int open3Lo, open3Hi;
+        /// Map v4 river (task 76, Rivers.Column): voxels [lipLo, height] are a
+        /// LIP (GenMat.RiverLip) holding the river's next step up; 0 = none.
+        public int lipLo;
+        /// Map v4 river (task 76): caves carve only BELOW this Y (a river is
+        /// near: Rivers.MAX_DEPTH under its lowest level); 0 = no limit.
+        public int riverFloor;
     }
 
     public static class ShapeField
@@ -124,10 +130,22 @@ namespace TerrainGen
             }
             float wl = SampleWater(in map, x, z);
             c.water = wl > Hydrology.NO_WATER * 0.5f ? spec.seaLevelY + (int)math.floor(wl) : ColumnSample.NO_WATER_Y;
-            if (map.waterClass != null && spec.mapVersion >= 4) LakeRim(in spec, in map, in o, x, z, ref c);   // v4: lakes at rest
+            int rimY = int.MinValue; bool lakeWater = false;
+            if (map.waterClass != null && spec.mapVersion >= 4) LakeRim(in spec, in map, in o, x, z, ref c, out rimY, out lakeWater);   // v4: lakes at rest
+            int riverHoldY = int.MinValue; bool nearRiver = false;
+            if (map.flowDir != null && map.waterClass != null && spec.mapVersion >= 4)
+                Rivers.Column(in spec, in map, x, z, texelVoxels, rimY, lakeWater, ref c, out riverHoldY, out nearRiver);   // task 76: rivers at rest
             // §2.5 stamps. Skipped for a dry (pre-v2) map view, which is what
             // every older job builds -- they keep their exact prior output.
-            if (map.water != null) Stamps.Column(in spec, in map, in o, p, texelVoxels, ref c);
+            if (map.water != null) Stamps.Column(in spec, in map, in o, p, texelVoxels, ref c, riverHoldY);
+            if (nearRiver)
+            {
+                // Task 76: no stamp opens air beside or under a river (cave
+                // mouths, fissures, the skull cave, arch / hoop / rib openings),
+                // as NearLake keeps them from lakes. The stamp's solid body stays.
+                c.open1Lo = c.open1Hi = c.open2Lo = c.open2Hi = 0;
+                c.carvesTop = false; c.stamp3D = false;
+            }
             if (map.water != null && spec.mapVersion >= 3) Ledge(in spec, in map, in o, p, ref c);
             return c;
         }
@@ -276,10 +294,12 @@ namespace TerrainGen
             int ix = (int)math.floor(gx), iz = (int)math.floor(gz);
             int n = map.cells;
             float w = Hydrology.NO_WATER;
+            bool riversApart = map.flowDir != null && map.waterClass != null;   // map v4 with a flow map: rivers are Rivers.Column's
             for (int j = 0; j <= 1; j++)
             for (int i = 0; i <= 1; i++)
             {
                 int cx = math.clamp(ix + i, 0, n - 1), cz = math.clamp(iz + j, 0, n - 1);
+                if (riversApart && map.waterClass[cz * n + cx] == Hydrology.RIVER) continue;
                 w = math.max(w, map.water[cz * n + cx]);
             }
             return w;
@@ -341,12 +361,17 @@ namespace TerrainGen
             return REACH_MAX - REACH_VAR * math.saturate(0.5f + 0.5f * nz);
         }
 
-        private static unsafe void LakeRim(in TerrainSpec spec, in MapView map, in Offsets o, float x, float z, ref ColumnSample c)
+        /// `rimY`: the rim level here (int.MinValue = no lake near); `lakeWater`:
+        /// the column ends as a lake's own water. Rivers.Column reads both.
+        private static unsafe void LakeRim(in TerrainSpec spec, in MapView map, in Offsets o, float x, float z, ref ColumnSample c,
+                                           out int rimY, out bool lakeWater)
         {
+            rimY = int.MinValue; lakeWater = false;
             float reach = LakeReach(in o, x, z);
             LakeNear(in map, x, z, reach, out float rim, out float level, out float dl, out float nearest);
             if (rim <= Hydrology.NO_WATER * 0.5f) return;
             int ry = spec.seaLevelY + (int)math.floor(rim);
+            rimY = ry;
             int wy = level > Hydrology.NO_WATER * 0.5f ? spec.seaLevelY + (int)math.floor(level) : int.MinValue;
             if (wy == ry && c.water <= wy)
             {
@@ -361,7 +386,7 @@ namespace TerrainGen
                 float steep = math.max(0f, e - SHELF_W);
                 int bed = wy - (int)math.floor(SHELF_SLOPE * e + SHELF_CURVE * steep * steep);
                 if (c.height < bed) { c.rimGround = c.height; c.height = bed; }
-                if (c.height < wy) { c.water = wy; c.waterKind = 0; }
+                if (c.height < wy) { c.water = wy; c.waterKind = 0; lakeWater = true; }
                 return;
             }
             // Rim: out of reach, or under a higher lake's rim. Higher water (a

@@ -143,6 +143,11 @@ namespace VoxelEngine.Streaming
         public double LastUploadMs { get; private set; }
         public int LastUploadBytes { get; private set; }
         public double LastCascadeMs { get; private set; }
+        /// Task 93d: false when built without cascade tiers (shells on): no worker
+        /// downsample, no per-scratch DownsampleScratch (~2.3 MB each).
+        public bool CascadeTiersOn => _cascades != null;
+        /// Scratch contexts (idle ones, in the pool) holding a DownsampleScratch. Tests.
+        public int ScratchDownsampleBuffers { get { int n = 0; foreach (var c in _scratchPool) if (c.downsample != null) n++; return n; } }
 
         /// LastDrainMs split into its parts, per frame (read-only diagnostics,
         /// added 2026-09-25 when -flyfast measured Update at 19 ms/frame mean at
@@ -256,6 +261,20 @@ namespace VoxelEngine.Streaming
         public int StreamLayer => VerticalStreaming ? _streamY : 0;
         public int TopLayerChunkY => _tgSource != null ? _tgSource.TopLayerChunkY : MAX_GENERATED_CHUNK_Y;
         public TerrainGenChunkSource TerrainGenSource => _tgSource;
+
+        /// Amendment 8.15 row Q1 (task 104): the far query over this world -- any
+        /// voxel as its chunk would load (resident / D.1 / generator + ops). Made on
+        /// first use; null for sizeClass 0/1 worlds (no point generator). MAIN THREAD.
+        public FarQuery FarQuery
+        {
+            get
+            {
+                if (_farQuery == null && _tgSource != null)
+                    _farQuery = new FarQuery(_store, _store, _tgSource, Ops, _deltaDir, _meta.seed);
+                return _farQuery;
+            }
+        }
+        private FarQuery _farQuery;
 
         /// Highest chunk layer that can hold anything but air, for readers that
         /// cannot see the StreamManager (VoxelCollision's ceiling rule). Equal to
@@ -467,7 +486,8 @@ namespace VoxelEngine.Streaming
             // Reusable downsample buffers, one set per worker. Sized once; every
             // chunk this worker handles reuses them instead of allocating a
             // fresh 2 MB tier-0 extraction plus per-step arrays per tier.
-            public LODDownsampler.DownsampleScratch downsample = new LODDownsampler.DownsampleScratch();
+            // Task 93d: null when there are no cascade tiers (shells on).
+            public LODDownsampler.DownsampleScratch downsample;
         }
 
         private struct LoadCompletion
@@ -480,6 +500,7 @@ namespace VoxelEngine.Streaming
             public bool deltaApplied;
             public DeltaRejectReason rejectReason;
             public bool hadDeltaFile;
+            public int opsApplied;           // 8.14 row 9: the op count of the snapshot the worker applied
             public Exception error;
             // StreamTrace only (zero when tracing is off): worker phase ticks.
             public long traceGenTicks, traceDownTicks, traceDoneTs;
@@ -595,11 +616,56 @@ namespace VoxelEngine.Streaming
                     // 4096 = worst case, an entirely dense chunk (§11.4).
                     pool = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK),
                     allocator = new ChunkHandleAllocator(2),
+                    downsample = _cascades != null ? new LODDownsampler.DownsampleScratch() : null,
                 });
             }
 
             System.IO.Directory.CreateDirectory(_deltaDir);
+            Ops = EditOpLog.Open(_deltaDir, meta.seed);
+            if (Ops.Count > 0 || Ops.LoadReject != OpLogRejectReason.None)
+                Debug.Log($"[StreamManager] ops.log: {Ops.Count} edit ops loaded (reject: {Ops.LoadReject})");
+            // 8.15 row C1: world clock, world stage, per-chunk last-seen + generation stage.
+            World = WorldState.Open(_deltaDir, meta.seed);
+            if (Ops.Count > 0) World.MarkPersistent();
+            if (World.HadFile)
+                Debug.Log($"[StreamManager] world.state: clock {World.ClockSeconds:F1} s, stage {World.Stage}, " +
+                          $"{World.ChunkCount} chunk entries (reject: {World.LoadReject})");
+            _worldStateWriteClock = World.ClockSeconds;
         }
+
+        /// The save's world state (Amendment 8.15 row C1, `world.state`): world clock,
+        /// world stage, per-chunk last-seen and generation stage. Nothing reads it yet
+        /// (C2 catch-up and S1 stage flip are later rows). MAIN THREAD ONLY.
+        public WorldState World { get; private set; }
+        /// Game seconds between periodic world.state writes (only once the save is real).
+        public const double WORLD_STATE_SAVE_SECONDS = 30.0;
+        private double _worldStateWriteClock;
+
+        /// Advances the world clock by `dtSeconds` of game time (the owner calls it once a frame).
+        public void AdvanceClock(double dtSeconds) => World.Advance(dtSeconds);
+
+        /// Stamps every resident chunk as seen now and writes world.state if the save
+        /// is real (it existed, holds ops, or this session wrote a delta). Returns true if written.
+        public bool SaveWorldState()
+        {
+            if (Ops.Count > 0) World.MarkPersistent();
+            _worldStateWriteClock = World.ClockSeconds;
+            if (!World.Persistent) return false;
+            foreach (var chunk in _store.ResidentChunks()) World.StampSeen(chunk.coord);
+            try { return World.SaveIfPersistent(); }
+            catch (Exception e) { Debug.LogError($"[StreamManager] world.state save failed: {e}"); return false; }
+        }
+
+        /// The save's edit-op log (Amendment 8.14 rows 8-10, D.4). Main thread
+        /// records into it (EditOps); workers apply its Snapshot on generation.
+        public EditOpLog Ops { get; private set; }
+        /// Ops applied on the main thread to chunks that were in flight when the op
+        /// was recorded (DrainCompletions' catch-up).
+        public long OpsCaughtUpTotal { get; private set; }
+        /// Task 82: called (main thread) with each inclusive voxel box an in-flight
+        /// catch-up wrote, so the owner can run the fluid wake scan there
+        /// (EditService.NotifyEditedRegion, what EditOps' near apply runs). Null = none.
+        public Action<int3, int3> OpCatchUpEdited;
 
         // =====================================================================
         // Per-frame entry point. MAIN THREAD ONLY.
@@ -608,6 +674,7 @@ namespace VoxelEngine.Streaming
         {
             _frame++;
             var sw = System.Diagnostics.Stopwatch.StartNew();
+            if (World.ClockSeconds - _worldStateWriteClock >= WORLD_STATE_SAVE_SECONDS) SaveWorldState();
 
             float3 camPos = new float3(cameraWorldPos.x, cameraWorldPos.y, cameraWorldPos.z);
             _velocity = math.lerp(_velocity, (camPos - _lastCameraPos) * 60f, 0.25f);
@@ -678,7 +745,7 @@ namespace VoxelEngine.Streaming
                 if (!chunk.dirty) continue;
                 chunk.dirty = false;
                 _clipmap.MarkDirty(chunk.coord);
-                _cascades.MarkDirty(chunk.coord);
+                _cascades?.MarkDirty(chunk.coord);
             }
 
             LastDrainMs = sw.Elapsed.TotalMilliseconds;
@@ -695,7 +762,7 @@ namespace VoxelEngine.Streaming
             var stats = _clipmap.UploadDirty(_store, _pool, EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME,
                                              camChunk, EngineConfig.UPLOAD_EXEMPT_RADIUS_CHUNKS);
             double clipDone = sw.Elapsed.TotalMilliseconds;
-            _cascades.UploadDirty(_store, _pool);
+            _cascades?.UploadDirty(_store, _pool);
             LastUploadMs = sw.Elapsed.TotalMilliseconds;
             LastCascadeMs = LastUploadMs - clipDone;
             LastUploadBytes = stats.bytesUploaded;
@@ -721,9 +788,21 @@ namespace VoxelEngine.Streaming
             // stream layer by its OWN height (8 layers: stream - 4 .. stream + 3,
             // which strictly contains the loaded band stream -+ 3). Flat worlds
             // pass the store's origin unchanged, as before.
-            int3 clipOrigin = origin;
-            if (VerticalStreaming) clipOrigin.y = camChunk.y - _clipmap.WindowDimsChunks.y / 2;
-            _clipmap.SetWindowOrigin(clipOrigin);
+            _clipmap.SetWindowOrigin(MirrorOrigin(camChunk, origin, _windowDims, _clipmap.WindowDimsChunks, VerticalStreaming));
+        }
+
+        /// The GPU mirror box's origin for a camera chunk, given the store's.
+        /// Task 93e (8.15 row D2): with the shells on the box can be narrower
+        /// than the store ring (16^3); it centres on the camera by its OWN
+        /// size, cam - d/2 .. cam + d/2 - 1 (ShellLayout.BoxInnerReachM).
+        /// Equal widths give the store's origin, as before.
+        public static int3 MirrorOrigin(int3 camChunk, int3 storeOrigin, int3 storeDims, int3 mirrorDims, bool vertical)
+        {
+            int3 clipOrigin = storeOrigin;
+            if (vertical) clipOrigin.y = camChunk.y - mirrorDims.y / 2;
+            if (mirrorDims.x != storeDims.x) clipOrigin.x = camChunk.x - (mirrorDims.x >> 1);
+            if (mirrorDims.z != storeDims.z) clipOrigin.z = camChunk.z - (mirrorDims.z >> 1);
+            return clipOrigin;
         }
 
         // =====================================================================
@@ -921,6 +1000,12 @@ namespace VoxelEngine.Streaming
                 var chunk = new Chunk();
                 GenerateBaseline(coord, chunk, scratch.allocator, scratch.pool, pass);
                 if (trace) completion.traceGenTicks = StreamTrace.Now - tw0;
+                // 8.14 rows 9-10: edit ops from an immutable snapshot (published by
+                // the main thread; no lock). Ops with seq <= S go before the delta,
+                // the rest after it; S comes from the snapshot's side table.
+                EditOpSnapshot ops = Ops.Snapshot;
+                completion.opsApplied = ops.Count;
+                int opsBefore = ops.Count;
                 long cpu1 = trace ? StreamTrace.ThreadCpuNs() : 0;
                 if (trace) completion.traceGenCpuMs = StreamTrace.CpuMs(cpu0, cpu1);
 
@@ -929,11 +1014,23 @@ namespace VoxelEngine.Streaming
                 // against scratch storage -- it is pure CPU work and keeping it
                 // off the main thread is the whole point of async loading.
                 string path = DeltaCodec.PathFor(_deltaDir, coord);
-                if (DeltaCodec.TryReadFile(path, out byte[] bytes, out var readReason))
+                bool haveBytes = DeltaCodec.TryReadFile(path, out byte[] bytes, out var readReason);
+                if (ops.Count > 0)
+                {
+                    if (haveBytes && bytes.Length >= DeltaCodec.TRAILER_BYTES)
+                        opsBefore = ops.OpsBeforeDelta(coord, EditOpLog.TrailerCrc(bytes));
+                    EditOpApply.ApplyToChunk(chunk, coord, scratch.allocator, scratch.pool, ops.Ops, 0, opsBefore);
+                }
+                if (haveBytes)
                 {
                     completion.hadDeltaFile = true;
                     if (DeltaCodec.TryDecodeOnto(bytes, coord, _meta.seed, chunk, scratch.pool, out var reason))
+                    {
                         completion.deltaApplied = true;
+                        // Task 93a: the bricks the player changed, for the shells' edit
+                        // summaries (CPU-only; ChunkStore.InsertChunk tells the sink).
+                        chunk.editMask = EditSummaryOps.MaskFromDelta(bytes);
+                    }
                     else
                         completion.rejectReason = reason;
                 }
@@ -942,6 +1039,8 @@ namespace VoxelEngine.Streaming
                     completion.hadDeltaFile = true;
                     completion.rejectReason = readReason;
                 }
+                if (opsBefore < ops.Count)
+                    EditOpApply.ApplyToChunk(chunk, coord, scratch.allocator, scratch.pool, ops.Ops, opsBefore, ops.Count);
 
                 // Downsample HERE, on the worker, while it exclusively owns the
                 // chunk and its scratch pool (§3.2 holds: no shared state read).
@@ -958,26 +1057,31 @@ namespace VoxelEngine.Streaming
                 // chunk. Handing the scratch array itself to the queue would
                 // alias -- the next chunk on this worker would rewrite voxels
                 // the main thread has not consumed yet.
-                completion.cascadeData = new byte[LODConfig.TIER_COUNT - 1][];
-                // Gather tier-0 ONCE for all tiers. It is a 128^3 (2 MB) walk and
-                // it was being redone per tier, so every chunk paid it twice --
-                // pure duplicated worker CPU, on the threads whose contention
-                // with the main thread is what starves frames in the first place.
                 long tw1 = trace ? StreamTrace.Now : 0;
                 long cpu2 = trace ? StreamTrace.ThreadCpuNs() : 0;
-                bool tier0Ready = LODDownsampler.PrepareTier0(chunk, scratch.pool, scratch.downsample);
-                for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+                // Task 93d (8.15 row D1): no cascade tiers (shells on) -> no downsample;
+                // cascadeData stays null and the main thread has nothing to submit.
+                if (_cascades != null)
                 {
-                    byte[] scratchResult =
-                        LODDownsampler.DownsampleTierFromScratch(chunk, tier, scratch.downsample, tier0Ready);
-                    // POOLED (2026-09-26): -framegap found 22 gen2 collections in
-                    // the worst 1% of frames. These are 262 KB + 32 KB per chunk
-                    // (large-object heap, so every allocation feeds a gen2); the
-                    // main thread consumes them synchronously in
-                    // SubmitPrecomputed and hands them straight back.
-                    var owned = RentCascadeArray(tier, scratchResult.Length);
-                    Array.Copy(scratchResult, owned, scratchResult.Length);
-                    completion.cascadeData[tier - 1] = owned;
+                    completion.cascadeData = new byte[LODConfig.TIER_COUNT - 1][];
+                    // Gather tier-0 ONCE for all tiers. It is a 128^3 (2 MB) walk and
+                    // it was being redone per tier, so every chunk paid it twice --
+                    // pure duplicated worker CPU, on the threads whose contention
+                    // with the main thread is what starves frames in the first place.
+                    bool tier0Ready = LODDownsampler.PrepareTier0(chunk, scratch.pool, scratch.downsample);
+                    for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+                    {
+                        byte[] scratchResult =
+                            LODDownsampler.DownsampleTierFromScratch(chunk, tier, scratch.downsample, tier0Ready);
+                        // POOLED (2026-09-26): -framegap found 22 gen2 collections in
+                        // the worst 1% of frames. These are 262 KB + 32 KB per chunk
+                        // (large-object heap, so every allocation feeds a gen2); the
+                        // main thread consumes them synchronously in
+                        // SubmitPrecomputed and hands them straight back.
+                        var owned = RentCascadeArray(tier, scratchResult.Length);
+                        Array.Copy(scratchResult, owned, scratchResult.Length);
+                        completion.cascadeData[tier - 1] = owned;
+                    }
                 }
 
                 completion.chunk = chunk;
@@ -1056,6 +1160,7 @@ namespace VoxelEngine.Streaming
                         var airChunk = new Chunk { coord = c.coord, isUniform = true, uniformMaterial = Materials.Air };
                         ChunkLifecycle.Transition(rec, ChunkState.Resident, true, "generation failed -> air");
                         _store.InsertChunk(airChunk);
+                        World.NoteGenerated(c.coord, World.Stage);
                         rec.residentSlot = 0;
                         if (StreamTrace.Enabled) StreamTrace.OnDrop(c.coord, evicted: false);
                         continue;
@@ -1088,6 +1193,9 @@ namespace VoxelEngine.Streaming
                     ChunkLifecycle.Transition(rec, ChunkState.Resident, true, "DrainCompletions");
 
                     _store.InsertChunk(c.chunk);
+                    // 8.15 C1 / §14: the stage it was generated at (the generator takes
+                    // no stage until S1, so every chunk is generated at World.Stage = 0).
+                    World.NoteGenerated(c.coord, World.Stage);
                     rec.residentSlot = 0;
                     rec.lastTouchedFrame = _frame;
 
@@ -1100,7 +1208,13 @@ namespace VoxelEngine.Streaming
                             ReturnCascadeArray(tier, c.cascadeData[tier - 1]);
                         }
                     else
-                        _cascades.MarkDirty(c.coord); // fallback: main-thread path
+                        _cascades?.MarkDirty(c.coord); // fallback: main-thread path
+
+                    // 8.14 row 9: ops recorded while this chunk was in flight (the
+                    // worker's snapshot predates them, and EditOps' near apply
+                    // skipped the chunk as not resident). Applied through the
+                    // CPU writer, in seq order, like any edit to a resident chunk.
+                    if (c.opsApplied < Ops.Count) CatchUpOps(c.coord, c.opsApplied);
 
                     ChunksAdmittedTotal++;
                     admitted++;
@@ -1318,6 +1432,9 @@ namespace VoxelEngine.Streaming
             var chunk = _store.GetChunk(coord);
             if (chunk == null) return false;
 
+            // 8.15 C1 (§4): last-seen = the clock as the chunk leaves (in memory;
+            // world.state catches up at its next write).
+            World.StampSeen(coord);
             bool saved = false;
             if (chunk.deltaDirty)
             {
@@ -1348,7 +1465,7 @@ namespace VoxelEngine.Streaming
             // ordering matters: mark before the evict and they would happily
             // re-upload the chunk they were meant to erase.
             _clipmap.MarkDirty(coord);
-            _cascades.MarkDirty(coord);
+            _cascades?.MarkDirty(coord);
 
             ChunksEvictedTotal++;
             return saved;
@@ -1368,10 +1485,16 @@ namespace VoxelEngine.Streaming
                     {
                         pool = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK),
                         allocator = new ChunkHandleAllocator(2),
+                        downsample = _cascades != null ? new LODDownsampler.DownsampleScratch() : null,
                     };
 
                 baseline = new Chunk();
                 GenerateBaseline(coord, baseline, scratch.allocator, scratch.pool);
+                // 8.14 row 10: the baseline is generation + every op so far; the
+                // side table records that count (S) BEFORE the delta is written.
+                var ops = Ops.Snapshot;
+                if (ops.Count > 0)
+                    EditOpApply.ApplyToChunk(baseline, coord, scratch.allocator, scratch.pool, ops.Ops, 0, ops.Count);
 
                 byte[] bytes = DeltaCodec.Encode(coord, _meta.seed, live, _pool, baseline, scratch.pool);
                 string path = DeltaCodec.PathFor(_deltaDir, coord);
@@ -1381,11 +1504,17 @@ namespace VoxelEngine.Streaming
                     // Coalesced back to baseline. §4.1 makes ABSENCE meaningful,
                     // so the stale file must go, not linger as a lie.
                     DeltaCodec.DeleteIfPresent(path);
+                    Ops.NoteDeltaDeleted(coord);
+                    _farQuery?.ForgetDelta(coord);
+                    World.MarkPersistent();
                     if (_table.TryGetValue(coord, out var r0)) r0.deltaByteLength = 0;
                     return true;
                 }
 
+                Ops.NoteDeltaAboutToBeWritten(coord, bytes);
                 DeltaCodec.WriteAtomic(path, bytes);
+                _farQuery?.ForgetDelta(coord);
+                World.MarkPersistent();   // the run saves terrain: world.state is written too (C1)
                 if (_table.TryGetValue(coord, out var r)) { r.deltaByteLength = (uint)bytes.Length; }
                 return true;
             }
@@ -1460,7 +1589,8 @@ namespace VoxelEngine.Streaming
         public int TableSize => _table.Count;
 
         /// Forces every dirty resident chunk to disk. Used by the acceptance
-        /// rig's force-quit simulation and on clean shutdown.
+        /// rig's force-quit simulation and on clean shutdown. Also writes
+        /// world.state (8.15 C1) when the save is real.
         public int FlushAllDirty()
         {
             int n = 0;
@@ -1469,6 +1599,7 @@ namespace VoxelEngine.Streaming
                 if (!chunk.deltaDirty) continue;
                 if (SaveDelta(chunk.coord, chunk)) { chunk.deltaDirty = false; n++; }
             }
+            SaveWorldState();   // 8.15 C1: residents stamped seen now
             return n;
         }
 
@@ -1661,6 +1792,40 @@ namespace VoxelEngine.Streaming
             return deficit;
         }
 
+        /// Applies ops [from, Count) that reach the resident chunk `coord` through
+        /// ChunkStore.SetVoxel (the sole CPU writer), then marks the mirrors.
+        private void CatchUpOps(int3 coord, int from)
+        {
+            var ops = Ops.Snapshot;
+            int3 c0 = coord << 7;
+            bool any = false;
+            _store.EditMarksMuted++;   // task 93a: ops are in the shells already
+            try
+            {
+            for (int i = from; i < ops.Count; i++)
+            {
+                var op = ops.Ops[i];
+                if (!EditOpApply.TouchesChunk(op, coord)) continue;
+                EditOpApply.Bounds(op, out int3 lo, out int3 hi);
+                int3 a = math.max(lo, c0), b = math.min(hi, c0 + (EngineConfig.CHUNK_EDGE_VOXELS - 1));
+                for (int z = a.z; z <= b.z; z++)
+                for (int y = a.y; y <= b.y; y++)
+                for (int x = a.x; x <= b.x; x++)
+                {
+                    var v = new int3(x, y, z);
+                    if (EditOpApply.Covers(op, v)) _store.SetVoxel(v, op.material);
+                }
+                any = true;
+                OpsCaughtUpTotal++;
+                OpCatchUpEdited?.Invoke(a, b);   // the wake scan SetSphere/SetBox run (task 82)
+            }
+            }
+            finally { _store.EditMarksMuted--; }
+            if (!any) return;
+            _clipmap.MarkDirty(coord);
+            _cascades?.MarkDirty(coord);
+        }
+
         /// The generated (pre-edit) content of a chunk: TerrainGen for sizeClass 2
         /// (V1), the legacy generator otherwise. Both the live load and the
         /// persistence baseline go through here, so they can never disagree.
@@ -1674,6 +1839,7 @@ namespace VoxelEngine.Streaming
         public void Dispose()
         {
             if (VerticalStreaming) ContentTopChunkY = MAX_GENERATED_CHUNK_Y;
+            _farQuery?.Dispose();
             _tgSource?.Dispose();
             _samplerState.Dispose();   // owns NativeArrays since the Burst port
             _cancel.Cancel();

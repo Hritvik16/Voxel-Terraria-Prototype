@@ -1,0 +1,410 @@
+UPSCALER COMPARE -- 2026-10-10_063429
+device Apple M1 (Metal)  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+slope candidate 0 rejected: centre ray -1.0 m (spiral site 0, direction 0, map slope rises 10.8 m between 30 and 80 m (12 deg mean))
+slope_walk = candidate 1: spiral site 5, direction 3, map slope rises 17.6 m between 30 and 80 m (19 deg mean); centre ray 56.2 m
+
+SHIMMER: noon; nudge = a quarter 960x540 pixel in the projection for every arm; settle 20 frames per nudge, 90 per arm
+eye_level_1  eye (4600.00, 652.90, 4000.00)  in air  deficit 0
+  native     dispatch 1920x1080  traced 191/190 frames
+  none_540   dispatch 960x540  traced 190/190 frames
+  taa_540    dispatch 960x540  traced 190/190 frames
+  fsr1_540   dispatch 960x540  traced 190/190 frames
+  stp_540    dispatch 960x540  traced 190/190 frames
+  fsr3_540   dispatch 960x540  traced 190/190 frames
+  taa_720    dispatch 1280x720  traced 190/190 frames
+  fsr1_720   dispatch 1280x720  traced 190/190 frames
+  stp_720    dispatch 1280x720  traced 190/190 frames
+  fsr3_720   dispatch 1280x720  traced 190/190 frames
+eye_level_2  eye (3454.77, 532.10, 4932.27)  in air  deficit 0
+  native     dispatch 1920x1080  traced 191/190 frames
+  none_540   dispatch 960x540  traced 190/190 frames
+  taa_540    dispatch 960x540  traced 190/190 frames
+  fsr1_540   dispatch 960x540  traced 190/190 frames
+  stp_540    dispatch 960x540  traced 190/190 frames
+  fsr3_540   dispatch 960x540  traced 190/190 frames
+  taa_720    dispatch 1280x720  traced 190/190 frames
+  fsr1_720   dispatch 1280x720  traced 190/190 frames
+  stp_720    dispatch 1280x720  traced 190/190 frames
+  fsr3_720   dispatch 1280x720  traced 190/190 frames
+eye_level_3  eye (3235.19, 674.50, 2640.34)  in air  deficit 0
+  native     dispatch 1920x1080  traced 191/190 frames
+  none_540   dispatch 960x540  traced 190/190 frames
+  taa_540    dispatch 960x540  traced 190/190 frames
+  fsr1_540   dispatch 960x540  traced 190/190 frames
+  stp_540    dispatch 960x540  traced 190/190 frames
+  fsr3_540   dispatch 960x540  traced 190/190 frames
+  taa_720    dispatch 1280x720  traced 190/190 frames
+  fsr1_720   dispatch 1280x720  traced 190/190 frames
+  stp_720    dispatch 1280x720  traced 190/190 frames
+  fsr3_720   dispatch 1280x720  traced 190/190 frames
+slope_walk   eye (4129.09, 906.90, 3917.88)  in air  deficit 0
+  native     dispatch 1920x1080  traced 191/190 frames
+  none_540   dispatch 960x540  traced 190/190 frames
+  taa_540    dispatch 960x540  traced 190/190 frames
+  fsr1_540   dispatch 960x540  traced 190/190 frames
+  stp_540    dispatch 960x540  traced 190/190 frames
+  fsr3_540   dispatch 960x540  traced 190/190 frames
+  taa_720    dispatch 1280x720  traced 190/190 frames
+  fsr1_720   dispatch 1280x720  traced 190/190 frames
+  stp_720    dispatch 1280x720  traced 190/190 frames
+  fsr3_720   dispatch 1280x720  traced 190/190 frames
+
+STILLS (1920x1080; mean RGB; dyn = 240 frames from 540 rows, target 16.7 ms)
+spawn_day     native     dispatch 1920x1080  traced 91/90  meanRGB (72,88,111)
+spawn_day     taa_540    dispatch 960x540  traced 90/90  meanRGB (76,92,113)
+spawn_day     fsr1_540   dispatch 960x540  traced 90/90  meanRGB (69,86,101)
+spawn_day     stp_540    dispatch 960x540  traced 90/90  meanRGB (69,86,101)
+spawn_day     fsr3_540   dispatch 960x540  traced 90/90  meanRGB (75,92,112)
+spawn_day     taa_720    dispatch 1280x720  traced 90/90  meanRGB (75,92,113)
+spawn_day     fsr1_720   dispatch 1280x720  traced 90/90  meanRGB (69,86,101)
+spawn_day     stp_720    dispatch 1280x720  traced 90/90  meanRGB (69,86,101)
+spawn_day     fsr3_720   dispatch 1280x720  traced 90/90  meanRGB (75,92,112)
+spawn_day     taa_dyn    dispatch 960x540  traced 240/240  meanRGB (76,92,113)  dyn settled 540 rows (0 steps, smoothed 35 ms)
+spawn_day     fsr1_dyn   dispatch 960x540  traced 240/240  meanRGB (69,86,101)  dyn settled 540 rows (0 steps, smoothed 34 ms)
+spawn_day     stp_dyn    dispatch 960x540  traced 240/240  meanRGB (69,86,101)  dyn settled 540 rows (0 steps, smoothed 36 ms)
+spawn_day     fsr3_dyn   dispatch 960x540  traced 240/240  meanRGB (75,91,112)  dyn settled 540 rows (0 steps, smoothed 39 ms)
+near_cliff: eye (4852.0, 551.7, 2052.0) (store ground 550.0), looking at (4908.0, 607.0, 2108.0), centre ray 15.7 m
+near_cliff    native     dispatch 1920x1080  traced 91/90  meanRGB (49,51,64)
+near_cliff    taa_540    dispatch 960x540  traced 90/90  meanRGB (49,51,63)
+near_cliff    fsr1_540   dispatch 960x540  traced 90/90  meanRGB (47,48,56)
+near_cliff    stp_540    dispatch 960x540  traced 90/90  meanRGB (47,48,56)
+near_cliff    fsr3_540   dispatch 960x540  traced 90/90  meanRGB (49,51,63)
+near_cliff    taa_720    dispatch 1280x720  traced 90/90  meanRGB (49,51,63)
+near_cliff    fsr1_720   dispatch 1280x720  traced 90/90  meanRGB (47,48,56)
+near_cliff    stp_720    dispatch 1280x720  traced 90/90  meanRGB (47,48,56)
+near_cliff    fsr3_720   dispatch 1280x720  traced 90/90  meanRGB (49,51,63)
+near_cliff    taa_dyn    dispatch 960x540  traced 240/240  meanRGB (49,51,63)  dyn settled 540 rows (0 steps, smoothed 58 ms)
+near_cliff    fsr1_dyn   dispatch 960x540  traced 240/240  meanRGB (47,48,56)  dyn settled 540 rows (0 steps, smoothed 58 ms)
+near_cliff    stp_dyn    dispatch 960x540  traced 240/240  meanRGB (47,48,56)  dyn settled 540 rows (0 steps, smoothed 60 ms)
+near_cliff    fsr3_dyn   dispatch 960x540  traced 240/240  meanRGB (49,51,63)  dyn settled 540 rows (0 steps, smoothed 62 ms)
+horizon = eye_level_3: eye (3235.2, 674.5, 2640.3)
+horizon       native     dispatch 1920x1080  traced 91/90  meanRGB (57,66,92)
+horizon       taa_540    dispatch 960x540  traced 90/90  meanRGB (61,68,94)
+horizon       fsr1_540   dispatch 960x540  traced 90/90  meanRGB (55,64,83)
+horizon       stp_540    dispatch 960x540  traced 90/90  meanRGB (54,63,83)
+horizon       fsr3_540   dispatch 960x540  traced 90/90  meanRGB (59,67,92)
+horizon       taa_720    dispatch 1280x720  traced 90/90  meanRGB (60,68,93)
+horizon       fsr1_720   dispatch 1280x720  traced 90/90  meanRGB (55,64,83)
+horizon       stp_720    dispatch 1280x720  traced 90/90  meanRGB (55,64,83)
+horizon       fsr3_720   dispatch 1280x720  traced 90/90  meanRGB (60,68,93)
+horizon       taa_dyn    dispatch 960x540  traced 240/240  meanRGB (61,68,94)  dyn settled 540 rows (0 steps, smoothed 37 ms)
+horizon       fsr1_dyn   dispatch 960x540  traced 240/240  meanRGB (55,64,83)  dyn settled 540 rows (0 steps, smoothed 36 ms)
+horizon       stp_dyn    dispatch 960x540  traced 240/240  meanRGB (54,63,82)  dyn settled 540 rows (0 steps, smoothed 39 ms)
+horizon       fsr3_dyn   dispatch 960x540  traced 240/240  meanRGB (59,67,92)  dyn settled 540 rows (0 steps, smoothed 42 ms)
+slope_detail  native     dispatch 1920x1080  traced 91/90  meanRGB (72,82,99)
+slope_detail  taa_540    dispatch 960x540  traced 90/90  meanRGB (73,83,100)
+slope_detail  fsr1_540   dispatch 960x540  traced 90/90  meanRGB (70,80,91)
+slope_detail  stp_540    dispatch 960x540  traced 90/90  meanRGB (70,80,91)
+slope_detail  fsr3_540   dispatch 960x540  traced 90/90  meanRGB (72,83,99)
+slope_detail  taa_720    dispatch 1280x720  traced 90/90  meanRGB (73,83,100)
+slope_detail  fsr1_720   dispatch 1280x720  traced 90/90  meanRGB (70,80,91)
+slope_detail  stp_720    dispatch 1280x720  traced 90/90  meanRGB (70,80,91)
+slope_detail  fsr3_720   dispatch 1280x720  traced 90/90  meanRGB (73,83,99)
+slope_detail  taa_dyn    dispatch 960x540  traced 240/240  meanRGB (73,84,100)  dyn settled 540 rows (0 steps, smoothed 54 ms)
+slope_detail  fsr1_dyn   dispatch 960x540  traced 240/240  meanRGB (70,80,91)  dyn settled 540 rows (0 steps, smoothed 53 ms)
+slope_detail  stp_dyn    dispatch 960x540  traced 240/240  meanRGB (70,80,91)  dyn settled 540 rows (0 steps, smoothed 56 ms)
+slope_detail  fsr3_dyn   dispatch 960x540  traced 240/240  meanRGB (72,83,99)  dyn settled 540 rows (0 steps, smoothed 58 ms)
+fluid_pools: water pool at int3(45925, 6587, 39944): 16778 voxels cleared, 5046 water
+fluid_pools: lava pool at int3(45908, 6587, 39984): 348 voxels cleared, 5046 lava
+fluid_pools   native     dispatch 1920x1080  traced 91/90  meanRGB (66,67,74)
+fluid_pools   taa_540    dispatch 960x540  traced 90/90  meanRGB (66,66,73)
+fluid_pools   fsr1_540   dispatch 960x540  traced 90/90  meanRGB (65,65,69)
+fluid_pools   stp_540    dispatch 960x540  traced 90/90  meanRGB (65,65,69)
+fluid_pools   fsr3_540   dispatch 960x540  traced 90/90  meanRGB (66,66,73)
+fluid_pools   taa_720    dispatch 1280x720  traced 90/90  meanRGB (66,66,73)
+fluid_pools   fsr1_720   dispatch 1280x720  traced 90/90  meanRGB (65,65,69)
+fluid_pools   stp_720    dispatch 1280x720  traced 90/90  meanRGB (65,65,69)
+fluid_pools   fsr3_720   dispatch 1280x720  traced 90/90  meanRGB (66,66,73)
+fluid_pools   taa_dyn    dispatch 960x540  traced 240/240  meanRGB (66,66,73)  dyn settled 540 rows (0 steps, smoothed 41 ms)
+fluid_pools   fsr1_dyn   dispatch 960x540  traced 240/240  meanRGB (65,65,69)  dyn settled 540 rows (0 steps, smoothed 40 ms)
+fluid_pools   stp_dyn    dispatch 960x540  traced 240/240  meanRGB (65,65,69)  dyn settled 540 rows (0 steps, smoothed 43 ms)
+fluid_pools   fsr3_dyn   dispatch 960x540  traced 240/240  meanRGB (66,66,73)  dyn settled 540 rows (0 steps, smoothed 45 ms)
+night_torches: 8/8 torches round (3458.2, 528.1, 4922.9), 23:00
+night_torches native     dispatch 1920x1080  traced 91/90  meanRGB (41,31,26)
+night_torches taa_540    dispatch 960x540  traced 90/90  meanRGB (41,31,26)
+night_torches fsr1_540   dispatch 960x540  traced 90/90  meanRGB (40,31,25)
+night_torches stp_540    dispatch 960x540  traced 90/90  meanRGB (40,31,25)
+night_torches fsr3_540   dispatch 960x540  traced 90/90  meanRGB (41,31,25)
+night_torches taa_720    dispatch 1280x720  traced 90/90  meanRGB (41,31,26)
+night_torches fsr1_720   dispatch 1280x720  traced 90/90  meanRGB (40,31,25)
+night_torches stp_720    dispatch 1280x720  traced 90/90  meanRGB (40,31,25)
+night_torches fsr3_720   dispatch 1280x720  traced 90/90  meanRGB (41,31,25)
+night_torches taa_dyn    dispatch 960x540  traced 240/240  meanRGB (41,31,26)  dyn settled 540 rows (0 steps, smoothed 53 ms)
+night_torches fsr1_dyn   dispatch 960x540  traced 240/240  meanRGB (40,31,25)  dyn settled 540 rows (0 steps, smoothed 53 ms)
+night_torches stp_dyn    dispatch 960x540  traced 240/240  meanRGB (40,31,25)  dyn settled 540 rows (0 steps, smoothed 55 ms)
+night_torches fsr3_dyn   dispatch 960x540  traced 240/240  meanRGB (41,31,25)  dyn settled 540 rows (0 steps, smoothed 58 ms)
+
+still poses: spawn_day near_cliff horizon slope_detail fluid_pools night_torches
+FSR 3: context 1280x720 -> 1920x1080, flags EnableDynamicResolution +DepthInverted
+
+=== SHIMMER per arm (tools/nearshimmer-report.py) ===
+
+### native
+NEAR SHIMMER  /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerCompare/2026-10-10_063429/shimmer/native
+mean |dL| (0-255 luma) and % of pixels with |dL| > 24, base vs 4 quarter-pixel nudges (mean of 4);
+floor = base vs the unmoved repeat. share = % of the frame in the band.
+pose         band   share%  mean|dL|  >thr %  floor|dL| floor>thr%
+eye_level_1  near     99.9      0.51    0.37       0.00       0.00
+eye_level_1  mid       0.0                        (too few pixels)
+eye_level_1  far       0.0                        (too few pixels)
+eye_level_1  all      99.9      0.51    0.37       0.00       0.00
+eye_level_2  near     52.7      6.21    4.11       0.00       0.00
+eye_level_2  mid       5.4      9.56    5.76       0.00       0.00
+eye_level_2  far      15.2      6.23    6.49       0.00       0.00
+eye_level_2  all      73.3      6.46    4.72       0.00       0.00
+eye_level_3  near      0.0                        (too few pixels)
+eye_level_3  mid      24.9     21.95   17.23       0.00       0.00
+eye_level_3  far      33.3     12.08   12.24       0.00       0.00
+eye_level_3  all      58.2     16.30   14.37       0.00       0.00
+slope_walk   near     37.9      4.68    4.01       0.00       0.00
+slope_walk   mid      14.4     14.43   14.22       0.00       0.00
+slope_walk   far      10.4     13.26   12.91       0.00       0.00
+slope_walk   all      62.7      8.35    7.83       0.00       0.00
+------------------------------------------------------------------
+MEAN(poses)  near               3.80    2.83   (3 poses)
+MEAN(poses)  all                7.91    6.82   (4 poses)
+MEAN(poses)  mid               15.31   12.40   (3 poses)
+MEAN(poses)  far               10.52   10.55   (3 poses)
+
+### none_540
+NEAR SHIMMER  /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerCompare/2026-10-10_063429/shimmer/none_540
+mean |dL| (0-255 luma) and % of pixels with |dL| > 24, base vs 4 quarter-pixel nudges (mean of 4);
+floor = base vs the unmoved repeat. share = % of the frame in the band.
+pose         band   share%  mean|dL|  >thr %  floor|dL| floor>thr%
+eye_level_1  near     99.9      0.51    0.45       0.00       0.00
+eye_level_1  mid       0.0                        (too few pixels)
+eye_level_1  far       0.0                        (too few pixels)
+eye_level_1  all      99.9      0.51    0.45       0.00       0.00
+eye_level_2  near     52.7      5.65    6.44       0.00       0.00
+eye_level_2  mid       5.4      7.23    6.84       0.00       0.00
+eye_level_2  far      15.2      5.24    6.10       0.00       0.00
+eye_level_2  all      73.3      5.68    6.40       0.00       0.00
+eye_level_3  near      0.0                        (too few pixels)
+eye_level_3  mid      24.9     19.55   29.29       0.00       0.00
+eye_level_3  far      33.3     11.93   16.58       0.00       0.00
+eye_level_3  all      58.2     15.19   22.02       0.00       0.00
+slope_walk   near     37.9      4.65    6.16       0.00       0.00
+slope_walk   mid      14.4     13.13   17.74       0.00       0.00
+slope_walk   far      10.4     11.24   15.71       0.00       0.00
+slope_walk   all      62.7      7.70   10.41       0.00       0.00
+------------------------------------------------------------------
+MEAN(poses)  near               3.61    4.35   (3 poses)
+MEAN(poses)  all                7.27    9.82   (4 poses)
+MEAN(poses)  mid               13.30   17.96   (3 poses)
+MEAN(poses)  far                9.47   12.80   (3 poses)
+
+### taa_540
+NEAR SHIMMER  /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerCompare/2026-10-10_063429/shimmer/taa_540
+mean |dL| (0-255 luma) and % of pixels with |dL| > 24, base vs 4 quarter-pixel nudges (mean of 4);
+floor = base vs the unmoved repeat. share = % of the frame in the band.
+pose         band   share%  mean|dL|  >thr %  floor|dL| floor>thr%
+eye_level_1  near     99.9      0.47    0.11       0.23       0.01
+eye_level_1  mid       0.0                        (too few pixels)
+eye_level_1  far       0.0                        (too few pixels)
+eye_level_1  all      99.9      0.47    0.11       0.23       0.01
+eye_level_2  near     52.7      3.74    2.52       1.88       0.39
+eye_level_2  mid       5.4      3.69    2.18       2.26       0.99
+eye_level_2  far      15.2      2.61    1.85       1.99       1.33
+eye_level_2  all      73.3      3.50    2.35       1.93       0.63
+eye_level_3  near      0.0                        (too few pixels)
+eye_level_3  mid      24.9      9.25    7.06       5.82       2.84
+eye_level_3  far      33.3      5.20    3.83       4.28       2.33
+eye_level_3  all      58.2      6.93    5.21       4.94       2.55
+slope_walk   near     37.9      3.23    2.33       1.66       0.57
+slope_walk   mid      14.4      6.11    4.62       3.60       1.06
+slope_walk   far      10.4      5.62    5.06       3.90       2.57
+slope_walk   all      62.7      4.29    3.30       2.48       1.01
+------------------------------------------------------------------
+MEAN(poses)  near               2.48    1.65   (3 poses)
+MEAN(poses)  all                3.80    2.74   (4 poses)
+MEAN(poses)  mid                6.35    4.62   (3 poses)
+MEAN(poses)  far                4.48    3.58   (3 poses)
+
+### fsr1_540
+NEAR SHIMMER  /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerCompare/2026-10-10_063429/shimmer/fsr1_540
+mean |dL| (0-255 luma) and % of pixels with |dL| > 24, base vs 4 quarter-pixel nudges (mean of 4);
+floor = base vs the unmoved repeat. share = % of the frame in the band.
+pose         band   share%  mean|dL|  >thr %  floor|dL| floor>thr%
+eye_level_1  near     99.9      0.74    0.45       0.00       0.00
+eye_level_1  mid       0.0                        (too few pixels)
+eye_level_1  far       0.0                        (too few pixels)
+eye_level_1  all      99.9      0.74    0.45       0.00       0.00
+eye_level_2  near     52.7      7.45    7.31       0.00       0.00
+eye_level_2  mid       5.4     10.50    9.20       0.00       0.00
+eye_level_2  far      15.2      7.26    7.38       0.00       0.00
+eye_level_2  all      73.3      7.64    7.47       0.00       0.00
+eye_level_3  near      0.0                        (too few pixels)
+eye_level_3  mid      24.9     21.71   28.03       0.00       0.00
+eye_level_3  far      33.3     13.11   15.16       0.00       0.00
+eye_level_3  all      58.2     16.79   20.66       0.00       0.00
+slope_walk   near     37.9      5.67    6.17       0.00       0.00
+slope_walk   mid      14.4     15.38   17.77       0.00       0.00
+slope_walk   far      10.4     13.30   15.72       0.00       0.00
+slope_walk   all      62.7      9.17   10.42       0.00       0.00
+------------------------------------------------------------------
+MEAN(poses)  near               4.62    4.65   (3 poses)
+MEAN(poses)  all                8.59    9.75   (4 poses)
+MEAN(poses)  mid               15.86   18.33   (3 poses)
+MEAN(poses)  far               11.23   12.75   (3 poses)
+
+### stp_540
+NEAR SHIMMER  /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerCompare/2026-10-10_063429/shimmer/stp_540
+mean |dL| (0-255 luma) and % of pixels with |dL| > 24, base vs 4 quarter-pixel nudges (mean of 4);
+floor = base vs the unmoved repeat. share = % of the frame in the band.
+pose         band   share%  mean|dL|  >thr %  floor|dL| floor>thr%
+eye_level_1  near     99.9      0.69    0.47       0.40       0.09
+eye_level_1  mid       0.0                        (too few pixels)
+eye_level_1  far       0.0                        (too few pixels)
+eye_level_1  all      99.9      0.69    0.47       0.40       0.09
+eye_level_2  near     52.7      5.16    6.05       2.51       2.11
+eye_level_2  mid       5.4      6.93    6.40       3.88       2.54
+eye_level_2  far      15.2      4.82    4.51       2.88       2.00
+eye_level_2  all      73.3      5.22    5.76       2.69       2.12
+eye_level_3  near      0.0                        (too few pixels)
+eye_level_3  mid      24.9     17.42   25.80       8.85      11.36
+eye_level_3  far      33.3      8.59   10.88       4.97       4.62
+eye_level_3  all      58.2     12.37   17.26       6.63       7.51
+slope_walk   near     37.9      4.30    5.27       2.16       1.94
+slope_walk   mid      14.4     10.83   13.63       6.48       7.50
+slope_walk   far      10.4      8.37   11.52       5.03       5.03
+slope_walk   all      62.7      6.48    8.23       3.63       3.73
+------------------------------------------------------------------
+MEAN(poses)  near               3.38    3.93   (3 poses)
+MEAN(poses)  all                6.19    7.93   (4 poses)
+MEAN(poses)  mid               11.73   15.28   (3 poses)
+MEAN(poses)  far                7.26    8.97   (3 poses)
+
+### fsr3_540
+NEAR SHIMMER  /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerCompare/2026-10-10_063429/shimmer/fsr3_540
+mean |dL| (0-255 luma) and % of pixels with |dL| > 24, base vs 4 quarter-pixel nudges (mean of 4);
+floor = base vs the unmoved repeat. share = % of the frame in the band.
+pose         band   share%  mean|dL|  >thr %  floor|dL| floor>thr%
+eye_level_1  near     99.9      0.74    0.58       0.45       0.10
+eye_level_1  mid       0.0                        (too few pixels)
+eye_level_1  far       0.0                        (too few pixels)
+eye_level_1  all      99.9      0.74    0.58       0.45       0.10
+eye_level_2  near     52.7      4.70    4.88       2.61       0.38
+eye_level_2  mid       5.4      5.28    4.39       2.82       0.43
+eye_level_2  far      15.2      3.39    2.01       2.04       0.83
+eye_level_2  all      73.3      4.47    4.25       2.50       0.48
+eye_level_3  near      0.0                        (too few pixels)
+eye_level_3  mid      24.9     12.61   15.94       7.25       2.65
+eye_level_3  far      33.3      6.43    5.34       3.88       1.02
+eye_level_3  all      58.2      9.07    9.87       5.32       1.72
+slope_walk   near     37.9      3.74    4.00       1.71       0.35
+slope_walk   mid      14.4      7.45    7.07       3.83       0.60
+slope_walk   far      10.4      5.87    5.38       3.62       1.35
+slope_walk   all      62.7      4.95    4.94       2.51       0.57
+------------------------------------------------------------------
+MEAN(poses)  near               3.06    3.16   (3 poses)
+MEAN(poses)  all                4.81    4.91   (4 poses)
+MEAN(poses)  mid                8.45    9.14   (3 poses)
+MEAN(poses)  far                5.23    4.24   (3 poses)
+
+### taa_720
+NEAR SHIMMER  /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerCompare/2026-10-10_063429/shimmer/taa_720
+mean |dL| (0-255 luma) and % of pixels with |dL| > 24, base vs 4 quarter-pixel nudges (mean of 4);
+floor = base vs the unmoved repeat. share = % of the frame in the band.
+pose         band   share%  mean|dL|  >thr %  floor|dL| floor>thr%
+eye_level_1  near     99.9      0.54    0.32       0.22       0.01
+eye_level_1  mid       0.0                        (too few pixels)
+eye_level_1  far       0.0                        (too few pixels)
+eye_level_1  all      99.9      0.54    0.32       0.22       0.01
+eye_level_2  near     52.7      3.65    2.97       1.80       0.40
+eye_level_2  mid       5.4      3.54    2.17       2.18       0.67
+eye_level_2  far      15.2      2.39    1.48       1.96       1.34
+eye_level_2  all      73.3      3.38    2.60       1.86       0.61
+eye_level_3  near      0.0                        (too few pixels)
+eye_level_3  mid      24.9     11.57   13.96       5.71       3.66
+eye_level_3  far      33.3      5.80    5.39       4.12       2.63
+eye_level_3  all      58.2      8.27    9.05       4.80       3.07
+slope_walk   near     37.9      3.00    2.29       1.46       0.49
+slope_walk   mid      14.4      6.29    5.32       3.66       1.29
+slope_walk   far      10.4      5.06    4.39       4.08       2.76
+slope_walk   all      62.7      4.10    3.33       2.40       1.04
+------------------------------------------------------------------
+MEAN(poses)  near               2.39    1.86   (3 poses)
+MEAN(poses)  all                4.07    3.83   (4 poses)
+MEAN(poses)  mid                7.13    7.15   (3 poses)
+MEAN(poses)  far                4.42    3.75   (3 poses)
+
+### fsr1_720
+NEAR SHIMMER  /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerCompare/2026-10-10_063429/shimmer/fsr1_720
+mean |dL| (0-255 luma) and % of pixels with |dL| > 24, base vs 4 quarter-pixel nudges (mean of 4);
+floor = base vs the unmoved repeat. share = % of the frame in the band.
+pose         band   share%  mean|dL|  >thr %  floor|dL| floor>thr%
+eye_level_1  near     99.9      0.76    0.51       0.00       0.00
+eye_level_1  mid       0.0                        (too few pixels)
+eye_level_1  far       0.0                        (too few pixels)
+eye_level_1  all      99.9      0.76    0.51       0.00       0.00
+eye_level_2  near     52.7      7.43    7.22       0.00       0.00
+eye_level_2  mid       5.4     10.96   10.68       0.00       0.00
+eye_level_2  far      15.2      7.32    7.45       0.00       0.00
+eye_level_2  all      73.3      7.67    7.52       0.00       0.00
+eye_level_3  near      0.0                        (too few pixels)
+eye_level_3  mid      24.9     21.75   27.69       0.00       0.00
+eye_level_3  far      33.3     13.01   15.27       0.00       0.00
+eye_level_3  all      58.2     16.74   20.58       0.00       0.00
+slope_walk   near     37.9      5.49    5.91       0.00       0.00
+slope_walk   mid      14.4     15.14   17.53       0.00       0.00
+slope_walk   far      10.4     13.19   15.70       0.00       0.00
+slope_walk   all      62.7      8.99   10.20       0.00       0.00
+------------------------------------------------------------------
+MEAN(poses)  near               4.56    4.55   (3 poses)
+MEAN(poses)  all                8.54    9.70   (4 poses)
+MEAN(poses)  mid               15.95   18.63   (3 poses)
+MEAN(poses)  far               11.17   12.81   (3 poses)
+
+### stp_720
+NEAR SHIMMER  /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerCompare/2026-10-10_063429/shimmer/stp_720
+mean |dL| (0-255 luma) and % of pixels with |dL| > 24, base vs 4 quarter-pixel nudges (mean of 4);
+floor = base vs the unmoved repeat. share = % of the frame in the band.
+pose         band   share%  mean|dL|  >thr %  floor|dL| floor>thr%
+eye_level_1  near     99.9      0.67    0.46       0.42       0.15
+eye_level_1  mid       0.0                        (too few pixels)
+eye_level_1  far       0.0                        (too few pixels)
+eye_level_1  all      99.9      0.67    0.46       0.42       0.15
+eye_level_2  near     52.7      5.20    5.70       2.05       1.64
+eye_level_2  mid       5.4      6.92    6.12       3.20       1.97
+eye_level_2  far      15.2      4.52    4.15       2.73       2.32
+eye_level_2  all      73.3      5.18    5.41       2.28       1.80
+eye_level_3  near      0.0                        (too few pixels)
+eye_level_3  mid      24.9     17.48   25.34       7.51       9.74
+eye_level_3  far      33.3      8.96   11.67       4.67       5.15
+eye_level_3  all      58.2     12.60   17.52       5.88       7.11
+slope_walk   near     37.9      4.30    5.22       1.88       1.85
+slope_walk   mid      14.4     11.24   14.01       5.37       5.75
+slope_walk   far      10.4      9.19   12.83       4.81       5.43
+slope_walk   all      62.7      6.71    8.50       3.17       3.34
+------------------------------------------------------------------
+MEAN(poses)  near               3.39    3.79   (3 poses)
+MEAN(poses)  all                6.29    7.97   (4 poses)
+MEAN(poses)  mid               11.88   15.16   (3 poses)
+MEAN(poses)  far                7.56    9.55   (3 poses)
+
+### fsr3_720
+NEAR SHIMMER  /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerCompare/2026-10-10_063429/shimmer/fsr3_720
+mean |dL| (0-255 luma) and % of pixels with |dL| > 24, base vs 4 quarter-pixel nudges (mean of 4);
+floor = base vs the unmoved repeat. share = % of the frame in the band.
+pose         band   share%  mean|dL|  >thr %  floor|dL| floor>thr%
+eye_level_1  near     99.9      0.74    0.54       0.41       0.14
+eye_level_1  mid       0.0                        (too few pixels)
+eye_level_1  far       0.0                        (too few pixels)
+eye_level_1  all      99.9      0.74    0.54       0.41       0.14
+eye_level_2  near     52.7      5.08    5.61       2.09       0.36
+eye_level_2  mid       5.4      6.10    5.09       2.54       0.22
+eye_level_2  far      15.2      3.69    2.15       1.95       0.67
+eye_level_2  all      73.3      4.86    4.85       2.09       0.42
+eye_level_3  near      0.0                        (too few pixels)
+eye_level_3  mid      24.9     14.83   22.83       5.88       1.64
+eye_level_3  far      33.3      7.58    7.98       3.69       0.97
+eye_level_3  all      58.2     10.68   14.33       4.62       1.25
+slope_walk   near     37.9      4.12    4.80       1.57       0.25
+slope_walk   mid      14.4      9.17   10.79       3.83       0.73
+slope_walk   far      10.4      6.92    7.73       3.45       1.19
+slope_walk   all      62.7      5.74    6.66       2.40       0.52
+------------------------------------------------------------------
+MEAN(poses)  near               3.31    3.65   (3 poses)
+MEAN(poses)  all                5.51    6.60   (4 poses)
+MEAN(poses)  mid               10.03   12.91   (3 poses)
+MEAN(poses)  far                6.06    5.95   (3 poses)

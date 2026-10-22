@@ -1,0 +1,133 @@
+TAA RISK FRAMES, OFF vs ON (same binary)
+  OFF /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FarBand/2026-10-10_070342_taarisk_taa540
+  ON  /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FarBand/2026-10-10_071153_taarisk_fsr3540
+
+edit:  frame  dL(ON,OFF)  bias  edge ON/OFF
+    edit_pre              1.25  -0.15   1.22
+    edit_f0               1.30  -0.16   1.22
+    edit_f1               1.25  -0.16   1.22
+    edit_f2               1.26  -0.16   1.22
+    edit_f3               1.22  -0.16   1.22
+    edit_f4               1.20  -0.17   1.21
+    edit_f5               1.24  -0.17   1.22
+    edit_settled          1.25  -0.16   1.22
+  sheet: crop (0, 0, 1920, 1080), display gain x1.4
+  edit ghost (1 = pre-edit image, 0 = settled hole):
+    OFF mask     142 px   f0 0.61  f1 0.00  f2 0.35  f3 0.46  f4 0.47  f5 0.70
+    ON  mask     142 px   f0 0.99  f1 0.28  f2 0.66  f3 0.95  f4 1.06  f5 1.05
+fluid_a:  frame  dL(ON,OFF)  bias  edge ON/OFF
+    fluid_a0              1.27  -0.16   1.22
+    fluid_a1              1.22  -0.16   1.22
+    fluid_a2              1.20  -0.17   1.21
+    fluid_a3              1.25  -0.17   1.22
+    fluid_a4              1.20  -0.18   1.22
+    fluid_a5              1.24  -0.16   1.23
+    fluid_a6              1.28  -0.17   1.23
+    fluid_a7              1.23  -0.16   1.22
+  sheet: crop (0, 0, 1920, 1080), display gain x1.4
+fluid_b:  frame  dL(ON,OFF)  bias  edge ON/OFF
+    fluid_b0              1.21  -0.17   1.22
+    fluid_b1              1.23  -0.15   1.22
+    fluid_b2              1.27  -0.17   1.23
+    fluid_b3              1.25  -0.17   1.23
+    fluid_b4              1.25  -0.16   1.22
+    fluid_b5              1.21  -0.15   1.21
+    fluid_b6              1.20  -0.16   1.21
+    fluid_b7              1.24  -0.15   1.22
+  sheet: crop (0, 0, 1920, 1080), display gain x1.4
+fluid_c:  frame  dL(ON,OFF)  bias  edge ON/OFF
+    fluid_c0              1.24  -0.17   1.23
+    fluid_c1              1.24  -0.16   1.22
+    fluid_c2              1.22  -0.17   1.22
+    fluid_c3              1.20  -0.17   1.22
+    fluid_c4              1.23  -0.15   1.22
+    fluid_c5              1.21  -0.18   1.22
+    fluid_c6              1.23  -0.15   1.22
+    fluid_c7              1.27  -0.17   1.23
+  sheet: crop (0, 0, 1920, 1080), display gain x1.4
+spin_slow:  frame  dL(ON,OFF)  bias  edge ON/OFF
+    spin_slow_still       5.42  -0.76   1.81
+    spin_slow_m0          6.85  -0.41   1.70
+    spin_slow_m1          6.43  -0.40   1.68
+    spin_slow_m2          6.58  -0.40   1.64
+    spin_slow_m3          6.87  -0.38   1.71
+    spin_slow_m4          6.13  -0.34   1.70
+    spin_slow_m5          5.89  -0.30   1.71
+    spin_slow_m6          6.23  -0.30   1.68
+    spin_slow_m7          6.36  -0.21   1.66
+    spin_slow_stop0       6.04  -0.02   1.77
+    spin_slow_stop1       5.52  -0.08   1.76
+    spin_slow_stop2       5.46  -0.04   1.75
+    spin_slow_stop3       5.19  -0.10   1.77
+  sheet: crop full frame, display gain x1.2
+spin_fast:  frame  dL(ON,OFF)  bias  edge ON/OFF
+    spin_fast_still       5.24  -0.65   1.76
+    spin_fast_m0          5.85  -0.38   1.53
+    spin_fast_m1          5.48  -0.38   1.49
+    spin_fast_m2          5.26  -0.48   1.49
+    spin_fast_m3          5.63  -0.57   1.47
+    spin_fast_m4          4.75  -0.50   1.47
+    spin_fast_m5          4.37  -0.59   1.45
+    spin_fast_m6          4.88  -0.64   1.40
+    spin_fast_m7          4.86  -0.60   1.37
+    spin_fast_stop0       4.38  -0.46   1.40
+    spin_fast_stop1       4.00  -0.36   1.39
+    spin_fast_stop2       4.03  -0.40   1.40
+    spin_fast_stop3       3.63  -0.42   1.40
+  sheet: crop full frame, display gain x1.1
+fly:  frame  dL(ON,OFF)  bias  edge ON/OFF
+    fly_m0                9.59  +0.18   1.66
+    fly_m1                8.48  +0.23   1.61
+    fly_m2                9.76  +0.04   1.71
+    fly_m3                9.85  +0.22   1.74
+    fly_m4                9.57  +0.30   1.72
+    fly_m5                9.63  +0.07   1.78
+    fly_m6               10.23  +0.44   1.84
+    fly_m7                8.86  +0.42   1.90
+  sheet: crop full frame, display gain x1.2
+light_02:  frame  dL(ON,OFF)  bias  edge ON/OFF
+    light_02_still        4.82  -0.62   2.09
+    light_02_m0           4.88  +3.37   2.60
+    light_02_m1           4.79  +3.24   2.64
+    light_02_m2           4.70  +3.18   2.74
+    light_02_m3           4.65  +3.16   2.72
+    light_02_m4           4.55  +3.10   2.75
+    light_02_m5           4.60  +3.22   2.83
+    light_02_m6           4.44  +3.19   2.87
+    light_02_m7           4.35  +3.09   2.92
+  sheet: crop full frame, display gain x1.9
+light_05:  frame  dL(ON,OFF)  bias  edge ON/OFF
+    light_05_still        6.21  -0.61   2.06
+    light_05_m0           4.80  -0.04   1.12
+    light_05_m1           5.02  -0.09   1.12
+    light_05_m2           3.47  -0.04   1.08
+    light_05_m3           4.17  -0.08   1.12
+    light_05_m4           3.31  -0.10   1.12
+    light_05_m5           4.35  -0.09   1.11
+    light_05_m6           3.28  -0.13   1.11
+    light_05_m7           3.29  -0.10   1.13
+  sheet: crop full frame, display gain x2.3
+light_09:  frame  dL(ON,OFF)  bias  edge ON/OFF
+    light_09_still        6.01  -0.68   2.21
+    light_09_m0           6.59  -0.19   1.08
+    light_09_m1           4.19  -0.17   1.12
+    light_09_m2           4.19  -0.13   1.12
+    light_09_m3           4.66  -0.05   1.11
+    light_09_m4           3.56  -0.09   1.13
+    light_09_m5           1.70  -0.06   1.13
+    light_09_m6           2.78  -0.08   1.11
+    light_09_m7           2.57  -0.03   1.13
+  sheet: crop full frame, display gain x3.0
+light_20:  frame  dL(ON,OFF)  bias  edge ON/OFF
+    light_20_still        4.59  -0.77   2.15
+    light_20_m0           7.56  -0.35   1.08
+    light_20_m1           7.62  -0.22   1.10
+    light_20_m2           4.68  -0.13   1.10
+    light_20_m3           4.97  -0.12   1.10
+    light_20_m4           3.42  -0.14   1.12
+    light_20_m5           1.65  +0.00   1.13
+    light_20_m6           1.16  +0.01   1.12
+    light_20_m7           1.43  -0.00   1.11
+  sheet: crop full frame, display gain x8.0
+
+sheets: Screenshots/Engine03/compare/risk_fsr3

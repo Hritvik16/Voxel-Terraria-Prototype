@@ -19,6 +19,7 @@ using System.Collections.Generic;
 using System.IO;
 using Unity.Mathematics;
 using UnityEngine;
+using VoxelEngine.Mirror;
 using VoxelEngine.Rendering;
 using VoxelEngine.WorldGen;
 
@@ -201,6 +202,8 @@ public partial class PlaygroundCapture
         if (RaymarchFeature.Taa) L($"TAA ON{(RaymarchFeature.TaaChecker ? " + CHECKERBOARD" : "")} (sharpen {RaymarchFeature.TaaSharpenAmount:F2}); every shot is taken after >= 90 still frames");
         L($"seed {spec.seed}: world {spec.worldSizeVoxels / 10000f:F0} km, sea at Y {spec.seaLevelY}, peak site {map.PeakPosition}, " +
           $"max top {far.MaxHeightVoxels} (engine voxels), ring initial fill {far.InitialFillMs:F0} ms");
+        // Engine plan step 1: the map's identity, for WorldMapBurstTests (Editor == player).
+        L($"map v{spec.mapVersion} Height FNV {map.HeightHash():X16}  cell(613,259) {map.Height[259 * spec.mapCells + 613]:F5}");
         float c = spec.worldSizeVoxels * 0.5f;
         float2 pk = map.PeakPosition;
         float pkTop = Ground(pk.x, pk.y);
@@ -307,9 +310,41 @@ public partial class PlaygroundCapture
             poses.Add(("coast_yaw180", cp.Item2, Quaternion.Euler(0f, 180f, 0f) * cp.Item3));
             L("COAST PROBE (-coastprobe, task 19): 3 poses; pixels in screenshot coords (1920x1080 frame, top-left origin)");
         }
+        // TASK 85: -poses a,b,... keeps only the named poses (launch budget: a few poses per run).
+        string keepPoses = ArgValue("-poses");
+        if (!string.IsNullOrEmpty(keepPoses))
+        {
+            var keep = new HashSet<string>(keepPoses.Split(','));
+            poses.RemoveAll(q => !keep.Contains(q.Item1));
+            L($"POSES (-poses): {poses.Count} kept of {keep.Count} named: {string.Join(", ", poses.ConvertAll(q => q.Item1))}");
+        }
+        // TASK 85b: -farshadeshots = far shading OFF / ON, day and night (PlaygroundCapture.FarShade.cs).
+        if (HasFlag("-farshadeshots"))
+        {
+            yield return FarShadeShots(poses, cam, far, world);
+            File.WriteAllText(Path.Combine(_folder, "farpreview.txt"), _log.ToString());
+            Debug.Log("[farpreview]\n" + _log);
+            yield return null;
+            Application.Quit(0);
+            yield break;
+        }
+        // TASK 80 (engine step 11b): with -shells 1, every pose at noon only,
+        // three shots: A shells OFF (the pre-11b frame: cascade tiers 1-2 +
+        // far band), B shells ON, C ON tinted by the shell that drew each pixel.
+        // Before them, up to -shellwait s (default 75) for the shells to fill.
+        // B's line gives the largest voxel on screen per shell (plan row 11).
+        var shellsS = world ? Phase4Bootstrapper.Shells : null;
+        bool shellShots = shellsS != null;
+        if (shellShots)
+        {
+            L($"SHELLS (-shells 1, task 80): preset {shellsS.Layout.Preset}, shells 1-{shellsS.Layout.ShellCount - 1}, march cap {RaymarchFeature.ShellIterCap}; " +
+              $"A = shells off (cascades), B = shells on, C = on + tint (tier 0 blue, shells 1-7 green/yellow/orange/red/magenta/cyan/white, far band grey)");
+            L($"  px = the largest voxel a ray stopped in, in dispatch pixels ({RaymarchFeature.CustomGateResolution.y} rows; 8.14 High is sized for 720); " +
+              $"per shell: hits, hits over 1 px, max px. Shell 0 = tier 0 (0.1 m; large near the eye by nature).");
+        }
         foreach (var (n, pos, rot) in poses)
         {
-            foreach (float hours in new[] { SunCycle.GoldenHourHours, 12f })
+            foreach (float hours in shellShots ? new[] { 12f } : new[] { SunCycle.GoldenHourHours, 12f })
             {
                 SunCycle.SetHours(hours);
                 cam.transform.position = pos; cam.transform.rotation = rot;
@@ -325,6 +360,26 @@ public partial class PlaygroundCapture
                 yield return Frames(30);
                 double ms = 0; for (int i = 0; i < 60; i++) { yield return null; ms += Time.unscaledDeltaTime * 1000.0; }
                 string tn = hours == 12f ? "noon" : "golden";
+                if (shellShots)
+                {
+                    yield return ShellPoseShots(shellsS, $"{n}_{tn}", n);
+                    if (world && Phase4Bootstrapper.Clipmap != null)
+                    {
+                        // Task 93e: the tier-0 mirror after the jump (the small box's recentre),
+                        // as the golden-hour line below checks it on shells-off runs.
+                        var clip = Phase4Bootstrapper.Clipmap;
+                        // Task 93f: with the GPU body pool, bodies too (through the table, 4 chunks).
+                        var vr = ClipmapValidator.ValidateRegion(clip, Phase4Bootstrapper.Pool, Phase4Bootstrapper.Store, maxChunks: 4096,
+                                                                 validateBrickBodies: clip.GpuPoolEnabled);
+                        int stale = ClipmapValidator.CountStaleSlots(clip, Phase4Bootstrapper.Store, out string ex);
+                        L($"  [mirror] {n,-22} box {clip.WindowDimsChunks}  MIRROR lost {vr.mismatchesInCleanChunks} lag {vr.mismatchesInDirtyChunks} stale {stale}" +
+                          (ex != null ? $" [{ex}]" : "") + $"  checked {vr.chunksChecked}  resident outside the box {vr.chunksOutOfBox}  " +
+                          $"skippedOutOfBox {clip.SkippedOutOfBoxTotal}  recentre-dirtied {clip.RecentreDirtiedTotal}  resident {Phase4Bootstrapper.Store.ResidentCount}  deficit {deficit}" +
+                          (clip.GpuPoolEnabled ? $"  | GPU pool cap {clip.GpuPoolCapacity} used {clip.GpuPoolInUse} peak {clip.GpuPoolPeakUsed} refused {clip.GpuPoolRefusedTotal} " +
+                                                 $"body mismatches {vr.brickByteMismatches}" : ""));
+                    }
+                    continue;
+                }
                 yield return CaptureTo($"{n}_{tn}");
                 if (coastProbe)
                 {
@@ -377,7 +432,7 @@ public partial class PlaygroundCapture
                     var vr = ClipmapValidator.ValidateRegion(Phase4Bootstrapper.Clipmap, Phase4Bootstrapper.Pool, Phase4Bootstrapper.Store, maxChunks: 4096, validateBrickBodies: false);
                     int stale = ClipmapValidator.CountStaleSlots(Phase4Bootstrapper.Clipmap, Phase4Bootstrapper.Store, out string ex);
                     mirrorCheck = $"  MIRROR lost {vr.mismatchesInCleanChunks} lag {vr.mismatchesInDirtyChunks} stale {stale}" + (ex != null ? $" [{ex}]" : "") +
-                                  $"  outOfBox {Phase4Bootstrapper.Clipmap.SkippedOutOfBoxTotal}";
+                                  $"  outOfBox {Phase4Bootstrapper.Clipmap.SkippedOutOfBoxTotal} (resident now {vr.chunksOutOfBox}, recentre-dirtied {Phase4Bootstrapper.Clipmap.RecentreDirtiedTotal})";
                 }
                 L($"{n,-24}{tn,7}  eye {pos}  {ms / 60.0:F2} ms (diagnostic)" + mirrorCheck +
                   (world && sm != null ? $"  band {sm.StreamLayer}+-{VoxelEngine.Streaming.StreamManager.V_LOAD_LAYERS}  resident {Phase4Bootstrapper.Store.ResidentCount}  " +
@@ -405,10 +460,71 @@ public partial class PlaygroundCapture
             }
         }
         L($"ring upkeep: {far.StripsApplied} strips, {far.FullRefills} refills, {far.BytesUploaded / 1048576.0:F1} MB uploaded");
+        MemLedgerIfAsked();
         File.WriteAllText(Path.Combine(_folder, "farpreview.txt"), _log.ToString());
         Debug.Log("[farpreview]\n" + _log);
         yield return null;
         Application.Quit(0);
+    }
+
+    /// TASK 80: one pose's shells OFF / ON / tint shots, the px metric and the
+    /// refusals per shell (see FarPreview).
+    private IEnumerator ShellPoseShots(ShellStreamer sh, string tag, string pose)
+    {
+        float wait = ArgFloat("-shellwait", 75f), t0 = Time.realtimeSinceStartup;
+        int missing = 0;
+        // Task 85: when each shell completed (nothing missing or in flight, or FULL); -1 = not in the wait.
+        var doneAt = new float[sh.Layout.ShellCount];
+        for (int k = 0; k < doneAt.Length; k++) doneAt[k] = -1f;
+        while (Time.realtimeSinceStartup - t0 < wait)
+        {
+            missing = 0;
+            for (int k = sh.FirstShell; k <= sh.LastShell; k++)
+            {
+                if (!sh.ShellFull(k)) missing += sh.Missing(k);
+                if (doneAt[k] < 0f && (sh.ShellFull(k) || (sh.Missing(k) == 0 && sh.InFlightIn(k) == 0)))
+                    doneAt[k] = Time.realtimeSinceStartup - t0;
+            }
+            if (missing == 0 && sh.InFlight == 0 && sh.Pending == 0) break;
+            yield return null;
+        }
+        float waited = Time.realtimeSinceStartup - t0;
+        RaymarchFeature.DrawShells = false; RaymarchFeature.ShellTint = false;
+        yield return Frames(12);
+        yield return CaptureTo($"{tag}_A_off");
+        RaymarchFeature.DrawShells = true;
+        yield return Frames(12);
+        RaymarchFeature.CollectShadowStats = true;
+        RaymarchFeature.ResetShadowStats();
+        yield return Frames(1);
+        uint[] s = RaymarchFeature.ReadShadowStats();
+        RaymarchFeature.CollectShadowStats = false;
+        yield return CaptureTo($"{tag}_B_on");
+        RaymarchFeature.ShellTint = true;
+        yield return Frames(6);
+        yield return CaptureTo($"{tag}_C_tint");
+        RaymarchFeature.ShellTint = false;
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"  [shells] {pose,-22} waited {waited:F0} s (missing {missing}, in flight {sh.InFlight})  px:");
+        for (int k = 0; k < sh.Layout.ShellCount && 11 + 4 * k < s.Length; k++)
+        {
+            uint hits = s[8 + 4 * k];
+            if (hits == 0) { sb.Append($"  s{k} -"); continue; }
+            sb.Append($"  s{k} {hits}/{s[9 + 4 * k]}>1/max {s[10 + 4 * k] / 1000f:F2}");
+            if (k > 0 && s[11 + 4 * k] > 0) sb.Append($" (mid-cell {s[11 + 4 * k]})");
+        }
+        L(sb.ToString());
+        var rb = new System.Text.StringBuilder("  [shells] refusals/missing/full:");
+        for (int k = sh.FirstShell; k <= sh.LastShell; k++)
+        {
+            var st = sh.Store(k);
+            rb.Append($"  s{k} {st.Refusals}/{sh.Missing(k)}{(sh.ShellFull(k) ? "/FULL" : "")} ({st.ChunksStored} stored)");
+        }
+        L(rb.ToString());
+        var db = new System.Text.StringBuilder("  [shells] complete at (s; - = not within the wait):");
+        for (int k = sh.FirstShell; k <= sh.LastShell; k++)
+            db.Append(doneAt[k] < 0f ? $"  s{k} -" : $"  s{k} {doneAt[k]:F0}{(sh.ShellFull(k) ? "/FULL" : "")}");
+        L(db.ToString());
     }
 
     /// TASK 19 probe: one pixel (screenshot coords, top-left origin, scaled
@@ -502,7 +618,7 @@ public partial class PlaygroundCapture
     /// The three EYE-LEVEL poses (tg2 voxels: eye, look-at), shared by
     /// -farpreview and -nearshimmer: dry sites at 25 / 45 / 65% of the island
     /// radius, 1.7 m above the ground, looking at the peak.
-    private static List<(string n, float3 eye, float3 at)> Tg2EyeLevelPoses(TerrainGen.WorldMap map)
+    internal static List<(string n, float3 eye, float3 at)> Tg2EyeLevelPoses(TerrainGen.WorldMap map)
     {
         var spec = map.Spec;
         float c = spec.worldSizeVoxels * 0.5f;
@@ -526,7 +642,7 @@ public partial class PlaygroundCapture
 
     /// Top-face Y (tg2 absolute voxels) of the sizeClass 2 column, or sea level.
     /// Not an iterator, so it may hold the map's pointer view.
-    private static float TgGround(TerrainGen.WorldMap map, float gx, float gz)
+    internal static float TgGround(TerrainGen.WorldMap map, float gx, float gz)
     {
         var spec = map.Spec;
         var view = map.View;

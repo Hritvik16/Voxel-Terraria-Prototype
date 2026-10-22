@@ -1,0 +1,40 @@
+SIZECLASS 2 WORLD (-world tg2: voxel band streamed in Y + the far band) -- 2026-10-12_040348
+seed 42: world 8 km, sea at Y 5120, peak site float2(39000f, 37000f), max top 11000 (engine voxels), ring initial fill 2660 ms
+map v4 Height FNV 639552DD962C4B28  cell(613,259) 1068.80900
+volcano_from_2km, caldera_above: this world drew no volcano (map v4 feature pool) -- skipped
+cliff feet found: 3  (band placement: terrain-aware)
+SHELLS (-shells 1, task 80): preset High, shells 1-7, march cap 384; A = shells off (cascades), B = shells on, C = on + tint (tier 0 blue, shells 1-7 green/yellow/orange/red/magenta/cyan/white, far band grey)
+  px = the largest voxel a ray stopped in, in dispatch pixels (720 rows; 8.14 High is sized for 720); per shell: hits, hits over 1 px, max px. Shell 0 = tier 0 (0.1 m; large near the eye by nature).
+  [shells] peak_from_2km_ground   waited 67 s (missing 0, in flight 0)  px:  s0 231523/194531>1/max 8.41  s1 2073/0>1/max 0.97 (mid-cell 117)  s2 29707/22992>1/max 1.95 (mid-cell 68)  s3 37505/37505>1/max 2.12  s4 69066/69066>1/max 2.76  s5 42184/42184>1/max 2.89  s6 6303/6303>1/max 2.59  s7 -
+  [shells] refusals/missing/full:  s1 4/1604/FULL (562 stored)  s2 4/1604/FULL (562 stored)  s3 3/1813/FULL (185 stored)  s4 3/788/FULL (196 stored)  s5 4/375/FULL (101 stored)  s6 1/123/FULL (61 stored)  s7 6/0/FULL (13 stored)
+  [shells] summit_view            waited 75 s (missing 974, in flight 5)  px:  s0 129648/0>1/max 0.80  s1 1666/0>1/max 0.97 (mid-cell 10)  s2 68282/63334>1/max 1.81  s3 14544/14544>1/max 1.81  s4 27906/27906>1/max 2.88  s5 69409/64504>1/max 2.10  s6 47978/46082>1/max 2.64  s7 9369/9369>1/max 2.05
+  [shells] refusals/missing/full:  s1 4/909 (580 stored)  s2 5/712/FULL (612 stored)  s3 7/1188/FULL (133 stored)  s4 6/704/FULL (289 stored)  s5 7/388/FULL (98 stored)  s6 3/110/FULL (70 stored)  s7 9/0/FULL (13 stored)
+  [shells] glide_400m             waited 75 s (missing 3016, in flight 5)  px:  s0 -  s1 -  s2 -  s3 -  s4 98466/85763>1/max 1.66  s5 108442/106020>1/max 2.77  s6 65998/65998>1/max 4.33  s7 2909/2909>1/max 2.00
+  [shells] refusals/missing/full:  s1 4/2170 (0 stored)  s2 5/795 (1201 stored)  s3 10/1231/FULL (429 stored)  s4 11/703/FULL (279 stored)  s5 11/309/FULL (101 stored)  s6 8/67/FULL (72 stored)  s7 12/0/FULL (13 stored)
+  [shells] coast_from_sea_30m     waited 75 s (missing 3494, in flight 5)  px:  s0 227606/1438>1/max 1.02  s1 -  s2 120435/110254>1/max 1.94  s3 36317/36317>1/max 1.85  s4 33831/33831>1/max 2.65  s5 19050/16423>1/max 2.47  s6 54513/54513>1/max 3.21  s7 -
+  [shells] refusals/missing/full:  s1 4/2170 (0 stored)  s2 5/1271 (894 stored)  s3 14/1175/FULL (354 stored)  s4 13/369/FULL (226 stored)  s5 12/146/FULL (108 stored)  s6 11/61/FULL (64 stored)  s7 16/2/FULL (13 stored)
+  [shells] oblique_3000m          waited 0 s (missing 0, in flight 0)  px:  s0 -  s1 -  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 4/0 (0 stored)  s2 5/0 (0 stored)  s3 14/0 (0 stored)  s4 13/0 (0 stored)  s5 12/0 (143 stored)  s6 11/116/FULL (64 stored)  s7 16/12/FULL (13 stored)
+  [shells] map_7000m              waited 0 s (missing 0, in flight 0)  px:  s0 -  s1 -  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 4/0 (0 stored)  s2 5/0 (0 stored)  s3 14/0 (0 stored)  s4 13/0 (0 stored)  s5 12/0 (0 stored)  s6 11/0 (0 stored)  s7 16/12/FULL (13 stored)
+  [shells] geyser_basin           waited 75 s (missing 3761, in flight 5)  px:  s0 -  s1 -  s2 -  s3 105687/105455>1/max 1.68  s4 206882/206882>1/max 2.44  s5 51178/51178>1/max 2.83  s6 27231/27231>1/max 2.90  s7 8559/8559>1/max 3.14
+  [shells] refusals/missing/full:  s1 4/2170 (0 stored)  s2 5/1543 (622 stored)  s3 18/1796/FULL (201 stored)  s4 18/759/FULL (223 stored)  s5 17/378/FULL (97 stored)  s6 16/118/FULL (59 stored)  s7 19/0/FULL (13 stored)
+  [shells] rivers_oblique         waited 7 s (missing 0, in flight 0)  px:  s0 -  s1 -  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 4/0 (0 stored)  s2 5/0 (0 stored)  s3 18/0 (0 stored)  s4 18/0 (0 stored)  s5 17/0 (162 stored)  s6 21/54/FULL (69 stored)  s7 24/3/FULL (13 stored)
+  [shells] eye_level_1            waited 72 s (missing 0, in flight 0)  px:  s0 921078/921078>1/max 47.79  s1 -  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 7/1609/FULL (558 stored)  s2 9/1682/FULL (484 stored)  s3 22/1906/FULL (91 stored)  s4 23/763/FULL (219 stored)  s5 19/353/FULL (125 stored)  s6 24/107/FULL (72 stored)  s7 27/0/FULL (13 stored)
+  [shells] eye_level_2            waited 53 s (missing 0, in flight 0)  px:  s0 535797/527945>1/max 11.52  s1 128/0>1/max 0.97 (mid-cell 20)  s2 13829/11730>1/max 1.92  s3 22779/22779>1/max 2.12  s4 79178/75935>1/max 3.07  s5 16364/16364>1/max 4.48  s6 7557/7557>1/max 4.50  s7 -
+  [shells] refusals/missing/full:  s1 10/1673/FULL (494 stored)  s2 14/1615/FULL (550 stored)  s3 24/1841/FULL (158 stored)  s4 27/803/FULL (180 stored)  s5 24/366/FULL (109 stored)  s6 27/106/FULL (73 stored)  s7 30/0/FULL (13 stored)
+  [shells] eye_level_3            waited 72 s (missing 0, in flight 0)  px:  s0 207864/0>1/max 0.87  s1 18797/0>1/max 0.97 (mid-cell 165)  s2 85580/71556>1/max 1.81  s3 10845/10845>1/max 1.81  s4 156365/156365>1/max 3.69 (mid-cell 56)  s5 36610/36610>1/max 3.90  s6 193/193>1/max 3.60  s7 -
+  [shells] refusals/missing/full:  s1 12/1410/FULL (758 stored)  s2 16/1408/FULL (760 stored)  s3 26/1881/FULL (118 stored)  s4 31/793/FULL (190 stored)  s5 28/374/FULL (102 stored)  s6 31/107/FULL (71 stored)  s7 34/0/FULL (12 stored)
+  [shells] ledge_view             waited 42 s (missing 0, in flight 0)  px:  s0 921600/921600>1/max 7.01  s1 -  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 16/1703/FULL (463 stored)  s2 21/1758/FULL (407 stored)  s3 30/1913/FULL (84 stored)  s4 36/802/FULL (180 stored)  s5 30/374/FULL (104 stored)  s6 35/103/FULL (72 stored)  s7 37/0/FULL (13 stored)
+  [shells] cliff_foot_1           waited 44 s (missing 0, in flight 0)  px:  s0 621875/620441>1/max 28.85  s1 12/12>1/max 1.53  s2 -  s3 -  s4 127/127>1/max 1.97  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 18/1670/FULL (498 stored)  s2 24/1673/FULL (494 stored)  s3 33/1860/FULL (138 stored)  s4 40/803/FULL (180 stored)  s5 34/332/FULL (105 stored)  s6 39/85/FULL (72 stored)  s7 40/0/FULL (13 stored)
+  [shells] cliff_foot_2           waited 67 s (missing 0, in flight 0)  px:  s0 596668/596668>1/max 12.97  s1 17691/17691>1/max 2.53  s2 15657/15657>1/max 1.59  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 20/1491/FULL (677 stored)  s2 28/1524/FULL (642 stored)  s3 36/1849/FULL (149 stored)  s4 42/773/FULL (212 stored)  s5 39/291/FULL (109 stored)  s6 43/68/FULL (69 stored)  s7 43/0/FULL (13 stored)
+  [shells] cliff_foot_3           waited 41 s (missing 0, in flight 0)  px:  s0 548273/485224>1/max 14.04  s1 58467/47780>1/max 1.51 (mid-cell 13)  s2 14680/14680>1/max 2.14  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 23/1674/FULL (493 stored)  s2 32/1693/FULL (473 stored)  s3 40/1873/FULL (124 stored)  s4 45/793/FULL (191 stored)  s5 43/330/FULL (107 stored)  s6 48/89/FULL (68 stored)  s7 43/0/FULL (13 stored)
+  [shells] crystal_cluster        waited 38 s (missing 0, in flight 0)  px:  s0 820976/520418>1/max 3.04  s1 10248/0>1/max 0.97 (mid-cell 224)  s2 90066/90066>1/max 1.95 (mid-cell 79)  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 27/1674/FULL (492 stored)  s2 37/1711/FULL (454 stored)  s3 41/1891/FULL (109 stored)  s4 49/790/FULL (193 stored)  s5 47/331/FULL (106 stored)  s6 51/90/FULL (68 stored)  s7 43/0/FULL (13 stored)
+ring upkeep: 15 strips, 75 refills, 325.5 MB uploaded

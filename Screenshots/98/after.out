@@ -1,0 +1,38 @@
+09:25:13 lock is free; waiting for the Mac to be clear of Unity for 45 s
+building the Playground (Logs/play_scene.log, Logs/play_build.log) ...
+build OK
+build: commit 749c04d, built 2026-10-17 09:28:50Z, DIRTY (uncommitted edits were built in)
+world: -world tg2 -mapversion 4 (far band always on in tg2), far shadows on
+keys (Playground.cs RegisterDefaultToys, PlaygroundFlyCamera, PlaygroundHud, Minimap, DevMap):
+  click         capture the mouse (first click only captures)   Esc  release it
+  Tab           walk <-> fly      R back to the start (best easy area; task 93c1)    F go to the fluid arena
+  WASD          move; walk: Space jump; fly: E up, Q down, Left Shift fast (E/Q: Survival keys in walk)
+  walk moves    Space in the air: double jump   Left Shift: dash (0.8 s cooldown bar above the hotbar)
+                in water: WASD swims where you look, Space up / jump out at the surface, Left Ctrl down
+                walk into a wall 0.9 m+ (or ground over 60 deg) and keep W held: climb (W up, A/D sideways,
+                Left Ctrl down, release W or Space to drop; stamina bar, refills on a 0.6 m ledge;
+                sand/snow and ice/glass climb slower); slopes over 30 deg slide you down: Space to scramble
+                after the double jump keep Space HELD: glide (10 m/s forward, 2 m/s down; the mouse steers,
+                S brakes, A/D drift, let go of Space to drop) -- jump off a summit
+  SURVIVAL (default; F6 Game mode or -gamemode creative switches):
+  mouse L / R   dig into the inventory (held) / place a cube of the held block (cyan box)
+  wheel or 1-9  hotbar slot    Q cube size 0.1/0.2/0.4/0.8 m    E inventory (click two slots to swap)
+  CREATIVE: mouse L / R dig / place the held brush (held), wheel or 1-9 pick brush
+  Z / X         dig tool smaller / larger
+  V vent here (pours the held fluid or sand)   0 stop vents   B bomb   G chaos burst   T shoot
+  F1 HUD   F2 help   F3 render preset quality/balanced/performance (leaves the FSR 3 default)
+  F4 TAA on/off, preset path only (also hides/shows the minimap -- both listen to F4)
+  F5 voxel detail radius at speed on/off
+  F6 SETTINGS menu: game mode + graphics (saved; Esc or F6 closes)
+  C far band on/off   I far band view (beauty -> bands -> far step heat)
+  O dev map (whole island + underground slice; Esc/O closes)
+  N golden hour  M noon  L midnight  P pause clock  , / . scrub time
+  J shadow quality 0-3   K hard/soft shadows   U look Brickmap/Phase 7
+  [ / ] light preset   Y lighting view (sun vis -> shadow heat)
+[Phase4Bootstrapper] play start (easy area): area 2 cell 292305 column (37240, 22840) ground 5393 interior True mild True biome 0 -> 3724.1,541.4,2284.1 m
+[FarField] tg2 WORLD (aligned): world map v4 (biome x3.25, 6 biomes, record 6291456 B) built in 3 ms, offset int2(0, 0), sea shift 0
+[Playground] start pose: play start (easy area) eye 3742.8,539.8,2285.2 m = voxel int3(37428, 5398, 22852) material 0 (air), mode Walk; basin int3(37460, 5372, 22884) under fluid: False; moved to dry 
+[Playground] start pose after 5 s: eye 3724.1,541.1,2284.1 m = voxel int3(37240, 5411, 22840) material 0 (air), mode Walk
+[Playground] -playshot: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/PlayShots/play_20261017_093008.png  eye 3724.1,541.1,2284.1 m = voxel int3(37240, 541
+[UpscalerSelect] upscaler fsr3, internal 960x540 (dyn) -> 1920x1080
+[UpscalerSelect] upscaler fsr3, internal 960x540 (dyn) -> 1920x1080

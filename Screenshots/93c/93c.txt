@@ -1,0 +1,28 @@
+task 93c stills + memory (play, ./run-play.sh, FSR 3 dyn, noon, clock paused)
+== off: Logs/overnight/93c-player-off.log
+[Phase4Bootstrapper] play run: LOD shells OFF (PlaySettings.shells / -shells; task 93c)
+[ShellsDemo] arm off (Phase4Bootstrapper.ShellsOn False, workers 3); wait 45 s per pose, ridge cap 240 s
+[ShellsDemo] off_eye_level_2: camera float3(3454.766f, 532.1f, 4932.266f) m looking at float3(3454.766f, 529.1f, 4832.266f) m; shells OFF
+[ShellsDemo] mem STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 387,665 (valve 484,500, 278.3 MB) | GPU bodies = the CPU pool (old layout) | mirror box 32x8x32 | tiers 1-2 allocated yes | process now 2322.5 MB, peak 2512.2 MB of the 3,000 MB cap
+[ShellsDemo] off_glide_400m: camera float3(3900f, 912f, 5960f) m looking at float3(3900f, 986.1f, 3700f) m; shells OFF
+[ShellsDemo] mem STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 387,665 (valve 484,500, 278.3 MB) | GPU bodies = the CPU pool (old layout) | mirror box 32x8x32 | tiers 1-2 allocated yes | process now 2316.9 MB, peak 2512.2 MB of the 3,000 MB cap
+[ShellsDemo] off_peak_from_2km: camera float3(3900f, 658.8f, 5700f) m looking at float3(3900f, 1026.1f, 3700f) m; shells OFF
+[ShellsDemo] mem STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 387,665 (valve 484,500, 278.3 MB) | GPU bodies = the CPU pool (old layout) | mirror box 32x8x32 | tiers 1-2 allocated yes | process now 2331.8 MB, peak 2512.2 MB of the 3,000 MB cap
+[ShellsDemo] off_ridge93a: camera float3(3904.616f, 978.5f, 4083.802f) m looking at float3(4103.8f, 906f, 3968.8f) m; shells OFF
+[ShellsDemo] mem STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 387,665 (valve 484,500, 278.3 MB) | GPU bodies = the CPU pool (old layout) | mirror box 32x8x32 | tiers 1-2 allocated yes | process now 2327.0 MB, peak 2512.2 MB of the 3,000 MB cap
+[ShellsDemo] done
+external footprint samples (10 s): Logs/overnight/93c-fp-off.txt; peak phys 2425 MB, IOAccelerator peak 1233 MB
+== on: Logs/overnight/93c-player-on.log
+[Phase4Bootstrapper] play run: LOD shells ON, 3 workers (PlaySettings.shells / -shells; task 93c)
+[ShellsDemo] arm on (Phase4Bootstrapper.ShellsOn True, workers 3); wait 45 s per pose, ridge cap 240 s
+[ShellsDemo] on_eye_level_2: camera float3(3454.766f, 532.1f, 4932.266f) m looking at float3(3454.766f, 529.1f, 4832.266f) m; missing per shell: 1:0 2:741 3:1908 4:987 5:480 6:182 7:16, in flight/pending busy
+[ShellsDemo] mem STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 387,665 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 232,465 refused 0 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2310.4 MB, peak 2378.0 MB of the 3,000 MB cap
+[ShellsDemo] on_glide_400m: camera float3(3900f, 912f, 5960f) m looking at float3(3900f, 986.1f, 3700f) m; missing per shell: 1:0 2:288 3:1244 4:987 5:450 6:162 7:16, in flight/pending busy
+[ShellsDemo] mem STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 387,665 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 232,465 refused 0 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2320.3 MB, peak 2378.0 MB of the 3,000 MB cap
+[ShellsDemo] on_peak_from_2km: camera float3(3900f, 658.8f, 5700f) m looking at float3(3900f, 1026.1f, 3700f) m; missing per shell: 1:975 2:1449 3:1582 4:987 5:480 6:182 7:16, in flight/pending busy
+[ShellsDemo] mem STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 387,665 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 232,465 refused 0 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2328.1 MB, peak 2378.0 MB of the 3,000 MB cap
+[ShellsDemo] ridge: shells 1-4 FILLED after 179 s
+[ShellsDemo] on_ridge93a: camera float3(3904.616f, 978.5f, 4083.802f) m looking at float3(4103.8f, 906f, 3968.8f) m; missing per shell: 1:0 2:0 3:0 4:0 5:190 6:182 7:16, in flight/pending busy
+[ShellsDemo] mem STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 387,665 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 232,465 refused 0 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2336.0 MB, peak 2378.0 MB of the 3,000 MB cap
+[ShellsDemo] done
+external footprint samples (10 s): Logs/overnight/93c-fp-on.txt; peak phys 2321 MB, IOAccelerator peak 1215 MB

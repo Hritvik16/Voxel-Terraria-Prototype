@@ -8,6 +8,7 @@
 # voxel`). Runs through an interactive zsh so the owner's `claude` wrapper
 # (claude-auto-retry) applies. The OLD session should then be closed: two live
 # sessions both draw on the plan's usage.
+# MODEL=sonnet|opus tools/new-session.sh -- start it on that model (owner, 2026-10-22: supervisor on Sonnet).
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1
 command -v tmux >/dev/null || { echo "tmux not installed"; exit 1; }
@@ -16,7 +17,7 @@ command -v tmux >/dev/null || { echo "tmux not installed"; exit 1; }
 prompt="$(awk '/^## Ready-to-paste prompt/{f=1; next} /^## /{f=0} f && /^>/{sub(/^> ?/, ""); print}' SESSION_HANDOFF.md | tr '\n' ' ' | sed 's/  */ /g; s/ $//')"
 [ -n "$prompt" ] || { echo "SESSION_HANDOFF.md has no '## Ready-to-paste prompt' block"; exit 1; }
 
-cmd="cd $(printf '%q' "$PWD") && claude $(printf '%q' "$prompt")"
+cmd="umask 022 && cd $(printf '%q' "$PWD") && claude ${MODEL:+--model $(printf '%q' "$MODEL")} $(printf '%q' "$prompt")"
 target="$(tmux list-sessions -F '#{session_attached} #{session_name}' 2>/dev/null | awk '$1 > 0 {print $2; exit}')"
 if [ -n "$target" ]; then
   # "$target:" (trailing colon) = that SESSION, next free window; a bare "0"

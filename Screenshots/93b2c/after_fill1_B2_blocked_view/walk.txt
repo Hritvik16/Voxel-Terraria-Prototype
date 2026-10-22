@@ -1,0 +1,95 @@
+run 20261016_144009
+caffeinate pid 98163 (-dimsu -w 97944)
+power start: 14:40:55 source=AC Power charge=93%; charging
+player pid 98287
+peak phys_footprint: 2701 MB   (owner cap 3 GB; samples in Logs/tg2world_20261016_144009_mem.txt; breakdown at peak in Logs/tg2world_20261016_144009_mem_peak_breakdown.txt)
+STAGE K/L -- SUSTAINED-DURATION PROBE -- tg2walk_20261016_144009 -- 2026-10-16_144142
+device Apple M1  1920x1080  FULLSCREEN  RELEASE
+gate as-shipped   shadow rung 0   HUD ON   fluid LIVE   motion walk (150 m at 5 m/s)   shadowClamp inherit 290 m   travelLOD -1   ambient 0.06
+clock PINNED at 17:35  sun 6.0 deg (golden hour)
+upscale RenderPreset Quality (960 px wide internal, temporal shadows ON)
+lava light share 8 of 32 slots   look grade 1 (amount 0.00 at this hour)   maxQueuedFrames 3
+shadow roof skip OFF   look 1   emissive bleed 1   torch shadow rays 4
+FAR BAND ON  far shadows ON  haze 4000 m  step caps 384/192  initial fill 2671 ms   orbit height +0 m  pitch 0 deg
+DURATION 3 min CONTINUOUS -- no cooldown, no pause. This is the
+point: every other probe in this project reports the first 30 s of a cold machine.
+
+00_start_pose.png — walk: eye (4017.20, 887.30, 4018.80) fwd (0.67, -0.31, 0.67)
+    t(min)   meanMs     FPS  >33/1000  vs first  note
+  [shells] start pose t+10 s: held  s1 1133/2170  s2 118/2001  s3 0/1663  s4 0/987  s5 0/489  s6 0/182  s7 0/16
+  [shells] start pose t+20 s: held  s1 1595/2170  s2 432/2001  s3 0/1663  s4 0/987  s5 0/489  s6 0/182  s7 0/16
+  [shells] start pose t+30 s: held  s1 2035/2170  s2 715/2001  s3 0/1663  s4 0/987  s5 0/489  s6 0/182  s7 0/16
+  [shells] start pose t+40 s: held  s1 2131/2170  s2 995/2001  s3 81/1663  s4 0/987  s5 0/489  s6 0/182  s7 0/16
+  [shells] start pose t+50 s: held  s1 2161/2170  s2 1176/2001  s3 205/1663  s4 0/987  s5 0/489  s6 0/182  s7 0/16
+  [shells] start pose t+60 s: held  s1 2170/2170  s2 1394/2001  s3 280/1663  s4 0/987  s5 0/489  s6 0/182  s7 0/16
+  [shells] start pose t+70 s: held  s1 2170/2170  s2 1509/2001  s3 381/1663  s4 0/987  s5 0/489  s6 0/182  s7 0/16
+  [shells] start pose t+80 s: held  s1 2170/2170  s2 1754/2001  s3 442/1663  s4 0/987  s5 0/489  s6 0/182  s7 0/16
+  [shells] start pose t+90 s: held  s1 2170/2170  s2 1885/2001  s3 548/1663  s4 0/987  s5 0/489  s6 0/182  s7 0/16
+  [shells] start pose t+100 s: held  s1 2170/2171  s2 1955/2001  s3 636/1663  s4 0/987  s5 0/489  s6 0/182  s7 0/16
+  [shells] start pose t+110 s: held  s1 2170/2173  s2 1979/2001  s3 719/1663  s4 25/987  s5 0/489  s6 0/182  s7 0/16
+  [shells] start-pose wait 120 s (cap 120 s); complete at (s; - = not within the wait):  s1 52  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] at the walk's start (t+136 s after launch): stored/missing/in flight:  s1 2170/0/3  s2 1990/11/0  s3 790/870/3  s4 59/926/2  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 5009, missing 2494, pending 0; requested 5115, generated 5107 (74 ms each on a worker), dropped stale 5, over-budget frames 24 (of 11327)
+  [shells] counters at the walk's start:
+    shell: req gen [air/uni/mixed, dense bricks] ms/chunk column+voxel+rest, column reused, follow-ups | stored refused dropArr abort | evict box/hole/alias/noroom, mean age s | held, pool bricks free/cap, pages free/cap | req by ring 0..7 | stored by ring
+    s1: 2271 2268 [817/1020/431, 102346] 12+8+24, 2012, 2012 | 2263 0 5 0 | 5/4/0/0, 0.6 | 2170, 48054/150016, 1162/1540 | 0,0,194,215,386,605,871,0 | 0,0,188,216,386,607,866,0
+    s2: 1990 1990 [880/754/356, 97540] 9+18+27, 1812, 1812 | 1990 0 0 0 | 0/0/0/0, 0.0 | 1990, 21756/119296, 1036/1392 | 0,0,98,218,386,602,686,0 | 0,0,98,218,386,602,686,0
+    s3: 793 790 [268/356/166, 46637] 23+130+40, 667, 670 | 790 0 0 0 | 0/0/0/0, 0.0 | 790, 55763/102400, 154/320 | 0,0,98,217,262,146,70,0 | 0,0,98,217,262,144,69,0
+    s4: 61 59 [14/24/21, 5553] 60+198+53, 38, 39 | 59 0 0 0 | 0/0/0/0, 0.0 | 59, 96847/102400, 299/320 | 0,0,23,31,7,0,0,0 | 0,0,23,30,6,0,0,0
+    s5: 0 0 [0/0/0, 0] 0+0+0, 0, 0 | 0 0 0 0 | 0/0/0/0, 0.0 | 0, 102400/102400, 320/320 | 0,0,0,0,0,0,0,0 | 0,0,0,0,0,0,0,0
+    s6: 0 0 [0/0/0, 0] 0+0+0, 0, 0 | 0 0 0 0 | 0/0/0/0, 0.0 | 0, 71680/71680, 224/224 | 0,0,0,0,0,0,0,0 | 0,0,0,0,0,0,0,0
+    s7: 0 0 [0/0/0, 0] 0+0+0, 0, 0 | 0 0 0 0 | 0/0/0/0, 0.0 | 0, 17280/17280, 54/54 | 0,0,0,0,0,0,0,0 | 0,0,0,0,0,0,0,0
+
+       0.5    37.60    26.6     528.8     +0.00
+      [shells] held  s1 1062/2170  s2 1124/2170  s3 773/1832  s4 45/987  s5 0/480  s6 0/182  s7 0/16
+       1.0    27.24    36.7     233.2    -10.36
+      [shells] held  s1 940/2170  s2 757/2170  s3 758/1663  s4 40/987  s5 0/489  s6 0/182  s7 0/16
+       1.5    39.60    25.3     602.9     +2.00
+      [shells] held  s1 1082/2170  s2 562/2001  s3 705/1663  s4 40/987  s5 0/489  s6 0/182  s7 0/16
+       2.0    40.84    24.5     718.4     +3.23
+      [shells] held  s1 952/2170  s2 266/1663  s3 612/1494  s4 40/987  s5 0/489  s6 0/182  s7 0/16
+       2.5    35.02    28.6     529.1     -2.58
+      [shells] held  s1 971/2170  s2 182/1832  s3 476/1494  s4 40/987  s5 0/489  s6 0/182  s7 0/16
+
+  WHOLE RUN (4973 frames): p50 34.61 ms   p99 85.09 ms   >33 ms 53.83% of frames
+  [shells] at the end: stored/missing/in flight:  s1 766/1396/8  s2 147/2023/0  s3 467/1196/0  s4 40/947/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 1420, missing 6249, pending 0; requested 10223, generated 10215 (90 ms each on a worker), dropped stale 24, over-budget frames 25 (of 16300)
+  [shells] first complete at (s from the walk's start; - = never):  s1 -  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [shells] counters at the end (whole launch):
+    shell: req gen [air/uni/mixed, dense bricks] ms/chunk column+voxel+rest, column reused, follow-ups | stored refused dropArr abort | evict box/hole/alias/noroom, mean age s | held, pool bricks free/cap, pages free/cap | req by ring 0..7 | stored by ring
+    s1: 7311 7303 [3007/2858/1438, 376633] 26+15+44, 6343, 6346 | 7279 0 24 0 | 5757/634/0/0, 61.8 | 766, 111464/150016, 1405/1540 | 0,0,807,922,2275,1560,1747,0 | 0,0,792,981,2250,1542,1714,0
+    s2: 2046 2046 [901/779/366, 99995] 10+19+28, 1861, 1861 | 2046 0 0 0 | 1649/250/0/0, 113.8 | 147, 119159/119296, 1391/1392 | 0,0,123,227,395,610,691,0 | 0,0,122,228,395,610,691,0
+    s3: 800 800 [271/363/166, 46637] 23+135+41, 677, 677 | 800 0 0 0 | 214/119/0/0, 145.2 | 467, 75881/102400, 227/320 | 0,0,98,217,262,147,76,0 | 0,0,98,217,263,145,77,0
+    s4: 66 66 [15/28/23, 6148] 56+235+60, 44, 44 | 66 0 0 0 | 0/26/0/0, 26.8 | 40, 99707/102400, 310/320 | 0,0,27,31,8,0,0,0 | 0,0,27,31,8,0,0,0
+    s5: 0 0 [0/0/0, 0] 0+0+0, 0, 0 | 0 0 0 0 | 0/0/0/0, 0.0 | 0, 102400/102400, 320/320 | 0,0,0,0,0,0,0,0 | 0,0,0,0,0,0,0,0
+    s6: 0 0 [0/0/0, 0] 0+0+0, 0, 0 | 0 0 0 0 | 0/0/0/0, 0.0 | 0, 71680/71680, 224/224 | 0,0,0,0,0,0,0,0 | 0,0,0,0,0,0,0,0
+    s7: 0 0 [0/0/0, 0] 0+0+0, 0, 0 | 0 0 0 0 | 0/0/0/0, 0.0 | 0, 17280/17280, 54/54 | 0,0,0,0,0,0,0,0 | 0,0,0,0,0,0,0,0
+
+99_end_tint.png — walk: shell tint at the walk's end; held  s1 766/2170  s2 147/2170  s3 467/1663  s4 40/987  s5 0/489  s6 0/182  s7 0/16
+99_end_pose.png — walk: eye (4161.19, 849.70, 3976.77)
+
+  SHADOW RAYS traced/frame 130,931   steps/frame 3,772,350   steps per ray 28.8
+  FAR RAYS/frame 0   far hits/frame 0   far steps/frame 0   steps per far ray 0.0   ring: 93 strips, 1 refills, 35.9 MB up
+
+  fluid CA ticks/s 6.7   (this is fluid SPEED)
+  fluid tick scheduler (task 91): fixed 4.50 Hz, lava 0.75 Hz; since start: issued 1255, SHORTFALL missed 131 (0.41/s), blocked frames 5435
+  TICK PERIOD (decision 11): 12.89 frames/tick over 1232 ticks at 86.9 FPS   maxQueuedFrames 3
+    issue -> landed   3.97 frames  (readback latency)
+    landed -> drained 7.98 frames  (1 = applied the frame it landed; >1 = 1024-op budget carried it)
+    drained -> issue  1.95 frames  (1 = CanIssue checked before PumpAndApply)
+    ops per tick      7313   budget-limited frames 8673
+    latency histogram (frames:count)  2:4  3:30  4:1198
+  lights at end: 8 active (8 lava aggregates), 0 point lights, 11827 lava voxels in 11 tiles
+  light-buffer uploads/s 0.53   (SetData on change only; each one is a potential GPU sync -- PHASE_7 §A)
+
+  FIRST 30 s window: 37.60 ms = 26.6 FPS   <- what a cooled short arm reports
+  LAST  30 s window: 35.02 ms = 28.6 FPS   <- what sustained play gets
+  WORST 30 s window: 40.84 ms = 24.5 FPS at t+2.0 min
+  DEGRADATION first -> last: -2.58 ms (-6.9%)
+
+  Raw 30 s windows are in sustained.tsv -- the CURVE is the result, not the endpoint.
+shots: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Sustained/2026-10-16_144142_tg2walk_20261016_144009/
+[StreamManager] VERTICAL STREAMING (sizeClass 2): band +-3 layers, lag 1, content top layer 90 (Y 11537)
+[StreamManager] PrimeWindow: 847 chunks in 1761ms via the worker pipeline (2.1ms/chunk wall)
+[FarField] tg2 WORLD (aligned): world map v4 (biome x3.25, 6 biomes, record 6291456 B) built in 4 ms, offset int2(0, 0), sea shift 0
+[Phase4Bootstrapper] Total startup: 6374ms
+ObjectDisposedException: The CancellationTokenSource has been disposed.
+power end: 14:46:56 source=AC Power charge=94%; charging

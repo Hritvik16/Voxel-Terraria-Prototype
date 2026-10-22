@@ -1,0 +1,5 @@
+prefilter: 52 chunks (entrance + cliff sites); voxels opened by the mouth rule 232
+  shell 3: 12 chunks, ms/chunk (Editor, Burst): generator 122, fill no mouths 132, fill 166, fill without the prefilter 184
+  shell 4: 12 chunks, ms/chunk (Editor, Burst): generator 152, fill no mouths 162, fill 198, fill without the prefilter 218
+  shell 5: 11 chunks, ms/chunk (Editor, Burst): generator 133, fill no mouths 141, fill 168, fill without the prefilter 188
+  shell 6: 11 chunks, ms/chunk (Editor, Burst): generator 178, fill no mouths 195, fill 240, fill without the prefilter 254

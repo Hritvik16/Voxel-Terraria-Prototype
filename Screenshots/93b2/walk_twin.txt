@@ -1,0 +1,14 @@
+TASK 93b2 walking twin: shell 1 (High), seed 42 spawn, ~240 chunks held, then 15 s at 5 m/s along (1,0,1),
+30 Updates/s, modelled budget 105 ms/Update (3 workers), column pass 150 ms, voxel pass 15 ms.
+  ON  t    3 s: held 666, missing 1496
+  ON  t    6 s: held 979, missing 1185
+  ON  t    9 s: held 1195, missing 973
+  ON  t   12 s: held 1219, missing 950 FULL
+  ON  t   15 s: held 1211, missing 957 FULL
+  ON : held 240 -> 1211 of a 2170-chunk band (FULL); walk generated 1179, column passes 127, evicted 203
+  OFF t    3 s: held 307, missing 1863
+  OFF t    6 s: held 325, missing 1844
+  OFF t    9 s: held 355, missing 1814
+  OFF t   12 s: held 414, missing 1756
+  OFF t   15 s: held 458, missing 1711
+  OFF: held 240 -> 458 of a 2170-chunk band; walk generated 302, column passes 295, evicted 84

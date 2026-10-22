@@ -30,7 +30,30 @@
 //   - The CPU remains the only terrain writer. This is a read-only view of the
 //     generator; nothing here touches ChunkStore.
 //
-// NOT IN THIS PROTOTYPE (§4.2 production form): edits, persistence, the
+// EDITS (task 82, engine step 13b; Amendment 8.14 row 9, the plan's E5): the
+// save's D.4 edit ops (EditOpLog) are drawn too. Every fill job (initial fill,
+// strip, full refill) applies the ops that reach its region to each texel's
+// column, in seq order (ApplyOp below), so a texel is ALWAYS "generator + ops".
+// An op recorded later PATCHES the texels it touches: a fill job over the op's
+// footprint (clipped to the ring) goes up through the same one-strip staging
+// buffer and FarScatter dispatch the strips use; a strip or refill computed
+// before the op and uploaded after it gets a patch queued behind it. Jobs
+// write only the result arrays they own; the main thread uploads them (the
+// CPU stays the only writer of what the GPU holds).
+//   What 2.5D CAN show: a crater (the top drops to the op's lowest carved
+//   voxel, coloured with the generator's material there), a mound or a fill
+//   that sits on the ground (the top rises to the op's highest voxel), a
+//   carve under water (the water stays at its surface and gets deeper), a
+//   mound that rises out of the water (dry land).
+//   What it CANNOT: an overhang, a tunnel or a cave (a carve that does not
+//   reach the column's top changes nothing), a floating blob (a fill that does
+//   not touch the top), water draining into a dry crater; and a column under
+//   water deeper than its depth field holds (12.7 m) or under lava is left as
+//   it is (its ground is not known).
+// The texel is sampled at its CENTRE column, so a texel shows the op only if
+// the op covers that column -- an op narrower than the texel may not show.
+//
+// NOT IN THIS PROTOTYPE (§4.2 production form): persistence of its own, the
 // band-limited field, a CPU march oracle.
 using System;
 using System.Collections.Generic;
@@ -65,6 +88,12 @@ namespace VoxelEngine.Rendering
         public const int STRIP_MAX = 128;
 
         public const uint FLAG_WATER = 1u;
+
+        /// Task 75: a WATER texel also carries its depth -- water voxels above the
+        /// ground, clamped to 127 (12.7 m) -- in bits 25-31, so the shader can make
+        /// far water as see-through as near water without a march. Read only when
+        /// see-through liquids are on; the spare flag bits were zero before.
+        public static uint DepthBits(int depthVoxels) => (uint)math.clamp(depthVoxels, 0, 127) << 25;
 
         // ---- the engine-facing switch ----
         public static FarField Active { get; private set; }
@@ -171,6 +200,12 @@ namespace VoxelEngine.Rendering
         private readonly int2[] _origin = new int2[LEVELS];
         private NativeArray<float> _tgH, _tgR, _tgW;
         private NativeArray<byte> _tgCls;   // map water class: ShapeField's lake rims (v4)
+        private NativeArray<ushort> _tgFlow; // v4 river flow bits (task 76; length 1 = none)
+        /// Task 76 (R2/R5): the map's river flow bits on the GPU, two cells per
+        /// uint (Raymarch.compute RiverFlow; 2 MB at 1024^2 cells). Null = none.
+        public GraphicsBuffer RiverFlow { get; private set; }
+        /// xy: gen voxel = engine voxel + xy; z: voxels per map cell; w: cells.
+        public Vector4 RiverMapParams { get; private set; }
         private NativeArray<byte> _genToEngine;
         private TerrainGen.Offsets _tgO;
         private ColumnSampler.State _st;
@@ -182,6 +217,8 @@ namespace VoxelEngine.Rendering
             public JobHandle handle;
             public NativeArray<uint> result;
             public NativeArray<int> maxH;
+            public NativeArray<VoxelEngine.Streaming.EditOp> ops;   // the ops the job applies (owned by the job)
+            public int opsUsed;                                     // the log's count when it was scheduled
             public int2 newOrigin;       // origin to adopt when applied
             public int x0, z0, w, h;     // region (texel coords) for a strip
             public double startedAt;
@@ -189,11 +226,46 @@ namespace VoxelEngine.Rendering
         private readonly Pending[] _pending = new Pending[LEVELS];
         private readonly Queue<int> _readyStrips = new Queue<int>();
 
+        // ---- edit ops (task 82, header EDITS) ----
+        private VoxelEngine.Streaming.EditOpLog _ops;
+        private int _opsSeen;
+        /// One op patch: the texels of an op's footprint at one level, recomputed.
+        private struct Patch
+        {
+            public int level, x0, z0, w, h;
+            public JobHandle handle;
+            public NativeArray<uint> result;
+            public NativeArray<VoxelEngine.Streaming.EditOp> ops;
+        }
+        private readonly List<Patch> _patches = new List<Patch>();   // FIFO: issued in the order scheduled
+        private bool _patchTurn;
+        public int PatchesPending => _patches.Count;
+        public long PatchesApplied { get; private set; }
+        public long PatchTexels { get; private set; }
+
+        /// The save's edit-op log (task 82). The constructor's initial fill already
+        /// draws the ops it holds; set later, every op in it is patched in.
+        public VoxelEngine.Streaming.EditOpLog Ops
+        {
+            get => _ops;
+            set { _ops = value; _opsSeen = 0; }
+        }
+
+        /// Test hook (EditMode cannot read GPU buffers back): a CPU copy of every
+        /// texel write (ApplyFull, and each scatter as FarScatter does it). Set
+        /// before construction; Shadow is level-major ring slots.
+        public static bool ShadowTexels;
+        public uint[] Shadow;
+
         /// sharedTg2Map: a sizeClass 2 world's map, already built by the chunk
         /// source (TerrainGenChunkSource.Map) -- borrowed, not owned, so the
         /// ~25 s build happens once. Null: build (and own) one as before.
-        public FarField(WorldMetaData meta, Vector3 cameraMetres, TerrainGen.WorldMap sharedTg2Map = null)
+        public FarField(WorldMetaData meta, Vector3 cameraMetres, TerrainGen.WorldMap sharedTg2Map = null,
+                        VoxelEngine.Streaming.EditOpLog ops = null)
         {
+            _ops = ops;
+            _opsSeen = ops != null ? ops.Count : 0;   // the initial fill below applies them
+            if (ShadowTexels) Shadow = new uint[LEVELS * LEVEL_TEXELS];
             _st = ColumnSampler.CreateState(meta);
             Tg2World = meta.sizeClass == VoxelEngine.WorldGen.TerrainGenChunkSource.SIZE_CLASS;
             if (Tg2Requested() || Tg2World)
@@ -203,6 +275,8 @@ namespace VoxelEngine.Rendering
                 // A world's map carries its spec (with the chunk source's brick
                 // geology), so the dev map's slice reads what the chunks hold.
                 Tg2Spec = sharedTg2Map != null ? sharedTg2Map.Spec : TerrainGen.TerrainSpec.SizeClass2(meta.seed, VoxelEngine.WorldGen.TerrainGenChunkSource.MapVersionArg());
+                int ccArg = VoxelEngine.WorldGen.TerrainGenChunkSource.CoarseColumnArg();   // task 86
+                if (ccArg >= 0) { var ts = Tg2Spec; ts.coarseColumnShift = ccArg; Tg2Spec = ts; }
                 _ownsTg2Map = sharedTg2Map == null;
                 Tg2Map = sharedTg2Map ?? TerrainGen.WorldMap.Build(Tg2Spec);
                 _tgO = TerrainGen.Offsets.For(Tg2Spec);
@@ -210,6 +284,15 @@ namespace VoxelEngine.Rendering
                 _tgR = new NativeArray<float>(Tg2Map.Rough, Allocator.Persistent);
                 _tgW = new NativeArray<float>(Tg2Map.Water, Allocator.Persistent);
                 _tgCls = new NativeArray<byte>(Tg2Map.WaterClass, Allocator.Persistent);
+                _tgFlow = new NativeArray<ushort>(Tg2Map.FlowDir ?? new ushort[1], Allocator.Persistent);
+                if (Tg2Map.FlowDir != null)
+                {
+                    var fd = Tg2Map.FlowDir;
+                    var packed = new uint[(fd.Length + 1) >> 1];
+                    for (int i = 0; i < fd.Length; i++) packed[i >> 1] |= (uint)fd[i] << ((i & 1) << 4);
+                    RiverFlow = new GraphicsBuffer(GraphicsBuffer.Target.Structured, packed.Length, sizeof(uint));
+                    RiverFlow.SetData(packed);
+                }
                 // PREVIEW: put today's camera over the new island's centre,
                 // texel-aligned, and map its sea onto today's. A real world is
                 // already in the island's own frame.
@@ -218,6 +301,9 @@ namespace VoxelEngine.Rendering
                     : new int2(((half - (int)(cameraMetres.x * 10f)) >> 7) << 7,
                                ((half - (int)(cameraMetres.z * 10f)) >> 7) << 7);
                 Tg2SeaShift = Tg2World ? 0 : Tg2Spec.seaLevelY - WorldGenConstants.SEA_LEVEL_VOXEL_Y;
+                // Only an aligned tg2 world: a preview's near voxels are another world's.
+                if (Tg2World && RiverFlow != null)
+                    RiverMapParams = new Vector4(Tg2OffsetVoxels.x, Tg2OffsetVoxels.y, Tg2Spec.mapCellVoxels, Tg2Spec.mapCells);
                 _genToEngine = new NativeArray<byte>(256, Allocator.Persistent);
                 for (int i = 0; i < 256; i++) _genToEngine[i] = GenToEngine((byte)i);
                 Debug.Log($"[FarField] tg2 {(Tg2World ? "WORLD (aligned)" : "preview")}: world map v{Tg2Spec.mapVersion} (biome x{Tg2Spec.BiomeScale}, {Tg2Spec.BiomeSet} biomes{(Tg2Map.Record != null ? $", record {Tg2Map.Record.Bytes} B" : "")}) built in {swm.ElapsedMilliseconds} ms, " +
@@ -274,7 +360,10 @@ namespace VoxelEngine.Rendering
         /// [layerLo, layerHi] is -- a half-streamed column would otherwise hand
         /// its missing layers to the voxel march as air. Flat worlds: 0..0,
         /// exactly the old "its y=0 chunk is resident".
-        public void UpdateResidency(ChunkStore store, int3 windowOriginChunks, int3 windowDimsChunks, int layerLo, int layerHi)
+        /// gpuRefused (task 93f): a column with a chunk the GPU body pool refused is
+        /// NOT resident, so the shells draw it (tier 0 holds air there).
+        public void UpdateResidency(ChunkStore store, int3 windowOriginChunks, int3 windowDimsChunks, int layerLo, int layerHi,
+                                    TerrainClipmap gpuRefused = null)
         {
             long r0 = System.Diagnostics.Stopwatch.GetTimestamp();
             int n = windowDimsChunks.x * windowDimsChunks.z;
@@ -286,7 +375,10 @@ namespace VoxelEngine.Rendering
             {
                 bool all = true;
                 for (int cy = layerLo; cy <= layerHi && all; cy++)
-                    all = store.IsResident(new int3(windowOriginChunks.x + rx, cy, windowOriginChunks.z + rz));
+                {
+                    int3 c = new int3(windowOriginChunks.x + rx, cy, windowOriginChunks.z + rz);
+                    all = store.IsResident(c) && (gpuRefused == null || !gpuRefused.IsGpuRefused(c));
+                }
                 if (!all) continue;
                 int i = rz * windowDimsChunks.x + rx;
                 _residentBits[i >> 5] |= 1u << (i & 31);
@@ -308,6 +400,7 @@ namespace VoxelEngine.Rendering
             var fs = new FrameStats();
             long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
             double applyTicks = 0;
+            QueueOpPatches();
             // 1. Harvest finished jobs.
             for (int L = 0; L < LEVELS; L++)
             {
@@ -329,20 +422,30 @@ namespace VoxelEngine.Rendering
             // 2. One strip per frame reaches the GPU (bounded upload).
             // The staging buffer holds ONE strip: never overwrite it before the
             // render pass has consumed the previous scatter.
-            if (_readyStrips.Count > 0 && PendingScatters.Count == 0)
+            // Op patches (task 82) take turns with strips for the staging buffer.
+            bool patchReady = _patches.Count > 0 && _patches[0].handle.IsCompleted;
+            if (PendingScatters.Count == 0 && patchReady && (_readyStrips.Count == 0 || _patchTurn))
+            {
+                IssuePatch();
+                _patchTurn = false;
+            }
+            else if (_readyStrips.Count > 0 && PendingScatters.Count == 0)
             {
                 int L = _readyStrips.Dequeue();
                 ref Pending p = ref _pending[L];
                 Staging.SetData(p.result, 0, 0, p.w * p.h);
                 BytesUploaded += (long)p.w * p.h * 4;
                 PendingScatters.Add(new Scatter { level = L, x0 = p.x0, z0 = p.z0, w = p.w, h = p.h });
+                ShadowScatter(L, p.x0, p.z0, p.w, p.h, p.result);
                 PendingMipMask |= 1 << L;
                 _origin[L] = p.newOrigin;
                 MaxHeightVoxels = math.max(MaxHeightVoxels, p.maxH[0]);
                 StripsApplied++;
                 fs.strips++;
-                p.result.Dispose(); p.maxH.Dispose();
+                PatchAfter(L, p.x0, p.z0, p.w, p.h, p.opsUsed);
+                p.result.Dispose(); p.maxH.Dispose(); p.ops.Dispose();
                 p.active = false;
+                _patchTurn = true;
             }
             long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
 
@@ -391,7 +494,8 @@ namespace VoxelEngine.Rendering
             p.result = new NativeArray<uint>(w * h, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             p.maxH = new NativeArray<int>(1, Allocator.Persistent);
             p.startedAt = Time.realtimeSinceStartupAsDouble;
-            var h1 = ScheduleFill(TexelVoxels(L), x0, z0, w, false, int2.zero, p.result, w * h, 1024);
+            p.ops = OpsFor(L, x0, z0, w, h, out p.opsUsed);
+            var h1 = ScheduleFill(TexelVoxels(L), x0, z0, w, false, int2.zero, p.result, w * h, 1024, p.ops);
             p.handle = new MaxJob { values = p.result, maxH = p.maxH }.Schedule(h1);
             ColumnsSampled += (long)w * h;
         }
@@ -399,12 +503,13 @@ namespace VoxelEngine.Rendering
         private void ScheduleFull(int L, int2 origin)
         {
             ref Pending p = ref _pending[L];
-            if (p.active) { p.handle.Complete(); p.result.Dispose(); p.maxH.Dispose(); }
+            if (p.active) { p.handle.Complete(); p.result.Dispose(); p.maxH.Dispose(); p.ops.Dispose(); }
             p.active = true; p.full = true; p.newOrigin = origin;
             p.result = new NativeArray<uint>(LEVEL_TEXELS, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
             p.maxH = new NativeArray<int>(1, Allocator.Persistent);
             p.startedAt = Time.realtimeSinceStartupAsDouble;
-            var h1 = ScheduleFill(TexelVoxels(L), origin.x, origin.y, EDGE, true, origin, p.result, LEVEL_TEXELS, 4096);
+            p.ops = OpsFor(L, origin.x, origin.y, EDGE, EDGE, out p.opsUsed);
+            var h1 = ScheduleFill(TexelVoxels(L), origin.x, origin.y, EDGE, true, origin, p.result, LEVEL_TEXELS, 4096, p.ops);
             p.handle = new MaxJob { values = p.result, maxH = p.maxH }.Schedule(h1);
             ColumnsSampled += LEVEL_TEXELS;
         }
@@ -414,30 +519,239 @@ namespace VoxelEngine.Rendering
             ref Pending p = ref _pending[L];
             p.handle.Complete();
             Texels.SetData(p.result, 0, L * LEVEL_TEXELS, LEVEL_TEXELS);
+            if (Shadow != null) NativeArray<uint>.Copy(p.result, 0, Shadow, L * LEVEL_TEXELS, LEVEL_TEXELS);
             BytesUploaded += LEVEL_TEXELS * 4L;
             _origin[L] = p.newOrigin;
             MaxHeightVoxels = math.max(MaxHeightVoxels, p.maxH[0]);
             PendingMipMask |= 1 << L;
             if (Ready) FullRefills++;
-            p.result.Dispose(); p.maxH.Dispose();
+            PatchAfter(L, p.newOrigin.x, p.newOrigin.y, EDGE, EDGE, p.opsUsed);
+            p.result.Dispose(); p.maxH.Dispose(); p.ops.Dispose();
             p.active = false;
         }
 
         private JobHandle ScheduleFill(int texelVoxels, int x0, int z0, int w, bool ringOrder, int2 ringOrigin,
-                                       NativeArray<uint> output, int count, int batch)
+                                       NativeArray<uint> output, int count, int batch,
+                                       NativeArray<VoxelEngine.Streaming.EditOp> ops)
         {
+            int opCount = ops.Length == 1 && ops[0].kind == 0 ? 0 : ops.Length;   // OpsFor's empty marker
             if (UsesTg2)
                 return new FillTg2Job
                 {
-                    h = _tgH, r = _tgR, wat = _tgW, cls = _tgCls, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
+                    h = _tgH, r = _tgR, wat = _tgW, cls = _tgCls, flow = _tgFlow, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
                     seaShift = Tg2SeaShift,
                     texelVoxels = texelVoxels, x0 = x0, z0 = z0, w = w, ringOrder = ringOrder, ringOrigin = ringOrigin, output = output,
+                    ops = ops, opCount = opCount,
                 }.Schedule(count, batch);
             return new FillRegionJob
             {
                 st = _st, surfaceByBiome = _surfaceByBiome, texelVoxels = texelVoxels,
                 x0 = x0, z0 = z0, w = w, ringOrder = ringOrder, ringOrigin = ringOrigin, output = output,
+                ops = ops, opCount = opCount,
             }.Schedule(count, batch);
+        }
+
+        // ------------------------------------------------------------------
+        // Edit ops (task 82, header EDITS). Main thread only.
+        // ------------------------------------------------------------------
+
+        /// Level L texels [tx0, tx1] x [tz0, tz1] whose centre column an op's box reaches.
+        public static void OpTexelRect(in VoxelEngine.Streaming.EditOp op, int L, out int2 t0, out int2 t1)
+        {
+            int sh = 3 + L, half = (8 << L) >> 1, tv = 8 << L;
+            int2 c = op.centreVoxel.xz;
+            t0 = (c - op.size - half + (tv - 1)) >> sh;   // ceil, by shift (floor for negatives too)
+            t1 = (c + op.size - half) >> sh;
+        }
+
+        private static bool Overlaps(int2 t0, int2 t1, int x0, int z0, int w, int h)
+            => t1.x >= x0 && t0.x < x0 + w && t1.y >= z0 && t0.y < z0 + h && t1.x >= t0.x && t1.y >= t0.y;
+
+        /// The log's ops that reach region (x0, z0, w, h) of level L, in seq order,
+        /// in an array the job owns. No op: one entry of kind 0 (never a real kind).
+        private NativeArray<VoxelEngine.Streaming.EditOp> OpsFor(int L, int x0, int z0, int w, int h, out int used)
+        {
+            var snap = _ops?.Snapshot;
+            used = snap?.Count ?? 0;
+            int n = 0;
+            if (snap != null)
+                for (int i = 0; i < snap.Count; i++)
+                {
+                    OpTexelRect(snap.Ops[i], L, out int2 a, out int2 b);
+                    if (Overlaps(a, b, x0, z0, w, h)) n++;
+                }
+            var arr = new NativeArray<VoxelEngine.Streaming.EditOp>(math.max(1, n), Allocator.Persistent);
+            if (n == 0) return arr;   // default(EditOp).kind == 0: the empty marker
+            int j = 0;
+            for (int i = 0; i < snap.Count; i++)
+            {
+                OpTexelRect(snap.Ops[i], L, out int2 a, out int2 b);
+                if (Overlaps(a, b, x0, z0, w, h)) arr[j++] = snap.Ops[i];
+            }
+            return arr;
+        }
+
+        /// The ops recorded since the last Update: patch each one's footprint, every level.
+        private void QueueOpPatches()
+        {
+            if (_ops == null) return;
+            var snap = _ops.Snapshot;
+            if (snap.Count < _opsSeen) _opsSeen = snap.Count;   // the log was cleared
+            for (int i = _opsSeen; i < snap.Count; i++)
+                for (int L = 0; L < LEVELS; L++)
+                {
+                    OpTexelRect(snap.Ops[i], L, out int2 a, out int2 b);
+                    SchedulePatch(L, a, b);
+                }
+            _opsSeen = snap.Count;
+        }
+
+        /// A strip or refill computed with ops 0..opsUsed has just gone up: the
+        /// ops recorded since then get a patch behind it (FIFO, so it lands after).
+        private void PatchAfter(int L, int x0, int z0, int w, int h, int opsUsed)
+        {
+            var snap = _ops?.Snapshot;
+            if (snap == null || opsUsed >= snap.Count) return;
+            for (int i = opsUsed; i < snap.Count; i++)
+            {
+                OpTexelRect(snap.Ops[i], L, out int2 a, out int2 b);
+                a = math.max(a, new int2(x0, z0)); b = math.min(b, new int2(x0 + w - 1, z0 + h - 1));
+                SchedulePatch(L, a, b);
+            }
+        }
+
+        /// Recompute texels [t0, t1] of level L (clipped to the ring as it is now;
+        /// texels that enter it later come with their strip) in bands that fit
+        /// the staging buffer.
+        private void SchedulePatch(int L, int2 t0, int2 t1)
+        {
+            int2 o = _origin[L];
+            t0 = math.max(t0, o); t1 = math.min(t1, o + (EDGE - 1));
+            if (math.any(t1 < t0)) return;
+            int w = t1.x - t0.x + 1, rows = math.max(1, (STRIP_MAX * EDGE) / w);
+            for (int z = t0.y; z <= t1.y; z += rows)
+            {
+                int h = math.min(rows, t1.y - z + 1);
+                var pt = new Patch { level = L, x0 = t0.x, z0 = z, w = w, h = h };
+                pt.result = new NativeArray<uint>(w * h, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+                pt.ops = OpsFor(L, t0.x, z, w, h, out _);
+                pt.handle = ScheduleFill(TexelVoxels(L), t0.x, z, w, false, int2.zero, pt.result, w * h, 256, pt.ops);
+                ColumnsSampled += (long)w * h;
+                _patches.Add(pt);
+            }
+        }
+
+        /// The oldest patch goes up through the staging buffer, clipped to the ring
+        /// as it is now (the origin may have moved since it was scheduled).
+        private void IssuePatch()
+        {
+            var pt = _patches[0];
+            _patches.RemoveAt(0);
+            pt.handle.Complete();
+            int2 o = _origin[pt.level];
+            int2 a = math.max(new int2(pt.x0, pt.z0), o);
+            int2 b = math.min(new int2(pt.x0 + pt.w - 1, pt.z0 + pt.h - 1), o + (EDGE - 1));
+            if (math.all(b >= a))
+            {
+                int w = b.x - a.x + 1, h = b.y - a.y + 1;
+                var sub = new NativeArray<uint>(w * h, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+                int maxH = 0;
+                for (int z = 0; z < h; z++)
+                for (int x = 0; x < w; x++)
+                {
+                    uint v = pt.result[(a.y - pt.z0 + z) * pt.w + (a.x - pt.x0 + x)];
+                    sub[z * w + x] = v;
+                    maxH = math.max(maxH, (int)(v & 0xFFFFu));
+                }
+                Staging.SetData(sub, 0, 0, w * h);
+                BytesUploaded += (long)w * h * 4;
+                PendingScatters.Add(new Scatter { level = pt.level, x0 = a.x, z0 = a.y, w = w, h = h });
+                ShadowScatter(pt.level, a.x, a.y, w, h, sub);
+                PendingMipMask |= 1 << pt.level;
+                MaxHeightVoxels = math.max(MaxHeightVoxels, maxH);
+                PatchesApplied++; PatchTexels += (long)w * h;
+                sub.Dispose();
+            }
+            pt.result.Dispose(); pt.ops.Dispose();
+        }
+
+        /// FarScatter on the CPU, into Shadow (tests).
+        private void ShadowScatter(int L, int x0, int z0, int w, int h, NativeArray<uint> data)
+        {
+            if (Shadow == null) return;
+            for (int i = 0; i < w * h; i++)
+            {
+                int tx = x0 + i % w, tz = z0 + i / w;
+                Shadow[L * LEVEL_TEXELS + ((tz & EDGE_MASK) << 10) + (tx & EDGE_MASK)] = data[i];
+            }
+        }
+
+        /// The vertical span [ylo, yhi] an op writes in engine column (px, pz), or false.
+        /// Exactly EditOpApply.Covers: a sphere's |dy| <= isqrt(s^2 - dx^2 - dz^2).
+        public static bool OpColumnSpan(in VoxelEngine.Streaming.EditOp op, int px, int pz, out int ylo, out int yhi)
+        {
+            int dx = px - op.centreVoxel.x, dz = pz - op.centreVoxel.z, s = op.size, t;
+            ylo = 0; yhi = -1;
+            if (op.kind == VoxelEngine.Streaming.EditOpKind.Box)
+            {
+                if (math.abs(dx) > s || math.abs(dz) > s) return false;
+                t = s;
+            }
+            else if (op.kind == VoxelEngine.Streaming.EditOpKind.Sphere)
+            {
+                long q = (long)s * s - (long)dx * dx - (long)dz * dz;
+                if (q < 0) return false;
+                t = (int)math.sqrt((double)q);
+                while ((long)t * t > q) t--;
+                while ((long)(t + 1) * (t + 1) <= q) t++;
+            }
+            else return false;
+            ylo = op.centreVoxel.y - t; yhi = op.centreVoxel.y + t;
+            return true;
+        }
+
+        /// Does the op carve the top off a dry column (so the new top needs the floor's material)?
+        public static bool CarvesDryTop(uint t, in VoxelEngine.Streaming.EditOp op, int ylo, int yhi)
+        {
+            if (op.material != Materials.Air || ((t >> 24) & FLAG_WATER) != 0) return false;
+            int top = (int)(t & 0xFFFFu) - 1;
+            return ylo <= top && yhi >= top;
+        }
+
+        private static uint PackFill(byte m, int groundTop, int newTop)
+        {
+            uint h = (uint)math.clamp(newTop, 0, 65535);
+            if (m == Materials.Water) return h | ((uint)m << 16) | (FLAG_WATER << 24) | DepthBits(newTop - groundTop);
+            if (m == Materials.Lava) return h | ((uint)m << 16) | (FLAG_WATER << 24);
+            return h | ((uint)m << 16);
+        }
+
+        /// ONE op on ONE packed texel whose column it writes over [ylo, yhi]: the
+        /// 2.5D picture of the edited column (the header's EDITS lists what it can
+        /// and cannot show). `floorMat` is used only when CarvesDryTop.
+        public static uint ApplyOp(uint t, in VoxelEngine.Streaming.EditOp op, int ylo, int yhi, byte floorMat)
+        {
+            int H = (int)(t & 0xFFFFu);                    // first air voxel above the column
+            bool liquid = ((t >> 24) & FLAG_WATER) != 0;
+            bool carve = op.material == Materials.Air;
+            if (!liquid)
+            {
+                if (carve) return ylo <= H - 1 && yhi >= H - 1 ? (uint)math.max(ylo, 0) | ((uint)floorMat << 16) : t;
+                // A fill that covers the top voxel or the first air above it.
+                return ylo <= H && yhi >= H - 1 ? PackFill(op.material, H, math.max(H, yhi + 1)) : t;
+            }
+            byte m = (byte)(t >> 16);
+            if (m == Materials.Lava)   // its ground is not known: only a fill on its surface shows
+                return !carve && ylo <= H && yhi >= H - 1 ? PackFill(op.material, H, math.max(H, yhi + 1)) : t;
+            int d = (int)(t >> 25);
+            if (d <= 0 || d >= 127) return t;              // ground unknown (deeper than 12.7 m)
+            int G = H - d;                                 // first water voxel = the ground's first air
+            if (carve)
+                return ylo <= G - 1 && yhi >= G - 1 ? (t & 0x01FFFFFFu) | DepthBits(H - math.max(ylo, 0)) : t;
+            if (op.material == Materials.Water || op.material == Materials.Lava) return t;
+            if (ylo > G || yhi < G - 1) return t;          // not on the bed
+            int top = math.max(G, yhi + 1);
+            return top >= H ? PackFill(op.material, G, top) : (t & 0x01FFFFFFu) | DepthBits(H - top);
         }
 
         /// GenMat -> today's material ids: the far band's preview and V1's
@@ -512,8 +826,10 @@ namespace VoxelEngine.Rendering
             {
                 ref Pending p = ref _pending[L];
                 if (!p.active) continue;
-                p.handle.Complete(); p.result.Dispose(); p.maxH.Dispose(); p.active = false;
+                p.handle.Complete(); p.result.Dispose(); p.maxH.Dispose(); p.ops.Dispose(); p.active = false;
             }
+            foreach (var pt in _patches) { pt.handle.Complete(); pt.result.Dispose(); pt.ops.Dispose(); }
+            _patches.Clear();
             Texels?.Release(); Mips?.Release(); Staging?.Release(); Resident?.Release(); Resident = null;
             Texels = null; Mips = null; Staging = null;
             _st.Dispose();
@@ -522,6 +838,8 @@ namespace VoxelEngine.Rendering
             if (_tgR.IsCreated) _tgR.Dispose();
             if (_tgW.IsCreated) _tgW.Dispose();
             if (_tgCls.IsCreated) _tgCls.Dispose();
+            if (_tgFlow.IsCreated) _tgFlow.Dispose();
+            RiverFlow?.Release(); RiverFlow = null;
             if (_genToEngine.IsCreated) _genToEngine.Dispose();
             if (_ownsTg2Map) Tg2Map?.Dispose();
             if (Active == this) Active = null;
@@ -535,11 +853,11 @@ namespace VoxelEngine.Rendering
         {
             const int SEA = WorldGenConstants.SEA_LEVEL_VOXEL_Y;
             if (columnHeight < SEA)
-                return (uint)(SEA + 1) | ((uint)Materials.Water << 16) | (FLAG_WATER << 24);
+                return (uint)(SEA + 1) | ((uint)Materials.Water << 16) | (FLAG_WATER << 24) | DepthBits(SEA - columnHeight);
             return (uint)(columnHeight + 1) | ((uint)surfaceByBiome[biome] << 16);
         }
 
-        [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High)]
+        [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]   // sync: EditMode tests compare jobs (task 82)
         private struct FillRegionJob : IJobParallelFor
         {
             [ReadOnly] public ColumnSampler.State st;
@@ -548,6 +866,8 @@ namespace VoxelEngine.Rendering
             public bool ringOrder;       // true: index i IS ring slot i (full level)
             public int2 ringOrigin;
             [WriteOnly] public NativeArray<uint> output;
+            [ReadOnly] public NativeArray<VoxelEngine.Streaming.EditOp> ops;   // task 82
+            public int opCount;
 
             public void Execute(int i)
             {
@@ -562,15 +882,29 @@ namespace VoxelEngine.Rendering
                 int half = texelVoxels >> 1;
                 ColumnSampler.SampleColumn(in st, tx * texelVoxels + half, tz * texelVoxels + half,
                     out int h, out byte b);
-                output[i] = Pack(h, b, surfaceByBiome);
+                uint t = Pack(h, b, surfaceByBiome);
+                int px = tx * texelVoxels + half, pz = tz * texelVoxels + half;
+                int fillLo = int.MaxValue; byte fillMat = 0;
+                for (int j = 0; j < opCount; j++)
+                {
+                    var op = ops[j];
+                    if (!OpColumnSpan(in op, px, pz, out int ylo, out int yhi)) continue;
+                    byte fm = Materials.Stone;   // the legacy band's floor: no material oracle here
+                    if (CarvesDryTop(t, in op, ylo, yhi) && ylo - 1 >= fillLo) fm = fillMat;
+                    uint n = ApplyOp(t, in op, ylo, yhi, fm);
+                    if (op.material != Materials.Air && n != t) { fillLo = ylo; fillMat = op.material; }
+                    t = n;
+                }
+                output[i] = t;
             }
         }
 
-        [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High)]
+        [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]   // sync: EditMode tests compare jobs (task 82)
         private struct FillTg2Job : IJobParallelFor
         {
             [ReadOnly] public NativeArray<float> h, r, wat;
             [ReadOnly] public NativeArray<byte> cls;
+            [ReadOnly] public NativeArray<ushort> flow;
             [ReadOnly] public NativeArray<byte> genToEngine;
             public TerrainGen.TerrainSpec spec;
             public TerrainGen.Offsets o;
@@ -580,6 +914,8 @@ namespace VoxelEngine.Rendering
             public bool ringOrder;
             public int2 ringOrigin;
             [WriteOnly] public NativeArray<uint> output;
+            [ReadOnly] public NativeArray<VoxelEngine.Streaming.EditOp> ops;   // task 82
+            public int opCount;
 
             public unsafe void Execute(int i)
             {
@@ -597,6 +933,7 @@ namespace VoxelEngine.Rendering
                     rough = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(r),
                     water = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(wat),
                     waterClass = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(cls),
+                    flowDir = flow.Length > 1 ? (ushort*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(flow) : null,   // task 76
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 int half = texelVoxels >> 1;
@@ -608,13 +945,44 @@ namespace VoxelEngine.Rendering
                 // per-voxel step, so it is directly comparable.
                 byte gm = TerrainGen.DetailField.TopMaterial(in spec, in c, step, in o, (int)gx, (int)gz);
                 int top = c.height + 1 - seaShift;
+                uint t;
                 if (c.height < spec.seaLevelY)
-                    output[i] = (uint)(spec.seaLevelY + 1 - seaShift) | ((uint)Materials.Water << 16) | (FLAG_WATER << 24);
+                    t = (uint)(spec.seaLevelY + 1 - seaShift) | ((uint)Materials.Water << 16) | (FLAG_WATER << 24) | DepthBits(spec.seaLevelY - c.height);
                 else if (c.water > c.height)   // map v2: a lake or river (or the caldera's lava) over this column
-                    output[i] = (uint)math.clamp(c.water + 1 - seaShift, 0, 65535)
-                              | ((uint)(c.waterKind == 1 ? Materials.Lava : Materials.Water) << 16) | (FLAG_WATER << 24);
+                    t = (uint)math.clamp(c.water + 1 - seaShift, 0, 65535)
+                              | ((uint)(c.waterKind == 1 ? Materials.Lava : Materials.Water) << 16) | (FLAG_WATER << 24)
+                              | (c.waterKind == 1 ? 0u : DepthBits(c.water - c.height));
                 else
-                    output[i] = (uint)math.clamp(top, 0, 65535) | ((uint)genToEngine[gm] << 16);
+                    t = (uint)math.clamp(top, 0, 65535) | ((uint)genToEngine[gm] << 16);
+
+                // Task 82: the save's edit ops, in seq order (header EDITS). A carve's
+                // floor takes the generator's material at its depth in this column
+                // (the band's own column sample), or the material of an earlier fill.
+                int px = tx * texelVoxels + half, pz = tz * texelVoxels + half;
+                int fillLo = int.MaxValue; byte fillMat = 0;
+                bool cdReady = false; var cd = default(TerrainGen.DetailField.ColumnDetail);
+                for (int j = 0; j < opCount; j++)
+                {
+                    var op = ops[j];
+                    if (!OpColumnSpan(in op, px, pz, out int ylo, out int yhi)) continue;
+                    byte fm = 0;
+                    if (CarvesDryTop(t, in op, ylo, yhi))
+                    {
+                        int fy = ylo - 1;
+                        if (fy >= fillLo) fm = fillMat;
+                        else if (fy < 0) fm = Materials.Stone;
+                        else
+                        {
+                            if (!cdReady) { cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, (int)gx, (int)gz); cdReady = true; }
+                            byte g = TerrainGen.DetailField.Material(in spec, in o, in c, in cd, step, (int)gx, fy + seaShift, (int)gz);
+                            fm = TerrainGen.GenMat.IsFluid(g) || g == TerrainGen.GenMat.Air ? Materials.Stone : genToEngine[g];
+                        }
+                    }
+                    uint n = ApplyOp(t, in op, ylo, yhi, fm);
+                    if (op.material != Materials.Air && n != t) { fillLo = ylo; fillMat = op.material; }
+                    t = n;
+                }
+                output[i] = t;
             }
         }
 

@@ -1,0 +1,138 @@
+// Assets/CoreEngine/Tests/SmallWindowTests.cs
+//
+// Task 87 (engine step 14; Amendment 8.14 rows 6 and 11, §H.2, §H.6): with
+// shells on, the 0.1 m window (shell 0) is sized by the quality preset.
+//   Window    per preset: radius 59 / 65 / 82 / 116 m, load radius 5 / 6 / 7 /
+//             10 chunks, GPU mirror box 16^3 (Ultra 32 x 8 x 32), all pow2; the
+//             load square and the vertical band fit the box, the load square
+//             reaches past shell 0's hand-over, and the CPU ring stays 32 x 16 x 32.
+//   Fluid     (Q4 (a)) a chunk holding an awake fluid tile stays resident past
+//             the evict radius while inside the CPU ring ("eviction not
+//             selected"), is evicted once its tile is gone, and is evicted
+//             anyway when the ring leaves it.
+// The far edit beyond the new radius is EditOpTests'
+// StreamManager_FarOp_BeyondTheSmallWindow_ShowsWhenTheChunkLoads.
+using NUnit.Framework;
+using Unity.Mathematics;
+using UnityEngine;
+using VoxelEngine.Memory;
+using VoxelEngine.Mirror;
+using VoxelEngine.Simulation;
+using VoxelEngine.Streaming;
+using VoxelEngine.WorldGen;
+
+public class SmallWindowTests
+{
+    [Test]
+    public void Shell0Window_PerPreset_RadiusLoadRadiusAndMirrorBox_Pow2()
+    {
+        float[] radius = { 59, 65, 82, 116 };
+        int[] load = { 5, 6, 7, 10 };
+        int3[] box = { new int3(16, 16, 16), new int3(16, 16, 16), new int3(16, 16, 16), new int3(32, 8, 32) };
+        var ring = new int3(EngineConfig.WINDOW_CHUNKS_XZ, EngineConfig.WINDOW_CHUNKS_Y, EngineConfig.WINDOW_CHUNKS_XZ);
+        Assert.AreEqual(new int3(32, 16, 32), ring, "the CPU ring stays 32 x 16 x 32 on every preset (8.14 §H.6)");
+        for (int p = 0; p < 4; p++)
+        {
+            var L = ShellLayout.From((QualityPreset)p);
+            int3 d = L.Shell0Directory;
+            Assert.AreEqual(radius[p], L.Shell0RadiusM, 0.5f, $"{L.Preset} radius");
+            Assert.AreEqual(load[p], L.LoadRadiusChunks, $"{L.Preset} load radius");
+            Assert.AreEqual(box[p], d, $"{L.Preset} mirror box");
+            Assert.IsTrue(ShellLayout.IsPow2(d.x) && ShellLayout.IsPow2(d.y) && ShellLayout.IsPow2(d.z), $"{L.Preset} box {d} not pow2");
+            Assert.AreEqual(d, L[0].Ring, $"{L.Preset}: shell 0's ring is the mirror box");
+            int side = 2 * L.LoadRadiusChunks + 1;
+            Assert.LessOrEqual(side, d.x, $"{L.Preset}: the load square must fit the box in x");
+            Assert.LessOrEqual(side, d.z, $"{L.Preset}: the load square must fit the box in z");
+            Assert.GreaterOrEqual(d.y, 2 * StreamManager.V_LOAD_LAYERS + 1, $"{L.Preset}: the band must fit the box");
+            Assert.GreaterOrEqual(L.LoadRadiusChunks * 12.8f, L[0].OuterM,
+                $"{L.Preset}: the load square ({L.LoadRadiusChunks} chunks) must reach shell 0's hand-over ({L[0].OuterM:F0} m)");
+            Assert.GreaterOrEqual(L.Shell0RadiusM, L[0].OuterM + 12f, $"{L.Preset}: radius = hand-over + the 12.8 m margin");
+            Assert.LessOrEqual(L.LoadRadiusChunks, StreamManager.MaxLoadRadiusChunks(ring), $"{L.Preset}: load + evict ring must fit the CPU ring");
+            Assert.LessOrEqual(L.LoadRadiusChunks, EngineConfig.TG2_LOAD_RADIUS_CHUNKS, $"{L.Preset}: never larger than today's");
+        }
+    }
+
+    [Test]
+    public void HoldsTileInChunk_MatchesTheTilesChunk()
+    {
+        var tiles = new FluidTileMap(ChunkFluidMask.TILE_EDGE, new int3(128, 128, 128), 8);
+        var c = new int3(3, 0, -2);
+        Assert.IsFalse(tiles.HoldsTileInChunk(c));
+        int3 t = c * (EngineConfig.CHUNK_EDGE_VOXELS / ChunkFluidMask.TILE_EDGE) + new int3(3, 2, 0);
+        Assert.AreNotEqual(FluidTileMap.NO_TILE, tiles.Acquire(t));
+        Assert.IsTrue(tiles.HoldsTileInChunk(c));
+        Assert.IsFalse(tiles.HoldsTileInChunk(c + new int3(1, 0, 0)));
+        Assert.IsFalse(tiles.HoldsTileInChunk(c + new int3(0, 0, -1)));
+        tiles.Release(t);
+        Assert.IsFalse(tiles.HoldsTileInChunk(c));
+    }
+
+    [Test]
+    public void AwakeFluidChunk_OutsideTheRadius_StaysResident_InsideTheRing()
+    {
+        const int LOAD = 2;
+        var meta = new WorldMetaData { seed = 42, sizeClass = 0 };
+        var pool = new BrickDataPool(400000, rangeAware: true);
+        var alloc = new ChunkHandleAllocator(1024);
+        var store = new ChunkStore(pool, alloc);
+        var mirror = new int3(EngineConfig.WINDOW_CHUNKS_XZ, EngineConfig.MIRROR_CHUNKS_Y, EngineConfig.WINDOW_CHUNKS_XZ);
+        var clip = new TerrainClipmap(mirror, pool.Capacity);
+        var cascades = new LODCascadeManager(mirror, tier => EngineConfig.CascadeTierPoolCap(tier));
+        var tiles = new FluidTileMap(ChunkFluidMask.TILE_EDGE, new int3(128, 128, 128), 16);
+        string deltas = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "small_window_test_deltas");
+        if (System.IO.Directory.Exists(deltas)) System.IO.Directory.Delete(deltas, true);
+        StreamManager sm = null;
+        try
+        {
+            sm = new StreamManager(store, pool, alloc, clip, cascades, meta, deltas, LOAD);
+            sm.KeepResident = tiles.HoldsTileInChunk;
+            Vector3 cam = new Vector3(64f, 20f, 64f);
+            int3 camChunk = new int3((int)(cam.x * 10) >> 7, 0, (int)(cam.z * 10) >> 7);
+            sm.PrimeWindow(cam);
+            Settle(sm, cam);
+            int3 fluidChunk = camChunk + new int3(-LOAD, 0, 0), dryChunk = camChunk + new int3(-LOAD, 0, 1);
+            Assert.IsTrue(store.IsResident(fluidChunk) && store.IsResident(dryChunk), "both test chunks start resident");
+            int3 tile = fluidChunk * (EngineConfig.CHUNK_EDGE_VOXELS / ChunkFluidMask.TILE_EDGE) + new int3(1, 1, 1);
+            Assert.AreNotEqual(FluidTileMap.NO_TILE, tiles.Acquire(tile));
+
+            // 6 chunks east: both are 8 chunks out (evict radius 4), still in the 32-chunk ring.
+            Vector3 east = cam + new Vector3(6 * 12.8f, 0f, 0f);
+            Settle(sm, east);
+            Assert.IsTrue(store.IsInWindow(fluidChunk), "test setup: still inside the CPU ring");
+            Assert.IsTrue(store.IsResident(fluidChunk), "the awake-fluid chunk must stay resident inside the ring");
+            Assert.IsFalse(store.IsResident(dryChunk), "a chunk with no awake fluid is evicted as before");
+            Assert.AreEqual(1, sm.LastKeptResident);
+            Assert.AreEqual(0, sm.LoadDeficit(), "the load square still fills");
+
+            // The fluid sleeps (its tile goes): evicted within one 16-frame recheck, camera holding still.
+            tiles.Release(tile);
+            for (int i = 0; i < 20 && store.IsResident(fluidChunk); i++) { sm.Update(east); sm.WaitForIdle(); }
+            Assert.IsFalse(store.IsResident(fluidChunk), "a chunk whose fluid slept must be evicted without a camera move");
+            Assert.AreEqual(0, sm.LastKeptResident);
+
+            // Pinned again, then the ring leaves it: evicted anyway (beyond the ring waits for step 19).
+            Settle(sm, cam);
+            Assert.IsTrue(store.IsResident(fluidChunk));
+            Assert.AreNotEqual(FluidTileMap.NO_TILE, tiles.Acquire(tile));
+            Vector3 away = cam + new Vector3(2000f, 0f, 1500f);
+            Settle(sm, away);
+            Assert.IsFalse(store.IsInWindow(fluidChunk));
+            Assert.IsFalse(store.IsResident(fluidChunk), "outside the CPU ring a pinned chunk is evicted");
+            Assert.AreEqual(sm.ExpectedResidentChunks, store.ResidentCount, "nothing else stays");
+        }
+        finally
+        {
+            sm?.Dispose();
+            cascades.Dispose(); clip.Dispose(); pool.Dispose();
+            if (System.IO.Directory.Exists(deltas)) System.IO.Directory.Delete(deltas, true);
+        }
+    }
+
+    private static void Settle(StreamManager sm, Vector3 cam)
+    {
+        var clk = System.Diagnostics.Stopwatch.StartNew();
+        do { sm.Update(cam); sm.WaitForIdle(); }
+        while ((sm.LoadDeficit() > 0 || sm.PendingLoads > 0 || sm.InFlightLoads > 0 || sm.EvictionDeferred) && clk.Elapsed.TotalSeconds < 120);
+        for (int i = 0; i < 2; i++) { sm.Update(cam); sm.WaitForIdle(); }
+    }
+}

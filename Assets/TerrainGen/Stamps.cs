@@ -210,7 +210,10 @@ namespace TerrainGen
         /// Fills the column's stamp fields and returns its new top (absolute Y).
         /// `ground` is the column's top before this stamp (absolute Y);
         /// `macroH` the map height (rel. sea) used for the MAP stamps' materials.
-        public static unsafe void Column(in TerrainSpec spec, in MapView map, in Offsets o, float2 p, int texel, ref ColumnSample c)
+        /// `riverHoldY` (map v4, task 76): Rivers.Column's holdY -- the geyser
+        /// basin's ring never flattens a column below it.
+        public static unsafe void Column(in TerrainSpec spec, in MapView map, in Offsets o, float2 p, int texel, ref ColumnSample c,
+                                         int riverHoldY = int.MinValue)
         {
             c.open1Lo = c.open1Hi = c.open2Lo = c.open2Hi = 0;
             int ground = c.height;
@@ -222,6 +225,15 @@ namespace TerrainGen
                 c.stampMat = GenMat.VolcanicRock;
                 c.stampBodyLo = c.height - 600;       // 60 m of volcanic rock under the cone's surface
                 if (caldera) { c.water = spec.seaLevelY + (int)math.floor(lava); c.waterKind = 1; }
+                else if (spec.mapVersion >= 4)
+                {
+                    // Task 76 (R6, BUGS #5): the lava lake reaches every column of the
+                    // inner wall whose ground is below its level, not only the flat
+                    // floor -- the ring between them stood as a wall of lava beside air.
+                    float2 vq = p - VolcanoSite(in spec, in o);
+                    int ly = spec.seaLevelY + (int)math.floor(lava);
+                    if (math.lengthsq(vq) <= CALDERA_R * CALDERA_R && c.height < ly) { c.water = ly; c.waterKind = 1; }
+                }
             }
 
             // ---- world tree (map height; S gives its trunk, canopy, the void below) ----
@@ -261,6 +273,7 @@ namespace TerrainGen
                     // rim (ShapeField.LakeRim), or the lake outside the basin
                     // stands beside the flattened ground and drains into it.
                     if (w < 1f) flat = math.max(flat, ShapeField.LakeRimY(in spec, in map, p.x, p.y, out _));
+                    if (w < 1f) flat = math.max(flat, riverHoldY);   // task 76: and a river's
                     c.height = flat;
                     // The basin owns its water: a map lake or river computed for
                     // the UNflattened ground would stand above the terrace.

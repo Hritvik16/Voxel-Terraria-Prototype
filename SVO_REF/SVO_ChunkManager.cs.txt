@@ -1,0 +1,1659 @@
+using Unity.Collections;
+using Unity.Jobs;   // Stage Y2b: IJobParallelFor.Schedule for the ported CPU generator
+using System.Diagnostics;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Rendering;
+using VoxelEngine;
+using VoxelEngine.Interfaces;
+using System.Runtime.InteropServices;
+
+[ExecuteAlways]
+
+public partial class ChunkManager : MonoBehaviour, IVoxelWorld
+{
+    [Header("Clipmap Architecture")]
+    public int chunkSize = Svo.PoolLayout.SvoEngineConfig.CHUNK_SIZE;
+    public float voxelScale = Svo.PoolLayout.SvoEngineConfig.VOXEL_SCALE;
+    // Was [Range(1, 3)]. That cap was LOAD-BEARING, not a stale clamp: the
+    // node-pool allocator below only ever computed a root index for layers
+    // 0, 1 and 2, with no else, so every chunk in layer >= 3 kept the
+    // initialiser value 8 and aliased onto layer 0's first chunk. Raising the
+    // range alone produced a renderer that drew smeared garbage across the
+    // whole sky, 28% SLOWER, with no error logged -- see Svo/SVO_FLAGS.md
+    // SA-F1. The allocator is now defined for every layer, so the cap can
+    // rise to the 8 that _ClipmapCenters[8] and the [8]-sized per-layer
+    // arrays were always built for.
+    [Range(1, 8)] public int clipmapLayers = Svo.PoolLayout.SvoEngineConfig.CLIPMAP_LAYERS;
+    public int renderDistanceXZ = Svo.PoolLayout.SvoEngineConfig.RENDER_DISTANCE_XZ;
+    public int renderDistanceY = Svo.PoolLayout.SvoEngineConfig.RENDER_DISTANCE_Y;
+
+    // ---- STAGE Y2b: WHICH GENERATOR RUNS -------------------------------
+    public Svo.PoolLayout.SvoEngineConfig.GenMode generationMode =
+        Svo.PoolLayout.SvoEngineConfig.GENERATION_MODE;
+
+    [System.NonSerialized] private VoxelEngine.WorldGen.ColumnSampler.State portState;
+    [System.NonSerialized] private Unity.Collections.NativeArray<byte> portBiomeMats;
+    [System.NonSerialized] private Unity.Collections.NativeArray<VoxelEngine.WorldGen.FeatureAnchor> portCaves;
+    [System.NonSerialized] private bool portStateReady;
+    [System.NonSerialized] private int _portGenFrames;
+
+    // STAGE Y2b: how many chunks the PORTED path may generate per frame.
+    //
+    // The GPU path happily does maxConcurrentJobs (512) because the work is on
+    // the GPU. CPU generation cannot: the main project, which runs this same
+    // generator, budgets MAX_CHUNK_LOADS_PER_FRAME = 16. Generating 512 chunks
+    // of 32,768 voxels per frame on the CPU was never realistic, and the first
+    // run showed it -- streaming never reached quiescence.
+    // MEASURED, not guessed. Session 6: the ported CPU generator costs about
+    // 0.2 ms per chunk (32 chunks in 2-9 ms of job time, uploads 0-1 ms), so
+    // the cost is NOT the constraint -- the dequeue RATE is.
+    //
+    // At 32/frame the ported path never reached quiescence (pendingJobs 8549
+    // and climbing) while the legacy path, dequeuing maxConcurrentJobs = 512
+    // from the same build, quiesced in 8.7 s with pendingJobs = 0. The queue
+    // refills faster than a small budget drains it, so a low cap does not slow
+    // loading down, it prevents loading from ever finishing.
+    //
+    // 256 keeps the dequeue rate close to legacy's while bounding a load-time
+    // frame at roughly 50 ms, which is transient and which the probe's
+    // quiescence gate waits out.
+    public int portedChunksPerFrame = 256;
+
+    void EnsurePortState() {
+        if (portStateReady || generationMode != Svo.PoolLayout.SvoEngineConfig.GenMode.Ported) return;
+        var meta = VoxelEngine.WorldGen.AnchorPlanner.Plan(
+            Svo.PoolLayout.SvoEngineConfig.PORT_WORLD_SEED,
+            Svo.PoolLayout.SvoEngineConfig.PORT_SIZE_CLASS);
+        portState = VoxelEngine.WorldGen.ColumnSampler.CreateState(meta);
+        portBiomeMats = VoxelEngine.WorldGen.VoxelFillNative.BuildBiomeTable(
+            Unity.Collections.Allocator.Persistent);
+        int caveCount = 0;
+        foreach (var a in meta.anchors)
+            if (a.kind == VoxelEngine.WorldGen.FeatureKind.Cave) caveCount++;
+        portCaves = new Unity.Collections.NativeArray<VoxelEngine.WorldGen.FeatureAnchor>(
+            caveCount, Unity.Collections.Allocator.Persistent);
+        int w = 0;
+        foreach (var a in meta.anchors)
+            if (a.kind == VoxelEngine.WorldGen.FeatureKind.Cave) portCaves[w++] = a;
+        portStateReady = true;
+        UnityEngine.Debug.Log($"[GENMODE] SVO ported generator ready: seed={meta.seed} " +
+            $"sizeClass={meta.sizeClass} anchors={meta.anchors.Length} caves={caveCount}");
+    }
+
+    void DisposePortState() {
+        if (portState.heightAnchors.IsCreated || portState.biomeSeeds.IsCreated) portState.Dispose();
+        if (portBiomeMats.IsCreated) portBiomeMats.Dispose();
+        if (portCaves.IsCreated) portCaves.Dispose();
+        portStateReady = false;
+    }
+
+    [Header("Performance")]
+    public int maxConcurrentJobs = 512; // THE FIX: 512 concurrent chunks pushes terminal velocity limits beyond bounds.
+    public float gpuUpdateInterval = 0.05f;
+
+    [Header("Physics & Entities")]
+    public List<Transform> worldLoaders = new List<Transform>();
+    public ComputeShader worldGenShader;
+    public ComputeShader voxelLightingShader;
+
+
+    [Header("World Editor State")]
+    public bool isEditMode = false;
+    public int editMode = 0;
+    public int brushSize = 0;
+    public int brushShape = 0;
+
+    [Header("Debug & Profiling")]
+    [Tooltip("Locks the Z-axis to generate a 2D cross-section of the world for testing subterranean biomes.")]
+    public bool enableAntFarmSlice = false;
+
+    // DATA STRUCTURES
+    public struct SVONode { public uint childIndex; public uint material; }
+    
+    [StructLayout(LayoutKind.Sequential)] // FIX: Force exact byte alignment
+    public struct ChunkData {
+        public Vector4 position;    // Note: position.w already holds chunkMaxY from WorldGen!
+        public uint rootNodeIndex;
+        public int currentLOD;
+        public uint packedState;    // Bit 0: isDense flag. Bits 8-15: chunkMinY (HDDA optimization). Bits 16-31: nodes actually used (WorldGen.compute).
+        public uint densePoolIndex; // Pointer to the chunk's 1D array in _DenseChunkPool
+    }
+    
+    [StructLayout(LayoutKind.Sequential)] // FIX: Force exact byte alignment
+    public struct ChunkJobData {
+        public Vector4 worldPos;
+        public int mapIndex;
+        public int lodStep; 
+        public float layerScale;
+        public uint pad1;          // FIX: Changed to uint to survive numbers > 16.7 Million!
+        public int editStartIndex; 
+        public int editCount;      
+        public int pad2;           
+        public int pad3;           
+    }
+    public struct LayerCoord {
+        public int layer;
+        public Vector3Int coord;
+    }
+
+    // --- DELTA MAP STRUCTURES ---
+    public struct VoxelEdit {
+        public int flatIndex;
+        public uint material;
+    }
+    private ComputeBuffer deltaMapBuffer;
+    private const int MAX_EDITS_PER_DISPATCH = 16384; // Safe cap for a single frame's generation batch
+    
+    // The Master Record of all changes in the world. 
+    // Key: Global Chunk Coordinate (e.g., x:10, y:0, z:-5)
+    // Value: A dictionary mapping the flatLocalIndex to the new material.
+    private Dictionary<Vector3Int, Dictionary<int, uint>> worldDeltaMap = new Dictionary<Vector3Int, Dictionary<int, uint>>();
+    
+    
+
+    private ChunkData[] chunkMapArray;
+    private Vector3Int[] chunkTargetCoordArray;  
+    
+    private List<LayerCoord>[] generationQueues = new List<LayerCoord>[8];
+    private Vector3Int[] scanOffsets;
+
+    // private NativeArray<SVONode> masterNodePool;
+    
+    private const int POOL_SIZE = 671088512; 
+
+    private ComputeBuffer svoPoolBuffer, chunkMapBuffer, jobQueueBuffer;
+    private ComputeBuffer tempDenseBuffer; // NEW: The flat 1D array for bottom-up SVO generation 
+    
+    // --- DENSE POOL VARIABLES (Visual & Logic) ---
+    private ComputeBuffer denseChunkPoolBuffer; // Visuals (Material, Light)
+    private ComputeBuffer denseLogicPoolBuffer; // State (Health, Fluid, Block State)
+    public const int MAX_DENSE_CHUNKS = 400;
+    
+    [HideInInspector] public ComputeBuffer crosshairBuffer;
+    // SA-F7: the crosshair buffer now also carries the per-pixel traversal
+    // dump. Entries [0] and [1] keep their gameplay meaning (hit position,
+    // face normal) and are the first 8 ints; the dump occupies [2] (header)
+    // and [3..98] (24 records of 4 int4). 104 int4 = 416 ints = 1664 bytes,
+    // which is nothing, and it is the buffer that is ALREADY bound and
+    // ALREADY read back -- no new plumbing, exactly as SAF7_DIAGNOSED
+    // specified. Sized from the workload and the derivation is above it, per
+    // the rule session 9 paid for with two mis-sized allocator fixtures.
+    // ---- SPARSE ALLOCATOR STAGE 2: the counting pre-pass ------------------
+    // OFF unless a probe turns it on. When off, CountSVONodes is never
+    // dispatched and no buffer is allocated, so the shipping engine is exactly
+    // what it was -- which matters because every frame time in this package
+    // was measured without it.
+    [HideInInspector] public bool verifyNodeCounts = false;
+    ComputeBuffer nodeCountBuffer;
+    // Running totals of the spec's acceptance test: CountSVONodes against
+    // ConstructSVO's own witness in packedState bits 16-31, over the same job
+    // set. Not a sample -- every job dispatched while the flag is on.
+    [HideInInspector] public long ncAgree = 0, ncDisagree = 0, ncJobs = 0;
+    [HideInInspector] public string ncFirstDisagreement = "";
+
+    // ---- SPARSE ALLOCATOR STAGE 3: deferral + eviction --------------------
+    // OFF unless a probe passes -sparsealloc: every branch is `if
+    // (useSparseAllocator)` against an otherwise untouched dispatch path, so
+    // the flag-off binary is the old binary. Spec: Svo/SVO_SPARSE_ALLOCATOR_
+    // SPEC.md S3 (count with the TOP class so the count is natural; build
+    // with the chosen class so the guard cannot fire; free-before-alloc per
+    // slot at build time so stale renders stay benign).
+    //
+    // WHY FREE-BEFORE-ALLOC AT BUILD (not at reassign): the raytracer keeps
+    // rendering a slot's old chunk until the new chunk's position lands, and
+    // validates by position -- freeing at reassign would let a new chunk
+    // reuse the block while the old image still references it (use-after-free
+    // on screen). Freeing at build keeps the SA-F4 shape impossible and the
+    // stale image valid, exactly like the fixed silos did.
+    [HideInInspector] public bool useSparseAllocator = false;
+    Svo.PoolLayout.SvoSizeClassPool sparsePool;
+    // 256 MB at 8 B/node = 32M nodes, ~12x the measured ~21 MB live. The
+    // occupancy report (per-class, every run) sizes this; see InitSparse.
+    public const long SPARSE_POOL_BYTES = 256L * 1024 * 1024;
+    public const int SPARSE_NODE_BYTES = 8;
+    public const uint SPARSE_TOP_CLASS = 37449;
+    uint[] sparseSlotBase;        // mapIndex -> pool base, 0xFFFFFFFF = none
+    int[] sparseSlotClass;        // mapIndex -> class index, -1 = none
+    Vector3Int[] sparseSlotCoord; // mapIndex -> coord BUILT (stale guard)
+    // Pending ring: dense slots [maxConcurrentJobs, 2*maxConcurrentJobs) in
+    // _TempDenseBuffer survive across the readback latency; phase-B copies
+    // back to a working slot so ConstructSVO is UNCHANGED (its agreement with
+    // CountSVONodes is the acceptance and must not be re-derived).
+    ChunkJobData[] pendJobs;      // phase-A job copies, indexed by pending slot
+    uint[] pendCounts;            // readback results, same index
+    bool[] pendSlotUsed;
+    bool[] pendSlotReady;         // readback arrived, main thread may build
+    int[] pendLayer;              // layer per pending job (Phase-3 + requeue)
+    Vector3Int[] pendCoord;       // coord per pending job (stale guard)
+    int[] pendJobSlot;            // temp dispatch slot -> pending slot (phase A)
+    int[] pendByMap;              // mapIndex -> live pending slot, -1 = none.
+                                  // DEDUP: the same chunk must never have two
+                                  // live pendings (double-build races two
+                                  // parallel threads on chunkMap[mi]: one root
+                                  // wins, the other record leaks or points at
+                                  // a freed-then-reused block -- floaters).
+    int sparsePendingCap;
+    [HideInInspector] public long sparseStalls; // pool-exhaust skips (should stay 0)
+    [HideInInspector] public long sparseTakeFails; // ring-full backpressure hits (drain diagnostic)
+    [HideInInspector] public long sparseDups; // same-coord queue dups absorbed by live pendings
+    // PACED READBACKS (permanent, not diagnostic): at most one outstanding
+    // count readback. Overlapping count+transfer pairs alias on the shared
+    // nodeCountBuffer (DMA reads live memory late): measured 136 divergences
+    // overlapped vs 0 serialized. Costs drain throughput; the honest fix for
+    // rate is a ringed count buffer (per-batch regions + _CountBase), specced
+    // but not yet built.
+    [HideInInspector] public int sparseReadbackInFlight;
+    // DIAGNOSTIC COUNTERS (no behavior): where do dispatched jobs go?
+    [HideInInspector] public long sparseTaken;   // phase-A takes (jobs entering the ring)
+    [HideInInspector] public long sparseReady;   // readbacks landed
+    [HideInInspector] public long sparseBuilt;   // phase-B constructs issued
+    [HideInInspector] public long sparseStale;   // phase-B stale drops
+    [HideInInspector] public long sparseReadErr; // readback error path
+
+    public void InitSparseAllocator()
+    {
+        // Idempotent: the probe's -sparsealloc path calls this after OnEnable
+        // may already have (a second init would orphan every live block).
+        if (sparsePool != null) return;
+        int capacityNodes = (int)(SPARSE_POOL_BYTES / SPARSE_NODE_BYTES);
+        sparsePool = new Svo.PoolLayout.SvoSizeClassPool(capacityNodes);
+        if (sparseSlotBase == null || sparseSlotBase.Length != totalMapCapacity)
+        {
+            sparseSlotBase = new uint[totalMapCapacity];
+            sparseSlotClass = new int[totalMapCapacity];
+            sparseSlotCoord = new Vector3Int[totalMapCapacity];
+            for (int i = 0; i < totalMapCapacity; i++)
+            {
+                sparseSlotBase[i] = 0xFFFFFFFF;
+                sparseSlotClass[i] = -1;
+                sparseSlotCoord[i] = new Vector3Int(-99999, -99999, -99999);
+            }
+        }
+        sparsePendingCap = maxConcurrentJobs;
+        pendJobs = new ChunkJobData[sparsePendingCap];
+        pendCounts = new uint[sparsePendingCap];
+        pendSlotUsed = new bool[sparsePendingCap];
+        pendSlotReady = new bool[sparsePendingCap];
+        pendLayer = new int[sparsePendingCap];
+        pendCoord = new Vector3Int[sparsePendingCap];
+        pendJobSlot = new int[maxConcurrentJobs];
+        if (pendByMap == null || pendByMap.Length != totalMapCapacity)
+        {
+            pendByMap = new int[totalMapCapacity];
+            for (int i = 0; i < totalMapCapacity; i++) pendByMap[i] = -1;
+        }
+        // The pending ring lives in the same buffer the kernels already read;
+        // double the slots (phase-A working set + in-flight ring).
+        if (tempDenseBuffer != null && tempDenseBuffer.count < 2 * maxConcurrentJobs * 37449)
+        {
+            tempDenseBuffer.Release();
+            tempDenseBuffer = new ComputeBuffer(2 * maxConcurrentJobs * 37449, sizeof(uint));
+            Shader.SetGlobalBuffer("_TempDenseBuffer", tempDenseBuffer);
+        }
+        UnityEngine.Debug.Log($"[SparseAlloc] pool {capacityNodes} nodes ({SPARSE_POOL_BYTES / (1024 * 1024)} MB), "
+            + $"pending ring {sparsePendingCap} slots, classes 1/64/512/4096/8192/37449");
+    }
+
+    // Live counters for the probe's end-of-run report (stage-3 acceptance:
+    // pool reserved vs the fixed 1808 MB, pixel-identical captures, no growth
+    // across the churn scenario).
+    public int SparseLiveBlocks => sparsePool != null ? sparsePool.LiveBlocks : 0;
+    public long SparseReservedNodes => sparsePool != null ? sparsePool.ReservedNodes : 0;
+    public int SparseHighWater => sparsePool != null ? sparsePool.HighWater : 0;
+
+    // Pending-ring slot manager (O(cap) scan, cap <= 256, dispatch-rate only).
+    int SparseTakeSlot()
+    {
+        for (int p = 0; p < sparsePendingCap; p++)
+            if (!pendSlotUsed[p]) { pendSlotUsed[p] = true; pendSlotReady[p] = false; return p; }
+        return -1;
+    }
+
+    void CopyDenseRange(uint srcSlot, uint dstSlot)
+    {
+        int kCopy = worldGenShader.FindKernel("CopyDenseSlot");
+        worldGenShader.SetBuffer(kCopy, "_TempDenseBuffer", tempDenseBuffer);
+        worldGenShader.SetInt("_CopySrc", (int)(srcSlot * 37449));
+        worldGenShader.SetInt("_CopyDst", (int)(dstSlot * 37449));
+        worldGenShader.SetInt("_CopyCount", 37449);
+        worldGenShader.Dispatch(kCopy, (37449 + 255) / 256, 1, 1);
+    }
+
+    // SPARSE STAGE 3, PHASE B: build every pending job whose count readback
+    // has landed. Runs at the top of DispatchJobs (main thread: dispatches).
+    // Stale jobs (slot re-targeted while counting) drop their pending slot
+    // with nothing allocated. Free-before-alloc per slot keeps stale renders
+    // benign: the old block stays live until its replacement is built.
+    void ProcessSparseReady()
+    {
+        var bJobs = new System.Collections.Generic.List<ChunkJobData>(16);
+        var bCounts = new System.Collections.Generic.List<uint>(16);
+        var bSlots = new System.Collections.Generic.List<int>(16);
+        var bLayers = new System.Collections.Generic.List<int>(16);
+        for (int p = 0; p < sparsePendingCap; p++)
+        {
+            if (!pendSlotUsed[p] || !pendSlotReady[p]) continue;
+            pendSlotUsed[p] = false;
+            pendSlotReady[p] = false;
+            var jb = pendJobs[p];
+            int mi = jb.mapIndex;
+            // Release the lookup iff it still names this slot (a newer take
+            // for the same slot overwrote it -- that record is authoritative).
+            if (mi >= 0 && mi < totalMapCapacity && pendByMap[mi] == p) pendByMap[mi] = -1;
+            if (mi < 0 || mi >= totalMapCapacity || chunkTargetCoordArray[mi] != pendCoord[p])
+            {
+                sparseStale++;
+                continue; // stale: slot re-targeted mid-flight, nothing to free
+            }
+            // Batch-local dedup: two readies for the same slot in one batch
+            // would race parallel threads on chunkMap[mi] (one root wins, the
+            // other record leaks or points freed-then-reused). Keep first.
+            bool dupInBatch = false;
+            for (int q = 0; q < bJobs.Count; q++)
+                if (bJobs[q].mapIndex == mi) { dupInBatch = true; break; }
+            if (dupInBatch) { sparseDups++; continue; }
+            uint count = pendCounts[p];
+            // Clamp to the top class: the counting walk ran with the top-class
+            // cap, so a pathological chunk truncates identically in both
+            // walks (deterministic, still agreeing); serving it the top class
+            // keeps the promise that rarity costs memory, not correctness.
+            int cls = sparsePool.ClassFor(count > SPARSE_TOP_CLASS ? (int)SPARSE_TOP_CLASS : (int)count);
+            if (cls < 0)
+            {
+                UnityEngine.Debug.LogWarning($"[SparseAlloc] count {count} exceeds top class -- requeued map {mi}");
+                generationQueues[pendLayer[p]].Add(new LayerCoord { layer = pendLayer[p], coord = pendCoord[p] });
+                continue;
+            }
+            uint nbase; int bsize;
+            if (!sparsePool.TryAllocate((int)count, out nbase, out bsize))
+            {
+                // Pool genuinely full (should stay 0 at 256 MB vs ~21 MB
+                // live): requeue and retry next frame. The old block STAYS
+                // LIVE -- the old image keeps rendering instead of a hole.
+                sparseStalls++;
+                if ((sparseStalls % 60) == 1)
+                    UnityEngine.Debug.LogWarning($"[SparseAlloc] pool exhausted, requeued map {mi} (stalls={sparseStalls})");
+                generationQueues[pendLayer[p]].Add(new LayerCoord { layer = pendLayer[p], coord = pendCoord[p] });
+                continue;
+            }
+            // Free-before-alloc, AFTER success: any previous build for this
+            // slot is superseded (same coord rebuild or new occupant alike).
+            if (sparseSlotBase[mi] != 0xFFFFFFFF)
+                sparsePool.Free(sparseSlotBase[mi]);
+            sparseSlotBase[mi] = nbase;
+            sparseSlotClass[mi] = cls;
+            sparseSlotCoord[mi] = pendCoord[p];
+            bJobs.Add(new ChunkJobData {
+                worldPos = new Vector4(jb.worldPos.x, jb.worldPos.y, jb.worldPos.z, bsize),
+                mapIndex = mi,
+                lodStep = jb.lodStep,
+                layerScale = jb.layerScale,
+                pad1 = nbase,
+                editStartIndex = 0,
+                editCount = 0,
+                pad2 = 0,
+                pad3 = 0
+            });
+            bCounts.Add(count);
+            bSlots.Add(p);
+            bLayers.Add(pendLayer[p]);
+        }
+        if (bJobs.Count == 0) return;
+        sparseBuilt += bJobs.Count;
+        int kConstruct = worldGenShader.FindKernel("ConstructSVO");
+        var arr = new NativeArray<ChunkJobData>(bJobs.Count, Allocator.Temp);
+        for (int k = 0; k < bJobs.Count; k++) arr[k] = bJobs[k];
+        jobQueueBuffer.SetData(arr, 0, 0, bJobs.Count);
+        arr.Dispose();
+        worldGenShader.SetBuffer(kConstruct, "_TempDenseBuffer", tempDenseBuffer);
+        worldGenShader.SetBuffer(kConstruct, "_SVOPool", svoPoolBuffer);
+        worldGenShader.SetBuffer(kConstruct, "_ChunkMap", chunkMapBuffer);
+        worldGenShader.SetBuffer(kConstruct, "_JobQueue", jobQueueBuffer);
+        worldGenShader.SetInt("_JobCount", bJobs.Count);
+        for (int k = 0; k < bJobs.Count; k++)
+            CopyDenseRange((uint)(maxConcurrentJobs + bSlots[k]), (uint)k);
+        worldGenShader.Dispatch(kConstruct, bJobs.Count, 1, 1);
+        for (int k = 0; k < bJobs.Count; k++) MarkBuilt(bJobs[k].mapIndex);
+        // Phase-3 lighting per built root (layer from the record: pad1 is no
+        // longer strided under the flag, so the old division is wrong here).
+        // THROTTLED TO ONE ROOT PER CALL -- the flag-off path lights exactly
+        // one chunk per dispatch batch ("the single most important chunk"),
+        // and matching that rate matters: lighting every ready root burst
+        // hundreds of dispatches (3 kernels x N roots) in one frame, blowing
+        // the CPU dispatch budget, starving readbacks, and collapsing drain
+        // throughput (measured: 85/s vs ~500/s flag-off, captures mid-flight).
+        // Eventual consistency is identical: every phase-B call lights one,
+        // and streaming calls phase-B constantly, same as flag-off batches.
+        if (voxelLightingShader != null && bJobs.Count > 0)
+        {
+            int lightKernel = voxelLightingShader.FindKernel("PropagateSunlight");
+            int spreadKernel = voxelLightingShader.FindKernel("SpreadLight");
+            int aoKernel = voxelLightingShader.FindKernel("BakeAO");
+            uint rootIdx = bJobs[0].pad1;
+            voxelLightingShader.SetInt("_RootIndex", (int)rootIdx);
+            voxelLightingShader.SetBuffer(lightKernel, "_SVOPool", svoPoolBuffer);
+            voxelLightingShader.Dispatch(lightKernel, 1, 1, 1);
+            if (bLayers[0] == 0)
+            {
+                voxelLightingShader.SetBuffer(spreadKernel, "_SVOPool", svoPoolBuffer);
+                voxelLightingShader.Dispatch(spreadKernel, 4, 4, 4);
+                voxelLightingShader.SetBuffer(aoKernel, "_SVOPool", svoPoolBuffer);
+                voxelLightingShader.SetInt("_RootIndex", (int)rootIdx);
+                voxelLightingShader.Dispatch(aoKernel, 4, 4, 4);
+            }
+        }
+        // Stage-2 acceptance, deferred half: stored count vs fresh witness.
+        // PLUS root+position verification: the render reads rootNodeIndex
+        // and position from chunkMap, and counts alone cannot see a root
+        // pointing at another chunk's (freed, reused) block. Both checks ride
+        // behind verifyNodeCounts (verify-only cost).
+        if (verifyNodeCounts)
+        {
+            var map = new ChunkData[totalMapCapacity];
+            chunkMapBuffer.GetData(map);
+            for (int k = 0; k < bJobs.Count; k++)
+            {
+                int mi = bJobs[k].mapIndex;
+                uint witness = map[mi].packedState >> 16;
+                ncJobs++;
+                if (witness == bCounts[k]) ncAgree++;
+                else
+                {
+                    ncDisagree++;
+                    if (ncFirstDisagreement.Length == 0)
+                        ncFirstDisagreement =
+                            $"deferred job {k} mapIndex {mi} lodStep {bJobs[k].lodStep} " +
+                            $"class {sparseSlotClass[mi]}: CountSVONodes {bCounts[k]} vs ConstructSVO witness {witness}";
+                }
+                if (sparseSlotBase[mi] == bJobs[k].pad1 && map[mi].rootNodeIndex != bJobs[k].pad1)
+                {
+                    ncDisagree++;
+                    if (ncFirstDisagreement.Length == 0)
+                        ncFirstDisagreement =
+                            $"ROOT MISMATCH job {k} mapIndex {mi}: chunkMap root {map[mi].rootNodeIndex} vs built {bJobs[k].pad1}";
+                }
+            }
+        }
+    }
+
+    public const int CROSSHAIR_INT4S = 104;
+    [HideInInspector] public int[] crosshairData = new int[CROSSHAIR_INT4S * 4];
+    public const int VOXELS_PER_CHUNK = 32768; // 32 * 32 * 32
+    private Queue<uint> freeDenseIndices = new Queue<uint>(); // Tracks our 400 available memory slots
+
+    private Vector3Int[] primaryAnchorChunks = new Vector3Int[8];
+    private Vector4[] shaderCenterChunks = new Vector4[8]; 
+
+    private Stopwatch totalLoadTimer = new Stopwatch();
+    private float deltaTime = 0.0f;
+    private int chunksPerLayer, totalMapCapacity;
+
+    [Header("Aesthetics")]
+    public VoxelMaterialPalette globalPalette;
+    private ComputeBuffer materialBuffer;
+
+    public static ChunkManager Instance; // THE FIX: Define the Instance
+    
+    // --- IVOXELWORLD IMPLEMENTATION ---
+    public static IVoxelWorld World => Instance; 
+    public float VoxelScale => voxelScale;
+    public event System.Action<Vector3Int, uint> OnVoxelChanged;
+    public event System.Action<Vector3Int, Vector3Int> OnAreaDestroyed;
+
+    void Awake()
+    {
+        Instance = this; // THE FIX: Assign the Instance
+    }
+
+    // void Start() {
+    //     if (globalPalette == null) {
+    //         UnityEngine.Debug.LogWarning("Missing Global Palette! Create one and assign it in the Inspector.");
+    //         return;
+    //     }
+        
+    //     materialBuffer = new ComputeBuffer(256, 32);
+    //     materialBuffer.SetData(globalPalette.materials);
+    //     Shader.SetGlobalBuffer("_MaterialPalette", materialBuffer);
+    // }
+
+    // Saves an edit to standard RAM permanently. Returns true if it was a new edit.
+    private void RecordEditToDeltaMap(Vector3Int globalVoxelPos, uint newMaterial) {
+        // 1. Find which chunk this voxel belongs to
+        Vector3Int chunkCoord = new Vector3Int(
+            Mathf.FloorToInt(globalVoxelPos.x / 32f),
+            Mathf.FloorToInt(globalVoxelPos.y / 32f),
+            Mathf.FloorToInt(globalVoxelPos.z / 32f)
+        );
+
+        // 2. Find the local coordinate inside that chunk (0 to 31)
+        int localX = globalVoxelPos.x - (chunkCoord.x * 32);
+        int localY = globalVoxelPos.y - (chunkCoord.y * 32);
+        int localZ = globalVoxelPos.z - (chunkCoord.z * 32);
+
+        // 3. Convert 3D local coordinate to a 1D flat index (Fastest for GPU compute)
+        int flatLocalIndex = localX + (localY << 5) + (localZ << 10);
+
+        // 4. Save to the Delta Map
+        if (!worldDeltaMap.ContainsKey(chunkCoord)) {
+            worldDeltaMap[chunkCoord] = new Dictionary<int, uint>();
+        }
+        
+        worldDeltaMap[chunkCoord][flatLocalIndex] = newMaterial;
+    }
+
+    // Nodes reserved per chunk at a given clipmap layer.
+    // Layer 0 is the detailed one; layer 1 is high-quality LOD 1; every layer
+    // from 2 outwards is a far-distance placeholder on the same small budget.
+    // 256 was a "far distance placeholder" chosen when there were only 3
+    // layers, so it only ever had to describe layer 2. With 8 layers a
+    // layer-7 chunk spans 32 * 0.2 * 2^7 = 819 m, and once the silo guard
+    // forces early leaf resolution such a chunk collapses to ONE solid leaf
+    // 819 m tall -- a slab filling the sky. Correct per the algorithm and
+    // useless on screen. Tunable so the cost/quality trade can be measured.
+    public int farLayerSiloNodes = Svo.PoolLayout.SvoEngineConfig.FAR_LAYER_SILO_NODES;
+    public int farLayerLodStep = Svo.PoolLayout.SvoEngineConfig.FAR_LAYER_LOD_STEP;
+
+    // All three forward to Svo.PoolLayout.SvoPoolLayout, which is the single
+    // definition of this layout and the one SvoPoolOracle is checked against.
+    // Keeping a second copy here is exactly how SA-F1 happened.
+    public int SiloNodes(int layer)
+        => Svo.PoolLayout.SvoPoolLayout.SiloNodes(layer, farLayerSiloNodes);
+
+    public static int SiloNodes(int layer, int farSilo)
+        => Svo.PoolLayout.SvoPoolLayout.SiloNodes(layer, farSilo);
+
+    // First node index owned by (layer, chunkIndexInLayer).
+    // The +8 keeps index 0..7 reserved, as the original code did.
+    public static uint SiloBase(int layer, int chunkIndexInLayer, int chunksPerLayer, int farSilo)
+        => Svo.PoolLayout.SvoPoolLayout.SiloBase(layer, chunkIndexInLayer, chunksPerLayer, farSilo);
+
+    public static int PoolSizeFor(int chunksPerLayer, int layers, int farSilo)
+        => Svo.PoolLayout.SvoPoolLayout.PoolSizeFor(chunksPerLayer, layers, farSilo);
+
+    void OnDestroy() {
+        if (materialBuffer != null) materialBuffer.Release();
+    }
+    
+    void OnEnable() {
+        // if (!masterNodePool.IsCreated) masterNodePool = new NativeArray<SVONode>(POOL_SIZE, Allocator.Persistent);
+        Instance = this;
+        
+        // THE FIX: Forcefully correct the array size in case Unity loaded a stale length of 4 from the saved Scene YAML
+        if (crosshairData == null || crosshairData.Length != CROSSHAIR_INT4S * 4) crosshairData = new int[CROSSHAIR_INT4S * 4];
+        
+        int sideXZ = 2 * renderDistanceXZ + 1;
+        int sideY = 2 * renderDistanceY + 1;
+        chunksPerLayer = sideXZ * sideXZ * sideY;
+        totalMapCapacity = chunksPerLayer * clipmapLayers; 
+        
+        // Stratified Static Pool: Balanced for 60m radius on M1 8GB
+        // POOL_SIZE and SiloBase MUST describe the same layout. They used to
+        // be written out separately and drifted: the size covered 3 tiers
+        // while the allocator silently gave every layer >= 3 the same offset.
+        // Both now derive from SiloNodes/SiloBase so they cannot disagree.
+        int POOL_SIZE = PoolSizeFor(chunksPerLayer, clipmapLayers, farLayerSiloNodes);
+        // SVO POOL RESIZE (session 12). The sparse allocator was accepted in
+        // session 11 (76,898 builds, counts+roots exact) but switched on only
+        // after this buffer had been allocated at the fixed-silo size, so a
+        // sparse run still held the full 1808 MB and used 75 MB of it. When the
+        // run is sparse from the start the pool is sized to the allocator's own
+        // capacity instead. -nosparsealloc (or no playground and no
+        // -sparsealloc) keeps the fixed silos, which is the A/B control.
+        bool wantSparse = Application.isPlaying && (PreferSparse || CmdHas("-sparsealloc")) && !CmdHas("-nosparsealloc");
+        if (wantSparse) POOL_SIZE = (int)(SPARSE_POOL_BYTES / SPARSE_NODE_BYTES);
+
+        if (chunkMapArray == null) {
+            chunkMapArray = new ChunkData[totalMapCapacity];
+            for (int i = 0; i < totalMapCapacity; i++) {
+                chunkMapArray[i] = new ChunkData {
+                    position = new Vector4(-99999f, -99999f, -99999f, 0f),
+                    rootNodeIndex = 0xFFFFFFFF
+                };
+            }
+        }
+        if (chunkTargetCoordArray == null) {
+            chunkTargetCoordArray = new Vector3Int[totalMapCapacity];
+            for(int i = 0; i < totalMapCapacity; i++) chunkTargetCoordArray[i] = new Vector3Int(-99999, -99999, -99999);
+        }
+
+        List<Vector3Int> offsets = new List<Vector3Int>();
+        
+        if (enableAntFarmSlice) {
+            // TEST 2: THE ANT FARM SLICE
+            // Generates a massive 2D wall slightly in front of the player
+            // Y is clamped to your render distance so deep chunks don't get culled!
+            int yMin = Mathf.Max(-12, -renderDistanceY);
+            for (int y = yMin; y <= 3; y++) 
+                for (int x = -10; x <= 10; x++) 
+                    for (int z = 2; z <= 2; z++) // Pushed 2 chunks forward so you don't spawn inside it
+                        offsets.Add(new Vector3Int(x, y, z));
+        } else {
+            // Standard Spherical Generation
+            for (int y = -renderDistanceY; y <= renderDistanceY; y++)
+                for (int x = -renderDistanceXZ; x <= renderDistanceXZ; x++)
+                    for (int z = -renderDistanceXZ; z <= renderDistanceXZ; z++)
+                        offsets.Add(new Vector3Int(x, y, z));
+        }
+        
+        offsets.Sort((a, b) => a.sqrMagnitude.CompareTo(b.sqrMagnitude));
+        scanOffsets = offsets.ToArray();
+
+        for(int i = 0; i < 8; i++) {
+            generationQueues[i] = new List<LayerCoord>();
+            primaryAnchorChunks[i] = new Vector3Int(-9999, -9999, -9999);
+        }
+
+        if (svoPoolBuffer == null) {
+            svoPoolBuffer = new ComputeBuffer(POOL_SIZE, 8);
+            // svoPoolBuffer.SetData(masterNodePool);
+            Shader.SetGlobalBuffer("_SVOPool", svoPoolBuffer);
+        }
+        if (jobQueueBuffer == null) jobQueueBuffer = new ComputeBuffer(maxConcurrentJobs, 48); // FIX: 48 bytes for proper stride
+        
+        if (tempDenseBuffer == null) {
+            // Allocate exact space for the 37,449 SVO mipmap tree nodes multiplied by max jobs
+            tempDenseBuffer = new ComputeBuffer(maxConcurrentJobs * 37449, sizeof(uint));
+            Shader.SetGlobalBuffer("_TempDenseBuffer", tempDenseBuffer);
+        }
+        
+        if (tempDenseBuffer == null) {
+            // Allocate exact space for the 37,449 SVO mipmap tree nodes multiplied by max jobs
+            tempDenseBuffer = new ComputeBuffer(maxConcurrentJobs * 37449, sizeof(uint));
+            Shader.SetGlobalBuffer("_TempDenseBuffer", tempDenseBuffer);
+        }
+
+        if (deltaMapBuffer == null) {
+            deltaMapBuffer = new ComputeBuffer(MAX_EDITS_PER_DISPATCH, 8); // 8 bytes per edit
+            // FIX: Upload empty data immediately. Metal treats uninitialized buffers as fatal null pointers!
+            deltaMapBuffer.SetData(new VoxelEdit[MAX_EDITS_PER_DISPATCH]); 
+        }
+
+        // THE FIX: Forcefully destroy the old buffer if it survived a script recompile!
+        if (crosshairBuffer != null && crosshairBuffer.count != CROSSHAIR_INT4S) {
+            crosshairBuffer.Release();
+            crosshairBuffer = null;
+        }
+        if (crosshairBuffer == null) {
+            crosshairBuffer = new ComputeBuffer(CROSSHAIR_INT4S, 16);
+            // Metal treats an uninitialised buffer as a null pointer, and the
+            // SA-F7 reader needs a definite "no dump here" rather than whatever
+            // was in memory: zero is not the 0x5AF7 magic, so a stale read is
+            // reported as stale instead of printed as a traversal.
+            crosshairBuffer.SetData(new int[CROSSHAIR_INT4S * 4]);
+        }
+
+        if (denseChunkPoolBuffer == null) {
+            // Allocates exactly 52.4 MB of unified memory for visual data
+            denseChunkPoolBuffer = new ComputeBuffer(MAX_DENSE_CHUNKS * VOXELS_PER_CHUNK, sizeof(uint));
+            Shader.SetGlobalBuffer("_DenseChunkPool", denseChunkPoolBuffer);
+
+            // Allocates exactly 52.4 MB of unified memory for logic data (JIT Wake-up shadow pool)
+            denseLogicPoolBuffer = new ComputeBuffer(MAX_DENSE_CHUNKS * VOXELS_PER_CHUNK, sizeof(uint));
+            Shader.SetGlobalBuffer("_DenseLogicPool", denseLogicPoolBuffer);
+            
+            // Fill our allocator queue with all 400 available memory slots
+            freeDenseIndices.Clear();
+            for (uint i = 0; i < MAX_DENSE_CHUNKS; i++) freeDenseIndices.Enqueue(i);
+        }
+
+        if (chunkMapBuffer == null) {
+            chunkMapBuffer = new ComputeBuffer(totalMapCapacity, 32);
+            chunkMapBuffer.SetData(chunkMapArray);
+            Shader.SetGlobalBuffer("_ChunkMap", chunkMapBuffer);
+        }
+
+        if (globalPalette != null && materialBuffer == null) {
+            materialBuffer = new ComputeBuffer(256, 32);
+            materialBuffer.SetData(globalPalette.materials);
+            Shader.SetGlobalBuffer("_MaterialPalette", materialBuffer);
+        }
+
+        Shader.SetGlobalInt("_PoolSize", POOL_SIZE);
+
+        InitEditState();
+        if (wantSparse && !useSparseAllocator)
+        {
+            useSparseAllocator = true;
+            InitSparseAllocator();
+        }
+    }
+
+    /// Set before the scene loads by a host that wants the sparse allocator
+    /// from the first chunk (the playground). Probes use -sparsealloc.
+    public static bool PreferSparse;
+    static bool CmdHas(string f)
+    {
+        foreach (var a in System.Environment.GetCommandLineArgs())
+            if (string.Equals(a, f, System.StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    // ---- NODE OCCUPANCY: what the SVO actually uses vs what it reserves ----
+    //
+    // The SVO gives every layer-0 chunk a silo of 38,000 nodes whether it needs
+    // them or not, and that fixed reservation -- not the octree itself -- is
+    // what puts a CUBIC streaming window out of reach on this machine. Until
+    // now nothing measured the gap, so "38,000 is too many" was an assertion.
+    //
+    // WorldGen.compute writes the node count each chunk really used into
+    // packedState bits 16-31. This reads the whole chunk map back once and
+    // reports the distribution per layer, which is the input a size-class or
+    // pooled allocator has to be sized from. It is a full buffer readback and
+    // stalls the GPU, so it is for the probe, never the frame loop.
+    public string NodeOccupancyReport()
+    {
+        if (chunkMapBuffer == null) return "NODE OCCUPANCY: no chunk map buffer";
+
+        var all = new ChunkData[totalMapCapacity];
+        chunkMapBuffer.GetData(all);
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"NODE OCCUPANCY  layers={clipmapLayers} chunksPerLayer={chunksPerLayer} " +
+                      $"farSilo={Svo.PoolLayout.SvoEngineConfig.FAR_LAYER_SILO_NODES}");
+        sb.AppendLine("layer\tlive\tsilo\tused_sum\tused_mean\tused_p50\tused_p90\tused_max\tuniform_pct\tutilisation_pct");
+
+        long grandReserved = 0, grandUsed = 0;
+        for (int L = 0; L < clipmapLayers; L++)
+        {
+            int silo = Svo.PoolLayout.SvoPoolLayout.SiloNodes(
+                L, Svo.PoolLayout.SvoEngineConfig.FAR_LAYER_SILO_NODES);
+
+            var used = new List<int>(chunksPerLayer);
+            int uniform = 0;
+            for (int i = 0; i < chunksPerLayer; i++)
+            {
+                int idx = L * chunksPerLayer + i;
+                if (idx >= totalMapCapacity) break;
+                uint n = all[idx].packedState >> 16;
+                // 0 means the slot was never constructed -- not a chunk using
+                // zero nodes. Counting those as live would flatter the result.
+                if (n == 0) continue;
+                used.Add((int)n);
+                if (n == 1) uniform++;
+            }
+
+            // Reservation is charged on the WHOLE layer, because a fixed silo
+            // is paid for at allocation whether a chunk is resident or not.
+            long reserved = (long)chunksPerLayer * silo;
+            grandReserved += reserved;
+
+            if (used.Count == 0) { sb.AppendLine($"{L}\t0\t{silo}\t0\t-\t-\t-\t-\t-\t0.00"); continue; }
+            used.Sort();
+            long sum = 0; foreach (var v in used) sum += v;
+            grandUsed += sum;
+            sb.AppendLine($"{L}\t{used.Count}\t{silo}\t{sum}\t{(double)sum / used.Count:F1}\t" +
+                          $"{used[used.Count / 2]}\t{used[(int)(used.Count * 0.90f)]}\t{used[used.Count - 1]}\t" +
+                          $"{100.0 * uniform / used.Count:F1}\t{100.0 * sum / reserved:F2}");
+        }
+
+        int nodeBytes = System.Runtime.InteropServices.Marshal.SizeOf(typeof(SVONode));
+        sb.AppendLine($"TOTAL reserved={grandReserved} nodes ({grandReserved * nodeBytes / 1048576.0:F0} MB) " +
+                      $"used={grandUsed} nodes ({grandUsed * nodeBytes / 1048576.0:F0} MB) " +
+                      $"utilisation={(grandReserved > 0 ? 100.0 * grandUsed / grandReserved : 0):F2}%");
+        return sb.ToString();
+    }
+
+    int GetMapIndex(int layer, Vector3Int coord) {
+        int sideXZ = 2 * renderDistanceXZ + 1;
+        int sideY = 2 * renderDistanceY + 1;
+        int mx = ((coord.x % sideXZ) + sideXZ) % sideXZ;
+        int my = ((coord.y % sideY) + sideY) % sideY;
+        int mz = ((coord.z % sideXZ) + sideXZ) % sideXZ;
+        return (layer * chunksPerLayer) + (mx + (mz * sideXZ) + (my * sideXZ * sideXZ));
+    }
+
+    // Main-thread cost of this component's Update, for the playground bench's
+    // attribution column (frame wall time minus the playground's and the
+    // engine's measured main-thread work = rendering, GPU and waits).
+    public double lastUpdateMs;
+    readonly System.Diagnostics.Stopwatch _updateSw = new System.Diagnostics.Stopwatch();
+    void Update() { _updateSw.Restart(); UpdateBody(); lastUpdateMs = _updateSw.Elapsed.TotalMilliseconds; }
+
+    void UpdateBody() {
+        deltaTime += (Time.unscaledDeltaTime - deltaTime) * 0.1f; 
+        if (worldLoaders.Count == 0 || worldLoaders[0] == null) return;
+
+        bool anyAnchorChanged = false;
+
+        for (int L = 0; L < clipmapLayers; L++) {
+            float layerScale = voxelScale * (1 << L);
+            float worldChunkSize = chunkSize * layerScale;
+            
+            Vector3Int currentAnchor = GetChunkCoord(worldLoaders[0].position, worldChunkSize);
+
+            if (currentAnchor != primaryAnchorChunks[L]) {
+                primaryAnchorChunks[L] = currentAnchor;
+                shaderCenterChunks[L] = new Vector4(currentAnchor.x, currentAnchor.y, currentAnchor.z, layerScale); 
+                
+                CleanupAndQueue(L, currentAnchor);
+                anyAnchorChanged = true;
+            }
+        }
+
+        if (anyAnchorChanged) {
+            UpdateGPUBuffers(); 
+            totalLoadTimer.Restart();
+        }
+
+        PumpRebuilds();
+        DispatchJobs();
+
+        // Safely pull the center pixel target from the GPU without stalling the pipeline
+        if (crosshairBuffer != null) {
+            AsyncGPUReadback.Request(crosshairBuffer, (req) => {
+                if (req.hasError || !Application.isPlaying) return;
+                req.GetData<int>().CopyTo(crosshairData);
+            });
+        }
+
+        bool allQueuesEmpty = true;
+        for (int i = 0; i < clipmapLayers; i++) if (generationQueues[i].Count > 0) allQueuesEmpty = false;
+
+        if (allQueuesEmpty && totalLoadTimer.IsRunning) {
+            totalLoadTimer.Stop();
+            UnityEngine.Debug.LogWarning($"✅ CLIPMAPS LOADED IN {totalLoadTimer.ElapsedMilliseconds} ms ✅");
+            // System.GC.Collect(); // Forces the CPU to release unused temporary job data 
+        }
+    }
+
+    void CleanupAndQueue(int layer, Vector3Int center) {
+        float layerScale = voxelScale * (1 << layer);
+
+        for (int i = 0; i < scanOffsets.Length; i++) {
+            Vector3Int coord = center + scanOffsets[i];
+            
+            // THE FIX: Cylindrical culling AT THE SOURCE. 
+            // If it's a corner, we skip it before it permanently corrupts the target coordinate array.
+            float distXZ = Vector2.Distance(new Vector2(coord.x, coord.z), new Vector2(center.x, center.z));
+            if (distXZ > renderDistanceXZ || Mathf.Abs(coord.y - center.y) > renderDistanceY) continue;
+
+            int idx = GetMapIndex(layer, coord);
+            float expectedX = coord.x * chunkSize;
+            float expectedY = coord.y * chunkSize;
+            float expectedZ = coord.z * chunkSize;
+            
+            Vector4 currentPos = chunkMapArray[idx].position;
+
+            if ((currentPos.x != expectedX || currentPos.y != expectedY || currentPos.z != expectedZ) 
+                && chunkTargetCoordArray[idx] != coord) {
+                
+                chunkTargetCoordArray[idx] = coord; 
+                if (slotBuilt != null) slotBuilt[idx] = false;
+                generationQueues[layer].Add(new LayerCoord { layer = layer, coord = coord });
+            }
+        }
+
+        // ONE-TIME O(N log N) PRE-SORT: Sort descending so the closest chunks are at the END. 
+        // This makes `RemoveAt(Count - 1)` an instant O(1) op in the tightly packed inner `DispatchJobs` loop.
+        generationQueues[layer].Sort((a, b) => {
+            float distA = Vector3.SqrMagnitude(a.coord - center);
+            float distB = Vector3.SqrMagnitude(b.coord - center);
+            return distB.CompareTo(distA);
+        });
+    }
+
+    void DispatchJobs() {
+        // SPARSE STAGE 3: build what the readback has sized before sizing more.
+        if (useSparseAllocator && sparsePool != null) ProcessSparseReady();
+        int dispatchesThisFrame = 0;
+        
+        // THE FIX: Dynamic Time-Slicing for the CPU Queue!
+        // We give the CPU exactly 2.0 milliseconds to dig through the queue.
+        // It will instantly bypass thousands of "Ghost Chunks" without ever stuttering,
+        // guaranteeing the GPU pipeline stays fully fed at high speeds.
+        Stopwatch queueTimer = Stopwatch.StartNew(); 
+        
+        NativeArray<ChunkJobData> jobDataArray = new NativeArray<ChunkJobData>(maxConcurrentJobs, Allocator.Temp);
+        
+        // NEW: Prepare the flat delta map array for the GPU
+        NativeArray<VoxelEdit> editDataArray = new NativeArray<VoxelEdit>(MAX_EDITS_PER_DISPATCH, Allocator.Temp);
+        int totalEditsThisFrame = 0;
+
+        bool jobsAvailable = true;
+        
+        // Loop until we hit our GPU limit OR our CPU time limit (4.0ms)
+        // STAGE Y2b: the PORTED path generates on the CPU, so the per-frame
+        // budget must bound the GATHERING loop, not just the generation call.
+        // Capping after the fact would leave chunks queued whose level-0 data
+        // was never written while ReduceL1..L5 and ConstructSVO still ran over
+        // them -- building octrees out of a stale buffer. That is exactly the
+        // SA-F5 defect from session 5, and this is where it would come back.
+        int frameJobCap = generationMode == Svo.PoolLayout.SvoEngineConfig.GenMode.Ported
+                        ? Mathf.Max(1, portedChunksPerFrame)
+                        : maxConcurrentJobs;
+
+        while (dispatchesThisFrame < frameJobCap && jobsAvailable && queueTimer.Elapsed.TotalMilliseconds < 4.0) {
+            jobsAvailable = false;
+            
+            for (int L = 0; L < clipmapLayers; L++) {
+                if (dispatchesThisFrame >= frameJobCap) break;
+                
+                while (generationQueues[L].Count > 0 && queueTimer.Elapsed.TotalMilliseconds < 4.0) {
+
+                    // SPARSE STAGE 3: take the pending slot BEFORE popping.
+                    // Popping first and then failing the take SILENTLY DROPPED
+                    // the job (measured: 56,931 drops in one run -- most of
+                    // the window gone with pendingJobs reading 0, renders
+                    // showing void/fallback while counters looked healthy).
+                    // Peek, take, then pop; on take failure the job stays
+                    // queued (backpressure, retried next frame).
+                    int lastQueueElement = generationQueues[L].Count - 1;
+                    LayerCoord lcPeek = generationQueues[L][lastQueueElement];
+                    int idxPeek = GetMapIndex(lcPeek.layer, lcPeek.coord);
+                    bool stalePeek = chunkTargetCoordArray[idxPeek] != lcPeek.coord;
+                    int pendSlot = -1;
+                    if (useSparseAllocator && !stalePeek)
+                    {
+                        // PACED READBACKS (permanent): at most one outstanding
+                        // count readback. A later count kernel would otherwise
+                        // overwrite nodeCountBuffer while an earlier transfer
+                        // is still queued, and DMA reads live memory late --
+                        // earlier batches get later counts (measured: 136
+                        // divergences without this, 0 with it). Costs drain
+                        // throughput; the honest fix for rate is a ringed
+                        // count buffer (per-batch regions), specced in the
+                        // session 11 log but not yet built.
+                        if (sparseReadbackInFlight > 0) { jobsAvailable = true; break; }
+                        // DEDUP (permanent): a live pending for the same slot
+                        // covers this queue entry. Same coord -> pop and drop
+                        // the dup (the in-flight build is identical by
+                        // determinism); the record below stays untouched.
+                        int live = (idxPeek >= 0 && idxPeek < totalMapCapacity) ? pendByMap[idxPeek] : -1;
+                        if (live >= 0 && pendCoord[live] == lcPeek.coord)
+                        {
+                            generationQueues[L].RemoveAt(lastQueueElement);
+                            sparseDups++;
+                            jobsAvailable = true;
+                            continue;
+                        }
+                        pendSlot = SparseTakeSlot();
+                        if (pendSlot < 0) { jobsAvailable = true; sparseTakeFails++; break; }
+                        sparseTaken++;
+                        pendByMap[idxPeek] = pendSlot;
+                    }
+
+                    // O(1) Pop from end (the array is ALREADY PRE-SORTED descending upstream!)
+                    LayerCoord lc = generationQueues[L][lastQueueElement];
+                    generationQueues[L].RemoveAt(lastQueueElement);
+
+                    int idx = GetMapIndex(lc.layer, lc.coord);
+
+                    if (chunkTargetCoordArray[idx] != lc.coord) continue;
+
+                    // The buggy distance check here was removed. Culling is now safely handled upstream.
+
+                    float layerScale = voxelScale * (1 << lc.layer);
+                    
+                    int chunkIndexInLayer = idx % chunksPerLayer;
+                    uint safeRootIndex = SiloBase(lc.layer, chunkIndexInLayer, chunksPerLayer, farLayerSiloNodes);
+
+                    int siloCap = SiloNodes(lc.layer);
+                    // SPARSE STAGE 3: count with the TOP class so the count is
+                    // the chunk's natural size (spec: the call-site choice, not
+                    // a kernel difference); pad1 is a placeholder the GPU
+                    // overwrites, exactly as the fixed path's safeRootIndex is.
+                    if (useSparseAllocator) siloCap = (int)SPARSE_TOP_CLASS;
+                    // lodStep is the leaf size the generator stops subdividing at,
+                    // in the layer's OWN voxel grid. At layer L a voxel is
+                    // voxelScale * 2^L metres, so lodStep 4 at layer 7 means the
+                    // finest leaf is 4 * 0.2 * 128 = 102 m. Raising the node
+                    // budget does nothing while this is the binding constraint --
+                    // measured: farLayerSiloNodes 256 -> 8192 (+483 MB) produced a
+                    // pixel-identical frame.
+                    int targetLod = (lc.layer == 0) ? 1 : (lc.layer == 1) ? 2 : farLayerLodStep; 
+
+                    int startIndex = totalEditsThisFrame;
+                    int editCount = 0;
+                    
+                    // Check if this chunk has any recorded edits in the Delta Map.
+                    // PER LAYER (session 12): this used to look up worldDeltaMap
+                    // by coord alone, so a layer-1/2 chunk whose coord happened
+                    // to equal an edited layer-0 chunk's got that chunk's
+                    // layer-0 flat indices stamped into it -- phantom edits in
+                    // the far field.
+                    var layerDelta = lc.layer == 0 ? worldDeltaMap : lodDeltaMaps[lc.layer];
+                    if (layerDelta.TryGetValue(lc.coord, out var chunkEdits)) {
+                        foreach (var edit in chunkEdits) {
+                            if (totalEditsThisFrame >= MAX_EDITS_PER_DISPATCH) break; // Safety cap
+                            editDataArray[totalEditsThisFrame] = new VoxelEdit { flatIndex = edit.Key, material = edit.Value };
+                            totalEditsThisFrame++;
+                            editCount++;
+                        }
+                    }
+
+                    jobDataArray[dispatchesThisFrame] = new ChunkJobData {
+                        worldPos = new Vector4(lc.coord.x * chunkSize, lc.coord.y * chunkSize, lc.coord.z * chunkSize, siloCap),
+                        mapIndex = idx,
+                        lodStep = targetLod,
+                        layerScale = layerScale,
+                        pad1 = safeRootIndex,
+                        editStartIndex = startIndex,
+                        editCount = editCount,
+                        pad2 = 0,
+                        pad3 = 0
+                    };
+
+                    ChunkData cd = chunkMapArray[idx];
+                    // THE FIX: Invalidate the position. WorldGen will write the true position only AFTER generation is complete.
+                    cd.position = new Vector4(-99999f, -99999f, -99999f, 0f);
+                    // SPARSE STAGE 3: no fixed silo exists; the placeholder
+                    // must not alias a live block. ConstructSVO overwrites it.
+                    cd.rootNodeIndex = useSparseAllocator ? 0xFFFFFFFF : safeRootIndex;
+                    chunkMapArray[idx] = cd;
+
+                    // SPARSE STAGE 3: remember the job for the deferred build.
+                    // (Stale entries continued above, so only live ones arrive.)
+                    if (useSparseAllocator)
+                    {
+                        pendJobs[pendSlot] = jobDataArray[dispatchesThisFrame];
+                        pendLayer[pendSlot] = lc.layer;
+                        pendCoord[pendSlot] = lc.coord;
+                        pendJobSlot[dispatchesThisFrame] = pendSlot;
+                    }
+
+                    dispatchesThisFrame++;
+                    jobsAvailable = true;
+                    
+                    break; 
+                }
+            }
+        }
+
+        if (dispatchesThisFrame > 0) {
+            jobQueueBuffer.SetData(jobDataArray, 0, 0, dispatchesThisFrame);
+            
+            // FIX: Never upload a 0-length array to Metal. This caused the 1 FPS stutter!
+            if (totalEditsThisFrame > 0) {
+                deltaMapBuffer.SetData(editDataArray, 0, 0, totalEditsThisFrame); 
+            }
+
+            int kEval = worldGenShader.FindKernel("EvaluateVoxels");
+            int kReduce1 = worldGenShader.FindKernel("ReduceL1");
+            int kReduce2 = worldGenShader.FindKernel("ReduceL2");
+            int kReduce3 = worldGenShader.FindKernel("ReduceL3");
+            int kReduce4 = worldGenShader.FindKernel("ReduceL4");
+            int kReduce5 = worldGenShader.FindKernel("ReduceL5");
+            int kConstruct = worldGenShader.FindKernel("ConstructSVO");
+
+            worldGenShader.SetBuffer(kEval, "_TempDenseBuffer", tempDenseBuffer);
+            worldGenShader.SetBuffer(kEval, "_JobQueue", jobQueueBuffer); 
+            worldGenShader.SetBuffer(kEval, "_DeltaMapBuffer", deltaMapBuffer);
+
+            worldGenShader.SetBuffer(kReduce1, "_TempDenseBuffer", tempDenseBuffer);
+            worldGenShader.SetBuffer(kReduce2, "_TempDenseBuffer", tempDenseBuffer);
+            worldGenShader.SetBuffer(kReduce3, "_TempDenseBuffer", tempDenseBuffer);
+            worldGenShader.SetBuffer(kReduce4, "_TempDenseBuffer", tempDenseBuffer);
+            worldGenShader.SetBuffer(kReduce5, "_TempDenseBuffer", tempDenseBuffer);
+
+            worldGenShader.SetBuffer(kConstruct, "_TempDenseBuffer", tempDenseBuffer);
+            worldGenShader.SetBuffer(kConstruct, "_SVOPool", svoPoolBuffer);
+            worldGenShader.SetBuffer(kConstruct, "_ChunkMap", chunkMapBuffer);
+            worldGenShader.SetBuffer(kConstruct, "_JobQueue", jobQueueBuffer);
+            
+            worldGenShader.SetInt("_JobCount", dispatchesThisFrame);
+
+            // TEST 3: THE ALU PROFILER
+            Stopwatch aluTimer = Stopwatch.StartNew();
+            
+            // Step 1: Evaluate 32,768 voxels.
+            //
+            // STAGE Y2b: in Ported mode this happens on the CPU with the main
+            // project's generator and is uploaded into _TempDenseBuffer's
+            // level-0 region; the GPU kernel is SKIPPED. Everything downstream
+            // -- ReduceL1..L5 and ConstructSVO, including session 5's SA-F4
+            // silo guard and SA-F5 buffer fix -- is untouched. One dispatch
+            // becomes one upload per chunk.
+            //
+            // Slot layout: 37,449 uints per chunk, of which the first 32,768
+            // are level 0 (x + (y<<5) + (z<<10)). The remaining 4,681 are the
+            // mip levels the Reduce kernels build, so they are NOT written here.
+            if (generationMode == Svo.PoolLayout.SvoEngineConfig.GenMode.Ported) {
+                EnsurePortState();
+                var genTimer = Stopwatch.StartNew();
+                int portedCount = dispatchesThisFrame;   // the gathering loop already applied the cap
+                var bases = new Unity.Collections.NativeArray<Unity.Mathematics.int4>(
+                    portedCount, Unity.Collections.Allocator.TempJob);
+                // Full slots, so the whole range is contiguous and uploads once.
+                var dense = new Unity.Collections.NativeArray<uint>(
+                    portedCount * VoxelEngine.WorldGen.SvoPortedGenJob.SLOT,
+                    Unity.Collections.Allocator.TempJob);
+                try {
+                    for (int j = 0; j < portedCount; j++) {
+                        var jd = jobDataArray[j];
+                        int stride = Mathf.Max(1, Mathf.RoundToInt(
+                            jd.layerScale / Svo.PoolLayout.SvoEngineConfig.VOXEL_SCALE));
+                        bases[j] = new Unity.Mathematics.int4(
+                            Mathf.RoundToInt(jd.worldPos.x) * stride,
+                            Mathf.RoundToInt(jd.worldPos.y) * stride,
+                            Mathf.RoundToInt(jd.worldPos.z) * stride,
+                            stride);
+                    }
+                    new VoxelEngine.WorldGen.SvoPortedGenJob {
+                        st = portState, biomeMats = portBiomeMats,
+                        // Y2-F2 CLOSED (session 12): the reference world's caves are carved.
+                        caves = portCaves, caveCount = Svo.PoolLayout.SvoEngineConfig.CARVE_CAVES ? portCaves.Length : 0,
+                        chunkBases = bases, dense = dense
+                    }.Schedule(portedCount, 1).Complete();
+
+                    // EDITS SURVIVE REGENERATION (session 12). In ported mode
+                    // the GPU EvaluateVoxels kernel -- the only thing that ever
+                    // applied _DeltaMapBuffer -- is skipped, so a chunk that
+                    // streamed out and back came back with every edit gone.
+                    // The recorded deltas are stamped into level 0 here, before
+                    // the one upload, exactly where the kernel would have.
+                    for (int j = 0; j < portedCount; j++) {
+                        var jd = jobDataArray[j];
+                        for (int k = 0; k < jd.editCount; k++) {
+                            var ed = editDataArray[jd.editStartIndex + k];
+                            dense[j * VoxelEngine.WorldGen.SvoPortedGenJob.SLOT + ed.flatIndex] = ed.material;
+                        }
+                    }
+
+                    long genMs = genTimer.ElapsedMilliseconds;
+                    // ONE upload. Per-chunk SetData at a stride measured 3,754 ms
+                    // on a single frame against 16-33 ms of generation.
+                    tempDenseBuffer.SetData(dense, 0, 0,
+                        portedCount * VoxelEngine.WorldGen.SvoPortedGenJob.SLOT);
+                    genTimer.Stop();
+                    if (_portGenFrames < 8)
+                        UnityEngine.Debug.Log($"[GENMODE] ported CPU gen: {portedCount} chunks, " +
+                            $"job {genMs} ms, +upload {genTimer.ElapsedMilliseconds - genMs} ms, " +
+                            $"total {genTimer.ElapsedMilliseconds} ms");
+                    _portGenFrames++;
+                } finally { bases.Dispose(); dense.Dispose(); }
+            } else {
+                worldGenShader.Dispatch(kEval, dispatchesThisFrame * 4, 4, 4);
+            }
+
+            // Step 2: Parallel Reduction Mipmapping (Bottom-Up)
+            worldGenShader.Dispatch(kReduce1, dispatchesThisFrame * 2, 2, 2);
+            worldGenShader.Dispatch(kReduce2, dispatchesThisFrame, 1, 1);
+            worldGenShader.Dispatch(kReduce3, dispatchesThisFrame, 1, 1);
+            worldGenShader.Dispatch(kReduce4, dispatchesThisFrame, 1, 1);
+            worldGenShader.Dispatch(kReduce5, dispatchesThisFrame, 1, 1);
+
+            // SPARSE ALLOCATOR STAGE 2. The counting pre-pass runs over the
+            // SAME job set, from the SAME reduction tree, immediately before
+            // the constructor -- which is the only arrangement in which the
+            // spec's "they must agree exactly" is a real test rather than two
+            // measurements of different worlds. It reads _TempDenseBuffer and
+            // writes only _NodeCounts, so it cannot perturb what follows.
+            // STAGE 3: the count is also the deferral's sizing input, so it
+            // runs unconditionally under the flag (never in a timed run
+            // without it -- same cost class as the verify it replaces).
+            if (verifyNodeCounts || useSparseAllocator)
+            {
+                int kCount = worldGenShader.FindKernel("CountSVONodes");
+                if (nodeCountBuffer == null || nodeCountBuffer.count != maxConcurrentJobs)
+                {
+                    nodeCountBuffer?.Release();
+                    nodeCountBuffer = new ComputeBuffer(maxConcurrentJobs, sizeof(uint));
+                    nodeCountBuffer.SetData(new uint[maxConcurrentJobs]);
+                }
+                worldGenShader.SetBuffer(kCount, "_TempDenseBuffer", tempDenseBuffer);
+                worldGenShader.SetBuffer(kCount, "_JobQueue", jobQueueBuffer);
+                worldGenShader.SetBuffer(kCount, "_NodeCounts", nodeCountBuffer);
+                worldGenShader.Dispatch(kCount, dispatchesThisFrame, 1, 1);
+            }
+
+            // Step 3: Construct the final SVO into global memory using the mapped reduction tree
+            // STAGE 3: deferred under the flag -- phase A ends at the count;
+            // dense slots shuttle to the pending ring and one async readback
+            // carries all counts. Construct runs in ProcessSparseReady when
+            // the readback lands (never blocking the frame).
+            if (useSparseAllocator)
+            {
+                for (int j = 0; j < dispatchesThisFrame; j++)
+                    CopyDenseRange((uint)j, (uint)(maxConcurrentJobs + pendJobSlot[j]));
+                int n = dispatchesThisFrame;
+                var slots = new int[n];
+                for (int j = 0; j < n; j++) slots[j] = pendJobSlot[j];
+                sparseReadbackInFlight++;
+                AsyncGPUReadback.Request(nodeCountBuffer, n * sizeof(uint), 0, (req) =>
+                {
+                    sparseReadbackInFlight--;
+                    // Readback failed (device event): requeue every job so no
+                    // chunk is silently lost, then release the slots.
+                    if (req.hasError || !Application.isPlaying)
+                    {
+                        sparseReadErr += n;
+                        for (int k = 0; k < n; k++)
+                        {
+                            int s = slots[k];
+                            int emi = pendJobs[s].mapIndex;
+                            if (emi >= 0 && emi < totalMapCapacity && pendByMap[emi] == s) pendByMap[emi] = -1;
+                            generationQueues[pendLayer[s]].Add(new LayerCoord { layer = pendLayer[s], coord = pendCoord[s] });
+                            pendSlotUsed[s] = false;
+                        }
+                        return;
+                    }
+                    var d = req.GetData<uint>();
+                    for (int k = 0; k < n && k < d.Length; k++)
+                    {
+                        pendCounts[slots[k]] = d[k];
+                        pendSlotReady[slots[k]] = true;
+                        sparseReady++;
+                    }
+                });
+            }
+            else
+            {
+                worldGenShader.Dispatch(kConstruct, dispatchesThisFrame, 1, 1);
+                for (int j = 0; j < dispatchesThisFrame; j++) MarkBuilt(jobDataArray[j].mapIndex);
+            }
+
+            // The comparison. Two BLOCKING readbacks, which is exactly why this
+            // is behind a flag and never on in a timed run: GetData stalls the
+            // GPU. A verification pass is allowed to be slow; it is not allowed
+            // to be approximate, and an AsyncGPUReadback here would compare a
+            // count against a witness from a different frame's job set.
+            // STAGE 3: phase-A jobs have no witness yet (Construct is
+            // deferred); their comparison happens in ProcessSparseReady.
+            if (verifyNodeCounts && !useSparseAllocator)
+            {
+                var counts = new uint[dispatchesThisFrame];
+                nodeCountBuffer.GetData(counts, 0, 0, dispatchesThisFrame);
+                var map = new ChunkData[totalMapCapacity];
+                chunkMapBuffer.GetData(map);
+                for (int j = 0; j < dispatchesThisFrame; j++)
+                {
+                    int mi = jobDataArray[j].mapIndex;
+                    if (mi < 0 || mi >= totalMapCapacity) continue;
+                    uint witness = map[mi].packedState >> 16;
+                    ncJobs++;
+                    if (witness == counts[j]) ncAgree++;
+                    else
+                    {
+                        ncDisagree++;
+                        if (ncFirstDisagreement.Length == 0)
+                            ncFirstDisagreement =
+                                $"job {j} mapIndex {mi} lodStep {jobDataArray[j].lodStep} " +
+                                $"siloCap {(uint)jobDataArray[j].worldPos.w}: " +
+                                $"CountSVONodes {counts[j]} vs ConstructSVO witness {witness}";
+                    }
+                }
+            }
+            
+            aluTimer.Stop();
+            
+            // FIX: Silenced to prevent massive Garbage Collection CPU spikes!
+            // if (aluTimer.Elapsed.TotalMilliseconds > 6.0) {
+            //      UnityEngine.Debug.LogWarning($"[Profiler] GPU WorldGen Spike: {dispatchesThisFrame} chunks took {aluTimer.Elapsed.TotalMilliseconds:F2} ms");
+            // } else {
+            //      UnityEngine.Debug.Log($"[Profiler] GPU WorldGen: {dispatchesThisFrame} chunks in {aluTimer.Elapsed.TotalMilliseconds:F2} ms");
+            // }
+
+            // --- PHASE 3: THE STUTTER-FIX DISPATCH ---
+            // STAGE 3: lighting runs per deferred build in ProcessSparseReady
+            // (this block's jobDataArray[0] is a phase-A job with no SVO yet).
+            if (voxelLightingShader != null && dispatchesThisFrame > 0 && !useSparseAllocator) {
+                int lightKernel = voxelLightingShader.FindKernel("PropagateSunlight");
+                int spreadKernel = voxelLightingShader.FindKernel("SpreadLight");
+                
+                // Only process the single most important chunk this frame
+                uint rootIdx = (uint)jobDataArray[0].pad1; 
+                voxelLightingShader.SetInt("_RootIndex", (int)rootIdx);
+
+                voxelLightingShader.SetBuffer(lightKernel, "_SVOPool", svoPoolBuffer);
+                voxelLightingShader.Dispatch(lightKernel, 1, 1, 1); 
+
+                // THE FIX: Sync the lighting shader math with the new 38,000 padded LOD 0 cap
+                int layer = Mathf.FloorToInt((float)rootIdx / (chunksPerLayer * 38000f));
+                if (layer == 0) {
+                    voxelLightingShader.SetBuffer(spreadKernel, "_SVOPool", svoPoolBuffer);
+                    voxelLightingShader.Dispatch(spreadKernel, 4, 4, 4); 
+                    
+                    int aoKernel = voxelLightingShader.FindKernel("BakeAO");
+                    voxelLightingShader.SetBuffer(aoKernel, "_SVOPool", svoPoolBuffer);
+                    voxelLightingShader.SetInt("_RootIndex", (int)rootIdx);
+                    voxelLightingShader.Dispatch(aoKernel, 4, 4, 4);
+                }
+            }
+        }
+        jobDataArray.Dispose();
+        editDataArray.Dispose();
+        // Only pull back data when the world actually changes
+        // Only pull back data when the world actually changes
+        // Only pull back data when the world actually changes
+        // if (dispatchesThisFrame > 0) {
+        //     // CRITICAL FIX 2: RequestIntoNativeArray pipes data directly to RAM.
+        //     // This completely eliminates the 75ms "data.CopyTo()" lag spike!
+        //     AsyncGPUReadback.RequestIntoNativeArray(ref masterNodePool, svoPoolBuffer, (request) => {
+        //         if (request.hasError || !Application.isPlaying || !masterNodePool.IsCreated) return;
+        //         // No CopyTo needed here! The memory updates silently in the background.
+        //     });
+        // }
+    }
+
+    public void BindPhysicsData(ComputeShader cs, int kernel) {
+        if (svoPoolBuffer == null || chunkMapBuffer == null) return;
+        
+        // Only bind crosshair/edit data to the RayTracer, not the Physics Scanner
+        if (cs.name == "RayTracer" && crosshairBuffer != null) {
+            cs.SetBuffer(kernel, "_CrosshairTarget", crosshairBuffer);
+            cs.SetVector("_TargetBlock", new Vector4(crosshairData[0], crosshairData[1], crosshairData[2], crosshairData[3]));
+            cs.SetVector("_TargetNormal", new Vector4(crosshairData[4], crosshairData[5], crosshairData[6], 0));
+            cs.SetInt("_IsEditMode", isEditMode ? 1 : 0);
+            cs.SetInt("_EditMode", editMode);
+            cs.SetInt("_BrushSize", brushSize);
+            cs.SetInt("_BrushShape", brushShape);
+            cs.SetFloat("_VoxelScale", voxelScale);
+        }
+        
+        // --- THE CRITICAL FIX: PLUG IN THE DENSE POOLS ---
+        if (denseChunkPoolBuffer != null) cs.SetBuffer(kernel, "_DenseChunkPool", denseChunkPoolBuffer);
+        if (denseLogicPoolBuffer != null) cs.SetBuffer(kernel, "_DenseLogicPool", denseLogicPoolBuffer);
+        
+        cs.SetBuffer(kernel, "_SVOPool", svoPoolBuffer);
+        cs.SetBuffer(kernel, "_ChunkMap", chunkMapBuffer);
+        cs.SetVectorArray("_ClipmapCenters", shaderCenterChunks);
+        cs.SetVector("_RenderBounds", new Vector4(renderDistanceXZ, renderDistanceY, 0, 0));
+        cs.SetInt("_ChunkCount", chunksPerLayer);
+    }
+
+    Vector3Int GetChunkCoord(Vector3 pos, float worldChunkSize) => 
+        new Vector3Int(Mathf.FloorToInt(pos.x / worldChunkSize), Mathf.FloorToInt(pos.y / worldChunkSize), Mathf.FloorToInt(pos.z / worldChunkSize));
+
+    void UpdateGPUBuffers() {
+        Shader.SetGlobalVectorArray("_ClipmapCenters", shaderCenterChunks);
+        Shader.SetGlobalInt("_ClipmapLayers", clipmapLayers);
+        Shader.SetGlobalVector("_RenderBounds", new Vector4(renderDistanceXZ, renderDistanceY, 0, 0));
+        Shader.SetGlobalInt("_ChunkCount", chunksPerLayer);
+    }
+
+   // --- PHASE 2: INTERACTION & DECOMPRESSION ---
+    public void EditVoxel(Vector3Int globalVoxelPos, uint newMaterial, int brushSize = 0, int brushShape = 0) {
+        // 0. Record to Delta Map (Memory)
+        for (int x = -brushSize; x <= brushSize; x++) {
+            for (int y = -brushSize; y <= brushSize; y++) {
+                for (int z = -brushSize; z <= brushSize; z++) {
+                    Vector3Int targetPos = globalVoxelPos + new Vector3Int(x, y, z);
+                    float dist = brushShape == 0 ? 
+                        Mathf.Max(Mathf.Abs(x), Mathf.Max(Mathf.Abs(y), Mathf.Abs(z))) : new Vector3(x, y, z).magnitude;
+                    if (dist <= brushSize + 0.5f) {
+                        RecordEditToDeltaMap(targetPos, newMaterial);
+                    }
+                }
+            }
+        }
+
+        // 1. Calculate the global bounding box of the brush
+        Vector3Int minGlobal = globalVoxelPos - new Vector3Int(brushSize, brushSize, brushSize);
+        Vector3Int maxGlobal = globalVoxelPos + new Vector3Int(brushSize, brushSize, brushSize);
+
+        // 2. Convert to chunk coordinates to see how many chunks are affected
+        Vector3Int minChunk = new Vector3Int(
+            Mathf.FloorToInt(minGlobal.x / 32f),
+            Mathf.FloorToInt(minGlobal.y / 32f),
+            Mathf.FloorToInt(minGlobal.z / 32f)
+        );
+        Vector3Int maxChunk = new Vector3Int(
+            Mathf.FloorToInt(maxGlobal.x / 32f),
+            Mathf.FloorToInt(maxGlobal.y / 32f),
+            Mathf.FloorToInt(maxGlobal.z / 32f)
+        );
+
+        // 3. Loop through every chunk touched by the brush
+        for (int cy = minChunk.y; cy <= maxChunk.y; cy++) {
+            for (int cx = minChunk.x; cx <= maxChunk.x; cx++) {
+                for (int cz = minChunk.z; cz <= maxChunk.z; cz++) {
+                    
+                    Vector3Int chunkCoord = new Vector3Int(cx, cy, cz);
+                    int idx = GetMapIndex(0, chunkCoord);
+                    
+                    // Boundary safety
+                    if (idx < 0 || idx >= totalMapCapacity || chunkTargetCoordArray[idx] != chunkCoord) continue;
+
+                    ChunkData[] gpuData = new ChunkData[1];
+                    chunkMapBuffer.GetData(gpuData, 0, idx, 1);
+                    ChunkData cd = gpuData[0];
+
+                    uint denseIndex = 0;
+                    bool isDense = (cd.packedState & 1) == 1;
+
+                    // Decompress SVO to Dense Array if it hasn't been already
+                    if (isDense) {
+                        denseIndex = cd.densePoolIndex;
+                    } else {
+                        if (freeDenseIndices.Count == 0) continue; // Memory safety limit
+                        denseIndex = freeDenseIndices.Dequeue();
+                        
+                        int decompressKernel = worldGenShader.FindKernel("DecompressSVOToDense");
+                        worldGenShader.SetBuffer(decompressKernel, "_SVOPool", svoPoolBuffer);
+                        worldGenShader.SetBuffer(decompressKernel, "_DenseChunkPool", denseChunkPoolBuffer);
+                        worldGenShader.SetBuffer(decompressKernel, "_DenseLogicPool", denseLogicPoolBuffer); // FIX: Ensure logic state is initialized
+                        worldGenShader.SetInt("_TargetRootIndex", (int)cd.rootNodeIndex);
+                        worldGenShader.SetInt("_TargetDenseIndex", (int)denseIndex);
+                        worldGenShader.SetInt("_PoolSize", svoPoolBuffer.count); 
+                        worldGenShader.Dispatch(decompressKernel, 4, 4, 4);
+
+                        cd.packedState |= 1; 
+                        cd.densePoolIndex = denseIndex;
+                        gpuData[0] = cd;
+                        chunkMapBuffer.SetData(gpuData, 0, idx, 1);
+                    }
+
+                    // Calculate the local edit position RELATIVE TO THIS SPECIFIC CHUNK
+                    int localX = globalVoxelPos.x - (cx * 32);
+                    int localY = globalVoxelPos.y - (cy * 32);
+                    int localZ = globalVoxelPos.z - (cz * 32);
+
+                    int editKernel = worldGenShader.FindKernel("EditDenseVoxel");
+                    worldGenShader.SetBuffer(editKernel, "_DenseChunkPool", denseChunkPoolBuffer);
+                    worldGenShader.SetInt("_TargetDenseIndex", (int)denseIndex);
+                    worldGenShader.SetInts("_EditLocalPos", new int[] { localX, localY, localZ }); 
+                    worldGenShader.SetInt("_NewMaterialData", (int)newMaterial);
+                    worldGenShader.SetInt("_BrushSize", brushSize);
+                    worldGenShader.SetInt("_BrushShape", brushShape);
+                    
+                    worldGenShader.Dispatch(editKernel, 1, 1, 1);
+
+                    // Broadcast that a block changed. If brushSize > 0, we don't spam the event for every block.
+                    if (brushSize == 0) {
+                        OnVoxelChanged?.Invoke(globalVoxelPos, newMaterial);
+                    }
+                }
+            }
+        }
+        
+        // Notify the Physics Manager that the terrain changed so it instantly updates colliders
+        if (VoxelPhysicsManager.Instance != null) {
+            VoxelPhysicsManager.Instance.forceRebuild = true;
+        }
+    }
+
+    public void DamageVoxel(Vector3Int globalVoxelPos, int damageAmount, int brushSize = 0, int brushShape = 0) {
+        // 0. Record destruction to Delta Map (Memory)
+        for (int x = -brushSize; x <= brushSize; x++) {
+            for (int y = -brushSize; y <= brushSize; y++) {
+                for (int z = -brushSize; z <= brushSize; z++) {
+                    Vector3Int targetPos = globalVoxelPos + new Vector3Int(x, y, z);
+                    float dist = brushShape == 0 ? 
+                        Mathf.Max(Mathf.Abs(x), Mathf.Max(Mathf.Abs(y), Mathf.Abs(z))) : new Vector3(x, y, z).magnitude;
+                    if (dist <= brushSize + 0.5f) {
+                        RecordEditToDeltaMap(targetPos, 0); // 0 = Air/Destroyed
+                    }
+                }
+            }
+        }
+
+        // 1. Calculate the global bounding box of the damage area
+        Vector3Int minGlobal = globalVoxelPos - new Vector3Int(brushSize, brushSize, brushSize);
+        Vector3Int maxGlobal = globalVoxelPos + new Vector3Int(brushSize, brushSize, brushSize);
+
+        // Broadcast the explosion zone to any listening logic modules
+        if (brushSize > 0) {
+            OnAreaDestroyed?.Invoke(minGlobal, maxGlobal);
+        }
+
+        // 2. Convert to chunk coordinates to see how many chunks are affected
+        Vector3Int minChunk = new Vector3Int(
+            Mathf.FloorToInt(minGlobal.x / 32f),
+            Mathf.FloorToInt(minGlobal.y / 32f),
+            Mathf.FloorToInt(minGlobal.z / 32f)
+        );
+        Vector3Int maxChunk = new Vector3Int(
+            Mathf.FloorToInt(maxGlobal.x / 32f),
+            Mathf.FloorToInt(maxGlobal.y / 32f),
+            Mathf.FloorToInt(maxGlobal.z / 32f)
+        );
+
+        // 3. Loop through every chunk touched by the damage radius
+        for (int cy = minChunk.y; cy <= maxChunk.y; cy++) {
+            for (int cx = minChunk.x; cx <= maxChunk.x; cx++) {
+                for (int cz = minChunk.z; cz <= maxChunk.z; cz++) {
+                    
+                    Vector3Int chunkCoord = new Vector3Int(cx, cy, cz);
+                    int idx = GetMapIndex(0, chunkCoord);
+                    
+                    if (idx < 0 || idx >= totalMapCapacity || chunkTargetCoordArray[idx] != chunkCoord) continue;
+
+                    ChunkData[] gpuData = new ChunkData[1];
+                    chunkMapBuffer.GetData(gpuData, 0, idx, 1);
+                    ChunkData cd = gpuData[0];
+
+                    uint denseIndex = 0;
+                    bool isDense = (cd.packedState & 1) == 1;
+
+                    // JIT Wake-up logic
+                    if (isDense) {
+                        denseIndex = cd.densePoolIndex;
+                    } else {
+                        if (freeDenseIndices.Count == 0) continue;
+                        denseIndex = freeDenseIndices.Dequeue();
+                        
+                        int decompressKernel = worldGenShader.FindKernel("DecompressSVOToDense");
+                        worldGenShader.SetBuffer(decompressKernel, "_SVOPool", svoPoolBuffer);
+                        worldGenShader.SetBuffer(decompressKernel, "_DenseChunkPool", denseChunkPoolBuffer);
+                        worldGenShader.SetBuffer(decompressKernel, "_DenseLogicPool", denseLogicPoolBuffer);
+                        worldGenShader.SetInt("_TargetRootIndex", (int)cd.rootNodeIndex);
+                        worldGenShader.SetInt("_TargetDenseIndex", (int)denseIndex);
+                        worldGenShader.SetInt("_PoolSize", svoPoolBuffer.count); 
+                        worldGenShader.Dispatch(decompressKernel, 4, 4, 4);
+
+                        cd.packedState |= 1; 
+                        cd.densePoolIndex = denseIndex;
+                        gpuData[0] = cd;
+                        chunkMapBuffer.SetData(gpuData, 0, idx, 1);
+                    }
+
+                    int localX = globalVoxelPos.x - (cx * 32);
+                    int localY = globalVoxelPos.y - (cy * 32);
+                    int localZ = globalVoxelPos.z - (cz * 32);
+
+                    int damageKernel = worldGenShader.FindKernel("DamageDenseVoxel");
+                    worldGenShader.SetBuffer(damageKernel, "_DenseChunkPool", denseChunkPoolBuffer);
+                    worldGenShader.SetBuffer(damageKernel, "_DenseLogicPool", denseLogicPoolBuffer);
+                    worldGenShader.SetInt("_TargetDenseIndex", (int)denseIndex);
+                    worldGenShader.SetInts("_EditLocalPos", new int[] { localX, localY, localZ }); 
+                    worldGenShader.SetInt("_DamageAmount", damageAmount);
+                    worldGenShader.SetInt("_BrushSize", brushSize);
+                    worldGenShader.SetInt("_BrushShape", brushShape);
+                    
+                    worldGenShader.Dispatch(damageKernel, 1, 1, 1);
+                }
+            }
+        }
+        
+        if (VoxelPhysicsManager.Instance != null) {
+            VoxelPhysicsManager.Instance.forceRebuild = true;
+        }
+    }
+    void OnDisable() {
+        ReleaseEditState();
+        DisposePortState();   // Stage Y2b: ported-generator containers are Persistent.
+
+        // chunkMapArray and chunkTargetCoordArray are MANAGED arrays
+        // (ChunkData[] / Vector3Int[], declared at the top of this file), not
+        // NativeArray<T>. Managed arrays have no .IsCreated and no .Dispose()
+        // and are collected by the GC, so the calls that used to be here were
+        // left over from a half-finished NativeArray -> managed refactor and
+        // did not compile. Setting them null is enough, and makes the intent
+        // explicit next to the GPU buffer releases below.
+        //
+        // The refactor direction was chosen by the declarations, not by
+        // preference: every other use of these two arrays in this file
+        // (indexing, .Length, `== null` checks at lines 190/199) is already
+        // managed-array code. Only this teardown was stale.
+        chunkMapArray = null;
+        chunkTargetCoordArray = null;
+        
+        // Release GPU buffers
+        svoPoolBuffer?.Release(); 
+        chunkMapBuffer?.Release(); 
+        jobQueueBuffer?.Release();
+        tempDenseBuffer?.Release();
+        tempDenseBuffer?.Release(); // NEW
+        deltaMapBuffer?.Release();
+        materialBuffer?.Release();
+        denseChunkPoolBuffer?.Release(); 
+        denseLogicPoolBuffer?.Release();
+        crosshairBuffer?.Release();
+        nodeCountBuffer?.Release();
+        
+        svoPoolBuffer = null;
+        chunkMapBuffer = null;
+        jobQueueBuffer = null;
+        tempDenseBuffer = null;
+        tempDenseBuffer = null;
+        materialBuffer = null;
+        denseChunkPoolBuffer = null;
+        denseLogicPoolBuffer = null;
+        deltaMapBuffer = null;  // FIX: Prevent zombie buffer crash
+        crosshairBuffer = null; // FIX: Prevent zombie buffer crash
+    }
+
+    /// The engine's own yellow FPS label; the playground turns it off.
+    [System.NonSerialized] public bool showFpsLabel = true;
+
+    void OnGUI() {
+        if (!showFpsLabel) return;
+        GUI.Label(new Rect(20, 20, 200, 40), $"FPS: {1.0f / deltaTime:0.}", new GUIStyle { fontSize = 30, normal = { textColor = Color.yellow } });
+    }
+
+    // public bool IsSolid(Vector3Int gridPos) {
+    //     if (gridPos.y < -10) return true;
+
+    //     // 1. Convert global grid to Chunk + Local coordinates
+    //     Vector3Int chunkCoord = new Vector3Int(
+    //         Mathf.FloorToInt(gridPos.x / 32f),
+    //         Mathf.FloorToInt(gridPos.y / 32f),
+    //         Mathf.FloorToInt(gridPos.z / 32f)
+    //     );
+
+    //     int idx = GetMapIndex(0, chunkCoord);
+    //     if (idx < 0 || idx >= totalMapCapacity) return false;
+
+    //     // --- CRITICAL FIX: THE BLINDSPOT VERIFICATION ---
+    //     // If the coordinate registered in this slot does not perfectly match
+    //     // the coordinate we are asking for, the GPU data is stale. Return false.
+    //     if (chunkTargetCoordArray[idx] != chunkCoord) return false;
+
+    //     uint rootIndex = chunkMapArray[idx].rootNodeIndex;
+    //     if (rootIndex == 0xFFFFFFFF) return false;
+
+    //     // 2. Traverse the SVO on the CPU
+    //     uint nodeIndex = rootIndex;
+    //     int size = 32;
+    //     Vector3Int localPos = new Vector3Int(
+    //         ((gridPos.x % 32) + 32) % 32,
+    //         ((gridPos.y % 32) + 32) % 32,
+    //         ((gridPos.z % 32) + 32) % 32
+    //     );
+
+    //     for (int i = 0; i < 6; i++) {
+    //         SVONode node = masterNodePool[(int)(nodeIndex & 134217727)];
+    //         if (node.childIndex == 0) return (node.material & 0xFF) != 0;
+            
+    //         size >>= 1;
+    //         int cx = (localPos.x >= size) ? 1 : 0;
+    //         int cy = (localPos.y >= size) ? 1 : 0;
+    //         int cz = (localPos.z >= size) ? 1 : 0;
+            
+    //         localPos -= new Vector3Int(cx * size, cy * size, cz * size);
+    //         nodeIndex = node.childIndex + (uint)(cx + cy * 2 + cz * 4);
+    //     }
+    //     return false;
+    // }
+}

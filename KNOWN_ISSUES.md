@@ -42,6 +42,23 @@ real and separate reason — see the LOD-cascade finding in
 
 ## Known open issues (act on these, don't rediscover them)
 
+- **THE GPU FLUID CA READS ITS TERRAIN FROM THE TIER-0 GPU MIRROR BOX (found task 93e, 2026-10-16; FIXED 2026-10-16 by the FLUID TERRAIN DIRECTORY, owner Q55 (b) -- see the last sub-bullet; the 16^3 box is now the default with `-shells 1`).**
+  - `FluidCA.compute` `SampleVoxel` reads `ClipmapBuffer` / `BrickDataBuffer` and returns AIR outside the box. The fluid active radius is 128 m (`FLUID_ACTIVE_RADIUS_VOXELS`).
+  - Today's tg2 box (32 x 8 x 32, +-192 m) covers that. Task 93e's 16^3 box (`-smallmirror 1`, opt-in) covers only >= 89.6 m.
+  - So awake fluid between the box edge and 128 m would see rock and water as air. The CPU apply re-validates every op (`FluidOpListReadback.ApplyRange`), so the world is not corrupted. But that fluid stops flowing (stale ops dropped).
+  - Amendment 8.15 §1.2 lists the fluid CA as NEAR (128 m, every preset); it did not account for this read path.
+  - Any smaller GPU box needs either the owner's OK to give the fluid CA box reach, or a separate terrain source for fluid outside the box.
+  - **FIX (task 93e second run, Q55 (b)): `TerrainClipmap.FluidDir.cs`.** Resident chunks OUTSIDE the box that a resident fluid tile (+1 voxel) touches
+    (`FluidGpuSimulation.PublishFluidChunks` each tick) get an entry in a second lookup: index by STORE-ring slot (pow2, `&` mask) -> entry,
+    entry coords (alias check), 4,096 handles per entry; dense bodies at their CPU pool index in `BrickDataBuffer`. Written FROM the CPU in
+    `UploadDirty` under the same budget; an index slot is published after its handles and cleared at once on unwant / evict / entering the box.
+    `SampleVoxel` reads it outside the box (`_FluidDirRing.w` = 0: the old AIR path). The wake gate waits for the entry (`FluidDirHolds`).
+    64 entries (1 MB) at start, grows to 1,024 (16 MB, refusals counted). `-fluiddir 0` = without it (fluid past the box freezes again).
+    Evidence: `FluidTerrainDirTests` (water at ~106 m, outside the real 16^3 box, flows move for move as with the CPU's terrain and as inside the box);
+    `MODE=fluidprobe EXTRA="-shells 1 -shellworkers 3 -fluidfar 110"`: a pool 111 m away, out of the box: 0 ops in 20 s with `-fluiddir 0`,
+    10,212 of 13,671 voxels moved out of the box with it (`Logs/overnight/93e2-fluid-{before,after}.out`). **Task 93f (D3, GPU brick pool)
+    must map these entries' dense bodies too** (they are read at their CPU pool index today).
+- **SHELLS (`-shells 1`) COST +10-15 ms AT STEADY STATE AND NEVER FILL WHILE WALKING (task 93b, 2026-10-15, NOT FIXED -- cost: the primary shell march (93b4; read caches -0.6 to -2.4 ms; task 99's sky-ray exit -4.7 / -2.6 ms, ON; 93b5's air-brick mask halves its iterations but saves at most ~2 ms; exact one-leap version -2.1 / +0.8 ms, off); fill: throughput fixed by 93b2, brick caps fixed by 93b2 part two (fill on shells 1-2), walking now short on WORKERS; fill cost cut to ~5-15 ms/chunk by 93b2d; `Screenshots/93b/perf93b.txt`).** Play settings (fsr3 540, quality, far band + shadows + far shading), warm, ABBA. Steady (cost split, streaming pinned): p50 52.4 -> 67.6 ms (walk_near), 35.9 -> 46.3 (walk_open); filling longer (420 s) changes nothing. Paired arms (93b; the split is WRONG, see FAR-BAND HALF below): shell march ~+3 ms over tiers 1-2; the far band drawn AFTER the shells (`tFar = tShellEnd`, task 85) costs ~+11 ms more than after the tiers (far_off saves 13-19 ms ON vs 2-6 OFF). **FAR-BAND HALF, task 93b3 (2026-10-16; `Screenshots/93b3/split/`, `Logs/costsplit_2026-10-16_194728.txt`, one ON launch, `-keeptiers 1`, battery 21 -> 13%): the far band costs ~0 after the shells; the +12-15 ms is the SHELL MARCH.** 93b's `far_off` arm binds a 1-element dummy as `FarResident`, and `ShellMarch` reads it for the tier-0 hand-over (`ShellTier0Holds` / `ShellTier0Missing`): with it every primary shell march ends ABSENT at its first tier-0 voxel, so `far_off` turned the shells off too. Clean arms (saved p50 ms, walk_near / walk_open): `farprim_off` (far march 0 steps, residency bound) -0.1 / +0.9; `fshadow_off` +0.1 / -0.1; `fshade_off` -0.1 / +1.2; `shells_off` (tiers 1-2) +15.5 / +12.2; `tiers_farprim` +15.8 / +15.3; `far_off` +16.0 / +19.2. Far counters (ShadowStats 40-47, far-shading kernel): after the shells 0.8 far steps per far ray (walk_open; every far start = a shell ABSENT end, mean 51 m), after the tiers 19-20 steps per ray. Shell-march heat (`-costsplit` `_shellheat.png`, debug view 13): walk_open distant terrain 49-96+ iterations per pixel, sky 25-48 (ends ABSENT at ~51 m); walk_near only a top-right patch reaches the shells (red, >= 96) yet the shells still cost +15.5 ms there. **SPLIT, task 93b4 (2026-10-16, AC power, warm; `Screenshots/93b4/`, `Logs/costsplit_2026-10-16_223720.txt`): the PRIMARY shell march (`ShellMarch(rayStart, ...)` in CSMainBody) is the cost; the shell-hit sun shadow is small; nothing else runs per pixel.** Saved p50 ms (walk_near / walk_open): `shellmarch_off` (primary shell march + the far march after it skipped) +13.7 / +19.1; `shellshadow_off` +3.0 (26 shadow rays a frame: noise, FULL range 3.9) / +2.4 (31.8 k rays x 16.6 iterations); `shells_off` +15.5 / +11.3. Counters (ShadowStats 48-59, far-shading kernel): walk_near 5.8% of pixels (the top-right sky) run the march at 94 iterations each (2.85 M a frame, 5.5 per pixel; SIMD lanes wait on them); walk_open 62% at 40.7 (no hit, ends ABSENT ~51 m) / 105.9 (hit) iterations, 30.3 per pixel. Iterations by step: AIR BRICKS of paged chunks 75% / 43%, uniform air chunks 13% / 34%, tier-0 leaps 10% / 17%, cells 1% / 6%. So the cost is the ITERATION COUNT (no empty-space skipping inside a paged shell chunk), not the per-iteration reads. FIX (93b4, byte-identical: 0 px differ, no-upscaler stills): one-entry resolve + page caches in `ShellMarch` (`SHELL_CACHE_ON`; CPU twin `ShellRayReference.March(useCache)`, `ShellMarchCacheTests`): directory reads per iteration 0.90 -> 0.20 / 0.89 -> 0.46; p50 66.3 -> 63.7 (walk_near, noise 1.6) / 47.9 -> 47.3 ms (walk_open, noise 0.2) (`Logs/costsplit_2026-10-16_233425.txt`, ABBA in one launch). The rest needs design (owner question in 93b4's HANDOFF: an air-brick mask for shell chunks). **AIR-BRICK MASK, task 93b5 (owner Q58 (a), 2026-10-17, AC power, warm; `Screenshots/93b5/`): iterations down as estimated, frame time NOT -- the iteration count is not the lever it looked like.** A 64-bit mask per shell page (bit = a 4x4x4-brick group holds a non-air brick; `ShellStore` header AIR-BRICK MASK, the page buffer's tail, 33 KB High / 62 KB Ultra), built on every Store (generated, op/summary redraws, fill), exact by test (`ShellAirMaskTests`: page scan, 3,063 rays mask on = off field for field, a mutation caught). `ShellMarch` uses it EXACTLY: in an empty group it takes the same one-brick `LeapSpanReseedClosedForm` calls in an inner loop with no reads (one closed-form leap over the group rounds t differently). 0 px differ (no-upscaler stills, both poses). Shell iterations per pixel 5.53 -> 2.49 (walk_near, -55%) / 30.33 -> 21.68 (walk_open, -29%), but p50 mask on vs off: +2.8 / +0.6 ms SLOWER (`Logs/costsplit_2026-10-17_023103.txt`, noise 0.1) and +1.3 / +1.3 (`..._025258.txt`, noise 1.2-1.7); p99 worse too. The inner loop still does every brick leap (1.56 M / 4.31 M a frame) and splits SIMD lanes between two loops. Diagnostic `shellgroup` arm (one closed-form leap per empty group, NOT bit-exact, capture only): 63.9 / 46.0 vs off 65.4 / 48.0 ms = -1.5 / -2.0 ms, 0 px differ in the same stills. So even the whole air-brick share is worth ~2 ms of the shells' +12-15: most of the march's cost is not its air-brick steps. **EXACT GROUP LEAP, task 93b5 (b) (Queue decisions Q59, 2026-10-17, AC power, warm; warm-up `Logs/tg2world_20261017_040606.txt`, `Logs/costsplit_2026-10-17_041222.txt`, `Screenshots/93b5b/`):** the inner loop is replaced by ONE leap per empty group, made exact by an EXIT-PLANE leap (`ShellLeap`: t = (plane - start) x tDelta from the plane itself; an axis crosses exactly the planes whose t <= the exit t, corrected against that t, no eps; normal = the first axis whose crossed plane has that t), so a leap's state depends on its exit t alone (`ShellAirMaskTests`: one group leap = its brick leaps on 20,000 rays incl. 5,624 edge/corner exits; 3,063 rays mask on = off field for field; GPU raw stills mask on vs off 0 px at both poses). Shell iterations per pixel (today -> mask) 5.53 -> 2.56 / 30.33 -> 21.89. But the exit-plane leap ALONE (no mask, arm `shellleap_new`) costs +5.0 / +6.1 ms p50, and vs today's march the mask + that leap is 63.5 vs 65.7 ms (-2.1, noise 2.8, p99 189 vs 106) at walk_near and 49.0 vs 48.2 (+0.8, noise 1.2) at walk_open; the new t also moves 440 px (0.021%, scattered 1-7 level speckles on the distant sea, walk_open; walk_near 0) vs today. So mask use stays OFF (`-shellmask 1`), and mask off keeps the OLD leap byte for byte (`SHELL_PLANE_LEAP`); owner question in 93b5's HANDOFF. The CPU side (3 workers) costs ~0. Shells 1-2 (and 3 at walk_open) go FULL (page cap) at both walk poses with 200-1,140 chunks unstored. Moving (MODE=walk 5 m/s): shell 1 holds only ~76-208 chunks, shells 2-7 none, the whole walk; 2,347 shell chunks generated in 3 min, 1 over-budget frame -> NOT the upload cap. **FILL HALF, task 93b2 (2026-10-16; `Screenshots/93b2/`): TWO causes, counted per shell (`ShellStreamer.Counters.cs`; `-walkshellwait S` waits at the start pose first).** (1) THROUGHPUT, FIXED: ~90% of a shell chunk's generation was its column pass, which depends on (shell, x, z) only and ran once per LAYER (13 per shell-1 column; task 30's tier-0 bug). Column reuse + column affinity (`ShellStreamer` header COLUMN AFFINITY; `-shellcolreuse 0` = old): generated in one launch 3,598 -> 9,948; walk's end held s1 207 -> 1,049, s2 125 -> 351, s3 146 -> 639, s4 0 -> 141 (`Logs/tg2world_20261016_{033121,034216}.txt`). Not churn at the hole edge, not drops (dropped on arrival 10-20 per launch), not recentres. (2) BRICK POOL CAPS, NOT FIXED (owner): at the walk's start pose shell 1 is FULL on BRICKS (not pages) at 1,130-1,338 of 2,168 chunks (~55%), shell 2 at 510-610 of ~2,000 (~28%); unfilled shells 1-2 are 67% mixed chunks (caves below the surface) vs 26% in filled shell 3. And shell 1 alone takes ~77% of 3 workers while walking, so shell 3 still drains. Target >= 90% of the band NOT met; see 93b2's HANDOFF. **PART TWO (owner Q54 (a), 2026-10-16): task 83's cave fill now runs on shells 1-2 too (`FIRST_FILL_SHELL` = 1; `-shellfillfrom 3` = the old bytes, diagnostic).** Same build, 3 min walk, counts only (`Logs/tg2world_20261016_{144656,144009,145541}.txt` = A2 fill-from-3, B2/B3 fill-from-1): (2) CAPS FIXED -- start pose: shell 1 complete in 52-53 s (2,170/2,170, 68% of its brick cap) vs FULL at 1,339; shell 2 1,963-1,990/2,001 at the walk's start (82% of its cap) vs FULL at 612; FULL refusals over the launch s1 14 -> 0, s2 13 -> 0. WALKING, NOT FIXED and now WORSE for shells 2-3: walk's end s1 948 -> 766-769, s2 322 -> 135-147, s3 644 -> 416-467, s4 142 -> 6-40. Cause: the fill costs +24-25 ms per shell-1 chunk on a worker at the start pose, +44-54 ms over the launch (column + voxel 19-20 / 41-44 ms), shell 2 +27-29 ms; most of it is the MOUTH pass (Editor, shell 1: generator 91, fill without mouths 107, with mouths 148 ms, `Logs/Shells/fill83_prefilter.txt`). Shell 1 never goes FULL any more, so nothing rations it: it takes ~80% of the 3 workers while walking (28 chunks/s) and shell 2 gets NONE (B3: 0 shell-2 chunks generated in the 3 min walk). Not a cap, not churn: WORKER THROUGHPUT (owner question in 93b2's HANDOFF). Memory ON: +387 MB peak (2,940 MB), Metal +340 MB, tiers 1-2 still allocated. **FILL COST, task 93b2d (owner Q56 (a), 2026-10-16; `Screenshots/93b2d/`): FIXED to <= ~10 ms per shell-1/2 chunk, same bytes.** The fill timed per phase (`ShellChunk.FillMs`, `ShellStreamer.CountersReport` lines `f1..`): the cost was NOT the mouth sub-sampling (0.7-7 ms) but the mouth CANDIDATE SCAN (24-41 ms per filled chunk on a worker; `TouchesSeed` on every solid fill-zone voxel of 2M) plus the flood's seed scan (2-5 ms). Both scans now start each column at `ScanLo` (below it no seed can touch: the column's and its side neighbours' open height, halo/top seeds, op boxes); `-shellfillfast 0` = the old scans. Fill per filled chunk, whole launch, same build, ABBA on battery (A2 after a 14 min idle gap): s1 52.1 / 45.4 -> 9.3 / 9.5 ms, s2 40.8 / 35.2 -> 8.8 / 9.3, s3 47.3 / 36.7 -> 14.1 / 15.1. Walk's end held A -> B: s1 938-1,001 -> 1,216-1,303, s2 390-471 -> 677-701, s3 602-654 -> 650-654, s4 135-312 -> 257-338; start pose s1 complete 33-42 -> 23-24 s, s2 70-92 -> 61-65 s (`Logs/tg2world_20261016_{183836,184518,185200,191249}.txt`). TARGET >= 90% STILL NOT MET (s1 ~58%, s2 ~32%, s3 ~39%): shell 3 gets NO worker during the walk in any arm (its chunks cost 17 + 104-113 ms column + voxel), shell 1 takes the workers (10,700 generated, 8,700 evicted as the box moves). **93b RE-RUN (2026-10-17, after 93b2/93b2d/93b3/93b4/93b5/93d-g, mask off):** steady still +12.7 ms (walk_near 53.3 -> 66.0) / +13.9 ms (walk_open 34.1 -> 48.0), noise 0.0-0.9; shells 1-3 now FILL at the pinned pose (7/38/89 s), so filled or not the cost is the same. Shells not drawn (tier 0 + far band, tiers 1-2 no longer allocated) = 50/30 ms, 3-4 ms UNDER today's play: the shell march costs ~16-18 ms, tiers 1-2 ~4 ms. Moving (walk): ON 42.3 = OFF 42.0 ms p50, >33 ms 79% both; shell 1 holds ~1,000-1,860 of 2,170 and shell 2 ~400-800 (was ~76 / 0), shells 3-7 still 0 while walking. Peak memory ON 2,422 vs OFF 2,380 MB, Metal 1,304 vs 1,179 MB; GPU body pool peak 243,847 of 254,400 (96%). `Screenshots/93b/rerun/perf93b_rerun.txt`. **SKY-RAY EXIT, task 99 (owner Q61 (a), 2026-10-17, AC power, warm; warm-up `Logs/tg2world_20261017_101838.txt`, `Logs/costsplit_2026-10-17_102453.txt`, `Screenshots/99/`): FIXED a part, ON by default.** A rising shell ray whose voxel is at or above `ShellStreamer.SolidTopY` (running max, never lowered, of the top of every non-air brick a `ShellStore.Store` was given, redraws included) -- and, for a primary ray with the far band on, 2 voxels over the far band's max height (`FarMarch`'s first test then stops it at once from any later t) -- ends there as a no-hit (`ShellSkyY`, `SHELL_END_SKY`; CPU twin `ShellRayReference.March(skyY)`, `ShellSkyExitTests`). Exact: no-upscaler stills ON vs OFF 0 px at both poses. ABBA in one launch, p50 (p99) ms: walk_near 63.6 (111) -> 58.9 (106), -4.7, noise 0.9; walk_open 46.6 (88) -> 44.0 (81), -2.6, noise 0.6. Iterations per SKY ray (no shell or far hit): 94.3 -> 82.2 (walk_near) / 39.7 -> 29.9 (walk_open); 100% / 89% of sky rays end by the exit. Bound in play: shell top 1,100.8 m, far max 1,100.0 m (the world ceiling), so walk_near's rays (eye ~956 m) still climb ~145 m first. `-shellskyexit 0` = the old march. What is left of the shells' cost: walk_open's HIT rays (105.9 iterations each, 6% of pixels) and the sky rays' climb to the bound (air chunks 47% / tier-0 leaps 17-20% of iterations). **PLAY DEFAULT, task 93c (owner Q63 (a), 2026-10-17): play (`./run-play.sh`) now STARTS with the shells ON (3 workers; F6 "LOD shells" / `-shells 0`), without 93b's third run.** Standing-still frames in play are expected ~8-11 ms slower than the old default (estimate: 93b re-run's +12.7 / +13.9 minus task 99's -4.7 / -2.6; NOT measured), equal while walking; checked at the next performance milestone (`later/102-shell-march-cost.md`). Rigs/capture runs unchanged (shells only with `-shells 1`).
 - **OWNER PAUSE (`tools/heavy.sh pause|resume|status`, tasks 14/14b, 2026-10-03) DRAINS, it does not freeze.** The current lock holder runs to completion; every new `unity_lock_acquire` waits (no timeout) until `resume`, then the usual 45 s clear check. It takes effect at the next LOCK ACQUISITION or, since task 16, at the next LAUNCH of a script that takes the lock once and loops (`run-lavalight-ab`, `run-upscale-ab`, `run-roofskip-ab`, `run-perf60`, `run-looksweep`, `run-overhaul-batch`, `run-flyfast`, `run-farband`, `run-phase7-lighting-ab`): each calls `unity_hold_wait` before every player launch / build step / sub-rig, KEEPING the lock while it waits (`resume` touches it), and before the `sleep 60` / `COOL` settle, so the settle follows the pause. Those in-loop waits skip the 45 s clear check (the script owns the lock). Proven 2026-10-03 on `ORDER="S S" MINUTES=1 ./run-perf60.sh` (`Logs/overnight/16_perf60_pause.out`): launch 1 finished, `held by owner pause -- waiting`, listed under "waiting on the pause", ran arm 2 after `resume`. A NEW looping script must do the same or it drains to its end; per-launch callers (`run-tg2world.sh` loops) stop at the next launch. A run that printed `NOTE: owner paused during this run` may have contaminated timings (Mac likely in use) -- rerun that arm. Nothing frees RAM early any more (the owner dropped `--kill`).
 - **SAVE-CAPPED EVICTIONS ARE NEVER RETRIED UNTIL THE CAMERA MOVES A CHUNK -> stray resident chunks alias into the GPU mirror box (task 21, 2026-10-04; FIXED by task 26, 2026-10-04 -- see the last sub-bullet).** `MAPV=4 MODE=poses`: the validator reports `MIRROR lost 12232 / 5249 / 0` and `stale 2 / 2 / 1` at `peak_from_2km_ground` / `summit_view` / `glide_400m`, and 0/0/0 from `coast_from_sea_30m` on. The counts and the stale example coordinates are identical in all 3 v4 runs (B2 run, `Logs/overnight/21_arm1_v4.out`, `21_arm3_v4.out`), so this is deterministic, not timing. Map v3 shows 0 on every pose (`21_arm2_v3.out`, `21_arm4_v3.out`). The pattern is the 4-per-frame save cap: resident count is 3096 / 3092 / 3088 / 3087 = the 21x21x7 box + 9 / 5 / 1 / 0. Each teleport evicts 4 more. Cause (read from the code, not instrumented):
   - `StreamManager.EvictOutOfRange` runs only on camera-chunk change. It `continue`s past out-of-range `deltaDirty` chunks once `MAX_CHUNK_SAVES_PER_FRAME` (4) saves are done, and nothing retries them while the camera holds still.
@@ -274,8 +291,11 @@ real and separate reason — see the LOD-cascade finding in
   uncommitted pre-`4d0d03c` code, so a difference in the code is a likelier
   cause than the order of the jumps. Closed unless the wall shows up again.
 
-- **TAA EXISTS, OFF BY DEFAULT (task 06, 2026-10-02). Risk checks done in
-  task 07 (results below); still OFF until the owner compares stills.** `-taa 1` or Playground F4
+- **TAA EXISTS, OFF BY DEFAULT on the preset path (task 06, 2026-10-02). Risk checks done in
+  task 07 (results below). Task 52 (2026-10-10, owner Q38 (a), after comparing tasks 48/50/51):
+  interactive play now starts with FSR 3 dyn (`UpscalerSelect`), whose resolve replaces this one;
+  `-taa 1`, `-checker 1` or `-renderpreset` keep the old preset path, `-upscaler taa` is TAA at
+  540/720 rows. Rigs and capture modes are unchanged.** `-taa 1` or Playground F4
   (`RaymarchFeature.Taa`); `-taasharpen <percent>` (default 25). Raymarch.compute's
   TAA block: Halton(2,3) 8-frame jitter of the primary ray, reprojection of the
   exact hit point (far band and sky too) through the previous UNJITTERED
@@ -336,7 +356,7 @@ real and separate reason — see the LOD-cascade finding in
   hides the rest. At the 960 Quality gate the TAA passes cover 4x the pixels;
   not measured. Logs `Logs/overnight/07_cost_arm*_taa*.out`.
   **TASK 08 CHECKERBOARD (2026-10-03), `-checker 1` (implies TAA), OFF by
-  default.** Kernel `CSMainChecker` (CSMain's body with a compile-time
+  default** (and `-checker 1` keeps play on the preset path, not task 52's FSR 3 default). Kernel `CSMainChecker` (CSMain's body with a compile-time
   `checker = true`) runs at half width, tracing pixels with ((x + y) & 1) ==
   parity, which flips every frame. TaaResolve: a traced pixel resolves as before
   but uses only traced neighbours (itself + diagonals; +-2 for the depth slope);
@@ -493,9 +513,13 @@ real and separate reason — see the LOD-cascade finding in
   the voxels there show too. Turning it to rock means changing the VOXEL rule
   as well (~60% of land is steeper than 30°), which is an art/terrain decision.
 - **The placeholder player can run up ~70° slopes** (3-voxel step-up on every
-  blocked move, no slope rule, `PlayerMotor.MoveAxisWithStepUp`). Terrain can't
-  be judged as an obstacle until the character is designed -- the owner does
-  NOT want movement rules designed yet.
+  blocked move, no slope rule, `PlayerMotor.MoveAxisWithStepUp`). **FIXED IN PLAY
+  by task 93f1** (gameplay step 5): `Step(dt, in MotorInput)` auto-steps only when
+  the next 0.5 m rises <= 30 deg, slides on steeper ground, climbs faces >= 60 deg
+  with stamina (`ClimbSlopeTests`). The LEGACY `Step` (rigs) is unchanged: it still
+  steps up anywhere, and its settle loop (repeated 0.1 m float subtractions) stalls
+  on long ramps when the feet sit exactly on a row with no skin (after Teleport):
+  a 45 deg ramp stops at 0.5 m. The abilities path settles in whole rows + skin.
 - **Phantom geometry: `ClipmapValidator.CountStaleSlots`** (commit `d60d986`)
   counts mirror positions with no resident chunk that still draw. First use: 1
   stale slot at one pose, still dirty (queued clear), 0 elsewhere. Not closed.
@@ -519,7 +543,16 @@ real and separate reason — see the LOD-cascade finding in
   existing "Burst == Mono" benchmark runs in the IL2CPP player, not the Editor.
   TerrainGen's gate is therefore Burst self-consistency (one compiled path for
   every authoritative evaluation), with the Editor-Mono rate reported.
-  **The PLAYER'S WORLD MAP IS NOT THE EDITOR'S (found 2026-10-08, task 32c, NOT FIXED).**
+  **FIXED for the world map (task 45, 2026-10-10, engine plan step 1):** the whole
+  map build (regions, features, easy areas, erosion, fine map, hydrology, record,
+  routes, Offsets.For) now runs in ONE Burst job (`MapJob.cs`, job in the
+  `TerrainGen.Burst` assembly; Strict/High) in the Editor AND the player, and throws
+  if it ever runs managed. seed 42 v4 Height FNV: Editor `639552DD962C4B28` ==
+  player `639552DD962C4B28` (`Logs/tg2world_20261010_005419.txt`), pinned by
+  `WorldMapBurstTests`. Still Mono-vs-IL2CPP: managed callers of `ShapeField.Sample`
+  outside jobs (StreamManager's spawn sample, FarBand capture probes) -- not the map.
+  The text below is the history.
+  **The PLAYER'S WORLD MAP IS NOT THE EDITOR'S (found 2026-10-08, task 32c; FIXED task 45).**
   seed 42 v4 `WorldMap.Height` FNV: IL2CPP player `B387F054A29997D4`, Editor/tests
   `BD4343C5D13F55BF`; cell (613,259) 1169.15 vs 1160.16 voxels. Erosion amplifies the
   float differences. So EditMode map tests and `PlayMetricsReport` check a map that
@@ -580,6 +613,18 @@ real and separate reason — see the LOD-cascade finding in
   Bloom/Vignette/tonemap otherwise tints the frame grey once post is on for
   FSR). Measured: Performance 15.1-15.6 ms, 16.8 ms pitched at the ground,
   Balanced 19.7 ms, vs 55.2 ms shipped (`Logs/perf60_20260926_031103.txt`).
+- **TEMPORAL SHADOW REUSE SHOWED THE NEIGHBOURS' SHADOWS -- the owner's "shadow dots"
+  (BUGS #1; found and FIXED task 56, 2026-10-10).** Play has `-tshadow` ON (every preset,
+  and FSR 3 keeps it). The history was looked up at the hit voxel's CENTRE (inside the
+  solid: on a top face seen from walking height it projects ~1.5 voxels nearer, onto the
+  neighbour's face) and accepted on a 2%/2-voxel depth window the neighbour passes, so the
+  3 of 4 tiles not tracing that frame showed a lattice of 8x8-pixel squares at a low sun.
+  Now: the pixel's surface point is reprojected and the history is keyed by the shadow-
+  origin cell (`ShadowOriginKey`). `./run-shadow-dots.sh` (`-shadowdots`) checks the
+  sunVis view against ShadowRayReference per pixel: golden hour, -tshadow 1, false-dark
+  1.1-5.4% -> 0.01-0.53%, identical to -tshadow 0. The left-over 0.4-0.5% false-dark and
+  the ~0.3-0.6% false-lit (both modes, slope2/shore) are the oracle-vs-shader gaps already
+  stated in PHASE_7_COMPLETION.md (dense-brick-only penumbra), not looked into further.
 - **WHILE THE CAMERA MOVES, 8-10% OF FRAMES EXCEED 33 ms (found 2026-09-26, NOT
   FIXED).** Present at every preset. Not the fluid (`-nofluid`), not the HUD
   (`-nohud`). The one valid still-camera arm had the same mean and ~0 such
@@ -758,6 +803,24 @@ real and separate reason — see the LOD-cascade finding in
     (2) Stepped tg2 lake surfaces wake ~500k slots when touched (terrain generator).
     (3) At the coast the WAKE QUEUE (capacity = maxOpsPerFrame) is full of op wakes, so the
     placed box's own 1,029 wakes were dropped and it flowed slowly.
+  - **TASK 54 (2026-10-10): tiles only for AWAKE fluid** (`FluidTileMap.AwakeOnly`, on in
+    Playground; `-awakeonly 0` = the mask policy above, a measurement seam). Resting sea, lakes
+    and sand take no tile; a tile is admitted by a wake or an applied op (plus the tiles across
+    any face the op touches) and released after `QuietTicks` (488) ticks with no op or wake. A
+    tile released while still active is remembered and re-admitted (with the recentre seed)
+    when the player returns. Coast poolprobe, same build: refused tiles 2,037,814 -> 0, pool
+    peak 1024 -> 32, placed box's wakes dropped 1,029 -> 0, box 1029 -> 3 voxels in 480 frames
+    (was 416 left). Items (1) and (3) above are closed in Playground; the 1,024-tile pool is
+    still ALLOCATED (512 MB) -- resizing it is the open follow-up. NEW VISIBLE CONSEQUENCE: a
+    generated water surface with an open side (stepped sea/lake, item (2)) now stands as a
+    vertical water face until touched (§5.5 static water) instead of spilling on approach.
+    The older rigs (fluid-tiled, siege, chaos, acceptance...) still run the mask policy.
+  - **TASK 55 (2026-10-10): Playground/tg2/play pool RESIZED 1,024 -> 480 tiles**
+    (`EngineConfig.PLAYGROUND_FLUID_TILE_POOL_CAPACITY`, plan §2's ~250 MB; owner Q39 (a)).
+    Ledger fluid GPU 548.8 -> 276.8 MB; coast/lake poolprobe peak 32 of 480, 0 refusals. Every
+    fluid rig (and the brush-guard Playground scene) keeps FLUID_TILE_POOL_CAPACITY = 1,024.
+    Watch: under the MASK policy fluid-tiled's 220-pocket scatter peaks 551 tiles; an awake-only
+    blast that wide would hit 480 (nearest win, refusals counted -- the overflow is visible).
 - **FLUID IN TG2 DOES SIMULATE: task 07's "never moved" was a misreading (task
   09, 2026-10-03; no engine change).** `-fluidprobe` (`MODE=fluidprobe
   ./run-tg2world.sh`; `PROBEWORLD=` for the default-world control) repeats task
@@ -784,3 +847,20 @@ real and separate reason — see the LOD-cascade finding in
       continuously.
   - Logs: `Logs/tg2world_20261003_055038.txt` (tg2) and `_055801.txt`
     (control). Nothing to fix here beyond decision 11.
+  - **Task 91 (2026-10-15): decision 11 is superseded** in Playground (play, tg2 and
+    every capture mode): the CA ticks at a fixed 4.5 Hz (`FluidTickScheduler`), lava at
+    0.75 Hz, independent of frame rate; the fluid probe prints `FLUID RATE` with the
+    SHORTFALL (ticks a too-low frame rate could not deliver). `-fluidhz 0` = old.
+  - **Task 97 (2026-10-17): option B + R 6.5 Hz.** A landed batch of <= 4096 ops applies whole
+    (`-drainwhole N`, 0 = off; Playground only). Arena pour: 6.49-6.50 ticks/s, SHORTFALL 0 at caps 30
+    and 20. COST: the whole batch lands on one frame's main thread -- apply p99 5.3 -> 12.0 ms, max
+    5.9 -> 21.9 ms in a 9,261-voxel pour at 20 FPS (per-tick spike ~6.5 times a second while it pours);
+    such a pour still falls short at 20 FPS (5.82 ticks/s, was 4.17). Strip captures drop a tick each
+    at 6.5 Hz (rate arms use `-stripnoshots`). `Screenshots/97/rates.txt`.
+  - **Task 93 (2026-10-15): "tg2 water frozen" again was the PROBE SITE, not the engine.** On map
+    v4 the ground 8-20 m ahead of eye_level_1 is above the eye, so the probe fell back to a
+    guessed site INSIDE the hillside: water box 1029/1029 and lava box 784/784 voxels were solid
+    rock before placement, so every fluid voxel was walled in (`intent.no_destination` = all).
+    The probe now logs that census and turns in 45 degree steps to the first site whose boxes
+    are all air (seed 42: +90 deg). Water then leaves the box: 461 in box at +1 s, 0 at +8 s;
+    lava 784 -> 130 by +20 s (`Logs/tg2world_20261015_152136.txt`).

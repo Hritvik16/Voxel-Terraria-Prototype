@@ -1,0 +1,11 @@
+[GrappleDemo] start feet 3724.1,539.5,2284.1 m, sun-away yaw 180 -> axis 180; abilities True
+[GrappleDemo] site pad top row 5399 (539.9 m), sheer face 15 m at k 120, beam 10 m up at k 45..60; 831240 voxels written
+[GrappleDemo] 2 aim pitch -34.0 deg, ring ON at 13.1 m
+[GrappleDemo] fired: hit True, hooked True, anchor 3724.00,548.95,2272.10 (8.95 m up), rope 13.24 m
+[GrappleDemo] 3 reeling: 6.33 m to go, speed 12.00 m/s (config 12.0)
+[GrappleDemo] reel done: arrived True, hooked True, 2.84 s, feet 7.53 m up, hands 0.31 m from the anchor, overlaps False
+[GrappleDemo] 4 hanging: hooked True, feet 7.55 m up the sheer face
+[GrappleDemo] 5 beam shot: hooked True, anchor 9.90 m up, rope 9.75 m
+[GrappleDemo] 5 swinging: -1.47 m from under the anchor, speed 9.54 m/s, feet 5.39 m up, rope 5.19 m
+[GrappleDemo] swing done: shot True, top speed 12.13 m/s, hooked True, grounded False
+[GrappleDemo] done

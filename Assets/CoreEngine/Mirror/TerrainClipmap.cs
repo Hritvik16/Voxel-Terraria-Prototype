@@ -66,7 +66,7 @@ using Unity.Mathematics;
 using UnityEngine;
 using VoxelEngine.Memory;
 
-public class TerrainClipmap : IDisposable, IChunkDirtySink
+public partial class TerrainClipmap : IDisposable, IChunkDirtySink
 {
     public static TerrainClipmap Active { get; private set; }
 
@@ -90,6 +90,23 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
     // empty: a stray is a save-capped eviction (KNOWN_ISSUES, task 21/26).
     private readonly HashSet<int3> _parkedOutOfBox = new HashSet<int3>();
     private readonly List<int3> _parkedScratch = new List<int3>();
+
+    // --- Slot owners (task 93e, 8.15 row D2). With the shells on, the box can
+    // be SMALLER than the resident area (16^3 inside a 21 x 21 load radius), so
+    // a recentre leaves slots holding a chunk that has just left the box but is
+    // still resident -- no eviction ever clears them. Each slot remembers the
+    // chunk last written into it; on a recentre every box position whose slot
+    // is held by another chunk is marked dirty: resident -> uploaded, not
+    // resident -> cleared (the eviction path's owner test passes, the position
+    // owns its slot). Without it a walk back across a chunk edge draws the
+    // other chunk there (LOST: resident, clean, wrong slot) and a position not
+    // yet generated draws it too (CountStaleSlots). Off (default) = the old
+    // path, untouched: today's box is wider than the evict radius.
+    private readonly int3[] _slotOwner;
+    private readonly bool[] _slotHeld;
+    public bool RecentreDirtiesStaleSlots { get; set; }
+    /// Box positions marked dirty by recentres (RecentreDirtiesStaleSlots).
+    public long RecentreDirtiedTotal { get; private set; }
     /// Resident dirty chunks skipped because they were outside the mirror box,
     /// summed over every UploadDirty pass. Per pass: UploadStats.skippedOutOfBox.
     public long SkippedOutOfBoxTotal { get; private set; }
@@ -160,6 +177,8 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         /// current mirror box (task 32): writing one would overwrite the
         /// in-box chunk sharing its toroidal slot. Expected 0.
         public int skippedOutOfBox;
+        /// Out-of-box chunks written to the fluid terrain directory (task 93e).
+        public int fluidDirChunks;
 
         // PER-PHASE TIMING. The previous run reported a single upload_ms of
         // 44.9ms median against a 1.0ms budget and gave no way to attribute it.
@@ -222,7 +241,10 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
     /// cost from raymarch cost when the time is hiding on the render thread.
     public static bool SuppressGpuUploads = false;
 
-    public TerrainClipmap(int3 windowChunks, int brickPoolCapacity)
+    /// gpuBrickCap > 0 (task 93f, 8.15 row D3): BrickDataBuffer is its own pool of
+    /// that many bodies, mapped from the CPU pool's slots (TerrainClipmap.GpuPool.cs).
+    /// 0 = the old layout: CPU-pool sized, indexed by the CPU handle.
+    public TerrainClipmap(int3 windowChunks, int brickPoolCapacity, int gpuBrickCap = 0)
     {
         _windowDimsChunks = windowChunks;
         _windowDimsBricks = windowChunks * EngineConfig.CHUNK_EDGE_BRICKS;
@@ -237,8 +259,12 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         ClipmapBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
             GraphicsBuffer.UsageFlags.LockBufferForWrite, totalBricks, 4);
         BrickDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured,
-            GraphicsBuffer.UsageFlags.LockBufferForWrite, brickPoolCapacity * 128, 4);
+            GraphicsBuffer.UsageFlags.LockBufferForWrite, (gpuBrickCap > 0 ? gpuBrickCap : brickPoolCapacity) * 128, 4);
         _clipmapLocal = new uint[totalBricks];
+        int chunkSlots = windowChunks.x * windowChunks.y * windowChunks.z;
+        InitGpuPool(chunkSlots, brickPoolCapacity, gpuBrickCap);
+        _slotOwner = new int3[chunkSlots];
+        _slotHeld = new bool[chunkSlots];
 
         // ZERO THE GPU CLIPMAP. This line's absence was the "memory corruption".
         //
@@ -271,7 +297,25 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         Active = this;
     }
 
-    public void SetWindowOrigin(int3 originChunks) => _windowOrigin = originChunks;
+    public void SetWindowOrigin(int3 originChunks)
+    {
+        bool moved = !originChunks.Equals(_windowOrigin);
+        _windowOrigin = originChunks;
+        if (moved && RecentreDirtiesStaleSlots) DirtyForeignSlots();
+    }
+
+    /// Slot owners (task 93e): every box position whose slot holds another chunk.
+    private void DirtyForeignSlots()
+    {
+        for (int z = 0; z < _windowDimsChunks.z; z++)
+        for (int y = 0; y < _windowDimsChunks.y; y++)
+        for (int x = 0; x < _windowDimsChunks.x; x++)
+        {
+            int3 c = _windowOrigin + new int3(x, y, z);
+            int s = ChunkSlot(c);
+            if (_slotHeld[s] && !_slotOwner[s].Equals(c) && _dirtyChunks.Add(c)) RecentreDirtiedTotal++;
+        }
+    }
     /// CALL count vs DISTINCT-CHUNK count, split.
     ///
     /// §4.3's upload budget blew out ~10x under fluid load, and "too many
@@ -345,6 +389,10 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         return ((d.x & ~_chunkMask.x) | (d.y & ~_chunkMask.y) | (d.z & ~_chunkMask.z)) == 0;
     }
 
+    /// InMirrorBox for ClipmapValidator (task 93e): a resident chunk outside the
+    /// box is not mirrored, by design, and is not a lost update.
+    public bool ContainsChunk(int3 chunkCoord) => InMirrorBox(chunkCoord);
+
     private int BrickLinearIndex(int3 worldBrick)
     {
         int3 w = worldBrick & _brickMask;
@@ -368,6 +416,12 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         // One pass = one epoch, advanced BEFORE the early-out so a pass with
         // nothing to do still moves time forward for anyone waiting on it.
         _uploadEpoch++;
+
+        // Fluid terrain directory (task 93e, TerrainClipmap.FluidDir.cs): drop
+        // stale entries, give newly wanted out-of-box chunks one (marked dirty).
+        SyncFluidDir(store);
+        // Chunks a full GPU body pool refused (task 93f): back in once a slot was freed.
+        RetryGpuRefused(store);
 
         // Parked out-of-box chunks: back in the box and still resident -> dirty
         // again; evicted -> forget (the eviction marked it dirty itself).
@@ -432,7 +486,10 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
             // ("lost") or drew it at a non-resident box position ("stale") --
             // KNOWN_ISSUES' stray-resident-chunk entry. Skip, park, count.
             // Evicted chunks keep the clear path below (its owner test covers them).
-            if (chunk != null && !InMirrorBox(chunkCoord))
+            // Exception (task 93e): a chunk the fluid CA needs goes to the fluid
+            // terrain directory instead, under the same budget below.
+            int fluidEntry = -1;
+            if (chunk != null && !InMirrorBox(chunkCoord) && (fluidEntry = FluidDirEntryOf(chunkCoord)) < 0)
             {
                 _dirtyChunks.Remove(chunkCoord);
                 _parkedOutOfBox.Add(chunkCoord);
@@ -464,6 +521,17 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
                 { stats.chunksDeferred++; continue; }
             }
 
+            if (fluidEntry >= 0)
+            {
+                _dirtyChunks.Remove(chunkCoord);
+                if (!UploadFluidDirChunk(chunk, chunkCoord, fluidEntry)) { Refuse(chunkCoord); continue; }
+                _lastUploadEpoch[chunkCoord] = _uploadEpoch;
+                stats.chunksUploaded++;
+                stats.fluidDirChunks++;
+                bytes += EngineConfig.CLIPMAP_BYTES_PER_CHUNK;
+                continue;
+            }
+
             phaseStart = sw.Elapsed.TotalMilliseconds;
             int3 baseBrickCoord = chunkCoord * EngineConfig.CHUNK_EDGE_BRICKS;
 
@@ -486,6 +554,7 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
             // unloaded chunk reads as air on the CPU too (see ChunkStore's
             // GetVoxel note), so the two mirrors agree.
             bool evicted = chunk == null;
+            if (evicted) _gpuRefused.Remove(chunkCoord);
 
             // THE LOST-UPDATE BUG (2026-09-25, -lodpop's validator: 57-94 clean
             // resident chunks wrong on the GPU, "LOST 83,138"). The dirty set is
@@ -509,6 +578,15 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
                 }
             }
 
+            // GPU body pool (task 93f): this slot's dense bricks get GPU slots, its
+            // previous ones are released. Pool full -> refused: written as air,
+            // counted, its shell draws it (IsGpuRefused), retried when slots free up.
+            int slot = ChunkSlot(chunkCoord);
+            bool refused = false;
+            if (!AcquireHolder(slot, chunk)) { refused = true; Refuse(chunkCoord); }
+            else if (!evicted) _gpuRefused.Remove(chunkCoord);
+            bool air = evicted || refused;
+
             for (int z = 0; z < 16; z++)
             for (int y = 0; y < 16; y++)
             for (int x = 0; x < 16; x++)
@@ -517,11 +595,11 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
                 int local = CoordMath.LocalBrickIndex(localBrick);
 
                 uint handle;
-                if (evicted) handle = 0u;                        // uniform air
+                if (air) handle = 0u;                            // uniform air
                 else if (chunk.isUniform) handle = chunk.uniformMaterial;
                 else handle = chunk.bricks[local].data;
 
-                _chunkStaging[local] = handle;
+                _chunkStaging[local] = GpuHandleOf(handle);
                 _clipmapLocal[BrickLinearIndex(baseBrickCoord + localBrick)] = handle;
 
                 if ((handle & 0x80000000u) != 0)
@@ -532,7 +610,9 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
             phaseStart = sw.Elapsed.TotalMilliseconds;
 
             // ONE contiguous write per chunk -- the whole point of chunk-major.
-            WriteClipmapChunk(ChunkSlot(chunkCoord) * EngineConfig.BRICKS_PER_CHUNK, ref stats);
+            WriteClipmapChunk(slot * EngineConfig.BRICKS_PER_CHUNK, ref stats);
+            _slotOwner[slot] = chunkCoord;
+            _slotHeld[slot] = !air;
 
             stats.clipmapSetMs += sw.Elapsed.TotalMilliseconds - phaseStart;
             phaseStart = sw.Elapsed.TotalMilliseconds;
@@ -566,6 +646,8 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
 
         phaseStart = sw.Elapsed.TotalMilliseconds;
         bytes += UploadDirtyBrickBodies(cpuPool, ref stats);
+        // Bodies first, then the index that makes the directory entries readable.
+        FlushFluidDirIndex();
         stats.brickSetMs = sw.Elapsed.TotalMilliseconds - phaseStart;
         phaseStart = sw.Elapsed.TotalMilliseconds;
 
@@ -594,6 +676,7 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
 
     private void WriteClipmapChunk(int dstElement, ref UploadStats stats)
     {
+        if (_shadowClip != null) Array.Copy(_chunkStaging, 0, _shadowClip, dstElement, EngineConfig.BRICKS_PER_CHUNK);
         if (SuppressGpuUploads) return;
         stats.setDataCalls++;
 
@@ -610,19 +693,25 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
     }
 
     private void WriteBrickRun(NativeArray<uint> src, int firstUint, int countUints, ref UploadStats stats)
+        => WriteBrickRunAt(src, firstUint, firstUint, countUints, ref stats);
+
+    /// srcFirst = CPU pool uint offset, dstFirst = BrickDataBuffer uint offset
+    /// (equal in the old layout; the GPU slot's with the GPU body pool, task 93f).
+    private void WriteBrickRunAt(NativeArray<uint> src, int srcFirst, int dstFirst, int countUints, ref UploadStats stats)
     {
+        if (_shadowBodies != null) NativeArray<uint>.Copy(src, srcFirst, _shadowBodies, dstFirst, countUints);
         if (SuppressGpuUploads) return;
         stats.setDataCalls++;
 
         if (UseLockBufferForUploads)
         {
-            var na = BrickDataBuffer.LockBufferForWrite<uint>(firstUint, countUints);
-            NativeArray<uint>.Copy(src, firstUint, na, 0, countUints);
+            var na = BrickDataBuffer.LockBufferForWrite<uint>(dstFirst, countUints);
+            NativeArray<uint>.Copy(src, srcFirst, na, 0, countUints);
             BrickDataBuffer.UnlockBufferAfterWrite<uint>(countUints);
         }
         else
         {
-            BrickDataBuffer.SetData(src, firstUint, firstUint, countUints);
+            BrickDataBuffer.SetData(src, srcFirst, dstFirst, countUints);
         }
     }
 
@@ -653,12 +742,13 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
     {
         if (_dirtyBrickSlots.Count == 0) return 0;
 
-        _dirtyBrickSlots.Sort();
-        stats.brickSlots = _dirtyBrickSlots.Count;
-
         // Reinterpret the byte pool as uints so source and destination strides
         // agree with the buffer's 4-byte element size. 512 bytes = 128 uints.
         NativeArray<uint> asUints = cpuPool.RawData.Reinterpret<uint>(sizeof(byte));
+        if (GpuPoolEnabled) return UploadDirtyBrickBodiesMapped(asUints, ref stats);
+
+        _dirtyBrickSlots.Sort();
+        stats.brickSlots = _dirtyBrickSlots.Count;
 
         int bytes = 0;
         int i = 0;
@@ -737,6 +827,7 @@ public class TerrainClipmap : IDisposable, IChunkDirtySink
         if (Active == this) Active = null;
         ClipmapBuffer?.Release();
         BrickDataBuffer?.Release();
+        DisposeFluidDir();
         AirMipPackedBuffer?.Release();
         AirMipPackedBuffer = null;
         if (_airMipBuffers != null)

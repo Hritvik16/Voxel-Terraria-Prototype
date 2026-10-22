@@ -30,9 +30,67 @@ public class Phase4Bootstrapper : MonoBehaviour
     public static TerrainClipmap Clipmap { get; private set; }
     public static ChunkStore Store { get; private set; }
     public static BrickDataPool Pool { get; private set; }
+    /// Null when the shells draw (task 93d, 8.15 row D1 / owner Q49): tiers 1-2
+    /// are not allocated then. Every reader checks for null.
     public static LODCascadeManager Cascades { get; private set; }
     public static WorldMetaData Meta { get; private set; }
     public static StreamManager Streamer { get; private set; }
+    /// Amendment 8.14 step 11a (task 77): the coarse shells' storage; step 11b
+    /// (task 80) draws them (RaymarchFeature.DrawShells; cascade tiers 1-2 stop
+    /// drawing while they do, and since task 93d are not allocated at all --
+    /// `-keeptiers 1` allocates them anyway, for the diagnostic arms that turn
+    /// DrawShells off and want tiers 1-2 behind it). Off unless `-shells 1` (tg2
+    /// only): shells + cascades together are over the 3 GB cap, and switching
+    /// the default waits for the owner (77's Q1). `-quality low|medium|high|ultra`
+    /// (default high: rigs pin High, row 16), `-shellworkers N` (default 1),
+    /// `-shelliters N` (march cap, default 384), `-shellsdebug S` writes the
+    /// occupancy picture + report S seconds after start-up and at quit, and
+    /// tints each pixel by the shell that drew it.
+    public static ShellStreamer Shells { get; private set; }
+    /// Task 93e (8.15 row D2): with `-shells 1` (default since owner Q55 (b);
+    /// `-smallmirror 0` = off) the tier-0 GPU mirror box is the preset's
+    /// ShellLayout.MirrorBox (16^3 on Low-High), not 32 x 8 x 32, plus the fluid
+    /// terrain directory. False when off or when the preset keeps today's box (Ultra).
+    public static bool SmallMirror { get; private set; }
+
+    /// `-farop` (task 81's demo): the centre of the 20 m crater recorded as an
+    /// edit op ~300 m from the spawn before anything streams, or null.
+    public static int3? FarOpCentre { get; private set; }
+    /// `-farop -faroplate` (task 82's demo): the op is NOT recorded at start-up;
+    /// the demo records this one after the shells have filled (13b's redraw).
+    /// `-faropr N` sets its radius in voxels (default 200 = 20 m).
+    public static VoxelEngine.Streaming.EditOp? FarOpLate { get; private set; }
+
+    /// Engine step 13a's demo: one sphere-carve op (r = 200 voxels = 20 m) on land
+    /// ~300 m from `camPos`, through IEditOps, BEFORE the first chunk or shell
+    /// chunk generates -- 13b (redraw when an op lands) does not exist yet, so an
+    /// op recorded later shows only in chunks generated after it.
+    private static void RecordFarOp(Vector3 camPos)
+    {
+        var src = Streamer.TerrainGenSource;
+        var spec = src.Spec; var view = src.Map.View; var o = src.O;
+        for (int i = 0; i < 16; i++)
+        {
+            float a = i * (Mathf.PI / 8f);
+            float x = camPos.x * 10f + Mathf.Sin(a) * 3000f, z = camPos.z * 10f + Mathf.Cos(a) * 3000f;
+            var col = TerrainGen.ShapeField.Sample(in spec, in view, in o, x, z, 1);
+            if (col.height < spec.seaLevelY + 50 || col.water > col.height) continue;   // land, not under water
+            var centre = new int3((int)x, col.height, (int)z);
+            var op = new VoxelEngine.Streaming.EditOp(VoxelEngine.Streaming.EditOpKind.Sphere, centre,
+                (ushort)math.clamp(ArgInt("-faropr", 200), 8, 4096), Materials.Air);
+            FarOpCentre = centre;
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "-faroplate") >= 0)
+            {
+                FarOpLate = op;
+                UnityEngine.Debug.Log($"[FarOp] site picked, op deferred to the demo (-faroplate): sphere carve r {op.size * 0.1f:F0} m at voxel {centre}");
+                return;
+            }
+            uint seq = new EditOps(Streamer.Ops, null, null).Record(op);
+            UnityEngine.Debug.Log($"[FarOp] op #{seq}: sphere carve r 20 m at voxel {centre} ({(centre.x - camPos.x * 10f) * 0.1f:F0}, {(centre.z - camPos.z * 10f) * 0.1f:F0}) m from the camera, heading {i * 22.5f:F1} deg");
+            return;
+        }
+        UnityEngine.Debug.Log("[FarOp] no land 300 m from the spawn in 16 headings -- no op recorded");
+    }
     public static CoalesceScheduler Coalescer { get; private set; }
     public static string DeltaDirectory { get; private set; }
     public static string MetaRoundtripStatus { get; private set; }
@@ -52,6 +110,24 @@ public class Phase4Bootstrapper : MonoBehaviour
         return v == "tg2";
     }
     public static bool IsTg2World { get; private set; }
+    /// Task 93c: this run draws the LOD shells (tg2 only; PlaySettings.ResolveShells).
+    public static bool ShellsOn { get; private set; }
+    /// Task 93c: the shell worker count (`-shellworkers`; play's default PlaySettings.PlayShellWorkers).
+    public static int ShellWorkers { get; private set; } = 1;
+
+    /// Task 93c1 (gameplay step 4, P21): true when this session started at
+    /// TerrainGen.PlayStart's pick; PlayStartM is that point (metres, eye 2 m
+    /// above the map's ground). Playground's start pose and R return there.
+    public static bool PlayStartActive { get; private set; }
+    public static Vector3 PlayStartM { get; private set; }
+    /// KEEP=1: the saved pose this session resumes at (null = start fresh).
+    public static PlayerPose PlayResume { get; private set; }
+    public static void ClearPlayResume() => PlayResume = null;
+
+    /// MEASUREMENT SEAM (task 51), not a configuration: while set, streaming
+    /// and the far band centre on this point instead of the camera, so a timed
+    /// camera path that fits inside the window streams nothing. Off by default.
+    internal static Vector3? DebugStreamCentre;
 
     /// Spawn point for this world's size class, in METRES, derived from the same
     /// island geometry generation uses -- so it cannot drift out of sync with
@@ -111,6 +187,7 @@ public class Phase4Bootstrapper : MonoBehaviour
 
     private BrickDataPool _pool;
     private VoxelEngine.Rendering.FarField _far;
+    private float _shellsDebugAt = -1f;
     private ChunkHandleAllocator _allocator;
     private ChunkStore _store;
 
@@ -122,18 +199,38 @@ public class Phase4Bootstrapper : MonoBehaviour
         // ---- Stage 1 (§5.2): plan, persist, read back, verify. Unchanged
         // from Phase 3 -- generation still consumes the FILE, not the plan.
         IsTg2World = Tg2WorldRequested();
+        // Task 93c (owner Q49 / Q63 (a)): interactive play on tg2 starts with the LOD
+        // shells ON (PlaySettings.shells, F6 "LOD shells"; `-shells 0|1` overrides for
+        // the run) and PlaySettings.PlayShellWorkers workers. Rigs, capture runs and
+        // -fluidprobe never read the file: shells only with `-shells 1`, as before.
+        {
+            bool playRun = IsTg2World && Playground.IsPlaySettingsRun() && FindAnyObjectByType<Playground>() != null;
+            string psPath = Path.Combine(Application.persistentDataPath, PlaySettings.FileName);
+            bool on = PlaySettings.ResolveShells(Environment.GetCommandLineArgs(), playRun,
+                                                 () => PlaySettings.Load(psPath, out _), out int sw0);
+            ShellsOn = IsTg2World && on;
+            ShellWorkers = sw0;
+            if (playRun)
+                UnityEngine.Debug.Log($"[Phase4Bootstrapper] play run: LOD shells {(ShellsOn ? $"ON, {ShellWorkers} workers" : "OFF")} " +
+                                      "(PlaySettings.shells / -shells; task 93c)");
+        }
         // The TerrainGen world has no legacy anchors (its landmarks are the
         // map's own); a SEPARATE folder keeps its deltas from ever being
         // replayed onto the other world's chunks (deltas are keyed by coord).
+        // -worldseed N (task 93c1): another tg2 island, for looking at the play
+        // start on more than one seed. Absent = WORLD_SEED (42), the world every
+        // rig and report uses; another seed keeps its own folder (deltas, player).
+        uint tgSeed = IsTg2World ? (uint)ArgInt("-worldseed", (int)WORLD_SEED) : WORLD_SEED;
         WorldMetaData planned = IsTg2World
             ? new WorldMetaData
               {
-                  seed = WORLD_SEED, sizeClass = TerrainGenChunkSource.SIZE_CLASS,
+                  seed = tgSeed, sizeClass = TerrainGenChunkSource.SIZE_CLASS,
                   formatVersion = WorldMeta.FORMAT_VERSION,
                   contentVersionHash = WorldGenConstants.ContentVersionHash(),
               }
             : AnchorPlanner.Plan(WORLD_SEED, SIZE_CLASS);
-        string worldDir = Path.Combine(Application.persistentDataPath, IsTg2World ? "Phase4World_tg2" : "Phase4World");
+        string worldDir = Path.Combine(Application.persistentDataPath,
+            !IsTg2World ? "Phase4World" : tgSeed == WORLD_SEED ? "Phase4World_tg2" : $"Phase4World_tg2_s{tgSeed}");
         string metaPath = Path.Combine(worldDir, "world.meta");
         WorldMeta.WriteAtomic(metaPath, planned);
 
@@ -186,14 +283,20 @@ public class Phase4Bootstrapper : MonoBehaviour
         {
             foreach (string f in Directory.GetFiles(DeltaDirectory, "*.delta")) File.Delete(f);
             foreach (string f in Directory.GetFiles(DeltaDirectory, "*.delta.tmp")) File.Delete(f);
+            // The edit-op log (8.14 D.4) belongs to the same save: clearing the
+            // deltas without it would replay old far edits onto a fresh world.
+            // So does the world state (8.15 C1: clock, stage, chunk last-seen).
+            foreach (string f in new[] { VoxelEngine.Streaming.EditOpLog.FILE_NAME, VoxelEngine.Streaming.EditOpLog.FILE_NAME + ".tmp",
+                                         VoxelEngine.Streaming.WorldState.FILE_NAME, VoxelEngine.Streaming.WorldState.FILE_NAME + ".tmp" })
+                if (File.Exists(Path.Combine(DeltaDirectory, f))) File.Delete(Path.Combine(DeltaDirectory, f));
         }
 
         // ---- Pools / store / mirrors ----
-        _pool = new BrickDataPool(IsTg2World ? EngineConfig.TG2_BRICK_POOL_CAP : EngineConfig.BRICK_POOL_CAP, rangeAware: true);
+        _pool = new BrickDataPool(CpuBrickCap(IsTg2World), rangeAware: true);
         _allocator = new ChunkHandleAllocator(1024);
         _store = new ChunkStore(_pool, _allocator);
         if (IsTg2World)
-            _store.HighWaterBricksOverride = (int)(EngineConfig.TG2_BRICK_POOL_CAP * EngineConfig.BRICK_POOL_HIGH_WATER_FRACTION);
+            _store.HighWaterBricksOverride = EngineConfig.HighWaterBricksFor(_pool.Capacity);
         Store = _store; Pool = _pool;
 
         // The STORE's ring and the GPU MIRROR's window are deliberately
@@ -211,7 +314,44 @@ public class Phase4Bootstrapper : MonoBehaviour
         int3 mirrorChunks = new int3(EngineConfig.WINDOW_CHUNKS_XZ,
                                      IsTg2World ? EngineConfig.TG2_MIRROR_CHUNKS_Y : EngineConfig.MIRROR_CHUNKS_Y,
                                      EngineConfig.WINDOW_CHUNKS_XZ);
-        Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity);
+        // Task 93e (8.15 row D2, §2 items 1-2): with the shells drawing beyond it,
+        // the tier-0 GPU mirror box shrinks to the preset's ShellLayout.MirrorBox
+        // (16^3 on Low/Medium/High, Ultra keeps 32 x 8 x 32). The CPU ring and the
+        // load radius (TG2_LOAD_RADIUS_CHUNKS, 128 m) do NOT change. DEFAULT with
+        // `-shells 1` since owner Q55 (b) (`-smallmirror 0` = today's box): the GPU
+        // fluid CA reads its terrain from this box (FluidCA.compute SampleVoxel), so
+        // chunks outside it that fluid touches go to the clipmap's fluid terrain
+        // directory (TerrainClipmap.FluidDir.cs) and fluid stays live to 128 m on
+        // every preset (8.15). `-fluiddir 0` = without it (diagnostic: fluid past
+        // ~90 m freezes). Needs no cascade tiers (`-keeptiers 1` keeps today's box:
+        // their slots follow tier 0's). Shells off: unchanged.
+        SmallMirror = false;
+        if (IsTg2World && ShellsOn && ArgInt("-smallmirror", 1) == 1
+            && !LODCascadeManager.TiersWanted(IsTg2World, 1, ArgInt("-keeptiers", 0)))
+        {
+            int3 box = ShellLayout.From(ShellPresetFromArgs()).MirrorBox;
+            if (!ShellLayout.IsPow2(box.x) || !ShellLayout.IsPow2(box.y) || !ShellLayout.IsPow2(box.z))
+                throw new InvalidOperationException($"[Phase4Bootstrapper] GPU mirror box {box} is not a power of two (§6.2)");
+            SmallMirror = !box.Equals(mirrorChunks);
+            mirrorChunks = box;
+        }
+        // Task 93f (8.15 row D3, owner Q2 (a)): with the shells drawing, the GPU body
+        // buffer is its own pool (EngineConfig.GpuBrickCapFor the box; `-gpubrickcap N`
+        // overrides, `-gpupool 0` = the old CPU-pool-sized layout). Shells off: unchanged.
+        int gpuBrickCap = 0;
+        if (IsTg2World && ShellsOn && ArgInt("-gpupool", 1) == 1)
+        {
+            gpuBrickCap = ArgInt("-gpubrickcap", 0);
+            if (gpuBrickCap <= 0) gpuBrickCap = EngineConfig.GpuBrickCapFor(mirrorChunks.x, mirrorChunks.y, mirrorChunks.z);
+            gpuBrickCap = Math.Min(gpuBrickCap, _pool.Capacity);
+        }
+        Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity, gpuBrickCap) { RecentreDirtiesStaleSlots = SmallMirror };
+        if (gpuBrickCap > 0)
+            UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU brick pool {gpuBrickCap:N0} bodies ({gpuBrickCap * 512L / (1 << 20)} MB; CPU pool {_pool.Capacity:N0}): task 93f");
+        if (SmallMirror && ArgInt("-fluiddir", 1) == 1) Clipmap.EnableFluidDir(storeWindowChunks);
+        if (IsTg2World && ShellsOn)
+            UnityEngine.Debug.Log($"[Phase4Bootstrapper] GPU mirror box {mirrorChunks} ({(SmallMirror ? "-smallmirror: task 93e" : "today's")}), " +
+                                  $"load radius stays {EngineConfig.TG2_LOAD_RADIUS_CHUNKS} chunks, fluid terrain directory {(Clipmap.FluidDirEnabled ? "on" : "off")}");
         // Edit-driven cascade rebuilds off the main thread (LODCascadeManager's
         // ASYNC REBUILD block). -cascadeasync 0 is the A/B.
         LODCascadeManager.AsyncRebuildEnabled = LODCascadeManager.AsyncRequestedByArgs();
@@ -226,8 +366,14 @@ public class Phase4Bootstrapper : MonoBehaviour
             VoxelEngine.Streaming.StreamManager.GenWorkersOverride =
                 gi >= 0 && gi + 1 < args.Length && int.TryParse(args[gi + 1], out int gw) && gw > 0 ? gw : 0;
         }
-        Cascades = new LODCascadeManager(mirrorChunks, tier => IsTg2World ? EngineConfig.Tg2CascadeTierPoolCap(tier)
+        // Task 93d (8.15 row D1, owner Q49): with the shells on, tiers 1-2 never draw,
+        // so they are not created (task 55's ledger: 193 MB). Shells off: as before.
+        bool shellsRequested = IsTg2World && ShellsOn;
+        Cascades = !LODCascadeManager.TiersWanted(IsTg2World, ShellsOn ? 1 : 0, ArgInt("-keeptiers", 0)) ? null
+                 : new LODCascadeManager(mirrorChunks, tier => IsTg2World ? EngineConfig.Tg2CascadeTierPoolCap(tier)
                                                                           : EngineConfig.CascadeTierPoolCap(tier));
+        if (shellsRequested)
+            UnityEngine.Debug.Log($"[Phase4Bootstrapper] cascade tiers 1-2 {(Cascades == null ? "NOT allocated (shells draw; -keeptiers 1 = allocate)" : "allocated (-keeptiers 1)")}");
 
         UnityEngine.Debug.Log($"[Phase4Bootstrapper] store ring {storeWindowChunks}, GPU mirror {mirrorChunks} " +
                               $"(camera altitude ceiling {EngineConfig.MIRROR_CEILING_METRES:F1}m -- see EngineConfig)");
@@ -272,10 +418,37 @@ public class Phase4Bootstrapper : MonoBehaviour
                                      Meta, DeltaDirectory, loadRadius);
         Coalescer = new CoalesceScheduler(_store, _pool, Clipmap, Cascades);
 
+        // Task 93c1 (gameplay step 4, P21): an interactive Playground session
+        // starts in the best easy area (TerrainGen.PlayStart; task 98: a mild
+        // biome's first, -playstartmild 0 = any biome); rigs, capture
+        // runs and -playstart 0 keep Tg2Spawn.
+        // KEEP=1 (-keepdeltas) resumes where the last session ended instead
+        // (PlayerPose, beside player.json).
+        PlayStartActive = false; PlayResume = null;
+        if (IsTg2World && Playground.IsPlayStartRun() && FindAnyObjectByType<Playground>() != null)
+        {
+            var tgs = Streamer.TerrainGenSource;
+            if (TerrainGen.PlayStart.Find(tgs.Map, out var start, Playground.PlayStartPrefersMild()))
+            {
+                PlayStartActive = true;
+                PlayStartM = new Vector3(start.column.x * 0.1f + 0.05f, (start.groundY + 1) * 0.1f + 2f, start.column.y * 0.1f + 0.05f);
+                UnityEngine.Debug.Log($"[Phase4Bootstrapper] play start (easy area): {start} -> {PlayStartM.x:F1},{PlayStartM.y:F1},{PlayStartM.z:F1} m");
+            }
+            string posePath = Path.Combine(worldDir, PlayerPose.FileName);
+            if (Array.IndexOf(Environment.GetCommandLineArgs(), "-keepdeltas") >= 0 && File.Exists(posePath))
+            {
+                PlayResume = PlayerPose.FromJson(File.ReadAllText(posePath), tgs.Spec.mapVersion, out string poseErr);
+                UnityEngine.Debug.Log(PlayResume != null
+                    ? $"[Phase4Bootstrapper] -keepdeltas: resuming at {PlayResume.x:F1},{PlayResume.y:F1},{PlayResume.z:F1} m ({posePath})"
+                    : $"[Phase4Bootstrapper] -keepdeltas: pose not used ({poseErr}): {posePath}");
+            }
+        }
+
         if (IsTg2World && Camera.main != null)
         {
             // The island's own frame: stand on dry land near the centre.
-            Camera.main.transform.position = Tg2Spawn(Streamer.TerrainGenSource);
+            Camera.main.transform.position = PlayResume != null ? new Vector3(PlayResume.x, PlayResume.y + 1.6f, PlayResume.z)
+                                           : PlayStartActive ? PlayStartM : Tg2Spawn(Streamer.TerrainGenSource);
             Camera.main.transform.rotation = Quaternion.Euler(_cameraSpawnEuler);
         }
         else if (_overrideCameraOnStart && Camera.main != null)
@@ -287,7 +460,8 @@ public class Phase4Bootstrapper : MonoBehaviour
         // ---- Fill the initial window ----
         sw.Restart();
         Vector3 camPos = Camera.main != null ? Camera.main.transform.position
-                       : IsTg2World ? Tg2Spawn(Streamer.TerrainGenSource) : ResolveSpawn();
+                       : IsTg2World ? (PlayStartActive ? PlayStartM : Tg2Spawn(Streamer.TerrainGenSource)) : ResolveSpawn();
+        if (IsTg2World && Array.IndexOf(Environment.GetCommandLineArgs(), "-farop") >= 0) RecordFarOp(camPos);
         Streamer.Update(camPos);
         if (_fillWindowOnStart)
         {
@@ -322,8 +496,38 @@ public class Phase4Bootstrapper : MonoBehaviour
         // The TerrainGen world ALWAYS has it: outside the voxel band (above,
         // below, beyond) the far band is the only thing that draws the island.
         if (VoxelEngine.Rendering.FarField.RequestedByArgs() || IsTg2World)
-            _far = new VoxelEngine.Rendering.FarField(Meta, camPos, IsTg2World ? Streamer.TerrainGenSource.Map : null);
+            _far = new VoxelEngine.Rendering.FarField(Meta, camPos, IsTg2World ? Streamer.TerrainGenSource.Map : null,
+                                                      Streamer.Ops);   // task 82: the far band draws the save's edit ops
         ApplyBandToRenderer();
+
+        if (shellsRequested)
+        {
+            var layout = ShellLayout.From(ShellPresetFromArgs());
+            Shells = new ShellStreamer(layout, Streamer.TerrainGenSource, ShellWorkers);
+            Shells.Ops = Streamer.Ops;   // 8.14 row 9: shells apply the save's edit ops on generation
+            // Task 93a (8.15 §5 "Live"): resident block edits redraw into the shells that
+            // cover them. `-editsummaries 0` = tracked but not drawn (the pre-93a picture).
+            Shells.AttachEdits(Store);
+            Shells.SummariesEnabled = ArgInt("-editsummaries", 1) != 0;
+            // Task 93b2: `-shellcolreuse 0` = a column pass per shell chunk and the
+            // pre-93b2 dispatch (no column affinity); the same bytes either way.
+            bool colReuse = ArgInt("-shellcolreuse", 1) != 0;
+            Shells.ColumnAffinity = colReuse; Streamer.TerrainGenSource.ShellColumnReuse = colReuse;
+            // Task 93b2 (owner Q54 (a)): the cave fill runs on shells >= 1. `-shellfillfrom 3`
+            // = task 83's shells >= 3 (the pre-change bytes; diagnostic A/B).
+            Streamer.TerrainGenSource.FirstFillShell = Mathf.Clamp(ArgInt("-shellfillfrom", TerrainGenChunkSource.FIRST_FILL_SHELL), 1, 8);
+            // Task 93b2d: `-shellfillfast 0` = 52aad5e's fill scans (the same bytes; A/B arms).
+            Streamer.TerrainGenSource.ShellFillFast = ArgInt("-shellfillfast", 1) != 0;
+            ShellStreamer.Active = Shells;
+            RaymarchFeature.ShellIterCap = ArgInt("-shelliters", RaymarchFeature.ShellIterCap);
+            int dbg = ArgInt("-shellsdebug", -1);
+            if (dbg >= 0) _shellsDebugAt = Time.realtimeSinceStartup + dbg;
+            RaymarchFeature.ShellTint = dbg >= 0;
+            long bytes = 0; for (int k = 1; k < layout.ShellCount; k++) bytes += Shells.Store(k).BytesAllocated;
+            UnityEngine.Debug.Log($"[Shells] preset {layout.Preset} ({layout.SizingRows} rows): shells 1-{layout.ShellCount - 1} allocated, " +
+                                  $"GPU {bytes / 1e6:F1} MB (8.14 §2 formula {layout.ShellsTotalMBEstimate:F0} MB); drawn (11b), cascade tiers 1-2 " +
+                                  (Cascades == null ? "not allocated (93d)" : "allocated, off while drawn"));
+        }
 
         StartupMs = total.Elapsed.TotalMilliseconds;
         UnityEngine.Debug.Log($"[Phase4Bootstrapper] Total startup: {StartupMs:F0}ms");
@@ -332,7 +536,7 @@ public class Phase4Bootstrapper : MonoBehaviour
     void LateUpdate()
     {
         if (Streamer == null) return;
-        Vector3 camPos = Camera.main != null ? Camera.main.transform.position : transform.position;
+        Vector3 camPos = DebugStreamCentre ?? (Camera.main != null ? Camera.main.transform.position : transform.position);
 
         // TIMED, because the whole streaming system runs HERE, in LateUpdate.
         // FrameGapProbe splits the frame at its own LateUpdate, and Unity's
@@ -343,6 +547,9 @@ public class Phase4Bootstrapper : MonoBehaviour
         // TransferToSharedPool in particular is covered by NO existing phase
         // timer and copies up to MAX_CHUNK_LOADS_PER_FRAME x 4096 dense bodies
         // into the 366 MB shared pool every frame.
+        // 8.15 C1: the world clock runs on GAME time (scaled), in play and in rigs alike;
+        // world.state is only written when the run saves terrain (WorldState header).
+        Streamer.AdvanceClock(Time.deltaTime);
         var sw = System.Diagnostics.Stopwatch.StartNew();
         Streamer.Update(camPos);
         double streamMs = sw.Elapsed.TotalMilliseconds;
@@ -358,15 +565,70 @@ public class Phase4Bootstrapper : MonoBehaviour
         }
         FrameGapProbe.LastUploadBytes = Streamer.LastUploadBytes;
         FrameGapProbe.LastSetDataCalls = Streamer.LastUploadStats.brickRuns + Streamer.LastUploadStats.chunksUploaded;
+        if (Shells != null)
+        {
+            // The shells share the 3 MiB/frame cap (8.14 row 14): what the 0.1 m
+            // mirror and the cascades left of it this frame.
+            Shells.Update(camPos, EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME - Streamer.LastUploadBytes);
+            if (_shellsDebugAt >= 0f && Time.realtimeSinceStartup >= _shellsDebugAt) { WriteShellsDebug("t"); _shellsDebugAt = -1f; }
+        }
         double farT0 = sw.Elapsed.TotalMilliseconds;
         if (_far != null)
         {
             _far.Update(camPos);
             Streamer.LayerRange(out int lo, out int hi);
-            _far.UpdateResidency(_store, Clipmap.WindowOriginBricks / EngineConfig.CHUNK_EDGE_BRICKS, Clipmap.WindowDimsChunks, lo, hi);
+            _far.UpdateResidency(_store, Clipmap.WindowOriginBricks / EngineConfig.CHUNK_EDGE_BRICKS, Clipmap.WindowDimsChunks, lo, hi,
+                                 Clipmap.GpuPoolRefusedNow > 0 ? Clipmap : null);
         }
         FrameGapProbe.LastFarMs = sw.Elapsed.TotalMilliseconds - farT0;
         FrameGapProbe.LastCoalescerMs = sw.Elapsed.TotalMilliseconds - streamMs;
+    }
+
+    /// `-quality low|medium|high|ultra` (default High: rigs pin High, row 16).
+    private static QualityPreset ShellPresetFromArgs()
+    {
+        string[] a = Environment.GetCommandLineArgs();
+        int qi = Array.LastIndexOf(a, "-quality");
+        return ShellLayout.Parse(qi >= 0 && qi + 1 < a.Length ? a[qi + 1] : null);
+    }
+
+    /// The CPU 0.1 m brick pool's cap. Task 93g (8.15 row D4): the tg2 world's is
+    /// EngineConfig.TG2_BRICK_POOL_CAP; `-cpubrickcap N` overrides it for one run
+    /// (diagnostic before/after arms in one build). The flat world (rigs) keeps
+    /// BRICK_POOL_CAP and ignores the flag.
+    public static int CpuBrickCap(bool tg2)
+    {
+        if (!tg2) return EngineConfig.BRICK_POOL_CAP;
+        int n = ArgInt("-cpubrickcap", 0);
+        return n > 0 ? n : EngineConfig.TG2_BRICK_POOL_CAP;
+    }
+
+    private static int ArgInt(string name, int fallback)
+    {
+        string[] a = Environment.GetCommandLineArgs();
+        int i = Array.LastIndexOf(a, name);   // last match, as PlaygroundCapture's ArgInt
+        return i >= 0 && i + 1 < a.Length && int.TryParse(a[i + 1], out int v) ? v : fallback;
+    }
+
+    /// Task 77: the shells' occupancy picture, report and validator results.
+    private static void WriteShellsDebug(string when)
+    {
+        string dir = Path.Combine(Application.persistentDataPath, "Shells");
+        string stamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
+        string png = Path.Combine(dir, $"shells_{stamp}_{when}.png");
+        ShellDebugView.WritePng(Shells, png);
+        var sb = new System.Text.StringBuilder(ShellDebugView.Report(Shells));
+        for (int k = Shells.FirstShell; k <= Shells.LastShell; k++)
+        {
+            var st = Shells.Store(k);
+            int stale = ShellValidator.CountStaleSlots(Shells, k, out string ex1);
+            int pool = ShellValidator.CountPoolErrors(st, out string ex2);
+            int gpu = st.DirectoryDirty ? -1 : ShellValidator.CountGpuDirectoryMismatches(st, out string ex3);
+            sb.AppendLine($"  validator shell {k}: stale slots {stale}{(ex1 != null ? " (" + ex1 + ")" : "")}, pool errors {pool}{(ex2 != null ? " (" + ex2 + ")" : "")}, " +
+                          $"GPU directory mismatches {(gpu < 0 ? "n/a (dirty)" : gpu.ToString())}");
+        }
+        File.WriteAllText(Path.ChangeExtension(png, ".txt"), sb.ToString());
+        UnityEngine.Debug.Log($"[Shells] {when}: {png}\n{sb}");
     }
 
     /// V2: the voxel march owns exactly the loaded band. Flat worlds keep the
@@ -401,6 +663,7 @@ public class Phase4Bootstrapper : MonoBehaviour
     {
         // Clean shutdown flushes pending edits. The rig's force-quit test
         // deliberately bypasses this path (Process.Kill) -- that is the point.
+        if (Shells != null && ArgInt("-shellsdebug", -1) >= 0) WriteShellsDebug("quit");
         if (Streamer != null)
         {
             int n = Streamer.FlushAllDirty();
@@ -415,9 +678,11 @@ public class Phase4Bootstrapper : MonoBehaviour
         if (IsTg2World) { RaymarchFeature.ContentFloorVoxelY = 0; RaymarchFeature.ContentCeilingVoxelY = 128; }
         Streamer?.Dispose();
         Clipmap?.Dispose();
+        if (ShellStreamer.Active == Shells) ShellStreamer.Active = null;
+        Shells?.Dispose(); Shells = null;
         Cascades?.Dispose();
         _pool?.Dispose();
-        Clipmap = null; Cascades = null; Store = null; Pool = null; Meta = null;
+        Clipmap = null; Cascades = null; Store = null; Pool = null; Meta = null; SmallMirror = false;
         Streamer = null; Coalescer = null; MetaRoundtripStatus = null;
     }
 }

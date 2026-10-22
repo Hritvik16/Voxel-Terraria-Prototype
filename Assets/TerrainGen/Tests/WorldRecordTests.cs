@@ -22,6 +22,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using NUnit.Framework;
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Jobs;
 using Unity.Mathematics;
 
 namespace TerrainGen.Tests
@@ -212,10 +215,14 @@ namespace TerrainGen.Tests
                 // the record carries the B10 field; biomeSet 4 is B8's formula
                 int recBad = 0, b8Bad = 0;
                 var o4 = Offsets.For(in spec4);
+                // the reference formula under Burst too: the plane is the map job's
+                // (engine plan step 1), and Mono differs from Burst at a boundary cell
+                using var ref4 = new NativeArray<byte>(n * n / 64, Allocator.TempJob);
+                new BiomeFourJob { o = o4, n = n, cellVoxels = spec6.mapCellVoxels, outB = ref4 }.Run();
                 for (int i = 0; i < n * n; i++)
                 {
                     if (map.Record.Data[i].Biome != b10[i]) recBad++;
-                    if ((i & 63) == 0 && b8[i] != BiomeFour(in o4, new float2(((i % n) + 0.5f) * spec6.mapCellVoxels, ((i / n) + 0.5f) * spec6.mapCellVoxels))) b8Bad++;
+                    if ((i & 63) == 0 && b8[i] != ref4[i >> 6]) b8Bad++;
                 }
                 if (recBad > 0) fails.AppendLine($"seed {seed}: {recBad} record cells differ from the B10 biome plane");
                 if (b8Bad > 0) fails.AppendLine($"seed {seed}: biomeSet 4 differs from B8's four-biome field at {b8Bad} cells");
@@ -245,6 +252,21 @@ namespace TerrainGen.Tests
             File.WriteAllText(Path.Combine(dir, "b10_biomes.txt"), report.ToString() + (fails.Length > 0 ? "FAIL\n" + fails : "PASS\n"));
             UnityEngine.Debug.Log("[WorldRecord] B10\n" + report);
             Assert.AreEqual("", fails.ToString(), fails.ToString());
+        }
+
+        [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]
+        private struct BiomeFourJob : IJob
+        {
+            public Offsets o; public int n, cellVoxels;
+            public NativeArray<byte> outB;   // every 64th cell
+            public void Execute()
+            {
+                for (int k = 0; k < outB.Length; k++)
+                {
+                    int i = k << 6;
+                    outB[k] = BiomeFour(in o, new float2(((i % n) + 0.5f) * cellVoxels, ((i / n) + 0.5f) * cellVoxels));
+                }
+            }
         }
 
         /// ShapeField.Biome's four-biome formula at a given scale (B1-B8).

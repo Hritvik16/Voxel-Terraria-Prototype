@@ -1,0 +1,8 @@
+[ClimbDemo] start feet 2668.1,631.9,3020.1 m, sun-away yaw 180 -> axis 180; abilities True
+[ClimbDemo] site pad top row 6332 (633.2 m), wall 6 m at k 60, 50 deg ramp at l 35..64, ice pillar 4 m; 398086 voxels written
+[ClimbDemo] 2 climbing stone (grip 0): 2.96 m in 2.31 s = 1.28 m/s (config 1.5); stamina 6.97 -> 5.00 s
+[ClimbDemo] mantled True: feet 639.30 m (wall top 639.30), stamina 3.10 of 7.0 s, climb 4.90 s
+[ClimbDemo] 4 on top: resting True, stamina 3.22 -> 4.53 s after 12 frames (refill 3.5/s)
+[ClimbDemo] 5 50 deg ramp, holding uphill: slid 2.26 m across and 2.72 m down, top slide speed 4.50 m/s (config 4.5); shot True
+[ClimbDemo] 6 climbing id 150 (grip 2): 0.57 m/s (rock 1.5 x 0.4); stamina 6.92 -> 0.74 s in 2.61 s (x2.5 drain)
+[ClimbDemo] done

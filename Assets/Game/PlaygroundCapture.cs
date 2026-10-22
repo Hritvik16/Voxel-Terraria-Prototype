@@ -1450,6 +1450,9 @@ public partial class PlaygroundCapture : MonoBehaviour
         // Parsed here so every mode (-lavalight, -sustained, ...) honours it.
         int emissiveBleed = ArgInt("-emissivebleed", -1);
         if (emissiveBleed >= 0) RaymarchFeature.EmissiveBleedOverride = emissiveBleed > 0 ? 1 : 0;
+        // -torchshadows N: occlusion rays to each pixel's N nearest torches (0 = the old leak).
+        int torchShadows = ArgInt("-torchshadows", -1);
+        if (torchShadows >= 0) RaymarchFeature.TorchShadowsOverride = Mathf.Min(torchShadows, LightingConfig.MaxTorchShadowRays);
         if (HasFlag("-pitchsweep")) { yield return PitchSweep(); yield break; }
         if (HasFlag("-stutterprobe")) { yield return StutterProbe(); yield break; }
         if (HasFlag("-gputrace")) { yield return GpuTraceLoad(); yield break; }
@@ -1464,6 +1467,11 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-roofskipab")) { yield return RoofSkipAb(); yield break; }
         if (HasFlag("-upscaleab")) { yield return UpscaleAb(); yield break; }
         if (HasFlag("-lavalight")) { yield return LavaLightShots(); yield break; }
+        if (HasFlag("-torchshadowshots")) { yield return TorchShadowShots(); yield break; }
+        if (HasFlag("-shadowdots")) { yield return ShadowDots(); yield break; }
+        if (HasFlag("-upscalersmoke")) { yield return UpscalerSmoke(); yield break; }
+        if (HasFlag("-upscalercompare")) { yield return UpscalerCompare(); yield break; }
+        if (HasFlag("-upscalerclips")) { yield return UpscalerClips(); yield break; }
         if (HasFlag("-looksweep")) { yield return LookSweep(); yield break; }
         if (HasFlag("-farvisual")) { yield return FarVisual(); yield break; }
         if (HasFlag("-farpreview")) { yield return FarPreview(); yield break; }
@@ -1473,6 +1481,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-farshimmer")) { yield return FarShimmer(); yield break; }
         if (HasFlag("-nearshimmer")) { yield return NearShimmer(); yield break; }
         if (HasFlag("-taarisk")) { yield return TaaRisk(); yield break; }
+        if (HasFlag("-fallstrip")) { yield return FallStrip(); yield break; }
         if (HasFlag("-fluidprobe")) { yield return FluidProbe(); yield break; }
         if (HasFlag("-poolprobe")) { yield return PoolProbe(); yield break; }
         if (HasFlag("-streamprobe")) { yield return StreamProbe(); yield break; }
@@ -1792,6 +1801,18 @@ public partial class PlaygroundCapture : MonoBehaviour
         return (top + 1) * 0.1f + 1.6f;
     }
 
+    /// -memledger (2026-10-01): who owns the memory, by engine object, then
+    /// every pool's capacity / in use / peak (MemoryLedger.cs). Called at the
+    /// END of -sustained, -farpreview and -poolprobe, after any timed loop, so
+    /// the walk's own cost never lands in a measured window.
+    private void MemLedgerIfAsked()
+    {
+        if (!HasFlag("-memledger")) return;
+        L("");
+        L("  --- MEMORY LEDGER (end of run; GPU = Metal buffers, native = NativeArray, managed = arrays) ---");
+        foreach (var line in MemoryLedger.Report()) L(line);
+    }
+
     private IEnumerator Sustained()
     {
         Screen.SetResolution(1920, 1080, !HasFlag("-windowed"));
@@ -1905,7 +1926,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         L($"lava light share {LightingConfig.Active.lavaLightMaxSlots} of {EngineConfig.MAX_ACTIVE_LIGHTS} slots   " +
           $"look grade {(SunCycle.LookGradeOverride >= 0 ? SunCycle.LookGradeOverride : LightingConfig.Active.lookGrade)} " +
           $"(amount {SunCycle.LookGradeAmountAt(SunCycle.Hours):F2} at this hour)   maxQueuedFrames {QualitySettings.maxQueuedFrames}");
-        L($"shadow roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}   look {(RaymarchFeature.LookOverride >= 0 ? RaymarchFeature.LookOverride : LightingConfig.Active.look)}   emissive bleed {(RaymarchFeature.EmissiveBleedOverride >= 0 ? RaymarchFeature.EmissiveBleedOverride : LightingConfig.Active.emissiveBleed)}");
+        L($"shadow roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}   look {(RaymarchFeature.LookOverride >= 0 ? RaymarchFeature.LookOverride : LightingConfig.Active.look)}   emissive bleed {(RaymarchFeature.EmissiveBleedOverride >= 0 ? RaymarchFeature.EmissiveBleedOverride : LightingConfig.Active.emissiveBleed)}   torch shadow rays {(RaymarchFeature.TorchShadowsOverride >= 0 ? RaymarchFeature.TorchShadowsOverride : LightingConfig.Active.torchShadowRays)}");
         var farBand = VoxelEngine.Rendering.FarField.Active;
         L($"FAR BAND {(farBand != null ? "ON" : "OFF")}" +
           (farBand != null ? $"  far shadows {(farBand.ShadowsOn ? "ON" : "OFF")}  haze {farBand.HazeRangeMetres:F0} m  " +
@@ -1959,6 +1980,25 @@ public partial class PlaygroundCapture : MonoBehaviour
         if (HasFlag("-framegap")) { gap = gameObject.AddComponent<FrameGapProbe>(); gap.Recording = true; }
         var ftmT = new FrameTiming[1];
         var ftmCpu = new List<double>(4096); var ftmGpu = new List<double>(4096);
+        // Task 93b: every frame for the whole-run p50 / p99, and with -shells 1 when each
+        // shell completed (s from the walk's start; 0 = already complete) (ShellsPerf.cs).
+        var allMs = new List<float>(65536);
+        var shellsW = VoxelEngine.Mirror.ShellStreamer.Active;
+        float[] shellDone = shellsW != null ? new float[shellsW.Layout.ShellCount] : null;
+        if (shellsW != null)
+        {
+            for (int k = 0; k < shellDone.Length; k++) shellDone[k] = -1f;
+            // Task 93b2: -walkshellwait S = first wait up to S s at the start pose
+            // and log when each shell filled there (0 = start walking at once).
+            float preWait = ArgFloat("-walkshellwait", 0f);
+            if (preWait > 0f)
+            {
+                yield return WalkShellPrefill(shellsW, preWait);
+                windowStart = runStart = Time.realtimeSinceStartup;   // the walk's clock starts after the wait
+            }
+            L($"  [shells] at the walk's start (t+{Time.realtimeSinceStartup:F0} s after launch): {ShellCountsLine(shellsW)}");
+            L("  [shells] counters at the walk's start:\n" + shellsW.CountersReport());
+        }
 
         while (Time.realtimeSinceStartup - runStart < totalSeconds)
         {
@@ -2017,6 +2057,8 @@ public partial class PlaygroundCapture : MonoBehaviour
             yield return null;
             windowMs.Add(Time.unscaledDeltaTime * 1000.0);
             windowFrames++;
+            allMs.Add(Time.unscaledDeltaTime * 1000f);
+            if (shellsW != null) ShellTrack(shellsW, shellDone, Time.realtimeSinceStartup - runStart);
             if (ftm)
             {
                 FrameTimingManager.CaptureFrameTimings();
@@ -2039,24 +2081,35 @@ public partial class PlaygroundCapture : MonoBehaviour
                   $"{1000.0 * over33 / windowMs.Count,10:F1}{mean - firstWindowMs,10:+0.00;-0.00}{note}");
                 int resident = Phase4Bootstrapper.Store != null ? Phase4Bootstrapper.Store.ResidentCount : -1;
                 rows.Add($"{(Time.realtimeSinceStartup - runStart) / 60f:F3}\t{mean:F3}\t{fps:F2}\t{over33}\t{windowMs.Count}\t{resident}");
+                if (shellsW != null) L($"      [shells] held{ShellHeldLine(shellsW)}");
 
                 windowMs.Clear(); windowFrames = 0; windowStart = Time.realtimeSinceStartup;
             }
         }
 
+        L("");
+        L(WholeRunLine(allMs));
+        if (shellsW != null)
+        {
+            L($"  [shells] at the end: {ShellCountsLine(shellsW)}");
+            L($"  [shells] first complete at (s from the walk's start; - = never):{ShellDoneLine(shellsW, shellDone)}");
+            L("  [shells] counters at the end (whole launch):\n" + shellsW.CountersReport());
+        }
         // -memledger (2026-10-01): who owns the memory, by engine object
         // (MemoryLedger.cs). Taken after the timed loop so the walk's own cost
         // never lands in a measured window.
-        if (HasFlag("-memledger"))
-        {
-            L("");
-            L("  --- MEMORY LEDGER (end of run; GPU = Metal buffers, native = NativeArray, managed = arrays) ---");
-            foreach (var line in MemoryLedger.Report()) L(line);
-        }
+        MemLedgerIfAsked();
 
         if (wantShot)
         {
             Playground.DebugHideUi = true;
+            if (shellsW != null)
+            {
+                // Task 93b2: the -shellsdebug tint at the walk's end, before the shells catch up.
+                RaymarchFeature.ShellTint = true;
+                yield return Shot("99_end_tint", $"{motion}: shell tint at the walk's end; held{ShellHeldLine(shellsW)}");
+                RaymarchFeature.ShellTint = false;
+            }
             yield return Shot("99_end_pose", $"{motion}: eye {cam.transform.position}");
         }
 
@@ -2092,7 +2145,12 @@ public partial class PlaygroundCapture : MonoBehaviour
             float secs = Time.realtimeSinceStartup - runStart;
             L("");
             L($"  fluid CA ticks/s {(pg.DebugFluidTicks - fluidTicksAtStart) / Math.Max(1f, secs):F1}   " +
-              "(one tick per readback round-trip; this is fluid SPEED)");
+              "(this is fluid SPEED)");
+            var sch = pg.DebugTickScheduler;
+            if (sch != null)
+                L($"  fluid tick scheduler (task 91): {(sch.Legacy ? "LEGACY (-fluidhz 0, rate follows FPS)" : $"fixed {sch.RateHz:F2} Hz")}, " +
+                  $"lava {(sch.Legacy ? 0f : sch.RateHz / MaterialRules.TickInterval(Materials.Lava)):F2} Hz; since start: issued {sch.IssuedTicks}, " +
+                  $"SHORTFALL missed {sch.MissedTicks} ({sch.MissedTicks / Math.Max(1f, Time.realtimeSinceStartup):F2}/s), blocked frames {sch.BlockedFrames}");
         }
         if (rb != null)
         {

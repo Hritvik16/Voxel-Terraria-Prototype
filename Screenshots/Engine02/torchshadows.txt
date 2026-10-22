@@ -1,0 +1,18 @@
+TASK 46 -- TORCH SHADOW RAYS + EMISSIVE BLEED -- 2026-10-10_052510
+device Apple M1  1920x1080  RELEASE
+after = config defaults: torchShadowRays 4, emissiveBleed 1; before = 0 / 0
+
+1. room at int3(13200, 20, 12742) (roof 19 voxels): 14637 carved, 714 wall voxels, torch int3(13194, 14, 12742)
+1a_wall_torch_side_A_before.png — eye int3(13183, 23, 12742) -> int3(13200, 17, 12742)
+1a_wall_torch_side_B_after.png — eye int3(13183, 23, 12742) -> int3(13200, 17, 12742)
+1b_wall_far_side_A_before.png — eye int3(13203, 23, 12742) -> int3(13220, 16, 12742)
+1b_wall_far_side_B_after.png — eye int3(13203, 23, 12742) -> int3(13220, 16, 12742)
+2. cave at int3(13200, 20, 12902) (roof 10 voxels): 31953 carved, 396 pillar voxels, 4 torches
+2_cave_four_torches_A_before.png — eye int3(13170, 24, 12902) -> int3(13220, 12, 12902)
+2_cave_four_torches_B_after.png — eye int3(13170, 24, 12902) -> int3(13220, 12, 12902)
+3. lava cavern at int3(13200, 20, 12542) (roof 6 voxels): 35057 carved, 9315 lava voxels in 6 tiles, 8 wall torches
+3_lava_cavern_torches_A_before.png — eye int3(13170, 24, 12542) -> int3(13220, 12, 12542)
+3_lava_cavern_torches_B_after.png — eye int3(13170, 24, 12542) -> int3(13220, 12, 12542)
+4. night pool at int3(13240, 46, 12712): 441 lava voxels, 3 tiles
+4_surface_lava_pool_night_A_before.png — eye int3(13180, 76, 12652) -> int3(13240, 46, 12712)
+4_surface_lava_pool_night_B_after.png — eye int3(13180, 76, 12652) -> int3(13240, 46, 12712)

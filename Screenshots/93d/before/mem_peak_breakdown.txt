@@ -1,0 +1,51 @@
+02:17:31 phys_footprint 2978 MB
+======================================================================
+Voxel Terraria 1 Byte BrickMap [82109]: 64-bit    Footprint: 2986 MB (16384 bytes per page)
+======================================================================
+
+  Dirty      Clean  Reclaimable    Regions    Category
+    ---        ---          ---        ---    ---
+1466 MB        0 B          0 B       5270    IOAccelerator (graphics)
+1295 MB        0 B          0 B        218    Untagged
+  59 MB        0 B          0 B          3    IOSurface
+  54 MB        0 B          0 B         25    Malloc Small
+  42 MB        0 B          0 B         25    Owned physical footprint (unmapped) (graphics)
+  30 MB        0 B          0 B         82    Owned physical footprint (unmapped)
+  20 MB        0 B          0 B          4    Malloc Large
+5251 KB        0 B          0 B       1071    __DATA
+3237 KB        0 B          0 B          1    page table
+2672 KB     320 KB          0 B       1069    __DATA_CONST
+1872 KB        0 B          0 B        116    Stack
+1632 KB        0 B          0 B        948    __DATA_DIRTY
+1104 KB        0 B          0 B         13    Malloc Metadata
+1072 KB        0 B          0 B         23    IOAccelerator
+ 608 KB        0 B          0 B          5    CoreUI Image Data
+ 506 KB        0 B          0 B       2881    unused dyld shared cache area
+ 501 KB        0 B          0 B        708    __AUTH
+ 448 KB        0 B          0 B         26    CoreAnimation
+ 304 KB        0 B          0 B          1    Malloc Tiny
+ 128 KB        0 B          0 B          1    Accelerate Framework
+ 112 KB        0 B          0 B          4    __TPRO_CONST
+  64 KB        0 B          0 B          2    Malloc Nano
+  64 KB        0 B          0 B          7    IOKit
+  46 KB        0 B          0 B          1    __OBJC_RW
+  32 KB        0 B          0 B          1    Activity Tracing
+  32 KB        0 B          0 B          2    CoreGraphics
+  16 KB        0 B          0 B          1    Deferred Reclaim
+  16 KB        0 B          0 B          1    OS Alloc Once
+  16 KB        0 B          0 B          1    CG Image
+  16 KB        0 B          0 B          1    Foundation
+  16 KB        0 B          0 B          1    ColorSync
+    0 B      15 MB          0 B       1158    __TEXT
+    0 B    8368 KB          0 B       1191    mapped file
+    0 B        0 B          0 B          1    __OBJC_RO
+    0 B        0 B          0 B          8    __LINKEDIT
+    0 B        0 B          0 B          1    __FONT_DATA
+    0 B        0 B          0 B          1    __CTF
+    0 B        0 B          0 B       1059    __AUTH_CONST
+    ---        ---          ---        ---    ---
+2986 MB      23 MB          0 B      15933    TOTAL
+
+Auxiliary data:
+    phys_footprint: 2978 MB
+    phys_footprint_peak: 3003 MB

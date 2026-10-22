@@ -1,0 +1,81 @@
+run 20261017_001357
+caffeinate pid 83820 (-dimsu -w 83507)
+power start: 00:14:43 source=AC Power charge=100%; charged
+player pid 83981
+peak phys_footprint: 2362 MB   (owner cap 3 GB; samples in Logs/tg2world_20261017_001357_mem.txt; breakdown at peak in Logs/tg2world_20261017_001357_mem_peak_breakdown.txt)
+SIZECLASS 2 WORLD (-world tg2: voxel band streamed in Y + the far band) -- 2026-10-17_001526
+seed 42: world 8 km, sea at Y 5120, peak site float2(39000f, 37000f), max top 11000 (engine voxels), ring initial fill 2670 ms
+map v4 Height FNV 639552DD962C4B28  cell(613,259) 1068.80900
+volcano_from_2km, caldera_above: this world drew no volcano (map v4 feature pool) -- skipped
+cliff feet found: 3  (band placement: terrain-aware)
+POSES (-poses): 4 kept of 4 named: peak_from_2km_ground, glide_400m, eye_level_3, cliff_foot_1
+SHELLS (-shells 1, task 80): preset High, shells 1-7, march cap 384; A = shells off (cascades), B = shells on, C = on + tint (tier 0 blue, shells 1-7 green/yellow/orange/red/magenta/cyan/white, far band grey)
+  px = the largest voxel a ray stopped in, in dispatch pixels (720 rows; 8.14 High is sized for 720); per shell: hits, hits over 1 px, max px. Shell 0 = tier 0 (0.1 m; large near the eye by nature).
+  [shells] peak_from_2km_ground   waited 60 s (missing 2726, in flight 8)  px:  s0 226838/194531>1/max 8.41  s1 7744/4322>1/max 1.63  s2 31299/21994>1/max 1.81  s3 95399/87486>1/max 1.81  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 0/0 (2170 stored)  s2 0/0 (2170 stored)  s3 0/956 (1037 stored)  s4 0/987 (0 stored)  s5 0/480 (0 stored)  s6 0/182 (0 stored)  s7 0/16 (0 stored)
+  [shells] complete at (s; - = not within the wait):  s1 16  s2 55  s3 -  s4 -  s5 -  s6 -  s7 -
+  [mirror] peak_from_2km_ground   box int3(16, 16, 16)  MIRROR lost 0 lag 0 stale 0  checked 1792  resident outside the box 1295  skippedOutOfBox 1462  recentre-dirtied 1371  resident 3087  deficit 0  | GPU pool cap 254400 used 186451 peak 186451 refused 0 body mismatches 0
+  [shells] glide_400m             waited 60 s (missing 1477, in flight 8)  px:  s0 -  s1 -  s2 -  s3 -  s4 80754/80754>1/max 1.66  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 0/0 (2170 stored)  s2 0/0 (2001 stored)  s3 0/140 (1520 stored)  s4 0/718 (264 stored)  s5 0/414 (0 stored)  s6 0/144 (0 stored)  s7 0/16 (0 stored)
+  [shells] complete at (s; - = not within the wait):  s1 3  s2 28  s3 -  s4 -  s5 -  s6 -  s7 -
+  [mirror] glide_400m             box int3(16, 16, 16)  MIRROR lost 0 lag 0 stale 0  checked 1792  resident outside the box 1295  skippedOutOfBox 2757  recentre-dirtied 3163  resident 3087  deficit 0  | GPU pool cap 254400 used 0 peak 186451 refused 0 body mismatches 0
+  [shells] eye_level_3            waited 60 s (missing 3115, in flight 8)  px:  s0 171239/0>1/max 0.87  s1 55697/28687>1/max 1.26  s2 85527/71467>1/max 1.81  s3 32017/32017>1/max 1.81  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 0/0 (2170 stored)  s2 0/396 (1767 stored)  s3 0/1119 (881 stored)  s4 0/753 (234 stored)  s5 0/480 (0 stored)  s6 0/182 (0 stored)  s7 0/16 (0 stored)
+  [shells] complete at (s; - = not within the wait):  s1 32  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  [mirror] eye_level_3            box int3(16, 16, 16)  MIRROR lost 0 lag 0 stale 0  checked 1792  resident outside the box 1295  skippedOutOfBox 4053  recentre-dirtied 4955  resident 3087  deficit 0  | GPU pool cap 254400 used 203450 peak 203450 refused 0 body mismatches 0
+  [shells] cliff_foot_1           waited 60 s (missing 2665, in flight 8)  px:  s0 621875/620441>1/max 28.85  s1 12/12>1/max 1.54  s2 -  s3 125/0>1/max 0.99  s4 -  s5 -  s6 -  s7 -
+  [shells] refusals/missing/full:  s1 0/0 (2170 stored)  s2 0/0 (2170 stored)  s3 0/923 (1070 stored)  s4 0/987 (0 stored)  s5 0/441 (0 stored)  s6 0/162 (0 stored)  s7 0/16 (0 stored)
+  [shells] complete at (s; - = not within the wait):  s1 9  s2 58  s3 -  s4 -  s5 -  s6 -  s7 -
+  [mirror] cliff_foot_1           box int3(16, 16, 16)  MIRROR lost 0 lag 0 stale 0  checked 1792  resident outside the box 1295  skippedOutOfBox 5353  recentre-dirtied 6747  resident 3087  deficit 0  | GPU pool cap 254400 used 160274 peak 203450 refused 0 body mismatches 0
+ring upkeep: 8 strips, 16 refills, 86.4 MB uploaded
+
+  --- MEMORY LEDGER (end of run; GPU = Metal buffers, native = NativeArray, managed = arrays) ---
+  owner                                           GPU MB  native MB  managed MB
+  TerrainClipmap (GPU mirror)                      198.7        0.0        83.0
+  BrickDataPool (CPU bricks)                         0.0      278.3         0.0
+  ChunkStore                                       390.2       67.6        56.8
+  LODCascadeManager                             (not present)
+  StreamManager (+TerrainGen map, workers)           0.0        0.0         0.1
+  CoalesceScheduler                                  0.0        0.0         0.0
+  FarField (far band)                               29.2       15.0         0.0
+  Fluid simulation                                 276.8        0.0        41.0
+  LightingDriver                                     0.0        0.0         0.0
+  RaymarchFeature statics                            0.6        0.0         0.0
+  SUM of the above                                 895.4      360.9       181.0   = 1437.3 MB
+  Unity totals: allocated 574.2 MB, reserved 765.8 MB, graphics driver 0.0 MB, managed heap 208.7 MB  (Profiler figures may read 0 in a release player)
+
+  --- POOL PEAKS (capacity / in use / peak since start; MB = whole cap and cap at peak x 1.25) ---
+  pool                    capacity    in use      peak  peak/cap  B/unit   cap MB  1.25pk MB
+  tier0 bricks              570000    251324    330792     58.0%     512    278.3      201.9
+  cascade tier 1          (not present)
+  cascade tier 2          (not present)
+  GPU brick pool            254400    160274    203450     80.0%     512    124.2      124.2
+  GPU brick pool: refused (pool full) 0, held as air now 0, CPU->GPU table 3.3 MB
+  fluid terrain dir             64         0         0      0.0%   32800      2.0        0.0
+  fluid terrain dir: GPU 1.1 MB, uploads 0, refused (at 1024) 0
+  fluid tiles (32^3)           480         0         0      0.0%  524328    240.0        0.0
+  fluid tiles refused (pool full, since start): 0   acquired 0  released 0
+
+  STEP 14 (8.15 D1-D4): CPU brick pool cap 570,000 peak 330,792 (valve 484,500, 278.3 MB) | GPU body pool cap 254,400 peak 203,450 refused 0 (124.2 MB) | mirror box 16x16x16 | tiers 1-2 allocated no | process now 2226.6 MB, peak 2381.2 MB of the 3,000 MB cap
+shots: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/FarBand/2026-10-17_001526_world/
+[StreamManager] VERTICAL STREAMING (sizeClass 2): band +-3 layers, lag 1, content top layer 90 (Y 11537)
+[StreamManager] PrimeWindow: 847 chunks in 1739ms via the worker pipeline (2.1ms/chunk wall)
+[FarField] tg2 WORLD (aligned): world map v4 (biome x3.25, 6 biomes, record 6291456 B) built in 3 ms, offset int2(0, 0), sea shift 0
+[Phase4Bootstrapper] Total startup: 6199ms
+shells preset High (720 rows), shells 1-7; requested 4161 generated 4153 stale-dropped 8 errors 0 over-budget frames 0; gen ms/chunk 37.3
+  validator shell 1: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 2: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 3: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 4: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 5: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 6: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 7: stale slots 0, pool errors 0, GPU directory mismatches 0
+shells preset High (720 rows), shells 1-7; requested 21509 generated 21501 stale-dropped 26 errors 0 over-budget frames 0; gen ms/chunk 45.2
+  validator shell 1: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 2: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 3: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 4: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 5: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 6: stale slots 0, pool errors 0, GPU directory mismatches 0
+  validator shell 7: stale slots 0, pool errors 0, GPU directory mismatches 0
+power end: 00:21:54 source=AC Power charge=100%; charged

@@ -23,8 +23,23 @@ You are running UNATTENDED in a fresh headless session started by
    suite, `./run-editmode-tests.sh`, ~3 min; `SUITE=all` when the task changes
    terrain-generator code -- every B step -- or prepares a merge to `main`), one
    performance change per measurement, look at screenshots before concluding.
+   **Test trim (owner, 2026-10-12, (a)):** while iterating, run only your own
+   tests (a `-testFilter` run); run the required suite (fast or `SUITE=all`)
+   ONCE, at the end, before the final commit -- again only if that run fails
+   and you fix something. Take ALL demo/screenshot shots in ONE player launch;
+   relaunch only for a shot that came out broken.
+   **Launch budget (owner, 2026-10-12: "what is the point of running over 5 mins if we are not
+   playtesting?"):** a screenshot/metrics launch takes the FEW poses the task needs (3-5, not all 16)
+   and lasts <= ~10 min including load. Never wait for streaming to finish (e.g. `-shellwait 360`): use
+   a short fixed wait (<= 60-90 s) and REPORT what is still missing (the `[shells]` missing counts)
+   instead. Task 83b's launch waited 360 s at 16 poses = 95 min, and 11 poses were still unfilled.
+   Longer only in a performance/streaming task, or when the task file says why.
+   **Images are NOT committed** (owner, 2026-10-13): `Screenshots/**` images/videos are git-ignored; never `git add -f`
+   them. Commit text reports (txt/json/md) only. Cite image paths in HANDOFF; the supervisor archives them.
 4. **Git.** Commit on the branch that is checked out, never `main`, never push.
-   End commit messages with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+   End commit messages with `Co-Authored-By: Claude <the model you run on, e.g. Opus 5.5 / Sonnet 5.5> <noreply@anthropic.com>`.
+   Your task's feature note (flags, tests, demo shots) goes in `TASKS.md` as one paragraph, NOT in CLAUDE.md
+   (owner, 2026-10-22: CLAUDE.md is re-read on every turn of every session).
 5. **NEVER end your turn while something is still running.** This is a `-p`
    session: the moment you stop and wait for a notification, the session EXITS
    and kills every background job (2026-10-01: both queued tasks died this way
@@ -51,6 +66,10 @@ You are running UNATTENDED in a fresh headless session started by
    owner must decide something, start the file with `STOP_FOR_OWNER`.
    **Every image you cite gets a one-line caption saying what to look at**
    (which panel/row, which part of the frame, what it shows) -- owner, 2026-10-03.
+   **End HANDOFF with a `## For the doc` block** (owner, 2026-10-09): the 3-6 numbers that show
+   what this task changed (before -> after, with units and the log/report path), and 1-3 image paths
+   with captions (a before/after pair or contact sheet if anything visible changed). The supervisor
+   copies it into the owner's doc as this task's report. A task with nothing to show says why.
 9. **Performance is quoted at WARM STEADY STATE** (owner, 2026-10-04, Q20 (a)). This Mac is
    a fanless M1 Air: a warm chip runs chunk generation up to ~2.2x slower (tasks 27/28), and
    4+ workers heat it within ~100 s even from cold. So every timed measurement (stream probe,

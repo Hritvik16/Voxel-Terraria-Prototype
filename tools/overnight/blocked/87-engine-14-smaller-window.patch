@@ -1,0 +1,298 @@
+diff --git a/Assets/CoreEngine/Simulation/FluidTileMap.cs b/Assets/CoreEngine/Simulation/FluidTileMap.cs
+index bb7c5c2..4b08c7c 100644
+--- a/Assets/CoreEngine/Simulation/FluidTileMap.cs
++++ b/Assets/CoreEngine/Simulation/FluidTileMap.cs
+@@ -143,6 +143,22 @@ namespace VoxelEngine.Simulation
+ 
+         public int SlotForVoxel(int3 voxel) => TryGetSlot(TileOf(voxel));
+ 
++        /// Task 87 (8.14 row 11, Q4 (a)): does any resident tile lie in this
++        /// 0.1 m chunk? With AwakeOnly, a resident tile is awake fluid, and the
++        /// streamer keeps its chunk resident outside the load radius
++        /// (StreamManager.KeepResident). A chunk is (CHUNK_EDGE / TileEdge)^3 tiles.
++        public bool HoldsTileInChunk(int3 chunkCoord)
++        {
++            if (ResidentTiles == 0) return false;
++            int n = EngineConfig.CHUNK_EDGE_VOXELS >> TileShift;
++            int3 t0 = chunkCoord * n;
++            for (int z = 0; z < n; z++)
++            for (int y = 0; y < n; y++)
++            for (int x = 0; x < n; x++)
++                if (TryGetSlot(t0 + new int3(x, y, z)) != NO_TILE) return true;
++            return false;
++        }
++
+         /// Linear cell index for a world voxel, or -1 if its tile is absent.
+         /// Layout matches the GPU's exactly: slot-major, then z, y, x within.
+         public int CellIndex(int3 voxel)
+diff --git a/Assets/CoreEngine/Streaming/StreamManager.cs b/Assets/CoreEngine/Streaming/StreamManager.cs
+index 2802717..c45da3c 100644
+--- a/Assets/CoreEngine/Streaming/StreamManager.cs
++++ b/Assets/CoreEngine/Streaming/StreamManager.cs
+@@ -615,6 +615,16 @@ namespace VoxelEngine.Streaming
+         /// catch-up wrote, so the owner can run the fluid wake scan there
+         /// (EditService.NotifyEditedRegion, what EditOps' near apply runs). Null = none.
+         public Action<int3, int3> OpCatchUpEdited;
++        /// Task 87 (8.14 rows 6 and 11, owner Q4 (a)): a resident chunk this
++        /// answers true for is NOT evicted for leaving the load radius or the
++        /// vertical band while it is still inside the CPU ring (the store
++        /// window) -- "eviction not selected"; §4.4's table is unchanged. Set to
++        /// "holds awake fluid" only on the shells path's smaller window. Null
++        /// (default) = every out-of-range chunk is evicted, as before. The §3.6
++        /// pool valve ignores it. Main thread only.
++        public Func<int3, bool> KeepResident;
++        /// Out-of-range chunks the last EvictOutOfRange kept for KeepResident.
++        public int LastKeptResident { get; private set; }
+ 
+         // =====================================================================
+         // Per-frame entry point. MAIN THREAD ONLY.
+@@ -655,6 +665,13 @@ namespace VoxelEngine.Streaming
+                 // for the next frame.
+                 EvictOutOfRange(_lastCameraChunk);
+             }
++            else if (LastKeptResident > 0 && (_frame & 15) == 0)
++            {
++                // Task 87: chunks kept for KeepResident (awake fluid) are
++                // re-asked every 16 frames, so one whose fluid has slept goes
++                // without waiting for the camera to change chunk.
++                EvictOutOfRange(_lastCameraChunk);
++            }
+             else if (_pending.Count == 0 && _inFlight == 0 && _completions.Count == 0)
+             {
+                 // Re-sweep whenever the queue drains, not only when the camera
+@@ -1315,14 +1332,19 @@ namespace VoxelEngine.Streaming
+         private void EvictOutOfRange(int3 camChunk)
+         {
+             _evictScratch.Clear();
++            int kept = 0;
+             foreach (var chunk in _store.ResidentChunks())
+             {
+                 int dx = math.abs(chunk.coord.x - camChunk.x);
+                 int dz = math.abs(chunk.coord.z - camChunk.z);
+                 bool outsideBand = VerticalStreaming && math.abs(chunk.coord.y - camChunk.y) > V_LOAD_LAYERS;
+                 if (math.max(dx, dz) > _evictRadiusChunks || !_store.IsInWindow(chunk.coord) || outsideBand)
++                {
++                    if (KeepResident != null && _store.IsInWindow(chunk.coord) && KeepResident(chunk.coord)) { kept++; continue; }
+                     _evictScratch.Add(chunk.coord);
++                }
+             }
++            LastKeptResident = kept;
+ 
+             int saves = 0;
+             _evictDeferred = false;
+diff --git a/Assets/CoreEngine/Tests/EditOpTests.cs b/Assets/CoreEngine/Tests/EditOpTests.cs
+index b24619a..3a14529 100644
+--- a/Assets/CoreEngine/Tests/EditOpTests.cs
++++ b/Assets/CoreEngine/Tests/EditOpTests.cs
+@@ -269,7 +269,7 @@ public class EditOpTests
+         private readonly LODCascadeManager _cascades;
+         private bool _primed;
+ 
+-        public World(string dir)
++        public World(string dir, int loadRadius = 2)
+         {
+             var meta = new WorldMetaData { seed = 42, sizeClass = 0 };
+             pool = new BrickDataPool(400000, rangeAware: true);
+@@ -278,7 +278,7 @@ public class EditOpTests
+             var mirror = new int3(EngineConfig.WINDOW_CHUNKS_XZ, EngineConfig.MIRROR_CHUNKS_Y, EngineConfig.WINDOW_CHUNKS_XZ);
+             _clip = new TerrainClipmap(mirror, pool.Capacity);
+             _cascades = new LODCascadeManager(mirror, tier => EngineConfig.CascadeTierPoolCap(tier));
+-            sm = new StreamManager(store, pool, alloc, _clip, _cascades, meta, dir, 2);
++            sm = new StreamManager(store, pool, alloc, _clip, _cascades, meta, dir, loadRadius);
+             edits = new EditService();
+             edits.AttachWorld(store, store, store, _clip);
+             ops = new EditOps(sm.Ops, edits, store);
+@@ -454,6 +454,51 @@ public class EditOpTests
+         finally { Directory.Delete(dir, true); }
+     }
+ 
++    /// Task 87 (8.14 rows 6-7): with shells on, High's 0.1 m window loads 7
++    /// chunks, not 10. A chunk 9 out (inside the old window, outside the new) is
++    /// not resident, so SetVoxel cannot reach it; IEditOps.Record logs the op,
++    /// and the chunk shows it when the camera brings it in.
++    [Test]
++    public void StreamManager_FarOp_BeyondTheSmallWindow_ShowsWhenTheChunkLoads()
++    {
++        int load = ShellLayout.From(QualityPreset.High).LoadRadiusChunks;
++        Assert.Less(load + 2, EngineConfig.TG2_LOAD_RADIUS_CHUNKS + 1, "the site must lie inside the old 128 m window");
++        int3 camChunk = new int3((int)(CAM.x * 10) >> 7, 0, (int)(CAM.z * 10) >> 7);
++        int3 c = camChunk + new int3(load + 2, 0, 0);
++        Vector3 over = new Vector3(c.x * 12.8f + 6.4f, CAM.y, c.z * 12.8f + 6.4f);
++        string dirR = TempDir("swref"), dirF = TempDir("swfar");
++        try
++        {
++            byte[] reference; int3 centre = default; bool found = false;
++            using (var w = new World(dirR))
++            {
++                w.Go(over);
++                int3 v0 = c << 7;
++                for (int y = 115; y >= 12 && !found; y--)
++                    if (w.store.GetVoxel(v0 + new int3(64, y, 64)) != Materials.Air &&
++                        w.store.GetVoxel(v0 + new int3(64, y + 1, 64)) == Materials.Air)
++                    { centre = v0 + new int3(64, y, 64); found = true; }
++                Assert.IsTrue(found, $"no surface site in {c}");
++                reference = w.Content(c);
++            }
++            var op = new EditOp(EditOpKind.Sphere, centre, 10, Materials.Air);
++            using (var w = new World(dirF, load))
++            {
++                w.Go(CAM);
++                Assert.IsFalse(w.store.IsResident(c), $"{c} is {load + 2} chunks out: outside the {load}-chunk window");
++                Assert.IsFalse(w.edits.TrySetVoxel(centre, Materials.Stone), "SetVoxel is refused outside loaded chunks (frozen)");
++                w.ops.Record(op);
++                Assert.AreEqual(0, w.ops.NearVoxelsWritten, "nothing resident there: the op is only logged");
++                w.Go(over);
++                byte[] want = WithOps(reference, c, op);
++                Assert.AreNotEqual(0, Diff(reference, want, out _), "test setup: the op must change the chunk");
++                int bad = Diff(want, w.Content(c), out string first);
++                Assert.AreEqual(0, bad, $"the far op is missing from the loaded chunk in {bad} voxels, first {first}");
++            }
++        }
++        finally { Directory.Delete(dirR, true); Directory.Delete(dirF, true); }
++    }
++
+     [Test]
+     public void StreamManager_OldSave_NoOps_LoadsUnchanged()
+     {
+diff --git a/Assets/Game/Phase4Bootstrapper.cs b/Assets/Game/Phase4Bootstrapper.cs
+index 5646fde..15d1685 100644
+--- a/Assets/Game/Phase4Bootstrapper.cs
++++ b/Assets/Game/Phase4Bootstrapper.cs
+@@ -43,6 +43,19 @@ public class Phase4Bootstrapper : MonoBehaviour
+     /// occupancy picture + report S seconds after start-up and at quit, and
+     /// tints each pixel by the shell that drew it.
+     public static ShellStreamer Shells { get; private set; }
++    /// The shells' layout (`-shells 1`), built before the window so shell 0
++    /// can be sized from it; null with shells off.
++    public static ShellLayout ShellsLayout { get; private set; }
++    /// TASK 87 (engine step 14, 8.14 row 6): with `-shells 1` the 0.1 m window
++    /// (shell 0) is the preset's: load radius 5 / 6 / 7 / 10 chunks (59 / 65 /
++    /// 82 / 116 m with the margin), GPU mirror box 16^3 (Ultra: today's
++    /// 32 x 8 x 32), 0.1 m pool cap ShellLayout.Shell0PoolCap; shell 1 draws
++    /// beyond it. The CPU ring stays 32 x 16 x 32 (WINDOW_CHUNKS_Y, CLAUDE.md),
++    /// and chunks holding awake fluid stay resident inside it
++    /// (StreamManager.KeepResident, Q4 (a)). `-window128` = today's 128 m
++    /// window with shells on (the before arm); `-pool0cap N` overrides the cap
++    /// (measurement seam). Shells off: today's window, byte-identical.
++    public static bool SmallWindow { get; private set; }
+ 
+     /// `-farop` (task 81's demo): the centre of the 20 m crater recorded as an
+     /// edit op ~300 m from the spawn before anything streams, or null.
+@@ -247,12 +260,23 @@ public class Phase4Bootstrapper : MonoBehaviour
+                 if (File.Exists(Path.Combine(DeltaDirectory, f))) File.Delete(Path.Combine(DeltaDirectory, f));
+         }
+ 
++        // ---- Shells' layout first: it sizes shell 0 (task 87) ----
++        ShellsLayout = null; SmallWindow = false;
++        if (IsTg2World && ArgInt("-shells", 0) == 1)
++        {
++            string[] sargs = Environment.GetCommandLineArgs();
++            int qi = Array.LastIndexOf(sargs, "-quality");
++            ShellsLayout = ShellLayout.From(ShellLayout.Parse(qi >= 0 && qi + 1 < sargs.Length ? sargs[qi + 1] : null));
++            SmallWindow = Array.IndexOf(sargs, "-window128") < 0;
++        }
++        int tg2PoolCap = SmallWindow ? ArgInt("-pool0cap", ShellsLayout.Shell0PoolCap) : EngineConfig.TG2_BRICK_POOL_CAP;
++
+         // ---- Pools / store / mirrors ----
+-        _pool = new BrickDataPool(IsTg2World ? EngineConfig.TG2_BRICK_POOL_CAP : EngineConfig.BRICK_POOL_CAP, rangeAware: true);
++        _pool = new BrickDataPool(IsTg2World ? tg2PoolCap : EngineConfig.BRICK_POOL_CAP, rangeAware: true);
+         _allocator = new ChunkHandleAllocator(1024);
+         _store = new ChunkStore(_pool, _allocator);
+         if (IsTg2World)
+-            _store.HighWaterBricksOverride = (int)(EngineConfig.TG2_BRICK_POOL_CAP * EngineConfig.BRICK_POOL_HIGH_WATER_FRACTION);
++            _store.HighWaterBricksOverride = (int)(tg2PoolCap * EngineConfig.BRICK_POOL_HIGH_WATER_FRACTION);
+         Store = _store; Pool = _pool;
+ 
+         // The STORE's ring and the GPU MIRROR's window are deliberately
+@@ -270,6 +294,16 @@ public class Phase4Bootstrapper : MonoBehaviour
+         int3 mirrorChunks = new int3(EngineConfig.WINDOW_CHUNKS_XZ,
+                                      IsTg2World ? EngineConfig.TG2_MIRROR_CHUNKS_Y : EngineConfig.MIRROR_CHUNKS_Y,
+                                      EngineConfig.WINDOW_CHUNKS_XZ);
++        // Cascade tiers 1-2 keep today's box: their slots are tier 0's, and
++        // they do not draw while shells do (task 80), so only the 0.1 m mirror
++        // shrinks (task 87).
++        int3 cascadeChunks = mirrorChunks;
++        if (SmallWindow)
++        {
++            mirrorChunks = ShellsLayout.Shell0Directory;
++            if (!ShellLayout.IsPow2(mirrorChunks.x) || !ShellLayout.IsPow2(mirrorChunks.y) || !ShellLayout.IsPow2(mirrorChunks.z))
++                throw new InvalidOperationException($"[Phase4Bootstrapper] shell-0 mirror box {mirrorChunks} is not a power of two (§6.2)");
++        }
+         Clipmap = new TerrainClipmap(mirrorChunks, _pool.Capacity);
+         // Edit-driven cascade rebuilds off the main thread (LODCascadeManager's
+         // ASYNC REBUILD block). -cascadeasync 0 is the A/B.
+@@ -285,7 +319,7 @@ public class Phase4Bootstrapper : MonoBehaviour
+             VoxelEngine.Streaming.StreamManager.GenWorkersOverride =
+                 gi >= 0 && gi + 1 < args.Length && int.TryParse(args[gi + 1], out int gw) && gw > 0 ? gw : 0;
+         }
+-        Cascades = new LODCascadeManager(mirrorChunks, tier => IsTg2World ? EngineConfig.Tg2CascadeTierPoolCap(tier)
++        Cascades = new LODCascadeManager(cascadeChunks, tier => IsTg2World ? EngineConfig.Tg2CascadeTierPoolCap(tier)
+                                                                           : EngineConfig.CascadeTierPoolCap(tier));
+ 
+         UnityEngine.Debug.Log($"[Phase4Bootstrapper] store ring {storeWindowChunks}, GPU mirror {mirrorChunks} " +
+@@ -314,7 +348,10 @@ public class Phase4Bootstrapper : MonoBehaviour
+         // HYSTERESIS_RING_CHUNKS 2->1 (+12.8m). Measure before doing either.
+         int maxRadius = StreamManager.MaxLoadRadiusChunks(_store.WindowDims);
+         int loadRadius = _loadRadiusChunks <= 0 ? maxRadius : _loadRadiusChunks;
+-        if (IsTg2World) loadRadius = Math.Min(loadRadius, EngineConfig.TG2_LOAD_RADIUS_CHUNKS);
++        if (IsTg2World) loadRadius = Math.Min(loadRadius, SmallWindow ? ShellsLayout.LoadRadiusChunks : EngineConfig.TG2_LOAD_RADIUS_CHUNKS);
++        if (ShellsLayout != null)
++            UnityEngine.Debug.Log($"[Phase4Bootstrapper] shells: 0.1 m window {(SmallWindow ? $"{ShellsLayout.Preset} (task 87): radius {ShellsLayout.Shell0RadiusM:F0} m" : "128 m (-window128)")}, " +
++                                  $"mirror box {mirrorChunks}, pool cap {_pool.Capacity}");
+         if (loadRadius > maxRadius)
+         {
+             UnityEngine.Debug.LogWarning(
+@@ -386,11 +423,9 @@ public class Phase4Bootstrapper : MonoBehaviour
+                                                       Streamer.Ops);   // task 82: the far band draws the save's edit ops
+         ApplyBandToRenderer();
+ 
+-        if (IsTg2World && ArgInt("-shells", 0) == 1)
++        if (ShellsLayout != null)
+         {
+-            string[] sargs = Environment.GetCommandLineArgs();
+-            int qi = Array.LastIndexOf(sargs, "-quality");
+-            var layout = ShellLayout.From(ShellLayout.Parse(qi >= 0 && qi + 1 < sargs.Length ? sargs[qi + 1] : null));
++            var layout = ShellsLayout;
+             Shells = new ShellStreamer(layout, Streamer.TerrainGenSource, ArgInt("-shellworkers", 1));
+             Shells.Ops = Streamer.Ops;   // 8.14 row 9: shells apply the save's edit ops on generation
+             ShellStreamer.Active = Shells;
+@@ -530,7 +565,7 @@ public class Phase4Bootstrapper : MonoBehaviour
+         Streamer?.Dispose();
+         Clipmap?.Dispose();
+         if (ShellStreamer.Active == Shells) ShellStreamer.Active = null;
+-        Shells?.Dispose(); Shells = null;
++        Shells?.Dispose(); Shells = null; ShellsLayout = null; SmallWindow = false;
+         Cascades?.Dispose();
+         _pool?.Dispose();
+         Clipmap = null; Cascades = null; Store = null; Pool = null; Meta = null;
+diff --git a/Assets/Game/Playground.cs b/Assets/Game/Playground.cs
+index 215380b..ce94ba3 100644
+--- a/Assets/Game/Playground.cs
++++ b/Assets/Game/Playground.cs
+@@ -430,6 +430,10 @@ public partial class Playground : MonoBehaviour
+         _edits.AttachFluidSimulation(_fluid, _store);
+         // An edit op caught up on a chunk that was in flight wakes fluid like any edit (task 82).
+         if (Phase4Bootstrapper.Streamer != null) Phase4Bootstrapper.Streamer.OpCatchUpEdited = _edits.NotifyEditedRegion;
++        // Task 87 (Q4 (a)): on the shells path's smaller 0.1 m window, a chunk
++        // holding awake fluid stays resident inside the CPU ring past the load radius.
++        if (Phase4Bootstrapper.SmallWindow && Phase4Bootstrapper.Streamer != null)
++            Phase4Bootstrapper.Streamer.KeepResident = _tiles.HoldsTileInChunk;
+ 
+         // §6.6's enqueue, on the SAME EditService every other edit in this scene
+         // already goes through. A torch is a terrain byte, so placing one is an
+diff --git a/Assets/Game/PlaygroundCapture.FarBand.cs b/Assets/Game/PlaygroundCapture.FarBand.cs
+index 14dbc87..11ae1d1 100644
+--- a/Assets/Game/PlaygroundCapture.FarBand.cs
++++ b/Assets/Game/PlaygroundCapture.FarBand.cs
+@@ -363,6 +363,11 @@ public partial class PlaygroundCapture
+                 if (shellShots)
+                 {
+                     yield return ShellPoseShots(shellsS, $"{n}_{tn}", n);
++                    // Task 87: the 0.1 m window's residency and pool at this pose.
++                    var pl = Phase4Bootstrapper.Pool;
++                    L($"  [window] {n,-22} {(Phase4Bootstrapper.SmallWindow ? "small" : "128 m")}  load radius {sm.LoadRadiusChunks}  mirror {Phase4Bootstrapper.Clipmap.WindowDimsChunks}  " +
++                      $"resident {Phase4Bootstrapper.Store.ResidentCount}  deficit {deficit}  pool {pl.InUse}/{pl.Capacity} peak {pl.PeakUsed}  " +
++                      $"lruEvictions {sm.LruEvictionsTotal}  kept {sm.LastKeptResident}  outOfBox {Phase4Bootstrapper.Clipmap.SkippedOutOfBoxTotal}");
+                     continue;
+                 }
+                 yield return CaptureTo($"{n}_{tn}");

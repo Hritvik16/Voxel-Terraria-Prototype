@@ -44,20 +44,25 @@ public partial class PlaygroundCapture
         while (Phase4Bootstrapper.Store == null) yield return null;
         yield return Frames(300);
         string ts = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
-        string arm = RaymarchFeature.Taa ? (RaymarchFeature.TaaChecker ? "chk" : "on") : "off";
+        // -upscaler (task 48): the run keeps UpscalerSelect's resolution and is named after it.
+        string arm = UpscalerSelect.Active ? $"{UpscalerSelect.Name(UpscalerSelect.Current)}{UpscalerSelect.Rows}"
+                   : RaymarchFeature.Taa ? (RaymarchFeature.TaaChecker ? "chk" : "on") : "off";
         _folder = Path.Combine(Application.persistentDataPath, "FarBand", ts + "_taarisk_" + arm);
         Directory.CreateDirectory(_folder);
         LightingDriver.ClockPaused = true;
         SunCycle.SetHours(12f);
-        RaymarchFeature.GateModeOverride = RaymarchFeature.GateResMode.ForcedCustom;
-        RaymarchFeature.CustomGateResolution = new Vector2Int(960, 540);
+        if (!UpscalerSelect.Active)
+        {
+            RaymarchFeature.GateModeOverride = RaymarchFeature.GateResMode.ForcedCustom;
+            RaymarchFeature.CustomGateResolution = new Vector2Int(960, 540);
+        }
         Playground.DebugHideUi = true;
         var far = FarField.Active;
         var cam = Camera.main;
         var sm = Phase4Bootstrapper.Streamer;
         var store = Phase4Bootstrapper.Store;
         L($"TAA RISK FRAMES -- {ts}  TAA {(RaymarchFeature.Taa ? $"ON{(RaymarchFeature.TaaChecker ? " + CHECKERBOARD" : "")} (sharpen {RaymarchFeature.TaaSharpenAmount:F2})" : "OFF")}; " +
-          $"gate 960x540; preset {(HasFlag("-renderpreset") ? RenderPreset.Current.ToString() : "not set")}");
+          $"{(UpscalerSelect.Active ? UpscalerSelect.Describe() : "gate 960x540")}; preset {(HasFlag("-renderpreset") ? RenderPreset.Current.ToString() : "not set")}");
         if (pg != null && !Phase4Bootstrapper.IsTg2World)
         {
             yield return TaaRiskArena(pg, store);

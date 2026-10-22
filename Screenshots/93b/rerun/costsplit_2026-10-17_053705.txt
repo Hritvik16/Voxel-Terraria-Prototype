@@ -1,0 +1,92 @@
+UPSCALER CLIPS -- 2026-10-17_053705
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+COST SPLIT (task 57): 12.00 h, sun elevation 78 deg; FULL = fsr3 540 rows pinned, HUD + minimap on, fluid on; roof skip OFF; shadow res full; shadow rung 0, torch rays override -1 (config 4), temporal shadows ON, far shadows ON, cascade True
+order: F, then per arm X X F; each run 3 s settle + 15 s timed, real time, no capture
+walk_open: arc start candidates (angle on the circle: median free distance): 90:4m 113:28m 135:12m 158:4m 180:4m 203:8m 225:4m 248:1500m 270:1500m -> 248 deg
+
+== walk_near: MODE=walk circle centre (4017, 887, 4019) r 150 m, arc from -180 deg, 5 m/s, heading yaw 180 -> 165 (sun yaw 0)
+  streaming pinned at the middle pose (3868.5, 956.3, 3998.9): resident 3283, deficit 0
+  [shells] fill wait 120 s (cap 120 s); stored/missing/in flight:  s1 2170/0/0  s2 1832/0/0  s3 1494/0/0  s4 936/49/2  s5 139/344/6  s6 0/182/0  s7 0/16/0   total stored 6571, missing 591, pending 0; requested 7051, generated 7043 (54 ms each on a worker), dropped stale 5, over-budget frames 2 (of 2350)
+  [shells] complete at (s; - = not within the wait):  s1 7  s2 38  s3 88  s4 -  s5 -  s6 -  s7 -
+    [far full] far rays/frame 30,209 (from shells: past-last 0, absent 30,209, cap 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 1029 m
+    [shell full] pixels/frame 518,400; PRIMARY hit rays 26 (0.0%) iters 1,336 (51.8/ray); PRIMARY no-hit rays 30,209 (5.8%) iters 2,846,951 (94.2/ray); tier-0 leaps 294,309 (10% of primary iters); SHADOW rays 26 iters 693 (26.9/ray); all shell iters/pixel 5.50
+    [shell full] primary iters by step: tier-0 leap 10%, air chunk 13%, air brick 75%, cell / end 1%; reads per primary iter: directory 0.20, page 0.75
+    [shell full] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+   1 full      pass 1  frames  236  p50  66.4  p99  192.2 ms  cpu main p50  66.5 (present wait   0.0)  render thr   1.1  gpu* 191.7  deficit frames 0  far busy 0  resident 3283
+    [far shells_off] far rays/frame 30,235 (from shells: past-last 0, absent 0, cap 0; FarStartT 30,235), far hits/frame 0; PRIMARY steps/frame 621,357 (20.6/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 101 m
+    [shell shells_off] pixels/frame 518,400; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell shells_off] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell shells_off] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+   2 shells_off pass 1  frames  299  p50  50.1  p99  163.1 ms  cpu main p50  50.2 (present wait   0.0)  render thr   2.3  gpu* 119.6  deficit frames 0  far busy 0  resident 3283
+   3 shells_off pass 2  frames  299  p50  50.4  p99   80.6 ms  cpu main p50  50.4 (present wait   0.0)  render thr   2.9  gpu* 115.6  deficit frames 0  far busy 0  resident 3283
+   4 full      pass 2  frames  236  p50  65.4  p99  104.5 ms  cpu main p50  65.9 (present wait   0.0)  render thr   2.8  gpu* 195.0  deficit frames 0  far busy 0  resident 3283
+    [far far_off] far rays/frame 0 (from shells: past-last 0, absent 0, cap 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell far_off] pixels/frame 518,400; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 30,237 (5.8%) iters 30,237 (1.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.06
+    [shell far_off] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 100%; reads per primary iter: directory 1.00, page 0.00
+    [shell far_off] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+   5 far_off   pass 1  frames  310  p50  48.5  p99   84.9 ms  cpu main p50  48.5 (present wait   0.0)  render thr   2.1  gpu* 139.9  deficit frames 0  far busy 0  resident 3283
+   6 far_off   pass 2  frames  310  p50  47.6  p99  103.2 ms  cpu main p50  48.1 (present wait   0.0)  render thr   2.0  gpu* 101.0  deficit frames 0  far busy 0  resident 3283
+   7 full      pass 3  frames  236  p50  65.6  p99  104.1 ms  cpu main p50  65.9 (present wait   0.0)  render thr   2.7  gpu* 146.3  deficit frames 0  far busy 0  resident 3283
+    [far fshade_off] far rays/frame 30,207 (from shells: past-last 0, absent 0, cap 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell fshade_off] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell fshade_off] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell fshade_off] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+   8 fshade_off pass 1  frames  231  p50  69.5  p99  102.5 ms  cpu main p50  70.0 (present wait   0.0)  render thr   2.9  gpu* 144.7  deficit frames 0  far busy 0  resident 3283
+   9 fshade_off pass 2  frames  231  p50  66.3  p99  108.6 ms  cpu main p50  66.5 (present wait   0.0)  render thr   3.1  gpu* 178.5  deficit frames 0  far busy 0  resident 3283
+  10 full      pass 4  frames  236  p50  64.8  p99  143.0 ms  cpu main p50  65.8 (present wait   0.0)  render thr   2.6  gpu* 147.9  deficit frames 0  far busy 0  resident 3283
+
+== walk_open: MODE=walk circle centre (4017, 887, 4019) r 150 m, arc from 248 deg, 5 m/s, heading yaw 113 -> 97 (sun yaw 0)
+  streaming pinned at the middle pose (3978.7, 1056.3, 3873.8): resident 3087, deficit 0
+  [shells] fill wait 16 s (cap 120 s); stored/missing/in flight:  s1 1832/0/0  s2 1494/0/0  s3 1283/40/0 FULL  s4 996/0/0  s5 489/0/0  s6 182/0/0  s7 16/0/0   total stored 6292, missing 40, pending 0; requested 9886, generated 9886 (58 ms each on a worker), dropped stale 5, over-budget frames 3 (of 7818)
+  [shells] complete at (s; - = not within the wait):  s1 0  s2 3  s3 10  s4 16  s5 0  s6 0  s7 0
+    [far full] far rays/frame 290,870 (from shells: past-last 0, absent 290,870, cap 0; FarStartT 0), far hits/frame 6,330; PRIMARY steps/frame 235,453 (0.8/ray); SHADOW rays/frame 6,302, steps/frame 8,504 (1.3/ray); mean far start 51 m
+    [shell full] pixels/frame 518,400; PRIMARY hit rays 31,811 (6.1%) iters 3,367,750 (105.9/ray); PRIMARY no-hit rays 290,870 (56.1%) iters 11,831,756 (40.7/ray); tier-0 leaps 2,512,625 (17% of primary iters); SHADOW rays 31,811 iters 527,606 (16.6/ray); all shell iters/pixel 30.34
+    [shell full] primary iters by step: tier-0 leap 17%, air chunk 34%, air brick 43%, cell / end 6%; reads per primary iter: directory 0.46, page 0.43
+    [shell full] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+   1 full      pass 1  frames  314  p50  47.5  p99   84.0 ms  cpu main p50  47.5 (present wait   0.0)  render thr   3.1  gpu* 114.2  deficit frames 0  far busy 0  resident 3087
+    [far shells_off] far rays/frame 322,690 (from shells: past-last 0, absent 0, cap 0; FarStartT 322,690), far hits/frame 37,542; PRIMARY steps/frame 6,373,758 (19.8/ray); SHADOW rays/frame 37,514, steps/frame 201,572 (5.4/ray); mean far start 55 m
+    [shell shells_off] pixels/frame 518,400; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell shells_off] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell shells_off] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+   2 shells_off pass 1  frames  493  p50  30.2  p99   52.9 ms  cpu main p50  30.2 (present wait   0.0)  render thr   3.0  gpu*  67.8  deficit frames 0  far busy 0  resident 3087
+   3 shells_off pass 2  frames  493  p50  30.0  p99   52.5 ms  cpu main p50  30.0 (present wait   0.0)  render thr   3.0  gpu*  80.1  deficit frames 0  far busy 0  resident 3087
+   4 full      pass 2  frames  313  p50  47.5  p99   83.4 ms  cpu main p50  47.8 (present wait   0.0)  render thr   3.1  gpu* 139.5  deficit frames 0  far busy 0  resident 3087
+    [far far_off] far rays/frame 0 (from shells: past-last 0, absent 0, cap 0; FarStartT 0), far hits/frame 0; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell far_off] pixels/frame 518,400; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 322,670 (62.2%) iters 322,670 (1.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.62
+    [shell far_off] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 100%; reads per primary iter: directory 1.00, page 0.00
+    [shell far_off] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+   5 far_off   pass 1  frames  566  p50  26.5  p99   48.4 ms  cpu main p50  26.4 (present wait   0.0)  render thr   2.9  gpu*  54.5  deficit frames 0  far busy 0  resident 3087
+   6 far_off   pass 2  frames  564  p50  26.9  p99   47.8 ms  cpu main p50  26.8 (present wait   0.0)  render thr   2.8  gpu*  61.3  deficit frames 0  far busy 0  resident 3087
+   7 full      pass 3  frames  313  p50  48.6  p99   74.6 ms  cpu main p50  48.6 (present wait   0.0)  render thr   3.0  gpu* 110.7  deficit frames 0  far busy 0  resident 3087
+    [far fshade_off] far rays/frame 290,887 (from shells: past-last 0, absent 0, cap 0; FarStartT 0), far hits/frame 6,331; PRIMARY steps/frame 0 (0.0/ray); SHADOW rays/frame 0, steps/frame 0 (0.0/ray); mean far start 0 m
+    [shell fshade_off] pixels/frame 0; PRIMARY hit rays 0 (0.0%) iters 0 (0.0/ray); PRIMARY no-hit rays 0 (0.0%) iters 0 (0.0/ray); tier-0 leaps 0 (0% of primary iters); SHADOW rays 0 iters 0 (0.0/ray); all shell iters/pixel 0.00
+    [shell fshade_off] primary iters by step: tier-0 leap 0%, air chunk 0%, air brick 0%, cell / end 0%; reads per primary iter: directory 0.00, page 0.00
+    [shell fshade_off] air-brick mask: empty groups crossed in one leap 0/frame (0% of primary iters)
+   8 fshade_off pass 1  frames  327  p50  45.8  p99   77.5 ms  cpu main p50  45.6 (present wait   0.0)  render thr   3.0  gpu*  95.6  deficit frames 0  far busy 0  resident 3087
+   9 fshade_off pass 2  frames  328  p50  46.1  p99   80.5 ms  cpu main p50  45.5 (present wait   0.0)  render thr   3.1  gpu*  97.0  deficit frames 0  far busy 0  resident 3087
+  10 full      pass 4  frames  314  p50  48.5  p99   81.9 ms  cpu main p50  48.6 (present wait   0.0)  render thr   3.0  gpu* 136.5  deficit frames 0  far busy 0  resident 3087
+
+COST SPLIT TABLES (gpu* = FrameTimingManager gpuFrameTime, inflated ~2.6x on this Mac: relative only)
+walk_near
+arm        p50    p99 ms   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50
+full       65.9  131.7    4 runs: 66.4 65.4 65.6 64.8   (range 1.6)   cpu 66.0 / 0.0   gpu* 161.3
+shells_off  50.1  105.7      50.1 / 50.4        66.4 / 65.4              +15.8          0.9                  50.3 /   0.0          117.3
+far_off    48.2   86.2      48.5 / 47.6        65.4 / 65.6              +17.4          0.2                  48.4 /   0.0          109.9
+fshade_off  67.2  106.3      69.5 / 66.3        65.6 / 64.8               -2.0          0.9                  68.0 /   0.0          153.2
+
+walk_open
+arm        p50    p99 ms   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50
+full       48.0   82.8    4 runs: 47.5 47.5 48.6 48.5   (range 1.1)   cpu 48.0 / 0.0   gpu* 127.3
+shells_off  30.1   52.5      30.2 / 30.0        47.5 / 47.5              +17.4          0.0                  30.1 /   0.0           74.0
+far_off    26.7   47.8      26.5 / 26.9        47.5 / 48.6              +21.3          1.0                  26.7 /   0.0           58.5
+fshade_off  46.1   80.3      45.8 / 46.1        48.6 / 48.5               +2.5          0.1                  45.6 /   0.0           96.0
+
+
+
+power before: Now drawing from 'AC Power'  -InternalBattery-0 (id=25100387)	100%; charged; 0:00 remaining present: true 
+power after:  Now drawing from 'AC Power'  -InternalBattery-0 (id=25100387)	100%; charged; 0:00 remaining present: true 
+owner hold file before/after: no/no
+Metal RecreateSurface[0x769100d200]: surface size 2880x1800

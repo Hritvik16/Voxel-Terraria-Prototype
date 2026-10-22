@@ -65,8 +65,12 @@ start AND at every event (a done/blocked line means the next task is starting):
 feels long, write SESSION_HANDOFF.md, commit it, start the successor with
 `tools/new-session.sh`, and tell the owner to switch to it and close the old one.
 On each event:
-- **done NAME**: `head -30 tools/overnight/HANDOFF.md`. One line into the doc's
-  "Done" table (result, commit, where the evidence is).
+- **done NAME**: read HANDOFF.md's `## For the doc` block. Owner, 2026-10-09: EVERY finished task
+  gets a short report section in the doc's "Task reports" tab (newest first): one-line result,
+  the before -> after numbers, and its 1-3 images uploaded and captioned (look at each first).
+  Plus one row in the Done table on the "Now" tab. **Then add the task's `Screenshots/<task>/` folder to the Screenshot
+  Archive page (`tools/archive/README.md`; owner 2026-10-13: images live in claude.ai, `Screenshots/` images are git-ignored).** Keep the "Now" tab short (running, waiting
+  on you, next up); move closed questions to "Answered" (owner: the doc got hard to navigate).
 - **BLOCKED NAME**: read `blocked/NAME.HANDOFF.md`. Add its question to the doc:
   a specific multiple-choice question with your recommendation first and why,
   what each answer would cost, and what is waiting on it (`Requires:`). The owner
@@ -85,6 +89,9 @@ On each event:
   write the final summary into the doc, update `SESSION_HANDOFF.md`, stop.
 
 ## Usage budget (owner, 2026-10-09)
+**Owner, 2026-10-12: "dont worry about usage. Just make sure to use it efficiently I dont really use it for
+anything else."** This REPLACES the reserve / screenshot rules below: keep the queue fed, no ~10% reserve, no pausing to
+save the week, no usage-screenshot requests (the runner waits out limits by itself). Efficiency rules stay.
 $20 Pro plan; NEVER suggest paid options (credits, upgrades). The WEEKLY limit (resets Thu 06:00 PT)
 binds, not the 5-hour window. The supervisor paces the queue itself: keep ~10% of the week in
 reserve for the owner's questions, review packs and a blocker fix. The owner cannot tell when to
@@ -101,7 +108,10 @@ queued at once. Bugs are fixed in a batch next to related work (e.g. inside the 
 ## Writing a task file
 One change, with acceptance steps (see the existing files for the
 shape). Number it after the last file in queue/done/blocked. `Requires:` line
-for real dependencies only. State who approved it and when. Never queue:
+for real dependencies only. State who approved it and when. `Model:` line (owner, 2026-10-22,
+left to the supervisor): `opus` for engine work (shaders, memory, formats, streaming, fluids, perf);
+`sonnet` for gameplay tasks ONLY once task 107's Sonnet trial passed (first run green, owner OK with the
+shots, cost vs 100/103/105 in `Logs/overnight/*.json` `total_cost_usd`); until then `opus`. Never queue:
 terrain-generator code outside the approved B steps, TAA step 4 (shadow tuning,
 not approved), switching TAA/checkerboard ON by default (owner compares first),
 frozen-API or memory-layout changes, anything the owner has not approved.
@@ -194,3 +204,11 @@ and which (this one) to close.
 > yourself. Put every question for me in the "Queue decisions" doc. Start by
 > telling me why this new session started and what the previous chat covered
 > (SESSION_HANDOFF.md, "For the owner").
+
+## tmux socket gone (2026-10-12)
+macOS deletes `/private/tmp/tmux-501/` when nothing touched it for ~3 days; then every `tmux` command says "error connecting
+to /private/tmp/tmux-501/default" although the server (and all windows) still run. Fix: `mkdir -m 700 /private/tmp/tmux-501;
+kill -USR1 <tmux server pid>` (recreates the socket). SIDE EFFECT: the server's umask becomes 0117, so every window it opens
+afterwards makes unusable folders (a headless Claude then cannot create its temp dir: task 83b failed twice). Since then
+`start.sh` / `new-session.sh` set `umask 022` themselves, and the running server has `tmux set -g default-command 'umask 022;
+exec /bin/zsh -l'` for windows opened by hand. A tmux restart (nothing important running) clears it for good.
