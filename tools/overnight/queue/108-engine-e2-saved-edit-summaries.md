@@ -1,6 +1,6 @@
 # 108-engine-e2-saved-edit-summaries
 
-Requires: 106-engine-q2-far-raycast
+Requires: 109-merge-engine-phase-main
 
 Approval: owner, 2026-10-15, Amendment 8.15 Q10 (a) (ADOPTED): owed part E1-E2, D1-D4, C1, Q1, Q2 in that order; E2 is the
 last of it. Contract row 6 of 8.15 §10 (D.5 edit summaries, Appendix D) is part of that adoption. Queued by the supervisor
