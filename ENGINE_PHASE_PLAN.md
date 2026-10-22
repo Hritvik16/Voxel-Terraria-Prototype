@@ -32,6 +32,11 @@ No backlog item is met today. Frame-time numbers from before 2026-10-04 are **ol
 | E9 Lighting | 32 point lights (the furthest are dropped), a few metres of torch reach, no far lights, no bounce. No point-light occlusion, so torches light through walls (`Raymarch.compute:1856`; BUGS #4). | At least Terraria in 3D: unlimited coloured lights, lights seen across the island at night, dark caves, some GI. | `run-phase7-rig.sh` with a new torch-behind-wall gate. `run-phase7-lighting-ab.sh` for frame rate (quoted per 8.12 §3.2-3.3). Night poses. |
 | E10 Memory | Peak 3,343 MB, map v4 (`Logs/tg2world_20261009_210348_mem.txt`, 2026-10-09). Last per-owner ledger: 3,259 MB (old: 2026-10-01, 1.0 M pool). | Proposed: engine ≤ 2,500 MB, leaving ≥ 500 MB for the game under the 3 GB cap. | `-memledger` plus the peak footprint over poses, walk and rig. |
 
+**E4 target changed (owner, 2026-10-22):** 60 fps is not reachable on this M1 Air; the goal is STABLE 30 fps =
+warm steady state, play settings (shells on, FSR 3), walking: **p50 <= 30 ms and <= 5% of frames > 33 ms**. Last data
+(Oct 17, before task 99): walk p50 42 ms, 79% of frames > 33 ms; steady ON 66 / 48 ms. Tasks 110 (split) and 111
+(30 fps plan) come first in the quality pass (performance, lighting, world gen, visuals) that precedes populating the world.
+
 **Targets that conflict:**
 
 - E9 (more rays per pixel) and E2 (more shells to march) both fight E4 (16.7 ms). Today's 960x540 path is already ~2x over budget without them.
