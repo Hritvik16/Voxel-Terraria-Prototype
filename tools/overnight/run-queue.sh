@@ -34,6 +34,7 @@
 #
 #   tools/overnight/run-queue.sh                 # run everything queued
 #   MODEL=sonnet tools/overnight/run-queue.sh    # cheaper model for routine work
+#   A task file's own "Model: sonnet|opus" line (like Requires:) overrides MODEL for that task.
 #   MAX_TASKS=2 IDLE_MIN=0 tools/overnight/run-queue.sh
 #
 # Permission mode is `auto`: the session cannot ask anyone, and auto mode blocks
@@ -115,9 +116,10 @@ $(cat "$task")"
   pre="$(dirty)"
   hmt0="$(stat -f %m "$DIR/HANDOFF.md" 2>/dev/null || echo 0)"
   waits=0; ok=1
+  tmodel="$(sed -n 's/^Model:[[:space:]]*//p' "$task" | head -n 1 | tr -d '[:space:]')"; tmodel="${tmodel:-${MODEL:-}}"
   while :; do
-    say "start $name"
-    "$CLAUDE_BIN" -p "$prompt" --permission-mode auto --output-format json ${MODEL:+--model "$MODEL"} \
+    say "start $name${tmodel:+ (model $tmodel)}"
+    "$CLAUDE_BIN" -p "$prompt" --permission-mode auto --output-format json ${tmodel:+--model "$tmodel"} \
       > "$out.json" 2> "$out.err"
     rc=$?
     if [ "$rc" -eq 0 ] && ! jq -e '.is_error == true' "$out.json" >/dev/null 2>&1; then break; fi

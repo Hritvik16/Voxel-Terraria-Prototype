@@ -1,6 +1,7 @@
 # 107-gameplay-step-11-crafting-v1
 
 Requires: 105-gameplay-step-10-tool-tiers
+Model: sonnet
 
 Approval: owner, 2026-10-11 ~00:10 in chat: "keep queuing tasks, ideally moving forward with gameplay features instead of
 optimizations, pick your recommendations"; gameplay alternates with engine tasks (Q50 (4)). Queued by the supervisor

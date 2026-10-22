@@ -37,7 +37,9 @@ You are running UNATTENDED in a fresh headless session started by
    **Images are NOT committed** (owner, 2026-10-13): `Screenshots/**` images/videos are git-ignored; never `git add -f`
    them. Commit text reports (txt/json/md) only. Cite image paths in HANDOFF; the supervisor archives them.
 4. **Git.** Commit on the branch that is checked out, never `main`, never push.
-   End commit messages with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+   End commit messages with `Co-Authored-By: Claude <the model you run on, e.g. Opus 5.5 / Sonnet 5.5> <noreply@anthropic.com>`.
+   Your task's feature note (flags, tests, demo shots) goes in `TASKS.md` as one paragraph, NOT in CLAUDE.md
+   (owner, 2026-10-22: CLAUDE.md is re-read on every turn of every session).
 5. **NEVER end your turn while something is still running.** This is a `-p`
    session: the moment you stop and wait for a notification, the session EXITS
    and kills every background job (2026-10-01: both queued tasks died this way

@@ -108,7 +108,10 @@ queued at once. Bugs are fixed in a batch next to related work (e.g. inside the 
 ## Writing a task file
 One change, with acceptance steps (see the existing files for the
 shape). Number it after the last file in queue/done/blocked. `Requires:` line
-for real dependencies only. State who approved it and when. Never queue:
+for real dependencies only. State who approved it and when. `Model:` line (owner, 2026-10-22,
+left to the supervisor): `opus` for engine work (shaders, memory, formats, streaming, fluids, perf);
+`sonnet` for gameplay tasks ONLY once task 107's Sonnet trial passed (first run green, owner OK with the
+shots, cost vs 100/103/105 in `Logs/overnight/*.json` `total_cost_usd`); until then `opus`. Never queue:
 terrain-generator code outside the approved B steps, TAA step 4 (shadow tuning,
 not approved), switching TAA/checkerboard ON by default (owner compares first),
 frozen-API or memory-layout changes, anything the owner has not approved.
