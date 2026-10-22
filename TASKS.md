@@ -235,3 +235,13 @@ WHOLE RUN line (`MODE=walk`) prints p50 / **p95** / p99 (30 fps line: p95 <= 33 
 probe pins the sun at golden hour (6 deg, 17.59 h) unless `-tod H` is passed (110 passed `-tod 12`); `-tod 17` = ~14.5 deg. Command:
 `MODE=walk MINUTES=3 EXTRA="-renderpreset quality -upscaler fsr3 -renderrows 540 -farband 1 -farshade 1 -seethrough 1 -riverlook 1
 -tod 17.6 -memledger -frametiming -shells 1 -shellworkers 3" ./run-tg2world.sh`.
+
+**Task 114 (visual look review, diagnosis only; no default or look change).** `-upscalerclips -lookreview -quality low|medium|high`
+(`PlaygroundCapture.LookReview.cs`; `run-look-review.sh` builds and runs one launch per preset, `PRESETS=`, `SKIP_BUILD=1`).
+Poses: walk_near and walk_open (task 57's arcs), ridge, and high (highest column within 800 m plus 20 m). Arms at each pose:
+fsr3 / none at the preset's rows (UpscalerSelect clamps to 540-720), native, and fsr3 + ShellTint, plus per-shell voxel px
+(`[px]` lines). Motion bursts (still, walk, turn; 4 consecutive frames) at walk_open and ridge, and golden hour (17 h, High only).
+`-lookwait S` sets the shell wait (45 s; what is still missing is logged). `tools/look-review-diff.py bursts|crop|sheet` makes
+the difference images, crops and sheets. Report: `VISUAL_REVIEW_114.md`. Top defects: olive side faces and staircases, a
+lighting band that moves with dynamic rows (FarShadeBlend), far-band rock contour dashes (FarWallMaterial lip), a flat sky,
+and tier 0 drawn below 1 px beyond shell 0.

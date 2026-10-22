@@ -1,0 +1,45 @@
+UPSCALER CLIPS -- 2026-10-22_162036
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset medium, sizing rows 540, render rows 540 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 45 s
+  shell 0: voxel 0.1 m,      0-    52 m; voxel px at 540 rows inner inf -> outer 1.00 (at 1080 output: outer 2.00)
+  shell 1: voxel 0.2 m,     52-   103 m; voxel px at 540 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 2.00)
+  shell 2: voxel 0.4 m,    103-   206 m; voxel px at 540 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 2.00)
+  shell 3: voxel 0.8 m,    206-   413 m; voxel px at 540 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 2.00)
+  shell 4: voxel 1.6 m,    413-   825 m; voxel px at 540 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 2.00)
+  shell 5: voxel 3.2 m,    825-  1650 m; voxel px at 540 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 2.00)
+  shell 6: voxel 6.4 m,   1650-  3300 m; voxel px at 540 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 2.00)
+
+== walk_near: eye (3867.2, 941.9, 4018.8), yaw 180 pitch 0 deg; circle angle -180 deg, heading = -sun
+  [shells] waited 45 s (cap 45 s): stored/missing/in flight:  s1 1304/0/0  s2 1078/102/3  s3 265/671/5  s4 0/699/0  s5 0/345/0  s6 0/182/0   total stored 2647, missing 1999, pending 0; requested 2835, generated 2827 (71 ms each on a worker), dropped stale 4, over-budget frames 0 (of 1979)
+  [px] walk_near  hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 489156/488233/70.44  s1 -  s2 44/44/1.49  s3 -  s4 -  s5 -  s6 -
+  walk_near  fsr3_540  dispatch 960x540
+  walk_near  none_540  dispatch 960x540
+  walk_near  native    dispatch 1920x1080
+
+== walk_open: eye (3959.8, 1056.2, 3880.2), yaw 113 pitch 0 deg; circle angle 248 deg, median free distance 1500 m
+  [shells] waited 45 s (cap 45 s): stored/missing/in flight:  s1 1183/0/0  s2 941/0/0  s3 512/308/0  s4 67/633/8  s5 0/345/0  s6 0/182/0   total stored 2703, missing 1468, pending 0; requested 4673, generated 4665 (92 ms each on a worker), dropped stale 6, over-budget frames 0 (of 3782)
+  [px] walk_open  hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 193075/189617/11.62  s1 3/3/1.46  s2 9318/9318/1.65  s3 -  s4 -  s5 -  s6 -
+  walk_open  fsr3_540  dispatch 960x540
+  walk_open  none_540  dispatch 960x540
+  walk_open  native    dispatch 1920x1080
+  walk_open motion bursts: still / walk 0.05 m/frame / turn 0.2 deg/frame, 60 lead + 4 consecutive frames, fsr3_540 and none_540
+
+== ridge: eye (3959.8, 1056.2, 3880.2), yaw 225 pitch 2 deg; ground rises 296 m ahead
+  [shells] waited 45 s (cap 45 s): stored/missing/in flight:  s1 1183/0/0  s2 941/0/0  s3 773/45/0 FULL  s4 693/10/5  s5 122/220/3  s6 0/182/0   total stored 3712, missing 457, pending 0; requested 5684, generated 5676 (119 ms each on a worker), dropped stale 6, over-budget frames 0 (of 5655)
+  [px] ridge      hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 174584/173545/40.35  s1 -  s2 21599/7571/1.59  s3 17683/16975/1.81  s4 -  s5 4566/3274/1.25  s6 -
+  ridge      fsr3_540  dispatch 960x540
+  ridge      none_540  dispatch 960x540
+  ridge      native    dispatch 1920x1080
+  ridge motion bursts: still / walk 0.05 m/frame / turn 0.2 deg/frame, 60 lead + 4 consecutive frames, fsr3_540 and none_540
+
+== high: eye (3857.2, 1117.5, 3658.8), yaw 90 pitch -4 deg; highest column within 800 m + 20 m, free distance 3000 m
+  [shells] waited 45 s (cap 45 s): stored/missing/in flight:  s1 941/0/0  s2 820/0/0  s3 782/36/0 FULL  s4 708/0/0  s5 345/0/0  s6 138/36/8   total stored 3734, missing 72, pending 0; requested 7723, generated 7715 (124 ms each on a worker), dropped stale 6, over-budget frames 0 (of 7619)
+  [px] high       hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 50354/0/0.88  s1 54/2/1.05  s2 48938/48156/1.79  s3 294/294/1.81  s4 2429/3/1.49  s5 53204/46252/1.78  s6 42781/34528/1.81
+  high       fsr3_540  dispatch 960x540
+  high       none_540  dispatch 960x540
+  high       native    dispatch 1920x1080
+
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-22_162037_medium

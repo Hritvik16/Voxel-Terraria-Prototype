@@ -129,6 +129,8 @@ public partial class PlaygroundCapture
         if (HasFlag("-realrate")) { yield return UpscalerRealRate(root, pg, far, cam, sm, store, boot, acd, map, E); yield break; }
         // -costsplit (task 57): FULL vs one-thing-off arms on the walk, warm ABBA
         if (HasFlag("-costsplit")) { yield return CostSplit(root, pg, far, cam, sm, store, acd); Application.Quit(0); yield break; }
+        // -lookreview (task 114): the look-defect stills, one -quality preset per launch
+        if (HasFlag("-lookreview")) { yield return LookReview(far, cam, sm, store); Application.Quit(0); yield break; }
 
         // ---- the paths (poses fixed here, before any arm) ----
         var paths = new List<ClipPath>();
