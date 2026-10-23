@@ -71,6 +71,8 @@
 //           edge fade off (EdgeFade false = task 121's fade inside the haze), same
 //           frame state. Each logs the rows (1080 output, centre column) where a flat
 //           sea would end at the WORLD's edge and at the far band's square.
+//   TASK 127 (capture-only): -lookcross 1 replaces the poses and arms with
+//           cross-lit comparison stills (PlaygroundCapture.LookCross.cs).
 // Output: <persistentDataPath>/LookReview/<ts>_<preset>/ (PNGs + lookreview.txt).
 using System;
 using System.Collections;
@@ -178,6 +180,14 @@ public partial class PlaygroundCapture
                 L($"  shell {k}: voxel {s.VoxelM:F1} m, {s.InnerM,6:F0}-{s.OuterM,6:F0} m; voxel px at {rows} rows inner {inner} -> outer " +
                   $"{s.VoxelM * c / s.OuterM:F2} (at 1080 output: outer {s.VoxelM * c1080 / s.OuterM:F2})");
             }
+        }
+
+        if (ArgInt("-lookcross", 0) != 0)   // task 127: its own poses, light and arm (PlaygroundCapture.LookCross.cs)
+        {
+            yield return LookCross(far, cam, sm, sh, fsr, wait, onlyPoses, biomeLook);
+            L($"LOOK REVIEW done: {root}");
+            File.WriteAllText(Path.Combine(root, "lookreview.txt"), _log.ToString());
+            yield break;
         }
 
         // ---- poses (fixed before any arm) ----

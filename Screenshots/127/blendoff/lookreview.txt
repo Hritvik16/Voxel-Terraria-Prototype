@@ -1,0 +1,30 @@
+UPSCALER CLIPS -- 2026-10-23_113124
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 540 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 120 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 540 rows inner inf -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 540 rows inner 1.50 -> outer 1.00 (at 1080 output: outer 2.00)
+LOOK CROSS (task 127): 15.26 h, sun elevation 40.0 deg, sun azimuth (yaw) -74 deg; headings 60/75/90 deg either side of it; arm fsr3_540; shell wait cap 120 s
+lookbiome: 10 biome pairs with a land border within 2 km; 3 border poses
+
+== xb_0: eye (4113.0, 1589.6, 3626.2), yaw 346 pitch -60.0 deg (+60 deg from the sun's azimuth, sun on the left); desert | savanna border at (4017, 4019) m (centre of frame), 700 m over it, -60 deg
+  flat plane 614 m below the eye: 1.0 km row 33, 2.2 km row -376, 3.3 km row -553, 4.4 km row -659 (of 1080)
+  [shells] waited 82 s (cap 90 s): stored/missing/in flight:  s1 0/0/0  s2 0/0/0  s3 507/0/0  s4 845/0/0  s5 498/0/0  s6 182/0/0  s7 16/0/0   total stored 2048, missing 0, pending 0; requested 3189, generated 3189 (191 ms each on a worker), dropped stale 14, over-budget frames 0 (of 4192)
+
+== xb_1: eye (4513.0, 1417.4, 4026.2), yaw 346 pitch -60.0 deg (+60 deg from the sun's azimuth, sun on the left); jungle | savanna border at (4417, 4419) m (centre of frame), 700 m over it, -60 deg
+  flat plane 773 m below the eye: 1.0 km row 156, 2.2 km row -263, 3.3 km row -457, 4.4 km row -576 (of 1080)
+  [shells] waited 63 s (cap 90 s): stored/missing/in flight:  s1 0/0/0  s2 338/0/0  s3 845/0/0  s4 1005/0/0  s5 498/0/0  s6 182/0/0  s7 16/0/0   total stored 2884, missing 0, pending 0; requested 4618, generated 4618 (234 ms each on a worker), dropped stale 14, over-budget frames 0 (of 7515)
+
+== xb_2: eye (4783.1, 1380.0, 3789.8), yaw 1 pitch -60.0 deg (+75 deg from the sun's azimuth, sun on the left); forest | jungle border at (4792, 4194) m (centre of frame), 700 m over it, -60 deg
+  flat plane 785 m below the eye: 1.0 km row 165, 2.2 km row -255, 3.3 km row -450, 4.4 km row -570 (of 1080)
+  [shells] waited 16 s (cap 90 s): stored/missing/in flight:  s1 0/0/0  s2 507/0/0  s3 845/0/0  s4 1005/0/0  s5 498/0/0  s6 182/0/0  s7 16/0/0   total stored 3053, missing 0, pending 0; requested 5376, generated 5376 (237 ms each on a worker), dropped stale 14, over-budget frames 0 (of 8887)
+LOOK CROSS done
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-23_113124_high

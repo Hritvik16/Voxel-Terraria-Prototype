@@ -1,0 +1,37 @@
+UPSCALER CLIPS -- 2026-10-23_112435
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset medium, sizing rows 540, render rows 540 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 120 s
+  shell 0: voxel 0.1 m,      0-    52 m; voxel px at 540 rows inner inf -> outer 1.00 (at 1080 output: outer 2.00)
+  shell 1: voxel 0.2 m,     52-   103 m; voxel px at 540 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 2.00)
+  shell 2: voxel 0.4 m,    103-   206 m; voxel px at 540 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 2.00)
+  shell 3: voxel 0.8 m,    206-   413 m; voxel px at 540 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 2.00)
+  shell 4: voxel 1.6 m,    413-   825 m; voxel px at 540 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 2.00)
+  shell 5: voxel 3.2 m,    825-  1650 m; voxel px at 540 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 2.00)
+  shell 6: voxel 6.4 m,   1650-  3300 m; voxel px at 540 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 2.00)
+LOOK CROSS (task 127): 15.26 h, sun elevation 40.0 deg, sun azimuth (yaw) -74 deg; headings 60/75/90 deg either side of it; arm fsr3_540; shell wait cap 120 s
+  [prefill] centre at walk height, waited 72 s (cap 240 s): stored/missing/in flight:  s1 1304/0/0  s2 1304/0/0  s3 993/68/0 FULL  s4 699/0/0  s5 345/0/0  s6 182/0/0   total stored 4827, missing 68, pending 0; requested 4850, generated 4850 (110 ms each on a worker), dropped stale 3, over-budget frames 0 (of 1147)
+
+== x_high: eye (3857.2, 1117.5, 3658.8), yaw 346 pitch -4.0 deg (+60 deg from the sun's azimuth, sun on the left); highest column within 800 m + 20 m; land 2.5-4.5 km 19 %, free 3000 m
+  flat plane 22 m below the eye: 1.0 km row 495, 2.2 km row 484, 3.3 km row 481, 4.4 km row 479 (of 1080)
+  [shells] waited 26 s (cap 120 s): stored/missing/in flight:  s1 941/0/0  s2 820/0/0  s3 794/20/0 FULL  s4 708/0/0  s5 345/0/0  s6 182/0/0   total stored 3790, missing 20, pending 0; requested 7069, generated 7069 (114 ms each on a worker), dropped stale 3, over-budget frames 0 (of 2246)
+
+== x_ridge: eye (3825.9, 617.2, 4480.7), yaw 1 pitch 1.0 deg (+75 deg from the sun's azimuth, sun on the left); ground rises 940 m ahead
+  flat plane 2 m below the eye: 1.0 km row 558, 2.2 km row 557, 3.3 km row 557, 4.4 km row 557 (of 1080)
+  [shells] waited 93 s (cap 120 s): stored/missing/in flight:  s1 1304/0/0  s2 1304/0/0  s3 1304/0/0  s4 699/0/0  s5 336/0/0  s6 182/0/0   total stored 5129, missing 0, pending 0; requested 11123, generated 11123 (136 ms each on a worker), dropped stale 3, over-budget frames 0 (of 4410)
+
+== x_coast: eye (4017.2, 891.2, 4018.8), yaw 346 pitch 0.0 deg (+60 deg from the sun's azimuth, sun on the left); sea 2.5-4.5 km 100 %, land 0.3-1.5 km 100 %
+  flat plane 2 m below the eye: 1.0 km row 541, 2.2 km row 541, 3.3 km row 540, 4.4 km row 540 (of 1080)
+  [shells] waited 43 s (cap 120 s): stored/missing/in flight:  s1 1304/0/0  s2 1304/0/0  s3 997/64/0 FULL  s4 699/0/0  s5 345/0/0  s6 182/0/0   total stored 4831, missing 64, pending 0; requested 14395, generated 14395 (134 ms each on a worker), dropped stale 3, over-budget frames 0 (of 5639)
+
+== x_bird800: eye (4017.2, 1689.6, 4018.8), yaw 226 pitch -13.6 deg (-60 deg from the sun's azimuth, sun on the right); 800 m over the centre's ground, the 3.3 km ring at the centre row; arc +-45 deg sea/land mix 0 %
+  flat plane 800 m below the eye: 1.0 km row 977, 2.2 km row 644, 3.3 km row 540, 4.4 km row 486 (of 1080)
+  [shells] waited 0 s (cap 120 s): stored/missing/in flight:  s1 0/0/0  s2 0/0/0  s3 121/0/0  s4 363/0/0  s5 363/0/0  s6 191/0/0   total stored 1038, missing 0, pending 0; requested 14456, generated 14456 (135 ms each on a worker), dropped stale 3, over-budget frames 0 (of 5924)
+
+== x_bird2300: eye (4017.2, 3189.6, 4018.8), yaw 226 pitch -45.0 deg (-60 deg from the sun's azimuth, sun on the right); 2300 m over the centre's ground, -45 deg
+  flat plane 2300 m below the eye: 1.0 km row 908, 2.2 km row 561, 3.3 km row 373, 4.4 km row 247 (of 1080)
+  [shells] waited 0 s (cap 120 s): stored/missing/in flight:  s1 0/0/0  s2 0/0/0  s3 0/0/0  s4 0/0/0  s5 121/0/0  s6 200/0/0   total stored 321, missing 0, pending 0; requested 14465, generated 14465 (135 ms each on a worker), dropped stale 3, over-budget frames 0 (of 6074)
+LOOK CROSS done
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-23_112435_medium

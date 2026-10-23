@@ -403,3 +403,15 @@ lerp(sky, max(halo, rim), pow8) at y = 8. At F 0.5, dusk (-3 deg): strength 0.87
 Capture: `-looksky 1 -lookrim 1` makes the sky A/B's second arm `<pose>_sky_<t>_rim121` (F = 1) instead of `_old`, and every `-looksky`
 run now also shoots `dusk_away`; `tools/rim126-sheet.py <dir>` builds OLD 121 | NEW 126 sheets + px diffs. Tests: `SkyRimCalmTests`.
 Stills: `Screenshots/126/{high,walk_open}_rim_sheet.png`.
+
+**Task 127 (capture-only, owner Q75 "both look flat" / Q78 "birds eye view?"; NO default change).** `-lookreview -lookcross 1`
+(`PlaygroundCapture.LookCross.cs`) replaces the look review's poses/arms with cross-lit stills: one fixed time, the afternoon hour with
+the sun `-lookcrosssun` 40 deg up (15.26 h, sun azimuth -74 deg), every heading `-lookcrossoff` 75 (+-15) deg off the sun's azimuth.
+Poses (generator-based, identical across launches): `x_high` (high column, -4 deg), `x_ridge` (walk height, ground rising ~1 km ahead),
+`x_coast` (walk height, sea 2.5-4.5 km), `x_bird800` (800 m up, 3.3 km ring on the centre row), `x_bird2300` (2300 m, -45 deg), and with
+`-lookbiome 1` `xb_0..2` (task 122's border points, `-lookcrossbh` 700 m over them, -60 deg). Shells prefill round the centre for
+`-lookcrossprefill` s (240; 0 = off); the log gives the rows where a flat plane is 1.0/2.2/3.3/4.4 km out. Use `-shellworkers 6` (last
+match wins): at the script's 3, shells 6-7 (the 3.3 km hand-off) never filled at walk height. Driver `Screenshots/127/127-driver.sh`
+(High+borders, Medium, High `-biomeblend 0 -biometint 0` borders); sheets `tools/cross127-sheet.py pair|crop|mark`. Result (HANDOFF 127):
+Medium draws a dashed dark line + a flatter blue on the sea past 3.3 km, loses thin rivers on far snow flats and is blockier at lake
+shores 1-3 km out; the same near the camera and from 800 m+ up (the ring is in haze). Stills: `Screenshots/127/sheets/`.
