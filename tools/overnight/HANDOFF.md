@@ -1,47 +1,54 @@
-# 121-look-sky-and-haze: DONE. New sky and haze are ON by default. `-skylook 0` gives back the old sky and haze; `-skyhaze 0` gives back the old haze only.
+# 122-terrain-biome-border-blend: DONE. Biome borders are now a mixed, bent band, and each surface has a mild tint. Both are ON by default on map v4; `-biomeblend 0` / `-biometint 0` give back the old look.
 
-## What changed (commit d610032)
-- `Raymarch.compute` `LookAtmosphere`, sky look on:
-  - The horizon colour now sits near the horizon: weight `pow(1 - up, 4)`, was `dir.y*0.5+0.5`.
-  - A time-of-day rim tint runs round the whole horizon (`_LookSkyRim`). It is strongest toward the sun and 40% of that on the far side.
-  - The halo is never darker than the rim. The OLD sky had a dark hole round a setting sun because the halo fades with the day factor.
-  - New `LookSkyBackground` adds a sun disc (0.6-0.8 deg) plus a tight glow. It is used only for rays that hit nothing, never as the haze colour.
-- `SunCycle.LookSkyRimAt`: 0 while the sun is above 28 deg, full from 4 down to -1 deg, gone by -10 deg. Golden while the sun is up, then dusk red, dimmer below the horizon.
-- `FarShadeApplyHaze` (far-shading kernel):
-  - Haze range is `SkyHazeRangeM` 1800 m (was 3500 m).
-  - Distant colour is desaturated by 0.5 x the haze amount.
-  - Haze fades to full over the last 45% of the far band's square (about 3.1-5.6 km).
-  - The haze colour is still the sky behind the pixel, so it picks up the new horizon and rim.
-- **Bug found on the way:** the first launch rendered EVERY frame black, old arms included. Metal failed at run time with `as_type cast from 'bool' to 'float'`.
-  - Cause: task 119's conditionally reassigned `bool farRock` went through Unity's HLSLcc wrongly once my changes moved registers around.
-  - Fix: it is now a `uint`, with the same logic. One text anchor in `FarRockSlopeTests` was updated to match.
-  - `run-look-review.sh` now prints `SHADER RUNTIME ERROR` taken from Player.log. "build OK" does not catch this kind of error.
-- Capture: new `-looksky 1` in the look review. Tests: `SkyLookTests` (3). TASKS.md has a paragraph.
+## What changed (commit dfe801c)
+- **Generator: `ShapeField.SurfaceBiome`.** A column's MATERIALS (surface, soil, beach rule AND rock/strata) come from the biome at a jittered point. The new field is `ColumnSample.surfBiome`.
+  - The jitter has four parts: two warp octaves (800 m / 150 m wavelength, +-60 / +-15 m) bend the line; a clump octave (40 m, +-18 m) and a per-0.8 m-cell hash dither (+-14 m) mix the two sides.
+  - The BIOME itself is unchanged: ores, pocket liquids, crystals, danger, the world record and the biome x landform maps all keep the old field. The record biome is the same bits (asserted), and the world-record tests pass.
+  - Same seed gives the same world: the jitter is seed-keyed noise plus an integer hash.
+- **Rock too, a decision I made mid-task.** The first in-game stills, with only surface and soil blended, still showed the exposed ROCK on steep slopes changing along a hard straight line. Mountains are mostly rock, so strata now follow `surfBiome` as well.
+  - Ores keep the record biome, so a border's ore type does not dither.
+- **Early-out.** `BiomeAndBorder` returns the climate-space distance to the nearest bisector. Past `BlendClimateReach`, the biome cannot change, so the 8 extra noise calls are skipped. This is exact while the snoise gradient stays at or below `SNOISE_GRAD_BOUND` = 8 (measured max 7.3).
+  - The bound is loose: 90% of columns still take the full path. That is about +8 snoise per surface `Sample`; neighbour samples that only read height (`Sample(.., false)`) skip it.
+  - No timing run was made (task rule). Flagged for the next performance milestone.
+- **Far band and minimap** read `TopMaterial`, so they show the blend with no extra plumbing.
+- **Renderer: `BiomeTint` in `LookAlbedo`** (`Raymarch.compute`), so voxels, shells and the far band all get it.
+  - Each surface material drifts between two tints of its own: grass dry/lush, sand warm/pale, snow white/blue, savanna golden/olive, clay pink/grey.
+  - The drift follows a 2-D value noise with ~100 m and ~400 m cells: tints span up to 0.84-1.08 per channel (grass blue, savanna blue), plus +-4% brightness.
+- **Flags:** `-biomeblend 0` sets `TerrainSpec.biomeBlendOff` (chunk source + far band); `-biometint 0` turns the tint off. Map v3 is untouched.
+- **Capture:** `-lookbiome 1` (look review) adds poses `border_0..2`, each looking along a land border, and a `<pose>_fsr3_<rows>_notint` shot at every pose.
+- **Tests:**
+  - `BiomeBlendTests` (4 tests + 1 report).
+  - `ShellFillTests` GOLDEN was re-made: 32 of 85 chunks changed because the walk start pose sits on a desert|savanna border. The fast and reference paths still both match it.
 
 ## Evidence
-- Fast suite: `PASS 903 FAIL 0 SKIP 14`. The first run had 1 FAIL, the text anchor above, which is now fixed.
-- Look launch (High, FSR 3 at 720 rows, poses walk_open + high, 45 s shell cap): `Logs/lookreview_20261023_024117.txt`.
-  - Shells were still missing at the cap: s4-s7 at walk_open, s4-s7 at high (see the `[shells]` lines).
-- Times shot: noon 77.6 deg, golden 17 h at 14.6 deg, sunset 2 deg, dusk -3 deg.
-- What the stills show:
-  - Noon: the horizon is paler and the zenith deeper; far land is paler and greyer.
-  - Golden toward the sun: a disc and a warm sky down to the horizon. The old sky was noon blue round a halo.
-  - Sunset: an orange glow round the disc. The old sky was a dark hole on a navy sky.
-  - Dusk: a red rim. The old sky was black.
+- Whole suite: `PASS 961 FAIL 0 SKIP 26` (`Logs/overnight/122-suite2.out`).
+  - The first run had 1 FAIL: the shell-fill golden hashes, which change by design. It was re-made and that test re-checked.
+- Band metrics (`Logs/TerrainGen/biome_blend.txt`, 64 E-W transects, seed 42):
+  - 516 bands, width median 27 m, p90 73 m.
+  - Median 13 surface switches per band (before: 1, a hard line).
+  - The band's centre sits off the straight climate contour by sd 53 m.
+  - 3.7% of columns wear the other side's materials.
+- Map metrics: no EditMode map metric changed. Biome shares, danger, ores and the world record are all keyed on the record biome, which did not move.
+- Look launches (Low, FSR 3 at 540 rows, 4 poses, 45 s shell cap):
+  - after: `Logs/lookreview_20261023_035751.txt`; before (`-biomeblend 0 -biometint 0`): `Logs/overnight/122-before.out`.
+  - Shell 3 was still missing 30-40 chunks at `high` and `border_0`; everything else had filled.
+- **What the stills show:**
+  - border_1 and border_2: the hard diagonal rock line is gone, replaced by a mixed, bent band.
+  - high pose (1-2 km away): the green|sand and green|pink edges are ragged and bent instead of straight. The patches still read as separate colours, because a ~30 m band is only a few pixels at that range.
 
-## Open (owner)
-- **The hard sea-horizon line is still there, a bit stronger** (noon, high pose: 128 -> 112 levels across it; old 84 -> 75).
-  - The fade at the far band's edge did not remove it, so the line is probably the WORLD's edge (camera x 3,857 m looking +x). Not verified.
-  - Fixing it needs the world extent passed to the shader (new plumbing). I did not start that. I recommend it as a small look task.
-- The dusk sky is red over the whole frame (the halo floor reaches about 40 deg). That may be too strong.
-  - Knobs: `LookSkyRimAt` (strength and colour) and the halo floor in `LookAtmosphere`.
-- Golden hour away from the sun: the horizon reads pale lavender-grey (rim at 40% over blue). OK to me; owner's taste.
+## Open / next
+- **Owner taste:**
+  - At 1-3 km the far band shows ragged edges but still distinct patches. Making it read as a gradient from far away needs a WIDER band (`BLEND_CLUMP_AMP` / `BLEND_DITHER_AMP`), at the cost of more mixed ground up close.
+  - Ore-type borders stay hard (record biome). Recommended as is.
+- **Next performance milestone:** generation cost of the +8 snoise per column (no timing was run here).
 
 ## For the doc
-- Sky horizon weight at 10 deg up: 0.41 -> 0.47 of the horizon colour. At the horizon itself: 0.5 -> 1.0 (the old sky only got halfway).
-- Haze range 3500 -> 1800 m: haze at 1 km goes from 0.25 to 0.43; at 3 km from 0.58 to 0.81 (sea level, before the height thinning).
-- Golden hour, 17 h, toward the sun: no disc -> a disc, and the sky is warm down to the horizon instead of noon blue.
+- Border band (64 transects): a 0 m hard line with 1 switch -> median 27 m wide (p90 73 m), 13 switches; the line moves sd 53 m off the straight contour (`Logs/TerrainGen/biome_blend.txt`).
+- Columns wearing the other biome's materials: 0% -> 3.7%. Record biome, world record and map metrics: unchanged (suite `PASS 961 FAIL 0 SKIP 26`).
+- Shell-fill golden: 32/85 chunks changed bytes; fast path == reference path.
 - Images:
-  - `Screenshots/121/high_sky_sheet.png`: high pose, rows top to bottom are noon, golden away, golden toward, sunset, dusk. LEFT is old, RIGHT is new. Look at the horizon band in row 1, the disc and warm sky in row 3, and the glow in rows 4-5 where the old sky has a dark hole.
-  - `Screenshots/121/walk_open_sky_sheet.png`: the same layout at walk_open. In row 1, look at the pale band above the sea on the left. In row 2, the far snow and sea are greyer.
-  - Single frames are in `Screenshots/121/run3/<pose>_sky_<time>[_old].png`.
+  - `Screenshots/122/biome_map_before_after.png`: the whole 8 km island (left before, right after). Same biome regions; look at the edges, smooth curves before, ragged after.
+  - `Screenshots/122/biome_crop_200m_before_after.png`: 200 m around a desert|savanna border at 2 m/px. Left is a clean line; right is a mixed, clumped band that wanders.
+  - `Screenshots/122/border_1_before_after.png`: in-game jungle|savanna slope. LEFT: a straight vertical line where pale rock meets brown rock. RIGHT: the line is gone; rock and grass of both sides interleave.
+  - `Screenshots/122/border_2_before_after.png`: forest|jungle slope. The left frame's diagonal grey|pale rock edge becomes a broken, mixed edge on the right.
+  - `Screenshots/122/high_crop_before_after.png`: the 114 high view's middle distance, 2x. The green field's edges against sand and pink go from straight to ragged.
