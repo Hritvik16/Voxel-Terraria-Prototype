@@ -30,7 +30,7 @@ public class FarRockSlopeTests
         int ifdef = src.LastIndexOf("#ifdef VE_FAR_SHADE", use);
         int endif = src.LastIndexOf("#endif", use);
         Assert.Greater(ifdef, endif, "the slope rule sits inside #ifdef VE_FAR_SHADE, so other kernels keep the lip byte for byte");
-        StringAssert.Contains("> FAR_WALL_LIP;", src, "the lip rule stays as the fallback");
+        StringAssert.Contains("> FAR_WALL_LIP) ? 1u : 0u;", src, "the lip rule stays as the fallback (a uint since task 121: Metal)");
         StringAssert.Contains("#define FAR_ROCK_SLOPE_NY 0.766", src, "rock above ~40 deg (cos 40 = 0.766)");
     }
 

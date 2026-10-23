@@ -299,6 +299,14 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// light takes (0.25: a torch at haze 0.9 keeps ~78% of its light).
     public static float FarShadeSkyStrength = 1.1f;
     public static float FarShadeHazeRangeM = 3500f;
+    /// Task 121 (VISUAL_REVIEW_114 #4 + #6, owner 2026-10-22): THE SKY LOOK, ON by default. `-skylook 0` = the
+    /// old sky AND haze (all of task 121 off). With it on: the sky's horizon colour concentrated near the
+    /// horizon, a time-of-day rim tint (SunCycle.LookSkyRimAt) and a sun disc (Raymarch.compute LookAtmosphere /
+    /// LookSkyBackground). `-skyhaze 0` keeps the old haze only: range FarShadeHazeRangeM (3500 m) instead of
+    /// SkyHazeRangeM, no desaturation with distance. The haze colour is the sky behind the pixel either way.
+    public static bool SkyLook = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-skylook");
+    public static bool SkyHaze = SkyLook && ParseFlagOn(System.Environment.GetCommandLineArgs(), "-skyhaze");
+    public static float SkyHazeRangeM = 1800f;
     public static float FarShadeHazeScaleHeightM = 1500f;
     public static float FarShadeLightHaze = 0.25f;
     /// >= 0 forces LightingConfig.torchShadowRays (-torchshadows N; 0 = no
@@ -578,6 +586,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public int[] heightOffsetsA, heightOffsetsB;
             public int kHeightRaw, kHeightDilate, kHeightLevel;
             public Vector4 lookSkyZenith, lookSkyHorizon, lookSkyHalo, lookSun, lookAmbient, lookMoon;
+            public Vector4 lookSkyRim;   // task 121
             public float lookShadowDarkness, lookHazeDensity;
             public Vector4 lookGrade;
             public int emissiveBleed;
@@ -906,6 +915,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 passData.lookSkyZenith = V4(SunCycle.LookSkyZenithAt(hrs));
                 passData.lookSkyHorizon = V4(SunCycle.LookSkyHorizonAt(hrs));
                 passData.lookSkyHalo = V4(SunCycle.LookSunHaloAt(hrs));
+                { var rim = SunCycle.LookSkyRimAt(hrs); passData.lookSkyRim = new Vector4(rim.x, rim.y, rim.z, rim.w); }
                 passData.lookSun = V4(SunCycle.LookSunAt(hrs));
                 passData.lookAmbient = V4(SunCycle.LookAmbientAt(hrs));
                 passData.lookMoon = V4(SunCycle.LookMoonAt(hrs));
@@ -917,7 +927,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 passData.underwaterView = UnderwaterView ? 1 : 0;
                 passData.seeThroughLiquids = SeeThroughLiquids ? 1 | ((DebugSeeSkip & 7) << 1) : 0;   // bits 1-3: task 75b diagnostic
                 passData.riverLook = RiverLook ? 1 : 0;
-                passData.farShadeParams = new Vector4(FarShadeSkyStrength, FarShadeHazeRangeM * 10f,
+                passData.farShadeParams = new Vector4(FarShadeSkyStrength, (SkyHaze ? SkyHazeRangeM : FarShadeHazeRangeM) * 10f,
                                                       FarShadeHazeScaleHeightM * 10f, FarShadeLightHaze);
                 {
                     var farR = VoxelEngine.Rendering.FarField.Active;
@@ -1240,6 +1250,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyZenith", data.lookSkyZenith);
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyHorizon", data.lookSkyHorizon);
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyHalo", data.lookSkyHalo);
+                        cmd.SetComputeVectorParam(data.compute, "_LookSkyRim", data.lookSkyRim);   // task 121
+                        cmd.SetComputeIntParam(data.compute, "_SkyLook", (SkyLook ? 1 : 0) | (SkyHaze ? 2 : 0));
                         cmd.SetComputeVectorParam(data.compute, "_LookSun", data.lookSun);
                         cmd.SetComputeVectorParam(data.compute, "_LookAmbient", data.lookAmbient);
                         cmd.SetComputeVectorParam(data.compute, "_LookMoon", data.lookMoon);

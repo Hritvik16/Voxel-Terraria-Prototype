@@ -293,6 +293,19 @@ public static class SunCycle
         return halo * LookDayFactorAt(hours);
     }
 
+    /// Task 121 (the sky look's horizon RIM, Raymarch.compute LookAtmosphere): rgb the rim colour,
+    /// w its strength. 0 from 28 degrees of sun up, full from 4 down to -1, gone by -10 (night).
+    /// Golden while the sun is up, toward a dusk red as it sets, dimmer once it is down.
+    public static float4 LookSkyRimAt(float hours)
+    {
+        var c = LightingConfig.Active;
+        float el = ElevationDegreesAt(hours);
+        float strength = math.smoothstep(-10f, -1f, el) * (1f - math.smoothstep(4f, 28f, el));
+        float3 col = math.lerp(V(0.92f, 0.40f, 0.28f), V(c.goldenR, c.goldenG, c.goldenB), math.smoothstep(-4f, 8f, el));
+        col *= math.lerp(0.45f, 1f, math.smoothstep(-6f, 3f, el));
+        return new float4(col, strength);
+    }
+
     /// Direct sun term: the halo times `lookSunScale` (the Brickmap's 1.5).
     public static float3 LookSunAt(float hours) => LookSunHaloAt(hours) * LightingConfig.Active.lookSunScale;
 

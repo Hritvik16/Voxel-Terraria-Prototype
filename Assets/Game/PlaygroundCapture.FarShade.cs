@@ -31,7 +31,7 @@ public partial class PlaygroundCapture
         float nightHours = ArgFloat("-nighttod", 0.5f);
         bool fs0 = RaymarchFeature.FarShade;
         L($"FAR SHADING (task 85b, -farshadeshots): {poses.Count} poses, wait <= {wait:F0} s each, {rows} internal rows raw and FSR 3; " +
-          $"sky x{RaymarchFeature.FarShadeSkyStrength}, haze range {RaymarchFeature.FarShadeHazeRangeM} m, scale height {RaymarchFeature.FarShadeHazeScaleHeightM} m, " +
+          $"sky x{RaymarchFeature.FarShadeSkyStrength}, haze range {(RaymarchFeature.SkyHaze ? RaymarchFeature.SkyHazeRangeM : RaymarchFeature.FarShadeHazeRangeM)} m, scale height {RaymarchFeature.FarShadeHazeScaleHeightM} m, " +
           $"light's share of haze {RaymarchFeature.FarShadeLightHaze}; shells {(Phase4Bootstrapper.Shells != null ? "ON" : "off")}");
         float pa = (Camera.main != null ? Camera.main.fieldOfView : 60f) * Mathf.Deg2Rad / rows;
         L($"  slope-normal blend: from {0.05f / pa:F0} m (a 0.1 m voxel = 2 px) to {0.1f / pa:F0} m (1 px) at {rows} rows");

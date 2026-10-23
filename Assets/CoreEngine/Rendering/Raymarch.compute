@@ -926,13 +926,62 @@ float3 LookGradeColour(float3 c, float saturation, float knee)
     return LookShoulder(max(c, 0.0), knee);
 }
 
+// TASK 121 (VISUAL_REVIEW_114 #4 + #6): THE SKY LOOK. _SkyLook bit 0 (`-skylook 0` = off):
+// the zenith-to-horizon blend is concentrated near the horizon (pow(1 - up, 4)
+// instead of dir.y * 0.5 + 0.5 over the whole sphere, which left the horizon
+// only halfway to its colour), a time-of-day RIM tint (_LookSkyRim, SunCycle.LookSkyRimAt:
+// warm at golden hour, red at dusk, 0 by day) over the whole horizon ring,
+// strongest toward the sun, and a sun disc in the sky only (LookSkyBackground,
+// never in the haze target). Bit 1 (`-skyhaze 0` = off): the far haze also
+// desaturates with its amount (FarShadeApplyHaze); its range is set on the CPU
+// (RaymarchFeature.SkyHazeRangeM). Haze still fades to LookAtmosphere, so it
+// takes the new horizon and rim colour.
+int    _SkyLook;
+float4 _LookSkyRim;        // rgb the rim colour, a its strength (0 by day)
+#define SKY_RIM_POW 3.0
+#define SKY_DISC_COS_IN  0.99994516    // cos 0.60 deg: the disc's full radius
+#define SKY_DISC_COS_OUT 0.99990252    // cos 0.80 deg: its soft edge
+
 // Sky gradient + sun halo for a view direction. Also the haze target, so
 // distant terrain fades into exactly the sky behind it.
 float3 LookAtmosphere(float3 dir)
 {
-    float3 baseSky = lerp(_LookSkyHorizon.rgb, _LookSkyZenith.rgb, saturate(dir.y * 0.5 + 0.5));
-    float sunHighlight = pow(max(0.0, dot(dir, normalize(_SunDir))), 8.0);
-    return lerp(baseSky, _LookSkyHalo.rgb, sunHighlight);
+    float3 sd = normalize(_SunDir);
+    float3 baseSky;
+    if ((_SkyLook & 1) != 0)
+    {
+        float down = 1.0 - saturate(dir.y);
+        float d2 = down * down;
+        baseSky = lerp(_LookSkyZenith.rgb, _LookSkyHorizon.rgb, d2 * d2);
+        float2 hd = dir.xz / max(length(dir.xz), 1e-4);
+        float2 hs = sd.xz / max(length(sd.xz), 1e-4);
+        float facing = dot(hd, hs) * 0.5 + 0.5;
+        float rimW = pow(down, SKY_RIM_POW) * lerp(0.4, 1.0, facing * facing) * _LookSkyRim.a;
+        baseSky = lerp(baseSky, _LookSkyRim.rgb, rimW);
+    }
+    else
+        baseSky = lerp(_LookSkyHorizon.rgb, _LookSkyZenith.rgb, saturate(dir.y * 0.5 + 0.5));
+    float sunHighlight = pow(max(0.0, dot(dir, sd)), 8.0);
+    // The halo fades with the day factor (0 at the horizon), which left a dark
+    // hole round a setting sun; with the sky look it is never darker than the rim.
+    float3 halo = ((_SkyLook & 1) != 0) ? max(_LookSkyHalo.rgb, _LookSkyRim.rgb * _LookSkyRim.a) : _LookSkyHalo.rgb;
+    return lerp(baseSky, halo, sunHighlight);
+}
+
+// What a ray that reaches nothing sees: LookAtmosphere plus (sky look) the sun
+// disc and a tight glow, in the halo's hue at full brightness (the halo itself
+// fades with the day factor long before the sun sets).
+float3 LookSkyBackground(float3 dir)
+{
+    float3 c = LookAtmosphere(dir);
+    if ((_SkyLook & 1) == 0) return c;
+    float3 sd = normalize(_SunDir);
+    float cosA = dot(dir, sd);
+    float disc = smoothstep(SKY_DISC_COS_OUT, SKY_DISC_COS_IN, cosA);
+    float glow = pow(saturate(cosA), 300.0);
+    float3 hue = _LookSkyHalo.rgb / max(max(_LookSkyHalo.r, max(_LookSkyHalo.g, _LookSkyHalo.b)), 1e-3);
+    float up = smoothstep(-0.015, 0.01, sd.y);
+    return c + hue * (disc * 1.5 + glow * 0.35) * up;
 }
 
 // MIRRORS MaterialPalette.OfLook in MaterialRules.cs (the authoritative
@@ -3371,6 +3420,16 @@ float3 FarShadeApplyHaze(float3 lit, float3 lightAdd, float3 rayDir, float distV
 {
     float h = FarShadeHaze(distVoxels, y0, y1);
     if (_FarEnabled == 0) h = max(h, HazeAmount(distVoxels, y0, y1));   // no far band: keep the range fog that hides the world's edge
+    if ((_SkyLook & 2) != 0)
+    {
+        // Task 121: the far band ends on a square (its last level's use radius, ~5.6 km), where
+        // the haze is only ~96%: a hard line on the sea. Fade fully into the sky over its last 45%.
+        float2 off = abs(rayDir.xz * distVoxels);
+        float edge = (float)(FAR_USE_RADIUS * (8 << (FAR_LEVELS - 1)));
+        h = max(h, smoothstep(0.55 * edge, edge, max(off.x, off.y)));
+        // Aerial perspective also takes colour out (half the haze amount).
+        lit = lerp(lit, dot(lit, float3(0.2126, 0.7152, 0.0722)).xxx, 0.5 * h);
+    }
     return lerp(lit, LookAtmosphere(rayDir), h) + lightAdd * (h * (1.0 - _FarShadeParams.w));
 }
 #endif
@@ -4642,7 +4701,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     }
 
     float4 color = _SkyColor;
-    if (_Look == 1 && _UseDevColors != 0) color = float4(LookToLinear(LookShoulder(LookAtmosphere(rayDir), _LookGrade.z)), 1.0);
+    if (_Look == 1 && _UseDevColors != 0) color = float4(LookToLinear(LookShoulder(LookSkyBackground(rayDir), _LookGrade.z)), 1.0);
     // 66b: a fluid-mode stop on AIR is the surface from below, coloured after this chain.
     bool fluidSurface = (passMat != 0u) && hit && (mat == 0u);
     float riverFoam = 0.0;   // task 76: foam on a river top face (near or far)
@@ -4969,13 +5028,15 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         // visibility 1. The albedo hash is the TEXEL CENTRE, so each far column
         // is one flat-coloured block (§2.3: the far band stays blocky).
         uint fm = (fh.texel >> 16) & 0xFFu;
-        bool farRock = fh.normal.y == 0 && (float)(fh.texel & 0xFFFFu) - (rayStart.y + rayDir.y * fh.t) > FAR_WALL_LIP;
+        // uint, not bool (task 121): with a bool reassigned under the #ifdef, Unity's HLSLcc
+        // emitted `as_type<float>(bool)` for Metal, which does not compile (every frame black).
+        uint farRock = (fh.normal.y == 0 && (float)(fh.texel & 0xFFFFu) - (rayStart.y + rayDir.y * fh.t) > FAR_WALL_LIP) ? 1u : 0u;
 #ifdef VE_FAR_SHADE
         float3 nRock;
         if (fh.normal.y == 0 && _FarRockSlope != 0 && FarSlopeNormal(rayStart + rayDir * fh.t, fh.t, nRock))
-            farRock = nRock.y < FAR_ROCK_SLOPE_NY;   // task 119: rock by slope, not by step depth
+            farRock = (nRock.y < FAR_ROCK_SLOPE_NY) ? 1u : 0u;   // task 119: rock by slope, not by step depth
 #endif
-        if (farRock)
+        if (farRock != 0u)
             fm = FarWallMaterial(fm);
         int ftv = 8 << fh.level;
         int3 fvox = int3(fh.cell.x * ftv + (ftv >> 1), (int)(fh.texel & 0xFFFFu) - 1, fh.cell.y * ftv + (ftv >> 1));
@@ -5069,7 +5130,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                                      exp(-0.5 * bedDepthM * extS), rayDir, seeBehindDist, rayStart.y);
         }
         else if (seeExited)
-            behind = (_Look == 1 && _UseDevColors != 0) ? LookToLinear(LookShoulder(LookAtmosphere(rayDir), _LookGrade.z)) : _SkyColor.rgb;
+            behind = (_Look == 1 && _UseDevColors != 0) ? LookToLinear(LookShoulder(LookSkyBackground(rayDir), _LookGrade.z)) : _SkyColor.rgb;
         color.rgb = SeeCompose(color.rgb, behind, tView, seeFres, SeeReflection(rayDir, sunVis));
     }
 

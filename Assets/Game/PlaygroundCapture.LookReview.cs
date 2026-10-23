@@ -42,6 +42,11 @@
 //           pose, golden hour with the sun behind (away) and beside (side) the
 //           camera: fsr3 / none / sun-visibility view, the launch's sun-shadow
 //           clamp (_full) vs M m (_clamp<M>), in the same frame state.
+//   TASK 121 (capture-only): -looksky 1 adds, at every pose, fsr3 at noon (the
+//           pose's heading), golden hour 17 h away from and toward the sun, sunset
+//           (sun 2 deg up) and dusk (3 deg down) toward the sun:
+//           <pose>_sky_<time>, and <pose>_sky_<time>_old with the sky look off
+//           (SkyLook / SkyHaze false = before task 121), in the same frame state.
 // Output: <persistentDataPath>/LookReview/<ts>_<preset>/ (PNGs + lookreview.txt).
 using System;
 using System.Collections;
@@ -73,6 +78,7 @@ public partial class PlaygroundCapture
         bool bursts = ArgInt("-lookbursts", 1) != 0;
         bool ab = ArgInt("-lookab", 0) != 0, goldenAll = ArgInt("-lookgolden", 0) != 0;   // task 120
         float clampM = ArgFloat("-lookclamp", 0f);   // task 118
+        bool skyAB = ArgInt("-looksky", 0) != 0;      // task 121
         string fsr = $"fsr3_{rows}", none = $"none_{rows}";
         float noon = SunCycle.NoonHours;
         SunCycle.SetHours(noon);
@@ -215,6 +221,7 @@ public partial class PlaygroundCapture
                 SunCycle.SetHours(noon);
                 cam.transform.rotation = rot;
             }
+            if (skyAB) yield return LookSkyAB(n, cam, eye, rot, fsr, noon);
             if (bursts && (n == "walk_open" || n == "ridge"))
             {
                 Vector3 fwd = rot * Vector3.forward; fwd.y = 0f; fwd = fwd.normalized;
@@ -283,6 +290,39 @@ public partial class PlaygroundCapture
         }
         RaymarchFeature.ShadowMaxDistanceOverrideM = baseClamp;
         L($"  golden clamp A/B (task 118): away + side, {fsr} / {none} / sunvis, full ({(baseClamp >= 0f ? baseClamp + " m" : "inherit " + RaymarchFeature.LastTierBoundsM[2].ToString("F0") + " m")}) vs {m:F0} m");
+    }
+
+    /// Task 121: the sky look, new vs old (_old: SkyLook and SkyHaze off), 60 frames each, at noon
+    /// (the pose's own heading), golden hour 17 h (sun behind = away, and toward it), sunset (sun 2 deg
+    /// up) and dusk (3 deg down), both toward the sun. The pose's pitch, +3 deg toward the sun.
+    private IEnumerator LookSkyAB(string n, Camera cam, Vector3 eye, Quaternion rot, string fsr, float noon)
+    {
+        bool sky = RaymarchFeature.SkyLook, haze = RaymarchFeature.SkyHaze;
+        float pitch = -Mathf.DeltaAngle(0f, rot.eulerAngles.x);
+        float golden = 17f, sunset = SunCycle.HoursForElevation(2f, false), dusk = SunCycle.HoursForElevation(-3f, false);
+        ApplyCompareArm(fsr);
+        cam.ResetProjectionMatrix();
+        var times = new (string tag, float h, int dir)[] { ("noon", noon, 0), ("golden_away", golden, -1), ("golden_toward", golden, 1),
+                                                          ("sunset_toward", sunset, 1), ("dusk_toward", dusk, 1) };
+        foreach (var (tag, h, dir) in times)
+        {
+            SunCycle.SetHours(h);
+            float3 s = SunCycle.DirectionAt(h);
+            float2 toSun = math.normalizesafe(new float2(s.x, s.z));
+            cam.transform.position = eye;
+            cam.transform.rotation = dir == 0 ? rot
+                : Quaternion.Euler(-(pitch + (dir > 0 ? 3f : 0f)), math.degrees(math.atan2(dir * toSun.x, dir * toSun.y)), 0f);
+            foreach (bool old in new[] { false, true })
+            {
+                RaymarchFeature.SkyLook = sky && !old; RaymarchFeature.SkyHaze = haze && !old;
+                yield return Frames(60);
+                yield return CaptureTo($"{n}_sky_{tag}" + (old ? "_old" : ""));
+            }
+            RaymarchFeature.SkyLook = sky; RaymarchFeature.SkyHaze = haze;
+            L($"  sky (task 121) {tag}: {h:F2} h, sun elevation {SunCycle.ElevationDegreesAt(h):F1} deg, rim {SunCycle.LookSkyRimAt(h)}");
+        }
+        SunCycle.SetHours(noon);
+        cam.transform.rotation = rot;
     }
 
     /// Task 120: <name>, then (if old) <name>_old with the cube look off after 60 settle frames.

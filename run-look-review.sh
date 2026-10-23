@@ -37,6 +37,9 @@ for q in $PRESETS; do
     -screen-fullscreen 1 -screen-width 1920 -screen-height 1080 \
     -renderpreset quality -farband 1 -farshadow 1 -farshade 1 -seethrough 1 -riverlook 1 -shells 1 -shellworkers 3 \
     -upscaler fsr3 -renderrows 540 -cleardeltas ${EXTRA:-}
+  # Task 121: a Metal compile error only shows at run time (Player.log), and every frame is black.
+  PL="$HOME/Library/Logs/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Player.log"
+  grep -m1 -A1 'program_source:[0-9]*:[0-9]*: error' "$PL" 2>/dev/null | sed 's/^/SHADER RUNTIME ERROR (frames are black): /' | tee -a "$LOG"
   R=$(ls -td "$DATA/LookReview"/*_"$q"/ 2>/dev/null | head -n 1)
   [ -n "$R" ] && { cat "${R}lookreview.txt" | tee -a "$LOG"; echo "shots: $R" | tee -a "$LOG"; } || echo "no LookReview folder for $q" | tee -a "$LOG"
 done

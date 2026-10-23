@@ -316,3 +316,16 @@ Timing skipped (identical kernel input: every outcome = no change). New capture-
 `Start()` for every mode; cost-split arm `clampN` (e.g. `-costarms clamp128,clamp128`; FULL keeps the launch's clamp) and a
 `[sun <arm>]` counters line (voxel shadow rays traced / steps, ShadowStats 2 / 4); look review `-lookclamp M` (with `-lookgolden 1`):
 golden hour sun behind (`away`) and beside (`side`), fsr3 / none / sunvis, `_full` vs `_clamp<M>`. Driver `Screenshots/118/118-driver.sh`.
+
+**Task 121 -- sky and haze (VISUAL_REVIEW_114 #4 + #6, owner 2026-10-22; LOOK, no timing).** ON by default; `-skylook 0` = the old sky AND haze,
+`-skyhaze 0` = the old haze only. Sky (`Raymarch.compute` `LookAtmosphere` / new `LookSkyBackground`): the horizon colour is concentrated
+near the horizon (`pow(1 - up, 4)` instead of `dir.y*0.5+0.5`), a time-of-day RIM tint over the whole horizon ring, strongest toward
+the sun (`SunCycle.LookSkyRimAt`: 0 above 28 deg of sun, golden -> dusk red, gone by -10 deg; `_LookSkyRim`), the sun halo is never
+darker than the rim (the old sky had a dark hole round a setting sun), and a sun disc (0.6-0.8 deg) in the sky only, never in the haze
+target. Haze (`FarShadeApplyHaze`, far-shading kernel): range `SkyHazeRangeM` 1800 m instead of `FarShadeHazeRangeM` 3500, desaturation
+by half the haze amount, and a fade to full haze over the last 45% of the far band's square (~3.1-5.6 km Chebyshev). Haze colour is
+still the sky behind the pixel, so it takes the new horizon and rim. Also: task 119's `bool farRock` is now a `uint` -- with it a bool,
+Unity's HLSLcc emitted `as_type<float>(bool)` for Metal and the kernel failed at run time (every frame black); `run-look-review.sh` now
+prints `SHADER RUNTIME ERROR` from Player.log. Capture: `-looksky 1` (look review) shoots `<pose>_sky_{noon,golden_away,golden_toward,
+sunset_toward,dusk_toward}` and `_old` in the same frame state. Tests: `SkyLookTests` (flags bound, old formula is the off path, no disc
+in the haze, rim curve). Stills: `Screenshots/121/{high,walk_open}_sky_sheet.png`.
