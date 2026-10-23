@@ -431,3 +431,14 @@ floor/sides, and writes per-pose sheets (REF | NATIVE | PLAYED, x4 diffs, tier m
 REF TAA is the anti-aliased reference. The 50 m pose is the self-check (GAME = tier 0 there: |d luma| 0.3-0.8). Result table:
 `Screenshots/129/lodref129_table.txt`; verdict in HANDOFF 129. Found: tier-0 sun-shadow rays never continue into the shells (lit at the window edge
 and the 7-layer band's ceiling) -- owner flag, not changed.
+
+**Task 130 (perf probe, owner Q82 yes; PERF_SHELL_MARCH_PLAN E1-E3; capture only, NO default change): the shell march splits ~55 / 45 between the big kernel's context and the march itself.**
+New capture-only kernel `CSShellProbe` (Raymarch.compute, VE_FAR_SHADE, 8x8): cost-split arm `shellsplit` (`RaymarchFeature.DebugShellSkip`
+2 + 32) skips the in-kernel shell march like `shellmarch_off` and has CSMainFarShade write each pixel's tTier0 (or -1) to `ShellProbeIO`
+(4 B/px, allocated only in that arm; a 1-element dummy is bound otherwise), then the probe runs the same `ShellMarch` on the same rays alone;
+`shellsplit2` (+ 64) marches twice (second on warm caches, start = a uniform salt of 0). Misses draw sky: timing only. In those arms the
+probe writes the march counters 48-59 and a `[simd]` line (E3, ShadowStats 67-76, STATS_LEN 77): per 32-lane SIMD (8x4 half-tile)
+sum / (32 x max) of shell iterations, active lanes, step / end kinds. Warm cost split (battery, `Logs/costsplit_2026-10-23_162359.txt`):
+in-kernel march 18.2 / ~21 ms, alone 8.1 / 9.5 ms (walk_near / walk_open), second warm march +11.3 / +12.6 ms, SIMD efficiency 0.91 / 0.93.
+Plan rule -> R1 (shell pre-pass kernel), no R2; E2 = execution-bound, so R6 for the rest. Report `Screenshots/130/perf130.txt`; owner Q84 in HANDOFF 130.
+Run: `SKIP_BUILD=1 EXTRA="-farshade 1 -shells 1 -shellworkers 3 -shellwait 120 -costarms shellmarch_off,shellsplit,shellsplit2" ./run-cost-split.sh`.

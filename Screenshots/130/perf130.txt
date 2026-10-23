@@ -1,0 +1,42 @@
+TASK 130 -- shell march probes E1-E3 (PERF_SHELL_MARCH_PLAN.md §3), 2026-10-23, branch engine-phase, M1 Air 8 GB
+Decisions written before measuring: Screenshots/130/decisions_before_measuring.txt
+WARM STEADY STATE: warm-up Logs/tg2world_20261023_161730.txt (MODE=stream MOTION=walk, discarded), then at once one cost split:
+  Logs/costsplit_2026-10-23_162359.txt (driver Logs/overnight/130-driver.sh, out Logs/overnight/130-measure.out)
+  flags: 93b re-run's ON set (-farshade 1 -seethrough 1 -riverlook 1 -shells 1 -shellworkers 3 -shellwait 120 -costtimed 15), noon,
+  FSR 3 540 rows, quality, far band + far shadows; arms F, then X X F for shellmarch_off, shellsplit, shellsplit2, at both poses.
+POWER: on BATTERY the whole time (78% at the build, 61% -> 50% over the cost split), Low Power Mode off, no owner pause.
+  All arms are interleaved inside the one launch, so the arm deltas hold; absolute FULL is not comparable with AC runs.
+
+p50 ms (15 s timed per run)       walk_near                       walk_open
+  FULL (4 runs)                   71.0 71.6 71.4 71.3 = 71.3      50.8 47.7 47.2 47.6 = 47.5 (passes 2-4; pass 1 +3.3, first run after fill)
+  shellmarch_off                  53.0 / 53.2 = 53.1              27.3 / 27.5 = 27.4
+  shellsplit                      61.6 / 60.8 = 61.2              36.9 / 36.9 = 36.9
+  shellsplit2                     72.3 / 73.1 = 72.5              49.4 / 49.5 = 49.5
+  M  = FULL - shellmarch_off      18.2 (bracketed)                21.8 bracketed / 20.1 vs passes 2-4
+  S1 = shellsplit - marchoff      8.1  (S1/M 0.45)                9.5  (S1/M 0.44-0.47)
+  context = M - S1                10.1 (55%)                      10.6-12.3 (53-56%)
+  S2 = shellsplit2 - shellsplit   11.3 (S2/S1 1.40)               12.6 (S2/S1 1.33)
+  ns per iteration, in kernel     7.3                             1.6-1.8
+  ns per iteration, probe alone   3.3                             0.77
+
+E3 (probe's counter window, per 32-lane SIMD = 8x4 half-tile)
+  SIMDs with shell rays/frame     957                             10,063
+  efficiency sum/(32 x max)       0.906                           0.932
+  over active lanes (SIMD mean)   0.966                           0.972
+  active lanes / 32               30.6                            31.7
+  longest lane vs mean lane       88.3 vs 83.6                    41.2 vs 38.8
+  step kinds / end kinds per SIMD 3.02 of 4 / 1.01 of 5           2.50 of 4 / 1.01 of 5
+  SIMDs <0.35 / 0.35-0.6 / >=0.6  4% / 1% / 95%                   1% / 1% / 99%
+
+VALIDITY: the probe marches the same rays. Hit rays 26 = 26 and 31,811 = 31,813; iterations within -1.2% / -0.5%; the gap is the
+  4 rows below the 540-row frame (dispatch 544 rows) that the main kernel marches and counts but does not draw (walk_open: 3,852 fewer
+  no-hit rays = 4 x 960 + jitter). DEFAULT PATH UNCHANGED: walk_open FULL counters vs task 116's pre-change colleap_off arm
+  (Logs/costsplit_2026-10-22_202941.txt): hit 31,813 = 31,813, iters 3,367,918 vs 3,367,874, no-hit 290,887 vs 290,851, shell shadow
+  iters 489,985 vs 489,992 (FSR jitter noise). The only default-path change is a branch on _DebugShellSkip bit 5 (0 in play).
+
+OUTCOME ROWS
+  E1: in between at both poses (0.45 / 0.44-0.47, plan's A line 1/3, B ~1). Pre-written rule: A if S1 <= M/2 -> A (weak A):
+      a bit over half the in-kernel cost is the mega-kernel context (H1), a bit under half is the march itself.
+  E2: A at both (the warm second march costs 1.33-1.40x the first): execution-bound, not first-touch misses -> R5 / R4 dropped.
+  E3: A at both (0.91 / 0.93): divergence is out -> R2 not worth designing.
+  RULE (plan §5): E1 = A -> R1 (shell pre-pass kernel); no R2 (E3 = A). E2 = A also names R6 as the lever for the remaining half.

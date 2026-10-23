@@ -101,6 +101,9 @@
 // light escapes). Every task-85b line is under #ifdef VE_FAR_SHADE (see the
 // FAR SHADING block); RaymarchFeature dispatches it while -farshade / F6 is on.
 #pragma kernel CSMainFarShade VE_FAR_SHADE
+// TASK 130 (DIAGNOSTIC, capture only): the shell-march probe (PERF_SHELL_MARCH_PLAN E1-E3),
+// dispatched only by the cost split's shellsplit / shellsplit2 arms (_DebugShellSkip bit 5).
+#pragma kernel CSShellProbe VE_FAR_SHADE
 
 #include "../Coord/CoordMath.hlsl"
 #include "../Memory/StructHeaders.hlsl"
@@ -2731,6 +2734,12 @@ float4 _ShellBounds[8];      // inner, outer hand-over distance (0.1 m voxels), 
 // shell-hit sun-shadow march, bit 1 skips the primary shell march AND the far
 // march after it (misses draw sky). RaymarchFeature.DebugShellSkip, 0 in play.
 int    _DebugShellSkip;
+// TASK 130 (DIAGNOSTIC, capture only): with bit 5 of _DebugShellSkip (32) the primary
+// kernel writes each pixel's tTier0 (or -1: no shell march) to ShellProbeIO, and
+// CSShellProbe marches those pixels (bit 6, 64: twice). x, y = the buffer's pixel
+// dims, z = a salt, 0 at run time (keeps the second march from merging with the first).
+RWStructuredBuffer<float> ShellProbeIO;
+float4 _ShellProbeParams;
 #endif
 // TASK 93b4: ShellMarch's one-entry read caches (below); bit 2 of _DebugShellSkip
 // turns them off in the far-shading kernel (the shellcache_off arm). Same results either way.
@@ -4187,6 +4196,14 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // far march (the shellmarch_off arm); 55 = pixels, for per-pixel means.
     bool dbgSkipShellPrim = (_DebugShellSkip & 2) != 0;
     if (_CollectShadowStats != 0 && inBounds) InterlockedAdd(ShadowStats[55], 1u);
+    // TASK 130 (DIAGNOSTIC): the shellsplit arms (bit 5, with bit 1's skip): hand the
+    // shell march's input to CSShellProbe -- tTier0 where the march below would run, else -1.
+    if ((_DebugShellSkip & 32) != 0 && id.x < (uint)_ShellProbeParams.x && id.y < (uint)_ShellProbeParams.y)
+    {
+        bool probeNeeds = _ShellCount > 1 && !hit && passMat == 0u && _FarEnabled != 2;
+        ShellProbeIO[id.y * (uint)_ShellProbeParams.x + id.x] =
+            probeNeeds ? (skipVoxel ? 0.0 : min(tVoxelLimit, _ShellBounds[0].y)) : -1.0;
+    }
 #endif
     if (_ShellCount > 1 && !hit && passMat == 0u && _FarEnabled != 2
 #ifdef VE_FAR_SHADE
@@ -5332,6 +5349,102 @@ void CSMainDetail(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID
 void CSMainFarShade(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
 {
     CSMainBody(tid, gtid, false);
+}
+
+// TASK 130 (DIAGNOSTIC, capture only; PERF_SHELL_MARCH_PLAN E1-E3). Never dispatched in play.
+// E1: the primary shell march of the pixels CSMainFarShade flagged (ShellProbeIO >= 0 = its
+// tTier0), with the same ray (CSMainBody's formula) and the same ShellMarch call, in a kernel
+// that holds nothing else. E2 (bit 6): the march twice; the second starts at the salt (0 at
+// run time), so it repeats the first's addresses with warm caches. Results are folded into
+// ShellProbeIO (times the salt) only so the compiler cannot drop the march.
+// E3 (counter window only): per 8x4 half-tile -- one 32-lane SIMD, threads numbered x first --
+// the shell iterations' sum and max, the active lanes, and the unions of the step kinds and
+// end kinds its lanes used (whole paths, not per iteration), into ShadowStats 67-76. The
+// probe also adds the march counters 48-59 that the skipped in-kernel march leaves at 0.
+#ifdef VE_FAR_SHADE
+groupshared uint gsProbeIters[64];
+groupshared uint gsProbeKinds[64];
+#endif
+[numthreads(8, 8, 1)]
+void CSShellProbe(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
+{
+#ifdef VE_FAR_SHADE
+    uint width = (uint)_ShellProbeParams.x, height = (uint)_ShellProbeParams.y;
+    float salt = _ShellProbeParams.z;
+    uint lane = gtid.y * 8u + gtid.x;
+    uint idx = tid.y * width + tid.x;
+    float tTier0 = (tid.x < width && tid.y < height) ? ShellProbeIO[idx] : -1.0;
+    uint iters = 0u, kinds = 0u;
+    if (tTier0 >= 0.0)
+    {
+        float2 uv = float2((tid.x + 0.5) / width, (tid.y + 0.5) / height) * 2.0 - 1.0;
+        if (_TaaEnabled != 0) uv = float2((tid.x + 0.5 + _TaaJitter.x) / width, (tid.y + 0.5 + _TaaJitter.y) / height) * 2.0 - 1.0;
+        float4 target = mul(_CameraInverseProjection, float4(uv.x, uv.y, 1, 1));
+        float3 rayDir = mul(_CameraInverseView, float4(normalize(target.xyz / target.w), 0)).xyz;
+        rayDir.x = abs(rayDir.x) < 1e-6 ? (rayDir.x >= 0 ? 1e-6 : -1e-6) : rayDir.x;
+        rayDir.y = abs(rayDir.y) < 1e-6 ? (rayDir.y >= 0 ? 1e-6 : -1e-6) : rayDir.y;
+        rayDir.z = abs(rayDir.z) < 1e-6 ? (rayDir.z >= 0 ? 1e-6 : -1e-6) : rayDir.z;
+        float3 rayStart = _CameraPos * 10.0;
+        int skyY = ShellSkyY(true);
+        ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0, skyY);
+        uint keep = shr.mat + (uint)shr.end + (uint)shr.shell + (uint)shr.iters + (shr.inside ? 1u : 0u)
+                  + (uint)(shr.voxel.x ^ shr.voxel.y ^ shr.voxel.z) + (uint)(shr.normal.x + 3 * shr.normal.y + 9 * shr.normal.z);
+        float outT = shr.t;
+        if ((_DebugShellSkip & 64) != 0)
+        {
+            ShellHit sh2 = ShellMarch(rayStart, rayDir, salt, false, rayStart, _ShellIterCap, tTier0 + salt, skyY);
+            keep += sh2.mat + (uint)sh2.end + (uint)sh2.shell + (uint)sh2.iters + (sh2.inside ? 1u : 0u)
+                  + (uint)(sh2.voxel.x ^ sh2.voxel.y ^ sh2.voxel.z) + (uint)(sh2.normal.x + 3 * sh2.normal.y + 9 * sh2.normal.z);
+            outT = min(outT, sh2.t);
+        }
+        ShellProbeIO[idx] = outT + (float)keep * salt;
+        iters = (uint)shr.iters;
+        kinds = (shr.leaps0 > 0 ? 1u : 0u) | (shr.leapsChunk > 0 ? 2u : 0u) | (shr.leapsBrick > 0 ? 4u : 0u)
+              | ((shr.iters - shr.leaps0 - shr.leapsChunk - shr.leapsBrick) > 1 ? 8u : 0u)
+              | (1u << (8u + (uint)shr.end));
+        if (_CollectShadowStats != 0)
+        {
+            // The in-kernel march's counters (task 93b4; it is skipped in this arm): first march only.
+            uint slot = (shr.end == SHELL_END_HIT) ? 48u : 50u;
+            InterlockedAdd(ShadowStats[slot], 1u);
+            InterlockedAdd(ShadowStats[slot + 1u], (uint)shr.iters);
+            InterlockedAdd(ShadowStats[54], (uint)shr.leaps0);
+            InterlockedAdd(ShadowStats[56], (uint)shr.leapsChunk);
+            InterlockedAdd(ShadowStats[57], (uint)shr.leapsBrick);
+            InterlockedAdd(ShadowStats[58], (uint)shr.dirReads);
+            InterlockedAdd(ShadowStats[59], (uint)shr.pageReads);
+        }
+    }
+    if (_CollectShadowStats != 0)
+    {
+        // E3: plain groupshared writes, then one lane per SIMD reads its 32 (no groupshared atomics).
+        gsProbeIters[lane] = iters;
+        gsProbeKinds[lane] = kinds;
+        GroupMemoryBarrierWithGroupSync();
+        if ((lane & 31u) == 0u)
+        {
+            uint sum = 0u, mx = 0u, active = 0u, stepU = 0u, endU = 0u;
+            [loop] for (uint j = lane; j < lane + 32u; j++)
+            {
+                uint n = gsProbeIters[j], k = gsProbeKinds[j];
+                sum += n; mx = max(mx, n);
+                if (k != 0u) { active++; stepU |= k & 15u; endU |= k >> 8; }
+            }
+            if (active > 0u)
+            {
+                InterlockedAdd(ShadowStats[67], 1u);
+                InterlockedAdd(ShadowStats[68], sum);
+                InterlockedAdd(ShadowStats[69], mx);
+                InterlockedAdd(ShadowStats[70], active);
+                InterlockedAdd(ShadowStats[71], (uint)round(1000.0 * (float)sum / max((float)(active * mx), 1.0)));
+                InterlockedAdd(ShadowStats[72], countbits(stepU));
+                InterlockedAdd(ShadowStats[73], countbits(endU));
+                float effAll = (float)sum / max(32.0 * (float)mx, 1.0);
+                InterlockedAdd(ShadowStats[effAll < 0.35 ? 74 : (effAll < 0.6 ? 75 : 76)], 1u);
+            }
+        }
+    }
+#endif
 }
 
 // ===========================================================================

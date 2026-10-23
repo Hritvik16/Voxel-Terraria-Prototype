@@ -99,6 +99,13 @@
 //   TASK 124: reuseN (e.g. reuse8)  temporal sun-shadow reuse, a tile traces one frame in N
 //                       (RaymarchFeature.ShadowReusePeriod; FULL keeps the launch's -shadowreuse, 4 by
 //                       default); the [sun] counters line shows the period and the rays traced.
+//   TASK 130 (diagnostic, PERF_SHELL_MARCH_PLAN E1-E3): shellsplit  shellmarch_off's skip, and the primary pass hands
+//                       each pixel's shell-march input (tTier0) to CSShellProbe, a small kernel that runs the same
+//                       ShellMarch alone after it (RaymarchFeature.DebugShellSkip 2 + 32); shellsplit - shellmarch_off =
+//                       the march outside the big kernel. shellsplit2  the probe marches every pixel twice, the second
+//                       on warm caches (+ 64). Misses draw sky in both: timing only. The counters line of these arms
+//                       comes from the probe (same rays: its iterations must equal FULL's), plus a [simd] line (E3):
+//                       per 32-lane SIMD (8x4 half-tile), efficiency sum / (32 x max) of shell iterations, ShadowStats 67-76
 //            -coststillraw  each arm's first still also shoots _raw.png / _raw2.png (10 frames apart) with no
 //                       upscaler (no jitter), for byte-identity checks between arms
 //            the counters line also gives shell march iterations by ray kind (ShadowStats 48-55)
@@ -320,7 +327,7 @@ public partial class PlaygroundCapture
         // Task 116: the column sky leap (see the header).
         RaymarchFeature.ShellColumnLeap = arm == "colleap_on" || (arm != "colleap_off" && _costBaseColLeap);
         // Task 93b4 (diagnostic): see the header.
-        RaymarchFeature.DebugShellSkip = arm == "shellshadow_off" ? 1 : arm == "shellmarch_off" ? 2 : arm == "shellcache_off" ? 4 : arm == "shellmask_off" ? 8 : arm == "shellleap_new" ? 24 : 0;
+        RaymarchFeature.DebugShellSkip = arm == "shellshadow_off" ? 1 : arm == "shellmarch_off" ? 2 : arm == "shellcache_off" ? 4 : arm == "shellmask_off" ? 8 : arm == "shellleap_new" ? 24 : arm == "shellsplit" ? 34 : arm == "shellsplit2" ? 98 : 0;
         // Task 118: clampN = the voxel sun-shadow clamp at N m (see the header).
         RaymarchFeature.ShadowMaxDistanceOverrideM = CostClampM(arm, out float clampM) ? clampM : _costBaseClamp;
         // Task 124: reuseN = temporal sun-shadow reuse one frame in N (see the header).
@@ -413,6 +420,13 @@ public partial class PlaygroundCapture
         double cl = st[65] / (double)n, cw = st[66] / (double)n;
         L($"    [shell {arm}] column sky leaps {cl:N0}/frame ({(pi > 0 ? 100 * cl / pi : 0):F0}% of primary iters), whole chunk {cw:N0}; " +
           $"leap {(RaymarchFeature.ShellColumnLeap ? "ON" : "OFF")}");
+        if (st.Length < 77 || st[67] == 0) yield break;
+        // Task 130 (E3): per 32-lane SIMD that had any shell ray (the probe's, shellsplit arms only).
+        double simd = st[67], lanes = st[68], mxs = st[69], act = st[70];
+        L($"    [simd {arm}] SIMDs with shell rays {simd / n:N0}/frame; efficiency sum/(32 x max) {lanes / (32.0 * mxs):F3} (iteration-weighted), " +
+          $"active lanes/SIMD {act / simd:F1} of 32, efficiency over active lanes {st[71] / simd / 1000.0:F3} (SIMD mean), " +
+          $"longest lane {mxs / simd:F1} iters vs mean lane {lanes / act:F1}; step kinds per SIMD {st[72] / simd:F2} of 4 (tier-0 leap, air chunk, air brick, cell), " +
+          $"end kinds {st[73] / simd:F2} of 5; SIMDs by efficiency <0.35 {100.0 * st[74] / simd:F0}%, 0.35-0.6 {100.0 * st[75] / simd:F0}%, >=0.6 {100.0 * st[76] / simd:F0}%");
     }
 
     /// Task 75: the lake poses, at -liquiddemo's lake (Playground.FindDemoLake:
