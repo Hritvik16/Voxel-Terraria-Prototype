@@ -1,0 +1,12 @@
+high noon: px differing 921777 (44.453%), >2 levels 302074, max 97
+high golden_away: px differing 867507 (41.836%), >2 levels 169800, max 55
+high golden_toward: px differing 863120 (41.624%), >2 levels 153883, max 42
+high sunset_toward: px differing 2070407 (99.846%), >2 levels 2051738, max 47
+high dusk_toward: px differing 2072955 (99.969%), >2 levels 2053427, max 71
+high dusk_away: px differing 1982021 (95.584%), >2 levels 1710543, max 35
+walk_open noon: px differing 918926 (44.315%), >2 levels 404679, max 78
+walk_open golden_away: px differing 852656 (41.120%), >2 levels 233092, max 95
+walk_open golden_toward: px differing 767618 (37.019%), >2 levels 135364, max 70
+walk_open sunset_toward: px differing 2063171 (99.497%), >2 levels 1962453, max 45
+walk_open dusk_toward: px differing 2065474 (99.608%), >2 levels 2028126, max 71
+walk_open dusk_away: px differing 1636709 (78.931%), >2 levels 1387476, max 39

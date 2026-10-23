@@ -55,6 +55,8 @@
 //           (sun 2 deg up) and dusk (3 deg down) toward the sun:
 //           <pose>_sky_<time>, and <pose>_sky_<time>_old with the sky look off
 //           (SkyLook / SkyHaze false = before task 121), in the same frame state.
+//           Task 126: also dusk_away; -lookrim 1 makes the second arm <pose>_sky_<time>_rim121
+//           (-skyrimscale 1 = task 121's rim) instead of _old.
 //   TASK 122 (capture-only): -lookbiome 1 adds poses border_0..2: up to three
 //           land points within 2 km where the RECORD biome changes (25 m grid),
 //           one per biome pair, >= 500 m apart; eye 35 m over the ground 150 m
@@ -154,6 +156,7 @@ public partial class PlaygroundCapture
         float clampM = ArgFloat("-lookclamp", 0f);   // task 118
         int reuseN = ArgInt("-lookreuse", 0);        // task 124
         bool skyAB = ArgInt("-looksky", 0) != 0;      // task 121
+        bool rimAB = ArgInt("-lookrim", 0) != 0;      // task 126: the sky A/B's second arm is task 121's rim
         bool biomeLook = ArgInt("-lookbiome", 0) != 0;   // task 122
         bool edgeAB = ArgInt("-lookedge", 0) != 0;       // task 125
         string fsr = $"fsr3_{rows}", none = $"none_{rows}";
@@ -306,7 +309,7 @@ public partial class PlaygroundCapture
                 SunCycle.SetHours(noon);
                 cam.transform.rotation = rot;
             }
-            if (skyAB) yield return LookSkyAB(n, cam, eye, rot, fsr, noon);
+            if (skyAB) yield return LookSkyAB(n, cam, eye, rot, fsr, noon, rimAB);
             if (edgeAB) yield return LookEdgeAB(n, cam, eye, rot, fsr, noon);
             if (biomeLook)
             {
@@ -483,15 +486,18 @@ public partial class PlaygroundCapture
     /// Task 121: the sky look, new vs old (_old: SkyLook and SkyHaze off), 60 frames each, at noon
     /// (the pose's own heading), golden hour 17 h (sun behind = away, and toward it), sunset (sun 2 deg
     /// up) and dusk (3 deg down), both toward the sun. The pose's pitch, +3 deg toward the sun.
-    private IEnumerator LookSkyAB(string n, Camera cam, Vector3 eye, Quaternion rot, string fsr, float noon)
+    /// Task 126: also dusk away from the sun; with `rim` (-lookrim 1) the second arm is <tag>_rim121
+    /// (SkyRimScale 1 = task 121's rim) instead of _old.
+    private IEnumerator LookSkyAB(string n, Camera cam, Vector3 eye, Quaternion rot, string fsr, float noon, bool rim)
     {
         bool sky = RaymarchFeature.SkyLook, haze = RaymarchFeature.SkyHaze;
+        float rimScale = RaymarchFeature.SkyRimScale;
         float pitch = -Mathf.DeltaAngle(0f, rot.eulerAngles.x);
         float golden = 17f, sunset = SunCycle.HoursForElevation(2f, false), dusk = SunCycle.HoursForElevation(-3f, false);
         ApplyCompareArm(fsr);
         cam.ResetProjectionMatrix();
         var times = new (string tag, float h, int dir)[] { ("noon", noon, 0), ("golden_away", golden, -1), ("golden_toward", golden, 1),
-                                                          ("sunset_toward", sunset, 1), ("dusk_toward", dusk, 1) };
+                                                          ("sunset_toward", sunset, 1), ("dusk_toward", dusk, 1), ("dusk_away", dusk, -1) };
         foreach (var (tag, h, dir) in times)
         {
             SunCycle.SetHours(h);
@@ -502,12 +508,14 @@ public partial class PlaygroundCapture
                 : Quaternion.Euler(-(pitch + (dir > 0 ? 3f : 0f)), math.degrees(math.atan2(dir * toSun.x, dir * toSun.y)), 0f);
             foreach (bool old in new[] { false, true })
             {
-                RaymarchFeature.SkyLook = sky && !old; RaymarchFeature.SkyHaze = haze && !old;
+                if (rim) RaymarchFeature.SkyRimScale = old ? 1f : rimScale;
+                else { RaymarchFeature.SkyLook = sky && !old; RaymarchFeature.SkyHaze = haze && !old; }
                 yield return Frames(60);
-                yield return CaptureTo($"{n}_sky_{tag}" + (old ? "_old" : ""));
+                yield return CaptureTo($"{n}_sky_{tag}" + (old ? (rim ? "_rim121" : "_old") : ""));
             }
-            RaymarchFeature.SkyLook = sky; RaymarchFeature.SkyHaze = haze;
-            L($"  sky (task 121) {tag}: {h:F2} h, sun elevation {SunCycle.ElevationDegreesAt(h):F1} deg, rim {SunCycle.LookSkyRimAt(h)}");
+            RaymarchFeature.SkyLook = sky; RaymarchFeature.SkyHaze = haze; RaymarchFeature.SkyRimScale = rimScale;
+            L($"  sky (task 121) {tag}: {h:F2} h, sun elevation {SunCycle.ElevationDegreesAt(h):F1} deg, rim {SunCycle.LookSkyRimAt(h, rimScale)}" +
+              $" shape {SunCycle.LookSkyRimShapeAt(h, rimScale)} (-skyrimscale {rimScale:F2}; 121: rim {SunCycle.LookSkyRimAt(h)})");
         }
         SunCycle.SetHours(noon);
         cam.transform.rotation = rot;

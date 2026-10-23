@@ -307,6 +307,12 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool SkyLook = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-skylook");
     public static bool SkyHaze = SkyLook && ParseFlagOn(System.Environment.GetCommandLineArgs(), "-skyhaze");
     public static float SkyHazeRangeM = 1800f;
+    /// Task 126 (owner Q77, 2026-10-23: dusk "apocalyptic red", sunset "a little too red"): how much of the
+    /// sky rim's red is kept near and after sunset (SunCycle.LookSkyRimAt / LookSkyRimShapeAt). `-skyrimscale 1`
+    /// = task 121's rim; the default calms dusk to a red-brown / violet glow and sunset a little. Golden hour
+    /// and noon are the same at any value. Clamped to 0..1.
+    public const float SkyRimScaleDefault = 0.5f;
+    public static float SkyRimScale = Mathf.Clamp01(ReadFloatArg("-skyrimscale", SkyRimScaleDefault));
     /// Task 125 (VISUAL_REVIEW_114, the hard sea/sky line): the drawn world's EDGE FADE, ON by default (with
     /// -skyhaze). The line sits on the far band's square (~5.6 km), not the world's edge: task 121 faded the haze
     /// to full there, but the far water's sky reflection (SeeReflection) and the grade come AFTER the haze, so
@@ -477,6 +483,16 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         return r;
     }
 
+    private static float ReadFloatArg(string flag, float fallback)
+    {
+        string[] a = System.Environment.GetCommandLineArgs();
+        float v = fallback;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == flag && float.TryParse(a[i + 1], System.Globalization.NumberStyles.Float,
+                                               System.Globalization.CultureInfo.InvariantCulture, out float p)) v = p;
+        return v;
+    }
+
     private static int ReadIntArg(string flag, int fallback)
     {
         string[] a = System.Environment.GetCommandLineArgs();
@@ -602,6 +618,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public int kHeightRaw, kHeightDilate, kHeightLevel;
             public Vector4 lookSkyZenith, lookSkyHorizon, lookSkyHalo, lookSun, lookAmbient, lookMoon;
             public Vector4 lookSkyRim;   // task 121
+            public Vector4 lookSkyRimShape;   // task 126
             public float lookShadowDarkness, lookHazeDensity;
             public Vector4 lookGrade;
             public int emissiveBleed;
@@ -931,7 +948,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 passData.lookSkyZenith = V4(SunCycle.LookSkyZenithAt(hrs));
                 passData.lookSkyHorizon = V4(SunCycle.LookSkyHorizonAt(hrs));
                 passData.lookSkyHalo = V4(SunCycle.LookSunHaloAt(hrs));
-                { var rim = SunCycle.LookSkyRimAt(hrs); passData.lookSkyRim = new Vector4(rim.x, rim.y, rim.z, rim.w); }
+                { var rim = SunCycle.LookSkyRimAt(hrs, SkyRimScale); passData.lookSkyRim = new Vector4(rim.x, rim.y, rim.z, rim.w); }
+                { var sh = SunCycle.LookSkyRimShapeAt(hrs, SkyRimScale); passData.lookSkyRimShape = new Vector4(sh.x, sh.y, sh.z, sh.w); }
                 passData.lookSun = V4(SunCycle.LookSunAt(hrs));
                 passData.lookAmbient = V4(SunCycle.LookAmbientAt(hrs));
                 passData.lookMoon = V4(SunCycle.LookMoonAt(hrs));
@@ -1268,6 +1286,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyHorizon", data.lookSkyHorizon);
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyHalo", data.lookSkyHalo);
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyRim", data.lookSkyRim);   // task 121
+                        cmd.SetComputeVectorParam(data.compute, "_LookSkyRimShape", data.lookSkyRimShape);   // task 126
                         cmd.SetComputeIntParam(data.compute, "_SkyLook", (SkyLook ? 1 : 0) | (SkyHaze ? 2 : 0) | (EdgeFade ? 4 : 0));
                         cmd.SetComputeIntParam(data.compute, "_BiomeTint", BiomeTint ? 1 : 0);   // task 122
                         cmd.SetComputeVectorParam(data.compute, "_LookSun", data.lookSun);

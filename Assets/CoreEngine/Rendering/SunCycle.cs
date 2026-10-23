@@ -296,14 +296,38 @@ public static class SunCycle
     /// Task 121 (the sky look's horizon RIM, Raymarch.compute LookAtmosphere): rgb the rim colour,
     /// w its strength. 0 from 28 degrees of sun up, full from 4 down to -1, gone by -10 (night).
     /// Golden while the sun is up, toward a dusk red as it sets, dimmer once it is down.
-    public static float4 LookSkyRimAt(float hours)
+    /// Task 126 (owner Q77, `-skyrimscale`): `scale` < 1 calms the red near and after sunset (RimKeepAt);
+    /// 1 = task 121's rim. Golden hour (14.6 deg at 17 h) and noon are untouched at any scale.
+    public static float4 LookSkyRimAt(float hours, float scale = 1f)
     {
         var c = LightingConfig.Active;
         float el = ElevationDegreesAt(hours);
         float strength = math.smoothstep(-10f, -1f, el) * (1f - math.smoothstep(4f, 28f, el));
         float3 col = math.lerp(V(0.92f, 0.40f, 0.28f), V(c.goldenR, c.goldenG, c.goldenB), math.smoothstep(-4f, 8f, el));
         col *= math.lerp(0.45f, 1f, math.smoothstep(-6f, 3f, el));
+        if (scale < 1f)
+        {
+            float k = RimKeepAt(el, scale);
+            strength *= k;
+            // Once the sun is down the red turns a violet-brown (none at 2 deg: sunset stays orange).
+            float violet = (1f - scale) * (1f - math.smoothstep(-4f, 2f, el));
+            col = math.lerp(col, V(0.40f, 0.22f, 0.32f), violet);
+        }
         return new float4(col, strength);
+    }
+
+    /// Task 126: the share of the rim kept: 1 from 6 deg of sun up (golden hour and noon), `scale` at
+    /// dusk (-4 deg and below), between at sunset (2 deg: 1 - 0.35 (1 - scale)).
+    public static float RimKeepAt(float elevationDeg, float scale)
+        => math.lerp(1f, math.saturate(scale), 1f - math.smoothstep(-4f, 6f, elevationDeg));
+
+    /// Task 126: the rim's SHAPE for Raymarch.compute LookAtmosphere (`_LookSkyRimShape`): x its weight on the
+    /// side away from the sun (task 121: 0.4), y the power of the halo floor's lobe round the sun (task 121: 8;
+    /// higher = a tighter glow, not a red wash over the frame). scale 1, or the sun 6 deg up or more = task 121.
+    public static float4 LookSkyRimShapeAt(float hours, float scale = 1f)
+    {
+        float k = RimKeepAt(ElevationDegreesAt(hours), scale);
+        return new float4(0.4f * k, math.lerp(8f, 24f, 1f - k), 0f, 0f);
     }
 
     /// Direct sun term: the halo times `lookSunScale` (the Brickmap's 1.5).

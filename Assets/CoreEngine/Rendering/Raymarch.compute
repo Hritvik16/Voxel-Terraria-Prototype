@@ -940,6 +940,9 @@ float3 LookGradeColour(float3 c, float saturation, float knee)
 // takes the new horizon and rim colour.
 int    _SkyLook;
 float4 _LookSkyRim;        // rgb the rim colour, a its strength (0 by day)
+// Task 126 (SunCycle.LookSkyRimShapeAt, -skyrimscale): x the rim's weight away from the sun
+// (task 121: 0.4), y the power of the halo floor's lobe round the sun (task 121: 8).
+float4 _LookSkyRimShape;
 #define SKY_RIM_POW 3.0
 #define SKY_DISC_COS_IN  0.99994516    // cos 0.60 deg: the disc's full radius
 #define SKY_DISC_COS_OUT 0.99990252    // cos 0.80 deg: its soft edge
@@ -958,16 +961,22 @@ float3 LookAtmosphere(float3 dir)
         float2 hd = dir.xz / max(length(dir.xz), 1e-4);
         float2 hs = sd.xz / max(length(sd.xz), 1e-4);
         float facing = dot(hd, hs) * 0.5 + 0.5;
-        float rimW = pow(down, SKY_RIM_POW) * lerp(0.4, 1.0, facing * facing) * _LookSkyRim.a;
+        float rimW = pow(down, SKY_RIM_POW) * lerp(_LookSkyRimShape.x, 1.0, facing * facing) * _LookSkyRim.a;
         baseSky = lerp(baseSky, _LookSkyRim.rgb, rimW);
     }
     else
         baseSky = lerp(_LookSkyHorizon.rgb, _LookSkyZenith.rgb, saturate(dir.y * 0.5 + 0.5));
-    float sunHighlight = pow(max(0.0, dot(dir, sd)), 8.0);
+    float cosSun = max(0.0, dot(dir, sd));
+    float sunHighlight = pow(cosSun, 8.0);
+    float3 c = lerp(baseSky, _LookSkyHalo.rgb, sunHighlight);
     // The halo fades with the day factor (0 at the horizon), which left a dark
     // hole round a setting sun; with the sky look it is never darker than the rim.
-    float3 halo = ((_SkyLook & 1) != 0) ? max(_LookSkyHalo.rgb, _LookSkyRim.rgb * _LookSkyRim.a) : _LookSkyHalo.rgb;
-    return lerp(baseSky, halo, sunHighlight);
+    // Task 126: the floor has its own lobe (_LookSkyRimShape.y). With it 8 this is
+    // task 121's lerp(baseSky, max(halo, rim), sunHighlight): a lerp with a weight
+    // in 0..1 is monotonic, so the max can come outside it.
+    if ((_SkyLook & 1) != 0)
+        c = max(c, lerp(baseSky, _LookSkyRim.rgb * _LookSkyRim.a, pow(cosSun, _LookSkyRimShape.y)));
+    return c;
 }
 
 // What a ray that reaches nothing sees: LookAtmosphere plus (sky look) the sun

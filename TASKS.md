@@ -390,3 +390,16 @@ golden away, 7 -> 1.5 toward the sun (`Screenshots/125/line_step.txt`). Capture:
 `<pose>_edge_{px,nx,pz,diag,golden_away,golden_toward}` + `_old`, logging the rows where a flat sea would end at the world's edge and at
 the square. Tests: `DrawnEdgeFadeTests` (flag bound, off path = task 121, the fade after every see-through blend, the capture's square
 = the shader's).
+
+**Task 126 -- dusk calmer red (owner Q77, 2026-10-23: dusk "apocalyptic red", sunset "a little too red"; LOOK, no timing).** ON by
+default: `-skyrimscale F` (`RaymarchFeature.SkyRimScale`, default `SkyRimScaleDefault` 0.5, clamped 0..1; `-skyrimscale 1` = task 121's
+rim). `SunCycle.RimKeepAt(el, F)` = the share of the rim kept: 1 from 6 deg of sun up (golden hour 14.6 deg and noon are untouched), F at
+-4 deg and below, 1 - 0.35 (1 - F) at sunset (2 deg). `LookSkyRimAt(hours, scale)` multiplies the rim strength by it and, once the sun is
+down, turns the red toward a violet-brown (none at 2 deg, so sunset stays orange); `LookSkyRimShapeAt` -> `_LookSkyRimShape`: x the rim's
+weight away from the sun (121: 0.4, now 0.4 k), y the power of the halo floor's lobe (121: 8, up to 24: a tight glow round the sun, not a
+wash over the frame). `LookAtmosphere` now takes the floor as max(lerp(sky, halo, pow8), lerp(sky, rim, pow y)) -- equal to 121's
+lerp(sky, max(halo, rim), pow8) at y = 8. At F 0.5, dusk (-3 deg): strength 0.87 -> 0.45, lobe 15.8, away 0.21; sky rows 0-449 mean RGB
+(70,29,27) -> (27,13,26) toward the sun, (30,15,27) -> (11,9,27) away; sunset 2 deg: strength 1 -> 0.82, (152,86,63) -> (118,69,57).
+Capture: `-looksky 1 -lookrim 1` makes the sky A/B's second arm `<pose>_sky_<t>_rim121` (F = 1) instead of `_old`, and every `-looksky`
+run now also shoots `dusk_away`; `tools/rim126-sheet.py <dir>` builds OLD 121 | NEW 126 sheets + px diffs. Tests: `SkyRimCalmTests`.
+Stills: `Screenshots/126/{high,walk_open}_rim_sheet.png`.
