@@ -1978,6 +1978,19 @@ public partial class PlaygroundCapture : MonoBehaviour
         // Update / render+present, GC, streamer, far band, chunks admitted).
         FrameGapProbe gap = null;
         if (HasFlag("-framegap")) { gap = gameObject.AddComponent<FrameGapProbe>(); gap.Recording = true; }
+        // Task 115: -spikelog = the same probe plus one CSV row per frame (spikes.csv), for
+        // tools/spike-report.py; implies -frametiming's capture (the rows carry its fields).
+        bool spikeLog = HasFlag("-spikelog");
+        if (spikeLog)
+        {
+            if (gap == null) { gap = gameObject.AddComponent<FrameGapProbe>(); gap.Recording = true; }
+            gap.SpikeLog = true;
+            gap.FluidTicks = () => pg != null ? pg.DebugFluidTicks : -1;
+            gap.ReadbackLanded = () => rb != null ? rb.TicksLanded : -1;
+            gap.LightUploads = () => lightDriver != null ? lightDriver.Lights.UploadsPerformed : -1;
+            gap.CamPos = () => cam != null ? cam.transform.position : Vector3.zero;
+            ftm = true;
+        }
         var ftmT = new FrameTiming[1];
         var ftmCpu = new List<double>(4096); var ftmGpu = new List<double>(4096);
         // Task 93b: every frame for the whole-run p50 / p99, and with -shells 1 when each
@@ -2187,6 +2200,7 @@ public partial class PlaygroundCapture : MonoBehaviour
             var gsb = new StringBuilder();
             gap.AppendReport(gsb, 33.0);
             L(gsb.ToString());
+            if (spikeLog) L($"  -spikelog: {gap.WriteSpikeCsv(Path.Combine(_folder, "spikes.csv"))} rows -> {Path.Combine(_folder, "spikes.csv")}");
         }
         if (ftm && ftmCpu.Count > 0)
         {

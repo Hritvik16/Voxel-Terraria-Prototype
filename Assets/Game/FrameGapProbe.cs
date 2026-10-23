@@ -91,6 +91,68 @@ public class FrameGapProbe : MonoBehaviour
     public static double LastStreamerMs;
     public static double LastCoalescerMs;
 
+    // ---- Task 115 (-spikelog): one CSV row per frame, OFF by default ----
+    // The spike question: on a frame > 50 ms, what ran? Counters are sampled at
+    // EOF (after every LateUpdate), as running totals or this frame's values, and
+    // differenced by tools/spike-report.py. FrameTimingManager's numbers belong to
+    // an EARLIER frame (its own lag); the script aligns them by correlation.
+    // Read-only: nothing here changes what the engine does.
+    public bool SpikeLog { get; set; }
+    /// Running totals the Game side owns (Playground's fluid ticks, the readback,
+    /// the light buffer): set by the rig that attaches the probe; null = -1.
+    public Func<long> FluidTicks, ReadbackLanded, LightUploads;
+    public Func<Vector3> CamPos;
+    /// Shells.Update's wall clock this frame (Phase4Bootstrapper), inside "coalescer".
+    public static double LastShellsMs;
+    private readonly FrameTiming[] _ft = new FrameTiming[1];
+    private StringBuilder _csv;
+    private int _csvRows;
+    private const string CSV_HEADER =
+        "i,frame_ms,pre_ms,upd_ms,post_ms,gc0,gc1,gc2,heap_mb,streamer_ms,coalescer_ms,shells_ms,far_ms," +
+        "slide_ms,dispatch_ms,drain_ms,transfer_ms,valve_ms,sweep_ms,upload_ms,cascade_ms," +
+        "admitted,evicted,upload_bytes,setdata,saved_total,pending_loads,in_flight,shell_gen_total,shell_bytes,shell_inflight," +
+        "fluid_ticks,rb_landed,light_uploads,rows,ftm_cpu,ftm_main,ftm_render,ftm_present,ftm_gpu,cam_x,cam_z";
+
+    private void SpikeRow(double frameMs, double pre, double upd, double post)
+    {
+        if (_csv == null) { _csv = new StringBuilder(1 << 20); _csv.AppendLine(CSV_HEADER); }
+        var st = Phase4Bootstrapper.Streamer;
+        var sh = Phase4Bootstrapper.Shells;
+        bool ft = FrameTimingManager.GetLatestTimings(1, _ft) > 0;
+        Vector3 c = CamPos != null ? CamPos() : Vector3.zero;
+        var ph = LastStreamPhases;
+        var b = _csv;
+        b.Append(_csvRows++).Append(',').Append(frameMs.ToString("F2")).Append(',').Append(pre.ToString("F2")).Append(',')
+         .Append(upd.ToString("F2")).Append(',').Append(post.ToString("F2")).Append(',')
+         .Append(GC.CollectionCount(0)).Append(',').Append(GC.CollectionCount(1)).Append(',').Append(GC.CollectionCount(2)).Append(',')
+         .Append((GC.GetTotalMemory(false) / 1048576.0).ToString("F1")).Append(',')
+         .Append(LastStreamerMs.ToString("F2")).Append(',').Append(LastCoalescerMs.ToString("F2")).Append(',')
+         .Append(LastShellsMs.ToString("F2")).Append(',').Append(LastFarMs.ToString("F2"));
+        for (int j = 0; j < 8; j++) b.Append(',').Append(ph[j].ToString("F2"));
+        b.Append(',').Append(LastAdmitted).Append(',').Append(st != null ? st.LastEvicted : -1).Append(',')
+         .Append(LastUploadBytes).Append(',').Append(LastSetDataCalls).Append(',')
+         .Append(st != null ? st.ChunksSavedTotal : -1).Append(',').Append(st != null ? st.PendingLoads : -1).Append(',')
+         .Append(st != null ? st.InFlightLoads : -1).Append(',')
+         .Append(sh != null ? sh.Generated : -1).Append(',').Append(sh != null ? sh.LastBytes : -1).Append(',')
+         .Append(sh != null ? sh.InFlight : -1).Append(',')
+         .Append(FluidTicks != null ? FluidTicks() : -1).Append(',').Append(ReadbackLanded != null ? ReadbackLanded() : -1).Append(',')
+         .Append(LightUploads != null ? LightUploads() : -1).Append(',').Append(UpscalerSelect.Rows).Append(',');
+        if (ft)
+            b.Append(_ft[0].cpuFrameTime.ToString("F2")).Append(',').Append(_ft[0].cpuMainThreadFrameTime.ToString("F2")).Append(',')
+             .Append(_ft[0].cpuRenderThreadFrameTime.ToString("F2")).Append(',').Append(_ft[0].cpuMainThreadPresentWaitTime.ToString("F2")).Append(',')
+             .Append(_ft[0].gpuFrameTime.ToString("F2"));
+        else b.Append("-1,-1,-1,-1,-1");
+        b.Append(',').Append(c.x.ToString("F1")).Append(',').Append(c.z.ToString("F1")).Append('\n');
+    }
+
+    /// Task 115: writes the -spikelog rows (frames recorded while Recording) to path.
+    public int WriteSpikeCsv(string path)
+    {
+        if (_csv == null) return 0;
+        System.IO.File.WriteAllText(path, _csv.ToString());
+        return _csvRows;
+    }
+
     private readonly Stopwatch _sw = Stopwatch.StartNew();
     private double _tEofPrev = -1, _tUpdate, _tLate;
     private bool _armed;
@@ -135,6 +197,7 @@ public class FrameGapProbe : MonoBehaviour
                 _farMs.Add(LastFarMs);
                 _admitted.Add(LastAdmitted);
                 _phases.Add((double[])LastStreamPhases.Clone());
+                if (SpikeLog) SpikeRow(tEof - _tEofPrev, _tUpdate - _tEofPrev, _tLate - _tUpdate, tEof - _tLate);
             }
             _tEofPrev = tEof;
             _armed = false;

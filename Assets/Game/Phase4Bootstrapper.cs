@@ -573,7 +573,9 @@ public class Phase4Bootstrapper : MonoBehaviour
         {
             // The shells share the 3 MiB/frame cap (8.14 row 14): what the 0.1 m
             // mirror and the cascades left of it this frame.
+            double shT0 = sw.Elapsed.TotalMilliseconds;   // task 115: -spikelog's shells_ms
             Shells.Update(camPos, EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME - Streamer.LastUploadBytes);
+            FrameGapProbe.LastShellsMs = sw.Elapsed.TotalMilliseconds - shT0;
             if (_shellsDebugAt >= 0f && Time.realtimeSinceStartup >= _shellsDebugAt) { WriteShellsDebug("t"); _shellsDebugAt = -1f; }
         }
         double farT0 = sw.Elapsed.TotalMilliseconds;
