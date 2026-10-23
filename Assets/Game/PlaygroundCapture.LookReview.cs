@@ -29,6 +29,10 @@
 //           motion. tools/look-review-diff.py makes the difference images.
 //   GOLDEN  High only: walk_open at 17 h, fsr3 + none, its own heading and
 //           turned away from the 17 h sun.
+//   TASK 117 (capture-only): -lookrows N pins the fsr3/none arms at N rows
+//           (UpscalerSelect-clamped) instead of the preset's (High vs Medium at
+//           540 both); -lookposes a,b,.. only these poses; -lookbursts 0 skips
+//           the motion bursts and golden hour.
 // Output: <persistentDataPath>/LookReview/<ts>_<preset>/ (PNGs + lookreview.txt).
 using System;
 using System.Collections;
@@ -53,6 +57,11 @@ public partial class PlaygroundCapture
         Minimap.Visible = false;
         float wait = ArgFloat("-lookwait", 45f);
         int rows = layout != null && layout.SizingRows >= UpscalerSelect.MaxRows ? UpscalerSelect.MaxRows : UpscalerSelect.MinRows;
+        int rowsArg = ArgInt("-lookrows", 0);
+        if (rowsArg > 0) rows = Math.Max(UpscalerSelect.MinRows, Math.Min(UpscalerSelect.MaxRows, rowsArg));
+        string posesArg = ArgValue("-lookposes");
+        var onlyPoses = string.IsNullOrEmpty(posesArg) ? null : new HashSet<string>(posesArg.Split(','));
+        bool bursts = ArgInt("-lookbursts", 1) != 0;
         string fsr = $"fsr3_{rows}", none = $"none_{rows}";
         float noon = SunCycle.NoonHours;
         SunCycle.SetHours(noon);
@@ -145,6 +154,7 @@ public partial class PlaygroundCapture
 
         foreach (var (n, eye, rot, note) in poses)
         {
+            if (onlyPoses != null && !onlyPoses.Contains(n)) continue;
             L("");
             L($"== {n}: eye {eye:F1}, yaw {rot.eulerAngles.y:F0} pitch {-Mathf.DeltaAngle(0f, rot.eulerAngles.x):F0} deg; {note}");
             Phase4Bootstrapper.DebugStreamCentre = eye;
@@ -179,7 +189,7 @@ public partial class PlaygroundCapture
             yield return Frames(30);
             yield return CaptureTo($"{n}_{fsr}_tint");
             RaymarchFeature.ShellTint = false;
-            if (n == "walk_open" || n == "ridge")
+            if (bursts && (n == "walk_open" || n == "ridge"))
             {
                 Vector3 fwd = rot * Vector3.forward; fwd.y = 0f; fwd = fwd.normalized;
                 foreach (string arm in new[] { fsr, none })
@@ -192,7 +202,7 @@ public partial class PlaygroundCapture
                 }
                 L($"  {n} motion bursts: still / walk 0.05 m/frame / turn 0.2 deg/frame, 60 lead + 4 consecutive frames, {fsr} and {none}");
             }
-            if (n == "walk_open" && layout != null && layout.Preset == QualityPreset.High)
+            if (bursts && n == "walk_open" && layout != null && layout.Preset == QualityPreset.High)
             {
                 const float golden = 17f;
                 SunCycle.SetHours(golden);

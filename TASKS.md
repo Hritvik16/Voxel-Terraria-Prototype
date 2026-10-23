@@ -281,3 +281,12 @@ still cast shadows. (2) `FarRockSlope` (`-farrockslope 0` = old, the task's aske
 (`FarWallMaterial`) where `FarSlopeNormal`'s slope is above ~40 deg (`FAR_ROCK_SLOPE_NY` 0.766), the 1.5 m lip only where
 FarSlopeNormal has no answer. Tests `FarRockSlopeTests` (3: flag text, both shader blocks inside VE_FAR_SHADE). Stills:
 `./run-look-review.sh` with `EXTRA="-farrockslope 0 -farshadowlift 0"` (before) vs default (after); crops in `Screenshots/119/`.
+
+**Task 117 (perf trial, owner Q65 "Try Medium, show me"; PERF_30FPS_PLAN row 2; NO default change).** `-quality medium` vs High,
+both at 540 rows, FSR 3, shells ON. New capture-only look-review flags (`PlaygroundCapture.LookReview.cs`): `-lookrows N` pins the
+fsr3/none arms at N rows (UpscalerSelect-clamped; before, High always shot at 720), `-lookposes a,b,..` only these poses,
+`-lookbursts 0` skips the motion bursts and golden hour. Driver `Screenshots/117/117-driver.sh` (look stills, warm-up, cost-split
+launches H M M H with `-costarms shells_off -quality X`, MODE=walk 3 min x 4 ABBA with `-memledger`). Result (HANDOFF 117): walk p50
+-0.2 ms, p95 +2.1 ms, cost-split FULL -0.8 / -1.0 ms (inside the 0.3-1.6 ms noise); shell iterations per frame do not fall
+(walk_open 12.4 M High vs 12.5 M Medium); process memory -112 MB median; Medium draws a dashed dark seam over the sea at the
+3.3 km shell-to-far-band hand-off (`Screenshots/117/handoff_high_fsr3_540_3x.png`).

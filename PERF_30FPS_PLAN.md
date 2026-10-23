@@ -3,6 +3,9 @@
 Status: PLANNING ONLY, nothing is approved. The owner picks cuts (section 5). No code, no new measurement went into this
 document. Every number cites its source. A number marked **est.** was not measured as an arm. It comes from the arithmetic shown.
 
+**Measured since (task 117, 2026-10-23):** row 2 (Medium) gives ~0 ms, not the est. 2-4: walk p50 -0.2 / p95 +2.1 ms, cost-split FULL
+-0.8 / -1.0 ms (noise 0.3-1.6), shell iterations unchanged; memory -112 MB; a dashed seam at the 3.3 km hand-off. HANDOFF 117.
+
 **Target (owner, 2026-10-22; `ENGINE_PHASE_PLAN.md` E4):** warm steady state, play settings (shells ON, FSR 3), walking:
 **p50 <= 30 ms AND <= 5% of frames > 33 ms.**
 
