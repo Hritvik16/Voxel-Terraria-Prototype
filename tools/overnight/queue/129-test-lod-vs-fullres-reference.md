@@ -19,9 +19,13 @@ Distances D (camera to the terrain of interest): 200 m (the owner's case), plus 
 For 3 scenes (a ridge/cliff face, a coast with sea, a plain or forest edge), same seed/map, same camera pose, same sun and time of day
 (side-lit as in 127, so relief shows), same output resolution (1080p):
 - **REF** : the terrain patch around D (the screen footprint of the region, not the whole world) built at 0.1 m in a scratch/capture
-  store and rendered as the near tier would show it, no upscaler, no TAA. This is "what 0.1 m granularity looks like from here". Stay
-  under the 3 GB cap and leave all runtime defaults alone. If it cannot be built without a layout/frozen-API change or too much memory
-  even for a small patch, STOP_FOR_OWNER with what blocks it and the smallest alternative (e.g. a narrower patch).
+  store and rendered as the near tier would show it, no upscaler, no TAA. This is "what 0.1 m granularity looks like from here".
+  Owner 2026-10-23: the reference does NOT have to meet the 3 GB cap or any runtime budget (it is a test, run it as its own capture
+  process, never in play), and it need not be the whole view: generate only the patch in the screen footprint around D at 0.1 m (and
+  the far terrain behind it only as far as the question needs, e.g. a wedge or strip across the view centre) and let the rest of the
+  frame be the normal far terrain, or masked out in the comparison. Pick the patch size so generation fits in a few minutes and the
+  Mac's 8 GB (one Unity process, lock held); report the patch size and memory used. Leave all runtime defaults alone. Stop with
+  STOP_FOR_OWNER only if even a small patch cannot be rendered at 0.1 m without a frozen-API or memory-layout change in the product.
 - **GAME-NATIVE** : the real game render at that pose (shells, LOD tiers, far band, as shipped), rendered at the full 1080 rows, no
   upscaler, no TAA. REF vs this isolates the LOD loss.
 - **GAME-PLAYED** : the real game as the player gets it: FSR 3 dynamic from 540 rows (play default). GAME-NATIVE vs this isolates the
