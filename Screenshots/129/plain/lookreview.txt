@@ -1,0 +1,43 @@
+UPSCALER CLIPS -- 2026-10-23_133508
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 720 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 45 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 720 rows inner inf -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 720 rows inner 2.00 -> outer 1.33 (at 1080 output: outer 2.00)
+LOD REF (task 129): 15.26 h, sun elevation 40.0 deg, yaw -74 deg; distances 50,100,200,400,800,1600,3300,6600 m; arms native,hit,fsr540,fsr720,taa; shell wait 90 s, REF fill cap 120 s, 60 frames per arm; camera vFOV 60.0 deg, 1920x1080
+
+=== scene plain: P (4277.2, 549.0, 5018.8) m, heading yaw -149 deg (-75 deg from the sun), depression 15 deg; relief 0.5 m over +-40 m
+== plain_50: eye (4302.3, 561.9, 5060.1), line of sight clear
+  [shells] waited 240 s (cap 240 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1326/674/1  s4 73/901/13  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 5739, missing 2253, pending 0; requested 6164, generated 6150 (294 ms each on a worker), dropped stale 14, over-budget frames 0 (of 4904)
+  [ref] 0.1 m window round P after 29 s (cap 120 s), load deficit 0, 3633 resident chunks; box {"lo":[41728,5120,49152],"hi":[43776,6016,51200]}
+== plain_100: eye (4327.4, 574.9, 5101.3), line of sight clear
+  [shells] waited 0 s (cap 90 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 987/0/0  s5 480/0/0  s6 182/0/0  s7 16/0/0   total stored 8006, missing 0, pending 0; requested 9393, generated 9393 (289 ms each on a worker), dropped stale 14, over-budget frames 7 (of 5618)
+  [ref] 0.1 m window round P after 28 s (cap 120 s), load deficit 0, 3619 resident chunks; box {"lo":[41728,5120,49152],"hi":[43776,6016,51200]}
+== plain_200: eye (4377.5, 600.8, 5183.9), line of sight clear
+  [shells] waited 10 s (cap 90 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 987/0/0  s5 480/0/0  s6 182/0/0  s7 16/0/0   total stored 8006, missing 0, pending 0; requested 10931, generated 10931 (285 ms each on a worker), dropped stale 14, over-budget frames 13 (of 6460)
+  [ref] 0.1 m window round P after 52 s (cap 120 s), load deficit 0, 3493 resident chunks; box {"lo":[41728,5120,49152],"hi":[43776,6016,51200]}
+== plain_400: eye (4477.9, 652.5, 5349.0), line of sight clear
+  [shells] waited 0 s (cap 90 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 987/0/0  s5 480/0/0  s6 182/0/0  s7 16/0/0   total stored 8006, missing 0, pending 0; requested 13956, generated 13956 (250 ms each on a worker), dropped stale 14, over-budget frames 13 (of 7464)
+  [ref] 0.1 m window round P after 90 s (cap 120 s), load deficit 0, 3087 resident chunks; box {"lo":[41728,5120,49152],"hi":[43776,6016,51200]}
+== plain_800: eye (4678.5, 756.1, 5679.2), line of sight clear
+  [shells] waited 30 s (cap 90 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1832/0/0  s4 987/0/0  s5 480/0/0  s6 182/0/0  s7 16/0/0   total stored 7837, missing 0, pending 0; requested 18528, generated 18528 (207 ms each on a worker), dropped stale 14, over-budget frames 13 (of 8645)
+  [ref] 0.1 m window round P after 87 s (cap 120 s), load deficit 0, 3087 resident chunks; box {"lo":[41728,5120,49152],"hi":[43776,6016,51200]}
+== plain_1600: eye (5079.9, 963.1, 6339.5), line of sight clear
+  [shells] waited 34 s (cap 90 s): stored/missing/in flight:  s1 2170/0/0  s2 1832/0/0  s3 1494/0/0  s4 987/0/0  s5 411/0/0  s6 162/0/0  s7 16/0/0   total stored 7072, missing 0, pending 0; requested 23943, generated 23943 (170 ms each on a worker), dropped stale 14, over-budget frames 13 (of 9902)
+  [ref] 0.1 m window round P after 62 s (cap 120 s), load deficit 0, 3087 resident chunks; box {"lo":[41728,5120,49152],"hi":[43776,6016,51200]}
+== plain_3300: eye (5932.7, 1403.1, 7742.8), line of sight clear
+  [shells] waited 4 s (cap 90 s): stored/missing/in flight:  s1 0/0/0  s2 312/0/0  s3 650/0/0  s4 693/0/0  s5 279/0/0  s6 114/0/0  s7 19/0/0   total stored 2067, missing 0, pending 0; requested 25345, generated 25345 (166 ms each on a worker), dropped stale 14, over-budget frames 13 (of 10996)
+  [ref] 0.1 m window round P after 18 s (cap 120 s), load deficit 0, 3087 resident chunks; box {"lo":[41728,5120,49152],"hi":[43776,6016,51200]}
+== plain_6600: eye (7588.1, 2257.2, 10466.7), line of sight clear
+  [shells] waited 0 s (cap 90 s): stored/missing/in flight:  s1 0/0/0  s2 0/0/0  s3 0/0/0  s4 0/0/0  s5 24/0/0  s6 56/0/0  s7 20/0/0   total stored 100, missing 0, pending 0; requested 25366, generated 25366 (167 ms each on a worker), dropped stale 14, over-budget frames 13 (of 12044)
+  [ref] 0.1 m window round P after 17 s (cap 120 s), load deficit 0, 3087 resident chunks; box {"lo":[41728,5120,49152],"hi":[43776,6016,51200]}
+LOD REF done
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-23_133508_high

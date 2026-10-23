@@ -129,6 +129,12 @@ public class Phase4Bootstrapper : MonoBehaviour
     /// camera path that fits inside the window streams nothing. Off by default.
     internal static Vector3? DebugStreamCentre;
 
+    /// CAPTURE SEAM (task 129, -lodref), not a configuration: while set, ONLY the
+    /// 0.1 m window (StreamManager: CPU store + GPU mirror) centres here; the shells
+    /// and the far band keep following the camera. Builds the 0.1 m reference patch
+    /// round a distant point. Off by default.
+    internal static Vector3? RefTier0Centre;
+
     /// Spawn point for this world's size class, in METRES, derived from the same
     /// island geometry generation uses -- so it cannot drift out of sync with
     /// the world the way a hardcoded literal did.
@@ -561,7 +567,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         // world.state is only written when the run saves terrain (WorldState header).
         Streamer.AdvanceClock(Time.deltaTime);
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        Streamer.Update(camPos);
+        Streamer.Update(RefTier0Centre ?? camPos);
         double streamMs = sw.Elapsed.TotalMilliseconds;
         Coalescer.Update();
         FrameGapProbe.LastStreamerMs = streamMs;

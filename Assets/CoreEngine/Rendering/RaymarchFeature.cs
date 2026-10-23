@@ -37,6 +37,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         // Task 93b3 (diagnostic, CSMainFarShade only): where the far march starts, shell march heat.
         FarStart = 12,
         ShellHeat = 13,
+        // Task 129 (diagnostic, CSMainFarShade only): hit tier + distance codes for -lodref.
+        HitInfo = 14,
     }
 
     public enum GateResMode { UseInspector, Native, Forced960x540, ForcedCustom }

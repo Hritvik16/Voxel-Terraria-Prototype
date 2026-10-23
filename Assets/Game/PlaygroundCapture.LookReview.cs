@@ -182,6 +182,13 @@ public partial class PlaygroundCapture
             }
         }
 
+        if (ArgInt("-lodref", 0) != 0)   // task 129: 0.1 m reference vs the game at distance (PlaygroundCapture.LodRef.cs)
+        {
+            yield return LodRef(far, cam, sm, sh);
+            L($"LOOK REVIEW done: {root}");
+            File.WriteAllText(Path.Combine(root, "lookreview.txt"), _log.ToString());
+            yield break;
+        }
         if (ArgInt("-lookcross", 0) != 0)   // task 127: its own poses, light and arm (PlaygroundCapture.LookCross.cs)
         {
             yield return LookCross(far, cam, sm, sh, fsr, wait, onlyPoses, biomeLook);

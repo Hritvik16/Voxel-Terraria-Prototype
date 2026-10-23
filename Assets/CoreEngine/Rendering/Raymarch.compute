@@ -4683,6 +4683,23 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         if (inBounds) ResultTexture[id.xy] = c13;
         return;
     }
+    // TASK 129 (DIAGNOSTIC, capture only, -lodref): 14 = HIT INFO, what drew the pixel
+    // and how far, as 6-bit codes (byte = 4 * code + 2). R: 0 none, 1 tier 0, 1 + k
+    // shell k, 10/11 cascade tier 1/2, 12 far band. G/B: q = round(300 * log2(1 + m)),
+    // m = hit distance in metres, high/low 6 bits. Rows 0-3 are a grey calibration ramp
+    // (16 px per code) for tools/lodref129.py.
+    if (_DebugMode == 14)
+    {
+        int code = 0;
+        float tHitV = -1.0;
+        if (hit) { code = shellAtHit > 0 ? 1 + shellAtHit : (tierAtHit == 0 ? 1 : 9 + tierAtHit); tHitV = currentDist; }
+        else if (farHit) { code = 12; tHitV = fh.t; }
+        int q = tHitV >= 0.0 ? min(4095, (int)round(300.0 * log2(1.0 + tHitV * 0.1))) : 0;
+        float4 c14 = float4(float(code * 4 + 2), float((q >> 6) * 4 + 2), float((q & 63) * 4 + 2), 255.0) / 255.0;
+        if (id.y < 4u) { float r = float(min(id.x >> 4, 63u) * 4u + 2u) / 255.0; c14 = float4(r, r, r, 1.0); }
+        if (inBounds) ResultTexture[id.xy] = c14;
+        return;
+    }
 #endif
     if (_DebugMode == 11)
     {

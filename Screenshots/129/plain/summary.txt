@@ -1,0 +1,96 @@
+plain_50: mask 1321135 px (excluded: wall 0, occluded 0, box edge 5421), REF median distance 33 m; GAME drew it with tier0 0.1m 96%, shell1 0.2m 3%; voxel px at 1080: tier0 0.1m 2.82 px vs 0.1 m 2.82 px; silhouette shift 0.01 px
+    game_native  vs REF native: |dLuma|   0.3  |dRGB|   0.3  >16:   0.3%  detail kept   100%
+    game_fsr540  vs REF native: |dLuma|   2.8  |dRGB|   2.8  >16:   0.6%  detail kept    59%
+    game_fsr720  vs REF native: |dLuma|   2.5  |dRGB|   2.6  >16:   0.5%  detail kept    75%
+    game_taa     vs REF native: |dLuma|   1.8  |dRGB|   1.9  >16:   0.4%  detail kept    72%
+    ref_fsr540   vs REF native: |dLuma|   2.7  |dRGB|   2.7  >16:   0.5%  detail kept    56%
+    ref_fsr720   vs REF native: |dLuma|   2.5  |dRGB|   2.5  >16:   0.4%  detail kept    74%
+    ref_taa      vs REF native: |dLuma|   1.7  |dRGB|   1.8  >16:   0.2%  detail kept    71%
+    game_native  vs REF taa   : |dLuma|   1.8  |dRGB|   1.9  >16:   0.4%  detail kept   141%
+    game_fsr540  vs REF taa   : |dLuma|   1.8  |dRGB|   1.8  >16:   0.4%  detail kept    84%
+    game_fsr720  vs REF taa   : |dLuma|   1.7  |dRGB|   1.7  >16:   0.4%  detail kept   106%
+    game_taa     vs REF taa   : |dLuma|   0.5  |dRGB|   0.5  >16:   0.3%  detail kept   102%
+plain_100: mask 1227171 px (excluded: wall 0, occluded 0, box edge 5133), REF median distance 70 m; GAME drew it with tier0 0.1m 85%, shell2 0.4m 9%, shell1 0.2m 6%; voxel px at 1080: tier0 0.1m 1.34 px vs 0.1 m 1.34 px; silhouette shift 0.02 px
+    game_native  vs REF native: |dLuma|   1.6  |dRGB|   1.5  >16:   3.0%  detail kept    99%
+    game_fsr540  vs REF native: |dLuma|   7.7  |dRGB|   6.7  >16:  14.0%  detail kept    45%
+    game_fsr720  vs REF native: |dLuma|   7.0  |dRGB|   6.1  >16:  11.1%  detail kept    66%
+    game_taa     vs REF native: |dLuma|   5.8  |dRGB|   5.1  >16:   9.4%  detail kept    68%
+    ref_fsr540   vs REF native: |dLuma|   7.2  |dRGB|   6.3  >16:  12.5%  detail kept    44%
+    ref_fsr720   vs REF native: |dLuma|   6.4  |dRGB|   5.6  >16:   9.3%  detail kept    66%
+    ref_taa      vs REF native: |dLuma|   5.2  |dRGB|   4.5  >16:   7.1%  detail kept    68%
+    game_native  vs REF taa   : |dLuma|   5.7  |dRGB|   5.0  >16:   8.7%  detail kept   146%
+    game_fsr540  vs REF taa   : |dLuma|   4.7  |dRGB|   4.1  >16:   4.6%  detail kept    66%
+    game_fsr720  vs REF taa   : |dLuma|   4.1  |dRGB|   3.7  >16:   3.3%  detail kept    97%
+    game_taa     vs REF taa   : |dLuma|   1.9  |dRGB|   1.7  >16:   2.3%  detail kept   101%
+plain_200: mask 405178 px (excluded: wall 223228, occluded 445, box edge 38529), REF median distance 155 m; GAME drew it with shell2 0.4m 70%, tier0 0.1m 23%, shell1 0.2m 5%, shell3 0.8m 2%; voxel px at 1080: shell2 0.4m 2.41 px vs 0.1 m 0.60 px; silhouette shift 0.21 px
+    game_native  vs REF native: |dLuma|  13.1  |dRGB|  11.6  >16:  30.1%  detail kept    67%
+    game_fsr540  vs REF native: |dLuma|  14.1  |dRGB|  12.4  >16:  32.4%  detail kept    29%
+    game_fsr720  vs REF native: |dLuma|  14.1  |dRGB|  12.5  >16:  32.1%  detail kept    42%
+    game_taa     vs REF native: |dLuma|  13.8  |dRGB|  12.1  >16:  31.4%  detail kept    40%
+    ref_fsr540   vs REF native: |dLuma|  10.0  |dRGB|   8.7  >16:  21.7%  detail kept    26%
+    ref_fsr720   vs REF native: |dLuma|   9.5  |dRGB|   8.3  >16:  19.9%  detail kept    40%
+    ref_taa      vs REF native: |dLuma|   8.5  |dRGB|   7.5  >16:  16.8%  detail kept    38%
+    game_native  vs REF taa   : |dLuma|  11.8  |dRGB|  10.6  >16:  27.0%  detail kept   175%
+    game_fsr540  vs REF taa   : |dLuma|   9.9  |dRGB|   8.8  >16:  22.0%  detail kept    77%
+    game_fsr720  vs REF taa   : |dLuma|  10.2  |dRGB|   9.1  >16:  22.8%  detail kept   109%
+    game_taa     vs REF taa   : |dLuma|   9.5  |dRGB|   8.5  >16:  22.2%  detail kept   106%
+plain_400: mask 64476 px (excluded: wall 62663, occluded 510, box edge 4877), REF median distance 374 m; GAME drew it with shell3 0.8m 100%; voxel px at 1080: shell3 0.8m 2.00 px vs 0.1 m 0.25 px; silhouette shift 0.42 px
+    game_native  vs REF native: |dLuma|  14.1  |dRGB|  12.8  >16:  31.7%  detail kept    75%
+    game_fsr540  vs REF native: |dLuma|  13.1  |dRGB|  11.9  >16:  30.6%  detail kept    39%
+    game_fsr720  vs REF native: |dLuma|  13.3  |dRGB|  12.1  >16:  30.6%  detail kept    52%
+    game_taa     vs REF native: |dLuma|  13.1  |dRGB|  11.8  >16:  30.3%  detail kept    51%
+    ref_fsr540   vs REF native: |dLuma|  10.3  |dRGB|   9.2  >16:  23.3%  detail kept    32%
+    ref_fsr720   vs REF native: |dLuma|  10.1  |dRGB|   9.0  >16:  22.3%  detail kept    41%
+    ref_taa      vs REF native: |dLuma|   9.8  |dRGB|   8.6  >16:  22.2%  detail kept    40%
+    game_native  vs REF taa   : |dLuma|  10.9  |dRGB|  10.0  >16:  24.3%  detail kept   185%
+    game_fsr540  vs REF taa   : |dLuma|   9.1  |dRGB|   8.4  >16:  19.7%  detail kept    97%
+    game_fsr720  vs REF taa   : |dLuma|   9.6  |dRGB|   8.8  >16:  21.1%  detail kept   129%
+    game_taa     vs REF taa   : |dLuma|   9.1  |dRGB|   8.4  >16:  20.4%  detail kept   127%
+plain_800: mask 14620 px (excluded: wall 11507, occluded 2879, box edge 1225), REF median distance 782 m; GAME drew it with shell4 1.6m 100%; voxel px at 1080: shell4 1.6m 1.91 px vs 0.1 m 0.12 px; silhouette shift 0.37 px
+    game_native  vs REF native: |dLuma|  11.7  |dRGB|  10.7  >16:  26.2%  detail kept    85%
+    game_fsr540  vs REF native: |dLuma|  11.0  |dRGB|  10.1  >16:  25.8%  detail kept    48%
+    game_fsr720  vs REF native: |dLuma|  11.1  |dRGB|  10.1  >16:  25.5%  detail kept    62%
+    game_taa     vs REF native: |dLuma|  10.7  |dRGB|   9.8  >16:  25.1%  detail kept    60%
+    ref_fsr540   vs REF native: |dLuma|   9.1  |dRGB|   8.3  >16:  19.5%  detail kept    43%
+    ref_fsr720   vs REF native: |dLuma|   8.7  |dRGB|   7.9  >16:  18.5%  detail kept    55%
+    ref_taa      vs REF native: |dLuma|   8.4  |dRGB|   7.5  >16:  17.8%  detail kept    56%
+    game_native  vs REF taa   : |dLuma|   9.2  |dRGB|   8.5  >16:  19.3%  detail kept   153%
+    game_fsr540  vs REF taa   : |dLuma|   7.5  |dRGB|   6.9  >16:  15.3%  detail kept    86%
+    game_fsr720  vs REF taa   : |dLuma|   7.8  |dRGB|   7.2  >16:  16.1%  detail kept   110%
+    game_taa     vs REF taa   : |dLuma|   7.3  |dRGB|   6.8  >16:  15.3%  detail kept   108%
+plain_1600: mask 3565 px (excluded: wall 2258, occluded 1098, box edge 427), REF median distance 1587 m; GAME drew it with shell5 3.2m 100%; voxel px at 1080: shell5 3.2m 1.89 px vs 0.1 m 0.06 px; silhouette shift 0.31 px
+    game_native  vs REF native: |dLuma|  12.5  |dRGB|  11.8  >16:  23.8%  detail kept    51%
+    game_fsr540  vs REF native: |dLuma|  12.2  |dRGB|  11.4  >16:  24.7%  detail kept    26%
+    game_fsr720  vs REF native: |dLuma|  12.0  |dRGB|  11.4  >16:  23.9%  detail kept    36%
+    game_taa     vs REF native: |dLuma|  11.6  |dRGB|  11.0  >16:  23.4%  detail kept    33%
+    ref_fsr540   vs REF native: |dLuma|   8.1  |dRGB|   7.6  >16:  15.0%  detail kept    45%
+    ref_fsr720   vs REF native: |dLuma|   7.6  |dRGB|   7.2  >16:  14.2%  detail kept    60%
+    ref_taa      vs REF native: |dLuma|   7.2  |dRGB|   6.6  >16:  13.3%  detail kept    62%
+    game_native  vs REF taa   : |dLuma|  10.5  |dRGB|  10.1  >16:  19.5%  detail kept    83%
+    game_fsr540  vs REF taa   : |dLuma|   9.6  |dRGB|   9.0  >16:  17.6%  detail kept    43%
+    game_fsr720  vs REF taa   : |dLuma|   9.6  |dRGB|   9.2  >16:  17.9%  detail kept    58%
+    game_taa     vs REF taa   : |dLuma|   9.2  |dRGB|   8.7  >16:  16.7%  detail kept    54%
+plain_3300: mask 831 px (excluded: wall 472, occluded 246, box edge 160), REF median distance 3295 m; GAME drew it with far band 100%; voxel px at 1080: far band nan px vs 0.1 m 0.03 px; silhouette shift 0.10 px
+    game_native  vs REF native: |dLuma|   7.1  |dRGB|   6.5  >16:  11.2%  detail kept    80%
+    game_fsr540  vs REF native: |dLuma|   8.1  |dRGB|   7.8  >16:  14.1%  detail kept    41%
+    game_fsr720  vs REF native: |dLuma|   7.4  |dRGB|   6.9  >16:  12.4%  detail kept    55%
+    game_taa     vs REF native: |dLuma|   6.9  |dRGB|   6.4  >16:  11.2%  detail kept    54%
+    ref_fsr540   vs REF native: |dLuma|   6.5  |dRGB|   6.2  >16:   8.2%  detail kept    48%
+    ref_fsr720   vs REF native: |dLuma|   6.4  |dRGB|   6.1  >16:   9.4%  detail kept    67%
+    ref_taa      vs REF native: |dLuma|   5.7  |dRGB|   5.3  >16:   7.3%  detail kept    60%
+    game_native  vs REF taa   : |dLuma|   6.1  |dRGB|   5.7  >16:   9.1%  detail kept   132%
+    game_fsr540  vs REF taa   : |dLuma|   5.8  |dRGB|   5.7  >16:   8.4%  detail kept    69%
+    game_fsr720  vs REF taa   : |dLuma|   5.0  |dRGB|   4.7  >16:   5.5%  detail kept    91%
+    game_taa     vs REF taa   : |dLuma|   4.5  |dRGB|   4.2  >16:   5.3%  detail kept    89%
+plain_6600: mask 223 px (excluded: wall 110, occluded 32, box edge 61), REF median distance 6592 m; GAME drew it with far band 100%; voxel px at 1080: far band nan px vs 0.1 m 0.01 px; silhouette shift 0.21 px
+    game_native  vs REF native: |dLuma|   0.0  |dRGB|   0.0  >16:   0.0%  detail kept   120%
+    game_fsr540  vs REF native: |dLuma|   0.5  |dRGB|   0.9  >16:   0.0%  detail kept   650%
+    game_fsr720  vs REF native: |dLuma|   0.4  |dRGB|   0.8  >16:   0.0%  detail kept   701%
+    game_taa     vs REF native: |dLuma|   0.1  |dRGB|   0.2  >16:   0.0%  detail kept   141%
+    ref_fsr540   vs REF native: |dLuma|   0.4  |dRGB|   0.8  >16:   0.0%  detail kept   718%
+    ref_fsr720   vs REF native: |dLuma|   0.5  |dRGB|   0.8  >16:   0.0%  detail kept   872%
+    ref_taa      vs REF native: |dLuma|   0.1  |dRGB|   0.2  >16:   0.0%  detail kept   216%
+    game_native  vs REF taa   : |dLuma|   0.1  |dRGB|   0.2  >16:   0.0%  detail kept    56%
+    game_fsr540  vs REF taa   : |dLuma|   0.4  |dRGB|   0.7  >16:   0.0%  detail kept   301%
+    game_fsr720  vs REF taa   : |dLuma|   0.4  |dRGB|   0.7  >16:   0.0%  detail kept   324%
+    game_taa     vs REF taa   : |dLuma|   0.1  |dRGB|   0.2  >16:   0.0%  detail kept    65%

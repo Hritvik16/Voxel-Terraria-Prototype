@@ -417,3 +417,17 @@ Medium draws a dashed dark line + a flatter blue on the sea past 3.3 km, loses t
 shores 1-3 km out; the same near the camera and from 800 m+ up (the ring is in haze). Stills: `Screenshots/127/sheets/`.
 
 **Task 128 (plan only, owner Q80 (a); no code, no launch): `PERF_SHELL_MARCH_PLAN.md`** -- why the shell march costs +16-18 ms when cutting its iterations does not help: in-pose ms track distinct DIRECTORY reads (chunk visits; 99 cut them 26-38 % -> -4.7/-2.6 ms, 93b5/116/117 left them unchanged -> ~0), walk_near costs as much as walk_open with 10x less work (latency exposed: occupancy, H1), pacing ruled out (flat 16.7 ms phase histogram of 115's CSVs); proposes one capture-only probe build (E1 split-kernel probe, E2 cold/warm double march, E3 per-SIMD divergence counters) and restructures R1-R6; owner Q81.
+
+**Task 129 (capture-only, owner 2026-10-23 "build that terrain at 0.1 and look at it from 200 m"; NO default change).** `-lookreview -lodref 1`
+(`PlaygroundCapture.LodRef.cs`, driver `Screenshots/129/129-driver.sh [ridge coast plain]`, one launch per scene, ~30 min each) puts a target
+point P per scene (generator-based: steepest cross-lit face, a shore with sea behind the camera, the flattest dry land) at D = `-lodrefd`
+(50,100,200,400,800,1600,3300,6600 m), depression angle raised until P is visible from every D, task 127's light (sun 40 deg, h 75 deg off it).
+Per pose: GAME (as shipped) then REF: `Phase4Bootstrapper.RefTier0Centre` centres ONLY the 0.1 m window (store + GPU mirror; shells and far
+band stay on the camera) on P, and `RaymarchFeature.MaxRayDistance` = `-lodrefmaxray` 4096 so tier 0 marches its 204.8 x 204.8 x 89.6 m
+box from the entry face (the camera-outside-window path already existed). Arms (`-lodrefarms`): native 1080, `hit` = NEW debug view 14
+`HitInfo` (CSMainFarShade only: what drew the pixel + log distance as 6-bit codes, a grey ramp in rows 0-3), fsr540/fsr720 (FSR 3 fixed),
+taa (our TAA at native). `tools/lodref129.py <dir>` masks REF to tier-0 pixels minus box-cut walls, occluders and hits within 4 m of the box
+floor/sides, and writes per-pose sheets (REF | NATIVE | PLAYED, x4 diffs, tier map, 2x worst window), `<scene>_contact.png`, summary.txt/csv;
+REF TAA is the anti-aliased reference. The 50 m pose is the self-check (GAME = tier 0 there: |d luma| 0.3-0.8). Result table:
+`Screenshots/129/lodref129_table.txt`; verdict in HANDOFF 129. Found: tier-0 sun-shadow rays never continue into the shells (lit at the window edge
+and the 7-layer band's ceiling) -- owner flag, not changed.
