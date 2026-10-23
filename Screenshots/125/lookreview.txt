@@ -1,0 +1,42 @@
+UPSCALER CLIPS -- 2026-10-23_075225
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 720 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 45 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 720 rows inner inf -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 720 rows inner 2.00 -> outer 1.33 (at 1080 output: outer 2.00)
+
+== high: eye (3857.2, 1117.5, 3658.8), yaw 90 pitch -4 deg; highest column within 800 m + 20 m, free distance 3000 m
+  [shells] waited 45 s (cap 45 s): stored/missing/in flight:  s1 1494/0/0  s2 1325/0/0  s3 752/565/8  s4 0/996/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 3571, missing 2248, pending 0; requested 4137, generated 4129 (49 ms each on a worker), dropped stale 10, over-budget frames 0 (of 1281)
+  [px] high       hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 89640/20025/1.18  s1 62425/18191/1.40  s2 25073/25073/1.81  s3 62/56/1.64  s4 -  s5 -  s6 -  s7 -
+  high       fsr3_720  dispatch 1280x720
+  high       none_720  dispatch 1280x720
+  high       native    dispatch 1920x1080
+  edge (task 125) px: 12.00 h, heading (1.00, 0.00); a flat sea 606 m below ends at the world's edge 4143 m (row 611 of 1080) / the far band's square 5632 m (row 575)
+  edge (task 125) nx: 12.00 h, heading (-1.00, 0.00); a flat sea 606 m below ends at the world's edge 3857 m (row 621 of 1080) / the far band's square 5632 m (row 575)
+  edge (task 125) pz: 12.00 h, heading (0.00, 1.00); a flat sea 606 m below ends at the world's edge 4341 m (row 604 of 1080) / the far band's square 5632 m (row 575)
+  edge (task 125) diag: 12.00 h, heading (0.71, 0.71); a flat sea 606 m below ends at the world's edge 5859 m (row 571 of 1080) / the far band's square 7965 m (row 546)
+  edge (task 125) golden_away: 17.00 h, heading (0.98, -0.22); a flat sea 606 m below ends at the world's edge 4249 m (row 607 of 1080) / the far band's square 5776 m (row 572)
+  edge (task 125) golden_toward: 17.00 h, heading (-0.98, 0.22); a flat sea 606 m below ends at the world's edge 3956 m (row 617 of 1080) / the far band's square 5776 m (row 572)
+
+== edge_x: eye (6000.0, 1117.5, 3658.8), yaw 90 pitch -4 deg; the high pose's height, 2 km from the world's +x edge (8000 m)
+  [shells] waited 45 s (cap 45 s): stored/missing/in flight:  s1 1494/0/0  s2 1325/0/0  s3 1247/73/5  s4 465/528/3  s5 225/225/0  s6 52/110/0  s7 0/16/0   total stored 4808, missing 952, pending 0; requested 10535, generated 10527 (59 ms each on a worker), dropped stale 13, over-budget frames 0 (of 3840)
+  [px] edge_x     hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 -  s1 -  s2 -  s3 -  s4 1574/0/0.92  s5 -  s6 -  s7 -
+  edge_x     fsr3_720  dispatch 1280x720
+  edge_x     none_720  dispatch 1280x720
+  edge_x     native    dispatch 1920x1080
+  edge (task 125) px: 12.00 h, heading (1.00, 0.00); a flat sea 606 m below ends at the world's edge 2000 m (row 753 of 1080) / the far band's square 5632 m (row 575)
+  edge (task 125) nx: 12.00 h, heading (-1.00, 0.00); a flat sea 606 m below ends at the world's edge 6000 m (row 569 of 1080) / the far band's square 5632 m (row 575)
+  edge (task 125) pz: 12.00 h, heading (0.00, 1.00); a flat sea 606 m below ends at the world's edge 4341 m (row 604 of 1080) / the far band's square 5632 m (row 575)
+  edge (task 125) diag: 12.00 h, heading (0.71, 0.71); a flat sea 606 m below ends at the world's edge 2828 m (row 673 of 1080) / the far band's square 7965 m (row 546)
+  edge (task 125) golden_away: 17.00 h, heading (0.98, -0.22); a flat sea 606 m below ends at the world's edge 2051 m (row 746 of 1080) / the far band's square 5776 m (row 572)
+  edge (task 125) golden_toward: 17.00 h, heading (-0.98, 0.22); a flat sea 606 m below ends at the world's edge 6154 m (row 566 of 1080) / the far band's square 5776 m (row 572)
+
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-23_075225_high

@@ -62,6 +62,13 @@
 //           deg, so the border runs into the frame. Every pose also gets
 //           <pose>_<fsr3>_notint (the per-biome tint off, same frame state). The
 //           generator's border blend is per launch: compare with -biomeblend 0.
+//   TASK 125 (capture-only): -lookedge 1 adds pose edge_x (the high pose's height,
+//           2 km from the world's +x edge, looking +x) and, at every pose, fsr3 at
+//           noon looking +x / -x / +z / +x+z (pitch as the pose) and golden hour
+//           17 h away from / toward the sun: <pose>_edge_<tag>, and _old with the
+//           edge fade off (EdgeFade false = task 121's fade inside the haze), same
+//           frame state. Each logs the rows (1080 output, centre column) where a flat
+//           sea would end at the WORLD's edge and at the far band's square.
 // Output: <persistentDataPath>/LookReview/<ts>_<preset>/ (PNGs + lookreview.txt).
 using System;
 using System.Collections;
@@ -148,6 +155,7 @@ public partial class PlaygroundCapture
         int reuseN = ArgInt("-lookreuse", 0);        // task 124
         bool skyAB = ArgInt("-looksky", 0) != 0;      // task 121
         bool biomeLook = ArgInt("-lookbiome", 0) != 0;   // task 122
+        bool edgeAB = ArgInt("-lookedge", 0) != 0;       // task 125
         string fsr = $"fsr3_{rows}", none = $"none_{rows}";
         float noon = SunCycle.NoonHours;
         SunCycle.SetHours(noon);
@@ -236,6 +244,12 @@ public partial class PlaygroundCapture
                 if (fd > bestF) { bestF = fd; bestH = h; }
             }
             poses.Add(("high", hi, Look(bestH, -4f), $"highest column within 800 m + 20 m, free distance {bestF:F0} m"));
+            var spec = Phase4Bootstrapper.Streamer != null ? Phase4Bootstrapper.Streamer.TerrainGenSource : null;
+            if (edgeAB && spec != null)
+            {
+                float wM = spec.Spec.worldSizeVoxels * 0.1f;
+                poses.Add(("edge_x", new Vector3(wM - 2000f, hi.y, hi.z), Look(new float2(1f, 0f), -4f), $"the high pose's height, 2 km from the world's +x edge ({wM:F0} m)"));
+            }
         }
         if (biomeLook) LookBorderPoses(centre, shz, poses, Look);
 
@@ -293,6 +307,7 @@ public partial class PlaygroundCapture
                 cam.transform.rotation = rot;
             }
             if (skyAB) yield return LookSkyAB(n, cam, eye, rot, fsr, noon);
+            if (edgeAB) yield return LookEdgeAB(n, cam, eye, rot, fsr, noon);
             if (biomeLook)
             {
                 ApplyCompareArm(fsr);
@@ -493,6 +508,48 @@ public partial class PlaygroundCapture
             }
             RaymarchFeature.SkyLook = sky; RaymarchFeature.SkyHaze = haze;
             L($"  sky (task 121) {tag}: {h:F2} h, sun elevation {SunCycle.ElevationDegreesAt(h):F1} deg, rim {SunCycle.LookSkyRimAt(h)}");
+        }
+        SunCycle.SetHours(noon);
+        cam.transform.rotation = rot;
+    }
+
+    /// Task 125: the sea/sky line. Noon at four headings + golden hour away / toward, edge fade on vs off.
+    private IEnumerator LookEdgeAB(string n, Camera cam, Vector3 eye, Quaternion rot, string fsr, float noon)
+    {
+        bool edgeFade = RaymarchFeature.EdgeFade;
+        float pitch = -Mathf.DeltaAngle(0f, rot.eulerAngles.x);
+        var src = Phase4Bootstrapper.Streamer != null ? Phase4Bootstrapper.Streamer.TerrainGenSource : null;
+        float wM = src != null ? src.Spec.worldSizeVoxels * 0.1f : 0f, seaM = src != null ? src.Spec.seaLevelY * 0.1f : 0f;
+        const float bandM = 440f * 128f * 0.1f;   // Raymarch.compute FAR_USE_RADIUS * (8 << (FAR_LEVELS - 1)) voxels
+        const float golden = 17f;
+        float3 gs = SunCycle.DirectionAt(golden);
+        float2 toSun = math.normalizesafe(new float2(gs.x, gs.z));
+        ApplyCompareArm(fsr);
+        cam.ResetProjectionMatrix();
+        var arms = new (string tag, float h, float2 head)[] {
+            ("px", noon, new float2(1f, 0f)), ("nx", noon, new float2(-1f, 0f)), ("pz", noon, new float2(0f, 1f)),
+            ("diag", noon, math.normalize(new float2(1f, 1f))), ("golden_away", golden, -toSun), ("golden_toward", golden, toSun) };
+        foreach (var (tag, h, head) in arms)
+        {
+            SunCycle.SetHours(h);
+            cam.transform.position = eye;
+            cam.transform.rotation = Quaternion.Euler(-pitch, math.degrees(math.atan2(head.x, head.y)), 0f);
+            foreach (bool old in new[] { false, true })
+            {
+                RaymarchFeature.EdgeFade = edgeFade && !old;
+                yield return Frames(60);
+                yield return CaptureTo($"{n}_edge_{tag}" + (old ? "_old" : ""));
+            }
+            RaymarchFeature.EdgeFade = edgeFade;
+            // Where a flat sea would end along this heading: the world's rectangle [0, wM]^2 vs the far band's square.
+            float dWorld = float.MaxValue;
+            if (head.x > 1e-4f) dWorld = math.min(dWorld, (wM - eye.x) / head.x); else if (head.x < -1e-4f) dWorld = math.min(dWorld, eye.x / -head.x);
+            if (head.y > 1e-4f) dWorld = math.min(dWorld, (wM - eye.z) / head.y); else if (head.y < -1e-4f) dWorld = math.min(dWorld, eye.z / -head.y);
+            float dBand = bandM / math.max(math.abs(head.x), math.abs(head.y));
+            float f = 540f / math.tan(math.radians(cam.fieldOfView * 0.5f));
+            string Row(float d) => d <= 0f || d == float.MaxValue ? "-" : $"{540f + f * math.tan(math.atan((eye.y - seaM) / d) - math.radians(-pitch)):F0}";
+            L($"  edge (task 125) {tag}: {h:F2} h, heading ({head.x:F2}, {head.y:F2}); a flat sea {eye.y - seaM:F0} m below ends at the world's edge " +
+              $"{dWorld:F0} m (row {Row(dWorld)} of 1080) / the far band's square {dBand:F0} m (row {Row(dBand)})");
         }
         SunCycle.SetHours(noon);
         cam.transform.rotation = rot;

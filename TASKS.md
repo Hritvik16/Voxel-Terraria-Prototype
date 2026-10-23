@@ -374,3 +374,19 @@ saved +0.2 / +0.3 ms walk_near, -0.3 / +0.2 walk_open (noise 0.1-1.3); golden 14
 leaves 0.12% of px lagging at 8 (0 at 4) as a staircase of 8x8-px tiles on a moving shadow edge; after an edit, 8 lags frames 1-5
 (<= 1,007 px), 4 only frame 1. `tools/reuse-diff.py <dir>` diffs `*_reuse<N>*` vs `_reuse1`. Cost-split arm `reuseN`; the `[sun]` line
 shows the period. Tests: `ShadowReuseTests` (flag bound, shader turn = mirror, every tile once per period). Driver `Screenshots/124/124-driver.sh`.
+
+**Task 125 -- the hard sea/sky line (VISUAL_REVIEW_114, task 121's open item; LOOK, no timing). It is the FAR BAND's square, not the
+world's edge; fixed, ON by default.** Verified with `-lookedge 1` (look review): at the high pose (606 m over the sea, pitch -4) the line
+sat at row 575 of 1080 looking +x, -x and +z, where a flat sea ends at the band's square (FAR_USE_RADIUS * (8 << 4) voxels = 5,632 m
+Chebyshev), not at rows 604-621 where the world's edge is (3.9-4.3 km); along the diagonal it moves to row 546 (square: 546, world
+edge: 571) and draws the square's CORNER; from `edge_x` (2 km from the world's +x edge) it is still at row 575, nothing at row 753.
+Past the world's edge the far band keeps drawing sea. Cause of the line surviving task 121's fade-to-full: the far (and voxel) water's
+see-through blend (`SeeCompose` with `SeeReflection`, the sky reflected ~6 deg UP: bluer, darker) and the grade's saturation come AFTER
+the haze. Fix (`RaymarchFeature.EdgeFade`, `-edgefade 0` = task 121's fade inside the haze; needs `-skyhaze`; `_SkyLook` bit 2): the
+same fade (`DrawnEdgeAmount`, last 45% of the square) moves out of `FarShadeApplyHaze` to the pixel's LAST step (`DrawnEdgeFade`,
+far-shade kernel, after both see-through blends, not inside a fluid), toward exactly what a miss shows there (`LookShoulder(LookAtmosphere)`,
+no disc), blended in the look's gamma space. Step across the line (green levels, 3 rows, edge columns): 19 -> <= 3 at noon, 11 -> 2
+golden away, 7 -> 1.5 toward the sun (`Screenshots/125/line_step.txt`). Capture: `-lookedge 1` adds pose `edge_x` and
+`<pose>_edge_{px,nx,pz,diag,golden_away,golden_toward}` + `_old`, logging the rows where a flat sea would end at the world's edge and at
+the square. Tests: `DrawnEdgeFadeTests` (flag bound, off path = task 121, the fade after every see-through blend, the capture's square
+= the shader's).

@@ -3450,6 +3450,31 @@ float FarShadeHaze(float distVoxels, float y0, float y1)
     return saturate(1.0 - exp(-distVoxels * avg / _FarShadeParams.y));
 }
 
+// Task 121 / 125: how far into the far band's last 45% the hit lies (0 inside, 1 on
+// its square's edge, Chebyshev from the eye: its last level's use radius, ~5.6 km).
+float DrawnEdgeAmount(float3 rayDir, float distVoxels)
+{
+    float2 off = abs(rayDir.xz * distVoxels);
+    float edge = (float)(FAR_USE_RADIUS * (8 << (FAR_LEVELS - 1)));
+    return smoothstep(0.55 * edge, edge, max(off.x, off.y));
+}
+
+// TASK 125 (VISUAL_REVIEW_114, the hard sea/sky line): the line is the far band's
+// square, NOT the world's edge (task 125's stills: it moves with the heading as the
+// square does). Task 121's fade sits inside the haze, but the far water's sky
+// reflection (SeeCompose / SeeReflection: the sky 6 deg UP, bluer and darker) and
+// the grade's saturation come after it, so the sea at the edge stayed off the sky
+// colour (128 -> 112 levels). With _SkyLook bits 1 + 2 the same fade is applied
+// here instead, to the finished pixel (linear), toward exactly what a miss shows
+// there (the sky without its disc), blended in the look's gamma space as the haze is.
+float3 DrawnEdgeFade(float3 colorLinear, float3 rayDir, float distVoxels)
+{
+    float f = DrawnEdgeAmount(rayDir, distVoxels);
+    if (f <= 0.0) return colorLinear;
+    float3 c = pow(saturate(colorLinear), 1.0 / 2.2);   // LookToLinear's inverse
+    return LookToLinear(lerp(c, LookShoulder(LookAtmosphere(rayDir), _LookGrade.z), f));
+}
+
 // Haze with the light kept out of most of it (part 3).
 float3 FarShadeApplyHaze(float3 lit, float3 lightAdd, float3 rayDir, float distVoxels, float y0, float y1)
 {
@@ -3459,9 +3484,8 @@ float3 FarShadeApplyHaze(float3 lit, float3 lightAdd, float3 rayDir, float distV
     {
         // Task 121: the far band ends on a square (its last level's use radius, ~5.6 km), where
         // the haze is only ~96%: a hard line on the sea. Fade fully into the sky over its last 45%.
-        float2 off = abs(rayDir.xz * distVoxels);
-        float edge = (float)(FAR_USE_RADIUS * (8 << (FAR_LEVELS - 1)));
-        h = max(h, smoothstep(0.55 * edge, edge, max(off.x, off.y)));
+        // Task 125 (bit 2, -edgefade): that fade is DrawnEdgeFade instead, the pixel's last step.
+        if ((_SkyLook & 4) == 0) h = max(h, DrawnEdgeAmount(rayDir, distVoxels));
         // Aerial perspective also takes colour out (half the haze amount).
         lit = lerp(lit, dot(lit, float3(0.2126, 0.7152, 0.0722)).xxx, 0.5 * h);
     }
@@ -5174,6 +5198,14 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             behind = (_Look == 1 && _UseDevColors != 0) ? LookToLinear(LookShoulder(LookSkyBackground(rayDir), _LookGrade.z)) : _SkyColor.rgb;
         color.rgb = SeeCompose(color.rgb, behind, tView, seeFres, SeeReflection(rayDir, sunVis));
     }
+
+#ifdef VE_FAR_SHADE
+    // TASK 125: the drawn world's edge fades into the sky as the LAST step (after the
+    // see-through blends above), so nothing is composited over it. Not from inside a fluid.
+    if ((_SkyLook & 6) == 6 && _FarEnabled != 0 && _ShadeFog != 0 && _Look == 1 && _UseDevColors != 0 && passMat == 0u
+        && ((hit && !fluidSurface) || farHit))
+        color.rgb = DrawnEdgeFade(color.rgb, rayDir, hit ? currentDist : fh.t);
+#endif
 
     // ---- 66b: THE FLUID BETWEEN THE EYE AND WHAT IT SEES ----
     // The whole path was in the fluid (the march stops where it leaves it), so

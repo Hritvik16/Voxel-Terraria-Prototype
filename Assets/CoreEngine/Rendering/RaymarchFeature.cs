@@ -307,6 +307,13 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool SkyLook = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-skylook");
     public static bool SkyHaze = SkyLook && ParseFlagOn(System.Environment.GetCommandLineArgs(), "-skyhaze");
     public static float SkyHazeRangeM = 1800f;
+    /// Task 125 (VISUAL_REVIEW_114, the hard sea/sky line): the drawn world's EDGE FADE, ON by default (with
+    /// -skyhaze). The line sits on the far band's square (~5.6 km), not the world's edge: task 121 faded the haze
+    /// to full there, but the far water's sky reflection (SeeReflection) and the grade come AFTER the haze, so
+    /// the sea at the edge stayed darker and bluer than the sky. With it on, the edge fade moves out of the haze
+    /// and is the pixel's LAST step, to exactly the sky a miss shows there (Raymarch.compute DrawnEdgeFade).
+    /// `-edgefade 0` = task 121's fade inside the haze.
+    public static bool EdgeFade = SkyHaze && ParseFlagOn(System.Environment.GetCommandLineArgs(), "-edgefade");
     /// Task 122 (VISUAL_REVIEW_114 #5): per-biome surface tint (Raymarch.compute BiomeTint), ON by default.
     /// `-biometint 0` = off. The generator's border blend is TerrainSpec.biomeBlendOff (`-biomeblend 0`).
     public static bool BiomeTint = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-biometint");
@@ -1261,7 +1268,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyHorizon", data.lookSkyHorizon);
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyHalo", data.lookSkyHalo);
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyRim", data.lookSkyRim);   // task 121
-                        cmd.SetComputeIntParam(data.compute, "_SkyLook", (SkyLook ? 1 : 0) | (SkyHaze ? 2 : 0));
+                        cmd.SetComputeIntParam(data.compute, "_SkyLook", (SkyLook ? 1 : 0) | (SkyHaze ? 2 : 0) | (EdgeFade ? 4 : 0));
                         cmd.SetComputeIntParam(data.compute, "_BiomeTint", BiomeTint ? 1 : 0);   // task 122
                         cmd.SetComputeVectorParam(data.compute, "_LookSun", data.lookSun);
                         cmd.SetComputeVectorParam(data.compute, "_LookAmbient", data.lookAmbient);
