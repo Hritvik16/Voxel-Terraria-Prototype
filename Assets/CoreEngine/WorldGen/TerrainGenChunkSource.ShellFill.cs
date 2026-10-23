@@ -468,7 +468,7 @@ namespace VoxelEngine.WorldGen
             private int SubOff(int odd) => (odd << shift) >> 3;
 
             private int HaloHeight(in TerrainGen.MapView map, int x, int z)
-                => TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, z + 0.5f, 1).height;
+                => TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, z + 0.5f, 1, false).height;
 
             private static int BrickOf(int v) => (((v >> YS) >> 3) << 4) | ((((v >> ZS) & (E - 1)) >> 3) << 8) | ((v & (E - 1)) >> 3);
 

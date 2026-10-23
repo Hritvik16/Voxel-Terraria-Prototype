@@ -307,6 +307,9 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool SkyLook = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-skylook");
     public static bool SkyHaze = SkyLook && ParseFlagOn(System.Environment.GetCommandLineArgs(), "-skyhaze");
     public static float SkyHazeRangeM = 1800f;
+    /// Task 122 (VISUAL_REVIEW_114 #5): per-biome surface tint (Raymarch.compute BiomeTint), ON by default.
+    /// `-biometint 0` = off. The generator's border blend is TerrainSpec.biomeBlendOff (`-biomeblend 0`).
+    public static bool BiomeTint = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-biometint");
     public static float FarShadeHazeScaleHeightM = 1500f;
     public static float FarShadeLightHaze = 0.25f;
     /// >= 0 forces LightingConfig.torchShadowRays (-torchshadows N; 0 = no
@@ -1252,6 +1255,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyHalo", data.lookSkyHalo);
                         cmd.SetComputeVectorParam(data.compute, "_LookSkyRim", data.lookSkyRim);   // task 121
                         cmd.SetComputeIntParam(data.compute, "_SkyLook", (SkyLook ? 1 : 0) | (SkyHaze ? 2 : 0));
+                        cmd.SetComputeIntParam(data.compute, "_BiomeTint", BiomeTint ? 1 : 0);   // task 122
                         cmd.SetComputeVectorParam(data.compute, "_LookSun", data.lookSun);
                         cmd.SetComputeVectorParam(data.compute, "_LookAmbient", data.lookAmbient);
                         cmd.SetComputeVectorParam(data.compute, "_LookMoon", data.lookMoon);

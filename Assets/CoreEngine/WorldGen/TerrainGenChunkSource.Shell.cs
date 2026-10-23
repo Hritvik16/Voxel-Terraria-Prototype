@@ -303,10 +303,10 @@ namespace VoxelEngine.WorldGen
                     // Spacing-1 MaxStep from the four fine neighbours, at the same
                     // float coordinates as ColumnJob's grid ((x + 1) + 0.5f).
                     int ch = c.height;
-                    int a = TerrainGen.ShapeField.Sample(in spec, in map, in o, (x + 1) + 0.5f, z + 0.5f, 1).height;
-                    int b = TerrainGen.ShapeField.Sample(in spec, in map, in o, (x - 1) + 0.5f, z + 0.5f, 1).height;
-                    int d = TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, (z + 1) + 0.5f, 1).height;
-                    int e = TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, (z - 1) + 0.5f, 1).height;
+                    int a = TerrainGen.ShapeField.Sample(in spec, in map, in o, (x + 1) + 0.5f, z + 0.5f, 1, false).height;
+                    int b = TerrainGen.ShapeField.Sample(in spec, in map, in o, (x - 1) + 0.5f, z + 0.5f, 1, false).height;
+                    int d = TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, (z + 1) + 0.5f, 1, false).height;
+                    int e = TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, (z - 1) + 0.5f, 1, false).height;
                     int m = math.max(math.max(math.abs(a - ch), math.abs(b - ch)), math.max(math.abs(d - ch), math.abs(e - ch)));
                     colSt[ci] = m / 1f;
                     var cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, x, z, ref nodes);

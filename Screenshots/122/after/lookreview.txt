@@ -1,0 +1,47 @@
+UPSCALER CLIPS -- 2026-10-23_040019
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset low, sizing rows 480, render rows 540 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 45 s
+  shell 0: voxel 0.1 m,      0-    46 m; voxel px at 540 rows inner inf -> outer 1.13 (at 1080 output: outer 2.25)
+  shell 1: voxel 0.2 m,     46-    92 m; voxel px at 540 rows inner 2.25 -> outer 1.13 (at 1080 output: outer 2.25)
+  shell 2: voxel 0.4 m,     92-   183 m; voxel px at 540 rows inner 2.25 -> outer 1.13 (at 1080 output: outer 2.25)
+  shell 3: voxel 0.8 m,    183-   367 m; voxel px at 540 rows inner 2.25 -> outer 1.13 (at 1080 output: outer 2.25)
+  shell 4: voxel 1.6 m,    367-   733 m; voxel px at 540 rows inner 2.25 -> outer 1.13 (at 1080 output: outer 2.25)
+  shell 5: voxel 3.2 m,    733-  1467 m; voxel px at 540 rows inner 2.25 -> outer 1.13 (at 1080 output: outer 2.25)
+lookbiome: 10 biome pairs with a land border within 2 km; 3 border poses
+
+== high: eye (3857.2, 1117.5, 3658.8), yaw 90 pitch -4 deg; highest column within 800 m + 20 m, free distance 3000 m
+  [shells] waited 44 s (cap 45 s): stored/missing/in flight:  s1 566/0/0  s2 485/0/0  s3 444/40/0 FULL  s4 404/0/0  s5 242/0/0   total stored 2141, missing 40, pending 0; requested 2766, generated 2766 (72 ms each on a worker), dropped stale 9, over-budget frames 0 (of 1520)
+  [px] high       hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 50277/0/0.88  s1 1/1/1.05  s2 47762/47762/2.01  s3 1539/1539/2.04  s4 3/3/1.49  s5 47000/47000/1.97
+  high       fsr3_540  dispatch 960x540
+  high       none_540  dispatch 960x540
+  high       native    dispatch 1920x1080
+  biome (task 122): high_fsr3_540_notint = per-biome tint off; launch's border blend ON
+
+== border_0: eye (3911.1, 887.0, 4124.9), yaw 135 pitch -12 deg; desert | savanna border at (4017, 4019) m, 0 m from the centre, looking along it
+  [shells] waited 26 s (cap 45 s): stored/missing/in flight:  s1 728/0/0  s2 728/0/0  s3 614/31/0 FULL  s4 485/0/0  s5 242/0/0   total stored 2797, missing 31, pending 0; requested 4954, generated 4954 (67 ms each on a worker), dropped stale 9, over-budget frames 0 (of 2505)
+  [px] border_0   hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 374369/367746/2.25  s1 519/519/2.02  s2 2690/2690/1.32  s3 21727/21727/2.04  s4 911/911/2.01  s5 2554/2554/1.72
+  border_0   fsr3_540  dispatch 960x540
+  border_0   none_540  dispatch 960x540
+  border_0   native    dispatch 1920x1080
+  biome (task 122): border_0_fsr3_540_notint = per-biome tint off; launch's border blend ON
+
+== border_1: eye (4311.1, 637.5, 4524.9), yaw 135 pitch -12 deg; jungle | savanna border at (4417, 4419) m, 566 m from the centre, looking along it
+  [shells] waited 28 s (cap 45 s): stored/missing/in flight:  s1 728/0/0  s2 728/0/0  s3 728/0/0  s4 485/0/0  s5 242/0/0   total stored 2911, missing 0, pending 0; requested 7217, generated 7217 (66 ms each on a worker), dropped stale 9, over-budget frames 0 (of 3517)
+  [px] border_1   hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 469626/427331/2.08  s1 519/519/1.58  s2 21426/21426/1.53  s3 14227/14227/2.04  s4 3502/3502/1.76  s5 -
+  border_1   fsr3_540  dispatch 960x540
+  border_1   none_540  dispatch 960x540
+  border_1   native    dispatch 1920x1080
+  biome (task 122): border_1_fsr3_540_notint = per-biome tint off; launch's border blend ON
+
+== border_2: eye (4792.2, 623.1, 4343.8), yaw 180 pitch -12 deg; forest | jungle border at (4792, 4194) m, 795 m from the centre, looking along it
+  [shells] waited 18 s (cap 45 s): stored/missing/in flight:  s1 728/0/0  s2 728/0/0  s3 728/0/0  s4 485/0/0  s5 242/0/0   total stored 2911, missing 0, pending 0; requested 9291, generated 9291 (64 ms each on a worker), dropped stale 9, over-budget frames 1 (of 4346)
+  [px] border_2   hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 336537/0/0.76  s1 78502/78502/1.54  s2 87655/87655/1.77  s3 8091/8091/2.04  s4 2036/2036/1.51  s5 -
+  border_2   fsr3_540  dispatch 960x540
+  border_2   none_540  dispatch 960x540
+  border_2   native    dispatch 1920x1080
+  biome (task 122): border_2_fsr3_540_notint = per-biome tint off; launch's border blend ON
+
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-23_040019_low

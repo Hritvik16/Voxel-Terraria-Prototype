@@ -1020,9 +1020,42 @@ float3 MaterialAlbedoLook(uint mat)
 // green materials drift between lush, olive and deep tones in blocky patches
 // (hash of floor(pos * 0.1) and floor(pos * 0.5) there; >> 3 and >> 1 here,
 // bitwise per this project's coordinate rule), plus +/-4% per voxel on all.
+// ---- TASK 122: PER-BIOME TINT (VISUAL_REVIEW_114 #5, owner Q6 (a)) ----
+// A biome's surface was one flat colour over km. Each surface material now
+// drifts between two gentle tints of its own (dry/lush grass, warm/pale sand,
+// blue-shadowed snow, ...) on a 2-D smooth value noise of ~100 m and ~400 m
+// cells (voxel x/z >> 10 and >> 12; bitwise, per the coordinate rule), +-4% in
+// value. World-anchored, so voxels, shells and the far band agree (LookAlbedo
+// is their one albedo). `-biometint 0` = off (RaymarchFeature.BiomeTint).
+int _BiomeTint;
+float VoxelNoiseSmoothXZ(int3 v, int shift)
+{
+    int2 c = v.xz >> shift;
+    float2 f = (float2)(v.xz - (c << shift)) / (float)(1 << shift);
+    f = f * f * (3.0 - 2.0 * f);
+    float n00 = VoxelHash(int3(c.x, 0, c.y)),     n10 = VoxelHash(int3(c.x + 1, 0, c.y));
+    float n01 = VoxelHash(int3(c.x, 0, c.y + 1)), n11 = VoxelHash(int3(c.x + 1, 0, c.y + 1));
+    return lerp(lerp(n00, n10, f.x), lerp(n01, n11, f.x), f.y);
+}
+
+float3 BiomeTint(uint mat, int3 voxel)
+{
+    float3 a, b;   // the material's two tints, a at n = 1
+    if (mat == 138u)                     { a = float3(1.08, 1.04, 0.86); b = float3(0.90, 1.00, 1.04); }   // Grass: dry / lush
+    else if (mat == 139u)                { a = float3(1.06, 1.05, 0.88); b = float3(0.88, 0.98, 1.02); }   // JungleGrass
+    else if (mat == 140u || mat == 142u || mat == 149u) { a = float3(1.05, 1.00, 0.90); b = float3(0.97, 0.97, 1.01); }   // Sand, BeachSand, PackedSand: warm / pale
+    else if (mat == 141u || mat == 150u) { a = float3(1.00, 1.00, 1.00); b = float3(0.92, 0.96, 1.03); }   // Snow, PackedIce: white / blue
+    else if (mat == 143u)                { a = float3(1.07, 1.02, 0.84); b = float3(0.92, 0.98, 0.92); }   // SavannaGrass: golden / olive
+    else if (mat == 144u)                { a = float3(1.06, 0.96, 0.93); b = float3(0.96, 0.97, 1.00); }   // BadlandsClay: pink / grey
+    else return float3(1.0, 1.0, 1.0);
+    float n = VoxelNoiseSmoothXZ(voxel, 10) * 0.65 + VoxelNoiseSmoothXZ(voxel, 12) * 0.35;
+    return lerp(b, a, smoothstep(0.2, 0.8, n)) * (0.96 + 0.08 * n);
+}
+
 float3 LookAlbedo(uint mat, int3 voxel)
 {
     float3 baseColor = MaterialAlbedoLook(mat);
+    if (_BiomeTint != 0) baseColor *= BiomeTint(mat, voxel);
     float noiseLarge  = VoxelHash(voxel >> 3);
     float noiseMedium = VoxelHash(voxel >> 1);
     float noiseDetail = (VoxelHash(voxel) - 0.5) * 0.08;

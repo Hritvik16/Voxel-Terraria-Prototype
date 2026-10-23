@@ -47,6 +47,13 @@
 //           (sun 2 deg up) and dusk (3 deg down) toward the sun:
 //           <pose>_sky_<time>, and <pose>_sky_<time>_old with the sky look off
 //           (SkyLook / SkyHaze false = before task 121), in the same frame state.
+//   TASK 122 (capture-only): -lookbiome 1 adds poses border_0..2: up to three
+//           land points within 2 km where the RECORD biome changes (25 m grid),
+//           one per biome pair, >= 500 m apart; eye 35 m over the ground 150 m
+//           back ALONG the border (sun behind where it can be), pitched down 12
+//           deg, so the border runs into the frame. Every pose also gets
+//           <pose>_<fsr3>_notint (the per-biome tint off, same frame state). The
+//           generator's border blend is per launch: compare with -biomeblend 0.
 // Output: <persistentDataPath>/LookReview/<ts>_<preset>/ (PNGs + lookreview.txt).
 using System;
 using System.Collections;
@@ -60,6 +67,58 @@ using VoxelEngine.Streaming;
 
 public partial class PlaygroundCapture
 {
+    /// Task 122: -lookbiome's border poses (see the header).
+    private void LookBorderPoses(Vector3 centre, float2 shz, List<(string n, Vector3 eye, Quaternion rot, string note)> poses,
+                                 Func<float2, float, Quaternion> look)
+    {
+        var src = Phase4Bootstrapper.Streamer != null ? Phase4Bootstrapper.Streamer.TerrainGenSource : null;
+        if (src == null) { L("lookbiome: no tg2 source -- no border poses"); return; }
+        var spec = src.Spec; var view = src.Map.View; var o = src.O;
+        string[] names = { "forest", "desert", "snow", "jungle", "savanna", "badlands" };
+        var found = new List<(float2 at, float2 tangent, int a, int b, float dist)>();
+        for (float dz = -2000f; dz <= 2000f; dz += 25f)
+        for (float dx = -2000f; dx <= 2000f; dx += 25f)
+        {
+            float2 pm = new float2(centre.x + dx, centre.z + dz), pv = pm * 10f;
+            byte b0 = TerrainGen.ShapeField.Biome(in o, pv);
+            byte bx = TerrainGen.ShapeField.Biome(in o, pv + new float2(250f, 0f));
+            byte bz = TerrainGen.ShapeField.Biome(in o, pv + new float2(0f, 250f));
+            if (b0 == bx && b0 == bz) continue;
+            byte other = b0 != bx ? bx : bz;
+            int a = Math.Min((int)b0, other), b = Math.Max((int)b0, other);
+            float dist = math.length(new float2(dx, dz));
+            var col = TerrainGen.ShapeField.Sample(in spec, in view, in o, pv.x, pv.y, 1);
+            if (col.height < spec.seaLevelY + 30 || col.water > col.height) continue;
+            float2 n = b0 != bx ? new float2(1f, 0f) : new float2(0f, 1f);
+            if (b0 != bx && b0 != bz) n = math.normalize(new float2(1f, 1f));
+            float2 t = new float2(-n.y, n.x);
+            if (math.dot(t, -shz) < 0f) t = -t;
+            int same = found.FindIndex(f => f.a == a && f.b == b);
+            if (same >= 0) { if (dist < found[same].dist) found[same] = (pm, t, a, b, dist); continue; }
+            found.Add((pm, t, a, b, dist));
+        }
+        found.Sort((p, q) => p.dist.CompareTo(q.dist));
+        int k = 0;
+        foreach (var f in found)
+        {
+            if (k >= 3) break;
+            bool near = false;
+            for (int i = 0; i < k; i++)
+            {
+                var prev = poses[poses.Count - k + i];
+                if (math.distance(new float2(prev.eye.x, prev.eye.z), f.at - f.tangent * 150f) < 500f) near = true;
+            }
+            if (near) continue;
+            float2 e2 = f.at - f.tangent * 150f;
+            float ground = WalkEyeY(e2.x, e2.y, centre.y) - 1.6f;
+            var eye = new Vector3(e2.x, ground + 35f, e2.y);
+            poses.Add(($"border_{k}", eye, look(f.tangent, -12f),
+                       $"{names[f.a]} | {names[f.b]} border at ({f.at.x:F0}, {f.at.y:F0}) m, {f.dist:F0} m from the centre, looking along it"));
+            k++;
+        }
+        L($"lookbiome: {found.Count} biome pairs with a land border within 2 km; {k} border poses");
+    }
+
     private IEnumerator LookReview(FarField far, Camera cam, StreamManager sm, ChunkStore store)
     {
         var sh = ShellStreamer.Active;
@@ -79,6 +138,7 @@ public partial class PlaygroundCapture
         bool ab = ArgInt("-lookab", 0) != 0, goldenAll = ArgInt("-lookgolden", 0) != 0;   // task 120
         float clampM = ArgFloat("-lookclamp", 0f);   // task 118
         bool skyAB = ArgInt("-looksky", 0) != 0;      // task 121
+        bool biomeLook = ArgInt("-lookbiome", 0) != 0;   // task 122
         string fsr = $"fsr3_{rows}", none = $"none_{rows}";
         float noon = SunCycle.NoonHours;
         SunCycle.SetHours(noon);
@@ -168,6 +228,7 @@ public partial class PlaygroundCapture
             }
             poses.Add(("high", hi, Look(bestH, -4f), $"highest column within 800 m + 20 m, free distance {bestF:F0} m"));
         }
+        if (biomeLook) LookBorderPoses(centre, shz, poses, Look);
 
         foreach (var (n, eye, rot, note) in poses)
         {
@@ -222,6 +283,19 @@ public partial class PlaygroundCapture
                 cam.transform.rotation = rot;
             }
             if (skyAB) yield return LookSkyAB(n, cam, eye, rot, fsr, noon);
+            if (biomeLook)
+            {
+                ApplyCompareArm(fsr);
+                cam.ResetProjectionMatrix();
+                cam.transform.position = eye; cam.transform.rotation = rot;
+                bool tint = RaymarchFeature.BiomeTint;
+                RaymarchFeature.BiomeTint = false;
+                yield return Frames(60);
+                yield return CaptureTo($"{n}_{fsr}_notint");
+                RaymarchFeature.BiomeTint = tint;
+                L($"  biome (task 122): {n}_{fsr}_notint = per-biome tint off; launch's border blend " +
+                  $"{(Phase4Bootstrapper.Streamer?.TerrainGenSource != null && Phase4Bootstrapper.Streamer.TerrainGenSource.Spec.BiomeBlend ? "ON" : "OFF")}");
+            }
             if (bursts && (n == "walk_open" || n == "ridge"))
             {
                 Vector3 fwd = rot * Vector3.forward; fwd.y = 0f; fwd = fwd.normalized;

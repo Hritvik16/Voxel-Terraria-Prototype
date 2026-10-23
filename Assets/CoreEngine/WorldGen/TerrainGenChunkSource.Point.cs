@@ -53,10 +53,10 @@ namespace VoxelEngine.WorldGen
                 int x = v.x, z = v.z;
                 var c = TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, z + 0.5f, 1);
                 int ch = c.height;
-                int he = TerrainGen.ShapeField.Sample(in spec, in map, in o, (x + 1) + 0.5f, z + 0.5f, 1).height;
-                int hw = TerrainGen.ShapeField.Sample(in spec, in map, in o, (x - 1) + 0.5f, z + 0.5f, 1).height;
-                int hn = TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, (z + 1) + 0.5f, 1).height;
-                int hs = TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, (z - 1) + 0.5f, 1).height;
+                int he = TerrainGen.ShapeField.Sample(in spec, in map, in o, (x + 1) + 0.5f, z + 0.5f, 1, false).height;
+                int hw = TerrainGen.ShapeField.Sample(in spec, in map, in o, (x - 1) + 0.5f, z + 0.5f, 1, false).height;
+                int hn = TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, (z + 1) + 0.5f, 1, false).height;
+                int hs = TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, (z - 1) + 0.5f, 1, false).height;
                 int m = math.max(math.max(math.abs(he - ch), math.abs(hw - ch)),
                                  math.max(math.abs(hn - ch), math.abs(hs - ch)));
                 var cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, x, z, ref nodes);

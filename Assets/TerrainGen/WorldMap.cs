@@ -1045,6 +1045,9 @@ namespace TerrainGen
         /// TerrainSpec.BiomeSet (B10): 6 = the six-biome field; anything else
         /// (0 from For(seed) or a default struct) = the four-biome field.
         public int biomeSet;
+        /// Task 122: TerrainSpec.BiomeBlend (1 = on). 0 from For(seed) or a
+        /// default struct: no border blend, the column's surface is its biome's.
+        public int biomeBlend;
         /// Map v4 (B5): the drawn volcano's site (Features.VolcanoSite; off the
         /// map when none was drawn), valid when v4Sites != 0. Only For(spec)
         /// sets it: Stamps.Column reads it per voxel column under Burst.
@@ -1064,6 +1067,7 @@ namespace TerrainGen
             var o = Compute(spec.seed);
             o.biomeScale = spec.BiomeScale;
             o.biomeSet = spec.BiomeSet;
+            o.biomeBlend = spec.BiomeBlend ? 1 : 0;
             if (spec.mapVersion >= 4) { o.volcanoV4 = Features.VolcanoSite(in spec, in o); o.v4Sites = 1; }
             return o;
         }

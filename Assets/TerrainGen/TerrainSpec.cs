@@ -80,6 +80,11 @@ namespace TerrainGen
         /// version's default (6 on v4). IGNORED below v4. Read it through
         /// BiomeSet, never directly.
         public int biomeSet;
+        /// Task 122 (VISUAL_REVIEW_114 #5, owner Q6 (a), 2026-10-22): 1 = no biome
+        /// BORDER BLEND (ShapeField.SurfaceBiome), the pre-122 surface. 0 = the
+        /// version's default: ON on v4, IGNORED below v4 (v3 byte-identical).
+        /// Read it through BiomeBlend, never directly. `-biomeblend 0` sets it.
+        public byte biomeBlendOff;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -124,6 +129,9 @@ namespace TerrainGen
         /// The biome wavelength multiplier actually in force (see biomeScale).
         public float BiomeScale => mapVersion >= 4
             ? (biomeScale > 0f ? biomeScale : (BiomeSet == 6 ? V4_BIOME_SCALE_6 : V4_BIOME_SCALE)) : 1f;
+
+        /// The biome border blend in force (see biomeBlendOff): v4 only.
+        public bool BiomeBlend => mapVersion >= 4 && biomeBlendOff == 0;
 
         public const float V4_GENTLE_SHARE = 0.50f;
 

@@ -14,7 +14,9 @@
 // for that column wherever D does not carve the top (TerrainGenOracleTests).
 //
 // Biomes are INDEPENDENT OF TOPOGRAPHY (owner, §2.6): climate fields only, never
-// height. Borders are the climate fields' contour lines -- organic, no warp.
+// height. Borders are the climate fields' contour lines; since task 122 a
+// column's SURFACE material follows a warped, dithered copy of them
+// (SurfaceBiome) -- the biome itself does not.
 using Unity.Mathematics;
 
 namespace TerrainGen
@@ -23,6 +25,11 @@ namespace TerrainGen
     {
         public int height;       // absolute Y of the top SOLID voxel
         public byte biome;       // GenBiome
+        /// Task 122: the biome whose MATERIALS this column wears (surface, soil,
+        /// the beach rule, its strata/rock). Equal to `biome` except in a border's
+        /// blend band (ShapeField.SurfaceBiome); ores, pocket liquids, crystals,
+        /// danger and the world record keep `biome`.
+        public byte surfBiome;
         public float rough;      // map detail scale at this column
         /// Absolute Y of the still-water surface over this column (lake or
         /// river, map v2), or NO_WATER_Y. Water fills (height, water].
@@ -106,8 +113,14 @@ namespace TerrainGen
             return b * rough + 1f;
         }
 
+        public static ColumnSample Sample(in TerrainSpec spec, in MapView map, in Offsets o,
+                                          float x, float z, int texelVoxels)
+            => Sample(in spec, in map, in o, x, z, texelVoxels, true);
+
+        /// surfaceBiome false: a caller that reads only the HEIGHT (a slope's
+        /// neighbour) skips the border blend; surfBiome is then just biome.
         public static unsafe ColumnSample Sample(in TerrainSpec spec, in MapView map, in Offsets o,
-                                                 float x, float z, int texelVoxels)
+                                                 float x, float z, int texelVoxels, bool surfaceBiome)
         {
             SampleMap(in map, x, z, out float macro, out float rough);
             float2 p = new float2(x, z);
@@ -118,7 +131,12 @@ namespace TerrainGen
             var c = new ColumnSample();
             c.height = spec.seaLevelY + (int)math.floor(macro + detail * rough);
             c.height = math.max(c.height, spec.worldBottomY + 1);
-            c.biome = Biome(in o, p);
+            if (o.biomeBlend != 0 && surfaceBiome)
+            {
+                c.biome = BiomeAndBorder(in o, p, true, out float border);
+                c.surfBiome = SurfaceBiome(in o, p, c.biome, border);
+            }
+            else c.surfBiome = c.biome = Biome(in o, p);
             c.rough = rough;
             {
                 float acc = macro;
@@ -224,10 +242,10 @@ namespace TerrainGen
                                     float x, float z, int spacing, int centreHeight)
         {
             int texel = spacing;
-            int a = Sample(in spec, in map, in o, x + spacing, z, texel).height;
-            int b = Sample(in spec, in map, in o, x - spacing, z, texel).height;
-            int c = Sample(in spec, in map, in o, x, z + spacing, texel).height;
-            int d = Sample(in spec, in map, in o, x, z - spacing, texel).height;
+            int a = Sample(in spec, in map, in o, x + spacing, z, texel, false).height;
+            int b = Sample(in spec, in map, in o, x - spacing, z, texel, false).height;
+            int c = Sample(in spec, in map, in o, x, z + spacing, texel, false).height;
+            int d = Sample(in spec, in map, in o, x, z - spacing, texel, false).height;
             int m = math.max(math.max(math.abs(a - centreHeight), math.abs(b - centreHeight)),
                              math.max(math.abs(c - centreHeight), math.abs(d - centreHeight)));
             return m / (float)spacing;
@@ -237,10 +255,16 @@ namespace TerrainGen
         /// Map v4 multiplies both wavelengths by o.biomeScale (B1, larger
         /// biomes); at 1 the products are exactly 15000f and 12000f, so v3 is
         /// byte-identical.
-        public static byte Biome(in Offsets o, float2 p)
+        public static byte Biome(in Offsets o, float2 p) => BiomeAndBorder(in o, p, false, out _);
+
+        /// Biome plus (wantBorder) `border`: the climate-space distance from the
+        /// column's climate to the nearest bisector with another centre, i.e. how
+        /// far the climate must move before the biome changes. One body for both,
+        /// so the biome is the same bits either way.
+        public static byte BiomeAndBorder(in Offsets o, float2 p, bool wantBorder, out float border)
         {
             float s = o.biomeScale > 0f ? o.biomeScale : 1f;
-            if (o.biomeSet == 6) return Biome6(in o, p, s);
+            if (o.biomeSet == 6) return Biome6(in o, p, s, wantBorder, out border);
             float t = Noise.Fbm(p / (15000f * s) + o.tempA, 3) * 2.4f;
             float m = Noise.Fbm(p / (12000f * s) + o.moistA, 3) * 2.4f;
             // centres: forest (0, 0), desert (0.8, -0.8), snow (-0.9, 0.1), jungle (0.8, 0.8)
@@ -252,6 +276,7 @@ namespace TerrainGen
             if (dd < best) { best = dd; b = GenBiome.Desert; }
             if (ds < best) { best = ds; b = GenBiome.Snow; }
             if (dj < best) { b = GenBiome.Jungle; }
+            border = wantBorder ? Border(b, df, dd, ds, dj, float.MaxValue, float.MaxValue) : 0f;
             return b;
         }
 
@@ -264,7 +289,7 @@ namespace TerrainGen
         ///   badlands (-0.3, -0.8) dry and cool-temperate: the cold side of desert
         /// Shares on land at x3.25 (seeds 42/7/2026/31337): savanna 9/11/20/4%,
         /// badlands 8/11/15/32%.
-        private static byte Biome6(in Offsets o, float2 p, float s)
+        private static byte Biome6(in Offsets o, float2 p, float s, bool wantBorder, out float border)
         {
             float t = Noise.Fbm(p / (15000f * s) + o.tempA, 1) * 1.6f;
             float m = Noise.Fbm(p / (12000f * s) + o.moistA, 1) * 1.6f;
@@ -280,7 +305,96 @@ namespace TerrainGen
             if (dj < best) { best = dj; b = GenBiome.Jungle; }
             if (dv < best) { best = dv; b = GenBiome.Savanna; }
             if (db < best) { b = GenBiome.Badlands; }
+            border = wantBorder ? Border(b, df, dd, ds, dj, dv, db) : 0f;
             return b;
+        }
+
+        /// The climate centre of biome b (both fields share these).
+        private static float2 Centre(byte b) =>
+            b == GenBiome.Desert ? new float2(0.8f, -0.8f) : b == GenBiome.Snow ? new float2(-0.9f, 0.1f)
+            : b == GenBiome.Jungle ? new float2(0.8f, 0.8f) : b == GenBiome.Savanna ? new float2(0.8f, 0f)
+            : b == GenBiome.Badlands ? new float2(-0.3f, -0.8f) : new float2(0f, 0f);
+
+        /// BiomeAndBorder's `border` from the squared distances to each centre
+        /// (MaxValue = a centre the field does not have): min over the other
+        /// centres j of (d_j - d_b) / (2 |c_j - c_b|), the distance to the bisector.
+        private static float Border(byte b, float df, float dd, float ds, float dj, float dv, float dbl)
+        {
+            float d = b == GenBiome.Desert ? dd : b == GenBiome.Snow ? ds : b == GenBiome.Jungle ? dj
+                    : b == GenBiome.Savanna ? dv : b == GenBiome.Badlands ? dbl : df;
+            float2 cb = Centre(b);
+            float r = float.MaxValue;
+            r = math.min(r, Bisector(b, GenBiome.Forest, df, d, cb));
+            r = math.min(r, Bisector(b, GenBiome.Desert, dd, d, cb));
+            r = math.min(r, Bisector(b, GenBiome.Snow, ds, d, cb));
+            r = math.min(r, Bisector(b, GenBiome.Jungle, dj, d, cb));
+            r = math.min(r, Bisector(b, GenBiome.Savanna, dv, d, cb));
+            r = math.min(r, Bisector(b, GenBiome.Badlands, dbl, d, cb));
+            return r;
+        }
+
+        private static float Bisector(byte b, byte j, float dj, float d, float2 cb)
+            => j == b || dj == float.MaxValue ? float.MaxValue : (dj - d) / (2f * math.distance(Centre(j), cb));
+
+        // ------------------------------------------------------------------
+        // TASK 122: BIOME BORDER BLEND (VISUAL_REVIEW_114 #5, owner Q6 (a),
+        // 2026-10-22). The biome field's borders are contour lines of a climate
+        // with a ~40-50 km wavelength, so they run nearly straight for km, and
+        // every column on one side wore one surface. Now a column's SURFACE (and
+        // soil) is the biome at a jittered point p + J(p):
+        //   two warp octaves (800 m / 150 m wavelength, +-60 / +-15 m) bend the line,
+        //   a clump octave (40 m, +-18 m) and a per-0.8 m-cell hash dither (+-14 m)
+        //   mix both sides' materials in a band a few tens of metres wide.
+        // Surface, soil AND rock follow it (a cliff's strata would otherwise keep
+        // the straight line). The biome itself (ores, pocket liquids, crystals,
+        // danger, the world record) is the unjittered one, so the biome x landform
+        // maps are unchanged. Deterministic:
+        // seed-keyed noise and an integer hash of the column's cell.
+        // EARLY OUT: a column whose climate is more than |J|max x the climate's
+        // Lipschitz bound from every bisector cannot change biome under any J,
+        // so it skips the 8 noise calls (exact while |grad snoise| <=
+        // SNOISE_GRAD_BOUND; measured max 7.37 over 6e7 points).
+        // ------------------------------------------------------------------
+        public const float BLEND_WARP1_WAVE = 8000f, BLEND_WARP1_AMP = 600f;   // voxels: 800 m, +-60 m
+        public const float BLEND_WARP2_WAVE = 1500f, BLEND_WARP2_AMP = 150f;   // 150 m, +-15 m
+        public const float BLEND_CLUMP_WAVE = 400f, BLEND_CLUMP_AMP = 180f;    // 40 m, +-18 m
+        public const int BLEND_DITHER_SHIFT = 3;                               // one dither per 8 x 8 columns
+        public const float BLEND_DITHER_AMP = 140f;                            // +-14 m
+        /// |J| bound (voxels): each octave's vector is at most amp * sqrt(2).
+        public const float BLEND_REACH = (BLEND_WARP1_AMP + BLEND_WARP2_AMP + BLEND_CLUMP_AMP + BLEND_DITHER_AMP) * 1.41422f;
+        public const float SNOISE_GRAD_BOUND = 8f;
+        /// |grad| of the 3-octave Fbm (the four-biome field) over snoise's: sum amp_i 2.03^i / norm.
+        private const float FBM3_GRAD = (0.5f + 0.25f * 2.03f + 0.125f * 2.03f * 2.03f) / 0.875f;
+
+        /// The climate distance a jitter of BLEND_REACH can move at most.
+        public static float BlendClimateReach(in Offsets o)
+        {
+            float s = o.biomeScale > 0f ? o.biomeScale : 1f;
+            float amp = o.biomeSet == 6 ? 1.6f : 2.4f * FBM3_GRAD;
+            const float invW = 1.0671874e-4f;   // sqrt(1/15000^2 + 1/12000^2)
+            return BLEND_REACH * amp * SNOISE_GRAD_BOUND * invW / s;
+        }
+
+        /// The jitter J(p), voxels.
+        public static float2 BlendOffset(in Offsets o, float2 p)
+        {
+            float2 a = o.tempA.yx + new float2(31.7f, -12.9f), b = o.moistA.yx + new float2(-57.1f, 44.3f);
+            float2 j = BLEND_WARP1_AMP * new float2(noise.snoise(p / BLEND_WARP1_WAVE + a), noise.snoise(p / BLEND_WARP1_WAVE + b));
+            j += BLEND_WARP2_AMP * new float2(noise.snoise(p / BLEND_WARP2_WAVE + b + 9.1f), noise.snoise(p / BLEND_WARP2_WAVE + a - 7.3f));
+            j += BLEND_CLUMP_AMP * new float2(noise.snoise(p / BLEND_CLUMP_WAVE + a + 3.7f), noise.snoise(p / BLEND_CLUMP_WAVE + b - 5.9f));
+            int cx = (int)math.floor(p.x) >> BLEND_DITHER_SHIFT, cz = (int)math.floor(p.y) >> BLEND_DITHER_SHIFT;
+            uint h = (uint)cx * 0x8da6b343u ^ (uint)cz * 0xd8163841u ^ o.seed * 0xcb1ab31fu;
+            h ^= h >> 15; h *= 0x2c1b3c6du; h ^= h >> 12; h *= 0x297a2d39u; h ^= h >> 15;
+            j += BLEND_DITHER_AMP * new float2((h & 0xffffu) * (2f / 65535f) - 1f, (h >> 16) * (2f / 65535f) - 1f);
+            return j;
+        }
+
+        /// The surface biome of the column at p whose biome is `biome` and whose
+        /// climate is `border` from the nearest bisector (BiomeAndBorder).
+        public static byte SurfaceBiome(in Offsets o, float2 p, byte biome, float border)
+        {
+            if (border > BlendClimateReach(in o)) return biome;
+            return Biome(in o, p + BlendOffset(in o, p));
         }
 
         /// Still-water level (voxels rel. sea) at (x, z): the highest level among

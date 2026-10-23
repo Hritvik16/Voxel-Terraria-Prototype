@@ -329,3 +329,21 @@ Unity's HLSLcc emitted `as_type<float>(bool)` for Metal and the kernel failed at
 prints `SHADER RUNTIME ERROR` from Player.log. Capture: `-looksky 1` (look review) shoots `<pose>_sky_{noon,golden_away,golden_toward,
 sunset_toward,dusk_toward}` and `_old` in the same frame state. Tests: `SkyLookTests` (flags bound, old formula is the off path, no disc
 in the haze, rim curve). Stills: `Screenshots/121/{high,walk_open}_sky_sheet.png`.
+
+**Task 122 -- biome border blend + per-biome tint (VISUAL_REVIEW_114 #5, owner Q6 (a), 2026-10-22; terrain generator, no timing).**
+ON by default on map v4; `-biomeblend 0` = the old hard borders (`TerrainSpec.biomeBlendOff`, read through `BiomeBlend`; v3 ignores
+it and keeps its bytes), `-biometint 0` = no tint. GENERATOR (`ShapeField.SurfaceBiome`): a column's SURFACE, SOIL, beach rule AND rock/strata use
+`ColumnSample.surfBiome`, the biome at a jittered point p + J(p): two warp octaves (800 m / 150 m, +-60 / +-15 m) bend the line, a clump
+octave (40 m, +-18 m) and a per-0.8 m-cell hash dither (+-14 m) mix both sides. (The first in-game stills showed steep slopes still
+changing ROCK along the straight line, so rock follows too.) The BIOME itself (ores, pocket liquids, crystals, danger, the world
+record, the biome x landform maps) is unchanged. Early-out: `BiomeAndBorder`
+gives the climate-space distance to the nearest bisector; above `BlendClimateReach` (|J|max x the climate's Lipschitz bound, with
+`SNOISE_GRAD_BOUND` 8, measured max 7.3) the biome cannot change and the 8 noise calls are skipped (exact; but ~90% of columns are
+inside the reach, so the saving is small: ~+8 snoise per surface Sample). Height-only neighbour samples pass `Sample(.., false)`.
+The far band and minimap use `TopMaterial`, so they show the blend. RENDERER (`Raymarch.compute` `BiomeTint`, in `LookAlbedo`, so
+voxels, shells and the far band agree): each surface material drifts between two tints of its own (grass dry/lush, sand warm/pale,
+snow white/blue, savanna golden/olive, clay pink/grey; packed sand/ice follow sand/snow) on a 2-D value noise of ~100 m and ~400 m
+cells, +-4% value. Capture: `-lookbiome 1` (look review) adds poses `border_0..2` (land border points within 2 km, one per biome
+pair, looking along the border from 150 m back, 35 m up) and `<pose>_<fsr3>_notint` at every pose. Tests: `BiomeBlendTests`
+(gradient bound, early-out exact + record biome unchanged, band shape on 64 E-W transects, off/determinism);
+`Report_BiomeBlendMapPng` (REPORTS=1) writes `Screenshots/122/biome_{map,crop_1km,crop_200m}_before_after.png`.

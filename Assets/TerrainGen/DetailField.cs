@@ -562,14 +562,14 @@ namespace TerrainGen
                     byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, gy, gDeep, gCavern, gUnder), x, y, z);
                     if (ore != 0) return ore;
                 }
-                return LayerRock(in spec, c.biome, gy, gDeep, gCavern, gUnder);
+                return LayerRock(in spec, c.surfBiome, gy, gDeep, gCavern, gUnder);
             }
 
             bool steep = stepAtTop > 1.5f;
             if (!steep && y >= spec.CavernTopY)
             {
                 if (depth < SURFACE_THICKNESS) return Surface(in spec, in c, stepAtTop);
-                if (depth < cd.soilDepth) return Soil(c.biome);
+                if (depth < cd.soilDepth) return Soil(c.surfBiome);
             }
             // Ores (gameplay step 3, map v4): only in rock deeper than 6 m (no cliff faces).
             if (cd.oreMul != 0 && depth > Ores.MIN_DEPTH && spec.mapVersion >= 4)
@@ -577,7 +577,7 @@ namespace TerrainGen
                 byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, y, cd.deepOffset, cd.cavernOffset, cd.underOffset), x, y, z);
                 if (ore != 0) return ore;
             }
-            return LayerRock(in spec, c.biome, y, cd.deepOffset, cd.cavernOffset, cd.underOffset);
+            return LayerRock(in spec, c.surfBiome, y, cd.deepOffset, cd.cavernOffset, cd.underOffset);
         }
 
         // ------------------------------------------------------------------
@@ -675,7 +675,7 @@ namespace TerrainGen
             if (cd.oreMul != 0 && spec.mapVersion >= 4 &&
                 OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi))
                 return 255;
-            return LayerRockRange(in spec, c.biome, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi);
+            return LayerRockRange(in spec, c.surfBiome, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi);
         }
 
         /// UniformSamples' tail where no sample is deeper than brickGeologyDepth:
@@ -689,13 +689,13 @@ namespace TerrainGen
             {
                 if (yLo < spec.CavernTopY) return 255;
                 if (depthLo < SURFACE_THICKNESS) return depthHi < SURFACE_THICKNESS ? Surface(in spec, in c, stepAtTop) : (byte)255;
-                if (depthLo < cd.soilDepth) return depthHi < cd.soilDepth ? Soil(c.biome) : (byte)255;
+                if (depthLo < cd.soilDepth) return depthHi < cd.soilDepth ? Soil(c.surfBiome) : (byte)255;
             }
             float d = cd.deepOffset, cv = cd.cavernOffset, u = cd.underOffset;
             if (cd.oreMul != 0 && depthHi > Ores.MIN_DEPTH && spec.mapVersion >= 4 &&
                 OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, yLo, yHi, d, d, cv, cv, u, u))
                 return 255;
-            return LayerRockRange(in spec, c.biome, yLo, yHi, d, d, cv, cv, u, u);
+            return LayerRockRange(in spec, c.surfBiome, yLo, yHi, d, d, cv, cv, u, u);
         }
 
         /// [yLo, yHi] meets the interval [lo, hi) (empty when hi <= lo).
@@ -790,7 +790,7 @@ namespace TerrainGen
             if (c.water > c.height) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
             if (c.lipLo != 0 && c.height >= c.lipLo) return GenMat.RiverLip;   // task 76
             if (c.stampMat != 0 && c.height >= c.stampBodyLo) return c.stampMat;
-            if (stepAtTop > 1.5f) return Strata(in spec, in o, c.biome, x, c.height, z);
+            if (stepAtTop > 1.5f) return Strata(in spec, in o, c.surfBiome, x, c.height, z);
             return Surface(in spec, in c, stepAtTop);
         }
 
@@ -798,9 +798,10 @@ namespace TerrainGen
         {
             bool stable = stepAtTop <= 1f;   // falling solids only where stable at rest
             // Beaches: the last couple of metres above the waterline.
-            if (c.height <= spec.seaLevelY + 22 && c.height >= spec.seaLevelY - 30 && c.biome != GenBiome.Snow)
+            // Task 122: the surface biome (the border blend), never the rock's.
+            if (c.height <= spec.seaLevelY + 22 && c.height >= spec.seaLevelY - 30 && c.surfBiome != GenBiome.Snow)
                 return stable ? GenMat.BeachSand : GenMat.PackedSand;
-            switch (c.biome)
+            switch (c.surfBiome)
             {
                 case GenBiome.Desert: return stable ? GenMat.Sand : GenMat.PackedSand;
                 case GenBiome.Snow: return stable ? GenMat.Snow : GenMat.PackedIce;
