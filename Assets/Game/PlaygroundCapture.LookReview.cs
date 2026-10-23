@@ -38,6 +38,10 @@
 //           <name>_old (CubeBounce / CubeFilter / CellHash off = task 85b's look);
 //           -lookgolden 1 adds, at EVERY pose, fsr3 at 17 h turned away from the
 //           sun (<pose>_golden_<fsr3>, with _old under -lookab).
+//   TASK 118 (capture-only): -lookclamp M (with -lookgolden 1) adds, at every
+//           pose, golden hour with the sun behind (away) and beside (side) the
+//           camera: fsr3 / none / sun-visibility view, the launch's sun-shadow
+//           clamp (_full) vs M m (_clamp<M>), in the same frame state.
 // Output: <persistentDataPath>/LookReview/<ts>_<preset>/ (PNGs + lookreview.txt).
 using System;
 using System.Collections;
@@ -68,6 +72,7 @@ public partial class PlaygroundCapture
         var onlyPoses = string.IsNullOrEmpty(posesArg) ? null : new HashSet<string>(posesArg.Split(','));
         bool bursts = ArgInt("-lookbursts", 1) != 0;
         bool ab = ArgInt("-lookab", 0) != 0, goldenAll = ArgInt("-lookgolden", 0) != 0;   // task 120
+        float clampM = ArgFloat("-lookclamp", 0f);   // task 118
         string fsr = $"fsr3_{rows}", none = $"none_{rows}";
         float noon = SunCycle.NoonHours;
         SunCycle.SetHours(noon);
@@ -206,6 +211,7 @@ public partial class PlaygroundCapture
                 yield return Frames(60);
                 yield return CaptureCubeAB($"{n}_golden_{fsr}", ab);
                 L($"  golden (task 120): {golden:F1} h, sun elevation {SunCycle.ElevationDegreesAt(golden):F0} deg, turned away from the sun");
+                if (clampM > 0f) yield return LookClampAB(n, cam, eye, -Mathf.DeltaAngle(0f, rot.eulerAngles.x), -math.normalizesafe(new float2(gs.x, gs.z)), fsr, none, clampM);
                 SunCycle.SetHours(noon);
                 cam.transform.rotation = rot;
             }
@@ -247,6 +253,36 @@ public partial class PlaygroundCapture
         L("");
         L($"LOOK REVIEW done: {root}");
         File.WriteAllText(Path.Combine(root, "lookreview.txt"), _log.ToString());
+    }
+
+    /// Task 118: at golden hour, sun behind (away) and beside (side) the camera: each of the
+    /// fsr3 / none arms and the sun-visibility view, with the launch's sun-shadow clamp
+    /// (<pose>_golden_<tag>_<arm>_full) and clamped at M m (..._clamp<M>), 60 frames each.
+    private IEnumerator LookClampAB(string n, Camera cam, Vector3 eye, float pitch, float2 away, string fsr, string none, float m)
+    {
+        float baseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM;
+        string cm = $"clamp{m:F0}";
+        foreach (var (tag, h) in new[] { ("away", away), ("side", new float2(away.y, -away.x)) })
+        {
+            cam.transform.position = eye;
+            cam.transform.rotation = Quaternion.Euler(-pitch, math.degrees(math.atan2(h.x, h.y)), 0f);
+            foreach (string arm in new[] { fsr, none, "sunvis" })
+            {
+                ApplyCompareArm(arm == "sunvis" ? none : arm);
+                cam.ResetProjectionMatrix();
+                RaymarchFeature.UseDebugViewOverride = arm == "sunvis";
+                RaymarchFeature.DebugViewOverride = RaymarchFeature.DebugMode.SunVis;
+                foreach (var (label, v) in new[] { ("full", baseClamp), (cm, m) })
+                {
+                    RaymarchFeature.ShadowMaxDistanceOverrideM = v;
+                    yield return Frames(60);
+                    yield return CaptureTo($"{n}_golden_{tag}_{arm}_{label}");
+                }
+                RaymarchFeature.UseDebugViewOverride = false;
+            }
+        }
+        RaymarchFeature.ShadowMaxDistanceOverrideM = baseClamp;
+        L($"  golden clamp A/B (task 118): away + side, {fsr} / {none} / sunvis, full ({(baseClamp >= 0f ? baseClamp + " m" : "inherit " + RaymarchFeature.LastTierBoundsM[2].ToString("F0") + " m")}) vs {m:F0} m");
     }
 
     /// Task 120: <name>, then (if old) <name>_old with the cube look off after 60 settle frames.

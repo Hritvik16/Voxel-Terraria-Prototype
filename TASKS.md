@@ -303,3 +303,16 @@ per 0.1 m voxel again; ON snaps the hashed voxel to the drawn cell (`(v >> s) <<
 noise keeps its world size. Capture-only: `-lookab 1` shoots each fsr3/native arm also as `<name>_old` with the three parts off
 in the same frame state, `-lookgolden 1` adds a 17 h shot (turned away from the sun) at every pose. Tests `CubeLookTests` (3:
 flags, shader uses inside VE_FAR_SHADE, the face weights vs a brute-force 2D staircase DDA). Stills: `Screenshots/120/`.
+
+**Task 118 (perf trial, owner Q67 (a); PERF_30FPS_PLAN row 5 (a) / step 4; NO default change): `-shadowclamp 128` is a NO-OP in play.**
+With the shells drawn (play's default since 93c) tiers 1-2 are not bound and `RaymarchFeature.MaxRayDistance` (1280 voxels = 128 m)
+is `_MaxRayDistance`, and `TraceShadowRay` takes `min(_MaxRayDistance, _ShadowMaxDistVoxels)`: the voxel sun ray is ALREADY clamped
+at 128 m. The 290 m (tier 2's outer bound) applies only with shells off (rigs, F6 "LOD shells" off). Shell-hit sun shadows
+(`ShellMarch`, iteration cap only) and far-band shadows have no distance clamp, so mountains past 128 m still shadow you. Evidence:
+golden-hour (17 h, sun 15 deg) look launch, High, 540 rows, FSR 3, shells ON, 4 poses x {sun behind, sun beside}: no-upscaler and
+sun-visibility stills full vs clamp128 0 px differ in 15 of 16 pairs (walk_open away none: 12,901 px in the bottom-left lowland while
+shell 4 was still filling; its sun-visibility pair 0 px); `Screenshots/118/look/`, `Logs/lookreview_20261023_014030.txt`.
+Timing skipped (identical kernel input: every outcome = no change). New capture-only flags: `-shadowclamp M` is now parsed in
+`Start()` for every mode; cost-split arm `clampN` (e.g. `-costarms clamp128,clamp128`; FULL keeps the launch's clamp) and a
+`[sun <arm>]` counters line (voxel shadow rays traced / steps, ShadowStats 2 / 4); look review `-lookclamp M` (with `-lookgolden 1`):
+golden hour sun behind (`away`) and beside (`side`), fsr3 / none / sunvis, `_full` vs `_clamp<M>`. Driver `Screenshots/118/118-driver.sh`.

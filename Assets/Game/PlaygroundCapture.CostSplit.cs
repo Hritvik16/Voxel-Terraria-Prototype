@@ -92,6 +92,10 @@
 //   TASK 116: colleap_on / colleap_off  the shells' column sky leap on / off (RaymarchFeature.ShellColumnLeap;
 //                       FULL keeps the launch's -shellcolleap, OFF by default); the counters line adds the column
 //                       leaps (ShadowStats 65-66); raw stills ON vs OFF are the identity check
+//   TASK 118: clampN (e.g. clamp128)  the voxel sun-shadow ray (TraceShadowRay) clamped at N m
+//                       (RaymarchFeature.ShadowMaxDistanceOverrideM; FULL keeps the launch's -shadowclamp,
+//                       inherit = the primary ray's 290 m); the counters line adds that ray's traced rays and
+//                       steps (ShadowStats 2 / 4). Shell-hit and far-band shadows have no distance clamp.
 //            -coststillraw  each arm's first still also shoots _raw.png / _raw2.png (10 frames apart) with no
 //                       upscaler (no jitter), for byte-identity checks between arms
 //            the counters line also gives shell march iterations by ray kind (ShadowStats 48-55)
@@ -314,6 +318,8 @@ public partial class PlaygroundCapture
         RaymarchFeature.ShellColumnLeap = arm == "colleap_on" || (arm != "colleap_off" && _costBaseColLeap);
         // Task 93b4 (diagnostic): see the header.
         RaymarchFeature.DebugShellSkip = arm == "shellshadow_off" ? 1 : arm == "shellmarch_off" ? 2 : arm == "shellcache_off" ? 4 : arm == "shellmask_off" ? 8 : arm == "shellleap_new" ? 24 : 0;
+        // Task 118: clampN = the voxel sun-shadow clamp at N m (see the header).
+        RaymarchFeature.ShadowMaxDistanceOverrideM = CostClampM(arm, out float clampM) ? clampM : _costBaseClamp;
         RaymarchFeature.UseLODCascade = arm != "tiers_off";
         // Task 75: see_on turns see-through liquids ON; FULL keeps the launch's
         // value (OFF unless -seethrough 1), so saved = OFF - ON (negative = its cost).
@@ -336,6 +342,15 @@ public partial class PlaygroundCapture
     private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap;
     private static int _costBaseFarSteps = -1;
     private static bool _costBaseFarShadowOn;
+    private static float _costBaseClamp = -1f;
+
+    /// Task 118: "clamp128" -> 128 m.
+    private static bool CostClampM(string arm, out float m)
+    {
+        m = -1f;
+        return arm.StartsWith("clamp") && float.TryParse(arm.Substring(5), System.Globalization.NumberStyles.Float,
+                                                         System.Globalization.CultureInfo.InvariantCulture, out m) && m > 0f;
+    }
 
     /// Task 93b3 (diagnostic): 30 frames of the far / shell-end counters at the
     /// still pose (not in any timing window). Counters 40-47 are written by the
@@ -350,7 +365,11 @@ public partial class PlaygroundCapture
         uint[] st = RaymarchFeature.ReadShadowStats();
         RaymarchFeature.CollectShadowStats = false;
         if (st == null || st.Length < 48) yield break;
-        double fr = st[5] / (double)n, prim = st[44] / (double)n, shR = st[45] / (double)n, shS = st[46] / (double)n;
+        // Task 118: the voxel sun-shadow rays (TraceShadowRay: ShadowStats 2 traced, 4 their steps) under this arm's clamp.
+        double vR = st[2] / (double)n, vS = st[4] / (double)n;
+        L($"    [sun {arm}] clamp {(RaymarchFeature.ShadowMaxDistanceOverrideM >= 0f ? RaymarchFeature.ShadowMaxDistanceOverrideM + " m" : "inherit")} (primary ray's {RaymarchFeature.LastTierBoundsM[2]:F0} m); " +
+          $"voxel shadow rays traced/frame {vR:N0}, steps/frame {vS:N0} ({(vR > 0 ? vS / vR : 0):F1}/ray)");
+        double fr =st[5] / (double)n, prim = st[44] / (double)n, shR = st[45] / (double)n, shS = st[46] / (double)n;
         double fromShells = (st[40] + st[41] + st[42]) / (double)n;
         L($"    [far {arm}] far rays/frame {fr:N0} (from shells: past-last {st[40] / (double)n:N0}, absent {st[41] / (double)n:N0}, cap / sky exit {st[42] / (double)n:N0}; " +
           $"FarStartT {st[43] / (double)n:N0}), far hits/frame {st[7] / (double)n:N0}; PRIMARY steps/frame {prim:N0} ({(fr > 0 ? prim / fr : 0):F1}/ray); " +
@@ -430,7 +449,7 @@ public partial class PlaygroundCapture
     private IEnumerator CostTime(ClipPath path, CostRun r, float timed, string still, Camera cam,
                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
     {
-        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; }
+        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; }
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);

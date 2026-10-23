@@ -1453,6 +1453,10 @@ public partial class PlaygroundCapture : MonoBehaviour
         // -torchshadows N: occlusion rays to each pixel's N nearest torches (0 = the old leak).
         int torchShadows = ArgInt("-torchshadows", -1);
         if (torchShadows >= 0) RaymarchFeature.TorchShadowsOverride = Mathf.Min(torchShadows, LightingConfig.MaxTorchShadowRays);
+        // -shadowclamp M: the voxel sun-shadow ray's clamp in metres (task 118: every mode,
+        // not only -sustained / -stutterprobe, which still parse it themselves).
+        float shadowClampAll = ArgFloat("-shadowclamp", -1f);
+        if (shadowClampAll >= 0f) RaymarchFeature.ShadowMaxDistanceOverrideM = shadowClampAll;
         if (HasFlag("-pitchsweep")) { yield return PitchSweep(); yield break; }
         if (HasFlag("-stutterprobe")) { yield return StutterProbe(); yield break; }
         if (HasFlag("-gputrace")) { yield return GpuTraceLoad(); yield break; }

@@ -80,7 +80,7 @@ the earlier steps (section 2 note).
 | 1 | Row 1, shell column sky leap (exact) | >= 2 ms at near or open -> keep ON. < 1 ms at both -> off by default, and the shell march line closes (as 93b5 did). In between -> keep (exact, costs nothing). | ~55 / ~41.5 / ~39 |
 | 2 | Row 2, Medium preset in play (if Q2 (a)) | >= 2 ms walk -> keep. ~0 -> keep for the memory and fill gain only if the owner wants that (Q2), else back to High. Slower -> revert. | ~53 / ~36.5 / ~36 |
 | 3 | Row 3, dyn floor 432 + 30 ms target (if Q1 (a)); stills at 432 / 540 first | Walk p50 <= 30 -> keep and go on to the 5% line. Look rejected by the owner -> revert, and steps 4-5 cannot reach p50 alone (see below). | ~40 / ~28 / ~28 |
-| 4 | Row 5 (a), shadow clamp 128 m (then 5 (b) as its own step if needed) | >= 2 ms at near -> keep, if the golden-hour still is accepted. < 1 ms -> revert, try (b). | ~37 / ~26.5 / ~26.5 |
+| 4 | Row 5 (a), shadow clamp 128 m (then 5 (b) as its own step if needed). **Task 118: a no-op in play** -- with the shells drawn the voxel sun ray is already capped at `MaxRayDistance` 128 m (290 m only with shells off); shell-hit and far-band shadows have no distance clamp. | >= 2 ms at near -> keep, if the golden-hour still is accepted. < 1 ms -> revert, try (b). | ~37 / ~26.5 / ~26.5 |
 | 5 | Row 10, spike isolation (measurement + one fix task) | It names the subsystem behind frames > 50 ms -> one fix task. If nothing is named (pure GPU variance), the 5% line rests on near-type views alone. | p50 unchanged; p99 ? |
 | 6 | Only if near-type views are still > 33 ms: dyn floor 405 or 360 (Q1 (b)), **or** STP (row 6) | Near <= 33 and % > 33 <= 5 -> target met; then row 9 (fill), re-measured, since filled shells add cost back. | 405: ~34 / 360: ~30 near (est.) |
 
