@@ -1,0 +1,28 @@
+UPSCALER CLIPS -- 2026-10-23_012420
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset low, sizing rows 480, render rows 540 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 45 s
+  shell 0: voxel 0.1 m,      0-    46 m; voxel px at 540 rows inner inf -> outer 1.13 (at 1080 output: outer 2.25)
+  shell 1: voxel 0.2 m,     46-    92 m; voxel px at 540 rows inner 2.25 -> outer 1.13 (at 1080 output: outer 2.25)
+  shell 2: voxel 0.4 m,     92-   183 m; voxel px at 540 rows inner 2.25 -> outer 1.13 (at 1080 output: outer 2.25)
+  shell 3: voxel 0.8 m,    183-   367 m; voxel px at 540 rows inner 2.25 -> outer 1.13 (at 1080 output: outer 2.25)
+  shell 4: voxel 1.6 m,    367-   733 m; voxel px at 540 rows inner 2.25 -> outer 1.13 (at 1080 output: outer 2.25)
+  shell 5: voxel 3.2 m,    733-  1467 m; voxel px at 540 rows inner 2.25 -> outer 1.13 (at 1080 output: outer 2.25)
+
+== walk_open: eye (3959.8, 1056.2, 3880.2), yaw 113 pitch 0 deg; circle angle 248 deg, median free distance 1500 m
+  [shells] waited 41 s (cap 45 s): stored/missing/in flight:  s1 728/0/0  s2 566/0/0  s3 462/20/0 FULL  s4 404/0/0  s5 242/0/0   total stored 2402, missing 20, pending 0; requested 2996, generated 2996 (61 ms each on a worker), dropped stale 4, over-budget frames 1 (of 1465)
+  [px] walk_open  hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 193309/189857/11.62  s1 4/4/1.46  s2 9306/9306/1.65  s3 -  s4 -  s5 1168/1168/1.44
+  walk_open  fsr3_540  dispatch 960x540
+  walk_open  none_540  dispatch 960x540
+  walk_open  native    dispatch 1920x1080
+
+== high: eye (3857.2, 1117.5, 3658.8), yaw 90 pitch -4 deg; highest column within 800 m + 20 m, free distance 3000 m
+  [shells] waited 3 s (cap 45 s): stored/missing/in flight:  s1 566/0/0  s2 485/0/0  s3 457/24/0 FULL  s4 404/0/0  s5 242/0/0   total stored 2154, missing 24, pending 0; requested 4092, generated 4092 (59 ms each on a worker), dropped stale 4, over-budget frames 1 (of 2341)
+  [px] high       hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 50048/0/0.88  s1 5/5/1.06  s2 47728/47728/2.00  s3 1508/1508/2.04  s4 2/2/1.48  s5 46925/46925/1.97
+  high       fsr3_540  dispatch 960x540
+  high       none_540  dispatch 960x540
+  high       native    dispatch 1920x1080
+
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-23_012420_low

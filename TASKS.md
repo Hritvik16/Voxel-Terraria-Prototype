@@ -290,3 +290,16 @@ launches H M M H with `-costarms shells_off -quality X`, MODE=walk 3 min x 4 ABB
 -0.2 ms, p95 +2.1 ms, cost-split FULL -0.8 / -1.0 ms (inside the 0.3-1.6 ms noise); shell iterations per frame do not fall
 (walk_open 12.4 M High vs 12.5 M Medium); process memory -112 MB median; Medium draws a dashed dark seam over the sea at the
 3.3 km shell-to-far-band hand-off (`Screenshots/117/handoff_high_fsr3_540_3x.png`).
+
+**Task 120 (look, VISUAL_REVIEW_114 #1 + #2 + #9, owner Q4 (a) 2026-10-22): CUBE FACE LIGHTING.** Far-shading kernel only
+(`Raymarch.compute`, every use under `#ifdef VE_FAR_SHADE`, so rigs without far shading are byte-identical); three parts, all ON,
+`-cubelook 0` = task 85b's look. (1) `-cubebounce 0` drops the ground bounce: sun colour x 0.25 (`CubeBounceStrength`) x sun
+height x (1 - n.y) on the sky term (x skyOpen, VAO), so noon side faces stop going olive (golden hour barely changes). (2)
+`-cubefilter 0` restores 85b's cube-face -> slope-normal switch at the live dispatch rows' 1-2 px (a pale band that moved with
+FSR 3 dyn rows); ON lights a hit as the mean of its staircase's cube faces (`CubeLight`: top / x / z face light weighted by
+|nS.i| x cosine to the eye, nS = `FarSlopeNormal`), blended from the hit's own face over a FIXED 20-50 m (`CubeFilterStartM/
+FullM`); VAO fades over the same distance; near voxels, shells and the far band alike. (3) `-cellhash 0` hashes the colour noise
+per 0.1 m voxel again; ON snaps the hashed voxel to the drawn cell (`(v >> s) << s`, s = shell, or cascade tier 1/2), patch
+noise keeps its world size. Capture-only: `-lookab 1` shoots each fsr3/native arm also as `<name>_old` with the three parts off
+in the same frame state, `-lookgolden 1` adds a 17 h shot (turned away from the sun) at every pose. Tests `CubeLookTests` (3:
+flags, shader uses inside VE_FAR_SHADE, the face weights vs a brute-force 2D staircase DDA). Stills: `Screenshots/120/`.

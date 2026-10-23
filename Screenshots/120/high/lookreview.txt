@@ -1,0 +1,48 @@
+UPSCALER CLIPS -- 2026-10-23_011407
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 720 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 45 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 720 rows inner inf -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 720 rows inner 2.00 -> outer 1.33 (at 1080 output: outer 2.00)
+
+== walk_near: eye (3867.2, 941.9, 4018.8), yaw 180 pitch 0 deg; circle angle -180 deg, heading = -sun
+  [shells] waited 45 s (cap 45 s): stored/missing/in flight:  s1 2170/0/0  s2 1595/233/4  s3 367/1123/4  s4 0/987/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 4132, missing 3030, pending 0; requested 4460, generated 4452 (41 ms each on a worker), dropped stale 2, over-budget frames 1 (of 1322)
+  [px] walk_near  hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 869495/867844/93.95  s1 40/0/0.99  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  walk_near  fsr3_720  dispatch 1280x720
+  walk_near  none_720  dispatch 1280x720
+  walk_near  native    dispatch 1920x1080
+  golden (task 120): 17.0 h, sun elevation 15 deg, turned away from the sun
+
+== walk_open: eye (3959.8, 1056.2, 3880.2), yaw 113 pitch 0 deg; circle angle 248 deg, median free distance 1500 m
+  [shells] waited 45 s (cap 45 s): stored/missing/in flight:  s1 1832/0/0  s2 1494/0/0  s3 1144/176/5  s4 237/756/3  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 4707, missing 1619, pending 0; requested 7710, generated 7702 (69 ms each on a worker), dropped stale 3, over-budget frames 1 (of 2956)
+  [px] walk_open  hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 343015/337111/15.49  s1 14055/8312/1.10  s2 2431/2431/1.76  s3 -  s4 -  s5 -  s6 -  s7 -
+  walk_open  fsr3_720  dispatch 1280x720
+  walk_open  none_720  dispatch 1280x720
+  walk_open  native    dispatch 1920x1080
+  golden (task 120): 17.0 h, sun elevation 15 deg, turned away from the sun
+
+== ridge: eye (3959.8, 1056.2, 3880.2), yaw 225 pitch 2 deg; ground rises 296 m ahead
+  [shells] waited 37 s (cap 45 s): stored/missing/in flight:  s1 1832/0/0  s2 1494/0/0  s3 1288/36/0 FULL  s4 996/0/0  s5 489/0/0  s6 182/0/0  s7 16/0/0   total stored 6297, missing 36, pending 0; requested 9293, generated 9293 (90 ms each on a worker), dropped stale 3, over-budget frames 1 (of 4143)
+  [px] ridge      hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 310017/308175/53.83  s1 2987/29/1.06  s2 54156/44194/1.81  s3 12572/12572/1.81  s4 -  s5 25245/19902/1.67  s6 43455/41190/1.81  s7 638/638/1.81
+  ridge      fsr3_720  dispatch 1280x720
+  ridge      none_720  dispatch 1280x720
+  ridge      native    dispatch 1920x1080
+  golden (task 120): 17.0 h, sun elevation 15 deg, turned away from the sun
+
+== high: eye (3857.2, 1117.5, 3658.8), yaw 90 pitch -4 deg; highest column within 800 m + 20 m, free distance 3000 m
+  [shells] waited 21 s (cap 45 s): stored/missing/in flight:  s1 1494/0/0  s2 1325/0/0  s3 1325/0/0  s4 996/0/0  s5 489/0/0  s6 182/0/0  s7 16/0/0   total stored 5827, missing 0, pending 0; requested 11589, generated 11589 (83 ms each on a worker), dropped stale 3, over-budget frames 1 (of 5327)
+  [px] high       hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 89295/19901/1.18  s1 62390/18172/1.41  s2 25057/25057/1.81  s3 57/53/1.64  s4 42138/19956/1.31  s5 81247/71638/1.81  s6 89007/77265/1.81  s7 15347/15347/1.81
+  high       fsr3_720  dispatch 1280x720
+  high       none_720  dispatch 1280x720
+  high       native    dispatch 1920x1080
+  golden (task 120): 17.0 h, sun elevation 15 deg, turned away from the sun
+
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-23_011408_high

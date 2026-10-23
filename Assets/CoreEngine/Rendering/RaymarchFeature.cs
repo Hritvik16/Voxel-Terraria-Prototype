@@ -281,6 +281,19 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// removed them, the rock rule above did not). Hills and cliffs taller than a texel still cast shadows.
     /// ON by default; `-farshadowlift 0` = the old shadow start. Without far shading nothing changes.
     public static bool FarShadowLift = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-farshadowlift");
+    /// Task 120 (VISUAL_REVIEW_114 #1 + #2 + #9, owner Q4 (a), 2026-10-22): CUBE FACE LIGHTING in the far-shading
+    /// kernel (FarShade on), so near and far terrain read as the same small-cube material. Three parts, ON by default:
+    /// (1) `-cubebounce 0` drops the warm ground bounce on side faces (sun colour x 0.25 x sun height x (1 - n.y));
+    /// (2) `-cubefilter 0` restores task 85b's switch from cube-face to slope lighting at the live render rows'
+    /// 1-2 px point (a pale band that moved with FSR 3's dynamic rows) -- ON lights far ground as the mean of its
+    /// staircase's cube faces, blended in over a fixed 20-50 m; (3) `-cellhash 0` hashes the colour noise per 0.1 m
+    /// voxel again instead of once per drawn cell. `-cubelook 0` turns all three off (task 85b's look).
+    public static bool CubeLook = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-cubelook");
+    public static bool CubeBounce = CubeLook && ParseFlagOn(System.Environment.GetCommandLineArgs(), "-cubebounce");
+    public static bool CubeFilter = CubeLook && ParseFlagOn(System.Environment.GetCommandLineArgs(), "-cubefilter");
+    public static bool CellHash = CubeLook && ParseFlagOn(System.Environment.GetCommandLineArgs(), "-cellhash");
+    public static float CubeBounceStrength = 0.25f;
+    public static float CubeFilterStartM = 20f, CubeFilterFullM = 50f;
     /// Its constants (task 85b's picks): sky strength (x the sky colour the face
     /// sees), haze range and scale height (metres), and the share of the haze that
     /// light takes (0.25: a torch at haze 0.9 keeps ~78% of its light).
@@ -1273,6 +1286,10 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_FarShadow", data.farShadow);
                         cmd.SetComputeIntParam(data.compute, "_FarRockSlope", FarRockSlope ? 1 : 0);   // task 119
                         cmd.SetComputeIntParam(data.compute, "_FarShadowLift", FarShadowLift ? 1 : 0); // task 119
+                        cmd.SetComputeFloatParam(data.compute, "_CubeBounce", CubeBounce ? CubeBounceStrength : 0f);   // task 120
+                        cmd.SetComputeIntParam(data.compute, "_CubeFilter", CubeFilter ? 1 : 0);
+                        cmd.SetComputeIntParam(data.compute, "_CellHash", CellHash ? 1 : 0);
+                        cmd.SetComputeVectorParam(data.compute, "_CubeFilterRange", new Vector4(CubeFilterStartM * 10f, CubeFilterFullM * 10f, 0f, 0f));
                         cmd.SetComputeVectorArrayParam(data.compute, "_FarOrigin", data.farOrigins);
                         cmd.SetComputeVectorParam(data.compute, "_FarParams", data.farParams);
                         cmd.SetComputeFloatParam(data.compute, "_FarPixelAngle", data.farPixelAngle);

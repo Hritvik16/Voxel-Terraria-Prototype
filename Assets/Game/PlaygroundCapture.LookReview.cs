@@ -33,6 +33,11 @@
 //           (UpscalerSelect-clamped) instead of the preset's (High vs Medium at
 //           540 both); -lookposes a,b,.. only these poses; -lookbursts 0 skips
 //           the motion bursts and golden hour.
+//   TASK 120 (capture-only): -lookab 1 shoots every fsr3 / native arm twice in
+//           the same frame state, <name> (task 120's cube look as flagged) and
+//           <name>_old (CubeBounce / CubeFilter / CellHash off = task 85b's look);
+//           -lookgolden 1 adds, at EVERY pose, fsr3 at 17 h turned away from the
+//           sun (<pose>_golden_<fsr3>, with _old under -lookab).
 // Output: <persistentDataPath>/LookReview/<ts>_<preset>/ (PNGs + lookreview.txt).
 using System;
 using System.Collections;
@@ -62,6 +67,7 @@ public partial class PlaygroundCapture
         string posesArg = ArgValue("-lookposes");
         var onlyPoses = string.IsNullOrEmpty(posesArg) ? null : new HashSet<string>(posesArg.Split(','));
         bool bursts = ArgInt("-lookbursts", 1) != 0;
+        bool ab = ArgInt("-lookab", 0) != 0, goldenAll = ArgInt("-lookgolden", 0) != 0;   // task 120
         string fsr = $"fsr3_{rows}", none = $"none_{rows}";
         float noon = SunCycle.NoonHours;
         SunCycle.SetHours(noon);
@@ -180,7 +186,7 @@ public partial class PlaygroundCapture
                 cam.transform.position = eye; cam.transform.rotation = rot;
                 yield return Frames(60);
                 if (arm == fsr && sh != null) yield return LookShellPx(sh, n);
-                yield return CaptureTo($"{n}_{arm}");
+                yield return CaptureCubeAB($"{n}_{arm}", ab && arm != none);
                 var d = RaymarchFeature.LastDispatchResolution;
                 L($"  {n,-10} {arm,-9} dispatch {d.x}x{d.y}");
             }
@@ -189,6 +195,20 @@ public partial class PlaygroundCapture
             yield return Frames(30);
             yield return CaptureTo($"{n}_{fsr}_tint");
             RaymarchFeature.ShellTint = false;
+            if (goldenAll)
+            {
+                const float golden = 17f;
+                SunCycle.SetHours(golden);
+                float3 gs = SunCycle.DirectionAt(golden);
+                ApplyCompareArm(fsr);
+                cam.ResetProjectionMatrix();
+                cam.transform.position = eye; cam.transform.rotation = Look(-math.normalizesafe(new float2(gs.x, gs.z)), -Mathf.DeltaAngle(0f, rot.eulerAngles.x));
+                yield return Frames(60);
+                yield return CaptureCubeAB($"{n}_golden_{fsr}", ab);
+                L($"  golden (task 120): {golden:F1} h, sun elevation {SunCycle.ElevationDegreesAt(golden):F0} deg, turned away from the sun");
+                SunCycle.SetHours(noon);
+                cam.transform.rotation = rot;
+            }
             if (bursts && (n == "walk_open" || n == "ridge"))
             {
                 Vector3 fwd = rot * Vector3.forward; fwd.y = 0f; fwd = fwd.normalized;
@@ -227,6 +247,19 @@ public partial class PlaygroundCapture
         L("");
         L($"LOOK REVIEW done: {root}");
         File.WriteAllText(Path.Combine(root, "lookreview.txt"), _log.ToString());
+    }
+
+    /// Task 120: <name>, then (if old) <name>_old with the cube look off after 60 settle frames.
+    private IEnumerator CaptureCubeAB(string name, bool old)
+    {
+        yield return CaptureTo(name);
+        if (!old) yield break;
+        bool b = RaymarchFeature.CubeBounce, f = RaymarchFeature.CubeFilter, c = RaymarchFeature.CellHash;
+        RaymarchFeature.CubeBounce = RaymarchFeature.CubeFilter = RaymarchFeature.CellHash = false;
+        yield return Frames(60);
+        yield return CaptureTo(name + "_old");
+        RaymarchFeature.CubeBounce = b; RaymarchFeature.CubeFilter = f; RaymarchFeature.CellHash = c;
+        yield return Frames(60);
     }
 
     /// Per-shell voxel px at the dispatch rows for one frame (ShadowStats 8-11,

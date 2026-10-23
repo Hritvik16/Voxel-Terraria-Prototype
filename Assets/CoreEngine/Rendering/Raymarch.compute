@@ -3277,6 +3277,87 @@ float3 FarShadeSky(float3 n)
     return lerp(_LookSkyHorizon.rgb, _LookSkyZenith.rgb, 0.5 * saturate(n.y)) * ((0.5 + 0.5 * n.y) * _FarShadeParams.x);
 }
 
+// ===========================================================================
+// TASK 120 (VISUAL_REVIEW_114 #1 + #2 + #9, owner Q4 (a), 2026-10-22): CUBE
+// FACE LIGHTING, near and far alike. Far-shade kernel only; each part has its
+// own switch (RaymarchFeature: -cubebounce / -cubefilter / -cellhash, all three
+// off with -cubelook 0 = task 85b's look).
+//  1. GROUND BOUNCE (_CubeBounce, 0.25): a face that does not look straight up
+//     gets sun colour x _CubeBounce x sun height x (1 - n.y), on the sky term
+//     (so x skyOpen and VAO): sides stop going olive at noon, caves stay dark,
+//     and it fades with the sun.
+//  2. FILTERED CUBE LIGHT (_CubeFilter): instead of switching from the cube face
+//     to the slope normal where a voxel reaches 1-2 px (FarShadeBlend: the live
+//     dispatch rows, so it moved with FSR 3's dynamic rows -- a pale smooth band),
+//     far ground is lit as the MEAN of what its cube faces show: a staircase with
+//     smooth normal nS has top faces over |nS.y| of its area and x / z sides over
+//     |nS.x|, |nS.z|; seen along rayDir each shows that area x its cosine to the
+//     eye (a front-facing heightfield staircase hides none of its own faces).
+//     Blended in from the hit's own face over a FIXED distance (_CubeFilterRange,
+//     voxels), so the average brightness does not change where it starts.
+//  3. CELL HASH (_CellHash): LookAlbedo takes the voxel snapped to the cell the
+//     hit was DRAWN at ((v >> shell) << shell), one colour per drawn cell; the
+//     0.8 m and 0.2 m patch noise keeps its world size.
+// ===========================================================================
+float  _CubeBounce;
+int    _CubeFilter;
+int    _CellHash;
+float2 _CubeFilterRange;   // voxels: x = starts, y = full
+
+float3 CubeBounceLight(float3 n, float3 sd)
+{
+    return _LookSun.rgb * (_CubeBounce * saturate(sd.y) * saturate(1.0 - n.y));
+}
+
+float CubeFilterBlend(float distVoxels)
+{
+    return smoothstep(_CubeFilterRange.x, _CubeFilterRange.y, distVoxels);
+}
+
+// One face's look-1 light: `direct` (sun + moon) and `sky` (sky + bounce, before skyOpen and VAO).
+void CubeFaceLight(float3 n, float3 sd, float sunExposure, float skyOpen, out float3 direct, out float3 sky)
+{
+    float3 ln = normalize(n + float3(0.0, 0.65, 0.0));
+    float softened = lerp(0.4, 1.0, saturate(ln.y) * 0.6 + saturate(abs(ln.x)) * 0.2 + 0.2);
+    direct = _LookSun.rgb * saturate(dot(n, sd) * 0.8 + 0.2) * sunExposure * softened
+           + _LookMoon.rgb * saturate(dot(n, -sd) * 0.8 + 0.2) * softened * skyOpen;
+    sky = FarShadeSky(n) + CubeBounceLight(n, sd);
+}
+
+// The hit face's light blended with its staircase's mean (part 2) by w.
+void CubeLight(float3 nFace, float3 nS, float w, float3 rayDir, float3 sd, float sunExposure, float skyOpen,
+               out float3 direct, out float3 sky)
+{
+    CubeFaceLight(nFace, sd, sunExposure, skyOpen, direct, sky);
+    if (w <= 0.0) return;
+    float3 fx = float3(nS.x >= 0.0 ? 1.0 : -1.0, 0.0, 0.0);
+    float3 fy = float3(0.0, nS.y >= 0.0 ? 1.0 : -1.0, 0.0);
+    float3 fz = float3(0.0, 0.0, nS.z >= 0.0 ? 1.0 : -1.0);
+    float wx = abs(nS.x) * saturate(-dot(fx, rayDir));
+    float wy = abs(nS.y) * saturate(-dot(fy, rayDir));
+    float wz = abs(nS.z) * saturate(-dot(fz, rayDir));
+    float sw = wx + wy + wz;
+    if (sw < 1e-4) return;   // the staircase is edge-on: keep the face
+    float3 dX, sX, dY, sY, dZ, sZ;
+    CubeFaceLight(fx, sd, sunExposure, skyOpen, dX, sX);
+    CubeFaceLight(fy, sd, sunExposure, skyOpen, dY, sY);
+    CubeFaceLight(fz, sd, sunExposure, skyOpen, dZ, sZ);
+    float3 dM = (dX * wx + dY * wy + dZ * wz) / sw;
+    float3 sM = (sX * wx + sY * wy + sZ * wz) / sw;
+    direct = lerp(direct, dM, w);
+    sky = lerp(sky, sM, w);
+}
+
+// Part 2's weight at a hit: CubeFilterBlend where the far band's slope holds the
+// hit (not a cave or overhang), 0 elsewhere; fluids and lava keep flat tops.
+float CubeFilterWeight(float3 p, float distVoxels, uint m, out float3 nS)
+{
+    nS = float3(0.0, 1.0, 0.0);
+    float w = CubeFilterBlend(distVoxels);
+    if (w <= 0.0 || MaterialIsClearFluid(m) || m == 11u || !FarSlopeNormal(p, distVoxels, nS)) return 0.0;
+    return w;
+}
+
 float FarShadeHaze(float distVoxels, float y0, float y1)
 {
     float a = max(y0 - 23.0, 0.0) / _FarShadeParams.z;
@@ -3967,6 +4048,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // hand to the far band only past the last shell or where no shell has the
     // chunk (row 5). _ShellCount == 0 (default): nothing here runs.
     int shellAtHit = 0;
+#ifdef VE_FAR_SHADE
+    bool shellHit = false;
+#endif
     float tShellEnd = -1.0;   // >= 0: the shells ran and ended there without a hit
 #ifdef VE_FAR_SHADE
     // TASK 93b3 (DIAGNOSTIC, capture only): how the shell march ended and its
@@ -4009,6 +4093,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         {
             hit = true; mat = RiverLipAsWater(shr.mat); voxel = shr.voxel; normal = shr.normal; currentDist = shr.t;
             shellAtHit = shr.shell; tierAtHit = 2 + shr.shell; lastWasDense = true;
+#ifdef VE_FAR_SHADE
+            shellHit = true;   // task 120: tierAtHit 2 is then shell 0, not tier 2
+#endif
             if (_CollectShadowStats != 0 && shr.inside) InterlockedAdd(ShadowStats[11 + 4 * shr.shell], 1u);
         }
         else tShellEnd = shr.t;
@@ -4569,7 +4656,13 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             // light buffer / FaceAO with C.9 below; only the combine differs.
             uint lm = mat;
             bool selfLit = MaterialIsSelfLit(lm);
+#ifdef VE_FAR_SHADE
+            // Task 120 (part 3): one colour per DRAWN cell.
+            int cellShift = shellHit ? shellAtHit : (tierAtHit <= 2 ? tierAtHit : 0);   // cascade tier 1 / 2: 2 / 4 voxels
+            float3 baseColor = LookAlbedo(lm, _CellHash != 0 ? (voxel >> cellShift) << cellShift : voxel);
+#else
             float3 baseColor = LookAlbedo(lm, voxel);
+#endif
             if (_RiverLook != 0 && lm == 6u && passMat == 0u && normal.y > 0)   // task 76: flow and foam
             {
                 float rb;
@@ -4579,8 +4672,17 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             float3 nF = float3(normal);
             float3 sd = normalize(_SunDir);
 #ifdef VE_FAR_SHADE
-            // Task 85b: past the blend, lit by the ground slope, not the cube face.
-            if (!selfLit) nF = FarShadeNormal(nF, rayStart + rayDir * currentDist, currentDist, lm);
+            // Task 120 (part 2): the staircase's mean light over a fixed distance; nF
+            // (the blended normal) is then for point lights only. Off: task 85b's
+            // switch -- past the blend, lit by the ground slope, not the cube face.
+            float3 nFace = nF, nSlope = nF;
+            float cubeW = 0.0;
+            if (_CubeFilter != 0)
+            {
+                if (!selfLit) cubeW = CubeFilterWeight(rayStart + rayDir * currentDist, currentDist, lm, nSlope);
+                if (cubeW > 0.0) nF = normalize(lerp(nF, nSlope, cubeW));
+            }
+            else if (!selfLit) nF = FarShadeNormal(nF, rayStart + rayDir * currentDist, currentDist, lm);
 #endif
 
             // Face shade: tops bright, sides distinct (the Brickmap's constants).
@@ -4611,7 +4713,16 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             }
 #ifdef VE_FAR_SHADE
             // Task 85b: the sky term; VAO fades out where a voxel is <= 1-2 px.
-            float3 ambient = FarShadeSky(nF) * skyOpen * lerp(vao, 1.0, FarShadeBlend(currentDist));
+            // Task 120: + the ground bounce (part 1); with part 2 the filtered
+            // light replaces direct and sky, and VAO fades over part 2's distance.
+            float3 skyT = FarShadeSky(nF) + CubeBounceLight(nF, sd);
+            float aoFade = FarShadeBlend(currentDist);
+            if (_CubeFilter != 0)
+            {
+                CubeLight(nFace, nSlope, cubeW, rayDir, sd, sunExposure, skyOpen, direct, skyT);
+                aoFade = CubeFilterBlend(currentDist);
+            }
+            float3 ambient = skyT * skyOpen * lerp(vao, 1.0, aoFade);
 #else
             float3 ambient = _LookAmbient.rgb * skyOpen * vao;
 #endif
@@ -4873,7 +4984,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         float sunVisF = (_SunDir.y > 0.0) ? farSunVis : 0.0;
         if (_Look == 1 && _UseDevColors != 0)
         {
-            float3 baseColor = LookAlbedo(fm, fvox);
+            float3 baseColor = LookAlbedo(fm, fvox);   // already one colour per drawn column (task 120 part 3 holds)
             if (_RiverLook != 0 && fm == 6u && fh.normal.y > 0)   // task 76 (R5): the same flow and foam as near
             {
                 float rb;
@@ -4882,7 +4993,11 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             }
 #ifdef VE_FAR_SHADE
             // Task 85b: the slope from the same column heights the far band is drawn from.
-            nF = FarShadeNormal(nF, rayStart + rayDir * fh.t, fh.t, fm);
+            // Task 120 (part 2): with the cube filter, the slope's staircase mean instead.
+            float3 nFaceF = nF, nSlopeF = nF;
+            float cubeWF = 0.0;
+            if (_CubeFilter != 0) cubeWF = CubeFilterWeight(rayStart + rayDir * fh.t, fh.t, fm, nSlopeF);
+            else nF = FarShadeNormal(nF, rayStart + rayDir * fh.t, fh.t, fm);
 #endif
             float3 ln = normalize(nF + float3(0.0, 0.65, 0.0));
             float faceShade = saturate(ln.y) * 0.6 + saturate(abs(ln.x)) * 0.2 + 0.2;
@@ -4893,7 +5008,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             float moonLight = saturate(dot(nF, -sd) * 0.8 + 0.2);
             direct += _LookMoon.rgb * moonLight * softened;
 #ifdef VE_FAR_SHADE
-            float3 faceLightF = (direct + FarShadeSky(nF)) * _LookGrade.x;
+            float3 skyF = FarShadeSky(nF) + CubeBounceLight(nF, sd);   // task 120 part 1
+            if (_CubeFilter != 0) CubeLight(nFaceF, nSlopeF, cubeWF, rayDir, sd, sunExposure, 1.0, direct, skyF);
+            float3 faceLightF = (direct + skyF) * _LookGrade.x;
 #else
             float3 faceLightF = (direct + _LookAmbient.rgb) * _LookGrade.x;
 #endif
