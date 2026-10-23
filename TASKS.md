@@ -245,3 +245,13 @@ fsr3 / none at the preset's rows (UpscalerSelect clamps to 540-720), native, and
 the difference images, crops and sheets. Report: `VISUAL_REVIEW_114.md`. Top defects: olive side faces and staircases, a
 lighting band that moves with dynamic rows (FarShadeBlend), far-band rock contour dashes (FarWallMaterial lip), a flat sky,
 and tier 0 drawn below 1 px beyond shell 0.
+
+**Task 115 (stutter isolation, measurement only; no product behaviour change).** `-spikelog` on `-sustained` (implies
+`-framegap` + `-frametiming`) writes `spikes.csv` beside `sustained.txt`: one row per frame (EOF-to-EOF ms split into
+preUpdate / update / postLate, GC counts, streamer phases, shells.Update ms (`FrameGapProbe.LastShellsMs`, new), far ms,
+admits/evictions/saves, clipmap and shell upload bytes, fluid ticks, readbacks landed, light uploads, upscaler rows,
+FrameTimingManager fields, camera x/z). `tools/spike-report.py <csv> [<csv>..]` (auto-trims the post-walk rows where the camera
+stops): histogram, spikes vs slow stretches (local median +-15 frames), co-occurrence lifts, lagged excess, circle sectors across
+walks; `tools/spike-attribution.py`: exclusive spike classes + "spikes removed" counterfactual. Command: `MODE=walk MINUTES=3
+EXTRA="-renderpreset quality -upscaler fsr3 -renderrows 540 -farband 1 -farshade 1 -seethrough 1 -riverlook 1 -tod 12 -spikelog
+-shells 1 -shellworkers 3" ./run-tg2world.sh`. Result (HANDOFF 115): the walk's tail is slow VIEWS (GPU), not hitches.

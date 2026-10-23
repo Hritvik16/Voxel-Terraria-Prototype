@@ -19,8 +19,22 @@ NEIGH = 15               # local median over +-15 frames, self excluded
 
 
 def load(path):
+    # "file.csv@N" keeps the first N rows: the probe keeps recording after the walk ends
+    # (the report, the end shots), so pass the WHOLE RUN line's frame count.
+    keep = None
+    if '@' in path:
+        path, keep = path.rsplit('@', 1)
+        keep = int(keep)
     with open(path) as f:
         rows = list(csv.DictReader(f))
+    if keep:
+        rows = rows[:keep]
+    else:
+        # the walk ended where the camera stopped moving (the rows after are the report + end shots)
+        end = len(rows)
+        while end > 2 and (rows[end - 1]['cam_x'], rows[end - 1]['cam_z']) == (rows[end - 2]['cam_x'], rows[end - 2]['cam_z']):
+            end -= 1
+        rows = rows[:end - 1]
     cols = {k: [float(r[k]) for r in rows] for k in rows[0].keys()}
     return cols
 
@@ -141,6 +155,19 @@ def report(path, c):
     res.sort(key=lambda r: -(r[0] if r[0] != float('inf') else 1e9))
     for lift, name, rs, rw, rb, rsp, rbp in res:
         P(f"  {name:<26}{100 * rs:5.0f}% ({100 * rsp:3.0f}%)  {100 * rw:5.0f}%        {100 * rb:5.0f}% ({100 * rbp:3.0f}%)   {lift:6.2f}x")
+    # lagged excess: an event in frame i -> mean (frame - local median) in frame i+k
+    exc = [fm[i] - loc[i] for i in range(n)]
+    allx = sum(exc[i] for i in idx) / len(idx)
+    P(f"lagged excess (frame - local median, ms) after an event in frame i; all frames {allx:+.2f}")
+    P("  event                        n     i+0    i+1    i+2    i+3    i+4   sum(0..4) - 5*all")
+    for name in ('fluid tick issued', 'fluid readback landed', 'shell chunk landed', 'chunk admitted', 'chunk evicted',
+                 'streamer > 5 ms', 'our Update interval > 10 ms', 'GC (any gen)', 'light buffer upload'):
+        f = flags[name]
+        ev = [i for i in idx if f(i) and i + 4 < n]
+        if not ev:
+            continue
+        m = [sum(exc[i + k] for i in ev) / len(ev) for k in range(5)]
+        P(f"  {name:<26}{len(ev):5d} " + "".join(f"{x:+7.2f}" for x in m) + f"   {sum(m) - 5 * allx:+7.2f}")
     # worst frames
     worst = sorted(idx, key=lambda i: -fm[i])[:12]
     P("worst 12: i frame [pre/upd/post] local | streamer shells far | adm ev upB shellB | gcD fluidD rbD lightD | ftm main/rend/pres/gpu")
