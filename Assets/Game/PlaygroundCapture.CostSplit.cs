@@ -89,6 +89,9 @@
 //   TASK 99: skyexit_on / skyexit_off  the shells' sky-ray exit on / off (RaymarchFeature.ShellSkyExit;
 //                       FULL keeps the launch's -shellskyexit, ON by default); same image either way (exact); the counters
 //                       line adds SKY rays (no shell or far hit) and their shell iterations (ShadowStats 62-64)
+//   TASK 116: colleap_on / colleap_off  the shells' column sky leap on / off (RaymarchFeature.ShellColumnLeap;
+//                       FULL keeps the launch's -shellcolleap, OFF by default); the counters line adds the column
+//                       leaps (ShadowStats 65-66); raw stills ON vs OFF are the identity check
 //            -coststillraw  each arm's first still also shoots _raw.png / _raw2.png (10 frames apart) with no
 //                       upscaler (no jitter), for byte-identity checks between arms
 //            the counters line also gives shell march iterations by ray kind (ShadowStats 48-55)
@@ -307,6 +310,8 @@ public partial class PlaygroundCapture
         RaymarchFeature.FarShade = arm != "fshade_off" && _costBaseFarShade;
         // Task 99: the sky-ray exit (see the header).
         RaymarchFeature.ShellSkyExit = arm == "skyexit_on" || (arm != "skyexit_off" && _costBaseSkyExit);
+        // Task 116: the column sky leap (see the header).
+        RaymarchFeature.ShellColumnLeap = arm == "colleap_on" || (arm != "colleap_off" && _costBaseColLeap);
         // Task 93b4 (diagnostic): see the header.
         RaymarchFeature.DebugShellSkip = arm == "shellshadow_off" ? 1 : arm == "shellmarch_off" ? 2 : arm == "shellcache_off" ? 4 : arm == "shellmask_off" ? 8 : arm == "shellleap_new" ? 24 : 0;
         RaymarchFeature.UseLODCascade = arm != "tiers_off";
@@ -328,7 +333,7 @@ public partial class PlaygroundCapture
     private static int _costBaseShadow = -1, _costBaseTorch = -1;
     private static bool _costBaseRoof;
     private static float _costBaseRung1;
-    private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit;
+    private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap;
     private static int _costBaseFarSteps = -1;
     private static bool _costBaseFarShadowOn;
 
@@ -371,6 +376,11 @@ public partial class PlaygroundCapture
         L($"    [shell {arm}] sky rays {kR:N0}/frame ({(px > 0 ? 100 * kR / px : 0):F1}% of pixels), shell iters {kI:N0} ({(kR > 0 ? kI / kR : 0):F1}/sky ray); " +
           $"ended by the sky exit {kX:N0} ({(kR > 0 ? 100 * kX / kR : 0):F0}%); exit {(RaymarchFeature.ShellSkyExit ? "ON" : "OFF")}, shell top y {(VoxelEngine.Mirror.ShellStreamer.Active != null ? VoxelEngine.Mirror.ShellStreamer.Active.SolidTopY / 10f : float.NaN):F1} m, " +
           $"far max h {(FarField.Active != null ? FarField.Active.MaxHeightVoxels / 10f : float.NaN):F1} m");
+        if (st.Length < 67) yield break;
+        // Task 116: the column sky leaps (primary rays): one leap each over a group column or a whole chunk.
+        double cl = st[65] / (double)n, cw = st[66] / (double)n;
+        L($"    [shell {arm}] column sky leaps {cl:N0}/frame ({(pi > 0 ? 100 * cl / pi : 0):F0}% of primary iters), whole chunk {cw:N0}; " +
+          $"leap {(RaymarchFeature.ShellColumnLeap ? "ON" : "OFF")}");
     }
 
     /// Task 75: the lake poses, at -liquiddemo's lake (Playground.FindDemoLake:
@@ -420,7 +430,7 @@ public partial class PlaygroundCapture
     private IEnumerator CostTime(ClipPath path, CostRun r, float timed, string still, Camera cam,
                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
     {
-        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; }
+        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; }
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);

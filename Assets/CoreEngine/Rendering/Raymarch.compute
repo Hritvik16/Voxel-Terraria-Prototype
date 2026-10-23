@@ -2657,6 +2657,13 @@ int    _ShellAirMask;
 // is the same. CPU twin: ShellRayReference.March(skyY) / PrimarySkyY (ShellSkyExitTests).
 int    _ShellTopY;
 int    _ShellSkyExit;
+// TASK 116: the COLUMN SKY LEAP (-shellcolleap 1; OFF by default: exact, but no faster, RaymarchFeature.ShellColumnLeap). The column
+// tops (ShellStore COLUMN TOPS) are 4 uints per page in the tail of ShellPages, from
+// _ShellColTopBase (uints): byte j = (gz << 2) | gx of group column j's top local brick y
+// (exclusive; 0 = all air). Used in ShellMarch (below), CPU twin ShellRayReference.March(colLeap).
+int    _ShellColTopBase;
+int    _ShellColLeap;
+#define SHELL_COLLEAP_ON (_ShellColLeap != 0)
 #define SHELL_SKY_NEVER 2147483647
 int ShellSkyY(bool primary)
 {
@@ -2700,6 +2707,8 @@ struct ShellHit
     int dirReads;   // ShellResolve calls (directory reads) the cache did not answer
     int pageReads;  // brick-handle reads the cache did not answer
     int maskGroups; // task 93b5 (diagnostic): empty brick groups crossed in one leap each
+    int colLeaps;   // task 116 (diagnostic): column sky leaps (a group column or a whole chunk)
+    int colLeapsChunk; // ... of them over the whole chunk's x and z
 #endif
 };
 
@@ -2832,41 +2841,53 @@ int ShellPlanesCrossed(int np, float s, float td, int st, float tHit, float tNex
     return n;
 }
 
-/// TASK 93b5 (b): ShellMarch's leap over the span [spanMin, spanMin + span) (every
-/// axis). t = the smallest exit-plane t (ShellPlaneT); each axis crosses the planes
-/// whose t <= that t; the normal is the first axis (x, y, z) whose last crossed
-/// plane has that t. So the state after a leap depends on its exit t only, and one
-/// leap over an empty brick group ends exactly where its last brick leap would
-/// (same t, voxel, normal). LeapSpanReseedClosedForm's (tMax + (n - 1) tDelta, eps)
-/// rounded by path. Only with the mask (SHELL_PLANE_LEAP): it costs +5-6 ms p50 without
-/// it and moves ~0.02% of pixels by 1-7 levels vs the old leap (task 93b5 (b)), so mask
-/// off keeps the old leap. ShellRayReference.Leap / PlaneLeap, line for line.
-void ShellLeap(inout int3 voxel, inout float3 tMax, inout float t, inout int3 normal,
-               float3 tDelta, int3 step, float3 start, int3 spanMin, int span)
+/// TASK 116: ShellLeap over a BOX [spanMin, spanMin + span) (per axis: the column sky leap's
+/// column or chunk). Mask off: LeapSpanReseedClosedForm's arithmetic, per axis, without its
+/// counters (a cube gives what it gives). Mask on: the exit-plane leap (ShellLeap's).
+/// ShellRayReference.LeapBox / PlaneLeapBox, line for line.
+void ShellLeapBox(inout int3 voxel, inout float3 tMax, inout float t, inout int3 normal,
+                  float3 tDelta, int3 step, float3 start, int3 spanMin, int3 span)
 {
+    int3 ec = int3(
+        step.x > 0 ? (spanMin.x + span.x - voxel.x) : (voxel.x - (spanMin.x - 1)),
+        step.y > 0 ? (spanMin.y + span.y - voxel.y) : (voxel.y - (spanMin.y - 1)),
+        step.z > 0 ? (spanMin.z + span.z - voxel.z) : (voxel.z - (spanMin.z - 1)));
     if (!SHELL_PLANE_LEAP)
     {
-        // Mask off (the default): the shell march's leap as before task 93b5, byte for byte.
-        int dA = 0, dB = 0;
-        LeapSpanReseedClosedForm(voxel, tMax, t, tDelta, step, start, spanMin, span, normal, dA, dB);
+        precise float tx = tMax.x + (ec.x - 1) * tDelta.x;
+        precise float ty = tMax.y + (ec.y - 1) * tDelta.y;
+        precise float tz = tMax.z + (ec.z - 1) * tDelta.z;
+        int axis;
+        if (tx <= ty) axis = (tx <= tz) ? 0 : 2;
+        else          axis = (ty <= tz) ? 1 : 2;
+        float tHitO = (axis == 0) ? tx : ((axis == 1) ? ty : tz);
+        const float eps = 1e-4;
+        int3 guard = min(ec, span + 1);
+        if (axis == 0) voxel.x += step.x * ec.x;
+        if (axis == 1) voxel.y += step.y * ec.y;
+        if (axis == 2) voxel.z += step.z * ec.z;
+        if (axis != 0) { float a = 1.0 / tDelta.x; voxel.x += step.x * clamp((int)floor((tHitO + eps - tMax.x) * a) + 1, 0, guard.x); }
+        if (axis != 1) { float a = 1.0 / tDelta.y; voxel.y += step.y * clamp((int)floor((tHitO + eps - tMax.y) * a) + 1, 0, guard.y); }
+        if (axis != 2) { float a = 1.0 / tDelta.z; voxel.z += step.z * clamp((int)floor((tHitO + eps - tMax.z) * a) + 1, 0, guard.z); }
+        tMax = float3(ReseedTMaxAxis(voxel.x, start.x, tDelta.x, step.x),
+                      ReseedTMaxAxis(voxel.y, start.y, tDelta.y, step.y),
+                      ReseedTMaxAxis(voxel.z, start.z, tDelta.z, step.z));
+        t = tHitO;
+        normal = (axis == 0) ? int3(-step.x, 0, 0) : ((axis == 1) ? int3(0, -step.y, 0) : int3(0, 0, -step.z));
         return;
     }
-    int3 ec = int3(
-        step.x > 0 ? (spanMin.x + span - voxel.x) : (voxel.x - (spanMin.x - 1)),
-        step.y > 0 ? (spanMin.y + span - voxel.y) : (voxel.y - (spanMin.y - 1)),
-        step.z > 0 ? (spanMin.z + span - voxel.z) : (voxel.z - (spanMin.z - 1)));
-    int3 pe = int3(step.x > 0 ? spanMin.x + span : spanMin.x,
-                   step.y > 0 ? spanMin.y + span : spanMin.y,
-                   step.z > 0 ? spanMin.z + span : spanMin.z);
+    int3 pe = int3(step.x > 0 ? spanMin.x + span.x : spanMin.x,
+                   step.y > 0 ? spanMin.y + span.y : spanMin.y,
+                   step.z > 0 ? spanMin.z + span.z : spanMin.z);
     float tHit = min(ShellPlaneT(pe.x, start.x, tDelta.x, step.x),
                  min(ShellPlaneT(pe.y, start.y, tDelta.y, step.y),
                      ShellPlaneT(pe.z, start.z, tDelta.z, step.z)));
     int3 np = int3(step.x > 0 ? voxel.x + 1 : voxel.x,
                    step.y > 0 ? voxel.y + 1 : voxel.y,
                    step.z > 0 ? voxel.z + 1 : voxel.z);
-    int3 n = int3(ShellPlanesCrossed(np.x, start.x, tDelta.x, step.x, tHit, tMax.x, min(ec.x, span + 1)),
-                  ShellPlanesCrossed(np.y, start.y, tDelta.y, step.y, tHit, tMax.y, min(ec.y, span + 1)),
-                  ShellPlanesCrossed(np.z, start.z, tDelta.z, step.z, tHit, tMax.z, min(ec.z, span + 1)));
+    int3 n = int3(ShellPlanesCrossed(np.x, start.x, tDelta.x, step.x, tHit, tMax.x, min(ec.x, span.x + 1)),
+                  ShellPlanesCrossed(np.y, start.y, tDelta.y, step.y, tHit, tMax.y, min(ec.y, span.y + 1)),
+                  ShellPlanesCrossed(np.z, start.z, tDelta.z, step.z, tHit, tMax.z, min(ec.z, span.z + 1)));
     voxel += step * n;
     tMax = float3(ReseedTMaxAxis(voxel.x, start.x, tDelta.x, step.x),
                   ReseedTMaxAxis(voxel.y, start.y, tDelta.y, step.y),
@@ -2878,30 +2899,61 @@ void ShellLeap(inout int3 voxel, inout float3 tMax, inout float t, inout int3 no
     normal = hx ? int3(-step.x, 0, 0) : (hy ? int3(0, -step.y, 0) : int3(0, 0, -step.z));
 }
 
+/// TASK 93b5 (b): ShellMarch's leap over the span [spanMin, spanMin + span) (every
+/// axis). t = the smallest exit-plane t (ShellPlaneT); each axis crosses the planes
+/// whose t <= that t; the normal is the first axis (x, y, z) whose last crossed
+/// plane has that t. So the state after a leap depends on its exit t only, and one
+/// leap over an empty brick group ends exactly where its last brick leap would
+/// (same t, voxel, normal). LeapSpanReseedClosedForm's (tMax + (n - 1) tDelta, eps)
+/// rounded by path. Only with the mask (SHELL_PLANE_LEAP): it costs +5-6 ms p50 without
+/// it and moves ~0.02% of pixels by 1-7 levels vs the old leap (task 93b5 (b)), so mask
+/// off keeps the old leap. ShellRayReference.Leap / PlaneLeap, line for line.
+/// (Task 116: the exit-plane leap itself is ShellLeapBox's, over a cube.)
+void ShellLeap(inout int3 voxel, inout float3 tMax, inout float t, inout int3 normal,
+               float3 tDelta, int3 step, float3 start, int3 spanMin, int span)
+{
+    if (!SHELL_PLANE_LEAP)
+    {
+        // Mask off (the default): the shell march's leap as before task 93b5, byte for byte.
+        int dA = 0, dB = 0;
+        LeapSpanReseedClosedForm(voxel, tMax, t, tDelta, step, start, spanMin, span, normal, dA, dB);
+        return;
+    }
+    ShellLeapBox(voxel, tMax, t, normal, tDelta, step, start, spanMin, int3(span, span, span));
+}
+
+/// TASK 116 (93b5's group test, for any box inside ONE chunk of shell k): may a ray at t
+/// cross the box [bMin, bMin + bSize) in one leap, when every cell it would visit there is
+/// air of that chunk? Every iteration its cells would take must leap no tier-0 chunk and
+/// ask distance shell k: t past tTier0 (or the box outside tier 0's layers), and every
+/// distance in k's band -- a primary ray's are its t's, from t to the box's exit t; a
+/// shadow ray's are its cells' centres, inside the box (1 voxel margin).
+bool ShellBoxLeapOk(int k, float t, float tTier0, bool shadow, float3 camera,
+                    float3 start, float3 tDelta, int3 step, int3 bMin, int3 bSize)
+{
+    if (t < tTier0 && bMin.y + bSize.y > _ContentFloorVoxelY && bMin.y < _ContentCeilingVoxelY) return false;
+    float lo = k > 1 ? _ShellBounds[k - 1].y : -1.0;
+    float hi = _ShellBounds[k].y;
+    if (shadow)
+    {
+        float3 c0 = float3(bMin) + 0.5 - camera, c1 = c0 + float3(bSize - 1);
+        return length(max(abs(c0), abs(c1))) < hi - 1.0 && length(max(max(c0, -c1), 0.0)) >= lo + 1.0;
+    }
+    if (t < lo) return false;
+    float tExit = min(ShellPlaneT(step.x > 0 ? bMin.x + bSize.x : bMin.x, start.x, tDelta.x, step.x),
+                  min(ShellPlaneT(step.y > 0 ? bMin.y + bSize.y : bMin.y, start.y, tDelta.y, step.y),
+                      ShellPlaneT(step.z > 0 ? bMin.z + bSize.z : bMin.z, start.z, tDelta.z, step.z)));
+    return tExit <= hi;
+}
+
 /// TASK 93b5: may the EMPTY brick group of shell k holding `voxel` be crossed in one
-/// leap from t? Every iteration its bricks would take must leap no tier-0 chunk and
-/// ask distance shell k: t past tTier0 (or the group outside tier 0's layers), and
-/// every distance in k's band -- a primary ray's are its t's, from t to the group's
-/// exit t; a shadow ray's are its cells' centres, inside the group (1 voxel margin).
+/// leap from t? ShellBoxLeapOk over the group (4x4x4 bricks).
 bool ShellGroupLeapOk(int3 voxel, int k, float t, float tTier0, bool shadow, float3 camera,
                       float3 start, float3 tDelta, int3 step)
 {
     int gs = k + 5;
     int gsz = 1 << gs;
-    int3 gMin = (voxel >> gs) << gs;
-    if (t < tTier0 && gMin.y + gsz > _ContentFloorVoxelY && gMin.y < _ContentCeilingVoxelY) return false;
-    float lo = k > 1 ? _ShellBounds[k - 1].y : -1.0;
-    float hi = _ShellBounds[k].y;
-    if (shadow)
-    {
-        float3 c0 = float3(gMin) + 0.5 - camera, c1 = c0 + (float)(gsz - 1);
-        return length(max(abs(c0), abs(c1))) < hi - 1.0 && length(max(max(c0, -c1), 0.0)) >= lo + 1.0;
-    }
-    if (t < lo) return false;
-    float tExit = min(ShellPlaneT(step.x > 0 ? gMin.x + gsz : gMin.x, start.x, tDelta.x, step.x),
-                  min(ShellPlaneT(step.y > 0 ? gMin.y + gsz : gMin.y, start.y, tDelta.y, step.y),
-                      ShellPlaneT(step.z > 0 ? gMin.z + gsz : gMin.z, start.z, tDelta.z, step.z)));
-    return tExit <= hi;
+    return ShellBoxLeapOk(k, t, tTier0, shadow, camera, start, tDelta, step, (voxel >> gs) << gs, int3(gsz, gsz, gsz));
 }
 
 /// March the shells from t = tStart. Primary: start = the camera (0.1 m voxels).
@@ -2927,7 +2979,7 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
     r.mat = 0u; r.iters = 0; r.inside = false;
 #ifdef VE_FAR_SHADE
     r.leaps0 = 0; r.leapsChunk = 0; r.leapsBrick = 0; r.dirReads = 0; r.pageReads = 0;
-    r.maskGroups = 0;
+    r.maskGroups = 0; r.colLeaps = 0; r.colLeapsChunk = 0;
 #endif
     int kPrev = 0;
     int rcKd = -1, rcK = 0; int3 rcChunk = int3(0, 0, 0); uint rcE = 0u;   // task 93b4: resolve cache
@@ -3018,6 +3070,54 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
 #ifdef VE_FAR_SHADE
         if (sh == k + 7) r.leapsChunk++; else if (sh == k + 3) r.leapsBrick++;
 #endif
+        // TASK 116: the COLUMN SKY LEAP. A rising ray (step.y > 0) in an air brick of a paged
+        // chunk (sh == k + 3) at or above its GROUP COLUMN's top (4x4 bricks in x and z; the
+        // page's column tops: no non-air brick at this local brick y or above) reads only air
+        // in that column from here to the chunk's top: voxel.y never falls on a rising ray
+        // (task 99's argument). Every iteration it would take inside is this brick's
+        // (ShellBoxLeapOk: no tier-0 leap, distance shell k, the same chunk, so the same entry
+        // and page, all air), so ONE leap crosses the box: the column from this brick's y to
+        // the chunk top, or the whole chunk's x and z when every column is that low. No end
+        // event (absent, past the last, the far band's hand-over) lies inside the box, so the
+        // march ends where it did, and the far band is never asked from another t.
+        // ShellRayReference.March (colLeap), line for line (ShellColumnLeapTests).
+        if (SHELL_COLLEAP_ON && step.y > 0 && sh == k + 3)
+        {
+            uint ctBase = (uint)_ShellColTopBase + ((uint)_ShellLo[k].w + (e & 0x7FFFFFFFu)) * 4u;
+            int3 bl = (voxel >> (k + 3)) & 15;
+            uint j = (uint)(((bl.z >> 2) << 2) | (bl.x >> 2));
+            if ((int)((ShellPages[ctBase + (j >> 2)] >> ((j & 3u) * 8u)) & 0xFFu) <= bl.y)
+            {
+                // Every column of the chunk that low? Tops are <= 16, so top + (127 - y) sets
+                // bit 7 of its byte exactly when top > y, with no carry into the next byte.
+                uint addv = 0x01010101u * (uint)(127 - bl.y);
+                uint over = ((ShellPages[ctBase] + addv) | (ShellPages[ctBase + 1u] + addv)
+                           | (ShellPages[ctBase + 2u] + addv) | (ShellPages[ctBase + 3u] + addv)) & 0x80808080u;
+                int cs = k + 7, gs = k + 5;
+                int cMinY = (voxel.y >> cs) << cs;
+                int bMinY = (voxel.y >> (k + 3)) << (k + 3);
+                int3 bMin = int3((voxel.x >> cs) << cs, bMinY, (voxel.z >> cs) << cs);
+                int3 bSize = int3(1 << cs, cMinY + (1 << cs) - bMinY, 1 << cs);
+                bool ok = over == 0u && ShellBoxLeapOk(k, t, tTier0, shadow, camera, start, tDelta, step, bMin, bSize);
+                bool wholeChunk = ok;
+                if (!ok)
+                {
+                    bMin = int3((voxel.x >> gs) << gs, bMinY, (voxel.z >> gs) << gs);
+                    bSize.xz = int2(1 << gs, 1 << gs);
+                    ok = ShellBoxLeapOk(k, t, tTier0, shadow, camera, start, tDelta, step, bMin, bSize);
+                }
+                if (ok)
+                {
+                    ShellLeapBox(voxel, tMax, t, normal, tDelta, step, start, bMin, bSize);
+#ifdef VE_FAR_SHADE
+                    r.colLeaps++;
+                    if (wholeChunk) r.colLeapsChunk++;
+#endif
+                    kPrev = k;
+                    continue;
+                }
+            }
+        }
         // TASK 93b5: an air brick of a paged chunk (sh == k + 3: a uniform chunk gives
         // k + 7, a cell k) whose 4x4x4-brick GROUP is empty in the page's air-brick mask:
         // the group's other bricks are air too, so each later iteration inside it would do
@@ -3892,6 +3992,8 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             InterlockedAdd(ShadowStats[58], (uint)shr.dirReads);
             InterlockedAdd(ShadowStats[59], (uint)shr.pageReads);
             InterlockedAdd(ShadowStats[60], (uint)shr.maskGroups);   // task 93b5
+            InterlockedAdd(ShadowStats[65], (uint)shr.colLeaps);     // task 116
+            InterlockedAdd(ShadowStats[66], (uint)shr.colLeapsChunk);
         }
 #endif
         if (shr.end == SHELL_END_HIT)

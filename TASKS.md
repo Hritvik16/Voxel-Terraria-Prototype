@@ -255,3 +255,16 @@ stops): histogram, spikes vs slow stretches (local median +-15 frames), co-occur
 walks; `tools/spike-attribution.py`: exclusive spike classes + "spikes removed" counterfactual. Command: `MODE=walk MINUTES=3
 EXTRA="-renderpreset quality -upscaler fsr3 -renderrows 540 -farband 1 -farshade 1 -seethrough 1 -riverlook 1 -tod 12 -spikelog
 -shells 1 -shellworkers 3" ./run-tg2world.sh`. Result (HANDOFF 115): the walk's tail is slow VIEWS (GPU), not hitches.
+
+**Task 116 (engine, owner Q66 (a), PERF_30FPS_PLAN row 1): SHELL COLUMN SKY LEAP, OFF by default (`-shellcolleap 1` = on).**
+Per shell page, 16 bytes of COLUMN TOPS in the page buffer's tail after the masks (`ShellStore.ColumnTops` / `ColTopBase`,
+`COLTOP_UINTS` = 4; byte j = (gz << 2) | gx = the highest non-air local brick y + 1 of that 4x4-brick column; 66 KB on High),
+built in `Store` and uploaded with the page (redraws carry their own: a page is never rewritten). `ShellMarch`: a rising ray in an air
+brick at or above its column's top crosses the column (or the whole chunk's x/z when every column is that low) up to the chunk top in
+ONE leap (`ShellLeapBox`), where `ShellBoxLeapOk` (93b5's group test for any box) allows it. Exact: CPU twin
+`ShellRayReference.March(colLeap)`, `ShellColumnLeapTests` (6; exit-plane leap: every field equal; default leap: same cells/ends, t in
+its last bits; with the sky exit; a mutation caught; uploads + redraws; LeapBox = Leap on cubes); `ShellAirMaskTests.CheckStored` also
+checks the tops of real tg2 pages; GPU no-upscaler stills ON vs OFF 0 px at walk_near / walk_open. Shell iterations per sky ray
+82.2 -> 29.5 (walk_near), per pixel 30.3 -> 19.0 (walk_open), but p50 ON vs OFF +1.9 / -0.2 ms (`Logs/costsplit_2026-10-22_202941.txt`)
+and MODE=walk ABBA p50 41.71 vs 41.70 ms, so OFF (the task's rule). Cost-split arms `colleap_on` / `colleap_off`; counters ShadowStats
+65-66 (`[shell ..] column sky leaps`). Driver `Screenshots/116/116-driver.sh`.

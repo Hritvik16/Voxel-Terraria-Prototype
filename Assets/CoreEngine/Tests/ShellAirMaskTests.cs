@@ -68,6 +68,17 @@ public class ShellAirMaskTests
                 want |= 1ul << (((bz >> 2) << 4) | ((by >> 2) << 2) | (bx >> 2));
         int errors = 0;
         if (got != want) { errors++; ex = $"shell {sc.Shell} chunk {sc.Coord}: mask {got:X16}, page scan {want:X16}"; }
+        // Task 116: the page's uploaded COLUMN TOPS equal a scan of the uploaded page too.
+        for (int j = 0; j < 16; j++)
+        {
+            int top = 0;
+            for (int bz = (j >> 2) << 2; bz < ((j >> 2) << 2) + 4; bz++)
+            for (int bx = (j & 3) << 2; bx < ((j & 3) << 2) + 4; bx++)
+            for (int by = 0; by < 16; by++)
+                if (st.ShadowPages[page * EngineConfig.BRICKS_PER_CHUNK + ((bz << 8) | (by << 4) | bx)] != 0u) top = math.max(top, by + 1);
+            int gotTop = ShellStore.ColumnTop(st.ShadowColTops, j, page * ShellStore.COLTOP_UINTS);
+            if (gotTop != top) { errors++; ex ??= $"shell {sc.Shell} chunk {sc.Coord}: column {j} top {gotTop}, page scan {top}"; }
+        }
         for (int g = 0; g < 64; g++)
         {
             if (((got >> g) & 1ul) != 0ul) { full++; continue; }
@@ -139,8 +150,8 @@ public class ShellAirMaskTests
     // (2), (3) The march with the mask on and off
     // ==================================================================
 
-    const int GROUND = 16384;
-    static readonly float3 Cam = new float3(40000.5f, GROUND + 140.5f, 40000.5f);
+    internal const int GROUND = 16384;
+    internal static readonly float3 Cam = new float3(40000.5f, GROUND + 140.5f, 40000.5f);
 
     /// ShellMarchCacheTests' world at brick granularity, so a page's 4,096 handles
     /// are cheap and its mask is a scan of them (ShellStore.GroupMask, the store's
@@ -150,11 +161,14 @@ public class ShellAirMaskTests
     /// in two, where one brick in 24 holds one floating cell; chunks above that
     /// UNIFORM air; some chunks of shells 1-3 absent; a tier-0 window with held and
     /// missing columns over its layers [GROUND - 512, GROUND + 512).
-    sealed class BrickView : ShellRayReference.IMaskView
+    internal sealed class BrickView : ShellRayReference.IColumnView
     {
         public readonly ShellLayout L;
         /// (3): clear the bits of the non-empty groups g with (g & 3) == 1.
         public bool Mutate;
+        /// Task 116 (ShellColumnLeapTests): every non-zero column top one brick too low.
+        public bool MutateTops;
+        readonly Dictionary<int, uint[]> _tops = new Dictionary<int, uint[]>();
         readonly Dictionary<int, (int, int3)> _pages = new Dictionary<int, (int, int3)>();
         readonly Dictionary<(int, int3), int> _pageOf = new Dictionary<(int, int3), int>();
         readonly Dictionary<int, (int, int3, int)> _bodies = new Dictionary<int, (int, int3, int)>();
@@ -248,6 +262,20 @@ public class ShellAirMaskTests
             return m;
         }
 
+        /// Task 116: the page's column tops (ShellStore.ColumnTops, the store's own builder).
+        public int ColumnTop(int k, int page, int j)
+        {
+            if (!_tops.TryGetValue(page, out uint[] tops))
+            {
+                for (int lb = 0; lb < _handles.Length; lb++) _handles[lb] = Page(k, page, lb);
+                tops = new uint[ShellStore.COLTOP_UINTS];
+                ShellStore.ColumnTops(_handles, tops);
+                _tops[page] = tops;
+            }
+            int top = ShellStore.ColumnTop(tops, j);
+            return MutateTops && top > 0 ? top - 1 : top;
+        }
+
         bool InWindow(int3 voxel, out bool resident)
         {
             int3 c = voxel >> 7, cc = (int3)math.floor(Cam) >> 7;
@@ -260,11 +288,11 @@ public class ShellAirMaskTests
         public int Tier0CeilY => GROUND + 512;
     }
 
-    static bool Same(ShellRayReference.Result a, ShellRayReference.Result b) =>
+    internal static bool Same(ShellRayReference.Result a, ShellRayReference.Result b) =>
         a.End == b.End && a.Shell == b.Shell && a.T == b.T && a.Voxel.Equals(b.Voxel) && a.Normal.Equals(b.Normal)
         && a.Mat == b.Mat && a.InsideStart == b.InsideStart;
 
-    static string Show(ShellRayReference.Result r) =>
+    internal static string Show(ShellRayReference.Result r) =>
         $"end {r.End} shell {r.Shell} t {r.T:R} voxel {r.Voxel} normal {r.Normal} mat {r.Mat} inside {r.InsideStart} iters {r.Iters}";
 
     /// March every ray (and the shadow of every hit) with the mask on and off.
