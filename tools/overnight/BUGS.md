@@ -65,3 +65,8 @@ to install + log in to Gemini CLI, and a small runner change. Not for B steps / 
   oracle, false-dark 1.1-5.4% -> 0.01-0.53% (same as reuse off). `./run-shadow-dots.sh`; `Screenshots/56/`.
 
 - **37e's EditMode run ballooned Unity to 22.5 GB footprint (peak 23.1 GB, "Untagged" dirty memory), swap 14.8/15.4 GB** (2026-10-09 15:53, supervisor killed it; the 15:2x hard power-off happened while the same task's first attempt was running, so it was most likely the same run). Suspect: the new untracked `Assets/TerrainGen/Tests/LakeRestTests.cs` (RestJob over 4 seeds' lake cells via `LakeRestHook`) or the generator hook it calls -- NOT proven. 37e is in `tools/overnight/blocked/`, queue PAUSEd. Before re-queueing: find the allocation (one seed, watch `footprint <pid>`), and add a memory watchdog to the runner (kill Unity when swap free < 2 GB).
+
+- **(visuals step, not a bug) Far mixed ground is brighter/flatter than true 0.1 m** (task 129, owner Q84 (a) 2026-10-23: "leave it
+  for now", pick up in the visuals step). Each shell voxel takes ONE material's colour, so grass with stone specks becomes plain
+  bright grass + lone grey 0.8 m blocks (plain 400 m: ref RGB (102,123,102) vs game (77,128,86); 5-12/255 luma). Lever:
+  coverage-weighted colour for shell voxels; plan first (memory + frame cost). Picture `Screenshots/129/owner/plain_400_colour.jpg`.
