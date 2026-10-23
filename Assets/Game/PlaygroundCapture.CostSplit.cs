@@ -96,6 +96,9 @@
 //                       (RaymarchFeature.ShadowMaxDistanceOverrideM; FULL keeps the launch's -shadowclamp,
 //                       inherit = the primary ray's 290 m); the counters line adds that ray's traced rays and
 //                       steps (ShadowStats 2 / 4). Shell-hit and far-band shadows have no distance clamp.
+//   TASK 124: reuseN (e.g. reuse8)  temporal sun-shadow reuse, a tile traces one frame in N
+//                       (RaymarchFeature.ShadowReusePeriod; FULL keeps the launch's -shadowreuse, 4 by
+//                       default); the [sun] counters line shows the period and the rays traced.
 //            -coststillraw  each arm's first still also shoots _raw.png / _raw2.png (10 frames apart) with no
 //                       upscaler (no jitter), for byte-identity checks between arms
 //            the counters line also gives shell march iterations by ray kind (ShadowStats 48-55)
@@ -140,7 +143,7 @@ public partial class PlaygroundCapture
         L("");
         L($"COST SPLIT (task 57): {hours:F2} h, sun elevation {SunCycle.ElevationDegreesAt(hours):F0} deg; FULL = fsr3 {CostRows} rows pinned, " +
           $"HUD + minimap on, fluid on; roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}; shadow res {(RaymarchFeature.ShadowHalfRes ? "HALF" : "full")}; shadow rung {baseShadow}, torch rays override {baseTorch} (config {LightingConfig.Active.torchShadowRays}), " +
-          $"temporal shadows {(RaymarchFeature.TemporalShadows ? "ON" : "OFF")}, far shadows {(far.ShadowsOn ? "ON" : "OFF")}, cascade {RaymarchFeature.UseLODCascade}");
+          $"temporal shadows {(RaymarchFeature.TemporalShadows ? $"ON (1 in {RaymarchFeature.ShadowReusePeriod})" : "OFF")}, far shadows {(far.ShadowsOn ? "ON" : "OFF")}, cascade {RaymarchFeature.UseLODCascade}");
         L($"order: F, then per arm X X F; each run {CostSettle:F0} s settle + {timed:F0} s timed, real time, no capture");
 
         // ---- the paths: 8 s arcs of MODE=walk's circle ----
@@ -320,6 +323,8 @@ public partial class PlaygroundCapture
         RaymarchFeature.DebugShellSkip = arm == "shellshadow_off" ? 1 : arm == "shellmarch_off" ? 2 : arm == "shellcache_off" ? 4 : arm == "shellmask_off" ? 8 : arm == "shellleap_new" ? 24 : 0;
         // Task 118: clampN = the voxel sun-shadow clamp at N m (see the header).
         RaymarchFeature.ShadowMaxDistanceOverrideM = CostClampM(arm, out float clampM) ? clampM : _costBaseClamp;
+        // Task 124: reuseN = temporal sun-shadow reuse one frame in N (see the header).
+        RaymarchFeature.ShadowReusePeriod = CostReuseN(arm, out int reuseN) ? reuseN : _costBaseReuse;
         RaymarchFeature.UseLODCascade = arm != "tiers_off";
         // Task 75: see_on turns see-through liquids ON; FULL keeps the launch's
         // value (OFF unless -seethrough 1), so saved = OFF - ON (negative = its cost).
@@ -343,6 +348,14 @@ public partial class PlaygroundCapture
     private static int _costBaseFarSteps = -1;
     private static bool _costBaseFarShadowOn;
     private static float _costBaseClamp = -1f;
+    private static int _costBaseReuse = 4;
+
+    /// Task 124: "reuse8" -> 8 (1, 2, 4, 8 or 16).
+    private static bool CostReuseN(string arm, out int n)
+    {
+        n = 0;
+        return arm.StartsWith("reuse") && int.TryParse(arm.Substring(5), out n) && RaymarchFeature.ValidReusePeriod(n) == n;
+    }
 
     /// Task 118: "clamp128" -> 128 m.
     private static bool CostClampM(string arm, out float m)
@@ -367,7 +380,7 @@ public partial class PlaygroundCapture
         if (st == null || st.Length < 48) yield break;
         // Task 118: the voxel sun-shadow rays (TraceShadowRay: ShadowStats 2 traced, 4 their steps) under this arm's clamp.
         double vR = st[2] / (double)n, vS = st[4] / (double)n;
-        L($"    [sun {arm}] clamp {(RaymarchFeature.ShadowMaxDistanceOverrideM >= 0f ? RaymarchFeature.ShadowMaxDistanceOverrideM + " m" : "inherit")} (primary ray's {RaymarchFeature.LastTierBoundsM[2]:F0} m); " +
+        L($"    [sun {arm}] reuse 1 in {RaymarchFeature.ShadowReusePeriod}{(RaymarchFeature.TemporalShadows ? "" : " (temporal shadows OFF)")}; clamp {(RaymarchFeature.ShadowMaxDistanceOverrideM >= 0f ? RaymarchFeature.ShadowMaxDistanceOverrideM + " m" : "inherit")} (primary ray's {RaymarchFeature.LastTierBoundsM[2]:F0} m); " +
           $"voxel shadow rays traced/frame {vR:N0}, steps/frame {vS:N0} ({(vR > 0 ? vS / vR : 0):F1}/ray)");
         double fr =st[5] / (double)n, prim = st[44] / (double)n, shR = st[45] / (double)n, shS = st[46] / (double)n;
         double fromShells = (st[40] + st[41] + st[42]) / (double)n;
@@ -449,7 +462,7 @@ public partial class PlaygroundCapture
     private IEnumerator CostTime(ClipPath path, CostRun r, float timed, string still, Camera cam,
                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
     {
-        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; }
+        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);

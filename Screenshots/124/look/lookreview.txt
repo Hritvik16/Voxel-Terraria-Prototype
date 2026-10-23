@@ -1,0 +1,36 @@
+UPSCALER CLIPS -- 2026-10-23_065248
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 540 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 60 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 540 rows inner inf -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 540 rows inner 1.50 -> outer 1.00 (at 1080 output: outer 2.00)
+
+== walk_near: eye (3867.2, 941.9, 4018.8), yaw 180 pitch 0 deg; circle angle -180 deg, heading = -sun
+  [shells] waited 60 s (cap 60 s): stored/missing/in flight:  s1 2170/0/0  s2 1832/0/0  s3 964/522/8  s4 0/987/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 4966, missing 2196, pending 0; requested 5358, generated 5350 (42 ms each on a worker), dropped stale 7, over-budget frames 0 (of 2071)
+  [px] walk_near  hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 489070/488127/70.46  s1 23/0/0.75  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  walk_near  fsr3_540  dispatch 960x540
+  walk_near  none_540  dispatch 960x540
+  walk_near  native    dispatch 1920x1080
+  golden (task 120): 17.0 h, sun elevation 15 deg, turned away from the sun
+  reuse EDIT: pillar int3(38644, 9479, 40085)..int3(38653, 9518, 40094) (4000 voxels set, ground 947.9 m), 8 shots over frames 3842-3849
+  golden reuse A/B (task 124): periods 1/4/8 (launch 4); still away + side, sun side (0.40 h over 60 frames to 17.00 h, elevation 20.5 -> 14.6 deg), edit side; none_540 / sunvis
+
+== walk_open: eye (3959.8, 1056.2, 3880.2), yaw 113 pitch 0 deg; circle angle 248 deg, median free distance 1500 m
+  [shells] waited 24 s (cap 60 s): stored/missing/in flight:  s1 1832/0/0  s2 1494/0/0  s3 1288/35/0 FULL  s4 996/0/0  s5 489/0/0  s6 182/0/0  s7 16/0/0   total stored 6297, missing 35, pending 0; requested 9811, generated 9811 (64 ms each on a worker), dropped stale 7, over-budget frames 0 (of 5089)
+  [px] walk_open  hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 193364/189914/11.62  s1 7917/0/0.82  s2 1357/1357/1.32  s3 -  s4 31/0/0.72  s5 11783/1618/1.14  s6 16757/7856/1.36  s7 263/263/1.36
+  walk_open  fsr3_540  dispatch 960x540
+  walk_open  none_540  dispatch 960x540
+  walk_open  native    dispatch 1920x1080
+  golden (task 120): 17.0 h, sun elevation 15 deg, turned away from the sun
+  reuse EDIT: pillar int3(39570, 10557, 38699)..int3(39579, 10596, 38708) (4000 voxels set, ground 1055.7 m), 8 shots over frames 6860-6867
+  golden reuse A/B (task 124): periods 1/4/8 (launch 4); still away + side, sun side (0.40 h over 60 frames to 17.00 h, elevation 20.5 -> 14.6 deg), edit side; none_540 / sunvis
+
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-23_065248_high

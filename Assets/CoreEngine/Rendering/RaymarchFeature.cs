@@ -425,6 +425,11 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// TEMPORAL SHADOW REUSE (Raymarch.compute's header note). Off unless
     /// `-tshadow 1` (last match wins) until measured.
     public static bool TemporalShadows = ReadIntArg("-tshadow", 0) != 0;
+    /// Task 124: with TemporalShadows, a tile traces its sun ray one frame in
+    /// ShadowReusePeriod (1, 2, 4, 8 or 16; anything else -> 4 = the pre-124
+    /// rotation) and reuses the history on the others. `-shadowreuse N`.
+    public static int ShadowReusePeriod = ValidReusePeriod(ReadIntArg("-shadowreuse", 4));
+    public static int ValidReusePeriod(int n) => n == 1 || n == 2 || n == 4 || n == 8 || n == 16 ? n : 4;
     private static GraphicsBuffer _tsA, _tsB, _tsDummyR, _tsDummyW;
     private static int _tsW, _tsH;
     private static bool _tsValid;
@@ -518,7 +523,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
 
         class ComputePassData
         {
-            public int temporalShadows, tsValid;
+            public int temporalShadows, tsValid, tsReuseMask;
             public uint tsFrame;
             public GraphicsBuffer tsRead, tsWrite;
             public Matrix4x4 tsPrevVP;
@@ -752,6 +757,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     passData.tsRead = _tsA; passData.tsWrite = _tsB;
                     passData.tsValid = _tsValid ? 1 : 0;
                     passData.tsFrame = _tsFrame++;
+                    passData.tsReuseMask = ValidReusePeriod(ShadowReusePeriod) - 1;
                     passData.tsPrevVP = _tsPrevVP;
                     var tc = cameraData.camera;
                     _tsPrevVP = tc.projectionMatrix * tc.worldToCameraMatrix;
@@ -1226,6 +1232,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_TemporalShadows", data.temporalShadows);
                         cmd.SetComputeIntParam(data.compute, "_ShadowHistValid", data.tsValid);
                         cmd.SetComputeIntParam(data.compute, "_ShadowFrame", (int)data.tsFrame);
+                        cmd.SetComputeIntParam(data.compute, "_ShadowReuseMask", data.tsReuseMask);
                         cmd.SetComputeMatrixParam(data.compute, "_PrevViewProj", data.tsPrevVP);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShadowHistR", data.tsRead);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShadowHistW", data.tsWrite);

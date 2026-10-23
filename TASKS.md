@@ -361,3 +361,16 @@ re-entry kept, pool pressure takes the queue, not in-range chunks). Warm A/B (`M
 frames 15/15 -> 0/0 per walk, slide max 16-17 -> 2.3 ms, but crossing frames stay 54-60 ms (their excess is GPU wait, `pre_ms`
 +10 ms) and p99 97/103 -> 108/108 ms, > 100 ms frames 26/49 -> 52/62 (not on the drain frames) -- so it stays OFF.
 `tools/crossing-report.py` (crossing frames, eviction bursts, slide; `SKIP=N`); reports `Screenshots/123/crossing_report.txt`.
+
+**Task 124 (perf trial, owner Q67 / Q75b (a); PERF_30FPS_PLAN row 5 (b); NO default change): `-shadowreuse 8` saves nothing measurable.**
+Temporal sun-shadow reuse (`-tshadow`, ON on the preset path) now takes a period: `RaymarchFeature.ShadowReusePeriod`
+(`-shadowreuse N`, 1/2/4/8/16, anything else -> 4 = the old 2x2 rotation), passed as `_ShadowReuseMask`; the shader's tile `turn` adds
+a checkerboard of 2x2 tile blocks (bit 2) and the block row (bit 3), so mask 3 is byte-for-byte the old test. There is NO sun-change
+or edit invalidation of the history (only a resize resets it): a stale value lives until its tile's turn, i.e. up to N-1 frames.
+Warm steady state (warm-up `Logs/tg2world_20261023_065810.txt`), cost split F X X F X X F, arms reuse8: noon `Logs/costsplit_2026-10-23_070419.txt`
+saved +0.2 / +0.3 ms walk_near, -0.3 / +0.2 walk_open (noise 0.1-1.3); golden 14 deg `Logs/costsplit_2026-10-23_071326.txt` -1.1 / -0.2 near,
++1.6 / -0.6 open (noise 0.3-7.2) -- although voxel sun rays traced halve at walk_near (126,584 -> 65,545 / frame at noon). Look
+(`-lookreuse N` with `-lookgolden 1`, look review): still frames 0 px vs trace-every-frame (`_reuse1`); a 120 s-day sun (10x play's)
+leaves 0.12% of px lagging at 8 (0 at 4) as a staircase of 8x8-px tiles on a moving shadow edge; after an edit, 8 lags frames 1-5
+(<= 1,007 px), 4 only frame 1. `tools/reuse-diff.py <dir>` diffs `*_reuse<N>*` vs `_reuse1`. Cost-split arm `reuseN`; the `[sun]` line
+shows the period. Tests: `ShadowReuseTests` (flag bound, shader turn = mirror, every tile once per period). Driver `Screenshots/124/124-driver.sh`.

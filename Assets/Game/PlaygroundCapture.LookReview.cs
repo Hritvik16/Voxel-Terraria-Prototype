@@ -42,6 +42,14 @@
 //           pose, golden hour with the sun behind (away) and beside (side) the
 //           camera: fsr3 / none / sun-visibility view, the launch's sun-shadow
 //           clamp (_full) vs M m (_clamp<M>), in the same frame state.
+//   TASK 124 (capture-only): -lookreuse N (with -lookgolden 1) adds, at every
+//           pose, golden hour with the camera still: temporal sun-shadow reuse one
+//           frame in N (_reuse<N>) vs the launch's period vs every frame (_reuse1,
+//           the reference), none / sun-visibility view: STILL sun behind (away)
+//           and beside (side); SUN side, the sun moving as in a 120 s day for 60
+//           frames (the same sun sequence per period); EDIT side, a 1 x 1 x 4 m
+//           stone pillar placed 10 m ahead, frames 1-8 after the edit (_f1.._f8),
+//           then the original voxels restored.
 //   TASK 121 (capture-only): -looksky 1 adds, at every pose, fsr3 at noon (the
 //           pose's heading), golden hour 17 h away from and toward the sun, sunset
 //           (sun 2 deg up) and dusk (3 deg down) toward the sun:
@@ -137,6 +145,7 @@ public partial class PlaygroundCapture
         bool bursts = ArgInt("-lookbursts", 1) != 0;
         bool ab = ArgInt("-lookab", 0) != 0, goldenAll = ArgInt("-lookgolden", 0) != 0;   // task 120
         float clampM = ArgFloat("-lookclamp", 0f);   // task 118
+        int reuseN = ArgInt("-lookreuse", 0);        // task 124
         bool skyAB = ArgInt("-looksky", 0) != 0;      // task 121
         bool biomeLook = ArgInt("-lookbiome", 0) != 0;   // task 122
         string fsr = $"fsr3_{rows}", none = $"none_{rows}";
@@ -279,6 +288,7 @@ public partial class PlaygroundCapture
                 yield return CaptureCubeAB($"{n}_golden_{fsr}", ab);
                 L($"  golden (task 120): {golden:F1} h, sun elevation {SunCycle.ElevationDegreesAt(golden):F0} deg, turned away from the sun");
                 if (clampM > 0f) yield return LookClampAB(n, cam, eye, -Mathf.DeltaAngle(0f, rot.eulerAngles.x), -math.normalizesafe(new float2(gs.x, gs.z)), fsr, none, clampM);
+                if (reuseN > 0) yield return LookReuseAB(n, cam, store, eye, -Mathf.DeltaAngle(0f, rot.eulerAngles.x), -math.normalizesafe(new float2(gs.x, gs.z)), none, reuseN);
                 SunCycle.SetHours(noon);
                 cam.transform.rotation = rot;
             }
@@ -364,6 +374,95 @@ public partial class PlaygroundCapture
         }
         RaymarchFeature.ShadowMaxDistanceOverrideM = baseClamp;
         L($"  golden clamp A/B (task 118): away + side, {fsr} / {none} / sunvis, full ({(baseClamp >= 0f ? baseClamp + " m" : "inherit " + RaymarchFeature.LastTierBoundsM[2].ToString("F0") + " m")}) vs {m:F0} m");
+    }
+
+    /// Task 124: temporal sun-shadow reuse (see the header). Every arm runs once per period, every
+    /// period from the same state, so a still that differs from _reuse1 is the reuse's own lag.
+    private IEnumerator LookReuseAB(string n, Camera cam, ChunkStore store, Vector3 eye, float pitch, float2 away, string none, int m)
+    {
+        int basePeriod = RaymarchFeature.ShadowReusePeriod;
+        var periods = new List<int> { 1 };
+        foreach (int p in new[] { basePeriod, RaymarchFeature.ValidReusePeriod(m) }) if (!periods.Contains(p)) periods.Add(p);
+        float2 side = new float2(away.y, -away.x);
+        float h0 = SunCycle.Hours;
+        float dh = 24f / (120f * 30f);           // a 120 s day at 30 fps: 0.1 deg of hour angle a frame
+        Quaternion Face(float2 h) => Quaternion.Euler(-pitch, math.degrees(math.atan2(h.x, h.y)), 0f);
+        string[] arms = { none, "sunvis" };
+        void Arm(string arm)
+        {
+            ApplyCompareArm(none);
+            cam.ResetProjectionMatrix();
+            RaymarchFeature.UseDebugViewOverride = arm == "sunvis";
+            RaymarchFeature.DebugViewOverride = RaymarchFeature.DebugMode.SunVis;
+        }
+
+        // STILL
+        foreach (var (tag, h) in new[] { ("away", away), ("side", side) })
+        {
+            cam.transform.position = eye; cam.transform.rotation = Face(h);
+            foreach (string arm in arms)
+            {
+                Arm(arm);
+                foreach (int p in periods)
+                {
+                    RaymarchFeature.ShadowReusePeriod = p;
+                    yield return Frames(60);
+                    yield return CaptureTo($"{n}_golden_{tag}_{arm}_reuse{p}");
+                }
+            }
+        }
+
+        // SUN: 60 settle frames at h0 - 60 dh, then 60 frames moving to h0, captured on the last.
+        cam.transform.position = eye; cam.transform.rotation = Face(side);
+        foreach (string arm in arms)
+        {
+            Arm(arm);
+            foreach (int p in periods)
+            {
+                RaymarchFeature.ShadowReusePeriod = p;
+                SunCycle.SetHours(h0 - 60f * dh);
+                yield return Frames(60);
+                for (int i = 1; i <= 60; i++) { SunCycle.SetHours(h0 - 60f * dh + i * dh); yield return null; }
+                yield return CaptureTo($"{n}_golden_sun_{arm}_reuse{p}");
+            }
+        }
+        SunCycle.SetHours(h0);
+
+        // EDIT: a stone pillar 10 m ahead on the side heading; the voxels it replaces are restored after each period.
+        var edits = FindAnyObjectByType<Playground>()?.DebugEdits;
+        Vector3 fwd = new Vector3(side.x, 0f, side.y);
+        Vector3 at = eye + fwd * 10f;
+        float g = StoreGroundM(store, at.x, at.z, eye.y + 15f);
+        if (edits == null || float.IsNaN(g))
+            L($"  reuse A/B (task 124): EDIT skipped ({(edits == null ? "no EditService" : "no open ground 10 m ahead")})");
+        else
+        {
+            int3 lo = CoordMath.WorldToVoxel(new float3(at.x, g, at.z)) + new int3(-5, 0, -5), hi = lo + new int3(9, 39, 9);
+            var saved = new List<(int3 v, byte m)>(4000);
+            foreach (string arm in arms)
+            {
+                Arm(arm);
+                foreach (int p in periods)
+                {
+                    RaymarchFeature.ShadowReusePeriod = p;
+                    yield return Frames(60);
+                    saved.Clear();
+                    for (int y = lo.y; y <= hi.y; y++)
+                        for (int z = lo.z; z <= hi.z; z++)
+                            for (int x = lo.x; x <= hi.x; x++) { var v = new int3(x, y, z); saved.Add((v, store.GetVoxel(v))); }
+                    int placed = edits.SetBox(lo, hi, Materials.Stone);
+                    int f0 = Time.frameCount;
+                    for (int k = 1; k <= 8; k++) yield return CaptureTo($"{n}_golden_edit_{arm}_reuse{p}_f{k}");
+                    if (arm == none && p == 1) L($"  reuse EDIT: pillar {lo}..{hi} ({placed} voxels set, ground {g:F1} m), 8 shots over frames {f0}-{Time.frameCount}");
+                    foreach (var (v, mat) in saved) edits.TrySetVoxel(v, mat);
+                }
+            }
+            yield return Frames(60);
+        }
+        RaymarchFeature.UseDebugViewOverride = false;
+        RaymarchFeature.ShadowReusePeriod = basePeriod;
+        L($"  golden reuse A/B (task 124): periods {string.Join("/", periods)} (launch {basePeriod}); still away + side, sun side ({dh * 60f:F2} h over 60 frames " +
+          $"to {h0:F2} h, elevation {SunCycle.ElevationDegreesAt(h0 - 60f * dh):F1} -> {SunCycle.ElevationDegreesAt(h0):F1} deg), edit side; {none} / sunvis");
     }
 
     /// Task 121: the sky look, new vs old (_old: SkyLook and SkyHaze off), 60 frames each, at noon

@@ -209,7 +209,8 @@ int _CollectShadowStats;
 // ---- TEMPORAL SHADOW REUSE (2026-09-26; owner target 60 FPS) ----
 // The sun ray was measured at ~2/3 of the frame on the in-air orbit (51.7 ms
 // with shadows, 18.6 ms without). The world is static between edits, so a
-// pixel traces its sun ray on ONE frame in four (a rotating 2x2 pattern) and
+// pixel traces its sun ray on ONE frame in four (a rotating 2x2 pattern; task
+// 124: -shadowreuse N = one in N, 4 by default) and
 // otherwise reuses last frame's value at its reprojected position -- only when
 // the previous frame traced the SAME shadow origin there; anything newly
 // revealed traces. Off unless _TemporalShadows (-tshadow 1).
@@ -232,6 +233,7 @@ float4x4 _PrevViewProj;
 int _TemporalShadows;
 int _ShadowHistValid;
 uint _ShadowFrame;
+int _ShadowReuseMask;   // task 124: reuse period - 1 (3 = one frame in four; -shadowreuse)
 uint2 _DebugPixel;
 
 // ---- TEMPORAL ANTI-ALIASING (overnight task 06, 2026-10-02) ----
@@ -4433,9 +4435,15 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             // traced on alternate frames, so with the plain frame counter half
             // the tiles would never get their turn on the frames their pixels
             // are traced.
+            // Task 124: the period is _ShadowReuseMask + 1 (1, 2, 4 = today's
+            // 2x2 rotation, 8, 16). Bits 0-1 are the 2x2 pattern; bit 2 is a
+            // checkerboard of 2x2 tile blocks, bit 3 the block row, so a
+            // 4x4-tile block holds every turn once and mask 3 is the old test.
             uint2 tile = tid.xy >> 3u;
             uint sFrame = checker ? (_ShadowFrame >> 1u) : _ShadowFrame;
-            bool myTurn = (((tile.x & 1u) | ((tile.y & 1u) << 1u)) == (sFrame & 3u));
+            uint turn = (tile.x & 1u) | ((tile.y & 1u) << 1u) | ((((tile.x ^ tile.y) >> 1u) & 1u) << 2u) | (((tile.y >> 1u) & 1u) << 3u);
+            uint reuseMask = (uint)_ShadowReuseMask;
+            bool myTurn = ((turn & reuseMask) == (sFrame & reuseMask));
             if (!myTurn)
             {
                 // This pixel's own surface point, where it was last frame. The
