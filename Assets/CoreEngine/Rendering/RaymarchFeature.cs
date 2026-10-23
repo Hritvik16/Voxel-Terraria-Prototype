@@ -269,6 +269,18 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// +1.9 / -0.2 ms (Logs/costsplit_2026-10-22_202941.txt) and MODE=walk ABBA 41.71 vs 41.70 ms.
     /// `-shellcolleap 1` turns it on. The column tops are always built and uploaded.
     public static bool ShellColumnLeap = ReadShellColumnLeapArg();
+    /// Task 119 (VISUAL_REVIEW_114 #3, owner 2026-10-22): FAR ROCK BY SLOPE. In the far-shading kernel
+    /// (FarShade on) a far-band step side is drawn as its biome's rock where the ground slope
+    /// (FarSlopeNormal) is steeper than ~40 deg, instead of wherever the side is deeper than 1.5 m below
+    /// its top (FAR_WALL_LIP) -- that rule striped gentle land with grey dashes that crawl when moving.
+    /// ON by default; `-farrockslope 0` restores the lip rule. Without far shading the lip rule is unchanged.
+    public static bool FarRockSlope = ParseFarRockSlope(System.Environment.GetCommandLineArgs());
+    /// Task 119 (VISUAL_REVIEW_114 #3, the real cause of the crawling far dashes): in the far-shading kernel
+    /// the far band's sun-shadow ray starts one texel (8 << level voxels) above the hit, so the band's own
+    /// staircase stops shadowing the foot of every step (grey 1-px dashes over gentle far land; `-farshadow 0`
+    /// removed them, the rock rule above did not). Hills and cliffs taller than a texel still cast shadows.
+    /// ON by default; `-farshadowlift 0` = the old shadow start. Without far shading nothing changes.
+    public static bool FarShadowLift = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-farshadowlift");
     /// Its constants (task 85b's picks): sky strength (x the sky colour the face
     /// sees), haze range and scale height (metres), and the share of the haze that
     /// light takes (0.25: a torch at haze 0.9 keeps ~78% of its light).
@@ -339,6 +351,18 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         bool on = false;
         for (int i = 0; i + 1 < a.Length; i++)
             if (a[i] == "-shellcolleap") on = a[i + 1] == "1";
+        return on;
+    }
+
+    /// `-farrockslope 0|1` (last match wins); ON unless the last value is "0".
+    public static bool ParseFarRockSlope(string[] a) => ParseFlagOn(a, "-farrockslope");
+
+    /// `<flag> 0|1`, last match wins; ON unless the last value is "0".
+    public static bool ParseFlagOn(string[] a, string flag)
+    {
+        bool on = true;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == flag) on = a[i + 1] != "0";
         return on;
     }
 
@@ -1247,6 +1271,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         // ---- far band: bindings, then upkeep BEFORE the primary ray ----
                         cmd.SetComputeIntParam(data.compute, "_FarEnabled", data.farEnabled);
                         cmd.SetComputeIntParam(data.compute, "_FarShadow", data.farShadow);
+                        cmd.SetComputeIntParam(data.compute, "_FarRockSlope", FarRockSlope ? 1 : 0);   // task 119
+                        cmd.SetComputeIntParam(data.compute, "_FarShadowLift", FarShadowLift ? 1 : 0); // task 119
                         cmd.SetComputeVectorArrayParam(data.compute, "_FarOrigin", data.farOrigins);
                         cmd.SetComputeVectorParam(data.compute, "_FarParams", data.farParams);
                         cmd.SetComputeFloatParam(data.compute, "_FarPixelAngle", data.farPixelAngle);

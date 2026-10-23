@@ -268,3 +268,16 @@ checks the tops of real tg2 pages; GPU no-upscaler stills ON vs OFF 0 px at walk
 82.2 -> 29.5 (walk_near), per pixel 30.3 -> 19.0 (walk_open), but p50 ON vs OFF +1.9 / -0.2 ms (`Logs/costsplit_2026-10-22_202941.txt`)
 and MODE=walk ABBA p50 41.71 vs 41.70 ms, so OFF (the task's rule). Cost-split arms `colleap_on` / `colleap_off`; counters ShadowStats
 65-66 (`[shell ..] column sky leaps`). Driver `Screenshots/116/116-driver.sh`.
+
+**Task 119 (look, owner 2026-10-22, 114 Q1/Q3/Q4/Q6): FAR-BAND DASHES (VISUAL_REVIEW_114 #3), ON by default in the far-shading kernel.**
+114 blamed the grey 1-px dashes over gentle far land (and their crawl when moving) on `FAR_WALL_LIP` rock. Wrong: the slope
+rule below alone changed 0 px of the dash crop, and a `-farshadow 0` arm removed every dash (pink plain and snow). They are
+the far band's STAIRCASE SHADOWING ITSELF: the far sun-shadow ray left the hit 0.05 voxel off the face, and the next texel-wide
+step up shadowed the foot of every riser. Two changes, both only in `CSMainFarShade` (VE_FAR_SHADE: play and `-farshade 1`;
+rigs and capture runs without far shading keep their pixels byte for byte):
+(1) `FarShadowLift` (`-farshadowlift 0` = old): the far sun-shadow ray starts one texel (8 << fh.level voxels) above the hit, so a
+step no taller than its width (any slope up to 45 deg) no longer shadows its own staircase; hills and cliffs taller than a texel
+still cast shadows. (2) `FarRockSlope` (`-farrockslope 0` = old, the task's asked-for change): a far step side is its biome's rock
+(`FarWallMaterial`) where `FarSlopeNormal`'s slope is above ~40 deg (`FAR_ROCK_SLOPE_NY` 0.766), the 1.5 m lip only where
+FarSlopeNormal has no answer. Tests `FarRockSlopeTests` (3: flag text, both shader blocks inside VE_FAR_SHADE). Stills:
+`./run-look-review.sh` with `EXTRA="-farrockslope 0 -farshadowlift 0"` (before) vs default (after); crops in `Screenshots/119/`.

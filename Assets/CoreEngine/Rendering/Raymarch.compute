@@ -2353,6 +2353,7 @@ StructuredBuffer<uint>   FarStaging;
 StructuredBuffer<uint>   FarResident;     // 1 bit per window chunk column (FarField.UpdateResidency)
 int    _FarEnabled;       // 0 off, 1 far band, 2 far band ONLY (tg2 preview)
 int    _FarShadow;
+int    _FarShadowLift;    // task 119: far-shade kernel, the far sun-shadow ray starts one texel up (-farshadowlift 0 = off)
 float4 _FarOrigin[5];     // .xy ring min corner (texels), unused otherwise
 float4 _FarParams;        // x max top height (voxels), y haze range (voxels), z primary step cap, w shadow step cap
 float  _FarPixelAngle;    // radians per pixel at screen centre; 0 = footprint level selection off (-farfootprint 0)
@@ -2467,6 +2468,14 @@ float FarStartT(float3 O, float3 D, float tLimit)
 // the surface material to that. Engine ids = TG2_BASE (128) + GenMat; a
 // material that is not a soil/cover keeps itself.
 #define FAR_WALL_LIP 15.0
+// TASK 119 (VISUAL_REVIEW_114 #3): the lip above made every step side deeper
+// than 1.5 m rock, and at coarse far levels (texel >= 3.2 m) that is every riser
+// on gentle land: grey dashes that crawl as moire when moving. In the far-shading
+// kernel (VE_FAR_SHADE) the side face is rock by SLOPE instead -- the ground slope
+// FarSlopeNormal gives at the hit steeper than ~40 deg (n.y < cos 40) -- and keeps
+// the lip rule only where FarSlopeNormal has no answer. `-farrockslope 0` = the lip.
+#define FAR_ROCK_SLOPE_NY 0.766
+int    _FarRockSlope;
 uint FarWallMaterial(uint fm)
 {
     switch (fm)
@@ -4037,6 +4046,14 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         if (farHit && _SunDir.y > 0.0 && _FarShadow != 0 && _ShadowQualityLevel < 3)
         {
             float3 hp = rayStart + rayDir * fh.t + float3(fh.normal) * 0.05;
+#ifdef VE_FAR_SHADE
+            // Task 119 (VISUAL_REVIEW_114 #3): the far band is a staircase of texel-wide steps, and the
+            // next step up shadowed the foot of every riser and the back of every top: 1-px grey dashes
+            // over all gentle far land that crawl when moving (`-farshadow 0` removes them). Lifted one
+            // texel (8 << level voxels), a step no taller than its width -- any slope up to 45 deg -- no
+            // longer shadows its own staircase; hills and cliffs taller than a texel still cast shadows.
+            if (_FarShadowLift != 0) hp.y += (float)(8 << fh.level);
+#endif
             FarHit fs = FarMarch(hp, FarSafeDir(normalize(_SunDir)), 0.0, (int)_FarParams.w, false, fh.t FAR_VOXEL_END_ARG(3.0e38));
             farSunVis = fs.hit ? 0.0 : 1.0;
             farShadowSteps = fs.steps;
@@ -4841,7 +4858,13 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         // visibility 1. The albedo hash is the TEXEL CENTRE, so each far column
         // is one flat-coloured block (§2.3: the far band stays blocky).
         uint fm = (fh.texel >> 16) & 0xFFu;
-        if (fh.normal.y == 0 && (float)(fh.texel & 0xFFFFu) - (rayStart.y + rayDir.y * fh.t) > FAR_WALL_LIP)
+        bool farRock = fh.normal.y == 0 && (float)(fh.texel & 0xFFFFu) - (rayStart.y + rayDir.y * fh.t) > FAR_WALL_LIP;
+#ifdef VE_FAR_SHADE
+        float3 nRock;
+        if (fh.normal.y == 0 && _FarRockSlope != 0 && FarSlopeNormal(rayStart + rayDir * fh.t, fh.t, nRock))
+            farRock = nRock.y < FAR_ROCK_SLOPE_NY;   // task 119: rock by slope, not by step depth
+#endif
+        if (farRock)
             fm = FarWallMaterial(fm);
         int ftv = 8 << fh.level;
         int3 fvox = int3(fh.cell.x * ftv + (ftv >> 1), (int)(fh.texel & 0xFFFFu) - 1, fh.cell.y * ftv + (ftv >> 1));
