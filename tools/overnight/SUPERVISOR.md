@@ -180,6 +180,13 @@ One Claude Doc titled "Queue decisions", reused across sessions (its link goes
 into SESSION_HANDOFF.md). Sections: Waiting on you (open questions, newest
 first), Done (one row per task), Answered (closed questions). Write findings in
 the doc, not in chat; tell the owner in one line when a new question lands.
+**Owner, 2026-10-23 ("I don't know what I'm being asked, where I have to go ... not enough information ... data or
+images"):** ALL open questions live ONLY in the first tab "Questions for you" (tab 19486cc5-58e6, body bf7996bc-628a);
+nothing else goes there. Each question stands alone: a plain-words heading, what it is about and why it matters for play,
+1-2 images the supervisor has LOOKED at (build a clean labelled side-by-side when the task's own sheets are cluttered),
+a small numbers table, options with what each costs, recommendation first, a "Your answer:" line. "Going ahead unless you
+object" items sit in their own section below. If a task produced no picture that shows the problem, do NOT ask yet:
+queue a capture-only QA pose first (as 131 did for Q83). Answered questions move to the Answered tab.
 
 ## Images in reports (owner, 2026-10-02)
 The owner wants pictures, not only numbers. Every task file that changes what is
