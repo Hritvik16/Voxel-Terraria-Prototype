@@ -39,6 +39,22 @@ product code changes. Runs BEFORE 130 (the probe build needs free disk). Goal: a
 6. If after category A free space is still under 15 GiB, finish with STOP_FOR_OWNER and a short ranked list of category B items.
    If it is over, end normally. Either way, put before/after free space (`df -h /`) in the HANDOFF.
 
+## Added 2026-10-23 after the supervisor's read-only survey (use these paths)
+- Category A also: `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/` (7.8 GB) holds the standalone rigs'
+  output folders (LookReview 2.5 G, FarBand 1.6 G, UpscalerClips 1.1 G, Phase4Acceptance 956 M, StreamProbe 587 M, ShadowDots 456 M,
+  Sustained 171 M, Phase7Cycle 125 M, ...). These are per-run captures: delete run subfolders older than 7 days that no doc,
+  HANDOFF or archive entry references; keep the newest run of each folder. Check first that no saves/worlds/settings
+  (`PlaySettings.json`, `PlayerConfig.json`, world or save files) live there; keep those.
+- Category A also: `~/.npm/_cacache` (part of 3.6 GB), `~/Library/Caches/pip` (823 M), `ms-playwright` (1.1 G), Firefox and Mozilla
+  caches (1.7 G, only if Firefox is not running), UnityHub caches (800 M), `com.microsoft.VSCode.ShipIt` (1.4 G), Xcode (2.5 G,
+  DerivedData/DeviceSupport only).
+- Category B (report, do not delete): `~/.ollama/models` 13 G, `~/Downloads` 3.6 G, `/Applications/6000.3.10f1` (the project's Unity,
+  keep), `~/Unity Projects/Wortis-Dev` 5.3 G and `Wortis` 1.9 G, `~/Desktop/Auto_Jobs_Applier_AI_Agent` 1.4 G, `~/Desktop/ai-job-agent`,
+  Steam 2.6 G, `/private/var/folders` 7.4 G (system temp, cleared by a reboot: recommend the owner reboots).
+- Note: about 38 GB of the used space is not visible to `du` without Full Disk Access (the Data volume uses 169 GiB, home 93 GB,
+  /Applications 17 G, /private/var 13 G, /Library 3.9 G, /opt 2.7 G). Report that gap and what `tmutil listlocalsnapshots` and
+  `diskutil apfs list` say; do not try to delete local snapshots without asking.
+
 ## Deliverable
 HANDOFF with `## For the doc`: before/after free space, a table of what was deleted by category with sizes (top 10 items), the category B
 list ranked by size with a recommendation each, and the repeatable script: save the whole procedure as `tools/cleanup-disk.sh` (dry run
