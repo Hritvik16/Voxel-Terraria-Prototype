@@ -1,42 +1,45 @@
-# 127-look-better-comparison-stills: DONE. Cross-lit High|Medium pairs with 2x hand-off crops, and bird's-eye biome-border BEFORE|AFTER pairs.
+STOP_FOR_OWNER -- Q81: approve the experiment order in `PERF_SHELL_MARCH_PLAN.md` §5? (a) recommended: one capture-only probe task (E1-E3), then ONE restructure.
 
-No owner decision is needed by this task; the stills answer the owner's Q75 / Q78 follow-ups.
+# 128-plan-shell-march-gpu-cost: DONE (plan only). Plan written; nothing built, launched or measured.
 
 ## What changed
-- Capture-only flag `-lookcross 1` (new `Assets/Game/PlaygroundCapture.LookCross.cs`, hook in `PlaygroundCapture.LookReview.cs`). No product code, no defaults.
-- `tools/cross127-sheet.py` (pair / 2x crop with px diff / mark boxes). Driver `Screenshots/127/127-driver.sh`. TASKS.md paragraph.
-- Light for EVERY shot: 15.26 h, sun 40 deg up, sun azimuth -74 deg; headings 60-75 deg off it (cross-light: sunlit vs shaded slopes).
-- The first attempt (this task, before the usage-limit stop) used 3 shell workers: shells 6-7 (the 3.3 km hand-off) stayed EMPTY at walk
-  height after 6 min, so High drew the far band there too (a meaningless comparison). This run passes `-shellworkers 6` (capture only).
+- New `PERF_SHELL_MARCH_PLAN.md` (repo root, 128 lines): evidence, ranked hypotheses, 3 experiments, 6 restructures, Q81.
+- `TASKS.md`: Task 128 paragraph. No product code. No suite run (no code, per the task file).
 
-## Evidence
-- Fast suite `PASS 921 FAIL 0 SKIP 15` (`Logs/overnight/127-tests.out`).
-- Launches (High 540 rows FSR 3; build 09:51): High `Screenshots/127/high/lookreview.txt` (prefill 128 s, then all shells full at x_high,
-  x_coast, birds; x_ridge s3-s5 missing 623 at the 120 s cap, s6 176/182, s7 full); Medium `Screenshots/127/medium/`; High blend-off
-  `Screenshots/127/blendoff/` (xb_0..2 all shells full). Log `Logs/overnight/127-driver2.out`. Waits were capped (120 s / 90 s); launches 6-23 min,
-  over the 10-min budget because the 3.3 km shells had to be full for the hand-off to be visible at all.
-- Px diff High vs Medium, whole frame (mean abs RGB): x_high 1.7, x_coast 1.2, x_ridge 0.8, x_bird800 0.2, x_bird2300 0.3.
-  Crops: x_high sea ring 2.7, x_high land ring 5.2, x_coast land 3.3, x_ridge 3.5, bird800 ring 0.2.
-- Borders BEFORE vs AFTER whole frame: 4.2 / 4.8 / 4.2 (xb_0/1/2).
+## Evidence (all from existing logs; nothing new was run)
+- Re-read the counter lines of `Logs/costsplit_2026-10-{16_233425,17_023103,17_102453,22_202941,22_235521,23_000248}.txt`.
+  Inside a pose, the frame-time deltas follow DISTINCT DIRECTORY READS (~one per chunk a ray enters), not iterations or page reads:
+  - 99 sky exit: directory reads -26 / -38 %, frame -4.7 / -2.6 ms.
+  - 93b5 mask: iterations -55 / -29 %, directory reads ~0 %, frame +2.8 / +0.6 ms.
+  - 116 column leap: iterations -64 / -23 %, page reads -85 / -46 %, directory reads 0 %, frame ~0.
+  - 117 Medium: directory reads -11 %, frame -0.8 ms (noise).
+- Across poses it does NOT scale: walk_near (30 k rays, 2.48 M iterations, 0.42 M directory reads) costs +16 ms, the same as walk_open
+  (322 k rays, 12.41 M, 4.34 M) at +18 ms. So latency is exposed, most likely from low occupancy (H1): if the cost were throughput,
+  each walk_near iteration would take ~50 us.
+- Pacing ruled out: `vSyncCount 0`; the 7,900 frames of `Screenshots/115/walk{1,2}_spikes.csv` are flat across the 16.7 ms phase
+  (310-377 per tenth).
+- The play kernel's diagnostic extras are not the cost: 93b3's `fshade_off` (plain `CSMain`, shells ON) saved -0.1 / +1.2 ms.
+- Not determinable without a Metal capture: register count, spills, occupancy, per-dispatch GPU ms, cache/TLB hit rates.
 
-## Looked at (all), what they show
-- Medium looks WORSE: (1) sea past 3.3 km: a dashed dark line and a slightly different, flatter blue beyond it (x_high, x_coast);
-  (2) far snow flats: the thin blue river line is gone in Medium (x_high land crop, x_coast land crop); (3) 1-3 km: lake shores and the
-  crater ponds are blockier, ponds turn greenish (x_ridge, x_coast).
-- Medium looks the SAME: everything within ~1 km (near slopes, the mesa cliff and its shading); and from 800 m or higher up, where the
-  3.3 km ring sits in haze (x_bird800 ring crop: diff 0.2, nothing visible).
-- Borders from 700 m: BEFORE has ruler-straight lines (xb_1's diagonal savanna|jungle edge, xb_2's yellow|green and green|snow edges);
-  AFTER is a ragged ~30 m mixed band that bends. Relief reads well in all three (shadowed gullies on the sun-away side).
-
-## Left / next
-- `x_bird2300` is mostly sea haze; not useful. Over land, the 3.3 km ring was never in frame from a bird pose (this world's ring is sea in
-  every cross heading: "sea/land mix 0 %").
+## Next
+- The owner answers Q81. If (a), queue ONE capture-only task: E1 (`CSShellProbe` split kernel, arm `shellsplit`), E2 (arm `shellsplit2`,
+  double march in the probe), E3 (per-8x4 groupshared SIMD-efficiency counters). One build, one warm-up, F X X F at walk_near/walk_open.
 
 ## For the doc
-- Light: 15.26 h, sun 40 deg up, cameras 60-75 deg off the sun (cross-lit). High vs Medium px diff: whole frame 0.2-1.7, hand-off crops 2.7 (sea) / 5.2 (land) levels.
-- Biome borders BEFORE vs AFTER (700 m up, -60 deg): px diff 4.2-4.8 levels, all shells filled.
-- `Screenshots/127/sheets/x_high_pair.png` -- High (left) | Medium (right) from the lookout, sun on the left: look at the sea at mid-height; Medium has a faint dashed line across it at 3.3 km.
-- `Screenshots/127/sheets/x_high_crop_sea.png` -- 2x crop of that line: Medium (right) shows the dashed dark seam and a flatter blue past it; High (left) is seamless.
-- `Screenshots/127/sheets/x_coast_crop_land.png` -- 2x crop 1-3 km out: Medium (right) loses the river on the snow flats (upper right) and its crater ponds turn green; the mesa is the same.
-- `Screenshots/127/sheets/xb_1_pair.png` -- savanna|jungle border from 700 m: BEFORE (left) a straight diagonal line; AFTER (right) a ragged band that bends.
-- `Screenshots/127/sheets/xb_2_pair.png` -- the yellow|green border (logged as forest|jungle) and the green|snow edge: BEFORE straight edges, AFTER mixed edges. Reference map: `Screenshots/122/biome_map_before_after.png`.
+Ranked hypotheses (PERF_SHELL_MARCH_PLAN.md §2):
+| # | hypothesis | key support / contradiction |
+|---|---|---|
+| H1 | Low occupancy / register spills: ShellMarch inlined in the 5,600-line kernel | near = open cost with 10x less work (6.5 vs 1.4 ns per iteration frame-wide); heavier leap +5-6 ms (93b5 b) |
+| H2 | Dependent memory latency per chunk visit (directory -> page -> body) | directory reads track ms (99 vs 93b5/116/117); not bandwidth (near reads 10x less) |
+| H3 | SIMD divergence (trip count, branch union) | walk_open mixes 106-step hits with 20-31-step sky rays; but walk_near's coherent sky patch costs as much |
+| H4 | ALU per iteration (ShellByDistance loop, per-lane constant indexing, leap math) | +5-6 ms for a heavier leap; but 4.6x per-iteration spread between poses |
+| H5 | Post-hit shading charged to shells | ruled out: walk_near has 26 hits/frame |
+| -- | Bandwidth; vsync pacing | ruled out (above) |
+
+Recommended order:
+1. E1+E2+E3 in one capture-only build.
+2. ONE restructure picked by the result: R1 shell pre-pass kernel (H1) / R5 chunk-state bitmap (H2) / R6 kernel diet (+R2 compaction if divergence).
+3. One warm ABBA of it.
+
+Numbers: shells +16 / +18 ms p50 (93b re-run, `Screenshots/93b/rerun/perf93b_rerun.txt`). Directory reads vs ms: see the table in the plan's §1.
+Images: none. This was a plan-only task, and nothing visible changed.

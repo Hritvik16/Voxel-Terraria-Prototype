@@ -415,3 +415,5 @@ match wins): at the script's 3, shells 6-7 (the 3.3 km hand-off) never filled at
 (High+borders, Medium, High `-biomeblend 0 -biometint 0` borders); sheets `tools/cross127-sheet.py pair|crop|mark`. Result (HANDOFF 127):
 Medium draws a dashed dark line + a flatter blue on the sea past 3.3 km, loses thin rivers on far snow flats and is blockier at lake
 shores 1-3 km out; the same near the camera and from 800 m+ up (the ring is in haze). Stills: `Screenshots/127/sheets/`.
+
+**Task 128 (plan only, owner Q80 (a); no code, no launch): `PERF_SHELL_MARCH_PLAN.md`** -- why the shell march costs +16-18 ms when cutting its iterations does not help: in-pose ms track distinct DIRECTORY reads (chunk visits; 99 cut them 26-38 % -> -4.7/-2.6 ms, 93b5/116/117 left them unchanged -> ~0), walk_near costs as much as walk_open with 10x less work (latency exposed: occupancy, H1), pacing ruled out (flat 16.7 ms phase histogram of 115's CSVs); proposes one capture-only probe build (E1 split-kernel probe, E2 cold/warm double march, E3 per-SIMD divergence counters) and restructures R1-R6; owner Q81.
