@@ -340,6 +340,14 @@ namespace VoxelEngine.Streaming
         // contention probe. 0 = no override (the default is unchanged). Read
         // once, in the constructor; set it before constructing.
         public static int GenWorkersOverride = 0;
+
+        // Task 123: eviction slicing. > 0 = out-of-range chunks still inside the
+        // store window are queued and evicted at most this many per frame
+        // (EvictOutOfRange / DrainEvictQueue); 0 = the whole slab in the crossing
+        // frame, as before (the default: task 123's A/B did not improve p99 or
+        // the crossing frames). `-evictslice N` (EngineConfig.EVICT_SLICE_PER_FRAME
+        // = 32 is the value tested). Read every frame.
+        public static int EvictSlicePerFrame = 0;
         public const float BAND_SWITCH_GAIN = 1.25f;
         public const int UNDERGROUND_MARGIN = 80;          // voxels (8 m)
         public const float FALL_SPEED_CENTRED = 4f;         // m/s downward
@@ -698,6 +706,7 @@ namespace VoxelEngine.Streaming
         public void Update(Vector3 cameraWorldPos, bool allowSlide = true)
         {
             _frame++;
+            _savesThisFrame = 0;
             var sw = System.Diagnostics.Stopwatch.StartNew();
             if (World.ClockSeconds - _worldStateWriteClock >= WORLD_STATE_SAVE_SECONDS) SaveWorldState();
             SavedSummaries.Pump();   // E2 (task 113): summary builds whose vote job finished -> written
@@ -748,6 +757,8 @@ namespace VoxelEngine.Streaming
                 // on frames where nothing is in flight.
                 RebuildPendingSet(camChunk);
             }
+            // Task 123: the queued slab, a slice per frame (inside the slide timer).
+            if (_evictQueue.Count > 0) DrainEvictQueue();
 
             double tp1 = sw.Elapsed.TotalMilliseconds;
             DispatchLoads(camChunk);
@@ -1208,6 +1219,9 @@ namespace VoxelEngine.Streaming
 
                     // Transfer scratch -> shared pool. This is the only place
                     // shared pool allocation happens for generated chunks.
+                    // Task 123: an admission that needs pool slots evicts queued
+                    // (out-of-range, sliced) chunks first.
+                    if (_evictQueue.Count > 0 && _store.IsUnderPoolPressure) RelievePoolFromQueue();
                     long tt0 = System.Diagnostics.Stopwatch.GetTimestamp();
                     TransferToSharedPool(c.chunk, c.scratch);
                     long tt1 = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -1429,20 +1443,100 @@ namespace VoxelEngine.Streaming
                     _evictScratch.Add(chunk.coord);
             }
 
-            int saves = 0;
             _evictDeferred = false;
+            bool slicing = EvictSlicePerFrame > 0;
             foreach (var coord in _evictScratch)
             {
-                if (saves >= EngineConfig.MAX_CHUNK_SAVES_PER_FRAME && NeedsSave(coord)) { _evictDeferred = true; continue; }
-                if (EvictChunk(coord)) saves++;
+                // TASK 123: SLICE ONLY WHAT CANNOT ALIAS. A chunk still inside the
+                // store window owns its ring slot (no in-window coord maps there),
+                // and so its cascade-tier slot (same dims; CascadeTierPool's evict
+                // clear has no owner check, unlike TerrainClipmap's). It can wait
+                // in the queue: still correct data, just held a few frames longer.
+                // A chunk OUTSIDE the window shares its slot with an in-window
+                // coord that may be admitted any frame now, so it goes here and now
+                // as before (task 26's save cap and retry unchanged). A walk's
+                // crossing evicts only in-window chunks (the window is evict radius
+                // + 1 per side); out-of-window ones come from teleports. Queued
+                // chunks the window has since slid past are caught here too.
+                if (slicing && _store.IsInWindow(coord))
+                {
+                    if (_evictQueued.Add(coord)) _evictQueue.Enqueue(coord);
+                    continue;
+                }
+                if (_savesThisFrame >= EngineConfig.MAX_CHUNK_SAVES_PER_FRAME && NeedsSave(coord)) { _evictDeferred = true; continue; }
+                if (EvictChunk(coord)) _savesThisFrame++;
             }
         }
         private readonly List<int3> _evictScratch = new List<int3>();
         /// The last EvictOutOfRange left an out-of-range chunk resident because
         /// the save cap was reached; Update retries every frame until it clears.
         private bool _evictDeferred;
-        /// Test hook: an out-of-range chunk is still waiting for its save.
-        public bool EvictionDeferred => _evictDeferred;
+        /// Test hook: an out-of-range chunk is still waiting for its save or its
+        /// slice (task 123).
+        public bool EvictionDeferred => _evictDeferred || _evictQueue.Count > 0;
+
+        // Task 123: in-window out-of-range chunks waiting for their slice, FIFO
+        // (the crossing's slab in scan order). The set dedupes re-scans.
+        private readonly Queue<int3> _evictQueue = new Queue<int3>();
+        private readonly HashSet<int3> _evictQueued = new HashSet<int3>();
+        private int _savesThisFrame;
+        /// Chunks queued for a sliced eviction right now (task 123).
+        public int EvictQueueCount => _evictQueue.Count;
+        /// Queued chunks that came back into range before their slice: kept.
+        public long EvictQueueKeptTotal { get; private set; }
+        /// Queued chunks evicted ahead of their slice because the pool was
+        /// under pressure (task 123's "admission needs a slot").
+        public long EvictQueueFlushedTotal { get; private set; }
+
+        /// Task 123: one frame's slice of the queue. A chunk back in range
+        /// (WantedNow) is kept; one already gone (evicted by the valve, or out of
+        /// the window and evicted by a later EvictOutOfRange) is dropped. The
+        /// per-frame save cap is shared with EvictOutOfRange: a dirty chunk over
+        /// it stays queued for the next frame, unless capSaves is false.
+        private void DrainEvictQueue(int maxEvict = -1, bool capSaves = true)
+        {
+            if (maxEvict < 0) maxEvict = EvictSlicePerFrame > 0 ? EvictSlicePerFrame : int.MaxValue;
+            int evicted = 0, n = _evictQueue.Count;
+            while (n-- > 0 && evicted < maxEvict)
+            {
+                int3 coord = _evictQueue.Dequeue();
+                if (!_store.IsResident(coord)) { _evictQueued.Remove(coord); continue; }
+                if (WantedNow(coord)) { _evictQueued.Remove(coord); EvictQueueKeptTotal++; continue; }
+                if (capSaves && _savesThisFrame >= EngineConfig.MAX_CHUNK_SAVES_PER_FRAME && NeedsSave(coord))
+                {
+                    _evictQueue.Enqueue(coord);   // its save waits; the rest go on
+                    continue;
+                }
+                // Not evictable (not Resident in the table) = dropped, as the old
+                // single pass skipped it; the next crossing's scan finds it again.
+                _evictQueued.Remove(coord);
+                if (EvictChunk(coord)) _savesThisFrame++;
+                evicted++;
+            }
+        }
+
+        /// Task 123: the whole queue now (pool pressure, WaitForIdle). Saves are
+        /// not capped here: a slot is needed, or the caller is not a frame.
+        private void FlushEvictQueue()
+        {
+            if (_evictQueue.Count == 0) return;
+            long e0 = ChunksEvictedTotal;
+            DrainEvictQueue(int.MaxValue, capSaves: false);
+            EvictQueueFlushedTotal += ChunksEvictedTotal - e0;
+        }
+
+        /// Task 123: under pool pressure the queue goes first, one chunk at a
+        /// time until the pressure clears -- they are leaving anyway, so §3.6's
+        /// LRU valve should not take an in-range chunk while one is waiting.
+        private void RelievePoolFromQueue()
+        {
+            while (_evictQueue.Count > 0 && _store.IsUnderPoolPressure)
+            {
+                long e0 = ChunksEvictedTotal;
+                DrainEvictQueue(1, capSaves: false);
+                EvictQueueFlushedTotal += ChunksEvictedTotal - e0;
+            }
+        }
 
         private bool NeedsSave(int3 coord)
         {
@@ -1576,6 +1670,7 @@ namespace VoxelEngine.Streaming
 
         private void ApplyPoolPressureValve(int3 camChunk)
         {
+            RelievePoolFromQueue();   // task 123: queued chunks before any in-range victim
             int guard = 0;
             while (_store.IsUnderPoolPressure && guard++ < 32)
             {
@@ -1726,6 +1821,7 @@ namespace VoxelEngine.Streaming
         public void WaitForIdle(int maxDrains = 10000)
         {
             int guard = 0;
+            FlushEvictQueue();   // task 123: a known state, not a slab still draining
             while ((_inFlight > 0 || _completions.Count > 0 || _pending.Count > 0) && guard++ < maxDrains)
             {
                 DispatchLoads(_lastCameraChunk);

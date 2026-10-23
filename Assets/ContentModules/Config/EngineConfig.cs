@@ -181,6 +181,20 @@ public static class EngineConfig
     // a full chunk generate -- that is what this bounds.
     public const int MAX_CHUNK_SAVES_PER_FRAME = 4;
 
+    // Task 123: out-of-range chunks still INSIDE the store window are queued on
+    // a chunk crossing and evicted at most this many per frame (task 115: a
+    // crossing evicted a ~256-chunk slab in one frame, up to 1,157). A clean
+    // eviction is ~6-7 us (115's CSV: 1,050 evictions = 7.6 ms of slide), so 32
+    // is ~0.2 ms a frame; a walk's slab drains in ~8 frames, well before the
+    // next crossing (~2 s apart). Queued chunks are bounded by the window
+    // (out-of-window ones still go at once), so a slower drain cannot grow
+    // without bound. The slice when ON: `-evictslice N` sets
+    // StreamManager.EvictSlicePerFrame, whose default is 0 = the whole slab in
+    // the crossing frame (OFF). Task 123's walk A/B: slide > 5 ms frames 15 -> 0
+    // per walk, but crossing frames and p99 did not improve (their cost is the
+    // GPU wait, not the eviction), so it stays OFF.
+    public const int EVICT_SLICE_PER_FRAME = 32;
+
     // ---- Edit summaries (Amendment 8.15 §5 "Live", task 93a) ----
     // A resident chunk a player edited is re-summarised into the shells that
     // cover it at most once per EDIT_SUMMARY_MIN_INTERVAL_S (8.15 §5: "at most

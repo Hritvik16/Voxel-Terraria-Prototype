@@ -1,0 +1,57 @@
+A1: 3604 frames  p50 48.2  p95 81.1  p99 97.1 ms  >33 85.7%  >100 29  >50 1620
+  crossings 88: frame median 59.8  p90 80.4  max 112.0 ms;  slide median 0.57  max 11.51 ms;  evicted median 22  max 1580
+  frame after a crossing: median 45.9  p90 75.7 ms;  crossing frames > 50 ms: 62
+  frames evicting: 96  evictions 27368  max/frame 1628  slide on them median 1.02  max 45.27 ms
+  bursts 95: first-frame ms median 60.3  p90 80.7  max 112.0;  > 50 ms 73
+  big bursts (> 64 evictions) 61: first-frame ms median 60.9  max 95.3;  slide median 1.02 ms
+  slide ms p99 1.18  max 45.27;  slide > 2 ms frames: 20   > 5 ms: 16
+B1: 3628 frames  p50 47.7  p95 81.9  p99 106.9 ms  >33 84.4%  >100 53  >50 1607
+  crossings 88: frame median 58.1  p90 83.2  max 213.5 ms;  slide median 0.52  max 1.86 ms;  evicted median 32  max 32
+  frame after a crossing: median 45.7  p90 69.3 ms;  crossing frames > 50 ms: 56
+  frames evicting: 920  evictions 28267  max/frame 32  slide on them median 0.29  max 138.59 ms
+  bursts 78: first-frame ms median 54.5  p90 83.2  max 150.5;  > 50 ms 52
+  big bursts (> 64 evictions) 57: first-frame ms median 53.7  max 122.1;  slide median 0.75 ms
+  slide ms p99 1.06  max 138.59;  slide > 2 ms frames: 3   > 5 ms: 2
+B2: 3637 frames  p50 48.0  p95 82.3  p99 109.8 ms  >33 83.1%  >100 63  >50 1619
+  crossings 88: frame median 55.2  p90 85.8  max 193.3 ms;  slide median 0.53  max 1.74 ms;  evicted median 32  max 32
+  frame after a crossing: median 47.0  p90 75.2 ms;  crossing frames > 50 ms: 51
+  frames evicting: 900  evictions 27726  max/frame 32  slide on them median 0.31  max 122.37 ms
+  bursts 79: first-frame ms median 61.5  p90 85.2  max 193.3;  > 50 ms 54
+  big bursts (> 64 evictions) 53: first-frame ms median 60.6  max 193.3;  slide median 0.76 ms
+  slide ms p99 1.12  max 122.37;  slide > 2 ms frames: 5   > 5 ms: 2
+A2: 3647 frames  p50 47.3  p95 80.2  p99 106.3 ms  >33 83.6%  >100 49  >50 1576
+  crossings 88: frame median 53.9  p90 83.5  max 210.5 ms;  slide median 0.77  max 15.32 ms;  evicted median 56  max 1620
+  frame after a crossing: median 48.6  p90 75.2 ms;  crossing frames > 50 ms: 51
+  frames evicting: 97  evictions 27063  max/frame 1620  slide on them median 1.10  max 62.64 ms
+  bursts 95: first-frame ms median 57.3  p90 88.1  max 210.5;  > 50 ms 62
+  big bursts (> 64 evictions) 61: first-frame ms median 57.9  max 210.5;  slide median 1.23 ms
+  slide ms p99 1.45  max 62.64;  slide > 2 ms frames: 27   > 5 ms: 16
+--- SKIP=100 (run-start frames dropped)
+A1: 3504 frames  p50 48.4  p95 81.1  p99 96.7 ms  >33 86.4%  >100 26  >50 1597
+  crossings 87: frame median 60.1  p90 80.4  max 112.0 ms;  slide median 0.57  max 11.51 ms;  evicted median 22  max 1580
+  frame after a crossing: median 45.5  p90 75.7 ms;  crossing frames > 50 ms: 62
+  frames evicting: 95  evictions 27366  max/frame 1628  slide on them median 1.01  max 17.66 ms
+  bursts 94: first-frame ms median 60.2  p90 80.7  max 112.0;  > 50 ms 72
+  big bursts (> 64 evictions) 61: first-frame ms median 60.9  max 95.3;  slide median 1.02 ms
+  slide ms p99 1.18  max 17.66;  slide > 2 ms frames: 19   > 5 ms: 15
+B1: 3528 frames  p50 47.8  p95 82.2  p99 106.9 ms  >33 84.9%  >100 52  >50 1576
+  crossings 87: frame median 58.3  p90 83.2  max 213.5 ms;  slide median 0.51  max 1.86 ms;  evicted median 32  max 32
+  frame after a crossing: median 45.6  p90 69.3 ms;  crossing frames > 50 ms: 56
+  frames evicting: 876  evictions 26871  max/frame 32  slide on them median 0.30  max 2.17 ms
+  bursts 77: first-frame ms median 55.0  p90 83.2  max 150.5;  > 50 ms 52
+  big bursts (> 64 evictions) 56: first-frame ms median 53.8  max 122.1;  slide median 0.78 ms
+  slide ms p99 1.04  max 2.17;  slide > 2 ms frames: 1   > 5 ms: 0
+B2: 3537 frames  p50 48.1  p95 82.7  p99 109.8 ms  >33 83.7%  >100 62  >50 1590
+  crossings 87: frame median 55.4  p90 85.8  max 193.3 ms;  slide median 0.52  max 1.74 ms;  evicted median 32  max 32
+  frame after a crossing: median 46.6  p90 75.2 ms;  crossing frames > 50 ms: 51
+  frames evicting: 856  evictions 26330  max/frame 32  slide on them median 0.31  max 2.29 ms
+  bursts 78: first-frame ms median 61.7  p90 85.2  max 193.3;  > 50 ms 54
+  big bursts (> 64 evictions) 52: first-frame ms median 61.0  max 193.3;  slide median 0.77 ms
+  slide ms p99 1.12  max 2.29;  slide > 2 ms frames: 3   > 5 ms: 0
+A2: 3547 frames  p50 47.5  p95 80.5  p99 106.9 ms  >33 84.2%  >100 49  >50 1553
+  crossings 87: frame median 54.0  p90 83.5  max 210.5 ms;  slide median 0.75  max 15.32 ms;  evicted median 58  max 1620
+  frame after a crossing: median 48.9  p90 75.2 ms;  crossing frames > 50 ms: 51
+  frames evicting: 96  evictions 27061  max/frame 1620  slide on them median 1.10  max 16.17 ms
+  bursts 94: first-frame ms median 56.8  p90 88.1  max 210.5;  > 50 ms 61
+  big bursts (> 64 evictions) 61: first-frame ms median 57.9  max 210.5;  slide median 1.23 ms
+  slide ms p99 1.45  max 16.17;  slide > 2 ms frames: 26   > 5 ms: 15

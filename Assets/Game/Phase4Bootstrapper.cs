@@ -362,6 +362,12 @@ public class Phase4Bootstrapper : MonoBehaviour
             int gi = Array.LastIndexOf(args, "-genworkers");
             VoxelEngine.Streaming.StreamManager.GenWorkersOverride =
                 gi >= 0 && gi + 1 < args.Length && int.TryParse(args[gi + 1], out int gw) && gw > 0 ? gw : 0;
+            // -evictslice N (task 123): out-of-range chunks evicted per frame after
+            // a chunk crossing; 0 (the default) = the whole slab in the crossing
+            // frame. Task 123 tested 32 (EngineConfig.EVICT_SLICE_PER_FRAME).
+            int ei = Array.LastIndexOf(args, "-evictslice");
+            VoxelEngine.Streaming.StreamManager.EvictSlicePerFrame =
+                ei >= 0 && ei + 1 < args.Length && int.TryParse(args[ei + 1], out int es) && es >= 0 ? es : 0;
         }
         // Task 93d (8.15 row D1, owner Q49): with the shells on, tiers 1-2 never draw,
         // so they are not created (task 55's ledger: 193 MB). Shells off: as before.

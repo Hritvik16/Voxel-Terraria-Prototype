@@ -347,3 +347,17 @@ cells, +-4% value. Capture: `-lookbiome 1` (look review) adds poses `border_0..2
 pair, looking along the border from 150 m back, 35 m up) and `<pose>_<fsr3>_notint` at every pose. Tests: `BiomeBlendTests`
 (gradient bound, early-out exact + record biome unchanged, band shape on 64 E-W transects, off/determinism);
 `Report_BiomeBlendMapPng` (REPORTS=1) writes `Screenshots/122/biome_{map,crop_1km,crop_200m}_before_after.png`.
+
+**Task 123 -- eviction slicing (perf, supervisor approval of 115 Q73 (a); OFF by default, `-evictslice 32` = on).** On a chunk
+crossing `EvictOutOfRange` evicted the whole out-of-range slab in one frame (up to ~1,600 chunks). With `-evictslice N` (N > 0;
+`StreamManager.EvictSlicePerFrame`, the value tested is `EngineConfig.EVICT_SLICE_PER_FRAME` = 32) out-of-range chunks still INSIDE
+the store window are queued (FIFO + dedupe set) and `DrainEvictQueue` evicts at most N per frame inside the slide timer. Only
+in-window chunks wait: an in-window coord owns its ring and cascade-tier slot, so a queued chunk cannot alias; out-of-window ones
+(teleports, or queued ones the window slid past) still go at once under task 26's save cap. A queued chunk back in range is kept
+(`EvictQueueKeptTotal`); under pool pressure the queue goes first, before an admission's transfer and before §3.6's LRU valve
+(`EvictQueueFlushedTotal`); `WaitForIdle` flushes it; `EvictionDeferred` also reads the queue. The save cap is now per frame
+(`_savesThisFrame`, shared by both paths). Tests: `EvictionSlicingTests` (slice cap + all resident in window, slice 0 = old slab,
+re-entry kept, pool pressure takes the queue, not in-range chunks). Warm A/B (`MODE=walk` 3 min, ABBA, 115's flags): slide > 5 ms
+frames 15/15 -> 0/0 per walk, slide max 16-17 -> 2.3 ms, but crossing frames stay 54-60 ms (their excess is GPU wait, `pre_ms`
++10 ms) and p99 97/103 -> 108/108 ms, > 100 ms frames 26/49 -> 52/62 (not on the drain frames) -- so it stays OFF.
+`tools/crossing-report.py` (crossing frames, eviction bursts, slide; `SKIP=N`); reports `Screenshots/123/crossing_report.txt`.
