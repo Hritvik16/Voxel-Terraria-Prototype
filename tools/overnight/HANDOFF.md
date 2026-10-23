@@ -1,54 +1,67 @@
-# 122-terrain-biome-border-blend: DONE. Biome borders are now a mixed, bent band, and each surface has a mild tint. Both are ON by default on map v4; `-biomeblend 0` / `-biometint 0` give back the old look.
+STOP_FOR_OWNER -- Q (task 123): eviction slicing works, but it did not make walking smoother, so I left it OFF. Pick one:
+(a) keep it OFF; next, find out what makes a chunk-crossing frame slow on the GPU side (recommended);
+(b) turn it ON anyway (it takes 5-17 ms of CPU work off ~15 frames per walk; frame times did not improve);
+(c) remove the code.
 
-## What changed (commit dfe801c)
-- **Generator: `ShapeField.SurfaceBiome`.** A column's MATERIALS (surface, soil, beach rule AND rock/strata) come from the biome at a jittered point. The new field is `ColumnSample.surfBiome`.
-  - The jitter has four parts: two warp octaves (800 m / 150 m wavelength, +-60 / +-15 m) bend the line; a clump octave (40 m, +-18 m) and a per-0.8 m-cell hash dither (+-14 m) mix the two sides.
-  - The BIOME itself is unchanged: ores, pocket liquids, crystals, danger, the world record and the biome x landform maps all keep the old field. The record biome is the same bits (asserted), and the world-record tests pass.
-  - Same seed gives the same world: the jitter is seed-keyed noise plus an integer hash.
-- **Rock too, a decision I made mid-task.** The first in-game stills, with only surface and soil blended, still showed the exposed ROCK on steep slopes changing along a hard straight line. Mountains are mostly rock, so strata now follow `surfBiome` as well.
-  - Ores keep the record biome, so a border's ore type does not dither.
-- **Early-out.** `BiomeAndBorder` returns the climate-space distance to the nearest bisector. Past `BlendClimateReach`, the biome cannot change, so the 8 extra noise calls are skipped. This is exact while the snoise gradient stays at or below `SNOISE_GRAD_BOUND` = 8 (measured max 7.3).
-  - The bound is loose: 90% of columns still take the full path. That is about +8 snoise per surface `Sample`; neighbour samples that only read height (`Sample(.., false)`) skip it.
-  - No timing run was made (task rule). Flagged for the next performance milestone.
-- **Far band and minimap** read `TopMaterial`, so they show the blend with no extra plumbing.
-- **Renderer: `BiomeTint` in `LookAlbedo`** (`Raymarch.compute`), so voxels, shells and the far band all get it.
-  - Each surface material drifts between two tints of its own: grass dry/lush, sand warm/pale, snow white/blue, savanna golden/olive, clay pink/grey.
-  - The drift follows a 2-D value noise with ~100 m and ~400 m cells: tints span up to 0.84-1.08 per channel (grass blue, savanna blue), plus +-4% brightness.
-- **Flags:** `-biomeblend 0` sets `TerrainSpec.biomeBlendOff` (chunk source + far band); `-biometint 0` turns the tint off. Map v3 is untouched.
-- **Capture:** `-lookbiome 1` (look review) adds poses `border_0..2`, each looking along a land border, and a `<pose>_fsr3_<rows>_notint` shot at every pose.
-- **Tests:**
-  - `BiomeBlendTests` (4 tests + 1 report).
-  - `ShellFillTests` GOLDEN was re-made: 32 of 85 chunks changed because the walk start pose sits on a desert|savanna border. The fast and reference paths still both match it.
+# 123-perf-eviction-slicing: DONE, kept OFF. Slicing removes the eviction CPU spikes, but crossing frames and p99 did not improve.
+
+## What changed (commit 6598a63)
+- `StreamManager`: `-evictslice N` (N > 0) queues out-of-range chunks that are still INSIDE the store window (FIFO + dedupe set).
+  - `DrainEvictQueue` evicts at most N of them per frame, inside the slide timer.
+  - Default `EvictSlicePerFrame = 0` = the old one-frame slab. `EngineConfig.EVICT_SLICE_PER_FRAME = 32` is the value tested.
+  - Why 32: a clean eviction costs ~6-7 us (115), so 32 is ~0.2 ms a frame. A slab drains in ~8-30 frames, well before the next crossing (~2 s).
+- Only in-window chunks wait. An in-window coord owns its ring slot and its cascade-tier slot, so a queued chunk cannot alias.
+  - Out-of-window chunks still go at once under task 26's save cap: teleports, and queued chunks the window has slid past.
+- The other rules:
+  - A queued chunk that comes back into range is kept (`EvictQueueKeptTotal`).
+  - Under pool pressure the queue is evicted first: before an admission's transfer, and before §3.6's LRU valve (`EvictQueueFlushedTotal`).
+  - `WaitForIdle` flushes the queue, and `EvictionDeferred` also counts it.
+  - The save cap is now counted per frame (`_savesThisFrame`), shared by both eviction paths.
+- No frozen API, contract or memory-layout change; main thread only.
+- `Phase4Bootstrapper` reads `-evictslice`.
+- New tests: `EvictionSlicingTests` (4):
+  1. Each frame evicts at most the slice, and every resident chunk stays inside the window.
+  2. Slice 0 evicts the whole slab in the crossing frame (old behaviour).
+  3. Re-entry: 24 of 25 queued start chunks were kept.
+  4. Pool pressure: the queue went 17 -> 2 and 4 in-range chunks were kept.
+- `tools/crossing-report.py` reports crossing frames, eviction bursts and slide ms (`SKIP=N` drops run-start frames). TASKS.md paragraph added.
 
 ## Evidence
-- Whole suite: `PASS 961 FAIL 0 SKIP 26` (`Logs/overnight/122-suite2.out`).
-  - The first run had 1 FAIL: the shell-fill golden hashes, which change by design. It was re-made and that test re-checked.
-- Band metrics (`Logs/TerrainGen/biome_blend.txt`, 64 E-W transects, seed 42):
-  - 516 bands, width median 27 m, p90 73 m.
-  - Median 13 surface switches per band (before: 1, a hard line).
-  - The band's centre sits off the straight climate contour by sd 53 m.
-  - 3.7% of columns wear the other side's materials.
-- Map metrics: no EditMode map metric changed. Biome shares, danger, ores and the world record are all keyed on the record biome, which did not move.
-- Look launches (Low, FSR 3 at 540 rows, 4 poses, 45 s shell cap):
-  - after: `Logs/lookreview_20261023_035751.txt`; before (`-biomeblend 0 -biometint 0`): `Logs/overnight/122-before.out`.
-  - Shell 3 was still missing 30-40 chunks at `high` and `border_0`; everything else had filled.
-- **What the stills show:**
-  - border_1 and border_2: the hard diagonal rock line is gone, replaced by a mixed, bent band.
-  - high pose (1-2 km away): the green|sand and green|pink edges are ragged and bent instead of straight. The patches still read as separate colours, because a ~30 m band is only a few pixels at that range.
+- Fast suite: `PASS 911 FAIL 0 SKIP 15` (`Logs/overnight/123-tests.out`). Filtered runs: `DeferredEvictionTests` (task 26) still green.
+- Warm steady state, AC power, no owner pause.
+  - Warm-up (discarded): `Logs/tg2world_20261023_055330.txt`.
+  - 3-min `MODE=walk` A B B A with task 115's flags (FSR 3 at 540 rows, quality, shells ON, noon, `-spikelog`). A = `-evictslice 0`, B = 32.
+  - Logs: A1 `Logs/tg2world_20261023_060112.txt`, B1 `..._060559`, B2 `..._061047`, A2 `..._061535`. Driver: `Logs/overnight/123-driver.sh`.
+- Whole run, from the rig's own line (A1 / A2 vs B1 / B2):
 
-## Open / next
-- **Owner taste:**
-  - At 1-3 km the far band shows ragged edges but still distinct patches. Making it read as a gradient from far away needs a WIDER band (`BLEND_CLUMP_AMP` / `BLEND_DITHER_AMP`), at the cost of more mixed ground up close.
-  - Ore-type borders stay hard (record biome). Recommended as is.
-- **Next performance milestone:** generation cost of the +8 snoise per column (no timing was run here).
+  | | A1 / A2 (OFF) | B1 / B2 (ON) |
+  |---|---|---|
+  | p50 ms | 48.1 / 47.4 | 47.5 / 47.7 |
+  | p95 ms | 81.4 / 78.3 | 80.0 / 80.3 |
+  | p99 ms | 96.6 / 103.0 | 107.8 / 108.1 |
+  | > 33 ms | 86.3 / 86.1% | 85.9 / 85.5% |
+
+- From `Screenshots/123/crossing_report.txt` (run-start frames dropped):
+  - Frames over 100 ms: A 26 / 49, B 52 / 62.
+  - Max chunks evicted in one frame: A 1,628, B 32.
+  - Slide (eviction) frames > 5 ms: A 15 / 15, B 0 / 0. Slide max: A 17.7 / 16.2 ms, B 2.2 / 2.3 ms.
+  - Crossing frames (88 per walk): median A 60.1 / 54.0 ms, B 58.3 / 55.4 ms. No change.
+- **Why crossings stay slow:** a crossing frame runs ~10 ms over an ordinary frame, but nearly all of it is GPU wait (`pre_ms` 53.7 vs 43.8 ms).
+  - Our own CPU work is only +1.5 ms (`upd` 3.3 vs 1.8). The eviction itself costs ~1 ms even unsliced (big-burst slide median 1.0-1.2 ms; 115 saw 2.5-3.6).
+  - Crossing frames upload more: clipmap 831 KB vs 579 KB, shell 50 KB vs 16 KB.
+- **The extra > 100 ms frames in B are NOT on drain frames:** 15-18 of 52-62 evict, the same as the 31% of frames that evict anyway.
+  - Every one of them had a shell upload: these are 115's unexplained GPU waits.
+  - So B's worse p99 may be noise (A alone spans 26-49), but the task's keep-ON rule needs an improvement, and there is none.
+- No screenshots: no look change, and the default behaviour is unchanged.
+
+## Left open / next
+- The crossing-frame hitch (~+10 ms) is GPU-side. Candidates: the clipmap/cascade uploads on a crossing, and the shell re-centre uploads.
+  - Isolating them (suppress one upload kind on crossings, re-measure) is a performance task for the owner to approve. No follow-up queued.
+- CSVs for re-analysis (untracked): `Screenshots/123/{A1,B1,B2,A2}_spikes.csv`, cut at 3604 / 3628 / 3637 / 3647 rows.
 
 ## For the doc
-- Border band (64 transects): a 0 m hard line with 1 switch -> median 27 m wide (p90 73 m), 13 switches; the line moves sd 53 m off the straight contour (`Logs/TerrainGen/biome_blend.txt`).
-- Columns wearing the other biome's materials: 0% -> 3.7%. Record biome, world record and map metrics: unchanged (suite `PASS 961 FAIL 0 SKIP 26`).
-- Shell-fill golden: 32/85 chunks changed bytes; fast path == reference path.
-- Images:
-  - `Screenshots/122/biome_map_before_after.png`: the whole 8 km island (left before, right after). Same biome regions; look at the edges, smooth curves before, ragged after.
-  - `Screenshots/122/biome_crop_200m_before_after.png`: 200 m around a desert|savanna border at 2 m/px. Left is a clean line; right is a mixed, clumped band that wanders.
-  - `Screenshots/122/border_1_before_after.png`: in-game jungle|savanna slope. LEFT: a straight vertical line where pale rock meets brown rock. RIGHT: the line is gone; rock and grass of both sides interleave.
-  - `Screenshots/122/border_2_before_after.png`: forest|jungle slope. The left frame's diagonal grey|pale rock edge becomes a broken, mixed edge on the right.
-  - `Screenshots/122/high_crop_before_after.png`: the 114 high view's middle distance, 2x. The green field's edges against sand and pink go from straight to ragged.
+- Biggest chunk-eviction burst in one frame: 1,628 -> 32 chunks (`Screenshots/123/crossing_report.txt`).
+- Eviction (slide) frames over 5 ms per 3-min walk: 15 / 15 -> 0 / 0; slide max 17.7 / 16.2 -> 2.2 / 2.3 ms.
+- Chunk-crossing frame median: 60.1 / 54.0 -> 58.3 / 55.4 ms (no change: the cost is GPU wait, +10 ms `pre_ms`).
+- Whole-walk p99: 96.6 / 103.0 -> 107.8 / 108.1 ms; > 100 ms frames 26 / 49 -> 52 / 62 (not on drain frames). p50 48 ms both.
+- Result: kept OFF (`-evictslice 32` turns it on). No images: nothing visible changed.
