@@ -1,56 +1,58 @@
-STOP_FOR_OWNER -- task 116 measured; the rule says OFF and the shell-march line closes. One question at the end (Q72).
+# 119-look-far-rock-dashes: DONE. The far dashes are gone, but the cause was NOT rock: they were far SUN SHADOWS. Fixed both ways, ON by default.
+One non-blocking owner question at the end (Q74): the shadow fix goes beyond the mechanism you approved.
 
-# 116-perf-shell-sky-leap: DONE. Exact (0 px), shell iterations cut 37-64%, frame time unchanged, so OFF by default (`-shellcolleap 1`).
-## What changed (commits `b7ab1f6` code + docs, `5a32e21` this file; branch engine-phase)
-- `ShellStore`: 16 bytes of COLUMN TOPS per page, in the page buffer's tail after the 93b5 masks (`ColumnTops`, `ColTopBase`).
-  Byte j = the highest non-air brick y + 1 in 4x4-brick column j. Uploaded with the page; a redraw makes a new page with its own tops,
-  so they never go stale. 66 KB on High.
-- `Raymarch.compute` `ShellMarch`: a rising ray in an air brick at or above its column's top leaps to the column's edge in one step,
-  up to the chunk top (or across the whole chunk when every column is that low). Functions `ShellLeapBox`, `ShellBoxLeapOk`.
-  - No far-band height test is needed: the leap stays inside one chunk and one distance band, so it never skips an ABSENT / PAST_LAST
-    end, and the far band is always asked from the same t.
-- Flag `-shellcolleap 0|1`, **default OFF**. Cost-split arms `colleap_on` / `colleap_off`; counters ShadowStats 65-66.
-- CPU twin `ShellRayReference.March(colLeap)`. Tests: new `ShellColumnLeapTests` (6); `ShellAirMaskTests.CheckStored` also checks the
-  tops of real tg2 pages; `ShellStorageTests` budget +16 B per page.
-- Docs: TASKS.md (Task 116), KNOWN_ISSUES "SHELLS COST" (COLUMN SKY LEAP), CLAUDE.md index line (one clause).
+## What changed (commit `51e107e`, branch engine-phase)
+- **Diagnosis first.** Task 114 blamed `FAR_WALL_LIP` rock. I built the approved slope-rock rule and shot before/after: **0 px changed** in
+  the dash crop (the pink plain is BadlandsClay, which `FarWallMaterial` does not even map). A `-farshadow 0` arm removed EVERY dash on the
+  pink plain and the snow (`Screenshots/119/diag_noshadow_low/high_native.png`). Cause: the far band is a staircase of texel-wide steps,
+  and the far sun-shadow ray (started 0.05 voxel off the hit) was shadowed by the next step up. That gives 1-px dark dashes at the foot
+  of every step, and they crawl when moving.
+- `Raymarch.compute`, far-shade kernel only (`#ifdef VE_FAR_SHADE`: play and `-farshade 1`; rigs keep their pixels):
+  - (1) **`_FarShadowLift`**: the far sun-shadow ray starts one texel (`8 << fh.level` voxels) above the hit. A step no taller than its
+    width (slopes up to 45 deg) no longer shadows its own staircase; anything taller than a texel still casts shadows. `-farshadowlift 0` = old.
+  - (2) **`_FarRockSlope`** (the task's change): a far step side becomes rock where `FarSlopeNormal` is steeper than ~40 deg
+    (`FAR_ROCK_SLOPE_NY` 0.766). The 1.5 m lip applies only where FarSlopeNormal has no answer. `-farrockslope 0` = old.
+    It made no visible difference at these poses. Kept because it was approved and is harmless.
+- `RaymarchFeature.cs`: `FarShadowLift`, `FarRockSlope` (both ON) and `ParseFlagOn`. New `FarRockSlopeTests` (3 tests: the flags' text,
+  both shader blocks inside VE_FAR_SHADE). TASKS.md has a Task 119 paragraph. VISUAL_REVIEW_114 row #3 now has a correction line.
+
 ## Evidence
-- **Exact on the CPU** (2,376 rays + 687 shadows; holes, absent chunks, floating cells, tier 0):
-  - Exit-plane leap (mask off and on): every field equal, t included.
-  - Default leap: the same end / shell / cell / normal / material on every ray. 40 t's differ in their last bits (rel <= 1.2e-7).
-  - A mutation (tops one brick low) is caught.
-- **Exact on the GPU:** raw no-upscaler stills ON vs OFF: **0 px** at walk_near and walk_open.
-- **Fast suite** PASS 894 FAIL 0 SKIP 14 (`Logs/overnight/116-tests.out`). Player build: no shader errors.
-- **Measurement:** warm, AC (100%), no owner pause, noon, play settings (FSR 3 540, High, shells ON).
-  - Warm-up (discarded): `Logs/tg2world_20261022_202312.txt`.
-  - Cost split, F X X F (F = leap ON): `Logs/costsplit_2026-10-22_202941.txt` (copy `Screenshots/116/costsplit_116.txt`).
-  - Walks A B B A: `Logs/tg2world_20261022_{203606,204059,204554,205047}.txt` (`Screenshots/116/walks_116.txt`).
-| | leap ON | leap OFF | change |
-|---|---|---|---|
-| walk_near p50 (cost split) | 65.3 / 65.6 | 61.9 / 66.0 | ON +1.9 slower (pooled 65.4 vs 63.6; OFF passes 4 ms apart) |
-| walk_open p50 | 45.5 / 45.5 | 45.8 / 45.6 | ON -0.2 ms |
-| walk p50 (3 min x 2 each) | 41.91 / 41.51 | 41.50 / 41.89 | 0.0 |
-| walk p95 / p99 | 77.9 / 74.9, 98.0 / 99.5 | 73.4 / 73.9, 97.0 / 94.1 | ON ~+3, inside the spread |
-| walk % > 33 ms | 79.2 / 78.8 | 79.5 / 80.4 | ~0 |
-| shell iterations per sky ray (near) / per pixel (open) | 29.5 / 19.0 | 82.2 / 30.3 | -64% / -37% |
-- The task's rule: gain < 1 ms at both poses -> **OFF by default, and the shell-march line closes**. (Task 110 had near 60.7 / open 43.0.)
-- This is the third big cut in shell iterations (93b5, 93b5 (b), 116) that bought ~0 ms. The march's cost is NOT its step count.
-  My guess, not measured: SIMD divergence (hit rays at ~102-106 steps share groups with sky rays), or memory latency / occupancy.
-## Left open / risk
-- With the flag OFF the new block still sits in the kernel. A comparison inside one build cannot see a static cost (registers / occupancy).
-- Weak hint, from a different hour: task 115's walks on the pre-116 build (same flags) had p50 41.9 / 40.7 / 41.1 and > 33 ms 72-78%.
-  This build with the leap OFF: 41.5 / 41.9 and 79-80%. That is inside day-to-day spread, but a static cost is not ruled out.
-- PERF_30FPS_PLAN row 1 still shows the estimate (supervisor: "measured ~0, OFF"). Next per the plan: 117 (Medium trial).
+- Fast suite **PASS 897 FAIL 0 SKIP 14** (`Logs/overnight/119-tests.out`). Player build OK, no shader errors.
+- `./run-look-review.sh`, same build, same poses as 114, noon + golden hour, FSR 3 at play rows. Before = `EXTRA="-farrockslope 0 -farshadowlift 0"`.
+  - Low: before `Logs/lookreview_20261022_220344.txt`, after `Logs/lookreview_20261022_230756.txt`.
+  - High: before `Logs/lookreview_20261022_231215.txt`, after `Logs/lookreview_20261022_231900.txt`.
+  - Shots: `Screenshots/119/{before,after}_{low,high}/`.
+  - No timing (rule 10). The owner paused heavy work 22:13-23:04; all four look launches ran after the pause was lifted.
+- Dark-dash pixels on the pink plain (Low, high pose, native): **29.2% -> 5.2%**. What's left is real hill shading.
+- Far-snow crawl, ridge walk burst, 4 frames: flicker **0.74 -> 0.43** (none), **0.57 -> 0.29** (fsr3). Pixels flickering > 24 levels: **0.93% -> 0.30%**.
+- High noon: walk_near / ridge / high **0 px** changed (shells cover the frame at those poses); walk_open 1.2%.
+- **Trade-off, visible:** at golden hour (High, walk_open away), the shadow over the far sea cast by land behind the camera now ends ~30 px
+  nearer (`D_high_golden_away_sea_shadow.png`). Its edge is straight in both versions, so it is probably a far-ring edge. Occluders lose up
+  to one texel of height (25.6 m at the coarsest level).
+
+## Left open
+- The shadow lift jumps at far-ring edges (one texel per level). A gentler option is a lift of `slope x tv` from FarSlopeNormal, or 0.5 tv.
+  That is not done. Ask if the golden-hour edge matters.
+- #10 (black dots on the sea) is still visible in the B crop; it is a separate defect.
+
 ## Owner question
-Q72. The leap's dead code: (a) leave it in, OFF, as 93b5's mask, and go on to 117 (recommended: the static-cost hint is weak, and 117/118
-compare arms inside one build); (b) compile the block out (`#if`; the flag then does nothing), so the kernel is the pre-116 one;
-(c) a two-build A/B (pre-116 vs this build, leap OFF) to settle it (a measurement task).
+Q74. You approved "rock by slope". The real cause turned out to be shadows, so I also shipped the shadow lift, ON by default.
+- (a) Keep both ON (recommended: the dashes are gone; the cost is one shadow edge at golden hour).
+- (b) Keep the lift but drop the rock rule. It had no visible effect at these poses.
+- (c) Lift OFF by default (`-farshadowlift 1` to see it). This brings the dashes back.
+
 ## For the doc
-Task 116: rising shell rays above their column's terrain now leap to the column's edge. The image is identical and the step count fell
-a lot, but the frame is not faster, so it ships OFF.
-- Shell steps per sky ray, walk_near: **82.2 -> 29.5**. Per pixel, walk_open: **30.3 -> 19.0** (`Logs/costsplit_2026-10-22_202941.txt`).
-- Frame p50, OFF -> ON: walk_near **63.6 -> 65.4 ms** (noisy: OFF passes 61.9 / 66.0), walk_open **45.7 -> 45.5 ms**.
-- Walk p50, 3 min, ABBA: **41.70 -> 41.71 ms**; frames > 33 ms ~80% both (`Screenshots/116/walks_116.txt`). Image: **0 px** differ.
-- `Screenshots/116/sheet_116.jpg` (not committed). Rows: walk_near OFF, ON, walk_open OFF, ON. Left = beauty (the same in all rows);
-  right = shell-step heat (blue few -> green -> yellow -> red many; black = tier 0).
-  - walk_near: the top-right sky goes from red/yellow to green/blue.
-  - walk_open: the sky over the ridges goes from yellow/red to green/blue. The red ridge hits at the bottom left stay red.
+Task 119: the grey dashes that crawled over far gentle land were the far band's staircase shading itself, not rock. The far sun-shadow ray now
+starts one texel up, so the dashes are gone. Real shadows and slopes are still shaded.
+- Dash pixels on the pink plain (Low, high, native): **29.2% -> 5.2%**.
+- Far-snow flicker, ridge walk (4 frames): **0.74 -> 0.43** (none), **0.57 -> 0.29** (FSR 3).
+- Slope-rock rule alone: **0 px** changed. `-farshadow 0` removed every dash, which is what identified the cause.
+- `Screenshots/119/B_before_after_native6x.png`: top = before, bottom = after (Low, native, 6x). Look at the pink plain (centre) and the
+  snow (left): the grey 1-px dashes along every step are gone, and the hill shading at the right stays.
+- `Screenshots/119/A_before_after_trio.png`: rows before / after; columns FSR 3 / none / native. Look at the pink plain and snow behind
+  the mountain: the dashes are gone in all three; FSR 3 was only hiding them while still.
+- `Screenshots/119/C_ridge_walk_far_motion.png`: left = before, right = after; top = frame 0 of the ridge walk, bottom = 4-frame flicker
+  (x4). Look at the far snowfield (top half): it is dashed before and clean after, and the flicker dots over it thin out. The bottom-left
+  diagonal is the near mountain's real parallax (unchanged).
+- `Screenshots/119/D_high_golden_away_sea_shadow.png` (the trade-off): golden hour, High; top = before, bottom = after. Look at the darker
+  shadowed sea: its far edge sits ~30 px lower (closer) after.
