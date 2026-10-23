@@ -1,67 +1,56 @@
-STOP_FOR_OWNER -- Q (task 123): eviction slicing works, but it did not make walking smoother, so I left it OFF. Pick one:
-(a) keep it OFF; next, find out what makes a chunk-crossing frame slow on the GPU side (recommended);
-(b) turn it ON anyway (it takes 5-17 ms of CPU work off ~15 frames per walk; frame times did not improve);
-(c) remove the code.
+# 125-look-sea-horizon-line: DONE. The line is the FAR BAND's square, not the world's edge. It is fixed and ON by default (`-edgefade 0` = old).
 
-# 123-perf-eviction-slicing: DONE, kept OFF. Slicing removes the eviction CPU spikes, but crossing frames and p99 did not improve.
+No owner decision is needed.
 
-## What changed (commit 6598a63)
-- `StreamManager`: `-evictslice N` (N > 0) queues out-of-range chunks that are still INSIDE the store window (FIFO + dedupe set).
-  - `DrainEvictQueue` evicts at most N of them per frame, inside the slide timer.
-  - Default `EvictSlicePerFrame = 0` = the old one-frame slab. `EngineConfig.EVICT_SLICE_PER_FRAME = 32` is the value tested.
-  - Why 32: a clean eviction costs ~6-7 us (115), so 32 is ~0.2 ms a frame. A slab drains in ~8-30 frames, well before the next crossing (~2 s).
-- Only in-window chunks wait. An in-window coord owns its ring slot and its cascade-tier slot, so a queued chunk cannot alias.
-  - Out-of-window chunks still go at once under task 26's save cap: teleports, and queued chunks the window has slid past.
-- The other rules:
-  - A queued chunk that comes back into range is kept (`EvictQueueKeptTotal`).
-  - Under pool pressure the queue is evicted first: before an admission's transfer, and before §3.6's LRU valve (`EvictQueueFlushedTotal`).
-  - `WaitForIdle` flushes the queue, and `EvictionDeferred` also counts it.
-  - The save cap is now counted per frame (`_savesThisFrame`), shared by both eviction paths.
-- No frozen API, contract or memory-layout change; main thread only.
-- `Phase4Bootstrapper` reads `-evictslice`.
-- New tests: `EvictionSlicingTests` (4):
-  1. Each frame evicts at most the slice, and every resident chunk stays inside the window.
-  2. Slice 0 evicts the whole slab in the crossing frame (old behaviour).
-  3. Re-entry: 24 of 25 queued start chunks were kept.
-  4. Pool pressure: the queue went 17 -> 2 and 4 in-range chunks were kept.
-- `tools/crossing-report.py` reports crossing frames, eviction bursts and slide ms (`SKIP=N` drops run-start frames). TASKS.md paragraph added.
+## Verified: which edge it is
+- New capture option `-lookedge 1` (look review). For each heading it logs the row where a flat sea would end at the world's edge and at the band's square (`Screenshots/125/lookreview.txt`).
+- Old stills (`_old`), High preset, noon, high pose (606 m over the sea, pitch -4 deg):
+
+  | heading | world edge (row) | band square (row) | line seen |
+  |---|---|---|---|
+  | +x / -x / +z | 4.1 / 3.9 / 4.3 km (611 / 621 / 604) | 5,632 m (575) | row 575 at all three |
+  | diagonal | 5.9 km (571) | 8.0 km (546) | row 546, drawn as the square's CORNER (a peak at the frame centre) |
+  | pose edge_x, 2 km from the world's +x edge, looking +x | 2.0 km (753) | 575 | row 575, nothing at 753 |
+
+- Past the world's edge the far band keeps drawing sea, so the world's edge is invisible.
+
+## Cause and fix
+- Task 121 faded the haze to full at the square. But two things are applied after the haze:
+  - the water's see-through blend (`SeeCompose` with `SeeReflection`, which reflects the sky about 6 deg UP: bluer and darker);
+  - the grade's saturation.
+- So the sea at the edge stayed about 128 -> 112 levels off the sky.
+- Fix, in `Raymarch.compute` (far-shade kernel):
+  - The same fade (`DrawnEdgeAmount`, the last 45% of the square) now comes out of `FarShadeApplyHaze`.
+  - It becomes the pixel's LAST step (`DrawnEdgeFade`): after both see-through blends, and never inside a fluid.
+  - It fades toward exactly the colour a miss shows there (`LookShoulder(LookAtmosphere)`, no sun disc), blended in the look's gamma space.
+- Flag: `RaymarchFeature.EdgeFade`, `-edgefade`. It needs `-skyhaze`, so `-skyhaze 0` is still the pre-121 haze. It reaches the shader as `_SkyLook` bit 2.
+- Tests: `DrawnEdgeFadeTests` (3). TASKS.md has a paragraph. New tool `tools/line-step.py` measures the step at the line.
+- Commit: `3198577`. No API, layout or terrain-generator change. Dusk sky strength not touched.
 
 ## Evidence
-- Fast suite: `PASS 911 FAIL 0 SKIP 15` (`Logs/overnight/123-tests.out`). Filtered runs: `DeferredEvictionTests` (task 26) still green.
-- Warm steady state, AC power, no owner pause.
-  - Warm-up (discarded): `Logs/tg2world_20261023_055330.txt`.
-  - 3-min `MODE=walk` A B B A with task 115's flags (FSR 3 at 540 rows, quality, shells ON, noon, `-spikelog`). A = `-evictslice 0`, B = 32.
-  - Logs: A1 `Logs/tg2world_20261023_060112.txt`, B1 `..._060559`, B2 `..._061047`, A2 `..._061535`. Driver: `Logs/overnight/123-driver.sh`.
-- Whole run, from the rig's own line (A1 / A2 vs B1 / B2):
+- Fast suite: `PASS 917 FAIL 0 SKIP 15` (`Logs/overnight/125-tests.out`). The filter run of my tests plus `SkyLookTests` / `FarRockSlopeTests`: 9/9.
+- Look launch: High preset, FSR 3 at 720 rows, poses high + edge_x, 45 s shell cap.
+  - Log: `Logs/lookreview_20261023_074126.txt`. No `SHADER RUNTIME ERROR`.
+  - Shells were still missing at the cap: s3-s7 at high, s3-s7 at edge_x (see the `[shells]` lines).
+- Step across the line, in green levels over 3 rows at the left / right edge columns (`Screenshots/125/line_step.txt`):
+  - noon, every heading, both poses: 19 -> 2.3-3.0. The new figure is the sea texture's own noise.
+  - golden away: 11.0 / 3.8 -> 1.8 / 1.8.
+  - golden toward the sun: 6.8 / 2.7 -> 1.5 / 1.3.
+- Old vs new pixels first differ at row 574 for +x / -x and row 546 for the diagonal. These are the square's rows. Lower rows also change, because shells kept streaming between the two shots.
 
-  | | A1 / A2 (OFF) | B1 / B2 (ON) |
-  |---|---|---|
-  | p50 ms | 48.1 / 47.4 | 47.5 / 47.7 |
-  | p95 ms | 81.4 / 78.3 | 80.0 / 80.3 |
-  | p99 ms | 96.6 / 103.0 | 107.8 / 108.1 |
-  | > 33 ms | 86.3 / 86.1% | 85.9 / 85.5% |
-
-- From `Screenshots/123/crossing_report.txt` (run-start frames dropped):
-  - Frames over 100 ms: A 26 / 49, B 52 / 62.
-  - Max chunks evicted in one frame: A 1,628, B 32.
-  - Slide (eviction) frames > 5 ms: A 15 / 15, B 0 / 0. Slide max: A 17.7 / 16.2 ms, B 2.2 / 2.3 ms.
-  - Crossing frames (88 per walk): median A 60.1 / 54.0 ms, B 58.3 / 55.4 ms. No change.
-- **Why crossings stay slow:** a crossing frame runs ~10 ms over an ordinary frame, but nearly all of it is GPU wait (`pre_ms` 53.7 vs 43.8 ms).
-  - Our own CPU work is only +1.5 ms (`upd` 3.3 vs 1.8). The eviction itself costs ~1 ms even unsliced (big-burst slide median 1.0-1.2 ms; 115 saw 2.5-3.6).
-  - Crossing frames upload more: clipmap 831 KB vs 579 KB, shell 50 KB vs 16 KB.
-- **The extra > 100 ms frames in B are NOT on drain frames:** 15-18 of 52-62 evict, the same as the 31% of frames that evict anyway.
-  - Every one of them had a shell upload: these are 115's unexplained GPU waits.
-  - So B's worse p99 may be noise (A alone spans 26-49), but the task's keep-ON rule needs an improvement, and there is none.
-- No screenshots: no look change, and the default behaviour is unchanged.
-
-## Left open / next
-- The crossing-frame hitch (~+10 ms) is GPU-side. Candidates: the clipmap/cascade uploads on a crossing, and the shell re-centre uploads.
-  - Isolating them (suppress one upload kind on crossings, re-measure) is a performance task for the owner to approve. No follow-up queued.
-- CSVs for re-analysis (untracked): `Screenshots/123/{A1,B1,B2,A2}_spikes.csv`, cut at 3604 / 3628 / 3637 / 3647 rows.
+## Left open
+- Golden hour, toward the sun, high pose: in the `_old` still, nearer sea within about 3.2 km is a darker rectangle with a straight far edge. It is probably the shell-water vs far-water seam.
+  - That `_old` shot was taken 60 frames after the new one, while shells were still streaming. So this task neither fixes it nor tests it.
+  - Next step: a look task with a still taken after the shells fill.
+- The fade starts at 3.1 km (unchanged from task 121). From high up the sea now brightens into the haze over about 25 rows instead of stepping. That is the intended look; owner's taste.
 
 ## For the doc
-- Biggest chunk-eviction burst in one frame: 1,628 -> 32 chunks (`Screenshots/123/crossing_report.txt`).
-- Eviction (slide) frames over 5 ms per 3-min walk: 15 / 15 -> 0 / 0; slide max 17.7 / 16.2 -> 2.2 / 2.3 ms.
-- Chunk-crossing frame median: 60.1 / 54.0 -> 58.3 / 55.4 ms (no change: the cost is GPU wait, +10 ms `pre_ms`).
-- Whole-walk p99: 96.6 / 103.0 -> 107.8 / 108.1 ms; > 100 ms frames 26 / 49 -> 52 / 62 (not on drain frames). p50 48 ms both.
-- Result: kept OFF (`-evictslice 32` turns it on). No images: nothing visible changed.
+- Where the line is, high pose at noon: row 575 at +x / -x / +z, row 546 diagonal. The band's square predicts 575 / 546; the world's edge predicts 611 / 621 / 604 / 571. Source: `Screenshots/125/lookreview.txt`.
+- Step across the line, noon: 19 -> <= 3 green levels per 3 rows (`Screenshots/125/line_step.txt`).
+- Step across the line, golden hour: 11 -> 2 levels away from the sun, 7 -> 1.5 toward it (same file).
+- Images:
+  - `Screenshots/125/edge_sheet.png`: LEFT old, RIGHT new; four rows, all cropped to rows 300-800.
+    - Row 1, edge_x looking +x (2 km from the world's edge): the hard sea/sky line at the old frame's 1/4 height is a soft gradient on the right.
+    - Row 2, high pose diagonal: the old frame shows the far band square's corner (a peak at the frame centre); on the right it is gone into haze.
+    - Rows 3-4, golden toward / away: the hard horizon line is gone on the right. Ignore the darker near-sea rectangle in row 3 left (streaming, see Left open).
+  - Full frames: `Screenshots/125/<pose>_edge_<heading>[_old].png`.
