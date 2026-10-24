@@ -27,6 +27,8 @@
 //   TASK 133: -cliffbefore 1 also shoots A (play, native) and C (play) with
 //           RaymarchFeature.NearShadowShells forced OFF first (<name>0: play0, native0),
 //           then the launch's setting: the before/after pair in one launch.
+//   TASK 134: -cliffbefore 2 does the same with RaymarchFeature.ShellKernelDiet
+//           forced OFF instead (the far-shading *Diag kernels, the code before 134).
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -191,7 +193,7 @@ public partial class PlaygroundCapture
                 if (s.toSun.y < -1e-4f) tEdge = math.min(tEdge, (lo.z * 0.1f - eyeA.z) / s.toSun.y);
                 L($"  [window] box {boxA}: edge {tEdge:F0} m from Q toward the sun, band ceiling {RaymarchFeature.ContentCeilingVoxelY * 0.1f - g:F0} m above Q's ground");
             }
-            bool before = ArgInt("-cliffbefore", 0) == 1;
+            bool before = ArgInt("-cliffbefore", 0) >= 1;
             foreach (string arm in before ? new[] { "play0", "native0", "play", "native", "hit" } : new[] { "play", "native", "hit" })
                 yield return CliffArm(cam, eyeA, rotA, arm, $"{tag}_A_{arm}", settle);
 
@@ -281,8 +283,14 @@ public partial class PlaygroundCapture
     {
         RaymarchFeature.UseDebugViewOverride = false;
         // Task 133: a trailing 0 = the same arm with near sun rays through the shells forced OFF (the "before").
-        bool nearSh0 = RaymarchFeature.NearShadowShells;
-        if (arm.EndsWith("0")) { RaymarchFeature.NearShadowShells = false; arm = arm.Substring(0, arm.Length - 1); }
+        // Task 134: with -cliffbefore 2 it is the kernel diet that is forced OFF.
+        bool nearSh0 = RaymarchFeature.NearShadowShells, diet0 = RaymarchFeature.ShellKernelDiet;
+        if (arm.EndsWith("0"))
+        {
+            if (ArgInt("-cliffbefore", 0) == 2) RaymarchFeature.ShellKernelDiet = false;
+            else RaymarchFeature.NearShadowShells = false;
+            arm = arm.Substring(0, arm.Length - 1);
+        }
         if (arm == "play") ApplyCompareArm("fsr3_dyn");
         else ApplyCompareArm("native");
         if (arm == "hit")
@@ -296,5 +304,6 @@ public partial class PlaygroundCapture
         yield return CaptureTo(name);
         RaymarchFeature.UseDebugViewOverride = false;
         RaymarchFeature.NearShadowShells = nearSh0;
+        RaymarchFeature.ShellKernelDiet = diet0;
     }
 }

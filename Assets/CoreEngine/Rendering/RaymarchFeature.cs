@@ -292,6 +292,20 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// walk_near +6.1 ms, flagged: every lit ray climbs out of the band ceiling; Logs/costsplit_2026-10-24_1{11411,12128,14818}.txt).
     /// `-nearshadowshells 0` = the window-bounded shadow before task 133.
     public static bool NearShadowShells = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-nearshadowshells");
+    /// Task 134 (R6, PERF_SHELL_MARCH_PLAN §4, owner Q86 (a) / Q72 (b)): the KERNEL DIET. ON: the far-shading kernels are
+    /// the lean play kernels CSMainFarShade / CSShellPrepass (Raymarch.compute VE_SHELL_LEAN: no counters, no
+    /// diagnostic fields or shell debug views, no _DebugShellSkip arms, no air-brick mask / plane leap / column sky
+    /// leap; ShellByDistance asked per distance band). Exact. Their *Diag twins (the code before task 134) run
+    /// instead while ShellDiagKernels holds; `-shelldiet 0` forces them (the cost split's diet_off arm). ON by default
+    /// (task 134's rule: faster at both poses, raw stills 0 px): warm ABBA p50 69.0 -> 62.1 ms walk_near, 41.8 -> 36.3 ms
+    /// walk_open (Logs/costsplit_2026-10-24_141618.txt).
+    public static bool ShellKernelDiet = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-shelldiet");
+    /// Task 134: does this frame need the far-shading *Diag kernels? A counter window, a debug view, a
+    /// _DebugShellSkip arm, the OFF-by-default experiments (-shellmask 1, -shellcolleap 1), or the diet off.
+    public static bool ShellDiagKernels(int debugMode) =>
+        !ShellKernelDiet || CollectShadowStats || debugMode != 0 || DebugShellSkip != 0 || ShellAirMask || ShellColumnLeap;
+    /// Task 134: the far-shading kernels last frame were the *Diag twins (log / capture only).
+    public static bool ShellDiagDrawnLastFrame { get; private set; }
     /// Task 132: the pre-pass ran last frame (shells on, far-shading kernel, debug view 0, flag on).
     public static bool ShellPrepassDrawnLastFrame { get; private set; }
     /// Task 132: bytes of the pre-pass scratch buffer now allocated (0 while the flag has never been on).
@@ -1054,8 +1068,11 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // Task 85b: far shading is its own kernel (VE_FAR_SHADE), so OFF runs the
                 // pre-task CSMain byte for byte. The checkerboard and the -detailspeed
                 // square keep their kernels (no far shading while they hold the frame).
-                if (FarShade && passData.kPrimary == 0 && activeCompute.HasKernel("CSMainFarShade"))
-                    passData.kPrimary = activeCompute.FindKernel("CSMainFarShade");
+                // Task 134: the lean play kernel, or its *Diag twin (ShellDiagKernels).
+                bool shellDiag = ShellDiagKernels(_debugMode) && activeCompute.HasKernel("CSMainFarShadeDiag");
+                string farShadeKernel = shellDiag ? "CSMainFarShadeDiag" : "CSMainFarShade";
+                if (FarShade && passData.kPrimary == 0 && activeCompute.HasKernel(farShadeKernel))
+                    passData.kPrimary = activeCompute.FindKernel(farShadeKernel);
                 passData.farShadow = farOn && far.ShadowsOn ? 1 : 0;
                 passData.farTexels = farOn ? far.Texels : _farDummy;
                 passData.farMips = farOn ? far.Mips : _farDummy;
@@ -1148,7 +1165,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 else { passData.shellDir = _farDummy; passData.shellPages = _farDummy; passData.shellBricks = _farDummy; passData.shellMaskBase = 0; passData.shellTopY = int.MinValue; passData.shellColTopBase = 0; }
 
                 // Task 130 (DIAGNOSTIC): the shellsplit arms' probe (see DebugShellSkip).
-                passData.primaryFarShade = activeCompute.HasKernel("CSMainFarShade") && passData.kPrimary == activeCompute.FindKernel("CSMainFarShade");
+                passData.primaryFarShade = activeCompute.HasKernel(farShadeKernel) && passData.kPrimary == activeCompute.FindKernel(farShadeKernel);
+                ShellDiagDrawnLastFrame = passData.primaryFarShade && shellDiag;
                 passData.kShellProbe = -1;
                 passData.shellProbeIO = _shellProbeDummy;
                 if (passData.primaryFarShade && (DebugShellSkip & 32) != 0 && passData.shellCount > 1 && activeCompute.HasKernel("CSShellProbe"))
@@ -1167,7 +1185,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 passData.kShellPrepass = -1;
                 passData.shellPre = _shellPreDummy;
                 if (ShellPrepass && passData.primaryFarShade && passData.kShellProbe < 0 && (DebugShellSkip & 2) == 0 && passData.shellCount > 1
-                    && _debugMode == 0 && activeCompute.HasKernel("CSShellPrepass"))
+                    && _debugMode == 0 && activeCompute.HasKernel(shellDiag ? "CSShellPrepassDiag" : "CSShellPrepass"))
                 {
                     int n = passData.dispatchWidth * passData.dispatchHeight;
                     if (_shellPre == null || _shellPre.count < n)
@@ -1177,7 +1195,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         Debug.Log($"[shellprepass] scratch {passData.dispatchWidth}x{passData.dispatchHeight} = {n} px x {SHELL_PRE_STRIDE} B = {n * (long)SHELL_PRE_STRIDE / (1024.0 * 1024.0):F1} MB");
                     }
                     passData.shellPre = _shellPre;
-                    passData.kShellPrepass = activeCompute.FindKernel("CSShellPrepass");
+                    passData.kShellPrepass = activeCompute.FindKernel(shellDiag ? "CSShellPrepassDiag" : "CSShellPrepass");
                 }
                 ShellPrepassDrawnLastFrame = passData.kShellPrepass >= 0;
                 var cascadeManager = LODCascadeManager.Active;

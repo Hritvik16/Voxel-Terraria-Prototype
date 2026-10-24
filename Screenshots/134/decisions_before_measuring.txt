@@ -1,0 +1,23 @@
+Task 134 -- decisions written BEFORE any measurement (2026-10-24).
+
+Change (R6, kernel diet): the far-shading play kernels CSMainFarShade / CSShellPrepass compile without counters,
+93b3-133 diagnostic fields / shell debug views, _DebugShellSkip arms, the air-brick mask, plane leap and column
+sky leap; ShellMarch asks ShellByDistance only when the distance leaves its band. CSMainFarShadeDiag /
+CSShellPrepassDiag = the code before 134 (-shelldiet 0, the cost split's diet_off arm). Exact by construction.
+
+Identity (must pass before any timing counts):
+- cost split raw no-upscaler stills FULL (diet ON) vs diet_off at walk_near and walk_open: 0 px expected.
+  Any px -> if only where the shells were still filling between the two stills (shell counts in the log), re-check
+  in the reversed order; any other px -> the diet is not exact: default OFF (-shelldiet 0), find why, report.
+- cliff1 (and cliff2) native stills, -cliffbefore 2 (diag first, then lean) in one launch: 0 px expected; same rule.
+
+Timing (warm, AC, one cost-split launch at noon: F(ON) X(OFF) X(OFF) F(ON) at walk_near + walk_open, 15 s timed;
+plus one MODE=walk pair, 3 min each, lean then diag):
+- lean faster than diag at BOTH poses by more than the pose's noise (|F before - F after|) and identical ->
+  keep, default ON.
+- faster at one pose only, or within noise at either -> not "faster at both beyond noise": revert to default OFF?
+  NO code revert needed for the identity of the image, but the task rule says revert; I keep the lean kernel code
+  only if it is faster at both. Within noise everywhere -> revert the whole change (git keeps it), report what
+  was learned (the dead OFF paths cost nothing measurable -> H1/H4's "branch union" is not the lever).
+- slower at either pose beyond noise -> revert, report.
+- the MODE=walk pair does not change the decision unless it shows > +2 ms p50 or a > 1 point rise in > 33 ms.

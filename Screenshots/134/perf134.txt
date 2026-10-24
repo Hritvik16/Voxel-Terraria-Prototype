@@ -1,0 +1,26 @@
+Task 134 -- R6 shell kernel diet (-shelldiet), owner Q86 (a) / Q72 (b). 2026-10-24.
+Warm steady state: warm-up Logs/tg2world_20261024_140957.txt (discarded), then the arms back to back.
+Power: AC throughout (100%, charged); no owner pause.
+Build: the current tree (pre-pass ON, near shadows ON), quality preset, FSR 3 540 rows, far shading, shells, see-through, river look.
+Decisions written first: Screenshots/134/decisions_before_measuring.txt.
+
+COST SPLIT, noon, 15 s timed per run, F(lean) X(diag) X(diag) F(lean) in one launch (Logs/costsplit_2026-10-24_141618.txt)
+                diag (before) p50   lean (after) p50   lean - diag   noise |F b - a|   p99 diag -> lean   gpu* p50 diag -> lean
+  walk_near     69.0 (66.5 / 69.6)  62.1 (63.0 / 60.8)   -7.1          2.2               124.1 -> 109.7     207.5 -> 183.2
+  walk_open     41.8 (41.9 / 41.8)  36.3 (36.5 / 36.2)   -5.5          0.3                60.2 ->  58.1      84.3 ->  76.4
+  (shells: walk_near complete in 174 s, 0 missing; walk_open 35 missing in s3 (FULL), the same for every arm)
+
+MODE=walk 3 min, performance preset, -tod 16 (sun ~30 deg), one pair (lean then diag)
+  lean Logs/tg2world_20261024_142334.txt  p50 12.14  p95 24.53  p99 35.02  >33 ms 1.59%  peak 2218 MB
+  diag Logs/tg2world_20261024_142820.txt  p50 12.52  p95 25.65  p99 36.42  >33 ms 1.77%  peak 2209 MB
+  (one pair: within walk noise, same direction)
+
+Memory: none added (no buffer; two more kernels in the compute shader).
+
+Identity (no-upscaler stills, lean vs diag, 1920x1080, same launch):
+  cost split raw / raw2   walk_near 0 / 0 px, walk_open 0 / 0 px
+  cliff1 A native         0 px (two launches: Logs/lookreview of 14:33 and 14:49)
+  cliff2 A native         launch 1: 9,045 px in the far hills, shot with 1,997 shell chunks missing (fill timing);
+                          launch 2 (-cliffwait 240, 0 missing): 1 px, one level (102,98,90 -> 101,97,89) at (260,547)
+  (FSR 3 stills and the sunvis debug view are temporal / jittered and differ between any two shots; the sunvis view
+   runs the diag kernel in BOTH arms, so its 214 / 504 px are not the diet.)

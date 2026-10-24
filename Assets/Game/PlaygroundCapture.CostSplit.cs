@@ -97,6 +97,9 @@
 //   TASK 133: nearsh_on / nearsh_off  near (tier-0) sun rays through the shells on / off (RaymarchFeature.NearShadowShells;
 //                       FULL keeps the launch's -nearshadowshells); the [nearsh] counters line gives the rays handed on,
 //                       their shell iterations and how many the shells blocked (ShadowStats 77-79)
+//   TASK 134: diet_on / diet_off  the lean play kernels / their *Diag twins, the code before task 134
+//                       (RaymarchFeature.ShellKernelDiet; FULL keeps the launch's -shelldiet, ON by default); exact: raw
+//                       stills ON vs OFF are the identity check. The run line says which kernel drew (lean / diag).
 //   TASK 118: clampN (e.g. clamp128)  the voxel sun-shadow ray (TraceShadowRay) clamped at N m
 //                       (RaymarchFeature.ShadowMaxDistanceOverrideM; FULL keeps the launch's -shadowclamp,
 //                       inherit = the primary ray's 290 m); the counters line adds that ray's traced rays and
@@ -243,7 +246,8 @@ public partial class PlaygroundCapture
                 runs.Add(r);
                 L($"  {runs.Count,2} {arm,-9} pass {pass + 1}  frames {r.ms.Count,4}  p50 {Pct(r.ms, 0.5f),5:F1}  p99 {Pct(r.ms, 0.99f),6:F1} ms  " +
                   $"cpu main p50 {Pct(r.cpuMain, 0.5f),5:F1} (present wait {Pct(r.presentWait, 0.5f),5:F1})  render thr {Pct(r.render, 0.5f),5:F1}  " +
-                  $"gpu* {Pct(r.gpu, 0.5f),5:F1}  deficit frames {r.deficitFrames}  far busy {r.farBusyFrames}  resident {store.ResidentCount}");
+                  $"gpu* {Pct(r.gpu, 0.5f),5:F1}  deficit frames {r.deficitFrames}  far busy {r.farBusyFrames}  resident {store.ResidentCount}  " +
+                  $"kernel {(RaymarchFeature.ShellDiagDrawnLastFrame ? "diag" : "lean")}");
                 File.WriteAllText(Path.Combine(root, "costsplit.txt"), _log.ToString());
             }
             CostApply("full");
@@ -335,6 +339,8 @@ public partial class PlaygroundCapture
         RaymarchFeature.ShellPrepass = arm == "prepass_on" || (arm != "prepass_off" && _costBasePrepass);
         // Task 133: near sun rays through the shells (see the header).
         RaymarchFeature.NearShadowShells = arm == "nearsh_on" || (arm != "nearsh_off" && _costBaseNearSh);
+        // Task 134: the kernel diet (see the header).
+        RaymarchFeature.ShellKernelDiet = arm == "diet_on" || (arm != "diet_off" && _costBaseDiet);
         // Task 93b4 (diagnostic): see the header.
         RaymarchFeature.DebugShellSkip = arm == "shellshadow_off" ? 1 : arm == "shellmarch_off" ? 2 : arm == "shellcache_off" ? 4 : arm == "shellmask_off" ? 8 : arm == "shellleap_new" ? 24 : arm == "shellsplit" ? 34 : arm == "shellsplit2" ? 98 : 0;
         // Task 118: clampN = the voxel sun-shadow clamp at N m (see the header).
@@ -360,7 +366,7 @@ public partial class PlaygroundCapture
     private static int _costBaseShadow = -1, _costBaseTorch = -1;
     private static bool _costBaseRoof;
     private static float _costBaseRung1;
-    private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap, _costBasePrepass, _costBaseNearSh;
+    private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap, _costBasePrepass, _costBaseNearSh, _costBaseDiet;
     private static int _costBaseFarSteps = -1;
     private static bool _costBaseFarShadowOn;
     private static float _costBaseClamp = -1f;
@@ -493,7 +499,7 @@ public partial class PlaygroundCapture
     private IEnumerator CostTime(ClipPath path, CostRun r, float timed, string still, Camera cam,
                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
     {
-        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
+        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);

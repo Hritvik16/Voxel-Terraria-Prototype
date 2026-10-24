@@ -19,6 +19,12 @@
 # current holder finishes ("drain"). Each waiter registers in UNITY_WAITERS so
 # `tools/heavy.sh status` can list it; heavy.sh counts what is still draining
 # with unity_core_pids below -- the same patterns unity_busy waits on.
+# Task 134: Raymarch.compute has 12 kernels, five of them the big ray-march body (CSMain, CSMainChecker,
+# CSMainDetail, CSMainFarShade, CSMainFarShadeDiag); compiled in parallel on this 8 GB Mac one hit the
+# shader compiler's per-task timeout once (Logs/overnight/134-build2.out). Every build that sources this
+# file gets a longer one unless the caller set it.
+export UNITY_SHADER_COMPILER_TASK_TIMEOUT_MINUTES="${UNITY_SHADER_COMPILER_TASK_TIMEOUT_MINUTES:-30}"
+
 UNITY_LOCK=/tmp/voxel-unity.lock
 UNITY_HOLD=/tmp/voxel-unity.hold
 UNITY_WAITERS=/tmp/voxel-unity.waiters

@@ -483,3 +483,22 @@ window-edge numbers. Evidence: cliff1 C window-edge luma 191/147 -> 127/126 (cli
 sun 20 deg (shells filled); warm AC ABBA p50 +1.1 to +1.9 ms at sun 20 deg, noon walk_open +1.1, noon walk_near +6.1 ms (every lit ray climbs from
 the band ceiling to the shells' top, 1100 m, in tier-0-chunk leaps through the hole; flagged), MODE=walk sun ~30 deg +1.45 ms p50, > 33 ms
 1.63 -> 2.19%; no memory added. Report `Screenshots/133/perf133.txt`.
+
+**Task 134 (engine/perf, owner Q86 (a), Q72 (b); PERF_SHELL_MARCH_PLAN R6): the shell KERNEL DIET, exact, ON by default (`-shelldiet 0` = the code before).**
+Raymarch.compute: the play far-shading kernels `CSMainFarShade` / `CSShellPrepass` are compiled lean (`VE_SHELL_LEAN` = `VE_FAR_SHADE` without
+`VE_SHELL_DIAG`): `SHADOW_STATS_ON` is `false` (no ShadowStats writes at all), `ShellHit` loses the 93b4-116 fields (leaps0, leapsChunk, leapsBrick,
+dirReads, pageReads, maskGroups, colLeaps, colLeapsChunk; `iters` stays 0), no `_DebugShellSkip` arms (shellmarch_off, shellshadow_off,
+shellcache_off, shellmask_off, shellleap_new, the 130 shellsplit hand-off), no debug views 12-14, and `SHELL_MASK_ON` / `SHELL_PLANE_LEAP` /
+`SHELL_COLLEAP_ON` are `false`, so the air-brick mask (93b5, `-shellmask`), its exit-plane leap (93b5 (b)) and the column sky leap (116,
+`-shellcolleap`) are not in the play kernel; and `ShellMarch` asks `ShellByDistance` only when the distance leaves the band of its last answer
+(`ShellByDistanceBand`: lo = the largest outer bound before it, no bound order assumed; CPU twin `ShellRayReference.March(bandCache)`,
+`ByDistanceBand`, test `ShellMarchCacheTests.BandCacheChangesNoResult`: 2,376 primary + shell-hit shadow + 4,752 near sun rays, every field and
+read count equal). Nothing removed: the twins `CSMainFarShadeDiag` / `CSShellPrepassDiag` (and `CSShellProbe`) compile with `VE_SHELL_DIAG` and are
+the pre-134 code line for line. `RaymarchFeature.ShellDiagKernels(debugMode)` picks them for a counter window (`CollectShadowStats`), any debug
+view, any `DebugShellSkip`, `-shellmask 1`, `-shellcolleap 1`, or `-shelldiet 0`; `ShellDiagDrawnLastFrame` says which ran. CSMain /
+CSMainChecker / CSMainDetail are unchanged. Cost-split arms `diet_on` / `diet_off` (the run line ends `kernel lean|diag`); `-lookreview
+-cliffshadow 1 -cliffbefore 2` shoots the cliff A/C arms with the diet forced OFF first (`*0`). Evidence (AC, warm; warm-up
+`Logs/tg2world_20261024_140957.txt`): raw no-upscaler stills lean vs diag 0 px at walk_near / walk_open (raw and raw2) and cliff1 A native;
+ABBA p50 (p99) 69.0 (124) -> 62.1 (110) / 41.8 (60) -> 36.3 (58) ms, -7.1 (noise 2.2) / -5.5 (noise 0.3) (`Logs/costsplit_2026-10-24_141618.txt`);
+MODE=walk 3 min (-tod 16) lean 12.14 / p99 35.0 / > 33 ms 1.59% vs diag 12.52 / 36.4 / 1.77% (`Logs/tg2world_20261024_{142334,142820}.txt`).
+No memory added. Report `Screenshots/134/perf134.txt`.

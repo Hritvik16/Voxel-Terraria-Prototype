@@ -103,10 +103,22 @@
 #pragma kernel CSMainFarShade VE_FAR_SHADE
 // TASK 130 (DIAGNOSTIC, capture only): the shell-march probe (PERF_SHELL_MARCH_PLAN E1-E3),
 // dispatched only by the cost split's shellsplit / shellsplit2 arms (_DebugShellSkip bit 5).
-#pragma kernel CSShellProbe VE_FAR_SHADE
+#pragma kernel CSShellProbe VE_FAR_SHADE VE_SHELL_DIAG
 // TASK 132 (R1, PERF_SHELL_MARCH_PLAN §4, owner Q85 (a)): the shell pre-pass kernel, dispatched between
 // CSMainFarShade's two passes while RaymarchFeature.ShellPrepass is on (_ShellPrepass 1 / 2).
 #pragma kernel CSShellPrepass VE_FAR_SHADE
+// TASK 134 (R6, the KERNEL DIET; owner Q86 (a), Q72 (b)): CSMainFarShade and CSShellPrepass are the
+// PLAY kernels (VE_SHELL_LEAN below): no counters (ShadowStats), no 93b3-133 diagnostic fields or
+// debug views 12-14, no _DebugShellSkip arms, and the OFF-by-default experiments -- the air-brick
+// mask (-shellmask), its exit-plane leap, the column sky leap (-shellcolleap) -- compiled out; the
+// shell march asks ShellByDistance only when the distance leaves its band. Their *Diag twins are
+// the code as it was before task 134, line for line: RaymarchFeature dispatches them for a counter
+// window, a debug view, a _DebugShellSkip arm, -shellmask 1 / -shellcolleap 1, or -shelldiet 0.
+#pragma kernel CSMainFarShadeDiag VE_FAR_SHADE VE_SHELL_DIAG
+#pragma kernel CSShellPrepassDiag VE_FAR_SHADE VE_SHELL_DIAG
+#if defined(VE_FAR_SHADE) && !defined(VE_SHELL_DIAG)
+#define VE_SHELL_LEAN
+#endif
 
 #include "../Coord/CoordMath.hlsl"
 #include "../Memory/StructHeaders.hlsl"
@@ -211,6 +223,13 @@ RWStructuredBuffer<float> DebugOut;
 // ===========================================================================
 RWStructuredBuffer<uint> ShadowStats;
 int _CollectShadowStats;
+// Task 134: the play far-shading kernels (VE_SHELL_LEAN) carry no counters; RaymarchFeature
+// dispatches the *Diag kernel while CollectShadowStats is on.
+#ifdef VE_SHELL_LEAN
+#define SHADOW_STATS_ON false
+#else
+#define SHADOW_STATS_ON (_CollectShadowStats != 0)
+#endif
 
 // ---- TEMPORAL SHADOW REUSE (2026-09-26; owner target 60 FPS) ----
 // The sun ray was measured at ~2/3 of the frame on the in-air orbit (51.7 ms
@@ -2776,7 +2795,7 @@ groupshared uint gsShellDefer;
 #endif
 // TASK 93b4: ShellMarch's one-entry read caches (below); bit 2 of _DebugShellSkip
 // turns them off in the far-shading kernel (the shellcache_off arm). Same results either way.
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
 #define SHELL_CACHE_ON ((_DebugShellSkip & 4) == 0)
 #else
 #define SHELL_CACHE_ON true
@@ -2807,7 +2826,11 @@ int    _ShellSkyExit;
 // (exclusive; 0 = all air). Used in ShellMarch (below), CPU twin ShellRayReference.March(colLeap).
 int    _ShellColTopBase;
 int    _ShellColLeap;
+#ifdef VE_SHELL_LEAN
+#define SHELL_COLLEAP_ON false   // task 134: not in the play kernel (the *Diag kernel runs -shellcolleap 1)
+#else
 #define SHELL_COLLEAP_ON (_ShellColLeap != 0)
+#endif
 #define SHELL_SKY_NEVER 2147483647
 int ShellSkyY(bool primary)
 {
@@ -2815,11 +2838,15 @@ int ShellSkyY(bool primary)
     if (!primary || _FarEnabled == 0) return _ShellTopY;
     return max(_ShellTopY, (int)ceil(_FarParams.x) + 2);
 }
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
 #define SHELL_MASK_ON (_ShellAirMask != 0 && (_DebugShellSkip & 8) == 0)
 // Task 93b5 (b): the exit-plane leap (ShellLeap) runs with the mask, or alone with
 // bit 4 of _DebugShellSkip (the shellleap_new arm: what the leap itself costs).
 #define SHELL_PLANE_LEAP (SHELL_MASK_ON || (_DebugShellSkip & 16) != 0)
+#elif defined(VE_SHELL_LEAN)
+// Task 134: not in the play kernel (the *Diag kernel runs -shellmask 1 and the shellleap_new arm).
+#define SHELL_MASK_ON false
+#define SHELL_PLANE_LEAP false
 #else
 #define SHELL_MASK_ON (_ShellAirMask != 0)
 #define SHELL_PLANE_LEAP SHELL_MASK_ON
@@ -2842,9 +2869,9 @@ struct ShellHit
     int3 voxel;     // the 0.1 m voxel the ray entered the hit cell at
     int3 normal;
     uint mat;
-    int iters;
+    int iters;      // task 134: 0 in the play kernel (counters only)
     bool inside;    // entered mid-cell (top-face normal)
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
     int leaps0;     // task 93b4 (diagnostic): iterations that leapt a tier-0 chunk
     int leapsChunk; // ... a uniform (air) shell chunk
     int leapsBrick; // ... a uniform (air) brick of a paged chunk
@@ -2887,6 +2914,23 @@ ShellHit ShellPreUnpack(ShellPreEntry q)
 int ShellByDistance(float d)
 {
     [loop] for (int k = 1; k < _ShellCount; k++) if (d < _ShellBounds[k].y) return k;
+    return -1;
+}
+
+/// TASK 134 (R6): ShellByDistance plus the band [lo, hi) of distances that get the same answer:
+/// hi = its outer bound, lo = the largest outer bound of the shells before it (each was <= d, so
+/// every d' >= lo passes them too; no ordering of the bounds is assumed). Past the last: -1 and
+/// an empty band. ShellRayReference.ByDistanceBand.
+int ShellByDistanceBand(float d, out float lo, out float hi)
+{
+    lo = -3.0e38; hi = 0.0;
+    [loop] for (int k = 1; k < _ShellCount; k++)
+    {
+        float b = _ShellBounds[k].y;
+        if (d < b) { hi = b; return k; }
+        lo = max(lo, b);
+    }
+    lo = 1.0;
     return -1;
 }
 
@@ -3148,17 +3192,22 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
     ShellHit r;
     r.end = SHELL_END_CAP; r.shell = -1; r.t = tStart; r.voxel = voxel; r.normal = int3(0, 1, 0);
     r.mat = 0u; r.iters = 0; r.inside = false;
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
     r.leaps0 = 0; r.leapsChunk = 0; r.leapsBrick = 0; r.dirReads = 0; r.pageReads = 0;
     r.maskGroups = 0; r.colLeaps = 0; r.colLeapsChunk = 0;
 #endif
     int kPrev = 0;
     int rcKd = -1, rcK = 0; int3 rcChunk = int3(0, 0, 0); uint rcE = 0u;   // task 93b4: resolve cache
     int pcK = -1; int3 pcBrick = int3(0, 0, 0); uint pcH = 0u;            // task 93b4: page cache
+#ifdef VE_SHELL_LEAN
+    int bandKd = -1; float bandLo = 1.0, bandHi = 0.0;                     // task 134: band cache (empty)
+#endif
     [loop]
     for (int it = 0; it < maxIters; it++)
     {
+#ifndef VE_SHELL_LEAN
         r.iters = it + 1;
+#endif
         // Task 99: above everything that is left (header at _ShellTopY): a no-hit, now.
         if (step.y > 0 && voxel.y >= skyY) { r.end = SHELL_END_SKY; r.t = t; return r; }
         float camDist = shadow ? length(float3(voxel) + 0.5 - camera) : t;
@@ -3166,13 +3215,20 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
         {
             // Tier 0's band, a chunk it holds: it marched this and saw air.
             ShellLeap(voxel, tMax, t, normal, tDelta, step, start, (voxel >> 7) << 7, 128);
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
             r.leaps0++;
 #endif
             kPrev = 0;
             continue;
         }
+#ifdef VE_SHELL_LEAN
+        // TASK 134 (R6): ShellByDistance only when camDist leaves the band of its last answer.
+        int kd;
+        if (camDist >= bandLo && camDist < bandHi) kd = bandKd;
+        else { kd = ShellByDistanceBand(camDist, bandLo, bandHi); bandKd = kd; }
+#else
         int kd = ShellByDistance(camDist);
+#endif
         if (kd < 0) { r.end = SHELL_END_PAST_LAST; r.t = t; return r; }
         if (kPrev > 0 && kd > kPrev && !ShellAtEntry(voxel, normal, step, kd)) kd = kPrev;
         uint e;
@@ -3187,7 +3243,7 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
             bool whole;
             k = ShellResolve(kd, voxel, e, whole);
             rcKd = whole ? kd : -1; rcChunk = kdChunk; rcK = k; rcE = e;
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
             r.dirReads++;
 #endif
         }
@@ -3195,7 +3251,7 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
         {
             // Tier 0's space: it marched this and saw air. Leap one tier-0 chunk.
             ShellLeap(voxel, tMax, t, normal, tDelta, step, start, (voxel >> 7) << 7, 128);
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
             r.leaps0++;
 #endif
             kPrev = 0;
@@ -3215,7 +3271,7 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
                 int3 b = brick & 15;
                 pcH = ShellPages[((uint)_ShellLo[k].w + (e & 0x7FFFFFFFu)) * 4096u + (uint)((b.z << 8) | (b.y << 4) | b.x)];
                 pcK = k; pcBrick = brick;
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
                 r.pageReads++;
 #endif
             }
@@ -3238,7 +3294,7 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
             }
             sh = k;   // a shadow ray's start cell: leave it
         }
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
         if (sh == k + 7) r.leapsChunk++; else if (sh == k + 3) r.leapsBrick++;
 #endif
         // TASK 116: the COLUMN SKY LEAP. A rising ray (step.y > 0) in an air brick of a paged
@@ -3280,7 +3336,7 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
                 if (ok)
                 {
                     ShellLeapBox(voxel, tMax, t, normal, tDelta, step, start, bMin, bSize);
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
                     r.colLeaps++;
                     if (wholeChunk) r.colLeapsChunk++;
 #endif
@@ -3306,7 +3362,7 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
             if (((mw >> (g & 31u)) & 1u) == 0u && ShellGroupLeapOk(voxel, k, t, tTier0, shadow, camera, start, tDelta, step))
             {
                 sh = k + 5;
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
                 r.maskGroups++;
 #endif
             }
@@ -4301,11 +4357,15 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #ifdef VE_FAR_SHADE
     // TASK 93b3 (DIAGNOSTIC, capture only): how the shell march ended and its
     // iterations, for the far-start view (debug 12), shell heat (13), counters 40-47.
+    // Task 134: in the play kernel (VE_SHELL_LEAN) these stay -1 / 0 / false, and fold away.
     int dbgShellEnd = -1, dbgShellIters = 0;
     // TASK 93b4 (DIAGNOSTIC): _DebugShellSkip bit 1 = no primary shell march and no
     // far march (the shellmarch_off arm); 55 = pixels, for per-pixel means.
-    bool dbgSkipShellPrim = (_DebugShellSkip & 2) != 0;
-    if (_CollectShadowStats != 0 && inBounds) InterlockedAdd(ShadowStats[55], 1u);
+    bool dbgSkipShellPrim = false;
+#endif
+#ifdef VE_SHELL_DIAG
+    dbgSkipShellPrim = (_DebugShellSkip & 2) != 0;
+    if (SHADOW_STATS_ON && inBounds) InterlockedAdd(ShadowStats[55], 1u);
     // TASK 130 (DIAGNOSTIC): the shellsplit arms (bit 5, with bit 1's skip): hand the
     // shell march's input to CSShellProbe -- tTier0 where the march below would run, else -1.
     if ((_DebugShellSkip & 32) != 0 && id.x < (uint)_ShellProbeParams.x && id.y < (uint)_ShellProbeParams.y)
@@ -4334,13 +4394,13 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         else
 #endif
         shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0, ShellSkyY(true));
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
         dbgShellEnd = shr.end; dbgShellIters = shr.iters;
         // TASK 93b4 (diagnostic): primary shell rays and iterations by how they
         // ended: 48/49 HIT, 50/51 no hit (sky, absent, past the last, cap); 54 = the
         // iterations of both that leapt a tier-0 chunk.
         // TASK 132: with the pre-pass, CSShellPrepass adds these (it has the march's step counts).
-        if (_CollectShadowStats != 0 && _ShellPrepass == 0)
+        if (SHADOW_STATS_ON && _ShellPrepass == 0)
         {
             uint slot = (shr.end == SHELL_END_HIT) ? 48u : 50u;
             InterlockedAdd(ShadowStats[slot], 1u);
@@ -4362,13 +4422,13 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #ifdef VE_FAR_SHADE
             shellHit = true;   // task 120: tierAtHit 2 is then shell 0, not tier 2
 #endif
-            if (_CollectShadowStats != 0 && shr.inside) InterlockedAdd(ShadowStats[11 + 4 * shr.shell], 1u);
+            if (SHADOW_STATS_ON && shr.inside) InterlockedAdd(ShadowStats[11 + 4 * shr.shell], 1u);
         }
         else tShellEnd = shr.t;
     }
     // The largest voxel on screen (plan row 11): px of the cell each ray stopped
     // in, per shell (0 = tier 0 and the cascade tiers), at the dispatch rows.
-    if (_CollectShadowStats != 0 && _ShellCount > 1 && hit && inBounds)
+    if (SHADOW_STATS_ON && _ShellCount > 1 && hit && inBounds)
     {
         int kS = shellAtHit;
         float cellVox = (kS > 0) ? (float)(1 << kS) : (tierAtHit == 1 ? 2.0 : (tierAtHit == 2 ? 4.0 : 1.0));
@@ -4411,7 +4471,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             farSunVis = fs.hit ? 0.0 : 1.0;
             farShadowSteps = fs.steps;
         }
-        if (_CollectShadowStats != 0)
+        if (SHADOW_STATS_ON)
         {
             InterlockedAdd(ShadowStats[5], 1u);
             InterlockedAdd(ShadowStats[6], (uint)(fh.steps + farShadowSteps));
@@ -4432,7 +4492,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #ifdef VE_FAR_SHADE
     // TASK 99 (diagnostic): SKY rays -- the primary shell march ran and neither it nor
     // the far band hit: 62 rays, 63 their shell iterations, 64 of them ended by the exit.
-    if (_CollectShadowStats != 0 && dbgShellEnd >= 0 && dbgShellEnd != SHELL_END_HIT && !farHit)
+    if (SHADOW_STATS_ON && dbgShellEnd >= 0 && dbgShellEnd != SHELL_END_HIT && !farHit)
     {
         InterlockedAdd(ShadowStats[62], 1u);
         InterlockedAdd(ShadowStats[63], (uint)dbgShellIters);
@@ -4667,7 +4727,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             ShellHit ns = ShellMarch(nso, normalize(_SunDir), sh.exitT, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false));
             if (ns.end == SHELL_END_HIT) sh.sunVis = 0.0;
             // 77 rays handed on, 78 their shell iterations, 79 of them blocked.
-            if (_CollectShadowStats != 0)
+            if (SHADOW_STATS_ON)
             {
                 InterlockedAdd(ShadowStats[77], 1u); InterlockedAdd(ShadowStats[78], (uint)ns.iters);
                 if (ns.end == SHELL_END_HIT) InterlockedAdd(ShadowStats[79], 1u);
@@ -4686,7 +4746,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         sunVis = needsShadowRay ? (reuse ? leadVis : mineVis) : 0.0;
         shadowSteps = sh.steps;
 
-        if (_CollectShadowStats != 0)
+        if (SHADOW_STATS_ON)
         {
             if (hit)      InterlockedAdd(ShadowStats[0], 1u);
             if (distant)  InterlockedAdd(ShadowStats[1], 1u);
@@ -4712,7 +4772,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // tier-0 ray above left the window at once). Starts just off the hit face;
     // the shell is chosen by the sample's CAMERA distance (§6.5's 8.2 rule).
     if (shellAtHit > 0 && needsShadowRay
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
         && (_DebugShellSkip & 1) == 0   // task 93b4: the shellshadow_off arm
 #endif
         )
@@ -4722,7 +4782,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         sunVis = (ss.end == SHELL_END_HIT) ? 0.0 : 1.0;
 #ifdef VE_FAR_SHADE
         // TASK 93b4 (diagnostic): 52 shell shadow rays, 53 their iterations.
-        if (_CollectShadowStats != 0) { InterlockedAdd(ShadowStats[52], 1u); InterlockedAdd(ShadowStats[53], (uint)ss.iters); }
+        if (SHADOW_STATS_ON) { InterlockedAdd(ShadowStats[52], 1u); InterlockedAdd(ShadowStats[53], (uint)ss.iters); }
 #endif
     }
 
@@ -4811,7 +4871,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         if (inBounds) ResultTexture[id.xy] = c10;
         return;
     }
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
     // TASK 93b3 (DIAGNOSTIC, capture only; far-shading kernel): 12 = FAR START VIEW,
     // 13 = SHELL MARCH HEAT (primary shell-march iterations, the StepHeat ramp;
     // black = the shell march did not run).
@@ -5492,6 +5552,13 @@ void CSMainFarShade(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThread
     CSMainBody(tid, gtid, false);
 }
 
+// TASK 134: CSMainFarShade as it was before the diet (VE_FAR_SHADE + VE_SHELL_DIAG).
+[numthreads(8, 8, 1)]
+void CSMainFarShadeDiag(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
+{
+    CSMainBody(tid, gtid, false);
+}
+
 // TASK 130 (DIAGNOSTIC, capture only; PERF_SHELL_MARCH_PLAN E1-E3). Never dispatched in play.
 // E1: the primary shell march of the pixels CSMainFarShade flagged (ShellProbeIO >= 0 = its
 // tTier0), with the same ray (CSMainBody's formula) and the same ShellMarch call, in a kernel
@@ -5502,14 +5569,14 @@ void CSMainFarShade(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThread
 // the shell iterations' sum and max, the active lanes, and the unions of the step kinds and
 // end kinds its lanes used (whole paths, not per iteration), into ShadowStats 67-76. The
 // probe also adds the march counters 48-59 that the skipped in-kernel march leaves at 0.
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
 groupshared uint gsProbeIters[64];
 groupshared uint gsProbeKinds[64];
 #endif
 [numthreads(8, 8, 1)]
 void CSShellProbe(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
 {
-#ifdef VE_FAR_SHADE
+#ifdef VE_SHELL_DIAG
     uint width = (uint)_ShellProbeParams.x, height = (uint)_ShellProbeParams.y;
     float salt = _ShellProbeParams.z;
     uint lane = gtid.y * 8u + gtid.x;
@@ -5543,7 +5610,7 @@ void CSShellProbe(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID
         kinds = (shr.leaps0 > 0 ? 1u : 0u) | (shr.leapsChunk > 0 ? 2u : 0u) | (shr.leapsBrick > 0 ? 4u : 0u)
               | ((shr.iters - shr.leaps0 - shr.leapsChunk - shr.leapsBrick) > 1 ? 8u : 0u)
               | (1u << (8u + (uint)shr.end));
-        if (_CollectShadowStats != 0)
+        if (SHADOW_STATS_ON)
         {
             // The in-kernel march's counters (task 93b4; it is skipped in this arm): first march only.
             uint slot = (shr.end == SHELL_END_HIT) ? 48u : 50u;
@@ -5556,7 +5623,7 @@ void CSShellProbe(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID
             InterlockedAdd(ShadowStats[59], (uint)shr.pageReads);
         }
     }
-    if (_CollectShadowStats != 0)
+    if (SHADOW_STATS_ON)
     {
         // E3: plain groupshared writes, then one lane per SIMD reads its 32 (no groupshared atomics).
         gsProbeIters[lane] = iters;
@@ -5595,8 +5662,7 @@ void CSShellProbe(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID
 // pass 1's own (its direction and tTier0 in ShellPre), so the march is the one pass 1 would have
 // run. The result goes back into the entry for pass 2 (ShellPrePack). Also adds the march
 // counters 48-59 / 65-66 that pass 2 leaves to it.
-[numthreads(8, 8, 1)]
-void CSShellPrepass(uint3 tid : SV_DispatchThreadID)
+void ShellPrepassBody(uint3 tid)
 {
 #ifdef VE_FAR_SHADE
     uint width = (uint)_ShellProbeParams.x, height = (uint)_ShellProbeParams.y;
@@ -5610,7 +5676,8 @@ void CSShellPrepass(uint3 tid : SV_DispatchThreadID)
     q.a = asuint(shr.t); q.b = (uint)shr.voxel.x; q.c = (uint)shr.voxel.y; q.d = (uint)shr.voxel.z;
     q.e = ShellPrePack(shr);
     ShellPre[idx] = q;
-    if (_CollectShadowStats != 0)
+#ifdef VE_SHELL_DIAG
+    if (SHADOW_STATS_ON)
     {
         uint slot = (shr.end == SHELL_END_HIT) ? 48u : 50u;
         InterlockedAdd(ShadowStats[slot], 1u);
@@ -5625,6 +5692,20 @@ void CSShellPrepass(uint3 tid : SV_DispatchThreadID)
         InterlockedAdd(ShadowStats[66], (uint)shr.colLeapsChunk);
     }
 #endif
+#endif
+}
+
+[numthreads(8, 8, 1)]
+void CSShellPrepass(uint3 tid : SV_DispatchThreadID)
+{
+    ShellPrepassBody(tid);
+}
+
+// TASK 134: the pre-pass as it was before the diet (VE_SHELL_DIAG; RaymarchFeature.ShellDiagKernels).
+[numthreads(8, 8, 1)]
+void CSShellPrepassDiag(uint3 tid : SV_DispatchThreadID)
+{
+    ShellPrepassBody(tid);
 }
 
 // ===========================================================================

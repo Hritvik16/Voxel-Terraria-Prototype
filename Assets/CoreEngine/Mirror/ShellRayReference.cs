@@ -117,6 +117,23 @@ namespace VoxelEngine.Mirror
             return -1;
         }
 
+        /// Task 134 (R6): ShellByDistance plus the band [lo, hi) of distances that get the same answer:
+        /// hi = the answer's outer bound, lo = the largest outer bound of the shells before it (each
+        /// was <= d, so every d' >= lo also passes them; no ordering of the bounds is assumed). Past
+        /// the last: -1 and an empty band.
+        public static int ByDistanceBand(IView v, float d, out float lo, out float hi)
+        {
+            lo = float.NegativeInfinity;
+            for (int k = 1; k < v.ShellCount; k++)
+            {
+                float b = v.OuterVoxels(k);
+                if (d < b) { hi = b; return k; }
+                lo = math.max(lo, b);
+            }
+            lo = 1f; hi = 0f;
+            return -1;
+        }
+
         public static int ChunkState(IView v, int k, int3 voxel, out uint e)
         {
             e = 0u;
@@ -215,9 +232,12 @@ namespace VoxelEngine.Mirror
         /// brick of a paged chunk at or above its group column's top crosses the rest of that column (to
         /// the chunk top) -- or of the chunk, when every column is that low -- in ONE leap where BoxLeapOk
         /// allows it (ShellColumnLeapTests).
+        /// bandCache (task 134, R6, the shader's play kernel, VE_SHELL_LEAN): ShellByDistance is asked
+        /// only when the distance leaves the band [lo, hi) its last answer holds for (ByDistanceBand),
+        /// the same answer by construction (ShellMarchCacheTests.BandCacheChangesNoResult).
         public static Result March(IView v, float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters,
                                    float tTier0 = 0f, bool useCache = true, bool useMask = false, bool planeLeap = false,
-                                   int skyY = SKY_NEVER, bool colLeap = false)
+                                   int skyY = SKY_NEVER, bool colLeap = false, bool bandCache = false)
         {
             var mv = useMask ? v as IMaskView : null;
             var cv = colLeap ? v as IColumnView : null;
@@ -234,6 +254,7 @@ namespace VoxelEngine.Mirror
             int kPrev = 0;
             int rcKd = -1, rcK = 0; int3 rcChunk = int3.zero; uint rcE = 0u;   // resolve cache
             int pcK = -1; int3 pcBrick = int3.zero; uint pcH = 0u;            // page cache
+            int bandKd = -1; float bandLo = 1f, bandHi = 0f;                    // task 134: band cache (empty)
             for (int it = 0; it < maxIters; it++)
             {
                 r.Iters = it + 1;
@@ -246,7 +267,13 @@ namespace VoxelEngine.Mirror
                     kPrev = 0;
                     continue;
                 }
-                int kd = ShellByDistance(v, camDist);
+                int kd;
+                if (bandCache && camDist >= bandLo && camDist < bandHi) kd = bandKd;
+                else
+                {
+                    kd = ByDistanceBand(v, camDist, out bandLo, out bandHi);
+                    bandKd = kd;
+                }
                 if (kd < 0) { r.End = END_PAST_LAST; r.T = t; return r; }
                 if (kPrev > 0 && kd > kPrev && !AtEntry(voxel, normal, step, kd)) kd = kPrev;
                 int k; uint e;

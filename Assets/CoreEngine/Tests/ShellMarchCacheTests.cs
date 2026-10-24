@@ -241,4 +241,48 @@ public class ShellMarchCacheTests
         Assert.Greater(shadowHits, 10, "some shadow rays are blocked");
         Assert.Less(readsOn, readsOff * 0.8, "the caches save reads");
     }
+
+    /// Task 134 (R6): the play kernel asks ShellByDistance only when the distance leaves the
+    /// band its last answer holds for (bandCache). Every field equal, read counters too, for the
+    /// primary rays, the shell-hit sun rays and task 133's near sun rays (a tier-0 sun ray that
+    /// left the window: start near the camera, t > 0, distance from the camera).
+    [Test]
+    public void BandCacheChangesNoResult()
+    {
+        var v = new TerrainView(ShellLayout.From(QualityPreset.High));
+        var sun = math.normalize(new float3(0.35f, 0.8f, -0.2f));
+        var lowSun = math.normalize(new float3(-0.9f, 0.18f, 0.3f));
+        const float tTier0 = 640f;
+        int rays = 0, hits = 0, near = 0;
+        var shells = new HashSet<int>();
+        foreach (var dir in RaySet(v.L, Cam, out _))
+        {
+            float az = math.atan2(dir.z, dir.x), el = math.asin(dir.y);
+            var on = ShellRayReference.March(v, Cam, dir, 0f, false, Cam, 384, tTier0, bandCache: true);
+            var off = ShellRayReference.March(v, Cam, dir, 0f, false, Cam, 384, tTier0);
+            AssertSame(on, off, $"primary az {math.degrees(az):F1} el {math.degrees(el):F1}");
+            Assert.AreEqual(off.DirReads, on.DirReads, "dir reads"); Assert.AreEqual(off.PageReads, on.PageReads, "page reads");
+            rays++;
+            if (on.End == ShellRayReference.END_HIT)
+            {
+                hits++; shells.Add(on.Shell);
+                float3 so = Cam + dir * on.T + (float3)on.Normal * 0.01f;
+                foreach (var s in new[] { sun, lowSun })
+                    AssertSame(ShellRayReference.March(v, so, s, 0f, true, Cam, 192, 0f, bandCache: true),
+                               ShellRayReference.March(v, so, s, 0f, true, Cam, 192, 0f), $"shadow of az {math.degrees(az):F1}");
+            }
+            // Near sun rays: from a point within 100 m of the camera, leaving at t = 60-1,200 voxels.
+            float3 o = Cam + dir * (37f + (rays % 9) * 100f);
+            float tExit = 600f + (rays % 7) * 100f;
+            foreach (var s in new[] { sun, lowSun })
+            {
+                AssertSame(ShellRayReference.March(v, o, s, tExit, true, Cam, 192, 0f, bandCache: true),
+                           ShellRayReference.March(v, o, s, tExit, true, Cam, 192, 0f), $"near sun ray {rays}");
+                near++;
+            }
+        }
+        UnityEngine.Debug.Log($"[ShellBandCache] {rays} primary rays ({hits} hits in shells {string.Join(",", shells)}), {near} near sun rays: identical");
+        Assert.Greater(hits, 200, "rays hit the ground");
+        Assert.GreaterOrEqual(shells.Count, 4, "hits in several shells");
+    }
 }
