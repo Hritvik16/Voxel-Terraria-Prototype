@@ -24,6 +24,9 @@
 //   OUTPUT  cliff<N>_<A|B|C>_<arm>.png, cliffshadow.json (cameras, the window box,
 //           C's screen pixels of Q and of the window corners), lookreview.txt.
 //           tools/cliffshadow131.py builds the side-by-side sheets.
+//   TASK 133: -cliffbefore 1 also shoots A (play, native) and C (play) with
+//           RaymarchFeature.NearShadowShells forced OFF first (<name>0: play0, native0),
+//           then the launch's setting: the before/after pair in one launch.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -188,7 +191,9 @@ public partial class PlaygroundCapture
                 if (s.toSun.y < -1e-4f) tEdge = math.min(tEdge, (lo.z * 0.1f - eyeA.z) / s.toSun.y);
                 L($"  [window] box {boxA}: edge {tEdge:F0} m from Q toward the sun, band ceiling {RaymarchFeature.ContentCeilingVoxelY * 0.1f - g:F0} m above Q's ground");
             }
-            foreach (string arm in new[] { "play", "native", "hit" }) yield return CliffArm(cam, eyeA, rotA, arm, $"{tag}_A_{arm}", settle);
+            bool before = ArgInt("-cliffbefore", 0) == 1;
+            foreach (string arm in before ? new[] { "play0", "native0", "play", "native", "hit" } : new[] { "play", "native", "hit" })
+                yield return CliffArm(cam, eyeA, rotA, arm, $"{tag}_A_{arm}", settle);
 
             // ---- C: from above, the 0.1 m window kept on A's eye ----
             float fwdOff = math.clamp(s.tb * 0.4f, 40f, 120f);
@@ -201,7 +206,8 @@ public partial class PlaygroundCapture
             yield return Frames(30);
             yield return CliffShellWait(sh, wait);
             string boxC = BoxJson();
-            foreach (string arm in new[] { "play", "hit" }) yield return CliffArm(cam, eyeC, rotC, arm, $"{tag}_C_{arm}", settle);
+            foreach (string arm in before ? new[] { "play0", "play", "hit" } : new[] { "play", "hit" })
+                yield return CliffArm(cam, eyeC, rotC, arm, $"{tag}_C_{arm}", settle);
             cam.transform.position = eyeC; cam.transform.rotation = rotC;
             Vector3 qPx = cam.WorldToScreenPoint(new Vector3(s.q.x, g, s.q.z));
             var clipC = Phase4Bootstrapper.Clipmap;
@@ -274,6 +280,9 @@ public partial class PlaygroundCapture
     private IEnumerator CliffArm(Camera cam, Vector3 eye, Quaternion rot, string arm, string name, int settle)
     {
         RaymarchFeature.UseDebugViewOverride = false;
+        // Task 133: a trailing 0 = the same arm with near sun rays through the shells forced OFF (the "before").
+        bool nearSh0 = RaymarchFeature.NearShadowShells;
+        if (arm.EndsWith("0")) { RaymarchFeature.NearShadowShells = false; arm = arm.Substring(0, arm.Length - 1); }
         if (arm == "play") ApplyCompareArm("fsr3_dyn");
         else ApplyCompareArm("native");
         if (arm == "hit")
@@ -286,5 +295,6 @@ public partial class PlaygroundCapture
         yield return Frames(arm == "hit" ? 5 : settle);
         yield return CaptureTo(name);
         RaymarchFeature.UseDebugViewOverride = false;
+        RaymarchFeature.NearShadowShells = nearSh0;
     }
 }

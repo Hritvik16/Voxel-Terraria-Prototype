@@ -283,6 +283,15 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// ON by default (task 132's rule: faster at both poses, image byte-identical): warm ABBA p50 73.8 -> 69.6 ms
     /// walk_near, 48.8 -> 41.8 ms walk_open (Logs/costsplit_2026-10-23_175808.txt). `-shellprepass 0` = the one-pass path.
     public static bool ShellPrepass = ReadShellPrepassArg();
+    /// Task 133 (owner Q83 (a)): NEAR SUN SHADOWS THROUGH THE SHELLS. A tier-0 sun-shadow ray that leaves the 0.1 m
+    /// window or the band ceiling unblocked goes on through the shells (Raymarch.compute _NearShadowShells), so ground
+    /// in the shadow of terrain outside the window is no longer drawn lit (task 131: a lit square round the player
+    /// under a low sun). The tier-0 part is then bounded by the window and ceiling, not the primary's 128 m range.
+    /// Far-shading kernel with shells drawn; both the pre-pass and the one-pass path. ON by default (task 133's rule:
+    /// the lit square is gone, no-upscaler stills 0 px elsewhere, warm ABBA p50 +1.1 to +1.9 ms at sun 20 deg; noon
+    /// walk_near +6.1 ms, flagged: every lit ray climbs out of the band ceiling; Logs/costsplit_2026-10-24_1{11411,12128,14818}.txt).
+    /// `-nearshadowshells 0` = the window-bounded shadow before task 133.
+    public static bool NearShadowShells = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-nearshadowshells");
     /// Task 132: the pre-pass ran last frame (shells on, far-shading kernel, debug view 0, flag on).
     public static bool ShellPrepassDrawnLastFrame { get; private set; }
     /// Task 132: bytes of the pre-pass scratch buffer now allocated (0 while the flag has never been on).
@@ -525,7 +534,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool CollectShadowStats = false;
     public static GraphicsBuffer ShadowStatsBuffer { get; private set; }
     // [0..4] shadow counters; [5] far rays, [6] far steps (primary + far shadow), [7] far hits.
-    public const int STATS_LEN = 77;   // 0-7 shadow / far; 8 + 4k .. 11 + 4k: shell k's px metric (task 80); 40-47 far start / steps (task 93b3, far-shading kernel); 48-59 shell march iterations by ray kind / step kind / reads (task 93b4, far-shading kernel); 60-61 air-brick mask groups / bricks crossed (task 93b5); 62-64 sky rays / their shell iterations / ended by the sky exit (task 99, far-shading kernel); 65-66 primary column sky leaps / of them whole-chunk (task 116); 67-76 the shell probe's per-SIMD counters (task 130, CSShellProbe, shellsplit arms only)
+    public const int STATS_LEN = 80;   // 0-7 shadow / far; 8 + 4k .. 11 + 4k: shell k's px metric (task 80); 40-47 far start / steps (task 93b3, far-shading kernel); 48-59 shell march iterations by ray kind / step kind / reads (task 93b4, far-shading kernel); 60-61 air-brick mask groups / bricks crossed (task 93b5); 62-64 sky rays / their shell iterations / ended by the sky exit (task 99, far-shading kernel); 65-66 primary column sky leaps / of them whole-chunk (task 116); 67-76 the shell probe's per-SIMD counters (task 130, CSShellProbe, shellsplit arms only); 77-79 near sun rays handed on to the shells / their shell iterations / of them blocked (task 133)
     private static readonly uint[] _statsZero = new uint[STATS_LEN];
     private static GraphicsBuffer _farDummy;
     /// Task 130 (DIAGNOSTIC): CSShellProbe's per-pixel buffer (shellsplit arms only, allocated on first
@@ -1418,6 +1427,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         // 8.14 shells (task 80). Always bound (dummies when off).
                         cmd.SetComputeIntParam(data.compute, "_ShellCount", data.shellCount);
                         cmd.SetComputeIntParam(data.compute, "_ShellIterCap", data.shellIterCap);
+                        cmd.SetComputeIntParam(data.compute, "_NearShadowShells", NearShadowShells && data.shellCount > 1 && data.primaryFarShade ? 1 : 0);   // task 133
                         cmd.SetComputeIntParam(data.compute, "_ShellMaskBase", data.shellMaskBase);   // task 93b5
                         cmd.SetComputeIntParam(data.compute, "_ShellAirMask", ShellAirMask ? 1 : 0);
                         cmd.SetComputeIntParam(data.compute, "_ShellTopY", data.shellTopY);             // task 99

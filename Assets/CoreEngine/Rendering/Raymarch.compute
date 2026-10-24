@@ -1795,7 +1795,16 @@ struct ShadowHit
 {
     float sunVis;   // C.9's sunVis: 0 fully occluded .. 1 fully lit
     int   steps;    // outer iterations, for the §10.3 heat view and §10.4 dump
+    float exitT;    // task 133: >= 0 = the ray left the window or the band ceiling unblocked at this t; -1 otherwise
 };
+
+// TASK 133 (owner Q83 (a); RaymarchFeature.NearShadowShells, `-nearshadowshells`): a tier-0 sun ray
+// that leaves the 0.1 m window or the band ceiling unblocked goes on through the shells (far-shading
+// kernel, shells drawn; 1 = on, set by the C# only then). Before it, such a ray counted as lit, so
+// ground in a far cliff's shadow was drawn lit inside the window (a lit square, its edge ~100 m away).
+// With it on, the window and the ceiling bound the tier-0 part, not the primary's range
+// (_MaxRayDistance, 128 m: shorter than the window's far corners); Stage F's clamp still applies.
+int _NearShadowShells;
 
 /// Solid test at a tier, for C.10's near-miss scan.
 ///
@@ -1892,6 +1901,7 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
     ShadowHit r;
     r.sunVis = 1.0;
     r.steps = 0;
+    r.exitT = -1.0;
 
     // ---- §6.5's ORIGIN RULE. One cell off the hit face, at its centre. ----
     // There is no bias term here and there must never be one: §13's failure
@@ -1924,6 +1934,9 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
     // is NOT an implementation of Amendment 8.11 (DRAFT, NOT ADOPTED); it
     // follows _MaxRayDistance, so if render range ever grows this follows.
     float maxDist = (_MaxRayDistance > 0.0) ? _MaxRayDistance : 1280.0;
+#ifdef VE_FAR_SHADE
+    if (_NearShadowShells != 0) maxDist = 1.0e9;   // task 133: the window and the ceiling bound it
+#endif
     // Stage F: an independent, shorter shadow clamp when one is configured.
     if (_ShadowMaxDistVoxels > 0.0) maxDist = min(maxDist, _ShadowMaxDistVoxels);
 
@@ -1941,14 +1954,15 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
         // moving further away, every remaining voxel is guaranteed unloaded.
         // For a shadow ray aimed at the sun this fires almost immediately on
         // open ground, which is most of why an unshadowed pixel is cheap.
-        if ((voxel.y >= _ContentCeilingVoxelY && step.y > 0) || (voxel.y < _ContentFloorVoxelY && step.y < 0)) break;
+        if (voxel.y >= _ContentCeilingVoxelY && step.y > 0) { r.exitT = currentDist; break; }
+        if (voxel.y < _ContentFloorVoxelY && step.y < 0) break;
 
         {
             int3 rel = VoxelToBrick(voxel) - _WindowOriginBricksPacked.xyz;
             if (rel.x < 0 || rel.y < 0 || rel.z < 0 ||
                 rel.x >= (int)windowDimsBricks.x ||
                 rel.y >= (int)windowDimsBricks.y ||
-                rel.z >= (int)windowDimsBricks.z) break;
+                rel.z >= (int)windowDimsBricks.z) { r.exitT = currentDist; break; }
         }
 
         r.steps++;
@@ -4640,7 +4654,26 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         ShadowHit sh;
         sh.sunVis = 1.0;
         sh.steps = 0;
+        sh.exitT = -1.0;
         if (traceMine) sh = TraceShadowRay(voxel, normal, _SunDir, _WindowDimsBricks, softShadows, isDebugPixel);
+#ifdef VE_FAR_SHADE
+        // TASK 133 (see _NearShadowShells): a tier-0 sun ray that left the window or the band ceiling
+        // unblocked goes on through the shells from where it left, as a shell hit's sun ray does
+        // (the same march, start one cell off the hit face, the shell by camera distance). Here,
+        // before the 2x2 / temporal reuse, so the lanes that reuse this value get the same answer.
+        if (traceMine && _NearShadowShells != 0 && _ShellCount > 1 && shellAtHit == 0 && sh.exitT >= 0.0 && sh.sunVis > 0.0)
+        {
+            float3 nso = (float3)(voxel + normal) + 0.5;
+            ShellHit ns = ShellMarch(nso, normalize(_SunDir), sh.exitT, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false));
+            if (ns.end == SHELL_END_HIT) sh.sunVis = 0.0;
+            // 77 rays handed on, 78 their shell iterations, 79 of them blocked.
+            if (_CollectShadowStats != 0)
+            {
+                InterlockedAdd(ShadowStats[77], 1u); InterlockedAdd(ShadowStats[78], (uint)ns.iters);
+                if (ns.end == SHELL_END_HIT) InterlockedAdd(ShadowStats[79], 1u);
+            }
+        }
+#endif
 
         // The 2x2 block's lead lane, by EXACT INDEX rather than by assuming a
         // quad-lane mapping. Every lane publishes and every lane reads, so the

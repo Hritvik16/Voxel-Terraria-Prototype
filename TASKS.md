@@ -466,3 +466,20 @@ kernel (it does not march the 4 rows below a 540-row frame, so its no-hit rays a
 `Logs/tg2world_20261023_175145.txt`): raw stills ON vs OFF 0 px at walk_near / walk_open; ABBA p50 73.8 -> 69.6 / 48.8 -> 41.8 ms, p99 128 -> 123 /
 90 -> 64 (`Logs/costsplit_2026-10-23_175808.txt`); MODE=walk 3 min ABBA p50 12.73 -> 12.46, p99 37.1 -> 33.8, > 33 ms 1.63 -> 1.14%. Run:
 `SKIP_BUILD=1 EXTRA="-farshade 1 -shells 1 -shellworkers 3 -shellwait 120 -coststillraw -costarms prepass_off" ./run-cost-split.sh`. Report `Screenshots/132/perf132.txt`.
+
+**Task 133 (engine/perf + bug fix, owner Q83 (a)): NEAR SUN SHADOWS THROUGH THE SHELLS, ON by default (`-nearshadowshells 0` = before).**
+`RaymarchFeature.NearShadowShells` -> Raymarch.compute `_NearShadowShells` (far-shading kernel, shells drawn; set only then): a tier-0 sun
+ray (TraceShadowRay) that leaves the 0.1 m window or the band ceiling unblocked (`ShadowHit.exitT`, -1 otherwise) goes on through the shells:
+`ShellMarch(origin cell centre, sun, tStart = exitT, shadow = true, ..., ShellSkyY(false))`, as a shell hit's sun ray; a shell hit -> sunVis 0, else
+the tier-0 value (penumbra) stays. It runs right after TraceShadowRay, before the 2x2 / temporal reuse, so reusing lanes get the same answer. With
+it on, the window and ceiling bound the tier-0 part, not `_MaxRayDistance` (128 m, shorter than the window's far corners); Stage F's clamp still
+applies; the step cap is not continued. Not shell-hit pixels (they march the shells already), not point lights. Inline in the big kernel, in BOTH
+the R1 pre-pass path and the one-pass path: a true hand-over to CSShellPrepass would make pass 2 re-run tier 0 for every group with a lit ray
+leaving the window -- most of the tier-0 screen under a low sun. Counters ShadowStats 77-79 (rays handed on / shell iterations / blocked;
+STATS_LEN 80), the cost split's `[nearsh]` line; cost arms `nearsh_on` / `nearsh_off`. `-lookreview -cliffshadow 1 -cliffbefore 1` shoots A/C with
+the flag forced OFF first (`*_play0`, `*_native0`); `python3 -I tools/nearshadow133.py <LookReview dir>` writes the before/after sheets and the
+window-edge numbers. Evidence: cliff1 C window-edge luma 191/147 -> 127/126 (cliff2 118/111 -> 102/102), A shadowed from the feet out
+(`Logs/lookreview_20261024_092606.txt`, `Screenshots/133/nearshadow133.txt`); raw stills ON vs OFF 0 px at walk_near / walk_open at noon and at
+sun 20 deg (shells filled); warm AC ABBA p50 +1.1 to +1.9 ms at sun 20 deg, noon walk_open +1.1, noon walk_near +6.1 ms (every lit ray climbs from
+the band ceiling to the shells' top, 1100 m, in tier-0-chunk leaps through the hole; flagged), MODE=walk sun ~30 deg +1.45 ms p50, > 33 ms
+1.63 -> 2.19%; no memory added. Report `Screenshots/133/perf133.txt`.

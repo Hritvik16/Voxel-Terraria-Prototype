@@ -1,0 +1,23 @@
+Task 133 -- decisions written BEFORE any measurement (2026-10-24).
+
+Change: -nearshadowshells 1 = a tier-0 sun ray that leaves the 0.1 m window or the band ceiling unblocked
+goes on through the shells (inline ShellMarch(shadow=true) right after TraceShadowRay; tier-0 part bounded by
+the window/ceiling instead of the 128 m primary range).
+
+Correctness (cliff capture, sun 30 deg, -cliffbefore 1):
+- cliff1 C: window-edge luma inside vs outside within ~10 levels ON (today 195 vs 127) and A shows the shadow
+  from the feet out -> the fix works; else -> find why (log, hit view) before any timing; if not fixable in-task,
+  default stays OFF and STOP_FOR_OWNER.
+- New dark patches in A/C ON that are not a cast shadow (fringe along the window edge, blotches on lit ground)
+  -> default stays OFF, report with the picture.
+- Noon raw stills (cost split, nearsh_on vs FULL OFF): expected 0 px or only pixels whose sun ray really meets a
+  shell outside the window. Any change on open lit ground -> inspect; unexplained -> default OFF.
+
+Timing (warm, AC, cost split ABBA = FULL(OFF) ON ON FULL(OFF), walk_near + walk_open, sun 20 deg and noon):
+- ON - OFF p50 <= ~5 ms at both low-sun poses and the stills pass -> default ON.
+- 5 < cost <= 8 ms -> default OFF, report the number; the owner decides (maybe a cheaper variant).
+- cost > 8 ms -> default OFF; report counters (rays handed on, shell iters/ray) to show where it goes.
+- noon cost is reported only (expected small: rays leave the band ceiling and end at the sky exit at once);
+  if noon > 3 ms while low sun is fine, still ON, flagged.
+- One MODE=walk pair (OFF/ON) only if time allows; it does not change the decision unless it shows > 5 ms or
+  a > 33 ms share rise of more than 1 point.

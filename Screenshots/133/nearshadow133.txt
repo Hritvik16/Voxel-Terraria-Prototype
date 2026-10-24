@@ -1,0 +1,14 @@
+Screenshots/133/cliff1_before_after.png
+cliff1 C before: luma just inside vs just outside the window edge: all edges 191 vs 147; toward-sun (top) edge 185 vs 133
+cliff1 C after: luma just inside vs just outside the window edge: all edges 127 vs 126; toward-sun (top) edge 124 vs 123
+cliff1 A before: mean luma tier-0 pixels 145 (52% of frame) vs shell pixels 70
+cliff1 A after: mean luma tier-0 pixels 101 (52% of frame) vs shell pixels 70
+cliff1 A native: pixels changed OFF -> ON 28.48% (> 8 levels 26.39%); mean luma 113.7 -> 90.4
+cliff1 C play: pixels changed OFF -> ON 75.27% (> 8 levels 19.36%); mean luma 118.8 -> 104.9
+Screenshots/133/cliff2_before_after.png
+cliff2 C before: luma just inside vs just outside the window edge: all edges 118 vs 111; toward-sun (top) edge 122 vs 96
+cliff2 C after: luma just inside vs just outside the window edge: all edges 102 vs 102; toward-sun (top) edge 96 vs 94
+cliff2 A before: mean luma tier-0 pixels 63 (61% of frame) vs shell pixels 74
+cliff2 A after: mean luma tier-0 pixels 48 (61% of frame) vs shell pixels 74
+cliff2 A native: pixels changed OFF -> ON 22.22% (> 8 levels 20.27%); mean luma 80.7 -> 71.1
+cliff2 C play: pixels changed OFF -> ON 76.19% (> 8 levels 12.47%); mean luma 104.0 -> 98.3
