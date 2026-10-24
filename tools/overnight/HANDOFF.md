@@ -1,51 +1,52 @@
-# 131-qa-q83-cliff-shadow-picture: DONE (capture only). The Q83 bug SHOWS in play: standing in a far cliff's shadow, the ground round the player (the 0.1 m window, a ~205 m square) is drawn LIT, and the shadow starts at the window edge, ~100-115 m away.
+STOP_FOR_OWNER -- one performance change made (R1). Please look before the next one. Next lever on the plan: R6 (kernel diet, Q72 (b)), or the Q83 shadow fix. Which one, or neither?
 
-## What changed (commit 28f5fec)
-- `Assets/Game/PlaygroundCapture.CliffShadow.cs` (new, `-lookreview -cliffshadow 1`) + one hook in `PlaygroundCapture.LookReview.cs`. No default, look or API change.
-  It searches a 10 m generator heightfield (+-2.5 km round spawn) for cliff feet in a far shadow, at afternoon sun 30/25/20 deg, then per spot takes
-  A (eye 1.6 m, looking at the cliff), C (250 m up, looking down, only the 0.1 m window kept on A's eye, as 129's REF), B (300 m back).
-- `tools/cliffshadow131.py` (sheets + numbers; decodes debug view 14: orange = tier 0, blue = shells). TASKS.md "Task 131".
-- Text reports committed: `Screenshots/131/lookreview.txt`, `cliffshadow.json`, `sheets.txt`. Images are not committed.
+# 132-perf-shell-prepass-r1: DONE. R1 shell pre-pass is exact (0 px difference) and faster at both standing poses: p50 -4.2 ms walk_near, -6.9 ms walk_open. It is now ON by default.
+
+## What changed (commit 33a992f)
+- `Raymarch.compute`: new kernel `CSShellPrepass`. CSMainFarShade now runs in 2 passes (`_ShellPrepass` 1 / 2). Buffer header `ShellPre`, 20 B/px.
+  - Pass 1 draws every 8x8 group that has no shell ray. In a group that has one, it hands those rays over (direction + tTier0) and returns.
+  - The pre-pass marches the handed rays alone.
+  - Pass 2 draws the handed groups: handed lanes skip tier 0 and use the march result; the other lanes re-run tier 0.
+  - It works on whole groups, so the 2x2 shadow reuse and the 8.4 guard see the same lanes as in one pass.
+  - With `-shellprepass 0` the path is the old one.
+- `RaymarchFeature.cs`: `ShellPrepass` (ON; `-shellprepass 0` = off), with buffer alloc only while on, 3 dispatches, and the `[shellprepass] scratch` log line.
+  It turns off with a debug view, with task 130's split arms, and with `shellmarch_off`.
+- Cost-split arms `prepass_on` / `prepass_off`. TASKS.md "Task 132". One clause each in KNOWN_ISSUES "SHELLS COST" and in the CLAUDE.md index.
+- The first build failed with an FXC/Metal error: a barrier sat after a return that depended on a groupshared value. Fixed with a sync after each read (the compiler's own hint).
 
 ## Evidence
-- ONE launch, High preset, play look (FSR 3 dyn): `Logs/lookreview_20261023_165137.txt`, ~13 min incl. build wait. Shots in
-  `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-23_165635_high/`.
-- Fast suite PASS 921 FAIL 0 SKIP 15 (`Logs/overnight/131-tests.out`).
-- Shell fill (short fixed waits, as the launch budget asks): A shots had shells 1-2 full (to 275 m, all the ground that matters), s3-s7 partly missing
-  (cliff1 1,327 missing, cliff2 1,617); B shots all full. Missing far shells only touch the background behind the cliffs.
-- Spots found: sun 30 deg (15.95 h) chosen for both (best contrast); 22 / 42 / 51 candidates at 30 / 25 / 20 deg.
-  cliff1 Q (5217, 530, 4769): shadow cast 260 m away by terrain up to 173 m above; window edge 114 m toward the sun, band ceiling 46 m up.
-  cliff2 Q (3637, 550, 5219): caster 230 m away, up to 152 m above; window edge 108 m, ceiling 65 m up.
-- Looked at every shot (both sheets + crops):
-  - cliff1 (snowfield under a 170 m coastal cliff): A = bright white terraced snow out to a straight line ~100 m ahead, grey shadowed ground beyond it.
-    C = a bright square (the window) inside the grey shadow, player in it; the shadow outside is continuous. B = the ground round Q is grey (shadowed).
-    Numbers (`sheets.txt`): C luma just inside the window edge 195 vs just outside 127; A tier-0 ground luma 146 vs shells 70.
-  - cliff2 (sand + grass under a steep valley wall): weaker. The shadow covers only the window's top (toward-sun) edge there, so C shows a straight
-    shadow edge exactly on the window line: dark sand above, bright sand below (crop). Overall edge luma 116 vs 114 (the shadow covers only part of
-    the edge). A: a near rock wall is itself inside the window, so A mostly shows near-side lighting; the bug is not clear in A here.
-  - Unrelated, seen in cliff2 A/C: a pure-black crescent on the near rock wall (tier 0, an overhang underside?). Not investigated.
-- How often (grid stats, dry land within 2.5 km of spawn, own ground shadowed by terrain >= 110 m away = drawn lit): 1.8% at sun 30 deg, 3.0% at 25,
-  4.8% at 20; ~0 at noon. Lower bound: casters inside the window but above the band ceiling (~45-65 m up) also count and are not in it.
-  The straight cut is visible whenever a far shadow edge falls within ~110 m of the player, which is more often than standing in one.
+- Fast suite: PASS 921 FAIL 0 SKIP 15 (`Logs/overnight/132-tests.out`). Player build clean (`Logs/costsplit_build.log`).
+- Power: AC the whole time (55 -> 70%), no owner pause. Warm-up `Logs/tg2world_20261023_175145.txt` (discarded). Then, back to back:
+  - the cost split `Logs/costsplit_2026-10-23_175808.txt`;
+  - MODE=walk x4 `Logs/tg2world_20261023_{180502,180940,181427,181906}.txt`.
+- Decisions were written before measuring: `Screenshots/132/decisions_before_measuring.txt`. Full table: `Screenshots/132/perf132.txt`.
+- Identity: the no-upscaler raw stills OFF vs ON show 0 px different (out of 2,073,600) at both poses, for both the raw and raw2 stills.
+  - Hit-ray counters match.
+  - No-hit counters are ~4 x 960 lower ON. The pre-pass does not march the 4 dispatch rows below the 540-row frame, which are never drawn.
+- Looked at `Screenshots/132/onoff_raw_sheet.png`: the two columns are the same. Details under "For the doc".
+- The walking arm runs the performance preset at noon, as MODE=walk always does. That is why it is ~12.5 ms. It agrees with the standing result.
+- Default: the pre-written rule was met (faster at both poses beyond noise, image identical), so the default is now ON.
+- Not rebuilt after the default flip (C# only, compiled by the suite). The `Builds/Playground.app` on disk still defaults to OFF until the next build.
 
 ## Left open
-- No fix (by design). Next: the supervisor asks Q83 with the sheets below.
-- The black crescent on cliff2's rock wall: a separate look issue, maybe worth a QA pose (`Screenshots/131/cliff2_sheet.png`, A, top right).
+- Only about half of task 130's ~10 ms "context" share came back. Pass 2 is a second big-kernel dispatch, and it re-runs tier 0 for the non-shell lanes of each handed group.
+  - One possible next step: store those lanes' tier-0 result too, so pass 2 re-runs nothing. It needs more scratch and is not designed.
+  - The march's own ~45% is R6's (kernel diet).
+- Q83 (tier 0 draws a far cliff's shadow as lit) could join R1 as follows. Pass 1 already knows which tier-0 sun rays leave the window or band ceiling unblocked. It could hand those rays over the same way, and the pre-pass would march them through the shells with `ShellMarch(..., shadow=true)`. Pass 2 would then read sunVis.
+  - Cost: +4-8 B/px and a second ray kind in the small kernel. Not asked of the owner yet, so nothing was built.
+- Counters: with the pre-pass on, the march counters 48-60 / 65-66 come from the pre-pass kernel. Tier-0 counters in handed groups count twice for re-run lanes (diagnostic only).
 
 ## For the doc
-| | cliff1 (snow, 170 m cliff) | cliff2 (sand, 150 m wall) |
-|---|---|---|
-| sun / caster distance / window edge toward the sun | 30 deg / 260 m / 114 m | 30 deg / 230 m / 108 m |
-| C luma just inside vs just outside the window edge | 195 vs 127 | 116 vs 114 (top edge only 95 vs 92) |
-| A: tier-0 ground luma vs shells | 146 vs 70 | 63 vs 74 (near wall in view) |
-| dry land drawn lit in a far shadow (sun 30 / 25 / 20 deg) | 1.8 / 3.0 / 4.8 % | |
-- `Screenshots/131/cliff1_sheet.png`: row 1 left (A): white snow to ~100 m, then grey: the shadow should start under your feet. Row 2 left (C): the
-  bright square inside the yellow outline is the 0.1 m window, the red ring the player; everything outside it is in the cliff's shadow. Row 1 right (B):
-  from 300 m back the ground round the stone ring (near Q) is grey, correctly shadowed.
-- `Screenshots/131/cliff2_C_crop_window_edge.png`: from above; the dark band at the top ends on a perfectly straight line, which is the window edge,
-  not a shadow shape; below it the sand is lit.
-- `Screenshots/131/cliff1_AB_strip.png`: top = A's middle strip (bright terraced snow, grey beyond a straight line); bottom = B's (same ground, grey).
-- Options for Q83: **(a) fix task**: continue tier-0 sun rays that leave the window (or the band ceiling) into the shell march. Exact, same image
-  elsewhere. Cost ESTIMATE, not measured: 93b4's shell shadow costs ~2.4 ms for shell-hit pixels; tier-0 pixels are 52-61% of these A frames and
-  every lit one would march, so ~+2-5 ms at 540 rows (130: the march runs ~2x dearer inside the big kernel, so it could fold into R1's pre-pass).
-  **(b) leave it**: rare under a high sun (~2% of land at 30 deg, ~0 at noon), but a visible straight shadow cut ~100 m away in low sun.
+| warm, AC, FSR 3 540 rows, quality, noon | OFF (today) | ON (-shellprepass) | change |
+|---|---|---|---|
+| walk_near p50 / p99 ms (cost split, 2 passes each) | 73.8 / 127 | 69.6 / 122 | -4.2 ms p50 (noise 1.5) |
+| walk_open p50 / p99 ms | 48.8 / 90 | 41.8 / 64 | -6.9 ms p50 (noise 0.5) |
+| MODE=walk 3 min (performance preset) p50 / p99 / > 33 ms | 12.73 / 37.1 / 1.63% | 12.46 / 33.8 / 1.14% | -0.3 ms p50, -3.2 ms p99 |
+| GPU memory added | -- | 9.9 MiB at 960x540 (18.4 MB at 1280x720) | peak RAM +1 to +7 MB (noise) |
+| image (no-upscaler stills) | | | 0 px differ at both poses |
+- Sources: `Logs/costsplit_2026-10-23_175808.txt` (copy `Screenshots/132/costsplit_132.txt`), the walk logs above, table `Screenshots/132/perf132.txt`.
+- `Screenshots/132/onoff_raw_sheet.png`: left = OFF (today), right = ON; top row walk_near, bottom row walk_open.
+  - Where to look: in the bottom row, the shell-drawn right-hand mountain and the far sea on the left. In the top row, the top-right ridge, the only part of walk_near drawn by the shells.
+  - The two sides are byte-identical.
+- Default changed: yes, ON (`-shellprepass 0` = old path).
+- Gameplay consequence in plain words: none. Only the order in which the GPU draws changed. The picture, distances and the 128 m simulation reach (8.15) are the same, and far edits are still drawn in 3D. No frozen API or saved-data change.
