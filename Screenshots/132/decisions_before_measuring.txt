@@ -1,0 +1,19 @@
+TASK 132 -- R1 shell pre-pass (-shellprepass 1). Decisions written BEFORE any measurement (2026-10-23).
+
+IDENTITY (launch 1, cost split arms prepass_on vs FULL = OFF, -coststillraw, no upscaler raw stills):
+  raw stills byte-identical at walk_near AND walk_open        -> exact; go on to the timing launch.
+  differ, but only in a few px where the ray direction/LSBs of t could differ (diff map shows scattered single px,
+  no shapes, counters equal)                                   -> explain it in HANDOFF; go on, but the default stays OFF
+                                                                  unless the stills look the same by eye (they must).
+  differ visibly (shapes, holes, sky where ground was, whole tiles)
+                                                               -> bug: fix inside the task if found; if not, STOP, leave OFF.
+
+TIMING (warm-up discarded, then ONE cost split, order FULL(OFF) / prepass_on / prepass_on / FULL(OFF) = ABBA, both poses):
+  ON faster at BOTH poses by more than the run's noise (OFF passes' spread)
+                                                               -> make ON the play default (-shellprepass 0 = old path).
+  ON faster at one pose, within noise or slower at the other  -> leave OFF, report; owner decides.
+  ON slower or within noise at both                            -> leave OFF; R1 failed: the context half did not come back
+                                                                  (pass 2 / extra pass ate it). Report which.
+  Expected (task 130's E1): -8 to -11 ms p50 at both poses, minus ~0.5-1 ms for the extra pass.
+WALKING ARM (MODE=walk ABBA, if the launch budget allows): informs the default only if it contradicts the
+  standing poses by more than its noise (then leave OFF and report).

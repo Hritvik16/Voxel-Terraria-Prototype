@@ -275,6 +275,18 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// +1.9 / -0.2 ms (Logs/costsplit_2026-10-22_202941.txt) and MODE=walk ABBA 41.71 vs 41.70 ms.
     /// `-shellcolleap 1` turns it on. The column tops are always built and uploaded.
     public static bool ShellColumnLeap = ReadShellColumnLeapArg();
+    /// Task 132 (R1, PERF_SHELL_MARCH_PLAN §4, owner Q85 (a)): the SHELL PRE-PASS. The far-shading kernel runs
+    /// twice around a small kernel (CSShellPrepass) that does the primary shell march alone: pass 1 draws every
+    /// 8x8 group with no shell ray and hands the others' shell rays over, pass 2 draws those groups with the
+    /// pre-pass's result (Raymarch.compute ShellPre). Exact (same rays, same march). Needs the far-shading
+    /// kernel, shells on and debug view 0; +20 B/px GPU scratch (10.4 MB at 960x540), allocated only while on.
+    /// ON by default (task 132's rule: faster at both poses, image byte-identical): warm ABBA p50 73.8 -> 69.6 ms
+    /// walk_near, 48.8 -> 41.8 ms walk_open (Logs/costsplit_2026-10-23_175808.txt). `-shellprepass 0` = the one-pass path.
+    public static bool ShellPrepass = ReadShellPrepassArg();
+    /// Task 132: the pre-pass ran last frame (shells on, far-shading kernel, debug view 0, flag on).
+    public static bool ShellPrepassDrawnLastFrame { get; private set; }
+    /// Task 132: bytes of the pre-pass scratch buffer now allocated (0 while the flag has never been on).
+    public static long ShellPrepassBytes => _shellPre == null ? 0L : (long)_shellPre.count * SHELL_PRE_STRIDE;
     /// Task 119 (VISUAL_REVIEW_114 #3, owner 2026-10-22): FAR ROCK BY SLOPE. In the far-shading kernel
     /// (FarShade on) a far-band step side is drawn as its biome's rock where the ground slope
     /// (FarSlopeNormal) is steeper than ~40 deg, instead of wherever the side is deeper than 1.5 m below
@@ -387,6 +399,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             if (a[i] == "-shellmask") on = a[i + 1] == "1";
         return on;
     }
+
+    private static bool ReadShellPrepassArg() => ParseFlagOn(System.Environment.GetCommandLineArgs(), "-shellprepass");
 
     private static bool ReadShellColumnLeapArg()
     {
@@ -517,6 +531,10 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// Task 130 (DIAGNOSTIC): CSShellProbe's per-pixel buffer (shellsplit arms only, allocated on first
     /// use at the dispatch size, 4 B/px) and the 1-element dummy bound to CSMainFarShade otherwise.
     private static GraphicsBuffer _shellProbeIO, _shellProbeDummy;
+    /// Task 132: the shell pre-pass's per-pixel entries (Raymarch.compute ShellPreEntry, 5 uints) and the
+    /// 1-element dummy bound to CSMainFarShade while the pre-pass is off.
+    private static GraphicsBuffer _shellPre, _shellPreDummy;
+    private const int SHELL_PRE_STRIDE = 20;
     /// Bound as LightBuffer when no LightingDriver exists (the Phase 4
     /// acceptance scene, the fluid rigs). An UNSET buffer does not fail loudly
     /// on Metal: Unity logs "Property (LightBuffer) ... is not set" once and
@@ -655,6 +673,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public bool primaryFarShade;            // task 130: kPrimary is CSMainFarShade (ShellProbeIO bound)
             public int kShellProbe;                 // task 130: CSShellProbe, or -1 (not dispatched)
             public GraphicsBuffer shellProbeIO;
+            public int kShellPrepass;               // task 132: CSShellPrepass, or -1 (the pre-pass is off this frame)
+            public GraphicsBuffer shellPre;
             public Vector4[] shellRing, shellLo, shellHi, shellCam, shellBounds;
             public VoxelEngine.Rendering.FarField.Scatter[] farScatters;
             public int farMipMask;
@@ -722,6 +742,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 _farDummy = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, sizeof(uint));
             if (_shellProbeDummy == null)
                 _shellProbeDummy = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, sizeof(float));
+            if (_shellPreDummy == null)
+                _shellPreDummy = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, SHELL_PRE_STRIDE);
             if (_lightDummy == null)
                 _lightDummy = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1,
                     System.Runtime.InteropServices.Marshal.SizeOf<VoxelEngine.Memory.LightSource>());
@@ -1131,6 +1153,24 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     passData.shellProbeIO = _shellProbeIO;
                     passData.kShellProbe = activeCompute.FindKernel("CSShellProbe");
                 }
+                // Task 132 (R1): the shell pre-pass (see ShellPrepass). Not with a debug view, task 130's split arms
+                // or 93b4's shellmarch_off arm (DebugShellSkip bit 1: no primary shell march to move).
+                passData.kShellPrepass = -1;
+                passData.shellPre = _shellPreDummy;
+                if (ShellPrepass && passData.primaryFarShade && passData.kShellProbe < 0 && (DebugShellSkip & 2) == 0 && passData.shellCount > 1
+                    && _debugMode == 0 && activeCompute.HasKernel("CSShellPrepass"))
+                {
+                    int n = passData.dispatchWidth * passData.dispatchHeight;
+                    if (_shellPre == null || _shellPre.count < n)
+                    {
+                        _shellPre?.Release();
+                        _shellPre = new GraphicsBuffer(GraphicsBuffer.Target.Structured, n, SHELL_PRE_STRIDE);
+                        Debug.Log($"[shellprepass] scratch {passData.dispatchWidth}x{passData.dispatchHeight} = {n} px x {SHELL_PRE_STRIDE} B = {n * (long)SHELL_PRE_STRIDE / (1024.0 * 1024.0):F1} MB");
+                    }
+                    passData.shellPre = _shellPre;
+                    passData.kShellPrepass = activeCompute.FindKernel("CSShellPrepass");
+                }
+                ShellPrepassDrawnLastFrame = passData.kShellPrepass >= 0;
                 var cascadeManager = LODCascadeManager.Active;
                 bool cascadeAvailable = UseLODCascade && cascadeManager != null && !shellsOn;
                 passData.useLODCascade = cascadeAvailable ? 1 : 0;
@@ -1399,7 +1439,9 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         {
                             cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellProbeIO", data.shellProbeIO);
                             cmd.SetComputeVectorParam(data.compute, "_ShellProbeParams",
-                                data.kShellProbe >= 0 ? new Vector4(data.dispatchWidth, data.dispatchHeight, 0f, 0f) : Vector4.zero);
+                                data.kShellProbe >= 0 || data.kShellPrepass >= 0 ? new Vector4(data.dispatchWidth, data.dispatchHeight, 0f, 0f) : Vector4.zero);
+                            cmd.SetComputeBufferParam(data.compute, data.kPrimary, "ShellPre", data.shellPre);   // task 132
+                            cmd.SetComputeIntParam(data.compute, "_ShellPrepass", data.kShellPrepass >= 0 ? 1 : 0);
                         }
                         if (data.farEnabled != 0 && (data.farScatters.Length > 0 || data.farMipMask != 0))
                         {
@@ -1472,6 +1514,25 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     cmd.DispatchCompute(data.compute, data.kPrimary, primaryGroupsX, threadGroupsY, 1);
                     cmd.EndSample("VE.Raymarch.Primary");
                     PrimaryDispatchCount++;
+                    if (data.kShellPrepass >= 0)
+                    {
+                        // Task 132 (R1): the primary shell march alone, for the rays pass 1 handed over, then the
+                        // far-shading kernel's pass 2 draws the groups pass 1 left (Raymarch.compute ShellPre).
+                        cmd.BeginSample("VE.Raymarch.ShellPrepass");
+                        cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "ShellDir", data.shellDir);
+                        cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "ShellPages", data.shellPages);
+                        cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "ShellBricks", data.shellBricks);
+                        cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "FarResident", data.farResident);
+                        cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "ShellPre", data.shellPre);
+                        cmd.SetComputeBufferParam(data.compute, data.kShellPrepass, "ShadowStats", data.shadowStats ?? _farDummy);
+                        cmd.DispatchCompute(data.compute, data.kShellPrepass, (data.dispatchWidth + 7) / 8, (data.dispatchHeight + 7) / 8, 1);
+                        cmd.EndSample("VE.Raymarch.ShellPrepass");
+                        cmd.BeginSample("VE.Raymarch.PrimaryPass2");
+                        cmd.SetComputeIntParam(data.compute, "_ShellPrepass", 2);
+                        cmd.DispatchCompute(data.compute, data.kPrimary, primaryGroupsX, threadGroupsY, 1);
+                        cmd.SetComputeIntParam(data.compute, "_ShellPrepass", 0);
+                        cmd.EndSample("VE.Raymarch.PrimaryPass2");
+                    }
                     if (data.kShellProbe >= 0)
                     {
                         // Task 130 (DIAGNOSTIC, shellsplit arms): the shell march alone, for the pixels the
@@ -1575,6 +1636,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         _farDummy?.Release();
         _shellProbeIO?.Release(); _shellProbeIO = null;
         _shellProbeDummy?.Release(); _shellProbeDummy = null;
+        _shellPre?.Release(); _shellPre = null;
+        _shellPreDummy?.Release(); _shellPreDummy = null;
         _lightDummy?.Release(); _lightDummy = null;
         _farDummy = null;
         _taaColA?.Release(); _taaColB?.Release(); _taaMetaA?.Release(); _taaMetaB?.Release(); _taaCur?.Release();

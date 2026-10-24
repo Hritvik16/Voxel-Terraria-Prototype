@@ -452,3 +452,17 @@ kept on A's eye (`RefTier0Centre`, MaxRayDistance 4096 as 129's REF; play + hit)
 `-cliffframes` 90. Also logs, per elevation, the % of dry land shadowed by terrain >= 110 m away. Sheets: `python3 -I tools/cliffshadow131.py <LookReview dir>`
 (A | B, C with the window outline, A native; debug view 14 decoded: orange tier 0, blue shells). Run:
 `SKIP_BUILD=1 PRESETS=high EXTRA="-cliffshadow 1 -shellworkers 6" ./run-look-review.sh`. Result in HANDOFF 131 / `Screenshots/131/`.
+
+**Task 132 (engine/perf, owner Q85 (a); PERF_SHELL_MARCH_PLAN R1): the SHELL PRE-PASS, exact, ON by default (`-shellprepass 0` = the one-pass path).**
+`RaymarchFeature.ShellPrepass`: with the far-shading kernel, shells on and debug view 0, CSMainFarShade runs twice around a small kernel
+`CSShellPrepass` (Raymarch.compute header `ShellPre`). Pass 1 (`_ShellPrepass` 1) does tier 0; an 8x8 group in which any lane would run the
+primary shell march writes those lanes' ray direction + tTier0 to `ShellPre` and returns, every other group is drawn as before. `CSShellPrepass`
+marches the handed rays (the same `ShellMarch` call) and packs the result (t, voxel, mat / end / shell / normal / inside / iters) back. Pass 2
+(`_ShellPrepass` 2) runs only the handed groups: handed lanes skip their tier-0 march and take the result, the others re-run tier 0; whole
+groups, so the shadow block's 2x2 reuse and the 8.4 guard see the same lanes as in one pass. Scratch 20 B/px (9.9 MiB at 960x540, ~17.6 MiB at
+1280x720), allocated only while on (`[shellprepass] scratch` log line). Not with task 130's split arms or `shellmarch_off`. Cost-split arms
+`prepass_on` / `prepass_off`; the counters line says `pre-pass ON/OFF (MB scratch)`; the march counters 48-60 / 65-66 come from the pre-pass
+kernel (it does not march the 4 rows below a 540-row frame, so its no-hit rays are ~4 x 960 fewer than FULL's). Evidence (AC, warm; warm-up
+`Logs/tg2world_20261023_175145.txt`): raw stills ON vs OFF 0 px at walk_near / walk_open; ABBA p50 73.8 -> 69.6 / 48.8 -> 41.8 ms, p99 128 -> 123 /
+90 -> 64 (`Logs/costsplit_2026-10-23_175808.txt`); MODE=walk 3 min ABBA p50 12.73 -> 12.46, p99 37.1 -> 33.8, > 33 ms 1.63 -> 1.14%. Run:
+`SKIP_BUILD=1 EXTRA="-farshade 1 -shells 1 -shellworkers 3 -shellwait 120 -coststillraw -costarms prepass_off" ./run-cost-split.sh`. Report `Screenshots/132/perf132.txt`.

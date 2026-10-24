@@ -104,6 +104,9 @@
 // TASK 130 (DIAGNOSTIC, capture only): the shell-march probe (PERF_SHELL_MARCH_PLAN E1-E3),
 // dispatched only by the cost split's shellsplit / shellsplit2 arms (_DebugShellSkip bit 5).
 #pragma kernel CSShellProbe VE_FAR_SHADE
+// TASK 132 (R1, PERF_SHELL_MARCH_PLAN §4, owner Q85 (a)): the shell pre-pass kernel, dispatched between
+// CSMainFarShade's two passes while RaymarchFeature.ShellPrepass is on (_ShellPrepass 1 / 2).
+#pragma kernel CSShellPrepass VE_FAR_SHADE
 
 #include "../Coord/CoordMath.hlsl"
 #include "../Memory/StructHeaders.hlsl"
@@ -2740,6 +2743,22 @@ int    _DebugShellSkip;
 // dims, z = a salt, 0 at run time (keeps the second march from merging with the first).
 RWStructuredBuffer<float> ShellProbeIO;
 float4 _ShellProbeParams;
+// TASK 132 (R1, the SHELL PRE-PASS; RaymarchFeature.ShellPrepass, `-shellprepass`): the primary
+// shell march moves out of the big kernel. 0 = today's one pass. 1 = CSMainFarShade's first pass:
+// tier 0 as always; an 8x8 group in which any lane would shell-march hands those lanes' rays to
+// ShellPre and returns (nothing drawn); every other group is drawn as today (it has no shell
+// ray). Then CSShellPrepass marches the handed rays alone. 2 = the second pass: only the groups
+// pass 1 returned from run, every lane from the top; a handed lane skips its tier-0 march (it
+// ended without a hit, and nothing below reads its state but the ray) and takes the shell
+// result from ShellPre; the others re-run tier 0 exactly as pass 1 did. Whole groups, so the
+// shadow block's 2x2 reuse and 8.4 guard see the same lanes as in one pass: the same image.
+// ShellPre.e bits 0-1: 0 drawn in pass 1, 1 re-run in pass 2, 2 handed to the pre-pass; pass 1
+// writes a-c = the ray direction, d = tTier0; CSShellPrepass writes a = t, b-d = voxel and e's
+// upper bits (ShellPrePack). 20 B/px, allocated only while the flag is on.
+struct ShellPreEntry { uint a, b, c, d, e; };
+RWStructuredBuffer<ShellPreEntry> ShellPre;
+int _ShellPrepass;
+groupshared uint gsShellDefer;
 #endif
 // TASK 93b4: ShellMarch's one-entry read caches (below); bit 2 of _DebugShellSkip
 // turns them off in the far-shading kernel (the shellcache_off arm). Same results either way.
@@ -2822,6 +2841,33 @@ struct ShellHit
     int colLeapsChunk; // ... of them over the whole chunk's x and z
 #endif
 };
+
+#ifdef VE_FAR_SHADE
+uint ShellPreNormalCode(int3 n)
+{
+    return n.x > 0 ? 0u : n.x < 0 ? 1u : n.y > 0 ? 2u : n.y < 0 ? 3u : n.z > 0 ? 4u : n.z < 0 ? 5u : 6u;
+}
+int3 ShellPreNormal(uint c)
+{
+    return c == 0u ? int3(1, 0, 0) : c == 1u ? int3(-1, 0, 0) : c == 2u ? int3(0, 1, 0) : c == 3u ? int3(0, -1, 0)
+         : c == 4u ? int3(0, 0, 1) : c == 5u ? int3(0, 0, -1) : int3(0, 0, 0);
+}
+// TASK 132: ShellPre.e after CSShellPrepass: bits 0-1 class (2), 2-9 mat, 10-12 end, 13-16 shell + 1
+// (-1 -> 0), 17-19 normal (ShellPreNormalCode), 20 inside, 21-31 iters (capped at 2047; counters only).
+uint ShellPrePack(ShellHit h)
+{
+    return 2u | ((h.mat & 0xFFu) << 2) | (((uint)h.end & 7u) << 10) | (((uint)(h.shell + 1) & 15u) << 13)
+         | (ShellPreNormalCode(h.normal) << 17) | (h.inside ? (1u << 20) : 0u) | ((uint)clamp(h.iters, 0, 2047) << 21);
+}
+ShellHit ShellPreUnpack(ShellPreEntry q)
+{
+    ShellHit h = (ShellHit)0;
+    h.t = asfloat(q.a); h.voxel = int3((int)q.b, (int)q.c, (int)q.d);
+    h.mat = (q.e >> 2) & 0xFFu; h.end = (int)((q.e >> 10) & 7u); h.shell = (int)((q.e >> 13) & 15u) - 1;
+    h.normal = ShellPreNormal((q.e >> 17) & 7u); h.inside = ((q.e >> 20) & 1u) != 0u; h.iters = (int)(q.e >> 21);
+    return h;
+}
+#endif
 
 /// Smallest shell k >= 1 whose outer bound is beyond d; -1 = past the last.
 int ShellByDistance(float d)
@@ -3632,6 +3678,25 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // (0.185%), and at 1920x1080 both dimensions divide by 8 exactly (0.000%).
     bool inBounds = (id.x < width && id.y < height);
     uint lane = gtid.y * 8u + gtid.x;
+#ifdef VE_FAR_SHADE
+    // TASK 132 (R1, the shell pre-pass; see ShellPre): pass 2 runs only the groups pass 1 handed
+    // over (a group-uniform return: no lane of a returned group reaches a barrier). Out-of-bounds
+    // lanes count as drawn: they write nothing and never shell-march in pass 2.
+    bool shellResume = false;
+    uint shellPreIdx = id.y * width + id.x;
+    if (_ShellPrepass == 2)
+    {
+        uint cls = inBounds ? (ShellPre[shellPreIdx].e & 3u) : 0u;
+        if (lane == 0u) gsShellDefer = 0u;
+        GroupMemoryBarrierWithGroupSync();
+        if (cls != 0u) gsShellDefer = 1u;   // plain-write race, as gsAnyShadowNeeded below
+        GroupMemoryBarrierWithGroupSync();
+        uint deferG = gsShellDefer;
+        GroupMemoryBarrierWithGroupSync();   // read before any later write (the compiler's race rule)
+        if (deferG == 0u) return;
+        shellResume = (cls == 2u);
+    }
+#endif
 
     bool isDebugPixel = (id.x == _DebugPixel.x && id.y == _DebugPixel.y);
 
@@ -3754,6 +3819,10 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         }
     }
 
+#ifdef VE_FAR_SHADE
+    // TASK 132: a handed lane's tier-0 march ended without a hit in pass 1; skip it (no voxel march).
+    if (shellResume) skipVoxel = true;
+#endif
 #ifdef VE_DETAIL_SPEED
     // TASK 24: with the detail square on, the voxel march ends where the ray
     // leaves it (the camera is its centre, so t = R / max|D.xz|), and the far
@@ -4174,6 +4243,33 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 #else
     float tVoxelLimit = currentDist;
 #endif
+#ifdef VE_FAR_SHADE
+    // TASK 132 (R1): pass 1 hands the group over when any lane would run the shell march below
+    // (the same condition), and returns; pass 2 draws the group (see ShellPre).
+    if (_ShellPrepass == 1)
+    {
+        bool shellNeeds = _ShellCount > 1 && !hit && passMat == 0u && _FarEnabled != 2;
+        if (lane == 0u) gsShellDefer = 0u;
+        GroupMemoryBarrierWithGroupSync();
+        if (shellNeeds) gsShellDefer = 1u;
+        GroupMemoryBarrierWithGroupSync();
+        bool shellDefer = gsShellDefer != 0u;
+        GroupMemoryBarrierWithGroupSync();   // read before any later write (the compiler's race rule)
+        if (inBounds)
+        {
+            if (shellDefer && shellNeeds)
+            {
+                ShellPreEntry q;
+                q.a = asuint(rayDir.x); q.b = asuint(rayDir.y); q.c = asuint(rayDir.z);
+                q.d = asuint(skipVoxel ? 0.0 : min(tVoxelLimit, _ShellBounds[0].y));
+                q.e = 2u;
+                ShellPre[shellPreIdx] = q;
+            }
+            else ShellPre[shellPreIdx].e = shellDefer ? 1u : 0u;
+        }
+        if (shellDefer) return;
+    }
+#endif
     // ---- 8.14 SHELLS (task 80): where tier 0 ends or is absent, shells 1.. ----
     // Tier 0 (the 128 m window) is still shell 0 until step 14. Hand-over by
     // DISTANCE, not residency (8.14 row 5, step 12, task 85): the shells march
@@ -4212,13 +4308,25 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         )
     {
         float tTier0 = skipVoxel ? 0.0 : min(tVoxelLimit, _ShellBounds[0].y);
-        ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0, ShellSkyY(true));
+        ShellHit shr;
+#ifdef VE_FAR_SHADE
+        // TASK 132: pass 2 takes the pre-pass's result (handed lanes only; an out-of-bounds lane that
+        // would march gets "no hit" at tTier0 -- it draws nothing and no in-bounds lane reads it).
+        if (_ShellPrepass == 2)
+        {
+            if (shellResume) shr = ShellPreUnpack(ShellPre[shellPreIdx]);
+            else { shr = (ShellHit)0; shr.end = SHELL_END_CAP; shr.t = tTier0; shr.shell = -1; }
+        }
+        else
+#endif
+        shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0, ShellSkyY(true));
 #ifdef VE_FAR_SHADE
         dbgShellEnd = shr.end; dbgShellIters = shr.iters;
         // TASK 93b4 (diagnostic): primary shell rays and iterations by how they
         // ended: 48/49 HIT, 50/51 no hit (sky, absent, past the last, cap); 54 = the
         // iterations of both that leapt a tier-0 chunk.
-        if (_CollectShadowStats != 0)
+        // TASK 132: with the pre-pass, CSShellPrepass adds these (it has the march's step counts).
+        if (_CollectShadowStats != 0 && _ShellPrepass == 0)
         {
             uint slot = (shr.end == SHELL_END_HIT) ? 48u : 50u;
             InterlockedAdd(ShadowStats[slot], 1u);
@@ -5443,6 +5551,45 @@ void CSShellProbe(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID
                 InterlockedAdd(ShadowStats[effAll < 0.35 ? 74 : (effAll < 0.6 ? 75 : 76)], 1u);
             }
         }
+    }
+#endif
+}
+
+
+// TASK 132 (R1, the SHELL PRE-PASS; owner Q85 (a)): the primary shell march of the rays
+// CSMainFarShade's pass 1 handed over (ShellPre.e class 2), in a kernel that holds nothing
+// else (task 130's E1: about half the march's cost was the big kernel around it). The ray is
+// pass 1's own (its direction and tTier0 in ShellPre), so the march is the one pass 1 would have
+// run. The result goes back into the entry for pass 2 (ShellPrePack). Also adds the march
+// counters 48-59 / 65-66 that pass 2 leaves to it.
+[numthreads(8, 8, 1)]
+void CSShellPrepass(uint3 tid : SV_DispatchThreadID)
+{
+#ifdef VE_FAR_SHADE
+    uint width = (uint)_ShellProbeParams.x, height = (uint)_ShellProbeParams.y;
+    if (tid.x >= width || tid.y >= height) return;   // no barrier in this kernel
+    uint idx = tid.y * width + tid.x;
+    ShellPreEntry q = ShellPre[idx];
+    if ((q.e & 3u) != 2u) return;
+    float3 rayDir = float3(asfloat(q.a), asfloat(q.b), asfloat(q.c));
+    float3 rayStart = _CameraPos * 10.0;
+    ShellHit shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, asfloat(q.d), ShellSkyY(true));
+    q.a = asuint(shr.t); q.b = (uint)shr.voxel.x; q.c = (uint)shr.voxel.y; q.d = (uint)shr.voxel.z;
+    q.e = ShellPrePack(shr);
+    ShellPre[idx] = q;
+    if (_CollectShadowStats != 0)
+    {
+        uint slot = (shr.end == SHELL_END_HIT) ? 48u : 50u;
+        InterlockedAdd(ShadowStats[slot], 1u);
+        InterlockedAdd(ShadowStats[slot + 1u], (uint)shr.iters);
+        InterlockedAdd(ShadowStats[54], (uint)shr.leaps0);
+        InterlockedAdd(ShadowStats[56], (uint)shr.leapsChunk);
+        InterlockedAdd(ShadowStats[57], (uint)shr.leapsBrick);
+        InterlockedAdd(ShadowStats[58], (uint)shr.dirReads);
+        InterlockedAdd(ShadowStats[59], (uint)shr.pageReads);
+        InterlockedAdd(ShadowStats[60], (uint)shr.maskGroups);
+        InterlockedAdd(ShadowStats[65], (uint)shr.colLeaps);
+        InterlockedAdd(ShadowStats[66], (uint)shr.colLeapsChunk);
     }
 #endif
 }

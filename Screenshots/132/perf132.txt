@@ -1,0 +1,33 @@
+TASK 132 -- R1 shell pre-pass (-shellprepass), 2026-10-23, branch engine-phase, M1 Air 8 GB
+Decisions written before measuring: Screenshots/132/decisions_before_measuring.txt
+POWER: AC the whole time (55% -> 70% charging), no owner pause.
+WARM STEADY STATE: warm-up Logs/tg2world_20261023_175145.txt (MODE=stream MOTION=walk, discarded), then at once:
+  cost split Logs/costsplit_2026-10-23_175808.txt (order FULL=OFF / prepass_on / prepass_on / FULL=OFF per pose, 15 s timed each;
+  flags -farshade 1 -seethrough 1 -riverlook 1 -shells 1 -shellworkers 3 -shellwait 120 -coststillraw; noon, FSR 3 540 rows, quality),
+  then MODE=walk 3 min x 4 (OFF ON ON OFF; performance preset, -tod 12, same shell/far flags). Driver Logs/overnight/132-driver.sh,
+  out Logs/overnight/132-measure.out.
+
+STANDING POSES (cost split)        walk_near                          walk_open
+  p50 OFF (passes)                 74.5 / 73.0 = 73.8                 48.5 / 49.0 = 48.8
+  p50 ON  (passes)                 70.3 / 68.9 = 69.6                 41.8 / 41.8 = 41.8
+  saved p50 (noise = OFF range)    -4.2 ms (1.5)                      -6.9 ms (0.5)
+  p99 OFF / ON                     125.5, 128.3 / 119.2, 125.2        89.5, 89.9 / 62.8, 64.5
+  > 33 ms                          not logged per frame by the cost split; p50 >= 41.8 ms in every arm, so most frames are
+                                   over 33 ms either way (the walk arms below give the %)
+WALKING (MODE=walk, whole run)     p50      p95      p99      > 33 ms   peak phys_footprint   log
+  OFF                              12.77    26.57    36.85    1.60%     2227 MB   Logs/tg2world_20261023_180502.txt
+  ON                               12.43    25.56    33.23    1.03%     2229 MB   Logs/tg2world_20261023_180940.txt
+  ON                               12.48    25.30    34.40    1.24%     2228 MB   Logs/tg2world_20261023_181427.txt
+  OFF                              12.68    26.51    37.25    1.66%     2222 MB   Logs/tg2world_20261023_181906.txt
+  mean OFF -> ON                   12.73 -> 12.46   26.54 -> 25.43   37.05 -> 33.82   1.63 -> 1.14%
+
+MEMORY: ShellPre scratch 960 x 540 x 20 B = 10.4 MB (9.9 MiB; Player.log "[shellprepass] scratch 960x540 = 518400 px x 20 B = 9.9 MB");
+  1280 x 720 would be 18.4 MB. Peak phys_footprint ON vs OFF +1 to +7 MB (noise level). Allocated only while the flag is on.
+
+IDENTITY: no-upscaler raw stills (-coststillraw) FULL(OFF) vs prepass_on: 0 px differ of 2,073,600 at both poses (raw and raw2).
+  Counters: hit rays 26 = 26 / 31,811 vs 31,810 (FSR jitter in the counter window); no-hit rays 30,210 vs 29,268 and 290,870 vs 287,022:
+  the pre-pass kernel does not march the 4 rows below the 540-row frame (dispatch 544 rows), which FULL marches and counts but never draws.
+
+OUTCOME (pre-written rule): ON faster at both poses beyond noise, image byte-identical -> ON is the default (-shellprepass 0 = old path).
+  The walking arm agrees (small gain, tails down). Gain vs task 130's estimate (-8 to -11 ms): about half came back; pass 2 re-runs tier 0
+  for the non-shell lanes of every handed group and is a second big-kernel dispatch.
