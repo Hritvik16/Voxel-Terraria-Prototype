@@ -442,3 +442,13 @@ sum / (32 x max) of shell iterations, active lanes, step / end kinds. Warm cost 
 in-kernel march 18.2 / ~21 ms, alone 8.1 / 9.5 ms (walk_near / walk_open), second warm march +11.3 / +12.6 ms, SIMD efficiency 0.91 / 0.93.
 Plan rule -> R1 (shell pre-pass kernel), no R2; E2 = execution-bound, so R6 for the rest. Report `Screenshots/130/perf130.txt`; owner Q84 in HANDOFF 130.
 Run: `SKIP_BUILD=1 EXTRA="-farshade 1 -shells 1 -shellworkers 3 -shellwait 120 -costarms shellmarch_off,shellsplit,shellsplit2" ./run-cost-split.sh`.
+
+**Task 131 (QA pose for owner Q83, capture only, NO fix / default / look change): tier 0 draws a far cliff's shadow as LIT, and it shows in play.**
+`-lookreview -cliffshadow 1` (`PlaygroundCapture.CliffShadow.cs`, hook in LookReview): a 10 m generator heightfield of +-`-cliffr` m (2500)
+round the start; per afternoon sun elevation in `-cliffsun` (30,25,20) it picks dry, gentle cliff feet whose ground is shadowed by terrain
+160-350 m toward the sun and >= 60 m above, with >= 150 m of shadowed ground in view; best `-cliffspots` (2), >= 800 m apart. Per spot, one sun:
+A eye 1.6 m looking at the cliff (play look `fsr3_dyn`, `native`, `hit` = debug view 14), C 250 m up looking down with ONLY the 0.1 m window
+kept on A's eye (`RefTier0Centre`, MaxRayDistance 4096 as 129's REF; play + hit), B 300 m back (play + hit). Waits `-cliffwait0` 120 / `-cliffwait` 60 s,
+`-cliffframes` 90. Also logs, per elevation, the % of dry land shadowed by terrain >= 110 m away. Sheets: `python3 -I tools/cliffshadow131.py <LookReview dir>`
+(A | B, C with the window outline, A native; debug view 14 decoded: orange tier 0, blue shells). Run:
+`SKIP_BUILD=1 PRESETS=high EXTRA="-cliffshadow 1 -shellworkers 6" ./run-look-review.sh`. Result in HANDOFF 131 / `Screenshots/131/`.

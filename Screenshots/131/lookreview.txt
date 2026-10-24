@@ -1,0 +1,38 @@
+UPSCALER CLIPS -- 2026-10-23_165634
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 720 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 45 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 720 rows inner inf -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 720 rows inner 2.00 -> outer 1.33 (at 1080 output: outer 2.00)
+
+CLIFF SHADOW (task 131): heightfield 501x501 at 10 m round (4017, 4019) in 0.7 s; sun elevations 30,25,20 deg
+  sun 30 deg (15.95 h, toward-sun yaw -76 deg): dry land cells 165588, shadowed 15.5%, shadowed by terrain >= 110 m away (tier 0 would draw them LIT) 1.8%
+    candidate spots: 22
+  sun 25 deg (16.29 h, toward-sun yaw -76 deg): dry land cells 165588, shadowed 19.5%, shadowed by terrain >= 110 m away (tier 0 would draw them LIT) 3.0%
+    candidate spots: 42
+  sun 20 deg (16.63 h, toward-sun yaw -77 deg): dry land cells 165588, shadowed 25.1%, shadowed by terrain >= 110 m away (tier 0 would draw them LIT) 4.8%
+    candidate spots: 51
+
+=== cliff1: Q (5217.2, 530.0, 4768.8) m, sun 30 deg at 15.95 h, toward-sun yaw -76 deg; Q's shadow caster 260 m toward the sun, terrain up to 173 m above Q; shadowed ground seen from the eye for 260 m; cliff top 33.4 deg up from the eye, camera pitch 5.0 deg
+  [shells] waited 120 s (cap 120 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1954/39/8  s4 371/610/6  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 6665, missing 1327, pending 0; requested 7410, generated 7396 (129 ms each on a worker), dropped stale 14, over-budget frames 0 (of 2372)
+  [window] box {"lo":[51072,4864,46592],"hi":[53120,5760,48640]}: edge 114 m from Q toward the sun, band ceiling 46 m above Q's ground
+  [shells] waited 60 s (cap 60 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1832/0/0  s4 984/1/2  s5 208/260/12  s6 0/182/0  s7 0/16/0   total stored 7364, missing 459, pending 0; requested 11429, generated 11415 (110 ms each on a worker), dropped stale 16, over-budget frames 0 (of 2832)
+  [B] eye (5507.8, 542.4, 4694.4): 8 m over the ground there to see Q's ground (clear), looking at the ground 60 m from Q toward the sun
+  [shells] waited 57 s (cap 60 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 987/0/0  s5 480/0/0  s6 182/0/0  s7 16/0/0   total stored 8006, missing 0, pending 0; requested 16926, generated 16926 (123 ms each on a worker), dropped stale 18, over-budget frames 0 (of 3620)
+
+=== cliff2: Q (3637.2, 549.7, 5218.8) m, sun 30 deg at 15.95 h, toward-sun yaw -76 deg; Q's shadow caster 230 m toward the sun, terrain up to 153 m above Q; shadowed ground seen from the eye for 240 m; cliff top 33.3 deg up from the eye, camera pitch 5.0 deg
+  [shells] waited 60 s (cap 60 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1316/684/1  s4 306/668/13  s5 234/246/0  s6 168/14/0  s7 11/5/0   total stored 6375, missing 1617, pending 0; requested 22662, generated 22648 (118 ms each on a worker), dropped stale 18, over-budget frames 2 (of 4307)
+  [window] box {"lo":[35328,5248,51072],"hi":[37376,6144,53120]}: edge 108 m from Q toward the sun, band ceiling 65 m above Q's ground
+  [shells] waited 60 s (cap 60 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1812/14/6  s4 658/321/8  s5 234/246/0  s6 168/14/0  s7 11/5/0   total stored 7223, missing 600, pending 0; requested 26994, generated 26980 (109 ms each on a worker), dropped stale 20, over-budget frames 2 (of 4739)
+  [B] eye (3927.8, 554.3, 5144.4): 4 m over the ground there to see Q's ground (clear), looking at the ground 60 m from Q toward the sun
+  [shells] waited 54 s (cap 60 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 987/0/0  s5 480/0/0  s6 182/0/0  s7 16/0/0   total stored 8006, missing 0, pending 0; requested 32477, generated 32477 (112 ms each on a worker), dropped stale 21, over-budget frames 2 (of 5405)
+CLIFF SHADOW done
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-23_165635_high

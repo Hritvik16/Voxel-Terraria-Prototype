@@ -189,6 +189,13 @@ public partial class PlaygroundCapture
             File.WriteAllText(Path.Combine(root, "lookreview.txt"), _log.ToString());
             yield break;
         }
+        if (ArgInt("-cliffshadow", 0) != 0)   // task 131: Q83's picture, tier 0 vs a far cliff's shadow (PlaygroundCapture.CliffShadow.cs)
+        {
+            yield return CliffShadow(far, cam, sm, sh);
+            L($"LOOK REVIEW done: {root}");
+            File.WriteAllText(Path.Combine(root, "lookreview.txt"), _log.ToString());
+            yield break;
+        }
         if (ArgInt("-lookcross", 0) != 0)   // task 127: its own poses, light and arm (PlaygroundCapture.LookCross.cs)
         {
             yield return LookCross(far, cam, sm, sh, fsr, wait, onlyPoses, biomeLook);

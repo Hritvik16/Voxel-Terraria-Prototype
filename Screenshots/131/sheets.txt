@@ -1,0 +1,10 @@
+cliff1 A: tier-0 pixels 51.6% (99th pct hit distance 98 m), mean luma tier 0 146 vs shells 70 (play look)
+cliff1 C: tier-0 pixels 21.2% (99th pct hit distance 300 m), mean luma tier 0 197 vs shells 97 (play look)
+Screenshots/131/cliff1_sheet.png
+cliff2 A: tier-0 pixels 61.2% (99th pct hit distance 120 m), mean luma tier 0 63 vs shells 74 (play look)
+cliff2 C: tier-0 pixels 24.1% (99th pct hit distance 313 m), mean luma tier 0 115 vs shells 100 (play look)
+Screenshots/131/cliff2_sheet.png
+cliff1 C: luma just inside the window edge 195, just outside 127 (strips 20% of the half-width each, all four sides)
+cliff1 C: top (toward-the-sun) side only: inside 194, outside 125
+cliff2 C: luma just inside the window edge 116, just outside 114 (strips 20% of the half-width each, all four sides)
+cliff2 C: top (toward-the-sun) side only: inside 95, outside 92
