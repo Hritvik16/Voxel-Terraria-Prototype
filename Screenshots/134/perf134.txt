@@ -24,3 +24,15 @@ Identity (no-upscaler stills, lean vs diag, 1920x1080, same launch):
                           launch 2 (-cliffwait 240, 0 missing): 1 px, one level (102,98,90 -> 101,97,89) at (260,547)
   (FSR 3 stills and the sunvis debug view are temporal / jittered and differ between any two shots; the sunvis view
    runs the diag kernel in BOTH arms, so its 214 / 504 px are not the diet.)
+  control (-shelldiet 0: diag vs diag, same launch, Logs/lookreview_20261024_150425.txt): cliff1 0 px, cliff2 0 px; the pixel
+                          is (102,98,90) as in diag -> the lean kernel draws it 1 level darker, deterministically.
+  discriminating run (lean WITHOUT the band hoist vs diag, temp build, Logs/lookreview_20261024_154320.txt): cliff1 0 px;
+                          the player quit before cliff2 (the owner paused at 15:47, Mac on battery) -> NOT ANSWERED.
+                          If cliff2 still differs without the hoist, the cause is the GPU compiler (only runtime-false
+                          code was removed); if it matches, the hoist changes that pixel.
+Build: Builds/Playground.app on disk is that temp no-hoist build; the next build gives the committed code.
+A build once timed out compiling CSMainFarShadeDiag (Logs/overnight/134-build2.out); tools/unity-lock.sh now exports
+UNITY_SHADER_COMPILER_TASK_TIMEOUT_MINUTES=30 and the retry built in ~9 min.
+How the temp no-hoist build was made (not committed): `#define TMP134_NOHOIST` after the VE_SHELL_LEAN define, and the two
+`#ifdef VE_SHELL_LEAN` inside ShellMarch (bandKd declaration; the kd band test) changed to
+`#if defined(VE_SHELL_LEAN) && !defined(TMP134_NOHOIST)`.
