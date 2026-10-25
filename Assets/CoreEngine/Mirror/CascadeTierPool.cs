@@ -104,6 +104,9 @@ namespace VoxelEngine.Mirror
             _chunkStaging = new uint[_entriesPerChunk];
             _clipmapCellPoolIndex = new int[totalCoarseBricks];
             for (int i = 0; i < totalCoarseBricks; i++) _clipmapCellPoolIndex[i] = -1;
+            int windowChunkCount = windowDimsChunks.x * windowDimsChunks.y * windowDimsChunks.z;
+            _slotOwner = new int3[windowChunkCount];
+            _slotOwned = new bool[windowChunkCount];
 
             _brickPool = new BrickDataPool(brickPoolCapacity);
 
@@ -177,13 +180,75 @@ namespace VoxelEngine.Mirror
         /// thread at all; the budgeted UploadDirty path remains for evictions
         /// (clear, no downsample) and edits (rare, re-downsampled here).
         private bool _batchlessSubmit;
-        public void SubmitPrecomputed(int3 chunkCoord, byte[] downsampled)
+        public void SubmitPrecomputed(int3 chunkCoord, byte[] downsampled) => SubmitPrecomputed(chunkCoord, downsampled, null);
+
+        /// Task 140: times an admission found fewer free slots than one chunk can
+        /// take and cleared pending evicted chunks first, and the slots that freed.
+        public int PressureReliefsTotal { get; private set; }
+        public int PressureReliefSlotsFreed { get; private set; }
+
+        /// `store` (task 140): when the pool cannot take a whole chunk, the
+        /// evicted chunks still waiting for UploadDirty's pass-1 clear are cleared
+        /// FIRST -- the same O(memset) work UploadDirty does at the end of the
+        /// frame, moved ahead of the allocation that needs its slots.
+        ///
+        /// WHY (task 140, "BrickDataPool exhausted" from this method, ~2,800 per
+        /// stream walk since 2026-10-23): admission runs in DrainCompletions, the
+        /// clears in UploadDirty at the end of StreamManager.Update. One throw here
+        /// escapes Update, so that frame's UploadDirty -- the only place an evicted
+        /// chunk's slots come back -- never runs; the next frame admits into the
+        /// same full pool and throws again. Evictions pile up as held slots and the
+        /// pool stays exhausted for the rest of the walk. A cascade pool has no
+        /// LRU valve (EngineConfig.Tg2CascadeTierPoolCap); its evicted chunks ARE
+        /// its free list, so they must be returned before the pool is called dry.
+        public void SubmitPrecomputed(int3 chunkCoord, byte[] downsampled, ChunkStore store)
         {
+            if (store != null && _brickPool.Capacity - _brickPool.InUse < _entriesPerChunk && _dirtyChunks.Count > 0)
+            {
+                int before = _brickPool.InUse;
+                ClearEvictedPending(store);
+                PressureReliefsTotal++;
+                PressureReliefSlotsFreed += before - _brickPool.InUse;
+            }
             _dirtyChunks.Remove(chunkCoord); // superseded by fresher data
             int downsampledEdge = 128 / LODConfig.DownsampleFactor(Tier);
             _batchlessSubmit = true;
             try { WriteChunkFromDownsampled(chunkCoord, downsampled, downsampledEdge); }
+            catch (InvalidOperationException) when (store != null)
+            {
+                ExhaustedTotal++;
+                if (ExhaustedTotal <= 3 || (ExhaustedTotal & 511) == 0) LogExhaustion(chunkCoord, store);
+                throw;
+            }
             finally { _batchlessSubmit = false; }
+        }
+
+        /// Task 140 diagnostic: admissions that still found the pool dry after the relief.
+        public int ExhaustedTotal { get; private set; }
+
+        // Task 140 diagnostic: which chunk last wrote each ring slot (cleared by ClearChunkEntries).
+        private readonly int3[] _slotOwner;
+        private readonly bool[] _slotOwned;
+
+        /// Who holds the pool when it runs dry: slots owned by chunks the store still
+        /// holds (real demand) vs by chunks it no longer holds (orphans -- evicted
+        /// with no clear queued), and dirty chunks still waiting.
+        private void LogExhaustion(int3 chunkCoord, ChunkStore store)
+        {
+            int residentChunks = 0, residentHeld = 0, orphanChunks = 0, orphanHeld = 0, unownedHeld = 0, dirtyEvicted = 0;
+            for (int s = 0; s < _slotOwned.Length; s++)
+            {
+                int held = 0, b = s * _entriesPerChunk;
+                for (int i = 0; i < _entriesPerChunk; i++) if (_clipmapCellPoolIndex[b + i] >= 0) held++;
+                if (held == 0) continue;
+                if (!_slotOwned[s]) { unownedHeld += held; continue; }
+                if (store.GetChunk(_slotOwner[s]) != null) { residentChunks++; residentHeld += held; }
+                else { orphanChunks++; orphanHeld += held; }
+            }
+            foreach (int3 c in _dirtyChunks) if (store.GetChunk(c) == null) dirtyEvicted++;
+            Debug.LogWarning($"[CascadeTierPool] tier {Tier} EXHAUSTED #{ExhaustedTotal} admitting {chunkCoord}: cap {_brickPool.Capacity} in use {_brickPool.InUse}; " +
+                             $"held by resident chunks {residentHeld} ({residentChunks} chunks), by non-resident chunks {orphanHeld} ({orphanChunks}), unowned {unownedHeld}; " +
+                             $"dirty {_dirtyChunks.Count} (evicted {dirtyEvicted}); store resident {store.ResidentCount}");
         }
 
         private int ChunkSlot(int3 chunkCoord)
@@ -219,15 +284,7 @@ namespace VoxelEngine.Mirror
             LastDownsampleMs = 0; LastGpuWriteMs = 0; LastChunksProcessed = 0; LastWriteCalls = 0;
             if (_dirtyChunks.Count == 0) return;
 
-            _evictedScratch.Clear();
-            foreach (int3 c in _dirtyChunks)
-                if (store.GetChunk(c) == null) _evictedScratch.Add(c);
-            foreach (int3 c in _evictedScratch)
-            {
-                _dirtyChunks.Remove(c);
-                ClearChunkEntries(c);
-                LastChunksProcessed++;
-            }
+            LastChunksProcessed += ClearEvictedPending(store);
 
             foreach (int3 c in _dirtyChunks)
             {
@@ -322,16 +379,7 @@ namespace VoxelEngine.Mirror
             //
             // Correctness work that is O(memset) does not belong behind a
             // budget sized for O(downsample) work.
-            _evictedScratch.Clear();
-            foreach (int3 c in _dirtyChunks)
-                if (store.GetChunk(c) == null) _evictedScratch.Add(c);
-
-            foreach (int3 c in _evictedScratch)
-            {
-                _dirtyChunks.Remove(c);
-                ClearChunkEntries(c);
-                LastChunksProcessed++;
-            }
+            LastChunksProcessed += ClearEvictedPending(store);
 
             // PASS 2 -- resident chunks, budgeted as before.
             _batch.Clear();
@@ -387,6 +435,7 @@ namespace VoxelEngine.Mirror
         {
             const int coarseBrickEdge = TIER0_BRICK_EDGE_VOXELS;
             int slotBase = ChunkSlot(chunkCoord) * _entriesPerChunk;
+            _slotOwner[ChunkSlot(chunkCoord)] = chunkCoord; _slotOwned[ChunkSlot(chunkCoord)] = true;
 
             {
                 for (int bz = 0; bz < _coarseBricksPerChunkEdge; bz++)
@@ -443,11 +492,28 @@ namespace VoxelEngine.Mirror
             // still pending and must survive to the next frame.
         }
 
+        /// Pass 1 of UploadDirty / SelectBatch, and SubmitPrecomputed's pressure
+        /// relief (task 140): clears every dirty chunk the store no longer holds.
+        /// Returns how many it cleared.
+        private int ClearEvictedPending(ChunkStore store)
+        {
+            _evictedScratch.Clear();
+            foreach (int3 c in _dirtyChunks)
+                if (store.GetChunk(c) == null) _evictedScratch.Add(c);
+            foreach (int3 c in _evictedScratch)
+            {
+                _dirtyChunks.Remove(c);
+                ClearChunkEntries(c);
+            }
+            return _evictedScratch.Count;
+        }
+
         /// Writes uniform air over a chunk's coarse entries and frees the pool
         /// slots they held. Used when a dirty chunk turns out to be evicted.
         private void ClearChunkEntries(int3 chunkCoord)
         {
             int slotBase = ChunkSlot(chunkCoord) * _entriesPerChunk;
+            _slotOwned[ChunkSlot(chunkCoord)] = false;
             for (int i = 0; i < _entriesPerChunk; i++)
             {
                 int flatIndex = slotBase + i;

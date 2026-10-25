@@ -379,8 +379,9 @@ public class Phase4Bootstrapper : MonoBehaviour
         // so they are not created (task 55's ledger: 193 MB). Shells off: as before.
         bool shellsRequested = IsTg2World && ShellsOn;
         Cascades = !LODCascadeManager.TiersWanted(IsTg2World, ShellsOn ? 1 : 0, ArgInt("-keeptiers", 0)) ? null
-                 : new LODCascadeManager(mirrorChunks, tier => IsTg2World ? EngineConfig.Tg2CascadeTierPoolCap(tier)
-                                                                          : EngineConfig.CascadeTierPoolCap(tier));
+                 : new LODCascadeManager(mirrorChunks, tier => ArgInt($"-tier{tier}cap", 0) > 0 ? ArgInt($"-tier{tier}cap", 0)   // task 140: -tier1cap / -tier2cap N, measurement only
+                                                          : IsTg2World ? EngineConfig.Tg2CascadeTierPoolCap(tier)
+                                                                       : EngineConfig.CascadeTierPoolCap(tier));
         if (shellsRequested)
             UnityEngine.Debug.Log($"[Phase4Bootstrapper] cascade tiers 1-2 {(Cascades == null ? "NOT allocated (shells draw; -keeptiers 1 = allocate)" : "allocated (-keeptiers 1)")}");
 

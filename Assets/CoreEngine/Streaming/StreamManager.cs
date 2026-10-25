@@ -1245,7 +1245,7 @@ namespace VoxelEngine.Streaming
                     if (c.cascadeData != null)
                         for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
                         {
-                            _cascades.TierPool(tier).SubmitPrecomputed(c.coord, c.cascadeData[tier - 1]);
+                            _cascades.TierPool(tier).SubmitPrecomputed(c.coord, c.cascadeData[tier - 1], _store);   // task 140: _store lets a full tier clear its evicted chunks first
                             ReturnCascadeArray(tier, c.cascadeData[tier - 1]);
                         }
                     else

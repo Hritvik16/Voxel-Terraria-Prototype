@@ -557,3 +557,14 @@ LightingConfig.Active.undergroundAmbientFloor per shot), nosky; each shot `_play
 build + torch rows only; `-dcnatframes` (20). Sheets + counts: `python3 -I tools/darkcompare139.py <dir> Screenshots/139 0.02`.
 Run: `PRESETS=high EXTRA="-cliffshadow 1 -blackshape 2 -darkcompare 1 -shellworkers 6 -cliffwait0 90 -cliffwait 45 -cliffframes 40" ./run-look-review.sh`.
 Result: HANDOFF 139, `Screenshots/139/`, `Logs/lookreview_20261025_065701.txt` (+ torch re-shoot `Logs/lookreview_20261025_071200.txt`).
+
+**Task 140 (bug, 2026-10-25): "BrickDataPool exhausted" in the stream walk = the CASCADE TIER pools, not tier 0.**
+Stack: `CascadeTierPool.WriteChunkFromDownsampled <- SubmitPrecomputed <- StreamManager.DrainCompletions` (cascades exist only with
+shells OFF: rigs, F6 shells off). Cause: task 122's biome blend dithers rock/soil/surface per 0.8 m column cell, so every tier-1 (1.6 m) /
+tier-2 brick in a blend band is mixed; tier-1 peak 82,725 (`-biomeblend 0`) -> 176,516 vs cap 104,000. Fixed inside the system: a
+throw escaped StreamManager.Update, skipping UploadDirty (the only place evicted chunks' cascade slots come back), so the pool stayed
+dry; `SubmitPrecomputed(coord, data, store)` now clears pending evicted chunks first when the pool cannot take a chunk
+(`PressureReliefsTotal` / `PressureReliefSlotsFreed`); `ExhaustedTotal` + a `[CascadeTierPool] ... EXHAUSTED` warning (first 3, then every
+512th) splits held slots into resident / non-resident / unowned. The CAP is the owner's call (HANDOFF 140). Stream probe prints one
+`cascade tier N pool:` line per tier. Measurement flags `-tier1cap N` / `-tier2cap N` (Phase4Bootstrapper; default = EngineConfig).
+Tests: `CascadeTierPoolPressureTests` (3).

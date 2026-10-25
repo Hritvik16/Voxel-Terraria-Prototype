@@ -501,6 +501,15 @@ public partial class PlaygroundCapture
             L($"  largest worst-case speed sustained at this capacity: {StreamingRequirement.SustainedSpeedMps(req, cap50):F2} m/s (p50), " +
               $"{StreamingRequirement.SustainedSpeedMps(req, cap99):F2} m/s (p99) -- information only");
         }
+        // task 140: the cascade tier pools (no LRU valve; exhaustion throws out of admission)
+        var cascMgr = VoxelEngine.Mirror.LODCascadeManager.Active;
+        if (cascMgr != null)
+            for (int tier = 1; tier < LODConfig.TIER_COUNT; tier++)
+            {
+                var tp = cascMgr.TierPool(tier);
+                L($"cascade tier {tier} pool: cap {tp.BrickPool.Capacity}  in use {tp.BrickPool.InUse}  peak {tp.BrickPool.PeakUsed}  " +
+                  $"pressure reliefs {tp.PressureReliefsTotal} (slots freed {tp.PressureReliefSlotsFreed})  still exhausted {tp.ExhaustedTotal}");
+            }
         L("");
         L("per-frame rows: streamprobe_frames.tsv; per-chunk rows: streamprobe_chunks.tsv");
         // task 27: workStartS = the worker's start on the chunk, s since launch (the Stopwatch
