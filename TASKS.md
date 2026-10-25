@@ -568,3 +568,9 @@ dry; `SubmitPrecomputed(coord, data, store)` now clears pending evicted chunks f
 512th) splits held slots into resident / non-resident / unowned. The CAP is the owner's call (HANDOFF 140). Stream probe prints one
 `cascade tier N pool:` line per tier. Measurement flags `-tier1cap N` / `-tier2cap N` (Phase4Bootstrapper; default = EngineConfig).
 Tests: `CascadeTierPoolPressureTests` (3).
+
+**Task 142 (plan only, owner Q91 "Soft sky light" 2026-10-25): `SOFT_SKY_PLAN.md`.** No code, no flag, no look change. Recommends
+candidate A: one cosine-weighted sky ray per tier-0 hit pixel per frame (replacing the vertical probe), averaged in a per-pixel history
+keyed by `ShadowOriginKey`; sealed caves are exactly 0, open ground exactly 1, only partly open faces carry noise. Rejected: B (fixed
+directions: banding/stripes), C (0.8 m skylight volume: leaks through 0.1 m player walls, new layout). Steps S1-S5 and owner questions
+Q1-Q6 are in the plan.
