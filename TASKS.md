@@ -574,3 +574,15 @@ candidate A: one cosine-weighted sky ray per tier-0 hit pixel per frame (replaci
 keyed by `ShadowOriginKey`; sealed caves are exactly 0, open ground exactly 1, only partly open faces carry noise. Rejected: B (fixed
 directions: banding/stripes), C (0.8 m skylight volume: leaks through 0.1 m player walls, new layout). Steps S1-S5 and owner questions
 Q1-Q6 are in the plan.
+
+**Task 143 (look QA, owner Q92 2026-10-25, CAPTURE-ONLY: no default / look change): how far one torch reaches.**
+`-lookreview -cliffshadow 1 -blackshape 2 -torchreach 1` (`PlaygroundCapture.TorchReach.cs`, hook in BlackShape before -darkcompare):
+138's built block (`SkyTiltBuild`), night (`-nighttod`, 0.5 h), ONE registered torch per row (the others unregistered): tunnel (eye at the
+mouth, torch by the -v wall 10.2 m in), sealed room (eye high in one corner, torch in the opposite corner), open ground (torch on a stone
+post 6 m in front of the block, eye 12 m back, 3.5 m up). `-trlift N` voxels (default 15 = 1.5 m; 0 = on the floor). Arms set the three
+EXISTING C.11 knobs on LightingConfig.Active (pointFalloffK, lightIntensity, lightRangeM; the torch is re-registered per arm because the
+range is baked at Register) and restore them: none (light unregistered, the count baseline), today (preset HighContrast 0.85 / 0.90 /
+8.5 m), room 0.35 / 1.6 / 8 (LightingConfig's own C.11 defaults), half 0.15 / 2.4 / 14, tunnel 0.06 / 3.0 / 24 (`-trarms "k,I,R;k,I,R;k,I,R"`).
+Sheet + counts: `python3 -I tools/torchreach143.py <LookReview dir> Screenshots/143 <launch log>`.
+Run: `PRESETS=high EXTRA="-cliffshadow 1 -blackshape 2 -torchreach 1 -shellworkers 6 -cliffwait0 90 -cliffwait 45" ./run-look-review.sh`.
+Result: HANDOFF 143, `Screenshots/143/`, `Logs/lookreview_20261025_084941.txt` (floor-placed run `Logs/lookreview_20261025_083830.txt`).

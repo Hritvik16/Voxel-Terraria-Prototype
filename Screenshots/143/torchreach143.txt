@@ -1,0 +1,23 @@
+lit px = native 1080 pixels >= 10 luma (0-255) above the same pose with the torch light off ('none'); bright = luma >= 40
+row      arm          lit px  bright px  mean luma
+tunnel   none              0         80        0.0
+tunnel   today         4,404        298        0.2
+tunnel   room        107,664     18,024        1.8
+tunnel   half        323,075    134,715        7.6
+tunnel   tunnel      902,933    329,759       21.1
+room     none              0        357        0.0
+room     today        83,475     16,799        1.7
+room     room        384,248    102,832        7.5
+room     half        840,783    387,957       21.8
+room     tunnel    1,207,843    691,718       41.8
+ground   none              0         96       20.7
+ground   today         2,942      4,416       21.1
+ground   room         80,085     40,793       22.0
+ground   half        354,290    147,438       26.3
+ground   tunnel      680,800    477,690       35.1
+
+model reach (atten x intensity = 0.4 / 0.2 colour units; range = hard cutoff; value AT the cutoff):
+  today   k 0.850 intensity 0.90 range  8.5 m ->  1.2 m /  2.0 m; at cutoff 0.014
+  room    k 0.350 intensity 1.60 range  8.0 m ->  2.9 m /  4.5 m; at cutoff 0.068
+  half    k 0.150 intensity 2.40 range 14.0 m ->  5.8 m /  8.6 m; at cutoff 0.079
+  tunnel  k 0.060 intensity 3.00 range 24.0 m -> 10.4 m / 15.3 m; at cutoff 0.084

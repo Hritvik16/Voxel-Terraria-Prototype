@@ -1,52 +1,49 @@
-STOP_FOR_OWNER -- task 142 (soft sky plan): six questions before step S1. Recommended answer first.
-  Q1 Sealed cave at noon: (a) today's floor 0.02 = near-black, torch needed, same day or night | (b) 0.05 faint walls | (c) 0.12 dim grey.
-  Q2 Noise: (a) faint shimmer under overhangs while moving + ~0.5 s settle on newly seen surfaces, FSR 3 smooths it | (b) none ever
-     (adds S4 spatial filter, ~+0.5-1 ms est.).
-  Q3 2 m hole into a 10 m room: (a) physical: soft bright patch under the hole, corners near-black | (b) stretched: whole room dim grey.
-  Q4 Cost (+2 to +4 ms p50 at 540 rows, estimated from 138): (a) build behind a flag, measure in S2, try 1 ray per 2x2 if > +3 ms |
-     (b) ship only if <= +1 ms.
-  Q5 Beyond the 0.1 m window (shells, 59-116 m): (a) keep today (far faces fully sky-lit; hand-over pop shrinks to shaded->lit) |
-     (b) also trace sky rays for shell hits (cost unknown; the shell march is the most expensive pass).
-  Q6 Digging a skylight: (a) light below fades in over ~0.5 s, free | (b) instant (reset history in each edit's box, extra step).
-
-# 142-plan-soft-sky-light: DONE (plan only). `SOFT_SKY_PLAN.md` written; recommendation A. No code, flag or look change.
+# 143-look-torch-reach: DONE (capture only, nothing shipped). Sheet `Screenshots/143/torchreach143.png`; the owner picks a reach.
 
 ## What changed (commit below)
-- `SOFT_SKY_PLAN.md` (new): the problem with today's numbers, three candidates, recommendation, a five-step list, Q1-Q6.
-- `TASKS.md`: a "Task 142" paragraph.
-
-## The plan in short
-- The cause (136/138/139): `Raymarch.compute:4896-4908` decides sky visibility with ONE vertical yes/no ray. `skyOpen` then
-  scales both the ambient and the sun-shadow floor (`:5146`, `:3772`, `:5370`). Every fix so far still gave one answer per face.
-  The fix is a FRACTION of the sky hemisphere.
-- A (RECOMMENDED): one cosine-weighted sky ray per tier-0 hit pixel per frame, replacing the vertical probe (same ray count, same
-  `TraceShadowRay`). A per-pixel running mean keyed by `ShadowOriginKey` (1/n, then 1/16). A sealed cave is EXACTLY 0 on every
-  frame and open ground exactly 1, so neither has noise. Only partly open faces vary, about +-6% of ambient. History buffer ~8.3 MB
-  at 960x540 (14.7 MB at 720). Cost +2-4 ms estimated from 138's tilted ray, not measured. No frozen API or Appendix A/B
-  layout touched.
-- Window edge (found while reading): a slanted ray that leaves the tier-0 box SIDEWAYS returns "open" (`:2006`). Caves near the box
-  edge would leak light and pop on recentre. The fix is step S3: reuse task 133's shell continuation (`_NearShadowShells`, `:4796`).
-- B (fixed directions): A's cost plus banding and stripes. C (0.8 m skylight flood): no noise and cheap to sample, but it leaks
-  through 0.1 m player walls, needs a new per-chunk layout plus streaming work, and is not exact. Rejected for now.
-- Steps: S1 CPU oracle + tests (adversarial cases built with edit ops) -> S2 GPU `-softsky 1`, OFF, with 139's dark-compare sheet
-  + one cost-split -> S3 box-edge continuation -> S4 spatial filter only if Q2 (b) -> S5 make it the default (owner).
+- `Assets/Game/PlaygroundCapture.TorchReach.cs` (new, `-torchreach 1`, `-trarms`, `-trlift`), hook in `PlaygroundCapture.BlackShape.cs`;
+  `tools/torchreach143.py` (sheet + counts); `Screenshots/143/torchreach143.txt` (+ `_floor.txt`); TASKS.md "Task 143". No default change.
+- Arms use ONLY the three existing C.11 knobs on LightingConfig (`atten = 1/(1 + k d^2)`, colour x intensity, hard cutoff at range):
+  | column | pointFalloffK | lightIntensity | lightRangeM | model reach (0.4 / 0.2 colour units) |
+  |---|---|---|---|---|
+  | today (HighContrast preset) | 0.85 | 0.90 | 8.5 | 1.2 / 2.0 m |
+  | small room (= LightingConfig's own C.11 defaults) | 0.35 | 1.6 | 8 | 2.9 / 4.5 m |
+  | half a tunnel | 0.15 | 2.4 | 14 | 5.8 / 8.6 m |
+  | 10-15 m tunnel section | 0.06 | 3.0 | 24 | 10.4 / 15.3 m |
+  These are GLOBAL: k and intensity also apply to lava's aggregate light and coloured torches; range scales lava's range too.
 
 ## Evidence
-- Read: 138 HANDOFF (`tools/overnight/done/20261025_065325_138-look-tilted-sky-probe.HANDOFF.md`), 139 HANDOFF (in commit 765dc2d),
-  `Screenshots/139/darkcompare139.txt`, Raymarch.compute (sky probe, skyOpen, shadow history, TraceShadowRay window exit),
-  PHASE_7_COMPLETION A.5 (sky probe ~0.3 ms), TASKS 124 (halving sun rays saved nothing measurable), spec §6.5/C.9.
-- No launches, no timing (plan task). EditMode suite not run: no code, shader or asset changed (docs only).
+- Fast suite PASS 935 FAIL 0 SKIP 15 (`Logs/overnight/143-tests.out`).
+- Launch 1 `Logs/lookreview_20261025_083830.txt` (torches ON the floor): the floor the torch stands on stays dark in EVERY arm (light
+  0.05 m above it = grazing N.L, `PointLightNdotL` on; same for the wall a torch touches). Kept as a finding: `Screenshots/143/torchreach143_floor.png`
+  / `.txt`. Relaunched once with the torches 1.5 m up (wall height / stone post), `-trlift 15`: `Logs/lookreview_20261025_084941.txt`
+  (shots `LookReview/2026-10-25_085216_high`, ~4 min incl. load). Both launches: lights registered 0 -> 3, all torches placed.
+- Looked at both sheets. Lifted: today = a dot in the tunnel and on open ground, a ~1 m glow in the room. Small room = the room's floor
+  and corner walls lit, tunnel end wall + ~3 m. Half = the whole room lit, the tunnel lit about halfway back. Tunnel arm = the room bright,
+  the tunnel walls lit nearly to the mouth (11 m), on open ground a ~6-8 m ground disc and the block face 6 m behind. The wall the torch is
+  mounted on stays dark (grazing), in every arm. No cutoff ring visible in any frame (the 24 m ring lies outside these views).
+
+## Phase 7 caps / budgets (stated, NOT changed)
+- MAX_ACTIVE_LIGHTS = 32 (§0.2/§3.8): no conflict; selection is by distance to the player, not by range.
+- lightRangeM is §3.8's per-pixel cost bound (LightingConfig: "not merely cosmetic"). 24 m vs 8.5 m = ~8x the area each light touches;
+  every in-range tier-0 pixel traces up to 4 torch shadow rays (task 46), now up to 24 m long. Phase 7 measured 32 lights +0.33 ms
+  (ranges 8 m, before shadow rays; PHASE_7_COMPLETION ~l.1110). The cost of longer range is NOT measured -- a perf task should measure
+  it (32 torches, 24 m) before shipping the 14 m or 24 m arm.
+- Shadow rays exist only for tier-0 hits (`Raymarch.compute:5180`); tier >= 1 hits use the unshadowed sum, so a longer range leaks
+  through walls for torches within range of the tier-0 box edge.
+- Hard cutoff: value at the cutoff is 0.014 today, 0.07-0.08 for the three new arms -- a faint ring may show where the full 14/24 m
+  circle is in view on open ground (not seen in these frames).
 
 ## Next
-- Owner answers Q1-Q6. Then queue S1 (CPU oracle + tests, no GPU change), then S2.
+- Owner picks a column (or asks for a value between). Shipping it = changing the preset's three numbers (+ a perf check of the range).
+- Floor/wall grazing (a placed torch barely lights the block it sits on) is a separate look question for the owner.
 
 ## For the doc
-- Today, pure-black px at native 1080 (139): cliff ledge noon 35,345; arches noon 87,621; cave mouth noon 62,821; sealed room all
-  black. The "sky check off" arm takes them to 0 / 0 / 0, but the sealed room reaches mean luma 72 (lit like outdoors). A aims for
-  the first three near 0 AND the sealed room staying at 0.
-- Plan numbers (estimates, not measured): +2 to +4 ms p50 at 540 rows; +8.3 MB GPU at 960x540; noise about +-6% of ambient on
-  partly open faces only; ~0.5 s settle after an edit.
-- `Screenshots/139/dc139_surface.png`: rows 1-4, the ledge crescent (top right) and the arch undersides stay black through floor 0.40.
-  Only the last column ("sky check off") shows the shaded-rock look the plan targets.
-- `Screenshots/139/dc139_caves.png`: rows 1-2 (noon), the last column lights the sealed room and tunnel like open air. The plan
-  must keep these black.
+- Lit px at native 1080 (>= 10 luma above the same pose with the light off; `Screenshots/143/torchreach143.txt`):
+  tunnel 4,404 -> 107,664 -> 323,075 -> 902,933; sealed room 83,475 -> 384,248 -> 840,783 -> 1,207,843;
+  open ground 2,942 -> 80,085 -> 354,290 -> 680,800 (today -> small room -> half tunnel -> 10-15 m).
+- Model reach (light down to 0.4 of full colour): 1.2 m today -> 2.9 / 5.8 / 10.4 m.
+- `Screenshots/143/torchreach143.png`: rows = built tunnel (from its mouth), sealed 5 m room, open ground; columns = today ~1-2 m |
+  small room | half a tunnel | 10-15 m section, values under each heading. Look at row 1: how far back toward the camera the tunnel walls
+  light; row 3: the lit ground disc and the block face behind the torch.
+- `Screenshots/143/torchreach143_floor.png`: the same with the torch ON the floor: the floor stays black in every column (grazing light).

@@ -49,6 +49,13 @@ public partial class PlaygroundCapture
         cam.ResetProjectionMatrix();
         bool tOk = BsCpuPixel(cam, px, py, out Vector3 T, out _);
         L($"  T = CPU hit of pixel ({px},{py}): {(tOk ? T.ToString("F1") : "NO HIT")}");
+        if (ArgInt("-torchreach", 0) != 0)    // task 143: the torch-reach side-by-side instead (PlaygroundCapture.TorchReach.cs)
+        {
+            yield return TorchReach(far, cam, sm, sh, eyeA, settle, wait);
+            Phase4Bootstrapper.DebugStreamCentre = null;
+            L("BLACK SHAPE done");
+            yield break;
+        }
         if (ArgInt("-darkcompare", 0) != 0)   // task 139: the dark-overhang side-by-side instead (PlaygroundCapture.DarkCompare.cs)
         {
             yield return DarkCompare(far, cam, sm, sh, eyeA, rotA, fwdH, settle, wait);
