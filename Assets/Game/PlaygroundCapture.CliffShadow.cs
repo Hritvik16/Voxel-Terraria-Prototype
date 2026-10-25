@@ -29,6 +29,7 @@
 //           then the launch's setting: the before/after pair in one launch.
 //   TASK 134: -cliffbefore 2 does the same with RaymarchFeature.ShellKernelDiet
 //           forced OFF instead (the far-shading *Diag kernels, the code before 134).
+//   TASK 136: -blackshape N shoots PlaygroundCapture.BlackShape.cs at spot N instead of A/B/C.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -155,6 +156,13 @@ public partial class PlaygroundCapture
             if (chosen.Count >= ArgInt("-cliffspots", 2)) break;
         }
         if (chosen.Count == 0) { L("  NO SPOT FOUND: no cliff foot meets the rule in this area at these sun elevations"); yield break; }
+        int bsSpot = ArgInt("-blackshape", 0);   // task 136: the black shape QA at one spot instead of A/B/C (PlaygroundCapture.BlackShape.cs)
+        if (bsSpot > 0)
+        {
+            int bi = math.min(bsSpot, chosen.Count) - 1; var b = chosen[bi];
+            yield return BlackShape(far, cam, sm, sh, $"cliff{bi + 1}", b.q, b.toSun, b.hours, b.tb, b.cliffH, settle, firstWait);
+            yield break;
+        }
 
         var json = new StringBuilder("{\"screen\":[" + Screen.width + "," + Screen.height + "],\"vfov\":" + F(cam.fieldOfView) + ",\"spots\":[");
         string V3(Vector3 v) => $"[{F(v.x)},{F(v.y)},{F(v.z)}]";

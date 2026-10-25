@@ -1,0 +1,113 @@
+BLACK SHAPE (task 136): cliff2 A eye (3637.2, 551.3, 5218.8), pitch 5.0 deg, sun 15.95 h
+  [shells] waited 90 s (cap 90 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1791/197/13  s4 269/717/1  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 6400, missing 1592, pending 0; requested 7389, generated 7375 (100 ms each on a worker), dropped stale 15, over-budget frames 0 (of 1853)
+  T = CPU hit of pixel (1780,520): (3586.2, 558.6, 5293.1)
+  [cpu A] pixel: hit m | voxel | face | mat | up (sky probe) | toward sun   (window-bounded, ChunkStore)
+    (1780,280): 90.5 m | 35887,5754,52914 (y 575.4 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (1780,310): 89.8 m | 35886,5732,52912 (y 573.2 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (1780,340): 89.1 m | 35885,5710,52909 (y 571.0 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (1780,370): 88.2 m | 35889,5688,52906 (y 568.8 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (1780,400): 87.6 m | 35888,5666,52903 (y 566.6 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.7 m
+    (1780,430): 87.3 m | 35887,5645,52902 (y 564.5 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.7 m
+    (1780,460): 91.7 m | 35860,5630,52941 (y 563.0 m) | n 0,0,-1 | 161 | BLOCKED 29.1 m up | BLOCKED at 0.2 m
+    (1780,490): 91.1 m | 35860,5608,52937 (y 560.8 m) | n 0,0,-1 | 161 | BLOCKED 28.4 m up | BLOCKED at 0.2 m
+    (1780,520): 90.3 m | 35861,5585,52931 (y 558.5 m) | n 0,0,-1 | 161 | BLOCKED 25.9 m up | BLOCKED at 2.1 m
+    (1780,550): 89.6 m | 35864,5563,52925 (y 556.3 m) | n 1,0,0 | 161 | BLOCKED 24.3 m up | BLOCKED at 0.1 m
+    (1780,580): 76.3 m | 35939,5537,52817 (y 553.7 m) | n 0,0,-1 | 138 | open to the window top | BLOCKED at 0.1 m
+    (1780,610): 66.4 m | 35993,5518,52735 (y 551.8 m) | n 0,0,-1 | 138 | open to the window top | BLOCKED at 0.1 m
+    (1480,520): 98.5 m | 35659,5605,52862 (y 560.5 m) | n 1,0,0 | 161 | open to the window top | BLOCKED at 0.1 m
+    (1540,520): 94.1 m | 35722,5598,52865 (y 559.8 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (1600,520): 92.3 m | 35765,5594,52880 (y 559.4 m) | n 0,0,-1 | 138 | open to the window top | BLOCKED at 0.1 m
+    (1660,520): 94.3 m | 35782,5593,52921 (y 559.3 m) | n 0,0,-1 | 161 | BLOCKED 12.5 m up | BLOCKED at 0.1 m
+    (1720,520): 93.1 m | 35819,5590,52934 (y 559.0 m) | n 0,0,-1 | 161 | BLOCKED 24.6 m up | BLOCKED at 0.2 m
+    (1840,520): 87.8 m | 35902,5581,52927 (y 558.1 m) | n 0,0,-1 | 161 | BLOCKED 25.5 m up | BLOCKED at 0.2 m
+    (1900,520): 86.0 m | 35935,5578,52927 (y 557.8 m) | n 0,0,-1 | 161 | BLOCKED 27.2 m up | BLOCKED at 0.2 m
+  noon (12.00 h):
+  [cpu A noon] pixel: hit m | voxel | face | mat | up (sky probe) | toward sun   (window-bounded, ChunkStore)
+    (1780,280): 90.5 m | 35887,5754,52914 (y 575.4 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (1780,310): 89.8 m | 35886,5732,52912 (y 573.2 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (1780,340): 89.1 m | 35885,5710,52909 (y 571.0 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (1780,370): 88.2 m | 35889,5688,52906 (y 568.8 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (1780,400): 87.6 m | 35888,5666,52903 (y 566.6 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.7 m
+    (1780,430): 87.3 m | 35887,5645,52902 (y 564.5 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (1780,460): 91.7 m | 35860,5630,52941 (y 563.0 m) | n 0,0,-1 | 161 | BLOCKED 29.1 m up | BLOCKED at 0.2 m
+    (1780,490): 91.1 m | 35860,5608,52937 (y 560.8 m) | n 0,0,-1 | 161 | BLOCKED 28.4 m up | BLOCKED at 0.2 m
+    (1780,520): 90.3 m | 35861,5585,52931 (y 558.5 m) | n 0,0,-1 | 161 | BLOCKED 25.9 m up | BLOCKED at 4.4 m
+    (1780,550): 89.6 m | 35864,5563,52925 (y 556.3 m) | n 1,0,0 | 161 | BLOCKED 24.3 m up | BLOCKED at 0.2 m
+    (1780,580): 76.3 m | 35939,5537,52817 (y 553.7 m) | n 0,0,-1 | 138 | open to the window top | lit (left the window)
+    (1780,610): 66.4 m | 35993,5518,52735 (y 551.8 m) | n 0,0,-1 | 138 | open to the window top | lit (left the window)
+    (1480,520): 98.5 m | 35659,5605,52862 (y 560.5 m) | n 1,0,0 | 161 | open to the window top | BLOCKED at 0.2 m
+    (1540,520): 94.1 m | 35722,5598,52865 (y 559.8 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (1600,520): 92.3 m | 35765,5594,52880 (y 559.4 m) | n 0,0,-1 | 138 | open to the window top | BLOCKED at 21.6 m
+    (1660,520): 94.3 m | 35782,5593,52921 (y 559.3 m) | n 0,0,-1 | 161 | BLOCKED 12.5 m up | BLOCKED at 10.9 m
+    (1720,520): 93.1 m | 35819,5590,52934 (y 559.0 m) | n 0,0,-1 | 161 | BLOCKED 24.6 m up | BLOCKED at 0.2 m
+    (1840,520): 87.8 m | 35902,5581,52927 (y 558.1 m) | n 0,0,-1 | 161 | BLOCKED 25.5 m up | BLOCKED at 0.2 m
+    (1900,520): 86.0 m | 35935,5578,52927 (y 557.8 m) | n 0,0,-1 | 161 | BLOCKED 27.2 m up | BLOCKED at 0.2 m
+  [close] eye (3628.7, 549.3, 5231.2) looking at (3586.2, 558.6, 5293.1) (76 m)
+  [shells] waited 0 s (cap 90 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 987/0/0  s5 480/0/0  s6 182/0/0  s7 16/0/0   total stored 8006, missing 0, pending 0; requested 9826, generated 9826 (115 ms each on a worker), dropped stale 15, over-budget frames 0 (of 2493)
+  [cpu close] pixel: hit m | voxel | face | mat | up (sky probe) | toward sun   (window-bounded, ChunkStore)
+    (960,300): 78.9 m | 35872,5780,52919 (y 578.0 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (960,330): 77.6 m | 35873,5753,52915 (y 575.3 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.7 m
+    (960,360): 76.3 m | 35878,5727,52912 (y 572.7 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (960,390): 75.1 m | 35879,5701,52908 (y 570.1 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.7 m
+    (960,420): 74.1 m | 35880,5675,52905 (y 567.5 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (960,450): 73.2 m | 35884,5650,52903 (y 565.0 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (960,480): 77.7 m | 35854,5636,52942 (y 563.6 m) | n 0,0,-1 | 161 | BLOCKED 28.9 m up | BLOCKED at 0.2 m
+    (960,510): 76.6 m | 35860,5610,52937 (y 561.0 m) | n 0,0,-1 | 161 | BLOCKED 28.2 m up | BLOCKED at 0.7 m
+    (960,540): 75.6 m | 35863,5585,52931 (y 558.5 m) | n 0,0,-1 | 161 | BLOCKED 26.1 m up | BLOCKED at 2.1 m
+    (960,570): 74.3 m | 35869,5560,52924 (y 556.0 m) | n 0,0,-1 | 161 | BLOCKED 23.2 m up | BLOCKED at 0.7 m
+    (960,600): 58.2 m | 35958,5527,52792 (y 552.7 m) | n 1,0,0 | 138 | open to the window top | BLOCKED at 0.1 m
+    (960,630): 15.7 m | 36197,5497,52441 (y 549.7 m) | n 1,0,0 | 138 | open to the window top | BLOCKED at 0.1 m
+    (660,540): 87.0 m | 35603,5594,52842 (y 559.4 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.1 m
+    (720,540): 83.7 m | 35661,5592,52860 (y 559.2 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.1 m
+    (780,540): 78.2 m | 35734,5586,52857 (y 558.6 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 5.4 m
+    (840,540): 78.3 m | 35770,5587,52893 (y 558.7 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.1 m
+    (900,540): 79.1 m | 35804,5589,52931 (y 558.9 m) | n 0,0,-1 | 161 | BLOCKED 21.2 m up | BLOCKED at 0.2 m
+    (1020,540): 72.0 m | 35922,5580,52927 (y 558.0 m) | n 0,0,-1 | 161 | BLOCKED 26.4 m up | BLOCKED at 0.2 m
+    (1080,540): 64.0 m | 35998,5570,52878 (y 557.0 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 10.5 m
+  side candidate +: eye (3625.1, 600.5, 5289.5), 42 m from T's height
+  side candidate -: eye (3575.6, 555.1, 5255.5), 3 m from T's height
+  [side] eye (3575.6, 555.1, 5255.5) looking at (3586.2, 558.6, 5293.1) (39 m)
+  [shells] waited 0 s (cap 90 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 987/0/0  s5 480/0/0  s6 182/0/0  s7 16/0/0   total stored 8006, missing 0, pending 0; requested 10671, generated 10671 (110 ms each on a worker), dropped stale 15, over-budget frames 1 (of 2914)
+  [cpu side] pixel: hit m | voxel | face | mat | up (sky probe) | toward sun   (window-bounded, ChunkStore)
+    (960,300): 38.9 m | 35857,5680,52908 (y 568.0 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.7 m
+    (960,330): 38.4 m | 35856,5667,52907 (y 566.7 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (960,360): 37.9 m | 35856,5655,52906 (y 565.5 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (960,390): 37.6 m | 35856,5643,52906 (y 564.3 m) | n 0,0,-1 | 161 | open to the window top | BLOCKED at 0.2 m
+    (960,420): 41.1 m | 35866,5639,52942 (y 563.9 m) | n 0,0,-1 | 161 | BLOCKED 29.3 m up | BLOCKED at 0.2 m
+    (960,450): 40.7 m | 35866,5625,52940 (y 562.5 m) | n 0,0,-1 | 161 | BLOCKED 29.3 m up | BLOCKED at 0.2 m
+    (960,480): 40.1 m | 35865,5612,52937 (y 561.2 m) | n 0,0,-1 | 161 | BLOCKED 28.3 m up | BLOCKED at 0.7 m
+    (960,510): 39.7 m | 35864,5598,52935 (y 559.8 m) | n 0,0,-1 | 161 | BLOCKED 28.1 m up | BLOCKED at 0.2 m
+    (960,540): 39.2 m | 35863,5585,52931 (y 558.5 m) | n 0,0,-1 | 161 | BLOCKED 26.1 m up | BLOCKED at 2.1 m
+    (960,570): 38.8 m | 35861,5572,52928 (y 557.2 m) | n 0,0,-1 | 161 | BLOCKED 24.7 m up | BLOCKED at 0.2 m
+    (960,600): 38.3 m | 35862,5560,52924 (y 556.0 m) | n 0,0,-1 | 161 | BLOCKED 22.6 m up | BLOCKED at 4.0 m
+    (960,630): 24.4 m | 35823,5549,52790 (y 554.9 m) | n 0,0,-1 | 138 | open to the window top | BLOCKED at 29.4 m
+    (660,540): 30.2 m | 35746,5576,52856 (y 557.6 m) | n 0,0,-1 | 138 | open to the window top | BLOCKED at 0.1 m
+    (720,540): 31.2 m | 35764,5577,52866 (y 557.7 m) | n 0,0,-1 | 138 | open to the window top | BLOCKED at 0.2 m
+    (780,540): 36.8 m | 35788,5583,52921 (y 558.3 m) | n 0,0,-1 | 161 | BLOCKED 13.3 m up | BLOCKED at 0.1 m
+    (840,540): 38.2 m | 35813,5584,52932 (y 558.4 m) | n 0,0,-1 | 161 | BLOCKED 23.1 m up | BLOCKED at 0.2 m
+    (900,540): 38.8 m | 35837,5585,52933 (y 558.5 m) | n 0,0,-1 | 161 | BLOCKED 25.7 m up | BLOCKED at 0.2 m
+    (1020,540): 39.6 m | 35888,5585,52927 (y 558.5 m) | n 0,0,-1 | 161 | BLOCKED 24.5 m up | BLOCKED at 0.2 m
+    (1080,540): 40.7 m | 35916,5586,52928 (y 558.6 m) | n 0,0,-1 | 161 | BLOCKED 26.5 m up | BLOCKED at 0.7 m
+  [other] eye (3482.1, 550.0, 5143.1) looking at (3455.0, 576.0, 5150.0) (38 m)
+  [shells] waited 0 s (cap 90 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 2001/0/0  s4 987/0/0  s5 480/0/0  s6 182/0/0  s7 16/0/0   total stored 8006, missing 0, pending 0; requested 12522, generated 12522 (99 ms each on a worker), dropped stale 15, over-budget frames 5 (of 3230)
+  [cpu other] pixel: hit m | voxel | face | mat | up (sky probe) | toward sun   (window-bounded, ChunkStore)
+    (960,300): no tier-0 hit within the window
+    (960,330): no tier-0 hit within the window
+    (960,360): no tier-0 hit within the window
+    (960,390): no tier-0 hit within the window
+    (960,420): no tier-0 hit within the window
+    (960,450): no tier-0 hit within the window
+    (960,480): no tier-0 hit within the window
+    (960,510): 34.8 m | 34580,5744,51492 (y 574.4 m) | n 1,0,0 | 213 | open to the window top | BLOCKED at 0.1 m
+    (960,540): 33.8 m | 34580,5730,51492 (y 573.0 m) | n 0,0,-1 | 213 | open to the window top | BLOCKED at 0.2 m
+    (960,570): 32.8 m | 34580,5715,51492 (y 571.5 m) | n 1,0,0 | 213 | open to the window top | BLOCKED at 0.1 m
+    (960,600): 57.3 m | 34389,5862,51541 (y 586.2 m) | n 1,0,0 | 213 | open to the window top | BLOCKED at 0.1 m
+    (960,630): 56.2 m | 34388,5841,51541 (y 584.1 m) | n 0,0,-1 | 213 | open to the window top | BLOCKED at 0.2 m
+    (660,540): 20.9 m | 34663,5635,51405 (y 563.5 m) | n 1,0,0 | 213 | open to the window top | BLOCKED at 0.1 m
+    (720,540): 20.8 m | 34664,5637,51416 (y 563.7 m) | n 1,0,0 | 213 | open to the window top | BLOCKED at 0.1 m
+    (780,540): 22.2 m | 34655,5648,51429 (y 564.8 m) | n 1,0,0 | 213 | open to the window top | BLOCKED at 0.1 m
+    (840,540): no tier-0 hit within the window
+    (900,540): 39.0 m | 34537,5765,51477 (y 576.5 m) | n 0,0,-1 | 213 | open to the window top | BLOCKED at 0.2 m
+    (1020,540): 33.6 m | 34587,5728,51512 (y 572.8 m) | n 1,0,0 | 213 | open to the window top | BLOCKED at 0.1 m
+    (1080,540): 48.5 m | 34493,5827,51578 (y 582.7 m) | n 1,0,0 | 213 | open to the window top | BLOCKED at 0.1 m
+BLACK SHAPE done

@@ -503,3 +503,11 @@ ABBA p50 (p99) 69.0 (124) -> 62.1 (110) / 41.8 (60) -> 36.3 (58) ms, -7.1 (noise
 MODE=walk 3 min (-tod 16) lean 12.14 / p99 35.0 / > 33 ms 1.59% vs diag 12.52 / 36.4 / 1.77% (`Logs/tg2world_20261024_{142334,142820}.txt`).
 No memory added. Report `Screenshots/134/perf134.txt`.
 Task 135 (check): fast suite on 73b8ce7 PASS 922 FAIL 0 SKIP 15; the cliff2 1 px (260,547) is NOT the band hoist -- lean without it (`TMP134_NOHOIST` temp build) draws the same pixel byte-identically, so it is GPU codegen only; `Screenshots/135/cliff2_pixel_crop.png`, `Logs/lookreview_20261024_165729.txt`.
+
+**Task 136 (QA, capture + diagnosis only, NO fix / default / look change): cliff2's black shape = the VERTICAL SKY PROBE.** `-lookreview -cliffshadow 1
+-blackshape N` (`PlaygroundCapture.BlackShape.cs`, hook in CliffShadow): at spot N (2 = cliff2) shoots A as CliffShadow does (play, native, hit = view
+14, sun = view 7, nrm = view 3, nosky = native with `UseSkyProbeAmbient` off), noon native/sun, `close` (15 m nearer T = CPU hit of `-bspx` 1780,520),
+`side` (~40 m off) and `other` (`-bsother x,y,z`, default cliff2's stone arches, from 28 m on the shadow side); per pose logs CPU ChunkStore probes
+(hit voxel, face, rock straight above the face cell, sun ray, inside the window box). Sheet: `python3 -I tools/blackshape136.py <LookReview dir> <out.png>`.
+Run: `PRESETS=high EXTRA="-cliffshadow 1 -blackshape 2 -shellworkers 6 -cliffwait0 90 -cliffwait 45" ./run-look-review.sh`. Result: HANDOFF 136,
+`Screenshots/136/blackshape136.{png,txt}`, `Logs/lookreview_20261024_181746.txt`.
