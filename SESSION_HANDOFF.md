@@ -1,24 +1,28 @@
-# Session handoff -- 2026-10-23 18:45 (supervisor; queue EMPTY, waiting on owner Q83 + Q86)
+# Session handoff -- 2026-10-25 07:50 (supervisor; task 140 RUNNING, 142/143/144 queued)
 
 ## For the owner
-Why the switch: this chat reached ~9 MB and the usage limit was hit; nothing is lost (doc + queue hold everything).
-What this chat covered (23 Oct, afternoon):
-- You said the decisions doc was unorganized and 129 didn't clearly answer your question. Fixed: new FIRST tab "Questions for you"
-  holds ONLY open questions, each with a picture, numbers, options and an answer line. Your 129 question answered there with a
-  clean true-0.1 m vs game image (shape looks the same 100 m-3.3 km; only thin features and mixed-ground colour differ).
-- Q84 (a): far-ground colour left for now (BUGS.md, visuals step). Q85 (a): R1 built.
-- Tasks: 130 probes (R1 picked), 131 Q83 picture (bug confirmed: lit square round you inside a far cliff shadow), 132 R1 shell
-  pre-pass: exact, -4.2 / -6.9 ms p50 standing, ON by default, +9.9 MB GPU. Commits 8af33bb, 28f5fec, 33a992f.
-Running now: nothing. Waiting on you: Q83 (fix cliff shadow, rec (a) after/with R1) and Q86 (next speed step: R6 / finish R1 / pause).
-Q81, Q75, Q78 going ahead unless you object.
+Why the switch: the old supervisor chat got very large (every turn re-sent it). Nothing is lost; the doc and queue hold everything.
+What the previous chat covered (23-25 Oct):
+- The doc got a first tab "Questions for you" (only open questions, each with picture + numbers + options). Your 129 question answered.
+- Speed work: 130 probes -> 132 R1 (-4 to -7 ms) -> 133 cliff-shadow fix (ON, Q87 keep) -> 134 R6 (-5 to -7 ms) -> 135 checks
+  (suite green, 1 px = GPU compiler) -> 137 hole leap (exact, no gain, OFF; Q90 height bound PARKED in later/).
+- Black rock under ledges/arches: 136 found the cause (one straight-up sky ray), 138 tilt failed (OFF), 139 side-by-side. You chose
+  Q91 soft sky light (design first) and Q92 torch reach look task first.
+- You asked: never leave the queue idle (138 blocked at 23:38, nothing ran overnight). New rule in SUPERVISOR.md "Never idle".
+- You asked whether we engineer for specific terrain: new rule, every fix exact + data-derived + adversarial test.
+Running now: 140 (BrickDataPool exhausted bug, 16 exceptions in the standard walk). Queued: 142 soft sky plan (stops with questions),
+143 torch reach side-by-side, 144 rig-refresh audit (fallback, stops for approval).
+Waiting on you: nothing right now (142 will bring questions). Q81/Q75/Q78 still "going ahead unless you object".
+Close: the old supervisor's tmux window once this new session has oriented you.
 
 ## Next supervisor
 - Doc https://claude.ai/artifact/DrfR6aQJHYmhnQ2Syu33Hq (project 681cc873-8163-45da-a51f-32ffca6d7468). Questions tab body
-  bf7996bc-628a (last rev 16): read `sinceRev` for answers. Rules: SUPERVISOR.md "owner decisions doc" (2026-10-23 addition).
-  Now tab 3b5fd194-f74f, Done table mk2vq5dkmp6.886, Task reports d611dfba-5116 (insert after mk2vq5dkmp6.38815).
-- On answers: Q83 (a) -> task 133 shadow fix riding R1's pre-pass (132 HANDOFF "Left open" has the design, +4-8 B/px), one perf
-  change, ABBA on AC, STOP. Q86 (a) R6 / (b) finish R1 -> next task after 133. Model opus.
-- Last Q number: Q86. Undone: Screenshot Archive for 108-132 (sheets must be rebuilt; old scratch gone), Task-report images 114/118.
+  bf7996bc-628a (last rev 37). Now tab 3b5fd194-f74f (Done table mk2vq5dkmp6.886, rows appended at end). Task reports d611dfba-5116
+  (insert after mk2vq5dkmp6.38815). Rules: SUPERVISOR.md "Never idle" + "owner decisions doc" (2026-10-23).
+- Last Q number: Q92. Task reports NOT yet written for 134-139 (Done rows exist for 134/135; add 136-139). Screenshot Archive still undone.
+- When 140 finishes: write its report; keep >= 1 owner-independent task queued (sources: BUGS.md, later/, handoff follow-ups).
+- Owner pauses often ("pause builds for an hour"): `tools/heavy.sh pause` + `touch tools/overnight/PAUSE`, background resume timer;
+  on "resume" stop the timer. After a PAUSE-file stop the runner exits: restart it when the pause ends.
 - Runner: `IDLE_MIN=0 tools/overnight/start.sh --resume` (tmux `overnight`).
 
 ## Ready-to-paste prompt
