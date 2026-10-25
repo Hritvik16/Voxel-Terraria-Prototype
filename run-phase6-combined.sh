@@ -21,6 +21,9 @@
 # NO gpuFrameTime against a budget (Amendment 8.10), no Xcode/Instruments
 # (8.9 Rule 1), no Performance State field.
 set -uo pipefail
+# Task 148: the shared one-Unity-at-a-time lock (CLAUDE.md); a no-op wait when an outer wrapper already holds it.
+source tools/unity-lock.sh
+unity_lock_acquire
 
 UNITY_BIN="/Applications/6000.3.10f1/Unity.app/Contents/MacOS/Unity"
 APP="Builds/Phase6Combined.app"

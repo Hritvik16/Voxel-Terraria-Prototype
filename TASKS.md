@@ -622,3 +622,11 @@ seed; open ground and a 1-voxel pillar top exactly 1; 0.1 m wall = 2 m wall exac
 10 m room (floor below 0.063, corners < 0.05); task 138's site (tunnel darkens inward); history. The running mean matches the quadrature
 as RMS over 32 pixels <= 0.05 (0.040-0.047), NOT per pixel (single pixels miss by up to ~0.1). `REPORTS=1` writes
 `Screenshots/147/softsky_quadrature147.txt` (`Report_QuadratureTable`, Slow). Next: S2 (`-softsky 1`, OFF).
+
+**Task 148 (rig, RIG_REFRESH_PLAN R2, 2026-10-25): the kept/updated rigs take the shared Unity lock themselves.** After
+`set -uo pipefail`, nine runners now `source tools/unity-lock.sh` + `unity_lock_acquire` (3 lines each, nothing else changed):
+the 5 kept gates `run-editmode-tests.sh`, `run-phase7-rig.sh`, `run-acceptance-rig.sh`, `run-acceptance-fluid.sh`,
+`run-fluid-tiled.sh` and the 4 "update" rigs `run-phase5b-rig.sh`, `run-phase5d-rig.sh`, `run-phase6-brushguard.sh`,
+`run-phase6-combined.sh`. Wrapping them in `tools/with-unity-lock.sh` still works (the inner acquire sees the outer holder as
+an ancestor and returns). The 20 lockless rigs marked retire/merge were left alone (R1/R3 move them). Evidence: `bash -n` on all
+nine; `./run-editmode-tests.sh` unwrapped took and released the lock, PASS 946 FAIL 0 SKIP 15 (`Logs/overnight/148-editmode.out`).

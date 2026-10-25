@@ -16,6 +16,9 @@
 # compares against it to say how many cases it left out.
 
 set -uo pipefail
+# Task 148: the shared one-Unity-at-a-time lock (CLAUDE.md); a no-op wait when an outer wrapper already holds it.
+source tools/unity-lock.sh
+unity_lock_acquire
 
 UNITY_BIN="/Applications/6000.3.10f1/Unity.app/Contents/MacOS/Unity"
 PROJECT_PATH="$(pwd)"

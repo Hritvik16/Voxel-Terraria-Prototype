@@ -24,6 +24,9 @@
 #        EXTRA="-roofskip 1" ./run-phase7-rig.sh   (extra player flags)
 # Exit code: 0 if the rig reported 0 FAIL, non-zero otherwise.
 set -uo pipefail
+# Task 148: the shared one-Unity-at-a-time lock (CLAUDE.md); a no-op wait when an outer wrapper already holds it.
+source tools/unity-lock.sh
+unity_lock_acquire
 
 UNITY="/Applications/6000.3.10f1/Unity.app/Contents/MacOS/Unity"
 APP="Builds/Phase7Cycle.app"

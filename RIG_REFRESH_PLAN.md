@@ -151,7 +151,7 @@ once merged · retire 32 now (3 in 3a, 6 in 3b, 19 in 3c, 4 in 3d). 9 + 6 + 7 + 
 | # | Task | Effort | Depends |
 |---|---|---|---|
 | R1 | Retire: `git mv` the 32 scripts to `tools/retired-rigs/` + a README row each (what it answered, last report path). C# capture modes and scenes stay. | S | Q1 |
-| R2 | Lock: add `unity_lock_acquire` inside the 5 kept lockless rigs (editmode, phase7, acceptance, acceptance-fluid, fluid-tiled) (no behaviour change). | S | - |
+| R2 | Lock: add `unity_lock_acquire` inside the 5 kept lockless rigs (editmode, phase7, acceptance, acceptance-fluid, fluid-tiled) (no behaviour change). **DONE task 148**, plus the 4 lockless 'update' rigs (5b, 5d, brushguard, combined). | S | - |
 | R3 | `run-gameplay-stack.sh` from phase6-combined on tg2 v4 (section 4 item 5); then retire 5a/5c/6-* scripts. | L | Q4 |
 | R4 | Update 5b-rig and 5d-rig for 8.15/8.16 (or fold into R3); brush guard predicate rewrite. | M | R3 |
 | R5 | `run-perf-milestone.sh` (tg2world `MODE=playwalk` + cost split, warm-up built in). First run = engine-phase milestone. | M | Q2, Q3 |

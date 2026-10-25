@@ -229,9 +229,9 @@ The sibling session in `../VoxelTerraria_compare` shares the lock
 `/tmp/voxel-unity.lock` and has agreed to honour it. Before ANY batchmode
 build, EditMode run or player launch: `source tools/unity-lock.sh` and call
 `unity_lock_acquire` (waits for the lock and 45 s with no Unity/il2cpp/player,
-takes it, releases on exit). Newer runner scripts already do; older ones
-(`run-editmode-tests.sh`, `run-phase7-rig.sh`, `run-acceptance-rig.sh`, ...)
-do NOT — wrap them: `tools/with-unity-lock.sh ./run-editmode-tests.sh`. Never
+takes it, releases on exit). Every kept/updated runner does (task 148 added it to
+editmode, phase7, acceptance, acceptance-fluid, fluid-tiled, 5b, 5d, brushguard, combined);
+the to-be-retired/merged old rigs do NOT — wrap those: `tools/with-unity-lock.sh ./run-x.sh`. Never
 put `pgrep -f '<pattern>'` inline in a shell command: it matches that shell
 itself and deadlocks the queue (happened twice). **Never edit a `run-*.sh` while
 it is running** — bash reads scripts incrementally and the edit shifts what it

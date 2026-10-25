@@ -25,6 +25,9 @@
 # 2.6-2.7x inflation). Memory here is exact; time would not be. Nothing this
 # prints may be quoted against §2.2.
 set -uo pipefail
+# Task 148: the shared one-Unity-at-a-time lock (CLAUDE.md); a no-op wait when an outer wrapper already holds it.
+source tools/unity-lock.sh
+unity_lock_acquire
 
 UNITY_BIN="/Applications/6000.3.10f1/Unity.app/Contents/MacOS/Unity"
 APP_PATH="Builds/FluidTiled.app"

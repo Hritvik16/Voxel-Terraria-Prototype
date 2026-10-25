@@ -13,6 +13,9 @@
 # carries a REPEAT_driftcheck line, which is the only throttle evidence this
 # workflow can produce. These numbers cannot close §13 Phase 5b's perf gate.
 set -uo pipefail
+# Task 148: the shared one-Unity-at-a-time lock (CLAUDE.md); a no-op wait when an outer wrapper already holds it.
+source tools/unity-lock.sh
+unity_lock_acquire
 
 UNITY_BIN="/Applications/6000.3.10f1/Unity.app/Contents/MacOS/Unity"
 APP_PATH="Builds/Phase5bValidation.app"

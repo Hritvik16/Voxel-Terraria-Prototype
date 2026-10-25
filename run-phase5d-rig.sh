@@ -24,6 +24,9 @@
 # NO TIMING. This rig runs synchronous readback for determinism and reports no
 # ms figures at all. Performance stays with run-acceptance-rig.sh.
 set -uo pipefail
+# Task 148: the shared one-Unity-at-a-time lock (CLAUDE.md); a no-op wait when an outer wrapper already holds it.
+source tools/unity-lock.sh
+unity_lock_acquire
 
 UNITY_BIN="/Applications/6000.3.10f1/Unity.app/Contents/MacOS/Unity"
 # These two MUST match what the build and the rig actually use, or the script
