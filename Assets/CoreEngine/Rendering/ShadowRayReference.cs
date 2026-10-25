@@ -494,6 +494,39 @@ public static class ShadowRayReference
     }
 
     // =====================================================================
+    // The sky-visibility probe's direction (task 138, owner Q89 (a))
+    // =====================================================================
+
+    /// CPU twin of Raymarch.compute's SkyProbeDir. `tilt` 0 = straight up for
+    /// every face (the Phase 7 probe). On: an up face straight up; a side face
+    /// normalize(up + n), 45 deg out of the face; a down face horizontally toward
+    /// the viewer (the horizontal part of -rayDir), +x when the view is straight up.
+    /// `tilt` 2: side faces only (down faces keep the vertical probe).
+    public static float3 SkyProbeDir(int3 n, float3 rayDir, int tilt)
+    {
+        if (tilt == 0 || n.y > 0 || (n.y < 0 && tilt == 2)) return new float3(0f, 1f, 0f);
+        if (n.y == 0) return new float3(n.x, 1f, n.z) * 0.70710678f;
+        float2 h = -rayDir.xz;
+        float hh = math.dot(h, h);
+        if (hh < 1e-8f) return new float3(1f, 0f, 0f);
+        h *= math.rsqrt(hh);
+        return new float3(h.x, 0f, h.y);
+    }
+
+    /// The sky probe as the shader fires it: the hard shadow ray along SkyProbeDir.
+    /// A horizontal direction is lifted to y = 1e-6 exactly as the shader's
+    /// TraceShadowRay clamps it, so Trace's below-the-horizon skip (a sun rule,
+    /// not a sky-probe rule) does not fire. sunVis 1 = open sky, 0 = blocked.
+    public static ShadowResult TraceSkyProbe(ChunkStore store, int3 hitVoxel, int3 hitNormal,
+                                             float3 rayDir, int tilt, float3 cameraPosM,
+                                             float maxDistM = 0f)
+    {
+        float3 d = SkyProbeDir(hitNormal, rayDir, tilt);
+        if (d.y < 1e-6f) d.y = 1e-6f;
+        return Trace(store, hitVoxel, hitNormal, d, cameraPosM, kSoft: 0f, maxDistM: maxDistM);
+    }
+
+    // =====================================================================
     // The sky-skip, enforced rather than documented
     // =====================================================================
 

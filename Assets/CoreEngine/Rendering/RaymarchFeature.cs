@@ -162,6 +162,20 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// arm rather than assumed free.
     public static bool UseSkyProbeAmbient = true;
 
+    /// TASK 138 (owner Q89 (a); `-skytilt 1`): the sky probe leans out of the face -- side faces
+    /// 45 deg up and out, down faces horizontally toward the viewer, up faces straight up. Off = the
+    /// vertical probe for every face; 2 = side faces only. CPU twin: ShadowRayReference.SkyProbeDir.
+    public static int SkyProbeTilt = ReadSkyTiltArg();
+
+    private static int ReadSkyTiltArg()
+    {
+        string[] a = System.Environment.GetCommandLineArgs();
+        int v = 0;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == "-skytilt" && int.TryParse(a[i + 1], out int k)) v = k;
+        return v;
+    }
+
     /// Highest world voxel Y that generation can produce content for, +1.
     /// Set by the bootstrapper from StreamManager.MAX_GENERATED_CHUNK_Y.
     /// Kept tighter than the window's Y extent on purpose -- see the shader.
@@ -669,6 +683,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public int maxShadowSteps;
             public int pointLightNdotL;
             public int useSkyProbeAmbient;
+            public int skyProbeTilt;
             public float undergroundAmbientFloor;
             public float shadowMaxDistVoxels;
             public float rung1DistVoxels;
@@ -1003,6 +1018,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 passData.maxShadowSteps = MaxShadowSteps;
                 passData.pointLightNdotL = PointLightNdotL ? 1 : 0;
                 passData.useSkyProbeAmbient = UseSkyProbeAmbient ? 1 : 0;
+                passData.skyProbeTilt = SkyProbeTilt;
                 passData.undergroundAmbientFloor = cfg.undergroundAmbientFloor;
                 float shadowClampM = ShadowMaxDistanceOverrideM >= 0f
                     ? ShadowMaxDistanceOverrideM : cfg.shadowMaxDistanceM;
@@ -1378,6 +1394,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_MaxShadowSteps", data.maxShadowSteps);
                         cmd.SetComputeIntParam(data.compute, "_PointLightNdotL", data.pointLightNdotL);
                         cmd.SetComputeIntParam(data.compute, "_UseSkyProbeAmbient", data.useSkyProbeAmbient);
+                        cmd.SetComputeIntParam(data.compute, "_SkyProbeTilt", data.skyProbeTilt);
                         cmd.SetComputeFloatParam(data.compute, "_UndergroundAmbientFloor",
                             data.undergroundAmbientFloor);
 

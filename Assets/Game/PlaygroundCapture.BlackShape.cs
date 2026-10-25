@@ -50,12 +50,13 @@ public partial class PlaygroundCapture
         bool tOk = BsCpuPixel(cam, px, py, out Vector3 T, out _);
         L($"  T = CPU hit of pixel ({px},{py}): {(tOk ? T.ToString("F1") : "NO HIT")}");
         BsProbeLines(cam, "A", px, py);
-        foreach (string arm in new[] { "play", "native", "hit", "sun", "nrm", "nosky" })
+        bool tq = ArgInt("-skytiltqa", 0) != 0;   // task 138: + the tilted sky probe arms (PlaygroundCapture.SkyTilt.cs)
+        foreach (string arm in tq ? new[] { "play", "native", "tilt", "tilt2", "nosky", "hit" } : new[] { "play", "native", "hit", "sun", "nrm", "nosky" })
             yield return BsArm(cam, eyeA, rotA, arm, $"bs_A_{arm}", settle);
         SunCycle.SetHours(12f);
         L("  noon (12.00 h):");
         BsProbeLines(cam, "A noon", px, py);
-        foreach (string arm in new[] { "native", "sun" })
+        foreach (string arm in tq ? new[] { "native", "tilt", "tilt2" } : new[] { "native", "sun" })
             yield return BsArm(cam, eyeA, rotA, arm, $"bs_Anoon_{arm}", settle);
         SunCycle.SetHours(hours);
         if (!tOk) T = eyeA + rotA * Vector3.forward * 88f;
@@ -64,7 +65,7 @@ public partial class PlaygroundCapture
         Vector3 d = T - eyeA; d.y = 0f; d.Normalize();
         Vector3 e = eyeA + d * 15f; e.y = RefColumn(e.x, e.z).topM + 1.6f;
         yield return BsPose(far, cam, sm, sh, "close", e, T, settle, wait,
-                            new[] { "native", "hit", "sun", "nrm", "nosky" });
+                            tq ? new[] { "native", "tilt", "tilt2", "nosky" } : new[] { "native", "hit", "sun", "nrm", "nosky" });
 
         // ---- side: ~40 m from T, the side whose ground is nearer T's height ----
         Vector3 perp = new Vector3(d.z, 0f, -d.x);
@@ -77,7 +78,7 @@ public partial class PlaygroundCapture
             L($"  side candidate {(sgn > 0 ? "+" : "-")}: eye {c:F1}, {err:F0} m from T's height");
             if (err < bestErr) { bestErr = err; best = c; }
         }
-        yield return BsPose(far, cam, sm, sh, "side", best, T, settle, wait, new[] { "native", "hit", "nrm" });
+        yield return BsPose(far, cam, sm, sh, "side", best, T, settle, wait, tq ? new[] { "native", "tilt", "tilt2" } : new[] { "native", "hit", "nrm" });
 
         // ---- other: a second overhang, from its shadow side ----
         Vector3 o = new Vector3(3455f, 576f, 5150f);
@@ -89,7 +90,9 @@ public partial class PlaygroundCapture
                             float.Parse(a[2], CultureInfo.InvariantCulture));
         }
         Vector3 eo = o - fwdH * 28f; eo.y = RefColumn(eo.x, eo.z).topM + 1.6f;
-        yield return BsPose(far, cam, sm, sh, "other", eo, o, settle, wait, new[] { "native", "hit", "sun", "nrm", "nosky" });
+        yield return BsPose(far, cam, sm, sh, "other", eo, o, settle, wait,
+                            tq ? new[] { "native", "tilt", "tilt2", "nosky" } : new[] { "native", "hit", "sun", "nrm", "nosky" });
+        if (tq) yield return SkyTiltBuilt(far, cam, sm, sh, eyeA, settle, wait);
 
         Phase4Bootstrapper.DebugStreamCentre = null;
         Phase4Bootstrapper.RefTier0Centre = null;
@@ -113,10 +116,15 @@ public partial class PlaygroundCapture
 
     /// play = FSR 3 dynamic; native = 1080 rows; hit / sun / nrm = debug views 14 / 7 / 3 at native;
     /// nosky = native with the vertical sky probe off (ambient as if open sky).
+    /// Task 138: tilt / tilt2 = native with RaymarchFeature.SkyProbeTilt 1 / 2; every other arm
+    /// keeps the launch's SkyProbeTilt.
     private IEnumerator BsArm(Camera cam, Vector3 eye, Quaternion rot, string arm, string name, int settle)
     {
         RaymarchFeature.UseDebugViewOverride = false;
         bool sky0 = RaymarchFeature.UseSkyProbeAmbient;
+        int tilt0 = RaymarchFeature.SkyProbeTilt;
+        if (arm == "tilt") RaymarchFeature.SkyProbeTilt = 1;
+        if (arm == "tilt2") RaymarchFeature.SkyProbeTilt = 2;
         ApplyCompareArm(arm == "play" ? "fsr3_dyn" : "native");
         bool dbg = arm == "hit" || arm == "sun" || arm == "nrm";
         if (dbg)
@@ -132,6 +140,7 @@ public partial class PlaygroundCapture
         yield return CaptureTo(name);
         RaymarchFeature.UseDebugViewOverride = false;
         RaymarchFeature.UseSkyProbeAmbient = sky0;
+        RaymarchFeature.SkyProbeTilt = tilt0;
     }
 
     /// CPU probe lines down column px and along row py (screen pixels, y down).

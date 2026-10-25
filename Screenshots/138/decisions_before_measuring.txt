@@ -1,0 +1,10 @@
+Task 138 -- decisions written BEFORE any timed arm (2026-10-24 ~22:55).
+Measured: cost split, noon, walk_near + walk_open, F X X F Y Y F with X = skytilt_on (1), Y = skytilt2 (side faces only),
+F = the launch default (vertical probe). One MODE=walk arm with -skytilt 1 against task 137's OFF walk (11.14 ms p50).
+Rule (task file step 4): default ON only if look passes (black px near nosky, caves dark, open faces unchanged) AND cost <= ~1 ms p50.
+- Look FAILS (caves light up or open faces change visibly): keep OFF whatever the cost; report.
+- Look passes, tilt 1 cost <= ~1 ms p50 at both poses (beyond the FULL spread): default tilt 1 ON.
+- Look passes only for tilt 2 (e.g. tunnel ceilings light with tilt 1), tilt 2 <= ~1 ms: default tilt 2 ON.
+- Cost > ~1 ms at either pose for the mode that passes the look: keep OFF, report the number; owner decides.
+- Walk arm: p50 within ~0.5 ms of 137's 11.14 -> no effect while walking; worse by > 1 ms -> report as a cost even if
+  the cost split passed (it would mean the cost is pose-dependent).

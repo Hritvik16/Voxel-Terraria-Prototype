@@ -1,0 +1,53 @@
+bs_A_hit                         black         0   mean luma  123.3
+bs_A_native                      black    35,538   mean luma   71.1
+bs_A_nosky                       black       189   mean luma   72.1
+bs_A_play                        black    34,278   mean luma   70.6
+bs_A_tilt                        black    23,229   mean luma   71.5
+bs_A_tilt2                       black    23,301   mean luma   71.5
+bs_Anoon_native                  black    35,345   mean luma   86.5
+bs_Anoon_tilt                    black    19,002   mean luma   86.9
+bs_Anoon_tilt2                   black    19,074   mean luma   86.9
+bs_close_native                  black   210,605   mean luma   46.6
+bs_close_nosky                   black       317   mean luma   52.3
+bs_close_tilt                    black   100,425   mean luma   49.6
+bs_close_tilt2                   black   100,786   mean luma   49.6
+bs_other_native                  black    93,696   mean luma   88.8
+bs_other_nosky                   black         0   mean luma   91.8
+bs_other_tilt                    black   127,295   mean luma   87.3
+bs_other_tilt2                   black   137,859   mean luma   87.0
+bs_side_native                   black   284,749   mean luma   44.8
+bs_side_tilt                     black   129,722   mean luma   49.4
+bs_side_tilt2                    black   130,168   mean luma   49.4
+bs_st_mouth20_native             black    62,821   mean luma   92.7
+bs_st_mouth20_tilt               black    92,957   mean luma   91.8
+bs_st_mouth20_tilt2              black    92,957   mean luma   91.8
+bs_st_mouthnoon_native           black    62,821   mean luma  111.8
+bs_st_mouthnoon_tilt             black    78,772   mean luma  111.0
+bs_st_mouthnoon_tilt2            black    78,772   mean luma  111.0
+bs_st_sealed_native              black 2,073,600   mean luma    0.0
+bs_st_sealed_tilt                black 2,073,600   mean luma    0.0
+bs_st_sealed_tilt2               black 2,073,600   mean luma    0.0
+bs_st_tunnel_native              black 2,073,600   mean luma    0.0
+bs_st_tunnel_tilt                black 2,073,600   mean luma    0.0
+bs_st_tunnel_tilt2               black 2,073,600   mean luma    0.0
+bs_A                       tilt   vs native: black    35,538 ->    23,229, changed px (>8)    34,318, luma 71.1 -> 71.5
+bs_A                       tilt2  vs native: black    35,538 ->    23,301, changed px (>8)    34,246, luma 71.1 -> 71.5
+bs_A                       nosky  vs native: black    35,538 ->       189, changed px (>8)    35,349, luma 71.1 -> 72.1
+bs_Anoon                   tilt   vs native: black    35,345 ->    19,002, changed px (>8)    34,327, luma 86.5 -> 86.9
+bs_Anoon                   tilt2  vs native: black    35,345 ->    19,074, changed px (>8)    34,255, luma 86.5 -> 86.9
+bs_close                   tilt   vs native: black   210,605 ->   100,425, changed px (>8)   126,518, luma 46.6 -> 49.6
+bs_close                   tilt2  vs native: black   210,605 ->   100,786, changed px (>8)   126,157, luma 46.6 -> 49.6
+bs_close                   nosky  vs native: black   210,605 ->       317, changed px (>8)   210,288, luma 46.6 -> 52.3
+bs_other                   tilt   vs native: black    93,696 ->   127,295, changed px (>8)    78,710, luma 88.8 -> 87.3
+bs_other                   tilt2  vs native: black    93,696 ->   137,859, changed px (>8)    67,960, luma 88.8 -> 87.0
+bs_other                   nosky  vs native: black    93,696 ->         0, changed px (>8)    94,209, luma 88.8 -> 91.8
+bs_side                    tilt   vs native: black   284,749 ->   129,722, changed px (>8)   161,161, luma 44.8 -> 49.4
+bs_side                    tilt2  vs native: black   284,749 ->   130,168, changed px (>8)   160,715, luma 44.8 -> 49.4
+bs_st_mouth20              tilt   vs native: black    62,821 ->    92,957, changed px (>8)    30,161, luma 92.7 -> 91.8
+bs_st_mouth20              tilt2  vs native: black    62,821 ->    92,957, changed px (>8)    30,161, luma 92.7 -> 91.8
+bs_st_mouthnoon            tilt   vs native: black    62,821 ->    78,772, changed px (>8)    30,161, luma 111.8 -> 111.0
+bs_st_mouthnoon            tilt2  vs native: black    62,821 ->    78,772, changed px (>8)    30,161, luma 111.8 -> 111.0
+bs_st_sealed               tilt   vs native: black 2,073,600 -> 2,073,600, changed px (>8)         0, luma 0.0 -> 0.0
+bs_st_sealed               tilt2  vs native: black 2,073,600 -> 2,073,600, changed px (>8)         0, luma 0.0 -> 0.0
+bs_st_tunnel               tilt   vs native: black 2,073,600 -> 2,073,600, changed px (>8)         0, luma 0.0 -> 0.0
+bs_st_tunnel               tilt2  vs native: black 2,073,600 -> 2,073,600, changed px (>8)         0, luma 0.0 -> 0.0

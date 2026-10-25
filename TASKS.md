@@ -530,3 +530,20 @@ nonear = near shadows off as the control); `python3 -I tools/holeleap137.py look
 per near sun ray; ~6 climb uniform-air shell chunks to the shells' GLOBAL top (~1100 m). Report `Screenshots/137/perf137.txt`; the local bound
 that would cut those (per-shell ring-column tops, 28 KB, kept in ShellStore.Store) is a new GPU structure: design only,
 `Screenshots/137/height_bound_design.txt`, owner's call.
+
+**Task 138 (look, owner Q89 (a) 2026-10-24): the TILTED SKY PROBE, OFF (`-skytilt 1|2`; 0 = the vertical probe).** Raymarch.compute
+`SkyProbeDir` / `_SkyProbeTilt` (RaymarchFeature.SkyProbeTilt): 1 = up faces straight up, side faces normalize(up + n) (45 deg out of
+the face), down faces horizontally toward the viewer (horizontal part of -rayDir; +x when the view is straight up); 2 = side faces
+only. Same ray count, same TraceShadowRay. CPU twin `ShadowRayReference.SkyProbeDir` / `TraceSkyProbe`; `SkyProbeTiltTests`
+(directions; ledge undercut opens; arch underside opens toward the viewer and closes along the span; sealed cave dark from every face
+and view; open cliff face open both ways; narrow-canyon foot and straight-tunnel ceiling pinned as the rule's trades). Capture:
+`-skytiltqa 1` with `-blackshape 2` adds arms tilt / tilt2 to 136's poses and `PlaygroundCapture.SkyTilt.cs` BUILDS (edit ops) a
+15 m block with a 12 m tunnel (mouth toward the sun-20 azimuth) and a sealed room under it; sheet + counts
+`python3 -I tools/skytilt138.py <LookReview dir> Screenshots/138`; cost-split arms `skytilt_on` / `skytilt2` / `skytilt_off`.
+Run: `PRESETS=high EXTRA="-cliffshadow 1 -blackshape 2 -skytiltqa 1 -shellworkers 6 -cliffwait0 90 -cliffwait 45" ./run-look-review.sh`.
+Result (`Logs/lookreview_20261024_224144.txt`, `Screenshots/138/skytilt138.txt`): look FAILS -> OFF. Pure-black px cliff2 A 35,538 ->
+23,229 (nosky 189), close 210,605 -> 100,425 (nosky 317), arches 93,696 -> 127,295 (WORSE: striped legs), built mouth 62,821 -> 92,957
+(ground step faces beside the 15 m block go black: their 45 deg ray meets the block); sealed room / tunnel black both ways. One binary
+ray x the multiplied floor makes some face pure black whatever its direction. Cost (warm, AC, noon cost split
+`Logs/costsplit_2026-10-24_232016.txt`, `Screenshots/138/perf138.txt`): tilt 1 +1.9 / +2.4 ms p50 walk_near / walk_open, tilt 2 +3.8 / +2.3
+(the vertical ray is the cheap one: axis-aligned leaps, early ceiling exit). HANDOFF 138 lists the owner's options.

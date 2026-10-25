@@ -447,6 +447,28 @@ int _PointLightNdotL;
 // Measured as its own arm; see AMENDMENT_8_12_PHASE7_GATE.md.
 int _UseSkyProbeAmbient;
 
+// TASK 138 (owner Q89 (a), 2026-10-24; RaymarchFeature.SkyProbeTilt, `-skytilt 1`): the sky probe's
+// direction leans OUT of the face. 0 = the vertical probe for every face (before). 1: an up face
+// probes straight up; a side face along normalize(up + n), 45 deg out of the face; a down face
+// horizontally toward the viewer (the horizontal part of -rayDir: the viewer reached that face
+// through air, so it is the face's open side; +x if the view is straight up). 2 = side faces only
+// (down faces keep the vertical probe, which their own voxel always blocks). Under a ledge or an
+// arch the vertical ray hit rock 20-30 m up and the face got the underground floor (task 136's
+// black shape); a sealed cave blocks every direction, so it stays dark. Same ray count. CPU twin:
+// ShadowRayReference.SkyProbeDir.
+int _SkyProbeTilt;
+
+float3 SkyProbeDir(int3 n, float3 rayDir)
+{
+    if (_SkyProbeTilt == 0 || n.y > 0 || (n.y < 0 && _SkyProbeTilt == 2)) return float3(0.0, 1.0, 0.0);
+    if (n.y == 0) return float3((float)n.x, 1.0, (float)n.z) * 0.70710678;
+    float2 h = -rayDir.xz;
+    float hh = dot(h, h);
+    if (hh < 1e-8) return float3(1.0, 0.0, 0.0);
+    h *= rsqrt(hh);
+    return float3(h.x, 0.0, h.y);
+}
+
 // Fraction of ambient surviving with zero sky visibility -- §6.5's
 // "underground reads near-zero ambient". Art constant, live-tunable via
 // LightingConfig.json.
@@ -4880,7 +4902,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         //
         // `dbg` false: the sky probe must not overwrite the SUN ray's §10.4
         // ring buffer, or the dump would describe the wrong ray.
-        ShadowHit sky = TraceShadowRay(voxel, normal, float3(0.0, 1.0, 0.0),
+        ShadowHit sky = TraceShadowRay(voxel, normal, SkyProbeDir(normal, rayDir),   // task 138: tilted when _SkyProbeTilt
                                        _WindowDimsBricks, false, false);
         skyVis = sky.sunVis;
     }

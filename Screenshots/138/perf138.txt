@@ -1,0 +1,15 @@
+Task 138 -- the tilted sky probe, cost. Warm steady state: warm-up Logs/tg2world_20261024_231406.txt (discarded, MODE=stream
+MOTION=walk), then the cost split straight after (Logs/costsplit_2026-10-24_232016.txt, 23:20-23:29). AC, 100%, no owner pause.
+Build: current tree, quality preset, FSR 3 540 rows, far shading, shells, see-through, river look; FULL = launch (-skytilt 0).
+Noon (sun 78 deg), F X X F Y Y F, 15 s timed per run. Decisions written first: Screenshots/138/decisions_before_measuring.txt.
+
+p50 ms               FULL passes          skytilt_on (1)   skytilt2 (sides)   tilt1 - FULL   tilt2 - FULL   noise
+noon walk_near       64.9 / 65.2 / 64.2   67.5 / 66.8      68.5 / 68.8        +1.9           +3.8           0.3 / 1.0
+noon walk_open       37.5 / 38.2 / 37.5   40.2 / 40.4      39.2 / 41.0        +2.4           +2.3           0.7 / 0.7
+
+Why: the vertical probe is axis-aligned, so every air-mip leap is maximal and it exits at the content ceiling in a few
+iterations (the reason Phase 7 chose it). A 45 deg ray takes smaller leaps and a longer path to the ceiling; a horizontal
+(down-face) ray never reaches the ceiling and runs to the window edge or into terrain.
+Walk arm: SKIPPED. The look check had already failed, so OFF was fixed whatever the walk number (decisions file, rule
+"if every outcome leads to the same action, skip the measurement").
+DECISION: OFF (look fails AND cost > ~1 ms).
