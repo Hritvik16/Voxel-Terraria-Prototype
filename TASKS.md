@@ -547,3 +547,13 @@ Result (`Logs/lookreview_20261024_224144.txt`, `Screenshots/138/skytilt138.txt`)
 ray x the multiplied floor makes some face pure black whatever its direction. Cost (warm, AC, noon cost split
 `Logs/costsplit_2026-10-24_232016.txt`, `Screenshots/138/perf138.txt`): tilt 1 +1.9 / +2.4 ms p50 walk_near / walk_open, tilt 2 +3.8 / +2.3
 (the vertical ray is the cheap one: axis-aligned leaps, early ceiling exit). HANDOFF 138 lists the owner's options.
+
+**Task 139 (look QA, owner Q91 2026-10-25, CAPTURE-ONLY: no default / look change): the dark-overhang side-by-side.**
+`-lookreview -cliffshadow 1 -blackshape 2 -darkcompare 1` (`PlaygroundCapture.DarkCompare.cs`; hook in BlackShape after A; task 138's
+site + edit ops now shared as `SkyTiltBuild` / `_st`): rows cliff2 ledge + stone arches + built cave mouth at noon / dusk (sun 10),
+inside the tunnel + sealed room at noon / night (0.5 h), then ONE torch each (EditService + `LightingDriver.Attach`, needed or the torch
+registers no light) at night. Arms: today (preset floor; High = 0.02), `-dcfloors` (default 0.12,0.25,0.40, set on
+LightingConfig.Active.undergroundAmbientFloor per shot), nosky; each shot `_play` (FSR 3 dyn) + `_nat` (native 1080). `-dconly torch` =
+build + torch rows only; `-dcnatframes` (20). Sheets + counts: `python3 -I tools/darkcompare139.py <dir> Screenshots/139 0.02`.
+Run: `PRESETS=high EXTRA="-cliffshadow 1 -blackshape 2 -darkcompare 1 -shellworkers 6 -cliffwait0 90 -cliffwait 45 -cliffframes 40" ./run-look-review.sh`.
+Result: HANDOFF 139, `Screenshots/139/`, `Logs/lookreview_20261025_065701.txt` (+ torch re-shoot `Logs/lookreview_20261025_071200.txt`).

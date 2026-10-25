@@ -49,6 +49,13 @@ public partial class PlaygroundCapture
         cam.ResetProjectionMatrix();
         bool tOk = BsCpuPixel(cam, px, py, out Vector3 T, out _);
         L($"  T = CPU hit of pixel ({px},{py}): {(tOk ? T.ToString("F1") : "NO HIT")}");
+        if (ArgInt("-darkcompare", 0) != 0)   // task 139: the dark-overhang side-by-side instead (PlaygroundCapture.DarkCompare.cs)
+        {
+            yield return DarkCompare(far, cam, sm, sh, eyeA, rotA, fwdH, settle, wait);
+            Phase4Bootstrapper.DebugStreamCentre = null;
+            L("BLACK SHAPE done");
+            yield break;
+        }
         BsProbeLines(cam, "A", px, py);
         bool tq = ArgInt("-skytiltqa", 0) != 0;   // task 138: + the tilted sky probe arms (PlaygroundCapture.SkyTilt.cs)
         foreach (string arm in tq ? new[] { "play", "native", "tilt", "tilt2", "nosky", "hit" } : new[] { "play", "native", "hit", "sun", "nrm", "nosky" })
@@ -81,14 +88,7 @@ public partial class PlaygroundCapture
         yield return BsPose(far, cam, sm, sh, "side", best, T, settle, wait, tq ? new[] { "native", "tilt", "tilt2" } : new[] { "native", "hit", "nrm" });
 
         // ---- other: a second overhang, from its shadow side ----
-        Vector3 o = new Vector3(3455f, 576f, 5150f);
-        string oArg = ArgValue("-bsother");
-        if (!string.IsNullOrEmpty(oArg))
-        {
-            var a = oArg.Split(',');
-            o = new Vector3(float.Parse(a[0], CultureInfo.InvariantCulture), float.Parse(a[1], CultureInfo.InvariantCulture),
-                            float.Parse(a[2], CultureInfo.InvariantCulture));
-        }
+        Vector3 o = BsOtherPoint();
         Vector3 eo = o - fwdH * 28f; eo.y = RefColumn(eo.x, eo.z).topM + 1.6f;
         yield return BsPose(far, cam, sm, sh, "other", eo, o, settle, wait,
                             tq ? new[] { "native", "tilt", "tilt2", "nosky" } : new[] { "native", "hit", "sun", "nrm", "nosky" });
@@ -98,6 +98,20 @@ public partial class PlaygroundCapture
         Phase4Bootstrapper.RefTier0Centre = null;
         RaymarchFeature.UseDebugViewOverride = false;
         L("BLACK SHAPE done");
+    }
+
+    /// The second overhang: -bsother x,y,z m, default the stone arches left of cliff2's view.
+    private Vector3 BsOtherPoint()
+    {
+        Vector3 o = new Vector3(3455f, 576f, 5150f);
+        string oArg = ArgValue("-bsother");
+        if (!string.IsNullOrEmpty(oArg))
+        {
+            var a = oArg.Split(',');
+            o = new Vector3(float.Parse(a[0], CultureInfo.InvariantCulture), float.Parse(a[1], CultureInfo.InvariantCulture),
+                            float.Parse(a[2], CultureInfo.InvariantCulture));
+        }
+        return o;
     }
 
     private IEnumerator BsPose(FarField far, Camera cam, StreamManager sm, ShellStreamer sh, string name,

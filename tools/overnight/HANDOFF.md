@@ -1,61 +1,50 @@
-STOP_FOR_OWNER -- task 138: the tilted sky probe does NOT fix the black shapes and costs ~2 ms, so it stays OFF. Question: what next for
-the pure-black overhangs? (a) Recommended: raise the underground ambient floor (`_UndergroundAmbientFloor`, an art constant, 0 ms): no face
-goes pure black anywhere, caves turn very dim instead of black; one look-check task with a few floor values. (b) Average two rays (vertical +
-tilted): black only where both are blocked (arches stay partly black), about +2 ms. (c) A proper soft sky term (random direction per frame,
-averaged over time): the right look, a bigger design task, about +2 ms. (d) Accept the black as it is.
+# 139-look-dark-overhangs-comparison: DONE (capture only, nothing shipped). Sheets in Screenshots/139/; the supervisor asks the owner.
 
-# 138-look-tilted-sky-probe: DONE, result negative. `-skytilt 1|2` built and tested, OFF by default; look check FAILS, cost +1.9 to +3.8 ms.
-
-## What changed (commit 25e7a66)
-- `Raymarch.compute`: `SkyProbeDir` / `_SkyProbeTilt`. 1 = up faces straight up, side faces 45 deg up and out, down faces horizontal
-  toward the viewer (+x if looking straight up). 2 = side faces only. Same ray count, same TraceShadowRay. 0 = before (default).
-- `RaymarchFeature.SkyProbeTilt` (`-skytilt N`). CPU twin `ShadowRayReference.SkyProbeDir` / `TraceSkyProbe`.
-- `SkyProbeTiltTests` (9, new): directions; ledge undercut opens; arch underside opens; sealed cave dark from every face and view;
-  open cliff face open; the narrow-canyon foot and the straight-tunnel ceiling are pinned as the rule's trade-offs.
-- Capture: `-skytiltqa 1` (with `-blackshape 2`) adds arms tilt / tilt2. `PlaygroundCapture.SkyTilt.cs` builds a 15 m stone block with
-  a 12 m tunnel and a sealed room using edit ops. Cost-split arms `skytilt_on/skytilt2/skytilt_off`. Sheet: `tools/skytilt138.py`. TASKS.md "Task 138".
+## What changed (commit below)
+- `Assets/Game/PlaygroundCapture.DarkCompare.cs` (new, `-darkcompare 1`, `-dcfloors`, `-dconly torch`, `-dcnatframes`), hook in
+  `PlaygroundCapture.BlackShape.cs` (+ `BsOtherPoint` helper); `PlaygroundCapture.SkyTilt.cs`: 138's site/build split out as
+  `SkyTiltBuild` (shared, unchanged behaviour). `tools/darkcompare139.py` (sheets + counts). TASKS.md "Task 139". No default/look change.
+- Arms: today (High preset floor = **0.02**, not 0.05 -- the preset overrides LightingConfig's default), floor 0.12 / 0.25 / 0.40, sky check off.
 
 ## Evidence
-- Fast suite PASS 932 FAIL 0 SKIP 15 (`Logs/overnight/138-tests.out`). Filtered run first: 29/29 (`Logs/overnight/138-filter.out`).
-- Look launch `Logs/lookreview_20261024_224144.txt`, shots `LookReview/2026-10-24_225411_high/bs_*.png`. Counts: `Screenshots/138/skytilt138.txt`.
-  I looked at every row of the sheet plus two zooms:
-  - cliff2 A: the upper part of the black crescent turns grey. The black "teeth" at its foot stay black.
-  - Arches: solid black undersides become black stripes and dots, and NEW black stripes appear on the arch legs.
-  - Built mouth: the sunlit face is unchanged. Step faces on the ground beside the block turn black: their 45 deg ray hits the 15 m block.
-  - Tunnel and sealed room: fully black in every arm. With tilt 1 even the tunnel ceiling stays black. My guess (not checked on the CPU):
-    its horizontal ray runs out of the mouth and then hits rising ground. A horizontal ray almost always hits terrain somewhere.
-- The root cause: ONE yes/no ray, multiplied into both ambient and the shadow floor. Any direction choice leaves some sun-shadowed faces
-  "blocked", and those go pure black. The tilt only moves which faces those are.
-- Cost (warm steady state; warm-up `Logs/tg2world_20261024_231406.txt` discarded; AC; no pause): see the table below and `Screenshots/138/perf138.txt`.
-  Walk arm skipped: the look had already failed, so OFF was fixed whatever the walk showed (decisions written first:
-  `Screenshots/138/decisions_before_measuring.txt`).
-- The warm-up's 16 "BrickDataPool exhausted" lines also appear in 137's walk logs (not new).
+- Fast suite PASS 932 FAIL 0 SKIP 15 (`Logs/overnight/139-tests.out`).
+- Launch `Logs/lookreview_20261025_065701.txt` (shots `LookReview/2026-10-25_070057_high`, 113 shots, ~10 min incl. load). The torch rows
+  came out broken (the capture's EditService had no light buffer: lights registered 0 -> 0); fixed with `LightingDriver.Attach`, re-shot only
+  those rows: `Logs/lookreview_20261025_071200.txt` (lights 0 -> 2), copied in; the broken ones kept in `.../broken_torch_run1/`.
+- Counts: `Screenshots/139/darkcompare139.txt` (pure black = max channel <= 4, native 1080, 136's metric).
+- Looked at all three sheets + a native zoom. Main finding: **the pure-black COUNT drops to ~0 at floor 0.25, but the LOOK barely changes on
+  surface overhangs**: the ledge crescent and the arch undersides still read as near-black silhouettes at 0.40 (crescent-region luma 54 -> 58,
+  sky check off 65). Only "sky check off" makes them look like shaded rock -- and it also lights every cave (sealed room at noon luma 72).
+- Natural cave / deep canyon row: skipped -- no quick tg2 pose exists (tg2 is a heightfield, no generated caves).
+- No timing run (not a perf task). Cost from 136/138: floors 0 ms (a constant); sky check off saves the probe ray; a soft sky term ~+2 ms (138).
 
 ## Left open
-- The owner's choice above. `Builds/Playground.app` is built from this tree, default unchanged (tilt 0). The look launch's edit ops stay in its ops.log (launches pass -cleardeltas).
+- The owner's choice (supervisor asks). Builds/Playground.app is built from this tree, defaults unchanged.
 
 ## For the doc
-| pure-black px, native 1080 | before (vertical) | tilt 1 | tilt 2 (sides) | probe off (136's target) |
-|---|---|---|---|---|
-| cliff2 A (ledge), sun 16 h | 35,538 | 23,229 | 23,301 | 189 |
-| cliff2 A, noon | 35,345 | 19,002 | 19,074 | -- |
-| 15 m closer | 210,605 | 100,425 | 100,786 | 317 |
-| stone arches | 93,696 | 127,295 (worse) | 137,859 | 0 |
-| built cave mouth, sun 20 | 62,821 | 92,957 (worse) | 92,957 | -- |
-| sealed room | all black | all black | all black | -- |
+| pure-black px (native 1080) | today 0.02 | 0.12 | 0.25 | 0.40 | sky check off |
+|---|---|---|---|---|---|
+| cliff ledge, noon | 35,345 | 161 | 2 | 0 | 0 |
+| stone arches, noon / dusk | 87,621 / 94,209 | 37,296 / 42,406 | 1,515 / 29,333 | 0 / 28,917 | 0 / 28 |
+| cave mouth, noon | 62,821 | 62,821 | 598 | 5 | 0 |
+| sealed room noon (mean luma 0-255) | all black (0.0) | all black (2.0) | 118,151 (10.5) | 7,196 (23.4) | 12 (72.4) |
+| tunnel / sealed room, night, no torch | all black | all black | ~all black | ~all black | 347,568 / 117,309 (luma 5-7) |
+| sealed room night + 1 torch | 1,711,563 | -- | 1,537,803 | -- | 1,977 |
+(`Screenshots/139/darkcompare139.txt`, `Logs/lookreview_20261025_065701.txt`)
 
-| warm, AC, noon, FSR 3 540, p50 ms | FULL (3 passes) | tilt 1 | tilt 2 | tilt 1 / tilt 2 - FULL (noise) |
-|---|---|---|---|---|
-| walk_near | 64.9 / 65.2 / 64.2 | 67.5 / 66.8 | 68.5 / 68.8 | +1.9 / +3.8 (0.3 / 1.0) |
-| walk_open | 37.5 / 38.2 / 37.5 | 40.2 / 40.4 | 39.2 / 41.0 | +2.4 / +2.3 (0.7) |
-(`Logs/costsplit_2026-10-24_232016.txt`)
+- `Screenshots/139/dc139_surface.png`: rows = cliff ledge, stone arches, built cave mouth, each at noon and dusk; columns = today | 0.12 |
+  0.25 | 0.40 | sky check off. Look at the black crescent top-right of rows 1-2 and the arch undersides in rows 3-4: they stay dark through
+  0.40 and only turn into lit rock in the last column. Rows 5-6: the mouth goes from black to a dark-grey opening.
+- `Screenshots/139/dc139_caves.png`: inside the tunnel / sealed room, noon and night, no torch. Rows 1 and 3 (noon): the floor makes the
+  walls visible from 0.25 up; the last column lights the sealed room like open air. Rows 2 and 4 (night): black in every floor column.
+- `Screenshots/139/dc139_torch.png`: one torch at night, today | 0.25 | sky check off. The torch lights only a ~1-2 m glow around itself;
+  the floor changes almost nothing at night.
+- `Screenshots/139/dc139_zoom_native.png`: native close-ups (noon) of the ledge crescent (top) and arch undersides (bottom) across all five
+  arms, with region luma: the floor values lighten the black only to near-black.
 
-- `Screenshots/138/skytilt138.png`: one row per place (cliff2 ledge, stone arches, built cave mouth at sun 20, inside the tunnel,
-  sealed room). Columns: before | tilt 1 | tilt 2 | red = pixels tilt 1 changed. Top row, right edge: the black crescent shrinks but its
-  toothed foot stays. Row 2: red spreads over the arch legs, which is new black. Row 3: the red patches on the ground left and right of
-  the block are step faces that turned black. Rows 4-5: all black in every column, so caves stay dark.
-- `Screenshots/138/arches_native_left_tilt_right.png`: the arches zoomed, before (left) | tilt 1 (right). Look at the right arch's legs:
-  vertical black stripes, and the dotted black patch at right centre.
-- `Screenshots/138/mouth20_risers_native_over_tilt.png`: the ground right of the block, before (top) | tilt 1 (bottom). The black
-  dashes are step faces that turned black.
-- Gameplay consequence in plain words: lighting only. Nothing changes for play: tilt is OFF, so the game looks and runs as before.
+Gameplay trade in plain words: a raised floor is free and removes the "pure black" pixels, but surface overhangs in daylight still read as
+dark holes; only treating everything as open sky makes them look like shaded rock, and that also lights sealed caves as if outdoors (option D
+-- dark caves with lit open overhangs -- is NOT reached by any arm; it needs a real soft sky term, ~+2 ms). Any floor ties a sealed cave's
+brightness to the time of day (a sealed room is dim grey at noon, black at night). Pitch-black caves at night are what every floor gives
+today; they would make light sources a real gameplay item, but one torch currently lights only a ~1-2 m patch, so dark-cave play would also
+need a brighter / longer-reach torch.

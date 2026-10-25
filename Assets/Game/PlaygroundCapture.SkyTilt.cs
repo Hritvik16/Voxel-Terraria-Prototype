@@ -26,6 +26,33 @@ public partial class PlaygroundCapture
 {
     private IEnumerator SkyTiltBuilt(FarField far, Camera cam, StreamManager sm, ShellStreamer sh, Vector3 eyeA, int settle, float wait)
     {
+        yield return SkyTiltBuild(far, cam, sm, sh, eyeA, wait);
+        float h20 = _st.h20; int3 room = _st.room;
+        Vector3 aV = _st.aV, vV = _st.vV, eyeMouth = _st.eyeMouth, mouthC = _st.mouthC;
+
+        string[] arms = { "native", "tilt", "tilt2" };
+        // ---- mouth at sun 20 and noon: the open face in sun + the mouth ----
+        SunCycle.SetHours(h20);
+        yield return BsPose(far, cam, sm, sh, "st_mouth20", eyeMouth, mouthC, settle, wait, arms);
+        SunCycle.SetHours(12f);
+        yield return BsPose(far, cam, sm, sh, "st_mouthnoon", eyeMouth, mouthC, settle, wait, arms);
+        SunCycle.SetHours(h20);
+        // ---- inside the tunnel, looking deeper (slightly up, at the ceiling) ----
+        Vector3 eyeT = mouthC - aV * 3f + Vector3.down * 0.6f;
+        yield return BsPose(far, cam, sm, sh, "st_tunnel", eyeT, eyeT - aV * 8f + Vector3.up * 1.6f, settle, wait, arms);
+        // ---- inside the sealed room, looking at a wall corner and the ceiling ----
+        Vector3 eyeR = new Vector3(room.x + 0.5f, room.y + 0.5f, room.z + 0.5f) * 0.1f;
+        yield return BsPose(far, cam, sm, sh, "st_sealed", eyeR, eyeR + (vV + aV) * 2.5f + Vector3.up * 1.2f, settle, wait, arms);
+        Phase4Bootstrapper.DebugStreamCentre = null;
+        L("SKY TILT BUILT done");
+    }
+
+    /// Task 139: the site and edit ops of SkyTiltBuilt, shared with DarkCompare. Results in _st.
+    private struct StSite { public float h20; public int3 C, a, v, room; public Vector3 aV, vV, eyeMouth, mouthC; public EditService edits; }
+    private StSite _st;
+
+    private IEnumerator SkyTiltBuild(FarField far, Camera cam, StreamManager sm, ShellStreamer sh, Vector3 eyeA, float wait)
+    {
         float h20 = SunCycle.HoursForElevation(20f, false);
         float3 s3 = SunCycle.DirectionAt(h20);
         // the mouth faces the axis nearest the sun-20 azimuth
@@ -81,21 +108,6 @@ public partial class PlaygroundCapture
         { cam.transform.position = eyeMouth; yield return null; }
         L($"  built: {ops.NearVoxelsWritten:N0} 0.1 m voxels written near; shells redrew {(sh != null ? sh.Redrawn - redrawn0 : 0)} chunks");
         yield return Frames(30);
-
-        string[] arms = { "native", "tilt", "tilt2" };
-        // ---- mouth at sun 20 and noon: the open face in sun + the mouth ----
-        SunCycle.SetHours(h20);
-        yield return BsPose(far, cam, sm, sh, "st_mouth20", eyeMouth, mouthC, settle, wait, arms);
-        SunCycle.SetHours(12f);
-        yield return BsPose(far, cam, sm, sh, "st_mouthnoon", eyeMouth, mouthC, settle, wait, arms);
-        SunCycle.SetHours(h20);
-        // ---- inside the tunnel, looking deeper (slightly up, at the ceiling) ----
-        Vector3 eyeT = mouthC - aV * 3f + Vector3.down * 0.6f;
-        yield return BsPose(far, cam, sm, sh, "st_tunnel", eyeT, eyeT - aV * 8f + Vector3.up * 1.6f, settle, wait, arms);
-        // ---- inside the sealed room, looking at a wall corner and the ceiling ----
-        Vector3 eyeR = new Vector3(room.x + 0.5f, room.y + 0.5f, room.z + 0.5f) * 0.1f;
-        yield return BsPose(far, cam, sm, sh, "st_sealed", eyeR, eyeR + (vV + aV) * 2.5f + Vector3.up * 1.2f, settle, wait, arms);
-        Phase4Bootstrapper.DebugStreamCentre = null;
-        L("SKY TILT BUILT done");
+        _st = new StSite { h20 = h20, C = C, a = a, v = v, room = room, aV = aV, vV = vV, eyeMouth = eyeMouth, mouthC = mouthC, edits = edits };
     }
 }
