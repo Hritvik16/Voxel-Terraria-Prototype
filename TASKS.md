@@ -568,6 +568,10 @@ dry; `SubmitPrecomputed(coord, data, store)` now clears pending evicted chunks f
 512th) splits held slots into resident / non-resident / unowned. The CAP is the owner's call (HANDOFF 140). Stream probe prints one
 `cascade tier N pool:` line per tier. Measurement flags `-tier1cap N` / `-tier2cap N` (Phase4Bootstrapper; default = EngineConfig).
 Tests: `CascadeTierPoolPressureTests` (3).
+Task 145 (owner Q93 (a)): caps raised by task 53's rule, measured peak x 1.25: tier 1 104,000 -> 221,000 (176,516 x 1.25), tier 2
+21,000 -> 41,000 (32,505 x 1.25), in `EngineConfig.Tg2CascadeTierPoolCap`; +140 MB, only with shells OFF (shells ON allocates none).
+Walk (`MODE=stream MOTION=walk`, shells OFF, `Logs/tg2world_20261025_092344.txt`): tier 1 peak 176,516 / 221,000, tier 2 32,505 /
+41,000, still exhausted 0, Player.log exceptions 2,777 -> 0 (`Logs/overnight/145-after-Player.log`), peak footprint 2,373 MB (140: 2,206).
 
 **Task 142 (plan only, owner Q91 "Soft sky light" 2026-10-25): `SOFT_SKY_PLAN.md`.** No code, no flag, no look change. Recommends
 candidate A: one cosine-weighted sky ray per tier-0 hit pixel per frame (replacing the vertical probe), averaged in a per-pixel history

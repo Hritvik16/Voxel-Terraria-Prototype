@@ -356,14 +356,23 @@ public static class EngineConfig
     ///   tier 2 peak 16,437 (poses) x 1.25 =  20,546 ->  21,000 (was  96,000)
     /// No alignment rule: BrickDataPool takes any count, the GPU body buffer is
     /// cap x 128 uints. Saves (216,000 + 75,000) x 512 B x 2 (CPU + GPU) = 284 MB.
+    /// RAISED (task 145, owner Q93 (a), same rule: measured peak x 1.25).
+    /// Task 122's biome blend dithers rock/soil per 0.8 m cell under biome
+    /// borders, so every tier-1/2 brick in a blend band is mixed material all
+    /// the way down; task 140 measured (tg2 v4, MODE=stream MOTION=walk,
+    /// shells OFF, pools uncapped at 260,000 / 80,000):
+    ///   tier 1 peak 176,516 x 1.25 = 220,645 -> 221,000 (was 104,000)
+    ///   tier 2 peak  32,505 x 1.25 =  40,631 ->  41,000 (was  21,000)
+    /// Costs 137,000 x 512 B x 2 (CPU + GPU) = +140 MB, only where these pools
+    /// exist (shells OFF; default play has shells ON and allocates none).
     /// Exhaustion still THROWS ("BrickDataPool exhausted") out of the chunk
     /// admission that overflowed; if that line ever appears, raise these.
     public static int Tg2CascadeTierPoolCap(int tier)
     {
         switch (tier)
         {
-            case 1: return 104000;
-            case 2: return 21000;
+            case 1: return 221000;
+            case 2: return 41000;
             default: return 2 * CascadeTierPoolCap(tier);
         }
     }
