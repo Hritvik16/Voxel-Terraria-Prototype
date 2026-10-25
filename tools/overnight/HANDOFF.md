@@ -1,60 +1,61 @@
-# 136-qa-black-shape-cliff2: DONE (capture + diagnosis only). The black shape is the VERTICAL SKY PROBE: tier-0 rock under an overhang, out of the sun, gets ~0 light.
+STOP_FOR_OWNER -- task 138: the tilted sky probe does NOT fix the black shapes and costs ~2 ms, so it stays OFF. Question: what next for
+the pure-black overhangs? (a) Recommended: raise the underground ambient floor (`_UndergroundAmbientFloor`, an art constant, 0 ms): no face
+goes pure black anywhere, caves turn very dim instead of black; one look-check task with a few floor values. (b) Average two rays (vertical +
+tilted): black only where both are blocked (arches stay partly black), about +2 ms. (c) A proper soft sky term (random direction per frame,
+averaged over time): the right look, a bigger design task, about +2 ms. (d) Accept the black as it is.
 
-## What changed
-- `Assets/Game/PlaygroundCapture.BlackShape.cs` (new, capture-only): `-lookreview -cliffshadow 1 -blackshape N`. Hook in `PlaygroundCapture.CliffShadow.cs`.
-- `tools/blackshape136.py` (the sheet). `TASKS.md`: one paragraph. `Screenshots/136/blackshape136.txt`: the CPU probe log.
-- No product code, default or look change.
+# 138-look-tilted-sky-probe: DONE, result negative. `-skytilt 1|2` built and tested, OFF by default; look check FAILS, cost +1.9 to +3.8 ms.
+
+## What changed (commit 25e7a66)
+- `Raymarch.compute`: `SkyProbeDir` / `_SkyProbeTilt`. 1 = up faces straight up, side faces 45 deg up and out, down faces horizontal
+  toward the viewer (+x if looking straight up). 2 = side faces only. Same ray count, same TraceShadowRay. 0 = before (default).
+- `RaymarchFeature.SkyProbeTilt` (`-skytilt N`). CPU twin `ShadowRayReference.SkyProbeDir` / `TraceSkyProbe`.
+- `SkyProbeTiltTests` (9, new): directions; ledge undercut opens; arch underside opens; sealed cave dark from every face and view;
+  open cliff face open; the narrow-canyon foot and the straight-tunnel ceiling are pinned as the rule's trade-offs.
+- Capture: `-skytiltqa 1` (with `-blackshape 2`) adds arms tilt / tilt2. `PlaygroundCapture.SkyTilt.cs` builds a 15 m stone block with
+  a 12 m tunnel and a sealed room using edit ops. Cost-split arms `skytilt_on/skytilt2/skytilt_off`. Sheet: `tools/skytilt138.py`. TASKS.md "Task 138".
 
 ## Evidence
-- Run: `Logs/lookreview_20261024_181746.txt`. Shots in `LookReview/2026-10-24_182151_high/` (`bs_*.png`).
-  - Shells: s1-s2 full at A. s3-s7 were still filling after the 90 s cap (1,592 missing); the tier-0 window was complete.
-  - A reproduces task 135 exactly: 35,538 pure-black pixels (max channel <= 4). The other 5,709 px that differ are the unfilled far shells.
-- **Who drew them** (debug view 14 decoded): 100% tier-0 HITS, at 85-98 m. The window edge toward the sun is 108 m away.
-  - So they are not misses, not out-of-box, and not shells.
-- **CPU probe** on the ChunkStore, column x = 1780 of A:
-  - Every black pixel is a rock face, n = (0,0,-1), with rock straight above its face cell, **23-29 m up** (`BLOCKED 25.9 m up`).
-  - Every grey wall pixel just above the "teeth" is `open to the window top`.
-  - Both groups face away from the sun (sun ray blocked at 0.1-2 m).
-  - The black faces sit 2-4 m deeper (z 52925-52941 vs 52902-52914): it is an undercut under a rock ledge.
-- **Shading path** (`Raymarch.compute`, look 1): a blocked vertical probe gives skyVis = 0.
-  - Then `skyOpen = _UndergroundAmbientFloor` (0.02-0.06). That multiplies BOTH the ambient and the shadow floor.
-  - So a face that is sun-shadowed AND has rock straight overhead goes to ~0, RGB (1,1,2).
-- **Proof arm** (`nosky` = `UseSkyProbeAmbient` off): black pixels drop 35,538 -> 189 at A and 210,605 -> 317 at close.
-  - The face then shades like the wall around it (sheet panel 4).
-- **Noon** (sun 78 deg): still 35,345 black px. The ledge also blocks a near-vertical sun. Not a low-sun effect.
-- **Other overhang** (cliff2's stone arches, 38 m, shadow side): 93,696 black px. The inside of every arch span is pure black; `nosky` -> 0 px.
-- Looked at: bs_A_native, bs_A_nosky, bs_close_native, bs_side_native, bs_other_native, and the sheet.
-  - The side view shows the black band under the overhanging ledge. The arches are black on their inner undersides.
+- Fast suite PASS 932 FAIL 0 SKIP 15 (`Logs/overnight/138-tests.out`). Filtered run first: 29/29 (`Logs/overnight/138-filter.out`).
+- Look launch `Logs/lookreview_20261024_224144.txt`, shots `LookReview/2026-10-24_225411_high/bs_*.png`. Counts: `Screenshots/138/skytilt138.txt`.
+  I looked at every row of the sheet plus two zooms:
+  - cliff2 A: the upper part of the black crescent turns grey. The black "teeth" at its foot stay black.
+  - Arches: solid black undersides become black stripes and dots, and NEW black stripes appear on the arch legs.
+  - Built mouth: the sunlit face is unchanged. Step faces on the ground beside the block turn black: their 45 deg ray hits the 15 m block.
+  - Tunnel and sealed room: fully black in every arm. With tilt 1 even the tunnel ceiling stays black. My guess (not checked on the CPU):
+    its horizontal ray runs out of the mouth and then hits rising ground. A horizontal ray almost always hits terrain somewhere.
+- The root cause: ONE yes/no ray, multiplied into both ambient and the shadow floor. Any direction choice leaves some sun-shadowed faces
+  "blocked", and those go pure black. The tilt only moves which faces those are.
+- Cost (warm steady state; warm-up `Logs/tg2world_20261024_231406.txt` discarded; AC; no pause): see the table below and `Screenshots/138/perf138.txt`.
+  Walk arm skipped: the look had already failed, so OFF was fixed whatever the walk showed (decisions written first:
+  `Screenshots/138/decisions_before_measuring.txt`).
+- The warm-up's 16 "BrickDataPool exhausted" lines also appear in 137's walk logs (not new).
 
-## How often a player sees it
-- Wherever tier 0 (within ~100 m) draws a face that has solid rock anywhere straight above it in the 0.1 m window AND is out of the sun.
-  - Examples: undercut cliff feet, arch and bridge undersides, ledges, cave mouths.
-- Any time of day. Common in arch/cliff landform regions, and very visible: pure black next to grey rock.
-- It flips to grey as the window moves past (the probe only sees tier 0), so it can also pop.
-- Shells never show it: they skip the sky probe.
-
-## Proposed fix (owner's call; not done)
-- (a) **Recommended: tilt the probe out of the face.** Use dir = normalize(up + n_horizontal) for side faces and a horizontal ray for down faces.
-  - An undercut 2-4 m deep with its ledge 25 m up then sees sky. Sealed caves stay dark.
-  - Same ray count, but no longer axis-aligned, so air-mip leaps shrink. **Estimate +0.3-1 ms** at play res (not measured).
-  - The CPU oracle and the sky-probe tests (`ShadowRayReference`, dir (0,1,0)) need the same direction.
-- (b) Average the vertical ray and the tilted ray: a softer result. **Estimate +1-2 ms** (one extra ray per tier-0 hit).
-- (c) Free but cruder: never let a sky-probe-blocked face fall below the plain shadow floor when the occluder is > N m up. Caves with high ceilings would brighten.
-- Phase 7 already flagged the probe "FLAGGED, NOT DECIDED" (the comment above the probe in `Raymarch.compute`). Any fix needs a look check at cave mouths.
-
-## Unfinished / next
-- Nothing open in this task. The next step is the owner's choice of fix. Its look check reuses `-blackshape 2` (A/close/other, `nosky` = target look).
+## Left open
+- The owner's choice above. `Builds/Playground.app` is built from this tree, default unchanged (tilt 0). The look launch's edit ops stay in its ops.log (launches pass -cleardeltas).
 
 ## For the doc
-| what | value |
-|---|---|
-| black px at cliff2 A, native 1080 | 35,538 (same as 135) -> 189 with the vertical sky probe off |
-| black px, 15 m closer | 210,605 -> 317 (probe off) |
-| black px at noon (sun 78 deg) | 35,345 (unchanged: not a low-sun effect) |
-| black px, stone arches 38 m (2nd overhang) | 93,696 -> 0 (probe off) |
-| what drew them | 100% tier-0 hits at 85-98 m; rock 23-29 m straight above each face (`Screenshots/136/blackshape136.txt`) |
+| pure-black px, native 1080 | before (vertical) | tilt 1 | tilt 2 (sides) | probe off (136's target) |
+|---|---|---|---|---|
+| cliff2 A (ledge), sun 16 h | 35,538 | 23,229 | 23,301 | 189 |
+| cliff2 A, noon | 35,345 | 19,002 | 19,074 | -- |
+| 15 m closer | 210,605 | 100,425 | 100,786 | 317 |
+| stone arches | 93,696 | 127,295 (worse) | 137,859 | 0 |
+| built cave mouth, sun 20 | 62,821 | 92,957 (worse) | 92,957 | -- |
+| sealed room | all black | all black | all black | -- |
 
-- `Screenshots/136/blackshape136.png`: six panels.
-  - Top row: (1) cliff2 A in the play look at native 1080. The red box at the right is the black shape at the foot of the near cliff. (2) That box zoomed: pure black under a jagged ledge line. (3) Debug view 14: the box is all orange = tier-0 hits, not sky or shells.
-  - Bottom row: (4) the same view with the vertical sky probe off: the box is ordinary grey rock. (5) Side view from 39 m: the black is the undercut beneath an overhanging ledge. (6) A second overhang, the stone arches from 38 m: the inside of every arch is black too.
-- Cause in plain words: the game decides "is this rock under open sky?" with ONE ray straight up. Under a ledge or an arch that ray hits rock, so the game treats the face as deep underground and gives it almost no light. When the sun cannot reach it either, it turns black.
+| warm, AC, noon, FSR 3 540, p50 ms | FULL (3 passes) | tilt 1 | tilt 2 | tilt 1 / tilt 2 - FULL (noise) |
+|---|---|---|---|---|
+| walk_near | 64.9 / 65.2 / 64.2 | 67.5 / 66.8 | 68.5 / 68.8 | +1.9 / +3.8 (0.3 / 1.0) |
+| walk_open | 37.5 / 38.2 / 37.5 | 40.2 / 40.4 | 39.2 / 41.0 | +2.4 / +2.3 (0.7) |
+(`Logs/costsplit_2026-10-24_232016.txt`)
+
+- `Screenshots/138/skytilt138.png`: one row per place (cliff2 ledge, stone arches, built cave mouth at sun 20, inside the tunnel,
+  sealed room). Columns: before | tilt 1 | tilt 2 | red = pixels tilt 1 changed. Top row, right edge: the black crescent shrinks but its
+  toothed foot stays. Row 2: red spreads over the arch legs, which is new black. Row 3: the red patches on the ground left and right of
+  the block are step faces that turned black. Rows 4-5: all black in every column, so caves stay dark.
+- `Screenshots/138/arches_native_left_tilt_right.png`: the arches zoomed, before (left) | tilt 1 (right). Look at the right arch's legs:
+  vertical black stripes, and the dotted black patch at right centre.
+- `Screenshots/138/mouth20_risers_native_over_tilt.png`: the ground right of the block, before (top) | tilt 1 (bottom). The black
+  dashes are step faces that turned black.
+- Gameplay consequence in plain words: lighting only. Nothing changes for play: tilt is OFF, so the game looks and runs as before.
