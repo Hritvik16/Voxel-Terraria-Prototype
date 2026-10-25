@@ -1,45 +1,73 @@
-STOP_FOR_OWNER: approve the rig refresh plan (`RIG_REFRESH_PLAN.md` section 6, Q1-Q4) before any rig is changed or retired.
-- Q1 retire 32 scripts to `tools/retired-rigs/`? (a, rec.) yes / (b) no / (c) only the 19 one-off A/Bs.
-- Q2 acceptance rig = correctness only, frame time quoted only from a new tg2 play-path rig? (a, rec.) yes / (b) keep as today.
-- Q3 Amdt 8.12 shadow-rung gate: (a, rec.) re-base as an arm of the new perf rig on tg2 / (b) keep the arena rig / (c) retire.
-- Q4 build the gameplay-stack correctness rig (a, rec.) after the quality pass / (b) now.
+# 146-perf-milestone-30fps: DONE -- goal NOT met: warm walk p50 44.7 ms (45.7 / 43.6), 82-89% of frames > 33 ms; gap -14.7 ms p50
 
-# 144-rig-refresh-audit: DONE (audit + plan only; no rig changed, retired or run)
+Decision-table row 3 (p50 more than 3 ms over 30): the gap per stage and the ranked remaining cuts are below. The owner picks.
+No code change. Docs only: this file and a status note at the top of `PERF_30FPS_PLAN.md` (each section-3 step marked done / spent / unspent).
 
-## What changed (commit below)
-- `RIG_REFRESH_PLAN.md` (new): every one of the 54 `run-*.sh` in a table (purpose/phase, last report + status,
-  verdict, effort, one-line reason); the status of each drift item task 78 named; a proposed standing set; follow-ups R1-R6.
-- `TASKS.md`: "Task 144" paragraph.
+## Runs (warm steady state, AC 100% throughout, no owner pause, back to back 11:44-12:25, build 147e0e8)
+- Warm-up (discarded): `MODE=stream MOTION=walk` -> `Logs/tg2world_20261025_114432.txt`
+- Walk 1: `MODE=playwalk` (5 min, 145b play defaults, FSR 3 dyn) -> `Logs/tg2world_20261025_114953.txt`
+- Cost split: `SKIP_BUILD=1 EXTRA="$PLAY_SETTINGS_FLAGS -renderrows 540 -shellwait 120 -costtimed 15 -costarms shells_off,far_off,sun_off,fshade_off,ups_none,hud_off,tiny_gate" ./run-cost-split.sh`
+  -> `Logs/costsplit_2026-10-25_115751.txt` (same flags as task 110's baseline driver, plus play's other defaults; FULL range 2.8 / 0.4 ms over 8 runs)
+- Walk 2 (repeat): `MODE=playwalk` -> `Logs/tg2world_20261025_121758.txt`
 
-## Findings
-- All 25 `-executeMethod` build/scene methods the scripts call still exist (checked by name) -> nothing is broken at build level.
-- Verdicts: keep 9 · update 6 · merge 7 (into a new `run-gameplay-stack.sh` based on `run-phase6-combined.sh`, on tg2 v4,
-  Survival, new motor, pool 480, shells ON) · retire 32 (19 one-off A/Bs from finished tasks + 13 superseded rigs/launchers).
-- Latest reports read (not re-run): acceptance rig 2026-10-17 PASS 52 FAIL 1 (Gate C steady p99 upload 1.36 ms vs 1.0;
-  three runs 1.315-1.538); Phase 7 rig 2026-10-17 PASS 37 FAIL 0; fluid-tiled 2026-10-17 PASS 19 FAIL 0; brush guard
-  still FAILED (2026-09-11, stale rig per KNOWN_ISSUES); phase 5/6 + fluid rigs last reported 2026-09-10..12 (before
-  Phase 7, the overhaul, 8.14-8.16) -> their behaviour today is unknown, not failed.
-- No rig runs play's combination (tg2 v4 + Survival + new motor + FSR 3 dyn + shells + pool 480). `run-tg2world.sh`
-  MODE=walk uses `-renderpreset performance` (480x270 FSR 1), shells off -- task 146 asks for "the PLAY defaults" and
-  must pass them via EXTRA today. Proposed fix: `MODE=playwalk` / `run-perf-milestone.sh` (follow-up R5).
-- 29 scripts do not take the shared Unity lock, incl. the kept editmode/phase7/acceptance/acceptance-fluid/fluid-tiled (R2).
-- `run-fluid-activity.sh`'s header is a verbatim copy of `run-phase6-sandbox.sh`'s (misleading; retire).
+## Before (2026-10-22, task 110) -> now
+| | 10-22 | now |
+|---|---|---|
+| walk p50 | 41.0 / 41.0 | **45.7 / 43.6** |
+| walk p95 | not reported | 73.0 / 74.5 |
+| walk p99 | 98.7 / 99.4 | 97.0 / 95.6 |
+| walk > 33 ms | 77.6 / 72.0% | **88.6 / 81.6%** |
+| FSR 3 rows (dyn) | 540 pinned | 540 100% (0 dyn steps) |
+| walk_near FULL p50 (p99) | 60.5-60.9 (110) | **61.0** (109) |
+| walk_open FULL p50 (p99) | 42.9-43.2 (81) | **36.1** (58) |
+| peak footprint | 2,417 MB | 2,348 / 2,435 MB |
 
-## Evidence
-- Fast suite PASS 935 FAIL 0 SKIP 15 (`Logs/overnight/144-tests.out`) -- doc-only change.
-- Reports read under `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/`
-  (`Phase4Acceptance/2026-10-17_002443`, `Phase7Cycle/2026-10-17_174852`, `FluidTiled/20261017_050829`,
-  `Phase6BrushGuard/20260911_225955`, ...). No frame-time measurement, no player launch.
+**The walk got WORSE (+3.7 ms p50) while the steady poses held (near) or improved (open, -7 ms).** On the same leg (0.5-2.5 min means)
+10-22 was 43.0-43.2 ms, now 45.7-47.4, so it is not the longer 5-min run. NOT isolated; candidates: shells hold more while walking
+(`[shells] held` s2 600-1,060 vs 546-643, s3 17-27 vs 0: plan section 1 predicted moving cost rises toward steady as shells fill),
+task 133's near shadows through the shells (+1.45 ms walk at sun 30 deg, +6.1 near noon), and playwalk's extra defaults (-underwater, -minimap).
 
-## Unfinished / next
-- Nothing changed in any rig, by the task's rule. Next: owner answers Q1-Q4; then R2 (lock, S) and R1 (retire, S) can be
-  queued; R5 (perf-milestone rig) before/with task 146; R3 (gameplay-stack rig, L) after the quality pass if Q4 (a).
-- No follow-up task file added (all follow-ups need the owner's answers).
+## Gap per stage (steady, saved p50 ms = FULL - arm; NOT additive)
+| stage (arm) | walk_near 10-22 -> now | walk_open 10-22 -> now |
+|---|---|---|
+| CPU + fixed floor (tiny_gate 256x144, no upscaler) | 7.1 -> 7.1 | 5.0 -> 4.4 |
+| sun shadows (sun_off) | 17.1 -> **17.2** | 6.0 -> 5.5 |
+| shell path vs tier 0 + far band (shells_off) | 11.4 -> 8.8 | 13.5 -> 5.5 |
+| far band, also stops the shell march (far_off) | 12.5 -> 6.7 | 18.2 -> 7.9 |
+| FSR 3 pass (ups_none) | 6.8 -> 5.7 | 6.8 -> 5.4 |
+| far shading (fshade_off) | -4.5 -> -5.5 | +1.4 -> **-8.5** (OFF = the pre-134 fat kernel: not a cut) |
+| HUD + minimap (hud_off) | 0.7 -> -0.2 | 0.5 -> 0.1 |
+Target 30: near needs -31.0, open -6.1, walk -14.7 p50, and p95 ~74 -> 33 for the 5% line. GPU-bound (present wait 0).
+The biggest stage at the slow views is now sun shadows (17 ms near); 132/134 cut the shell path roughly in half.
+
+## Ranked remaining cuts (exact first; ms = est. unless marked measured)
+1. **Shell column height bound** (137's design, `Screenshots/137/height_bound_design.txt`; 28 KB GPU table = layout addition, owner): near sun
+   rays stop climbing to the shells' 1,100 m top. Ceiling = 133's measured cost: <= 6.1 near / ~1 open / ~1.5 walk. Exact.
+2. **R2 ray compaction** (PERF_SHELL_MARCH_PLAN, needs R1 = done): not costed; ceiling = shells_off 8.8 / 5.5 measured. Exact, no layout.
+3. **R5 chunk-state bitmap** (KB buffer, owner layout approval): not costed, overlaps 2. Exact.
+4. **Rows below 540** (dyn floor 432 + 30 ms target; owner, below the 540 minimum): est. ~14 near / ~8 open / walk ~8-11
+   (pixel part FULL - tiny_gate 53.9 / 31.7 x 0.36 x 0.7). Largest single lever. No stills below 540 yet.
+5. **Shells OFF in play** (undo 93c, owner): measured 8.8 / 5.5 steady (walk less, shells part-empty). Since 93d it draws tier 0 + far band, no tiers 1-2.
+6. **STP / FSR 1 instead of FSR 3** (owner, Q38): FSR 3 pass measured 5.7 / 5.4; STP -2.7 / -3.1, FSR 1 -4.9 / -5.4 (task 51, older build).
+Spent / not cuts: column sky leap (116, ~0), Medium (117, ~0), shadow clamp (118, no-op), reuse 8 (124, ~0), hole leap (137, ~0),
+spike fix (123, p99 unchanged), sun off (17.2 / 5.5: no cheaper variant left), far band off (removes far terrain), far shading off (slower).
+**Sum:** 4 + 1 + 6(STP) reaches walk ~30-31 p50 (est.); near views stay ~38 ms, so the 5% line is NOT reached without also 5, or rows ~360.
+
+## Screenshots looked at
+- `.../UpscalerClips/2026-10-25_115751/stills/walk_near_full.png`: canyon wall at 0.1 m fills the frame, sky top-right, HUD on; no holes.
+- `.../UpscalerClips/2026-10-25_115751/stills/walk_open_full.png`: open desert hills to the horizon, half the frame sky, snowy lowland bottom-left.
+- `.../Sustained/2026-10-25_121937_tg2playwalk_20261025_121758/99_end_pose.png`: walk's last frame, a close sandstone slope; no black bands.
+(`...` = `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap`)
+
+## Next
+Owner picks from the ranked cuts (recommend 1 then 2: exact; then decide 4 with stills at 432 / 540). Unexplained +3.7 ms walk regression vs
+10-22: worth one isolation arm (`-nearshadowshells 0` on playwalk) inside whichever perf task comes next, not as its own task.
+The measured walk still uses the scripted camera, not Survival / movement (145b's open question).
 
 ## For the doc
-- Rigs audited: 54 -> verdicts keep 9 / update 6 / merge 7 / retire 32 (`RIG_REFRESH_PLAN.md` section 3).
-- Rigs on the play path (tg2 v4 + FSR 3 dyn + shells + Survival): 0 today -> 1 proposed (`run-perf-milestone.sh`).
-- Correctness gates' last state: acceptance 52/1 (Gate C p99 1.36 ms vs 1.0 ms), Phase 7 37/0, fluid-tiled 19/0,
-  brush guard red (stale rig); 16 phase 5/6/fluid rigs not run since 2026-09-12.
-- Scripts without the shared Unity lock: 29 (5 of them in the proposed standing set).
-- No images: an audit of scripts and old reports has nothing visible to show.
+- Walk p50 41.0 -> **44.7 ms** (45.7 / 43.6), > 33 ms 72-78% -> **82-89%**, p99 99 -> 96 ms (`Logs/tg2world_20261025_{114953,121758}.txt`; warm-up `Logs/tg2world_20261025_114432.txt`)
+- Steady walk_near 60.7 -> **61.0 ms**, walk_open 43.0 -> **36.1 ms** (`Logs/costsplit_2026-10-25_115751.txt`)
+- Shell path cost 11.4 / 13.5 -> 8.8 / 5.5 ms (near / open); sun shadows 17.1 -> 17.2 ms near = now the biggest stage
+- Gap to 30 fps: -14.7 ms walk p50, -31 ms near; ranked cuts above (exact first)
+- Image: `.../UpscalerClips/2026-10-25_115751/stills/walk_near_full.png` -- the slow view (61 ms): a canyon wall filling the frame, sky top-right.
+- Image: `.../UpscalerClips/2026-10-25_115751/stills/walk_open_full.png` -- the open view (36 ms): desert hills to the horizon under half a frame of sky.
