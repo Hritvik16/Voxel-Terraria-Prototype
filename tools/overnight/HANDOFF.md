@@ -1,59 +1,52 @@
-# 146-perf-milestone-30fps: DONE -- goal NOT met: warm walk p50 44.7 ms (45.7 / 43.6), 82-89% of frames > 33 ms; gap -14.7 ms p50
+# 147-look-soft-sky-s1-oracle: DONE -- CPU oracle `SkyVisReference` + 11 tests green; quadrature table written; no GPU change
 
-Decision-table row 3 (> 3 ms over): gap per stage + ranked cuts below; owner picks. No code change; `PERF_30FPS_PLAN.md` top note marks section 3's steps.
+## What changed (commit 52248d4, branch engine-phase)
+- `Assets/CoreEngine/Rendering/SkyVisReference.cs` (new): skyVis = the cosine-weighted fraction of the face's hemisphere whose hard
+  shadow ray (`ShadowRayReference.Trace`, kSoft 0) reaches the sky. Directions with y <= 0 count as GROUND (0, no ray traced).
+  Sequence: `SamplePoint(seed, frame)` = the R2 lattice (0.32 fixed point) with a lowbias32 rotation per seed, giving 23-bit u/v.
+  It is integer-exact (S2's shader must match the pinned values). `CosineDir` uses sqrt/sincos, which match the GPU to a few ulps.
+  `History`: 1/n for 16 samples, then 1/16. Its key is `OriginKey` (the twin of ShadowOriginKey). `Quadrature` = 1,024 directions.
+- `Assets/CoreEngine/Tests/SkyVisReferenceTests.cs` (new, 11 tests). Every shape is built from Box `EditOps`; nothing comes from
+  the generator. TASKS.md has a "Task 147" paragraph. Report: `Screenshots/147/softsky_quadrature147.txt` (text).
 
-## Runs (warm steady state, AC 100% throughout, no owner pause, back to back 11:44-12:25, build 147e0e8)
-- Warm-up (discarded) `MODE=stream MOTION=walk` `Logs/tg2world_20261025_114432.txt`; walk 1 `MODE=playwalk` (5 min) `Logs/tg2world_20261025_114953.txt`
-- Cost split: `SKIP_BUILD=1 EXTRA="$PLAY_SETTINGS_FLAGS -renderrows 540 -shellwait 120 -costtimed 15 -costarms shells_off,far_off,sun_off,fshade_off,ups_none,hud_off,tiny_gate" ./run-cost-split.sh`
-  -> `Logs/costsplit_2026-10-25_115751.txt` (same flags as task 110's baseline driver, plus play's other defaults; FULL range 2.8 / 0.4 ms over 8 runs)
-- Walk 2 (repeat) `Logs/tg2world_20261025_121758.txt`. HUD + minimap (hud_off) ~0 ms at both poses.
+## Evidence
+- Filter run `REPORTS=1 tools/run-editmode-filter.sh SkyVisReferenceTests`: PASS 11 FAIL 0. Fast suite: PASS 946 FAIL 0 SKIP 15 (was 936).
+- Exact cases (every face, frames 0-255, 8 pixel seeds): the sealed 8.1 m room = 0 and the 0.1 m shell room = 0. Open ground and a
+  1-voxel pillar top = 1. An open vertical face = 0.5 and a down face = 0. A 0.1 m wall gives the same answer as a 2 m wall with the
+  same near face, in both the quadrature and the running mean.
+- Cross-check against closed forms: ledge floor 1.5 m in = 0.277 (2D view factor 0.276); floor under the 2 m hole = 0.063 (square
+  aperture formula 0.059).
 
-## Before (2026-10-22, task 110) -> now
-| | 10-22 | now |
-|---|---|---|
-| walk p50 | 41.0 / 41.0 | **45.7 / 43.6** |
-| walk p95 / p99 | n/a / 98.7, 99.4 | 73.0, 74.5 / 97.0, 95.6 (FSR 3 dyn stayed at 540 rows 100%) |
-| walk > 33 ms | 77.6 / 72.0% | **88.6 / 81.6%** |
-| walk_near FULL p50 (p99) | 60.5-60.9 (110) | **61.0** (109) |
-| walk_open FULL p50 (p99) | 42.9-43.2 (81) | **36.1** (58) |
+## FLAGS for the owner / S2 (not blocking S1)
+1. **Noise is 2x the plan's estimate.** The plan's sqrt(0.25/16) is 0.125, not 0.06. After 64 frames the per-pixel RMS error is
+   0.03-0.05 and single pixels miss by up to ~0.1 (ledge floor 0.192..0.364 around a true 0.277). An offline check
+   (`/tmp/sky147/sim.py`, not committed) found NO sequence that keeps every pixel within ±0.05 under the fixed 1/16 mean: R2
+   0.037 RMS, a 16-point Sobol net 0.06-0.08, independent random 0.08. So test (4) is stated as RMS over 32 pixels <= 0.05 plus an
+   unbiased mean. If S2's look shows too much shimmer, the knobs are S4's spatial filter or a longer mean (1/32): owner Q2.
+2. **An open vertical face reads 0.5, today 1** (half of its hemisphere is ground). Fed raw into `skyOpen`, every cliff and wall would
+   get about half today's ambient and shadow floor: a global look change. Ground 1 m in front of the 15 m block reads 0.57.
+   Recommended for S2: two arms, `-softsky 1` = raw and `-softsky 2` = divided by the face's open value (side faces / 0.5, up faces
+   as they are), both on the darkcompare sheet.
+3. **Undersides stay 0.** Arch and ledge down faces get 0 by definition, the same as today. The plan's "~0.2-0.5" was not sky light.
+   The `lift` column shows what keeping TraceShadowRay's y >= 1e-6 clamp would give instead (ledge underside 0.50, mouth lip 0.44,
+   and the wall under the ledge 0.78 instead of 0.28). That is not sky; if the owner wants lit undersides, that is a bounce question.
 
-**The walk got WORSE (+3.7 ms p50) while the steady poses held (near) or improved (open, -7 ms).** On the same leg (0.5-2.5 min means)
-10-22 was 43.0-43.2 ms, now 45.7-47.4, so it is not the longer 5-min run. NOT isolated; candidates: shells hold more while walking
-(`[shells] held` s2 600-1,060 vs 546-643, s3 17-27 vs 0: plan section 1 predicted moving cost rises toward steady as shells fill),
-task 133's near shadows through the shells (+1.45 ms walk at sun 30 deg, +6.1 near noon), and playwalk's extra defaults (-underwater, -minimap).
-## Gap per stage (steady, saved p50 ms = FULL - arm; NOT additive)
-| stage (arm) | walk_near 10-22 -> now | walk_open 10-22 -> now |
-|---|---|---|
-| CPU + fixed floor (tiny_gate 256x144, no upscaler) | 7.1 -> 7.1 | 5.0 -> 4.4 |
-| sun shadows (sun_off) | 17.1 -> **17.2** | 6.0 -> 5.5 |
-| shell path vs tier 0 + far band (shells_off) | 11.4 -> 8.8 | 13.5 -> 5.5 |
-| far band, also stops the shell march (far_off) | 12.5 -> 6.7 | 18.2 -> 7.9 |
-| FSR 3 pass (ups_none) | 6.8 -> 5.7 | 6.8 -> 5.4 |
-| far shading (fshade_off) | -4.5 -> -5.5 | +1.4 -> **-8.5** (OFF = the pre-134 fat kernel: not a cut) |
-Target 30: near needs -31.0, open -6.1, walk -14.7 p50, and p95 ~74 -> 33 for the 5% line. GPU-bound (present wait 0).
-The biggest stage at the slow views is now sun shadows (17 ms near); 132/134 cut the shell path roughly in half.
-## Ranked remaining cuts (exact first; ms = est. unless marked measured)
-1. **Shell column height bound** (137's design, `Screenshots/137/height_bound_design.txt`; 28 KB GPU table = layout addition, owner): near sun
-   rays stop climbing to the shells' 1,100 m top. Ceiling = 133's measured cost: <= 6.1 near / ~1 open / ~1.5 walk. Exact.
-2. **R2 ray compaction** (PERF_SHELL_MARCH_PLAN; R1 done; no layout) / 3. **R5 chunk-state bitmap** (KB buffer, owner): exact, not costed, ceiling = shells_off 8.8 / 5.5.
-4. **Rows below 540** (dyn floor 432 + 30 ms target; owner, below the 540 minimum): est. ~14 near / ~8 open / walk ~8-11
-   (pixel part FULL - tiny_gate 53.9 / 31.7 x 0.36 x 0.7). Largest single lever. No stills below 540 yet.
-5. **Shells OFF in play** (undo 93c, owner): measured 8.8 / 5.5 steady (walk less, shells part-empty). Since 93d it draws tier 0 + far band, no tiers 1-2.
-6. **STP / FSR 1 instead of FSR 3** (owner, Q38): FSR 3 pass measured 5.7 / 5.4; STP -2.7 / -3.1, FSR 1 -4.9 / -5.4 (task 51, older build).
-Spent / not cuts: column sky leap (116, ~0), Medium (117, ~0), shadow clamp (118, no-op), reuse 8 (124, ~0), hole leap (137, ~0),
-spike fix (123, p99 unchanged), sun off (17.2 / 5.5: no cheaper variant left), far band off (removes far terrain), far shading off (slower).
-**Sum:** 4 + 1 + 6(STP) reaches walk ~30-31 p50 (est.); near views stay ~38 ms, so the 5% line is NOT reached without also 5, or rows ~360.
-Screenshots looked at (`...` = `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap`): walk_near_full / walk_open_full (below) and `.../Sustained/2026-10-25_121937_tg2playwalk_20261025_121758/99_end_pose.png` (a close sandstone
-slope): terrain as expected, no holes or black bands.
-
-## Next
-Owner picks from the ranked cuts (recommend 1 then 2: exact; then decide 4 with stills at 432 / 540). Unexplained +3.7 ms walk regression vs
-10-22: worth one isolation arm (`-nearshadowshells 0` on playwalk) inside whichever perf task comes next, not as its own task.
+## Next step
+S2 (GPU `-softsky 1`, OFF by default) needs ONE new queue entry from the supervisor; it was not started. Carry flags 1-3 into its file.
+Test (6), the box-edge tunnel, belongs to S3.
 
 ## For the doc
-- Walk p50 41.0 -> **44.7 ms** (45.7 / 43.6), > 33 ms 72-78% -> **82-89%**, p99 99 -> 96 ms (`Logs/tg2world_20261025_{114953,121758}.txt`; warm-up `Logs/tg2world_20261025_114432.txt`)
-- Steady walk_near 60.7 -> **61.0 ms**, walk_open 43.0 -> **36.1 ms** (`Logs/costsplit_2026-10-25_115751.txt`)
-- Shell path cost 11.4 / 13.5 -> 8.8 / 5.5 ms (near / open); sun shadows 17.1 -> 17.2 ms near = now the biggest stage
-- Gap to 30 fps: -14.7 ms walk p50, -31 ms near; ranked cuts above (exact first)
-- Image: `.../UpscalerClips/2026-10-25_115751/stills/walk_near_full.png` -- the slow view (61 ms): a canyon wall filling the frame, sky top-right.
-- Image: `.../UpscalerClips/2026-10-25_115751/stills/walk_open_full.png` -- the open view (36 ms): desert hills to the horizon under half a frame of sky.
+Quadrature (truth, 1,024 directions) / running mean after 64 frames (mean, RMS error over 32 pixels); today's probe in brackets.
+Source: `Screenshots/147/softsky_quadrature147.txt`.
+| point | quad | mc (rms) |
+|---|---|---|
+| sealed room floor / wall / ceiling [0] | 0 / 0 / 0 exact | 0 exact |
+| tunnel floor 0.5 / 1 / 2 / 3 / 6 / 12 m in [0] | 0.41 / 0.33 / 0.19 / 0.12 / 0.04 / 0.006 | 0.40 (0.03) .. 0.004 (0.01) |
+| tunnel side wall 3 m in / end wall [0] | 0.058 / 0.016 | 0.075 (0.04) / 0.021 (0.03) |
+| block face beside the mouth [1] | 0.500 | 0.513 (0.05) |
+| ground 1 / 3 / 10 m in front of the mouth [1] | 0.57 / 0.66 / 0.90 | ~same (0.03-0.04) |
+| ledge floor 0.5 / 1.5 / 2.9 m in, wall under it [0] | 0.42 / 0.28 / 0.15, 0.28 | 0.44 / 0.29 / 0.16, 0.28 (0.03-0.05) |
+| 2 m hole in a 10 m room: below / 2.5 m off / corner [1 / 0 / 0] | 0.063 / 0.032 / 0.002 | 0.056 (0.05) / 0.031 / 0.002 |
+Tests (SkyVisReferenceTests, 11): sequence pinned; unit directions in the hemisphere; sealed room = 0; 0.1 m shell room = 0;
+open ground = 1, vertical 0.5, down 0, pillar; thin wall = thick; 3 m ledge; 2 m skylight; history 1/n then 1/16; 138 site; report.
+Commit 52248d4. No images: this is a CPU-only step, so nothing on screen changed.
