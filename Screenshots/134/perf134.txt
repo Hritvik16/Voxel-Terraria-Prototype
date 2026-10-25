@@ -36,3 +36,9 @@ UNITY_SHADER_COMPILER_TASK_TIMEOUT_MINUTES=30 and the retry built in ~9 min.
 How the temp no-hoist build was made (not committed): `#define TMP134_NOHOIST` after the VE_SHELL_LEAN define, and the two
 `#ifdef VE_SHELL_LEAN` inside ShellMarch (bandKd declaration; the kd band test) changed to
 `#if defined(VE_SHELL_LEAN) && !defined(TMP134_NOHOIST)`.
+
+Task 135 (2026-10-24, AC, shells filled, missing 0): discriminating run ANSWERED. Temp build lean WITHOUT the band hoist
+(Logs/lookreview_20261024_165729.txt): cliff1 0 px; cliff2 1 px at (260,547), (102,98,90) -> (101,97,89), and its lean still is
+byte-identical (0 px) to the hoisted lean still of 14:49. -> The hoist does not change that pixel: GPU compiler only.
+Normal rebuild of the committed code (Logs/lookreview_20261024_175235.txt): cliff1 0 px, cliff2 the same 1 px, lean stills 0 px vs 14:49.
+Crop: Screenshots/135/cliff2_pixel_crop.png.

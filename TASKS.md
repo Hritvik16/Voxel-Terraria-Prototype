@@ -502,3 +502,4 @@ CSMainChecker / CSMainDetail are unchanged. Cost-split arms `diet_on` / `diet_of
 ABBA p50 (p99) 69.0 (124) -> 62.1 (110) / 41.8 (60) -> 36.3 (58) ms, -7.1 (noise 2.2) / -5.5 (noise 0.3) (`Logs/costsplit_2026-10-24_141618.txt`);
 MODE=walk 3 min (-tod 16) lean 12.14 / p99 35.0 / > 33 ms 1.59% vs diag 12.52 / 36.4 / 1.77% (`Logs/tg2world_20261024_{142334,142820}.txt`).
 No memory added. Report `Screenshots/134/perf134.txt`.
+Task 135 (check): fast suite on 73b8ce7 PASS 922 FAIL 0 SKIP 15; the cliff2 1 px (260,547) is NOT the band hoist -- lean without it (`TMP134_NOHOIST` temp build) draws the same pixel byte-identically, so it is GPU codegen only; `Screenshots/135/cliff2_pixel_crop.png`, `Logs/lookreview_20261024_165729.txt`.
