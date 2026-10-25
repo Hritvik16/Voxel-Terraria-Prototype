@@ -1,49 +1,45 @@
-# 143-look-torch-reach: DONE (capture only, nothing shipped). Sheet `Screenshots/143/torchreach143.png`; the owner picks a reach.
+STOP_FOR_OWNER: approve the rig refresh plan (`RIG_REFRESH_PLAN.md` section 6, Q1-Q4) before any rig is changed or retired.
+- Q1 retire 32 scripts to `tools/retired-rigs/`? (a, rec.) yes / (b) no / (c) only the 19 one-off A/Bs.
+- Q2 acceptance rig = correctness only, frame time quoted only from a new tg2 play-path rig? (a, rec.) yes / (b) keep as today.
+- Q3 Amdt 8.12 shadow-rung gate: (a, rec.) re-base as an arm of the new perf rig on tg2 / (b) keep the arena rig / (c) retire.
+- Q4 build the gameplay-stack correctness rig (a, rec.) after the quality pass / (b) now.
+
+# 144-rig-refresh-audit: DONE (audit + plan only; no rig changed, retired or run)
 
 ## What changed (commit below)
-- `Assets/Game/PlaygroundCapture.TorchReach.cs` (new, `-torchreach 1`, `-trarms`, `-trlift`), hook in `PlaygroundCapture.BlackShape.cs`;
-  `tools/torchreach143.py` (sheet + counts); `Screenshots/143/torchreach143.txt` (+ `_floor.txt`); TASKS.md "Task 143". No default change.
-- Arms use ONLY the three existing C.11 knobs on LightingConfig (`atten = 1/(1 + k d^2)`, colour x intensity, hard cutoff at range):
-  | column | pointFalloffK | lightIntensity | lightRangeM | model reach (0.4 / 0.2 colour units) |
-  |---|---|---|---|---|
-  | today (HighContrast preset) | 0.85 | 0.90 | 8.5 | 1.2 / 2.0 m |
-  | small room (= LightingConfig's own C.11 defaults) | 0.35 | 1.6 | 8 | 2.9 / 4.5 m |
-  | half a tunnel | 0.15 | 2.4 | 14 | 5.8 / 8.6 m |
-  | 10-15 m tunnel section | 0.06 | 3.0 | 24 | 10.4 / 15.3 m |
-  These are GLOBAL: k and intensity also apply to lava's aggregate light and coloured torches; range scales lava's range too.
+- `RIG_REFRESH_PLAN.md` (new): every one of the 54 `run-*.sh` in a table (purpose/phase, last report + status,
+  verdict, effort, one-line reason); the status of each drift item task 78 named; a proposed standing set; follow-ups R1-R6.
+- `TASKS.md`: "Task 144" paragraph.
+
+## Findings
+- All 25 `-executeMethod` build/scene methods the scripts call still exist (checked by name) -> nothing is broken at build level.
+- Verdicts: keep 9 · update 6 · merge 7 (into a new `run-gameplay-stack.sh` based on `run-phase6-combined.sh`, on tg2 v4,
+  Survival, new motor, pool 480, shells ON) · retire 32 (19 one-off A/Bs from finished tasks + 13 superseded rigs/launchers).
+- Latest reports read (not re-run): acceptance rig 2026-10-17 PASS 52 FAIL 1 (Gate C steady p99 upload 1.36 ms vs 1.0;
+  three runs 1.315-1.538); Phase 7 rig 2026-10-17 PASS 37 FAIL 0; fluid-tiled 2026-10-17 PASS 19 FAIL 0; brush guard
+  still FAILED (2026-09-11, stale rig per KNOWN_ISSUES); phase 5/6 + fluid rigs last reported 2026-09-10..12 (before
+  Phase 7, the overhaul, 8.14-8.16) -> their behaviour today is unknown, not failed.
+- No rig runs play's combination (tg2 v4 + Survival + new motor + FSR 3 dyn + shells + pool 480). `run-tg2world.sh`
+  MODE=walk uses `-renderpreset performance` (480x270 FSR 1), shells off -- task 146 asks for "the PLAY defaults" and
+  must pass them via EXTRA today. Proposed fix: `MODE=playwalk` / `run-perf-milestone.sh` (follow-up R5).
+- 29 scripts do not take the shared Unity lock, incl. the kept editmode/phase7/acceptance/acceptance-fluid/fluid-tiled (R2).
+- `run-fluid-activity.sh`'s header is a verbatim copy of `run-phase6-sandbox.sh`'s (misleading; retire).
 
 ## Evidence
-- Fast suite PASS 935 FAIL 0 SKIP 15 (`Logs/overnight/143-tests.out`).
-- Launch 1 `Logs/lookreview_20261025_083830.txt` (torches ON the floor): the floor the torch stands on stays dark in EVERY arm (light
-  0.05 m above it = grazing N.L, `PointLightNdotL` on; same for the wall a torch touches). Kept as a finding: `Screenshots/143/torchreach143_floor.png`
-  / `.txt`. Relaunched once with the torches 1.5 m up (wall height / stone post), `-trlift 15`: `Logs/lookreview_20261025_084941.txt`
-  (shots `LookReview/2026-10-25_085216_high`, ~4 min incl. load). Both launches: lights registered 0 -> 3, all torches placed.
-- Looked at both sheets. Lifted: today = a dot in the tunnel and on open ground, a ~1 m glow in the room. Small room = the room's floor
-  and corner walls lit, tunnel end wall + ~3 m. Half = the whole room lit, the tunnel lit about halfway back. Tunnel arm = the room bright,
-  the tunnel walls lit nearly to the mouth (11 m), on open ground a ~6-8 m ground disc and the block face 6 m behind. The wall the torch is
-  mounted on stays dark (grazing), in every arm. No cutoff ring visible in any frame (the 24 m ring lies outside these views).
+- Fast suite PASS 935 FAIL 0 SKIP 15 (`Logs/overnight/144-tests.out`) -- doc-only change.
+- Reports read under `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/`
+  (`Phase4Acceptance/2026-10-17_002443`, `Phase7Cycle/2026-10-17_174852`, `FluidTiled/20261017_050829`,
+  `Phase6BrushGuard/20260911_225955`, ...). No frame-time measurement, no player launch.
 
-## Phase 7 caps / budgets (stated, NOT changed)
-- MAX_ACTIVE_LIGHTS = 32 (§0.2/§3.8): no conflict; selection is by distance to the player, not by range.
-- lightRangeM is §3.8's per-pixel cost bound (LightingConfig: "not merely cosmetic"). 24 m vs 8.5 m = ~8x the area each light touches;
-  every in-range tier-0 pixel traces up to 4 torch shadow rays (task 46), now up to 24 m long. Phase 7 measured 32 lights +0.33 ms
-  (ranges 8 m, before shadow rays; PHASE_7_COMPLETION ~l.1110). The cost of longer range is NOT measured -- a perf task should measure
-  it (32 torches, 24 m) before shipping the 14 m or 24 m arm.
-- Shadow rays exist only for tier-0 hits (`Raymarch.compute:5180`); tier >= 1 hits use the unshadowed sum, so a longer range leaks
-  through walls for torches within range of the tier-0 box edge.
-- Hard cutoff: value at the cutoff is 0.014 today, 0.07-0.08 for the three new arms -- a faint ring may show where the full 14/24 m
-  circle is in view on open ground (not seen in these frames).
-
-## Next
-- Owner picks a column (or asks for a value between). Shipping it = changing the preset's three numbers (+ a perf check of the range).
-- Floor/wall grazing (a placed torch barely lights the block it sits on) is a separate look question for the owner.
+## Unfinished / next
+- Nothing changed in any rig, by the task's rule. Next: owner answers Q1-Q4; then R2 (lock, S) and R1 (retire, S) can be
+  queued; R5 (perf-milestone rig) before/with task 146; R3 (gameplay-stack rig, L) after the quality pass if Q4 (a).
+- No follow-up task file added (all follow-ups need the owner's answers).
 
 ## For the doc
-- Lit px at native 1080 (>= 10 luma above the same pose with the light off; `Screenshots/143/torchreach143.txt`):
-  tunnel 4,404 -> 107,664 -> 323,075 -> 902,933; sealed room 83,475 -> 384,248 -> 840,783 -> 1,207,843;
-  open ground 2,942 -> 80,085 -> 354,290 -> 680,800 (today -> small room -> half tunnel -> 10-15 m).
-- Model reach (light down to 0.4 of full colour): 1.2 m today -> 2.9 / 5.8 / 10.4 m.
-- `Screenshots/143/torchreach143.png`: rows = built tunnel (from its mouth), sealed 5 m room, open ground; columns = today ~1-2 m |
-  small room | half a tunnel | 10-15 m section, values under each heading. Look at row 1: how far back toward the camera the tunnel walls
-  light; row 3: the lit ground disc and the block face behind the torch.
-- `Screenshots/143/torchreach143_floor.png`: the same with the torch ON the floor: the floor stays black in every column (grazing light).
+- Rigs audited: 54 -> verdicts keep 9 / update 6 / merge 7 / retire 32 (`RIG_REFRESH_PLAN.md` section 3).
+- Rigs on the play path (tg2 v4 + FSR 3 dyn + shells + Survival): 0 today -> 1 proposed (`run-perf-milestone.sh`).
+- Correctness gates' last state: acceptance 52/1 (Gate C p99 1.36 ms vs 1.0 ms), Phase 7 37/0, fluid-tiled 19/0,
+  brush guard red (stale rig); 16 phase 5/6/fluid rigs not run since 2026-09-12.
+- Scripts without the shared Unity lock: 29 (5 of them in the proposed standing set).
+- No images: an audit of scripts and old reports has nothing visible to show.

@@ -586,3 +586,8 @@ range is baked at Register) and restore them: none (light unregistered, the coun
 Sheet + counts: `python3 -I tools/torchreach143.py <LookReview dir> Screenshots/143 <launch log>`.
 Run: `PRESETS=high EXTRA="-cliffshadow 1 -blackshape 2 -torchreach 1 -shellworkers 6 -cliffwait0 90 -cliffwait 45" ./run-look-review.sh`.
 Result: HANDOFF 143, `Screenshots/143/`, `Logs/lookreview_20261025_084941.txt` (floor-placed run `Logs/lookreview_20261025_083830.txt`).
+
+Task 144 (rig refresh audit, plan only): `RIG_REFRESH_PLAN.md` audits all 54 `run-*.sh` (purpose, last report, verdict,
+effort): keep 9, update 6, merge 7 into a proposed `run-gameplay-stack.sh` (phase6-combined on tg2 v4), retire 32 to
+`tools/retired-rigs/`; proposes `run-perf-milestone.sh` (play defaults on tg2) as the one frame-time rig. No rig changed
+or run; follow-ups R1-R6 wait on owner Q1-Q4.
