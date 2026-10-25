@@ -1,0 +1,40 @@
+Task 147 (SOFT_SKY_PLAN S1): soft-sky CPU oracle at task 138's built site + the test shapes.
+quad = 1,024-direction cosine quadrature (the truth). mc = the running mean (1/n then 1/16) after 64 frames,
+mean / rms error vs quad / min..max over 32 pixel seeds. lift = quadrature if below-horizon directions were traced at y = 1e-6
+(TraceShadowRay's sun clamp) instead of counting as ground -- NOT the defined quantity, shown for S2.
+today = the vertical probe's 0/1 (Raymarch.compute, _SkyProbeTilt 0). Clamp 40 m, 0.1 m voxels, edit-op built.
+
+point                                          today   quad     mc rmserr     min..max   lift
+-- task 138's site: 15.1 m block, 4.1 m x 12.3 m tunnel (mouth faces +x), sealed 5.1 m room under it
+sealed room: floor centre                          0  0.000  0.000  0.000 0.000..0.000  0.000
+sealed room: wall                                  0  0.000  0.000  0.000 0.000..0.000  0.000
+sealed room: ceiling (down face)                   0  0.000  0.000  0.000 0.000..0.000  0.000
+tunnel floor 0.5 m in                              0  0.412  0.404  0.034 0.330..0.456  0.412
+tunnel floor 1 m in                                0  0.332  0.318  0.038 0.255..0.395  0.332
+tunnel floor 2 m in                                0  0.188  0.204  0.039 0.122..0.257  0.188
+tunnel floor 3 m in                                0  0.115  0.129  0.035 0.065..0.208  0.115
+tunnel floor 6 m in                                0  0.037  0.035  0.025 0.003..0.079  0.037
+tunnel floor 9 m in                                0  0.010  0.009  0.016 0.000..0.063  0.010
+tunnel floor 12 m in                               0  0.006  0.004  0.010 0.000..0.051  0.006
+tunnel side wall 3 m in                            0  0.058  0.075  0.039 0.009..0.136  0.157
+tunnel ceiling 3 m in (down face)                  0  0.000  0.000  0.000 0.000..0.000  0.188
+tunnel end wall 12.3 m in                          0  0.016  0.021  0.028 0.000..0.114  0.098
+mouth lip underside (down face)                    0  0.000  0.000  0.000 0.000..0.000  0.438
+block face beside the mouth (open)                 1  0.500  0.513  0.047 0.440..0.590  1.000
+ground 1 m in front of the mouth                   1  0.572  0.579  0.034 0.470..0.649  0.572
+ground 3 m in front of the mouth                   1  0.664  0.667  0.039 0.601..0.754  0.664
+ground 10 m in front of the mouth                  1  0.895  0.884  0.037 0.804..0.943  0.895
+block top                                          1  1.000  1.000  0.000 1.000..1.000  1.000
+-- the 3 m ledge (test 4): 8 m wall, ledge 3 m out, underside 3 m up, 51 m long
+floor 0.5 m in from the lip                        0  0.424  0.435  0.045 0.348..0.537  0.424
+floor 1.5 m under the ledge                        0  0.277  0.289  0.040 0.192..0.364  0.277
+floor at the wall foot (2.9 m in)                  0  0.152  0.161  0.033 0.087..0.234  0.152
+wall under the ledge, 1 m up                       0  0.277  0.276  0.047 0.180..0.361  0.777
+ledge underside (down face)                        0  0.000  0.000  0.000 0.000..0.000  0.500
+ledge front face                                   1  0.500  0.513  0.047 0.440..0.590  1.000
+ground 3 m out from the lip                        1  0.805  0.808  0.034 0.729..0.875  0.805
+-- the 10 m room, 4 m tall, 0.5 m roof, 2 m hole in its centre (test 5)
+floor below the hole                               1  0.063  0.056  0.046 0.006..0.157  0.063
+floor 2.5 m off the hole axis                      0  0.032  0.031  0.017 0.003..0.085  0.032
+floor corner                                       0  0.002  0.002  0.007 0.000..0.040  0.002
+wall middle                                        0  0.006  0.007  0.014 0.000..0.058  0.006

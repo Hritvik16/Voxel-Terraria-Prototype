@@ -609,3 +609,16 @@ count) | exceptions N`. NOT like play (a -sustained run is a capture run): Survi
 (flag echo) and `rig run: LOD shells ON|OFF`; the sustained header's `upscale` row names the upscaler when one is active (it said
 "RenderPreset Quality" under FSR 3). Test `PlaySettingsTests.PlayFlagsFileMatchesPlaySettingsDefaults` pins PLAY_SETTINGS_FLAGS to
 PlaySettings / RenderPreset.Default / PlayShellWorkers. Smoke (1 min, not timed, cold): `Logs/tg2world_20261025_100735.txt`.
+
+**Task 147 (look, SOFT_SKY_PLAN S1, owner Q94 plan A, 2026-10-25): the soft-sky CPU ORACLE, no GPU / shader / default change.**
+`Assets/CoreEngine/Rendering/SkyVisReference.cs`: skyVis = the cosine-weighted fraction of a face's hemisphere whose hard shadow ray
+(`ShadowRayReference.Trace`, kSoft 0) reaches the sky; directions with y <= 0 are GROUND (0, no ray), so open ground = 1, an open
+vertical face = 0.5 exactly, a down face = 0 (as today). Direction sequence (S2's contract): `SamplePoint(seed, frame)` = R2 lattice in
+0.32 fixed point + a lowbias32 per-seed rotation, 23-bit + half-step u/v (integer-exact; pinned values in the tests), `CosineDir` (sqrt /
+sincos, ulp-close on GPU), seed = `PixelSeed(px)`. `History.Accumulate(key, sample)`: 1/n for 16 samples then 1/16, key =
+`OriginKey(voxel + normal)` (twin of ShadowOriginKey), a new key restarts. `Quadrature` = 1,024 midpoint directions (the truth).
+Tests `SkyVisReferenceTests` (11; shapes built with Box EditOps): sealed room and 0.1 m shell room exactly 0 for every face / frame /
+seed; open ground and a 1-voxel pillar top exactly 1; 0.1 m wall = 2 m wall exactly; 3 m ledge floor / wall in (0.1, 0.6); 2 m hole in a
+10 m room (floor below 0.063, corners < 0.05); task 138's site (tunnel darkens inward); history. The running mean matches the quadrature
+as RMS over 32 pixels <= 0.05 (0.040-0.047), NOT per pixel (single pixels miss by up to ~0.1). `REPORTS=1` writes
+`Screenshots/147/softsky_quadrature147.txt` (`Report_QuadratureTable`, Slow). Next: S2 (`-softsky 1`, OFF).
