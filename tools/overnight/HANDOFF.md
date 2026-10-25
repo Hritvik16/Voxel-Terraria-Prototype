@@ -1,41 +1,46 @@
-# 149-rig-retire-oneoffs: DONE -- 31 of 32 "retire" rigs moved to tools/retired-rigs/; 1 left behind; fast suite green
+# 150-perf-walk-regression-isolate: DONE -- decision row 3 ("not 1 or 3" at >= 2 ms whole-run); 133's near shell shadows are the largest named piece (~1.5 ms walk, ~2.1 ms = half the gap on the regressed leg); (3) ~0; shell held counts NOT higher than 10-22
 
-## What changed (commit f3d5c0c, branch engine-phase)
-- `git mv` (rename only, contents unchanged) of 31 scripts from the repo root into `tools/retired-rigs/`:
-  3a: 5b-check, phase6-sandbox, fluid-activity · 3b: perf60, fluid-benchmark, fluid-ab, fluid-scale, fluid-chaos, phase6-qa ·
-  3c (all 19): fixes, fluid-stagger, fluid-tilecap, fluidtick-diag, flyfast, lavalight-ab, lodpop, looksweep, overhaul-batch,
-  phase7-rung1, roofskip-ab, shadow-dots, torchshadow-shots, upscale-ab, upscaler-smoke/compare/clips/realrate, playtest-bugs ·
-  3d: demo, phase7-demo, phase5b-demo.
-- `tools/retired-rigs/README.md`: one row per script (why retired, last report date from RIG_REFRESH_PLAN section 3), and how
-  to run/revive one (`tools/with-unity-lock.sh tools/retired-rigs/run-x.sh` from the repo root; `git mv` back to revive).
-- `RIG_REFRESH_PLAN.md` R1 row marked DONE; `TASKS.md` "Task 149" paragraph. CLAUDE.md untouched (it cites none of them).
-- Keep / update / merge scripts not touched. Root now has 23 `run-*.sh` (54 - 31).
+## What changed (branch engine-phase)
+- `run-tg2world.sh` playwalk branch: `NOMINIMAP=1` drops play's bare `-minimap` (cannot be switched off via EXTRA). No C#, no default changed.
+- `TASKS.md` "Task 150" paragraph. Driver: `Logs/overnight/150-driver.sh`, output `Logs/overnight/150.out`. No fast suite (no code; `bash -n` OK).
 
-## Left behind (1)
-- `run-playground.sh` -- `tools/capture-gpu-trace.sh:76` prints `./run-playground.sh` as the rebuild command when the trace
-  build is stale. Retire it together with a fix to that message (needs knowing which build the trace tool really wants:
-  it checks `CommandLineBuild.BuildPlaygroundTraceStandalone`'s app, which run-playground.sh may not build).
+## Runs (warm steady state, AC 100% charged every launch, no owner pause, back to back 13:14-13:47, same build as 146 = 147e0e8)
+Warm-up (discarded): `Logs/tg2world_20261025_131447.txt`. Then base, A, B, base (gaps only the lock's 45 s). 5-min walks, `MODE=playwalk`.
+| arm | p50 / p95 / p99 ms | > 33 ms | win mean 0.5-3.5 min | leg 1.0-2.0 min | rows | s1/s2/s3 held (start -> end) | log |
+|---|---|---|---|---|---|---|---|
+| base 1 | 42.40 / 83.97 / 118.5 | 73.5% | 45.26 | 48.04 | 540 100% | 1746/488/0 -> 879/160/0 | `Logs/tg2world_20261025_131957.txt` |
+| A `-nearshadowshells 0` | 42.58 / 70.46 / 83.5 | 81.9% | **43.83** | **45.74** | 540 100% | 1696/440/0 -> 802/98/0 | `..._132648.txt` |
+| B `-underwater 0`, no minimap | 42.72 / 86.23 / 129.8 | 75.3% | 44.48 | 47.58 | 540 100% | 1672/438/0 -> 982/94/0 | `..._133338.txt` |
+| base 2 | 47.20 / 81.99 / 101.5 | 86.6% | 45.48 | 47.67 | 540 100% | 1627/406/0 -> 1409/302/0 | `..._134031.txt` |
+| 10-22 walk (110, 3 min) | 41.0 / - / 99 | 72-78% | (0.5-2.5 only) | **43.42** | 540 fixed | 1801/546/0 -> 1031/406/0 | `Logs/tg2world_20261022_133936.txt`, `_134432` |
+"win mean" = mean of the report's per-half-minute window means (same circle, same positions each run); "leg" = windows 1.0/1.5/2.0.
 
-## Reference check (how "nothing calls it" was established)
-- `grep -w <name>` over the 22 non-retired `run-*.sh`, CLAUDE.md, and `*.sh`/`*.py` under `tools/` and `Assets/` (excluding
-  `tools/overnight/done|blocked|later`). Hits besides run-playground: `run-play.sh:33` comment "like run-demo.sh" (not a call,
-  left as is); `tools/report-flyfast.py` docstring names run-flyfast.sh (it is that script's reporter, not a caller; left in
-  tools/, noted in README).
-- KNOWN_ISSUES.md mentions perf60/flyfast/lavalight-ab/looksweep/overhaul-batch/roofskip-ab/upscale-ab/shadow-dots only as
-  past evidence (e.g. the task 16 pause proof), not as commands to run -- not blocking. Completion docs likewise history.
-- None of the moved scripts uses `dirname "$0"`/`BASH_SOURCE`; all assume cwd = repo root, so they still run from the new path.
+## What it says
+- **Whole-run p50 cannot resolve 2 ms here:** the identical base arm spread 42.4 -> 47.2 ms (4 runs on this build incl. 146's 45.7 / 43.6).
+  Base 2's +4.8 is its last minute only (windows 4.0/4.5 = 69.3 / 65.7 ms vs base 1's 51.7 / 45.5); its 0.5-3.5 windows match base 1 within ~1 ms
+  except 3.5. Held counts there (s1+s2 1241 vs 1087) do not explain +18 ms: an unexplained transient, not a cause.
+- **Where the regression lives:** vs 10-22, windows 0.5 and 2.5 are unchanged (47.7-48.7 / 36.3-37.3); windows 1.0-2.0 are +3.8..+5.3 ms.
+- **(1) task 133:** A vs base mean: -1.5 ms over 0.5-3.5, **-2.1 ms on the 1.0-2.0 leg** (1.8 / 2.6 / 2.0) = about half of the leg's +4.4 ms. A also has the
+  best tail (p95 70 vs 82-86, p99 84 vs 101-130). Matches Q87's measured +1.1..+1.9 ms (now ~1.5 walk, ~2.1 at the worst leg): no reason to revisit keep-ON.
+- **(3) -underwater / minimap:** -0.9 ms (0.5-3.5), -0.3 ms on the leg: noise (146's hud_off was ~0 too).
+- **(2) shell held:** today's base 1 holds the same as 10-22 on the leg (s1 1236-1427 vs 1187-1475, s2 507-631 vs 384-684, s3 0 in all four arms;
+  146's s3 17-27 / s2 up to 1,060 was one run's variation). Across the 4 base runs, window ms vs s1+s2 held: r = 0.16-0.39, ~1.5-1.8 ms per 1,000
+  held chunks: a weak contributor at most, and not what separates today from 10-22.
+- **Unexplained remainder (~2 ms on the leg):** differences between 110's `MODE=walk` arm and playwalk NOT tested here: `-gamemode survival`,
+  `-shadowlevel 0 -roofskip 0 -shadowres full`, `-renderrows dyn` (stayed at 540), 3 vs 5 min, `-memledger -frametiming`, and the build delta 10-22 -> 147e0e8.
+- Shell fill on workers today 18.8-18.9 ms/chunk (f1) vs 6.3-8.1 in 146/110's logs: the chip was hot; numbers are warm steady state as required.
 
-## Evidence
-- Fast suite: `./run-editmode-tests.sh` PASS 946 FAIL 0 SKIP 15, wall 6m39s (`Logs/overnight/149-editmode.out`).
-- No player launch, no screenshots, no measurement (housekeeping task).
+Screenshots looked at: `99_end_pose.png` of base 1 and A (`~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Sustained/2026-10-25_132136_tg2playwalk_20261025_131957/` and `..._132827_tg2playwalk_20261025_132648/`):
+the same close sandstone slope in both, no holes or black bands; A's shading looks the same at this distance.
 
 ## Next
-- R3 (`run-gameplay-stack.sh`, needs owner Q4) then retire 5a/5c/6-player/6-ccd/6-edit/late-game-siege; farband merge into
-  tg2world. A small follow-up could fix capture-gpu-trace.sh's rebuild hint and then retire run-playground.sh (not queued:
-  needs a look at which build it should name).
+- Owner-independent: if the remaining ~2 ms matters, one more ABBA isolating 110-vs-playwalk flags (`-gamemode survival` first) -- a measure-only task,
+  so named here, not queued. Otherwise the ranked cuts in 146's HANDOFF stand (1. shell column height bound would also cap 133's cost).
 
 ## For the doc
-- Root `run-*.sh`: 54 -> 23 (31 moved to `tools/retired-rigs/`, 0 deleted); plan said 32, 1 kept back (run-playground.sh,
-  still cited by tools/capture-gpu-trace.sh).
-- Fast suite PASS 946 FAIL 0 SKIP 15 before and after (`Logs/overnight/149-editmode.out`).
-- No images: nothing visible changed (file moves only).
+- Task 133 near shell shadows cost on the walk: **~1.5 ms** (position-matched 45.37 -> 43.83 ms), **~2.1 ms** on the regressed leg (47.86 -> 45.74) = half of the +4.4 ms vs 10-22 there (`Logs/tg2world_20261025_{131957,132648,134031}.txt`)
+- -underwater 0 + no minimap: **~0.3-0.9 ms** = noise (`Logs/tg2world_20261025_133338.txt`)
+- Shell held counts: same as 10-22 on the leg (s2 507-631 vs 384-684, s3 0) -> not the cause
+- Run-to-run spread of the same base arm: whole-run p50 **42.4 -> 47.2 ms** (one late transient); window means agree within ~1 ms -> A/Bs under 3 ms need window means, not whole-run p50
+- Warm-up log `Logs/tg2world_20261025_131447.txt`; all arms AC, 540 rows 100%, 0 exceptions
+- Image: `.../Sustained/2026-10-25_132827_tg2playwalk_20261025_132648/99_end_pose.png` -- arm A's end pose: the close sandstone slope (same as base 1's), no holes; shows arm A rendered normally, nothing else changed visibly.

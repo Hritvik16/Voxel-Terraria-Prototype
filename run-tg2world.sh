@@ -105,6 +105,8 @@ elif [ "${MODE:-poses}" = "flysweep" ]; then
     -farshadow 1 -cleardeltas -tag "flysweep_${RUN_ID}" ${EXTRA:-}
 elif [ "${MODE:-poses}" = "playwalk" ]; then
   source tools/play-flags.sh
+  # Task 150: NOMINIMAP=1 drops play's bare -minimap flag (it cannot be switched off through EXTRA).
+  if [ "${NOMINIMAP:-0}" = "1" ]; then PLAY_SETTINGS_FLAGS="${PLAY_SETTINGS_FLAGS/ -minimap/}"; fi
   echo "playwalk flags: $PLAY_WORLD_FLAGS $PLAY_SETTINGS_FLAGS" | tee -a "$LOG"
   open -n "$APP" --args $PLAY_WORLD_FLAGS $PLAY_SETTINGS_FLAGS -sustained -motion walk -orbitradius "${WALKR:-150}" -movespeed 5 \
     -minutes "${MINUTES:-5}" -gateres 0 -tod 12 -screen-fullscreen 1 -screen-width 1920 -screen-height 1080 -cleardeltas \

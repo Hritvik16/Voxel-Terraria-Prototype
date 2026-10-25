@@ -638,3 +638,5 @@ last report). They still run from the repo root as `tools/with-unity-lock.sh too
 rebuild command). Checked with `grep -w` over the 22 remaining `run-*.sh`, `tools/`, `Assets/` and CLAUDE.md: no other call
 site; mentions left in KNOWN_ISSUES.md / completion docs are history, and `run-play.sh`'s "like run-demo.sh" is a comment.
 Root now has 23 `run-*.sh`.
+
+**Task 150 (perf, diagnosis only): the +3.7 ms playwalk regression, isolated.** Rig knob only: `NOMINIMAP=1 MODE=playwalk ./run-tg2world.sh` drops play's bare `-minimap` flag (it cannot be switched off through EXTRA; ArgValue/last-match does not apply to a bare flag). Result (warm, ABBA, `Logs/overnight/150.out`): `-nearshadowshells 0` saves ~1.5 ms over the walk (position-matched 0.5-3.5 min means) and ~2.1 ms on the 1.0-2.0 min leg where the regression vs 2026-10-22 lives (about half of it there); `-underwater 0` + no minimap ~0.3-0.9 ms (noise); shell held counts in today's base runs match 10-22's, so not cause (2). Whole-run p50 of the identical base arm spread 42.4-47.2 ms over four runs on one build: use per-half-minute window means for A/Bs under ~3 ms. No default changed.
