@@ -21,7 +21,6 @@ Decision-table row 3 (> 3 ms over): gap per stage + ranked cuts below; owner pic
 10-22 was 43.0-43.2 ms, now 45.7-47.4, so it is not the longer 5-min run. NOT isolated; candidates: shells hold more while walking
 (`[shells] held` s2 600-1,060 vs 546-643, s3 17-27 vs 0: plan section 1 predicted moving cost rises toward steady as shells fill),
 task 133's near shadows through the shells (+1.45 ms walk at sun 30 deg, +6.1 near noon), and playwalk's extra defaults (-underwater, -minimap).
-
 ## Gap per stage (steady, saved p50 ms = FULL - arm; NOT additive)
 | stage (arm) | walk_near 10-22 -> now | walk_open 10-22 -> now |
 |---|---|---|
@@ -33,7 +32,6 @@ task 133's near shadows through the shells (+1.45 ms walk at sun 30 deg, +6.1 ne
 | far shading (fshade_off) | -4.5 -> -5.5 | +1.4 -> **-8.5** (OFF = the pre-134 fat kernel: not a cut) |
 Target 30: near needs -31.0, open -6.1, walk -14.7 p50, and p95 ~74 -> 33 for the 5% line. GPU-bound (present wait 0).
 The biggest stage at the slow views is now sun shadows (17 ms near); 132/134 cut the shell path roughly in half.
-
 ## Ranked remaining cuts (exact first; ms = est. unless marked measured)
 1. **Shell column height bound** (137's design, `Screenshots/137/height_bound_design.txt`; 28 KB GPU table = layout addition, owner): near sun
    rays stop climbing to the shells' 1,100 m top. Ceiling = 133's measured cost: <= 6.1 near / ~1 open / ~1.5 walk. Exact.
