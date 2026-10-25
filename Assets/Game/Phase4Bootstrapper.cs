@@ -219,6 +219,11 @@ public class Phase4Bootstrapper : MonoBehaviour
             if (playRun)
                 UnityEngine.Debug.Log($"[Phase4Bootstrapper] play run: LOD shells {(ShellsOn ? $"ON, {ShellWorkers} workers" : "OFF")} " +
                                       "(PlaySettings.shells / -shells; task 93c)");
+            else if (IsTg2World)
+                UnityEngine.Debug.Log($"[Phase4Bootstrapper] rig run: LOD shells {(ShellsOn ? $"ON, {ShellWorkers} workers" : "OFF")} (-shells / -shellworkers)");
+            // Task 145b: the flag echo, so a rig's Player.log shows what it was launched with.
+            string[] argv = Environment.GetCommandLineArgs();
+            UnityEngine.Debug.Log("[Phase4Bootstrapper] args: " + string.Join(" ", argv, 1, Math.Max(0, argv.Length - 1)));
         }
         // The TerrainGen world has no legacy anchors (its landmarks are the
         // map's own); a SEPARATE folder keeps its deltas from ever being

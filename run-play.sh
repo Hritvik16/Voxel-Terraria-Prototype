@@ -107,7 +107,10 @@ KEYS
 
 DELTA="-cleardeltas"; [ "${KEEP:-0}" = "1" ] && DELTA="-keepdeltas"
 SHOTARG=""; [ -n "${SHOT:-}" ] && SHOTARG="-playshot $SHOT"
-open -n -W "$APP" --args -world tg2 -mapversion "$MAPV" -farband 1 -farshadow 1 -startview -daylength 1200 $DELTA $SHOTARG ${EXTRA:-}
+# Task 145b: the world flags live in tools/play-flags.sh (shared with run-tg2world.sh MODE=playwalk). The
+# PLAY_SETTINGS_FLAGS there are NOT passed here: this run reads PlaySettings.json, and flags would override it.
+source tools/play-flags.sh
+open -n -W "$APP" --args $PLAY_WORLD_FLAGS -startview -daylength 1200 $DELTA $SHOTARG ${EXTRA:-}
 PL="$HOME/Library/Logs/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Player.log"
 grep -E "\[FarField\] tg2 WORLD|\[Playground\] (-playshot|start pose)|\[Phase4Bootstrapper\] (play start|-keepdeltas: (resuming|pose))" "$PL" 2>/dev/null | cut -c1-200
 grep "\[UpscalerSelect\]" "$PL" 2>/dev/null | sed -n '1p;$p' | cut -c1-200   # the start and the last dyn step

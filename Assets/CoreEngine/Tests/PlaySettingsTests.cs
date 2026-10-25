@@ -271,4 +271,55 @@ public class PlaySettingsTests
         Assert.IsFalse(PlaySettings.ResolveShells(new[] { "-shells", "0" }, true, load, out w));
         Assert.AreEqual(4, loads);
     }
+    /// Task 145b: tools/play-flags.sh's PLAY_SETTINGS_FLAGS (run-tg2world.sh MODE=playwalk) is PlaySettings'
+    /// defaults written as flags. Laid over a file with EVERY field flipped, the flags must give back exactly
+    /// the defaults -- so a new field or a changed default fails here until the shell line is updated. The
+    /// fields with no flag (softShadows, perfOverlay; minimap is the bare `-minimap`) are listed explicitly.
+    [Test]
+    public void PlayFlagsFileMatchesPlaySettingsDefaults()
+    {
+        string path = Path.Combine(UnityEngine.Application.dataPath, "..", "tools", "play-flags.sh");
+        Assert.IsTrue(File.Exists(path), path);
+        string line = null;
+        foreach (string l in File.ReadAllLines(path))
+            if (l.StartsWith("PLAY_SETTINGS_FLAGS=\"")) line = l.Substring("PLAY_SETTINGS_FLAGS=\"".Length).TrimEnd('"');
+        Assert.IsNotNull(line, "no PLAY_SETTINGS_FLAGS=\"...\" line in " + path);
+        string[] args = line.Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries);
+
+        var d = new PlaySettings();
+        var flipped = new PlaySettings
+        {
+            upscaler = "none", rows = "540", shadowLevel = 3, roofSkip = !d.roofSkip, shadowRes = "half", gameMode = "creative",
+            underwaterFog = !d.underwaterFog, seeThroughLiquids = !d.seeThroughLiquids, riverLook = !d.riverLook,
+            farShade = !d.farShade, shells = !d.shells,
+            // no flag for these: the playwalk run keeps the engine's own value, which IS the default.
+            softShadows = d.softShadows, perfOverlay = d.perfOverlay, minimap = d.minimap,
+        };
+        // Every serialized field must be flipped above (or listed as flagless): a new field fails this guard.
+        var keys = new List<string>();
+        foreach (var f in typeof(PlaySettings).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            if (!f.IsNotSerialized && !Equals(f.GetValue(flipped), f.GetValue(d))) keys.Add(f.Name);
+        var flagless = new[] { "softShadows", "perfOverlay", "minimap" };
+        int serialized = 0;
+        foreach (var f in typeof(PlaySettings).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            if (!f.IsNotSerialized) serialized++;
+        Assert.AreEqual(serialized, keys.Count + flagless.Length, "a PlaySettings field is neither flipped nor flagless: " + string.Join(",", keys));
+
+        var run = PlaySettings.WithArgs(flipped, args, null);
+        Assert.AreEqual(d.ToJson(), run.ToJson(), "PLAY_SETTINGS_FLAGS != PlaySettings defaults: " + line);
+        Assert.IsFalse(run.presetPath, "the upscaler is named, so -renderpreset must not select the preset path");
+
+        // The two values that are not PlaySettings fields: the preset and the shell workers. RenderPreset lives in
+        // Assembly-CSharp (Assets/Game), which this test assembly cannot reference, so its default is read from source.
+        var m = System.Text.RegularExpressions.Regex.Match(
+            File.ReadAllText(Path.Combine(UnityEngine.Application.dataPath, "Game", "RenderPreset.cs")),
+            @"public static Kind Default = Kind\.(\w+);");
+        Assert.IsTrue(m.Success, "RenderPreset.Default's declaration not found");
+        int pi = System.Array.IndexOf(args, "-renderpreset");
+        Assert.IsTrue(pi >= 0 && string.Equals(args[pi + 1], m.Groups[1].Value, System.StringComparison.OrdinalIgnoreCase),
+                      "-renderpreset must be RenderPreset.Default (" + m.Groups[1].Value + ")");
+        int wi = System.Array.IndexOf(args, "-shellworkers");
+        Assert.IsTrue(wi >= 0 && args[wi + 1] == PlaySettings.PlayShellWorkers.ToString(), "-shellworkers must be PlayShellWorkers");
+        Assert.IsTrue(System.Array.IndexOf(args, "-minimap") >= 0, "-minimap (play shows it; capture runs hide it unless asked)");
+    }
 }

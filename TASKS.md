@@ -595,3 +595,17 @@ Task 144 (rig refresh audit, plan only): `RIG_REFRESH_PLAN.md` audits all 54 `ru
 effort): keep 9, update 6, merge 7 into a proposed `run-gameplay-stack.sh` (phase6-combined on tg2 v4), retire 32 to
 `tools/retired-rigs/`; proposes `run-perf-milestone.sh` (play defaults on tg2) as the one frame-time rig. No rig changed
 or run; follow-ups R1-R6 wait on owner Q1-Q4.
+
+Task 145b (rig: play-path walk, R5 part 1): `MODE=playwalk ./run-tg2world.sh` = MODE=walk's circle (`-sustained -motion walk`,
+150 m at 5 m/s, `MINUTES` default 5, `WALKR`) with the PLAY defaults instead of `-renderpreset performance`: `tools/play-flags.sh`'s
+`PLAY_WORLD_FLAGS` (`-world tg2 -mapversion ${MAPV:-4} -farband 1 -farshadow 1`, now also used by `run-play.sh`) + `PLAY_SETTINGS_FLAGS`
+(PlaySettings' defaults as flags: `-renderpreset quality -upscaler fsr3 -renderrows dyn -shadowlevel 0 -roofskip 0 -shadowres full
+-gamemode survival -underwater 1 -seethrough 1 -riverlook 1 -farshade 1 -shells 1 -shellworkers 3 -minimap`; run-play.sh does NOT pass
+these, it reads PlaySettings.json) + `-gateres 0 -tod 12` (noon, like play's start) + fullscreen 1920x1080. Fluid tile pool 480 is the
+Playground's in every mode. Prints `PLAYWALK: WHOLE RUN p50/p95/p99, >33 ms share | UPSCALER ROWS (share of frames per internal row
+count) | exceptions N`. NOT like play (a -sustained run is a capture run): Survival mode, vitals and movement abilities stay off
+(`Playground._moveAbilities = IsPlaySettingsRun`) and the camera is scripted, not the motor. Every run-tg2world mode now prints
+`Player.log totals: N 'Exception', N 'exhausted'` (task 140: `head -20` hid them); Phase4Bootstrapper logs `[Phase4Bootstrapper] args: ...`
+(flag echo) and `rig run: LOD shells ON|OFF`; the sustained header's `upscale` row names the upscaler when one is active (it said
+"RenderPreset Quality" under FSR 3). Test `PlaySettingsTests.PlayFlagsFileMatchesPlaySettingsDefaults` pins PLAY_SETTINGS_FLAGS to
+PlaySettings / RenderPreset.Default / PlayShellWorkers. Smoke (1 min, not timed, cold): `Logs/tg2world_20261025_100735.txt`.

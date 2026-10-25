@@ -1926,7 +1926,8 @@ public partial class PlaygroundCapture : MonoBehaviour
           $"travelLOD {RaymarchFeature.ShadowTravelLodOverride}   " +
           $"ambient {LightingConfig.Active.ambientIntensity:F2}");
         L($"clock PINNED at {SunCycle.ClockString()}  sun {SunCycle.ElevationDegrees:F1} deg ({SunCycle.PhaseName})");
-        L($"upscale {upscaleNote ?? (HasFlag("-renderpreset") ? $"RenderPreset {RenderPreset.Current} ({RenderPreset.InternalWidth(RenderPreset.Current)} px wide internal, temporal shadows {(RaymarchFeature.TemporalShadows ? "ON" : "OFF")})" : "not set (as shipped)")}");
+        // Task 145b: with -upscaler (UpscalerSelect active) the frame is the upscaler's, not the preset's.
+        L($"upscale {upscaleNote ?? (UpscalerSelect.Active ? UpscalerSelect.Describe() : HasFlag("-renderpreset") ? $"RenderPreset {RenderPreset.Current} ({RenderPreset.InternalWidth(RenderPreset.Current)} px wide internal, temporal shadows {(RaymarchFeature.TemporalShadows ? "ON" : "OFF")})" : "not set (as shipped)")}");
         L($"lava light share {LightingConfig.Active.lavaLightMaxSlots} of {EngineConfig.MAX_ACTIVE_LIGHTS} slots   " +
           $"look grade {(SunCycle.LookGradeOverride >= 0 ? SunCycle.LookGradeOverride : LightingConfig.Active.lookGrade)} " +
           $"(amount {SunCycle.LookGradeAmountAt(SunCycle.Hours):F2} at this hour)   maxQueuedFrames {QualitySettings.maxQueuedFrames}");
@@ -2000,6 +2001,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         // Task 93b: every frame for the whole-run p50 / p99, and with -shells 1 when each
         // shell completed (s from the walk's start; 0 = already complete) (ShellsPerf.cs).
         var allMs = new List<float>(65536);
+        var dynRows = new SortedDictionary<int, int>();   // task 145b: frames per internal row count (FSR 3 dyn)
         var shellsW = VoxelEngine.Mirror.ShellStreamer.Active;
         float[] shellDone = shellsW != null ? new float[shellsW.Layout.ShellCount] : null;
         if (shellsW != null)
@@ -2075,6 +2077,7 @@ public partial class PlaygroundCapture : MonoBehaviour
             windowMs.Add(Time.unscaledDeltaTime * 1000.0);
             windowFrames++;
             allMs.Add(Time.unscaledDeltaTime * 1000f);
+            if (UpscalerSelect.Active) { dynRows.TryGetValue(UpscalerSelect.Rows, out int nRows); dynRows[UpscalerSelect.Rows] = nRows + 1; }
             if (shellsW != null) ShellTrack(shellsW, shellDone, Time.realtimeSinceStartup - runStart);
             if (ftm)
             {
@@ -2106,6 +2109,7 @@ public partial class PlaygroundCapture : MonoBehaviour
 
         L("");
         L(WholeRunLine(allMs));
+        if (dynRows.Count > 0) L(UpscalerRowsLine(dynRows));
         if (shellsW != null)
         {
             L($"  [shells] at the end: {ShellCountsLine(shellsW)}");

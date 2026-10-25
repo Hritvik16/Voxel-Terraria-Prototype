@@ -30,7 +30,7 @@ if [ -n "${MAPV:-}" ]; then EXTRA="${EXTRA:-} -mapversion $MAPV"; echo "map vers
 caffeinate -dimsu -w $$ &
 echo "caffeinate pid $! (-dimsu -w $$)" | tee -a "$LOG"
 tools/power-status.sh start | tee -a "$LOG"
-if [ "${PIPESTATUS[0]}" != 0 ] && { [ "${MODE:-poses}" = "walk" ] || [ "${MODE:-poses}" = "orbit" ]; }; then
+if [ "${PIPESTATUS[0]}" != 0 ] && { [ "${MODE:-poses}" = "walk" ] || [ "${MODE:-poses}" = "playwalk" ] || [ "${MODE:-poses}" = "orbit" ]; }; then
   echo "WARNING: ON BATTERY -- frame times from this run are not comparable to AC runs (task 08: arm 6 at ~1% ran at half rate)" | tee -a "$LOG"
 fi
 if [ "${BUILD:-0}" = "1" ]; then
@@ -49,6 +49,16 @@ sleep 30
 # MODE=walk (2026-10-01): -sustained -motion walk -- the same circle (WALKR m,
 # default 150) at a walking player's eye, 1.6 m above the ground, at 5 m/s,
 # Performance preset. What a player on foot sees; no earlier run measured it.
+# MODE=playwalk (task 145b, RIG_REFRESH_PLAN R5): the SAME walk circle with the
+# PLAY defaults instead of the performance preset -- tools/play-flags.sh's
+# PLAY_WORLD_FLAGS (as ./run-play.sh) + PLAY_SETTINGS_FLAGS (PlaySettings'
+# defaults: quality preset, FSR 3 dyn, shells ON with 3 workers, see-through
+# liquids, river look, far shading, minimap), fullscreen 1920x1080 (as
+# run-cost-split.sh), noon (-tod 12: play starts at noon). The Playground's fluid
+# tile pool is 480 in every mode. Prints a PLAYWALK line: p50/p95/p99, share of
+# frames > 33 ms, the dyn FSR rows, and the Player.log exception count.
+# Not play-like (a -sustained run is a capture run): Survival/movement abilities
+# stay off and the camera is scripted (TASKS.md task 145b).
 # MODE=shimmer (2026-10-02, TAA task 05): -nearshimmer -- the near-terrain
 # quarter-pixel nudge test at the default 960 (Quality) preset, eye-level and
 # slope poses; tools/nearshimmer-report.py writes Logs/nearshimmer_<run>.txt.
@@ -93,6 +103,12 @@ elif [ "${MODE:-poses}" = "flysweep" ]; then
   START_MARK=$(mktemp)
   open -n "$APP" --args -world tg2 -flysweep -gateres 0 -renderpreset performance \
     -farshadow 1 -cleardeltas -tag "flysweep_${RUN_ID}" ${EXTRA:-}
+elif [ "${MODE:-poses}" = "playwalk" ]; then
+  source tools/play-flags.sh
+  echo "playwalk flags: $PLAY_WORLD_FLAGS $PLAY_SETTINGS_FLAGS" | tee -a "$LOG"
+  open -n "$APP" --args $PLAY_WORLD_FLAGS $PLAY_SETTINGS_FLAGS -sustained -motion walk -orbitradius "${WALKR:-150}" -movespeed 5 \
+    -minutes "${MINUTES:-5}" -gateres 0 -tod 12 -screen-fullscreen 1 -screen-width 1920 -screen-height 1080 -cleardeltas \
+    -tag "tg2playwalk_${RUN_ID}" ${EXTRA:-}
 elif [ "${MODE:-poses}" = "walk" ]; then
   # Task 112: the sun is GOLDEN HOUR (6 deg, 17.59 h) unless EXTRA passes -tod H (task 110 used -tod 12 = noon;
   # -tod 17 = ~14.5 deg). The report's WHOLE RUN line prints p50 / p95 / p99 (30 fps line: p95 <= 33 ms).
@@ -121,7 +137,7 @@ while [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; do
 done
 PEAK=$(awk '{v=$2; u=$3; if (u=="GB") v*=1024; else if (u=="KB") v/=1024; if (v>m) m=v} END{printf "%.0f MB", m}' "$MEM")
 echo "peak phys_footprint: $PEAK   (owner cap 3 GB; samples in $MEM; breakdown at peak in $MEMPEAK)" | tee -a "$LOG"
-if [ "${MODE:-poses}" = "orbit" ] || [ "${MODE:-poses}" = "walk" ]; then
+if [ "${MODE:-poses}" = "orbit" ] || [ "${MODE:-poses}" = "walk" ] || [ "${MODE:-poses}" = "playwalk" ]; then
   S=$(ls -td "$DATA/Sustained"/*_tg2${MODE}_${RUN_ID}/ 2>/dev/null | head -n 1)
   if [ -n "$S" ]; then cat "${S}sustained.txt" | tee -a "$LOG"; echo "shots: $S" | tee -a "$LOG"; else echo "NO REPORT" | tee -a "$LOG"; fi
 elif [ "${MODE:-poses}" = "taarisk" ]; then
@@ -152,8 +168,19 @@ else
 fi
 PL="$HOME/Library/Logs/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Player.log"
 grep -E "VERTICAL STREAMING|PrimeWindow:|Total startup|tg2 WORLD|Exception|exhausted|error" "$PL" | head -20 | tee -a "$LOG"
+# Task 145b (task 140: the head -20 above hid 2,777 exceptions): always the totals.
+NEXC=$(grep -c "Exception" "$PL" 2>/dev/null); NEXH=$(grep -c "exhausted" "$PL" 2>/dev/null)
+echo "Player.log totals: ${NEXC:-0} lines with 'Exception', ${NEXH:-0} with 'exhausted'" | tee -a "$LOG"
+if [ "${MODE:-poses}" = "playwalk" ]; then
+  # The flag echo (task 145b), the shells decision and the upscaler's start; the report's UPSCALER ROWS line is
+  # the share of frames at each internal row count (FSR 3 dyn: 540-720 on frame time).
+  { grep -m1 "\[Phase4Bootstrapper\] args:" "$PL"; grep -m1 "\[Phase4Bootstrapper\] .*LOD shells" "$PL"; grep -m1 "\[UpscalerSelect\] upscaler" "$PL"; } 2>/dev/null | cut -c1-600 | tee -a "$LOG"
+  WR=$(grep -h "WHOLE RUN" "${S:-/dev/null}sustained.txt" 2>/dev/null | sed 's/^ *//')
+  RR=$(grep -h "UPSCALER ROWS" "${S:-/dev/null}sustained.txt" 2>/dev/null | sed 's/^ *//')
+  echo "PLAYWALK: ${WR:-NO WHOLE RUN LINE} | ${RR:-NO UPSCALER ROWS LINE} | exceptions ${NEXC:-0}" | tee -a "$LOG"
+fi
 tools/power-status.sh end | tee -a "$LOG"
-if [ "${PIPESTATUS[0]}" != 0 ] && { [ "${MODE:-poses}" = "walk" ] || [ "${MODE:-poses}" = "orbit" ]; }; then
+if [ "${PIPESTATUS[0]}" != 0 ] && { [ "${MODE:-poses}" = "walk" ] || [ "${MODE:-poses}" = "playwalk" ] || [ "${MODE:-poses}" = "orbit" ]; }; then
   echo "WARNING: ON BATTERY at the end of the run" | tee -a "$LOG"
 fi
 # 2026-10-03 (tasks 14/14b): an owner pause (tools/heavy.sh pause) that

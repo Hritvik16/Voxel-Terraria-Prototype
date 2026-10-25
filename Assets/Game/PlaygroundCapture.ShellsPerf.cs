@@ -121,4 +121,14 @@ public partial class PlaygroundCapture
         return $"  WHOLE RUN ({ms.Count} frames): p50 {Pct(ms, 0.5f):F2} ms   p95 {Pct(ms, 0.95f):F2} ms   p99 {Pct(ms, 0.99f):F2} ms   " +
                $">33 ms {100f * over / ms.Count:F2}% of frames (30 fps line: p95 <= 33)";
     }
+
+    /// Task 145b: the internal rows the upscaler drew at, as a share of the whole run's frames (FSR 3 dyn picks
+    /// 540-720 on frame time; a pinned -renderrows shows one row count at 100%).
+    private static string UpscalerRowsLine(SortedDictionary<int, int> rows)
+    {
+        int total = 0; foreach (var kv in rows) total += kv.Value;
+        var sb = new System.Text.StringBuilder($"  UPSCALER ROWS ({UpscalerSelect.Name(UpscalerSelect.Current)}{(UpscalerSelect.Dynamic ? " dyn" : "")}, {UpscalerSelect.DynChanges} dyn steps):");
+        foreach (var kv in rows) sb.Append($"  {kv.Key} {100f * kv.Value / total:F1}%");
+        return sb.ToString();
+    }
 }
