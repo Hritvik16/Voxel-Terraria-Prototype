@@ -227,3 +227,8 @@ kill -USR1 <tmux server pid>` (recreates the socket). SIDE EFFECT: the server's 
 afterwards makes unusable folders (a headless Claude then cannot create its temp dir: task 83b failed twice). Since then
 `start.sh` / `new-session.sh` set `umask 022` themselves, and the running server has `tmux set -g default-command 'umask 022;
 exec /bin/zsh -l'` for windows opened by hand. A tmux restart (nothing important running) clears it for good.
+
+## Newest first (owner, 2026-10-25: "make sure new stuff is at the top of the file")
+In every doc tab, new material goes at the TOP (under the title/intro), newest first: new questions at the top of "Questions for you",
+new task reports at the top of "Task reports", new Done rows first, answered questions at the top of "Answered". Insert before the
+first existing section, never at the end or before an old "Going ahead" block.
