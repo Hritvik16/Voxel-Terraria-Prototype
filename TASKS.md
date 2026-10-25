@@ -650,3 +650,13 @@ Lit px: `python3 -I tools/torchcost151.py <run>/stills [sheet.png]`. Run: `SKIP_
 Result (`Screenshots/151/torchcost151.txt`): per-pixel cost follows the RANGE only (k / I change no shader work); every range > 8.5 m was over the +1.0 ms budget
 (14 m +2.6..+24, 10 m +3.7, 24 m +15..+23 ms); today's torches themselves cost +5.7 / +8.3 ms vs none (22 / 31 torches). Lava's aggregate reads the same knobs:
 the room arm looks unchanged, wider arms add a red wash.
+
+**Task 152 (perf, owner Q97 (a); PERF_SHELL_MARCH_PLAN R2): ray compaction NOT built -- decision-table row A (SIMD efficiency >= 0.6 at both poses).**
+No code, no launch. Task 130's E3 counters (`Screenshots/130/perf130.txt`): per 32-lane SIMD sum / (32 x max) of primary shell iterations 0.906
+(walk_near) / 0.932 (walk_open); 95% / 99% of SIMDs >= 0.6, 4% / 1% < 0.35; active lanes 30.6 / 31.7 of 32; one end kind per SIMD (1.01 of 5).
+They still describe today's kernel: R1's `CSShellPrepass` uses the same 8x8 pixel layout as the probe (tid -> pixel, unflagged lanes return) and
+the same `ShellMarch` call; R6 changes no iteration or read count (`ShellMarchCacheTests.BandCacheChangesNoResult`); 133 adds shadow rays only;
+137 / 138 are OFF. Task 146's counters on today's build (`Logs/costsplit_2026-10-25_115751.txt`) give the same per-ray means as 130's mean lanes:
+83.6 iters/ray walk_near, 38.8 walk_open. So no re-run (every outcome led to the same action). Ceiling: a perfect, free compaction recovers at
+most (1 - eff) of the shells path: < 0.83 ms walk_near (of 8.8, which also holds 133's near sun rays) and < 0.37 ms walk_open (of 5.5), under
+the >= 1 ms keep bar before the append / indirect-dispatch overhead. Next cut: task 153 (column height bound).
