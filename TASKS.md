@@ -630,3 +630,11 @@ the 5 kept gates `run-editmode-tests.sh`, `run-phase7-rig.sh`, `run-acceptance-r
 `run-phase6-combined.sh`. Wrapping them in `tools/with-unity-lock.sh` still works (the inner acquire sees the outer holder as
 an ancestor and returns). The 20 lockless rigs marked retire/merge were left alone (R1/R3 move them). Evidence: `bash -n` on all
 nine; `./run-editmode-tests.sh` unwrapped took and released the lock, PASS 946 FAIL 0 SKIP 15 (`Logs/overnight/148-editmode.out`).
+
+**Task 149 (rig, RIG_REFRESH_PLAN R1, 2026-10-25): one-off rigs retired to `tools/retired-rigs/`.** 31 of the plan's 32
+"retire" scripts were `git mv`ed (not deleted) into `tools/retired-rigs/`, whose `README.md` has one row each (why retired,
+last report). They still run from the repo root as `tools/with-unity-lock.sh tools/retired-rigs/run-x.sh` (none uses
+`dirname "$0"`; none takes the lock itself). Left in place: `run-playground.sh` (`tools/capture-gpu-trace.sh` prints it as the
+rebuild command). Checked with `grep -w` over the 22 remaining `run-*.sh`, `tools/`, `Assets/` and CLAUDE.md: no other call
+site; mentions left in KNOWN_ISSUES.md / completion docs are history, and `run-play.sh`'s "like run-demo.sh" is a comment.
+Root now has 23 `run-*.sh`.
