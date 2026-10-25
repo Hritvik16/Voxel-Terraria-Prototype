@@ -119,6 +119,8 @@
 //                       on warm caches (+ 64). Misses draw sky in both: timing only. The counters line of these arms
 //                       comes from the probe (same rays: its iterations must equal FULL's), plus a [simd] line (E3):
 //                       per 32-lane SIMD (8x4 half-tile), efficiency sum / (32 x max) of shell iterations, ShadowStats 67-76
+//   TASK 151: -costpaths torch  night, 32 torches round a still pose; arms tl_K_I_R (the three C.11 knobs) and
+//                       tl_none (PlaygroundCapture.TorchCost.cs)
 //            -coststillraw  each arm's first still also shoots _raw.png / _raw2.png (10 frames apart) with no
 //                       upscaler (no jitter), for byte-identity checks between arms
 //            the counters line also gives shell march iterations by ray kind (ShadowStats 48-55)
@@ -155,6 +157,8 @@ public partial class PlaygroundCapture
         float timed = ArgFloat("-costtimed", 20f);
         float sunDeg = ArgFloat("-costsun", -1f);
         float hours = sunDeg > 0f ? SunCycle.HoursForElevation(sunDeg, morning: false) : SunCycle.NoonHours;
+        bool torchPaths = ArgValue("-costpaths") == "torch";            // task 151: night, 32 torches
+        if (torchPaths) hours = ArgFloat("-nighttod", 0.5f);
         string armsArg = ArgValue("-costarms");
         string[] costArms = string.IsNullOrEmpty(armsArg) ? CostArms : armsArg.Split(',');
         SunCycle.SetHours(hours);
@@ -207,6 +211,7 @@ public partial class PlaygroundCapture
         // turned to face the sun (no water in view; check its still).
         var pathList = new List<ClipPath>();
         if (ArgValue("-costpaths") == "lake") pathList.AddRange(CostLakePaths(centre, sun, hours));
+        else if (torchPaths) yield return CostTorchScene(centre, hours, far, sm, cam, pathList);
         else
         foreach (var (pname0, a0) in new[] { ("walk_near", aNear), ("walk_open", aOpen) })
         {
@@ -256,6 +261,8 @@ public partial class PlaygroundCapture
                 File.WriteAllText(Path.Combine(root, "costsplit.txt"), _log.ToString());
             }
             CostApply("full");
+            // Task 151: lava stills under each torch arm's knobs (PlaygroundCapture.TorchCost.cs).
+            if (torchPaths) { var la = new List<string> { "full" }; foreach (string a in costArms) if (a.StartsWith("tl_") && a != "tl_none") la.Add(a); yield return CostTorchLava(cam, stills, la.ToArray()); }
             Phase4Bootstrapper.DebugStreamCentre = null;
 
             // ---- the table ----
@@ -370,6 +377,8 @@ public partial class PlaygroundCapture
         Playground.DebugHideUi = arm == "hud_off";
         Minimap.Visible = arm != "hud_off";
         Minimap.ForceShow = arm != "hud_off";      // capture runs hide it otherwise
+        // Task 151: tl_K_I_R / tl_none torch arms (PlaygroundCapture.TorchCost.cs); no-op without -costpaths torch.
+        CostTorchApply(arm);
     }
 
     private static int _costBaseShadow = -1, _costBaseTorch = -1;

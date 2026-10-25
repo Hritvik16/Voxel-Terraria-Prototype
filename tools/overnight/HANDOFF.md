@@ -1,46 +1,50 @@
-# 150-perf-walk-regression-isolate: DONE -- decision row 3 ("not 1 or 3" at >= 2 ms whole-run); 133's near shell shadows are the largest named piece (~1.5 ms walk, ~2.1 ms = half the gap on the regressed leg); (3) ~0; shell held counts NOT higher than 10-22
+# 151-perf-torch-range-cost: DONE -- shipped the "room" arm (k 0.35 / I 1.6 / 8 m, reach 1.2 -> 2.9 m); every wider reach is over +1.0 ms (half-tunnel +2.6..+24, 10-15 m +15..+23)
 
 ## What changed (branch engine-phase)
-- `run-tg2world.sh` playwalk branch: `NOMINIMAP=1` drops play's bare `-minimap` (cannot be switched off via EXTRA). No C#, no default changed.
-- `TASKS.md` "Task 150" paragraph. Driver: `Logs/overnight/150-driver.sh`, output `Logs/overnight/150.out`. No fast suite (no code; `bash -n` OK).
+- `LightingPresets.HighContrast()` torch knobs 0.85 / 0.90 / 8.5 -> 0.35 / 1.60 / 8. **Play reads the owner's `LightingConfig.json`, not the code**, so the same three
+  fields were set in `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LightingConfig.json` and `LightingConfig_HighContrast.json`
+  (backups `*.bak151` beside them; copy back to undo). Every rig/launch on this Mac now uses the new knobs.
+- New harness `-costsplit -costpaths torch` (`Assets/Game/PlaygroundCapture.TorchCost.cs`, two hooks in `PlaygroundCapture.CostSplit.cs`): night, 32 torches on
+  1.5 m posts, arms `tl_K_I_R` / `tl_none`, lava stills. `tools/torchcost151.py` (lit px + sheet). TASKS.md "Task 151". No preset test pins these numbers.
+- Fast suite PASS 946 FAIL 0 SKIP 15 (`Logs/overnight/151-fast.out`).
 
-## Runs (warm steady state, AC 100% charged every launch, no owner pause, back to back 13:14-13:47, same build as 146 = 147e0e8)
-Warm-up (discarded): `Logs/tg2world_20261025_131447.txt`. Then base, A, B, base (gaps only the lock's 45 s). 5-min walks, `MODE=playwalk`.
-| arm | p50 / p95 / p99 ms | > 33 ms | win mean 0.5-3.5 min | leg 1.0-2.0 min | rows | s1/s2/s3 held (start -> end) | log |
-|---|---|---|---|---|---|---|---|
-| base 1 | 42.40 / 83.97 / 118.5 | 73.5% | 45.26 | 48.04 | 540 100% | 1746/488/0 -> 879/160/0 | `Logs/tg2world_20261025_131957.txt` |
-| A `-nearshadowshells 0` | 42.58 / 70.46 / 83.5 | 81.9% | **43.83** | **45.74** | 540 100% | 1696/440/0 -> 802/98/0 | `..._132648.txt` |
-| B `-underwater 0`, no minimap | 42.72 / 86.23 / 129.8 | 75.3% | 44.48 | 47.58 | 540 100% | 1672/438/0 -> 982/94/0 | `..._133338.txt` |
-| base 2 | 47.20 / 81.99 / 101.5 | 86.6% | 45.48 | 47.67 | 540 100% | 1627/406/0 -> 1409/302/0 | `..._134031.txt` |
-| 10-22 walk (110, 3 min) | 41.0 / - / 99 | 72-78% | (0.5-2.5 only) | **43.42** | 540 fixed | 1801/546/0 -> 1031/406/0 | `Logs/tg2world_20261022_133936.txt`, `_134432` |
-"win mean" = mean of the report's per-half-minute window means (same circle, same positions each run); "leg" = windows 1.0/1.5/2.0.
+## Runs (warm: warm-up `Logs/tg2world_20261025_140801.txt`, then 3 cost-split launches back to back 14:13-14:47; F X X F per arm in each)
+**Conditions flag:** the Mac was UNPLUGGED at 14:19:55 (mid run 1) and the owner was using it (HID idle 16-58 s); runs 2-3 entirely on battery (100 -> 84%,
+low power mode off). Runs 2-3 are noisier (FULL range 9.0 / 4.3 ms vs run 1's clean brackets 0.5-0.7).
+"saved" = mean of bracketing FULL p50 - arm p50 (negative = the arm costs more than today). FULL = today 0.85 / 0.9 / 8.5.
+| arm (k / I / range) | model reach | run 1 (22 torches) | run 2 (31) | run 3 (31) | lit px run 2 (vs none) |
+|---|---|---|---|---|---|
+| none (lights off) | - | +5.7 | +8.3 | - | 0 |
+| today 0.85/0.9/8.5 | 1.2 m | 0 (FULL 56.3 p50) | 0 (58.6) | 0 (56.6) | 12,546 |
+| room 0.35/1.6/8 **SHIPPED** | 2.9 m | +0.8 | +2.0 (noise 9.0) | -2.1 (noise 1.1) | 87,530 |
+| half 0.15/2.4/14 | 5.8 m | -2.6 (noise 4.0, the unplug) | -23.6 | -13.7 | 196,173 |
+| half variant 0.15/2.4/10 | ~5.8 m, cut at 10 | - | - | -3.7 | (bright px 174,693 vs half 204,546, run 3) |
+| tunnel 0.06/3.0/24 | 10.4 m | -15.3 | -23.3 | - | 271,311 |
+| tunnel variant 0.06/3.0/14 | 10.4 m, cut at 14 | -3.0 | -6.7 | - | 224,972 |
+Logs: `Logs/costsplit_2026-10-25_141409.txt`, `_142910.txt`, `_144035.txt`; summary `Screenshots/151/torchcost151.txt`.
 
 ## What it says
-- **Whole-run p50 cannot resolve 2 ms here:** the identical base arm spread 42.4 -> 47.2 ms (4 runs on this build incl. 146's 45.7 / 43.6).
-  Base 2's +4.8 is its last minute only (windows 4.0/4.5 = 69.3 / 65.7 ms vs base 1's 51.7 / 45.5); its 0.5-3.5 windows match base 1 within ~1 ms
-  except 3.5. Held counts there (s1+s2 1241 vs 1087) do not explain +18 ms: an unexplained transient, not a cause.
-- **Where the regression lives:** vs 10-22, windows 0.5 and 2.5 are unchanged (47.7-48.7 / 36.3-37.3); windows 1.0-2.0 are +3.8..+5.3 ms.
-- **(1) task 133:** A vs base mean: -1.5 ms over 0.5-3.5, **-2.1 ms on the 1.0-2.0 leg** (1.8 / 2.6 / 2.0) = about half of the leg's +4.4 ms. A also has the
-  best tail (p95 70 vs 82-86, p99 84 vs 101-130). Matches Q87's measured +1.1..+1.9 ms (now ~1.5 walk, ~2.1 at the worst leg): no reason to revisit keep-ON.
-- **(3) -underwater / minimap:** -0.9 ms (0.5-3.5), -0.3 ms on the leg: noise (146's hud_off was ~0 too).
-- **(2) shell held:** today's base 1 holds the same as 10-22 on the leg (s1 1236-1427 vs 1187-1475, s2 507-631 vs 384-684, s3 0 in all four arms;
-  146's s3 17-27 / s2 up to 1,060 was one run's variation). Across the 4 base runs, window ms vs s1+s2 held: r = 0.16-0.39, ~1.5-1.8 ms per 1,000
-  held chunks: a weak contributor at most, and not what separates today from 10-22.
-- **Unexplained remainder (~2 ms on the leg):** differences between 110's `MODE=walk` arm and playwalk NOT tested here: `-gamemode survival`,
-  `-shadowlevel 0 -roofskip 0 -shadowres full`, `-renderrows dyn` (stayed at 540), 3 vs 5 min, `-memledger -frametiming`, and the build delta 10-22 -> 147e0e8.
-- Shell fill on workers today 18.8-18.9 ms/chunk (f1) vs 6.3-8.1 in 146/110's logs: the chip was hot; numbers are warm steady state as required.
+- Per-pixel cost depends on the RANGE only (Raymarch.compute SumPointLights*/torch rays: k and intensity change no branch), so room (8 m <= 8.5 m) is no extra
+  GPU work: measured +0.8 / +2.0 / -2.1, mean ~0. Same-range arms (half vs tunnel_r14) measured differently in runs 2-3: that gap is noise from battery/owner use.
+- Decision table row: neither 10-15 m nor half-tunnel <= +1.0 ms; room is -> budget rule "ship the largest arm under +1.0 ms". Variants tried first: range 14 and 10.
+- Bigger finding: today's torch lights themselves cost +5.7 / +8.3 ms in a 22 / 31-torch night scene (32-light loop for every pixel + 4 torch shadow rays).
+- Scene caveat: the tg2 tier-0 window is 16^3 chunks (+-102 m); the residency ends near its edge, so "half the torches outside the box" could not be placed
+  (run 1: 108 m ring, 10 of 16 refused). Runs 2-3 put the outer ring at 40 m (31 of 32 placed, all inside). The pose stands on a ridge: only 1-3 posts in frame.
+- Leak (step 2): run 1's outer torches near the box edge (~100 m) show as a lit ridge-top patch (top-left of each cell); the room arm's patch is the same size
+  as today's, the 14/24 m arms enlarge it. Lava: room unchanged, wider arms add a red wash (see below).
 
-Screenshots looked at: `99_end_pose.png` of base 1 and A (`~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/Sustained/2026-10-25_132136_tg2playwalk_20261025_131957/` and `..._132827_tg2playwalk_20261025_132648/`):
-the same close sandstone slope in both, no holes or black bands; A's shading looks the same at this distance.
-
-## Next
-- Owner-independent: if the remaining ~2 ms matters, one more ABBA isolating 110-vs-playwalk flags (`-gamemode survival` first) -- a measure-only task,
-  so named here, not queued. Otherwise the ranked cuts in 146's HANDOFF stand (1. shell column height bound would also cap 133's cost).
+## Next (owner)
+- Owner: room (2.9 m) is close to the "3 m" called not good enough. A real 10-15 m reach needs the torch cost itself cut first (per-tile light culling, fewer
+  shadow rays per pixel, or a shorter ray cap), not a knob. A perf plan item, needs approval; not queued.
+- The cost numbers were taken on battery with the owner active; a clean AC rerun of `tl_0.15_2.4_10` alone would firm up the cheapest wider option (measure-only, named here).
 
 ## For the doc
-- Task 133 near shell shadows cost on the walk: **~1.5 ms** (position-matched 45.37 -> 43.83 ms), **~2.1 ms** on the regressed leg (47.86 -> 45.74) = half of the +4.4 ms vs 10-22 there (`Logs/tg2world_20261025_{131957,132648,134031}.txt`)
-- -underwater 0 + no minimap: **~0.3-0.9 ms** = noise (`Logs/tg2world_20261025_133338.txt`)
-- Shell held counts: same as 10-22 on the leg (s2 507-631 vs 384-684, s3 0) -> not the cause
-- Run-to-run spread of the same base arm: whole-run p50 **42.4 -> 47.2 ms** (one late transient); window means agree within ~1 ms -> A/Bs under 3 ms need window means, not whole-run p50
-- Warm-up log `Logs/tg2world_20261025_131447.txt`; all arms AC, 540 rows 100%, 0 exceptions
-- Image: `.../Sustained/2026-10-25_132827_tg2playwalk_20261025_132648/99_end_pose.png` -- arm A's end pose: the close sandstone slope (same as base 1's), no holes; shows arm A rendered normally, nothing else changed visibly.
+- Torch reach 1.2 m -> 2.9 m (k 0.85/I 0.9/R 8.5 -> 0.35/1.6/8); lit px in the 32-torch night still 12,546 -> 87,530 (`Screenshots/151/torchcost151.txt`)
+- Cost of shipped arm vs today: +0.8 / +2.0 / -2.1 ms saved in 3 warm ABBA launches (mean ~0; range 8 m does no more work than 8.5 m)
+- Half-tunnel (5.8 m): +2.6 / +23.6 / +13.7 ms; 10-15 m tunnel (10.4 m): +15.3 / +23.3 ms; range-14 variant +3.0 / +6.7; range-10 variant +3.7 ms
+- Today's torches vs no torch lights: +5.7 ms (22 torches) / +8.3 ms (31) -- the torch system itself is a perf item
+- Logs `Logs/costsplit_2026-10-25_141409.txt` / `_142910.txt` / `_144035.txt`; warm-up `Logs/tg2world_20261025_140801.txt`
+- `Screenshots/151/run1/torchcost_sheet.png` -- six cells, same night pose: today (top-left) shows one dim post; room (bottom-right) a warm patch round the post;
+  14/24 m arms (top-right, bottom-left/middle) flood the slope below the eye and light a ridge-top at the top-left (the outer torch near the box edge).
+- `Screenshots/151/run2/lava_sheet.png` -- the lava slab is only at the top-left corner of each cell (poor framing); look at the blocks: grey-blue in "full" and
+  "room" (unchanged), red-washed in the 14/24 m arms.

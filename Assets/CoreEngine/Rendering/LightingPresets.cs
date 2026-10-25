@@ -226,9 +226,13 @@ namespace VoxelEngine.Rendering
         public static LightingConfig HighContrast() => new LightingConfig
         {
             kSoft = 0.012f,
-            pointFalloffK = 0.85f,
-            lightRangeM = 8.5f,
-            lightIntensity = 0.90f,
+            // Task 151 (owner Q95): torch reach ~1.2 m -> ~2.9 m (was k 0.85 / I 0.90 / 8.5 m). The widest
+            // setting under +1.0 ms in a 32-torch night scene: per-pixel cost follows the range only, and any
+            // range past 8.5 m measured +2.6..+24 ms (Logs/costsplit_2026-10-25_14*.txt). Lava's aggregate
+            // reads these three too (LightSourceBuffer.LavaLight).
+            pointFalloffK = 0.35f,
+            lightRangeM = 8f,
+            lightIntensity = 1.60f,
             ambientIntensity = 0.055f,
             ambientColorR = 0.44f, ambientColorG = 0.52f, ambientColorB = 0.70f,
             nightAmbientFraction = 0.10f,

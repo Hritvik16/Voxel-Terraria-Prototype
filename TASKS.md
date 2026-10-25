@@ -640,3 +640,13 @@ site; mentions left in KNOWN_ISSUES.md / completion docs are history, and `run-p
 Root now has 23 `run-*.sh`.
 
 **Task 150 (perf, diagnosis only): the +3.7 ms playwalk regression, isolated.** Rig knob only: `NOMINIMAP=1 MODE=playwalk ./run-tg2world.sh` drops play's bare `-minimap` flag (it cannot be switched off through EXTRA; ArgValue/last-match does not apply to a bare flag). Result (warm, ABBA, `Logs/overnight/150.out`): `-nearshadowshells 0` saves ~1.5 ms over the walk (position-matched 0.5-3.5 min means) and ~2.1 ms on the 1.0-2.0 min leg where the regression vs 2026-10-22 lives (about half of it there); `-underwater 0` + no minimap ~0.3-0.9 ms (noise); shell held counts in today's base runs match 10-22's, so not cause (2). Whole-run p50 of the identical base arm spread 42.4-47.2 ms over four runs on one build: use per-half-minute window means for A/Bs under ~3 ms. No default changed.
+
+**Task 151 (perf, owner Q95): torch reach vs cost; SHIPPED the "room" arm.** HighContrast preset (play's) torch knobs k 0.85 / I 0.90 / 8.5 m -> **0.35 / 1.60 / 8 m**
+(model reach 1.2 -> 2.9 m; `LightingPresets.HighContrast`, and the same three fields in the owner's `LightingConfig.json` + `LightingConfig_HighContrast.json`,
+backups `*.bak151` beside them: play reads the FILE, not the code). Harness: `-costsplit -costpaths torch` (`PlaygroundCapture.TorchCost.cs`, hooks in CostSplit):
+night (`-nighttod`), 32 torches on 1.5 m posts (16 in an 8 m ring 12 m ahead, 16 in a `-tlouter` m ring round the eye, default 40), still eye, yaw +-30 deg;
+arms `tl_K_I_R` set the three C.11 knobs and re-register the torches, `tl_none` unregisters them; then lava stills `lava_<arm>.png` (3 x 3 m slab behind the eye).
+Lit px: `python3 -I tools/torchcost151.py <run>/stills [sheet.png]`. Run: `SKIP_BUILD=1 EXTRA="$PLAY_SETTINGS_FLAGS -renderrows 540 -shellwait 90 -costtimed 15 -costpaths torch -costarms tl_none,tl_0.35_1.6_8,..." ./run-cost-split.sh`.
+Result (`Screenshots/151/torchcost151.txt`): per-pixel cost follows the RANGE only (k / I change no shader work); every range > 8.5 m was over the +1.0 ms budget
+(14 m +2.6..+24, 10 m +3.7, 24 m +15..+23 ms); today's torches themselves cost +5.7 / +8.3 ms vs none (22 / 31 torches). Lava's aggregate reads the same knobs:
+the room arm looks unchanged, wider arms add a red wash.

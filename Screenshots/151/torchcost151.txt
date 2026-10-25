@@ -1,0 +1,50 @@
+== Logs/costsplit_2026-10-25_141409.txt
+  torch scene (task 151): 0.50 h; eye (4017.2, 891.2, 4018.8), heading yaw 0 (free 400 m); tier-0 window int3(16, 16, 16) chunks from int3(305, 61, 305) (half x 102.4 m); torches placed 22 (refused 10), inside the window 19; inner ring r 8 m at 12 m ahead, outer ring r 108.4 m; lights registered 22; launch knobs k 0.850 intensity 0.90 range 8.5 m; torch shadow rays 4
+arm        p50    p99 ms   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50
+full       56.3  139.9    6 runs: 54.7 55.1 54.4 58.4 57.9 56.7   (range 4.0)   cpu 55.8 / 0.0   gpu* 128.8
+tl_none    49.2  130.0      49.3 / 49.0        54.7 / 55.1               +5.7          0.5                  49.0 /   0.0          141.0
+tl_0.35_1.6_8  54.0  139.2      54.1 / 53.4        55.1 / 54.4               +0.8          0.7                  53.8 /   0.0          136.9
+tl_0.15_2.4_14  59.1  191.3      59.0 / 59.4        54.4 / 58.4               -2.6          4.0                  58.8 /   0.0          141.6
+tl_0.06_3.0_24  73.5  200.8      73.6 / 72.9        58.4 / 57.9              -15.3          0.5                  73.4 /   0.0          193.7
+tl_0.06_3.0_14  60.4  192.9      60.4 / 60.3        57.9 / 56.7               -3.0          1.2                  60.3 /   0.0          150.1
+
+power before: Now drawing from 'AC Power'  -InternalBattery-0 (id=25100387)	100%; charged; 0:00 remaining present: true 
+power after:  Now drawing from 'Battery Power'  -InternalBattery-0 (id=25100387)	100%; discharging; 2:19 remaining present: true 
+
+== Logs/costsplit_2026-10-25_142910.txt
+  torch scene (task 151): 0.50 h; eye (4017.2, 891.2, 4018.8), heading yaw 0 (free 400 m); tier-0 window int3(16, 16, 16) chunks from int3(305, 61, 305) (half x 102.4 m); torches placed 31 (refused 1), inside the window 31; inner ring r 8 m at 12 m ahead, outer ring r 40.0 m; lights registered 31; launch knobs k 0.850 intensity 0.90 range 8.5 m; torch shadow rays 4
+arm        p50    p99 ms   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50
+full       58.6  142.4    6 runs: 57.7 55.5 64.4 56.8 57.5 59.1   (range 9.0)   cpu 58.2 / 0.0   gpu* 157.6
+tl_none    48.3  133.8      48.6 / 48.2        57.7 / 55.5               +8.3          2.2                  48.3 /   0.0          123.3
+tl_0.35_1.6_8  58.0  147.6      58.4 / 57.6        55.5 / 64.4               +2.0          9.0                  57.8 /   0.0          144.8
+tl_0.15_2.4_14  84.2  207.4      88.2 / 80.1        64.4 / 56.8              -23.6          7.7                  83.6 /   0.0          197.5
+tl_0.06_3.0_24  80.5  239.9      78.4 / 82.2        56.8 / 57.5              -23.3          0.7                  80.1 /   0.0          198.3
+tl_0.06_3.0_14  64.9  197.7      65.8 / 64.8        57.5 / 59.1               -6.7          1.6                  64.6 /   0.0          159.2
+
+power before: Now drawing from 'Battery Power'  -InternalBattery-0 (id=25100387)	99%; discharging; 2:24 remaining present: true 
+power after:  Now drawing from 'Battery Power'  -InternalBattery-0 (id=25100387)	91%; discharging; 2:05 remaining present: true 
+
+== Logs/costsplit_2026-10-25_144035.txt
+  torch scene (task 151): 0.50 h; eye (4017.2, 891.2, 4018.8), heading yaw 0 (free 400 m); tier-0 window int3(16, 16, 16) chunks from int3(305, 61, 305) (half x 102.4 m); torches placed 31 (refused 1), inside the window 31; inner ring r 8 m at 12 m ahead, outer ring r 40.0 m; lights registered 31; launch knobs k 0.850 intensity 0.90 range 8.5 m; torch shadow rays 4
+arm        p50    p99 ms   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50
+full       56.6   85.9    4 runs: 55.7 54.5 56.9 58.9   (range 4.3)   cpu 56.8 / 0.0   gpu* 125.5
+tl_0.35_1.6_8  57.2   84.1      57.7 / 55.3        55.7 / 54.5               -2.1          1.1                  57.2 /   0.0          113.4
+tl_0.15_2.4_10  59.4   87.6      59.3 / 59.5        54.5 / 56.9               -3.7          2.4                  59.4 /   0.0          119.7
+tl_0.15_2.4_14  71.6  117.0      77.4 / 69.3        56.9 / 58.9              -13.7          1.9                  71.9 /   0.0          222.0
+
+power before: Now drawing from 'Battery Power'  -InternalBattery-0 (id=25100387)	90%; discharging; 2:10 remaining present: true 
+power after:  Now drawing from 'Battery Power'  -InternalBattery-0 (id=25100387)	84%; discharging; 1:45 remaining present: true 
+
+== lit px (run 1 / run 2 / run 3 stills, tools/torchcost151.py)
+arm                        lit px  bright px  mean luma
+full                       12,546     77,509       21.4
+tl_none                         0     67,837       20.9
+tl_0.06_3.0_14            224,972    276,966       32.8
+tl_0.06_3.0_24            271,311    322,258       35.5
+tl_0.15_2.4_14            196,173    228,359       26.3
+tl_0.35_1.6_8              87,530    113,840       22.3
+arm                        lit px  bright px  mean luma
+full                           -1     74,659       20.8
+tl_0.15_2.4_10                 -1    174,693       24.3
+tl_0.15_2.4_14                 -1    204,546       25.0
+tl_0.35_1.6_8                  -1    103,451       21.5
