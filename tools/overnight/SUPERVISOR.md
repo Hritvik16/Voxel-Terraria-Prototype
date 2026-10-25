@@ -175,6 +175,14 @@ frozen-API or memory-layout changes, anything the owner has not approved.
   surface-rebuild plan ("direction B" of the terrain review) against the
   game-design brief's Decided rows, for the owner to approve.
 
+## Never idle (owner, 2026-10-25: "dont ever leave no task running. I see nothing was run since last night around 11 pm")
+Task 138 blocked at 23:38 while the supervisor sat waiting on a chat AskUserQuestion; the queue idled ~7 h. Rules:
+- Keep at least ONE owner-independent task queued BEHIND the running one at all times (bug fixes from handoffs/BUGS.md,
+  QA poses, parked `later/` items that are already approved). Write it when a task starts, not when the queue runs dry.
+- AskUserQuestion blocks this session (no events are handled while it waits): use it ONLY when the queue already has work.
+  Otherwise put the question in the doc and keep going.
+- When a task blocks, first queue/requeue something runnable, restart the runner, THEN ask.
+
 ## The owner decisions doc
 One Claude Doc titled "Queue decisions", reused across sessions (its link goes
 into SESSION_HANDOFF.md). Sections: Waiting on you (open questions, newest
