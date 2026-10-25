@@ -1,0 +1,27 @@
+Task 137 -- DESIGN ONLY (not built; task rule: a new GPU structure needs the owner first).
+"SHELL COLUMN TOPS": a data-derived local height bound for rising rays in the shells.
+
+Problem: a rising sun ray that leaves tier 0 (noon: all of them) marches shell chunks of uniform air until voxel.y >=
+_ShellTopY, the highest non-air brick ANY shell holds (a running max, ~1100 m = the world's tallest peak, wherever it is).
+At noon walk_near that is ~6 of the 8.0 iterations per ray, and they find nothing ("blocked 0").
+
+Data: per shell k, per RING COLUMN slot (ring.x * ring.z entries; one 32-bit word: the column's top, exclusive 0.1 m
+voxels, of the highest non-air brick of any chunk shell k holds in that column; 0 = all air). High: shells 1-7 rings
+<= 32 x 32 -> <= 7 x 1,024 x 4 B = 28 KB, one small buffer (or the tail of ShellPages, as the column tops of task 116).
+Kept up to date in ShellStore.Store, the one door every stored chunk comes through: first load, redraws after an edit op,
+player edit summaries (task 93a/108) and fluid -- exactly where SolidTopY is kept today. Raised at once (max with the new
+chunk's top). Lowered only by recomputing the column from its held chunks when a chunk of it is replaced or evicted, or
+reset when the slot's world column changes (ring move); a stale HIGH value is only slower, never wrong. Dirty columns
+upload with the directory flush (same budget, same published-box rule).
+
+Use (exact): a rising ray (step.y > 0) in shell k's column whose voxel.y >= that column's top, with every iteration it
+would take inside the column box asking shell k (BoxLeapOk's distance-band test; not in a hole; chunks held) -> one leap
+to where the ray leaves the column (its side planes). Then the next column is tested. Generality: no constants; the bound
+is whatever the stored data says, so taller structures, floating islands and player builds raise it the frame they are
+stored (the pillar test above is the model check: a pillar raises its column's top and the ray is not leapt past it).
+
+Expected: noon rays (78 deg) cross a 25.6 m shell-1 column in ~120 m of rise, a 51 m shell-2 column in ~240 m, so the
+~6 climbing iterations become ~2-3. Estimate -2 to -3 ms of task 133's +6.1 ms at noon walk_near; ~0 at sun 20 (rays
+mostly leave sideways already). NOT measured. Cost: one extra word read per climbing iteration, the CPU twin + tests.
+Risk: task 116's column leap (a similar idea inside one chunk) was exact but no faster -- this one targets the case the
+counters show (chunk-level climbing), but it could still land within noise.

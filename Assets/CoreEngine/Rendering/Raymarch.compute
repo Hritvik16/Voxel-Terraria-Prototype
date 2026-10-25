@@ -2831,6 +2831,15 @@ int    _ShellColLeap;
 #else
 #define SHELL_COLLEAP_ON (_ShellColLeap != 0)
 #endif
+// TASK 137: the HOLE LEAP (-holeleap 1; RaymarchFeature.ShellHoleLeap). Inside shell 1's hole and
+// outside tier 0's layers, every ShellMarch iteration is the same tier-0-chunk leap (resolve -2,
+// tier 0 not missing): a near sun ray climbing out of the band ceiling takes several. ShellHoleBox
+// derives, from the constants the shader already has (shell 1's published box and hole, the band,
+// the sky exit, shell 1's outer bound), the box where that holds; inside it ShellMarch repeats the
+// leap alone, without the distance / resolve / tier-0 tests, one iteration per leap. The same leap
+// sequence (bit for bit) and the same iteration count, so the same result. No new data.
+int    _ShellHoleLeap;
+#define SHELL_HOLELEAP_ON (_ShellHoleLeap != 0)
 #define SHELL_SKY_NEVER 2147483647
 int ShellSkyY(bool primary)
 {
@@ -2880,6 +2889,7 @@ struct ShellHit
     int maskGroups; // task 93b5 (diagnostic): empty brick groups crossed in one leap each
     int colLeaps;   // task 116 (diagnostic): column sky leaps (a group column or a whole chunk)
     int colLeapsChunk; // ... of them over the whole chunk's x and z
+    int holeLeaps;  // task 137 (diagnostic): tier-0 chunk leaps taken inside the hole box (of leaps0)
 #endif
 };
 
@@ -3171,6 +3181,32 @@ bool ShellGroupLeapOk(int3 voxel, int k, float t, float tTier0, bool shadow, flo
     return ShellBoxLeapOk(k, t, tTier0, shadow, camera, start, tDelta, step, (voxel >> gs) << gs, int3(gsz, gsz, gsz));
 }
 
+/// TASK 137: the HOLE BOX [lo, hi] (inclusive voxels) for a ray at `voxel`: every ShellMarch iteration
+/// that starts in it is the hole's tier-0-chunk leap. Shell 1's hole (its chunks within +-H of its camera
+/// chunk) inside its published box: ShellChunkState(1) is HOLE, so a distance shell of 1 resolves to -2.
+/// Cut to the side of tier 0's layers the ray is on (outside them ShellTier0Missing / Holds are false;
+/// none when it is inside them), and below the sky exit for a rising ray. Accepted only when the box's
+/// farthest corner is nearer than shell 1's outer bound (1 voxel margin), so every distance asked in it
+/// (a shadow ray's cell centres, a primary ray's t: both <= that corner's distance from `org`) gives
+/// shell 1. Every input is a constant the shader already has; ShellRayReference.HoleBox.
+bool ShellHoleBox(int3 voxel, int3 step, float3 org, int skyY, out int3 lo, out int3 hi)
+{
+    lo = int3(0, 0, 0); hi = int3(-1, -1, -1);
+    if (_ShellCount < 2) return false;
+    int4 cam = (int4)_ShellCam[1];
+    if (cam.w < 0) return false;
+    int3 cLo = max(cam.xyz - cam.w, (int3)_ShellLo[1].xyz);
+    int3 cHi = min(cam.xyz + cam.w, (int3)_ShellHi[1].xyz);
+    lo = cLo << 8; hi = ((cHi + 1) << 8) - 1;
+    if (voxel.y >= _ContentCeilingVoxelY) lo.y = max(lo.y, _ContentCeilingVoxelY);
+    else if (voxel.y < _ContentFloorVoxelY) hi.y = min(hi.y, _ContentFloorVoxelY - 1);
+    else return false;
+    if (step.y > 0) hi.y = min(hi.y, skyY - 1);
+    if (any(lo > hi)) return false;
+    float3 c0 = float3(lo) - org, c1 = float3(hi + 1) - org;
+    return length(max(abs(c0), abs(c1))) < _ShellBounds[1].y - 1.0;
+}
+
 /// March the shells from t = tStart. Primary: start = the camera (0.1 m voxels).
 /// Shadow: start = a point just off the hit face, `camera` for the distance rule.
 /// tTier0 (task 85, 8.14 row 5): tier 0 marched [0, tTier0) and saw air; a chunk
@@ -3194,7 +3230,7 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
     r.mat = 0u; r.iters = 0; r.inside = false;
 #ifdef VE_SHELL_DIAG
     r.leaps0 = 0; r.leapsChunk = 0; r.leapsBrick = 0; r.dirReads = 0; r.pageReads = 0;
-    r.maskGroups = 0; r.colLeaps = 0; r.colLeapsChunk = 0;
+    r.maskGroups = 0; r.colLeaps = 0; r.colLeapsChunk = 0; r.holeLeaps = 0;
 #endif
     int kPrev = 0;
     int rcKd = -1, rcK = 0; int3 rcChunk = int3(0, 0, 0); uint rcE = 0u;   // task 93b4: resolve cache
@@ -3255,6 +3291,24 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
             r.leaps0++;
 #endif
             kPrev = 0;
+            // TASK 137: the next iterations that start in the hole box would each do just this leap
+            // (ShellHoleBox): do them here, one iteration each, until the ray leaves the box or the cap.
+            int3 hLo, hHi;
+            if (SHELL_HOLELEAP_ON && ShellHoleBox(voxel, step, shadow ? camera : start, skyY, hLo, hHi))
+            {
+                [loop]
+                while (it + 1 < maxIters && all(voxel >= hLo) && all(voxel <= hHi))
+                {
+                    it++;
+#ifndef VE_SHELL_LEAN
+                    r.iters = it + 1;
+#endif
+                    ShellLeap(voxel, tMax, t, normal, tDelta, step, start, (voxel >> 7) << 7, 128);
+#ifdef VE_SHELL_DIAG
+                    r.leaps0++; r.holeLeaps++;
+#endif
+                }
+            }
             continue;
         }
         if (k < 0) { r.end = SHELL_END_ABSENT; r.t = t; return r; }
@@ -4731,6 +4785,10 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
             {
                 InterlockedAdd(ShadowStats[77], 1u); InterlockedAdd(ShadowStats[78], (uint)ns.iters);
                 if (ns.end == SHELL_END_HIT) InterlockedAdd(ShadowStats[79], 1u);
+#ifdef VE_SHELL_DIAG
+                // Task 137: 80 their tier-0 chunk leaps (tier 0's band and the hole), 81 of them inside the hole box.
+                InterlockedAdd(ShadowStats[80], (uint)ns.leaps0); InterlockedAdd(ShadowStats[81], (uint)ns.holeLeaps);
+#endif
             }
         }
 #endif

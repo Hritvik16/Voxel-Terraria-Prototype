@@ -1,0 +1,33 @@
+Task 137 -- the shells' HOLE LEAP (-holeleap), owner 2026-10-24 ("1 works for now" + generality rule). 2026-10-24.
+Warm steady state: warm-up Logs/tg2world_20261024_211554.txt (discarded); a cost split launched without the shell flags
+(Logs/costsplit_2026-10-24_212211.txt, shells NOT drawn -> VOID, kept the chip warm) then the arms back to back from 21:36.
+Power: AC throughout (92 -> 100%, charging); no owner pause during the arms (the owner paused 19:42-21:00, before them).
+Build: current tree (pre-pass ON, near shadows ON, diet ON), quality preset, FSR 3 540 rows, far shading, shells, see-through,
+river look. FULL = launch -holeleap 0. Decisions written first: Screenshots/137/decisions_before_measuring.txt.
+
+COST SPLIT p50 ms, F X X F X X F per pose, 15 s timed per run
+                     FULL (OFF) passes   holeleap_on    holeleap_off   ON - OFF arm   noise (FULL spread)
+noon walk_near       61.1 / 60.2 / 61.4  61.3 / 62.5    62.7 / 60.5    +0.3           1.2
+noon walk_open       36.0 / 36.0 / 36.0  36.0 / 35.9    36.0 / 36.1    -0.1           0.0
+sun 20 walk_near     53.7 / 53.5 / 53.6  53.5 / 53.4    53.8 / 53.7    -0.3           0.2
+sun 20 walk_open     43.3 / 44.9 / 44.4  44.2 / 45.3    43.8 / 44.4    +0.65          1.6
+(Logs/costsplit_2026-10-24_213718.txt noon, Logs/costsplit_2026-10-24_214843.txt sun 20)
+
+WHY NOTHING MOVES (Diag counters, [nearsh] lines, per near sun ray handed to the shells):
+noon walk_near   126k rays/frame, 8.0 shell iters/ray; tier-0 chunk leaps 2.0/ray (25%), of them in the hole box 1.0/ray
+noon walk_open    61k rays/frame, 5.6 iters/ray;      tier-0 chunk leaps 3.2/ray (56%), in the hole box 2.3/ray
+sun 20 near      5.0k rays/frame, 26.3 iters/ray;     tier-0 chunk leaps ~0
+sun 20 open       38k rays/frame, 13.9 iters/ray;     tier-0 chunk leaps 0.8/ray, in the hole box 0.1/ray
+-> the hole part is ~1 cheap iteration of 8 at the noon canyon. The other ~6 are uniform-air shell-chunk leaps climbing
+   to the shells' GLOBAL top (_ShellTopY, ~1100 m) before the sky exit; "blocked by the shells" is 0 at all four.
+
+MODE=walk 3 min, -tod 16, ON then OFF: p50 11.12 / 11.14, p95 22.33 / 22.67, p99 30.01 / 29.71, >33 ms 0.58 / 0.51%,
+peak 2296 / 2296 MB (Logs/tg2world_20261024_215912.txt, Logs/tg2world_20261024_220355.txt).
+
+IDENTITY (no-upscaler, ON vs OFF): cost split raw/raw2 walk_near + walk_open at noon and at sun 20: 0 px (8 pairs);
+cliff1 A native 0 px, cliff2 A native 0 px, adversarial pillar native 0 px (Logs/lookreview_20261024_194339.txt);
+pillar control (near shadows OFF vs ON): 68,392 px -- the pillar's upper shadow only the shells find.
+CPU twin: ShellHoleLeapTests, ~85k rays incl. pillar-blocked near rays and small step caps: every field equal.
+(FSR 3 'play' stills are temporal/jittered and differ between any two shots; not an identity measure.)
+
+Memory: none (no buffer; constants already bound). DECISION: (b) keep OFF (-holeleap 1 = on).

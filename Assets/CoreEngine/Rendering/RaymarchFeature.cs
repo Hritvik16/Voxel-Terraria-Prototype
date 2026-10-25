@@ -275,6 +275,15 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// +1.9 / -0.2 ms (Logs/costsplit_2026-10-22_202941.txt) and MODE=walk ABBA 41.71 vs 41.70 ms.
     /// `-shellcolleap 1` turns it on. The column tops are always built and uploaded.
     public static bool ShellColumnLeap = ReadShellColumnLeapArg();
+    /// Task 137 (owner, 2026-10-24: the noon canyon shortcut, with a generality rule): the HOLE LEAP. Inside shell 1's
+    /// hole and outside tier 0's layers every shell-march iteration is the same tier-0-chunk leap; Raymarch.compute
+    /// ShellHoleBox derives that box from constants the shader already has (shell 1's published box and hole, the band,
+    /// the sky exit, shell 1's outer bound) and ShellMarch repeats the leap there without its per-iteration tests. Same
+    /// leaps bit for bit and the same iteration count, so the same image (ShellHoleLeapTests). No new data or memory.
+    /// OFF by default (task 137's rule: not faster beyond noise): warm ABBA ON - OFF p50 +0.3 / -0.1 ms at noon walk_near /
+    /// walk_open, -0.3 / +0.65 at sun 20 (Logs/costsplit_2026-10-24_21{3718,4843}.txt); raw stills 0 px. The hole is ~1 of the
+    /// noon canyon's 8 near-ray shell iterations; the rest climb to the shells' global top. `-holeleap 1` turns it on.
+    public static bool ShellHoleLeap = ReadOffFlag(System.Environment.GetCommandLineArgs(), "-holeleap");
     /// Task 132 (R1, PERF_SHELL_MARCH_PLAN §4, owner Q85 (a)): the SHELL PRE-PASS. The far-shading kernel runs
     /// twice around a small kernel (CSShellPrepass) that does the primary shell march alone: pass 1 draws every
     /// 8x8 group with no shell ray and hands the others' shell rays over, pass 2 draws those groups with the
@@ -425,6 +434,15 @@ public partial class RaymarchFeature : ScriptableRendererFeature
 
     private static bool ReadShellPrepassArg() => ParseFlagOn(System.Environment.GetCommandLineArgs(), "-shellprepass");
 
+    /// `<flag> 0|1`, last match wins; OFF unless the last value is "1".
+    private static bool ReadOffFlag(string[] a, string flag)
+    {
+        bool on = false;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == flag) on = a[i + 1] == "1";
+        return on;
+    }
+
     private static bool ReadShellColumnLeapArg()
     {
         string[] a = System.Environment.GetCommandLineArgs();
@@ -548,7 +566,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool CollectShadowStats = false;
     public static GraphicsBuffer ShadowStatsBuffer { get; private set; }
     // [0..4] shadow counters; [5] far rays, [6] far steps (primary + far shadow), [7] far hits.
-    public const int STATS_LEN = 80;   // 0-7 shadow / far; 8 + 4k .. 11 + 4k: shell k's px metric (task 80); 40-47 far start / steps (task 93b3, far-shading kernel); 48-59 shell march iterations by ray kind / step kind / reads (task 93b4, far-shading kernel); 60-61 air-brick mask groups / bricks crossed (task 93b5); 62-64 sky rays / their shell iterations / ended by the sky exit (task 99, far-shading kernel); 65-66 primary column sky leaps / of them whole-chunk (task 116); 67-76 the shell probe's per-SIMD counters (task 130, CSShellProbe, shellsplit arms only); 77-79 near sun rays handed on to the shells / their shell iterations / of them blocked (task 133)
+    public const int STATS_LEN = 82;   // 0-7 shadow / far; 8 + 4k .. 11 + 4k: shell k's px metric (task 80); 40-47 far start / steps (task 93b3, far-shading kernel); 48-59 shell march iterations by ray kind / step kind / reads (task 93b4, far-shading kernel); 60-61 air-brick mask groups / bricks crossed (task 93b5); 62-64 sky rays / their shell iterations / ended by the sky exit (task 99, far-shading kernel); 65-66 primary column sky leaps / of them whole-chunk (task 116); 67-76 the shell probe's per-SIMD counters (task 130, CSShellProbe, shellsplit arms only); 77-79 near sun rays handed on to the shells / their shell iterations / of them blocked (task 133); 80-81 their tier-0 chunk leaps / of them inside the hole box (task 137)
     private static readonly uint[] _statsZero = new uint[STATS_LEN];
     private static GraphicsBuffer _farDummy;
     /// Task 130 (DIAGNOSTIC): CSShellProbe's per-pixel buffer (shellsplit arms only, allocated on first
@@ -1452,6 +1470,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_ShellSkyExit", ShellSkyExit ? 1 : 0);
                         cmd.SetComputeIntParam(data.compute, "_ShellColTopBase", data.shellColTopBase); // task 116
                         cmd.SetComputeIntParam(data.compute, "_ShellColLeap", ShellColumnLeap ? 1 : 0);
+                        cmd.SetComputeIntParam(data.compute, "_ShellHoleLeap", ShellHoleLeap ? 1 : 0);   // task 137
                         cmd.SetComputeIntParam(data.compute, "_ShellTint", data.shellTint);
                         cmd.SetComputeIntParam(data.compute, "_DebugShellSkip", DebugShellSkip);   // task 93b4 (diagnostic)
                         cmd.SetComputeFloatParam(data.compute, "_ShellPixelAngle", data.shellPixelAngle);

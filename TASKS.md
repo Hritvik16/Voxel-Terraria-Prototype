@@ -511,3 +511,22 @@ Task 135 (check): fast suite on 73b8ce7 PASS 922 FAIL 0 SKIP 15; the cliff2 1 px
 (hit voxel, face, rock straight above the face cell, sun ray, inside the window box). Sheet: `python3 -I tools/blackshape136.py <LookReview dir> <out.png>`.
 Run: `PRESETS=high EXTRA="-cliffshadow 1 -blackshape 2 -shellworkers 6 -cliffwait0 90 -cliffwait 45" ./run-look-review.sh`. Result: HANDOFF 136,
 `Screenshots/136/blackshape136.{png,txt}`, `Logs/lookreview_20261024_181746.txt`.
+
+**Task 137 (engine/perf, owner 2026-10-24 "1 works for now" + generality rule): the shells' HOLE LEAP, exact, OFF by default (`-holeleap 1` = on).**
+Raymarch.compute `ShellHoleBox` / `SHELL_HOLELEAP_ON` (`_ShellHoleLeap`, RaymarchFeature.ShellHoleLeap): after a hole leap in `ShellMarch`
+(resolve -2, tier 0 not missing), the iterations that start in shell 1's hole box -- its hole chunks inside its published box, cut to the
+ray's side of tier 0's layers, below the sky exit when rising, accepted only when the box's farthest corner is inside shell 1's outer bound --
+run the same tier-0-chunk leap alone (no distance / resolve / tier-0 tests), one iteration each, so the leaps (bit for bit), the iteration
+count and the step cap are unchanged. Every input is a constant the shader already has: no new data, no memory, edits need nothing (the hole is
+air to the shells by definition). All kernels (lean and Diag). CPU twin `ShellRayReference.March(holeLeap)` / `HoleBox`; test
+`ShellHoleLeapTests.HoleLeapChangesNoResult` (ShellMarchCacheTests' world with tier 0's layers cut low, plus an adversarial 300 m pillar just
+outside shell 1's hole; primary, shell-hit and near sun rays, small caps: every field equal). Counters ShadowStats 80-81 (near rays' tier-0
+chunk leaps / in the hole box; STATS_LEN 82), the cost split's second `[nearsh]` line; arms `holeleap_on` / `holeleap_off`. Capture:
+`-lookreview -cliffshadow 1 -cliffbefore 3 -holepillar 1 -holeleap 1` shoots cliff A with the leap forced OFF first and then the PILLAR pose
+(`PlaygroundCapture.HolePillar.cs`: 42 stacked box ops through EditOps.Record, 65 m toward a 50 deg sun, shots native / native0 / play /
+nonear = near shadows off as the control); `python3 -I tools/holeleap137.py look <dir>` / `raw <costsplit dir>` diff them. Evidence: raw stills
+0 px (walk_near / walk_open, noon and sun 20), cliff1 / cliff2 A native 0 px, pillar 0 px (control 68,392 px); warm AC ABBA ON - OFF p50 +0.3 /
+-0.1 ms noon, -0.3 / +0.65 sun 20, all within noise; MODE=walk 11.12 vs 11.14 ms. Why: at noon walk_near the hole is ~1 of 8.0 shell iterations
+per near sun ray; ~6 climb uniform-air shell chunks to the shells' GLOBAL top (~1100 m). Report `Screenshots/137/perf137.txt`; the local bound
+that would cut those (per-shell ring-column tops, 28 KB, kept in ShellStore.Store) is a new GPU structure: design only,
+`Screenshots/137/height_bound_design.txt`, owner's call.

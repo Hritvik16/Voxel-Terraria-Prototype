@@ -108,6 +108,7 @@ namespace VoxelEngine.Mirror
             public int DirReads, PageReads;   // task 93b4: Resolve calls / brick-handle reads the caches did not answer
             public int MaskGroups;   // task 93b5: empty brick groups crossed in one leap each
             public int ColLeaps, ColLeapsChunk;   // task 116: column sky leaps / of them over the whole chunk
+            public int HoleLeaps;    // task 137: tier-0 chunk leaps taken inside the hole box
         }
 
         /// Smallest shell k >= 1 whose outer bound is beyond d; -1 = past the last.
@@ -235,10 +236,14 @@ namespace VoxelEngine.Mirror
         /// bandCache (task 134, R6, the shader's play kernel, VE_SHELL_LEAN): ShellByDistance is asked
         /// only when the distance leaves the band [lo, hi) its last answer holds for (ByDistanceBand),
         /// the same answer by construction (ShellMarchCacheTests.BandCacheChangesNoResult).
+        /// holeLeap (task 137, the shader's SHELL_HOLELEAP_ON; needs an IMaskView for tier 0's layers): after a
+        /// hole leap (resolve -2), the iterations that start in HoleBox are that leap alone, one iteration each:
+        /// the same leaps and iteration count, so every field but the read counters is the same (ShellHoleLeapTests).
         public static Result March(IView v, float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters,
                                    float tTier0 = 0f, bool useCache = true, bool useMask = false, bool planeLeap = false,
-                                   int skyY = SKY_NEVER, bool colLeap = false, bool bandCache = false)
+                                   int skyY = SKY_NEVER, bool colLeap = false, bool bandCache = false, bool holeLeap = false)
         {
+            var hv = holeLeap ? v as IMaskView : null;
             var mv = useMask ? v as IMaskView : null;
             var cv = colLeap ? v as IColumnView : null;
             bool pl = planeLeap || useMask;   // the shader's SHELL_PLANE_LEAP
@@ -289,6 +294,17 @@ namespace VoxelEngine.Mirror
                 {
                     LeapAny(pl, ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, (voxel >> 7) << 7, 128);
                     kPrev = 0;
+                    // Task 137: the iterations that start in the hole box would each do just this leap.
+                    if (hv != null && HoleBox(hv, voxel, step, shadow ? camera : start, skyY, out int3 hLo, out int3 hHi))
+                    {
+                        while (it + 1 < maxIters && math.all(voxel >= hLo) && math.all(voxel <= hHi))
+                        {
+                            it++;
+                            r.Iters = it + 1;
+                            LeapAny(pl, ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, (voxel >> 7) << 7, 128);
+                            r.HoleLeaps++;
+                        }
+                    }
                     continue;
                 }
                 if (k < 0) { r.End = END_ABSENT; r.T = t; return r; }
@@ -378,6 +394,26 @@ namespace VoxelEngine.Mirror
             }
             r.End = END_CAP; r.T = t;
             return r;
+        }
+
+        /// Task 137: Raymarch.compute's ShellHoleBox. The box [lo, hi] (inclusive voxels) in which every
+        /// iteration is the hole's tier-0-chunk leap: shell 1's hole inside its published box (ChunkState 1 =
+        /// HOLE, so distance shell 1 resolves to -2), on the ray's side of tier 0's layers (outside them
+        /// Tier0Missing / Tier0Holds are false; none inside), below skyY when rising, and only when its farthest
+        /// corner is nearer than shell 1's outer bound (1 voxel margin) so every distance asked in it gives shell 1.
+        public static bool HoleBox(IMaskView v, int3 voxel, int3 step, float3 org, int skyY, out int3 lo, out int3 hi)
+        {
+            lo = int3.zero; hi = new int3(-1, -1, -1);
+            if (v.ShellCount < 2 || !v.Box(1, out int3 bLo, out int3 bHi, out int3 cc, out int hole) || hole < 0) return false;
+            int3 cLo = math.max(cc - hole, bLo), cHi = math.min(cc + hole, bHi);
+            lo = cLo << 8; hi = ((cHi + 1) << 8) - 1;
+            if (voxel.y >= v.Tier0CeilY) lo.y = math.max(lo.y, v.Tier0CeilY);
+            else if (voxel.y < v.Tier0FloorY) hi.y = math.min(hi.y, v.Tier0FloorY - 1);
+            else return false;
+            if (step.y > 0) hi.y = math.min(hi.y, skyY - 1);
+            if (math.any(lo > hi)) return false;
+            float3 c0 = (float3)lo - org, c1 = (float3)(hi + 1) - org;
+            return math.length(math.max(math.abs(c0), math.abs(c1))) < v.OuterVoxels(1) - 1f;
         }
 
         public static float3 ReseedTMax(int3 voxel, float3 start, float3 tDelta, int3 step) => new float3(

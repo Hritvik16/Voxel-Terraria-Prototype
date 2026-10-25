@@ -29,6 +29,9 @@
 //           then the launch's setting: the before/after pair in one launch.
 //   TASK 134: -cliffbefore 2 does the same with RaymarchFeature.ShellKernelDiet
 //           forced OFF instead (the far-shading *Diag kernels, the code before 134).
+//   TASK 137: -cliffbefore 3 does the same with RaymarchFeature.ShellHoleLeap forced OFF (the launch
+//           passes -holeleap 1), and -holepillar 1 adds the adversarial pillar pose after the spots
+//           (PlaygroundCapture.HolePillar.cs).
 //   TASK 136: -blackshape N shoots PlaygroundCapture.BlackShape.cs at spot N instead of A/B/C.
 using System;
 using System.Collections;
@@ -269,6 +272,8 @@ public partial class PlaygroundCapture
         Phase4Bootstrapper.RefTier0Centre = null;
         RaymarchFeature.UseDebugViewOverride = false;
         File.WriteAllText(Path.Combine(_folder, "cliffshadow.json"), json.ToString() + "]}");
+        if (ArgInt("-holepillar", 0) != 0)   // task 137: the adversarial pillar (PlaygroundCapture.HolePillar.cs)
+            yield return HolePillar(far, cam, sm, sh, c0, settle, wait);
         L("CLIFF SHADOW done");
     }
 
@@ -292,10 +297,13 @@ public partial class PlaygroundCapture
         RaymarchFeature.UseDebugViewOverride = false;
         // Task 133: a trailing 0 = the same arm with near sun rays through the shells forced OFF (the "before").
         // Task 134: with -cliffbefore 2 it is the kernel diet that is forced OFF.
-        bool nearSh0 = RaymarchFeature.NearShadowShells, diet0 = RaymarchFeature.ShellKernelDiet;
+        // Task 137: with -cliffbefore 3 the hole leap.
+        bool nearSh0 = RaymarchFeature.NearShadowShells, diet0 = RaymarchFeature.ShellKernelDiet, hole0 = RaymarchFeature.ShellHoleLeap;
         if (arm.EndsWith("0"))
         {
-            if (ArgInt("-cliffbefore", 0) == 2) RaymarchFeature.ShellKernelDiet = false;
+            int before = ArgInt("-cliffbefore", 0);
+            if (before == 2) RaymarchFeature.ShellKernelDiet = false;
+            else if (before == 3) RaymarchFeature.ShellHoleLeap = false;
             else RaymarchFeature.NearShadowShells = false;
             arm = arm.Substring(0, arm.Length - 1);
         }
@@ -313,5 +321,6 @@ public partial class PlaygroundCapture
         RaymarchFeature.UseDebugViewOverride = false;
         RaymarchFeature.NearShadowShells = nearSh0;
         RaymarchFeature.ShellKernelDiet = diet0;
+        RaymarchFeature.ShellHoleLeap = hole0;
     }
 }

@@ -21,7 +21,7 @@ public class ShellMarchCacheTests
     const int GROUND = 16384;
     static readonly float3 Cam = new float3(40000.5f, GROUND + 140.5f, 40000.5f);
 
-    sealed class TerrainView : ShellRayReference.IView
+    internal sealed class TerrainView : ShellRayReference.IView
     {
         public readonly ShellLayout L;
         readonly Dictionary<int, (int, int3)> _pages = new Dictionary<int, (int, int3)>();

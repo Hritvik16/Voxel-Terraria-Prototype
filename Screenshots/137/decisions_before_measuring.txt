@@ -1,0 +1,22 @@
+Task 137 -- decisions written BEFORE any timed run (2026-10-24, ~19:20)
+
+Change: -holeleap 1 = after a hole leap (resolve -2), iterations that start in shell 1's hole box (outside tier 0's layers,
+below the sky exit, all within shell 1's outer bound) run the same tier-0-chunk leap alone. Exact by construction
+(same leaps, same iteration count; CPU twin test ShellHoleLeapTests identical on 85k rays incl. an adversarial pillar).
+
+Measurement: warm-up (MODE=stream MOTION=walk, discarded), then cost-split ABBA arms holeleap_on / holeleap_off
+(F X X F X X F, FULL = launch -holeleap 0) at walk_near + walk_open, noon launch then sun-20 launch, back to back;
+then MODE=walk 3 min with -holeleap 1 and 0. On AC (pmset), owner hold file checked.
+
+Noise: the bracketing FULL runs' p50 spread at each pose (as task 134).
+
+What each result makes us do:
+ (a) noon walk_near ON faster than OFF by more than the noise, no pose worse beyond noise, identity 0 px everywhere
+     -> default ON (RaymarchFeature.ShellHoleLeap = ON unless -holeleap 0), rebuild, fast suite, STOP_FOR_OWNER.
+ (b) within noise at noon walk_near (likely if the hole part is a small share of the near rays' iterations; the
+     [nearsh] counter line says what share ran in the hole box) -> keep OFF (exact, harmless), report the share, and
+     put the data-derived height bound (a new GPU structure: per-column max solid height of the shells, kept on load
+     and on edits) to the owner as the next design question -- NOT built (task rule).
+ (c) any identity difference (raw stills, cliff1/cliff2 native, pillar) -> OFF, it is a bug: report, STOP_FOR_OWNER.
+ (d) slower anywhere beyond noise -> OFF, report.
+The walk arm: only a sanity check that nothing gets worse in play motion; it does not decide on its own.

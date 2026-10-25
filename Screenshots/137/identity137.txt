@@ -1,0 +1,14 @@
+== /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-24_193514_high/
+cliff1_A_native          hole leap OFF vs ON: 0 px differ (max channel 0)
+cliff1_A_play            hole leap OFF vs ON: 1278339 px differ (max channel 68)
+cliff1_C_play            hole leap OFF vs ON: 1434237 px differ (max channel 47)
+== /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-24_210044_high/
+cliff1_A_native          hole leap OFF vs ON: 0 px differ (max channel 0)
+cliff1_A_play            hole leap OFF vs ON: 1306288 px differ (max channel 64)
+cliff1_C_play            hole leap OFF vs ON: 1432929 px differ (max channel 49)
+cliff2_A_native          hole leap OFF vs ON: 0 px differ (max channel 0)
+cliff2_A_play            hole leap OFF vs ON: 1213389 px differ (max channel 91)
+cliff2_C_play            hole leap OFF vs ON: 1504311 px differ (max channel 52)
+pillar_native            hole leap OFF vs ON: 0 px differ (max channel 0)
+pillar control: near sun rays through the shells OFF vs ON: 68392 px differ (max channel 44) -- the pillar's shadow that only the shells' march finds
+sheet: Screenshots/137/pillar137.png
