@@ -676,3 +676,12 @@ nearer than the outer bound less 2. CPU twin `ShellRayReference.March(heightBoun
 Evidence (warm, noon, `Logs/costsplit_2026-10-30_130145.txt`): near sun ray shell iterations 8.0 -> 5.0 per ray at walk_near (-37%), no frame
 gain (ON - OFF +1.5 ms p50 / +0.8 pass means, FULL spread 1.1; walk_open 0.0). Raw stills 0 px (4 pairs), edit-op pillar 0 px (control 68,392 px).
 cliff2 A native differs by 10,597 px while shell 3 was still filling: not isolated, so re-check before turning it on. Report `Screenshots/153/perf153.txt`.
+
+**Task 154 (cleanup, owner 2026-10-25: "remove the bloat"; no code/shader/test/rig-behaviour change):** CLAUDE.md 30,781 -> 24,621 B (rule
+sections word for word; the dated "Current state" paragraphs moved verbatim to `PROJECT_HISTORY.md`, newest first; the known-issues index is
+one short line per entry, the 10 old long index lines kept verbatim at the end of `KNOWN_ISSUES.md`). The ~18 KB target is not reachable
+without editing rule sections, which the task forbade (they total ~20 KB). Root .md 54 -> 41: 14 finished/one-off reports `git mv`'d to
+`docs/archive/` (README there: what each was, why archived; live references updated). `run-playground.sh` retired to `tools/retired-rigs/`
+(`tools/capture-gpu-trace.sh`'s rebuild hint now names `BUILD=1 ./run-play.sh` + the trace build). Answered/superseded `blocked/` and
+done/replaced `later/` items moved to `tools/overnight/archive_work/{blocked,later}-2026-10-30/`. `.gitignore`: `__pycache__/`, `*.pyc`,
+`TestResults*.xml`.
