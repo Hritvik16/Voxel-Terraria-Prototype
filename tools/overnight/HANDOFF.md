@@ -15,7 +15,7 @@ Getting under 18 KB means trimming rule text, and that needs your go-ahead.
   OPTIMIZATION_CANDIDATES (4 Sept proposals, replaced by PERF_30FPS_PLAN). Paths were updated in TASKS.md, KNOWN_ISSUES.md,
   PLAYGROUND_GUIDE.md and ENGINE_PHASE_PLAN.md. Amendments, completion docs and `.cs` comments still name the bare filename, which grep
   still finds. I left them alone because they are spec/history files and code.
-- `92f6675` step 3: `run-playground.sh` -> `tools/retired-rigs/` (README row; replaces its "Not moved" note). `tools/capture-gpu-trace.sh`:
+- `16437f2` step 3: `run-playground.sh` -> `tools/retired-rigs/` (README row; replaces its "Not moved" note). `tools/capture-gpu-trace.sh`:
   its stale-build hint now says to regenerate the scene with `BUILD=1 ./run-play.sh` and rebuild with the BuildPlaygroundTraceStandalone
   command. The old hint was also wrong: run-playground.sh built `Playground.app`, not the `PlaygroundTrace.app` the tool checks.
   PLAYGROUND_GUIDE §2 and RIG_REFRESH_PLAN R1 row updated.
