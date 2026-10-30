@@ -45,52 +45,13 @@
 Engine capability + performance (lighting, LOD shells, resolution, streaming, fluids) come
 BEFORE the player and placement.
 
-**engine-phase merged to `main` on 2026-10-22** (task 109, merge `a5f6440`; whole suite `PASS 935 FAIL 0
-SKIP 25`). **Next: the owner's quality pass (2026-10-22)** -- performance (stable 30 fps), lighting, world gen,
-visuals BEFORE populating the world; crafting / the core loop come after.
-
-Phases 1-7 are CLOSED and merged (Phase 7: `9b3ee50`, 2026-09-24). The
-large-world / terrain-overhaul work -- TerrainGen v3, the far band, and the
-walkable sizeClass 2 island (`-world tg2`), design doc §12-15 -- was merged to
-`main` on 2026-10-01. EditMode is `PASS 625 FAIL 0 SKIP 2` (2026-10-01; skipped:
-the report-only PaletteSceneExport and the world-tree test, parked while the
-tree is off). `./run-phase7-rig.sh` last reported `PASS 32 FAIL 0` (2026-09-24).
-Phase 7's §10 flags (shadow rung, torch-through-wall, lava light) are still the
-owner's calls.
-
-**Surface rebuild DONE (2026-10-09).** The terrain overhaul B1-B10 (plus lake
-fixes 37e/42) is finished; map v4 is the DEFAULT tg2 world (owner Q35 6a;
-`-mapversion 3` / `MAPV=3` still gives the pre-rebuild generator: same shapes, but
-since task 45 built with Burst floats, so not byte-identical to the old map), and
-`surface-rebuild` was merged to `main` on 2026-10-09 (queue task 43). Whole suite
-`PASS 662 FAIL 0 SKIP 18` (2026-10-09). **Next: ROADMAP.md step 3, the
-engine capability + performance phase, starting with its ONE plan doc.** The
-2026-10-01 paragraph below is history (the direction was picked: B).
-
-**Where the project is (2026-10-01).** Owner review:
-https://claude.ai/code/artifact/7443de71-6716-4f99-869b-98d3c6814fd7 . The tg2
-terrain looks good but is not shaped for play (seed 42: median slope 30°, 73% of
-land "mountainous", 4% open; only the plains are gentle) and the owner wants it
-to play well. The recommended next step is a short game-design brief (world
-structure, planned movement abilities, progression, settlements, fluids,
-signature features, placement), then a rebuild of the surface around play
-(that report's "direction B"). **Do not start new terrain-generator work until
-the owner picks a direction.** Owner intent recorded so far: minimum spec M1
-8 GB; 3 GB process cap; long render distance; natural-looking but NOT bound to
-realistic topography (nothing sticking out); biomes and landform regions are
-INDEPENDENT maps (snow beside desert is intended), biomes should be LARGER and
-not every biome x landform pair need appear in every world; object placement
-will later read the pair from a "world record"; many towns; progression as fun
-as Terraria's, carried by the overworld; spawn not decided (`Tg2Spawn` is a
-Playground placeholder); the player character is a placeholder (don't design
-its movement rules yet -- only a list of planned abilities is wanted).
-
-Phase 4 (streaming & persistence) is functionally correct: all EditMode tests
-pass, admission/eviction/persistence gates are green. Current work is
-throughput and frame-time, not correctness. Don't assume this paragraph is
-still accurate — run the EditMode suite before starting anything, and check
-`git log` / the latest `Phase4Acceptance/*/phase4_report.txt` for the real
-current numbers before reasoning about what's slow.
+**engine-phase merged to `main` on 2026-10-22** (task 109, merge `a5f6440`); work since then continues
+on the `engine-phase` branch. **Now: the owner's quality pass (2026-10-22)** -- performance (stable 30 fps),
+lighting, world gen, visuals BEFORE populating the world; crafting / the core loop come after. Task 146's
+30 fps milestone was NOT met (walk p50 44.7 ms); `PERF_30FPS_PLAN.md` / `PERF_SHELL_MARCH_PLAN.md` drive the
+cuts. Fast suite `PASS 948 FAIL 0 SKIP 15` (2026-10-30, task 153). Queue and open owner questions:
+`SESSION_HANDOFF.md`, `tools/overnight/HANDOFF.md`. Older dated state notes (Phases 1-7, the surface
+rebuild, the 2026-10-01 owner review and owner intent, the Phase 4 note): `PROJECT_HISTORY.md`.
 
 ## Hard invariants
 
@@ -346,44 +307,46 @@ With live fluid they fail BY DESIGN -- never loosen them. Persistence evidence:
 Before touching streaming, rendering, fluids, memory or a rig, or quoting a
 number, read the matching entry in `KNOWN_ISSUES.md`. One line each:
 
-- GPU FLUID CA READS TERRAIN FROM THE TIER-0 MIRROR BOX (task 93e; FIXED, Q55 (b)): the fluid terrain directory serves chunks outside the 16^3 box; fluid at 128 m on every preset; 93f (D3) must map its bodies.
-- SHELLS COST +10-15 ms STEADY, NEVER FILL WHILE WALKING (task 93b, NOT FIXED): 93b3: NOT the far band (~0 ms; 93b's far_off arm also cut the shell march) -- the shell march costs the +12-15 ms; 93b4 split it: the PRIMARY march (+13.7 / +19.1 ms), shell shadow ~2.4 ms, iterations are 43-75% air-brick steps, read caches saved 0.6-2.4 ms (byte-identical); 93b5's air-brick mask (one exact group leap, `-shellmask 1`, OFF) cuts iterations 54% / 28% for -2.1 / +0.8 ms (its exit-plane leap alone costs +5-6 ms; owner Q in 93b5's HANDOFF); walking fill: 93b2 fixed the throughput half (column pass once per column) and part two the caps (fill on shells 1-2: start pose complete, 0 FULL); 93b2d cut the fill 35-52 -> ~9 ms/chunk (walk's end s1 ~58%, s2 ~32%, s3 ~39%) -- still short on WORKERS: shell 3 gets none while walking. 93c (shells default) held. 93b re-run (2026-10-17): steady still +12.7 / +13.9 ms with shells 1-3 filled (march ~16-18 ms vs tiers 1-2 ~4 ms); moving ON = OFF (42 ms); 93c held again. Task 99's sky-ray exit (exact, ON): -4.7 / -2.6 ms p50; 93b re-runs next. Task 116's column sky leap (exact, OFF): sky-ray iterations -64%, frame ~0 ms. Task 132's shell pre-pass (R1, exact, ON): -4.2 / -6.9 ms p50. Task 134's kernel diet (R6, exact, ON): -7.1 / -5.5 ms p50. Task 93c (owner Q63 (a), 2026-10-17): play now STARTS with shells ON without 93b's re-run; the gap is checked at the next performance milestone.
-- STRAY RESIDENT CHUNKS ALIAS INTO THE MIRROR (task 21; FIXED task 26, 2026-10-04): save-capped evictions (4/frame) were retried only when the camera changed chunk; now retried every frame while any is deferred. v4 poses MIRROR 0/0/0. Task 32 (3cb76d1): `UploadDirty` skips, counts (`skippedOutOfBox`, poses `outOfBox`) and parks resident chunks outside the mirror box.
-- BLACK BAR OVER THE SEA at `coast_from_sea_30m` (PINNED task 19, FIXED task 22 2026-10-04: integer-cell DDA in `FarStartT`): `FarStartT`'s chunk DDA stalls after a -x face crossing (a fixed 1e-3 t-nudge is below one float step at x ~ 40000 voxels, so floor() keeps the same chunk), returns tLimit, and the far march starts under the sea -> water side face. Residency bits are correct. The dark arcs below it are voxel LOD tier seams.
-- STREAMING REQUIREMENT, WORST CASE (task 16b, 2026-10-03; replaces the 5% pass line): 60 m/s diagonal dive, every chunk full cost -> 2,285 chunks/s, 38 admits/frame; capacity today 2-29/s (79-1,053x short, generation limits); the latency budget is ZERO because voxels hand over to the far band at the residency edge (request point = R_d) -- owner must choose a prefetch margin / detail radius at speed. `StreamingRequirement.cs`, `-streamprobe` section 7. Task 24: `-detailspeed 1` (OFF by default, kernel `CSMainDetail`) gives a 0.62 s budget; still NOT MET (fly 56 p99 3.3-3.8 s).
-- STREAMING BASELINE v3 (2026-10-02, task 10): `MODE=stream ./run-tg2world.sh`; generation throughput is the bottleneck (walk deficit ~2,700/3,087, chunk 350 ms on a worker vs 62 ms alone), upload ~1 ms; the fly pose draws no voxels BY DESIGN: its visible plain is below the 7-layer band (task 13, `MODE=flysweep`).
-- NEAR-TERRAIN SHIMMER BASELINE before TAA (2026-10-02): `MODE=shimmer ./run-tg2world.sh`; mean of poses near 4.14 / 5.84%, all 5.89 / 7.59%.
-- TAA EXISTS, OFF on the preset path (`-taa 1` / F4; play defaults to FSR 3 dyn since task 52, which replaces our resolve): task 07 risk checks -- fluid/edit/turns/seams pass, sun reset lowered to 0.25 deg/frame (0.2 deg/frame still lags ~3 luma), cost 0.8-2 ms at 480 px (budget ~1.5 ms not resolved).
-- CHECKERBOARD EXISTS, OFF (`-checker 1`, implies TAA and keeps the preset path, no FSR 3; task 08): walk at 960 30.8 -> 19.6 ms (-11.3 ms paired), 16.7 ms NOT reached (2.9 ms over); softer, horizon teeth in fast spins. Cost arms on battery at ~1% were wrong -- check `pmset -g batt`.
-- POOL FULL / live 750,000 in tg2 (task 39; task 54 FIXED in Playground: tiles only for awake fluid, `-awakeonly 0` = old): coast refusals 2.0 M -> 0, pool peak 1024 -> 32, placed box's wakes no longer dropped; pool resized 1,024 -> 480 tiles in Playground (task 55; fluid GPU 549 -> 277 MB; rigs keep 1,024); stepped generated water now stands as a wall until touched; `MODE=poolprobe`.
-- FLUID IN TG2 DOES SIMULATE (task 09): "frozen" = 6-frame CA tick (decision 11, SUPERSEDED task 91: fixed rate, `FluidTickScheduler`, `-fluidhz`; task 97: 6.5 Hz with option B's adaptive drain, `-drainwhole`) + lava every 6th tick; `MODE=fluidprobe`.
-- THE TG2 WORLD IS OVER THE 3 GB CAP BEFORE THE PLAYER BUILDS ANYTHING (found 2026-09-26, NOT FIXED).
-- TG2 AT WALKING HEIGHT (first measured 2026-10-01, `MODE=walk ./run-tg2world.sh`: `-motion walk`, a 150 m circle round the spawn at 1.6 m eye...
-- TERRAIN-AWARE BAND PLACEMENT (2026-10-01; owner: near cliffs drawn by the far band -- streaks, stepped edges).
-- The placeholder player can run up ~70° slopes
-- Phantom geometry: `ClipmapValidator.CountStaleSlots`
-- THE STANDARD GROUND `-sustained -motion orbit` PASSES THROUGH ROCK (found 2026-09-25, NOT FIXED -- owner's call, it feeds historical comparisons).
-- Burst vs the EDITOR's Mono are NOT byte-identical for float code (found 2026-09-25).
-- EVERY PLAYGROUND PROBE HAS BEEN MEASURING INSIDE A HOLE. This is the biggest measurement defect found in this project so far.
-- TIER-0 CLIPMAP LOST UPDATES AFTER A TELEPORT OR FAST FLIGHT (found and FIXED 2026-09-25).
-- EVERY PHASE 4 ACCEPTANCE RUN AFTER PHASE 7 RENDERED BLACK (found and FIXED 2026-09-25).
-- THE PLAYGROUND HUD STALLED THE GPU PIPELINE EVERY ~7.5 FRAMES (found 2026-09-25, FIXED in bf9aaba: async readback; >100 ms frames 646 -> 16).
-- THE INTERACTIVE PLAYGROUND NO LONGER RENDERS THE WAY THE RIGS DO (2026-09-26).
-- WHILE THE CAMERA MOVES, 8-10% OF FRAMES EXCEED 33 ms (found 2026-09-26, NOT FIXED).
-- `FarField.GenToEngine` IS NOW THE CHUNK MATERIAL TABLE, not only the far band's.
-- A SHORT COOLED ARM IS NO LONGER SUFFICIENT EVIDENCE FOR AN FPS CLAIM.
+- GPU fluid CA read terrain from the tier-0 mirror box (93e; FIXED, Q55 (b): fluid terrain directory; 93f maps its bodies).
+- Shells cost +10-15 ms steady, shell 3 unfilled while walking (93b; NOT FIXED; cut by 99/132/134; shells ON in play, 93c).
+- Owner pause (`tools/heavy.sh`) DRAINS, it does not freeze (14/14b): rerun an arm that prints "owner paused".
+- Stray resident chunks aliased into the mirror (21; FIXED 26; 32 parks out-of-box chunks).
+- Black bar over the sea at `coast_from_sea_30m` (19; FIXED 22: integer-cell DDA in `FarStartT`).
+- Streaming requirement, worst case (16b): 60 m/s dive needs 2,285 chunks/s, capacity 2-29/s; NOT MET (24's `-detailspeed`).
+- Streaming baseline v3 (10): generation throughput is the bottleneck; `MODE=stream ./run-tg2world.sh`.
+- Near-terrain shimmer baseline before TAA (05): `MODE=shimmer`.
+- TAA exists, OFF on the preset path (06/07; `-taa 1`); play uses FSR 3 dyn (52).
+- Checkerboard exists, OFF (08; `-checker 1`): -11.3 ms, 16.7 ms not reached; battery arms were wrong.
+- "POOL FULL" in tg2 (39; FIXED in Playground by 54 awake-only tiles; 55 pool 1,024 -> 480).
+- Fluid in tg2 does simulate (09); tick is fixed-rate since 91, 6.5 Hz + adaptive drain (97).
+- The tg2 world is over the 3 GB cap before the player builds anything (2026-09-26, NOT FIXED).
+- tg2 at walking height: `MODE=walk` baseline and memory peak (2026-10-01).
+- Terrain-aware band placement (`StreamManager.PlaceBand`, 2026-10-01).
+- Placeholder player ran up ~70° slopes (FIXED in play by 93f1; the legacy rig `Step` is unchanged).
+- Phantom geometry counter `ClipmapValidator.CountStaleSlots` (`d60d986`; not closed).
+- Standard `-sustained -motion orbit` passes through rock (2026-09-25, NOT FIXED, owner's call).
+- Burst vs the Editor's Mono are NOT byte-identical for float code (2026-09-25).
+- Every Playground probe measured inside a hole (biggest measurement defect so far).
+- Tier-0 clipmap lost updates after a teleport or fast flight (FIXED 2026-09-25).
+- Every Phase 4 acceptance run after Phase 7 rendered black (FIXED 2026-09-25).
+- Playground HUD stalled the GPU every ~7.5 frames (FIXED `bf9aaba`, async readback).
+- The interactive Playground no longer renders the way the rigs do (presets; 2026-09-26).
+- Temporal shadow reuse showed the neighbours' shadows, "shadow dots" (FIXED task 56).
+- While the camera moves, 8-10% of frames exceed 33 ms (2026-09-26, NOT FIXED).
+- `FarField.GenToEngine` is the chunk material table: any new GenMat needs a mapping.
+- A short cooled arm is no longer sufficient evidence for an FPS claim.
 - §6.5's shadow fallback ladder does NOT work as a budget mechanism.
-- `ArgValue`/`ArgInt`/`ArgFloat` in `PlaygroundCapture` take the LAST match, and that is deliberate -- do not "fix" it back to first-match.
-- EMISSIVE + MOBILE MATERIALS MUST NOT REGISTER AS POINT LIGHTS.
-- A CAMERA POSE CAN SIT INSIDE ROCK AND STILL "MEASURE" SOMETHING.
-- `-stutterprobe` flies in a straight line and leaves the world
-- `ShaderCompileCheck.CheckAll` CAN REPORT A GREEN SHADER THAT DOES NOT BUILD.
+- `ArgValue`/`ArgInt`/`ArgFloat` in `PlaygroundCapture` take the LAST match -- deliberate, do not "fix".
+- Emissive + mobile materials must NOT register as point lights.
+- A camera pose can sit inside rock and still "measure" something.
+- `-stutterprobe` flies in a straight line and leaves the world.
+- `ShaderCompileCheck.CheckAll` can report a green shader that does not build.
 - SM6.0 wave intrinsics are NOT available to compute shaders here.
-- FLAGGED FOR THE OWNER, NOT CHANGED: `run-acceptance-rig.sh` measures WINDOWED.
-- The world/render-range mismatch REVERSED, and is now the opposite problem.
+- FLAGGED, NOT CHANGED: `run-acceptance-rig.sh` measures WINDOWED.
+- The world/render-range mismatch reversed (now the opposite problem).
 - Gate C is red on ONE upload-budget check: steady-state p99 (§4.3).
-- `run-phase6-brushguard.sh` has been red since Playground was tiled, and it is the RIG that is stale, not the product.
-- `run-fluid-tiled.sh`'s two memory-budget assertions were REBASED on 2026-09-11
+- `run-phase6-brushguard.sh` red since Playground was tiled: the RIG is stale, not the product.
+- `run-fluid-tiled.sh`'s two memory-budget assertions were REBASED on 2026-09-11.
 
 ## The build-run-review loop
 
