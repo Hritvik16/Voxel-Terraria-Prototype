@@ -691,3 +691,12 @@ A = a light flood exact at 0.1 m (6-connected, no corner cutting, chamfer distan
 pixel (the spec's §3.8/§6.5 v1.5 "sparse BFS light pool"; RECOMMENDED); B = per-brick light lists + 1 temporally reused torch ray per pixel;
 C = a 0.8 m brick flood (leaks through 0.1 m walls; later as the far/shell light). Step list L1-L7 (L1 = the CPU oracle `LightFloodReference` + tests).
 Six owner questions in the 155 HANDOFF (round corners vs crisp shadows, reach, torches per base, colour, fill-in delay, light beyond the window).
+
+**Task 156 (look, PERF_30FPS_PLAN step 3 / owner Q1, CAPTURE-ONLY: no default / look change): FSR 3 stills at 540 vs 432 internal rows.**
+`UpscalerSelect.CaptureMinRows` (360): a PINNED `-renderrows N` / `Apply(k, N, false)` now clamps to 360-720 (was 540-720); play cannot reach
+it (PlaySettings passes only 540 / 720 / dyn; the dyn controller still moves in 540-720). `-lookreview -lookrowsab N`
+(`PlaygroundCapture.RowsLook.cs`, hook in LookReview): every LookReview pose shoots `<pose>_fsr3_540` and `<pose>_fsr3_N` in the same frame state
+(no none/native arm; the shell tint still), then `cliff` (the nearest sun-behind cliff foot of `FindCliffFeet`) and `torch` (task 151's 32-torch
+scene, `-nighttod` 0.5 h). Run: `PRESETS=high EXTRA="-lookrowsab 432 -lookposes walk_near,walk_open,high,cliff,torch -lookbursts 0 -lookwait 60
+-shellworkers 6" ./run-look-review.sh`; sheets `python3 -I tools/rows156.py <LookReview dir> Screenshots/156 [N]` (per pose LEFT 540 / RIGHT N,
+plus 3x crops of each pose's 3 most-different 160x90 windows). Result: HANDOFF 156, `Screenshots/156/`, `Logs/lookreview_20261030_154829.txt`.

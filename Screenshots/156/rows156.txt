@@ -1,0 +1,5 @@
+walk_near: mean |dlum| 0.40 (0-255); crops #1 x1760 y580 1.8, #2 x1760 y400 1.7, #3 x1420 y720 1.5
+walk_open: mean |dlum| 1.99 (0-255); crops #1 x1240 y720 7.2, #2 x1300 y620 7.0, #3 x1460 y640 6.9
+high: mean |dlum| 1.58 (0-255); crops #1 x940 y760 8.3, #2 x1020 y920 7.7, #3 x1700 y840 6.5
+cliff: mean |dlum| 0.71 (0-255); crops #1 x540 y340 2.7, #2 x20 y320 2.6, #3 x560 y480 2.5
+torch: mean |dlum| 0.50 (0-255); crops #1 x600 y980 1.9, #2 x440 y880 1.9, #3 x260 y800 1.8

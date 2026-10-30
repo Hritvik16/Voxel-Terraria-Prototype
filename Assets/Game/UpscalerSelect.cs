@@ -15,6 +15,10 @@
 //                    and 720 in 36-row steps on smoothed frame time (target
 //                    16.7 ms) and logs every step.
 //
+// TASK 156 (capture-only): a PINNED -renderrows N (not dyn) clamps to
+// CaptureMinRows-MaxRows (360-720), so a capture can shoot e.g. 432 rows. Play
+// cannot reach it: PlaySettings only passes 540 / 720 / dyn, and the dynamic
+// controller still moves within MinRows-MaxRows.
 // Either flag alone turns this on (defaults: none, 540). Last match wins, like
 // PlaygroundCapture. NEITHER FLAG GIVEN: capture/rig runs keep RenderPreset /
 // the shipped gate; an interactive run (task 52, owner Q38 (a)) starts with
@@ -29,6 +33,8 @@ public static class UpscalerSelect
 {
     public enum Kind { None, Taa, Fsr1, Stp, Fsr3 }
     public const int MinRows = 540, MaxRows = 720, DynStep = 36;
+    /// Task 156: the floor for a pinned (non-dyn) row count; capture runs only.
+    public const int CaptureMinRows = 360;
     public const float DynTargetMs = 16.7f;
 
     public static bool Active { get; private set; }
@@ -57,8 +63,8 @@ public static class UpscalerSelect
         if (r != null)
         {
             if (r.Equals("dyn", StringComparison.OrdinalIgnoreCase)) dyn = true;
-            else if (int.TryParse(r, out int n)) rows = Mathf.Clamp(n, MinRows, MaxRows);
-            else Debug.LogError($"[UpscalerSelect] unknown -renderrows {r} (540|720|dyn); using 540");
+            else if (int.TryParse(r, out int n)) rows = Mathf.Clamp(n, CaptureMinRows, MaxRows);
+            else Debug.LogError($"[UpscalerSelect] unknown -renderrows {r} ({CaptureMinRows}-{MaxRows}|dyn); using 540");
         }
         return true;
     }
@@ -83,7 +89,7 @@ public static class UpscalerSelect
         Dynamic = dyn;
         DynHeld = false;
         DynStableFrames = 0; DynChanges = 0; DynSmoothedMs = 0f;
-        Rows = dyn ? MinRows : Mathf.Clamp(rows, MinRows, MaxRows);
+        Rows = dyn ? MinRows : Mathf.Clamp(rows, CaptureMinRows, MaxRows);
         ApplyRows();
         Debug.Log($"[UpscalerSelect] {Describe()}");
     }

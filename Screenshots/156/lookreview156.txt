@@ -1,0 +1,48 @@
+build OK
+== quality high  15:52:05
+UPSCALER CLIPS -- 2026-10-30_155224
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 540 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 60 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 540 rows inner inf -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 540 rows inner 1.50 -> outer 1.00 (at 1080 output: outer 2.00)
+
+== walk_near: eye (3867.2, 941.9, 4018.8), yaw 180 pitch 0 deg; circle angle -180 deg, heading = -sun
+  [shells] waited 60 s (cap 60 s): stored/missing/in flight:  s1 2170/0/0  s2 1832/0/0  s3 1233/249/12  s4 222/763/2  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 5457, missing 1699, pending 0; requested 5966, generated 5952 (80 ms each on a worker), dropped stale 10, over-budget frames 0 (of 2182)
+  [px] walk_near  hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 489080/488176/70.46  s1 20/0/0.75  s2 -  s3 -  s4 -  s5 -  s6 -  s7 -
+  walk_near  fsr3_540  dispatch 960x540
+  walk_near  fsr3_432  dispatch 768x432
+
+== walk_open: eye (3959.8, 1056.2, 3880.2), yaw 113 pitch 0 deg; circle angle 248 deg, median free distance 1500 m
+  [shells] waited 60 s (cap 60 s): stored/missing/in flight:  s1 1832/0/0  s2 1494/0/0  s3 1291/30/0 FULL  s4 996/0/0  s5 262/213/14  s6 0/182/0  s7 0/16/0   total stored 5875, missing 441, pending 0; requested 9280, generated 9266 (104 ms each on a worker), dropped stale 16, over-budget frames 0 (of 4308)
+  [px] walk_open  hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 193670/190218/11.62  s1 7918/0/0.82  s2 1360/1360/1.32  s3 -  s4 34/0/0.72  s5 11794/1632/1.14  s6 -  s7 -
+  walk_open  fsr3_540  dispatch 960x540
+  walk_open  fsr3_432  dispatch 768x432
+
+== high: eye (3857.2, 1117.5, 3658.8), yaw 90 pitch -4 deg; highest column within 800 m + 20 m, free distance 3000 m
+  [shells] waited 45 s (cap 60 s): stored/missing/in flight:  s1 1494/0/0  s2 1325/0/0  s3 1325/0/0  s4 996/0/0  s5 489/0/0  s6 182/0/0  s7 16/0/0   total stored 5827, missing 0, pending 0; requested 11955, generated 11955 (116 ms each on a worker), dropped stale 18, over-budget frames 1 (of 6050)
+  [px] high       hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 50257/0/0.88  s1 35160/3/1.06  s2 14073/13026/1.36  s3 33/30/1.23  s4 23717/0/0.98  s5 45667/24897/1.36  s6 50076/20706/1.36  s7 8792/8711/1.36
+  high       fsr3_540  dispatch 960x540
+  high       fsr3_432  dispatch 768x432
+
+== cliff: eye (4012.0, 894.8, 4012.0) (store ground 893.1), looking at (3956.0, 964.4, 3956.0); nearest of 473 sun-behind cliff feet, 9 m from the start pose
+  [shells] waited 60 s (cap 60 s): stored/missing/in flight:  s1 2170/0/0  s2 2001/0/0  s3 1521/128/14  s4 765/222/0  s5 444/45/0  s6 182/0/0  s7 16/0/0   total stored 7099, missing 395, pending 0; requested 16475, generated 16461 (115 ms each on a worker), dropped stale 18, over-budget frames 1 (of 7737)
+  cliff      fsr3_540  dispatch 960x540
+  cliff      fsr3_432  dispatch 768x432
+
+  torch scene (task 151): 0.50 h; eye (4017.2, 891.2, 4018.8), heading yaw 0 (free 400 m); tier-0 window int3(16, 16, 16) chunks from int3(305, 61, 305) (half x 102.4 m); torches placed 31 (refused 1), inside the window 31; inner ring r 8 m at 12 m ahead, outer ring r 40.0 m; lights registered 31; launch knobs k 0.350 intensity 1.60 range 8.0 m; torch shadow rays 4
+== torch: still eye (4017.2, 891.2, 4018.8), pitch 12 down, yaw 0 +-30 deg over 8 s; 32 torches (see the line above); sun elevation -76 deg
+  [shells] waited 8 s (cap 60 s): stored/missing/in flight:  s1 2170/0/0  s2 2001/0/0  s3 1645/17/0 FULL  s4 987/0/0  s5 489/0/0  s6 182/0/0  s7 16/0/0   total stored 7490, missing 17, pending 0; requested 16863, generated 16863 (119 ms each on a worker), dropped stale 18, over-budget frames 1 (of 8166)
+  torch      fsr3_540  dispatch 960x540
+  torch      fsr3_432  dispatch 768x432
+
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-30_155224_high
+shots: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-30_155224_high/

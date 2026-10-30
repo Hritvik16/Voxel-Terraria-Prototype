@@ -71,6 +71,10 @@
 //           edge fade off (EdgeFade false = task 121's fade inside the haze), same
 //           frame state. Each logs the rows (1080 output, centre column) where a flat
 //           sea would end at the WORLD's edge and at the far band's square.
+//   TASK 156 (capture-only): -lookrowsab N shoots, at every pose, fsr3_540 and
+//           fsr3_N (N pinned below 540 through UpscalerSelect.CaptureMinRows) in
+//           the same frame state, instead of fsr3 / none / native, no tint; then
+//           a cliff pose and a night torch pose (PlaygroundCapture.RowsLook.cs).
 //   TASK 127 (capture-only): -lookcross 1 replaces the poses and arms with
 //           cross-lit comparison stills (PlaygroundCapture.LookCross.cs).
 // Output: <persistentDataPath>/LookReview/<ts>_<preset>/ (PNGs + lookreview.txt).
@@ -151,6 +155,8 @@ public partial class PlaygroundCapture
         int rows = layout != null && layout.SizingRows >= UpscalerSelect.MaxRows ? UpscalerSelect.MaxRows : UpscalerSelect.MinRows;
         int rowsArg = ArgInt("-lookrows", 0);
         if (rowsArg > 0) rows = Math.Max(UpscalerSelect.MinRows, Math.Min(UpscalerSelect.MaxRows, rowsArg));
+        int rowsAB = ArgInt("-lookrowsab", 0);       // task 156
+        if (rowsAB > 0) rows = UpscalerSelect.MinRows;
         string posesArg = ArgValue("-lookposes");
         var onlyPoses = string.IsNullOrEmpty(posesArg) ? null : new HashSet<string>(posesArg.Split(','));
         bool bursts = ArgInt("-lookbursts", 1) != 0;
@@ -301,7 +307,7 @@ public partial class PlaygroundCapture
                 }
                 L($"  [shells] waited {Time.realtimeSinceStartup - t0:F0} s (cap {wait:F0} s): {ShellCountsLine(sh)}");
             }
-            foreach (string arm in new[] { fsr, none, "native" })
+            foreach (string arm in rowsAB > 0 ? new[] { fsr, $"fsr3_{rowsAB}" } : new[] { fsr, none, "native" })
             {
                 ApplyCompareArm(arm);
                 cam.ResetProjectionMatrix();
@@ -317,6 +323,7 @@ public partial class PlaygroundCapture
             yield return Frames(30);
             yield return CaptureTo($"{n}_{fsr}_tint");
             RaymarchFeature.ShellTint = false;
+            if (rowsAB > 0) { Phase4Bootstrapper.DebugStreamCentre = null; File.WriteAllText(Path.Combine(root, "lookreview.txt"), _log.ToString()); continue; }
             if (goldenAll)
             {
                 const float golden = 17f;
@@ -382,6 +389,7 @@ public partial class PlaygroundCapture
             Phase4Bootstrapper.DebugStreamCentre = null;
             File.WriteAllText(Path.Combine(root, "lookreview.txt"), _log.ToString());
         }
+        if (rowsAB > 0) yield return LookRowsExtra(far, cam, sm, sh, centre, shz, fsr, $"fsr3_{rowsAB}", wait, onlyPoses);
         ApplyCompareArm(fsr);
         L("");
         L($"LOOK REVIEW done: {root}");
