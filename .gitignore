@@ -180,3 +180,9 @@ Screenshots/**/*.jpeg
 Screenshots/**/*.mp4
 Screenshots/**/*.mov
 Screenshots/**/*.gif
+
+# Python bytecode and test-runner results (task 154)
+__pycache__/
+tools/__pycache__/
+*.pyc
+TestResults*.xml
