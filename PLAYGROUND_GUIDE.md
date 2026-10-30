@@ -265,7 +265,7 @@ Two design points worth knowing:
 **Expect a dip while it lands.** The capture frame shows ~19 FPS at the instant
 the burst arrives, CPU-bound applying the op-list. That is a deliberate stress
 action, not the steady state — idle sustained rate is ~69.8 FPS
-(`FPS_INVESTIGATION_RESULTS.md`).
+(`docs/archive/FPS_INVESTIGATION_RESULTS.md`).
 
 ### What the vents actually do now (raised 2026-09-11)
 
@@ -437,7 +437,7 @@ to-do.** Separating the remaining possibilities needs GPU-stage attribution,
 which this workflow does not have and cannot get (no Xcode, no Instruments;
 Unity merges the CA's dispatches into one Metal encoder). Do not spend a
 session re-deriving the ten eliminated causes — they are recorded in
-`FLUID_PERFORMANCE_AB_RESULTS.md`.
+`docs/archive/FLUID_PERFORMANCE_AB_RESULTS.md`.
 
 ## 7. What this scene is *not*
 
@@ -447,7 +447,7 @@ session re-deriving the ten eliminated causes — they are recorded in
 - **CORRECTED 2026-09-12 — this bullet used to be wrong.** It read *"Not a
   demonstration of the shipped active radius. The radius here is a demo value
   10× smaller than the engine constant."* That has not been true since the unit
-  error recorded in `FPS_INVESTIGATION_RESULTS.md` §2.3 was undone:
+  error recorded in `docs/archive/FPS_INVESTIGATION_RESULTS.md` §2.3 was undone:
   `Playground.cs` now **references** `EngineConfig.FLUID_ACTIVE_RADIUS_VOXELS`
   (1280 voxels = 128 m) rather than restating it, precisely so it cannot drift
   from the spec again. The scene *does* demonstrate the shipped radius. The
@@ -477,7 +477,7 @@ What of each phase you can actually touch here. **Add a row when a phase lands.*
 | **3 — Generation** | The whole island. Everything you walk on is real Phase 3 terrain. | Generation parameters; use the Phase 3 scene. |
 | **4 — Streaming & persistence** | Streaming runs constantly as you move. Resident chunks, dense bricks and pool pressure are on the F1 overlay. Edits at the window edge are refused and counted. | Save/reload round trips, admission/eviction gates — `run-acceptance-rig.sh`. |
 | **5 — Fluid** | Vents (`V`), placing water/sand/lava, watching it settle on natural terrain. Active-radius bounds shown by crosshair colour. | Conservation proofs — Phase 5b rig. Honey/lava viscosity at their real tick intervals is slow enough to be hard to judge here. |
-| **7.2 — Tiled active set** | **Wired 2026-09-11.** The state panel reports tiles resident / cap, acquired and released counts, whether the pool is full, live slot count, and the active set in MB. Fly away and watch tiles release; fly back and watch them re-acquire. Change `_activeRadiusVoxels` from 128 to the shipped 1280 and watch the MB figure **not move** — that invariance is the design's whole claim, and the old dense build could not have run at 1280 at all (a 2048³ region is 128 GB). | The tile cap being reached — `run-fluid-tiled.sh` scenario C and the chaos ladder. **The cap is 1024 as of 2026-09-11** (was 512); at 512 a wide fluid spread overflowed the pool and the overflow was visible as raw cubes of fluid hanging in the air that never settled. See `FLUID_TILE_CAP_RESULTS.md`. |
+| **7.2 — Tiled active set** | **Wired 2026-09-11.** The state panel reports tiles resident / cap, acquired and released counts, whether the pool is full, live slot count, and the active set in MB. Fly away and watch tiles release; fly back and watch them re-acquire. Change `_activeRadiusVoxels` from 128 to the shipped 1280 and watch the MB figure **not move** — that invariance is the design's whole claim, and the old dense build could not have run at 1280 at all (a 2048³ region is 128 GB). | The tile cap being reached — `run-fluid-tiled.sh` scenario C and the chaos ladder. **The cap is 1024 as of 2026-09-11** (was 512); at 512 a wide fluid spread overflowed the pool and the overflow was visible as raw cubes of fluid hanging in the air that never settled. See `docs/archive/FLUID_TILE_CAP_RESULTS.md`. |
 | **7.4 — Active radius** | Walk away from a pool and watch it sleep to static terrain; walk back and watch it **wake again** — that second half was missing until 2026-09-05 and a region that slept mid-flow could never restart (`DESIGN_NOTE_7_4` §8). Wake/sleep radii, the current centre and the re-centre count are all on the state panel. | The radius value here is the **demo** 128, not the shipped 1280. The shipped value has now been measured and **cannot bite inside any region that can exist** — see `DESIGN_NOTE_7_4` §9; that is an open design fork, not something the Playground can show. Multi-region behaviour — `run-fluid-activity.sh` and `run-fluid-scale.sh`. |
 | **6 — Physics & editing** | Walking, jumping, 3-voxel steps, coyote time (§8.1); live `PlayerConfig` reload (§8.1); digging with all three tool tiers and placing through `EditService` (§8.3); bombs (§8.5); projectiles (§8.4); buoyancy and swimming (§8.6); the speed-clamp indicator (§8.2). | Swept CCD at 60 m/s — no grapple exists here yet, so `SweptCCD` is constructed but only exercised by its rig. The adversarial checkerboard (§3.6) — now covered by `run-phase6-sandbox.sh` step 3, which reaches the high-water mark and fires the LRU valve. |
 | **7 — Lighting** | **Wired 2026-09-12.** The full day/night cycle with a scrubber and three jump keys (`N`/`M`/`L`); torches in the hotbar, placed and dug through the real §8.3 path; all four §6.5 shadow rungs on `J`; the hard↔soft toggle on `K`; §10.3 item 6's two debug views on `Y`; sun angle/time, active lights vs cap and the current rung on the F1 overlay; and **live tuning of every art constant through `LightingConfig.json`**, which is the highest-value thing in this row. | The **budget gates**: §13's "≤9.0 ms" and "≤13.0 ms" are per-pass figures with Performance State checked, and neither is obtainable in this workflow — see `AMENDMENT_8_12_PHASE7_GATE.md` and `run-phase7-lighting-ab.sh`. The **acceptance gates** (acne, Peter-Panning, the §6.5 silhouette test as a per-pixel GPU-vs-oracle comparison, §3.10's same-frame sunlight, §3.8's cap degradation) are asserted by `run-phase7-rig.sh`, not here. Tiers 1/2 still have **no CPU oracle** for shadow rays any more than for primary rays (Amdt 8.10 §5.7). |

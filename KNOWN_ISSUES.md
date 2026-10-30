@@ -37,7 +37,7 @@ fluid paused), and designing one is a deliberate decision, not a cleanup task.
 Anything that IS a real failure under combined load will be something other
 than these three. §4.3's upload budget, for instance, fails under fluid for a
 real and separate reason — see the LOD-cascade finding in
-`FLUID_PERFORMANCE_AB_RESULTS.md` §3.
+`docs/archive/FLUID_PERFORMANCE_AB_RESULTS.md` §3.
 
 
 ## Known open issues (act on these, don't rediscover them)
@@ -705,7 +705,7 @@ real and separate reason — see the LOD-cascade finding in
 - **FLAGGED FOR THE OWNER, NOT CHANGED: `run-acceptance-rig.sh` measures
   WINDOWED.** Neither the script, nor `Phase4AcceptanceRig.cs`, nor
   `Phase4Bootstrapper.cs` ever calls `Screen.SetResolution` or sets fullscreen
-  (verified by grep 2026-09-12). `FPS_INVESTIGATION_RESULTS.md` §0.1 — written
+  (verified by grep 2026-09-12). `docs/archive/FPS_INVESTIGATION_RESULTS.md` §0.1 — written
   later — demonstrates windowed capture on this machine is worthless (69.6 vs
   26.9 FPS for identical back-to-back runs of the same binary, and "fluid ON"
   measuring *faster* than "fluid OFF"). That sits awkwardly beside Measurement
@@ -758,7 +758,7 @@ real and separate reason — see the LOD-cascade finding in
   line. Confirmed NOT caused by the 1024 tile cap — re-running with the cap
   reverted to 512 gives the identical 16/14. Fixing it means rewriting the
   rig's arena predicate in terms of the wake radius. Full analysis in
-  `FLUID_TILE_CAP_RESULTS.md` §12.2.
+  `docs/archive/FLUID_TILE_CAP_RESULTS.md` §12.2.
   **The 15th failure appeared 2026-09-12 and is the same class, not new
   breakage:** restoring Playground's demo radius to the shipped 1280 voxels
   (128 m, up from a 128-voxel / 12.8 m value) means the point the rig flies to
@@ -776,7 +776,7 @@ real and separate reason — see the LOD-cascade finding in
   unchanged -- "orders of magnitude below the dense region" -- and the
   design's load-bearing claim, that the footprint does not move WITH THE
   RADIUS, is a separate assertion and was never in question. Rig is 19/19
-  again. Background in `FLUID_TILE_CAP_RESULTS.md` §12.1.
+  again. Background in `docs/archive/FLUID_TILE_CAP_RESULTS.md` §12.1.
 - **"POOL FULL" / "live 750,000" ON THE PLAYGROUND HUD IN TG2 (task 39, 2026-10-09; FIXED in part).**
   `MODE=poolprobe MAPV=4 ./run-tg2world.sh` (`EXTRA="-poolfix 0"` = the old behaviour) walks
   start -> lake shore -> sea coast and places water; reports + stills in `Screenshots/Task39/`.
@@ -836,7 +836,7 @@ real and separate reason — see the LOD-cascade finding in
     - lava: 296 vs 244 at +225, 184 vs 123 at +400.
   - **Why it looked frozen.** The CA ticks once per readback round trip:
     0.16 ticks/frame in tg2, 0.20 in the control. That is
-    `FLUID_TICK_DIAGNOSIS.md`'s known 6-7 frames per tick (owner decision 11,
+    `docs/archive/FLUID_TICK_DIAGNOSIS.md`'s known 6-7 frames per tick (owner decision 11,
     still open). Lava also acts only every 6th tick (§7.4), so in 225 frames it
     takes ~6 steps (~0.6 m).
   - Task 07's own stills agree:

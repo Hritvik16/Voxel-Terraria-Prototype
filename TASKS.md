@@ -242,7 +242,7 @@ Poses: walk_near and walk_open (task 57's arcs), ridge, and high (highest column
 fsr3 / none at the preset's rows (UpscalerSelect clamps to 540-720), native, and fsr3 + ShellTint, plus per-shell voxel px
 (`[px]` lines). Motion bursts (still, walk, turn; 4 consecutive frames) at walk_open and ridge, and golden hour (17 h, High only).
 `-lookwait S` sets the shell wait (45 s; what is still missing is logged). `tools/look-review-diff.py bursts|crop|sheet` makes
-the difference images, crops and sheets. Report: `VISUAL_REVIEW_114.md`. Top defects: olive side faces and staircases, a
+the difference images, crops and sheets. Report: `docs/archive/VISUAL_REVIEW_114.md`. Top defects: olive side faces and staircases, a
 lighting band that moves with dynamic rows (FarShadeBlend), far-band rock contour dashes (FarWallMaterial lip), a flat sky,
 and tier 0 drawn below 1 px beyond shell 0.
 
