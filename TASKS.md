@@ -685,3 +685,9 @@ without editing rule sections, which the task forbade (they total ~20 KB). Root 
 (`tools/capture-gpu-trace.sh`'s rebuild hint now names `BUILD=1 ./run-play.sh` + the trace build). Answered/superseded `blocked/` and
 done/replaced `later/` items moved to `tools/overnight/archive_work/{blocked,later}-2026-10-30/`. `.gitignore`: `__pycache__/`, `*.pyc`,
 `TestResults*.xml`.
+
+**Task 155 (plan, owner Q99 (a) 2026-10-30): cheaper 10-15 m torch light -- PLAN ONLY, no code, no default change.** `TORCH_LIGHT_PLAN.md`:
+A = a light flood exact at 0.1 m (6-connected, no corner cutting, chamfer distance, per-channel max RGB), sparse per brick, sampled once per
+pixel (the spec's §3.8/§6.5 v1.5 "sparse BFS light pool"; RECOMMENDED); B = per-brick light lists + 1 temporally reused torch ray per pixel;
+C = a 0.8 m brick flood (leaks through 0.1 m walls; later as the far/shell light). Step list L1-L7 (L1 = the CPU oracle `LightFloodReference` + tests).
+Six owner questions in the 155 HANDOFF (round corners vs crisp shadows, reach, torches per base, colour, fill-in delay, light beyond the window).
