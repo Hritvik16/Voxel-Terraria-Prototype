@@ -178,19 +178,19 @@ namespace VoxelEngine.Mirror
             _cc = new int3[n]; _ccValid = new bool[n]; _lo = new int3[n]; _hi = new int3[n];
             _pubLo = new int3[n]; _pubHi = new int3[n]; _pubCc = new int3[n]; _pubValid = new bool[n];
             _cand = new List<Cand>[n]; _refused = new Dictionary<long, int>[n]; _fullNeed = new int[n];
-            int dirN = 0, pageN = 0, brickN = 0;
+            int dirN = 0, pageN = 0, brickN = 0, heightN = 0;
             for (int k = FirstShell; k <= LastShell; k++)
             {
                 var s = layout[k];
-                dirN += s.RingSlots; pageN += s.PageCap; brickN += s.PoolCap;
+                dirN += s.RingSlots; pageN += s.PageCap; brickN += s.PoolCap; heightN += s.Ring.x * s.Ring.z;
             }
-            Gpu = new ShellStore.SharedBuffers(dirN, pageN, brickN);
-            dirN = 0; pageN = 0; brickN = 0;
+            Gpu = new ShellStore.SharedBuffers(dirN, pageN, brickN, heightN);
+            dirN = 0; pageN = 0; brickN = 0; heightN = 0;
             for (int k = FirstShell; k <= LastShell; k++)
             {
                 var s = layout[k];
-                _stores[k] = new ShellStore(k, s.Ring, s.PoolCap, s.PageCap, Gpu, dirN, pageN, brickN);
-                dirN += s.RingSlots; pageN += s.PageCap; brickN += s.PoolCap;
+                _stores[k] = new ShellStore(k, s.Ring, s.PoolCap, s.PageCap, Gpu, dirN, pageN, brickN, heightN);
+                dirN += s.RingSlots; pageN += s.PageCap; brickN += s.PoolCap; heightN += s.Ring.x * s.Ring.z;
                 _cand[k] = new List<Cand>(); _refused[k] = new Dictionary<long, int>();
             }
             workers = math.max(1, workers);
@@ -359,8 +359,10 @@ namespace VoxelEngine.Mirror
         }
 
         /// Flush shell k's directory; when it is on the GPU, the current box is the published one.
+        /// Task 153: the column heights go up in the same flush, built for that box.
         private bool Publish(int k, ref int budget)
         {
+            if (_ccValid[k]) _stores[k].SetHeightBox(_lo[k], _hi[k], _cc[k], Layout[k].Hole);
             if (!_stores[k].FlushDirectory(ref budget)) return false;
             if (_ccValid[k]) { _pubLo[k] = _lo[k]; _pubHi[k] = _hi[k]; _pubCc[k] = _cc[k]; _pubValid[k] = true; }
             return true;
@@ -379,7 +381,8 @@ namespace VoxelEngine.Mirror
         ///   ring[k]   = (ring x, y, z, directory base)
         ///   lo[k]     = (published box min, page base);  hi[k] = (box max, brick base)
         ///   cam[k]    = (camera chunk, hole H; -1 = no hole)
-        ///   bounds[k] = (inner, outer hand-over distance in 0.1 m voxels, voxel size in 0.1 m voxels, 0)
+        ///   bounds[k] = (inner, outer hand-over distance in 0.1 m voxels, voxel size in 0.1 m voxels,
+        ///                the store's column-height table offset from Gpu.HeightBase, task 153)
         /// A shell with nothing published gets an empty box (lo > hi): every chunk ABSENT.
         public void ShaderParams(Vector4[] ring, Vector4[] lo, Vector4[] hi, Vector4[] cam, Vector4[] bounds)
         {
@@ -392,6 +395,7 @@ namespace VoxelEngine.Mirror
                 bounds[k] = new Vector4(s.InnerM * 10f, s.OuterM * 10f, 1 << k, 0f);
                 if (k < FirstShell || k > LastShell) continue;
                 var st = _stores[k];
+                bounds[k].w = st.HeightOffset;   // task 153 (small: exact as a float)
                 ring[k] = new Vector4(st.Ring.x, st.Ring.y, st.Ring.z, st.DirBase);
                 if (!PublishedBox(k, out int3 l, out int3 h, out int3 c)) continue;
                 lo[k] = new Vector4(l.x, l.y, l.z, st.PageBase);

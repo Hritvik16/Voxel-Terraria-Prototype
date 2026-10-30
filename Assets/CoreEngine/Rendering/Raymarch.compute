@@ -2862,6 +2862,15 @@ int    _ShellColLeap;
 // sequence (bit for bit) and the same iteration count, so the same result. No new data.
 int    _ShellHoleLeap;
 #define SHELL_HOLELEAP_ON (_ShellHoleLeap != 0)
+// TASK 153: the COLUMN HEIGHT LEAP (-shellheightbound; RaymarchFeature.ShellHeightBound). Per shell, per
+// ring column, one int in ShellPages from _ShellHeightBase + _ShellBounds[k].w (ShellStore COLUMN HEIGHTS):
+// every chunk of that world column inside the published box and outside the hole is held and holds no
+// non-air brick at or above it (an unheld chunk counts as solid to its top). Built on the CPU from the
+// directory the GPU has, uploaded with it. Used in ShellMarch by SHADOW rays only (their callers read
+// end == HIT alone); CPU twin ShellRayReference.March(heightBound), ShellHeightBoundTests.
+int    _ShellHeightBase;
+int    _ShellHeightBound;
+#define SHELL_HEIGHTBOUND_ON (_ShellHeightBound != 0)
 #define SHELL_SKY_NEVER 2147483647
 int ShellSkyY(bool primary)
 {
@@ -3373,6 +3382,64 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3 
 #ifdef VE_SHELL_DIAG
         if (sh == k + 7) r.leapsChunk++; else if (sh == k + 3) r.leapsBrick++;
 #endif
+        // TASK 153: the COLUMN HEIGHT LEAP (header at _ShellHeightBase). A rising shadow ray in an air cell of
+        // shell k's own chunk (k == kd: by distance, not a fallback) at or above its column's height: every
+        // chunk of the column above is held uniform air, and the ray's own chunk is air from its brick up.
+        // The ray moves away from the camera (dot >= 1), so every cell it visits from here is farther
+        // than this one less 2 voxels (cells are within 0.87 of the ray); the chunks above are visited once
+        // each, at their bottom plane. So the box [this brick .. yTop) of the column, yTop CHUNK-aligned (the
+        // published top, the hole's bottom when the ray is below it, and the band: the ray leaves the box's
+        // lower part -- the last chunk's bottom plane or the column's sides, first -- nearer than the outer
+        // bound less 2), is crossed by the plain march in shell-k air
+        // leaps only, every distance asking shell k (no clamp, no hole, no absent chunk, no tier-0 leap: a
+        // shadow ray has tTier0 = 0), and it leaves the box through a chunk plane the march also stops at.
+        // ONE leap there ends in the same cell (the leap's t may differ in its last bits, as task 116's).
+        // Fewer iterations: a ray the step cap ended can now go on (only further hits; none at the
+        // identity poses). Primary rays are not touched (the far band starts from their end t).
+        if (SHELL_HEIGHTBOUND_ON && shadow && step.y > 0 && k == kd)
+        {
+            int cs = k + 7;
+            int3 ch = voxel >> cs;
+            int3 ring = (int3)_ShellRing[k].xyz;
+            int2 w = ch.xz & (ring.xz - 1);
+            int colH = asint(ShellPages[(uint)_ShellHeightBase + (uint)_ShellBounds[k].w + (uint)(w.y * ring.x + w.x)]);
+            float3 c0 = float3(voxel) + 0.5 - camera;
+            float d0 = length(c0);
+            float bLo = k > 1 ? _ShellBounds[k - 1].y : -1.0, bHi = _ShellBounds[k].y;
+            if (voxel.y >= colH && d0 >= bLo + 4.0 && d0 < bHi - 4.0 && dot(c0, dir) >= 1.0)
+            {
+                int curTop = (ch.y + 1) << cs;
+                int yTop = ((int)_ShellHi[k].y + 1) << cs;
+                int4 hc = (int4)_ShellCam[k];
+                if (hc.w >= 0 && all(abs(ch.xz - hc.xz) <= hc.w) && ch.y < hc.y - hc.w) yTop = min(yTop, (hc.y - hc.w) << cs);
+                // The band: the t where the ray is bHi - 3 from the camera (it is nearer now), its y.
+                float3 o = start - camera;
+                float ob = dot(o, dir);
+                float rr = bHi - 3.0;
+                float disc = ob * ob - (dot(o, o) - rr * rr);
+                if (disc > 0.0) yTop = min(yTop, (((int)floor(start.y + dir.y * (sqrt(disc) - ob)) >> cs) + 1) << cs);
+                else yTop = curTop - 1;
+                // The farthest cell the plain march asks about is entered no later than where the ray leaves
+                // the box's lower part: the last chunk's bottom plane or the column's side planes, first.
+                int yLast = max(yTop - (1 << cs), curTop);
+                int2 cMin = (voxel.xz >> cs) << cs;
+                float tQ = min(ShellPlaneT(yLast, start.y, tDelta.y, step.y),
+                               min(ShellPlaneT(step.x > 0 ? cMin.x + (1 << cs) : cMin.x, start.x, tDelta.x, step.x),
+                                   ShellPlaneT(step.z > 0 ? cMin.y + (1 << cs) : cMin.y, start.z, tDelta.z, step.z)));
+                float3 qb = start + dir * tQ - camera;
+                if (yTop >= curTop && (yTop > curTop || sh == k + 3) && length(qb) < bHi - 2.0)
+                {
+                    int bMinY = (voxel.y >> (k + 3)) << (k + 3);
+                    int3 bMin = int3(cMin.x, bMinY, cMin.y);
+                    ShellLeapBox(voxel, tMax, t, normal, tDelta, step, start, bMin, int3(1 << cs, yTop - bMinY, 1 << cs));
+#ifdef VE_SHELL_DIAG
+                    r.colLeaps++;   // (counted with task 116's: that leap is off while this one is used)
+#endif
+                    kPrev = k;
+                    continue;
+                }
+            }
+        }
         // TASK 116: the COLUMN SKY LEAP. A rising ray (step.y > 0) in an air brick of a paged
         // chunk (sh == k + 3) at or above its GROUP COLUMN's top (4x4 bricks in x and z; the
         // page's column tops: no non-air brick at this local brick y or above) reads only air

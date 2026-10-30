@@ -1,0 +1,8 @@
+Task 153 -- decisions written BEFORE any launch (2026-10-30).
+Identity (look review -cliffbefore 4 -holepillar 1, cost-split -coststillraw):
+  any differing px ON vs OFF in a raw/native still  -> the leap is not exact: leave OFF, find the cause (no ship).
+  pillar control (nonear vs native) ~0 px           -> the pose proves nothing; say so, do not claim the tower proof.
+Cost (warm ABBA cost split, noon, walk_near + walk_open, heightbound_on vs heightbound_off, window means):
+  walk gain >= 1 ms at walk_near (the pose with the climbing near sun rays) and 0 px -> ship ON (-shellheightbound 0 = before).
+  gain < 1 ms (or within the FULL spread)            -> leave OFF, report why (counters: shell iters per near ray), name the next cut.
+Every outcome changes what we do, so the measurement runs.

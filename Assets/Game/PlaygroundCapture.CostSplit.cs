@@ -103,6 +103,9 @@
 //   TASK 137: holeleap_on / holeleap_off  the shells' hole leap on / off (RaymarchFeature.ShellHoleLeap; FULL keeps the
 //                       launch's -holeleap, OFF by default); exact: raw stills ON vs OFF are the identity check. The [nearsh]
 //                       line adds the near rays' tier-0 chunk leaps and how many ran inside the hole box (ShadowStats 80-81)
+//   TASK 153: heightbound_on / heightbound_off  the shells' column height leap on / off (RaymarchFeature.ShellHeightBound;
+//                       FULL keeps the launch's -shellheightbound, OFF by default); shadow rays only, raw stills ON vs OFF
+//                       are the identity check; the [nearsh] line's shell iterations per near ray show what it cut.
 //   TASK 138: skytilt_on / skytilt2 / skytilt_off  the tilted sky probe 1 / 2 (side faces only) / 0 (RaymarchFeature.SkyProbeTilt;
 //                       FULL keeps the launch's -skytilt). A LOOK change: the stills differ by design.
 //   TASK 118: clampN (e.g. clamp128)  the voxel sun-shadow ray (TraceShadowRay) clamped at N m
@@ -355,6 +358,7 @@ public partial class PlaygroundCapture
         RaymarchFeature.ShellKernelDiet = arm == "diet_on" || (arm != "diet_off" && _costBaseDiet);
         // Task 137: the hole leap (see the header).
         RaymarchFeature.ShellHoleLeap = arm == "holeleap_on" || (arm != "holeleap_off" && _costBaseHoleLeap);
+        RaymarchFeature.ShellHeightBound = arm == "heightbound_on" || (arm != "heightbound_off" && _costBaseHeightBound);   // task 153
         // Task 138: the tilted sky probe (see the header).
         RaymarchFeature.SkyProbeTilt = arm == "skytilt_on" ? 1 : arm == "skytilt2" ? 2 : arm == "skytilt_off" ? 0 : _costBaseSkyTilt;
         // Task 93b4 (diagnostic): see the header.
@@ -384,7 +388,7 @@ public partial class PlaygroundCapture
     private static int _costBaseShadow = -1, _costBaseTorch = -1;
     private static bool _costBaseRoof;
     private static float _costBaseRung1;
-    private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap, _costBasePrepass, _costBaseNearSh, _costBaseDiet, _costBaseHoleLeap;
+    private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap, _costBasePrepass, _costBaseNearSh, _costBaseDiet, _costBaseHoleLeap, _costBaseHeightBound;
     private static int _costBaseSkyTilt;
     private static int _costBaseFarSteps = -1;
     private static bool _costBaseFarShadowOn;
@@ -466,7 +470,8 @@ public partial class PlaygroundCapture
                 // Task 137: of those iterations, the tier-0 chunk leaps (tier 0's band and the hole) and the ones inside the hole box.
                 double nL = st[80] / (double)n, nH = st[81] / (double)n;
                 L($"    [nearsh {arm}] tier-0 chunk leaps {nL:N0}/frame ({(nI > 0 ? 100 * nL / nI : 0):F0}% of their iters, {(nR > 0 ? nL / nR : 0):F1}/ray), " +
-                  $"of them in the hole box {nH:N0} ({(nL > 0 ? 100 * nH / nL : 0):F0}%); hole leap {(RaymarchFeature.ShellHoleLeap ? "ON" : "OFF")}");
+                  $"of them in the hole box {nH:N0} ({(nL > 0 ? 100 * nH / nL : 0):F0}%); hole leap {(RaymarchFeature.ShellHoleLeap ? "ON" : "OFF")}; " +
+                  $"height bound {(RaymarchFeature.ShellHeightBound ? "ON" : "OFF")}");
             }
         }
         if (st.Length < 77 || st[67] == 0) yield break;
@@ -525,7 +530,7 @@ public partial class PlaygroundCapture
     private IEnumerator CostTime(ClipPath path, CostRun r, float timed, string still, Camera cam,
                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
     {
-        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
+        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseHeightBound = RaymarchFeature.ShellHeightBound; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);

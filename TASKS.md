@@ -660,3 +660,19 @@ the same `ShellMarch` call; R6 changes no iteration or read count (`ShellMarchCa
 83.6 iters/ray walk_near, 38.8 walk_open. So no re-run (every outcome led to the same action). Ceiling: a perfect, free compaction recovers at
 most (1 - eff) of the shells path: < 0.83 ms walk_near (of 8.8, which also holds 133's near sun rays) and < 0.37 ms walk_open (of 5.5), under
 the >= 1 ms keep bar before the append / indirect-dispatch overhead. Next cut: task 153 (column height bound).
+
+**Task 153 (perf, owner Q97 (a)): the shells' COLUMN HEIGHT BOUND, exact, OFF by default (`-shellheightbound 1` = on) -- gain < 1 ms.**
+`ShellStore` keeps, per shell and RING COLUMN, the height above which every chunk of that column in the published box (outside the hole) is
+held and all air (header COLUMN HEIGHTS; an unheld chunk counts as solid to its top; `HEIGHT_NONE` outside the box). It is rebuilt from `_dir`
+in `FlushDirectory` and uploaded in the same call as the directory, so the GPU's table always matches the GPU's directory and box. Edit ops,
+edit summaries and streaming all come through `Store` / `Evict`, so they raise or lower it the frame they are published. The table is the tail
+of `ShellPages` (`Gpu.HeightBase`, per-store offset in `_ShellBounds[k].w`; <= 28 KB). Raymarch.compute `SHELL_HEIGHTBOUND_ON` in `ShellMarch`:
+a rising SHADOW ray in an air cell of shell k's own chunk, at or above its column's height, moving away from the camera, crosses the column
+up to a chunk-aligned top (the published top, the hole bottom when below it, the chunk where it reaches the outer band less 3) in ONE leap.
+That leap is accepted only if the ray leaves the box's lower part (the last chunk's bottom plane or the column sides, whichever comes first)
+nearer than the outer bound less 2. CPU twin `ShellRayReference.March(heightBound)` / `HeightLeapBox`; tests `ShellHeightBoundTests`
+(a pillar and an edit-op tower redraw must raise the bound and still block rays; a lying table must leak). Cost-split arms
+`heightbound_on` / `heightbound_off`; look review `-cliffbefore 4` (with `-holepillar 1 -shellheightbound 1`); diff `tools/heightbound153.py`.
+Evidence (warm, noon, `Logs/costsplit_2026-10-30_130145.txt`): near sun ray shell iterations 8.0 -> 5.0 per ray at walk_near (-37%), no frame
+gain (ON - OFF +1.5 ms p50 / +0.8 pass means, FULL spread 1.1; walk_open 0.0). Raw stills 0 px (4 pairs), edit-op pillar 0 px (control 68,392 px).
+cliff2 A native differs by 10,597 px while shell 3 was still filling: not isolated, so re-check before turning it on. Report `Screenshots/153/perf153.txt`.

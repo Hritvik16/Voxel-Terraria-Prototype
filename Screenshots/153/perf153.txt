@@ -1,0 +1,28 @@
+Task 153 -- the shells' COLUMN HEIGHT BOUND (-shellheightbound), owner Q97 (a). 2026-10-30. DECISION: keep OFF (gain < 1 ms).
+Warm steady state: warm-up Logs/tg2world_20261030_125508.txt (MODE=stream MOTION=walk, discarded), cost split straight after.
+Power: AC, 100% charged, before and after; no owner pause. Build: current tree, play settings flags, FSR 3 540 rows, noon (sun 78 deg).
+Decisions written first: Screenshots/153/decisions_before_measuring.txt.
+
+COST SPLIT p50 ms (Logs/costsplit_2026-10-30_130145.txt), F X X F X X F, 15 s timed per run
+                FULL passes          heightbound_on   heightbound_off   ON - OFF p50 (pass means)   noise (FULL spread)
+walk_near       61.3 / 60.2 / 61.2   63.0 / 63.7      64.1 / 61.0       +1.5 (+0.8)                 1.1
+walk_open       36.1 / 36.2 / 36.3   36.2 / 36.2      36.2 / 36.3       +0.0 (-0.05)                0.2
+(walk_near's shells were still filling during the arms: s3 477 / s4 853 missing after the 90 s wait, as in task 146.)
+
+COUNTERS ([nearsh] lines, near sun rays handed on to the shells):
+walk_near   126k rays/frame: shell iters 8.0 -> 5.0 per ray (1,011,406 -> 631,553 per frame, -37%); blocked by the shells 0 either way
+walk_open    61k rays/frame: 5.6 -> 5.6 (rays leave the column sideways before climbing, as the design predicted at low sun)
+WHY NO FRAME GAIN: the 380k iterations it removes per frame are cheap uniform-air chunk leaps (one directory read, a cached resolve);
+the walk_near frame (61 ms) is spent elsewhere -- primary shell march 83 iters per sky ray, tier-0 sun shadow 19.3 steps/ray (2.43 M steps/frame).
+The leap's extra code (one table read + a band test per rising shadow iteration) costs about what it saves.
+
+IDENTITY (no upscaler):
+cost split raw / raw2, walk_near + walk_open: 0 px in all 4 pairs (python3 -I tools/heightbound153.py raw <stills>)
+edit-op PILLAR (42 box ops, 250 m, task 137's pose; Logs/lookreview_20261030_123640.txt): native OFF vs ON 0 px; control (near shell shadows OFF) 68,392 px
+cliff1 A native: 1 px (max channel 1), shells complete; cliff2 A native: 10,597 px -- 9,364 of them speckle over the faces of distant arches
+  (300-500 m, shell 3, which still had 275 chunks missing / 14 in flight across the two shots) and one near sliver lit OFF / shadowed ON
+  (1,222 px). NOT isolated: consistent with chunks arriving between the shots, or with the leap's one known non-identity (fewer iterations,
+  so a ray the step cap ended OFF can find a hit ON). Moot while OFF; re-check with complete shells before anyone turns it on.
+CPU twin: ShellHeightBoundTests (3,000 sun / pillar rays + 800 tower rays: hits, cells, mats, normals identical; a lying table leaks 108 of
+1,500 pillar rays, so the test can see a wrong bound) and HeightTable_Rules.
+Memory: +4 B per ring column per shell at the end of ShellPages (<= 7 x 32 x 32 x 4 = 28 KB), always built and uploaded with the directory.

@@ -96,6 +96,14 @@ namespace VoxelEngine.Mirror
             int ColumnTop(int k, int page, int j);
         }
 
+        /// Task 153: a view that also has the COLUMN HEIGHTS (ShellStore header: the int the GPU reads for
+        /// shell k's ring column of world chunk `chunk`; ShellStore.HEIGHT_NONE = not covered). March uses
+        /// them only through this (heightBound).
+        public interface IHeightView : IView
+        {
+            int ColumnHeight(int k, int3 chunk);
+        }
+
         public struct Result
         {
             public int End;          // END_*
@@ -109,6 +117,7 @@ namespace VoxelEngine.Mirror
             public int MaskGroups;   // task 93b5: empty brick groups crossed in one leap each
             public int ColLeaps, ColLeapsChunk;   // task 116: column sky leaps / of them over the whole chunk
             public int HoleLeaps;    // task 137: tier-0 chunk leaps taken inside the hole box
+            public int HeightLeaps;  // task 153: column height leaps
         }
 
         /// Smallest shell k >= 1 whose outer bound is beyond d; -1 = past the last.
@@ -239,10 +248,15 @@ namespace VoxelEngine.Mirror
         /// holeLeap (task 137, the shader's SHELL_HOLELEAP_ON; needs an IMaskView for tier 0's layers): after a
         /// hole leap (resolve -2), the iterations that start in HoleBox are that leap alone, one iteration each:
         /// the same leaps and iteration count, so every field but the read counters is the same (ShellHoleLeapTests).
+        /// heightBound (task 153, the shader's SHELL_HEIGHTBOUND_ON; needs an IHeightView; shadow rays only): a rising
+        /// ray at or above its shell-k column's height crosses the column up to a chunk-aligned top in ONE leap
+        /// (Raymarch.compute's comment there): the same hit or no hit, in the same cell (ShellHeightBoundTests).
         public static Result March(IView v, float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters,
                                    float tTier0 = 0f, bool useCache = true, bool useMask = false, bool planeLeap = false,
-                                   int skyY = SKY_NEVER, bool colLeap = false, bool bandCache = false, bool holeLeap = false)
+                                   int skyY = SKY_NEVER, bool colLeap = false, bool bandCache = false, bool holeLeap = false,
+                                   bool heightBound = false)
         {
+            var hgt = heightBound ? v as IHeightView : null;
             var hv = holeLeap ? v as IMaskView : null;
             var mv = useMask ? v as IMaskView : null;
             var cv = colLeap ? v as IColumnView : null;
@@ -340,6 +354,15 @@ namespace VoxelEngine.Mirror
                     }
                     sh = k;   // a shadow ray's start cell: leave it
                 }
+                // Task 153: the COLUMN HEIGHT LEAP (Raymarch.compute's comment there), line for line.
+                if (hgt != null && shadow && step.y > 0 && k == kd
+                    && HeightLeapBox(hgt, k, voxel, start, dir, camera, tDelta, step, sh, out int3 hMin, out int3 hSize))
+                {
+                    LeapAnyBox(pl, ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, hMin, hSize);
+                    r.HeightLeaps++;
+                    kPrev = k;
+                    continue;
+                }
                 // Task 116: the COLUMN SKY LEAP (Raymarch.compute's comment there): above its group
                 // column's top a rising ray reads only air up to the chunk top; one leap crosses the
                 // column, or the whole chunk's x and z when every column is that low.
@@ -394,6 +417,42 @@ namespace VoxelEngine.Mirror
             }
             r.End = END_CAP; r.T = t;
             return r;
+        }
+
+        /// Task 153: the box of Raymarch.compute's COLUMN HEIGHT LEAP for a rising shadow ray at `voxel` in an
+        /// air cell of shell k's own chunk (sh: the cell's span shift); false = no leap.
+        public static bool HeightLeapBox(IHeightView v, int k, int3 voxel, float3 start, float3 dir, float3 camera,
+                                         float3 tDelta, int3 step, int sh, out int3 bMin, out int3 bSize)
+        {
+            bMin = int3.zero; bSize = int3.zero;
+            int cs = k + 7;
+            int3 ch = voxel >> cs;
+            int colH = v.ColumnHeight(k, ch);
+            float3 c0 = (float3)voxel + 0.5f - camera;
+            float d0 = math.length(c0);
+            float bLo = k > 1 ? v.OuterVoxels(k - 1) : -1f, bHi = v.OuterVoxels(k);
+            if (!(voxel.y >= colH && d0 >= bLo + 4f && d0 < bHi - 4f && math.dot(c0, dir) >= 1f)) return false;
+            if (!v.Box(k, out _, out int3 hi, out int3 cc, out int hole)) return false;
+            int curTop = (ch.y + 1) << cs;
+            int yTop = (hi.y + 1) << cs;
+            if (hole >= 0 && math.all(math.abs(ch.xz - cc.xz) <= hole) && ch.y < cc.y - hole) yTop = math.min(yTop, (cc.y - hole) << cs);
+            float3 o = start - camera;
+            float ob = math.dot(o, dir);
+            float rr = bHi - 3f;
+            float disc = ob * ob - (math.dot(o, o) - rr * rr);
+            if (disc > 0f) yTop = math.min(yTop, (((int)math.floor(start.y + dir.y * (math.sqrt(disc) - ob)) >> cs) + 1) << cs);
+            else yTop = curTop - 1;
+            int yLast = math.max(yTop - (1 << cs), curTop);
+            int2 cMin = (voxel.xz >> cs) << cs;
+            float tQ = math.min(PlaneT(yLast, start.y, tDelta.y, step.y),
+                                math.min(PlaneT(step.x > 0 ? cMin.x + (1 << cs) : cMin.x, start.x, tDelta.x, step.x),
+                                         PlaneT(step.z > 0 ? cMin.y + (1 << cs) : cMin.y, start.z, tDelta.z, step.z)));
+            float3 qb = start + dir * tQ - camera;
+            if (!(yTop >= curTop && (yTop > curTop || sh == k + 3) && math.length(qb) < bHi - 2f)) return false;
+            int bMinY = (voxel.y >> (k + 3)) << (k + 3);
+            bMin = new int3(cMin.x, bMinY, cMin.y);
+            bSize = new int3(1 << cs, yTop - bMinY, 1 << cs);
+            return true;
         }
 
         /// Task 137: Raymarch.compute's ShellHoleBox. The box [lo, hi] (inclusive voxels) in which every

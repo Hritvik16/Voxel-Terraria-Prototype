@@ -298,6 +298,13 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// walk_open, -0.3 / +0.65 at sun 20 (Logs/costsplit_2026-10-24_21{3718,4843}.txt); raw stills 0 px. The hole is ~1 of the
     /// noon canyon's 8 near-ray shell iterations; the rest climb to the shells' global top. `-holeleap 1` turns it on.
     public static bool ShellHoleLeap = ReadOffFlag(System.Environment.GetCommandLineArgs(), "-holeleap");
+    /// Task 153 (owner Q97 (a)): the shells' HEIGHT BOUND. Per shell and ring column, the height above which every
+    /// chunk the column holds in the published box is air (ShellStore COLUMN HEIGHTS: built on the CPU from the
+    /// directory it uploads with, so edit ops, edit summaries and streaming raise or lower it the frame they are
+    /// published). A rising SHADOW ray above its column's height crosses the column in one leap (Raymarch.compute
+    /// SHELL_HEIGHTBOUND_ON); the same hit or no hit (ShellHeightBoundTests). Primary rays are untouched.
+    /// `-shellheightbound 1` turns it on; the table is always built and uploaded (+4 B per ring column).
+    public static bool ShellHeightBound = ReadOffFlag(System.Environment.GetCommandLineArgs(), "-shellheightbound");
     /// Task 132 (R1, PERF_SHELL_MARCH_PLAN §4, owner Q85 (a)): the SHELL PRE-PASS. The far-shading kernel runs
     /// twice around a small kernel (CSShellPrepass) that does the primary shell march alone: pass 1 draws every
     /// 8x8 group with no shell ray and hands the others' shell rays over, pass 2 draws those groups with the
@@ -723,7 +730,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public float detailRadiusVoxels;   // task 24: 0 = hand-over at the residency edge (today)
 
             // ---- 8.14 shells (task 80); shellCount 0 = off, dummies bound ----
-            public int shellCount, shellIterCap, shellTint, shellMaskBase, shellTopY, shellColTopBase;
+            public int shellCount, shellIterCap, shellTint, shellMaskBase, shellTopY, shellColTopBase, shellHeightBase;
             public float shellPixelAngle;
             public GraphicsBuffer shellDir, shellPages, shellBricks;
             public bool primaryFarShade;            // task 130: kPrimary is CSMainFarShade (ShellProbeIO bound)
@@ -1195,8 +1202,9 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     passData.shellMaskBase = shells.Gpu.MaskBase;   // task 93b5
                     passData.shellTopY = shells.SolidTopY;          // task 99
                     passData.shellColTopBase = shells.Gpu.ColTopBase; // task 116
+                    passData.shellHeightBase = shells.Gpu.HeightBase; // task 153
                 }
-                else { passData.shellDir = _farDummy; passData.shellPages = _farDummy; passData.shellBricks = _farDummy; passData.shellMaskBase = 0; passData.shellTopY = int.MinValue; passData.shellColTopBase = 0; }
+                else { passData.shellDir = _farDummy; passData.shellPages = _farDummy; passData.shellBricks = _farDummy; passData.shellMaskBase = 0; passData.shellTopY = int.MinValue; passData.shellColTopBase = 0; passData.shellHeightBase = 0; }
 
                 // Task 130 (DIAGNOSTIC): the shellsplit arms' probe (see DebugShellSkip).
                 passData.primaryFarShade = activeCompute.HasKernel(farShadeKernel) && passData.kPrimary == activeCompute.FindKernel(farShadeKernel);
@@ -1488,6 +1496,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_ShellColTopBase", data.shellColTopBase); // task 116
                         cmd.SetComputeIntParam(data.compute, "_ShellColLeap", ShellColumnLeap ? 1 : 0);
                         cmd.SetComputeIntParam(data.compute, "_ShellHoleLeap", ShellHoleLeap ? 1 : 0);   // task 137
+                        cmd.SetComputeIntParam(data.compute, "_ShellHeightBase", data.shellHeightBase);   // task 153
+                        cmd.SetComputeIntParam(data.compute, "_ShellHeightBound", ShellHeightBound && data.shellCount > 1 ? 1 : 0);
                         cmd.SetComputeIntParam(data.compute, "_ShellTint", data.shellTint);
                         cmd.SetComputeIntParam(data.compute, "_DebugShellSkip", DebugShellSkip);   // task 93b4 (diagnostic)
                         cmd.SetComputeFloatParam(data.compute, "_ShellPixelAngle", data.shellPixelAngle);

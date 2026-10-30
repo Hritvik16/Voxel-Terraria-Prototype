@@ -32,6 +32,8 @@
 //   TASK 137: -cliffbefore 3 does the same with RaymarchFeature.ShellHoleLeap forced OFF (the launch
 //           passes -holeleap 1), and -holepillar 1 adds the adversarial pillar pose after the spots
 //           (PlaygroundCapture.HolePillar.cs).
+//   TASK 153: -cliffbefore 4 does the same with RaymarchFeature.ShellHeightBound forced OFF (the launch
+//           passes -shellheightbound 1); with -holepillar 1 the pillar is the edit-op tower the bound must see.
 //   TASK 136: -blackshape N shoots PlaygroundCapture.BlackShape.cs at spot N instead of A/B/C.
 using System;
 using System.Collections;
@@ -297,13 +299,15 @@ public partial class PlaygroundCapture
         RaymarchFeature.UseDebugViewOverride = false;
         // Task 133: a trailing 0 = the same arm with near sun rays through the shells forced OFF (the "before").
         // Task 134: with -cliffbefore 2 it is the kernel diet that is forced OFF.
-        // Task 137: with -cliffbefore 3 the hole leap.
+        // Task 137: with -cliffbefore 3 the hole leap. Task 153: with -cliffbefore 4 the height bound.
         bool nearSh0 = RaymarchFeature.NearShadowShells, diet0 = RaymarchFeature.ShellKernelDiet, hole0 = RaymarchFeature.ShellHoleLeap;
+        bool hb0 = RaymarchFeature.ShellHeightBound;
         if (arm.EndsWith("0"))
         {
             int before = ArgInt("-cliffbefore", 0);
             if (before == 2) RaymarchFeature.ShellKernelDiet = false;
             else if (before == 3) RaymarchFeature.ShellHoleLeap = false;
+            else if (before == 4) RaymarchFeature.ShellHeightBound = false;
             else RaymarchFeature.NearShadowShells = false;
             arm = arm.Substring(0, arm.Length - 1);
         }
@@ -322,5 +326,6 @@ public partial class PlaygroundCapture
         RaymarchFeature.NearShadowShells = nearSh0;
         RaymarchFeature.ShellKernelDiet = diet0;
         RaymarchFeature.ShellHoleLeap = hole0;
+        RaymarchFeature.ShellHeightBound = hb0;
     }
 }
