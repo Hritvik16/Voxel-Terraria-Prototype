@@ -1,0 +1,681 @@
+diff --git a/Assets/ContentModules/Config/ShellLayout.cs b/Assets/ContentModules/Config/ShellLayout.cs
+index e96584f..d22dc45 100644
+--- a/Assets/ContentModules/Config/ShellLayout.cs
++++ b/Assets/ContentModules/Config/ShellLayout.cs
+@@ -66,7 +66,8 @@ public sealed class ShellLayout
+         public int EstBricks, PoolCap, PageCap;
+         public int RingSlots => Ring.x * Ring.y * Ring.z;
+         /// What 11a allocates on the GPU for this shell: bodies + pages + directory.
+-        public long BytesAllocated => (long)PoolCap * ShellBytes.BODY + (long)PageCap * (ShellBytes.PAGE + ShellBytes.MASK + ShellBytes.COLTOP) + (long)RingSlots * ShellBytes.DIR_ENTRY;
++        public long BytesAllocated => (long)PoolCap * ShellBytes.BODY + (long)PageCap * (ShellBytes.PAGE + ShellBytes.MASK + ShellBytes.COLTOP) + (long)RingSlots * ShellBytes.DIR_ENTRY
++                                    + (long)Ring.x * Ring.z * ShellBytes.HEIGHT;
+         /// 8.14 §2's MB column: bodies + 64 B occupancy per brick (est.) + directory, at the cap.
+         public long BytesAmendmentFormula => (long)PoolCap * (ShellBytes.BODY + ShellBytes.OCCUPANCY_EST) + (long)RingSlots * ShellBytes.DIR_ENTRY;
+     }
+@@ -195,4 +196,5 @@ public static class ShellBytes
+     public const int MASK = 2 * 4;        // task 93b5: its 64-bit air-brick group mask (the page buffer's tail)
+     public const int COLTOP = 4 * 4;      // task 116: its 16 group-column tops (bytes, after the masks in the tail)
+     public const int DIR_ENTRY = 4;
++    public const int HEIGHT = 4;          // task 153: one column height per ring column (the page buffer's end)
+ }
+diff --git a/Assets/CoreEngine/Mirror/ShellRayReference.cs b/Assets/CoreEngine/Mirror/ShellRayReference.cs
+index 40ec767..bc0910b 100644
+--- a/Assets/CoreEngine/Mirror/ShellRayReference.cs
++++ b/Assets/CoreEngine/Mirror/ShellRayReference.cs
+@@ -96,6 +96,14 @@ namespace VoxelEngine.Mirror
+             int ColumnTop(int k, int page, int j);
+         }
+ 
++        /// Task 153: a view that also has the COLUMN HEIGHTS (ShellStore header: the int the GPU reads for
++        /// shell k's ring column of world chunk `chunk`; ShellStore.HEIGHT_NONE = not covered). March uses
++        /// them only through this (heightBound).
++        public interface IHeightView : IView
++        {
++            int ColumnHeight(int k, int3 chunk);
++        }
++
+         public struct Result
+         {
+             public int End;          // END_*
+@@ -109,6 +117,7 @@ namespace VoxelEngine.Mirror
+             public int MaskGroups;   // task 93b5: empty brick groups crossed in one leap each
+             public int ColLeaps, ColLeapsChunk;   // task 116: column sky leaps / of them over the whole chunk
+             public int HoleLeaps;    // task 137: tier-0 chunk leaps taken inside the hole box
++            public int HeightLeaps;  // task 153: column height leaps
+         }
+ 
+         /// Smallest shell k >= 1 whose outer bound is beyond d; -1 = past the last.
+@@ -239,10 +248,15 @@ namespace VoxelEngine.Mirror
+         /// holeLeap (task 137, the shader's SHELL_HOLELEAP_ON; needs an IMaskView for tier 0's layers): after a
+         /// hole leap (resolve -2), the iterations that start in HoleBox are that leap alone, one iteration each:
+         /// the same leaps and iteration count, so every field but the read counters is the same (ShellHoleLeapTests).
++        /// heightBound (task 153, the shader's SHELL_HEIGHTBOUND_ON; needs an IHeightView; shadow rays only): a rising
++        /// ray at or above its shell-k column's height crosses the column up to a chunk-aligned top in ONE leap
++        /// (Raymarch.compute's comment there): the same hit or no hit, in the same cell (ShellHeightBoundTests).
+         public static Result March(IView v, float3 start, float3 dir, float tStart, bool shadow, float3 camera, int maxIters,
+                                    float tTier0 = 0f, bool useCache = true, bool useMask = false, bool planeLeap = false,
+-                                   int skyY = SKY_NEVER, bool colLeap = false, bool bandCache = false, bool holeLeap = false)
++                                   int skyY = SKY_NEVER, bool colLeap = false, bool bandCache = false, bool holeLeap = false,
++                                   bool heightBound = false)
+         {
++            var hgt = heightBound ? v as IHeightView : null;
+             var hv = holeLeap ? v as IMaskView : null;
+             var mv = useMask ? v as IMaskView : null;
+             var cv = colLeap ? v as IColumnView : null;
+@@ -340,6 +354,15 @@ namespace VoxelEngine.Mirror
+                     }
+                     sh = k;   // a shadow ray's start cell: leave it
+                 }
++                // Task 153: the COLUMN HEIGHT LEAP (Raymarch.compute's comment there), line for line.
++                if (hgt != null && shadow && step.y > 0 && k == kd
++                    && HeightLeapBox(hgt, k, voxel, start, dir, camera, tDelta, step, sh, out int3 hMin, out int3 hSize))
++                {
++                    LeapAnyBox(pl, ref voxel, ref tMax, ref t, ref normal, tDelta, step, start, hMin, hSize);
++                    r.HeightLeaps++;
++                    kPrev = k;
++                    continue;
++                }
+                 // Task 116: the COLUMN SKY LEAP (Raymarch.compute's comment there): above its group
+                 // column's top a rising ray reads only air up to the chunk top; one leap crosses the
+                 // column, or the whole chunk's x and z when every column is that low.
+@@ -396,6 +419,38 @@ namespace VoxelEngine.Mirror
+             return r;
+         }
+ 
++        /// Task 153: the box of Raymarch.compute's COLUMN HEIGHT LEAP for a rising shadow ray at `voxel` in an
++        /// air cell of shell k's own chunk (sh: the cell's span shift); false = no leap.
++        public static bool HeightLeapBox(IHeightView v, int k, int3 voxel, float3 start, float3 dir, float3 camera,
++                                         float3 tDelta, int3 step, int sh, out int3 bMin, out int3 bSize)
++        {
++            bMin = int3.zero; bSize = int3.zero;
++            int cs = k + 7;
++            int3 ch = voxel >> cs;
++            int colH = v.ColumnHeight(k, ch);
++            float3 c0 = (float3)voxel + 0.5f - camera;
++            float d0 = math.length(c0);
++            float bLo = k > 1 ? v.OuterVoxels(k - 1) : -1f, bHi = v.OuterVoxels(k);
++            if (!(voxel.y >= colH && d0 >= bLo + 4f && d0 < bHi - 4f && math.dot(c0, dir) >= 1f)) return false;
++            if (!v.Box(k, out _, out int3 hi, out int3 cc, out int hole)) return false;
++            int curTop = (ch.y + 1) << cs;
++            int yTop = (hi.y + 1) << cs;
++            if (hole >= 0 && math.all(math.abs(ch.xz - cc.xz) <= hole) && ch.y < cc.y - hole) yTop = math.min(yTop, (cc.y - hole) << cs);
++            float3 o = start - camera;
++            float ob = math.dot(o, dir);
++            float rr = bHi - 3f;
++            float disc = ob * ob - (math.dot(o, o) - rr * rr);
++            if (disc > 0f) yTop = math.min(yTop, (((int)math.floor(start.y + dir.y * (math.sqrt(disc) - ob)) >> cs) + 1) << cs);
++            else yTop = curTop - 1;
++            int yLast = math.max(yTop - (1 << cs), curTop);
++            float3 qb = start + dir * PlaneT(yLast, start.y, tDelta.y, step.y) - camera;
++            if (!(yTop >= curTop && (yTop > curTop || sh == k + 3) && math.length(qb) < bHi - 2f)) return false;
++            int bMinY = (voxel.y >> (k + 3)) << (k + 3);
++            bMin = new int3((voxel.x >> cs) << cs, bMinY, (voxel.z >> cs) << cs);
++            bSize = new int3(1 << cs, yTop - bMinY, 1 << cs);
++            return true;
++        }
++
+         /// Task 137: Raymarch.compute's ShellHoleBox. The box [lo, hi] (inclusive voxels) in which every
+         /// iteration is the hole's tier-0-chunk leap: shell 1's hole inside its published box (ChunkState 1 =
+         /// HOLE, so distance shell 1 resolves to -2), on the ray's side of tier 0's layers (outside them
+diff --git a/Assets/CoreEngine/Mirror/ShellStore.cs b/Assets/CoreEngine/Mirror/ShellStore.cs
+index 04a8a54..37803b5 100644
+--- a/Assets/CoreEngine/Mirror/ShellStore.cs
++++ b/Assets/CoreEngine/Mirror/ShellStore.cs
+@@ -64,6 +64,21 @@
+ //     voxels) of every brick a Store was given that is not uniform air (dense bricks
+ //     count; fluids count). Raised in Store before anything is uploaded, so it is never
+ //     below anything the GPU can read through this store. CPU-only (one int).
++//   * COLUMN HEIGHTS (task 153, the shells' height bound; owner Q97 (a); an Appendix A
++//     addition after the column tops): per RING COLUMN (ring.x * ring.z uints, index
++//     (cz & mz) * ring.x + (cx & mx)) one int, the HEIGHT of world column (cx, cz) of the
++//     box the directory was last flushed with (SetHeightBox): every chunk of that column
++//     inside the box and outside the hole is held -- the slot's entry is not ABSENT and
++//     its tag is that chunk -- and holds nothing that is not uniform air at or above it
++//     (the slot's ChunkSolidTopY; dense bricks and fluids count). A chunk that is not
++//     held, or a slot holding another chunk, counts as solid to its top. int.MinValue =
++//     all held and all air; HEIGHT_NONE = a ring column outside the box (never used).
++//     Data-derived, no constants. Rebuilt from _dir in FlushDirectory and uploaded in the
++//     SAME call as the directory (one budget check for both), so the GPU's table always
++//     describes the GPU's directory and published box: raised the frame a taller chunk is
++//     published (first load, op redraws, edit summaries: all come through Store), lowered
++//     the frame it is replaced or evicted. All shells' tables share one region at the end
++//     of the page buffer (HeightBase; this store's at HeightOffset).
+ using System;
+ using System.Collections.Generic;
+ using Unity.Collections;
+@@ -83,6 +98,7 @@ namespace VoxelEngine.Mirror
+         public const uint DENSE = 0x80000000u;   // brick handle flag, as ChunkStore's
+         public const int MASK_UINTS = 2;            // task 93b5: the air-brick mask per page
+         public const int COLTOP_UINTS = 4;          // task 116: the 16 group-column tops per page (bytes)
++        public const int HEIGHT_NONE = int.MaxValue;  // task 153: a ring column the box does not cover
+         private const int TAIL_UINTS = MASK_UINTS + COLTOP_UINTS;
+         private const int BRICK_UINTS = 128;
+         private const int PAGE_UINTS = EngineConfig.BRICKS_PER_CHUNK;
+@@ -108,6 +124,11 @@ namespace VoxelEngine.Mirror
+         public int MaskBase { get; }
+         /// Task 116: the first column-top uint in PageBuffer (page p at ColTopBase + (PageBase + p) * COLTOP_UINTS).
+         public int ColTopBase { get; }
++        /// Task 153: the first column-height uint in PageBuffer (every shell's); this store's table
++        /// (Columns uints) at HeightBase + HeightOffset (header: COLUMN HEIGHTS).
++        public int HeightBase { get; }
++        public int HeightOffset { get; }
++        public int Columns => Ring.x * Ring.z;
+         private readonly bool _ownsBuffers;
+ 
+         /// One set of buffers for every shell (see the header). Zeroed here (row 3).
+@@ -121,20 +142,27 @@ namespace VoxelEngine.Mirror
+             public long MaskBytes { get; }
+             /// Task 116: where the column tops start in Pages (uints), COLTOP_UINTS per page, after the masks.
+             public int ColTopBase { get; }
++            /// Task 153: where the column heights start in Pages (uints), after the column tops; HeightEntries uints.
++            public int HeightBase { get; }
++            public int HeightEntries { get; }
+             public long BytesAllocated { get; }
+-            public SharedBuffers(int dirEntries, int pages, int bricks)
++            public SharedBuffers(int dirEntries, int pages, int bricks, int heightEntries = 0)
+             {
+                 dirEntries = math.max(1, dirEntries); pages = math.max(1, pages); bricks = math.max(1, bricks);
+                 MaskBase = pages * PAGE_UINTS;
+                 MaskBytes = (long)pages * MASK_UINTS * 4;
+                 ColTopBase = MaskBase + pages * MASK_UINTS;
++                HeightBase = ColTopBase + pages * COLTOP_UINTS;
++                HeightEntries = math.max(0, heightEntries);
++                int pageUints = pages * (PAGE_UINTS + TAIL_UINTS);
+                 Dir = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, dirEntries, 4);
+-                Pages = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, pages * (PAGE_UINTS + TAIL_UINTS), 4);
++                Pages = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, pageUints + HeightEntries, 4);
+                 Bricks = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, bricks * BRICK_UINTS, 4);
+                 ZeroBuffer(Dir, dirEntries);
+-                ZeroBuffer(Pages, pages * (PAGE_UINTS + TAIL_UINTS));
++                ZeroBuffer(Pages, pageUints);
++                FillHeightNone(Pages, HeightBase, HeightEntries);
+                 ZeroBuffer(Bricks, bricks * BRICK_UINTS);
+-                BytesAllocated = (long)dirEntries * 4 + (long)pages * (PAGE_UINTS + TAIL_UINTS) * 4 + (long)bricks * BRICK_UINTS * 4;
++                BytesAllocated = (long)dirEntries * 4 + ((long)pageUints + HeightEntries) * 4 + (long)bricks * BRICK_UINTS * 4;
+             }
+             public void Dispose()
+             {
+@@ -173,14 +201,23 @@ namespace VoxelEngine.Mirror
+         private readonly uint[] _pageStaging = new uint[PAGE_UINTS];
+         private readonly uint[] _maskStaging = new uint[MASK_UINTS];
+         private readonly uint[] _colTopStaging = new uint[COLTOP_UINTS];
++        // Task 153 (header COLUMN HEIGHTS): per slot, ChunkSolidTopY of what _dir publishes there
++        // (int.MinValue: air or nothing); the job's; the table and the box it describes.
++        private readonly int[] _slotTop;
++        private int _jobTop;
++        private readonly uint[] _height;
++        private readonly bool[] _heightTouched;
++        private bool _heightBoxSet, _heightDirty;
++        private int3 _hLo, _hHi, _hCc;
++        private int _hHole;
+         private NativeArray<uint> _bodyStaging;   // up to 4096 bodies (2 MB), reused
+         private readonly int[] _denseIdx = new int[EngineConfig.BRICKS_PER_CHUNK];
+ 
+         // Test shadows (ShadowUploads).
+-        public uint[] ShadowDir, ShadowPages, ShadowBricks, ShadowMasks, ShadowColTops;
++        public uint[] ShadowDir, ShadowPages, ShadowBricks, ShadowMasks, ShadowColTops, ShadowHeights;
+ 
+         public ShellStore(int shell, int3 ring, int poolCap, int pageCap,
+-                          SharedBuffers shared = null, int dirBase = 0, int pageBase = 0, int brickBase = 0)
++                          SharedBuffers shared = null, int dirBase = 0, int pageBase = 0, int brickBase = 0, int heightOffset = 0)
+         {
+             if (shell < 1 || shell > TerrainGenChunkSource.MAX_SHELL) throw new ArgumentOutOfRangeException(nameof(shell));
+             if (!ShellLayout.IsPow2(ring.x) || !ShellLayout.IsPow2(ring.y) || !ShellLayout.IsPow2(ring.z))
+@@ -190,6 +227,11 @@ namespace VoxelEngine.Mirror
+             PoolCap = math.max(1, poolCap); PageCap = math.max(1, pageCap);
+ 
+             _dir = new uint[SlotCount];
++            _slotTop = new int[SlotCount];
++            for (int i = 0; i < SlotCount; i++) _slotTop[i] = int.MinValue;
++            _height = new uint[ring.x * ring.z];
++            for (int i = 0; i < _height.Length; i++) _height[i] = unchecked((uint)HEIGHT_NONE);
++            _heightTouched = new bool[_height.Length];
+             _tag = new int3[SlotCount];
+             _tagged = new bool[SlotCount];
+             _pageBricks = new int[PageCap][];
+@@ -209,8 +251,9 @@ namespace VoxelEngine.Mirror
+                 // The shared set was zeroed when it was made (SharedBuffers).
+                 DirectoryBuffer = shared.Dir; PageBuffer = shared.Pages; BrickBuffer = shared.Bricks;
+                 DirBase = dirBase; PageBase = pageBase; BrickBase = brickBase; MaskBase = shared.MaskBase; ColTopBase = shared.ColTopBase;
++                HeightBase = shared.HeightBase; HeightOffset = heightOffset;
+                 if ((long)(dirBase + SlotCount) > DirectoryBuffer.count || (long)(pageBase + PageCap) * PAGE_UINTS > PageBuffer.count
+-                    || (long)(brickBase + PoolCap) * BRICK_UINTS > BrickBuffer.count)
++                    || (long)(brickBase + PoolCap) * BRICK_UINTS > BrickBuffer.count || heightOffset + Columns > shared.HeightEntries)
+                     throw new ArgumentException($"shell {shell}'s ranges do not fit the shared buffers");
+             }
+             else
+@@ -220,15 +263,17 @@ namespace VoxelEngine.Mirror
+                 // CascadeTierPool.cs's vmmap note).
+                 _ownsBuffers = true;
+                 DirectoryBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, SlotCount, 4);
+-                PageBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, PageCap * (PAGE_UINTS + TAIL_UINTS), 4);
++                PageBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, PageCap * (PAGE_UINTS + TAIL_UINTS) + Columns, 4);
+                 MaskBase = PageCap * PAGE_UINTS;
+                 ColTopBase = MaskBase + PageCap * MASK_UINTS;
++                HeightBase = ColTopBase + PageCap * COLTOP_UINTS; HeightOffset = 0;
+                 BrickBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, GraphicsBuffer.UsageFlags.LockBufferForWrite, PoolCap * BRICK_UINTS, 4);
+                 // Zero everything (row 3). Pages and bricks are only read through a
+                 // directory entry that was written after them, but a zeroed buffer
+                 // makes a stray read show as air, not garbage.
+                 DirectoryBuffer.SetData(_dir);
+                 ZeroBuffer(PageBuffer, PageCap * (PAGE_UINTS + TAIL_UINTS));
++                FillHeightNone(PageBuffer, HeightBase, Columns);
+                 ZeroBuffer(BrickBuffer, PoolCap * BRICK_UINTS);
+             }
+             if (ShadowUploads)
+@@ -237,6 +282,7 @@ namespace VoxelEngine.Mirror
+                 ShadowPages = new uint[PageCap * PAGE_UINTS];
+                 ShadowMasks = new uint[PageCap * MASK_UINTS];
+                 ShadowColTops = new uint[PageCap * COLTOP_UINTS];
++                ShadowHeights = (uint[])_height.Clone();
+                 ShadowBricks = new uint[PoolCap * BRICK_UINTS];
+             }
+         }
+@@ -249,7 +295,16 @@ namespace VoxelEngine.Mirror
+             z.Dispose();
+         }
+ 
+-        public long BytesAllocated => (long)SlotCount * 4 + (long)PageCap * (PAGE_UINTS + TAIL_UINTS) * 4 + (long)PoolCap * BRICK_UINTS * 4;
++        /// Task 153: a height region starts as HEIGHT_NONE (never leap), not 0.
++        private static void FillHeightNone(GraphicsBuffer b, int at, int count)
++        {
++            if (count <= 0) return;
++            var n = new uint[count];
++            for (int i = 0; i < count; i++) n[i] = unchecked((uint)HEIGHT_NONE);
++            b.SetData(n, 0, at, count);
++        }
++
++        public long BytesAllocated => (long)SlotCount * 4 + ((long)PageCap * (PAGE_UINTS + TAIL_UINTS) + Columns) * 4 + (long)PoolCap * BRICK_UINTS * 4;
+ 
+         /// Task 93b5: the brick group (0..63) of a local brick index ((bz << 8) | (by << 4) | bx).
+         public static int GroupOf(int localBrick) =>
+@@ -336,7 +391,55 @@ namespace VoxelEngine.Mirror
+             return int.MinValue;
+         }
+ 
+-        private void RaiseSolidTop(TerrainGenChunkSource.ShellChunk sc) => SolidTopY = math.max(SolidTopY, ChunkSolidTopY(sc, Shell));
++        private void RaiseSolidTop(int top) => SolidTopY = math.max(SolidTopY, top);
++
++        /// Task 153: what _dir[slot] now publishes has this ChunkSolidTopY (the next flush rebuilds the table).
++        private void SetSlotTop(int slot, int top)
++        {
++            _slotTop[slot] = top;
++            if (_heightBoxSet) _heightDirty = true;   // also when only held-ness changed
++        }
++
++        /// Task 153: the box (inclusive, chunks), camera chunk and hole the NEXT successful
++        /// FlushDirectory publishes (ShellStreamer.Publish); the table is rebuilt for it then.
++        /// Until it is first called the table stays HEIGHT_NONE (tests that never set it).
++        public void SetHeightBox(int3 lo, int3 hi, int3 cc, int hole)
++        {
++            if (_heightBoxSet && lo.Equals(_hLo) && hi.Equals(_hHi) && cc.Equals(_hCc) && hole == _hHole) return;
++            _hLo = lo; _hHi = hi; _hCc = cc; _hHole = hole;
++            _heightBoxSet = true; _heightDirty = true;
++        }
++
++        /// Task 153: ring column of world chunk column (cx, cz) in the height table.
++        public int HeightColumn(int cx, int cz) => ((cz & _mask.z) * Ring.x) + (cx & _mask.x);
++        /// Task 153: the CPU table (what the last flush uploaded once built).
++        public int Height(int ringColumn) => (int)_height[ringColumn];
++        public bool HeightDirty => _heightDirty;
++
++        /// Task 153 (header COLUMN HEIGHTS): rebuild the table from _dir for the box SetHeightBox gave.
++        /// A ring column two box columns share (a box wider than the ring) keeps the max of both.
++        private void BuildHeights()
++        {
++            Array.Clear(_heightTouched, 0, _heightTouched.Length);
++            int cs = Shell + 7;
++            for (int cz = _hLo.z; cz <= _hHi.z; cz++)
++            for (int cx = _hLo.x; cx <= _hHi.x; cx++)
++            {
++                bool holeXZ = _hHole >= 0 && math.abs(cx - _hCc.x) <= _hHole && math.abs(cz - _hCc.z) <= _hHole;
++                int top = int.MinValue;
++                for (int cy = _hLo.y; cy <= _hHi.y; cy++)
++                {
++                    if (holeXZ && math.abs(cy - _hCc.y) <= _hHole) continue;
++                    var c = new int3(cx, cy, cz);
++                    int s = Slot(c);
++                    top = math.max(top, _dir[s] != ABSENT && _tagged[s] && _tag[s].Equals(c) ? _slotTop[s] : (cy + 1) << cs);
++                }
++                int j = HeightColumn(cx, cz);
++                _height[j] = (uint)(_heightTouched[j] ? math.max((int)_height[j], top) : top);
++                _heightTouched[j] = true;
++            }
++            for (int j = 0; j < _height.Length; j++) if (!_heightTouched[j]) _height[j] = unchecked((uint)HEIGHT_NONE);
++        }
+ 
+         // ONE chunk upload in progress (row 14): a dense chunk is up to 2 MB of
+         // bodies + a 16 KB page, more than the frame's remainder of the 3 MiB
+@@ -366,15 +469,17 @@ namespace VoxelEngine.Mirror
+             if (budget < (uniform ? 4 : 512)) return StoreResult.OverBudget;
+             int slot = Slot(sc.Coord);
+             bool keepOld = replace && _tagged[slot] && _tag[slot].Equals(sc.Coord);
++            int top = ChunkSolidTopY(sc, Shell);   // tasks 99, 153
+             if (keepOld)
+             {
+                 if (!uniform && (_freePageTop == 0 || _freeBrickTop < dense)) { ReplaceNoRoom++; return StoreResult.Refused; }
+                 Replaced++;
+-                RaiseSolidTop(sc);   // task 99
++                RaiseSolidTop(top);   // task 99
+                 if (uniform)
+                 {
+                     DeferSlot(slot);
+                     _dir[slot] = UNIFORM | umat;
++                    SetSlotTop(slot, top);   // task 153
+                     UniformChunks++; ChunksStored++; _dirDirty = true;
+                     budget -= 4; BytesUploaded += 4;
+                     return StoreResult.Stored;
+@@ -390,11 +495,12 @@ namespace VoxelEngine.Mirror
+                 }
+                 if (pagesFreeAfter == 0 || bricksFreeAfter < dense) { Refusals++; RefusedBricks += dense; return StoreResult.Refused; }
+             }
+-            if (!keepOld) { RaiseSolidTop(sc); EvictSlot(slot); }   // task 99: before anything goes up
++            if (!keepOld) { RaiseSolidTop(top); EvictSlot(slot); }   // task 99: before anything goes up
+ 
+             if (uniform)
+             {
+                 _dir[slot] = UNIFORM | umat;
++                SetSlotTop(slot, top);   // task 153
+                 _tag[slot] = sc.Coord; _tagged[slot] = true;
+                 UniformChunks++; ChunksStored++; _dirDirty = true;
+                 budget -= 4; BytesUploaded += 4;
+@@ -420,6 +526,7 @@ namespace VoxelEngine.Mirror
+             PeakBricks = math.max(PeakBricks, BricksUsed); PeakPages = math.max(PeakPages, PagesUsed);
+             _job = true; _jobCoord = sc.Coord; _jobSlot = slot; _jobPage = page; _jobN = n; _jobDone = 0; _jobPageUp = false;
+             _jobReplace = keepOld;
++            _jobTop = top;   // task 153: the slot's top once the entry flips (Continue)
+             return Continue(ref budget) ? StoreResult.Stored : StoreResult.InProgress;
+         }
+ 
+@@ -463,6 +570,7 @@ namespace VoxelEngine.Mirror
+             // A redraw whose old copy is still there swaps it out now (deferred free).
+             if (_jobReplace && _tagged[_jobSlot] && _tag[_jobSlot].Equals(_jobCoord)) DeferSlot(_jobSlot);
+             _dir[_jobSlot] = PAGE | (uint)_jobPage;
++            SetSlotTop(_jobSlot, _jobTop);   // task 153
+             _tag[_jobSlot] = _jobCoord; _tagged[_jobSlot] = true;
+             ChunksStored++; _dirDirty = true;
+             _job = false;
+@@ -549,6 +657,7 @@ namespace VoxelEngine.Mirror
+             }
+             else if ((e & UNIFORM) != 0) UniformChunks--;
+             _dir[slot] = ABSENT; _tagged[slot] = false;
++            SetSlotTop(slot, int.MinValue);   // task 153 (an absent chunk counts as solid in the table)
+             ChunksStored--;
+             _dirDirty = true;
+         }
+@@ -556,20 +665,34 @@ namespace VoxelEngine.Mirror
+         public void Evict(int3 c) { int s = Slot(c); if (_tagged[s] && _tag[s].Equals(c)) EvictSlot(s); }
+ 
+         /// Upload the whole directory if it changed (16 KB on High; Ultra's
+-        /// 32^3 ring 128 KB). Returns false (and writes nothing) over budget.
++        /// 32^3 ring 128 KB), and (task 153) the column heights rebuilt from it for
++        /// the box SetHeightBox gave, in the same call: one budget check for both,
++        /// so the GPU never has one without the other. Returns false (and writes
++        /// nothing) over budget.
+         public bool FlushDirectory(ref int budget)
+         {
+-            if (!_dirDirty) { if (_deferredPages.Count > 0) ReleaseDeferred(); return true; }
+-            int bytes = SlotCount * 4;
++            bool hd = _heightDirty;
++            if (!_dirDirty && !hd) { if (_deferredPages.Count > 0) ReleaseDeferred(); return true; }
++            int bytes = (_dirDirty ? SlotCount * 4 : 0) + (hd ? Columns * 4 : 0);
+             if (bytes > budget) return false;
+-            DirectoryBuffer.SetData(_dir, 0, DirBase, SlotCount);
+-            if (ShadowUploads) Array.Copy(_dir, ShadowDir, SlotCount);
+-            _dirDirty = false;
++            if (_dirDirty)
++            {
++                DirectoryBuffer.SetData(_dir, 0, DirBase, SlotCount);
++                if (ShadowUploads) Array.Copy(_dir, ShadowDir, SlotCount);
++                _dirDirty = false;
++            }
++            if (hd)
++            {
++                BuildHeights();
++                PageBuffer.SetData(_height, 0, HeightBase + HeightOffset, Columns);
++                if (ShadowUploads) Array.Copy(_height, ShadowHeights, Columns);
++                _heightDirty = false;
++            }
+             budget -= bytes; BytesUploaded += bytes;
+             if (_deferredPages.Count > 0) ReleaseDeferred();   // the GPU no longer points at them
+             return true;
+         }
+-        public bool DirectoryDirty => _dirDirty;
++        public bool DirectoryDirty => _dirDirty || _heightDirty;
+ 
+         public void Dispose()
+         {
+diff --git a/Assets/CoreEngine/Mirror/ShellStreamer.cs b/Assets/CoreEngine/Mirror/ShellStreamer.cs
+index 0e8cc75..6b68008 100644
+--- a/Assets/CoreEngine/Mirror/ShellStreamer.cs
++++ b/Assets/CoreEngine/Mirror/ShellStreamer.cs
+@@ -178,19 +178,19 @@ namespace VoxelEngine.Mirror
+             _cc = new int3[n]; _ccValid = new bool[n]; _lo = new int3[n]; _hi = new int3[n];
+             _pubLo = new int3[n]; _pubHi = new int3[n]; _pubCc = new int3[n]; _pubValid = new bool[n];
+             _cand = new List<Cand>[n]; _refused = new Dictionary<long, int>[n]; _fullNeed = new int[n];
+-            int dirN = 0, pageN = 0, brickN = 0;
++            int dirN = 0, pageN = 0, brickN = 0, heightN = 0;
+             for (int k = FirstShell; k <= LastShell; k++)
+             {
+                 var s = layout[k];
+-                dirN += s.RingSlots; pageN += s.PageCap; brickN += s.PoolCap;
++                dirN += s.RingSlots; pageN += s.PageCap; brickN += s.PoolCap; heightN += s.Ring.x * s.Ring.z;
+             }
+-            Gpu = new ShellStore.SharedBuffers(dirN, pageN, brickN);
+-            dirN = 0; pageN = 0; brickN = 0;
++            Gpu = new ShellStore.SharedBuffers(dirN, pageN, brickN, heightN);
++            dirN = 0; pageN = 0; brickN = 0; heightN = 0;
+             for (int k = FirstShell; k <= LastShell; k++)
+             {
+                 var s = layout[k];
+-                _stores[k] = new ShellStore(k, s.Ring, s.PoolCap, s.PageCap, Gpu, dirN, pageN, brickN);
+-                dirN += s.RingSlots; pageN += s.PageCap; brickN += s.PoolCap;
++                _stores[k] = new ShellStore(k, s.Ring, s.PoolCap, s.PageCap, Gpu, dirN, pageN, brickN, heightN);
++                dirN += s.RingSlots; pageN += s.PageCap; brickN += s.PoolCap; heightN += s.Ring.x * s.Ring.z;
+                 _cand[k] = new List<Cand>(); _refused[k] = new Dictionary<long, int>();
+             }
+             workers = math.max(1, workers);
+@@ -359,8 +359,10 @@ namespace VoxelEngine.Mirror
+         }
+ 
+         /// Flush shell k's directory; when it is on the GPU, the current box is the published one.
++        /// Task 153: the column heights go up in the same flush, built for that box.
+         private bool Publish(int k, ref int budget)
+         {
++            if (_ccValid[k]) _stores[k].SetHeightBox(_lo[k], _hi[k], _cc[k], Layout[k].Hole);
+             if (!_stores[k].FlushDirectory(ref budget)) return false;
+             if (_ccValid[k]) { _pubLo[k] = _lo[k]; _pubHi[k] = _hi[k]; _pubCc[k] = _cc[k]; _pubValid[k] = true; }
+             return true;
+@@ -379,7 +381,8 @@ namespace VoxelEngine.Mirror
+         ///   ring[k]   = (ring x, y, z, directory base)
+         ///   lo[k]     = (published box min, page base);  hi[k] = (box max, brick base)
+         ///   cam[k]    = (camera chunk, hole H; -1 = no hole)
+-        ///   bounds[k] = (inner, outer hand-over distance in 0.1 m voxels, voxel size in 0.1 m voxels, 0)
++        ///   bounds[k] = (inner, outer hand-over distance in 0.1 m voxels, voxel size in 0.1 m voxels,
++        ///                the store's column-height table offset from Gpu.HeightBase, task 153)
+         /// A shell with nothing published gets an empty box (lo > hi): every chunk ABSENT.
+         public void ShaderParams(Vector4[] ring, Vector4[] lo, Vector4[] hi, Vector4[] cam, Vector4[] bounds)
+         {
+@@ -392,6 +395,7 @@ namespace VoxelEngine.Mirror
+                 bounds[k] = new Vector4(s.InnerM * 10f, s.OuterM * 10f, 1 << k, 0f);
+                 if (k < FirstShell || k > LastShell) continue;
+                 var st = _stores[k];
++                bounds[k].w = st.HeightOffset;   // task 153 (small: exact as a float)
+                 ring[k] = new Vector4(st.Ring.x, st.Ring.y, st.Ring.z, st.DirBase);
+                 if (!PublishedBox(k, out int3 l, out int3 h, out int3 c)) continue;
+                 lo[k] = new Vector4(l.x, l.y, l.z, st.PageBase);
+diff --git a/Assets/CoreEngine/Rendering/Raymarch.compute b/Assets/CoreEngine/Rendering/Raymarch.compute
+index 930019f..d5e8a54 100644
+--- a/Assets/CoreEngine/Rendering/Raymarch.compute
++++ b/Assets/CoreEngine/Rendering/Raymarch.compute
+@@ -2862,6 +2862,15 @@ int    _ShellColLeap;
+ // sequence (bit for bit) and the same iteration count, so the same result. No new data.
+ int    _ShellHoleLeap;
+ #define SHELL_HOLELEAP_ON (_ShellHoleLeap != 0)
++// TASK 153: the COLUMN HEIGHT LEAP (-shellheightbound; RaymarchFeature.ShellHeightBound). Per shell, per
++// ring column, one int in ShellPages from _ShellHeightBase + _ShellBounds[k].w (ShellStore COLUMN HEIGHTS):
++// every chunk of that world column inside the published box and outside the hole is held and holds no
++// non-air brick at or above it (an unheld chunk counts as solid to its top). Built on the CPU from the
++// directory the GPU has, uploaded with it. Used in ShellMarch by SHADOW rays only (their callers read
++// end == HIT alone); CPU twin ShellRayReference.March(heightBound), ShellHeightBoundTests.
++int    _ShellHeightBase;
++int    _ShellHeightBound;
++#define SHELL_HEIGHTBOUND_ON (_ShellHeightBound != 0)
+ #define SHELL_SKY_NEVER 2147483647
+ int ShellSkyY(bool primary)
+ {
+@@ -3373,6 +3382,57 @@ ShellHit ShellMarch(float3 start, float3 dir, float tStart, bool shadow, float3
+ #ifdef VE_SHELL_DIAG
+         if (sh == k + 7) r.leapsChunk++; else if (sh == k + 3) r.leapsBrick++;
+ #endif
++        // TASK 153: the COLUMN HEIGHT LEAP (header at _ShellHeightBase). A rising shadow ray in an air cell of
++        // shell k's own chunk (k == kd: by distance, not a fallback) at or above its column's height: every
++        // chunk of the column above is held uniform air, and the ray's own chunk is air from its brick up.
++        // The ray moves away from the camera (dot >= 1), so every cell it visits from here is farther
++        // than this one less 2 voxels (cells are within 0.87 of the ray); the chunks above are visited once
++        // each, at their bottom plane. So the box [this brick .. yTop) of the column, yTop CHUNK-aligned (the
++        // published top, the hole's bottom when the ray is below it, and the band: the last chunk's bottom
++        // plane is crossed nearer than the outer bound less 2), is crossed by the plain march in shell-k air
++        // leaps only, every distance asking shell k (no clamp, no hole, no absent chunk, no tier-0 leap: a
++        // shadow ray has tTier0 = 0), and it leaves the box through a chunk plane the march also stops at.
++        // ONE leap there ends in the same cell (the leap's t may differ in its last bits, as task 116's).
++        // Fewer iterations: a ray the step cap ended can now go on (only further hits; none at the
++        // identity poses). Primary rays are not touched (the far band starts from their end t).
++        if (SHELL_HEIGHTBOUND_ON && shadow && step.y > 0 && k == kd)
++        {
++            int cs = k + 7;
++            int3 ch = voxel >> cs;
++            int3 ring = (int3)_ShellRing[k].xyz;
++            int2 w = ch.xz & (ring.xz - 1);
++            int colH = asint(ShellPages[(uint)_ShellHeightBase + (uint)_ShellBounds[k].w + (uint)(w.y * ring.x + w.x)]);
++            float3 c0 = float3(voxel) + 0.5 - camera;
++            float d0 = length(c0);
++            float bLo = k > 1 ? _ShellBounds[k - 1].y : -1.0, bHi = _ShellBounds[k].y;
++            if (voxel.y >= colH && d0 >= bLo + 4.0 && d0 < bHi - 4.0 && dot(c0, dir) >= 1.0)
++            {
++                int curTop = (ch.y + 1) << cs;
++                int yTop = ((int)_ShellHi[k].y + 1) << cs;
++                int4 hc = (int4)_ShellCam[k];
++                if (hc.w >= 0 && all(abs(ch.xz - hc.xz) <= hc.w) && ch.y < hc.y - hc.w) yTop = min(yTop, (hc.y - hc.w) << cs);
++                // The band: the t where the ray is bHi - 3 from the camera (it is nearer now), its y.
++                float3 o = start - camera;
++                float ob = dot(o, dir);
++                float rr = bHi - 3.0;
++                float disc = ob * ob - (dot(o, o) - rr * rr);
++                if (disc > 0.0) yTop = min(yTop, (((int)floor(start.y + dir.y * (sqrt(disc) - ob)) >> cs) + 1) << cs);
++                else yTop = curTop - 1;
++                int yLast = max(yTop - (1 << cs), curTop);
++                float3 qb = start + dir * ShellPlaneT(yLast, start.y, tDelta.y, step.y) - camera;
++                if (yTop >= curTop && (yTop > curTop || sh == k + 3) && length(qb) < bHi - 2.0)
++                {
++                    int bMinY = (voxel.y >> (k + 3)) << (k + 3);
++                    int3 bMin = int3((voxel.x >> cs) << cs, bMinY, (voxel.z >> cs) << cs);
++                    ShellLeapBox(voxel, tMax, t, normal, tDelta, step, start, bMin, int3(1 << cs, yTop - bMinY, 1 << cs));
++#ifdef VE_SHELL_DIAG
++                    r.colLeaps++;   // (counted with task 116's: that leap is off while this one is used)
++#endif
++                    kPrev = k;
++                    continue;
++                }
++            }
++        }
+         // TASK 116: the COLUMN SKY LEAP. A rising ray (step.y > 0) in an air brick of a paged
+         // chunk (sh == k + 3) at or above its GROUP COLUMN's top (4x4 bricks in x and z; the
+         // page's column tops: no non-air brick at this local brick y or above) reads only air
+diff --git a/Assets/CoreEngine/Rendering/RaymarchFeature.cs b/Assets/CoreEngine/Rendering/RaymarchFeature.cs
+index 1c97796..326c984 100644
+--- a/Assets/CoreEngine/Rendering/RaymarchFeature.cs
++++ b/Assets/CoreEngine/Rendering/RaymarchFeature.cs
+@@ -298,6 +298,13 @@ public partial class RaymarchFeature : ScriptableRendererFeature
+     /// walk_open, -0.3 / +0.65 at sun 20 (Logs/costsplit_2026-10-24_21{3718,4843}.txt); raw stills 0 px. The hole is ~1 of the
+     /// noon canyon's 8 near-ray shell iterations; the rest climb to the shells' global top. `-holeleap 1` turns it on.
+     public static bool ShellHoleLeap = ReadOffFlag(System.Environment.GetCommandLineArgs(), "-holeleap");
++    /// Task 153 (owner Q97 (a)): the shells' HEIGHT BOUND. Per shell and ring column, the height above which every
++    /// chunk the column holds in the published box is air (ShellStore COLUMN HEIGHTS: built on the CPU from the
++    /// directory it uploads with, so edit ops, edit summaries and streaming raise or lower it the frame they are
++    /// published). A rising SHADOW ray above its column's height crosses the column in one leap (Raymarch.compute
++    /// SHELL_HEIGHTBOUND_ON); the same hit or no hit (ShellHeightBoundTests). Primary rays are untouched.
++    /// `-shellheightbound 1` turns it on; the table is always built and uploaded (+4 B per ring column).
++    public static bool ShellHeightBound = ReadOffFlag(System.Environment.GetCommandLineArgs(), "-shellheightbound");
+     /// Task 132 (R1, PERF_SHELL_MARCH_PLAN §4, owner Q85 (a)): the SHELL PRE-PASS. The far-shading kernel runs
+     /// twice around a small kernel (CSShellPrepass) that does the primary shell march alone: pass 1 draws every
+     /// 8x8 group with no shell ray and hands the others' shell rays over, pass 2 draws those groups with the
+@@ -723,7 +730,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
+             public float detailRadiusVoxels;   // task 24: 0 = hand-over at the residency edge (today)
+ 
+             // ---- 8.14 shells (task 80); shellCount 0 = off, dummies bound ----
+-            public int shellCount, shellIterCap, shellTint, shellMaskBase, shellTopY, shellColTopBase;
++            public int shellCount, shellIterCap, shellTint, shellMaskBase, shellTopY, shellColTopBase, shellHeightBase;
+             public float shellPixelAngle;
+             public GraphicsBuffer shellDir, shellPages, shellBricks;
+             public bool primaryFarShade;            // task 130: kPrimary is CSMainFarShade (ShellProbeIO bound)
+@@ -1195,8 +1202,9 @@ public partial class RaymarchFeature : ScriptableRendererFeature
+                     passData.shellMaskBase = shells.Gpu.MaskBase;   // task 93b5
+                     passData.shellTopY = shells.SolidTopY;          // task 99
+                     passData.shellColTopBase = shells.Gpu.ColTopBase; // task 116
++                    passData.shellHeightBase = shells.Gpu.HeightBase; // task 153
+                 }
+-                else { passData.shellDir = _farDummy; passData.shellPages = _farDummy; passData.shellBricks = _farDummy; passData.shellMaskBase = 0; passData.shellTopY = int.MinValue; passData.shellColTopBase = 0; }
++                else { passData.shellDir = _farDummy; passData.shellPages = _farDummy; passData.shellBricks = _farDummy; passData.shellMaskBase = 0; passData.shellTopY = int.MinValue; passData.shellColTopBase = 0; passData.shellHeightBase = 0; }
+ 
+                 // Task 130 (DIAGNOSTIC): the shellsplit arms' probe (see DebugShellSkip).
+                 passData.primaryFarShade = activeCompute.HasKernel(farShadeKernel) && passData.kPrimary == activeCompute.FindKernel(farShadeKernel);
+@@ -1488,6 +1496,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
+                         cmd.SetComputeIntParam(data.compute, "_ShellColTopBase", data.shellColTopBase); // task 116
+                         cmd.SetComputeIntParam(data.compute, "_ShellColLeap", ShellColumnLeap ? 1 : 0);
+                         cmd.SetComputeIntParam(data.compute, "_ShellHoleLeap", ShellHoleLeap ? 1 : 0);   // task 137
++                        cmd.SetComputeIntParam(data.compute, "_ShellHeightBase", data.shellHeightBase);   // task 153
++                        cmd.SetComputeIntParam(data.compute, "_ShellHeightBound", ShellHeightBound && data.shellCount > 1 ? 1 : 0);
+                         cmd.SetComputeIntParam(data.compute, "_ShellTint", data.shellTint);
+                         cmd.SetComputeIntParam(data.compute, "_DebugShellSkip", DebugShellSkip);   // task 93b4 (diagnostic)
+                         cmd.SetComputeFloatParam(data.compute, "_ShellPixelAngle", data.shellPixelAngle);
+diff --git a/Assets/Game/PlaygroundCapture.CostSplit.cs b/Assets/Game/PlaygroundCapture.CostSplit.cs
+index 3dbf47b..fb7fd88 100644
+--- a/Assets/Game/PlaygroundCapture.CostSplit.cs
++++ b/Assets/Game/PlaygroundCapture.CostSplit.cs
+@@ -103,6 +103,9 @@
+ //   TASK 137: holeleap_on / holeleap_off  the shells' hole leap on / off (RaymarchFeature.ShellHoleLeap; FULL keeps the
+ //                       launch's -holeleap, OFF by default); exact: raw stills ON vs OFF are the identity check. The [nearsh]
+ //                       line adds the near rays' tier-0 chunk leaps and how many ran inside the hole box (ShadowStats 80-81)
++//   TASK 153: heightbound_on / heightbound_off  the shells' column height leap on / off (RaymarchFeature.ShellHeightBound;
++//                       FULL keeps the launch's -shellheightbound, OFF by default); shadow rays only, raw stills ON vs OFF
++//                       are the identity check; the [nearsh] line's shell iterations per near ray show what it cut.
+ //   TASK 138: skytilt_on / skytilt2 / skytilt_off  the tilted sky probe 1 / 2 (side faces only) / 0 (RaymarchFeature.SkyProbeTilt;
+ //                       FULL keeps the launch's -skytilt). A LOOK change: the stills differ by design.
+ //   TASK 118: clampN (e.g. clamp128)  the voxel sun-shadow ray (TraceShadowRay) clamped at N m
+@@ -355,6 +358,7 @@ public partial class PlaygroundCapture
+         RaymarchFeature.ShellKernelDiet = arm == "diet_on" || (arm != "diet_off" && _costBaseDiet);
+         // Task 137: the hole leap (see the header).
+         RaymarchFeature.ShellHoleLeap = arm == "holeleap_on" || (arm != "holeleap_off" && _costBaseHoleLeap);
++        RaymarchFeature.ShellHeightBound = arm == "heightbound_on" || (arm != "heightbound_off" && _costBaseHeightBound);   // task 153
+         // Task 138: the tilted sky probe (see the header).
+         RaymarchFeature.SkyProbeTilt = arm == "skytilt_on" ? 1 : arm == "skytilt2" ? 2 : arm == "skytilt_off" ? 0 : _costBaseSkyTilt;
+         // Task 93b4 (diagnostic): see the header.
+@@ -384,7 +388,7 @@ public partial class PlaygroundCapture
+     private static int _costBaseShadow = -1, _costBaseTorch = -1;
+     private static bool _costBaseRoof;
+     private static float _costBaseRung1;
+-    private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap, _costBasePrepass, _costBaseNearSh, _costBaseDiet, _costBaseHoleLeap;
++    private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap, _costBasePrepass, _costBaseNearSh, _costBaseDiet, _costBaseHoleLeap, _costBaseHeightBound;
+     private static int _costBaseSkyTilt;
+     private static int _costBaseFarSteps = -1;
+     private static bool _costBaseFarShadowOn;
+@@ -466,7 +470,8 @@ public partial class PlaygroundCapture
+                 // Task 137: of those iterations, the tier-0 chunk leaps (tier 0's band and the hole) and the ones inside the hole box.
+                 double nL = st[80] / (double)n, nH = st[81] / (double)n;
+                 L($"    [nearsh {arm}] tier-0 chunk leaps {nL:N0}/frame ({(nI > 0 ? 100 * nL / nI : 0):F0}% of their iters, {(nR > 0 ? nL / nR : 0):F1}/ray), " +
+-                  $"of them in the hole box {nH:N0} ({(nL > 0 ? 100 * nH / nL : 0):F0}%); hole leap {(RaymarchFeature.ShellHoleLeap ? "ON" : "OFF")}");
++                  $"of them in the hole box {nH:N0} ({(nL > 0 ? 100 * nH / nL : 0):F0}%); hole leap {(RaymarchFeature.ShellHoleLeap ? "ON" : "OFF")}; " +
++                  $"height bound {(RaymarchFeature.ShellHeightBound ? "ON" : "OFF")}");
+             }
+         }
+         if (st.Length < 77 || st[67] == 0) yield break;
+@@ -525,7 +530,7 @@ public partial class PlaygroundCapture
+     private IEnumerator CostTime(ClipPath path, CostRun r, float timed, string still, Camera cam,
+                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
+     {
+-        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
++        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseHeightBound = RaymarchFeature.ShellHeightBound; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
+         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
+         Playground.DebugSuspendFluidSim = true;
+         yield return NearSettle(far, sm);

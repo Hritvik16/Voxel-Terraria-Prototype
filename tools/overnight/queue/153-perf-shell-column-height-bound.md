@@ -22,3 +22,12 @@ in task 152 (byte-identical raw stills incl. an edit-op tower pose), one warm co
 
 ## Deliverable
 HANDOFF + For the doc as in 152; TASKS.md paragraph.
+
+## Resume (supervisor, 2026-10-30)
+The first run was cut off by the weekly usage limit (2026-10-26), not by a failure; no HANDOFF of its own was written
+(the `blocked/153-*.HANDOFF.md` is a copy of 152's). Its unbuilt, untested work is saved:
+- `tools/overnight/blocked/153-perf-shell-column-height-bound.patch` (7 files: ShellLayout, ShellRayReference, ShellStore,
+  ShellStreamer, Raymarch.compute, RaymarchFeature, PlaygroundCapture.CostSplit) -- `git apply` it first, read it, keep what is sound.
+- `tools/overnight/blocked/153-ShellHeightBoundTests.LEAKED.cs.txt` -- its test file (was left untracked in
+  `Assets/CoreEngine/Tests/`; moved out so the suite compiles). Restore it as `Assets/CoreEngine/Tests/ShellHeightBoundTests.cs`.
+Then finish the task as written above (proofs, one warm measurement, fast suite).
