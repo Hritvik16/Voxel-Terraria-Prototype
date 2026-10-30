@@ -150,7 +150,7 @@ once merged · retire 32 now (3 in 3a, 6 in 3b, 19 in 3c, 4 in 3d). 9 + 6 + 7 + 
 
 | # | Task | Effort | Depends |
 |---|---|---|---|
-| R1 | Retire: `git mv` the 32 scripts to `tools/retired-rigs/` + a README row each (what it answered, last report path). C# capture modes and scenes stay. **DONE task 149**: 31 moved; `run-playground.sh` left (cited by `tools/capture-gpu-trace.sh`). | S | Q1 |
+| R1 | Retire: `git mv` the 32 scripts to `tools/retired-rigs/` + a README row each (what it answered, last report path). C# capture modes and scenes stay. **DONE task 149**: 31 moved; `run-playground.sh` left (cited by `tools/capture-gpu-trace.sh`). Task 154 retired it too (capture-gpu-trace.sh's hint now names `BUILD=1 ./run-play.sh` + the trace build). | S | Q1 |
 | R2 | Lock: add `unity_lock_acquire` inside the 5 kept lockless rigs (editmode, phase7, acceptance, acceptance-fluid, fluid-tiled) (no behaviour change). **DONE task 148**, plus the 4 lockless 'update' rigs (5b, 5d, brushguard, combined). | S | - |
 | R3 | `run-gameplay-stack.sh` from phase6-combined on tg2 v4 (section 4 item 5); then retire 5a/5c/6-* scripts. | L | Q4 |
 | R4 | Update 5b-rig and 5d-rig for 8.15/8.16 (or fold into R3); brush guard predicate rewrite. | M | R3 |

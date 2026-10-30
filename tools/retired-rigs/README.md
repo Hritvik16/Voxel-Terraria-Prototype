@@ -39,6 +39,4 @@ scenes they call are untouched, so each still runs: launch it FROM THE REPO ROOT
 | run-demo.sh | Overhaul / tg2 look launcher; its own header points to run-play.sh. | 2026-10-08 |
 | run-phase7-demo.sh | Phase 7 section 12 review; done. | 2026-09-24 |
 | run-phase5b-demo.sh | Demo of the closed phase 5b. | 2026-09 |
-
-Not moved (plan said retire): `run-playground.sh` -- `tools/capture-gpu-trace.sh` tells the user to run it to rebuild
-before a GPU trace; retire it together with an update of that tool.
+| run-playground.sh | Playground first look (`-playgroundshots`); superseded by run-play.sh. Retired by task 154 after `tools/capture-gpu-trace.sh` stopped citing it. | 2026-09-13 |

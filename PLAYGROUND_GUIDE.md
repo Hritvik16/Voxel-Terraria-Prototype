@@ -34,9 +34,10 @@ before quoting any number off the screen.
 ## 2. Running it
 
 ```bash
-./run-playground.sh
+tools/with-unity-lock.sh tools/retired-rigs/run-playground.sh
 ```
 
+(Retired by task 154, 2026-10-30; `./run-play.sh` is the current launcher.)
 Builds a release standalone, runs the automated screenshot pass, and prints
 where the shots went. To just play:
 

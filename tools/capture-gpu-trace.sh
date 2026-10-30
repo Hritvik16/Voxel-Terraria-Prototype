@@ -11,7 +11,7 @@
 # That rule was written against the Xcode GUI capture workflow. This script is
 # a DELIBERATE, USER-AUTHORISED revisit of it, using the command-line tool
 # instead, because per-kernel GPU attribution does not exist by any other means
-# in this project (OPTIMIZATION_CANDIDATES.md's closing section says so, and
+# in this project (docs/archive/OPTIMIZATION_CANDIDATES.md's closing section says so, and
 # says the choice is a human's to make). It was made.
 #
 # What this produces is NOT covered by the frame-time discipline in CLAUDE.md:
@@ -72,8 +72,10 @@ fi
 NEWEST_SRC=$(find Assets -name '*.cs' -newer "$BIN" -print -quit 2>/dev/null)
 if [ -n "$NEWEST_SRC" ]; then
   echo "FAIL: $APP is OLDER than $NEWEST_SRC"
-  echo "      The debug-group labels come from the build. Rebuild first:"
-  echo "        ./run-playground.sh"
+  echo "      The debug-group labels come from the build. Rebuild first: regenerate the"
+  echo "      Playground scene (BUILD=1 ./run-play.sh does it), then rebuild THIS app with"
+  echo "      the BuildPlaygroundTraceStandalone command printed when $APP is missing."
+  echo "      (run-playground.sh, the old hint, was retired by task 154 to tools/retired-rigs/.)"
   exit 1
 fi
 
