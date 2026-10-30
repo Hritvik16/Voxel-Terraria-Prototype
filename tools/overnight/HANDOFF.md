@@ -1,41 +1,51 @@
-# 152-perf-shell-ray-compaction: DONE (nothing built) -- decision-table row A: SIMD efficiency 0.91 / 0.93 >= 0.6, so R2 is not worth building; next cut = task 153
+# 154-cleanup-repo-bloat: DONE -- CLAUDE.md 30.8 -> 24.6 KB, root .md 54 -> 41, 1 rig retired, 30 queue files archived; nothing deleted except tools/__pycache__/
 
-**For the owner (no decision needed):** the task's row A says "STOP_FOR_OWNER, build nothing, name the next cut". I built nothing but did NOT write
-STOP_FOR_OWNER: task 153 (the height bound, already approved in your Q97 (a)) has `Requires: 152`, so a STOP would have parked it and left the
-queue idle overnight. Nothing in this result needs your call; if you want R2 anyway, say so and it becomes a new task.
+**For the owner (no decision needed):** CLAUDE.md is 20% smaller. The ~18 KB target was not reachable: the rule sections the task
+said to keep word for word already add up to ~20 KB (Commands 4.7, Measurement 3.3, Ground truth 2.6, build-run-review 2.5 KB).
+Getting under 18 KB means trimming rule text, and that needs your go-ahead.
 
-## What changed (branch engine-phase)
-- `TASKS.md` "Task 152" paragraph only. Commit `8ab68fc`. No code, no build, no launch, no default changed (`-shellcompact` does not exist).
-- No EditMode run: docs-only commit, nothing for it to test.
+## What changed (branch engine-phase; one commit per step)
+- `a86dfd1` step 1: the dated "Current state" paragraphs moved word for word to `PROJECT_HISTORY.md` (new, newest first). The new
+  Current state is 13 lines: ROADMAP order, the 22 Oct merge, the quality pass, the 30 fps miss, suite 948/0/15, pointers.
+  The index is 40 one-line entries (<= 150 chars each; added the owner-pause and shadow-dots entries KNOWN_ISSUES already had).
+  The 10 long index lines are kept word for word in a new last section of KNOWN_ISSUES.md, so no text was lost.
+- `d4292df` step 2: `git mv` to `docs/archive/` (+README, one row each): GEMINI_HANDOFF, GEMINI_TASK, HANDOFF_2026-09-24,
+  MORNING_REPORT, FPS_INVESTIGATION_RESULTS, FLUID_PERFORMANCE_AB_RESULTS, FLUID_SCALE_ARCHITECTURE_RESULTS, FLUID_TILE_CAP_RESULTS,
+  FLUID_TICK_DIAGNOSIS, ARCHITECTURE_COMPARISON, UNITY_VERSION_RESEARCH_2026-09, PHASE_7_READING_NOTES, VISUAL_REVIEW_114,
+  OPTIMIZATION_CANDIDATES (4 Sept proposals, replaced by PERF_30FPS_PLAN). Paths were updated in TASKS.md, KNOWN_ISSUES.md,
+  PLAYGROUND_GUIDE.md and ENGINE_PHASE_PLAN.md. Amendments, completion docs and `.cs` comments still name the bare filename, which grep
+  still finds. I left them alone because they are spec/history files and code.
+- `92f6675` step 3: `run-playground.sh` -> `tools/retired-rigs/` (README row; replaces its "Not moved" note). `tools/capture-gpu-trace.sh`:
+  its stale-build hint now says to regenerate the scene with `BUILD=1 ./run-play.sh` and rebuild with the BuildPlaygroundTraceStandalone
+  command. The old hint was also wrong: run-playground.sh built `Playground.app`, not the `PlaygroundTrace.app` the tool checks.
+  PLAYGROUND_GUIDE §2 and RIG_REFRESH_PLAN R1 row updated.
+- `61354a4` step 4 -> `tools/overnight/archive_work/blocked-2026-10-30/` (22 files, all of blocked/):
+  87 (superseded by amendment 8.15); 93b, 93b2-93b5 HANDOFFs (answered/superseded by tasks 99/116/132/134 and 93c); 93e (fixed `9d85dc6`);
+  111 (plan answered 22 Oct, PERF_30FPS_PLAN); 140 (done as 145); 142 (done as 147); 144 (done as 148/149); 37e (lake fixes merged, `8b19f21`);
+  153 patch + leaked test (resumed and committed as `da979b8`).
+  -> `archive_work/later-2026-10-30/` (8 files): 70 and 71 (gameplay steps 7/8 = tasks 100/103); 78 (replaced by RIG_REFRESH_PLAN/144);
+  89, 90 and 93b (done as 93b/93c); 102 (replaced by the shell-march tasks 132/134/152/153); `shell-column-tops-design-137.txt` (built as 153).
+  Kept in later/: 106 (far raycast, not done), 107 (crafting), 37c, 40, 79. 37c and 40 were untracked and are now committed.
+- step 5 `bc2f1ae`: `.gitignore` gains `__pycache__/`, `tools/__pycache__/`, `*.pyc`, `TestResults*.xml`; deleted `tools/__pycache__/` (3 .pyc).
+- `2913123`: TASKS.md "Task 154" paragraph.
+- Not touched: Screenshots/, Logs/, the 3 modified `Assets/Scenes/*.unity`, Assets/ThirdParty/**, run-queue.sh, PREAMBLE.md, and every kept run-*.sh.
 
-## Evidence (existing counters; no new measurement)
-Task 130's E3 counters (`Screenshots/130/perf130.txt` lines 22-29, run `Logs/costsplit_2026-10-23_162359.txt`), per 32-lane SIMD (8x4 half-tile):
-| | walk_near | walk_open |
-|---|---|---|
-| efficiency sum / (32 x max) | 0.906 | 0.932 |
-| SIMDs < 0.35 / 0.35-0.6 / >= 0.6 | 4% / 1% / 95% | 1% / 1% / 99% |
-| active lanes of 32 | 30.6 | 31.7 |
-| end kinds per SIMD | 1.01 of 5 | 1.01 of 5 |
-| mean lane iters (130) vs per-ray mean on TODAY's build (146) | 83.6 vs 83.6 | 38.8 vs 38.8 |
+## Evidence
+- Fast suite `PASS 948 FAIL 0 SKIP 15` (`Logs/overnight/154_fast.out`), the same as task 153.
+- `bash -n tools/capture-gpu-trace.sh` OK. `run-queue.sh` still `mkdir -p`s blocked/. No queued task `Requires:` an archived item
+  (155 has no Requires).
 
-Why the 130 numbers still hold (the task asked to re-run only if they were missing for the current build):
-- R1's `CSShellPrepass` (Raymarch.compute `ShellPrepassBody`, ~5745) is 8x8 with tid -> pixel, unflagged lanes return: the same lane layout as
-  130's `CSShellProbe`, and it calls `ShellMarch` with the same arguments. R6 changes no iteration/read count (`ShellMarchCacheTests.BandCacheChangesNoResult`).
-  133 adds shadow rays (not the primary march); 137 hole leap / 138 sky tilt are OFF.
-- Task 146 counted today's build (`Logs/costsplit_2026-10-25_115751.txt` lines 16 / 115): 2,449,405 iters / 29,299 rays = 83.6 (near),
-  12,362,446 / 318,850 = 38.8 (open) -- identical to 130's mean lanes. A re-run could only show shell-fill noise; every outcome -> the same row.
-Ceiling: a perfect zero-overhead compaction recovers at most (1 - eff) of the shells path (146: +8.8 near / +5.5 open ms) = < 0.83 / < 0.37 ms,
-below the task's ">= 1 ms walk" keep bar before counting the append + indirect-dispatch cost. (walk_near's 8.8 also holds 133's near sun rays,
-which R2 would not touch, so its real ceiling is lower.)
-
-## Next
-- Task 153 (column height bound) is queued and now unblocked: it targets 133's near sun rays climbing to the 1,100 m shell top
-  (126,358 rays/frame at walk_near, 146 line 21), which is where walk_near's shells cost actually is.
-- PERF_SHELL_MARCH_PLAN's R2 row can be marked "dropped (152: E3 = A)" by the supervisor.
+## Left for later (not retired: RIG_REFRESH_PLAN marks them merge/update, not retire)
+Still at the root: merge into the gameplay-stack rig: run-phase5a-rig, run-phase5c-rig, run-phase6-player, run-phase6-ccd, run-phase6-edit,
+run-late-game-siege. Merge: run-farband (into run-tg2world) and run-cost-split (into the perf milestone). Update: run-phase5b-rig,
+run-phase5d-rig, run-phase6-brushguard, run-phase6-combined. Owner Q3: run-phase7-lighting-ab.
+Possible later candidates (not on the task's list, so not moved): PHASE_7_PLAN (cited by queued task 155), SVO_LIGHTING_NOTES,
+PLAN_COARSE_FIRST_GEN, RIVERS_WATERFALLS_PLAN, DESIGN_NOTE_7_x, PHASE_6_QA_PASS, root `Codebase_Context.txt`.
 
 ## For the doc
-- SIMD efficiency (primary shell march, per 32-lane SIMD): 0.906 walk_near / 0.932 walk_open (`Screenshots/130/perf130.txt`); bar to build R2: <= 0.35.
-- SIMDs >= 0.6: 95% / 99%; active lanes 30.6 / 31.7 of 32 (almost no idle lanes for compaction to remove).
-- Unchanged on today's build: per-ray iters 83.6 / 38.8 in task 146 (`Logs/costsplit_2026-10-25_115751.txt`) = 130's mean lanes.
-- Best possible R2 gain: < 0.83 ms walk_near, < 0.37 ms walk_open (keep bar 1 ms) -> not built, no default changed.
-- No images: nothing was rendered or changed.
+- CLAUDE.md 30,781 -> 24,621 B (-20%; the rule sections alone are ~20 KB, so the 18 KB target needs rule edits = owner call).
+- Root .md files 54 -> 41 (14 to `docs/archive/`, +1 `PROJECT_HISTORY.md`).
+- Root run-*.sh 23 -> 22 (`run-playground.sh` -> `tools/retired-rigs/`, now 32 .sh there).
+- Queue: blocked/ 22 -> 0 files, later/ 13 -> 5 (30 files to `tools/overnight/archive_work/*-2026-10-30/`).
+- Fast suite PASS 948 FAIL 0 SKIP 15 before and after.
+- No images: a docs/file cleanup has nothing visible to show.
