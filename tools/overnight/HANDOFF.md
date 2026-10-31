@@ -1,52 +1,62 @@
-STOP_FOR_OWNER -- task 156: one question (30 fps plan step 3). Recommended answer first.
+# 157-torch-flood-l1-oracle: DONE -- CPU light-flood oracle + plan tests 1-6 pass; memory fits the 48 MB cap; next is L2
 
-**Q1 Internal rows (FSR 3 renders fewer rows, then upscales to 1080p).** (a) RECOMMENDED: dyn 432-540 with a ~30 ms target. Rows
-drop only on heavy views and stay at 540 on light ones. (b) Keep 540. (c) Go lower (405 or 360).
-- Pictures: `Screenshots/156/rows156_walk_open.png` and `Screenshots/156/rows156_crops.png` (captions below). At full size the two
-  halves look almost the same. In the 3x crops, 432 is a little softer on 1-2 px stair-step edges 40-80 m away and on the far cliff
-  outline. Mean brightness difference is 0.4-2.0 of 255. Note: these are STILLS. FSR 3's extra ghosting and shimmer at a 2.5x upscale
-  only shows in motion, and this task did not capture motion.
-- Plan estimates (`PERF_30FPS_PLAN.md` row 3, est., unmeasured), ms saved near / open / walk:
-  (a) 432: 11-17 / 8-12 / 7-12. (c) 405: 13-21 / 9-14; 360: 17-27 / 12-18.
-  Honest reading: the plan's "~40 -> ~28" assumed steps 1-2 had already saved ms, and they saved ~0. From today's walk p50 of
-  44.7 ms (task 146), 432 alone comes to an est. ~33-38 ms, still short of 33. 405/360 would be needed to get under it.
-- 432 is below the 960x540 minimum in the 2026-10-01 brief (Q38 (a): 540-720), so this is your call.
-- What each answer queues next: (a) one perf task: the dyn floor goes to 432 and `UpscalerSelect.DynTargetMs` to ~30 ms in play's
-  dyn path, then a warm walk measurement (p50 / % > 33 ms). (b) Row 3 is dropped. Next is step 5 (spike isolation). 30 fps then needs
-  shells OFF or sun shadows OFF (plan Q1 (c)). (c) The same stills at 405 and 360 first (`-lookrowsab 405` / `360`, one launch each,
-  ~8 min), then the dyn-floor task at your chosen floor.
-
-# 156-look-rows-432-vs-540: DONE (capture-only) -- stills + sheets at 540 vs 432 rows, five poses
-
-## What changed (branch engine-phase, commit `50d22d4`)
-- `UpscalerSelect.CaptureMinRows = 360`: a PINNED row count (`-renderrows N`, `Apply(k, N, false)`) now clamps to 360-720. Play
-  cannot reach it: PlaySettings only passes 540/720/dyn, and the dyn controller still moves within 540-720. No default changed.
-- `-lookreview -lookrowsab N` (`PlaygroundCapture.RowsLook.cs`, hook in LookReview): every pose shoots fsr3_540 and fsr3_N in the same
-  frame state (clock paused, fluid suspended, 60 frames settle). Added poses: `cliff` (the nearest cliff foot with the sun behind) and
-  `torch` (task 151's 32-torch scene at 0.5 h).
-- `tools/rows156.py`: per-pose side-by-side sheets and 3x crops of each pose's 3 most-different 160x90 windows. TASKS.md paragraph.
+## What changed (branch engine-phase, commit `da7c13e`; CPU only, no GPU / shader / default / look change)
+- `Assets/CoreEngine/Rendering/LightFloodReference.cs`: light lives only in air voxels (resident chunk, material 0). It moves to the 26
+  neighbours with NO corner cutting, so it reaches exactly the 6-connected air. Move costs are chamfer 4 / 6 / 7 units, read at 4.2913 units
+  per 0.1 m. RGB levels combine by per-channel max, 10 bits per channel in one uint (the plan's 4 B per voxel); 12 m = 515 units.
+  Storage is sparse per brick. AddTorch = a Burst single-source flood (Dial's buckets) max-merged into storage. RemoveTorch /
+  OnVoxelsChanged / OnChunkEvicted / OnChunkAdmitted = darken + refill (the Minecraft two-queue pattern, generalised to chamfer weights and
+  RGB). The oracle reads ChunkStore and writes only its own storage.
+- Design choice: the exact weights 1 / 1.41 / 1.73 overestimate Euclid by up to 12.8%, which misses the plan's 8%. Centring the band with
+  4 / 6 / 7 gives +-6.8%. 10 bits reach 23.8 m.
+- `Assets/CoreEngine/Tests/LightFloodReferenceTests.cs` (12 fast, 2 Slow incl. the report). TASKS.md paragraph.
+- Torch colour -> seeds: the brightest channel reaches 12 m and a dimmer channel starts log2(fraction) stops lower (8 stops over the reach).
+  This is an L1 default; L2 maps level -> brightness.
 
 ## Evidence
-- Fast suite: PASS 948 FAIL 0 SKIP 15 (`Logs/overnight/156_tests.out`).
-- One launch, High preset, 1920x1080 fullscreen: `Logs/lookreview_20261030_154829.txt` (copy `Screenshots/156/lookreview156.txt`).
-  Dispatch was 960x540 vs 768x432 at every pose. Shots are in `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte
-  BrickMap/LookReview/2026-10-30_155224_high/`.
-- Shells after a 60 s cap: walk_near was still missing 1,699 (s3-s7), walk_open 441 (s5-s7) and cliff 395; high and torch were full or
-  nearly. Both arms see the same state, so the comparison still holds.
-- Mean |luminance diff| 540 vs 432 (`Screenshots/156/rows156.txt`): walk_near 0.40, walk_open 1.99, high 1.58, cliff 0.71, torch 0.50.
-- Looked at all five sheets and the crop sheet. The largest differences are inside the 0.1 m window, not at its edge: walk_open's three
-  crops all sit in tier 0 (grey) on `Screenshots/156/rows156_walk_open_tint.png`.
-- Torch pose: the start pose is on a slope, so the ring of torches sits low in the frame and only 3-4 torch pools are visible. It is
-  dark but readable.
-- Not done: a dedicated 0.1 m window-edge crop (the top-difference search never picked one), and motion clips.
+- Fast suite PASS 960 FAIL 0 SKIP 15 (was 948 + 12 new; `Logs/overnight/157_tests.out`). Slow `Fuzz_Long` (2 x 300 ops) passed in a
+  filtered run, as did the report run.
+- (1) Sealed: the axis 0.1 m wall, staircase, edge-touching diagonal x==z, plane x+y+z=150 and a closed 0.1 m box each give EXACTLY 0 on the
+  far side, whether built before or after the torch. A doorway opened then sealed returns to exactly 0. (2) Open air at 12 m: 6.49 M lit
+  voxels, flood/Euclid 0.932..1.068. (3) L-bend: 10,211 voxels lit round the corner at 0.956..1.016 of the geodesic, darker than straight-line.
+  (4) Fuzz: incremental == from-scratch byte for byte after every op (80 + 600 ops). (5) Removing all torches frees every slot and chunk table.
+  (6) Evict / edit-while-evicted / re-admit == from-scratch after every step.
+- Report `Screenshots/157/torchflood157.txt` (REPORTS=1, Burst, safety checks OFF; EditMode microbenchmark, not a frame-time claim).
+  Memory per side in the plan's form (0.1 m mixed 2 KB, air brick 32 B, 16 KB per lit chunk): room 0.66 MB, tunnel 0.79, outdoor torch on
+  a post 1.85, 32 torches 5.96, **200 torches over 80 x 80 m open ground 43.8 MB: under 48**. With 0.2 m mixed cells + per-voxel escape:
+  14.4 MB.
+- Split cells at 0.2 m: 0.00% in the room, tunnel, L-bend, outdoor and both grids (0 of 563k at 200 torches; axis walls never split a cell).
+  In the room split by a diagonal 0.1 m wall it is 12.3% (450 cells), and every one of them would leak if stored as a single 0.2 m value.
+- Worker ms per flood: room 7.6 ms (mostly clearing the fixed-size 12 m box), tunnel 12.2 ms, outdoor 215 ms (3.9 M voxels reached). The
+  managed merge is 10-310 ms. The managed incremental remove is 0.3 / 0.6 / 8.7 s (room / tunnel / outdoor; unoptimised oracle code).
+- Looked at all 5 slices: diagonal wall far side pure black; L-bend fades round the bend to black at the reach; tunnel light spills out the
+  mouth as a dim glow; sealed room all lit (5.1 m < 12 m); outdoor pool's outer edge is OCTAGONAL (the +-6.8% chamfer shape).
+
+## Decisions / flags (no STOP: memory fits, no frozen API or layout touched)
+- **L2 storage (the plan left this to L1): 0.2 m mixed cells + a per-voxel escape for split cells.** It is 3x smaller (14.4 vs 43.8 MB at
+  200 torches). Escapes are needed only on thin diagonal walls. The 0.1 m form also fits, but only with 9% headroom, and only on flat ground.
+- **FLAG for L3 (ask the owner before L3), CPU copy:** the plan said "the CPU copy is the same size again". An EXACT per-voxel CPU copy (what
+  two-queue removal needs) would be 528 MB for the 200-torch grid. Options: the CPU keeps the GPU's compressed form and removals/edits
+  re-flood the affected torches; or per-voxel only in mixed bricks, with air bricks rebuilt from their 1-voxel shell.
+- **FLAG for L3, flood cost:** outdoor 215 ms vs the plan's est. 5-15 ms. Only 9% of the reached voxels are in mixed bricks, so the plan's
+  "pure-air bricks flood as a unit" is required, est. ~10x fewer voxel steps, and a sparse scratch instead of the 21 M-cell box.
+  Q5's "1-3 frames" holds for rooms and tunnels today but not for an outdoor placement.
+- The octagonal outer edge is a look item for L2 (the falloff is dim there; check it in the sheet).
+
+## Next
+L2 (`TORCH_LIGHT_PLAN` §3): GPU light pool (0.2 m + escape) + shader sampling behind `-torchflood 1`, OFF, filled from this oracle; 143's
+sheet rows plus a "flood 12 m" column and a pillar shot; one warm cost-split arm vs today (151's 32 torches). No follow-up task queued.
 
 ## For the doc
-- Internal resolution: 960x540 -> 768x432 (0.64x the traced pixels), FSR 3 to 1920x1080; `Logs/lookreview_20261030_154829.txt`.
-- Mean |luminance diff| per pose: 0.40 / 1.99 / 1.58 / 0.71 / 0.50 of 255 (walk_near / walk_open / high / cliff / torch); `Screenshots/156/rows156.txt`.
-- Plan estimate for 432 (unmeasured): walk -7..-12 ms, so 44.7 -> ~33-38 ms walk p50.
-- `Screenshots/156/rows156_walk_open.png`: walk_open at noon, LEFT 540 / RIGHT 432. Look at the mid-distance stair-step slopes in
-  the magenta boxes; 432 is a touch softer there, and the rest of the frame matches.
-- `Screenshots/156/rows156_crops.png`: 3x crops, each row a pair (540 left, 432 right), two pairs per row. Look at the walk_open rows
-  (soft 1-px step edges) and high #1 (the cliff outline against the green field). Night torch crops are near-identical.
-- `Screenshots/156/rows156_high.png`: far-horizon pose (20 m over the highest peak). The distant islands and coastline are
-  equally sharp in both halves.
+- Exactness: sealed walls (axis, staircase, x==z diagonal, x+y+z plane, closed box) 0 light behind them; open-air distance 0.932..1.068 of
+  Euclid; L-bend 0.956..1.016 of the walking path; incremental == from-scratch after 680 fuzz ops (`LightFloodReferenceTests`).
+- Memory per side, 200 torches over 80 x 80 m: 43.8 MB at 0.1 m (cap 48) -> 14.4 MB at 0.2 m + escape; 1 outdoor torch 1.85 MB, room 0.66 MB
+  (`Screenshots/157/torchflood157.txt`).
+- Split 0.2 m cells: 0% in natural/axis geometry, 12.3% only beside a diagonal 0.1 m wall.
+- Worker flood (Burst): room 7.6 ms, tunnel 12.2 ms, outdoor 215 ms (plan est. 1-4 / 5-15 ms) -> L3 needs air-brick-as-unit floods.
+- `Screenshots/157/slice157_diagonalwall.png`: top-down slice of a 6 m room cut by a 0.1 m diagonal wall (x == z), torch upper right. Look at the
+  lower-left triangle: it is pure black right up to the stair-step wall, so no light leaks through the corner-touching voxels.
+- `Screenshots/157/slice157_lbend.png`: L-shaped 1 m corridor, torch at the top-left end. Look at the right-hand leg: the light turns the corner
+  and fades to black with walking distance; the dark contour lines (1 m of path each) bend round the corner.
+- `Screenshots/157/slice157_tunnel138.png`: task 138's tunnel from above, mouth on the right, torch at the lower wall 10.2 m in (bright spot,
+  lower left). Look at the right edge: a dim glow spills out of the mouth into the open air.
