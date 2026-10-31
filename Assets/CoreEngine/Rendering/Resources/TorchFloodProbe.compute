@@ -1,0 +1,18 @@
+// Task 158: the GPU == oracle probe. Samples TorchFlood.hlsl's FloodLevels at a
+// list of voxels (the air cells in front of chosen pixels' hit faces) so the
+// capture can compare them with TorchFloodPool.SampleLevels and the oracle.
+#pragma kernel CSFloodProbe
+
+#include "../TorchFlood.hlsl"
+
+StructuredBuffer<int4> _ProbeIn;
+RWStructuredBuffer<float4> _ProbeOut;
+int _ProbeCount;
+
+[numthreads(64, 1, 1)]
+void CSFloodProbe(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _ProbeCount) return;
+    int3 v = _ProbeIn[id.x].xyz;
+    _ProbeOut[id.x] = float4(FloodLevels(v), dot(FloodLight(v, int3(0, 0, 0)), float3(0.2126, 0.7152, 0.0722)));
+}

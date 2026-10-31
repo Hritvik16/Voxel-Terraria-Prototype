@@ -717,3 +717,23 @@ exactly 0; doorway open -> sealed; open air flood/Euclid 0.932..1.068 at 12 m; L
 ops (fast) / 2 x 300 (`Fuzz_Long`, Slow) incremental == scratch after every op, then every slot freed; evict / edit / re-admit == scratch. Report
 (`REPORTS=1`, Slow, ~2.5 min): `Screenshots/157/torchflood157.txt` + `slice157_{tunnel138,sealedroom,lbend,diagonalwall,outdoor}.png` (top-down at the
 torch height: grey solid, black unlit air, light = level / seed per channel, dark contour every 1 m of path). Result: HANDOFF 157.
+
+**Task 158 (TORCH_LIGHT_PLAN step L2, owner "a to all" on 155; OFF by default): the torch-flood GPU light pool, `-torchflood 1`.**
+`TorchFloodPool.cs` (VoxelEngine.Rendering) + `TorchFlood.hlsl` + `Resources/TorchFloodProbe.compute`. CPU sole writer: each frame (LightingDriver.Update)
+`Tick` refills FROM SCRATCH when stale -- the registered non-mobile light set changed (`LightSourceBuffer.Revision`, then a sorted signature), a chunk in
+any torch's box was admitted / evicted (Chunk refs remembered), or an EditService write landed in one (`NotifyVoxelChanged`, beside
+NotifyLightingEdited) -- by flooding every torch through task 157's `LightFloodReference`, `Encode` and three uploads. Layout (157's decision):
+dense dir over the lit-chunk AABB -> 4,096-entry brick table per lit chunk -> data; MIXED brick = 4^3 cells at 0.2 m, value = per-channel max (nearest
+cell, never blended across a wall), a cell whose air splits into >= 2 face-connected groups is an ESCAPE (bit 30) to 8 per-voxel values; pure-AIR brick
+(uniform-air header) = 2^3 cells at 0.4 m holding the mean of the 2^3 voxels round each centre, trilinear. `SampleLevels` = the HLSL's C# twin.
+Shader: kernels `CSMainFlood` / `CSMainFarShadeFlood` (VE_TORCH_FLOOD; every task-158 line is under that #ifdef, so CSMain / CSMainFarShade compile from
+the pre-task source -- the stripped file == HEAD's byte for byte), picked by RaymarchFeature while `TorchFloodPool.Ready`; tier-0 hits that are not self-lit
+take `FloodLight(air cell, normal)` + the LightBuffer entries from `_FloodLightFirst` on (lava's aggregates stay analytic); shell hits keep the full analytic
+loop (plan Q6 (a)). Level -> light: d = (top - max level) / 42.9 m of PATH, I / (1 + k d^2) x (1 - (d/R)^4)^2, colour = exp2(-8 (max - L_c) / top), x a
+DIRECTION term wrap + (1 - wrap) x saturate((level(v + 2n) - level(v)) / 8). Defaults I 2.0, k 0.10, reach 12 m, wrap 0.3 (`-tfi -tfk -tfreach -tfwrap`).
+Known gaps (L3 / L4): fluid writes do not refill; no pool cap; refills are synchronous (~0.25 s per outdoor torch, 157's flood). Tests `TorchFloodPoolTests`
+(9): sealed axis / x==z diagonal (escapes) / x+y+z plane / closed box stay exactly 0 through the encoding; mixed cells never darker, <= 7 levels brighter;
+air bricks <= 12 levels; split-cell table; Raymarch flood code only under the #ifdef. Capture: `-lookreview -cliffshadow 1 -blackshape 2 -torchreach 1
+-trflood 1 [-trfloodb I,k,wrap]` adds the flood column(s), a GPU == oracle probe at 16 x 9 pixels per row (`probe (...)` lines), an OFF re-shoot
+(`tr_ground_today_nat_off2`) and a pillar row; sheet `python3 -I tools/torchflood158.py <dir> Screenshots/158 <log>`. Cost arm `tf_on` (`-costpaths torch`,
+`PlaygroundCapture.TorchCost.cs`): the launch's torches with the flood on, built once before the first timed window. Result: HANDOFF 158.

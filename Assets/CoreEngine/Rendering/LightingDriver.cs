@@ -74,6 +74,7 @@ namespace VoxelEngine.Rendering
         {
             Lights = new LightSourceBuffer();
             RaymarchFeature.Lights = Lights;
+            TorchFloodPool.ParseArgs();   // task 158: -torchflood 1 (OFF by default)
 
             // Stage C: drop the preset files beside LightingConfig.json so the
             // owner can read and edit them as ordinary files rather than having
@@ -107,6 +108,8 @@ namespace VoxelEngine.Rendering
                 Lights.Upload(p);
                 UploadsRun++;
             }
+            // Task 158: the torch flood refills (from scratch, L2) when it is stale.
+            if (TorchFloodPool.Enabled) TorchFloodPool.Instance.Tick(Lights);
         }
 
         /// Test/rig seam: point the cap's distance measurement somewhere without

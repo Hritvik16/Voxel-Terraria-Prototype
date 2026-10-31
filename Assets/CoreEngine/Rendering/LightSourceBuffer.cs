@@ -111,6 +111,10 @@ namespace VoxelEngine.Rendering
         /// How many lights exist in the world right now, ignoring the cap.
         public int RegisteredCount => _registered.Count;
 
+        /// Task 158: bumped whenever the registered (non-lava) set may have
+        /// changed, so TorchFloodPool re-reads it only then (no per-frame alloc).
+        public long Revision { get; private set; }
+
         /// How many were uploaded on the last Upload() -- at most
         /// MAX_ACTIVE_LIGHTS. The HUD shows this beside RegisteredCount so the
         /// §3.8 degradation is visible rather than merely graceful.
@@ -211,6 +215,7 @@ namespace VoxelEngine.Rendering
                 return false;
             }
 
+            Revision++;
             _registered[Key(voxel)] = new Registered
             {
                 voxel = voxel,
@@ -233,7 +238,9 @@ namespace VoxelEngine.Rendering
         public bool Unregister(int3 voxel)
         {
             RemoveLava(voxel);
-            return _registered.Remove(Key(voxel));
+            bool removed = _registered.Remove(Key(voxel));
+            if (removed) Revision++;
+            return removed;
         }
 
         /// Drops every light. Used when a world is torn down or a rig resets;
@@ -241,6 +248,7 @@ namespace VoxelEngine.Rendering
         public void Clear()
         {
             _registered.Clear();
+            Revision++;
             _lavaVoxels.Clear();
             _lavaTiles.Clear();
             ActiveCount = 0;

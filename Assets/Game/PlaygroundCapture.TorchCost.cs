@@ -21,6 +21,10 @@
 //           Every other arm (and FULL) restores the launch's values. Lava's aggregate reads the same three
 //           knobs (LightSourceBuffer.LavaLight), so an arm changes lava too; no lava is in this scene.
 // Lit px per arm: python3 -I tools/torchcost151.py <run dir>/stills (each arm's first-pass _clean.png vs tl_none's).
+// TASK 158: tf_on = the launch's knobs with the TORCH FLOOD on (TorchFloodPool.Enabled: the CSMainFarShadeFlood
+//           twin samples the GPU light pool on tier-0 hits instead of the 32-light loop + rays). The pool is built
+//           once, synchronously, in the first tf_on apply (before its settle); later applies re-register the same
+//           torches, so the signature matches and nothing rebuilds. Every other arm turns the flood off.
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
@@ -114,6 +118,7 @@ public partial class PlaygroundCapture
         var store = Phase4Bootstrapper.Store;
         var driver = FindAnyObjectByType<LightingDriver>();
         if (_costTorches == null || store == null || driver == null) yield break;
+        if (_costFloodNote != null) L(_costFloodNote);
         Playground.DebugSuspendFluidSim = true;
         Vector3 eye = cam.transform.position;
         var back = -(cam.transform.rotation * Vector3.forward); back.y = 0f; back.Normalize();
@@ -168,5 +173,22 @@ public partial class PlaygroundCapture
         }
         foreach (var t in _costTorches) _costLights.Unregister(t);
         if (arm != "tl_none") foreach (var t in _costTorches) _costLights.Register(t, Materials.Torch);
+        TorchFloodPool.Enabled = arm == "tf_on";
+        if (TorchFloodPool.Enabled)
+        {
+            var pool = TorchFloodPool.Instance;
+            int before = pool.Rebuilds;
+            pool.Tick(_costLights);
+            if (pool.Rebuilds != before)
+            {
+                var e = pool.Current;
+                _costFloodNote = ($"  torch flood (task 158) built: {pool.LastTorches} torches ({pool.LastTorchesSkipped} skipped), {e.chunks} lit chunks, " +
+                  $"air bricks {e.airBricks}, mixed {e.mixedBricks}, escapes {e.escapes}, GPU {e.Bytes / 1048576.0:F2} MB; " +
+                  $"rebuild {pool.LastRebuildMs:F0} ms (flood {pool.LastFloodMs:F0}, encode {pool.LastEncodeMs:F0}, upload {pool.LastUploadMs:F1}); " +
+                  $"map I {TorchFloodPool.Intensity:F2} k {TorchFloodPool.FalloffK:F3} reach {TorchFloodPool.ReachM:F1} m");
+            }
+        }
     }
+
+    private static string _costFloodNote;   // task 158: logged by CostTorchLava (CostTorchApply is static)
 }

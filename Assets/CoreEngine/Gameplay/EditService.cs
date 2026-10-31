@@ -191,6 +191,7 @@ public class EditService : IEditService
         VoxelsWritten++;
 
         NotifyLightingEdited(worldVoxelCoord, previous, material);
+        VoxelEngine.Rendering.TorchFloodPool.NotifyVoxelChanged(worldVoxelCoord);   // task 158 (no-op while OFF)
         NotifyEdited(worldVoxelCoord);
         return true;
     }

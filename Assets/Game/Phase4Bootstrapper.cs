@@ -306,6 +306,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         if (IsTg2World)
             _store.HighWaterBricksOverride = EngineConfig.HighWaterBricksFor(_pool.Capacity);
         Store = _store; Pool = _pool;
+        VoxelEngine.Rendering.TorchFloodPool.Store = _store;   // task 158
 
         // The STORE's ring and the GPU MIRROR's window are deliberately
         // different heights. WINDOW_CHUNKS_Y=16 exists for the raymarch oracle
@@ -707,6 +708,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         Cascades?.Dispose();
         _pool?.Dispose();
         Clipmap = null; Cascades = null; Store = null; Pool = null; Meta = null; SmallMirror = false;
+        VoxelEngine.Rendering.TorchFloodPool.Store = null;   // task 158
         Streamer = null; Coalescer = null; MetaRoundtripStatus = null;
     }
 }

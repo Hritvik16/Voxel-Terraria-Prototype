@@ -1,0 +1,49 @@
+lit px = native 1080 pixels >= 10 luma (0-255) above the same pose with the torch light off ('none'); bright = luma >= 40
+row      arm          lit px  bright px  mean luma
+tunnel   none              0         80        0.0
+tunnel   today       107,664     18,024        1.8
+tunnel   half        323,075    134,715        7.6
+tunnel   tunnel      902,933    329,759       21.1
+tunnel   flood       428,115    180,664       10.4
+tunnel   floodb      869,459    389,766       25.1
+room     none              0        357        0.0
+room     today       384,248    102,832        7.5
+room     half        840,783    387,957       21.8
+room     tunnel    1,207,843    691,718       41.8
+room     flood     2,073,600  1,498,542       59.7
+room     floodb    2,073,600  2,073,600      113.1
+ground   none              0         96       20.7
+ground   today        80,085     40,793       22.0
+ground   half        354,290    147,438       26.3
+ground   tunnel      680,800    477,690       35.1
+ground   flood       542,137    416,523       29.6
+ground   floodb      957,414    910,147       39.5
+pillar   none              0         96       20.7
+pillar   today        72,981     35,620       21.9
+pillar   flood       542,101    419,209       29.6
+
+OFF check: tr_ground_today_nat (before any flood) vs _off2 (after the pool existed, flood off): 2275 px differ (max 7 levels)
+
+flood (tunnel): 1 torch, 2 lit chunks, air bricks 385, mixed 326, escapes 0, GPU 0.12 MB; rebuild 38 ms (flood 28, encode 2); map I 2.00 k 0.100 reach 12.0 m wrap 0.30
+probe (tunnel): 144 pixels' air cells (144 lit, 0 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 19 exact, max |diff| 10.0 levels (of 515), oracle-dark but GPU-lit 0
+flood (tunnel floodb): 1 torch, 2 lit chunks, air bricks 385, mixed 326, escapes 0, GPU 0.12 MB; rebuild 38 ms (flood 36, encode 1); map I 3.00 k 0.060 reach 12.0 m wrap 0.30
+probe (tunnel): 144 pixels' air cells (144 lit, 0 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 19 exact, max |diff| 10.0 levels (of 515), oracle-dark but GPU-lit 0
+flood (room): 1 torch, 4 lit chunks, air bricks 125, mixed 218, escapes 0, GPU 0.12 MB; rebuild 33 ms (flood 30, encode 1); map I 2.00 k 0.100 reach 12.0 m wrap 0.30
+probe (room): 144 pixels' air cells (144 lit, 0 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 21 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 0
+flood (room floodb): 1 torch, 4 lit chunks, air bricks 125, mixed 218, escapes 0, GPU 0.12 MB; rebuild 18 ms (flood 15, encode 1); map I 3.00 k 0.060 reach 12.0 m wrap 0.30
+probe (room): 144 pixels' air cells (144 lit, 0 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 21 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 0
+flood (ground): 1 torch, 12 lit chunks, air bricks 6775, mixed 1034, escapes 0, GPU 0.65 MB; rebuild 240 ms (flood 230, encode 7); map I 2.00 k 0.100 reach 12.0 m wrap 0.30
+probe (ground): 132 pixels' air cells (97 lit, 35 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 51 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 2
+flood (ground floodb): 1 torch, 12 lit chunks, air bricks 6775, mixed 1034, escapes 0, GPU 0.65 MB; rebuild 232 ms (flood 224, encode 6); map I 3.00 k 0.060 reach 12.0 m wrap 0.30
+probe (ground): 132 pixels' air cells (97 lit, 35 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 51 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 2
+pillar: centre column int3(36237, 5345, 51453), 1144 voxels written
+flood (pillar): 1 torch, 12 lit chunks, air bricks 6763, mixed 1046, escapes 0, GPU 0.65 MB; rebuild 235 ms (flood 227, encode 6); map I 2.00 k 0.100 reach 12.0 m wrap 0.30
+probe (pillar): 132 pixels' air cells (97 lit, 35 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 51 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 2
+
+COST (warm steady state; warm-up Logs/tg2world_20261031_101855.txt discarded; Logs/costsplit_2026-10-31_102459.txt):
+  torch scene (task 151): 0.50 h; eye (4017.2, 891.2, 4018.8), heading yaw 0 (free 400 m); tier-0 window int3(16, 16, 16) chunks from int3(305, 61, 305) (half x 102.4 m); torches placed 31 (refused 1), inside the window 31; inner ring r 8 m at 12 m ahead, outer ring r 40.0 m; lights registered 31; launch knobs k 0.350 intensity 1.60 range 8.0 m; torch shadow rays 4
+  torch flood (task 158) built: 31 torches (0 skipped), 162 lit chunks, air bricks 133850, mixed 18794, escapes 14, GPU 11.21 MB; rebuild 9982 ms (flood 9783, encode 182, upload 0.6); map I 2.00 k 0.100 reach 12.0 m
+arm        p50    p99 ms   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50
+full       62.0   76.8    3 runs: 60.0 63.3 62.6   (range 3.3)   cpu 62.0 / 0.0   gpu* 169.9
+tf_on      56.1   67.3      56.0 / 56.9        60.0 / 63.3               +5.6          3.3                  56.1 /   0.0          167.9
+tf_on      56.7   67.8      56.8 / 56.7        63.3 / 62.6               +6.3          0.7                  56.7 /   0.0          165.4

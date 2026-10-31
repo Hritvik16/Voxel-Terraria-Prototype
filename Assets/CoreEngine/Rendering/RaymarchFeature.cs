@@ -734,6 +734,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public float shellPixelAngle;
             public GraphicsBuffer shellDir, shellPages, shellBricks;
             public bool primaryFarShade;            // task 130: kPrimary is CSMainFarShade (ShellProbeIO bound)
+            public bool floodOn;                    // task 158: kPrimary is a VE_TORCH_FLOOD twin
+            public int floodLightFirst;             // task 158: LightBuffer index where lava's aggregates start
             public int kShellProbe;                 // task 130: CSShellProbe, or -1 (not dispatched)
             public GraphicsBuffer shellProbeIO;
             public int kShellPrepass;               // task 132: CSShellPrepass, or -1 (the pre-pass is off this frame)
@@ -927,7 +929,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     int torchSig = TorchShadowsOverride >= 0 ? TorchShadowsOverride : cfgT.torchShadowRays;
                     int lightSig = ShadowQualityLevel * 31 + (LookOverride >= 0 ? LookOverride : cfgT.look) * 7
                                  + (TonemapOverride >= 0 ? TonemapOverride : cfgT.tonemap) + bleedSig * 13
-                                 + torchSig * 97;
+                                 + torchSig * 97 + (VoxelEngine.Rendering.TorchFloodPool.Ready ? 389 : 0);   // task 158
                     // A LARGE LIGHT JUMP (the sun moving > 0.25 deg in a frame, a
                     // look / shadow-rung / tonemap switch) or a teleport (> 20 m)
                     // invalidates every history colour at once. The sun bound was
@@ -1207,7 +1209,26 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 else { passData.shellDir = _farDummy; passData.shellPages = _farDummy; passData.shellBricks = _farDummy; passData.shellMaskBase = 0; passData.shellTopY = int.MinValue; passData.shellColTopBase = 0; passData.shellHeightBase = 0; }
 
                 // Task 130 (DIAGNOSTIC): the shellsplit arms' probe (see DebugShellSkip).
-                passData.primaryFarShade = activeCompute.HasKernel(farShadeKernel) && passData.kPrimary == activeCompute.FindKernel(farShadeKernel);
+                // Task 158: -torchflood 1 swaps CSMain / CSMainFarShade for its VE_TORCH_FLOOD twin
+                // (same code plus the flood on tier-0 hits). Checker, detail and *Diag keep theirs.
+                passData.floodOn = false;
+                bool floodFarTwin = false;
+                if (VoxelEngine.Rendering.TorchFloodPool.Ready && !useStripped && !useMemoryProbe)
+                {
+                    string twin = null;
+                    if (passData.kPrimary == 0 && activeCompute.HasKernel("CSMainFlood")) twin = "CSMainFlood";
+                    else if (!shellDiag && activeCompute.HasKernel("CSMainFarShade") && activeCompute.HasKernel("CSMainFarShadeFlood")
+                             && passData.kPrimary == activeCompute.FindKernel("CSMainFarShade"))
+                    { twin = "CSMainFarShadeFlood"; floodFarTwin = true; }
+                    if (twin != null)
+                    {
+                        passData.kPrimary = activeCompute.FindKernel(twin);
+                        passData.floodOn = true;
+                        passData.floodLightFirst = lights != null ? Mathf.Max(0, lights.ActiveCount - lights.LavaActiveCount) : 0;
+                    }
+                }
+                passData.primaryFarShade = floodFarTwin
+                    || (activeCompute.HasKernel(farShadeKernel) && passData.kPrimary == activeCompute.FindKernel(farShadeKernel));
                 ShellDiagDrawnLastFrame = passData.primaryFarShade && shellDiag;
                 passData.kShellProbe = -1;
                 passData.shellProbeIO = _shellProbeDummy;
@@ -1443,6 +1464,11 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeFloatParam(data.compute, "_RiverTime", data.riverTime);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "RiverFlow", data.riverFlow);
                         cmd.SetComputeIntParam(data.compute, "_TorchShadowRays", data.torchShadowRays);
+                        if (data.floodOn && VoxelEngine.Rendering.TorchFloodPool.Ready)   // task 158: only the twins declare the pool
+                        {
+                            VoxelEngine.Rendering.TorchFloodPool.Instance.Bind(cmd, data.compute, data.kPrimary);
+                            cmd.SetComputeIntParam(data.compute, "_FloodLightFirst", data.floodLightFirst);
+                        }
 
                         cmd.SetComputeIntParam(data.compute, "_ShadowRoofSkip", data.roofSkip == 1 ? 1 : 0);
                         cmd.SetComputeFloatParam(data.compute, "_ShadowHalfRes", data.shadowHalfRes);

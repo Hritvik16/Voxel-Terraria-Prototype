@@ -116,6 +116,12 @@
 // window, a debug view, a _DebugShellSkip arm, -shellmask 1 / -shellcolleap 1, or -shelldiet 0.
 #pragma kernel CSMainFarShadeDiag VE_FAR_SHADE VE_SHELL_DIAG
 #pragma kernel CSShellPrepassDiag VE_FAR_SHADE VE_SHELL_DIAG
+// TASK 158 (TORCH_LIGHT_PLAN L2, -torchflood 1, OFF by default): the torch-flood twins of
+// CSMain and CSMainFarShade. Every task-158 line is under #ifdef VE_TORCH_FLOOD, so every
+// other kernel compiles from the pre-task source; tier-0 hits read TorchFlood.hlsl's pool
+// instead of the torch loop + rays, lava's aggregates stay analytic.
+#pragma kernel CSMainFlood VE_TORCH_FLOOD
+#pragma kernel CSMainFarShadeFlood VE_FAR_SHADE VE_TORCH_FLOOD
 #if defined(VE_FAR_SHADE) && !defined(VE_SHELL_DIAG)
 #define VE_SHELL_LEAN
 #endif
@@ -2290,6 +2296,46 @@ float3 SumPointLightsOmni(float3 posM)
     return sum;
 }
 
+#ifdef VE_TORCH_FLOOD
+#include "TorchFlood.hlsl"
+// Task 158: LightBuffer holds the selected torches first, then lava's aggregates
+// (LightSourceBuffer.Upload). With the flood on, tier-0 hits sum only the lava
+// part, from _FloodLightFirst (= the torch count) on; shell hits keep the full loop.
+uint _FloodLightFirst;
+
+float3 FloodOtherLights(float3 posM, float3 nrmF)
+{
+    float3 sum = float3(0.0, 0.0, 0.0);
+    [loop]
+    for (uint i = _FloodLightFirst; i < _ActiveLightCount; i++)
+    {
+        LightSource L = LightBuffer[i];
+        float3 d = float3(L.x, L.y, L.z) - posM;
+        float dist2 = dot(d, d);
+        if (dist2 > L.range * L.range) continue;
+        float atten = 1.0 / (1.0 + dist2 * L.k);
+        if (_PointLightNdotL != 0)
+            atten *= max(0.0, dot(nrmF, normalize(d + 1e-6)));
+        sum += float3(L.r, L.g, L.b) * atten;
+    }
+    return sum;
+}
+
+float3 FloodOtherLightsOmni(float3 posM)
+{
+    float3 sum = float3(0.0, 0.0, 0.0);
+    [loop]
+    for (uint i = _FloodLightFirst; i < _ActiveLightCount; i++)
+    {
+        LightSource L = LightBuffer[i];
+        float3 d = float3(L.x, L.y, L.z) - posM;
+        float dist2 = dot(d, d);
+        if (dist2 > L.range * L.range) continue;
+        sum += float3(L.r, L.g, L.b) / (1.0 + dist2 * L.k);
+    }
+    return sum;
+}
+#endif
 /// faceLight's luminance, in hueSource's colour. Identity when off.
 float3 UniformFaceHue(float3 faceLight, float3 hueSource)
 {
@@ -5244,6 +5290,16 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 
             float3 hitPosM = hitP * 0.1;
             float3 pointTerm, omniTerm = float3(0.0, 0.0, 0.0);
+#ifdef VE_TORCH_FLOOD
+            // Task 158: the flood at the air voxel in front of the face (no rays, no torch loop).
+            if (tierAtHit == 0 && !selfLit)
+            {
+                float3 fl = FloodLight(voxel + normal, normal);
+                pointTerm = fl + FloodOtherLights(hitPosM, nF);
+                if (_UniformFaceHue != 0) omniTerm = fl + FloodOtherLightsOmni((float3(voxel) + 0.5) * 0.1);
+            }
+            else
+#endif
             if (_TorchShadowRays > 0 && tierAtHit == 0 && !selfLit)
                 pointTerm = SumPointLightsShadowed(hitPosM, nF, voxel + normal, (float3(voxel) + 0.5) * 0.1,
                                                    _WindowDimsBricks, omniTerm);
@@ -5422,6 +5478,16 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 
             float3 hitPosM = (rayStart + rayDir * currentDist) * 0.1;
             float3 pointTerm, omniTerm = float3(0.0, 0.0, 0.0);
+#ifdef VE_TORCH_FLOOD
+            // Task 158: as in the look-1 path above.
+            if (tierAtHit == 0 && !selfLit)
+            {
+                float3 fl = FloodLight(voxel + normal, normal);
+                pointTerm = fl + FloodOtherLights(hitPosM, float3(normal));
+                if (_UniformFaceHue != 0) omniTerm = fl + FloodOtherLightsOmni((float3(voxel) + 0.5) * 0.1);
+            }
+            else
+#endif
             if (_TorchShadowRays > 0 && tierAtHit == 0 && !selfLit)
                 pointTerm = SumPointLightsShadowed(hitPosM, float3(normal), voxel + normal, (float3(voxel) + 0.5) * 0.1,
                                                    _WindowDimsBricks, omniTerm);
@@ -5699,6 +5765,20 @@ void CSMainFarShade(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThread
     CSMainBody(tid, gtid, false);
 }
 
+#ifdef VE_TORCH_FLOOD
+// TASK 158: compiled with VE_TORCH_FLOOD (+ VE_FAR_SHADE for the far-shading twin).
+[numthreads(8, 8, 1)]
+void CSMainFlood(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
+{
+    CSMainBody(tid, gtid, false);
+}
+
+[numthreads(8, 8, 1)]
+void CSMainFarShadeFlood(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
+{
+    CSMainBody(tid, gtid, false);
+}
+#endif
 // TASK 134: CSMainFarShade as it was before the diet (VE_FAR_SHADE + VE_SHELL_DIAG).
 [numthreads(8, 8, 1)]
 void CSMainFarShadeDiag(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
