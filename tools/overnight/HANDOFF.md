@@ -1,62 +1,55 @@
-# 157-torch-flood-l1-oracle: DONE -- CPU light-flood oracle + plan tests 1-6 pass; memory fits the 48 MB cap; next is L2
+STOP_FOR_OWNER -- 158 done (torch flood L2, OFF by default). Before L3, three questions (recommendation first):
+Q1 (157 flag, L3 CPU copy). The exact per-voxel CPU copy is far bigger than the plan's "same size again": the 31-torch tg2 scene below
+   needed 152,644 lit bricks x 2 KB = 298 MB of oracle storage during each rebuild (GPU pool 11.2 MB). (a) Recommended: the CPU keeps the
+   GPU's compressed form (11.2 MB here) and edits / removals re-flood only the torches whose box they touch. (b) Per-voxel only in mixed
+   bricks (18,794 x 2 KB = 37 MB here), air bricks rebuilt from their 1-voxel shell. (c) Keep the exact copy (~300 MB: over the 3 GB cap).
+Q2 (157 flag, L3 flood cost). In the player, flooding 31 outdoor torches took 9.8 s on the main thread (316 ms per torch; 157's EditMode figure
+   was 215 ms). (a) Recommended: L3 floods pure-air bricks as a unit plus a sparse scratch (157 est. ~10x fewer steps), on a worker, one
+   torch per job, and lights stream in over a few frames. (b) The worker job alone, as today's flood (one outdoor torch ~0.3 s late).
+Q3 (new, the look). The direction term gives hard-edged facets (a bright square under the room torch, flat wedges along wall corners,
+   vertical stripes on the tunnel wall), because the chamfer flood's gradient is piecewise constant. (a) Recommended: one short look task
+   before L3: a smoother direction (central differences over 0.4 m on 3 axes, or blending toward the nearest torch's direction while the
+   flood path is near-straight), a sheet beside today's. (b) Drop the direction term and lower the intensity (flat, no facets). (c) Accept.
+   "Flood ON by default?" is NOT asked: the cost passes but the look does not yet.
 
-## What changed (branch engine-phase, commit `da7c13e`; CPU only, no GPU / shader / default / look change)
-- `Assets/CoreEngine/Rendering/LightFloodReference.cs`: light lives only in air voxels (resident chunk, material 0). It moves to the 26
-  neighbours with NO corner cutting, so it reaches exactly the 6-connected air. Move costs are chamfer 4 / 6 / 7 units, read at 4.2913 units
-  per 0.1 m. RGB levels combine by per-channel max, 10 bits per channel in one uint (the plan's 4 B per voxel); 12 m = 515 units.
-  Storage is sparse per brick. AddTorch = a Burst single-source flood (Dial's buckets) max-merged into storage. RemoveTorch /
-  OnVoxelsChanged / OnChunkEvicted / OnChunkAdmitted = darken + refill (the Minecraft two-queue pattern, generalised to chamfer weights and
-  RGB). The oracle reads ChunkStore and writes only its own storage.
-- Design choice: the exact weights 1 / 1.41 / 1.73 overestimate Euclid by up to 12.8%, which misses the plan's 8%. Centring the band with
-  4 / 6 / 7 gives +-6.8%. 10 bits reach 23.8 m.
-- `Assets/CoreEngine/Tests/LightFloodReferenceTests.cs` (12 fast, 2 Slow incl. the report). TASKS.md paragraph.
-- Torch colour -> seeds: the brightest channel reaches 12 m and a dimmer channel starts log2(fraction) stops lower (8 stops over the reach).
-  This is an L1 default; L2 maps level -> brightness.
+## What changed (`79d5dc5`, branch engine-phase)
+- `TorchFloodPool.cs` (new): refills FROM SCRATCH when stale (torch set / box chunk admit-evict / EditService write), floods with 157's oracle,
+  `Encode`s to 157's chosen storage (0.2 m mixed cells, value = max; ESCAPE to 8 per-voxel values for split cells; pure-air bricks 2^3 cells
+  at 0.4 m, trilinear), uploads 3 buffers. `SampleLevels` = the HLSL's C# twin; `Probe` = GPU readback. CPU sole writer; no frozen API or layout.
+- `TorchFlood.hlsl` + `Resources/TorchFloodProbe.compute` (new); `Raymarch.compute`: kernels `CSMainFlood` / `CSMainFarShadeFlood`, every line
+  under `#ifdef VE_TORCH_FLOOD` (strip them and the file == HEAD byte for byte). Tier-0 hits: flood + lava aggregates only; shells unchanged.
+- `RaymarchFeature` picks the twin while `TorchFloodPool.Ready`; `LightSourceBuffer.Revision`; hooks in LightingDriver / EditService /
+  Phase4Bootstrapper; `-torchflood 1 -tfi -tfk -tfreach -tfwrap` (defaults I 2.0, k 0.10, 12 m, wrap 0.3).
+- Capture: `-torchreach 1 -trflood 1 [-trfloodb I,k,wrap]` (flood columns, GPU probe, OFF re-shoot, pillar row); cost arm `tf_on`.
+  `tools/torchflood158.py`; `TorchFloodPoolTests` (9); TASKS.md paragraph.
 
 ## Evidence
-- Fast suite PASS 960 FAIL 0 SKIP 15 (was 948 + 12 new; `Logs/overnight/157_tests.out`). Slow `Fuzz_Long` (2 x 300 ops) passed in a
-  filtered run, as did the report run.
-- (1) Sealed: the axis 0.1 m wall, staircase, edge-touching diagonal x==z, plane x+y+z=150 and a closed 0.1 m box each give EXACTLY 0 on the
-  far side, whether built before or after the torch. A doorway opened then sealed returns to exactly 0. (2) Open air at 12 m: 6.49 M lit
-  voxels, flood/Euclid 0.932..1.068. (3) L-bend: 10,211 voxels lit round the corner at 0.956..1.016 of the geodesic, darker than straight-line.
-  (4) Fuzz: incremental == from-scratch byte for byte after every op (80 + 600 ops). (5) Removing all torches frees every slot and chunk table.
-  (6) Evict / edit-while-evicted / re-admit == from-scratch after every step.
-- Report `Screenshots/157/torchflood157.txt` (REPORTS=1, Burst, safety checks OFF; EditMode microbenchmark, not a frame-time claim).
-  Memory per side in the plan's form (0.1 m mixed 2 KB, air brick 32 B, 16 KB per lit chunk): room 0.66 MB, tunnel 0.79, outdoor torch on
-  a post 1.85, 32 torches 5.96, **200 torches over 80 x 80 m open ground 43.8 MB: under 48**. With 0.2 m mixed cells + per-voxel escape:
-  14.4 MB.
-- Split cells at 0.2 m: 0.00% in the room, tunnel, L-bend, outdoor and both grids (0 of 563k at 200 torches; axis walls never split a cell).
-  In the room split by a diagonal 0.1 m wall it is 12.3% (450 cells), and every one of them would leak if stored as a single 0.2 m value.
-- Worker ms per flood: room 7.6 ms (mostly clearing the fixed-size 12 m box), tunnel 12.2 ms, outdoor 215 ms (3.9 M voxels reached). The
-  managed merge is 10-310 ms. The managed incremental remove is 0.3 / 0.6 / 8.7 s (room / tunnel / outdoor; unoptimised oracle code).
-- Looked at all 5 slices: diagonal wall far side pure black; L-bend fades round the bend to black at the reach; tunnel light spills out the
-  mouth as a dim glow; sealed room all lit (5.1 m < 12 m); outdoor pool's outer edge is OCTAGONAL (the +-6.8% chamfer shape).
+- Fast suite PASS 969 FAIL 0 SKIP 15 (`Logs/overnight/158_tests.out`). Tests: sealed axis / x==z (450 escapes) / x+y+z plane / closed box
+  EXACTLY 0 through the encoding; mixed cells never darker, <= 7 levels brighter; air bricks max 12 levels (0.28 m of path), mean 2.8.
+- GPU == C# twin: 0 levels max difference at all 16 x 9 probed pixels in every row (tunnel, room, ground, pillar; both maps). GPU vs oracle
+  max 7-10 levels (of 515); 2 of 132 ground pixels oracle-dark but GPU-lit (the reach-edge band, light ~0 there). `Logs/lookreview_20261031_095257.txt`.
+- OFF: CSMain / CSMainFarShade compile from HEAD's source (strip check). In-launch re-shoot of `tr_ground_today_nat` after the pool existed:
+  2,275 px differ, ALL on the animated river surface (`_RiverTime`), 0 px anywhere the torch lights. No cross-build raw still (a 19 min
+  rebuild of HEAD): the source identity is the proof.
+- Cost (warm steady state; warm-up `Logs/tg2world_20261031_101855.txt` discarded; `Logs/costsplit_2026-10-31_102459.txt`, 151's 31 torches,
+  night, 540 rows, F X X F X X F): FULL (today) p50 62.0 ms (60.0 / 63.3 / 62.6), p99 76.8; tf_on p50 56.1 / 56.7, p99 67.3 / 67.8 ->
+  **saved +5.6 / +6.3 ms p50** (noise 3.3 / 0.7), p99 -9 ms. Pool 11.21 MB GPU (162 lit chunks, 133,850 air + 18,794 mixed bricks, 14 escapes).
+- Look sheet `Screenshots/158/torchflood158.png` (counts `torchflood158.txt`): lit px today / flood: tunnel 107,664 / 428,115, room 384,248 /
+  2,073,600 (the whole frame), ground 80,085 / 542,137. First launch (no direction term, I 3.0) blew the room out (mean luma 209); the
+  direction term brought it to 59.7 (analytic 24 m: 41.8). Pillar: lit front face, no crisp shadow (as Q1 of 155 chose).
 
-## Decisions / flags (no STOP: memory fits, no frozen API or layout touched)
-- **L2 storage (the plan left this to L1): 0.2 m mixed cells + a per-voxel escape for split cells.** It is 3x smaller (14.4 vs 43.8 MB at
-  200 torches). Escapes are needed only on thin diagonal walls. The 0.1 m form also fits, but only with 9% headroom, and only on flat ground.
-- **FLAG for L3 (ask the owner before L3), CPU copy:** the plan said "the CPU copy is the same size again". An EXACT per-voxel CPU copy (what
-  two-queue removal needs) would be 528 MB for the 200-torch grid. Options: the CPU keeps the GPU's compressed form and removals/edits
-  re-flood the affected torches; or per-voxel only in mixed bricks, with air bricks rebuilt from their 1-voxel shell.
-- **FLAG for L3, flood cost:** outdoor 215 ms vs the plan's est. 5-15 ms. Only 9% of the reached voxels are in mixed bricks, so the plan's
-  "pure-air bricks flood as a unit" is required, est. ~10x fewer voxel steps, and a sparse scratch instead of the 21 M-cell box.
-  Q5's "1-3 frames" holds for rooms and tunnels today but not for an outdoor placement.
-- The octagonal outer edge is a look item for L2 (the falloff is dim there; check it in the sheet).
-
-## Next
-L2 (`TORCH_LIGHT_PLAN` §3): GPU light pool (0.2 m + escape) + shader sampling behind `-torchflood 1`, OFF, filled from this oracle; 143's
-sheet rows plus a "flood 12 m" column and a pillar shot; one warm cost-split arm vs today (151's 32 torches). No follow-up task queued.
+## Unfinished / next
+- L3 after Q1-Q3. Fluid writes do not refill the flood (L3); no pool cap (L4); coloured torch materials all reach the same brightness.
+- The tunnel's flood row stored 90 air bricks in launch 1 and 385 in launch 2 for the same built tunnel (the brick headers differ between
+  launches: uniform-air vs dense); harmless (both encodings are exact to the bound), noted.
 
 ## For the doc
-- Exactness: sealed walls (axis, staircase, x==z diagonal, x+y+z plane, closed box) 0 light behind them; open-air distance 0.932..1.068 of
-  Euclid; L-bend 0.956..1.016 of the walking path; incremental == from-scratch after 680 fuzz ops (`LightFloodReferenceTests`).
-- Memory per side, 200 torches over 80 x 80 m: 43.8 MB at 0.1 m (cap 48) -> 14.4 MB at 0.2 m + escape; 1 outdoor torch 1.85 MB, room 0.66 MB
-  (`Screenshots/157/torchflood157.txt`).
-- Split 0.2 m cells: 0% in natural/axis geometry, 12.3% only beside a diagonal 0.1 m wall.
-- Worker flood (Burst): room 7.6 ms, tunnel 12.2 ms, outdoor 215 ms (plan est. 1-4 / 5-15 ms) -> L3 needs air-brick-as-unit floods.
-- `Screenshots/157/slice157_diagonalwall.png`: top-down slice of a 6 m room cut by a 0.1 m diagonal wall (x == z), torch upper right. Look at the
-  lower-left triangle: it is pure black right up to the stair-step wall, so no light leaks through the corner-touching voxels.
-- `Screenshots/157/slice157_lbend.png`: L-shaped 1 m corridor, torch at the top-left end. Look at the right-hand leg: the light turns the corner
-  and fades to black with walking distance; the dark contour lines (1 m of path each) bend round the corner.
-- `Screenshots/157/slice157_tunnel138.png`: task 138's tunnel from above, mouth on the right, torch at the lower wall 10.2 m in (bright spot,
-  lower left). Look at the right edge: a dim glow spills out of the mouth into the open air.
+- Frame time, 31 torches at night (warm, ABBA): today p50 62.0 ms -> flood 56.1-56.7 ms (**-5.6 / -6.3 ms**), p99 76.8 -> 67.3-67.8 ms
+  (`Logs/costsplit_2026-10-31_102459.txt`).
+- GPU pool 11.2 MB for those 31 torches; rebuild 9.8 s on the main thread (L3 must move and cut it); exact CPU copy would be 298 MB (Q1).
+- Correctness: GPU sample == C# twin at 100% of probed pixels; sealed walls (incl. 0.1 m diagonals) exactly dark through the encoding.
+- `Screenshots/158/torchflood158.png`: rows tunnel / sealed room / open ground / pillar at night; columns today, analytic 14 m, analytic 24 m
+  (task 143), FLOOD 12 m (recommended map), FLOOD brighter map. Look at the room row's flood cells: the whole room is lit softly, but see the
+  bright square under the torch and the straight wedges along the wall corners (Q3); the tunnel row's left wall shows vertical stripes.
+- `Screenshots/158/torchcamp158.png`: the cost scene, left today, right flood. Look at the lower-left slope: today shows small dots of light
+  round each post, the flood lights the slope out to ~12 m round each post.
