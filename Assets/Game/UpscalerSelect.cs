@@ -19,6 +19,14 @@
 // CaptureMinRows-MaxRows (360-720), so a capture can shoot e.g. 432 rows. Play
 // cannot reach it: PlaySettings only passes 540 / 720 / dyn, and the dynamic
 // controller still moves within MinRows-MaxRows.
+//
+// TASK 159 (owner Q100 (a), 2026-10-31; PERF_30FPS_PLAN step 3): PLAY's dyn
+// range is 432-540 rows at a ~30 ms target (dead band 27-33 ms), so the rows
+// drop only on views heavier than 30 fps and stay at 540 on light ones. Every
+// run takes the OLD range (540-720 at 16.7 ms) unless it is a PlaySettings run
+// (Playground.Start) or passes -dynfloor N: N >= 540 = the old range, N in
+// 360-539 = N-540 at 30 ms. tools/play-flags.sh passes -dynfloor 432, so
+// MODE=playwalk follows play; `EXTRA="-dynfloor 540"` gives the old controller.
 // Either flag alone turns this on (defaults: none, 540). Last match wins, like
 // PlaygroundCapture. NEITHER FLAG GIVEN: capture/rig runs keep RenderPreset /
 // the shipped gate; an interactive run (task 52, owner Q38 (a)) starts with
@@ -35,7 +43,13 @@ public static class UpscalerSelect
     public const int MinRows = 540, MaxRows = 720, DynStep = 36;
     /// Task 156: the floor for a pinned (non-dyn) row count; capture runs only.
     public const int CaptureMinRows = 360;
-    public const float DynTargetMs = 16.7f;
+    /// The dyn controller's range and target (task 159): UseDynRange.
+    public static int DynFloor { get; private set; } = MinRows;
+    public static int DynCeil { get; private set; } = MaxRows;
+    public static float DynTargetMs { get; private set; } = 16.7f;
+    /// Task 159: play's dyn floor (owner Q100 (a)).
+    public const int PlayDynFloor = 432;
+    public const float PlayDynTargetMs = 30f;
 
     public static bool Active { get; private set; }
     public static Kind Current { get; private set; } = Kind.None;
@@ -69,6 +83,20 @@ public static class UpscalerSelect
         return true;
     }
 
+    /// Task 159: floor >= MinRows -> the old range (540-720, 16.7 ms); below ->
+    /// floor-540 at 30 ms. Takes effect at the next Apply.
+    public static void UseDynRange(int floor)
+    {
+        if (floor >= MinRows) { DynFloor = MinRows; DynCeil = MaxRows; DynTargetMs = 16.7f; }
+        else { DynFloor = Mathf.Max(CaptureMinRows, floor); DynCeil = MinRows; DynTargetMs = PlayDynTargetMs; }
+    }
+
+    /// Task 159: `-dynfloor N` if given (last match), else `defaultFloor`.
+    public static void UseDynRangeFromArgs(int defaultFloor) =>
+        UseDynRange(int.TryParse(ArgValue("-dynfloor"), out int f) ? f : defaultFloor);
+
+    public static string DynRangeLabel => $"{DynFloor}-{DynCeil}";
+
     public static bool TryParseKind(string s, out Kind k)
     {
         switch (s.ToLowerInvariant())
@@ -89,7 +117,7 @@ public static class UpscalerSelect
         Dynamic = dyn;
         DynHeld = false;
         DynStableFrames = 0; DynChanges = 0; DynSmoothedMs = 0f;
-        Rows = dyn ? MinRows : Mathf.Clamp(rows, CaptureMinRows, MaxRows);
+        Rows = dyn ? Mathf.Min(MinRows, DynCeil) : Mathf.Clamp(rows, CaptureMinRows, MaxRows);
         ApplyRows();
         Debug.Log($"[UpscalerSelect] {Describe()}");
     }
@@ -100,13 +128,13 @@ public static class UpscalerSelect
     public static bool DynHeld { get; private set; }
     public static void HoldDynRows(int rows)
     {
-        Rows = Mathf.Clamp(rows, MinRows, MaxRows);
+        Rows = Mathf.Clamp(rows, DynFloor, DynCeil);
         DynHeld = true;
         ApplyRows();
     }
 
     public static string Describe() =>
-        $"upscaler {Name(Current)}, internal {InternalWidth(Rows)}x{Rows}{(Dynamic ? " (dyn)" : "")} -> {Screen.width}x{Screen.height}";
+        $"upscaler {Name(Current)}, internal {InternalWidth(Rows)}x{Rows}{(Dynamic ? $" (dyn {DynRangeLabel}, target {DynTargetMs:F1} ms)" : "")} -> {Screen.width}x{Screen.height}";
 
     /// Hands the frame back to RenderPreset (called from RenderPreset.Apply).
     public static void Deactivate()
@@ -137,12 +165,16 @@ public static class UpscalerSelect
             DynSmoothedMs = DynSmoothedMs <= 0f ? ms : Mathf.Lerp(DynSmoothedMs, ms, 0.05f);
             DynStableFrames++;
             // 30 frames between steps so the smoothed time sees the new size;
-            // a 15-18 ms dead band round the 16.7 ms target so it settles.
+            // a dead band round the target so it settles: 15-18 ms round the
+            // old 16.7 ms, 27-33 ms round play's 30 ms (task 159; one 36-row
+            // step is ~13% of the pixels, inside the +-10% band).
             if (DynStableFrames >= 30)
             {
+                bool old = DynTargetMs < 20f;
+                float hi = old ? 18f : DynTargetMs * 1.1f, lo = old ? 15f : DynTargetMs * 0.9f;
                 int next = Rows;
-                if (DynSmoothedMs > 18f && Rows > MinRows) next = Rows - DynStep;
-                else if (DynSmoothedMs < 15f && Rows < MaxRows) next = Rows + DynStep;
+                if (DynSmoothedMs > hi && Rows > DynFloor) next = Mathf.Max(DynFloor, Rows - DynStep);
+                else if (DynSmoothedMs < lo && Rows < DynCeil) next = Mathf.Min(DynCeil, Rows + DynStep);
                 if (next != Rows)
                 {
                     Rows = next; DynStableFrames = 0; DynChanges++;

@@ -1,0 +1,23 @@
+UPSCALER CLIPS -- 2026-10-31_104821
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 540 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 60 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 540 rows inner inf -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 540 rows inner 1.50 -> outer 0.75 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 540 rows inner 1.50 -> outer 1.00 (at 1080 output: outer 2.00)
+
+== walk_open: eye (3959.8, 1056.2, 3880.2), yaw 113 pitch 0 deg; circle angle 248 deg, median free distance 1500 m
+  [shells] waited 60 s (cap 60 s): stored/missing/in flight:  s1 1832/0/0  s2 1494/0/0  s3 1223/95/7  s4 293/696/7  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 4842, missing 1478, pending 0; requested 5620, generated 5606 (88 ms each on a worker), dropped stale 11, over-budget frames 1 (of 2162)
+  [px] walk_open  hits / >1 px / max px per shell (0 = tier 0 + cascade):  s0 193464/190008/11.62  s1 7942/0/0.83  s2 1378/1378/1.32  s3 -  s4 -  s5 -  s6 -  s7 -
+  walk_open  fsr3_540  dispatch 960x540
+  walk_open  fsr3_432  dispatch 768x432
+  walk_open motion bursts (task 159): still / walk 0.05 m/frame / turn 0.2 deg/frame, 60 lead + 4 consecutive frames, fsr3_540 and fsr3_432
+
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-10-31_104821_high

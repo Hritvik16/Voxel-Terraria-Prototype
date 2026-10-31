@@ -369,6 +369,9 @@ public partial class Playground : MonoBehaviour
         // (SettingsMenu.LoadAndApply, below). Its defaults are exactly fsr3 dyn.
         bool playSettings = IsPlaySettingsRun();
         _moveAbilities = playSettings;
+        // Task 159 (owner Q100 (a)): play's dyn range is 432-540 at 30 ms; other
+        // runs keep 540-720 at 16.7 ms; -dynfloor N overrides either (UpscalerSelect).
+        UpscalerSelect.UseDynRangeFromArgs(playSettings ? UpscalerSelect.PlayDynFloor : UpscalerSelect.MinRows);
         if (!playSettings)
         {
             if (UpscalerSelect.FromArgs(out var upsKind, out int upsRows, out bool upsDyn)) UpscalerSelect.Apply(upsKind, upsRows, upsDyn);

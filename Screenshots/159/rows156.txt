@@ -1,0 +1,5 @@
+walk_near: missing (walk_near_fsr3_540.png / walk_near_fsr3_432.png)
+walk_open: mean |dlum| 2.03 (0-255); crops #1 x0 y980 8.0, #2 x1240 y720 7.3, #3 x1300 y620 7.0
+high: missing (high_fsr3_540.png / high_fsr3_432.png)
+cliff: missing (cliff_fsr3_540.png / cliff_fsr3_432.png)
+torch: missing (torch_fsr3_540.png / torch_fsr3_432.png)

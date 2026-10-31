@@ -38,7 +38,7 @@ public sealed class PlaySettings
     // ---- The saved fields (JsonUtility: public fields only) ----
     /// none | taa | fsr1 | stp | fsr3 (UpscalerSelect.Kind; `-upscaler`).
     public string upscaler = "fsr3";
-    /// 540 | 720 | dyn (`-renderrows`).
+    /// 540 | 720 | dyn (`-renderrows`; dyn = 432-540 at 30 ms since task 159, `-dynfloor 540` = the old 540-720).
     public string rows = "dyn";
     /// §6.5's rungs, the J key: 0 full soft, 1 half-res beyond LOD1, 2 hard, 3 off (`-shadowlevel`).
     public int shadowLevel = 0;

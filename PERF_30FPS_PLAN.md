@@ -8,7 +8,7 @@ document. Every number cites its source. A number marked **est.** was not measur
 
 **Milestone (task 146, 2026-10-25, warm, AC, play defaults via `MODE=playwalk`):** walk p50 45.7 / 43.6 ms, p95 73.0 / 74.5, p99 97.0 / 95.6,
 > 33 ms 88.6 / 81.6% (`Logs/tg2world_20261025_{114953,121758}.txt`); steady FULL walk_near 61.0, walk_open 36.1 (`Logs/costsplit_2026-10-25_115751.txt`).
-Section 3 status: step 0 DONE (112, 145b); step 1 SPENT (116: ~0, OFF); step 2 SPENT (117: ~0); step 3 UNSPENT (owner: rows < 540);
+Section 3 status: step 0 DONE (112, 145b); step 1 SPENT (116: ~0, OFF); step 2 SPENT (117: ~0); step 3 DONE (159, owner Q100 (a): play's FSR 3 dyn 432-540 at 30 ms; playwalk p50 47.4 -> 32.7 ms, ABBA on BATTERY);
 step 4 SPENT (118 no-op, 124 ~0); step 5 SPENT (115: the tail is slow GPU views, not hitches; 123's eviction slicing fixed the slides, p99 not, OFF); step 6 UNSPENT.
 Off-plan since: 132 pre-pass ON (-4.2 / -6.9), 134 kernel diet ON (-7.1 / -5.5), 133 near shadows through shells ON (+6.1 near noon, a bug fix),
 137 hole leap OFF (~0). Ranked remaining cuts: HANDOFF 146.

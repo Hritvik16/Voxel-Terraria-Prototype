@@ -230,8 +230,8 @@ public class SettingsMenu : MonoBehaviour
         // 3. Internal rows.
         int rowsCur = !UpscalerSelect.Active ? -1 : UpscalerSelect.Dynamic ? 2 : UpscalerSelect.Rows >= UpscalerSelect.MaxRows ? 1 : 0;
         pick = Row(x, ref y, "Internal resolution", "rows",
-            "Rows the voxels are traced at, upscaled to the screen. The frame is GPU-bound: it follows these pixels.",
-            new[] { "540", "720", UpscalerSelect.Active && UpscalerSelect.Dynamic ? $"Dynamic (now {UpscalerSelect.Rows})" : "Dynamic 540-720" }, rowsCur);
+            $"Rows the voxels are traced at, upscaled to the screen. The frame is GPU-bound: it follows these pixels. Dynamic aims at {UpscalerSelect.DynTargetMs:F0} ms (-dynfloor 540: the old 540-720 at 17 ms).",
+            new[] { "540", "720", UpscalerSelect.Active && UpscalerSelect.Dynamic ? $"Dynamic {UpscalerSelect.DynRangeLabel} (now {UpscalerSelect.Rows})" : $"Dynamic {UpscalerSelect.DynRangeLabel}" }, rowsCur);
         if (pick >= 0 && pick != rowsCur)
         {
             string rows = PlaySettings.RowChoices[pick];

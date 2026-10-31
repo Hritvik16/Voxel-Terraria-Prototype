@@ -323,6 +323,21 @@ public partial class PlaygroundCapture
             yield return Frames(30);
             yield return CaptureTo($"{n}_{fsr}_tint");
             RaymarchFeature.ShellTint = false;
+            // Task 159: -lookrowsab N with bursts on: walk_open's still / walk / turn bursts at 540 and N (FSR 3 shimmer
+            // and ghosting at 2.5x show only across consecutive frames; task 156 had stills only).
+            if (rowsAB > 0 && bursts && n == "walk_open")
+            {
+                Vector3 fwd = rot * Vector3.forward; fwd.y = 0f; fwd = fwd.normalized;
+                foreach (string arm in new[] { fsr, $"fsr3_{rowsAB}" })
+                {
+                    ApplyCompareArm(arm);
+                    cam.ResetProjectionMatrix();
+                    yield return LookBurst($"{n}_{arm}_still", cam, eye, rot, Vector3.zero, 0f);
+                    yield return LookBurst($"{n}_{arm}_walk", cam, eye, rot, fwd * 0.05f, 0f);
+                    yield return LookBurst($"{n}_{arm}_turn", cam, eye, rot, Vector3.zero, 0.2f);
+                }
+                L($"  {n} motion bursts (task 159): still / walk 0.05 m/frame / turn 0.2 deg/frame, 60 lead + 4 consecutive frames, {fsr} and fsr3_{rowsAB}");
+            }
             if (rowsAB > 0) { Phase4Bootstrapper.DebugStreamCentre = null; File.WriteAllText(Path.Combine(root, "lookreview.txt"), _log.ToString()); continue; }
             if (goldenAll)
             {

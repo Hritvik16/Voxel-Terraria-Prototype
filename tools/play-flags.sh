@@ -13,4 +13,4 @@
 #   abilities (Playground._moveAbilities = IsPlaySettingsRun), the HUD perf overlay level. softShadows true and
 #   the scripted -sustained camera need no flag.
 PLAY_WORLD_FLAGS="-world tg2 -mapversion ${MAPV:-4} -farband 1 -farshadow 1"
-PLAY_SETTINGS_FLAGS="-renderpreset quality -upscaler fsr3 -renderrows dyn -shadowlevel 0 -roofskip 0 -shadowres full -gamemode survival -underwater 1 -seethrough 1 -riverlook 1 -farshade 1 -shells 1 -shellworkers 3 -minimap"
+PLAY_SETTINGS_FLAGS="-renderpreset quality -upscaler fsr3 -renderrows dyn -dynfloor 432 -shadowlevel 0 -roofskip 0 -shadowres full -gamemode survival -underwater 1 -seethrough 1 -riverlook 1 -farshade 1 -shells 1 -shellworkers 3 -minimap"

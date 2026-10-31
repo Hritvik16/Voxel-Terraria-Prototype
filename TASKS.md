@@ -737,3 +737,15 @@ air bricks <= 12 levels; split-cell table; Raymarch flood code only under the #i
 -trflood 1 [-trfloodb I,k,wrap]` adds the flood column(s), a GPU == oracle probe at 16 x 9 pixels per row (`probe (...)` lines), an OFF re-shoot
 (`tr_ground_today_nat_off2`) and a pillar row; sheet `python3 -I tools/torchflood158.py <dir> Screenshots/158 <log>`. Cost arm `tf_on` (`-costpaths torch`,
 `PlaygroundCapture.TorchCost.cs`): the launch's torches with the flood on, built once before the first timed window. Result: HANDOFF 158.
+
+**Task 159 (perf, PERF_30FPS_PLAN step 3, owner Q100 (a) 2026-10-31; PLAY DEFAULT CHANGED): FSR 3 dyn 432-540 rows at a 30 ms target.**
+`UpscalerSelect.UseDynRange(floor)`: floor >= 540 = the old controller exactly (540-720, target 16.7 ms, dead band 15-18 ms); floor 360-539 = floor-540
+at `PlayDynTargetMs` 30 (dead band 27-33 ms, +-10%; one 36-row step is ~13% of the pixels), starting at 540. `Playground.Start` picks it before any
+`Apply`: a PlaySettings (interactive) run defaults to `PlayDynFloor` 432, every other run (captures, rigs, -fluidprobe) to 540 = unchanged;
+`-dynfloor N` overrides either (`-dynfloor 540` = the old play behaviour). `tools/play-flags.sh` passes `-dynfloor 432` so MODE=playwalk follows play
+(pinned by `PlaySettingsTests.PlayFlagsFileMatchesPlaySettingsDefaults`). Pinned `-renderrows N` / task 156's `CaptureMinRows` unchanged; FSR 3's max
+render size stays 720. F6: the rows row reads "Dynamic 432-540 (now N)", its hint names the target. `Describe()` / the `[UpscalerSelect]` line print the
+dyn range + target. Rig output: `sustained.tsv` gained a 7th column `meanRows` (the window's mean internal rows). Capture: `-lookreview -lookrowsab N`
+with bursts on (default) now also shoots walk_open's still / walk / turn bursts at 540 and N (`walk_open_fsr3_<rows>_<motion>_0..3.png`; diff with
+`tools/look-review-diff.py bursts`). Run: `PRESETS=high EXTRA="-lookrowsab 432 -lookposes walk_open -lookwait 60 -shellworkers 6" ./run-look-review.sh`.
+Result: HANDOFF 159 (playwalk p50 47.4 -> 32.7 ms on battery ABBA; rows at 432 on 81-89% of walk frames; no new shimmer in the bursts).

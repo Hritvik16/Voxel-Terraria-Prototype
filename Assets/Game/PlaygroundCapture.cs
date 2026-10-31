@@ -2002,6 +2002,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         // shell completed (s from the walk's start; 0 = already complete) (ShellsPerf.cs).
         var allMs = new List<float>(65536);
         var dynRows = new SortedDictionary<int, int>();   // task 145b: frames per internal row count (FSR 3 dyn)
+        long windowRowsSum = 0;                           // task 159: the window's mean internal rows (sustained.tsv)
         var shellsW = VoxelEngine.Mirror.ShellStreamer.Active;
         float[] shellDone = shellsW != null ? new float[shellsW.Layout.ShellCount] : null;
         if (shellsW != null)
@@ -2077,7 +2078,7 @@ public partial class PlaygroundCapture : MonoBehaviour
             windowMs.Add(Time.unscaledDeltaTime * 1000.0);
             windowFrames++;
             allMs.Add(Time.unscaledDeltaTime * 1000f);
-            if (UpscalerSelect.Active) { dynRows.TryGetValue(UpscalerSelect.Rows, out int nRows); dynRows[UpscalerSelect.Rows] = nRows + 1; }
+            if (UpscalerSelect.Active) { dynRows.TryGetValue(UpscalerSelect.Rows, out int nRows); dynRows[UpscalerSelect.Rows] = nRows + 1; windowRowsSum += UpscalerSelect.Rows; }
             if (shellsW != null) ShellTrack(shellsW, shellDone, Time.realtimeSinceStartup - runStart);
             if (ftm)
             {
@@ -2100,10 +2101,11 @@ public partial class PlaygroundCapture : MonoBehaviour
                 L($"  {(Time.realtimeSinceStartup - runStart) / 60f,8:F1}{mean,9:F2}{fps,8:F1}" +
                   $"{1000.0 * over33 / windowMs.Count,10:F1}{mean - firstWindowMs,10:+0.00;-0.00}{note}");
                 int resident = Phase4Bootstrapper.Store != null ? Phase4Bootstrapper.Store.ResidentCount : -1;
-                rows.Add($"{(Time.realtimeSinceStartup - runStart) / 60f:F3}\t{mean:F3}\t{fps:F2}\t{over33}\t{windowMs.Count}\t{resident}");
+                float meanRows = UpscalerSelect.Active ? windowRowsSum / (float)Mathf.Max(1, windowMs.Count) : 0f;
+                rows.Add($"{(Time.realtimeSinceStartup - runStart) / 60f:F3}\t{mean:F3}\t{fps:F2}\t{over33}\t{windowMs.Count}\t{resident}\t{meanRows:F1}");
                 if (shellsW != null) L($"      [shells] held{ShellHeldLine(shellsW)}");
 
-                windowMs.Clear(); windowFrames = 0; windowStart = Time.realtimeSinceStartup;
+                windowMs.Clear(); windowFrames = 0; windowRowsSum = 0; windowStart = Time.realtimeSinceStartup;
             }
         }
 
@@ -2227,7 +2229,7 @@ public partial class PlaygroundCapture : MonoBehaviour
 
         File.WriteAllText(Path.Combine(_folder, "sustained.txt"), _log.ToString());
         File.WriteAllText(Path.Combine(_folder, "sustained.tsv"),
-            "minutes\tmeanMs\tfps\tframesOver33\tframesInWindow\tresidentChunks\n" + string.Join("\n", rows) + "\n");
+            "minutes\tmeanMs\tfps\tframesOver33\tframesInWindow\tresidentChunks\tmeanRows\n" + string.Join("\n", rows) + "\n");
         Debug.Log("[sustained]\n" + _log);
         yield return null;
         Application.Quit(0);

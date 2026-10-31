@@ -321,5 +321,12 @@ public class PlaySettingsTests
         int wi = System.Array.IndexOf(args, "-shellworkers");
         Assert.IsTrue(wi >= 0 && args[wi + 1] == PlaySettings.PlayShellWorkers.ToString(), "-shellworkers must be PlayShellWorkers");
         Assert.IsTrue(System.Array.IndexOf(args, "-minimap") >= 0, "-minimap (play shows it; capture runs hide it unless asked)");
+        // Task 159: play's dyn floor (UpscalerSelect, Assembly-CSharp: read from source like RenderPreset.Default).
+        var fm = System.Text.RegularExpressions.Regex.Match(
+            File.ReadAllText(Path.Combine(UnityEngine.Application.dataPath, "Game", "UpscalerSelect.cs")),
+            @"public const int PlayDynFloor = (\d+);");
+        Assert.IsTrue(fm.Success, "UpscalerSelect.PlayDynFloor's declaration not found");
+        int di = System.Array.IndexOf(args, "-dynfloor");
+        Assert.IsTrue(di >= 0 && args[di + 1] == fm.Groups[1].Value, "-dynfloor must be UpscalerSelect.PlayDynFloor (" + fm.Groups[1].Value + ")");
     }
 }
