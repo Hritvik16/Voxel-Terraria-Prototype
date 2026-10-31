@@ -1,0 +1,26 @@
+TASK 157 -- torch light flood oracle (TORCH_LIGHT_PLAN.md L1). REPORTS=1 EditMode, this Mac (M1 Air), Burst flood job.
+reach 12 m = 515 units (chamfer 4/6/7 at 4.2913 units per 0.1 m), torch seed (515,484,425) (material Torch)
+Burst enabled: True; jobs compiled with safety checks OFF (as in a player build).
+ms are a CPU microbenchmark in the Editor (cold-ish chip, one run, median of 3 re-adds): magnitude only, NOT a frame-time claim.
+
+MEMORY (per side). plan = 0.1 m mixed bricks 2 KB + air bricks 32 B (2^3 cells at 0.4 m) + 16 KB slot table per lit chunk;
+  0.2m = mixed bricks at 0.2 m (256 B) + 32 B per split cell (its 8 voxels at 0.1 m) + the same air / tables;
+  oracle = this CPU oracle's exact per-voxel storage (2 KB per lit brick).
+  split = 0.2 m cells (with air) of lit mixed bricks whose air voxels form >= 2 face-connected groups inside the cell;
+  leak = split cells with one group lit and another dark (what a single 0.2 m value would get wrong).
+scene                                air br   mixed chunks | MB plan MB 0.2m MB oracle | split cells at 0.2 m
+tunnel 138, torch 10.2 m in             339     361      5 |    0.79    0.18     1.45 |   0.00% (0/13,934) leak 0 | per torch 0.79 MB
+sealed room 138, torch in a corner      179     269      8 |    0.66    0.20     1.00 |   0.00% (0/6,120) leak 0 | per torch 0.66 MB
+L-bend corridor 1 x 2 m                   0     108      1 |    0.23    0.04     0.23 |   0.00% (0/3,780) leak 0 | per torch 0.23 MB
+6 m room split by a diagonal 0.1 m wall       62     118      1 |    0.25    0.06     0.37 |  12.32% (450/3,652) leak 450 | per torch 0.25 MB
+outdoor torch on a 1.5 m post         8,301     722     12 |    1.85    0.62    17.81 |   0.00% (0/23,168) leak 0 | per torch 1.85 MB
+32 torches, open ground ~20 x 11 m   29,992   2,328     32 |    5.96    1.98    63.63 |   0.00% (0/76,608) leak 0 | per torch 0.19 MB
+200 torches, open ground 80 x 80 m  252,064  17,196    162 |   43.81   14.42   528.43 |   0.00% (0/563,072) leak 0 | per torch 0.22 MB
+
+200-torch base: plan storage 43.8 MB vs the 48 MB cap per side -> under; 0.2 m + escape 14.4 MB.
+
+WORKER TIME PER FLOOD (one torch; the flood job is the Burst core L3 runs on a worker):
+tunnel 138 (10.2 m in)     247,640 reached (75% of that = voxels of lit mixed bricks) | flood job   12.2 ms | gather   4.0 | merge (managed)   20.2 | incremental remove (managed)   562.9 ms
+sealed room 138 (corner)   132,650 reached (104% of that = voxels of lit mixed bricks) | flood job    7.6 ms | gather   3.9 | merge (managed)   10.9 | incremental remove (managed)   306.0 ms
+outdoor, post 1.5 m      3,904,960 reached (9% of that = voxels of lit mixed bricks) | flood job  215.2 ms | gather   3.8 | merge (managed)  309.6 | incremental remove (managed)  8724.3 ms
+32 torches: flood jobs 6689 ms total (209.0 per torch); 200 torches: 41587 ms total (207.9 per torch)

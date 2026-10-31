@@ -700,3 +700,20 @@ it (PlaySettings passes only 540 / 720 / dyn; the dyn controller still moves in 
 scene, `-nighttod` 0.5 h). Run: `PRESETS=high EXTRA="-lookrowsab 432 -lookposes walk_near,walk_open,high,cliff,torch -lookbursts 0 -lookwait 60
 -shellworkers 6" ./run-look-review.sh`; sheets `python3 -I tools/rows156.py <LookReview dir> Screenshots/156 [N]` (per pose LEFT 540 / RIGHT N,
 plus 3x crops of each pose's 3 most-different 160x90 windows). Result: HANDOFF 156, `Screenshots/156/`, `Logs/lookreview_20261030_154829.txt`.
+
+**Task 157 (TORCH_LIGHT_PLAN step L1, owner "a to all" on 155, CPU ONLY: no GPU / shader / default / look change): the torch light-flood oracle.**
+`Assets/CoreEngine/Rendering/LightFloodReference.cs` (global namespace, like SkyVisReference): light in AIR voxels (resident, material 0; every other
+material blocks, as today's torch rays); 26 moves with NO corner cutting (an edge move needs both face voxels it cuts past open, a corner move all 6),
+so reachability == 6-connected air; chamfer 4 / 6 / 7 read at 4.2913 units per 0.1 m (centres the error band: +-6.8% of Euclid; 1/1.41/1.73 would be
+0..+12.8%); level_c = max over torches (seed_c - path cost), 10-bit per channel packed r | g<<10 | b<<20 (4 B per voxel); 12 m = 515 units
+(`ReachLevel`), 10 bits reach 23.8 m. `SeedFor(r,g,b)`: brightest channel reaches the full reach, a channel at fraction f starts log2(f) stops lower
+(`STOPS_AT_REACH` 8 over the reach: L1 default, L2 may revisit). Storage sparse per brick (16 KB slot table per lit chunk, 2 KB per lit brick, a brick
+allocated iff non-zero). `AddTorch` = one Burst SSSP (Dial's buckets, `FloodJob`) over the torch's brick-aligned box + max-merge; `RemoveTorch`,
+`OnVoxelsChanged(changed)` (after ChunkStore writes), `OnChunkEvicted` / `OnChunkAdmitted` (after the store change) = darken (zero every voxel whose
+level equals a darkened neighbour's old level - move cost, or came through a move that is invalid now) + refill (relax from every lit voxel / torch
+next to a zeroed one). Torch voxels must be solid while registered. `FromScratch`, `Diff` (byte for byte incl. allocations). Tests
+`LightFloodReferenceTests` (plan tests 1-6): sealed axis / staircase / x==z edge-touching / x+y+z plane / closed box (built before AND after the torch)
+exactly 0; doorway open -> sealed; open air flood/Euclid 0.932..1.068 at 12 m; L-bend lit round the corner at 0.956..1.016 of the geodesic; fuzz 80
+ops (fast) / 2 x 300 (`Fuzz_Long`, Slow) incremental == scratch after every op, then every slot freed; evict / edit / re-admit == scratch. Report
+(`REPORTS=1`, Slow, ~2.5 min): `Screenshots/157/torchflood157.txt` + `slice157_{tunnel138,sealedroom,lbend,diagonalwall,outdoor}.png` (top-down at the
+torch height: grey solid, black unlit air, light = level / seed per channel, dark contour every 1 m of path). Result: HANDOFF 157.
