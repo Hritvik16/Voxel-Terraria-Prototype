@@ -1,6 +1,6 @@
-159 perf-dyn-floor-432 -- DONE, SHIPPED as the play default: FSR 3 dyn 432-540 rows at a 30 ms target; playwalk p50 -14.7 ms (ABBA, ON BATTERY, see caveat).
+159 perf-dyn-floor-432 -- DONE (`69ccc4a`), SHIPPED as the play default: FSR 3 dyn 432-540 rows at a 30 ms target; playwalk p50 -14.7 ms (ABBA, ON BATTERY, see caveat).
 
-## What changed (branch engine-phase; commit: see `git log -1`, "159:")
+## What changed (branch engine-phase, `69ccc4a`)
 - `UpscalerSelect.cs`: `UseDynRange(floor)` / `UseDynRangeFromArgs`; floor >= 540 = the old controller exactly (540-720, 16.7 ms, band 15-18);
   floor < 540 = floor-540 at `PlayDynTargetMs` 30 (band 27-33 ms). `DynTargetMs` is now a property. `Describe()` prints range + target.
 - `Playground.Start`: PlaySettings (interactive) runs take `PlayDynFloor` 432; all other runs 540 (rigs/captures unchanged); `-dynfloor N` wins.
