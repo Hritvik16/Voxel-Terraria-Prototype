@@ -10,7 +10,7 @@ No layout additions are recommended (R5's bitmap is listed but NOT recommended: 
 
 # 160-plan-exact-30fps-cuts: DONE (plan only) -- `PERF_EXACT_CUTS.md`; exact cuts reach p50 <= 30 (est.), NOT the <= 5 %-over-33 ms line
 
-## What changed (branch engine-phase)
+## What changed (branch engine-phase, `a99d277`)
 - `PERF_EXACT_CUTS.md` (new), `TASKS.md` "Task 160" paragraph, `PERF_30FPS_PLAN.md` status line points to it. Docs only, no code; fast suite not run (nothing to test).
 - **No launch.** The Mac was **on battery at 15 % and discharging** (`pmset -g batt` at ~task start). A build + warm-up + cost split (~1 h) could
   run it flat, and battery numbers aren't comparable to AC (task 08). I wrote a capture-only `skyprobe_off` cost arm plus the cost split's
