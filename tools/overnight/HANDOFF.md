@@ -1,46 +1,42 @@
-159 perf-dyn-floor-432 -- DONE (`69ccc4a`), SHIPPED as the play default: FSR 3 dyn 432-540 rows at a 30 ms target; playwalk p50 -14.7 ms (ABBA, ON BATTERY, see caveat).
+STOP_FOR_OWNER -- task 160 is a plan. Pick the order and two approvals below (recommendation first).
 
-## What changed (branch engine-phase, `69ccc4a`)
-- `UpscalerSelect.cs`: `UseDynRange(floor)` / `UseDynRangeFromArgs`; floor >= 540 = the old controller exactly (540-720, 16.7 ms, band 15-18);
-  floor < 540 = floor-540 at `PlayDynTargetMs` 30 (band 27-33 ms). `DynTargetMs` is now a property. `Describe()` prints range + target.
-- `Playground.Start`: PlaySettings (interactive) runs take `PlayDynFloor` 432; all other runs 540 (rigs/captures unchanged); `-dynfloor N` wins.
-  Old play behaviour: `-dynfloor 540`. `tools/play-flags.sh` passes `-dynfloor 432` (playwalk follows play); pinned in `PlaySettingsTests`.
-- F6 (`SettingsMenu.cs`): "Dynamic 432-540 (now N)", hint names the 30 ms target. `PlaySettings.cs`: comment only (no new field).
-- `sustained.tsv`: 7th column `meanRows` (window mean internal rows). LookReview `-lookrowsab N`: walk_open still/walk/turn bursts at 540 and N.
-- TASKS.md paragraph; PERF_30FPS_PLAN.md status line (step 3 DONE).
+**Q1 Order (one task per cut, checkpoint after each, AC power only).** (a) **Recommended:** B kernel diet 2 (with the missing data in the SAME
+launch) -> D or C1, picked by B's arms -> the other -> E upload pacing -> milestone walk on AC; C2 only if cliff views are still > ~38 ms.
+(b) C1 first (more certain mechanism, but needs Q2). (c) Stop the 30 fps work at "p50 <= 30" after B-D, and go on to lighting / world gen.
+**Q2 GPU scratch for C1** (shadow continuation out of the big kernel): ~3-6 MB at <= 540 rows, like R1's 9.9 MB. (a) **yes**; (b) no -> C1 dropped.
+**Q3 E (upload pacing):** the picture at rest is identical, but during streaming a far chunk can appear 1-2 frames later (it is already
+asynchronous). (a) **counts as exact, go**; (b) no.
+No layout additions are recommended (R5's bitmap is listed but NOT recommended: 130's E2 says the shell march is execution-bound).
 
-## Evidence
-- Fast suite PASS 969 FAIL 0 SKIP 15 (`Logs/overnight/159_tests.out`); filtered PlaySettingsTests 15/15 (`Logs/overnight/159_filter.xml`).
-- Measurement: warm-up `Logs/tg2world_20261031_105054.txt` (discarded), then MODE=playwalk ABBA, 5 min each, back to back:
-  A old `-dynfloor 540` `Logs/tg2world_20261031_105557.txt`: p50 50.32  p95 77.05  >33 ms 97.7%  rows 540 100%
-  B new                `Logs/tg2world_20261031_110242.txt`: p50 33.07  p95 61.21  >33 ms 50.3%  rows 432 81.2 / 468 12.9 / 504 4.6 / 540 1.3%
-  B new                `Logs/tg2world_20261031_110933.txt`: p50 32.20  p95 75.27  >33 ms 47.1%  rows 432 88.5 / 468 8.5 / 504 2.5 / 540 0.6%
-  A old                `Logs/tg2world_20261031_111632.txt`: p50 44.43  p95 82.09  >33 ms 83.1%  rows 540 100%
-  Half-minute window means 0.5-4.5 min (position-matched, from each run's sustained.tsv): A 52.5 / 48.3 ms, B 36.4 / 37.9 ms -> -13.3 ms;
-  B is lower in all 18 window pairs. Whole-run p50: A 47.4 vs B 32.6 mean -> -14.7 ms (plan est. walk 7-12).
-- **CAVEAT: the Mac was unplugged at ~10:55, during the warm-up; all four arms ran ON BATTERY (56% -> 34%).** Battery numbers are not
-  comparable to AC runs (task 08), so the absolute values (A at 44-50 ms vs 146's 44.7 on AC) are not the quotable level. The A/B is interleaved
-  under the same condition and the gap (-13 to -15 ms) is 3x the 4 ms bar, so an AC re-run would not change the decision; I did not wait for AC.
-  The next perf milestone should quote this on AC.
-- The rows sit at 432 on 81-89% of walk frames: the walk is "heavy" almost everywhere. They climbed only on the lightest window
-  (2.5 min: 29.7-31.1 ms, mean 451-479 rows). "Stays at 540 on light views" holds for views under ~27 ms, which this walk barely has.
-- Motion check, one launch (`Logs/lookreview_20261031_104421.txt`, High preset, walk_open, bursts of 4 consecutive frames after 60 lead frames):
-  flicker (max-min over 4 frames, mean 0-255) 540 vs 432: still 0.32 / 0.34, walk 18.52 / 18.26, turn 17.35 / 17.09. In the crops, 432 shows
-  no ghost trails and no crawling edges; it is softer, as in task 156's stills. No new shimmer, so per the decision table it ships.
-- 30 fps line still NOT met: p95 61-75 ms, 47-50% of frames > 33 ms (the stalls/spikes remain; steps 4-5 of the plan).
+# 160-plan-exact-30fps-cuts: DONE (plan only) -- `PERF_EXACT_CUTS.md`; exact cuts reach p50 <= 30 (est.), NOT the <= 5 %-over-33 ms line
 
-## Unfinished / next
-- The AC re-quote belongs to the next perf milestone (a measure-only follow-up is not queued, per the rules).
-- Controller: 37-41 row steps per 5 min (27-33 ms band, >= 30 frames apart). No hunting was seen in the windows; no tuning proposed.
-- Owner-visible consequence: play now renders below the 2026-10-01 960x540 minimum (768x432) most of the time on this Mac (owner's Q100 (a) call).
-  `-dynfloor 540` or F6 "540" restores the old look.
+## What changed (branch engine-phase)
+- `PERF_EXACT_CUTS.md` (new), `TASKS.md` "Task 160" paragraph, `PERF_30FPS_PLAN.md` status line points to it. Docs only, no code; fast suite not run (nothing to test).
+- **No launch.** The Mac was **on battery at 15 % and discharging** (`pmset -g batt` at ~task start). A build + warm-up + cost split (~1 h) could
+  run it flat, and battery numbers aren't comparable to AC (task 08). I wrote a capture-only `skyprobe_off` cost arm plus the cost split's
+  432-row clamp (`CostRows` -> `UpscalerSelect.CaptureMinRows`), then reverted both. They are spelled out in the plan's section 4, step 1, for cut B's task.
+
+## Evidence (existing logs only, re-read)
+- Pass split, AC warm, 540 rows (`Logs/costsplit_2026-10-25_115751.txt`, 146): sun shadows 17.2 / 5.5 ms (near / open), shell path 8.8 / 5.5,
+  FSR 3 5.7 / 5.4, CPU + fixed floor 7.1 / 4.4, HUD + minimap ~0. Residual (tier-0 march + shading + sky probe + haze + buffers) ~22 / ~13 (est., subtraction).
+  Inside the sun cost: near shell continuation 6.1 / 1.1 (133), far shadows 2.0 / 0.35 (93b3), shell-hit sun 1-3 (110 / 93b4).
+- **The vertical sky probe (a TraceShadowRay per tier-0 hit pixel, every frame, no reuse, ~4x the sun's traced rays) has never been timed.**
+- Key pattern: iteration / ray-count cuts paid ~0 (116, 93b5, 153, 137; 124's reuse 8 halved sun rays for 0 ms), while structural cuts paid
+  (132 R1 -4.2 / -6.9, 134 R6 -7.1 / -5.5; 130: the march alone costs ~45 % of in-kernel). `CSMainBody` still inlines ShellMarch 3x (one copy
+  dead while the pre-pass is ON) and TraceShadowRay 2x, and compiles OFF paths: traversal modes 0/2/3, the tier cascade (off with shells), debug views 2-11.
+- Spikes: 115 attribution (pacing pairs 55-60 % net ~0; streaming 19-25 %; GPU waits with > 300 KB shell uploads 16-22 % = most > 100 ms
+  frames); 123 slicing did not move p99. 150's unexplained ~2 ms (540) is still open: est. ~1.5 ms at 432, absorbed by dyn, so not ranked.
+- Task 59: roof skip is exact and cuts steps 39 %; it lost only to a ~3 ms full rebuild every frame. Its option (c), an incremental rebuild, was never tried (cut D).
+- `tools/capture-gpu-trace.sh` (xctrace per-encoder GPU time; Xcode-beta is in ~/Downloads) is unused in the 30 fps work. Step 1 adds one trace.
+
+## Next
+- Owner answers Q1-Q3; the supervisor queues B (perf task with the arms listed in the plan's section 4, step 1). The next perf milestone must be on AC.
 
 ## For the doc
-- Walk p50 (playwalk, ABBA, battery): 47.4 -> 32.6 ms (**-14.7 ms**); window means 50.4 -> 37.1 ms (-13.3); logs above.
-- Frames > 33 ms: 83-98% -> 47-50%. p95: 77-82 -> 61-75 ms (30 fps line p95 <= 33 not yet met).
-- Rows share on the walk (new): 432 81-89%, 468 9-13%, 504 3-5%, 540 0.6-1.3%.
-- Motion flicker 540 vs 432 (walk_open): walk 18.5 / 18.3, turn 17.4 / 17.1, still 0.32 / 0.34: no new shimmer.
-- `Screenshots/159/motion159.png`: rows still / walk / turn; columns 540 frame 3, 432 frame 3, 540 flicker, 432 flicker. Compare the two right
-  columns: the flicker patterns are the same (it is real motion, not shimmer), and 432 shows no extra speckle on the far ridge.
-- `Screenshots/159/rows156_crops.png`: 3x crops where 540 (left of each pair) and 432 differ most. Look at the grass/sand edge (#1) and the sand
-  terraces (#2, #3): at 432 the edges are softer and the grass texture is blurrier. That is the cost of the gain.
+- Starting point after 159: walk p50 32.2-33.1 ms, p95 61-75, > 33 ms 47-50 % (battery, `Logs/tg2world_20261031_{110242,110933}.txt`).
+- Steady at 540 (measured) -> 432 (est.): walk_near 61.0 -> ~47 ms, walk_open 36.1 -> ~28 ms (`Logs/costsplit_2026-10-25_115751.txt`).
+- Biggest passes at 540: sun shadows 17.2 ms (near), residual tier-0 + shading ~22 ms (est.), shells 8.8, FSR 3 5.7 (fixed at any row count).
+- Exact cuts B + C1 + D (+ I): walk_near ~47 -> ~38-44 ms est., walk p50 -> ~28-31 est.; p95 est. ~45-55 (target ~33): **the 5 % line needs
+  -5..-11 ms more on cliff views than any exact cut listed.**
+- No images: plan only, nothing visible changed. Reference view for the slow tail: `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerClips/2026-10-25_115751/stills/walk_near_full.png`
+  -- a canyon wall fills ~90 % of the frame with sky only top-right; this cliff-facing view is the one the 5 % line depends on.

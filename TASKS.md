@@ -749,3 +749,14 @@ dyn range + target. Rig output: `sustained.tsv` gained a 7th column `meanRows` (
 with bursts on (default) now also shoots walk_open's still / walk / turn bursts at 540 and N (`walk_open_fsr3_<rows>_<motion>_0..3.png`; diff with
 `tools/look-review-diff.py bursts`). Run: `PRESETS=high EXTRA="-lookrowsab 432 -lookposes walk_open -lookwait 60 -shellworkers 6" ./run-look-review.sh`.
 Result: HANDOFF 159 (playwalk p50 47.4 -> 32.7 ms on battery ABBA; rows at 432 on 81-89% of walk frames; no new shimmer in the bursts).
+
+**Task 160 (plan only, owner 2026-10-31 "all of those options are bad picture quality"; no code, no default / look change): `PERF_EXACT_CUTS.md`.**
+Exact-only (0 px) cuts on top of 159, from existing logs (146 cost split, 115 spikes, 123, 124, 130, 133, 150, 152, 153, 59). No launch: the Mac was
+on battery at 15 %, so the one allowed warm launch moved into cut B's task (its capture-only `skyprobe_off` arm + the cost split's 432-row clamp were
+written and reverted). Pass split at 540 (measured) and 432 (est.): sun shadows 17.2 / 5.5 ms (near / open), shells 8.8 / 5.5, FSR 3 5.7 / 5.4 (fixed
+at 1080p output), CPU floor 7.1 / 4.4, residual (tier-0 march + shading + the never-timed per-pixel sky probe) ~22 / ~13. Finding: iteration cuts
+paid ~0 (116 / 93b5 / 153 / 137 / 124), and structural cuts paid 4-7 ms (132 R1, 134 R6), so the candidates are structural. Ranked: B kernel diet 2 (OFF-in-play paths
+compiled out; est. 1-4 ms near at 432) > C1 shadow continuation out of the big kernel (2-4; ~3-6 MB scratch, owner) > D incremental roof pyramid
++ roof skip ON (0-3) > C2 deferred sun pass (3-7, design first) > E upload pacing (p99 -10..-20) > I FSR 3 output copy (0.2-0.5). Honest sum:
+p50 <= 30 plausible; <= 5 % > 33 ms NOT reachable with exact cuts alone (est. p95 ~45-55; cliff views ~36-44 vs 33). A/Bs must pin
+`-renderrows 432`, because the dyn controller spends cuts on rows. Owner questions: HANDOFF 160.
