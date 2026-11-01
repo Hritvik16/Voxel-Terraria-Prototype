@@ -36,3 +36,11 @@ battery is rerun or reported as such. (159 and 160 both ran on battery.)
 ## For the doc
 Arm table (ms p50 per view, noise), the GPU trace's per-pass split as one small chart or table, which cut is next and why. No new images
 unless something visible changed (it must not).
+
+## Resume (supervisor, 2026-11-01): MEASUREMENT ONLY
+Code + 0 px proof are done (`24424c2`, `cd565ee`); read `tools/overnight/blocked/161-perf-kernel-diet-2.HANDOFF.md` first. The Mac is on AC now
+(`pmset -g ps` 13:12 "AC Power", 100 %). Run its "Next" section as written: warm-up (discarded), then the cost split at 432 with all arms, plus the
+trace attach. Re-check power before each step; on battery -> wait as in "Power first". If `Builds/Playground.app` no longer matches `24424c2`'s
+sources, rebuild first. Apply the decision table: diet 2 >= 1 ms -> `KernelDiet2` default ON in play (fast suite once), and state plainly which
+of D / C1 is next per the arms (owner Q102 (a) approved the order and C1's 3-6 MB). Do NOT start D or C1 here. End normally unless something
+needs the owner.
