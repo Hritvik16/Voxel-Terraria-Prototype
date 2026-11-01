@@ -760,3 +760,15 @@ compiled out; est. 1-4 ms near at 432) > C1 shadow continuation out of the big k
 + roof skip ON (0-3) > C2 deferred sun pass (3-7, design first) > E upload pacing (p99 -10..-20) > I FSR 3 output copy (0.2-0.5). Honest sum:
 p50 <= 30 plausible; <= 5 % > 33 ms NOT reachable with exact cuts alone (est. p95 ~45-55; cliff views ~36-44 vs 33). A/Bs must pin
 `-renderrows 432`, because the dyn controller spends cuts on rows. Owner questions: HANDOFF 160.
+
+**Task 161 (perf, `PERF_EXACT_CUTS.md` cut B, supervisor 2026-10-31): kernel diet 2, `-diet2 1|0` (last match; default see HANDOFF 161).**
+`Raymarch.compute` compiles `CSMainFarShadeLean` / `CSShellPrepassLean` (`VE_FAR_SHADE VE_DIET2`): the play kernels with what is OFF in play
+folded to `static const` (traversal mode 4, no tier 1-2 cascade, debug view 0 + no `DebugOut` / `isDebugPixel`, no half-res / rung-1 quad shadow
+reuse, roof skip / hole leap / height bound / sky tilt 0, `_Look 1`, dev colours 1, and no one-pass primary `ShellMarch` with the pre-pass on).
+`CSMainFarShade` / `CSShellPrepass` are untouched twins. `RaymarchFeature` picks the lean pair only when `KernelDiet2Rule.Settings` (every folded
+setting at its folded value, flag on, `DebugPixel` never assigned) and the frame allow (task 134's lean kernel picked, no torch flood, no cascade,
+pre-pass on or <= 1 shell); `Diet2DrawnLastFrame` reports it. Tests `KernelDiet2Tests` (the shader's folded list vs the C# rule). Cost split:
+arms `diet2_on` / `diet2_off`, `skyprobe_off` (vertical sky probe off, capture-only look change), run lines end `kernel diet2|lean|diag`,
+`-renderrows` now clamps from `UpscalerSelect.CaptureMinRows` (432 reachable), `-costd2pair` (with `-coststillraw`: raw / raw2 / flip / back
+stills). Look review `-cliffbefore 5` = cliff A/C with diet 2 forced OFF first. Identity: `python3 -I tools/diet2_161.py raw|pair|look <dir>`;
+release-trace per-encoder table: `python3 -I tools/gpu161.py <trace>.export/gpu.xml`. Result: HANDOFF 161.
