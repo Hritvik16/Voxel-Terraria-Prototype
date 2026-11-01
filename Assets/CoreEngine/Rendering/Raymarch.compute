@@ -122,6 +122,16 @@
 // instead of the torch loop + rays, lava's aggregates stay analytic.
 #pragma kernel CSMainFlood VE_TORCH_FLOOD
 #pragma kernel CSMainFarShadeFlood VE_FAR_SHADE VE_TORCH_FLOOD
+// TASK 161 (PERF_EXACT_CUTS B, KERNEL DIET 2; -diet2): the play kernels again, with what is OFF in play
+// folded to compile-time constants (VE_DIET2): traversal mode 4 only, no tier 1-2 cascade march
+// (_UseLODCascade 0: off whenever shells draw), debug view 0 and no DebugOut / isDebugPixel, full-res
+// sun shadows without rung 1's quad reuse, roof skip / hole leap / height bound / sky tilt off, the
+// look palette (_Look 1, _UseDevColors 1), and no one-pass primary ShellMarch call (the pre-pass is
+// on). Every folded uniform is a `static const` here and a uniform everywhere else, so CSMainFarShade /
+// CSShellPrepass (the twins) are unchanged; KernelDiet2Rule.Settings picks these only when every
+// such setting has exactly its folded value this frame.
+#pragma kernel CSMainFarShadeLean VE_FAR_SHADE VE_DIET2
+#pragma kernel CSShellPrepassLean VE_FAR_SHADE VE_DIET2
 #if defined(VE_FAR_SHADE) && !defined(VE_SHELL_DIAG)
 #define VE_SHELL_LEAN
 #endif
@@ -151,7 +161,11 @@ uint4 _WindowDimsCoarseBricksTier2;
 // LODConfig.TIER_OUTER_RANGE_M by RaymarchFeature - this shader has no
 // knowledge of the meter values itself, only the voxel-unit conversion.
 float4 _TierOuterRangeVoxels;
+#ifdef VE_DIET2
+static const int _UseLODCascade = 0;   // task 161: folded (see the VE_DIET2 pragma)
+#else
 int _UseLODCascade;
+#endif
 
 // --- AIR-MIP: legacy four-buffer form (modes 0-4) ---
 StructuredBuffer<uint> AirMip1;
@@ -308,7 +322,11 @@ StructuredBuffer<float4> TaaColS;       // TaaSharpen's input: this frame's TaaC
 Texture2D<float4> TaaCurColor;          // TaaResolve's input: CSMain's output this frame
 
 // 0=Beauty 1=StepHeat 2=UniformDense 3=Normals 4=NonExitHeat 5=VoxelGrain 6=LODTier
+#ifdef VE_DIET2
+static const int4 _DebugModePacked = int4(0, 0, 0, 0);   // task 161: folded
+#else
 int4 _DebugModePacked;
+#endif
 
 int _MaxOuterIterations;
 
@@ -324,13 +342,21 @@ int _MaxOuterIterations;
 // is otherwise unchanged so the pre-cascade A/B measurements stay meaningful.)
 float _MaxRayDistance;
 
+#ifdef VE_DIET2
+static const int _TraversalMode = 4;   // task 161: folded
+#else
 int _TraversalMode;
+#endif
 
 // NEW: developer material color palette + per-voxel grain toggle for the
 // default Beauty output (DebugMode 0 only - diagnostic views are untouched).
 // Defaults ON. Set to 0 to reproduce the original flat-gray Beauty shading
 // exactly, byte-for-byte, for any comparison against pre-existing screenshots.
+#ifdef VE_DIET2
+static const int _UseDevColors = 1;   // task 161: folded
+#else
 int _UseDevColors;
+#endif
 
 // ---- PRESENTATION FLAGS (shading step only) ----
 // Every one of these gates a purely cosmetic term applied AFTER traversal has
@@ -462,7 +488,11 @@ int _UseSkyProbeAmbient;
 // arch the vertical ray hit rock 20-30 m up and the face got the underground floor (task 136's
 // black shape); a sealed cave blocks every direction, so it stays dark. Same ray count. CPU twin:
 // ShadowRayReference.SkyProbeDir.
+#ifdef VE_DIET2
+static const int _SkyProbeTilt = 0;   // task 161: folded
+#else
 int _SkyProbeTilt;
+#endif
 
 float3 SkyProbeDir(int3 n, float3 rayDir)
 {
@@ -546,7 +576,11 @@ float _Rung1DistVoxels;
 // one voxel along it -- a voxel stair step). Anything else -- a silhouette, a
 // sky lead, a far surface behind a near one -- traces its own ray, so shadow
 // values never cross a depth/normal edge. Rung 1 itself is unchanged.
+#ifdef VE_DIET2
+static const float _ShadowHalfRes = 0.0;   // task 161: folded
+#else
 float _ShadowHalfRes;
+#endif
 
 int   _Tonemap;
 float _Exposure;
@@ -947,7 +981,11 @@ float3 MaterialAlbedo(uint mat)
 // Presentation only: nothing here is read by traversal or by any shadow ray.
 // All colours arrive precomputed for the time of day from SunCycle.Look*.
 // ===========================================================================
+#ifdef VE_DIET2
+static const int _Look = 1;   // task 161: folded
+#else
 int    _Look;
+#endif
 float4 _LookSkyZenith;
 float4 _LookSkyHorizon;
 float4 _LookSkyHalo;       // the sun's colour in the sky (x day factor)
@@ -1265,7 +1303,11 @@ uint ReadClipmap(int3 brickCoord, uint3 windowDimsBricks)
 // ===========================================================================
 #define HEIGHT_LEVELS 6
 RWStructuredBuffer<uint> HeightMip;
+#ifdef VE_DIET2
+static const int _ShadowRoofSkip = 0;   // task 161: folded (roof_build's build-only run keeps it 0 too)
+#else
 int   _ShadowRoofSkip;
+#endif
 int   _HeightLevel;
 int4  _HeightOffsetsA;   // levels 0..3
 int4  _HeightOffsetsB;   // levels 4, 5, then the raw (undilated) level-0 scratch
@@ -2906,7 +2948,11 @@ int    _ShellColLeap;
 // the sky exit, shell 1's outer bound), the box where that holds; inside it ShellMarch repeats the
 // leap alone, without the distance / resolve / tier-0 tests, one iteration per leap. The same leap
 // sequence (bit for bit) and the same iteration count, so the same result. No new data.
+#ifdef VE_DIET2
+static const int _ShellHoleLeap = 0;   // task 161: folded
+#else
 int    _ShellHoleLeap;
+#endif
 #define SHELL_HOLELEAP_ON (_ShellHoleLeap != 0)
 // TASK 153: the COLUMN HEIGHT LEAP (-shellheightbound; RaymarchFeature.ShellHeightBound). Per shell, per
 // ring column, one int in ShellPages from _ShellHeightBase + _ShellBounds[k].w (ShellStore COLUMN HEIGHTS):
@@ -2915,7 +2961,11 @@ int    _ShellHoleLeap;
 // directory the GPU has, uploaded with it. Used in ShellMarch by SHADOW rays only (their callers read
 // end == HIT alone); CPU twin ShellRayReference.March(heightBound), ShellHeightBoundTests.
 int    _ShellHeightBase;
+#ifdef VE_DIET2
+static const int _ShellHeightBound = 0;   // task 161: folded
+#else
 int    _ShellHeightBound;
+#endif
 #define SHELL_HEIGHTBOUND_ON (_ShellHeightBound != 0)
 #define SHELL_SKY_NEVER 2147483647
 int ShellSkyY(bool primary)
@@ -3957,7 +4007,11 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     }
 #endif
 
+#ifdef VE_DIET2
+    bool isDebugPixel = false;   // task 161: no DebugOut writes in the diet-2 kernel
+#else
     bool isDebugPixel = (id.x == _DebugPixel.x && id.y == _DebugPixel.y);
+#endif
 
     float2 uv = float2((id.x + 0.5) / width, (id.y + 0.5) / height) * 2.0 - 1.0;
     if (_TaaEnabled != 0) uv = float2((id.x + 0.5 + _TaaJitter.x) / width, (id.y + 0.5 + _TaaJitter.y) / height) * 2.0 - 1.0;
@@ -4582,7 +4636,13 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         }
         else
 #endif
+#ifdef VE_DIET2
+        // Task 161: with the pre-pass on, pass 1 hands over (and returns) every group with a lane here,
+        // so the one-pass march is dead; the diet-2 kernel runs only with the pre-pass (KernelDiet2Rule.Settings + the caller).
+        { shr = (ShellHit)0; shr.end = SHELL_END_CAP; shr.t = tTier0; shr.shell = -1; }
+#else
         shr = ShellMarch(rayStart, rayDir, 0.0, false, rayStart, _ShellIterCap, tTier0, ShellSkyY(true));
+#endif
 #ifdef VE_SHELL_DIAG
         dbgShellEnd = shr.end; dbgShellIters = shr.iters;
         // TASK 93b4 (diagnostic): primary shell rays and iterations by how they
@@ -4814,7 +4874,11 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         // comparisons and removes the question.
         float rung1Threshold = (_Rung1DistVoxels > 0.0) ? _Rung1DistVoxels : _TierOuterRangeVoxels.y;
         bool distant = hit && (currentDist >= rung1Threshold);
+#ifdef VE_DIET2
+        bool reuse = false;   // task 161: rung 1 (level 1) never selects the diet-2 kernel
+#else
         bool reuse = (_ShadowQualityLevel == 1) && distant;
+#endif
         bool isQuadLead = ((gtid.x & 1u) == 0u) && ((gtid.y & 1u) == 0u);
         uint leadLane = (gtid.y & ~1u) * 8u + (gtid.x & ~1u);
 
@@ -5765,6 +5829,13 @@ void CSMainFarShade(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThread
     CSMainBody(tid, gtid, false);
 }
 
+// TASK 161: CSMainFarShade with VE_DIET2's folded constants (see its pragma).
+[numthreads(8, 8, 1)]
+void CSMainFarShadeLean(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
+{
+    CSMainBody(tid, gtid, false);
+}
+
 #ifdef VE_TORCH_FLOOD
 // TASK 158: compiled with VE_TORCH_FLOOD (+ VE_FAR_SHADE for the far-shading twin).
 [numthreads(8, 8, 1)]
@@ -5924,6 +5995,13 @@ void ShellPrepassBody(uint3 tid)
 
 [numthreads(8, 8, 1)]
 void CSShellPrepass(uint3 tid : SV_DispatchThreadID)
+{
+    ShellPrepassBody(tid);
+}
+
+// TASK 161: CSShellPrepass with VE_DIET2's folded constants (no hole leap / height bound).
+[numthreads(8, 8, 1)]
+void CSShellPrepassLean(uint3 tid : SV_DispatchThreadID)
 {
     ShellPrepassBody(tid);
 }

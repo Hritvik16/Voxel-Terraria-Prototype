@@ -106,6 +106,10 @@
 //   TASK 153: heightbound_on / heightbound_off  the shells' column height leap on / off (RaymarchFeature.ShellHeightBound;
 //                       FULL keeps the launch's -shellheightbound, OFF by default); shadow rays only, raw stills ON vs OFF
 //                       are the identity check; the [nearsh] line's shell iterations per near ray show what it cut.
+//   TASK 161: diet2_on / diet2_off  the diet-2 far-shading kernels (VE_DIET2) / task 134's lean kernels (RaymarchFeature.KernelDiet2;
+//                       FULL keeps the launch's -diet2); the run line ends `kernel diet2` when they drew (arms that leave a
+//                       folded setting, e.g. roof_on / shells_off / reuse arms that change nothing folded, say which ran).
+//                       skyprobe_off: the vertical sky probe (UseSkyProbeAmbient) off -- capture only, a look change.
 //   TASK 138: skytilt_on / skytilt2 / skytilt_off  the tilted sky probe 1 / 2 (side faces only) / 0 (RaymarchFeature.SkyProbeTilt;
 //                       FULL keeps the launch's -skytilt). A LOOK change: the stills differ by design.
 //   TASK 118: clampN (e.g. clamp128)  the voxel sun-shadow ray (TraceShadowRay) clamped at N m
@@ -260,7 +264,7 @@ public partial class PlaygroundCapture
                 L($"  {runs.Count,2} {arm,-9} pass {pass + 1}  frames {r.ms.Count,4}  p50 {Pct(r.ms, 0.5f),5:F1}  p99 {Pct(r.ms, 0.99f),6:F1} ms  " +
                   $"cpu main p50 {Pct(r.cpuMain, 0.5f),5:F1} (present wait {Pct(r.presentWait, 0.5f),5:F1})  render thr {Pct(r.render, 0.5f),5:F1}  " +
                   $"gpu* {Pct(r.gpu, 0.5f),5:F1}  deficit frames {r.deficitFrames}  far busy {r.farBusyFrames}  resident {store.ResidentCount}  " +
-                  $"kernel {(RaymarchFeature.ShellDiagDrawnLastFrame ? "diag" : "lean")}");
+                  $"kernel {(RaymarchFeature.ShellDiagDrawnLastFrame ? "diag" : RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean")}");
                 File.WriteAllText(Path.Combine(root, "costsplit.txt"), _log.ToString());
             }
             CostApply("full");
@@ -316,10 +320,10 @@ public partial class PlaygroundCapture
     }
 
     /// Task 112: the rows every arm is pinned at. `-renderrows N` (last match, like
-    /// every Arg*) clamped as UpscalerSelect.Apply does; "dyn", a bad value or no
-    /// flag = 540, the value every arm before task 112 ran at.
+    /// every Arg*) clamped as UpscalerSelect.Apply does (task 161: from CaptureMinRows, so 432 is
+    /// reachable); "dyn", a bad value or no flag = 540, the value every arm before task 112 ran at.
     private static readonly int CostRows =
-        int.TryParse(ArgValue("-renderrows"), out int rows) ? Mathf.Clamp(rows, UpscalerSelect.MinRows, UpscalerSelect.MaxRows) : 540;
+        int.TryParse(ArgValue("-renderrows"), out int rows) ? Mathf.Clamp(rows, UpscalerSelect.CaptureMinRows, UpscalerSelect.MaxRows) : 540;
 
     /// FULL (play's frame at CostRows rows) with exactly one thing switched off.
     private static void CostApply(string arm)
@@ -356,6 +360,9 @@ public partial class PlaygroundCapture
         RaymarchFeature.NearShadowShells = arm == "nearsh_on" || (arm != "nearsh_off" && _costBaseNearSh);
         // Task 134: the kernel diet (see the header).
         RaymarchFeature.ShellKernelDiet = arm == "diet_on" || (arm != "diet_off" && _costBaseDiet);
+        // Task 161: kernel diet 2 (diet2_on / diet2_off) and the vertical sky probe off (skyprobe_off; capture only).
+        RaymarchFeature.KernelDiet2 = arm == "diet2_on" || (arm != "diet2_off" && _costBaseDiet2);
+        RaymarchFeature.UseSkyProbeAmbient = arm != "skyprobe_off" && _costBaseSkyProbe;
         // Task 137: the hole leap (see the header).
         RaymarchFeature.ShellHoleLeap = arm == "holeleap_on" || (arm != "holeleap_off" && _costBaseHoleLeap);
         RaymarchFeature.ShellHeightBound = arm == "heightbound_on" || (arm != "heightbound_off" && _costBaseHeightBound);   // task 153
@@ -388,7 +395,7 @@ public partial class PlaygroundCapture
     private static int _costBaseShadow = -1, _costBaseTorch = -1;
     private static bool _costBaseRoof;
     private static float _costBaseRung1;
-    private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap, _costBasePrepass, _costBaseNearSh, _costBaseDiet, _costBaseHoleLeap, _costBaseHeightBound;
+    private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap, _costBasePrepass, _costBaseNearSh, _costBaseDiet, _costBaseHoleLeap, _costBaseHeightBound, _costBaseDiet2, _costBaseSkyProbe;
     private static int _costBaseSkyTilt;
     private static int _costBaseFarSteps = -1;
     private static bool _costBaseFarShadowOn;
@@ -530,7 +537,7 @@ public partial class PlaygroundCapture
     private IEnumerator CostTime(ClipPath path, CostRun r, float timed, string still, Camera cam,
                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
     {
-        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseHeightBound = RaymarchFeature.ShellHeightBound; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
+        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseHeightBound = RaymarchFeature.ShellHeightBound; _costBaseDiet2 = RaymarchFeature.KernelDiet2; _costBaseSkyProbe = RaymarchFeature.UseSkyProbeAmbient; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);
@@ -572,6 +579,19 @@ public partial class PlaygroundCapture
                 yield return Frames(20);
                 ScreenCapture.CaptureScreenshot(still.Replace(".png", "_raw.png")); yield return Frames(10);
                 ScreenCapture.CaptureScreenshot(still.Replace(".png", "_raw2.png")); yield return Frames(2);
+                // Task 161: -costd2pair -- diet 2 OFF then ON again, 10 frames apart, right after raw / raw2 (both
+                // as launched): raw vs raw2 is the control for anything that changed in between (shells arriving).
+                if (System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-costd2pair") >= 0)
+                {
+                    bool d2 = RaymarchFeature.KernelDiet2;
+                    foreach (var (on, suffix) in new[] { (!d2, "_raw_d2flip.png"), (d2, "_raw_d2back.png") })
+                    {
+                        RaymarchFeature.KernelDiet2 = on;
+                        yield return Frames(10);
+                        ScreenCapture.CaptureScreenshot(still.Replace(".png", suffix)); yield return Frames(2);
+                    }
+                    L($"  [d2pair] {Path.GetFileName(still)}: raw / raw2 / d2back diet2 {(d2 ? "ON" : "OFF")}, d2flip {(d2 ? "OFF" : "ON")}; last frame kernel {(RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean")}");
+                }
                 Playground.DebugHideUi = hideUi2; Minimap.Visible = mapOn2;
                 CostApply(r.arm);
             }

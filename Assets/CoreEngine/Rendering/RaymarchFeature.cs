@@ -334,6 +334,13 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// _DebugShellSkip arm, the OFF-by-default experiments (-shellmask 1, -shellcolleap 1), or the diet off.
     public static bool ShellDiagKernels(int debugMode) =>
         !ShellKernelDiet || CollectShadowStats || debugMode != 0 || DebugShellSkip != 0 || ShellAirMask || ShellColumnLeap;
+    /// Task 161 (PERF_EXACT_CUTS B, KERNEL DIET 2): the far-shading pass runs CSMainFarShadeLean / CSShellPrepassLean
+    /// (Raymarch.compute VE_DIET2: the settings that are OFF in play folded to constants) whenever KernelDiet2Rule.Settings and the frame allow;
+    /// otherwise the lean kernels of task 134 (unchanged) run. Exact by construction (raw stills 0 px, task 161).
+    /// `-diet2 1|0` (last match wins).
+    public static bool KernelDiet2 = ReadOffFlag(System.Environment.GetCommandLineArgs(), "-diet2");
+    /// Task 161: the far-shading kernels last frame were the diet-2 kernels (log / capture only).
+    public static bool Diet2DrawnLastFrame { get; private set; }
     /// Task 134: the far-shading kernels last frame were the *Diag twins (log / capture only).
     public static bool ShellDiagDrawnLastFrame { get; private set; }
     /// Task 132: the pre-pass ran last frame (shells on, far-shading kernel, debug view 0, flag on).
@@ -621,7 +628,15 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     }
 
     public static GraphicsBuffer DebugBuffer { get; private set; }
-    public static Vector2Int DebugPixel = new Vector2Int(700, 400);
+    /// Task 161: assigning it marks DebugOut as wanted (DebugPixelRequested), which keeps the diet-2
+    /// kernels (no DebugOut writes) off for the rest of the run.
+    public static Vector2Int DebugPixel
+    {
+        get => _debugPixel;
+        set { _debugPixel = value; DebugPixelRequested = true; }
+    }
+    private static Vector2Int _debugPixel = new Vector2Int(700, 400);
+    public static bool DebugPixelRequested { get; private set; }
     private const int DEBUG_BUFFER_FLOATS = 128;
 
     class RaymarchPass : ScriptableRenderPass
@@ -1264,6 +1279,19 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 var cascadeManager = LODCascadeManager.Active;
                 bool cascadeAvailable = UseLODCascade && cascadeManager != null && !shellsOn;
                 passData.useLODCascade = cascadeAvailable ? 1 : 0;
+                // Task 161: the diet-2 twins of the play kernels, when this frame's settings are their constants.
+                bool diet2 = passData.primaryFarShade && !shellDiag && !floodFarTwin && !cascadeAvailable
+                    && (passData.kShellPrepass >= 0 || passData.shellCount <= 1)
+                    && KernelDiet2Rule.Settings(KernelDiet2, DebugPixelRequested, _debugMode, passData.traversalMode, passData.shadowQualityLevel,
+                                     passData.shadowHalfRes, passData.roofSkip, passData.skyProbeTilt, passData.look,
+                                     passData.useDevColors != 0, ShellHoleLeap, ShellHeightBound)
+                    && activeCompute.HasKernel("CSMainFarShadeLean") && activeCompute.HasKernel("CSShellPrepassLean");
+                if (diet2)
+                {
+                    passData.kPrimary = activeCompute.FindKernel("CSMainFarShadeLean");
+                    if (passData.kShellPrepass >= 0) passData.kShellPrepass = activeCompute.FindKernel("CSShellPrepassLean");
+                }
+                Diet2DrawnLastFrame = diet2;
 
                 if (cascadeAvailable)
                 {
@@ -1747,4 +1775,18 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         UpsDispose();
         base.Dispose(disposing);
     }
+}
+
+/// Task 161 (kernel diet 2): outside RaymarchFeature so EditMode tests can call it without URP.
+public static class KernelDiet2Rule
+{
+    /// Task 161: the flag is on, nothing wants DebugOut, and every setting VE_DIET2 folds has exactly its folded
+    /// value (Raymarch.compute; KernelDiet2Tests pins the two lists together). The caller adds the frame's own
+    /// facts: the task-134 lean kernel was picked, no torch flood, no tier cascade, and the shell pre-pass is on
+    /// or the shells have nothing past tier 0. roofSkip 2 (build only) leaves the shader's _ShadowRoofSkip 0.
+    public static bool Settings(bool on, bool debugPixelRequested, int debugMode, int traversalMode, int shadowLevel,
+                                float shadowHalfRes, int roofSkip, int skyTilt, int look, bool devColors, bool holeLeap,
+                                bool heightBound) =>
+        on && !debugPixelRequested && debugMode == 0 && traversalMode == 4 && shadowLevel != 1 && shadowHalfRes == 0f
+        && roofSkip != 1 && skyTilt == 0 && look == 1 && devColors && !holeLeap && !heightBound;
 }
