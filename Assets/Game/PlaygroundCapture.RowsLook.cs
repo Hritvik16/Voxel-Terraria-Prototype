@@ -14,6 +14,8 @@
 //           pose, the launch's lighting knobs), night (-nighttod, default 0.5 h), its first
 //           frame's pose (12 deg down). Last, because it writes torch voxels.
 // Sheets: python3 -I tools/rows156.py <LookReview dir> Screenshots/156
+// TASK 162: -lookladder native,720,648,540,432 shoots any list of arms the same way (LadderArms);
+// sheets: python3 -I tools/ladder162.py <LookReview dir> Screenshots/162
 using System.Collections;
 using System.Collections.Generic;
 using Unity.Mathematics;
@@ -25,7 +27,7 @@ using VoxelEngine.Streaming;
 public partial class PlaygroundCapture
 {
     private IEnumerator LookRowsExtra(FarField far, Camera cam, StreamManager sm, ShellStreamer sh, Vector3 centre, float2 shz,
-                                      string armA, string armB, float wait, HashSet<string> onlyPoses)
+                                      string armA, string[] arms, float wait, HashSet<string> onlyPoses)
     {
         var store = Phase4Bootstrapper.Store;
         float noon = SunCycle.NoonHours;
@@ -58,7 +60,7 @@ public partial class PlaygroundCapture
                 L("");
                 L($"== cliff: eye {eye:F1} (store ground {(float.IsNaN(g) ? "NOT FOUND" : g.ToString("F1"))}), looking at {bestAt:F1}; " +
                   $"nearest of {cands} sun-behind cliff feet, {bestD:F0} m from the start pose");
-                yield return LookRowsShoot("cliff", cam, sh, eye, rot, armA, armB, wait);
+                yield return LookRowsShoot("cliff", cam, sh, eye, rot, arms, wait);
             }
             else L("cliff: no cliff foot with the sun behind -- skipped");
         }
@@ -73,15 +75,24 @@ public partial class PlaygroundCapture
             if (paths.Count > 0)
             {
                 L($"== torch: {paths[0].note}; sun elevation {SunCycle.ElevationDegreesAt(night):F0} deg");
-                yield return LookRowsShoot("torch", cam, sh, paths[0].pos[0], paths[0].rot[0], armA, armB, wait);
+                yield return LookRowsShoot("torch", cam, sh, paths[0].pos[0], paths[0].rot[0], arms, wait);
             }
             SunCycle.SetHours(noon);
         }
         Phase4Bootstrapper.DebugStreamCentre = null;
     }
 
+    /// Task 162: "native,720,540" -> native, fsr3_720, fsr3_540 (ApplyCompareArm names).
+    private static string[] LadderArms(string list)
+    {
+        var parts = list.Split(',');
+        for (int i = 0; i < parts.Length; i++)
+            parts[i] = parts[i].Trim() == "native" ? "native" : $"fsr3_{int.Parse(parts[i].Trim())}";
+        return parts;
+    }
+
     /// Shell wait (capped, missing counts logged), then each arm after 60 frames, same frame state.
-    private IEnumerator LookRowsShoot(string n, Camera cam, ShellStreamer sh, Vector3 eye, Quaternion rot, string armA, string armB, float wait)
+    private IEnumerator LookRowsShoot(string n, Camera cam, ShellStreamer sh, Vector3 eye, Quaternion rot, string[] arms, float wait)
     {
         Phase4Bootstrapper.DebugStreamCentre = eye;
         cam.transform.SetPositionAndRotation(eye, rot);
@@ -97,7 +108,7 @@ public partial class PlaygroundCapture
             }
             L($"  [shells] waited {Time.realtimeSinceStartup - t0:F0} s (cap {wait:F0} s): {ShellCountsLine(sh)}");
         }
-        foreach (string arm in new[] { armA, armB })
+        foreach (string arm in arms)
         {
             ApplyCompareArm(arm);
             cam.ResetProjectionMatrix();

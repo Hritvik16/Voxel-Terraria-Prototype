@@ -75,6 +75,9 @@
 //           fsr3_N (N pinned below 540 through UpscalerSelect.CaptureMinRows) in
 //           the same frame state, instead of fsr3 / none / native, no tint; then
 //           a cliff pose and a night torch pose (PlaygroundCapture.RowsLook.cs).
+//   TASK 162 (capture-only): -lookladder native,720,648,540,432 = the same with any
+//           list of arms ("native" = no upscaler at 1920x1080, N = fsr3_N); bursts
+//           at walk_open for -lookladderbursts (default native,540,432).
 //   TASK 127 (capture-only): -lookcross 1 replaces the poses and arms with
 //           cross-lit comparison stills (PlaygroundCapture.LookCross.cs).
 // Output: <persistentDataPath>/LookReview/<ts>_<preset>/ (PNGs + lookreview.txt).
@@ -157,6 +160,8 @@ public partial class PlaygroundCapture
         if (rowsArg > 0) rows = Math.Max(UpscalerSelect.MinRows, Math.Min(UpscalerSelect.MaxRows, rowsArg));
         int rowsAB = ArgInt("-lookrowsab", 0);       // task 156
         if (rowsAB > 0) rows = UpscalerSelect.MinRows;
+        string ladderArg = ArgValue("-lookladder");  // task 162
+        if (!string.IsNullOrEmpty(ladderArg)) rows = UpscalerSelect.MinRows;
         string posesArg = ArgValue("-lookposes");
         var onlyPoses = string.IsNullOrEmpty(posesArg) ? null : new HashSet<string>(posesArg.Split(','));
         bool bursts = ArgInt("-lookbursts", 1) != 0;
@@ -168,6 +173,15 @@ public partial class PlaygroundCapture
         bool biomeLook = ArgInt("-lookbiome", 0) != 0;   // task 122
         bool edgeAB = ArgInt("-lookedge", 0) != 0;       // task 125
         string fsr = $"fsr3_{rows}", none = $"none_{rows}";
+        string[] rowArms = null, burstArms = null;   // tasks 156 / 159 / 162: the rows look's arms
+        if (!string.IsNullOrEmpty(ladderArg))
+        {
+            rowArms = LadderArms(ladderArg);
+            string ba = ArgValue("-lookladderbursts");
+            burstArms = LadderArms(string.IsNullOrEmpty(ba) ? "native,540,432" : ba);
+        }
+        else if (rowsAB > 0) rowArms = burstArms = new[] { fsr, $"fsr3_{rowsAB}" };
+        bool rowsLook = rowArms != null;
         float noon = SunCycle.NoonHours;
         SunCycle.SetHours(noon);
         float3 sun = SunCycle.DirectionAt(noon);
@@ -307,7 +321,7 @@ public partial class PlaygroundCapture
                 }
                 L($"  [shells] waited {Time.realtimeSinceStartup - t0:F0} s (cap {wait:F0} s): {ShellCountsLine(sh)}");
             }
-            foreach (string arm in rowsAB > 0 ? new[] { fsr, $"fsr3_{rowsAB}" } : new[] { fsr, none, "native" })
+            foreach (string arm in rowsLook ? rowArms : new[] { fsr, none, "native" })
             {
                 ApplyCompareArm(arm);
                 cam.ResetProjectionMatrix();
@@ -325,10 +339,10 @@ public partial class PlaygroundCapture
             RaymarchFeature.ShellTint = false;
             // Task 159: -lookrowsab N with bursts on: walk_open's still / walk / turn bursts at 540 and N (FSR 3 shimmer
             // and ghosting at 2.5x show only across consecutive frames; task 156 had stills only).
-            if (rowsAB > 0 && bursts && n == "walk_open")
+            if (rowsLook && bursts && n == "walk_open")
             {
                 Vector3 fwd = rot * Vector3.forward; fwd.y = 0f; fwd = fwd.normalized;
-                foreach (string arm in new[] { fsr, $"fsr3_{rowsAB}" })
+                foreach (string arm in burstArms)
                 {
                     ApplyCompareArm(arm);
                     cam.ResetProjectionMatrix();
@@ -336,9 +350,9 @@ public partial class PlaygroundCapture
                     yield return LookBurst($"{n}_{arm}_walk", cam, eye, rot, fwd * 0.05f, 0f);
                     yield return LookBurst($"{n}_{arm}_turn", cam, eye, rot, Vector3.zero, 0.2f);
                 }
-                L($"  {n} motion bursts (task 159): still / walk 0.05 m/frame / turn 0.2 deg/frame, 60 lead + 4 consecutive frames, {fsr} and fsr3_{rowsAB}");
+                L($"  {n} motion bursts (task 159): still / walk 0.05 m/frame / turn 0.2 deg/frame, 60 lead + 4 consecutive frames, {string.Join(" / ", burstArms)}");
             }
-            if (rowsAB > 0) { Phase4Bootstrapper.DebugStreamCentre = null; File.WriteAllText(Path.Combine(root, "lookreview.txt"), _log.ToString()); continue; }
+            if (rowsLook) { Phase4Bootstrapper.DebugStreamCentre = null; File.WriteAllText(Path.Combine(root, "lookreview.txt"), _log.ToString()); continue; }
             if (goldenAll)
             {
                 const float golden = 17f;
@@ -404,7 +418,7 @@ public partial class PlaygroundCapture
             Phase4Bootstrapper.DebugStreamCentre = null;
             File.WriteAllText(Path.Combine(root, "lookreview.txt"), _log.ToString());
         }
-        if (rowsAB > 0) yield return LookRowsExtra(far, cam, sm, sh, centre, shz, fsr, $"fsr3_{rowsAB}", wait, onlyPoses);
+        if (rowsLook) yield return LookRowsExtra(far, cam, sm, sh, centre, shz, fsr, rowArms, wait, onlyPoses);
         ApplyCompareArm(fsr);
         L("");
         L($"LOOK REVIEW done: {root}");

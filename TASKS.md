@@ -772,3 +772,12 @@ arms `diet2_on` / `diet2_off`, `skyprobe_off` (vertical sky probe off, capture-o
 `-renderrows` now clamps from `UpscalerSelect.CaptureMinRows` (432 reachable), `-costd2pair` (with `-coststillraw`: raw / raw2 / flip / back
 stills). Look review `-cliffbefore 5` = cliff A/C with diet 2 forced OFF first. Identity: `python3 -I tools/diet2_161.py raw|pair|look <dir>`;
 release-trace per-encoder table: `python3 -I tools/gpu161.py <trace>.export/gpu.xml`. Result: HANDOFF 161.
+
+**Task 162 (look, owner Q100 note 2026-10-31, CAPTURE-ONLY: no default / look change): native 1080 vs FSR 3 at 720 / 648 / 540 / 432.**
+`-lookreview -lookladder native,720,648,540,432` (`LadderArms` in `PlaygroundCapture.RowsLook.cs`; generalises task 156's `-lookrowsab N`, which
+is unchanged): every pose (walk_near / walk_open / high, then 156's cliff + night torch) shoots `<pose>_<arm>` for each listed arm in the same
+frame state ("native" = no upscaler at 1920x1080, N = `fsr3_N`), and walk_open's still / walk / turn bursts for `-lookladderbursts` (default
+`native,540,432`). Run: `PRESETS=high EXTRA="-lookladder native,720,648,540,432 -lookposes walk_near,walk_open,high,cliff,torch -lookwait 60
+-shellworkers 6" ./run-look-review.sh`; sheets `python3 -I tools/ladder162.py <LookReview dir> Screenshots/162` (per pose 5 tiles with mean
+|dlum| and % px > 8 levels vs native; 3x crops of the 3 windows that differ most from native; motion sheet with 159's flicker numbers).
+Result: HANDOFF 162, `Screenshots/162/ladder162.txt`, `Logs/lookreview_20261031_210547.txt`.

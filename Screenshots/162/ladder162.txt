@@ -1,0 +1,14 @@
+walk_near: vs native mean |dlum| / % px > 8 levels: 720 0.82 / 1.4%  648 0.85 / 1.5%  540 0.90 / 1.7%  432 0.99 / 1.9%; crops #1 x1760 y580 3.4, #2 x1420 y720 3.0, #3 x1760 y400 2.9
+walk_open: vs native mean |dlum| / % px > 8 levels: 720 3.10 / 8.0%  648 3.19 / 8.2%  540 3.56 / 9.5%  432 3.96 / 10.8%; crops #1 x1440 y620 12.7, #2 x1280 y600 12.4, #3 x1120 y580 11.5
+high: vs native mean |dlum| / % px > 8 levels: 720 2.30 / 6.5%  648 2.36 / 6.9%  540 2.52 / 7.8%  432 2.85 / 9.3%; crops #1 x960 y980 8.9, #2 x960 y880 7.9, #3 x940 y740 7.5
+cliff: vs native mean |dlum| / % px > 8 levels: 720 1.29 / 2.1%  648 1.37 / 2.3%  540 1.46 / 2.6%  432 1.58 / 2.9%; crops #1 x560 y500 3.6, #2 x540 y380 3.5, #3 x20 y320 3.4
+torch: vs native mean |dlum| / % px > 8 levels: 720 0.88 / 1.2%  648 0.92 / 1.3%  540 1.04 / 1.6%  432 1.15 / 1.9%; crops #1 x260 y800 3.7, #2 x600 y980 3.7, #3 x760 y980 3.4
+motion native 1080              still diff01  0.00  flicker  0.00  by band top->bottom 0.00 0.00 0.00 0.00 0.00
+motion native 1080              walk  diff01  9.04  flicker 21.84  by band top->bottom 0.00 0.01 5.29 39.77 64.15
+motion native 1080              turn  diff01  8.54  flicker 20.43  by band top->bottom 0.02 2.83 14.76 40.95 43.58
+motion FSR 3 540                still diff01  0.13  flicker  0.30  by band top->bottom 0.03 0.03 0.23 0.57 0.66
+motion FSR 3 540                walk  diff01  8.31  flicker 20.09  by band top->bottom 0.03 0.05 3.70 35.28 61.39
+motion FSR 3 540                turn  diff01  7.95  flicker 18.78  by band top->bottom 0.09 2.66 12.61 36.96 41.56
+motion FSR 3 432 (now in play)  still diff01  0.16  flicker  0.36  by band top->bottom 0.04 0.05 0.31 0.70 0.72
+motion FSR 3 432 (now in play)  walk  diff01  8.21  flicker 19.81  by band top->bottom 0.04 0.06 3.56 34.39 60.98
+motion FSR 3 432 (now in play)  turn  diff01  7.82  flicker 18.48  by band top->bottom 0.11 2.59 12.16 36.07 41.50
