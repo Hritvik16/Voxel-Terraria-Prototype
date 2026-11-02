@@ -1,53 +1,54 @@
-# 168-perf-next-exact-cut: DONE. Cut D built and exact (0 px), but it saves ~0 ms, so it stays behind `-roofskip 1`. Next cut = C1.
+# 168b-perf-30fps-ceiling-check: DONE. The average is reachable, but the tail is not reachable by shading cuts. Decision-table row 2: spikes are the problem -> owner question below.
 
-**Which cut and why:** D. In 167's warm AC arms (`Logs/costsplit_2026-11-01_151803.txt`), `skyprobe_off` = -6.2 ms at walk_near, which is >= 2 ms (`PERF_EXACT_CUTS.md` section 4, step 1).
-This session resumed after the first 168 session hit the usage limit at 08:01. That session had already built D, run the exactness launches and done the
-warm measurement, so no new launch was needed.
+**Answer:** walk p50 <= 30 is already met at 432 rows on AC (FULL walk 23.7 ms). <= 5 % of frames > 33 ms is NOT reachable by any shading lever.
+Even with the sky probe, sun and shells all OFF, the moving walk keeps 12 % of frames > 33 ms (p95 42). The moving tail comes from main-thread streaming
+(and the fluid tick for the > 100 ms frames), not from GPU shading. Static views meet the tail line only with sky probe + sun both off, and that changes the picture.
 
-## What changed (`af2edf6`)
-- Roof skip ON now draws a diet-2 kernel: `CSMainFarShadeLeanRoof` (`VE_DIET2_ROOF`, `KernelDiet2Rule.RoofKernel`). It no longer falls back to the twin kernel.
-  Exactness scope: only rays whose exit point nothing reads use the skip (the sky probe, plus sun rays without shell continuation). The diet-2 roof kernel never
-  skips the sun ray, because task 133's shell continuation starts from that exit point.
-- Incremental roof pyramid: `TerrainClipmap.HeightDirty.cs` records which ring chunk columns were written. `RaymarchFeature.RoofInc.cs` plus the
-  `BuildHeight*Cols` kernels rebuild only those columns. `-roofverify N` compares the result against a full rebuild on the GPU.
-- Cost-split arms `roof_on`, `roof_full`, `roof_off`; `-costroofpair`; look review `-cliffbefore 6`; `tools/roof168.py`. Tests: `RoofPyramidIncrementalTests` and `KernelDiet2Tests`.
-- **`-roofinc` now defaults to OFF** (this session's change, after reading the verify log; see "Open bug" below). With `-roofskip 1`, the pyramid is fully rebuilt every frame (task 59's exact build).
-- No change to play: roof skip stays OFF. Memory added: about 1 KB for the dirty-column buffer. The verify buffer is allocated only with `-roofverify`. Well under 3-6 MB.
+## Owner question (decision table, row 2: ceiling p50 <= 30 but walk p95 > 33)
+(a) Spike work: time-slice the streamer's main-thread work + upload pacing (cut E, widened: the data points at streamer CPU time, not only `SetData` syncs).
+(b) Lower the target to p95 <= 45. The FULL walk is already at 45.1 (borderline).
+Recommendation: (a), but judge it on the walk's > 33 % share, not p50.
 
-## Evidence (warm steady state, on AC, 432 rows, play flags)
-- Warm-up `Logs/tg2world_20261102_075153.txt` (discarded). Cost split `Logs/costsplit_2026-11-02_075812.txt`: FULL x4 interleaved with roof_on x6, both views, on AC throughout.
-  Streaming was pinned, so the timed passes paid no pyramid upkeep ("incremental 0 (0 columns)"). This is D's best case.
+## What changed (`e685b77`, capture-only, no change to play)
+- `PlaygroundCapture.CostSplit.cs`: stacked arms `skysun_off`, `sunshells_off`, `ceiling` (FSR 3 kept). Every run line and table row now prints p95 and the share of frames > 33 ms.
+- `PlaygroundCapture.cs` `Sustained()`: honours `-noskyprobe` and `-nosim`; the header prints `sky probe ON|OFF`. TASKS.md paragraph added.
 
-| view | FULL p50 (4 runs, range) | roof_on minus FULL p50, 3 pairs | verdict |
+## Evidence (warm steady state, AC throughout, 432 rows pinned, tg2 noon, play flags)
+Warm-up `Logs/tg2world_20261102_094324.txt` (discarded). Then back to back: walk FULL, walk CEIL, cost split, walk CEIL, walk FULL (ABBA; script `Logs/overnight/168b_measure.sh`).
+Cost split `Logs/costsplit_2026-11-02_095908.txt`: 7 FULL runs per view, range 1.2 / 1.6 ms. Walks (MODE=playwalk, 3 min): `Logs/tg2world_20261102_094834/_095315/_101810/_102253.txt`.
+
+| arm | walk_near p50 / p95 / %>33 | walk_open | the walk (moving, streaming live) |
 |---|---|---|---|
-| walk_near | 36.8 ms (36.6-37.1, 0.6) | -0.3 / -0.4 / +0.1 | ~0 |
-| walk_open | 20.6 ms (19.9-21.5, 1.6) | -0.7 / -0.2 / +0.4 | ~0 |
+| FULL | 37.2 / 65.5 / 60.4 % | 20.8 / 30.3 / 1.2 % | 23.9, 23.4 / 45.2, 44.9 / 19.0, 17.3 % |
+| skyprobe_off | 31.1 / 55.5 / 45.3 % | 19.3 / 31.3 / 4.4 % | -- |
+| sun_off | 24.2 / 41.7 / 19.1 % | 18.2 / 24.5 / 0.0 % | -- |
+| shells_off | 29.9 / 58.4 / 38.7 % | 17.8 / 26.7 / 0.9 % | -- |
+| skysun_off | 20.5 / 31.4 / 1.4 % | 17.5 / 22.0 / 0.2 % | -- |
+| sunshells_off | 22.9 / 36.2 / 11.1 % | 16.3 / 24.9 / 0.1 % | -- |
+| ceiling (sky+sun+shells) | 17.7 / 29.6 / 0.3 % | 13.8 / 23.1 / 0.1 % | 21.1, 20.9 / 41.9, 42.8 / 11.9, 12.8 % |
 
-- The skip does change the rays: at walk_near, far PRIMARY steps per frame went from 9,044 to 1,945, and the share of sky rays ended by the sky exit went from 89 % to 97 %. It saves no time, though:
-  the sky probe's 6.2 ms (167's arm) is not spent in its walk through the tier-0 window.
-- 0 px proof (`UpscalerClips/2026-11-02_064444/stills`, `python3 -I tools/roof168.py pair|arms`): at walk_near and walk_open, the in-place flip (raw2/flip, flip/back)
-  and roof_on vs FULL raw stills are all **0 px**. cliff1 A native, roof off vs on (`LookReview/2026-11-02_065242_high`): **0 px**.
-  cliff2 A native (not a required pose): 3,947 px. All of them sit in a distant horizon strip on the left (x 0-324, y 511-586 of 1080), beyond the window the skip
-  covers. Shells were still filling during those shots (s3/s4 missing 385/156), so streaming is the likely cause, but this run does not prove it.
-- Fast suite: PASS 985 FAIL 0 SKIP 16 (`Logs/overnight/168_fast.out`). The first session's filtered run passed 21/21 (`Logs/overnight/168_filter.xml`).
-
-## Open bug (not fixed; the feature is off)
-- The streaming warm-up with `-roofskip 1 -roofverify 4` (`Logs/overnight/168_warmup_Player.log`, grep `roofverify`) found the incremental pyramid differed from a full rebuild
-  on 774 of 3,749 checks (29-4,718 words each). Some of those were idle frames with no dirty columns. The errors are transient and clear within a few checks.
-  So some input changes without a recorded column write. Already ruled out: other ClipmapBuffer writers (only `WriteClipmapChunk` writes after construction),
-  lock-buffer uploads (off), `ReadClipmap` (reads only the ring slot), and the rebinding of the full-build kernels. Not yet ruled out: an error in the verify itself, and the order of
-  `SetData` vs the render-graph compute pass. This matters only if D is revisited.
+- **The walk tail.** Turning off all three levers moves the walk's p95 only 45 -> 42 and its > 33 ms share 18 -> 12 %.
+  - Spikelog ceiling walk (`Logs/tg2world_20261102_102802.txt`, `tools/spike-attribution.py`): 72 % of spikes are main-thread streaming (streamer/evict >= 8 ms). The fluid tick adds +14 ms on its frame (15 % of frames). There were 31 frames > 100 ms.
+  - Same walk with `-nosim` (`Logs/tg2world_20261102_103551.txt`): > 100 ms frames 31 -> 1, > 50 ms 6.6 -> 3.0 %, but > 33 ms stays at 12 % (p95 43).
+  - The 33-50 ms band follows streamer > 5 ms (25 % of frames, +10.4 ms that frame, -5.7 the next). These are co-occurrence lifts, not proof.
+  - Spikelog walks run ~1-4 points worse on > 33 than plain ones (16.4 % vs 12.3 %). Overhead or variance; the ABBA plain walks are the numbers above.
+- **Static views:** the near arc meets the tail line only at `skysun_off` or `ceiling`. The open arc already meets it at FULL (p95 30.3, 1.2 %).
+- **Exact vs picture-changing:** every arm above changes the picture. Sun off = no sun shadows. Sky probe off = no sky-ambient darkening in overhangs/caves.
+  Shells off = no shell detail past the 128 m window (far band instead). The exact levers aimed at the same costs are C1 / C2 (sun) and G (sky probe), est. 2-7 ms
+  near (`PERF_EXACT_CUTS.md` section 2). The streaming tail's lever is E / streamer time-slicing (exact at rest; chunks land later while moving).
+- Caveats: noon only (sun 78 deg). At walk_near the shells were not full (s3 missing 477, s4-s7 missing), so shells' full cost may be higher. Fast suite PASS 985 FAIL 0 SKIP 16 (`Logs/overnight/168b_fast.out`).
+- Stills looked at (`.../UpscalerClips/2026-11-02_095908/stills/`): walk_near FULL vs skysun_off, and walk_open FULL vs ceiling. At noon each pair looks almost the same, because the sun is high and the near wall faces away from it.
 
 ## Next
-- Per the decision table: the next task is **C1** (shadow continuation out of the big kernel). The supervisor queues it. Then E, then the milestone walk.
-- Not a measurement follow-up: the incremental-pyramid mismatch above, only if D ever comes back.
+- The supervisor asks the owner (a) vs (b) above. If (a): a design + build task for streamer main-thread time-slicing, folded into E, judged on a playwalk's > 33 % share.
+- Not queued (measure-only): the same ceiling at a low sun (evening), where sun/sky matter more.
 
 ## For the doc
-- Cut D (roof skip in the diet-2 kernel + incremental pyramid), warm AC, 432 rows (`Logs/costsplit_2026-11-02_075812.txt`):
-  walk_near 36.8 -> about 36.8 ms p50 (roof_on minus FULL -0.3 / -0.4 / +0.1, noise 0.6); walk_open 20.6 -> about 20.6 (-0.7 / -0.2 / +0.4, noise 1.6). **~0: stays off.**
-- Exact: 0 px at walk_near and walk_open (in-place flip and arms) and at cliff1 A native. Memory added: about 1 KB.
-- Why there's no gain: the skip cuts window steps (far primary steps 9,044 -> 1,945 per frame), but the sky probe's 6.2 ms is spent elsewhere.
-- Incremental pyramid not exact under streaming (774 of 3,749 verify checks bad), so `-roofinc` is off by default.
-- Next cut: **C1**.
-- No images: nothing visible changed (0 px). The 0 px stills are in `.../UpscalerClips/2026-11-02_064444/stills/` (walk_near_full_raw.png vs
-  walk_near_roof_on_raw.png: the same noon walk view, identical to the pixel).
+- 30 fps ceiling, warm AC, 432 rows (`Logs/costsplit_2026-11-02_095908.txt`, playwalks `Logs/tg2world_20261102_0948/0953/1018/1022*.txt`):
+  - FULL walk p50 23.7 ms, p95 45, 18 % of frames > 33 ms. CEILING walk (sky probe + sun + shells off): 21.0 / 42.4 / 12.3 %.
+  - walk_near FULL 37.2 / 65.5 / 60 % -> skysun_off 20.5 / 31.4 / 1.4 % -> ceiling 17.7 / 29.6 / 0.3 %. walk_open FULL is already 20.8 / 30.3 / 1.2 %.
+  - Ceiling walk without fluid: > 100 ms frames 31 -> 1, > 33 ms still 12 %, which follows main-thread streaming.
+- **Is 30 fps reachable?** The average yes (already). The <= 5 % > 33 ms tail is not reachable by shading cuts, even if we accept the picture loss.
+  It needs streaming/fluid main-thread pacing work (E, widened), or a target of p95 <= 45, which FULL just meets.
+- Image: `.../UpscalerClips/2026-11-02_095908/stills/walk_near_full.png` vs `walk_near_skysun_off.png`: the same canyon wall at noon. Look at the shaded faces
+  on the left: they are nearly identical, although the right one drops 17 ms. At noon the trade is nearly invisible here; at low sun it would not be.
