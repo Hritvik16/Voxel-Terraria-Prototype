@@ -1,61 +1,53 @@
-# 167-perf-kernel-diet-2-rerun (= task 161): DONE. Kernel diet 2 is ON by default. Next cut = D (sky probe arm -6.2 ms), with one caveat below.
+# 168-perf-next-exact-cut: DONE. Cut D built and exact (0 px), but it saves ~0 ms, so it stays behind `-roofskip 1`. Next cut = C1.
 
-## What changed
-- `aa76c67`: `RaymarchFeature.KernelDiet2` now defaults ON (`ParseFlagOn`, the same pattern as task 134's `ShellKernelDiet`). `-diet2 0` gives the pre-167 kernels.
-  Settings that are not play settings still fall back to the twin kernel automatically (`KernelDiet2Rule.Settings`). Paragraph added to `TASKS.md`.
-- No new launch. The warm AC set already existed. `Logs/overnight/161_measure2.out`: warm-up `Logs/tg2world_20261101_151159.txt` (discarded), then
-  the cost split ran back to back, on AC at every check (15:11, 15:16 and 15:54, 100 %). The power reading this morning was "AC Power" too.
-- **The supervisor's 18:15 note used the wrong run.** `Logs/costsplit_2026-11-01_143603.txt` printed `kernel lean` on every row, FULL included, and it
-  has no `[shells]` lines (shells_off = FULL). That launch had no play flags and no `-diet2 1`, so it is invalid for B.
-  `Logs/costsplit_2026-11-01_151803.txt` is the valid run: FULL rows say `kernel diet2` and `diet2_off` rows say `kernel lean`, so the twin really dispatched.
+**Which cut and why:** D. In 167's warm AC arms (`Logs/costsplit_2026-11-01_151803.txt`), `skyprobe_off` = -6.2 ms at walk_near, which is >= 2 ms (`PERF_EXACT_CUTS.md` section 4, step 1).
+This session resumed after the first 168 session hit the usage limit at 08:01. That session had already built D, run the exactness launches and done the
+warm measurement, so no new launch was needed.
 
-## Evidence (warm steady state, AC, 432 rows, play flags, tg2 noon)
-- Fast suite PASS 981 FAIL 0 SKIP 16 (`Logs/overnight/167_fast.out`). The 0 px exactness proof is from 161 (`24424c2`, `cd565ee`).
-- Arm table: ms p50, the two arm passes vs the FULL passes on each side (`Logs/costsplit_2026-11-01_151803.txt`). The noise is the range of the 13 FULL passes.
+## What changed (`af2edf6`)
+- Roof skip ON now draws a diet-2 kernel: `CSMainFarShadeLeanRoof` (`VE_DIET2_ROOF`, `KernelDiet2Rule.RoofKernel`). It no longer falls back to the twin kernel.
+  Exactness scope: only rays whose exit point nothing reads use the skip (the sky probe, plus sun rays without shell continuation). The diet-2 roof kernel never
+  skips the sun ray, because task 133's shell continuation starts from that exit point.
+- Incremental roof pyramid: `TerrainClipmap.HeightDirty.cs` records which ring chunk columns were written. `RaymarchFeature.RoofInc.cs` plus the
+  `BuildHeight*Cols` kernels rebuild only those columns. `-roofverify N` compares the result against a full rebuild on the GPU.
+- Cost-split arms `roof_on`, `roof_full`, `roof_off`; `-costroofpair`; look review `-cliffbefore 6`; `tools/roof168.py`. Tests: `RoofPyramidIncrementalTests` and `KernelDiet2Tests`.
+- **`-roofinc` now defaults to OFF** (this session's change, after reading the verify log; see "Open bug" below). With `-roofskip 1`, the pyramid is fully rebuilt every frame (task 59's exact build).
+- No change to play: roof skip stays OFF. Memory added: about 1 KB for the dirty-column buffer. The verify buffer is allocated only with `-roofverify`. Well under 3-6 MB.
 
-| arm | walk_near | delta | walk_open | delta |
-|---|---|---|---|---|
-| FULL (diet 2) | median 38.4 (range 37.0-39.9) | | median 24.4 (range 21.9-26.6) | |
-| diet2_off | 43.8 / 44.2 | **+6.3** | 27.0 / 27.1 | **+4.6** |
-| skyprobe_off | 32.1 / 32.0 | **-6.2** | 20.6 / 21.5 | -1.9 |
-| sun_off | 26.4 / 28.7 | **-11.2** | 21.4 / 22.2 | -2.5 |
-| nearsh_off | 37.0 / 36.4 | -3.0 | 24.4 / 24.1 | -0.4 |
-| fshadow_off | 39.9 / 39.0 | -0.2 | 24.1 / 25.2 | +0.1 |
-| reuse1 | 43.6 / 51.5 | +8.3 | 27.3 / 26.3 | +2.2 |
-| reuse16 | 37.2 / 37.0 | -1.6 | 24.8 / 24.2 | 0.0 |
-| roof_on (draws the twin kernel) | 50.5 / 51.2 | +12.8 | 28.8 / 28.9 | +4.8 |
-| roof_build | 40.4 / 39.9 | +2.5 | 26.1 / 27.3 | +1.7 |
-| shells_off | 31.7 / 31.7 | -6.6 | 20.6 / 20.1 | -5.0 |
-| ups_none | 33.6 / 33.8 | -4.8 | 17.0 / 17.1 | -6.1 |
-| tiny_gate | 6.7 / 6.7 | -31.4 | 4.1 / 4.6 | -19.9 |
+## Evidence (warm steady state, on AC, 432 rows, play flags)
+- Warm-up `Logs/tg2world_20261102_075153.txt` (discarded). Cost split `Logs/costsplit_2026-11-02_075812.txt`: FULL x4 interleaved with roof_on x6, both views, on AC throughout.
+  Streaming was pinned, so the timed passes paid no pyramid upkeep ("incremental 0 (0 columns)"). This is D's best case.
 
-- GPU trace: Metal System Trace of FULL walk_near, pass 2, diet 2 on (`gpu-traces/walknear161_full.trace`, table from `python3 -I tools/gpu161.py
-  gpu-traces/walknear161_full.trace.export/gpu.xml`). Median per encoder, GPU busy time, NOT a frame time. Thermal state was "Fair".
-  - Raymarch compute encoder (pre-pass and main passes merged; a release build has no labels): **33.4 ms**.
-  - FSR 3 compute encoder: **4.3 ms**.
-  - Largest render encoder (copies / composite): 1.7 ms. The other render encoders and the HUD are about 0.1-0.5 ms each.
-  - Pre-pass vs main pass cannot be split in a release trace.
+| view | FULL p50 (4 runs, range) | roof_on minus FULL p50, 3 pairs | verdict |
+|---|---|---|---|
+| walk_near | 36.8 ms (36.6-37.1, 0.6) | -0.3 / -0.4 / +0.1 | ~0 |
+| walk_open | 20.6 ms (19.9-21.5, 1.6) | -0.7 / -0.2 / +0.4 | ~0 |
 
-## Decision table applied
-- **Diet 2:** saves 6.3 / 4.6 ms, more than the FULL noise (2.9 / 4.7 ms), and the picture is 0 px different. -> **ON in play** (done).
-  The structural theory holds, so C1 / C2 keep their rank.
-- **skyprobe_off:** -6.2 ms at walk_near, which is 2 ms or more. -> **next cut = D**.
-  CAVEAT for D's task: roof skip is not in the diet 2 kernel, so `roof_on` falls back to the twin and loses diet 2's 6.3 ms.
-  roof_on +12.8 minus the lost diet 2 (6.3) and the rebuild (2.5) leaves about +4 ms for the skip itself at walk_near (a subtraction estimate).
-  Task 59 found the skip worth -4.5 ms; this run does not show that.
-  D therefore needs a diet 2 kernel that carries roof skip, and must prove the skip still saves time on the sky probe. If it does not, C1 goes next.
-- **Sun block:** `reuse16` is close to FULL (-1.6 / 0) but `reuse1` is not (+8.3 / +2.2), and `sun_off` is large (-11.2).
-  So at 1-in-4 reuse, the ray tracing itself is about 2 ms (estimate) and about 9 ms is fixed per pixel (lookup / history / code).
-  That supports C2 as the large lever after D / C1 (design task first, as the plan says).
+- The skip does change the rays: at walk_near, far PRIMARY steps per frame went from 9,044 to 1,945, and the share of sky rays ended by the sky exit went from 89 % to 97 %. It saves no time, though:
+  the sky probe's 6.2 ms (167's arm) is not spent in its walk through the tier-0 window.
+- 0 px proof (`UpscalerClips/2026-11-02_064444/stills`, `python3 -I tools/roof168.py pair|arms`): at walk_near and walk_open, the in-place flip (raw2/flip, flip/back)
+  and roof_on vs FULL raw stills are all **0 px**. cliff1 A native, roof off vs on (`LookReview/2026-11-02_065242_high`): **0 px**.
+  cliff2 A native (not a required pose): 3,947 px. All of them sit in a distant horizon strip on the left (x 0-324, y 511-586 of 1080), beyond the window the skip
+  covers. Shells were still filling during those shots (s3/s4 missing 385/156), so streaming is the likely cause, but this run does not prove it.
+- Fast suite: PASS 985 FAIL 0 SKIP 16 (`Logs/overnight/168_fast.out`). The first session's filtered run passed 21/21 (`Logs/overnight/168_filter.xml`).
 
-## Not done
-- Did not start D or C1 (out of scope). Queued 168 (next exact cut) can read this handoff. No rig run after the default flip
-  (exact change, already measured as FULL vs diet2_off).
+## Open bug (not fixed; the feature is off)
+- The streaming warm-up with `-roofskip 1 -roofverify 4` (`Logs/overnight/168_warmup_Player.log`, grep `roofverify`) found the incremental pyramid differed from a full rebuild
+  on 774 of 3,749 checks (29-4,718 words each). Some of those were idle frames with no dirty columns. The errors are transient and clear within a few checks.
+  So some input changes without a recorded column write. Already ruled out: other ClipmapBuffer writers (only `WriteClipmapChunk` writes after construction),
+  lock-buffer uploads (off), `ReadClipmap` (reads only the ring slot), and the rebinding of the full-build kernels. Not yet ruled out: an error in the verify itself, and the order of
+  `SetData` vs the render-graph compute pass. This matters only if D is revisited.
+
+## Next
+- Per the decision table: the next task is **C1** (shadow continuation out of the big kernel). The supervisor queues it. Then E, then the milestone walk.
+- Not a measurement follow-up: the incremental-pyramid mismatch above, only if D ever comes back.
 
 ## For the doc
-- Kernel diet 2 (now ON in play), warm AC at 432 rows: walk_near 44.0 -> 37.7 ms p50 (-6.3), walk_open 27.1 -> 22.5 (-4.6). Picture 0 px different.
-  (`Logs/costsplit_2026-11-01_151803.txt`)
-- What the other arms would save at walk_near: no sky probe -6.2 ms, no sun -11.2 ms, no shells -6.6 ms, no upscaler -4.8 ms.
-- GPU per frame at walk_near: raymarch compute 33.4 ms, FSR 3 4.3 ms, copies/composite about 2-3 ms (`gpu-traces/walknear161_full.trace`).
-- Next: D (incremental roof pyramid + roof skip), which first needs roof skip inside the diet 2 kernel. Then C1, then C2 (the sun's ~9 ms per-pixel part).
-- No images: nothing visible changed (0 px).
+- Cut D (roof skip in the diet-2 kernel + incremental pyramid), warm AC, 432 rows (`Logs/costsplit_2026-11-02_075812.txt`):
+  walk_near 36.8 -> about 36.8 ms p50 (roof_on minus FULL -0.3 / -0.4 / +0.1, noise 0.6); walk_open 20.6 -> about 20.6 (-0.7 / -0.2 / +0.4, noise 1.6). **~0: stays off.**
+- Exact: 0 px at walk_near and walk_open (in-place flip and arms) and at cliff1 A native. Memory added: about 1 KB.
+- Why there's no gain: the skip cuts window steps (far primary steps 9,044 -> 1,945 per frame), but the sky probe's 6.2 ms is spent elsewhere.
+- Incremental pyramid not exact under streaming (774 of 3,749 verify checks bad), so `-roofinc` is off by default.
+- Next cut: **C1**.
+- No images: nothing visible changed (0 px). The 0 px stills are in `.../UpscalerClips/2026-11-02_064444/stills/` (walk_near_full_raw.png vs
+  walk_near_roof_on_raw.png: the same noon walk view, identical to the pixel).
