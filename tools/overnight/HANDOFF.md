@@ -1,47 +1,49 @@
-STOP_FOR_OWNER -- task 164b (look: torch-flood direction terms): SHEETS DONE. Two doc questions.
+STOP_FOR_OWNER -- task 165 (torch flood L3, incremental): EXACT everywhere, but memory is over the ~20 MB line and the flood is far slower than the plan's estimate in tg2. Two questions.
 
-**Q1 "Which direction term (or flat)?" -- recommended (c) mode 2.** (a) 0 = 158's (facets) (b) 1 = central differences (c) 2 = toward the torch
-on straight paths (d) 3 = flat. Mode 2 removes the facets everywhere I looked and I saw no new artefact. Mode 1 looks almost the same as 0.
-Mode 3 has no facets, but it lights every face equally, so corners and the pillar's sides stop reading as shapes.
-**Q2 "Flood ON by default after L3?" -- recommended (a) yes, with mode 2.** Mode 2 removes the facets and keeps sealed spaces exactly dark.
-Its cost (a torch loop per lit pixel) has not been measured yet. That is a perf task, so (a) means "after L3 and a cost check".
+**Q1 (memory, 158's 31-torch camp).** The CPU now keeps the 11.2 MB union you approved PLUS one cache per torch (8.1 MB). Exact removal needs the caches: a max over torches can't be undone without the other torches' values. Today, content is 19.3 MB, but allocated is 31 MB (list/buffer doubling). The 2 flood jobs also need up to 27 MB of scratch while they run (freed when idle). The GPU buffers are 20 MB allocated (11.2 used).
+(a) Recommended: keep the caches. Trim the slack (CPU about 20 MB, GPU about 12 MB) and run 1 flood job (scratch peak about 14 MB, fills slower).
+(b) Drop the CPU copy of the union data: the GPU writes merged bricks through a small scatter kernel. CPU about 11 MB, but more GPU code.
+(c) Accept today's numbers.
 
-# 164b-look-torch-flood-direction-rerun: 4 rows x 5 arms shot in one launch; mode 2 is the clear look winner; fast suite green
+**Q2 (flood cost in real terrain).** One outdoor torch takes 250 ms of worker time in tg2 (158: 316 ms; plan est. 5-15 ms). In EditMode open ground it is 62 ms (oracle 215).
+Only 31% of tg2's lit bricks pass the "direct" test (all-air bbox to the torch); bumpy ground blocks the rest. So an edit in the camp settles in 2.1-2.6 s, not "a few frames". Each camp edit re-floods 10-11 torches, because the torches' 12 m boxes overlap.
+(a) Recommended: a follow-up with two exact cuts. First, "anchored" bricks: the air below a torch counts as direct through the first move beside the post. The lower-bound check is cheap. Second, re-flood only the torches whose LIT cells the edit touches, not their whole box. Then measure again.
+(b) A shorter reach (8 m is about 1/3 of the volume).
+(c) Accept 2-3 s edit latency in dense camps.
 
-## What changed
-- `d9afad2`: `tools/torchflood164.py` now has crop defaults that hit the facet spots (tunnel: end wall + floor; ground: the post). TASKS.md
-  Task 164 paragraph gets the result. `Screenshots/164/torchflood164.txt` (lit px / mean luma per arm, plus the flood and probe log lines).
-- The code is unchanged from `d2b7916`. The launch used the existing player (`SKIP_BUILD=1`). The flood stays OFF by default and `-tfdir` defaults to 0.
+# 165-torch-flood-l3-edits: DONE in code (exact, tests green); stopped on memory / cost
+
+## What changed (`cb75562`, engine-phase)
+- `TorchFloodBuild.cs` (new). It has the per-torch `TorchFloodCache` (min path cost per 0.2 m cell, per escaped voxel and per 0.4 m air cell; a direct brick is 1 bit), a main-thread `Snapshot` (brick kinds plus 1 bit per voxel of mixed bricks), and four Burst jobs: `FloodBrickJob` (worker, one torch), `MergeJob` (worker), `ApplyJob` (main), `CollectJob`/`TakeJob`.
+- `TorchFloodPool.cs` was rewritten around these. Its Tick handles the torch-set diff, edit and chunk-admit/evict queues, up to 2 flood slots, merge batches of 4,096 bricks, dirty-range uploads, `Flush`, `Diff` and `VerifyGpu`. `SampleLevels` and the other twins are unchanged.
+- `Encode` now takes an air cell as the MAX of its 2^3 centre voxels (158 used the mean, which does not decompose over torches; at most one corner move brighter). It reads a brick's kind from its content, not the header (164b's caveat).
+- Hooks: EditService notifies only on an air<->solid change. `FluidOpListReadback` notifies on air<->fluid (so fluid writes ARE included). The edit-op replay uses `NotifyBox`. `Phase4Bootstrapper` calls `Shutdown`.
+- Capture: `-costpaths torch -tfl3 1` (`PlaygroundCapture.TorchFloodL3.cs`). TorchCost now uses `EnsureBuilt`. FloodProbe is twin-only when there is no oracle.
+- Flood stays OFF; the `-tfdir` default is still 0 (164's question is open).
 
 ## Evidence
-- Launch: `Logs/lookreview_20261102_002927.txt` (one launch, ~9 min). Shots: `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-02_003032_high/tr_*`.
-  Shells at the torch site: 0 missing after 31 s. GPU vs C# twin: max |diff| 0 levels -> PASS on every row and every mode.
-- Fast suite: PASS 973 FAIL 0 SKIP 15 (`Logs/overnight/164b_fast.out`).
-- What the sheets show (I looked at all 8):
-  - Room: 0 and 1 have an X of hard wedges on the floor and straight bright bands along the wall corners. 2 has a smooth round pool on
-    the floor and a soft glow on the wall. 3 is uniformly lit, and the corner is barely visible.
-  - Tunnel: 0 and 1 have a hard vertical step on the end wall (the right half is bright) and a bright wedge on the floor. 2 is smooth. 3
-    lights the side walls as much as the end wall.
-  - Pillar/ground: 0 and 1 have blocky bright rectangles on the foreground slope and a hard edge on a step face. 2 has a smooth pool round
-    the post, the pillar is lit only on its torch side, and no fade band is visible round the pillar. 3 lights the pillar's away side and
-    the post grey.
-- Mean luma (room): 158 59.7, mode 1 57.0, mode 2 50.8, flat 81.4. Mode 2 is ~15 % dimmer than 158, and flat is brighter.
-- CAVEAT: the tunnel row's flooddir3 arm encoded 385 air / 326 mixed bricks, against 90 / 621 for modes 0-2. The geometry is the same:
-  a deferred brick compaction finished mid-row, and `TorchFloodPool.BrickAllAir` reads the brick header. So that one tile mixes in
-  trilinear air cells and is not like-for-like. The room, ground and pillar rows are consistent across arms.
-- Side finding: the flood encodes still-uncompacted all-air bricks as "mixed" (64 cells, 0.2 m max) instead of "air" (8 trilinear cells).
-  This is correct but blockier and bigger right after an edit. Worth a look in L3 (encode from voxel content, not the header).
+- Fast suite: PASS 981 FAIL 0 SKIP 16 (`Logs/overnight/165_fast.out`; was 973/15). `TorchFloodL3Tests` all pass, including Slow `Fuzz_Long` (2 x 300 ops) in a filtered run (`Logs/overnight/165_filter.log`).
+- Scratch == `Encode(oracle)` byte for byte in five cases: axis wall, x==z diagonal (450 escapes), closed box + L-bend, 12 m open ground, doorway.
+- Incremental == scratch after every fuzz op (680 in total), the doorway sealed / diagonal slot / reopened, evict / re-admit, and removing one of 6 overlapping torches (0 other re-floods). Removing every torch frees every brick, escape and table.
+- In-player run, warm chip (the build had just run; report-only, no frame-time arm): `Logs/costsplit_2026-11-02_015047.txt` (instrumented) and `_014115.txt`. Both are summarised in `Screenshots/165/tfl3_165.txt`.
+  - Steps: camp build, D1 wall, D2 pit, D3a torch broken, D3b torch re-placed.
+  - At every step, live union == fresh rebuild: IDENTICAL. GPU readback of dir / tables / every reachable data word == CPU copy: PASS. GPU vs twin over 25 probe pixels (24 lit): 0 levels.
+- Camp: 31 torches; 162 chunks; 133,850 air / 18,794 mixed bricks; 14 escapes (same counts as 158).
+  - Async fill: 5.85 s (run 1: 13.7 s); flood job wall mean 335 ms.
+  - From-scratch, one thread: 7.9 s (158: 9.8 s); per torch mean 250 ms, max 321.
+- Main thread per busy frame:
+  - Build: mean 0.65, p50 0.47, p99 2.78, max 4.9 ms.
+  - Edits: mean 0.59-0.78, p99 1.26-2.68, max 1.3-4.6 ms.
+  - Spikes come from merge apply (max 2.8 ms per 4,096-brick batch) and single snapshots (max 2.9 ms).
 
 ## Unfinished / next
-- On (c): set `-tfdir` default to 2 (one line in `TorchFloodPool`) inside L3. Measure mode 2's torch-loop cost in the next perf milestone.
+- After Q1/Q2: trim slack. Use smaller merge batches (1,024) and budget snapshots by box size, to get p99 under 1 ms. Then do Q2's cuts.
+- 164's direction-term question is still open.
+- L3's look check (dig through / seal a doorway sequence, window-edge walk) was not shot. The camp stills don't show the D1 wall.
 
 ## For the doc
-- Facet metric (EditMode, largest direction-factor jump between 0.1 m floor neighbours): 158 0.525 -> mode 1 0.264 -> mode 2 0.018 -> flat 0.
-- Sealed spaces: exactly 0 under all 4 terms. GPU = C# twin (0 levels diff) on all 4 rows x 4 modes.
-- Room mean luma: 158 59.7 / mode 2 50.8 / flat 81.4 (`Screenshots/164/torchflood164.txt`).
-- `Screenshots/164/row_room_crops.png`: native 2x crop of the room floor under the torch. Top middle (158) and top right (mode 1) show
-  the hard X of wedges. Bottom left (mode 2) shows a smooth pool. Bottom middle (flat) is uniform.
-- `Screenshots/164/row_pillar_crops.png`: the post and pillar. Top middle/right (0/1) show blocky bright rectangles on the slope. Bottom left
-  (mode 2) shows a smooth pool, with the pillar lit only on its right (torch) edge. Bottom middle (flat) shows the pillar and post lit grey all over.
-- `Screenshots/164/row_tunnel.png`: full frames. In the 158 tile (top middle), look at the end wall's hard bright right half and the floor wedge.
-  Mode 2 (bottom left) is smooth. The flat tile has the encoding caveat above.
+- Exactness: live incremental union == from-scratch rebuild at all 5 in-player steps and after 680 fuzz ops. GPU buffers == CPU copy (readback) at every step.
+- Rebuild of 158's 31 torches: 9.8 s main thread -> 5.9 s async on 2 workers. Main thread mean 0.65 ms/frame (p99 2.8, max 4.9). Per torch 316 -> 250 ms of worker time (`Screenshots/165/tfl3_165.txt`).
+- Edit latency in the camp: 2.1-2.6 s, 10-11 torch re-floods per edit, 8-12 MB uploaded per edit.
+- Memory: content 11.2 MB union + 8.1 MB caches. Allocated 21.1 + 9.9 MB. Scratch peak 27 MB while flooding. GPU 20 MB allocated / 11.2 used.
+- `Screenshots/165/tfl3_camp.png`: the camp at night after the async fill. Look at the lower left and centre: warm pools of light around the 1.5 m posts on the slope. The look is the same as 158's flood (no visual change intended).
