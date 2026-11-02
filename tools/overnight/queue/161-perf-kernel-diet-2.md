@@ -44,3 +44,9 @@ trace attach. Re-check power before each step; on battery -> wait as in "Power f
 sources, rebuild first. Apply the decision table: diet 2 >= 1 ms -> `KernelDiet2` default ON in play (fast suite once), and state plainly which
 of D / C1 is next per the arms (owner Q102 (a) approved the order and C1's 3-6 MB). Do NOT start D or C1 here. End normally unless something
 needs the owner.
+
+## Supervisor note (2026-11-01 18:15, while waiting on the usage limit)
+The warm set finished (`Logs/costsplit_2026-11-01_143603.txt`, `MEASURE_DONE`); do NOT rerun it unless a check below fails. In it, walk_near
+FULL ~33.4-35.1 vs `diet2_off` 33.3 / 34.0 (about 0, unlike the cold -7.3), and the `diet2_off` rows also print "kernel lean". Before applying
+the table, confirm `diet2_off` really dispatched the twin kernel (the d2pair / kernel line); if it did not, the arm is invalid: fix the arm and
+rerun only diet2_off vs FULL (warm). `skyprobe_off` ~27.2 vs ~34.5 looks like ~7 ms -> D by the table.
