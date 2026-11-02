@@ -19,7 +19,7 @@ WORDS = {"today": "today (shipped): 2.9 m, 4 shadow rays", "flood": "158 flood: 
          "flooddir1": "-tfdir 1: central differences 0.4 m", "flooddir2": "-tfdir 2: toward the torch on straight paths",
          "flooddir3": "-tfdir 3: flat (no direction)"}
 # facet spot per row (native 1920 x 1080 pixels: x0, y0, w, h at 480 x 270 -> 2x = 960 x 540); override with CROP_<ROW>=x,y
-CROPS = {"tunnel": (120, 120), "room": (720, 700), "ground": (720, 640), "pillar": (640, 420)}
+CROPS = {"tunnel": (760, 330), "room": (720, 700), "ground": (640, 420), "pillar": (640, 420)}  # 164b: tunnel end wall + floor, ground = the post
 LABEL = {"tunnel": "built tunnel, night, eye at the mouth", "room": "sealed room (5 m cube), night",
          "ground": "open ground, night, eye 12 m back", "pillar": "open ground + a 0.7 m pillar 1.5 m beside the torch"}
 LOOK = {"tunnel": "the LEFT wall: 158 shows vertical stripes", "room": "the floor under the torch (158: a bright square) and the wall corners (straight wedges)",

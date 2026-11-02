@@ -1,0 +1,60 @@
+lit px = native 1080 pixels >= 10 luma (0-255) above the same pose with the torch light off ('none')
+row      arm            lit px  mean luma
+tunnel   none                0        0.0
+tunnel   today         107,664        1.8
+tunnel   flood         431,335       10.6
+tunnel   flooddir1     415,339        9.8
+tunnel   flooddir2     442,359       10.4
+tunnel   flooddir3     586,472       12.0
+room     none                0        0.0
+room     today         384,248        7.5
+room     flood       2,073,600       59.7
+room     flooddir1   2,073,600       57.0
+room     flooddir2   2,073,600       50.8
+room     flooddir3   2,073,600       81.4
+ground   none                0       20.7
+ground   today          80,085       22.0
+ground   flood         542,137       29.6
+ground   flooddir1     537,383       29.4
+ground   flooddir2     518,506       29.1
+ground   flooddir3     791,841       32.5
+pillar   none                0       20.7
+pillar   today          72,981       21.9
+pillar   flood         542,101       29.6
+pillar   flooddir1     537,606       29.4
+pillar   flooddir2     518,727       29.1
+pillar   flooddir3     792,221       32.7
+
+flood (tunnel flood): 1 torch, 2 lit chunks, air bricks 90, mixed 621, escapes 0, GPU 0.19 MB; rebuild 47 ms (flood 33, encode 3); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 0
+probe (tunnel): 144 pixels' air cells (144 lit, 0 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 17 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 0
+flood (tunnel flooddir1): 1 torch, 2 lit chunks, air bricks 90, mixed 621, escapes 0, GPU 0.19 MB; rebuild 28 ms (flood 25, encode 2); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 1
+probe (tunnel): 144 pixels' air cells (144 lit, 0 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 17 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 0
+flood (tunnel flooddir2): 1 torch, 2 lit chunks, air bricks 90, mixed 621, escapes 0, GPU 0.19 MB; rebuild 28 ms (flood 24, encode 2); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 2
+probe (tunnel): 144 pixels' air cells (144 lit, 0 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 17 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 0
+flood (tunnel flooddir3): 1 torch, 2 lit chunks, air bricks 385, mixed 326, escapes 0, GPU 0.12 MB; rebuild 24 ms (flood 22, encode 1); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 3
+probe (tunnel): 144 pixels' air cells (144 lit, 0 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 19 exact, max |diff| 10.0 levels (of 515), oracle-dark but GPU-lit 0
+flood (room flood): 1 torch, 4 lit chunks, air bricks 125, mixed 218, escapes 0, GPU 0.12 MB; rebuild 20 ms (flood 18, encode 1); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 0
+probe (room): 144 pixels' air cells (144 lit, 0 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 21 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 0
+flood (room flooddir1): 1 torch, 4 lit chunks, air bricks 125, mixed 218, escapes 0, GPU 0.12 MB; rebuild 17 ms (flood 15, encode 1); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 1
+probe (room): 144 pixels' air cells (144 lit, 0 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 21 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 0
+flood (room flooddir2): 1 torch, 4 lit chunks, air bricks 125, mixed 218, escapes 0, GPU 0.12 MB; rebuild 17 ms (flood 15, encode 1); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 2
+probe (room): 144 pixels' air cells (144 lit, 0 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 21 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 0
+flood (room flooddir3): 1 torch, 4 lit chunks, air bricks 125, mixed 218, escapes 0, GPU 0.12 MB; rebuild 17 ms (flood 15, encode 1); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 3
+probe (room): 144 pixels' air cells (144 lit, 0 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 21 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 0
+flood (ground flood): 1 torch, 12 lit chunks, air bricks 6775, mixed 1034, escapes 0, GPU 0.65 MB; rebuild 238 ms (flood 224, encode 6); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 0
+probe (ground): 132 pixels' air cells (97 lit, 35 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 51 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 2
+flood (ground flooddir1): 1 torch, 12 lit chunks, air bricks 6775, mixed 1034, escapes 0, GPU 0.65 MB; rebuild 232 ms (flood 224, encode 6); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 1
+probe (ground): 132 pixels' air cells (97 lit, 35 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 51 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 2
+flood (ground flooddir2): 1 torch, 12 lit chunks, air bricks 6775, mixed 1034, escapes 0, GPU 0.65 MB; rebuild 231 ms (flood 224, encode 6); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 2
+probe (ground): 132 pixels' air cells (97 lit, 35 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 51 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 2
+flood (ground flooddir3): 1 torch, 12 lit chunks, air bricks 6775, mixed 1034, escapes 0, GPU 0.65 MB; rebuild 231 ms (flood 222, encode 7); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 3
+probe (ground): 132 pixels' air cells (97 lit, 35 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 51 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 2
+pillar: centre column int3(36237, 5345, 51453), 1144 voxels written
+flood (pillar flood): 1 torch, 12 lit chunks, air bricks 6763, mixed 1046, escapes 0, GPU 0.65 MB; rebuild 234 ms (flood 226, encode 6); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 0
+probe (pillar): 132 pixels' air cells (97 lit, 35 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 51 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 2
+flood (pillar flooddir1): 1 torch, 12 lit chunks, air bricks 6763, mixed 1046, escapes 0, GPU 0.65 MB; rebuild 228 ms (flood 221, encode 6); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 1
+probe (pillar): 132 pixels' air cells (97 lit, 35 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 51 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 2
+flood (pillar flooddir2): 1 torch, 12 lit chunks, air bricks 6763, mixed 1046, escapes 0, GPU 0.65 MB; rebuild 241 ms (flood 234, encode 6); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 2
+probe (pillar): 132 pixels' air cells (97 lit, 35 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 51 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 2
+flood (pillar flooddir3): 1 torch, 12 lit chunks, air bricks 6763, mixed 1046, escapes 0, GPU 0.65 MB; rebuild 229 ms (flood 222, encode 6); map I 2.00 k 0.100 reach 12.0 m wrap 0.30 dir 3
+probe (pillar): 132 pixels' air cells (97 lit, 35 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 51 exact, max |diff| 7.0 levels (of 515), oracle-dark but GPU-lit 2
