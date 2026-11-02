@@ -30,7 +30,7 @@ public class TorchFloodPoolTests
     /// Mixed 0.2 m cell = the max over its connected air: a voxel is at most the
     /// longest in-cell path (7 face moves) below it.
     private const int MIXED_TOL = 7 * LightFloodReference.W_FACE;
-    /// Air brick: trilinear between 0.4 m cell means (measured max in the open-air case + margin).
+    /// Air brick: trilinear between 0.4 m cells (task 165: each the MAX of its 2^3 centre voxels; measured max in the open-air case + margin).
     private const float AIR_TOL = 24f;
 
     private BrickDataPool _pool;

@@ -1944,6 +1944,7 @@ namespace VoxelEngine.Streaming
                     var v = new int3(x, y, z);
                     if (EditOpApply.Covers(op, v)) _store.SetVoxel(v, op.material);
                 }
+                VoxelEngine.Rendering.TorchFloodPool.NotifyBox(a, b);   // task 165: the replayed op re-floods the torches it touches (no-op while OFF)
                 any = true;
                 OpsCaughtUpTotal++;
                 OpCatchUpEdited?.Invoke(a, b);   // the wake scan SetSphere/SetBox run (task 82)

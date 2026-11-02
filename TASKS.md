@@ -792,3 +792,23 @@ dark. C# twins `TorchFloodPool.LightTwin / GradCos / TorchCos`. Tests (`TorchFlo
 exactly 0; floor beside a 1.5 m post torch, max dir-factor step between 0.1 m neighbours: mode 0 0.525, 1 0.264, 2 0.018, 3 0. Capture: `-trarms none`
 (today only), `-trfloodmodes 0,1,2,3` (one flood arm per mode: `flood`, `flooddir<N>`, rows + pillar); sheets `python3 -I tools/torchflood164.py <dir>
 Screenshots/164 <log>` (per row a 3x2 grid of 960x540 tiles + a 2x native crop sheet; `CROP_<ROW>=x,y`). Result (164b, `Screenshots/164/`, launch log `Logs/lookreview_20261102_002927.txt`): mode 2 removes the room floor's X wedges, the tunnel end wall's stripe and the blocky ground patches with no visible fade band; mode 1 looks like 0; mode 3 washes every face equally (the pillar's and tunnel's corners stop reading). Recommended mode 2; owner question in HANDOFF 164b. Note: the TUNNEL row's flooddir3 arm encoded 385 air / 326 mixed bricks vs 90 / 621 for the other arms -- a deferred brick compaction finished mid-row (`BrickAllAir` reads the brick header), so that one tile is not like-for-like.
+
+**Task 165 (TORCH_LIGHT_PLAN step L3, owner doc Q101 1 (a) + 2 (a); flood stays OFF, `-tfdir` default unchanged): the INCREMENTAL torch flood.**
+`TorchFloodBuild.cs` (new) + `TorchFloodPool.cs` (rewritten around it; sampler twins untouched). Each torch keeps its OWN flood in the GPU's compressed
+form as a min path cost per cell (`TorchFloodCache`: ushort per 0.2 m mixed cell / escaped voxel / 0.4 m air cell; "direct" bricks = 1 bit); the union
+(the CPU copy of the GPU buffers) = per-channel max over the caches covering a brick, which is EXACT because cells are maxes (L3 changed the air cell
+from 158's MEAN of its 2^3 centre voxels to their MAX, and `Encode` reads a brick's kind from its CONTENT, not the header: 164b's caveat). Per frame
+(`Tick`, main thread): torch-set diff; torches whose 12 m box an edit touched (EditService on air<->solid changes, `FluidOpListReadback` on air<->fluid,
+the edit-op replay via `NotifyBox`) or whose box chunks were admitted/evicted are queued; up to 2 flood jobs (`FloodBrickJob`, one torch per job, Burst,
+worker) run on a main-thread `Snapshot` of the box (brick kinds + 1 bit/voxel of mixed bricks, ~0.1-0.3 ms); a finished torch re-merges the bricks it lit
+before or lights now (`MergeJob`, worker, batches of 4,096) and `ApplyJob` (Burst on the main thread) writes the union + uploads only dirty table/data
+runs. The flood: bricks whose bbox to the torch is all air at voxel precision (27 sign cases x summed-area tables) get d = closed-form 4/6/7 chamfer, no
+search; the rest is Dial's buckets on a sparse per-brick scratch seeded from the direct faces. Tests `TorchFloodL3Tests` (8 fast + Slow `Fuzz_Long` +
+report `Report_FloodPhases_OpenGround`): scratch == `Encode(oracle)` exactly (axis wall, x==z diagonal with 450 escapes, closed box + L-bend, open
+ground 12 m); incremental == scratch after every fuzz op (80 + 600) and every oracle 10th; doorway sealed / diagonal slot / reopened; evict/re-admit;
+removing a torch re-floods nobody else; all torches removed frees every brick. Capture: `run-cost-split.sh EXTRA="-costpaths torch -tfl3 1"` (151's camp,
+INSTEAD of timed arms): async build, edits D1 wall / D2 pit / D3 break + re-place, after each: live == fresh rebuild (`TorchFloodPool.Diff`), GPU buffers
+read back == CPU copy (`VerifyGpu`), 16x9 GPU-vs-twin probe; per-phase main-thread ms. Result (`Screenshots/165/tfl3_165.txt`): exact + GPU PASS at every
+step; flood 250 ms/torch on one thread in tg2 (158: 316; open-ground EditMode 62 vs oracle 215); camp 5.9-13.7 s to fill, edits 2.1-2.6 s (each re-floods
+10-11 overlapping camp torches); main thread mean 0.59-0.78 ms/busy frame, p99 1.3-2.8, max ~5; memory content 11.2 MB union + 8.1 MB caches (allocated
+21.1 + 9.9), job scratch peak 27 MB (freed when idle), GPU 20 MB allocated. Owner questions in HANDOFF 165.

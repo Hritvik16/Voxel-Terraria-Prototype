@@ -177,11 +177,9 @@ public partial class PlaygroundCapture
         if (TorchFloodPool.Enabled)
         {
             var pool = TorchFloodPool.Instance;
-            int before = pool.Rebuilds;
-            pool.Tick(_costLights);
-            if (pool.Rebuilds != before)
+            if (pool.EnsureBuilt(_costLights))   // task 165: synchronous, so the timed arm starts with the pool full
             {
-                var e = pool.Current;
+                var e = pool.Current;   // task 165: a copy of the union (counts + bytes)
                 _costFloodNote = ($"  torch flood (task 158) built: {pool.LastTorches} torches ({pool.LastTorchesSkipped} skipped), {e.chunks} lit chunks, " +
                   $"air bricks {e.airBricks}, mixed {e.mixedBricks}, escapes {e.escapes}, GPU {e.Bytes / 1048576.0:F2} MB; " +
                   $"rebuild {pool.LastRebuildMs:F0} ms (flood {pool.LastFloodMs:F0}, encode {pool.LastEncodeMs:F0}, upload {pool.LastUploadMs:F1}); " +

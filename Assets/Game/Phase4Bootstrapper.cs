@@ -709,6 +709,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         _pool?.Dispose();
         Clipmap = null; Cascades = null; Store = null; Pool = null; Meta = null; SmallMirror = false;
         VoxelEngine.Rendering.TorchFloodPool.Store = null;   // task 158
+        VoxelEngine.Rendering.TorchFloodPool.Shutdown();     // task 165: no flood / merge job outlives the world
         Streamer = null; Coalescer = null; MetaRoundtripStatus = null;
     }
 }

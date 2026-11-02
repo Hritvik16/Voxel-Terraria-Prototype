@@ -535,6 +535,8 @@ namespace VoxelEngine.Simulation
                     // marks the chunk dirty and delta-dirty itself, so the
                     // clipmap upload (§3.7) and the save (§4.2) both follow.
                     _store.SetVoxel(op.Dst, op.NewMaterial);
+                    if ((op.ExpectedAtDst == 0) != (op.NewMaterial == 0))
+                        VoxelEngine.Rendering.TorchFloodPool.NotifyVoxelChanged(op.Dst);   // task 165: air opened/closed (no-op while OFF)
                     OnVoxelApplied?.Invoke(op.Dst);
                     AppliedVoxelWrites++;
                     if (op.HasSrc)
@@ -543,6 +545,8 @@ namespace VoxelEngine.Simulation
                         // was at dst (validated above as ExpectedAtDst); a move
                         // vacates it. Both halves or neither, as always.
                         _store.SetVoxel(op.Src, op.IsSwap ? op.ExpectedAtDst : (byte)0);
+                        if ((op.NewMaterial == 0) != ((op.IsSwap ? op.ExpectedAtDst : (byte)0) == 0))
+                            VoxelEngine.Rendering.TorchFloodPool.NotifyVoxelChanged(op.Src);   // task 165
                         OnVoxelApplied?.Invoke(op.Src);
                         AppliedVoxelWrites++;
                     }

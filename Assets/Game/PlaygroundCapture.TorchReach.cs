@@ -248,6 +248,12 @@ public partial class PlaygroundCapture
             if (ov == 0 && math.cmax(g3) > 0f) leaks++;
         }
         bool pass = maxTwin <= 1e-3f;
+        if (o == null)   // task 165: no per-voxel oracle (the 31-torch camp): the twin is the reference
+        {
+            int litG = 0; foreach (var g4 in gpu) if (math.cmax(g4.xyz) > 0f) litG++;
+            L($"  probe ({tag}): {vox.Count} pixels' air cells ({litG} lit on the GPU); GPU vs C# twin max |diff| {maxTwin:G3} levels -> {(pass ? "PASS" : "FAIL")}");
+            return;
+        }
         L($"  probe ({tag}): {vox.Count} pixels' air cells ({lit} lit, {dark} dark by the oracle); GPU vs C# twin max |diff| {maxTwin:G3} levels " +
           $"-> {(pass ? "PASS" : "FAIL")}; GPU vs oracle: {exact} exact, max |diff| {maxOracle:F1} levels (of {LightFloodReference.ReachLevel(TorchFloodPool.ReachM)}), " +
           $"oracle-dark but GPU-lit {leaks}");

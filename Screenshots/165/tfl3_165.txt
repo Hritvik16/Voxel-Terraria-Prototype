@@ -1,0 +1,47 @@
+# task 165 (torch flood L3) -- in-player probe, 31-torch camp (task 151/158 scene), tg2, night
+## run 2 (instrumented): Logs/costsplit_2026-11-02_015047.txt
+TORCH FLOOD L3 (task 165): 31 torches, reach 12.0 m, dir mode 0
+  A async build: 107 frames, 5.85 s until idle; floods 31 (job wall mean 334.7 ms, max 452.6; searched voxels mean 2,408,997, lit bricks mean 8,660 of which direct 2,707), merges 75; 162 lit chunks, air bricks 133850, mixed 18794, escapes 14; GPU 20.00 MB allocated; CPU content: union 11.21 + caches 8.09 MB, allocated: union 21.12 + caches 9.93; job scratch peak 27.14 MB (now 0.00); uploaded 62.22 MB; main thread per busy frame: n 107, mean 0.651 ms, p50 0.474, p99 2.781, max 4.924 (phase sum/max ms: edits+poll 1.5/0.05, flood done 5.1/0.64, merge apply 17.8/2.78, upload 8.4/0.78, snapshots 27.2/2.91, merge start 7.5/0.82)
+  probe (A camp): 25 pixels' air cells (24 lit on the GPU); GPU vs C# twin max |diff| 0 levels -> PASS
+  exact (A camp): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 31 torches 7859 ms on one thread (floods 7740 ms: per torch mean 249.7, median 256.2, max 316.0 ms)
+  gpu readback (A camp): dir / tables / every reachable data word == the CPU copy -> PASS
+  D1 wall beside torch int3(40252, 8742, 40308) (400 voxels): idle after 38 frames, 2.43 s; floods 11, merges 25, uploaded 12317 KB; main thread per busy frame: n 38, mean 0.588 ms, p50 0.530, p99 1.260, max 1.260 (phase sum/max ms: edits+poll 2.4/0.14, flood done 2.5/0.45, merge apply 6.1/0.82, upload 3.6/0.32, snapshots 6.9/0.75, merge start 2.6/0.31)
+  probe (D1 wall): 25 pixels' air cells (24 lit on the GPU); GPU vs C# twin max |diff| 0 levels -> PASS
+  exact (D1 wall): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 31 torches 7759 ms on one thread (floods 7637 ms: per torch mean 246.3, median 254.3, max 321.0 ms)
+  gpu readback (D1 wall): dir / tables / every reachable data word == the CPU copy -> PASS
+  D2 pit beside torch int3(40172, 8730, 40388) (1000 voxels): idle after 32 frames, 2.55 s; floods 10, merges 21, uploaded 10036 KB; main thread per busy frame: n 32, mean 0.618 ms, p50 0.633, p99 1.373, max 2.733 (phase sum/max ms: edits+poll 0.9/0.10, flood done 2.2/0.34, merge apply 4.8/2.61, upload 4.0/1.31, snapshots 6.3/0.89, merge start 1.9/0.13)
+  probe (D2 pit): 25 pixels' air cells (24 lit on the GPU); GPU vs C# twin max |diff| 0 levels -> PASS
+  exact (D2 pit): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 31 torches 7654 ms on one thread (floods 7537 ms: per torch mean 243.1, median 252.8, max 307.0 ms)
+  gpu readback (D2 pit): dir / tables / every reachable data word == the CPU copy -> PASS
+  D3a torch int3(40092, 8820, 40308) broken: idle after 37 frames, 2.10 s; floods 10, merges 29, uploaded 8215 KB; main thread per busy frame: n 37, mean 0.613 ms, p50 0.410, p99 1.306, max 4.054 (phase sum/max ms: edits+poll 0.9/0.10, flood done 2.0/0.40, merge apply 4.7/0.59, upload 2.8/0.26, snapshots 6.5/0.84, merge start 2.6/0.13)
+  exact (D3a broken): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 30 torches 7565 ms on one thread (floods 7451 ms: per torch mean 248.4, median 259.2, max 319.1 ms)
+  gpu readback (D3a broken): dir / tables / every reachable data word == the CPU copy -> PASS
+  D3b torch int3(40092, 8820, 40308) placed again: idle after 41 frames, 2.50 s; floods 11, merges 26, uploaded 8337 KB; main thread per busy frame: n 41, mean 0.779 ms, p50 0.584, p99 2.675, max 4.628 (phase sum/max ms: edits+poll 1.3/0.41, flood done 3.8/0.97, merge apply 9.3/2.02, upload 2.9/0.34, snapshots 9.8/2.17, merge start 5.1/2.58)
+  probe (D3b replaced): 25 pixels' air cells (24 lit on the GPU); GPU vs C# twin max |diff| 0 levels -> PASS
+  exact (D3b replaced): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 31 torches 7551 ms on one thread (floods 7430 ms: per torch mean 239.7, median 250.1, max 295.2 ms)
+  gpu readback (D3b replaced): dir / tables / every reachable data word == the CPU copy -> PASS
+TORCH FLOOD L3 done
+
+## run 1: Logs/costsplit_2026-11-02_014115.txt
+TORCH FLOOD L3 (task 165): 31 torches, reach 12.0 m, dir mode 0
+  A async build: 106 frames, 13.66 s until idle; floods 31 (job wall mean 831.1 ms, max 7918.5; searched voxels mean 2,408,997, lit bricks mean 8,660 of which direct 2,707), merges 77; 162 lit chunks, air bricks 133850, mixed 18794, escapes 14; GPU 20.00 MB; CPU union 21.12 + caches 9.93 + job scratch 26.81 MB; uploaded 62.01 MB; main thread per busy frame: n 106, mean 0.811 ms, p50 0.533, p99 3.459, max 10.265
+  probe (A camp): 25 pixels' air cells (0 lit, 25 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 1 exact, max |diff| 487.0 levels (of 515), oracle-dark but GPU-lit 24
+  exact (A camp): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 31 torches 7890 ms on one thread (floods 7773 ms: per torch mean 250.7, median 256.2, max 313.7 ms)
+  D1 wall beside torch int3(40252, 8742, 40308) (400 voxels): idle after 39 frames, 2.79 s; floods 11, merges 26, uploaded 12475 KB; main thread per busy frame: n 39, mean 0.615 ms, p50 0.557, p99 1.664, max 1.756
+  probe (D1 wall): 25 pixels' air cells (0 lit, 25 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 1 exact, max |diff| 487.0 levels (of 515), oracle-dark but GPU-lit 24
+  exact (D1 wall): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 31 torches 7701 ms on one thread (floods 7582 ms: per torch mean 244.6, median 253.2, max 297.7 ms)
+  D2 pit beside torch int3(40172, 8730, 40388) (1000 voxels): idle after 31 frames, 2.57 s; floods 10, merges 23, uploaded 10034 KB; main thread per busy frame: n 31, mean 0.760 ms, p50 0.656, p99 1.678, max 1.846
+  probe (D2 pit): 25 pixels' air cells (0 lit, 25 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 1 exact, max |diff| 487.0 levels (of 515), oracle-dark but GPU-lit 24
+  exact (D2 pit): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 31 torches 7789 ms on one thread (floods 7661 ms: per torch mean 247.1, median 254.0, max 313.6 ms)
+  D3a torch int3(40092, 8820, 40308) broken: idle after 32 frames, 2.29 s; floods 10, merges 26, uploaded 8583 KB; main thread per busy frame: n 32, mean 1.203 ms, p50 0.573, p99 3.872, max 11.144
+  exact (D3a broken): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 30 torches 7542 ms on one thread (floods 7420 ms: per torch mean 247.3, median 258.0, max 302.5 ms)
+  D3b torch int3(40092, 8820, 40308) placed again: idle after 38 frames, 2.55 s; floods 11, merges 26, uploaded 9476 KB; main thread per busy frame: n 38, mean 0.739 ms, p50 0.681, p99 1.725, max 1.743
+  probe (D3b replaced): 25 pixels' air cells (0 lit, 25 dark by the oracle); GPU vs C# twin max |diff| 0 levels -> PASS; GPU vs oracle: 1 exact, max |diff| 487.0 levels (of 515), oracle-dark but GPU-lit 24
+  exact (D3b replaced): live union vs from-scratch IDENTICAL -> PASS; scratch rebuild of 31 torches 7552 ms on one thread (floods 7426 ms: per torch mean 239.6, median 248.7, max 291.5 ms)
+TORCH FLOOD L3 done
+
+## EditMode (Logs/overnight/165_filter.log)
+[165] closed box + L-bend: EXACT == oracle encode; lit bricks 72 (0 direct, no search), searched voxels 12,541 vs oracle 12,199; air 0 mixed 72 escapes 0; pool 3 ms (flood jobs alone 2.8) (caches 26 KB, union 378 KB), oracle+encode 27 ms
+[165] x==z diagonal: EXACT == oracle encode; lit bricks 180 (60 direct, no search), searched voxels 22,379 vs oracle 53,099; air 63 mixed 117 escapes 450; pool 4 ms (flood jobs alone 3.9) (caches 41 KB, union 410 KB), oracle+encode 19 ms
+[165] open ground, torch on a post: EXACT == oracle encode; lit bricks 8663 (7203 direct, no search), searched voxels 671,592 vs oracle 3,892,272; air 8641 mixed 22 escapes 0; pool 63 ms (flood jobs alone 61.7) (caches 56 KB, union 1739 KB), oracle+encode 695 ms
+[165] axis wall: EXACT == oracle encode; lit bricks 200 (63 direct, no search), searched voxels 21,743 vs oracle 53,999; air 63 mixed 137 escapes 0; pool 4 ms (flood jobs alone 4.0) (caches 42 KB, union 410 KB), oracle+encode 20 ms

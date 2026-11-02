@@ -191,7 +191,8 @@ public class EditService : IEditService
         VoxelsWritten++;
 
         NotifyLightingEdited(worldVoxelCoord, previous, material);
-        VoxelEngine.Rendering.TorchFloodPool.NotifyVoxelChanged(worldVoxelCoord);   // task 158 (no-op while OFF)
+        if ((previous == 0) != (material == 0))   // task 165: only an air <-> solid change can move light
+            VoxelEngine.Rendering.TorchFloodPool.NotifyVoxelChanged(worldVoxelCoord);   // task 158 (no-op while OFF)
         NotifyEdited(worldVoxelCoord);
         return true;
     }

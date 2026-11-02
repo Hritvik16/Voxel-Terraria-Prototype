@@ -249,6 +249,12 @@ public partial class PlaygroundCapture
             L($"  streaming pinned at the middle pose {mid:F1}: resident {store.ResidentCount}, deficit {sm.LoadDeficit()}");
             // Task 93b: with -shells 1, let the shells fill here first (PlaygroundCapture.ShellsPerf.cs).
             yield return CostShellWait(path, cam, Path.Combine(stills, $"{pname}_shelltint.png"));
+            if (torchPaths && ArgInt("-tfl3", 0) != 0)   // task 165: the incremental torch flood probe INSTEAD of the timed arms
+            {
+                yield return TorchFloodL3(cam, stills);
+                File.WriteAllText(Path.Combine(root, "costsplit.txt"), _log.ToString());
+                yield break;
+            }
 
             var runs = new List<CostRun>();
             var order = new List<string> { "full" };

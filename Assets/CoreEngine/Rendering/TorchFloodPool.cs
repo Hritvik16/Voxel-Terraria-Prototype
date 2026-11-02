@@ -1,38 +1,55 @@
 // ==========================================
 // Assets/CoreEngine/Rendering/TorchFloodPool.cs
 //
-// Task 158 (TORCH_LIGHT_PLAN.md step L2, owner "a to all" on task 155): the GPU
-// LIGHT POOL for the torch flood, behind -torchflood 1, OFF by default.
+// Task 158 (TORCH_LIGHT_PLAN.md step L2): the GPU LIGHT POOL for the torch
+// flood, behind -torchflood 1, OFF by default. Task 165 (step L3, owner doc
+// Q101 1 (a) + 2 (a)): INCREMENTAL and off the main thread.
 //
-// WHAT IT DOES. Each frame (LightingDriver.Update, main thread) Tick() checks
-// whether the flood is stale: the registered torch set changed
-// (LightSourceBuffer.Revision, then a sorted (voxel, material) signature), a
-// chunk inside any torch's 12 m box was admitted / evicted (the Chunk object at
-// each box chunk is remembered), or an EditService write landed in one
-// (NotifyVoxelChanged). If so it REFILLS FROM SCRATCH: task 157's CPU oracle
-// LightFloodReference floods every torch, Encode() packs the result into the
-// layout TorchFlood.hlsl reads, and the three GraphicsBuffers are re-uploaded.
-// Incremental edits / streaming are L3; a full refill is correct, only slow
-// (task 157: ~0.5 s per outdoor torch, a hitch on the main thread).
+// WHAT IT DOES. Each frame (LightingDriver.Update, main thread) Tick():
+//   1. diffs the registered torch set (LightSourceBuffer.Revision, then a sorted
+//      (voxel, material) signature): a removed torch drops its cache, an added
+//      one is queued;
+//   2. queues every torch whose 12 m box an edit touched (NotifyVoxelChanged:
+//      EditService, the fluid op readback and the edit-op replay call it) or
+//      whose box chunks were admitted / evicted (the Chunk object per chunk);
+//   3. collects finished flood jobs (one torch per job, TorchFloodBuild.
+//      FloodBrickJob on a worker): the torch's new cache replaces its old one and
+//      every brick either lit is queued for a re-merge;
+//   4. applies a finished merge (MergeJob, worker: the union cells of a batch of
+//      bricks = per-channel max over the caches that cover it) into the CPU
+//      union (ApplyJob, Burst on the main thread) and uploads only the dirty
+//      ranges; schedules the next merge batch;
+//   5. starts new flood jobs (a main-thread Snapshot of the box, then the job)
+//      while a slot is free and the frame's budget (FrameBudgetMs) lasts.
+// Lights stream in over a few frames. Correct at every quiet point: the union
+// equals a from-scratch rebuild exactly (TorchFloodL3Tests), and the from-scratch
+// rebuild equals Encode(task 157's oracle) exactly.
 //
-// SINGLE WRITER. The CPU is the only writer of the pool; the oracle reads
-// ChunkStore and writes its own storage; nothing here writes terrain. The pool
-// is derived data (not ChunkStore, not saved), so D.1 and every frozen API are
-// untouched.
+// SINGLE WRITER. The main thread is the only writer of the union, the torch
+// records and the GPU buffers. A flood job writes only the scratch and the
+// cache its slot owns (filled by Snapshot before it is scheduled); a merge job
+// reads caches nobody writes any more (a replaced cache is disposed only once
+// no merge is in flight) and writes its own output. Nothing here writes terrain.
+// The pool is derived data (not ChunkStore, not saved), so D.1 and every frozen
+// API are untouched.
 //
 // LAYOUT: see TorchFlood.hlsl. SampleLevels() below is its C# twin, used by the
 // tests and the in-player GPU probe (Probe()).
 //
-// KNOWN GAPS (L3 / L4, not this step): fluid writes do not go through
-// EditService, so a fluid flow in a lit room does not refill; no memory cap /
-// furthest-first fallback (L4); coloured torch materials all reach the same
-// brightness (the seed keeps the hue, not the emissive magnitude); a mobile
-// emissive registered as a point light (AllowMobileEmissives) is ignored here.
+// KNOWN GAPS (L4, not this step): no memory cap / furthest-first fallback;
+// coloured torch materials all reach the same brightness (the seed keeps the
+// hue, not the emissive magnitude); a mobile emissive registered as a point
+// light (AllowMobileEmissives) is ignored here. Fluid writes DO re-flood (task
+// 165), so a flowing fluid inside a lit box re-floods its torches at the fluid
+// tick rate.
 // ==========================================
 
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using VoxelEngine.Memory;
@@ -40,7 +57,7 @@ using Debug = UnityEngine.Debug;
 
 namespace VoxelEngine.Rendering
 {
-    public sealed class TorchFloodPool : IDisposable
+    public sealed unsafe class TorchFloodPool : IDisposable
     {
         // ---- switches (LightingDriver.Awake parses the flags) ----
         /// -torchflood 1. OFF = today's analytic torch path, byte for byte.
@@ -51,7 +68,7 @@ namespace VoxelEngine.Rendering
         public static float Intensity = 2.0f, FalloffK = 0.10f, ReachM = LightFloodReference.DEFAULT_REACH_M, Wrap = 0.3f;
         /// -tfdir 0|1|2|3 (task 164): the direction term (TorchFlood.hlsl FloodLight). 0 = task 158's one-step rise.
         public static int DirMode;
-        /// Keep the oracle after a rebuild (the capture's GPU == oracle probe).
+        /// Keep a per-voxel oracle after a synchronous Rebuild (the capture's GPU == oracle probe).
         public static bool KeepOracle;
 
         public static void ParseArgs()
@@ -73,17 +90,30 @@ namespace VoxelEngine.Rendering
         }
 
         private static TorchFloodPool _inst;
-        public static TorchFloodPool Instance => _inst ??= new TorchFloodPool();
+        public static TorchFloodPool Instance => _inst ??= new TorchFloodPool(null, ReachM, true);
         /// The renderer draws the flood kernel only when this is true.
         public static bool Ready => Enabled && _inst != null && _inst._uploaded;
 
-        /// Edit hook (EditService's write choke point): marks the flood stale if v
-        /// lies in a chunk some torch's box covers. A no-op while OFF.
+        /// Edit hook (EditService, FluidOpListReadback, the edit-op replay): queues
+        /// the torches whose box holds v. A no-op while OFF.
         public static void NotifyVoxelChanged(int3 v)
         {
-            if (!Enabled || _inst == null || _inst._boxChunks.Count == 0) return;
-            if (_inst._boxChunks.ContainsKey(v >> 7)) _inst._dirty = true;
+            if (!Enabled || _inst == null) return;
+            _inst.OnVoxelChanged(v);
         }
+
+        /// The same for every voxel of the box [lo, hi] (inclusive).
+        public static void NotifyBox(int3 lo, int3 hi)
+        {
+            if (!Enabled || _inst == null) return;
+            int3 a = lo >> 3, b = hi >> 3;
+            for (int z = a.z; z <= b.z; z++)
+            for (int y = a.y; y <= b.y; y++)
+            for (int x = a.x; x <= b.x; x++) _inst._editBricks.Add(new int3(x, y, z));
+        }
+
+        /// Teardown (Phase4Bootstrapper): completes the jobs and frees everything.
+        public static void Shutdown() { _inst?.Dispose(); _inst = null; }
 
         // ---- encoded form ----
         public const uint KIND_AIR = 1u, KIND_MIXED = 2u, ESCAPE_BIT = 0x40000000u, OFFSET_MASK = 0x3FFFFFFFu;
@@ -97,88 +127,546 @@ namespace VoxelEngine.Rendering
             public bool Any => chunks > 0;
         }
 
-        // ---- state ----
-        private GraphicsBuffer _dir, _tables, _data;
-        private bool _uploaded, _dirty = true;
-        private long _seenRev = -1;
+        // =====================================================================
+        // State
+        // =====================================================================
+
+        private sealed class TorchRec
+        {
+            public int3 v; public byte m; public uint seed; public int top;
+            public int3 lo, dims, db;
+            public TorchFloodCache cache;
+            public bool need = true;
+            public Slot job;
+        }
+
+        private sealed class Slot
+        {
+            public TorchFloodScratch s = new TorchFloodScratch();
+            public TorchFloodCache cache;
+            public TorchRec rec;
+            public JobHandle h;
+            public NativeArray<int> stats = new NativeArray<int>(8, Allocator.Persistent);
+            public Stopwatch sw = new Stopwatch();
+            public bool busy;
+        }
+
+        private ChunkStore _store;
+        private readonly float _reachM;
+        /// Tests: false (no GraphicsBuffers in batchmode -nographics).
+        public bool Gpu;
+        public int MaxJobs = 2;
+        public int MergeBatch = 4096;
+        /// Main-thread budget per Tick for starting new floods (each one Snapshots its box).
+        public double FrameBudgetMs = 0.5;
+
+        private readonly Dictionary<int3, TorchRec> _recs = new Dictionary<int3, TorchRec>();
+        private readonly Dictionary<int3, List<TorchRec>> _chunkRecs = new Dictionary<int3, List<TorchRec>>();
+        private readonly Dictionary<int3, Chunk> _watch = new Dictionary<int3, Chunk>();
+        private readonly HashSet<int3> _editBricks = new HashSet<int3>();
+        private readonly List<Slot> _slots = new List<Slot>();
+        private readonly List<TorchFloodCache> _retired = new List<TorchFloodCache>();
+        private long _serial, _seenRev = -1;
         private (int3 v, byte m)[] _builtSig = Array.Empty<(int3, byte)>();
-        private readonly Dictionary<int3, Chunk> _boxChunks = new Dictionary<int3, Chunk>();
-        public Encoded Current { get; private set; } = new Encoded();
+
+        // the union (the CPU copy of the GPU buffers)
+        private NativeList<uint> _tables, _data;
+        private NativeHashMap<int3, int> _chunkTable;
+        private NativeList<int> _chunkUsed, _freeTables, _free8, _free64;
+        private NativeList<ulong> _dirtyData;
+        private NativeList<byte> _dirtyTable;
+        private NativeList<int3> _added, _removed;
+        private NativeArray<int> _counts;     // air bricks, mixed bricks, escapes, chunks
+        private NativeHashSet<int3> _dirtyBricks;
+        private uint[] _dir = Array.Empty<uint>();
+        private int3 _dirOrigin, _dirDims;
+        private bool _dirDirty = true, _tablesRealloc = true, _dataRealloc = true;
+        private long _version, _exportVersion = -1;
+        private Encoded _export;
+
+        // the merge in flight
+        private bool _merging;
+        private JobHandle _mergeH;
+        private NativeList<int3> _mergeBricks;
+        private NativeArray<TorchFloodBuild.CacheDesc> _mergeDescs;
+        private NativeArray<int2> _mergeRec;
+        private NativeList<uint> _mergeOut;
+
+        // GPU
+        private GraphicsBuffer _dirB, _tablesB, _dataB;
+        private bool _uploaded;
+
+        // ---- stats ----
         public LightFloodReference Oracle { get; private set; }
         public int Rebuilds { get; private set; }
         public double LastRebuildMs, LastFloodMs, LastEncodeMs, LastUploadMs;
         public int LastTorches, LastTorchesSkipped;
+        public int FloodsDone, MergesDone;
+        public long UploadBytesTotal;
+        /// Main-thread ms of every Tick that had work (the L3 report).
+        public readonly List<float> BusyTickMs = new List<float>();
+        /// Per finished flood: (worker wall ms from schedule to seen done, reached voxels, lit bricks, direct bricks).
+        public readonly List<float4> FloodLog = new List<float4>();
+        /// Sync Rebuild with TimeFloods: each torch's flood run alone (.Run()) and timed: the worker cost of one torch.
+        public static bool TimeFloods;
+        public readonly List<float> FloodRunMs = new List<float>();
 
-        public GraphicsBuffer DirBuffer => _dir;
-        public GraphicsBuffer TablesBuffer => _tables;
-        public GraphicsBuffer DataBuffer => _data;
+        public TorchFloodPool(ChunkStore store, float reachM, bool gpu)
+        {
+            _store = store;
+            _reachM = reachM;
+            Gpu = gpu;
+            AllocUnion();
+        }
+
+        private void AllocUnion()
+        {
+            _tables = new NativeList<uint>(4096, Allocator.Persistent);
+            _data = new NativeList<uint>(4096, Allocator.Persistent);
+            _chunkTable = new NativeHashMap<int3, int>(64, Allocator.Persistent);
+            _chunkUsed = new NativeList<int>(64, Allocator.Persistent);
+            _freeTables = new NativeList<int>(16, Allocator.Persistent);
+            _free8 = new NativeList<int>(1024, Allocator.Persistent);
+            _free64 = new NativeList<int>(256, Allocator.Persistent);
+            _dirtyData = new NativeList<ulong>(64, Allocator.Persistent);
+            _dirtyTable = new NativeList<byte>(64, Allocator.Persistent);
+            _added = new NativeList<int3>(16, Allocator.Persistent);
+            _removed = new NativeList<int3>(16, Allocator.Persistent);
+            _counts = new NativeArray<int>(4, Allocator.Persistent);
+            _dirtyBricks = new NativeHashSet<int3>(1024, Allocator.Persistent);
+            _mergeBricks = new NativeList<int3>(MergeBatch, Allocator.Persistent);
+            _mergeOut = new NativeList<uint>(MergeBatch * 16, Allocator.Persistent);
+        }
+
+        private void FreeUnion()
+        {
+            _tables.Dispose(); _data.Dispose(); _chunkTable.Dispose(); _chunkUsed.Dispose(); _freeTables.Dispose();
+            _free8.Dispose(); _free64.Dispose(); _dirtyData.Dispose(); _dirtyTable.Dispose(); _added.Dispose(); _removed.Dispose();
+            _counts.Dispose(); _dirtyBricks.Dispose(); _mergeBricks.Dispose(); _mergeOut.Dispose();
+        }
+
+        public int TorchCount => _recs.Count;
+        public int Chunks => _counts[3];
+        public int AirBricks => _counts[0];
+        public int MixedBricks => _counts[1];
+        public int Escapes => _counts[2];
+        public int DataLength => _data.Length;
+        public int DirtyBrickCount => _dirtyBricks.Count;
+
+        /// Work still to do (floods queued or running, a merge pending or in flight).
+        public bool Busy
+        {
+            get
+            {
+                if (_merging || _editBricks.Count > 0 || !_dirtyBricks.IsEmpty) return true;
+                foreach (var s in _slots) if (s.busy) return true;
+                foreach (var r in _recs.Values) if (r.need) return true;
+                return false;
+            }
+        }
+
+        public long CacheBytes { get { long b = 0; foreach (var r in _recs.Values) if (r.cache != null) b += r.cache.Bytes; return b; } }
+        public long ScratchBytes { get { long b = 0; foreach (var s in _slots) b += s.s.Bytes + (s.cache != null ? s.cache.Bytes : 0); return b; } }
+        public long UnionBytes =>
+            4L * (_tables.Capacity + _data.Capacity + _dir.Length + _chunkUsed.Capacity + _freeTables.Capacity + _free8.Capacity + _free64.Capacity)
+            + 8L * _dirtyData.Capacity + _dirtyTable.Capacity + 16L * _chunkTable.Capacity + 16L * _dirtyBricks.Capacity
+            + 4L * _mergeOut.Capacity + 12L * _mergeBricks.Capacity;
+        /// What the union holds (the GPU layout's size), without list / buffer growth slack.
+        public long UnionContentBytes => 4L * (_dir.Length + 4096L * _counts[3] + 8L * _counts[0] + 64L * _counts[1] + 8L * _counts[2]);
+        public long CacheContentBytes
+        {
+            get
+            {
+                long b = 0;
+                foreach (var r in _recs.Values)
+                    if (r.cache != null) b += 8L * r.cache.direct.Length + 4L * r.cache.keys.Length + 4L * r.cache.entries.Length + 2L * r.cache.data.Length;
+                return b;
+            }
+        }
+        public long GpuBytes => 4L * ((_dirB?.count ?? 0) + (_tablesB?.count ?? 0) + (_dataB?.count ?? 0));
+        public int CacheCount { get { int n = 0; foreach (var r in _recs.Values) if (r.cache != null) n++; return n; } }
 
         public Vector4 Params => new Vector4(Intensity, FalloffK, ReachM, (float)(LightFloodReference.UNITS_PER_VOXEL * 10.0));
         public Vector4 Params2 => new Vector4(LightFloodReference.ReachLevel(ReachM), LightFloodReference.STOPS_AT_REACH, Wrap, DirMode);
+
+        public GraphicsBuffer DirBuffer => _dirB;
+        public GraphicsBuffer TablesBuffer => _tablesB;
+        public GraphicsBuffer DataBuffer => _dataB;
 
         // =====================================================================
         // Per frame
         // =====================================================================
 
-        /// Main thread, once per frame after the light upload. Refills if stale.
+        /// Main thread, once per frame after the light upload.
         public void Tick(LightSourceBuffer lights)
         {
             if (!Enabled || Store == null || lights == null) return;
-            bool dirty = _dirty || !_uploaded;
+            if (!ReferenceEquals(_store, Store)) ResetAll(Store);
+            var sw = Stopwatch.StartNew();
+            bool was = Busy;
             if (lights.Revision != _seenRev)
             {
                 _seenRev = lights.Revision;
-                if (!SameSig(Signature(lights), _builtSig)) dirty = true;
+                var sig = Signature(lights);
+                if (!SameSig(sig, _builtSig)) { SetTorches(sig); _builtSig = sig; }
             }
-            if (!dirty)
-                foreach (var kv in _boxChunks)
-                    if (!ReferenceEquals(Store.GetChunk(kv.Key), kv.Value)) { dirty = true; break; }
-            if (dirty) Rebuild(lights);
+            Step(true);
+            if (!_uploaded && Gpu) Upload();
+            bool busy = Busy;
+            ScratchPeakBytes = Math.Max(ScratchPeakBytes, ScratchBytes);
+            if (was || busy) BusyTickMs.Add((float)sw.Elapsed.TotalMilliseconds);
+            if (!busy && _slots.Count > 0) FreeSlots();   // the job scratch exists only while flooding
         }
 
-        /// Synchronous refill (also the capture's "build it now before timing").
-        public void Rebuild(LightSourceBuffer lights)
+        /// Replaces the torch set (tests and Tick). Removed torches drop their light; added ones are queued.
+        public void SetTorches(IReadOnlyList<(int3 v, byte m)> torches)
+        {
+            var want = new Dictionary<int3, byte>(torches.Count);
+            foreach (var (v, m) in torches) want[v] = m;
+            var drop = new List<TorchRec>();
+            foreach (var r in _recs.Values) if (!want.TryGetValue(r.v, out byte m) || m != r.m) drop.Add(r);
+            foreach (var r in drop) RemoveRec(r);
+            foreach (var kv in want) if (!_recs.ContainsKey(kv.Key)) AddRec(kv.Key, kv.Value);
+        }
+
+        public void OnVoxelChanged(int3 v) => _editBricks.Add(v >> 3);
+
+        private void AddRec(int3 v, byte m)
+        {
+            var r = new TorchRec { v = v, m = m, seed = LightFloodReference.SeedForMaterial(m, _reachM) };
+            r.top = LightFloodReference.MaxChannel(r.seed);
+            LightFloodReference.TorchBox(v, r.top, out r.lo, out r.dims);
+            r.db = r.dims >> 3;
+            _recs[v] = r;
+            int3 c0 = r.lo >> 7, c1 = (r.lo + r.dims - 1) >> 7;
+            for (int z = c0.z; z <= c1.z; z++)
+            for (int y = c0.y; y <= c1.y; y++)
+            for (int x = c0.x; x <= c1.x; x++)
+            {
+                var c = new int3(x, y, z);
+                if (!_chunkRecs.TryGetValue(c, out var l)) { _chunkRecs[c] = l = new List<TorchRec>(); _watch[c] = _store.GetChunk(c); }
+                l.Add(r);
+            }
+        }
+
+        private void RemoveRec(TorchRec r)
+        {
+            _recs.Remove(r.v);
+            DropCache(r);
+            int3 c0 = r.lo >> 7, c1 = (r.lo + r.dims - 1) >> 7;
+            for (int z = c0.z; z <= c1.z; z++)
+            for (int y = c0.y; y <= c1.y; y++)
+            for (int x = c0.x; x <= c1.x; x++)
+            {
+                var c = new int3(x, y, z);
+                if (!_chunkRecs.TryGetValue(c, out var l)) continue;
+                l.Remove(r);
+                if (l.Count == 0) { _chunkRecs.Remove(c); _watch.Remove(c); }
+            }
+        }
+
+        private void DropCache(TorchRec r)
+        {
+            if (r.cache == null) return;
+            Collect(r.cache);
+            _retired.Add(r.cache);
+            r.cache = null;
+        }
+
+        private void Collect(TorchFloodCache c) => new TorchFloodBuild.CollectJob { c = c.Desc(), set = _dirtyBricks }.Run();
+
+        private static bool InBox(TorchRec r, int3 brick)
+        {
+            int3 q = brick - (r.lo >> 3);
+            return math.all(q >= 0) && math.all(q < r.db);
+        }
+
+        /// One round of work. `budgeted`: the per-frame form (jobs are collected only when done, floods
+        /// start while the budget lasts); otherwise everything started is completed now (Flush).
+        /// Main-thread ms per Step phase (the L3 report): 0 edits + chunk poll, 1 finished floods (cache swap + collect),
+        /// 2 finished merge (apply), 3 upload, 4 new floods (snapshots), 5 next merge (take + schedule). Max and sum.
+        public readonly double[] PhaseMaxMs = new double[6], PhaseSumMs = new double[6];
+        private void Phase(int i, Stopwatch sw, ref double last)
+        {
+            double t = sw.Elapsed.TotalMilliseconds, d = t - last;
+            last = t;
+            PhaseSumMs[i] += d;
+            if (d > PhaseMaxMs[i]) PhaseMaxMs[i] = d;
+        }
+        public void ResetPhaseStats() { Array.Clear(PhaseMaxMs, 0, 6); Array.Clear(PhaseSumMs, 0, 6); }
+
+        private void Step(bool budgeted)
         {
             var sw = Stopwatch.StartNew();
-            var sig = Signature(lights);
-            Oracle?.Dispose(); Oracle = null;
-            var f = new LightFloodReference(Store);
-            int top = LightFloodReference.ReachLevel(ReachM), skipped = 0;
-            _boxChunks.Clear();
-            var t0 = Stopwatch.StartNew();
-            foreach (var (v, m) in sig)
+            double last = 0;
+            // edits -> the torches whose box holds them
+            if (_editBricks.Count > 0)
             {
-                bool resident = Store.GetChunk(v >> 7) != null;
-                if (resident && f.Open(v)) { skipped++; continue; }    // a stale registration over air
-                f.AddTorch(v, LightFloodReference.SeedForMaterial(m, ReachM));
-                LightFloodReference.TorchBox(v, top, out int3 lo, out int3 dims);
-                int3 c0 = (lo - 1) >> 7, c1 = (lo + dims) >> 7;
-                for (int z = c0.z; z <= c1.z; z++)
-                for (int y = c0.y; y <= c1.y; y++)
-                for (int x = c0.x; x <= c1.x; x++)
-                {
-                    var c = new int3(x, y, z);
-                    _boxChunks[c] = Store.GetChunk(c);
-                }
+                foreach (int3 b in _editBricks)
+                    if (_chunkRecs.TryGetValue(b >> 4, out var l))
+                        foreach (var r in l) if (InBox(r, b)) r.need = true;
+                _editBricks.Clear();
             }
-            LastFloodMs = t0.Elapsed.TotalMilliseconds;
-            t0.Restart();
-            Current = Encode(f, Store);
-            LastEncodeMs = t0.Elapsed.TotalMilliseconds;
-            t0.Restart();
-            Upload(Current);
-            LastUploadMs = t0.Elapsed.TotalMilliseconds;
-            if (KeepOracle) Oracle = f; else f.Dispose();
+            // admitted / evicted chunks
+            List<int3> changed = null;
+            foreach (var kv in _watch)
+                if (!ReferenceEquals(_store.GetChunk(kv.Key), kv.Value)) (changed ??= new List<int3>()).Add(kv.Key);
+            if (changed != null)
+                foreach (int3 c in changed)
+                {
+                    _watch[c] = _store.GetChunk(c);
+                    foreach (var r in _chunkRecs[c]) r.need = true;
+                }
+            Phase(0, sw, ref last);
+            // finished floods
+            foreach (var s in _slots)
+                if (s.busy && (!budgeted || s.h.IsCompleted)) FinishFlood(s);
+            Phase(1, sw, ref last);
+            // a finished merge
+            if (_merging && (!budgeted || _mergeH.IsCompleted)) FinishMerge();
+            Phase(2, sw, ref last);
+            PhaseSumMs[2] -= LastUploadMsStep; if (LastUploadMsStep > PhaseMaxMs[3]) PhaseMaxMs[3] = LastUploadMsStep;
+            PhaseSumMs[3] += LastUploadMsStep; LastUploadMsStep = 0;
+            // new floods
+            foreach (var r in _recs.Values)
+            {
+                if (!r.need || r.job != null) continue;
+                if (budgeted && sw.Elapsed.TotalMilliseconds > FrameBudgetMs) break;
+                Slot s = FreeSlot();
+                if (s == null) break;
+                StartFlood(r, s);
+            }
+            JobHandle.ScheduleBatchedJobs();
+            Phase(4, sw, ref last);
+            // the next merge
+            if (!_merging && !_dirtyBricks.IsEmpty) StartMerge(budgeted ? MergeBatch : int.MaxValue);
+            if (!budgeted && _merging) FinishMerge();
+            Phase(5, sw, ref last);
+        }
+
+        private double LastUploadMsStep;
+
+        private void FreeSlots()
+        {
+            foreach (var s in _slots) { if (s.busy) s.h.Complete(); s.cache?.Dispose(); s.s.Dispose(); s.stats.Dispose(); }
+            _slots.Clear();
+        }
+
+        /// Peak of ScratchBytes seen at the end of a Tick (the job scratch while flooding).
+        public long ScratchPeakBytes;
+
+        private Slot FreeSlot()
+        {
+            foreach (var s in _slots) if (!s.busy) return s;
+            if (_slots.Count >= MaxJobs) return null;
+            var n = new Slot();
+            _slots.Add(n);
+            return n;
+        }
+
+        private bool Open(int3 v)
+        {
+            Chunk ch = _store.GetChunk(v >> 7);
+            if (ch == null) return false;
+            if (ch.isUniform) return ch.uniformMaterial == 0;
+            uint h = ch.bricks[CoordMath.LocalBrickIndex((v >> 3) & 15)].data;
+            if ((h & 0x80000000u) == 0) return (h & 0xFFu) == 0;
+            return _store.BrickPool.RawData[(int)(h & 0x3FFFFFFFu) * 512 + CoordMath.LocalVoxelIndex(v & 7)] == 0;
+        }
+
+        private void StartFlood(TorchRec r, Slot s)
+        {
+            r.need = false;
+            if (_store.GetChunk(r.v >> 7) == null || Open(r.v))
+            {
+                // not resident (dark until admitted), or a stale registration over air (skipped, as task 158)
+                DropCache(r);
+                return;
+            }
+            TorchFloodBuild.Snapshot(_store, r.lo, r.db, s.s);
+            s.cache = new TorchFloodCache { torch = r.v, lo = r.lo, db = r.db, seed = r.seed, top = r.top, serial = ++_serial };
+            var job = TorchFloodBuild.MakeFloodJob(s.s, s.cache, r.v - r.lo, r.dims, r.db, r.top, s.stats);
+            s.rec = r; r.job = s; s.busy = true;
+            s.sw.Restart();
+            if (TimeFloods && _sync) { job.Run(); FloodRunMs.Add((float)s.sw.Elapsed.TotalMilliseconds); s.h = default; }
+            else s.h = job.Schedule();
+        }
+
+        /// Inside Flush: TimeFloods runs each flood alone on this thread (its worker cost, timed).
+        private bool _sync;
+
+        private void FinishFlood(Slot s)
+        {
+            s.h.Complete();
+            float ms = (float)s.sw.Elapsed.TotalMilliseconds;
+            var c = s.cache; var r = s.rec;
+            s.busy = false; s.cache = null; s.rec = null;
+            c.reached = s.stats[0]; c.directBricks = s.stats[1]; c.storedBricks = s.stats[2]; c.escapes = s.stats[3]; c.seeds = s.stats[4];
+            c.floodMs = ms;
+            FloodsDone++;
+            FloodLog.Add(new float4(ms, c.reached, c.LitBricks, c.directBricks));
+            if (r.job == s) r.job = null;
+            if (!_recs.TryGetValue(r.v, out var cur) || !ReferenceEquals(cur, r)) { c.Dispose(); return; }   // removed meanwhile
+            DropCache(r);
+            r.cache = c;
+            Collect(c);
+        }
+
+        private void StartMerge(int max)
+        {
+            new TorchFloodBuild.TakeJob { set = _dirtyBricks, outList = _mergeBricks, max = max }.Run();
+            int n = _mergeBricks.Length;
+            if (n == 0) return;
+            int3 lo = new int3(int.MaxValue), hi = new int3(int.MinValue);
+            for (int i = 0; i < n; i++) { lo = math.min(lo, _mergeBricks[i]); hi = math.max(hi, _mergeBricks[i]); }
+            var descs = new List<TorchFloodBuild.CacheDesc>();
+            foreach (var r in _recs.Values)
+            {
+                if (r.cache == null) continue;
+                int3 b0 = r.lo >> 3, b1 = b0 + r.db - 1;
+                if (math.any(b1 < lo) || math.any(b0 > hi)) continue;
+                descs.Add(r.cache.Desc());
+            }
+            _mergeDescs = new NativeArray<TorchFloodBuild.CacheDesc>(math.max(1, descs.Count), Allocator.Persistent);
+            for (int i = 0; i < descs.Count; i++) _mergeDescs[i] = descs[i];
+            _mergeRec = new NativeArray<int2>(n, Allocator.Persistent);
+            _mergeH = new TorchFloodBuild.MergeJob
+            {
+                bricks = _mergeBricks.AsArray(), torches = _mergeDescs.GetSubArray(0, descs.Count), outData = _mergeOut, outRec = _mergeRec,
+            }.Schedule();
+            _merging = true;
+        }
+
+        private void FinishMerge()
+        {
+            _mergeH.Complete();
+            _merging = false;
+            _added.Clear(); _removed.Clear();
+            new TorchFloodBuild.ApplyJob
+            {
+                bricks = _mergeBricks.AsArray(), rec = _mergeRec, src = _mergeOut, tables = _tables, data = _data,
+                chunkTable = _chunkTable, chunkUsed = _chunkUsed, freeTables = _freeTables, free8 = _free8, free64 = _free64,
+                dirtyData = _dirtyData, dirtyTable = _dirtyTable, chunksAdded = _added, chunksRemoved = _removed, counts = _counts,
+            }.Run();
+            _mergeDescs.Dispose(); _mergeRec.Dispose();
+            _mergeBricks.Clear();
+            MergesDone++;
+            _version++;
+            UpdateDir();
+            if (_tablesB == null || _tables.Length > _tablesB.count) _tablesRealloc = true;
+            if (_dataB == null || _data.Length > _dataB.count) _dataRealloc = true;
+            foreach (var c in _retired) c.Dispose();
+            _retired.Clear();
+            if (Gpu) Upload();
+        }
+
+        private void UpdateDir()
+        {
+            if (_added.Length == 0 && _removed.Length == 0) return;
+            bool rebuild = _dir.Length == 0;
+            for (int i = 0; i < _added.Length && !rebuild; i++)
+            {
+                int3 d = _added[i] - _dirOrigin;
+                if (math.any(d < 0) || math.any(d >= _dirDims)) rebuild = true;
+            }
+            if (rebuild)
+            {
+                var keys = _chunkTable.GetKeyArray(Allocator.Temp);
+                int3 mn = new int3(int.MaxValue), mx = new int3(int.MinValue);
+                for (int i = 0; i < keys.Length; i++) { mn = math.min(mn, keys[i]); mx = math.max(mx, keys[i]); }
+                if (keys.Length == 0) { mn = mx = int3.zero; }
+                _dirOrigin = mn; _dirDims = mx - mn + 1;
+                _dir = new uint[_dirDims.x * _dirDims.y * _dirDims.z];
+                for (int i = 0; i < keys.Length; i++) SetDir(keys[i], (uint)_chunkTable[keys[i]] + 1u);
+                keys.Dispose();
+            }
+            else
+            {
+                for (int i = 0; i < _removed.Length; i++) SetDir(_removed[i], 0u);
+                for (int i = 0; i < _added.Length; i++) SetDir(_added[i], (uint)_chunkTable[_added[i]] + 1u);
+            }
+            _dirDirty = true;
+        }
+
+        private void SetDir(int3 c, uint v)
+        {
+            int3 d = c - _dirOrigin;
+            if (math.any(d < 0) || math.any(d >= _dirDims)) return;
+            _dir[(d.z * _dirDims.y + d.y) * _dirDims.x + d.x] = v;
+        }
+
+        // =====================================================================
+        // Synchronous paths (capture, tests)
+        // =====================================================================
+
+        /// Runs every queued flood and merge to completion now.
+        public void Flush()
+        {
+            _sync = true;
+            int guard = 0;
+            do Step(false); while (Busy && guard++ < 1000000);   // one Step even when idle: it polls the box chunks
+            _sync = false;
+            if (Gpu && !_uploaded) Upload();
+        }
+
+        /// Synchronous refill from scratch (the capture's "build it now before timing" and the reference).
+        public void Rebuild(LightSourceBuffer lights)
+        {
+            if (Store != null && !ReferenceEquals(_store, Store)) _store = Store;
+            var sw = Stopwatch.StartNew();
+            var sig = Signature(lights);
+            ResetAll(_store);
+            SetTorches(sig);
             _builtSig = sig;
             _seenRev = lights.Revision;
-            _dirty = false;
+            FloodRunMs.Clear();
+            Flush();
+            LastRebuildMs = sw.Elapsed.TotalMilliseconds;
+            LastFloodMs = 0; foreach (var f in FloodLog) LastFloodMs += f.x;
+            LastEncodeMs = 0; LastUploadMs = 0;
+            Oracle?.Dispose(); Oracle = null;
+            int skipped = 0;
+            foreach (var r in _recs.Values) if (r.cache == null) skipped++;
+            if (KeepOracle)
+            {
+                var f = new LightFloodReference(_store);
+                foreach (var (v, m) in sig)
+                    if (_store.GetChunk(v >> 7) != null && !f.Open(v)) f.AddTorch(v, LightFloodReference.SeedForMaterial(m, _reachM));
+                Oracle = f;
+            }
             Rebuilds++;
             LastTorches = sig.Length - skipped; LastTorchesSkipped = skipped;
-            LastRebuildMs = sw.Elapsed.TotalMilliseconds;
-            Debug.Log($"[torchflood] rebuild {Rebuilds}: {LastTorches} torches ({skipped} skipped), {Current.chunks} lit chunks, " +
-                      $"air bricks {Current.airBricks}, mixed {Current.mixedBricks}, escapes {Current.escapes} (split cells {Current.splitCells}), " +
-                      $"GPU {Current.Bytes / 1048576.0:F2} MB; flood {LastFloodMs:F0} ms, encode {LastEncodeMs:F0}, upload {LastUploadMs:F1}, " +
-                      $"total {LastRebuildMs:F0} ms");
+            Debug.Log($"[torchflood] rebuild {Rebuilds}: {LastTorches} torches ({skipped} skipped), {Chunks} lit chunks, " +
+                      $"air bricks {AirBricks}, mixed {MixedBricks}, escapes {Escapes}, GPU {GpuBytes / 1048576.0:F2} MB, CPU union " +
+                      $"{UnionBytes / 1048576.0:F2} + caches {CacheBytes / 1048576.0:F2} + scratch {ScratchBytes / 1048576.0:F2} MB; " +
+                      $"total {LastRebuildMs:F0} ms (floods {FloodsDone}, merges {MergesDone})");
+        }
+
+        /// Rebuilds synchronously only if the registered set differs from the built one (the cost capture).
+        public bool EnsureBuilt(LightSourceBuffer lights)
+        {
+            var sig = Signature(lights);
+            if (_uploaded && SameSig(sig, _builtSig) && !Busy) return false;
+            Rebuild(lights);
+            return true;
+        }
+
+        /// Drops every torch, cache and union brick (buffers are kept, re-uploaded on the next change).
+        public void ResetAll(ChunkStore store)
+        {
+            foreach (var s in _slots) if (s.busy) { s.h.Complete(); s.cache?.Dispose(); s.cache = null; s.busy = false; s.rec = null; }
+            if (_merging) { _mergeH.Complete(); _merging = false; _mergeDescs.Dispose(); _mergeRec.Dispose(); _mergeBricks.Clear(); }
+            foreach (var r in _recs.Values) r.cache?.Dispose();
+            foreach (var c in _retired) c.Dispose();
+            _retired.Clear(); _recs.Clear(); _chunkRecs.Clear(); _watch.Clear(); _editBricks.Clear();
+            _builtSig = Array.Empty<(int3, byte)>(); _seenRev = -1;
+            FreeUnion(); AllocUnion();
+            _dir = Array.Empty<uint>(); _dirOrigin = _dirDims = int3.zero;
+            _dirDirty = _tablesRealloc = _dataRealloc = true;
+            _version++;
+            _store = store;
+            FloodsDone = MergesDone = 0; FloodLog.Clear(); BusyTickMs.Clear(); UploadBytesTotal = 0; ScratchPeakBytes = 0; ResetPhaseStats();
+            _uploaded = false;
         }
 
         private static (int3 v, byte m)[] Signature(LightSourceBuffer lights)
@@ -200,12 +688,85 @@ namespace VoxelEngine.Rendering
             return true;
         }
 
+        /// The union as an Encoded (a copy; cached until the union changes). Tests and the capture probe.
+        public Encoded Current
+        {
+            get
+            {
+                if (_exportVersion == _version && _export != null) return _export;
+                _export = new Encoded
+                {
+                    origin = _dirOrigin, dims = _dirDims, dir = (uint[])_dir.Clone(),
+                    tables = _tables.AsArray().ToArray(), data = _data.AsArray().ToArray(),
+                    chunks = _counts[3], airBricks = _counts[0], mixedBricks = _counts[1], escapes = _counts[2], splitCells = _counts[2],
+                };
+                _exportVersion = _version;
+                return _export;
+            }
+        }
+
+        /// Logical equality of two encodings (layouts may differ): the same lit chunks and bricks, kinds,
+        /// cell values and escapes. Returns null if equal.
+        public static string Diff(Encoded a, Encoded b)
+        {
+            var ba = Bricks(a); var bb = Bricks(b);
+            if (ba.Count != bb.Count) return $"{ba.Count} lit bricks vs {bb.Count}";
+            foreach (var kv in ba)
+            {
+                if (!bb.TryGetValue(kv.Key, out var y)) return $"brick {kv.Key} only in the first";
+                var x = kv.Value;
+                if (x.Length != y.Length) return $"brick {kv.Key}: kind {(x.Length == 8 ? "air" : "mixed")} vs {(y.Length == 8 ? "air" : "mixed")}";
+                for (int i = 0; i < x.Length; i++)
+                    if (x[i] != y[i]) return $"brick {kv.Key} cell {i}: {LightFloodReference.Str(x[i])} vs {LightFloodReference.Str(y[i])}";
+            }
+            if (a.chunks != b.chunks || a.airBricks != b.airBricks || a.mixedBricks != b.mixedBricks || a.escapes != b.escapes)
+                return $"counts: chunks {a.chunks}/{b.chunks} air {a.airBricks}/{b.airBricks} mixed {a.mixedBricks}/{b.mixedBricks} escapes {a.escapes}/{b.escapes}";
+            return null;
+        }
+
+        /// Per lit brick: 8 air cells, or 64 mixed cells + 8 per cell (escape: the 8 voxels, else 8 copies of 0xFFFFFFFF).
+        private static Dictionary<int3, uint[]> Bricks(Encoded e)
+        {
+            var d = new Dictionary<int3, uint[]>();
+            if (!e.Any) return d;
+            for (int z = 0; z < e.dims.z; z++)
+            for (int y = 0; y < e.dims.y; y++)
+            for (int x = 0; x < e.dims.x; x++)
+            {
+                uint t = e.dir[(z * e.dims.y + y) * e.dims.x + x];
+                if (t == 0) continue;
+                int3 c = e.origin + new int3(x, y, z);
+                for (int bi = 0; bi < 4096; bi++)
+                {
+                    uint en = e.tables[(t - 1) * 4096 + bi];
+                    if (en == 0) continue;
+                    uint off = en & OFFSET_MASK;
+                    int3 wb = (c << 4) + new int3(bi & 15, (bi >> 4) & 15, bi >> 8);
+                    if ((en >> 30) == KIND_AIR) { var a = new uint[8]; Array.Copy(e.data, off, a, 0, 8); d[wb] = a; continue; }
+                    var m = new uint[64 + 512];
+                    for (int ci = 0; ci < 64; ci++)
+                    {
+                        uint p = e.data[off + ci];
+                        if ((p & ESCAPE_BIT) != 0)
+                        {
+                            m[ci] = 0xFFFFFFFFu;
+                            for (int k = 0; k < 8; k++) m[64 + ci * 8 + k] = e.data[(p & OFFSET_MASK) + k];
+                        }
+                        else { m[ci] = p; for (int k = 0; k < 8; k++) m[64 + ci * 8 + k] = 0xFFFFFFFFu; }
+                    }
+                    d[wb] = m;
+                }
+            }
+            return d;
+        }
+
         // =====================================================================
-        // Encode (CPU -> the GPU layout) and its sampler twin
+        // Encode (task 157's oracle -> the GPU layout) and its sampler twin
         // =====================================================================
 
         /// 2x2x2 open-voxel mask -> number of face-connected groups.
         private static readonly byte[] Groups = BuildGroups();
+        public static byte GroupsOf(int mask) => Groups[mask];
 
         private static byte[] BuildGroups()
         {
@@ -232,16 +793,18 @@ namespace VoxelEngine.Rendering
             return g;
         }
 
-        /// Pure air brick (no voxel to occlude inside it): its 0.4 m cells may be blended.
-        private static bool BrickAllAir(ChunkStore s, int3 brick)
+        /// Pure air brick, from its CONTENT (task 165: the header of a not-yet-compacted all-air brick says
+        /// "dense"; 164b saw the same tunnel encoded both ways): its 0.4 m cells may be blended.
+        private static bool BrickAllAir(LightFloodReference f, int3 brick)
         {
-            Chunk ch = s.GetChunk(brick >> 4);
-            if (ch == null) return false;
-            if (ch.isUniform) return ch.uniformMaterial == 0;
-            uint h = ch.bricks[CoordMath.LocalBrickIndex(brick & 15)].data;
-            return (h & 0x80000000u) == 0 && (h & 0xFFu) == 0;
+            int3 b = brick << 3;
+            for (int i = 0; i < 512; i++) if (!f.Open(b + new int3(i & 7, (i >> 3) & 7, i >> 6))) return false;
+            return true;
         }
 
+        /// The oracle's per-voxel field in the GPU layout. Air cell = the per-channel MAX of the 2^3 voxels
+        /// round its centre (task 165: a max decomposes over torches, the mean 158 used does not); mixed cell =
+        /// the max over its voxels, a split cell escapes to its 8 voxels.
         public static Encoded Encode(LightFloodReference f, ChunkStore store)
         {
             var e = new Encoded();
@@ -270,20 +833,15 @@ namespace VoxelEngine.Rendering
                 int ti = chunkIdx[b >> 4];
                 int bi = CoordMath.LocalBrickIndex(b & 15);
                 int off = data.Count;
-                if (BrickAllAir(store, b))
+                if (BrickAllAir(f, b))
                 {
-                    // cell value = the mean of the 2^3 voxels round its centre (in-brick 1-2 / 5-6),
-                    // so the trilinear blend reproduces a linear field at the centres
                     for (int ci = 0; ci < 8; ci++)
                     {
                         int3 c0 = new int3(ci & 1, (ci >> 1) & 1, ci >> 2) * 4 + 1;
-                        int r = 0, g = 0, bl = 0;
+                        uint m = 0;
                         for (int k = 0; k < 8; k++)
-                        {
-                            uint p = lv[CoordMath.LocalVoxelIndex(c0 + new int3(k & 1, (k >> 1) & 1, k >> 2))];
-                            r += LightFloodReference.R(p); g += LightFloodReference.G(p); bl += LightFloodReference.B(p);
-                        }
-                        data.Add(LightFloodReference.Pack((r + 4) >> 3, (g + 4) >> 3, (bl + 4) >> 3));
+                            m = LightFloodReference.Max(m, lv[CoordMath.LocalVoxelIndex(c0 + new int3(k & 1, (k >> 1) & 1, k >> 2))]);
+                        data.Add(m);
                     }
                     e.tables[ti * 4096 + bi] = (KIND_AIR << 30) | (uint)off;
                     e.airBricks++;
@@ -433,33 +991,119 @@ namespace VoxelEngine.Rendering
         // GPU
         // =====================================================================
 
-        private static GraphicsBuffer Fit(GraphicsBuffer b, int count)
+        private static GraphicsBuffer Fit(GraphicsBuffer b, int count, out bool fresh)
         {
             count = math.max(count, 1);
+            fresh = false;
             if (b != null && b.count >= count) return b;
             b?.Release();
+            fresh = true;
             return new GraphicsBuffer(GraphicsBuffer.Target.Structured, math.ceilpow2(count), 4);
         }
 
-        private void Upload(Encoded e)
+        /// Uploads what changed: the directory whole (small), the dirty chunk tables, the dirty data runs
+        /// (gaps under 64 units merged). A buffer that had to grow is re-uploaded whole.
+        private void Upload()
         {
-            _dir = Fit(_dir, e.dir.Length);
-            _tables = Fit(_tables, e.tables.Length);
-            _data = Fit(_data, e.data.Length);
-            if (e.dir.Length > 0) _dir.SetData(e.dir);
-            if (e.tables.Length > 0) _tables.SetData(e.tables);
-            if (e.data.Length > 0) _data.SetData(e.data);
+            var sw = Stopwatch.StartNew();
+            _dirB = Fit(_dirB, _dir.Length, out bool f0);
+            if (_dirDirty || f0) { if (_dir.Length > 0) { _dirB.SetData(_dir); UploadBytesTotal += 4L * _dir.Length; } _dirDirty = false; }
+            _tablesB = Fit(_tablesB, _tables.Length, out bool f1);
+            if (f1 || _tablesRealloc)
+            {
+                if (_tables.Length > 0) { _tablesB.SetData(_tables.AsArray(), 0, 0, _tables.Length); UploadBytesTotal += 4L * _tables.Length; }
+                for (int i = 0; i < _dirtyTable.Length; i++) _dirtyTable[i] = 0;
+                _tablesRealloc = false;
+            }
+            else
+            {
+                for (int i = 0; i < _dirtyTable.Length; i++)
+                {
+                    if (_dirtyTable[i] == 0) continue;
+                    int j = i;
+                    while (j + 1 < _dirtyTable.Length && _dirtyTable[j + 1] != 0) j++;
+                    _tablesB.SetData(_tables.AsArray(), i * 4096, i * 4096, (j - i + 1) * 4096);
+                    UploadBytesTotal += 4L * 4096 * (j - i + 1);
+                    for (int k = i; k <= j; k++) _dirtyTable[k] = 0;
+                    i = j;
+                }
+            }
+            _dataB = Fit(_dataB, _data.Length, out bool f2);
+            if (f2 || _dataRealloc)
+            {
+                if (_data.Length > 0) { _dataB.SetData(_data.AsArray(), 0, 0, _data.Length); UploadBytesTotal += 4L * _data.Length; }
+                for (int i = 0; i < _dirtyData.Length; i++) _dirtyData[i] = 0;
+                _dataRealloc = false;
+            }
+            else
+            {
+                int units = _data.Length >> 3, runStart = -1, last = -1000;
+                for (int w = 0; w < _dirtyData.Length; w++)
+                {
+                    ulong bits = _dirtyData[w];
+                    if (bits == 0) continue;
+                    _dirtyData[w] = 0;
+                    while (bits != 0)
+                    {
+                        int u = w * 64 + math.tzcnt(bits); bits &= bits - 1;
+                        if (u >= units) break;
+                        if (runStart < 0) { runStart = u; last = u; continue; }
+                        if (u - last <= 64) { last = u; continue; }
+                        UploadRun(runStart, last); runStart = u; last = u;
+                    }
+                }
+                if (runStart >= 0) UploadRun(runStart, last);
+            }
             _uploaded = true;
+            LastUploadMs = sw.Elapsed.TotalMilliseconds;
+            LastUploadMsStep += LastUploadMs;
+        }
+
+        private void UploadRun(int u0, int u1)
+        {
+            int o = u0 << 3, n = (u1 - u0 + 1) << 3;
+            _dataB.SetData(_data.AsArray(), o, o, n);
+            UploadBytesTotal += 4L * n;
+        }
+
+        /// Reads the three GPU buffers back and compares them with the CPU copy (capture only; synchronous).
+        public string VerifyGpu()
+        {
+            if (!_uploaded || _dirB == null) return "not uploaded";
+            var d = new uint[_dir.Length]; if (d.Length > 0) _dirB.GetData(d, 0, 0, d.Length);
+            for (int i = 0; i < d.Length; i++) if (d[i] != _dir[i]) return $"dir[{i}] {d[i]} vs {_dir[i]}";
+            var t = new uint[_tables.Length]; if (t.Length > 0) _tablesB.GetData(t, 0, 0, t.Length);
+            for (int i = 0; i < t.Length; i++) if (t[i] != _tables[i]) return $"tables[{i}] {t[i]:X8} vs {_tables[i]:X8}";
+            // data: only the words a table entry reaches (freed blocks may hold stale words on either side)
+            var g = new uint[_data.Length]; if (g.Length > 0) _dataB.GetData(g, 0, 0, g.Length);
+            for (int ti = 0; ti < _chunkUsed.Length; ti++)
+                for (int bi = 0; bi < 4096; bi++)
+                {
+                    uint en = _tables[ti * 4096 + bi];
+                    if (en == 0) continue;
+                    int off = (int)(en & OFFSET_MASK), n = (en >> 30) == KIND_AIR ? 8 : 64;
+                    for (int k = 0; k < n; k++)
+                    {
+                        uint c = _data[off + k];
+                        if (g[off + k] != c) return $"data[{off + k}] {g[off + k]:X8} vs {c:X8}";
+                        if (n == 64 && (c & ESCAPE_BIT) != 0)
+                            for (int q = 0; q < 8; q++)
+                            {
+                                int e = (int)(c & OFFSET_MASK) + q;
+                                if (g[e] != _data[e]) return $"escape data[{e}] {g[e]:X8} vs {_data[e]:X8}";
+                            }
+                    }
+                }
+            return null;
         }
 
         public void Bind(UnityEngine.Rendering.ComputeCommandBuffer cmd, ComputeShader cs, int kernel)
         {
-            cmd.SetComputeBufferParam(cs, kernel, "_FloodDir", _dir);
-            cmd.SetComputeBufferParam(cs, kernel, "_FloodTables", _tables);
-            cmd.SetComputeBufferParam(cs, kernel, "_FloodData", _data);
-            var e = Current;
-            cmd.SetComputeIntParams(cs, "_FloodDirOrigin", e.origin.x, e.origin.y, e.origin.z, 0);
-            cmd.SetComputeIntParams(cs, "_FloodDirDims", e.dims.x, e.dims.y, e.dims.z, e.Any ? 1 : 0);
+            cmd.SetComputeBufferParam(cs, kernel, "_FloodDir", _dirB);
+            cmd.SetComputeBufferParam(cs, kernel, "_FloodTables", _tablesB);
+            cmd.SetComputeBufferParam(cs, kernel, "_FloodData", _dataB);
+            cmd.SetComputeIntParams(cs, "_FloodDirOrigin", _dirOrigin.x, _dirOrigin.y, _dirOrigin.z, 0);
+            cmd.SetComputeIntParams(cs, "_FloodDirDims", _dirDims.x, _dirDims.y, _dirDims.z, _counts[3] > 0 ? 1 : 0);
             cmd.SetComputeVectorParam(cs, "_FloodParams", Params);
             cmd.SetComputeVectorParam(cs, "_FloodParams2", Params2);
         }
@@ -480,12 +1124,11 @@ namespace VoxelEngine.Rendering
             cs.SetBuffer(k, "_ProbeIn", inB);
             cs.SetBuffer(k, "_ProbeOut", outB);
             cs.SetInt("_ProbeCount", voxels.Count);
-            cs.SetBuffer(k, "_FloodDir", _dir);
-            cs.SetBuffer(k, "_FloodTables", _tables);
-            cs.SetBuffer(k, "_FloodData", _data);
-            var en = Current;
-            cs.SetInts("_FloodDirOrigin", en.origin.x, en.origin.y, en.origin.z, 0);
-            cs.SetInts("_FloodDirDims", en.dims.x, en.dims.y, en.dims.z, en.Any ? 1 : 0);
+            cs.SetBuffer(k, "_FloodDir", _dirB);
+            cs.SetBuffer(k, "_FloodTables", _tablesB);
+            cs.SetBuffer(k, "_FloodData", _dataB);
+            cs.SetInts("_FloodDirOrigin", _dirOrigin.x, _dirOrigin.y, _dirOrigin.z, 0);
+            cs.SetInts("_FloodDirDims", _dirDims.x, _dirDims.y, _dirDims.z, _counts[3] > 0 ? 1 : 0);
             cs.SetVector("_FloodParams", Params);
             cs.SetVector("_FloodParams2", Params2);
             cs.Dispatch(k, (voxels.Count + 63) / 64, 1, 1);
@@ -497,8 +1140,12 @@ namespace VoxelEngine.Rendering
 
         public void Dispose()
         {
-            _dir?.Release(); _tables?.Release(); _data?.Release();
-            _dir = _tables = _data = null;
+            ResetAll(_store);
+            FreeUnion();
+            foreach (var s in _slots) { s.s.Dispose(); s.stats.Dispose(); }
+            _slots.Clear();
+            _dirB?.Release(); _tablesB?.Release(); _dataB?.Release();
+            _dirB = _tablesB = _dataB = null;
             Oracle?.Dispose(); Oracle = null;
             _uploaded = false;
             if (ReferenceEquals(_inst, this)) _inst = null;
