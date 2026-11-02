@@ -15,7 +15,7 @@ The dark block-edge lines do NOT go away with any fix: they are anti-aliasing (s
 1. **Dark outlines = AA, not a bug.** They are already there with FSR at 1080 rows (no upscale) and RCAS off. Averaged over 16x16 px blocks, FSR 1080 is within 0.77 levels of native (2.53 per pixel). The light is redistributed, not darkened (mean shift -0.2 to -0.8 levels). The darker 0.1 m step faces are sub-pixel tall, so they blend with the tops. Native's point sampling draws them as hard stairs.
 2. **Softness = FSR's shading-change detection.** On still terrain, the jittered samples of sub-pixel steps differ from frame to frame. FSR reads that as "the lighting changed", zeroes accumulation there and tightens the history clamp. The debug view shows the green mask over the whole mid-distance terrain; with sc10 it is gone (`Screenshots/166/full/walk_open_fsr3_432_dbg.png` vs `..._sc10_dbg.png`, top-middle panel).
 
-## What changed (commit below, engine-phase)
+## What changed (`0b43c28`, engine-phase)
 - `RaymarchFeature.Upscalers.cs`: new capture/diagnostic statics `Fsr3ShadingChangeCut`, `Fsr3DebugView`, `Fsr3RayJitterSign`, `Fsr3ZeroJitter`.
 - Vendored FSR: `ffx_fsr3upscaler_prepare_reactivity.h` gets the `_VeShadingChangeCut` uniform (unset = 0 = upstream). The debug view is now built into release players. Both are recorded in the FSR README.
 - `UpscalerSelect.Fsr3KnobsFromArgs` adds `-fsr3sharp N` / `-fsr3sc N`. `Playground.cs` calls it on every run, play included; absent flags = today.
