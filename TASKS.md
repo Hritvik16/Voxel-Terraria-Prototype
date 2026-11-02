@@ -761,7 +761,7 @@ compiled out; est. 1-4 ms near at 432) > C1 shadow continuation out of the big k
 p50 <= 30 plausible; <= 5 % > 33 ms NOT reachable with exact cuts alone (est. p95 ~45-55; cliff views ~36-44 vs 33). A/Bs must pin
 `-renderrows 432`, because the dyn controller spends cuts on rows. Owner questions: HANDOFF 160.
 
-**Task 161 (perf, `PERF_EXACT_CUTS.md` cut B, supervisor 2026-10-31): kernel diet 2, `-diet2 1|0` (last match; default see HANDOFF 161).**
+**Task 161 (perf, `PERF_EXACT_CUTS.md` cut B, supervisor 2026-10-31): kernel diet 2, `-diet2 1|0` (last match; default ON since task 167, `-diet2 0` = task 134's lean kernels).**
 `Raymarch.compute` compiles `CSMainFarShadeLean` / `CSShellPrepassLean` (`VE_FAR_SHADE VE_DIET2`): the play kernels with what is OFF in play
 folded to `static const` (traversal mode 4, no tier 1-2 cascade, debug view 0 + no `DebugOut` / `isDebugPixel`, no half-res / rung-1 quad shadow
 reuse, roof skip / hole leap / height bound / sky tilt 0, `_Look 1`, dev colours 1, and no one-pass primary `ShellMarch` with the pre-pass on).
@@ -826,3 +826,8 @@ diagnostics `_dbg` (FSR debug view, now in release players), `_jf`, `_j0`; `-loo
 `PRESETS=high EXTRA="-lookladder native,432,432_s10,432_sc10,432_sc10_s10,540,540_sc10,540_sc10_s10 -lookladderbursts native,432,432_sc10,432_sc10_s10
 -lookposes walk_near,walk_open,high,cliff,torch -lookwait 60 -shellworkers 6" ./run-look-review.sh`; table `python3 -I tools/fsr166.py <dir> <out> <arms>
 [crop arm] [burst arms]`. Result: `Screenshots/166/fix/fsr166.txt`, `Screenshots/166/diag/fsr166.txt`, HANDOFF 166.
+
+**Task 167 (perf, task 161's warm AC measurement): `KernelDiet2` default ON (`ParseFlagOn`, `-diet2 0` = before).** Warm AC cost split at 432
+(`Logs/costsplit_2026-11-01_151803.txt`, warm-up `Logs/tg2world_20261101_151159.txt`): diet 2 -6 ms walk_near, -4.5 ms walk_open p50. The 14:36 run
+(`Logs/costsplit_2026-11-01_143603.txt`) is NOT valid for B: launched without the play flags (shells off) and without `-diet2 1` (every row `kernel lean`).
+Next cut per the table: D (`skyprobe_off` -6 ms walk_near). GPU trace `gpu-traces/walknear161_full.trace` (`python3 -I tools/gpu161.py <trace>.export/gpu.xml`).

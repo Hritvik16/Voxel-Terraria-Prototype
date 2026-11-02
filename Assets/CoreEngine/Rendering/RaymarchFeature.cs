@@ -337,8 +337,10 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     /// Task 161 (PERF_EXACT_CUTS B, KERNEL DIET 2): the far-shading pass runs CSMainFarShadeLean / CSShellPrepassLean
     /// (Raymarch.compute VE_DIET2: the settings that are OFF in play folded to constants) whenever KernelDiet2Rule.Settings and the frame allow;
     /// otherwise the lean kernels of task 134 (unchanged) run. Exact by construction (raw stills 0 px, task 161).
-    /// `-diet2 1|0` (last match wins).
-    public static bool KernelDiet2 = ReadOffFlag(System.Environment.GetCommandLineArgs(), "-diet2");
+    /// `-diet2 1|0` (last match wins). ON by default since task 167 (161's decision table: warm AC cost split at 432,
+    /// walk_near FULL 37.0 / 38.4 vs diet2_off 43.8 / 44.2 ms p50, walk_open 22.9 / 22.1 vs 27.0 / 27.1;
+    /// Logs/costsplit_2026-11-01_151803.txt). `-diet2 0` = task 134's lean kernels (the pre-167 default).
+    public static bool KernelDiet2 = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-diet2");
     /// Task 161: the far-shading kernels last frame were the diet-2 kernels (log / capture only).
     public static bool Diet2DrawnLastFrame { get; private set; }
     /// Task 134: the far-shading kernels last frame were the *Diag twins (log / capture only).
