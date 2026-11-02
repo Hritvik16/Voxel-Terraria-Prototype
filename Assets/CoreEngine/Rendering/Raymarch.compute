@@ -2339,11 +2339,41 @@ float3 SumPointLightsOmni(float3 posM)
 }
 
 #ifdef VE_TORCH_FLOOD
-#include "TorchFlood.hlsl"
 // Task 158: LightBuffer holds the selected torches first, then lava's aggregates
 // (LightSourceBuffer.Upload). With the flood on, tier-0 hits sum only the lava
 // part, from _FloodLightFirst (= the torch count) on; shell hits keep the full loop.
 uint _FloodLightFirst;
+
+// Task 164 (-tfdir 2): the flood's direction from the torch that explains its
+// level. dPathM = the flood's path length to the air voxel at pM. A torch whose
+// straight-line distance de matches it (|dPathM - de| <= tol, tol = 8 % (the
+// 4/6/7 chamfer's spread against Euclid) + 0.25 m (the 0.2 m cells' max and the
+// 0.4 m air bricks' blend)) lit pM along a near-straight path, so the light
+// arrives from that torch: cosT = its Lambert cosine, weight 1. The weight fades
+// to 0 as the path bends (excess tol .. 2 tol); a torch farther in a straight
+// line than the path (by more than tol) cannot be the source. Only the selected
+// torches (LightBuffer[0, _FloodLightFirst)) are tried; none -> weight 0.
+#define VE_FLOOD_TORCH_DIR
+float FloodTorchCos(float3 pM, float3 nF, float dPathM, out float cosT)
+{
+    float best = 1e9, wBest = 0.0;
+    cosT = 0.0;
+    [loop]
+    for (uint i = 0; i < _FloodLightFirst; i++)
+    {
+        LightSource L = LightBuffer[i];
+        float3 dv = float3(L.x, L.y, L.z) - pM;
+        float de = length(dv);
+        float tol = 0.08 * de + 0.25;
+        float ex = dPathM - de;
+        if (ex < -tol || abs(ex) >= best) continue;
+        best = abs(ex);
+        wBest = 1.0 - saturate((ex - tol) / tol);
+        cosT = saturate(dot(nF, dv / max(de, 1e-4)));
+    }
+    return wBest;
+}
+#include "TorchFlood.hlsl"
 
 float3 FloodOtherLights(float3 posM, float3 nrmF)
 {

@@ -43,7 +43,7 @@ public partial class PlaygroundCapture
         string[] names = { "room", "half", "tunnel" };
         string spec = ArgValue("-trarms");
         if (string.IsNullOrEmpty(spec)) spec = "0.35,1.6,8;0.15,2.4,14;0.06,3.0,24";
-        string[] sets = spec.Split(';');
+        string[] sets = spec == "none" ? new string[0] : spec.Split(';');   // task 164: -trarms none = today only
         for (int i = 0; i < sets.Length && i < names.Length; i++)
         {
             var p = sets[i].Split(',');
@@ -106,7 +106,13 @@ public partial class PlaygroundCapture
         string fb = ArgValue("-trfloodb");
         float[] fbMap = string.IsNullOrEmpty(fb) ? null : System.Array.ConvertAll(fb.Split(','), x => float.Parse(x, CultureInfo.InvariantCulture));
         float fI0 = TorchFloodPool.Intensity, fK0 = TorchFloodPool.FalloffK, fW0 = TorchFloodPool.Wrap;
-        int nArms = arms.Count + (floodArm ? (fbMap != null ? 2 : 1) : 0);
+        // -trfloodmodes "0,1,2,3" (task 164): one flood arm per direction term (-tfdir); arm "flood" = mode 0
+        // (task 158's), "flooddir<N>" = mode N. Without it: the launch's -tfdir only, as in task 158.
+        string fm = ArgValue("-trfloodmodes");
+        int dir0 = TorchFloodPool.DirMode;
+        int[] modes = string.IsNullOrEmpty(fm) ? new[] { dir0 } : System.Array.ConvertAll(fm.Split(','), int.Parse);
+        int nFlood = floodArm ? modes.Length : 0;
+        int nArms = arms.Count + (floodArm ? nFlood + (fbMap != null ? 1 : 0) : 0);
         foreach (var row in rows)
         {
             Phase4Bootstrapper.DebugStreamCentre = row.eye;
@@ -115,9 +121,11 @@ public partial class PlaygroundCapture
             L($"  {row.row}: torch {Vector3.Distance(row.eye, Ctr(row.torch)):F1} m from the eye");
             for (int ai = -1; ai < nArms; ai++)
             {
-                bool isFloodB = ai == arms.Count + 1;
-                bool isFlood = ai == arms.Count || isFloodB;
-                string armName = ai < 0 ? "none" : isFloodB ? "floodb" : isFlood ? "flood" : arms[ai].name;
+                bool isFloodB = ai == arms.Count + nFlood;
+                bool isFlood = ai >= arms.Count;
+                int mode = isFlood && !isFloodB ? modes[ai - arms.Count] : dir0;
+                TorchFloodPool.DirMode = mode;
+                string armName = ai < 0 ? "none" : isFloodB ? "floodb" : isFlood ? (mode == 0 ? "flood" : $"flooddir{mode}") : arms[ai].name;
                 TorchFloodPool.Intensity = isFloodB ? fbMap[0] : fI0;
                 TorchFloodPool.FalloffK = isFloodB ? fbMap[1] : fK0;
                 TorchFloodPool.Wrap = isFloodB ? fbMap[2] : fW0;
@@ -125,7 +133,7 @@ public partial class PlaygroundCapture
                 if (isFlood)
                 {
                     lights.Register(row.torch, Materials.Torch);
-                    FloodOn(lights, row.row + (isFloodB ? " floodb" : ""));
+                    FloodOn(lights, row.row + (isFloodB ? " floodb" : $" {armName}"));
                 }
                 else if (ai >= 0)
                 {
@@ -169,11 +177,15 @@ public partial class PlaygroundCapture
             yield return Frames(30);
             L($"  pillar: centre column {pc}, {built} voxels written");
             TorchFloodPool.Intensity = fI0; TorchFloodPool.FalloffK = fK0; TorchFloodPool.Wrap = fW0;
-            foreach (string armName in new[] { "none", "today", "flood" })
+            var pArms = new List<(string name, int mode)> { ("none", dir0), ("today", dir0) };
+            foreach (int md in modes) pArms.Add((md == 0 ? "flood" : $"flooddir{md}", md));
+            foreach (var (armName, md) in pArms)
             {
+                bool fl = armName.StartsWith("flood");
+                TorchFloodPool.DirMode = md;
                 foreach (var t in all) lights.Unregister(t);
                 if (armName != "none") lights.Register(tG, Materials.Torch);
-                if (armName == "flood") FloodOn(lights, "pillar");
+                if (fl) FloodOn(lights, "pillar " + armName);
                 foreach (bool play in new[] { true, false })
                 {
                     ApplyCompareArm(play ? "fsr3_dyn" : "native");
@@ -182,9 +194,10 @@ public partial class PlaygroundCapture
                     yield return Frames(play ? settle : natFrames);
                     yield return CaptureTo($"tr_pillar_{armName}_{(play ? "play" : "nat")}");
                 }
-                if (armName == "flood") { FloodProbe(cam, "pillar"); TorchFloodPool.Enabled = false; }
+                if (fl) { FloodProbe(cam, "pillar"); TorchFloodPool.Enabled = false; }
             }
         }
+        TorchFloodPool.DirMode = dir0;
         foreach (var t in all) { lights.Unregister(t); lights.Register(t, Materials.Torch); }   // back to the launch's values
         L("TORCH REACH done");
     }
@@ -199,7 +212,7 @@ public partial class PlaygroundCapture
         var e = pool.Current;
         L($"  flood ({tag}): {pool.LastTorches} torch, {e.chunks} lit chunks, air bricks {e.airBricks}, mixed {e.mixedBricks}, " +
           $"escapes {e.escapes}, GPU {e.Bytes / 1048576.0:F2} MB; rebuild {pool.LastRebuildMs:F0} ms (flood {pool.LastFloodMs:F0}, " +
-          $"encode {pool.LastEncodeMs:F0}); map I {TorchFloodPool.Intensity:F2} k {TorchFloodPool.FalloffK:F3} reach {TorchFloodPool.ReachM:F1} m wrap {TorchFloodPool.Wrap:F2}");
+          $"encode {pool.LastEncodeMs:F0}); map I {TorchFloodPool.Intensity:F2} k {TorchFloodPool.FalloffK:F3} reach {TorchFloodPool.ReachM:F1} m wrap {TorchFloodPool.Wrap:F2} dir {TorchFloodPool.DirMode}");
     }
 
     /// Task 158: GPU sample == oracle at 16 x 9 pixels. Each pixel's ray is walked voxel by voxel on the CPU

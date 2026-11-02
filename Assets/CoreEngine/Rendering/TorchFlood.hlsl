@@ -33,7 +33,7 @@ StructuredBuffer<uint> _FloodData;
 int4   _FloodDirOrigin;   // xyz: AABB min chunk
 int4   _FloodDirDims;     // xyz: AABB size in chunks; w: 1 if any light is stored
 float4 _FloodParams;      // x intensity, y falloff k (1/m^2), z reach m, w level units per metre
-float4 _FloodParams2;     // x top level (the brightest seed), y stops over the reach (colour), z wrap (direction floor)
+float4 _FloodParams2;     // x top level (the brightest seed), y stops over the reach (colour), z wrap (direction floor), w direction term (task 164, -tfdir)
 
 float3 FloodUnpack(uint p)
 {
@@ -75,31 +75,75 @@ float3 FloodLevels(int3 v)
     return lerp(lerp(x00, x10, f.y), lerp(x01, x11, f.y), f.z);
 }
 
+/// The brightest channel's level at v.
+float FloodMax(int3 v)
+{
+    float3 L = FloodLevels(v);
+    return max(L.x, max(L.y, L.z));
+}
+
+/// Task 164, -tfdir 1: the flood's gradient from central differences over 0.4 m
+/// (v +- 2 on each axis = the neighbouring 0.2 m cells; one-sided where a side
+/// is dark, 0 where both are), normalised; the cosine to the face normal.
+float FloodGradCos(int3 v, int3 n, float m)
+{
+    float3 g;
+    [unroll] for (int a = 0; a < 3; a++)
+    {
+        int3 e = int3(a == 0 ? 2 : 0, a == 1 ? 2 : 0, a == 2 ? 2 : 0);
+        float p = FloodMax(v + e), q = FloodMax(v - e);
+        g[a] = (p > 0.0 && q > 0.0) ? (p - q) * 0.5 : p > 0.0 ? p - m : q > 0.0 ? m - q : 0.0;
+    }
+    float gl = length(g);
+    return gl > 1e-3 ? saturate(dot(float3(n), g) / gl) : 0.5;
+}
+
 /// Level -> light. d = metres of PATH (top - the brightest channel); the C.11
 /// shape I / (1 + k d^2) on that path distance, times a smooth window that
 /// reaches 0 at the reach (hides the chamfer's octagonal outer edge). Colour:
 /// a dimmer channel sits (top - its seed) levels below the brightest, which
 /// SeedFor set to log2(fraction) * top / stops, so exp2 of the gap restores it.
 /// DIRECTION (n = the face normal, v = the air voxel in front of the face; n = 0
-/// skips it): levels rise toward the light along the way it came, so the rise
-/// from v to v + 2n (always the next 0.2 m cell), over the most an axis step can
-/// rise (2 x W_FACE = 8 levels), is the cosine between the normal and the light's
-/// arrival direction. wrap + (1 - wrap) x that keeps light that came round a
-/// corner (arriving along the surface) on the floor. v + 2n solid: half.
+/// skips it), dir = wrap + (1 - wrap) x ndl, ndl by _FloodParams2.w (-tfdir):
+///   0 (task 158) levels rise toward the light along the way it came, so the rise
+///     from v to v + 2n (always the next 0.2 m cell), over the most an axis step can
+///     rise (2 x W_FACE = 8 levels); v + 2n dark: half. Piecewise constant (the
+///     chamfer's gradient is): the facets of 158's sheet.
+///   1 (task 164) FloodGradCos: the normalised 3-axis gradient over 0.4 m.
+///   2 (task 164) the cosine toward the torch whose straight-line distance matches
+///     the flood's path (FloodTorchCos, supplied by the includer under
+///     VE_FLOOD_TORCH_DIR), weighted by how straight that path is; mode 1 where it
+///     bends or no torch matches.
+///   3 (task 164) flat: 0.5 (no direction).
+/// Every mode only scales a nonzero level: a dark voxel stays exactly dark.
 float3 FloodLight(int3 v, int3 n)
 {
     float3 L = FloodLevels(v);
     float m = max(L.x, max(L.y, L.z));
     if (m <= 0.0) return float3(0.0, 0.0, 0.0);
+    float d = max(_FloodParams2.x - m, 0.0) / _FloodParams.w;
     float dir = 1.0;
     if (any(n != 0))
     {
-        float3 L2 = FloodLevels(v + n * 2);
-        float m2 = max(L2.x, max(L2.y, L2.z));
-        float ndl = m2 > 0.0 ? saturate((m2 - m) * 0.125) : 0.5;
+        int mode = (int)(_FloodParams2.w + 0.5);
+        float ndl;
+        if (mode == 1) ndl = FloodGradCos(v, n, m);
+        else if (mode == 2)
+        {
+            float wS = 0.0, cosT = 0.0;
+#ifdef VE_FLOOD_TORCH_DIR
+            wS = FloodTorchCos(((float3)v + 0.5) * 0.1, float3(n), d, cosT);
+#endif
+            ndl = wS >= 1.0 ? cosT : lerp(FloodGradCos(v, n, m), cosT, wS);
+        }
+        else if (mode == 3) ndl = 0.5;
+        else
+        {
+            float m2 = FloodMax(v + n * 2);
+            ndl = m2 > 0.0 ? saturate((m2 - m) * 0.125) : 0.5;
+        }
         dir = _FloodParams2.z + (1.0 - _FloodParams2.z) * ndl;
     }
-    float d = max(_FloodParams2.x - m, 0.0) / _FloodParams.w;
     float x = saturate(d / _FloodParams.z);
     x *= x; x *= x;
     float w = 1.0 - x;

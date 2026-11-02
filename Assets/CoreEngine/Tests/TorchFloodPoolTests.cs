@@ -239,6 +239,85 @@ public class TorchFloodPoolTests
         Assert.Greater(st.airLit, 100000);
     }
 
+    // ---- task 164: the direction terms (-tfdir), through TorchFloodPool.LightTwin ----
+
+    private static readonly int3[] Normals =
+        { new int3(1, 0, 0), new int3(-1, 0, 0), new int3(0, 1, 0), new int3(0, -1, 0), new int3(0, 0, 1), new int3(0, 0, -1) };
+
+    /// The default level -> light map (TorchFloodPool.Params / Params2) with direction term `mode`.
+    private static float4 MapP => new float4(2.0f, 0.10f, LightFloodReference.DEFAULT_REACH_M, (float)(LightFloodReference.UNITS_PER_VOXEL * 10.0));
+    private static float4 MapP2(int mode) =>
+        new float4(LightFloodReference.ReachLevel(LightFloodReference.DEFAULT_REACH_M), LightFloodReference.STOPS_AT_REACH, 0.3f, mode);
+
+    [Test]
+    public void Direction_EveryMode_SealedBoxStaysExactlyDark()
+    {
+        int3 t = new int3(50, 35, 50);
+        Room(v => math.cmax(math.abs(v - t)) == 5, t);
+        var e = TorchFloodPool.Encode(_light, _store);
+        float4 p = MapP;
+        var torches = new List<float3> { ((float3)t + 0.5f) * 0.1f };
+        int lit = 0;
+        for (int mode = 0; mode <= 3; mode++)
+        {
+            float4 p2 = MapP2(mode);
+            for (int z = RoomLo.z; z <= RoomHi.z; z++)
+            for (int y = RoomLo.y; y <= RoomHi.y; y++)
+            for (int x = RoomLo.x; x <= RoomHi.x; x++)
+            {
+                var v = new int3(x, y, z);
+                if (!_light.Open(v)) continue;
+                bool outside = math.cmax(math.abs(v - t)) > 5;
+                foreach (var n in Normals)
+                {
+                    float3 l = TorchFloodPool.LightTwin(e, v, n, p, p2, torches);
+                    if (outside && math.any(l != 0f)) Assert.Fail($"mode {mode}: sealed voxel {v} n {n} gets {l}");
+                    if (!outside && math.any(l > 0f)) lit++;
+                }
+            }
+        }
+        Assert.Greater(lit, 0, "the box's inside is lit");
+    }
+
+    /// The facet metric: along a floor line beside a torch on a post, the direction factor
+    /// dir = light(n = +y) / light(n = 0) between neighbouring voxels. 158's term jumps
+    /// (1 -> 0.5 -> 0.25 ndl at the chamfer's region borders); mode 2 follows the torch's
+    /// Lambert cosine, which moves < 0.03 per 0.1 m at a 1.5 m post; flat never moves.
+    [Test]
+    public void Direction_FloorBesideTorch_FacetSteps()
+    {
+        NewWorld(new int3(3, 3, 3), c => c.y == 0 ? Materials.Stone : (byte)0);
+        var t = new int3(192, 143, 192);
+        for (int y = 128; y < 143; y++) Put(new int3(192, y, 192), Materials.Stone);
+        Put(t, Materials.Torch);
+        _light.AddTorch(t, LightFloodReference.SeedForMaterial(Materials.Torch));
+        var e = TorchFloodPool.Encode(_light, _store);
+        float4 p = MapP;
+        var torches = new List<float3> { ((float3)t + 0.5f) * 0.1f };
+        var maxStep = new float[4];
+        var report = new System.Text.StringBuilder();
+        foreach (int zOff in new[] { 0, 7, 23 })
+        for (int mode = 0; mode <= 3; mode++)
+        {
+            float4 p2 = MapP2(mode);
+            float prev = -1f;
+            for (int x = 195; x <= 192 + 80; x++)
+            {
+                var v = new int3(x, 128, 192 + zOff);
+                float flat = math.cmax(TorchFloodPool.LightTwin(e, v, int3.zero, p, p2, torches));
+                if (flat <= 1e-4f) { prev = -1f; continue; }
+                float dir = math.cmax(TorchFloodPool.LightTwin(e, v, new int3(0, 1, 0), p, p2, torches)) / flat;
+                if (prev >= 0f) maxStep[mode] = math.max(maxStep[mode], math.abs(dir - prev));
+                prev = dir;
+            }
+        }
+        for (int mode = 0; mode <= 3; mode++) report.Append($" mode {mode} max step {maxStep[mode]:F3};");
+        UnityEngine.Debug.Log($"[164] floor beside a 1.5 m post torch, dir factor between 0.1 m neighbours:{report}");
+        Assert.Greater(maxStep[0], 0.2f, "158's term has its facet steps here (the case this test guards)");
+        Assert.Less(maxStep[2], 0.05f, "mode 2 is smooth along the floor");
+        Assert.AreEqual(0f, maxStep[3], 1e-5f, "flat has no direction");
+    }
+
     [Test]
     public void Raymarch_FloodCodeOnlyUnderIfdef()
     {

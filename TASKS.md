@@ -781,3 +781,14 @@ frame state ("native" = no upscaler at 1920x1080, N = `fsr3_N`), and walk_open's
 -shellworkers 6" ./run-look-review.sh`; sheets `python3 -I tools/ladder162.py <LookReview dir> Screenshots/162` (per pose 5 tiles with mean
 |dlum| and % px > 8 levels vs native; 3x crops of the 3 windows that differ most from native; motion sheet with 159's flicker numbers).
 Result: HANDOFF 162, `Screenshots/162/ladder162.txt`, `Logs/lookreview_20261031_210547.txt`.
+
+**Task 164 (look, owner Q101 part 3 (a); flood stays OFF): torch-flood DIRECTION terms, `-tfdir 0|1|2|3` (default 0 = task 158's).** The direction
+factor of `TorchFlood.hlsl FloodLight` is `wrap + (1 - wrap) x ndl`, ndl by `_FloodParams2.w` (`TorchFloodPool.DirMode`): 0 = 158's rise to the next
+0.2 m cell / 8 (piecewise constant: the chamfer's 4/6/7 gradient -> the facets); 1 = `FloodGradCos`, the normalised 3-axis gradient by central
+differences over 0.4 m (one-sided where a side is dark); 2 = `FloodTorchCos` (Raymarch.compute, under VE_TORCH_FLOOD, hook `VE_FLOOD_TORCH_DIR`): the
+Lambert cosine toward the selected torch (LightBuffer[0, _FloodLightFirst)) whose straight distance matches the flood's path (|path - de| <= 8 % + 0.25 m,
+weight fading to 0 by twice that as the path bends; mode 1 elsewhere); 3 = flat 0.5. Every mode only scales a nonzero level: sealed spaces stay exactly
+dark. C# twins `TorchFloodPool.LightTwin / GradCos / TorchCos`. Tests (`TorchFloodPoolTests`, +2): every mode x 6 normals, the 0.1 m closed box stays
+exactly 0; floor beside a 1.5 m post torch, max dir-factor step between 0.1 m neighbours: mode 0 0.525, 1 0.264, 2 0.018, 3 0. Capture: `-trarms none`
+(today only), `-trfloodmodes 0,1,2,3` (one flood arm per mode: `flood`, `flooddir<N>`, rows + pillar); sheets `python3 -I tools/torchflood164.py <dir>
+Screenshots/164 <log>` (per row a 3x2 grid of 960x540 tiles + a 2x native crop sheet; `CROP_<ROW>=x,y`). Result: HANDOFF 164.

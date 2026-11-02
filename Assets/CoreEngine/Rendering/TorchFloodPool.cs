@@ -49,6 +49,8 @@ namespace VoxelEngine.Rendering
         public static ChunkStore Store;
         /// -tfi / -tfk / -tfreach / -tfwrap: the level -> light map (see TorchFlood.hlsl FloodLight).
         public static float Intensity = 2.0f, FalloffK = 0.10f, ReachM = LightFloodReference.DEFAULT_REACH_M, Wrap = 0.3f;
+        /// -tfdir 0|1|2|3 (task 164): the direction term (TorchFlood.hlsl FloodLight). 0 = task 158's one-step rise.
+        public static int DirMode;
         /// Keep the oracle after a rebuild (the capture's GPU == oracle probe).
         public static bool KeepOracle;
 
@@ -64,6 +66,7 @@ namespace VoxelEngine.Rendering
                     case "-tfi": float.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out Intensity); break;
                     case "-tfk": float.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out FalloffK); break;
                     case "-tfwrap": float.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out Wrap); break;
+                    case "-tfdir": int.TryParse(v, out DirMode); break;
                     case "-tfreach": float.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ReachM); break;
                 }
             }
@@ -111,7 +114,7 @@ namespace VoxelEngine.Rendering
         public GraphicsBuffer DataBuffer => _data;
 
         public Vector4 Params => new Vector4(Intensity, FalloffK, ReachM, (float)(LightFloodReference.UNITS_PER_VOXEL * 10.0));
-        public Vector4 Params2 => new Vector4(LightFloodReference.ReachLevel(ReachM), LightFloodReference.STOPS_AT_REACH, Wrap, 0f);
+        public Vector4 Params2 => new Vector4(LightFloodReference.ReachLevel(ReachM), LightFloodReference.STOPS_AT_REACH, Wrap, DirMode);
 
         // =====================================================================
         // Per frame
@@ -351,6 +354,79 @@ namespace VoxelEngine.Rendering
             float3 x00 = math.lerp(c000, c100, fr.x), x10 = math.lerp(c010, c110, fr.x);
             float3 x01 = math.lerp(c001, c101, fr.x), x11 = math.lerp(c011, c111, fr.x);
             return math.lerp(math.lerp(x00, x10, fr.y), math.lerp(x01, x11, fr.y), fr.z);
+        }
+
+        private static float MaxLevel(Encoded e, int3 v) => math.cmax(SampleLevels(e, v));
+
+        /// C# twin of TorchFlood.hlsl FloodGradCos (task 164, -tfdir 1).
+        public static float GradCos(Encoded e, int3 v, int3 n, float m)
+        {
+            float3 g = 0f;
+            for (int a = 0; a < 3; a++)
+            {
+                int3 o = new int3(a == 0 ? 2 : 0, a == 1 ? 2 : 0, a == 2 ? 2 : 0);
+                float p = MaxLevel(e, v + o), q = MaxLevel(e, v - o);
+                g[a] = (p > 0f && q > 0f) ? (p - q) * 0.5f : p > 0f ? p - m : q > 0f ? m - q : 0f;
+            }
+            float gl = math.length(g);
+            return gl > 1e-3f ? math.saturate(math.dot((float3)n, g) / gl) : 0.5f;
+        }
+
+        /// C# twin of Raymarch.compute FloodTorchCos (task 164, -tfdir 2); torchesM = voxel centres in metres.
+        public static float TorchCos(IReadOnlyList<float3> torchesM, float3 pM, float3 nF, float dPathM, out float cosT)
+        {
+            float best = 1e9f, wBest = 0f;
+            cosT = 0f;
+            if (torchesM == null) return 0f;
+            foreach (var t in torchesM)
+            {
+                float3 dv = t - pM;
+                float de = math.length(dv);
+                float tol = 0.08f * de + 0.25f;
+                float ex = dPathM - de;
+                if (ex < -tol || math.abs(ex) >= best) continue;
+                best = math.abs(ex);
+                wBest = 1f - math.saturate((ex - tol) / tol);
+                cosT = math.saturate(math.dot(nF, dv / math.max(de, 1e-4f)));
+            }
+            return wBest;
+        }
+
+        /// C# twin of TorchFlood.hlsl FloodLight: the light at the air voxel v in front of a face with normal n
+        /// (n = 0: no direction term), with the map p / p2 (Params / Params2; p2.w = the direction mode).
+        public static float3 LightTwin(Encoded e, int3 v, int3 n, float4 p, float4 p2, IReadOnlyList<float3> torchesM = null)
+        {
+            float3 L = SampleLevels(e, v);
+            float m = math.cmax(L);
+            if (m <= 0f) return 0f;
+            float d = math.max(p2.x - m, 0f) / p.w;
+            float dir = 1f;
+            if (math.any(n != 0))
+            {
+                int mode = (int)(p2.w + 0.5f);
+                float ndl;
+                if (mode == 1) ndl = GradCos(e, v, n, m);
+                else if (mode == 2)
+                {
+                    float wS = TorchCos(torchesM, ((float3)v + 0.5f) * 0.1f, (float3)n, d, out float cosT);
+                    ndl = wS >= 1f ? cosT : math.lerp(GradCos(e, v, n, m), cosT, wS);
+                }
+                else if (mode == 3) ndl = 0.5f;
+                else
+                {
+                    float m2 = MaxLevel(e, v + n * 2);
+                    ndl = m2 > 0f ? math.saturate((m2 - m) * 0.125f) : 0.5f;
+                }
+                dir = p2.z + (1f - p2.z) * ndl;
+            }
+            float x = math.saturate(d / p.z);
+            x *= x; x *= x;
+            float w = 1f - x;
+            w *= w;
+            float s = p.x * w / (1f + p.y * d * d);
+            float3 col = math.exp2(-p2.y * (m - L) / p2.x);
+            col = math.select(0f, col, L > 0f);
+            return s * dir * col;
         }
 
         // =====================================================================
