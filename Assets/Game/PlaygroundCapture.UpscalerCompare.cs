@@ -310,6 +310,7 @@ public partial class PlaygroundCapture
     /// otherwise "<upscaler>_<540|720|dyn>" through UpscalerSelect.Apply.
     private static void ApplyCompareArm(string arm)
     {
+        Fsr3ArmVariant("");   // task 166: every arm starts from play's FSR 3 settings
         if (arm == "native")
         {
             UpscalerSelect.Apply(UpscalerSelect.Kind.None, UpscalerSelect.MaxRows, false);
@@ -320,6 +321,8 @@ public partial class PlaygroundCapture
         int us = arm.IndexOf('_');
         UpscalerSelect.TryParseKind(arm.Substring(0, us), out var k);
         string rows = arm.Substring(us + 1);
+        int vs = rows.IndexOf('_');   // task 166: "fsr3_432_s0" = rows 432 + variant "s0"
+        if (vs >= 0) { Fsr3ArmVariant(rows.Substring(vs + 1)); rows = rows.Substring(0, vs); }
         UpscalerSelect.Apply(k, rows == "dyn" ? UpscalerSelect.MinRows : int.Parse(rows), rows == "dyn");
     }
 

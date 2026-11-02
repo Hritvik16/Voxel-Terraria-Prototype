@@ -42,6 +42,20 @@ public partial class RaymarchFeature
     /// FSR 3's RCAS sharpening: the port's own defaults (on, 0.8).
     public static bool Fsr3Sharpen = true;
     public static float Fsr3Sharpness = 0.8f;
+    /// Task 166 (capture-only arm `_dbg`): FSR 3's own debug view over the output
+    /// (top row: dilated motion, locks, dilated depth / 25 m; bottom row: disocclusion,
+    /// shading change, reactive). Never set in play.
+    public static bool Fsr3DebugView;
+    /// Task 166 (capture-only diagnostics, never set in play): -1 = trace the ray at pixel centre + j
+    /// instead of - j (FSR still told j: tests the jitter convention); Fsr3ZeroJitter = no jitter at
+    /// all (FSR told 0 too: tests whether the jittered samples themselves make the edges).
+    public static float Fsr3RayJitterSign = 1f;
+    public static bool Fsr3ZeroJitter;
+    /// Task 166 (candidate fix, capture-only until the owner picks it): cut on FSR 3's auto-detected
+    /// shading change (0 = upstream, 1 = ignored). Our static terrain's sub-pixel steps alias under
+    /// jitter; FSR reads that as "shading changed" and restarts accumulation there.
+    public static float Fsr3ShadingChangeCut;
+    private static ComputeShader _fsrPrepareReactivity;
     /// For logs: did the FSR 3 shaders load and the context build?
     public static string Fsr3Status = "not used";
     /// For logs: the format URP gave _CameraDepthTexture (STP path).
@@ -81,10 +95,11 @@ public partial class RaymarchFeature
             int displayW = cameraData.cameraTargetDescriptor.width;
             int phases = Fsr3Upscaler.GetJitterPhaseCount(w, displayW);
             Fsr3Upscaler.GetJitterOffset(out float jx, out float jy, (int)frame, phases);
+            if (Fsr3ZeroJitter) jx = jy = 0f;
             _fsrJitter = new Vector2(jx, jy);
             // FSR's offset is a projection translation of +j pixels; the same
             // image is a ray through pixel centre - j (VoxelUpscaleInputs.compute).
-            return new Vector2(-jx, -jy);
+            return new Vector2(-jx, -jy) * Fsr3RayJitterSign;
         }
         return Vector2.zero;    // STP: URP's projection carries the jitter
     }
@@ -170,6 +185,7 @@ public partial class RaymarchFeature
             Debug.LogError("[Upscalers] " + Fsr3Status);
             return false;
         }
+        _fsrPrepareReactivity = shaders.prepareReactivityPass;
         _fsr = Fsr3Upscaler.CreateContext(display, max, shaders, flags);
         _fsrDisplay = display; _fsrMax = max; _fsrFlags = flags;
         Fsr3Status = $"context {max.x}x{max.y} -> {display.x}x{display.y}, flags {flags}" +
@@ -238,7 +254,8 @@ public partial class RaymarchFeature
                 if (SystemInfo.usesReversedZBuffer) (d.CameraNear, d.CameraFar) = (d.CameraFar, d.CameraNear);
                 d.CameraFovAngleVertical = data.fovRad;
                 d.ViewSpaceToMetersFactor = 1f;
-                d.Flags = 0;
+                d.Flags = Fsr3DebugView ? Fsr3Upscaler.DispatchFlags.DrawDebugView : 0;
+                if (_fsrPrepareReactivity != null) cmd.SetComputeFloatParam(_fsrPrepareReactivity, "_VeShadingChangeCut", Fsr3ShadingChangeCut);
                 _fsr.Dispatch(d, cmd);
             });
         }

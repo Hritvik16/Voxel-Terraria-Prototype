@@ -1,49 +1,57 @@
-STOP_FOR_OWNER -- task 165 (torch flood L3, incremental): EXACT everywhere, but memory is over the ~20 MB line and the flood is far slower than the plan's estimate in tg2. Two questions.
+STOP_FOR_OWNER -- task 166: ship a fix for FSR 3's softening in play?
+**Recommendation: (a) ship F2, `-fsr3sc 10`.** It turns off FSR's AUTO "shading change" detection, which fires on our STILL terrain. It is crisper at 432 and 540, with no added flicker or smear in 159's bursts. Cost estimate: ~0 ms (one multiply in one FSR pass; not measured). Risk: real lighting changes (sun motion, torches, fluids) are no longer flagged by FSR. FSR's colour clamp still limits ghosting, but nothing here tested a MOVING light. A play QA with the clock running, near water, is advised before it becomes the default.
+(b) F3 = F2 + RCAS sharpness 1.0 (`-fsr3sc 10 -fsr3sharp 10`): crisper still, about native's edge contrast, but a little more still-frame shimmer (0.36 -> 0.46). (c) F1 sharpness 1.0 alone. (d) Keep today's settings.
+The dark block-edge lines do NOT go away with any fix: they are anti-aliasing (see below), so only removing AA would remove them.
 
-**Q1 (memory, 158's 31-torch camp).** The CPU now keeps the 11.2 MB union you approved PLUS one cache per torch (8.1 MB). Exact removal needs the caches: a max over torches can't be undone without the other torches' values. Today, content is 19.3 MB, but allocated is 31 MB (list/buffer doubling). The 2 flood jobs also need up to 27 MB of scratch while they run (freed when idle). The GPU buffers are 20 MB allocated (11.2 used).
-(a) Recommended: keep the caches. Trim the slack (CPU about 20 MB, GPU about 12 MB) and run 1 flood job (scratch peak about 14 MB, fills slower).
-(b) Drop the CPU copy of the union data: the GPU writes merged bricks through a small scatter kernel. CPU about 11 MB, but more GPU code.
-(c) Accept today's numbers.
+# 166-look-fsr3-softening: DONE (cause found, 3 fixes behind flags, play unchanged)
 
-**Q2 (flood cost in real terrain).** One outdoor torch takes 250 ms of worker time in tg2 (158: 316 ms; plan est. 5-15 ms). In EditMode open ground it is 62 ms (oracle 215).
-Only 31% of tg2's lit bricks pass the "direct" test (all-air bbox to the torch); bumpy ground blocks the rest. So an edit in the camp settles in 2.1-2.6 s, not "a few frames". Each camp edit re-floods 10-11 torches, because the torches' 12 m boxes overlap.
-(a) Recommended: a follow-up with two exact cuts. First, "anchored" bricks: the air below a torch counts as direct through the first move beside the post. The lower-bound check is cheap. Second, re-flood only the torches whose LIT cells the edit touches, not their whole box. Then measure again.
-(b) A shorter reach (8 m is about 1/3 of the volume).
-(c) Accept 2-3 s edit latency in dense camps.
+## Inputs FSR 3 is given (all checked)
+- Motion vectors: 0 on a still camera (FSR debug view, gray panel). Depth is reversed-Z with EnableDepthInverted (the port sets it). Near/far are right, and no disocclusion is flagged.
+- Jitter: correct. Flipping the ray jitter makes walk_open worse (mean |dlum| vs native 3.88 -> 5.88), and so does zero jitter (5.37).
+- Colour: LDR, tonemapped in the shader, exposure 1, so no HDR/exposure input is needed. No texture sampling, so no mip bias. The HUD is drawn after FSR. RCAS was on at 0.8.
+- MISSING: reactive and transparency/composition masks. They matter only for fluids/transparents, not these edges. Not added.
 
-# 165-torch-flood-l3-edits: DONE in code (exact, tests green); stopped on memory / cost
+## The causes
+1. **Dark outlines = AA, not a bug.** They are already there with FSR at 1080 rows (no upscale) and RCAS off. Averaged over 16x16 px blocks, FSR 1080 is within 0.77 levels of native (2.53 per pixel). The light is redistributed, not darkened (mean shift -0.2 to -0.8 levels). The darker 0.1 m step faces are sub-pixel tall, so they blend with the tops. Native's point sampling draws them as hard stairs.
+2. **Softness = FSR's shading-change detection.** On still terrain, the jittered samples of sub-pixel steps differ from frame to frame. FSR reads that as "the lighting changed", zeroes accumulation there and tightens the history clamp. The debug view shows the green mask over the whole mid-distance terrain; with sc10 it is gone (`Screenshots/166/full/walk_open_fsr3_432_dbg.png` vs `..._sc10_dbg.png`, top-middle panel).
 
-## What changed (`cb75562`, engine-phase)
-- `TorchFloodBuild.cs` (new). It has the per-torch `TorchFloodCache` (min path cost per 0.2 m cell, per escaped voxel and per 0.4 m air cell; a direct brick is 1 bit), a main-thread `Snapshot` (brick kinds plus 1 bit per voxel of mixed bricks), and four Burst jobs: `FloodBrickJob` (worker, one torch), `MergeJob` (worker), `ApplyJob` (main), `CollectJob`/`TakeJob`.
-- `TorchFloodPool.cs` was rewritten around these. Its Tick handles the torch-set diff, edit and chunk-admit/evict queues, up to 2 flood slots, merge batches of 4,096 bricks, dirty-range uploads, `Flush`, `Diff` and `VerifyGpu`. `SampleLevels` and the other twins are unchanged.
-- `Encode` now takes an air cell as the MAX of its 2^3 centre voxels (158 used the mean, which does not decompose over torches; at most one corner move brighter). It reads a brick's kind from its content, not the header (164b's caveat).
-- Hooks: EditService notifies only on an air<->solid change. `FluidOpListReadback` notifies on air<->fluid (so fluid writes ARE included). The edit-op replay uses `NotifyBox`. `Phase4Bootstrapper` calls `Shutdown`.
-- Capture: `-costpaths torch -tfl3 1` (`PlaygroundCapture.TorchFloodL3.cs`). TorchCost now uses `EnsureBuilt`. FloodProbe is twin-only when there is no oracle.
-- Flood stays OFF; the `-tfdir` default is still 0 (164's question is open).
+## What changed (commit below, engine-phase)
+- `RaymarchFeature.Upscalers.cs`: new capture/diagnostic statics `Fsr3ShadingChangeCut`, `Fsr3DebugView`, `Fsr3RayJitterSign`, `Fsr3ZeroJitter`.
+- Vendored FSR: `ffx_fsr3upscaler_prepare_reactivity.h` gets the `_VeShadingChangeCut` uniform (unset = 0 = upstream). The debug view is now built into release players. Both are recorded in the FSR README.
+- `UpscalerSelect.Fsr3KnobsFromArgs` adds `-fsr3sharp N` / `-fsr3sc N`. `Playground.cs` calls it on every run, play included; absent flags = today.
+- `PlaygroundCapture.RowsLook.cs`: arm tokens `_sNN _scNN _dbg _jf _j0`, plus the `1080` and `none432` arms. `tools/fsr166.py` builds the table, crops and bursts. Paragraph added to `TASKS.md`.
 
-## Evidence
-- Fast suite: PASS 981 FAIL 0 SKIP 16 (`Logs/overnight/165_fast.out`; was 973/15). `TorchFloodL3Tests` all pass, including Slow `Fuzz_Long` (2 x 300 ops) in a filtered run (`Logs/overnight/165_filter.log`).
-- Scratch == `Encode(oracle)` byte for byte in five cases: axis wall, x==z diagonal (450 escapes), closed box + L-bend, 12 m open ground, doorway.
-- Incremental == scratch after every fuzz op (680 in total), the doorway sealed / diagonal slot / reopened, evict / re-admit, and removing one of 6 overlapping torches (0 other re-floods). Removing every torch frees every brick, escape and table.
-- In-player run, warm chip (the build had just run; report-only, no frame-time arm): `Logs/costsplit_2026-11-02_015047.txt` (instrumented) and `_014115.txt`. Both are summarised in `Screenshots/165/tfl3_165.txt`.
-  - Steps: camp build, D1 wall, D2 pit, D3a torch broken, D3b torch re-placed.
-  - At every step, live union == fresh rebuild: IDENTICAL. GPU readback of dir / tables / every reachable data word == CPU copy: PASS. GPU vs twin over 25 probe pixels (24 lit): 0 levels.
-- Camp: 31 torches; 162 chunks; 133,850 air / 18,794 mixed bricks; 14 escapes (same counts as 158).
-  - Async fill: 5.85 s (run 1: 13.7 s); flood job wall mean 335 ms.
-  - From-scratch, one thread: 7.9 s (158: 9.8 s); per torch mean 250 ms, max 321.
-- Main thread per busy frame:
-  - Build: mean 0.65, p50 0.47, p99 2.78, max 4.9 ms.
-  - Edits: mean 0.59-0.78, p99 1.26-2.68, max 1.3-4.6 ms.
-  - Spikes come from merge apply (max 2.8 ms per 4,096-brick batch) and single snapshots (max 2.9 ms).
+## Evidence (tg2 High, noon, clock paused; capture only, no frame times)
+- Fast suite PASS 981 FAIL 0 SKIP 16 (`Logs/overnight/166_fast2.out`).
+- Diagnostic launch: `Logs/lookreview_20261102_043103.txt`, table `Screenshots/166/diag/fsr166.txt`. Fix launch: `Logs/lookreview_20261102_044656.txt`, table `Screenshots/166/fix/fsr166.txt`.
+- Table (mean |dlum| vs native / % px > 8 / gradient ratio vs native, where < 1 = softer):
 
-## Unfinished / next
-- After Q1/Q2: trim slack. Use smaller merge batches (1,024) and budget snapshots by box size, to get p99 under 1 ms. Then do Q2's cuts.
-- 164's direction-term question is still open.
-- L3's look check (dig through / seal a doorway sequence, window-edge walk) was not shot. The camp stills don't show the D1 wall.
+| pose | today 432 | F1 432_s10 | F2 432_sc10 | F3 432_sc10_s10 | 540 today | 540 F2 | 540 F3 |
+|---|---|---|---|---|---|---|---|
+| walk_near | 1.00/2.0%/1.13 | 1.03/2.0%/1.34 | 1.02/2.0%/1.15 | 1.01/2.0%/1.35 | 0.91/1.7%/1.17 | 0.91/1.7%/1.18 | 0.95/1.8%/1.42 |
+| walk_open | 3.89/10.5%/0.80 | 4.04/11.2%/0.94 | 4.07/11.1%/0.87 | 4.17/11.9%/0.99 | 3.46/9.2%/0.87 | 3.61/9.6%/0.92 | 3.82/10.8%/1.06 |
+| high | 2.85/9.3%/0.63 | 2.81/9.0%/0.87 | 2.79/8.7%/0.75 | 2.87/9.5%/0.95 | 2.55/7.8%/0.74 | 2.51/7.5%/0.83 | 2.63/8.5%/1.08 |
+| cliff | 1.58/2.9%/0.79 | 1.60/3.0%/1.04 | 1.61/2.9%/0.86 | 1.62/3.0%/1.06 | 1.48/2.6%/0.88 | 1.47/2.6%/0.93 | 1.53/2.8%/1.18 |
+| torch | 1.15/1.9%/0.65 | 1.13/1.8%/0.86 | 1.13/1.8%/0.77 | 1.15/1.8%/0.93 | 1.02/1.6%/0.76 | 1.00/1.5%/0.83 | 1.06/1.5%/1.04 |
+
+- Mean |dlum| is NOT a quality score here, because native is aliased. A sharper AA image can score worse; the gradient ratio is the sharpness measure.
+- Bursts at walk_open (159's flicker; frame 0 vs native frame 0):
+  - still 0.36 / F2 0.34 / F3 0.46
+  - walk 19.82 / 19.83 / 20.52 (native 21.84)
+  - turn 18.52 / 18.49 / 19.28
+  - vs native under motion 3.89 / 3.90 / 3.97
+  - F2 adds no ghosting or shimmer; F3 adds a little.
+
+## Not done
+- No moving-light / fluid QA of F2 (all poses had a paused clock).
+- No reactive mask for fluids.
+- An intermediate cut such as sc7 was not shot.
 
 ## For the doc
-- Exactness: live incremental union == from-scratch rebuild at all 5 in-player steps and after 680 fuzz ops. GPU buffers == CPU copy (readback) at every step.
-- Rebuild of 158's 31 torches: 9.8 s main thread -> 5.9 s async on 2 workers. Main thread mean 0.65 ms/frame (p99 2.8, max 4.9). Per torch 316 -> 250 ms of worker time (`Screenshots/165/tfl3_165.txt`).
-- Edit latency in the camp: 2.1-2.6 s, 10-11 torch re-floods per edit, 8-12 MB uploaded per edit.
-- Memory: content 11.2 MB union + 8.1 MB caches. Allocated 21.1 + 9.9 MB. Scratch peak 27 MB while flooding. GPU 20 MB allocated / 11.2 used.
-- `Screenshots/165/tfl3_camp.png`: the camp at night after the async fill. Look at the lower left and centre: warm pools of light around the 1.5 m posts on the slope. The look is the same as 158's flood (no visual change intended).
+- Sharpness at 432, gradient ratio vs native, today -> F2: walk_open 0.80 -> 0.87, high 0.63 -> 0.75, torch 0.65 -> 0.77, cliff 0.79 -> 0.86. With F3: 0.99 / 0.95 / 0.93 / 1.06 (`Screenshots/166/fix/fsr166.txt`).
+- Still-camera flicker at walk_open: 0.36 today -> 0.34 F2 -> 0.46 F3 (0-255).
+- Dark outlines are AA: FSR at 1080 with RCAS off matches native within 0.77 levels over 16 px blocks (2.53 per pixel) (`Screenshots/166/diag/fsr166.txt`).
+- Jitter flipped / zero: walk_open 3.88 -> 5.88 / 5.37 (proves the jitter is right).
+- `Screenshots/166/zoom4x_walk_open.png`: 4x zoom, native (top left) / today 432 (top right) / F2 (bottom left) / F3 (bottom right). Look at the step edges in the centre: F2 and F3 hold the stair outlines that today's 432 smears.
+- `Screenshots/166/zoom4x_high.png`: same layout at the high pose. Look at the thin dark crevices: they are blurred at today's 432, firmer in F2, firmest in F3.
+- Full-size 1920x1080, `Screenshots/166/full/<pose>_<arm>.png`: arms native, fsr3_432 (today), _s10 (F1), _sc10 (F2), _sc10_s10 (F3), fsr3_540 / _sc10 / _sc10_s10, plus `<pose>_fsr3_1080_s0_diag.png` (FSR without upscale: the dark lines are already there). The 2x crops of the darkest edges are `Screenshots/166/fix/fsr166_crops_<pose>.png` (row 1 = native, 432 arms; row 2 = 540 arms).

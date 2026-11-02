@@ -48,9 +48,8 @@ namespace FidelityFX.FSR3
         private Fsr3UpscalerPass _sharpenPass;
         private Fsr3UpscalerPass _generateReactivePass;
         private Fsr3UpscalerPass _tcrAutogeneratePass;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+// task 166: was #if UNITY_EDITOR || DEVELOPMENT_BUILD (debug view in release, capture-only flag)
         private Fsr3UpscalerPass _debugViewPass;
-#endif
 
         private readonly Fsr3UpscalerResources _resources = new Fsr3UpscalerResources();
 
@@ -114,16 +113,14 @@ namespace FidelityFX.FSR3
             _sharpenPass = new Fsr3UpscalerSharpenPass(_contextDescription, _resources, _upscalerConstantsBuffer, _rcasConstantsBuffer);
             _generateReactivePass = new Fsr3UpscalerGenerateReactivePass(_contextDescription, _resources, _generateReactiveConstantsBuffer);
             _tcrAutogeneratePass = new Fsr3UpscalerTcrAutogeneratePass(_contextDescription, _resources, _upscalerConstantsBuffer, _tcrAutogenerateConstantsBuffer);
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+// task 166: was #if UNITY_EDITOR || DEVELOPMENT_BUILD (debug view in release, capture-only flag)
             _debugViewPass = new Fsr3UpscalerDebugViewPass(_contextDescription, _resources, _upscalerConstantsBuffer);
-#endif
         }
         
         public void Destroy()
         {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+// task 166: was #if UNITY_EDITOR || DEVELOPMENT_BUILD (debug view in release, capture-only flag)
             DestroyPass(ref _debugViewPass);
-#endif
             DestroyPass(ref _tcrAutogeneratePass);
             DestroyPass(ref _generateReactivePass);
             DestroyPass(ref _lumaPyramidPass);
@@ -282,12 +279,11 @@ namespace FidelityFX.FSR3
                 _sharpenPass.ScheduleDispatch(commandBuffer, dispatchParams, frameIndex, threadGroupsX, threadGroupsY);
             }
             
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            // Task 166 (local edit): the debug view in release players too (capture-only flag).
             if ((dispatchParams.Flags & Fsr3Upscaler.DispatchFlags.DrawDebugView) != 0)
             {
                 _debugViewPass.ScheduleDispatch(commandBuffer, dispatchParams, frameIndex, dispatchDstX, dispatchDstY);
             }
-#endif
 
             _resourceFrameIndex = (_resourceFrameIndex + 1) % MaxQueuedFrames;
 

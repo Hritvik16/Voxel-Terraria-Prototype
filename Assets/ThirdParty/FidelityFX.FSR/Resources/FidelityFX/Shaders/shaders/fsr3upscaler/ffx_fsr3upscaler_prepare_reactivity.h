@@ -224,11 +224,16 @@ FfxFloat32 UpdateAccumulation(FfxInt32x2 iPxPos, FfxFloat32x2 fUv, FfxFloat32x2 
     return fAccumulation;
 }
 
+// Task 166 (local edit, the voxel engine): a cut on the AUTO-detected shading change, 0 = upstream 3.1.3 exactly
+// (an unset uniform is 0), 1 = ignore it. FSR 3.1.4 exposes the same idea as shadingChangeScale (= 1 - cut).
+// Set per dispatch by RaymarchFeature.Upscalers.cs (Fsr3ShadingChangeCut); the app's reactive-mask part is untouched.
+float _VeShadingChangeCut;
+
 FfxFloat32 ComputeShadingChange(FfxFloat32x2 fUv)
 {
     // NOTE: Here we re-apply jitter, will be reverted again when sampled in accumulation pass
     const FfxFloat32x2 fShadingChangeUv = ClampUv(fUv - Jitter() / RenderSize(), ShadingChangeRenderSize(), ShadingChangeMaxRenderSize());
-    const FfxFloat32 fShadingChange = ffxSaturate(SampleShadingChange(fShadingChangeUv));
+    const FfxFloat32 fShadingChange = ffxSaturate(SampleShadingChange(fShadingChangeUv)) * (1.0f - _VeShadingChangeCut);
 
     return fShadingChange;
 }

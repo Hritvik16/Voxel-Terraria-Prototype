@@ -455,7 +455,7 @@ namespace FidelityFX.FSR3
         }
     }
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+// task 166: was #if UNITY_EDITOR || DEVELOPMENT_BUILD (debug view in release, capture-only flag)
     internal class Fsr3UpscalerDebugViewPass : Fsr3UpscalerPass
     {
         public Fsr3UpscalerDebugViewPass(Fsr3Upscaler.ContextDescription contextDescription, Fsr3UpscalerResources resources, ComputeBuffer constants)
@@ -481,5 +481,4 @@ namespace FidelityFX.FSR3
             commandBuffer.DispatchCompute(ComputeShader, KernelIndex, dispatchX, dispatchY, 1);
         }
     }
-#endif
 }

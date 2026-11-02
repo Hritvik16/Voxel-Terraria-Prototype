@@ -43,6 +43,9 @@ public static class UpscalerSelect
     public const int MinRows = 540, MaxRows = 720, DynStep = 36;
     /// Task 156: the floor for a pinned (non-dyn) row count; capture runs only.
     public const int CaptureMinRows = 360;
+    /// Task 166: the ceiling for a pinned row count; capture runs only (1080 = FSR 3
+    /// as anti-aliasing at the output size, no upscale). Play's paths clamp to MaxRows first.
+    public const int CaptureMaxRows = 1080;
     /// The dyn controller's range and target (task 159): UseDynRange.
     public static int DynFloor { get; private set; } = MinRows;
     public static int DynCeil { get; private set; } = MaxRows;
@@ -83,6 +86,19 @@ public static class UpscalerSelect
         return true;
     }
 
+    /// Task 166 (candidate fixes, OFF unless given; play's defaults unchanged): -fsr3sharp N = RCAS sharpness
+    /// N/10 (0 = RCAS off; default 8 = 0.8), -fsr3sc N = cut FSR 3's auto shading change by N/10 (default 0).
+    /// Called by Playground.Start for every run (play included), before the upscaler is applied.
+    public static void Fsr3KnobsFromArgs()
+    {
+        if (int.TryParse(ArgValue("-fsr3sharp"), out int sh))
+        {
+            RaymarchFeature.Fsr3Sharpen = sh > 0;
+            RaymarchFeature.Fsr3Sharpness = Mathf.Clamp01(sh / 10f);
+        }
+        if (int.TryParse(ArgValue("-fsr3sc"), out int sc)) RaymarchFeature.Fsr3ShadingChangeCut = Mathf.Clamp01(sc / 10f);
+    }
+
     /// Task 159: floor >= MinRows -> the old range (540-720, 16.7 ms); below ->
     /// floor-540 at 30 ms. Takes effect at the next Apply.
     public static void UseDynRange(int floor)
@@ -117,7 +133,7 @@ public static class UpscalerSelect
         Dynamic = dyn;
         DynHeld = false;
         DynStableFrames = 0; DynChanges = 0; DynSmoothedMs = 0f;
-        Rows = dyn ? Mathf.Min(MinRows, DynCeil) : Mathf.Clamp(rows, CaptureMinRows, MaxRows);
+        Rows = dyn ? Mathf.Min(MinRows, DynCeil) : Mathf.Clamp(rows, CaptureMinRows, CaptureMaxRows);
         ApplyRows();
         Debug.Log($"[UpscalerSelect] {Describe()}");
     }

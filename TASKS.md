@@ -812,3 +812,17 @@ read back == CPU copy (`VerifyGpu`), 16x9 GPU-vs-twin probe; per-phase main-thre
 step; flood 250 ms/torch on one thread in tg2 (158: 316; open-ground EditMode 62 vs oracle 215); camp 5.9-13.7 s to fill, edits 2.1-2.6 s (each re-floods
 10-11 overlapping camp torches); main thread mean 0.59-0.78 ms/busy frame, p99 1.3-2.8, max ~5; memory content 11.2 MB union + 8.1 MB caches (allocated
 21.1 + 9.9), job scratch peak 27 MB (freed when idle), GPU 20 MB allocated. Owner questions in HANDOFF 165.
+
+**Task 166 (look, owner Q103 (a) 2026-11-01, CAPTURE-ONLY: play unchanged unless a flag is passed): why FSR 3 softens and draws dark block edges.**
+Inputs audited, all correct: motion 0 on a still camera (FSR debug view), reversed-Z depth with `EnableDepthInverted` (the port sets it; near/far swap
+is the port's own), jitter convention (`-jitter` flipped or zeroed both make 432 worse: walk_open |dlum| 3.88 -> 5.88 / 5.37), LDR in-shader-tonemapped
+input with exposure 1 (no HDR flag needed), no textures (no mip bias), HUD drawn after FSR. Missing: reactive / T&C masks (matter for fluids only).
+Found: (1) the dark outlines are anti-aliasing of sub-pixel dark step faces -- already there with FSR at 1080 rows and RCAS off; 16x16-px block means
+match native within 0.77 levels (per pixel 2.53). (2) FSR's AUTO shading-change detection fires on static terrain (jittered samples of sub-pixel steps
+differ frame to frame) and zeroes accumulation there -> soft. Knobs (capture arm tokens in `PlaygroundCapture.RowsLook.cs Fsr3ArmVariant`, play flags in
+`UpscalerSelect.Fsr3KnobsFromArgs`): `_sNN` / `-fsr3sharp N` RCAS sharpness N/10 (0 = off; default 8); `_scNN` / `-fsr3sc N` cut the auto shading change
+by N/10 (`RaymarchFeature.Fsr3ShadingChangeCut` -> `_VeShadingChangeCut` in the vendored `ffx_fsr3upscaler_prepare_reactivity.h`; 0 = upstream);
+diagnostics `_dbg` (FSR debug view, now in release players), `_jf`, `_j0`; `-lookladder` takes `1080` and `none432`. Run:
+`PRESETS=high EXTRA="-lookladder native,432,432_s10,432_sc10,432_sc10_s10,540,540_sc10,540_sc10_s10 -lookladderbursts native,432,432_sc10,432_sc10_s10
+-lookposes walk_near,walk_open,high,cliff,torch -lookwait 60 -shellworkers 6" ./run-look-review.sh`; table `python3 -I tools/fsr166.py <dir> <out> <arms>
+[crop arm] [burst arms]`. Result: `Screenshots/166/fix/fsr166.txt`, `Screenshots/166/diag/fsr166.txt`, HANDOFF 166.
