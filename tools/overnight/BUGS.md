@@ -75,3 +75,4 @@ to install + log in to Gemini CLI, and a small runner change. Not for B steps / 
   every launch exited with no crash report and an idle watchdog; launches worked again once on AC. Cause not found. Next time:
   check `pmset -g batt`, Low Power Mode, and the player log's last lines. See `tools/overnight/done/*133*.HANDOFF.md`.
 | 168 | roof pyramid (cut D) | incremental pyramid differs from a full rebuild on 774 of 3,749 verify checks (transient); only matters if D returns. `-roofinc` default OFF. See 168 handoff "Open bug" | 2026-11-02 |
+| 168c | C1 dropped (not exact, slower); `-sundefer` kernels CSMainFarShadeLeanSun / CSSunDeferLean add shader compile time; remove in a cleanup | tools/overnight/blocked/168c-*.HANDOFF.md | 2026-11-02 |
