@@ -343,6 +343,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool KernelDiet2 = ParseFlagOn(System.Environment.GetCommandLineArgs(), "-diet2");
     /// Task 161: the far-shading kernels last frame were the diet-2 kernels (log / capture only).
     public static bool Diet2DrawnLastFrame { get; private set; }
+    /// Task 168: the diet-2 kernel drawn last frame was CSMainFarShadeLeanRoof (roof skip folded ON).
+    public static bool Diet2RoofDrawnLastFrame { get; private set; }
     /// Task 134: the far-shading kernels last frame were the *Diag twins (log / capture only).
     public static bool ShellDiagDrawnLastFrame { get; private set; }
     /// Task 132: the pre-pass ran last frame (shells on, far-shading kernel, debug view 0, flag on).
@@ -523,6 +525,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
         _heightOffsets[6] = off; off += nx * nz;
         HeightMipBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, off, sizeof(uint));
         _heightMipWindowX = nx; _heightMipWindowZ = nz;
+        _heightMipGen++;   // task 168: a new buffer starts with a full build
     }
     private static Vector4 V4(Unity.Mathematics.float3 v) => new Vector4(v.x, v.y, v.z, 0f);
 
@@ -723,6 +726,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer heightMip;
             public int[] heightOffsetsA, heightOffsetsB;
             public int kHeightRaw, kHeightDilate, kHeightLevel;
+            public int kHeightRawCols = -1, kHeightDilateCols = -1, kHeightLevelCols = -1, kHeightVerify = -1;   // task 168
+            public RoofPlan roofPlan;                                                                      // task 168
             public Vector4 lookSkyZenith, lookSkyHorizon, lookSkyHalo, lookSun, lookAmbient, lookMoon;
             public Vector4 lookSkyRim;   // task 121
             public Vector4 lookSkyRimShape;   // task 126
@@ -1105,7 +1110,13 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     passData.kHeightRaw = activeCompute.FindKernel("BuildHeightRaw");
                     passData.kHeightDilate = activeCompute.FindKernel("BuildHeightDilate");
                     passData.kHeightLevel = activeCompute.FindKernel("BuildHeightLevel");
+                    bool inc = activeCompute.HasKernel("BuildHeightRawCols");   // task 168
+                    passData.kHeightRawCols = inc ? activeCompute.FindKernel("BuildHeightRawCols") : -1;
+                    passData.kHeightDilateCols = inc ? activeCompute.FindKernel("BuildHeightDilateCols") : -1;
+                    passData.kHeightLevelCols = inc ? activeCompute.FindKernel("BuildHeightLevelCols") : -1;
+                    passData.kHeightVerify = inc ? activeCompute.FindKernel("HeightVerify") : -1;
                 }
+                else passData.kHeightRawCols = passData.kHeightDilateCols = passData.kHeightLevelCols = passData.kHeightVerify = -1;
 
                 // Far band. Buffers are bound EVERY frame, on or off (dummies
                 // when off): a declared buffer left unbound is undefined on Metal.
@@ -1170,6 +1181,12 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // (0,0,0)" into a correct test under a moving window.
                 Unity.Mathematics.int3 originB = clip.WindowOriginBricks;
                 passData.windowOriginBricks = new Vector3Int(originB.x, originB.y, originB.z);
+
+                // Task 168: full / incremental / no pyramid build this frame. Without the incremental
+                // kernels (stripped / memory-probe shaders) every build is full, as before.
+                passData.roofPlan = PlanRoofBuild(clip, passData.roofSkip != 0, originB.y, dims.y, passData.contentCeilingVoxelY);
+                if (passData.roofPlan.mode == 2 && passData.kHeightRawCols < 0) passData.roofPlan.mode = 1;
+                if (passData.roofPlan.verify && (passData.kHeightVerify < 0 || passData.roofPlan.mode == 1)) passData.roofPlan.verify = false;
 
                 int levelCount = AirMipEnabled ? clip.AirMipLevelCount : 0;
                 passData.airMipLevelCount = levelCount;
@@ -1288,12 +1305,16 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                                      passData.shadowHalfRes, passData.roofSkip, passData.skyProbeTilt, passData.look,
                                      passData.useDevColors != 0, ShellHoleLeap, ShellHeightBound)
                     && activeCompute.HasKernel("CSMainFarShadeLean") && activeCompute.HasKernel("CSShellPrepassLean");
+                // Task 168: roof skip ON draws the diet-2 kernel that folds it to 1.
+                bool diet2Roof = KernelDiet2Rule.RoofKernel(passData.roofSkip);
+                if (diet2 && diet2Roof && !activeCompute.HasKernel("CSMainFarShadeLeanRoof")) diet2 = false;
                 if (diet2)
                 {
-                    passData.kPrimary = activeCompute.FindKernel("CSMainFarShadeLean");
+                    passData.kPrimary = activeCompute.FindKernel(diet2Roof ? "CSMainFarShadeLeanRoof" : "CSMainFarShadeLean");
                     if (passData.kShellPrepass >= 0) passData.kShellPrepass = activeCompute.FindKernel("CSShellPrepassLean");
                 }
                 Diet2DrawnLastFrame = diet2;
+                Diet2RoofDrawnLastFrame = diet2 && diet2Roof;
 
                 if (cascadeAvailable)
                 {
@@ -1505,7 +1526,17 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsA", data.heightOffsetsA);
                         cmd.SetComputeIntParams(data.compute, "_HeightOffsetsB", data.heightOffsetsB);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "HeightMip", data.heightMip);
-                        if (data.roofSkip != 0)
+                        if (data.roofSkip != 0 && data.roofPlan.mode == 2)   // task 168: only the dirty ring columns
+                        {
+                            cmd.BeginSample("VE.Raymarch.HeightMip");
+                            DispatchRoofIncremental(cmd, data.compute, data.kHeightRawCols, data.kHeightDilateCols, data.kHeightLevelCols,
+                                                    data.clipmapBuffer, data.heightMip, data.roofPlan);
+                            cmd.EndSample("VE.Raymarch.HeightMip");
+                        }
+                        if (data.roofSkip != 0 && data.roofPlan.verify)   // -roofverify: incremental / idle vs a full rebuild
+                            DispatchRoofVerify(cmd, data.compute, data.kHeightRaw, data.kHeightDilate, data.kHeightLevel, data.kHeightVerify,
+                                               data.clipmapBuffer, data.heightMip, data.windowDimsBricks, data.roofPlan.count);
+                        if (data.roofSkip != 0 && data.roofPlan.mode == 1)
                         {
                             int gx = (data.windowDimsBricks.x + 7) / 8, gz = (data.windowDimsBricks.z + 7) / 8;
                             cmd.BeginSample("VE.Raymarch.HeightMip");
@@ -1785,10 +1816,15 @@ public static class KernelDiet2Rule
     /// Task 161: the flag is on, nothing wants DebugOut, and every setting VE_DIET2 folds has exactly its folded
     /// value (Raymarch.compute; KernelDiet2Tests pins the two lists together). The caller adds the frame's own
     /// facts: the task-134 lean kernel was picked, no torch flood, no tier cascade, and the shell pre-pass is on
-    /// or the shells have nothing past tier 0. roofSkip 2 (build only) leaves the shader's _ShadowRoofSkip 0.
+    /// or the shells have nothing past tier 0. roofSkip 2 (build only) leaves the shader's _ShadowRoofSkip 0; roofSkip 1
+    /// picks the VE_DIET2_ROOF kernel (task 168, RoofKernel).
     public static bool Settings(bool on, bool debugPixelRequested, int debugMode, int traversalMode, int shadowLevel,
                                 float shadowHalfRes, int roofSkip, int skyTilt, int look, bool devColors, bool holeLeap,
                                 bool heightBound) =>
         on && !debugPixelRequested && debugMode == 0 && traversalMode == 4 && shadowLevel != 1 && shadowHalfRes == 0f
-        && roofSkip != 1 && skyTilt == 0 && look == 1 && devColors && !holeLeap && !heightBound;
+        && skyTilt == 0 && look == 1 && devColors && !holeLeap && !heightBound;
+
+    /// Task 168: roof skip ON (1) draws CSMainFarShadeLeanRoof (VE_DIET2_ROOF, _ShadowRoofSkip folded to 1);
+    /// OFF and roof_build's build-only 2 draw CSMainFarShadeLean (folded to 0).
+    public static bool RoofKernel(int roofSkip) => roofSkip == 1;
 }

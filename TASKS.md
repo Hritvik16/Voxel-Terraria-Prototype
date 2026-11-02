@@ -831,3 +831,25 @@ diagnostics `_dbg` (FSR debug view, now in release players), `_jf`, `_j0`; `-loo
 (`Logs/costsplit_2026-11-01_151803.txt`, warm-up `Logs/tg2world_20261101_151159.txt`): diet 2 -6 ms walk_near, -4.5 ms walk_open p50. The 14:36 run
 (`Logs/costsplit_2026-11-01_143603.txt`) is NOT valid for B: launched without the play flags (shells off) and without `-diet2 1` (every row `kernel lean`).
 Next cut per the table: D (`skyprobe_off` -6 ms walk_near). GPU trace `gpu-traces/walknear161_full.trace` (`python3 -I tools/gpu161.py <trace>.export/gpu.xml`).
+
+**Task 168 (perf, `PERF_EXACT_CUTS.md` cut D, owner Q102): incremental roof pyramid + roof skip in the diet-2 kernel; `-roofskip 1` (stays OFF in play: measured ~0), `-roofinc 0|1` (default 0: NOT exact under streaming, below), `-roofverify N`.**
+The shadow roof skip's HeightMip pyramid is a pure function of `ClipmapBuffer` (+ window Y origin / height, content ceiling); `TerrainClipmap.WriteClipmapChunk`
+is its only writer, so `TerrainClipmap.HeightDirty.cs` records the ring CHUNK columns written and `RaymarchFeature.RoofInc.cs` rebuilds only those
+(`Raymarch.compute BuildHeightRawCols / DilateCols / LevelCols`, the same per-word functions as the full build; full build on first use, a new buffer
+or clipmap, a frame without the skip, a Y origin / height / ceiling change, > half the columns dirty, or `-roofinc 0`; nothing at all when no column
+was written). `-roofverify N`: every Nth build also does a full build into a second buffer and counts differing words on the GPU (`HeightVerify`;
+`[roofverify]` log lines + `RoofIncSummary()`). Roof skip ON now draws `CSMainFarShadeLeanRoof` (`VE_DIET2 VE_DIET2_ROOF`: `_ShadowRoofSkip`
+folded to 1; `KernelDiet2Rule.RoofKernel`) instead of falling back to the twin. EXACTNESS SCOPE (`TraceShadowRay`'s `allowRoof`): the skip changes
+WHERE a ray leaves the window (its air-mip leaps start elsewhere), and task 133's shell continuation starts at that exitT, so the skip is used only
+by rays whose exitT nobody reads: the sky probe, and sun rays with no shell continuation (twin kernels); the diet-2 roof kernel never skips the sun
+ray. Level search now tests level 0 first (1 read below the roof instead of 6; same level by monotonicity). Cost split arms `roof_on` (diet2+roof),
+`roof_full` (full rebuild each frame), `roof_off`; `-costroofpair` (with `-coststillraw`: roof flipped 10 frames after raw2, then back; `python3 -I
+tools/roof168.py pair|arms <stills>`), look review `-cliffbefore 6` (roof forced OFF first; launch `-roofskip 1`). Tests `RoofPyramidIncrementalTests`
+(CPU twin of the region formulas vs a full rebuild after random writes incl. the ring seam), `KernelDiet2Tests` (roof fold + rule).
+RESULT (warm AC, 432 rows, play flags, `Logs/costsplit_2026-11-02_075812.txt`, warm-up `Logs/tg2world_20261102_075153.txt`; streaming pinned, so the
+timed passes paid NO pyramid upkeep = D's best case): roof_on (diet2+roof) - FULL p50 walk_near -0.3 / -0.4 / +0.1 ms (FULL range 0.6), walk_open
+-0.7 / -0.2 / +0.4 (FULL range 1.6) -> ~0, kept behind `-roofskip 1`. Exact: in-place flip and arms 0 px at walk_near / walk_open
+(`2026-11-02_064444` stills, `roof168.py`), cliff1 A native 0 px. Roof skip cut far PRIMARY steps at walk_near 9,044 -> 1,945/frame and sky-exit
+ends 89 -> 97 %, but no time: the sky probe's 6.2 ms (167's arm) is not in its window walk. INCREMENTAL BUG, open: the streaming warm-up with
+`-roofverify 4` (`Logs/overnight/168_warmup_Player.log`) found incremental != full rebuild on 774 of 3749 checks (29-4,718 words, idle frames too,
+transient), so `-roofinc` defaults OFF (full rebuild per frame with `-roofskip 1`, task 59's exact build). Next cut: C1.

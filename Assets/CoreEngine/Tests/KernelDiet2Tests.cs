@@ -27,7 +27,6 @@ public class KernelDiet2Tests
         ("int", "_SkyProbeTilt", "0"),
         ("float", "_ShadowHalfRes", "0.0"),
         ("int", "_Look", "1"),
-        ("int", "_ShadowRoofSkip", "0"),
         ("int", "_ShellHoleLeap", "0"),
         ("int", "_ShellHeightBound", "0"),
     };
@@ -68,12 +67,26 @@ public class KernelDiet2Tests
         foreach (int t in new[] { 0, 1, 2, 3 }) Assert.IsFalse(Play(trav: t), $"traversal mode {t}");
         Assert.IsFalse(Play(level: 1), "rung 1 (quad reuse)");
         Assert.IsFalse(Play(half: 0.001f), "half-res shadows");
-        Assert.IsFalse(Play(roof: 1), "roof skip");
+        Assert.IsTrue(Play(roof: 1), "roof skip (task 168: the VE_DIET2_ROOF kernel)");
         Assert.IsFalse(Play(tilt: 1), "sky tilt 1");
         Assert.IsFalse(Play(tilt: 2), "sky tilt 2");
         Assert.IsFalse(Play(look: 0), "look 0");
         Assert.IsFalse(Play(dev: false), "dev colours off");
         Assert.IsFalse(Play(hole: true), "hole leap");
         Assert.IsFalse(Play(hb: true), "height bound");
+    }
+
+    // Task 168: _ShadowRoofSkip is folded to 1 under VE_DIET2_ROOF and to 0 under VE_DIET2 alone; a uniform elsewhere.
+    [Test]
+    public void Shader_FoldsRoofSkipPerDiet2Variant()
+    {
+        string src = File.ReadAllText(Src).Replace("\r\n", "\n");
+        string pat = @"#ifdef VE_DIET2\n#ifdef VE_DIET2_ROOF\nstatic const int _ShadowRoofSkip = 1;[^\n]*\n#else\nstatic const int _ShadowRoofSkip = 0;[^\n]*\n#endif\n#else\nint\s+_ShadowRoofSkip;\n#endif";
+        Assert.AreEqual(1, Regex.Matches(src, pat).Count, "roof skip fold");
+        Assert.AreEqual(1, Regex.Matches(src, @"\nint\s+_ShadowRoofSkip;").Count, "one uniform declaration");
+        StringAssert.Contains("#pragma kernel CSMainFarShadeLeanRoof VE_FAR_SHADE VE_DIET2 VE_DIET2_ROOF\n", src);
+        Assert.IsTrue(KernelDiet2Rule.RoofKernel(1));
+        Assert.IsFalse(KernelDiet2Rule.RoofKernel(0));
+        Assert.IsFalse(KernelDiet2Rule.RoofKernel(2), "roof_build (build only) keeps the roof-off kernel");
     }
 }

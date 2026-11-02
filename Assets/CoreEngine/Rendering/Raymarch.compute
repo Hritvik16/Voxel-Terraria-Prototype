@@ -132,6 +132,16 @@
 // such setting has exactly its folded value this frame.
 #pragma kernel CSMainFarShadeLean VE_FAR_SHADE VE_DIET2
 #pragma kernel CSShellPrepassLean VE_FAR_SHADE VE_DIET2
+// TASK 168 (PERF_EXACT_CUTS D): CSMainFarShadeLean with the shadow roof skip folded ON instead of OFF
+// (KernelDiet2Rule.RoofKernel); the pre-pass has no shadow ray, so CSShellPrepassLean serves both.
+// Incremental pyramid upkeep: BuildHeightRawCols / BuildHeightDilateCols / BuildHeightLevelCols rebuild
+// only the ring chunk columns TerrainClipmap wrote since the last build (HeightDirtyCols); HeightVerify
+// counts words that differ from a full rebuild (-roofverify).
+#pragma kernel CSMainFarShadeLeanRoof VE_FAR_SHADE VE_DIET2 VE_DIET2_ROOF
+#pragma kernel BuildHeightRawCols
+#pragma kernel BuildHeightDilateCols
+#pragma kernel BuildHeightLevelCols
+#pragma kernel HeightVerify
 #if defined(VE_FAR_SHADE) && !defined(VE_SHELL_DIAG)
 #define VE_SHELL_LEAN
 #endif
@@ -1304,7 +1314,11 @@ uint ReadClipmap(int3 brickCoord, uint3 windowDimsBricks)
 #define HEIGHT_LEVELS 6
 RWStructuredBuffer<uint> HeightMip;
 #ifdef VE_DIET2
+#ifdef VE_DIET2_ROOF
+static const int _ShadowRoofSkip = 1;   // task 168: CSMainFarShadeLeanRoof, the diet-2 kernel with the roof skip ON
+#else
 static const int _ShadowRoofSkip = 0;   // task 161: folded (roof_build's build-only run keeps it 0 too)
+#endif
 #else
 int   _ShadowRoofSkip;
 #endif
@@ -1984,9 +1998,15 @@ int ShadowClipmapFlatIndex(int3 voxel, uint3 windowDimsBricks)
 
 /// Fires one shadow ray. `softEnabled` turns C.10's near-miss tracking on;
 /// with it off this is pure binary occlusion, which is §6.5's rung 2.
+// allowRoof (task 168): this ray may take the roof skip (_ShadowRoofSkip must be on too). The skip
+// changes WHERE a ray leaves the window (its air-mip leaps start from other voxels), so it is exact
+// only for a caller that does not read r.exitT: the sky probe, and a sun ray with no task-133 shell
+// continuation after it. Task 168's first walk_open stills: the sun ray WITH the continuation came out
+// 1,648 px brighter on the sea at the window edge (the shell march started from another exitT).
 ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
-                         uint3 windowDimsBricks, bool softEnabled, bool dbg)
+                         uint3 windowDimsBricks, bool softEnabled, bool dbg, bool allowRoof)
 {
+    bool roofSkip = _ShadowRoofSkip != 0 && allowRoof;
     ShadowHit r;
     r.sunVis = 1.0;
     r.steps = 0;
@@ -2059,14 +2079,23 @@ ShadowHit TraceShadowRay(int3 hitVoxel, int3 hitNormal, float3 sunDir,
         // ---- SHADOW ROOF SKIP (see the HeightMip block) ----
         // Largest pyramid cell whose tallest point is at or below this voxel.
         // Found -> cross that cell's XZ footprint in one step and continue.
-        if (_ShadowRoofSkip != 0 && step.y > 0)
+        // Task 168: the height test is monotone in L (a coarser cell's max covers its four children),
+        // so the levels that pass are exactly 0..k: test level 0 first (ONE read on the common
+        // below-the-roof step instead of six), then climb while the next level passes. Same k as the
+        // old top-down search, so the same skip.
+        if (roofSkip && step.y > 0)
         {
             int bx = voxel.x >> 3, bz = voxel.z >> 3;
             int lv = -1;
-            [loop]
-            for (int L = HEIGHT_LEVELS - 1; L >= 0; L--)
+            if (voxel.y >= (int)ReadHeight(0, bx, bz))
             {
-                if (voxel.y >= (int)ReadHeight(L, bx, bz)) { lv = L; break; }
+                lv = 0;
+                [loop]
+                for (int L = 1; L < HEIGHT_LEVELS; L++)
+                {
+                    if (voxel.y < (int)ReadHeight(L, bx, bz)) break;
+                    lv = L;
+                }
             }
             if (lv >= 0)
             {
@@ -4998,7 +5027,16 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         sh.sunVis = 1.0;
         sh.steps = 0;
         sh.exitT = -1.0;
-        if (traceMine) sh = TraceShadowRay(voxel, normal, _SunDir, _WindowDimsBricks, softShadows, isDebugPixel);
+        // Task 168: the roof skip only where nothing reads sh.exitT (see TraceShadowRay's allowRoof).
+        // The diet-2 roof kernel never skips the sun ray: play runs the task-133 continuation.
+#if defined(VE_DIET2_ROOF)
+        bool sunRoof = false;
+#elif defined(VE_FAR_SHADE)
+        bool sunRoof = !(_NearShadowShells != 0 && _ShellCount > 1 && shellAtHit == 0);
+#else
+        bool sunRoof = true;
+#endif
+        if (traceMine) sh = TraceShadowRay(voxel, normal, _SunDir, _WindowDimsBricks, softShadows, isDebugPixel, sunRoof);
 #ifdef VE_FAR_SHADE
         // TASK 133 (see _NearShadowShells): a tier-0 sun ray that left the window or the band ceiling
         // unblocked goes on through the shells from where it left, as a shell hit's sun ray does
@@ -5110,7 +5148,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         // `dbg` false: the sky probe must not overwrite the SUN ray's §10.4
         // ring buffer, or the dump would describe the wrong ray.
         ShadowHit sky = TraceShadowRay(voxel, normal, SkyProbeDir(normal, rayDir),   // task 138: tilted when _SkyProbeTilt
-                                       _WindowDimsBricks, false, false);
+                                       _WindowDimsBricks, false, false, true);   // task 168: exitT unused, so the roof skip is exact here
         skyVis = sky.sunVis;
     }
 
@@ -5866,6 +5904,13 @@ void CSMainFarShadeLean(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupTh
     CSMainBody(tid, gtid, false);
 }
 
+// TASK 168: the same with VE_DIET2_ROOF (_ShadowRoofSkip folded to 1).
+[numthreads(8, 8, 1)]
+void CSMainFarShadeLeanRoof(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
+{
+    CSMainBody(tid, gtid, false);
+}
+
 #ifdef VE_TORCH_FLOOD
 // TASK 158: compiled with VE_TORCH_FLOOD (+ VE_FAR_SHADE for the far-shading twin).
 [numthreads(8, 8, 1)]
@@ -6281,15 +6326,16 @@ void TaaSharpen(uint3 id : SV_DispatchThreadID)
 // ===========================================================================
 // SHADOW ROOF SKIP -- the per-frame pyramid build. One thread per ring column.
 // ===========================================================================
-[numthreads(8, 8, 1)]
-void BuildHeightRaw(uint3 id : SV_DispatchThreadID)
+// TASK 168: one function per pyramid word, shared by the full build (BuildHeight*) and the incremental
+// one (BuildHeight*Cols), so both write the same value for the same inputs.
+// Raw: ring brick column (rx, rz) -> the first air voxel Y above its highest non-air brick.
+void HeightRawAt(int rx, int rz)
 {
     int nx = (int)_WindowDimsBricksPacked.x, nz = (int)_WindowDimsBricksPacked.z;
-    if ((int)id.x >= nx || (int)id.y >= nz) return;
     int3 o = _WindowOriginBricksPacked.xyz;
     // The one world brick column in the window that maps to this ring slot.
-    int bx = o.x + (((int)id.x - o.x) & (nx - 1));
-    int bz = o.z + (((int)id.y - o.z) & (nz - 1));
+    int bx = o.x + ((rx - o.x) & (nx - 1));
+    int bz = o.z + ((rz - o.z) & (nz - 1));
     int yHi = min(o.y + (int)_WindowDimsBricksPacked.y, (_ContentCeilingVoxelY + 7) >> 3);
     uint top = 0u;
     [loop]
@@ -6298,37 +6344,110 @@ void BuildHeightRaw(uint3 id : SV_DispatchThreadID)
         uint h = ReadClipmap(int3(bx, by, bz), _WindowDimsBricksPacked.xyz);
         if ((h & 0x80000000u) != 0u || (h & 0xFFu) != 0u) { top = (uint)((by + 1) << 3); break; }
     }
-    HeightMip[_HeightOffsetsB.z + (int)id.x + (int)id.y * nx] = top;
+    HeightMip[_HeightOffsetsB.z + rx + rz * nx] = top;
+}
+
+// Level 0: the raw 3x3 max (ring-wrapped), rounded up to 16 voxels.
+void HeightDilateAt(int rx, int rz)
+{
+    int nx = (int)_WindowDimsBricksPacked.x, nz = (int)_WindowDimsBricksPacked.z;
+    uint m = 0u;
+    [unroll] for (int dz = -1; dz <= 1; dz++)
+    [unroll] for (int dx = -1; dx <= 1; dx++)
+    {
+        int x = (rx + dx) & (nx - 1);
+        int z = (rz + dz) & (nz - 1);
+        m = max(m, HeightMip[_HeightOffsetsB.z + x + z * nx]);
+    }
+    HeightMip[_HeightOffsetsA.x + rx + rz * nx] = (m + 15u) & ~15u;
+}
+
+// Level L >= 1: the max of the four level L-1 children of cell (cx, cz).
+void HeightLevelAt(int L, int cx, int cz)
+{
+    int nx = (int)_WindowDimsBricksPacked.x >> L;
+    int cnx = nx << 1;
+    int src = HeightOffset(L - 1);
+    int x2 = cx << 1, z2 = cz << 1;
+    uint m = max(max(HeightMip[src + x2 + z2 * cnx], HeightMip[src + x2 + 1 + z2 * cnx]),
+                 max(HeightMip[src + x2 + (z2 + 1) * cnx], HeightMip[src + x2 + 1 + (z2 + 1) * cnx]));
+    HeightMip[HeightOffset(L) + cx + cz * nx] = m;
+}
+
+[numthreads(8, 8, 1)]
+void BuildHeightRaw(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= (int)_WindowDimsBricksPacked.x || (int)id.y >= (int)_WindowDimsBricksPacked.z) return;
+    HeightRawAt((int)id.x, (int)id.y);
 }
 
 [numthreads(8, 8, 1)]
 void BuildHeightDilate(uint3 id : SV_DispatchThreadID)
 {
-    int nx = (int)_WindowDimsBricksPacked.x, nz = (int)_WindowDimsBricksPacked.z;
-    if ((int)id.x >= nx || (int)id.y >= nz) return;
-    uint m = 0u;
-    [unroll] for (int dz = -1; dz <= 1; dz++)
-    [unroll] for (int dx = -1; dx <= 1; dx++)
-    {
-        int x = ((int)id.x + dx) & (nx - 1);
-        int z = ((int)id.y + dz) & (nz - 1);
-        m = max(m, HeightMip[_HeightOffsetsB.z + x + z * nx]);
-    }
-    HeightMip[_HeightOffsetsA.x + (int)id.x + (int)id.y * nx] = (m + 15u) & ~15u;
+    if ((int)id.x >= (int)_WindowDimsBricksPacked.x || (int)id.y >= (int)_WindowDimsBricksPacked.z) return;
+    HeightDilateAt((int)id.x, (int)id.y);
 }
 
 [numthreads(8, 8, 1)]
 void BuildHeightLevel(uint3 id : SV_DispatchThreadID)
 {
     int L = _HeightLevel;
+    if ((int)id.x >= ((int)_WindowDimsBricksPacked.x >> L) || (int)id.y >= ((int)_WindowDimsBricksPacked.z >> L)) return;
+    HeightLevelAt(L, (int)id.x, (int)id.y);
+}
+
+// ---- TASK 168: incremental upkeep. One dispatch z-slice per dirty ring CHUNK column (16x16 bricks),
+// packed x | z << 16 by TerrainClipmap.TakeHeightDirtyColumns. Raw: the column's own 16x16 brick
+// columns. Dilate: those plus the 1-brick margin (18x18; the margin's raw words are unchanged and
+// current). Level L: every cell containing a brick of that 18x18 region, [(c*16-1) >> L, (c*16+16) >> L]
+// per axis (<= 10 cells at L 1), ring-wrapped. Adjacent dirty columns may write the same word twice with
+// the same value. Dispatches run in order (raw, dilate, L 1..5), like the full build.
+StructuredBuffer<uint> HeightDirtyCols;
+int _HeightDirtyCount;
+
+[numthreads(16, 16, 1)]
+void BuildHeightRawCols(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.z >= _HeightDirtyCount) return;
+    uint c = HeightDirtyCols[id.z];
+    HeightRawAt((int)(c & 0xFFFFu) * 16 + (int)id.x, (int)(c >> 16) * 16 + (int)id.y);
+}
+
+[numthreads(8, 8, 1)]
+void BuildHeightDilateCols(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.z >= _HeightDirtyCount || id.x >= 18u || id.y >= 18u) return;
+    uint c = HeightDirtyCols[id.z];
+    int nx = (int)_WindowDimsBricksPacked.x, nz = (int)_WindowDimsBricksPacked.z;
+    HeightDilateAt(((int)(c & 0xFFFFu) * 16 - 1 + (int)id.x) & (nx - 1),
+                   ((int)(c >> 16) * 16 - 1 + (int)id.y) & (nz - 1));
+}
+
+[numthreads(8, 8, 1)]
+void BuildHeightLevelCols(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.z >= _HeightDirtyCount) return;
+    int L = _HeightLevel;
+    uint c = HeightDirtyCols[id.z];
+    int bx = (int)(c & 0xFFFFu) * 16, bz = (int)(c >> 16) * 16;
+    int lox = (bx - 1) >> L, loz = (bz - 1) >> L;               // arithmetic shift: -1 stays -1, wrapped below
+    int nX = ((bx + 16) >> L) - lox + 1, nZ = ((bz + 16) >> L) - loz + 1;
+    if ((int)id.x >= nX || (int)id.y >= nZ) return;
     int nx = (int)_WindowDimsBricksPacked.x >> L, nz = (int)_WindowDimsBricksPacked.z >> L;
-    if ((int)id.x >= nx || (int)id.y >= nz) return;
-    int cnx = nx << 1;
-    int src = HeightOffset(L - 1);
-    int x2 = (int)id.x << 1, z2 = (int)id.y << 1;
-    uint m = max(max(HeightMip[src + x2 + z2 * cnx], HeightMip[src + x2 + 1 + z2 * cnx]),
-                 max(HeightMip[src + x2 + (z2 + 1) * cnx], HeightMip[src + x2 + 1 + (z2 + 1) * cnx]));
-    HeightMip[HeightOffset(L) + (int)id.x + (int)id.y * nx] = m;
+    HeightLevelAt(L, (lox + (int)id.x) & (nx - 1), (loz + (int)id.y) & (nz - 1));
+}
+
+// -roofverify: HeightMip (incremental) vs HeightMipRef (a full build into the second buffer); count the
+// differing words into HeightVerifyOut[0].
+RWStructuredBuffer<uint> HeightMipRef;
+RWStructuredBuffer<uint> HeightVerifyOut;
+int _HeightTotalWords;
+
+[numthreads(64, 1, 1)]
+void HeightVerify(uint3 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _HeightTotalWords) return;
+    if (HeightMip[id.x] != HeightMipRef[id.x]) InterlockedAdd(HeightVerifyOut[0], 1u);
 }
 
 // ===========================================================================

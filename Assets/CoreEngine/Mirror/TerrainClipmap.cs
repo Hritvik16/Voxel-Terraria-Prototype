@@ -611,6 +611,7 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
 
             // ONE contiguous write per chunk -- the whole point of chunk-major.
             WriteClipmapChunk(slot * EngineConfig.BRICKS_PER_CHUNK, ref stats);
+            MarkHeightDirty(chunkCoord);   // task 168: the roof pyramid rebuilds this ring column
             _slotOwner[slot] = chunkCoord;
             _slotHeld[slot] = !air;
 
