@@ -860,3 +860,19 @@ frames > 33 ms (`Over33`). `-sustained` (MODE=walk / playwalk) now honours `-nos
 Ceiling walk: `MODE=playwalk MINUTES=3 EXTRA="-renderrows 432 -noskyprobe -shadowlevel 3 -shells 0 [-spikelog] [-nosim]" ./run-tg2world.sh`.
 Warm AC results: `Logs/costsplit_2026-11-02_095908.txt`, walks `Logs/tg2world_20261102_094834` / `_095315` / `_101810` / `_102253` (ABBA), spikelog walks
 `_103551` (ceiling, no fluid) and `_102802` (ceiling); script `Logs/overnight/168b_measure.sh`. Capture-only: no change to play.
+
+**Task 168c (perf, `PERF_EXACT_CUTS.md` cut C1, owner Q102): sun-ray shell marches out of the big kernel; `-sundefer 1` (OFF: NOT exact, and slower).**
+Linearity check first (`SunDeferTests.SunVis_EntersTheShadingNonLinearly`): sunVis does NOT enter the colour linearly (sunExposure's lerp,
+UniformFaceHue, haze, the grade's shoulder, `LookToLinear`'s pow 2.2 and saturate, SeeCompose), so the shading is SPLIT. `CSMainFarShadeLeanSun`
+(`VE_FAR_SHADE VE_DIET2 VE_SUNDEFER`) does not run task 133's near continuation nor task 80's shell-hit sun march; a pixel that would shades from the
+colour onward twice (a `[loop]`: pass 0 unblocked sunVis -> target, pass 1 sunVis 0 -> `SunDeferB`, VAO / point lights / bleed kept from pass 0),
+and writes the ray (start, tStart, `SUN_DEFER_MARK` 4) into its `ShellPre` entry. `CSSunDeferLean` (after pass 2) marches it alone and on a hit copies
+`SunDeferB` into the target and 0 into the temporal history. Needs the shell pre-pass (`KernelDiet2Rule.SunDeferKernel`); roof skip ON keeps the roof
+kernel. `SunDeferB` = one render-graph texture in the target's format (B10G11R11, 4 B/px: 1.27 MB at 432 rows, 3.5 MB at 720). Cost split arms
+`sundefer_on|off` (run line `kernel diet2+sun`), `-costsdpair` (with `-coststillraw`; `python3 -I tools/roof168.py pair <stills> sd`,
+`arms <stills> sundefer_on`), look review `-cliffbefore 7` (+ `[cliffkernel]` log lines). Tests `SunDeferTests` (non-linearity, march arguments
+identical to the inline ones, every task-168c line under `VE_SUNDEFER`, rule). RESULT (`Logs/costsplit_2026-11-02_145837.txt`, stills
+`UpscalerClips/2026-11-02_145837`): NOT exact -- in-place flip 12 px (walk_near) / 55 px (walk_open), all +-1 level in one channel, deterministic
+(control 0 px, flip/back the same count): float code-gen of the restructured shading, not wrong sunVis. Indicative (cold, one launch, not a
+measurement): sun kernel p50 67.7 / 68.0 vs FULL 64.7 / 59.9 ms walk_near, 41.7 / 42.4 vs 30.1 / 34.0 walk_open -- the double shading costs more
+than the march saves. STOP_FOR_OWNER; no warm measurement (the task's rule for a non-exact result).

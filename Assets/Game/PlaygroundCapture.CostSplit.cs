@@ -51,6 +51,9 @@
 //   TASK 168: the pyramid build is incremental (RaymarchFeature.RoofInc.cs) only with -roofinc 1; roof_on
 //                       draws CSMainFarShadeLeanRoof (diet 2 + roof skip; run line `kernel diet2+roof`).
 //     roof_full         roof skip ON with the FULL rebuild every frame (task 59's build)
+//   TASK 168c: sundefer_on / sundefer_off  the sun-ray shell marches handed to CSSunDeferLean (RaymarchFeature.SunDefer;
+//                       FULL keeps the launch's -sundefer); run line `kernel diet2+sun`. -costsdpair (with -coststillraw):
+//                       raw / raw2, then _raw_sdflip (flipped, 10 frames later) and _raw_sdback; tools/roof168.py pair <stills> sd
 //     roof_off          roof skip OFF (for a launch with -roofskip 1)
 //     -costroofpair     with -coststillraw: raw / raw2 (as launched), then _raw_roofflip (roof skip flipped,
 //                       10 frames later) and _raw_roofback (flipped back): the identity check without the
@@ -282,7 +285,7 @@ public partial class PlaygroundCapture
                 L($"  {runs.Count,2} {arm,-9} pass {pass + 1}  frames {r.ms.Count,4}  p50 {Pct(r.ms, 0.5f),5:F1}  p95 {Pct(r.ms, 0.95f),6:F1}  p99 {Pct(r.ms, 0.99f),6:F1} ms  >33ms {Over33(r.ms),5:F1}%  " +
                   $"cpu main p50 {Pct(r.cpuMain, 0.5f),5:F1} (present wait {Pct(r.presentWait, 0.5f),5:F1})  render thr {Pct(r.render, 0.5f),5:F1}  " +
                   $"gpu* {Pct(r.gpu, 0.5f),5:F1}  deficit frames {r.deficitFrames}  far busy {r.farBusyFrames}  resident {store.ResidentCount}  " +
-                  $"kernel {(RaymarchFeature.ShellDiagDrawnLastFrame ? "diag" : RaymarchFeature.Diet2RoofDrawnLastFrame ? "diet2+roof" : RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean")}");
+                  $"kernel {(RaymarchFeature.ShellDiagDrawnLastFrame ? "diag" : RaymarchFeature.Diet2RoofDrawnLastFrame ? "diet2+roof" : RaymarchFeature.SunDeferDrawnLastFrame ? "diet2+sun" : RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean")}");
                 if (RaymarchFeature.ShadowRoofSkip || RaymarchFeature.DebugRoofBuildOnly) L($"     {RaymarchFeature.RoofIncSummary()}");   // task 168
                 File.WriteAllText(Path.Combine(root, "costsplit.txt"), _log.ToString());
             }
@@ -359,6 +362,7 @@ public partial class PlaygroundCapture
         RaymarchFeature.TorchShadowsOverride = arm == "torch_off" ? 0 : _costBaseTorch;
         RaymarchFeature.ShadowRoofSkip = arm == "roof_on" || arm == "roof_full" || (arm != "roof_off" && _costBaseRoof);
         RaymarchFeature.RoofIncremental = arm != "roof_full" && _costBaseRoofInc;   // task 168
+        RaymarchFeature.SunDefer = arm == "sundefer_on" || (arm != "sundefer_off" && _costBaseSunDefer);   // task 168c
         RaymarchFeature.DebugRoofBuildOnly = arm == "roof_build";
         RaymarchFeature.ShadowHalfRes = arm == "half" || _costBaseHalf;
         FarField.RenderEnabled = arm != "far_off";
@@ -417,6 +421,7 @@ public partial class PlaygroundCapture
 
     private static int _costBaseShadow = -1, _costBaseTorch = -1;
     private static bool _costBaseRoof;
+    private static bool _costBaseSunDefer;   // task 168c
     private static bool _costBaseRoofInc = true;   // task 168: the launch's -roofinc
     private static float _costBaseRung1;
     private static bool _costBaseHalf, _costBaseSee, _costBaseFarShade, _costBaseSkyExit, _costBaseColLeap, _costBasePrepass, _costBaseNearSh, _costBaseDiet, _costBaseHoleLeap, _costBaseHeightBound, _costBaseDiet2, _costBaseSkyProbe;
@@ -561,7 +566,7 @@ public partial class PlaygroundCapture
     private IEnumerator CostTime(ClipPath path, CostRun r, float timed, string still, Camera cam,
                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
     {
-        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseRoofInc = RaymarchFeature.RoofIncremental; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseHeightBound = RaymarchFeature.ShellHeightBound; _costBaseDiet2 = RaymarchFeature.KernelDiet2; _costBaseSkyProbe = RaymarchFeature.UseSkyProbeAmbient; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
+        if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseSunDefer = RaymarchFeature.SunDefer; _costBaseRoofInc = RaymarchFeature.RoofIncremental; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseHeightBound = RaymarchFeature.ShellHeightBound; _costBaseDiet2 = RaymarchFeature.KernelDiet2; _costBaseSkyProbe = RaymarchFeature.UseSkyProbeAmbient; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);
@@ -627,6 +632,20 @@ public partial class PlaygroundCapture
                         ScreenCapture.CaptureScreenshot(still.Replace(".png", suffix)); yield return Frames(2);
                     }
                     L($"  [roofpair] {Path.GetFileName(still)}: raw / raw2 / roofback roof skip {(rf ? "ON" : "OFF")}, roofflip {(rf ? "OFF" : "ON")}; last frame kernel {(RaymarchFeature.Diet2RoofDrawnLastFrame ? "diet2+roof" : RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean")}");
+                }
+                // Task 168c: -costsdpair -- the same with the sun defer flipped (raw2 / sdflip / sdback).
+                if (System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-costsdpair") >= 0)
+                {
+                    bool sd = RaymarchFeature.SunDefer;
+                    var kinds = new List<string>();
+                    foreach (var (on, suffix) in new[] { (!sd, "_raw_sdflip.png"), (sd, "_raw_sdback.png") })
+                    {
+                        RaymarchFeature.SunDefer = on;
+                        yield return Frames(10);
+                        kinds.Add(RaymarchFeature.SunDeferDrawnLastFrame ? "diet2+sun" : RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean");
+                        ScreenCapture.CaptureScreenshot(still.Replace(".png", suffix)); yield return Frames(2);
+                    }
+                    L($"  [sdpair] {Path.GetFileName(still)}: raw / raw2 / sdback sun defer {(sd ? "ON" : "OFF")}, sdflip {(sd ? "OFF" : "ON")}; kernels flip {kinds[0]}, back {kinds[1]}");
                 }
                 Playground.DebugHideUi = hideUi2; Minimap.Visible = mapOn2;
                 CostApply(r.arm);

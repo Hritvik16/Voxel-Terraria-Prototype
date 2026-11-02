@@ -351,6 +351,26 @@ public partial class RaymarchFeature : ScriptableRendererFeature
     public static bool ShellPrepassDrawnLastFrame { get; private set; }
     /// Task 132: bytes of the pre-pass scratch buffer now allocated (0 while the flag has never been on).
     public static long ShellPrepassBytes => _shellPre == null ? 0L : (long)_shellPre.count * SHELL_PRE_STRIDE;
+    /// Task 168c (PERF_EXACT_CUTS C1, owner Q102): the diet-2 kernel hands its two sun-ray shell marches (task 133's
+    /// near continuation, task 80's shell-hit ray) to CSSunDeferLean (Raymarch.compute VE_SUNDEFER): the big kernel
+    /// shades both outcomes (unblocked into the target, blocked into SunDeferB, one more target-format texture),
+    /// the small kernel marches and copies the blocked colour where the ray hits. Exact by construction. Needs the
+    /// shell pre-pass (its ShellPre carries the rays). Roof skip ON keeps CSMainFarShadeLeanRoof (no defer).
+    /// `-sundefer 1|0` (last match wins); see the field's initialiser for the default.
+    public static bool SunDefer = ReadSunDeferArg();
+    /// Task 168c: CSMainFarShadeLeanSun + CSSunDeferLean drew last frame.
+    public static bool SunDeferDrawnLastFrame { get; private set; }
+    /// Task 168c: bytes of SunDeferB last frame (dispatch pixels x the target format's size; 0 when not drawn).
+    public static long SunDeferBytes { get; private set; }
+    private static long _sunDeferLogged;
+    private static bool ReadSunDeferArg()
+    {
+        string[] a = System.Environment.GetCommandLineArgs();
+        bool on = false;
+        for (int i = 0; i + 1 < a.Length; i++)
+            if (a[i] == "-sundefer") on = a[i + 1] == "1";
+        return on;
+    }
     /// Task 119 (VISUAL_REVIEW_114 #3, owner 2026-10-22): FAR ROCK BY SLOPE. In the far-shading kernel
     /// (FarShade on) a far-band step side is drawn as its biome's rock where the ground slope
     /// (FarSlopeNormal) is steeper than ~40 deg, instead of wherever the side is deeper than 1.5 m below
@@ -762,6 +782,8 @@ public partial class RaymarchFeature : ScriptableRendererFeature
             public GraphicsBuffer shellProbeIO;
             public int kShellPrepass;               // task 132: CSShellPrepass, or -1 (the pre-pass is off this frame)
             public GraphicsBuffer shellPre;
+            public int kSunDefer;                   // task 168c: CSSunDeferLean, or -1 (not this frame)
+            public TextureHandle sunDeferB;         // task 168c: the blocked outcome's colour
             public Vector4[] shellRing, shellLo, shellHi, shellCam, shellBounds;
             public VoxelEngine.Rendering.FarField.Scatter[] farScatters;
             public int farMipMask;
@@ -1308,13 +1330,29 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 // Task 168: roof skip ON draws the diet-2 kernel that folds it to 1.
                 bool diet2Roof = KernelDiet2Rule.RoofKernel(passData.roofSkip);
                 if (diet2 && diet2Roof && !activeCompute.HasKernel("CSMainFarShadeLeanRoof")) diet2 = false;
+                // Task 168c: the sun-defer kernel needs the pre-pass's ShellPre (it carries the rays); not with the roof skip.
+                bool diet2Sun = diet2 && !diet2Roof && KernelDiet2Rule.SunDeferKernel(SunDefer, passData.kShellPrepass >= 0)
+                    && activeCompute.HasKernel("CSMainFarShadeLeanSun") && activeCompute.HasKernel("CSSunDeferLean");
+                passData.kSunDefer = -1;
                 if (diet2)
                 {
-                    passData.kPrimary = activeCompute.FindKernel(diet2Roof ? "CSMainFarShadeLeanRoof" : "CSMainFarShadeLean");
+                    passData.kPrimary = activeCompute.FindKernel(diet2Roof ? "CSMainFarShadeLeanRoof" : diet2Sun ? "CSMainFarShadeLeanSun" : "CSMainFarShadeLean");
                     if (passData.kShellPrepass >= 0) passData.kShellPrepass = activeCompute.FindKernel("CSShellPrepassLean");
+                    if (diet2Sun)
+                    {
+                        passData.kSunDefer = activeCompute.FindKernel("CSSunDeferLean");
+                        passData.sunDeferB = UniversalRenderer.CreateRenderGraphTexture(renderGraph, desc, "_RaymarchSunDeferB", false);
+                    }
                 }
                 Diet2DrawnLastFrame = diet2;
                 Diet2RoofDrawnLastFrame = diet2 && diet2Roof;
+                SunDeferDrawnLastFrame = diet2Sun;
+                SunDeferBytes = diet2Sun ? (long)dispatchW * dispatchH * (long)UnityEngine.Experimental.Rendering.GraphicsFormatUtility.GetBlockSize(desc.graphicsFormat) : 0L;
+                if (diet2Sun && _sunDeferLogged != SunDeferBytes)
+                {
+                    _sunDeferLogged = SunDeferBytes;   // logged once per size
+                    Debug.Log($"[sundefer] SunDeferB {dispatchW}x{dispatchH} {desc.graphicsFormat} = {SunDeferBytes / (1024.0 * 1024.0):F2} MB");
+                }
 
                 if (cascadeAvailable)
                 {
@@ -1365,6 +1403,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
 
                 builder.UseTexture(target, AccessFlags.Write);
                 if (passData.taaResolve != 0) builder.UseTexture(passData.taaScratch, AccessFlags.ReadWrite);
+                if (passData.kSunDefer >= 0) builder.UseTexture(passData.sunDeferB, AccessFlags.ReadWrite);   // task 168c
                 if (passData.ups != null) { builder.UseTexture(passData.ups.motion, AccessFlags.Write); builder.UseTexture(passData.ups.depth, AccessFlags.Write); }
                 builder.AllowPassCulling(false);
 
@@ -1659,6 +1698,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     // With TAA on, the primary ray writes the scratch target and
                     // TaaSharpen writes the real one.
                     cmd.SetComputeTextureParam(data.compute, data.kPrimary, "ResultTexture", data.taaResolve != 0 ? data.taaScratch : data.target);
+                    if (data.kSunDefer >= 0) cmd.SetComputeTextureParam(data.compute, data.kPrimary, "SunDeferB", data.sunDeferB);   // task 168c
 
                     int threadGroupsX = Mathf.CeilToInt(data.dispatchWidth / 8f);
                     int threadGroupsY = Mathf.CeilToInt(data.dispatchHeight / 8f);
@@ -1693,6 +1733,23 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.DispatchCompute(data.compute, data.kPrimary, primaryGroupsX, threadGroupsY, 1);
                         cmd.SetComputeIntParam(data.compute, "_ShellPrepass", 0);
                         cmd.EndSample("VE.Raymarch.PrimaryPass2");
+                    }
+                    if (data.kSunDefer >= 0)
+                    {
+                        // Task 168c (C1): the sun rays both passes handed on, marched alone; a blocked one takes
+                        // its kernel's sunVis-0 colour (Raymarch.compute CSSunDeferLean).
+                        cmd.BeginSample("VE.Raymarch.SunDefer");
+                        cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShellDir", data.shellDir);
+                        cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShellPages", data.shellPages);
+                        cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShellBricks", data.shellBricks);
+                        cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "FarResident", data.farResident);
+                        cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShellPre", data.shellPre);
+                        cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShadowHistW", data.tsWrite);
+                        cmd.SetComputeBufferParam(data.compute, data.kSunDefer, "ShadowStats", data.shadowStats ?? _farDummy);
+                        cmd.SetComputeTextureParam(data.compute, data.kSunDefer, "SunDeferB", data.sunDeferB);
+                        cmd.SetComputeTextureParam(data.compute, data.kSunDefer, "ResultTexture", data.taaResolve != 0 ? data.taaScratch : data.target);
+                        cmd.DispatchCompute(data.compute, data.kSunDefer, (data.dispatchWidth + 7) / 8, (data.dispatchHeight + 7) / 8, 1);
+                        cmd.EndSample("VE.Raymarch.SunDefer");
                     }
                     if (data.kShellProbe >= 0)
                     {
@@ -1827,4 +1884,8 @@ public static class KernelDiet2Rule
     /// Task 168: roof skip ON (1) draws CSMainFarShadeLeanRoof (VE_DIET2_ROOF, _ShadowRoofSkip folded to 1);
     /// OFF and roof_build's build-only 2 draw CSMainFarShadeLean (folded to 0).
     public static bool RoofKernel(int roofSkip) => roofSkip == 1;
+
+    /// Task 168c: CSMainFarShadeLeanSun + CSSunDeferLean draw when the flag is on and the shell pre-pass runs this
+    /// frame (its ShellPre buffer carries the handed rays; without shells there is no shell march to hand on).
+    public static bool SunDeferKernel(bool sunDefer, bool prepassOn) => sunDefer && prepassOn;
 }

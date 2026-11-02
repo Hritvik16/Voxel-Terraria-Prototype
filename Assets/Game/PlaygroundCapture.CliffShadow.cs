@@ -36,6 +36,7 @@
 //           passes -shellheightbound 1); with -holepillar 1 the pillar is the edit-op tower the bound must see.
 //   TASK 161: -cliffbefore 5 does the same with RaymarchFeature.KernelDiet2 forced OFF (the launch passes -diet2 1).
 //   TASK 168: -cliffbefore 6 does the same with RaymarchFeature.ShadowRoofSkip forced OFF (the launch passes -roofskip 1).
+//   TASK 168c: -cliffbefore 7 does the same with RaymarchFeature.SunDefer forced OFF (the launch passes -sundefer 1).
 //   TASK 136: -blackshape N shoots PlaygroundCapture.BlackShape.cs at spot N instead of A/B/C.
 using System;
 using System.Collections;
@@ -304,6 +305,7 @@ public partial class PlaygroundCapture
         // Task 137: with -cliffbefore 3 the hole leap. Task 153: with -cliffbefore 4 the height bound.
         bool nearSh0 = RaymarchFeature.NearShadowShells, diet0 = RaymarchFeature.ShellKernelDiet, hole0 = RaymarchFeature.ShellHoleLeap;
         bool hb0 = RaymarchFeature.ShellHeightBound, d20 = RaymarchFeature.KernelDiet2, roof0 = RaymarchFeature.ShadowRoofSkip;
+        bool sd0 = RaymarchFeature.SunDefer;   // task 168c
         if (arm.EndsWith("0"))
         {
             int before = ArgInt("-cliffbefore", 0);
@@ -312,6 +314,7 @@ public partial class PlaygroundCapture
             else if (before == 4) RaymarchFeature.ShellHeightBound = false;
             else if (before == 5) RaymarchFeature.KernelDiet2 = false;
             else if (before == 6) RaymarchFeature.ShadowRoofSkip = false;
+            else if (before == 7) RaymarchFeature.SunDefer = false;
             else RaymarchFeature.NearShadowShells = false;
             arm = arm.Substring(0, arm.Length - 1);
         }
@@ -325,6 +328,7 @@ public partial class PlaygroundCapture
         cam.ResetProjectionMatrix();
         cam.transform.position = eye; cam.transform.rotation = rot;
         yield return Frames(arm == "hit" ? 5 : settle);
+        Debug.Log($"[cliffkernel] {name}: {(RaymarchFeature.ShellDiagDrawnLastFrame ? "diag" : RaymarchFeature.Diet2RoofDrawnLastFrame ? "diet2+roof" : RaymarchFeature.SunDeferDrawnLastFrame ? "diet2+sun" : RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean")}");   // task 168c
         yield return CaptureTo(name);
         RaymarchFeature.UseDebugViewOverride = false;
         RaymarchFeature.NearShadowShells = nearSh0;
@@ -333,5 +337,6 @@ public partial class PlaygroundCapture
         RaymarchFeature.ShellHeightBound = hb0;
         RaymarchFeature.KernelDiet2 = d20;
         RaymarchFeature.ShadowRoofSkip = roof0;
+        RaymarchFeature.SunDefer = sd0;
     }
 }

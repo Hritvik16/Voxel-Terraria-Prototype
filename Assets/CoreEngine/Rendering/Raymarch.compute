@@ -142,6 +142,13 @@
 #pragma kernel BuildHeightDilateCols
 #pragma kernel BuildHeightLevelCols
 #pragma kernel HeightVerify
+// TASK 168c (PERF_EXACT_CUTS C1, -sundefer 1): CSMainFarShadeLean without the two sun-ray ShellMarch
+// calls (task 133's near continuation and task 80's shell-hit sun ray). A pixel that would march one
+// shades BOTH outcomes (unblocked: drawn now; blocked: SunDeferB), hands the ray over in its ShellPre
+// entry (free once pass 2 has read it), and CSSunDeferLean marches it alone and writes SunDeferB on
+// a hit. Every task-168c line is under #ifdef VE_SUNDEFER, so every other kernel is unchanged.
+#pragma kernel CSMainFarShadeLeanSun VE_FAR_SHADE VE_DIET2 VE_SUNDEFER
+#pragma kernel CSSunDeferLean VE_FAR_SHADE VE_DIET2 VE_SUNDEFER
 #if defined(VE_FAR_SHADE) && !defined(VE_SHELL_DIAG)
 #define VE_SHELL_LEAN
 #endif
@@ -2961,6 +2968,13 @@ struct ShellPreEntry { uint a, b, c, d, e; };
 RWStructuredBuffer<ShellPreEntry> ShellPre;
 int _ShellPrepass;
 groupshared uint gsShellDefer;
+#ifdef VE_SUNDEFER
+// TASK 168c (C1): a sun ray handed to CSSunDeferLean. ShellPre.e == SUN_DEFER_MARK (bits 0-1 = 0, so
+// the pre-pass and pass 2's class test read "drawn"); a-c = the march start, d = its tStart. SunDeferB
+// = the pixel's colour if that ray is blocked (the target's own format: the copy is exact).
+#define SUN_DEFER_MARK 4u
+RWTexture2D<float4> SunDeferB;
+#endif
 #endif
 // TASK 93b4: ShellMarch's one-entry read caches (below); bit 2 of _DebugShellSkip
 // turns them off in the far-shading kernel (the shellcache_off arm). Same results either way.
@@ -4877,6 +4891,15 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     // §6.5: "skips sky pixels (no primary hit => no shadow ray)".
     // 66b: not from inside a fluid -- every sun ray would start in it and stop on it.
     bool needsShadowRay = hit && sunIsUp && shadowsOn && passMat == 0u;
+#ifdef VE_SUNDEFER
+    // Task 168c: this pixel's sun ray is handed to CSSunDeferLean (see SUN_DEFER_MARK). Its sunVis is
+    // then the UNBLOCKED value (what the march leaves when it ends without a hit); sdColB = the blocked
+    // outcome's colour, shaded below through the same statements with sunVis 0.
+    bool sdPending = false;
+    float3 sdStart = float3(0.0, 0.0, 0.0);
+    float sdT0 = 0.0;
+    float3 sdColB = float3(0.0, 0.0, 0.0);
+#endif
 
     // -----------------------------------------------------------------------
     // §6.5's 8.4 WAVE-UNIFORM BRANCH GUARD -- built in from the start.
@@ -5045,6 +5068,10 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         if (traceMine && _NearShadowShells != 0 && _ShellCount > 1 && shellAtHit == 0 && sh.exitT >= 0.0 && sh.sunVis > 0.0)
         {
             float3 nso = (float3)(voxel + normal) + 0.5;
+#ifdef VE_SUNDEFER
+            // Task 168c: blocked -> 0, else sh.sunVis stays: the same march in CSSunDeferLean.
+            sdPending = true; sdStart = nso; sdT0 = sh.exitT;
+#else
             ShellHit ns = ShellMarch(nso, normalize(_SunDir), sh.exitT, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false));
             if (ns.end == SHELL_END_HIT) sh.sunVis = 0.0;
             // 77 rays handed on, 78 their shell iterations, 79 of them blocked.
@@ -5057,6 +5084,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 InterlockedAdd(ShadowStats[80], (uint)ns.leaps0); InterlockedAdd(ShadowStats[81], (uint)ns.holeLeaps);
 #endif
             }
+#endif   // !VE_SUNDEFER
         }
 #endif
 
@@ -5103,9 +5131,15 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         )
     {
         float3 so = rayStart + rayDir * currentDist + float3(normal) * 0.01;
+#ifdef VE_SUNDEFER
+        // Task 168c: unblocked = 1; CSSunDeferLean runs this march (tStart 0).
+        sdPending = true; sdStart = so; sdT0 = 0.0;
+        sunVis = 1.0;
+#else
         ShellHit ss = ShellMarch(so, normalize(_SunDir), 0.0, true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false));
         sunVis = (ss.end == SHELL_END_HIT) ? 0.0 : 1.0;
-#ifdef VE_FAR_SHADE
+#endif
+#if defined(VE_FAR_SHADE) && !defined(VE_SUNDEFER)
         // TASK 93b4 (diagnostic): 52 shell shadow rays, 53 their iterations.
         if (SHADOW_STATS_ON) { InterlockedAdd(ShadowStats[52], 1u); InterlockedAdd(ShadowStats[53], (uint)ss.iters); }
 #endif
@@ -5334,6 +5368,23 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         return;
     }
 
+#ifdef VE_SUNDEFER
+    // TASK 168c (C1): sunVis does NOT enter the colour linearly (sunExposure's lerp, UniformFaceHue,
+    // haze, the grade's shoulder, pow 2.2 in LookToLinear, SeeCompose), so the shading is SPLIT:
+    // a pixel whose sun ray is handed on runs everything from here to the write twice -- pass 0 with
+    // the unblocked sunVis into ResultTexture (as today when the march ends without a hit), pass 1
+    // with sunVis 0 into SunDeferB (as today when it hits). Nothing below writes a variable declared
+    // above (checked when task 168c was written), so pass 1 starts from the same state. The terms
+    // that do not read sunVis and cost reads (VAO, point lights, emissive bleed) are kept from pass 0.
+    float sdVisU = sunVis;
+    float sdVao = 1.0;
+    float3 sdPoint = float3(0.0, 0.0, 0.0), sdOmni = float3(0.0, 0.0, 0.0), sdBleed = float3(0.0, 0.0, 0.0);
+    uint sdPasses = sdPending ? 2u : 1u;
+    [loop]
+    for (uint sdPass = 0u; sdPass < sdPasses; sdPass++)
+    {
+    sunVis = (sdPass == 0u) ? sdVisU : 0.0;
+#endif
     float4 color = _SkyColor;
     if (_Look == 1 && _UseDevColors != 0) color = float4(LookToLinear(LookShoulder(LookSkyBackground(rayDir), _LookGrade.z)), 1.0);
     // 66b: a fluid-mode stop on AIR is the surface from below, coloured after this chain.
@@ -5398,12 +5449,18 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 
             // VAO on the ambient term only, with the Brickmap's remap.
             float vao = 1.0;
+#ifdef VE_SUNDEFER
+            if (sdPass != 0u) vao = sdVao; else   // task 168c: pass 0's value
+#endif
             if (_ShadeAO != 0 && !selfLit && passMat == 0u && shellAtHit == 0)   // 66b: fluid neighbours are not occluders; task 80: nor tier 0's for a shell hit
             {
                 float3 inVoxel = hitP - (float3(voxel) + 0.5);
                 vao = FaceAO(voxel, normal, inVoxel, _WindowDimsBricks);
                 vao = lerp(0.15, 1.0, pow(smoothstep(0.0, 1.0, vao), 1.2));
             }
+#ifdef VE_SUNDEFER
+            sdVao = vao;
+#endif
 #ifdef VE_FAR_SHADE
             // Task 85b: the sky term; VAO fades out where a voxel is <= 1-2 px.
             // Task 120: + the ground bounce (part 1); with part 2 the filtered
@@ -5422,6 +5479,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
 
             float3 hitPosM = hitP * 0.1;
             float3 pointTerm, omniTerm = float3(0.0, 0.0, 0.0);
+#ifdef VE_SUNDEFER
+            if (sdPass != 0u) { pointTerm = sdPoint; omniTerm = sdOmni; } else   // task 168c: pass 0's values
+#endif
 #ifdef VE_TORCH_FLOOD
             // Task 158: the flood at the air voxel in front of the face (no rays, no torch loop).
             if (tierAtHit == 0 && !selfLit)
@@ -5440,6 +5500,9 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 pointTerm = SumPointLights(hitPosM, nF);
                 if (_UniformFaceHue != 0) omniTerm = SumPointLightsOmni((float3(voxel) + 0.5) * 0.1);
             }
+#ifdef VE_SUNDEFER
+            sdPoint = pointTerm; sdOmni = omniTerm;
+#endif
 
             float3 faceLight = (direct + ambient) * _LookGrade.x + pointTerm;
             if (_UniformFaceHue != 0)
@@ -5494,10 +5557,20 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 if (normal.x != 0)      { e1 = int3(0, 1, 0); e2 = int3(0, 0, 1); uv = lh.yz; }
                 else if (normal.y != 0) { e1 = int3(1, 0, 0); e2 = int3(0, 0, 1); uv = lh.xz; }
                 else                    { e1 = int3(1, 0, 0); e2 = int3(0, 1, 0); uv = lh.xy; }
-                float3 bleed = max(max(LookEmitColor(fa - e1, _WindowDimsBricks) * (1.0 - uv.x),
+#ifdef VE_SUNDEFER
+                float3 bleed = sdBleed;   // task 168c: pass 1 keeps pass 0's value
+                if (sdPass == 0u)
+                bleed =
+#else
+                float3 bleed =
+#endif
+                             max(max(LookEmitColor(fa - e1, _WindowDimsBricks) * (1.0 - uv.x),
                                        LookEmitColor(fa + e1, _WindowDimsBricks) * uv.x),
                                    max(LookEmitColor(fa - e2, _WindowDimsBricks) * (1.0 - uv.y),
                                        LookEmitColor(fa + e2, _WindowDimsBricks) * uv.y));
+#ifdef VE_SUNDEFER
+                sdBleed = bleed;
+#endif
                 lit += bleed * 2.0;
 #ifdef VE_FAR_SHADE
                 lightAdd += bleed * 2.0;
@@ -5836,7 +5909,11 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     }
 
     // TAA: where this pixel's surface was last frame, and what it was.
-    if (_TaaEnabled != 0 && inBounds)
+    if (_TaaEnabled != 0 && inBounds
+#ifdef VE_SUNDEFER
+        && sdPass == 0u   // task 168c: none of it reads sunVis; pass 0 wrote it
+#endif
+        )
     {
         float tHit = hit ? currentDist : (farHit ? fh.t : -1.0);
         float3 P = rayStart + rayDir * max(tHit, 0.0);
@@ -5868,7 +5945,21 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         float tintLum = dot(color.rgb, float3(0.299, 0.587, 0.114));
         color.rgb = lerp(color.rgb, (hit ? ShellTintColor(shellAtHit) : float3(0.5, 0.5, 0.5)) * (0.35 + 0.65 * tintLum), 0.6);
     }
+#ifdef VE_SUNDEFER
+    if (sdPass != 0u) { if (inBounds) SunDeferB[id.xy] = color; } else   // task 168c: the blocked outcome
+#endif
     if (inBounds) ResultTexture[id.xy] = color;
+#ifdef VE_SUNDEFER
+    }   // task 168c: the sdPass loop
+    // Hand the ray to CSSunDeferLean (after the colour: pass 2's resumed lanes read their entry above).
+    if (sdPending && inBounds)
+    {
+        ShellPreEntry sq;
+        sq.a = asuint(sdStart.x); sq.b = asuint(sdStart.y); sq.c = asuint(sdStart.z);
+        sq.d = asuint(sdT0); sq.e = SUN_DEFER_MARK;
+        ShellPre[shellPreIdx] = sq;
+    }
+#endif
 }
 
 [numthreads(8, 8, 1)]
@@ -5909,6 +6000,39 @@ void CSMainFarShadeLean(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupTh
 void CSMainFarShadeLeanRoof(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
 {
     CSMainBody(tid, gtid, false);
+}
+
+// TASK 168c (C1): the same with VE_SUNDEFER (the two sun-ray ShellMarch calls handed to CSSunDeferLean).
+[numthreads(8, 8, 1)]
+void CSMainFarShadeLeanSun(uint3 tid : SV_DispatchThreadID, uint3 gtid : SV_GroupThreadID)
+{
+    CSMainBody(tid, gtid, false);
+}
+
+// TASK 168c (C1): the sun rays CSMainFarShadeLeanSun handed on (ShellPre.e == SUN_DEFER_MARK), in a
+// kernel that holds nothing else -- the march each would have run inline (same start, tStart,
+// direction, iteration cap and sky exit). Blocked: the pixel takes the colour its kernel shaded with
+// sunVis 0 (SunDeferB), and the temporal history keeps 0, as the inline march left them. Unblocked:
+// nothing to do (the kernel drew that outcome). The entry's mark is cleared so it is used once.
+[numthreads(8, 8, 1)]
+void CSSunDeferLean(uint3 tid : SV_DispatchThreadID)
+{
+#ifdef VE_SUNDEFER
+    uint width = (uint)_ShellProbeParams.x, height = (uint)_ShellProbeParams.y;
+    if (tid.x >= width || tid.y >= height) return;   // no barrier in this kernel
+    uint idx = tid.y * width + tid.x;
+    ShellPreEntry q = ShellPre[idx];
+    if (q.e != SUN_DEFER_MARK) return;
+    ShellPre[idx].e = 0u;
+    float3 rayStart = _CameraPos * 10.0;
+    float3 so = float3(asfloat(q.a), asfloat(q.b), asfloat(q.c));
+    ShellHit ss = ShellMarch(so, normalize(_SunDir), asfloat(q.d), true, rayStart, max(32, _ShellIterCap >> 1), 0.0, ShellSkyY(false));
+    if (ss.end == SHELL_END_HIT)
+    {
+        ResultTexture[tid.xy] = SunDeferB[tid.xy];
+        if (_TemporalShadows != 0) ShadowHistW[idx].x = asuint(0.0);
+    }
+#endif
 }
 
 #ifdef VE_TORCH_FLOOD
