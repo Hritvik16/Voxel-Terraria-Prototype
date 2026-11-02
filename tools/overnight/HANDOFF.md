@@ -1,54 +1,50 @@
-# 168b-perf-30fps-ceiling-check: DONE. The average is reachable, but the tail is not reachable by shading cuts. Decision-table row 2: spikes are the problem -> owner question below.
+STOP_FOR_OWNER -- 168c-perf-c1-shadow-continuation: C1 is NOT exact (12 / 55 px, each off by 1 level) and, in an indicative cold run, SLOWER. It stays OFF behind `-sundefer 1`. No warm measurement was taken: the task's rule for a non-exact result is to stop.
 
-**Answer:** walk p50 <= 30 is already met at 432 rows on AC (FULL walk 23.7 ms). <= 5 % of frames > 33 ms is NOT reachable by any shading lever.
-Even with the sky probe, sun and shells all OFF, the moving walk keeps 12 % of frames > 33 ms (p95 42). The moving tail comes from main-thread streaming
-(and the fluid tick for the > 100 ms frames), not from GPU shading. Static views meet the tail line only with sky probe + sun both off, and that changes the picture.
+## Owner question (decision table: "STOP_FOR_OWNER for a non-exact result")
+Sun visibility does NOT feed the shading linearly, so C1's "a short pass applies the sun visibility" can only work by shading every handed-on pixel twice (once lit, once blocked).
+In an indicative cold launch, that double shading cost more than moving the march out saved.
+- **(a) Drop C1 (recommended).** The flag stays OFF and play is unchanged. Unblock 168d (E, streamer time-slicing), which `Requires: 168c done`. 168b already showed that the tail is streaming, not shading.
+- (b) A design task for C2-style split shading: the shading inputs go to a G-buffer, and one shading pass runs after all sun visibility is known. That means more scratch (~16+ B/px), and the same +/-1 code-gen risk.
+- (c) Accept a +/-1-level difference as "exact". This is pointless for this form, because it is slower anyway.
+168b's note still holds: exact shading cuts cannot reach the <= 5 % > 33 ms tail.
 
-## Owner question (decision table, row 2: ceiling p50 <= 30 but walk p95 > 33)
-(a) Spike work: time-slice the streamer's main-thread work + upload pacing (cut E, widened: the data points at streamer CPU time, not only `SetData` syncs).
-(b) Lower the target to p95 <= 45. The FULL walk is already at 45.1 (borderline).
-Recommendation: (a), but judge it on the walk's > 33 % share, not p50.
+## What changed (`5ceaea5`, flag OFF by default, so play is unchanged)
+- `Raymarch.compute`: new kernels `CSMainFarShadeLeanSun` (`VE_FAR_SHADE VE_DIET2 VE_SUNDEFER`) and `CSSunDeferLean`.
+  - In the Sun kernel, task 133's near continuation and task 80's shell-hit sun march are not run. Instead, a `[loop]` shades from the colour onward twice: pass 0 uses the unblocked sunVis and writes the target; pass 1 uses sunVis 0 and writes `SunDeferB`. VAO, point lights and bleed are reused from pass 0. The ray goes into the pixel's `ShellPre` entry (e = 4).
+  - `CSSunDeferLean` runs after pass 2. It marches the ray; on a hit it copies `SunDeferB` into the target and writes 0 into the temporal history.
+  - Every task-168c line is under `VE_SUNDEFER` (a test pins this), so the other kernels are unchanged.
+- `RaymarchFeature.cs`: `-sundefer 1|0` (default 0), `KernelDiet2Rule.SunDeferKernel` (needs the pre-pass), `SunDeferB` render-graph texture, dispatch, `[sundefer]` log line.
+- Capture tools: cost-split arms `sundefer_on|off` (run line `kernel diet2+sun`), `-costsdpair`, `-cliffbefore 7`, `[cliffkernel]` lines. `tools/roof168.py pair <stills> sd` / `arms <stills> sundefer_on`.
+- Tests: `SunDeferTests` covers the non-linearity twin, the march arguments matching the inline ones, the ifdef scan and the rule. TASKS.md paragraph added.
 
-## What changed (`e685b77`, capture-only, no change to play)
-- `PlaygroundCapture.CostSplit.cs`: stacked arms `skysun_off`, `sunshells_off`, `ceiling` (FSR 3 kept). Every run line and table row now prints p95 and the share of frames > 33 ms.
-- `PlaygroundCapture.cs` `Sustained()`: honours `-noskyprobe` and `-nosim`; the header prints `sky probe ON|OFF`. TASKS.md paragraph added.
+## Evidence
+- Linearity: on paper, sunVis passes through lerp -> UniformFaceHue -> haze -> grade shoulder -> `pow(saturate(x), 2.2)` -> SeeCompose. Not linear.
+  The test confirms it: f(0.5) != (f(0)+f(1))/2, and a bright face clips, so f(0.6) == f(1) but f(0) is darker.
+- 0 px check (`Logs/costsplit_2026-11-02_145837.txt`, stills `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/UpscalerClips/2026-11-02_145837/stills`, `roof168.py`):
+  - Control raw/raw2 is 0 px. The in-place flip (sun defer OFF -> ON -> OFF) changes **12 px at walk_near and 55 px at walk_open**, and back again. raw2/back is 0 px.
+  - All the changed pixels sit on lit terrain (not water). Each differs by +/-1 in one 8-bit channel, in both directions, and the counts are deterministic.
+  - Reading: these are float code-gen differences in the restructured shading, crossing a quantization step. A wrong sunVis would flip whole shadows.
+  - cliff1 was not shot: it was not needed once walk_near / walk_open failed.
+- Scratch: `SunDeferB` uses the target's format, B10G11R11 (4 B/px). That is 1.27 MB at 432 rows (log `[sundefer] SunDeferB 768x432`) and 3.5 MB at 720 rows. Within the 3-6 MB budget.
+- Indicative only (one cold launch, shells still filling, 8 s runs; NOT a measurement), p50:
 
-## Evidence (warm steady state, AC throughout, 432 rows pinned, tg2 noon, play flags)
-Warm-up `Logs/tg2world_20261102_094324.txt` (discarded). Then back to back: walk FULL, walk CEIL, cost split, walk CEIL, walk FULL (ABBA; script `Logs/overnight/168b_measure.sh`).
-Cost split `Logs/costsplit_2026-11-02_095908.txt`: 7 FULL runs per view, range 1.2 / 1.6 ms. Walks (MODE=playwalk, 3 min): `Logs/tg2world_20261102_094834/_095315/_101810/_102253.txt`.
+  | view | sun kernel | FULL |
+  |---|---|---|
+  | walk_near | 67.7 / 68.0 ms | 64.7 / 59.9 ms |
+  | walk_open | 41.7 / 42.4 ms | 30.1 / 34.0 ms |
 
-| arm | walk_near p50 / p95 / %>33 | walk_open | the walk (moving, streaming live) |
-|---|---|---|---|
-| FULL | 37.2 / 65.5 / 60.4 % | 20.8 / 30.3 / 1.2 % | 23.9, 23.4 / 45.2, 44.9 / 19.0, 17.3 % |
-| skyprobe_off | 31.1 / 55.5 / 45.3 % | 19.3 / 31.3 / 4.4 % | -- |
-| sun_off | 24.2 / 41.7 / 19.1 % | 18.2 / 24.5 / 0.0 % | -- |
-| shells_off | 29.9 / 58.4 / 38.7 % | 17.8 / 26.7 / 0.9 % | -- |
-| skysun_off | 20.5 / 31.4 / 1.4 % | 17.5 / 22.0 / 0.2 % | -- |
-| sunshells_off | 22.9 / 36.2 / 11.1 % | 16.3 / 24.9 / 0.1 % | -- |
-| ceiling (sky+sun+shells) | 17.7 / 29.6 / 0.3 % | 13.8 / 23.1 / 0.1 % | 21.1, 20.9 / 41.9, 42.8 / 11.9, 12.8 % |
-
-- **The walk tail.** Turning off all three levers moves the walk's p95 only 45 -> 42 and its > 33 ms share 18 -> 12 %.
-  - Spikelog ceiling walk (`Logs/tg2world_20261102_102802.txt`, `tools/spike-attribution.py`): 72 % of spikes are main-thread streaming (streamer/evict >= 8 ms). The fluid tick adds +14 ms on its frame (15 % of frames). There were 31 frames > 100 ms.
-  - Same walk with `-nosim` (`Logs/tg2world_20261102_103551.txt`): > 100 ms frames 31 -> 1, > 50 ms 6.6 -> 3.0 %, but > 33 ms stays at 12 % (p95 43).
-  - The 33-50 ms band follows streamer > 5 ms (25 % of frames, +10.4 ms that frame, -5.7 the next). These are co-occurrence lifts, not proof.
-  - Spikelog walks run ~1-4 points worse on > 33 than plain ones (16.4 % vs 12.3 %). Overhead or variance; the ABBA plain walks are the numbers above.
-- **Static views:** the near arc meets the tail line only at `skysun_off` or `ceiling`. The open arc already meets it at FULL (p95 30.3, 1.2 %).
-- **Exact vs picture-changing:** every arm above changes the picture. Sun off = no sun shadows. Sky probe off = no sky-ambient darkening in overhangs/caves.
-  Shells off = no shell detail past the 128 m window (far band instead). The exact levers aimed at the same costs are C1 / C2 (sun) and G (sky probe), est. 2-7 ms
-  near (`PERF_EXACT_CUTS.md` section 2). The streaming tail's lever is E / streamer time-slicing (exact at rest; chunks land later while moving).
-- Caveats: noon only (sun 78 deg). At walk_near the shells were not full (s3 missing 477, s4-s7 missing), so shells' full cost may be higher. Fast suite PASS 985 FAIL 0 SKIP 16 (`Logs/overnight/168b_fast.out`).
-- Stills looked at (`.../UpscalerClips/2026-11-02_095908/stills/`): walk_near FULL vs skysun_off, and walk_open FULL vs ceiling. At noon each pair looks almost the same, because the sun is high and the near wall faces away from it.
+  At walk_open almost every lit tier-0 pixel has a continuation, so almost the whole frame shades twice.
+- Fast suite: PASS 989 FAIL 0 SKIP 16 (`Logs/overnight/168c_fast.out`). Filtered run PASS 7 (`Logs/overnight/168c_filter.out`).
+- Stills looked at: `walk_open_full_raw_sdflip.png` (above dir) shows the noon desert ridge with the sea at the left. The image is normal; the 55 changed pixels are spread over the lit slopes (x 140-1904, y 566-1060).
+- Cost: the build now compiles 2 more Raymarch kernels (slower shader compile per build). If (a), the supervisor may want them removed.
 
 ## Next
-- The supervisor asks the owner (a) vs (b) above. If (a): a design + build task for streamer main-thread time-slicing, folded into E, judged on a playwalk's > 33 % share.
-- Not queued (measure-only): the same ceiling at a low sun (evening), where sun/sky matter more.
+- The supervisor relays (a)/(b)/(c). If (a): mark 168c done (C1 dropped) so 168d runs.
 
 ## For the doc
-- 30 fps ceiling, warm AC, 432 rows (`Logs/costsplit_2026-11-02_095908.txt`, playwalks `Logs/tg2world_20261102_0948/0953/1018/1022*.txt`):
-  - FULL walk p50 23.7 ms, p95 45, 18 % of frames > 33 ms. CEILING walk (sky probe + sun + shells off): 21.0 / 42.4 / 12.3 %.
-  - walk_near FULL 37.2 / 65.5 / 60 % -> skysun_off 20.5 / 31.4 / 1.4 % -> ceiling 17.7 / 29.6 / 0.3 %. walk_open FULL is already 20.8 / 30.3 / 1.2 %.
-  - Ceiling walk without fluid: > 100 ms frames 31 -> 1, > 33 ms still 12 %, which follows main-thread streaming.
-- **Is 30 fps reachable?** The average yes (already). The <= 5 % > 33 ms tail is not reachable by shading cuts, even if we accept the picture loss.
-  It needs streaming/fluid main-thread pacing work (E, widened), or a target of p95 <= 45, which FULL just meets.
-- Image: `.../UpscalerClips/2026-11-02_095908/stills/walk_near_full.png` vs `walk_near_skysun_off.png`: the same canyon wall at noon. Look at the shaded faces
-  on the left: they are nearly identical, although the right one drops 17 ms. At noon the trade is nearly invisible here; at low sun it would not be.
+- C1 (sun-ray shell marches out of the big kernel), `Logs/costsplit_2026-11-02_145837.txt`:
+  - Sun visibility is non-linear in the shading, so the shading must be split (shade both outcomes).
+  - Exactness: NOT 0 px. In-place flip: walk_near 12 px, walk_open 55 px, each +/-1 level (control 0 px).
+  - Memory added: 1.27 MB at 432 rows (3.5 MB at 720), B10G11R11.
+  - Indicative (cold, not a measurement) p50: walk_near 59.9-64.7 -> 67.7-68.0 ms, walk_open 30.1-34.0 -> 41.7-42.4 ms. Slower: the double shading costs more than the march it moves.
+- Image: `.../UpscalerClips/2026-11-02_145837/stills/walk_open_full_raw2.png` vs `walk_open_full_raw_sdflip.png`: the same desert ridge at noon. They look identical; only 55 scattered pixels on the lit slopes differ, by 1 level.
