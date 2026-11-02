@@ -74,3 +74,4 @@ to install + log in to Gemini CLI, and a small runner change. Not for B steps / 
 - **Player launches quit ~5 s after start while on battery** (task 133, 2026-10-24 09:46-11:07, during an owner pause and on battery):
   every launch exited with no crash report and an idle watchdog; launches worked again once on AC. Cause not found. Next time:
   check `pmset -g batt`, Low Power Mode, and the player log's last lines. See `tools/overnight/done/*133*.HANDOFF.md`.
+| 168 | roof pyramid (cut D) | incremental pyramid differs from a full rebuild on 774 of 3,749 verify checks (transient); only matters if D returns. `-roofinc` default OFF. See 168 handoff "Open bug" | 2026-11-02 |
