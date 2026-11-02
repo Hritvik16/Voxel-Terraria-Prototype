@@ -1833,6 +1833,8 @@ public partial class PlaygroundCapture : MonoBehaviour
             RaymarchFeature.CustomGateResolution = new Vector2Int(gate, gate * 9 / 16);
         }
         RaymarchFeature.ShadowQualityLevel = ArgInt("-shadowlevel", 0);
+        if (HasFlag("-noskyprobe")) RaymarchFeature.UseSkyProbeAmbient = false;   // task 168b: the ceiling walk
+        if (HasFlag("-nosim")) Playground.DebugSuspendFluidSim = true;          // task 168b: fluid tick vs streaming in the walk tail
         string upscaleNote = ApplyUpscaleArgs();
 
         // -lavaslots N: decision 8's A/B arm. Lava's share of §3.8's cap; 0
@@ -1931,7 +1933,7 @@ public partial class PlaygroundCapture : MonoBehaviour
         L($"lava light share {LightingConfig.Active.lavaLightMaxSlots} of {EngineConfig.MAX_ACTIVE_LIGHTS} slots   " +
           $"look grade {(SunCycle.LookGradeOverride >= 0 ? SunCycle.LookGradeOverride : LightingConfig.Active.lookGrade)} " +
           $"(amount {SunCycle.LookGradeAmountAt(SunCycle.Hours):F2} at this hour)   maxQueuedFrames {QualitySettings.maxQueuedFrames}");
-        L($"shadow roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}   look {(RaymarchFeature.LookOverride >= 0 ? RaymarchFeature.LookOverride : LightingConfig.Active.look)}   emissive bleed {(RaymarchFeature.EmissiveBleedOverride >= 0 ? RaymarchFeature.EmissiveBleedOverride : LightingConfig.Active.emissiveBleed)}   torch shadow rays {(RaymarchFeature.TorchShadowsOverride >= 0 ? RaymarchFeature.TorchShadowsOverride : LightingConfig.Active.torchShadowRays)}");
+        L($"shadow roof skip {(RaymarchFeature.ShadowRoofSkip ? "ON" : "OFF")}   sky probe {(RaymarchFeature.UseSkyProbeAmbient ? "ON" : "OFF")}   look {(RaymarchFeature.LookOverride >= 0 ? RaymarchFeature.LookOverride : LightingConfig.Active.look)}   emissive bleed {(RaymarchFeature.EmissiveBleedOverride >= 0 ? RaymarchFeature.EmissiveBleedOverride : LightingConfig.Active.emissiveBleed)}   torch shadow rays {(RaymarchFeature.TorchShadowsOverride >= 0 ? RaymarchFeature.TorchShadowsOverride : LightingConfig.Active.torchShadowRays)}");
         var farBand = VoxelEngine.Rendering.FarField.Active;
         L($"FAR BAND {(farBand != null ? "ON" : "OFF")}" +
           (farBand != null ? $"  far shadows {(farBand.ShadowsOn ? "ON" : "OFF")}  haze {farBand.HazeRangeMetres:F0} m  " +

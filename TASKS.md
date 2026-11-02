@@ -853,3 +853,10 @@ timed passes paid NO pyramid upkeep = D's best case): roof_on (diet2+roof) - FUL
 ends 89 -> 97 %, but no time: the sky probe's 6.2 ms (167's arm) is not in its window walk. INCREMENTAL BUG, open: the streaming warm-up with
 `-roofverify 4` (`Logs/overnight/168_warmup_Player.log`) found incremental != full rebuild on 774 of 3749 checks (29-4,718 words, idle frames too,
 transient), so `-roofinc` defaults OFF (full rebuild per frame with `-roofskip 1`, task 59's exact build). Next cut: C1.
+
+**Task 168b (perf, measure-only, owner-requested: is 30 fps reachable at all?).** Cost split gains stacked arms `skysun_off` (sky probe + sun),
+`sunshells_off` (sun + shells) and `ceiling` (sky probe + sun + shells; FSR 3 kept), and every run line / table row now prints p95 and the share of
+frames > 33 ms (`Over33`). `-sustained` (MODE=walk / playwalk) now honours `-noskyprobe` and `-nosim` (the walk header prints `sky probe ON|OFF`).
+Ceiling walk: `MODE=playwalk MINUTES=3 EXTRA="-renderrows 432 -noskyprobe -shadowlevel 3 -shells 0 [-spikelog] [-nosim]" ./run-tg2world.sh`.
+Warm AC results: `Logs/costsplit_2026-11-02_095908.txt`, walks `Logs/tg2world_20261102_094834` / `_095315` / `_101810` / `_102253` (ABBA), spikelog walks
+`_103551` (ceiling, no fluid) and `_102802` (ceiling); script `Logs/overnight/168b_measure.sh`. Capture-only: no change to play.

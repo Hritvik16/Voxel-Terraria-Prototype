@@ -143,6 +143,9 @@
 //            every arm's first-pass still also logs the far counters (ShadowStats 5-7, 40-47, 30
 //            frames, before the timing window) and shoots the far step heat, the far-start view
 //            and the shell march heat (_farheat / _farstart / _shellheat.png).
+//   TASK 168b (30 fps ceiling check): stacked arms skysun_off (sky probe + sun), sunshells_off (sun + shells),
+//            ceiling (sky probe + sun + shells; FSR 3 kept). Every run line and table row also gives p95 and
+//            the share of frames > 33 ms (the owner's E4 tail criterion).
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -276,7 +279,7 @@ public partial class PlaygroundCapture
                 var r = new CostRun { arm = arm, pass = pass };
                 yield return CostTime(path, r, timed, pass == 0 ? Path.Combine(stills, $"{pname}_{arm}.png") : null, cam, acd, sm, far);
                 runs.Add(r);
-                L($"  {runs.Count,2} {arm,-9} pass {pass + 1}  frames {r.ms.Count,4}  p50 {Pct(r.ms, 0.5f),5:F1}  p99 {Pct(r.ms, 0.99f),6:F1} ms  " +
+                L($"  {runs.Count,2} {arm,-9} pass {pass + 1}  frames {r.ms.Count,4}  p50 {Pct(r.ms, 0.5f),5:F1}  p95 {Pct(r.ms, 0.95f),6:F1}  p99 {Pct(r.ms, 0.99f),6:F1} ms  >33ms {Over33(r.ms),5:F1}%  " +
                   $"cpu main p50 {Pct(r.cpuMain, 0.5f),5:F1} (present wait {Pct(r.presentWait, 0.5f),5:F1})  render thr {Pct(r.render, 0.5f),5:F1}  " +
                   $"gpu* {Pct(r.gpu, 0.5f),5:F1}  deficit frames {r.deficitFrames}  far busy {r.farBusyFrames}  resident {store.ResidentCount}  " +
                   $"kernel {(RaymarchFeature.ShellDiagDrawnLastFrame ? "diag" : RaymarchFeature.Diet2RoofDrawnLastFrame ? "diet2+roof" : RaymarchFeature.Diet2DrawnLastFrame ? "diet2" : "lean")}");
@@ -296,8 +299,8 @@ public partial class PlaygroundCapture
             var allFull = new List<float>(); foreach (var x in fulls) allFull.AddRange(x.ms);
             var t = tables;
             t.AppendLine($"{pname}");
-            t.AppendLine("arm        p50    p99 ms   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50");
-            t.AppendLine($"full     {Pct(allFull, 0.5f),6:F1} {Pct(allFull, 0.99f),6:F1}    {fulls.Count} runs: {string.Join(" ", fp50.ConvertAll(v => v.ToString("F1")))}   " +
+            t.AppendLine("arm        p50    p95    p99 ms  >33ms%   pass1/pass2 p50   FULL before/after p50   saved p50 ms   noise (|FULL b - a|)   cpu main p50 / present wait   gpu* p50");
+            t.AppendLine($"full     {Pct(allFull, 0.5f),6:F1} {Pct(allFull, 0.95f),6:F1} {Pct(allFull, 0.99f),6:F1}  {Over33(allFull),6:F1}    {fulls.Count} runs: {string.Join(" ", fp50.ConvertAll(v => v.ToString("F1")))}   " +
                          $"(range {fMax - fMin:F1})   cpu {Pct(Pool(fulls, x => x.cpuMain), 0.5f):F1} / {Pct(Pool(fulls, x => x.presentWait), 0.5f):F1}   gpu* {Pct(Pool(fulls, x => x.gpu), 0.5f):F1}");
             for (int i = 0; i < costArms.Length; i++)
             {
@@ -306,7 +309,7 @@ public partial class PlaygroundCapture
                 var both = new List<float>(x1.ms); both.AddRange(x2.ms);
                 float fb = Pct(before.ms, 0.5f), fa = Pct(after.ms, 0.5f), xp = Pct(both, 0.5f);
                 var xs = new List<CostRun> { x1, x2 };
-                t.AppendLine($"{arm,-9}{xp,6:F1} {Pct(both, 0.99f),6:F1}    {Pct(x1.ms, 0.5f),6:F1} / {Pct(x2.ms, 0.5f),-6:F1}    {fb,6:F1} / {fa,-6:F1}          " +
+                t.AppendLine($"{arm,-9}{xp,6:F1} {Pct(both, 0.95f),6:F1} {Pct(both, 0.99f),6:F1}  {Over33(both),6:F1}    {Pct(x1.ms, 0.5f),6:F1} / {Pct(x2.ms, 0.5f),-6:F1}    {fb,6:F1} / {fa,-6:F1}          " +
                              $"{0.5f * (fb + fa) - xp,7:+0.0;-0.0}        {math.abs(fb - fa),5:F1}                 " +
                              $"{Pct(Pool(xs, x => x.cpuMain), 0.5f),5:F1} / {Pct(Pool(xs, x => x.presentWait), 0.5f),5:F1}          {Pct(Pool(xs, x => x.gpu), 0.5f),5:F1}");
             }
@@ -330,6 +333,9 @@ public partial class PlaygroundCapture
         return maxM;
     }
 
+    /// Task 168b: the share of frames over 33 ms (the owner's E4 tail criterion), in %.
+    private static float Over33(List<float> ms) => ms.Count == 0 ? 0f : 100f * ms.FindAll(x => x > 33f).Count / ms.Count;
+
     private static List<float> Pool(List<CostRun> rs, System.Func<CostRun, List<float>> f)
     {
         var a = new List<float>(); foreach (var r in rs) a.AddRange(f(r)); return a;
@@ -348,7 +354,7 @@ public partial class PlaygroundCapture
         // tiny_gate: a DIAGNOSTIC, not one thing off -- no upscaler and a 256x144
         // march (7% of 540's pixels): what is left is the CPU + fixed-cost floor
         if (arm == "tiny_gate") RaymarchFeature.CustomGateResolution = new Vector2Int(256, 144);
-        RaymarchFeature.ShadowQualityLevel = arm == "sun_off" ? 3 : arm == "halfres" ? 1 : _costBaseShadow;
+        RaymarchFeature.ShadowQualityLevel = (arm == "sun_off" || arm == "skysun_off" || arm == "sunshells_off" || arm == "ceiling") ? 3 : arm == "halfres" ? 1 : _costBaseShadow;
         RaymarchFeature.Rung1DistanceOverrideM = arm == "halfres" ? 0.001f : _costBaseRung1;
         RaymarchFeature.TorchShadowsOverride = arm == "torch_off" ? 0 : _costBaseTorch;
         RaymarchFeature.ShadowRoofSkip = arm == "roof_on" || arm == "roof_full" || (arm != "roof_off" && _costBaseRoof);
@@ -365,7 +371,7 @@ public partial class PlaygroundCapture
         }
         // Task 93b: shells_off = tiers 1-2 draw instead of the shells (shell streaming keeps
         // running; since task 93d only with -keeptiers 1, else tier 0 + far band); fshade_off = far shading off, FULL keeps the launch's -farshade.
-        RaymarchFeature.DrawShells = arm != "shells_off" && arm != "tiers_farprim";
+        RaymarchFeature.DrawShells = arm != "shells_off" && arm != "tiers_farprim" && arm != "sunshells_off" && arm != "ceiling";
         RaymarchFeature.FarShade = arm != "fshade_off" && _costBaseFarShade;
         // Task 99: the sky-ray exit (see the header).
         RaymarchFeature.ShellSkyExit = arm == "skyexit_on" || (arm != "skyexit_off" && _costBaseSkyExit);
@@ -379,7 +385,7 @@ public partial class PlaygroundCapture
         RaymarchFeature.ShellKernelDiet = arm == "diet_on" || (arm != "diet_off" && _costBaseDiet);
         // Task 161: kernel diet 2 (diet2_on / diet2_off) and the vertical sky probe off (skyprobe_off; capture only).
         RaymarchFeature.KernelDiet2 = arm == "diet2_on" || (arm != "diet2_off" && _costBaseDiet2);
-        RaymarchFeature.UseSkyProbeAmbient = arm != "skyprobe_off" && _costBaseSkyProbe;
+        RaymarchFeature.UseSkyProbeAmbient = arm != "skyprobe_off" && arm != "skysun_off" && arm != "ceiling" && _costBaseSkyProbe;   // task 168b: stacked arms
         // Task 137: the hole leap (see the header).
         RaymarchFeature.ShellHoleLeap = arm == "holeleap_on" || (arm != "holeleap_off" && _costBaseHoleLeap);
         RaymarchFeature.ShellHeightBound = arm == "heightbound_on" || (arm != "heightbound_off" && _costBaseHeightBound);   // task 153
