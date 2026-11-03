@@ -115,5 +115,6 @@ spent on rows by the dyn controller). **With C2 as well:** near ~33-40.
 2. **D or C1**, picked by step 1's arms (above).
 3. **The other of D / C1.**
 4. **E: upload pacing** (p95 / p99), judged on a `-spikelog` walk.
+   **Task 168e result (2026-11-02): built, exact, kept OFF behind `-uploadring 1`.** Warm ABBA playwalk 3 min, 432 rows: > 33 ms 19.1 -> 16.2 % (-2.9 points, gate 5), p95 44.9 -> 41.8, p99 65.3 -> 52.9 ms (inside this row's predicted p99 -10..-20), > 100 ms 6 -> 5 (gate: halve). Full-mirror drain 4.3 -> 10.5 s under the 1 MiB cap. See TASKS.md task 168e.
 5. **Milestone walk on AC** (the next perf milestone; 159 was on battery). Then C2's design task only if near views are still > ~38 ms.
 I is bundled into whichever task next touches the upscaler path. G, H, F are not recommended now.

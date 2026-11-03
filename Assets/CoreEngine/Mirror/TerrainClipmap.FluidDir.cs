@@ -85,6 +85,9 @@ public partial class TerrainClipmap
         for (int e = capacity - 1; e >= old; e--) _fdFree.Push(e);
         _fdCapacity = capacity;
 
+        // Task 168e: staged writes into the old buffers go first; the new ones start from the full SetData below.
+        if (UploadRing.On) UploadRing.Shared.Flush();
+        UploadShadow.Forget(FluidDirCoordBuffer); UploadShadow.Forget(FluidDirHandleBuffer);
         FluidDirCoordBuffer?.Release();
         FluidDirHandleBuffer?.Release();
         FluidDirCoordBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, capacity * 4, 4);
@@ -193,8 +196,21 @@ public partial class TerrainClipmap
         _fdCoords[e * 4 + 0] = c.x; _fdCoords[e * 4 + 1] = c.y; _fdCoords[e * 4 + 2] = c.z; _fdCoords[e * 4 + 3] = 0;
         if (!SuppressGpuUploads)
         {
-            FluidDirHandleBuffer.SetData(_chunkStaging, 0, b0, EngineConfig.BRICKS_PER_CHUNK);
-            FluidDirCoordBuffer.SetData(_fdCoords, e * 4, e * 4, 4);
+            if (UploadShadow.Enabled)
+            {
+                UploadShadow.Record(FluidDirHandleBuffer, "fluid dir handles", _chunkStaging, 0, b0, EngineConfig.BRICKS_PER_CHUNK);
+                UploadShadow.Record(FluidDirCoordBuffer, "fluid dir coords", _fdCoords, e * 4, e * 4, 4);
+            }
+            if (UploadRing.On)   // task 168e
+            {
+                UploadRing.Shared.Write(FluidDirHandleBuffer, _chunkStaging, 0, b0, EngineConfig.BRICKS_PER_CHUNK);
+                UploadRing.Shared.Write(FluidDirCoordBuffer, _fdCoords, e * 4, e * 4, 4);
+            }
+            else
+            {
+                FluidDirHandleBuffer.SetData(_chunkStaging, 0, b0, EngineConfig.BRICKS_PER_CHUNK);
+                FluidDirCoordBuffer.SetData(_fdCoords, e * 4, e * 4, 4);
+            }
         }
         int s = FluidDirRingSlot(c);
         if (_fdIndex[s] != e) { _fdIndex[s] = e; _fdIndexChanged = true; }
@@ -207,7 +223,10 @@ public partial class TerrainClipmap
     {
         if (!_fdIndexChanged) return;
         _fdIndexChanged = false;
-        if (!SuppressGpuUploads) FluidDirIndexBuffer.SetData(_fdIndex);   // 64 KB, only when the set changed
+        if (SuppressGpuUploads) return;
+        if (UploadShadow.Enabled) UploadShadow.Record(FluidDirIndexBuffer, "fluid dir index", _fdIndex, 0, 0, _fdIndex.Length);
+        if (UploadRing.On) UploadRing.Shared.Write(FluidDirIndexBuffer, _fdIndex, 0, 0, _fdIndex.Length);   // task 168e
+        else FluidDirIndexBuffer.SetData(_fdIndex);   // 64 KB, only when the set changed
     }
 
     /// CPU twin of FluidCA.compute SampleVoxel, line for line: the mirror inside

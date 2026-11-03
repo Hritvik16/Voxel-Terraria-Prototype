@@ -347,6 +347,15 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
     // apart, which is why it produced no actionable finding.
     public bool IsDirty(int3 chunkCoord) => _dirtyChunks.Contains(chunkCoord);
 
+    /// Task 168e (capture `-costringpair`): every held mirror slot's chunk marked dirty, so the whole
+    /// mirror (entries + bodies + air-mip) re-uploads through whichever upload path is on. Same bytes.
+    public int DebugDirtyAllHeld()
+    {
+        int n = 0;
+        for (int s = 0; s < _slotHeld.Length; s++) if (_slotHeld[s] && _dirtyChunks.Add(_slotOwner[s])) n++;
+        return n;
+    }
+
     /// Monotonic counter, incremented once per UploadDirty pass. A caller that
     /// records this when it makes a request can later ask whether the chunk it
     /// cares about has been uploaded since.
@@ -412,6 +421,14 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
     public UploadStats UploadDirty(ChunkStore store, BrickDataPool cpuPool,
         int byteBudget, int3 cameraChunk, int exemptRadiusChunks)
     {
+        // Task 168e: a pass's staged writes go to the GPU in one flush, at this pass's place in the stream.
+        try { return UploadDirtyPass(store, cpuPool, byteBudget, cameraChunk, exemptRadiusChunks); }
+        finally { if (UploadRing.On) UploadRing.Shared.Flush(); }
+    }
+
+    private UploadStats UploadDirtyPass(ChunkStore store, BrickDataPool cpuPool,
+        int byteBudget, int3 cameraChunk, int exemptRadiusChunks)
+    {
         var stats = new UploadStats();
         // One pass = one epoch, advanced BEFORE the early-out so a pass with
         // nothing to do still moves time forward for anyone waiting on it.
@@ -452,6 +469,7 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
 
         _dirtyBrickSlots.Clear();
         int bytes = 0;
+        int nonExemptAdmitted = 0;   // task 168e: the ring's progress rule below
 
         // §0.2's cap has to bound EVERY byte this frame puts on the bus. It did
         // not: only the clipmap-ENTRY term was tested in the loop below, while
@@ -516,9 +534,18 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
                               + packedReserve;
                 int chunkCost = EngineConfig.CLIPMAP_BYTES_PER_CHUNK
                               + ProjectedBodyBytes(chunk);
-                if (committed + chunkCost > byteBudget
+                // Task 168e: under the upload ring's 1 MiB cap a dense chunk (up to 16 KB + 4096 x 512 B)
+                // can cost more than the cap minus the ~585 KB air-mip reserve, so it was deferred EVERY
+                // pass and never landed while the camera stood still (cost split, pinned walk_open:
+                // 24,455 px of stale terrain, 119 chunks still dirty after 40 s). With the ring on, the first
+                // non-exempt chunk of a pass always goes: every deferral lands a pass later. At the default
+                // 3 MiB budget the largest chunk always fits an empty pass, so ring OFF is unchanged.
+                bool overBytes = committed + chunkCost > byteBudget;
+                if (overBytes && nonExemptAdmitted == 0 && UploadRing.On) overBytes = false;
+                if (overBytes
                     || stats.chunksUploaded >= chunkCap)
                 { stats.chunksDeferred++; continue; }
+                nonExemptAdmitted++;
             }
 
             if (fluidEntry >= 0)
@@ -663,7 +690,9 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
             // word ranges are dirty.
             if (_packed != null && !SuppressGpuUploads)
             {
-                AirMipPackedBuffer.SetData(_packed.Words);
+                if (UploadShadow.Enabled) UploadShadow.Record(AirMipPackedBuffer, "airmip packed", _packed.Words, 0, 0, _packed.Words.Length);
+                if (UploadRing.On) UploadRing.Shared.Write(AirMipPackedBuffer, _packed.Words, 0, 0, _packed.Words.Length);   // task 168e
+                else AirMipPackedBuffer.SetData(_packed.Words);
                 stats.setDataCalls++;
                 bytes += _packed.Words.Length * 4;
             }
@@ -680,8 +709,10 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
         if (_shadowClip != null) Array.Copy(_chunkStaging, 0, _shadowClip, dstElement, EngineConfig.BRICKS_PER_CHUNK);
         if (SuppressGpuUploads) return;
         stats.setDataCalls++;
+        if (UploadShadow.Enabled) UploadShadow.Record(ClipmapBuffer, "clipmap", _chunkStaging, 0, dstElement, EngineConfig.BRICKS_PER_CHUNK);
 
-        if (UseLockBufferForUploads)
+        if (UploadRing.On) UploadRing.Shared.Write(ClipmapBuffer, _chunkStaging, 0, dstElement, EngineConfig.BRICKS_PER_CHUNK);   // task 168e
+        else if (UseLockBufferForUploads)
         {
             var na = ClipmapBuffer.LockBufferForWrite<uint>(dstElement, EngineConfig.BRICKS_PER_CHUNK);
             na.CopyFrom(_chunkStaging);
@@ -703,8 +734,10 @@ public partial class TerrainClipmap : IDisposable, IChunkDirtySink
         if (_shadowBodies != null) NativeArray<uint>.Copy(src, srcFirst, _shadowBodies, dstFirst, countUints);
         if (SuppressGpuUploads) return;
         stats.setDataCalls++;
+        if (UploadShadow.Enabled) UploadShadow.Record(BrickDataBuffer, "bodies", src, srcFirst, dstFirst, countUints);
 
-        if (UseLockBufferForUploads)
+        if (UploadRing.On) UploadRing.Shared.Write(BrickDataBuffer, src, srcFirst, dstFirst, countUints);   // task 168e
+        else if (UseLockBufferForUploads)
         {
             var na = BrickDataBuffer.LockBufferForWrite<uint>(dstFirst, countUints);
             NativeArray<uint>.Copy(src, srcFirst, na, 0, countUints);

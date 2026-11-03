@@ -287,6 +287,21 @@ namespace VoxelEngine.Mirror
             }
         }
 
+        // Task 168e: the per-frame writes (not the constructor's fills: those buffers are new, nothing reads them yet).
+        private static void Put(GraphicsBuffer b, string name, uint[] src, int srcStart, int dstStart, int count)
+        {
+            if (UploadShadow.Enabled) UploadShadow.Record(b, name, src, srcStart, dstStart, count);
+            if (UploadRing.On) UploadRing.Shared.Write(b, src, srcStart, dstStart, count);
+            else b.SetData(src, srcStart, dstStart, count);
+        }
+
+        private static void Put(GraphicsBuffer b, string name, NativeArray<uint> src, int srcStart, int dstStart, int count)
+        {
+            if (UploadShadow.Enabled) UploadShadow.Record(b, name, src, srcStart, dstStart, count);
+            if (UploadRing.On) UploadRing.Shared.Write(b, src, srcStart, dstStart, count);
+            else b.SetData(src, srcStart, dstStart, count);
+        }
+
         private static void ZeroBuffer(GraphicsBuffer b, int count)
         {
             const int CHUNK = 1 << 20;
@@ -543,7 +558,7 @@ namespace VoxelEngine.Mirror
                 while (end < _jobN && list[end] == list[end - 1] + 1) end++;
                 end = math.min(end, _jobDone + budget / (BRICK_UINTS * 4));
                 int count = (end - _jobDone) * BRICK_UINTS;
-                BrickBuffer.SetData(_bodyStaging, _jobDone * BRICK_UINTS, (BrickBase + list[_jobDone]) * BRICK_UINTS, count);
+                Put(BrickBuffer, "shell bricks", _bodyStaging, _jobDone * BRICK_UINTS, (BrickBase + list[_jobDone]) * BRICK_UINTS, count);
                 if (ShadowUploads)
                     NativeArray<uint>.Copy(_bodyStaging, _jobDone * BRICK_UINTS, ShadowBricks, list[_jobDone] * BRICK_UINTS, count);
                 budget -= count * 4; BytesUploaded += count * 4;
@@ -553,11 +568,11 @@ namespace VoxelEngine.Mirror
             if (!_jobPageUp)
             {
                 if (budget < (PAGE_UINTS + TAIL_UINTS) * 4) return false;
-                PageBuffer.SetData(_pageStaging, 0, (PageBase + _jobPage) * PAGE_UINTS, PAGE_UINTS);
+                Put(PageBuffer, "shell pages", _pageStaging, 0, (PageBase + _jobPage) * PAGE_UINTS, PAGE_UINTS);
                 // Task 93b5: the page's air-brick mask, with the page (before its entry).
-                PageBuffer.SetData(_maskStaging, 0, MaskBase + (PageBase + _jobPage) * MASK_UINTS, MASK_UINTS);
+                Put(PageBuffer, "shell pages", _maskStaging, 0, MaskBase + (PageBase + _jobPage) * MASK_UINTS, MASK_UINTS);
                 // Task 116: and its column tops (also before its entry).
-                PageBuffer.SetData(_colTopStaging, 0, ColTopBase + (PageBase + _jobPage) * COLTOP_UINTS, COLTOP_UINTS);
+                Put(PageBuffer, "shell pages", _colTopStaging, 0, ColTopBase + (PageBase + _jobPage) * COLTOP_UINTS, COLTOP_UINTS);
                 if (ShadowUploads)
                 {
                     Array.Copy(_pageStaging, 0, ShadowPages, _jobPage * PAGE_UINTS, PAGE_UINTS);
@@ -677,14 +692,14 @@ namespace VoxelEngine.Mirror
             if (bytes > budget) return false;
             if (_dirDirty)
             {
-                DirectoryBuffer.SetData(_dir, 0, DirBase, SlotCount);
+                Put(DirectoryBuffer, "shell dir", _dir, 0, DirBase, SlotCount);
                 if (ShadowUploads) Array.Copy(_dir, ShadowDir, SlotCount);
                 _dirDirty = false;
             }
             if (hd)
             {
                 BuildHeights();
-                PageBuffer.SetData(_height, 0, HeightBase + HeightOffset, Columns);
+                Put(PageBuffer, "shell pages", _height, 0, HeightBase + HeightOffset, Columns);
                 if (ShadowUploads) Array.Copy(_height, ShadowHeights, Columns);
                 _heightDirty = false;
             }

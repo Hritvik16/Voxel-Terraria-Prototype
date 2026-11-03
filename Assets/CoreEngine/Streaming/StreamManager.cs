@@ -833,7 +833,8 @@ namespace VoxelEngine.Streaming
             LastEvicted = (int)(ChunksEvictedTotal - evicted0);
 
             sw.Restart();
-            var stats = _clipmap.UploadDirty(_store, _pool, EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME,
+            // Task 168e: with the upload ring on, the shared per-frame cap is UploadRing.CapBytes (default 1 MiB).
+            var stats = _clipmap.UploadDirty(_store, _pool, UploadRing.FrameBudget(EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME),
                                              camChunk, EngineConfig.UPLOAD_EXEMPT_RADIUS_CHUNKS);
             double clipDone = sw.Elapsed.TotalMilliseconds;
             _cascades?.UploadDirty(_store, _pool);

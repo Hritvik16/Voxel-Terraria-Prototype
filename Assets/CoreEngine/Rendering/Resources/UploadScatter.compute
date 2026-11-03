@@ -1,0 +1,22 @@
+// UploadScatter.compute -- task 168e (UploadRing.cs, PERF_EXACT_CUTS row E).
+// One thread group per record: copy z words from the staging slot (_Src, offset x) to the destination
+// mirror buffer (_Dst, offset y). Records of one dispatch never overlap (UploadRing.Flush), so the order
+// of groups does not matter. Every dispatch also writes the ticket the ring's AsyncGPUReadback guard reads
+// (a read-after-write on the GPU: once it completes, the copies before it have run).
+#pragma kernel CSScatter
+
+StructuredBuffer<uint> _Src;
+StructuredBuffer<uint4> _Rec;
+RWStructuredBuffer<uint> _Dst;
+RWStructuredBuffer<uint> _Ticket;
+uint _RecBase;
+uint _TicketValue;
+
+[numthreads(64, 1, 1)]
+void CSScatter(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
+{
+    uint4 r = _Rec[_RecBase + gid.x];
+    for (uint i = gi; i < r.z; i += 64)
+        _Dst[r.y + i] = _Src[r.x + i];
+    if (gid.x == 0 && gi == 0) _Ticket[0] = _TicketValue;
+}

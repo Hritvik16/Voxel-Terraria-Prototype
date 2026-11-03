@@ -388,6 +388,15 @@ public class Phase4Bootstrapper : MonoBehaviour
                     System.Globalization.CultureInfo.InvariantCulture, out double ab) && ab > 0 ? ab : 0;
             if (VoxelEngine.Streaming.StreamManager.AdmitBudgetMs > 0)
                 UnityEngine.Debug.Log($"[StreamManager] admission time budget {VoxelEngine.Streaming.StreamManager.AdmitBudgetMs:F1} ms/frame (-admitbudget, task 168d)");
+            // -uploadring 0|1 (task 168e, cut E): mirror uploads through the staging ring + the per-frame cap
+            // -uploadcap KB (default 1024; 0 = keep the 3 MiB cap). -uploadcheck: GPU readback vs a CPU shadow.
+            int ui = Array.LastIndexOf(args, "-uploadring");
+            UploadRing.Enabled = ui >= 0 && ui + 1 < args.Length && args[ui + 1] == "1";
+            int uc = Array.LastIndexOf(args, "-uploadcap");
+            if (uc >= 0 && uc + 1 < args.Length && int.TryParse(args[uc + 1], out int ucKb) && ucKb >= 0) UploadRing.CapBytes = ucKb * 1024;
+            UploadShadow.Enabled = Array.IndexOf(args, "-uploadcheck") >= 0;
+            if (UploadRing.Enabled || UploadShadow.Enabled)
+                UnityEngine.Debug.Log($"[UploadRing] -uploadring {(UploadRing.Enabled ? 1 : 0)} cap {UploadRing.CapBytes / 1024} KiB  -uploadcheck {(UploadShadow.Enabled ? "on" : "off")} (task 168e)");
         }
         // Task 93d (8.15 row D1, owner Q49): with the shells on, tiers 1-2 never draw,
         // so they are not created (task 55's ledger: 193 MB). Shells off: as before.
@@ -581,6 +590,7 @@ public class Phase4Bootstrapper : MonoBehaviour
         // 8.15 C1: the world clock runs on GAME time (scaled), in play and in rigs alike;
         // world.state is only written when the run saves terrain (WorldState header).
         Streamer.AdvanceClock(Time.deltaTime);
+        UploadRing.TickShared();   // task 168e: poll the staging slots' GPU guards (once per frame)
         var sw = System.Diagnostics.Stopwatch.StartNew();
         Streamer.Update(RefTier0Centre ?? camPos);
         double streamMs = sw.Elapsed.TotalMilliseconds;
@@ -601,7 +611,8 @@ public class Phase4Bootstrapper : MonoBehaviour
             // The shells share the 3 MiB/frame cap (8.14 row 14): what the 0.1 m
             // mirror and the cascades left of it this frame.
             double shT0 = sw.Elapsed.TotalMilliseconds;   // task 115: -spikelog's shells_ms
-            Shells.Update(camPos, EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME - Streamer.LastUploadBytes);
+            Shells.Update(camPos, UploadRing.FrameBudget(EngineConfig.MAX_CLIPMAP_UPLOAD_BYTES_PER_FRAME) - Streamer.LastUploadBytes);
+            UploadRing.FlushShared();   // task 168e: the shells' staged writes, in one flush
             FrameGapProbe.LastShellsMs = sw.Elapsed.TotalMilliseconds - shT0;
             if (_shellsDebugAt >= 0f && Time.realtimeSinceStartup >= _shellsDebugAt) { WriteShellsDebug("t"); _shellsDebugAt = -1f; }
         }

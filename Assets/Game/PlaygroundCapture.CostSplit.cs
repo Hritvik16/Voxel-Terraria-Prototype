@@ -363,6 +363,10 @@ public partial class PlaygroundCapture
         RaymarchFeature.ShadowRoofSkip = arm == "roof_on" || arm == "roof_full" || (arm != "roof_off" && _costBaseRoof);
         RaymarchFeature.RoofIncremental = arm != "roof_full" && _costBaseRoofInc;   // task 168
         RaymarchFeature.SunDefer = arm == "sundefer_on" || (arm != "sundefer_off" && _costBaseSunDefer);   // task 168c
+        {   // task 168e: ring_on / ring_off -- the upload ring (FULL keeps the launch's -uploadring)
+            bool ring = arm == "ring_on" || (arm != "ring_off" && _costBaseRing);
+            if (VoxelEngine.Memory.UploadRing.Enabled != ring) VoxelEngine.Memory.UploadRing.SetEnabled(ring);
+        }
         RaymarchFeature.DebugRoofBuildOnly = arm == "roof_build";
         RaymarchFeature.ShadowHalfRes = arm == "half" || _costBaseHalf;
         FarField.RenderEnabled = arm != "far_off";
@@ -421,6 +425,7 @@ public partial class PlaygroundCapture
 
     private static int _costBaseShadow = -1, _costBaseTorch = -1;
     private static bool _costBaseRoof;
+    private static bool _costBaseRing, _costBaseRingSet;   // task 168e
     private static bool _costBaseSunDefer;   // task 168c
     private static bool _costBaseRoofInc = true;   // task 168: the launch's -roofinc
     private static float _costBaseRung1;
@@ -567,6 +572,7 @@ public partial class PlaygroundCapture
                                  UniversalAdditionalCameraData acd, StreamManager sm, FarField far)
     {
         if (_costBaseShadow < 0) { _costBaseShadow = RaymarchFeature.ShadowQualityLevel; _costBaseTorch = RaymarchFeature.TorchShadowsOverride; _costBaseRoof = RaymarchFeature.ShadowRoofSkip; _costBaseSunDefer = RaymarchFeature.SunDefer; _costBaseRoofInc = RaymarchFeature.RoofIncremental; _costBaseRung1 = RaymarchFeature.Rung1DistanceOverrideM; _costBaseHalf = RaymarchFeature.ShadowHalfRes; _costBaseSee = RaymarchFeature.SeeThroughLiquids; _costBaseFarShade = RaymarchFeature.FarShade; _costBaseSkyExit = RaymarchFeature.ShellSkyExit; _costBaseColLeap = RaymarchFeature.ShellColumnLeap; _costBasePrepass = RaymarchFeature.ShellPrepass; _costBaseNearSh = RaymarchFeature.NearShadowShells; _costBaseDiet = RaymarchFeature.ShellKernelDiet; _costBaseHoleLeap = RaymarchFeature.ShellHoleLeap; _costBaseHeightBound = RaymarchFeature.ShellHeightBound; _costBaseDiet2 = RaymarchFeature.KernelDiet2; _costBaseSkyProbe = RaymarchFeature.UseSkyProbeAmbient; _costBaseSkyTilt = RaymarchFeature.SkyProbeTilt; _costBaseClamp = RaymarchFeature.ShadowMaxDistanceOverrideM; _costBaseReuse = RaymarchFeature.ShadowReusePeriod; }
+        if (!_costBaseRingSet) { _costBaseRing = VoxelEngine.Memory.UploadRing.Enabled; _costBaseRingSet = true; }   // task 168e
         cam.transform.position = path.pos[0]; cam.transform.rotation = path.rot[0];
         Playground.DebugSuspendFluidSim = true;
         yield return NearSettle(far, sm);
@@ -646,6 +652,36 @@ public partial class PlaygroundCapture
                         ScreenCapture.CaptureScreenshot(still.Replace(".png", suffix)); yield return Frames(2);
                     }
                     L($"  [sdpair] {Path.GetFileName(still)}: raw / raw2 / sdback sun defer {(sd ? "ON" : "OFF")}, sdflip {(sd ? "OFF" : "ON")}; kernels flip {kinds[0]}, back {kinds[1]}");
+                }
+                // Task 168e: -costringpair -- the upload ring flipped, the WHOLE mirror re-uploaded through the flipped
+                // path (TerrainClipmap.DebugDirtyAllHeld), drained, shot; then flipped back, re-uploaded, shot again.
+                // raw2 / ringflip / ringback must be 0 px. -uploadcheck then reads the GPU buffers back (UploadShadow).
+                if (System.Array.IndexOf(System.Environment.GetCommandLineArgs(), "-costringpair") >= 0 && Phase4Bootstrapper.Clipmap != null)
+                {
+                    bool rg = VoxelEngine.Memory.UploadRing.Enabled;
+                    var notes = new List<string>();
+                    foreach (var (on, suffix) in new[] { (!rg, "_raw_ringflip.png"), (rg, "_raw_ringback.png") })
+                    {
+                        VoxelEngine.Memory.UploadRing.SetEnabled(on);
+                        int n = Phase4Bootstrapper.Clipmap.DebugDirtyAllHeld();
+                        float t0 = Time.realtimeSinceStartup;
+                        while (Phase4Bootstrapper.Clipmap.DirtyCount > 0 && Time.realtimeSinceStartup - t0 < 40f) yield return null;
+                        float drain = Time.realtimeSinceStartup - t0;
+                        yield return Frames(10);
+                        ScreenCapture.CaptureScreenshot(still.Replace(".png", suffix)); yield return Frames(2);
+                        notes.Add($"ring {(on ? "ON" : "OFF")}: {n} chunks re-uploaded, drained in {drain:F1} s (dirty left {Phase4Bootstrapper.Clipmap.DirtyCount})");
+                    }
+                    L($"  [ringpair] {Path.GetFileName(still)}: raw / raw2 / ringback ring {(rg ? "ON" : "OFF")}, ringflip {(rg ? "OFF" : "ON")}; " + string.Join("; ", notes));
+                    if (VoxelEngine.Memory.UploadRing.On) L($"  [ringpair] ring {VoxelEngine.Memory.UploadRing.Shared.Report()}");
+                }
+                if (VoxelEngine.Memory.UploadShadow.Enabled)
+                {
+                    if (VoxelEngine.Memory.UploadRing.On) { VoxelEngine.Memory.UploadRing.FlushShared(); }
+                    yield return Frames(6);   // the last staged copies reach the GPU
+                    var lines = new List<string>();
+                    long bad = VoxelEngine.Memory.UploadShadow.Compare(lines, out long words);
+                    L($"  [uploadcheck] {Path.GetFileName(still)}: GPU vs CPU shadow (sequential SetData): {bad} of {words} written words differ  (ring {(VoxelEngine.Memory.UploadRing.Enabled ? "ON" : "OFF")}, recorded {VoxelEngine.Memory.UploadShadow.WordsRecorded})");
+                    foreach (var ln in lines) L(ln);
                 }
                 Playground.DebugHideUi = hideUi2; Minimap.Visible = mapOn2;
                 CostApply(r.arm);

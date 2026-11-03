@@ -903,3 +903,17 @@ Tests `TorchFloodL3Tests`: `Anchored_PostWithObstacles_EqualsOracle_AndMoreDirec
 (`run-cost-split.sh EXTRA="-costpaths torch -tfl3 1 [-tfanchor 0 -tfeditlit 0]"`, `Screenshots/169/tfl3_169.txt`): per torch 260.6 -> 225.8 ms
 (searched voxels 2.41 -> 2.19 M), re-floods per camp edit 10-11 -> 7, settle 2.17-2.77 -> 1.23-2.05 s, camp fill 13.5 -> 5.3 s; exact + GPU PASS at
 every step. Open-ground EditMode flood 61 -> 32 ms; small rooms +1.4 ms (anchor passes that find nothing).
+
+**Task 168e (cut E, upload pacing through a staging ring; flag OFF).** `-uploadring 1` (`UploadRing.Enabled`; `Assets/CoreEngine/Mirror/UploadRing.cs`)
+routes every per-frame mirror write through the ring instead of `SetData`: the TerrainClipmap entries, bodies, packed air-mip and fluid directory, plus the ShellStore
+bricks, pages, directory and heights. A write is copied into a `LockBufferForWrite` staging slot (4 x 1 MiB + 4 x 128 KiB records = 4.5 MiB). Each producer pass then flushes
+once: `UploadScatter.compute` copies staging -> destination on the GPU. Records that overlap within a flush split it into ordered dispatches. A slot is reused only
+after a 4-byte AsyncGPUReadback ticket shows the GPU has passed its copies. With no slot free, a temporary of at most one slot is allocated; above `TEMP_LIMIT` 32 MiB the CPU waits for the GPU.
+Writes go in slot-sized pieces. While the ring is on, the clipmap + shells per-frame budget is capped at `-uploadcap KB` (default 1024; 0 = keep 3 MiB). Progress rule: with the
+ring on, the first non-exempt chunk of a pass always uploads. Without it, a dense chunk costing more than the cap minus the ~585 KB air-mip reserve never landed while
+the camera stood still (first run: 24,455 px of stale far terrain at walk_open). `-uploadcheck` (`UploadShadow`) records every written word on the CPU and reads
+the GPU buffers back for comparison. Capture `-costringpair` flips the ring, re-uploads the whole mirror (`TerrainClipmap.DebugDirtyAllHeld`), drains it and shoots `_raw_ringflip/_ringback`.
+Tests `UploadRingTests`: a CPU "GPU" runs dispatches 0-4 frames late, and drained == sequential SetData byte for byte over 12 seeds. The negative control (guards ignored)
+corrupts. No temporary is larger than a slot. In-player check (`Logs/costsplit_2026-11-02_193709.txt`): 0 of 57.1 M / 67.2 M written words differ, ring ON raw == ring OFF raw 0 px
+at walk_near and walk_open, and the whole mirror drains in 10.3-10.9 s (SetData at 3 MiB: 4.2-4.4 s). Warm ABBA playwalk (pre-progress-rule build): > 33 ms 19.1 -> 16.2 %,
+p95 44.9 -> 41.8, p99 65.3 -> 52.9 ms, > 100 ms 6 -> 5. That misses 168e's ON gate (-5 points or > 100 halved), so the flag stays OFF.

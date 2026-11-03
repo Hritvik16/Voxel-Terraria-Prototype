@@ -2127,6 +2127,9 @@ public partial class PlaygroundCapture : MonoBehaviour
               $"p50 {smAdmit.AdmitWaitQuantileMs(0.5):F0}  p95 {smAdmit.AdmitWaitQuantileMs(0.95):F0}  max {smAdmit.AdmitWaitMsMax:F0} ms   " +
               $"budget stops {smAdmit.AdmitBudgetStops}   load deficit at end {smAdmit.LoadDeficit()}   pending {smAdmit.PendingLoads}");
         }
+        // Task 168e: the upload ring (row E) and the mirror's backlog at the end.
+        L($"  UPLOAD (task 168e): ring {(VoxelEngine.Memory.UploadRing.On ? VoxelEngine.Memory.UploadRing.Shared.Report() : "OFF (SetData)")}   " +
+          $"clipmap dirty at end {(Phase4Bootstrapper.Clipmap != null ? Phase4Bootstrapper.Clipmap.DirtyCount : -1)}");
         if (shellsW != null)
         {
             L($"  [shells] at the end: {ShellCountsLine(shellsW)}");
