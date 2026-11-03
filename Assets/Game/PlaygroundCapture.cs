@@ -1969,6 +1969,10 @@ public partial class PlaygroundCapture : MonoBehaviour
         float worstWindowMs = 0f, worstAtMin = 0f;
         float angle = 0f;
         long fluidTicksAtStart = pg != null ? pg.DebugFluidTicks : -1;
+        var smAdmit = Phase4Bootstrapper.Streamer;   // task 168d: admission wait over the run
+        smAdmit?.ResetAdmitWaitStats();
+        long admitted0Run = smAdmit?.ChunksAdmittedTotal ?? 0;
+        float admitRunStart = Time.realtimeSinceStartup;
         var rb = pg != null ? pg.DebugReadback : null;
         long rbTicks0 = rb?.TicksLanded ?? 0, rbLat0 = rb?.LandLatencyFramesTotal ?? 0,
              rbDrain0 = rb?.DrainFramesTotal ?? 0, rbGap0 = rb?.IssueGapFramesTotal ?? 0,
@@ -2114,6 +2118,15 @@ public partial class PlaygroundCapture : MonoBehaviour
         L("");
         L(WholeRunLine(allMs));
         if (dynRows.Count > 0) L(UpscalerRowsLine(dynRows));
+        if (smAdmit != null)   // task 168d: what the admission budget costs in time-to-visible
+        {
+            float aSecs = Math.Max(1f, Time.realtimeSinceStartup - admitRunStart);
+            L($"  ADMIT (task 168d): budget {(VoxelEngine.Streaming.StreamManager.AdmitBudgetMs > 0 ? $"{VoxelEngine.Streaming.StreamManager.AdmitBudgetMs:F1} ms" : "OFF")}   " +
+              $"admitted {smAdmit.ChunksAdmittedTotal - admitted0Run} ({(smAdmit.ChunksAdmittedTotal - admitted0Run) / aSecs:F1}/s)   " +
+              $"completion->admit wait mean {(smAdmit.AdmitWaitCount > 0 ? smAdmit.AdmitWaitMsTotal / smAdmit.AdmitWaitCount : 0):F1} ms  " +
+              $"p50 {smAdmit.AdmitWaitQuantileMs(0.5):F0}  p95 {smAdmit.AdmitWaitQuantileMs(0.95):F0}  max {smAdmit.AdmitWaitMsMax:F0} ms   " +
+              $"budget stops {smAdmit.AdmitBudgetStops}   load deficit at end {smAdmit.LoadDeficit()}   pending {smAdmit.PendingLoads}");
+        }
         if (shellsW != null)
         {
             L($"  [shells] at the end: {ShellCountsLine(shellsW)}");

@@ -876,3 +876,15 @@ identical to the inline ones, every task-168c line under `VE_SUNDEFER`, rule). R
 (control 0 px, flip/back the same count): float code-gen of the restructured shading, not wrong sunVis. Indicative (cold, one launch, not a
 measurement): sun kernel p50 67.7 / 68.0 vs FULL 64.7 / 59.9 ms walk_near, 41.7 / 42.4 vs 30.1 / 34.0 walk_open -- the double shading costs more
 than the march saves. STOP_FOR_OWNER; no warm measurement (the task's rule for a non-exact result).
+
+**Task 168d (cut E, streamer admission time-slice; flag OFF).** `-admitbudget <ms>` (`StreamManager.AdmitBudgetMs`, default 0 = the count cap
+`MAX_CHUNK_LOADS_PER_FRAME` only, as before): the per-frame admission drain (`DrainCompletions` in `Update`) stops once it has spent the budget,
+after at least one admitted chunk, and leaves the rest of the FIFO for the next frame (checked before dequeuing). Startup / `WaitForIdle` drains are
+not budgeted. The completion queue is bounded by the scratch pool (2 x workers), so a slow drain throttles dispatch instead of building a backlog.
+Every sustained/playwalk report now prints an `ADMIT (task 168d)` line: budget, admitted/s, completion->admit wait mean/p50/p95/max, budget stops,
+load deficit at the end. Test `AdmitBudgetTests` (a ~0 ms budget admits 1/frame; driven with Update only to rest, it gives the same resident set,
+voxels (strided) and brick layout as the unbudgeted drain; budget OFF keeps the count cap). RESULT (warm, AC, 432 rows, `-spikelog` both arms,
+ABBA `Logs/tg2world_20261102_153238/153721/154216/154709.txt`, warm-up `_152217`): > 33 ms A 44.3 / 39.9 %, B (4 ms) 36.9 / 43.4 %; p95 A 58.1 / 55.4,
+B 55.0 / 57.0 ms -- within noise. Reason: with shells ON (play) an admission costs ~0.1-0.25 ms (168b's ~1.1 ms came from its `-shells 0` CEILING walk,
+which allocates cascade tiers 1-2 and pays `SubmitPrecomputed` per admit), so the drain is 1.8 ms on a > 33 ms frame and removing it ENTIRELY would
+cut the share only ~3 points. Kept OFF.

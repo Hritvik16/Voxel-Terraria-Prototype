@@ -348,6 +348,41 @@ namespace VoxelEngine.Streaming
         // the crossing frames). `-evictslice N` (EngineConfig.EVICT_SLICE_PER_FRAME
         // = 32 is the value tested). Read every frame.
         public static int EvictSlicePerFrame = 0;
+
+        // Task 168d (cut E, streamer time-slice): > 0 = the per-frame admission
+        // drain (DrainCompletions in Update) stops once it has spent this many ms,
+        // after at least one admitted chunk; the rest of the completion queue waits
+        // for the next frame, in the same FIFO order. 0 = only the count cap
+        // (EngineConfig.MAX_CHUNK_LOADS_PER_FRAME), as before. Each admission costs
+        // ~1.1 ms of main thread (168b spike log), so a 16-chunk burst was ~17 ms in
+        // one frame. Exact at rest: the same completions are admitted by the same
+        // code, only spread over more frames (AdmitBudgetTests). The completion queue
+        // is bounded by the scratch pool (2 x workers), so a slow drain throttles
+        // dispatch instead of growing a backlog. Startup / WaitForIdle drains are not
+        // budgeted (no frame to protect). `-admitbudget <ms>`. Read every frame.
+        public static double AdmitBudgetMs = 0;
+
+        /// Task 168d: completion -> admission wait (the queue time the budget can
+        /// add to time-to-visible), per-frame admissions only (Update's drain).
+        public long AdmitWaitCount { get; private set; }
+        public double AdmitWaitMsTotal { get; private set; }
+        public double AdmitWaitMsMax { get; private set; }
+        /// Frames whose drain stopped on the time budget with completions still queued.
+        public long AdmitBudgetStops { get; private set; }
+        private readonly int[] _admitWaitHist = new int[512];   // 1 ms bins, last = overflow
+        /// The q-quantile (0..1) of the admit wait in ms (1 ms bins, upper edge).
+        public double AdmitWaitQuantileMs(double q)
+        {
+            if (AdmitWaitCount == 0) return 0;
+            long target = (long)System.Math.Ceiling(q * AdmitWaitCount), acc = 0;
+            for (int i = 0; i < _admitWaitHist.Length; i++) { acc += _admitWaitHist[i]; if (acc >= target) return i + 1; }
+            return _admitWaitHist.Length;
+        }
+        public void ResetAdmitWaitStats()
+        {
+            AdmitWaitCount = 0; AdmitWaitMsTotal = 0; AdmitWaitMsMax = 0; AdmitBudgetStops = 0;
+            System.Array.Clear(_admitWaitHist, 0, _admitWaitHist.Length);
+        }
         public const float BAND_SWITCH_GAIN = 1.25f;
         public const int UNDERGROUND_MARGIN = 80;          // voxels (8 m)
         public const float FALL_SPEED_CENTRED = 4f;         // m/s downward
@@ -512,6 +547,7 @@ namespace VoxelEngine.Streaming
             public Exception error;
             // StreamTrace only (zero when tracing is off): worker phase ticks.
             public long traceGenTicks, traceDownTicks, traceDoneTs;
+            public long doneTs;              // task 168d: Stopwatch timestamp at enqueue (always set; admit-wait stats)
             public double traceGenCpuMs, traceDownCpuMs; // task 25: thread CPU time, -1 if unavailable
             public int traceGcDuringWork;
         }
@@ -764,7 +800,7 @@ namespace VoxelEngine.Streaming
             DispatchLoads(camChunk);
             double tp2 = sw.Elapsed.TotalMilliseconds;
             _transferTicks = 0;
-            DrainCompletions();
+            DrainCompletions(budgeted: true);
             double tp3 = sw.Elapsed.TotalMilliseconds;
             ApplyPoolPressureValve(camChunk);
             double tp4 = sw.Elapsed.TotalMilliseconds;
@@ -1136,17 +1172,30 @@ namespace VoxelEngine.Streaming
             }
             finally
             {
+                completion.doneTs = System.Diagnostics.Stopwatch.GetTimestamp();
                 _completions.Enqueue(completion);
                 Interlocked.Decrement(ref _inFlight);
             }
         }
 
         // ---- MAIN THREAD. All shared-state mutation happens here. ----
-        private void DrainCompletions()
+        private void DrainCompletions(bool budgeted = false)
         {
             int admitted = 0;
-            while (admitted < EngineConfig.MAX_CHUNK_LOADS_PER_FRAME && _completions.TryDequeue(out var c))
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            long budgetTicks = budgeted && AdmitBudgetMs > 0
+                ? (long)(AdmitBudgetMs * System.Diagnostics.Stopwatch.Frequency / 1000.0) : long.MaxValue;
+            while (admitted < EngineConfig.MAX_CHUNK_LOADS_PER_FRAME)
             {
+                // Task 168d: the time budget, checked BEFORE dequeuing so nothing is
+                // taken out of the FIFO and put back. At least one admission per frame.
+                if (admitted > 0 && System.Diagnostics.Stopwatch.GetTimestamp() - t0 >= budgetTicks)
+                {
+                    if (!_completions.IsEmpty) AdmitBudgetStops++;
+                    break;
+                }
+                if (!_completions.TryDequeue(out var c)) break;
+                double waitMs = budgeted ? (System.Diagnostics.Stopwatch.GetTimestamp() - c.doneTs) * 1000.0 / System.Diagnostics.Stopwatch.Frequency : 0;
                 bool discarded = false;
                 long ta0 = StreamTrace.Enabled ? StreamTrace.Now : 0;
                 try
@@ -1259,6 +1308,12 @@ namespace VoxelEngine.Streaming
 
                     ChunksAdmittedTotal++;
                     admitted++;
+                    if (budgeted)   // task 168d: admitted chunks only (a discard is never visible)
+                    {
+                        AdmitWaitCount++; AdmitWaitMsTotal += waitMs;
+                        if (waitMs > AdmitWaitMsMax) AdmitWaitMsMax = waitMs;
+                        _admitWaitHist[System.Math.Min(_admitWaitHist.Length - 1, (int)waitMs)]++;
+                    }
                     if (StreamTrace.Enabled)
                     {
                         long ta1 = StreamTrace.Now;

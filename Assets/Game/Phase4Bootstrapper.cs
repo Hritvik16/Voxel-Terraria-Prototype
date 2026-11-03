@@ -380,6 +380,14 @@ public class Phase4Bootstrapper : MonoBehaviour
             int ei = Array.LastIndexOf(args, "-evictslice");
             VoxelEngine.Streaming.StreamManager.EvictSlicePerFrame =
                 ei >= 0 && ei + 1 < args.Length && int.TryParse(args[ei + 1], out int es) && es >= 0 ? es : 0;
+            // -admitbudget <ms> (task 168d, cut E): per-frame time budget for the
+            // streamer's admission drain; 0 / absent = the count cap only (as before).
+            int ai = Array.LastIndexOf(args, "-admitbudget");
+            VoxelEngine.Streaming.StreamManager.AdmitBudgetMs =
+                ai >= 0 && ai + 1 < args.Length && double.TryParse(args[ai + 1], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out double ab) && ab > 0 ? ab : 0;
+            if (VoxelEngine.Streaming.StreamManager.AdmitBudgetMs > 0)
+                UnityEngine.Debug.Log($"[StreamManager] admission time budget {VoxelEngine.Streaming.StreamManager.AdmitBudgetMs:F1} ms/frame (-admitbudget, task 168d)");
         }
         // Task 93d (8.15 row D1, owner Q49): with the shells on, tiers 1-2 never draw,
         // so they are not created (task 55's ledger: 193 MB). Shells off: as before.
