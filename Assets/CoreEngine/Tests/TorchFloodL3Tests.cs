@@ -407,6 +407,110 @@ public class TorchFloodL3Tests
         Assert.LessOrEqual(live.FloodsDone - floods, 2, "only the torches whose box the block touches re-flood");
     }
 
+    // ---------------------------------------------------------------------
+    // Task 169: the two exact cuts
+    // ---------------------------------------------------------------------
+
+    [Test]
+    public void Anchored_PostWithObstacles_EqualsOracle_AndMoreDirect()
+    {
+        // open ground, a torch on a 1.5 m post; obstacles that block some first moves and some anchored boxes:
+        // a stone voxel at the torch's +x side, a 0.1 m plate hanging 0.3 m below the torch on its -z side,
+        // a pillar 0.5 m from the post, and a ledge touching the post 0.2 m under the torch on its -x side
+        NewWorld(new int3(3, 3, 3), c => c.y == 0 ? Materials.Stone : (byte)0);
+        Fill(new int3(200, 128, 170), new int3(215, 140, 230), Materials.Stone);
+        var t = new int3(195, 143, 189);
+        for (int y = 128; y < 143; y++) Put(new int3(t.x, y, t.z), Materials.Stone);
+        Put(t + new int3(1, 0, 0), Materials.Stone);
+        foreach (int3 v in Cells(t + new int3(-6, -3, -9), t + new int3(6, -3, -3))) Put(v, Materials.Stone);
+        foreach (int3 v in Cells(new int3(t.x - 5, 128, t.z + 4), new int3(t.x - 4, 141, t.z + 5))) Put(v, Materials.Stone);
+        foreach (int3 v in Cells(t + new int3(-3, -2, -1), t + new int3(-1, -2, 1))) Put(v, Materials.Stone);
+        Put(t, Materials.Torch);
+        var torches = new Dictionary<int3, byte> { [t] = Materials.Torch };
+        var o = OracleEncode(torches, 12f, out _);
+        float[] direct = new float[2];
+        long anchored = 0;
+        bool was = TorchFloodBuild.AnchorsOn;
+        try
+        {
+            for (int k = 0; k < 2; k++)
+            {
+                TorchFloodBuild.AnchorsOn = k == 1;
+                var p = Scratch(torches, 12f);
+                AssertSame(p.Current, o, $"anchors {(k == 1 ? "ON" : "OFF")} vs oracle");
+                direct[k] = p.FloodLog[0].w;
+                if (k == 1) anchored = p.AnchoredSum;
+            }
+        }
+        finally { TorchFloodBuild.AnchorsOn = was; }
+        UnityEngine.Debug.Log($"[169] post + obstacles: direct lit bricks {direct[0]} -> {direct[1]} (anchored {anchored}); both EXACT == oracle");
+        Assert.Greater(anchored, 0, "some bricks are anchored");
+        Assert.Greater(direct[1], direct[0], "anchors add direct bricks");
+    }
+
+    [Test]
+    public void EditCut_SkipsUnlitRefloodsLitAndNewPaths()
+    {
+        // two rooms behind a 1.6 m (2-brick) stone wall; torch A in room 1, torch C in room 2; both 6 m boxes
+        // reach across the wall
+        NewWorld(new int3(1, 1, 1), c => Materials.Stone);
+        Fill(new int3(20, 20, 20), new int3(47, 49, 79), 0);
+        Fill(new int3(64, 20, 20), new int3(107, 49, 79), 0);
+        var tA = new int3(36, 20, 50); var tC = new int3(100, 20, 50);
+        Put(tA, Materials.Torch); Put(tC, Materials.TorchBlue);
+        var torches = new Dictionary<int3, byte> { [tA] = Materials.Torch, [tC] = Materials.TorchBlue };
+        var live = NewPool(6f);
+        Step(live, torches, null, 6f, "two rooms", true);
+        int f0 = live.FloodsDone;
+
+        // 1. a block in room 2: inside A's box, but A lights nothing near it (behind the wall) -> only C re-floods
+        var blk = Cells(new int3(70, 30, 30), new int3(72, 32, 32));
+        foreach (int3 v in blk) Put(v, Materials.Stone);
+        live.ResetEditStats();
+        Step(live, torches, blk, 6f, "block in room 2", true);
+        Assert.AreEqual(1, live.FloodsDone - f0, "only C re-floods");
+        Assert.GreaterOrEqual(live.EditSkips, 1, "A is skipped (its box holds the block)");
+        f0 = live.FloodsDone;
+
+        // 2. a cavity dug inside the wall: sealed, lit by nobody -> nobody re-floods
+        var cav = Cells(new int3(54, 30, 50), new int3(56, 32, 52));
+        foreach (int3 v in cav) Put(v, 0);
+        Step(live, torches, cav, 6f, "sealed cavity in the wall", true);
+        Assert.AreEqual(0, live.FloodsDone - f0, "a sealed cavity changes no flood");
+
+        // 3. a 0.3 m tunnel through the wall (a NEW path for both): both re-flood, light crosses
+        var tun = Cells(new int3(48, 30, 50), new int3(63, 32, 52));
+        foreach (int3 v in tun) Put(v, 0);
+        Step(live, torches, tun, 6f, "tunnel through the wall", true);
+        Assert.AreEqual(2, live.FloodsDone - f0, "both torches re-flood");
+        f0 = live.FloodsDone;
+
+        // 4. one voxel opened right next to A's lit air but only edge-adjacent to it (the wall's face corner):
+        // A must re-flood (its 3^3 touches a lit brick) even though the voxel itself was closed
+        int3 nook = new int3(48, 21, 21);
+        Put(nook, 0);
+        Step(live, torches, new List<int3> { nook }, 6f, "nook opened at the wall's face", true);
+        Assert.GreaterOrEqual(live.FloodsDone - f0, 1, "A re-floods");
+    }
+
+    [Test]
+    public void EditCut_SealedTorch_OpeningItsShellRefloods()
+    {
+        // a torch inside a 1-voxel stone shell lights nothing; opening one shell voxel must re-flood it
+        // (nothing was lit before: only the torch-brick rule catches this)
+        var t = new int3(36, 25, 50);
+        var torches = Room(v => math.all(math.abs(v - t) <= 1) && !v.Equals(t), t);
+        var live = NewPool(6f);
+        Step(live, torches, Cells(t - 1, t + 1), 6f, "sealed torch", true);
+        Assert.AreEqual(0, live.AirBricks + live.MixedBricks, "a sealed torch lights nothing");
+        int f0 = live.FloodsDone;
+        int3 hole = t + new int3(1, 0, 0);
+        Put(hole, 0);
+        Step(live, torches, new List<int3> { hole }, 6f, "shell opened", true);
+        Assert.AreEqual(1, live.FloodsDone - f0, "the torch re-floods");
+        Assert.Greater(live.AirBricks + live.MixedBricks, 0, "the room is lit through the hole");
+    }
+
     [Test]
     public void Report_FloodPhases_OpenGround()
     {
@@ -428,8 +532,11 @@ public class TorchFloodL3Tests
             double best = 1e9;
             for (int k = 0; k < 5; k++) { sw.Restart(); TorchFloodBuild.Snapshot(_store, lo, dims >> 3, sc); best = Math.Min(best, sw.Elapsed.TotalMilliseconds); }
             line.Append($" snapshot {best:F2}");
+            bool was = TorchFloodBuild.AnchorsOn;
+            foreach (bool anc in new[] { false, true })
             foreach (int ph in new[] { 1, 2, 0 })
             {
+                TorchFloodBuild.AnchorsOn = anc;
                 best = 1e9;
                 for (int k = 0; k < 5; k++)
                 {
@@ -439,9 +546,11 @@ public class TorchFloodL3Tests
                     sw.Restart(); job.Run(); best = Math.Min(best, sw.Elapsed.TotalMilliseconds);
                     c.Dispose();
                 }
-                line.Append($" | to {(ph == 1 ? "direct" : ph == 2 ? "seeds" : "end")} {best:F2}");
+                line.Append($" | anchors {(anc ? 1 : 0)} to {(ph == 1 ? "direct" : ph == 2 ? "seeds" : "end")} {best:F2}");
+                if (ph == 0) line.Append($" (searched {stats[0]:N0} direct {stats[1]} anchored {stats[7]})");
             }
-            line.Append($" | searched {stats[0]:N0} direct {stats[1]} stored {stats[2]} seeds {stats[4]:N0} pops {stats[5]:N0} searched bricks {stats[6]}; scratch {sc.Bytes / 1048576.0:F1} MB");
+            TorchFloodBuild.AnchorsOn = was;
+            line.Append($" | searched {stats[0]:N0} direct {stats[1]} stored {stats[2]} seeds {stats[4]:N0} pops {stats[5]:N0} searched bricks {stats[6]} anchored {stats[7]}; scratch {sc.Bytes / 1048576.0:F1} MB");
             UnityEngine.Debug.Log(line.ToString());
         }
         finally { stats.Dispose(); sc.Dispose(); }

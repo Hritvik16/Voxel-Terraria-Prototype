@@ -10,8 +10,10 @@
 //      (voxel, material) signature): a removed torch drops its cache, an added
 //      one is queued;
 //   2. queues every torch whose 12 m box an edit touched (NotifyVoxelChanged:
-//      EditService, the fluid op readback and the edit-op replay call it) or
-//      whose box chunks were admitted / evicted (the Chunk object per chunk);
+//      EditService, the fluid op readback and the edit-op replay call it) AND
+//      that the edit can change (task 169 cut 2, EditLitOnly: the torch lights a
+//      brick of the edit grown by 1 voxel, or its own brick; exact), or whose box
+//      chunks were admitted / evicted (the Chunk object per chunk);
 //   3. collects finished flood jobs (one torch per job, TorchFloodBuild.
 //      FloodBrickJob on a worker): the torch's new cache replaces its old one and
 //      every brick either lit is queued for a re-merge;
@@ -84,6 +86,8 @@ namespace VoxelEngine.Rendering
                     case "-tfk": float.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out FalloffK); break;
                     case "-tfwrap": float.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out Wrap); break;
                     case "-tfdir": int.TryParse(v, out DirMode); break;
+                    case "-tfanchor": TorchFloodBuild.AnchorsOn = v != "0"; break;
+                    case "-tfeditlit": EditLitOnly = v != "0"; break;
                     case "-tfreach": float.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ReachM); break;
                 }
             }
@@ -109,7 +113,11 @@ namespace VoxelEngine.Rendering
             int3 a = lo >> 3, b = hi >> 3;
             for (int z = a.z; z <= b.z; z++)
             for (int y = a.y; y <= b.y; y++)
-            for (int x = a.x; x <= b.x; x++) _inst._editBricks.Add(new int3(x, y, z));
+            for (int x = a.x; x <= b.x; x++)
+            {
+                int3 bb = new int3(x, y, z) << 3;
+                _inst.AddEdit(math.max(lo, bb), math.min(hi, bb + 7));
+            }
         }
 
         /// Teardown (Phase4Bootstrapper): completes the jobs and frees everything.
@@ -138,6 +146,7 @@ namespace VoxelEngine.Rendering
             public TorchFloodCache cache;
             public bool need = true;
             public Slot job;
+            public long skipPass;
         }
 
         private sealed class Slot
@@ -163,10 +172,11 @@ namespace VoxelEngine.Rendering
         private readonly Dictionary<int3, TorchRec> _recs = new Dictionary<int3, TorchRec>();
         private readonly Dictionary<int3, List<TorchRec>> _chunkRecs = new Dictionary<int3, List<TorchRec>>();
         private readonly Dictionary<int3, Chunk> _watch = new Dictionary<int3, Chunk>();
-        private readonly HashSet<int3> _editBricks = new HashSet<int3>();
+        /// Edited voxels since the last Step: per brick, the bounding box (world voxels) of its edited voxels.
+        private readonly Dictionary<int3, (int3 lo, int3 hi)> _editBoxes = new Dictionary<int3, (int3, int3)>();
         private readonly List<Slot> _slots = new List<Slot>();
         private readonly List<TorchFloodCache> _retired = new List<TorchFloodCache>();
-        private long _serial, _seenRev = -1;
+        private long _serial, _seenRev = -1, _editPass;
         private (int3 v, byte m)[] _builtSig = Array.Empty<(int3, byte)>();
 
         // the union (the CPU copy of the GPU buffers)
@@ -202,6 +212,8 @@ namespace VoxelEngine.Rendering
         public double LastRebuildMs, LastFloodMs, LastEncodeMs, LastUploadMs;
         public int LastTorches, LastTorchesSkipped;
         public int FloodsDone, MergesDone;
+        /// Task 169: bricks the anchored test made direct, summed over finished floods.
+        public long AnchoredSum;
         public long UploadBytesTotal;
         /// Main-thread ms of every Tick that had work (the L3 report).
         public readonly List<float> BusyTickMs = new List<float>();
@@ -258,7 +270,7 @@ namespace VoxelEngine.Rendering
         {
             get
             {
-                if (_merging || _editBricks.Count > 0 || !_dirtyBricks.IsEmpty) return true;
+                if (_merging || _editBoxes.Count > 0 || !_dirtyBricks.IsEmpty) return true;
                 foreach (var s in _slots) if (s.busy) return true;
                 foreach (var r in _recs.Values) if (r.need) return true;
                 return false;
@@ -329,7 +341,41 @@ namespace VoxelEngine.Rendering
             foreach (var kv in want) if (!_recs.ContainsKey(kv.Key)) AddRec(kv.Key, kv.Value);
         }
 
-        public void OnVoxelChanged(int3 v) => _editBricks.Add(v >> 3);
+        public void OnVoxelChanged(int3 v) => AddEdit(v, v);
+
+        /// [lo, hi] lies inside one brick.
+        private void AddEdit(int3 lo, int3 hi)
+        {
+            int3 b = lo >> 3;
+            if (_editBoxes.TryGetValue(b, out var e)) _editBoxes[b] = (math.min(e.lo, lo), math.max(e.hi, hi));
+            else _editBoxes[b] = (lo, hi);
+        }
+
+        /// Task 169 cut 2 (-tfeditlit 0|1, default ON): an edit re-floods only the torches it can change. Exact:
+        /// CLOSING an open voxel e changes torch t's costs only if e was lit by t (a path or a move's footprint
+        /// through e makes d(e) < reach); OPENING e only if a voxel next to e (its 3^3, the torch voxel included)
+        /// was lit (the first point of a new path next to e is reached without e). Either way the edited brick
+        /// changes its kind / split cells, which matters only where t lights that brick. So t re-floods iff it
+        /// lights a brick of the edit's box grown by 1 voxel, or that box reaches t's own brick. A torch whose
+        /// flood is in flight (snapshot taken before the edit) or that has no cache re-floods as before. 0 =
+        /// task 165's rule (every torch whose 12 m box holds the edit).
+        public static bool EditLitOnly = true;
+        /// Edit -> torch decisions since the last ResetAll / ResetEditStats: re-flooded, skipped (cut 2).
+        public int EditRefloods, EditSkips;
+        public void ResetEditStats() { EditRefloods = EditSkips = 0; }
+
+        private static bool EditTouchesLit(TorchRec r, int3 lo, int3 hi)
+        {
+            int3 a = (lo - 1) >> 3, b = (hi + 1) >> 3, tb = r.v >> 3;
+            for (int z = a.z; z <= b.z; z++)
+            for (int y = a.y; y <= b.y; y++)
+            for (int x = a.x; x <= b.x; x++)
+            {
+                int3 wb = new int3(x, y, z);
+                if (wb.Equals(tb) || r.cache.LightsBrick(wb)) return true;
+            }
+            return false;
+        }
 
         private void AddRec(int3 v, byte m)
         {
@@ -399,13 +445,28 @@ namespace VoxelEngine.Rendering
         {
             var sw = Stopwatch.StartNew();
             double last = 0;
-            // edits -> the torches whose box holds them
-            if (_editBricks.Count > 0)
+            // edits -> the torches whose box holds them (cut 2: and that they can change)
+            if (_editBoxes.Count > 0)
             {
-                foreach (int3 b in _editBricks)
-                    if (_chunkRecs.TryGetValue(b >> 4, out var l))
-                        foreach (var r in l) if (InBox(r, b)) r.need = true;
-                _editBricks.Clear();
+                _editPass++;
+                foreach (var kv in _editBoxes)
+                {
+                    int3 b = kv.Key;
+                    if (!_chunkRecs.TryGetValue(b >> 4, out var l)) continue;
+                    foreach (var r in l)
+                    {
+                        if (r.need || !InBox(r, b)) continue;
+                        if (!EditLitOnly || r.job != null || r.cache == null || EditTouchesLit(r, kv.Value.lo, kv.Value.hi))
+                        {
+                            r.need = true;
+                            EditRefloods++;
+                            if (r.skipPass == _editPass) EditSkips--;
+                            r.skipPass = 0;
+                        }
+                        else if (r.skipPass != _editPass) { r.skipPass = _editPass; EditSkips++; }
+                    }
+                }
+                _editBoxes.Clear();
             }
             // admitted / evicted chunks
             List<int3> changed = null;
@@ -501,7 +562,8 @@ namespace VoxelEngine.Rendering
             float ms = (float)s.sw.Elapsed.TotalMilliseconds;
             var c = s.cache; var r = s.rec;
             s.busy = false; s.cache = null; s.rec = null;
-            c.reached = s.stats[0]; c.directBricks = s.stats[1]; c.storedBricks = s.stats[2]; c.escapes = s.stats[3]; c.seeds = s.stats[4];
+            c.reached = s.stats[0]; c.directBricks = s.stats[1]; c.storedBricks = s.stats[2]; c.escapes = s.stats[3]; c.seeds = s.stats[4]; c.anchoredBricks = s.stats[7];
+            AnchoredSum += c.anchoredBricks;
             c.floodMs = ms;
             FloodsDone++;
             FloodLog.Add(new float4(ms, c.reached, c.LitBricks, c.directBricks));
@@ -658,14 +720,14 @@ namespace VoxelEngine.Rendering
             if (_merging) { _mergeH.Complete(); _merging = false; _mergeDescs.Dispose(); _mergeRec.Dispose(); _mergeBricks.Clear(); }
             foreach (var r in _recs.Values) r.cache?.Dispose();
             foreach (var c in _retired) c.Dispose();
-            _retired.Clear(); _recs.Clear(); _chunkRecs.Clear(); _watch.Clear(); _editBricks.Clear();
+            _retired.Clear(); _recs.Clear(); _chunkRecs.Clear(); _watch.Clear(); _editBoxes.Clear();
             _builtSig = Array.Empty<(int3, byte)>(); _seenRev = -1;
             FreeUnion(); AllocUnion();
             _dir = Array.Empty<uint>(); _dirOrigin = _dirDims = int3.zero;
             _dirDirty = _tablesRealloc = _dataRealloc = true;
             _version++;
             _store = store;
-            FloodsDone = MergesDone = 0; FloodLog.Clear(); BusyTickMs.Clear(); UploadBytesTotal = 0; ScratchPeakBytes = 0; ResetPhaseStats();
+            FloodsDone = MergesDone = 0; EditRefloods = EditSkips = 0; AnchoredSum = 0; FloodLog.Clear(); BusyTickMs.Clear(); UploadBytesTotal = 0; ScratchPeakBytes = 0; ResetPhaseStats();
             _uploaded = false;
         }
 

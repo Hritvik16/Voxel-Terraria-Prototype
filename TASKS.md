@@ -888,3 +888,18 @@ ABBA `Logs/tg2world_20261102_153238/153721/154216/154709.txt`, warm-up `_152217`
 B 55.0 / 57.0 ms -- within noise. Reason: with shells ON (play) an admission costs ~0.1-0.25 ms (168b's ~1.1 ms came from its `-shells 0` CEILING walk,
 which allocates cascade tiers 1-2 and pays `SubmitPrecomputed` per admit), so the drain is 1.8 ms on a > 33 ms frame and removing it ENTIRELY would
 cut the share only ~3 points. Kept OFF.
+
+**Task 169 (torch flood, supervisor "going ahead with (a)" on 165's Q2, doc Q106; flood stays OFF; exact cuts only): two cuts to the per-edit cost.**
+Cut 1, ANCHORED bricks (`TorchFloodBuild.AnchorsOn`, `-tfanchor 0|1`, default ON): an all-air brick is also direct when every voxel v has a valid first
+move m from the torch (destination + footprint open) with w(m) + C(v - t - m) == C(v - t) and bbox(t + m, v) open (the same summed-area pass, origin
+t + m, only m's sign cases, skipped when no in-reach candidate brick lies on m's side): the path then costs the lower bound, so d = C exactly. The
+summed-area pass was made ~4x cheaper (plane flags precomputed per origin, no per-case divisions). Cut 2, LIT-ONLY edits (`TorchFloodPool.EditLitOnly`,
+`-tfeditlit 0|1`, default ON): an edit (now kept as a per-brick voxel bbox, not just the brick) re-floods a torch only if the torch lights a brick of
+the edit's box grown by 1 voxel or that box reaches the torch's own brick (closing an unlit voxel or opening one with no lit neighbour changes no cost;
+the kind / split change of the edited brick matters only where the torch lights it); torches with a flood in flight or no cache re-flood as before.
+Tests `TorchFloodL3Tests`: `Anchored_PostWithObstacles_EqualsOracle_AndMoreDirect` (both settings == oracle; direct 3,462 -> 5,814),
+`EditCut_SkipsUnlitRefloodsLitAndNewPaths` (a block behind a 1.6 m wall: only the near torch re-floods; a sealed cavity: none; a tunnel: both),
+`EditCut_SealedTorch_OpeningItsShellRefloods`; all 165 cases incl. Slow `Fuzz_Long` stay exact. Report-only in-player run, same build OFF then ON
+(`run-cost-split.sh EXTRA="-costpaths torch -tfl3 1 [-tfanchor 0 -tfeditlit 0]"`, `Screenshots/169/tfl3_169.txt`): per torch 260.6 -> 225.8 ms
+(searched voxels 2.41 -> 2.19 M), re-floods per camp edit 10-11 -> 7, settle 2.17-2.77 -> 1.23-2.05 s, camp fill 13.5 -> 5.3 s; exact + GPU PASS at
+every step. Open-ground EditMode flood 61 -> 32 ms; small rooms +1.4 ms (anchor passes that find nothing).

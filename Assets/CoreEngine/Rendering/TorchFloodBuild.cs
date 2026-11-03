@@ -73,6 +73,24 @@ namespace VoxelEngine.Rendering
         }
 
         public int LitBricks => directBricks + storedBricks;
+        public int anchoredBricks;
+
+        /// True if this flood lights world brick wb (a lit direct brick or a stored one: some voxel of it is lit).
+        public bool LightsBrick(int3 wb)
+        {
+            int3 q = wb - (lo >> 3);
+            if (math.any(q < 0) || math.any(q >= db)) return false;
+            int di = q.x + db.x * (q.y + db.y * q.z);
+            if ((direct[di >> 6] & (1UL << (di & 63))) != 0) return true;
+            int a = 0, b = keys.Length - 1;
+            while (a <= b)
+            {
+                int m = (a + b) >> 1, k = keys[m];
+                if (k == di) return true;
+                if (k < di) a = m + 1; else b = m - 1;
+            }
+            return false;
+        }
         public long Bytes => direct.IsCreated ? 8L * direct.Capacity + 4L * keys.Capacity + 4L * entries.Capacity + 2L * data.Capacity : 0;
 
         public TorchFloodBuild.CacheDesc Desc() => new TorchFloodBuild.CacheDesc
@@ -316,6 +334,9 @@ namespace VoxelEngine.Rendering
         // The flood (WORKER): one torch, sparse scratch, direct bricks skipped
         // =====================================================================
 
+        /// Task 169 cut 1 (-tfanchor 0|1, default ON): anchored bricks. Exact either way; 0 = task 165's test (A/B only).
+        public static bool AnchorsOn = true;
+
         public static FloodBrickJob MakeFloodJob(TorchFloodScratch s, TorchFloodCache outCache, int3 relTorch, int3 dims, int3 db, int top,
                                                  NativeArray<int> stats)
         {
@@ -327,7 +348,7 @@ namespace VoxelEngine.Rendering
                 b0 = s.b0, b1 = s.b1, b2 = s.b2, b3 = s.b3, b4 = s.b4, b5 = s.b5, b6 = s.b6, b7 = s.b7, seeds = s.seeds,
                 delta = _delta, w = _w, need = _need, loff = _loff, layers = _layers, groups = _groups,
                 outDirect = outCache.direct, outKeys = outCache.keys, outEntries = outCache.entries, outData = outCache.data,
-                stats = stats,
+                stats = stats, Anchors = AnchorsOn,
             };
         }
 
@@ -337,6 +358,8 @@ namespace VoxelEngine.Rendering
             public int3 dims, db, t; public int shift, top;
             /// Report-only phase cut (0 = the whole job): 1 stops after the direct bricks, 2 after the seeds.
             public int phaseLimit;
+            /// Task 169 cut 1: anchored bricks (exact; same output). False = task 165's direct test only (A/B, reports).
+            public bool Anchors;
             [ReadOnly] public NativeArray<byte> kind;
             [ReadOnly] public NativeArray<int> maskOff;
             [ReadOnly] public NativeList<ulong> masks;
@@ -400,18 +423,18 @@ namespace VoxelEngine.Rendering
                 outDirect.Resize((nb + 63) >> 6, NativeArrayOptions.ClearMemory);
                 dist.Clear(); pad.Clear(); seeds.Clear();
                 b0.Clear(); b1.Clear(); b2.Clear(); b3.Clear(); b4.Clear(); b5.Clear(); b6.Clear(); b7.Clear();
-                int reached = 0, directLit = 0, stored = 0, escapes = 0;
+                int reached = 0, directLit = 0, stored = 0, escapes = 0, anchored = 0;
 
                 // ---- direct bricks: bbox(t, v) open for every v of B, at voxel precision ----
-                // The region the boxes bbox(t, v), v in B, cover = per axis [t, B's far side]. A brick X of the
-                // brick range [bt, B] lies whole in it on every axis where X differs from bt; on an axis where X
-                // shares bt's coordinate only t's side of the brick counts (B above: [t, 7], below: [0, t], same
-                // row: all of it). So per sign case s = sign(B - bt) a brick is "blocking" iff that sub-box of it
-                // holds a closed voxel (the torch voxel itself excepted), and B is direct iff the summed-area
-                // table of blocking bricks is 0 over [min(bt, B), max(bt, B)].
-                int3 bt = t >> 3, tl = t & 7;
+                int3 bt = t >> 3;
                 sat.Resize((db.x + 1) * (db.y + 1) * (db.z + 1), NativeArrayOptions.ClearMemory);
                 var flag = new NativeArray<byte>(nb, Allocator.Temp);
+                var pass = new NativeArray<int>(nb, Allocator.Temp);
+                var planeList = new NativeList<int4>(1024, Allocator.Temp);
+                ulong* sub = stackalloc ulong[27 * 8];
+                ulong* om = stackalloc ulong[8];
+                // the base flags: "blocking" = not all air. SatPass sets the planes through its origin brick per sign
+                // case and restores them, so every pass starts from these.
                 for (int bz = 0; bz < db.z; bz++)
                 for (int by = 0; by < db.y; by++)
                 for (int bx = 0; bx < db.x; bx++)
@@ -420,103 +443,93 @@ namespace VoxelEngine.Rendering
                     slot[pb] = -1; dirB[pb] = 0;
                     flag[bx + db.x * (by + db.y * bz)] = (byte)(kind[pb] != 1 ? 1 : 0);
                 }
-                // the 27 local sub-boxes (per axis 0: [0, t], 1: [0, 7], 2: [t, 7]) as 512-bit masks
-                ulong* sub = stackalloc ulong[27 * 8];
-                for (int r = 0; r < 27 * 8; r++) sub[r] = 0;
-                for (int r = 0; r < 27; r++)
+                SatPass(t, true, 1, (1 << 27) - 1, flag, pass, planeList, sub, om);
+                for (int di = 0; di < nb; di++)
                 {
-                    int3 rr = new int3(r % 3, (r / 3) % 3, r / 9);
-                    for (int l = 0; l < 512; l++)
-                    {
-                        int3 q = new int3(l & 7, (l >> 3) & 7, l >> 6);
-                        bool on = math.all((rr != 0 | q <= tl) & (rr != 2 | q >= tl));
-                        if (on) sub[r * 8 + (l >> 6)] |= 1UL << (l & 63);
-                    }
+                    if (pass[di] == 0) continue;
+                    if (MarkDirect(di)) directLit++;
                 }
-                ulong* om = stackalloc ulong[8];
-                var planeList = new NativeList<int>(1024, Allocator.Temp);   // dense indices of bricks sharing a coordinate with bt
-                for (int bz = 0; bz < db.z; bz++)
-                for (int by = 0; by < db.y; by++)
-                for (int bx = 0; bx < db.x; bx++)
-                    if (bx == bt.x || by == bt.y || bz == bt.z) planeList.Add(bx + db.x * (by + db.y * bz));
-                int tBit = tl.x | (tl.y << 3) | (tl.z << 6);
-                for (int c = 0; c < 27; c++)
+
+                // ---- task 169, cut 1: ANCHORED bricks (exact). d(v) >= C(v - t) always. If a valid first move
+                // m (t -> a = t + m: destination and footprint open) has w(m) + C(v - a) == C(v - t) and bbox(a, v)
+                // is open, the path t -> a -> (monotone chamfer path to v) costs exactly the lower bound, so
+                // d(v) = C(v - t): the same value and the same 1 bit as a direct brick. A brick qualifies when
+                // EVERY voxel has such an anchor; bbox(a, v) is checked for the whole brick by the same summed-area
+                // pass with origin a (nothing excepted), the cost equality per voxel. Outdoors this is the air beside
+                // and below a torch on a post: the post blocks every bbox(t, v) below the torch's voxel. ----
+                if (Anchors)
                 {
-                    int3 s = new int3(c % 3, (c / 3) % 3, c / 9) - 1;
-                    if (math.all(s == 0)) continue;
-                    // this case's flags on the three planes through bt
-                    for (int k = 0; k < planeList.Length; k++)
-                    {
-                        int di = planeList[k];
-                        int3 X = new int3(di % db.x, (di / db.x) % db.y, di / (db.x * db.y));
-                        int pb = Pb(X.x, X.y, X.z);
-                        bool3 shared = X == bt;
-                        int3 rr = math.select(new int3(1), math.select(math.select(new int3(1), new int3(2), s > 0), new int3(0), s < 0), shared);
-                        int r = rr.x + 3 * rr.y + 9 * rr.z;
-                        byte kd = kind[pb];
-                        bool isT = math.all(X == bt);
-                        byte f;
-                        if (kd == 1) f = 0;
-                        else if (kd == 0 && !isT) f = 1;
-                        else
-                        {
-                            for (int i = 0; i < 8; i++) om[i] = kd == 2 ? masks[maskOff[pb] + i] : 0UL;
-                            if (isT) om[tBit >> 6] |= 1UL << (tBit & 63);
-                            f = 0;
-                            for (int i = 0; i < 8; i++) if ((om[i] & sub[r * 8 + i]) != sub[r * 8 + i]) { f = 1; break; }
-                        }
-                        flag[di] = f;
-                    }
-                    // the bricks B of this case, and the octant region the table needs: [bt, B's side]
-                    int3 lo3 = math.select(math.select(int3.zero, bt + 1, s > 0), bt, s == 0);
-                    int3 hi3 = math.select(math.select(db - 1, bt - 1, s < 0), bt, s == 0);
-                    if (math.any(lo3 > hi3)) goto restore;
-                    rlo = math.min(lo3, bt); rdim = math.max(hi3, bt) - rlo + 1;
-                    sx = rdim.x + 1; sxy = sx * (rdim.y + 1);
-                    for (int i = 0; i < sx; i++) sat[i] = 0;
-                    for (int z = 0; z <= rdim.z; z++)
-                    for (int y = 0; y <= rdim.y; y++)
-                    {
-                        int i0 = sx * y + sxy * z;
-                        sat[i0] = 0;
-                        if (y == 0 || z == 0) { for (int x = 1; x <= rdim.x; x++) sat[i0 + x] = 0; continue; }
-                        int rowF = rlo.x + db.x * ((rlo.y + y - 1) + db.y * (rlo.z + z - 1));
-                        for (int x = 1; x <= rdim.x; x++)
-                        {
-                            int i = i0 + x;
-                            sat[i] = flag[rowF + x - 1] + sat[i - 1] + sat[i - sx] + sat[i - sxy]
-                                   - sat[i - 1 - sx] - sat[i - 1 - sxy] - sat[i - sx - sxy] + sat[i - 1 - sx - sxy];
-                        }
-                    }
-                    for (int bz = lo3.z; bz <= hi3.z; bz++)
-                    for (int by = lo3.y; by <= hi3.y; by++)
-                    for (int bx = lo3.x; bx <= hi3.x; bx++)
+                    int nmT = 0;
+                    for (int dz = -1; dz <= 1; dz++)
+                    for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        if (OpenAt(t.x + dx, t.y + dy, t.z + dz)) nmT |= 1 << ((dx + 1) + 3 * (dy + 1) + 9 * (dz + 1));
+                    for (int i = 0; i < nb; i++) pass[i] = 0;
+                    // candidates: all-air bricks, not direct, whose nearest voxel is inside the reach (the rest are
+                    // never searched anyway). w(m) + C(v - t - m) == C(v - t) needs sign(v_i - t_i) == m_i on every
+                    // axis where m_i != 0 (otherwise |v_i - a_i| grows and C(v - a) > C(v - t) - w(m)), so an anchor
+                    // serves only the candidates on its side, and only its side's sign cases are tabled.
+                    var cand = new NativeList<int3>(256, Allocator.Temp);
+                    for (int bz = 0; bz < db.z; bz++)
+                    for (int by = 0; by < db.y; by++)
+                    for (int bx = 0; bx < db.x; bx++)
                     {
                         int pb = Pb(bx, by, bz);
-                        if (kind[pb] != 1) continue;
-                        int3 B = new int3(bx, by, bz);
-                        if (SatCount(math.min(B, bt), math.max(B, bt)) != 0) continue;
-                        dirB[pb] = 1;
-                        int3 bl = B << 3;
+                        if (kind[pb] != 1 || dirB[pb] != 0) continue;
+                        int3 bl = new int3(bx, by, bz) << 3;
                         int3 dd = math.select(math.select(int3.zero, bl - t, bl > t), t - (bl + 7), bl + 7 < t);
-                        if (Chamfer(dd) < top)
-                        {
-                            int di = bx + db.x * (by + db.y * bz);
-                            outDirect[di >> 6] |= 1UL << (di & 63);
-                            directLit++;
-                        }
+                        if (Chamfer(dd) < top) cand.Add(bl);
                     }
-                restore:
-                    // restore the plane flags to "not all air" for the next case
-                    for (int k = 0; k < planeList.Length; k++)
+                    int anchorsUsed = 0;
+                    for (int m = 0; m < 26 && cand.Length > 0; m++)
                     {
-                        int di = planeList[k];
-                        int3 X = new int3(di % db.x, (di / db.x) % db.y, di / (db.x * db.y));
-                        flag[di] = (byte)(kind[Pb(X.x, X.y, X.z)] != 1 ? 1 : 0);
+                        if ((nmT & need[m]) != need[m] || w[m] >= top) continue;
+                        int3 md = delta[m];
+                        bool any = false;
+                        for (int k = 0; k < cand.Length && !any; k++)
+                        {
+                            int3 bl = cand[k];
+                            any = math.all((md <= 0 | bl + 7 > t) & (md >= 0 | bl < t));
+                        }
+                        if (!any) continue;
+                        // sign cases relative to a's brick: s_i in {0, m_i} where m_i != 0
+                        int cases = 0;
+                        for (int c = 0; c < 27; c++)
+                        {
+                            int3 sc = new int3(c % 3, (c / 3) % 3, c / 9) - 1;
+                            if (math.all(md == 0 | sc == 0 | sc == md)) cases |= 1 << c;
+                        }
+                        SatPass(t + md, false, 1 << m, cases, flag, pass, planeList, sub, om);
+                        anchorsUsed |= 1 << m;
+                    }
+                    for (int bz = 0; bz < db.z; bz++)
+                    for (int by = 0; by < db.y; by++)
+                    for (int bx = 0; bx < db.x; bx++)
+                    {
+                        int di = bx + db.x * (by + db.y * bz);
+                        int am = pass[di] & anchorsUsed;
+                        if (am == 0 || dirB[Pb(bx, by, bz)] != 0) continue;
+                        int3 bl = new int3(bx, by, bz) << 3;
+                        bool all = true;
+                        for (int l = 0; l < 512 && all; l++)
+                        {
+                            int3 dv = bl + new int3(l & 7, (l >> 3) & 7, l >> 6) - t;
+                            int c = Chamfer(dv);
+                            bool ok = false;
+                            int bits = am;
+                            while (bits != 0 && !ok)
+                            {
+                                int m = math.tzcnt(bits); bits &= bits - 1;
+                                ok = w[m] + Chamfer(dv - delta[m]) == c;
+                            }
+                            all = ok;
+                        }
+                        if (!all) continue;
+                        if (MarkDirect(di)) { directLit++; anchored++; }
                     }
                 }
 
-                if (phaseLimit == 1) { stats[1] = directLit; return; }
+                if (phaseLimit == 1) { stats[1] = directLit; stats[7] = anchored; return; }
                 // ---- seeds: direct voxels facing a searched (not direct, not closed) brick ----
                 ulong* sm = stackalloc ulong[8];
                 for (int bz = 0; bz < db.z; bz++)
@@ -647,7 +660,124 @@ namespace VoxelEngine.Rendering
                     stored++;
                 }
                 stats[0] = reached; stats[1] = directLit; stats[2] = stored; stats[3] = escapes; stats[4] = seeds.Length;
-                stats[5] = (int)math.min(pops, int.MaxValue); stats[6] = dist.Length >> 9;
+                stats[5] = (int)math.min(pops, int.MaxValue); stats[6] = dist.Length >> 9; stats[7] = anchored;
+            }
+
+            /// Marks a (dense index) brick direct; sets its lit bit when its nearest voxel is inside the reach.
+            private bool MarkDirect(int di)
+            {
+                int3 B = new int3(di % db.x, (di / db.x) % db.y, di / (db.x * db.y));
+                dirB[Pb(B.x, B.y, B.z)] = 1;
+                int3 bl = B << 3;
+                int3 dd = math.select(math.select(int3.zero, bl - t, bl > t), t - (bl + 7), bl + 7 < t);
+                if (Chamfer(dd) >= top) return false;
+                outDirect[di >> 6] |= 1UL << (di & 63);
+                return true;
+            }
+
+            /// pass[di] |= bit for every ALL-AIR brick B with bbox(o, v) open at voxel precision for every v of B
+            /// (the origin voxel itself excepted when `exceptO`: the torch). B == o's own brick counts when it is
+            /// all air (o is then open and every bbox stays inside it); the plain pass never has that (the torch
+            /// brick holds the torch).
+            /// The region the boxes bbox(o, v), v in B, cover = per axis [o, B's far side]. A brick X of the
+            /// brick range [bo, B] lies whole in it on every axis where X differs from bo; on an axis where X
+            /// shares bo's coordinate only o's side of the brick counts (B above: [o, 7], below: [0, o], same
+            /// row: all of it). So per sign case s = sign(B - bo) a brick is "blocking" iff that sub-box of it
+            /// holds a closed voxel, and B passes iff the summed-area table of blocking bricks is 0 over
+            /// [min(bo, B), max(bo, B)].
+            private void SatPass(int3 o, bool exceptO, int bit, int caseMask, NativeArray<byte> flag, NativeArray<int> pass,
+                                 NativeList<int4> plane, ulong* sub, ulong* om)
+            {
+                if ((uint)o.x >= (uint)dims.x || (uint)o.y >= (uint)dims.y || (uint)o.z >= (uint)dims.z) return;
+                int3 bt = o >> 3, tl = o & 7;
+                if (!exceptO && kind[Pb(bt.x, bt.y, bt.z)] == 1) pass[bt.x + db.x * (bt.y + db.y * bt.z)] |= bit;
+                // the 27 local sub-boxes (per axis 0: [0, o], 1: [0, 7], 2: [o, 7]) as 512-bit masks
+                for (int r = 0; r < 27; r++)
+                {
+                    int3 rr = new int3(r % 3, (r / 3) % 3, r / 9);
+                    int3 lo8 = math.select(int3.zero, tl, rr == 2), hi8 = math.select(new int3(7), tl, rr == 0);
+                    ulong rowX = 0;
+                    for (int x = lo8.x; x <= hi8.x; x++) rowX |= 1UL << x;
+                    ulong word = 0;
+                    for (int y = lo8.y; y <= hi8.y; y++) word |= rowX << (8 * y);
+                    for (int z = 0; z < 8; z++) sub[r * 8 + z] = z >= lo8.z && z <= hi8.z ? word : 0UL;
+                }
+                // the bricks sharing a coordinate with bo: (dense index, shared-axis bits, blocking bit per sub-box,
+                // base flag). A brick sharing the axes in `sh` only ever needs the sub-boxes with rr = 1 elsewhere.
+                plane.Clear();
+                int tBit = tl.x | (tl.y << 3) | (tl.z << 6);
+                for (int bz = 0; bz < db.z; bz++)
+                for (int by = 0; by < db.y; by++)
+                for (int bx = 0; bx < db.x; bx++)
+                {
+                    int sh = (bx == bt.x ? 1 : 0) | (by == bt.y ? 2 : 0) | (bz == bt.z ? 4 : 0);
+                    if (sh == 0) { bx = bx < bt.x ? bt.x - 1 : db.x; continue; }   // a row off two planes meets the third only at bt.x
+                    int pb = Pb(bx, by, bz);
+                    byte kd = kind[pb];
+                    bool isT = exceptO && sh == 7;
+                    int blk;
+                    if (kd == 1) blk = 0;
+                    else if (kd == 0 && !isT) blk = (1 << 27) - 1;
+                    else
+                    {
+                        for (int i = 0; i < 8; i++) om[i] = kd == 2 ? masks[maskOff[pb] + i] : 0UL;
+                        if (isT) om[tBit >> 6] |= 1UL << (tBit & 63);
+                        blk = 0;
+                        for (int r = 0; r < 27; r++)
+                        {
+                            int3 rr = new int3(r % 3, (r / 3) % 3, r / 9);
+                            if ((rr.x != 1 && (sh & 1) == 0) || (rr.y != 1 && (sh & 2) == 0) || (rr.z != 1 && (sh & 4) == 0)) continue;
+                            for (int i = 0; i < 8; i++) if ((om[i] & sub[r * 8 + i]) != sub[r * 8 + i]) { blk |= 1 << r; break; }
+                        }
+                    }
+                    plane.Add(new int4(bx + db.x * (by + db.y * bz), sh, blk, kd != 1 ? 1 : 0));
+                }
+                for (int c = 0; c < 27; c++)
+                {
+                    int3 s = new int3(c % 3, (c / 3) % 3, c / 9) - 1;
+                    if (math.all(s == 0) || ((caseMask >> c) & 1) == 0) continue;
+                    // this case's flags on the three planes through bo
+                    for (int k = 0; k < plane.Length; k++)
+                    {
+                        int4 e = plane[k];
+                        int r = ((e.y & 1) != 0 ? s.x + 1 : 1) + 3 * ((e.y & 2) != 0 ? s.y + 1 : 1) + 9 * ((e.y & 4) != 0 ? s.z + 1 : 1);
+                        flag[e.x] = (byte)((e.z >> r) & 1);
+                    }
+                    // the bricks B of this case, and the octant region the table needs: [bo, B's side]
+                    int3 lo3 = math.select(math.select(int3.zero, bt + 1, s > 0), bt, s == 0);
+                    int3 hi3 = math.select(math.select(db - 1, bt - 1, s < 0), bt, s == 0);
+                    if (math.any(lo3 > hi3)) goto restore;
+                    rlo = math.min(lo3, bt); rdim = math.max(hi3, bt) - rlo + 1;
+                    sx = rdim.x + 1; sxy = sx * (rdim.y + 1);
+                    for (int i = 0; i < sx; i++) sat[i] = 0;
+                    for (int z = 0; z <= rdim.z; z++)
+                    for (int y = 0; y <= rdim.y; y++)
+                    {
+                        int i0 = sx * y + sxy * z;
+                        sat[i0] = 0;
+                        if (y == 0 || z == 0) { for (int x = 1; x <= rdim.x; x++) sat[i0 + x] = 0; continue; }
+                        int rowF = rlo.x + db.x * ((rlo.y + y - 1) + db.y * (rlo.z + z - 1));
+                        for (int x = 1; x <= rdim.x; x++)
+                        {
+                            int i = i0 + x;
+                            sat[i] = flag[rowF + x - 1] + sat[i - 1] + sat[i - sx] + sat[i - sxy]
+                                   - sat[i - 1 - sx] - sat[i - 1 - sxy] - sat[i - sx - sxy] + sat[i - 1 - sx - sxy];
+                        }
+                    }
+                    for (int bz = lo3.z; bz <= hi3.z; bz++)
+                    for (int by = lo3.y; by <= hi3.y; by++)
+                    for (int bx = lo3.x; bx <= hi3.x; bx++)
+                    {
+                        int pb = Pb(bx, by, bz);
+                        if (kind[pb] != 1 || (!exceptO && dirB[pb] != 0)) continue;
+                        int3 B = new int3(bx, by, bz);
+                        if (SatCount(math.min(B, bt), math.max(B, bt)) != 0) continue;
+                        pass[bx + db.x * (by + db.y * bz)] |= bit;
+                    }
+                restore:
+                    // restore the plane flags to the base ("not all air") for the next case / pass
+                    for (int k = 0; k < plane.Length; k++) flag[plane[k].x] = (byte)plane[k].w;
+                }
             }
 
             /// The 10^3 open bits round a searched brick (the brick plus a 1-voxel apron), built once when the

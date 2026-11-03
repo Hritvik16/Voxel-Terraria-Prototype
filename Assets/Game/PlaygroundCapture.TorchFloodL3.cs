@@ -28,7 +28,8 @@ public partial class PlaygroundCapture
         var driver = FindAnyObjectByType<LightingDriver>();
         if (_costTorches == null || _costLights == null || store == null || driver == null) { L("  -tfl3: no torch scene -- skipped"); yield break; }
         L("");
-        L($"TORCH FLOOD L3 (task 165): {_costTorches.Count} torches, reach {TorchFloodPool.ReachM:F1} m, dir mode {TorchFloodPool.DirMode}");
+        L($"TORCH FLOOD L3 (task 165): {_costTorches.Count} torches, reach {TorchFloodPool.ReachM:F1} m, dir mode {TorchFloodPool.DirMode}; " +
+          $"task 169 cuts: anchored bricks {(TorchFloodBuild.AnchorsOn ? "ON" : "OFF")}, edit lit-only {(TorchFloodPool.EditLitOnly ? "ON" : "OFF")}");
         var edits = new EditService();
         edits.AttachWorld(store, store, store, Phase4Bootstrapper.Clipmap);
 
@@ -108,11 +109,12 @@ public partial class PlaygroundCapture
     {
         pool.BusyTickMs.Clear();
         int f0 = pool.FloodsDone, m0 = pool.MergesDone; long u0 = pool.UploadBytesTotal;
+        pool.ResetEditStats();
         float t0 = Time.realtimeSinceStartup;
         int frames = 0;
         do { yield return null; frames++; } while (pool.Busy && frames < 3000);
         L($"  {what}: idle after {frames} frames, {Time.realtimeSinceStartup - t0:F2} s; floods {pool.FloodsDone - f0}, merges {pool.MergesDone - m0}, " +
-          $"uploaded {(pool.UploadBytesTotal - u0) / 1024.0:F0} KB; {L3Ticks(pool)}");
+          $"uploaded {(pool.UploadBytesTotal - u0) / 1024.0:F0} KB; edit -> torch: re-flood {pool.EditRefloods}, skipped (lit test) {pool.EditSkips}; {L3Ticks(pool)}");
         yield return Frames(10);
     }
 
@@ -137,7 +139,7 @@ public partial class PlaygroundCapture
         foreach (var f in fl) { ms += f.x; mx = math.max(mx, f.x); reached += f.y; lit += f.z; direct += f.w; }
         int n = math.max(1, fl.Count);
         return $"floods {pool.FloodsDone} (job wall mean {ms / n:F1} ms, max {mx:F1}; searched voxels mean {reached / n:N0}, lit bricks mean {lit / n:N0} " +
-               $"of which direct {direct / n:N0}), merges {pool.MergesDone}; {pool.Chunks} lit chunks, air bricks {pool.AirBricks}, mixed {pool.MixedBricks}, " +
+               $"of which direct {direct / n:N0}, anchored total {pool.AnchoredSum:N0}), merges {pool.MergesDone}; {pool.Chunks} lit chunks, air bricks {pool.AirBricks}, mixed {pool.MixedBricks}, " +
                $"escapes {pool.Escapes}; GPU {pool.GpuBytes / 1048576.0:F2} MB allocated; CPU content: union {pool.UnionContentBytes / 1048576.0:F2} + caches " +
                $"{pool.CacheContentBytes / 1048576.0:F2} MB, allocated: union {pool.UnionBytes / 1048576.0:F2} + caches {pool.CacheBytes / 1048576.0:F2}; " +
                $"job scratch peak {pool.ScratchPeakBytes / 1048576.0:F2} MB (now {pool.ScratchBytes / 1048576.0:F2}); uploaded {pool.UploadBytesTotal / 1048576.0:F2} MB; {L3Ticks(pool)}";
