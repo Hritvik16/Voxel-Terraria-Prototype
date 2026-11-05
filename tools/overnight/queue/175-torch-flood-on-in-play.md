@@ -2,12 +2,14 @@
 
 Model: opus
 
-Approval: owner, 2026-11-05, chat (172's question): "Turn it on now" -- the torch flood ON in play as it is, accepting the flat yellow
-camps and the extra crawl for now. LOOK stage (ROADMAP.md "CURRENT ORDER"). Read `tools/overnight/blocked/172-look-torch-cinematic.HANDOFF.md`
+Requires: 174b-torch-flood-falloff-tune
+
+Approval: owner, 2026-11-05, chat: "Tune first, then on" -- the torch flood ON in play WITH the falloff setting the owner picks from 174b (its
+answer is in the doc or 174b's HANDOFF; ask the supervisor if unclear). LOOK stage (ROADMAP.md "CURRENT ORDER"). Read `tools/overnight/blocked/172-look-torch-cinematic.HANDOFF.md`
 and TASKS.md tasks 158, 164, 165, 169.
 
 ## Do
-1. Make the torch flood the PLAY default with the direction mode the owner picked in Q105: `-torchflood 1 -tfdir 2` (L3 incremental path and
+1. Make the torch flood the PLAY default with the direction mode the owner picked in Q105 and 174b's picked -tfi/-tfk: `-torchflood 1 -tfdir 2` (L3 incremental path and
    169's edit cuts as they are today). `-torchflood 0` = the old point-light torches. Wire it the way other play defaults are wired (play's
    preset / PlaySettings, F6 menu entry if the existing settings menu has a lighting section). Rigs and capture modes stay UNCHANGED
    (they keep today's behaviour unless they pass the flags), so every frozen rig baseline stays comparable.
@@ -19,4 +21,4 @@ and TASKS.md tasks 158, 164, 165, 169.
 5. TASKS.md paragraph; CLAUDE.md "Commands" play line if it lists play defaults.
 
 ## Not in scope
-170's memory trim (parked for the performance stage) and the falloff tuning 172 recommended (the owner may ask for it later).
+170's memory trim (parked for the performance stage).
