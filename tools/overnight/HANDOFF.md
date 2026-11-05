@@ -1,67 +1,51 @@
-# 168e-perf-e-upload-pacing: DONE, kept OFF behind `-uploadring 1`. The ring is exact, but the gain misses the ON gate: > 33 ms -2.9 points (gate 5), > 100 ms 6 -> 5 (gate: halve). p99 improves 12 ms.
+STOP_FOR_OWNER -- task 171: F2 (`-fsr3sc 10`) ghosts behind a MOVING light. Play default NOT flipped. How to go on?
+- (a) Keep today's FSR 3 (sc 0). This is the current state; nothing changes.
+- (b) Ship sc10 anyway: crisper still terrain (task 166). Cost: a doubled image plus a bright speckle trail behind moving lights (moving torch tested; flowing lava is the in-play case, NOT tested). Also 1 extra frame of lag when a torch is lit or put out.
+- (c) **Recommended:** a new task gives FSR 3 a reactive mask for the pixels the shading-change detector was protecting, then reruns this QA with sc10. Mask = emissive + fluid pixels + pixels whose voxel changed this frame. 166 already found the mask missing. Keeps the crisper terrain without the ghost. Needs your OK (design work).
+- (d) A partial cut (e.g. sc5): one capture-only launch with `-fsrlivearms native,432,432_sc5,432_sc10`. Probably in between on both counts.
 
-This session resumed the 16:41 run, which hit the usage limit. That run's code and ABBA arms were already on disk; this session reviewed them and found and fixed 2 bugs (below).
+# 171-fsr3-shadingchange-default: QA done, NEW GHOSTING found -> default NOT changed (task step 3)
 
-## What changed (`ca79847`, engine-phase)
-- `UploadRing.cs` (new). Every per-frame mirror write goes through it instead of `SetData`:
-  - TerrainClipmap: entries, bodies, packed air-mip, fluid directory.
-  - ShellStore: bricks, pages, directory, heights.
-- How it works: each write is copied into a `LockBufferForWrite` staging slot. Each producer pass then flushes once, and `UploadScatter.compute` copies staging -> destination on the GPU. A slot is reused only after a 4-byte AsyncGPUReadback ticket shows the GPU has passed it.
-- Upload cap: while the ring is on, the clipmap + shells per-frame budget is 1 MiB (`-uploadcap KB`).
-- Checks: `UploadShadow.cs` (`-uploadcheck`) reads the GPU buffers back and compares them with a CPU record of every write. Capture `-costringpair` flips the ring, re-uploads the whole mirror, drains it and takes stills.
-- Bug 1 fixed this session, chunks that never landed: under the 1 MiB cap, a dense far chunk costing more than (cap - 585 KB air-mip reserve) was deferred on every pass.
-  - Effect while standing still: 119 chunks still dirty after 40 s, and 24,455 px of stale terrain at walk_open.
-  - Fix in `TerrainClipmap.cs`: with the ring on, the first non-exempt chunk of each pass always uploads. Ring OFF is unchanged (the largest chunk always fits the 3 MiB budget).
-- Bug 2 fixed this session, temporaries over the limit: one large body run made a single 68 MB temporary, past `TEMP_LIMIT` (32 MiB).
-  - Fix: writes now go in slot-sized pieces, so temporaries stay under the limit.
-- Docs: `TASKS.md` (task 168e paragraph) and the `PERF_EXACT_CUTS.md` row E result line.
+## What changed (`9fd2f63`, engine-phase; capture-only, play unchanged)
+- `Assets/Game/PlaygroundCapture.FsrLive.cs` (new): `-lookreview -fsrlive 1`. Bursts of consecutive frames per arm: native / fsr3_432 / 432_sc10 / 540 / 540_sc10. Everything that moves is stepped per FRAME, so native frame k is the truth for arm frame k.
+  - **Sun** at walk_open from 16 h: clock still, play's 1200 s day, and the rigs' 120 s day.
+  - **Slide:** a 1.5 m water cube moving 0.1 m/frame.
+  - **Pour:** a 2x2x3 m water column with the fluid sim RUNNING. Not frame-exact; removed afterwards.
+  - **Night torches** (task 151 scene): one torch lit and put out (frame before + 6 after), and one torch moving 0.1 m/frame.
+- `LookReview.cs`: the hook. `tools/fsr171.py`: numbers + 4x sheets. `TASKS.md`: task 171 paragraph.
 
-## Evidence
-- Tests: `UploadRingTests` PASS 3 (`Logs/overnight/168e_filter2.out`).
-  - A CPU "GPU" runs dispatches 0-4 frames late; drained == sequential SetData byte for byte over 12 seeds.
-  - The negative control (guards ignored) corrupts, as it should.
-  - New assert: no temporary is larger than one slot.
-- Fast suite: PASS 997 FAIL 0 SKIP 16 (`Logs/overnight/168e_fast.out`; was 994).
-- In-player exactness, build with both fixes (`Logs/costsplit_2026-11-02_193709.txt`):
-  - GPU vs CPU shadow: 0 of 57.1 M (walk_near) and 0 of 67.2 M (walk_open) written words differ, ring ON and OFF.
-  - Raw stills: ring ON == ring OFF at 0 px at both poses; raw/raw2/flip/back all 0 px.
-  - Whole-mirror re-upload drains fully: 10.3-10.9 s with the ring (1 MiB cap) vs 4.2-4.4 s with SetData (3 MiB).
-  - The earlier build (`Logs/costsplit_2026-11-02_170804.txt`) had 620 / 24,455 px differing and 85 / 119 chunks never drained.
-- Cost split walk_near p50: 35.4 (ring) vs 35.5 ms (off); walk_open 24.1 vs 24.2. No p50 change.
-- Timing: warm steady state. Warm-up discarded (`Logs/tg2world_20261102_165835.txt`), then ABBA `MODE=playwalk` 3 min, 432 rows, `-spikelog`, on AC.
-  - A = SetData, B = ring. Logs `Logs/tg2world_20261102_{171509 a1, 171955 b1, 172443 b2, 172929 a2}.txt`, summary `Logs/overnight/168e_measure.out`.
-  - **The Mac was NOT quiet:** `mediaanalysisd` ran at 113-127 % CPU during b1, b2 and a2. `ReportCrashService` ran at 91 % (b1) and `duetexpertd` at 94 % (b2). a1 was the quietest arm, so the noise favoured A, not B.
-  - These arms ran on the build BEFORE the 2 fixes. In play, dirty-at-end was 0 in both B arms, so bug 1 bit only while standing still. They were not re-timed: any result keeps the flag OFF.
+## Evidence (capture only, no frame times)
+- Launch: `Logs/lookreview_20261105_093519.txt` (High). Shots: `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-05_093929_high/`. Table: `Screenshots/171/fsr171.txt`.
+- Shell fill at the sun pose after the 40 s cap: 3,375 missing (s3-s7). Far shells were unfilled; the near field, where the tests happen, was full.
+- The pour really flowed: fronts fell 1.7 m, and water spread out of the 8 m box (12,000 -> 10,415 voxels in it); all 12,000 removed afterwards.
+- Numbers below are error vs native inside the change mask (pixels native itself changes by > 12 levels), today -> sc10:
 
-| warm ABBA (whole run) | A SetData (a1 / a2) | B ring (b1 / b2) |
-|---|---|---|
-| > 33 ms share | 17.53 / 20.58 % (19.1) | 15.76 / 16.62 % (16.2) |
-| p95 | 44.3 / 45.6 ms | 41.7 / 41.9 ms |
-| p99 | 64.4 / 66.3 ms | 52.5 / 53.3 ms |
-| > 100 ms frames (spikes.csv) | 2 / 4 | 2 / 3 |
+| scene | 432 | 540 | verdict |
+|---|---|---|---|
+| sun, play day | 20.5 -> 21.3 | 21.7 -> 23.3 | clean, same look |
+| sun, 120 s day | 26.9 -> 27.1 | 25.9 -> 25.9 | clean |
+| water cube slide | 5.36 -> 5.42 | 4.69 -> 5.33 | both trail the cube about equally |
+| torch moving | **17.2 -> 47.2** | **12.8 -> 49.7** | **new ghosting with sc10** |
+| torch lit, frame 1 | 13.0 -> 16.4 | 11.4 -> 15.9 | +1 frame of lag; equal from frame 2 |
+| torch out, frame 1 | 6.8 -> 11.6 | 5.7 -> 12.5 | +1 frame of lag; equal from frame 2 |
 
-- Ring memory: 4.5 MiB permanent (4 x 1 MiB staging + 4 x 128 KiB records).
-  - Bursts (startup fill, whole-mirror re-upload) add temporaries up to 31.5 MiB, which are freed afterwards.
-  - Up to 1.1 MiB can still be held at the end of a run.
-  - The steady +5.6 MiB is inside the +6 MB gate. The burst peak is not: it matters only if the ring is turned ON.
-- Still looked at: `walk_open_ring_on_raw.png` shows the normal hill view, terrain about 60 % of the frame, sea on the left, no holes.
+- Whole-frame error barely moves: sun still 2.99 -> 3.12. The problem is local to moving or changing light.
+- Pour, judged by eye (not frame-exact): both arms look alike. sc10 shows some brighter light-blue blotches at the water's edge, but the water states differ between arms, so this is not conclusive.
+- Fast suite: PASS 997 FAIL 0 SKIP 16 (`Logs/overnight/171_fast.out`).
 
-## Top remaining source
-In the spikes, 84-86 % of > 33 ms frames have no CPU section >= 5 ms, with ring ON as with SetData. So the driver's SetData wait was NOT the main cause of the tail. What remains is GPU-bound frames (walk_near p50 35.4 ms with gpu* ~75) and fluid tick pacing (168d: 24-27 %).
+## Why it ghosts
+- Our motion vectors are camera-only, so a moving torch or a light change has no motion vector.
+- With sc10, FSR's only defence there is its colour clamp. The shading-change detection that sc10 turns off was what restarted accumulation where the torch had been.
 
-## Not done / next
-- For the owner, if ever turning the ring ON:
-  - Is +12 ms on p99 worth it when streamed terrain lands about 2.5x slower (mirror drain 4.3 -> 10.5 s at the 1 MiB cap)?
-  - Is a 31.5 MiB burst peak acceptable? A `-uploadcap 2048` arm would trade some of the p99 gain for faster landing (not measured).
-- Next in the order: the GPU-bound near view, or fluid tick pacing.
+## Not done
+- No lava, which is the in-play moving emissive.
+- No reactive mask.
+- No sc5 arm.
 
 ## For the doc
-- > 33 ms share 19.1 -> 16.2 % (-2.9 points); p95 44.9 -> 41.8 ms; p99 65.3 -> 52.9 ms; > 100 ms frames 6 -> 5. Warm ABBA playwalk, Mac not quiet (`Logs/overnight/168e_measure.out`).
-- Exact: 0 of 67.2 M written words differ (GPU readback), raw stills 0 px, after the progress-rule fix (`Logs/costsplit_2026-11-02_193709.txt`). Before the fix, 24,455 px stale at walk_open.
-- Ring memory 4.5 MiB permanent, temporaries up to 31.5 MiB during bursts. Mirror drain 4.3 -> 10.5 s under the 1 MiB cap.
-- Largest remaining source: GPU-bound frames (85 % of > 33 ms frames have no CPU section >= 5 ms), then fluid tick pacing.
-- `Screenshots/168e/walk_open_stale_vs_fixed.png`: three crops of the far hill at walk_open (right side of the frame).
-  - Left: ring ON before the fix, with extra orange specks on the hill from stale chunks.
-  - Middle: ring OFF.
-  - Right: ring ON after the fix, identical to the middle.
-- `Screenshots/168e/walk_open_before_fix_diff_x4.png`: the before-fix difference (x4). Look at the bright patch at the right edge, mid-height: that is the only area that differed.
+- Error in the moving-light region, today -> sc10: moving torch 17.2 -> 47.2 at 432 (12.8 -> 49.7 at 540). Sun moving at the 120 s day 26.9 -> 27.1 (no change). Water cube 5.36 -> 5.42 (`Screenshots/171/fsr171.txt`).
+- Torch put out, frame 1 after: 6.8 -> 11.6 (frame 2: 5.6 -> 5.3, caught up).
+- `Screenshots/171/fsr171_torch_move.png`: THE PROBLEM. 4x zoom; row 1 native / today 432 / sc10 432, row 2 the 540 arms. Look at the torch, bottom right: sc10 draws it twice and leaves bright speckles along its path to the left. Today's arm shows one torch with a soft edge.
+- `Screenshots/171/fsr171_torch_off.png`: the frame after the torch goes out, same layout. The lit ground should be dark, as in native. Today keeps a soft glow; sc10 keeps a brighter, blotchy one.
+- `Screenshots/171/fsr171_sun_fast.png`: the clean case. The sun moves 0.1 deg/frame and the shadow edges look the same in today and sc10.
+- `Screenshots/171/fsr171_slide_full.png`: whole frame, today 432 (left) | sc10 432 (right). Look at the water cube's left (trailing) side: both show a faint smear, about equal.
