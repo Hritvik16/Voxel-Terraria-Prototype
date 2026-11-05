@@ -224,6 +224,14 @@ public partial class PlaygroundCapture
             yield break;
         }
 
+        if (ArgInt("-worldsurvey", 0) != 0)   // task 173: world-gen look survey (PlaygroundCapture.WorldSurvey.cs)
+        {
+            yield return WorldSurvey(far, cam, sm, sh, store, cam.transform.position, wait);
+            L($"LOOK REVIEW done: {root}");
+            File.WriteAllText(Path.Combine(root, "lookreview.txt"), _log.ToString());
+            yield break;
+        }
+
         // ---- poses (fixed before any arm) ----
         const float radius = 150f;
         Vector3 centre = cam.transform.position;

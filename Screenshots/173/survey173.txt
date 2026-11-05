@@ -1,0 +1,36 @@
+ 1 start_walk                         eye (4017, 891, 4019) -> (4117, 891, 4019)  the play start, eye 1.6 m, free distance 1500 m; desert x alpine range
+ 2 start_view                         eye (4017, 925, 4179) -> (4017, 893, 4019)  the play start from 160 m back, 35 m up; sun-behind dot 1.00
+ 3 pair_snow_river-plains             eye (4772, 557, 5956) -> (4772, 525, 5796)  snow x river plains: 40656 cells (14.1 % of land); cell (596,724) landform depth 416 m, danger 2, band 0; sun-behind dot 1.00
+ 4 pair_desert_wetland-basin          eye (3060, 589, 4532) -> (2900, 528, 4532)  desert x wetland basin: 28665 cells (9.9 % of land); cell (362,566) landform depth 480 m, danger 2, band 3; sun-behind dot 0.00
+ 5 pair_desert_canyonlands            eye (4708, 727, 2964) -> (4708, 695, 2804)  desert x canyonlands: 23802 cells (8.2 % of land); cell (588,350) landform depth 480 m, danger 3, band 0; sun-behind dot 1.00
+ 6 pair_desert_alpine-range           eye (3876, 1040, 3988) -> (3876, 1008, 3828)  desert x alpine range: 21102 cells (7.3 % of land); cell (484,478) landform depth 480 m, danger 6, band 2; sun-behind dot 1.00
+ 7 pair_forest_breaks                 eye (3476, 604, 5924) -> (3476, 572, 5764)  forest x breaks: 17654 cells (6.1 % of land); cell (434,720) landform depth 352 m, danger 1, band 3; sun-behind dot 1.00
+ 8 pair_snow_rolling-highlands        eye (5860, 592, 3732) -> (5860, 560, 3572)  snow x rolling highlands: 14416 cells (5.0 % of land); cell (732,446) landform depth 256 m, danger 2, band 0; sun-behind dot 1.00
+ 9 pair_snow_high-plateau             eye (2756, 668, 3300) -> (2756, 636, 3140)  snow x high plateau: 14337 cells (5.0 % of land); cell (344,392) landform depth 480 m, danger 2, band 0; sun-behind dot 1.00
+10 pair_snow_breaks                   eye (1991, 572, 3752) -> (2052, 525, 3604)  snow x breaks: 13296 cells (4.6 % of land); cell (256,450) landform depth 256 m, danger 3, band 1; sun-behind dot 0.92
+11 pair_badlands_rolling-highlands    eye (5844, 596, 3572) -> (5844, 564, 3412)  badlands x rolling highlands: 9836 cells (3.4 % of land); cell (730,426) landform depth 320 m, danger 1, band 0; sun-behind dot 1.00
+12 pair_forest_river-plains           eye (3652, 575, 2404) -> (3652, 540, 2244)  forest x river plains: 9726 cells (3.4 % of land); cell (456,280) landform depth 384 m, danger 0, band 0; sun-behind dot 1.00
+13 pair_forest_volcanic               eye (5124, 662, 3876) -> (5124, 548, 3716)  forest x volcanic: 9564 cells (3.3 % of land); cell (640,464) landform depth 448 m, danger 2, band 0; sun-behind dot 1.00
+14 pair_jungle_dune-sea               eye (4148, 589, 5188) -> (4148, 557, 5028)  jungle x dune sea: 8723 cells (3.0 % of land); cell (518,628) landform depth 480 m, danger 3, band 0; sun-behind dot 1.00
+15 pair_savanna_alpine-range          eye (4036, 914, 4180) -> (4036, 882, 4020)  savanna x alpine range: 7628 cells (2.6 % of land); cell (504,502) landform depth 448 m, danger 3, band 2; sun-behind dot 1.00
+16 pair_savanna_breaks                eye (3492, 741, 5476) -> (3332, 680, 5476)  savanna x breaks: 7048 cells (2.4 % of land); cell (416,684) landform depth 256 m, danger 1, band 3; sun-behind dot 0.00
+17 pair_badlands_high-plateau         eye (2948, 668, 3604) -> (2948, 636, 3444)  badlands x high plateau: 5769 cells (2.0 % of land); cell (368,430) landform depth 416 m, danger 0, band 0; sun-behind dot 1.00
+18 pair_forest_dune-sea               eye (3875, 571, 5061) -> (3988, 539, 4948)  forest x dune sea: 4561 cells (1.6 % of land); cell (498,618) landform depth 384 m, danger 1, band 0; sun-behind dot 0.71
+19 pair_desert_volcanic               eye (5204, 579, 3636) -> (5204, 547, 3476)  desert x volcanic: 4386 cells (1.5 % of land); cell (650,434) landform depth 256 m, danger 4, band 3; sun-behind dot 1.00
+20 pair_savanna_dune-sea              eye (3956, 575, 5060) -> (3956, 543, 4900)  savanna x dune sea: 4335 cells (1.5 % of land); cell (494,612) landform depth 320 m, danger 1, band 1; sun-behind dot 1.00
+21 feature_great-peak-0               eye (3900, 1146, 5344) -> (3900, 1069, 3700)  great-peak-0 (radius 840 m) from 1644 m, 80 m up; sun-behind dot 1.00
+22 feature_great-canyon-1             eye (2515, 548, 4520) -> (2551, 525, 4840)  great-canyon-1 from inside: path point 19/57, 25 m over the floor, looking down the path
+23 feature_great-canyon-1_out         eye (2562, 696, 5480) -> (2562, 524, 4880)  great-canyon-1 from 600 m, 120 m up; sun-behind dot 1.00
+24 feature_great-canyon-2             eye (5182, 546, 3525) -> (5302, 524, 3825)  great-canyon-2 from inside: path point 16/48, 25 m over the floor, looking down the path
+25 feature_great-canyon-2_out         eye (5726, 650, 4249) -> (5302, 522, 3825)  great-canyon-2 from 600 m, 120 m up; sun-behind dot 0.71
+26 feature_mesa-3                     eye (4012, 781, 6515) -> (3600, 704, 5520)  mesa-3 (radius 485 m) from 1077 m, 80 m up; sun-behind dot 0.92
+27 feature_mesa-4                     eye (4880, 782, 5982) -> (4880, 705, 5040)  mesa-4 (radius 401 m) from 942 m, 80 m up; sun-behind dot 1.00
+28 coast_cliff                        eye (4016, 552, 6000) -> (3860, 517, 5844)  coast cell (482,730), ground -320 m over the sea 240 m inland; from 220 m offshore, 40 m over the sea
+29 coast_typ                          eye (1576, 537, 5664) -> (1732, 517, 5508)  coast cell (216,688), ground -509 m over the sea 240 m inland; from 220 m offshore, 25 m over the sea
+30 range_200up                        eye (3860, 744, 5168) -> (3860, 1095, 3668)  the highest map cell (482,458) at 1095 m, from 1.5 km, 200 m over the ground there
+31 river                              eye (4317, 574, 5094) -> (4204, 549, 4996)  river cell (525,624) score 80 (size + valley m), 150 m along its axis, 25 m up
+32 cliff                              eye (3412, 607, 5754) -> (3412, 654, 5684)  Sheer cell (426,710), 167 m drop over 48 m, from 70 m out
+33 cave_mouth                         eye (4306, 854, 3892) -> (4328, 852, 3882)  nearest land CaveMouth stamp, 340 m from the start, tube radius 6.0 m; 25 m outside looking in
+34 cave_in                            eye (4344, 840, 3875) -> (4359, 829, 3868)  20 m down the CaveMouth tube, looking deeper
+35 tunnel                             eye (4011, 851, 4039) -> (4011, 849, 4049)  the most open enclosed air 40 m under the start's ground (2 m store scan); scan: eye (4011.3, 850.8, 4038.9), free 9 m ahead, ceiling 1.3 m
+36 cavern                             eye (4055, 312, 4047) -> (4048, 310, 4054)  the most open enclosed air 200 m below sea level under the start (2 m store scan); scan: eye (4055.3, 311.6, 4046.9), free 56 m ahead, ceiling 27.0 m

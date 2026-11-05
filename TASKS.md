@@ -940,3 +940,14 @@ camp40pan (4-frame strafe burst), walk (8-frame burst at 4 m/s through the camp)
 burst flicker vs native, GIFs). Result in `Screenshots/172/torchcine172.txt` and HANDOFF (STOP_FOR_OWNER): the flood makes torches read at all
 (wall lit px 0.8 -> 16 %, cave 0.8 -> 16 %, water 4.5 -> 37 %), but its pools are flat and over-saturated near posts, and moving shots flicker more
 vs truth (walk lit 4.1 -> 6.8, 40 m strafe 4.4 -> 11.0).
+
+**Task 173 (look, PLAN + CAPTURE only, owner 2026-11-05 "look fantastic first": world gen; no generator / shader / default change): world-gen look survey + `WORLD_GEN_LOOK_PLAN.md`.**
+`-lookreview -worldsurvey 1` (`PlaygroundCapture.WorldSurvey.cs`, hook in LookReview): poses chosen from the world record -- every biome x
+landform pair >= `-wspaircells` (300) cells, up to `-wspairs` (18), at its deepest-inside cell from 160 m back / 35 m up; each signature feature
+(canyon also from inside); coast (highest relief + median); the highest cell from 1.5 km / 200 m up; the biggest river valley; the tallest sun-lit
+Sheer face; the nearest CaveMouth stamp (outside + 20 m down its tube); a store scan for the most open standing-height air 40 m under the start
+and 200 m below sea (`native_lit` arm: capture-only `undergroundAmbientFloor` `-wsfloor` 1.0). Arms `-wsarms` (native,540); `-wsposes` takes names
+or kinds (`feature,river`). Writes `worldsurvey_map.png` + `WSPOSE` lines. Run: `PRESETS=high EXTRA="-worldsurvey 1 -mapversion 4 -shadowlevel 0
+-shadowres full -roofskip 0 -underwater 1 -lookwait 30 -shellworkers 6" ./run-look-review.sh` (~40 min, 36 poses); viewer + annotated map + sheets:
+`python3 -I tools/survey173.py Screenshots/173 Screenshots/173/findings173.json <LookReview dir> [<reshoot dir> ...]` (a later dir replaces whole
+kinds). Result: HANDOFF 173, `WORLD_GEN_LOOK_PLAN.md`, `Logs/lookreview_20261105_134936.txt` + `_143742.txt`.

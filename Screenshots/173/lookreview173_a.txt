@@ -1,0 +1,167 @@
+UPSCALER CLIPS -- 2026-11-05_135456
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 720 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 30 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 720 rows inner inf -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 720 rows inner 2.00 -> outer 1.33 (at 1080 output: outer 2.00)
+
+WORLD SURVEY (task 173): seed 42, map v4, 1024^2 record cells of 8 m, sea 512.0 m; noon 12.00 h, sun elevation 78 deg, heading away from the sun (0.00, -1.00); arms native, fsr3_540; shell wait cap 30 s; start (4017.2, 887.3, 4018.8)
+  biome x landform pairs on land (289061 cells = 18.5 km^2):
+    snow      x river plains         40656 cells  14.1 %  -> shot
+    desert    x wetland basin        28665 cells   9.9 %  -> shot
+    desert    x canyonlands          23802 cells   8.2 %  -> shot
+    desert    x alpine range         21102 cells   7.3 %  -> shot
+    forest    x breaks               17654 cells   6.1 %  -> shot
+    snow      x rolling highlands    14416 cells   5.0 %  -> shot
+    snow      x high plateau         14337 cells   5.0 %  -> shot
+    snow      x breaks               13296 cells   4.6 %  -> shot
+    badlands  x rolling highlands     9836 cells   3.4 %  -> shot
+    forest    x river plains          9726 cells   3.4 %  -> shot
+    forest    x volcanic              9564 cells   3.3 %  -> shot
+    jungle    x dune sea              8723 cells   3.0 %  -> shot
+    savanna   x alpine range          7628 cells   2.6 %  -> shot
+    savanna   x breaks                7048 cells   2.4 %  -> shot
+    badlands  x high plateau          5769 cells   2.0 %  -> shot
+    forest    x dune sea              4561 cells   1.6 %  -> shot
+    desert    x volcanic              4386 cells   1.5 %  -> shot
+    savanna   x dune sea              4335 cells   1.5 %  -> shot
+    desert    x river plains          4331 cells   1.5 %
+    forest    x high plateau          4241 cells   1.5 %
+    savanna   x volcanic              4178 cells   1.4 %
+    snow      x volcanic              4165 cells   1.4 %
+    desert    x high plateau          4127 cells   1.4 %
+    badlands  x alpine range          3027 cells   1.0 %
+    badlands  x breaks                2906 cells   1.0 %
+    badlands  x river plains          2496 cells   0.9 %
+    desert    x rolling highlands     1971 cells   0.7 %
+    desert    x breaks                1788 cells   0.6 %
+    forest    x rolling highlands     1586 cells   0.5 %
+    jungle    x alpine range          1538 cells   0.5 %
+    snow      x dune sea              1428 cells   0.5 %
+    savanna   x wetland basin         1328 cells   0.5 %
+    jungle    x river plains          1197 cells   0.4 %
+    savanna   x river plains           791 cells   0.3 %
+    jungle    x rolling highlands      673 cells   0.2 %
+    jungle    x volcanic               509 cells   0.2 %
+    desert    x dune sea               353 cells   0.1 %
+    forest    x wetland basin          307 cells   0.1 %
+    snow      x alpine range           179 cells   0.1 %
+    badlands  x wetland basin          170 cells   0.1 %
+    forest    x alpine range           143 cells   0.0 %
+    badlands  x volcanic               125 cells   0.0 %
+  coast: 1713 sun-lit coastal cells (step 2)
+  35 poses; map worldsurvey_map.png (1024 px, +x right, +z UP; a pixel = one 8 m cell)
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1314/678/9  s3 244/1414/5  s4 0/987/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 3728, missing 3766, pending 0; requested 3750, generated 3736 (78 ms each on a worker), dropped stale 0, over-budget frames 0 (of 1156)
+WSPOSE start_walk|4017.2,891.2,4018.8|4117.2,891.2,4018.8|the play start, eye 1.6 m, free distance 1500 m; desert x alpine range
+  start_walk: yaw 90 pitch 0 deg, distance 100 m, 55 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1832/0/0  s3 823/657/14  s4 0/987/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 4825, missing 2331, pending 0; requested 6551, generated 6537 (96 ms each on a worker), dropped stale 5, over-budget frames 0 (of 2281)
+WSPOSE start_view|4017.2,924.6,4178.8|4017.2,892.6,4018.8|the play start from 160 m back, 35 m up; sun-behind dot 1.00
+  start_view: yaw 180 pitch -11 deg, distance 163 m, 58 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1455/715/0  s3 71/1916/14  s4 0/987/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 3696, missing 4237, pending 0; requested 10451, generated 10437 (98 ms each on a worker), dropped stale 19, over-budget frames 0 (of 4058)
+WSPOSE pair_snow_river-plains|4772.0,556.6,5956.0|4772.0,524.6,5796.0|snow x river plains: 40656 cells (14.1 % of land); cell (596,724) landform depth 416 m, danger 2, band 0; sun-behind dot 1.00
+  pair_snow_river-plains: yaw 180 pitch -11 deg, distance 163 m, 67 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2054/108/8  s3 617/1378/6  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 4841, missing 3151, pending 0; requested 15854, generated 15840 (90 ms each on a worker), dropped stale 33, over-budget frames 1 (of 5079)
+WSPOSE pair_desert_wetland-basin|3060.0,588.9,4532.0|2900.0,528.5,4532.0|desert x wetland basin: 28665 cells (9.9 % of land); cell (362,566) landform depth 480 m, danger 2, band 3; sun-behind dot 0.00
+  pair_desert_wetland-basin: yaw 270 pitch -21 deg, distance 171 m, 79 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2157/12/1  s3 737/1082/13  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 5064, missing 2759, pending 0; requested 21675, generated 21661 (85 ms each on a worker), dropped stale 47, over-budget frames 1 (of 6262)
+WSPOSE pair_desert_canyonlands|4708.0,727.1,2964.0|4708.0,695.1,2804.0|desert x canyonlands: 23802 cells (8.2 % of land); cell (588,350) landform depth 480 m, danger 3, band 0; sun-behind dot 1.00
+  pair_desert_canyonlands: yaw 180 pitch -11 deg, distance 163 m, 70 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2001/0/0  s2 1494/0/0  s3 728/583/14  s4 66/930/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 4289, missing 2200, pending 0; requested 26445, generated 26431 (83 ms each on a worker), dropped stale 54, over-budget frames 1 (of 7363)
+WSPOSE pair_desert_alpine-range|3876.0,1039.5,3988.0|3876.0,1007.5,3828.0|desert x alpine range: 21102 cells (7.3 % of land); cell (484,478) landform depth 480 m, danger 6, band 2; sun-behind dot 1.00
+  pair_desert_alpine-range: yaw 180 pitch -11 deg, distance 163 m, 65 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1756/406/8  s3 441/1554/6  s4 24/963/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 4391, missing 3542, pending 0; requested 31222, generated 31208 (83 ms each on a worker), dropped stale 64, over-budget frames 1 (of 8643)
+WSPOSE pair_forest_breaks|3476.0,604.3,5924.0|3476.0,572.3,5764.0|forest x breaks: 17654 cells (6.1 % of land); cell (434,720) landform depth 352 m, danger 1, band 3; sun-behind dot 1.00
+  pair_forest_breaks: yaw 180 pitch -11 deg, distance 163 m, 66 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1669/490/11  s3 456/1542/3  s4 0/987/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 4295, missing 3638, pending 0; requested 36274, generated 36260 (82 ms each on a worker), dropped stale 78, over-budget frames 1 (of 10114)
+WSPOSE pair_snow_rolling-highlands|5860.0,592.0,3732.0|5860.0,560.0,3572.0|snow x rolling highlands: 14416 cells (5.0 % of land); cell (732,446) landform depth 256 m, danger 2, band 0; sun-behind dot 1.00
+  pair_snow_rolling-highlands: yaw 180 pitch -11 deg, distance 163 m, 60 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1403/767/0  s3 268/1719/14  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 3841, missing 4151, pending 0; requested 40790, generated 40776 (82 ms each on a worker), dropped stale 92, over-budget frames 1 (of 11408)
+WSPOSE pair_snow_high-plateau|2756.0,668.4,3300.0|2756.0,636.4,3140.0|snow x high plateau: 14337 cells (5.0 % of land); cell (344,392) landform depth 480 m, danger 2, band 0; sun-behind dot 1.00
+  pair_snow_high-plateau: yaw 180 pitch -11 deg, distance 163 m, 65 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1467/698/5  s3 515/1477/9  s4 0/987/0  s5 0/402/0  s6 0/162/0  s7 0/16/0   total stored 4152, missing 3742, pending 0; requested 45372, generated 45358 (82 ms each on a worker), dropped stale 104, over-budget frames 1 (of 12548)
+WSPOSE pair_snow_breaks|1990.8,571.9,3751.8|2052.0,524.6,3604.0|snow x breaks: 13296 cells (4.6 % of land); cell (256,450) landform depth 256 m, danger 3, band 1; sun-behind dot 0.92
+  pair_snow_breaks: yaw 158 pitch -16 deg, distance 167 m, 71 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1586/574/10  s3 375/1622/4  s4 0/987/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 4131, missing 3802, pending 0; requested 50468, generated 50454 (81 ms each on a worker), dropped stale 118, over-budget frames 1 (of 13795)
+WSPOSE pair_badlands_rolling-highlands|5844.0,596.4,3572.0|5844.0,564.4,3412.0|badlands x rolling highlands: 9836 cells (3.4 % of land); cell (730,426) landform depth 320 m, danger 1, band 0; sun-behind dot 1.00
+  pair_badlands_rolling-highlands: yaw 180 pitch -11 deg, distance 163 m, 64 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1474/689/7  s3 377/1617/7  s4 0/987/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 4021, missing 3912, pending 0; requested 55285, generated 55271 (81 ms each on a worker), dropped stale 132, over-budget frames 1 (of 14989)
+WSPOSE pair_forest_river-plains|3652.0,574.9,2404.0|3652.0,539.5,2244.0|forest x river plains: 9726 cells (3.4 % of land); cell (456,280) landform depth 384 m, danger 0, band 0; sun-behind dot 1.00
+  pair_forest_river-plains: yaw 180 pitch -12 deg, distance 164 m, 65 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1491/673/6  s3 344/1649/8  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 4005, missing 3987, pending 0; requested 60094, generated 60080 (81 ms each on a worker), dropped stale 146, over-budget frames 1 (of 16219)
+WSPOSE pair_forest_volcanic|5124.0,661.8,3876.0|5124.0,547.5,3716.0|forest x volcanic: 9564 cells (3.3 % of land); cell (640,464) landform depth 448 m, danger 2, band 0; sun-behind dot 1.00
+  pair_forest_volcanic: yaw 180 pitch -36 deg, distance 197 m, 68 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1455/715/0  s3 247/1740/14  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 3872, missing 4120, pending 0; requested 64821, generated 64807 (81 ms each on a worker), dropped stale 160, over-budget frames 1 (of 17436)
+WSPOSE pair_jungle_dune-sea|4148.0,588.7,5188.0|4148.0,556.7,5028.0|jungle x dune sea: 8723 cells (3.0 % of land); cell (518,628) landform depth 480 m, danger 3, band 0; sun-behind dot 1.00
+  pair_jungle_dune-sea: yaw 180 pitch -11 deg, distance 163 m, 63 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1576/415/10  s3 372/1287/4  s4 0/987/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 4118, missing 3376, pending 0; requested 69612, generated 69598 (80 ms each on a worker), dropped stale 174, over-budget frames 1 (of 18446)
+WSPOSE pair_savanna_alpine-range|4036.0,913.5,4180.0|4036.0,881.5,4020.0|savanna x alpine range: 7628 cells (2.6 % of land); cell (504,502) landform depth 448 m, danger 3, band 2; sun-behind dot 1.00
+  pair_savanna_alpine-range: yaw 180 pitch -11 deg, distance 163 m, 62 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1481/689/0  s3 192/1626/14  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 3843, missing 3980, pending 0; requested 74152, generated 74138 (81 ms each on a worker), dropped stale 188, over-budget frames 1 (of 19674)
+WSPOSE pair_savanna_breaks|3492.0,741.3,5476.0|3332.0,679.9,5476.0|savanna x breaks: 7048 cells (2.4 % of land); cell (416,684) landform depth 256 m, danger 1, band 3; sun-behind dot 0.00
+  pair_savanna_breaks: yaw 270 pitch -21 deg, distance 171 m, 81 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1390/780/0  s3 148/1839/14  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 3708, missing 4284, pending 0; requested 78649, generated 78635 (81 ms each on a worker), dropped stale 202, over-budget frames 1 (of 21001)
+WSPOSE pair_badlands_high-plateau|2948.0,668.5,3604.0|2948.0,636.5,3444.0|badlands x high plateau: 5769 cells (2.0 % of land); cell (368,430) landform depth 416 m, danger 0, band 0; sun-behind dot 1.00
+  pair_badlands_high-plateau: yaw 180 pitch -11 deg, distance 163 m, 66 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1412/751/7  s3 4/1990/7  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 3586, missing 4406, pending 0; requested 82692, generated 82678 (83 ms each on a worker), dropped stale 216, over-budget frames 1 (of 22465)
+WSPOSE pair_forest_dune-sea|3874.9,571.0,5061.1|3988.0,539.0,4948.0|forest x dune sea: 4561 cells (1.6 % of land); cell (498,618) landform depth 384 m, danger 1, band 0; sun-behind dot 0.71
+  pair_forest_dune-sea: yaw 135 pitch -11 deg, distance 163 m, 78 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1510/652/8  s3 400/1595/6  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 4080, missing 3912, pending 0; requested 87201, generated 87187 (83 ms each on a worker), dropped stale 230, over-budget frames 1 (of 23416)
+WSPOSE pair_desert_volcanic|5204.0,579.3,3636.0|5204.0,547.3,3476.0|desert x volcanic: 4386 cells (1.5 % of land); cell (650,434) landform depth 256 m, danger 4, band 3; sun-behind dot 1.00
+  pair_desert_volcanic: yaw 180 pitch -11 deg, distance 163 m, 80 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1537/624/9  s3 419/1577/5  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 4126, missing 3866, pending 0; requested 92289, generated 92275 (85 ms each on a worker), dropped stale 244, over-budget frames 1 (of 25078)
+WSPOSE pair_savanna_dune-sea|3956.0,574.9,5060.0|3956.0,542.9,4900.0|savanna x dune sea: 4335 cells (1.5 % of land); cell (494,612) landform depth 320 m, danger 1, band 1; sun-behind dot 1.00
+  pair_savanna_dune-sea: yaw 180 pitch -11 deg, distance 163 m, 91 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 1325/0/0  s2 1165/0/0  s3 1159/5/1  s4 398/585/13  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 4047, missing 1277, pending 0; requested 96618, generated 96604 (84 ms each on a worker), dropped stale 254, over-budget frames 1 (of 26773)
+WSPOSE feature_great-peak|3900.0,1146.1,5344.0|3900.0,1069.1,3700.0|great-peak (radius 840 m) from 1644 m, 80 m up; sun-behind dot 1.00
+  feature_great-peak: yaw 180 pitch -3 deg, distance 1646 m, 49 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1455/715/0  s3 281/1706/14  s4 240/747/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 4146, missing 3846, pending 0; requested 100740, generated 100726 (85 ms each on a worker), dropped stale 264, over-budget frames 1 (of 27861)
+WSPOSE feature_great-canyon|2514.9,548.2,4520.0|2550.6,525.3,4840.0|great-canyon from inside: path point 19/57, 25 m over the floor, looking down the path
+  feature_great-canyon: yaw 6 pitch -4 deg, distance 323 m, 84 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2017/147/6  s3 706/1287/8  s4 234/753/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 5127, missing 2865, pending 0; requested 106643, generated 106629 (84 ms each on a worker), dropped stale 274, over-budget frames 1 (of 29297)
+WSPOSE feature_great-canyon_out|2562.5,696.4,5480.0|2562.5,523.7,4880.0|great-canyon from 600 m, 120 m up; sun-behind dot 1.00
+  feature_great-canyon_out: yaw 180 pitch -16 deg, distance 624 m, 61 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1481/689/0  s3 168/1819/14  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 3819, missing 4173, pending 0; requested 110924, generated 110910 (85 ms each on a worker), dropped stale 288, over-budget frames 1 (of 30444)
+WSPOSE feature_great-canyon|5182.1,545.5,3524.6|5301.5,524.2,3825.1|great-canyon from inside: path point 16/48, 25 m over the floor, looking down the path
+  feature_great-canyon: yaw 22 pitch -4 deg, distance 324 m, 85 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1424/736/10  s3 159/1838/4  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 3753, missing 4239, pending 0; requested 115332, generated 115318 (85 ms each on a worker), dropped stale 302, over-budget frames 1 (of 31985)
+WSPOSE feature_great-canyon_out|5725.8,649.7,4249.4|5301.5,522.2,3825.1|great-canyon from 600 m, 120 m up; sun-behind dot 0.71
+  feature_great-canyon_out: yaw 225 pitch -12 deg, distance 613 m, 63 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 820/998/14  s4 0/987/0  s5 0/402/0  s6 0/162/0  s7 0/16/0   total stored 5160, missing 2565, pending 0; requested 120767, generated 120753 (84 ms each on a worker), dropped stale 316, over-budget frames 1 (of 33648)
+WSPOSE feature_mesa|4012.0,780.8,6514.7|3600.0,703.8,5520.0|mesa (radius 485 m) from 1077 m, 80 m up; sun-behind dot 0.92
+  feature_mesa: yaw 203 pitch -4 deg, distance 1079 m, 61 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1166/652/14  s4 12/975/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 5518, missing 2246, pending 0; requested 126372, generated 126358 (83 ms each on a worker), dropped stale 325, over-budget frames 1 (of 35142)
+WSPOSE feature_mesa|4880.0,781.6,5981.9|4880.0,704.6,5040.0|mesa (radius 401 m) from 942 m, 80 m up; sun-behind dot 1.00
+  feature_mesa: yaw 180 pitch -5 deg, distance 945 m, 54 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1233/923/14  s3 561/1440/0  s4 141/846/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 4105, missing 3828, pending 0; requested 130083, generated 130069 (83 ms each on a worker), dropped stale 327, over-budget frames 1 (of 36290)
+WSPOSE coast_cliff|4015.6,552.0,5999.6|3860.0,517.1,5844.0|coast cell (482,730), ground -320 m over the sea 240 m inland; from 220 m offshore, 40 m over the sea
+  coast_cliff: yaw 225 pitch -9 deg, distance 223 m, 69 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1456/708/6  s3 378/1615/8  s4 0/987/0  s5 0/363/0  s6 0/142/0  s7 0/19/0   total stored 4004, missing 3834, pending 0; requested 134661, generated 134647 (84 ms each on a worker), dropped stale 341, over-budget frames 1 (of 37510)
+WSPOSE coast_typ|1576.4,537.0,5663.6|1732.0,517.1,5508.0|coast cell (216,688), ground -509 m over the sea 240 m inland; from 220 m offshore, 25 m over the sea
+  coast_typ: yaw 135 pitch -5 deg, distance 221 m, 71 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1991/172/7  s3 490/1335/7  s4 0/987/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 4651, missing 3172, pending 0; requested 140021, generated 140007 (83 ms each on a worker), dropped stale 355, over-budget frames 1 (of 39164)
+WSPOSE range_200up|3860.0,743.9,5168.0|3860.0,1095.0,3668.0|the highest map cell (482,458) at 1095 m, from 1.5 km, 200 m over the ground there
+  range_200up: yaw 180 pitch 13 deg, distance 1541 m, 54 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1443/727/0  s3 448/1539/14  s4 0/987/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 4061, missing 3872, pending 0; requested 144050, generated 144036 (84 ms each on a worker), dropped stale 362, over-budget frames 1 (of 40281)
+WSPOSE cliff|3411.9,607.3,5754.0|3412.0,653.7,5684.0|Sheer cell (426,710), 167 m drop over 48 m, from 70 m out
+  cliff: yaw 180 pitch 34 deg, distance 84 m, 84 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2063/101/6  s3 508/1147/8  s4 0/987/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 4741, missing 2922, pending 0; requested 149662, generated 149648 (85 ms each on a worker), dropped stale 376, over-budget frames 1 (of 42660)
+WSPOSE cave_mouth|4305.6,854.2,3891.6|4328.4,851.7,3881.5|nearest land CaveMouth stamp, 340 m from the start, tube radius 6.0 m; 25 m outside looking in
+  cave_mouth: yaw 114 pitch -6 deg, distance 25 m, 110 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1334/322/7  s4 203/777/7  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 5877, missing 1786, pending 0; requested 151472, generated 151458 (86 ms each on a worker), dropped stale 377, over-budget frames 1 (of 43327)
+WSPOSE cave_in|4343.5,840.4,3874.7|4358.6,829.1,3868.0|20 m down the CaveMouth tube, looking deeper
+  cave_in: yaw 114 pitch -34 deg, distance 20 m, 56 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2170/0/0  s3 1448/205/10  s4 433/550/4  s5 6/483/0  s6 0/182/0  s7 0/16/0   total stored 6227, missing 1436, pending 0; requested 155936, generated 155922 (86 ms each on a worker), dropped stale 381, over-budget frames 1 (of 45710)
+WSPOSE tunnel|4011.3,850.8,4038.9|4011.3,849.3,4048.7|the most open enclosed air 40 m under the start's ground (2 m store scan); scan: eye (4011.3, 850.8, 4038.9), free 9 m ahead, ceiling 1.3 m
+  tunnel: yaw 0 pitch -9 deg, distance 10 m, 71 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2151/17/2  s2 1245/915/10  s3 1307/354/2  s4 540/447/0  s5 6/483/0  s6 0/182/0  s7 0/16/0   total stored 5249, missing 2414, pending 0; requested 159271, generated 159257 (88 ms each on a worker), dropped stale 382, over-budget frames 1 (of 48692)
+WSPOSE cavern|4055.3,311.6,4046.9|4048.2,310.5,4053.9|the most open enclosed air 200 m below sea level under the start (2 m store scan); scan: eye (4055.3, 311.6, 4046.9), free 56 m ahead, ceiling 27.0 m
+  cavern: yaw 315 pitch -6 deg, distance 10 m, 102 s
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-05_135456_high
