@@ -8,7 +8,7 @@ Full-size viewer (local, not yet published): `Screenshots/173/viewer.html`. Arro
 
 # 173-plan-world-gen-look: survey of 36 poses shot (2 launches); `WORLD_GEN_LOOK_PLAN.md` written. Capture only; play unchanged.
 
-## What changed (commit below)
+## What changed (`4d426d2`)
 - New capture mode `-lookreview -worldsurvey 1` (`Assets/Game/PlaygroundCapture.WorldSurvey.cs`, hooked in from `PlaygroundCapture.LookReview.cs`).
 - `tools/survey173.py`: builds the annotated map, 2-across contact sheets and the full-size viewer. TASKS.md: Task 173 paragraph.
 - `WORLD_GEN_LOOK_PLAN.md`: findings and 8 candidates in order, each with effort, how it stays general, and render cost.
