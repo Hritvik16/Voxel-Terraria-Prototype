@@ -3,7 +3,7 @@
 Model: opus
 
 Approval: owner, 2026-11-02, chat: "you decide what to check, I just meant do the recommended ones really look cinematic and good?" (Q105 / Q107). A LOOK task: capture only, no frame times.
-Requires: 171 done is NOT needed; uses the built player. Read `tools/overnight/blocked/164b-look-torch-flood-direction-rerun.HANDOFF.md` and `Screenshots/164`.
+Needs: nothing queued (171 is not needed); uses the built player. Read `tools/overnight/blocked/164b-look-torch-flood-direction-rerun.HANDOFF.md` and `Screenshots/164`.
 
 ## Question
 Do the RECOMMENDED settings together (torch flood ON with `-tfdir 2`, FSR 3 dyn 432-540 with `-fsr3sc 10`, High preset) look cinematic and good, next to today's play look (flood OFF, today's FSR 3)?

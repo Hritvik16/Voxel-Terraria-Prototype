@@ -1,5 +1,16 @@
 # Roadmap and engine backlog (owner, 2026-10-08)
 
+## CURRENT ORDER (owner, 2026-11-05) -- overrides the order below and 2026-10-22's "performance first"
+Owner: "I want the game to look fantastic first ... then we can work on performance and then ... the object
+placement phase." Reason: performance tuned before lighting / world gen / visuals would be undone by them.
+1. **Look fantastic**, in this order: lighting (torch flood: 171 FSR 3 fix, 172 cinematic check, flood ON; then
+   E9's coloured light / far lights / bounce) -> world gen (terrain shape, caves, rivers, biomes, ground
+   materials) -> visuals polish (sky, clouds, water surface, fog/haze, colour grade, AA), tuned to the final world.
+   Each look task notes its rough cost from runs it already does; no timing arms.
+2. **Performance** on the finished look: stable 30 fps (E4) + memory under 3 GB (E10). Parked here: 170 torch
+   memory trim (`tools/overnight/later/`), the slow-frame tail (168b-168e), the 3 GB cap.
+3. **Object placement phase**: starts with a game-design document written together with the owner.
+
 **This file overrides every older FUTURE plan** in `DESIGN_LARGE_WORLD_AND_TERRAIN_OVERHAUL.md`,
 `AMENDMENT_8_11_RENDER_RANGE.md`, `PLAN_COARSE_FIRST_GEN.md`, `KNOWN_ISSUES.md`, SUPERVISOR.md and
 the claude.ai plan docs where they disagree about ORDER or SCOPE. It does not change any adopted

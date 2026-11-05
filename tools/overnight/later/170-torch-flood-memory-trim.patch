@@ -1,0 +1,453 @@
+diff --git a/Assets/CoreEngine/Rendering/Resources/TorchFloodProbe.compute b/Assets/CoreEngine/Rendering/Resources/TorchFloodProbe.compute
+index 93e3e4d..ec0aa39 100644
+--- a/Assets/CoreEngine/Rendering/Resources/TorchFloodProbe.compute
++++ b/Assets/CoreEngine/Rendering/Resources/TorchFloodProbe.compute
+@@ -2,6 +2,7 @@
+ // list of voxels (the air cells in front of chosen pixels' hit faces) so the
+ // capture can compare them with TorchFloodPool.SampleLevels and the oracle.
+ #pragma kernel CSFloodProbe
++#pragma kernel CSFloodCopy
+ 
+ #include "../TorchFlood.hlsl"
+ 
+@@ -16,3 +17,17 @@ void CSFloodProbe(uint3 id : SV_DispatchThreadID)
+     int3 v = _ProbeIn[id.x].xyz;
+     _ProbeOut[id.x] = float4(FloodLevels(v), dot(FloodLight(v, int3(0, 0, 0)), float3(0.2126, 0.7152, 0.0722)));
+ }
++
++// Task 170: growing a flood buffer copies the old one on the GPU (TorchFloodPool.GrowGpu), so a
++// growth step uploads only the dirty runs, not the whole buffer from the CPU.
++StructuredBuffer<uint> _CopySrc;
++RWStructuredBuffer<uint> _CopyDst;
++uint _CopyCount;
++uint _CopyStride;
++
++[numthreads(256, 1, 1)]
++void CSFloodCopy(uint3 id : SV_DispatchThreadID)
++{
++    for (uint i = id.x; i < _CopyCount; i += _CopyStride)
++        _CopyDst[i] = _CopySrc[i];
++}
+diff --git a/Assets/CoreEngine/Rendering/TorchFloodBuild.cs b/Assets/CoreEngine/Rendering/TorchFloodBuild.cs
+index 92629e6..71401b1 100644
+--- a/Assets/CoreEngine/Rendering/TorchFloodBuild.cs
++++ b/Assets/CoreEngine/Rendering/TorchFloodBuild.cs
+@@ -245,6 +245,27 @@ namespace VoxelEngine.Rendering
+             LightFloodReference.Pack(math.max(0, LightFloodReference.R(seed) - d), math.max(0, LightFloodReference.G(seed) - d),
+                                      math.max(0, LightFloodReference.B(seed) - d));
+ 
++        /// Task 170: the union lists (and the GPU buffers, TorchFloodPool.GrowGpu) grow to need + 1/8, rounded up
++        /// to 64 Ki words, not by doubling: at most ~12.5 % slack instead of up to 100 %.
++        public const int GROW_GRANULE = 65536;
++        public static int GrowCap(int need)
++        {
++            long c = (long)need + (need >> 3);
++            c = (c + GROW_GRANULE - 1) & ~(long)(GROW_GRANULE - 1);
++            return (int)math.min(c, int.MaxValue - GROW_GRANULE);
++        }
++
++        /// Makes room for `need` elements with GrowCap's exact capacity (NativeList's own growth rounds to a power
++        /// of two; Resize to the target then TrimExcess sets it exactly; the transient copy is freed at once).
++        public static void Reserve<T>(ref NativeList<T> l, int need) where T : unmanaged
++        {
++            if (need <= l.Capacity) return;
++            int len = l.Length;
++            l.Resize(GrowCap(need), NativeArrayOptions.UninitializedMemory);
++            l.TrimExcess();
++            l.Resize(len, NativeArrayOptions.UninitializedMemory);
++        }
++
+         public static int ShiftFor(int3 db)
+         {
+             int m = math.cmax(db), s = 0;
+@@ -258,11 +279,29 @@ namespace VoxelEngine.Rendering
+ 
+         public static void Snapshot(ChunkStore store, int3 lo, int3 db, TorchFloodScratch s)
+         {
+-            int sh = ShiftFor(db);
+-            s.Ensure(sh);
++            SnapshotBegin(db, s);
++            SnapshotPlanes(store, lo, db, s, 0, db.z);
++        }
++
++        /// Task 170: the snapshot in slices (TorchFloodPool runs a few brick planes per frame under its budget).
++        /// Begin, then SnapshotPlanes over [0, db.z) in any number of calls, in order.
++        public static void SnapshotBegin(int3 db, TorchFloodScratch s)
++        {
++            s.Ensure(ShiftFor(db));
+             s.dense.Clear(); s.masks.Clear();
++        }
++
++        /// Box brick planes [z0, z1): brick kinds, and the occupancy bits of the planes' dense bricks (read
++        /// from the pool in this same call, so a slice is one consistent read of its planes; a change between
++        /// slices is an edit / admit after the read, which re-floods the torch as it does during the job).
++        public static void SnapshotPlanes(ChunkStore store, int3 lo, int3 db, TorchFloodScratch s, int z0, int z1)
++        {
++            int sh = s.shift;
+             int3 b0 = lo >> 3, b1 = b0 + db - 1;
+-            int3 c0 = b0 >> 4, c1 = b1 >> 4;
++            b1.z = b0.z + z1 - 1;
++            int3 bs = new int3(b0.x, b0.y, b0.z + z0);
++            int3 c0 = bs >> 4, c1 = b1 >> 4;
++            int d0 = s.dense.Length;
+             byte* kind = (byte*)s.kind.GetUnsafePtr();
+             for (int cz = c0.z; cz <= c1.z; cz++)
+             for (int cy = c0.y; cy <= c1.y; cy++)
+@@ -270,7 +309,7 @@ namespace VoxelEngine.Rendering
+             {
+                 var c = new int3(cx, cy, cz);
+                 Chunk ch = store.GetChunk(c);
+-                int3 q0 = math.max(b0, c << 4), q1 = math.min(b1, (c << 4) + 15);
++                int3 q0 = math.max(bs, c << 4), q1 = math.min(b1, (c << 4) + 15);
+                 byte fill = 255;
+                 if (ch == null) fill = 0;
+                 else if (ch.isUniform) fill = ch.uniformMaterial == 0 ? (byte)1 : (byte)0;
+@@ -293,13 +332,15 @@ namespace VoxelEngine.Rendering
+                     }
+                 }
+             }
+-            new MaskJob { dense = s.dense, raw = store.BrickPool.RawData, kind = s.kind, maskOff = s.maskOff, masks = s.masks }.Run();
++            if (s.dense.Length > d0)
++                new MaskJob { dense = s.dense, start = d0, raw = store.BrickPool.RawData, kind = s.kind, maskOff = s.maskOff, masks = s.masks }.Run();
+         }
+ 
+         [BurstCompile(CompileSynchronously = true, DisableSafetyChecks = true)]
+         private struct MaskJob : IJob
+         {
+             [ReadOnly] public NativeList<int2> dense;
++            public int start;
+             [ReadOnly] public NativeArray<byte> raw;
+             public NativeArray<byte> kind;
+             public NativeArray<int> maskOff;
+@@ -309,7 +350,7 @@ namespace VoxelEngine.Rendering
+             {
+                 byte* r = (byte*)raw.GetUnsafeReadOnlyPtr();
+                 ulong* m = stackalloc ulong[8];
+-                for (int i = 0; i < dense.Length; i++)
++                for (int i = start; i < dense.Length; i++)
+                 {
+                     int pb = dense[i].x;
+                     byte* src = r + (long)dense[i].y * 512;
+@@ -661,6 +702,8 @@ namespace VoxelEngine.Rendering
+                 }
+                 stats[0] = reached; stats[1] = directLit; stats[2] = stored; stats[3] = escapes; stats[4] = seeds.Length;
+                 stats[5] = (int)math.min(pops, int.MaxValue); stats[6] = dist.Length >> 9; stats[7] = anchored;
++                // task 170: the cache is kept per torch; drop the lists' doubling slack (here, on the worker)
++                outDirect.TrimExcess(); outKeys.TrimExcess(); outEntries.TrimExcess(); outData.TrimExcess();
+             }
+ 
+             /// Marks a (dense index) brick direct; sets its lit bit when its nearest voxel is inside the reach.
+@@ -1033,6 +1076,7 @@ namespace VoxelEngine.Rendering
+                 NativeList<int> fl = n == 8 ? free8 : free64;
+                 if (fl.Length > 0) { int o = fl[fl.Length - 1]; fl.RemoveAt(fl.Length - 1); return o; }
+                 int off = data.Length;
++                Reserve(ref data, off + n);
+                 data.Resize(off + n, NativeArrayOptions.ClearMemory);
+                 return off;
+             }
+@@ -1080,6 +1124,7 @@ namespace VoxelEngine.Rendering
+                         {
+                             ti = chunkUsed.Length;
+                             chunkUsed.Add(0); dirtyTable.Add(0);
++                            Reserve(ref tables, (ti + 1) * 4096);
+                             tables.Resize((ti + 1) * 4096, NativeArrayOptions.ClearMemory);
+                         }
+                         chunkUsed[ti] = 0;
+diff --git a/Assets/CoreEngine/Rendering/TorchFloodPool.cs b/Assets/CoreEngine/Rendering/TorchFloodPool.cs
+index 48ce58e..2885d33 100644
+--- a/Assets/CoreEngine/Rendering/TorchFloodPool.cs
++++ b/Assets/CoreEngine/Rendering/TorchFloodPool.cs
+@@ -158,15 +158,19 @@ namespace VoxelEngine.Rendering
+             public NativeArray<int> stats = new NativeArray<int>(8, Allocator.Persistent);
+             public Stopwatch sw = new Stopwatch();
+             public bool busy;
++            /// Task 170: the next box brick plane to snapshot; -1 = the snapshot is done (the job runs or is idle).
++            public int snapZ = -1;
+         }
+ 
+         private ChunkStore _store;
+         private readonly float _reachM;
+         /// Tests: false (no GraphicsBuffers in batchmode -nographics).
+         public bool Gpu;
+-        public int MaxJobs = 2;
+-        public int MergeBatch = 4096;
+-        /// Main-thread budget per Tick for starting new floods (each one Snapshots its box).
++        /// Task 170 (owner Q106 1 (a)): ONE flood job at a time (its scratch, ~13 MB, exists only while flooding).
++        public int MaxJobs = 1;
++        /// Task 170: bricks per merge (the main-thread ApplyJob is ~0.7 us per brick).
++        public int MergeBatch = 1024;
++        /// Main-thread budget per Tick (from its start) for snapshots (task 170: sliced by box brick plane, at least one per Tick).
+         public double FrameBudgetMs = 0.5;
+ 
+         private readonly Dictionary<int3, TorchRec> _recs = new Dictionary<int3, TorchRec>();
+@@ -328,6 +332,15 @@ namespace VoxelEngine.Rendering
+             ScratchPeakBytes = Math.Max(ScratchPeakBytes, ScratchBytes);
+             if (was || busy) BusyTickMs.Add((float)sw.Elapsed.TotalMilliseconds);
+             if (!busy && _slots.Count > 0) FreeSlots();   // the job scratch exists only while flooding
++            if (!busy && was) TrimIdle();
++        }
++
++        /// Task 170: when the pool goes idle, the transient lists drop what a burst grew them to.
++        private void TrimIdle()
++        {
++            if (_dirtyBricks.IsEmpty && _dirtyBricks.Capacity > 1024) _dirtyBricks.TrimExcess();
++            if (_mergeOut.Capacity > MergeBatch * 16) { _mergeOut.Clear(); _mergeOut.TrimExcess(); }
++            _free8.TrimExcess(); _free64.TrimExcess();
+         }
+ 
+         /// Replaces the torch set (tests and Tick). Removed torches drop their light; added ones are queued.
+@@ -481,21 +494,24 @@ namespace VoxelEngine.Rendering
+             Phase(0, sw, ref last);
+             // finished floods
+             foreach (var s in _slots)
+-                if (s.busy && (!budgeted || s.h.IsCompleted)) FinishFlood(s);
++                if (s.busy && s.snapZ < 0 && (!budgeted || s.h.IsCompleted)) FinishFlood(s);
+             Phase(1, sw, ref last);
+             // a finished merge
+             if (_merging && (!budgeted || _mergeH.IsCompleted)) FinishMerge();
+             Phase(2, sw, ref last);
+             PhaseSumMs[2] -= LastUploadMsStep; if (LastUploadMsStep > PhaseMaxMs[3]) PhaseMaxMs[3] = LastUploadMsStep;
+             PhaseSumMs[3] += LastUploadMsStep; LastUploadMsStep = 0;
+-            // new floods
++            // snapshots in progress, then new floods (task 170: a snapshot runs plane by plane under the budget)
++            bool any = false;
++            foreach (var s in _slots)
++                if (s.busy && s.snapZ >= 0) { ContinueSnapshot(s, budgeted, sw, ref any); }
+             foreach (var r in _recs.Values)
+             {
+                 if (!r.need || r.job != null) continue;
+-                if (budgeted && sw.Elapsed.TotalMilliseconds > FrameBudgetMs) break;
++                if (budgeted && any && sw.Elapsed.TotalMilliseconds > FrameBudgetMs) break;
+                 Slot s = FreeSlot();
+                 if (s == null) break;
+-                StartFlood(r, s);
++                StartFlood(r, s, budgeted, sw, ref any);
+             }
+             JobHandle.ScheduleBatchedJobs();
+             Phase(4, sw, ref last);
+@@ -535,7 +551,7 @@ namespace VoxelEngine.Rendering
+             return _store.BrickPool.RawData[(int)(h & 0x3FFFFFFFu) * 512 + CoordMath.LocalVoxelIndex(v & 7)] == 0;
+         }
+ 
+-        private void StartFlood(TorchRec r, Slot s)
++        private void StartFlood(TorchRec r, Slot s, bool budgeted, Stopwatch sw, ref bool any)
+         {
+             r.need = false;
+             if (_store.GetChunk(r.v >> 7) == null || Open(r.v))
+@@ -544,15 +560,47 @@ namespace VoxelEngine.Rendering
+                 DropCache(r);
+                 return;
+             }
+-            TorchFloodBuild.Snapshot(_store, r.lo, r.db, s.s);
++            // r.job is set from the snapshot's first plane: an edit or chunk change from here on re-floods r after
++            // this flood (Step's edit / watch rules), so a sliced snapshot converges exactly as an atomic one does.
++            s.rec = r; r.job = s; s.busy = true;
++            TorchFloodBuild.SnapshotBegin(r.db, s.s);
++            s.snapZ = 0;
++            ContinueSnapshot(s, budgeted, sw, ref any);
++        }
++
++        /// Snapshots planes of s's box until the budget is spent (at least one plane per Tick), then schedules the job.
++        private void ContinueSnapshot(Slot s, bool budgeted, Stopwatch sw, ref bool any)
++        {
++            var r = s.rec;
++            if (!_recs.TryGetValue(r.v, out var cur) || !ReferenceEquals(cur, r))
++            {
++                // the torch was removed mid-snapshot: drop the work
++                s.busy = false; s.rec = null; s.snapZ = -1;
++                if (r.job == s) r.job = null;
++                return;
++            }
++            while (s.snapZ < r.db.z)
++            {
++                if (budgeted && any && sw.Elapsed.TotalMilliseconds > FrameBudgetMs) { SnapshotYields++; return; }
++                int z1 = budgeted ? s.snapZ + 1 : r.db.z;
++                TorchFloodBuild.SnapshotPlanes(_store, r.lo, r.db, s.s, s.snapZ, z1);
++                s.snapZ = z1;
++                any = true;
++            }
++            s.snapZ = -1;
+             s.cache = new TorchFloodCache { torch = r.v, lo = r.lo, db = r.db, seed = r.seed, top = r.top, serial = ++_serial };
+             var job = TorchFloodBuild.MakeFloodJob(s.s, s.cache, r.v - r.lo, r.dims, r.db, r.top, s.stats);
+-            s.rec = r; r.job = s; s.busy = true;
+             s.sw.Restart();
+             if (TimeFloods && _sync) { job.Run(); FloodRunMs.Add((float)s.sw.Elapsed.TotalMilliseconds); s.h = default; }
+             else s.h = job.Schedule();
+         }
+ 
++        /// Task 170: times a snapshot stopped at the budget and went on in a later Tick.
++        public int SnapshotYields;
++
++        /// Tests: one budgeted round, as Tick does each frame (jobs are collected only once they are done).
++        public void StepBudgeted() => Step(true);
++
+         /// Inside Flush: TimeFloods runs each flood alone on this thread (its worker cost, timed).
+         private bool _sync;
+ 
+@@ -615,8 +663,6 @@ namespace VoxelEngine.Rendering
+             MergesDone++;
+             _version++;
+             UpdateDir();
+-            if (_tablesB == null || _tables.Length > _tablesB.count) _tablesRealloc = true;
+-            if (_dataB == null || _data.Length > _dataB.count) _dataRealloc = true;
+             foreach (var c in _retired) c.Dispose();
+             _retired.Clear();
+             if (Gpu) Upload();
+@@ -716,7 +762,7 @@ namespace VoxelEngine.Rendering
+         /// Drops every torch, cache and union brick (buffers are kept, re-uploaded on the next change).
+         public void ResetAll(ChunkStore store)
+         {
+-            foreach (var s in _slots) if (s.busy) { s.h.Complete(); s.cache?.Dispose(); s.cache = null; s.busy = false; s.rec = null; }
++            foreach (var s in _slots) if (s.busy) { s.h.Complete(); s.cache?.Dispose(); s.cache = null; s.busy = false; s.rec = null; s.snapZ = -1; }
+             if (_merging) { _mergeH.Complete(); _merging = false; _mergeDescs.Dispose(); _mergeRec.Dispose(); _mergeBricks.Clear(); }
+             foreach (var r in _recs.Values) r.cache?.Dispose();
+             foreach (var c in _retired) c.Dispose();
+@@ -727,7 +773,7 @@ namespace VoxelEngine.Rendering
+             _dirDirty = _tablesRealloc = _dataRealloc = true;
+             _version++;
+             _store = store;
+-            FloodsDone = MergesDone = 0; EditRefloods = EditSkips = 0; AnchoredSum = 0; FloodLog.Clear(); BusyTickMs.Clear(); UploadBytesTotal = 0; ScratchPeakBytes = 0; ResetPhaseStats();
++            FloodsDone = MergesDone = 0; GpuGrowCopies = 0; SnapshotYields = 0; EditRefloods = EditSkips = 0; AnchoredSum = 0; FloodLog.Clear(); BusyTickMs.Clear(); UploadBytesTotal = 0; ScratchPeakBytes = 0; ResetPhaseStats();
+             _uploaded = false;
+         }
+ 
+@@ -1063,15 +1109,52 @@ namespace VoxelEngine.Rendering
+             return new GraphicsBuffer(GraphicsBuffer.Target.Structured, math.ceilpow2(count), 4);
+         }
+ 
++        private static ComputeShader _copyCs;
++        private static int _copyK = -1;
++        /// GPU growth steps done by copy (task 170; the in-player report).
++        public int GpuGrowCopies;
++
++        /// Task 170: grows a tables / data buffer to the CPU list's capacity (GrowCap: need + 1/8, not a power of two)
++        /// and, unless the buffer is re-uploaded whole anyway (`full`), copies the old contents on the GPU, so the
++        /// step uploads only the dirty runs. Without the copy kernel, falls back to a whole upload.
++        private GraphicsBuffer GrowGpu(GraphicsBuffer b, int need, int cap, ref bool full)
++        {
++            need = math.max(need, 1);
++            if (b != null && b.count >= need) return b;
++            var n = new GraphicsBuffer(GraphicsBuffer.Target.Structured, math.max(need, cap), 4);
++            if (b != null && !full)
++            {
++                if (_copyK < 0)
++                {
++                    _copyCs = Resources.Load<ComputeShader>("TorchFloodProbe");
++                    _copyK = _copyCs != null ? _copyCs.FindKernel("CSFloodCopy") : -2;
++                }
++                if (_copyK >= 0)
++                {
++                    int groups = math.min((b.count + 255) / 256, 4096);
++                    _copyCs.SetBuffer(_copyK, "_CopySrc", b);
++                    _copyCs.SetBuffer(_copyK, "_CopyDst", n);
++                    _copyCs.SetInt("_CopyCount", b.count);
++                    _copyCs.SetInt("_CopyStride", groups * 256);
++                    _copyCs.Dispatch(_copyK, groups, 1, 1);
++                    GpuGrowCopies++;
++                }
++                else full = true;
++            }
++            else full = true;
++            b?.Release();
++            return n;
++        }
++
+         /// Uploads what changed: the directory whole (small), the dirty chunk tables, the dirty data runs
+-        /// (gaps under 64 units merged). A buffer that had to grow is re-uploaded whole.
++        /// (gaps under 64 units merged). A tables / data buffer that grows keeps its contents (GrowGpu).
+         private void Upload()
+         {
+             var sw = Stopwatch.StartNew();
+             _dirB = Fit(_dirB, _dir.Length, out bool f0);
+             if (_dirDirty || f0) { if (_dir.Length > 0) { _dirB.SetData(_dir); UploadBytesTotal += 4L * _dir.Length; } _dirDirty = false; }
+-            _tablesB = Fit(_tablesB, _tables.Length, out bool f1);
+-            if (f1 || _tablesRealloc)
++            _tablesB = GrowGpu(_tablesB, _tables.Length, _tables.Capacity, ref _tablesRealloc);
++            if (_tablesRealloc)
+             {
+                 if (_tables.Length > 0) { _tablesB.SetData(_tables.AsArray(), 0, 0, _tables.Length); UploadBytesTotal += 4L * _tables.Length; }
+                 for (int i = 0; i < _dirtyTable.Length; i++) _dirtyTable[i] = 0;
+@@ -1090,8 +1173,8 @@ namespace VoxelEngine.Rendering
+                     i = j;
+                 }
+             }
+-            _dataB = Fit(_dataB, _data.Length, out bool f2);
+-            if (f2 || _dataRealloc)
++            _dataB = GrowGpu(_dataB, _data.Length, _data.Capacity, ref _dataRealloc);
++            if (_dataRealloc)
+             {
+                 if (_data.Length > 0) { _dataB.SetData(_data.AsArray(), 0, 0, _data.Length); UploadBytesTotal += 4L * _data.Length; }
+                 for (int i = 0; i < _dirtyData.Length; i++) _dirtyData[i] = 0;
+diff --git a/Assets/CoreEngine/Tests/TorchFloodL3Tests.cs b/Assets/CoreEngine/Tests/TorchFloodL3Tests.cs
+index 27791d3..96984b2 100644
+--- a/Assets/CoreEngine/Tests/TorchFloodL3Tests.cs
++++ b/Assets/CoreEngine/Tests/TorchFloodL3Tests.cs
+@@ -321,6 +321,68 @@ public class TorchFloodL3Tests
+     [Test, Category("Slow")]
+     public void Fuzz_Long() { Fuzz(300, 1651); Fuzz(300, 1652); }
+ 
++    /// Task 170: the per-frame form. Snapshots are sliced by brick plane (budget 0: one plane per round), so edits,
++    /// torch changes and removals land mid-snapshot, mid-job and mid-merge; after it settles, == from scratch.
++    [Test]
++    public void Budgeted_EditsMidSnapshot_EqualsScratch()
++    {
++        const float reach = 3f;
++        NewWorld(new int3(1, 1, 1), c => Materials.Stone);
++        var rng = new System.Random(170);
++        int3 lo = new int3(40, 40, 40), hi = new int3(87, 87, 87);
++        Fill(lo, hi, 0);
++        Fill(new int3(60, 40, 40), new int3(60, 87, 87), Materials.Stone);
++        var torches = new Dictionary<int3, byte>();
++        var live = NewPool(reach);
++        live.FrameBudgetMs = 0;
++        int3 Rand(int3 a, int3 b) => new int3(rng.Next(a.x, b.x + 1), rng.Next(a.y, b.y + 1), rng.Next(a.z, b.z + 1));
++        for (int i = 0; i < 60; i++)
++        {
++            int kind = rng.Next(100);
++            var changed = new List<int3>();
++            if (kind < 30 || torches.Count == 0)
++            {
++                int3 v = Rand(lo, hi);
++                if (torches.ContainsKey(v)) continue;
++                byte m = TorchMats[rng.Next(TorchMats.Length)];
++                Put(v, m); torches[v] = m; changed.Add(v);
++            }
++            else if (kind < 40)
++            {
++                var keys = new List<int3>(torches.Keys);
++                int3 v = keys[rng.Next(keys.Count)];
++                torches.Remove(v); Put(v, (byte)0); changed.Add(v);
++            }
++            else
++            {
++                bool solid = kind < 70;
++                int s = rng.Next(0, 3);
++                int3 c = Rand(lo, hi);
++                var cells = Cells(c - s, c + s);
++                bool hit = false; foreach (int3 v in cells) hit |= torches.ContainsKey(v);
++                if (hit) continue;
++                _ops.Record(new EditOp(EditOpKind.Box, c, (ushort)s, solid ? Materials.Stone : (byte)0));
++                changed = cells;
++            }
++            foreach (int3 v in changed) live.OnVoxelChanged(v);
++            live.SetTorches(Sig(torches));
++            int rounds = rng.Next(1, 5);
++            for (int k = 0; k < rounds; k++) live.StepBudgeted();
++            if (i % 15 == 14)
++            {
++                live.Flush();
++                var fresh = Scratch(torches, reach);
++                AssertSame(live.Current, fresh.Current, $"op {i} (settled, incremental vs scratch)");
++                _pools.Remove(fresh); fresh.Dispose();
++            }
++        }
++        live.Flush();
++        var last = Scratch(torches, reach);
++        AssertSame(live.Current, last.Current, "end (incremental vs scratch)");
++        TestContext.WriteLine($"budgeted: snapshot yields {live.SnapshotYields}, floods {live.FloodsDone}, merges {live.MergesDone}, torches {torches.Count}");
++        Assert.Greater(live.SnapshotYields, 20, "snapshots were sliced across rounds");
++    }
++
+     [Test]
+     public void Doorway_SealAndReopen_12m()
+     {

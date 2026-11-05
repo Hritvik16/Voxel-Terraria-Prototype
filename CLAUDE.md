@@ -46,10 +46,13 @@ Engine capability + performance (lighting, LOD shells, resolution, streaming, fl
 BEFORE the player and placement.
 
 **engine-phase merged to `main` on 2026-10-22** (task 109, merge `a5f6440`); work since then continues
-on the `engine-phase` branch. **Now: the owner's quality pass (2026-10-22)** -- performance (stable 30 fps),
-lighting, world gen, visuals BEFORE populating the world; crafting / the core loop come after. Task 146's
-30 fps milestone was NOT met (walk p50 44.7 ms); `PERF_30FPS_PLAN.md` / `PERF_SHELL_MARCH_PLAN.md` drive the
-cuts. Fast suite `PASS 948 FAIL 0 SKIP 15` (2026-10-30, task 153). Queue and open owner questions:
+on the `engine-phase` branch. **Order (owner, 2026-11-05, replaces 2026-10-22's "performance first"):
+(1) LOOK FANTASTIC -- lighting -> world gen -> visuals polish; (2) PERFORMANCE -- stable 30 fps on that finished
+look + memory under 3 GB; (3) OBJECT PLACEMENT PHASE, opened by a game-design doc written with the owner.**
+Look tasks record a rough cost from the runs they already do (no extra timing arms), so nothing heavy piles up
+unseen. Perf state when paused (168b-168e): walk p50 23.7 ms met, 16-19 % of frames > 33 ms (target 5 %);
+exact cuts exhausted (`PERF_EXACT_CUTS.md`). Task 170 (torch memory trim) parked in `tools/overnight/later/`
+for stage 2. Fast suite `PASS 997 FAIL 0 SKIP 16` (2026-11-02, task 168e). Queue and open owner questions:
 `SESSION_HANDOFF.md`, `tools/overnight/HANDOFF.md`. Older dated state notes (Phases 1-7, the surface
 rebuild, the 2026-10-01 owner review and owner intent, the Phase 4 note): `PROJECT_HISTORY.md`.
 
