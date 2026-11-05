@@ -917,3 +917,14 @@ Tests `UploadRingTests`: a CPU "GPU" runs dispatches 0-4 frames late, and draine
 corrupts. No temporary is larger than a slot. In-player check (`Logs/costsplit_2026-11-02_193709.txt`): 0 of 57.1 M / 67.2 M written words differ, ring ON raw == ring OFF raw 0 px
 at walk_near and walk_open, and the whole mirror drains in 10.3-10.9 s (SetData at 3 MiB: 4.2-4.4 s). Warm ABBA playwalk (pre-progress-rule build): > 33 ms 19.1 -> 16.2 %,
 p95 44.9 -> 41.8, p99 65.3 -> 52.9 ms, > 100 ms 6 -> 5. That misses 168e's ON gate (-5 points or > 100 halved), so the flag stays OFF.
+
+**Task 171 (look QA, owner Q107 (a) 2026-11-02, CAPTURE-ONLY; PLAY DEFAULT NOT CHANGED): task 166's F2 (`-fsr3sc 10`) under live light and moving water.**
+`-lookreview -fsrlive 1` (`PRESETS=high EXTRA="-fsrlive 1 -lookwait 40" ./run-look-review.sh`; `PlaygroundCapture.FsrLive.cs`) shoots bursts of consecutive
+frames per arm (default native, fsr3_432, fsr3_432_sc10, fsr3_540, fsr3_540_sc10; `-fsrlivearms`), every moving thing stepped per FRAME so native frame k is
+the truth: sun at walk_open from 16 h (`-fsrlivesunh`) still / play's 1200 s day / the rigs' 120 s day; a 1.5 m water cube slid 0.1 m/frame (sim suspended);
+a 2x2x3 m water pour with the sim RUNNING (not frame-exact, judged by eye; removed afterwards); night torch scene (task 151) with one torch lit / put out
+(frames before + 6 after) and one moved 0.1 m/frame. Numbers + 4x sheets: `python3 -I tools/fsr171.py <LookReview dir> Screenshots/171`. Result
+(`Screenshots/171/fsr171.txt`): sun clean (inside the moving-shadow mask 432 20.5 vs sc10 21.3, fast 26.9 vs 27.1); water slide about equal (432 5.36 vs
+5.42, 540 4.69 vs 5.33; both FSR arms trail the cube); the MOVING TORCH ghosts with sc10 (in the change mask 17.2 -> 47.2 at 432, 12.8 -> 49.7 at 540:
+doubled torch + bright speckle trail), and torch on/off lags one frame more (frame 1 after: on 13.0 -> 16.4, off 6.8 -> 11.6; equal from frame 2).
+So the play default stays sc 0 (STOP_FOR_OWNER in HANDOFF).

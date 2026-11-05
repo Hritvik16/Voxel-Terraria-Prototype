@@ -1,0 +1,52 @@
+task 171: FSR 3 today vs sc10 under live light / moving water; source /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-05_093929_high
+per arm, mean over the kept frames: err = mean|dlum| vs native / %px > 24;  chg = the same inside the change mask
+== sun_still: change mask 0.00% of the frame
+  fsr3_432         err  2.99 /  2.32%
+  fsr3_432_sc10    err  3.12 /  2.34%
+  fsr3_540         err  2.71 /  1.90%
+  fsr3_540_sc10    err  2.88 /  1.99%
+  4x window (1190,590) frame 3: where fsr3_432_sc10 is furthest from native in the mask (11.26)
+== sun_play: change mask 0.04% of the frame
+  fsr3_432         err  3.13 /  2.28%   chg 20.47 / 33.92%
+  fsr3_432_sc10    err  3.13 /  2.29%   chg 21.25 / 34.16%
+  fsr3_540         err  2.88 /  1.95%   chg 21.74 / 32.75%
+  fsr3_540_sc10    err  2.89 /  1.96%   chg 23.34 / 35.85%
+  4x window (1140,870) frame 3: where fsr3_432_sc10 is furthest from native in the mask (0.59)
+== sun_fast: change mask 0.21% of the frame
+  fsr3_432         err  4.13 /  3.03%   chg 26.85 / 40.97%
+  fsr3_432_sc10    err  4.13 /  3.05%   chg 27.05 / 41.44%
+  fsr3_540         err  3.68 /  2.52%   chg 25.93 / 37.67%
+  fsr3_540_sc10    err  3.69 /  2.53%   chg 25.90 / 37.82%
+  4x window (1340,820) frame 3: where fsr3_432_sc10 is furthest from native in the mask (2.86)
+== slide: change mask 1.45% of the frame
+  fsr3_432         err  4.92 /  4.49%   chg  5.36 /  4.24%
+  fsr3_432_sc10    err  5.03 /  4.72%   chg  5.42 /  5.16%
+  fsr3_540         err  4.23 /  3.55%   chg  4.69 /  3.58%
+  fsr3_540_sc10    err  4.42 /  3.93%   chg  5.33 /  4.92%
+  4x window (1180,880) frame 3: where fsr3_432_sc10 is furthest from native in the mask (4.19)
+== torch_still: change mask 0.00% of the frame
+  fsr3_432         err  1.21 /  0.12%   chg  4.52 /  0.00%
+  fsr3_432_sc10    err  1.21 /  0.12%   chg  4.52 /  0.00%
+  fsr3_540         err  1.08 /  0.10%   chg  4.82 /  0.00%
+  fsr3_540_sc10    err  1.18 /  0.11%   chg  4.63 /  0.00%
+  4x window (1110,960) frame 3: where fsr3_432_sc10 is furthest from native in the mask (0.00)
+== torch_move: change mask 0.09% of the frame
+  fsr3_432         err  1.19 /  0.17%   chg 17.21 / 12.60%
+  fsr3_432_sc10    err  1.21 /  0.20%   chg 47.22 / 33.54%
+  fsr3_540         err  1.08 /  0.15%   chg 12.78 /  8.78%
+  fsr3_540_sc10    err  1.12 /  0.19%   chg 49.65 / 34.94%
+  4x window (1350,760) frame 3: where fsr3_432_sc10 is furthest from native in the mask (7.86)
+== torch_on: change mask 0.22% of the frame
+  fsr3_432         err  1.20 /  0.15%   chg 10.73 / 14.50%   chg per frame (0 = before)  4.26 13.03 11.29 10.50 10.20  9.78  9.58
+  fsr3_432_sc10    err  1.23 /  0.15%   chg 11.62 / 14.84%   chg per frame (0 = before)  4.30 16.38 11.92 10.96 10.65 10.10  9.69
+  fsr3_540         err  1.08 /  0.13%   chg  9.18 / 11.49%   chg per frame (0 = before)  3.73 11.39  9.96  9.07  8.40  8.22  8.04
+  fsr3_540_sc10    err  1.20 /  0.13%   chg 10.17 / 11.72%   chg per frame (0 = before)  3.78 15.85 10.05  9.33  8.97  8.55  8.31
+  4x window (380,970) frame 1: where fsr3_432_sc10 is furthest from native in the mask (3.85)
+== torch_off: change mask 0.22% of the frame
+  fsr3_432         err  1.19 /  0.12%   chg  5.13 /  1.74%   chg per frame (0 = before)  6.63  6.75  5.59  4.94  4.62  4.51  4.38
+  fsr3_432_sc10    err  1.22 /  0.12%   chg  5.83 /  1.76%   chg per frame (0 = before)  6.77 11.63  5.31  4.75  4.54  4.40  4.36
+  fsr3_540         err  1.11 /  0.11%   chg  4.20 /  1.55%   chg per frame (0 = before)  5.64  5.74  4.54  4.00  3.76  3.61  3.57
+  fsr3_540_sc10    err  1.19 /  0.11%   chg  5.64 /  1.46%   chg per frame (0 = before)  5.72 12.45  4.85  4.41  4.26  4.00  3.84
+  4x window (380,970) frame 1: where fsr3_432_sc10 is furthest from native in the mask (2.89)
+== pour_r0 (not frame-exact): window (970,720) where the water moves most; frame-to-frame mean|dlum| in it: native  7.89, fsr3_432  0.38, fsr3_432_sc10  1.43, fsr3_540  1.61, fsr3_540_sc10  1.39
+== pour_r1 (not frame-exact): window (890,670) where the water moves most; frame-to-frame mean|dlum| in it: native  0.14, fsr3_432  5.02, fsr3_432_sc10  3.55, fsr3_540  0.29, fsr3_540_sc10  5.58

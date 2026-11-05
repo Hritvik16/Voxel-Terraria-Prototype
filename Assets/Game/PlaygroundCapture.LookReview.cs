@@ -300,6 +300,15 @@ public partial class PlaygroundCapture
         }
         if (biomeLook) LookBorderPoses(centre, shz, poses, Look);
 
+        if (ArgInt("-fsrlive", 0) != 0)   // task 171: FSR 3 F2 under live light and moving water (PlaygroundCapture.FsrLive.cs)
+        {
+            var wo = poses.Find(p => p.n == "walk_open");
+            yield return FsrLive(far, cam, sm, sh, store, centre, wo.eye, wo.rot, wait);
+            L($"LOOK REVIEW done: {root}");
+            File.WriteAllText(Path.Combine(root, "lookreview.txt"), _log.ToString());
+            yield break;
+        }
+
         foreach (var (n, eye, rot, note) in poses)
         {
             if (onlyPoses != null && !onlyPoses.Contains(n)) continue;
