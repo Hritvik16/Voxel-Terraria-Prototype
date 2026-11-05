@@ -1,0 +1,68 @@
+task 172 torch cinematic: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-05_130919_high
+
+camp15: 9-torch camp from 15 m: the light pools on the ground and posts, their edges, dark gaps between
+   fsr3_540               mean  19.8  blown  0.01%  black  11.8%  lit   5.7%
+   fsr3_720               mean  19.7  blown  0.01%  black  12.2%  lit   5.7%
+   fsr3_432_sc10_flood    mean  32.3  blown  0.02%  black   2.5%  lit  21.6%
+   fsr3_540_sc10_flood    mean  32.8  blown  0.03%  black   2.4%  lit  22.1%
+   native                 mean  19.7  blown  0.01%  black  12.8%  lit   5.7%
+   native_flood           mean  32.8  blown  0.06%  black   2.2%  lit  22.4%
+   crop A light change: (1130,840) score 102.6
+   crop B upscale error: (1080,650) score 17.6
+
+camp40: the same camp from 40 m: do far torches still read as warm pools, any speckle or hard rim
+   fsr3_540               mean  21.9  blown  0.00%  black   9.1%  lit   1.5%
+   fsr3_720               mean  21.8  blown  0.00%  black   9.6%  lit   1.5%
+   fsr3_432_sc10_flood    mean  23.2  blown  0.00%  black   8.8%  lit   3.2%
+   fsr3_540_sc10_flood    mean  23.2  blown  0.00%  black   9.1%  lit   3.2%
+   native                 mean  21.8  blown  0.00%  black  11.1%  lit   1.6%
+   native_flood           mean  23.1  blown  0.01%  black  11.1%  lit   3.3%
+   crop A light change: (910,560) score 77.4
+   crop B upscale error: (570,680) score 5.1
+
+cave: a 3 m tunnel with 2 wall torches: the inside glow, the mouth, dark pockets, light through rock
+   fsr3_540               mean   7.5  blown  0.00%  black  82.5%  lit   0.8%
+   fsr3_720               mean   7.6  blown  0.00%  black  82.9%  lit   0.9%
+   fsr3_432_sc10_flood    mean  23.3  blown  0.00%  black   8.2%  lit  16.4%
+   fsr3_540_sc10_flood    mean  23.9  blown  0.00%  black   7.1%  lit  17.4%
+   native                 mean   7.5  blown  0.00%  black  84.8%  lit   0.9%
+   native_flood           mean  24.0  blown  0.00%  black   7.5%  lit  18.3%
+   crop A light change: (820,330) score 76.1
+   crop B upscale error: (830,450) score 8.5
+
+wall: 6 torches along a cliff face: wall and corner lighting, steps, wedges/bands at the 12 m reach
+   fsr3_540               mean   6.3  blown  0.00%  black  79.0%  lit   0.8%
+   fsr3_720               mean   6.4  blown  0.00%  black  78.9%  lit   1.0%
+   fsr3_432_sc10_flood    mean  21.1  blown  0.01%  black  34.7%  lit  16.2%
+   fsr3_540_sc10_flood    mean  21.7  blown  0.01%  black  34.3%  lit  16.8%
+   native                 mean   6.4  blown  0.00%  black  79.9%  lit   1.0%
+   native_flood           mean  21.9  blown  0.02%  black  34.2%  lit  16.6%
+   crop A light change: (780,470) score 105.2
+   crop B upscale error: (1090,630) score 6.7
+
+water: a lone torch on the shore: its light on ground and water, halos, reflections
+   fsr3_540               mean  20.5  blown  0.00%  black  10.1%  lit   4.5%
+   fsr3_720               mean  20.5  blown  0.00%  black  10.2%  lit   4.5%
+   fsr3_432_sc10_flood    mean  34.3  blown  0.01%  black  10.1%  lit  36.8%
+   fsr3_540_sc10_flood    mean  34.5  blown  0.01%  black  10.1%  lit  37.0%
+   native                 mean  20.7  blown  0.00%  black   9.8%  lit   4.7%
+   native_flood           mean  34.7  blown  0.01%  black   9.7%  lit  37.1%
+   crop A light change: (1140,590) score 133.2
+   crop B upscale error: (1660,610) score 3.6
+
+camp40pan burst (4 frames): camp from 40 m, strafing 0.05 m/frame
+   arm                    truth         flicker all / lit   (per frame k=1..3)
+   fsr3_540               native         1.60 /  4.44   4.4 4.5 4.4
+   fsr3_720               native         1.50 /  3.95   3.9 4.0 4.0
+   fsr3_432_sc10_flood    native_flood   2.01 / 11.02   11.0 11.0 11.1
+   fsr3_540_sc10_flood    native_flood   1.87 / 10.81   10.9 10.9 10.7
+   burst window (830,550) score 68.3
+
+walk burst (8 frames): walking 4 m/s through the camp
+   arm                    truth         flicker all / lit   (per frame k=1..7)
+   fsr3_540               native         1.50 /  4.08   4.0 4.5 4.3 4.1 3.9 3.9 4.0
+   fsr3_720               native         1.25 /  3.36   3.2 3.5 3.5 3.4 3.3 3.3 3.3
+   fsr3_432_sc10_flood    native_flood   2.43 /  6.78   6.6 7.2 7.1 6.7 6.5 6.6 6.6
+   fsr3_540_sc10_flood    native_flood   2.11 /  5.76   6.0 6.2 6.0 5.7 5.5 5.6 5.4
+   burst window (310,510) score 98.3
+

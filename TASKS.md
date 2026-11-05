@@ -928,3 +928,15 @@ a 2x2x3 m water pour with the sim RUNNING (not frame-exact, judged by eye; remov
 5.42, 540 4.69 vs 5.33; both FSR arms trail the cube); the MOVING TORCH ghosts with sc10 (in the change mask 17.2 -> 47.2 at 432, 12.8 -> 49.7 at 540:
 doubled torch + bright speckle trail), and torch on/off lags one frame more (frame 1 after: on 13.0 -> 16.4, off 6.8 -> 11.6; equal from frame 2).
 So the play default stays sc 0 (STOP_FOR_OWNER in HANDOFF).
+
+**Task 172 (look, owner Q105 / Q107 2026-11-02, CAPTURE-ONLY; nothing in play changed): do the RECOMMENDED torch settings together look cinematic?**
+`-lookreview -torchcine 1 -tfdir 2` (via `PRESETS=high EXTRA="-torchcine 1 -tfdir 2" ./run-look-review.sh`; `PlaygroundCapture.TorchCine.cs`,
+hooked in `PlaygroundCapture.LookReview.cs`). Night (`-nighttod`, default 0.5 h), clock paused, fluid suspended. Arms (`-tcarms`, LadderArms
+syntax, `+f` = flood ON with dir mode 2): today = `540,720` (play's FSR 3 dyn 540-720, flood OFF), recommended = `432_sc10+f,540_sc10+f`, truth =
+`native,native+f`. Scenes (`-tcscenes` filters the shots): camp15 / camp40 (9 torches on posts, 40 m ahead of the start on its most open heading),
+camp40pan (4-frame strafe burst), walk (8-frame burst at 4 m/s through the camp), wall (6 torches on the nearest cliff foot's face), cave (a 3 x 3.2 x
+12.5 m tunnel carved 22 m beside the row, 2 wall torches), water (nearest shore within 90 m; none -> a SYNTHETIC level stone terrace with a flush
+8 x 5 m pond). Sheets: `python3 -I tools/torchcine172.py <LookReview dir> Screenshots/172` (full-size today | recommended per scene, 4x crops,
+burst flicker vs native, GIFs). Result in `Screenshots/172/torchcine172.txt` and HANDOFF (STOP_FOR_OWNER): the flood makes torches read at all
+(wall lit px 0.8 -> 16 %, cave 0.8 -> 16 %, water 4.5 -> 37 %), but its pools are flat and over-saturated near posts, and moving shots flicker more
+vs truth (walk lit 4.1 -> 6.8, 40 m strafe 4.4 -> 11.0).

@@ -300,6 +300,13 @@ public partial class PlaygroundCapture
         }
         if (biomeLook) LookBorderPoses(centre, shz, poses, Look);
 
+        if (ArgInt("-torchcine", 0) != 0)   // task 172: recommended torch look vs today's at night (PlaygroundCapture.TorchCine.cs)
+        {
+            yield return TorchCine(far, cam, sm, sh, store, centre, wait);
+            L($"LOOK REVIEW done: {root}");
+            File.WriteAllText(Path.Combine(root, "lookreview.txt"), _log.ToString());
+            yield break;
+        }
         if (ArgInt("-fsrlive", 0) != 0)   // task 171: FSR 3 F2 under live light and moving water (PlaygroundCapture.FsrLive.cs)
         {
             var wo = poses.Find(p => p.n == "walk_open");
