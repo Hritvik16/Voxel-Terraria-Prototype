@@ -1,0 +1,5 @@
+c176 0.75  20 seeds: change mean   375 (min  344 max  405) | straight median  1252 max  1704 | seeds with a biome absent 1/20 | one-region biomes 1/120 | min share median 10.9% worst 7.5%
+S1 1.0     20 seeds: change mean   496 (min  434 max  546) | straight median  1316 max  1888 | seeds with a biome absent 0/20 | one-region biomes 10/120 | min share median 10.0% worst 6.3%
+S2 1.5     20 seeds: change mean   607 (min  491 max  738) | straight median  1192 max  1912 | seeds with a biome absent 0/20 | one-region biomes 33/120 | min share median 9.4% worst 6.3%
+S3 2.0     20 seeds: change mean   900 (min  699 max 1308) | straight median  1512 max  2136 | seeds with a biome absent 1/20 | one-region biomes 46/120 | min share median 8.9% worst 1.1%
+S4 3.5     20 seeds: change mean  1224 (min  783 max 1752) | straight median  1692 max  2224 | seeds with a biome absent 1/20 | one-region biomes 81/120 | min share median 6.0% worst 2.6%

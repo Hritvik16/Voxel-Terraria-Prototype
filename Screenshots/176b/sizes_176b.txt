@@ -1,0 +1,52 @@
+=== Task 176b: biome region sizes, real generator (BiomeSizeDump; 4 seeds; record plane 8 m cells; land = map height > 0)
+regions = 4-connected land patches >= 25 ha per biome (F D S J Sv B); straight = longest border within +-30 m of a line;
+change = land metres walked E-W per biome change; median = area-weighted median patch (ha); one-region / absent = biomes with exactly 1 / 0 regions
+
+--- b10: BEFORE: B10 belts (one octave, ~1.6 x R)
+  seed    change m  straight m  median ha  regions F/D/S/J/Sv/B  shares % F D S J Sv B         one-region  absent
+  42         1011       2920        327   4/1/2/1/1/2           16.5 32.4 29.7  4.4  8.9  8.1   D,J,Sv      -
+  7           989       2072        153   2/2/3/3/2/1           27.1  7.8 25.5 17.0 11.5 11.0   B           -
+  2026       1033       2240        245   2/3/1/1/1/2           12.3 33.8  4.9 14.1 19.6 15.3   S,J,Sv      -
+  31337      1077       1776        226   3/0/1/1/1/3           17.1  1.0 37.3  8.8  4.0 31.9   S,J,Sv      D
+  MEAN change 1027 m; straight 1776-2920 m (mean 2252)
+
+--- c176: NOW: task 176, wave 0.75 x R, octaves 1/.35/.2
+  seed    change m  straight m  median ha  regions F/D/S/J/Sv/B  shares % F D S J Sv B         one-region  absent
+  42          360       1064         65   5/3/3/4/2/4           18.7 16.5 26.5 13.1 10.4 14.8   -           -
+  7           388       1248         61   2/2/5/3/3/3           17.6 11.1 23.2 14.1 14.8 19.1   -           -
+  2026        357       1264         44   2/4/3/3/3/4           19.3 13.7 23.5 16.3 11.8 15.3   -           -
+  31337       396       1272         55   5/2/5/5/3/3           21.3 10.4 21.7 16.3 12.6 17.8   -           -
+  MEAN change 375 m; straight 1064-1272 m (mean 1212)
+
+--- w100: SIZE 1: wave 1.0 x R, octaves 1/.35/.2
+  seed    change m  straight m  median ha  regions F/D/S/J/Sv/B  shares % F D S J Sv B         one-region  absent
+  42          477       1168         74   3/3/3/2/2/5           20.9 13.8 26.8 11.7 11.2 15.6   -           -
+  7           429       1368         67   4/2/3/3/3/4           21.2 12.0 21.5 14.1 15.3 16.0   -           -
+  2026        484       1256         78   3/4/1/2/2/5           19.9 16.1 26.5 11.7 12.9 12.9   S           -
+  31337       527       1320         91   3/1/3/3/3/4           18.9  6.5 20.9 17.5 14.8 21.4   D           -
+  MEAN change 479 m; straight 1168-1368 m (mean 1278)
+
+--- w150: SIZE 2: wave 1.5 x R, octaves 1/.35/.2/.12
+  seed    change m  straight m  median ha  regions F/D/S/J/Sv/B  shares % F D S J Sv B         one-region  absent
+  42          632       1424        186   4/1/2/2/1/2           21.9 23.4 28.3  6.7 11.3  8.3   D,Sv        -
+  7           631       1296        126   2/2/3/3/2/1           21.2 11.4 22.2 14.0 15.8 15.4   B           -
+  2026        541       1248        106   3/2/3/1/4/3           23.9 12.4 21.0 16.9 11.4 14.3   J           -
+  31337       581       1056        118   4/2/1/3/3/3           18.0  7.5 24.1 17.5 10.5 22.3   S           -
+  MEAN change 596 m; straight 1056-1424 m (mean 1256)
+
+--- w200: SIZE 3: wave 2.0 x R, octaves 1/.35/.2
+  seed    change m  straight m  median ha  regions F/D/S/J/Sv/B  shares % F D S J Sv B         one-region  absent
+  42          889       1888        193   3/3/1/1/1/2           19.4 21.1 33.2  6.5 11.9  7.9   S,J,Sv      -
+  7           997       1448        190   2/2/3/2/1/3           18.1 13.1 24.9 13.7 16.6 13.5   Sv          -
+  2026        843       1392        255   2/2/1/1/1/3           21.6 11.8 16.6 21.5 10.4 18.1   S,J,Sv      -
+  31337       914       1456        175   1/0/3/2/1/1           27.3  1.0 17.8 19.0  8.7 26.2   F,Sv,B      D
+  MEAN change 911 m; straight 1392-1888 m (mean 1546)
+
+--- w350: SIZE 4: wave 3.5 x R, octaves 1/.35/.2
+  seed    change m  straight m  median ha  regions F/D/S/J/Sv/B  shares % F D S J Sv B         one-region  absent
+  42         1205       1536        430   1/1/4/2/1/1           31.8  4.1 14.3 18.0  7.5 24.4   F,D,Sv,B    -
+  7          1480       1424        285   1/2/1/1/1/1           12.6 11.9 28.3 11.3 17.9 17.9   F,S,J,Sv,B  -
+  2026       1758       1560        404   1/1/1/1/1/1           33.8 19.8 22.8  3.3  8.0 12.4   F,D,S,J,Sv,B  -
+  31337      1055       1824        271   1/2/2/1/1/1           25.9 11.4 21.4 18.0  7.0 16.2   F,J,Sv,B    -
+  MEAN change 1374 m; straight 1424-1824 m (mean 1586)
+

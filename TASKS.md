@@ -1000,3 +1000,12 @@ EditService with the light buffer attached: place a torch on a post, dig a 1 x 1
 memory logged per step): `PRESETS=high EXTRA="-torchcine 1 -tcscenes camp15,camp40,camp40pan,walk,edit,cave,wall -tcarms
 540_sc10_rm+p,432_sc10_rm+p,native+p,540_sc10_rm,native,540" ./run-look-review.sh`, then `python3 -I tools/torchplay175.py <LookReview dir>
 Screenshots/175` (stats, burst flicker, viewer.html, tp175_edit.png). Result: HANDOFF 175.
+
+**Task 176b (world gen C1 follow-up, owner 2026-11-05 "Show me sizes"; MAP-ONLY, no generator change, STOP_FOR_OWNER "which size?"): biome region size candidates.**
+`BiomeSizeDump.Report_DumpBiomeSizes` (TerrainGen.Tests, Slow + report-only: `REPORTS=1`, filter run) builds the real v4 map for seeds
+42/7/2026/31337 and writes biome planes on its land mask to `Logs/TerrainGen/c1/sizes/<plane>/`: `b10` (biomeVaryOff 1 via ShapeField.Biome),
+`c176` (the record plane) and the `C1SIZES` variants (`name:k:amp2,amp3,...`; default w100 1.0 x R, w150 1.5 x R + 4th octave .12, w200 2.0 x R,
+w350 3.5 x R). The variant path is checked against the generator (octave chain vs ShapeField.Climate3 <= 1.2e-7; the 0.75 variant reproduces the
+record plane except 27-134 of 1,048,576 cells per seed, Burst vs Mono rounding; gate 1e-3). `python3 tools/biome176b.py stats|sheets` -> 
+`Screenshots/176b/` (sizes_176b.txt, sheet_seed*.png, full_seed*.png, viewer.html). Applying a size is a follow-up: CLIMATE_WAVE_R (+ an
+octave for w150), BiomeLayoutTests gates, re-pinned goldens, whole suite. Result: HANDOFF 176b.
