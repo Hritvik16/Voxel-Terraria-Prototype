@@ -18,16 +18,18 @@ prompt="$(awk '/^## Ready-to-paste prompt/{f=1; next} /^## /{f=0} f && /^>/{sub(
 [ -n "$prompt" ] || { echo "SESSION_HANDOFF.md has no '## Ready-to-paste prompt' block"; exit 1; }
 
 cmd="umask 022 && cd $(printf '%q' "$PWD") && claude ${MODEL:+--model $(printf '%q' "$MODEL")} $(printf '%q' "$prompt")"
-target="$(tmux list-sessions -F '#{session_attached} #{session_name}' 2>/dev/null | awk '$1 > 0 {print $2; exit}')"
-if [ -n "$target" ]; then
-  # "$target:" (trailing colon) = that SESSION, next free window; a bare "0"
-  # reads as window index 0 and fails with "index 0 in use".
-  tmux new-window -t "$target:" -n "claude-fresh" -c "$PWD" "$SHELL -ic $(printf '%q' "$cmd"); exec $SHELL -i" \
-    || { echo "tmux new-window failed"; exit 1; }
-  echo "fresh session started in tmux window 'claude-fresh' of session '$target' (C-b w to switch)"
-else
-  name="voxel"; tmux has-session -t "$name" 2>/dev/null && name="voxel-$(date +%H%M)"
-  tmux new-session -d -s "$name" -c "$PWD" "$SHELL -ic $(printf '%q' "$cmd"); exec $SHELL -i" \
-    || { echo "tmux new-session failed"; exit 1; }
-  echo "fresh session started in tmux session '$name' -- attach with: tmux attach -t $name"
-fi
+# Owner 2026-11-06: a new WINDOW inside the attached tmux session was invisible to him -> always a detached
+# session, then open a Terminal window attached to it so the new session is on screen.
+name="voxel-sup"; tmux has-session -t "$name" 2>/dev/null && name="voxel-sup-$(date +%H%M)"
+tmux new-session -d -s "$name" -c "$PWD" "$SHELL -ic $(printf '%q' "$cmd"); exec $SHELL -i" \
+  || { echo "tmux new-session failed"; exit 1; }
+osascript - "$name" <<'OSA' >/dev/null 2>&1
+on run argv
+  tell application "Terminal"
+    set t to do script ("tmux attach -t " & (item 1 of argv))
+    set custom title of t to "Supervisor (new)"
+    activate
+  end tell
+end run
+OSA
+echo "fresh session started in tmux session '$name' and opened in a new Terminal window (or: tmux attach -t $name)"
