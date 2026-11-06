@@ -42,9 +42,21 @@ public partial class PlaygroundCapture
         string[] arms = (string.IsNullOrEmpty(armArg) ? "540,720,432_sc10+f,540_sc10+f,native,native+f" : armArg).Split(',');
         for (int i = 0; i < arms.Length; i++)
         {
-            bool f = arms[i].EndsWith("+f");
-            arms[i] = LadderArms(f ? arms[i].Substring(0, arms[i].Length - 2) : arms[i])[0] + (f ? "+f" : "");
+            int fi = arms[i].IndexOf("+f", StringComparison.Ordinal);   // "+f" or "+fN" (task 174b: -tcsets entry N)
+            arms[i] = fi < 0 ? LadderArms(arms[i])[0] : LadderArms(arms[i].Substring(0, fi))[0] + arms[i].Substring(fi);
         }
+        // Task 174b: -tcsets "I/k[/wrap],..." = the flood's level -> light map per "+fN" arm (N 1-based); "+f" = the launch's own
+        // -tfi / -tfk / -tfwrap. TorchFloodPool.Params is read every frame (Bind), so a set needs no flood rebuild.
+        float fI0 = TorchFloodPool.Intensity, fK0 = TorchFloodPool.FalloffK, fW0 = TorchFloodPool.Wrap;
+        var sets = new List<float3>();
+        string setArg = ArgValue("-tcsets");
+        if (!string.IsNullOrEmpty(setArg))
+            foreach (string t in setArg.Split(','))
+            {
+                var q = t.Split('/');
+                float P(int j, float d) => j < q.Length ? float.Parse(q[j], System.Globalization.CultureInfo.InvariantCulture) : d;
+                sets.Add(new float3(P(0, fI0), P(1, fK0), P(2, fW0)));
+            }
         var driver = FindAnyObjectByType<LightingDriver>();
         if (store == null || driver == null || driver.Lights == null) { L("TORCH CINE: no store / LightingDriver -- skipped"); yield break; }
         LightingDriver.ClockPaused = true;
@@ -59,10 +71,13 @@ public partial class PlaygroundCapture
         L($"TORCH CINE (task 172): arms {string.Join(", ", arms)}; night {night:F2} h (sun elevation {SunCycle.ElevationDegreesAt(night):F0} deg); " +
           $"flood reach {TorchFloodPool.ReachM:F1} m; light knobs k {LightingConfig.Active.pointFalloffK:F2} I {LightingConfig.Active.lightIntensity:F2} " +
           $"range {LightingConfig.Active.lightRangeM:F1} m; lights already registered {driver.Lights.RegisteredCount}");
+        L($"  flood sets: +f = I {fI0:F2} k {fK0:F2} wrap {fW0:F2}" +
+          string.Concat(System.Linq.Enumerable.Select(System.Linq.Enumerable.Range(0, sets.Count), j => $"; +f{j + 1} = I {sets[j].x:F2} k {sets[j].y:F2} wrap {sets[j].z:F2}")));
 
         string sceneArg = ArgValue("-tcscenes");   // e.g. "cave,water": shoot only these (setup still runs)
         var want = string.IsNullOrEmpty(sceneArg) ? null : new HashSet<string>(sceneArg.Split(','));
         bool Want(string n) => want == null || want.Contains(n);
+        Vector3? profC = null; Vector3 profFwd = Vector3.forward;   // task 174b: the radial-profile torch (camp centre, water torch)
         var placed = new List<int3>();      // every voxel this task wrote (posts, torches) -> restored to air per scene
         var torches = new List<int3>();
         bool floodBuilt = false;
@@ -98,8 +113,12 @@ public partial class PlaygroundCapture
         }
         IEnumerator Arm(string arm)
         {
-            bool flood = arm.EndsWith("+f");
-            ApplyCompareArm(flood ? arm.Substring(0, arm.Length - 2) : arm);
+            int fi = arm.IndexOf("+f", StringComparison.Ordinal);
+            bool flood = fi >= 0;
+            ApplyCompareArm(flood ? arm.Substring(0, fi) : arm);
+            int si = flood && arm.Length > fi + 2 ? int.Parse(arm.Substring(fi + 2)) : 0;
+            float3 fs = si >= 1 && si <= sets.Count ? sets[si - 1] : new float3(fI0, fK0, fW0);
+            TorchFloodPool.Intensity = fs.x; TorchFloodPool.FalloffK = fs.y; TorchFloodPool.Wrap = fs.z;
             TorchFloodPool.DirMode = flood ? 2 : dir0;
             TorchFloodPool.Enabled = flood;
             if (flood && !floodBuilt)
@@ -118,6 +137,7 @@ public partial class PlaygroundCapture
         {
             Phase4Bootstrapper.DebugStreamCentre = eye;
             cam.transform.SetPositionAndRotation(eye, rot);
+            WriteProj(scene);
             foreach (string arm in arms)
             {
                 yield return Arm(arm);
@@ -127,6 +147,44 @@ public partial class PlaygroundCapture
             }
             L($"  {scene}: eye {eye:F1}, yaw {rot.eulerAngles.y:F0}, pitch {(rot.eulerAngles.x > 180f ? rot.eulerAngles.x - 360f : rot.eulerAngles.x):F0}; " +
               $"lights registered {driver.Lights.RegisteredCount}{(driver.Lights.CapIsBinding ? " (CAP BINDING)" : "")}");
+        }
+        // Task 174b: viewport positions (x, y from the bottom-left, z = depth m) of every torch, of the torch + 2 m along the
+        // camera's right (the 'near post' disc radius), and -- when profC is set -- of the ground round that torch at r 0.25..10 m
+        // on 16 azimuths (az k x 22.5 deg from the scene's 'fwd'): tc_<scene>_proj.csv, for tools/torchtune174b.py.
+        void WriteProj(string scene)
+        {
+            cam.ResetProjectionMatrix();
+            var sb = new System.Text.StringBuilder("kind,i,r,az,vx,vy,vz\n");
+            void Row(string k, int i, float r, float az, Vector3 w)
+            {
+                var vp = cam.WorldToViewportPoint(w);
+                sb.Append(FormattableString.Invariant($"{k},{i},{r:F2},{az:F1},{vp.x:F5},{vp.y:F5},{vp.z:F2}\n"));
+            }
+            for (int i = 0; i < torches.Count; i++)
+            {
+                var tw = new Vector3((torches[i].x + 0.5f) * 0.1f, (torches[i].y + 0.5f) * 0.1f, (torches[i].z + 0.5f) * 0.1f);
+                Row("torch", i, 0f, 0f, tw);
+                Row("torchR", i, 2f, 0f, tw + cam.transform.right * 2f);
+            }
+            if (profC.HasValue)
+            {
+                var c = profC.Value;
+                for (int a = 0; a < 16; a++)
+                {
+                    float az = a * math.PI / 8f;
+                    var dirW = profFwd * math.cos(az) + new Vector3(profFwd.z, 0f, -profFwd.x) * math.sin(az);
+                    for (int ri = 1; ri <= 40; ri++)
+                    {
+                        float r = ri * 0.25f;
+                        var q = c + dirW * r;
+                        float g = Ground(q.x, q.z, c.y + 6f);
+                        if (float.IsNaN(g) || math.abs(g - c.y) > 3f) continue;
+                        Row("prof", a, r, a * 22.5f, new Vector3(q.x, g + 0.02f, q.z));
+                    }
+                }
+            }
+            try { System.IO.File.WriteAllText(System.IO.Path.Combine(_folder, $"tc_{scene}_proj.csv"), sb.ToString()); }
+            catch (Exception e) { L($"  proj {scene}: {e.Message}"); }
         }
         IEnumerator Burst(string scene, int lead, int n, Func<int, (Vector3, Quaternion)> pose)
         {
@@ -177,7 +235,9 @@ public partial class PlaygroundCapture
             var e15 = C - fwd * 15f;
             float g = Ground(e15.x, e15.z, C.y + 20f);
             e15.y = (float.IsNaN(g) ? C.y : g) + 1.7f;
+            profC = C; profFwd = fwd;
             if (Want("camp15")) yield return Shoot("camp15", e15, LookAt(e15, C + Vector3.up * 0.8f));
+            profC = null;
             var rot40 = LookAt(eyeS, C + Vector3.up * 0.8f);
             if (Want("camp40")) yield return Shoot("camp40", eyeS, rot40);
             if (Want("camp40pan")) yield return Burst("camp40pan", 60, 4, i => (eyeS + side * (0.05f * i), rot40));
@@ -377,12 +437,15 @@ public partial class PlaygroundCapture
             L("");
             L($"== water: {how}; land {land:F1}, water column {wat:F1}; torch on a 1.5 m post {(ok ? "placed" : "REFUSED")}");
             yield return FsrLiveShellWait(sh, Math.Min(wait, 20f));
+            profC = tPos; profFwd = toW;   // az 0 = toward the water, 180 = away from it
             if (ok && Want("water")) yield return Shoot("water", we, LookAt(we, tPos + toW * 2f + Vector3.up * 0.5f));
+            profC = null;
             Clear();
         }
 
         TorchFloodPool.Enabled = false;
         TorchFloodPool.DirMode = dir0;
+        TorchFloodPool.Intensity = fI0; TorchFloodPool.FalloffK = fK0; TorchFloodPool.Wrap = fW0;
         Playground.DebugHideUi = false;
         SunCycle.SetHours(SunCycle.NoonHours);
         Phase4Bootstrapper.DebugStreamCentre = null;

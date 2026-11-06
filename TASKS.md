@@ -965,3 +965,12 @@ FSR 3.1 feeds the app's reactive mask into its shading-change channel, which `-f
 `python3 -I tools/fsr174.py <LookReview dir> Screenshots/174` (table, 4x sheets, full-size `viewer.html` with `captions174.json`). Result in
 `Screenshots/174/fsr174.txt`: moving torch, error in the change mask today 17.3 / sc10 51.6 / sc10+mask 8.9 (432); still sun sharpness vs native 0.80 /
 0.85 / 0.87; mask 0 on every pixel of both still scenes (FSR debug view).
+
+**Task 174b (look, owner "Tune first, then on"; capture only, NO default change -- task 175 sets them): torch-flood intensity / falloff sweep.**
+`PlaygroundCapture.TorchCine.cs` gains `-tcsets "I/k[/wrap],..."` and arm tokens `+fN` (flood ON with set N; `+f` = the launch's own `-tfi/-tfk/-tfwrap`;
+TorchFloodPool.Params is read every frame, so no rebuild), and writes `tc_<scene>_proj.csv` per still (viewport positions of every torch, torch + 2 m
+= the near-post disc, and ground points r 0.25-10 m on 16 azimuths round the camp centre / water torch). Launch: `PRESETS=high EXTRA="-torchcine 1
+-tfdir 2 -tcarms 540,native,540+f1,native+f1,...,540+f5,native+f5 -tcsets 2.0/0.10,1.4/0.20,1.6/0.35,2.4/0.60,3.0/1.20" ./run-look-review.sh`.
+Sheets / table / viewer: `python3 -I tools/torchtune174b.py <LookReview dir> Screenshots/174b <lookreview log>` (lit %, clip % near posts = any
+channel >= 250 inside the discs, radial profile from native, walk / strafe flicker vs each set's own native). Result: HANDOFF 174b; recommended
+I 1.6 k 0.35 (the point lights' own values): clip near camp posts 6.8 -> 0.3 %, walk flicker 5.2 -> 3.7, strafe 10.8 -> 6.9.
