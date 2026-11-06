@@ -1,64 +1,67 @@
-# 174-fsr3-reactive-mask: DONE -- FSR 3 reactive mask built; clean QA, so PLAY now defaults to `-fsr3sc 10 -fsr3reactive 1`
+STOP_FOR_OWNER -- task 174b: "Which torch-flood setting?" (becomes the default in task 175)
+- (a) **Recommended: S3, I 1.6 k 0.35** (the point lights' own values).
+  - A warm spot per torch that fades to dark by ~4-5 m, with no black gaps between neighbouring torches.
+  - Clipping near the camp posts drops from 6.8 % to 0.3 %; walk flicker drops from 5.2 to 3.7 (today 4.1).
+- (b) S2, I 1.4 k 0.20: a little brighter and wider (more light in caves and on walls), same clipping, flicker 3.9.
+- (c) S4, I 2.4 k 0.60: hotter cores, but 1 % clipping comes back.
+- (d) S5, I 3.0 k 1.20: tight spots, and caves stay 63 % black.
+- (e) S1, I 2.0 k 0.10: 172's flood as it is today.
 
-## What changed (`b542dcd`, engine-phase)
-- `Raymarch.compute`: CSMain's TAA block writes `TaaDynW` only when `_TaaEnabled & 2` (no new uniform).
-  - It holds, per pixel in display levels: the dynamic light's share (point lights / torch flood + emissive bleed).
-  - For a fluid / lava / emitter pixel it holds the whole pixel's luminance instead.
-- `VoxelUpscaleInputs.compute`, new kernel `UpscaleReactive` -> FSR 3's reactive mask. FSR 3.1 feeds this mask into its shading-change channel, which `-fsr3sc` does not cut. The method, and why:
-  - (1) **Light/colour test.** The gap between this frame's 3x3 [min,max] and last frame's 3x3, reprojected by camera motion; 0 when the two ranges overlap. Mask = saturate((gap - 0.5)/1.5) display levels; one scale for every scene.
-  - Why ranges: version 1 compared the pixel's own value with last frame's range. It flagged ~5 % of a STILL torch-lit frame: under jitter, ~1-2 px voxels flip between faces that get different light (the same aliasing that fires FSR's own detector, task 166). A still scene draws from the same set of values in both frames, so the ranges overlap.
-  - (2) **New-voxel test.** In a chunk the mirror rewrote this frame, a surface key (voxel + material) not seen in last frame's 3x3 -> mask 1. It applies only where a voxel is >= 2 px, or the voxel is an emitter (torch / lava / sludge). Reason for the emitter exception: a lava front 45 m away moves < 1 px per frame, which no neighbourhood test can see.
-- `RaymarchFeature(.Upscalers).cs`: ping-pong buffers, the pass, binding the mask to FSR. `-fsr3reactive 0|1` (`UpscalerSelect`).
-- Capture arm tokens: `rm`, plus diagnostics `rm1` / `rm2` (one test each).
-- **Play default** (`Playground.cs`, `IsPlaySettingsRun` only): sc10 + mask. `-fsr3sc 0 -fsr3reactive 0` = the old FSR 3. Rigs and capture are unchanged.
-- QA: `-fsrlive 1 -fsrlivescenes task174` (`PlaygroundCapture.FsrLive.cs`), with new scenes:
-  - lava streams advancing 0.1 m/frame, aimed by a view ray so the front is in frame: `lava_near` (7 m) and `lava_far` (45 m);
-  - flood-ON repeats of the moving torch and both lava scenes (`_f`).
-- `tools/fsr174.py`: table, 4x sheets, full-size viewer. `TASKS.md`: task 174 paragraph.
+# 174b-torch-flood-falloff-tune: 5 flood settings x 6 night scenes shot in one launch; sheets, profile and viewer built; capture only, no defaults changed
 
-## Evidence (capture only; no frame times)
-- Final launch: `Logs/lookreview_20261105_160834.txt`. Shots: `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-05_161332_high/`. Table: `Screenshots/174/fsr174.txt`.
-- Earlier launches (version 1 and the far-only lava): `Logs/lookreview_20261105_151516.txt`, `..._155521.txt`.
-- Shells were not all filled after the 40 s cap (s3-s7 missing, about 2,000-3,000). The near field, where the tests happen, was full.
-- Error in the change mask vs native, today / sc10 / sc10+mask, at 432 (540 in brackets):
+## What changed (`4d03939`, engine-phase)
+- `PlaygroundCapture.TorchCine.cs`:
+  - `-tcsets "I/k[/wrap],..."` with arm tokens `+fN` (the flood ON with set N). Params are read every frame, so the flood is built once per scene.
+  - `tc_<scene>_proj.csv`: torch viewport positions, the 2 m near-post disc, and ground points round one torch for the radial profile.
+- `tools/torchtune174b.py`: the table, profile plots, half-size contact sheets, and the full-size viewer (`Screenshots/174b/viewer.html`; arrows change scene, Space changes setting).
+- TASKS.md: task 174b paragraph.
 
-| scene | today | sc10 | sc10 + mask |
-|---|---|---|---|
-| torch moving | 17.3 (14.4) | 51.6 (53.9) | **8.9 (7.7)** |
-| torch moving, flood on | 18.8 (16.3) | 51.4 (55.0) | **9.1 (8.4)** |
-| torch lit, frame 1 | 12.2 (10.8) | 17.4 (14.6) | **9.8 (7.8)** |
-| torch out, frame 1 | 6.2 (5.7) | 11.2 (12.9) | **4.6 (4.3)** |
-| lava near | 13.2 (10.2) | 18.5 (18.4) | **7.4 (6.1)** |
-| lava far | 19.1 (23.9) | 21.7 (20.3) | **15.7 (13.8)** |
-| lava near, flood on | 15.2 (13.3) | 22.1 (20.9) | **8.5 (7.5)** |
-| lava far, flood on | 25.3 (29.5) | 23.3 (31.2) | **12.5 (10.3)** |
+## Evidence
+- Launch: `Logs/lookreview_20261105_181932.txt`. Shots: `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-05_182440_high/`.
+- Table: `Screenshots/174b/torchtune174b.txt`.
+- All arms use FSR 3 at 540 rows with sc0 and no mask, flood `-tfdir 2`. Each set's truth is its own native.
+- Night 00:30. Shells: 4,065 missing after the 45 s cap (far shells s2-s7; the near field was full).
+- Fast suite: PASS 997 FAIL 0 SKIP 16 (`Logs/overnight/174b_fast.out`).
+- Cave and water poses differ from 172's. The cave is now seen head-on, eye pitch 3 (172: -25). Same terrain and seed.
 
-- Caveats on the table:
-  - Lava far covers only ~400 px (0.02 % of the frame).
-  - The `_f` scenes are not strictly frame-exact (the flood pool rebuilds asynchronously).
-- Still sun, sharpness vs native (gradient ratio): today 0.80 / sc10 0.85 / sc10+mask 0.87 at 432 (0.87 / 0.92 / 0.94 at 540). Night torch camp: 0.65 / 0.78 / 0.81.
-- Mask coverage, from FSR's debug view (top-middle panel, % px):
-  - sun_still and torch_still: **0.000** in every frame;
-  - torch on/off: 1.3 % on the change frame only, 0 after;
-  - moving torch: 0.07 %; lava near: ~0.3 %.
-- sc10 vs sc10+mask on the still sun differ by 0.5 levels, although the mask is 0 on every pixel there. My guess: each arm is captured at a different point of FSR's jitter cycle. NOT proven (no A/A pair was shot).
-- Fast suite: PASS 997 FAIL 0 SKIP 16 (`Logs/overnight/174_fast.out`).
-- Rough cost (look-stage rule, not measured):
-  - CSMain: +1 float write per pixel (FSR path only).
-  - `UpscaleReactive`: 18 float reads + 1 R16 write per render pixel (~0.4 M px at 540 rows); key reads only in rewritten chunks.
-  - Memory: 2 x 4 B x render px (~4 MB at 960x540) + a 1 MB R16 texture.
-- Note: CSMain's code changed. TAA-off images could shift by float recompile (task 08's warning). No gate checks image bytes.
+| setting | camp15 lit / clip near posts % | wall lit % | cave black % | walk flicker (lit) | 40 m strafe flicker |
+|---|---|---|---|---|---|
+| today (flood OFF) | 5.6 / 0.18 | 0.8 | 82.5 | 4.12 | 4.21 |
+| S1 2.0/0.10 (172) | 21.9 / 6.77 | 16.4 | 7.9 | 5.23 | 10.75 |
+| S2 1.4/0.20 | 13.7 / 0.28 | 5.3 | 34.4 | 3.93 | 7.42 |
+| **S3 1.6/0.35** | **11.6 / 0.31** | **3.6** | **47.1** | **3.73** | **6.93** |
+| S4 2.4/0.60 | 11.5 / 1.03 | 3.6 | 50.5 | 4.12 | 7.65 |
+| S5 3.0/1.20 | 9.2 / 0.69 | 2.4 | 62.7 | 3.58 | 6.57 |
 
-## Not done / next
-- The play default flipped on capture evidence only. Worth one look in play (`./run-play.sh BUILD=1`): walk past torches and lava at night.
-- The water slide and pour (171's scenes) were not re-shot. Water is in the mask's "whole pixel" class.
-- A perf milestone should include the mask pass.
+- Water terrace, native luma along the ground on the land side (r = 0.5 / 2 / 4 / 6 m). Flood OFF has ~24-26 of moonlight on its own.
+  - S1: 180 / 116 / 62 / 40
+  - S3: 111 / 64 / 36 / 28
+  - S5: 101 / 53 / 31 / 26
+- The camp profile is not reliable: the ridge crest is not level, and the posts block the rays that run through them. Judge the camp from the images.
+
+## Verdicts (from the sheets and the full-size crops)
+- **S1:** the 172 problems are all there: one sheet along the ridge, a yellow clip at the centre post, and a glow up the whole wall to the ridge.
+- **S2 / S3:** a warm pool per torch with a gradient. No clipping. Wall torches make connected spots with no black gaps.
+  - Cave: a lit interior, with only a faint fan onto the outside face (S1's fan was big).
+- **S4:** looks like S3 with hotter cores that clip again.
+- **S5:** tight spots; caves and walls fall back toward today's darkness.
+- **Strafe at 40 m:** every setting still crawls more than today (6.6-7.7 vs 4.2), though less than S1's 10.8. The tune alone does not fix this; sc10 plus the reactive mask (174) is the other half.
+  - Not tested together: the brief said not to use sc10.
+- Unchanged from 172: today's flood-OFF path still draws a hard unlit rectangle beside the water post. The flood hides it.
+
+## Next
+- Owner picks a setting. Task 175 makes it the default (`TorchFloodPool.Intensity` / `FalloffK`) and turns the flood on in play.
+- Worth one look in play at the end: the chosen setting with sc10 plus the mask.
 
 ## For the doc
-- Moving torch, error in the moving-light region at 432: today 17.3 -> sc10 51.6 -> **sc10 + mask 8.9** (540: 14.4 / 53.9 / **7.7**) (`Screenshots/174/fsr174.txt`).
-- Near lava front at 432: 13.2 / 18.5 / **7.4**. Torch put out, frame 1 after: 6.2 / 11.2 / **4.6**.
-- Still sun sharpness vs native: 0.80 / 0.85 / **0.87**. The mask is 0 on every pixel of the still scenes.
-- Full-size viewer: `Screenshots/174/viewer.html`. ←/→ = scene, Space = arm (native, today, sc10, sc10+mask at 432/540, debug view), 3/4 = zoom on the sheet's window. Each scene's caption says what to look at.
-- `Screenshots/174/fsr174_torch_move.png`: 4x zoom. Row 1 = native | today 432 | sc10 432 | sc10+mask 432; row 2 = the 540 arms. Look at the torch, bottom right: sc10 draws it twice with a speckle trail; sc10+mask shows one clean torch, sharper than today.
-- `Screenshots/174/fsr174_lava_near.png`: same layout. Look at the lava stream's edges: sc10 leaves dark holes and stale rock in the new lava; sc10+mask is clean.
-- `Screenshots/174/fsr174_sun_still.png`: same layout, still terrain. Look at the step outlines: sc10 and sc10+mask look the same and are crisper than today.
+- Clipping near the camp posts: S1 (172) 6.77 % -> **S3 0.31 %** (today 0.18 %). Camp lit pixels 21.9 -> 11.6 % (today 5.6 %) (`Screenshots/174b/torchtune174b.txt`).
+- Walk flicker vs native, lit pixels: S1 5.23 -> **S3 3.73** (today 4.12). 40 m strafe: 10.75 -> 6.93 (today 4.21).
+- Cave black pixels: today 82.5 %, S1 7.9 %, S3 47.1 %. Wall lit: 0.8 / 16.4 / 3.6 %.
+- `Screenshots/174b/tt174b_camp15_crop.png`: full-res crop of the posts. Top row: today | S1 | S2; bottom row: S3 | S4 | S5.
+  - S1: the saturated yellow patch at the right-hand post base and the even sheet along the ridge.
+  - S3: a warm spot per post that fades between the posts.
+- `Screenshots/174b/tt174b_wall_crop.png`: same layout. S1 lights the whole face up to the top; S3 / S4 give a spot per torch and the face fades to dark above.
+- `Screenshots/174b/profile_water.png`: native luma vs distance from the lone torch.
+  - Orange S1 stays bright out past 5 m; green S3 drops to the moonlight floor (~28) by 6 m.
+  - The bump at 8-10 m is the terrace edge, present with the flood OFF too.
+- Full-size viewer: `Screenshots/174b/viewer.html` (images in `Screenshots/174b/full/`).
