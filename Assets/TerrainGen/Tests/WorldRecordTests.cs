@@ -18,6 +18,10 @@
 //                   for the new set -- change walking E-W >= 900 m, area-weighted
 //                   median patch >= 50 ha -- each new biome on >= 3 of 4 seeds,
 //                   v4 on biomeSet 4 is B8's field exactly. Report + B8|B10 PNGs.
+//   Task 176 (C1)   the DEFAULT v4 climate now varies across the island (owner
+//                   2026-11-05 Q2 (a)); its gates are BiomeLayoutTests. The B1 and
+//                   B10 gates above pin B10's one-octave field, still reachable as
+//                   biomeVaryOff = 1 (`-biomevary 0`), and are measured on it.
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -133,6 +137,10 @@ namespace TerrainGen.Tests
             Assert.AreEqual(WorldRecord.BYTES_PER_CELL, System.Runtime.InteropServices.Marshal.SizeOf<RecordCell>());
 
             var o = Offsets.For(in spec);
+            // Task 176: the reference biome under Burst, as the record is (Mono's float
+            // differs from Burst's at a cell on a border; the 3-octave climate hit one)
+            using var refB = new NativeArray<byte>((n / 8) * (n / 8), Allocator.TempJob);
+            new BiomeAtJob { o = o, n = n, cellVoxels = spec.mapCellVoxels, outB = refB }.Run();
             int biomeBad = 0, archBad = 0, waterBad = 0, reserved = 0, depthBad = 0, deep = 0;
             var depthSeen = new HashSet<int>();
             for (int z = 0; z < n; z++)
@@ -140,8 +148,7 @@ namespace TerrainGen.Tests
             {
                 int i = z * n + x;
                 var c = rec.Data[i];
-                if ((z & 7) == 0 && (x & 7) == 0 &&
-                    c.Biome != ShapeField.Biome(in o, new float2((x + 0.5f) * spec.mapCellVoxels, (z + 0.5f) * spec.mapCellVoxels))) biomeBad++;
+                if ((z & 7) == 0 && (x & 7) == 0 && c.Biome != refB[(z >> 3) * (n >> 3) + (x >> 3)]) biomeBad++;
                 byte want = map.Region[i] == 255 ? WorldRecord.SEA : map.Region[i];
                 if (c.Archetype != want) archBad++;
                 bool fresh = map.WaterClass[i] == Hydrology.LAKE || map.WaterClass[i] == Hydrology.RIVER;
@@ -178,7 +185,8 @@ namespace TerrainGen.Tests
                 var v3 = TerrainSpec.SizeClass2(seed, 3);
                 var map = SharedMaps.Get(v3);   // v4's land is this, cell for cell
                 float m3 = ChangeM(map, Offsets.For(in v3));
-                float m4 = ChangeM(map, Offsets.For(TerrainSpec.SizeClass2(seed, 4)));
+                var b10 = TerrainSpec.SizeClass2(seed, 4); b10.biomeVaryOff = 1;   // task 176: B1's gate pins B10's field
+                float m4 = ChangeM(map, Offsets.For(in b10));
                 lines.Add($"seed {seed}: v3 {m3:F0} m, v4 {m4:F0} m, x{m4 / m3:F2}");
                 Assert.GreaterOrEqual(m4, 2.5f * m3, $"seed {seed}: v4 biome change {m4:F0} m < 2.5 x v3's {m3:F0} m");
             }
@@ -209,8 +217,10 @@ namespace TerrainGen.Tests
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 byte[] b8 = WorldRecord.BiomePlane(spec4);
                 double ms8 = sw.Elapsed.TotalMilliseconds; sw.Restart();
-                byte[] b10 = WorldRecord.BiomePlane(spec6);
+                var specB10 = spec6; specB10.biomeVaryOff = 1;   // task 176: B10's gates pin B10's own field
+                byte[] b10 = WorldRecord.BiomePlane(specB10);
                 double ms10 = sw.Elapsed.TotalMilliseconds;
+                byte[] bNow = WorldRecord.BiomePlane(spec6);     // the default (C1) field: what the record carries
 
                 // the record carries the B10 field; biomeSet 4 is B8's formula
                 int recBad = 0, b8Bad = 0;
@@ -221,10 +231,10 @@ namespace TerrainGen.Tests
                 new BiomeFourJob { o = o4, n = n, cellVoxels = spec6.mapCellVoxels, outB = ref4 }.Run();
                 for (int i = 0; i < n * n; i++)
                 {
-                    if (map.Record.Data[i].Biome != b10[i]) recBad++;
+                    if (map.Record.Data[i].Biome != bNow[i]) recBad++;
                     if ((i & 63) == 0 && b8[i] != ref4[i >> 6]) b8Bad++;
                 }
-                if (recBad > 0) fails.AppendLine($"seed {seed}: {recBad} record cells differ from the B10 biome plane");
+                if (recBad > 0) fails.AppendLine($"seed {seed}: {recBad} record cells differ from the default biome plane");
                 if (b8Bad > 0) fails.AppendLine($"seed {seed}: biomeSet 4 differs from B8's four-biome field at {b8Bad} cells");
 
                 var isLand = new bool[n * n]; long land = 0;
@@ -252,6 +262,23 @@ namespace TerrainGen.Tests
             File.WriteAllText(Path.Combine(dir, "b10_biomes.txt"), report.ToString() + (fails.Length > 0 ? "FAIL\n" + fails : "PASS\n"));
             UnityEngine.Debug.Log("[WorldRecord] B10\n" + report);
             Assert.AreEqual("", fails.ToString(), fails.ToString());
+        }
+
+        /// ShapeField.Biome at every 8th cell centre in x and z, under Burst.
+        [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]
+        private struct BiomeAtJob : IJob
+        {
+            public Offsets o; public int n, cellVoxels;
+            public NativeArray<byte> outB;
+            public void Execute()
+            {
+                int m = n >> 3;
+                for (int k = 0; k < outB.Length; k++)
+                {
+                    int x = (k % m) << 3, z = (k / m) << 3;
+                    outB[k] = ShapeField.Biome(in o, new float2((x + 0.5f) * cellVoxels, (z + 0.5f) * cellVoxels));
+                }
+            }
         }
 
         [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]
@@ -286,7 +313,7 @@ namespace TerrainGen.Tests
             return b;
         }
 
-        private static float Change(bool[] isLand, byte[] biome, int n, float cellM)
+        internal static float Change(bool[] isLand, byte[] biome, int n, float cellM)
         {
             long walked = 0; int changes = 0;
             for (int z = 0; z < n; z += 4)
@@ -301,7 +328,7 @@ namespace TerrainGen.Tests
         }
 
         /// Area-weighted median of 4-connected same-biome land patches, in ha.
-        private static float AreaMedianHa(bool[] isLand, byte[] biome, int n, float cellM)
+        internal static float AreaMedianHa(bool[] isLand, byte[] biome, int n, float cellM)
         {
             var seen = new bool[n * n]; var sizes = new List<int>(); var stack = new Stack<int>();
             for (int s0 = 0; s0 < n * n; s0++)

@@ -974,3 +974,15 @@ TorchFloodPool.Params is read every frame, so no rebuild), and writes `tc_<scene
 Sheets / table / viewer: `python3 -I tools/torchtune174b.py <LookReview dir> Screenshots/174b <lookreview log>` (lit %, clip % near posts = any
 channel >= 250 inside the discs, radial profile from native, walk / strafe flicker vs each set's own native). Result: HANDOFF 174b; recommended
 I 1.6 k 0.35 (the point lights' own values): clip near camp posts 6.8 -> 0.3 %, walk flicker 5.2 -> 3.7, strafe 10.8 -> 6.9.
+
+**Task 176 (world gen C1, owner 2026-11-05 Q2 (a) "vary climate"; GENERATOR CHANGE, STOP_FOR_OWNER "keep this layout?"): biome layout varies across the island + patch transitions.**
+`ShapeField.Biome6`: on v4's six-biome field (`TerrainSpec.BiomeVary`) the climate wavelength is `CLIMATE_WAVE_R` 0.75 x islandRadius
+(temperature x1.25), three octaves 1 / 0.35 / 0.2 (`Climate3`, Fbm's lacunarity), normalised PER WORLD to mean 0, sd `CLIMATE_SD` 0.7
+over the island disc (`ClimateNormalise`, 64^2 samples in `Offsets.Compute`; seed noise only, no map). No domain warp; centres unchanged.
+`-biomevary 0` / `spec.biomeVaryOff = 1` = B10's one-octave field, bit for bit (the B1/B10 gates in WorldRecordTests now measure it).
+Border blend (task 122): the per-0.8 m-cell hash dither is replaced by a 10 m PATCH octave (`BLEND_PATCH_*`, +-14 m) on every v4 world.
+Tests: `BiomeLayoutTests` (8 seeds `BiomeLayoutDump.LayoutSeeds`: straight border <= 1.7 km at +-30 m, every biome >= 2 regions of
+>= 25 ha, shares 5-35 %, change E-W >= 300 m, area-wtd median >= 35 ha; `Logs/TerrainGen/c1/c1_layout.txt`). Tools: `REPORTS=1
+C1TAG=<tag> [C1SEEDS=sweep] tools/run-editmode-filter.sh BiomeLayoutDump` dumps land/biome planes; `python3 -I tools/biome176.py stats|maps|viewer`
+(also a Python port of snoise for prototyping candidate climates). Survey: `-wsfixed "name|ex,ey,ez|ax,ay,az;..."` adds fixed poses (`fixed_<name>`).
+Result: HANDOFF 176, `Screenshots/176/viewer.html`.

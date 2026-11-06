@@ -337,6 +337,18 @@ public partial class PlaygroundCapture
                 note = "the most open enclosed air 200 m below sea level under the start (2 m store scan)" });
         }
 
+        // Task 176: -wsfixed "name|ex,ey,ez|ax,ay,az;..." adds fixed poses (metres), named fixed_<name>, e.g. an
+        // earlier survey's WSPOSE eye/target, so a generator change is shot from the same camera before | after.
+        string fixedArg = ArgValue("-wsfixed");
+        if (!string.IsNullOrEmpty(fixedArg))
+            foreach (string item in fixedArg.Split(';'))
+            {
+                string[] f = item.Split('|');
+                if (f.Length < 3) { L($"  -wsfixed: skipped '{item}' (want name|ex,ey,ez|ax,ay,az)"); continue; }
+                Vector3 V(string t) { string[] c = t.Split(','); return new Vector3(float.Parse(c[0], System.Globalization.CultureInfo.InvariantCulture), float.Parse(c[1], System.Globalization.CultureInfo.InvariantCulture), float.Parse(c[2], System.Globalization.CultureInfo.InvariantCulture)); }
+                poses.Add(new WsPose { name = "fixed_" + f[0], eye = V(f[1]), at = V(f[2]), note = $"fixed pose {f[0]} (-wsfixed)" });
+            }
+
         // ---------------- the map ----------------
         WriteSurveyMap(map, spec, Path.Combine(_folder, "worldsurvey_map.png"));
         L($"  {poses.Count} poses; map worldsurvey_map.png ({cells} px, +x right, +z UP; a pixel = one {cellM:F0} m cell)");

@@ -19,9 +19,11 @@ namespace TerrainGen.Tests
     public class WorldMapBurstTests
     {
         /// seed 42, map v4: the IL2CPP player's WorldMap.HeightHash(), from
-        /// Logs/tg2world_20261010_005419.txt (BUILD=1 ./run-tg2world.sh, task 45):
-        /// "map v4 Height FNV 639552DD962C4B28  cell(613,259) 1068.80900".
-        public const ulong PLAYER_V4_SEED42 = 0x639552DD962C4B28UL;
+        /// Logs/tg2world_20261105_201249.txt (./run-tg2world.sh on task 176's build):
+        /// "map v4 Height FNV 74C7E69A614F8996  cell(613,259) 1068.80900". Task 176 (C1)
+        /// moved it: the biome feeds danger, danger the B8 routes, and the routes ease
+        /// the map. Before: 639552DD962C4B28 (task 45, Logs/tg2world_20261010_005419.txt).
+        public const ulong PLAYER_V4_SEED42 = 0x74C7E69A614F8996UL;
 
         [Test]
         public void Seed42V4_EditorMapIsThePlayersMap()

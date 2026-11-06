@@ -1,0 +1,94 @@
+UPSCALER CLIPS -- 2026-11-05_192323
+device Apple M1  screen 1920x1080  RELEASE  preset Quality  temporal shadows ON
+captured frame 1920x1080 (Screen 1920x1080, FullScreenWindow)
+bootstrapper transform: 0 children, camera is child: False
+
+LOOK REVIEW (task 114): preset high, sizing rows 720, render rows 720 (UpscalerSelect clamps 540-720), camera vFOV 60.0 deg, noon 12.00 h (sun elevation 78 deg), shell wait cap 30 s
+  shell 0: voxel 0.1 m,      0-    69 m; voxel px at 720 rows inner inf -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 1: voxel 0.2 m,     69-   138 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 2: voxel 0.4 m,    138-   275 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 3: voxel 0.8 m,    275-   550 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 4: voxel 1.6 m,    550-  1100 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 5: voxel 3.2 m,   1100-  2200 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 6: voxel 6.4 m,   2200-  4400 m; voxel px at 720 rows inner 2.00 -> outer 1.00 (at 1080 output: outer 1.50)
+  shell 7: voxel 12.8 m,   4400-  6600 m; voxel px at 720 rows inner 2.00 -> outer 1.33 (at 1080 output: outer 2.00)
+
+WORLD SURVEY (task 173): seed 42, map v4, 1024^2 record cells of 8 m, sea 512.0 m; noon 12.00 h, sun elevation 78 deg, heading away from the sun (0.00, -1.00); arms native, fsr3_540; shell wait cap 30 s; start (4017.2, 887.3, 4018.8)
+  biome x landform pairs on land (289061 cells = 18.5 km^2):
+    snow      x alpine range         14478 cells   5.0 %  -> shot
+    jungle    x river plains         12888 cells   4.5 %  -> shot
+    jungle    x breaks               12575 cells   4.4 %  -> shot
+    forest    x river plains         12455 cells   4.3 %  -> shot
+    snow      x canyonlands          11853 cells   4.1 %  -> shot
+    snow      x high plateau         11299 cells   3.9 %  -> shot
+    savanna   x river plains         10894 cells   3.8 %  -> shot
+    snow      x wetland basin        10573 cells   3.7 %  -> shot
+    desert    x dune sea             10111 cells   3.5 %  -> shot
+    snow      x river plains          9730 cells   3.4 %  -> shot
+    desert    x rolling highlands     9174 cells   3.2 %  -> shot
+    snow      x volcanic              8618 cells   3.0 %  -> shot
+    badlands  x alpine range          8524 cells   2.9 %  -> shot
+    desert    x river plains          8163 cells   2.8 %  -> shot
+    forest    x breaks                7546 cells   2.6 %  -> shot
+    desert    x breaks                7307 cells   2.5 %  -> shot
+    badlands  x wetland basin         7290 cells   2.5 %  -> shot
+    jungle    x high plateau          7270 cells   2.5 %  -> shot
+    forest    x canyonlands           7137 cells   2.5 %
+    forest    x wetland basin         7024 cells   2.4 %
+    desert    x alpine range          6862 cells   2.4 %
+    forest    x rolling highlands     6307 cells   2.2 %
+    badlands  x volcanic              6165 cells   2.1 %
+    badlands  x breaks                5896 cells   2.0 %
+    forest    x high plateau          5366 cells   1.9 %
+    badlands  x river plains          5067 cells   1.8 %
+    savanna   x dune sea              4990 cells   1.7 %
+    forest    x volcanic              4940 cells   1.7 %
+    snow      x rolling highlands     4832 cells   1.7 %
+    snow      x breaks                4756 cells   1.6 %
+    savanna   x breaks                4612 cells   1.6 %
+    badlands  x high plateau          4381 cells   1.5 %
+    savanna   x rolling highlands     4001 cells   1.4 %
+    desert    x volcanic              2853 cells   1.0 %
+    desert    x wetland basin         2737 cells   0.9 %
+    badlands  x rolling highlands     2596 cells   0.9 %
+    savanna   x wetland basin         2081 cells   0.7 %
+    jungle    x canyonlands           2016 cells   0.7 %
+    forest    x dune sea              1812 cells   0.6 %
+    forest    x alpine range          1671 cells   0.6 %
+    savanna   x alpine range          1656 cells   0.6 %
+    savanna   x canyonlands           1599 cells   0.6 %
+    jungle    x rolling highlands     1572 cells   0.5 %
+    badlands  x dune sea              1414 cells   0.5 %
+    badlands  x canyonlands           1185 cells   0.4 %
+    jungle    x dune sea              1029 cells   0.4 %
+    jungle    x wetland basin          765 cells   0.3 %
+    jungle    x alpine range           426 cells   0.1 %
+    jungle    x volcanic               243 cells   0.1 %
+    savanna   x high plateau           158 cells   0.1 %
+    savanna   x volcanic               108 cells   0.0 %
+    snow      x dune sea                44 cells   0.0 %
+    desert    x canyonlands             12 cells   0.0 %
+  coast: 1713 sun-lit coastal cells (step 2)
+  41 poses; map worldsurvey_map.png (1024 px, +x right, +z UP; a pixel = one 8 m cell)
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2167/2/1  s2 1201/791/9  s3 207/1452/4  s4 0/987/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 3575, missing 3919, pending 0; requested 3608, generated 3594 (84 ms each on a worker), dropped stale 3, over-budget frames 0 (of 1193)
+WSPOSE start_walk|4017.2,891.2,4018.8|4117.2,891.2,4018.8|the play start, eye 1.6 m, free distance 1500 m; snow x alpine range
+  start_walk: yaw 90 pitch 0 deg, distance 100 m, 56 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1832/0/0  s3 646/834/14  s4 0/987/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 4648, missing 2508, pending 0; requested 6352, generated 6338 (101 ms each on a worker), dropped stale 7, over-budget frames 0 (of 2293)
+WSPOSE start_view|4017.2,924.6,4178.8|4017.2,892.6,4018.8|the play start from 160 m back, 35 m up; sun-behind dot 1.00
+  start_view: yaw 180 pitch -11 deg, distance 163 m, 58 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 1325/0/0  s2 1164/0/1  s3 469/683/13  s4 0/996/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 2958, missing 2366, pending 0; requested 9493, generated 9479 (112 ms each on a worker), dropped stale 21, over-budget frames 0 (of 5367)
+WSPOSE fixed_great-peak-0|3900.0,1146.1,5344.0|3900.0,1069.1,3700.0|fixed pose great-peak-0 (-wsfixed)
+  fixed_great-peak-0: yaw 180 pitch -3 deg, distance 1646 m, 65 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1363/631/7  s3 313/1343/7  s4 42/945/0  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 3888, missing 3606, pending 0; requested 13711, generated 13697 (106 ms each on a worker), dropped stale 28, over-budget frames 0 (of 6599)
+WSPOSE fixed_start_walk|4017.2,891.2,4018.8|4117.2,891.2,4018.8|fixed pose start_walk (-wsfixed)
+  fixed_start_walk: yaw 90 pitch 0 deg, distance 100 m, 76 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1832/0/0  s3 1026/468/0  s4 165/808/14  s5 0/489/0  s6 0/182/0  s7 0/16/0   total stored 5193, missing 1963, pending 0; requested 16954, generated 16940 (105 ms each on a worker), dropped stale 33, over-budget frames 0 (of 7368)
+WSPOSE fixed_start_view|4017.2,924.6,4178.8|4017.2,892.6,4018.8|fixed pose start_view (-wsfixed)
+  fixed_start_view: yaw 180 pitch -11 deg, distance 163 m, 58 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 1675/484/11  s3 456/1542/3  s4 30/957/0  s5 0/441/0  s6 0/162/0  s7 0/16/0   total stored 4331, missing 3602, pending 0; requested 21649, generated 21635 (101 ms each on a worker), dropped stale 47, over-budget frames 0 (of 8662)
+WSPOSE fixed_snow_rolling-highlands|5860.0,592.0,3732.0|5860.0,560.0,3572.0|fixed pose snow_rolling-highlands (-wsfixed)
+  fixed_snow_rolling-highlands: yaw 180 pitch -11 deg, distance 163 m, 69 s
+  [shells] waited 30 s (cap 30 s): stored/missing/in flight:  s1 2170/0/0  s2 2082/85/3  s3 599/1222/11  s4 24/963/0  s5 0/480/0  s6 0/182/0  s7 0/16/0   total stored 4875, missing 2948, pending 0; requested 27262, generated 27248 (93 ms each on a worker), dropped stale 61, over-budget frames 0 (of 10408)
+WSPOSE fixed_range_200up|3860.0,743.9,5168.0|3860.0,1095.0,3668.0|fixed pose range_200up (-wsfixed)
+  fixed_range_200up: yaw 180 pitch 13 deg, distance 1541 m, 55 s
+LOOK REVIEW done: /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-05_192323_high

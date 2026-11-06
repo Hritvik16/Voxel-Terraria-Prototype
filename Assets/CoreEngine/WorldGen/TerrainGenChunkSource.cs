@@ -120,6 +120,17 @@ namespace VoxelEngine.WorldGen
             return off;
         }
 
+        /// -biomevary 0 (task 176): spec.biomeVaryOff = 1, B10's one-octave climate
+        /// (the pre-176 straight belts). Absent = the version's default. Last match wins.
+        public static bool BiomeVaryOffArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            bool off = false;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-biomevary" && int.TryParse(a[i + 1], out int p)) off = p == 0;
+            return off;
+        }
+
         public TerrainGenChunkSource(uint seed, int mapVersion)
         {
             // R1 BRICK GEOLOGY (V0, design doc §11/§15): below 20 m under the
@@ -133,6 +144,7 @@ namespace VoxelEngine.WorldGen
             int cc = CoarseColumnArg();
             if (cc >= 0) spec.coarseColumnShift = cc;
             if (BiomeBlendOffArg()) spec.biomeBlendOff = 1;
+            if (BiomeVaryOffArg()) spec.biomeVaryOff = 1;
             Spec = spec;
             O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
             Map = TerrainGen.WorldMap.Build(Spec);

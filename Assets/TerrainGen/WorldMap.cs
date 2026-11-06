@@ -1048,6 +1048,12 @@ namespace TerrainGen
         /// Task 122: TerrainSpec.BiomeBlend (1 = on). 0 from For(seed) or a
         /// default struct: no border blend, the column's surface is its biome's.
         public int biomeBlend;
+        /// Task 176: TerrainSpec.BiomeVary (1 = on). 0 from For(seed) or a default
+        /// struct: B10's one-octave climate. When on, climMean / climGain map the
+        /// raw 3-octave climate (t, m) to mean 0 and sd ShapeField.CLIMATE_SD over
+        /// the island disc, and climWave holds the two wavelengths (voxels).
+        public int biomeVary;
+        public float2 climMean, climGain, climWave;
         /// Map v4 (B5): the drawn volcano's site (Features.VolcanoSite; off the
         /// map when none was drawn), valid when v4Sites != 0. Only For(spec)
         /// sets it: Stamps.Column reads it per voxel column under Burst.
@@ -1068,6 +1074,7 @@ namespace TerrainGen
             o.biomeScale = spec.BiomeScale;
             o.biomeSet = spec.BiomeSet;
             o.biomeBlend = spec.BiomeBlend ? 1 : 0;
+            if (spec.BiomeVary) ShapeField.ClimateNormalise(in spec, ref o);
             if (spec.mapVersion >= 4) { o.volcanoV4 = Features.VolcanoSite(in spec, in o); o.v4Sites = 1; }
             return o;
         }

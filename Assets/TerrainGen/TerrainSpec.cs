@@ -85,6 +85,14 @@ namespace TerrainGen
         /// version's default: ON on v4, IGNORED below v4 (v3 byte-identical).
         /// Read it through BiomeBlend, never directly. `-biomeblend 0` sets it.
         public byte biomeBlendOff;
+        /// Task 176 (C1, owner 2026-11-05 Q2 (a) "vary climate"): 1 = B10's
+        /// one-octave climate at x3.25 (pre-176: across the island it is nearly a
+        /// ramp, so the biomes run as straight belts). 0 = the version's default:
+        /// on the six-biome v4 field the climate's wavelength is a fraction of the
+        /// island radius, with two low octaves, normalised over the island
+        /// (ShapeField.Biome6). IGNORED below v4 and on biomeSet 4. Read it
+        /// through BiomeVary, never directly. `-biomevary 0` sets it.
+        public byte biomeVaryOff;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -129,6 +137,9 @@ namespace TerrainGen
         /// The biome wavelength multiplier actually in force (see biomeScale).
         public float BiomeScale => mapVersion >= 4
             ? (biomeScale > 0f ? biomeScale : (BiomeSet == 6 ? V4_BIOME_SCALE_6 : V4_BIOME_SCALE)) : 1f;
+
+        /// The varied climate in force (see biomeVaryOff): v4's six-biome field only.
+        public bool BiomeVary => mapVersion >= 4 && BiomeSet == 6 && biomeVaryOff == 0;
 
         /// The biome border blend in force (see biomeBlendOff): v4 only.
         public bool BiomeBlend => mapVersion >= 4 && biomeBlendOff == 0;

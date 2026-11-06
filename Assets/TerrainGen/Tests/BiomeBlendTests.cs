@@ -8,7 +8,8 @@
 //     resting on SNOISE_GRAD_BOUND, which is measured here;
 //   - the record biome is the same bits with and without the border distance;
 //   - the band's shape along E-W transects: several switches per band (mixed,
-//     not a moved line), a width of tens of metres, and a line that is bent
+//     not a moved line; since task 176 in coherent 10 m-octave patches, not a
+//     per-0.8 m-cell dither), a width of tens of metres, and a line that is bent
 //     away from the straight climate contour;
 //   - blend off (Offsets.biomeBlend 0, -biomeblend 0, map v3) = the old surface,
 //     and the same seed gives the same surface.
@@ -81,7 +82,9 @@ namespace TerrainGen.Tests
             Debug.Log($"[BiomeBlend] climate reach {reach:F3}: {100.0 * inBand / N:F1}% of columns take the full path, " +
                       $"{100.0 * changed / N:F2}% wear the other side's surface");
             Assert.Greater(changed, 0);
-            Assert.Less(changed, N / 20, "the blend is a border band, not a repaint");
+            // N / 8: task 176 (C1) gave the island 2.7x the border length (record border
+            // cells, 8 seeds' mean 5,961 -> 16,253; tools/biome176.py), the band is as wide
+            Assert.Less(changed, N / 8, "the blend is a border band, not a repaint");
         }
 
         [Test]

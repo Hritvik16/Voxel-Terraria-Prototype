@@ -291,8 +291,17 @@ namespace TerrainGen
         /// badlands 8/11/15/32%.
         private static byte Biome6(in Offsets o, float2 p, float s, bool wantBorder, out float border)
         {
-            float t = Noise.Fbm(p / (15000f * s) + o.tempA, 1) * 1.6f;
-            float m = Noise.Fbm(p / (12000f * s) + o.moistA, 1) * 1.6f;
+            float t, m;
+            if (o.biomeVary != 0)
+            {
+                t = (Climate3(p / o.climWave.x + o.tempA) - o.climMean.x) * o.climGain.x;
+                m = (Climate3(p / o.climWave.y + o.moistA) - o.climMean.y) * o.climGain.y;
+            }
+            else
+            {
+                t = Noise.Fbm(p / (15000f * s) + o.tempA, 1) * 1.6f;
+                m = Noise.Fbm(p / (12000f * s) + o.moistA, 1) * 1.6f;
+            }
             float df = t * t + m * m;
             float dd = (t - 0.8f) * (t - 0.8f) + (m + 0.8f) * (m + 0.8f);
             float ds = (t + 0.9f) * (t + 0.9f) + (m - 0.1f) * (m - 0.1f);
@@ -337,14 +346,78 @@ namespace TerrainGen
             => j == b || dj == float.MaxValue ? float.MaxValue : (dj - d) / (2f * math.distance(Centre(j), cb));
 
         // ------------------------------------------------------------------
+        // TASK 176 (C1, WORLD_GEN_LOOK_PLAN.md; owner 2026-11-05 Q2 (a) "vary
+        // climate", design direction "a wacky multi-topography like One Piece
+        // but with a realistic twist"): B10's climate was ONE octave at 4.9 /
+        // 3.9 km wavelength. Across a ~5 km island that is nearly a linear ramp,
+        // so the nearest-centre rule cut it into straight parallel belts (173's
+        // survey map: 1.7-2.9 km straight borders on all 8 layout seeds; most
+        // biomes in one region only).
+        //   Now the wavelength is a FRACTION OF THE ISLAND RADIUS (moisture
+        // 0.75 R, temperature x1.25 as before), so the climate rises and falls
+        // across any world size, with two low octaves (0.35, 0.2 of the first,
+        // Noise.Fbm's lacunarity and offsets) that bend the borders at the
+        // 300-900 m scale. Still climate fields only and NO domain warp (§2.6,
+        // owner rule): a border is a contour of (t, m), and height is never read.
+        //   NORMALISED PER WORLD: the raw field's mean and sd over the island
+        // disc (radius islandRadius, the coast's nominal edge; CLIMATE_GRID^2
+        // samples, seed-keyed noise only, no map) map it to mean 0, sd
+        // CLIMATE_SD. So every seed spreads its climate over the same span of
+        // the six centres: a seed can no longer be 53 % jungle (seed 2 before)
+        // or 1 % desert (seed 31337). Computed once per spec in Offsets.Compute.
+        // Chosen on 20 seeds' land masks (tools/biome176.py); accepted on 8.
+        // ------------------------------------------------------------------
+        public const float CLIMATE_WAVE_R = 0.75f;   // moisture wavelength / islandRadius
+        public const float CLIMATE_TEMP_X = 1.25f;   // temperature wavelength / moisture's (B10's 15000 : 12000)
+        public const float CLIMATE_OCT2 = 0.35f, CLIMATE_OCT3 = 0.2f;
+        public const float CLIMATE_SD = 0.7f;        // climate units: the spread over the island
+        public const int CLIMATE_GRID = 64;          // normalisation samples per side of the disc's box
+
+        /// The raw 3-octave climate at q (noise units), before normalisation.
+        public static float Climate3(float2 q)
+        {
+            float a = noise.snoise(q);
+            q = q * 2.03f + new float2(17.3f, -9.1f);
+            a += CLIMATE_OCT2 * noise.snoise(q);
+            q = q * 2.03f + new float2(17.3f, -9.1f);
+            return a + CLIMATE_OCT3 * noise.snoise(q);
+        }
+
+        /// Offsets.Compute's step for a BiomeVary spec: wavelengths and the
+        /// per-world normalisation of the climate over the island disc.
+        public static void ClimateNormalise(in TerrainSpec spec, ref Offsets o)
+        {
+            o.biomeVary = 1;
+            float wm = CLIMATE_WAVE_R * spec.islandRadius;
+            o.climWave = new float2(wm * CLIMATE_TEMP_X, wm);
+            float c = spec.worldSizeVoxels * 0.5f, r = spec.islandRadius;
+            double st = 0, stt = 0, sm = 0, smm = 0; int k = 0;
+            for (int j = 0; j < CLIMATE_GRID; j++)
+            for (int i = 0; i < CLIMATE_GRID; i++)
+            {
+                float2 d = new float2((i + 0.5f) / CLIMATE_GRID * 2f - 1f, (j + 0.5f) / CLIMATE_GRID * 2f - 1f);
+                if (d.x * d.x + d.y * d.y > 1f) continue;
+                float2 p = new float2(c, c) + d * r;
+                float t = Climate3(p / o.climWave.x + o.tempA), m = Climate3(p / o.climWave.y + o.moistA);
+                st += t; stt += (double)t * t; sm += m; smm += (double)m * m; k++;
+            }
+            double mt = st / k, mm = sm / k;
+            double sdt = math.sqrt(math.max(1e-12, stt / k - mt * mt)), sdm = math.sqrt(math.max(1e-12, smm / k - mm * mm));
+            o.climMean = new float2((float)mt, (float)mm);
+            o.climGain = new float2((float)(CLIMATE_SD / sdt), (float)(CLIMATE_SD / sdm));
+        }
+
+        // ------------------------------------------------------------------
         // TASK 122: BIOME BORDER BLEND (VISUAL_REVIEW_114 #5, owner Q6 (a),
         // 2026-10-22). The biome field's borders are contour lines of a climate
         // with a ~40-50 km wavelength, so they run nearly straight for km, and
         // every column on one side wore one surface. Now a column's SURFACE (and
         // soil) is the biome at a jittered point p + J(p):
         //   two warp octaves (800 m / 150 m wavelength, +-60 / +-15 m) bend the line,
-        //   a clump octave (40 m, +-18 m) and a per-0.8 m-cell hash dither (+-14 m)
-        //   mix both sides' materials in a band a few tens of metres wide.
+        //   a clump octave (40 m, +-18 m) and a PATCH octave (10 m, +-14 m; task
+        //   176 C1, was a per-0.8 m-cell hash dither that read as pixel noise up
+        //   close) mix both sides' materials in a band a few tens of metres wide,
+        //   in coherent patches of metres, denser toward each side.
         // Surface, soil AND rock follow it (a cliff's strata would otherwise keep
         // the straight line). The biome itself (ores, pocket liquids, crystals,
         // danger, the world record) is the unjittered one, so the biome x landform
@@ -358,10 +431,9 @@ namespace TerrainGen
         public const float BLEND_WARP1_WAVE = 8000f, BLEND_WARP1_AMP = 600f;   // voxels: 800 m, +-60 m
         public const float BLEND_WARP2_WAVE = 1500f, BLEND_WARP2_AMP = 150f;   // 150 m, +-15 m
         public const float BLEND_CLUMP_WAVE = 400f, BLEND_CLUMP_AMP = 180f;    // 40 m, +-18 m
-        public const int BLEND_DITHER_SHIFT = 3;                               // one dither per 8 x 8 columns
-        public const float BLEND_DITHER_AMP = 140f;                            // +-14 m
+        public const float BLEND_PATCH_WAVE = 100f, BLEND_PATCH_AMP = 140f;    // 10 m, +-14 m
         /// |J| bound (voxels): each octave's vector is at most amp * sqrt(2).
-        public const float BLEND_REACH = (BLEND_WARP1_AMP + BLEND_WARP2_AMP + BLEND_CLUMP_AMP + BLEND_DITHER_AMP) * 1.41422f;
+        public const float BLEND_REACH = (BLEND_WARP1_AMP + BLEND_WARP2_AMP + BLEND_CLUMP_AMP + BLEND_PATCH_AMP) * 1.41422f;
         public const float SNOISE_GRAD_BOUND = 8f;
         /// |grad| of the 3-octave Fbm (the four-biome field) over snoise's: sum amp_i 2.03^i / norm.
         private const float FBM3_GRAD = (0.5f + 0.25f * 2.03f + 0.125f * 2.03f * 2.03f) / 0.875f;
@@ -370,6 +442,13 @@ namespace TerrainGen
         public static float BlendClimateReach(in Offsets o)
         {
             float s = o.biomeScale > 0f ? o.biomeScale : 1f;
+            if (o.biomeVary != 0)
+            {
+                // |grad t| <= gain_t (1 + oct2 2.03 + oct3 2.03^2) SNOISE_GRAD_BOUND / wave_t, same for m
+                const float g3 = 1f + CLIMATE_OCT2 * 2.03f + CLIMATE_OCT3 * 2.03f * 2.03f;
+                float lt = o.climGain.x / o.climWave.x, lm = o.climGain.y / o.climWave.y;
+                return BLEND_REACH * g3 * SNOISE_GRAD_BOUND * math.sqrt(lt * lt + lm * lm);
+            }
             float amp = o.biomeSet == 6 ? 1.6f : 2.4f * FBM3_GRAD;
             const float invW = 1.0671874e-4f;   // sqrt(1/15000^2 + 1/12000^2)
             return BLEND_REACH * amp * SNOISE_GRAD_BOUND * invW / s;
@@ -382,10 +461,7 @@ namespace TerrainGen
             float2 j = BLEND_WARP1_AMP * new float2(noise.snoise(p / BLEND_WARP1_WAVE + a), noise.snoise(p / BLEND_WARP1_WAVE + b));
             j += BLEND_WARP2_AMP * new float2(noise.snoise(p / BLEND_WARP2_WAVE + b + 9.1f), noise.snoise(p / BLEND_WARP2_WAVE + a - 7.3f));
             j += BLEND_CLUMP_AMP * new float2(noise.snoise(p / BLEND_CLUMP_WAVE + a + 3.7f), noise.snoise(p / BLEND_CLUMP_WAVE + b - 5.9f));
-            int cx = (int)math.floor(p.x) >> BLEND_DITHER_SHIFT, cz = (int)math.floor(p.y) >> BLEND_DITHER_SHIFT;
-            uint h = (uint)cx * 0x8da6b343u ^ (uint)cz * 0xd8163841u ^ o.seed * 0xcb1ab31fu;
-            h ^= h >> 15; h *= 0x2c1b3c6du; h ^= h >> 12; h *= 0x297a2d39u; h ^= h >> 15;
-            j += BLEND_DITHER_AMP * new float2((h & 0xffffu) * (2f / 65535f) - 1f, (h >> 16) * (2f / 65535f) - 1f);
+            j += BLEND_PATCH_AMP * new float2(noise.snoise(p / BLEND_PATCH_WAVE + b + 1.3f), noise.snoise(p / BLEND_PATCH_WAVE + a - 8.6f));
             return j;
         }
 

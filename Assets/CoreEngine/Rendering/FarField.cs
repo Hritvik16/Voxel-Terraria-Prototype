@@ -307,6 +307,7 @@ namespace VoxelEngine.Rendering
                 int ccArg = VoxelEngine.WorldGen.TerrainGenChunkSource.CoarseColumnArg();   // task 86
                 if (ccArg >= 0) { var ts = Tg2Spec; ts.coarseColumnShift = ccArg; Tg2Spec = ts; }
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.BiomeBlendOffArg()) { var ts = Tg2Spec; ts.biomeBlendOff = 1; Tg2Spec = ts; }   // task 122
+                if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.BiomeVaryOffArg()) { var ts = Tg2Spec; ts.biomeVaryOff = 1; Tg2Spec = ts; }   // task 176
                 _ownsTg2Map = sharedTg2Map == null;
                 Tg2Map = sharedTg2Map ?? TerrainGen.WorldMap.Build(Tg2Spec);
                 _tgO = TerrainGen.Offsets.For(Tg2Spec);
