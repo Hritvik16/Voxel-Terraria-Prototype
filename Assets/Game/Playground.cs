@@ -372,7 +372,11 @@ public partial class Playground : MonoBehaviour
         // Task 159 (owner Q100 (a)): play's dyn range is 432-540 at 30 ms; other
         // runs keep 540-720 at 16.7 ms; -dynfloor N overrides either (UpscalerSelect).
         UpscalerSelect.UseDynRangeFromArgs(playSettings ? UpscalerSelect.PlayDynFloor : UpscalerSelect.MinRows);
-        UpscalerSelect.Fsr3KnobsFromArgs();   // task 166: -fsr3sharp / -fsr3sc (absent = play's defaults)
+        // Task 174 (owner Q4 (c), 2026-11-05): PLAY defaults to task 166's sc10 (FSR 3's auto shading-change
+        // detection off: crisper still terrain) WITH our reactive mask (no ghost behind moving light / lava).
+        // -fsr3sc 0 / -fsr3reactive 0 = the old FSR 3. Rigs and capture runs keep sc 0, no mask.
+        if (playSettings) { RaymarchFeature.Fsr3ShadingChangeCut = 1f; RaymarchFeature.Fsr3Reactive = true; }
+        UpscalerSelect.Fsr3KnobsFromArgs();   // task 166: -fsr3sharp / -fsr3sc (absent = the defaults above); 174: -fsr3reactive
         if (!playSettings)
         {
             if (UpscalerSelect.FromArgs(out var upsKind, out int upsRows, out bool upsDyn)) UpscalerSelect.Apply(upsKind, upsRows, upsDyn);

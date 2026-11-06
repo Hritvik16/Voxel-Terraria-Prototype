@@ -1021,6 +1021,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                     passData.kTaaResolve = activeCompute.FindKernel("TaaResolve");
                     passData.kTaaSharpen = activeCompute.FindKernel("TaaSharpen");
                     if (upsIn) passData.ups = UpsPrepare(renderGraph, frameData, dispatchW, dispatchH, reset);
+                    if (passData.ups != null && passData.ups.reactive.IsValid()) passData.taa |= 2;   // task 174: CSMain writes TaaDynW
                 }
                 else
                 {
@@ -1405,6 +1406,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                 if (passData.taaResolve != 0) builder.UseTexture(passData.taaScratch, AccessFlags.ReadWrite);
                 if (passData.kSunDefer >= 0) builder.UseTexture(passData.sunDeferB, AccessFlags.ReadWrite);   // task 168c
                 if (passData.ups != null) { builder.UseTexture(passData.ups.motion, AccessFlags.Write); builder.UseTexture(passData.ups.depth, AccessFlags.Write); }
+                if (passData.ups != null && passData.ups.reactive.IsValid()) builder.UseTexture(passData.ups.reactive, AccessFlags.Write);   // task 174
                 builder.AllowPassCulling(false);
 
                 builder.SetRenderFunc((ComputePassData data, ComputeGraphContext context) =>
@@ -1683,6 +1685,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.SetComputeIntParam(data.compute, "_TaaChecker", data.taa != 0 ? data.taaChecker : 0);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "TaaCur", data.taaCur);
                         cmd.SetComputeBufferParam(data.compute, data.kPrimary, "TaaMetaW", data.taaMetaW);
+                        cmd.SetComputeBufferParam(data.compute, data.kPrimary, "TaaDynW", UpsDynTarget(data.ups));   // task 174
                     }
                     if (data.taa != 0)
                     {
@@ -1766,7 +1769,7 @@ public partial class RaymarchFeature : ScriptableRendererFeature
                         cmd.EndSample("VE.Raymarch.ShellProbe");
                     }
 
-                    if (data.ups != null) UpsDispatch(cmd, data.ups, data.taaCur, data.taaMetaW);
+                    if (data.ups != null) UpsDispatch(cmd, data.ups, data.taaCur, data.taaMetaW, data.taaMetaR);
                     if (data.taaResolve != 0)
                     {
                         cmd.BeginSample("VE.Raymarch.Taa");

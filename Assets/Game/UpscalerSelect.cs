@@ -88,6 +88,8 @@ public static class UpscalerSelect
 
     /// Task 166 (candidate fixes, OFF unless given; play's defaults unchanged): -fsr3sharp N = RCAS sharpness
     /// N/10 (0 = RCAS off; default 8 = 0.8), -fsr3sc N = cut FSR 3's auto shading change by N/10 (default 0).
+    /// Task 174: -fsr3reactive 0|1 = our reactive mask off/on. Play's defaults since task 174: sc 10 + mask on
+    /// (set in Playground.Start before this); every other run: sc 0, mask off.
     /// Called by Playground.Start for every run (play included), before the upscaler is applied.
     public static void Fsr3KnobsFromArgs()
     {
@@ -97,6 +99,7 @@ public static class UpscalerSelect
             RaymarchFeature.Fsr3Sharpness = Mathf.Clamp01(sh / 10f);
         }
         if (int.TryParse(ArgValue("-fsr3sc"), out int sc)) RaymarchFeature.Fsr3ShadingChangeCut = Mathf.Clamp01(sc / 10f);
+        if (int.TryParse(ArgValue("-fsr3reactive"), out int rm)) RaymarchFeature.Fsr3Reactive = rm != 0;   // task 174
     }
 
     /// Task 159: floor >= MinRows -> the old range (540-720, 16.7 ms); below ->

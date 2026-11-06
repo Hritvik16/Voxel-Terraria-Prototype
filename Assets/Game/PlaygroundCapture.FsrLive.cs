@@ -28,6 +28,17 @@
 //            sideways 0.1 m per frame, 60 lead + 4. Torches do not flicker in this
 //            engine (no flicker code exists), so a lit / unlit / moving torch is the
 //            light change there is.
+//   lava     TASK 174 (same night pose): a 1 m wide, 0.2 m deep lava stream laid on the ground where
+//            a view ray lands (so the front is IN VIEW in the kept frames): lava_near at screen
+//            (0.2, 0.12), lava_far at (0.5, 0.15); its front advancing 0.1 m per frame left -> right
+//            across the view (the in-play
+//            moving emissive; Playground's edit service, so lava's light aggregate updates as in
+//            play; fluid sim suspended, so frame-exact), 60 lead + 4; removed after each arm.
+//            Shot with the torch flood OFF (lava_near/far_*) and ON (lava_*_f_*, dir mode 2 = task 172's
+//            recommendation), and the moving torch again with the flood ON (torch_move_f_*). With the
+//            flood the light pool rebuilds asynchronously, so the _f scenes are not strictly
+//            frame-exact across arms. -fsrlivescenes all|task174 (task174 = sun_still + torch +
+//            lava only, the task-174 run).
 // Shots: <scene>_<arm>_<k>.png in the LookReview folder. Sheets and numbers:
 //   python3 -I tools/fsr171.py <LookReview dir> Screenshots/171
 using System;
@@ -53,6 +64,7 @@ public partial class PlaygroundCapture
         Playground.DebugSuspendFluidSim = true;
         L("");
         L($"FSR LIVE (task 171): arms {string.Join(", ", arms)}; every burst is consecutive frames, state stepped per frame");
+        bool t174 = ArgValue("-fsrlivescenes") == "task174";   // task 174: sun_still + torch + lava only
 
         // ---- sun: walk_open, clock running ----
         float h0 = ArgFloat("-fsrlivesunh", 16f);
@@ -66,6 +78,7 @@ public partial class PlaygroundCapture
         yield return FsrLiveShellWait(sh, wait);
         foreach (var (tag, day) in new[] { ("still", 0f), ("play", 1200f), ("fast", 120f) })
         {
+            if (t174 && day > 0f) continue;
             float dh = day > 0f ? 24f / (day * 30f) : 0f;   // hours per frame at 30 fps
             foreach (string arm in arms)
             {
@@ -96,6 +109,7 @@ public partial class PlaygroundCapture
         yield return FsrLiveShellWait(sh, wait);
         var edits = new EditService();
         edits.AttachWorld(store, store, store, Phase4Bootstrapper.Clipmap);
+        if (t174) goto TorchScenes;
         Vector3 site = eye + fwd * 7f;
         bool slideAlongX = Mathf.Abs(fwd.x) < Mathf.Abs(fwd.z);   // the voxel axis most across the view
         int3 sc = new int3((int)math.floor(site.x * 10f), 0, (int)math.floor(site.z * 10f));
@@ -197,6 +211,7 @@ public partial class PlaygroundCapture
         else L("pour: no Playground edit service -- skipped");
 
         // ---- torch: night, task 151's scene ----
+        TorchScenes: ;
         float night = ArgFloat("-nighttod", 0.5f);
         SunCycle.SetHours(night);
         var paths = new List<ClipPath>();
@@ -259,6 +274,108 @@ public partial class PlaygroundCapture
             SetTorch(cur, false);
             L($"  torch_move_{arm}: ended at {cur}");
         }
+
+        // ---- lava (task 174): a stream whose front advances 1 voxel per frame, flood OFF then ON ----
+        var lavaEdits = pg != null && pg.DebugEdits != null ? pg.DebugEdits : edits;
+        int3 tPerp = tAlongX ? new int3(0, 0, 1) : new int3(1, 0, 0);
+        const int lavaLen = 64, lavaW = 10, lavaD = 2;
+        // Per slice i (along tAxis) and row j (across), the first air voxel over the ground; the stream's front
+        // passes the ground point of the view ray through viewport point vp in the kept frames (60-63).
+        List<int3>[] LavaCellsFor(Vector2 vp, string tag)
+        {
+            cam.ResetProjectionMatrix();
+            cam.transform.SetPositionAndRotation(te, tr);
+            var aimRay = cam.ViewportPointToRay(new Vector3(vp.x, vp.y, 0f));
+            Vector3 lavaAim = te + tf * 6f;
+            float aimT = -1f;
+            for (float t = 1f; t < 80f; t += 0.05f)
+                if (store.GetVoxel(Vox(aimRay.origin + aimRay.direction * t)) != Materials.Air) { aimT = t; lavaAim = aimRay.origin + aimRay.direction * (t - 0.05f); break; }
+            int3 lv0 = Vox(lavaAim) - tAxis * (mvSign * 61);
+            var cells = new List<int3>[lavaLen];
+            int total = 0;
+            for (int i = 0; i < lavaLen; i++)
+            {
+                cells[i] = new List<int3>();
+                for (int j = 0; j < lavaW; j++)
+                {
+                    int3 c = lv0 + tAxis * (mvSign * i) + tPerp * (j - lavaW / 2);
+                    float g = StoreGroundM(store, c.x * 0.1f + 0.05f, c.z * 0.1f + 0.05f, te.y + 10f);
+                    int y = float.IsNaN(g) ? (int)math.floor((te.y - 1.6f) * 10f) : (int)math.floor(g * 10f) - 1;
+                    int k = 0;
+                    while (k < 40 && store.GetVoxel(new int3(c.x, y, c.z)) != Materials.Air) { y++; k++; }
+                    for (int d = 0; d < lavaD; d++) cells[i].Add(new int3(c.x, y + d, c.z));
+                    total += lavaD;
+                }
+            }
+            L($"== {tag}: stream {lavaW * 0.1f:F1} m wide x {lavaD * 0.1f:F1} m deep through the view ray ({vp.x:F2}, {vp.y:F2})'s ground point " +
+              $"{(aimT > 0f ? $"{aimT:F1} m away" : "(NO HIT -- 6 m ahead)")} {Vox(lavaAim)}, from {lv0} advancing {mvSign * 1:+0;-0} voxel along " +
+              $"{(tAlongX ? "x" : "z")} per frame for {lavaLen} frames ({total} cells)");
+            return cells;
+        }
+        L("");
+        L($"== lava: edits via {(lavaEdits == edits ? "a bare EditService (no light hook!)" : "Playground's edit service")}");
+        var lavaNear = LavaCellsFor(new Vector2(0.2f, 0.12f), "lava_near");
+        var lavaFar = LavaCellsFor(new Vector2(0.5f, 0.15f), "lava_far");
+        var lavaPlaced = new List<int3>();
+        void LavaClear()
+        {
+            for (int i = lavaPlaced.Count - 1; i >= 0; i--) lavaEdits.TrySetVoxel(lavaPlaced[i], Materials.Air);
+            lavaPlaced.Clear();
+        }
+        IEnumerator LavaBurst(string name, List<int3>[] lavaCells)
+        {
+            foreach (string arm in arms)
+            {
+                ApplyCompareArm(arm);
+                cam.ResetProjectionMatrix();
+                cam.transform.SetPositionAndRotation(te, tr);
+                yield return Frames(10);
+                yield return FsrLiveBurst($"{name}_{arm}", 60, 4, i =>
+                {
+                    if (i >= lavaLen) return;
+                    foreach (var c in lavaCells[i])
+                        if (store.GetVoxel(c) == Materials.Air && lavaEdits.TrySetVoxel(c, Materials.Lava)) lavaPlaced.Add(c);
+                });
+                L($"  {name}_{arm}: {lavaPlaced.Count} lava cells placed; lights registered {driver.Lights.RegisteredCount}");
+                LavaClear();
+            }
+        }
+        TorchFloodPool.Enabled = false;
+        yield return LavaBurst("lava_near", lavaNear);
+        yield return LavaBurst("lava_far", lavaFar);
+
+        int dir0 = TorchFloodPool.DirMode;
+        TorchFloodPool.DirMode = 2;
+        TorchFloodPool.Enabled = true;
+        var pool = TorchFloodPool.Instance;
+        pool.ResetAll(store);
+        float tf0 = Time.realtimeSinceStartup;
+        do { yield return null; } while ((pool.Busy || !TorchFloodPool.Ready) && Time.realtimeSinceStartup - tf0 < 90f);
+        L("");
+        L($"== flood ON (dir mode 2): built {pool.TorchCount} torches in {Time.realtimeSinceStartup - tf0:F1} s, ready {TorchFloodPool.Ready}");
+        foreach (string arm in arms)
+        {
+            ApplyCompareArm(arm);
+            cam.ResetProjectionMatrix();
+            cam.transform.SetPositionAndRotation(te, tr);
+            int3 cur = mv0;
+            SetTorch(cur, true);
+            yield return Frames(30);   // the flood picks the torch up before the burst starts
+            yield return FsrLiveBurst($"torch_move_f_{arm}", 60, 4, i =>
+            {
+                if (i == 0) return;
+                int3 next = mv0 + tAxis * (mvSign * i);
+                if (store.GetVoxel(next) != Materials.Air) return;
+                SetTorch(cur, false); cur = next; SetTorch(cur, true);
+            });
+            SetTorch(cur, false);
+            yield return Frames(30);
+            L($"  torch_move_f_{arm}: ended at {cur}; flood busy {pool.Busy}");
+        }
+        yield return LavaBurst("lava_near_f", lavaNear);
+        yield return LavaBurst("lava_far_f", lavaFar);
+        TorchFloodPool.Enabled = false;
+        TorchFloodPool.DirMode = dir0;
         SunCycle.SetHours(SunCycle.NoonHours);
         Phase4Bootstrapper.DebugStreamCentre = null;
     }

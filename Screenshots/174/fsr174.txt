@@ -1,0 +1,83 @@
+task 174: FSR 3 today / sc10 / sc10 + reactive mask; source /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-05_161332_high
+per arm, mean over the kept frames: err = mean|dlum| vs native / %px > 24;  chg = the same inside the change mask;
+grad = sharpness vs native (still scenes);  vs sc10 = mean|dlum| sc10 vs sc10+mask (same frame)
+== sun_still: change mask 0.00% of the frame
+  fsr3_432           err  2.95 /  2.23%   grad 0.802
+  fsr3_432_sc10      err  3.10 /  2.32%   grad 0.849
+  fsr3_432_sc10_rm   err  3.17 /  2.36%   grad 0.868   vs sc10 0.517
+  fsr3_540           err  2.72 /  1.90%   grad 0.874
+  fsr3_540_sc10      err  2.87 /  2.00%   grad 0.922
+  fsr3_540_sc10_rm   err  2.94 /  2.05%   grad 0.939   vs sc10 0.257
+  4x window (1220,580) frame 3: native's most detailed window (30.90)
+== torch_still: change mask 0.00% of the frame
+  fsr3_432           err  1.16 /  0.10%   grad 0.654
+  fsr3_432_sc10      err  1.17 /  0.10%   grad 0.781
+  fsr3_432_sc10_rm   err  1.18 /  0.10%   grad 0.806   vs sc10 0.152
+  fsr3_540           err  1.04 /  0.09%   grad 0.751
+  fsr3_540_sc10      err  1.05 /  0.09%   grad 0.888
+  fsr3_540_sc10_rm   err  1.06 /  0.09%   grad 0.907   vs sc10 0.102
+  4x window (640,980) frame 3: native's most detailed window (11.32)
+== torch_move: change mask 0.09% of the frame
+  fsr3_432           err  1.19 /  0.15%   chg 17.25 / 12.54%
+  fsr3_432_sc10      err  1.22 /  0.18%   chg 51.64 / 34.60%
+  fsr3_432_sc10_rm   err  1.16 /  0.14%   chg  8.89 /  8.09%   vs sc10 0.264
+  fsr3_540           err  1.03 /  0.13%   chg 14.40 /  9.76%
+  fsr3_540_sc10      err  1.08 /  0.17%   chg 53.86 / 36.79%
+  fsr3_540_sc10_rm   err  1.03 /  0.11%   chg  7.69 /  7.16%   vs sc10 0.204
+  4x window (1350,780) frame 3: where fsr3_432_sc10 is furthest from native in the change mask (7.82)
+== torch_on: change mask 0.22% of the frame
+  fsr3_432           err  1.17 /  0.13%   chg  9.97 / 12.12%   chg per frame (0 = before)  3.73 12.18 10.62  9.92  9.28  9.00  8.80
+  fsr3_432_sc10      err  1.20 /  0.13%   chg 11.18 / 12.69%   chg per frame (0 = before)  3.80 17.43 11.38 10.07  9.68  9.39  9.14
+  fsr3_432_sc10_rm   err  1.19 /  0.13%   chg  8.31 / 10.76%   chg per frame (0 = before)  3.75  9.84  8.74  8.26  7.90  7.63  7.51   vs sc10 0.149
+  fsr3_540           err  1.05 /  0.11%   chg  8.45 / 10.46%   chg per frame (0 = before)  3.37 10.77  9.05  8.25  7.68  7.53  7.40
+  fsr3_540_sc10      err  1.08 /  0.11%   chg  9.48 / 10.81%   chg per frame (0 = before)  3.46 14.58  9.40  8.76  8.51  7.96  7.69
+  fsr3_540_sc10_rm   err  1.06 /  0.10%   chg  6.54 /  7.70%   chg per frame (0 = before)  3.44  7.76  6.85  6.48  6.21  6.02  5.92   vs sc10 0.108
+  4x window (380,990) frame 1: where fsr3_432_sc10 is furthest from native in the change mask (4.45)
+== torch_off: change mask 0.22% of the frame
+  fsr3_432           err  1.16 /  0.10%   chg  4.46 /  0.98%   chg per frame (0 = before)  5.93  6.19  4.92  4.24  3.88  3.79  3.72
+  fsr3_432_sc10      err  1.19 /  0.10%   chg  5.51 /  0.94%   chg per frame (0 = before)  6.09 11.22  4.91  4.49  4.34  4.10  3.96
+  fsr3_432_sc10_rm   err  1.18 /  0.10%   chg  3.78 /  1.00%   chg per frame (0 = before)  5.79  4.61  3.93  3.70  3.57  3.49  3.39   vs sc10 0.151
+  fsr3_540           err  1.04 /  0.09%   chg  3.99 /  1.02%   chg per frame (0 = before)  5.14  5.72  4.30  3.83  3.46  3.35  3.30
+  fsr3_540_sc10      err  1.07 /  0.09%   chg  5.48 /  0.87%   chg per frame (0 = before)  5.26 12.86  4.63  4.11  3.96  3.76  3.57
+  fsr3_540_sc10_rm   err  1.05 /  0.08%   chg  3.43 /  0.94%   chg per frame (0 = before)  4.89  4.27  3.58  3.35  3.19  3.12  3.04   vs sc10 0.114
+  4x window (380,990) frame 1: where fsr3_432_sc10 is furthest from native in the change mask (2.87)
+== lava_near: change mask 0.23% of the frame
+  fsr3_432           err  1.17 /  0.15%   chg 13.22 / 16.76%
+  fsr3_432_sc10      err  1.18 /  0.18%   chg 18.49 / 23.86%
+  fsr3_432_sc10_rm   err  1.16 /  0.14%   chg  7.43 /  9.37%   vs sc10 0.249
+  fsr3_540           err  1.03 /  0.12%   chg 10.16 / 12.57%
+  fsr3_540_sc10      err  1.06 /  0.17%   chg 18.43 / 23.81%
+  fsr3_540_sc10_rm   err  1.03 /  0.12%   chg  6.11 /  6.96%   vs sc10 0.205
+  4x window (330,950) frame 3: where fsr3_432_sc10 is furthest from native in the change mask (10.15)
+== lava_far: change mask 0.02% of the frame
+  fsr3_432           err  1.16 /  0.14%   chg 19.12 / 20.19%
+  fsr3_432_sc10      err  1.14 /  0.14%   chg 21.71 / 21.33%
+  fsr3_432_sc10_rm   err  1.15 /  0.13%   chg 15.65 / 18.92%   vs sc10 0.200
+  fsr3_540           err  1.05 /  0.12%   chg 23.91 / 22.72%
+  fsr3_540_sc10      err  1.05 /  0.12%   chg 20.29 / 18.86%
+  fsr3_540_sc10_rm   err  1.05 /  0.12%   chg 13.76 / 15.51%   vs sc10 0.171
+  4x window (810,870) frame 3: where fsr3_432_sc10 is furthest from native in the change mask (0.78)
+== torch_move_f: change mask 0.09% of the frame
+  fsr3_432           err  1.43 /  0.52%   chg 18.80 / 13.76%
+  fsr3_432_sc10      err  1.49 /  0.55%   chg 51.35 / 33.69%
+  fsr3_432_sc10_rm   err  1.45 /  0.49%   chg  9.06 /  9.99%   vs sc10 0.396
+  fsr3_540           err  1.36 /  0.45%   chg 16.32 / 11.82%
+  fsr3_540_sc10      err  1.45 /  0.48%   chg 54.99 / 37.16%
+  fsr3_540_sc10_rm   err  1.39 /  0.42%   chg  8.40 /  8.49%   vs sc10 0.312
+  4x window (1350,780) frame 3: where fsr3_432_sc10 is furthest from native in the change mask (9.11)
+== lava_near_f: change mask 0.18% of the frame
+  fsr3_432           err  1.42 /  0.53%   chg 15.19 / 19.06%
+  fsr3_432_sc10      err  1.42 /  0.55%   chg 22.11 / 26.97%
+  fsr3_432_sc10_rm   err  1.39 /  0.49%   chg  8.48 / 10.10%   vs sc10 0.307
+  fsr3_540           err  1.27 /  0.46%   chg 13.33 / 16.31%
+  fsr3_540_sc10      err  1.28 /  0.47%   chg 20.88 / 25.15%
+  fsr3_540_sc10_rm   err  1.25 /  0.41%   chg  7.45 /  8.51%   vs sc10 0.247
+  4x window (330,950) frame 3: where fsr3_432_sc10 is furthest from native in the change mask (7.53)
+== lava_far_f: change mask 0.01% of the frame
+  fsr3_432           err  1.46 /  0.52%   chg 25.26 / 25.11%
+  fsr3_432_sc10      err  1.44 /  0.51%   chg 23.33 / 24.78%
+  fsr3_432_sc10_rm   err  1.43 /  0.49%   chg 12.51 / 15.64%   vs sc10 0.247
+  fsr3_540           err  1.31 /  0.45%   chg 29.52 / 31.06%
+  fsr3_540_sc10      err  1.29 /  0.43%   chg 31.19 / 31.83%
+  fsr3_540_sc10_rm   err  1.29 /  0.42%   chg 10.34 / 12.56%   vs sc10 0.205
+  4x window (810,870) frame 3: where fsr3_432_sc10 is furthest from native in the change mask (0.50)

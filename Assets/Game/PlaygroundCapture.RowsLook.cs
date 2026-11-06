@@ -99,7 +99,7 @@ public partial class PlaygroundCapture
     /// Task 166 (look, capture-only): FSR 3 arm variants, "_"-separated tokens after the rows.
     /// "" = play's settings (RCAS on, 0.8; no debug view). s0 = RCAS off; sNN = RCAS on, sharpness NN/10;
     /// dbg = FSR 3's debug view grid; jf = ray jitter sign flipped; j0 = no jitter;
-    /// scNN = cut FSR 3's auto shading change by NN/10 (sc10 = ignore it).
+    /// scNN = cut FSR 3's auto shading change by NN/10 (sc10 = ignore it); rm = our reactive mask (task 174; rm1 / rm2 = only its light-change / new-voxel test).
     private static void Fsr3ArmVariant(string v)
     {
         RaymarchFeature.Fsr3Sharpen = true;
@@ -108,12 +108,16 @@ public partial class PlaygroundCapture
         RaymarchFeature.Fsr3RayJitterSign = 1f;
         RaymarchFeature.Fsr3ZeroJitter = false;
         RaymarchFeature.Fsr3ShadingChangeCut = 0f;
+        RaymarchFeature.Fsr3Reactive = false;
+        RaymarchFeature.Fsr3ReactiveParts = 3;
         if (string.IsNullOrEmpty(v)) return;
         foreach (string t in v.Split('_'))
         {
             if (t == "dbg") RaymarchFeature.Fsr3DebugView = true;
             else if (t == "jf") RaymarchFeature.Fsr3RayJitterSign = -1f;
             else if (t == "j0") RaymarchFeature.Fsr3ZeroJitter = true;
+            else if (t == "rm") { RaymarchFeature.Fsr3Reactive = true; RaymarchFeature.Fsr3ReactiveParts = 3; }
+            else if (t == "rm1" || t == "rm2") { RaymarchFeature.Fsr3Reactive = true; RaymarchFeature.Fsr3ReactiveParts = t[2] - '0'; }
             else if (t.Length > 2 && t.StartsWith("sc") && int.TryParse(t.Substring(2), out int sc)) RaymarchFeature.Fsr3ShadingChangeCut = Mathf.Clamp01(sc / 10f);
             else if (t == "s0") RaymarchFeature.Fsr3Sharpen = false;
             else if (t.Length > 1 && t[0] == 's' && int.TryParse(t.Substring(1), out int sn)) RaymarchFeature.Fsr3Sharpness = Mathf.Clamp01(sn / 10f);

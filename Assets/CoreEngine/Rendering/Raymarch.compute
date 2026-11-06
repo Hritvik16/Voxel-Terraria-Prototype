@@ -333,6 +333,11 @@ uint _TaaCheckerParity;
 RWStructuredBuffer<float4> TaaCur;
 RWStructuredBuffer<float2> TaaMetaW;    // this frame: (distance from THIS camera, key) -- next frame's history meta
 StructuredBuffer<float2> TaaMetaR;      // previous frame's TaaMetaW
+// TASK 174 (-fsr3reactive 1, FSR 3 path only): written when (_TaaEnabled & 2). Per pixel, in 8-bit DISPLAY
+// levels (0-255): the luminance the dynamic light adds (point lights / the torch flood + emissive bleed, in the
+// look's display-gamma `lit` space), or, for a fluid / lava / emissive pixel, the whole pixel's luminance.
+// VoxelUpscaleInputs.compute's UpscaleReactive compares it against last frame's, reprojected by camera motion.
+RWStructuredBuffer<float> TaaDynW;
 StructuredBuffer<float4> TaaColR;       // previous frame's resolved colour (unsharpened)
 RWStructuredBuffer<float4> TaaColW;
 StructuredBuffer<float4> TaaColS;       // TaaSharpen's input: this frame's TaaColW
@@ -5386,6 +5391,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
     sunVis = (sdPass == 0u) ? sdVisU : 0.0;
 #endif
     float4 color = _SkyColor;
+    float3 upsDynRgb = float3(0.0, 0.0, 0.0);   // task 174: the dynamic light's share of `lit` (TaaDynW)
     if (_Look == 1 && _UseDevColors != 0) color = float4(LookToLinear(LookShoulder(LookSkyBackground(rayDir), _LookGrade.z)), 1.0);
     // 66b: a fluid-mode stop on AIR is the surface from below, coloured after this chain.
     bool fluidSurface = (passMat != 0u) && hit && (mat == 0u);
@@ -5534,6 +5540,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 lit = selfLit ? saturate(baseColor * 1.35 + 0.06)
                               : baseColor * faceLight;
                 lit += MaterialEmissiveTint(lm) * MaterialEmissive(lm);
+                if (!selfLit) upsDynRgb = baseColor * pointTerm;   // task 174
 #ifdef VE_FAR_SHADE
                 lightAdd = MaterialEmissiveTint(lm) * MaterialEmissive(lm);
                 if (!selfLit)   // the point lights' share of faceLight
@@ -5572,6 +5579,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 sdBleed = bleed;
 #endif
                 lit += bleed * 2.0;
+                upsDynRgb += bleed * 2.0;   // task 174: an emitter that moves (lava) changes it
 #ifdef VE_FAR_SHADE
                 lightAdd += bleed * 2.0;
 #endif
@@ -5721,6 +5729,7 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
                 float3 faceLight = sunTerm + pointTerm + ambientTerm;
                 if (_UniformFaceHue != 0)
                     faceLight = UniformFaceHue(faceLight, _SunColor * 0.6 + _AmbientColor + omniTerm);
+                upsDynRgb = shaded * pointTerm;   // task 174
                 shaded = shaded * faceLight;
             }
 
@@ -5937,6 +5946,15 @@ void CSMainBody(uint3 tid, uint3 gtid, bool checker)
         uint pi = id.y * width + id.x;
         TaaCur[pi] = float4(prevPx, expD, asfloat(key));
         TaaMetaW[pi] = float2((tHit >= 0.0) ? length(P - rayStart) : -2.0, asfloat(key));
+        if ((_TaaEnabled & 2) != 0)
+        {
+            // Task 174: a fluid (seen through or its surface), lava or an emitter can change as a whole
+            // without a motion vector: track its whole displayed colour (LookToLinear's pow 2.2 undone).
+            // Any other surface: only the dynamic light, so still terrain stays exactly 0 change.
+            bool wholePx = passMat != 0u || (hit && (MaterialIsClearFluid(mat) || MaterialIsSelfLit(mat) || MaterialEmissive(mat) > 0.0));
+            float3 dv = wholePx ? pow(saturate(color.rgb), 1.0 / 2.2) : saturate(upsDynRgb);
+            TaaDynW[pi] = dot(dv, float3(0.299, 0.587, 0.114)) * 255.0;
+        }
     }
     // -shellsdebug (task 80): each pixel tinted by what drew it -- tier 0 blue,
     // shells 1.. green/yellow/orange/red/magenta/cyan/white, far band grey.

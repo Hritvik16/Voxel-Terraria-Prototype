@@ -951,3 +951,17 @@ or kinds (`feature,river`). Writes `worldsurvey_map.png` + `WSPOSE` lines. Run: 
 -shadowres full -roofskip 0 -underwater 1 -lookwait 30 -shellworkers 6" ./run-look-review.sh` (~40 min, 36 poses); viewer + annotated map + sheets:
 `python3 -I tools/survey173.py Screenshots/173 Screenshots/173/findings173.json <LookReview dir> [<reshoot dir> ...]` (a later dir replaces whole
 kinds). Result: HANDOFF 173, `WORLD_GEN_LOOK_PLAN.md`, `Logs/lookreview_20261105_134936.txt` + `_143742.txt`.
+
+**Task 174 (visuals, owner Q4 (c) 2026-11-05; PLAY DEFAULT CHANGED): FSR 3 reactive mask, so play gets 166's crisper sc10 without 171's ghost.**
+`-fsr3reactive 0|1` (`RaymarchFeature.Fsr3Reactive`; capture arm token `rm`, diagnostics `rm1` = light/colour test only, `rm2` = new-voxel test only).
+Play (`IsPlaySettingsRun`) now defaults to `-fsr3sc 10 -fsr3reactive 1`; `-fsr3sc 0 -fsr3reactive 0` = the old FSR 3; rigs/capture keep sc 0, no mask.
+How: CSMain's TAA block writes `TaaDynW` (only when `_TaaEnabled & 2`): per pixel in display levels, the dynamic light's share (point lights / torch
+flood + emissive bleed), or the whole pixel's luminance for fluid / lava / emitter pixels. `VoxelUpscaleInputs.compute` kernel `UpscaleReactive`
+reprojects by the camera motion and flags (1) the GAP between this frame's 3x3 [min,max] and last frame's at the reprojected position (0 when they
+overlap: jitter aliasing on still terrain samples the same set of values; mask = saturate((gap - 0.5) / 1.5) levels), (2) in a chunk the mirror
+rewrote this frame, a surface key (voxel + material) unseen in last frame's 3x3, where a voxel is >= 2 px or is an emitter (torch / lava / sludge).
+FSR 3.1 feeds the app's reactive mask into its shading-change channel, which `-fsr3sc` does not cut. QA: `-lookreview -fsrlive 1 -fsrlivescenes task174`
+(sun_still, night torch still/on/off/move, lava_near 7 m / lava_far 45 m streams advancing 0.1 m/frame, and torch_move / lava with the flood ON `_f`),
+`python3 -I tools/fsr174.py <LookReview dir> Screenshots/174` (table, 4x sheets, full-size `viewer.html` with `captions174.json`). Result in
+`Screenshots/174/fsr174.txt`: moving torch, error in the change mask today 17.3 / sc10 51.6 / sc10+mask 8.9 (432); still sun sharpness vs native 0.80 /
+0.85 / 0.87; mask 0 on every pixel of both still scenes (FSR debug view).

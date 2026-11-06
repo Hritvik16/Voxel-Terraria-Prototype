@@ -21,6 +21,7 @@
 //   depth  = device depth, the value a raster pass would have left in the
 //            depth buffer (reversed Z on Metal: 1 near, 0 far / sky).
 #pragma kernel UpscaleInputs
+#pragma kernel UpscaleReactive
 
 StructuredBuffer<float4> UpsTaaCur;
 StructuredBuffer<float2> UpsTaaMeta;
@@ -60,4 +61,86 @@ void UpscaleInputs(uint3 id : SV_DispatchThreadID)
         d = saturate(d);
     }
     UpsDepth[id.xy] = d;
+}
+
+// ---- TASK 174 (-fsr3reactive 1): FSR 3's REACTIVE MASK ----------------------------------------------
+// FSR 3.1 dilates this mask 3x3 and treats it as a shading change: it zeroes the pixel's accumulation,
+// tightens the history clamp and drops its locks (ffx_fsr3upscaler_prepare_reactivity.h). Task 166's
+// -fsr3sc cut only FSR's AUTO detector (which fires on still terrain); this mask is OURS and is not cut.
+// Our motion vectors are camera-only, so what a camera reprojection cannot explain is flagged here:
+//  1. VALUE CHANGE. TaaDyn (Raymarch.compute) = per pixel, in 8-bit display levels, the dynamic light's
+//     share (point lights / torch flood + emissive bleed), or the whole pixel's luminance for a fluid /
+//     lava / emitter pixel. The change is the GAP between two value RANGES: this frame's 3x3 [min, max]
+//     around the pixel and last frame's 3x3 [min, max] around the reprojected position (0 when they
+//     overlap). Why ranges, not the pixel's own value: under jitter each frame samples a different point
+//     of every pixel, and where voxels are ~1-2 px a pixel flips between faces that take different
+//     light (the same sub-pixel aliasing that fires FSR's own detector on still terrain, task 166) --
+//     a first version compared the pixel's value with last frame's range and flagged ~5 % of a still
+//     torch-lit frame. A still scene samples the same set of values in both frames, so the ranges
+//     overlap and the mask is 0; a light that really changes moves the whole neighbourhood, so they
+//     part. With no torch in view the terrain's value is exactly 0 in both frames. Mask =
+//     saturate((gap - 0.5) / 1.5): under half a level a change cannot show on an 8-bit display; from
+//     2 levels per frame the history (several frames deep) would lag visibly, so it is dropped. One
+//     display-level scale for every scene, nothing tuned per scene.
+//  2. VOXEL CHANGE. In a chunk the mirror rewrote this frame (TaaCur.z == -1: an edit, a fluid tick, a
+//     streamed chunk), a pixel whose surface key (voxel xyz + material) is in none of last frame's 3x3
+//     reprojected pixels shows a new voxel: mask 1. Only where a voxel spans >= 2 px (distance x
+//     _UpsSize.w <= 0.5 voxel per pixel): below that, jitter alone lands on a different voxel each frame
+//     -- EXCEPT an emitter (torch, lava, sludge: Raymarch.compute's MaterialEmissive): those are the
+//     in-play moving emissives, they carry their own light (a stale history is a bright ghost), and a
+//     flowing lava front far away moves < 1 px per frame, which no neighbourhood test can see. Its cost:
+//     a STILL far emitter in a rewritten chunk may lose its history for that one frame.
+// _UpsReactiveParts (capture diagnostics, arm tokens rm1 / rm2): bit 1 = test 1, bit 2 = test 2.
+StructuredBuffer<float2> UpsTaaMetaR;   // last frame's (distance, key)
+StructuredBuffer<float> UpsDynCur;      // this frame's TaaDynW
+StructuredBuffer<float> UpsDynPrev;     // last frame's
+RWTexture2D<float> UpsReactive;
+int _UpsReactiveParts;
+
+[numthreads(8, 8, 1)]
+void UpscaleReactive(uint3 id : SV_DispatchThreadID)
+{
+    int w = (int)_UpsSize.x, h = (int)_UpsSize.y;
+    if ((int)id.x >= w || (int)id.y >= h) return;
+    int2 p = int2(id.xy);
+    uint pi = (uint)(p.y * w + p.x);
+    float4 cur = UpsTaaCur[pi];
+    float r = 0.0;
+    // _UpsSize.z = 1: last frame's buffers are valid (no history reset this frame).
+    if (_UpsSize.z > 0.5 && cur.x > -1000.0)
+    {
+        int2 q = int2(floor(cur.xy));
+        float pMin = 1e9, pMax = -1e9, cMin = 1e9, cMax = -1e9;
+        bool inside = false;
+        uint key = asuint(cur.w);
+        float distVox = UpsTaaMeta[pi].x;
+        uint kMat = key >> 24;
+        bool emitter = kMat == 11u || kMat == 14u || kMat == 15u || kMat == 16u || kMat == 17u || kMat == 20u;
+        bool newVoxel = (_UpsReactiveParts & 2) != 0 && (cur.z == -1.0) && key != 0xFFFFFFFFu
+                     && distVox >= 0.0 && (emitter || distVox * _UpsSize.w <= 0.5);
+        bool keySeen = false;
+        [unroll] for (int dy = -1; dy <= 1; dy++)
+        [unroll] for (int dx = -1; dx <= 1; dx++)
+        {
+            int2 qq = q + int2(dx, dy);
+            if (all(qq >= 0) && qq.x < w && qq.y < h)
+            {
+                uint qi = (uint)(qq.y * w + qq.x);
+                float pv = UpsDynPrev[qi];
+                pMin = min(pMin, pv); pMax = max(pMax, pv);
+                if (dx == 0 && dy == 0) inside = true;
+                if (newVoxel && asuint(UpsTaaMetaR[qi].y) == key) keySeen = true;
+            }
+            int2 cc = clamp(p + int2(dx, dy), int2(0, 0), int2(w - 1, h - 1));
+            float cv = UpsDynCur[(uint)(cc.y * w + cc.x)];
+            cMin = min(cMin, cv); cMax = max(cMax, cv);
+        }
+        if (inside)
+        {
+            float gap = max(cMin - pMax, pMin - cMax);
+            if ((_UpsReactiveParts & 1) != 0) r = saturate((gap - 0.5) / 1.5);
+            if (newVoxel && !keySeen) r = 1.0;
+        }
+    }
+    UpsReactive[p] = r;
 }

@@ -55,6 +55,16 @@ public partial class RaymarchFeature
     /// shading change (0 = upstream, 1 = ignored). Our static terrain's sub-pixel steps alias under
     /// jitter; FSR reads that as "shading changed" and restarts accumulation there.
     public static float Fsr3ShadingChangeCut;
+    /// Task 174 (-fsr3reactive 1; capture arm token `rm`): give FSR 3 OUR reactive mask (VoxelUpscaleInputs.compute
+    /// UpscaleReactive): pixels whose dynamic light, fluid / lava / emitter colour or voxel really changed this
+    /// frame. FSR 3 only. Off = no buffer, no pass, CSMain writes nothing extra.
+    public static bool Fsr3Reactive;
+    /// Task 174 capture diagnostics (arm tokens rm1 / rm2): which of the mask's two tests run (bit 1 = light /
+    /// colour change, bit 2 = new voxel). Play: 3.
+    public static int Fsr3ReactiveParts = 3;
+    private static int _upsReactiveKernel = -1;
+    private static GraphicsBuffer _upsDynA, _upsDynB, _upsDynDummy;
+    private static int _upsDynN;
     private static ComputeShader _fsrPrepareReactivity;
     /// For logs: did the FSR 3 shaders load and the context build?
     public static string Fsr3Status = "not used";
@@ -75,6 +85,10 @@ public partial class RaymarchFeature
     public class UpsComputeData
     {
         public TextureHandle motion, depth;
+        public TextureHandle reactive;                     // task 174: valid only with Fsr3Reactive
+        public GraphicsBuffer dynW, dynR;                  // task 174: this frame's / last frame's TaaDynW
+        public bool histValid;
+        public float voxPerPxPerVox;                       // task 174: 2 tan(fov/2) / rows (voxel footprint per voxel of distance)
         public Matrix4x4 invProj;
         public Vector4 size, jitter, depthParams;
     }
@@ -82,9 +96,9 @@ public partial class RaymarchFeature
     /// Per-frame hand-over from the raymarch pass to the STP / FSR 3 passes.
     public class UpsFrameData : ContextItem
     {
-        public TextureHandle motion, depth;
+        public TextureHandle motion, depth, reactive;
         public bool reset;
-        public override void Reset() { motion = TextureHandle.nullHandle; depth = TextureHandle.nullHandle; reset = false; }
+        public override void Reset() { motion = TextureHandle.nullHandle; depth = TextureHandle.nullHandle; reactive = TextureHandle.nullHandle; reset = false; }
     }
 
     /// This frame's ray jitter in gate pixels (CSMain's _TaaJitter).
@@ -135,12 +149,48 @@ public partial class RaymarchFeature
         }
         d.jitter = new Vector4(LastTaaJitter.x, LastTaaJitter.y, mvOffset.x, mvOffset.y);
         d.depthParams = new Vector4(cam.nearClipPlane, cam.farClipPlane, SystemInfo.usesReversedZBuffer ? 1f : 0f, 0f);
+        d.reactive = TextureHandle.nullHandle;
+        if (Fsr3Reactive && UpscaleInputs == UpscalerInputMode.Fsr3)
+        {
+            if (_upsReactiveKernel < 0) _upsReactiveKernel = _upsCs.FindKernel("UpscaleReactive");
+            int n = w * h;
+            bool fresh = false;
+            if (_upsDynA == null || _upsDynN != n)
+            {
+                _upsDynA?.Release(); _upsDynB?.Release();
+                _upsDynA = new GraphicsBuffer(GraphicsBuffer.Target.Structured, n, 4);
+                _upsDynB = new GraphicsBuffer(GraphicsBuffer.Target.Structured, n, 4);
+                _upsDynN = n; fresh = true;
+            }
+            (_upsDynA, _upsDynB) = (_upsDynB, _upsDynA);   // A = this frame's write, B = last frame's
+            d.dynW = _upsDynA; d.dynR = _upsDynB;
+            d.histValid = !reset && !fresh && _upsDynPrevFrameOn;
+            d.voxPerPxPerVox = 2f * Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad) / h;
+            var rd = new RenderTextureDescriptor(w, h, GraphicsFormat.R16_SFloat, 0) { enableRandomWrite = true, msaaSamples = 1 };
+            d.reactive = UniversalRenderer.CreateRenderGraphTexture(renderGraph, rd, "_VoxelUpsReactive", false);
+        }
+        _upsDynPrevFrameOn = d.reactive.IsValid();
         var fd = frameData.Contains<UpsFrameData>() ? frameData.Get<UpsFrameData>() : frameData.Create<UpsFrameData>();
-        fd.motion = d.motion; fd.depth = d.depth; fd.reset = reset;
+        fd.motion = d.motion; fd.depth = d.depth; fd.reactive = d.reactive; fd.reset = reset;
         return d;
     }
+    private static bool _upsDynPrevFrameOn;
 
-    private static void UpsDispatch(ComputeCommandBuffer cmd, UpsComputeData u, GraphicsBuffer taaCur, GraphicsBuffer taaMeta)
+    /// Task 174: CSMain's TaaDynW target (a 1-element dummy when the mask is off).
+    private static GraphicsBuffer UpsDynTarget(UpsComputeData u)
+    {
+        if (u != null && u.dynW != null) return u.dynW;
+        return _upsDynDummy ??= new GraphicsBuffer(GraphicsBuffer.Target.Structured, 1, 4);
+    }
+
+    private static void UpsReleaseDyn()
+    {
+        _upsDynA?.Release(); _upsDynB?.Release(); _upsDynDummy?.Release();
+        _upsDynA = _upsDynB = _upsDynDummy = null; _upsDynN = 0; _upsDynPrevFrameOn = false;
+    }
+
+    private static void UpsDispatch(ComputeCommandBuffer cmd, UpsComputeData u, GraphicsBuffer taaCur, GraphicsBuffer taaMeta,
+                                    GraphicsBuffer taaMetaPrev)
     {
         cmd.BeginSample("VE.Raymarch.UpscaleInputs");
         cmd.SetComputeBufferParam(_upsCs, _upsKernel, "UpsTaaCur", taaCur);
@@ -153,6 +203,20 @@ public partial class RaymarchFeature
         cmd.SetComputeVectorParam(_upsCs, "_UpsDepth", u.depthParams);
         cmd.DispatchCompute(_upsCs, _upsKernel, ((int)u.size.x + 7) / 8, ((int)u.size.y + 7) / 8, 1);
         cmd.EndSample("VE.Raymarch.UpscaleInputs");
+        if (u.reactive.IsValid() && _upsReactiveKernel >= 0)
+        {
+            cmd.BeginSample("VE.Raymarch.UpscaleReactive");
+            cmd.SetComputeVectorParam(_upsCs, "_UpsSize", new Vector4(u.size.x, u.size.y, u.histValid ? 1f : 0f, u.voxPerPxPerVox));
+            cmd.SetComputeIntParam(_upsCs, "_UpsReactiveParts", Fsr3ReactiveParts);
+            cmd.SetComputeBufferParam(_upsCs, _upsReactiveKernel, "UpsTaaCur", taaCur);
+            cmd.SetComputeBufferParam(_upsCs, _upsReactiveKernel, "UpsTaaMeta", taaMeta);
+            cmd.SetComputeBufferParam(_upsCs, _upsReactiveKernel, "UpsTaaMetaR", taaMetaPrev);
+            cmd.SetComputeBufferParam(_upsCs, _upsReactiveKernel, "UpsDynCur", u.dynW);
+            cmd.SetComputeBufferParam(_upsCs, _upsReactiveKernel, "UpsDynPrev", u.dynR);
+            cmd.SetComputeTextureParam(_upsCs, _upsReactiveKernel, "UpsReactive", u.reactive);
+            cmd.DispatchCompute(_upsCs, _upsReactiveKernel, ((int)u.size.x + 7) / 8, ((int)u.size.y + 7) / 8, 1);
+            cmd.EndSample("VE.Raymarch.UpscaleReactive");
+        }
     }
 
     private static bool EnsureFsr3(Vector2Int display, Vector2Int render)
@@ -196,7 +260,7 @@ public partial class RaymarchFeature
 
     class Fsr3PassData
     {
-        public TextureHandle color, depth, motion, output;
+        public TextureHandle color, depth, motion, output, reactive;
         public Vector2Int render, display;
         public bool reset;
         public float near, far, fovRad;
@@ -219,7 +283,8 @@ public partial class RaymarchFeature
         using (var builder = renderGraph.AddUnsafePass<Fsr3PassData>("VoxelRaymarch_FSR3", out var p))
         {
             var cam = cameraData.camera;
-            p.color = color; p.depth = fd.depth; p.motion = fd.motion; p.output = output;
+            p.color = color; p.depth = fd.depth; p.motion = fd.motion; p.output = output; p.reactive = fd.reactive;
+            if (fd.reactive.IsValid()) builder.UseTexture(fd.reactive, AccessFlags.Read);   // task 174
             p.render = render; p.display = display; p.reset = fd.reset;
             p.near = cam.nearClipPlane; p.far = cam.farClipPlane; p.fovRad = cam.fieldOfView * Mathf.Deg2Rad;
             builder.UseTexture(color, AccessFlags.Read);
@@ -235,7 +300,7 @@ public partial class RaymarchFeature
                 d.Depth = new ResourceView(data.depth);
                 d.MotionVectors = new ResourceView(data.motion);
                 d.Exposure = ResourceView.Unassigned;
-                d.Reactive = ResourceView.Unassigned;
+                d.Reactive = data.reactive.IsValid() ? new ResourceView(data.reactive) : ResourceView.Unassigned;   // task 174
                 d.TransparencyAndComposition = ResourceView.Unassigned;
                 d.Output = new ResourceView(data.output);
                 d.JitterOffset = _fsrJitter;
@@ -266,6 +331,7 @@ public partial class RaymarchFeature
     {
         _fsr?.Destroy(); _fsr = null;
         _fsrDisplay = _fsrMax = Vector2Int.zero;
+        UpsReleaseDyn();
     }
 
     /// Writes our depth and motion over URP's _CameraDepthTexture and
