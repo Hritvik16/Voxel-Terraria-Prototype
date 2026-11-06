@@ -145,7 +145,7 @@ namespace VoxelEngine.WorldGen
                         { boxes.Add(math.max(l0 - 1, 0)); boxes.Add(math.min(l1 + 1, 127)); }
                 var job = new ShellFillJob
                 {
-                    h = _h, r = _r, w = _w, cls = _cls, flow = _flow, toEngine = _toEngine, spec = Spec, o = O,
+                    h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, toEngine = _toEngine, spec = Spec, o = O,
                     origin = origin, shift = k, half = half,
                     colS = output.colS, colCd = output.colCd,
                     mats = output.Mats, brickMat = output.BrickMat, brickUniform = output.BrickUniform,
@@ -181,6 +181,7 @@ namespace VoxelEngine.WorldGen
             [ReadOnly] public NativeArray<float> h, r, w;
             [ReadOnly] public NativeArray<byte> cls;
             [ReadOnly] public NativeArray<ushort> flow;
+            [ReadOnly] public NativeArray<byte> routeMask;   // task 178b: WorldMap.RouteMask (length 1 = none)
             [ReadOnly] public NativeArray<byte> toEngine;
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
@@ -225,6 +226,7 @@ namespace VoxelEngine.WorldGen
                     height = (float*)h.GetUnsafeReadOnlyPtr(), rough = (float*)r.GetUnsafeReadOnlyPtr(),
                     water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(),
                     flowDir = flow.Length > 1 ? (ushort*)flow.GetUnsafeReadOnlyPtr() : null,
+                    route = routeMask.Length > 1 ? (byte*)routeMask.GetUnsafeReadOnlyPtr() : null,   // task 178b
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
 

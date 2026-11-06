@@ -1063,3 +1063,14 @@ Shares: `Screenshots/177b/shares177b.txt` (from `CoverTests.Report_CoverMaps`, R
 -wsposes fixed,pair_savanna_wetland-basin,pair_desert_canyonlands,pair_badlands_canyonlands -lookwait 30 -wsfixed <176d's 5>`;
 `python3 -I tools/palette177b.py Screenshots/177b` (pairs, sheet, viewer); `cover177.py palette` draws BARE as 178's three layers. Re-pinned: ShellFill GOLDEN (18 of 85 chunks; heights and the map hash do not move).
 Whole suite PASS 1063 FAIL 2 = the golden (since re-pinned, filtered run green) + the known route test. Result: HANDOFF 177b.
+
+**Task 178b (owner 2026-11-06, 178 Q2 / 176d Q1 (a) "keep routes smooth"; GENERATOR CHANGE): the cliff relief skips route cells.**
+`MapView.route` (new, OPTIONAL, null = no skip) is `WorldMap.RouteMask`: 1 per map cell the world record flags `FLAG_ROUTE`, derived and
+pinned in `WorldMap.SetRecord` (MapJob's FromCore). Every job that builds a `MapView` carries it beside `flow` as a `routeMask` NativeArray
+(length 1 = none): chunk ColumnJob, ShellColumnJob, ShellFillJob, FarQuery, FarField's FillTg2Job, and the ShellChunk / ColumnPassSplit test
+jobs. `ShapeField.FaceRelief` (fluting, ledges, scree apron) returns the un-relieved height on a route cell and fades back in over
+`ROUTE_BLEND_CELLS` = 2 map cells (16 m) beyond it (`RouteWeight`: smoothstep of the distance from the column to the nearest route cell's
+square; scree cover only where (1 - w) x fill >= SCREE_MIN). Map-only, so every footprint agrees; a convex blend, so the band-limit bound
+holds. Cliffs-off and v3 are untouched; the cliff LOOK off-route is bit-identical to 178. Test: `CliffTests.Relief_SkipsRouteCells_UnchangedBeyondTheBlend`
+(route-cell columns = cliffs off, land beyond the blend = 178's view without routes, blend columns between them, plus the 176d / 178 probes;
+log `Logs/TerrainGen/c4/routes178b.txt`). Result: HANDOFF 178b.

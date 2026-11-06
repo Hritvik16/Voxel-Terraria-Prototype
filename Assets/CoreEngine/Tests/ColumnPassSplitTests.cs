@@ -35,6 +35,7 @@ public class ColumnPassSplitTests
         [ReadOnly] public NativeArray<float> h, r, w;
         [ReadOnly] public NativeArray<byte> cls;
         [ReadOnly] public NativeArray<ushort> flow;
+        [ReadOnly] public NativeArray<byte> routeMask;   // task 178b
         public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
         public int3 origin;
         public NativeArray<int> sink;
@@ -46,6 +47,7 @@ public class ColumnPassSplitTests
                 height = (float*)h.GetUnsafeReadOnlyPtr(), rough = (float*)r.GetUnsafeReadOnlyPtr(),
                 water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(),
                 flowDir = flow.Length > 1 ? (ushort*)flow.GetUnsafeReadOnlyPtr() : null,
+                route = routeMask.Length > 1 ? (byte*)routeMask.GetUnsafeReadOnlyPtr() : null,
                 cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
             };
             int acc = 0;
@@ -92,6 +94,7 @@ public class ColumnPassSplitTests
         var cls = new NativeArray<byte>(src.Map.WaterClass, Allocator.Persistent);
         var flow = src.Map.FlowDir != null ? new NativeArray<ushort>(src.Map.FlowDir, Allocator.Persistent)
                                            : new NativeArray<ushort>(1, Allocator.Persistent);
+        var routeMask = new NativeArray<byte>(src.Map.RouteMask ?? new byte[1], Allocator.Persistent);   // task 178b
         var sink = new NativeArray<int>(1, Allocator.Persistent);
         var pool = new BrickDataPool(EngineConfig.BRICKS_PER_CHUNK);
         var lines = new List<string>();
@@ -112,7 +115,7 @@ public class ColumnPassSplitTests
 
             var spec0 = spec; spec0.coarseColumnShift = 0;
             var spec3 = spec; spec3.coarseColumnShift = TerrainGen.TerrainSpec.COARSE_COLUMN_SHIFT;
-            void RunS(int3 cc) => new SampleJob { h = h, r = r, w = w, cls = cls, flow = flow, spec = spec, o = o, origin = cc * 128, sink = sink }.Run();
+            void RunS(int3 cc) => new SampleJob { h = h, r = r, w = w, cls = cls, flow = flow, routeMask = routeMask, spec = spec, o = o, origin = cc * 128, sink = sink }.Run();
             void RunP(int3 cc, bool coarse) => new PrepareJob { spec = coarse ? spec3 : spec0, o = o, origin = cc * 128, sink = sink }.Run();
             RunS(cols[0]); RunP(cols[0], false); RunP(cols[0], true);   // compile + warm
 
@@ -197,7 +200,7 @@ public class ColumnPassSplitTests
         finally
         {
             src.SetCoarseColumnShift(TerrainGen.TerrainSpec.COARSE_COLUMN_SHIFT);
-            pool.Dispose(); sink.Dispose(); h.Dispose(); r.Dispose(); w.Dispose(); cls.Dispose(); flow.Dispose();
+            pool.Dispose(); sink.Dispose(); h.Dispose(); r.Dispose(); w.Dispose(); cls.Dispose(); flow.Dispose(); routeMask.Dispose();
             src.Dispose();
         }
         string dir = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "Logs", "TerrainGen");

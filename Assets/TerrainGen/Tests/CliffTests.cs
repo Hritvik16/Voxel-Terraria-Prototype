@@ -154,6 +154,113 @@ namespace TerrainGen.Tests
             Assert.Greater(moved, 0);
         }
 
+        /// Task 178b (owner 2026-11-06, 178 Q2 (a)): the relief skips route cells
+        /// (the record's FLAG_ROUTE, MapView.route) and fades back in over
+        /// ROUTE_BLEND_CELLS. On a route cell the column is the cliffs-off column;
+        /// beyond the blend it is exactly 178's column (a view without routes).
+        /// Also probes the two scree steps that put Sheer on seed 42's routes:
+        /// (3777, 5278) m [176d, route 0-1] and (4471, 2390) m [178, before Size 2].
+        [Test]
+        public unsafe void Relief_SkipsRouteCells_UnchangedBeyondTheBlend()
+        {
+            var w = Get(42);
+            var view = w.map.View;
+            Assert.IsTrue(view.route != null, "a v4 map with routes exposes MapView.route");
+            var bare = view; bare.route = null;   // 178's view: no route skip
+            int n = w.spec.mapCells, cv = w.spec.mapCellVoxels;
+            var rec = w.map.Record;
+            // 1. Every route cell: on == off (height and cover slot).
+            var rng = new Unity.Mathematics.Random(0x178b);
+            int onRoute = 0, routeMovedBy178 = 0;
+            for (int i = 0; i < n * n; i++)
+            {
+                if (!rec.Data[i].IsRoute) continue;
+                int cx = i % n, cz = i / n;
+                for (int k = 0; k < 2; k++)
+                {
+                    float x = cx * cv + rng.NextInt(cv) + 0.5f, z = cz * cv + rng.NextInt(cv) + 0.5f;
+                    var on = ShapeField.Sample(in w.spec, in view, in w.o, x, z, 1);
+                    var off = ShapeField.Sample(in w.off, in view, in w.o, x, z, 1);
+                    var old = ShapeField.Sample(in w.spec, in bare, in w.o, x, z, 1);
+                    onRoute++;
+                    if (old.height != off.height) routeMovedBy178++;
+                    Assert.AreEqual(off.height, on.height, $"route cell ({x / 10f:F1}, {z / 10f:F1}) m keeps relief");
+                    Assert.AreEqual(Cover.Slot(off.cover), Cover.Slot(on.cover), $"route cell ({x / 10f:F1}, {z / 10f:F1}) m keeps scree cover");
+                }
+            }
+            // 2. Land beyond the blend: exactly 178's column. In the blend: between off and 178.
+            int beyond = 0, inBlend = 0, blendMoved = 0;
+            foreach (var p in LandPoints(in w, 6000, 0x178c, false))
+            {
+                float2 q = new float2(p.x + 0.5f, p.y + 0.5f);
+                float rw = ShapeField.RouteWeight(in view, q);
+                var on = S(in w.spec, in w, p.x, p.y);
+                var old = ShapeField.Sample(in w.spec, in bare, in w.o, q.x, q.y, 1);
+                if (rw <= 0f)
+                {
+                    beyond++;
+                    Assert.AreEqual(old.height, on.height, $"({p.x},{p.y}) beyond the blend changed");
+                    Assert.AreEqual(old.cover, on.cover, $"({p.x},{p.y}) beyond the blend: cover changed");
+                }
+                else if (rw < 1f)
+                {
+                    inBlend++;
+                    var off = S(in w.off, in w, p.x, p.y);
+                    if (on.height != old.height) blendMoved++;
+                    Assert.LessOrEqual(on.height, math.max(old.height, off.height) + 1, $"({p.x},{p.y}) blend overshoots");
+                    Assert.GreaterOrEqual(on.height, math.min(old.height, off.height) - 1, $"({p.x},{p.y}) blend undershoots");
+                }
+            }
+            // 3. The two probes: band over 1 m (RouteTests' central differences), on vs off vs 178.
+            var sb = new StringBuilder();
+            float2[] probes = { new float2(37770, 52780), new float2(44710, 23900) };
+            foreach (var pr in probes)
+            {
+                int ci = Routes.CellOf(pr, n, cv);
+                var rc = rec.Data[ci];
+                byte bOn = Band1m(in w.spec, in view, in w.o, pr), bOff = Band1m(in w.off, in view, in w.o, pr), bOld = Band1m(in w.spec, in bare, in w.o, pr);
+                float rw = ShapeField.RouteWeight(in view, pr);
+                // the worst band on a 9 x 9 m grid at 1 m round the probe, route cells only
+                byte worstOn = 0, worstOld = 0; int routePts = 0;
+                for (int dz = -4; dz <= 4; dz++)
+                for (int dx = -4; dx <= 4; dx++)
+                {
+                    float2 g = pr + new float2(dx * 10, dz * 10);
+                    if (!rec.Data[Routes.CellOf(g, n, cv)].IsRoute) continue;
+                    routePts++;
+                    worstOn = (byte)math.max((int)worstOn, (int)Band1m(in w.spec, in view, in w.o, g));
+                    worstOld = (byte)math.max((int)worstOld, (int)Band1m(in w.spec, in bare, in w.o, g));
+                }
+                sb.AppendLine($"  probe ({pr.x / 10f:F1}, {pr.y / 10f:F1}) m: route cell {rc.IsRoute}, route weight {rw:F2}; band at the point on {BandName(bOn)} / off {BandName(bOff)} / 178 {BandName(bOld)}; " +
+                              $"worst on the 9x9 m grid's {routePts} route points: on {BandName(worstOn)}, 178 {BandName(worstOld)}");
+                if (rc.IsRoute)
+                {
+                    Assert.AreNotEqual(Danger.Sheer, bOn, $"probe {pr} still Sheer");
+                    Assert.AreNotEqual(Danger.Sheer, worstOn, $"probe {pr}: a route point on its 9x9 m grid is still Sheer");
+                }
+            }
+            string msg = $"[Cliffs 178b] seed 42: {onRoute} route-cell columns all = cliffs off ({routeMovedBy178} had relief under 178); " +
+                         $"{beyond} land columns beyond the blend all = 178; {inBlend} in the blend ({blendMoved} differ from 178)\n" + sb;
+            Directory.CreateDirectory(OUT_DIR);
+            File.WriteAllText(Path.Combine(OUT_DIR, "routes178b.txt"), msg);
+            Debug.Log(msg);
+            Assert.Greater(routeMovedBy178, 0, "the fixture should include route cells 178's relief moved");
+            Assert.Greater(beyond, 0);
+        }
+
+        private static string BandName(byte b) => b == Danger.Walk ? "Walk" : b == Danger.Scramble ? "Scramble" : b == Danger.Climb ? "Climb" : "Sheer";
+
+        /// RouteTests' voxel band: central differences over 1 m at p (voxels).
+        private static byte Band1m(in TerrainSpec spec, in MapView view, in Offsets o, float2 p)
+        {
+            float hx1 = ShapeField.Sample(in spec, in view, in o, p.x + 5f, p.y, 1).height;
+            float hx0 = ShapeField.Sample(in spec, in view, in o, p.x - 5f, p.y, 1).height;
+            float hz1 = ShapeField.Sample(in spec, in view, in o, p.x, p.y + 5f, 1).height;
+            float hz0 = ShapeField.Sample(in spec, in view, in o, p.x, p.y - 5f, 1).height;
+            float gx = (hx1 - hx0) / 10f, gz = (hz1 - hz0) / 10f;
+            return Danger.BandOfTan2(gx * gx + gz * gz);
+        }
+
         [Test]
         public void FaceColumns_BandLimitAndLod0Contract()
         {

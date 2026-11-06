@@ -39,6 +39,10 @@ namespace TerrainGen
         /// Map v4 (task 76): Rivers' per-cell flow bits. OPTIONAL: null = the
         /// old 2x2 river water (SampleWater), so a view without it differs.
         public ushort* flowDir;
+        /// Task 178b: 1 on a route-corridor cell (the world record's FLAG_ROUTE),
+        /// 0 elsewhere (WorldMap.RouteMask). OPTIONAL: null = no routes, so the
+        /// cliff relief (ShapeField.FaceRelief) does not skip them.
+        public byte* route;
         public int cells;
         public float cellVoxels;
     }
@@ -64,6 +68,9 @@ namespace TerrainGen
         public byte[] Region { get; private set; }
         /// v4 (B1): the per-cell world record. Null below v4.
         public WorldRecord Record { get; private set; }
+        /// Task 178b: per cell 1 where the record flags a route corridor
+        /// (FLAG_ROUTE), else 0; MapView.route. Null without a record.
+        public byte[] RouteMask { get; private set; }
         /// T6 inselbergs that raised at least one erosion-grid cell (v3: ~15-40
         /// per seed; v4: 0, owner Q7 (a)).
         public int InselbergCount { get; private set; }
@@ -78,7 +85,7 @@ namespace TerrainGen
         public Route[] Routes { get; private set; }
         /// Routes.LastBuild for this map (diagnostics: links, cut and fill cells).
         public string RouteBuild { get; private set; }
-        private GCHandle _hH, _hR, _hW, _hC, _hF;
+        private GCHandle _hH, _hR, _hW, _hC, _hF, _hRt;
 
         public WorldMap(TerrainSpec spec, float[] height, float[] rough, float2 peak,
                         float[] water = null, float[] flow = null, Hydrology.Stats hydro = default, byte[] waterClass = null)
@@ -103,6 +110,7 @@ namespace TerrainGen
             water = (float*)_hW.AddrOfPinnedObject(),
             waterClass = (byte*)_hC.AddrOfPinnedObject(),
             flowDir = _hF.IsAllocated ? (ushort*)_hF.AddrOfPinnedObject() : null,
+            route = _hRt.IsAllocated ? (byte*)_hRt.AddrOfPinnedObject() : null,
             cells = Spec.mapCells,
             cellVoxels = Spec.mapCellVoxels,
         };
@@ -141,6 +149,24 @@ namespace TerrainGen
             if (_hW.IsAllocated) _hW.Free();
             if (_hC.IsAllocated) _hC.Free();
             if (_hF.IsAllocated) _hF.Free();
+            if (_hRt.IsAllocated) _hRt.Free();
+        }
+
+        /// Task 178b: set once by the build (FromCore) with the record; derives
+        /// and pins RouteMask from its FLAG_ROUTE cells.
+        internal void SetRecord(WorldRecord rec)
+        {
+            Record = rec;
+            if (_hRt.IsAllocated) _hRt.Free();
+            RouteMask = null;
+            if (rec == null) return;
+            var m = new byte[rec.Data.Length];
+            bool any = false;
+            for (int i = 0; i < m.Length; i++)
+                if (rec.Data[i].IsRoute) { m[i] = 1; any = true; }
+            if (!any) return;
+            RouteMask = m;
+            _hRt = GCHandle.Alloc(m, GCHandleType.Pinned);
         }
 
         /// Task 76: set once by the build (FromCore), pinned like the others.

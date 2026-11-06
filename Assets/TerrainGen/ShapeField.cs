@@ -219,6 +219,16 @@ namespace TerrainGen
         //              SCREE_CAP (10 m), with rubble lumps on top.
         // Skipped under water and within ~20 m of a lake or river cell (their
         // banks are Rivers' / LakeRim's), below the sea and for dry map views.
+        // TASK 178b (owner 2026-11-06, 178 Q2 (a) "keep routes smooth"): also
+        // skipped on ROUTE cells (the world record's FLAG_ROUTE, MapView.route):
+        // B8 already eased the map along the route, and the relief (the scree
+        // apron above all) put Sheer steps back on it. RouteWeight fades the
+        // relief back in over ROUTE_BLEND_CELLS map cells beyond the corridor's
+        // edge (distance to the nearest route cell's square, smoothstep), so no
+        // new step forms there: the scree's worst added grade is
+        // 1.5 * SCREE_CAP / (2 cells = 16 m) ~ 0.94. A function of the map
+        // alone, like the scree, so every footprint agrees; a convex blend of
+        // two bounded heights, so the band-limit bound is unchanged.
         // BAND LIMIT: fluting, ledges and rubble drop below 2 footprints like an
         // octave (BandLimitBound(spec, ..) adds RELIEF_BAND_BOUND); the scree
         // itself reads the map only, so every footprint gets the same apron.
@@ -236,6 +246,9 @@ namespace TerrainGen
         public const float RELIEF_BAND_BOUND = FLUTE_DEPTH * FACE_SLOPE_CAP + LEDGE_TREAD * LEDGE_SPACING + RUBBLE_AMP;
         /// Map cells round the column checked for lake / river water (+-2 = ~20 m).
         public const int RELIEF_DRY_CELLS = 2;
+        /// Task 178b: the relief fades in over this many map cells beyond a route
+        /// cell (RouteWeight; <= 2, its search radius).
+        public const int ROUTE_BLEND_CELLS = 2;
 
         /// The column's height (voxels rel. sea) with the face relief; `h` is
         /// macro + detail, `macro` the map at p. scree: the apron covers p by at
@@ -244,6 +257,9 @@ namespace TerrainGen
         {
             scree = false;
             if (h <= 0f || WetNear(in map, p)) return h;
+            float rw = RouteWeight(in map, p);   // task 178b
+            if (rw >= 1f) return h;
+            float h0 = h;
             float2 g = MapGradient(in map, p.x, p.y);
             float s = math.sqrt(g.x * g.x + g.y * g.y);
             float w = FaceWeight(s);
@@ -272,7 +288,35 @@ namespace TerrainGen
                     top += RUBBLE_AMP * math.saturate(fill / SCREE_CAP * 4f) * noise.snoise(p / RUBBLE_WAVE + o.detail + new float2(83.1f, 19.9f));
                 h = math.max(h, top);
             }
+            if (rw > 0f)
+            {
+                h = math.lerp(h, h0, rw);
+                scree = (1f - rw) * fill >= SCREE_MIN;
+            }
             return h;
+        }
+
+        /// Task 178b: 1 on a route cell (MapView.route), falling to 0 at
+        /// ROUTE_BLEND_CELLS cells from the nearest one (smoothstep of the
+        /// distance from p to that cell's square); 0 for a view without routes.
+        public static unsafe float RouteWeight(in MapView map, float2 p)
+        {
+            if (map.route == null) return 0f;
+            int n = map.cells, r = ROUTE_BLEND_CELLS;
+            float c = map.cellVoxels, blend = r * c;
+            int ix = (int)math.floor(p.x / c), iz = (int)math.floor(p.y / c);
+            if (map.route[math.clamp(iz, 0, n - 1) * n + math.clamp(ix, 0, n - 1)] != 0) return 1f;
+            float d2 = blend * blend;
+            for (int dz = -r; dz <= r; dz++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                int cx = ix + dx, cz = iz + dz;
+                if (cx < 0 || cz < 0 || cx >= n || cz >= n || map.route[cz * n + cx] == 0) continue;
+                float ex = math.max(math.max(cx * c - p.x, p.x - (cx + 1) * c), 0f);
+                float ez = math.max(math.max(cz * c - p.y, p.y - (cz + 1) * c), 0f);
+                d2 = math.min(d2, ex * ex + ez * ez);
+            }
+            return 1f - math.smoothstep(0f, blend, math.sqrt(d2));
         }
 
         /// The scree apron's height over the map at p (voxels, 0 = none): a

@@ -225,7 +225,7 @@ namespace VoxelEngine.Streaming
                     points = points, plan = plan, results = results, count = n,
                     ops = _ops, opCount = snap.Count,
                     h = _src.PointHeight, r = _src.PointRough, w = _src.PointWater, cls = _src.PointWaterClass,
-                    flow = _src.PointFlow, ore = _src.PointOre, toEngine = _src.PointToEngine,
+                    flow = _src.PointFlow, routeMask = _src.PointRoute, ore = _src.PointOre, toEngine = _src.PointToEngine,
                     spec = _src.Spec, o = _src.O,
                 };
                 int batches = (n + BATCH - 1) / BATCH;
@@ -246,6 +246,7 @@ namespace VoxelEngine.Streaming
             [ReadOnly] public NativeArray<float> h, r, w;
             [ReadOnly] public NativeArray<byte> cls, ore, toEngine;
             [ReadOnly] public NativeArray<ushort> flow;
+            [ReadOnly] public NativeArray<byte> routeMask;   // task 178b: WorldMap.RouteMask (length 1 = none)
             public TerrainGen.TerrainSpec spec;
             public TerrainGen.Offsets o;
 
@@ -256,6 +257,7 @@ namespace VoxelEngine.Streaming
                     height = (float*)h.GetUnsafeReadOnlyPtr(), rough = (float*)r.GetUnsafeReadOnlyPtr(),
                     water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(),
                     flowDir = flow.Length > 1 ? (ushort*)flow.GetUnsafeReadOnlyPtr() : null,   // as ColumnJob
+                    route = routeMask.Length > 1 ? (byte*)routeMask.GetUnsafeReadOnlyPtr() : null,   // task 178b
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 var nodes = new TerrainGen.DetailField.NodeCache();

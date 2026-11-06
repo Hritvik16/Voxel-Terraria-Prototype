@@ -351,7 +351,7 @@ number, read the matching entry in `KNOWN_ISSUES.md`. One line each:
 - Gate C is red on ONE upload-budget check: steady-state p99 (§4.3).
 - `run-phase6-brushguard.sh` red since Playground was tiled: the RIG is stale, not the product.
 - `run-fluid-tiled.sh`'s two memory-budget assertions were REBASED on 2026-09-11.
-- Slow route test red by known cause (176, 176d): river ford bank (seed 31337, until C5) + 178 scree on a route (seed 42, 178 Q2). Never loosen it.
+- Slow route test red by known cause (176, 178b): river ford bank only (seed 31337, until C5); seed 42's scree step fixed by 178b. Never loosen it.
 
 ## The build-run-review loop
 

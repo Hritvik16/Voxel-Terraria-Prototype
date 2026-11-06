@@ -475,7 +475,7 @@ namespace TerrainGen
                 for (int k = 0; k < r.Length; k++) r[k] = MapJobs.Out(in d.routes[k]);
                 map.Routes = r;
             }
-            if (d.hasRecord) map.Record = WorldRecord.FromCore(ref d.record, map.SignatureFeatures, map.Routes, null);
+            if (d.hasRecord) map.SetRecord(WorldRecord.FromCore(ref d.record, map.SignatureFeatures, map.Routes, null));   // 178b: + RouteMask
             return map;
         }
 

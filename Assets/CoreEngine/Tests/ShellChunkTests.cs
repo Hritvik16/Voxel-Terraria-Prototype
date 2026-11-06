@@ -115,6 +115,7 @@ public class ShellChunkTests
         [ReadOnly] public NativeArray<float> h, r, w;
         [ReadOnly] public NativeArray<byte> cls, toEngine, ore;
             [ReadOnly] public NativeArray<ushort> flow;   // task 76
+            [ReadOnly] public NativeArray<byte> routeMask;   // task 178b
         public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
         public int3 origin; public int shift, half;
         public NativeArray<byte> mats;      // coarse voxels 0, 3, 6, ... 126 per axis (43^3), unculled D -> engine
@@ -129,6 +130,7 @@ public class ShellChunkTests
                 rough = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(r),
                 water = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(w),
                 waterClass = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(cls), flowDir = flow.Length > 1 ? (ushort*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(flow) : null,
+                route = routeMask.Length > 1 ? (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(routeMask) : null,
                 cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
             };
             int k = 0, t = 0;
@@ -168,6 +170,7 @@ public class ShellChunkTests
         var wA = new NativeArray<float>(_src.Map.Water, Allocator.TempJob);
         var cA = new NativeArray<byte>(_src.Map.WaterClass, Allocator.TempJob);
         var fA = new NativeArray<ushort>(_src.Map.FlowDir ?? new ushort[1], Allocator.TempJob);
+        var rtA = new NativeArray<byte>(_src.Map.RouteMask ?? new byte[1], Allocator.TempJob);   // task 178b
         var oA = new NativeArray<byte>(TerrainGen.OreTable.DensityPlane(_src.Map.Record, _src.Spec.mapCells), Allocator.TempJob);
         var te = new NativeArray<byte>(256, Allocator.TempJob);
         var refM = new NativeArray<byte>(43 * 43 * 43, Allocator.TempJob);
@@ -190,7 +193,7 @@ public class ShellChunkTests
                 int half = (1 << (k - 1)) - 1;   // task 74 Q2 (a)
                 new ShellRefJob
                 {
-                    h = hA, r = rA, w = wA, cls = cA, flow = fA, toEngine = te, ore = oA, spec = _src.Spec, o = _src.O,
+                    h = hA, r = rA, w = wA, cls = cA, flow = fA, routeMask = rtA, toEngine = te, ore = oA, spec = _src.Spec, o = _src.O,
                     origin = coord << (7 + k), shift = k, half = half, mats = refM, topY = refTY, topM = refTM,
                 }.Run();
                 int bad = 0, n = 0, solid = 0, tops = 0, t = 0;
@@ -242,7 +245,7 @@ public class ShellChunkTests
         finally
         {
             _src.ShellFill = true;
-            sc.Dispose(); hA.Dispose(); rA.Dispose(); wA.Dispose(); cA.Dispose(); fA.Dispose(); oA.Dispose(); te.Dispose(); refM.Dispose(); refTY.Dispose(); refTM.Dispose();
+            sc.Dispose(); hA.Dispose(); rA.Dispose(); wA.Dispose(); cA.Dispose(); fA.Dispose(); rtA.Dispose(); oA.Dispose(); te.Dispose(); refM.Dispose(); refTY.Dispose(); refTM.Dispose();
         }
     }
 

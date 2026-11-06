@@ -215,6 +215,7 @@ namespace VoxelEngine.Rendering
         private NativeArray<float> _tgH, _tgR, _tgW;
         private NativeArray<byte> _tgCls;   // map water class: ShapeField's lake rims (v4)
         private NativeArray<ushort> _tgFlow; // v4 river flow bits (task 76; length 1 = none)
+        private NativeArray<byte> _tgRoute; // task 178b: route-corridor cells (WorldMap.RouteMask; length 1 = none)
         /// Task 76 (R2/R5): the map's river flow bits on the GPU, two cells per
         /// uint (Raymarch.compute RiverFlow; 2 MB at 1024^2 cells). Null = none.
         public GraphicsBuffer RiverFlow { get; private set; }
@@ -318,6 +319,7 @@ namespace VoxelEngine.Rendering
                 _tgW = new NativeArray<float>(Tg2Map.Water, Allocator.Persistent);
                 _tgCls = new NativeArray<byte>(Tg2Map.WaterClass, Allocator.Persistent);
                 _tgFlow = new NativeArray<ushort>(Tg2Map.FlowDir ?? new ushort[1], Allocator.Persistent);
+                _tgRoute = new NativeArray<byte>(Tg2Map.RouteMask ?? new byte[1], Allocator.Persistent);
                 if (Tg2Map.FlowDir != null)
                 {
                     var fd = Tg2Map.FlowDir;
@@ -575,7 +577,7 @@ namespace VoxelEngine.Rendering
             if (UsesTg2)
                 return new FillTg2Job
                 {
-                    h = _tgH, r = _tgR, wat = _tgW, cls = _tgCls, flow = _tgFlow, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
+                    h = _tgH, r = _tgR, wat = _tgW, cls = _tgCls, flow = _tgFlow, routeMask = _tgRoute, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
                     seaShift = Tg2SeaShift,
                     texelVoxels = texelVoxels, x0 = x0, z0 = z0, w = w, ringOrder = ringOrder, ringOrigin = ringOrigin, output = output,
                     ops = ops, opCount = opCount, spans = spans, spanCols = spanCols,
@@ -1014,6 +1016,7 @@ namespace VoxelEngine.Rendering
             if (_tgW.IsCreated) _tgW.Dispose();
             if (_tgCls.IsCreated) _tgCls.Dispose();
             if (_tgFlow.IsCreated) _tgFlow.Dispose();
+            if (_tgRoute.IsCreated) _tgRoute.Dispose();
             RiverFlow?.Release(); RiverFlow = null;
             if (_genToEngine.IsCreated) _genToEngine.Dispose();
             if (_ownsTg2Map) Tg2Map?.Dispose();
@@ -1086,6 +1089,7 @@ namespace VoxelEngine.Rendering
             [ReadOnly] public NativeArray<float> h, r, wat;
             [ReadOnly] public NativeArray<byte> cls;
             [ReadOnly] public NativeArray<ushort> flow;
+            [ReadOnly] public NativeArray<byte> routeMask;   // task 178b (length 1 = none)
             [ReadOnly] public NativeArray<byte> genToEngine;
             public TerrainGen.TerrainSpec spec;
             public TerrainGen.Offsets o;
@@ -1117,6 +1121,7 @@ namespace VoxelEngine.Rendering
                     water = (float*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(wat),
                     waterClass = (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(cls),
                     flowDir = flow.Length > 1 ? (ushort*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(flow) : null,   // task 76
+                    route = routeMask.Length > 1 ? (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(routeMask) : null,   // task 178b
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 int half = texelVoxels >> 1;

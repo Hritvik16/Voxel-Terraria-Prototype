@@ -39,6 +39,7 @@ namespace VoxelEngine.WorldGen
         internal NativeArray<float> PointWater => _w;
         internal NativeArray<byte> PointWaterClass => _cls;
         internal NativeArray<ushort> PointFlow => _flow;
+        internal NativeArray<byte> PointRoute => _route;   // task 178b
         internal NativeArray<byte> PointOre => _ore;
         internal NativeArray<byte> PointToEngine => _toEngine;
 

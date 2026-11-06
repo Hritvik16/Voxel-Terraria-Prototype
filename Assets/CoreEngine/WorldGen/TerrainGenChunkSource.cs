@@ -78,6 +78,7 @@ namespace VoxelEngine.WorldGen
         private NativeArray<float> _h, _r, _w;
         private NativeArray<byte> _cls;   // map water class: ShapeField's lake rims (v4)
         private NativeArray<ushort> _flow; // v4 river flow bits (task 76; length 1 = none)
+        private NativeArray<byte> _route; // task 178b: route-corridor cells (WorldMap.RouteMask; length 1 = none)
         private NativeArray<byte> _ore;   // per map cell ore multiplier (gameplay step 3; zeros on v3)
         private NativeArray<byte> _toEngine;
 
@@ -177,6 +178,7 @@ namespace VoxelEngine.WorldGen
             _w = new NativeArray<float>(Map.Water, Allocator.Persistent);
             _cls = new NativeArray<byte>(Map.WaterClass, Allocator.Persistent);
             _flow = new NativeArray<ushort>(Map.FlowDir ?? new ushort[1], Allocator.Persistent);
+            _route = new NativeArray<byte>(Map.RouteMask ?? new byte[1], Allocator.Persistent);
             _ore = new NativeArray<byte>(TerrainGen.OreTable.DensityPlane(Map.Record, Spec.mapCells), Allocator.Persistent);
             _toEngine = new NativeArray<byte>(256, Allocator.Persistent);
             for (int i = 0; i < 256; i++) _toEngine[i] = VoxelEngine.Rendering.FarField.GenToEngine((byte)i);
@@ -206,6 +208,7 @@ namespace VoxelEngine.WorldGen
             if (_w.IsCreated) _w.Dispose();
             if (_cls.IsCreated) _cls.Dispose();
             if (_flow.IsCreated) _flow.Dispose();
+            if (_route.IsCreated) _route.Dispose();
             if (_ore.IsCreated) _ore.Dispose();
             if (_toEngine.IsCreated) _toEngine.Dispose();
             Map?.Dispose();
@@ -344,7 +347,7 @@ namespace VoxelEngine.WorldGen
                     cp.valid = false;
                     new ColumnJob
                     {
-                        h = _h, r = _r, w = _w, cls = _cls, flow = _flow, ore = _ore, spec = Spec, o = O, origin = coord * E,
+                        h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, ore = _ore, spec = Spec, o = O, origin = coord * E,
                         colS = cp.colS, colSt = cp.colSt, colCd = cp.colCd, top = cp.top,
                     }.Run();
                     cp.cx = coord.x; cp.cz = coord.z; cp.valid = true; cp.Runs++;
@@ -416,6 +419,7 @@ namespace VoxelEngine.WorldGen
             [ReadOnly] public NativeArray<float> h, r, w;
             [ReadOnly] public NativeArray<byte> cls;
             [ReadOnly] public NativeArray<ushort> flow;
+            [ReadOnly] public NativeArray<byte> routeMask;   // task 178b: WorldMap.RouteMask (length 1 = none)
             [ReadOnly] public NativeArray<byte> ore;
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
@@ -432,6 +436,7 @@ namespace VoxelEngine.WorldGen
                     height = (float*)h.GetUnsafeReadOnlyPtr(), rough = (float*)r.GetUnsafeReadOnlyPtr(),
                     water = (float*)w.GetUnsafeReadOnlyPtr(), waterClass = (byte*)cls.GetUnsafeReadOnlyPtr(),
                     flowDir = flow.Length > 1 ? (ushort*)flow.GetUnsafeReadOnlyPtr() : null,   // task 76
+                    route = routeMask.Length > 1 ? (byte*)routeMask.GetUnsafeReadOnlyPtr() : null,   // task 178b
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 // S on a 130^2 grid (the chunk's columns plus a one-column
