@@ -1,7 +1,6 @@
 # 179-worldgen-c5-rivers-meander-carve
 
 Model: opus
-Requires: 178c-worldgen-cliff-look-rework
 
 Approval: owner, 2026-11-06, "Questions for you" (river question): (a) yes, queue C5. Spec: `WORLD_GEN_LOOK_PLAN.md` C5 and its finding 3
 ("Rivers: canals, not rivers"). Read both, plus `Assets/TerrainGen/Rivers.cs` (D8 flow, `FLOW_SIZE`) and KNOWN_ISSUES entries on rivers/fluid.
