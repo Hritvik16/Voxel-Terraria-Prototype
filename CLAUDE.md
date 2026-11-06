@@ -213,6 +213,7 @@ To PLAY the newest world (tg2 on map v4 + far band, interactive preset, keys lis
 Play starts with FSR 3 dynamic (task 52, owner Q38 (a): 1080p from 540-720 rows);
 `EXTRA="-upscaler none|taa|fsr1|stp|fsr3 -renderrows 540|720|dyn"` or `-renderpreset quality`
 override it. Rigs and capture modes are unchanged (no upscaler unless they pass the flags).
+Torches in play use the torch flood (task 175: dir 2, I 1.6 k 0.35; `-torchflood 0` / F6 "Point lights" = the old torches).
 F6 in play opens the settings menu (task 58): saved to `PlaySettings.json` beside
 `PlayerConfig.json`, flags override it per field for one run; rigs/capture runs (and `-fluidprobe`) never read it.
 Per-task feature notes (tasks 64-105+: survival, movement, rivers, see-through liquids, shells, far edits/ops,
@@ -350,6 +351,7 @@ number, read the matching entry in `KNOWN_ISSUES.md`. One line each:
 - Gate C is red on ONE upload-budget check: steady-state p99 (§4.3).
 - `run-phase6-brushguard.sh` red since Playground was tiled: the RIG is stale, not the product.
 - `run-fluid-tiled.sh`'s two memory-budget assertions were REBASED on 2026-09-11.
+- Slow route test red by known cause (176): river ford bank; owner leaves it until C5 (rivers). Never loosen it.
 
 ## The build-run-review loop
 
