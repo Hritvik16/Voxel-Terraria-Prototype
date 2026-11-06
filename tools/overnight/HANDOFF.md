@@ -1,65 +1,64 @@
-STOP_FOR_OWNER -- task 173: world-gen look survey + plan. These are the owner's questions; each has its picture and a recommended option.
-Full-size viewer (local, not yet published): `Screenshots/173/viewer.html`. Arrows = pose, Space = native / FSR 3 540 (/ shape light), 1-4 = zoom. Each pose's caption is its finding.
-- **Q1. Order** (`WORLD_GEN_LOOK_PLAN.md`): (a) **Recommended:** C1 biome layout, then C2 ground cover, then C3 snow line (cheap, in every frame, no shape change); then C4 cliffs, C5 rivers, C6 landform shapes, C7 stamps; C8 underground last. (b) Rivers first (C5). (c) Another order.
-- **Q2. C1 biomes run as straight diagonal belts** (picture: `survey173_map.png`, the NW-SE bands of green/olive/red; `feature_great-peak-0`, the straight ochre|red seam down the peak). Cause: `ShapeField.Biome6`'s climate is ONE octave at 15 km scale, nearly a linear ramp across 6 km. (a) **Recommended:** make the climate vary across the island (scale relative to the island, or a low second octave; still no domain warp), plus patch-wise transitions instead of the per-voxel dither. Accept on 8 seeds: no border straight > ~1.5 km. Biome borders move on every seed. (b) Keep the layout, fix only the border dither. (c) Leave it.
-- **Q3. C3 snow on high ground** (picture: `range_200up`, the 600 m summit brown to the top). (a) **Recommended:** a cover-only snow line above a fraction of the world's own height range; the biome map is unchanged. (b) No: biomes stay the only source of snow.
-- **Q4. C4 cliff geology** (picture: `cliff`, 167 m of one smooth grey material). (a) **Recommended:** the biome's thick depth layers on steep faces (the brief's Decided "soil over stone") plus face ledges and scree; badlands keeps striped rock (the brief's OPEN row). (b) The same without badlands stripes. (c) Leave it.
-- **Q5. C8 underground** (picture: `cavern_native_lit`, a bland smooth grey chamber). (a) **Recommended:** stays parked until an underground design talk. (b) Plan it now.
+# 174-fsr3-reactive-mask: DONE -- FSR 3 reactive mask built; clean QA, so PLAY now defaults to `-fsr3sc 10 -fsr3reactive 1`
 
-# 173-plan-world-gen-look: survey of 36 poses shot (2 launches); `WORLD_GEN_LOOK_PLAN.md` written. Capture only; play unchanged.
+## What changed (`b542dcd`, engine-phase)
+- `Raymarch.compute`: CSMain's TAA block writes `TaaDynW` only when `_TaaEnabled & 2` (no new uniform).
+  - It holds, per pixel in display levels: the dynamic light's share (point lights / torch flood + emissive bleed).
+  - For a fluid / lava / emitter pixel it holds the whole pixel's luminance instead.
+- `VoxelUpscaleInputs.compute`, new kernel `UpscaleReactive` -> FSR 3's reactive mask. FSR 3.1 feeds this mask into its shading-change channel, which `-fsr3sc` does not cut. The method, and why:
+  - (1) **Light/colour test.** The gap between this frame's 3x3 [min,max] and last frame's 3x3, reprojected by camera motion; 0 when the two ranges overlap. Mask = saturate((gap - 0.5)/1.5) display levels; one scale for every scene.
+  - Why ranges: version 1 compared the pixel's own value with last frame's range. It flagged ~5 % of a STILL torch-lit frame: under jitter, ~1-2 px voxels flip between faces that get different light (the same aliasing that fires FSR's own detector, task 166). A still scene draws from the same set of values in both frames, so the ranges overlap.
+  - (2) **New-voxel test.** In a chunk the mirror rewrote this frame, a surface key (voxel + material) not seen in last frame's 3x3 -> mask 1. It applies only where a voxel is >= 2 px, or the voxel is an emitter (torch / lava / sludge). Reason for the emitter exception: a lava front 45 m away moves < 1 px per frame, which no neighbourhood test can see.
+- `RaymarchFeature(.Upscalers).cs`: ping-pong buffers, the pass, binding the mask to FSR. `-fsr3reactive 0|1` (`UpscalerSelect`).
+- Capture arm tokens: `rm`, plus diagnostics `rm1` / `rm2` (one test each).
+- **Play default** (`Playground.cs`, `IsPlaySettingsRun` only): sc10 + mask. `-fsr3sc 0 -fsr3reactive 0` = the old FSR 3. Rigs and capture are unchanged.
+- QA: `-fsrlive 1 -fsrlivescenes task174` (`PlaygroundCapture.FsrLive.cs`), with new scenes:
+  - lava streams advancing 0.1 m/frame, aimed by a view ray so the front is in frame: `lava_near` (7 m) and `lava_far` (45 m);
+  - flood-ON repeats of the moving torch and both lava scenes (`_f`).
+- `tools/fsr174.py`: table, 4x sheets, full-size viewer. `TASKS.md`: task 174 paragraph.
 
-## What changed (`4d426d2`)
-- New capture mode `-lookreview -worldsurvey 1` (`Assets/Game/PlaygroundCapture.WorldSurvey.cs`, hooked in from `PlaygroundCapture.LookReview.cs`).
-- `tools/survey173.py`: builds the annotated map, 2-across contact sheets and the full-size viewer. TASKS.md: Task 173 paragraph.
-- `WORLD_GEN_LOOK_PLAN.md`: findings and 8 candidates in order, each with effort, how it stays general, and render cost.
-- `Screenshots/173/`: `findings173.json`, `survey173.txt`, `lookreview173_a/b.txt`, `viewer.html`. The images are git-ignored and stay on disk.
+## Evidence (capture only; no frame times)
+- Final launch: `Logs/lookreview_20261105_160834.txt`. Shots: `~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-05_161332_high/`. Table: `Screenshots/174/fsr174.txt`.
+- Earlier launches (version 1 and the far-only lava): `Logs/lookreview_20261105_151516.txt`, `..._155521.txt`.
+- Shells were not all filled after the 40 s cap (s3-s7 missing, about 2,000-3,000). The near field, where the tests happen, was full.
+- Error in the change mask vs native, today / sc10 / sc10+mask, at 432 (540 in brackets):
 
-## Evidence
-- Launch 1: all 35 poses, `Logs/lookreview_20261105_134936.txt` (`LookReview/2026-11-05_135456_high`).
-- Launch 2: reshoot of features, river, tunnel and cavern, `Logs/lookreview_20261105_143742.txt` (`2026-11-05_144242_high`). It fixed 3 defects in the capture code:
-  - the map heights are voxels relative to sea level, which had skipped the river pose;
-  - duplicate feature names had overwritten the first canyon and mesa;
-  - caves are black at noon, so a capture-only shape-light arm was added.
-- Each pose waited 30 s for the shells. Shells s3-s7 were still mostly missing (about 3,000-4,000 per pose in the log), so terrain beyond ~300 m is the far band.
-- Noon sun is 78 deg up. The poses mostly look south.
-- Fast suite: PASS 997 FAIL 0 SKIP 16 (`Logs/overnight/173_fast.out`).
-- Land on seed 42 (record): 42 biome x landform pairs. Snow 31 %, desert 31 %, forest 17 %, savanna 8 %, badlands 8 %, jungle 4 %.
+| scene | today | sc10 | sc10 + mask |
+|---|---|---|---|
+| torch moving | 17.3 (14.4) | 51.6 (53.9) | **8.9 (7.7)** |
+| torch moving, flood on | 18.8 (16.3) | 51.4 (55.0) | **9.1 (8.4)** |
+| torch lit, frame 1 | 12.2 (10.8) | 17.4 (14.6) | **9.8 (7.8)** |
+| torch out, frame 1 | 6.2 (5.7) | 11.2 (12.9) | **4.6 (4.3)** |
+| lava near | 13.2 (10.2) | 18.5 (18.4) | **7.4 (6.1)** |
+| lava far | 19.1 (23.9) | 21.7 (20.3) | **15.7 (13.8)** |
+| lava near, flood on | 15.2 (13.3) | 22.1 (20.9) | **8.5 (7.5)** |
+| lava far, flood on | 25.3 (29.5) | 23.3 (31.2) | **12.5 (10.3)** |
 
-## Findings (I looked at every native shot; detail is in the plan)
-- **Good:**
-  - Mesas, striped buttes, crater lakes and gorges (`pair_forest_volcanic` is the best frame).
-  - The sand islet with shallow-water tint.
-  - Far views across the island.
-- **Weak:**
-  1. Biomes run as straight belts, with dithered seams.
-  2. Speckle and camo ground cover, and flat lawns.
-  3. Rivers look like canals: D8 kinks, levees, stepped water.
-  4. Cliffs are one smooth grey material.
-  5. No snow on peaks.
-  6. Dune sea, canyonlands and breaks do not show their shape.
-  7. Ledges look like egg-shaped holes; a cave mouth on a steep slope becomes an open trench; the geyser basin is a perfect ellipse; hoops stand alone.
-  8. Tunnel and cavern are bland.
-- **Passed to lighting / visuals:**
-  - pure black shade in a trench at noon;
-  - flat water and waterfalls that look like solid sheets;
-  - a colour seam across the sea at a shell edge;
-  - white dashes on a cliff face (`pair_forest_breaks`).
+- Caveats on the table:
+  - Lava far covers only ~400 px (0.02 % of the frame).
+  - The `_f` scenes are not strictly frame-exact (the flood pool rebuilds asynchronously).
+- Still sun, sharpness vs native (gradient ratio): today 0.80 / sc10 0.85 / sc10+mask 0.87 at 432 (0.87 / 0.92 / 0.94 at 540). Night torch camp: 0.65 / 0.78 / 0.81.
+- Mask coverage, from FSR's debug view (top-middle panel, % px):
+  - sun_still and torch_still: **0.000** in every frame;
+  - torch on/off: 1.3 % on the change frame only, 0 after;
+  - moving torch: 0.07 %; lava near: ~0.3 %.
+- sc10 vs sc10+mask on the still sun differ by 0.5 levels, although the mask is 0 on every pixel there. My guess: each arm is captured at a different point of FSR's jitter cycle. NOT proven (no A/A pair was shot).
+- Fast suite: PASS 997 FAIL 0 SKIP 16 (`Logs/overnight/174_fast.out`).
+- Rough cost (look-stage rule, not measured):
+  - CSMain: +1 float write per pixel (FSR path only).
+  - `UpscaleReactive`: 18 float reads + 1 R16 write per render pixel (~0.4 M px at 540 rows); key reads only in rewritten chunks.
+  - Memory: 2 x 4 B x render px (~4 MB at 960x540) + a 1 MB R16 texture.
+- Note: CSMain's code changed. TAA-off images could shift by float recompile (task 08's warning). No gate checks image bytes.
 
-## Next
-- The owner answers Q1-Q5. Then the first world-gen task is queued (C1 if the order is (a)).
-- No follow-up was queued: every candidate needs an owner yes.
+## Not done / next
+- The play default flipped on capture evidence only. Worth one look in play (`./run-play.sh BUILD=1`): walk past torches and lava at night.
+- The water slide and pour (171's scenes) were not re-shot. Water is in the mask's "whole pixel" class.
+- A perf milestone should include the mask pass.
 
 ## For the doc
-- Numbers (`Screenshots/173/lookreview173_a.txt`):
-
-| What | Value |
-|---|---|
-| Biome x landform pairs on land | 42 |
-| Poses shot | 18 pairs (91 % of the land) + 18 other poses |
-| Largest pair | snow x river plains, 14.1 % |
-| Snow + desert share of land | 62 % |
-| Tallest sun-lit sheer face | 167 m over 48 m |
-
-- `Screenshots/173/survey173_map.png`: island map. Look at the forest/olive/red biome bands running dead straight NW-SE. Numbered dots are the camera poses (see the viewer).
-- `Screenshots/173/survey173_sheet_1.png`: first 6 poses. Look at the speckled slopes at the start, and the snow river-plains canal (row 2, left).
-- `Screenshots/173/shots/ws_cliff_native.png`: the tallest sheer face. 167 m of one smooth grey material, with no layers or ledges.
+- Moving torch, error in the moving-light region at 432: today 17.3 -> sc10 51.6 -> **sc10 + mask 8.9** (540: 14.4 / 53.9 / **7.7**) (`Screenshots/174/fsr174.txt`).
+- Near lava front at 432: 13.2 / 18.5 / **7.4**. Torch put out, frame 1 after: 6.2 / 11.2 / **4.6**.
+- Still sun sharpness vs native: 0.80 / 0.85 / **0.87**. The mask is 0 on every pixel of the still scenes.
+- Full-size viewer: `Screenshots/174/viewer.html`. ←/→ = scene, Space = arm (native, today, sc10, sc10+mask at 432/540, debug view), 3/4 = zoom on the sheet's window. Each scene's caption says what to look at.
+- `Screenshots/174/fsr174_torch_move.png`: 4x zoom. Row 1 = native | today 432 | sc10 432 | sc10+mask 432; row 2 = the 540 arms. Look at the torch, bottom right: sc10 draws it twice with a speckle trail; sc10+mask shows one clean torch, sharper than today.
+- `Screenshots/174/fsr174_lava_near.png`: same layout. Look at the lava stream's edges: sc10 leaves dark holes and stale rock in the new lava; sc10+mask is clean.
+- `Screenshots/174/fsr174_sun_still.png`: same layout, still terrain. Look at the step outlines: sc10 and sc10+mask look the same and are crisper than today.
