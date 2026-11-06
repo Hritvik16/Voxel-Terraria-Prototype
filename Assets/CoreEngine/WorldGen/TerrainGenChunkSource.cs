@@ -71,6 +71,15 @@ namespace VoxelEngine.WorldGen
             var t = Spec; t.cavernCellCacheOff = on ? (byte)0 : (byte)1; Spec = t;
             _specStamp++;
         }
+        /// Tests (task 178c): off = the cliff layers without the per-brick rock mix
+        /// (spec.rockMixOff). Shell tests that run without the fill pass need it: the
+        /// fill flattens buried mixed bricks, without it the mix fills shell pools.
+        /// The map, the column pass and the far band do not read it. Same rules as above.
+        public void SetRockMix(bool on)
+        {
+            var t = Spec; t.rockMixOff = on ? (byte)0 : (byte)1; Spec = t;
+            _specStamp++;
+        }
         /// Bumped whenever Spec changes: a ShellChunk's kept column pass (task 93b2) is stale then.
         private int _specStamp;
         public readonly TerrainGen.Offsets O;
@@ -154,6 +163,17 @@ namespace VoxelEngine.WorldGen
             return off;
         }
 
+        /// -rockmix 0 (task 178c): spec.rockMixOff = 1, the cliff layers without the
+        /// per-brick rock mix. Absent = on. Last match wins.
+        public static bool RockMixOffArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            bool off = false;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-rockmix" && int.TryParse(a[i + 1], out int p)) off = p == 0;
+            return off;
+        }
+
         public TerrainGenChunkSource(uint seed, int mapVersion)
         {
             // R1 BRICK GEOLOGY (V0, design doc §11/§15): below 20 m under the
@@ -170,6 +190,7 @@ namespace VoxelEngine.WorldGen
             if (BiomeVaryOffArg()) spec.biomeVaryOff = 1;
             if (CoverSlotsOffArg()) spec.coverSlotsOff = 1;
             if (CliffsOffArg()) spec.cliffsOff = 1;
+            if (RockMixOffArg()) spec.rockMixOff = 1;
             Spec = spec;
             O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
             Map = TerrainGen.WorldMap.Build(Spec);

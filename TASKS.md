@@ -1074,3 +1074,20 @@ square; scree cover only where (1 - w) x fill >= SCREE_MIN). Map-only, so every 
 holds. Cliffs-off and v3 are untouched; the cliff LOOK off-route is bit-identical to 178. Test: `CliffTests.Relief_SkipsRouteCells_UnchangedBeyondTheBlend`
 (route-cell columns = cliffs off, land beyond the blend = 178's view without routes, blend columns between them, plus the 176d / 178 probes;
 log `Logs/TerrainGen/c4/routes178b.txt`). Result: HANDOFF 178b.
+
+**Task 178c (owner 2026-11-06 on 178's shots, "this looks horrible ... rework it"; GENERATOR CHANGE, cliffs on only): cliff look rework.**
+(1) THE DRIPS: the rock wore the column's `surfBiome`, whose border jitter has 40 m / 10 m patch octaves; projected onto a steep face
+each patch edge became a vertical streak (also in the plain pre-178 faces). The rock now has its own biomes `ColumnSample.rockA/rockB`
+(`ShapeField.RockBiomes`: the border's two SMOOTH warp octaves only, shifted +-29 m), and each layer takes A or B by a hash of its index
+(`DetailField.LayerBiome`), so layers interfinger at a border. (2) FLAT STRATA: `LayerWave` is +-1.2 m / 90 m + +-0.2 m / 26 m plus a DIP
+(+-25 m over ~4 km); p99 boundary rise 0.87 m per 10 m. (3) CLOSE TONES: `LAYER_ROCKS` rows are each biome's close rocks (CIE dE 7-22,
+was 22-62). (4) NO FLAT FIELDS: each 0.8 m brick whose 3-D value noise (12 m x 1.6 m lenses) is > 0.62 wears its rock's PARTNER,
+the nearest-tone rock in palette D (`LAYER_PARTNERS`, dE 5-18), 28 % of bricks; a brick stays uniform (brick proofs keep their
+`MixState` check). (5) Fluting is plain snoise 9 m x 0.5 m (was ridged 5 m: fine vertical hatching); the ledges are one bench at each
+layer's base. The far band / shell top colour is the layer rock without the mix. Tests: `CliffTests.RockBiome_IsSmooth_NoPatchStreaks`,
+`Mix_ShareAndPartnerRock`, `Layers_NearlyFlat`. Shots: `Screenshots/178c/viewer.html` (Space cycles before / 178 / rework) and
+`<pose>_compare.png`; `python3 -I tools/cliff178c.py shots|sheets|tones`. 178's black `viewer.html` (rows were arrays, the page read
+object fields) is fixed in `tools/cliff178.py`. World survey: `-wsposes cliff_<biome>` picks a face inside that biome. `-rockmix 0`
+(spec.rockMixOff, `TerrainGenChunkSource.SetRockMix`) = the reworked layers without the mix (4th panel `<pose>_4_nomix.png`). The mix makes BURIED
+bricks mixed in the coarser shells; the shell fill pass flattens them, but tests that run shells with the fill OFF fill their pools: the
+streamer redraw test (`Streamer_EditedChunk...`) now turns the mix off. ShellFill GOLDEN re-pinned (68 of 82 chunks, fast == reference). Result: HANDOFF 178c.

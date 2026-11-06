@@ -282,12 +282,22 @@ public partial class PlaygroundCapture
 
         // ---------------- cliff ----------------
         {
+            // Task 178c: also "cliff_<biome>" -- the same search kept to one biome's cells, shot from 110 m out.
+            for (int want = -1; want < 6; want++)
+            {
+            string cname = want < 0 ? "cliff" : "cliff_" + bn[want];
+            if (want >= 0 && (onlySet == null || !onlySet.Contains(cname))) continue;
             int fx = -1, fz = -1; float best = 0f; float2 down = 0f;
             for (int cz = 4; cz < cells - 4; cz += 2)
             for (int cx = 4; cx < cells - 4; cx += 2)
             {
                 var c = R(cx, cz);
                 if (c.IsSea || c.MoveBand != 3) continue;
+                if (want >= 0 && c.Biome != want) continue;
+                // 178c: a face INSIDE the biome (all 4 cells 32 m out too), not a border face --
+                // the first try's cliff_snow was the forest|desert|badlands 'cliff' face again.
+                if (want >= 0 && (R(cx - 4, cz).Biome != want || R(cx + 4, cz).Biome != want ||
+                                  R(cx, cz - 4).Biome != want || R(cx, cz + 4).Biome != want)) continue;
                 float2 g = new float2(MapH(cx + 1, cz) - MapH(cx - 1, cz), MapH(cx, cz + 1) - MapH(cx, cz - 1));
                 if (math.lengthsq(g) < 1e-4f) continue;
                 float2 dn = -math.normalize(g);           // downhill = where the camera stands
@@ -298,10 +308,12 @@ public partial class PlaygroundCapture
             if (fx >= 0)
             {
                 var at = CellM(fx, fz); at.y = Ground(at.x, at.z);
-                var e = at + new Vector3(down.x, 0f, down.y) * 70f;
+                float back = want < 0 ? 70f : 110f;
+                var e = at + new Vector3(down.x, 0f, down.y) * back;
                 float g0 = Ground(e.x, e.z);
                 e.y = math.max(g0 + 1.6f, g0 + best * 0.4f);
-                poses.Add(new WsPose { name = "cliff", eye = e, at = at, note = $"Sheer cell ({fx},{fz}), {best:F0} m drop over 48 m, from 70 m out" });
+                poses.Add(new WsPose { name = cname, eye = e, at = at, note = $"Sheer cell ({fx},{fz}), {best:F0} m drop over 48 m, from {back:F0} m out" });
+            }
             }
         }
 

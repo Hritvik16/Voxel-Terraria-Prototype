@@ -102,7 +102,7 @@ namespace TerrainGen.Tests
                 byte top = DetailField.TopMaterial(in w.spec, in c, st, in w.o, p.x, p.y);
                 byte cell = Cover.Material(Cover.Row(c.surfBiome), c.cover);
                 byte expect = cell == Cover.BARE || st > DetailField.SHEER_STEP
-                    ? DetailField.Strata(in w.spec, in w.o, c.surfBiome, p.x, c.height, p.y)
+                    ? DetailField.Strata(in w.spec, in w.o, in c, p.x, c.height, p.y)
                     : Cover.Settle(cell, st);
                 Assert.AreEqual(expect, top, $"top at {p} (biome {BIOME[c.surfBiome]}, slot {Cover.SlotName(Cover.Slot(c.cover))})");
                 checkedN++;

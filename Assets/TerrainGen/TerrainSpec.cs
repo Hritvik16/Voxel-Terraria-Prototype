@@ -108,6 +108,11 @@ namespace TerrainGen
         /// scree at the foot). IGNORED below v4. Read it through Cliffs, never
         /// directly. `-cliffs 0` sets it.
         public byte cliffsOff;
+        /// Task 178c: 1 = the cliff layers without the per-brick rock mix (each
+        /// layer one rock, DetailField.MixBrick off). 0 = the default. Only with
+        /// Cliffs. Read it through RockMix. `-rockmix 0` sets it; tests whose
+        /// shells run without the fill pass use it (TerrainGenChunkSource.SetRockMix).
+        public byte rockMixOff;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -164,6 +169,9 @@ namespace TerrainGen
 
         /// Task 178's cliff geology and face relief in force (see cliffsOff): v4 only.
         public bool Cliffs => mapVersion >= 4 && cliffsOff == 0;
+
+        /// Task 178c's per-brick rock mix inside the cliff layers in force (see rockMixOff).
+        public bool RockMix => Cliffs && rockMixOff == 0;
 
         public const float V4_GENTLE_SHARE = 0.50f;
 
