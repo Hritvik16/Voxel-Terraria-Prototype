@@ -1,49 +1,52 @@
-# 177b-worldgen-palette-tweaks: DONE -- all three owner tweaks shipped (desert cliffs one colour, softer savanna earth, badlands no stripes); whole suite red only on the known route test
+# 178b-worldgen-relief-skips-routes: DONE -- cliff relief and the scree apron skip route cells; seed 42's route test passes again; whole suite red only on the known 31337 ford
 
-## What changed
-- **The code landed in `c629fda` by accident.** That is a supervisor commit called "new-session.sh: comment wording", made at 08:42 while this task's whole suite was running. It picked up the working tree, which had this task's re-applied patch in it. The content is exactly this task's patch. I did not rewrite history.
-  - `Cover.PALETTE`, desert `steep`: the variant was cream sandstone; now it is BARE. Steep desert has no patch variant, so cliffs are one cell: 178's thick orange-sandstone layers.
-  - `Cover.PALETTE`, savanna `flat`: the variant was red earth; now it is packed sand, a dusty tan. Its colour distance from savanna grass is CIE dE 18, against red earth's 43.
-    - The share of the patch variant is unchanged at ~23 % of flat, because the variant noise does not depend on the biome.
-    - Savanna's `hollow` variant and savanna soil stay red earth.
-  - Badlands: the palette never made stripes. The 3.2 m stripes came from `DetailField.BadlandsBand`, the depth bands, not from the palette.
-    - 178's thick layers had already replaced them with cliffs on.
-    - 177b deletes `BadlandsBand`, so `-cliffs 0` now shows plain `BiomeRock(Badlands, 0)` too.
-    - `CliffTests.Layers_...` now asserts one rock per biome with cliffs off.
-  - `tools/cover177.py`: the palette swatch draws BARE as 178's three layers. `TASKS.md` gets the 177b paragraph.
-- **`418bd0b`** (this session):
-  - ShellFill GOLDEN re-pinned. 18 of 85 chunks changed (36 counting the fast and reference paths); the chunk set is the same.
-  - TASKS result line.
-  - `Screenshots/177b/{shares177b.txt, palette177b.md, pairs.json}` and `tools/palette177b.py`.
-- Heights did not move, so `PLAYER_V4_SEED42` (map hash) still passes.
-- The first run's patch also changed `Assets/Scenes/Playground.unity`. That was a side effect of the scene builder, so I dropped it.
+## What changed (commit 14b0870)
+- **Route flag exposed to the generator:**
+  - `MapView.route` (new and OPTIONAL; null means no skip) = `WorldMap.RouteMask`, 1 per map cell that the world record flags `FLAG_ROUTE`.
+  - It is derived and pinned in the new `WorldMap.SetRecord`, called from MapJob's FromCore.
+  - It is driven by the record alone, with no seed or place constant.
+- **Plumbed beside `flow` as a `routeMask` NativeArray (length 1 = none) into every job that builds a MapView:**
+  - chunk `ColumnJob`, `ShellColumnJob`, `ShellFillJob`
+  - `FarQuery` (via `PointRoute`) and FarField's `FillTg2Job`
+  - the `ShellChunkTests` and `ColumnPassSplitTests` jobs
+  - So LOD 0, the shells and the far band agree.
+- **`ShapeField.FaceRelief`:**
+  - It returns the un-relieved height on a route cell, so fluting, ledges and scree are all skipped.
+  - Off the route, `RouteWeight` fades the relief back in over `ROUTE_BLEND_CELLS` = 2 map cells (16 m): a smoothstep of the distance to the nearest route cell's square.
+  - The scree cover is kept only where (1 - w) x fill >= SCREE_MIN.
+  - The blend is convex, so the band-limit bound is unchanged. The scree's worst added grade in the blend is about 1.5 x 10 m / 16 m = 0.94.
+- **The cliff LOOK off-route is bit-identical to 178.** Cliffs-off and v3 are untouched.
+- **New test** `CliffTests.Relief_SkipsRouteCells_UnchangedBeyondTheBlend`.
+- **Docs:** TASKS 178b paragraph; KNOWN_ISSUES route line and the CLAUDE.md index line rewritten.
 
 ## Evidence
-- **Whole suite on the final code: PASS 1063 FAIL 2 SKIP 33** (`Logs/overnight/177b_all.out`, XML copy `Logs/overnight/177b_all_TestResults.xml`, 46 min).
-  - `ShellFillTests.Fill_BytesAsGolden_FastAndReference`: expected, a palette change. It is now re-pinned from `REPORTS=1 FillHashes_Report` (`Logs/Shells/fill93b2d_hashes.txt`).
-  - `RouteTests.V4_FourSeeds_RoutesJoinTheEasyAreas`: the known red. Seed 42 is 3.4 m (178's scree; 178b fixes it) and seed 31337 is 1.5 m (the ford).
-  - The aborted first run's orphaned whole-suite run, on the same code, gave the identical 1063/2 (`Logs/overnight/177b_orphan_TestResults.xml`).
-- After the re-pin, a filtered run (ShellFillTests + CliffTests + CoverTests) gave **16 passed, 0 failed, 5 report-only skipped** (`Logs/overnight/177b_verify.log`).
-- CliffTests layer log, seed 42: every biome shows 3 rocks with cliffs on, thinnest layer 15.4 m, and one rock with cliffs off (`Logs/overnight/177b_filter.log`).
-- Shares, from `CoverTests.Report_CoverMaps` (`Screenshots/177b/shares177b.txt`), over seeds 42/7/2026/31337:
-  - Savanna tops in red earth: **9.3-15.2 % -> 0.7-1.5 %**. Only the hollow variant is red earth now; the packed-earth patches take 8.6-13.8 %.
-  - Desert steep's cream-sandstone patches: **~22-23 % of steep -> 0**. Cream remains only where it is intended: the `high` slot and 178's light layer.
-- Shots come from one survey launch per arm, 30 s shell cap (`Logs/lookreview_20261106_071401.txt`). Shells 3-7 were partly unfilled at 30 s, so far detail behind the poses comes from the far band.
-- Rough cost: palette data only, so the per-voxel work is the same. Deleting BadlandsBand removes a branch. No timing arms.
+- **Whole suite: PASS 1065 FAIL 1 SKIP 33** (`Logs/overnight/178b_all.out`, XML `Logs/overnight/178b_all_TestResults.xml`, 43 min). ShellFill GOLDEN did not move.
+- The only red is the known ford. Exact message: `seed 31337: 1.5 m of Sheer on the voxel ground`.
+- Route numbers (`Logs/overnight/178b_b8_routes.txt`):
+  - seed 42: PASS, Sheer 3.4 -> **0.0 m**, Walk+Scramble 97.7 %, in sight 85.3 %
+  - seeds 7 and 2026: PASS
+  - seed 31337: 1.5 m, the ford
+- **"In sight 61.9 % < 65 %" is no longer there.**
+  - Sight reads only the map (`RouteTests.Sight`: `Surf(map)` and `Features.LineOfSight(map)`), so neither 178 nor 178b can move it.
+  - 176d's biome Size 2 moved seed 42's routes (biome -> danger -> routes; the map hash re-pin). On the new routes sight is 85.3 %. 177b's run already showed 85.3 % and the same message without the sight line.
+  - Nothing to fix.
+- **New test** (filtered run `Logs/overnight/178b_filter1.out`; numbers in `Logs/TerrainGen/c4/routes178b.txt`), seed 42:
+  - 12,834 route-cell columns all equal cliffs off; 119 of them had relief under 178.
+  - 5,768 land columns beyond the blend all equal 178's column (the same view without routes), height and cover. This is the "-cliffs 0 vs on unchanged off-route" proof: the off-route relief is exactly 178's.
+  - 87 columns lie in the blend, and each stays between cliffs-off and 178.
+- **Probes:**
+  - (3777, 5278) m [176d]: on a route cell. The 1 m band at the point goes Climb -> **Walk**. The worst band over the 81 route points of the 9x9 m grid goes Sheer -> **Scramble**.
+  - (4471, 2390) m [178]: since 176d's Size 2 it is **no longer a route cell** (route weight 0). It is Scramble with cliffs on, off and 178 alike, so there is nothing to fix there. The route that crossed it before Size 2 has moved.
+- No timing arms. The rough cost is one 5x5 byte read per land column, and only with cliffs on.
 
 ## Unfinished / notes
-- "Desert cliffs one colour" means no patch variant. A desert cliff still shows 178's thick layers (orange, cream and red-brown). 178c (cliff look rework) owns that look.
-- The orphaned suite from the aborted run held the lock for 42 min. I was not allowed to stop my own queued duplicate, so both ran.
-- Next: the queue continues with 178b, then 178c.
+- No screenshots: the task changes only route corridors and the 16 m beside them, and asks for the cliff look to stay as it is. The proof is numeric.
+- In the blend, the scree can still add a steep edge just outside the corridor, up to ~43 deg extra grade. It is off-route, so the route test cannot see it.
+- Next: the queue continues with 178c (cliff look rework).
 
 ## For the doc
-- Savanna flat ground in red earth: **9.3-15.2 % -> 0.7-1.5 %**. Soft tan packed-earth patches now take that ~23 % of flat ground. (`Screenshots/177b/shares177b.txt`)
-- Desert steep ground with cream-sandstone patches: **~22-23 % -> 0 %** (same file).
-- Badlands stripes: with cliffs on they were already gone (178). With `-cliffs 0`, **3.2 m bands -> one plain red rock** (CliffTests log).
-- Whole suite: **PASS 1063 FAIL 1** after the golden re-pin. The 1 is the known route test (`Logs/overnight/177b_all.out` + `177b_verify.log`).
-- Images (full size; viewer `Screenshots/177b/viewer.html`):
-  - `Screenshots/177b/shot_pair_desert_canyonlands_before.png` | `_after.png`: desert x canyonlands. Look at the orange steep patches across the whole ground and on the ridge at right. BEFORE has white cream-sandstone blotches inside the orange; AFTER is plain orange. The grey patches are hollow-slot gravel and are unchanged.
-  - `Screenshots/177b/shot_pair_savanna_wetland-basin_before.png` | `_after.png`: the savanna slope filling the right half. BEFORE has dark red-earth blotches on the gold grass; AFTER has soft tan patches in the same places. The striped mountain at left is 178's layers, not this task.
-  - `Screenshots/177b/shot_pair_badlands_canyonlands_after.png`: a badlands face in the foreground. Plain red rock with hardpan patches, no thin stripes; BEFORE is identical.
-  - `Screenshots/177b/palette177b_before.png` | `palette177b.png`: the palette table. Look at the desert row's STEEP variant (now bare) and the savanna row's FLAT variant (packed sand instead of red earth).
-  - `Screenshots/177b/shot_fixed_great-peak-0_before.png` | `_after.png`: the great peak from 1.6 km. Look at the desert flank at the right edge: the cream blotches are gone.
+- Seed 42 route Sheer on the voxel ground: **3.4 m -> 0.0 m**. Seed 42 now passes: Walk+Scramble 97.7 %, in sight 85.3 % (`Logs/overnight/178b_b8_routes.txt`).
+- Probe (3777, 5278) m, worst 1 m band on the route around it: **Sheer -> Scramble** (`Logs/TerrainGen/c4/routes178b.txt`).
+- Route-cell columns that 178's relief had moved: **119 -> 0** of 12,834 sampled. Off-route columns changed vs 178: **0 of 5,768**.
+- Whole suite: **PASS 1065 FAIL 1**. The 1 is seed 31337's ford, until C5 (`Logs/overnight/178b_all.out`).
+- Images: none. The change is invisible off the route corridors and the cliff look is unchanged, so the evidence is the numbers above.
