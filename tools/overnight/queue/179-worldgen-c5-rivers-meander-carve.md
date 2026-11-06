@@ -22,3 +22,6 @@ Approval: owner, 2026-11-06, "Questions for you" (river question): (a) yes, queu
 
 ## End
 Done (no owner stop) unless a new red appears. HANDOFF with the before|after pictures for the doc.
+
+## Supervisor note (2026-11-06 15:40)
+178c is committed (1d57b8f); it only awaits the owner's keep/revert choice on the cliff look (flags `-rockmix`, `-cliffs`), which does not touch rivers. Start now.
