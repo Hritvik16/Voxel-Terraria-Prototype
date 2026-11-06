@@ -1061,4 +1061,5 @@ the variant noise is biome-agnostic). Savanna `hollow` variant and savanna soil 
 plain `BiomeRock(Badlands, 0)` (red rock) instead of stripes (`CliffTests.Layers_...` now asserts one rock per biome with cliffs off).
 Shares: `Screenshots/177b/shares177b.txt` (from `CoverTests.Report_CoverMaps`, REPORTS=1). Shots: `-worldsurvey -wsarms native -wspairs 60
 -wsposes fixed,pair_savanna_wetland-basin,pair_desert_canyonlands,pair_badlands_canyonlands -lookwait 30 -wsfixed <176d's 5>`;
-`python3 -I tools/palette177b.py Screenshots/177b` (pairs, sheet, viewer); `cover177.py palette` draws BARE as 178's three layers. Result: HANDOFF 177b.
+`python3 -I tools/palette177b.py Screenshots/177b` (pairs, sheet, viewer); `cover177.py palette` draws BARE as 178's three layers. Re-pinned: ShellFill GOLDEN (18 of 85 chunks; heights and the map hash do not move).
+Whole suite PASS 1063 FAIL 2 = the golden (since re-pinned, filtered run green) + the known route test. Result: HANDOFF 177b.

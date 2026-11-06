@@ -1,0 +1,47 @@
+[
+[
+"shot_pair_desert_canyonlands_after.png",
+"shot_pair_desert_canyonlands_before.png",
+"desert x canyonlands, 160 m out. Look at the steep ground (the orange patches and the ridge at right): BEFORE cream-sandstone blotches inside the orange, AFTER one orange. The grey patches are the hollow slot's gravel (unchanged). FULL SIZE; Space flips BEFORE | AFTER."
+],
+[
+"shot_pair_savanna_wetland-basin_after.png",
+"shot_pair_savanna_wetland-basin_before.png",
+"savanna x wetland basin, the slope at right. BEFORE dark red-earth blotches on the gold grass; AFTER soft tan packed-earth patches, same places, same share. The striped mountain at left is 178's thick layers (not this task). FULL SIZE; Space flips BEFORE | AFTER."
+],
+[
+"shot_fixed_great-peak-0_after.png",
+"shot_fixed_great-peak-0_before.png",
+"the great peak from 1.6 km (savanna rock since 176d). Look at the desert flank at the right edge of the peak: BEFORE cream blotches on orange, AFTER orange with one cream band (the high slot / a 178 layer). FULL SIZE; Space flips BEFORE | AFTER."
+],
+[
+"shot_pair_badlands_canyonlands_after.png",
+"shot_pair_badlands_canyonlands_before.png",
+"a badlands face (canyonlands). Identical BEFORE | AFTER: plain red rock with hardpan patches, no thin stripes (178's thick layers already replaced them; 177b removes them from -cliffs 0 too). FULL SIZE; Space flips BEFORE | AFTER."
+],
+[
+"shot_fixed_forest_river-plains_after.png",
+"shot_fixed_forest_river-plains_before.png",
+"the 'lawn' pose -- forest since 176d, so it looks the same (the arch at right differs by streaming/LOD timing, not palette). FULL SIZE; Space flips BEFORE | AFTER."
+],
+[
+"shot_fixed_desert_alpine-range_after.png",
+"shot_fixed_desert_alpine-range_before.png",
+"desert x alpine range camera (savanna rock since 176d): no desert steep or savanna flat in frame, so it looks the same (a check). FULL SIZE; Space flips BEFORE | AFTER."
+],
+[
+"shot_fixed_range_200up_after.png",
+"shot_fixed_range_200up_before.png",
+"the 600 m summit from 1.5 km (savanna rock): the same apart from streaming detail (a check). FULL SIZE; Space flips BEFORE | AFTER."
+],
+[
+"shot_fixed_start_view_after.png",
+"shot_fixed_start_view_before.png",
+"the play start (forest): unchanged. FULL SIZE; Space flips BEFORE | AFTER."
+],
+[
+"palette177b.png",
+"palette177b_before.png",
+"THE PALETTE (rows biomes, columns slots, each cell main | patch variant; hatched = bare rock, drawn as 178's three thick layers). Space flips to BEFORE. Look at desert STEEP (variant now bare = no cream patch) and savanna FLAT variant (red earth -> packed earth)."
+]
+]
