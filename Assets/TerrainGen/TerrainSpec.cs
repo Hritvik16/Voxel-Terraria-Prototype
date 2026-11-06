@@ -100,6 +100,14 @@ namespace TerrainGen
         /// the biome's palette row (Cover.cs). IGNORED below v4. Read it through
         /// CoverSlots, never directly. `-coverslots 0` sets it.
         public byte coverSlotsOff;
+        /// Task 178 (C4, owner 2026-11-05 "C4 cliffs approved"): 1 = the pre-178
+        /// cliffs (one rock per biome down to sea - 50 m, badlands' 3.2 m bands,
+        /// smooth faces). 0 = the version's default: on v4 the stone zone is a few
+        /// THICK rock layers per biome by height (DetailField.LayerRock), and faces
+        /// get relief from the map slope (ShapeField.FaceRelief: fluting, ledges,
+        /// scree at the foot). IGNORED below v4. Read it through Cliffs, never
+        /// directly. `-cliffs 0` sets it.
+        public byte cliffsOff;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -153,6 +161,9 @@ namespace TerrainGen
 
         /// The shape-chosen cover slots in force (see coverSlotsOff): v4 only.
         public bool CoverSlots => mapVersion >= 4 && coverSlotsOff == 0;
+
+        /// Task 178's cliff geology and face relief in force (see cliffsOff): v4 only.
+        public bool Cliffs => mapVersion >= 4 && cliffsOff == 0;
 
         public const float V4_GENTLE_SHARE = 0.50f;
 

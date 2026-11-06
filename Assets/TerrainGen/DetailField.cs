@@ -58,6 +58,9 @@ namespace TerrainGen
             public float deepOffset;      // added to y at the stone / deep-stone boundary (wavy)
             public float cavernOffset;
             public float underOffset;
+            /// Task 178: added to y at the stone zone's thick rock layers (LayerWave;
+            /// 0 when TerrainSpec.Cliffs is off).
+            public float layerOffset;
             public int soilDepth;
             // ---- T4 structured caves, per column ----
             /// Tunnel layer k: |line field| / width (a passage needs < 1), the
@@ -83,7 +86,7 @@ namespace TerrainGen
 
         /// The geology terms only (layer boundary offsets, soil): what the
         /// surface and LayerRock need. No caves.
-        private static ColumnDetail PrepareGeology(in Offsets o, int x, int z)
+        private static ColumnDetail PrepareGeology(in Offsets o, int x, int z, bool layers)
         {
             float2 p = new float2(x, z);
             // Each layer boundary is a wavy surface: the offset shifts the
@@ -94,6 +97,7 @@ namespace TerrainGen
             cd.underOffset = GEO_UNDER_AMP * noise.snoise(p / 1800f + o.strata - 70f);
             float n = noise.snoise(p / 300f + o.soil) * 0.5f + 0.5f;
             cd.soilDepth = 12 + (int)math.floor(n * 12f);
+            if (layers) cd.layerOffset = LayerWave(in o, p);
             return cd;
         }
 
@@ -248,7 +252,7 @@ namespace TerrainGen
         private static unsafe ColumnDetail FinishColumn(in TerrainSpec spec, in Offsets o, in CaveNode n, int x, int z,
                                                         CavernCells* cav)
         {
-            var cd = PrepareGeology(in o, x, z);
+            var cd = PrepareGeology(in o, x, z, spec.Cliffs);
             cd.oreMul = spec.mapVersion >= 4 ? Ores.DEFAULT_MUL : (byte)0;
             float2 p = new float2(x, z);
             // Tunnels: the zero-line of a 2-D field meanders like a river in plan;
@@ -444,7 +448,7 @@ namespace TerrainGen
             // passing it in is exact. Without it (None) Material prepares it
             // per voxel, which the exactness tests use as the reference.
             public bool hasGeo;
-            public float geoDeep, geoCavern, geoUnder;
+            public float geoDeep, geoCavern, geoUnder, geoLayer;
             public static BrickCull None => default;
         }
 
@@ -470,8 +474,8 @@ namespace TerrainGen
 
             if (spec.brickGeologyDepth > 0)
             {
-                var g = PrepareGeology(in o, bx + BRICK / 2, bz + BRICK / 2);
-                r.hasGeo = true; r.geoDeep = g.deepOffset; r.geoCavern = g.cavernOffset; r.geoUnder = g.underOffset;
+                var g = PrepareGeology(in o, bx + BRICK / 2, bz + BRICK / 2, spec.Cliffs);
+                r.hasGeo = true; r.geoDeep = g.deepOffset; r.geoCavern = g.cavernOffset; r.geoUnder = g.underOffset; r.geoLayer = g.layerOffset;
             }
             return r;
         }
@@ -549,12 +553,12 @@ namespace TerrainGen
             if (spec.brickGeologyDepth > 0 && depth > spec.brickGeologyDepth)
             {
                 int gy = (y & ~(BRICK - 1)) + BRICK / 2;
-                float gDeep, gCavern, gUnder;
-                if (cull.hasGeo) { gDeep = cull.geoDeep; gCavern = cull.geoCavern; gUnder = cull.geoUnder; }
+                float gDeep, gCavern, gUnder, gLayer;
+                if (cull.hasGeo) { gDeep = cull.geoDeep; gCavern = cull.geoCavern; gUnder = cull.geoUnder; gLayer = cull.geoLayer; }
                 else
                 {
-                    var bd = PrepareGeology(in o, (x & ~(BRICK - 1)) + BRICK / 2, (z & ~(BRICK - 1)) + BRICK / 2);
-                    gDeep = bd.deepOffset; gCavern = bd.cavernOffset; gUnder = bd.underOffset;
+                    var bd = PrepareGeology(in o, (x & ~(BRICK - 1)) + BRICK / 2, (z & ~(BRICK - 1)) + BRICK / 2, spec.Cliffs);
+                    gDeep = bd.deepOffset; gCavern = bd.cavernOffset; gUnder = bd.underOffset; gLayer = bd.layerOffset;
                 }
                 // Ores (gameplay step 3, map v4): the host layer is the brick's own.
                 if (cd.oreMul != 0 && spec.mapVersion >= 4)
@@ -562,7 +566,7 @@ namespace TerrainGen
                     byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, gy, gDeep, gCavern, gUnder), x, y, z);
                     if (ore != 0) return ore;
                 }
-                return LayerRock(in spec, c.surfBiome, gy, gDeep, gCavern, gUnder);
+                return LayerRock(in spec, c.surfBiome, gy, gDeep, gCavern, gUnder, gLayer);
             }
 
             if (spec.CoverSlots)
@@ -588,7 +592,7 @@ namespace TerrainGen
                 byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, y, cd.deepOffset, cd.cavernOffset, cd.underOffset), x, y, z);
                 if (ore != 0) return ore;
             }
-            return LayerRock(in spec, c.surfBiome, y, cd.deepOffset, cd.cavernOffset, cd.underOffset);
+            return LayerRock(in spec, c.surfBiome, y, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset);
         }
 
         // ------------------------------------------------------------------
@@ -618,7 +622,7 @@ namespace TerrainGen
         /// (geoDeep, geoCavern, geoUnder); otherwise the offsets are only bounded.
         public static byte UniformSamples(in TerrainSpec spec, in ColumnSample c, in ColumnDetail cd, float stepAtTop,
                                           int x, int z, int yLo, int yStep, int count, bool noPocket,
-                                          bool geoExact, float geoDeep, float geoCavern, float geoUnder)
+                                          bool geoExact, float geoDeep, float geoCavern, float geoUnder, float geoLayer)
         {
             int yHi = yLo + yStep * (count - 1);
             int h = c.height;
@@ -656,9 +660,9 @@ namespace TerrainGen
             int bgd = spec.brickGeologyDepth;
             if (bgd > 0 && hg - yLo > bgd)
             {
-                if (hg - yHi > bgd) return GeologyRock(in spec, in c, in cd, x, z, yLo, yStep, count, geoExact, geoDeep, geoCavern, geoUnder);
+                if (hg - yHi > bgd) return GeologyRock(in spec, in c, in cd, x, z, yLo, yStep, count, geoExact, geoDeep, geoCavern, geoUnder, geoLayer);
                 int nGeo = (hg - bgd - 1 - yLo) / yStep + 1;   // the samples with y < hg - bgd
-                byte deep = GeologyRock(in spec, in c, in cd, x, z, yLo, yStep, nGeo, geoExact, geoDeep, geoCavern, geoUnder);
+                byte deep = GeologyRock(in spec, in c, in cd, x, z, yLo, yStep, nGeo, geoExact, geoDeep, geoCavern, geoUnder, geoLayer);
                 if (deep == 255) return 255;
                 return ShallowRock(in spec, in c, in cd, stepAtTop, x, z, yLo + nGeo * yStep, yStep, count - nGeo, hg) == deep ? deep : (byte)255;
             }
@@ -668,25 +672,26 @@ namespace TerrainGen
         /// UniformSamples' tail where every sample is deeper than brickGeologyDepth:
         /// ore, then LayerRock at the sample's fine-brick centre height.
         private static byte GeologyRock(in TerrainSpec spec, in ColumnSample c, in ColumnDetail cd, int x, int z,
-                                        int yLo, int yStep, int count, bool geoExact, float geoDeep, float geoCavern, float geoUnder)
+                                        int yLo, int yStep, int count, bool geoExact, float geoDeep, float geoCavern, float geoUnder, float geoLayer)
         {
             int yHi = yLo + yStep * (count - 1);
-            float dLo, dHi, cLo, cHi, uLo, uHi;
+            float dLo, dHi, cLo, cHi, uLo, uHi, lLo, lHi;
             if (geoExact)
             {
                 if ((yLo >> 3) != (yHi >> 3)) return 255;
-                dLo = dHi = geoDeep; cLo = cHi = geoCavern; uLo = uHi = geoUnder;
+                dLo = dHi = geoDeep; cLo = cHi = geoCavern; uLo = uHi = geoUnder; lLo = lHi = geoLayer;
             }
             else
             {
                 dHi = GEO_DEEP_AMP * GEO_OFFSET_MARGIN; cHi = GEO_CAVERN_AMP * GEO_OFFSET_MARGIN; uHi = GEO_UNDER_AMP * GEO_OFFSET_MARGIN;
-                dLo = -dHi; cLo = -cHi; uLo = -uHi;
+                lHi = spec.Cliffs ? LAYER_WAVE_BOUND * GEO_OFFSET_MARGIN : 0f;
+                dLo = -dHi; cLo = -cHi; uLo = -uHi; lLo = -lHi;
             }
             int gyLo = (yLo & ~(BRICK - 1)) + BRICK / 2, gyHi = (yHi & ~(BRICK - 1)) + BRICK / 2;
             if (cd.oreMul != 0 && spec.mapVersion >= 4 &&
                 OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi))
                 return 255;
-            return LayerRockRange(in spec, c.surfBiome, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi);
+            return LayerRockRange(in spec, c.surfBiome, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi, lLo, lHi);
         }
 
         /// UniformSamples' tail where no sample is deeper than brickGeologyDepth:
@@ -712,11 +717,11 @@ namespace TerrainGen
                 if (depthLo < SURFACE_THICKNESS) return depthHi < SURFACE_THICKNESS ? Surface(in spec, in c, stepAtTop) : (byte)255;
                 if (depthLo < cd.soilDepth) return depthHi < cd.soilDepth ? Soil(c.surfBiome) : (byte)255;
             }
-            float d = cd.deepOffset, cv = cd.cavernOffset, u = cd.underOffset;
+            float d = cd.deepOffset, cv = cd.cavernOffset, u = cd.underOffset, l = cd.layerOffset;
             if (cd.oreMul != 0 && depthHi > Ores.MIN_DEPTH && spec.mapVersion >= 4 &&
                 OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, yLo, yHi, d, d, cv, cv, u, u))
                 return 255;
-            return LayerRockRange(in spec, c.surfBiome, yLo, yHi, d, d, cv, cv, u, u);
+            return LayerRockRange(in spec, c.surfBiome, yLo, yHi, d, d, cv, cv, u, u, l, l);
         }
 
         /// [yLo, yHi] meets the interval [lo, hi) (empty when hi <= lo).
@@ -765,7 +770,7 @@ namespace TerrainGen
         /// LayerRock for every y in [yLo, yHi] and every offset in its range, or
         /// 255 when that is not one material.
         private static byte LayerRockRange(in TerrainSpec spec, byte biome, int yLo, int yHi,
-                                           float dLo, float dHi, float cLo, float cHi, float uLo, float uHi)
+                                           float dLo, float dHi, float cLo, float cHi, float uLo, float uHi, float lLo, float lHi)
         {
             float lo = yLo, hi = yHi;
             float gLo = lo + uLo, gHi = hi + uHi;
@@ -782,6 +787,16 @@ namespace TerrainGen
             if (!(lo + cLo >= spec.CavernTopY)) return 255;
             if (hi + dHi < spec.seaLevelY - STONE_BOTTOM_BELOW_SEA) return BiomeRock(biome, 1);
             if (!(lo + dLo >= spec.seaLevelY - STONE_BOTTOM_BELOW_SEA)) return 255;
+            if (spec.Cliffs)
+            {
+                // Task 178: LayerIndex is monotone in g = y + layerOffset, so every
+                // sample's layer lies in [kLo, kHi]; one rock across them proves it.
+                int kLo = LayerIndex(spec.seed, lo + lLo), kHi = LayerIndex(spec.seed, hi + lHi);
+                if (kHi - kLo > 4) return 255;
+                byte m0 = LayerMaterial(spec.seed, biome, kLo);
+                for (int k = kLo + 1; k <= kHi; k++) if (LayerMaterial(spec.seed, biome, k) != m0) return 255;
+                return m0;
+            }
             if (biome == GenBiome.Badlands) return (yLo >> 5) == (yHi >> 5) ? BadlandsBand(yLo) : (byte)255;
             return BiomeRock(biome, 0);
         }
@@ -868,18 +883,82 @@ namespace TerrainGen
         /// underworld at the bottom. Exposed cliffs show this too.
         public static byte Strata(in TerrainSpec spec, in Offsets o, byte biome, int x, int y, int z)
         {
-            var cd = PrepareGeology(in o, x, z);
-            return LayerRock(in spec, biome, y, cd.deepOffset, cd.cavernOffset, cd.underOffset);
+            var cd = PrepareGeology(in o, x, z, spec.Cliffs);
+            return LayerRock(in spec, biome, y, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset);
         }
 
-        private static byte LayerRock(in TerrainSpec spec, byte biome, float y, float deepOff, float cavernOff, float underOff)
+        private static byte LayerRock(in TerrainSpec spec, byte biome, float y, float deepOff, float cavernOff, float underOff,
+                                      float layerOff)
         {
             if (y + underOff < spec.UnderworldTopY) return UnderworldRock(in spec, y + underOff);
             if (y + cavernOff < spec.CavernTopY) return BiomeRock(biome, 2);
             if (y + deepOff < spec.seaLevelY - STONE_BOTTOM_BELOW_SEA) return BiomeRock(biome, 1);
+            if (spec.Cliffs) return LayerMaterial(spec.seed, biome, LayerIndex(spec.seed, y + layerOff));
             if (biome == GenBiome.Badlands) return BadlandsBand((int)y);
             return BiomeRock(biome, 0);
         }
+
+        // ------------------------------------------------------------------
+        // TASK 178 (WORLD_GEN_LOOK_PLAN C4; owner 2026-11-05 "C4 cliffs approved",
+        // 2026-10-01 "thick depth layers", no thin stripes in any biome). THE
+        // STONE ZONE'S THICK LAYERS. Above the stone / deep-stone boundary
+        // (sea - 50 m) the rock is a stack of horizontal layers by HEIGHT, each
+        // LAYER_THICK (24 m) +- LAYER_JITTER, whose boundaries wave by LayerWave
+        // (+-4 m over ~90 m, +-1.5 m over ~26 m). Every layer has a ROLE from a
+        // hash of its index (main ~1/2, light accent ~3/10, dark accent ~1/5);
+        // the biome's row of LAYER_ROCKS says which rock fills each role -- the
+        // same split as Cover's slots and palette: the rule names no material.
+        // A cliff, a canyon wall or any bare steep slope therefore shows the
+        // same few thick bands at the same heights, in its biome's colours, and
+        // so does a tunnel wall or a dug hole: it is the rock, not a skin.
+        // The layer boundaries are the same heights in every biome, so at a
+        // biome border only the colours change. Badlands' 3.2 m bands are gone
+        // with it (its row: red / cream / ochre, thick); the brief's open row on
+        // striped badlands stays open (owner: no stripes until said otherwise).
+        // ------------------------------------------------------------------
+        public const float LAYER_THICK = 240f;        // voxels: 24 m nominal
+        public const float LAYER_JITTER = 0.3f;       // each boundary moves +-30 % (layers 9.6-38.4 m)
+        public const float LAYER_WAVE_AMP = 40f, LAYER_WAVE = 900f, LAYER_RIPPLE_AMP = 15f, LAYER_RIPPLE = 260f;
+        /// |LayerWave| <= this (|snoise| <= 1).
+        public const float LAYER_WAVE_BOUND = LAYER_WAVE_AMP + LAYER_RIPPLE_AMP;
+
+        /// Rock per (biome, role): main, light accent, dark accent. Row order = GenBiome ids.
+        private static readonly byte[] LAYER_ROCKS = {
+            GenMat.Granite, GenMat.Limestone, GenMat.Slate,                       // forest
+            GenMat.OrangeSandstone, GenMat.CreamSandstone, GenMat.RedSandstone,   // desert
+            GenMat.SilverSchist, GenMat.Marble, GenMat.BlueSlate,                 // snow
+            GenMat.KarstLimestone, GenMat.Laterite, GenMat.MossRock,              // jungle
+            GenMat.KopjeGranite, GenMat.Gneiss, GenMat.Ironstone,                 // savanna
+            GenMat.RedBand, GenMat.CreamBand, GenMat.OchreBand,                   // badlands
+        };
+
+        /// The wavy offset added to y before the layer lookup (voxels).
+        public static float LayerWave(in Offsets o, float2 p)
+            => LAYER_WAVE_AMP * noise.snoise(p / LAYER_WAVE + o.strata + new float2(29.3f, -77.1f))
+             + LAYER_RIPPLE_AMP * noise.snoise(p / LAYER_RIPPLE + o.strata + new float2(-51.9f, 13.7f));
+
+        /// Boundary k's height: layer k is [LayerBoundary(k), LayerBoundary(k + 1)).
+        private static float LayerBoundary(uint seed, int k)
+            => (k + LAYER_JITTER * (2f * Noise.Hash01(k, 0, 0, seed + 1781u) - 1f)) * LAYER_THICK;
+
+        /// The layer holding height g (= y + layerOffset). Monotone in g.
+        public static int LayerIndex(uint seed, float g)
+        {
+            int k = (int)math.floor(g / LAYER_THICK);
+            if (g < LayerBoundary(seed, k)) return k - 1;
+            if (g >= LayerBoundary(seed, k + 1)) return k + 1;
+            return k;
+        }
+
+        /// The layer's role: 0 main (~50 %), 1 light accent (~30 %), 2 dark accent (~20 %).
+        public static int LayerRole(uint seed, int k)
+        {
+            float r = Noise.Hash01(k, 1, 0, seed + 1783u);
+            return r < 0.5f ? 0 : (r < 0.8f ? 1 : 2);
+        }
+
+        public static byte LayerMaterial(uint seed, byte biome, int k)
+            => LAYER_ROCKS[(biome < GenBiome.Count ? biome : 0) * 3 + LayerRole(seed, k)];
 
         /// Badlands' exposed rock (B10): flat bands by height, 3.2 m each
         /// (y >> 5), in an 8-band, 25.6 m cycle: red, red, cream, ochre,

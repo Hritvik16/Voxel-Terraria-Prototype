@@ -142,7 +142,10 @@ namespace TerrainGen
             for (int i = 0; i < oct; i++)
                 detail += Amplitude(i) * OctaveNoise(in o, p, i);
             var c = new ColumnSample();
-            c.height = spec.seaLevelY + (int)math.floor(macro + detail * rough);
+            float hRel = macro + detail * rough;
+            bool scree = false;
+            if (spec.Cliffs && map.water != null) hRel = FaceRelief(in map, in o, p, macro, hRel, texelVoxels, out scree);   // task 178
+            c.height = spec.seaLevelY + (int)math.floor(hRel);
             c.height = math.max(c.height, spec.worldBottomY + 1);
             if (o.biomeBlend != 0 && surfaceBiome)
             {
@@ -179,8 +182,175 @@ namespace TerrainGen
             }
             if (map.water != null && spec.mapVersion >= 3) Ledge(in spec, in map, in o, p, ref c);
             if (surfaceBiome && spec.CoverSlots)   // task 177: last, on the column's final height / water
+            {
                 c.cover = Cover.Choose(in spec, in map, in o, p, macro, rough, c.height, c.water, c.regional, coverTexel);
+                // Task 178: scree is steep ground (the palette's steep cell), wherever the
+                // apron reaches -- a test on the map alone, so every footprint agrees.
+                if (scree && !(c.water > c.height) && Cover.Slot(c.cover) != Cover.Shore)
+                    c.cover = (byte)((c.cover & Cover.VARIANT_BIT) | Cover.Steep);
+            }
             return c;
+        }
+
+        // ------------------------------------------------------------------
+        // TASK 178 (WORLD_GEN_LOOK_PLAN C4, finding 4: "every sheer face is one
+        // smooth grey material ... no layers, cracks, ledges or scree"). FACE
+        // RELIEF from the MAP SLOPE. The detail octaves add a fixed HEIGHT, so on
+        // a face of slope s they move the face sideways by only height / s: a
+        // 167 m cliff came out smooth. Here every term is driven by the map's
+        // own slope s (the Catmull-Rom gradient, C0 across cells) and by height,
+        // never by a place or a pose:
+        //   weight w   smoothstep from FACE_FROM_DEG to FACE_FULL_DEG (the
+        //              record's 45 deg climb | sheer edge, -5 / +10 deg)
+        //   fluting    +-FLUTE_DEPTH (0.8 m) SIDEWAYS: a height term scaled by
+        //              min(s, FACE_SLOPE_CAP); ridged noise of FLUTE_WAVE (5 m)
+        //              in plan. On a steep face a plan noise barely changes down
+        //              the face, so it reads as VERTICAL flutes and ribs; it
+        //              ramps in from 55 to FLUTE_FULL_DEG (70 deg).
+        //   ledges     a terrace on height + the rock layers' wave: a flat tread
+        //              (LEDGE_TREAD of each LEDGE_SPACING = 4 m of height), then
+        //              a steeper riser. Treads run along the strata.
+        //   scree      at the FOOT: the map's concavity along each axis at
+        //              +-SCREE_PROBE (20 m), capped by the higher side (so a
+        //              uniform face gets none and a gorge only one side's
+        //              worth), beyond SCREE_KNEE x the probe (the higher side
+        //              rising over 45 deg, the record's sheer edge); SCREE_SHARE
+        //              of it is an apron (~35 deg off a 74 deg face), at most
+        //              SCREE_CAP (10 m), with rubble lumps on top.
+        // Skipped under water and within ~20 m of a lake or river cell (their
+        // banks are Rivers' / LakeRim's), below the sea and for dry map views.
+        // BAND LIMIT: fluting, ledges and rubble drop below 2 footprints like an
+        // octave (BandLimitBound(spec, ..) adds RELIEF_BAND_BOUND); the scree
+        // itself reads the map only, so every footprint gets the same apron.
+        // ------------------------------------------------------------------
+        public const float FACE_FROM_DEG = Danger.CLIMB_DEG - 5f, FACE_FULL_DEG = Danger.CLIMB_DEG + 10f;
+        public const float FLUTE_WAVE = 50f, FLUTE_DEPTH = 8f, FACE_SLOPE_CAP = 4f;
+        /// Fluting ramps in from FACE_FULL_DEG to FLUTE_FULL_DEG: a plan noise reads as a
+        /// VERTICAL flute only where one feature spans more height than width (s >~ 2);
+        /// on a 40-55 deg slope it read as crumpled noise (178's first top views).
+        public const float FLUTE_FULL_DEG = 70f;
+        public const float LEDGE_SPACING = 40f, LEDGE_TREAD = 0.35f;
+        public const float SCREE_PROBE = 200f, SCREE_KNEE = 1f, SCREE_SHARE = 0.2f, SCREE_CAP = 100f, SCREE_MIN = 5f;
+        public const float RUBBLE_WAVE = 15f, RUBBLE_AMP = 3f;
+        /// Most a footprint's dropped relief can move a column (flutes + ledge + rubble).
+        public const float RELIEF_BAND_BOUND = FLUTE_DEPTH * FACE_SLOPE_CAP + LEDGE_TREAD * LEDGE_SPACING + RUBBLE_AMP;
+        /// Map cells round the column checked for lake / river water (+-2 = ~20 m).
+        public const int RELIEF_DRY_CELLS = 2;
+
+        /// The column's height (voxels rel. sea) with the face relief; `h` is
+        /// macro + detail, `macro` the map at p. scree: the apron covers p by at
+        /// least SCREE_MIN (a function of the map alone).
+        public static float FaceRelief(in MapView map, in Offsets o, float2 p, float macro, float h, int texel, out bool scree)
+        {
+            scree = false;
+            if (h <= 0f || WetNear(in map, p)) return h;
+            float2 g = MapGradient(in map, p.x, p.y);
+            float s = math.sqrt(g.x * g.x + g.y * g.y);
+            float w = FaceWeight(s);
+            if (w > 0f)
+            {
+                float wf = math.smoothstep(math.tan(math.radians(FACE_FULL_DEG)), math.tan(math.radians(FLUTE_FULL_DEG)), s);
+                if (wf > 0f && FLUTE_WAVE >= 2f * texel)
+                {
+                    float n = noise.snoise(p / FLUTE_WAVE + o.detail + new float2(-31.7f, 57.3f));
+                    h += wf * FLUTE_DEPTH * math.min(s, FACE_SLOPE_CAP) * (1f - 2f * math.abs(n));
+                }
+                if (LEDGE_SPACING >= 2f * texel)
+                {
+                    float t = (h + DetailField.LayerWave(in o, p)) / LEDGE_SPACING;
+                    float f = t - math.floor(t);
+                    float tf = f < LEDGE_TREAD ? 0f : (f - LEDGE_TREAD) / (1f - LEDGE_TREAD);
+                    h -= w * LEDGE_SPACING * (f - tf);
+                }
+            }
+            float fill = ScreeFill(in map, p, macro);
+            if (fill > 0f)
+            {
+                scree = fill >= SCREE_MIN;
+                float top = macro + fill;
+                if (RUBBLE_WAVE >= 2f * texel)
+                    top += RUBBLE_AMP * math.saturate(fill / SCREE_CAP * 4f) * noise.snoise(p / RUBBLE_WAVE + o.detail + new float2(83.1f, 19.9f));
+                h = math.max(h, top);
+            }
+            return h;
+        }
+
+        /// The scree apron's height over the map at p (voxels, 0 = none): a
+        /// function of the map alone.
+        public static float ScreeFill(in MapView map, float2 p, float macro)
+        {
+            SampleMap(in map, p.x + SCREE_PROBE, p.y, out float hE, out _);
+            SampleMap(in map, p.x - SCREE_PROBE, p.y, out float hW, out _);
+            SampleMap(in map, p.x, p.y + SCREE_PROBE, out float hN, out _);
+            SampleMap(in map, p.x, p.y - SCREE_PROBE, out float hS, out _);
+            float cx = math.min(hE + hW - 2f * macro, math.max(hE, hW) - macro);
+            float cz = math.min(hN + hS - 2f * macro, math.max(hN, hS) - macro);
+            float ex = math.max(cx, cz) - SCREE_KNEE * SCREE_PROBE;
+            return ex > 0f ? math.min(SCREE_SHARE * ex, SCREE_CAP) : 0f;
+        }
+
+        /// The face weight at map slope s (0 below FACE_FROM_DEG, 1 from FACE_FULL_DEG).
+        public static float FaceWeight(float s)
+            => math.smoothstep(math.tan(math.radians(FACE_FROM_DEG)), math.tan(math.radians(FACE_FULL_DEG)), s);
+
+        /// A lake or river cell within RELIEF_DRY_CELLS cells of p's cell.
+        public static unsafe bool WetNear(in MapView map, float2 p)
+        {
+            int n = map.cells, r = RELIEF_DRY_CELLS;
+            int ix = (int)math.floor(p.x / map.cellVoxels), iz = (int)math.floor(p.y / map.cellVoxels);
+            for (int dz = -r; dz <= r; dz++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                int cx = math.clamp(ix + dx, 0, n - 1), cz = math.clamp(iz + dz, 0, n - 1), i = cz * n + cx;
+                if (map.waterClass != null ? map.waterClass[i] != Hydrology.DRY : map.water[i] > Hydrology.NO_WATER * 0.5f) return true;
+            }
+            return false;
+        }
+
+        /// The gradient of SampleMap's height (voxels per voxel): the Catmull-Rom
+        /// derivative, continuous across cell edges (the spline is C1).
+        public static unsafe float2 MapGradient(in MapView map, float x, float z)
+        {
+            float gx = x / map.cellVoxels - 0.5f;
+            float gz = z / map.cellVoxels - 0.5f;
+            int ix = (int)math.floor(gx), iz = (int)math.floor(gz);
+            float fx = gx - ix, fz = gz - iz;
+            float4 wx = CatmullRom(fx), wz = CatmullRom(fz), dx = CatmullRomD(fx), dz = CatmullRomD(fz);
+            float hx = 0f, hz = 0f;
+            int n = map.cells;
+            for (int j = 0; j < 4; j++)
+            {
+                int cz = math.clamp(iz - 1 + j, 0, n - 1);
+                float rw = 0f, rd = 0f;
+                for (int i = 0; i < 4; i++)
+                {
+                    float v = map.height[cz * n + math.clamp(ix - 1 + i, 0, n - 1)];
+                    rw += wx[i] * v;
+                    rd += dx[i] * v;
+                }
+                hx += wz[j] * rd;
+                hz += dz[j] * rw;
+            }
+            return new float2(hx, hz) / map.cellVoxels;
+        }
+
+        private static float4 CatmullRomD(float t)
+        {
+            float t2 = t * t;
+            return new float4(
+                -1.5f * t2 + 2f * t - 0.5f,
+                4.5f * t2 - 5f * t,
+                -4.5f * t2 + 4f * t + 0.5f,
+                1.5f * t2 - t);
+        }
+
+        /// BandLimitBound plus what task 178's face relief can add at a footprint:
+        /// the ledge terrace stretches a height difference by up to 1 / (1 - tread),
+        /// and fluting, ledges and rubble drop like octaves.
+        public static float BandLimitBound(in TerrainSpec spec, int texelVoxels, float rough)
+        {
+            float b = BandLimitBound(texelVoxels, rough);
+            return spec.Cliffs && texelVoxels > 1 ? b / (1f - LEDGE_TREAD) + RELIEF_BAND_BOUND : b;
         }
 
         // ------------------------------------------------------------------

@@ -1029,3 +1029,17 @@ gets magma crust on high ground with no rule change, cover off = old, slot ignor
 `cost177.txt`). OreTests' ring gate is now the absolute bound it was (ore adds <= 8.9 mixed bricks per ring chunk = 5 % of the pre-177
 base): the cover cut the base 28 % (5,677 -> 4,093) while ore still adds +215. `python3 -I tools/cover177.py maps|palette|shots|viewer Screenshots/177 ...` -> island slot maps, palette177.png/.md,
 before|after shots (`-wsfixed` 173 poses, `-coverslots 0` arm), viewer.html. Result: HANDOFF 177.
+
+**Task 178 (WORLD_GEN_LOOK_PLAN C4, cliffs with geology; owner 2026-11-05 "C4 cliffs approved").** v4 only, `spec.Cliffs`
+(`cliffsOff` / `-cliffs 0` = the pre-178 cliffs; v3 unchanged). (1) THICK ROCK LAYERS: above the stone / deep-stone boundary
+(sea - 50 m) `DetailField.LayerRock` is a stack of horizontal layers by height, `LAYER_THICK` 24 m +- 30 % (9.6-38.4 m), boundaries
+waved by `LayerWave` (+-4 m / ~90 m, +-1.5 m / ~26 m); each layer has a ROLE from a hash of its index (main ~1/2, light ~3/10, dark
+~1/5) and `LAYER_ROCKS` (6 biomes x 3 roles) is the only per-biome data. Same boundary heights in every biome. Badlands' 3.2 m bands
+are gone (owner: no thin stripes in any biome until said otherwise). The brick prover bounds the layer offset (`LAYER_WAVE_BOUND`).
+(2) FACE RELIEF (`ShapeField.FaceRelief`, driven by the map's Catmull-Rom slope and height only): vertical fluting (+-0.8 m sideways,
+from 70 deg), ledge treads every 4 m along the layer wave, a scree apron at the foot from the map's concavity at +-20 m (<= 10 m,
+rubble on top; scree columns take Cover's `steep` cell); skipped near lake/river cells and under the sea. `BandLimitBound(spec, ..)`
+adds the relief's band bound. Tests `CliffTests` (layers >= 9.6 m and only the biome's rocks in all 6 biomes; relief only on faces /
+scree; far-band bound + LOD-0 contract on face columns; report `REPORTS=1` `Report_Cliffs` -> `Logs/TerrainGen/c4/` sections, top
+views, mixed bricks, Sample cost). `python3 -I tools/cliff178.py sheets|viewer` -> `Screenshots/178/viewer.html` (173's `-wsfixed`
+cliff / coast_cliff / forest_breaks poses, `-cliffs 0` arm). Result: HANDOFF 178.

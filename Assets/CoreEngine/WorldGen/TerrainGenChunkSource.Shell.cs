@@ -363,7 +363,7 @@ namespace VoxelEngine.WorldGen
                         {
                             bool noPocket = TerrainGen.DetailField.NoPocketInBox(in spec, in o, f0 & FINE_BRICK_MASK,
                                                                                  ((f0 + span) & FINE_BRICK_MASK) + TerrainGen.DetailField.BRICK);
-                            g = ProveBrick(in spec, colS, colSt, colCd, origin, shift, half, bx, bz, f0.y, noPocket, false, 0f, 0f, 0f);
+                            g = ProveBrick(in spec, colS, colSt, colCd, origin, shift, half, bx, bz, f0.y, noPocket, false, 0f, 0f, 0f, 0f);
                         }
                         if (g != 255)
                         {

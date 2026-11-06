@@ -309,6 +309,7 @@ namespace VoxelEngine.Rendering
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.BiomeBlendOffArg()) { var ts = Tg2Spec; ts.biomeBlendOff = 1; Tg2Spec = ts; }   // task 122
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.BiomeVaryOffArg()) { var ts = Tg2Spec; ts.biomeVaryOff = 1; Tg2Spec = ts; }   // task 176
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.CoverSlotsOffArg()) { var ts = Tg2Spec; ts.coverSlotsOff = 1; Tg2Spec = ts; }   // task 177
+                if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.CliffsOffArg()) { var ts = Tg2Spec; ts.cliffsOff = 1; Tg2Spec = ts; }   // task 178
                 _ownsTg2Map = sharedTg2Map == null;
                 Tg2Map = sharedTg2Map ?? TerrainGen.WorldMap.Build(Tg2Spec);
                 _tgO = TerrainGen.Offsets.For(Tg2Spec);

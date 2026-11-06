@@ -70,8 +70,12 @@ public class EditSummaryTests
         return ch;
     }
 
-    /// A 4x40x4 stone pillar on the ground and an 8x12x8 pit beside it; returns
-    /// the bricks whose voxels it actually changed.
+    /// A 4x40x4 stone pillar on the ground and an 8-wide pit (12-15 deep) beside it;
+    /// returns the bricks whose voxels it actually changed. Task 178: the pit is
+    /// aligned to the 8-voxel grid and always holds the whole aligned 8^3 block
+    /// under the surface's own 8-cell, so shell 3 (0.8 m, an 8^3 vote) sees it at
+    /// ANY ground height -- before, whether it showed depended on height & 7, and
+    /// 178's face relief moved Site()'s height onto a value where it did not.
     private static HashSet<int> Build(EditService edits, ChunkStore store, int3 s)
     {
         var bricks = new HashSet<int>();
@@ -87,7 +91,8 @@ public class EditSummaryTests
             edits.SetBox(lo, hi, m);
         }
         Box(s + new int3(0, 1, 0), s + new int3(3, 40, 3), Materials.Stone);
-        Box(s + new int3(10, -12, 0), s + new int3(17, 0, 7), Materials.Air);
+        int pitLo = math.min(s.y - 12, (s.y & ~7) - 8);   // >= s.y - 15: inside the chunk (Site: height & 127 >= 16)
+        Box(new int3(s.x + 8, pitLo, s.z), s + new int3(15, 0, 7), Materials.Air);
         return bricks;
     }
 

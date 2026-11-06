@@ -10,7 +10,7 @@ STOP_FOR_OWNER -- task 178 (C4 cliffs). Viewer: `Screenshots/178/viewer.html`. I
   - (b) Leave it red until C5, with the bank.
   - Also: seed 42's "next waypoint in sight 61.9 % < 65 %" is in the same failure message. Sight reads only the map, and 178 does not change the map, so this was already failing at 177. 177's log printed only the first line of the message.
 
-# 178-worldgen-c4-cliff-geology: thick depth layers + face relief (fluting, ledges, scree); suite PASS except the known route test
+# 178-worldgen-c4-cliff-geology: thick depth layers + face relief (fluting, ledges, scree); whole suite PASS 1064 FAIL 1 (the known route test, now also +1.0 m from scree: Q2)
 
 ## What changed (commit: see git log, "178:")
 - `DetailField.LayerRock`: the stone zone (above sea - 50 m) is now layers by height: `LAYER_THICK` 24 m +- 30 %, boundaries waved by `LayerWave` (+-4 m / 90 m, +-1.5 m / 26 m).
@@ -32,7 +32,7 @@ STOP_FOR_OWNER -- task 178 (C4 cliffs). Viewer: `Screenshots/178/viewer.html`. I
   - EditSummary: fixed (fixture).
   - ShellFill GOLDEN: re-pinned.
   - Route test: Q2.
-- Whole suite, rerun after the fixes: see the line below (`Logs/overnight/178_all2.out`).
+- Whole suite, rerun after the fixes: **PASS 1064 FAIL 1 SKIP 33** (`Logs/overnight/178_all2.out`, 41 min). The only failure is the route test (Q2).
 - Shots: one launch per arm, 173's `-wsfixed` poses, 30 s shell cap. Logs: `Logs/lookreview_20261106_032950.txt` (after), `..._033816.txt` (before).
   - Shells 4-7 were not stored within 30 s in either arm (`[shells]` lines). The distant background is the far band.
 - White dashes (173): the forest_breaks before-shot has many tiny white dashes on the grey face at centre. After: fewer, same place. They appear in both arms, so they are not material; not fixed by 178.

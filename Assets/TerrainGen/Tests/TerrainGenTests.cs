@@ -123,7 +123,7 @@ namespace TerrainGen.Tests
                 foreach (int t in texels)
                 {
                     var coarse = S(c.x + 0.5f, c.y + 0.5f, t);
-                    float bound = ShapeField.BandLimitBound(t, fine.rough) + 1f;
+                    float bound = ShapeField.BandLimitBound(in _spec, t, fine.rough) + 1f;   // task 178: + the face relief
                     float d = math.abs(coarse.height - fine.height);
                     worst = math.max(worst, d / bound);
                     Assert.LessOrEqual(d, bound, $"texel {t} at ({c.x},{c.y}): |{coarse.height} - {fine.height}| > {bound}");

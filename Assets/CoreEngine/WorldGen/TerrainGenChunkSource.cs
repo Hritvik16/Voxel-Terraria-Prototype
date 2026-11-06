@@ -142,6 +142,17 @@ namespace VoxelEngine.WorldGen
             return off;
         }
 
+        /// -cliffs 0 (task 178): spec.cliffsOff = 1, the pre-178 cliffs (one rock per
+        /// biome, badlands' bands, smooth faces). Absent = the version's default. Last match wins.
+        public static bool CliffsOffArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            bool off = false;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-cliffs" && int.TryParse(a[i + 1], out int p)) off = p == 0;
+            return off;
+        }
+
         public TerrainGenChunkSource(uint seed, int mapVersion)
         {
             // R1 BRICK GEOLOGY (V0, design doc §11/§15): below 20 m under the
@@ -157,6 +168,7 @@ namespace VoxelEngine.WorldGen
             if (BiomeBlendOffArg()) spec.biomeBlendOff = 1;
             if (BiomeVaryOffArg()) spec.biomeVaryOff = 1;
             if (CoverSlotsOffArg()) spec.coverSlotsOff = 1;
+            if (CliffsOffArg()) spec.cliffsOff = 1;
             Spec = spec;
             O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
             Map = TerrainGen.WorldMap.Build(Spec);
@@ -501,7 +513,7 @@ namespace VoxelEngine.WorldGen
                     if (skip && (yLo + 7 <= bMinH[bc] || yLo > bMaxH[bc]))
                     {
                         byte g = ProveBrick(in spec, colS, colSt, colCd, origin, 0, 0, bx, bz, yLo, cr.noPocket,
-                                            cr.hasGeo, cr.geoDeep, cr.geoCavern, cr.geoUnder);
+                                            cr.hasGeo, cr.geoDeep, cr.geoCavern, cr.geoUnder, cr.geoLayer);
                         if (g != 255)
                         {
                             brickUniform[bi] = true; brickMat[bi] = toEngine[g];
@@ -557,7 +569,7 @@ namespace VoxelEngine.WorldGen
         private static byte ProveBrick(in TerrainGen.TerrainSpec spec, NativeArray<TerrainGen.ColumnSample> colS,
                                        NativeArray<float> colSt, NativeArray<TerrainGen.DetailField.ColumnDetail> colCd,
                                        int3 origin, int shift, int half, int bx, int bz, int yLo, bool noPocket,
-                                       bool geoExact, float geoDeep, float geoCavern, float geoUnder)
+                                       bool geoExact, float geoDeep, float geoCavern, float geoUnder, float geoLayer)
         {
             byte m = 255;
             for (int vz = 0; vz < 8; vz++)
@@ -567,7 +579,7 @@ namespace VoxelEngine.WorldGen
                 var c = colS[ci]; var cd = colCd[ci];
                 byte g = TerrainGen.DetailField.UniformSamples(in spec, in c, in cd, colSt[ci],
                     origin.x + (lx << shift) + half, origin.z + (lz << shift) + half, yLo, 1 << shift, 8, noPocket,
-                    geoExact, geoDeep, geoCavern, geoUnder);
+                    geoExact, geoDeep, geoCavern, geoUnder, geoLayer);
                 if (g == 255 || (m != 255 && g != m)) return 255;
                 m = g;
             }

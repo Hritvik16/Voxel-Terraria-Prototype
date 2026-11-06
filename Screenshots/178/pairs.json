@@ -1,0 +1,9 @@
+[["shot_cliff_after.png","shot_cliff_before.png","cliff: the 167 m face, looking up from 84 m. Space flips BEFORE (-cliffs 0) | AFTER. Right half: badlands' thin red/cream/ochre stripes become thick red layers; bottom: a dark blue-grey and a dark brown layer (24 m nominal) cross both biomes at the same height."],
+["shot_coast_cliff_after.png","shot_coast_cliff_before.png","coast_cliff: lake + cliff from 223 m. Look at the face: one grey wall becomes grey with a red and a green (moss rock) layer with wavy boundaries; vertical fluting replaces the stepped 'contour' ripples."],
+["shot_forest_breaks_after.png","shot_forest_breaks_before.png","forest_breaks: canyon wall from 163 m. Thick dark-brown, grey and (right, badlands) yellow/cream layers; check the small white dashes at mid-height near the centre (173's issue, still present)."],
+["section_cliff.png","","cliff: vertical section through the face, 1 voxel = 1 px, uphill right. Left = before, right = after. Look at the face: small ledge steps, the wavy thick layers inside, the scree mound at the foot."],
+["section_coast_cliff.png","","coast_cliff section, before | after."],
+["section_forest_breaks.png","","forest_breaks section, before | after."],
+["top_cliff.png","","cliff top view (0.4 m/px, north up), before | after: fluting along the face, scree apron at the foot."],
+["top_coast_cliff.png","","coast_cliff top view, before | after."],
+["top_forest_breaks.png","","forest_breaks top view, before | after."]]
