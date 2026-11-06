@@ -21,7 +21,7 @@ Close: the OLD supervisor chat (tmux window `24`) and, if still open, tmux sessi
 - Status doc (5 Nov): https://claude.ai/artifact/7nYs9abyXu4jYMgVvyM61i.
 - Tooling bug: 178's `Screenshots/178/viewer.html` showed BLACK in the owner's browser although the PNGs are fine (178c must fix the
   viewer tool). Until then open PNGs with `open -a Preview <files>`. Always LOOK at the pictures yourself before asking the owner.
-- Owner rules (memory): plain words in questions, no jargon (he picked an option without understanding "flat yellow camps"); look at
+- Owner rules (memory): plain words in questions, no jargon (the owner picked an option without understanding "flat yellow camps"); look at
   every picture yourself and give an honest read; parked for performance: later/170, Q108 tail, 3 GB cap; route test red only for the
   river ford (until C5).
 - Watchers: tmux `overnight` (runner), `keepalive` (14 h from 6 Nov 00:03, log Logs/overnight/keepalive.log).
