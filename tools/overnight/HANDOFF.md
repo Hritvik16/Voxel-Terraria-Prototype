@@ -1,51 +1,56 @@
-STOP_FOR_OWNER -- task 176c (apply biome Size 2): a BiomeLayoutTests gate fails, and the task says not to loosen it. Picture: `Screenshots/176b/full_seed42.png`, bottom-left panel (Size 2). It has ONE ochre desert patch and ONE savanna patch. Numbers: `Screenshots/176c/gates_176c.txt`.
-- **Q1. The "every biome is in 2+ separate regions of >= 25 ha" gate fails on all 8 gate seeds with Size 2.** On each seed, 1-3 of the 6 biomes are one big region.
-  - Desert is the one-region biome on 5 of 8 seeds.
-  - Seed 2 has three one-region biomes (D, S, B).
-  - 176b's 20-seed table showed this already: 33 of 120 biomes were one-region at Size 2. Even Size 1 fails the gate (10 of 120).
-  - So 176b's note that "Size 2 passes the gates" was wrong. Only 176's current size passes it.
-  - Every other C1 gate passes at Size 2 on the 8 seeds: straight border 1.06-1.42 km (gate <= 1.7), shares 5.7-28.3 % (gate 5-35), E-W change 512-701 m (gate >= 300), median 106-231 ha (gate >= 35).
-  - (a) **Recommended:** the gate becomes "every biome present (>= 1 region of >= 25 ha)". The straight-border, change and median gates still catch B10's long straight belts. The 176c patch then applies as written.
-  - (b) Gate = "at most 3 one-region biomes per seed". This is stricter, but the 3 is fitted to this result (seed 2).
-  - (c) Keep the gate. Size 2 does not ship, and the world stays at 176's size.
-- **Q2. The known red route test moved.** It was seed 42 (0.5 m Sheer); now seed 42 passes and seed 31337 fails (1.5 m Sheer).
-  - The cause is the same, river banks: every Sheer sample has 3-4 wet neighbours, e.g. a 0.9 m bank step at (2475, 3128).
-  - (a) **Recommended:** leave it red until C5, as before. (b) Fix the ford banks now.
+STOP_FOR_OWNER -- task 178 (C4 cliffs). Viewer: `Screenshots/178/viewer.html`. It shows full size; Space flips before | after; arrows change the image.
+- **Q1. Keep these cliffs?** The rock below the soil is now a few THICK layers, each 9.6-38.4 m (24 m nominal), with wavy boundaries. Every biome uses its own 3 rocks. Badlands' thin stripes are gone.
+  - Faces also get vertical fluting, a ledge every 4 m and a scree apron at the foot.
+  - (a) **Recommended:** keep.
+  - (b) Keep the layers, change some layer rocks. For example: jungle's dark layer is MossRock, which reads as a GREEN band on `coast_cliff` (it can look like grass).
+  - (c) Drop it (`-cliffs 0` = before).
+- **Q2. One route got a new Sheer step.** The route test is still red. Seed 42 now has 1.5 m of Sheer: 0.5 m is 177's known river-bank step, and 1.0 m is NEW.
+  - The new step is on route 2-3 at (4471, 2390). The map slope there is 22 deg, on a 6.4 m route fill. Below 40 deg (FACE_FROM_DEG) only the scree apron + rubble is active, so the scree steepened it.
+  - (a) **Recommended:** the relief skips route cells, the same way it already skips water. This needs the record's route flag in `MapView` (a small generator change).
+  - (b) Leave it red until C5, with the bank.
+  - Also: seed 42's "next waypoint in sight 61.9 % < 65 %" is in the same failure message. Sight reads only the map, and 178 does not change the map, so this was already failing at 177. 177's log printed only the first line of the message.
 
-# 176c-worldgen-apply-biome-size-2: Size 2 applied and proven equal to 176b's plane; BLOCKED on the C1 "2+ regions" gate (not loosened)
+# 178-worldgen-c4-cliff-geology: thick depth layers + face relief (fluting, ledges, scree); suite PASS except the known route test
 
-## What changed (nothing committed to the generator; the edit is saved as a patch)
-- `Assets/TerrainGen/ShapeField.cs`:
-  - `CLIMATE_WAVE_R` 0.75 -> 1.5. New `CLIMATE_OCT4` 0.12, added as the 4th octave of `Climate3`.
-  - `BlendClimateReach`'s gradient bound gets the `+ OCT4 * 2.03^3` term.
-  - `-biomevary 0` takes a different branch, so it is untouched (`VaryOff_IsB10sField` passed).
-- `Assets/TerrainGen/Tests/BiomeSizeDump.cs`: `live` = 4 octaves. New check 3 compares the record plane with 176b's stored `sizes/w150` plane.
-- The patch is `Screenshots/176c/size2_176c.patch` (committed text). The runner also keeps its own copy in `blocked/`. If the owner picks Q1 (a) or (b): apply the patch, edit the gate, then re-pin the goldens.
+## What changed (commit: see git log, "178:")
+- `DetailField.LayerRock`: the stone zone (above sea - 50 m) is now layers by height: `LAYER_THICK` 24 m +- 30 %, boundaries waved by `LayerWave` (+-4 m / 90 m, +-1.5 m / 26 m).
+  - Each layer's role comes from a hash: main ~50 %, light ~30 %, dark ~20 %. `LAYER_ROCKS` (6 biomes x 3) is the only per-biome data.
+  - The brick prover bounds the wave (`LAYER_WAVE_BOUND`).
+- `ShapeField.FaceRelief` uses only the map's spline slope and height:
+  - fluting +-0.8 m sideways (from 55 deg, full at 70 deg)
+  - ledge treads every 4 m along the layer wave
+  - a scree apron from the map's concavity at +-20 m (<= 10 m, rubble on top; scree columns take Cover's `steep` cell)
+  - skipped within ~20 m of lake/river cells and under the sea
+  - `BandLimitBound(spec, ..)` covers the far-band footprints.
+- Off switch: `TerrainSpec.cliffsOff` / `-cliffs 0` (engine + FarField). v3 is unchanged.
+- New `CliffTests` (4 cases) and `tools/cliff178.py` (sections, top views, viewer).
+- Test fixes: `EditSummaryTests.Build`'s pit is aligned to the 8-voxel grid. Its "shell 3 changed something" check depended on height & 7; the summary still equals the reference at every level. ShellFill GOLDEN re-pinned (85 chunks; the chunk set moved).
 
 ## Evidence
-- Size 2 is exactly 176b's plane. The record plane differs from `Logs/TerrainGen/c1/sizes/w150` in 73 / 170 / 93 / 23 of 1,048,576 cells (seeds 42 / 7 / 2026 / 31337).
-  - That is Burst-vs-Mono residue, the same as 176b's own 0.75 check. Logs: `Logs/TerrainGen/c1/size2c/check.txt`, `Logs/overnight/176c_filter1.out`.
-- Whole suite with the patch: **PASS 1058 FAIL 4 SKIP 32** (`Logs/overnight/176c_all.out`, 36 min):
-  - `C1Layout_VariesAcrossTheIsland_OnEightSeeds`: the gate in Q1. NOT loosened.
-  - `RouteTests.V4_FourSeeds_RoutesJoinTheEasyAreas`: the known river-bank red, now on seed 31337 (Q2).
-  - `ShellFillTests.Fill_BytesAsGolden_FastAndReference`: the GOLDEN legitimately moves (the biome under the shell chunks changed). Not re-pinned.
-  - `WorldMapBurstTests.Seed42V4_EditorMapIsThePlayersMap`: the pinned player hash legitimately moves. It needs a player log to re-pin; not re-pinned.
-- Passed with the patch: every `BiomeBlendTests` case, including `EarlyOut_IsExact` with the new 4-octave bound and `SnoiseGradient_WithinTheEarlyOutBound`. Also `CoverTests` (177's shares) and every other `BiomeLayoutTests` case.
-
-## Not done (waits on Q1)
-- Re-pin ShellFill GOLDEN + the player hash.
-- The `-worldsurvey` before|after sheet, using 177's 5 `-wsfixed` poses (`Logs/lookreview_20261106_012752.txt` = before).
-- TASKS.md paragraph. No launch was made.
+- CliffTests 4/4 passed (`TestResults_filter.xml` 03:29): layers >= 9.6 m, only the biome's rocks in all 6 biomes; relief only on faces/scree; band limit + LOD-0 contract.
+- Whole suite, first run: **PASS 1062 FAIL 3 SKIP 33** (`Logs/overnight/178_all.out`):
+  - EditSummary: fixed (fixture).
+  - ShellFill GOLDEN: re-pinned.
+  - Route test: Q2.
+- Whole suite, rerun after the fixes: see the line below (`Logs/overnight/178_all2.out`).
+- Shots: one launch per arm, 173's `-wsfixed` poses, 30 s shell cap. Logs: `Logs/lookreview_20261106_032950.txt` (after), `..._033816.txt` (before).
+  - Shells 4-7 were not stored within 30 s in either arm (`[shells]` lines). The distant background is the far band.
+- White dashes (173): the forest_breaks before-shot has many tiny white dashes on the grey face at centre. After: fewer, same place. They appear in both arms, so they are not material; not fixed by 178.
+- Rough cost (no timing arm):
+  - Mixed bricks in a 12.8 m block at the face: 5481 -> 6275 (+14 %), 1560 -> 1828 (+17 %), 2757 -> 2979 (+8 %). All-solid 2+-rock bricks: 1183 -> 2207, 516 -> 783, 12 -> 359.
+  - `Sample` (Mono): 60.3 -> 62.8 us/column (+4 %).
+  - In the player, a worker spent 110-121 ms per chunk (after) vs 72-83 ms (before). Not interleaved and only 30 s per pose: flag it for the perf stage. `ScreeFill` adds 4 map samples to EVERY land column.
+  - Log: `Logs/TerrainGen/c4/cliffs178.txt`.
 
 ## Next
-- Owner answers Q1/Q2. If Q1 (a)/(b): queue 176c again with the answer.
-  - Steps: `git apply Screenshots/176c/size2_176c.patch`, change the gate in `BiomeLayoutTests` (line 59), re-pin the 2 goldens (the player hash from a PLAYER log; the survey launch gives one), take one survey launch, run `SUITE=all`.
+- Owner: Q1, Q2. If (a)/(a): queue a 178b for the route-cell skip, then re-run RouteTests.
 
 ## For the doc
-- Biome change walking E-W, 8 gate seeds: 176 ~375 m -> Size 2 **512-701 m**. Area-weighted median patch: 44-65 -> **106-231 ha** (`Screenshots/176c/gates_176c.txt`).
-- Longest straight border: 176 1.04-1.65 km -> Size 2 **1.06-1.42 km** (gate 1.7 km).
-- Biomes with a single region: 0 of 48 -> **14 of 48** (8 seeds x 6 biomes). This is the failing gate.
-- Generator vs 176b's Size 2 plane: 23-170 of 1,048,576 cells differ (Burst-vs-Mono residue).
-- Images (176b's, the same plane to within the residue above):
-  - `Screenshots/176b/full_seed42.png`: bottom-left = Size 2. Look for ONE desert (ochre) patch and ONE savanna patch, the two one-region biomes on seed 42.
-  - `Screenshots/176b/sheet_seed7.png`: bottom-left = Size 2. Seed 7's badlands (red) is a single region.
+- Rock layers on a face: one rock per biome (badlands 3.2 m stripes) -> **3 rocks per biome in 9.6-38.4 m layers** (`CliffTests`).
+- Mixed bricks at the 167 m face: 5481 -> **6275** (+14 %) (`Logs/TerrainGen/c4/cliffs178.txt`).
+- Column sample cost (Mono): 60.3 -> **62.8 us** (+4 %). Worker ms per chunk in the shot launches: 72-83 -> **110-121** (rough, not a timing arm).
+- Route Sheer, seed 42: 0.5 -> **1.5 m** (new 1.0 m on a scree apron; Q2).
+- Images:
+  - `Screenshots/178/viewer.html` image 1: `shot_cliff_after.png` vs `_before.png`. Right half: badlands' thin red/cream/ochre stripes become thick red layers. Bottom: one dark blue-grey layer runs across both biomes at the same height.
+  - `Screenshots/178/shot_coast_cliff_after.png`: the cliff behind the lake. Look for the grey face with a red and a green (moss rock) wavy layer; before it was one grey wall.
+  - `Screenshots/178/section_cliff.png`: right panel (after) is a vertical cut through the face. Look for the small ledge steps on the face, the wavy thick layers and the scree mound at the foot (left = before: smooth, one rock).
