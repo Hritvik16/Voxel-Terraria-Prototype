@@ -1043,3 +1043,12 @@ adds the relief's band bound. Tests `CliffTests` (layers >= 9.6 m and only the b
 scree; far-band bound + LOD-0 contract on face columns; report `REPORTS=1` `Report_Cliffs` -> `Logs/TerrainGen/c4/` sections, top
 views, mixed bricks, Sample cost). `python3 -I tools/cliff178.py sheets|viewer` -> `Screenshots/178/viewer.html` (173's `-wsfixed`
 cliff / coast_cliff / forest_breaks poses, `-cliffs 0` arm). Result: HANDOFF 178.
+
+**Task 176d (world gen C1, owner 2026-11-06 on 176c Q1 (a) "allow one big area"; GENERATOR CHANGE): biome Size 2 ships.**
+176c's patch applied on top of 177/178: `ShapeField.CLIMATE_WAVE_R` 0.75 -> 1.5 x islandRadius, a 4th climate octave `CLIMATE_OCT4` 0.12
+in `Climate3` (name kept), and `BlendClimateReach`'s gradient bound gains the `OCT4 * 2.03^3` term (`BiomeBlendTests` prove it).
+`BiomeLayoutTests`' regions gate is now PRESENCE: every biome has >= `REGIONS_MIN` 1 land region of >= 25 ha (was 2); every other C1 gate
+unchanged (straight <= 1.7 km, shares 5-35 %, change >= 300 m, median >= 35 ha). `-biomevary 0` (B10) unchanged. Re-pinned: ShellFill GOLDEN
+(same 85 chunks), `WorldMapBurstTests.PLAYER_V4_SEED42` from the survey launch's player log (the `-worldsurvey` header now prints
+the tg2 report's "map v4 Height FNV" line, so a survey launch can re-pin it). Maps: `python3 -I tools/biome176.py maps sizes/c176 size2c/c176
+Screenshots/176d/map_seed<S>.png <S> 1024` (left 176 size, right Size 2). Result: HANDOFF 176d.

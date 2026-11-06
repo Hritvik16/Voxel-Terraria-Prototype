@@ -4,7 +4,7 @@
 // the real generator. For each seed it builds the real map (SharedMaps), takes
 // its land mask and height shade, and writes biome planes for:
 //   b10    TerrainSpec.biomeVaryOff = 1 (B10's belts), via ShapeField.Biome
-//   c176   the map's own record plane (task 176, CLIMATE_WAVE_R 0.75)
+//   c176   the map's own record plane (the live generator: 176's 0.75 until 176c, Size 2 since; name kept for tools)
 //   <var>  each C1SIZES variant: climate wavelength k x islandRadius and Fbm
 //          octave amplitudes, normalised over the island disc exactly as
 //          ShapeField.ClimateNormalise does, classified by nearest centre as
@@ -135,7 +135,7 @@ namespace TerrainGen.Tests
             string root = Path.Combine(Directory.GetCurrentDirectory(), "Logs", "TerrainGen", "c1", tag);
             Directory.CreateDirectory(root);
             var variants = Parse(System.Environment.GetEnvironmentVariable("C1SIZES") ?? DefaultSizes);
-            var live = new[] { 1f, ShapeField.CLIMATE_OCT2, ShapeField.CLIMATE_OCT3 };
+            var live = new[] { 1f, ShapeField.CLIMATE_OCT2, ShapeField.CLIMATE_OCT3, ShapeField.CLIMATE_OCT4 };   // 176c: 4 octaves
             var metas = new Dictionary<string, System.Text.StringBuilder>();
             var log = new System.Text.StringBuilder();
 
@@ -186,6 +186,16 @@ namespace TerrainGen.Tests
                 log.AppendLine($"[176b] seed {seed}: variant path vs record plane: {bad} of {n * n} cells differ; " +
                                $"Mono normalisation vs Burst: mean {mu75 - o.climMean} gain {g75 - o.climGain} wave {w75 - o.climWave}");
                 Assert.LessOrEqual(bad, n * n / 1000, $"seed {seed}: the variant path does not reproduce the generator ({bad} cells)");
+
+                // 3. task 176c: the generator's record plane vs 176b's stored Size 2 plane (Mono-computed, so only
+                //    Burst-vs-Mono residue may differ). Skipped when 176b's dump is not on disk.
+                string w150 = Path.Combine(Directory.GetCurrentDirectory(), "Logs", "TerrainGen", "c1", "sizes", "w150", $"seed{seed}_biome.bin");
+                if (File.Exists(w150))
+                {
+                    var prev = File.ReadAllBytes(w150);
+                    int diff = 0; for (int i = 0; i < n * n && i < prev.Length; i++) if (prev[i] != rec[i]) diff++;
+                    log.AppendLine($"[176c] seed {seed}: record plane vs 176b sizes/w150: {diff} of {n * n} cells differ");
+                }
 
                 foreach (var v in variants)
                 {

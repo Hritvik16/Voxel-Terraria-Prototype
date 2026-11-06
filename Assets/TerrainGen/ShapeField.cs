@@ -552,20 +552,27 @@ namespace TerrainGen
         // or 1 % desert (seed 31337). Computed once per spec in Offsets.Compute.
         // Chosen on 20 seeds' land masks (tools/biome176.py); accepted on 8.
         // ------------------------------------------------------------------
-        public const float CLIMATE_WAVE_R = 0.75f;   // moisture wavelength / islandRadius
+        //   TASK 176c (owner 2026-11-05 "size 2", 176b's Size 2): the wavelength
+        // 0.75 -> 1.5 x islandRadius plus a 4th octave (0.12), so regions grow
+        // ~2-3x (area-weighted median 44-65 -> 106-186 ha) and the extra octave
+        // keeps the longer borders bent (straight <= 1.42 km on 176b's 4 seeds).
+        public const float CLIMATE_WAVE_R = 1.5f;    // moisture wavelength / islandRadius (176: 0.75)
         public const float CLIMATE_TEMP_X = 1.25f;   // temperature wavelength / moisture's (B10's 15000 : 12000)
-        public const float CLIMATE_OCT2 = 0.35f, CLIMATE_OCT3 = 0.2f;
+        public const float CLIMATE_OCT2 = 0.35f, CLIMATE_OCT3 = 0.2f, CLIMATE_OCT4 = 0.12f;
         public const float CLIMATE_SD = 0.7f;        // climate units: the spread over the island
         public const int CLIMATE_GRID = 64;          // normalisation samples per side of the disc's box
 
-        /// The raw 3-octave climate at q (noise units), before normalisation.
+        /// The raw climate at q (noise units), before normalisation: 4 octaves
+        /// since 176c (the name is 176's; amplitudes 1 / OCT2 / OCT3 / OCT4).
         public static float Climate3(float2 q)
         {
             float a = noise.snoise(q);
             q = q * 2.03f + new float2(17.3f, -9.1f);
             a += CLIMATE_OCT2 * noise.snoise(q);
             q = q * 2.03f + new float2(17.3f, -9.1f);
-            return a + CLIMATE_OCT3 * noise.snoise(q);
+            a += CLIMATE_OCT3 * noise.snoise(q);
+            q = q * 2.03f + new float2(17.3f, -9.1f);
+            return a + CLIMATE_OCT4 * noise.snoise(q);
         }
 
         /// Offsets.Compute's step for a BiomeVary spec: wavelengths and the
@@ -629,8 +636,8 @@ namespace TerrainGen
             float s = o.biomeScale > 0f ? o.biomeScale : 1f;
             if (o.biomeVary != 0)
             {
-                // |grad t| <= gain_t (1 + oct2 2.03 + oct3 2.03^2) SNOISE_GRAD_BOUND / wave_t, same for m
-                const float g3 = 1f + CLIMATE_OCT2 * 2.03f + CLIMATE_OCT3 * 2.03f * 2.03f;
+                // |grad t| <= gain_t (1 + oct2 2.03 + oct3 2.03^2 + oct4 2.03^3) SNOISE_GRAD_BOUND / wave_t, same for m
+                const float g3 = 1f + CLIMATE_OCT2 * 2.03f + CLIMATE_OCT3 * 2.03f * 2.03f + CLIMATE_OCT4 * 2.03f * 2.03f * 2.03f;
                 float lt = o.climGain.x / o.climWave.x, lm = o.climGain.y / o.climWave.y;
                 return BLEND_REACH * g3 * SNOISE_GRAD_BOUND * math.sqrt(lt * lt + lm * lm);
             }

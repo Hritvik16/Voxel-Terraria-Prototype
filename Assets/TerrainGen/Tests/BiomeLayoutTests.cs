@@ -6,8 +6,11 @@
 //   straight   no land biome border runs straight: the longest straight line that
 //              stays within STRAIGHT_TOL_M of a border along its whole length is
 //              <= STRAIGHT_MAX_M (the plan's "about 1.5 km"; B10 had 1.7-2.9 km)
-//   regions    every biome is in >= 2 separate 4-connected land regions of
-//              >= REGION_MIN_HA (B10: 7 of 8 seeds had a biome in one region)
+//   regions    every biome is PRESENT: >= 1 4-connected land region of
+//              >= REGION_MIN_HA. (176 asked for >= 2 regions; owner 2026-11-06,
+//              176c Q1 (a) "allow one big area": Size 2's bigger regions leave
+//              1-3 biomes per seed in one region, so the gate is presence only.
+//              The straight / change / median gates still catch B10's belts.)
 //   shares     every biome holds SHARE_MIN..SHARE_MAX of the land (six biomes,
 //              the brief's Decided count; B10 ranged 1-53 %)
 //   not confetti  biome change walking east-west >= CHANGE_MIN_M (above v3's
@@ -26,6 +29,7 @@ namespace TerrainGen.Tests
     {
         public const float STRAIGHT_TOL_M = 30f, STRAIGHT_MAX_M = 1700f;
         public const float REGION_MIN_HA = 25f;
+        public const int REGIONS_MIN = 1;   // 176d, owner 2026-11-06 (176c Q1 (a)): was 2
         public const double SHARE_MIN = 0.05, SHARE_MAX = 0.35;
         public const float CHANGE_MIN_M = 300f, MEDIAN_MIN_HA = 35f;
 
@@ -56,7 +60,8 @@ namespace TerrainGen.Tests
                     share[b] /= land;
                     sb.Append($"{100 * share[b],5:F1}");
                     if (share[b] < SHARE_MIN || share[b] > SHARE_MAX) fails.AppendLine($"seed {seed}: biome {b} holds {100 * share[b]:F1} % of the land");
-                    if (regions[b] < 2) fails.AppendLine($"seed {seed}: biome {b} is in {regions[b]} region(s) of >= {REGION_MIN_HA} ha");
+                    // Task 176d (owner 2026-11-06, 176c Q1 (a)): presence (>= 1 region), was >= 2.
+                    if (regions[b] < REGIONS_MIN) fails.AppendLine($"seed {seed}: biome {b} is in {regions[b]} region(s) of >= {REGION_MIN_HA} ha");
                 }
                 if (straight > STRAIGHT_MAX_M) fails.AppendLine($"seed {seed}: a border runs straight for {straight:F0} m");
                 if (change < CHANGE_MIN_M) fails.AppendLine($"seed {seed}: biome change every {change:F0} m walking east-west");

@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Task 176d: biome Size 2</title>
+<style>body{margin:0;background:#111;color:#eee;font:15px -apple-system,Helvetica,sans-serif}
+#bar{padding:8px 12px;background:#222}#wrap{overflow:auto;height:calc(100vh - 80px)}
+img{display:block;image-rendering:pixelated}b{color:#ffcc55}</style></head><body>
+<div id="bar"><b id="t"></b> &nbsp; <span id="c"></span><br>
+Keys: left/right = image, Space = BEFORE | AFTER, 1-4 = zoom (1 = fit width). Question: <b>keep these cliffs?</b></div>
+<div id="wrap"><img id="im"></div>
+<script>
+const S=[["map_seed42.png", "", "seed 42 biome map, FULL SIZE (1 px = 8 m, north up). LEFT = 176 size (0.75 x R), RIGHT = Size 2 (1.5 x R + 4th octave). Look at patch size: each colour region is ~2-3x bigger; desert (ochre) and savanna (gold) are now ONE region each (the gate the owner relaxed). Magenta = longest straight border (1.06 -> 1.42 km, gate 1.7)."], ["map_seed7.png", "", "seed 7 biome map, left 176 size | right Size 2. Badlands (red) is one region at Size 2."], ["map_seed2026.png", "", "seed 2026 biome map, left 176 size | right Size 2. Jungle (dark green) is one region at Size 2."], ["map_seed31337.png", "", "seed 31337 biome map, left 176 size | right Size 2. Snow (white) is one region at Size 2."], ["shot_start_view_after.png", "shot_start_view_before.png", "start_view (the play start from 160 m back). Space flips BEFORE | AFTER. Before: snow over BADLANDS stripes; after: the start is now FOREST (grey rock, khaki soil, green grass patches). CAUTION: before = 177's build, so the thin red stripes -> thick grey layers part is task 178 (cliffs), not Size 2."], ["shot_desert_alpine-range_after.png", "shot_desert_alpine-range_before.png", "desert_alpine-range: before all snow; after SAVANNA rock (grey-brown with one dark-red 178 layer). The snow cover is gone because the biome under the camera changed (snow -> savanna)."], ["shot_forest_river-plains_after.png", "shot_forest_river-plains_before.png", "forest_river-plains: river plain from above. Before savanna/desert (yellow sand patches); after FOREST (green grass), with desert sand left at bottom-left. Ignore the grey ring at the right edge: it is in both shots (pre-existing object)."], ["shot_great-peak-0_after.png", "shot_great-peak-0_before.png", "great-peak-0: the island's tallest peak. Before snow + badlands; after SAVANNA rock with thick dark layers (178) and green patches; little snow left on the peak itself. Snow-capped ranges remain at the left/right horizon."], ["shot_range_200up_after.png", "shot_range_200up_before.png", "range_200up: the same range from 200 m up. Same change as great-peak-0: snow/badlands -> savanna rock with 178's thick layers."]];let i=0,after=true,zoom=1;
+function show(){const s=S[i];const im=document.getElementById('im');im.src=after?s.after:s.before;
+document.getElementById('t').textContent=(i+1)+'/'+S.length+'  '+s.name+'  ['+(after?'AFTER':'BEFORE')+']';
+document.getElementById('c').textContent=s.caption;
+im.style.width=zoom==1?'100%':(zoom*100)+'%';}
+document.onkeydown=e=>{if(e.key=='ArrowRight')i=(i+1)%S.length;else if(e.key=='ArrowLeft')i=(i+S.length-1)%S.length;
+else if(e.key==' '){after=!after;e.preventDefault();}else if('1234'.includes(e.key))zoom=+e.key;show();};show();
+</script></body></html>

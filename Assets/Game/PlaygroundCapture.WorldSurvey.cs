@@ -73,6 +73,9 @@ public partial class PlaygroundCapture
         L($"WORLD SURVEY (task 173): seed {spec.seed}, map v{spec.mapVersion}, {cells}^2 record cells of {cellM:F0} m, sea {seaM:F1} m; " +
           $"noon {noon:F2} h, sun elevation {SunCycle.ElevationDegreesAt(noon):F0} deg, heading away from the sun ({away.x:F2}, {away.y:F2}); " +
           $"arms {string.Join(", ", arms)}; shell wait cap {wait:F0} s; start {centre:F1}");
+        // Task 176d: the player's map identity, so a survey launch can re-pin WorldMapBurstTests.PLAYER_V4_SEED42
+        // (same line as the tg2 report's, PlaygroundCapture.FarBand.cs).
+        L($"map v{spec.mapVersion} Height FNV {map.HeightHash():X16}  cell(613,259) {map.Height[259 * spec.mapCells + 613]:F5}");
 
         float Ground(float xM, float zM) => WalkEyeY(xM, zM, -1e9f) - 1.6f;   // generator top (ground, water or sea)
         Vector3 CellM(int cx, int cz) => new Vector3((cx + 0.5f) * cellM, 0f, (cz + 0.5f) * cellM);
