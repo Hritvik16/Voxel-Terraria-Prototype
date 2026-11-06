@@ -1,0 +1,51 @@
+Task 175: torch flood ON in play by default; shots /Users/hritvikjv/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/2026-11-05_213738_high/
+
+camp15: 9-torch camp from 15 m: the warm pool round each post, its falloff, any yellow clipping
+   fsr3_540_sc10_rm_play    lit   9.4%  mean luma  20.9  clip  0.04%  black  13.5%   PLAY now 540: flood ON by default, sc10 + mask
+   fsr3_432_sc10_rm_play    lit   9.5%  mean luma  21.0  clip  0.03%  black  13.3%   PLAY now 432 (dyn floor)
+   fsr3_540_sc10_rm         lit   5.4%  mean luma  17.9  clip  0.03%  black  16.2%   -torchflood 0: point-light torches, 540 sc10 + mask
+   fsr3_540                 lit   5.4%  mean luma  17.9  clip  0.03%  black  16.2%   BEFORE 174: 540 sc0, flood OFF (174b 'today')
+   native_play              lit   9.3%  mean luma  21.0  clip  0.10%  black  13.9%   native 1080, play's flood (truth)
+   native                   lit   5.4%  mean luma  17.9  clip  0.05%  black  17.3%   native 1080, flood OFF (truth)
+
+camp40: the same camp from 40 m: does it read as a glow on the ridge
+   fsr3_540_sc10_rm_play    lit   6.9%  mean luma  21.1  clip  0.00%  black   6.7%   PLAY now 540: flood ON by default, sc10 + mask
+   fsr3_432_sc10_rm_play    lit   6.8%  mean luma  21.3  clip  0.00%  black   6.4%   PLAY now 432 (dyn floor)
+   fsr3_540_sc10_rm         lit   6.4%  mean luma  21.0  clip  0.02%  black   6.6%   -torchflood 0: point-light torches, 540 sc10 + mask
+   fsr3_540                 lit   6.4%  mean luma  20.9  clip  0.02%  black   6.6%   BEFORE 174: 540 sc0, flood OFF (174b 'today')
+   native_play              lit   7.3%  mean luma  21.2  clip  0.02%  black   7.8%   native 1080, play's flood (truth)
+   native                   lit   6.8%  mean luma  21.0  clip  0.03%  black   7.8%   native 1080, flood OFF (truth)
+
+cave: 3 m tunnel, 2 wall torches: is the inside lit (flood) or a dim doorway (point lights)
+   fsr3_540_sc10_rm_play    lit   4.0%  mean luma  11.9  clip  0.00%  black  38.7%   PLAY now 540: flood ON by default, sc10 + mask
+   fsr3_432_sc10_rm_play    lit   3.9%  mean luma  12.0  clip  0.00%  black  37.9%   PLAY now 432 (dyn floor)
+   fsr3_540_sc10_rm         lit   3.2%  mean luma   8.5  clip  0.00%  black  72.9%   -torchflood 0: point-light torches, 540 sc10 + mask
+   fsr3_540                 lit   3.2%  mean luma   8.5  clip  0.00%  black  73.0%   BEFORE 174: 540 sc0, flood OFF (174b 'today')
+   native_play              lit   4.4%  mean luma  12.0  clip  0.00%  black  39.6%   native 1080, play's flood (truth)
+   native                   lit   3.5%  mean luma   8.4  clip  0.00%  black  74.0%   native 1080, flood OFF (truth)
+
+wall: 6 torches along a cliff face: is the face lit
+   fsr3_540_sc10_rm_play    lit   6.1%  mean luma  13.3  clip  0.03%  black  39.1%   PLAY now 540: flood ON by default, sc10 + mask
+   fsr3_432_sc10_rm_play    lit   6.1%  mean luma  13.3  clip  0.02%  black  38.6%   PLAY now 432 (dyn floor)
+   fsr3_540_sc10_rm         lit   2.8%  mean luma   7.9  clip  0.01%  black  66.5%   -torchflood 0: point-light torches, 540 sc10 + mask
+   fsr3_540                 lit   2.8%  mean luma   7.9  clip  0.01%  black  66.5%   BEFORE 174: 540 sc0, flood OFF (174b 'today')
+   native_play              lit   6.7%  mean luma  13.5  clip  0.05%  black  38.2%   native 1080, play's flood (truth)
+   native                   lit   3.1%  mean luma   8.0  clip  0.02%  black  66.3%   native 1080, flood OFF (truth)
+
+camp40pan burst (4 frames): flicker vs its truth, all px / lit px
+   fsr3_540_sc10_rm_play    vs native_play   1.80 /  7.19   lit px 5.0%   PLAY now 540: flood ON by default, sc10 + mask
+   fsr3_432_sc10_rm_play    vs native_play   1.94 /  7.66   lit px 5.0%   PLAY now 432 (dyn floor)
+   fsr3_540_sc10_rm         vs native        1.70 /  6.07   lit px 4.5%   -torchflood 0: point-light torches, 540 sc10 + mask
+   fsr3_540                 vs native        1.70 /  6.03   lit px 4.5%   BEFORE 174: 540 sc0, flood OFF (174b 'today')
+
+walk burst (8 frames): flicker vs its truth, all px / lit px
+   fsr3_540_sc10_rm_play    vs native_play   1.36 /  3.68   lit px 27.0%   PLAY now 540: flood ON by default, sc10 + mask
+   fsr3_432_sc10_rm_play    vs native_play   1.58 /  4.33   lit px 27.0%   PLAY now 432 (dyn floor)
+   fsr3_540_sc10_rm         vs native        1.46 /  4.05   lit px 25.3%   -torchflood 0: point-light torches, 540 sc10 + mask
+   fsr3_540                 vs native        1.49 /  4.10   lit px 25.3%   BEFORE 174: 540 sc0, flood OFF (174b 'today')
+
+edit (survival-style EditService, play's flood): per step lit %, and |luma change| vs the previous step
+   0_before    lit   9.4%  mean luma  20.9
+   1_place     lit  10.8%  mean luma  21.8  changed px (|d luma| > 8)  3.83%  mean |d| 1.46
+   2_digpit    lit  10.9%  mean luma  21.9  changed px (|d luma| > 8)  0.47%  mean |d| 0.34
+   3_digtorch  lit  10.8%  mean luma  21.7  changed px (|d luma| > 8)  0.60%  mean |d| 0.31

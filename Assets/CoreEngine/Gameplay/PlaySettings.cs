@@ -86,6 +86,10 @@ public sealed class PlaySettings
     /// tier-0 box (`-shells 0|1`). Read at BOOT (Phase4Bootstrapper, ResolveShells),
     /// so a change applies at the next start. A file saved before task 93c gets on.
     public bool shells = true;
+    /// Task 175 (owner, 2026-11-05): torches light their surroundings with the torch flood
+    /// (TorchFloodPool, dir 2, I 1.6 k 0.35; `-torchflood 0|1`). Off: the old point-light
+    /// torches. Applies live. A file saved before task 175 gets on.
+    public bool torchFlood = true;
 
     /// Runtime only: -renderpreset / -taa / -checker without -upscaler or
     /// -renderrows asked for the old preset frame path, so no upscaler is applied.
@@ -140,6 +144,7 @@ public sealed class PlaySettings
         string rl = Last(args, "-riverlook");
         string fs = Last(args, "-farshade");
         string sl = Last(args, "-shells");
+        string tf = Last(args, "-torchflood");
         if (u != null)
         {
             string v = u.ToLowerInvariant();
@@ -198,6 +203,11 @@ public sealed class PlaySettings
         {
             if (sl == "0" || sl == "1") { s.shells = sl == "1"; overridden?.Add("shells"); }
             else overridden?.Add($"-shells: bad value '{sl}'");
+        }
+        if (tf != null)
+        {
+            if (tf == "0" || tf == "1") { s.torchFlood = tf == "1"; overridden?.Add("torchFlood"); }
+            else overridden?.Add($"-torchflood: bad value '{tf}'");
         }
         // Task 52's rule, kept: asking for the preset path without naming an
         // upscaler keeps the preset path.

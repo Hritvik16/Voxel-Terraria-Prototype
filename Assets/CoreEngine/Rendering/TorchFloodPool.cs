@@ -93,6 +93,28 @@ namespace VoxelEngine.Rendering
             }
         }
 
+        /// Task 175 (owner, 2026-11-05: "Tune first, then on"; Q105 dir 2, 174b S3): PLAY's torch look.
+        /// Rigs and capture runs never call ApplyPlayDefaults, so they keep the fields' defaults above.
+        public const float PlayIntensity = 1.6f, PlayFalloffK = 0.35f;
+        public const int PlayDirMode = 2;
+
+        /// Play (SettingsMenu.LoadAndApply): dir 2, I 1.6, k 0.35, then this run's -tf* flags laid
+        /// over them (last match wins, as ParseArgs), then the flood ON / OFF as PlaySettings says.
+        public static void ApplyPlayDefaults(bool on)
+        {
+            Intensity = PlayIntensity; FalloffK = PlayFalloffK; DirMode = PlayDirMode;
+            ParseArgs();
+            SetEnabled(on);
+        }
+
+        /// A live switch (the F6 menu). Edits are not tracked while OFF, so turning it back ON
+        /// drops every flood and re-floods from scratch on the next Tick.
+        public static void SetEnabled(bool on)
+        {
+            if (on && !Enabled && _inst != null) _inst.ResetAll(Store);
+            Enabled = on;
+        }
+
         private static TorchFloodPool _inst;
         public static TorchFloodPool Instance => _inst ??= new TorchFloodPool(null, ReachM, true);
         /// The renderer draws the flood kernel only when this is true.

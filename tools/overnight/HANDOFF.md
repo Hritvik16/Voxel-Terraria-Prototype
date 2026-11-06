@@ -1,59 +1,69 @@
-STOP_FOR_OWNER -- task 176 (C1 biome layout): "Keep this layout?" Viewer: `Screenshots/176/viewer.html` (arrows = image, 1-4 = fit/100/200/300 %).
-- (a) **Recommended: keep it.** The climate's wavelength is 0.75 x the island radius, and every biome is in 2+ regions on all 8 seeds.
-  - Cost: biomes change every ~375 m walking E-W. B10 was ~1,050 m and v3 ~290 m, so this undoes most of B1's "larger biomes" (owner Q5).
-- (b) Coarser, at 1.0 x the radius (a Python model only, `c1_optionB_k1.0_4seeds.png`): a change every ~480 m, but ~1 seed in 2-3 has a biome in only one region.
-- (c) Revert to B10's belts. `-biomevary 0` already gives them, bit for bit.
-- **Also needs you: 1 test is red.** `RouteTests.V4_FourSeeds_RoutesJoinTheEasyAreas`, seed 42: "0.5 m of Sheer on the voxel ground".
-  - The biome feeds danger, so seed 42's route 0-1 now takes a new path. It fords a river at (3086, 4781) m with a 2.3 m bank (voxel 5140 vs 5117 beside it).
-  - The bank existed before; this is 173's finding 3, "rivers as canals with levees" (C5's ground). I did NOT loosen the gate.
-  - Options: ease ford banks in `Routes`, or leave it red until C5 carves the banks.
-- Saves: biome borders move on every seed, so existing saves' deltas would land on shifted terrain. Seed 42's map heights also moved: the routes ease the map.
+# 175-torch-flood-on-in-play: DONE -- the torch flood is ON in play by default (dir 2, I 1.6, k 0.35); `-torchflood 0` / F6 "Point lights" = the old torches
 
-# 176-worldgen-c1-biome-layout: the climate varies across the island and transitions are patch-wise; 8-seed gates pass; 1 route test red
-
-## What changed (commit "176: ..." on engine-phase; `git log -1 --grep '^176:'`)
-- `ShapeField.cs`: `Biome6` uses the new climate when `o.biomeVary` is set:
-  - `Climate3` has 3 octaves (1 / 0.35 / 0.2).
-  - Wavelengths come from `CLIMATE_WAVE_R` x islandRadius.
-  - `ClimateNormalise` sets mean 0 and sd 0.7 over the island disc, per world, using seed noise only.
-  - No domain warp; the six climate centres are unchanged.
-  - Blend: the per-cell hash dither is replaced by a 10 m patch octave. The early-out bound is updated.
-- `TerrainSpec.biomeVaryOff` / `BiomeVary`, `Offsets.biomeVary/climMean/climGain/climWave`, and the `-biomevary 0` flag (chunk source + FarField).
-- Tests:
-  - New `BiomeLayoutTests` (the C1 gates on 8 seeds; `-biomevary 0` is still B10, bit for bit).
-  - New `BiomeLayoutDump` (report: the planes for the tool).
-  - `WorldRecordTests`: the B1/B10 gates now measure the B10 field (`biomeVaryOff 1`), the record check runs under Burst, and `Change` / `AreaMedianHa` are internal.
-  - `BiomeBlendTests`: the band share gate goes from N/20 to N/8. The island has 2.7x the border length (border cells 5,961 -> 16,253, 20-seed mean); the band itself is as wide as before.
-  - `ShellFillTests` GOLDEN re-made (83/85 chunks moved; fast == reference still).
-  - `WorldMapBurstTests` player hash re-pinned to 74C7E69A614F8996, read from the PLAYER's `Logs/tg2world_20261105_201249.txt`. It equals the Editor's, so there is still one generator path.
-- `PlaygroundCapture.WorldSurvey.cs`: `-wsfixed` adds fixed poses. `tools/biome176.py`: stats, maps, viewer, plus a Python snoise port used to choose the parameters on 20 seeds. TASKS.md: task 176 paragraph.
+## What changed (commit "175: ..." on engine-phase; `git log -1 --grep '^175:'`)
+- `TorchFloodPool.cs`: `PlayDirMode` 2, `PlayIntensity` 1.6, `PlayFalloffK` 0.35.
+  - `ApplyPlayDefaults(on)`: play values, then ParseArgs (this run's -tf* flags still win), then `SetEnabled`.
+  - `SetEnabled`: OFF -> ON calls ResetAll, because edits are not tracked while the flood is OFF.
+- `PlaySettings.cs`: `torchFlood` (default true; an old file gets on) and the `-torchflood 0|1` override.
+- `SettingsMenu.cs`: LoadAndApply calls ApplyPlayDefaults. The F6 menu gets a live "Torch light" row (Flood / Point lights), and the log line names the torch light.
+- Rigs and capture runs keep I 2.0, k 0.10, dir 0, flood OFF, so every frozen rig baseline stays comparable.
+  - **Exception: `tools/play-flags.sh` PLAY_SETTINGS_FLAGS** (MODE=playwalk) now has `-torchflood 1 -tfdir 2 -tfi 1.6 -tfk 0.35`. Its guard test `PlayFlagsFileMatchesPlaySettingsDefaults` requires every PlaySettings default, and now also pins the three values.
+- QA additions to `PlaygroundCapture.TorchCine.cs`:
+  - Arm token `+p` = play's own default path, no flags.
+  - Scene `edit` = place / dig through a play-shaped EditService.
+  - Flood memory and per-torch cost logged after every build.
+- `tools/torchplay175.py`. Tests `PlaySettingsTests.TorchFlood_*`. TASKS.md paragraph; one line in CLAUDE.md's play commands.
 
 ## Evidence
-- 8-seed gates: `Screenshots/176/c1_layout.txt`. Before | after on 20 seeds: `Screenshots/176/c1_layout_20seeds_before_after.txt`.
-- Whole suite, run 1: PASS 1052 FAIL 3 SKIP 30 (`Logs/overnight/176_all.out`, 33 min). Two of the failures were pins that legitimately moved and were fixed (filter run: PASS 2).
-  - Run 2: **PASS 1054 FAIL 1 SKIP 30** (`Logs/overnight/176_all2.out`, 33 min). The one failure is the route test above.
-- Survey launch: `Logs/lookreview_20261105_191830.txt`. Shots in `Screenshots/176/shots/`. The "before" shots are 173's native shots (`Screenshots/173/shots/`), same cameras.
-  - Shells s3-s7 were mostly missing after the 30 s cap, so the far terrain is the far band.
-- I looked at every pair:
-  - Peak: 173's straight vertical ochre|red seam is now a diagonal red badlands | grey snow split. It is still two biomes across the peak.
-  - Start: same spot. Its cell is now snow x alpine range (was desert), with badlands strata below.
-  - Flat border: savanna | forest interfingering in metre-scale patches instead of pixel speckle (`crop_border_before_after.png`).
-- Rough cost (look-stage rule, from these runs; no timing arms):
-  - Shell fill on a worker: ~85 ms -> ~100 ms per chunk (same poses, 173's log vs this one; warm chip, rough).
-  - The blend early-out now skips no columns: its Lipschitz bound is loose at the shorter wavelengths, so every column runs 14 extra snoise.
-  - Map build: v4 1.4-1.6 s -> 1.5-1.7 s.
+- Fast suite: **PASS 1000 FAIL 0 SKIP 16** (`Logs/overnight/175_fast.out`).
+- Launch (capture only, no flood flags): `Logs/lookreview_20261105_213456.txt`; numbers `Screenshots/175/torchplay175.txt`; viewer `Screenshots/175/viewer.html`.
+  - Launch 1 (`Logs/lookreview_20261105_212332.txt`, sheets in `Screenshots/175_run1_broken432/`) had a bug in MY arm: it forced the flood OFF before each `+p` arm, so the 432 arm was shot mid-rebuild.
+  - Fixed and reshot: `Logs/lookreview_20261105_213456.txt`. All numbers below are from this second launch.
+- The log's play arm line: "PlaySettings default torchFlood True -> flood ON, dir 2, I 1.60, k 0.35; FSR 3 sc 1.0 reactive True". The defaults really do apply.
+- Edits re-flood (camp, 540 play arm, survival-shaped EditService):
 
-## Next
-- Owner answers (a)/(b)/(c) and the route question. If (a): queue C2 (ground cover).
-- Optional, perf stage: a tighter early-out (e.g. a per-world gradient bound) to win back the shell fill time.
+  | Edit | Settle | Re-floods | Torches |
+  |---|---|---|---|
+  | Place a torch on a post | 4.4 s | 7 + 1 new flood | 9 -> 10 (it registered itself) |
+  | Dig a 361-voxel pit | 5.8 s | 10 | 10 |
+  | Dig the middle torch | 5.7 s | 9 | 10 -> 9 (it unregistered itself) |
+
+- Looked at `tp175_play_vs_off.png`, `tp175_edit.png`, `tp175_edit_crops.png` (below).
+  - Cave and wall: a clear gain.
+  - Camp: a broader, softer warm wash with no clipping (clip 0.04 %).
+  - The pit is hidden behind the ridge crest from this camera. Its re-flood shows only as a faint relight (0.47 % of px).
+- **Rough cost** (look-stage rule, from these runs; no timing arms):
+  - Memory, 9-torch camp: CPU union 3.1 MB (content 1.5) + caches 2.9 MB (2.3); flood-job scratch peak 27 MB, only while flooding; GPU 2.5 MB. Wall camp (6 torches): CPU 2.2 + 1.9 MB.
+  - Per torch: **~840-990 ms worker mean (max 1.5 s)** on the camp ridge; 161 ms in the cave.
+    - 169 measured 226 ms (a 31-torch camp, cost-split run, pre-176 terrain).
+    - So settle is 4-6 s per edit here, vs 169's 1.2-2.1 s. A torch placed in play lights up a few seconds late.
+    - Not comparable 1:1 (different terrain since 176, the launch renders native 1080 alongside, warm chip). Worth a look in the performance stage.
+  - The flood kernel is used whenever the pool is Ready, even with 0 torches. 158 measured it as cheaper than the 32-light loop (+5.6 / +6.3 ms saved p50).
+
+## For the owner (no decision needed)
+- Placing or digging near torches relights after ~4-6 s on this camp. That is slower than 169's 1-2 s; I suggest the performance stage looks at it (named here, not queued).
+- MODE=playwalk now runs with the flood ON, because it mirrors play. Its old numbers are not comparable for scenes with torches.
+- 174 left `-fsr3sc 10 -fsr3reactive 1` out of PLAY_SETTINGS_FLAGS (they are not PlaySettings fields), so playwalk still runs FSR 3 sc 0, no mask. Not changed here.
 
 ## For the doc
-- Longest straight biome border, 8 seeds: 1.7-2.9 km -> **1.04-1.65 km** (7 of 8 seeds <= 1.27 km). Measured at +-30 m (`Screenshots/176/c1_layout.txt`).
-- Seeds with a biome in only one region: 7 of 8 -> **0 of 8** (20 seeds: 19 -> 2).
-- Biome shares of land: 1.0-52.9 % -> **9.2-26.5 %**.
-- Biome change walking E-W: ~1,050 m -> **~375 m** (v3 ~290 m). Area-weighted median patch: 144-886 -> 41-94 ha.
-- Shell fill: ~85 -> ~100 ms per chunk (rough).
+- Cave, play default vs `-torchflood 0`: black px **73.0 % -> 38.7 %**. Wall: lit px **2.8 % -> 6.1 %**. Camp15: lit **5.4 % -> 9.4 %**, clip 0.04 % (`Screenshots/175/torchplay175.txt`).
+- 40 m strafe flicker (lit px; step 2's re-report with sc10 + mask, on post-176 terrain):
+
+  | Arm | Flicker |
+  |---|---|
+  | Flood ON at 540 | 7.19 |
+  | Flood ON at 432 | 7.66 |
+  | Point lights | 6.07 |
+  | Before 174 | 6.03 |
+
+  - That makes the flood +1.1 to +1.6 over OFF here. 174b found +2.7 (4.2 -> 6.9) without sc10 + mask.
+- Walk flicker: flood 540 **3.68** / 432 4.33, vs point lights 4.05. Walking, the flood is no worse.
+- Edits: place / dig pit / dig torch re-flood **8 / 10 / 9** torches, settle **4.4 / 5.8 / 5.7 s**. Memory for 9 torches: **CPU 6.0 MB + GPU 2.5 MB** (scratch peak 27 MB while flooding).
 - Images:
-  - `Screenshots/176/c1_maps_4seeds.png`: seeds 42/7/2026/31337 as rows. Left B10, right C1. Look at seed 42's straight NW-SE belts (left) vs the patchwork (right); the magenta line is each map's longest straight border.
-  - `Screenshots/176/pose_great-peak-0_before_after.png`: the same camera. Left, the straight vertical seam down the 600 m peak; right, a diagonal red | grey biome split.
-  - `Screenshots/176/crop_border_before_after.png`: full-res. Top, 173's per-pixel speckle at a border; bottom, C1's patches of metres.
+  - `Screenshots/175/tp175_play_vs_off.png`: rows camp15 / cave / wall; left = play default (flood), right = `-torchflood 0`.
+    - Look at the cave's evenly lit tunnel (left) vs one lit side (right).
+    - Look at the wall face's warm glow (left) vs small speckled patches (right).
+  - `Screenshots/175/tp175_edit.png`: the 4 edit steps.
+    - Top-right: the new torch at lower right lights its own pool.
+    - Bottom-right vs bottom-left: the middle torch is gone.
+  - `Screenshots/175/tp175_edit_crops.png`, bottom row (4x): the dug torch's post goes dark and its warm pool on the slope disappears.

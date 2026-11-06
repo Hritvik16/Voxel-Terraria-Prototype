@@ -986,3 +986,17 @@ Tests: `BiomeLayoutTests` (8 seeds `BiomeLayoutDump.LayoutSeeds`: straight borde
 C1TAG=<tag> [C1SEEDS=sweep] tools/run-editmode-filter.sh BiomeLayoutDump` dumps land/biome planes; `python3 -I tools/biome176.py stats|maps|viewer`
 (also a Python port of snoise for prototyping candidate climates). Survey: `-wsfixed "name|ex,ey,ez|ax,ay,az;..."` adds fixed poses (`fixed_<name>`).
 Result: HANDOFF 176, `Screenshots/176/viewer.html`.
+
+**Task 175 (look, owner 2026-11-05 "Tune first, then on" + 174b answer S3; PLAY DEFAULT CHANGED): the torch flood is ON in play.**
+`PlaySettings.torchFlood` (default true; a file saved before 175 gets on; `-torchflood 0|1` overrides for one run, bad values keep the saved one)
+-> `SettingsMenu.LoadAndApply` -> `TorchFloodPool.ApplyPlayDefaults(on)`: `PlayDirMode` 2 (Q105), `PlayIntensity` 1.6, `PlayFalloffK` 0.35 (174b S3,
+the point lights' own values), then ParseArgs so this run's `-tfdir/-tfi/-tfk/...` still win, then `SetEnabled`. F6 has a live "Torch light" row
+(Flood / Point lights; `SetEnabled(true)` from OFF re-floods every torch from scratch, since edits are not tracked while OFF). L3 incremental path and
+169's edit cuts unchanged. Rigs and capture runs never call ApplyPlayDefaults: they keep I 2.0 k 0.10 dir 0, flood OFF unless flagged. EXCEPT
+`tools/play-flags.sh` PLAY_SETTINGS_FLAGS (MODE=playwalk) now carries `-torchflood 1 -tfdir 2 -tfi 1.6 -tfk 0.35`, as its guard test requires
+(`PlayFlagsFileMatchesPlaySettingsDefaults` also pins the three values to the constants). Tests: `PlaySettingsTests.TorchFlood_*`.
+QA: `-torchcine` arm token `+p` = the flood exactly as play's default path sets it (no -tf* flags may be passed), scene `edit` (survival-style
+EditService with the light buffer attached: place a torch on a post, dig a 1 x 1 x 0.5 m pit, dig the middle torch; settle + re-flood counts +
+memory logged per step): `PRESETS=high EXTRA="-torchcine 1 -tcscenes camp15,camp40,camp40pan,walk,edit,cave,wall -tcarms
+540_sc10_rm+p,432_sc10_rm+p,native+p,540_sc10_rm,native,540" ./run-look-review.sh`, then `python3 -I tools/torchplay175.py <LookReview dir>
+Screenshots/175` (stats, burst flicker, viewer.html, tp175_edit.png). Result: HANDOFF 175.

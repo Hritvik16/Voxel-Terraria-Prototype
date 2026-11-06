@@ -17,6 +17,8 @@
 //   See-through liquids RaymarchFeature.SeeThroughLiquids, as -seethrough (task 75: On)
 //   LOD shells       PlaySettings.shells, as -shells (task 93c: On). The ONE option read
 //                    at boot (Phase4Bootstrapper): it applies at the next start.
+//   Torch light      TorchFloodPool.SetEnabled, as -torchflood (task 175: Flood, dir 2,
+//                    I 1.6 k 0.35 via TorchFloodPool.ApplyPlayDefaults; Point lights = before)
 //
 // ORDERED by task 57's cost split (Logs/costsplit_2026-10-10_212527.txt, warm,
 // walk at noon, FSR 3 at 540): sun shadows 14.2 / 4.2 ms (wall / open view),
@@ -82,6 +84,7 @@ public class SettingsMenu : MonoBehaviour
         RaymarchFeature.SeeThroughLiquids = run.seeThroughLiquids;
         RaymarchFeature.RiverLook = run.riverLook;
         RaymarchFeature.FarShade = run.farShade;
+        VoxelEngine.Rendering.TorchFloodPool.ApplyPlayDefaults(run.torchFlood);   // task 175
         Playground.SetGameMode(run.gameMode == "survival");
         // -settingsopen: start with the menu open (task 58's -playshot still).
         if (Array.IndexOf(Environment.GetCommandLineArgs(), "-settingsopen") >= 0) IsOpen = true;
@@ -90,6 +93,7 @@ public class SettingsMenu : MonoBehaviour
                   (err != null ? $" -- {err}" : "") +
                   $"; this run: upscaler {(run.presetPath ? "preset path" : run.upscaler)}, rows {run.rows}, shadows {run.shadowLevel}" +
                   $" {(run.softShadows ? "soft" : "hard")}, shadow res {run.shadowRes}, roof skip {(run.roofSkip ? "on" : "off")}, overlay {run.perfOverlay}, minimap {(run.minimap ? "on" : "off")}, game mode {run.gameMode}, underwater {(run.underwaterFog ? "on" : "off")}, see-through liquids {(run.seeThroughLiquids ? "on" : "off")}, far shading {(run.farShade ? "on" : "off")}, LOD shells {(run.shells ? "on" : "off")}" +
+                  $", torch light {(run.torchFlood ? $"flood (dir {VoxelEngine.Rendering.TorchFloodPool.DirMode}, I {VoxelEngine.Rendering.TorchFloodPool.Intensity:F2}, k {VoxelEngine.Rendering.TorchFloodPool.FalloffK:F2})" : "point lights")}" +
                   (_overridden.Count > 0 ? $"; flags override: {string.Join(", ", _overridden)}" : ""));
     }
 
@@ -147,13 +151,13 @@ public class SettingsMenu : MonoBehaviour
     {
         if (!IsOpen || Playground.DebugHideUi || DevMap.IsOpen) return;
         GUI.depth = -10;   // over Playground's help panel and the HUD
-        float ui = Mathf.Max(1f, Screen.height / 1084f);   // task 85b: 1010 (was 900), task 93c: 1084 so all rows fit
+        float ui = Mathf.Max(1f, Screen.height / 1158f);   // task 85b: 1010 (was 900), task 93c: 1084, task 175: 1158 so all rows fit
         Matrix4x4 prev = GUI.matrix;
         GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one * ui);
         float vw = Screen.width / ui, vh = Screen.height / ui;
         Styles();
 
-        const float w = 780f, h = 1078f;   // + task 64's Game mode row, task 66b's Underwater view row, task 75's See-through liquids row, task 85b's Far shading row, task 93c's LOD shells row
+        const float w = 780f, h = 1152f;   // + task 64's Game mode row, task 66b's Underwater view row, task 75's See-through liquids row, task 85b's Far shading row, task 93c's LOD shells row, task 175's Torch light row
         var r = new Rect((vw - w) * 0.5f, (vh - h) * 0.5f, w, h);
         Fill(r, new Color(0.03f, 0.05f, 0.08f, 0.96f));
         Fill(new Rect(r.x, r.y, w, 1f), new Color(1f, 1f, 1f, 0.25f));
@@ -306,6 +310,18 @@ public class SettingsMenu : MonoBehaviour
             Save("farShade", s => s.farShade = pick == 0);
         }
 
+        // 9a. Torch light (task 175). Live; turning the flood back on re-floods every torch.
+        int tfl = VoxelEngine.Rendering.TorchFloodPool.Enabled ? 0 : 1;
+        pick = Row(x, ref y, "Torch light", "torchFlood",
+            "Flood: torch light spreads round corners into caves and onto walls and fades over ~12 m. Point lights: the old small pools with hard shadows. " +
+            "A 31-torch camp: ~31 MB CPU + 20 MB GPU (tasks 165/169); a block placed or dug near a torch relights in ~1-2 s.",
+            new[] { "Flood", "Point lights" }, tfl);
+        if (pick >= 0 && pick != tfl)
+        {
+            VoxelEngine.Rendering.TorchFloodPool.SetEnabled(pick == 0);
+            Save("torchFlood", s => s.torchFlood = pick == 0);
+        }
+
         // 10. LOD shells (task 93c). Read at boot, so the saved choice is shown and
         // used at the next start; the hint says what this run has.
         int shl = _saved.shells ? 0 : 1;
@@ -320,7 +336,7 @@ public class SettingsMenu : MonoBehaviour
         y += 4f;
         GUI.Label(new Rect(x, y, w - 40f, 60f),
             "<color=#9fb6c9>Choices made here are saved and used at the next start. Command-line flags " +
-            "(-upscaler, -renderrows, -shadowlevel, -shadowres, -roofskip, -gamemode, -underwater, -seethrough, -farshade, -shells) override them for one run. The keys J, K, F1, F4 change " +
+            "(-upscaler, -renderrows, -shadowlevel, -shadowres, -roofskip, -gamemode, -underwater, -seethrough, -farshade, -shells, -torchflood) override them for one run. The keys J, K, F1, F4 change " +
             "things for this session only.\n" + (_note ?? $"file: {_path}") + "</color>", _small);
 
         GUI.matrix = prev;

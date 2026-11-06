@@ -12,5 +12,7 @@
 #   Not expressible as flags in a capture run (see TASKS.md task 145b): gameMode survival and the movement
 #   abilities (Playground._moveAbilities = IsPlaySettingsRun), the HUD perf overlay level. softShadows true and
 #   the scripted -sustained camera need no flag.
+#   Task 175: -torchflood 1 plus play's flood look (TorchFloodPool.ApplyPlayDefaults: -tfdir 2 -tfi 1.6 -tfk 0.35),
+#   which a capture run only gets from these flags.
 PLAY_WORLD_FLAGS="-world tg2 -mapversion ${MAPV:-4} -farband 1 -farshadow 1"
-PLAY_SETTINGS_FLAGS="-renderpreset quality -upscaler fsr3 -renderrows dyn -dynfloor 432 -shadowlevel 0 -roofskip 0 -shadowres full -gamemode survival -underwater 1 -seethrough 1 -riverlook 1 -farshade 1 -shells 1 -shellworkers 3 -minimap"
+PLAY_SETTINGS_FLAGS="-renderpreset quality -upscaler fsr3 -renderrows dyn -dynfloor 432 -shadowlevel 0 -roofskip 0 -shadowres full -gamemode survival -underwater 1 -seethrough 1 -riverlook 1 -farshade 1 -shells 1 -shellworkers 3 -minimap -torchflood 1 -tfdir 2 -tfi 1.6 -tfk 0.35"

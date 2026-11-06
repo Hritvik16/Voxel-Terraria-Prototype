@@ -190,6 +190,60 @@ public class PlaySettingsTests
     }
 
     [Test]
+    public void TorchFlood_OldFileGetsOn_FlagOverridesForTheRun()
+    {
+        // Task 175: a file saved before it has no torchFlood field: it gets ON (play's new default).
+        var old = PlaySettings.Parse("{\"upscaler\":\"fsr3\",\"rows\":\"dyn\",\"farShade\":true}", out string e);
+        Assert.IsNull(e);
+        Assert.IsTrue(old.torchFlood);
+        Assert.IsTrue(new PlaySettings().torchFlood);
+
+        var over = new List<string>();
+        var run = PlaySettings.WithArgs(old, new[] { "-torchflood", "1", "-torchflood", "0" }, over);
+        Assert.IsFalse(run.torchFlood, "last match wins");
+        Assert.IsTrue(old.torchFlood, "the saved settings are untouched");
+        CollectionAssert.Contains(over, "torchFlood");
+
+        over.Clear();
+        run = PlaySettings.WithArgs(old, new[] { "-torchflood", "on" }, over);
+        Assert.IsTrue(run.torchFlood, "a bad value keeps the saved one");
+        CollectionAssert.Contains(over, "-torchflood: bad value 'on'");
+
+        // The saved choice round-trips.
+        var off = new PlaySettings { torchFlood = false };
+        Assert.IsFalse(PlaySettings.Parse(off.ToJson(), out _).torchFlood);
+    }
+
+    [Test]
+    public void TorchFlood_PlayDefaults_AreDir2_I16_K035_AndOffKeepsThem()
+    {
+        // Task 175: play's flood look (owner Q105 dir 2, 174b S3 = the point lights' I 1.6 k 0.35).
+        // The EditMode runner passes no -tf* flags, so ParseArgs leaves the play values in place.
+        bool en0 = VoxelEngine.Rendering.TorchFloodPool.Enabled;
+        float i0 = VoxelEngine.Rendering.TorchFloodPool.Intensity, k0 = VoxelEngine.Rendering.TorchFloodPool.FalloffK;
+        int d0 = VoxelEngine.Rendering.TorchFloodPool.DirMode;
+        try
+        {
+            Assert.AreEqual(2.0f, i0, "rigs / capture keep task 158's map unless they pass -tfi");
+            Assert.AreEqual(0.10f, k0, 1e-6f);
+            Assert.AreEqual(0, d0);
+            VoxelEngine.Rendering.TorchFloodPool.ApplyPlayDefaults(true);
+            Assert.IsTrue(VoxelEngine.Rendering.TorchFloodPool.Enabled);
+            Assert.AreEqual(1.6f, VoxelEngine.Rendering.TorchFloodPool.Intensity, 1e-6f);
+            Assert.AreEqual(0.35f, VoxelEngine.Rendering.TorchFloodPool.FalloffK, 1e-6f);
+            Assert.AreEqual(2, VoxelEngine.Rendering.TorchFloodPool.DirMode);
+            VoxelEngine.Rendering.TorchFloodPool.ApplyPlayDefaults(false);
+            Assert.IsFalse(VoxelEngine.Rendering.TorchFloodPool.Enabled, "-torchflood 0 / Point lights = the old torches");
+        }
+        finally
+        {
+            VoxelEngine.Rendering.TorchFloodPool.Enabled = en0;
+            VoxelEngine.Rendering.TorchFloodPool.Intensity = i0; VoxelEngine.Rendering.TorchFloodPool.FalloffK = k0;
+            VoxelEngine.Rendering.TorchFloodPool.DirMode = d0;
+        }
+    }
+
+    [Test]
     public void ShadowRes_OldFileGetsFull_FlagOverridesForTheRun_BadValuesClamp()
     {
         // A file saved before task 61 has no shadowRes field: it gets Full.
@@ -291,7 +345,7 @@ public class PlaySettingsTests
         {
             upscaler = "none", rows = "540", shadowLevel = 3, roofSkip = !d.roofSkip, shadowRes = "half", gameMode = "creative",
             underwaterFog = !d.underwaterFog, seeThroughLiquids = !d.seeThroughLiquids, riverLook = !d.riverLook,
-            farShade = !d.farShade, shells = !d.shells,
+            farShade = !d.farShade, shells = !d.shells, torchFlood = !d.torchFlood,
             // no flag for these: the playwalk run keeps the engine's own value, which IS the default.
             softShadows = d.softShadows, perfOverlay = d.perfOverlay, minimap = d.minimap,
         };
@@ -328,5 +382,11 @@ public class PlaySettingsTests
         Assert.IsTrue(fm.Success, "UpscalerSelect.PlayDynFloor's declaration not found");
         int di = System.Array.IndexOf(args, "-dynfloor");
         Assert.IsTrue(di >= 0 && args[di + 1] == fm.Groups[1].Value, "-dynfloor must be UpscalerSelect.PlayDynFloor (" + fm.Groups[1].Value + ")");
+        // Task 175: play's flood look (TorchFloodPool.ApplyPlayDefaults), which a capture run gets only from flags.
+        string Arg(string f) { int i = System.Array.IndexOf(args, f); return i >= 0 && i + 1 < args.Length ? args[i + 1] : null; }
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        Assert.AreEqual(VoxelEngine.Rendering.TorchFloodPool.PlayDirMode.ToString(), Arg("-tfdir"), "-tfdir must be TorchFloodPool.PlayDirMode");
+        Assert.AreEqual(VoxelEngine.Rendering.TorchFloodPool.PlayIntensity, float.Parse(Arg("-tfi") ?? "nan", inv), 1e-6f, "-tfi must be TorchFloodPool.PlayIntensity");
+        Assert.AreEqual(VoxelEngine.Rendering.TorchFloodPool.PlayFalloffK, float.Parse(Arg("-tfk") ?? "nan", inv), 1e-6f, "-tfk must be TorchFloodPool.PlayFalloffK");
     }
 }

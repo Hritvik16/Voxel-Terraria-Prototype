@@ -22,6 +22,11 @@
 // flood ON with -tfdir 2 for that arm (TorchFloodPool.Enabled + DirMode; built once per scene with ResetAll, the
 // wait logged). Every other arm has the flood OFF (play's 32-light loop + torch shadow rays). Play's dyn 432-540
 // rows cannot be pinned for a still, so both ends are shot.
+// Task 175: "+p" = PLAY's flood exactly as an interactive run with no saved file gets it (TorchFloodPool.ApplyPlayDefaults(
+// new PlaySettings().torchFlood), the call SettingsMenu.LoadAndApply makes; no -tf* flags may be passed), e.g.
+// -tcarms 540_sc10_rm+p,native+p. Scene "edit" (camp, "+p" arms only, the first FSR one): a survival-style EditService
+// (light buffer attached, as play's) places a torch on a post 7 m out, digs a 1 x 1 x 0.5 m pit beside the middle post,
+// digs the middle torch; after each it waits for the flood to settle (<= 30 s) and shoots tc_edit_<k>_<step>.
 // Each scene's torches (and posts) are removed before the next. Shots: tc_<scene>_<arm>.png, bursts
 // tc_<scene>_<arm>_<k>.png. Sheets: python3 -I tools/torchcine172.py <LookReview dir> Screenshots/172
 using System;
@@ -42,7 +47,7 @@ public partial class PlaygroundCapture
         string[] arms = (string.IsNullOrEmpty(armArg) ? "540,720,432_sc10+f,540_sc10+f,native,native+f" : armArg).Split(',');
         for (int i = 0; i < arms.Length; i++)
         {
-            int fi = arms[i].IndexOf("+f", StringComparison.Ordinal);   // "+f" or "+fN" (task 174b: -tcsets entry N)
+            int fi = FloodTok(arms[i]);   // "+f" or "+fN" (task 174b: -tcsets entry N); "+p" (task 175)
             arms[i] = fi < 0 ? LadderArms(arms[i])[0] : LadderArms(arms[i].Substring(0, fi))[0] + arms[i].Substring(fi);
         }
         // Task 174b: -tcsets "I/k[/wrap],..." = the flood's level -> light map per "+fN" arm (N 1-based); "+f" = the launch's own
@@ -80,7 +85,15 @@ public partial class PlaygroundCapture
         Vector3? profC = null; Vector3 profFwd = Vector3.forward;   // task 174b: the radial-profile torch (camp centre, water torch)
         var placed = new List<int3>();      // every voxel this task wrote (posts, torches) -> restored to air per scene
         var torches = new List<int3>();
-        bool floodBuilt = false;
+        bool floodBuilt = false, playLogged = false;
+        void LogFloodCost(TorchFloodPool pool, string ind)
+        {
+            // Task 175 (look-stage cost note, 165's units): CPU union + caches (allocated / content), job scratch peak, GPU buffers; per-torch flood ms.
+            float pt = 0f, mx = 0f; foreach (var f in pool.FloodLog) { pt += f.x; mx = math.max(mx, f.x); }
+            L($"{ind}flood memory: CPU union {pool.UnionBytes / 1048576f:F1} MB (content {pool.UnionContentBytes / 1048576f:F1}) + caches " +
+              $"{pool.CacheBytes / 1048576f:F1} MB (content {pool.CacheContentBytes / 1048576f:F1}), scratch peak {pool.ScratchPeakBytes / 1048576f:F1} MB, " +
+              $"GPU {pool.GpuBytes / 1048576f:F1} MB; floods {pool.FloodLog.Count}, per torch mean {(pool.FloodLog.Count > 0 ? pt / pool.FloodLog.Count : 0f):F0} ms max {mx:F0} ms (worker)");
+        }
 
         float Ground(float xM, float zM, float yTop) => StoreGroundM(store, xM, zM, yTop);
         int3 Vox(Vector3 p) => new int3((int)math.floor(p.x * 10f), (int)math.floor(p.y * 10f), (int)math.floor(p.z * 10f));
@@ -113,14 +126,32 @@ public partial class PlaygroundCapture
         }
         IEnumerator Arm(string arm)
         {
-            int fi = arm.IndexOf("+f", StringComparison.Ordinal);
+            int fi = FloodTok(arm);
+            bool play = fi >= 0 && arm.Substring(fi) == "+p";
             bool flood = fi >= 0;
             ApplyCompareArm(flood ? arm.Substring(0, fi) : arm);
+            if (play)
+            {
+                // Task 175: play's own default path, untouched by this arm (no set, no forced dir).
+                bool was = TorchFloodPool.Enabled;
+                TorchFloodPool.Intensity = fI0; TorchFloodPool.FalloffK = fK0; TorchFloodPool.Wrap = fW0; TorchFloodPool.DirMode = dir0;
+                TorchFloodPool.ApplyPlayDefaults(new PlaySettings().torchFlood);
+                flood = TorchFloodPool.Enabled;
+                if (flood && !was) floodBuilt = false;   // OFF -> ON: SetEnabled re-floods from scratch, so wait for it below
+                if (!playLogged)
+                    L($"    play arm (task 175): PlaySettings default torchFlood {new PlaySettings().torchFlood} -> flood {(flood ? "ON" : "OFF")}, " +
+                      $"dir {TorchFloodPool.DirMode}, I {TorchFloodPool.Intensity:F2}, k {TorchFloodPool.FalloffK:F2}, wrap {TorchFloodPool.Wrap:F2}; " +
+                      $"FSR 3 sc {RaymarchFeature.Fsr3ShadingChangeCut:F1} reactive {RaymarchFeature.Fsr3Reactive}");
+                playLogged = true;
+            }
+            else
+            {
             int si = flood && arm.Length > fi + 2 ? int.Parse(arm.Substring(fi + 2)) : 0;
             float3 fs = si >= 1 && si <= sets.Count ? sets[si - 1] : new float3(fI0, fK0, fW0);
             TorchFloodPool.Intensity = fs.x; TorchFloodPool.FalloffK = fs.y; TorchFloodPool.Wrap = fs.z;
             TorchFloodPool.DirMode = flood ? 2 : dir0;
             TorchFloodPool.Enabled = flood;
+            }
             if (flood && !floodBuilt)
             {
                 var pool = TorchFloodPool.Instance;
@@ -129,6 +160,7 @@ public partial class PlaygroundCapture
                 do { yield return null; fr++; } while ((pool.Busy || !TorchFloodPool.Ready) && Time.realtimeSinceStartup - t0 < 90f);
                 L($"    flood built: {pool.TorchCount} torches in {Time.realtimeSinceStartup - t0:F1} s ({fr} frames), ready {TorchFloodPool.Ready}, " +
                   $"busy {pool.Busy}; bricks air {pool.AirBricks} mixed {pool.MixedBricks}, escapes {pool.Escapes}, chunks {pool.Chunks}");
+                LogFloodCost(pool, "    ");
                 floodBuilt = true;
             }
             cam.ResetProjectionMatrix();
@@ -256,6 +288,86 @@ public partial class PlaygroundCapture
             var walkRot = Quaternion.Euler(10f, math.degrees(bestYaw), 0f);
             if (Want("walk")) yield return Burst("walk", 60, 8, i => (new Vector3(w0.x, wy + 1.7f, w0.z) + fwd * (v * i), walkRot));
             L($"  walk: {v * 30f:F1} m/s, from {w0:F1} along the heading, eye {wy + 1.7f:F1} (highest ground + 1.7), pitch 10 down; 60 lead + 8 kept");
+            if (Want("edit")) yield return EditScene(e15, LookAt(e15, C + Vector3.up * 0.8f));
+        }
+        IEnumerator EditScene(Vector3 eye, Quaternion rot)
+        {
+            string earm = null;
+            foreach (string a in arms) if (a.EndsWith("+p") && !a.StartsWith("native")) { earm = a; break; }
+            if (earm == null) { L("  edit: no FSR '+p' arm -- skipped"); yield break; }
+            var pool = TorchFloodPool.Instance;
+            var pe = new EditService();   // play's EditService shape: the light buffer attached, so a torch registers / unregisters itself
+            pe.AttachWorld(store, store, store, Phase4Bootstrapper.Clipmap);
+            pe.AttachLightBuffer(driver.Lights);
+            yield return Arm(earm);
+            Phase4Bootstrapper.DebugStreamCentre = eye;
+            cam.transform.SetPositionAndRotation(eye, rot);
+            yield return Frames(60);
+            L($"  edit (task 175, arm {earm}): flood {(TorchFloodPool.Enabled ? "ON" : "OFF")}, ready {TorchFloodPool.Ready}, torches {pool.TorchCount}, lights {driver.Lights.RegisteredCount}");
+            yield return CaptureTo($"tc_edit_0_before");
+            IEnumerator Settle(string step, int k)
+            {
+                int f0 = pool.FloodsDone, r0 = pool.EditRefloods, s0 = pool.EditSkips;
+                float t0 = Time.realtimeSinceStartup;
+                yield return Frames(3);
+                while ((pool.Busy || !TorchFloodPool.Ready) && Time.realtimeSinceStartup - t0 < 30f) yield return null;
+                float dt = Time.realtimeSinceStartup - t0;
+                cam.transform.SetPositionAndRotation(eye, rot);
+                yield return Frames(30);
+                yield return CaptureTo($"tc_edit_{k}_{step}");
+                L($"    {step}: settled in {dt:F2} s{(pool.Busy ? " (STILL BUSY at the 30 s cap)" : "")}; floods +{pool.FloodsDone - f0}, edit re-floods +{pool.EditRefloods - r0}, " +
+                  $"skips +{pool.EditSkips - s0}; torches {pool.TorchCount}, lights {driver.Lights.RegisteredCount}, ready {TorchFloodPool.Ready}");
+                LogFloodCost(pool, "      ");
+            }
+            // 1. place a torch on a 1.5 m post, 7 m out from the camp centre on the camera's right
+            var right = rot * Vector3.right;
+            var pT = C + new Vector3(right.x, 0f, right.z).normalized * 7f;
+            float g = Ground(pT.x, pT.z, C.y + 20f);
+            var newPost = new List<int3>();
+            int3 newTorch = new int3(int.MinValue);
+            if (!float.IsNaN(g))
+            {
+                int x = (int)math.floor(pT.x * 10f), z = (int)math.floor(pT.z * 10f), y0 = (int)math.round(g * 10f);
+                for (int i = 0; i < 15; i++)
+                {
+                    var p = new int3(x, y0 + i, z);
+                    if (store.GetVoxel(p) == Materials.Air && pe.TrySetVoxel(p, Materials.Stone)) newPost.Add(p);
+                }
+                var tv = new int3(x, y0 + 15, z);
+                if (store.GetVoxel(tv) == Materials.Air && pe.TrySetVoxel(tv, Materials.Torch)) newTorch = tv;
+            }
+            L($"    place: torch at {pT:F1} on a {newPost.Count}-voxel post {(newTorch.x != int.MinValue ? "placed" : "REFUSED")}");
+            yield return Settle("place", 1);
+            // 2. dig a 1 x 1 x 0.5 m pit 1.2 m from the middle post, toward the camera
+            var toEye = new Vector3(eye.x - C.x, 0f, eye.z - C.z).normalized;
+            var pc = C + toEye * 1.2f;
+            float gp = Ground(pc.x, pc.z, C.y + 20f);
+            var dug = new List<(int3, byte)>();
+            if (!float.IsNaN(gp))
+            {
+                int x0 = (int)math.floor(pc.x * 10f) - 5, z0 = (int)math.floor(pc.z * 10f) - 5, yt = (int)math.round(gp * 10f) - 1;
+                for (int y = yt; y > yt - 5; y--)
+                for (int z = z0; z < z0 + 10; z++)
+                for (int x = x0; x < x0 + 10; x++)
+                {
+                    var p = new int3(x, y, z); byte m = store.GetVoxel(p);
+                    if (m != Materials.Air && !MaterialRules.IsEmissiveMaterial(m) && pe.TrySetVoxel(p, Materials.Air)) dug.Add((p, m));
+                }
+            }
+            L($"    dig pit: {dug.Count} voxels dug at {pc:F1}");
+            yield return Settle("digpit", 2);
+            // 3. dig the middle torch (the camp's 5-voxel post stays)
+            int3 midT = torches.Count > 0 ? torches[torches.Count - 1] : new int3(int.MinValue);
+            bool dugT = midT.x != int.MinValue && store.GetVoxel(midT) == Materials.Torch && pe.TrySetVoxel(midT, Materials.Air);
+            if (dugT) { torches.RemoveAt(torches.Count - 1); placed.Remove(midT); }
+            L($"    dig torch: the middle torch {midT} {(dugT ? "dug" : "NOT dug")}");
+            yield return Settle("digtorch", 3);
+            // restore: the new torch + post, the pit (the camp's own Clear() takes the rest)
+            if (newTorch.x != int.MinValue) pe.TrySetVoxel(newTorch, Materials.Air);
+            for (int i = newPost.Count - 1; i >= 0; i--) pe.TrySetVoxel(newPost[i], Materials.Air);
+            for (int i = dug.Count - 1; i >= 0; i--) pe.TrySetVoxel(dug[i].Item1, dug[i].Item2);
+            pe.DetachLightBuffer();
+            yield return Frames(10);
         }
         Clear();
         yield return Frames(10);
@@ -452,5 +564,11 @@ public partial class PlaygroundCapture
         L("TORCH CINE done");
     }
 
-    private static string ArmFile(string arm) => arm.Replace("+f", "_flood");
+    private static string ArmFile(string arm) => arm.Replace("+f", "_flood").Replace("+p", "_play");
+    /// Index of the arm's flood token: "+f" / "+fN" (tasks 172 / 174b) or "+p" (task 175); -1 = flood OFF.
+    private static int FloodTok(string arm)
+    {
+        int i = arm.IndexOf("+f", StringComparison.Ordinal);
+        return i >= 0 ? i : arm.IndexOf("+p", StringComparison.Ordinal);
+    }
 }
