@@ -19,3 +19,7 @@ Q2 high ground stays the top third (as shipped); Q3 snow flecks kept (snow slide
 
 ## End
 Done (no owner stop) -- HANDOFF with the before|after pictures for the doc.
+
+
+## Supervisor note (2026-11-06 08:xx)
+First run (07:00-07:38) was aborted mid-task (tool aborted, no handoff); its uncommitted edits are saved in tools/overnight/blocked/177b-worldgen-palette-tweaks.patch (Cover.cs, DetailField.cs, CliffTests.cs, tools/cover177.py) -- reuse if useful, Screenshots/177b/ has its partial renders.
