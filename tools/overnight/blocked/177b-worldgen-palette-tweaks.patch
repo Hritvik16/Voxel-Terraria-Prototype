@@ -1,0 +1,688 @@
+diff --git a/Assets/Scenes/Playground.unity b/Assets/Scenes/Playground.unity
+index d1dce3e..bc11ed0 100644
+--- a/Assets/Scenes/Playground.unity
++++ b/Assets/Scenes/Playground.unity
+@@ -119,7 +119,7 @@ NavMeshSettings:
+     debug:
+       m_Flags: 0
+   m_NavMeshData: {fileID: 0}
+---- !u!1 &176163472
++--- !u!1 &101664141
+ GameObject:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+@@ -127,118 +127,9 @@ GameObject:
+   m_PrefabAsset: {fileID: 0}
+   serializedVersion: 6
+   m_Component:
+-  - component: {fileID: 176163474}
+-  - component: {fileID: 176163473}
+-  m_Layer: 0
+-  m_Name: Playground
+-  m_TagString: Untagged
+-  m_Icon: {fileID: 0}
+-  m_NavMeshLayer: 0
+-  m_StaticEditorFlags: 0
+-  m_IsActive: 1
+---- !u!114 &176163473
+-MonoBehaviour:
+-  m_ObjectHideFlags: 0
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 176163472}
+-  m_Enabled: 1
+-  m_EditorHideFlags: 0
+-  m_Script: {fileID: 11500000, guid: 71fe7c5e5588044ad9ca2930a5d5efb9, type: 3}
+-  m_Name: 
+-  m_EditorClassIdentifier: Assembly-CSharp::Playground
+-  _fluidCA: {fileID: 7200000, guid: 686bcb121d3f743e2ad4b88fcc1012c1, type: 3}
+-  _arenaEdge: 64
+-  _slotCapacity: 750000
+-  _maxOpsPerFrame: 65536
+-  _outputRootFolderName: PlaygroundShots
+-  _player: {fileID: 421469464}
+-  _bombRadiusVoxels: 46
+-  _activeRadiusVoxels: 1280
+-  _waterBudget: 60000
+-  _sandBudget: 20000
+-  _lavaBudget: 12000
+-  _ventEdge: 5
+-  _ventSpread: 40
+-  _tilePoolCap: 480
+---- !u!4 &176163474
+-Transform:
+-  m_ObjectHideFlags: 0
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 176163472}
+-  serializedVersion: 2
+-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+-  m_LocalPosition: {x: 0, y: 0, z: 0}
+-  m_LocalScale: {x: 1, y: 1, z: 1}
+-  m_ConstrainProportionsScale: 0
+-  m_Children: []
+-  m_Father: {fileID: 0}
+-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+---- !u!1 &421469463
+-GameObject:
+-  m_ObjectHideFlags: 0
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  serializedVersion: 6
+-  m_Component:
+-  - component: {fileID: 421469465}
+-  - component: {fileID: 421469464}
+-  m_Layer: 0
+-  m_Name: Player
+-  m_TagString: Untagged
+-  m_Icon: {fileID: 0}
+-  m_NavMeshLayer: 0
+-  m_StaticEditorFlags: 0
+-  m_IsActive: 1
+---- !u!114 &421469464
+-MonoBehaviour:
+-  m_ObjectHideFlags: 0
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 421469463}
+-  m_Enabled: 1
+-  m_EditorHideFlags: 0
+-  m_Script: {fileID: 11500000, guid: a1fa763bfc47146ad87d6cce1dedac25, type: 3}
+-  m_Name: 
+-  m_EditorClassIdentifier: CoreEngine::PlayerController
+-  _camera: {fileID: 701346583}
+-  _spawnM: {x: 1280, y: 9.5, z: 1268}
+-  _resolveSpawnUpward: 1
+-  _eyeHeightM: 1.6
+-  _mouseSensitivity: 2.2
+-  _captureMouse: 0
+-  _hotReload: 1
+---- !u!4 &421469465
+-Transform:
+-  m_ObjectHideFlags: 0
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 421469463}
+-  serializedVersion: 2
+-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+-  m_LocalPosition: {x: 1280, y: 9.5, z: 1268}
+-  m_LocalScale: {x: 1, y: 1, z: 1}
+-  m_ConstrainProportionsScale: 0
+-  m_Children: []
+-  m_Father: {fileID: 0}
+-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+---- !u!1 &701346581
+-GameObject:
+-  m_ObjectHideFlags: 0
+-  m_CorrespondingSourceObject: {fileID: 0}
+-  m_PrefabInstance: {fileID: 0}
+-  m_PrefabAsset: {fileID: 0}
+-  serializedVersion: 6
+-  m_Component:
+-  - component: {fileID: 701346582}
+-  - component: {fileID: 701346583}
+-  - component: {fileID: 701346584}
++  - component: {fileID: 101664142}
++  - component: {fileID: 101664143}
++  - component: {fileID: 101664144}
+   m_Layer: 0
+   m_Name: Main Camera
+   m_TagString: MainCamera
+@@ -246,13 +137,13 @@ GameObject:
+   m_NavMeshLayer: 0
+   m_StaticEditorFlags: 0
+   m_IsActive: 1
+---- !u!4 &701346582
++--- !u!4 &101664142
+ Transform:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 701346581}
++  m_GameObject: {fileID: 101664141}
+   serializedVersion: 2
+   m_LocalRotation: {x: 0.12186935, y: 0, z: 0, w: 0.99254614}
+   m_LocalPosition: {x: 1280, y: 9.5, z: 1268}
+@@ -261,13 +152,13 @@ Transform:
+   m_Children: []
+   m_Father: {fileID: 0}
+   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+---- !u!20 &701346583
++--- !u!20 &101664143
+ Camera:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 701346581}
++  m_GameObject: {fileID: 101664141}
+   m_Enabled: 1
+   serializedVersion: 2
+   m_ClearFlags: 2
+@@ -312,13 +203,13 @@ Camera:
+   m_OcclusionCulling: 1
+   m_StereoConvergence: 10
+   m_StereoSeparation: 0.022
+---- !u!114 &701346584
++--- !u!114 &101664144
+ MonoBehaviour:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 701346581}
++  m_GameObject: {fileID: 101664141}
+   m_Enabled: 1
+   m_EditorHideFlags: 0
+   m_Script: {fileID: 11500000, guid: 3ecb2bd4414304f209e136df1bd51e77, type: 3}
+@@ -329,7 +220,7 @@ MonoBehaviour:
+   _lookSensitivity: 2.4
+   _minSpeed: 2
+   _maxSpeed: 120
+---- !u!1 &967495830
++--- !u!1 &283396253
+ GameObject:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+@@ -337,37 +228,48 @@ GameObject:
+   m_PrefabAsset: {fileID: 0}
+   serializedVersion: 6
+   m_Component:
+-  - component: {fileID: 967495832}
+-  - component: {fileID: 967495831}
++  - component: {fileID: 283396255}
++  - component: {fileID: 283396254}
+   m_Layer: 0
+-  m_Name: LightingDriver
++  m_Name: Playground
+   m_TagString: Untagged
+   m_Icon: {fileID: 0}
+   m_NavMeshLayer: 0
+   m_StaticEditorFlags: 0
+   m_IsActive: 1
+---- !u!114 &967495831
++--- !u!114 &283396254
+ MonoBehaviour:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 967495830}
++  m_GameObject: {fileID: 283396253}
+   m_Enabled: 1
+   m_EditorHideFlags: 0
+-  m_Script: {fileID: 11500000, guid: c194c612ac0e846ddb9e41a2a2770ca9, type: 3}
++  m_Script: {fileID: 11500000, guid: 71fe7c5e5588044ad9ca2930a5d5efb9, type: 3}
+   m_Name: 
+-  m_EditorClassIdentifier: CoreEngine::VoxelEngine.Rendering.LightingDriver
+-  _centre: {fileID: 701346582}
+-  _runClock: 1
+-  _hotReload: 1
+---- !u!4 &967495832
++  m_EditorClassIdentifier: Assembly-CSharp::Playground
++  _fluidCA: {fileID: 7200000, guid: 686bcb121d3f743e2ad4b88fcc1012c1, type: 3}
++  _arenaEdge: 64
++  _slotCapacity: 750000
++  _maxOpsPerFrame: 65536
++  _outputRootFolderName: PlaygroundShots
++  _player: {fileID: 1255338073}
++  _bombRadiusVoxels: 46
++  _activeRadiusVoxels: 1280
++  _waterBudget: 60000
++  _sandBudget: 20000
++  _lavaBudget: 12000
++  _ventEdge: 5
++  _ventSpread: 40
++  _tilePoolCap: 480
++--- !u!4 &283396255
+ Transform:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 967495830}
++  m_GameObject: {fileID: 283396253}
+   serializedVersion: 2
+   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+   m_LocalPosition: {x: 0, y: 0, z: 0}
+@@ -376,7 +278,7 @@ Transform:
+   m_Children: []
+   m_Father: {fileID: 0}
+   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+---- !u!1 &1175250210
++--- !u!1 &749784754
+ GameObject:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+@@ -384,8 +286,8 @@ GameObject:
+   m_PrefabAsset: {fileID: 0}
+   serializedVersion: 6
+   m_Component:
+-  - component: {fileID: 1175250212}
+-  - component: {fileID: 1175250211}
++  - component: {fileID: 749784756}
++  - component: {fileID: 749784755}
+   m_Layer: 0
+   m_Name: Phase4Bootstrapper
+   m_TagString: Untagged
+@@ -393,13 +295,13 @@ GameObject:
+   m_NavMeshLayer: 0
+   m_StaticEditorFlags: 0
+   m_IsActive: 1
+---- !u!114 &1175250211
++--- !u!114 &749784755
+ MonoBehaviour:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 1175250210}
++  m_GameObject: {fileID: 749784754}
+   m_Enabled: 1
+   m_EditorHideFlags: 0
+   m_Script: {fileID: 11500000, guid: 3829142968a6d48e9810147359170aa4, type: 3}
+@@ -411,13 +313,13 @@ MonoBehaviour:
+   _overrideCameraOnStart: 0
+   _cameraSpawnPosition: {x: 0, y: 0, z: 0}
+   _cameraSpawnEuler: {x: 10, y: 0, z: 0}
+---- !u!4 &1175250212
++--- !u!4 &749784756
+ Transform:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 1175250210}
++  m_GameObject: {fileID: 749784754}
+   serializedVersion: 2
+   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+   m_LocalPosition: {x: 0, y: 0, z: 0}
+@@ -426,7 +328,7 @@ Transform:
+   m_Children: []
+   m_Father: {fileID: 0}
+   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+---- !u!1 &1513279052
++--- !u!1 &1213105359
+ GameObject:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+@@ -434,8 +336,8 @@ GameObject:
+   m_PrefabAsset: {fileID: 0}
+   serializedVersion: 6
+   m_Component:
+-  - component: {fileID: 1513279054}
+-  - component: {fileID: 1513279053}
++  - component: {fileID: 1213105361}
++  - component: {fileID: 1213105360}
+   m_Layer: 0
+   m_Name: PlaygroundHud
+   m_TagString: Untagged
+@@ -443,13 +345,13 @@ GameObject:
+   m_NavMeshLayer: 0
+   m_StaticEditorFlags: 0
+   m_IsActive: 1
+---- !u!114 &1513279053
++--- !u!114 &1213105360
+ MonoBehaviour:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 1513279052}
++  m_GameObject: {fileID: 1213105359}
+   m_Enabled: 1
+   m_EditorHideFlags: 0
+   m_Script: {fileID: 11500000, guid: 10e115e7430d04bac96fef228acd5c68, type: 3}
+@@ -458,13 +360,13 @@ MonoBehaviour:
+   _visible: 0
+   _minimalVisible: 1
+   _toggleKey: 282
+---- !u!4 &1513279054
++--- !u!4 &1213105361
+ Transform:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 1513279052}
++  m_GameObject: {fileID: 1213105359}
+   serializedVersion: 2
+   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+   m_LocalPosition: {x: 0, y: 0, z: 0}
+@@ -473,7 +375,58 @@ Transform:
+   m_Children: []
+   m_Father: {fileID: 0}
+   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+---- !u!1 &2018342972
++--- !u!1 &1255338072
++GameObject:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  serializedVersion: 6
++  m_Component:
++  - component: {fileID: 1255338074}
++  - component: {fileID: 1255338073}
++  m_Layer: 0
++  m_Name: Player
++  m_TagString: Untagged
++  m_Icon: {fileID: 0}
++  m_NavMeshLayer: 0
++  m_StaticEditorFlags: 0
++  m_IsActive: 1
++--- !u!114 &1255338073
++MonoBehaviour:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_GameObject: {fileID: 1255338072}
++  m_Enabled: 1
++  m_EditorHideFlags: 0
++  m_Script: {fileID: 11500000, guid: a1fa763bfc47146ad87d6cce1dedac25, type: 3}
++  m_Name: 
++  m_EditorClassIdentifier: CoreEngine::PlayerController
++  _camera: {fileID: 101664143}
++  _spawnM: {x: 1280, y: 9.5, z: 1268}
++  _resolveSpawnUpward: 1
++  _eyeHeightM: 1.6
++  _mouseSensitivity: 2.2
++  _captureMouse: 0
++  _hotReload: 1
++--- !u!4 &1255338074
++Transform:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_GameObject: {fileID: 1255338072}
++  serializedVersion: 2
++  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
++  m_LocalPosition: {x: 1280, y: 9.5, z: 1268}
++  m_LocalScale: {x: 1, y: 1, z: 1}
++  m_ConstrainProportionsScale: 0
++  m_Children: []
++  m_Father: {fileID: 0}
++  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
++--- !u!1 &1753636178
+ GameObject:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+@@ -481,8 +434,8 @@ GameObject:
+   m_PrefabAsset: {fileID: 0}
+   serializedVersion: 6
+   m_Component:
+-  - component: {fileID: 2018342974}
+-  - component: {fileID: 2018342973}
++  - component: {fileID: 1753636180}
++  - component: {fileID: 1753636179}
+   m_Layer: 0
+   m_Name: PlaygroundCapture
+   m_TagString: Untagged
+@@ -490,26 +443,73 @@ GameObject:
+   m_NavMeshLayer: 0
+   m_StaticEditorFlags: 0
+   m_IsActive: 1
+---- !u!114 &2018342973
++--- !u!114 &1753636179
+ MonoBehaviour:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 2018342972}
++  m_GameObject: {fileID: 1753636178}
+   m_Enabled: 1
+   m_EditorHideFlags: 0
+   m_Script: {fileID: 11500000, guid: f4a68c7c3b14b47a9963168d600406fd, type: 3}
+   m_Name: 
+   m_EditorClassIdentifier: Assembly-CSharp::PlaygroundCapture
+   _outputRootFolderName: PlaygroundShots
+---- !u!4 &2018342974
++--- !u!4 &1753636180
++Transform:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_GameObject: {fileID: 1753636178}
++  serializedVersion: 2
++  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
++  m_LocalPosition: {x: 0, y: 0, z: 0}
++  m_LocalScale: {x: 1, y: 1, z: 1}
++  m_ConstrainProportionsScale: 0
++  m_Children: []
++  m_Father: {fileID: 0}
++  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
++--- !u!1 &1783110562
++GameObject:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  serializedVersion: 6
++  m_Component:
++  - component: {fileID: 1783110564}
++  - component: {fileID: 1783110563}
++  m_Layer: 0
++  m_Name: LightingDriver
++  m_TagString: Untagged
++  m_Icon: {fileID: 0}
++  m_NavMeshLayer: 0
++  m_StaticEditorFlags: 0
++  m_IsActive: 1
++--- !u!114 &1783110563
++MonoBehaviour:
++  m_ObjectHideFlags: 0
++  m_CorrespondingSourceObject: {fileID: 0}
++  m_PrefabInstance: {fileID: 0}
++  m_PrefabAsset: {fileID: 0}
++  m_GameObject: {fileID: 1783110562}
++  m_Enabled: 1
++  m_EditorHideFlags: 0
++  m_Script: {fileID: 11500000, guid: c194c612ac0e846ddb9e41a2a2770ca9, type: 3}
++  m_Name: 
++  m_EditorClassIdentifier: CoreEngine::VoxelEngine.Rendering.LightingDriver
++  _centre: {fileID: 101664142}
++  _runClock: 1
++  _hotReload: 1
++--- !u!4 &1783110564
+ Transform:
+   m_ObjectHideFlags: 0
+   m_CorrespondingSourceObject: {fileID: 0}
+   m_PrefabInstance: {fileID: 0}
+   m_PrefabAsset: {fileID: 0}
+-  m_GameObject: {fileID: 2018342972}
++  m_GameObject: {fileID: 1783110562}
+   serializedVersion: 2
+   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+   m_LocalPosition: {x: 0, y: 0, z: 0}
+@@ -522,10 +522,10 @@ Transform:
+ SceneRoots:
+   m_ObjectHideFlags: 0
+   m_Roots:
+-  - {fileID: 701346582}
+-  - {fileID: 1175250212}
+-  - {fileID: 176163474}
+-  - {fileID: 421469465}
+-  - {fileID: 967495832}
+-  - {fileID: 1513279054}
+-  - {fileID: 2018342974}
++  - {fileID: 101664142}
++  - {fileID: 749784756}
++  - {fileID: 283396255}
++  - {fileID: 1255338074}
++  - {fileID: 1783110564}
++  - {fileID: 1213105361}
++  - {fileID: 1753636180}
+diff --git a/Assets/TerrainGen/Cover.cs b/Assets/TerrainGen/Cover.cs
+index 8b6eb08..a71c785 100644
+--- a/Assets/TerrainGen/Cover.cs
++++ b/Assets/TerrainGen/Cover.cs
+@@ -110,7 +110,7 @@ namespace TerrainGen
+         /// The variant covers a slot where its noise exceeds this (~20-25 % of each slot).
+         public const float VARIANT_ABOVE = 0.3f;
+ 
+-        // ---- THE PALETTE: biome x (slot main, slot variant), task 177's first proposal ----
++        // ---- THE PALETTE: biome x (slot main, slot variant), task 177's proposal + 177b's owner tweaks ----
+         // Row order = GenBiome ids; columns = flat, flatVar, steep, steepVar, hollow,
+         // hollowVar, high, highVar, shore, shoreVar. Variant == main means none.
+         public const int ROW = 2 * SlotCount;
+@@ -118,8 +118,8 @@ namespace TerrainGen
+             // forest
+             GenMat.Grass, GenMat.JungleGrass,        BARE, GenMat.Gravel,                 GenMat.Gravel, GenMat.Loam,
+             GenMat.Gravel, BARE,                     GenMat.BeachSand, GenMat.Gravel,
+-            // desert
+-            GenMat.Sand, GenMat.PackedSand,          BARE, GenMat.CreamSandstone,         GenMat.PackedSand, GenMat.Gravel,
++            // desert (177b, owner 2026-11-06 "Desert cliffs: one colour": steep has no patch variant)
++            GenMat.Sand, GenMat.PackedSand,          BARE, BARE,                          GenMat.PackedSand, GenMat.Gravel,
+             GenMat.CreamSandstone, BARE,             GenMat.BeachSand, GenMat.BeachSand,
+             // snow (steep: wind-packed ice with rock outcrops -- the snow biome keeps its white flanks)
+             GenMat.Snow, GenMat.PackedIce,           GenMat.PackedIce, BARE,              GenMat.PackedIce, GenMat.Snow,
+@@ -127,8 +127,9 @@ namespace TerrainGen
+             // jungle
+             GenMat.JungleGrass, GenMat.Grass,        BARE, GenMat.MossRock,               GenMat.Mud, GenMat.JungleGrass,
+             GenMat.MossRock, BARE,                   GenMat.BeachSand, GenMat.BeachSand,
+-            // savanna
+-            GenMat.SavannaGrass, GenMat.RedEarth,    BARE, GenMat.Gravel,                 GenMat.Grass, GenMat.RedEarth,
++            // savanna (177b, owner 2026-11-06 "softer red earth": the flat variant is dusty
++            // packed earth, CIE dE 18 from the grass instead of red earth's 43)
++            GenMat.SavannaGrass, GenMat.PackedSand,  BARE, GenMat.Gravel,                 GenMat.Grass, GenMat.RedEarth,
+             BARE, GenMat.Gravel,                     GenMat.BeachSand, GenMat.BeachSand,
+             // badlands
+             GenMat.BadlandsClay, GenMat.Hardpan,     BARE, GenMat.Hardpan,                GenMat.Hardpan, GenMat.Gravel,
+diff --git a/Assets/TerrainGen/DetailField.cs b/Assets/TerrainGen/DetailField.cs
+index 5ac8e40..dd471a3 100644
+--- a/Assets/TerrainGen/DetailField.cs
++++ b/Assets/TerrainGen/DetailField.cs
+@@ -797,8 +797,7 @@ namespace TerrainGen
+                 for (int k = kLo + 1; k <= kHi; k++) if (LayerMaterial(spec.seed, biome, k) != m0) return 255;
+                 return m0;
+             }
+-            if (biome == GenBiome.Badlands) return (yLo >> 5) == (yHi >> 5) ? BadlandsBand(yLo) : (byte)255;
+-            return BiomeRock(biome, 0);
++            return BiomeRock(biome, 0);   // 177b: badlands too (its 3.2 m bands are gone with -cliffs 0 as well)
+         }
+ 
+         /// CullBrick's pocket test for every fine brick inside the box [lo, hi)
+@@ -894,8 +893,7 @@ namespace TerrainGen
+             if (y + cavernOff < spec.CavernTopY) return BiomeRock(biome, 2);
+             if (y + deepOff < spec.seaLevelY - STONE_BOTTOM_BELOW_SEA) return BiomeRock(biome, 1);
+             if (spec.Cliffs) return LayerMaterial(spec.seed, biome, LayerIndex(spec.seed, y + layerOff));
+-            if (biome == GenBiome.Badlands) return BadlandsBand((int)y);
+-            return BiomeRock(biome, 0);
++            return BiomeRock(biome, 0);   // 177b: no thin badlands stripes even with -cliffs 0 (owner, 2026-11-06)
+         }
+ 
+         // ------------------------------------------------------------------
+@@ -960,19 +958,10 @@ namespace TerrainGen
+         public static byte LayerMaterial(uint seed, byte biome, int k)
+             => LAYER_ROCKS[(biome < GenBiome.Count ? biome : 0) * 3 + LayerRole(seed, k)];
+ 
+-        /// Badlands' exposed rock (B10): flat bands by height, 3.2 m each
+-        /// (y >> 5), in an 8-band, 25.6 m cycle: red, red, cream, ochre,
+-        /// ochre, red, cream, red. Cliffs and the far band's steep texels
+-        /// (TopMaterial -> Strata) show the stripes.
+-        public static byte BadlandsBand(int y)
+-        {
+-            switch ((y >> 5) & 7)
+-            {
+-                case 2: case 6: return GenMat.CreamBand;
+-                case 3: case 4: return GenMat.OchreBand;
+-                default: return GenMat.RedBand;
+-            }
+-        }
++        // Task 177b (owner, 2026-11-06, "Badlands: no stripes"): BadlandsBand (B10's
++        // 3.2 m red/cream/ochre bands by y >> 5) is removed. With cliffs on (178)
++        // badlands rock is LAYER_ROCKS' thick layers; with -cliffs 0 it is
++        // BiomeRock(Badlands, 0), plain red rock.
+ 
+         /// Each biome's rock per layer (0 stone, 1 deep stone, 2 cavern rock),
+         /// from its palette-D set: a mid-tone stone near the surface, darker
+diff --git a/Assets/TerrainGen/Tests/CliffTests.cs b/Assets/TerrainGen/Tests/CliffTests.cs
+index 704b677..f81164a 100644
+--- a/Assets/TerrainGen/Tests/CliffTests.cs
++++ b/Assets/TerrainGen/Tests/CliffTests.cs
+@@ -4,8 +4,8 @@
+ // cliffs with geology. These tests pin:
+ //   - the stone zone's rock is a few THICK layers by height (>= 9.6 m each,
+ //     LAYER_THICK x (1 - 2 x LAYER_JITTER)), only the biome's own rocks, in
+-//     every biome -- badlands included (pre-178 it cycled 3.2 m bands, which
+-//     the same check catches with cliffs off);
++//     every biome -- badlands included (pre-178 it cycled 3.2 m bands; since
++//     177b cliffs off is one rock per biome, badlands too);
+ //   - the face relief moves a column only on a face (map slope over
+ //     FACE_FROM_DEG) or on a scree apron, never on gentle ground; cliffs off
+ //     is the pre-178 column;
+@@ -117,9 +117,10 @@ namespace TerrainGen.Tests
+                 foreach (byte m in seen) Assert.IsTrue(row.Contains(m), $"biome {b}: rock {m} is not in its layer row");
+                 Assert.GreaterOrEqual(seen.Count, 2, $"biome {b}: the stone zone shows one rock only");
+                 Assert.GreaterOrEqual(shortest, minLayer, $"biome {b}: a layer of {shortest} voxels (thin stripes)");
+-                // Pre-178 (cliffs off) for contrast: badlands' 3.2 m bands.
++                // Cliffs off: one rock per biome in the stone zone. Task 177b (owner 2026-11-06,
++                // "Badlands: no stripes") removed badlands' 3.2 m bands there too.
+                 int pre = ShortestRun(in w.off, in w.o, b, 40000, 40000, yLo, yHi, new HashSet<byte>());
+-                if (b == GenBiome.Badlands) Assert.Less(pre, minLayer, "cliffs off: badlands keeps its pre-178 bands");
++                Assert.AreEqual(int.MaxValue, pre, $"cliffs off: biome {b} shows more than one rock (thin stripes are back?)");
+                 sb.AppendLine($"biome {b}: rocks {seen.Count}, thinnest layer {shortest / 10f:F1} m (pre-178 {(pre == int.MaxValue ? "one rock" : (pre / 10f).ToString("F1") + " m")})");
+             }
+             Debug.Log("[Cliffs] layers seed 42\n" + sb);
+diff --git a/TASKS.md b/TASKS.md
+index e8501e5..15cc804 100644
+--- a/TASKS.md
++++ b/TASKS.md
+@@ -1052,3 +1052,13 @@ unchanged (straight <= 1.7 km, shares 5-35 %, change >= 300 m, median >= 35 ha).
+ (same 85 chunks), `WorldMapBurstTests.PLAYER_V4_SEED42` from the survey launch's player log (the `-worldsurvey` header now prints
+ the tg2 report's "map v4 Height FNV" line, so a survey launch can re-pin it). Maps: `python3 -I tools/biome176.py maps sizes/c176 size2c/c176
+ Screenshots/176d/map_seed<S>.png <S> 1024` (left 176 size, right Size 2). Result: HANDOFF 176d.
++
++**Task 177b (world gen C2/C3 palette, owner 2026-11-06 on 177 Q1 "tweak all three"; GENERATOR DATA CHANGE): palette tweaks.**
++`Cover.PALETTE` only: desert `steep` variant cream sandstone -> BARE (one cell, no cream patches; the bare rock is 178's thick layers);
++savanna `flat` variant red earth -> packed sand (a dusty tan earth, CIE dE 18 from savanna grass vs red earth's 43; same ~23 % of flat,
++the variant noise is biome-agnostic). Savanna `hollow` variant and savanna soil stay red earth. Badlands: the palette never made stripes;
++178's thick layers already replaced B10's 3.2 m bands with cliffs on, and 177b deletes `DetailField.BadlandsBand`, so `-cliffs 0` shows
++plain `BiomeRock(Badlands, 0)` (red rock) instead of stripes (`CliffTests.Layers_...` now asserts one rock per biome with cliffs off).
++Shares: `Screenshots/177b/shares177b.txt` (from `CoverTests.Report_CoverMaps`, REPORTS=1). Shots: `-worldsurvey -wsarms native -wspairs 60
++-wsposes fixed,pair_savanna_wetland-basin,pair_desert_canyonlands,pair_badlands_canyonlands -lookwait 30 -wsfixed <176d's 5>`;
++`python3 -I tools/palette177b.py Screenshots/177b` (pairs, sheet, viewer); `cover177.py palette` draws BARE as 178's three layers. Result: HANDOFF 177b.
+diff --git a/tools/cover177.py b/tools/cover177.py
+index 3fb40bc..c4b0f16 100644
+--- a/tools/cover177.py
++++ b/tools/cover177.py
+@@ -27,7 +27,9 @@ SEEDS = [42, 7, 2026, 31337]
+ BIOMES = ["forest", "desert", "snow", "jungle", "savanna", "badlands"]
+ SLOTS = ["flat", "steep", "hollow", "high", "shore"]
+ SLOT_RGB = {0: (120, 190, 90), 1: (90, 80, 75), 2: (60, 140, 220), 3: (250, 250, 255), 4: (235, 205, 120)}
+-BARE_ROCK = {0: [33], 1: [42], 2: [54], 3: [60], 4: [35], 5: [45, 46, 47]}   # DetailField.BiomeRock(b, 0); badlands bands
++# Task 177b: BARE shows 178's thick layers, DetailField.LAYER_ROCKS (main ~50 %, light ~30 %, dark ~20 %).
++BARE_ROCK = {0: [33, 30, 31], 1: [42, 40, 41], 2: [54, 51, 50], 3: [60, 62, 63], 4: [35, 37, 36], 5: [45, 46, 47]}
++BARE_SHARE = [0.5, 0.3, 0.2]
+ D = PALETTES["D"][2]
+ N = 512
+ 
+@@ -155,12 +157,15 @@ def palette(out):
+                 x = lw + j * cw + k * (cw // 2)
+                 if g == "BARE":
+                     rocks = BARE_ROCK[BIOMES.index(b)]
+-                    sw = (cw // 2 - 8) // len(rocks)
++                    # horizontal thick layers, heights by role share (main, light, dark)
++                    yy = y + 4
+                     for r, rg in enumerate(rocks):
+-                        d.rectangle([x + 4 + r * sw, y + 4, x + 4 + (r + 1) * sw, y + 44], fill=rgb(rg))
++                        hgt = round(40 * BARE_SHARE[r]) if r < len(rocks) - 1 else y + 44 - yy
++                        d.rectangle([x + 4, yy, x + cw // 2 - 4, yy + hgt], fill=rgb(rg))
++                        yy += hgt
+                     for t in range(0, 40, 8):
+                         d.line([x + 4, y + 4 + t, x + 4 + t, y + 4], fill=(0, 0, 0), width=1)
+-                    nm = "bare: " + "/".join(NAMES[r] for r in rocks)
++                    nm = "bare: " + NAMES[rocks[0]] + " +2"
+                 else:
+                     d.rectangle([x + 4, y + 4, x + cw // 2 - 4, y + 44], fill=rgb(g))
+                     nm = NAMES[g]
