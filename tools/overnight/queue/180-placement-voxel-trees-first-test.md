@@ -23,3 +23,12 @@ the cover palette notes (`Cover.cs`), and the memory rule: rules read data the g
 
 ## End
 STOP_FOR_OWNER: "keep trees on by default?" with the pictures and the cost numbers.
+
+## Owner answers (2026-11-06, batch 2) -- these refine the task above
+- Size: Terraria-sized normal trees (8-20 m, 80-200 voxels at 0.1 m), rare giants in the jungle later (not in this task).
+- UNIQUE TREE FAMILY PER BIOME, procedural: each biome has its own parameter ranges (trunk height + thickness, branching rule, canopy shape);
+  leaf colour from that biome's cover palette; each tree's numbers come from an INTEGER hash of its position (deterministic, same seed -> same
+  forest, no two identical, family look recognisable). Use 3 shapes per forested biome for this first test. Add a check that renders a 30-tree
+  sheet per biome and rejects floating or rock-embedded trees.
+- Chopping (later gameplay, but design the data for it): any trunk voxel cut -> the whole tree drops its wood and is removed top-down, no falling
+  animation. Mark trunk vs leaf voxels by material so that rule is possible. Regrowth only from player-planted saplings (not this task).
