@@ -1052,3 +1052,13 @@ unchanged (straight <= 1.7 km, shares 5-35 %, change >= 300 m, median >= 35 ha).
 (same 85 chunks), `WorldMapBurstTests.PLAYER_V4_SEED42` from the survey launch's player log (the `-worldsurvey` header now prints
 the tg2 report's "map v4 Height FNV" line, so a survey launch can re-pin it). Maps: `python3 -I tools/biome176.py maps sizes/c176 size2c/c176
 Screenshots/176d/map_seed<S>.png <S> 1024` (left 176 size, right Size 2). Result: HANDOFF 176d.
+
+**Task 177b (world gen C2/C3 palette, owner 2026-11-06 on 177 Q1 "tweak all three"; GENERATOR DATA CHANGE): palette tweaks.**
+`Cover.PALETTE` only: desert `steep` variant cream sandstone -> BARE (one cell, no cream patches; the bare rock is 178's thick layers);
+savanna `flat` variant red earth -> packed sand (a dusty tan earth, CIE dE 18 from savanna grass vs red earth's 43; same ~23 % of flat,
+the variant noise is biome-agnostic). Savanna `hollow` variant and savanna soil stay red earth. Badlands: the palette never made stripes;
+178's thick layers already replaced B10's 3.2 m bands with cliffs on, and 177b deletes `DetailField.BadlandsBand`, so `-cliffs 0` shows
+plain `BiomeRock(Badlands, 0)` (red rock) instead of stripes (`CliffTests.Layers_...` now asserts one rock per biome with cliffs off).
+Shares: `Screenshots/177b/shares177b.txt` (from `CoverTests.Report_CoverMaps`, REPORTS=1). Shots: `-worldsurvey -wsarms native -wspairs 60
+-wsposes fixed,pair_savanna_wetland-basin,pair_desert_canyonlands,pair_badlands_canyonlands -lookwait 30 -wsfixed <176d's 5>`;
+`python3 -I tools/palette177b.py Screenshots/177b` (pairs, sheet, viewer); `cover177.py palette` draws BARE as 178's three layers. Result: HANDOFF 177b.

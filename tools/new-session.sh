@@ -18,7 +18,7 @@ prompt="$(awk '/^## Ready-to-paste prompt/{f=1; next} /^## /{f=0} f && /^>/{sub(
 [ -n "$prompt" ] || { echo "SESSION_HANDOFF.md has no '## Ready-to-paste prompt' block"; exit 1; }
 
 cmd="umask 022 && cd $(printf '%q' "$PWD") && claude ${MODEL:+--model $(printf '%q' "$MODEL")} $(printf '%q' "$prompt")"
-# Owner 2026-11-06: a new WINDOW inside the attached tmux session was invisible to him -> always a detached
+# Owner 2026-11-06: a new WINDOW inside the attached tmux session was invisible to the owner -> always a detached
 # session, then open a Terminal window attached to it so the new session is on screen.
 name="voxel-sup"; tmux has-session -t "$name" 2>/dev/null && name="voxel-sup-$(date +%H%M)"
 tmux new-session -d -s "$name" -c "$PWD" "$SHELL -ic $(printf '%q' "$cmd"); exec $SHELL -i" \

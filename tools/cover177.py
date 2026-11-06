@@ -27,7 +27,9 @@ SEEDS = [42, 7, 2026, 31337]
 BIOMES = ["forest", "desert", "snow", "jungle", "savanna", "badlands"]
 SLOTS = ["flat", "steep", "hollow", "high", "shore"]
 SLOT_RGB = {0: (120, 190, 90), 1: (90, 80, 75), 2: (60, 140, 220), 3: (250, 250, 255), 4: (235, 205, 120)}
-BARE_ROCK = {0: [33], 1: [42], 2: [54], 3: [60], 4: [35], 5: [45, 46, 47]}   # DetailField.BiomeRock(b, 0); badlands bands
+# Task 177b: BARE shows 178's thick layers, DetailField.LAYER_ROCKS (main ~50 %, light ~30 %, dark ~20 %).
+BARE_ROCK = {0: [33, 30, 31], 1: [42, 40, 41], 2: [54, 51, 50], 3: [60, 62, 63], 4: [35, 37, 36], 5: [45, 46, 47]}
+BARE_SHARE = [0.5, 0.3, 0.2]
 D = PALETTES["D"][2]
 N = 512
 
@@ -155,12 +157,15 @@ def palette(out):
                 x = lw + j * cw + k * (cw // 2)
                 if g == "BARE":
                     rocks = BARE_ROCK[BIOMES.index(b)]
-                    sw = (cw // 2 - 8) // len(rocks)
+                    # horizontal thick layers, heights by role share (main, light, dark)
+                    yy = y + 4
                     for r, rg in enumerate(rocks):
-                        d.rectangle([x + 4 + r * sw, y + 4, x + 4 + (r + 1) * sw, y + 44], fill=rgb(rg))
+                        hgt = round(40 * BARE_SHARE[r]) if r < len(rocks) - 1 else y + 44 - yy
+                        d.rectangle([x + 4, yy, x + cw // 2 - 4, yy + hgt], fill=rgb(rg))
+                        yy += hgt
                     for t in range(0, 40, 8):
                         d.line([x + 4, y + 4 + t, x + 4 + t, y + 4], fill=(0, 0, 0), width=1)
-                    nm = "bare: " + "/".join(NAMES[r] for r in rocks)
+                    nm = "bare: " + NAMES[rocks[0]] + " +2"
                 else:
                     d.rectangle([x + 4, y + 4, x + cw // 2 - 4, y + 44], fill=rgb(g))
                     nm = NAMES[g]

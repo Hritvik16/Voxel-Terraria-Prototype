@@ -797,8 +797,7 @@ namespace TerrainGen
                 for (int k = kLo + 1; k <= kHi; k++) if (LayerMaterial(spec.seed, biome, k) != m0) return 255;
                 return m0;
             }
-            if (biome == GenBiome.Badlands) return (yLo >> 5) == (yHi >> 5) ? BadlandsBand(yLo) : (byte)255;
-            return BiomeRock(biome, 0);
+            return BiomeRock(biome, 0);   // 177b: badlands too (its 3.2 m bands are gone with -cliffs 0 as well)
         }
 
         /// CullBrick's pocket test for every fine brick inside the box [lo, hi)
@@ -894,8 +893,7 @@ namespace TerrainGen
             if (y + cavernOff < spec.CavernTopY) return BiomeRock(biome, 2);
             if (y + deepOff < spec.seaLevelY - STONE_BOTTOM_BELOW_SEA) return BiomeRock(biome, 1);
             if (spec.Cliffs) return LayerMaterial(spec.seed, biome, LayerIndex(spec.seed, y + layerOff));
-            if (biome == GenBiome.Badlands) return BadlandsBand((int)y);
-            return BiomeRock(biome, 0);
+            return BiomeRock(biome, 0);   // 177b: no thin badlands stripes even with -cliffs 0 (owner, 2026-11-06)
         }
 
         // ------------------------------------------------------------------
@@ -960,19 +958,10 @@ namespace TerrainGen
         public static byte LayerMaterial(uint seed, byte biome, int k)
             => LAYER_ROCKS[(biome < GenBiome.Count ? biome : 0) * 3 + LayerRole(seed, k)];
 
-        /// Badlands' exposed rock (B10): flat bands by height, 3.2 m each
-        /// (y >> 5), in an 8-band, 25.6 m cycle: red, red, cream, ochre,
-        /// ochre, red, cream, red. Cliffs and the far band's steep texels
-        /// (TopMaterial -> Strata) show the stripes.
-        public static byte BadlandsBand(int y)
-        {
-            switch ((y >> 5) & 7)
-            {
-                case 2: case 6: return GenMat.CreamBand;
-                case 3: case 4: return GenMat.OchreBand;
-                default: return GenMat.RedBand;
-            }
-        }
+        // Task 177b (owner, 2026-11-06, "Badlands: no stripes"): BadlandsBand (B10's
+        // 3.2 m red/cream/ochre bands by y >> 5) is removed. With cliffs on (178)
+        // badlands rock is LAYER_ROCKS' thick layers; with -cliffs 0 it is
+        // BiomeRock(Badlands, 0), plain red rock.
 
         /// Each biome's rock per layer (0 stone, 1 deep stone, 2 cavern rock),
         /// from its palette-D set: a mid-tone stone near the surface, darker

@@ -4,8 +4,8 @@
 // cliffs with geology. These tests pin:
 //   - the stone zone's rock is a few THICK layers by height (>= 9.6 m each,
 //     LAYER_THICK x (1 - 2 x LAYER_JITTER)), only the biome's own rocks, in
-//     every biome -- badlands included (pre-178 it cycled 3.2 m bands, which
-//     the same check catches with cliffs off);
+//     every biome -- badlands included (pre-178 it cycled 3.2 m bands; since
+//     177b cliffs off is one rock per biome, badlands too);
 //   - the face relief moves a column only on a face (map slope over
 //     FACE_FROM_DEG) or on a scree apron, never on gentle ground; cliffs off
 //     is the pre-178 column;
@@ -117,9 +117,10 @@ namespace TerrainGen.Tests
                 foreach (byte m in seen) Assert.IsTrue(row.Contains(m), $"biome {b}: rock {m} is not in its layer row");
                 Assert.GreaterOrEqual(seen.Count, 2, $"biome {b}: the stone zone shows one rock only");
                 Assert.GreaterOrEqual(shortest, minLayer, $"biome {b}: a layer of {shortest} voxels (thin stripes)");
-                // Pre-178 (cliffs off) for contrast: badlands' 3.2 m bands.
+                // Cliffs off: one rock per biome in the stone zone. Task 177b (owner 2026-11-06,
+                // "Badlands: no stripes") removed badlands' 3.2 m bands there too.
                 int pre = ShortestRun(in w.off, in w.o, b, 40000, 40000, yLo, yHi, new HashSet<byte>());
-                if (b == GenBiome.Badlands) Assert.Less(pre, minLayer, "cliffs off: badlands keeps its pre-178 bands");
+                Assert.AreEqual(int.MaxValue, pre, $"cliffs off: biome {b} shows more than one rock (thin stripes are back?)");
                 sb.AppendLine($"biome {b}: rocks {seen.Count}, thinnest layer {shortest / 10f:F1} m (pre-178 {(pre == int.MaxValue ? "one rock" : (pre / 10f).ToString("F1") + " m")})");
             }
             Debug.Log("[Cliffs] layers seed 42\n" + sb);

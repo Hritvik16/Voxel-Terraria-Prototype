@@ -110,7 +110,7 @@ namespace TerrainGen
         /// The variant covers a slot where its noise exceeds this (~20-25 % of each slot).
         public const float VARIANT_ABOVE = 0.3f;
 
-        // ---- THE PALETTE: biome x (slot main, slot variant), task 177's first proposal ----
+        // ---- THE PALETTE: biome x (slot main, slot variant), task 177's proposal + 177b's owner tweaks ----
         // Row order = GenBiome ids; columns = flat, flatVar, steep, steepVar, hollow,
         // hollowVar, high, highVar, shore, shoreVar. Variant == main means none.
         public const int ROW = 2 * SlotCount;
@@ -118,8 +118,8 @@ namespace TerrainGen
             // forest
             GenMat.Grass, GenMat.JungleGrass,        BARE, GenMat.Gravel,                 GenMat.Gravel, GenMat.Loam,
             GenMat.Gravel, BARE,                     GenMat.BeachSand, GenMat.Gravel,
-            // desert
-            GenMat.Sand, GenMat.PackedSand,          BARE, GenMat.CreamSandstone,         GenMat.PackedSand, GenMat.Gravel,
+            // desert (177b, owner 2026-11-06 "Desert cliffs: one colour": steep has no patch variant)
+            GenMat.Sand, GenMat.PackedSand,          BARE, BARE,                          GenMat.PackedSand, GenMat.Gravel,
             GenMat.CreamSandstone, BARE,             GenMat.BeachSand, GenMat.BeachSand,
             // snow (steep: wind-packed ice with rock outcrops -- the snow biome keeps its white flanks)
             GenMat.Snow, GenMat.PackedIce,           GenMat.PackedIce, BARE,              GenMat.PackedIce, GenMat.Snow,
@@ -127,8 +127,9 @@ namespace TerrainGen
             // jungle
             GenMat.JungleGrass, GenMat.Grass,        BARE, GenMat.MossRock,               GenMat.Mud, GenMat.JungleGrass,
             GenMat.MossRock, BARE,                   GenMat.BeachSand, GenMat.BeachSand,
-            // savanna
-            GenMat.SavannaGrass, GenMat.RedEarth,    BARE, GenMat.Gravel,                 GenMat.Grass, GenMat.RedEarth,
+            // savanna (177b, owner 2026-11-06 "softer red earth": the flat variant is dusty
+            // packed earth, CIE dE 18 from the grass instead of red earth's 43)
+            GenMat.SavannaGrass, GenMat.PackedSand,  BARE, GenMat.Gravel,                 GenMat.Grass, GenMat.RedEarth,
             BARE, GenMat.Gravel,                     GenMat.BeachSand, GenMat.BeachSand,
             // badlands
             GenMat.BadlandsClay, GenMat.Hardpan,     BARE, GenMat.Hardpan,                GenMat.Hardpan, GenMat.Gravel,
