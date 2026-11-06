@@ -93,6 +93,13 @@ namespace TerrainGen
         /// (ShapeField.Biome6). IGNORED below v4 and on biomeSet 4. Read it
         /// through BiomeVary, never directly. `-biomevary 0` sets it.
         public byte biomeVaryOff;
+        /// Task 177 (C2 + C3, owner 2026-11-05 "use materials from that biome"):
+        /// 1 = the pre-177 surface (one cover per biome, the beach rule, rock
+        /// wherever a voxel's top step exceeds 1.5). 0 = the version's default:
+        /// on v4 the cover is a SLOT chosen from the ground's shape, filled from
+        /// the biome's palette row (Cover.cs). IGNORED below v4. Read it through
+        /// CoverSlots, never directly. `-coverslots 0` sets it.
+        public byte coverSlotsOff;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -143,6 +150,9 @@ namespace TerrainGen
 
         /// The biome border blend in force (see biomeBlendOff): v4 only.
         public bool BiomeBlend => mapVersion >= 4 && biomeBlendOff == 0;
+
+        /// The shape-chosen cover slots in force (see coverSlotsOff): v4 only.
+        public bool CoverSlots => mapVersion >= 4 && coverSlotsOff == 0;
 
         public const float V4_GENTLE_SHARE = 0.50f;
 

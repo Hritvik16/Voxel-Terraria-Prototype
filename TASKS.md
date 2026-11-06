@@ -1009,3 +1009,23 @@ w350 3.5 x R). The variant path is checked against the generator (octave chain v
 record plane except 27-134 of 1,048,576 cells per seed, Burst vs Mono rounding; gate 1e-3). `python3 tools/biome176b.py stats|sheets` -> 
 `Screenshots/176b/` (sizes_176b.txt, sheet_seed*.png, full_seed*.png, viewer.html). Applying a size is a follow-up: CLIMATE_WAVE_R (+ an
 octave for w150), BiomeLayoutTests gates, re-pinned goldens, whole suite. Result: HANDOFF 176b.
+
+**Task 177 (world gen C2 + C3 merged, owner 2026-11-05 "use materials from that biome ... it might not always be snow"; GENERATOR CHANGE, STOP_FOR_OWNER "change any palette cell?"): ground cover = shape-chosen SLOT x biome PALETTE.**
+`Assets/TerrainGen/Cover.cs`: `ShapeField.Sample` (surfaceBiome on, `TerrainSpec.CoverSlots` = v4 and `coverSlotsOff` 0) stores
+`ColumnSample.cover` = slot (bits 0-2: flat / steep / hollow / high / shore) | patch variant (bit 3), from `Cover.Choose`: shore = ground <= 2.2 m
+over the sea (beach band + sea bed); hollow = under a lake/river; steep = 6 m-scale slope of the smooth height (macro + octaves 0-2, +-6 m probe)
+over 30 deg (Danger.SCRAMBLE_DEG, +-6 deg patch jitter); high = altitude over 2/3 of `spec.peakHeight` (the record's top third, +-5 %
+jitter), where only FACES over 45 deg (Danger.CLIMB_DEG) stay steep; below it a crest (>= 0.5 m over its ring, above the +-120 m mean) is steep; hollow = a dip >= 0.4 m below the +-120 m mean, or a lake/river cell within ~16 m
+and <= 2.5 m below; else flat. One patch noise (6 m + 25 m) jitters every cut; variant noise (15 m + 4.5 m) > 0.3. BAND LIMIT: cover octaves shorter than 2 footprints
+drop (`Sample(.., coverTexel)`: chunks 1, shells 2^shell, far band its texel), so far texels / coarse shells show patches, not per-texel camo;
+ShellChunkTests' reference samples the same way. The rules never name a
+material and take no biome: `Cover.PALETTE` (6 rows x 5 slots x main/variant; `BARE` = no skin, the column's own rock shows) is the only
+per-biome data. `DetailField.Material` / `UniformSamples` / `TopMaterial`: skin = `Cover.Settle(palette cell, step)` (sand/beach sand/snow
+pack where the voxel step > 1), soil under it except on steep, rock where BARE or the voxel step > `SHEER_STEP` 3 (before: every step > 1.5
+showed rock = the speckle). New `GenMat.Gravel` 17 (palette D `8e877c`, Tools/Items/MaterialRules). `-coverslots 0` / `coverSlotsOff 1` = the
+pre-177 surface bit for bit; v3 unchanged. Tests `CoverTests` (palette cells solid, TopMaterial = the row lookup, a test-only "fire" row
+gets magma crust on high ground with no rule change, cover off = old, slot ignores the far footprint; Slow: slot shares + speckle on 4 seeds
+-> `Logs/TerrainGen/c2c3/shares177.txt`; report `REPORTS=1 tools/run-editmode-filter.sh CoverTests.Report_CoverMaps` -> `cover_seed*.bin`,
+`cost177.txt`). OreTests' ring gate is now the absolute bound it was (ore adds <= 8.9 mixed bricks per ring chunk = 5 % of the pre-177
+base): the cover cut the base 28 % (5,677 -> 4,093) while ore still adds +215. `python3 -I tools/cover177.py maps|palette|shots|viewer Screenshots/177 ...` -> island slot maps, palette177.png/.md,
+before|after shots (`-wsfixed` 173 poses, `-coverslots 0` arm), viewer.html. Result: HANDOFF 177.

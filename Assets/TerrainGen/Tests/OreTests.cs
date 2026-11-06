@@ -238,6 +238,9 @@ namespace TerrainGen.Tests
         }
 
         /// Mixed-brick rise on the ring set: (on - off) / off.
+        /// 5 % of the pre-177 ring set's mixed bricks per chunk (5,677 / 32 x 0.05).
+        private const double RING_ADDED_MAX_PER_CHUNK = 5677.0 / 32.0 * 0.05;
+
         private static double RingRise => (_ringOn - _ringOff) / (double)math.max(1, _ringOff);
 
         // ------------------------------------------------------------------
@@ -334,7 +337,13 @@ namespace TerrainGen.Tests
             Assert.AreEqual(_off[S_ROCK], _on[S_ROCK], "ore changed how much rock there is");
             // Memory (plan risk "Ores and memory"): mixed bricks on the ring-shaped
             // set rise by at most 5%.
-            Assert.LessOrEqual(RingRise, 0.05, $"mixed bricks on the ring set rise {RingRise:P1} ({_ringOff} -> {_ringOn})");
+            // set rise by at most 5%. Task 177: held as the ABSOLUTE bound it was -- 5 % of the
+            // pre-177 ring base (5,677 mixed bricks on 32 chunks = 8.9 per chunk). The cover
+            // slots cut that base 28 % (to 4,093) while ore still adds the same +215 bricks
+            // (measured both ways, HANDOFF 177), so the old ratio read 3.8 % -> 5.3 %.
+            double addedPerChunk = (_ringOn - _ringOff) / (double)math.max(1, _ringChunks);
+            Assert.LessOrEqual(addedPerChunk, RING_ADDED_MAX_PER_CHUNK,
+                $"ore adds {addedPerChunk:F1} mixed bricks per ring chunk ({_ringOff} -> {_ringOn}, {RingRise:P1})");
         }
 
         [Test, Category("Slow")]

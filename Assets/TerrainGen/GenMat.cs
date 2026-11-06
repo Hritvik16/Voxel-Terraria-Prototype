@@ -30,6 +30,7 @@ namespace TerrainGen
         public const byte BeachSand = 14;
         public const byte SavannaGrass = 15;  // B10 (map v4): dry golden grass
         public const byte BadlandsClay = 16;  // B10: bare cracked clay on gentle badlands ground
+        public const byte Gravel = 17;        // task 177: scree / gravel cover (Cover palette); static, not falling
 
         // ---- soils ----
         public const byte Loam = 20;

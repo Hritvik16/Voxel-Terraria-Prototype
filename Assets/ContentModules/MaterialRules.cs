@@ -134,7 +134,8 @@ public static class MaterialRules
         // bedrock and crystals are acid-proof, like obsidian and torches above.
         foreach (byte g in new byte[] { 13, 10, 11, 20, 21, 22, 23, 30, 31, 32, 33, 34, 40, 41, 42, 43, 44,
                                         50, 51, 52, 53, 54, 60, 61, 62, 63, 64, 70, 71, 72, 91, 92,
-                                        15, 16, 24, 25, 35, 36, 37, 45, 46, 47, 48, 49 })   // B10 savanna, badlands
+                                        15, 16, 24, 25, 35, 36, 37, 45, 46, 47, 48, 49,   // B10 savanna, badlands
+                                        17 })                                              // task 177 gravel
             _flags[Materials.FromTg2(g)] |= Dissolves;
         // Crystals, meteor ore and magma crust are palette-D-bright but NOT
         // IsEmissive yet: every emissive voxel registers as a point light
@@ -659,7 +660,7 @@ public static class MaterialPalette
             0.760f, 0.676f, 0.496f,   // 142 beach sand
             0.760f, 0.628f, 0.242f,   // 143 savanna grass
             0.760f, 0.522f, 0.393f,   // 144 badlands clay
-            -1f, -1f, -1f,   // 145
+            0.557f, 0.529f, 0.486f,   // 145 gravel
             -1f, -1f, -1f,   // 146
             -1f, -1f, -1f,   // 147
             0.478f, 0.290f, 0.165f,   // 148 loam
@@ -813,7 +814,7 @@ public static class MaterialPalette
             0.925f, 0.824f, 0.604f,   // 142 beach sand
             0.788f, 0.651f, 0.251f,   // 143 savanna grass
             0.788f, 0.541f, 0.408f,   // 144 badlands clay
-            -1f, -1f, -1f,   // 145
+            0.557f, 0.529f, 0.486f,   // 145 gravel
             -1f, -1f, -1f,   // 146
             -1f, -1f, -1f,   // 147
             0.478f, 0.290f, 0.165f,   // 148 loam

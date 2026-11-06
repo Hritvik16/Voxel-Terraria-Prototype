@@ -565,8 +565,19 @@ namespace TerrainGen
                 return LayerRock(in spec, c.surfBiome, gy, gDeep, gCavern, gUnder);
             }
 
-            bool steep = stepAtTop > 1.5f;
-            if (!steep && y >= spec.CavernTopY)
+            if (spec.CoverSlots)
+            {
+                // Task 177: the slot's palette material as a SURFACE_THICKNESS skin
+                // (none where it is BARE or the voxel's step is sheer), soil under
+                // it except on steep ground (skin over rock).
+                byte cm = Cover.PaletteMaterial(c.surfBiome, c.cover);
+                if (cm != Cover.BARE && !(stepAtTop > SHEER_STEP) && y >= spec.CavernTopY)
+                {
+                    if (depth < SURFACE_THICKNESS) return Cover.Settle(cm, stepAtTop);
+                    if (Cover.Slot(c.cover) != Cover.Steep && depth < cd.soilDepth) return Soil(c.surfBiome);
+                }
+            }
+            else if (!(stepAtTop > 1.5f) && y >= spec.CavernTopY)
             {
                 if (depth < SURFACE_THICKNESS) return Surface(in spec, in c, stepAtTop);
                 if (depth < cd.soilDepth) return Soil(c.surfBiome);
@@ -685,7 +696,17 @@ namespace TerrainGen
         {
             int yHi = yLo + yStep * (count - 1);
             int depthLo = hg - yHi, depthHi = hg - yLo;
-            if (!(stepAtTop > 1.5f) && yHi >= spec.CavernTopY)
+            if (spec.CoverSlots)
+            {
+                byte cm = Cover.PaletteMaterial(c.surfBiome, c.cover);   // Material's task 177 branch
+                if (cm != Cover.BARE && !(stepAtTop > SHEER_STEP) && yHi >= spec.CavernTopY)
+                {
+                    if (yLo < spec.CavernTopY) return 255;
+                    if (depthLo < SURFACE_THICKNESS) return depthHi < SURFACE_THICKNESS ? Cover.Settle(cm, stepAtTop) : (byte)255;
+                    if (Cover.Slot(c.cover) != Cover.Steep && depthLo < cd.soilDepth) return depthHi < cd.soilDepth ? Soil(c.surfBiome) : (byte)255;
+                }
+            }
+            else if (!(stepAtTop > 1.5f) && yHi >= spec.CavernTopY)
             {
                 if (yLo < spec.CavernTopY) return 255;
                 if (depthLo < SURFACE_THICKNESS) return depthHi < SURFACE_THICKNESS ? Surface(in spec, in c, stepAtTop) : (byte)255;
@@ -790,9 +811,22 @@ namespace TerrainGen
             if (c.water > c.height) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
             if (c.lipLo != 0 && c.height >= c.lipLo) return GenMat.RiverLip;   // task 76
             if (c.stampMat != 0 && c.height >= c.stampBodyLo) return c.stampMat;
+            if (spec.CoverSlots)
+            {
+                byte cm = Cover.PaletteMaterial(c.surfBiome, c.cover);   // task 177 (Material at depth 0)
+                if (cm == Cover.BARE || stepAtTop > SHEER_STEP) return Strata(in spec, in o, c.surfBiome, x, c.height, z);
+                return Cover.Settle(cm, stepAtTop);
+            }
             if (stepAtTop > 1.5f) return Strata(in spec, in o, c.surfBiome, x, c.height, z);
             return Surface(in spec, in c, stepAtTop);
         }
+
+        /// Task 177: with cover slots on, a voxel whose top step exceeds this
+        /// (~72 deg) shows its rock whatever the slot (a cliff the 6 m slope
+        /// probe did not see). Below it the slot decides: before 177 every step
+        /// over 1.5 showed rock, which dithered rock into the cover on any slope
+        /// near 56 deg (WORLD_GEN_LOOK_PLAN finding 2).
+        public const float SHEER_STEP = 3f;
 
         private static byte Surface(in TerrainSpec spec, in ColumnSample c, float stepAtTop)
         {

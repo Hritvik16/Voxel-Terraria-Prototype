@@ -72,6 +72,10 @@ namespace TerrainGen
         /// Map v4 river (task 76): caves carve only BELOW this Y (a river is
         /// near: Rivers.MAX_DEPTH under its lowest level); 0 = no limit.
         public int riverFloor;
+        /// Task 177: the ground-cover slot (Cover.Flat .. Cover.Shore, bits 0-2)
+        /// and its patch variant (bit 3), from the column's shape (Cover.Choose).
+        /// 0 (flat) when TerrainSpec.CoverSlots is off or only the height was asked for.
+        public byte cover;
     }
 
     public static class ShapeField
@@ -119,8 +123,17 @@ namespace TerrainGen
 
         /// surfaceBiome false: a caller that reads only the HEIGHT (a slope's
         /// neighbour) skips the border blend; surfBiome is then just biome.
+        public static ColumnSample Sample(in TerrainSpec spec, in MapView map, in Offsets o,
+                                          float x, float z, int texelVoxels, bool surfaceBiome)
+            => Sample(in spec, in map, in o, x, z, texelVoxels, surfaceBiome, texelVoxels);
+
+        /// coverTexel (task 177): the footprint the cover is drawn at, in voxels.
+        /// Cover.Choose drops its noise octaves shorter than two footprints, as
+        /// the height drops detail octaves, so a far texel or a coarse shell voxel
+        /// shows the patch it lies in, not an aliased per-texel dither. A shell
+        /// samples heights at texel 1 but draws one voxel per 2^shell columns.
         public static unsafe ColumnSample Sample(in TerrainSpec spec, in MapView map, in Offsets o,
-                                                 float x, float z, int texelVoxels, bool surfaceBiome)
+                                                 float x, float z, int texelVoxels, bool surfaceBiome, int coverTexel)
         {
             SampleMap(in map, x, z, out float macro, out float rough);
             float2 p = new float2(x, z);
@@ -165,6 +178,8 @@ namespace TerrainGen
                 c.carvesTop = false; c.stamp3D = false;
             }
             if (map.water != null && spec.mapVersion >= 3) Ledge(in spec, in map, in o, p, ref c);
+            if (surfaceBiome && spec.CoverSlots)   // task 177: last, on the column's final height / water
+                c.cover = Cover.Choose(in spec, in map, in o, p, macro, rough, c.height, c.water, c.regional, coverTexel);
             return c;
         }
 

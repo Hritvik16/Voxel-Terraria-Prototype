@@ -22,7 +22,9 @@ NAMES = {1: "water", 2: "lava", 3: "honey", 4: "oil", 5: "acid", 6: "sludge", 7:
          35: "kopje granite", 36: "ironstone", 37: "gneiss",
          45: "red band", 46: "cream band", 47: "ochre band", 48: "umber mudstone", 49: "plum shale",
          # gameplay step 3 (map v4): ores, one per depth layer
-         65: "copper ore", 66: "iron ore", 67: "gold ore", 68: "cobalt ore", 69: "emberstone"}
+         65: "copper ore", 66: "iron ore", 67: "gold ore", 68: "cobalt ore", 69: "emberstone",
+         # task 177: cover palettes (scree / gravel)
+         17: "gravel"}
 
 BIOMES = [("Forest", [10, 20, 30, 31, 32, 33, 34]), ("Desert", [12, 21, 40, 41, 42, 43, 44]),
           ("Snow", [13, 22, 50, 51, 52, 53, 54]), ("Jungle", [11, 23, 60, 61, 62, 63, 64]),
@@ -122,6 +124,10 @@ PALETTES["D"][2].update(B10_CANDIDATES[B10_SHIPPED][1])
 # emissive materials register as point lights).
 ORES = hexes({65: "3faa86", 66: "c08a6a", 67: "eac43c", 68: "4a6ff0", 69: "ff5530"})
 PALETTES["D"][2].update(ORES)
+
+# Task 177 (cover palettes, agent's pick, owner may change): gravel / scree, a
+# cool grey-brown between the soils and the pale rocks, for steep and wet slots.
+PALETTES["D"][2].update(hexes({17: "8e877c"}))
 
 # Task 76: the river lip (GenMat.RiverLip, 8). The renderer draws it as water
 # (Raymarch.compute RiverLipAsWater); this colour is for CPU views (minimap,

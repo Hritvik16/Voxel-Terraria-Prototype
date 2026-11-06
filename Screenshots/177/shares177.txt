@@ -1,0 +1,64 @@
+Task 177 cover slots: per-biome slot shares (land columns, % of the biome) and the speckle metric.
+speckle = % of top voxels (0.1 m) with 3-4 of their 4 neighbours another material (isolated: a dither, not a patch edge);
+edges = % of adjacent top-voxel pairs that differ (patch edges count too). 40 windows of 4.8 m per seed on land;
+before = -coverslots 0 (the pre-177 surface), after = cover slots; same windows.
+seed 42
+  forest    n= 2164: flat  53.6 steep  30.8 hollow   9.5 high   0.0 shore   6.1
+  desert    n= 1972: flat  48.4 steep  34.3 hollow  13.0 high   0.0 shore   4.4
+  snow      n= 3105: flat  49.5 steep  33.9 hollow   8.0 high   4.3 shore   4.2
+  jungle    n= 1521: flat  56.8 steep  25.8 hollow  11.2 high   0.0 shore   6.2
+  savanna   n= 1197: flat  65.5 steep  22.1 hollow   9.4 high   0.0 shore   3.0
+  badlands  n= 1821: flat  47.1 steep  37.6 hollow   8.7 high   1.1 shore   5.5
+  columns above the high cut + jitter: 161; the high slot's share of land with its cut at 1/3 | 1/2 | 2/3 (shipped) of the range: 3.4 | 1.9 | 1.3 % of land
+  40 windows: speckle (isolated voxels) before 1.87 % -> after 0.09 %; material edges before 5.49 % -> after 1.80 %
+    forest    speckle 1.51 -> 0.00 %, edges 2.90 -> 1.51 %  (6348 voxels)
+    desert    speckle 1.85 -> 0.09 %, edges 4.77 -> 1.34 %  (16928 voxels)
+    snow      speckle 2.60 -> 0.09 %, edges 7.83 -> 1.72 %  (29624 voxels)
+    jungle    speckle 1.22 -> 0.02 %, edges 3.43 -> 1.48 %  (10580 voxels)
+    savanna   speckle 0.00 -> 0.00 %, edges 0.12 -> 1.17 %  (6348 voxels)
+    badlands  speckle 1.82 -> 0.20 %, edges 6.49 -> 3.11 %  (14812 voxels)
+seed 7
+  forest    n= 2086: flat  57.0 steep  28.2 hollow   8.8 high   0.0 shore   6.0
+  desert    n= 1320: flat  55.2 steep  33.0 hollow   6.9 high   0.0 shore   4.9
+  snow      n= 2786: flat  58.0 steep  23.4 hollow  16.0 high   0.0 shore   2.6
+  jungle    n= 1600: flat  48.1 steep  29.6 hollow  11.6 high   0.0 shore  10.7
+  savanna   n= 1653: flat  57.7 steep  24.9 hollow  12.3 high   0.0 shore   5.2
+  badlands  n= 2315: flat  38.7 steep  44.8 hollow   8.5 high   6.1 shore   2.0
+  columns above the high cut + jitter: 198; the high slot's share of land with its cut at 1/3 | 1/2 | 2/3 (shipped) of the range: 3.3 | 1.8 | 1.2 % of land
+  40 windows: speckle (isolated voxels) before 2.00 % -> after 0.13 %; material edges before 5.52 % -> after 1.67 %
+    forest    speckle 0.14 -> 0.02 %, edges 0.40 -> 1.00 %  (16928 voxels)
+    desert    speckle 1.77 -> 0.00 %, edges 4.49 -> 2.42 %  (4232 voxels)
+    snow      speckle 1.22 -> 0.24 %, edges 3.88 -> 1.51 %  (12696 voxels)
+    jungle    speckle 1.75 -> 0.01 %, edges 4.07 -> 1.50 %  (12696 voxels)
+    savanna   speckle 3.32 -> 0.11 %, edges 9.30 -> 1.14 %  (16928 voxels)
+    badlands  speckle 3.11 -> 0.24 %, edges 8.68 -> 2.68 %  (21160 voxels)
+seed 2026
+  forest    n= 2286: flat  50.8 steep  31.8 hollow  12.3 high   1.0 shore   4.2
+  desert    n= 1626: flat  62.3 steep  24.7 hollow  11.4 high   0.0 shore   1.6
+  snow      n= 2890: flat  44.1 steep  38.3 hollow  11.3 high   1.7 shore   4.7
+  jungle    n= 1867: flat  53.0 steep  24.2 hollow  12.7 high   0.0 shore  10.0
+  savanna   n= 1312: flat  56.3 steep  26.6 hollow  12.4 high   0.0 shore   4.6
+  badlands  n= 1815: flat  53.0 steep  27.8 hollow  12.5 high   3.0 shore   3.7
+  columns above the high cut + jitter: 178; the high slot's share of land with its cut at 1/3 | 1/2 | 2/3 (shipped) of the range: 3.2 | 1.8 | 1.1 % of land
+  40 windows: speckle (isolated voxels) before 1.03 % -> after 0.06 %; material edges before 2.74 % -> after 1.60 %
+    forest    speckle 0.53 -> 0.18 %, edges 1.61 -> 1.39 %  (10580 voxels)
+    desert    speckle 0.00 -> 0.01 %, edges 0.19 -> 1.10 %  (14812 voxels)
+    snow      speckle 1.64 -> 0.01 %, edges 3.84 -> 1.16 %  (19044 voxels)
+    jungle    speckle 0.05 -> 0.05 %, edges 0.08 -> 2.21 %  (16928 voxels)
+    savanna   speckle 4.35 -> 0.09 %, edges 10.27 -> 1.71 %  (4232 voxels)
+    badlands  speckle 1.65 -> 0.11 %, edges 4.96 -> 1.99 %  (19044 voxels)
+seed 31337
+  forest    n= 2424: flat  60.3 steep  23.4 hollow  13.4 high   0.1 shore   2.8
+  desert    n= 1114: flat  54.1 steep  25.9 hollow  17.7 high   0.1 shore   2.2
+  snow      n= 2519: flat  58.4 steep  28.2 hollow   9.5 high   0.0 shore   3.9
+  jungle    n= 2120: flat  62.5 steep  21.2 hollow  11.2 high   0.0 shore   5.0
+  savanna   n= 1413: flat  60.3 steep  18.5 hollow  15.6 high   0.0 shore   5.6
+  badlands  n= 2147: flat  46.4 steep  32.8 hollow  12.4 high   2.8 shore   5.4
+  columns above the high cut + jitter: 115; the high slot's share of land with its cut at 1/3 | 1/2 | 2/3 (shipped) of the range: 2.0 | 0.9 | 0.6 % of land
+  40 windows: speckle (isolated voxels) before 0.50 % -> after 0.07 %; material edges before 1.41 % -> after 1.95 %
+    forest    speckle 0.37 -> 0.08 %, edges 1.80 -> 2.59 %  (14812 voxels)
+    desert    speckle 0.00 -> 0.00 %, edges 0.00 -> 0.00 %  (2116 voxels)
+    snow      speckle 0.85 -> 0.10 %, edges 2.08 -> 2.32 %  (27508 voxels)
+    jungle    speckle 0.02 -> 0.02 %, edges 0.04 -> 0.57 %  (10580 voxels)
+    savanna   speckle 0.22 -> 0.06 %, edges 0.63 -> 1.67 %  (10580 voxels)
+    badlands  speckle 0.58 -> 0.04 %, edges 1.51 -> 2.06 %  (19044 voxels)

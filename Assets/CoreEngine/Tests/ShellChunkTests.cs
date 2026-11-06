@@ -136,7 +136,8 @@ public class ShellChunkTests
             for (int x = 0; x < 128; x += 3)
             {
                 int wx = origin.x + (x << shift) + half, wz = origin.z + (z << shift) + half;
-                var col = TerrainGen.ShapeField.Sample(in spec, in map, in o, wx + 0.5f, wz + 0.5f, 1);
+                // Task 177: the cover is drawn at the shell's footprint (Cover's band limit), as the shell does.
+                var col = TerrainGen.ShapeField.Sample(in spec, in map, in o, wx + 0.5f, wz + 0.5f, 1, true, 1 << shift);
                 float st = TerrainGen.ShapeField.MaxStep(in spec, in map, in o, wx + 0.5f, wz + 0.5f, 1, col.height);
                 var cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, wx, wz);
                 if (cd.oreMul != 0) cd.oreMul = ore[TerrainGen.Ores.CellIndex(wx, wz, spec.mapCells, spec.mapCellVoxels)];

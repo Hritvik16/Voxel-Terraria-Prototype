@@ -115,7 +115,7 @@ public static class Tools
 
         // ---- tg2: surfaces and soils (and the river lip, drawn as water) ----
         T(8, 0);
-        T(10, 0); T(11, 0); T(12, 0); T(13, 0); T(14, 0); T(15, 0); T(16, 0);
+        T(10, 0); T(11, 0); T(12, 0); T(13, 0); T(14, 0); T(15, 0); T(16, 0); T(17, 0);   // 17 gravel (task 177)
         T(20, 0); T(21, 0); T(23, 0); T(24, 0); T(32, 0);
         T(22, 1); T(25, 1);                                    // packed ice, hardpan
         // ---- tg2: layer rock. Sedimentary 1, igneous / metamorphic 2 ----

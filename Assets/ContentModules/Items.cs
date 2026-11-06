@@ -77,7 +77,7 @@ public static class Items
         // tg2 (GenMat code -> name), TerrainGen/GenMat.cs.
         void T(byte code, string name) => n[Materials.TG2_BASE + code] = name;
         T(10, "grass"); T(11, "jungle grass"); T(12, "sand"); T(13, "snow"); T(14, "beach sand");
-        T(15, "savanna grass"); T(16, "badlands clay");
+        T(15, "savanna grass"); T(16, "badlands clay"); T(17, "gravel");   // 17: task 177
         T(20, "loam"); T(21, "packed sand"); T(22, "packed ice"); T(23, "mud"); T(24, "red earth"); T(25, "hardpan");
         T(30, "limestone"); T(31, "slate"); T(32, "ochre clay"); T(33, "granite"); T(34, "shale");
         T(35, "kopje granite"); T(36, "ironstone"); T(37, "gneiss");

@@ -1,0 +1,4 @@
+seed 42: ShapeField.Sample (Mono, 262144 columns, sea included) cover on 43.5 us, off 36.2 us per column
+seed 7: ShapeField.Sample (Mono, 262144 columns, sea included) cover on 43.5 us, off 36.2 us per column
+seed 2026: ShapeField.Sample (Mono, 262144 columns, sea included) cover on 43.5 us, off 36.2 us per column
+seed 31337: ShapeField.Sample (Mono, 262144 columns, sea included) cover on 43.4 us, off 36.1 us per column

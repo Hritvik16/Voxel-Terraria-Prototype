@@ -1,0 +1,4 @@
+seed 42: flat 53.4 %, steep 32.0 %, hollow 6.8 %, high 1.2 %, shore 6.6 %
+seed 7: flat 53.4 %, steep 31.5 %, hollow 7.3 %, high 1.2 %, shore 6.6 %
+seed 2026: flat 55.4 %, steep 30.1 %, hollow 7.0 %, high 1.0 %, shore 6.4 %
+seed 31337: flat 59.3 %, steep 26.2 %, hollow 8.1 %, high 0.6 %, shore 5.9 %

@@ -299,7 +299,7 @@ namespace VoxelEngine.WorldGen
                 for (int i = 0; i < E; i++)
                 {
                     int x = origin.x + (i << shift) + half, z = origin.z + (k << shift) + half, ci = k * E + i;
-                    var c = TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, z + 0.5f, 1);
+                    var c = TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, z + 0.5f, 1, true, 1 << shift);   // task 177: cover at the shell's voxel
                     // Spacing-1 MaxStep from the four fine neighbours, at the same
                     // float coordinates as ColumnJob's grid ((x + 1) + 0.5f).
                     int ch = c.height;
