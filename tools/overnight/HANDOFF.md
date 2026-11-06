@@ -1,60 +1,49 @@
-STOP_FOR_OWNER -- task 176d (ship biome Size 2). Size 2 IS committed and the whole suite is green except the route test. The route test is red for one reason the task did not allow, so I am stopping.
-- **Q1. Seed 42's route test now fails because of 178's scree, not a river ford.** This is the same thing as 178's Q2.
-  - Size 2 moved the routes. Seed 42's route 0-1 now crosses a scree foot at (3777, 5278) m.
-  - There, 178's scree apron lifts the ground by up to 3.4 m: **3.4 m of Sheer**, steepest 1 m step 48 deg.
-  - With `-cliffs 0` the same spot is 28 deg, not Sheer. There is no water near it (wetnbr 0) and the map slope is 16 deg. Numbers: `Logs/overnight/176d_probe_heights.txt`.
-  - Seed 31337's 1.5 m is the known river-ford bank (allowed red).
-  - (a) **Recommended:** answer 178 Q2 with (a), "the relief skips route cells". A 178b then fixes both seeds' scree steps. Nothing else is needed here.
-  - (b) Leave it red until C5 together with the ford.
+# 177b-worldgen-palette-tweaks: DONE -- all three owner tweaks shipped (desert cliffs one colour, softer savanna earth, badlands no stripes); whole suite red only on the known route test
 
-# 176d-worldgen-ship-biome-size-2: Size 2 shipped (regions gate = presence, owner 176c Q1 (a)); whole suite PASS 1064 FAIL 1 (route test: ford on 31337 + 178 scree on 42)
-
-## What changed (the "176d: ship biome Size 2" commit on engine-phase)
-- `ShapeField.cs`: 176c's patch applied cleanly on top of 177/178.
-  - `CLIMATE_WAVE_R` 0.75 -> 1.5, a 4th octave `CLIMATE_OCT4` 0.12 in `Climate3`; `BlendClimateReach`'s bound gains `OCT4 * 2.03^3`. `BiomeSizeDump.cs`: 176c's check.
-- `BiomeLayoutTests.cs`: ONLY the regions gate changed, to `REGIONS_MIN = 1` ("every biome present, >= 1 region of >= 25 ha"; was 2). The comments cite the owner's 2026-11-06 decision. Every other C1 gate is unchanged.
-- Re-pinned goldens:
-  - ShellFill GOLDEN: same 85 chunks. The biome under them moved, so their cover and layer rocks changed.
-  - `WorldMapBurstTests.PLAYER_V4_SEED42` 74C7E69A614F8996 -> **32D19FFC21BE14D0**, taken from the PLAYER log `Logs/lookreview_20261106_060453.txt`. It equals the Editor's hash. It moved because the biome feeds danger, danger feeds the routes, and the routes ease the map.
-- `PlaygroundCapture.WorldSurvey.cs`: the survey header now prints the tg2 report's "map v4 Height FNV" line. A survey launch can now re-pin the hash; no 20-min tg2world launch is needed.
-- `TASKS.md` paragraph. `KNOWN_ISSUES.md` route line and the CLAUDE.md index line: new seeds and causes.
+## What changed
+- **The code landed in `c629fda` by accident.** That is a supervisor commit called "new-session.sh: comment wording", made at 08:42 while this task's whole suite was running. It picked up the working tree, which had this task's re-applied patch in it. The content is exactly this task's patch. I did not rewrite history.
+  - `Cover.PALETTE`, desert `steep`: the variant was cream sandstone; now it is BARE. Steep desert has no patch variant, so cliffs are one cell: 178's thick orange-sandstone layers.
+  - `Cover.PALETTE`, savanna `flat`: the variant was red earth; now it is packed sand, a dusty tan. Its colour distance from savanna grass is CIE dE 18, against red earth's 43.
+    - The share of the patch variant is unchanged at ~23 % of flat, because the variant noise does not depend on the biome.
+    - Savanna's `hollow` variant and savanna soil stay red earth.
+  - Badlands: the palette never made stripes. The 3.2 m stripes came from `DetailField.BadlandsBand`, the depth bands, not from the palette.
+    - 178's thick layers had already replaced them with cliffs on.
+    - 177b deletes `BadlandsBand`, so `-cliffs 0` now shows plain `BiomeRock(Badlands, 0)` too.
+    - `CliffTests.Layers_...` now asserts one rock per biome with cliffs off.
+  - `tools/cover177.py`: the palette swatch draws BARE as 178's three layers. `TASKS.md` gets the 177b paragraph.
+- **`418bd0b`** (this session):
+  - ShellFill GOLDEN re-pinned. 18 of 85 chunks changed (36 counting the fast and reference paths); the chunk set is the same.
+  - TASKS result line.
+  - `Screenshots/177b/{shares177b.txt, palette177b.md, pairs.json}` and `tools/palette177b.py`.
+- Heights did not move, so `PLAYER_V4_SEED42` (map hash) still passes.
+- The first run's patch also changed `Assets/Scenes/Playground.unity`. That was a side effect of the scene builder, so I dropped it.
 
 ## Evidence
-- Filtered run (`Logs/overnight/176d_filter1.out`):
-  - C1Layout PASS. Every BiomeBlendTests case passed, including the early-out bound with the 4th octave.
-  - `Logs/TerrainGen/c1/c1_layout.txt` (copy: `Screenshots/176d/c1_layout.txt`), across the 8 seeds:
-    - one-region biomes 1-3 per seed, none absent
-    - straight border 1.06-1.42 km (gate 1.7)
-    - change E-W 512-701 m
-    - median patch 106-231 ha
-    - shares 5.7-28.3 % (all equal to 176c's numbers)
-- **Whole suite: PASS 1064 FAIL 1 SKIP 33** (`Logs/overnight/176d_all.out`, 42.5 min). The one failure is `RouteTests.V4_FourSeeds_RoutesJoinTheEasyAreas`:
-  - seed 31337: 1.5 m, the ford (allowed)
-  - seed 42: 3.4 m, 178's scree (Q1)
-- Survey launch: 5 fixed poses (176/177's), native arm, 30 s shell cap, log `Logs/lookreview_20261106_060453.txt`.
-  - Shells 4-7 were mostly not stored within 30 s (the `[shells]` lines, e.g. s4 12-187 of ~987). The distant background is the far band.
-- Before shots = 177's after shots (`Logs/lookreview_20261106_012752.txt`). They are from BEFORE 178, so the badlands thin stripes -> thick grey layers change in the pairs is 178's, not Size 2's.
-- Biome at each pose target (record plane, seed 42), before -> after:
-  - start: snow -> forest
-  - desert_alpine-range: snow -> savanna
-  - forest_river-plains: savanna -> forest
-  - great-peak-0: snow -> savanna
-  - range_200up: snow -> savanna
-- Gameplay consequence: the island's tallest peak is no longer in the snow biome. It shows savanna rock with little snow. Snow is still seed 42's largest biome (28.3 %), on other ranges.
-- Rough cost: `Climate3` adds 1 snoise per climate sample, which is negligible. In the launch, a worker spent 71-105 ms per chunk. This is not comparable to 178's 110-121 ms (different poses, no timing arm).
+- **Whole suite on the final code: PASS 1063 FAIL 2 SKIP 33** (`Logs/overnight/177b_all.out`, XML copy `Logs/overnight/177b_all_TestResults.xml`, 46 min).
+  - `ShellFillTests.Fill_BytesAsGolden_FastAndReference`: expected, a palette change. It is now re-pinned from `REPORTS=1 FillHashes_Report` (`Logs/Shells/fill93b2d_hashes.txt`).
+  - `RouteTests.V4_FourSeeds_RoutesJoinTheEasyAreas`: the known red. Seed 42 is 3.4 m (178's scree; 178b fixes it) and seed 31337 is 1.5 m (the ford).
+  - The aborted first run's orphaned whole-suite run, on the same code, gave the identical 1063/2 (`Logs/overnight/177b_orphan_TestResults.xml`).
+- After the re-pin, a filtered run (ShellFillTests + CliffTests + CoverTests) gave **16 passed, 0 failed, 5 report-only skipped** (`Logs/overnight/177b_verify.log`).
+- CliffTests layer log, seed 42: every biome shows 3 rocks with cliffs on, thinnest layer 15.4 m, and one rock with cliffs off (`Logs/overnight/177b_filter.log`).
+- Shares, from `CoverTests.Report_CoverMaps` (`Screenshots/177b/shares177b.txt`), over seeds 42/7/2026/31337:
+  - Savanna tops in red earth: **9.3-15.2 % -> 0.7-1.5 %**. Only the hollow variant is red earth now; the packed-earth patches take 8.6-13.8 %.
+  - Desert steep's cream-sandstone patches: **~22-23 % of steep -> 0**. Cream remains only where it is intended: the `high` slot and 178's light layer.
+- Shots come from one survey launch per arm, 30 s shell cap (`Logs/lookreview_20261106_071401.txt`). Shells 3-7 were partly unfilled at 30 s, so far detail behind the poses comes from the far band.
+- Rough cost: palette data only, so the per-voxel work is the same. Deleting BadlandsBand removes a branch. No timing arms.
 
-## Next
-- Owner: Q1 (= 178 Q2). After that: 178's Q1 (keep cliffs).
+## Unfinished / notes
+- "Desert cliffs one colour" means no patch variant. A desert cliff still shows 178's thick layers (orange, cream and red-brown). 178c (cliff look rework) owns that look.
+- The orphaned suite from the aborted run held the lock for 42 min. I was not allowed to stop my own queued duplicate, so both ran.
+- Next: the queue continues with 178b, then 178c.
 
 ## For the doc
-- Area-weighted median biome patch, 8 seeds: 44-65 -> **106-231 ha** (`Screenshots/176d/c1_layout.txt`).
-- Biome change walking E-W: ~375 -> **512-701 m**. Longest straight border: 1.04-1.65 -> **1.06-1.42 km** (gate 1.7).
-- One-region biomes: 0 of 48 -> **14 of 48** (allowed now: the gate is presence). Absent biomes: 0.
-- Player map hash seed 42: 74C7E69A614F8996 -> **32D19FFC21BE14D0** (= Editor).
-- Route test: 31337 1.5 m (ford) + **42 3.4 m (178 scree, Q1)**.
-- Images: `Screenshots/176d/viewer.html` shows full size. Space flips before | after; arrows change the image.
-  - `Screenshots/176d/map_seed42.png` (plus `_seed7`, `_seed2026`, `_seed31337`): left = 176 size, right = Size 2, 1 px = 8 m, north up. Look at patch size, 2-3x bigger. Desert (ochre) and savanna (gold) are ONE region each on seed 42.
-  - `Screenshots/176d/poses_sheet.png`: 5 rows, before (left) | after (right).
-    - Row 3 (forest_river-plains): yellow savanna plain -> green forest.
-    - Row 1 (start): the start is now forest.
-    - Rows 4-5: the peak is savanna rock. Its thick layers are 178's.
+- Savanna flat ground in red earth: **9.3-15.2 % -> 0.7-1.5 %**. Soft tan packed-earth patches now take that ~23 % of flat ground. (`Screenshots/177b/shares177b.txt`)
+- Desert steep ground with cream-sandstone patches: **~22-23 % -> 0 %** (same file).
+- Badlands stripes: with cliffs on they were already gone (178). With `-cliffs 0`, **3.2 m bands -> one plain red rock** (CliffTests log).
+- Whole suite: **PASS 1063 FAIL 1** after the golden re-pin. The 1 is the known route test (`Logs/overnight/177b_all.out` + `177b_verify.log`).
+- Images (full size; viewer `Screenshots/177b/viewer.html`):
+  - `Screenshots/177b/shot_pair_desert_canyonlands_before.png` | `_after.png`: desert x canyonlands. Look at the orange steep patches across the whole ground and on the ridge at right. BEFORE has white cream-sandstone blotches inside the orange; AFTER is plain orange. The grey patches are hollow-slot gravel and are unchanged.
+  - `Screenshots/177b/shot_pair_savanna_wetland-basin_before.png` | `_after.png`: the savanna slope filling the right half. BEFORE has dark red-earth blotches on the gold grass; AFTER has soft tan patches in the same places. The striped mountain at left is 178's layers, not this task.
+  - `Screenshots/177b/shot_pair_badlands_canyonlands_after.png`: a badlands face in the foreground. Plain red rock with hardpan patches, no thin stripes; BEFORE is identical.
+  - `Screenshots/177b/palette177b_before.png` | `palette177b.png`: the palette table. Look at the desert row's STEEP variant (now bare) and the savanna row's FLAT variant (packed sand instead of red earth).
+  - `Screenshots/177b/shot_fixed_great-peak-0_before.png` | `_after.png`: the great peak from 1.6 km. Look at the desert flank at the right edge: the cream blotches are gone.
