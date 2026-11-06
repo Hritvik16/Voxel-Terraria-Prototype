@@ -12,7 +12,7 @@ STOP_FOR_OWNER -- task 178 (C4 cliffs). Viewer: `Screenshots/178/viewer.html`. I
 
 # 178-worldgen-c4-cliff-geology: thick depth layers + face relief (fluting, ledges, scree); whole suite PASS 1064 FAIL 1 (the known route test, now also +1.0 m from scree: Q2)
 
-## What changed (commit: see git log, "178:")
+## What changed (commit 80cc785)
 - `DetailField.LayerRock`: the stone zone (above sea - 50 m) is now layers by height: `LAYER_THICK` 24 m +- 30 %, boundaries waved by `LayerWave` (+-4 m / 90 m, +-1.5 m / 26 m).
   - Each layer's role comes from a hash: main ~50 %, light ~30 %, dark ~20 %. `LAYER_ROCKS` (6 biomes x 3) is the only per-biome data.
   - The brick prover bounds the wave (`LAYER_WAVE_BOUND`).
