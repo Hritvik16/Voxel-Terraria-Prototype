@@ -1,66 +1,56 @@
-STOP_FOR_OWNER -- task 176b: "Which size?" Viewer (full size): `Screenshots/176b/viewer.html` (arrows = seed, 1-4 = fit/100/200/300 %).
-Each sheet shows six maps. Top row: BEFORE (B10 belts) | NOW (176, 0.75) | SIZE 1. Bottom row: SIZE 2 | SIZE 3 | SIZE 4.
+STOP_FOR_OWNER -- task 177: "Change any palette cell?" Viewer (full size): `Screenshots/177/viewer.html`. Keys: arrows = image, Space = BEFORE|AFTER flip, 1-4 = zoom.
+The rules only pick a SLOT. The table below is all the per-biome data (a fire biome = one more row). Each cell is main / patch variant (~20-25 % of the slot). "bare" = no skin, the biome's own rock shows.
 
-| | Wave x island radius | Biome change walking E-W (4 seeds, real generator) | Longest straight border | Biome missing? (20 seeds, Python model) |
-|---|---|---|---|---|
-| Before (B10) | ~1.6, 1 octave | 1,027 m | 1.8-2.9 km | -- |
-| Now (176) | 0.75 | 375 m | 1.06-1.27 km | 1 of 20 |
-| Size 1 | 1.0 | 479 m | 1.17-1.37 km | 0 of 20 |
-| **Size 2 (recommended)** | 1.5 + a 4th octave | **596 m** | **1.06-1.42 km** | 0 of 20 |
-| Size 3 | 2.0 | 911 m | 1.39-1.89 km | 1 of 20 (31337: desert 1 %) |
-| Size 4 | 3.5 | 1,374 m | 1.42-1.82 km | 1 of 20 |
+| biome | flat | steep | hollow | high | shore |
+|---|---|---|---|---|---|
+| forest | grass / jungle grass | bare: granite / gravel | gravel / loam | gravel / bare: granite | beach sand / gravel |
+| desert | sand / packed sand | bare: orange sandstone / cream sandstone | packed sand / gravel | cream sandstone / bare | beach sand |
+| snow | snow / packed ice | packed ice / bare: silver schist | packed ice / snow | snow / packed ice | snow / gravel |
+| jungle | jungle grass / grass | bare: karst limestone / moss rock | mud / jungle grass | moss rock / bare | beach sand |
+| savanna | savanna grass / red earth | bare: kopje granite / gravel | grass / red earth | bare: kopje granite / gravel | beach sand |
+| badlands | badlands clay / hardpan | bare: the bands / hardpan | hardpan / gravel | cream band / bare: bands | beach sand |
 
-- **(2) Recommended: Size 2.** Changes come 1.6x further apart than now, and the median patch grows 2-3x (106-186 ha vs 44-65 ha).
-  - Its borders are as curvy as 176's or curvier: on 20 seeds the median straight border is 1.19 km (176: 1.25 km).
-  - All six biomes are on every seed (each at least 6 % of the land).
-  - It is the largest size that keeps the reason for 176, "no straight belts".
-  - Cost: some biomes sit in one region only (33 of 120 on 20 seeds; allowed now).
-- (3) If larger matters more than straight borders: Size 3 gets close to B10's size, about 900 m.
-  - Long straight borders come back: up to 1.9 km here, 2.1 km on 20 seeds. The C1 gate is 1.7 km.
-  - A biome can almost vanish: seed 31337's desert is 1 % of the land.
-- (4) Size 4: about one big region per biome, the "bold" extreme.
-  - Region sizes swing a lot between seeds (783-1,752 m).
-  - The smallest biome is often 3-6 % of the land.
-- (1) Size 1 is only a little larger than now.
-- **Applying the size is a follow-up task** (`CLIMATE_WAVE_R`, re-pinned goldens, whole suite).
-  - Size 2 also adds a 4th climate octave (amplitude 0.12): `Climate3` plus the bound in `BlendClimateReach`.
-  - Size 3 or 4 would also need your OK to loosen the `BiomeLayoutTests` gates (straight <= 1.7 km, share >= 5 %, 2+ regions).
+Swatches: `Screenshots/177/palette177.png` (rows = biomes, columns = slots, each cell main | variant; hatched = bare rock).
+- **Q1. Change any cell?** My suggestions:
+  - (a) desert steep variant: cream sandstone -> none. On `great-peak-0` AFTER, the far-left desert peak shows cream blotches on orange; at 1-2 km they read a little like camo.
+  - (b) savanna flat variant: red earth -> none or subtler. On `forest_river-plains` AFTER, the red-brown patches are strong.
+  - Everything else as proposed (gravel 17, `8e877c`, is new).
+- **Q2. Where does "high" start?** (a) **Recommended, shipped:** 2/3 of the height range (the record's top third), 0.6-1.3 % of land. (b) 1/2: 0.9-1.9 %. (c) 1/3: 2.0-3.4 %. High ground keeps its cover up to 45 deg faces.
+- **Q3. Snow fleck:** snow settles to packed ice on voxel steps over 1, a white/blue fleck on snowy slopes (`desert_alpine-range` AFTER). (a) **Recommended:** keep it (the falling-solid contract, as for sand). (b) Let snow lie on steps; the engine keeps snow static anyway.
 
-# 176b-worldgen-biome-size-choice: 4 region sizes rendered on the real generator, 4 seeds; recommend Size 2 (1.5 x R)
+# 177-worldgen-c2c3-biome-cover-slots: cover = shape slot x biome palette; speckle down 7-21x on 4 seeds; whole suite green except the known route red
 
-## What changed (commit 1ea882f "176b: ..." on engine-phase; no generator code, no default changed)
-- `Assets/TerrainGen/Tests/BiomeSizeDump.cs` (Slow, report-only; run with `REPORTS=1` and a `-testFilter`).
-  - It builds the real v4 map for seeds 42 / 7 / 2026 / 31337 and writes these biome planes on that map's land mask: b10, c176 and the `C1SIZES` variants.
-  - The variants use ShapeField's octave chain, the per-world normalisation and the nearest-centre rule.
-- `tools/biome176b.py`: stats + sheets + viewer (it reuses biome176.py's metrics). TASKS.md has the 176b paragraph.
+## What changed (`c89f7de`)
+- `Assets/TerrainGen/Cover.cs`:
+  - Slot rules: shore, then hollow (lake/river bed), then steep (6 m slope over 30 deg; on high ground only faces over 45 deg), then high (over 2/3 of `spec.peakHeight`), then a crest = steep, then hollow (a dip, or within ~16 m of fresh water), else flat.
+  - Every input is shape data that exists for every seed. One 6 m + 25 m patch noise jitters every cut.
+  - The cover noises are band-limited to the footprint (chunk 1, shell 2^k, far texel), so far texels do not alias into camo.
+- `PALETTE` (6 x 5 x 2) is the only per-biome data. `DetailField`: skin = the cell (sand/snow settled per voxel), soil under it except on steep; rock where BARE or the voxel step > 3 (before: every step > 1.5 = the speckle).
+- `-coverslots 0` / `coverSlotsOff` gives the pre-177 surface, bit for bit. v3 is unchanged.
+- Tests: ShellFill GOLDEN re-made (67 of 85 chunks changed); `ShellChunkTests`' reference samples the cover at the shell's footprint;
+  `OreTests` ring gate held at its absolute bound (8.9 bricks/chunk): the cover cut the base 28 % (5,677 -> 4,093), ore adds +215 both ways (measured).
+- `tools/cover177.py`: maps, palette table, before|after pairs, viewer. TASKS.md has the 177 paragraph.
 
 ## Evidence
-- The dump run: `Logs/overnight/176b_dump.log`, check lines in `Logs/TerrainGen/c1/sizes/check.txt`.
-  - The octave chain matches `ShapeField.Climate3` within 1.2e-7 (14,374 of 20,000 points bit-equal).
-  - The 0.75 variant reproduces the generator's record plane except 50 / 134 / 97 / 27 of 1,048,576 cells (seeds 42 / 7 / 2026 / 31337).
-  - That residue is Burst vs Mono float rounding (KNOWN_ISSUES). So these maps are the generator's own.
-- Per-plane, per-seed stats: `Screenshots/176b/sizes_176b.txt` (change, straight, median ha, regions per biome, shares, one-region and absent biomes).
-- 20-seed check of the same variants in the Python port: `Screenshots/176b/sizes_20seeds_python.txt`. The port matches the generator on 98-99 % of land cells (176's land masks).
-- Fast suite: **PASS 1000 FAIL 0 SKIP 16** (`Logs/overnight/176b_fast.out`).
-- I looked at all 4 sheets:
-  - Size 2, seed 42 keeps a winding NW-SE ochre band that echoes B10. It is the same base noise at nearly the same wavelength, but it is bent, not straight.
-  - Size 4 is 5-6 big blobs per island. On seed 42, a central red badlands disc sits in a forest ring.
-  - Size 3 brings back a 1.9 km straight snow | ochre edge on seed 42.
-- Land mask = the current (176) map for every plane. The map's heights depend on the biome only through the route easing, so a size change barely moves the coast.
-- Unmeasured: a longer wavelength should let the blend early-out skip columns again. 176 measured shell fill go from ~85 to ~100 ms per chunk when it stopped doing so. Check this in the performance stage.
+- Whole suite: **PASS 1061 FAIL 1 SKIP 32** (`Logs/overnight/177_all2.out`). The red is the KNOWN route test (river ford bank, until C5).
+- `CoverTests` (`Screenshots/177/shares177.txt`): a test-only "fire" row gets magma crust on 206 high columns of seed 42 with no rule change;
+  TopMaterial = the row lookup; same slot at footprints <= 1.6 m; every slot on every seed; no biome over 65.5 % one slot (gate 85 %).
+- Speckle (isolated top voxels): 1.87 -> 0.09 / 2.00 -> 0.13 / 1.03 -> 0.06 / 0.50 -> 0.07 % (seeds 42 / 7 / 2026 / 31337).
+- Island slot shares: flat 53-59, steep 26-32, hollow 7-8, high 0.6-1.2, shore 6-7 % (`map_slot_shares.txt`).
+- Shots (173's 5 weak poses, `-wsfixed`): AFTER `Logs/lookreview_20261106_012752.txt`, BEFORE (`-coverslots 0`) `Logs/lookreview_20261106_002547.txt`.
+  I looked at all of them. The speckle is gone and the cover follows the ground: grass along the river, rock and ice outcrops on the mountain, badlands stripes kept.
+- Rough cost (no timing arms): `Sample` (Mono) 36.2 -> 43.5 us per column (`cost177.txt`); shell chunk 81 -> 88-95 ms in the shot launches.
 
-## Known, not fixed
-- The Slow route test is red (river ford bank). The owner leaves it red until C5.
-
-## Next
-- When the owner picks a size, queue the follow-up: set the constant(s), adjust the BiomeLayoutTests gates if Size 3/4, re-pin the goldens, run `SUITE=all`.
+## Not done / notes
+- The far band's `FarWallMaterial` still maps walls by surface material (snow high ground in a forest -> a schist wall; lip mode only, rare).
+- Shells of 3.2 m+ show the band-limited cover (12-30 % of columns differ from texel 1, by design). 176c (biome size 2) is next; shares may shift.
 
 ## For the doc
-- Biome change walking E-W: B10 1,027 m | now 375 m | sizes **479 / 596 / 911 / 1,374 m** (`Screenshots/176b/sizes_176b.txt`).
-- Longest straight border: B10 1.8-2.9 km | now 1.06-1.27 km | sizes 1.17-1.37 / **1.06-1.42** / 1.39-1.89 / 1.42-1.82 km.
-- Area-weighted median patch: now 44-65 ha | Size 2 106-186 ha | Size 3 175-255 ha | Size 4 271-430 ha.
-- Seeds with a biome missing (20 seeds, Python): sizes 0 / 0 / 1 / 1 of 20. One-region biomes: 10 / 33 / 46 / 81 of 120 (`Screenshots/176b/sizes_20seeds_python.txt`).
-- Images (all six panels per seed):
-  - `Screenshots/176b/full_seed42.png`: full size. Top row B10 | 176 | Size 1, bottom Size 2 | 3 | 4. The colour patches grow left to right; magenta = the longest straight border. Compare top-left's straight belt with the bottom row.
-  - `Screenshots/176b/sheet_seed7.png`: the same 6 panels as thumbnails. Bottom-right (Size 4) is about one region per biome; bottom-left (Size 2) is about 10 regions of ~1 km.
-  - `Screenshots/176b/sheet_seed31337.png`: bottom-middle (Size 3) has no desert left (1 % of the land). That is the risk of the larger sizes.
+- Speckle (isolated top voxels, 40 land windows per seed): 1.87 -> 0.09 %, 2.00 -> 0.13 %, 1.03 -> 0.06 %, 0.50 -> 0.07 % (`Screenshots/177/shares177.txt`).
+- Island land by slot: flat 53-59 %, steep 26-32 %, hollow 7-8 %, high 0.6-1.2 %, shore 6-7 %. No biome over 65.5 % in one slot.
+- Mixed bricks on OreTests' ring set: 5,677 -> 4,093 (-28 %), a memory hint, not a measurement.
+- Column cost: 36.2 -> 43.5 us (Mono); shell chunk 81 -> 88-95 ms in the shot launches (rough).
+- Images:
+  - `Screenshots/177/shot_start_view_after.png` / `_before.png`: Space flips. Look at the snow mountain top right: grey/white per-voxel noise BEFORE, blue ice with rock outcrops AFTER. Bottom: badlands stripes kept, hardpan patches added.
+  - `Screenshots/177/shot_forest_river-plains_after.png` / `_before.png`: look at the river. A green grass band (the hollow slot) runs along it AFTER; BEFORE it is a flat golden lawn.
+  - `Screenshots/177/map_seed42.png`: left panel = slots (dark grey steep on ridges and the central massif, blue hollows along rivers, white high spots on the summit). Middle = AFTER cover; right = BEFORE.
