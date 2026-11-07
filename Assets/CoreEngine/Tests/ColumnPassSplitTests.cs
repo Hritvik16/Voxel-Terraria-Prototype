@@ -83,6 +83,7 @@ public class ColumnPassSplitTests
     }
 
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void ColumnPass_SampleVsPrepare_TimingReport()
     {
         if (System.Environment.GetEnvironmentVariable("REPORTS") != "1") Assert.Ignore("report only: set REPORTS=1");
@@ -216,6 +217,7 @@ public class ColumnPassSplitTests
     /// Logs/TerrainGen/cavern_cache_timing.txt. Editor Burst, one thread: a
     /// direction check, not a streaming or frame-time claim.
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void CavernCache_TimingReport()
     {
         if (System.Environment.GetEnvironmentVariable("REPORTS") != "1") Assert.Ignore("report only: set REPORTS=1");

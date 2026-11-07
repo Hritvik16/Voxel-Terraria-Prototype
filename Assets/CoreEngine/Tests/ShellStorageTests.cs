@@ -229,6 +229,7 @@ public class ShellStorageTests
     }
 
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Streamer_FillsHighShells6and7_AroundSpawn_StaleFree_ByteExact_InBudget()
     {
         const int BUDGET = 1024 * 1024;   // a third of the 3 MiB cap: what tier 0 might leave

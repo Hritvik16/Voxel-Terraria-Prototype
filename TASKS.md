@@ -1231,3 +1231,15 @@ walks from outside through the front door to every room and not through windows 
 voxel, rotations agree + footprint tight + door on FrontDir, every material solid / static / coloured / GenToEngine-mapped); report
 `Logs/TerrainGen/kit184/kit.txt`; sheets `Screenshots/184/kit_sheet.png` (rows hut/house/hall, columns forest snow jungle savanna desert
 badlands) and `kit_cutaway.png` (roofless, forest | desert). Result: HANDOFF 184.
+
+Task 184b (test-suite trim, owner 2026-11-07: fast <= 3 min, all <= 15 min): `run-editmode-tests.sh` has THREE tiers --
+`fast` = `!Slow` (every change), `SUITE=all` = `!Nightly` (every generator / rule test at least once; generator changes),
+`SUITE=nightly` = everything (~1 h, before a merge to main only; also copies `TestResults_nightly.xml`); `FILTER='<testFilter>'`
+runs only those tests (regex: write `(42)` as `\(42\)`), `EXTRA="<unity args>"` passes more. A `[Category("Nightly")]` test is
+always also Slow. Nightly holds the shell fills (EditOpRedraw Shells1to7 774 s, ShellFill, ColumnReuse WalkingTwin, BrickSkip
+Shells/Chunks, ShellChunk CoarseFirst ...), the long fuzzers, the two cost reports (`Cost_OnVsOff`), every engine test that took
+>= 2 s, and seeds 7 / 2026 of FluidAtRest / LakeShore / LakeLevel / OreRule (42 + 31337 stay in all). OreRuleTests.FourSeeds is one
+case per seed (`table_<seed>.txt`). Exact cuts: `FastAssert` (CoreEngine/Tests) and guarded per-voxel asserts (`if (x != y)
+Assert...` -- same check, same message, no NUnit call when it passes): MaterialRuleChunk Chunks_Deterministic 52.9 -> 6.2 s,
+OccupancyMask/AirMip 15-20 s -> 1.6-4.8 s (two AirMip tests back in fast), Tree Chunks 9.8 -> 6.3 s. The Editor already runs
+managed code in Release (EditorPrefs ScriptDebugInfoEnabled = 0): `-releaseCodeOptimization` measured no gain. Result: HANDOFF 184b.

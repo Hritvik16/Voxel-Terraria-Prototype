@@ -355,6 +355,7 @@ public class ShellAirMaskTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void Mask_ChangesNoPrimaryOrShadowResult()
     {
         var v = new BrickView(ShellLayout.From(QualityPreset.High));
@@ -363,6 +364,7 @@ public class ShellAirMaskTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void Mask_Mutation_BitsClearedOnNonAirGroups_IsCaught()
     {
         var v = new BrickView(ShellLayout.From(QualityPreset.High)) { Mutate = true };

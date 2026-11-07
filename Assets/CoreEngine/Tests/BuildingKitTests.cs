@@ -59,6 +59,7 @@ public class BuildingKitTests
     private static bool Open(byte r, int ly) => r == BuildingKit.AIR || r == BuildingKit.NONE;
 
     [Test]
+    [Category("Slow")]   // task 184b: test-suite tier
     public void RoomIsSealedExceptItsOpenings()
     {
         for (int shape = 0; shape < BuildingKit.SHAPES; shape++)
@@ -184,6 +185,7 @@ public class BuildingKitTests
     }
 
     [Test]
+    [Category("Slow")]   // task 184b: test-suite tier
     public void RotationsAgreeAndFootprintIsTight()
     {
         for (int shape = 0; shape < BuildingKit.SHAPES; shape++)

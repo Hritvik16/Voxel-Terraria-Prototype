@@ -420,7 +420,7 @@ public class TreeTests
             src.SetTrees(true);
             var a = Gen(src, cc, out _, out _);
             var b = Gen(src, cc, out _, out _);
-            CollectionAssert.AreEqual(a, b, $"chunk {cc}: two ON runs differ (not deterministic)");
+            FastAssert.BytesCollectionEqual(a, b, $"chunk {cc}: two ON runs differ (not deterministic)");
             src.SetTrees(false);
             var off = Gen(src, cc, out _, out _);
             src.SetTrees(true);
@@ -428,8 +428,8 @@ public class TreeTests
             for (int i = 0; i < a.Length; i++)
             {
                 if (a[i] == off[i]) continue;
-                Assert.AreEqual(Materials.Air, off[i], $"chunk {cc} voxel {i}: a tree replaced a non-air voxel ({off[i]})");
-                Assert.IsTrue(TreeEngine.Contains(a[i]), $"chunk {cc} voxel {i}: ON differs from OFF by a non-tree material {a[i]}");
+                if (off[i] != Materials.Air) Assert.AreEqual(Materials.Air, off[i], $"chunk {cc} voxel {i}: a tree replaced a non-air voxel ({off[i]})");   // 184b: guarded, same check
+                if (!TreeEngine.Contains(a[i])) Assert.IsTrue(TreeEngine.Contains(a[i]), $"chunk {cc} voxel {i}: ON differs from OFF by a non-tree material {a[i]}");   // 184b: guarded, same check
                 trees++;
             }
             if (cx == c0.x) sideA += trees; else sideB += trees;
@@ -506,7 +506,7 @@ public class TreeTests
                     if (!TreeEngine.Contains(want1) && !TreeEngine.Contains(got)) continue;
                     compared++;
                     if (TreeEngine.Contains(got)) treeVox++;
-                    Assert.AreEqual(want1, got, $"shell {k} voxel ({x},{y},{z}) sample {f}: {got} != 0.1 m voxel {want1}");
+                    if (want1 != got) Assert.AreEqual(want1, got, $"shell {k} voxel ({x},{y},{z}) sample {f}: {got} != 0.1 m voxel {want1}");   // 184b: guarded, same check
                 }
             }
             Assert.Greater(treeVox, 0, $"shell {k} shows none of the tree");
@@ -608,6 +608,7 @@ public class TreeTests
     // Cost: dense bricks + generation time, ON vs OFF (LOD 0 and shells 1-5)
     // ==================================================================
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Cost_OnVsOff()
     {
         using var c = new Ctx(42u);

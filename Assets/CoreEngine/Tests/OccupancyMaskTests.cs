@@ -30,6 +30,7 @@ public class OccupancyMaskTests
     // ---------------------------------------------------------------------
     [Test]
     [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void AllAir_EveryMaskIsZero_AtEveryLevel()
     {
         uint[] l0 = AllAirL0();
@@ -42,7 +43,7 @@ public class OccupancyMaskTests
         {
             byte[] cells = occ.Levels[lvl];
             for (int i = 0; i < cells.Length; i++)
-                Assert.AreEqual((byte)0, cells[i], $"Level {lvl + 1} cell {i} should have an all-clear mask in an all-air world.");
+                if (cells[i] != 0) Assert.AreEqual((byte)0, cells[i], $"Level {lvl + 1} cell {i} should have an all-clear mask in an all-air world.");   // 184b: guarded, same check
         }
     }
 
@@ -51,6 +52,7 @@ public class OccupancyMaskTests
     //  octant matching the brick's position within each ancestor's coverage.
     // ---------------------------------------------------------------------
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void OneSolidBrick_SetsExactlyOneBit_InEachAncestorLevel()
     {
         uint[] l0 = AllAirL0();
@@ -92,6 +94,7 @@ public class OccupancyMaskTests
     //  "dense is never air" rule) even if its interior happens to be all air.
     // ---------------------------------------------------------------------
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void DenseBrick_SetsOccupancyBit_EvenIfInternallyAir()
     {
         uint[] l0 = AllAirL0();
@@ -111,6 +114,7 @@ public class OccupancyMaskTests
     //  distinct bits set, not one, and the exact octant math is verified.
     // ---------------------------------------------------------------------
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void TwoSolidBricksInSameParentCell_SetDistinctBits()
     {
         uint[] l0 = AllAirL0();
@@ -143,6 +147,7 @@ public class OccupancyMaskTests
     //  CONTAINING cell's mask flips; the neighbor's stays all-clear.
     // ---------------------------------------------------------------------
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void SolidAtCellBoundary_OnlyFlipsContainingCellsMask()
     {
         uint[] l0 = AllAirL0();
@@ -171,6 +176,7 @@ public class OccupancyMaskTests
     // ---------------------------------------------------------------------
     [Test]
     [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void RebuildRegion_AfterClearingSolid_ReturnsMasksToZero()
     {
         uint[] l0 = AllAirL0();
@@ -198,7 +204,7 @@ public class OccupancyMaskTests
         {
             byte[] cells = occ.Level(k);
             for (int i = 0; i < cells.Length; i++)
-                Assert.AreEqual((byte)0, cells[i], $"L{k}: cell {i} should be all-clear after RebuildRegion.");
+                if (cells[i] != 0) Assert.AreEqual((byte)0, cells[i], $"L{k}: cell {i} should be all-clear after RebuildRegion.");   // 184b: guarded, same check
         }
     }
 
@@ -209,6 +215,7 @@ public class OccupancyMaskTests
     // ---------------------------------------------------------------------
     [Test]
     [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void RebuildRegion_AfterAddingSolid_MatchesFromScratchBuild()
     {
         uint[] l0 = AllAirL0();
@@ -234,7 +241,7 @@ public class OccupancyMaskTests
             byte[] freshCells = fresh.Level(k);
             Assert.AreEqual(freshCells.Length, maintained.Length, $"L{k}: length mismatch.");
             for (int i = 0; i < freshCells.Length; i++)
-                Assert.AreEqual(freshCells[i], maintained[i], $"L{k}: cell {i} - maintained mask disagrees with from-scratch rebuild.");
+                if (freshCells[i] != maintained[i]) Assert.AreEqual(freshCells[i], maintained[i], $"L{k}: cell {i} - maintained mask disagrees with from-scratch rebuild.");   // 184b: guarded, same check
         }
     }
 
@@ -245,6 +252,7 @@ public class OccupancyMaskTests
     //  octant-indexing bug that a handful of hand-picked cases could miss.
     // ---------------------------------------------------------------------
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void RandomizedFuzz_EveryBitAgreesWithIndependentRederivation()
     {
         var rng = new System.Random(20260813);

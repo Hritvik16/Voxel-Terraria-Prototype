@@ -155,7 +155,7 @@ public class MaterialRuleChunkTests
                 _src.SetMatRules(true);
                 var a = Gen(cc, out int dA, out _);
                 var b = Gen(cc, out _, out _);
-                Assert.AreEqual(a, b, $"{s.name} {cc}: ON twice");
+                FastAssert.BytesEqual(a, b, $"{s.name} {cc}: ON twice");
                 _src.SetMatRules(false);
                 var off = Gen(cc, out int dOff, out _);
                 _src.SetMatRules(true);
@@ -163,7 +163,7 @@ public class MaterialRuleChunkTests
                 for (int i = 0; i < a.Length; i++)
                 {
                     bool na = non.Contains(a[i]), no = non.Contains(off[i]);
-                    if (na || no) Assert.AreEqual(off[i], a[i], $"{s.name} {cc} voxel {i}: air / fluid must not change");
+                    if ((na || no) && off[i] != a[i]) Assert.AreEqual(off[i], a[i], $"{s.name} {cc} voxel {i}: air / fluid must not change");   // 184b: guarded, same check
                     else if (a[i] != off[i]) changed++;
                 }
                 // the dug pit: 8 m of the site column set to air in a copy (an edit, applied on
@@ -175,7 +175,7 @@ public class MaterialRuleChunkTests
                 {
                     for (int ly = top; ly > top - 80 && ly >= 0; ly--) dug[TerrainGenChunkSource.Index(lx, ly, lz)] = Materials.Air;
                     var re = Gen(cc, out _, out _);
-                    Assert.AreEqual(a, re, $"{s.name} {cc}: regeneration never reads the dug voxels");
+                    FastAssert.BytesEqual(a, re, $"{s.name} {cc}: regeneration never reads the dug voxels");
                     // the pit's column, top-down, against the rules (where no cave / ore / lip)
                     var c = ShapeField.Sample(in on, in view, in o, s.x + 0.5f, s.z + 0.5f, 1);
                     float st = ShapeField.MaxStep(in on, in view, in o, s.x + 0.5f, s.z + 0.5f, 1, c.height);
@@ -353,6 +353,7 @@ public class MaterialRuleChunkTests
 
     // ------------------------------------------------------------------
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Cost_OnVsOff()
     {
         var sites = Sites();

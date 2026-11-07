@@ -270,6 +270,7 @@ namespace TerrainGen.Tests
         /// caves / pockets / stamps leave it, is the column's ONE stone; and RockAt
         /// is deep stone exactly under the boundary (both sides, with margin).
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void TallFace_IsOneStone_NoDeepStoneAboveTheAbsoluteBoundary()
         {
             int faces = 0, faceVox = 0, tallest = 0;

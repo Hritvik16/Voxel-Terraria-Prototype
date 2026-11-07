@@ -67,6 +67,7 @@ namespace TerrainGen.Tests
         }
 
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void CoarseColumns_GeologyExact_NodesExact_ShiftZeroIsReference()
         {
             int nodes = 0;

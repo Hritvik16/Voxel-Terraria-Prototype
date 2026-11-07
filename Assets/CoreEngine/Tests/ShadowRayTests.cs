@@ -161,6 +161,7 @@ public class ShadowRayTests
     /// acne actually shows up in practice. §13's acceptance bullet asks for
     /// "grazing-angle shadows show ZERO acne".
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void SelfIntersection_GrazingSunOverFlatFloor_IsNeverOccluded()
     {
         BuildFloorPatch(new int3(60, 0, 60), new int3(200, 0, 200), 20);
@@ -551,6 +552,7 @@ public class ShadowRayTests
     /// perturbing the walk.
     [Test]
     [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Fuzz_PenumbraNeverChangesTheOcclusionAnswer()
     {
         var rng = new Unity.Mathematics.Random(0xBEEF77u);

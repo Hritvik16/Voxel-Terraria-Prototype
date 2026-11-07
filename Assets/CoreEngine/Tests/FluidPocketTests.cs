@@ -199,7 +199,7 @@ public unsafe class FluidPocketTests
             int[] plane = map.PocketPlane;
             Assert.IsNotNull(plane);
             int[] again = FluidPockets.BuildPlane(map, out var st);
-            CollectionAssert.AreEqual(plane, again, $"seed {seed}: the plane is not deterministic");
+            FastAssert.ArrayCollectionEqual(plane, again, $"seed {seed}: the plane is not deterministic");   // 184b: same check, no boxing
             var view = map.View;                       // with the plane
             var baseView = view; baseView.pocket = null;   // the base terrain
             var zone = FluidPockets.StartZone(map);

@@ -238,6 +238,7 @@ public class ShellSkyExitTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void ExitOnOff_SameHitsAndNoHits_RandomRaysAndShadows()
     {
         var v = Build();

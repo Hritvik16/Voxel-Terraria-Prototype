@@ -162,6 +162,7 @@ public class ShellChunkTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void ShellVoxels_AreTheGeneratorsVoxelAtTheirCentre_Shells1to7()
     {
         int3 s = SurfaceVoxel(_src);
@@ -502,6 +503,7 @@ public class ShellChunkTests
     }
 
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void CoarseFirst_AgreesWithMajorityVote_AndReportsCost()
     {
         uint[] seeds = { 42u, 7u, 1234u };

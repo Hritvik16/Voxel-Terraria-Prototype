@@ -62,6 +62,7 @@ namespace TerrainGen.Tests
         }
 
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void EarlyOut_IsExact_AndTheRecordBiomeIsUnchanged()
         {
             Assert.AreEqual(1, _o.biomeBlend, "v4 default: blend on");
@@ -88,6 +89,7 @@ namespace TerrainGen.Tests
         }
 
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void Band_IsMixed_TensOfMetresWide_AndNotStraight()
         {
             // E-W transects at one sample per dither cell (8 voxels).

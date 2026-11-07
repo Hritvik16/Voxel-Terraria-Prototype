@@ -208,6 +208,7 @@ public class EditOpRedrawTests
     }
 
     [Test, Category("Slow"), Timeout(1200000)]   // the High fill alone is ~190 s
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Shells1to7_OpRecordedAfterTheFill_RedrawsEveryTouchedChunk_ByteExact_StaleFree()
     {
         const int BUDGET = 3 * 1024 * 1024;
@@ -305,6 +306,7 @@ public class EditOpRedrawTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void FarBand_OpRecordedAfterTheFill_PatchedTexels_EqualAFreshBuildWithTheOp()
     {
         var spec = _src.Spec;

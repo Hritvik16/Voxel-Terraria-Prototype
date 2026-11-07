@@ -110,6 +110,7 @@ public class PaletteHistogramReport
     }
 
     [Test, Category("Slow"), Timeout(3600000)]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void DistinctMaterialsPerDenseBrick_MapV4Seed42()
     {
         // CoreEngine.Tests does not reference TerrainGen.Tests (ReportOnly); same rule.

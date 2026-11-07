@@ -103,6 +103,7 @@ public class ShellColumnLeapTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void ColumnLeap_ExitPlaneLeap_ChangesNoResult_MaskOffAndOn()
     {
         foreach (bool mask in new[] { false, true })
@@ -117,6 +118,7 @@ public class ShellColumnLeapTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void ColumnLeap_DefaultLeap_SameEndsCellsAndNormals()
     {
         var v = new ShellAirMaskTests.BrickView(ShellLayout.From(QualityPreset.High));
@@ -128,6 +130,7 @@ public class ShellColumnLeapTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void ColumnLeap_WithSkyExit_SameResults_SkyEndNeverEarlier()
     {
         var v = new ShellAirMaskTests.BrickView(ShellLayout.From(QualityPreset.High));
@@ -141,6 +144,7 @@ public class ShellColumnLeapTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void ColumnLeap_Mutation_TopsOneBrickLow_IsCaught()
     {
         var v = new ShellAirMaskTests.BrickView(ShellLayout.From(QualityPreset.High)) { MutateTops = true };

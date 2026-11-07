@@ -160,8 +160,8 @@ namespace TerrainGen.Tests
 
         [Category("Slow")]   // one shared v4 map per case, then ~1-2 min of tiles
         [TestCase(42u)]
-        [TestCase(7u)]
-        [TestCase(2026u)]    // task 179: the shaped rivers on all four route seeds
+        [TestCase(7u, Category = "Nightly")]      // task 184b: 42 + 31337 (the adversarial river seed) in SUITE=all
+        [TestCase(2026u, Category = "Nightly")]    // task 179: the shaped rivers on all four route seeds
         [TestCase(31337u)]
         public void RiverSeaLava_AreAtRest(uint seed)
         {

@@ -40,7 +40,6 @@ public class OreRuleTests
 {
     private static readonly string LogDir = Path.Combine("Logs", "TerrainGen", "ores181");
     private static readonly string ShotDir = Path.Combine("Screenshots", "181");
-    private static readonly uint[] Seeds = { 42u, 7u, 2026u, 31337u };
 
     private static readonly HashSet<byte> RuleOreEngine = new HashSet<byte>();
     private static readonly HashSet<byte> TwinEngine = new HashSet<byte>();
@@ -349,9 +348,9 @@ public class OreRuleTests
                     if (a[i] != a3[i]) Assert.Fail($"{s.name} chunk {coord} voxel {i}: brick skip on {a[i]} != off {a3[i]}");
                     if (a[i] == b[i]) { if (RuleOreEngine.Contains(a[i])) ruleOre++; continue; }
                     changed++;
-                    Assert.IsTrue(Solid(b[i]) && Solid(a[i]), $"{s.name} chunk {coord} voxel {i}: ON {a[i]} vs OFF {b[i]} -- air / fluid changed");
+                    if (!(Solid(b[i]) && Solid(a[i]))) Assert.IsTrue(Solid(b[i]) && Solid(a[i]), $"{s.name} chunk {coord} voxel {i}: ON {a[i]} vs OFF {b[i]} -- air / fluid changed");   // 184b: guarded, same check
                     bool offOre = RuleOreEngine.Contains(b[i]);
-                    Assert.IsTrue(RuleOreEngine.Contains(a[i]) || offOre, $"{s.name} chunk {coord} voxel {i}: ON {a[i]} vs OFF {b[i]} -- not an ore change");
+                    if (!(RuleOreEngine.Contains(a[i]) || offOre)) Assert.IsTrue(RuleOreEngine.Contains(a[i]) || offOre, $"{s.name} chunk {coord} voxel {i}: ON {a[i]} vs OFF {b[i]} -- not an ore change");   // 184b: guarded, same check
                     if (RuleOreEngine.Contains(a[i])) ruleOre++;
                     if (TwinEngine.Contains(a[i]))
                     {
@@ -563,8 +562,14 @@ public class OreRuleTests
     // ------------------------------------------------------------------
     // Four seeds: the start stays hidden; the counts table
     // ------------------------------------------------------------------
-    [Test, Category("Slow"), Timeout(1800000)]
-    public void FourSeeds_StartHidden_AndTable()
+    // Task 184b: one case per seed (was one 4x serial test; its assert was the SUM of the
+    // per-seed failures, so per-seed cases assert the same). 42 + 31337 run in SUITE=all.
+    [Category("Slow"), Timeout(1800000)]
+    [TestCase(42u)]
+    [TestCase(7u, Category = "Nightly")]
+    [TestCase(2026u, Category = "Nightly")]
+    [TestCase(31337u)]
+    public void FourSeeds_StartHidden_AndTable(uint seed)
     {
         Directory.CreateDirectory(LogDir);
         var log = new StringBuilder();
@@ -572,7 +577,6 @@ public class OreRuleTests
         string[] oreName = { "copper", "iron", "gold", "cobalt", "emberstone" };
         string[] biomeName = { "forest", "desert", "snow", "jungle", "savanna", "badlands" };
         int failures = 0;
-        foreach (uint seed in Seeds)
         {
             using var src = new TerrainGenChunkSource(seed);
             src.SetOres(true);
@@ -580,6 +584,7 @@ public class OreRuleTests
             uint[] plane = OreRulePlane.CellPlane(src.Map, spec);
             byte[] mul = OreTable.DensityPlane(src.Map.Record, n);
             log.AppendLine($"seed {seed}:");
+            var phase = Stopwatch.StartNew();   // task 184b: where the case's time goes
 
             // ---- the start zone ----
             int zoneCells = 0;
@@ -612,7 +617,8 @@ public class OreRuleTests
                 log.AppendLine($"  {bl.what} round chunk column {bl.centre}: {stacks} chunk columns, rule ore voxels on zone cells {total:N0}, with open sky beside them {exposed}{(first != null ? " e.g. " + first : "")}");
                 if (exposed > 0) failures++;
             }
-            log.AppendLine($"  start zone: {zoneCells} map cells ({zoneCells * 0.0064:F1} km^2)");
+            log.AppendLine($"  start zone: {zoneCells} map cells ({zoneCells * 0.0064:F1} km^2); start blocks {phase.Elapsed.TotalSeconds:F1} s");
+            phase.Restart();
 
             // ---- the deposit table: passing 32^3 cells over every 8th cell column ----
             var on = new long[5, GenBiome.Count]; var offT = new long[5, GenBiome.Count];
@@ -656,10 +662,12 @@ public class OreRuleTests
             }
             log.AppendLine("    ON by harshness 0-4:  " + string.Join("; ", Rows(harsh, 5, oreName)));
             log.AppendLine("    ON by depth (band 0 = above sea, k = (k-1)..k x 100 m below sea): " + string.Join("; ", Rows(depthBins, 8, oreName)));
+            log.AppendLine($"  deposit table {phase.Elapsed.TotalSeconds:F1} s");
         }
-        File.WriteAllText(Path.Combine(LogDir, "table.txt"), log.ToString());
+        string table = Path.Combine(LogDir, $"table_{seed}.txt");
+        File.WriteAllText(table, log.ToString());
         UnityEngine.Debug.Log(log.ToString());
-        Assert.AreEqual(0, failures, "rule ore with open sky beside it near a start: see " + Path.Combine(LogDir, "table.txt"));
+        Assert.AreEqual(0, failures, "rule ore with open sky beside it near a start: see " + table);
     }
 
     private static IEnumerable<string> Rows(long[,] t, int cols, string[] names)

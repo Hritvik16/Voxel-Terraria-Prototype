@@ -194,6 +194,7 @@ public class PlayerMotorTests
     // =====================================================================
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void AOneVoxelWall_IsNeverTunneled_AtWalkAndRunSpeeds()
     {
         // Swept across a wide speed range, including well past the shipped
@@ -699,6 +700,7 @@ public class PlayerMotorTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void ResolveSpawn_FailsHonestly_WhenThereIsNoRoom()
     {
         var w = new FakeWorld();

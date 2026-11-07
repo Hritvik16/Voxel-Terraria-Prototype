@@ -316,9 +316,11 @@ public class TorchFloodL3Tests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void Fuzz_IncrementalEqualsScratch_ThenAllFreed() => Fuzz(80, 165);
 
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Fuzz_Long() { Fuzz(300, 1651); Fuzz(300, 1652); }
 
     [Test]

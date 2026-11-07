@@ -77,6 +77,7 @@ public class ShellHoleLeapTests
     /// band near the camera, t = the band-ceiling exit), with and without the pillar, at the real step caps
     /// and at small caps (3-12) that end rays inside the hole box: identical with the leap on and off.
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void HoleLeapChangesNoResult()
     {
         var terrain = new ShellMarchCacheTests.TerrainView(ShellLayout.From(QualityPreset.High));

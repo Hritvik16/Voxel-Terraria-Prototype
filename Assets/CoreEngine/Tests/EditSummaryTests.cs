@@ -180,6 +180,7 @@ public class EditSummaryTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void Summary_EveryShellLevel_EqualsGeneratorPlusMajorityVoteOfTheResidentChunk()
     {
         int3 site = Site();
@@ -309,6 +310,7 @@ public class EditSummaryTests
     }
 
     [Test, Timeout(600000)]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void Streamer_EditedChunkRedrawsItsShellChunk_ByteExact_IntervalCapEviction()
     {
         const int BUDGET = 3 * 1024 * 1024;

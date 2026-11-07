@@ -75,7 +75,7 @@ public class AirMipTests
     // ---------------------------------------------------------------------
 
     [Test]
-    [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
+    // task 184b: was Slow (> 10 s); its per-cell assert is now guarded -> ~1.7 s, fast suite
     public void AllAir_EveryCellIsZero_AtEveryLevel()
     {
         AirMipData mips = AirMip.Build(AllAirL0(), L0Dims, 4);
@@ -84,7 +84,7 @@ public class AirMipTests
         {
             uint[] cells = mips.Levels[lvl];
             for (int i = 0; i < cells.Length; i++)
-                Assert.AreEqual(0u, cells[i], $"Level {lvl + 1} cell {i} should be air (0).");
+                if (cells[i] != 0u) Assert.AreEqual(0u, cells[i], $"Level {lvl + 1} cell {i} should be air (0).");   // 184b: guarded, same check
         }
     }
 
@@ -182,7 +182,7 @@ public class AirMipTests
     // ---------------------------------------------------------------------
 
     [Test]
-    [Category("Slow")]   // > 10 s: SUITE=all only (task 11)
+    // task 184b: was Slow (> 10 s); its per-cell assert is now guarded -> ~1.7 s, fast suite
     public void RebuildRegion_AfterClearingSolid_ReturnsAncestorsToAir()
     {
         uint[] l0 = AllAirL0();
@@ -219,7 +219,7 @@ public class AirMipTests
 
             uint[] cells = mips.Level(k);
             for (int i = 0; i < cells.Length; i++)
-                Assert.AreEqual(0u, cells[i],
+                if (cells[i] != 0u) Assert.AreEqual(0u, cells[i],   // 184b: guarded, same check
                     $"L{k}: cell {i} should be air after clearing the only solid.");
         }
     }

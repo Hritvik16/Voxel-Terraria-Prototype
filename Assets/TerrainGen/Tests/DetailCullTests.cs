@@ -128,6 +128,7 @@ namespace TerrainGen.Tests
         private static int3 Centre => new int3(_spec.worldSizeVoxels / 2 & ~127, 0, _spec.worldSizeVoxels / 2 & ~127);
 
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void GradientBound_HoldsWithMargin()
         {
             var rng = new Unity.Mathematics.Random(0xC0FFEEu);

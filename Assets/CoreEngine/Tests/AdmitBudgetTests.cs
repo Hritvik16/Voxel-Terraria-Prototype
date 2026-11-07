@@ -112,6 +112,7 @@ public class AdmitBudgetTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void BudgetedDrain_ReachesTheSameWorldAsUnbudgeted()
     {
         double was = StreamManager.AdmitBudgetMs;
@@ -155,6 +156,7 @@ public class AdmitBudgetTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void BudgetOff_KeepsTheCountCap()
     {
         double was = StreamManager.AdmitBudgetMs;

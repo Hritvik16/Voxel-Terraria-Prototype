@@ -71,6 +71,7 @@ public class ShellColumnReuseTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void ColumnReuse_IsByteIdentical_Shell1AndFilledShell3()
     {
         float3 cam = Spawn(_src);
@@ -110,6 +111,7 @@ public class ShellColumnReuseTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void Affinity_Shell1Fill_RunsAboutOneColumnPassPerColumn()
     {
         var L = ShellLayout.From(QualityPreset.High);
@@ -180,6 +182,7 @@ public class ShellColumnReuseTests
     }
 
     [Test, Category("Slow"), Timeout(1200000)]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void WalkingTwin_5mps_Shell1KeepsFilling()
     {
         var L = ShellLayout.From(QualityPreset.High);

@@ -100,6 +100,7 @@ public class CavernCellCacheTests
 
     // ------------------------------------------------------------------
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Columns_CachedEqualsUncached_AndReference()
     {
         var spec = _src.Spec; var o = _src.O;
@@ -149,6 +150,7 @@ public class CavernCellCacheTests
 
     // ------------------------------------------------------------------
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void ChunksAndShells_CacheOffAndOn_ByteIdentical()
     {
         var corner = Corner(out int lo, out int hi);

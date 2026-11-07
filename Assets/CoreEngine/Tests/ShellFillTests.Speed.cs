@@ -80,6 +80,7 @@ public partial class ShellFillTests
     /// Report only: the hashes of HashChunks() under the code as it is; written to
     /// Logs/Shells/fill93b2d_hashes.txt. Made once on 52aad5e's fill -> GOLDEN below.
     [Test, Category("Slow"), Timeout(1800000)]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void FillHashes_Report()
     {
         if (System.Environment.GetEnvironmentVariable("REPORTS") != "1") Assert.Ignore("report only: set REPORTS=1");
@@ -203,6 +204,7 @@ public partial class ShellFillTests
     /// Every chunk of HashChunks() hashes as GOLDEN, on the fast path and on the
     /// reference path (ShellFillFast off).
     [Test, Category("Slow"), Timeout(1800000)]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Fill_BytesAsGolden_FastAndReference()
     {
         var gold = new Dictionary<string, string>();
@@ -235,6 +237,7 @@ public partial class ShellFillTests
     /// Report only: the fill's time per phase per filled chunk (Editor, Burst),
     /// shells 1-3 at the walk start, fast vs reference path. Logs/Shells/fill93b2d_phases.txt.
     [Test, Category("Slow"), Timeout(1800000)]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void FillPhases_Report()
     {
         if (System.Environment.GetEnvironmentVariable("REPORTS") != "1") Assert.Ignore("report only: set REPORTS=1");
@@ -274,6 +277,7 @@ public partial class ShellFillTests
     /// buried carve 40 m under it (an op seed with no sky above), shells 1-3, give
     /// the reference path's bytes.
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void FastPath_WithOps_SameBytesAsReference()
     {
         int3 s = CliffSites(1)[0];

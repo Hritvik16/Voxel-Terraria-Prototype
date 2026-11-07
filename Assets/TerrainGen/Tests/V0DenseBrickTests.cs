@@ -130,6 +130,7 @@ namespace TerrainGen.Tests
         }
 
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void Report_V0_DenseBricksPerChunkClass()
         {
             var sites = Sites();

@@ -302,6 +302,7 @@ public class TerrainGenChunkSourceTests
     /// favours the old path, so the reported gain is a lower bound. Editor
     /// Burst, cold Mac: a direction check, not a frame-time claim.
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void ColumnPassSharing_TimingReport()
     {
         if (System.Environment.GetEnvironmentVariable("REPORTS") != "1") Assert.Ignore("report only: set REPORTS=1");

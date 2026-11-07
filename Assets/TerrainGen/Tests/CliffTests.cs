@@ -99,6 +99,7 @@ namespace TerrainGen.Tests
         }
 
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void Layers_AreThickAndTheBiomesOwnRocks()
         {
             var w = Get(42);
@@ -134,6 +135,7 @@ namespace TerrainGen.Tests
         /// far less often than the surface biome (whose 10-40 m patches drew the drips)
         /// and at most twice per line; and the two sides are biomes of the border.
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void RockBiome_IsSmooth_NoPatchStreaks()
         {
             var w = Get(42);
@@ -276,6 +278,7 @@ namespace TerrainGen.Tests
         /// Also probes the two scree steps that put Sheer on seed 42's routes:
         /// (3777, 5278) m [176d, route 0-1] and (4471, 2390) m [178, before Size 2].
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public unsafe void Relief_SkipsRouteCells_UnchangedBeyondTheBlend()
         {
             var w = Get(42);

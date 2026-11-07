@@ -96,6 +96,7 @@ namespace TerrainGen.Tests
         /// column's top. Counted on a 16 m grid over the island.
         /// Report: Logs/TerrainGen/ledges.txt.
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void Ledges_AreShelvesOverAGap_AtCliffFeet()
         {
             int land = 0, ledges = 0, checkedN = 0;
@@ -131,6 +132,7 @@ namespace TerrainGen.Tests
         /// at or under the ledge's floor; v3's far band is unchanged. Far-band
         /// evaluation (texel 8), on the same 16 m grid as the test above.
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void FarBand_DoesNotFillLedgeUndercuts()
         {
             foreach (int ver in new[] { 3, 4 })
@@ -389,6 +391,7 @@ namespace TerrainGen.Tests
         }
 
         [Test]
+        [Category("Slow")]   // task 184b: test-suite tier
         public void Lod0_HoldsOverStampColumns()
         {
             int checkedCols = 0, skipped = 0;

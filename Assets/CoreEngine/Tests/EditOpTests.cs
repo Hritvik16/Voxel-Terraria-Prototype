@@ -372,6 +372,7 @@ public class EditOpTests
     }
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void StreamManager_Precedence_S_And_CrcFallback_And_Reload()
     {
         string dir = TempDir("precedence");
@@ -502,6 +503,7 @@ public class EditOpTests
     // ==================================================================
 
     [Test]
+    [Category("Slow")][Category("Nightly")]   // task 184b: test-suite tier
     public void ShellChunk_WithOps_IsTheCoarseSampleOfTheEditedWorld_Shells1to7()
     {
         int3 s = SurfaceVoxel(_src);

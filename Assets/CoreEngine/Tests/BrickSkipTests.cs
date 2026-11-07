@@ -131,10 +131,12 @@ public class BrickSkipTests
 
     // ------------------------------------------------------------------
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Chunks_SkipOnAndOff_ByteIdentical() => RunChunks("brick_skip_identical.txt");
 
     /// Task 180b: the same proof with the material rules on (UniformSamples' MatRules branches).
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Chunks_SkipOnAndOff_ByteIdentical_MatRules()
     {
         _src.SetMatRules(true);
@@ -197,10 +199,12 @@ public class BrickSkipTests
 
     // ------------------------------------------------------------------
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Shells_SkipOnAndOff_ByteIdentical() => RunShells("brick_skip_shells_identical.txt");
 
     /// Task 180b: the same with the material rules on.
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Shells_SkipOnAndOff_ByteIdentical_MatRules()
     {
         _src.SetMatRules(true);
@@ -210,6 +214,7 @@ public class BrickSkipTests
 
     /// Task 181: the same proofs with the rule ores on (OreMay's rule chance, VeinColumn).
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Chunks_SkipOnAndOff_ByteIdentical_Ores()
     {
         _src.SetOres(true);
@@ -218,6 +223,7 @@ public class BrickSkipTests
     }
 
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void Shells_SkipOnAndOff_ByteIdentical_Ores()
     {
         _src.SetOres(true);
@@ -277,6 +283,7 @@ public class BrickSkipTests
     /// order (A = skip off). Shells 1-7: the same sites' surface band (-2..+1),
     /// ABBA too. Writes Logs/TerrainGen/brick_skip_timing.txt.
     [Test, Category("Slow")]
+    [Category("Nightly")]   // task 184b: test-suite tier
     public void BrickSkip_TimingReport()
     {
         if (System.Environment.GetEnvironmentVariable("REPORTS") != "1") Assert.Ignore("report only: set REPORTS=1");
