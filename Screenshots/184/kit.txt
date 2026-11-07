@@ -1,0 +1,23 @@
+Task 184 building kit (voxels are 0.1 m; foundation 0.2 m deep in these counts)
+hut    walls 4.0 x 4.0 m, wall 2.4 m, box incl. roof 4.6 x 4.8 x 4.6 m, openings 4; solid voxels 17,324 (foundation 3,200, floor 1,292, wall 7,168, post 900, frame 348, roof 4,416), air 45,492
+house  walls 9.0 x 5.0 m, wall 2.6 m, box incl. roof 9.6 x 5.8 x 5.3 m, openings 7; solid voxels 42,116 (foundation 9,000, floor 3,860, wall 16,504, post 972, frame 644, roof 11,136), air 153,520
+hall   walls 13.0 x 7.0 m, wall 3.6 m, box incl. roof 13.6 x 7.8 x 7.3 m, openings 8; solid voxels 78,924 (foundation 18,200, floor 8,312, wall 28,112, post 2,220, frame 864, roof 21,216), air 451,892
+materials by biome (wall / roof / wood / stone):
+  forest    hut     76 /  15 /  76 /  30
+  forest    house   76 /  31 /  76 /  30
+  forest    hall    30 /  31 /  76 /  30
+  snow      hut     79 /  50 /  79 /  52
+  snow      house   79 /  50 /  79 /  52
+  snow      hall    52 /  50 /  79 /  52
+  jungle    hut     77 /  15 /  77 /  60
+  jungle    house   77 /  15 /  77 /  60
+  jungle    hall    60 /  15 /  77 /  60
+  savanna   hut     24 /  15 /  78 /  35
+  savanna   house   24 /  15 /  78 /  35
+  savanna   hall    35 /  15 /  78 /  35
+  desert    hut     40 /  43 /  78 /  40
+  desert    house   40 /  43 /  78 /  40
+  desert    hall    40 /  43 /  78 /  40
+  badlands  hut     46 /  43 /  78 /  46
+  badlands  house   46 /  43 /  78 /  46
+  badlands  hall    46 /  43 /  78 /  46
