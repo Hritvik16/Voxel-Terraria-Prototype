@@ -1,6 +1,6 @@
 # 185-worldgen-c7-stamps-sit-in-land: DONE behind `-stampfit 1` (default OFF). All five rules pass their tests on 4 seeds plus an adversarial case. The owner picks the default from the pictures below.
 
-## What changed (commit: see `git log -1`; generator code behind the flag, OFF = every byte as before)
+## What changed (commit c7ab7e4; generator code behind the flag, OFF = every byte as before)
 - `TerrainSpec.stampFitOn` / `StampFit` (v4 only); `-stampfit 1` (`TerrainGenChunkSource.StampFitArg`, FarField too); `ColumnSample.stampRot` (fits in padding).
 - `Stamps.cs` (header "TASK 185"):
   - **Cave mouth** `FitCave`: stations every 5 m along the tube (axis and both sides). At each, the lowest the column top can be (map - 94.3 x rough - 1, minus the face-relief bound on a face) must stand 2 m over the tube's top, from <= 40 m out to the tube's end. Tries the hashed axis, then its 3 quarter turns; none fits = no cave. `Carve3D` turns the axis by `stampRot`.
