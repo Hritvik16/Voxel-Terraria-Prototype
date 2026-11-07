@@ -110,6 +110,8 @@ public partial class ShellFillTests
     /// badlands bands gone; 18 of the 85 chunks changed (36 counting fast + reference), same set).
     /// RE-MADE by task 178c (2026-11-06, cliff look rework: rock biomes, close layer tones, the per-brick
     /// rock mix, smooth fluting, one bench per layer; 68 of the 82 distinct chunks changed, same set).
+    /// RE-MADE by task 179 (2026-11-06, C5 rivers that meander and carve: river courses, levels and carved
+    /// banks moved; 23 of the 85 hash lines changed, same set).
     private const string GOLDEN = @"
 1 161 35 150 7329ecc38d28c325
 1 150 35 153 873734db8ce61569
@@ -130,7 +132,7 @@ public partial class ShellFillTests
 2 76 15 81 6e9ccc585472feb7
 2 60 10 35 890380c4f87aad3b
 2 67 10 37 83941a56e3f286e2
-2 69 10 92 f78b2abbeb55e524
+2 69 10 92 2c09772a787c225e
 2 95 11 42 d7670bdda699374a
 2 95 10 42 c454a7ba7e7d81ab
 2 101 10 42 ee31468ef748a1ac
@@ -138,12 +140,12 @@ public partial class ShellFillTests
 2 38 10 45 a9dbf5e301b44e34
 2 38 9 45 804384fe7c0a4e4c
 3 45 4 33 7a2e8ae493dda325
-3 44 5 36 b50b7ee503242b9c
-3 43 6 39 97ae4631460b79b4
+3 44 5 36 c735fe6748344dfd
+3 43 6 39 89f96e13ef756456
 3 43 6 42 1a37dbbf25c2bc83
 3 30 5 17 fe9d1ea7815bdb05
 3 33 5 18 835270ce24fcceb0
-3 34 5 46 21c9398c170d8e68
+3 34 5 46 ecb595baca95258e
 3 47 5 21 dfe9fcd4a985b420
 3 47 4 21 1cc9651bd25af8e6
 3 50 5 21 14ed9ba3ce81a000
@@ -154,9 +156,9 @@ public partial class ShellFillTests
 4 13 2 16 a0cd1ec277d2e325
 4 21 2 19 69ce95f0a92f6325
 4 24 2 22 7e2dc0036476f5ea
-4 15 2 8 bc146e1c706e8ab3
+4 15 2 8 058f1a0e28c65f10
 4 16 2 9 2d5da1c6eba9d012
-4 17 2 23 52125c96101e40a5
+4 17 2 23 0a741049af381eb8
 4 23 2 10 6370ee6c96337247
 4 23 1 10 ed13863ada836325
 4 25 2 10 9c1ba1e9c87066d1
@@ -166,36 +168,36 @@ public partial class ShellFillTests
 5 3 0 3 f11a98606458c325
 5 6 0 6 afcd08434f85a325
 5 15 0 9 afcd08434f85a325
-5 11 1 12 7d2164add48341e6
-5 7 1 4 db21b7b99f443cb7
-5 8 1 4 80933b9b53fc30d0
-5 8 1 11 61e697eae71ac9f7
+5 11 1 12 4fac235bcb25b14b
+5 7 1 4 c5501c9d4365dbad
+5 8 1 4 3afaae4aa76cd4b4
+5 8 1 11 2a68d0c105c17949
 5 11 1 5 f29d77ca26923a7f
 5 11 0 5 ed13863ada836325
-5 12 1 5 0ad5bc9769fb8c9b
+5 12 1 5 ae32d509a3d26fc8
 5 12 0 5 ed13863ada836325
 5 4 1 5 023be2b0a35a8535
 5 4 0 5 f11a98606458c325
 6 0 0 0 b9646af074436b16
 6 2 0 2 8e36ddbc91fec844
 6 0 0 5 5619a2c7123a205e
-6 5 0 7 d4e39db002b8616b
-6 3 0 2 40c1d2ac9d5594ef
-6 4 0 2 6b9f23b2715f66b0
-6 4 0 5 59ad6c8c5e004d76
-6 5 0 2 1197c7bac466641d
-6 6 0 2 9806602e9e8e9dbc
+6 5 0 7 cea98f45a3e0a061
+6 3 0 2 ae518217b942f90b
+6 4 0 2 6e9327876d322eeb
+6 4 0 5 c5936dfe032d9159
+6 5 0 2 8e43b263d841f338
+6 6 0 2 6240c24135fd7fc5
 6 2 0 2 8e36ddbc91fec844
 7 0 0 0 963a8e90ff33444a
 7 4 0 0 7f52b46dedefc607
 7 4 0 2 627182fe3d84919f
 7 1 0 4 125ca8032e3b7a56
-7 1 0 1 7d7ddb67d520b365
-7 2 0 1 718a011a21a73d87
-7 2 0 2 3d7f402760bdea3e
-7 2 0 1 718a011a21a73d87
-7 3 0 1 fda202e5675df4ed
-7 1 0 1 7d7ddb67d520b365
+7 1 0 1 1dcb4fef36655039
+7 2 0 1 7e95857f2761a27b
+7 2 0 2 2bb34356b5d273a2
+7 2 0 1 7e95857f2761a27b
+7 3 0 1 01585fb6dcb88d24
+7 1 0 1 1dcb4fef36655039
 ";
 
     /// Every chunk of HashChunks() hashes as GOLDEN, on the fast path and on the

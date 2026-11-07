@@ -174,6 +174,18 @@ namespace VoxelEngine.WorldGen
             return off;
         }
 
+        /// -rivershape 0 (task 179): spec.riverShapeOff = 1, the pre-179 rivers (the
+        /// straight D8 channel, water over the bed held by raised banks). Absent =
+        /// the version's default. Last match wins. Changes the map, not only columns.
+        public static bool RiverShapeOffArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            bool off = false;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-rivershape" && int.TryParse(a[i + 1], out int p)) off = p == 0;
+            return off;
+        }
+
         public TerrainGenChunkSource(uint seed, int mapVersion)
         {
             // R1 BRICK GEOLOGY (V0, design doc §11/§15): below 20 m under the
@@ -191,6 +203,7 @@ namespace VoxelEngine.WorldGen
             if (CoverSlotsOffArg()) spec.coverSlotsOff = 1;
             if (CliffsOffArg()) spec.cliffsOff = 1;
             if (RockMixOffArg()) spec.rockMixOff = 1;
+            if (RiverShapeOffArg()) spec.riverShapeOff = 1;
             Spec = spec;
             O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
             Map = TerrainGen.WorldMap.Build(Spec);

@@ -113,6 +113,14 @@ namespace TerrainGen
         /// Cliffs. Read it through RockMix. `-rockmix 0` sets it; tests whose
         /// shells run without the fill pass use it (TerrainGenChunkSource.SetRockMix).
         public byte rockMixOff;
+        /// Task 179 (C5, owner 2026-11-06 "queue C5"): 1 = the pre-179 rivers (the
+        /// D8 centre line drawn straight cell to cell, water at bed + depth held by
+        /// raised banks). 0 = the version's default: on v4 the course is a smooth
+        /// curve with meanders, the water stands UNDER its floodplain and the banks
+        /// are carved into the ground (Rivers.cs). IGNORED below v4. Read it through
+        /// RiverShape, never directly. `-rivershape 0` sets it. Changes the MAP
+        /// (Rivers.Profile's levels) as well as the columns.
+        public byte riverShapeOff;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -172,6 +180,9 @@ namespace TerrainGen
 
         /// Task 178c's per-brick rock mix inside the cliff layers in force (see rockMixOff).
         public bool RockMix => Cliffs && rockMixOff == 0;
+
+        /// Task 179's river course and incision in force (see riverShapeOff): v4 only.
+        public bool RiverShape => mapVersion >= 4 && riverShapeOff == 0;
 
         public const float V4_GENTLE_SHARE = 0.50f;
 

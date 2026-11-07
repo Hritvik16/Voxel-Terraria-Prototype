@@ -237,7 +237,7 @@ namespace TerrainGen
             // flow direction ShapeField's river channels and the renderer read.
             map.flowDir = A->Root<ushort>(N);
             int mk = A->Mark();
-            Rivers.Profile(map.n, map.height, map.water, map.flow, map.waterClass, map.drainParent, map.drainOrder, map.flowDir, A->Alloc<float>(N), ref map.hydro);
+            Rivers.Profile(map.n, map.height, map.water, map.flow, map.waterClass, map.drainParent, map.drainOrder, map.flowDir, A->Alloc<float>(N), map.spec.RiverShape, ref map.hydro);   // task 179: incised when shaped
             A->Release(mk);
         }
 

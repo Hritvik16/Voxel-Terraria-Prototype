@@ -1091,3 +1091,22 @@ object fields) is fixed in `tools/cliff178.py`. World survey: `-wsposes cliff_<b
 (spec.rockMixOff, `TerrainGenChunkSource.SetRockMix`) = the reworked layers without the mix (4th panel `<pose>_4_nomix.png`). The mix makes BURIED
 bricks mixed in the coarser shells; the shell fill pass flattens them, but tests that run shells with the fill OFF fill their pools: the
 streamer redraw test (`Streamer_EditedChunk...`) now turns the mix off. ShellFill GOLDEN re-pinned (68 of 82 chunks, fast == reference). Result: HANDOFF 178c.
+
+**Task 179 (world gen C5, owner 2026-11-06 "queue C5"; GENERATOR + MAP CHANGE, shape only, the fluid simulation untouched): rivers that meander and carve.**
+`Rivers.cs`, on by default on v4 (`spec.RiverShape`; `-rivershape 0` = spec.riverShapeOff, the pre-179 rivers, map AND columns, read by
+`TerrainGenChunkSource` and `FarField`). (1) INCISED LEVELS (`Profile(..., incise)`): a river cell's water stands FREEBOARD (0.4-1 m by size)
+under its map height and under the lower of its two side cells (at most SIDE_DROP 2 m deeper), taken upstream first as the lowest of the
+cell and everything upstream, so humps are cut through instead of dips filled; a lake's OUTLET keeps the lake's level (else the lake's rim
+buried the river's start). (2) THE COURSE (`GatherShaped`, 9 x 9 cells): each river cell's NODE moves SIDEWAYS (across the flow two cells on)
+by `MEANDER_AMP` 2.5 half widths x sin(2 pi 0.75 snoise(p / max(24 W, 6 cells)) + seed offset), shrinking to 0 where the map ground there rises
+4-20 voxels or drops 2-8 below the cell's, at a lake/sea cell, and at a mouth; A + W <= one cell (the renderer's flow map and Gather's window).
+The course is the quadratic B-spline of the nodes (a Bezier round each node, 3 straight subsegments; level / width / depth / floodplain ride it).
+Overlapping channels take the NEAREST centre line's level (was the highest: steps inside bends). Section: 1.5 voxels of water at the edge,
++0.5 per voxel inward (was 3 + 0.6). (3) CARVED BANKS (`Column`): beside a channel the ground is cut to a 27 deg slope from the water's edge,
+by at most max(2 m, the river's incision + 0.8 m) <= 6 m, tapering linearly to 0 at 10 m; never below a lake's rim; the old bank RAISE stays
+for ground below the water. Test: `RiverShapeTests.Shaped_Rivers_FourSeeds` (Slow; seeds 42/7/2026/31337 shaped vs a `-rivershape 0` map,
+per class all / walled (canyon floor) / lake / biome border; report `Logs/TerrainGen/river_shape179.txt`). `FluidAtRestTests.RiverSeaLava_AreAtRest`
+now also runs seeds 2026 and 31337 (2026's sea is reported, not gated: KNOWN_ISSUES "seed 2026 fossil stamp beside the sea", predates 179).
+The route test is green on all four seeds (31337's ford). Shots: `python3 -I tools/river179.py Screenshots/179 <before dir> <after dir>`
+(`<pose>_compare.png`, `viewer.html`), poses via `-worldsurvey 1 ... -wsposes pair_snow_river-plains,river,pair_desert_canyonlands,feature_mesa-4,pair_badlands_high-plateau`.
+NOT changed: the renderer's flow map (`RiverFlow`, D8 directions per 8 m cell) -- ripples follow D8, not the curve. Result: HANDOFF 179.
