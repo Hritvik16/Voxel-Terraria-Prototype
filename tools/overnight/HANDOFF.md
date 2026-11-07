@@ -1,60 +1,61 @@
-# 181-placement-resource-deposits: DONE behind `-ores 1` (default OFF). Code a7a7bfb. No frozen-API / save change; pictures look right.
+# 182-worldgen-matrules-fix-deepstone-shellmosaic: DONE, both 180b defects fixed behind `-matrules 1` (default still OFF). Commit 4867115.
+The owner's "keep the material rules as the default?" question (180b) still stands. Its blocker (the two defects) is gone.
 
 ## What changed
-- `Assets/TerrainGen/OreRules.cs` (new; the header lists the rules). Step 3's ladder and host layers are unchanged. Every input is generator data; no seed constant.
-  - Depth: `Ores.BaseChance`, rarer deeper.
-  - Biome x landform: `PairMul`, scaled by HARSHNESS = the Danger biome tier + the landform class (0-4).
-    - Copper and gold favour easy and mild land.
-    - Cobalt only at harshness >= 3; emberstone only at 4.
-  - Wall veins: thin tilted lenses in every face where the column step is > 1.5 (56 deg). Badlands x3. None on route cells or below nearby water.
-  - Rich: x2 on signature-feature cells.
-- **R1 (b), the start.** On the cells of either play start's easy area, plus 128 m round either start column:
-  - no veins;
-  - deposits only deeper than 6 m + step + 1, in columns with no opening.
-- **R2 (a), latent ores.** Cobalt and emberstone are written as a TWIN material per host rock (GenMat 26-29, 38, 39, 59, 94, 95). A twin's palette row is its host's colour.
-  - `Assets/ContentModules/LatentOres.cs` resolves a twin to its host until `world.state`'s stage reaches 1 (cobalt) / 2 (emberstone), then to the ore.
-  - The resolve is used by `Tools` (hardness, tier), `Items` (drop, name), `MaterialPalette` and the shader (`LatentResolve` on the `_WorldStage` global).
-  - `StreamManager` calls `LatentOres.SetStage` on world load. Nothing is rewritten. Unexercised in play until row S1 flips the stage.
-- Plumbing: `TerrainGenChunkSource.Ores.cs`, `MapView.oreCell` -> `ColumnDetail.oreCell` (chunks, shells, FarQuery). Brick-skip proofs are extended.
-- Not drawn: the far band and DevMap / the ore and tool demos show no rule ore. TASKS.md has the paragraph.
+- **Defect 1, deep stone on faces.** Rule: deep stone is chosen by ABSOLUTE height, never by depth below the column top.
+  - `GroundRules.Band` is now 0 skin / 1 soil / 2 subsoil / 3 rock. `RockAt` / `RockRange` pick the rock, by height:
+    - biome stone down to `DeepTop` = sea - `DetailField.STONE_BOTTOM_BELOW_SEA` (50 m) + the wavy deepOffset. This is the old path's own `LayerRock` line.
+    - Below it: deep stone, then cavern rock, then the underworld.
+  - Removed: `ColumnSample.mrDeep`, `DEEP_BASE` and `DEEP_AMP`. A face is now one stone; deep stone is a world layer.
+  - A dug pit still shows the original surface's bands (`Logs/TerrainGen/180b/pits.txt`: e.g. forest grass | loam 0.3 m | ochre clay 0.6 m | granite 2.1 m).
+- **Defect 2, shell mosaic.** New `ColumnSample.mrExpose` (shells only; set in `ShellColumnJob.Expose`; chunk-edge neighbours are sampled).
+  - Value: max(2^k, h - the lowest of the 4 coarse neighbours).
+  - A coarse voxel shallower than that is bared (top or side) and uses band 0, the skin. Deeper voxels keep their own depth's band.
+  - At 2^k = 1 the rule changes nothing (the drop is stepAtTop <= SHEER_STEP = SKIN), so LOD-0 chunks are untouched.
+  - Material's brick zone and `GeologyRock` return the skin for band <= 2. Only an exposed coarse voxel can get there.
+- Tests: `MaterialRuleTests.TallFace_IsOneStone_NoDeepStoneAboveTheAbsoluteBoundary` and Slow `MaterialRuleChunkTests.Shells_BaredVoxels_WearTheSkin`.
+  - `ShellChunk.Column` / `ColumnStep` are new, test-only accessors.
+  - The 180b pit / band tests were updated to the new Band / RockAt signatures.
+- `tools/matrules182.py` builds the viewer. TASKS.md has the paragraph.
 
 ## Evidence
-- **Whole suite PASS 1093 FAIL 0 SKIP 35** (`Logs/overnight/181_all.out`, 70 min). The fast suite is a subset of it.
-- **Sites, seed 42** (`Screenshots/181/sites.txt`). Adversarial cases: the tallest cliff (relief 121 m), the deepest canyon wall, a badlands wall, a harshness-4 cavern chunk and an underworld chunk.
-  - ON twice gives the same bytes. ON vs OFF changes only rock (air and fluid untouched).
-  - FarQuery = chunk. Shell 0 = Generate. Shells 1-2 = the 0.1 m voxel at every ore sample (2,178 compared). Brick skip on = off.
-  - Ore with open sky beside it, ON vs OFF: cliff 770 vs 0, canyon 276 vs 0, badlands 153 vs 0.
-  - Every twin sits in its own host rock (1,196 cobalt, 111 emberstone).
-- **Start hidden, 4 seeds** (42 / 7 / 2026 / 31337; `Screenshots/181/table.txt`).
-  - 7x7 chunk columns round each start rule's column, plus the start zone's steepest cell: **0** rule-ore voxels with open sky beside them.
-  - Ore is there underground: 3-10 k voxels per block.
-- **Deposit table** (same file): 32^3 cells holding a deposit, 1/64 of the world, per ore x biome, harshness and depth, ON / OFF. Seed 42:
-  - copper 102,603 / 82,065; iron 36,474 / 30,244; gold 44,580 / 45,136; cobalt 109,995 / 175,015; emberstone 14,864 / 39,524.
-  - Total **0.83x OFF**.
-  - Cobalt and emberstone come out near zero in forest and savanna (201 and 58 cobalt).
-- **Rough cost** (sites test, 17 chunks, Editor): dense bricks **+1.9 %** (4,915 vs 4,825); generation 956 vs 910 ms (+5 %).
+- **Whole suite PASS 1095 FAIL 0 SKIP 35** (`Logs/overnight/182_all.out`, 70 min). It includes every 180b / 181 test and the brick-skip on = off proofs with MatRules on.
+- **Tall faces** (`Logs/TerrainGen/180b/tallface182.txt`): sheer faces up to 28.8 / 24.7 / 41.3 m tall on seeds 42 / 7 / 2026. Seed 31337 has no sheer face over 6 m.
+  - 2,638 face voxels checked: every one is the column's ONE stone, none is deep stone.
+  - The old rule turned everything below 11-19 m to deep stone.
+- **Shell bared voxels** (`Logs/TerrainGen/180b/shell_bared182.txt`), shells 3 and 5 round 9 sites:
+  - 207,663 bared voxels, **100.00 % skin**, 0 soil / subsoil / stone.
+  - 180b's depth bands would have shown a deeper band on 161,291 of them.
+  - mrExpose matched the rule at every bared column.
+- **Rough cost** (the suite's own `Cost_OnVsOff`, `Screenshots/180b/cost180b.txt`, Editor Burst, not a timing arm):
+  - LOD-0 dense bricks ON vs OFF: **+23 % -> +1 %** (+7.7 MB -> +0.3 MB over 243 chunks). 180b's per-brick deep staircase made those bricks dense.
+  - Shells: generation 205 -> 204 ms per chunk. Dense bricks are unchanged.
+- **Shots:** one ON launch, 180b's 8 poses, High, 45 s wait (`Logs/lookreview_20261107_055618.txt`).
+  - It is compared with 180b's ON (before) and OFF launches, which ran the same code paths.
+  - Shells were not full after the 45 s wait: s3 missing 1.6-1.9 k of 2 k, s4 and up nothing.
 
-## Pictures (all looked at)
-- `Screenshots/181/shot_tall_cliff_ON.png` vs `_OFF.png`: player view, High, 30 m from the face. ON has green copper streaks and one rust iron streak across the face; OFF is plain rock.
-  - The black slots are crevices that are black in OFF too: existing terrain / lighting, not this task.
-- `Screenshots/181/shot_badlands_wall_ON.png` vs `_OFF.png`: two gold (yellow) streaks upper right and a copper streak on the red band, centre. OFF has none.
-  - The black overhang shadow at the top left is the same in OFF.
-- `Screenshots/181/shot_deep_canyon_ON.png` vs `_OFF.png`: small gold streaks in the desert wall. Faint at 30 m.
-- `Screenshots/181/face_*.png` (generator elevation): panels OFF | ON as seen | ON with latent ores shown.
-- `Screenshots/181/cut_harsh_cavern.png` (cut-away of the deep chunk): the middle panel (stage 0) is plain maroon mudstone; the right panel (stage 2) shows the cobalt blobs. That is the latent mechanism.
-- Player shots: `.../LookReview/2026-11-07_051721_high` (ON) and `..._052457_high` (OFF). The 45 s wait left s3+ missing (`Logs/lookreview_2026110*.txt`); all near.
+## Pictures (all looked at). `Screenshots/182/viewer.html`: arrows change pose; Space or 1 / 2 / 3 flip 182 ON / 180b ON / OFF; Z = full size
+- `Screenshots/182/cliff_snow_compare.png` (AFTER left | BEFORE right): the black box left of centre is gone. The face is one grey schist.
+- `Screenshots/182/scree_compare.png`: in BEFORE, the face above the gravel apron is a wall of blue / black boxes. In AFTER it is one grey face.
+- `Screenshots/182/beach_compare.png`, far hills LEFT: the red / yellow / blue brick mosaic is gone.
+  - Grass / brown / ochre / grey layered faces remain there, and a black slab sits right of centre.
+  - Both look like missing-shell-chunk artifacts (straight vertical cut faces; most of s3 was missing). BEFORE has a dark slab over the water at the same pose.
+  - Not proven: a longer wait at this pose would show it.
+- `Screenshots/182/border_bank_compare.png`: the grey canyon walls (upper middle) lose their dark-blue / black patches.
+- **Forest cliff** (`Screenshots/182/cliff_forest_compare.png`): it STILL reads as one flat brown wall. It is the same in AFTER and BEFORE, so the fix did not cause it. This is the geometry matter; not touched here, as the task said.
+- Desert cliff, bank and oasis: AFTER = BEFORE.
 
 ## Left / next
-- The default stays OFF. Whether to make `-ores 1` the default is the owner's call when convenient.
-- Row S1 (stage flip): call `LatentOres.SetStage` and rebuild the PickTables (built once at start).
-- Not tested: `-ores 1` together with `-matrules 1` in a player launch. The twins cover both rock paths (`Twins_ContentResolves`).
+- The owner decides the default ("fix then default" / "default now" / "drop it"). The defects that blocked 180b are fixed.
+- Untested: under `-ores 1` + `-matrules 1`, a wall-vein voxel bared in a shell now shows the skin, not the vein. Not a default combination.
+- Possible check: a look at the beach pose with a longer shell wait, to confirm the layered left faces are missing chunks. I did not queue it, because it is a measure-only task.
 
 ## For the doc
-- Start zone, 4 seeds: **0** rule-ore voxels with open sky beside them round either start (`Screenshots/181/table.txt`).
-- Deposits ON vs OFF, seed 42: total **0.83x**; copper **+25 %**; cobalt **-37 %**, emberstone **-62 %**, now only under harsh land (cobalt in forest 21,506 -> 201) (`table.txt`).
-- Wall faces: ore visible from outside, ON vs OFF: tall cliff **770 vs 0**, canyon **276 vs 0**, badlands **153 vs 0** voxels (`Screenshots/181/sites.txt`).
-- Cost: dense bricks **+1.9 %**, generation **+5 %** on the 17 site chunks (`sites.txt`). Whole suite **PASS 1093 FAIL 0**.
-- Images:
-  - `Screenshots/181/shot_tall_cliff_ON.png` / `_OFF.png`: the same cliff, ON shows green copper streaks across the face.
-  - `Screenshots/181/shot_badlands_wall_ON.png` / `_OFF.png`: gold streaks upper right and copper on the red band, ON only.
-  - `Screenshots/181/cut_harsh_cavern.png`: cut-away; the middle panel (as the player sees it) is plain rock, the right panel reveals the latent cobalt.
+- Tall sheer faces (up to **41.3 m**, 3 seeds): deep-stone voxels above the boundary went from everything below 11-19 m to **0 of 2,638** (`Logs/TerrainGen/180b/tallface182.txt`).
+- Bared shell voxels showing a band under the skin: **161,291 -> 0** of 207,663. Skin share: **100 %** (`Logs/TerrainGen/180b/shell_bared182.txt`).
+- LOD-0 dense bricks ON vs OFF: **+23 % -> +1 %** (+7.7 MB -> +0.3 MB over 243 chunks). Generation is unchanged (`Screenshots/180b/cost180b.txt`).
+- Whole suite **PASS 1095 FAIL 0** (`Logs/overnight/182_all.out`).
+- Images (all `Screenshots/182/`; the viewer is `viewer.html`):
+  - `scree_compare.png`: AFTER left has one grey face above the gravel apron. BEFORE right has blue / black brick boxes.
+  - `cliff_snow_compare.png`: BEFORE's black box (left of centre) is gone in AFTER.
+  - `beach_compare.png`, far hills left: the brick mosaic is gone in AFTER. The remaining layered faces are probably missing shell chunks.
