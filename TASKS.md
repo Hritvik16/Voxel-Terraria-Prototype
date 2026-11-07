@@ -1195,3 +1195,25 @@ TallFace_IsOneStone_NoDeepStoneAboveTheAbsoluteBoundary` (sheer faces up to 41 m
 Slow `MaterialRuleChunkTests.Shells_BaredVoxels_WearTheSkin` (shells 3 / 5 round the 9 sites; also pins mrExpose ->
 `shell_bared182.txt`); `ShellChunk.Column/ColumnStep` expose the voxel pass's own column to tests. Shots: `Logs/overnight/182_shots.sh`
 (180b's 8 poses, ON), viewer `Screenshots/182/viewer.html` (182 ON | 180b ON | OFF). Result: HANDOFF 182.
+
+**Task 183 -- fluid pockets at rest (placement plan step 4, owner-approved 2026-11-06 incl. batch 2; `-fluidpockets 1`, DEFAULT OFF).**
+`Assets/TerrainGen/FluidPockets.cs` (header = the rules). SURFACE pockets: one candidate per 51.2 m plane cell (512 voxels, `>> 9`), a small
+elliptical basin (integer ellipse, r 1.4-5.2 m, fluid 0.4-2 m deep) on dry flat ground; fluid by the world record + column sample: volcanic
+landform -> lava (1 in 4 acid), badlands -> oil (the tar seep), desert -> quicksand, jungle valley / wetland -> sludge (bog), other jungle ->
+honey, a valley (>= 4 m below the +-120 m regional mean) or wetland in forest / savanna / snow -> water. Keep-outs (every record cell under
+basin + rim): not sea, >= 32 m from lake / river cells, Walk band, no route corridor, no signature feature, not the start zone (either
+start rule's easy area + 128 m); 24 base samples on the rim: dry, stamp / lip / river-free, within 2.4 m; L = their lowest - 1. AT REST BY
+CONSTRUCTION in `ShapeField.Sample` (`FluidPockets.Apply`, every path: LOD 0, shells, FarQuery, far band): footprint height := L - depth,
+fluid (height, L]; rim (an 8-neighbour of the footprint) height := max(h, L + 1); a thin LINING the fluid never reacts with (water mud,
+acid sinter, lava magma crust, oil shale, sludge mud, honey ochre band, quicksand packed sand) on every solid voxel that can touch the fluid;
+caves capped under L - D - 0.8 m (`riverFloor`); stamp openings off. The fluid's code rides in `ColumnSample.waterKind` (0 water, 1 lava as
+before, else the GenMat; `FluidPockets.FluidOf`); far band, minimap and `DetailField` read it. DEEP pockets (the old sealed ellipsoids, same
+shape and place): rule fluid (`DeepFluid`: volcanic land -> lava; cavern deep half -> lava; cavern jungle sludge / desert + badlands acid /
+snow water / else mix; stone layers badlands oil, desert oil / water, jungle honey / water, snow water, else water / some oil) and a lining
+(`DeepLining`, acid -> sinter: the old acid pocket dissolved its wall). Steam: not generated (the lava + water reaction makes it). Plane:
+`WorldMap.EnsurePocketPlane` (~0.35 s per world) -> `MapView.pocket` in ColumnJob / ShellColumnJob / ShellFill / FarQuery / FarField
+(`TerrainGenChunkSource.Pockets.cs`). OFF = every byte as before. Tests `FluidPocketTests` (`Rules_LiningsDoNotReact`; Slow
+`FourSeeds_Plane_Table_KeepOuts` -> `Logs/TerrainGen/pockets183/table.txt`; Slow `Sites_AtRest_PathsAgree_Adversarial` -> `sites.txt`,
+`poses.txt`, `Screenshots/183/cut_*.png`: CPU fluid oracle settle 150 ticks + negative controls, FarQuery / shells / far texels / brick skip,
+forced sites on a cliff and a canyon side). Shots: `PRESETS=high EXTRA="-worldsurvey 1 -wsposes fixed -wsarms native -wsfixed
+$(cat Logs/overnight/183_wsfixed.txt) -fluidpockets 1|0" ./run-look-review.sh`. Result: HANDOFF 183.

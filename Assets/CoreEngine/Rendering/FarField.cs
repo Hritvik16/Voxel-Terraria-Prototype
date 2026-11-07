@@ -217,6 +217,7 @@ namespace VoxelEngine.Rendering
         private NativeArray<ushort> _tgFlow; // v4 river flow bits (task 76; length 1 = none)
         private NativeArray<byte> _tgRoute; // task 178b: route-corridor cells (WorldMap.RouteMask; length 1 = none)
         private NativeArray<ushort> _tgShore; // task 180b: GroundRules' shore field (length 1 = none)
+        private NativeArray<int> _tgPocket;   // task 183: FluidPockets' site plane (length 1 = none)
         /// Task 76 (R2/R5): the map's river flow bits on the GPU, two cells per
         /// uint (Raymarch.compute RiverFlow; 2 MB at 1024^2 cells). Null = none.
         public GraphicsBuffer RiverFlow { get; private set; }
@@ -325,6 +326,8 @@ namespace VoxelEngine.Rendering
                 _tgRoute = new NativeArray<byte>(Tg2Map.RouteMask ?? new byte[1], Allocator.Persistent);
                 if (Tg2Spec.MatRules) Tg2Map.EnsureShoreField();   // task 180b
                 _tgShore = new NativeArray<ushort>(Tg2Map.ShoreField ?? new ushort[1], Allocator.Persistent);
+                if (Tg2Spec.Pockets) Tg2Map.EnsurePocketPlane();   // task 183
+                _tgPocket = new NativeArray<int>(Tg2Spec.Pockets && Tg2Map.PocketPlane != null ? Tg2Map.PocketPlane : new int[1], Allocator.Persistent);
                 if (Tg2Map.FlowDir != null)
                 {
                     var fd = Tg2Map.FlowDir;
@@ -582,7 +585,7 @@ namespace VoxelEngine.Rendering
             if (UsesTg2)
                 return new FillTg2Job
                 {
-                    h = _tgH, r = _tgR, wat = _tgW, cls = _tgCls, flow = _tgFlow, routeMask = _tgRoute, shoreField = _tgShore, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
+                    h = _tgH, r = _tgR, wat = _tgW, cls = _tgCls, flow = _tgFlow, routeMask = _tgRoute, shoreField = _tgShore, pocketPlane = _tgPocket, spec = Tg2Spec, o = _tgO, genToEngine = _genToEngine, offset = Tg2OffsetVoxels,
                     seaShift = Tg2SeaShift,
                     texelVoxels = texelVoxels, x0 = x0, z0 = z0, w = w, ringOrder = ringOrder, ringOrigin = ringOrigin, output = output,
                     ops = ops, opCount = opCount, spans = spans, spanCols = spanCols,
@@ -1023,6 +1026,7 @@ namespace VoxelEngine.Rendering
             if (_tgFlow.IsCreated) _tgFlow.Dispose();
             if (_tgRoute.IsCreated) _tgRoute.Dispose();
             if (_tgShore.IsCreated) _tgShore.Dispose();
+            if (_tgPocket.IsCreated) _tgPocket.Dispose();
             RiverFlow?.Release(); RiverFlow = null;
             if (_genToEngine.IsCreated) _genToEngine.Dispose();
             if (_ownsTg2Map) Tg2Map?.Dispose();
@@ -1097,6 +1101,7 @@ namespace VoxelEngine.Rendering
             [ReadOnly] public NativeArray<ushort> flow;
             [ReadOnly] public NativeArray<byte> routeMask;   // task 178b (length 1 = none)
             [ReadOnly] public NativeArray<ushort> shoreField;   // task 180b: GroundRules.BakeShore (length 1 = none)
+            [ReadOnly] public NativeArray<int> pocketPlane;   // task 183: FluidPockets site plane (length 1 = none)
             [ReadOnly] public NativeArray<byte> genToEngine;
             public TerrainGen.TerrainSpec spec;
             public TerrainGen.Offsets o;
@@ -1130,6 +1135,7 @@ namespace VoxelEngine.Rendering
                     flowDir = flow.Length > 1 ? (ushort*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(flow) : null,   // task 76
                     route = routeMask.Length > 1 ? (byte*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(routeMask) : null,   // task 178b
                     shore = shoreField.Length > 1 ? (ushort*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(shoreField) : null,   // task 180b
+                    pocket = pocketPlane.Length > 1 ? (int*)Unity.Collections.LowLevel.Unsafe.NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(pocketPlane) : null,   // task 183
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 int half = texelVoxels >> 1;
@@ -1146,8 +1152,8 @@ namespace VoxelEngine.Rendering
                     t = (uint)(spec.seaLevelY + 1 - seaShift) | ((uint)Materials.Water << 16) | (FLAG_WATER << 24) | DepthBits(spec.seaLevelY - c.height);
                 else if (c.water > c.height)   // map v2: a lake or river (or the caldera's lava) over this column
                     t = (uint)math.clamp(c.water + 1 - seaShift, 0, 65535)
-                              | ((uint)(c.waterKind == 1 ? Materials.Lava : Materials.Water) << 16) | (FLAG_WATER << 24)
-                              | (c.waterKind == 1 ? 0u : DepthBits(c.water - c.height));
+                              | ((uint)genToEngine[TerrainGen.FluidPockets.FluidOf(c.waterKind)] << 16) | (FLAG_WATER << 24)
+                              | (c.waterKind != 0 ? 0u : DepthBits(c.water - c.height));   // task 183: any pocket fluid; only water is see-through
                 else
                     t = (uint)math.clamp(top, 0, 65535) | ((uint)genToEngine[gm] << 16);
 

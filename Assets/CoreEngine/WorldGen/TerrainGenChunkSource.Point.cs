@@ -48,6 +48,7 @@ namespace VoxelEngine.WorldGen
         internal NativeArray<ushort> PointShore => _shore;   // task 180b
         internal NativeArray<byte> PointOre => _ore;
         internal NativeArray<uint> PointOreCell => _oreCell;   // task 181
+        internal NativeArray<int> PointPocket => _pocket;   // task 183
         internal NativeArray<byte> PointToEngine => _toEngine;
 
         /// The engine material Generate gives voxel `v` (world voxel coordinates).

@@ -92,6 +92,12 @@ namespace TerrainGen
         /// it are bared (top or side) and wear the skin. 0 everywhere else (chunks,
         /// points, the far band); set by ShellColumnJob when MatRules is on.
         public ushort mrExpose;
+        /// Task 183 (TerrainSpec.Pockets only; 0 otherwise): a surface fluid
+        /// pocket's lining material for solid voxels in [pkLineLo, pkLineHi]
+        /// (FluidPockets.Apply), and the column's deep-pocket rule context
+        /// (archetype + 1 of its 51.2 m plane cell; 0 = the old pocket fluids).
+        public int pkLineLo, pkLineHi;
+        public byte pkLining, pkCtx;
     }
 
     public static class ShapeField
@@ -198,6 +204,7 @@ namespace TerrainGen
                 c.carvesTop = false; c.stamp3D = false;
             }
             if (map.water != null && spec.mapVersion >= 3) Ledge(in spec, in map, in o, p, ref c);
+            if (map.pocket != null) FluidPockets.Apply(in spec, in map, x, z, ref c);   // task 183: pockets at rest (-fluidpockets 1)
             if (surfaceBiome && spec.MatRules)   // task 180b: the material rules replace the cover slots
                 GroundRules.Column(in spec, in map, in o, p, macro, rough, scree, coverTexel, ref c);
             else if (surfaceBiome && spec.CoverSlots)   // task 177: last, on the column's final height / water

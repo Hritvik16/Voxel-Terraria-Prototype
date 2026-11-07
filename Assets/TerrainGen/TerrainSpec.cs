@@ -139,6 +139,12 @@ namespace TerrainGen
         /// byte. Needs a record (v4) and the ore cell plane (ColumnDetail.oreCell).
         /// Read it through Ores2, never directly. `-ores 1` sets it.
         public byte oresOn;
+        /// Task 183 (placement, fluid pockets at rest): 1 = FluidPockets.cs (surface
+        /// basins by rule, the deep pockets' rule fluids and linings). 0 (the
+        /// default) = no surface pockets, the deep pockets as before, byte for byte.
+        /// Needs a record (v4) and the site plane (MapView.pocket). Read it through
+        /// Pockets, never directly. `-fluidpockets 1` sets it.
+        public byte fluidPocketsOn;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -210,6 +216,9 @@ namespace TerrainGen
 
         /// Task 181's rule ores in force (see oresOn): v4 only, opt-in.
         public bool Ores2 => mapVersion >= 4 && oresOn != 0;
+
+        /// Task 183's fluid pockets in force (see fluidPocketsOn): v4 only, opt-in.
+        public bool Pockets => mapVersion >= 4 && fluidPocketsOn != 0;
 
         public const float V4_GENTLE_SHARE = 0.50f;
 

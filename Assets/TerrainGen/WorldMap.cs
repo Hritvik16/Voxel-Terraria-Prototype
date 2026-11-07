@@ -52,6 +52,10 @@ namespace TerrainGen
         /// Task 181: the ore cell plane (OreRulePlane.CellPlane, one uint per cell).
         /// OPTIONAL: null = no rule ore, whatever TerrainSpec.Ores2 says.
         public uint* oreCell;
+        /// Task 183: the fluid-pocket site plane (FluidPockets.BuildPlane,
+        /// FluidPockets.STRIDE ints per 51.2 m cell). OPTIONAL: null = no
+        /// pockets, whatever TerrainSpec.Pockets says.
+        public int* pocket;
         public int cells;
         public float cellVoxels;
     }
@@ -94,7 +98,22 @@ namespace TerrainGen
         public Route[] Routes { get; private set; }
         /// Routes.LastBuild for this map (diagnostics: links, cut and fill cells).
         public string RouteBuild { get; private set; }
-        private GCHandle _hH, _hR, _hW, _hC, _hF, _hRt, _hSh;
+        private GCHandle _hH, _hR, _hW, _hC, _hF, _hRt, _hSh, _hPk;
+        /// Task 183: FluidPockets' site plane, once EnsurePocketPlane ran (else null).
+        public int[] PocketPlane { get; private set; }
+        public FluidPockets.PlaneStats PocketStats { get; private set; }
+
+        /// Task 183: build the fluid-pocket site plane (once; a few seconds at most).
+        /// Read only through MapView.pocket, which Sample uses only while
+        /// TerrainSpec.Pockets is on: building it never changes an OFF world.
+        public void EnsurePocketPlane()
+        {
+            if (PocketPlane != null) return;
+            var f = FluidPockets.BuildPlane(this, out var st);
+            _hPk = GCHandle.Alloc(f, GCHandleType.Pinned);
+            PocketStats = st;
+            PocketPlane = f;
+        }
         /// Task 180b: GroundRules' shore field, once EnsureShoreField ran (else null).
         public ushort[] ShoreField { get; private set; }
 
@@ -134,6 +153,7 @@ namespace TerrainGen
             flowDir = _hF.IsAllocated ? (ushort*)_hF.AddrOfPinnedObject() : null,
             route = _hRt.IsAllocated ? (byte*)_hRt.AddrOfPinnedObject() : null,
             shore = _hSh.IsAllocated ? (ushort*)_hSh.AddrOfPinnedObject() : null,
+            pocket = _hPk.IsAllocated ? (int*)_hPk.AddrOfPinnedObject() : null,
             cells = Spec.mapCells,
             cellVoxels = Spec.mapCellVoxels,
         };
@@ -174,6 +194,7 @@ namespace TerrainGen
             if (_hF.IsAllocated) _hF.Free();
             if (_hRt.IsAllocated) _hRt.Free();
             if (_hSh.IsAllocated) _hSh.Free();
+            if (_hPk.IsAllocated) _hPk.Free();
         }
 
         /// Task 178b: set once by the build (FromCore) with the record; derives

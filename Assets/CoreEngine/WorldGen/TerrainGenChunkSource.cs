@@ -219,6 +219,7 @@ namespace VoxelEngine.WorldGen
             if (TreesArg()) spec.treesOn = 1;   // task 180
             if (MatRulesArg()) spec.matRulesOn = 1;   // task 180b
             if (OresArg()) spec.oresOn = 1;   // task 181
+            if (FluidPocketsArg()) spec.fluidPocketsOn = 1;   // task 183
             Spec = spec;
             O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
             Map = TerrainGen.WorldMap.Build(Spec);
@@ -233,6 +234,7 @@ namespace VoxelEngine.WorldGen
             _ore = new NativeArray<byte>(TerrainGen.OreTable.DensityPlane(Map.Record, Spec.mapCells), Allocator.Persistent);
             _treePlane = new NativeArray<byte>(TerrainGen.TreeTable.DensityPlane(Map.Record, Spec.mapCells), Allocator.Persistent);   // task 180
             BuildOreCellPlane();   // task 181 (length 1 = none while -ores is off)
+            BuildPocketPlane();   // task 183 (length 1 = none while -fluidpockets is off)
             _toEngine = new NativeArray<byte>(256, Allocator.Persistent);
             for (int i = 0; i < 256; i++) _toEngine[i] = VoxelEngine.Rendering.FarField.GenToEngine((byte)i);
 
@@ -266,6 +268,7 @@ namespace VoxelEngine.WorldGen
             if (_ore.IsCreated) _ore.Dispose();
             if (_treePlane.IsCreated) _treePlane.Dispose();
             if (_oreCell.IsCreated) _oreCell.Dispose();
+            if (_pocket.IsCreated) _pocket.Dispose();
             if (_toEngine.IsCreated) _toEngine.Dispose();
             Map?.Dispose();
         }
@@ -408,7 +411,7 @@ namespace VoxelEngine.WorldGen
                     cp.valid = false;
                     new ColumnJob
                     {
-                        h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, ore = _ore, spec = Spec, o = O, origin = coord * E,
+                        h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, pocketPlane = _pocket, ore = _ore, spec = Spec, o = O, origin = coord * E,
                         colS = cp.colS, colSt = cp.colSt, colCd = cp.colCd, top = cp.top,
                         treePlane = _treePlane, oreCellPlane = _oreCell, trees = cp.trees.trees, prims = cp.trees.prims, treeCounts = cp.trees.counts,
                     }.Run();
@@ -484,6 +487,7 @@ namespace VoxelEngine.WorldGen
             [ReadOnly] public NativeArray<ushort> flow;
             [ReadOnly] public NativeArray<byte> routeMask;   // task 178b: WorldMap.RouteMask (length 1 = none)
             [ReadOnly] public NativeArray<ushort> shoreField;   // task 180b: GroundRules.BakeShore (length 1 = none)
+            [ReadOnly] public NativeArray<int> pocketPlane;   // task 183: FluidPockets site plane (length 1 = none)
             [ReadOnly] public NativeArray<byte> ore;
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
@@ -507,6 +511,7 @@ namespace VoxelEngine.WorldGen
                     flowDir = flow.Length > 1 ? (ushort*)flow.GetUnsafeReadOnlyPtr() : null,   // task 76
                     route = routeMask.Length > 1 ? (byte*)routeMask.GetUnsafeReadOnlyPtr() : null,   // task 178b
                     shore = shoreField.Length > 1 ? (ushort*)shoreField.GetUnsafeReadOnlyPtr() : null,   // task 180b
+                    pocket = pocketPlane.Length > 1 ? (int*)pocketPlane.GetUnsafeReadOnlyPtr() : null,   // task 183
                     trees = treePlane.Length > 1 ? (byte*)treePlane.GetUnsafeReadOnlyPtr() : null,   // task 180
                     oreCell = oreCellPlane.Length > 1 ? (uint*)oreCellPlane.GetUnsafeReadOnlyPtr() : null,   // task 181
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,

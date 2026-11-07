@@ -122,7 +122,7 @@ public class Minimap : MonoBehaviour
                 bool wet = c.height < spec.seaLevelY || c.water > c.height;
                 water[k] = wet;
                 _bakeHeightM[k] = (math.max(c.height, wet ? math.max(c.water, spec.seaLevelY) : c.height) + 1) * 0.1f;
-                byte g = wet ? (c.waterKind == 1 && c.water > c.height ? TerrainGen.GenMat.Lava : TerrainGen.GenMat.Water)
+                byte g = wet ? (c.water > c.height ? TerrainGen.FluidPockets.FluidOf(c.waterKind) : TerrainGen.GenMat.Water)
                              : TerrainGen.DetailField.TopMaterial(in spec, in c, 0f, in o, (int)x, (int)z);
                 mats[k] = VoxelEngine.Rendering.FarField.GenToEngine(g);
             }

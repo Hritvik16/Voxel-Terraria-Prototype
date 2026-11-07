@@ -493,10 +493,11 @@ namespace TerrainGen
             if (y > h)
             {
                 if (y <= spec.seaLevelY) return GenMat.Water;
-                if (y <= c.water) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
+                if (y <= c.water) return FluidPockets.FluidOf(c.waterKind);
                 return GenMat.Air;
             }
             if (y <= spec.worldBottomY) return GenMat.Bedrock;
+            if (c.pkLining != 0 && y >= c.pkLineLo && y <= c.pkLineHi) return c.pkLining;   // task 183: a pocket's bed / berm
             if (c.lipLo != 0 && y >= c.lipLo) return GenMat.RiverLip;   // task 76
 
             // §2.5 stamp openings (arches, hoops, ribs, under the tree's canopy).
@@ -505,7 +506,7 @@ namespace TerrainGen
             // holds that water -- a hoop or arch standing in a lake has water
             // under it, not an air pocket the lake drains into.
             if ((y >= c.open1Lo && y < c.open1Hi) || (y >= c.open2Lo && y < c.open2Hi) || (y >= c.open3Lo && y < c.open3Hi))
-                return spec.mapVersion >= 4 && y <= c.water ? (c.waterKind == 1 ? GenMat.Lava : GenMat.Water) : GenMat.Air;
+                return spec.mapVersion >= 4 && y <= c.water ? FluidPockets.FluidOf(c.waterKind) : GenMat.Air;
             if (c.stamp3D)
             {
                 byte st = Stamps.Carve3D(in spec, in o, in c, x, y, z);
@@ -526,7 +527,8 @@ namespace TerrainGen
                 bool inShell = false;
                 if (!cull.noPocket)
                 {
-                    byte pocket = Pocket(in spec, in o, x, y, z, out inShell);
+                    byte pocket = c.pkCtx != 0 ? FluidPockets.DeepPocket(in spec, in o, c.pkCtx, x, y, z, out inShell)   // task 183: rule fluid + lining
+                                               : Pocket(in spec, in o, x, y, z, out inShell);
                     if (pocket != 255) return pocket;
                     if (inShell && spec.MatRules)   // task 180b: the fluid's own lining
                     {
@@ -683,11 +685,13 @@ namespace TerrainGen
             {
                 if (yLo > spec.seaLevelY && yLo > c.water) return GenMat.Air;
                 if (yHi <= spec.seaLevelY) return GenMat.Water;
-                if (yLo > spec.seaLevelY && yHi <= c.water) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
+                if (yLo > spec.seaLevelY && yHi <= c.water) return FluidPockets.FluidOf(c.waterKind);
                 return 255;
             }
             if (yHi > h) return 255;
             if (yLo <= spec.worldBottomY) return yHi <= spec.worldBottomY ? GenMat.Bedrock : (byte)255;
+            if (c.pkLining != 0 && yHi >= c.pkLineLo && yLo <= c.pkLineHi)   // task 183
+                return yLo >= c.pkLineLo && yHi <= c.pkLineHi ? c.pkLining : (byte)255;
             if (c.lipLo != 0 && yHi >= c.lipLo) return 255;
             if (Meets(c.open1Lo, c.open1Hi, yLo, yHi) || Meets(c.open2Lo, c.open2Hi, yLo, yHi) || Meets(c.open3Lo, c.open3Hi, yLo, yHi))
                 return 255;
@@ -922,7 +926,8 @@ namespace TerrainGen
         public static byte TopMaterial(in TerrainSpec spec, in ColumnSample c, float stepAtTop, in Offsets o, int x, int z)
         {
             if (c.height < spec.seaLevelY) return GenMat.Water;
-            if (c.water > c.height) return c.waterKind == 1 ? GenMat.Lava : GenMat.Water;
+            if (c.water > c.height) return FluidPockets.FluidOf(c.waterKind);
+            if (c.pkLining != 0 && c.height >= c.pkLineLo && c.height <= c.pkLineHi) return c.pkLining;   // task 183
             if (c.lipLo != 0 && c.height >= c.lipLo) return GenMat.RiverLip;   // task 76
             if (c.stampMat != 0 && c.height >= c.stampBodyLo) return c.stampMat;
             if (spec.MatRules) return GroundRules.Top(in c, stepAtTop);   // task 180b (Material at depth 0)
