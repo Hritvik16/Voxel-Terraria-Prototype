@@ -1217,3 +1217,17 @@ snow water / else mix; stone layers badlands oil, desert oil / water, jungle hon
 `poses.txt`, `Screenshots/183/cut_*.png`: CPU fluid oracle settle 150 ticks + negative controls, FarQuery / shells / far texels / brick skip,
 forced sites on a cliff and a canyon side). Shots: `PRESETS=high EXTRA="-worldsurvey 1 -wsposes fixed -wsarms native -wsfixed
 $(cat Logs/overnight/183_wsfixed.txt) -fluidpockets 1|0" ./run-look-review.sh`. Result: HANDOFF 183.
+
+**Task 184 -- town building kit, KIT ONLY (placement STOPPED FOR OWNER: no town / village sites exist).** `Assets/TerrainGen/BuildingKit.cs`:
+parts (stone foundation to the ground, floor, 0.2 m wall ring, 3x3 corner posts, door gap 1 x 2.1 m from the floor, windows with a 1 m sill,
+wood frames round every opening, 45 deg gable roof 0.2 m thick with 0.4 m eaves, gable-end walls) and 3 shapes from them: HUT 4 x 4 m (1 room),
+HOUSE 9 x 5 m (2 rooms + inner door), HALL 13 x 7 m (double door, wall posts at the thirds). A building is a pure integer function
+(shape, rot 0-3, biome, origin, floor y, foundation depth) -> part -> GenMat (`Role`/`Voxel`), ready for the Trees.cs overlay pattern
+(ColumnJob / ShellColumnJob / PointVoxel); `BuildingFootprint` (integer box + id) and an EMPTY `WorldRecord.BuildingList` hold footprints
+for NPCs (the record is never saved: no save-format change). Style by biome rule, existing GenMats only (header lists them: biome tree wood,
+the biome's own rock, timber / adobe / stone walls, thatch / slate / clay-tile roofs). NOT placed anywhere and no `-towns` flag yet: B7
+(the site planner) was never built, so nothing reserves town sites. Tests `BuildingKitTests` (6: sealed room + negative control, player
+walks from outside through the front door to every room and not through windows or a shut inner door, roof over every column, no floating
+voxel, rotations agree + footprint tight + door on FrontDir, every material solid / static / coloured / GenToEngine-mapped); report
+`Logs/TerrainGen/kit184/kit.txt`; sheets `Screenshots/184/kit_sheet.png` (rows hut/house/hall, columns forest snow jungle savanna desert
+badlands) and `kit_cutaway.png` (roofless, forest | desert). Result: HANDOFF 184.

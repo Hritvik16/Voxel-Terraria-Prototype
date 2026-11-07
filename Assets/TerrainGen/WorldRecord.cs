@@ -84,6 +84,11 @@ namespace TerrainGen
         /// width, ends, passes, corridor cells, mapVersion). Empty before the
         /// map's routes exist (WorldMap.BuildV4's first record).
         public Route[] RouteList = new Route[0];
+        /// Task 184 (towns, kit stage): each generated building's footprint
+        /// (integer voxel box + id; BuildingKit.cs) for the NPCs that will need
+        /// it. EMPTY today: no town / village sites exist yet (B7 not built).
+        /// The record is never saved, so filling it is no save-format change.
+        public BuildingFootprint[] BuildingList = new BuildingFootprint[0];
 
         public readonly int Cells;                  // per edge
         public readonly int CellVoxels;
