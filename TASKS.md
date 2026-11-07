@@ -1110,3 +1110,31 @@ now also runs seeds 2026 and 31337 (2026's sea is reported, not gated: KNOWN_ISS
 The route test is green on all four seeds (31337's ford). Shots: `python3 -I tools/river179.py Screenshots/179 <before dir> <after dir>`
 (`<pose>_compare.png`, `viewer.html`), poses via `-worldsurvey 1 ... -wsposes pair_snow_river-plains,river,pair_desert_canyonlands,feature_mesa-4,pair_badlands_high-plateau`.
 NOT changed: the renderer's flow map (`RiverFlow`, D8 directions per 8 m cell) -- ripples follow D8, not the curve. Result: HANDOFF 179.
+
+**Task 180 (placement, first test, owner 2026-11-06 "trees are voxels"; GENERATOR CHANGE behind a flag, DEFAULT OFF): generated voxel trees, `-trees 1`.**
+`Assets/TerrainGen/Trees.cs`: one tree per 6.4 m TREE CELL at most (`CELL_SHIFT` 6, root jittered to [8, 56) of the cell by an integer hash),
+decided by `Trees.Build` from data the generator already has: `TreeTable.DensityPlane` (one byte per 8 m map cell from the world record:
+landform x movement band, 0 on sea / route-corridor / signature-feature / Sheer cells; plumbed like the ore plane as `MapView.trees`), the root
+column's own LOD-0 `ShapeField.Sample` (biome = `surfBiome`; cover slot x `SLOT_MUL` flat 16 / steep 6 / hollow 10 / high 8 / shore 0, a patch
+variant x 10/16 = clearings; none in water, below the sea, on a stamp / ledge / lip), 4 height samples for the foot (> 45 deg across trunk + 2
+voxels = none) and 4 for crown clearance. Density per biome slot `DENSITY` (per mille per cell): forest 800, desert 60 (cactus), snow 300,
+jungle 950, savanna 110, badlands 0 -- no seed constant. FAMILIES (3 shapes per biome, every number from the cell hash, `Emit`): forest oak /
+poplar / bushy fork; jungle buttressed emergent with umbrella crown / curved palm / dense round; savanna umbrella acacia / baobab / two-tier
+acacia; snow spruce (4 cones) / tall pine / fir; desert saguaro / column / barrel. Primitives: tapered capsules (wood), ellipsoid BLOBs and
+CONEs (leaves) with star-shaped edge noise (noise read on the surface point in the voxel's direction: no detached crumbs). New GenMats (palette
+D, `tools/palette_defs.py` -> `gen-tg2-materials.py --write`; Items/Tools tier 0): leaves 55-58 (forest, jungle, savanna, pine needles; the
+biome's flat cover colour in shade, snow's dark blue-green), woods 76-79 (forest, jungle, acacia, pine), cactus 93; `GenMat.IsTreeTrunk` /
+`IsTreeLeaf` (chopping later: any trunk voxel cut -> rebuild the tree from its cell, drop the wood, remove top-down). RULE AT A VOXEL: trees
+overwrite AIR only; every trunk primitive first, then every leaf one, trees in cell order (z, x); the first containing one wins.
+WHERE (`TerrainGenChunkSource.Trees.cs`): ColumnJob / ShellColumnJob gather the trees of the cells round the footprint (`TreeScratch`, crowns
+raise the column top so the air fast paths stay exact); VoxelJob / ShellVoxelJob end with `OverlayTrees` (coarse voxels test their sample
+point: shell k = the 0.1 m voxel there); `PointVoxel` (FarQuery) applies the same rule. Shells > `Trees.MAX_SHELL` 5 (beyond 2.2 km on High)
+and the far band draw no trees. `-trees 1` -> `TerrainSpec.treesOn` (`Trees` = v4 && on); `TerrainGenChunkSource.SetTrees` for tests.
+Tests `TreeTests` (all Slow): `Chunks_Deterministic_Border_PointAndShellsAgree` (seed 42, a forest tree across a chunk border: ON twice same
+bytes, ON vs OFF only air -> tree material on both sides, FarQuery points = chunk, shell 0 = Generate, shells 1-3 tree voxels = the 0.1 m
+voxel at the sample; `Logs/TerrainGen/trees180/chunks.txt`), `FourSeeds_Rules_Sheets` (42 / 7 / 2026 / 31337, 1/16 of the world: record /
+water / badlands rules, reach; 30 trees per family + 30 steep-foot trees voxelised on the LOD-0 ground, rejected if any voxel floats (not
+6-connected to the ground), the trunk misses the ground or > 2 % of the crown / any trunk above its foot is in rock; sheets
+`Screenshots/180/sheet_<seed>_<biome>.png`, `Logs/TerrainGen/trees180/rules.txt`), `Cost_OnVsOff` (dense bricks + gen time, LOD 0 and
+shells 1-5, `cost.txt`), `Poses_DensestSpots` (Explicit: `-wsfixed` poses at the densest spots, `poses.txt`). Shots: `-lookreview
+-worldsurvey 1 -wsposes fixed,range -wsfixed "$(cat Logs/overnight/180_poses.txt)" -trees 1|0`; `python3 -I tools/trees180.py`. Result: HANDOFF 180.

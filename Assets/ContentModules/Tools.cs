@@ -140,5 +140,8 @@ public static class Tools
         T(80, 1); T(81, 2); T(82, 2); T(83, 2); T(84, 2);      // sinter, crystals
         T(85, 1); T(87, 0); T(88, 0); T(89, 0); T(90, 0);      // bone, bark, leaves, mushroom
         T(91, 2); T(92, 2);                                    // volcanic rock, standing stone
+        // ---- tg2: generated trees (task 180): woods, leaves, cactus ----
+        T(55, 0); T(56, 0); T(57, 0); T(58, 0);
+        T(76, 0); T(77, 0); T(78, 0); T(79, 0); T(93, 0);
     }
 }

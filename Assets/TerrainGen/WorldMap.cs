@@ -43,6 +43,9 @@ namespace TerrainGen
         /// 0 elsewhere (WorldMap.RouteMask). OPTIONAL: null = no routes, so the
         /// cliff relief (ShapeField.FaceRelief) does not skip them.
         public byte* route;
+        /// Task 180: the tree density plane (TreeTable.DensityPlane, one byte per
+        /// cell). OPTIONAL: null = no trees, whatever TerrainSpec.Trees says.
+        public byte* trees;
         public int cells;
         public float cellVoxels;
     }

@@ -817,10 +817,10 @@ static const float3 kTg2Palette[96] = {
     float3(0.173, 0.192, 0.251),   // 180 basalt
     float3(0.247, 0.620, 0.604),   // 181 teal quartzite
     float3(0.659, 0.690, 0.741),   // 182 silver schist
-    float3(0.900, 0.100, 0.800),   // 183 (none)
-    float3(0.900, 0.100, 0.800),   // 184 (none)
-    float3(0.900, 0.100, 0.800),   // 185 (none)
-    float3(0.900, 0.100, 0.800),   // 186 (none)
+    float3(0.278, 0.463, 0.169),   // 183 forest leaves
+    float3(0.173, 0.478, 0.204),   // 184 jungle leaves
+    float3(0.435, 0.475, 0.180),   // 185 savanna leaves
+    float3(0.184, 0.353, 0.235),   // 186 pine needles
     float3(0.900, 0.100, 0.800),   // 187 (none)
     float3(0.760, 0.756, 0.608),   // 188 karst limestone
     float3(0.149, 0.188, 0.165),   // 189 black basalt
@@ -838,10 +838,10 @@ static const float3 kTg2Palette[96] = {
     float3(0.102, 0.078, 0.141),   // 201 obsidian
     float3(0.478, 0.165, 0.078),   // 202 magma crust
     float3(0.133, 0.133, 0.133),   // 203 bedrock
-    float3(0.900, 0.100, 0.800),   // 204 (none)
-    float3(0.900, 0.100, 0.800),   // 205 (none)
-    float3(0.900, 0.100, 0.800),   // 206 (none)
-    float3(0.900, 0.100, 0.800),   // 207 (none)
+    float3(0.420, 0.290, 0.188),   // 204 forest wood
+    float3(0.353, 0.227, 0.165),   // 205 jungle wood
+    float3(0.478, 0.400, 0.337),   // 206 acacia wood
+    float3(0.369, 0.227, 0.149),   // 207 pine wood
     float3(0.760, 0.722, 0.623),   // 208 sinter
     float3(0.235, 0.525, 0.760),   // 209 crystal blue
     float3(0.760, 0.531, 0.173),   // 210 crystal amber
@@ -855,7 +855,7 @@ static const float3 kTg2Palette[96] = {
     float3(0.760, 0.251, 0.478),   // 218 mushroom cap
     float3(0.227, 0.188, 0.188),   // 219 volcanic rock
     float3(0.604, 0.584, 0.549),   // 220 standing stone
-    float3(0.900, 0.100, 0.800),   // 221 (none)
+    float3(0.310, 0.541, 0.235),   // 221 cactus
     float3(0.900, 0.100, 0.800),   // 222 (none)
     float3(0.900, 0.100, 0.800)    // 223 (none)
 };
@@ -915,10 +915,10 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.173, 0.192, 0.251),   // 180 basalt
     float3(0.247, 0.620, 0.604),   // 181 teal quartzite
     float3(0.659, 0.690, 0.741),   // 182 silver schist
-    float3(0.900, 0.100, 0.800),   // 183 (none)
-    float3(0.900, 0.100, 0.800),   // 184 (none)
-    float3(0.900, 0.100, 0.800),   // 185 (none)
-    float3(0.900, 0.100, 0.800),   // 186 (none)
+    float3(0.278, 0.463, 0.169),   // 183 forest leaves
+    float3(0.173, 0.478, 0.204),   // 184 jungle leaves
+    float3(0.435, 0.475, 0.180),   // 185 savanna leaves
+    float3(0.184, 0.353, 0.235),   // 186 pine needles
     float3(0.900, 0.100, 0.800),   // 187 (none)
     float3(0.784, 0.780, 0.627),   // 188 karst limestone
     float3(0.149, 0.188, 0.165),   // 189 black basalt
@@ -936,10 +936,10 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.102, 0.078, 0.141),   // 201 obsidian
     float3(0.478, 0.165, 0.078),   // 202 magma crust
     float3(0.133, 0.133, 0.133),   // 203 bedrock
-    float3(0.900, 0.100, 0.800),   // 204 (none)
-    float3(0.900, 0.100, 0.800),   // 205 (none)
-    float3(0.900, 0.100, 0.800),   // 206 (none)
-    float3(0.900, 0.100, 0.800),   // 207 (none)
+    float3(0.420, 0.290, 0.188),   // 204 forest wood
+    float3(0.353, 0.227, 0.165),   // 205 jungle wood
+    float3(0.478, 0.400, 0.337),   // 206 acacia wood
+    float3(0.369, 0.227, 0.149),   // 207 pine wood
     float3(0.937, 0.890, 0.769),   // 208 sinter
     float3(0.294, 0.656, 0.950),   // 209 crystal blue
     float3(0.950, 0.663, 0.216),   // 210 crystal amber
@@ -953,7 +953,7 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.761, 0.251, 0.478),   // 218 mushroom cap
     float3(0.227, 0.188, 0.188),   // 219 volcanic rock
     float3(0.604, 0.584, 0.549),   // 220 standing stone
-    float3(0.900, 0.100, 0.800),   // 221 (none)
+    float3(0.310, 0.541, 0.235),   // 221 cactus
     float3(0.900, 0.100, 0.800),   // 222 (none)
     float3(0.900, 0.100, 0.800)    // 223 (none)
 };

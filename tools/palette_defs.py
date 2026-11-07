@@ -136,3 +136,14 @@ PALETTES["D"][2].update(hexes({8: "2f7fb8"}))
 NAMES[8] = "river lip"
 
 ROUND2 = ["A", "C", "D"]
+
+# Task 180 (generated trees, agent's pick, owner may change): one wood + one leaf per
+# biome family. Leaves = the biome's flat cover colour in shade (forest grass x 0.75,
+# jungle grass x 0.7, savanna = savanna grass half-way to forest grass, x 0.75); the
+# snow row has no green cell, so its needles are a dark blue-green. Cactus is the
+# desert's trunk-class "tree".
+PALETTES["D"][2].update(hexes({55: "47762b", 56: "2c7a34", 57: "6f792e", 58: "2f5a3c",
+                               76: "6b4a30", 77: "5a3a2a", 78: "7a6656", 79: "5e3a26", 93: "4f8a3c"}))
+NAMES.update({55: "forest leaves", 56: "jungle leaves", 57: "savanna leaves", 58: "pine needles",
+              76: "forest wood", 77: "jungle wood", 78: "acacia wood", 79: "pine wood", 93: "cactus"})
+BIOMES.append(("Trees", [55, 56, 57, 58, 76, 77, 78, 79, 93]))

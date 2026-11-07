@@ -70,6 +70,15 @@ namespace TerrainGen
         public const byte VolcanicRock = 91;    // the volcano's cone
         public const byte StandingStone = 92;   // stone rings
 
+        // ---- task 180: generated trees (Trees.cs), one wood + one leaf per biome family ----
+        // Trunk and leaf voxels are told apart BY MATERIAL (chopping: any trunk voxel cut
+        // drops the whole tree). The world tree's Bark / Leaves (87 / 88) are a stamp, not these.
+        public const byte ForestLeaves = 55, JungleLeaves = 56, SavannaLeaves = 57, PineNeedles = 58;
+        public const byte ForestWood = 76, JungleWood = 77, AcaciaWood = 78, PineWood = 79;
+        public const byte Cactus = 93;          // the desert's "tree": trunk class, no leaves
+        public static bool IsTreeTrunk(byte m) => (m >= ForestWood && m <= PineWood) || m == Cactus;
+        public static bool IsTreeLeaf(byte m) => m >= ForestLeaves && m <= PineNeedles;
+
         public static bool IsFluid(byte m) => m >= Water && m <= Quicksand;
         public static bool IsSolid(byte m) => m >= Grass;
     }

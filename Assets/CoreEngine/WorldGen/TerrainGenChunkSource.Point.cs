@@ -31,6 +31,11 @@ namespace VoxelEngine.WorldGen
             internal TerrainGen.ColumnSample c;
             internal float st;
             internal TerrainGen.DetailField.ColumnDetail cd;
+            // task 180: the trees touching this column (gathered on the first air voxel)
+            internal bool treesValid;
+            internal int treePrimCount;
+            internal NativeArray<TerrainGen.Tree> treeList;
+            internal NativeArray<TerrainGen.TreePrim> treePrims;
         }
 
         // The read-only arrays a point job holds (valid while this source lives).
@@ -45,7 +50,7 @@ namespace VoxelEngine.WorldGen
 
         /// The engine material Generate gives voxel `v` (world voxel coordinates).
         /// Call from a Burst job compiled FloatMode.Strict / FloatPrecision.High.
-        internal static byte PointVoxel(in TerrainGen.TerrainSpec spec, in TerrainGen.Offsets o, in TerrainGen.MapView map,
+        internal static unsafe byte PointVoxel(in TerrainGen.TerrainSpec spec, in TerrainGen.Offsets o, in TerrainGen.MapView map,
                                         NativeArray<byte> ore, NativeArray<byte> toEngine, int3 v,
                                         ref PointColumn col, ref TerrainGen.DetailField.NodeCache nodes)
         {
@@ -64,10 +69,13 @@ namespace VoxelEngine.WorldGen
                 if (cd.oreMul != 0) cd.oreMul = ore[TerrainGen.Ores.CellIndex(x, z, spec.mapCells, spec.mapCellVoxels)];
                 col.c = c; col.st = m / 1f; col.cd = cd;
                 col.x = x; col.z = z; col.valid = true;
+                col.treesValid = false;
             }
             // The brick's origin: (v >> 3) << 3 by mask, negatives included.
             var cr = TerrainGen.DetailField.CullBrick(in spec, in o, v.x & ~7, v.y & ~7, v.z & ~7);
             byte g = TerrainGen.DetailField.Material(in spec, in o, in col.c, in col.cd, col.st, v.x, v.y, v.z, in cr);
+            if (g == TerrainGen.GenMat.Air && spec.Trees && map.trees != null)   // task 180: OverlayTrees' rule
+                g = PointTree(in spec, in map, in o, v, ref col);
             return toEngine[g];
         }
     }

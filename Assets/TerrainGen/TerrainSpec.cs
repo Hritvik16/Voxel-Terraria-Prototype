@@ -121,6 +121,11 @@ namespace TerrainGen
         /// RiverShape, never directly. `-rivershape 0` sets it. Changes the MAP
         /// (Rivers.Profile's levels) as well as the columns.
         public byte riverShapeOff;
+        /// Task 180 (placement, first test): 1 = generated voxel trees (Trees.cs),
+        /// OPT-IN: 0 (the default) = none. Needs a world record (v4) and a MapView
+        /// carrying the tree plane. Read it through Trees, never directly. `-trees 1`
+        /// sets it. Columns only: the map, the record and the far band ignore it.
+        public byte treesOn;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -183,6 +188,9 @@ namespace TerrainGen
 
         /// Task 179's river course and incision in force (see riverShapeOff): v4 only.
         public bool RiverShape => mapVersion >= 4 && riverShapeOff == 0;
+
+        /// Task 180's generated trees in force (see treesOn): v4 only, opt-in.
+        public bool Trees => mapVersion >= 4 && treesOn != 0;
 
         public const float V4_GENTLE_SHARE = 0.50f;
 

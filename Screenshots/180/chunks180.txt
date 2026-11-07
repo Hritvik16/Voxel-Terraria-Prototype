@@ -1,0 +1,7 @@
+seed 42 border tree: root int3(41364, 5271, 20532) lo int3(41321, 5259, 20488) hi int3(41412, 5368, 20566) shape 2
+  chunk int3(322, 41, 160): 136220 tree voxels
+  chunk int3(323, 41, 160): 393642 tree voxels
+  point path: 139801 points equal
+  shell 1: 65519 tree voxels compared, 65519 tree voxels in the shell chunk, all equal
+  shell 2: 8166 tree voxels compared, 8166 tree voxels in the shell chunk, all equal
+  shell 3: 1012 tree voxels compared, 1012 tree voxels in the shell chunk, all equal
