@@ -1243,3 +1243,19 @@ case per seed (`table_<seed>.txt`). Exact cuts: `FastAssert` (CoreEngine/Tests) 
 Assert...` -- same check, same message, no NUnit call when it passes): MaterialRuleChunk Chunks_Deterministic 52.9 -> 6.2 s,
 OccupancyMask/AirMip 15-20 s -> 1.6-4.8 s (two AirMip tests back in fast), Tree Chunks 9.8 -> 6.3 s. The Editor already runs
 managed code in Release (EditorPrefs ScriptDebugInfoEnabled = 0): `-releaseCodeOptimization` measured no gain. Result: HANDOFF 184b.
+
+**Task 185 -- world gen C7, stamps that sit in the land (`-stampfit 1` = `TerrainSpec.stampFitOn` / `StampFit`, v4 only, DEFAULT OFF;
+off = every byte as before).** Rules in `Stamps.cs` (header "TASK 185") and `ShapeField.Ledge`, each exact on the stamp's own footprint:
+CAVE MOUTH placed only where its tube is under cover (`Stamps.FitCave`): stations every 5 m along the tube (axis and both sides), the
+lowest S can put the column (map - `DETAIL_AMP_SUM` 94.3 x rough - 1, minus `RELIEF_BAND_BOUND` on a face) stands `CAVE_ROOF` 2 m over the
+tube top from <= `CAVE_MOUTH_MAX` 40 m out to its end; the hashed axis first, then its 3 quarter turns (`ColumnSample.stampRot`, read by
+`Carve3D`), none -> no cave. LEDGES: the shelf top is a rock-layer boundary (`LedgeFitTop`, flat but for LayerWave) and 3.5 m thick
+(`LEDGE_FIT_THICK`). GEYSER BASIN: sinter terraces of 1.5 m (`GEYSER_STEP`) = the map ground rounded up below the vents' level, outline by
+the ground (<= 2 m over / <= 40 m under the vents, reach 90-120 m, longer downhill, +-12 % wobble); a pool keeps only columns whose 8
+neighbours share its terrace. HOOPS only on a rise (>= 5 m over the +-120 m ring mean) or in rugged rock (map rough >= 0.8). SEA KEEP-OUT
+(KNOWN_ISSUES seed 2026 fossil): no cave / fissure / skull cave / arch / hoop / rib opening within 2.5 cells of a sea cell (`NearSea`).
+Tests `StampFitTests` (Slow: caves 4 seeds + a forced downhill trench site; ledges 4 seeds + the tallest shelf's 64x64 window; geyser
+4 seeds + the basin moved onto a 56-degree slope, pools via FluidAtRestTests' tile job; fast: hoops 4 seeds + the flattest plain,
+DETAIL_AMP_SUM) and `FluidAtRestTests.Sea_AtRest_StampFit_Seed2026` (tile (190,545) OFF = negative control). Reports
+`Logs/TerrainGen/stampfit185/`. Shots: `PRESETS=high EXTRA="-worldsurvey 1 -wsposes fixed,cave_in -wsarms native -wsfixed
+$(cat Logs/overnight/185_wsfixed.txt) -stampfit 1|0" ./run-look-review.sh`. Result: HANDOFF 185.

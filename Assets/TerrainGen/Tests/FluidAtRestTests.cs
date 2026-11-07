@@ -31,7 +31,7 @@ namespace TerrainGen.Tests
         // Per tile and kind: 0 fluid columns, 1 fluid voxels, 2 unsettled (any of
         // 3-5), 3 air beside, 4 air below, 5 air diagonally below, 6 exact checks,
         // 7 unsettled whose air is CARVED (cave / stamp opening).
-        private const int K = 8, KINDS = 5, LAKE = 0, RIVER = 1, SEA = 2, LAVA = 3, GEYSER = 4;
+        internal const int K = 8, KINDS = 5, LAKE = 0, RIVER = 1, SEA = 2, LAVA = 3, GEYSER = 4;   // task 185: StampFitTests reads them
         private static readonly string[] KindName = { "lake  ", "river ", "sea   ", "lava  ", "geyser" };
         private const int COAST_STRIDE = 6;
 
@@ -219,6 +219,36 @@ namespace TerrainGen.Tests
             }
         }
 
+        /// Task 185 (`-stampfit 1`): the sea keep-out for stamp openings
+        /// (KNOWN_ISSUES "seed 2026 fossil stamp beside the sea"). Negative
+        /// control: the known tile (190, 545) OFF is not at rest. ON: that tile
+        /// and every COAST_STRIDE-th coast cell of seed 2026 are.
+        [Category("Slow")]
+        [Test]
+        public void Sea_AtRest_StampFit_Seed2026()
+        {
+            var off = TerrainSpec.SizeClass2(2026u, 4);
+            var on = off; on.stampFitOn = 1;
+            var o = Offsets.For(in off);
+            var map = SharedMaps.Get(off);   // the map ignores the flag
+            var one = new NativeList<int2>(Allocator.TempJob); one.Add(new int2(190, 545));
+            var t0 = RunTiles(off, o, map, one, "seed 2026 tile (190,545), stampfit OFF", "stampfit185_sea_off_2026.txt");
+            Assert.Greater(t0[SEA * K + 2], 0, "negative control: the known tile's sea is at rest with stampfit OFF");
+            int n = on.mapCells, coastCells = 0;
+            var list = new NativeList<int2>(Allocator.TempJob); list.Add(new int2(190, 545));
+            for (int iz = 1; iz < n - 1; iz++)
+            for (int ix = 1; ix < n - 1; ix++)
+            {
+                int c = iz * n + ix;
+                if (map.Height[c] > 0f) continue;
+                if (map.Height[c - 1] <= 0f && map.Height[c + 1] <= 0f && map.Height[c - n] <= 0f && map.Height[c + n] <= 0f) continue;
+                if (coastCells++ % COAST_STRIDE != 0 || (ix == 190 && iz == 545)) continue;
+                list.Add(new int2(ix, iz));
+            }
+            var t1 = RunTiles(on, o, map, list, $"seed 2026 coast tiles (1 in {COAST_STRIDE} of {coastCells} + (190,545)), stampfit ON", "stampfit185_sea_on_2026.txt");
+            Assert.AreEqual(0, t1[SEA * K + 2], "seed 2026: sea voxels not at rest with stampfit ON (Logs/TerrainGen/stampfit185_sea_on_2026.txt)");
+        }
+
         /// The volcano's caldera lava lake (BUGS #5 asked for it). Map v4 draws
         /// the volcano from the feature pool, so the test seeds may not have
         /// one: the first of the four test seeds whose offsets place it on the map.
@@ -248,7 +278,7 @@ namespace TerrainGen.Tests
         }
 
         /// Runs TileJob on `list` (disposed here), writes the report, returns the totals.
-        private static long[] RunTiles(TerrainSpec spec, Offsets o, WorldMap map, NativeList<int2> list, string head, string file)
+        internal static long[] RunTiles(TerrainSpec spec, Offsets o, WorldMap map, NativeList<int2> list, string head, string file)
         {
             var tiles = list.AsArray();
             var hA = new NativeArray<float>(map.Height, Allocator.TempJob);

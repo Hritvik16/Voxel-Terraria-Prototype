@@ -1,71 +1,52 @@
-STOP_FOR_OWNER: SUITE=all is now 20m46s (was 72m33s), NOT <= 15 min. The fast suite meets its budget (2m34s). What is left in `all` is generator/rule tests that must stay there, and I found no further exact cut I could prove in this task. Which way?
-- **(a) RECOMMENDED, with (c): run seed 42 in Nightly for the per-seed generator tests** (FluidAtRest, LakeShore, LakeLevel, OreRule). `all` keeps the adversarial seed 31337 only; nightly keeps all 4 seeds. Saves ~240 s, giving ~16.8 min. This breaks the task's "keep >= 2 seeds in all" rule, which is why it needs you.
-- **(b) Accept `all` ~21 min** as the budget.
-- **(c) Follow-up task (exact, test code only): run the managed column-sampling / chunk loops on worker threads.** Targets: MaterialRule.FourSeeds 78 s, Cover.FourSeeds 76 s, the OreRule deposit table 34 s per seed, FluidPocket.Sites 62 s, MaterialRuleChunk.Shells 43 s. Estimate -150 to -200 s (not proven on this fanless M1). With (a): ~13.5-14.5 min.
+# 185-worldgen-c7-stamps-sit-in-land: DONE behind `-stampfit 1` (default OFF). All five rules pass their tests on 4 seeds plus an adversarial case. The owner picks the default from the pictures below.
 
-# 184b-test-suite-trim: three tiers + exact assert cuts. fast 2m34s (budget met), all 20m46s (budget missed), nightly = everything
+## What changed (commit: see `git log -1`; generator code behind the flag, OFF = every byte as before)
+- `TerrainSpec.stampFitOn` / `StampFit` (v4 only); `-stampfit 1` (`TerrainGenChunkSource.StampFitArg`, FarField too); `ColumnSample.stampRot` (fits in padding).
+- `Stamps.cs` (header "TASK 185"):
+  - **Cave mouth** `FitCave`: stations every 5 m along the tube (axis and both sides). At each, the lowest the column top can be (map - 94.3 x rough - 1, minus the face-relief bound on a face) must stand 2 m over the tube's top, from <= 40 m out to the tube's end. Tries the hashed axis, then its 3 quarter turns; none fits = no cave. `Carve3D` turns the axis by `stampRot`.
+  - **Geyser basin** `GeyserTerrace`: 1.5 m sinter terraces = the map ground rounded up below the vents. The outline follows the ground (at most 2 m over / 40 m under the vents, reach 90-120 m, longer downhill, +-12 % wobble). A pool keeps only columns whose 8 neighbours, and the 8 at 0.6 m, share its terrace.
+  - **Hoops** only on a rise (>= 5 m over the +-120 m ring mean) or in rugged rock (map rough >= 0.8).
+  - **Sea keep-out** `NearSea`: no cave / fissure / skull / arch / hoop / rib opening within 2.5 cells of a sea cell.
+- `ShapeField.Ledge`: shelf top = a rock-layer boundary (`LedgeFitTop`), thickness 3.5 m. `DETAIL_AMP_SUM`.
+- Survey cave pose uses the fitted axis. Tests: `StampFitTests.cs` (new), `FluidAtRestTests.Sea_AtRest_StampFit_Seed2026` (`RunTiles` now internal). TASKS.md paragraph; KNOWN_ISSUES seed-2026 entry marked "fixed behind -stampfit 1".
 
-## What changed (commit 9520e4e; test code + runner only, no product code)
-- `run-editmode-tests.sh`:
-  - `SUITE=fast` = `!Slow`; `SUITE=all` = `!Nightly`; `SUITE=nightly` = everything (before a merge to main).
-  - `FILTER=` and `EXTRA=` pass through to Unity. In FILTER, write `(42)` as `\(42\)` (it is a regex).
-  - A Nightly test is always also Slow.
-- Nightly (101 attribute lines, 48 files, by measured time in the old 72-min XML):
-  - the shell fills
-  - the long fuzzers
-  - both `Cost_OnVsOff` reports (one asserts nothing, the other only `dense > 0`)
-  - every engine test >= 2 s
-  - seeds 7 and 2026 of FluidAtRest / LakeShore / LakeLevel / OreRule
-- Generator tests >= 2 s moved from fast to Slow (they stay in all). MaterialRule and Cover FourSeeds assert POOLED over seeds, so they stay whole in all.
-- `OreRuleTests.FourSeeds` is now one case per seed. Its assert was the sum of per-seed failures, so the per-seed cases assert the same thing. Report: `Logs/TerrainGen/ores181/table_<seed>.txt`, now with phase timings.
-- New `FastAssert` helper, plus guarded per-voxel asserts (`if (x != y) Assert.AreEqual(x, y, msg)`). Same check, same message; NUnit is only called when a check fails.
+## Evidence (tests; reports in `Logs/TerrainGen/stampfit185/`)
+- **Caves** (`caves.txt`): 62 land caves on 4 seeds; 58 kept, 13 of them turned; 4 dropped.
+  - OFF has 7 trenches (opening reach 47-81 m). ON, every kept tube opens within 0-24 m of its site (limit 40 m + r).
+  - Adversarial: a cave forced downhill on a 0.44 slope opens 60 m OFF; the fit turns it, 17 m.
+- **Ledges** (`ledges.txt`): ON 134 ledge columns on a 25 m grid (OFF 313; fewer, because a layer boundary must fall inside the cliff). Every top is on a boundary and 35 voxels thick.
+  - Contour-ring steps between neighbouring shelf columns: ON 0 of 257 pairs; OFF 406.
+  - Adversarial: the 64x64 window at the tallest shelf (5.8 m, seed 31337): 3,851 columns, 0 ring steps.
+- **Geyser** (`geyser.txt`): pools at rest (0 unsettled, FluidAtRest tile job) on 4 seeds, and with the basin moved onto a 56-degree slope (27 terraces).
+- **Hoops** (`hoops.txt`): 10 kept, 16 dropped; the flattest plain of each seed is rejected.
+- **Sea**: seed 2026 tile (190,545) OFF is NOT at rest (negative control); ON, it and every 6th coast cell are at rest.
+- **Suites**: fast PASS 968 FAIL 0 SKIP 19 (2m38s, `Logs/overnight/185/final_fast.keep`). all PASS 1033 FAIL 0 SKIP 25, 23m09s (`Logs/overnight/185/final_all.out`).
+- **Rough cost**, from the ledge test's own sampling (managed S, 230k grid columns, 4 seeds): ON 77.4 vs OFF 77.5 us/column, no visible change.
+  - A column in a cave's footprint pays up to 4 fits x ~57 map samples. That is a small share of columns, not timed separately (no timing arm).
 
-## Before -> after, per trimmed test (s; before = old 72-min run, after = this session)
-| test | before | after | how |
-|---|---|---|---|
-| MaterialRuleChunk Chunks_Deterministic | 52.9 | 6.2 | FastAssert + guard |
-| OccupancyMask RebuildRegion_AfterAddingSolid / AllAir / AfterClearing | 19.6 / 18.2 / 17.5 | 4.8 / 3.1 / 3.4 | guard (Nightly) |
-| AirMip RebuildRegion_AfterClearing / AllAir | 15.9 / 15.3 | 1.6 / 1.7 | guard; back in FAST |
-| Tree Chunks_Deterministic_Border | 9.8 | 6.3 | FastAssert + guard |
-| OreRule FourSeeds | 250 (one test) | 65 + 60 in all | split; 7 / 2026 Nightly |
+## Looked at (full-size 1920x1080, seed 42, `-stampfit 1` vs `0`; folders under ~/Library/Application Support/DefaultCompany/Voxel Terraria 1 Byte BrickMap/LookReview/)
+- The ledge, geyser and cave pictures are clearly better ON. The shelves are now flat. The basin steps down the slope. The trench became a cave into the hill.
+- Small leftovers ON:
+  - The uphill edge of the geyser basin shows a thin comb of soil columns at a distance (the cut between flat sinter and natural detail).
+  - The steep side of the basin becomes many narrow 1.5 m steps.
+- The 173 `cave_mouth` pose no longer frames that mouth (the generator changed since 173), so it is not used.
+- Shells beyond s2 were mostly unfilled (45 s wait cap). The far band draws them, so the poses are unaffected.
 
-- Whole suite:
-  - all: 72m33s -> **20m46s / 20m47s**
-  - fast: ~9 min of test time in the old fast tier (514 s) -> **2m34s / 2m40s** (the 2m40s run includes a recompile)
-- Pass counts:
-  - all: PASS 1027 FAIL 0 SKIP 25 (twice)
-  - fast: PASS 966 FAIL 0 SKIP 19 (twice)
-  - Nightly-only: PASS 80 FAIL 0 SKIP 10, 51m16s
-  - 1027 + 80 = 1107 = the old 1104 + 3 new OreRule cases; skips 35 = 35. No test was deleted or weakened.
-- Logs: `Logs/overnight/184b/final_{fast,all}{1,2}.out`, `nightly_only.out`, and the XMLs beside them.
-- Mac state: AC power, the Unity lock held, no other Unity process. Not a timing-arm task; wall is quoted as measured.
-
-## Mutation proofs (product code broken, then reverted with git checkout; 0 `MUTATION` lines left)
-Log: `Logs/overnight/184b/mutants.out`, `mutant5b.out`.
-- M1 OccupancyMask.Build (a stray bit in the last level-1 cell) -> AllAir FAILS "Level 1 cell 8388607 should have an all-clear mask".
-- M2 AirMip.Build (the same stray bit) -> AllAir FAILS "Level 1 cell 8388607 should be air (0)".
-- M3 GroundRules.NearMaterial (the skin band returns Air) -> MaterialRuleChunk FAILS "cliff_snow int3(413, 43, 330) voxel 703739: air / fluid must not change".
-- M4 tree overlay (the "air only" check removed) -> Tree FAILS "voxel 281309: a tree replaced a non-air voxel (148)".
-- M5 OreRules.StartHides -> always true:
-  - Not caught. It did not expose any ore (the depth guard still held), so there was nothing to catch.
-  - M5b: start-zone cells skip the depth guard -> OreRule(42) FAILS "rule ore with open sky beside it near a start" (23 exposed voxels at the zone's steepest cell).
-
-## Other findings
-- Map builds are 1.6 s each, so sharing them is no lever.
-- The Editor already runs managed code in Release (EditorPrefs ScriptDebugInfoEnabled = 0). `-releaseCodeOptimization` measured 0 gain (`ab_*.out`).
-- FluidAtRest / LakeShore / LakeLevel are already all-core Burst jobs. Their asserts cover every river and lake column, so they cannot be cut exactly.
-- The old 72-min XML was overwritten by the first new `all` run (it is git-ignored). Its "before" numbers above come from this session's printout of it.
-
-## Proposed edits (owner edits these; I did not)
-- CLAUDE.md, the Commands block: "Budgets: fast (`./run-editmode-tests.sh`) <= 3 min, `SUITE=all` <= 15 min (generator changes), `SUITE=nightly` (~70 min) only before a merge to main; a test > 2 s is Slow, an engine test > 2 s or a cost report is Nightly (always also Slow)."
-- tools/overnight/PREAMBLE.md line 23: "...`SUITE=all` when the task changes terrain-generator code; `SUITE=nightly` instead when preparing a merge to `main`."
-
-## Next step
-Owner picks (a) / (b) / (c). For (c), the supervisor queues the parallel-loops task (test code only, mutation proofs as here).
+## Unfinished / next
+- The owner decides the default (`-stampfit 1` on or off) from the pictures.
+- The task says "geyser / wetland basin". I read that as the GEYSER basin (plan C7). `pair_desert_wetland-basin` is the ledge picture.
+- Hoops: "slab" = the same hoop seen edge-on. Stone rings are left alone.
 
 ## For the doc
-- SUITE=all wall: 72m33s -> 20m46s (`Logs/overnight/184_all.out` -> `Logs/overnight/184b/final_all2.out`)
-- fast wall: ~9 min of test time -> 2m34s (`final_fast2.out`)
-- nightly (everything): `all` + 51m16s of nightly-only = ~72 min, PASS 1107 (= 1104 + 3 split cases), FAIL 0
-- biggest single exact cut: MaterialRuleChunk Chunks_Deterministic 52.9 -> 6.2 s (per-voxel NUnit asserts guarded)
-- No images: this is a test-infrastructure task with nothing visible.
+- Cave trenches (tube open > 40 m + r from its site), 4 seeds: OFF 7 -> ON 0. Caves kept 58 of 62, 13 turned into the hill (`Logs/TerrainGen/stampfit185/caves.txt`).
+- Ledge contour-ring steps between neighbouring shelf columns: OFF 406 -> ON 0 (257 pairs). Ledge columns 313 -> 134 (`ledges.txt`).
+- Geyser pools not at rest: 0 on 4 seeds and on a 56-degree slope. Terrace levels on seed 42: 1 flat disc -> 11 (`geyser.txt`).
+- Hoops on 4 seeds: 26 -> 10 (16 on plains dropped) (`hoops.txt`).
+- Seed 2026 sea voxels not at rest at tile (190,545): >0 OFF -> 0 ON (`Logs/TerrainGen/stampfit185_sea_on_2026.txt`).
+- Suites: fast PASS 968 FAIL 0 SKIP 19 (2m38s); all PASS 1033 FAIL 0 SKIP 25, 23m09s (184b: 20m46s; the 4 new Slow tests add ~2.4 min against the pending 15-min question) (`Logs/overnight/185/final_all.out`)
+- Images (OFF folder / ON folder, same file name):
+  - `2026-11-07_143713_high` / `2026-11-07_142755_high`, `ws_fixed_wetland_basin_native.png`: the canyon wall right of the river. OFF has egg-shaped ledges with contour rings. ON has flat shelves on one rock band with a flat ceiling.
+  - same folders, `ws_fixed_river_native.png` (ON re-shot with the pool rim in `2026-11-07_150339_high`): the geyser basin, foreground. OFF is a flat white ellipse with round pools. ON has sinter terraces stepping down the slope, with pools held on their terraces.
+  - `2026-11-07_151125_high` / `2026-11-07_150339_high`, `ws_fixed_cave42_over_native.png`: seed 42 cave at (5904, 3074) m, centre of the frame. OFF, the tube runs as an open half-pipe down the coast slope. ON, a round mouth goes into the hill.
+  - `2026-11-07_143713_high` / `2026-11-07_142755_high`, `ws_fixed_cave_in_native.png` (the plan's `cave_in` pose): OFF is the open trench from inside. ON is black, because the fit dropped that cave and the camera is inside rock.
+  - same folders, `ws_fixed_snow_high_plateau_native.png`: right of centre, the stone hoop on the bare plain is there OFF and gone ON.

@@ -145,6 +145,14 @@ namespace TerrainGen
         /// Needs a record (v4) and the site plane (MapView.pocket). Read it through
         /// Pockets, never directly. `-fluidpockets 1` sets it.
         public byte fluidPocketsOn;
+        /// Task 185 (WORLD_GEN_LOOK_PLAN C7, flag-off): 1 = stamps that sit in the
+        /// land (Stamps.cs "TASK 185"): a cave mouth only where its tube stays
+        /// covered, flat cap-rock ledges on a rock-layer boundary, the geyser
+        /// basin's terraces follow the ground, hoops only on a rise or in rugged
+        /// rock, and no stamp opening within SEA_KEEP_OUT of the sea. 0 (the
+        /// default) = every byte as before. Columns only: the map and the record
+        /// ignore it. Read it through StampFit, never directly. `-stampfit 1` sets it.
+        public byte stampFitOn;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -219,6 +227,9 @@ namespace TerrainGen
 
         /// Task 183's fluid pockets in force (see fluidPocketsOn): v4 only, opt-in.
         public bool Pockets => mapVersion >= 4 && fluidPocketsOn != 0;
+
+        /// Task 185's stamp fit in force (see stampFitOn): v4 only, opt-in.
+        public bool StampFit => mapVersion >= 4 && stampFitOn != 0;
 
         public const float V4_GENTLE_SHARE = 0.50f;
 

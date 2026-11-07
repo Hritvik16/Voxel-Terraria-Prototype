@@ -189,6 +189,17 @@ namespace VoxelEngine.WorldGen
             return on;
         }
 
+        /// -stampfit 1 (task 185): spec.stampFitOn = 1, stamps that sit in the land
+        /// (TerrainGen.Stamps "TASK 185"). Absent or 0 = as before. Last match wins.
+        public static bool StampFitArg()
+        {
+            string[] a = Environment.GetCommandLineArgs();
+            bool on = false;
+            for (int i = 0; i + 1 < a.Length; i++)
+                if (a[i] == "-stampfit" && int.TryParse(a[i + 1], out int p)) on = p != 0;
+            return on;
+        }
+
         public static bool RiverShapeOffArg()
         {
             string[] a = Environment.GetCommandLineArgs();
@@ -220,6 +231,7 @@ namespace VoxelEngine.WorldGen
             if (MatRulesArg()) spec.matRulesOn = 1;   // task 180b
             if (OresArg()) spec.oresOn = 1;   // task 181
             if (FluidPocketsArg()) spec.fluidPocketsOn = 1;   // task 183
+            if (StampFitArg()) spec.stampFitOn = 1;   // task 185
             Spec = spec;
             O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
             Map = TerrainGen.WorldMap.Build(Spec);

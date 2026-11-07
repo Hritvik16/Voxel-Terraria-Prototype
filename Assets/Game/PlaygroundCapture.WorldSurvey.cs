@@ -329,6 +329,12 @@ public partial class PlaygroundCapture
                 if (!TerrainGen.Stamps.CellStamp(in o, gx, gz, out var s) || s.kind != TerrainGen.Stamps.CaveMouth) continue;
                 float gm = Ground(s.pos.x * 0.1f, s.pos.y * 0.1f);
                 if (gm < seaM + 3.5f) continue;   // Stamps: dry land only (seaLevel + 30 voxels)
+                if (spec.StampFit)   // task 185: only a cave the fit keeps, along its fitted axis
+                {
+                    var mv = map.View;
+                    TerrainGen.Stamps.SampleSiteHeight(in spec, in mv, s.pos, out int sg);
+                    if (TerrainGen.Stamps.NearSea(in spec, in mv, s.pos) || !TerrainGen.Stamps.FitCave(in spec, in mv, ref s, sg, out _)) continue;
+                }
                 float d = math.distance(s.pos, c0);
                 if (d < bestD) { bestD = d; bs = s; bg = (int)math.round(gm * 10f); found = true; }
             }

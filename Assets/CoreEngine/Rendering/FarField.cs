@@ -315,6 +315,7 @@ namespace VoxelEngine.Rendering
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.CliffsOffArg()) { var ts = Tg2Spec; ts.cliffsOff = 1; Tg2Spec = ts; }   // task 178
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.RiverShapeOffArg()) { var ts = Tg2Spec; ts.riverShapeOff = 1; Tg2Spec = ts; }   // task 179
                 if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.MatRulesArg()) { var ts = Tg2Spec; ts.matRulesOn = 1; Tg2Spec = ts; }   // task 180b
+                if (sharedTg2Map == null && VoxelEngine.WorldGen.TerrainGenChunkSource.StampFitArg()) { var ts = Tg2Spec; ts.stampFitOn = 1; Tg2Spec = ts; }   // task 185
                 _ownsTg2Map = sharedTg2Map == null;
                 Tg2Map = sharedTg2Map ?? TerrainGen.WorldMap.Build(Tg2Spec);
                 _tgO = TerrainGen.Offsets.For(Tg2Spec);

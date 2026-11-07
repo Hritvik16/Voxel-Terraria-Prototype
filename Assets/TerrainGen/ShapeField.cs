@@ -59,6 +59,9 @@ namespace TerrainGen
         /// The column's TOP voxel is carved by a surface opening (cave mouth,
         /// fissure, skull mouth): the LOD-0 oracle excludes exactly these.
         public bool carvesTop;
+        /// Task 185 (StampFit): the cave mouth's direction as quarter turns of the
+        /// stamp's hashed axis (Stamps.FitCave), for D's carve. 0 otherwise.
+        public byte stampRot;
         /// The stamp site's map ground (absolute Y), for D's 3D tests.
         public int stampGround;
         /// v3 T5: the REGIONAL ground (absolute Y) -- the map's mean height over
@@ -107,6 +110,8 @@ namespace TerrainGen
         // Wavelengths (voxels) and base amplitudes (voxels) of the detail octaves.
         // 64 m down to 1 m. Amplitudes scale with the map's roughness channel.
         public static float Wavelength(int i) => 640f / (1 << i);
+        /// Sum of every octave's Amplitude: |detail| <= DETAIL_AMP_SUM * rough at texel 1.
+        public const float DETAIL_AMP_SUM = 40f + 24f + 14f + 8f + 4.5f + 2.5f + 1.3f;
         public static float Amplitude(int i)
         {
             switch (i)
@@ -458,6 +463,10 @@ namespace TerrainGen
         public const int LEDGE_BELOW_CAP = 30;         // the shelf sits 3 m under the cap level
         public const int LEDGE_MIN_GAP = 25;           // no gap under 2.5 m (a crawl is not a ledge)
 
+        public const int LEDGE_FIT_THICK = 35;         // task 185: the flat shelf is 3.5 m thick
+        /// Task 185: the flat shelf's top voxel on rock-layer boundary k at a column whose LayerWave is `wave`.
+        public static int LedgeFitTop(uint seed, int k, float wave) => (int)math.floor(DetailField.LayerBoundary(seed, k) - wave);
+
         private static void Ledge(in TerrainSpec spec, in MapView map, in Offsets o, float2 p, ref ColumnSample c)
         {
             if (c.stamp3D || c.open1Hi > c.open1Lo || c.water > c.height || c.height < spec.seaLevelY + 60) return;
@@ -474,6 +483,17 @@ namespace TerrainGen
             if (best - own < LEDGE_MIN_STEP) return;
             int top = spec.seaLevelY + (int)math.floor(best) - LEDGE_BELOW_CAP;
             float thick = 25f + 20f * (0.5f + 0.5f * noise.snoise(p / 300f + o.detail + new float2(-40f, 88f)));
+            if (spec.StampFit)
+            {
+                // Task 185 (C7): the shelf top is the rock-layer boundary at or under
+                // that level (flat but for the layers' slow wave, DetailField.LayerWave)
+                // and the shelf a fixed thickness: a flat ceiling and lip. The old top
+                // followed the cliff (the cap a probe away), an egg with contour rings.
+                float wave = DetailField.LayerWave(in o, p);
+                int k = DetailField.LayerIndex(spec.seed, top + wave);
+                top = LedgeFitTop(spec.seed, k, wave);
+                thick = LEDGE_FIT_THICK;
+            }
             int under = top - (int)thick;
             if (top <= c.height || under - (c.height + 1) < LEDGE_MIN_GAP) return;
             c.open3Lo = c.height + 1;
