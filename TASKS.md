@@ -1160,3 +1160,24 @@ bands + pit, pocket lining, Slow `FourSeeds_AdversarialCases_AndTheTable` -> `Sc
 -> `cost180b.txt`, `CutAway_Pits` -> `Screenshots/180b/pit_*.png`; Explicit `Poses` -> `Logs/TerrainGen/180b/poses.txt`),
 `BrickSkipTests.*_MatRules`. Shots: `-lookreview -worldsurvey 1 -wsposes fixed -wsfixed "$(cat Logs/overnight/180b_poses.txt)" -matrules 1|0`;
 `python3 -I tools/matrules180b.py Screenshots/180b <ON dir> <OFF dir>` -> `Screenshots/180b/viewer.html`. Result: HANDOFF 180b.
+
+**Task 181 -- resource deposits by rule (placement plan, owner-approved 2026-11-06 incl. batch 2; `-ores 1`, DEFAULT OFF).** `Assets/TerrainGen/OreRules.cs`
+(header = the rules). The five-tier ladder and host layers are step 3's (`Ores.cs`: copper in stone, iron above sea - 100 m, gold below, cobalt
+in cavern rock, emberstone in the underworld); OFF = step 3 byte for byte. Sources, all generator data, no seed constant: DEPTH (`Ores.BaseChance`);
+BIOME x LANDFORM (`PairMul`, favoured x2) scaled by HARSHNESS = Danger biome tier + `Regions.ClassOf` (0-4): copper / gold x 16 14 12 10 8 /16 and
+x1.25 on easy cells, x1.25 on mild biomes; iron x1; cobalt only harshness >= 3 (x 40 / 56 /16), emberstone only 4 (x 80/16); WALL VEINS: a column
+with spacing-1 step > 1.5 (56 deg) carries thin tilted lenses (one per 64^3 cell at most, 0.4-0.6 m thick, 3.6-5.6 m long) down to step + 2 m below
+its top, above the 5x5 cells' still water + 1 m, none on route cells; chance per biome (badlands x3), ore from a per-biome table (copper, gold,
+iron; never latent); RICH: x2 deposits / veins on signature-feature cells. START (owner R1 (b)): cells of either play start's easy area + 128 m
+round either start column: no veins, deposits only deeper than 6 m + step + 1 in a column with no opening / lip / stamp. LATENT (owner R2 (a)):
+cobalt / emberstone are written as a TWIN per host rock (GenMat 26-29, 38, 39 = cobalt in each biome's cavern rock; 59, 94, 95 = emberstone in
+magma crust / ash / obsidian); a twin's palette row IS its host's; `ContentModules/LatentOres.cs` resolves a twin to its host until
+`world.state`'s stage reaches 1 (cobalt) / 2 (emberstone), then to the ore -- in `Tools` (hardness, tier, cost), `Items` (drop, name),
+`MaterialPalette`, and the shader (`Raymarch.compute` `LatentResolve` on `_WorldStage`, a global set by `LatentOres.SetStage`, called by
+`StreamManager` on world load). No ground rewritten, no save change, no frozen API touched. Plane: `OreRulePlane.CellPlane` (one uint per 8 m
+cell) -> `MapView.oreCell` -> `ColumnDetail.oreCell` in ColumnJob / ShellColumnJob / PointVoxel (`TerrainGenChunkSource.Ores.cs`); brick-skip
+proofs: `OreMay` with the rule chance + `VeinColumn`. The far band's top never reaches rock and its dug floors see no plane: no rule ore there.
+DevMap / the ore and tool demos build their own columns: no rule ore there. Tests `OreRuleTests` (`Twins_ContentResolves`; Slow
+`Sites_OnVsOff_Deterministic_PointShellsSkipAgree_Images` -> `Logs/TerrainGen/ores181/sites.txt`, `poses.txt`, `Screenshots/181/face_*.png` /
+`cut_*.png`; Slow `FourSeeds_StartHidden_AndTable` -> `table.txt`), `BrickSkipTests.*_Ores`. Shots: `-lookreview -worldsurvey 1 -wsposes fixed
+-wsfixed "$(cat Logs/TerrainGen/ores181/poses.txt)" -ores 1|0`. Result: HANDOFF 181.

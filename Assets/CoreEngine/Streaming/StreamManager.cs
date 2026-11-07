@@ -675,6 +675,7 @@ namespace VoxelEngine.Streaming
                 Debug.Log($"[StreamManager] world.state: clock {World.ClockSeconds:F1} s, stage {World.Stage}, " +
                           $"{World.ChunkCount} chunk entries (reject: {World.LoadReject})");
             _worldStateWriteClock = World.ClockSeconds;
+            LatentOres.SetStage(World.Stage);   // task 181: latent ore twins resolve against the loaded stage
             // 8.15 row E2 (task 108): D.5 edit summaries, written beside each D.1.
             SavedSummaries = SavedEditSummaries.Open(_deltaDir, meta.seed);
             if (SavedSummaries.Count > 0)

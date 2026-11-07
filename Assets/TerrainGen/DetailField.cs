@@ -79,6 +79,9 @@ namespace TerrainGen
             /// x1 on map v4 and 0 (no ore) below; a generator holding the world record
             /// overwrites it from OreTable.DensityPlane.
             public byte oreMul;
+            /// Task 181 (-ores 1): the column's OreRules cell (OreRulePlane.CellPlane),
+            /// set by a generator holding the record; 0 = no rule ore (PrepareColumn).
+            public uint oreCell;
         }
 
         /// Amplitudes of the wavy layer-boundary offsets (PrepareGeology).
@@ -566,7 +569,21 @@ namespace TerrainGen
                     gDeep = bd.deepOffset; gCavern = bd.cavernOffset; gUnder = bd.underOffset; gLayer = bd.layerOffset;
                 }
                 // Ores (gameplay step 3, map v4): the host layer is the brick's own.
-                if (cd.oreMul != 0 && spec.mapVersion >= 4)
+                if (spec.Ores2)   // task 181: the rules; a latent ore becomes its host's twin
+                {
+                    byte ore = OreRules.At(in spec, in c, cd.oreMul, cd.oreCell, stepAtTop, depth,
+                                           Ores.Layer(in spec, gy, gDeep, gCavern, gUnder), x, y, z);
+                    if (ore != 0)
+                    {
+                        if (!OreRules.IsLatentOre(ore)) return ore;
+                        byte host = spec.MatRules
+                            ? GroundRules.RockAt(in spec, in c, GroundRules.Band(in c, stepAtTop, depth, y), gy, gCavern, gUnder)
+                            : LayerRock(in spec, RockA(in c), RockB(in c), x, gy, z, gDeep, gCavern, gUnder, gLayer, spec.RockMix);
+                        byte tw = OreRules.Twin(ore, host);
+                        return tw != 0 ? tw : host;
+                    }
+                }
+                else if (cd.oreMul != 0 && spec.mapVersion >= 4)
                 {
                     byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, gy, gDeep, gCavern, gUnder), x, y, z);
                     if (ore != 0) return ore;
@@ -601,7 +618,21 @@ namespace TerrainGen
                 if (depth < cd.soilDepth) return Soil(c.surfBiome);
             }
             // Ores (gameplay step 3, map v4): only in rock deeper than 6 m (no cliff faces).
-            if (cd.oreMul != 0 && depth > Ores.MIN_DEPTH && spec.mapVersion >= 4)
+            if (spec.Ores2)   // task 181: deposits (> 6 m), wall veins (any depth), twins
+            {
+                byte ore = OreRules.At(in spec, in c, cd.oreMul, cd.oreCell, stepAtTop, depth,
+                                       Ores.Layer(in spec, y, cd.deepOffset, cd.cavernOffset, cd.underOffset), x, y, z);
+                if (ore != 0)
+                {
+                    if (!OreRules.IsLatentOre(ore)) return ore;
+                    byte host = spec.MatRules
+                        ? GroundRules.RockAt(in spec, in c, mrBand, y, cd.cavernOffset, cd.underOffset)
+                        : LayerRock(in spec, RockA(in c), RockB(in c), x, y, z, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset, spec.RockMix);
+                    byte tw = OreRules.Twin(ore, host);
+                    return tw != 0 ? tw : host;
+                }
+            }
+            else if (cd.oreMul != 0 && depth > Ores.MIN_DEPTH && spec.mapVersion >= 4)
             {
                 byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, y, cd.deepOffset, cd.cavernOffset, cd.underOffset), x, y, z);
                 if (ore != 0) return ore;
@@ -706,7 +737,13 @@ namespace TerrainGen
                 lLo = cd.layerOffset - lr; lHi = cd.layerOffset + lr;
             }
             int gyLo = (yLo & ~(BRICK - 1)) + BRICK / 2, gyHi = (yHi & ~(BRICK - 1)) + BRICK / 2;
-            if (cd.oreMul != 0 && spec.mapVersion >= 4 &&
+            if (spec.Ores2)   // task 181: rule deposits (removals only past the chance: safe) and veins
+            {
+                if (OreRules.VeinColumn(cd.oreCell, stepAtTop, hg - yHi, yHi)) return 255;
+                if (OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi, cd.oreCell))
+                    return 255;
+            }
+            else if (cd.oreMul != 0 && spec.mapVersion >= 4 &&
                 OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi))
                 return 255;
             if (spec.MatRules)   // task 180b: Material's brick zone (band by depth, Band is monotone)
@@ -756,7 +793,14 @@ namespace TerrainGen
                 if (depthLo < cd.soilDepth) return depthHi < cd.soilDepth ? Soil(c.surfBiome) : (byte)255;
             }
             float d = cd.deepOffset, cv = cd.cavernOffset, u = cd.underOffset, l = cd.layerOffset;
-            if (cd.oreMul != 0 && depthHi > Ores.MIN_DEPTH && spec.mapVersion >= 4 &&
+            if (spec.Ores2)   // task 181 (VeinColumn is monotone: the shallowest sample is the loosest)
+            {
+                if (OreRules.VeinColumn(cd.oreCell, stepAtTop, depthLo, yHi)) return 255;
+                if (depthHi > Ores.MIN_DEPTH &&
+                    OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, yLo, yHi, d, d, cv, cv, u, u, cd.oreCell))
+                    return 255;
+            }
+            else if (cd.oreMul != 0 && depthHi > Ores.MIN_DEPTH && spec.mapVersion >= 4 &&
                 OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, yLo, yHi, d, d, cv, cv, u, u))
                 return 255;
             if (spec.MatRules) return GroundRules.RockRange(in spec, in c, mrBand, yLo, yHi, cv, cv, u, u);   // task 180b
@@ -778,7 +822,7 @@ namespace TerrainGen
         /// layer over [lyLo, lyHi] and the offset ranges, or a sample's brick
         /// passes Ores' cell and deposit tests.
         private static bool OreMay(in TerrainSpec spec, byte biome, int oreMul, int x, int z, int yLo, int yStep, int count,
-                                   int lyLo, int lyHi, float dLo, float dHi, float cLo, float cHi, float uLo, float uHi)
+                                   int lyLo, int lyHi, float dLo, float dHi, float cLo, float cHi, float uLo, float uHi, uint oreCell = 0u)
         {
             float lo = lyLo, hi = lyHi;
             int layer;
@@ -795,7 +839,7 @@ namespace TerrainGen
             }
             else if (!(lo + dLo >= s500)) return true;
             else layer = 0;
-            int chance = Ores.CellChance(layer, biome, oreMul);
+            int chance = spec.Ores2 ? OreRules.CellChance(layer, biome, oreMul, oreCell) : Ores.CellChance(layer, biome, oreMul);
             if (chance <= 0) return false;
             for (int j = 0; j < count; j++)
             {

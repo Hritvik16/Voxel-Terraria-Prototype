@@ -1,0 +1,21 @@
+Task 181 sites, seed 42 (ON = -ores 1, OFF = step 3's placement)
+  site tall_cliff: cell (414, 682) relief 1215 vox, biome 0, arch 5, band 3, harsh 1; steepest column int2(33124, 54616) step 503 / 4 vox at h 5645; chunks y 42..46
+  site deep_canyon: cell (567, 318) relief 455 vox, biome 1, arch 2, band 3, harsh 3; steepest column int2(45372, 25500) step 30 / 4 vox at h 5789; chunks y 43..47
+  site badlands_wall: cell (391, 724) relief 721 vox, biome 5, arch 5, band 3, harsh 2; steepest column int2(31280, 57976) step 294 / 4 vox at h 5375; chunks y 39..43
+  site harsh_cavern / harsh_underworld: cell (496, 322) biome 1 arch 0, column int2(39720, 25800)
+  tall_cliff: 5 chunk(s); changed 5,552 voxels, rule ore ON 7,723 (twins 0) vs OFF 2,171; ore with open sky beside it ON 770 vs OFF 0 e.g. (33066, 5719, 54614) mat 193 beside 0 at y 5719 over top 5710; shells 1-2 ore samples compared 1,030 (shell ore 1,030), all equal; FarQuery equal; skip on = off
+  deep_canyon: 5 chunk(s); changed 2,288 voxels, rule ore ON 2,815 (twins 0) vs OFF 1,611; ore with open sky beside it ON 276 vs OFF 0 e.g. (45356, 5788, 25496) mat 193 beside 0 at y 5788 over top 5787; shells 1-2 ore samples compared 379 (shell ore 379), all equal; FarQuery equal; skip on = off
+  badlands_wall: 5 chunk(s); changed 1,470 voxels, rule ore ON 4,546 (twins 0) vs OFF 3,076; ore with open sky beside it ON 153 vs OFF 0 e.g. (31263, 5273, 57965) mat 195 beside 0 at y 5273 over top 5269; shells 1-2 ore samples compared 602 (shell ore 602), all equal; FarQuery equal; skip on = off
+  harsh_cavern: 1 chunk(s); changed 1,196 voxels, rule ore ON 1,196 (twins 1,196) vs OFF 414; ore with open sky beside it ON 0 vs OFF 0; shells 1-2 ore samples compared 151 (shell ore 151), all equal; FarQuery equal; skip on = off
+  harsh_underworld: 1 chunk(s); changed 111 voxels, rule ore ON 111 (twins 111) vs OFF 0; ore with open sky beside it ON 0 vs OFF 0; shells 1-2 ore samples compared 16 (shell ore 16), all equal; FarQuery equal; skip on = off
+  ore voxels per site:
+    tall_cliff:copper ore: 7,565
+    tall_cliff:iron ore: 158
+    deep_canyon:copper ore: 1,457
+    deep_canyon:gold ore: 1,358
+    badlands_wall:copper ore: 3,935
+    badlands_wall:gold ore: 498
+    badlands_wall:iron ore: 113
+    harsh_cavern:cobalt ore (latent): 1,196
+    harsh_underworld:emberstone (latent): 111
+  ROUGH COST (these 17 chunks, Editor, Burst): dense bricks ON 4,915 vs OFF 4,825 (+1.9 %), gen ms ON 958 vs OFF 907

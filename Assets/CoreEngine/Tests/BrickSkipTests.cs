@@ -208,6 +208,23 @@ public class BrickSkipTests
         finally { _src.SetMatRules(false); }
     }
 
+    /// Task 181: the same proofs with the rule ores on (OreMay's rule chance, VeinColumn).
+    [Test, Category("Slow")]
+    public void Chunks_SkipOnAndOff_ByteIdentical_Ores()
+    {
+        _src.SetOres(true);
+        try { RunChunks("brick_skip_identical_ores.txt"); }
+        finally { _src.SetOres(false); }
+    }
+
+    [Test, Category("Slow")]
+    public void Shells_SkipOnAndOff_ByteIdentical_Ores()
+    {
+        _src.SetOres(true);
+        try { RunShells("brick_skip_shells_identical_ores.txt"); }
+        finally { _src.SetOres(false); }
+    }
+
     private static void RunShells(string file)
     {
         var sites = Sites(_src);

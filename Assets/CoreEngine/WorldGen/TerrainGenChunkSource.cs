@@ -218,6 +218,7 @@ namespace VoxelEngine.WorldGen
             if (RiverShapeOffArg()) spec.riverShapeOff = 1;
             if (TreesArg()) spec.treesOn = 1;   // task 180
             if (MatRulesArg()) spec.matRulesOn = 1;   // task 180b
+            if (OresArg()) spec.oresOn = 1;   // task 181
             Spec = spec;
             O = TerrainGen.Offsets.For(in spec);   // v4: carries the biome scale
             Map = TerrainGen.WorldMap.Build(Spec);
@@ -231,6 +232,7 @@ namespace VoxelEngine.WorldGen
             _shore = new NativeArray<ushort>(Map.ShoreField ?? new ushort[1], Allocator.Persistent);
             _ore = new NativeArray<byte>(TerrainGen.OreTable.DensityPlane(Map.Record, Spec.mapCells), Allocator.Persistent);
             _treePlane = new NativeArray<byte>(TerrainGen.TreeTable.DensityPlane(Map.Record, Spec.mapCells), Allocator.Persistent);   // task 180
+            BuildOreCellPlane();   // task 181 (length 1 = none while -ores is off)
             _toEngine = new NativeArray<byte>(256, Allocator.Persistent);
             for (int i = 0; i < 256; i++) _toEngine[i] = VoxelEngine.Rendering.FarField.GenToEngine((byte)i);
 
@@ -263,6 +265,7 @@ namespace VoxelEngine.WorldGen
             if (_shore.IsCreated) _shore.Dispose();
             if (_ore.IsCreated) _ore.Dispose();
             if (_treePlane.IsCreated) _treePlane.Dispose();
+            if (_oreCell.IsCreated) _oreCell.Dispose();
             if (_toEngine.IsCreated) _toEngine.Dispose();
             Map?.Dispose();
         }
@@ -407,7 +410,7 @@ namespace VoxelEngine.WorldGen
                     {
                         h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, ore = _ore, spec = Spec, o = O, origin = coord * E,
                         colS = cp.colS, colSt = cp.colSt, colCd = cp.colCd, top = cp.top,
-                        treePlane = _treePlane, trees = cp.trees.trees, prims = cp.trees.prims, treeCounts = cp.trees.counts,
+                        treePlane = _treePlane, oreCellPlane = _oreCell, trees = cp.trees.trees, prims = cp.trees.prims, treeCounts = cp.trees.counts,
                     }.Run();
                     cp.cx = coord.x; cp.cz = coord.z; cp.valid = true; cp.Runs++;
                     System.Threading.Interlocked.Increment(ref _columnPasses);
@@ -489,6 +492,7 @@ namespace VoxelEngine.WorldGen
             [WriteOnly] public NativeArray<TerrainGen.DetailField.ColumnDetail> colCd;
             public NativeArray<int> top;   // [0] = max over columns of max(height, water, sea)
             [ReadOnly] public NativeArray<byte> treePlane;   // task 180: TreeTable.DensityPlane
+            [ReadOnly] public NativeArray<uint> oreCellPlane;   // task 181: OreRulePlane.CellPlane (length 1 = none)
             public NativeArray<TerrainGen.Tree> trees;       // task 180: the gathered trees (scratch)
             public NativeArray<TerrainGen.TreePrim> prims;
             public NativeArray<int> treeCounts;
@@ -504,6 +508,7 @@ namespace VoxelEngine.WorldGen
                     route = routeMask.Length > 1 ? (byte*)routeMask.GetUnsafeReadOnlyPtr() : null,   // task 178b
                     shore = shoreField.Length > 1 ? (ushort*)shoreField.GetUnsafeReadOnlyPtr() : null,   // task 180b
                     trees = treePlane.Length > 1 ? (byte*)treePlane.GetUnsafeReadOnlyPtr() : null,   // task 180
+                    oreCell = oreCellPlane.Length > 1 ? (uint*)oreCellPlane.GetUnsafeReadOnlyPtr() : null,   // task 181
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 // S on a 130^2 grid (the chunk's columns plus a one-column
@@ -537,6 +542,7 @@ namespace VoxelEngine.WorldGen
                     colSt[ci] = m / 1f;
                     var cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, x, z, ref nodes);
                     if (cd.oreMul != 0) cd.oreMul = ore[TerrainGen.Ores.CellIndex(x, z, spec.mapCells, spec.mapCellVoxels)];
+                    if (map.oreCell != null) cd.oreCell = map.oreCell[TerrainGen.Ores.CellIndex(x, z, spec.mapCells, spec.mapCellVoxels)];   // task 181
                     colCd[ci] = cd;
                     var c = colS[ci];
                     maxTop = math.max(maxTop, math.max(c.height, c.water));

@@ -227,6 +227,7 @@ namespace VoxelEngine.Streaming
                     h = _src.PointHeight, r = _src.PointRough, w = _src.PointWater, cls = _src.PointWaterClass,
                     flow = _src.PointFlow, routeMask = _src.PointRoute, shoreField = _src.PointShore, ore = _src.PointOre, toEngine = _src.PointToEngine,
                     treePlane = _src.PointTreePlane,   // task 180
+                    oreCellPlane = _src.PointOreCell,   // task 181
                     spec = _src.Spec, o = _src.O,
                 };
                 int batches = (n + BATCH - 1) / BATCH;
@@ -250,6 +251,7 @@ namespace VoxelEngine.Streaming
             [ReadOnly] public NativeArray<byte> routeMask;   // task 178b: WorldMap.RouteMask (length 1 = none)
             [ReadOnly] public NativeArray<ushort> shoreField;   // task 180b: GroundRules.BakeShore (length 1 = none)
             [ReadOnly] public NativeArray<byte> treePlane;   // task 180: TreeTable.DensityPlane
+            [ReadOnly] public NativeArray<uint> oreCellPlane;   // task 181
             public TerrainGen.TerrainSpec spec;
             public TerrainGen.Offsets o;
 
@@ -263,6 +265,7 @@ namespace VoxelEngine.Streaming
                     route = routeMask.Length > 1 ? (byte*)routeMask.GetUnsafeReadOnlyPtr() : null,   // task 178b
                     shore = shoreField.Length > 1 ? (ushort*)shoreField.GetUnsafeReadOnlyPtr() : null,   // task 180b
                     trees = treePlane.Length > 1 ? (byte*)treePlane.GetUnsafeReadOnlyPtr() : null,   // task 180
+                    oreCell = oreCellPlane.Length > 1 ? (uint*)oreCellPlane.GetUnsafeReadOnlyPtr() : null,   // task 181
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 var nodes = new TerrainGen.DetailField.NodeCache();

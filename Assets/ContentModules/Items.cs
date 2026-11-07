@@ -28,6 +28,7 @@ public static class Items
     {
         if (material == Materials.Air) return None;
         if (MaterialRules.IsFluidMaterial(material)) return None;   // P9
+        material = LatentOres.Resolve(material);   // task 181: a latent twin drops its host until unlocked
         if (material == Tg2(GrassCode)) return Tg2(LoamCode);
         if (material == Tg2(JungleGrassCode)) return Tg2(MudCode);
         if (material == Tg2(SavannaGrassCode)) return Tg2(RedEarthCode);
@@ -54,7 +55,7 @@ public static class Items
     /// Display name; "id N" for an id nothing names.
     public static string Name(byte item)
     {
-        string n = _names[item];
+        string n = _names[LatentOres.Resolve(item)];   // task 181: a twin is named as what it resolves to
         return n ?? $"id {item}";
     }
 

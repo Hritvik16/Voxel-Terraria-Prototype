@@ -49,6 +49,9 @@ namespace TerrainGen
         /// Task 180b: the baked shore field (GroundRules.BakeShore, one ushort
         /// per cell). OPTIONAL: null = GroundRules scans the cells itself (same answer).
         public ushort* shore;
+        /// Task 181: the ore cell plane (OreRulePlane.CellPlane, one uint per cell).
+        /// OPTIONAL: null = no rule ore, whatever TerrainSpec.Ores2 says.
+        public uint* oreCell;
         public int cells;
         public float cellVoxels;
     }

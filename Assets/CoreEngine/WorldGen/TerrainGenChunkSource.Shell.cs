@@ -206,7 +206,7 @@ namespace VoxelEngine.WorldGen
                     h = _h, r = _r, w = _w, cls = _cls, flow = _flow, routeMask = _route, shoreField = _shore, ore = _ore, spec = Spec, o = O,
                     origin = origin, shift = shell, half = half,
                     colS = output.colS, colSt = output.colSt, colCd = output.colCd, top = output.top,
-                    treePlane = _treePlane, gatherTrees = maxTrees > 0,
+                    treePlane = _treePlane, oreCellPlane = _oreCell, gatherTrees = maxTrees > 0,
                     trees = output.trees.trees, prims = output.trees.prims, treeCounts = output.trees.counts,
                 }.Run();
                 System.Threading.Interlocked.Increment(ref _shellColumnPasses);
@@ -294,6 +294,7 @@ namespace VoxelEngine.WorldGen
             [WriteOnly] public NativeArray<TerrainGen.DetailField.ColumnDetail> colCd;
             public NativeArray<int> top;   // [0] = max over sampled columns of max(height, water, sea)
             [ReadOnly] public NativeArray<byte> treePlane;   // task 180
+            [ReadOnly] public NativeArray<uint> oreCellPlane;   // task 181
             public bool gatherTrees;
             public NativeArray<TerrainGen.Tree> trees;
             public NativeArray<TerrainGen.TreePrim> prims;
@@ -310,6 +311,7 @@ namespace VoxelEngine.WorldGen
                     route = routeMask.Length > 1 ? (byte*)routeMask.GetUnsafeReadOnlyPtr() : null,   // task 178b
                     shore = shoreField.Length > 1 ? (ushort*)shoreField.GetUnsafeReadOnlyPtr() : null,   // task 180b
                     trees = treePlane.Length > 1 ? (byte*)treePlane.GetUnsafeReadOnlyPtr() : null,   // task 180
+                    oreCell = oreCellPlane.Length > 1 ? (uint*)oreCellPlane.GetUnsafeReadOnlyPtr() : null,   // task 181
                     cells = spec.mapCells, cellVoxels = spec.mapCellVoxels,
                 };
                 int maxTop = spec.seaLevelY;
@@ -330,6 +332,7 @@ namespace VoxelEngine.WorldGen
                     colSt[ci] = m / 1f;
                     var cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, x, z, ref nodes);
                     if (cd.oreMul != 0) cd.oreMul = ore[TerrainGen.Ores.CellIndex(x, z, spec.mapCells, spec.mapCellVoxels)];
+                    if (map.oreCell != null) cd.oreCell = map.oreCell[TerrainGen.Ores.CellIndex(x, z, spec.mapCells, spec.mapCellVoxels)];   // task 181
                     colCd[ci] = cd;
                     colS[ci] = c;
                     maxTop = math.max(maxTop, math.max(c.height, c.water));

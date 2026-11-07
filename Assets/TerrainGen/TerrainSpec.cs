@@ -133,6 +133,12 @@ namespace TerrainGen
         /// band's colours only: the map and the record ignore it. Read it through
         /// MatRules, never directly. `-matrules 1` sets it.
         public byte matRulesOn;
+        /// Task 181 (placement, resource deposits): 1 = OreRules.cs (harshness-scaled
+        /// deposits, wall veins, rich features, the hidden start, latent cobalt and
+        /// emberstone twins). 0 (the default) = step 3's Ores.cs placement, byte for
+        /// byte. Needs a record (v4) and the ore cell plane (ColumnDetail.oreCell).
+        /// Read it through Ores2, never directly. `-ores 1` sets it.
+        public byte oresOn;
 
         /// The owner's world (§2.2). Additive: sizeClass 0/1 live in the
         /// engine's own generator and are never touched by this assembly.
@@ -201,6 +207,9 @@ namespace TerrainGen
 
         /// Task 180b's material rules in force (see matRulesOn): v4 only, opt-in.
         public bool MatRules => mapVersion >= 4 && matRulesOn != 0;
+
+        /// Task 181's rule ores in force (see oresOn): v4 only, opt-in.
+        public bool Ores2 => mapVersion >= 4 && oresOn != 0;
 
         public const float V4_GENTLE_SHARE = 0.50f;
 

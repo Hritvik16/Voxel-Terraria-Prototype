@@ -46,6 +46,8 @@ namespace TerrainGen
         public const byte BlueSlate = 50, Marble = 51, Basalt = 52, TealQuartzite = 53, SilverSchist = 54;  // snow
         public const byte KarstLimestone = 60, BlackBasalt = 61, Laterite = 62, MossRock = 63, JadeSerpentine = 64; // jungle
         // Ores (gameplay step 3, map v4): 65-69 = Ores.Copper .. Ores.Emberstone (Ores.cs).
+        // Task 181 (-ores 1): LATENT ORE TWINS in free codes 26-29, 38, 39 (cobalt in each biome's
+        // cavern rock), 59, 94, 95 (emberstone in magma crust / ash / obsidian) -- OreRules.cs.
         // B10 (map v4), in the gaps after forest's and desert's sets: savanna's rock per
         // depth layer, and badlands' three exposed bands (layer 0 cycles them by height)
         // plus its deep and cavern rock.

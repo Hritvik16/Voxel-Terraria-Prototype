@@ -1,0 +1,57 @@
+Task 181 -- four seeds: the start zone (no rule ore with open sky beside it) and the deposit table
+seed 42:
+  start (mild) round chunk column int2(290, 178): 49 chunk columns, rule ore voxels on zone cells 64,249, with open sky beside them 0
+  start (any) round chunk column int2(208, 235): 49 chunk columns, rule ore voxels on zone cells 98,367, with open sky beside them 0
+  zone's steepest cell round chunk column int2(239, 235): 9 chunk columns, rule ore voxels on zone cells 11,327, with open sky beside them 0
+  start zone: 13827 map cells (88.5 km^2)
+  deposits (32^3 cells that hold one) over 97,344 sampled cell columns (1 in 64 of the world), ON / OFF:
+    ore                   forest          desert            snow          jungle         savanna        badlands            total
+    copper         46477 / 27935   15915 / 17918   12964 / 16370     1531 / 1856   20139 / 11467     5577 / 6519   102603 / 82065
+    iron             6564 / 5130     7120 / 5489     9506 / 8630     2012 / 1956     7880 / 5687     3392 / 3352    36474 / 30244
+    gold             6677 / 5426   10863 / 11794     8545 / 9625     3936 / 4097     4867 / 4087    9692 / 10107    44580 / 45136
+    cobalt           201 / 21506   34761 / 23346   70779 / 77299    2956 / 16483      58 / 16319    1240 / 20062  109995 / 175015
+    emberstone         24 / 5529     6467 / 6054    7988 / 10032      382 / 8391        2 / 4329        1 / 5189    14864 / 39524
+    ON by harshness 0-4:  copper [11508 19647 51967 9801 9680]; iron [11339 4357 10990 5337 4451]; gold [29486 3270 6388 3407 2029]; cobalt [0 0 0 47602 62393]; emberstone [0 0 0 0 14864]
+    ON by depth (band 0 = above sea, k = (k-1)..k x 100 m below sea): copper [28641 73962 0 0 0 0 0 0]; iron [0 33779 2695 0 0 0 0 0]; gold [0 999 43581 0 0 0 0 0]; cobalt [0 0 21336 45191 43444 24 0 0]; emberstone [0 0 0 0 11 14400 453 0]
+seed 7:
+  start (mild) round chunk column int2(195, 235): 49 chunk columns, rule ore voxels on zone cells 40,936, with open sky beside them 0
+  start (any) round chunk column int2(253, 223): 49 chunk columns, rule ore voxels on zone cells 12,637, with open sky beside them 0
+  zone's steepest cell round chunk column int2(238, 243): 9 chunk columns, rule ore voxels on zone cells 2,932, with open sky beside them 0
+  start zone: 13546 map cells (86.7 km^2)
+  deposits (32^3 cells that hold one) over 97,344 sampled cell columns (1 in 64 of the world), ON / OFF:
+    ore                   forest          desert            snow          jungle         savanna        badlands            total
+    copper         65943 / 36968     3163 / 4216   10657 / 12263     4623 / 4683     8533 / 6238   14318 / 15845   107237 / 80213
+    iron             6400 / 4640     3851 / 3637     6726 / 5853     3076 / 2400     7928 / 7015     5953 / 5196    33934 / 28741
+    gold             7016 / 5541   12759 / 13371     5260 / 5770     2876 / 2995     4916 / 4336   15189 / 15958    48016 / 47971
+    cobalt           150 / 22515    9868 / 26371   31751 / 45412   10731 / 11502      96 / 17527   14129 / 31679   66725 / 155006
+    emberstone         17 / 5678     2961 / 6855     4915 / 5928     3223 / 5994       22 / 4368       25 / 8175    11163 / 36998
+    ON by harshness 0-4:  copper [18345 17060 56528 9748 5556]; iron [12348 5184 9638 3993 2771]; gold [35079 2817 6250 2673 1197]; cobalt [0 0 0 28196 38529]; emberstone [0 0 0 0 11163]
+    ON by depth (band 0 = above sea, k = (k-1)..k x 100 m below sea): copper [34269 72968 0 0 0 0 0 0]; iron [0 31433 2501 0 0 0 0 0]; gold [0 1149 46867 0 0 0 0 0]; cobalt [0 0 13117 27126 26468 14 0 0]; emberstone [0 0 0 0 3 10811 349 0]
+seed 2026:
+  start (mild) round chunk column int2(307, 399): 49 chunk columns, rule ore voxels on zone cells 102,941, with open sky beside them 0
+  start (any) round chunk column int2(307, 399): 49 chunk columns, rule ore voxels on zone cells 102,941, with open sky beside them 0
+  zone's steepest cell round chunk column int2(308, 401): 9 chunk columns, rule ore voxels on zone cells 12,799, with open sky beside them 0
+  start zone: 7348 map cells (47.0 km^2)
+  deposits (32^3 cells that hold one) over 97,344 sampled cell columns (1 in 64 of the world), ON / OFF:
+    ore                   forest          desert            snow          jungle         savanna        badlands            total
+    copper         50966 / 29126     5460 / 5921   15081 / 16031     8087 / 8327     9524 / 5820     6060 / 6186    95178 / 71411
+    iron             7226 / 5193     2947 / 2197     9976 / 8605     3752 / 2853     6074 / 4530     4474 / 3929    34449 / 27307
+    gold             6119 / 4227     2785 / 3083   19431 / 19936     3099 / 3306     2469 / 1682     7266 / 7304    41169 / 39538
+    cobalt            92 / 16854    14255 / 6062  62148 / 155950   18099 / 12776       15 / 6532    5242 / 14727   99851 / 212901
+    emberstone         24 / 4383     3835 / 1607    7121 / 20291     4704 / 6400        0 / 1639       14 / 3804    15698 / 38124
+    ON by harshness 0-4:  copper [28380 5238 36988 11656 12916]; iron [13988 2953 8580 4875 4053]; gold [29159 2804 4989 2510 1707]; cobalt [0 0 0 43399 56452]; emberstone [0 0 0 0 15698]
+    ON by depth (band 0 = above sea, k = (k-1)..k x 100 m below sea): copper [18782 76396 0 0 0 0 0 0]; iron [0 31999 2450 0 0 0 0 0]; gold [0 958 40211 0 0 0 0 0]; cobalt [0 0 19259 40882 39680 30 0 0]; emberstone [0 0 0 0 10 15156 532 0]
+seed 31337:
+  start (mild) round chunk column int2(285, 185): 49 chunk columns, rule ore voxels on zone cells 61,056, with open sky beside them 0
+  start (any) round chunk column int2(270, 383): 49 chunk columns, rule ore voxels on zone cells 52,792, with open sky beside them 0
+  zone's steepest cell round chunk column int2(252, 178): 9 chunk columns, rule ore voxels on zone cells 7,275, with open sky beside them 0
+  start zone: 13519 map cells (86.5 km^2)
+  deposits (32^3 cells that hold one) over 97,344 sampled cell columns (1 in 64 of the world), ON / OFF:
+    ore                   forest          desert            snow          jungle         savanna        badlands            total
+    copper         29341 / 18644    10132 / 9740   16497 / 17296     5014 / 5902     6867 / 4224   14333 / 13584    82184 / 69390
+    iron             5426 / 4336     3370 / 1977     8862 / 6106     5463 / 5213     6893 / 5697     7973 / 6659    37987 / 29988
+    gold             6248 / 5163     5803 / 5621     5255 / 5549     7923 / 8280     4982 / 4378   15078 / 15455    45289 / 44446
+    cobalt           287 / 20119   20921 / 11466   98710 / 43339    7003 / 32784      90 / 17409   14896 / 30854  141907 / 155971
+    emberstone         48 / 5274     4659 / 2847    12483 / 5581    2611 / 17058       13 / 4501       31 / 7868    19845 / 43129
+    ON by harshness 0-4:  copper [15824 10499 25013 13694 17154]; iron [12650 4917 8230 6582 5608]; gold [29525 3867 5415 4119 2363]; cobalt [0 0 0 58190 83717]; emberstone [0 0 0 0 19845]
+    ON by depth (band 0 = above sea, k = (k-1)..k x 100 m below sea): copper [13674 68510 0 0 0 0 0 0]; iron [0 35240 2747 0 0 0 0 0]; gold [0 990 44299 0 0 0 0 0]; cobalt [0 0 27725 58010 56137 35 0 0]; emberstone [0 0 0 0 16 19180 649 0]

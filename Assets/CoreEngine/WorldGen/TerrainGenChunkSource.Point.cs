@@ -47,6 +47,7 @@ namespace VoxelEngine.WorldGen
         internal NativeArray<byte> PointRoute => _route;   // task 178b
         internal NativeArray<ushort> PointShore => _shore;   // task 180b
         internal NativeArray<byte> PointOre => _ore;
+        internal NativeArray<uint> PointOreCell => _oreCell;   // task 181
         internal NativeArray<byte> PointToEngine => _toEngine;
 
         /// The engine material Generate gives voxel `v` (world voxel coordinates).
@@ -68,6 +69,7 @@ namespace VoxelEngine.WorldGen
                                  math.max(math.abs(hn - ch), math.abs(hs - ch)));
                 var cd = TerrainGen.DetailField.PrepareColumn(in spec, in o, x, z, ref nodes);
                 if (cd.oreMul != 0) cd.oreMul = ore[TerrainGen.Ores.CellIndex(x, z, spec.mapCells, spec.mapCellVoxels)];
+                if (map.oreCell != null) cd.oreCell = map.oreCell[TerrainGen.Ores.CellIndex(x, z, spec.mapCells, spec.mapCellVoxels)];   // task 181
                 col.c = c; col.st = m / 1f; col.cd = cd;
                 col.x = x; col.z = z; col.valid = true;
                 col.treesValid = false;

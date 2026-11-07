@@ -788,10 +788,10 @@ static const float3 kTg2Palette[96] = {
     float3(0.353, 0.227, 0.141),   // 151 mud
     float3(0.643, 0.325, 0.180),   // 152 red earth
     float3(0.627, 0.392, 0.290),   // 153 hardpan
-    float3(0.900, 0.100, 0.800),   // 154 (none)
-    float3(0.900, 0.100, 0.800),   // 155 (none)
-    float3(0.900, 0.100, 0.800),   // 156 (none)
-    float3(0.900, 0.100, 0.800),   // 157 (none)
+    float3(0.231, 0.204, 0.251),   // 154 latent cobalt ore in shale
+    float3(0.431, 0.165, 0.149),   // 155 latent cobalt ore in maroon mudstone
+    float3(0.173, 0.192, 0.251),   // 156 latent cobalt ore in basalt
+    float3(0.149, 0.188, 0.165),   // 157 latent cobalt ore in black basalt
     float3(0.760, 0.707, 0.574),   // 158 limestone
     float3(0.290, 0.353, 0.431),   // 159 slate
     float3(0.760, 0.526, 0.163),   // 160 ochre clay
@@ -800,8 +800,8 @@ static const float3 kTg2Palette[96] = {
     float3(0.760, 0.642, 0.548),   // 163 kopje granite
     float3(0.431, 0.204, 0.141),   // 164 ironstone
     float3(0.478, 0.439, 0.416),   // 165 gneiss
-    float3(0.900, 0.100, 0.800),   // 166 (none)
-    float3(0.900, 0.100, 0.800),   // 167 (none)
+    float3(0.478, 0.439, 0.416),   // 166 latent cobalt ore in gneiss
+    float3(0.361, 0.212, 0.267),   // 167 latent cobalt ore in plum shale
     float3(0.760, 0.687, 0.532),   // 168 cream sandstone
     float3(0.722, 0.271, 0.165),   // 169 red sandstone
     float3(0.760, 0.418, 0.181),   // 170 orange sandstone
@@ -821,7 +821,7 @@ static const float3 kTg2Palette[96] = {
     float3(0.173, 0.478, 0.204),   // 184 jungle leaves
     float3(0.435, 0.475, 0.180),   // 185 savanna leaves
     float3(0.184, 0.353, 0.235),   // 186 pine needles
-    float3(0.900, 0.100, 0.800),   // 187 (none)
+    float3(0.478, 0.165, 0.078),   // 187 latent emberstone in magma crust
     float3(0.760, 0.756, 0.608),   // 188 karst limestone
     float3(0.149, 0.188, 0.165),   // 189 black basalt
     float3(0.753, 0.314, 0.173),   // 190 laterite
@@ -856,8 +856,8 @@ static const float3 kTg2Palette[96] = {
     float3(0.227, 0.188, 0.188),   // 219 volcanic rock
     float3(0.604, 0.584, 0.549),   // 220 standing stone
     float3(0.310, 0.541, 0.235),   // 221 cactus
-    float3(0.900, 0.100, 0.800),   // 222 (none)
-    float3(0.900, 0.100, 0.800)    // 223 (none)
+    float3(0.490, 0.463, 0.439),   // 222 latent emberstone in ash
+    float3(0.102, 0.078, 0.141)    // 223 latent emberstone in obsidian
 };
 static const float3 kTg2PaletteLook[96] = {
     float3(0.900, 0.100, 0.800),   // 128 (none)
@@ -886,10 +886,10 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.353, 0.227, 0.141),   // 151 mud
     float3(0.643, 0.325, 0.180),   // 152 red earth
     float3(0.627, 0.392, 0.290),   // 153 hardpan
-    float3(0.900, 0.100, 0.800),   // 154 (none)
-    float3(0.900, 0.100, 0.800),   // 155 (none)
-    float3(0.900, 0.100, 0.800),   // 156 (none)
-    float3(0.900, 0.100, 0.800),   // 157 (none)
+    float3(0.231, 0.204, 0.251),   // 154 latent cobalt ore in shale
+    float3(0.431, 0.165, 0.149),   // 155 latent cobalt ore in maroon mudstone
+    float3(0.173, 0.192, 0.251),   // 156 latent cobalt ore in basalt
+    float3(0.149, 0.188, 0.165),   // 157 latent cobalt ore in black basalt
     float3(0.847, 0.788, 0.639),   // 158 limestone
     float3(0.290, 0.353, 0.431),   // 159 slate
     float3(0.788, 0.545, 0.169),   // 160 ochre clay
@@ -898,8 +898,8 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.761, 0.643, 0.549),   // 163 kopje granite
     float3(0.431, 0.204, 0.141),   // 164 ironstone
     float3(0.478, 0.439, 0.416),   // 165 gneiss
-    float3(0.900, 0.100, 0.800),   // 166 (none)
-    float3(0.900, 0.100, 0.800),   // 167 (none)
+    float3(0.478, 0.439, 0.416),   // 166 latent cobalt ore in gneiss
+    float3(0.361, 0.212, 0.267),   // 167 latent cobalt ore in plum shale
     float3(0.941, 0.851, 0.659),   // 168 cream sandstone
     float3(0.722, 0.271, 0.165),   // 169 red sandstone
     float3(0.871, 0.478, 0.208),   // 170 orange sandstone
@@ -919,7 +919,7 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.173, 0.478, 0.204),   // 184 jungle leaves
     float3(0.435, 0.475, 0.180),   // 185 savanna leaves
     float3(0.184, 0.353, 0.235),   // 186 pine needles
-    float3(0.900, 0.100, 0.800),   // 187 (none)
+    float3(0.478, 0.165, 0.078),   // 187 latent emberstone in magma crust
     float3(0.784, 0.780, 0.627),   // 188 karst limestone
     float3(0.149, 0.188, 0.165),   // 189 black basalt
     float3(0.753, 0.314, 0.173),   // 190 laterite
@@ -954,13 +954,27 @@ static const float3 kTg2PaletteLook[96] = {
     float3(0.227, 0.188, 0.188),   // 219 volcanic rock
     float3(0.604, 0.584, 0.549),   // 220 standing stone
     float3(0.310, 0.541, 0.235),   // 221 cactus
-    float3(0.900, 0.100, 0.800),   // 222 (none)
-    float3(0.900, 0.100, 0.800)    // 223 (none)
+    float3(0.490, 0.463, 0.439),   // 222 latent emberstone in ash
+    float3(0.102, 0.078, 0.141)    // 223 latent emberstone in obsidian
 };
 // <<< TG2 PALETTE
 
+// Task 181 (latent ores, owner R2 (a)): cobalt and emberstone are generated as a
+// TWIN per host rock whose table colour IS the host's, so at stage 0 nothing here
+// runs. From the unlock stage (world.state's stage, set as a global by
+// LatentOres.SetStage) a twin takes its ore's colour. Mirrors LatentOres.Resolve.
+uint _WorldStage;
+uint LatentResolve(uint m)
+{
+    if (_WorldStage == 0u) return m;
+    if (m == 154u || m == 155u || m == 156u || m == 157u || m == 166u || m == 167u) return _WorldStage >= 1u ? 196u : m;
+    if (m == 187u || m == 222u || m == 223u) return _WorldStage >= 2u ? 197u : m;
+    return m;
+}
+
 float3 MaterialAlbedo(uint mat)
 {
+    mat = LatentResolve(mat);   // task 181
     // The TerrainGen world's block (MaterialPalette's TG2 table, palette D).
     if (mat >= 128u && mat < 224u) return kTg2Palette[mat - 128u];
     if (mat == 2u)  return float3(0.440, 0.425, 0.400);  // Stone
@@ -1113,6 +1127,7 @@ float3 LookSkyBackground(float3 dir)
 // MaterialAlbedo. Change a colour in BOTH places.
 float3 MaterialAlbedoLook(uint mat)
 {
+    mat = LatentResolve(mat);   // task 181
     if (mat >= 128u && mat < 224u) return kTg2PaletteLook[mat - 128u];
     if (mat == 2u)  return float3(0.480, 0.480, 0.500);  // Stone
     if (mat == 3u)  return float3(0.330, 0.550, 0.240);  // Grass
