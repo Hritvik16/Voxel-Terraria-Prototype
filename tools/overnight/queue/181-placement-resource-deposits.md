@@ -1,7 +1,7 @@
 # 181-placement-resource-deposits
 
 Model: opus
-Requires: 180-placement-voxel-trees-first-test
+(2026-11-06 supervisor: the Requires on 180 was dropped; 180 stopped for the owner's look and the ore work does not depend on the trees.)
 
 Approval: owner, 2026-11-06: "Placement plan (draft for approval)" doc APPROVED, incl. batch 2 answers. Order: trees (180) -> resources (this) -> towns' buildings -> fluid pockets.
 Read the plan doc's "Batch 2 answers" (summary below), `GAME_DESIGN_BRIEF_SNAPSHOT.md` "Underground materials", "Object placement" and "World changes supported, and new ores",
