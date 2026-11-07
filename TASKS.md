@@ -1181,3 +1181,17 @@ DevMap / the ore and tool demos build their own columns: no rule ore there. Test
 `Sites_OnVsOff_Deterministic_PointShellsSkipAgree_Images` -> `Logs/TerrainGen/ores181/sites.txt`, `poses.txt`, `Screenshots/181/face_*.png` /
 `cut_*.png`; Slow `FourSeeds_StartHidden_AndTable` -> `table.txt`), `BrickSkipTests.*_Ores`. Shots: `-lookreview -worldsurvey 1 -wsposes fixed
 -wsfixed "$(cat Logs/TerrainGen/ores181/poses.txt)" -ores 1|0`. Result: HANDOFF 181.
+
+**Task 182 -- material rules: two fixes behind `-matrules 1` (default still OFF).** Fixes 180b's two defects; no new flag. (1) DEEP STONE
+BY ABSOLUTE HEIGHT: `GroundRules.Band` is now 0 skin / 1 soil / 2 subsoil / 3 rock, and WHICH rock is absolute (`GroundRules.RockAt` /
+`RockRange`): the biome's stone down to the generator's own stone / deep-stone line (`GroundRules.DeepTop` = sea -
+`DetailField.STONE_BOTTOM_BELOW_SEA` + the wavy deepOffset, the old path's `LayerRock` line), deep stone under it, then cavern rock and the
+underworld. `ColumnSample.mrDeep` and `DEEP_BASE/AMP` are gone; a tall face is one stone. (2) SHELL EXPOSURE: `ColumnSample.mrExpose`
+(ushort, 0 outside shells) = max(2^k, h - the lowest of the 4 coarse neighbours), set by `ShellColumnJob.Expose` (shift > 0, MatRules on;
+edge neighbours sampled); a coarse voxel shallower than it is bared on top or a side and is band 0 (skin); deeper voxels keep their own
+depth's band. At 2^k = 1 it would be a no-op (drop to a fine neighbour = stepAtTop <= SHEER_STEP = SKIN), so chunks are untouched. Material's
+brick zone and `GeologyRock` return the skin for band <= 2 (only an exposed coarse voxel gets there). Tests: `MaterialRuleTests.
+TallFace_IsOneStone_NoDeepStoneAboveTheAbsoluteBoundary` (sheer faces up to 41 m on 3 seeds -> `Logs/TerrainGen/180b/tallface182.txt`),
+Slow `MaterialRuleChunkTests.Shells_BaredVoxels_WearTheSkin` (shells 3 / 5 round the 9 sites; also pins mrExpose ->
+`shell_bared182.txt`); `ShellChunk.Column/ColumnStep` expose the voxel pass's own column to tests. Shots: `Logs/overnight/182_shots.sh`
+(180b's 8 poses, ON), viewer `Screenshots/182/viewer.html` (182 ON | 180b ON | OFF). Result: HANDOFF 182.

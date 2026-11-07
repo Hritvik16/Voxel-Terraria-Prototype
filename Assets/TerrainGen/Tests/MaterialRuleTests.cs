@@ -11,9 +11,12 @@
 //     ground and keeps the Cover slot trees read;
 //   - near == far on the shape slots at texel <= 22 (the band limit);
 //   - depth bands in order down every column: a dug pit shows the ORIGINAL
-//     surface's skin, soil, subsoil, stone, deep stone (Material reads the
+//     surface's skin, soil, subsoil, stone (Material reads the
 //     generated column only; the same voxel asked twice, or through a baked
 //     or scanned shore field, is the same byte);
+//   - task 182: a tall face is ONE stone: no deep stone above the absolute
+//     stone / deep-stone boundary, whatever the depth below the column's top
+//     (the tallest sheer columns of 4 seeds); deep stone under it;
 //   - a sealed pocket's wall is lined with its fluid's own shore material;
 //   - 4 seeds + adversarial cases (river across a biome border, oasis, tall
 //     cliff, canyon floor, lake outlet), and the per-biome table the owner
@@ -159,13 +162,13 @@ namespace TerrainGen.Tests
             {
                 var a = S(in w.off, in w, p.x, p.y);
                 var b = S(in w.on, in w, p.x, p.y);
-                Assert.AreEqual(0, a.mrSlot | a.mrSoil | a.mrSub | a.mrDeep, "off: no rule field");
+                Assert.AreEqual(0, a.mrSlot | a.mrSoil | a.mrSub | a.mrExpose, "off: no rule field");
                 Assert.AreEqual(a.height, b.height, "the rules never move the ground");
                 Assert.AreEqual(a.water, b.water);
                 Assert.AreEqual(a.biome, b.biome, "the biome (record, ores, danger) is untouched");
                 int slot = GroundRules.Slot(b.mrSlot);
                 Assert.AreEqual(GroundRules.LegacySlot(slot), Cover.Slot(b.cover), "trees read the Cover slot");
-                Assert.Greater(b.mrDeep, b.mrSub, "bands in order");
+                Assert.AreEqual(0, b.mrExpose, "exposure: shells only");
                 Assert.GreaterOrEqual(b.mrSub, b.mrSoil);
                 if (b.mrSoil != 0) Assert.GreaterOrEqual(b.mrSoil, GroundRules.SKIN);
                 var rb = DetailField.RockA(in b);
@@ -226,7 +229,7 @@ namespace TerrainGen.Tests
                     var c = S(in w.on, in w, p.x, p.y);
                     var cb = ShapeField.Sample(in w.on, in bview, in w.o, p.x + 0.5f, p.y + 0.5f, 1);
                     Assert.AreEqual(c.mrSlot, cb.mrSlot, "baked shore field == scan"); Assert.AreEqual(c.mrSoil, cb.mrSoil);
-                    Assert.AreEqual(c.mrSub, cb.mrSub); Assert.AreEqual(c.mrDeep, cb.mrDeep); Assert.AreEqual(c.surfBiome, cb.surfBiome);
+                    Assert.AreEqual(c.mrSub, cb.mrSub); Assert.AreEqual(c.surfBiome, cb.surfBiome);
                     if (c.stampMat != 0 || c.stamp3D || c.open3Hi > c.open3Lo || c.lipLo != 0 || c.water > c.height) continue;
                     float st = Step(in w.on, in w, p.x, p.y, c.height);
                     var cd = DetailField.PrepareColumn(in w.on, in w.o, p.x, p.y);
@@ -236,14 +239,13 @@ namespace TerrainGen.Tests
                     for (int d = 0; d < 260; d++)
                     {
                         int y = c.height - d;
-                        int band = GroundRules.Band(in c, st, d, y);
+                        int band = GroundRules.Band(in c, st, d);
                         Assert.GreaterOrEqual(band, last, "bands never go back up"); last = band;
-                        if (d >= c.mrDeep + 8) Assert.AreEqual(4, band);
-                        if (d < c.mrDeep) Assert.Less(band, 4);
+                        Assert.LessOrEqual(band, 3, "task 182: no depth band for the deep stone");
                         byte m = DetailField.Material(in w.on, in w.o, in c, in cd, st, p.x, y, p.y);
                         Assert.AreEqual(m, DetailField.Material(in w.on, in w.o, in c, in cd, st, p.x, y, p.y), "asked twice");
                         if (!GenMat.IsSolid(m) || (m >= Ores.Copper && m <= Ores.Copper + 4)) continue;   // a cave, pocket or ore
-                        byte want = band <= 2 ? GroundRules.NearMaterial(in c, st, band) : GroundRules.RockAt(in w.on, in c, band, y, cd.cavernOffset, cd.underOffset);
+                        byte want = band <= 2 ? GroundRules.NearMaterial(in c, st, band) : GroundRules.RockAt(in w.on, in c, y, cd.deepOffset, cd.cavernOffset, cd.underOffset);
                         Assert.AreEqual(want, m, $"({p.x},{y},{p.y}) depth {d} band {band}");
                         checkedVox++;
                         if (m != prevM) { seq.Add($"{d * 0.1f:F1} m {m}"); prevM = m; }
@@ -257,6 +259,93 @@ namespace TerrainGen.Tests
                 Debug.Log($"[MatRules] {cols} columns, {checkedVox} voxels in their band\n{pits}");
                 Assert.Greater(checkedVox, 30000);
             }
+        }
+
+        // ------------------------------------------------------------------
+        /// Task 182, defect 1 of 180b: the deep stone is chosen by ABSOLUTE height
+        /// (GroundRules.DeepTop + the wavy deepOffset), never by depth below the
+        /// column's top. Adversarial case: the tallest sheer columns (a single 0.1 m
+        /// column stepping 20 m+ to a neighbour: its whole side is a face) of 4
+        /// seeds. Every voxel of the face, top to the neighbour's ground, where the
+        /// caves / pockets / stamps leave it, is the column's ONE stone; and RockAt
+        /// is deep stone exactly under the boundary (both sides, with margin).
+        [Test]
+        public void TallFace_IsOneStone_NoDeepStoneAboveTheAbsoluteBoundary()
+        {
+            int faces = 0, faceVox = 0, tallest = 0;
+            var log = new StringBuilder("Task 182: tallest sheer faces (seed: face height m, voxels checked)\n");
+            foreach (uint seed in SEEDS)
+            {
+                var w = Get(seed);
+                var view = w.map.View;
+                // the tallest sheer columns among many land points (their whole side is bare)
+                var cand = new List<(int st, int2 p)>();
+                // A sheer column is a 0.1 m line along a face: find steep 4 m spans, then the
+                // span's biggest single-column step along that axis.
+                var seenCol = new HashSet<int2>();
+                foreach (var q in LandPoints(in w, 8000, 0x182a ^ seed))
+                for (int ax = 0; ax < 2; ax++)
+                {
+                    int2 u = ax == 0 ? new int2(1, 0) : new int2(0, 1);
+                    if (math.abs(S(in w.on, in w, q.x + 20 * u.x, q.y + 20 * u.y).height - S(in w.on, in w, q.x - 20 * u.x, q.y - 20 * u.y).height) < 150) continue;
+                    int best = 0; int2 bp = q;
+                    int prev = S(in w.on, in w, q.x - 20 * u.x, q.y - 20 * u.y).height;
+                    for (int t = -19; t <= 20; t++)
+                    {
+                        int2 pt = q + t * u;
+                        int h = S(in w.on, in w, pt.x, pt.y).height;
+                        if (math.abs(h - prev) > best) { best = math.abs(h - prev); bp = h > prev ? pt : pt - u; }
+                        prev = h;
+                    }
+                    if (best <= 60 || !seenCol.Add(bp)) continue;
+                    var c = S(in w.on, in w, bp.x, bp.y);
+                    if (c.stampMat != 0 || c.stamp3D || c.open3Hi > c.open3Lo || c.lipLo != 0 || c.water > c.height) continue;
+                    int lo = math.min(math.min(S(in w.on, in w, bp.x + 1, bp.y).height, S(in w.on, in w, bp.x - 1, bp.y).height),
+                                      math.min(S(in w.on, in w, bp.x, bp.y + 1).height, S(in w.on, in w, bp.x, bp.y - 1).height));
+                    if (c.height - lo > 60) cand.Add((c.height - lo, bp));
+                }
+                cand.Sort((a, b) => b.st.CompareTo(a.st));
+                int seedTop = 0, seedVox = 0;
+                for (int i = 0; i < math.min(8, cand.Count); i++)
+                {
+                    var p = cand[i].p;
+                    var c = S(in w.on, in w, p.x, p.y);
+                    float st = Step(in w.on, in w, p.x, p.y, c.height);
+                    var cd = DetailField.PrepareColumn(in w.on, in w.o, p.x, p.y);
+                    byte stone = GroundRules.Stone(DetailField.RockA(in c)), deep = GroundRules.DeepStone(DetailField.RockA(in c));
+                    for (int d = 0; d < cand[i].st; d++)
+                    {
+                        int y = c.height - d;
+                        byte m = DetailField.Material(in w.on, in w.o, in c, in cd, st, p.x, y, p.y);
+                        if (!GenMat.IsSolid(m) || Ores.IsOre(m)) continue;   // a cave, pocket or ore
+                        int band = GroundRules.Band(in c, st, d);
+                        if (band <= 2) continue;   // a skin / soil lip at the top of a not-quite-sheer column
+                        Assert.AreNotEqual(deep, m, $"seed {seed} ({p.x},{y},{p.y}) depth {d}: deep stone on a face above the boundary");
+                        Assert.AreEqual(stone, m, $"seed {seed} ({p.x},{y},{p.y}) depth {d}: a face is one stone");
+                        seedVox++;
+                    }
+                    seedTop = math.max(seedTop, cand[i].st);
+                    faces++;
+                }
+                faceVox += seedVox; tallest = math.max(tallest, seedTop);
+                log.AppendLine($"  seed {seed}: {math.min(8, cand.Count)} faces of {cand.Count} sheer columns, tallest {seedTop * 0.1f:F1} m, {seedVox} voxels one stone");
+
+                // the boundary itself: deep stone exactly under DeepTop + deepOffset
+                var c0 = S(in w.on, in w, cand.Count > 0 ? cand[0].p.x : w.on.worldSizeVoxels / 2, cand.Count > 0 ? cand[0].p.y : w.on.worldSizeVoxels / 2);
+                byte rb = DetailField.RockA(in c0);
+                int top = GroundRules.DeepTop(in w.on);
+                float dOff = 37.5f;
+                Assert.AreEqual(GroundRules.Stone(rb), GroundRules.RockAt(in w.on, in c0, top - dOff, dOff, 0f, 0f));
+                Assert.AreEqual(GroundRules.DeepStone(rb), GroundRules.RockAt(in w.on, in c0, top - dOff - 1f, dOff, 0f, 0f));
+                Assert.AreEqual(GroundRules.DeepStone(rb), GroundRules.RockRange(in w.on, in c0, top - 400, top - 200, -160f, 160f, 0f, 0f, 0f, 0f));
+                Assert.AreEqual(GroundRules.Stone(rb), GroundRules.RockRange(in w.on, in c0, top + 200, top + 400, -160f, 160f, 0f, 0f, 0f, 0f));
+                Assert.AreEqual(255, GroundRules.RockRange(in w.on, in c0, top - 100, top + 100, -160f, 160f, 0f, 0f, 0f, 0f));
+            }
+            Directory.CreateDirectory(OUT_DIR);
+            File.WriteAllText(Path.Combine(OUT_DIR, "tallface182.txt"), log.ToString());
+            Debug.Log(log.ToString());
+            Assert.Greater(tallest, 200, "the adversarial case exists: a face taller than the old 11-19 m deep-stone depth");
+            Assert.Greater(faceVox, 2000);
         }
 
         // ------------------------------------------------------------------

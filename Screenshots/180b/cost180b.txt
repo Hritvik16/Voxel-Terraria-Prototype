@@ -1,39 +1,39 @@
 Task 180b cost, seed 42: dense bricks (512-byte bodies, CPU + GPU) and Generate ms, -matrules 1 vs 0, interleaved per chunk.
 LOD 0: 3 x 3 chunk columns round each site, the ground layer -1 .. +1. Shells 1-3: the site's shell chunk, 3 layers. Editor Burst, this test's own calls.
-cliff_forest    LOD 0, 27 chunks: dense OFF 6949 -> ON 8498 (+22 %), gen OFF 50.6 -> ON 49.7 ms/chunk (-2 %)
-                shell 1: dense OFF 722 -> ON 688 (-5 %), gen OFF 151.8 -> ON 143.6 ms/chunk
-                shell 2: dense OFF 619 -> ON 598 (-3 %), gen OFF 178.3 -> ON 149.1 ms/chunk
-                shell 3: dense OFF 570 -> ON 553 (-3 %), gen OFF 271.1 -> ON 223.8 ms/chunk
-cliff_desert    LOD 0, 27 chunks: dense OFF 6276 -> ON 6735 (+7 %), gen OFF 47.4 -> ON 47.8 ms/chunk (+1 %)
-                shell 1: dense OFF 849 -> ON 823 (-3 %), gen OFF 145.5 -> ON 134.5 ms/chunk
-                shell 2: dense OFF 726 -> ON 684 (-6 %), gen OFF 175.9 -> ON 148.9 ms/chunk
-                shell 3: dense OFF 662 -> ON 646 (-2 %), gen OFF 262.3 -> ON 232.6 ms/chunk
-cliff_snow      LOD 0, 27 chunks: dense OFF 7958 -> ON 11334 (+42 %), gen OFF 52.1 -> ON 51.8 ms/chunk (+0 %)
-                shell 1: dense OFF 678 -> ON 663 (-2 %), gen OFF 168.8 -> ON 153.1 ms/chunk
-                shell 2: dense OFF 519 -> ON 510 (-2 %), gen OFF 200.2 -> ON 155.9 ms/chunk
-                shell 3: dense OFF 437 -> ON 436 (+0 %), gen OFF 268.9 -> ON 240.1 ms/chunk
-bank            LOD 0, 27 chunks: dense OFF 8230 -> ON 8659 (+5 %), gen OFF 74.3 -> ON 74.3 ms/chunk (+0 %)
-                shell 1: dense OFF 322 -> ON 335 (+4 %), gen OFF 279.3 -> ON 261.1 ms/chunk
-                shell 2: dense OFF 296 -> ON 296 (+0 %), gen OFF 250.6 -> ON 220.6 ms/chunk
-                shell 3: dense OFF 290 -> ON 290 (+0 %), gen OFF 313.7 -> ON 290.9 ms/chunk
-border_bank     LOD 0, 27 chunks: dense OFF 8528 -> ON 11706 (+37 %), gen OFF 84.0 -> ON 84.1 ms/chunk (+0 %)
-                shell 1: dense OFF 608 -> ON 595 (-2 %), gen OFF 320.8 -> ON 306.4 ms/chunk
-                shell 2: dense OFF 460 -> ON 458 (+0 %), gen OFF 305.6 -> ON 283.4 ms/chunk
-                shell 3: dense OFF 438 -> ON 437 (+0 %), gen OFF 340.9 -> ON 321.7 ms/chunk
-beach           LOD 0, 27 chunks: dense OFF 9589 -> ON 11362 (+18 %), gen OFF 38.5 -> ON 42.7 ms/chunk (+11 %)
-                shell 1: dense OFF 463 -> ON 460 (-1 %), gen OFF 118.5 -> ON 112.2 ms/chunk
-                shell 2: dense OFF 433 -> ON 430 (-1 %), gen OFF 133.5 -> ON 124.2 ms/chunk
-                shell 3: dense OFF 420 -> ON 418 (+0 %), gen OFF 207.8 -> ON 204.6 ms/chunk
-oasis_or_swamp  LOD 0, 27 chunks: dense OFF 8399 -> ON 8826 (+5 %), gen OFF 76.6 -> ON 76.0 ms/chunk (-1 %)
-                shell 1: dense OFF 376 -> ON 381 (+1 %), gen OFF 297.6 -> ON 280.1 ms/chunk
-                shell 2: dense OFF 296 -> ON 296 (+0 %), gen OFF 263.3 -> ON 231.8 ms/chunk
-                shell 3: dense OFF 313 -> ON 313 (+0 %), gen OFF 272.2 -> ON 235.5 ms/chunk
-scree           LOD 0, 27 chunks: dense OFF 6230 -> ON 9623 (+54 %), gen OFF 53.9 -> ON 53.4 ms/chunk (-1 %)
-                shell 1: dense OFF 1310 -> ON 1289 (-2 %), gen OFF 164.8 -> ON 147.6 ms/chunk
-                shell 2: dense OFF 1052 -> ON 1057 (+0 %), gen OFF 211.4 -> ON 163.1 ms/chunk
-                shell 3: dense OFF 996 -> ON 996 (+0 %), gen OFF 350.3 -> ON 303.2 ms/chunk
-flat            LOD 0, 27 chunks: dense OFF 5613 -> ON 6873 (+22 %), gen OFF 45.5 -> ON 46.8 ms/chunk (+3 %)
-                shell 1: dense OFF 298 -> ON 298 (+0 %), gen OFF 132.8 -> ON 123.1 ms/chunk
-                shell 2: dense OFF 256 -> ON 256 (+0 %), gen OFF 170.5 -> ON 139.8 ms/chunk
-                shell 3: dense OFF 283 -> ON 283 (+0 %), gen OFF 239.2 -> ON 214.5 ms/chunk
-ALL sites, LOD 0: dense OFF 67772 -> ON 83616 (+23 %, +7.74 MB of bodies over 243 chunks); gen OFF 58.1 -> ON 58.5 ms/chunk (+1 %)
+cliff_forest    LOD 0, 27 chunks: dense OFF 6949 -> ON 6233 (-10 %), gen OFF 50.5 -> ON 48.6 ms/chunk (-4 %)
+                shell 1: dense OFF 722 -> ON 688 (-5 %), gen OFF 151.8 -> ON 142.3 ms/chunk
+                shell 2: dense OFF 619 -> ON 598 (-3 %), gen OFF 178.7 -> ON 146.7 ms/chunk
+                shell 3: dense OFF 570 -> ON 545 (-4 %), gen OFF 270.7 -> ON 219.7 ms/chunk
+cliff_desert    LOD 0, 27 chunks: dense OFF 6276 -> ON 4944 (-21 %), gen OFF 47.9 -> ON 47.2 ms/chunk (-2 %)
+                shell 1: dense OFF 849 -> ON 823 (-3 %), gen OFF 145.6 -> ON 133.0 ms/chunk
+                shell 2: dense OFF 726 -> ON 680 (-6 %), gen OFF 176.5 -> ON 146.1 ms/chunk
+                shell 3: dense OFF 662 -> ON 632 (-5 %), gen OFF 262.4 -> ON 227.9 ms/chunk
+cliff_snow      LOD 0, 27 chunks: dense OFF 7958 -> ON 8432 (+6 %), gen OFF 51.9 -> ON 50.6 ms/chunk (-2 %)
+                shell 1: dense OFF 678 -> ON 663 (-2 %), gen OFF 167.8 -> ON 149.3 ms/chunk
+                shell 2: dense OFF 519 -> ON 509 (-2 %), gen OFF 199.8 -> ON 154.8 ms/chunk
+                shell 3: dense OFF 437 -> ON 434 (-1 %), gen OFF 268.2 -> ON 238.5 ms/chunk
+bank            LOD 0, 27 chunks: dense OFF 8230 -> ON 7996 (-3 %), gen OFF 74.8 -> ON 74.6 ms/chunk (+0 %)
+                shell 1: dense OFF 322 -> ON 335 (+4 %), gen OFF 281.3 -> ON 263.2 ms/chunk
+                shell 2: dense OFF 296 -> ON 296 (+0 %), gen OFF 253.0 -> ON 221.7 ms/chunk
+                shell 3: dense OFF 290 -> ON 290 (+0 %), gen OFF 313.5 -> ON 290.6 ms/chunk
+border_bank     LOD 0, 27 chunks: dense OFF 8528 -> ON 8978 (+5 %), gen OFF 84.4 -> ON 83.8 ms/chunk (-1 %)
+                shell 1: dense OFF 608 -> ON 595 (-2 %), gen OFF 321.7 -> ON 306.2 ms/chunk
+                shell 2: dense OFF 460 -> ON 450 (-2 %), gen OFF 306.8 -> ON 283.2 ms/chunk
+                shell 3: dense OFF 438 -> ON 429 (-2 %), gen OFF 339.9 -> ON 315.3 ms/chunk
+beach           LOD 0, 27 chunks: dense OFF 9589 -> ON 10843 (+13 %), gen OFF 38.7 -> ON 43.0 ms/chunk (+11 %)
+                shell 1: dense OFF 463 -> ON 460 (-1 %), gen OFF 118.7 -> ON 111.6 ms/chunk
+                shell 2: dense OFF 433 -> ON 430 (-1 %), gen OFF 134.1 -> ON 123.8 ms/chunk
+                shell 3: dense OFF 420 -> ON 418 (+0 %), gen OFF 208.1 -> ON 205.5 ms/chunk
+oasis_or_swamp  LOD 0, 27 chunks: dense OFF 8399 -> ON 8035 (-4 %), gen OFF 76.6 -> ON 75.9 ms/chunk (-1 %)
+                shell 1: dense OFF 376 -> ON 381 (+1 %), gen OFF 298.4 -> ON 279.2 ms/chunk
+                shell 2: dense OFF 296 -> ON 296 (+0 %), gen OFF 263.8 -> ON 231.4 ms/chunk
+                shell 3: dense OFF 313 -> ON 313 (+0 %), gen OFF 272.3 -> ON 232.7 ms/chunk
+scree           LOD 0, 27 chunks: dense OFF 6230 -> ON 6455 (+4 %), gen OFF 54.5 -> ON 52.6 ms/chunk (-4 %)
+                shell 1: dense OFF 1310 -> ON 1289 (-2 %), gen OFF 165.2 -> ON 145.7 ms/chunk
+                shell 2: dense OFF 1052 -> ON 1016 (-3 %), gen OFF 212.9 -> ON 160.3 ms/chunk
+                shell 3: dense OFF 996 -> ON 966 (-3 %), gen OFF 345.2 -> ON 300.9 ms/chunk
+flat            LOD 0, 27 chunks: dense OFF 5613 -> ON 6490 (+16 %), gen OFF 46.0 -> ON 47.1 ms/chunk (+3 %)
+                shell 1: dense OFF 298 -> ON 298 (+0 %), gen OFF 132.8 -> ON 123.0 ms/chunk
+                shell 2: dense OFF 256 -> ON 256 (+0 %), gen OFF 171.3 -> ON 138.9 ms/chunk
+                shell 3: dense OFF 283 -> ON 283 (+0 %), gen OFF 239.9 -> ON 212.8 ms/chunk
+ALL sites, LOD 0: dense OFF 67772 -> ON 68406 (+1 %, +0.31 MB of bodies over 243 chunks); gen OFF 58.4 -> ON 58.2 ms/chunk (+0 %)

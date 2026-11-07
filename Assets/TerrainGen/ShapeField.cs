@@ -86,8 +86,12 @@ namespace TerrainGen
         /// Task 180b (TerrainSpec.MatRules only; 0 otherwise): the rule slot
         /// (GroundRules.Flat .. Bare, bits 0-2), its variant (bit 3), a non-water
         /// fluid bed (bit 4); the depths (voxels below the generated top) where the
-        /// soil and subsoil bands end and the deep stone begins (GroundRules.Band).
-        public byte mrSlot, mrSoil, mrSub, mrDeep;
+        /// soil and subsoil bands end (GroundRules.Band; the rock under them is absolute).
+        public byte mrSlot, mrSoil, mrSub;
+        /// Task 182: a SHELL column's exposure depth (voxels): its coarse voxels above
+        /// it are bared (top or side) and wear the skin. 0 everywhere else (chunks,
+        /// points, the far band); set by ShellColumnJob when MatRules is on.
+        public ushort mrExpose;
     }
 
     public static class ShapeField

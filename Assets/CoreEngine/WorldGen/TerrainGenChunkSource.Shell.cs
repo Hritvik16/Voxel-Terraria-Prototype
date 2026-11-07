@@ -119,6 +119,9 @@ namespace VoxelEngine.WorldGen
             public byte Get(int x, int y, int z) => IsUniformAir ? Materials.Air : Mats[Index(x, y, z)];
             /// The ground height h (fine voxels, S's top solid) of coarse column (x, z)'s sample.
             public int GroundY(int x, int z) => colS[(z << 7) | x].height;
+            /// Tests (task 182): coarse column (x, z)'s sample and its fine step, as the voxel pass read them.
+            public TerrainGen.ColumnSample Column(int x, int z) => colS[(z << 7) | x];
+            public float ColumnStep(int x, int z) => colSt[(z << 7) | x];
 
             /// Tests and reports: this chunk becomes a copy of `o` (voxels, bricks
             /// and the column data the fill reads).
@@ -289,7 +292,7 @@ namespace VoxelEngine.WorldGen
             public TerrainGen.TerrainSpec spec; public TerrainGen.Offsets o;
             public int3 origin;
             public int shift, half;
-            [WriteOnly] public NativeArray<TerrainGen.ColumnSample> colS;
+            public NativeArray<TerrainGen.ColumnSample> colS;   // task 182: read back for mrExpose
             [WriteOnly] public NativeArray<float> colSt;
             [WriteOnly] public NativeArray<TerrainGen.DetailField.ColumnDetail> colCd;
             public NativeArray<int> top;   // [0] = max over sampled columns of max(height, water, sea)
@@ -337,12 +340,39 @@ namespace VoxelEngine.WorldGen
                     colS[ci] = c;
                     maxTop = math.max(maxTop, math.max(c.height, c.water));
                 }
+                if (spec.MatRules && shift > 0) Expose(ref map);
                 treeCounts[0] = 0; treeCounts[1] = 0;
                 if (gatherTrees)   // task 180: the trees round the sampled footprint; crowns raise the top
                     GatherTrees(in spec, in map, in o, origin.x + half, origin.z + half,
                                 origin.x + half + ((E - 1) << shift), origin.z + half + ((E - 1) << shift), trees, prims, treeCounts, ref maxTop);
                 top[0] = maxTop;
             }
+
+            /// Task 182 (GroundRules SHELL EXPOSURE): each column's exposure depth,
+            /// max(2^shift, h - the lowest of its 4 coarse neighbours) -- a coarse
+            /// voxel with depth under it is bared on top or on a side (the neighbour's
+            /// voxel at that height is above its ground). Neighbours outside the chunk
+            /// are sampled at the same positions their own chunk samples (height only).
+            private void Expose(ref TerrainGen.MapView map)
+            {
+                const int E = 128;
+                int t = 1 << shift;
+                for (int k = 0; k < E; k++)
+                for (int i = 0; i < E; i++)
+                {
+                    int ci = k * E + i;
+                    var c = colS[ci];
+                    int x = origin.x + (i << shift) + half, z = origin.z + (k << shift) + half;
+                    int lo = math.min(math.min(H(i - 1, k, x - t, z, ref map), H(i + 1, k, x + t, z, ref map)),
+                                      math.min(H(i, k - 1, x, z - t, ref map), H(i, k + 1, x, z + t, ref map)));
+                    c.mrExpose = (ushort)math.clamp(math.max(t, c.height - lo), 0, 65535);
+                    colS[ci] = c;
+                }
+            }
+
+            private int H(int i, int k, int x, int z, ref TerrainGen.MapView map)
+                => i >= 0 && k >= 0 && i < 128 && k < 128 ? colS[k * 128 + i].height
+                 : TerrainGen.ShapeField.Sample(in spec, in map, in o, x + 0.5f, z + 0.5f, 1, false).height;
         }
 
         [BurstCompile(FloatMode = FloatMode.Strict, FloatPrecision = FloatPrecision.High, CompileSynchronously = true)]

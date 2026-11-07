@@ -10,6 +10,9 @@
 //                edit would) and a regeneration: the generator never sees it, so
 //                the pit's walls and floor are the ORIGINAL surface's bands
 //                (checked top-down against GroundRules). Logs/TerrainGen/180b/chunks.txt
+//   Shells_BaredVoxels_WearTheSkin (task 182) shells 3 and 5 round every site: a
+//                coarse voxel bared on top or on a side wears the skin, never the
+//                soil / subsoil / stone under it (Logs/TerrainGen/180b/shell_bared182.txt).
 //   Cost_...     dense bricks + generation ms, ON vs OFF interleaved, LOD 0
 //                (3 x 3 chunk columns round each site) and shells 1-3:
 //                Screenshots/180b/cost180b.txt. Editor Burst, this test's own
@@ -184,8 +187,8 @@ public class MaterialRuleChunkTests
                         int y = (cc.y << 7) + ly, d = c.height - y;
                         if (d < 0) continue;
                         byte m = a[TerrainGenChunkSource.Index(lx, ly, lz)];
-                        int band = GroundRules.Band(in c, st, d, y);
-                        byte g = band <= 2 ? GroundRules.NearMaterial(in c, st, band) : GroundRules.RockAt(in on, in c, band, y, cd.cavernOffset, cd.underOffset);
+                        int band = GroundRules.Band(in c, st, d);
+                        byte g = band <= 2 ? GroundRules.NearMaterial(in c, st, band) : GroundRules.RockAt(in on, in c, y, cd.deepOffset, cd.cavernOffset, cd.underOffset);
                         byte want = VoxelEngine.Rendering.FarField.GenToEngine(g);
                         if (!non.Contains(m) && !TerrainGen.Ores.IsOre(DetailField.Material(in on, in o, in c, in cd, st, s.x, y, s.z)))
                             Assert.AreEqual(want, m, $"{s.name} pit depth {d}: band {band}");
@@ -262,6 +265,90 @@ public class MaterialRuleChunkTests
             Directory.CreateDirectory(LogDir);
             File.WriteAllText(Path.Combine(LogDir, "air_on_off.txt"), log.ToString());
         }
+    }
+
+    // ------------------------------------------------------------------
+    /// Task 182, defect 2 of 180b: a coarse shell voxel bared to the open air -- on
+    /// top (its sample within one voxel of its column's ground) or on a side (a 4-
+    /// neighbour column's ground lies below its sample) -- wears its column's SKIN
+    /// (Band 0's material), never the soil, subsoil or stone under it; columns whose
+    /// skin is skipped (bare, sheer) show their stone, as at LOD 0. Shells 3 and 5
+    /// (0.8 m, 3.2 m: 180b's mosaic was at 3.2 m and up) round every site, the
+    /// generator alone (ShellFill off, as OreRuleTests). "Before" counts the bared
+    /// voxels whose OWN depth's band is deeper than skin (what 180b drew).
+    [Test, Category("Slow")]
+    public void Shells_BaredVoxels_WearTheSkin()
+    {
+        var sites = Sites();
+        var non = NonSolidEngine();
+        var log = new StringBuilder("Task 182: bared shell voxels (seed 42, -matrules 1, ShellFill off)\n");
+        int bared = 0, skin = 0, wrong = 0, before = 0;
+        _src.SetMatRules(true); _src.ShellFill = false;
+        using var sc = new TerrainGenChunkSource.ShellChunk();
+        try
+        {
+            foreach (var s in sites)
+            foreach (int k in new[] { 3, 5 })
+            for (int ly0 = -1; ly0 <= 1; ly0++)
+            {
+                int3 coord = (new int3(s.x, s.h, s.z) >> (7 + k)) + new int3(0, ly0, 0);
+                _src.GenerateShellChunk(k, coord, sc);
+                if (sc.IsUniformAir) continue;
+                int3 origin = coord << (7 + k);
+                int half = (1 << (k - 1)) - 1, T = 1 << k;
+                int sB = 0, sS = 0, sW = 0, sBefore = 0;
+                for (int lz = 1; lz < 127; lz++)
+                for (int lx = 1; lx < 127; lx++)
+                {
+                    int h = sc.GroundY(lx, lz);
+                    int lo = math.min(math.min(sc.GroundY(lx - 1, lz), sc.GroundY(lx + 1, lz)), math.min(sc.GroundY(lx, lz - 1), sc.GroundY(lx, lz + 1)));
+                    int yTop = h - origin.y - half;   // the top sample's local y (before >> k)
+                    if (yTop < 0) continue;
+                    ColumnSample c = default; float st = 0f; bool have = false;
+                    for (int ly = math.min(126, yTop >> k); ly >= 0; ly--)
+                    {
+                        int y = origin.y + (ly << k) + half, d = h - y;
+                        if (d < 0) continue;
+                        bool open = d < T || y > lo;   // bared on top or to a lower neighbour column
+                        if (!open) break;              // deeper voxels are bared by nothing
+                        byte got = sc.Get(lx, ly, lz);
+                        if (non.Contains(got)) continue;   // an opening / fluid
+                        if (!have)
+                        {
+                            // the voxel pass's own column (Burst) -- a Mono resample can round 1 voxel apart
+                            c = sc.Column(lx, lz); st = sc.ColumnStep(lx, lz); have = true;
+                            Assert.AreEqual(math.max(T, h - lo), (int)c.mrExpose, $"{s.name} shell {k} column ({lx},{lz}): mrExpose = max(2^k, h - lowest neighbour)");
+                        }
+                        if (c.stampMat != 0 || c.stamp3D || c.lipLo != 0) break;   // stamps paint their own
+                        if (GroundRules.Band(in c, st, 0) == 3) break;          // bare / sheer: the stone, as LOD 0
+                        sB++;
+                        byte want = VoxelEngine.Rendering.FarField.GenToEngine(GroundRules.NearMaterial(in c, st, 0));
+                        byte rb = DetailField.RockA(in c);
+                        var deeper = new[] { GroundRules.Soil(c.surfBiome), GroundRules.Subsoil(c.surfBiome), GroundRules.Stone(rb), GroundRules.DeepStone(rb) };
+                        bool isDeeper = false;
+                        foreach (var g in deeper) if (VoxelEngine.Rendering.FarField.GenToEngine(g) == got && got != want) isDeeper = true;
+                        if (got == want) sS++;
+                        else if (isDeeper) { if (sW++ == 0) log.AppendLine($"    first wrong: {s.name} shell {k} {coord} ({lx},{ly},{lz}) depth {d} got {got} want {want} slot {c.mrSlot} st {st} sub {c.mrSub} expose {c.mrExpose}"); }
+                        var c0 = c; c0.mrExpose = 0;
+                        if (d >= GroundRules.SKIN && GroundRules.Band(in c0, st, d) > 0) sBefore++;
+                    }
+                }
+                log.AppendLine($"  {s.name,-15} shell {k} {coord}: {sB} bared voxels, {sS} skin, {sW} soil/subsoil/stone; 180b's depth band would bare {sBefore} under the skin");
+                bared += sB; skin += sS; wrong += sW; before += sBefore;
+            }
+        }
+        finally
+        {
+            _src.ShellFill = true;
+            Directory.CreateDirectory(LogDir);
+            log.AppendLine($"TOTAL: {bared} bared voxels, {skin} skin ({100.0 * skin / math.max(1, bared):F2} %), {wrong} soil/subsoil/stone; before (180b) {before} would show a deeper band");
+            File.WriteAllText(Path.Combine(LogDir, "shell_bared182.txt"), log.ToString());
+            UnityEngine.Debug.Log(log.ToString());
+        }
+        Assert.Greater(bared, 5000, "the sites' shells have bared slopes");
+        Assert.Greater(before, 500, "the adversarial case exists: 180b's bands bared soil / stone here");
+        Assert.AreEqual(0, wrong, "a bared shell voxel shows a band under the skin");
+        Assert.Greater(skin, bared * 0.95, "bared shell voxels wear the skin");
     }
 
     // ------------------------------------------------------------------

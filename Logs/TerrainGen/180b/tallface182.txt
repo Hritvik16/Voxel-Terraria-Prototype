@@ -1,0 +1,5 @@
+Task 182: tallest sheer faces (seed: face height m, voxels checked)
+  seed 42: 2 faces of 2 sheer columns, tallest 28.8 m, 432 voxels one stone
+  seed 7: 5 faces of 5 sheer columns, tallest 24.7 m, 717 voxels one stone
+  seed 2026: 8 faces of 11 sheer columns, tallest 41.3 m, 1489 voxels one stone
+  seed 31337: 0 faces of 0 sheer columns, tallest 0.0 m, 0 voxels one stone

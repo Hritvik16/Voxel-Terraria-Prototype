@@ -7,48 +7,48 @@ forest (25789 columns)  slots: flat 51.7% steep 13.7% hollow 6.1% high 1.7% shor
     0.5 m        Loam 61% Granite 24% OchreClay 7% BeachSand 4% Gravel 3% SilverSchist 1%
     2 m          OchreClay 64% Granite 33% SilverSchist 1% KarstLimestone 1% RedBand 1% KopjeGranite 0%
     6 m          Granite 93% SilverSchist 3% KarstLimestone 2% RedBand 1% KopjeGranite 1% OrangeSandstone 0%
-    15 m         Granite 52% Slate 41% SilverSchist 1% BlueSlate 1% KarstLimestone 1% UmberMudstone 1%
-    22 m         Slate 92% BlueSlate 3% JadeSerpentine 2% UmberMudstone 1% Air 1% Ironstone 1%
+    15 m         Granite 93% SilverSchist 3% KarstLimestone 2% RedBand 1% KopjeGranite 1% OrangeSandstone 0%
+    22 m         Granite 92% SilverSchist 3% KarstLimestone 2% RedBand 1% Air 1% KopjeGranite 1%
 
 desert (16540 columns)  slots: flat 47.4% steep 16.7% hollow 6.9% high 0.8% shore 4.6% scree 2.4% dip 4.9% bare 16.4%
     top 0-0.3 m  Sand 40% OrangeSandstone 32% PackedSand 13% Grass 5% BeachSand 5% Gravel 2%
     0.5 m        PackedSand 57% OrangeSandstone 32% BeachSand 5% PinkSiltstone 3% Gravel 2% KopjeGranite 1%
     2 m          PinkSiltstone 59% OrangeSandstone 39% KopjeGranite 1% RedBand 0% Granite 0% PackedSand 0%
     6 m          OrangeSandstone 95% KopjeGranite 3% RedBand 1% Granite 0% Air 0%
-    15 m         OrangeSandstone 52% RedSandstone 43% KopjeGranite 2% Ironstone 1% RedBand 1% Air 0%
-    22 m         RedSandstone 94% Ironstone 3% Air 1% UmberMudstone 1% Slate 0% OrangeSandstone 0%
+    15 m         OrangeSandstone 95% KopjeGranite 3% RedBand 1% Air 0% Granite 0%
+    22 m         OrangeSandstone 94% KopjeGranite 3% Air 1% RedBand 1% Granite 0%
 
 snow (28706 columns)  slots: flat 50.1% steep 15.5% hollow 5.9% high 0.9% shore 5.6% scree 1.4% dip 6.3% bare 14.3%
     top 0-0.3 m  Snow 48% PackedIce 30% SilverSchist 19% Gravel 3% Granite 0% RedBand 0%
     0.5 m        PackedIce 58% SilverSchist 19% Gravel 18% Snow 5% Granite 0% RedBand 0%
     2 m          Gravel 62% SilverSchist 37% Granite 0% RedBand 0% KarstLimestone 0% PackedIce 0%
     6 m          SilverSchist 97% Granite 2% RedBand 1% Air 1% KarstLimestone 0%
-    15 m         SilverSchist 54% BlueSlate 42% Granite 1% Slate 1% RedBand 1% Air 0%
-    22 m         BlueSlate 95% Slate 2% Air 1% UmberMudstone 1% SilverSchist 0% JadeSerpentine 0%
+    15 m         SilverSchist 97% Granite 2% RedBand 1% Air 0% KarstLimestone 0% Gravel 0%
+    22 m         SilverSchist 96% Granite 2% Air 1% RedBand 1% KarstLimestone 0% Gravel 0%
 
 jungle (16687 columns)  slots: flat 54.7% steep 13.2% hollow 6.0% high 0.4% shore 6.5% scree 1.1% dip 5.1% bare 12.9%
     top 0-0.3 m  JungleGrass 47% KarstLimestone 22% Grass 14% BeachSand 7% Mud 5% MossRock 5%
     0.5 m        Mud 62% KarstLimestone 22% BeachSand 7% Laterite 7% MossRock 1% Granite 1%
     2 m          Laterite 66% KarstLimestone 33% Granite 1% KopjeGranite 0% SilverSchist 0% Mud 0%
     6 m          KarstLimestone 96% Granite 2% KopjeGranite 1% SilverSchist 0% Air 0%
-    15 m         KarstLimestone 53% JadeSerpentine 43% Granite 1% Slate 1% KopjeGranite 1% Ironstone 1%
-    22 m         JadeSerpentine 95% Slate 2% Ironstone 1% Air 1% BlueSlate 0% KarstLimestone 0%
+    15 m         KarstLimestone 96% Granite 2% KopjeGranite 1% SilverSchist 0% Air 0%
+    22 m         KarstLimestone 95% Granite 2% KopjeGranite 1% Air 1% SilverSchist 0%
 
 savanna (14703 columns)  slots: flat 51.5% steep 14.1% hollow 3.6% high 2.1% shore 7.4% scree 2.0% dip 5.2% bare 14.2%
     top 0-0.3 m  SavannaGrass 44% KopjeGranite 24% PackedSand 13% BeachSand 8% Gravel 5% Grass 3%
     0.5 m        RedEarth 58% KopjeGranite 24% BeachSand 8% PinkSiltstone 6% Gravel 1% Granite 1%
     2 m          PinkSiltstone 64% KopjeGranite 33% Granite 1% OrangeSandstone 1% KarstLimestone 1% RedEarth 0%
     6 m          KopjeGranite 93% Granite 3% OrangeSandstone 2% KarstLimestone 2% Air 0%
-    15 m         KopjeGranite 52% Ironstone 41% Granite 2% OrangeSandstone 1% RedSandstone 1% KarstLimestone 1%
-    22 m         Ironstone 92% Slate 3% RedSandstone 2% JadeSerpentine 2% Air 1% KopjeGranite 0%
+    15 m         KopjeGranite 93% Granite 3% OrangeSandstone 2% KarstLimestone 2% Air 0%
+    22 m         KopjeGranite 92% Granite 3% OrangeSandstone 2% KarstLimestone 2% Air 1%
 
 badlands (18389 columns)  slots: flat 56.1% steep 10.8% hollow 4.8% high 0.3% shore 7.8% scree 1.7% dip 5.9% bare 12.8%
     top 0-0.3 m  BadlandsClay 47% RedBand 20% Hardpan 20% BeachSand 8% Mud 4% OrangeSandstone 0%
     0.5 m        Hardpan 64% RedBand 20% BeachSand 8% OchreBand 6% OrangeSandstone 0% Granite 0%
     2 m          OchreBand 69% RedBand 29% Granite 1% OrangeSandstone 1% SilverSchist 0% Hardpan 0%
     6 m          RedBand 94% Granite 2% OrangeSandstone 2% SilverSchist 2% Air 0%
-    15 m         RedBand 54% UmberMudstone 40% Granite 1% Slate 1% OrangeSandstone 1% RedSandstone 1%
-    22 m         UmberMudstone 93% Slate 2% RedSandstone 2% BlueSlate 2% Air 1% RedBand 0%
+    15 m         RedBand 94% Granite 2% OrangeSandstone 2% SilverSchist 2% Air 0% OchreBand 0%
+    22 m         RedBand 93% Granite 2% OrangeSandstone 2% SilverSchist 2% Air 1%
 
 seed 42: 30408 land columns on a 24 m grid, 40 lake outlets
 seed 7: 29833 land columns on a 24 m grid, 40 lake outlets

@@ -53,12 +53,31 @@
 //   1 soil      to mrSoil: the biome's soil; a beach's sand body, a scree's
 //               rubble, a lava bed's crust continue instead
 //   2 subsoil   to mrSub
-//   3 stone     to mrDeep (11-19 m by the biome noise), whole bricks (0.8 m steps)
-//   4 deep      deep stone, down to the cavern top; the cavern rock and the
-//               shared underworld stay ABSOLUTE (world structure, not ground)
+//   3 rock      everything deeper. WHICH rock is ABSOLUTE (RockAt), never by
+//               depth: the biome's stone down to the generator's own stone /
+//               deep-stone boundary (sea - DetailField.STONE_BOTTOM_BELOW_SEA
+//               + the wavy deepOffset, the old path's line), deep stone under
+//               it, then the cavern rock and the shared underworld.
 // A BARE entry or a sheer voxel step (> DetailField.SHEER_STEP) skips 0-2.
-// The rock deeper than brickGeologyDepth (20 m) is per BRICK as before (deep
-// stone at the brick's height; caverns / underworld by the brick centre).
+// The rock deeper than brickGeologyDepth (20 m) is per BRICK as before (its
+// boundaries by the brick centre's height and offsets).
+// TASK 182 (defect 1 of 180b): the deep stone was "deeper than 11-19 m below
+// the column's top", so the lower part of every tall face (a sheer column's
+// side is all "deep" below that) turned deep stone, in 0.8 m brick steps --
+// snow's blue slate read as black boxes. A face is one stone now; the deep
+// stone is a world layer, seen only where the ground cuts below it.
+//
+// SHELL EXPOSURE (task 182, defect 2 of 180b): a coarse shell voxel (2^k
+// columns wide) samples ONE column, so on a slope the voxels under its top are
+// bared sideways down to the lower neighbour column, at depths far below the
+// 0.3 m skin: far hills showed a brick-sized soil / subsoil / stone mosaic.
+// ColumnSample.mrExpose (shells only, ShellColumnJob) is the depth to which the
+// column's coarse voxels are exposed: max(2^k, h - the lowest of its four
+// coarse neighbours). A voxel above that depth contains the LOD-0 surface (the
+// fine columns there wear their skin), so it is band 0; a voxel deeper is not
+// exposed and takes its own depth's band (the fine column's band at that
+// point). At 2^k = 1 the rule is a no-op: a column's drop to a fine neighbour is
+// its stepAtTop, <= SHEER_STEP = SKIN unless sheer (then rock first).
 //
 // BIOME BORDERS: the skin biome is the ROCK'S smooth border warp
 // (ShapeField.RockBiomes' rockA / rockB, 800 m + 150 m warp, +-29 m split),
@@ -149,8 +168,7 @@ namespace TerrainGen
         public const int SHORE_R = 4;
         /// One slow noise per biome (300 m) and the border blend's plan patches (25 m).
         public const float BIOME_WAVE = 3000f, BLEND_WAVE = 250f;
-        /// Depths (voxels) per slot: soil bottom, subsoil bottom (before the biome noise factor).
-        public const int DEEP_BASE = 150, DEEP_AMP = 40;           // deep stone from 11-19 m
+        /// Soil / subsoil thickness factor by the biome noise.
         public const float THICK_NOISE = 0.35f;                     // soil / subsoil x (1 +- 0.35)
         public const float POCKET_LINING = 1.1f;                    // pocket wall lining: d^2 in [1, 1.1)
 
@@ -445,24 +463,19 @@ namespace TerrainGen
             }
             c.mrSoil = (byte)soilD;
             c.mrSub = (byte)subD;
-            c.mrDeep = (byte)math.max(subD + 1, DEEP_BASE + (int)math.floor(DEEP_AMP * bn));
         }
 
         // ------------------------------------------------------------------
         // PER VOXEL: the depth band and its material.
         // ------------------------------------------------------------------
 
-        /// 0 skin, 1 soil, 2 subsoil, 3 stone, 4 deep stone, for the voxel at height y,
-        /// `depth` under its ground (y + depth = the ground). Non-decreasing in depth
-        /// (as y falls). The deep stone's top is QUANTISED TO WHOLE BRICKS: deep where
-        /// y lies in a brick wholly under (ground - mrDeep), so the boundary is a
-        /// 0.8 m staircase and most bricks on it stay uniform (as the brick geology
-        /// below 20 m): a sheet cut per voxel made every brick it crossed dense.
-        public static int Band(in ColumnSample c, float stepAtTop, int depth, int y)
+        /// 0 skin, 1 soil, 2 subsoil, 3 rock (RockAt picks which, by absolute height),
+        /// for the voxel `depth` under its ground. Non-decreasing in depth. A shell
+        /// voxel above the column's exposure depth (mrExpose; 0 outside shells) is skin.
+        public static int Band(in ColumnSample c, float stepAtTop, int depth)
         {
-            if ((y >> 3) < ((y + depth - c.mrDeep) >> 3)) return 4;
             if (c.mrSub == 0 || stepAtTop > DetailField.SHEER_STEP) return 3;
-            if (depth < SKIN) return 0;
+            if (depth < SKIN || depth < c.mrExpose) return 0;
             if (depth < c.mrSoil) return 1;
             if (depth < c.mrSub) return 2;
             return 3;
@@ -486,19 +499,23 @@ namespace TerrainGen
             return Subsoil(b);
         }
 
-        /// Band 3 / 4 and the absolute deep structure at height g (y + the wavy
-        /// offsets): the shared underworld, the biome's cavern rock, else its stone.
-        public static byte RockAt(in TerrainSpec spec, in ColumnSample c, int band, float y, float cavernOff, float underOff)
+        /// The deep stone's top (absolute Y before the wavy deepOffset): the
+        /// generator's own stone / deep-stone boundary (DetailField.LayerRock's).
+        public static int DeepTop(in TerrainSpec spec) => spec.seaLevelY - DetailField.STONE_BOTTOM_BELOW_SEA;
+
+        /// Band 3's rock, ABSOLUTE at height y (+ the wavy offsets): the shared
+        /// underworld, the biome's cavern rock, its deep stone, else its stone.
+        public static byte RockAt(in TerrainSpec spec, in ColumnSample c, float y, float deepOff, float cavernOff, float underOff)
         {
             if (y + underOff < spec.UnderworldTopY) return DetailField.UnderworldRockAt(in spec, y + underOff);
             byte rb = DetailField.RockA(in c);
             if (y + cavernOff < spec.CavernTopY) return CavernRock(rb);
-            return band >= 4 ? DeepStone(rb) : Stone(rb);
+            return y + deepOff < DeepTop(in spec) ? DeepStone(rb) : Stone(rb);
         }
 
         /// RockAt for every y in [yLo, yHi] and every offset in its range, or 255.
-        public static byte RockRange(in TerrainSpec spec, in ColumnSample c, int band, float yLo, float yHi,
-                                     float cLo, float cHi, float uLo, float uHi)
+        public static byte RockRange(in TerrainSpec spec, in ColumnSample c, float yLo, float yHi,
+                                     float dLo, float dHi, float cLo, float cHi, float uLo, float uHi)
         {
             float gLo = yLo + uLo, gHi = yHi + uHi;
             if (gHi < spec.UnderworldTopY)
@@ -514,16 +531,21 @@ namespace TerrainGen
             byte rb = DetailField.RockA(in c);
             if (yHi + cHi < spec.CavernTopY) return CavernRock(rb);
             if (!(yLo + cLo >= spec.CavernTopY)) return 255;
-            return band >= 4 ? DeepStone(rb) : Stone(rb);
+            float deep = DeepTop(in spec);
+            if (yHi + dHi < deep) return DeepStone(rb);
+            if (!(yLo + dLo >= deep)) return 255;
+            return Stone(rb);
         }
 
         /// The far band's top colour: Material at depth 0 (no caves at the top).
+        /// TopMaterial asks only for columns at or above the sea, so band 3 is the
+        /// stone: the deep stone's top is 50 m under the sea and |deepOffset| <=
+        /// GEO_DEEP_AMP (8 m); the cavern top and the underworld lie deeper still.
         public static byte Top(in ColumnSample c, float stepAtTop)
         {
-            int band = Band(in c, stepAtTop, 0, c.height);
+            int band = Band(in c, stepAtTop, 0);
             if (band <= 2) return NearMaterial(in c, stepAtTop, band);
-            byte rb = DetailField.RockA(in c);
-            return band >= 4 ? DeepStone(rb) : Stone(rb);
+            return Stone(DetailField.RockA(in c));
         }
     }
 }

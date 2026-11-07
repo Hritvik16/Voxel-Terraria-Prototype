@@ -568,6 +568,13 @@ namespace TerrainGen
                     var bd = PrepareGeology(in o, (x & ~(BRICK - 1)) + BRICK / 2, (z & ~(BRICK - 1)) + BRICK / 2, spec.Cliffs);
                     gDeep = bd.deepOffset; gCavern = bd.cavernOffset; gUnder = bd.underOffset; gLayer = bd.layerOffset;
                 }
+                if (spec.MatRules)
+                {
+                    // Task 182: an exposed coarse shell voxel (GroundRules SHELL EXPOSURE)
+                    // can lie this deep; at LOD 0 mrSub < 20 m, so this never fires there.
+                    int b = GroundRules.Band(in c, stepAtTop, depth);
+                    if (b <= 2 && y >= spec.CavernTopY) return GroundRules.NearMaterial(in c, stepAtTop, b);
+                }
                 // Ores (gameplay step 3, map v4): the host layer is the brick's own.
                 if (spec.Ores2)   // task 181: the rules; a latent ore becomes its host's twin
                 {
@@ -577,7 +584,7 @@ namespace TerrainGen
                     {
                         if (!OreRules.IsLatentOre(ore)) return ore;
                         byte host = spec.MatRules
-                            ? GroundRules.RockAt(in spec, in c, GroundRules.Band(in c, stepAtTop, depth, y), gy, gCavern, gUnder)
+                            ? GroundRules.RockAt(in spec, in c, gy, gDeep, gCavern, gUnder)
                             : LayerRock(in spec, RockA(in c), RockB(in c), x, gy, z, gDeep, gCavern, gUnder, gLayer, spec.RockMix);
                         byte tw = OreRules.Twin(ore, host);
                         return tw != 0 ? tw : host;
@@ -588,8 +595,8 @@ namespace TerrainGen
                     byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, gy, gDeep, gCavern, gUnder), x, y, z);
                     if (ore != 0) return ore;
                 }
-                if (spec.MatRules)   // task 180b: the band by the voxel's depth, the deep structure by the brick
-                    return GroundRules.RockAt(in spec, in c, GroundRules.Band(in c, stepAtTop, depth, y), gy, gCavern, gUnder);
+                if (spec.MatRules)   // task 180b / 182: the rock by the brick's height and offsets
+                    return GroundRules.RockAt(in spec, in c, gy, gDeep, gCavern, gUnder);
                 return LayerRock(in spec, RockA(in c), RockB(in c), x, gy, z, gDeep, gCavern, gUnder, gLayer, spec.RockMix);
             }
 
@@ -597,7 +604,7 @@ namespace TerrainGen
             if (spec.MatRules)
             {
                 // Task 180b: skin / soil / subsoil by depth below the generated top.
-                mrBand = GroundRules.Band(in c, stepAtTop, depth, y);
+                mrBand = GroundRules.Band(in c, stepAtTop, depth);
                 if (mrBand <= 2 && y >= spec.CavernTopY) return GroundRules.NearMaterial(in c, stepAtTop, mrBand);
             }
             else if (spec.CoverSlots)
@@ -626,7 +633,7 @@ namespace TerrainGen
                 {
                     if (!OreRules.IsLatentOre(ore)) return ore;
                     byte host = spec.MatRules
-                        ? GroundRules.RockAt(in spec, in c, mrBand, y, cd.cavernOffset, cd.underOffset)
+                        ? GroundRules.RockAt(in spec, in c, y, cd.deepOffset, cd.cavernOffset, cd.underOffset)
                         : LayerRock(in spec, RockA(in c), RockB(in c), x, y, z, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset, spec.RockMix);
                     byte tw = OreRules.Twin(ore, host);
                     return tw != 0 ? tw : host;
@@ -637,7 +644,7 @@ namespace TerrainGen
                 byte ore = Ores.At(in spec, cd.oreMul, c.biome, Ores.Layer(in spec, y, cd.deepOffset, cd.cavernOffset, cd.underOffset), x, y, z);
                 if (ore != 0) return ore;
             }
-            if (spec.MatRules) return GroundRules.RockAt(in spec, in c, mrBand, y, cd.cavernOffset, cd.underOffset);   // task 180b
+            if (spec.MatRules) return GroundRules.RockAt(in spec, in c, y, cd.deepOffset, cd.cavernOffset, cd.underOffset);   // task 180b / 182
             return LayerRock(in spec, RockA(in c), RockB(in c), x, y, z, cd.deepOffset, cd.cavernOffset, cd.underOffset, cd.layerOffset, spec.RockMix);
         }
 
@@ -737,6 +744,13 @@ namespace TerrainGen
                 lLo = cd.layerOffset - lr; lHi = cd.layerOffset + lr;
             }
             int gyLo = (yLo & ~(BRICK - 1)) + BRICK / 2, gyHi = (yHi & ~(BRICK - 1)) + BRICK / 2;
+            if (spec.MatRules)   // task 180b / 182: Material's brick zone (Band is monotone in depth)
+            {
+                int bLo = GroundRules.Band(in c, stepAtTop, hg - yHi), bHi = GroundRules.Band(in c, stepAtTop, hg - yLo);
+                if (bLo != bHi) return 255;
+                if (bLo <= 2 && yHi >= spec.CavernTopY)   // an exposed coarse shell voxel (task 182)
+                    return yLo >= spec.CavernTopY ? GroundRules.NearMaterial(in c, stepAtTop, bLo) : (byte)255;
+            }
             if (spec.Ores2)   // task 181: rule deposits (removals only past the chance: safe) and veins
             {
                 if (OreRules.VeinColumn(cd.oreCell, stepAtTop, hg - yHi, yHi)) return 255;
@@ -746,12 +760,7 @@ namespace TerrainGen
             else if (cd.oreMul != 0 && spec.mapVersion >= 4 &&
                 OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi))
                 return 255;
-            if (spec.MatRules)   // task 180b: Material's brick zone (band by depth, Band is monotone)
-            {
-                int bLo = GroundRules.Band(in c, stepAtTop, hg - yHi, yHi), bHi = GroundRules.Band(in c, stepAtTop, hg - yLo, yLo);
-                if (bLo != bHi) return 255;
-                return GroundRules.RockRange(in spec, in c, bLo, gyLo, gyHi, cLo, cHi, uLo, uHi);
-            }
+            if (spec.MatRules) return GroundRules.RockRange(in spec, in c, gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi);
             return LayerRockRange(in spec, RockA(in c), RockB(in c), gyLo, gyHi, dLo, dHi, cLo, cHi, uLo, uHi, lLo, lHi, x, z, yLo, yStep, count);
         }
 
@@ -767,7 +776,7 @@ namespace TerrainGen
             {
                 // Task 180b: Material's branch. Band is non-decreasing in depth, so equal
                 // ends prove every sample; the CavernTopY guard must hold for all or none.
-                int bLo = GroundRules.Band(in c, stepAtTop, depthLo, yHi), bHi = GroundRules.Band(in c, stepAtTop, depthHi, yLo);
+                int bLo = GroundRules.Band(in c, stepAtTop, depthLo), bHi = GroundRules.Band(in c, stepAtTop, depthHi);
                 if (bLo != bHi) return 255;
                 mrBand = bLo;
                 if (mrBand <= 2 && yHi >= spec.CavernTopY)
@@ -803,7 +812,7 @@ namespace TerrainGen
             else if (cd.oreMul != 0 && depthHi > Ores.MIN_DEPTH && spec.mapVersion >= 4 &&
                 OreMay(in spec, c.biome, cd.oreMul, x, z, yLo, yStep, count, yLo, yHi, d, d, cv, cv, u, u))
                 return 255;
-            if (spec.MatRules) return GroundRules.RockRange(in spec, in c, mrBand, yLo, yHi, cv, cv, u, u);   // task 180b
+            if (spec.MatRules) return GroundRules.RockRange(in spec, in c, yLo, yHi, d, d, cv, cv, u, u);   // task 180b / 182
             return LayerRockRange(in spec, RockA(in c), RockB(in c), yLo, yHi, d, d, cv, cv, u, u, l, l, x, z, yLo, yStep, count);
         }
 
